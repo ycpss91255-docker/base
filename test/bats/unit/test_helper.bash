@@ -232,6 +232,55 @@ yaml_job_lines() {
     yaml_job_text "${1}" "${2}" | strip_comments
 }
 
+# yaml_step_id_for <file> <job> <ere>
+#   The `id:` of the FIRST step inside <job> whose OWN body matches <ere> --
+#   the value an assertion needs when it wants to say "the consumer reads
+#   THAT step", rather than the weaker "some step output reaches the
+#   consumer". The id is derived from the file, so renaming the step in the
+#   workflow moves the assertion with it instead of leaving it pinned to a
+#   remembered string.
+#
+#   Reads the job's CODE lines, so a mention of <ere> in a comment paragraph
+#   cannot name a step.
+#
+#   Prints NOTHING for every input whose shape it does not recognise -- the
+#   matching step carries no `id:`, the step declares its `id:` only AFTER
+#   the matching line, the pattern matches nowhere in the job, the job does
+#   not exist, the match sits ahead of the job's first step. Empty is the
+#   only answer it gives when it cannot attribute the match, and callers
+#   guard with `[ -n ... ]`, so an unrecognised shape fails the assertion
+#   loud rather than passing it an id this function guessed.
+yaml_step_id_for() {
+    yaml_job_lines "${1}" "${2}" \
+        | _pat="${3}" awk -v _depth=-1 '
+            # A step BOUNDARY: a sequence dash at the shallowest indent the
+            # job has shown. Anything deeper is inside the current step -- a
+            # `with:` list, a `- ` in a block scalar -- and must not clear
+            # the id that step declared. Crossing a boundary forgets the id,
+            # so an id never travels into the step that follows it.
+            /^[[:space:]]*-[[:space:]]/ {
+                _ind = index($0, "-") - 1
+                if (_depth < 0 || _ind <= _depth) { _depth = _ind; _id = "" }
+            }
+            /^[[:space:]]*id:[[:space:]]/ { _id = $2 }
+            $0 ~ ENVIRON["_pat"] { print _id; exit }
+        '
+}
+
+# yaml_job_names <file>
+#   The top-level `jobs:` keys of <file>, one per line -- the workflow's own
+#   job roster, DERIVED from the file rather than remembered by the spec. A
+#   test whose subject is "every job that ..." has to compute its population
+#   here: a roster typed into the spec is green on exactly the job somebody
+#   adds tomorrow, which is the event the test exists to notice.
+yaml_job_names() {
+    awk '/^jobs:/{f=1; next}
+         f && /^[^[:space:]]/{f=0}
+         f && /^  [A-Za-z][A-Za-z0-9_.-]*:[[:space:]]*$/{
+             sub(/:[[:space:]]*$/, ""); sub(/^  /, ""); print
+         }' "${1}"
+}
+
 # yaml_top_text <file> <key>
 #   One TOP-level mapping of <file> (`on`, `env`, `permissions`,
 #   `concurrency`), VERBATIM -- from `<key>:` up to the next unindented key.

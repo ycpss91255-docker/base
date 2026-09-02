@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3332 tests**.
+Unit specs under `test/bats/unit/`: **3376 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -563,7 +563,7 @@ the build side). #801 adds the build side's `cache_backend` export into
 the manifest guard env and a REAL packages: write probe (a GHCR
 blob-upload scope check, not a bare login) for the registry backend.
 
-### test/bats/unit/self_test_yaml_spec.bats (106)
+### test/bats/unit/self_test_yaml_spec.bats (107)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks
 thirteen cumulative invariants:
@@ -1189,7 +1189,7 @@ runs).
 
 ### test/bats/unit/exec_sh_spec.bats (59)
 
-Unit tests for `exec.sh` argument parsing, the service-running
+Unit tests for `exec.sh` argument parsing, the container-running
 precheck, and i18n. Sandbox tree mirrors build_sh_spec.bats;
 `docker ps` reads from a controllable stub file so tests can toggle
 "container running" state without a real docker daemon. `.env` is
@@ -1314,8 +1314,9 @@ Parity with the removed `makefile_user_spec`: sandboxes a repo with the
 entry + module symlink chain at root + stub `script/*.sh` recorders, and
 RUNS `just <ns> <verb>` to assert 1:1 forwarding with `{{args}}`
 passthrough. Skips when `just` is not yet in the test-tools image
-(pre-release GHCR pull -- see template_spec for the `apk add ... just`
-guard + the release smoke check).
+(pre-release GHCR pull -- see template_spec for the pinned-fetch guard +
+the release smoke check, which compares the version string rather than the
+exit status).
 
 | Test | Description |
 |------|-------------|
@@ -1976,7 +1977,7 @@ builds the env block only for the knobs the conf sets.
 | `exec.sh --dry-run skips precheck and prints compose command` | dry-run e2e |
 | `dist/script/docker/lib/i18n.sh exists` | - |
 | `Dockerfile.test-tools includes bats-mock` | bats-mock available in test image |
-| `Dockerfile.test-tools installs just (justfile entry-point execution in CI)` | - |
+| `Dockerfile.test-tools installs just from the PINNED release (#948)` | - |
 | `Dockerfile.test-tools installs the docker compose plugin (docker-cli-compose)` | The fail-closed half of compose_host_identity_spec's runtime `docker compose version` skip |
 | `Dockerfile.test-tools COPYs shellcheck + hadolint into the final image` | The fail-closed half of deploy_spec's runtime `command -v shellcheck` skip |
 | `Dockerfile.test-tools source-builds kcov in a builder stage (#686)` | kcov compiled from source (not in alpine repos) |
@@ -2442,7 +2443,7 @@ the resolved subtree root means "this is the base template source itself".
 | `_assert_not_template_source: refuses when the subtree root carries .git (base self)` | `.git` present -> non-zero + actionable error |
 | `_assert_not_template_source: passes when the subtree root has no .git (vendored subtree)` | real subtree -> no-op passthrough |
 
-### test/bats/unit/init_spec.bats (62)
+### test/bats/unit/init_spec.bats (66)
 
 Unit coverage for `init.sh` helpers that previous rounds exercised only
 through the Level-1 integration test. Complements
@@ -2496,9 +2497,13 @@ are hard to trigger from a real `bash template/init.sh` invocation
 | `_preflight_just: warns and exits 0 when just is absent (#607)` | Missing runner -> non-fatal WARN |
 | `_preflight_just: emits the init_just_missing event under LOG_FORMAT=json (#607)` | Structured event wired through |
 | `_preflight_just: install hint points at the documented methods (#607)` | Warning carries install pointer |
+| `_preflight_just: the install hint quotes the pin and calls package managers a fallback (#948)` | - |
+| `_just_install_hint: degrades to a placeholder when the pin cannot be read (#948)` | - |
 | `_preflight_just: silent and exits 0 when just is present (#607)` | Runner present -> no warning |
 | `_bootstrap_just: no-op when just is already on PATH (#607)` | Opt-in bootstrap skips when installed |
 | `_bootstrap_just: runs the official installer into ~/.local/bin when absent (#607)` | Opt-in installer pipeline to ~/.local/bin |
+| `_bootstrap_just: installs the pinned version, not whatever is latest (#948)` | - |
+| `_bootstrap_just: refuses to install anything when the pin cannot be resolved (#948)` | - |
 | `_bootstrap_just: aborts with a clear error when the installer pipeline fails (#692)` | #692 installer-failure _error path |
 | `_call_setup: warns but returns 0 when setup.sh exits non-zero (#692)` | #692 warn-on-failure degrade |
 | `_call_setup: skips with a notice when setup.sh is absent (#692)` | #692 skip-when-absent branch |
@@ -3664,7 +3669,7 @@ three tests assert the repo's own published figure, not the generator.
 | `action-ref-agreement: is a member of the lint phase's tool table (#949)` | A lint nobody runs is a comment |
 | `action-ref-agreement: has a lint-static CI join (#949)` | Named plain-runner matrix entry, no docker |
 | `action-ref-agreement: its failure event id is registered (#949)` | An unregistered id is an anonymous exit |
-### test/bats/unit/code_lines_spec.bats (29)
+### test/bats/unit/code_lines_spec.bats (35)
 
 The comment-stripped file views in `test/bats/unit/test_helper.bash`
 (`strip_comments` / `only_comments` / `code_lines` / `code_grep` /
@@ -3724,6 +3729,12 @@ must still arrive as 1.
 | `yaml_top_lines: returns a top-level block's code without the prose between keys` | `on` / `env` / `permissions` / `concurrency`; a comment paragraph between two top-level keys is not indented out by the terminator |
 | `yaml_top_lines: stops at the next top-level key` | Block scoping for the top-level mappings |
 | `yaml_top_text: keeps the block's comments` | The verbatim counterpart, for symmetry with `yaml_job_text` |
+| `yaml_step_id_for: names the step whose own body matches` | - |
+| `yaml_step_id_for: an id-less matching step yields nothing, it does not borrow the id of an earlier step` | - |
+| `yaml_step_id_for: a nested list inside a step is not a step boundary` | - |
+| `yaml_step_id_for: a match in a comment cannot name a step` | - |
+| `yaml_step_id_for: a pattern that matches nowhere in the job yields nothing` | - |
+| `yaml_step_id_for: does not reach into another job for its match` | - |
 ### test/bats/unit/spec_subject_guard_spec.bats (11)
 
 `assert_spec_subject` (test/bats/unit/test_helper.bash), the fail-closed
@@ -4073,3 +4084,46 @@ rather than an assurance.
 | `generated-workflow-actions: fails when this repo never uses the generated action (#950)` | No dependabot PR for the generated ref to inherit -- the bare form of the defect |
 | `generated-workflow-actions: refuses a tree it found no generated ref in (#950)` | A renamed generator or a dead matcher must not read as lockstep |
 | `generated-workflow-actions: the real repo is in lockstep (#950)` | Drives the live tree, so the fixtures cannot drift away from what ships |
+### test/bats/unit/just_provenance_lint_spec.bats (24)
+
+| Test | Description |
+|------|-------------|
+| `just provenance: a tree whose every site names the pin is clean (#948)` | - |
+| `just provenance: setup-just with no just-version input is a finding (#948)` | - |
+| `just provenance: the just.systems installer with no --tag is a finding (#948)` | - |
+| `just provenance: a pinned release URL that drops the version arg is a finding (#948)` | - |
+| `just provenance: a package-manager install of just needs an advisory marker (#948)` | - |
+| `just provenance: a package-manager install inside a justified advisory region is allowed (#948)` | - |
+| `just provenance: an advisory region with no stated reason is a finding (#948)` | - |
+| `just provenance: an unterminated advisory region is a finding (#948)` | - |
+| `just provenance: an unmatched advisory-end is a finding (#948)` | - |
+| `just provenance: a step cannot borrow the NEXT step's just-version input (#948)` | - |
+| `just provenance: the installer cannot borrow a --tag from a later command (#948)` | - |
+| `just provenance: the installer cannot borrow a --tag from a command chained onto its own line (#948)` | - |
+| `just provenance: a --tag after a ';' on a continued line is not the installer's either (#948)` | - |
+| `just provenance: a second acquisition on one logical line is its own site (#948)` | - |
+| `just provenance: the hidden second acquisition is found in either order (#948)` | - |
+| `just provenance: a pinned release URL still counts when the version arg is on the same logical line (#948)` | - |
+| `just provenance: an advisory region does not mute a mechanism that CAN be pinned (#948)` | - |
+| `just provenance: a pointer to the project's homepage is not an acquisition site (#948)` | - |
+| `just provenance: a missing scan root fails rather than passing vacuously (#948)` | - |
+| `just provenance: an empty scan root fails rather than passing vacuously (#948)` | - |
+| `just provenance: a tree with no provenance site at all fails vacuously-closed (#948)` | - |
+| `just provenance: a tree where nothing is pinned fails vacuously-closed (#948)` | - |
+| `just provenance: pin evidence on a backslash continuation still counts (#948)` | - |
+| `just provenance: the live tree passes its own lint (#948)` | - |
+
+### test/bats/unit/just_version_spec.bats (9)
+
+| Test | Description |
+|------|-------------|
+| `just version: declared exactly once, as a semver ARG in the tooling Dockerfile (#948)` | - |
+| `just version: the tooling image fetches the pinned release, never a bare apk add (#948)` | - |
+| `just-version.sh: prints the declared pin (#948)` | - |
+| `just-version.sh: reads its own tree, not the caller's cwd (#948)` | - |
+| `just-version.sh: fails loud when the declaration file is gone (#948)` | - |
+| `just-version.sh: fails loud when the declaration is duplicated (#948)` | - |
+| `just-version.sh: fails loud when the declaration is empty (#948)` | - |
+| `self-test.yaml: setup-just is pinned from the accessor, not left to install latest (#948)` | - |
+| `release-test-tools.yaml: the just smoke check asserts the version, not exit 0 (#948)` | - |
+

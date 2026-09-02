@@ -50,26 +50,28 @@ just test   # ShellCheck + Bats + Kcov
 just                       # 列出所有 recipe
 ```
 
-<!-- sync: prerequisites 71356c1216b6 f87cc1db3c62 -->
+<!-- sync: prerequisites 6af9b726b732 c7a487d342cb -->
 ## 必要条件
 
 容器操作透过 [`just`](https://github.com/casey/just)（command runner）搭配
 Docker 执行。使用 `just <verb>` 入口前，请先在 host 安装两者：
 
 - **Docker** + Docker Compose v2（`docker compose`）。
-- **just** -- 任何近期版本皆可（recipe 仅用到 variadic 参数，早期版本即支持）。
-  通过包管理器或官方安装程序安装：
+- **just** -- 本 repo 只钉住一个版本。test-tools image、CI 与
+  `--bootstrap-just` 安装程序都使用该版本，因此同一个 recipe 在三处行为一致；
+  用 `./.base/dist/script/base/just-version.sh` 打印版本（在本 repo 内为
+  `./dist/script/base/just-version.sh`）。请用可指定版本的官方预编译 binary
+  安装程序安装该版本：
 
   ```bash
-  apt install just         # Debian 13+ / Ubuntu 24.04+
-  brew install just        # macOS / Linuxbrew
-  cargo install just       # 从 crates.io
-  # 或官方预编译 binary 安装程序：
+  pin="$(./.base/dist/script/base/just-version.sh)"
   curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh \
-      | bash -s -- --to ~/.local/bin
+      | bash -s -- --to ~/.local/bin --tag "${pin}"
   ```
 
-  完整方式见[官方安装指南](https://github.com/casey/just#installation)。若
+  host 包管理器（`apt install just`、`brew install just`、
+  `cargo install just`）是 **fallback 而非等价选项**：它安装的是各自 registry
+  收录的版本，可能落后钉住的版本许多个 minor。完整方式见[官方安装指南](https://github.com/casey/just#installation)。若
   `just` 不可用，每个 recipe 都有 raw fallback（`./script/<verb>.sh`、
   `./.base/dist/script/base/upgrade.sh`）-- 见[快速开始](#快速开始)。
 

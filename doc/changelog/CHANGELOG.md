@@ -127,6 +127,17 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 - **the changelog lint now catches an entry that was edited and not re-wrapped (refs #927)** -- a single word left alone on a continuation line with more of its paragraph on the next line. The length measure collapses whitespace on purpose and markdown collapses it again at render time, so nothing else could see it. A short final line, a table row, a fenced line and an HTML comment are left alone. Affects anyone writing an `[Unreleased]` entry.
 
 ### Fixed
+- **`just` had four provenance paths and no shared version (closes #948)** --
+  the tooling image `apk add`ed alpine's package, CI's `setup-just` took
+  whatever released that day, `--bootstrap-just` fetched the latest and the
+  install hint offered apt as an equal: 37 minors across the only control
+  surface this repo has. `ARG JUST_VERSION` in
+  `dockerfile/Dockerfile.test-tools` is the one declaration; CI, the bootstrap,
+  the hint and the release smoke check READ it. A `just-provenance` lint
+  derives its sites from the tree, so a fifth path cannot land unpinned, and a
+  CI job pulling `test-tools:main` rebuilds when that image's `just` disagrees
+  with the pin rather than reddening an unrelated PR.
+
 - **the least-privilege guards now query a YAML parser instead of matching
   indentation (refs #957)** -- four legal workflow shapes made a job or a
   grant INVISIBLE to them, which is the fail-open direction for a scan whose

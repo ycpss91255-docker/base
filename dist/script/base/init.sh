@@ -50,6 +50,11 @@ readonly TEMPLATE_REL
 
 # shellcheck source=dist/script/base/upstream.sh
 source "${SCRIPT_DIR}/upstream.sh"
+# The one definition of the pinned `just` runner version, shared with the
+# tooling image and the CI e2e job. Sourced (not executed) so the hint and
+# the bootstrap below read the same value from one place.
+# shellcheck source=dist/script/base/just-version.sh
+source "${SCRIPT_DIR}/just-version.sh"
 # shellcheck disable=SC1091
 source "${TEMPLATE_DIR}/dist/script/docker/lib/gitignore.sh"
 # shellcheck disable=SC1091
@@ -1134,16 +1139,40 @@ _just_install_hint() {
   # Single source of truth for the install pointer, mirroring README
   # "Prerequisites". Terse on purpose: the README carries the full method
   # list, this is just enough to unblock the user at the moment it matters.
+  #
+  # It used to print apt / brew / cargo / the installer as a flat menu of
+  # equivalent options. They are not equivalent: measured 2026-08-28,
+  # `apt install just` on Ubuntu 24.04 gave 1.21.0 while the installer
+  # fetched 1.52.0 and CI ran 1.58.0. So the hint now names the version
+  # this repo PINS and points first at the one method that can install
+  # exactly it.
+  #
+  # A hint must never abort init, so an unresolvable pin degrades to a
+  # placeholder rather than propagating a failure out of a warning path.
+  local _pin
+  _pin="$(_just_pinned_version 2>/dev/null)" || _pin="<unresolved>"
+  cat <<EOF
+  just is NOT auto-installed by init.sh. This repo PINS just ${_pin} --
+  the test-tools image, CI and the bootstrap below all run that exact
+  version, so a recipe behaves the same everywhere. Install it with the
+  official prebuilt-binary installer, which takes the version:
+    curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to ~/.local/bin --tag ${_pin}
+    # or let init bootstrap it for you (opt-in): just base init --bootstrap-just
+EOF
+  # just-provenance: advisory-begin -- a host package manager installs
+  #   whatever version its own registry carries and cannot be pointed at
+  #   the pin, so these three are printed as a fallback and the text says
+  #   so. Listing them as pinnable sites would be a lie; muting them
+  #   silently is how they came to read as equivalents in the first place.
   cat <<'EOF'
-  just is NOT auto-installed by init.sh. Install it on the host, e.g.:
+  A host package manager is a FALLBACK, not an equivalent -- it installs
+  whatever version it carries, which may be many minors behind the pin:
     apt install just      # Debian 13+ / Ubuntu 24.04+
     brew install just     # macOS / Linuxbrew
     cargo install just    # from crates.io
-    # or the official prebuilt-binary installer:
-    curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to ~/.local/bin
-    # or let init bootstrap it for you (opt-in): just base init --bootstrap-just
   See README "Prerequisites" or https://github.com/casey/just#installation.
 EOF
+  # just-provenance: advisory-end
 }
 
 _preflight_just() {
@@ -1169,12 +1198,21 @@ _bootstrap_just() {
     _log "just is already installed ($(command -v just)); nothing to bootstrap"
     return 0
   fi
+  # --tag, not "whatever is latest". Without it the installer fetches the
+  # newest release of the day, which is how this path came to disagree
+  # with the tooling image and with CI; and unlike the hint above, this
+  # one INSTALLS, so an unresolvable pin is a hard error rather than a
+  # placeholder.
+  local _pin
+  if ! _pin="$(_just_pinned_version)"; then
+    _error "cannot resolve the pinned just version from ${TEMPLATE_DIR}/${_JUST_VERSION_DECL_REL} -- refusing to install an unpinned runner"
+  fi
   local _bindir="${HOME}/.local/bin"
   _log_warn init init_bootstrap_just \
-    "display=Bootstrapping just via the official installer into ${_bindir} (opt-in)."
+    "display=Bootstrapping just ${_pin} via the official installer into ${_bindir} (opt-in)."
   mkdir -p "${_bindir}"
   if ! curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh \
-      | bash -s -- --to "${_bindir}"; then
+      | bash -s -- --to "${_bindir}" --tag "${_pin}"; then
     _error "just bootstrap failed -- install manually (see README Prerequisites)"
   fi
   _log "Installed just to ${_bindir}"
@@ -1248,9 +1286,11 @@ Options:
                      audit reads this instead of keeping its own copy.
   --bootstrap-just   Opt-in: install the `just` runner via the official
                      prebuilt-binary installer into ~/.local/bin before
-                     init proceeds. Without this flag, a missing `just`
-                     only triggers a non-fatal warning (never auto-
-                     installed). No-op when `just` is already on PATH.
+                     init proceeds, at the version this repo pins (the
+                     same one the test-tools image and CI run). Without
+                     this flag, a missing `just` only triggers a non-fatal
+                     warning (never auto-installed). No-op when `just` is
+                     already on PATH.
 
 By default init prints a one-line warning when `just` is not on PATH
 (`just` is the user-facing entry point, ADR-00000005); init still

@@ -54,21 +54,25 @@ command runner) layered on Docker. Install both on the host before using the
 `just <verb>` entry point:
 
 - **Docker** + Docker Compose v2 (`docker compose`).
-- **just** -- any recent release works (the recipes use only variadic
-  parameters, supported since early versions). Install via a package manager
-  or the official installer:
+- **just** -- this repo PINS one version. The test-tools image, CI and the
+  `--bootstrap-just` installer all run that exact version, so a recipe behaves
+  the same in all three places; print it with
+  `./.base/dist/script/base/just-version.sh` (in this repo,
+  `./dist/script/base/just-version.sh`). Install exactly that version with the
+  official prebuilt-binary installer, which takes a version:
 
   ```bash
-  apt install just         # Debian 13+ / Ubuntu 24.04+
-  brew install just        # macOS / Linuxbrew
-  cargo install just       # from crates.io
-  # or the official prebuilt-binary installer:
+  pin="$(./.base/dist/script/base/just-version.sh)"
   curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh \
-      | bash -s -- --to ~/.local/bin
+      | bash -s -- --to ~/.local/bin --tag "${pin}"
   ```
 
-  See the [official install guide](https://github.com/casey/just#installation)
-  for every method. If `just` is unavailable each recipe has a raw fallback
+  A host package manager (`apt install just`, `brew install just`,
+  `cargo install just`) is a **fallback, not an equivalent**: it installs
+  whatever version its own registry carries, which may be many minors behind
+  the pin. See the [official install
+  guide](https://github.com/casey/just#installation) for every method. If
+  `just` is unavailable each recipe has a raw fallback
   (`./script/<verb>.sh`, `./.base/dist/script/base/upgrade.sh`) -- see
   [Quick Start](#quick-start).
 

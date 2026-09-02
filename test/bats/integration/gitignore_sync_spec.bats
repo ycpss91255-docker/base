@@ -230,6 +230,12 @@ _seed_upgrade_fixture() {
   # Both source their sibling upstream.sh at load (the one definition of
   # the upstream slug / clone URL), so the snapshot ships it too.
   cp /source/dist/script/base/upstream.sh "${TMPL_WORK}/dist/script/base/upstream.sh"
+  # init.sh also sources its sibling just-version.sh, the one declaration
+  # of the pinned `just` runner version; it reads ARG JUST_VERSION out of
+  # the snapshot's own dockerfile/Dockerfile.test-tools, so ship both.
+  cp /source/dist/script/base/just-version.sh "${TMPL_WORK}/dist/script/base/just-version.sh"
+  mkdir -p "${TMPL_WORK}/dockerfile"
+  cp /source/dockerfile/Dockerfile.test-tools "${TMPL_WORK}/dockerfile/Dockerfile.test-tools"
   cp /source/dist/script/docker/lib/gitignore.sh "${TMPL_WORK}/dist/script/docker/lib/gitignore.sh"
   # init.sh / upgrade.sh source _lib.sh on load (route _log / _error
   # through _log_info / _log_err). _lib.sh sources i18n.sh + lib/*.sh
