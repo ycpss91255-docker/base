@@ -293,7 +293,14 @@ _dfm_needs_dl3006() {
 _migrate_hadolint_apply() {
   local _file="$1"
   # DL3007: pin the helper-stage :latest tags.
-  sed -i -E 's|^FROM bats/bats:latest|FROM bats/bats:1.11.0|; s|^FROM alpine:latest|FROM alpine:3.21|' "${_file}"
+  # The alpine series here is the one base itself builds on -- see
+  # ARG ALPINE_VERSION in dockerfile/Dockerfile.test-tools, whose recorded
+  # end-of-life fails base's own suite 180 days out. Keeping the two equal
+  # is asserted by dockerfile_migrate_spec.bats, so this literal cannot
+  # quietly become the older of two dates: it wrote an end-of-life series
+  # into every consumer Dockerfile it healed, during an upgrade, which is
+  # the moment nobody reads the diff.
+  sed -i -E 's|^FROM bats/bats:latest|FROM bats/bats:1.11.0|; s|^FROM alpine:latest|FROM alpine:3.24|' "${_file}"
   # DL3046: useradd -l (idempotent — only adds when not already present).
   sed -i -E 's|useradd[[:space:]]+-u[[:space:]]|useradd -l -u |' "${_file}"
   sed -i -E 's|useradd -l[[:space:]]+-l |useradd -l |' "${_file}"
