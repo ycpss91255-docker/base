@@ -97,6 +97,50 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 - **the changelog lint now catches an entry that was edited and not re-wrapped (refs #927)** -- a single word left alone on a continuation line with more of its paragraph on the next line. The length measure collapses whitespace on purpose and markdown collapses it again at render time, so nothing else could see it. A short final line, a table row, a fenced line and an HTML comment are left alone. Affects anyone writing an `[Unreleased]` entry.
 
 ### Fixed
+- **a `docker stop` could reach a service through its pid alone and kill it
+  instead of stopping it (refs #965)** -- `setsid cmd &` returns at the fork,
+  before the child has called setsid(), so the supervisor sampled the
+  process group too early and a lost race left group-signalling disabled for
+  that service's whole life. A service whose shell sits in a foreground
+  command then never runs its SIGTERM trap, the bounded grace expires, and a
+  service that handles SIGTERM correctly is SIGKILLed. Measured on a loaded
+  machine: 3 of 40 starts fell back. The supervisor now waits, briefly and
+  boundedly, for the service's own group to appear.
+- **`just test` no longer forgets residue it has already reported (refs
+  #965)** -- the guard compares the checkout either side of the run so an
+  edit in flight cancels, and that laundered LAST run's residue into this
+  run's "in flight": run 1 failed naming the path, run 2 with nothing fixed
+  was green. It now remembers what it named until the path leaves the
+  checkout, reports what THIS run wrote apart from what an earlier one left,
+  and states where it can be believed past: git's whole ignore stack,
+  `.git/`, a permission change git does not track, and what
+  `TEST_RESIDUE_GUARD=0` gives up -- it drops the record for good.
+- **a spec that left an untracked workflow in the checkout after every gate
+  run (refs #965, refs #927)** -- the ADR-claims R2 case wrote its fixture
+  workflow into `.github/workflows/` of the live tree and removed only its
+  scratch dir, so each run seeded the one directory the workflow specs and
+  the self-hosted-runner lint all scan. Same defect class as the two racing
+  specs, from the other side: not a spec that reads a tree it does not own,
+  but one that writes it and makes every other spec's read racy. The fixture
+  is built under a scratch root now.
+- **two specs that raced their own suite, a watchdog defect one was hiding,
+  and the invariant that keeps the rest honest (closes #965)** -- the SIGTERM
+  case signalled after a fixed `sleep 1`, so under load a correct watchdog
+  read NO_SIGNAL; the README no-op case let the live tree supply half its
+  diff. Waits are event-driven, the baseline is accepted only when two passes
+  agree, and `just test` now snapshots the checkout either side of the bats
+  phase and names any path the suite changed -- an in-flight edit cancels, so
+  a dirty tree still runs. Runtime-visible: `_watchdog_stop_service` sent SIGKILL only while the CHILD
+  was alive, leaking the orphaned subtree `setsid` exists to prevent.
+- **a failing watchdog case now costs its own ceiling, not its fixture's
+  lifetime (refs #965)** -- every case in `watchdog_supervision_spec.bats`
+  starts its processes through one harness that hands them a log file instead
+  of the case's output descriptor and ends its ceiling in SIGKILL. Without the
+  first a setsid'd service held the case open 45s past a 30s ceiling; without
+  the second the product's own SIGTERM handler blocked in an unbounded `wait`
+  for 300s past a stated 45. A bound guard in teardown asserts it for every
+  case in the file. Affects anyone reading a red gate: a failed test no longer
+  looks like a hung suite.
 - **workflow and template structural specs now assert against a file's CODE,
   not its comments (refs #954)** -- this repo's comments name in prose exactly
   what its specs pin, so a whole-file grep was satisfied by the explanation
