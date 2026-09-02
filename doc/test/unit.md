@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3238 tests**.
+Unit specs under `test/bats/unit/`: **3240 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3670,7 +3670,7 @@ got wrong.
 | `yaml_top_lines: returns a top-level block's code without the prose between keys` | `on` / `env` / `permissions` / `concurrency`; a comment paragraph between two top-level keys is not indented out by the terminator |
 | `yaml_top_lines: stops at the next top-level key` | Block scoping for the top-level mappings |
 | `yaml_top_text: keeps the block's comments` | The verbatim counterpart, for symmetry with `yaml_job_text` |
-### test/bats/unit/spec_subject_guard_spec.bats (10)
+### test/bats/unit/spec_subject_guard_spec.bats (12)
 
 `assert_spec_subject` (test/bats/unit/test_helper.bash), the fail-closed
 opening 54 guards across this suite now share, plus the repo-wide
@@ -3692,7 +3692,9 @@ inside the test that produces it, each case writes a one-test spec into
 | `assert_spec_subject_dir: a missing directory FAILS the test, it does not skip it` | A tracked tree that vanished is a defect, never a context |
 | `assert_spec_subject_dir: a FILE at the path is not the directory it asked for` | Why the guard is -d and not a widened -e |
 | `no spec opens with a fail-open '\|\| skip' existence guard` | The repo-wide invariant, so the idiom cannot creep back in |
+| `a scan that examined nothing answers 2, not 1` | Pinning "scanned, matched nothing" means something only while "could not scan" is reachable |
 | `the fail-open guard scan sees each spelling of the check it claims to cover` | The invariant must be green because no guard exists, not because its pattern is blind |
+| `the fail-open guard scan is an over-approximation, not a closed set` | A sample of what it misses, so the disclosure is never wider than the pattern |
 | `the changelog's count of tests behind this guard is the measured one` | A figure nobody can reproduce is worse than no figure |
 
 ### test/bats/unit/spec_source_isolation_spec.bats (4)
