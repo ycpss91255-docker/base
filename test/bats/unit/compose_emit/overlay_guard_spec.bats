@@ -367,13 +367,34 @@ CONF
       "${_d} states the container_name invariant in a statement that does not name the deploy bundle it does not hold for (printed above)"
   done
 
-  # The two English statements carry the exemption's PREDICATE as well: the
+  # The English documents carry the exemption's PREDICATE as well: the
   # deploy bundle still BAKES a name. Naming the emitter is not the same
-  # claim as saying what it does, and the translations phrase the predicate
-  # in their own language (the readme-sync lint is what keeps those in step
-  # with the English section they were translated from).
+  # claim as saying what it does.
+  #
+  # This population is DERIVED from the roster, not listed. A predecessor
+  # asked it of a hand-kept pair -- README.md and the ADR -- while its own
+  # floor three lines above named THREE English documents, so CONTEXT.md
+  # got the token check alone, which the paragraph above already records as
+  # insufficient: rewriting CONTEXT.md's exemption into prose that names
+  # the recipe and then denies the exemption ("`_generate_resolved_compose`
+  # does not need a `container_name:` either") left the guard at 7 ok / 0
+  # not ok. The roster minus doc/readme/ is the English set, so a new
+  # English document is subject to this the day it states the invariant
+  # rather than the day someone remembers to add it here.
+  #
+  # doc/readme/ is subtracted because its files are translations: they
+  # phrase the predicate in their own language, and the readme-sync lint is
+  # what keeps them in step with the English section they came from.
+  local -a _english=()
+  for _d in "${_docs[@]}"; do
+    [[ "${_d}" == /source/doc/readme/* ]] && continue
+    _english+=("${_d}")
+  done
+  (( ${#_english[@]} > 0 )) || fail \
+    "the roster holds no English statement of the invariant: the predicate below would be asserted over nothing"
+
   local _s
-  for _s in "${_readme}" "${_adr}"; do
+  for _s in "${_english[@]}"; do
     grep -qE -- '(does|still) bakes? (a |one)' "${_s}" || fail \
       "${_s} names the deploy bundle but no longer says it bakes a container_name: the exemption is not stated, only alluded to"
   done

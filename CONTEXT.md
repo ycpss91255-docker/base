@@ -169,8 +169,8 @@ because detection already falls back to the OS user) into
 stack has: the DEV stack emits no `container_name:` and the field-deploy
 bundle (`just docker setup deploy`) is the one exemption, so compose
 derives `<project>-<service>-<n>` (ADR-00000022 §3, 2026-08-26 amendment).
-That bundle -- `_generate_resolved_compose` -- still bakes a
-`container_name:`, deliberately: one stack per device, never co-located.
+That bundle -- `_generate_resolved_compose` -- still bakes a `container_name:`,
+deliberately: one stack per device, never co-located.
 Not the image tag, which is a separate axis.
 _Avoid_: instance name, stack name, container prefix.
 
