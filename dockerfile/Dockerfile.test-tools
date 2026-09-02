@@ -15,6 +15,15 @@ ARG BATS_VERSION=1.13.0
 # the series goes end-of-life. Nothing about a build goes red on that day;
 # the image simply stops rebuilding onto anything maintained, and the ~20
 # apk packages the final stage installs inherit an unsupported base.
+#
+# So the expiry is written down here and asserted by
+# test/bats/unit/alpine_eol_spec.bats, which fails the suite 180 days
+# before the date -- the next expiry arrives as a red build with two
+# quarters of lead time instead of as an audit finding. Bump the marker
+# and the pin together; the spec fails if they disagree.
+# Date source: https://endoflife.date/alpine, cross-checked against
+# https://alpinelinux.org/releases.json.
+# alpine-eol: 3.24 2028-06-01
 ARG ALPINE_VERSION=3.24
 ARG KCOV_VERSION=v43
 
