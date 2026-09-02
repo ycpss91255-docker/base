@@ -102,13 +102,19 @@
 # them here.
 #
 # The separator scan reads the statement's CODE, not its raw text:
-# quoted spans are blanked and a trailing comment is dropped first, so
-# `! grep -q 'a;b' f` and `! grep -q A f  # see also; below` are not read
-# as two commands. The quote tracker is three states plus a backslash
-# escape -- it is not a second bash parser and does not try to be one (no
-# expansion, no nesting, no heredoc). An unbalanced quote blanks the rest
-# of the line, which can only HIDE a separator: the safe direction, since
-# the only other answer is an allow region written by hand.
+# quoted spans are blanked, an unquoted `( ... )` is blanked with them,
+# and a trailing comment is dropped first, so `! grep -q 'a;b' f`,
+# `! grep -q $(foo; bar) f` and `! grep -q A f  # see also; below` are
+# not read as two commands. Both rules ask about the statement's OWN
+# top-level list: a separator inside a subshell or a command substitution
+# is an argument's, and reading it as the statement's exempted an inert
+# `! grep -q $(foo || bar) f` from both rules while reporting a
+# `$(foo; bar)` that was never a violation. The tracker is three quote
+# states, a backslash escape and one paren depth -- it is not a second
+# bash parser and does not try to be one (no expansion, no heredoc). An
+# unbalanced quote or `(` blanks the rest of the line, which can only
+# HIDE a separator: the safe direction, since the only other answer is an
+# allow region written by hand.
 #
 # What is NOT:
 #   - the body's last statement (across a `\` continuation, and with any
@@ -201,14 +207,24 @@ readonly _ERREXIT_BANG_ALLOW_END='errexit-bang-lint: allow-end'
 #   or as prose is not read here as a second command.
 #
 #   Three states (unquoted / single / double) plus a backslash escape
-#   outside single quotes, and nothing else -- expansions, nesting and
-#   heredocs are not modelled, exactly as the header says. A `#` ends the
-#   line only when it starts a word (preceded by whitespace or nothing),
-#   which is when the shell starts a comment. Blanking rather than
-#   deleting keeps the column count, so a reported line still lines up
-#   with the file.
+#   outside single quotes, and nothing else -- expansions and heredocs are
+#   not modelled, exactly as the header says. A `#` ends the line only
+#   when it starts a word (preceded by whitespace or nothing), which is
+#   when the shell starts a comment. Blanking rather than deleting keeps
+#   the column count, so a reported line still lines up with the file.
+#
+#   One nesting IS tracked: an unquoted `( ... )`. Everything inside it is
+#   blanked, because a separator there belongs to a SUBSHELL or a command
+#   substitution -- an argument to this statement -- and not to the
+#   statement's own top-level list. `! grep -q $(foo || bar) f` hands its
+#   verdict to nobody, and `! grep -q $(foo; bar) f` starts no second
+#   command; reading either separator as this statement's dropped the
+#   first out of both rules and reported the second as a violation it is
+#   not. Depth is per PHYSICAL line and clamps at zero: an unbalanced `(`
+#   blanks the rest of the line and a stray `)` is dropped, the same safe
+#   direction as an unbalanced quote (it can only HIDE a separator).
 _errexit_bang_code_part() {
-  local _s="${1}" _out='' _i _ch _q='' _prev=' '
+  local _s="${1}" _out='' _i _ch _q='' _prev=' ' _depth=0
   for (( _i = 0; _i < ${#_s}; _i++ )); do
     _ch="${_s:_i:1}"
     if [[ "${_q}" != "'" && "${_ch}" == $'\\' ]]; then
@@ -232,10 +248,29 @@ _errexit_bang_code_part() {
         _prev=' '
         continue
         ;;
+      '(')
+        _depth=$(( _depth + 1 ))
+        _out+=' '
+        _prev='('
+        continue
+        ;;
+      ')')
+        [[ "${_depth}" -gt 0 ]] && _depth=$(( _depth - 1 ))
+        _out+=' '
+        _prev=')'
+        continue
+        ;;
       '#')
-        [[ "${_prev}" == ' ' || "${_prev}" == $'\t' ]] && break
+        [[ "${_depth}" -eq 0 && ( "${_prev}" == ' ' || "${_prev}" == $'\t' ) ]] && break
         ;;
     esac
+    if [[ "${_depth}" -gt 0 ]]; then
+      # Inside `( ... )`: an argument's own text, never this statement's
+      # separator.
+      _out+=' '
+      _prev=' '
+      continue
+    fi
     _out+="${_ch}"
     _prev="${_ch}"
   done
