@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3324 tests**.
+Unit specs under `test/bats/unit/`: **3326 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -4042,7 +4042,7 @@ rather than an assurance.
 | `_residue_guard_available: answers no outside a git checkout (#965)` | A released tarball still runs the suite; absence costs nothing |
 | `_residue_guard_available: is switched off by TEST_RESIDUE_GUARD=0 (#965)` | The escape hatch for an edit made WHILE the suite runs, asserted in both directions |
 | `the compose dispatch is what runs the guard, not a caller that could forget (#965)` | Wired into the one host-side point every bats dispatch passes through |
-### test/bats/unit/generated_workflow_actions_lint_spec.bats (19)
+### test/bats/unit/generated_workflow_actions_lint_spec.bats (21)
 
 | Test | Description |
 |------|-------------|
@@ -4057,6 +4057,8 @@ rather than an assurance.
 | `generated-workflow-actions: a quoted ref to an action this repo never uses fails (#950)` | - |
 | `generated-workflow-actions: one unreadable ref among readable ones still fails (#950)` | - |
 | `generated-workflow-actions: a uses: value it cannot resolve fails by name (#950)` | - |
+| `generated-workflow-actions: an unreadable value is reported as unreadable, not as an unused action (#950)` | - |
+| `generated-workflow-actions: an action named with no ref is not called unused (#950)` | - |
 | `generated-workflow-actions: a local ./ callee is skipped by name, not by accident (#950)` | - |
 | `generated-workflow-actions: a docker:// container action is skipped by name (#950)` | - |
 | `generated-workflow-actions: a quoted ref in this repo's own workflow is read too (#950)` | - |

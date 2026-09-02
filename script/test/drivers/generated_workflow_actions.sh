@@ -287,8 +287,25 @@ _run_generated_workflow_actions() {
     esac
   done < <(_gwa_workflow_refs)
 
-  local _file _lineno _checked=0 _violations=0 _expected
-  while IFS=$'\t' read -r _file _lineno _action _ref; do
+  local _file _lineno _record _rest _checked=0 _violations=0 _expected
+  # Split each record by hand rather than with `IFS=$'\t' read`. A tab is
+  # IFS WHITESPACE, so bash folds a run of tabs into ONE delimiter and
+  # drops the empty field between them -- and the unreadable-value record
+  # is defined by an EMPTY action field. Under that reader the raw value
+  # slid into the action column, the `[[ -z "${_action}" ]]` branch below
+  # never ran, and the finding came out as a sentence about a different
+  # defect: `uses: actions/checkout` (no ref) was reported as
+  # `actions/checkout@` disagreeing with the workflows, which is false
+  # about a tree that does use that action. Splitting by hand also makes
+  # the last field the whole remainder, so a tab inside a raw value
+  # shifts nothing -- what the record shape already promised.
+  while IFS= read -r _record; do
+    _file="${_record%%$'\t'*}"
+    _rest="${_record#*$'\t'}"
+    _lineno="${_rest%%$'\t'*}"
+    _rest="${_rest#*$'\t'}"
+    _action="${_rest%%$'\t'*}"
+    _ref="${_rest#*$'\t'}"
     # An empty action field is the "could not read this value" record. It
     # is reported, not skipped: the whole population of this lint is
     # decided by what the reader recognises, so a value it cannot place is
