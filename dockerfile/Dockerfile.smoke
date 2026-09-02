@@ -48,6 +48,12 @@
 # which asks script/test/test.sh for the content-hash tag it builds), so a
 # path that reaches this build without one has left that entry point.
 ARG TEST_TOOLS_IMAGE
+# The reference this harness is built FROM, under the name the shipped
+# template gives it. The manifest below records whatever the image was
+# built from, and here that is the tooling image -- so the harness has a
+# BASE_IMAGE for the same reason a consumer does, rather than a second
+# spelling of the same idea.
+ARG BASE_IMAGE=${TEST_TOOLS_IMAGE}
 # hadolint ignore=DL3006
 FROM ${TEST_TOOLS_IMAGE} AS smoke
 
@@ -63,6 +69,66 @@ ARG SMOKE_GID=1500
 
 RUN addgroup -g "${SMOKE_GID}" "${SMOKE_USER}" && \
     adduser -D -u "${SMOKE_UID}" -G "${SMOKE_USER}" "${SMOKE_USER}"
+
+# ── mirrors `sys` ───────────────────────────────────────────────────────
+# The reproducibility manifest. Without it, all three specs in
+# smoke/shared/reproducibility.bats hit their own
+# `_skip_unless_manifest_adopted` guard and report `ok N # skip` -- a
+# green `just test smoke` reporting that the one assertion of #951 that
+# text cannot make (a manifest that IS written and records nothing) was
+# not made here either. That guard exists for a CONSUMER image built
+# before the manifest revision, which genuinely has no manifest and must
+# not have an upgrade turned into a broken build; base is not that
+# consumer. Two local entry points build this file -- `just test smoke`,
+# and test/bats/system/smoke_harness_spec.bats under `just test system`,
+# which builds it with --no-cache over a synthesized context -- and both
+# would have reported a green run over three skips.
+#
+# What is reproduced is the sys stage's RECORD, not its commands. The
+# bare `ARG BASE_IMAGE` re-declaration is verbatim and load-bearing for
+# the same reason it is there: the pre-FROM ARG is FROM-scope only, and
+# without this line ${BASE_IMAGE} expands to the empty string and the
+# manifest records nothing -- exactly the failure the specs below exist
+# to catch, which is worth reproducing faithfully in the file that
+# exercises them. BASE_IMAGE_DIGEST is defaulted for the same reason the
+# template defaults it, and behaves the same way: it is the only
+# expression the LABEL below and the file here can share, so a
+# reference-carried digest it does not repeat leaves both of them empty
+# and the build carries on. Nothing here stops a build over that, which
+# is the point -- test/bats/system/smoke_harness_spec.bats builds this
+# file with exactly that call and expects an image out of it.
+#
+# The package half cannot be verbatim: the tooling image is Alpine and
+# has no dpkg, so the apk database is read out in the same
+# `<name><TAB><version>` shape `dpkg-query -W` prints. The spec asserts
+# the shape of the record, and the record is what stands in.
+ARG BASE_IMAGE
+ARG BASE_IMAGE_DIGEST=""
+RUN mkdir -p /usr/local/share/base && \
+    _ref_digest=""; \
+    case "${BASE_IMAGE}" in \
+      *@sha256:*) _ref_digest="sha256:${BASE_IMAGE##*@sha256:}" ;; \
+    esac; \
+    { \
+      echo "base_image_ref=${BASE_IMAGE}"; \
+      if [ -n "${_ref_digest}" ]; then \
+        echo "base_image_pin=digest"; \
+      else \
+        echo "base_image_pin=none"; \
+      fi; \
+      echo "base_image_digest=${BASE_IMAGE_DIGEST}"; \
+      sed -n 's/^PRETTY_NAME=/base_os=/p' /etc/os-release; \
+    } > /usr/local/share/base/base-image.env && \
+    awk -F: '/^P:/ { name = $2 } /^V:/ { printf "%s\t%s\n", name, $2 }' \
+      /lib/apk/db/installed > /usr/local/share/base/packages.txt
+
+# The record's second sink, mirrored for the same reason the first one is.
+# A label is invisible to any spec running INSIDE the image, so the only
+# place the two can be compared for one image is a build plus a
+# `docker inspect` from outside -- which is what
+# test/bats/system/smoke_harness_spec.bats does with this file.
+LABEL org.opencontainers.image.base.name="${BASE_IMAGE}" \
+      org.opencontainers.image.base.digest="${BASE_IMAGE_DIGEST}"
 
 # ── mirrors `devel` ─────────────────────────────────────────────────────
 # smoke/shared/entrypoint.bats asserts /entrypoint.sh is present and

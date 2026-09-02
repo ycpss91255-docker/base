@@ -194,7 +194,7 @@ flowchart LR
 | `dockerfile/Dockerfile.test-tools` | 預建置 lint/test 工具 image（shellcheck、hadolint、bats、bats-mock） |
 | `.github/workflows/` | 可重用 CI workflows（build + release） |
 
-<!-- sync: dockerfile-stages-convention cfa1ef92737a 610a26e2f7b8 -->
+<!-- sync: dockerfile-stages-convention e8e20b69013a 1281757a60af -->
 ### Dockerfile 分層（慣例）
 
 下游 repo 遵循標準多階段配置，定義於 `dist/dockerfile/Dockerfile`。
@@ -202,7 +202,7 @@ flowchart LR
 
 | 階段 | 父階段 | 用途 | 是否出貨 |
 |------|--------|------|---------|
-| `sys` | `${BASE_IMAGE}` | 使用者/群組、sudo、時區、語系、APT mirror | 中介 |
+| `sys` | `${BASE_IMAGE}` | 使用者/群組、sudo、時區、語系、APT mirror、可重現性 manifest | 中介 |
 | `devel-base` | `sys` | 開發工具與語言套件 | 中介 |
 | `devel` | `devel-base` | 應用專屬工具 + `entrypoint.sh` + config layering | **是**（主要產物） |
 | `devel-test` | `devel` | 短暫：ShellCheck + Hadolint + Bats smoke（均來自 `test-tools:local`） | 否（build 完即丟） |
@@ -211,6 +211,25 @@ flowchart LR
 | `runtime-test`（選用） | `runtime` | 短暫：runtime install-check smoke | 否（build 完即丟） |
 
 說明：
+- `BASE_IMAGE` 預設是會移動的 tag `ubuntu:24.04`，其上安裝的 apt 套件也沒有版本，
+  所以同一個 template 版本在不同時間並不會重現同一個 image。這個漂移是刻意的
+  （consumer 本來就會覆寫 `BASE_IMAGE`，而 dev image 必須能在不發 template
+  release 的情況下吃到安全性更新），但它會被「記錄」下來：`sys` 會寫出
+  `/usr/local/share/base/base-image.env`（base reference、該 reference 是否
+  digest-pinned、build 被告知要記錄的 digest、base OS）與 `/usr/local/share/base/packages.txt`
+  （每個套件與其確切版本，每個 apt layer 之後重寫一次），並標上
+  `org.opencontainers.image.base.name` / `.base.digest` label。`runtime-base`
+  因為是全新的 `${BASE_IMAGE}`、什麼都不繼承，所以會再寫一次。
+- 出貨預設「沒有」記錄到的部分：照預設 build 出來的 manifest 會是
+  `base_image_pin=none`、`base_image_digest` 留空——build 內部無法向 daemon
+  詢問某個 tag 解析到哪個 image。要補上就在 `BASE_IMAGE` 之外再傳
+  `BASE_IMAGE_DIGEST`（那是「記錄」不是 pin）。把 `BASE_IMAGE` pin 成 digest
+  本身就 build 得起來，也會記成 `base_image_pin=digest`，但那個欄位仍會留空：
+  annotation 是由 `LABEL` 寫的，而 `LABEL` 無法依「reference 有沒有帶 digest」
+  分支——同一個去頭運算式在沒有 digest 時會回傳整個 reference——所以它只帶
+  build arg。兩個 sink 同時留空是誠實的「未另外記錄」，build 不會因此拒絕；
+  真正會失敗的是 `BASE_IMAGE_DIGEST` 指到與 reference 不同的 digest，由出貨的
+  smoke spec 在 `-test` stage 擋下。
 - 只出貨 developer image 的 repo（`env/*`）會跳過 `runtime-base` /
   `runtime`——該 section 在 `Dockerfile` 維持註解狀態。
 - `devel-test` 永遠從 `devel` 繼承，所以 `test/bats/smoke/<repo>_env.bats` 裡的
