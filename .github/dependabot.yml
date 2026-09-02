@@ -37,8 +37,10 @@
 # declared below: that updater bumps Dockerfile `FROM` tags, which are
 # exactly the pins the watch already reads out of their ARGs.
 #
-# The watch owns what dependabot provably cannot see or advance: a
-# Dockerfile ARG, an IMAGE REFERENCE AT A VERSION TAG WHEREVER IT IS
+# The watch owns what dependabot provably cannot see or advance: AN
+# ASSIGNMENT WHOSE VALUE IS A VERSION, whatever its keyword (a Dockerfile
+# `ARG`, a shell `local` / `readonly` / `declare` / `export`, or a bare
+# `NAME=1.2.3`), an IMAGE REFERENCE AT A VERSION TAG WHEREVER IT IS
 # WRITTEN (a `FROM`, a compose `image:`, a job `container:`, a `docker
 # run`, a justfile recipe, a `sed` that writes any of those into a
 # generated file, with or without a namespace), a release-download URL, a
@@ -48,14 +50,21 @@
 # because a ref in a heredoc a generator writes is not a workflow file
 # and neither this repo's updater nor the generated repo's can advance it.
 #
+# A version here is `1.2.3`, `3.21`, `v0.10.0` or `v43`: dotted digits, or
+# a `v` prefix with any number of components. A bare integer is NOT one --
+# nothing separates `2024` from `ARG USER_UID=1000` -- and that is the one
+# shape named above the detector deliberately does not own.
+#
 # The list above is a claim about the DETECTOR, not an aspiration: every
 # shape named here is a case in script/watch/lib.sh with a unit spec
-# behind it. This paragraph has twice been WIDER than the detector -- it
-# claimed the release-download URL while the detector was blind to it,
+# behind it. This paragraph has three times been WIDER than the detector --
+# it claimed the release-download URL while the detector was blind to it,
 # then claimed "an image named inside a `run:` step (with or without a
 # namespace)" while a namespace-less one was only ever seen next to a
-# `docker` verb. Both times the sentence was the accurate description of
-# the intent and the code was narrower, so the code moved.
+# `docker` verb, then said "a Dockerfile ARG" while the registry's own
+# reader already extracted from four shell keywords the detector could not
+# see. Each time the sentence was the accurate description of the intent
+# and the code was narrower, so the code moved.
 #
 # Every one of those carries a `tool-pin:` marker at its declaration site,
 # and the `pin-coverage` lint fails a PR that adds one without a marker --

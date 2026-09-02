@@ -179,25 +179,32 @@ readonly _PIN_SCAN_EXEMPT_SHAPES=(
 # dependabot reads `uses:` version refs in WORKFLOW FILES and does that job
 # well (its login-action PR is open and current), so duplicating it would
 # produce two mechanisms disagreeing about one dependency. What it provably
-# cannot see is a Dockerfile ARG, a FROM tag, an image reference wherever
-# it is written, a release-download URL, a `git clone -b <tag>`, a `uses:`
-# ref that is a BRANCH rather than a version, and ANY of those written
-# inside a shell script that generates a file.
+# cannot see is an assignment whose value is a version -- a Dockerfile
+# `ARG` or a shell `local` / `readonly` / `declare` / `export` alike -- a
+# FROM tag, an image reference wherever it is written, a release-download
+# URL, a `git clone -b <tag>`, a `uses:` ref that is a BRANCH rather than
+# a version, and ANY of those written inside a shell script that generates
+# a file.
 #
 # Every shape below is decided by what the LINE says. Only one consults
 # the file at all, and only to locate DEPENDABOT'S OWN SCOPE.
 #
-# That is this detector's third correction and all three are the same
+# That is this detector's fourth correction and all four are the same
 # correction. The first version listed the DIRECTORIES to look in and two
 # live pins sat outside them. The second listed the FILE SHAPES and the
 # repo's own control surface was not among them. The third listed the
 # CONTEXTS an image may be named in -- a `docker run|pull|create|build`
 # on the same line -- and a compose `image:`, a workflow `container:` and
 # the `sed` that rewrites a downstream `FROM` line were all outside it,
-# including the very line this change hoisted. Each list was complete when
-# it was written and each one went QUIET rather than red when the world
-# moved past it. There is no fifth-context-proof list, so there is no
-# list: an image reference is recognised by being one.
+# including the very line this change hoisted. The fourth listed one
+# KEYWORD, `ARG`, while the reader below already extracted a version from
+# five, and while this file's own advice is to hoist a literal onto a line
+# of its own -- which produces `local` / `readonly` / `export`, none of
+# which the detector could see. Each list was complete when it was written
+# and each one went QUIET rather than red when the world moved past it.
+# There is no fifth-context-proof list, so there is no list: an image
+# reference is recognised by being one, and an assignment by assigning a
+# version.
 #
 # The three shapes after the original four were not additions of scope.
 # They were the forms the staleness this whole mechanism was built for was
@@ -207,10 +214,26 @@ readonly _PIN_SCAN_EXEMPT_SHAPES=(
 # not see any of them. A guard blind to the shape of the defect it exists
 # to prevent is worth very little.
 
-# An `ARG <NAME>=<value>` whose value is a version number (`1.2.3`,
-# `v0.10.0`, `3.21`) -- at least one dot, so `ARG USER_UID=1000` is not a
-# version and needs no marker.
-readonly _PIN_ARG_VERSION_RE='^v?[0-9]+(\.[0-9]+)+([+~.-][A-Za-z0-9.]+)?$'
+# A value that IS a version number: `1.2.3`, `v0.10.0`, `3.21`, `v43`.
+#
+# Two forms, and the split is the whole content of the rule. A `v` prefix
+# is a version marker on its own, however few components follow it --
+# nobody writes `v1000` for a UID -- so `v43` (kcov's real pin) and `v7`
+# (a major action ref) are versions. Without that prefix at least one DOT
+# is required, because nothing else separates a release from `ARG
+# USER_UID=1000`, `PORT=8080` or a year.
+#
+# The cost of that second clause is stated rather than hidden: a bare
+# `2024` is accepted as not-a-version, and a single-component upstream
+# release written without its `v` is the one shape this cannot see. The
+# alternative -- treating every bare integer as a release -- flags every
+# count, port and UID in the tree, and a guard nobody can leave on guards
+# nothing.
+#
+# The dot-only form was the previous rule in full, and it made this
+# repo's OWN `ARG KCOV_VERSION=v43` invisible to the lint that exists to
+# prove every pin is watched.
+readonly _PIN_VERSION_RE='^(v[0-9]+(\.[0-9]+)*|[0-9]+(\.[0-9]+)+)([+~.-][A-Za-z0-9.]+)?$'
 
 # An image reference with an explicit, version-shaped tag, WHEREVER it is
 # written: `alpine:3.21`, `bats/bats:1.13.0`, `ghcr.io/ns/img:1.2.3`. One
@@ -279,6 +302,16 @@ readonly _PIN_CLONE_REF_RE='(^|[[:space:]])(-b|--branch)[[:space:]]+["'"'"']?v?[
 # is what lets a marker name `library/alpine` upstream while the line
 # spells `3.21`. That decoupling is why hoisting a literal onto a line of
 # its own is the standard fix for a version the reader cannot address.
+#
+# ONE regex, read by both halves. The reader used it to EXTRACT a pin's
+# current value from all five keywords; the detector had a separate,
+# narrower test that recognised `ARG` alone. So the convention this file
+# recommends -- hoist the literal onto its own line -- produced the exact
+# shape the completeness guard was blind to, and two versions this repo
+# writes into every downstream Dockerfile it migrates lost their cover
+# without the lint noticing. A shared regex is what makes "the lint and
+# the watch cannot disagree about what a pin is" true rather than
+# intended.
 readonly _PIN_ASSIGN_RE='^([[:space:]]*(ARG|local|readonly|declare|export)?[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=)(.*)$'
 
 # ── Reader ──────────────────────────────────────────────────────────────────
@@ -569,13 +602,21 @@ _pin_is_declaration() {
   fi
   _pin_has_image_ref "${_line}" && return 0
 
-  # `ARG` is Dockerfile syntax wherever it is written, which includes a
-  # heredoc in a generator -- so this is not a Dockerfile-only branch, and
-  # the value decides. `ARG USER_UID=1000` carries no dot and is ours.
-  if [[ "${_line}" =~ ^[[:space:]]*ARG[[:space:]]+[A-Za-z_][A-Za-z0-9_]*=(.+)$ ]]; then
-    _value="$(_pin_unquote "$(_pin_rhs_value "${BASH_REMATCH[1]}")")"
-    [[ "${_value}" =~ ${_PIN_ARG_VERSION_RE} ]] && return 0
-    return 1
+  # An assignment whose whole right-hand side is a version: a Dockerfile
+  # `ARG`, a `local` / `readonly` / `declare` / `export`, or a bare
+  # `NAME=<version>`. `ARG` is Dockerfile syntax wherever it is written --
+  # a heredoc in a generator included -- and a shell assignment is a
+  # declaration site wherever it is written for the same reason: the VALUE
+  # decides, not the keyword and not the file.
+  #
+  # `${_PIN_ASSIGN_RE}` is the reader's own regex, so a shape the reader
+  # can extract a version from is a shape this can require a marker on.
+  # A non-version value falls THROUGH rather than returning: narrowing the
+  # answer to "not a declaration" on the strength of one shape not
+  # matching is how a guard stops seeing the next one.
+  if [[ "${_line}" =~ ${_PIN_ASSIGN_RE} ]]; then
+    _value="$(_pin_unquote "$(_pin_rhs_value "${BASH_REMATCH[3]}")")"
+    [[ "${_value}" =~ ${_PIN_VERSION_RE} ]] && return 0
   fi
 
   if [[ "${_line}" =~ ${_PIN_USES_RE} ]]; then
