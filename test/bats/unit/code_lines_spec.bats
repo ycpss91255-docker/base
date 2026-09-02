@@ -193,6 +193,50 @@ DOCKERFILE
     || fail "code_grep exited ${status} for a directory; expected 2, and 1 would be read as 'no match'"
 }
 
+@test "code_grep: an unreadable subject reports on stderr, leaving the grep-shaped output empty" {
+  # code_grep's stdout is DATA -- lines, or a count under `-c` -- and every
+  # call site reads it as such: `assert_output '2'`, an arithmetic
+  # comparison, a `| head -1`. A `BUG:` line printed there arrives as a
+  # match that is not a match and as a count that is not a number. The
+  # status (2) is what says the subject was not read, and the reason
+  # belongs on stderr next to it.
+  #
+  # code_lines is deliberately the other way round: its stdout IS its
+  # report, and its callers print what they captured. So the split is
+  # written here in both directions rather than left to whoever reads one
+  # of them next.
+  run --separate-stderr code_grep -c 'MARKER: keep-me' "${SCRATCH}/no-such-file.yaml"
+  [ "${status}" -eq 2 ] \
+    || fail "code_grep exited ${status} for a missing file; expected 2"
+  assert_output ''
+  [[ "${stderr}" == *'BUG:'* ]] \
+    || fail "expected a BUG: line on stderr, got: ${stderr}"
+}
+
+@test "code_grep: a directory subject reports the same way, on stderr" {
+  # The sibling shape of the same statement: the redirection fails rather
+  # than the file being absent, and a caller counting matches must not
+  # receive prose either way.
+  run --separate-stderr code_grep -c 'MARKER: keep-me' "${SCRATCH}"
+  [ "${status}" -eq 2 ] \
+    || fail "code_grep exited ${status} for a directory; expected 2"
+  assert_output ''
+  [[ "${stderr}" == *'BUG:'* ]] \
+    || fail "expected a BUG: line on stderr, got: ${stderr}"
+}
+
+@test "code_lines: an unreadable subject keeps its BUG line on stdout" {
+  # The complement, pinned so the change above cannot spread by symmetry.
+  # code_lines is the reporting view: `spec_permission_surface_subjects`
+  # captures it and PRINTS what it captured when the status says the file
+  # was not read, which is how the reason reaches a caller reading a
+  # pipeline where the status is already gone.
+  run --separate-stderr code_lines "${SCRATCH}/no-such-file.yaml"
+  [ "${status}" -eq 2 ] \
+    || fail "code_lines exited ${status} for a missing file; expected 2"
+  assert_output --partial 'BUG:'
+}
+
 @test "code_lines: a subject it cannot read exits 2, not 1" {
   # The other emitter of the same status. code_grep reads code_lines', so
   # both have to draw the line in the same place or the pipeline re-merges
