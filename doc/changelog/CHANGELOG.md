@@ -101,6 +101,16 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   shipped `dist/test/bats/smoke/` tree counts), and an unopened header or an
   unclosed body fails the lint.
 
+- **`errexit-bang` judges the FOLDED statement, so a substitution spanning
+  lines is read as one (refs #956)** -- a `$(` opened on one line and closed on
+  the next was scanned at depth 0 on the continuation, where a `#` opens a
+  comment and everything behind it -- separator included -- was dropped.
+  Physical lines are now folded while a `\` continuation, a quote or a `(` is
+  still open, and the scan runs once over the whole statement. A statement
+  still open where its body closes is reported when it is a `!` one or when it
+  folded a line opening with `!` into itself; otherwise it is unreadable but
+  hid nothing this rule judges.
+
 - **a test that runs a RELEASED `upgrade.sh` against the current tree (refs #915)** -- `test/bats/integration/prev_release_upgrade_spec.bats` stands a real released tree up as a consumer's `.base/` and lets ITS scripts drive the upgrade against the working tree. It asserts the consumer is left working -- no dangling symlinks, `just --list` succeeds -- not merely version-bumped. This is the only shape that can catch a break in an out-of-tree caller, and the third instance of that class this cycle. Which releases are covered resolves from the repo's own tags every run; the trees are materialised host-side into a gitignored `.prev-release/`.
 
 - **`changelog-entry`: a duplicated entry and a repeated category heading now fail the lint (closes #959)** -- merging `origin/main` into a branch that appended to `[Unreleased]` keeps BOTH sides without conflicting, so a verbatim second copy of an entry, or a second `### Added`, arrives with nothing for a reviewer to resolve -- and both were sitting on main. A lead bullet repeating another, and a category opening twice in one release block, are now refused naming BOTH lines. Released sections stay exempt. Affects anyone adding an entry: fold the second copy into the first.
