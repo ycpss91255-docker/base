@@ -474,43 +474,40 @@ _job_comments() {
 
 # ── Probe-and-rebuild against a stale / racing :main ────────────
 
-@test "self-test.yaml: bats-fragile Obtain probes the pulled :main for kcov and rebuilds on a missing tool (#697)" {
+@test "self-test.yaml: bats-fragile Obtain probes the pulled :main and rebuilds on a miss (#697, #947)" {
   # release-test-tools republishes :main on a Dockerfile.test-tools change
   # concurrently with this run, so a freshly-baked tool (kcov) can be
   # absent from the :main we just pulled. After the pull+tag, the obtain
-  # step must PROBE for the required tools (kcov at minimum) and, on a
-  # miss, fall back to building locally (build_local=true) instead of
-  # running the suite against a stale image.
+  # step must PROBE the image and, on a miss, fall back to building
+  # locally (build_local=true) instead of running the suite against it.
   run yaml_job_lines "${WF}" bats-fragile
   assert_success
-  assert_output --partial 'REQUIRED_TOOLS'
-  assert_output --partial 'kcov'
-  assert_output --partial 'command -v ${_tool}'
-  assert_output --partial 'docker run --rm "${TEST_TOOLS_IMAGE}"'
+  assert_output --partial 'script/ci/probe_test_tools.sh'
+  assert_output --partial 'build_local=true'
 }
 
-@test "self-test.yaml: coverage Obtain probes the pulled :main for kcov and rebuilds on a missing tool (#697)" {
+@test "self-test.yaml: coverage Obtain probes the pulled :main and rebuilds on a miss (#697, #947)" {
   # The coverage shards are the ones that actually race (kcov-not-found
-  # fast-fail). Same probe-and-rebuild guard as bats-unit so a stale
+  # fast-fail). Same probe-and-rebuild guard as bats-fragile so a stale
   # :main self-corrects to a local rebuild.
   run yaml_job_lines "${WF}" coverage
   assert_success
-  assert_output --partial 'REQUIRED_TOOLS'
-  assert_output --partial 'kcov'
-  assert_output --partial 'command -v ${_tool}'
-  assert_output --partial 'docker run --rm "${TEST_TOOLS_IMAGE}"'
+  assert_output --partial 'script/ci/probe_test_tools.sh'
+  assert_output --partial 'build_local=true'
 }
 
-@test "self-test.yaml: probe REQUIRED_TOOLS list is easy to extend with the tools each run needs (#697)" {
-  # The probe drives off a single REQUIRED_TOOLS list so a new baked
-  # tool is covered by adding one word, not editing loop logic. kcov is
-  # the racing one; bats / shellcheck / hadolint are also asserted.
+@test "self-test.yaml: the probe is ONE script, not a loop copied into every job (#947)" {
+  # The probe used to be ~12 lines of inline bash repeated across five
+  # obtain steps. Five copies is how the guard grew a blind spot nobody
+  # could see from any one of them: each asked `command -v <tool>` --
+  # presence, never version -- so a :main whose linters predate this
+  # checkout's pins passed all five. The logic now lives in one script
+  # with its own unit spec (probe_test_tools_spec.bats), and this test
+  # keeps a copy from growing back beside it.
+  run code_grep 'command -v ' "${WF}"
+  assert_failure
   run code_grep 'REQUIRED_TOOLS=' "${WF}"
-  assert_success
-  assert_output --partial 'kcov'
-  assert_output --partial 'bats'
-  assert_output --partial 'shellcheck'
-  assert_output --partial 'hadolint'
+  assert_failure
 }
 
 @test "self-test.yaml: every job that RUNS the baked tools probes the pulled :main for them (#697)" {
@@ -518,16 +515,16 @@ _job_comments() {
   # bats-integration, coverage, system) pull the same :main tag and race
   # identically; each must probe + rebuild on a miss.
   #
-  # Named per job, not counted. The previous form asserted
-  # a `grep -c 'REQUIRED_TOOLS='` equal to 5 over the whole workflow,
-  # which is satisfied by ANY five occurrences: deleting hadolint's guard
-  # and double-listing coverage's keeps it green, and the count says
-  # nothing about which job is covered. It also carried the wrong name --
-  # there are SIX :main-pulling Obtain steps, so as written the invariant
-  # it claimed was false while the test was green.
+  # Named per job, not counted. An earlier form asserted a
+  # `grep -c` equal to 5 over the whole workflow, which is satisfied by
+  # ANY five occurrences: deleting hadolint's guard and double-listing
+  # coverage's keeps it green, and the count says nothing about which job
+  # is covered. It also carried the wrong name -- there are SIX
+  # :main-pulling Obtain steps, so as written the invariant it claimed was
+  # false while the test was green.
   #
   # The sixth, `acceptance`, is deliberately not in this list and is not a
-  # gap: REQUIRED_TOOLS is about the tools a job EXECUTES, and acceptance
+  # gap: the probe is about the tools a job EXECUTES, and acceptance
   # executes none of them. It consumes the image only as the `FROM` base of
   # the scaffolded consumer's test stage, so a :main missing kcov costs it
   # nothing. The honest invariant is the one this test now names -- every
@@ -537,8 +534,7 @@ _job_comments() {
   for _job in hadolint bats-fragile bats-integration coverage system; do
     run yaml_job_lines "${WF}" "${_job}"
     assert_success
-    assert_output --partial 'REQUIRED_TOOLS="kcov bats shellcheck hadolint"'
-    assert_output --partial 'command -v ${_tool}'
+    assert_output --partial './script/ci/probe_test_tools.sh "${TEST_TOOLS_IMAGE}"'
     assert_output --partial 'build_local=true'
   done
 }
