@@ -187,6 +187,122 @@ _write_generator() {
   refute_output --partial 'v2'
 }
 
+# ── Unrecognised input must fail, not be skipped ────────────────────────
+#
+# The matcher decides the POPULATION, so anything it declines is a ref the
+# lint stops covering in silence. Quoting a `uses:` value is legal YAML and
+# legal Actions syntax, so a matcher that only reads bare values is
+# narrower than "a `uses:` ref a shell script writes" -- the name it
+# carries. These pin the two halves: a quoted ref is COMPARED like any
+# other, and a value the matcher cannot resolve at all FAILS rather than
+# passing.
+
+@test "generated-workflow-actions: a double-quoted generated ref is compared, not skipped (#950)" {
+  _load_driver
+  _write_workflow 'actions/checkout@v8'
+  _write_generator '      - uses: "actions/checkout@v7"'
+
+  run _run_generated_workflow_actions
+  [ "${status}" -ne 0 ]
+  assert_output --partial 'actions/checkout'
+  assert_output --partial 'v7'
+  assert_output --partial 'v8'
+}
+
+@test "generated-workflow-actions: a single-quoted generated ref is compared, not skipped (#950)" {
+  _load_driver
+  _write_workflow 'actions/checkout@v8'
+  _write_generator "      - uses: 'actions/checkout@v7'"
+
+  run _run_generated_workflow_actions
+  [ "${status}" -ne 0 ]
+  assert_output --partial 'v7'
+  assert_output --partial 'v8'
+}
+
+@test "generated-workflow-actions: a quoted ref to an action this repo never uses fails (#950)" {
+  # The bare form of the defect, behind quotes: nothing bumps it, and the
+  # quotes must not be what hides it.
+  _load_driver
+  _write_workflow 'actions/checkout@v8'
+  _write_generator \
+    '      - uses: "actions/setup-node@v1"' \
+    '      - uses: actions/checkout@v8'
+
+  run _run_generated_workflow_actions
+  [ "${status}" -ne 0 ]
+  assert_output --partial 'actions/setup-node'
+}
+
+@test "generated-workflow-actions: one unreadable ref among readable ones still fails (#950)" {
+  # The partial silent drop: a tree whose OTHER refs are in lockstep is
+  # exactly where a skipped ref reports clean. The count backstop cannot
+  # see this -- it only fires when every ref is unreadable.
+  _load_driver
+  _write_workflow 'actions/checkout@v8'
+  _write_generator \
+    '      - uses: actions/checkout@v8' \
+    '      - uses: "actions/checkout@v3"'
+
+  run _run_generated_workflow_actions
+  [ "${status}" -ne 0 ]
+  assert_output --partial 'v3'
+}
+
+@test "generated-workflow-actions: a uses: value it cannot resolve fails by name (#950)" {
+  # Not a versioned action, not a documented exclusion: refusing to guess
+  # is the point, and the message has to say which line it could not read.
+  _load_driver
+  _write_workflow 'actions/checkout@v8'
+  _write_generator \
+    '      - uses: actions/checkout@v8' \
+    '      - uses: not-an-action-reference'
+
+  run _run_generated_workflow_actions
+  [ "${status}" -ne 0 ]
+  assert_output --partial 'not-an-action-reference'
+  assert_output --partial 'dist/init.sh'
+}
+
+@test "generated-workflow-actions: a local ./ callee is skipped by name, not by accident (#950)" {
+  # `uses: ./.github/workflows/x.yaml` carries no ref: the callee is this
+  # tree at this commit. A named exclusion, so it does not ride on the
+  # matcher declining to match.
+  _load_driver
+  _write_workflow 'actions/checkout@v8'
+  _write_generator \
+    '      - uses: ./.github/workflows/local.yaml' \
+    '      - uses: actions/checkout@v8'
+
+  run _run_generated_workflow_actions
+  [ "${status}" -eq 0 ]
+}
+
+@test "generated-workflow-actions: a docker:// container action is skipped by name (#950)" {
+  # An image reference, not a repository tag: it has no <owner>/<repo>
+  # reading for a workflow ref to agree with.
+  _load_driver
+  _write_workflow 'actions/checkout@v8'
+  _write_generator \
+    '      - uses: docker://alpine:3.21' \
+    '      - uses: actions/checkout@v8'
+
+  run _run_generated_workflow_actions
+  [ "${status}" -eq 0 ]
+}
+
+@test "generated-workflow-actions: a quoted ref in this repo's own workflow is read too (#950)" {
+  # The same matcher reads both sides. A quoted ref in .github/workflows/
+  # dropped from the expected set turns a real disagreement into "this
+  # repo never uses it", i.e. the right verdict for the wrong reason.
+  _load_driver
+  _write_workflow '"actions/checkout@v8"'
+  _write_generator '      - uses: actions/checkout@v8'
+
+  run _run_generated_workflow_actions
+  [ "${status}" -eq 0 ]
+}
+
 @test "generated-workflow-actions: ignores a generator under .prev-release/ (#950)" {
   # The self-test materialises PAST releases into .prev-release/, and a
   # shipped release's refs are stale BY DEFINITION -- a release cannot be
