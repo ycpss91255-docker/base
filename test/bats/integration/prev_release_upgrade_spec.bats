@@ -187,6 +187,11 @@ _released_entry() {
 # that stops offering such a statement fails rather than quietly
 # consumerising nothing.
 
+# The tree the hand-listed smoke heal under repair (#928) acts on. Named
+# once because two things below have to agree about it: whether this arm's
+# release still ships it, and whether the re-spelling covered it.
+_RETIRED_SMOKE_TREE=".base/test/smoke"
+
 # _copy_expandable_source <line>
 #   The single `.base/`-rooted directory source of a one-line COPY whose
 #   destination ends in `/`. Non-zero when the line is not that shape.
@@ -223,10 +228,23 @@ _copy_expandable_source() {
 #   consumer's Dockerfile as the two hand-listed spellings real consumers
 #   wrote. Fails when it re-spelled nothing: a fixture that silently
 #   consumerises zero statements is the vacuous pass this exists to end.
+#
+#   A non-zero total is not by itself proof that the hand-listed HEAL runs
+#   in this arm. The heal (#928) only fires on the retired flat
+#   `.base/test/smoke` tree, and whether the seeded release ships one is a
+#   property of the release, not something to list here: the N-1 release
+#   (flat tree) does, the N release (already on `.base/dist/test/bats/smoke`)
+#   does not. So the retired tree is asked for on disk, and where it is
+#   present the re-spelling must have covered it -- otherwise this arm
+#   re-spells only statements the migration never touches while its counter
+#   still reads healthy. Where it is absent the heal is genuinely not
+#   exercised by that arm, and the arm still asserts what it can: that every
+#   hand-listed source survives the upgrade.
 _consumerise_dir_copies() {
   local _df="${CONSUMER}/Dockerfile"
   local _tmp="${BATS_TEST_TMPDIR}/Dockerfile.consumerised"
   local _count=0
+  local _retired=0
   : > "${_tmp}"
 
   local _line _src _rel _all
@@ -252,10 +270,15 @@ _consumerise_dir_copies() {
     _all="${_files[*]}"
     printf '%s\n' "${_line/"${_src}"/"${_all}"}" >> "${_tmp}"
     _count=$(( _count + 1 ))
+    [[ "${_src%/}" == "${_RETIRED_SMOKE_TREE}" ]] && _retired=$(( _retired + 1 ))
   done < "${_df}"
 
   (( _count > 0 )) \
     || fail "consumerised nothing: the seeded Dockerfile has no wholesale-directory .base/ COPY with a directory destination, so this arm would assert against the same shape base itself ships"
+  if [[ -d "${CONSUMER}/${_RETIRED_SMOKE_TREE}" ]]; then
+    (( _retired > 0 )) \
+      || fail "consumerised ${_count} statement(s) but none of ${_RETIRED_SMOKE_TREE}, which this release ships: the hand-listed smoke heal is what this arm exists to drive, and nothing here would reach it"
+  fi
   mv "${_tmp}" "${_df}"
 }
 
