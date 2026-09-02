@@ -47,6 +47,12 @@ setup() {
   # Where the scan looks, and the floor the population may not fall below.
   SPEC_TREE=/source/test/bats
   SPEC_TREE_FLOOR=60
+
+  # A CALL to either subject guard, at the start of a line: the population
+  # the changelog's figure is measured over. `assert_spec_subject` also
+  # appears mid-line in a message this file asserts on, which is why the
+  # anchor is not optional.
+  GUARD_CALL_RE='^[[:space:]]*assert_spec_subject(_dir)?[[:space:]]'
 }
 
 # _write_inner <path-argument-literal> [assertion-function]
@@ -258,4 +264,106 @@ _guard_spelling() {
   # covered, which is this file's own subject matter one level up.
   [ "${_planted_count}" -eq 36 ] || fail \
     "planted ${_planted_count} spellings, expected 36 (3 bracket forms x 3 negations x 4 operators)"
+}
+
+# _guarded_test_count
+#   How many tests in the spec tree cannot pass when the artifact they
+#   assert on is missing: a test whose body calls one of the two subject
+#   guards, plus EVERY test in a file whose setup() calls one, since the
+#   guard then runs before each of them.
+#
+#   DERIVED from the tree on every run rather than kept as a number next to
+#   the claim -- a spec file added tomorrow is counted without editing
+#   anything here, which is the whole reason the figure is checkable at all.
+_guarded_test_count() {
+  local _file _total=0 _n
+  while read -r _file; do
+    [[ -n "${_file}" ]] || continue
+    _n="$(awk '
+      /^setup\(\)/ { in_setup = 1 }
+      in_setup && /^}/ { in_setup = 0 }
+      in_setup && /^[[:space:]]*assert_spec_subject(_dir)?[[:space:]]/ { setup_guard = 1 }
+      /^@test/ { in_test = 1; hit = 0; tests += 1 }
+      in_test && /^[[:space:]]*assert_spec_subject(_dir)?[[:space:]]/ { hit = 1 }
+      in_test && /^}/ { in_test = 0; if (hit) guarded += 1 }
+      END { if (setup_guard) print tests + 0; else print guarded + 0 }
+    ' "${_file}")"
+    _total=$(( _total + _n ))
+  done < <(grep -rlE "${GUARD_CALL_RE}" --include='*.bats' "${SPEC_TREE}")
+  printf '%s\n' "${_total}"
+}
+
+@test "the changelog's count of tests behind this guard is the measured one" {
+  # "N tests no longer pass when the artifact they assert on is deleted" is
+  # a claim in the present tense about THIS tree, so it is checked against
+  # this tree -- the posture adr_doc_claims_spec takes for an ADR's
+  # mechanism claims. The entry shipped 260, measured 309: nobody could
+  # reproduce it, which makes it worse than no figure at all.
+  #
+  # ONLY [Unreleased] is read. A released section is a historical record and
+  # rewriting a shipped entry falsifies it (the changelog-entry lint draws
+  # the same line), so once this entry ships its claim freezes and this case
+  # has nothing left to check -- a scanned zero over a section proven
+  # non-empty, not an unscanned one.
+  #
+  # An entry is checked when it names the guard AND quotes a test count.
+  # Naming the guard without a count (this very change's entry) claims no
+  # population and is not held to one; a claim that drops both the
+  # identifier and the figure is outside this check, which is the limit of
+  # reading prose by shape and is stated rather than papered over.
+  local _changelog=/source/doc/changelog/CHANGELOG.md
+  assert_spec_subject "${_changelog}" \
+      "the changelog whose [Unreleased] entry quotes this invariant's population"
+
+  # The population the count is derived from. grep answers 0 for "matched",
+  # 1 for "scanned, matched nothing" and 2 for "could not scan"; only the
+  # first can produce a real figure, and the other two would both arrive
+  # here as a total of 0.
+  run grep -rlE "${GUARD_CALL_RE}" --include='*.bats' "${SPEC_TREE}"
+  assert_equal "${status}" 0
+  [ "${#lines[@]}" -ge 10 ] \
+    || fail "only ${#lines[@]} spec files call a subject guard; the reader, not the suite, is what to look at"
+
+  local _measured
+  _measured="$(_guarded_test_count)"
+
+  # The [Unreleased] section, entry by entry. An entry is one top-level
+  # `- ` bullet and its continuation lines, the same unit the changelog
+  # lint measures.
+  local _line _current='' _in_unreleased=0
+  local -a _entries=()
+  while IFS= read -r _line; do
+    if [[ "${_line}" == '## ['*']'* ]]; then
+      if [[ "${_line}" == '## [Unreleased]'* ]]; then
+        _in_unreleased=1
+      else
+        _in_unreleased=0
+      fi
+      continue
+    fi
+    [[ "${_in_unreleased}" -eq 1 ]] || continue
+    if [[ "${_line}" == '- '* ]]; then
+      if [[ -n "${_current}" ]]; then _entries+=("${_current}"); fi
+      _current="${_line}"
+    elif [[ -n "${_current}" ]]; then
+      # Joined with a space: an entry wraps at 79 columns, so a figure and
+      # its noun can sit on two lines, and gluing them would hide the claim.
+      _current+=" ${_line}"
+    fi
+  done < "${_changelog}"
+  if [[ -n "${_current}" ]]; then _entries+=("${_current}"); fi
+
+  # Non-vacuity: with no entries at all every check below is skipped in
+  # silence, which is this file's own subject matter one level up.
+  [ "${#_entries[@]}" -ge 1 ] \
+    || fail "the [Unreleased] section holds no entries; the reader stopped recognising the changelog's structure"
+
+  local _entry _quoted
+  for _entry in "${_entries[@]}"; do
+    [[ "${_entry}" == *assert_spec_subject* ]] || continue
+    [[ "${_entry}" =~ ([0-9]+)[[:space:]]tests ]] || continue
+    _quoted="${BASH_REMATCH[1]}"
+    [ "${_quoted}" -eq "${_measured}" ] \
+      || fail "the [Unreleased] changelog entry says ${_quoted} tests are held by the subject guard; the tree measures ${_measured}. Re-measure and correct the entry (or drop the figure) -- a number nobody can reproduce is worse than no number."
+  done
 }
