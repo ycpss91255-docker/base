@@ -1774,6 +1774,23 @@ _df_flatten() {
       || fail "${_f} carried the claim and the derived roster misses it"
   done
 
+  # ... and the shipped TOP-LEVEL files. A `find` over directory roots is
+  # derived one level down only: a root that is itself a FILE still has to
+  # be named, and four shipped ones were not -- `init.sh` (the bootstrap a
+  # consumer executes on every upgrade), `justfile`, `compose.yaml` and
+  # `CONTEXT.md`. Named here as a floor, not as the roster: the derivation
+  # reads the whole top level, so a fifth top-level file added tomorrow is
+  # swept without an edit to this list.
+  for _f in \
+      /source/init.sh \
+      /source/justfile \
+      /source/compose.yaml \
+      /source/CONTEXT.md; do
+    assert_spec_subject "${_f}" "a shipped top-level file this spec sweeps"
+    grep -qxF -- "${_f}" <<< "${_roster}" \
+      || fail "${_f} ships at the top level and the derived roster misses it"
+  done
+
   # Every root contributed something. Without this a renamed root is a
   # shorter list, not an error, and this test's report becomes "the files
   # I could still find are clean".
