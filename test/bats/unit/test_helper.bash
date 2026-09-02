@@ -795,3 +795,20 @@ assert_spec_subject() {
     [[ -f "${_path}" ]] || fail \
         "missing ${_path} -- ${_what}. It is tracked, so it was deleted, renamed or moved: restore it or update the path here. Failing rather than skipping is deliberate; a spec that quietly shrinks to zero cases is the defect this guard exists to catch."
 }
+
+# assert_spec_subject_dir <path> [what_it_is]
+#   The directory form, for a spec whose subject is a tracked TREE
+#   (`.github/workflows/`, `doc/adr/`) rather than one file. Same contract,
+#   same reasoning: the tree is present in every mode this suite has, so its
+#   absence is a rename nobody noticed and has to fail.
+#
+#   Deliberately `-d` and not a widened `-e` shared with the file form: a
+#   path that turned from a directory into a file, or back, is itself one of
+#   the moves these guards exist to catch, and `-e` would answer it with a
+#   pass.
+assert_spec_subject_dir() {
+    local _path="${1:?BUG: assert_spec_subject_dir expects a path}"
+    local _what="${2:-the directory this spec asserts on}"
+    [[ -d "${_path}" ]] || fail \
+        "missing ${_path} -- ${_what}. It is tracked, so it was deleted, renamed or moved: restore it or update the path here. Failing rather than skipping is deliberate; a spec that quietly shrinks to zero cases is the defect this guard exists to catch."
+}
