@@ -177,6 +177,7 @@ ci_self_hosted_guard
 ci_changelog_entry
 ci_pin_coverage
 ci_action_ref_agreement
+ci_generated_workflow_actions
 ci_lint_bad_root
 ci_no_hadolint
 ci_lint_tool_without_lint

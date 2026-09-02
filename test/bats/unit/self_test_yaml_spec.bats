@@ -722,12 +722,17 @@ _job_comments() {
 @test "self-test.yaml: the fork-PR branch is a hard failure, not an advisory note (#766)" {
   # An advisory warning next to a green required check is the vacuous
   # rollup with extra steps.
-  run bash -c "awk '/^  ci-rollup:/{flag=1; next} /^  [a-z]/{flag=0} flag' '${WF}' \
-    | grep -A3 -F 'if [[ \"\${IS_FORK_PR}\" == \"true\" ]]; then' \
-    | grep -c -F 'fail=1'"
+  #
+  # Read through the shared comment-stripped view, like every sibling: the
+  # claim is about what the branch RUNS, and the job's own paragraph
+  # explains the hard failure in prose. Sliced by its own awk, this
+  # assertion was satisfied by demoting `fail=1` to a comment inside the
+  # branch -- which is exactly the advisory-note defect it refuses.
+  local _rollup
+  _rollup="$(yaml_job_lines "${WF}" ci-rollup)"
+  run grep -A3 -F 'if [[ "${IS_FORK_PR}" == "true" ]]; then' <<<"${_rollup}"
   assert_success
-  [ "${output}" -ge 1 ] \
-    || fail "the fork-PR branch does not set fail=1; the rollup would still report green"
+  assert_output --partial 'fail=1'
 }
 
 @test "self-test.yaml: the self-hosted guard lint has a lint-static CI join (#766)" {
@@ -1076,11 +1081,10 @@ _job_comments() {
   # `bash -e` one absent operand fails the whole `cp`, and no Release is cut
   # at all.
   #
-  # Comment lines are stripped first: the prohibition is on what the job
-  # RUNS, and the note that keeps the next person from re-adding the step
-  # necessarily names the very construct it rules out.
-  run bash -c "awk '/^  release:/{flag=1; next} /^  [a-z]/{flag=0} flag' \
-    '${WF}' | grep -vE '^[[:space:]]*#'"
+  # Read through the shared comment-stripped view: the prohibition is on
+  # what the job RUNS, and the note that keeps the next person from
+  # re-adding the step necessarily names the very construct it rules out.
+  run yaml_job_lines "${WF}" release
   assert_success
   refute_output --partial 'Create release archive'
   refute_output --partial 'cp -r'
@@ -1094,8 +1098,7 @@ _job_comments() {
   # unmatched pattern into a failed release. Asserted separately from the
   # assembly step so a half-done removal names WHICH half is left. Comments
   # are stripped for the same reason as above.
-  run bash -c "awk '/^  release:/{flag=1; next} /^  [a-z]/{flag=0} flag' \
-    '${WF}' | grep -vE '^[[:space:]]*#'"
+  run yaml_job_lines "${WF}" release
   assert_success
   refute_output --partial 'files:'
   refute_output --partial 'template-'

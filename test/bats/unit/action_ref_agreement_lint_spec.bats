@@ -89,7 +89,8 @@ _action_ref_pairs() {
 }
 
 @test "workflows: every action is used at exactly one ref (#949)" {
-  [[ -d "${WF_DIR}" ]] || skip "workflow directory not at expected path"
+  assert_spec_subject_dir "${WF_DIR}" \
+      "the workflow tree every uses: ref in this spec is read from"
   local -a _pairs=()
   mapfile -t _pairs < <(_action_ref_pairs)
 
@@ -317,7 +318,8 @@ ${_report}A ref is a tag on the action's repository, so two refs in one tree mea
 
 @test "_run_action_ref_agreement: reports the real workflow tree clean (#949)" {
   _require_driver
-  [[ -d "${WF_DIR}" ]] || skip "workflow directory not at expected path"
+  assert_spec_subject_dir "${WF_DIR}" \
+      "the workflow tree every uses: ref in this spec is read from"
   REPO_ROOT="/source"
 
   run _run_action_ref_agreement

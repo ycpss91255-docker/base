@@ -70,17 +70,18 @@ jobs:
           # dependabot's blind spot by construction: it parses `uses:`
           # refs, and this is an image named inside a `run:` step.
           # tool-pin: actionlint dockerhub rhysd/actionlint pattern=^[0-9]+\.[0-9]+\.[0-9]+$
-          ACTIONLINT_IMAGE: rhysd/actionlint:1.7.7
+          ACTIONLINT_IMAGE: rhysd/actionlint:1.7.12
         run: |
           set -euo pipefail
           # `-ignore` suppresses a known false positive: `github.job_workflow_sha`
           # is a valid GitHub Actions context property (the commit SHA of a
           # reusable-workflow file), used by build-worker.yaml / release-worker.yaml
           # to pin the preflight checkout to the worker's own version. actionlint
-          # 1.7.7 is missing this property from its github-context type and wrongly
+          # is missing this property from its github-context type and wrongly
           # reports `property "job_workflow_sha" is not defined`. `-ignore` takes a
-          # regex matched against the error message. Remove this once actionlint
-          # ships the property in its type.
+          # regex matched against the error message. Still absent as of 1.7.12
+          # (measured: the run without `-ignore` reports it at five call sites),
+          # so remove this only once actionlint ships the property in its type.
           docker run --rm \
             -v "${GITHUB_WORKSPACE}:/repo:ro" \
             -w /repo \
@@ -285,6 +286,14 @@ jobs:
     #                     org registers an org-level self-hosted runner that
     #                     public repos may use, so an unguarded eligible job
     #                     is fork-PR code executing on that machine
+    #   generated-workflow-actions
+    #                     a `uses:` ref a shell script writes into a
+    #                     generated downstream workflow names the same ref
+    #                     .github/workflows/ uses -- dependabot reads
+    #                     workflow FILES, so a ref inside a heredoc is
+    #                     outside it, and action-ref-agreement compares
+    #                     call sites within .github/workflows/ only, so
+    #                     without this the ref is watched by nothing
     #   pin-coverage      every third-party version this repo names in a
     #                     Dockerfile or a workflow -- the versions
     #                     dependabot cannot see -- carries a `tool-pin:`
@@ -350,6 +359,7 @@ jobs:
           - changelog-entry
           - pin-coverage
           - action-ref-agreement
+          - generated-workflow-actions
     steps:
       - name: Checkout
         uses: actions/checkout@v7
