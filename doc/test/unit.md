@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3241 tests**.
+Unit specs under `test/bats/unit/`: **3250 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -986,7 +986,7 @@ forwarding for caller abort, and DRY_RUN skip.
 | `_run_pre_hook: DRY_RUN=true -> hook skipped silently (#440)` | DRY_RUN skip (pre) |
 | `_run_post_hook: DRY_RUN=true -> hook skipped silently (#440)` | DRY_RUN skip (post) |
 
-### test/bats/unit/dockerfile_migrate_spec.bats (53)
+### test/bats/unit/dockerfile_migrate_spec.bats (62)
 
 Unit tests for the declarative Dockerfile-migration list
 `lib/dockerfile_migrate.sh` (#567, folds #579 facet B). The lib exposes a
@@ -1024,6 +1024,15 @@ shape auto-applies idempotently, a missing/ambiguous shape is skipped
 | `migration (smoke-copy): rewrites the flat COPY into shared + the stage's own folder (#915)` | - |
 | `migration (smoke-copy): emits only the shared baseline when the stage ships no folder (#915)` | - |
 | `migration (smoke-copy): idempotent — detect false once already on the dist tree (#915)` | - |
+| `migration (smoke-copy): rewrites a hand-listed spec to where the subtree ships it (#928)` | - |
+| `migration (smoke-copy): rewrites every source of a multi-source hand-listed COPY (#928)` | - |
+| `migration (smoke-copy): declines a hand-listed spec the subtree no longer ships (#928)` | - |
+| `migration (smoke-copy): declines a hand-listed spec the subtree ships at two paths (#928)` | - |
+| `migration (smoke-copy): heals hand-listed sources on a continuation line (#928)` | - |
+| `migration (smoke-copy): detects a statement whose smoke sources are only on continuation lines (#928)` | - |
+| `migration (smoke-copy): warns about an unresolvable spec on a continuation line (#928)` | - |
+| `migration (smoke-copy): duplicates a continued wholesale COPY into shared + the stage's own folder (#928)` | - |
+| `migration (smoke-copy): a .base/test/smoke-prefixed sibling path is not the retired tree (#928)` | - |
 | `migration (flat-to-dist): rewrites the flat lint-stage lib/wrapper COPYs (#915)` | - |
 | `migration (flat-to-dist): rewrites the flat config COPY (#915)` | - |
 | `migration (flat-to-dist): idempotent — detect false on an already-dist Dockerfile (#915)` | - |
