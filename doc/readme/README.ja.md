@@ -1,4 +1,4 @@
-<!-- sync: base e5eb312a5446 90441c2b9a5c -->
+<!-- sync: base ff88fde1be47 4e9345ef74cf -->
 # base
 
 [![Self Test](https://github.com/ycpss91255-docker/base/actions/workflows/self-test.yaml/badge.svg)](https://github.com/ycpss91255-docker/base/actions/workflows/self-test.yaml)
@@ -6,7 +6,7 @@
 ![Language](https://img.shields.io/badge/Language-Bash-blue?style=flat-square)
 ![Testing](https://img.shields.io/badge/Testing-Bats-orange?style=flat-square)
 ![ShellCheck](https://img.shields.io/badge/ShellCheck-Compliant-brightgreen?style=flat-square)
-![Coverage](https://img.shields.io/badge/Coverage-Kcov-blueviolet?style=flat-square)
+![Coverage](../badge/coverage.svg)
 [![License](https://img.shields.io/badge/License-Apache--2.0-blue?style=flat-square)](../../LICENSE)
 
 [ycpss91255-docker](https://github.com/ycpss91255-docker) 組織のすべての Docker コンテナ repo 用共有テンプレート。
@@ -138,7 +138,7 @@ flowchart LR
     release_worker -->|"tar.gz + zip"| release["GitHub Release"]
 ```
 
-<!-- sync: whats-included ffa6a3b4221e 00d6806a0a97 -->
+<!-- sync: whats-included 72360c664ff0 86527bf3e67f -->
 ### 含まれるもの
 
 | ファイル | 説明 |
@@ -149,7 +149,7 @@ flowchart LR
 | `stop.sh` | コンテナの停止・削除 |
 | `prune.sh` | コンテナ / image / build キャッシュの整理 |
 | `setup_tui.sh` | インタラクティブな setup.conf エディタ（dialog / whiptail フロントエンド） |
-| `dist/script/docker/wrapper/setup.sh` | システムパラメータの自動検出と `.env` + `compose.yaml` 生成 |
+| `dist/script/docker/wrapper/setup.sh` | システムパラメータの自動検出と `.env` / `.env.generated` + `compose.yaml` 生成 |
 | `dist/script/docker/lib/_lib.sh` | 共有 helper（`_load_env`、`_compose`、`_compose_project` など） |
 | `dist/script/docker/lib/bootstrap.sh` | wrapper の共通初期化と引数解析 |
 | `dist/script/docker/lib/compose.sh` | Docker Compose YAML の生成と操作 |
@@ -258,7 +258,7 @@ flowchart LR
 失敗します。ルール 1-2 は grep では判定できない設計判断です。根拠は
 [ADR-00000024](../adr/00000024-bake-artifacts-at-opt-not-home.md)。
 
-<!-- sync: adding-extra-stages-215 2da5b4c5cc6a d0dd264be639 -->
+<!-- sync: adding-extra-stages-215 7c90746cbedf 478d8c1193b8 -->
 #### 追加ステージの追加（#215）
 
 baseline blocklist `{sys, devel-base, devel, runtime-test}`
@@ -266,7 +266,7 @@ baseline blocklist `{sys, devel-base, devel, runtime-test}`
 `FROM <base> AS <stage>` は、自動的に compose サービスとして
 emit されます — `extends: devel`（volumes / network / GPU / GUI /
 cap_add / additional_contexts を継承）し、`build.target` /
-`image` / `container_name` / `stdin_open` / `tty` / `profiles`
+`image` / `stdin_open` / `tty` / `profiles`
 のみを override します。典型的な用途は entrypoint バリアント、
 例えば NVIDIA Isaac Sim の `devel` 上に乗せる `headless` + `gui`
 の 2 種類の起動モード。
@@ -411,17 +411,24 @@ assertion helpers のセットを提供します。ダウンストリーム repo
 - `doc/` と `README.md`
 - Repo 固有の smoke test
 
-<!-- sync: per-repo-runtime-configuration b02fd5d770dc 3d66f7630138 -->
+<!-- sync: per-repo-runtime-configuration 7bea51e3ea8b fcfbac3189da -->
 ## repo ごとのランタイム設定
 
 各下流 repo は 1 つの `setup.conf` INI ファイルで自身のランタイム設定
 （GPU 予約 / GUI env/volumes / network mode / 追加 volume mounts）を
-駆動します。`setup.sh` がこれ + システム検出結果を読み、`.env.generated`
-と `compose.yaml` を再生成します — この 2 つの生成物をユーザが手動編集
-する必要はありません。手書きの `.env` overlay は別のファイルで、setup は
-最初に scaffold するだけで以後上書きしません。
+駆動します。`setup.sh` がこれ + システム検出結果を読み、`.env` /
+`.env.generated` / `compose.yaml` を再生成します — これらの生成物をユーザ
+が手動編集する必要はありません。別のファイルは `.env.local` で、setup は
+最初に scaffold するだけで以後上書きせず、あなた自身の値はそこに置きます。
 
-<!-- sync: one-conf-15-sections 825dbace1f47 66721dcea0e2 -->
+すべての名前が 1 つの規則に従います：**標準名はツールのもの、サフィックス
+がローカル版。** `Dockerfile` / `compose.yaml` / `.setup.conf` / `.env` は
+生成または配布されるもので更新時に置き換わります。`.setup.conf.local` と
+`.env.local` はあなたのもので、決して書き換えられません。`.env.generated`
+がサフィックスを保つ理由は別で、compose の `${VAR}` 補間のためだけに存在し
+コンテナには入りません — サフィックスは所有者ではなく分類を表します。
+
+<!-- sync: one-conf-15-sections 6f932c1347bc 92dff26e5837 -->
 ### 単一 conf、15 個の section
 
 以下の section 一覧は散文ではなく `SCHEMA_SECTIONS`
@@ -451,8 +458,9 @@ assertion helpers のセットを提供します。ダウンストリーム repo
 [security] privileged（false）、cap_add_N、cap_drop_N、security_opt_N
            （対応する *_inherit トグルも;既定は最小、必要な分だけ opt-in）
 [resources] shm_size
-[environment] env_N = KEY=VALUE — set-once の既定値。deployable stage の
-           ENV として bake される;タスクごとに変わる変数は .env へ
+[environment] env_N = KEY=VALUE — set-once の既定値。生成される .env に
+           書き出され deployable stage の ENV としても bake される;
+           タスクごとに変わる変数は .env.local へ
 [tmpfs]    tmpfs_N = /path[:size=N] — RAM-backed マウントポイント
 [devices]  device_N = host:container、および cgroup rule（opt-in）
 [volumes]  mount_1（workspace、初回実行時に自動記入）
@@ -631,7 +639,7 @@ Main
 `./setup_tui.sh <section>` は引き続き任意の section エディタへ
 直接ジャンプできます（例：`./setup_tui.sh volumes`）。
 
-<!-- sync: when-setupsh-runs 78e1acddfeef a459f0591501 -->
+<!-- sync: when-setupsh-runs ecdbadb6a9f1 8938c8290072 -->
 ### setup.sh の実行タイミング
 
 `setup.sh` は明示的にトリガーされた時のみ実行されます — build / run
@@ -640,13 +648,14 @@ Main
 - **`just base init` / `./.base/dist/script/base/init.sh`** がスケルトン生成後に 1 回自動実行
 - **`just base upgrade` / `./.base/dist/script/base/upgrade.sh`** が subtree pull の後に
   init.sh 経由でもう一度実行されるため、アップグレードは常に新しい
-  baseline で `.env` / `compose.yaml` を再生成した状態で着地します
+  baseline で `.env` / `.env.generated` / `compose.yaml` を再生成した
+  状態で着地します
 - **`./build.sh --setup` / `./run.sh --setup`**（または `-s`）— ユーザが
   明示的に再実行。TTY がある場合は先に `setup_tui.sh` を起動して `setup.conf`
   を編集させ、TTY が無い場合は直接 `setup.sh` を呼び出します
-- **初回 bootstrap**：`./build.sh` / `./run.sh` は `.env` が無い初回実行
-  （CI の新規 clone 等）では、同じ TTY-aware フローを自動で通ります。
-  `--setup` 指定は不要
+- **初回 bootstrap**：`./build.sh` / `./run.sh` は `.env.generated` が無い
+  初回実行（CI の新規 clone 等）では、同じ TTY-aware フローを自動で
+  通ります。`--setup` 指定は不要
 
 > **Fresh-clone の lint カバレッジ（#216）**：image がローカルに
 > キャッシュされていない `./run.sh` は Compose auto-build を起動
@@ -665,15 +674,15 @@ Main
 > ```
 
 `setup.sh apply` は毎回 `compose.yaml` をゼロから書き直しますが、
-既存 `.env` の `WS_PATH` / `APT_MIRROR_UBUNTU` / `APT_MIRROR_DEBIAN` は
-保持されるため、手動で調整した workspace パスや apt mirror はアップ
-グレードで上書きされません。
+既存 `.env.generated` の `WS_PATH` / `APT_MIRROR_UBUNTU` /
+`APT_MIRROR_DEBIAN` は保持されるため、手動で調整した workspace パスや
+apt mirror はアップグレードで上書きされません。
 
-<!-- sync: drift-detection 25d3585b5c5f 05855d6ce3cf -->
+<!-- sync: drift-detection 423fc5dbfe75 3f58e39fed45 -->
 ### ドリフト検出
 
-`setup.sh` は `.env` に `SETUP_CONF_HASH` / `SETUP_GUI_DETECTED` /
-`SETUP_TIMESTAMP` を書き込みます。`./build.sh` / `./run.sh` は毎回
+`setup.sh` は `.env.generated` に `SETUP_CONF_HASH` /
+`SETUP_GUI_DETECTED` / `SETUP_TIMESTAMP` を書き込みます。`./build.sh` / `./run.sh` は毎回
 エントリ時点で現行の `setup.conf` ハッシュ + システム検出値と比較し、
 以下のいずれかが変化した場合に `[WARNING]` を出力（実行は継続）：
 
@@ -744,21 +753,21 @@ workload の環境変数は焼き込み済み `ENV` のデフォルトとして�
 
 **継続的デリバリ（CD）**: deploy ツールは正直にラベル付けするだけでブロックはしません —— `-dirty` / short-commit の `<version>` を刻むので、どのツリー状態でもレビュー用の配備が可能です。自動化された CD では、base が同梱するガードを先に呼んでください: `./.base/dist/deploy/cd-guard.sh` は作業ツリーがクリーンで **かつ** HEAD が tag 上にある場合以外は配備を拒否するため、出荷されるフィールドバンドルは常にリリース済みバージョンへ辿れます。
 
-<!-- sync: setupsh-subcommands-v0110 eb459a5fdd40 1ea39c05036b -->
+<!-- sync: setupsh-subcommands-v0110 cd8a84b5410c 7a3701ee0842 -->
 ### setup.sh のサブコマンド（v0.11.0+）
 
 `setup.sh` は git スタイルのバックエンドで、明示的なサブコマンドを提供します。build / run / TUI スクリプトが内部で呼び出してくれるので、直接呼び出すのはスクリプト化 / 非対話シナリオでの利用が想定されています：
 
 | サブコマンド | 用途 |
 |---|---|
-| `apply` | setup.conf + システム検出から `.env.generated` + `compose.yaml` を再生成（手書きの `.env` overlay は対象外） |
+| `apply` | setup.conf + システム検出から `.env` + `.env.generated` + `compose.yaml` を再生成（`.env.local` は対象外） |
 | `check-drift` | 同期なら 0、ドリフトしていれば 1（ドリフト内容は stderr） |
 | `set <section>.<key> <value>` | 単一キーを書き込む。`--local` は commit 済みの `.setup.conf` ではなく gitignored な `.setup.conf.local` を対象にする；付けない場合、`.setup.conf.local` が既に定義している section への書き込みは section 名を挙げて警告される |
 | `show <section>[.<key>]` | 単一キーまたは section 全体を読み取る |
 | `list [<section>]` | INI スタイルでダンプ |
 | `add <section>.<list> <value>` | リスト型 section（`mount_*` / `env_*` / `port_*` …）に追加；空きスロット優先、無ければ `max+1`。`--local` 可 |
 | `remove <section>.<key>` / `<section>.<list> <value>` | キー指定または値マッチで削除。`--local` 可 |
-| `reset [-y\|--yes]` | テンプレートのデフォルトに戻す；旧 `.setup.conf` → `.setup.conf.bak`、旧 `.env` → `.env.bak` |
+| `reset [-y\|--yes]` | テンプレートのデフォルトに戻す；旧 `.setup.conf` → `.setup.conf.bak`、旧 `.env.generated` → `.env.bak`。`.env.local` はそのまま |
 | `deploy [--stage S] [--output F] [--dry-run] [-y] [--allow-local-override]` | 自己完結型のフィールド配備**ディレクトリ**（`image.tar.xz` + 完全解決済み `compose.yaml` + 編集可能な `config/` + `up`/`down`/`logs` の `deploy.sh` + `README`）を生成。フィールド stage `S` は既定 `runtime`（`devel` / `*-test` は不可）；build 前に解決済み `compose.yaml` をプレビューして確認。`.setup.conf.local` がある場合は `--allow-local-override` を付けない限り拒否。[フィールド配備](#フィールド配備just-docker-setup-deploy)参照 |
 
 型付きキーは `_tui_conf.sh` のバリデータ（TUI と同じもの）を経由します。`set` / `add` / `remove` / `reset` は **`.env.generated` を自動再生成しません** — 必要に応じて `apply` を続けて呼ぶか、次回 `build.sh` / `run.sh` の drift 検出で自動再生成されます。
@@ -776,20 +785,30 @@ workload の環境変数は焼き込み済み `ENV` のデフォルトとして�
 
 下流 repo にカスタムスクリプトが `setup.sh` を直接呼び出している場合、先頭に `apply` を付けてください。template 同梱の `build.sh` / `run.sh` / `init.sh` / `setup_tui.sh` はすでに更新済みです。
 
-<!-- sync: derived-artifacts-gitignored 9135501a7168 b52923ea8035 -->
+<!-- sync: derived-artifacts-gitignored 1a208545a257 5d4f11074040 -->
 ### 生成物（gitignored）
 
-- `.env.generated` — ランタイム変数（解決済みの `PROJECT_NAME` を含む）+ `SETUP_*` drift metadata
+- `.env.generated` — compose 補間用の変数（解決済みの `PROJECT_NAME` を
+  含む）+ `SETUP_*` drift metadata;コンテナには入りません
+- `.env` — コンテナに入る既定値：`[environment]` の一覧と
+  `[lifecycle] watchdog_*` ブロックを、埋まった一覧として書き出したもの
 - `compose.yaml` — baseline + 条件ブロック込みの完全な compose
 
 いつでも `compose.yaml` を開けば現在の完全なランタイム設定を確認できます。
-両ファイルは `just base upgrade` のたびに再生成されます（init.sh が subtree
+3 ファイルとも `just base upgrade` のたびに再生成されます（init.sh が subtree
 pull 後に `setup.sh apply` を再実行）— 手動編集はしないでください。
 override は `setup.conf` に書きます。
 
-`.env` も gitignore されますが生成物では**ありません**。手書きの workload
-overlay で、最初の apply で一度 scaffold されたあとは上書きされません。
-編集しても setup の実行で消えることはありません。
+`.env.local` も gitignore されますが生成物では**ありません**。あなたのもので、
+最初の apply で一度 scaffold されたあとは上書きされません。編集しても setup の
+実行で消えることはありません。compose は `.env` の後にこれを読み込むので、
+両方にあるキーはあなたの値が使われます。
+
+> **v0.43.0 より前からのアップグレード**：`.env` は以前は手書きファイルでした。
+> `just base upgrade` は何かが再生成する前に、手書きの `.env` を `.env.local`
+> へリネームします。そのアップグレード経路を飛ばして先に `setup` を実行した
+> 場合、値が `.env.bak` に残るのはそのファイルが旧い補間キャッシュだったとき
+> だけです。それ以外は自分のバックアップから復元してください。
 
 `.setup.conf.local` は 1 つ上のレイヤで同じ形をしています：gitignored、
 あなたのもの、ツールが書き換えることはありません。設定の*入力*であって
@@ -836,53 +855,76 @@ if [ ! -f /proc/sys/fs/binfmt_misc/qemu-aarch64 ]; then
 fi
 ```
 
-<!-- sync: naming-scheme-three-namespaces-two-user-identities 66fe689054d6 bd1b2a0c153c -->
+<!-- sync: naming-scheme-three-namespaces-two-user-identities d45f877c5361 5dd858b76e55 -->
 ### 命名スキーム: 3 つの namespace と 2 つの user identity
 
-`setup.sh` は `.env` / `compose.yaml` に 3 つの名前を生成します。
-単一ユーザの開発機では見た目が似通っていますが、これらは**3 つの
-独立した namespace**に属し、**2 つの異なる user identity**から
-プレフィックスを取ります。共用ホスト（複数 OS user）のシナリオで
-は区別が顕在化します。個人開発機では 2 つの identity が一致する
-ことが多く、深追いする必要はありません。
+`setup.sh` は `.env` / `compose.yaml` に 2 つの名前を生成し、
+3 つめは compose が導出します。単一ユーザの開発機では見た目が
+似通っていますが、これらは**3 つの独立した namespace**に属し、
+**2 つの異なる user identity**からプレフィックスを取ります。共用
+ホスト（複数 OS user）のシナリオでは区別が顕在化します。個人開発
+機では 2 つの identity が一致することが多く、深追いする必要は
+ありません。
 
 | 名前 | 形式 | Namespace | User プレフィックス |
 |---|---|---|---|
 | `image:` | `${DOCKER_HUB_USER:-local}/<repo>:<tag>` | **Registry**（Docker Hub） | `DOCKER_HUB_USER` |
-| `container_name:` | `${USER_NAME}-<repo>` | **ローカル daemon**（同一 docker daemon 内のフラットなグローバル） | `USER_NAME`（OS user、refs #322） |
-| compose project name | `${DOCKER_HUB_USER}-<repo>` | **ローカル daemon**（デフォルト network / volume label に影響） | `DOCKER_HUB_USER` |
+| compose project name | `${DOCKER_HUB_USER}-<repo>` | **ローカル daemon**（container / デフォルト network / volume label のスコープ） | `DOCKER_HUB_USER`（ログインが無い場合は OS user として検出） |
+| container 名 | `<project>-<service>-<n>`、compose が導出 | **ローカル daemon**（フラットなグローバル） | project から継承 |
 
 - `DOCKER_HUB_USER` — Docker Hub アカウント。registry 側で image
   に名前空間を付けるために使います。実際に push しない場合でも、
   image tag は `<DOCKER_HUB_USER>/<repo>:<tag>` という形で
-  この identity を含みます。
-- `USER_NAME` — ホストの OS user（`id -un`）。同じマシン上の
-  異なる OS user が daemon のフラットな container 名前空間で
-  衝突するのを防ぐために使います。
+  この identity を含みます。Docker Hub にログインしていないマシン
+  では、`setup.sh` はこれを空のままにせず、あなたの **OS user**
+  （`${USER}`、無ければ `id -un`）として検出します。
+- `USER_NAME` — ホストの OS user（`id -un`）。container 内のユーザー
+  とホームディレクトリをあなたに合わせるための build arg として渡
+  されます。上の表のどの名前のプレフィックスでもありません。
 
 2 つの identity を意図的に分けています。Image は registry 上で
 アドレス可能なオブジェクトなので Docker Hub identity を使う —
 OS user でプレフィックスを付けてしまうと buildx cache や Docker
-Hub の layer 共有が破綻します。Container name に OS identity を
-使うのは、ここで解決したい衝突（同一ホスト上の 2 user が同一 repo
-を同時実行）が daemon 側の問題であり、registry とは無関係だからです。
+Hub の layer 共有が破綻します。Project name も同じ identity を使い
+ます。個人開発機で両者が揃うのはそのためで、共用ホストでは上の
+検出が既に OS user にフォールバックするため、2 つ目の規則も設定も
+無しに project name が人ごとに変わります。この identity で唯一
+分けられないのは、2 人の OS user が 1 つの Docker Hub ログインを
+共有している場合です。下の具体例を参照してください。
 
-Project name に `DOCKER_HUB_USER` を使うのは #322 以前からの
-決定で、そのまま据え置きました。個人開発機では 2 つの identity
-が重なるため `container_name` と視覚的に揃います。共用ホストでは
-`DOCKER_HUB_USER` も user ごとに異なるのが普通なので、project
-name も結果としてユーザ間衝突を回避できます。`#322` の CHANGELOG
-が言う「container レベルの命名を project レベルに揃える」とは
-「単一ユーザ機」前提での記述です — どちらも user プレフィックス
-を持つという意味では揃っていますが、複数ユーザ機ではそれぞれ別の
-変数から来るので前綴文字列は同一ではありません。
+**開発 stack は `container_name:` を emit しません — 唯一の例外は field
+deploy bundle (`just docker setup deploy`) です。** container 名は
+project ではなく daemon の namespace に属するため、固定名を書くと
+その service は「1 ホストにつき 1 インスタンス」に固定されます:
+同一 repo の 2 つめの stack は project name を何にしても
+`name ... is already in use` で起動できず、このフィールドがある限り
+compose は `--scale` を拒否します。compose に
+`<project>-<service>-<n>` を導出させれば名前は構造上一意になり、
+ホスト内の分離は完全に project name の担当になります。
 
-base は**単一インスタンス**です（#600）: repo ごとに固定名の
-container / project が 1 組だけ。マルチインスタンスのオーケストレーション
-（同一 repo を N 個の並行 container として、それぞれ独自の project name と
-port override で動かすこと）は compose レイヤの仕事です。`docker` 自体に
-project の概念がなく `-p` は `docker compose` が持つのと同じ構図で、base は
-multi には一切関与しません。
+唯一の例外は field deploy bundle (`just docker setup deploy`) で、これは
+`container_name:` を実際に焼き込みます。この bundle は完全に解決済み
+の自己完結した単一デバイス向け artifact -- 1 台に 1 stack、同一ホスト
+に並置されることはなく、展開する overlay も存在しません -- で、運用者
+が求めるのは `docker logs` に使える固定名です。emitter が 2 つ、規則
+も 2 つ。上の並置の議論は開発 stack のものです。
+
+```
+COMPOSE_PROJECT_NAME=isaac-ci      docker compose up -d stream  # isaac-ci-stream-1
+COMPOSE_PROJECT_NAME=isaac-manual  docker compose up -d stream  # isaac-manual-stream-1
+```
+
+利用者の操作は何も変わりません: `just exec -t <target>` が受け取る
+のは以前から compose の**サービス**名で（そのまま `compose exec`
+に渡されます）、`just run` / `just stop` はもともと project 単位
+です。変わるのは、手作業の `docker exec <固定名>` に使える固定名が
+無くなることだけ — compose に尋ねてください（`just exec`）。
+
+base 自身の操作面は**単一インスタンス**のままです（#600）: repo
+ごとに project は 1 つで、`setup apply` が一度だけ解決します。同一
+repo を N 個の並行 stack として動かすのは compose レイヤの仕事で、
+`docker` 自体に project の概念がなく `-p` は `docker compose` が
+持つのと同じ構図です。
 
 同一 repo の 2 つの *checkout* は別の話で、そちらには base の答えがあります:
 `.setup.conf.local` の `[project] name` で checkout ごとに固有の project name
@@ -894,23 +936,23 @@ multi には一切関与しません。
 
 ```
 image:          alice-hub/claude_code:devel
-container_name: alice-claude_code
 project name:   alice-hub-claude_code
+container:      alice-hub-claude_code-devel-1   (compose が導出)
 ```
 
-同じホスト上の別の OS user `bob`:
+同じホスト上の別の OS user `bob`（Docker Hub アカウント未設定）:
 
 ```
-image:          bob-hub/claude_code:devel          (registry tag が異なり cache 共有なし)
-container_name: bob-claude_code
-project name:   bob-hub-claude_code
+image:          bob/claude_code:devel           (hub user を OS user として検出)
+project name:   bob-claude_code                 (同じプレフィックス、設定不要)
+container:      bob-claude_code-devel-1         (compose が導出)
 ```
 
 `alice` と `bob` が同じ `DOCKER_HUB_USER` を共有している場合
-（例: 共用 CI サービスアカウント）、`image` は Docker Hub 上で
-衝突しますが `container_name` で区別できます — registry pull は
-キャッシュされた image を共有し、ホスト内の daemon では互いに
-分離されたままです。
+（例: 共用 CI サービスアカウント）、project name も同一になります。
+それこそが `[project] name` を設定すべきケースです — この設定は
+以前から存在し、`container_name` が上書きしなくなった今、ようやく
+container にも効くようになりました。
 
 <!-- sync: quick-start 629a4900e292 c1409df67119 -->
 ## クイックスタート
@@ -1178,7 +1220,7 @@ just --list  # CI ターゲット表示
 [system](../test/system.md) / [acceptance](../test/acceptance.md) /
 [smoke](../test/smoke.md)）。
 
-<!-- sync: directory-structure d8c20b3b383d 529f8259528a -->
+<!-- sync: directory-structure 00a6ff22dba0 e77f81d44b48 -->
 ## ディレクトリ構造
 
 ```
@@ -1260,6 +1302,7 @@ just --list  # CI ターゲット表示
 │       ├── release-test-tools.yaml     # base 自身の test-tools image release
 │       └── ghcr-cleanup.yaml           # GHCR 上の test-tools untagged orphan を毎週整理
 ├── doc/
+│   ├── badge/                          # 生成されるリリースカバレッジバッジ（リリース時に hand-run、bump caller は未接続：docker_harness#289）
 │   ├── readme/                         # README 翻訳（zh-TW / zh-CN / ja）
 │   ├── adr/                            # Architecture Decision Records（00000001 … 00000024）
 │   ├── test/
@@ -1295,3 +1338,4 @@ just --list  # CI ターゲット表示
 <!-- sync-skip: wrapper-transcripts -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
 <!-- sync-skip: host-detection-overrides -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
 <!-- sync-skip: publish-workeryaml-inputs-opt-in-foundational-image-repos -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
+<!-- sync-skip: source-archives-on-a-base-release -- untranslated: the localized READMEs are abridged; README.md is authoritative -->

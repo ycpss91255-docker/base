@@ -1,4 +1,4 @@
-<!-- sync: base e5eb312a5446 90ec11665567 -->
+<!-- sync: base ff88fde1be47 269fd00905ca -->
 # base
 
 [![Self Test](https://github.com/ycpss91255-docker/base/actions/workflows/self-test.yaml/badge.svg)](https://github.com/ycpss91255-docker/base/actions/workflows/self-test.yaml)
@@ -6,7 +6,7 @@
 ![Language](https://img.shields.io/badge/Language-Bash-blue?style=flat-square)
 ![Testing](https://img.shields.io/badge/Testing-Bats-orange?style=flat-square)
 ![ShellCheck](https://img.shields.io/badge/ShellCheck-Compliant-brightgreen?style=flat-square)
-![Coverage](https://img.shields.io/badge/Coverage-Kcov-blueviolet?style=flat-square)
+![Coverage](../badge/coverage.svg)
 [![License](https://img.shields.io/badge/License-Apache--2.0-blue?style=flat-square)](../../LICENSE)
 
 [ycpss91255-docker](https://github.com/ycpss91255-docker) 組織下所有 Docker 容器 repo 的共用模板。
@@ -135,7 +135,7 @@ flowchart LR
     release_worker -->|"tar.gz + zip"| release["GitHub Release"]
 ```
 
-<!-- sync: whats-included ffa6a3b4221e cbc97478c7b0 -->
+<!-- sync: whats-included 72360c664ff0 97d83ea6c86d -->
 ### 包含內容
 
 | 檔案 | 說明 |
@@ -146,7 +146,7 @@ flowchart LR
 | `stop.sh` | 停止並移除容器 |
 | `prune.sh` | 清理容器 / image / build cache |
 | `setup_tui.sh` | 互動式 setup.conf 編輯器（dialog / whiptail 前端） |
-| `dist/script/docker/wrapper/setup.sh` | 自動偵測系統參數並產生 `.env` + `compose.yaml` |
+| `dist/script/docker/wrapper/setup.sh` | 自動偵測系統參數並產生 `.env` / `.env.generated` + `compose.yaml` |
 | `dist/script/docker/lib/_lib.sh` | 共用 helper（`_load_env`、`_compose`、`_compose_project` 等） |
 | `dist/script/docker/lib/bootstrap.sh` | wrapper 共用初始化與參數解析 |
 | `dist/script/docker/lib/compose.sh` | Docker Compose YAML 產生與處理 |
@@ -250,7 +250,7 @@ image，`$HOME` 可能不一樣。
 第 1、2 條屬於判斷題，grep 判不出來。設計理由見
 [ADR-00000024](../adr/00000024-bake-artifacts-at-opt-not-home.md)。
 
-<!-- sync: adding-extra-stages-215 2da5b4c5cc6a fcbff20c6669 -->
+<!-- sync: adding-extra-stages-215 7c90746cbedf 90b4ca477f35 -->
 #### 新增額外 stage（#215）
 
 任何在 baseline blocklist `{sys, devel-base, devel, runtime-test}`
@@ -258,7 +258,7 @@ image，`$HOME` 可能不一樣。
 `FROM <base> AS <stage>`，會被自動 emit 成一個 compose 服務 —
 `extends: devel`（繼承 volumes / network / GPU / GUI / cap_add /
 additional_contexts），只 override `build.target` / `image` /
-`container_name` / `stdin_open` / `tty` / `profiles`。典型用例是
+`stdin_open` / `tty` / `profiles`。典型用例是
 entrypoint 變體，如 NVIDIA Isaac Sim 在 `devel` 之上的
 `headless` + `gui` 兩種啟動模式。
 
@@ -392,16 +392,22 @@ assertion helpers。下游 repo 應優先使用這些 helper 而非原生的
 - `doc/` 和 `README.md`
 - Repo 專屬的 smoke test
 
-<!-- sync: per-repo-runtime-configuration b02fd5d770dc 4b475751dbdc -->
+<!-- sync: per-repo-runtime-configuration 7bea51e3ea8b bbe85ad3be6a -->
 ## 各 repo runtime 配置
 
 每個下游 repo 透過一個 `setup.conf` INI 檔驅動自己的 runtime 配置
 （GPU 保留、GUI env/volumes、network mode、額外 volume mounts）。
-`setup.sh` 讀它 + 系統偵測後重新產生 `.env.generated` 跟 `compose.yaml`，
-這兩個衍生檔使用者不用動手編輯。手寫的 `.env` overlay 是另一個檔：
-setup 只在第一次 scaffold，之後永不覆寫。
+`setup.sh` 讀它 + 系統偵測後重新產生 `.env`、`.env.generated` 與
+`compose.yaml`，這些衍生檔使用者不用動手編輯。`.env.local` 才是另一個檔：
+setup 只在第一次 scaffold，之後永不覆寫，你自己的值放在那裡。
 
-<!-- sync: one-conf-15-sections 825dbace1f47 cecd57d45ac6 -->
+所有檔名共用一條規則：**標準名是我們的，加後綴才是本機變體。**
+`Dockerfile`、`compose.yaml`、`.setup.conf`、`.env` 都是產生或出貨的，
+更新時會被取代;`.setup.conf.local` 與 `.env.local` 是你的，永遠不會被動。
+`.env.generated` 保留後綴的理由不同 —— 它只餵 compose 的 `${VAR}` 插值、
+從不進容器，後綴標的是類別而非歸屬。
+
+<!-- sync: one-conf-15-sections 6f932c1347bc 3d803b815fe6 -->
 ### 單一 conf、15 個 section
 
 下面這份 section 清單不是散文，而是 `SCHEMA_SECTIONS`
@@ -429,8 +435,9 @@ setup 只在第一次 scaffold，之後永不覆寫。
 [security] privileged（false）、cap_add_N、cap_drop_N、security_opt_N
            （以及對應的 *_inherit 開關;預設精簡，要用才開）
 [resources] shm_size
-[environment] env_N = KEY=VALUE — set-once 預設值，會 bake 成 deployable
-           stage 的 ENV;每次任務都會變的變數請放 .env
+[environment] env_N = KEY=VALUE — set-once 預設值，寫進產生的 .env
+           並 bake 成 deployable stage 的 ENV;每次任務都會變的變數請放
+           .env.local
 [tmpfs]    tmpfs_N = /path[:size=N] — RAM-backed 掛載點
 [devices]  device_N = host:container，以及 cgroup rule（要用才開）
 [volumes]  mount_1（workspace，首次執行時自動填入）
@@ -594,18 +601,20 @@ Main
 `./setup_tui.sh <section>` 仍可直接跳到任意 section 的編輯器
 （如 `./setup_tui.sh volumes`），不必走主選單。
 
-<!-- sync: when-setupsh-runs 78e1acddfeef 30955bffa90f -->
+<!-- sync: when-setupsh-runs ecdbadb6a9f1 0c6021fce51a -->
 ### setup.sh 什麼時候跑
 
 `setup.sh` 只在明確觸發時才執行 — 並不會在每次 build / run 都重跑：
 
 - **`just base init` / `./.base/dist/script/base/init.sh`** 建完骨架自動跑一次
 - **`just base upgrade` / `./.base/dist/script/base/upgrade.sh`** subtree pull 後透過 init.sh
-  再跑一次，所以升級永遠會用新版 baseline 重新產出 `.env` / `compose.yaml`
+  再跑一次，所以升級永遠會用新版 baseline 重新產出 `.env` /
+  `.env.generated` / `compose.yaml`
 - **`./build.sh --setup` / `./run.sh --setup`**（或 `-s`）— 使用者手動觸發重跑；
   有 TTY 時先啟動 `setup_tui.sh` 讓使用者修改 `setup.conf`，無 TTY 時直接呼叫 `setup.sh`
-- **首次 bootstrap**：`./build.sh` / `./run.sh` 首次執行（`.env` 尚未存在，
-  例如 CI 新 clone）會自動走相同的 TTY-aware 流程，不用帶 `--setup`
+- **首次 bootstrap**：`./build.sh` / `./run.sh` 首次執行（`.env.generated`
+  尚未存在，例如 CI 新 clone）會自動走相同的 TTY-aware 流程，不用帶
+  `--setup`
 
 > **Fresh-clone lint 覆蓋率（#216）**：`./run.sh` 在本機沒 image
 > cached 時會走 Compose auto-build — 但 auto-build **只 build
@@ -621,15 +630,16 @@ Main
 > just docker run                          # 預設 — 快速路徑，跳過 lint/smoke
 > ```
 
-`setup.sh apply` 每次都會從頭重生 `compose.yaml`，但會保留既有 `.env`
-中的 `WS_PATH` / `APT_MIRROR_UBUNTU` / `APT_MIRROR_DEBIAN`，所以手動調過
-的 workspace 路徑或 apt mirror 升級時不會被蓋掉。
+`setup.sh apply` 每次都會從頭重生 `compose.yaml`，但會保留既有
+`.env.generated` 中的 `WS_PATH` / `APT_MIRROR_UBUNTU` /
+`APT_MIRROR_DEBIAN`，所以手動調過的 workspace 路徑或 apt mirror 升級時
+不會被蓋掉。
 
-<!-- sync: drift-detection 25d3585b5c5f 0cd42faea2ed -->
+<!-- sync: drift-detection 423fc5dbfe75 e1b3a2d04210 -->
 ### Drift 偵測
 
 `setup.sh` 把 `SETUP_CONF_HASH`、`SETUP_GUI_DETECTED`、`SETUP_TIMESTAMP`
-寫到 `.env`。每次 `./build.sh` / `./run.sh` 進入時會比對 `setup.conf`
+寫到 `.env.generated`。每次 `./build.sh` / `./run.sh` 進入時會比對 `setup.conf`
 當前 hash + 系統偵測值，以下任一項改變時印 `[WARNING]`（但不阻擋執行）：
 
 - `setup.conf` 內容（conf hash）
@@ -699,21 +709,21 @@ workload 環境變數以 baked `ENV` 預設的形式隨映像走（GUI stage 另
 
 **持續部署（CD）**：deploy 工具只誠實標記、從不阻擋 —— 它會蓋上 `-dirty` / short-commit 的 `<version>`，所以任何樹狀態都能做 review 部署。自動化 CD 請先呼叫 base 出貨的 guard：`./.base/dist/deploy/cd-guard.sh` 在工作樹不乾淨**或** HEAD 不在 tag 上時會拒絕部署，確保出貨的 field bundle 永遠可以追溯到某個已發布版本。
 
-<!-- sync: setupsh-subcommands-v0110 eb459a5fdd40 55cd1d0f2f63 -->
+<!-- sync: setupsh-subcommands-v0110 cd8a84b5410c 8b157218b0db -->
 ### setup.sh 子指令（v0.11.0+）
 
 `setup.sh` 是 git 風格的後端，提供明確的子指令。build / run / TUI 腳本會代為呼叫；直接呼叫適合腳本化／非互動情境：
 
 | 子指令 | 用途 |
 |---|---|
-| `apply` | 從 setup.conf + 系統偵測重新產生 `.env.generated` + `compose.yaml`（不會動手寫的 `.env` overlay） |
+| `apply` | 從 setup.conf + 系統偵測重新產生 `.env` + `.env.generated` + `compose.yaml`（不會動 `.env.local`） |
 | `check-drift` | 同步回 0、漂移回 1（漂移描述印到 stderr） |
 | `set <section>.<key> <value>` | 寫單一鍵值。`--local` 改寫 gitignored 的 `.setup.conf.local` 而非已 commit 的 `.setup.conf`；不加時，若寫的 section 已被 `.setup.conf.local` 定義會指名警告 |
 | `show <section>[.<key>]` | 讀單鍵或整 section |
 | `list [<section>]` | INI 風格 dump |
 | `add <section>.<list> <value>` | 加到清單型 section（`mount_*` / `env_*` / `port_*` …）；優先填空 slot，否則用 `max+1`。可加 `--local` |
 | `remove <section>.<key>` / `<section>.<list> <value>` | 按 key 或按值刪除。可加 `--local` |
-| `reset [-y\|--yes]` | 回復 template 預設；舊 `.setup.conf` → `.setup.conf.bak`、舊 `.env` → `.env.bak` |
+| `reset [-y\|--yes]` | 回復 template 預設；舊 `.setup.conf` → `.setup.conf.bak`、舊 `.env.generated` → `.env.bak`。不會動 `.env.local` |
 | `deploy [--stage S] [--output F] [--dry-run] [-y] [--allow-local-override]` | 打包自帶式的 field 部署**資料夾**（`image.tar.xz` + 完全解析的 `compose.yaml` + 可編輯的 `config/` + `up`/`down`/`logs` 的 `deploy.sh` + `README`），field stage `S` 預設 `runtime`（不可為 `devel` / `*-test`）；build 前先預覽解析後的 `compose.yaml` 並確認。`.setup.conf.local` 存在時會拒絕，除非加 `--allow-local-override`。見 [Field 部署](#field-部署just-docker-setup-deploy) |
 
 有型別的鍵會走 `_tui_conf.sh` 的 validator（與 TUI 同一套）。`set` / `add` / `remove` / `reset` **不**會自動重新產 `.env.generated` — 需要時自行接 `apply`，或下次 `build.sh` / `run.sh` 偵測到 drift 也會自動重產。
@@ -731,19 +741,27 @@ workload 環境變數以 baked `ENV` 預設的形式隨映像走（GUI stage 另
 
 下游 repo 若有自定 script 直接呼叫 `setup.sh`，前面加 `apply`。template 內附的 `build.sh` / `run.sh` / `init.sh` / `setup_tui.sh` 都已更新。
 
-<!-- sync: derived-artifacts-gitignored 9135501a7168 6ff308e6a65d -->
+<!-- sync: derived-artifacts-gitignored 1a208545a257 18cc2c7e9295 -->
 ### 衍生檔（gitignored）
 
-- `.env.generated` — runtime 變數（含解析後的 `PROJECT_NAME`）+ `SETUP_*` drift metadata
+- `.env.generated` — compose 插值用的變數（含解析後的 `PROJECT_NAME`）
+  + `SETUP_*` drift metadata;從不進容器
+- `.env` — 進容器的預設值：`[environment]` 清單與 `[lifecycle] watchdog_*`
+  區塊，以填好的清單呈現
 - `compose.yaml` — 含 baseline 與條件區塊的完整 compose
 
 任何時候打開 `compose.yaml` 都能看到當下完整 runtime 配置。每次
-`just base upgrade` 都會重生這兩個檔（init.sh 在 subtree pull 後重跑
+`just base upgrade` 都會重生這三個檔（init.sh 在 subtree pull 後重跑
 `setup.sh apply`）— 不要手改，需要 override 寫到 `setup.conf`。
 
-`.env` 一樣被 gitignore，但**不是**衍生檔：它是手寫的 workload overlay，
-第一次 apply 時 scaffold 一次，之後永不覆寫。可以放心編輯，跑 setup 也
-不會蓋掉。
+`.env.local` 一樣被 gitignore，但**不是**衍生檔：它是你的，第一次 apply 時
+scaffold 一次，之後永不覆寫。可以放心編輯，跑 setup 也不會蓋掉。compose 在
+`.env` 之後才載入它，所以同名 key 以你的值為準。
+
+> **從 v0.43.0 之前升級**：`.env` 以前是手寫檔。`just base upgrade` 會在任何
+> 東西重生它之前，先幫你把手寫的 `.env` 改名成 `.env.local`。若你略過那條
+> 升級路徑而先跑了 `setup`，只有當該檔是舊的插值 cache 時值才會留在
+> `.env.bak`，否則請從自己的備份還原。
 
 `.setup.conf.local` 在上一層是同樣的形狀：gitignored、屬於你、工具永不改寫。
 它是設定的*輸入*而不是產出 —— 見
@@ -788,45 +806,67 @@ if [ ! -f /proc/sys/fs/binfmt_misc/qemu-aarch64 ]; then
 fi
 ```
 
-<!-- sync: naming-scheme-three-namespaces-two-user-identities 66fe689054d6 d28e58cf2c8d -->
+<!-- sync: naming-scheme-three-namespaces-two-user-identities d45f877c5361 0890e8fcfd09 -->
 ### 命名規則：三個 namespace、兩個 user 身份
 
-`setup.sh` 會在 `.env` / `compose.yaml` 產三個名稱。它們在單人開發
-機上長得像，但實際分布在**三個獨立 namespace**，並取兩個**不同的
-user 身份**做前綴。共用機器（多 OS user）的場景下這個差異會浮現；
-個人開發機上兩個身份通常一致可不必細究。
+`setup.sh` 會在 `.env` / `compose.yaml` 產兩個名稱，第三個由 compose
+自己推導。它們在單人開發機上長得像，但實際分布在**三個獨立
+namespace**，並取兩個**不同的 user 身份**做前綴。共用機器（多 OS
+user）的場景下這個差異會浮現；個人開發機上兩個身份通常一致可不必
+細究。
 
 | 名稱 | 格式 | Namespace | User 前綴 |
 |---|---|---|---|
 | `image:` | `${DOCKER_HUB_USER:-local}/<repo>:<tag>` | **Registry**（Docker Hub） | `DOCKER_HUB_USER` |
-| `container_name:` | `${USER_NAME}-<repo>` | **本地 daemon**（同 docker daemon 內 flat 全域） | `USER_NAME`（OS user，refs #322） |
-| compose project name | `${DOCKER_HUB_USER}-<repo>` | **本地 daemon**（影響預設 network / volume label） | `DOCKER_HUB_USER` |
+| compose project name | `${DOCKER_HUB_USER}-<repo>` | **本地 daemon**（界定 container / 預設 network / volume label） | `DOCKER_HUB_USER`（沒有登入時偵測為 OS user） |
+| container 名稱 | `<project>-<service>-<n>`，由 compose 推導 | **本地 daemon**（flat 全域） | 繼承自 project |
 
 - `DOCKER_HUB_USER` — 你的 Docker Hub 帳號，用來在 registry 端把
   image 加上命名空間。即使從未實際 push，image tag 仍透過這個
-  identity 寫成 `<DOCKER_HUB_USER>/<repo>:<tag>`。
-- `USER_NAME` — 主機 OS user（`id -un`），用來避免同台機器上不同
-  OS user 在 daemon 的 flat container 命名空間互撞。
+  identity 寫成 `<DOCKER_HUB_USER>/<repo>:<tag>`。機器上沒有登入
+  Docker Hub 時，`setup.sh` 不會讓它留空，而是偵測成你的 **OS
+  user**（`${USER}`，否則 `id -un`）。
+- `USER_NAME` — 主機 OS user（`id -un`），以 build arg 傳進去讓
+  container 內的使用者與家目錄和你一致。它不是上表任何名稱的前綴。
 
 刻意把兩個身份分開。Image 用 Docker Hub 身份，因為 image 是會在
 registry 上被定址的物件；若以 OS user 做前綴，buildx cache 與
-Docker Hub layer 共用會直接破功。Container name 用 OS 身份，因為
-這層解決的衝突（同 host 兩 user 同跑同 repo）是 daemon 端問題、
-無 registry 牽涉。
+Docker Hub layer 共用會直接破功。Project name 用的就是同一個身份，
+單人機上兩者才會對齊 — 而在共用機器上，因為上面那層偵測本來就會
+退回 OS user，不需要第二條規則、也不需要任何設定，project name 就
+已經因人而異。這個身份唯一分不開的情況，是兩個 OS user 共用同一個
+Docker Hub 登入；見下方範例。
 
-Project name 用 `DOCKER_HUB_USER` 是 #322 之前就決定，未動：在
-單人開發機上兩個身份重合，與 `container_name` 視覺上對齊；多人共
-用機則因為 `DOCKER_HUB_USER` 通常也不同，所以 project name 一樣
-能避開跨 user 衝突。`#322` 的 CHANGELOG 寫的「對齊 container-level
-與 project-level naming」在「單人機」假設下成立 — 兩者都帶 user
-前綴，差別只在「同一個 var 還是兩個 var」；多人機場景下兩個前綴
-是不同字串。
+**開發 stack 不 emit `container_name:`，唯一的例外是 field deploy
+bundle（`just docker setup deploy`）。** Container 名稱是 daemon
+層的 namespace、不是 project 層的，所以寫死一個名字等於把該 service
+綁在「每台 host 只能有一份」：同一個 repo 的第二份 stack 不管取什麼
+project name，都會以 `name ... is already in use` 起不來，而且只要
+這個欄位在，compose 就拒絕 `--scale`。交給 compose 推導
+`<project>-<service>-<n>`，名字就天生唯一 — 於是 host 層的隔離完全
+落在 project name 上。
 
-base 是**單一 instance**（#600）：每個 repo 只有一組固定名字的
-container / project。Multi-instance 編排（把同一個 repo 跑成 N 個
-平行 container，各有獨立 project name 與 port override）屬於 compose
-那一層，就像 `docker` 本身沒有 project 概念、`-p` 歸 `docker compose`
-管一樣 — base 完全不碰 multi。
+唯一的例外是 field deploy bundle（`just docker setup deploy`），它確實會
+寫死一個 `container_name:`。那份 bundle 是完全 resolve 過、自帶所有
+內容的單機 artifact — 一台裝置一份 stack、不會和別人同機共存、也沒有
+任何 overlay 會展開它 — 操作者要的就是一個固定名字可以 `docker
+logs`。兩個 emitter、兩套規則；上面共存的論述講的是開發 stack。
+
+```
+COMPOSE_PROJECT_NAME=isaac-ci      docker compose up -d stream  # isaac-ci-stream-1
+COMPOSE_PROJECT_NAME=isaac-manual  docker compose up -d stream  # isaac-manual-stream-1
+```
+
+使用方式沒有任何改變：`just exec -t <target>` 收的一直是 compose
+**service** 名稱（它本來就直接轉交給 `compose exec`），`just run` /
+`just stop` 本來就以 project 為範圍。真正改變的是：手動
+`docker exec <固定名稱>` 不再有固定名稱可用 — 改問 compose（`just
+exec`）。
+
+base 自己的操作面仍是**單一 instance**（#600）：每個 repo 一個
+project，由 `setup apply` 解析一次。把同一個 repo 跑成 N 份平行
+stack 屬於 compose 那一層，就像 `docker` 本身沒有 project 概念、
+`-p` 歸 `docker compose` 管一樣。
 
 同一個 repo 的兩個 *checkout* 是另一個問題，而這個 base 有解：用
 `.setup.conf.local` 的 `[project] name` 給每個 checkout 自己的
@@ -837,22 +877,22 @@ project name — 見[同時跑兩個 worktree](#同時跑兩個-worktree)。
 
 ```
 image:          alice-hub/claude_code:devel
-container_name: alice-claude_code
 project name:   alice-hub-claude_code
+container:      alice-hub-claude_code-devel-1   (compose 推導)
 ```
 
-第二位 OS user `bob` 在同台機器：
+第二位 OS user `bob` 在同台機器，且沒有設定 Docker Hub 帳號：
 
 ```
-image:          bob-hub/claude_code:devel          (不同 registry tag,無 cache 共用)
-container_name: bob-claude_code
-project name:   bob-hub-claude_code
+image:          bob/claude_code:devel           (hub user 偵測成 OS user)
+project name:   bob-claude_code                 (同一個前綴,零設定)
+container:      bob-claude_code-devel-1         (compose 推導)
 ```
 
 若 `alice` 與 `bob` 共用同一個 `DOCKER_HUB_USER`（例如共用 CI
-service 帳號），`image` 會在 Docker Hub 端撞名，但 `container_name`
-仍能區隔 — registry pull 共用 cached image、host 內 daemon 仍
-彼此隔離。
+service 帳號），連 project name 都會一樣 — 這正是該設
+`[project] name` 的場景：這個設定本來就存在，而現在沒有
+`container_name` 蓋在上面，它才真的管得到 container。
 
 <!-- sync: quick-start 629a4900e292 a10e7022bfcd -->
 ## 快速開始
@@ -1101,7 +1141,7 @@ just --list  # 顯示 CI 指令
 [system](../test/system.md) / [acceptance](../test/acceptance.md) /
 [smoke](../test/smoke.md)）。
 
-<!-- sync: directory-structure d8c20b3b383d 890c16dce953 -->
+<!-- sync: directory-structure 00a6ff22dba0 9cfa043c5f5c -->
 ## 目錄結構
 
 ```
@@ -1183,6 +1223,7 @@ just --list  # 顯示 CI 指令
 │       ├── release-test-tools.yaml     # base 自身的 test-tools image release
 │       └── ghcr-cleanup.yaml           # 每週清理 GHCR 上 test-tools 的 untagged orphan
 ├── doc/
+│   ├── badge/                          # 產生的發布覆蓋率徽章（release 時 hand-run，bump caller 待接：docker_harness#289）
 │   ├── readme/                         # README 翻譯（zh-TW / zh-CN / ja）
 │   ├── adr/                            # Architecture Decision Records（00000001 … 00000024）
 │   ├── test/
@@ -1218,3 +1259,4 @@ just --list  # 顯示 CI 指令
 <!-- sync-skip: wrapper-transcripts -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
 <!-- sync-skip: host-detection-overrides -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
 <!-- sync-skip: publish-workeryaml-inputs-opt-in-foundational-image-repos -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
+<!-- sync-skip: source-archives-on-a-base-release -- untranslated: the localized READMEs are abridged; README.md is authoritative -->

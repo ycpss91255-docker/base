@@ -605,6 +605,14 @@ _upgrade() {
   # upgrade crosses the rescope.
   _migrate_lifecycle_restart_default "${REPO_ROOT}"
 
+  # NOTE: the `.env` -> `.env.local` rename is NOT called from here. It has
+  # to fire on the upgrade that CROSSES the naming change, and that upgrade
+  # is driven by the consumer's own vendored copy of this file, which
+  # predates the rename -- so a call added here would first run one release
+  # too late. It lives in init.sh instead, which Step 3 below re-runs from
+  # the freshly pulled subtree, and it gates on the file's CONTENT rather
+  # than on a version marker so it is inert everywhere else.
+
   # Snapshot HEAD so the post-pull integrity check can roll back if
   # git-subtree corrupts the tree. Captured AFTER the setup.conf
   # relocation commit so a rollback preserves the migration.

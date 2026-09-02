@@ -60,11 +60,14 @@ _msg_errors() {
     zh-CN:rerun_setup)       echo "请改以 './run.sh --setup' 重新运行以打开编辑器。" ;;
     ja:rerun_setup)          echo "'./run.sh --setup' で再実行してエディタを開いてください。" ;;
     *:rerun_setup)           echo "Re-run with './run.sh --setup' to open the editor." ;;
-    # %s expanded by printf -v at the callsite (container name).
-    zh-TW:already_running)   echo "容器 '%s' 已在執行中。" ;;
-    zh-CN:already_running)   echo "容器 '%s' 已在运行中。" ;;
-    ja:already_running)      echo "コンテナ '%s' はすでに実行中です。" ;;
-    *:already_running)       echo "Container '%s' is already running." ;;
+    # Two %s expanded by printf -v at the callsite, in this order: the
+    # compose SERVICE, then the compose PROJECT. Every locale keeps that
+    # order (the parenthetical form in the CJK strings exists for exactly
+    # that) so one argument list serves all four.
+    zh-TW:already_running)   echo "服務 '%s'（專案 '%s'）已在執行中。" ;;
+    zh-CN:already_running)   echo "服务 '%s'（项目 '%s'）已在运行中。" ;;
+    ja:already_running)      echo "サービス '%s'（プロジェクト '%s'）はすでに実行中です。" ;;
+    *:already_running)       echo "Service '%s' in project '%s' is already running." ;;
   esac
 }
 
@@ -119,7 +122,7 @@ usage() {
                     本旗標對 -d 無作用。
   -s, --setup       強制重跑 setup.sh（互動式 TTY 開 TUI，否則非互動式 apply）。
                     預設（無此旗標）：當 setup.conf / Dockerfile stages / GPU /
-                    GUI / USER_UID 漂移時，.env.generated + compose.yaml 自動重新生成 (#88)。
+                    GUI / USER_UID 漂移時，.env / .env.generated / compose.yaml 自動重新生成 (#88)。
   --build           在 compose up 前先跑 ./build.sh test（lint + smoke），
                     取得本機 / CI 一致驗證；預設行為依賴 compose auto-build
                     時會跳過 lint+smoke gate (#216)
@@ -162,7 +165,7 @@ EOF
                     本旗标对 -d 无作用。
   -s, --setup       强制重跑 setup.sh（交互式 TTY 开 TUI，否则非交互式 apply）。
                     默认（无此旗标）：当 setup.conf / Dockerfile stages / GPU /
-                    GUI / USER_UID 漂移时，.env.generated + compose.yaml 自动重新生成 (#88)。
+                    GUI / USER_UID 漂移时，.env / .env.generated / compose.yaml 自动重新生成 (#88)。
   --build           在 compose up 前先跑 ./build.sh test（lint + smoke），
                     取得本机 / CI 一致验证；默认行为依赖 compose auto-build
                     时会跳过 lint+smoke gate (#216)
@@ -209,7 +212,7 @@ EOF
   -s, --setup       setup.sh を強制実行（インタラクティブ TTY なら TUI、それ以外
                     は非インタラクティブ apply）。デフォルト（フラグ無し）：setup.conf
                     / Dockerfile stages / GPU / GUI / USER_UID が drift した時、
-                    .env.generated + compose.yaml が自動再生成されます (#88)。
+                    .env / .env.generated / compose.yaml が自動再生成されます (#88)。
   --build           compose up の前に ./build.sh test（lint + smoke）を実行し、
                     ローカル / CI の検証を一致させます。デフォルト動作は
                     compose auto-build に依存しており、lint + smoke gate を
@@ -257,7 +260,7 @@ Options:
                     in detached mode.
   -s, --setup       Force rerun setup.sh (opens the TUI on an interactive TTY,
                     otherwise non-interactive apply). Default (no flag):
-                    auto-regenerate .env.generated + compose.yaml when setup.conf /
+                    auto-regenerate .env / .env.generated / compose.yaml when setup.conf /
                     Dockerfile stages / GPU / GUI / USER_UID drift (#88).
   --build           Run ./build.sh test (lint + smoke) before compose up
                     so local matches CI; default path relies on Compose
@@ -545,22 +548,26 @@ main() {
     xhost +local: >/dev/null 2>&1 || true
   fi
 
-  # Container name mirrors compose.yaml's `container_name:`. Includes
-  # ${USER_NAME} prefix to disambiguate per-OS-user on shared hosts
-  # _load_env above already populated USER_NAME from .env.
-  local CONTAINER_NAME="${USER_NAME}-${IMAGE_NAME}"
-
-  # Refuse to start if the target container is already running.
-  # (For -d mode, the existing `down` step handles restart, so collision is OK.)
+  # Refuse to start if the target service is already running IN THIS
+  # PROJECT. (For -d mode, the existing `down` step handles restart, so a
+  # second bring-up is fine.)
+  #
+  # Project-scoped is the whole point: the emitted compose.yaml names no
+  # container, so a co-hosted stack of this same repo under a different
+  # project name is a legitimate neighbour, not a collision. The guard used
+  # to compare a container name rebuilt from ${USER_NAME} + ${IMAGE_NAME},
+  # which is host-scoped -- it would have refused that neighbour, and now
+  # that compose derives the name it would match nothing at all.
   if [[ "${DETACH}" != true && "${TARGET}" == "devel" \
       && "${DRY_RUN}" != true ]]; then
-    if _wrapper_container_running "${CONTAINER_NAME}"; then
+    if _wrapper_service_running "${TARGET}"; then
       # Compose the multi-line body once (i18n template carries %s for the
-      # container name) and emit via _log_err so the whole block gets the
-      # ERROR colour / stderr routing.
+      # service and the project) and emit via _log_err so the whole block
+      # gets the ERROR colour / stderr routing.
       local _already _stop
       # shellcheck disable=SC2059
-      printf -v _already "$(_msg errors already_running)" "${CONTAINER_NAME}"
+      printf -v _already "$(_msg errors already_running)" \
+        "${TARGET}" "${PROJECT_NAME}"
       _stop="$(_msg hints stop_hint)"
       _log_err run run_already_running "display=${_already}
 ${_stop}"
@@ -613,8 +620,7 @@ ${_stop}"
     fi
   else
     # Other one-shot stages (runtime, test, ...). Empty CMD_ARGS →
-    # foreground `up`, so the container_name: directive
-    # takes effect and the Dockerfile CMD runs.
+    # foreground `up`, so the Dockerfile CMD runs.
     #
     # Non-empty CMD_ARGS → `compose run --rm`, NOT the `up -d` +
     # `exec` pair. For a one-shot app target whose ENTRYPOINT sets
@@ -629,11 +635,11 @@ ${_stop}"
     # `compose run --rm` runs the ENTRYPOINT (env set up) and REPLACES the
     # default CMD (no double-launch) — the correct override semantics.
     #
-    # Container-name note: `compose run` ignores `container_name:` and
-    # appends a `-run-<hash>` suffix (the concern). That is acceptable
-    # here: the override container is ephemeral (`--rm`), foreground, and
-    # nobody re-attaches to it by name, so a stable name buys nothing. The
-    # stable-name path (devel join via `up -d` + `exec`) is unchanged.
+    # Container-name note: `compose run` names its container
+    # `<project>-<service>-run-<hash>` rather than the `-<n>` form `up`
+    # gives. That is acceptable here: the override container is ephemeral
+    # (`--rm`), foreground, and nobody re-attaches to it by name. The
+    # re-attachable path (devel join via `up -d` + `exec`) is unchanged.
     if (( ${#CMD_ARGS[@]} > 0 )); then
       # Command mode: propagate the real exit code for scripting.
       _transcript_detach  # detach before the foreground override run

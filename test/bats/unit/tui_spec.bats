@@ -817,7 +817,13 @@ gpu_capabilities = gpu
 EOF
   local _before
   _before="$(wc -c < "${TEMP_DIR}/conf")"
-  [[ "${_before}" -gt 0 ]] || skip "fixture seed unexpectedly empty"
+  # Fails rather than skipping: the heredoc above is this test's own
+  # fixture, so an empty seed is a broken test, not an absent
+  # precondition -- and skipping here would retire the regression
+  # guard (the 0-byte truncation) exactly when the fixture stopped
+  # being able to detect it.
+  [[ "${_before}" -gt 0 ]] \
+    || fail "fixture seed is empty -- the heredoc above wrote nothing, so the 0-byte-truncation assertion below would pass vacuously"
 
   local -a _sections=(image) _keys=(image.rules) \
     _values=("string:my_unique_image")
@@ -1011,6 +1017,88 @@ EOF
   run cat "${TEMP_DIR}/out.conf"
   refute_output --partial "mount_9"
   assert_output --partial "mount_1 = /a:/a"
+}
+
+@test "_upsert_conf_value replaces a value carrying an inline ' #' instead of appending a duplicate key (#955)" {
+  # `_ini_tokenize` -- the canonical reader -- treats `#` as a comment
+  # marker only when it is the first non-blank character of the line, so
+  # a space-then-hash INSIDE a value is part of the value.
+  # lifecycle.watchdog_check accepts any non-empty single-line string, so
+  # a shell command carrying a comment is a legitimate value. The writer
+  # must agree with the reader: match the existing line and replace it,
+  # never append a second one.
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[lifecycle]
+watchdog_check = curl http://h/x #ping
+restart = no
+EOF
+  _upsert_conf_value "${TEMP_DIR}/.setup.conf" "lifecycle" "watchdog_check" \
+    'curl http://h/y #pong'
+
+  run grep -c '^watchdog_check' "${TEMP_DIR}/.setup.conf"
+  assert_output "1"
+  run grep '^watchdog_check' "${TEMP_DIR}/.setup.conf"
+  assert_output 'watchdog_check = curl http://h/y #pong'
+  # The rest of the section survives the rewrite.
+  run grep '^restart' "${TEMP_DIR}/.setup.conf"
+  assert_output 'restart = no'
+}
+
+@test "_write_setup_conf keeps a logging.<svc> override out of the parent [logging] section (#955)" {
+  # The TUI Save path hands _write_setup_conf EVERY current key as an
+  # override, so a repo carrying a per-service `[logging.<svc>]` section
+  # feeds it a `logging.<svc>.<key>` namespace key. Matching override
+  # keys by dot-split prefix cannot tell that apart from section
+  # `logging` + key `<svc>.<key>`, so the flush injected a bogus
+  # `<svc>.<key> = ...` line into `[logging]`.
+  cat > "${TEMP_DIR}/template.conf" <<'EOF'
+[logging]
+driver = json-file
+max_size = 10m
+
+[logging.web]
+driver = local
+EOF
+  local -a _sections=() _keys=() _values=()
+  _load_setup_conf_full "${TEMP_DIR}/template.conf" _sections _keys _values
+  _write_setup_conf "${TEMP_DIR}/out.conf" "${TEMP_DIR}/template.conf" \
+    _sections _keys _values
+
+  run cat "${TEMP_DIR}/out.conf"
+  refute_output --partial "web.driver"
+  # The per-service section keeps its own key, exactly once.
+  run grep -c '^driver = local' "${TEMP_DIR}/out.conf"
+  assert_output "1"
+  run grep -c '^driver = json-file' "${TEMP_DIR}/out.conf"
+  assert_output "1"
+}
+
+@test "_write_setup_conf appends a brand-new [logging.<svc>] section rather than folding it into [logging] (#955)" {
+  # The TUI's per-service logging editor can name a service the template
+  # never mentions, so the routing fix must ALSO give that override a
+  # section of its own -- excluding it from the `[logging]` flush without
+  # emitting it anywhere would turn a misroute into silent data loss.
+  cat > "${TEMP_DIR}/template.conf" <<'EOF'
+[logging]
+driver = json-file
+EOF
+  local -a _sections=(logging.devel) \
+    _keys=(logging.devel.driver) \
+    _values=("local")
+  _write_setup_conf "${TEMP_DIR}/out.conf" "${TEMP_DIR}/template.conf" \
+    _sections _keys _values
+
+  run cat "${TEMP_DIR}/out.conf"
+  assert_output --partial "[logging.devel]"
+  refute_output --partial "devel.driver"
+  # And it round-trips back to the section it was written for.
+  local -a _rs=() _rk=() _rv=()
+  _load_setup_conf_full "${TEMP_DIR}/out.conf" _rs _rk _rv
+  local _i _got=""
+  for (( _i = 0; _i < ${#_rk[@]}; _i++ )); do
+    [[ "${_rk[_i]}" == "logging.devel.driver" ]] && _got="${_rv[_i]}"
+  done
+  assert_equal "${_got}" "local"
 }
 
 # ════════════════════════════════════════════════════════════════════

@@ -144,13 +144,14 @@ teardown() {
   refute_output --partial "docker run"
 }
 
-@test "deploy flow: the bundle compose carries the watchdog env + the configured restart end to end (#840)" {
+@test "deploy flow: the bundle ships .env + .env.local and the restart policy end to end (#868)" {
   # Re-run the real flow over a conf that sets the [lifecycle] knobs, so the
   # resolve -> resolved-compose -> bundle wiring is exercised, not just the
   # isolated emitter.
   printf '%s\n' \
     "[deploy]" "gpu_mode = off" "dri_groups = off" \
     "[gui]" "mode = off" \
+    "[environment]" "env_1 = APP_MODE=default" \
     "[lifecycle]" "restart = on-failure:5" "watchdog_check = pgrep -f my_node" \
     "watchdog_interval = 30" \
     > "${REPO}/.setup.conf"
@@ -160,10 +161,17 @@ teardown() {
   local _bundle="${REPO}/deploy/fielddemo-runtime-v0.0.1-dirty"
   run cat "${_bundle}/compose.yaml"
   assert_success
-  assert_output --partial "WATCHDOG_CHECK=pgrep -f my_node"
-  assert_output --partial "WATCHDOG_INTERVAL=30"
   assert_output --partial 'restart: "on-failure:5"'
   refute_output --partial "restart: unless-stopped"
+  # The container-bound defaults are a filled-in list the operator can read,
+  # not knowledge hidden inside the image.
+  run cat "${_bundle}/.env"
+  assert_success
+  assert_output --partial "WATCHDOG_CHECK='pgrep -f my_node'"
+  assert_output --partial "WATCHDOG_INTERVAL='30'"
+  assert_output --partial "APP_MODE='default'"
+  # ... and the override file the operator edits ships alongside it.
+  assert [ -f "${_bundle}/.env.local" ]
 }
 
 @test "deploy flow: [environment] is baked as ENV into a stage that is not named runtime (#840)" {
