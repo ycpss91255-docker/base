@@ -162,6 +162,24 @@ EOF
   assert_output "alice-myrepo"
 }
 
+@test "_compute_project_name derives local-<basename> with nothing loaded (#920)" {
+  # The wrapper's pre-bootstrap path, and the ONLY path that reaches the
+  # `local` last resort. Nothing has been loaded, so there is no hub user
+  # AND no USER_NAME -- both keys come from the same `.env.generated`, so
+  # an OS-user rung in the resolver could never fire here. The checkout's
+  # basename is what distinguishes this project, which is why `local` is
+  # honest rather than a shared-prefix collision.
+  run bash -c "
+    source ${LIB}
+    unset DOCKER_HUB_USER IMAGE_NAME USER_NAME PROJECT_NAME
+    FILE_PATH=/tmp/some-checkout
+    _compute_project_name
+    echo \"\${PROJECT_NAME}\"
+  "
+  assert_success
+  assert_output "local-some-checkout"
+}
+
 @test "_compute_project_name honours the PROJECT_NAME resolved into .env.generated (#893)" {
   # The wrapper's -p and compose.yaml's `name:` must be ONE value. That
   # value is resolved once at setup time and recorded in .env.generated;
@@ -215,6 +233,184 @@ EOF
   "
   assert_success
   assert_output "alice-myrepo"
+}
+
+@test "_resolve_project_name: a configured name wins where the derivation cannot separate two users (#920)" {
+  # The project name is now the ONLY per-host isolation the emitted stack
+  # has, and the one case the derivation cannot separate is two OS users
+  # behind ONE Docker Hub login -- detection hands both the same prefix.
+  # `[project] name` is the documented answer there, so it has to keep
+  # winning over a NON-empty derived prefix.
+  run bash -c "
+    source ${LIB}
+    _resolve_project_name 'myrepo-wt2' shared-hub myrepo /tmp/whatever _out
+    echo \"\${_out}\"
+  "
+  assert_success
+  assert_output "myrepo-wt2"
+}
+
+# ── _env_file_value / _carry_project_name (project-name continuity) ────────
+
+@test "_env_file_value reads the last assignment, and empty when absent (#920)" {
+  # Deliberately not `source`: the question is what the FILE records, so an
+  # absent key must answer empty rather than answering with whatever the
+  # environment happens to export.
+  local _f="${BATS_TEST_TMPDIR}/env"
+  printf 'A=1\nPROJECT_NAME=first\nB=2\nPROJECT_NAME=second\n' > "${_f}"
+  run bash -c "
+    export PROJECT_NAME=from-the-environment
+    source ${LIB}
+    _env_file_value '${_f}' PROJECT_NAME _p
+    _env_file_value '${_f}' NOT_THERE _n
+    _env_file_value '${_f}.missing' PROJECT_NAME _m
+    echo \"[\${_p}][\${_n}][\${_m}]\"
+  "
+  assert_success
+  assert_output "[second][][]"
+}
+
+@test "_carry_project_name: a checkout with no recorded name takes the resolved one (#920)" {
+  run bash -c "
+    source ${LIB}
+    _carry_project_name '' 'tester-myrepo' '' _name _pending
+    echo \"[\${_name}][\${_pending}]\"
+  "
+  assert_success
+  assert_output "[tester-myrepo][]"
+}
+
+@test "_carry_project_name: an unchanged resolution records nothing pending (#920)" {
+  run bash -c "
+    source ${LIB}
+    _carry_project_name 'tester-myrepo' 'tester-myrepo' '' _name _pending
+    echo \"[\${_name}][\${_pending}]\"
+  "
+  assert_success
+  assert_output "[tester-myrepo][]"
+}
+
+@test "_carry_project_name: a changed DERIVATION keeps the recorded name (#920)" {
+  # The rename nobody asked for: an upgrade changes what the default
+  # derives, and the project name is the key compose finds the RUNNING
+  # containers by. Compose cannot relabel a running container, so the new
+  # name waits rather than orphaning the stack.
+  run bash -c "
+    source ${LIB}
+    _carry_project_name 'local-myrepo' 'tester-myrepo' '' _name _pending
+    echo \"[\${_name}][\${_pending}]\"
+  "
+  assert_success
+  assert_output "[local-myrepo][tester-myrepo]"
+}
+
+@test "_carry_project_name: a CONFIGURED name is taken at once (#920, #893)" {
+  # The exception, and the reason for it: `[project] name` exists so a
+  # second worktree does not share the first's derived name. Deferring it
+  # while that shared name has containers -- the other checkout's -- would
+  # defeat the setting exactly when it is needed.
+  run bash -c "
+    source ${LIB}
+    _carry_project_name 'local-myrepo' 'myrepo-wt2' 'myrepo-wt2' _name _pending
+    echo \"[\${_name}][\${_pending}]\"
+  "
+  assert_success
+  assert_output "[myrepo-wt2][]"
+}
+
+@test "_recorded_project_name reads the PROJECT_NAME a repo already records (#920)" {
+  local _f="${BATS_TEST_TMPDIR}/env-new"
+  printf 'DOCKER_HUB_USER=bobhub\nIMAGE_NAME=myrepo\nPROJECT_NAME=isaac-ci\n' \
+    > "${_f}"
+  # The recorded key wins outright: it is the resolved value, and the two
+  # legacy keys beside it are no longer what compose reads.
+  run bash -c "
+    source ${LIB}
+    _recorded_project_name '${_f}' _out
+    echo \"[\${_out}]\"
+  "
+  assert_success
+  assert_output "[isaac-ci]"
+}
+
+@test "_recorded_project_name reconstructs the name a PRE-record env file runs under (#920)" {
+  # The shape every consumer on the previous release carries: no
+  # PROJECT_NAME key at all, because the emitter interpolated
+  # `name: \${DOCKER_HUB_USER}-\${IMAGE_NAME}` and the wrapper assembled
+  # the same string for its -p. Byte-for-byte the key set that release
+  # wrote, comment banners and quoted values included, so the reader is
+  # exercised on the real file rather than on a two-line idealisation.
+  local _f="${BATS_TEST_TMPDIR}/env-legacy"
+  cat > "${_f}" <<'EOF'
+# Auto-generated by setup.sh on 2026-08-27 11:52:00
+# Auto-detected fields, do not edit manually. Edit WS_PATH if needed
+
+# ── User / hardware (auto-detected) ──────────
+USER_NAME=alice
+USER_GROUP=alice
+USER_UID=1000
+USER_GID=1000
+HARDWARE=x86_64
+DOCKER_HUB_USER=bobhub
+GPU_ENABLED=true
+IMAGE_NAME=myrepo
+
+# ── Runtime config (from setup.conf) ─────────
+NETWORK_MODE=host
+GPU_CAPABILITIES="gpu compute utility graphics"
+EOF
+  # Not `alice-myrepo`: the live containers are labelled with the HUB user
+  # recorded here, which is the whole point of reading the file instead of
+  # re-deriving. Reading this as "fresh checkout" is what would let the
+  # rename land silently on the one population that is mid-migration.
+  run bash -c "
+    source ${LIB}
+    _recorded_project_name '${_f}' _out
+    echo \"[\${_out}]\"
+  "
+  assert_success
+  assert_output "[bobhub-myrepo]"
+}
+
+@test "_recorded_project_name answers empty when there is no name to reconstruct (#920)" {
+  # A genuinely fresh checkout, and the two half-shapes: either key
+  # missing leaves a string compose would have refused as a project name,
+  # so there is no stack under it to keep continuity with.
+  local _d="${BATS_TEST_TMPDIR}/rec"
+  mkdir -p "${_d}"
+  printf 'USER_NAME=alice\n' > "${_d}/none"
+  printf 'DOCKER_HUB_USER=bobhub\n' > "${_d}/no-image"
+  printf 'IMAGE_NAME=myrepo\n' > "${_d}/no-hub"
+  run bash -c "
+    export DOCKER_HUB_USER=from-the-environment IMAGE_NAME=also-from-there
+    source ${LIB}
+    _recorded_project_name '${_d}/none'     _a
+    _recorded_project_name '${_d}/no-image' _b
+    _recorded_project_name '${_d}/no-hub'   _c
+    _recorded_project_name '${_d}/missing'  _d
+    echo \"[\${_a}][\${_b}][\${_c}][\${_d}]\"
+  "
+  assert_success
+  assert_output "[][][][]"
+}
+
+@test "_resolve_project_name: two OS users with no Docker Hub login derive distinct project names (#920)" {
+  # The property that dropping the container name made load-bearing, pinned
+  # through the chain that actually delivers it. The resolver has no OS-user
+  # rung of its own -- one would be unreachable, since the two detectors end
+  # in the same fallback -- so the prefix differs per OS user because
+  # DETECTION resolves the hub user to the OS user when there is no login.
+  run bash -c "
+    source ${LIB}
+    docker() { return 1; }
+    USER=alice detect_docker_hub_user _ha
+    USER=bob   detect_docker_hub_user _hb
+    _resolve_project_name '' \"\${_ha}\" myrepo /tmp/whatever _a
+    _resolve_project_name '' \"\${_hb}\" myrepo /tmp/whatever _b
+    echo \"\${_a} \${_b}\"
+  "
+  assert_success
+  assert_output "alice-myrepo bob-myrepo"
 }
 
 @test "_resolve_project_name: falls back to local + directory basename with nothing to go on (#893)" {

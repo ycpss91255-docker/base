@@ -247,6 +247,178 @@ EOF
   assert_success
 }
 
+@test "apply keeps the recorded name when the DERIVATION changes, and carries the new one (#920)" {
+  # The rename nobody asks for: `just upgrade` runs init.sh, which runs
+  # `setup apply`, and what the default derives can change under a stack
+  # that is still up. The project name is the key compose finds those
+  # containers by and compose cannot relabel a running container, so apply
+  # records the name the checkout already had and carries the resolved one
+  # beside it. The wrapper adopts it once the old project is empty.
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  local _derived=""
+  _derived="$(grep -m1 '^PROJECT_NAME=' "${TEMP_DIR}/.env.generated")"
+  _derived="${_derived#PROJECT_NAME=}"
+  [[ -n "${_derived}" ]] || fail "apply recorded no project name"
+
+  # A recorded name that no longer matches what the default derives --
+  # the shape a repo carries once it has recorded one at all.
+  sed -i "s/^PROJECT_NAME=.*/PROJECT_NAME=local-legacy/" \
+    "${TEMP_DIR}/.env.generated"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  run grep -Fx 'PROJECT_NAME=local-legacy' "${TEMP_DIR}/.env.generated"
+  assert_success
+  run grep -Fx "PROJECT_NAME_PENDING=${_derived}" "${TEMP_DIR}/.env.generated"
+  assert_success
+}
+
+@test "apply carries the name a PRE-record env file runs under, rather than reading it as fresh (#920)" {
+  # The population this deferral was written for is the one that has not
+  # upgraded yet, and its .env.generated has no PROJECT_NAME key at all:
+  # the emitter interpolated `name: ${DOCKER_HUB_USER}-${IMAGE_NAME}` and
+  # the wrapper assembled the same string for its -p. Read as a fresh
+  # checkout, that file would take the newly derived name with nothing
+  # pending -- the silent rename over a live stack, on precisely the repos
+  # that are mid-migration.
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  local _derived="" _image=""
+  _derived="$(grep -m1 '^PROJECT_NAME=' "${TEMP_DIR}/.env.generated")"
+  _derived="${_derived#PROJECT_NAME=}"
+  _image="$(grep -m1 '^IMAGE_NAME=' "${TEMP_DIR}/.env.generated")"
+  _image="${_image#IMAGE_NAME=}"
+  [[ -n "${_derived}" && -n "${_image}" ]] || fail "apply recorded no name"
+
+  # Turn it back into the older shape: drop the key, and leave a hub user
+  # that detection no longer yields -- a `docker logout`, or a login as a
+  # different account, between the last apply and this one.
+  sed -i '/^PROJECT_NAME=/d' "${TEMP_DIR}/.env.generated"
+  sed -i 's/^DOCKER_HUB_USER=.*/DOCKER_HUB_USER=bobhub/' \
+    "${TEMP_DIR}/.env.generated"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  # The name the LIVE containers carry, reconstructed from the same file.
+  run grep -Fx "PROJECT_NAME=bobhub-${_image}" "${TEMP_DIR}/.env.generated"
+  assert_success
+  run grep -Fx "PROJECT_NAME_PENDING=${_derived}" "${TEMP_DIR}/.env.generated"
+  assert_success
+}
+
+@test "apply adds no pending name when a PRE-record env file still derives the same name (#920)" {
+  # The other half: the reconstruction must not manufacture a rename. A
+  # repo whose recorded hub user is still the detected one runs under the
+  # name apply resolves, so the ordinary upgrade stays silent.
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  sed -i '/^PROJECT_NAME=/d' "${TEMP_DIR}/.env.generated"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  run grep -c '^PROJECT_NAME_PENDING=' "${TEMP_DIR}/.env.generated"
+  assert_failure
+}
+
+@test "apply on a fresh checkout records the resolved name with nothing pending (#920)" {
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  run grep -c '^PROJECT_NAME_PENDING=' "${TEMP_DIR}/.env.generated"
+  assert_failure
+}
+
+@test "apply drops a pending name once the derivation agrees again (#920)" {
+  # The pending key is a note about a divergence, not state to maintain:
+  # every apply re-derives it, so a resolution that agrees again clears it.
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  local _derived=""
+  _derived="$(grep -m1 '^PROJECT_NAME=' "${TEMP_DIR}/.env.generated")"
+  _derived="${_derived#PROJECT_NAME=}"
+
+  sed -i "s/^PROJECT_NAME=.*/PROJECT_NAME=local-legacy/" \
+    "${TEMP_DIR}/.env.generated"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  run grep -Fx "PROJECT_NAME_PENDING=${_derived}" "${TEMP_DIR}/.env.generated"
+  assert_success
+
+  # The wrapper's adoption, done by hand: the recorded name is the
+  # resolved one again.
+  sed -i "s/^PROJECT_NAME=.*/PROJECT_NAME=${_derived}/" \
+    "${TEMP_DIR}/.env.generated"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  run grep -Fx "PROJECT_NAME=${_derived}" "${TEMP_DIR}/.env.generated"
+  assert_success
+  run grep -c '^PROJECT_NAME_PENDING=' "${TEMP_DIR}/.env.generated"
+  assert_failure
+}
+
+@test "apply takes a CONFIGURED rename at once and warns about the old project (#920, #893)" {
+  # `[project] name` exists so a second worktree does not share the
+  # first's derived name; deferring it would defeat it exactly when the
+  # shared name is occupied. Taken at once, therefore -- and said out
+  # loud, because compose cannot relabel whatever is still up under the
+  # old name.
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  printf '\n[project]\nname = myrepo-wt1\n' >> "${TEMP_DIR}/.setup.conf"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  run grep -Fx 'PROJECT_NAME=myrepo-wt1' "${TEMP_DIR}/.env.generated"
+  assert_success
+
+  sed -i 's/^name = myrepo-wt1$/name = myrepo-wt2/' "${TEMP_DIR}/.setup.conf"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  assert_output --partial "myrepo-wt1"
+  assert_output --partial "myrepo-wt2"
+  assert_output --partial "no longer addressed by this checkout"
+  run grep -Fx 'PROJECT_NAME=myrepo-wt2' "${TEMP_DIR}/.env.generated"
+  assert_success
+  run grep -c '^PROJECT_NAME_PENDING=' "${TEMP_DIR}/.env.generated"
+  assert_failure
+}
+
 @test "the shipped template ships [project] name empty, so an upgrade changes nothing (#893)" {
   # The section must exist in .setup.conf too: .setup.conf.local is the
   # LOCAL VARIANT of .setup.conf and shares its grammar. A section that
@@ -527,6 +699,89 @@ EOF
   assert_line --index 2 "privileged = true"
 }
 
+@test "show <section> keeps the per-service [logging.<svc>] keys out of the parent dump (#955)" {
+  # The whole-section dump decided membership with a raw dot-prefix
+  # match (`${_section}.`*), the exact test _conf_split_nskey's doc
+  # comment forbids: `logging.` prefixes `logging.web.driver` too, so a
+  # per-service override was listed under the parent [logging] as a
+  # bogus `web.driver` key. Membership is _conf_split_nskey's question.
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[logging]
+driver = json-file
+
+[logging.web]
+driver = local
+EOF
+  run main show logging --base-path "${TEMP_DIR}"
+  assert_success
+  assert_line "driver = json-file"
+  refute_output --partial "web.driver"
+  # `web.driver` is only the SYMPTOM spelling. The property is that the
+  # per-service VALUE is not in the parent dump at all, whatever key it
+  # arrives under: a splitter that resolved `logging.web.driver` to
+  # section `logging` + key `driver` would print `driver = local` here
+  # -- no `web.driver` token, same defect. `show <section>` prints keys
+  # without headers, so the value's absence is the positional claim.
+  refute_line "driver = local"
+}
+
+@test "show logging.<svc> dumps the sub-section it accepts as a valid section (#955)" {
+  # `_setup_known_section` accepts `logging.?*`, so [logging.web] is a
+  # section the tool considers legal -- but the spec split reads a bare
+  # `logging.web` as section `logging` + key `web`, and the key lookup
+  # failed with "Key not found". A section the tool accepts must be
+  # readable.
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[logging]
+driver = json-file
+
+[logging.web]
+driver = local
+max_size = 1m
+EOF
+  run main show logging.web --base-path "${TEMP_DIR}"
+  assert_success
+  assert_line --index 0 "driver = local"
+  assert_line --index 1 "max_size = 1m"
+}
+
+@test "show reports a typo under [logging] as a missing KEY, not an empty section (#955)" {
+  # The sub-section fallback is two conjuncts and only the SECOND one
+  # separates a legitimate dump from swallowing a typo:
+  # `_setup_known_section` accepts `logging.?*` for ANY non-empty
+  # suffix, so every mistyped key under [logging] reaches the fallback
+  # and passes the first conjunct. Drop `&& _setup_dump_section` and
+  # `show logging.drivr` returns 0 having printed nothing -- a silent
+  # success for a typo.
+  #
+  # The sibling "missing key" case uses `network.nope`, which fails the
+  # FIRST conjunct and never reaches the guard, so it cannot stand in
+  # for this one.
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[logging]
+driver = json-file
+
+[logging.web]
+driver = local
+EOF
+  run main show logging.drivr --base-path "${TEMP_DIR}"
+  assert_failure
+  # Names the KEY the user typed, not the parent section: the error has
+  # to point at the typo.
+  assert_output --partial "logging.drivr"
+  # ... and reports it as the KEY kind. The spec `logging.drivr` is
+  # embedded verbatim in BOTH candidate messages, so that token alone
+  # cannot tell `conf_key_not_found` from a `conf_section_not_found`
+  # that calls the typo an unknown SECTION -- the very swap the case
+  # name forbids. The error-kind display string is what separates them,
+  # so pin it, and refute both section-flavoured strings the tree can
+  # emit here (`section_not_found` and `unknown_section`).
+  assert_output --partial "Key not found"
+  refute_output --partial "Section not found"
+  refute_output --partial "Unknown section"
+  refute_output --partial "driver = json-file"
+}
+
 @test "show returns non-zero on a missing key" {
   cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [network]
@@ -579,6 +834,177 @@ EOF
   assert_output --partial "rule_1 = @basename"
   assert_output --partial "[network]"
   assert_output --partial "mode = host"
+}
+
+@test "list emits a per-service logging key once, under its own section (#955)" {
+  # `list` output is documented as "suitable for piping into other
+  # tooling", so its section membership has to survive a round-trip.
+  # The dot-prefix match printed `logging.web.driver` under BOTH
+  # [logging] (as `web.driver`) and [logging.web] (as `driver`) -- the
+  # same value twice, once under the wrong section, and piping that
+  # back reproduces the dotted-key-in-[logging] file _write_setup_conf
+  # was fixed to stop writing.
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[logging]
+driver = json-file
+
+[logging.web]
+driver = local
+EOF
+  run main list --base-path "${TEMP_DIR}"
+  assert_success
+  assert_output --partial "[logging.web]"
+  refute_output --partial "web.driver"
+  # A bare token count cannot separate the negative case from the
+  # positive one: a splitter resolving `logging.web.driver` to section
+  # `logging` + key `driver` prints ONE `driver = local`, spelled
+  # identically, under the WRONG header. So parse the dump into its
+  # blocks and assert WHICH header each value sits under -- that is the
+  # claim in this test's name, and the round-trip property `list` owes
+  # its documented consumers.
+  local _line _cur="" _parent="" _sub=""
+  while IFS= read -r _line; do
+    if [[ "${_line}" == \[*\] ]]; then
+      _cur="${_line#[}"
+      _cur="${_cur%]}"
+    elif [[ "${_cur}" == "logging" ]]; then
+      _parent+="${_line}"$'\n'
+    elif [[ "${_cur}" == "logging.web" ]]; then
+      _sub+="${_line}"$'\n'
+    fi
+  done <<< "${output}"
+  [[ "${_parent}" == *"driver = json-file"* ]] \
+    || fail "[logging] block lost its own key. Block was: ${_parent}"
+  [[ "${_parent}" != *"driver = local"* ]] \
+    || fail "the [logging.web] value was dumped under [logging]. Block was: ${_parent}"
+  [[ "${_sub}" == *"driver = local"* ]] \
+    || fail "[logging.web] block is missing its own key. Block was: ${_sub}"
+  # ... and exactly once in the whole dump, so it is not ALSO restated
+  # somewhere the block parse above does not look.
+  local _hits
+  _hits="$(printf '%s\n' "${output}" | grep -c '^driver = local$' || true)"
+  [[ "${_hits}" == "1" ]] \
+    || fail "expected the sub-section value exactly once, saw ${_hits}"
+}
+
+@test "no setup.conf namespace-key reader re-derives section membership with a trailing-dot glob on a lone section variable (#955)" {
+  # The CHANGELOG entry and _conf_split_nskey's doc comment both claim
+  # one owner for "which section does this key belong to". This is that
+  # claim as an assertion: a glob that pastes a literal dot onto a lone
+  # section-name variable and matches the rest (`== "${sec}."*`) is
+  # exactly the re-derivation that bound `logging.web.driver` to the
+  # parent [logging]. Readers must ask _conf_split_nskey (or
+  # _setup_dump_section, which wraps it). The guard is structural
+  # because its subject is the reader that does NOT exist yet: a new
+  # one has no behavioural test to catch it.
+  #
+  # WHAT THE NAME PROMISES IS WHAT THE BODY CHECKS. Two nearby spellings
+  # are deliberately OUT, and the name says "a lone section variable"
+  # rather than "any dot-prefix" so nobody reads coverage into them:
+  #
+  #   (a) `== "${_ns}.${_prefix}"*` -- a dot between TWO variables, live
+  #       in setup_tui.sh (1848/1855/2381/2388). Benign: `_prefix` is a
+  #       list-slot stem (`env_`, `port_`) inside an ALREADY-resolved
+  #       namespace, and every hit is then required to strip to
+  #       `^[0-9]+$`, so `environment.env_1.foo` is rejected by the
+  #       numeric test, not misrouted.
+  #   (b) a prefix assembled on an earlier line (`_prefix="stage:${_s}."`
+  #       then `== "${_prefix}"*`), live at setup_tui.sh:2161-2172.
+  #       Benign for the same reason and for a second one: it counts
+  #       every key under one stage on purpose, so a deeper key SHOULD
+  #       be included.
+  #
+  # Catching (a)/(b) would mean matching two live, correct call sites
+  # and then exempting them by path -- the hand-listed roster this
+  # guard exists to avoid. A narrow name that is true beats a wide one
+  # that is not; if a real membership bug is ever written in those
+  # spellings, this guard will not see it, and that is stated here
+  # rather than implied away.
+  #
+  # POPULATION IS DERIVED, NEVER LISTED -- ROOT AND FILE SHAPE INCLUDED.
+  # The root is /source/dist, the whole shipped payload (what
+  # init/upgrade copies to a consumer's .base/dist, cf.
+  # init_rollback_spec.bats), not one subdirectory of it: a reader
+  # dropped into dist/script/base/ ships just as far as one in
+  # dist/script/docker/, and the earlier docker-only root let that one
+  # through green. Within the root the find carries NO -name filter
+  # either: membership is decided by what a file's CODE says, not by
+  # what it is called, so a reader shipped as `.bash`, as `bashrc`, or
+  # with no extension at all is scanned like any other -- an `*.sh`
+  # filter is a roster spelled as a glob, and dist/ already ships
+  # extensionless shell (config/shell/bashrc). Every file whose CODE
+  # calls `_load_setup_conf_full` / `_setup_effective_full` -- the two
+  # functions that produce the namespace-key view -- is a reader, so a
+  # lib or wrapper added tomorrow is scanned with no edit here. Nothing
+  # else in dist/ matches, so the non-shell payload simply never enters
+  # the loop. schema.sh is out because it calls neither:
+  # `_schema_section_keys` prefix-matches the static SCHEMA_VALIDATOR
+  # registry, whose section names carry no dot. The match is over CODE
+  # lines, so _tui_conf.sh -- which names `_load_setup_conf_full` only
+  # in its header prose -- is correctly not a reader.
+  local _root=/source/dist
+  [[ -d "${_root}" ]] || fail \
+    "missing ${_root} -- the shipped tree this guard derives its population from"
+  local -a _readers=()
+  local _f
+  while IFS= read -r _f; do
+    if code_grep -qE '_load_setup_conf_full|_setup_effective_full' "${_f}"; then
+      _readers+=("${_f}")
+    fi
+  done < <(find "${_root}" -type f | sort)
+
+  # A scan that found nothing is not a pass. Four readers exist today
+  # (conf.sh, setup_cmd.sh, setup_conf.sh, setup_tui.sh); the floor is
+  # a REGRESSION floor -- the derivation returning fewer than it
+  # already covered means the derivation broke, not that the tree got
+  # clean.
+  (( ${#_readers[@]} >= 4 )) || fail \
+    "derived only ${#_readers[@]} namespace-key readers under ${_root}; the derivation broke (renamed helper? moved tree?), so this guard scanned almost nothing: ${_readers[*]}"
+
+  # One spelling is not the property. The glob binds a variable holding
+  # a section name to a literal dot and a wildcard, and bash writes that
+  # several ways: the dot inside the quotes or outside, the variable
+  # bare, braced, subscripted, or braced with a modifier
+  # (`${_sec:-x}."*`, `${_sec,,}."*`), in `==` or in a `case` pattern.
+  # All of them are the same defect, so all of them match here. The
+  # brace body is "anything but a closing brace", which is what admits
+  # the modifier forms the earlier `[A-Za-z0-9_]`-only body dropped.
+  #
+  # QUOTING IS A CLASS, NOT ONE CHARACTER. bash quotes that literal dot
+  # with either quote character, so `"${_sec}"'.'*` and `${_sec}'.'*`
+  # are the same defect as `"${_sec}."*` -- a single-quoted dot was
+  # invisible while this matched one optional `"`. The quantifier is
+  # `*`, not `?`, for the same reason: `"${_sec}"'.'*` carries TWO
+  # quote characters between the closing brace and the dot.
+  #
+  # One further spelling is deliberately OUT, alongside (a)/(b) above:
+  #
+  #   (c) indirect expansion, `"${!_ref}."*`. The reference alternation
+  #       requires a name character straight after `${`, so `${!...}`
+  #       is not matched. That is deliberate rather than overlooked: the
+  #       name says "a lone SECTION variable", and an indirect reference
+  #       names a variable that names the section -- one level removed,
+  #       and unused anywhere in dist/. If a membership bug is ever
+  #       written that way this guard will not see it, and that is
+  #       stated here rather than implied away.
+  local _var_ref='(\$\{[A-Za-z_][A-Za-z0-9_]*(\[[^]]*\])?[^}]*\}|\$[A-Za-z_][A-Za-z0-9_]*)'
+  local _quotes=$'[\'"]*'
+  local _dot_glob="${_var_ref}${_quotes}\\.${_quotes}\\*"
+
+  local _view="${TEMP_DIR}/reader-code-view.txt" _status _hits
+  for _f in "${_readers[@]}"; do
+    assert_spec_subject "${_f}" "a shipped setup.conf namespace-key reader"
+    code_lines "${_f}" > "${_view}" || true
+    [[ -s "${_view}" ]] || fail \
+      "${_f} has no code lines -- scanning it would assert nothing"
+    _status=0
+    _hits="$(grep -E "${_dot_glob}" "${_view}")" || _status=$?
+    # Pinned to exactly 1: 0 is a live instance, 2 is a scan that never
+    # read the file, and a bare assert_failure cannot tell them apart.
+    (( _status == 1 )) || fail \
+      "grep exited ${_status} scanning ${_f} (want exactly 1: read it, matched nothing). Offending code lines:
+${_hits}"
+  done
 }
 
 @test "list <section> mirrors show <section>" {
@@ -689,6 +1115,39 @@ EOF
   assert_failure
   [[ "${status}" -eq 2 ]]
   assert_output --partial "Unknown section"
+}
+
+@test "main add binds a logging.<svc> spec to the sub-section, not the parent (#955)" {
+  # `add` derived <section>/<list> with its own dot-split instead of
+  # asking _conf_split_nskey, so `logging.web.<list>` split at the FIRST
+  # dot: section `logging`, list `web.<list>`. That is the same
+  # misrouting _write_setup_conf was fixed for -- the slot was appended
+  # to the parent [logging] block as a bogus dotted key `web.<list>_N`,
+  # which no reader ever resolves back to the [logging.web] service.
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[logging]
+driver = json-file
+
+[logging.web]
+driver = local
+EOF
+  run main add logging.web.tag alpha --base-path "${TEMP_DIR}"
+  assert_success
+
+  # The slot lands in [logging.web] under its own list name ...
+  run grep -c '^tag_1 = alpha$' "${TEMP_DIR}/.setup.conf"
+  assert_output "1"
+  # ... and no dotted key is injected anywhere.
+  run grep -c '^web\.tag' "${TEMP_DIR}/.setup.conf"
+  assert_output "0"
+  # The parent section keeps exactly its own key.
+  local -a _pk=() _pv=()
+  _parse_ini_section "${TEMP_DIR}/.setup.conf" "logging" _pk _pv
+  [[ "${_pk[*]}" == "driver" ]]
+  # ... and the sub-section now carries both.
+  local -a _sk=() _sv=()
+  _parse_ini_section "${TEMP_DIR}/.setup.conf" "logging.web" _sk _sv
+  [[ "${_sk[*]}" == "driver tag_1" ]]
 }
 
 @test "main add rejects invalid mount value" {

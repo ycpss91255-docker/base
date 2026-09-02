@@ -160,6 +160,7 @@ ci_bats_path_not_found
 ci_bats_path_system
 ci_bats_path_coverage
 ci_coverage_path_conflict
+ci_coverage_evidence_not_erased
 ci_mixed_test_layout
 ci_issueref_in_comment
 ci_adr_numbering
@@ -185,6 +186,7 @@ ci_project_name_digest_failed
 ci_host_id_not_numeric
 ci_prev_release_progress
 ci_prev_release_unavailable
+ci_live_tree_residue
 
 # transcript.sh (#606)
 # Only genuine setup FAILURES are emitted via the logger (to stderr,
@@ -198,6 +200,16 @@ transcript_env_invalid
 
 # compose.sh (project-name resolution)
 project_name_missing_from_env
+project_name_reconfigured
+
+# wrapper.sh (shared wrapper runtime). Emitted under the CALLING verb's
+# tag (build / run), so the names carry no verb prefix of their own.
+service_probe_failed
+project_renamed
+project_rename_write_failed
+project_rename_deferred
+project_rename_deferred_volumes
+project_rename_probe_failed
 
 # general
 dry_run_cmd

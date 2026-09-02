@@ -546,7 +546,7 @@ _generate_resolved_compose() {
   {
     printf '# AUTO-GENERATED self-contained field deploy compose. DO NOT EDIT.\n'
     printf '# Fully resolved (no variable interpolation, no setup.conf/.env dep);\n'
-    printf '# run via ./deploy.sh up|down|logs. Regenerate: just setup deploy --stage %s\n' "${_stage}"
+    printf '# run via ./deploy.sh up|down|logs. Regenerate: just docker setup deploy --stage %s\n' "${_stage}"
     printf 'name: %s\n' "${_container}"
     printf 'services:\n'
     printf '  %s:\n' "${_stage}"
@@ -684,7 +684,7 @@ YAML
 # service runs with, as a filled-in list.
 #
 # `.env` means the same thing here as on a dev host -- ours, generated,
-# replaced by the next `just setup deploy`, loaded into the container ahead
+# replaced by the next `just docker setup deploy`, loaded into the container ahead
 # of the operator's `.env.local`. The contents differ only because a bundle
 # has to be self-contained: the `[environment]` values are ALSO baked into
 # the image as ENV (ADR-00000003 S3), and restating them here turns
@@ -720,7 +720,7 @@ _generate_deploy_launcher() {
     cat <<EOF
 #!/usr/bin/env bash
 # AUTO-GENERATED field deploy launcher. DO NOT EDIT.
-# Regenerate via: just setup deploy --stage ${_stage}
+# Regenerate via: just docker setup deploy --stage ${_stage}
 #
 # Self-contained: loads the bundled image, then drives the resolved
 # compose.yaml. Runs from anywhere (cd's to its own bundle dir).

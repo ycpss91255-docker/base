@@ -5,6 +5,7 @@
 # The single shared home for setup.conf I/O:
 #   _dump_conf_section    - emit key=value lines from one section
 #   _load_setup_conf_full - parse every section into namespaced arrays
+#   _conf_split_nskey     - split a namespaced key back into its halves
 #   _parse_ini_section    - parse one section into flat arrays
 #   _write_setup_conf     - rewrite from a template + overrides,
 #                           preserving comments and ordering
@@ -146,6 +147,45 @@ _load_setup_conf_full() {
     _lsf_keys+=("${__lsf_es[__lsf_i]}.${__lsf_k[__lsf_i]}")
     _lsf_values+=("${__lsf_v[__lsf_i]}")
   done
+}
+
+# _conf_split_nskey <nskey> <section_outvar> <key_outvar>
+#
+# Inverse of the join `_load_setup_conf_full` performs: split a
+# "<section>.<key>" namespace key back into its two halves.
+#
+# The join is lossy -- either half may contain a dot -- so the split
+# leans on the one rule the config schema fixes: the per-service
+# `[logging.<svc>]` block is the only sub-sectioned name, so
+# `logging.<svc>.<key>` splits at the RIGHTMOST dot and everything else
+# splits at the first (`stage:headless.gui.mode` -> section
+# `stage:headless`, key `gui.mode`).
+#
+# A dot-split PREFIX is not a substitute: `logging.` prefixes both
+# `logging.max_size` and `logging.web.driver`, so prefix matching binds
+# a per-service override to the parent `[logging]` section as well.
+# Anything deciding which section an override key belongs to must ask
+# here rather than re-derive it.
+#
+# Returns 1 with both outvars empty when <nskey> carries no dot, i.e. it
+# names a section and no key.
+_conf_split_nskey() {
+  local _nskey="${1-}"
+  local -n _csn_section="${2:?"${FUNCNAME[0]}: missing section outvar"}"
+  local -n _csn_key="${3:?"${FUNCNAME[0]}: missing key outvar"}"
+
+  _csn_section=""
+  _csn_key=""
+  [[ "${_nskey}" == *.* ]] || return 1
+
+  if [[ "${_nskey}" == logging.*.* ]]; then
+    _csn_section="${_nskey%.*}"
+    _csn_key="${_nskey##*.}"
+  else
+    _csn_section="${_nskey%%.*}"
+    _csn_key="${_nskey#*.}"
+  fi
+  return 0
 }
 
 # _parse_ini_section <file> <section> <keys_outvar> <values_outvar>
@@ -464,11 +504,18 @@ _write_setup_conf() {
       # Flush not-yet-emitted overrides belonging to the section we are
       # about to leave (those are "added" keys with no template line).
       if [[ -n "${__current}" ]]; then
-        local __ovk
+        local __ovk __ovk_sect __ovk_key
         for __ovk in "${!__override[@]}"; do
-          if [[ "${__ovk}" == "${__current}."* && -z "${__emitted[${__ovk}]:-}" ]]; then
+          # Which section an override key belongs to is _conf_split_nskey's
+          # question. A `"${__current}."*` prefix match answers it wrongly
+          # for the one sub-sectioned name: `logging.web.driver` prefixes
+          # `logging.` too, so it was flushed into `[logging]` as a bogus
+          # `web.driver = ...` line on top of the `[logging.web]` line it
+          # belongs to.
+          _conf_split_nskey "${__ovk}" __ovk_sect __ovk_key || continue
+          if [[ "${__ovk_sect}" == "${__current}" && -z "${__emitted[${__ovk}]:-}" ]]; then
             [[ -n "${__removed[${__ovk}]+x}" ]] && { __emitted[${__ovk}]=1; continue; }
-            printf '%s = %s\n' "${__ovk#"${__current}".}" "${__override[${__ovk}]}" >> "${_out}"
+            printf '%s = %s\n' "${__ovk_key}" "${__override[${__ovk}]}" >> "${_out}"
             __emitted[${__ovk}]=1
           fi
         done
@@ -503,11 +550,12 @@ _write_setup_conf() {
 
   # Flush leftovers belonging to the final section
   if [[ -n "${__current}" ]]; then
-    local __ovk
+    local __ovk __ovk_sect __ovk_key
     for __ovk in "${!__override[@]}"; do
-      if [[ "${__ovk}" == "${__current}."* && -z "${__emitted[${__ovk}]:-}" ]]; then
+      _conf_split_nskey "${__ovk}" __ovk_sect __ovk_key || continue
+      if [[ "${__ovk_sect}" == "${__current}" && -z "${__emitted[${__ovk}]:-}" ]]; then
         [[ -n "${__removed[${__ovk}]+x}" ]] && continue
-        printf '%s = %s\n' "${__ovk#"${__current}".}" "${__override[${__ovk}]}" >> "${_out}"
+        printf '%s = %s\n' "${__ovk_key}" "${__override[${__ovk}]}" >> "${_out}"
         __emitted[${__ovk}]=1
       fi
     done
@@ -520,10 +568,13 @@ _write_setup_conf() {
   # a user adds `[stage:headless]` via TUI Save the section is brand
   # new and would otherwise be silently dropped here.
   #
-  # Section-name extraction uses the `<section>.<key>` split rule
-  # established by `_load_setup_conf_full`: section name has no `.`,
-  # key may. `stage:headless.gui.mode` → section=stage:headless,
-  # key=gui.mode.
+  # Section-name extraction goes through `_conf_split_nskey`, the one
+  # place that owns the `<section>.<key>` split rule --
+  # `stage:headless.gui.mode` → section=stage:headless, key=gui.mode,
+  # and `logging.web.driver` → section=logging.web, key=driver, so a
+  # per-service logging override the template never mentions gets a
+  # `[logging.web]` section of its own instead of being folded into the
+  # parent `[logging]`.
   local -A __template_sections=()
   local __l
   for __l in "${__tpl_lines[@]}"; do
@@ -538,13 +589,13 @@ _write_setup_conf() {
   local -a __new_section_order=()
   local -A __new_section_seen=()
   local _wsc_i
+  local __ns_sect __ns_key
   for (( _wsc_i = 0; _wsc_i < ${#_wsc_keys[@]}; _wsc_i++ )); do
-    local __ovk_key="${_wsc_keys[_wsc_i]}"
-    local __ovk_sect="${__ovk_key%%.*}"
-    if [[ -z "${__template_sections[${__ovk_sect}]:-}" ]] \
-       && [[ -z "${__new_section_seen[${__ovk_sect}]:-}" ]]; then
-      __new_section_order+=("${__ovk_sect}")
-      __new_section_seen[${__ovk_sect}]=1
+    _conf_split_nskey "${_wsc_keys[_wsc_i]}" __ns_sect __ns_key || continue
+    if [[ -z "${__template_sections[${__ns_sect}]:-}" ]] \
+       && [[ -z "${__new_section_seen[${__ns_sect}]:-}" ]]; then
+      __new_section_order+=("${__ns_sect}")
+      __new_section_seen[${__ns_sect}]=1
     fi
   done
 
@@ -555,10 +606,11 @@ _write_setup_conf() {
     printf '\n[%s]\n' "${__ns}" >> "${_out}"
     for (( _wsc_i = 0; _wsc_i < ${#_wsc_keys[@]}; _wsc_i++ )); do
       local __key="${_wsc_keys[_wsc_i]}"
-      [[ "${__key}" == "${__ns}."* ]] || continue
+      _conf_split_nskey "${__key}" __ns_sect __ns_key || continue
+      [[ "${__ns_sect}" == "${__ns}" ]] || continue
       [[ -n "${__emitted[${__key}]:-}" ]] && continue
       [[ -n "${__removed[${__key}]+x}" ]] && continue
-      printf '%s = %s\n' "${__key#"${__ns}".}" "${_wsc_values[_wsc_i]}" >> "${_out}"
+      printf '%s = %s\n' "${__ns_key}" "${_wsc_values[_wsc_i]}" >> "${_out}"
       __emitted[${__key}]=1
     done
   done
@@ -616,7 +668,8 @@ _upsert_conf_value() {
     return 1
   fi
 
-  local __line __current="" __k __rest __matched=0 __in_sect=0 __sect_found=0
+  local __line __current="" __k __rest __trimmed
+  local __matched=0 __in_sect=0 __sect_found=0
   while IFS= read -r __line || [[ -n "${__line}" ]]; do
     if [[ "${__line}" =~ ^[[:space:]]*\[(.+)\][[:space:]]*$ ]]; then
       # Leaving target section without finding key → append key before next section
@@ -633,8 +686,30 @@ _upsert_conf_value() {
       printf '%s\n' "${__line}" >> "${_tmp}"
       continue
     fi
-    if (( __in_sect )) && [[ -n "${__line}" ]] && [[ "${__line}" != *[[:space:]]\#* ]] \
-       && [[ "${__line}" != \#* ]] && [[ "${__line}" == *=* ]]; then
+    # A line is a comment when `#` is its FIRST non-blank character --
+    # the rule `_ini_tokenize` (the canonical reader) applies, so an
+    # inline `#` is part of the value, not a comment marker. The guard
+    # used to skip any line containing a space-then-hash as well, which
+    # fired on a VALUE carrying one (a lifecycle.watchdog_check shell
+    # command, an [environment] entry): the existing key never matched,
+    # the in-place replace was skipped, and a second `key = ...` was
+    # appended at the section end. Reads are last-wins, so the duplicate
+    # corrupted the file without changing behaviour. Dropping the
+    # space-then-hash clause is the whole of the behaviour change.
+    #
+    # The surviving `!= #*` clause is belt-and-braces and has no
+    # behaviour of its own today: the match below compares the key
+    # against `__rest`, the TRIMMED text left of `=`, and a comment
+    # line's first token always begins with `#`, so it can never equal a
+    # schema key whether the clause tests `__line` or `__trimmed`.
+    # Deleting both comment clauses outright leaves the whole suite
+    # green. It is kept, and tested against the trimmed line, so the
+    # writer states the reader's rule in the reader's terms instead of
+    # leaning on that coincidence -- not because an indented comment
+    # behaves differently without it.
+    __trimmed="${__line#"${__line%%[![:space:]]*}"}"
+    if (( __in_sect )) && [[ -n "${__trimmed}" ]] && [[ "${__trimmed}" != \#* ]] \
+       && [[ "${__line}" == *=* ]]; then
       __k="${__line%%=*}"
       __rest="${__k#"${__k%%[![:space:]]*}"}"
       __rest="${__rest%"${__rest##*[![:space:]]}"}"
