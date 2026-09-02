@@ -62,14 +62,27 @@
 #     defect;
 #   - the scan matched nothing anywhere -- a renamed generator or a
 #     matcher that stopped matching, where silence would otherwise read as
-#     lockstep.
+#     lockstep;
+#   - a `uses:` value the reader cannot place at all. It is a hole in the
+#     lint's population, so it is reported as one rather than skipped.
 #
-# Deliberately NOT a pin: an interpolated ref, e.g. this repo calling its
-# own reusable workflow at the pinned subtree version. Both halves are
-# shell variables, there is no literal to compare, and upgrade.sh already
-# rewrites that ref on every upgrade. Nor is a ref quoted inside a shell
-# or YAML COMMENT: prose explaining what a step looks like is not a step,
-# and a lint that fails on its own documentation gets muted.
+# Deliberately NOT a pin, each excluded BY NAME in _gwa_classify rather
+# than by failing to match:
+#
+#   - an interpolated ref, e.g. this repo calling its own reusable
+#     workflow at the pinned subtree version. Both halves are shell
+#     variables, there is no literal to compare, and upgrade.sh already
+#     rewrites that ref on every upgrade;
+#   - a local `./` callee, which carries no ref: it is this tree, at this
+#     commit;
+#   - a `docker://` container action, an image reference rather than a
+#     repository tag, with no `<owner>/<repo>` reading to compare.
+#
+# Nor is a ref quoted inside a shell or YAML COMMENT: prose explaining
+# what a step looks like is not a step, and a lint that fails on its own
+# documentation gets muted. A ref in QUOTES is not an exclusion -- quoting
+# is a YAML spelling of the same reference, and it is compared like any
+# other.
 #
 # Style: Google Shell Style Guide.
 
@@ -77,13 +90,23 @@
 # workflow added tomorrow is read without touching this driver.
 readonly _GWA_WORKFLOW_DIR_REL='.github/workflows'
 
-# One `uses:` reference to a versioned action, as a literal.
+# One `uses:` line, with the whole value captured RAW. What the value is
+# gets decided afterwards, by _gwa_classify.
 #
-# Capture 1 is the action (`owner/repo`, optionally with a subpath) and
-# capture 3 is the ref. Neither character class admits `$`, so an
-# interpolated owner or ref cannot match, and the required `/` keeps a
+# The two stages are separate because a single matcher that both finds the
+# line and vets the value also decides, silently, what this lint stops
+# covering: every value it declines leaves the population with no
+# diagnostic. That is not hypothetical -- the first version of this file
+# anchored the action at `[A-Za-z0-9]`, so `uses: "actions/checkout@v3"`
+# and `uses: 'actions/setup-node@v1'` -- legal YAML, legal Actions syntax,
+# and neither an exclusion nor an error -- were dropped, and a generated
+# ref disagreeing with the workflows passed green.
+readonly _GWA_USES_LINE_RE='uses:[[:space:]]+(.+)$'
+
+# A value that names a versioned action: `<owner>/<repo>[/<sub>...]@<ref>`.
+# Capture 1 is the action, capture 3 the ref. The required `/` keeps a
 # bare word ahead of an `@` from being read as an action.
-readonly _GWA_USES_RE='uses:[[:space:]]+([A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9._-]+)+)@([A-Za-z0-9._-]+)'
+readonly _GWA_ACTION_RE='^([A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9._-]+)+)@([A-Za-z0-9._-]+)$'
 
 # Generated trees the walk must not descend into, by directory basename.
 #
@@ -106,6 +129,56 @@ _gwa_is_comment() {
   local _l="${1}"
   _l="${_l#"${_l%%[![:space:]]*}"}"
   [[ "${_l}" == '#'* ]]
+}
+
+# _gwa_value <line> -- the `uses:` value on <line>, normalised.
+#
+# Returns non-zero when the line carries no `uses:` value at all. Quotes
+# are stripped because quoting a scalar is a YAML spelling, not a
+# different reference, and a trailing ` # ...` annotation is prose: the
+# space before the `#` is required, so a `#` inside a value is not
+# mistaken for one.
+_gwa_value() {
+  local _l="${1}" _v
+  [[ "${_l}" =~ ${_GWA_USES_LINE_RE} ]] || return 1
+  _v="${BASH_REMATCH[1]}"
+  _v="${_v%% #*}"
+  _v="${_v//\"/}"
+  _v="${_v//\'/}"
+  # Trim both ends.
+  _v="${_v#"${_v%%[![:space:]]*}"}"
+  _v="${_v%"${_v##*[![:space:]]}"}"
+  [[ -n "${_v}" ]] || return 1
+  printf '%s' "${_v}"
+}
+
+# _gwa_classify <value> -- decide what one `uses:` value is.
+#
+# Prints `<action>\t<ref>` and returns 0 for a versioned action this lint
+# can compare; returns 1 for a value EXCLUDED BY NAME; returns 2 for one
+# it cannot read at all.
+#
+# Three outcomes rather than two, because the safe default for the last
+# two is OPPOSITE: an exclusion must pass, an unreadable value must fail.
+# A matcher answering only "matched / did not match" collapses them and
+# has to pick one default for both, and picking "pass" is how a lint
+# quietly stops covering whatever its author did not foresee.
+_gwa_classify() {
+  local _v="${1}"
+  # An interpolated ref -- this repo calling its OWN reusable workflow at
+  # the pinned subtree version. Both halves are shell variables, there is
+  # no literal to compare, and upgrade.sh rewrites that ref on every
+  # upgrade.
+  [[ "${_v}" == *'$'* ]] && return 1
+  case "${_v}" in
+    # A local callee carries no ref: it is this tree, at this commit.
+    ./*|/*) return 1 ;;
+    # A container action is an image reference, not a repository tag; it
+    # has no `<owner>/<repo>` reading for a workflow ref to agree with.
+    docker://*) return 1 ;;
+  esac
+  [[ "${_v}" =~ ${_GWA_ACTION_RE} ]] || return 2
+  printf '%s\t%s' "${BASH_REMATCH[1]}" "${BASH_REMATCH[3]}"
 }
 
 # _gwa_hits <glob> -- every candidate line under REPO_ROOT in files
@@ -156,27 +229,47 @@ _gwa_split() {
 # them, because "the same ref at forty call sites" and "two different
 # refs" are different facts and only the second is a problem.
 _gwa_workflow_refs() {
-  local _hit
+  local _hit _value _pair
   while IFS= read -r _hit; do
     _gwa_split "${_hit}"
     _gwa_is_comment "${_GWA_TEXT}" && continue
-    [[ "${_GWA_TEXT}" =~ ${_GWA_USES_RE} ]] || continue
-    printf '%s\t%s\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[3]}"
+    _value="$(_gwa_value "${_GWA_TEXT}")" || continue
+    # A value unreadable HERE is dropped rather than reported, and that
+    # direction is safe: this side only builds the set of refs a generated
+    # copy may inherit, so a missing entry can turn a comparison into
+    # "this repo never uses that action" -- itself a violation -- and can
+    # never turn one into a pass. `.github/workflows/` is the
+    # action-ref-agreement lint's population, and this lint does not
+    # re-judge what that one already owns.
+    _pair="$(_gwa_classify "${_value}")" || continue
+    printf '%s\n' "${_pair}"
   done < <(_gwa_hits '*.yaml' "${REPO_ROOT}/${_GWA_WORKFLOW_DIR_REL}"
            _gwa_hits '*.yml' "${REPO_ROOT}/${_GWA_WORKFLOW_DIR_REL}")
 }
 
-# _gwa_generated_refs -- `<file>\t<lineno>\t<action>\t<ref>` for every
-# literal `uses:` written by a shell script, i.e. every ref that ends up
-# in a workflow dependabot will never read here.
+# _gwa_generated_refs -- one record per `uses:` written by a shell script,
+# i.e. every ref that ends up in a workflow dependabot will never read
+# here. Two record shapes:
+#
+#   <file>\t<lineno>\t<action>\t<ref>   a ref to compare
+#   <file>\t<lineno>\t\t<value>         a value nothing could read
+#
+# The second shape is what keeps an unrecognised value a FINDING instead
+# of a silent omission. The raw value is the last field, so a tab inside
+# it cannot shift another.
 _gwa_generated_refs() {
-  local _hit
+  local _hit _value _pair _status
   while IFS= read -r _hit; do
     _gwa_split "${_hit}"
     _gwa_is_comment "${_GWA_TEXT}" && continue
-    [[ "${_GWA_TEXT}" =~ ${_GWA_USES_RE} ]] || continue
-    printf '%s\t%s\t%s\t%s\n' \
-      "${_GWA_FILE}" "${_GWA_LINENO}" "${BASH_REMATCH[1]}" "${BASH_REMATCH[3]}"
+    _value="$(_gwa_value "${_GWA_TEXT}")" || continue
+    _status=0
+    _pair="$(_gwa_classify "${_value}")" || _status=$?
+    if (( _status == 0 )); then
+      printf '%s\t%s\t%s\n' "${_GWA_FILE}" "${_GWA_LINENO}" "${_pair}"
+    elif (( _status > 1 )); then
+      printf '%s\t%s\t\t%s\n' "${_GWA_FILE}" "${_GWA_LINENO}" "${_value}"
+    fi
   done < <(_gwa_hits '*.sh' "${REPO_ROOT}")
 }
 
@@ -196,7 +289,21 @@ _run_generated_workflow_actions() {
 
   local _file _lineno _checked=0 _violations=0 _expected
   while IFS=$'\t' read -r _file _lineno _action _ref; do
-    [[ -n "${_action}" ]] || continue
+    # An empty action field is the "could not read this value" record. It
+    # is reported, not skipped: the whole population of this lint is
+    # decided by what the reader recognises, so a value it cannot place is
+    # a hole in the lint, and a hole must be visible.
+    if [[ -z "${_action}" ]]; then
+      [[ -n "${_ref}" ]] || continue
+      # The value is printed bare, with no `uses:` prefix. This driver is
+      # a `*.sh` under REPO_ROOT and so is scanned by its own walk: a
+      # literal `uses: ` in an emitted message is read as a generated ref
+      # on the next run, and the lint fails on its own error text.
+      printf '%s:%s: %s -- not a versioned action reference, and not one of the documented exclusions (a ref interpolated from a shell variable, a local ./ callee, a docker:// image). This lint cannot say whether that is in lockstep, so it refuses rather than skipping it: spell it <owner>/<repo>[/<path>]@<ref>, or add the exclusion to _gwa_classify with the reason it is not a pin.\n' \
+        "${_file}" "${_lineno}" "${_ref}"
+      _violations=$(( _violations + 1 ))
+      continue
+    fi
     _checked=$(( _checked + 1 ))
     _expected="${_own[${_action}]:-}"
 
