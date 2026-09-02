@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3174 tests**.
+Unit specs under `test/bats/unit/`: **3178 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3548,7 +3548,7 @@ inside the test that produces it, each case writes a one-test spec into
 | `no spec opens with a fail-open '\|\| skip' existence guard` | The repo-wide invariant, so the idiom cannot creep back in |
 | `the fail-open guard scan sees every spelling of the check, not just [[ -f ]]` | The invariant must be green because no guard exists, not because its pattern is blind |
 
-### test/bats/unit/just_provenance_lint_spec.bats (20)
+### test/bats/unit/just_provenance_lint_spec.bats (24)
 
 | Test | Description |
 |------|-------------|
@@ -3563,6 +3563,10 @@ inside the test that produces it, each case writes a one-test spec into
 | `just provenance: an unmatched advisory-end is a finding (#948)` | - |
 | `just provenance: a step cannot borrow the NEXT step's just-version input (#948)` | - |
 | `just provenance: the installer cannot borrow a --tag from a later command (#948)` | - |
+| `just provenance: the installer cannot borrow a --tag from a command chained onto its own line (#948)` | - |
+| `just provenance: a --tag after a ';' on a continued line is not the installer's either (#948)` | - |
+| `just provenance: a second acquisition on one logical line is its own site (#948)` | - |
+| `just provenance: the hidden second acquisition is found in either order (#948)` | - |
 | `just provenance: a pinned release URL still counts when the version arg is on the same logical line (#948)` | - |
 | `just provenance: an advisory region does not mute a mechanism that CAN be pinned (#948)` | - |
 | `just provenance: a pointer to the project's homepage is not an acquisition site (#948)` | - |

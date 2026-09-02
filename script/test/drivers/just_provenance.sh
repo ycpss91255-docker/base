@@ -67,25 +67,52 @@
 # Evidence must belong to the SITE, which is why the region it is looked
 # for in is per-mechanism rather than one window for all four:
 #
-#   the upstream release URL   its own LOGICAL line (backslash
-#   the official installer     continuations joined, which is how both the
-#                              Dockerfile RUN and the shipped installer
-#                              pipeline are written). Both spellings put
-#                              the version IN the command -- a URL segment,
-#                              a `--tag` argument -- so evidence sitting on
-#                              a neighbouring command is somebody else's.
-#   the setup action           the logical line plus the following
-#                              non-comment lines, which is how a YAML
-#                              `uses:` reaches the `with:` block underneath
-#                              it. That window stops at the first blank
-#                              line AND at the next sequence item indented
-#                              at or outside the site, so a step cannot
-#                              borrow the next step's `just-version:`.
+#   the upstream release URL   its own COMMAND. Both spellings put the
+#   the official installer     version IN the command -- a URL segment, a
+#                              `--tag` argument -- so evidence sitting on a
+#                              neighbouring command is somebody else's,
+#                              whether that neighbour is on the next
+#                              physical line or chained onto this one.
+#   the setup action           the command plus the following non-comment
+#                              lines, which is how a YAML `uses:` reaches
+#                              the `with:` block underneath it. That window
+#                              stops at the first blank line AND at the
+#                              next sequence item indented at or outside
+#                              the site, so a step cannot borrow the next
+#                              step's `just-version:`.
 #
 # A single shared window read both false negatives as clean: two adjacent
 # `uses: extractions/setup-just@v4` steps where only the second is pinned,
 # and an unpinned installer followed inside one `run: |` block by any
 # command that happens to take a `--tag`.
+#
+# ── One line, several commands ───────────────────────────────────────────────
+#
+# Physical lines are joined at their backslash continuations, because an
+# instruction split across three lines is one instruction. The joined line
+# is then SPLIT INTO COMMANDS at `&&`, `||` and `;`, and every question
+# above is asked of each command separately. Both halves of that matter:
+#
+#   evidence   `curl ... install.sh | bash -s -- --to ~/.local/bin &&
+#              docker build --tag img .` is one logical line, and the
+#              `--tag` in it belongs to the docker build. Scoping evidence
+#              to the logical line vouched for the unpinned installer with
+#              its neighbour's argument -- the same borrow the physical-line
+#              case above was narrowed to refuse.
+#   mechanism  a Dockerfile RUN chain that fetches the pinned release AND
+#              `apk add`s the distro package is two acquisitions. Reading
+#              the line as ONE mechanism reported it clean and pinned: the
+#              package-manager install was not a site, never had to carry
+#              an advisory region, and which of the two won was decided by
+#              this table's order rather than by the text.
+#
+# A `|` is deliberately NOT a boundary: a pipeline is one command chain,
+# and the installer hands its script to `bash -s -- --tag <pin>` in a LATER
+# stage of that same pipeline, so its pin argument legitimately sits across
+# the pipe from its marker. The residual limit, stated rather than papered
+# over: the split is textual, so a `&&` or `;` inside a quoted string ends
+# a command that the shell would not have ended. That splits evidence away
+# from its site, which fails CLOSED (a finding to be answered), never open.
 #
 # Comment lines are not sites: a comment installs nothing, and prose about
 # this rule (this header, the accessor's, the ADR) must not violate it.
@@ -151,6 +178,11 @@ readonly _JP_ADVISORY_SEP='--'
 # blank line, and at the next sequence item indented at or outside the
 # site, so it cannot wander into the following step.
 readonly _JP_WINDOW=8
+
+# The command separator the split normalises onto, before splitting on it.
+# A control character no text file this lint reads can carry (grep -I skips
+# binaries), so it cannot collide with the text being split.
+readonly _JP_SEP=$'\x01'
 
 # The acquisition vocabulary, and the pin evidence each mechanism admits.
 # Parallel arrays (not one packed string) because every marker here is
@@ -224,6 +256,29 @@ _jp_opens_sibling() {
   [[ "${_tail}" == '- '* || "${_tail}" == '-' ]]
 }
 
+# _jp_segments <outarray> <logical-line> -- the commands a logical line
+# holds. Split at the operators that END one command and begin the next
+# (`&&`, `||`, `;`), never at `|`: see "One line, several commands" above.
+_jp_segments() {
+  local -n _jps_out="${1}"
+  local _s="${2}" _rest
+  _jps_out=()
+  # Normalise the three separators to one sentinel before splitting, so
+  # the split itself is a single rule. The sentinel is held in a VARIABLE
+  # and quoted at every use: `$'\x01'` written inline inside `${var%%...}`
+  # is not ANSI-C-expanded there, and the pattern would silently be the
+  # four literal characters instead of the control character.
+  _s="${_s//&&/${_JP_SEP}}"
+  _s="${_s//||/${_JP_SEP}}"
+  _s="${_s//;/${_JP_SEP}}"
+  _rest="${_s}"
+  while [[ "${_rest}" == *"${_JP_SEP}"* ]]; do
+    _jps_out+=("${_rest%%"${_JP_SEP}"*}")
+    _rest="${_rest#*"${_JP_SEP}"}"
+  done
+  _jps_out+=("${_rest}")
+}
+
 # _jp_scan_file <abs-path> <rel-path> <report-varname>
 #
 # Appends one line per finding to the named report variable.
@@ -239,8 +294,9 @@ _jp_scan_file() {
   fi
   _JP_FILES=$(( _JP_FILES + 1 ))
 
-  local _i=0 _lineno _line _joined _window _indent _in_advisory=0 _begin_line=0
-  local _m _w _hit _evidence _lead
+  local _i=0 _lineno _line _joined _tail _indent _in_advisory=0 _begin_line=0
+  local _m _w _hit _evidence _lead _seg
+  local -a _segments=()
   while [[ "${_i}" -lt "${_n}" ]]; do
     _lineno=$(( _i + 1 ))
     _line="${_lines[_i]}"
@@ -275,14 +331,15 @@ _jp_scan_file() {
       _i=$(( _i + 1 ))
     done
 
-    # The evidence window: the logical line plus the following non-comment
-    # lines, up to the first blank one and up to the next sequence item at
-    # or outside this site's own indentation. Without that second bound the
-    # window walks into the following YAML step and the site is vouched for
-    # by its neighbour's `with:` block.
+    # The window TAIL: the non-comment lines FOLLOWING the logical line, up
+    # to the first blank one and up to the next sequence item at or outside
+    # this site's own indentation. Without that second bound the window
+    # walks into the following YAML step and the site is vouched for by its
+    # neighbour's `with:` block. The `window`-scoped mechanism reads its own
+    # command plus this tail; nothing reads the tail alone.
     _lead="${_line%%[![:space:]]*}"
     _indent="${#_lead}"
-    _window="${_joined}"
+    _tail=""
     for (( _w = _i + 1; _w < _n && _w <= _i + _JP_WINDOW; _w++ )); do
       if [[ -z "${_lines[_w]//[[:space:]]/}" ]]; then
         break
@@ -293,38 +350,42 @@ _jp_scan_file() {
       if _jp_is_comment "${_lines[_w]}"; then
         continue
       fi
-      _window+=$'\n'"${_lines[_w]}"
+      _tail+=$'\n'"${_lines[_w]}"
     done
 
-    for _m in "${!_JP_MARKER_RE[@]}"; do
-      if [[ ! "${_joined}" =~ ${_JP_MARKER_RE[_m]} ]]; then
-        continue
-      fi
-      _hit="${BASH_REMATCH[0]}"
-      _JP_SITES=$(( _JP_SITES + 1 ))
+    # Every command against every marker: two acquisitions chained onto one
+    # line are two sites, and neither can answer for the other.
+    _jp_segments _segments "${_joined}"
+    for _seg in "${_segments[@]}"; do
+      for _m in "${!_JP_MARKER_RE[@]}"; do
+        if [[ ! "${_seg}" =~ ${_JP_MARKER_RE[_m]} ]]; then
+          continue
+        fi
+        _hit="${BASH_REMATCH[0]}"
+        _JP_SITES=$(( _JP_SITES + 1 ))
 
-      # The mechanism decides FIRST, the advisory region only after: a
-      # region may mute the mechanism that has no pinnable form, never one
-      # that does.
-      if [[ -z "${_JP_PIN_RE[_m]}" ]]; then
-        if [[ "${_in_advisory}" -eq 1 ]]; then
-          _JP_ADVISORY=$(( _JP_ADVISORY + 1 ))
+        # The mechanism decides FIRST, the advisory region only after: a
+        # region may mute the mechanism that has no pinnable form, never
+        # one that does.
+        if [[ -z "${_JP_PIN_RE[_m]}" ]]; then
+          if [[ "${_in_advisory}" -eq 1 ]]; then
+            _JP_ADVISORY=$(( _JP_ADVISORY + 1 ))
+          else
+            _jp_report+="${_rel}:${_lineno}: a package manager cannot be pointed at the pin -- '${_hit}'. Obtain the runner from the pinned upstream release instead, or record this site as advisory."$'\n'
+          fi
         else
-          _jp_report+="${_rel}:${_lineno}: a package manager cannot be pointed at the pin -- '${_hit}'. Obtain the runner from the pinned upstream release instead, or record this site as advisory."$'\n'
+          if [[ "${_JP_PIN_SCOPE[_m]}" == 'window' ]]; then
+            _evidence="${_seg}${_tail}"
+          else
+            _evidence="${_seg}"
+          fi
+          if [[ "${_evidence}" =~ ${_JP_PIN_RE[_m]} ]]; then
+            _JP_PINNED=$(( _JP_PINNED + 1 ))
+          else
+            _jp_report+="${_rel}:${_lineno}: unpinned -- '${_hit}' names no version; the site carries no '${_JP_PIN_RE[_m]}'. An advisory region does not cover this mechanism: it can be pinned."$'\n'
+          fi
         fi
-      else
-        if [[ "${_JP_PIN_SCOPE[_m]}" == 'window' ]]; then
-          _evidence="${_window}"
-        else
-          _evidence="${_joined}"
-        fi
-        if [[ "${_evidence}" =~ ${_JP_PIN_RE[_m]} ]]; then
-          _JP_PINNED=$(( _JP_PINNED + 1 ))
-        else
-          _jp_report+="${_rel}:${_lineno}: unpinned -- '${_hit}' names no version; the site carries no '${_JP_PIN_RE[_m]}'. An advisory region does not cover this mechanism: it can be pinned."$'\n'
-        fi
-      fi
-      break
+      done
     done
 
     _i=$(( _i + 1 ))
