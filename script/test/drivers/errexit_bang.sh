@@ -135,10 +135,21 @@
 # `! grep -q $(foo || bar) f` from both rules while reporting a
 # `$(foo; bar)` that was never a violation. The tracker is three quote
 # states, a backslash escape and one paren depth -- it is not a second
-# bash parser and does not try to be one (no expansion, no heredoc). An
-# unbalanced quote or `(` blanks the rest of the line, which can only
-# HIDE a separator: the safe direction, since the only other answer is an
-# allow region written by hand.
+# bash parser and does not try to be one (no expansion, no heredoc).
+#
+# That state is per PHYSICAL line, and the two ways it can be wrong are
+# stated here rather than claimed away. An unbalanced quote or `(` blanks
+# the rest of ITS line, which HIDES any separator behind it -- a drop, and
+# the direction this lint otherwise refuses; it is disclosed, not
+# preferred. A stray `)` -- how the second line of a `$(` opened on the
+# line above begins -- clamps the depth to zero and reads the rest of that
+# line at top level, which drops a real violation on one shape and raises
+# a false positive on another. Both shapes need a `\` continuation, and
+# neither exists in this tree; the fix for both is structural (scan the
+# JOINED statement, not a join of per-line scans) and is written out at
+# `_errexit_bang_code_part` with the two reproductions. What such a `)`
+# does NOT do is truncate its line: the word rule refuses to read a `)`
+# it cannot account for as opening a comment.
 #
 # What is NOT:
 #   - the body's last statement (across a `\` continuation, and with any
@@ -223,8 +234,12 @@ readonly _ERREXIT_BANG_SEQ_RE=';[[:space:]]*[^[:space:]]'
 # can hold one, the same argument that keeps `<` and `>` out of the
 # comment-start set.
 readonly _ERREXIT_BANG_ASYNC_RE='(^|[^&<>|])&([^&>]|$)'
-# An `||` whose right operand CANNOT fail: the only `||` shape that makes
-# the statement inert. `true` and `:` are bash's two always-zero builtins.
+# An `||` whose right operand CANNOT fail. `true` and `:` are bash's two
+# always-zero builtins -- a closed set, which is why matching them by name
+# is not the listed-population defect this file otherwise refuses. It is
+# not every inert shape: an always-zero GROUP (`|| { true; }`,
+# `|| ( true )`) is inert too and goes unreported, for the reason the
+# header gives.
 readonly _ERREXIT_BANG_INERT_OR_RE='\|\|[[:space:]]*(true|:)([[:space:]]*;|[[:space:]]*$)'
 # An `||` that belongs to the bang command itself -- no `;` closes the
 # list before it. With any other right operand the verdict is that

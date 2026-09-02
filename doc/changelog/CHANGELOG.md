@@ -137,7 +137,7 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   nothing reported it. They now END the statement they follow. Two false
   positives go with it: a separator inside `( ... )` is the argument's, not the
   statement's, and a `#` opens a comment wherever the shell opens one -- after
-  `;`, `&`, `\|`, `(`, `)` as well as after a blank.
+  `;`, `&`, `\|`, `(` and a subshell's `)`, as well as after a blank.
 - **the bang lint now refuses a backgrounded assertion, and stops cutting a
   line at a `#` that follows a quote (refs #956)** -- `! cmd &` is an async
   list: the fork's status is 0 whatever the command did, so the assertion
@@ -147,6 +147,15 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   a closing quote and a backslash escape do not end a WORD, so the `#` in
   `! grep -q 'a'#b f; true` is data and the `;` behind it is real: the scan
   stopped reading such a line as a comment and dropping the separator.
+- **the bang lint no longer cuts a line at a `#` behind an expansion's `)`
+  (refs #956)** -- a `)` ends a WORD only where it closes a SUBSHELL:
+  `printf '[%s]\n' $(echo A)#b` prints the one argument `[A#b]`. Reading every
+  `)` as a word end made the `#` in `! grep -q A $(echo z)#b f; true` a comment
+  and blanked the `; true` behind it -- a dropped violation. The `(` at depth 0
+  now records whether it opened a subshell or an expansion (`$(`, `$((`, `<(`,
+  `>(`) and its `)` reads that back. A `)` whose `(` this per-line scan never
+  saw ends no word either, so a shape it cannot account for can only make the
+  lint over-report, never discard a line.
 - **the standalone check still authorised a delete for a DIRECTORY it never
   read (refs #956)** -- open(2) on a directory succeeds, so the redirect probe
   `_dfm_pip_line_is_standalone` relies on returned 0 for a path whose every
