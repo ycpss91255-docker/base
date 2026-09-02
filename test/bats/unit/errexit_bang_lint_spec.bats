@@ -570,6 +570,140 @@ _write() {
   [[ "${output}" == *"x_spec.bats:2"* ]]
 }
 
+@test "_run_errexit_bang: FAILS on a ';' behind a '#' inside a folded substitution (#956)" {
+  # The shape three rounds of per-line patching kept re-opening one step
+  # further out. The `$(` opens on the first physical line and closes on
+  # the second, so a scan that starts each line at depth 0 reads the
+  # continuation at TOP level -- where the blank-preceded `#` opens a
+  # comment and `#y) f; true` is discarded. The statement then reads
+  # `! grep -q A $(echo x`: no `;`, no `||`, and NEITHER rule fires. It
+  # is bash's own answer that the fold has to reach: inside the
+  # substitution that `#` is the substitution's business, the `)` still
+  # closes it, and the `; true` behind it is this statement's own.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "a hash inside a substitution that spans a continuation" {' \
+    '  ! grep -q A $(echo \' \
+    '    x #y) f; true' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"x_spec.bats:2"* ]]
+}
+
+@test "_run_errexit_bang: FAILS on a ';' behind an '||' inside a folded substitution (#956)" {
+  # The same reset, one round earlier: read at depth 0, the `||` on the
+  # continuation looks like this statement's own, takes the live-`||`
+  # exemption meant for `! A || return 1`, and the `; true` behind it is
+  # judged by nothing. Folded, the `||` is inside the substitution --
+  # an argument's -- and the `; true` is the hand-off it always was.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "an or inside a substitution that spans a continuation" {' \
+    '  ! grep -q $(foo \' \
+    '    || bar) f; true' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"x_spec.bats:2"* ]]
+}
+
+@test "_run_errexit_bang: PASSES on a ';' inside a folded substitution (#956)" {
+  # The mirror of the two above, and the false positive the same reset
+  # produced: a `;` on the continuation of a `$( ... )` separates two
+  # commands INSIDE the argument. The negation is still the body's
+  # status, so reporting it fails a blocking gate for a line that is not
+  # a violation. Same statement as the single-line case already pinned
+  # above, one backslash further along.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "a semicolon inside a substitution that spans a continuation" {' \
+    '  ! grep -q $(foo \' \
+    '    ; bar) f' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -eq 0 ]
+}
+
+@test "_run_errexit_bang: FAILS on a ';' behind a '#' that follows a substitution, before a path (#956)" {
+  # A regression pin against the scan this one replaces, on the shape a
+  # round of comment-start work already got wrong once: the `)` of a
+  # `$( ... )` closes the expansion, not the word, so `#b` is data and
+  # the `; true` behind it is real. Folding must not lose what the
+  # per-line scan did catch here.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "a substitution, then data, then a path" {' \
+    '  ! grep -q A $(echo z)#b /dev/null; true' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"x_spec.bats:2"* ]]
+}
+
+@test "_run_errexit_bang: PASSES when a substitution spans lines with NO backslash (#956)" {
+  # A `$( ... )` needs no continuation marker to span lines: bash reads
+  # on until the `)`. So "the statement ends where the line does" is
+  # wrong even with no backslash in sight, and the fold is driven by the
+  # scan's own state -- an open `(` -- rather than by a trailing
+  # character. Read as two statements, the `!` ends on line 2 while the
+  # body's last statement is line 3, and the position rule reports a
+  # statement that IS the body's last: a false positive.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "a substitution across a bare newline" {' \
+    '  ! grep -q A $(echo' \
+    '    x) f' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -eq 0 ]
+}
+
+@test "_run_errexit_bang: FAILS on a bang statement still open where the body closes (#956)" {
+  # The refusing direction, first half. An unterminated quote is a
+  # statement this scan cannot read to its end, so its code is whatever
+  # the scan got as far as -- not the statement. Judging a `!` on a
+  # partial reading is how a separator hides; the statement is reported
+  # instead, naming the line it opened on.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "an unterminated quote" {' \
+    '  ! grep -q "A $(echo x) f' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"x_spec.bats:2"* ]]
+}
+
+@test "_run_errexit_bang: FAILS when an unreadable statement folds a '!' line into it (#956)" {
+  # The refusing direction, second half, and the one the fold itself
+  # creates: an unterminated quote swallows the lines after it, and a
+  # `!` statement among them would be judged by no rule at all -- the
+  # exact silence this lint exists to break. It is reported on the line
+  # the unreadable statement opened on. A false positive here costs one
+  # allow region; the miss it replaces costs an assertion that cannot
+  # fail.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "an unterminated quote over a bang" {' \
+    '  echo "unterminated' \
+    '  ! grep -q A f' \
+    '  assert_success' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"x_spec.bats:2"* ]]
+}
+
+@test "_run_errexit_bang: PASSES when an unreadable statement folds no '!' line in (#956)" {
+  # The disclosed narrowing that keeps the half above from failing every
+  # heredoc body and multi-line string in the tree. An unterminated
+  # quote is unreadable, but the only lines this lint judges are the
+  # ones opening with `!` -- so a fold that swallowed none of them hid
+  # no violation, and saying so is a claim rather than a shrug. The
+  # header states it; this pins it.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "an unterminated quote over nothing" {' \
+    '  echo "unterminated' \
+    '  assert_success' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -eq 0 ]
+}
+
 @test "_run_errexit_bang: FAILS on a ';' behind a '#' that follows a closing quote (#956)" {
   # A closing quote does not end a WORD -- the bash case above runs
   # `printf '[%s]\n' 'a'#b` and gets the single argument `[a#b]`. So the

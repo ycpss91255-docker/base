@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3314 tests**.
+Unit specs under `test/bats/unit/`: **3322 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3710,7 +3710,7 @@ inside the test that produces it, each case writes a one-test spec into
 | `no spec opens with a fail-open '\|\| skip' existence guard` | The repo-wide invariant, so the idiom cannot creep back in |
 | `the fail-open guard scan sees every spelling of the check, not just [[ -f ]]` | The invariant must be green because no guard exists, not because its pattern is blind |
 
-### test/bats/unit/errexit_bang_lint_spec.bats (51)
+### test/bats/unit/errexit_bang_lint_spec.bats (59)
 
 | Test | Description |
 |------|-------------|
@@ -3744,6 +3744,14 @@ inside the test that produces it, each case writes a one-test spec into
 | `_run_errexit_bang: PASSES on a comment that opens right after a ')' (#956)` | The same rule one metacharacter along |
 | `_run_errexit_bang: FAILS on a ';' behind a '#' that follows a substitution's ')' (#956)` | That `)` leaves the word open, so the `#` is data and the separator behind it is real |
 | `_run_errexit_bang: FAILS on a ';' behind a STRAY ')' and a '#' (#956)` | A `)` whose opener the per-line scan never saw is unknown, and unknown must not mean "comment" |
+| `_run_errexit_bang: FAILS on a ';' behind a '#' inside a folded substitution (#956)` | - |
+| `_run_errexit_bang: FAILS on a ';' behind an '\|\|' inside a folded substitution (#956)` | - |
+| `_run_errexit_bang: PASSES on a ';' inside a folded substitution (#956)` | - |
+| `_run_errexit_bang: FAILS on a ';' behind a '#' that follows a substitution, before a path (#956)` | - |
+| `_run_errexit_bang: PASSES when a substitution spans lines with NO backslash (#956)` | - |
+| `_run_errexit_bang: FAILS on a bang statement still open where the body closes (#956)` | - |
+| `_run_errexit_bang: FAILS when an unreadable statement folds a '!' line into it (#956)` | - |
+| `_run_errexit_bang: PASSES when an unreadable statement folds no '!' line in (#956)` | - |
 | `_run_errexit_bang: FAILS on a ';' behind a '#' that follows a closing quote (#956)` | A closing quote does not end a word, so the `#` is data and the separator behind it is real |
 | `_run_errexit_bang: FAILS on a ';' behind a '#' that follows an escape (#956)` | The same word rule for the other spelling that continues a word |
 | `_run_errexit_bang: PASSES on a bang statement with a bare trailing ';' (#956)` | - |
