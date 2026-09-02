@@ -262,23 +262,13 @@ _setup_set() {
     return 1
   fi
 
-  # Split <section>.<key>; the first '.' is the separator. The only
-  # sub-section pattern is [logging.<svc>] (per-service override), so
-  # `logging.<svc>.<key>` is split as section=`logging.<svc>`,
-  # key=`<key>` (rightmost-dot). All other shapes use first-dot.
-  if [[ "${_spec}" != *.* ]]; then
-    _setup_msg usage set >&2
-    return 1
-  fi
+  # Split <section>.<key> through conf.sh's _conf_split_nskey, the one
+  # owner of that rule (first-dot, except the [logging.<svc>] per-service
+  # sub-section, which splits rightmost-dot). A dotless spec names no
+  # key, which `set` cannot act on.
   local _section _key
-  if [[ "${_spec}" == logging.*.* ]]; then
-    _section="${_spec%.*}"
-    _key="${_spec##*.}"
-  else
-    _section="${_spec%%.*}"
-    _key="${_spec#*.}"
-  fi
-  if [[ -z "${_section}" || -z "${_key}" ]]; then
+  if ! _conf_split_nskey "${_spec}" _section _key \
+     || [[ -z "${_section}" || -z "${_key}" ]]; then
     _setup_msg usage set >&2
     return 1
   fi
@@ -319,6 +309,36 @@ _setup_set() {
   # that the value just stored will not take effect.
   _setup_warn_shadowed_write "${_base_path}" "${_section}" "${_is_local}"
   _setup_warn_ports_inert "${_base_path}" "${_section}" "${_key}"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _setup_dump_section <section> <keys_arrayvar> <values_arrayvar>
+#
+# Prints "<key> = <value>" for every entry of the flat
+# <keys>/<values> namespace-key view whose OWNING section is exactly
+# <section>, in array order. Returns 1 when it printed nothing, so the
+# caller raises its own not-found error.
+#
+# The single place `show` and `list` decide section membership. It asks
+# `_conf_split_nskey` rather than prefix-matching "<section>." because
+# the prefix cannot tell section `logging` + key `web.driver` from
+# section `logging.web` + key `driver`: both readers used to bind a
+# per-service override to the parent [logging] block as well as its
+# own, listing one value twice under two sections.
+# ════════════════════════════════════════════════════════════════════
+_setup_dump_section() {
+  local _sds_section="${1-}"
+  local -n _sds_keys="${2:?"${FUNCNAME[0]}: missing keys arrayvar"}"
+  local -n _sds_values="${3:?"${FUNCNAME[0]}: missing values arrayvar"}"
+
+  local _sds_i _sds_sect _sds_key _sds_printed=0
+  for (( _sds_i=0; _sds_i<${#_sds_keys[@]}; _sds_i++ )); do
+    _conf_split_nskey "${_sds_keys[_sds_i]}" _sds_sect _sds_key || continue
+    [[ "${_sds_sect}" == "${_sds_section}" ]] || continue
+    printf '%s = %s\n' "${_sds_key}" "${_sds_values[_sds_i]}"
+    _sds_printed=1
+  done
+  (( _sds_printed == 1 ))
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -375,16 +395,10 @@ _setup_show() {
     return 1
   fi
 
+  # Same split rule as `set` / `remove` (conf.sh owns it); unlike those,
+  # a dotless spec is legal here and means "show the whole section".
   local _section _key
-  if [[ "${_spec}" == logging.*.* ]]; then
-    # [logging.<svc>] sub-section: section is `logging.<svc>`, key is
-    # the rightmost dot-delimited segment.
-    _section="${_spec%.*}"
-    _key="${_spec##*.}"
-  elif [[ "${_spec}" == *.* ]]; then
-    _section="${_spec%%.*}"
-    _key="${_spec#*.}"
-  else
+  if ! _conf_split_nskey "${_spec}" _section _key; then
     _section="${_spec}"
     _key=""
   fi
@@ -413,19 +427,24 @@ _setup_show() {
         return 0
       fi
     done
+    # `logging.<svc>` reads as BOTH a `<section>.<key>` spec (the split
+    # above) and a section name `_setup_known_section` accepts, so a
+    # section the tool calls legal was unreadable: the key lookup for
+    # `logging.web` fails and there was nowhere else to look. Fall back
+    # to dumping the spec as a section, but only when it names a known
+    # section that has entries -- a plain typo (`logging.drivr`) still
+    # reports the key, not the section, as missing. `set` / `remove` /
+    # `add` keep the plain split: they must name a key.
+    if _setup_known_section "${_spec}" \
+       && _setup_dump_section "${_spec}" _ss_keys _ss_values; then
+      return 0
+    fi
     _log_err setup conf_key_not_found "display=$(_setup_msg errors key_not_found): ${_ns_key}" "key=${_ns_key}"
     return 1
   fi
 
-  # Whole-section dump.
-  local _printed=0
-  for (( _i=0; _i<${#_ss_keys[@]}; _i++ )); do
-    if [[ "${_ss_keys[_i]}" == "${_section}."* ]]; then
-      printf '%s = %s\n' "${_ss_keys[_i]#"${_section}".}" "${_ss_values[_i]}"
-      _printed=1
-    fi
-  done
-  if (( _printed == 0 )); then
+  # Whole-section dump -- membership lives in _setup_dump_section.
+  if ! _setup_dump_section "${_section}" _ss_keys _ss_values; then
     _log_err setup conf_section_not_found "display=$(_setup_msg errors section_not_found): ${_section}" "section=${_section}"
     return 1
   fi
@@ -497,7 +516,14 @@ _setup_list() {
   local -a _ll_sections=() _ll_keys=() _ll_values=()
   _setup_effective_full "${_base_path}" _ll_sections _ll_keys _ll_values
 
-  local _si _ki _sect _first=1
+  # Membership goes through _setup_dump_section for the same reason as
+  # `show`'s dump, and it matters more here: the old `"${_sect}."*`
+  # prefix put `logging.web.driver` in BOTH the [logging] block (as
+  # `web.driver`) and [logging.web], emitting one value twice, so this
+  # dump -- documented above as pipeable -- round-tripped into the
+  # dotted-key-in-[logging] file _write_setup_conf refuses to write.
+  # An empty section still gets its header (dump returns 1, ignored).
+  local _sect _first=1
   for _sect in "${_ll_sections[@]}"; do
     if (( _first )); then
       _first=0
@@ -505,11 +531,7 @@ _setup_list() {
       printf '\n'
     fi
     printf '[%s]\n' "${_sect}"
-    for (( _ki=0; _ki<${#_ll_keys[@]}; _ki++ )); do
-      if [[ "${_ll_keys[_ki]}" == "${_sect}."* ]]; then
-        printf '%s = %s\n' "${_ll_keys[_ki]#"${_sect}".}" "${_ll_values[_ki]}"
-      fi
-    done
+    _setup_dump_section "${_sect}" _ll_keys _ll_values || true
   done
 }
 
@@ -608,13 +630,18 @@ _setup_add() {
     return 1
   fi
 
-  if [[ "${_spec}" != *.* ]]; then
-    _setup_msg usage add >&2
-    return 1
-  fi
-  local _section="${_spec%%.*}"
-  local _list="${_spec#*.}"
-  if [[ -z "${_section}" || -z "${_list}" ]]; then
+  # Same split rule as `set` / `show` / `remove`: conf.sh's
+  # _conf_split_nskey is the one owner (first dot, except the
+  # per-service [logging.<svc>] sub-section, which splits at the
+  # rightmost). `add` names <section>.<list> rather than
+  # <section>.<key>, but the question -- which section does this spec
+  # name? -- is the same one, so it is asked in the same place.
+  # Re-deriving it here is what sent `add logging.web.<list>` to the
+  # parent [logging] block as a dotted `web.<list>_N` key. A dotless
+  # spec names no list, which `add` cannot act on.
+  local _section _list
+  if ! _conf_split_nskey "${_spec}" _section _list \
+     || [[ -z "${_section}" || -z "${_list}" ]]; then
     _setup_msg usage add >&2
     return 1
   fi
@@ -792,19 +819,11 @@ _setup_remove() {
     esac
   done
 
-  if [[ -z "${_spec}" || "${_spec}" != *.* ]]; then
-    _setup_msg usage remove >&2
-    return 1
-  fi
+  # Same split rule as `set` (conf.sh owns it): a dotless spec names no
+  # key, and `remove` needs one.
   local _section _rest
-  if [[ "${_spec}" == logging.*.* ]]; then
-    _section="${_spec%.*}"
-    _rest="${_spec##*.}"
-  else
-    _section="${_spec%%.*}"
-    _rest="${_spec#*.}"
-  fi
-  if [[ -z "${_section}" || -z "${_rest}" ]]; then
+  if ! _conf_split_nskey "${_spec}" _section _rest \
+     || [[ -z "${_section}" || -z "${_rest}" ]]; then
     _setup_msg usage remove >&2
     return 1
   fi

@@ -878,14 +878,36 @@ YAML
 YAML
     fi
     if [[ -n "${_stage_env_own}" ]]; then
-      local _ev _ev_dq
-      while IFS= read -r _ev; do
+      # Expand `${KEY}` cross-references against earlier siblings first,
+      # exactly as the devel env block does. Skipping it here made the
+      # SAME setup.conf produce two different container envs: devel saw
+      # the expanded value and the stage service saw a literal `${KEY}`
+      # that compose's own substitution layer cannot resolve, because it
+      # never sees sibling env entries.
+      #
+      # Expansion runs over the FULL effective list while only the tail
+      # is emitted: in append mode the referenced sibling normally lives
+      # in the shared prefix that stays in `.env`, so expanding the tail
+      # alone would leave the reference literal again. Restating that
+      # prefix here (which would outrank `.env.local`) is still avoided.
+      local -a _stage_env_expanded=()
+      _expand_env_cross_refs "${_eff_environment}" _stage_env_expanded
+      # `(( _own_n++ ))` would return 1 on the first entry (post-increment
+      # yields 0) and kill the emitter under `set -e`.
+      local _own_n=0 _own_line
+      while IFS= read -r _own_line; do
+        [[ -z "${_own_line}" ]] && continue
+        _own_n=$(( _own_n + 1 ))
+      done <<< "${_stage_env_own}"
+      local _ev _ev_dq _ei
+      for (( _ei = ${#_stage_env_expanded[@]} - _own_n; _ei < ${#_stage_env_expanded[@]}; _ei++ )); do
+        _ev="${_stage_env_expanded[_ei]}"
         [[ -z "${_ev}" ]] && continue
         # Quote each entry as a YAML double-quoted scalar (see the devel
         # env block) so structural chars in the value can't be re-parsed.
         _yaml_dq "${_ev}" _ev_dq
         echo "      - ${_ev_dq}"
-      done <<< "${_stage_env_own}"
+      done
     fi
     if [[ -n "${_stage_log_file}" ]]; then
       echo "      - LOG_FILE_PATH=${_stage_log_file}"
