@@ -1563,6 +1563,40 @@ _df_assert_refresh_last() {
   return 0
 }
 
+# _df_assert_no_herestring_fusion <file> <mode> -- <file> holds a here-string
+# RUN, then a DEFECTIVE apt layer (refresh, then install), then a correct
+# one. Asserts the scanner read three RUNs as two apt blocks rather than
+# fusing them into one.
+#
+# THREE observations, because none of them discriminates alone. The COUNT
+# separates the readings only over a fixture with two layers under the
+# here-string -- over one layer, the correct reading and the fused reading
+# both yield a single block, which is a positive and a negative case with
+# the identical observation. The CONTENT says the here-string RUN's own
+# text is inside no block, which is the fusion itself. The CONSEQUENCE
+# says the defective layer is still REJECTED, and names the rejection: a
+# fused block hides that defect specifically, because the defective
+# install lands ahead of the fused tail's last refresh and so reads as
+# ordered.
+_df_assert_no_herestring_fusion() {
+  local _file="${1:?_df_assert_no_herestring_fusion: missing file}"
+  local _mode="${2:?_df_assert_no_herestring_fusion: missing mode}"
+  local _blk _n=0 _first="" _last=""
+  while IFS= read -r _blk; do
+    _n=$(( _n + 1 ))
+    [[ "${_blk}" != *'grep -q x'* ]] \
+      || fail "${_mode}: the here-string RUN opened a heredoc and swallowed the layers below it: ${_blk}"
+    [[ -n "${_first}" ]] || _first="${_blk}"
+    _last="${_blk}"
+  done < <(_df_apt_run_blocks "${_file}" "${_mode}")
+  [[ "${_n}" == "2" ]] \
+    || fail "${_mode}: expected 2 apt blocks below the here-string RUN, found ${_n}"
+  run _df_assert_refresh_last "${_first}" "${_mode} layer below a here-string"
+  assert_failure
+  assert_output --partial 'installs AFTER its last manifest refresh'
+  _df_assert_refresh_last "${_last}" "${_mode} correct layer below a here-string"
+}
+
 _df_runtime_base_block() {
   awk '
     /^# FROM \$\{BASE_IMAGE\} AS runtime-base$/ { in_b = 1; next }
@@ -2059,19 +2093,32 @@ FIXTURE
   assert_failure
 
   # A here-STRING is not a heredoc: `<<<` opens nothing, and reading it as
-  # a delimiter would swallow the rest of the file into one block.
+  # a delimiter swallows every layer below it into one block.
+  #
+  # COUNTING the blocks cannot see that happen. The correct reading of a
+  # here-string RUN followed by one apt layer is one block; the fused
+  # reading of the same two lines is also one block, so the positive and
+  # the negative case produce the identical observation. What separates
+  # them is the CONTENT -- whether the here-string RUN's own text is
+  # inside a block -- and the CONSEQUENCE: the fixture puts a DEFECTIVE
+  # layer (refresh, then install) under the here-string, because fusing
+  # hides exactly that defect. Its install lands before the fused tail's
+  # last refresh, so the relation reports the layer clean.
   cat > "${_tmp}/Dockerfile.herestring" <<'FIXTURE'
 FROM alpine AS live
 RUN grep -q x <<<"${y}"
+RUN dpkg-query -W > /usr/local/share/base/packages.txt && \
+    apt-get install -y baddefect
 RUN apt-get install -y cowsay && \
     dpkg-query -W > /usr/local/share/base/packages.txt
 FIXTURE
-  _n=0
-  while IFS= read -r _blk; do
-    _n=$(( _n + 1 ))
-    _df_assert_refresh_last "${_blk}" "here-string neighbour"
-  done < <(_df_apt_run_blocks "${_tmp}/Dockerfile.herestring" live)
-  assert_equal "${_n}" "1"
+  _df_assert_no_herestring_fusion "${_tmp}/Dockerfile.herestring" live
+
+  # ... and the commented mirror, the copy a consumer uncomments: the same
+  # awk reads both modes, so a shape the live mode mistakes for a heredoc
+  # the commented mode mistakes for one too.
+  sed 's/^/# /' "${_tmp}/Dockerfile.herestring" > "${_tmp}/Dockerfile.herestring.commented"
+  _df_assert_no_herestring_fusion "${_tmp}/Dockerfile.herestring.commented" commented
   rm -rf "${_tmp}"
 }
 
