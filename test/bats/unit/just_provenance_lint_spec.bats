@@ -172,6 +172,84 @@ _seed_clean() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# Evidence belongs to its own site
+# ════════════════════════════════════════════════════════════════════
+
+@test "just provenance: a step cannot borrow the NEXT step's just-version input (#948)" {
+  # Two adjacent steps, only the second pinned. The evidence window
+  # reaches past the first step's own boundary if nothing stops it at the
+  # next sequence item, so the unpinned step reads as pinned and installs
+  # a floating `just` unnoticed.
+  _write ".github/workflows/self-test.yaml" \
+    '      - uses: extractions/setup-just@v4' \
+    '      - uses: extractions/setup-just@v4' \
+    '        with:' \
+    '          just-version: ${{ steps.pin.outputs.version }}'
+  run _run_just_provenance
+  assert_failure
+  assert_output --partial ".github/workflows/self-test.yaml:1"
+  assert_output --partial "setup-just"
+}
+
+@test "just provenance: the installer cannot borrow a --tag from a later command (#948)" {
+  # `--tag` is an argument OF the installer, so it has to sit on the
+  # installer's own logical line. Any neighbouring command that happens to
+  # take a --tag would otherwise vouch for it.
+  _write "dist/script/base/init.sh" \
+    '  curl -sSf https://just.systems/install.sh | bash -s -- --to ~/.local/bin' \
+    '  docker buildx imagetools create --tag "${image}:main" "${digest}"'
+  run _run_just_provenance
+  assert_failure
+  assert_output --partial "dist/script/base/init.sh:1"
+}
+
+@test "just provenance: a pinned release URL still counts when the version arg is on the same logical line (#948)" {
+  # The mirror of the two cases above: narrowing the evidence to the site
+  # itself must not start rejecting the shapes this tree actually uses.
+  _write "dockerfile/Dockerfile.test-tools" \
+    'ARG JUST_VERSION=1.58.0' \
+    'RUN set -eux && \' \
+    '    url="https://github.com/casey/just/releases/download/${JUST_VERSION}/just.tar.gz" && \' \
+    '    curl -fsSL "${url}" | tar -xz'
+  run _run_just_provenance
+  assert_success
+  assert_output --partial "just provenance lint: clean"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# What the advisory region may mute
+# ════════════════════════════════════════════════════════════════════
+
+@test "just provenance: an advisory region does not mute a mechanism that CAN be pinned (#948)" {
+  # The marker's stated reason is "this path cannot be pinned" -- a host
+  # package manager installs whatever its registry carries. A region
+  # opened for that reason must not also exempt the installer sitting
+  # inside it, which takes a --tag and therefore has no excuse.
+  _write "dist/script/base/init.sh" \
+    '  # just-provenance: advisory-begin -- a host package manager cannot' \
+    '  #   be pointed at the pin.' \
+    '  apt install just' \
+    '  curl -sSf https://just.systems/install.sh | bash -s -- --to ~/.local/bin' \
+    '  # just-provenance: advisory-end'
+  run _run_just_provenance
+  assert_failure
+  assert_output --partial "dist/script/base/init.sh:4"
+}
+
+@test "just provenance: a pointer to the project's homepage is not an acquisition site (#948)" {
+  # The install hint's heredoc ends with
+  # `https://github.com/casey/just#installation` -- prose that acquires
+  # nothing. A marker matching the bare project path turns every such
+  # mention into a site that has to be muted, and a mute is exactly what
+  # must stay scarce: the marker names the RELEASE ASSET path instead.
+  _write "script/test/noop.sh" \
+    '  echo "See https://github.com/casey/just#installation"'
+  run _run_just_provenance
+  assert_success
+  assert_output --partial "just provenance lint: clean"
+}
+
+# ════════════════════════════════════════════════════════════════════
 # _run_just_provenance: non-vacuity
 # ════════════════════════════════════════════════════════════════════
 

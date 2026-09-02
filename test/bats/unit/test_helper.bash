@@ -184,6 +184,20 @@ yaml_job_lines() {
     yaml_job_text "${1}" "${2}" | strip_comments
 }
 
+# yaml_job_names <file>
+#   The top-level `jobs:` keys of <file>, one per line -- the workflow's own
+#   job roster, DERIVED from the file rather than remembered by the spec. A
+#   test whose subject is "every job that ..." has to compute its population
+#   here: a roster typed into the spec is green on exactly the job somebody
+#   adds tomorrow, which is the event the test exists to notice.
+yaml_job_names() {
+    awk '/^jobs:/{f=1; next}
+         f && /^[^[:space:]]/{f=0}
+         f && /^  [A-Za-z][A-Za-z0-9_.-]*:[[:space:]]*$/{
+             sub(/:[[:space:]]*$/, ""); sub(/^  /, ""); print
+         }' "${1}"
+}
+
 # yaml_top_text <file> <key>
 #   One TOP-level mapping of <file> (`on`, `env`, `permissions`,
 #   `concurrency`), VERBATIM -- from `<key>:` up to the next unindented key.

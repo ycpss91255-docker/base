@@ -537,10 +537,41 @@ _job_comments() {
   for _job in hadolint bats-fragile bats-integration coverage system; do
     run yaml_job_lines "${WF}" "${_job}"
     assert_success
-    assert_output --partial 'REQUIRED_TOOLS="kcov bats shellcheck hadolint"'
+    assert_output --partial 'REQUIRED_TOOLS="kcov bats shellcheck hadolint just"'
     assert_output --partial 'command -v ${_tool}'
     assert_output --partial 'build_local=true'
   done
+}
+
+@test "self-test.yaml: every job that probes :main compares the runner VERSION, not just presence (#948)" {
+  # The population is DERIVED: every top-level job of this workflow whose
+  # body carries a REQUIRED_TOOLS probe. A roster typed here would be
+  # green on exactly the sixth probing job somebody adds tomorrow.
+  #
+  # Why presence is not enough. The probe exists so a stale / racing
+  # :main self-corrects to a local rebuild, and it answers "is the tool
+  # there?". test/bats/integration/just_runner_version_spec.bats is
+  # deliberately fail-closed on a MISMATCH between the image's `just` and
+  # ARG JUST_VERSION -- so a :main published before a version bump has
+  # every required tool AND the wrong runner, passes a presence-only
+  # probe, and reddens any PR that touched nothing related, for as long as
+  # the republish takes. The probe has to see the version too.
+  local -a _jobs=() _probing=()
+  mapfile -t _jobs < <(yaml_job_names "${WF}")
+  [ "${#_jobs[@]}" -ge 10 ] \
+    || fail "derived only ${#_jobs[@]} job(s) from ${WF} -- the roster reader is broken, so this test checked nothing"
+  local _job _body
+  for _job in "${_jobs[@]}"; do
+    _body="$(yaml_job_lines "${WF}" "${_job}")"
+    [[ "${_body}" == *'REQUIRED_TOOLS='* ]] || continue
+    _probing+=("${_job}")
+    [[ "${_body}" == *'dist/script/base/just-version.sh'* ]] \
+      || fail "job '${_job}' probes the pulled :main for tool presence but never reads the declared pin"
+    [[ "${_body}" == *'just --version'* ]] \
+      || fail "job '${_job}' reads the declared pin but never asks the image which version it ships"
+  done
+  [ "${#_probing[@]}" -ge 5 ] \
+    || fail "found ${#_probing[@]} probing job(s) among ${#_jobs[@]}; expected at least the five that run the baked tools -- the scan matched nothing, which is not a pass"
 }
 
 @test "self-test.yaml: only classify fetches the base ref; image jobs read its testtools_changed output (#734)" {

@@ -108,12 +108,20 @@ _seed_tree() {
   assert_output "9.9.9"
 }
 
+# Each of the three failure cases names the message it expects, not merely
+# a non-zero status. `run <path>` on a script that is absent or unreadable
+# also exits non-zero (127), so a status-only assertion is satisfied by
+# "the accessor is gone" -- the one state these tests cannot be allowed to
+# read as a pass, since they exist to prove the accessor rejects a bad
+# declaration.
+
 @test "just-version.sh: fails loud when the declaration file is gone (#948)" {
   local _root
   _root="$(_seed_tree 9.9.9)"
   rm -f "${_root}/dockerfile/Dockerfile.test-tools"
   run "${_root}/dist/script/base/just-version.sh"
   assert_failure
+  assert_output --partial "declaration not found"
   assert_output --partial "Dockerfile.test-tools"
 }
 
@@ -124,7 +132,8 @@ _seed_tree() {
     >> "${_root}/dockerfile/Dockerfile.test-tools"
   run "${_root}/dist/script/base/just-version.sh"
   assert_failure
-  assert_output --partial "JUST_VERSION"
+  assert_output --partial "declarations in"
+  assert_output --partial "there must be exactly one"
 }
 
 @test "just-version.sh: fails loud when the declaration is empty (#948)" {
@@ -134,16 +143,26 @@ _seed_tree() {
     > "${_root}/dockerfile/Dockerfile.test-tools"
   run "${_root}/dist/script/base/just-version.sh"
   assert_failure
+  assert_output --partial "is not a bare semver"
 }
 
 # ════════════════════════════════════════════════════════════════════
 # The readers
 # ════════════════════════════════════════════════════════════════════
 
+# The two reader assertions below read the workflows' CODE view
+# (code_grep, comment-only lines dropped), never the raw file. Both
+# workflows EXPLAIN this mechanism in prose that names the accessor's own
+# path -- release-test-tools.yaml says "read via
+# dist/script/base/just-version.sh" -- so a whole-file grep is satisfied by
+# the explanation of the reader instead of the reader, and the smoke check
+# could go back to restating the version literal with the spec still green.
+# Same conversion, same reason, as 2b6cbeb5 (closes #954).
+
 @test "self-test.yaml: setup-just is pinned from the accessor, not left to install latest (#948)" {
   local _wf=/source/.github/workflows/self-test.yaml
   # The resolve step runs the accessor into a step output ...
-  run grep -F 'dist/script/base/just-version.sh' "${_wf}"
+  run code_grep -F 'dist/script/base/just-version.sh' "${_wf}"
   assert_success
   # ... and setup-just consumes it through its just-version input.
   run grep -E '^ *just-version: ' "${_wf}"
@@ -153,7 +172,7 @@ _seed_tree() {
 
 @test "release-test-tools.yaml: the just smoke check asserts the version, not exit 0 (#948)" {
   local _wf=/source/.github/workflows/release-test-tools.yaml
-  run grep -F 'dist/script/base/just-version.sh' "${_wf}"
+  run code_grep -F 'dist/script/base/just-version.sh' "${_wf}"
   assert_success
   # A bare `docker run ... just --version` with nothing comparing its
   # output is the check that caught removal and never staleness.

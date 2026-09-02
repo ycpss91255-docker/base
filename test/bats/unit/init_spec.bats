@@ -681,6 +681,20 @@ _nojust_path() {
   assert_output --partial "FALLBACK, not an equivalent"
 }
 
+@test "_just_install_hint: degrades to a placeholder when the pin cannot be read (#948)" {
+  # A hint is a WARNING path: it must never abort init. When the
+  # declaration is unreadable the hint prints `<unresolved>` and still
+  # tells the user what to install, rather than propagating the accessor's
+  # failure out of a warning. (Its sibling, _bootstrap_just, INSTALLS, so
+  # it takes the opposite branch -- see the next-but-one case.)
+  _source_init
+  rm -f "${TMP_REPO}/.base/dockerfile/Dockerfile.test-tools"
+  PATH="$(_nojust_path)" run _preflight_just
+  assert_success
+  assert_output --partial "<unresolved>"
+  assert_output --partial "just is NOT auto-installed"
+}
+
 @test "_preflight_just: silent and exits 0 when just is present (#607)" {
   _source_init
   mock_cmd "just" 'exit 0'
@@ -729,6 +743,21 @@ _nojust_path() {
   PATH="$(_nojust_path)" HOME="${TMP_REPO}/home" run _bootstrap_just
   assert_success
   assert_output --partial "--tag ${_pin}"
+}
+
+@test "_bootstrap_just: refuses to install anything when the pin cannot be resolved (#948)" {
+  # The mirror of the hint's placeholder: this path INSTALLS, so an
+  # unresolvable pin must stop it rather than degrade. Falling through
+  # would run the installer with no --tag and put "whatever is latest" on
+  # the host -- the third of the four unpinned provenance paths, restored.
+  _source_init
+  rm -f "${TMP_REPO}/.base/dockerfile/Dockerfile.test-tools"
+  mock_cmd "curl" 'echo "CURL_INVOKED $*"'
+  mock_cmd "bash" 'echo "BASH_INSTALLER $*"'
+  PATH="$(_nojust_path)" HOME="${TMP_REPO}/home" run _bootstrap_just
+  assert_failure
+  assert_output --partial "refusing to install an unpinned runner"
+  refute_output --partial "CURL_INVOKED"
 }
 
 @test "_bootstrap_just: aborts with a clear error when the installer pipeline fails (#692)" {
