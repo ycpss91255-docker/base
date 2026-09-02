@@ -264,6 +264,43 @@ _write_generator() {
   assert_output --partial 'dist/init.sh'
 }
 
+@test "generated-workflow-actions: an unreadable value is reported as unreadable, not as an unused action (#950)" {
+  # The three outcomes of _gwa_classify exist so that "excluded by name"
+  # and "cannot read this at all" take OPPOSITE defaults. Collapsing them
+  # is only half the risk; the other half is reporting one as the other.
+  # An unreadable value carries a record with an EMPTY action field, and a
+  # reader that drops that field silently re-routes the finding into the
+  # "this repo never uses that action" branch -- a sentence about an
+  # action nobody wrote, pointing at a fix that does not apply.
+  _load_driver
+  _write_workflow 'actions/checkout@v8'
+  _write_generator \
+    '      - uses: actions/checkout@v8' \
+    '      - uses: not-an-action-reference'
+
+  run _run_generated_workflow_actions
+  [ "${status}" -ne 0 ]
+  assert_output --partial 'not a versioned action reference'
+  refute_output --partial 'never uses'
+}
+
+@test "generated-workflow-actions: an action named with no ref is not called unused (#950)" {
+  # `uses: actions/checkout` is unreadable -- there is no ref to compare --
+  # but this repo plainly DOES use actions/checkout. Reporting it as an
+  # action this repo never uses states something false about the tree and
+  # sends the reader to the wrong file.
+  _load_driver
+  _write_workflow 'actions/checkout@v8'
+  _write_generator \
+    '      - uses: actions/checkout@v8' \
+    '      - uses: actions/checkout'
+
+  run _run_generated_workflow_actions
+  [ "${status}" -ne 0 ]
+  assert_output --partial 'not a versioned action reference'
+  refute_output --partial 'never uses actions/checkout'
+}
+
 @test "generated-workflow-actions: a local ./ callee is skipped by name, not by accident (#950)" {
   # `uses: ./.github/workflows/x.yaml` carries no ref: the callee is this
   # tree at this commit. A named exclusion, so it does not ride on the
