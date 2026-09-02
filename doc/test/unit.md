@@ -1,7 +1,6 @@
 # Unit Tests
 
 Unit specs under `test/bats/unit/`: **3376 tests**.
-Unit specs under `test/bats/unit/`: **3376 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1190,7 +1189,7 @@ runs).
 
 ### test/bats/unit/exec_sh_spec.bats (59)
 
-Unit tests for `exec.sh` argument parsing, the service-running
+Unit tests for `exec.sh` argument parsing, the container-running
 precheck, and i18n. Sandbox tree mirrors build_sh_spec.bats;
 `docker ps` reads from a controllable stub file so tests can toggle
 "container running" state without a real docker daemon. `.env` is
@@ -1462,7 +1461,7 @@ standard auto-load dir (no rc edits), idempotency, the zsh fpath hint, default
 | `missing action is a usage error (exit 2) (#692)` | missing install/uninstall -> exit 2 |
 | `-h / --help exits 0 with usage` | help text |
 | `install is idempotent: a re-run overwrites cleanly` | overwrite-on-reinstall |
-| `--shell with no value is a usage error, not an infinite loop (#955)` | - |
+| `--shell with no value is a usage error, not an infinite loop (#955)` | missing flag value -> exit 1, no arg-loop spin |
 
 ### test/bats/unit/compose_emit/blocks_spec.bats (30)
 
@@ -1544,8 +1543,8 @@ shapes, absent on any `*-test` stage).
 | `generate_compose_yaml: device ro,rshared emits read_only + propagation (#450 P1)` | - |
 | `generate_compose_yaml: propagation-only device creates volumes: header even without extras (#450)` | - |
 | `generate_compose_yaml: all devices have propagation → no devices: section (#450)` | - |
-| `generate_compose_yaml expands ${VAR} env cross-refs in a per-stage env_N addition (refs #955)` | - |
-| `generate_compose_yaml expands cross-refs in a per-stage environment.env_N replacement (refs #955)` | - |
+| `generate_compose_yaml expands ${VAR} env cross-refs in a per-stage env_N addition (refs #955)` | append-mode tail expands against the shared prefix |
+| `generate_compose_yaml expands cross-refs in a per-stage environment.env_N replacement (refs #955)` | stage replaces the list, its own env_N cross-refs |
 | `generate_compose_yaml emits tmpfs block from tmpfs_ list` | - |
 | `generate_compose_yaml emits ports block only under network_mode=bridge` | - |
 | `generate_compose_yaml emits shm_size only when ipc_mode != host` | - |
@@ -1848,8 +1847,56 @@ SIGTERM → grace → SIGKILL (a SIGTERM-ignoring service is killed within the
 grace, no unbounded-`wait` hang), whole-subtree kill via `setsid` (no
 orphaned grandchild leaks per restart), give-up against a wedged service
 still reaching container-exit, and the `docker stop` SIGTERM forward to
-the service group. These drive real background processes / sleeps /
-signals, so the file is **kcov-fragile** (each test carries the
+the service group. Every wait is event-driven (poll for the pid file, the
+ready marker, the process going away) rather than a fixed `sleep`, and
+every case starts its processes through ONE harness, `_run_bounded`, so a
+failure costs what its ceiling says it costs. Two things are needed for
+that and each was measured alone: the harness hands the body a log file
+instead of the case's own output descriptor (a setsid'd service inherits
+that descriptor and holds `run` waiting for EOF for its whole lifetime --
+45s against a 30s ceiling, and 326s on the readiness path), and the
+ceiling ends in SIGKILL (`--kill-after`), because the product installs its
+own SIGTERM handler and unwinds into an unbounded `wait` against a service
+that ignores signals -- 300s against a stated `timeout 45` (#965). The
+process groups the fixtures record are torn down in `teardown` rather than
+from a trap inside the harness, which is where it was first put and where
+it did not run, and ONLY ever as a process group -- a bare-pid fallback
+could hit a stranger in another job, and the case that says so settles its
+verdict on the child's exit status through `wait` rather than on `kill -0`,
+which answers "alive" both for a process sent SIGKILL and not yet
+scheduled to die and for one dead and not yet reaped (measured: three
+false greens in fifteen full-file runs against a harness that DID signal
+the bare pid; zero in fifteen with the rendezvous). The same glance was
+in `_await_gone`, which every subtree case settles its verdict with, and
+it cost a full gate run on this branch: the group SIGKILL takes the
+grandchild's parent too, so nobody is left to wait for it, and the case
+reported ORPHAN_ALIVE against a correct product. It now reads the process
+state, so an exited unreaped pid counts as gone -- the answer the product
+already gives in `_watchdog_child_alive`.
+
+The `docker stop` forward case is the one this issue reported as NO_SIGNAL,
+and the last of it was not a test defect at all. `setsid cmd &` returns at
+the fork, so the supervisor sampled the child's process group before
+setsid() had run and a lost race left it signalling the bare pid -- 3 of 40
+starts on a deliberately loaded machine. A service whose shell sits in a
+foreground command then never runs its SIGTERM trap (bash holds a trap
+until the foreground command returns, and it returns because the group
+signal reached it too), the grace expires, and a correct service is
+SIGKILLed. The product now waits briefly for the group to appear, the
+fixture waits on a BACKGROUNDED sleep so a signal reaches it in one hop
+rather than three, and the harness's two numbers are derived from the
+interval rather than guessed. Measured: 0 failures in 30 loaded runs
+against 3 in 8 before.
+
+The net for the file as a whole is the bound guard in `teardown`, which
+measures every case against the ceiling its own harness declared: it holds
+for a sibling written in a spelling nothing anticipated, and a
+continuation-line `bash -c` sibling that walks past the structural scan is
+caught there at 45s against a declared 0. The structural case is the
+narrower claim on top of it -- exactly one place in the file starts a
+shell, inside `_run_bounded` -- and its job is to say WHICH LINE drifted at
+the moment it is written, not to be the thing that catches the drift. These drive real background
+processes / sleeps / signals, so the file is **kcov-fragile** (each test carries the
 `[ "${COVERAGE:-0}" = 1 ] && skip` guard; it runs plain under
 `bats-fragile`, ADR-00000008 / #613 / #677).
 
@@ -2320,7 +2367,13 @@ silencing case (refs #873) -- edit the English, run the generator, expect a
 green tree -- and asserts it does not work, because recording only the
 English hash made a bare re-stamp indistinguishable from a re-translation.
 Driven over throwaway fixture trees, plus a real-tree pair proving
-`doc/readme/` is stamped and clean today.
+`doc/readme/` is stamped and clean today. That pair asserts on a CAPTURE of
+the tracked files, never on the tree itself: the capture is taken twice and
+accepted only when both passes agree, because four sequential reads of a
+tree this spec does not own can return a `README.md` the translations
+beside it were never stamped against, and the generator then correctly
+refuses to re-stamp -- reporting a defect in the subject that was really a
+defect in the capture (#965).
 
 | Test | Description |
 |------|-------------|
@@ -2356,8 +2409,8 @@ Driven over throwaway fixture trees, plus a real-tree pair proving
 | `_run_readme_sync: the REAL doc/readme/ tree is stamped and clean today (#846)` | Live tree clean |
 | `_assert_same_tree: a failure names WHAT differed, not just that something did (#965)` | - |
 | `_sync_readme_hashes: is a no-op on the REAL tree (already stamped) (#846)` | Live tree already generator-exact |
-| `_capture_readme_baseline: a capture the source changed under is DISCARDED, not used (#965)` | - |
-| `_capture_readme_baseline: a source that never settles FAILS loudly, it does not hand back a torn set (#965)` | - |
+| `_capture_readme_baseline: a capture the source changed under is DISCARDED, not used (#965)` | A torn read must never become the baseline a verdict rests on |
+| `_capture_readme_baseline: a source that never settles FAILS loudly, it does not hand back a torn set (#965)` | No snapshot means nothing to assert on; say so rather than pick a read |
 
 ### test/bats/unit/lint_bare_stderr_spec.bats (6)
 
@@ -3617,13 +3670,11 @@ three tests assert the repo's own published figure, not the generator.
 | `action-ref-agreement: has a lint-static CI join (#949)` | Named plain-runner matrix entry, no docker |
 | `action-ref-agreement: its failure event id is registered (#949)` | An unregistered id is an anonymous exit |
 ### test/bats/unit/code_lines_spec.bats (35)
-### test/bats/unit/code_lines_spec.bats (35)
 
 The comment-stripped file views in `test/bats/unit/test_helper.bash`
 (`strip_comments` / `only_comments` / `code_lines` / `code_grep` /
-`yaml_job_{text,lines}` / `yaml_top_{text,lines}` / `yaml_step_id_for`),
-which the workflow and template structural specs assert against instead of
-the raw file.
+`yaml_job_{text,lines}` / `yaml_top_{text,lines}`), which the workflow and
+template structural specs assert against instead of the raw file.
 
 They exist because a spec that greps a WHOLE file lets a string appearing
 only in a COMMENT satisfy an assertion about CODE, and this repo's comments
@@ -3678,12 +3729,12 @@ must still arrive as 1.
 | `yaml_top_lines: returns a top-level block's code without the prose between keys` | `on` / `env` / `permissions` / `concurrency`; a comment paragraph between two top-level keys is not indented out by the terminator |
 | `yaml_top_lines: stops at the next top-level key` | Block scoping for the top-level mappings |
 | `yaml_top_text: keeps the block's comments` | The verbatim counterpart, for symmetry with `yaml_job_text` |
-| `yaml_step_id_for: names the step whose own body matches` | The step id an assertion needs to say "the consumer reads THE STEP THAT DID THE WORK", derived from the file so a rename moves the assertion with it |
-| `yaml_step_id_for: an id-less matching step yields nothing, it does not borrow the id of an earlier step` | The regression it was extracted for: the inline awk carried the last id forward across step boundaries, so a match in a later id-less step wore an earlier step's id and the assertion vouched for a step that no longer contained its subject |
-| `yaml_step_id_for: a nested list inside a step is not a step boundary` | The inverse mistake: resetting on every sequence dash loses the id of a step whose match sits in a `with:` list. Only a dash at the step indent is a boundary |
-| `yaml_step_id_for: a match in a comment cannot name a step` | It reads the job's code lines, so the same prose hazard the rest of this file exists for cannot name a step either |
-| `yaml_step_id_for: a pattern that matches nowhere in the job yields nothing` | An unattributable match is answered with an empty id, never a guessed one; the caller's `[ -n ... ]` turns that into a loud failure |
-| `yaml_step_id_for: does not reach into another job for its match` | Job scoping, inherited from `yaml_job_lines`: a step in a neighbouring job cannot supply this job's id |
+| `yaml_step_id_for: names the step whose own body matches` | - |
+| `yaml_step_id_for: an id-less matching step yields nothing, it does not borrow the id of an earlier step` | - |
+| `yaml_step_id_for: a nested list inside a step is not a step boundary` | - |
+| `yaml_step_id_for: a match in a comment cannot name a step` | - |
+| `yaml_step_id_for: a pattern that matches nowhere in the job yields nothing` | - |
+| `yaml_step_id_for: does not reach into another job for its match` | - |
 ### test/bats/unit/spec_subject_guard_spec.bats (11)
 
 `assert_spec_subject` (test/bats/unit/test_helper.bash), the fail-closed
@@ -3710,7 +3761,6 @@ inside the test that produces it, each case writes a one-test spec into
 | `the fail-open guard scan sees each spelling of the check it claims to cover` | The invariant must be green because no guard exists, not because its pattern is blind |
 | `the fail-open guard scan is an over-approximation, not a closed set` | A sample of what it misses, so the disclosure is never wider than the pattern |
 
-### test/bats/unit/just_provenance_lint_spec.bats (24)
 ### test/bats/unit/reusable_worker_permissions_spec.bats (3)
 
 Least privilege across EVERY reusable workflow in `.github/workflows/`,
@@ -3900,60 +3950,115 @@ population floor, `find` under `pipefail`, and grep status exactly 1
 
 | Test | Description |
 |------|-------------|
-| `no spec settles an assertion by comparing against the live checkout (#965)` | - |
-| `a scan of a tree that is not there answers 2, not 1 (#965)` | - |
-| `the comparison scan sees a live operand in each command position it names (#965)` | - |
-| `the comparison scan is an over-approximation, not a closed set (#965)` | - |
-
-### test/bats/unit/just_version_spec.bats (9)
-
-| Test | Description |
-|------|-------------|
-| `just version: declared exactly once, as a semver ARG in the tooling Dockerfile (#948)` | - |
-| `just version: the tooling image fetches the pinned release, never a bare apk add (#948)` | - |
-| `just-version.sh: prints the declared pin (#948)` | - |
-| `just-version.sh: reads its own tree, not the caller's cwd (#948)` | - |
-| `just-version.sh: fails loud when the declaration file is gone (#948)` | - |
-| `just-version.sh: fails loud when the declaration is duplicated (#948)` | - |
-| `just-version.sh: fails loud when the declaration is empty (#948)` | - |
-| `self-test.yaml: setup-just is pinned from the accessor, not left to install latest (#948)` | - |
-| `release-test-tools.yaml: the just smoke check asserts the version, not exit 0 (#948)` | - |
+| `no spec settles an assertion by comparing against the live checkout (#965)` | The defect this file was written for: a concurrent writer supplied half the verdict |
+| `a scan of a tree that is not there answers 2, not 1 (#965)` | Pinning status 1 only means something while "could not scan" is reachable |
+| `the comparison scan sees a live operand in each command position it names (#965)` | The positions come from the grammar, which makes that axis narrow rather than complete |
+| `the comparison scan is an over-approximation, not a closed set (#965)` | A sample of what it misses, one per axis: the command name, the word position, line-wise literal matching, and the position omitted by choice |
 
 ### test/bats/unit/residue_guard_spec.bats (22)
 
+The live-tree residue guard in `script/test/test.sh`: the EXECUTED answer
+to "did a spec write into the checkout it does not own". Every compose
+dispatch snapshots the checkout either side of the bats phase and fails
+naming any path that differs -- no command list, no spelling to miss, and
+no false positive on the suite's own setup, which is what a static scan of
+the specs could never manage (it was widened three times and was still
+blind to six spellings it claimed). Measured end to end: a planted spec
+writing into `doc/readme/` ran GREEN with the guard off and left the file
+behind; with the guard on the same run reported `ci_live_tree_residue`
+naming that path and exited 1 while bats still said `ok 1`.
+
+The check is TWO snapshots, not one, and that is its whole usability: a
+bare "is the tree clean" check needs a clean tree and would red every
+developer with work in flight, whereas an edit made BEFORE the run appears
+in both and cancels. Each record is status code + content hash + path, so a
+spec overwriting a file the developer was already editing still moves it.
+Ignored trees (`coverage/`, `log/`, `.prev-release/`) are absent by
+construction -- the list is git's, and git's means all of it: `.gitignore`,
+`.git/info/exclude` and `core.excludesFile` alike, so an ignore rule this
+repo never wrote silences the guard for the paths it covers. It is inert
+outside a git checkout, and it must run host-side: a worktree's `.git` is a
+FILE naming a gitdir the container never mounts.
+
+That same cancelling made the alarm ONE-SHOT, which is a hole in the shape
+rather than a slip: residue left by run N is on disk before run N+1 starts,
+so run N+1 read it as "in flight" and went green with the defect unchanged
+-- measured, run 1 exit 1 naming the path, run 2 exit 0. The guard now
+REMEMBERS what it named, in a record under the git dir (never in the
+working tree, where it would be residue itself, and per-worktree, so two
+checkouts do not inherit each other's). A remembered path is reported again
+on every run while it is still changed in the checkout and drops out the
+moment it is gone: cleaning up is the acknowledgement and nothing has to be
+typed for it. Two other shapes were weighed and rejected -- taking the
+baseline from the index removes the laundering and with it the whole reason
+the guard is usable, and narrowing what BEFORE may cancel is a guess about
+which changes are developer-shaped that is wrong for anyone adding a file.
+
+The cost to the dirty working tree is unchanged: an edit made before a run
+cancels, is never named, and is therefore never remembered. Only a path the
+guard has already reported out loud can become sticky, which is the one
+false positive two snapshots cannot cancel -- an edit made WHILE the suite
+ran. That is what `TEST_RESIDUE_GUARD=0` is for, and it now drops the
+record on its way past, so there is one knob rather than two.
+
+The report keeps the two facts it now has apart. The lead sentence names
+what THIS run wrote; a carried path gets a clause of its own that opens by
+saying the run changed nothing when that is what happened. Built from the
+union, as it first was, every re-run of an unfixed residue asserted a write
+that did not happen in it.
+
+Four blind spots and one price, stated because a guard whose limits are
+implied gets believed past them, and each with a case that measures it
+rather than an assurance.
+
+- A spec that writes and then removes its own traces before the phase ends
+  is invisible; closing that means snapshotting per SPEC, in the
+  in-container driver, which cannot read a worktree's gitdir at all.
+- Anything git ignores, through any of the files git reads to decide that.
+- Anything under `.git/`: `git status` never reports it, so a planted hook,
+  config or alternates entry is unseen -- excluded with a reason rather
+  than closed, because git rewrites its own dir on almost any command (the
+  guard's own `git status` refreshes the index) and narrowing that to "the
+  parts that matter" is an open-set roster, the exact shape this round
+  deleted. A case pins both the silence and how narrow it is: one directory
+  up, the same write is still named.
+- A permission change git does not track. Git records the exec bit and
+  nothing else of a file's mode, so 644 -> 755 IS named while 644 -> 600
+  leaves both the status line and the content hash where they were.
+- The price: `TEST_RESIDUE_GUARD=0` ends the alarm permanently for a spec
+  that writes the SAME bytes every run, because the path is then identical
+  in both snapshots and no memory is left to say otherwise. It stays
+  permanent because an acknowledged path and an unfinished edit are the
+  same thing at the phase boundary -- same status line, same hash -- so
+  expiring the acknowledgement re-raises the developer's edit on a timer
+  and scoping it points at the same absent signal. The failure message now
+  says what the flag gives up at the moment it offers it, and a case pins
+  the limit: bytes that CHANGE after an acknowledgement are named again.
+
 | Test | Description |
 |------|-------------|
-| `_residue_paths: a file the run CREATED is named (#965)` | - |
-| `_residue_paths: an edit already in flight before the run is NOT named (#965)` | - |
-| `_residue_paths: a SECOND edit to an already-dirty file IS named (#965)` | - |
-| `_residue_paths: a tracked file the run DELETED is named (#965)` | - |
-| `_residue_paths: a gitignored path the run wrote is NOT named (#965)` | - |
-| `_residue_paths: the ignore list is git's whole exclude stack, not .gitignore alone (#965)` | - |
-| `_residue_paths: a path containing a space is named whole (#965)` | - |
-| `_residue_paths: a write the run UNDID before the snapshot is NOT named (#965)` | - |
+| `_residue_paths: a file the run CREATED is named (#965)` | The base case: an untracked file that was not there before |
+| `_residue_paths: an edit already in flight before the run is NOT named (#965)` | The cry-wolf case; a guard that reds a dirty working tree is switched off within the week |
+| `_residue_paths: a SECOND edit to an already-dirty file IS named (#965)` | Why the record carries a content hash: both snapshots show the same ` M` status line |
+| `_residue_paths: a tracked file the run DELETED is named (#965)` | Residue is any difference, not only an addition |
+| `_residue_paths: a gitignored path the run wrote is NOT named (#965)` | coverage/, log/ and .prev-release/ are the suite's own; git's ignore list is the allowlist |
+| `_residue_paths: the ignore list is git's whole exclude stack, not .gitignore alone (#965)` | `.git/info/exclude` silences it too, and the same write one directory over is still named |
+| `_residue_paths: a path containing a space is named whole (#965)` | Read NUL-separated with the path last, so porcelain quoting cannot truncate the report |
+| `_residue_paths: a write the run UNDID before the snapshot is NOT named (#965)` | The first blind spot, measured: neither undo shape reaches `git status`, and the same write left in place is still named |
 | `_residue_paths: a write under .git/ is EXCLUDED, and the exclusion is narrow (#965)` | - |
-| `_residue_paths: a permission change is seen only where git tracks one (#965)` | - |
-| `_residue_check: fails naming the path, and says what to do about it (#965)` | - |
-| `_residue_check: passes on a run that changed nothing (#965)` | - |
+| `_residue_paths: a permission change is seen only where git tracks one (#965)` | 644 -> 600 is invisible, 644 -> 755 is named: the shape of the limit, not just its existence |
+| `_residue_check: fails naming the path, and says what to do about it (#965)` | The report has to be actionable without opening the guard |
+| `_residue_check: passes on a run that changed nothing (#965)` | The path every green gate takes |
 | `_residue_check: a residue it already named is named AGAIN on the next run (#965)` | - |
-| `_residue_check: a run that changed nothing does not report that it did (#965)` | - |
+| `_residue_check: a run that changed nothing does not report that it did (#965)` | The lead sentence is about THIS run; a carried path says so in its own clause |
 | `_residue_check: the memory clears when the residue is GONE (#965)` | - |
 | `_residue_forget: an acknowledged path goes quiet with the file still there (#965)` | - |
-| `_residue_forget: an acknowledgement is permanent while the bytes stay the same (#965)` | - |
+| `_residue_forget: an acknowledgement is permanent while the bytes stay the same (#965)` | The escape hatch's price, decided and pinned: silent for an identical rewrite, named again when the bytes change |
 | `the pending record is kept OUTSIDE the working tree, so it is not residue itself (#965)` | - |
 | `_residue_before_snapshot: a baseline it could not take is a FAILURE, not an empty one (#965)` | - |
-| `_residue_guard_available: answers no outside a git checkout (#965)` | - |
-| `_residue_guard_available: is switched off by TEST_RESIDUE_GUARD=0 (#965)` | - |
-| `the compose dispatch is what runs the guard, not a caller that could forget (#965)` | - |
-
-### test/bats/unit/spec_source_isolation_spec.bats (4)
-
-| Test | Description |
-|------|-------------|
-| `no spec settles an assertion by comparing against the live checkout (#965)` | - |
-| `a scan of a tree that is not there answers 2, not 1 (#965)` | - |
-| `the comparison scan sees a live operand in each command position it names (#965)` | - |
-| `the comparison scan is an over-approximation, not a closed set (#965)` | - |
+| `_residue_guard_available: answers no outside a git checkout (#965)` | A released tarball still runs the suite; absence costs nothing |
+| `_residue_guard_available: is switched off by TEST_RESIDUE_GUARD=0 (#965)` | The escape hatch for an edit made WHILE the suite runs, asserted in both directions |
+| `the compose dispatch is what runs the guard, not a caller that could forget (#965)` | Wired into the one host-side point every bats dispatch passes through |
 ### test/bats/unit/generated_workflow_actions_lint_spec.bats (21)
 
 | Test | Description |
@@ -3979,3 +4084,46 @@ population floor, `find` under `pipefail`, and grep status exactly 1
 | `generated-workflow-actions: fails when this repo never uses the generated action (#950)` | No dependabot PR for the generated ref to inherit -- the bare form of the defect |
 | `generated-workflow-actions: refuses a tree it found no generated ref in (#950)` | A renamed generator or a dead matcher must not read as lockstep |
 | `generated-workflow-actions: the real repo is in lockstep (#950)` | Drives the live tree, so the fixtures cannot drift away from what ships |
+### test/bats/unit/just_provenance_lint_spec.bats (24)
+
+| Test | Description |
+|------|-------------|
+| `just provenance: a tree whose every site names the pin is clean (#948)` | - |
+| `just provenance: setup-just with no just-version input is a finding (#948)` | - |
+| `just provenance: the just.systems installer with no --tag is a finding (#948)` | - |
+| `just provenance: a pinned release URL that drops the version arg is a finding (#948)` | - |
+| `just provenance: a package-manager install of just needs an advisory marker (#948)` | - |
+| `just provenance: a package-manager install inside a justified advisory region is allowed (#948)` | - |
+| `just provenance: an advisory region with no stated reason is a finding (#948)` | - |
+| `just provenance: an unterminated advisory region is a finding (#948)` | - |
+| `just provenance: an unmatched advisory-end is a finding (#948)` | - |
+| `just provenance: a step cannot borrow the NEXT step's just-version input (#948)` | - |
+| `just provenance: the installer cannot borrow a --tag from a later command (#948)` | - |
+| `just provenance: the installer cannot borrow a --tag from a command chained onto its own line (#948)` | - |
+| `just provenance: a --tag after a ';' on a continued line is not the installer's either (#948)` | - |
+| `just provenance: a second acquisition on one logical line is its own site (#948)` | - |
+| `just provenance: the hidden second acquisition is found in either order (#948)` | - |
+| `just provenance: a pinned release URL still counts when the version arg is on the same logical line (#948)` | - |
+| `just provenance: an advisory region does not mute a mechanism that CAN be pinned (#948)` | - |
+| `just provenance: a pointer to the project's homepage is not an acquisition site (#948)` | - |
+| `just provenance: a missing scan root fails rather than passing vacuously (#948)` | - |
+| `just provenance: an empty scan root fails rather than passing vacuously (#948)` | - |
+| `just provenance: a tree with no provenance site at all fails vacuously-closed (#948)` | - |
+| `just provenance: a tree where nothing is pinned fails vacuously-closed (#948)` | - |
+| `just provenance: pin evidence on a backslash continuation still counts (#948)` | - |
+| `just provenance: the live tree passes its own lint (#948)` | - |
+
+### test/bats/unit/just_version_spec.bats (9)
+
+| Test | Description |
+|------|-------------|
+| `just version: declared exactly once, as a semver ARG in the tooling Dockerfile (#948)` | - |
+| `just version: the tooling image fetches the pinned release, never a bare apk add (#948)` | - |
+| `just-version.sh: prints the declared pin (#948)` | - |
+| `just-version.sh: reads its own tree, not the caller's cwd (#948)` | - |
+| `just-version.sh: fails loud when the declaration file is gone (#948)` | - |
+| `just-version.sh: fails loud when the declaration is duplicated (#948)` | - |
+| `just-version.sh: fails loud when the declaration is empty (#948)` | - |
+| `self-test.yaml: setup-just is pinned from the accessor, not left to install latest (#948)` | - |
+| `release-test-tools.yaml: the just smoke check asserts the version, not exit 0 (#948)` | - |
+
