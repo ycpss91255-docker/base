@@ -183,10 +183,10 @@ INNER_EOF
   assert_equal "${status}" 1
 }
 
-# _guard_spelling <bracket> <negation> <operator>
-#   Render ONE fail-open existence guard, in the spelling named by the three
-#   axes, as a line of bats source. Rendered rather than listed so the case
-#   below cannot fall behind the pattern one variant at a time.
+# _guard_spelling <bracket> <negation> <operator> <continuation>
+#   Render ONE fail-open existence guard, in the spelling named by the four
+#   axes, as bats source. Rendered rather than listed so the case below
+#   cannot fall behind the pattern one variant at a time.
 #
 #   `printf` rather than a heredoc, and assembled from pieces rather than
 #   written out: a literal guard line in THIS file would sit under the tree
@@ -197,7 +197,8 @@ _guard_spelling() {
   local _bracket="${1:?BUG: _guard_spelling expects a bracket form}"
   local _negation="${2:?BUG: _guard_spelling expects a negation form}"
   local _operator="${3:?BUG: _guard_spelling expects an operator}"
-  local _open _close _outer='' _inner='' _joiner='||'
+  local _continuation="${4:?BUG: _guard_spelling expects a continuation form}"
+  local _open _close _outer='' _inner='' _joiner='||' _fmt
 
   case "${_bracket}" in
     double) _open='[['   ; _close=' ]]' ;;
@@ -215,7 +216,18 @@ _guard_spelling() {
     *) fail "BUG: unknown negation form ${_negation}" ;;
   esac
 
-  printf '  %s%s %s-%s "${WF}"%s %s skip "gone"\n' \
+  # Where the answer sits relative to the test. `wrapped` is not an exotic
+  # variant: EVERY surviving `|| skip` in this suite is written that way
+  # (`grep -rn -B1 '^[[:space:]]*|| skip' test/bats/`), so it is the
+  # house spelling, and a line-wise scan cannot see it at all.
+  case "${_continuation}" in
+    inline)  _fmt='  %s%s %s-%s "${WF}"%s %s skip "gone"\n' ;;
+    wrapped) _fmt='  %s%s %s-%s "${WF}"%s \\\n    %s skip "gone"\n' ;;
+    *) fail "BUG: unknown continuation form ${_continuation}" ;;
+  esac
+
+  # shellcheck disable=SC2059  # _fmt is this function's own literal
+  printf "${_fmt}" \
     "${_outer}" "${_open}" "${_inner}" "${_operator}" "${_close}" "${_joiner}"
 }
 
@@ -223,47 +235,55 @@ _guard_spelling() {
   # The other way the invariant above goes quietly blind: it holds because
   # its PATTERN misses the guard, not because no guard exists. Reintroducing
   # a real fail-open guard as `[ -f "${WF}" ] || skip "gone"` left it green,
-  # and so does a negated form or an existence test that is not `-f` --
-  # `[[ -d "${WF_DIR}" ]] || skip` was sitting in this suite, unseen, while
-  # the invariant reported clean.
+  # and so does a negated form, an existence test that is not `-f`, or the
+  # two-line form every surviving skip in this suite is written in.
   #
-  # The spellings are GENERATED from three axes -- bracket form, negation,
-  # operator -- rather than listed, so a spelling this scan is claimed to
-  # cover cannot go untested by being left off a list.
+  # The spellings are GENERATED from four axes -- bracket form, negation,
+  # operator, continuation -- rather than listed, so a spelling this scan is
+  # claimed to cover cannot go untested by being left off a list. The
+  # OPERATOR axis is the whole alphabet in both cases, not a hand-picked
+  # subset of the file tests: bash owns that set, so any subset of it is a
+  # roster that decays, and the pattern accepts a one-letter unary operator
+  # without asking which one.
   #
-  # NOT exhaustive, and this case does not claim to be: bash spells a
-  # conditional in ways no cross-product enumerates (an `if ... then skip;
-  # fi` across three lines, `[[ -f x ]] || { skip; }`, a helper function
-  # that hides the test entirely). The scan over-approximates the shapes it
-  # knows and this case pins exactly those; a guard written outside the
-  # three axes is NOT covered, and saying so here is the point -- an
-  # invariant that claimed a closed set would be making the same promise
-  # the `-f`-only pattern made.
+  # NOT exhaustive, and this case does not claim to be. What it misses is
+  # planted, one per axis, in the case below rather than described here.
   local _planted="${BATS_TEST_TMPDIR}/planted"
   mkdir -p "${_planted}"
+  local _expected="${BATS_TEST_TMPDIR}/expected.txt"
+  : > "${_expected}"
 
-  local _bracket _negation _operator _name _planted_count=0
+  local _bracket _negation _operator _continuation _name _planted_count=0
   for _bracket in double single builtin; do
     for _negation in plain inner outer; do
-      # The existence predicates a guard on a tracked artifact can use.
-      # `-f` was the only one the pattern knew.
-      for _operator in f e s d; do
-        _name="${_bracket}_${_negation}_${_operator}"
-        _guard_spelling "${_bracket}" "${_negation}" "${_operator}" \
-          > "${_planted}/${_name}.bats"
-        _planted_count=$(( _planted_count + 1 ))
-
-        run grep -nE "${GUARD_RE}" "${_planted}/${_name}.bats"
-        [[ "${status}" -eq 0 ]] || fail \
-          "the fail-open guard scan does not match the ${_name} spelling ($(cat "${_planted}/${_name}.bats")), so the repo-wide invariant would stay green with that guard in the tree"
+      for _operator in {a..z} {A..Z}; do
+        for _continuation in inline wrapped; do
+          _name="${_bracket}_${_negation}_${_operator}_${_continuation}"
+          _guard_spelling "${_bracket}" "${_negation}" "${_operator}" \
+            "${_continuation}" > "${_planted}/${_name}.bats"
+          printf '%s\n' "${_planted}/${_name}.bats" >> "${_expected}"
+          _planted_count=$(( _planted_count + 1 ))
+        done
       done
     done
   done
 
   # Non-vacuity: a loop that planted nothing would report every spelling
   # covered, which is this file's own subject matter one level up.
-  [ "${_planted_count}" -eq 36 ] || fail \
-    "planted ${_planted_count} spellings, expected 36 (3 bracket forms x 3 negations x 4 operators)"
+  [ "${_planted_count}" -eq 936 ] || fail \
+    "planted ${_planted_count} spellings, expected 936 (3 bracket forms x 3 negations x 52 operators x 2 continuations)"
+
+  # ONE scan over the whole planted tree, compared as a SET: a per-file loop
+  # reports the first spelling that escapes and says nothing about the rest,
+  # and "which spellings are unseen" is the answer this case exists to give.
+  local _seen="${BATS_TEST_TMPDIR}/seen.txt"
+  grep -rlE "${GUARD_RE}" "${_planted}" | sort > "${_seen}"
+
+  local _missed
+  _missed="$(comm -23 <(sort "${_expected}") "${_seen}" | head -20)"
+  [[ -z "${_missed}" ]] || fail \
+    "the fail-open guard scan does not match $(comm -23 <(sort "${_expected}") "${_seen}" | wc -l) of the ${_planted_count} spellings it claims to cover, so the repo-wide invariant would stay green with one of those guards in the tree. First 20:
+${_missed}"
 }
 
 # _guarded_test_count
