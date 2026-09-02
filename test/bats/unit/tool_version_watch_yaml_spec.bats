@@ -22,7 +22,11 @@ bats_require_minimum_version 1.5.0
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
   WF="/source/.github/workflows/tool-version-watch.yaml"
-  [[ -f "${WF}" ]] || skip "tool-version-watch.yaml not at expected path"
+  # The subject is TRACKED, so its absence is a rename nobody noticed, not
+  # a condition to tolerate. A `|| skip` here would report a green suite
+  # for a watch that no longer exists -- the one outcome every prohibition
+  # below is written to prevent.
+  assert [ -f "${WF}" ]
 }
 
 # _job <name> -- the body of one job block.
