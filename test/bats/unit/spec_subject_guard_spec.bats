@@ -49,11 +49,14 @@ setup() {
   SPEC_TREE_FLOOR=60
 }
 
-# _write_inner <path-argument-literal>
-#   Emit a one-test spec whose body is a single assert_spec_subject call on
-#   the given (already-quoted) path expression.
+# _write_inner <path-argument-literal> [assertion-function]
+#   Emit a one-test spec whose body is a single subject assertion on the
+#   given (already-quoted) path expression. The function defaults to the
+#   file guard; the directory guard is driven through the same generator so
+#   both are proved against the same bats OUTCOME, not against two shapes.
 _write_inner() {
   local _arg="${1:?BUG: _write_inner expects a path expression}"
+  local _fn="${2:-assert_spec_subject}"
   cat > "${INNER}" <<INNER_EOF
 #!/usr/bin/env bats
 setup() {
@@ -61,7 +64,7 @@ setup() {
 }
 
   @test "inner: subject present" {
-    assert_spec_subject ${_arg} "the artifact the inner spec asserts on"
+    ${_fn} ${_arg} "the artifact the inner spec asserts on"
   }
 INNER_EOF
 }
@@ -109,6 +112,44 @@ INNER_EOF
   assert_output --partial "BUG: assert_spec_subject expects a path"
 }
 
+@test "assert_spec_subject_dir: a present directory lets the test run to completion" {
+  local _subject="${BATS_TEST_TMPDIR}/present_tree"
+  mkdir -p "${_subject}"
+  _write_inner "\"${_subject}\"" assert_spec_subject_dir
+
+  run bats "${INNER}"
+  assert_success
+  assert_output --partial "ok 1 inner: subject present"
+  refute_output --partial "# skip"
+}
+
+@test "assert_spec_subject_dir: a missing directory FAILS the test, it does not skip it" {
+  # Same contract as the file guard, and the same reason: a tracked tree
+  # (`.github/workflows/`) is present in every mode this suite has, so its
+  # absence is the rename nobody noticed, never a context. The two live
+  # `[[ -d "${WF_DIR}" ]] || skip` guards this replaces answered that with
+  # a green run over an empty spec.
+  _write_inner "\"${BATS_TEST_TMPDIR}/absent_tree\"" assert_spec_subject_dir
+
+  run bats "${INNER}"
+  assert_failure
+  assert_output --partial "not ok 1 inner: subject present"
+  refute_output --partial "# skip"
+}
+
+@test "assert_spec_subject_dir: a FILE at the path is not the directory it asked for" {
+  # Why the guard is `-d` and not a widened `-e`: a path that turned from a
+  # directory into a file is itself one of the moves these guards exist to
+  # catch, and `-e` would answer it with a pass.
+  local _subject="${BATS_TEST_TMPDIR}/tree_became_a_file"
+  printf 'not a directory\n' > "${_subject}"
+  _write_inner "\"${_subject}\"" assert_spec_subject_dir
+
+  run bats "${INNER}"
+  assert_failure
+  assert_output --partial "${_subject}"
+}
+
 @test "no spec opens with a fail-open '|| skip' existence guard" {
   # The repo-wide invariant this helper exists to hold. An existence check
   # answered with `skip` cannot tell "absent by design" from "renamed and
@@ -129,9 +170,11 @@ INNER_EOF
   # first is this invariant holding, and `assert_failure` cannot tell them
   # apart -- pointing the scan at a path that does not exist left this spec
   # passing 5/5.
+  # `assert_output` first so a failure prints the guards it found, file and
+  # line; the status pin still runs, and neither is weakened by the order.
   run grep -rnE "${GUARD_RE}" "${SPEC_TREE}/"
-  assert_equal "${status}" 1
   assert_output ""
+  assert_equal "${status}" 1
 }
 
 # _guard_spelling <bracket> <negation> <operator>

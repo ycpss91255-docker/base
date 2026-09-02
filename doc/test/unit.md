@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3090 tests**.
+Unit specs under `test/bats/unit/`: **3093 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3516,7 +3516,7 @@ got wrong.
 | `yaml_top_lines: returns a top-level block's code without the prose between keys` | `on` / `env` / `permissions` / `concurrency`; a comment paragraph between two top-level keys is not indented out by the terminator |
 | `yaml_top_lines: stops at the next top-level key` | Block scoping for the top-level mappings |
 | `yaml_top_text: keeps the block's comments` | The verbatim counterpart, for symmetry with `yaml_job_text` |
-### test/bats/unit/spec_subject_guard_spec.bats (6)
+### test/bats/unit/spec_subject_guard_spec.bats (9)
 
 `assert_spec_subject` (test/bats/unit/test_helper.bash), the fail-closed
 opening 54 guards across this suite now share, plus the repo-wide
@@ -3534,5 +3534,8 @@ inside the test that produces it, each case writes a one-test spec into
 | `assert_spec_subject: a missing subject FAILS the test, it does not skip it` | The whole point: a skip here reports green for a spec that asserted nothing |
 | `assert_spec_subject: the failure names the missing path and what it was` | The message has to be actionable without opening the spec |
 | `assert_spec_subject: refuses an empty path rather than passing vacuously` | An unset caller variable is a loud bug, not a silent pass |
+| `assert_spec_subject_dir: a present directory lets the test run to completion` | The directory form must not fail a subject that is there |
+| `assert_spec_subject_dir: a missing directory FAILS the test, it does not skip it` | A tracked tree that vanished is a defect, never a context |
+| `assert_spec_subject_dir: a FILE at the path is not the directory it asked for` | Why the guard is -d and not a widened -e |
 | `no spec opens with a fail-open '\|\| skip' existence guard` | The repo-wide invariant, so the idiom cannot creep back in |
 | `the fail-open guard scan sees each spelling of the check it claims to cover` | The invariant must be green because no guard exists, not because its pattern is blind |
