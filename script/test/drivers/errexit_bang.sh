@@ -210,7 +210,7 @@
 # A statement still UNFINISHED when the fold reaches the body's `}` --
 # an open quote or `(`, or an operator that never got its right operand
 # -- is the scan saying it lost track. It is reported when it can have
-# cost something: when the statement it opened on is a `!` one (its code
+# cost something: when the span this lint judges is a `!` one (its code
 # was read only as far as the scan got), or when a line that OPENS a `!`
 # statement was folded into it while a quote or `(` was open (that line
 # is then judged by no rule). It is NOT reported otherwise, and that is
@@ -228,11 +228,26 @@
 # with the mechanism they are about would close the hole they exist to
 # keep open.)
 #
-# An operator fold is deliberately NOT part of the swallow row. There the
-# line folded in is the operator's right operand and bash reads it into
-# this statement too, so `! A ||` over `! B` is one `||` list and
-# reporting the second `!` would be a false positive. The cost of that
-# choice is in the heredoc entry below.
+# WHICH SPAN the rules are asked about is a second question, and getting
+# it wrong is the same defect one level down: reading a property of a
+# statement off text that is not the statement. A logical line is judged
+# for the `!` statement inside it, which is the whole of it when the line
+# OPENS with `!` and a TAIL of it when an operator fold pulled a `!` line
+# in. `echo a ||` over `! grep -q A f; true` is one logical line and the
+# `;` really does throw the negation away -- but the `||` in front of the
+# `!` is the echo's, not the `!`'s hand-off, so asking the rules about
+# the whole line would take the live-`||` exemption and say nothing.
+# The span starts at the `!`, and the row names the line it starts on.
+#
+# An operator fold is therefore NOT part of the swallow row, and does not
+# need to be: it takes no `!` line out of reach. Where the logical line
+# already opens with `!`, the line folded in is that same statement's
+# text -- `! A ||` over `! B` is one `||` list with one verdict, and
+# reporting the second `!` would be a false positive. Where it does not,
+# the folded-in `!` opens the judged span and is put through the rules
+# exactly as it would have been on a line of its own, position rule
+# included: `echo a && ! grep -q A f` as the body's LAST statement is
+# still the body's verdict and stays clean.
 #
 # WHAT IS NOT MODELLED, and which way each one is wrong. This list is
 # the honest half of the paragraph above: the scan is three quote
@@ -251,13 +266,14 @@
 #     text is read as this statement's own -- a `;` or an `||` inside
 #     backticks is taken for the statement's separator. OVER-reports,
 #     and did so before this scan existed too. Refusing direction.
-#   - Heredocs, as the limitation note below already says, with one new
-#     edge: a heredoc BODY line that ends in `|`, `||`, `&&` or `|&`
-#     now folds the line after it in, so a fixture line opening with
-#     `!` right below one is swallowed instead of raising the usual
-#     false alarm. In an untracked heredoc that is a MISS, not a
-#     refusal -- the one place these four operators cost something. The
-#     tree has no heredoc holding either shape today; base#989 tracks it.
+#   - Heredocs, as the limitation note below already says. Its body is
+#     read as code, so a fixture line opening with `!` reads as a
+#     statement -- and it still does when the line above it ends in
+#     `|`, `||`, `&&` or `|&`, because the fold that pulls it in opens
+#     the judged span on it. OVER-reports, the usual heredoc false
+#     alarm, answered by one allow region. Refusing direction. The MISS
+#     heredocs carry is the other shape in that note: a `}` at column 0
+#     inside one closes the body early.
 #   - Compound commands -- `if`, `while`, `for`, `case`, a `{ ... }`
 #     list. A block's STATUS is its last command's, but the scan reads
 #     each line inside one as its own statement and counts the closing
@@ -285,10 +301,9 @@
 # Known limitation, stated rather than papered over: a heredoc body
 # inside a test is not tracked. A fixture line beginning with `! ` inside
 # one reads as a statement (a false alarm the allow region answers,
-# unless the line above it ends in a list or pipe operator, which folds
-# it in silently -- see the unmodelled list above), and a `}` at column 0
-# inside one closes the body early, taking the REST of that body out of
-# the rule's reach (a MISSED violation). The tree has
+# whether or not the line above it ends in a list or pipe operator), and
+# a `}` at column 0 inside one closes the body early, taking the REST of
+# that body out of the rule's reach (a MISSED violation). The tree has
 # neither today, and a heredoc tracker would be a second bash parser.
 # The converse shape -- a heredoc that swallows the body's real closing
 # brace -- is no longer silent: it leaves the body open at EOF, which the
@@ -654,6 +669,13 @@ _errexit_bang_scan_file() {
   local _judge=0 _fold=0
   # The logical line in progress; an empty `_lbuf` means there is none.
   local _lbuf='' _ltext='' _lcode='' _lstart=0 _lend=0 _lcont=0 _lbang=0
+  # The SPAN the rules are asked about: the `!` statement inside the
+  # logical line above. It is the whole of it when the line opens with
+  # `!`, and a TAIL of it when an operator fold pulled a `!` line in --
+  # asking the rules about the whole line there would read a `||` that
+  # belongs to the line ABOVE the `!` as the `!`'s own hand-off, and
+  # would name the wrong line in the row.
+  local _lbbuf='' _lbtext='' _lbcode='' _lbstart=0 _lbcont=0
   # Set, with the line number, when a line that OPENS a `!` statement was
   # folded in because the scan had an unterminated quote or `(` -- the
   # one way the fold can take a statement this lint judges out of its
@@ -761,6 +783,31 @@ _errexit_bang_scan_file() {
           _lswallow=1
           _lswallow_line="${_lineno}"
         fi
+        # A `!` line pulled in by an operator fold (3) belongs to this
+        # logical line AND opens a statement this lint judges. Whether
+        # the logical line is a `!` one used to be read off the line it
+        # opened on alone, so a `!` folded in below a non-`!` line was
+        # judged by no rule at all. The judged span starts here instead.
+        # Only an operator fold: a backslash (1) continues the COMMAND
+        # above it (`find ... \` + `! -name x` is a find predicate, not
+        # an assertion), and a quote or `(` (2) is the scan admitting it
+        # lost track, which is the swallow row above. Gated on the allow
+        # region like every row that judges a `!` line.
+        if [[ "${_why}" -eq 3 && "${_lbang}" -eq 0 && "${_in_allow}" -eq 0 \
+              && "${_line}" =~ ${_ERREXIT_BANG_STMT_RE} ]]; then
+          _lbang=1
+          _lbstart="${_lineno}"
+          _lbtext="${_line}"
+          _lbbuf="${_line}"
+        elif [[ "${_lbang}" -eq 1 ]]; then
+          # The span is already open: this line extends it, spliced the
+          # same way `_lbuf` is just below.
+          if [[ "${_why}" -eq 1 ]]; then
+            _lbbuf="${_lbbuf%\\}${_line}"
+          else
+            _lbbuf+=" ${_line}"
+          fi
+        fi
         if [[ "${_why}" -eq 1 ]]; then
           # A backslash-newline is REMOVED: the two physical lines become
           # one character sequence with nothing inserted between them, so
@@ -776,6 +823,10 @@ _errexit_bang_scan_file() {
         _lend="${_lineno}"
         _last_stmt="${_lineno}"
         _errexit_bang_code_scan "${_lbuf}" _lcode _lcont
+        # The span is scanned on its own: the rules below read its code,
+        # not the logical line's.
+        [[ "${_lbang}" -eq 1 ]] \
+          && _errexit_bang_code_scan "${_lbbuf}" _lbcode _lbcont
         [[ "${_lcont}" -eq 0 ]] && _judge=1
       else
         # The statement ends WITHOUT consuming this line: a blank or a
@@ -791,10 +842,16 @@ _errexit_bang_scan_file() {
       _last_stmt="${_lineno}"
       _lbang=0
       _lswallow=0
+      _lbbuf=''
       if [[ "${_in_allow}" -eq 0 && "${_line}" =~ ${_ERREXIT_BANG_STMT_RE} ]]; then
         _lbang=1
+        _lbstart="${_lineno}"
+        _lbtext="${_line}"
+        _lbbuf="${_line}"
       fi
       _errexit_bang_code_scan "${_lbuf}" _lcode _lcont
+      [[ "${_lbang}" -eq 1 ]] \
+        && _errexit_bang_code_scan "${_lbbuf}" _lbcode _lbcont
       [[ "${_lcont}" -eq 0 ]] && _judge=1
     fi
 
@@ -806,17 +863,20 @@ _errexit_bang_scan_file() {
         # to stop -- so it is reported, and the price of being wrong is
         # one hand-written allow region.
         _ebsf_rows+=("${_rel}:${_lstart}: ${_ltext}  -- an unterminated quote or '(' folded line ${_lswallow_line}, which opens with '!', into this statement, so that line was judged by no rule (bracket line ${_lswallow_line} with the allow markers if that is deliberate)")
-      elif [[ ( "${_lcont}" -eq 2 || "${_lcont}" -eq 3 ) && "${_lbang}" -eq 1 ]]; then
+      elif [[ ( "${_lbcont}" -eq 2 || "${_lbcont}" -eq 3 ) && "${_lbang}" -eq 1 ]]; then
         # A `!` statement still unfinished where the body closed: a
         # quote or `(` that never closed, or an operator that never got
         # its right operand. Its code is whatever the scan could read,
         # which is not the statement -- so it is reported rather than
         # judged on a partial reading.
-        _ebsf_rows+=("${_rel}:${_lstart}: ${_ltext}  -- this '!' statement is still unfinished where the body closes (an unterminated quote, '(' or list operator), so the scan cannot tell where it ends")
+        _ebsf_rows+=("${_rel}:${_lbstart}: ${_lbtext}  -- this '!' statement is still unfinished where the body closes (an unterminated quote, '(' or list operator), so the scan cannot tell where it ends")
       elif [[ "${_lcont}" -eq 2 || "${_lcont}" -eq 3 ]]; then
-        # Unreadable, but provably harmless to THIS rule: nothing folded
-        # into it opens with `!`, and the only lines this lint judges are
-        # the ones that do. Stated in the header rather than reported, so
+        # Unreadable, but provably harmless to THIS rule: no line the
+        # scan reads as OPENING a `!` statement went into it. A `!`
+        # behind a backslash continues the command above it and is not
+        # one; a `!` inside an allow region is one the operator has
+        # already judged; the other two folds set a flag above and are
+        # reported there. Stated in the header rather than reported, so
         # that a heredoc body or a multi-line string does not fail a gate
         # it has no bearing on.
         :
@@ -826,27 +886,27 @@ _errexit_bang_scan_file() {
         # statement holds, so no `||` arm below it can speak for the
         # statement. Then an `|| true` is judged before the generic `||`
         # escape, so the one hand-off that IS inert is still reported.
-        if [[ "${_lcode}" =~ ${_ERREXIT_BANG_ASYNC_RE} ]]; then
-          _ebsf_rows+=("${_rel}:${_lstart}: ${_ltext}  -- the '!' is handed to a background fork, whose status is 0 whatever the command did ('&')")
-        elif [[ "${_lcode}" =~ ${_ERREXIT_BANG_INERT_OR_RE} ]]; then
+        if [[ "${_lbcode}" =~ ${_ERREXIT_BANG_ASYNC_RE} ]]; then
+          _ebsf_rows+=("${_rel}:${_lbstart}: ${_lbtext}  -- the '!' is handed to a background fork, whose status is 0 whatever the command did ('&')")
+        elif [[ "${_lbcode}" =~ ${_ERREXIT_BANG_INERT_OR_RE} ]]; then
           # Inert in EVERY position, so it is judged here rather than
           # queued: waiting for the body to close would report it only
           # when it happened not to be last, which is the hole this
           # closes. It is deliberately not ALSO queued -- one statement,
           # one row.
-          _ebsf_rows+=("${_rel}:${_lstart}: ${_ltext}  -- the '!' hands its status to an operand that cannot fail ('|| true' / '|| :')")
-        elif [[ "${_lcode}" =~ ${_ERREXIT_BANG_LIVE_OR_RE} ]]; then
+          _ebsf_rows+=("${_rel}:${_lbstart}: ${_lbtext}  -- the '!' hands its status to an operand that cannot fail ('|| true' / '|| :')")
+        elif [[ "${_lbcode}" =~ ${_ERREXIT_BANG_LIVE_OR_RE} ]]; then
           # `! A || B` with a B that can fail. The verdict is B's, and
           # B's failure is not exempt from errexit, so this statement can
           # fail its test from any position: out of both rules, not
           # merely out of this one. See the header.
           :
-        elif [[ "${_lcode}" =~ ${_ERREXIT_BANG_SEQ_RE} ]]; then
-          _ebsf_rows+=("${_rel}:${_lstart}: ${_ltext}  -- the '!' hands its status to another command in this statement (';')")
+        elif [[ "${_lbcode}" =~ ${_ERREXIT_BANG_SEQ_RE} ]]; then
+          _ebsf_rows+=("${_rel}:${_lbstart}: ${_lbtext}  -- the '!' hands its status to another command in this statement (';')")
         else
-          _pending_line+=("${_lstart}")
+          _pending_line+=("${_lbstart}")
           _pending_end+=("${_lend}")
-          _pending_text+=("${_ltext}")
+          _pending_text+=("${_lbtext}")
         fi
       fi
       _lbuf=''

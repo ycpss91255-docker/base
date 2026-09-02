@@ -119,7 +119,17 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   its own message -- and the same split over `&&` or `|` no longer reports the
   body's own last statement. The unreadable-fold row is now silenced by the
   allow region, like every row that judges a `!` line. What stays unmodelled is
-  listed in the driver with the direction each errs in; #989-#991 track it.
+  listed in the driver with the direction each errs in; #990 and #991 track it.
+
+- **`errexit-bang`: a `!` an operator fold pulled in is still judged (refs
+  #956, closes #989)** -- the fold above reads a line ending in `|`, `||`,
+  `&&` or `|&` as incomplete, but whether the logical line was a `!` statement
+  was still read off the line that OPENED it. So `echo a ||` over
+  `! grep -q A f; true` was judged by no rule at all: 30 real violations that
+  were reported before that fold and silent after it, plus the heredoc
+  silence #989 filed. The rules now read the span that begins at the `!`, so
+  the `||` in front of it stays the `echo`'s, and the row names the line the
+  `!` opens on. `! A ||` over `! B` is still one list.
 
 - **a test that runs a RELEASED `upgrade.sh` against the current tree (refs #915)** -- `test/bats/integration/prev_release_upgrade_spec.bats` stands a real released tree up as a consumer's `.base/` and lets ITS scripts drive the upgrade against the working tree. It asserts the consumer is left working -- no dangling symlinks, `just --list` succeeds -- not merely version-bumped. This is the only shape that can catch a break in an out-of-tree caller, and the third instance of that class this cycle. Which releases are covered resolves from the repo's own tags every run; the trees are materialised host-side into a gitignored `.prev-release/`.
 
