@@ -122,6 +122,50 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   documents -- same character, at least as long -- are pinned rather than
   only described. Affects anyone illustrating the convention in a
   catalogue.
+- **a `docker stop` could reach a service through its pid alone and kill it
+  instead of stopping it (refs #965)** -- `setsid cmd &` returns at the fork,
+  before the child has called setsid(), so the supervisor sampled the
+  process group too early and a lost race left group-signalling disabled for
+  that service's whole life. A service whose shell sits in a foreground
+  command then never runs its SIGTERM trap, the bounded grace expires, and a
+  service that handles SIGTERM correctly is SIGKILLed. Measured on a loaded
+  machine: 3 of 40 starts fell back. The supervisor now waits, briefly and
+  boundedly, for the service's own group to appear.
+- **`just test` no longer forgets residue it has already reported (refs
+  #965)** -- the guard compares the checkout either side of the run so an
+  edit in flight cancels, and that laundered LAST run's residue into this
+  run's "in flight": run 1 failed naming the path, run 2 with nothing fixed
+  was green. It now remembers what it named until the path leaves the
+  checkout, reports what THIS run wrote apart from what an earlier one left,
+  and states where it can be believed past: git's whole ignore stack,
+  `.git/`, a permission change git does not track, and what
+  `TEST_RESIDUE_GUARD=0` gives up -- it drops the record for good.
+- **a spec that left an untracked workflow in the checkout after every gate
+  run (refs #965, refs #927)** -- the ADR-claims R2 case wrote its fixture
+  workflow into `.github/workflows/` of the live tree and removed only its
+  scratch dir, so each run seeded the one directory the workflow specs and
+  the self-hosted-runner lint all scan. Same defect class as the two racing
+  specs, from the other side: not a spec that reads a tree it does not own,
+  but one that writes it and makes every other spec's read racy. The fixture
+  is built under a scratch root now.
+- **two specs that raced their own suite, a watchdog defect one was hiding,
+  and the invariant that keeps the rest honest (closes #965)** -- the SIGTERM
+  case signalled after a fixed `sleep 1`, so under load a correct watchdog
+  read NO_SIGNAL; the README no-op case let the live tree supply half its
+  diff. Waits are event-driven, the baseline is accepted only when two passes
+  agree, and `just test` now snapshots the checkout either side of the bats
+  phase and names any path the suite changed -- an in-flight edit cancels, so
+  a dirty tree still runs. Runtime-visible: `_watchdog_stop_service` sent SIGKILL only while the CHILD
+  was alive, leaking the orphaned subtree `setsid` exists to prevent.
+- **a failing watchdog case now costs its own ceiling, not its fixture's
+  lifetime (refs #965)** -- every case in `watchdog_supervision_spec.bats`
+  starts its processes through one harness that hands them a log file instead
+  of the case's output descriptor and ends its ceiling in SIGKILL. Without the
+  first a setsid'd service held the case open 45s past a 30s ceiling; without
+  the second the product's own SIGTERM handler blocked in an unbounded `wait`
+  for 300s past a stated 45. A bound guard in teardown asserts it for every
+  case in the file. Affects anyone reading a red gate: a failed test no longer
+  looks like a hung suite.
 - **workflow and template structural specs now assert against a file's CODE,
   not its comments (refs #954)** -- this repo's comments name in prose exactly
   what its specs pin, so a whole-file grep was satisfied by the explanation
@@ -153,6 +197,24 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 
 - **an under-declared release-archive manifest entry is no longer read as an absent path (refs #914)** -- an optional entry whose `<paths>` column was empty, whitespace-only, or missing from a short line resolved as "found nothing", which is how a legitimately absent path resolves: the release cut, the item was archived by nobody, and the log named a blank path. A line that is not five non-blank columns is now a config error (exit 2), in `--list` as well as in assembly. The specs that guard the payload assert against the parsed entries instead of searching the file, so deleting an entry while leaving its comment goes red. Affects maintainers editing `script/ci/release/archive.manifest`.
 
+- **`setup.sh set` no longer writes a duplicate key when the value carries an inline ` #` (refs #955)** -- the in-place writer skipped any existing line containing a space-then-hash as if it were a comment, so a legitimate value such as a `lifecycle.watchdog_check` shell command never matched its own key: the replace was skipped and a second `key = ...` was appended. Reads are last-wins, so behaviour looked right while `.setup.conf` collected a stale duplicate on every write. The writer now decides "comment" the way the reader does -- `#` as the first non-blank character.
+
+- **a per-service `[logging.<svc>]` override no longer leaks a bogus line into `[logging]` (refs #955)** -- matching an override key to its section by dot-split prefix cannot tell section `logging` + key `web.driver` from section `logging.web` + key `driver`. TUI Save injected `web.driver = ...` into the parent, `add logging.<svc>.<list>` appended its slot there, and `show <section>` / `list` listed the per-service value under the parent -- `list` twice, so piping that documented output back rebuilt the bad file. `show logging.<svc>` now reads the sub-section instead of erroring. Only `.setup.conf` was affected. One owner now holds the split: `set` / `show` / `list` / `remove` / `add`.
+
+- **a `[stage:*]` service now resolves `${VAR}` env cross-references the way the shared `.env` does (refs #955)** -- the standalone per-stage `environment:` block quoted the stage's own entries but skipped the sibling expansion `write_container_env` runs, so one `setup.conf` produced two container envs: `/foo/production/lib` from `.env` and a literal `/foo/${BUILD_TARGET}/lib` on the stage, which compose's substitution layer cannot resolve from a sibling entry. Expansion reads the full effective list so a reference to an inherited sibling resolves; only the stage's own tail is emitted. Affects any `[stage:*]` override whose `[environment]` cross-references another entry.
+
+- **`just base completions install --shell` with no value fails instead of hanging (refs #955)** -- `shift 2` with one positional left fails and shifts nothing, and the `|| true` swallowed it, so `$1` stayed `--shell` and the argument loop spun forever. It now requires its value the way the sibling `--lang` already did: a usage message and exit 1.
+
+- **the #955 guards now fail when the property they name breaks (refs #955)**
+  -- three could not. The dot-prefix guard scanned hand-listed paths and ended
+  in a bare `assert_failure`, so a renamed path (grep exit 2) read as a clean
+  scan. It now derives its population -- root `dist/`, every file whose CODE
+  calls `_load_setup_conf_full` / `_setup_effective_full` -- asserts that
+  floor, and pins grep to status 1. Its glob reads the quotes around the
+  literal dot as a CLASS, so the same defect spelled `${_sec}'.'*` is now
+  visible; its name and comment state what it still does not check. `show
+  logging.<typo>` is pinned to the KEY error KIND, and the dump specs pin the
+  section header. Test-only.
 - **a failed `init.sh` resync no longer leaves the consumer's files half-rewritten (closes #937)** -- the resync rewrites the `Dockerfile`, `.gitignore` and the wrapper symlinks inside an upgrade that has already committed the pull, and whether a partial rewrite was undone depended on the caller: the current `upgrade.sh` has a trap, the vendored `v0.41.0` copy every deployed repo runs has none. `init.sh` now snapshots the roots it writes into -- a hand-written `.env` included, which no `git reset` could return -- and restores them itself, staged index removals and all, without touching history. A restore that does not fully work exits 1 naming the tree as NOT restored.
 - **260 tests no longer pass when the artifact they assert on is deleted (closes #953)** -- 54 guards across 14 spec files opened with `[[ -f "${SUBJECT}" ]] || skip`, which cannot tell "absent by design" from "renamed and nobody noticed" and answers the second with a green run: renaming `build-worker.yaml` turned 52 assertions into `ok ... # skip` and the suite still exited 0. All 54 guards now fail through `assert_spec_subject`, naming the path. Every surviving `|| skip` guards a capability and now has a fail-closed counterpart -- the last was the tooling image's compose plugin, now pinned statically. The invariant itself proves it scanned, and knows the `[ -f ]` / `test -f` spellings.
 - **the shard-balance guard failed CI on a partition that was fine, and could never fail locally (closes #940)** -- its total was summed over `test/bats/unit/` while `_shard_unit_files` partitions unit **+** integration, so the average was short by every integration spec, condemning a healthy partition. A latent second defect: it counted `@test` lines while the partitioner weighs recorded seconds, which collapse to one number locally. The probe now measures through `_spec_weight` against the bound no partition can beat, over the eight shards CI runs rather than four; synthesised weights drive skewed distributions locally, and a case asserts the probe's total still spans the whole pool.
