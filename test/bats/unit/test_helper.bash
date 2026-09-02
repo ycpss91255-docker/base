@@ -410,6 +410,27 @@ yaml_trigger_keys() {
           | keys | .[]'
 }
 
+# workflow_files [dir]
+#   Every workflow FILE in <dir> (default: this checkout's workflow
+#   directory): `*.yaml` first, then `*.yml`, each in the shell's glob
+#   order, skipping anything that is not a regular file.
+#
+#   Which extensions a workflow file may carry is written HERE and nowhere
+#   else. It used to be written twice -- once as this glob inside
+#   reusable_workflow_files, once inline in the cross-check that re-reads
+#   the same directory raw, the reading that exists to catch a worker the
+#   trigger derivation stopped seeing. A directory that grew a third
+#   spelling would have been enumerated by one of them and not the other,
+#   which makes the two readings disagree in exactly the direction the
+#   second one is there to detect.
+workflow_files() {
+    local _dir="${1:-/source/.github/workflows}" _f
+    for _f in "${_dir}"/*.yaml "${_dir}"/*.yml; do
+        [[ -f "${_f}" ]] || continue
+        printf '%s\n' "${_f}"
+    done
+}
+
 # reusable_workflow_files [dir]
 #   Every workflow file under <dir> (default: this checkout's workflow
 #   directory) that declares `on: workflow_call`, i.e. every workflow whose
@@ -423,8 +444,8 @@ yaml_trigger_keys() {
 #   worker nothing downstream scans.
 reusable_workflow_files() {
     local _dir="${1:-/source/.github/workflows}" _f _keys _status
-    for _f in "${_dir}"/*.yaml "${_dir}"/*.yml; do
-        [[ -f "${_f}" ]] || continue
+    while IFS= read -r _f; do
+        [[ -n "${_f}" ]] || continue
         _status=0
         _keys="$(yaml_trigger_keys "${_f}")" || _status=$?
         if [[ "${_status}" -ne 0 ]]; then
@@ -443,7 +464,7 @@ reusable_workflow_files() {
             1) ;;
             *) printf 'BUG: grep exited %s reading %s\n' "${_status}" "${_f}" ;;
         esac
-    done
+    done < <(workflow_files "${_dir}")
 }
 
 # _spec_path_word <code> <word>

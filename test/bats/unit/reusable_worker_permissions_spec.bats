@@ -85,9 +85,15 @@ _assert_reusable_worker_population() {
   # KEY, so it is blind in a way this is not -- an `on:` spelling it stopped
   # resolving would drop a worker out of the list silently, and the file
   # would still be sitting there with the word in it.
+  #
+  # It enumerates the directory through `workflow_files`, the same
+  # enumeration the derived list is drawn from, rather than repeating the
+  # extension glob: a second reading that disagreed about which FILES the
+  # directory holds could not report a disagreement about which of them is
+  # a worker.
   local _f _mentions _derived
-  for _f in "${WORKFLOW_DIR}"/*.yaml "${WORKFLOW_DIR}"/*.yml; do
-    [[ -f "${_f}" ]] || continue
+  while IFS= read -r _f; do
+    [[ -n "${_f}" ]] || continue
     _mentions=0
     code_grep -F -- 'workflow_call' "${_f}" >/dev/null || _mentions=$?
     [[ "${_mentions}" -eq 0 || "${_mentions}" -eq 1 ]] || fail \
@@ -100,7 +106,7 @@ _assert_reusable_worker_population() {
     if [[ "${_mentions}" -eq 1 && "${_derived}" -eq 1 ]]; then
       fail "${_f} is in the derived reusable-worker list but its code lines never name workflow_call: the two readings disagree, and neither may be picked over the other"
     fi
-  done
+  done < <(workflow_files "${WORKFLOW_DIR}")
 }
 
 # Print `<workflow>: <job>` for every job of every reusable worker that
