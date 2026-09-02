@@ -140,49 +140,78 @@ _assert_emitted_without() {
 }
 
 # _every_claim_states_the_exemption <file>
-#   True iff EVERY paragraph of <file> that states the invariant names the
-#   field-deploy emitter -- in that paragraph or in the one immediately
-#   after it. Proximity, not co-occurrence: a document may name the deploy
-#   recipe elsewhere for unrelated reasons.
+#   True iff EVERY CLAIM in <file> that states the invariant names the
+#   field-deploy emitter IN THAT CLAIM.
 #
-#   The accumulator fails on the first UNQUALIFIED paragraph. Its
-#   predecessor set a found-flag on the first QUALIFIED one, which answers
-#   "does SOME statement in this file name the deploy emitter" -- so a
-#   second, unqualified statement appended anywhere in an already-qualified
-#   file was invisible, and the guard's own name and failure message
-#   promised the every-statement property it did not check.
+#   A claim is one statement -- not one file, and not one paragraph. Both
+#   wider units certify a statement by its neighbours:
 #
-#   A file selected into the roster whose paragraph pass finds no statement
-#   at all is a failure, not a pass: the two scans disagree about the file,
-#   so nothing was judged.
+#     - the FILE: README.md names `just docker setup deploy` nine times,
+#       seven of them inside its own field-deployment section and exactly
+#       one in the exemption sentence, so a file-wide match stayed green
+#       with the exemption paragraph deleted.
+#     - the PARAGRAPH, plus the one after it: a markdown table is ONE
+#       blank-line-delimited paragraph, so a second unqualified row added
+#       to ADR-00000022 section 3's override-channel table -- the very
+#       table this round's own RED case lived in -- passed 7 of 7. And an
+#       unqualified paragraph inserted immediately before README's
+#       `### Field deployment` header passed too, certified by a heading
+#       that names the recipe for unrelated reasons.
+#
+#   So the unit is the statement itself: a markdown TABLE ROW (a row is a
+#   whole claim on one line, and is never joined to its neighbours), or a
+#   prose SENTENCE (the paragraph's lines joined, then split on a sentence
+#   terminator -- `.` / `!` / `?` with any closing markup, or a CJK `。`).
+#   Every statement of the invariant then carries its own exemption, and no
+#   statement is certified by another one.
+#
+#   The cost, stated rather than left implied: sentence boundaries are
+#   found by punctuation, so an abbreviation inside a statement ("e.g.")
+#   splits it and can redden a claim that does name the emitter. That
+#   failure is loud and is fixed by rewording; the one it replaces was
+#   silent.
+#
+#   A file selected into the roster whose scan finds no statement at all is
+#   a failure, not a pass: the two scans disagree about the file, so
+#   nothing was judged.
 #
 #   Population boundary, stated rather than left implied. A statement of
 #   this invariant is a claim about a KEY the emitter writes into YAML, and
 #   every one of them in this tree quotes that key with its colon. The bare
 #   noun `container_name` is how the docs discuss the field as a concept --
 #   "removable", "while any container_name is present", "dropping it is
-#   what makes that dangerous" -- and those paragraphs assert nothing about
+#   what makes that dangerous" -- and those sentences assert nothing about
 #   what base emits, so requiring the exemption of them would demand the
 #   deploy recipe be named in prose that makes no claim about it. The cost
 #   of the boundary: a statement of the invariant phrased with the bare
 #   noun is outside this population and is not guarded.
 _every_claim_states_the_exemption() {
   awk '
-    BEGIN { RS = "" }
-    { _para[NR] = $0 }
-    END {
-      for (i = 1; i <= NR; i++) {
-        if (index(_para[i], "container_name:") == 0) continue
-        _seen = 1
-        _win = _para[i] "\n" (i < NR ? _para[i + 1] : "")
-        if (index(_win, "just docker setup deploy") == 0 &&
-            index(_win, "_generate_resolved_compose") == 0) {
-          printf "unqualified statement of the invariant, paragraph %d:\n%s\n", i, _para[i]
-          _bad = 1
-        }
+    function judge(_t, _kind) {
+      if (index(_t, "container_name:") == 0) return
+      _seen = 1
+      if (index(_t, "just docker setup deploy") > 0) return
+      if (index(_t, "_generate_resolved_compose") > 0) return
+      printf "unqualified %s stating the invariant:\n%s\n", _kind, _t
+      _bad = 1
+    }
+    function flush(   _n, _i, _s) {
+      if (_prose == "") return
+      _n = split(_prose, _s, "[.!?][*`)]*[ \t]+|。")
+      for (_i = 1; _i <= _n; _i++) judge(_s[_i], "sentence")
+      _prose = ""
+    }
+    BEGIN { RS = ""; FS = "\n" }
+    {
+      for (_i = 1; _i <= NF; _i++) {
+        if ($_i ~ /^[ \t]*\|/) { flush(); judge($_i, "table row") }
+        else _prose = (_prose == "" ? $_i : _prose " " $_i)
       }
+      flush()
+    }
+    END {
       if (!_seen)
-        print "no paragraph states the invariant, though the roster scan selected this file"
+        print "no statement of the invariant, though the roster scan selected this file"
       exit((_bad || !_seen) ? 1 : 0)
     }' "${1:?}"
 }
@@ -329,18 +358,13 @@ CONF
   # so the guard's power came from the prose being WRONG, and correcting
   # the six sentences to the namespaced form falsified it.
   #
-  # The token is required NEXT TO the claim, not anywhere in the file, and
-  # of EVERY claim, not of one of them. README.md names `just docker setup
-  # deploy` nine times: seven inside its own field-deployment section, one
-  # in an unrelated cross-reference, and exactly one in the exemption
-  # sentence -- so a file-wide match would stay green with the exemption
-  # paragraph deleted. And a file-wide match is not the only way to be too
-  # generous: asking whether SOME statement is qualified certifies a
-  # document the moment one of its statements is, which leaves a second
-  # statement appended to the same file unjudged.
+  # The token is required IN the claim, and of EVERY claim, not of one of
+  # them -- see the helper above for what a claim is and for the two wider
+  # units (the file, the paragraph and its successor) that each certified a
+  # statement by its neighbours.
   for _d in "${_docs[@]}"; do
     _every_claim_states_the_exemption "${_d}" || fail \
-      "${_d} states the container_name invariant in a paragraph that does not name the deploy bundle it does not hold for, in that paragraph or the one after it (printed above)"
+      "${_d} states the container_name invariant in a statement that does not name the deploy bundle it does not hold for (printed above)"
   done
 
   # The two English statements carry the exemption's PREDICATE as well: the
