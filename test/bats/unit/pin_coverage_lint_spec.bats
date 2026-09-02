@@ -38,6 +38,12 @@ setup() {
   # shellcheck disable=SC1091
   source /source/script/test/drivers/pin_coverage.sh
 
+  # The scratch tree carries none of the pruned basenames, so `-` (clean)
+  # is the honest verdict for it. It is set explicitly rather than left to
+  # the ambient container environment so each case starts from a known
+  # state -- the cases about the verdict itself override or unset it.
+  export PIN_PRUNE_TRACKED='-'
+
   SCRATCH="$(mktemp -d)"
   mkdir -p "${SCRATCH}/dockerfile" "${SCRATCH}/dist/dockerfile" \
            "${SCRATCH}/.github/workflows"
@@ -56,6 +62,13 @@ _dockerfile() {
 
 _workflow() {
   printf '%s\n' "$@" > "${SCRATCH}/.github/workflows/x.yaml"
+}
+
+# A shell script anywhere in the tree. The walk is whole-repo, so where
+# this lands decides nothing -- which is the property being relied on.
+_script() {
+  local _name="${1}"; shift
+  printf '%s\n' "$@" > "${SCRATCH}/${_name}"
 }
 
 # Something for the non-vacuity check to find, in the cases that are not
@@ -418,29 +431,82 @@ _one_good_pin() {
   assert_output --partial 'did not parse'
 }
 
-@test "_run_pin_coverage: FAILS when a pruned tree is one git does NOT ignore" {
-  # The prune list is the only remaining way to remove a whole tree from
-  # every check in this lint, so it is checked rather than trusted:
-  # "prune the directory the awkward pin lives in" has to fail here,
-  # because nothing else would report it.
+@test "_run_pin_coverage: FAILS when a pruned BASENAME matches a tracked tree at depth" {
+  # `find -name <entry> -prune` prunes a directory of that basename at ANY
+  # depth. The guard only ever tested `<repo-root>/<entry>` and skipped
+  # the entry when that path did not exist, so an entry that never appears
+  # at the root was not checked at all -- while removing every nested tree
+  # of that name from the walk, from this lint and from the watch.
   _one_good_pin
   git -C "${SCRATCH}" init -q
-  mkdir -p "${SCRATCH}/log"
-  printf 'x\n' > "${SCRATCH}/log/x.txt"
+  mkdir -p "${SCRATCH}/dist/script/log"
+  printf 'FROM alpine:3.19\n' > "${SCRATCH}/dist/script/log/Dockerfile"
+  git -C "${SCRATCH}" add -A
   run _run_pin_coverage
   assert_failure
-  assert_output --partial 'prunes a tree that git does NOT ignore'
-  assert_output --partial 'log'
+  assert_output --partial 'prunes a tree the repo tracks'
+  assert_output --partial 'dist/script/log'
 }
 
-@test "_run_pin_coverage: a pruned tree that git ignores is fine" {
+@test "_run_pin_coverage: a pruned basename matching nothing tracked is fine" {
+  # The whole point of the prune list. `log/` holds run transcripts and is
+  # gitignored, so no tracked path lies under it and the entry is honest.
   _one_good_pin
   git -C "${SCRATCH}" init -q
   printf 'log/\n' > "${SCRATCH}/.gitignore"
-  mkdir -p "${SCRATCH}/log"
+  mkdir -p "${SCRATCH}/log" "${SCRATCH}/dist/log"
   printf 'x\n' > "${SCRATCH}/log/x.txt"
+  printf 'x\n' > "${SCRATCH}/dist/log/x.txt"
+  git -C "${SCRATCH}" add -A
   run _run_pin_coverage
   assert_success
+}
+
+@test "_run_pin_coverage: DIES when the prune list cannot be checked at all" {
+  # The guard used to be wrapped in `if git rev-parse --git-dir`, so an
+  # environment it could not inspect got a PASS. The suite runs in a
+  # container that bind-mounts the checkout without a resolvable .git,
+  # which is the repo's own local gate -- so the fail-open default was the
+  # default in the place the guard is run most.
+  _one_good_pin
+  unset PIN_PRUNE_TRACKED
+  run _run_pin_coverage
+  assert_failure
+  assert_output --partial 'cannot check its prune list'
+}
+
+@test "_run_pin_coverage: accepts a host-computed verdict when git is unreadable" {
+  # The container cannot answer the question; the host always can. So the
+  # answer is COMPUTED where git works and carried in, and the guard runs
+  # on it rather than being skipped. `-` is the clean verdict, spelled so
+  # that "clean" and "never computed" are different values.
+  _one_good_pin
+  unset PIN_PRUNE_TRACKED
+  PIN_PRUNE_TRACKED='-' run _run_pin_coverage
+  assert_success
+}
+
+@test "_run_pin_coverage: FAILS on a host-computed verdict naming a tracked tree" {
+  _one_good_pin
+  unset PIN_PRUNE_TRACKED
+  PIN_PRUNE_TRACKED='doc' run _run_pin_coverage
+  assert_failure
+  assert_output --partial 'prunes a tree the repo tracks'
+  assert_output --partial 'doc'
+}
+
+@test "_run_pin_coverage: git OUTRANKS an inherited verdict" {
+  # A stale or hand-set PIN_PRUNE_TRACKED must not be able to silence a
+  # tree git can see is tracked. The carried answer is a fallback for the
+  # environment that has no git, never an override for the one that does.
+  _one_good_pin
+  git -C "${SCRATCH}" init -q
+  mkdir -p "${SCRATCH}/log"
+  printf 'x\n' > "${SCRATCH}/log/x.txt"
+  git -C "${SCRATCH}" add -A
+  PIN_PRUNE_TRACKED='-' run _run_pin_coverage
+  assert_failure
+  assert_output --partial 'prunes a tree the repo tracks'
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -627,6 +693,161 @@ _one_good_pin() {
   run _run_pin_coverage
   assert_failure
   assert_output --partial 'is not scanned'
+}
+
+# ════════════════════════════════════════════════════════════════════
+# A version is a version wherever the ASSIGNMENT is written
+# ════════════════════════════════════════════════════════════════════
+#
+# The detector recognised an assignment only when its keyword was `ARG`.
+# That is a roster of KEYWORDS, and it failed the way every roster in
+# this mechanism has: `local`, `readonly`, `export` and a bare
+# `NAME=<version>` were all outside it and all passed in silence -- while
+# `_PIN_ASSIGN_RE` already named those four keywords for EXTRACTION, and
+# while script/watch/lib.sh calls hoisting a literal onto a line of its
+# own "the standard fix for a version the reader cannot address". The
+# convention pushed authors into the one shape the guard could not see.
+#
+# The bill was not hypothetical: `local _bats_tag='1.13.0'` and
+# `local _alpine_tag='3.21'` in dist/script/docker/lib/dockerfile_migrate.sh
+# are written into every downstream Dockerfile that function migrates,
+# and deleting both markers left the lint clean.
+#
+# The reader and the detector now ask the same question -- does this line
+# assign a version -- of the same regex, so they cannot disagree about
+# which shapes are pins.
+
+@test "_run_pin_coverage: FAILS on a local= version with no marker" {
+  _one_good_pin
+  _script 'x.sh' \
+    '_f() {' \
+    "  local _bats_tag='1.13.0'" \
+    '}'
+  run _run_pin_coverage
+  assert_failure
+  assert_output --partial 'declared with no tool-pin marker'
+  assert_output --partial 'x.sh:2'
+}
+
+@test "_run_pin_coverage: FAILS on a readonly= version with no marker" {
+  _one_good_pin
+  _script 'x.sh' 'readonly HELM_VERSION=3.16.2'
+  run _run_pin_coverage
+  assert_failure
+  assert_output --partial 'x.sh:1'
+}
+
+@test "_run_pin_coverage: FAILS on an export= version with no marker" {
+  _one_good_pin
+  _script 'x.sh' 'export TERRAFORM_VERSION="1.9.5"'
+  run _run_pin_coverage
+  assert_failure
+  assert_output --partial 'x.sh:1'
+}
+
+@test "_run_pin_coverage: FAILS on a bare NAME=version with no marker" {
+  # No keyword at all is still an assignment, and the hoisting convention
+  # produces this shape as readily as the other three.
+  _one_good_pin
+  _script 'x.sh' 'KUBECTL_VERSION=1.31.0'
+  run _run_pin_coverage
+  assert_failure
+  assert_output --partial 'x.sh:1'
+}
+
+@test "_run_pin_coverage: a marked shell assignment satisfies the detector" {
+  _one_good_pin
+  _script 'x.sh' \
+    '# tool-pin: bats dockerhub bats/bats pattern=.' \
+    "local _bats_tag='1.13.0'"
+  run _run_pin_coverage
+  assert_success
+}
+
+@test "_run_pin_coverage: a shell assignment that is not a version is not one" {
+  # The same boundary the ARG branch draws, for the same reason: this
+  # repo's scripts are full of assignments, and a detector that flagged a
+  # count, a port or a timeout would be muted within a week.
+  _one_good_pin
+  _script 'x.sh' \
+    '_f() {' \
+    '  local _count=0' \
+    '  local _timeout=30' \
+    '  readonly PORT=8080' \
+    '  export DEBIAN_FRONTEND=noninteractive' \
+    '  local _path="script/entrypoint.sh"' \
+    '  local _msg="took 1.5s"' \
+    '  local _n' \
+    '}'
+  run _run_pin_coverage
+  assert_success
+}
+
+@test "_run_pin_coverage: an assignment whose value INTERPOLATES needs no marker" {
+  # `local _t="${BATS_VERSION}"` references the pin; it does not declare
+  # one, exactly as a `FROM alpine:${ALPINE_VERSION}` does not.
+  _one_good_pin
+  _script 'x.sh' \
+    '_f() {' \
+    '  local _tag="${BATS_VERSION}"' \
+    '  local _url="releases/download/${HADOLINT_VERSION}/hadolint"' \
+    '}'
+  run _run_pin_coverage
+  assert_success
+}
+
+# ════════════════════════════════════════════════════════════════════
+# A version with one component is still a version
+# ════════════════════════════════════════════════════════════════════
+#
+# The version test required at least one dot, to keep `ARG USER_UID=1000`
+# from being read as a release. That is a real distinction and the dot was
+# the wrong way to draw it: kcov's own pin is `ARG KCOV_VERSION=v43`, a
+# single-component upstream tag, so this repo's own pin was invisible to
+# the guard meant to prove it was watched.
+#
+# The distinction that actually holds is the `v` PREFIX, which nobody
+# writes on a UID, a port or a count. A bare `2024` stays not-a-version
+# on purpose: nothing on the line distinguishes it from `ARG USER_UID=1000`,
+# and a guard that cannot tell them apart has to choose the answer that
+# keeps it usable. That boundary is stated, not silent -- it is the
+# reason `ARG THIRD_VERSION=2024` is accepted below.
+
+@test "_run_pin_coverage: FAILS on a v-prefixed version with no dot" {
+  _one_good_pin
+  _dockerfile 'ARG KCOV_VERSION=v43'
+  run _run_pin_coverage
+  assert_failure
+  assert_output --partial 'declared with no tool-pin marker'
+  assert_output --partial 'dockerfile/Dockerfile.test-tools:1'
+}
+
+@test "_run_pin_coverage: FAILS on a v-prefixed major-only ref in a shell assignment" {
+  _one_good_pin
+  _script 'x.sh' 'readonly ACTION_MAJOR=v7'
+  run _run_pin_coverage
+  assert_failure
+  assert_output --partial 'x.sh:1'
+}
+
+@test "_run_pin_coverage: a marked dotless version satisfies the detector" {
+  _one_good_pin
+  _dockerfile \
+    '# tool-pin: kcov github-release SimonKagstrom/kcov' \
+    'ARG KCOV_VERSION=v43'
+  run _run_pin_coverage
+  assert_success
+}
+
+@test "_run_pin_coverage: a bare integer is still not a version" {
+  # The stated cost of the rule above. `1000` and `2024` carry nothing
+  # that separates a release from a UID or a year.
+  _one_good_pin
+  _dockerfile \
+    'ARG USER_UID=1000' \
+    'ARG THIRD_VERSION=2024'
+  run _run_pin_coverage
+  assert_success
 }
 
 # ════════════════════════════════════════════════════════════════════

@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3350 tests**.
+Unit specs under `test/bats/unit/`: **3365 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3857,7 +3857,7 @@ rather than an assurance.
 | `_residue_guard_available: is switched off by TEST_RESIDUE_GUARD=0 (#965)` | The escape hatch for an edit made WHILE the suite runs, asserted in both directions |
 | `the compose dispatch is what runs the guard, not a caller that could forget (#965)` | Wired into the one host-side point every bats dispatch passes through |
 
-### test/bats/unit/pin_coverage_lint_spec.bats (45)
+### test/bats/unit/pin_coverage_lint_spec.bats (60)
 
 | Test | Description |
 |------|-------------|
@@ -3889,8 +3889,12 @@ rather than an assurance.
 | `_run_pin_coverage: the failure names all three marker forms` | Two of the three exist for dependencies that cannot name a version; a reader who knows only the first has no correct move. |
 | `_run_pin_coverage: DIES when the scanned trees yield no pinned entry` | A reader regression that matched nothing would report a clean tree forever. |
 | `_run_pin_coverage: DIES when the walk yields no file at all` | A walk that matched nothing would report a clean tree forever. |
-| `_run_pin_coverage: FAILS when a pruned tree is one git does NOT ignore` | The prune list is the last hand-kept thing here, so it is checked: it exists for generated trees, not as a place to hide an awkward pin. |
-| `_run_pin_coverage: a pruned tree that git ignores is fine` | The legitimate case -- `.prev-release/`, `log/` -- passes. |
+| `_run_pin_coverage: FAILS when a pruned BASENAME matches a tracked tree at depth` | `-name <entry> -prune` matches at ANY depth; the guard only tested `<root>/<entry>` and skipped what it did not find there. |
+| `_run_pin_coverage: a pruned basename matching nothing tracked is fine` | The honest case the list exists for: `log/` is gitignored at every depth and holds nothing the repo ships. |
+| `_run_pin_coverage: DIES when the prune list cannot be checked at all` | A guard whose default on an environment it cannot inspect is `clean` is fail-open; it says so instead. |
+| `_run_pin_coverage: accepts a host-computed verdict when git is unreadable` | The container has no resolvable `.git`, so the answer is computed where git works and carried in. |
+| `_run_pin_coverage: FAILS on a host-computed verdict naming a tracked tree` | The carried verdict is acted on, not merely accepted. |
+| `_run_pin_coverage: git OUTRANKS an inherited verdict` | A stale or hand-set `PIN_PRUNE_TRACKED` cannot silence a tree git can see is tracked. |
 | `_run_pin_coverage: FAILS on an image: in compose.yaml` | This repo's core artefact names its image with no `docker` verb on the line at all. |
 | `_run_pin_coverage: FAILS on a workflow container: image` | A first-class GHA feature dependabot cannot bump, and no earlier context matched it. |
 | `_run_pin_coverage: FAILS on a bare image tag sed into a generated file` | The live shape: only the namespaced half of that sed was ever visible. |
@@ -3903,6 +3907,17 @@ rather than an assurance.
 | `_run_pin_coverage: a spec's fixture text needs no marker` | A marker inside a heredoc would change the fixture the code under test parses. |
 | `_run_pin_coverage: prose needs no marker` | Documentation quotes commands; nothing executes it. |
 | `_run_pin_coverage: FAILS when a tool-pin marker sits in an unscanned file` | The exemption list is checked, not trusted: a marker nothing reads is a pin nobody watches. |
+| `_run_pin_coverage: FAILS on a local= version with no marker` | The shape this repo's own hoisting convention produces, and the one the detector could not see. |
+| `_run_pin_coverage: FAILS on a readonly= version with no marker` | Same shape, second keyword; the reader already extracted from it. |
+| `_run_pin_coverage: FAILS on an export= version with no marker` | Same shape, third keyword. |
+| `_run_pin_coverage: FAILS on a bare NAME=version with no marker` | No keyword at all is still an assignment. |
+| `_run_pin_coverage: a marked shell assignment satisfies the detector` | The declared case: a marker on the line above is what the shape costs. |
+| `_run_pin_coverage: a shell assignment that is not a version is not one` | A count, a timeout, a port and a path stay silent, or the detector is muted within a week. |
+| `_run_pin_coverage: an assignment whose value INTERPOLATES needs no marker` | `local _t="${BATS_VERSION}"` references a pin; it does not declare one. |
+| `_run_pin_coverage: FAILS on a v-prefixed version with no dot` | kcov's real pin is `ARG KCOV_VERSION=v43`; requiring a dot made this repo's own pin invisible. |
+| `_run_pin_coverage: FAILS on a v-prefixed major-only ref in a shell assignment` | `v7` is a version wherever it is assigned. |
+| `_run_pin_coverage: a marked dotless version satisfies the detector` | The declared case for the single-component shape. |
+| `_run_pin_coverage: a bare integer is still not a version` | The stated cost: nothing separates `2024` from `ARG USER_UID=1000`. |
 | `_run_pin_coverage: the real repo tree declares every version it names` | Drives the live tree, not a fixture. |
 | `_run_pin_coverage: pin-coverage is in test.sh's _LINT_TOOLS table` | Membership is what gives the lint a CI job via the completeness guard. |
 | `_run_pin_coverage: --pin-coverage-only runs it host-direct` | The primitive the lint-static matrix entry calls -- pure bash, no compose. |
