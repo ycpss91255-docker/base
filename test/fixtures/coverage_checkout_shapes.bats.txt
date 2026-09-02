@@ -1,0 +1,67 @@
+# Fixture for ci_spec's "no spec drives a coverage run against the mounted
+# checkout (#952)" guard: the shapes its detector has to tell apart.
+#
+# NOT a bats file (hence the .txt suffix): it is data the guard scans, and
+# it lives outside test/bats/ so the guard's own roster -- every *.bats in
+# that tree -- neither runs it nor accuses it.
+#
+# Each block below is named for what the detector must do with it. The
+# guard asserts the whole verdict, so a detector that stops seeing one
+# entry point fails HERE, on a file that says which shape it lost, instead
+# of quietly passing over a tree that happens to contain none of it today.
+
+@test "FLAG statement-start runner call" {
+  run bash -c '
+    source /source/script/test/drivers/bats.sh
+    _run_coverage
+  '
+}
+
+@test "FLAG one-liner runner call" {
+  run bash -c 'source /source/script/test/drivers/bats.sh; _run_coverage 1/4'
+}
+
+@test "FLAG the flag entry" {
+  run bash -c 'source /source/script/test/test.sh; main --coverage'
+}
+
+@test "FLAG the in-container entry" {
+  run bash -c 'source /source/script/test/test.sh; COVERAGE=1 COVERAGE_SHARD=1/4 main --ci'
+}
+
+@test "FLAG half-stubbed provenance" {
+  # Only the eraser is stubbed. The real _stamp_coverage_head still runs
+  # against the real REPO_ROOT and writes /source/coverage/.head-sha.
+  run bash -c '
+    source /source/script/test/test.sh
+    _invalidate_coverage_head() { :; }
+    _run_via_compose() { :; }
+    main --coverage
+  '
+}
+
+@test "PASS scratch REPO_ROOT" {
+  run bash -c '
+    REPO_ROOT="${BATS_TEST_TMPDIR}/repo"
+    mkdir -p "${REPO_ROOT}/coverage"
+    source /source/script/test/drivers/bats.sh
+    _run_coverage
+  '
+}
+
+@test "PASS both provenance halves stubbed" {
+  run bash -c '
+    source /source/script/test/test.sh
+    _invalidate_coverage_head() { :; }
+    _stamp_coverage_head() { :; }
+    _run_via_compose() { :; }
+    main --coverage
+  '
+}
+
+@test "IGNORE a runner named in a word list" {
+  local _fn
+  for _fn in _run_bats_path _run_coverage _run_system; do
+    run grep -E "^${_fn}\(\) \{" /source/script/test/drivers/bats.sh
+  done
+}

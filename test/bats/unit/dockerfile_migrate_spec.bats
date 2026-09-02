@@ -363,98 +363,174 @@ EOF
   assert_failure
 }
 
-# ── migration (smoke-copy), the explicit-FILE spelling ─────────────────────
-# The flat tree was also copied FILE BY FILE, and that is the spelling six
-# of the seventeen consumers actually carry:
-#   COPY .base/test/smoke/test_helper.bash /smoke_test/test_helper.bash
-#   COPY .base/test/smoke/test_helper.bash .base/test/smoke/script_help.bats /smoke_test/
-# A rewrite to the shared/ baseline is not enough either: the flat tree was
-# split across shared/ AND the per-stage folders, so each NAMED file has to
-# be resolved against the subtree that was just pulled -- script_help.bats
-# lives under devel-test/, test_helper.bash under shared/.
+# The same tree was also reached FILE BY FILE. Six of the org's consumer
+# repos hand-list the specs instead of copying the directory -- four write one
+# COPY per spec, two put every spec on a single COPY -- and those sources died
+# in the same relocation.
+# The migration resolves each named spec against the freshly pulled subtree
+# by basename, so what heals them is where the tree says the spec now is.
 
-# _seed_smoke_tree <root>
-#   Lay down a stand-in for the freshly pulled subtree's smoke tree: the
-#   shared baseline plus one per-stage folder, each carrying the file the
-#   real shipped tree carries there.
-_seed_smoke_tree() {
-  local _root="$1"
-  mkdir -p "${_root}/.base/dist/test/bats/smoke/shared" \
-    "${_root}/.base/dist/test/bats/smoke/devel-test"
-  : > "${_root}/.base/dist/test/bats/smoke/shared/test_helper.bash"
-  : > "${_root}/.base/dist/test/bats/smoke/shared/entrypoint.bats"
-  : > "${_root}/.base/dist/test/bats/smoke/devel-test/script_help.bats"
-}
-
-@test "migration (smoke-copy): detects the explicit per-file COPY spelling (#969)" {
-  _seed_smoke_tree "${TEMP_DIR}"
-  cat > "${DF}" <<'EOF'
+@test "migration (smoke-copy): rewrites a hand-listed spec to where the subtree ships it (#928)" {
+  mkdir -p "${TEMP_DIR}/.base/dist/test/bats/smoke/shared" \
+    "${TEMP_DIR}/.base/dist/test/bats/smoke/devel-test"
+  : > "${TEMP_DIR}/.base/dist/test/bats/smoke/shared/test_helper.bash"
+  : > "${TEMP_DIR}/.base/dist/test/bats/smoke/devel-test/script_help.bats"
+  cat > "${DF}" <<'DOCKERFILE'
 FROM devel AS devel-test
 COPY .base/test/smoke/test_helper.bash /smoke_test/test_helper.bash
 COPY .base/test/smoke/script_help.bats /smoke_test/script_help.bats
-EOF
-  run bash -c "$(_src); _migrate_smoke_copy_detect '${DF}'"
-  assert_success
-}
-
-@test "migration (smoke-copy): resolves each named file to the folder that ships it (#969)" {
-  _seed_smoke_tree "${TEMP_DIR}"
-  cat > "${DF}" <<'EOF'
-FROM devel AS devel-test
-COPY .base/test/smoke/test_helper.bash /smoke_test/test_helper.bash
-COPY .base/test/smoke/script_help.bats /smoke_test/script_help.bats
-EOF
+DOCKERFILE
   run bash -c "$(_src); _migrate_smoke_copy_detect '${DF}' && _migrate_smoke_copy_apply '${DF}'"
   assert_success
-  # shared/ ships test_helper.bash; the stage folder ships script_help.bats.
-  # A blanket rewrite to shared/ would name a file that is not there.
+  # Each spec lands where the subtree actually ships it -- the two are in
+  # DIFFERENT folders, so a single blanket prefix could not have done this.
   grep -Fq "COPY .base/dist/test/bats/smoke/shared/test_helper.bash /smoke_test/test_helper.bash" "${DF}"
   grep -Fq "COPY .base/dist/test/bats/smoke/devel-test/script_help.bats /smoke_test/script_help.bats" "${DF}"
-  run grep -n '\.base/test/smoke' "${DF}"
-  [ "${status}" -eq 1 ]
+  ! grep -q '\.base/test/smoke/' "${DF}"
 }
 
-@test "migration (smoke-copy): rewrites every source of a multi-source COPY line (#969)" {
-  _seed_smoke_tree "${TEMP_DIR}"
-  cat > "${DF}" <<'EOF'
+@test "migration (smoke-copy): rewrites every source of a multi-source hand-listed COPY (#928)" {
+  mkdir -p "${TEMP_DIR}/.base/dist/test/bats/smoke/shared" \
+    "${TEMP_DIR}/.base/dist/test/bats/smoke/devel-test"
+  : > "${TEMP_DIR}/.base/dist/test/bats/smoke/shared/test_helper.bash"
+  : > "${TEMP_DIR}/.base/dist/test/bats/smoke/devel-test/script_help.bats"
+  cat > "${DF}" <<'DOCKERFILE'
 FROM devel AS devel-test
 COPY .base/test/smoke/test_helper.bash .base/test/smoke/script_help.bats /smoke_test/
-COPY test/smoke/ /smoke_test/
-EOF
+DOCKERFILE
   run bash -c "$(_src); _migrate_smoke_copy_detect '${DF}' && _migrate_smoke_copy_apply '${DF}'"
   assert_success
   grep -Fq "COPY .base/dist/test/bats/smoke/shared/test_helper.bash .base/dist/test/bats/smoke/devel-test/script_help.bats /smoke_test/" "${DF}"
-  # The repo's OWN smoke COPY is not a base path and is left alone.
-  grep -Fq "COPY test/smoke/ /smoke_test/" "${DF}"
-  run grep -n '\.base/test/smoke' "${DF}"
-  [ "${status}" -eq 1 ]
+  ! grep -q '\.base/test/smoke/' "${DF}"
 }
 
-@test "migration (smoke-copy): leaves an unresolvable named file alone and warns (#969)" {
-  _seed_smoke_tree "${TEMP_DIR}"
-  cat > "${DF}" <<'EOF'
+@test "migration (smoke-copy): declines a hand-listed spec the subtree no longer ships (#928)" {
+  mkdir -p "${TEMP_DIR}/.base/dist/test/bats/smoke/shared"
+  : > "${TEMP_DIR}/.base/dist/test/bats/smoke/shared/test_helper.bash"
+  cat > "${DF}" <<'DOCKERFILE'
 FROM devel AS devel-test
-COPY .base/test/smoke/repo_only.bats /smoke_test/repo_only.bats
-EOF
+COPY .base/test/smoke/retired.bats /smoke_test/retired.bats
+DOCKERFILE
   run bash -c "$(_src); _migrate_smoke_copy_apply '${DF}'"
   assert_success
-  assert_output --partial "could not be resolved"
-  grep -Fq "COPY .base/test/smoke/repo_only.bats /smoke_test/repo_only.bats" "${DF}"
+  # Left as written, and SAID so: a guessed destination would resolve to a
+  # path the subtree does not ship, which is the failure this heals.
+  grep -Fq "COPY .base/test/smoke/retired.bats /smoke_test/retired.bats" "${DF}"
+  assert_output --partial "resolve it by hand"
 }
 
-@test "migration (smoke-copy): per-file spelling — dispatcher run twice rewrites exactly once (#969)" {
-  _seed_smoke_tree "${TEMP_DIR}"
-  cat > "${DF}" <<'EOF'
+@test "migration (smoke-copy): declines a hand-listed spec the subtree ships at two paths (#928)" {
+  mkdir -p "${TEMP_DIR}/.base/dist/test/bats/smoke/shared" \
+    "${TEMP_DIR}/.base/dist/test/bats/smoke/devel-test"
+  : > "${TEMP_DIR}/.base/dist/test/bats/smoke/shared/ambiguous.bats"
+  : > "${TEMP_DIR}/.base/dist/test/bats/smoke/devel-test/ambiguous.bats"
+  cat > "${DF}" <<'DOCKERFILE'
 FROM devel AS devel-test
-COPY .base/test/smoke/test_helper.bash /smoke_test/test_helper.bash
-EOF
-  run bash -c "$(_src); apply_migrations '${DF}'; apply_migrations '${DF}'"
+COPY .base/test/smoke/ambiguous.bats /smoke_test/ambiguous.bats
+DOCKERFILE
+  run bash -c "$(_src); _migrate_smoke_copy_apply '${DF}'"
   assert_success
-  local _n
-  _n="$(grep -cF 'smoke/shared/test_helper.bash' "${DF}")"
-  [ "${_n}" -eq 1 ]
-  run grep -n 'smoke/shared/shared/' "${DF}"
-  [ "${status}" -eq 1 ]
+  grep -Fq "COPY .base/test/smoke/ambiguous.bats /smoke_test/ambiguous.bats" "${DF}"
+  assert_output --partial "resolve it by hand"
+}
+
+# A COPY statement is not a line. Consumers wrap long hand-listed statements
+# across backslash continuations, and Docker reads the whole thing as one
+# statement -- so the migration has to as well. A line-oriented rewrite heals
+# the sources on the first physical line, leaves the rest naming the deleted
+# tree, and (because a continuation line does not start with COPY) does not
+# even see them to warn about. The lib already ships
+# _dfm_join_copy_statements for exactly this fold; these pin that the detect,
+# the heal and the post-apply warning all reason about the folded statement.
+
+@test "migration (smoke-copy): heals hand-listed sources on a continuation line (#928)" {
+  mkdir -p "${TEMP_DIR}/.base/dist/test/bats/smoke/shared" \
+    "${TEMP_DIR}/.base/dist/test/bats/smoke/devel-test"
+  : > "${TEMP_DIR}/.base/dist/test/bats/smoke/shared/test_helper.bash"
+  : > "${TEMP_DIR}/.base/dist/test/bats/smoke/devel-test/script_help.bats"
+  cat > "${DF}" <<'DOCKERFILE'
+FROM devel AS devel-test
+COPY .base/test/smoke/test_helper.bash \
+     .base/test/smoke/script_help.bats \
+     /smoke_test/
+DOCKERFILE
+  run bash -c "$(_src); _migrate_smoke_copy_detect '${DF}' && _migrate_smoke_copy_apply '${DF}'"
+  assert_success
+  grep -Fq "COPY .base/dist/test/bats/smoke/shared/test_helper.bash \\" "${DF}"
+  grep -Fq "     .base/dist/test/bats/smoke/devel-test/script_help.bats \\" "${DF}"
+  # The continuation line is the half a line-oriented rewrite left behind.
+  ! grep -q '\.base/test/smoke/' "${DF}"
+}
+
+@test "migration (smoke-copy): detects a statement whose smoke sources are only on continuation lines (#928)" {
+  mkdir -p "${TEMP_DIR}/.base/dist/test/bats/smoke/shared"
+  : > "${TEMP_DIR}/.base/dist/test/bats/smoke/shared/test_helper.bash"
+  cat > "${DF}" <<'DOCKERFILE'
+FROM devel AS devel-test
+COPY \
+     .base/test/smoke/test_helper.bash \
+     /smoke_test/
+DOCKERFILE
+  run bash -c "$(_src); _migrate_smoke_copy_detect '${DF}' && _migrate_smoke_copy_apply '${DF}'"
+  assert_success
+  grep -Fq "     .base/dist/test/bats/smoke/shared/test_helper.bash \\" "${DF}"
+  ! grep -q '\.base/test/smoke/' "${DF}"
+}
+
+@test "migration (smoke-copy): warns about an unresolvable spec on a continuation line (#928)" {
+  mkdir -p "${TEMP_DIR}/.base/dist/test/bats/smoke/shared"
+  : > "${TEMP_DIR}/.base/dist/test/bats/smoke/shared/test_helper.bash"
+  cat > "${DF}" <<'DOCKERFILE'
+FROM devel AS devel-test
+COPY .base/test/smoke/test_helper.bash \
+     .base/test/smoke/retired.bats \
+     /smoke_test/
+DOCKERFILE
+  run bash -c "$(_src); _migrate_smoke_copy_apply '${DF}'"
+  assert_success
+  grep -Fq "     .base/test/smoke/retired.bats \\" "${DF}"
+  # Half-healing in silence is the outcome the contract rules out: what the
+  # migration cannot resolve it declines OUT LOUD.
+  assert_output --partial "resolve it by hand"
+}
+
+@test "migration (smoke-copy): duplicates a continued wholesale COPY into shared + the stage's own folder (#928)" {
+  mkdir -p "${TEMP_DIR}/.base/dist/test/bats/smoke/shared" \
+    "${TEMP_DIR}/.base/dist/test/bats/smoke/devel-test"
+  cat > "${DF}" <<'DOCKERFILE'
+FROM devel AS devel-test
+COPY .base/test/smoke/ \
+     /smoke_test/
+DOCKERFILE
+  run bash -c "$(_src); _migrate_smoke_copy_detect '${DF}' && _migrate_smoke_copy_apply '${DF}'"
+  assert_success
+  # Both physical lines of the statement are reproduced, twice.
+  [ "$(grep -cF 'smoke_test/' "${DF}")" -eq 2 ]
+  grep -Fq "COPY .base/dist/test/bats/smoke/shared/ \\" "${DF}"
+  grep -Fq "COPY .base/dist/test/bats/smoke/devel-test/ \\" "${DF}"
+  ! grep -q '\.base/test/smoke/' "${DF}"
+}
+
+# The detect is a path prefix, so it has to stop at a path boundary. A tree
+# that merely STARTS with the retired name is not the retired tree, and
+# firing on it makes the migration log a patch it did not make and a warning
+# nobody can act on -- which is how an operator learns to ignore the warning
+# that matters.
+
+@test "migration (smoke-copy): a .base/test/smoke-prefixed sibling path is not the retired tree (#928)" {
+  mkdir -p "${TEMP_DIR}/.base/dist/test/bats/smoke/shared"
+  cat > "${DF}" <<'DOCKERFILE'
+FROM devel AS devel-test
+COPY .base/test/smoke_helpers/x.bash /smoke_test/x.bash
+DOCKERFILE
+  cp "${DF}" "${TEMP_DIR}/Dockerfile.before"
+  run bash -c "$(_src); _migrate_smoke_copy_detect '${DF}'"
+  assert_failure
+  run bash -c "$(_src); apply_migrations '${DF}'"
+  assert_success
+  refute_output --partial "per-stage dist smoke COPYs"
+  refute_output --partial "resolve it by hand"
+  diff "${TEMP_DIR}/Dockerfile.before" "${DF}"
 }
 
 # ── migration (flat-to-dist): v0.41.0 flat .base/ layout -> .base/dist/ ──────
@@ -537,6 +613,8 @@ EOF
   assert_success
   # Nothing may still name the deleted flat layout -- including the
   # logrotate / watchdog COPYs the dispatcher itself appends.
+  # Status pinned to grep's own no-match: assert_failure also accepts an
+  # exit 2 (unreadable file), which would pass this with nothing read.
   run grep -nE '\.base/(config|script|test)/' "${DF}"
   [ "${status}" -eq 1 ]
   grep -Fq "COPY --chmod=0755 .base/dist/script/docker/runtime/logrotate.sh /usr/local/lib/base/logrotate.sh" "${DF}"
@@ -562,8 +640,8 @@ EOF
 #     a regex that stops matching fails loudly instead of passing with
 #     nothing to check.
 #
-# The fixture is the shape the six file-spelling consumers carry
-# (ai_agent / claude_code / codex_cli / gemini_cli, one file per line;
+# The fixture is the shape the six hand-listing consumers carry
+# (ai_agent / claude_code / codex_cli / gemini_cli, one spec per line;
 # ros1_bridge / urg_node_humble, two sources on one line) folded together
 # with the flat lint/config/logging COPYs every v0.41.0 consumer has.
 

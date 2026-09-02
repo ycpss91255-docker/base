@@ -438,6 +438,15 @@ Default (no flag): ShellCheck + Hadolint + bats via docker compose, no
 kcov. Kcov wraps every bats command and slows the suite 2-5x, so the
 dev-loop default skips it.
 
+Every compose dispatch snapshots the checkout either side of the run and
+fails naming any path the suite changed: a spec may READ the live tree,
+but a write there makes every other spec's read racy under the 32-way
+parallel suite. An edit you already had in flight appears in both
+snapshots and cancels, so a dirty working tree is fine; an edit made
+WHILE the suite runs cannot be told apart from a spec's write, and
+TEST_RESIDUE_GUARD=0 switches the guard off for that one invocation. It
+is inert outside a git checkout (a released tarball).
+
 Examples:
   ./test.sh                       # Fast: ShellCheck + Hadolint + Bats (no kcov)
   just test      # Same as above
@@ -651,6 +660,219 @@ _prepare_prev_release() {
   "${REPO_ROOT}/script/test/prepare-prev-release.sh"
 }
 
+# ── Coverage provenance ──────────────────────────────────────────────────────
+
+# Where the coverage provenance stamp lives, relative to the repo root.
+# One name for the writer, the eraser and script/release/coverage_badge.sh's
+# reader: three places that have to agree on a path is two too many.
+readonly _COVERAGE_HEAD_STAMP_REL="coverage/.head-sha"
+
+# The run manifest kcov's bats leaves next to the reports: `<seconds>
+# <basename>`, one line per spec FILE that actually ran (_junit_to_timings
+# in drivers/bats.sh, from bats' junit report). It exists to weigh the next
+# partition; it is reused here because it is the only local record of WHAT
+# was measured, written by the run rather than by its caller.
+readonly _COVERAGE_RUN_MANIFEST_REL="coverage/timings.tsv"
+
+# _coverage_spec_inventory [root] -- print, one per line, the sorted unique
+# BASENAMES of every spec a full coverage run covers.
+#
+# The pools and the file shape are NOT a second roster: both come from
+# _COVERAGE_FULL_SUITE_POOLS / _COVERAGE_SPEC_GLOB in drivers/bats.sh, the
+# same values _run_coverage builds its full-suite targets from and
+# _shard_unit_files partitions. The recursion is `bats --recursive`'s, so
+# the per-lib subfolders of ADR-00000015 count. Basenames, not paths, because
+# that is the key space the manifest is written in -- _junit_to_timings
+# reduces bats' junit `name=` to a basename so _spec_weight can read the
+# merged weights back.
+#
+# Two specs in different pools may share a basename (there are such pairs
+# here), so the inventory is smaller than the file count. That makes the
+# comparison below very slightly lenient: a measurement missing ONLY the
+# twin of a name it already carries would still compare equal. No
+# partition produces that set -- a shard is a fraction of the tree, not
+# the tree minus one file -- and the alternative, keying on paths, would
+# mean a second manifest format nothing else reads.
+#
+# Empty is a FAILURE (return 1), not an empty set: an inventory that
+# enumerated nothing would make every manifest look complete.
+_coverage_spec_inventory() {
+  local _root="${1:-${REPO_ROOT}}"
+  local _pool _f
+  local -a _names=() _dirs=()
+  for _pool in "${_COVERAGE_FULL_SUITE_POOLS[@]}"; do
+    [[ -d "${_root}/${_pool}" ]] && _dirs+=("${_root}/${_pool}")
+  done
+  (( ${#_dirs[@]} > 0 )) || return 1
+  while IFS= read -r _f; do
+    _names+=("${_f##*/}")
+  done < <(find "${_dirs[@]}" -type f -name "${_COVERAGE_SPEC_GLOB}")
+  (( ${#_names[@]} > 0 )) || return 1
+  printf '%s\n' "${_names[@]}" | LC_ALL=C sort -u
+}
+
+# _measured_coverage_scope [root] -- print the scope the reports EARNED:
+# `full` when the run manifest names every spec in the inventory,
+# `partial <measured>/<total> specs` otherwise. Returns 1, printing
+# nothing, when there is no evidence to read.
+#
+# This is the answer to a defect that kept coming back through a different
+# door. The scope used to be read off the invocation -- the shard flag the
+# caller passed -- and every input that narrows the RUN without passing
+# through that flag therefore certified a partial measurement as `full`:
+# an inherited COVERAGE_SHARD, an inherited COVERAGE_PATH (which the
+# in-container dispatch reads FIRST), and whichever selector is added
+# next. That set is not enumerable, so a certificate derived from it
+# cannot be made trustworthy by closing one more door.
+#
+# What was MEASURED is enumerable, and the run writes it down. Comparing
+# the manifest against the inventory cannot be fooled by an input nobody
+# thought of: a run narrowed by anything at all leaves fewer specs in the
+# manifest, and fewer specs is not `full`.
+_measured_coverage_scope() {
+  local _root="${1:-${REPO_ROOT}}"
+  local _manifest="${_root}/${_COVERAGE_RUN_MANIFEST_REL}"
+  [[ -s "${_manifest}" ]] || return 1
+  local _inventory
+  _inventory="$(_coverage_spec_inventory "${_root}")" || return 1
+  [[ -n "${_inventory}" ]] || return 1
+  local _measured
+  _measured="$(awk '($2 != "") { print $2 }' "${_manifest}" \
+    | LC_ALL=C sort -u)"
+  [[ -n "${_measured}" ]] || return 1
+  if [[ "${_measured}" == "${_inventory}" ]]; then
+    printf 'full\n'
+    return 0
+  fi
+  local _total _matched
+  _total="$(printf '%s\n' "${_inventory}" | grep -c .)"
+  _matched="$(LC_ALL=C comm -12 \
+    <(printf '%s\n' "${_inventory}") <(printf '%s\n' "${_measured}") \
+    | grep -c . || true)"
+  printf 'partial %s/%s specs\n' "${_matched}" "${_total}"
+}
+
+# _stamp_coverage_head [root] -- record, next to the reports, the sha they
+# were produced from AND how much of the suite produced them.
+#
+# The cobertura reports carry no identity: nothing in coverage/ says which
+# tree kcov walked. The release badge generator
+# (script/release/coverage_badge.sh) has to know, because publishing one
+# tree's rate under another tree's version is exactly the invented figure
+# its refusal exists to prevent -- and comparing the report's mtime against
+# HEAD's commit time cannot tell, since that only catches reports that are
+# too OLD, never a checkout that moved elsewhere after the run.
+#
+# The sha alone is not enough, and that gap was a real one. A sha answers
+# WHICH tree; it says nothing about WHETHER the whole suite ran.
+# `just test coverage <n>/<total>` writes its slice into the SAME
+# ${REPO_ROOT}/coverage tree the full run uses, so a stamp that recorded
+# only the sha certified a partition as HEAD's measurement: every check the
+# generator makes passed, and the badge published a figure off by a factor
+# of N. So the scope is stamped alongside the sha --
+#   <sha>
+#   scope=full                  (the manifest names every spec)
+#   scope=partial <m>/<n> specs (it names fewer)
+# -- and the generator publishes only `full`. The write is a truncating
+# one, so a later partial run at the same commit REPLACES an earlier
+# full-suite stamp rather than leaving its certificate standing.
+#
+# THE SCOPE IS DERIVED, NOT PASSED IN, and that is the whole of why this
+# function takes no second argument. A shard argument would make the
+# certificate a statement about the INVOCATION, and the invocation is not
+# what decides which specs kcov walks: _run_via_compose forwards
+# COVERAGE_SHARD and COVERAGE_PATH from the AMBIENT environment, the
+# in-container dispatch reads COVERAGE_PATH first, and the next selector
+# added to that list would be read before anybody remembered to clear it.
+# Four review rounds each closed one of those doors. _measured_coverage_scope
+# asks the reports instead: a run narrowed by ANY input leaves fewer specs
+# in coverage/timings.tsv, and fewer specs is not `full`.
+#
+# Written on the HOST, after the container run returns and after
+# _fix_permissions has handed coverage/ back: the coverage services run as
+# root over the mounted checkout, where git refuses the tree as dubiously
+# owned.
+#
+# Best-effort by design. A repo with no git (an unpacked tarball) still
+# gets its reports; it just cannot publish a release badge from them, which
+# is the safe direction -- the generator refuses on a missing stamp. A run
+# that left NO manifest is the same case: no evidence of what was measured
+# means no certificate, announced on stderr so the operator is not left
+# wondering why the badge refuses.
+_stamp_coverage_head() {
+  local _root="${1:-${REPO_ROOT}}" _sha _scope
+  _sha="$(git -C "${_root}" rev-parse HEAD 2>/dev/null)" || return 0
+  [[ -n "${_sha}" ]] || return 0
+  if ! _scope="$(_measured_coverage_scope "${_root}")" || [[ -z "${_scope}" ]]; then
+    printf '%s\n' \
+      "[test.sh] no coverage run manifest under ${_root}/${_COVERAGE_RUN_MANIFEST_REL}; writing no provenance stamp (a release badge will refuse rather than publish an unmeasured figure)." >&2
+    return 0
+  fi
+  mkdir -p "${_root}/coverage" 2>/dev/null || return 0
+  printf '%s\nscope=%s\n' "${_sha}" "${_scope}" \
+    > "${_root}/${_COVERAGE_HEAD_STAMP_REL}" 2>/dev/null || return 0
+}
+
+# _invalidate_coverage_head [root] -- drop the provenance stamp AND the run
+# manifest it is derived from, BEFORE a coverage run starts.
+#
+# The certificate must never outlive the reports it certifies, and
+# rewriting it after the run is not enough to guarantee that. The stamp is
+# written only when the run SUCCEEDS, while the reports are written as the
+# run goes: kcov has its cobertura.xml on disk before the driver returns
+# the failing spec's exit code (_run_coverage preserves it on purpose), and
+# Ctrl-C lands in the same place. A run that dies there overwrites the
+# reports and never reaches the writer, so an earlier `scope=full` stamp at
+# the same commit goes on certifying numbers it never measured -- matching
+# sha, clean worktree, whole-suite scope -- and `just release
+# coverage-badge` publishes a partition's rate as the release figure.
+#
+# Erasing up front makes the failure mode NO evidence instead of STALE
+# evidence. The generator refuses on a missing stamp, which is the safe
+# direction; it trusts a present one, which is why a present one may only
+# ever describe the run that just finished.
+#
+# NOT best-effort, unlike the writer it pairs with, and the asymmetry is
+# the point. A stamp the writer fails to write is a MISSING one, and the
+# generator refuses on a missing stamp; a stamp the eraser fails to remove
+# is a SURVIVING one, and the generator trusts a present one. So the
+# writer may shrug and this may not: swallowing the removal's status keeps
+# the run going in exactly the state the erasure exists to prevent.
+#
+# A missing stamp is still not a failure -- `rm -f` succeeds on a path
+# that is not there, which is the whole of what best-effort was buying
+# here. What is left to fail on is the stamp that is still present
+# afterwards: coverage/ owned by another uid (CI shard artifacts unpacked
+# as root, the workflow script/release/coverage_badge.sh's header
+# describes), a read-only checkout, an I/O error. The run stops before it
+# writes a single report under a certificate it could not invalidate.
+#
+# The RUN MANIFEST goes with it, and inherits the same rule, because the
+# scope on the certificate is now derived from the manifest: it is half
+# the certificate, so leaving it behind leaves half a certificate
+# standing. That matters for exactly the runs that write no manifest of
+# their own -- a run that dies before bats' junit report is converted, or
+# one narrowed to a single spec by an inherited COVERAGE_PATH, which
+# writes nothing into coverage/ at all. Erased, those runs end with no
+# evidence and get no stamp; left in place, the PREVIOUS run's record of
+# what was measured would certify them.
+_invalidate_coverage_head() {
+  local _root="${1:-${REPO_ROOT}}"
+  local _path
+  for _path in "${_root}/${_COVERAGE_HEAD_STAMP_REL}" \
+               "${_root}/${_COVERAGE_RUN_MANIFEST_REL}"; do
+    rm -f "${_path}" 2>/dev/null || true
+    # The status of `rm` is not the question; the file's presence is. They
+    # differ on the case that matters (a partial removal, a racing
+    # writer), and presence is what the next stamp will be derived from.
+    if [[ -e "${_path}" ]]; then
+      _die ci_coverage_evidence_not_erased \
+        "cannot remove the stale coverage evidence ${_path}; a run that starts with it standing would write fresh partial reports under an earlier whole-suite certificate. Remove it (or fix the ownership of ${_root}/coverage) and re-run."
+    fi
+  done
+  return 0
+}
+
 # ── Fix coverage permissions ─────────────────────────────────────────────────
 
 _fix_permissions() {
@@ -831,6 +1053,321 @@ _resolve_compose_project_name() {
   return 0
 }
 
+# ── Live-tree residue guard ──────────────────────────────────────────────────
+#
+# The authoritative answer to "did the suite write into the checkout it does
+# not own". A spec that writes there makes every OTHER spec's read of the
+# live tree racy: the suite runs 32-way parallel, often beside a sibling
+# checkout's gate, so a write in the window flips a verdict on correct code.
+# Two specs lost that race and cost two or three full gate runs per landed
+# branch.
+#
+# Why this shape and not a scan of the specs. The scan that came first
+# enumerated the commands a write could be spelled with, and every review of
+# it found another spelling it claimed and could not see -- a third operand
+# of `mv`, `dd`'s `of=`, `rsync` named in no pattern at all -- plus
+# `install` flagged for READING the tree. A roster of spellings is never
+# finished. This asks the filesystem instead: whatever wrote, however it was
+# spelled, through an alias or a subshell or a tool this repo has never
+# heard of, the bytes moved and the snapshot moved with them. It also cannot
+# fire on the suite's own setup, which is what made the scan's cp / ln rule
+# delicate -- reading the live tree leaves nothing behind.
+#
+# THE COST, and the reason for two snapshots rather than one. A bare "is the
+# tree clean afterwards" check needs a clean tree to start from and would
+# red every developer with work in flight -- and a gate that cries wolf on a
+# dirty working tree is switched off within the week. Comparing the
+# snapshots taken either side of the run makes an in-flight edit appear in
+# BOTH and cancel, so the guard speaks only about what changed DURING the
+# run. What it cannot cancel is an edit made WHILE the suite runs; that one
+# has the TEST_RESIDUE_GUARD=0 escape hatch, and the failure message names
+# it at the moment a developer needs it.
+#
+# WHAT IT DOES NOT COVER, listed because a guard whose limits are implied
+# gets believed past them. Every one of these is measured by a case in
+# test/bats/unit/residue_guard_spec.bats rather than assumed:
+#
+#   - a spec that writes into the checkout and removes its own traces
+#     before the phase ends. The race window is real and invisible here.
+#     Closing it means snapshotting per SPEC rather than per run, which
+#     costs a `git status` per spec instead of one per phase, and it is a
+#     change to the in-container bats driver rather than to this host-side
+#     wrapper.
+#   - anything git ignores, through any of the files git reads to decide
+#     that -- see `_residue_snapshot`.
+#   - anything under `.git/`, which `git status` never reports: a planted
+#     hook, config key or alternates entry is the most damaging write there
+#     is and this cannot see it. Excluded rather than closed, because
+#     snapshotting that directory is noise by construction (git rewrites it
+#     on almost any command, this guard's own `git status` included) and
+#     narrowing it to "the parts that matter" is an open-set roster.
+#   - a permission change git does not track. Git records one bit of a
+#     file's mode, the exec bit, so 644 -> 755 IS named and 644 -> 600 is
+#     invisible: the status line stays clean and the content hash does not
+#     move.
+#
+# And one thing it does not attempt: this names PATHS, not the spec that
+# wrote them -- with 32 jobs in flight there is no attribution to be had at
+# the phase boundary, and a `grep -rn` over test/bats/ turns a path into a
+# spec in one step.
+
+# _residue_guard_available <repo>
+#   Whether the guard can speak about <repo> at all. A released tarball is
+#   not a checkout, and a suite that refuses to run where git is not is a
+#   worse outcome than an unguarded run, so absence costs nothing.
+_residue_guard_available() {
+  local _repo="${1:?BUG: _residue_guard_available expects <repo>}"
+  [[ "${TEST_RESIDUE_GUARD:-1}" != "0" ]] || return 1
+  command -v git >/dev/null 2>&1 || return 1
+  git -C "${_repo}" rev-parse --git-dir >/dev/null 2>&1
+}
+
+# _residue_snapshot <repo>
+#   One sorted TAB-separated record per path git reports as changed:
+#   `<xy>\t<hash>\t<path>`. Ignored paths are absent, which is how the
+#   trees the suite legitimately writes -- coverage/, log/, .prev-release/
+#   -- stay out of it: the list is git's, not a second allowlist here that
+#   would have to be remembered separately. Git's, and not just
+#   `.gitignore`'s: `git status` also obeys `.git/info/exclude` and
+#   `core.excludesFile`, so a path ignored by either of those is equally
+#   invisible here. That is the cost of inheriting the list rather than
+#   keeping one -- an ignore rule this repo never wrote, in a file it does
+#   not ship, silences the guard for the paths it covers -- and it is
+#   still the better trade than an allowlist that has to be remembered
+#   every time the suite grows a generated tree.
+#
+#   The CONTENT HASH is what makes a record more than git's status code. A
+#   spec overwriting a file the developer had already modified leaves the
+#   status line ` M <path>` identical in both snapshots; only the hash
+#   moves. The path is the LAST field and is read NUL-separated, so a name
+#   containing a space -- which porcelain output would otherwise quote --
+#   survives whole.
+#
+#   Failing to read the tree is a FAILURE, never an empty snapshot: two
+#   empty snapshots agree, and agreeing is exactly what this guard reports
+#   as "nothing happened".
+_residue_snapshot() {
+  local _repo="${1:?BUG: _residue_snapshot expects <repo>}"
+  local _raw _rc=0
+  _raw="$(mktemp)"
+  if ! git -C "${_repo}" status --porcelain --untracked-files=all -z > "${_raw}"; then
+    rm -f "${_raw}"
+    return 1
+  fi
+  local _entry _code _path _hash
+  while IFS= read -r -d '' _entry; do
+    _code="${_entry:0:2}"
+    _path="${_entry:3}"
+    # A rename / copy record is followed by its ORIGIN path in a field of
+    # its own. Consume it here, or every later record reads one field out
+    # of step -- and a scan that silently loses its place names the wrong
+    # paths, which is worse than naming none.
+    case "${_code}" in
+      R?|C?|?R|?C) IFS= read -r -d '' _ || true ;;
+    esac
+    # Directories, symlinks and deleted paths have no blob to hash; their
+    # status code already carries the whole change.
+    if [[ -f "${_repo}/${_path}" && ! -L "${_repo}/${_path}" ]]; then
+      _hash="$(git -C "${_repo}" hash-object -- "${_path}" 2>/dev/null)" \
+        || _hash="unreadable"
+    else
+      _hash="-"
+    fi
+    printf '%s\t%s\t%s\n' "${_code}" "${_hash}" "${_path}"
+  done < "${_raw}" | LC_ALL=C sort || _rc=$?
+  rm -f "${_raw}"
+  return "${_rc}"
+}
+
+# _residue_paths <before> <after>
+#   The paths whose record differs between the two snapshots, one per line.
+#   Both directions: a record that APPEARED is a write, and one that
+#   DISAPPEARED is the suite putting back something the developer had
+#   changed. `comm -3` prefixes its second column with a tab, so that is
+#   stripped before the path (field 3 to end of line, tabs and all) is cut.
+_residue_paths() {
+  local _before="${1:?BUG: _residue_paths expects <before>}"
+  local _after="${2:?BUG: _residue_paths expects <after>}"
+  LC_ALL=C comm -3 "${_before}" "${_after}" \
+    | sed 's/^\t//' \
+    | cut -f3- \
+    | LC_ALL=C sort -u
+}
+
+# ── the guard's memory ───────────────────────────────────────────────────────
+#
+# Why there is one at all. The two-snapshot form is what makes the guard
+# usable -- an edit already in flight appears in both snapshots and cancels,
+# so a developer mid-change can run the gate -- and it is exactly that which
+# made the alarm ONE-SHOT: residue left by run N is on disk before run N+1
+# starts, so run N+1 reads it as "in flight" and goes green with the defect
+# unchanged. Measured: run 1 named the path and exited 1, run 2 with nothing
+# fixed exited 0.
+#
+# Three shapes were weighed. Taking the baseline from the INDEX instead of
+# the working tree removes the laundering, and with it the whole reason the
+# guard is usable: every in-flight edit becomes residue and the guard is
+# switched off within the week. Narrowing what BEFORE may cancel -- say, only
+# tracked modifications, never a new untracked file -- is a guess about which
+# changes are developer-shaped, and it is wrong for anyone adding a file.
+# What is left is to REMEMBER, which is precise: the un-cancellable set is
+# exactly the paths this guard has already named out loud.
+#
+# What it costs the dirty working tree, stated. An edit made BEFORE a run
+# cancels, is never named, and is therefore never remembered -- unchanged.
+# The one edit that becomes sticky is one made WHILE the suite ran, which is
+# the single false positive this guard already documents; it now costs one
+# acknowledged invocation instead of evaporating on the next run. That is
+# the trade: an alarm that persists until somebody answers it, against a
+# second knob nobody would remember. There is no second knob --
+# TEST_RESIDUE_GUARD=0, which the failure message already names, drops the
+# record on its way past.
+#
+# WHAT THE ACKNOWLEDGEMENT COSTS, and why it is permanent. Dropping the
+# record ends the alarm for good for a spec that writes the SAME BYTES on
+# every run: the path is then identical in both snapshots for ever, so
+# nothing at the phase boundary ever mentions it again. One flag, once, and
+# a genuine defect is silent -- the "one more run and it goes green" habit
+# with an extra keystroke.
+#
+# It is permanent anyway, because the two candidate fixes both fail on the
+# same fact. EXPIRING the acknowledgement re-raises whatever it silenced on
+# a timer, and what it silenced is by construction the developer's own edit
+# -- an alarm that returns on a schedule teaches re-running exactly as well
+# as one that never fires. SCOPING it to the paths it acknowledged changes
+# nothing: those are the same paths, and the signal is missing rather than
+# misrouted. An acknowledged path rewritten with identical bytes is, at the
+# phase boundary, indistinguishable from an unfinished edit sitting in the
+# tree -- same status line, same hash, and no snapshot of the tree either
+# side of the run can tell them apart.
+#
+# Nor does the residual gap above close it. A per-SPEC snapshot catches a
+# write-then-restore, but an identical rewrite moves no bytes at any
+# granularity; separating those two would mean watching the WRITES (mtime
+# across the whole tree, or an audit of the phase), which reports every file
+# git itself touched and is noise by construction. So the cost is stated
+# here, the failure message says what the flag gives up at the moment it
+# offers it, and a case pins both the silence and its limit: bytes that
+# CHANGE after an acknowledgement are named again.
+
+# _residue_state_file <repo>
+#   Where the pending record lives: inside the GIT DIR, never in the working
+#   tree. `git status` does not report it, nothing ships it, and
+#   `--absolute-git-dir` resolves a worktree to its own gitdir, so two
+#   worktrees of one repo do not inherit each other's residue. A record kept
+#   in the tree would be residue on the next run and the guard would report
+#   itself for ever.
+_residue_state_file() {
+  local _repo="${1:?BUG: _residue_state_file expects <repo>}"
+  local _gitdir
+  _gitdir="$(git -C "${_repo}" rev-parse --absolute-git-dir 2>/dev/null)" || return 1
+  printf '%s\n' "${_gitdir}/test-residue-pending"
+}
+
+# _residue_forget <repo>
+#   Drop the record. Called when the run is clean and the remembered paths
+#   are gone, and on any invocation that switched the guard off -- which is
+#   how a developer says "that one was mine".
+_residue_forget() {
+  local _repo="${1:?BUG: _residue_forget expects <repo>}"
+  local _record
+  _record="$(_residue_state_file "${_repo}")" || return 0
+  rm -f "${_record}"
+}
+
+# _residue_remember <repo> <paths>
+#   Persist the paths just named, one per line, replacing whatever was
+#   there: the report is always the whole pending set, so the record is too.
+_residue_remember() {
+  local _repo="${1:?BUG: _residue_remember expects <repo>}"
+  local _paths="${2-}"
+  local _record
+  _record="$(_residue_state_file "${_repo}")" || return 0
+  printf '%s\n' "${_paths}" > "${_record}"
+}
+
+# _residue_carried <repo> <after-snapshot>
+#   The remembered paths that are STILL changed in the checkout. A path the
+#   developer removed, reverted or committed has left the AFTER snapshot and
+#   is dropped here -- cleaning up is the acknowledgement, and nothing has to
+#   be typed for it.
+_residue_carried() {
+  local _repo="${1:?BUG: _residue_carried expects <repo>}"
+  local _after="${2:?BUG: _residue_carried expects <after-snapshot>}"
+  local _record
+  _record="$(_residue_state_file "${_repo}")" || return 0
+  [[ -s "${_record}" ]] || return 0
+  local _still
+  _still="$(cut -f3- < "${_after}" | LC_ALL=C sort -u)"
+  LC_ALL=C comm -12 \
+    <(LC_ALL=C sort -u "${_record}") \
+    <(printf '%s\n' "${_still}")
+}
+
+# _residue_before_snapshot <repo> <out>
+#   The BEFORE half, with the same treatment the AFTER half already had: a
+#   snapshot that could not be taken is a FAILURE, never an empty baseline.
+#   Left unchecked it aborts the whole dispatch under errexit with no event
+#   line to read, and without errexit it hands the comparison an empty
+#   baseline -- which names every edit in the developer's tree as residue,
+#   the exact cry-wolf outcome the two-snapshot design exists to avoid.
+_residue_before_snapshot() {
+  local _repo="${1:?BUG: _residue_before_snapshot expects <repo>}"
+  local _out="${2:?BUG: _residue_before_snapshot expects <out>}"
+  _residue_snapshot "${_repo}" > "${_out}" && return 0
+  _log_err ci ci_live_tree_residue \
+    "display=Could not read the checkout BEFORE the test run, so there is no baseline to say what it looked like going in. Running unguarded would report every edit already in flight as residue, so this is reported as a failure instead."
+  return 1
+}
+
+# _residue_check <before-snapshot> <repo>
+#   Take the AFTER snapshot and report. Returns 1 and names every path when
+#   the run changed the checkout -- and every path an earlier run named that
+#   is still there, because residue nobody has answered for is still
+#   residue however many runs ago it appeared.
+_residue_check() {
+  local _before="${1:?BUG: _residue_check expects <before-snapshot>}"
+  local _repo="${2:?BUG: _residue_check expects <repo>}"
+  local _after _new _carried _paths
+  _after="$(mktemp)"
+  if ! _residue_snapshot "${_repo}" > "${_after}"; then
+    rm -f "${_after}"
+    _log_err ci ci_live_tree_residue \
+      "display=Could not read the checkout after the test run, so whether it was left unchanged is unknown; treating that as a failure rather than as a clean tree."
+    return 1
+  fi
+  _new="$(_residue_paths "${_before}" "${_after}")"
+  _carried="$(_residue_carried "${_repo}" "${_after}")"
+  rm -f "${_after}"
+  # `sed`, not `grep -v`: this file runs under pipefail, and grep answers 1
+  # when it filters everything away -- which is exactly the clean run -- so a
+  # grep here would abort the whole dispatch on the path that has nothing to
+  # report.
+  _paths="$(printf '%s\n%s\n' "${_new}" "${_carried}" \
+    | sed '/^$/d' | LC_ALL=C sort -u)"
+  if [[ -z "${_paths}" ]]; then
+    _residue_forget "${_repo}"
+    return 0
+  fi
+  _residue_remember "${_repo}" "${_paths}"
+  # Two different facts, reported as two: what THIS run wrote, and what an
+  # earlier run left that nobody has answered for. Leading with the union
+  # asserted a write on every re-run of an unfixed residue, and a reader who
+  # believes that sentence goes looking through a run that touched nothing.
+  local _new_note="" _carried_note=""
+  [[ -z "${_new}" ]] || _new_note="The test run changed the checkout it does not own: $(printf '%s' "${_new}" | tr '\n' ' '). "
+  # printf with a trailing newline, so `tr` leaves a trailing SPACE whether
+  # the set has one path or ten.
+  if [[ -n "${_carried}" ]] && [[ -n "${_new}" ]]; then
+    _carried_note="Already reported by an earlier run and still there: $(printf '%s\n' "${_carried}" | tr '\n' ' ')-- a re-run does not clear this, which is the point. "
+  elif [[ -n "${_carried}" ]]; then
+    _carried_note="This run changed nothing. What is named here was reported by an EARLIER run and is still in the checkout: $(printf '%s\n' "${_carried}" | tr '\n' ' ')-- a re-run does not clear this, which is the point. "
+  fi
+  _log_err ci ci_live_tree_residue \
+    "display=${_new_note}${_carried_note}A spec may READ the live tree -- that is where its subject is -- but a write there makes every other spec's read racy under the 32-way parallel suite. Inspect with 'git diff -- <path>' (or 'git status' for an untracked one) and move the write into the spec's own scratch dir; 'grep -rn <path> test/bats/' finds the spec. This is remembered until the path is gone from the checkout, so the next run reports it again rather than mistaking it for an edit you had in flight. If the change was YOURS -- made while the suite was running, which is the one thing two snapshots cannot cancel -- re-run once with TEST_RESIDUE_GUARD=0, which drops the record -- and with it the guard's memory of that path, so a spec rewriting exactly the same bytes there stays unreported until they change."
+  return 1
+}
+
 # ── Docker compose wrapper ───────────────────────────────────────────────────
 
 _run_via_compose() {
@@ -899,6 +1436,36 @@ _run_via_compose() {
   _image="$(_resolve_test_tools_image)"
   _ensure_test_tools_image "${_image}" "${_project}"
   export TEST_TOOLS_IMAGE="${_image}"
+  # The BEFORE half of the residue guard, taken here and not in main: this
+  # is the ONE host-side point every bats dispatch passes through -- the
+  # local gate, each CI shard, the fragile set, a single --bats-path run --
+  # and it is host-side, which the guard needs. A worktree checkout's `.git`
+  # is a FILE naming a gitdir outside the bind mount, so no in-container git
+  # command can read this tree at all.
+  #
+  # It goes AFTER the image build and the fixture preparation on purpose:
+  # `.prev-release/` is ignored, but the snapshot should describe the tree
+  # the CONTAINER is handed, not the one this function was entered with.
+  local _residue_before="" _residue_blind=0
+  if _residue_guard_available "${REPO_ROOT}"; then
+    _residue_before="$(mktemp)"
+    if ! _residue_before_snapshot "${REPO_ROOT}" "${_residue_before}"; then
+      rm -f "${_residue_before}"
+      _residue_before=""
+      _residue_blind=1
+    fi
+  else
+    # An invocation that switched the guard off is the acknowledgement: it
+    # is how a developer says the path it keeps naming is their own edit,
+    # so the pending record goes with it. Outside a checkout there is no
+    # record and this is a no-op.
+    _residue_forget "${REPO_ROOT}" || true
+  fi
+  # The compose status is captured rather than left to errexit so the
+  # residue check still runs after a FAILING suite -- a run that both failed
+  # and wrote into the checkout has two things to say, and the second one
+  # explains re-runs that disagree with each other.
+  local _rc=0
   docker compose -p "${_project}" \
     -f "${REPO_ROOT}/compose.yaml" run --rm \
     -e COVERAGE="${_coverage}" \
@@ -912,7 +1479,17 @@ _run_via_compose() {
     -e BATS_FILTER="${BATS_FILTER:-}" \
     -e LINT_ONLY="${LINT_ONLY:-0}" \
     -e LINT_TOOL="${LINT_TOOL:-}" \
-    "${_service}"
+    "${_service}" || _rc=$?
+  if [[ -n "${_residue_before}" ]]; then
+    _residue_check "${_residue_before}" "${REPO_ROOT}" || _rc=1
+    rm -f "${_residue_before}"
+  fi
+  # A baseline that could not be taken fails the dispatch AFTER the suite has
+  # run and said its own piece: the run is still worth having, but a gate
+  # that could not answer "was the checkout left as it was found" must not
+  # answer it with silence.
+  [[ "${_residue_blind}" -eq 0 ]] || _rc=1
+  return "${_rc}"
 }
 
 # ── Main ─────────────────────────────────────────────────────────────────────
@@ -1191,11 +1768,67 @@ main() {
       # plumbs COVERAGE_SHARD into the container so _run_coverage kcov's
       # only this matrix slice. The self-test.yaml coverage matrix sets
       # the latter; local `just test coverage` uses the former.
-      if [[ -n "${coverage_shard}" ]]; then
-        COVERAGE_SHARD="${coverage_shard}" _run_via_compose coverage 1
-      else
+      # The reports are only usable for a release badge if something
+      # records WHICH commit they measured and HOW MUCH of the suite
+      # measured it; see _stamp_coverage_head. The writer is handed the
+      # ROOT ONLY: it derives the scope from the manifest the run left in
+      # coverage/, so no input to this dispatch can make a partial
+      # measurement wear a whole-suite certificate.
+      #
+      # The selectors are still passed to the CONTAINER on both branches,
+      # and the full run says the empty values OUT LOUD, because
+      # _run_via_compose forwards them from the AMBIENT environment: a
+      # bare `--coverage` under an inherited COVERAGE_SHARD would kcov a
+      # quarter of the specs, and under an inherited COVERAGE_PATH -- read
+      # FIRST by the in-container dispatch, so it out-ranks the partition
+      # -- would kcov ONE spec and write no report at all. The caller that
+      # carries either is this suite itself, run under `just test
+      # coverage` / `just test coverage-path`. Neither can lie about
+      # itself now, but both are still the WRONG RUN, so both are cleared.
+      #
+      # The certificate is erased BEFORE the run and written only after it
+      # succeeds, so the three states are the three truths: no stamp (no
+      # run, or a run that died), or a stamp describing the run that just
+      # finished. Leaving the old one in place through a failed run is the
+      # one state that lies -- fresh partial reports under an earlier
+      # `scope=full` certificate (see _invalidate_coverage_head).
+      #
+      # The eraser's status is read the same way the run's is below, and
+      # for the same reason: a sourced main (this suite) has errexit off,
+      # so an eraser that reported failure without exiting would be
+      # ignored here and the run would go on under the certificate it
+      # could not remove. Neither reading goes on the left of `||`.
+      local _invalidate_rc _coverage_rc
+      _invalidate_coverage_head "${REPO_ROOT}"
+      _invalidate_rc=$?
+      (( _invalidate_rc == 0 )) || return "${_invalidate_rc}"
+      # One call for both branches: the shard spec is empty on the full
+      # run, which is the value that has to be said out loud.
+      #
+      # The roster is not a memory exercise. coverage_badge_spec's "the
+      # coverage dispatch pins every selector the container reads"
+      # intersects the `-e NAME="${NAME:-}"` lines of _run_via_compose
+      # with the names the in-container COVERAGE branch reads, and fails
+      # until each member is assigned here -- so a third selector added to
+      # that forwarder arrives with its clearing already demanded.
+      COVERAGE_SHARD="${coverage_shard}" COVERAGE_PATH="" \
         _run_via_compose coverage 1
-      fi
+      # The status is read AFTER the branch, never as `|| rc=$?`: a
+      # command on the left of `||` runs with errexit suspended, and the
+      # suspension reaches inside the function -- a fatal step within
+      # _run_via_compose (an unresolvable prev-release fixture, say) would
+      # stop aborting the run and start being swallowed here.
+      #
+      # So under the real entry (strict mode) a failed run has already
+      # exited by this line, and the writer below is unreachable; this
+      # reading is what gives the SOURCED main -- the specs call it -- the
+      # same guarantee without errexit.
+      _coverage_rc=$?
+      (( _coverage_rc == 0 )) || return "${_coverage_rc}"
+      # The root, and nothing else. The writer derives the scope from the
+      # reports this run just left behind; handing it the FLAG is what let
+      # a run narrowed by something else wear a whole-suite certificate.
+      _stamp_coverage_head "${REPO_ROOT}"
       ;;
     compose)
       # Default: fast CI (shellcheck + bats, no kcov) via the alpine

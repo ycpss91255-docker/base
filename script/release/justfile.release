@@ -18,3 +18,38 @@ set working-directory := '../..'
 # Default: list available recipes
 default:
     @just --justfile '{{source_file()}}' --list
+
+# just release coverage-badge -> regenerate doc/badge/coverage.svg, the
+# per-release coverage figure the README draws (ADR-00000008, per-release
+# figure amendment).
+#
+# The figure refreshes ONCE PER RELEASE, never per merge, and rides the
+# `chore: release vX.Y.Z` commit alongside `.version` and the CHANGELOG
+# promotion, so the badge, the tag and the changelog entry are the same
+# commit or none of them are.
+#
+# TODAY THAT IS A HAND-RUN STEP. The release bump that should call it
+# (.claude/scripts/release-bump.sh) lives in the harness repo, not here;
+# wiring it up is docker_harness#289. Until then: run this yourself at
+# bump time, BEFORE the release commit is made -- afterwards HEAD is no
+# longer the commit the coverage run measured and the generator refuses.
+# Forgetting it is caught by coverage_badge_spec (the committed badge must
+# name the current .version), but only after the tag, as a red main.
+#
+# It reads the kcov reports under coverage/, so run `just test coverage` on
+# the commit being released first -- the FULL run, with no shard argument.
+# It REFUSES -- writing nothing, leaving the previous badge in place --
+# when there is no report, when the reports do not record the sha they were
+# produced from or that sha is not HEAD, when they do not record that the
+# whole suite produced them (`just test coverage 1/4` writes its slice into
+# the same coverage/ tree, and a quarter of the suite is not the project's
+# rate), when a report predates the commit, or when instrumented sources
+# are modified in the worktree: a release whose coverage never ran -- or
+# ran over part of the suite -- must not publish a stale, a partial or an
+# invented number.
+#
+# `just release coverage-badge --unmeasured` renders "not measured" for the
+# current .version. That is for a version that genuinely has no measurement;
+# the bump must never pass it.
+coverage-badge *args:
+    ./script/release/coverage_badge.sh {{args}}

@@ -92,6 +92,41 @@ load "${BATS_TEST_DIRNAME}/setup_spec_helper"
   assert_output "USER_KEY=keep"
 }
 
+# ════════════════════════════════════════════════════════════════════
+# write_env: the deferred project rename
+# ════════════════════════════════════════════════════════════════════
+@test "write_env emits PROJECT_NAME_PENDING only when a rename is deferred (#920)" {
+  # PROJECT_NAME is the name the checkout RUNS under; the pending one is
+  # what its configuration now resolves to but cannot take effect as until
+  # the old project is empty. An ordinary file carries no such line.
+  local _env="${TEMP_DIR}/.env.generated"
+  write_env "${_env}" \
+    alice alice 1000 1000 \
+    x86_64 alice false myrepo /tmp/ws \
+    tw.archive.ubuntu.com mirror.twds.com.tw Asia/Taipei \
+    bridge host private false all "gpu compute" \
+    true confhash dockerhash \
+    "" "" "" "" \
+    "" "local-myrepo" "alice-myrepo"
+  run grep -Fx 'PROJECT_NAME=local-myrepo' "${_env}"
+  assert_success
+  run grep -Fx 'PROJECT_NAME_PENDING=alice-myrepo' "${_env}"
+  assert_success
+
+  write_env "${_env}" \
+    alice alice 1000 1000 \
+    x86_64 alice false myrepo /tmp/ws \
+    tw.archive.ubuntu.com mirror.twds.com.tw Asia/Taipei \
+    bridge host private false all "gpu compute" \
+    true confhash dockerhash \
+    "" "" "" "" \
+    "" "alice-myrepo"
+  run grep -Fx 'PROJECT_NAME=alice-myrepo' "${_env}"
+  assert_success
+  run grep -c '^PROJECT_NAME_PENDING=' "${_env}"
+  assert_failure
+}
+
 @test "_scaffold_env_local creates a comment-only override file naming .env (#868)" {
   run _scaffold_env_local "${TEMP_DIR}/.env.local"
   assert_success
