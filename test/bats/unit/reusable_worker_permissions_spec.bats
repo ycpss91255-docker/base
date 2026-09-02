@@ -276,7 +276,7 @@ _reusable_workers_with_no_surface_spec() {
   done < <(reusable_workflow_files "${WORKFLOW_DIR}")
 }
 
-@test "reusable workers: every one of them has a spec pinning its grants (#957)" {
+@test "reusable workers: every one of them has a spec reading its permission surface (#957)" {
   # The class-level half of the property. The two tests above assert that
   # every job of every reusable worker DECLARES a grant; WHICH scopes that
   # grant may name is deliberately left to each worker's own spec, and this
@@ -284,6 +284,12 @@ _reusable_workers_with_no_surface_spec() {
   # comment. A reusable worker added tomorrow with `contents: write` on
   # every job satisfies both tests above -- it declared, after all -- and
   # is named here until a spec reads ITS permission surface.
+  #
+  # The name says READING rather than PINNING on purpose. What this can
+  # check is that some spec applies the surface to that file; that the spec
+  # then ASSERTS the exact scope set is a property of the assertion, which
+  # no scan over call sites can see. The wider name was the one a future
+  # author would have read as a guarantee it does not give.
   _assert_reusable_worker_population
   _assert_surface_spec_population
   run _reusable_workers_with_no_surface_spec
