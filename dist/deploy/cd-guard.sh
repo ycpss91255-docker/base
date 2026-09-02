@@ -2,13 +2,13 @@
 #
 # cd-guard.sh - CD-side pre-deploy guard (ADR-00000023).
 #
-# The deploy tool (`just setup deploy`) labels honestly and NEVER blocks: it
-# stamps a `-dirty` / short-commit version so a user-review deploy of any
-# tree state is possible. This guard is the opposite policy for automated
-# CD: refuse to deploy unless the tree is clean AND sits on a tag, so a
-# shipped field bundle is always traceable to a released version.
+# The deploy tool (`just docker setup deploy`) labels honestly and NEVER
+# blocks: it stamps a `-dirty` / short-commit version so a user-review
+# deploy of any tree state is possible. This guard is the opposite policy
+# for automated CD: refuse to deploy unless the tree is clean AND sits on a
+# tag, so a shipped field bundle is always traceable to a released version.
 #
-# Usage (from the repo root, before `just setup deploy --stage <stage>`):
+# Usage (from the repo root, before `just docker setup deploy --stage <stage>`):
 #   ./.base/dist/deploy/cd-guard.sh
 # Exits 0 when clean + tagged; non-zero (with a reason) otherwise.
 set -euo pipefail

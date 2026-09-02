@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3188 tests**.
+Unit specs under `test/bats/unit/`: **3225 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -40,7 +40,7 @@ What that means when you edit:
 
 ## Test Files
 
-### test/bats/unit/lib_spec.bats (54)
+### test/bats/unit/lib_spec.bats (65)
 
 | Test | Description |
 |------|-------------|
@@ -58,10 +58,21 @@ What that means when you edit:
 | `_load_env round-trips shell-hostile values verbatim (no exec, no split) (#689)` | %q-quoted hostile value loads literally (no command-sub / word-split) |
 | `_load_env aborts under set -euo pipefail when the file does not exist (#689)` | Missing-file error path (no `[[ -f ]]` guard) |
 | `_compute_project_name produces clean PROJECT_NAME (single-instance #600)` | Project name (single-instance) |
+| `_compute_project_name derives local-<basename> with nothing loaded (#920)` | The only path that reaches the `local` last resort |
 | `_compute_project_name honours the PROJECT_NAME resolved into .env.generated (#893)` | - |
 | `_compose_project passes the resolved PROJECT_NAME to -p (#893)` | - |
 | `_resolve_project_name: a configured name is used verbatim (#893)` | - |
 | `_resolve_project_name: empty configured name derives the historical default (#893)` | - |
+| `_resolve_project_name: a configured name wins where the derivation cannot separate two users (#920)` | `[project] name` answers a shared Docker Hub login |
+| `_env_file_value reads the last assignment, and empty when absent (#920)` | Reads the file, not the environment |
+| `_carry_project_name: a checkout with no recorded name takes the resolved one (#920)` | Fresh checkout, nothing pending |
+| `_carry_project_name: an unchanged resolution records nothing pending (#920)` | The ordinary apply |
+| `_carry_project_name: a changed DERIVATION keeps the recorded name (#920)` | A rename nobody asked for waits |
+| `_carry_project_name: a CONFIGURED name is taken at once (#920, #893)` | The setting is not deferred |
+| `_recorded_project_name reads the PROJECT_NAME a repo already records (#920)` | The recorded key wins outright |
+| `_recorded_project_name reconstructs the name a PRE-record env file runs under (#920)` | The previous release's file shape is not a fresh checkout |
+| `_recorded_project_name answers empty when there is no name to reconstruct (#920)` | A genuinely fresh checkout, and both half-shapes |
+| `_resolve_project_name: two OS users with no Docker Hub login derive distinct project names (#920)` | Multi-user isolation with no config, pinned through the detection that delivers it |
 | `_resolve_project_name: falls back to local + directory basename with nothing to go on (#893)` | - |
 | `_compute_project_name warns when .env.generated carries no PROJECT_NAME (#893)` | - |
 | `_compose with DRY_RUN=true prints command instead of running` | DRY_RUN path |
@@ -318,13 +329,13 @@ and the `_rule_basename` image-rule helper. Also guards the shipped
 usage heredocs must advertise `.setup.conf`, and no shipped text may
 still say `<repo>/setup.conf` or `.base/setup.conf` (#842).
 
-#### test/bats/unit/env_emit_spec.bats (26)
+#### test/bats/unit/env_emit_spec.bats (27)
 
 Mirrors `lib/env_emit.sh`. `write_env` (.env contents + SETUP_*
 metadata, SSH X11 `XAUTHORITY` override #321) and `_scaffold_env_overlay`
 idempotency.
 
-#### test/bats/unit/setup_cmd_spec.bats (126)
+#### test/bats/unit/setup_cmd_spec.bats (132)
 
 Mirrors `lib/setup_cmd.sh`. The git-style subcommand dispatcher and its
 mutating verbs (#49): dispatch (Phase B-1), `set` / `show` / `list`
@@ -340,7 +351,7 @@ mount_2..N`, and `[security]` privileged, with companion negatives for
 cleared keys, plus the isolated `_setup_known_section` /
 `SCHEMA_SECTIONS` (#561) unit checks.
 
-#### test/bats/unit/stage_spec.bats (103)
+#### test/bats/unit/stage_spec.bats (104)
 
 Mirrors `lib/stage.sh`. The per-stage engine: `_validate_stage_name`
 (#215), `_parse_dockerfile_stages`, `_compute_dockerfile_hash`, `main
@@ -923,7 +934,7 @@ the 1D inputs are gone).
 | `ci-passed` rollup depends on `call-build`, runs with `if: always()` | 1 |
 | `ci-passed` declares `name: ci-passed` to satisfy branch protection contract | 1 |
 
-### test/bats/unit/wrapper_lib_spec.bats (18)
+### test/bats/unit/wrapper_lib_spec.bats (29)
 
 Unit tests for the wrapper-runtime module `lib/wrapper.sh` (#565), which
 hoists the cross-cutting surfaces the 5 docker wrappers (build / run /
@@ -940,6 +951,9 @@ Covers (with the "called from each of the 5 wrappers" parameterisation):
 | `_msg` dispatcher: routes `<category> <key>` to `_msg_<category>`, reads global `_LANG`, errors on missing category / key | 4 |
 | `_wrapper_lang_prepass`: sets `_LANG` from `--lang` (anywhere in argv), leaves it untouched without `--lang`, unsupported-value fallback to `en`, requires a verb, threads each of the 5 verbs into the `_sanitize_lang` warning tag | 6 |
 | `_wrapper_setup_sync`: bootstrap on missing `.env`, `RUN_SETUP=true` forced run, clean drift-check skips re-apply, regen on drift, exit-1 `no_env` error path, per-verb `[<verb>]` log tag (build + run), requires a verb, degrades to empty forward-args when `SETUP_FORWARD_ARGS` is unset (lib defensive-unset convention) | 8 |
+| Project-name settle (#920): a deferred rename (`PROJECT_NAME_PENDING`, recorded by `setup apply`) is adopted by the first build / run that finds the old project empty -- an edit rather than a regeneration, taking the deferral's whole block (key, banner and blank separator) out and copying every other line of `.env.generated` through byte for byte -- stays deferred while that project still has containers, stays deferred with the daemon's own message when it cannot be asked, and costs no docker call at all when nothing is pending | 5 |
+| Project-name settle, NAMED VOLUMES (#920): `stop` runs `compose down` without `-v`, so "empty" counts volumes too -- a project holding only a volume defers (and is told so, without the useless `./stop.sh` advice), a project holding both reports the containers, and a volume query the daemon cannot answer defers like the container one | 3 |
+| `_wrapper_service_running` (#920): the probe answers per PROJECT, not per host (same stub, opposite answers for two `-p` values); a FAILING probe is reported with the daemon's own message instead of reading as not-running; a clean probe stays quiet | 3 |
 
 ### test/bats/unit/wrapper_lib_lookup_spec.bats (5)
 
@@ -1106,10 +1120,13 @@ opt-out (no inspect calls + no rmi even when ids would have moved),
 if displaced>` visible + zero real rmi), and `--help` mentions the
 `--no-prune` flag.
 
-### test/bats/unit/run_sh_spec.bats (67)
+### test/bats/unit/run_sh_spec.bats (70)
 
-Unit tests for `run.sh`. Mirrors the build_sh_spec.bats harness;
-`docker ps` reads from a controllable stub file so tests can simulate
+Unit tests for `run.sh`. Mirrors the build_sh_spec.bats harness; the
+`docker compose ... ps` probe reads from a controllable stub file (one
+running service per line, either bare `<service>` or `<project>/<service>`
+for the tests that are about project scoping -- the qualified form is
+visible only to a probe carrying that same `-p`) so tests can simulate
 "container already running" scenarios.
 
 Covers: `--help` (en/zh/zh-CN/ja), `--setup`/`-s`, bootstrap on
@@ -1156,9 +1173,9 @@ the build delegate / `compose up`; in the foreground path a failing
 exit with the hook's rc while `compose down --remove-orphans` still
 runs).
 
-### test/bats/unit/exec_sh_spec.bats (58)
+### test/bats/unit/exec_sh_spec.bats (59)
 
-Unit tests for `exec.sh` argument parsing, the container-running
+Unit tests for `exec.sh` argument parsing, the service-running
 precheck, and i18n. Sandbox tree mirrors build_sh_spec.bats;
 `docker ps` reads from a controllable stub file so tests can toggle
 "container running" state without a real docker daemon. `.env` is
@@ -1570,7 +1587,7 @@ shapes, absent on any `*-test` stage).
 | `generate_compose_yaml: runtime stage inherits device propagation from devel (#450 P3)` | - |
 | `generate_compose_yaml per-stage emit is byte-identical via _resolve_docker_flags (#505 golden master)` | byte-identical golden |
 
-### test/bats/unit/compose_emit/overlay_guard_spec.bats (6)
+### test/bats/unit/compose_emit/overlay_guard_spec.bats (7)
 
 Forward-invariant guard (ADR-00000022): base's emitted compose must never
 bake a hardcoded per-instance literal over the interpolation-channel field
@@ -1583,7 +1600,8 @@ per-instance field fails immediately.
 |------|-------------|
 | `overlay guard predicate rejects a baked literal, accepts an interpolation` | self-check discrimination |
 | `overlay guard: project name: is an overlay interpolation` | name interpolated |
-| `overlay guard: every container_name: carries an interpolation (not a baked literal)` | container_name interpolated |
+| `overlay guard: the dev-stack emitter emits no container_name at all (#920)` | no container name to collide on |
+| `the field-deploy emitter's baked container_name is a STATED exemption (#920)` | deploy bundle exemption stated in README + ADR |
 | `overlay guard: network_mode: is an env interpolation, never a baked literal` | network_mode interpolated |
 | `overlay guard: no baked published-port literal anywhere (forward invariant)` | no baked port literal |
 | `overlay guard: published ports are emitted as ${PORT_N:-default} on devel and stages` | ports overlay form |
@@ -1663,7 +1681,7 @@ refused before any build or bundle step.
 | `main deploy routes to _setup_deploy (#832 dispatch)` | dispatch wiring |
 | `_resolve_deploy_context: warns when the legacy [deploy] runtime key is present but shadowed (#876)` | - |
 
-### test/bats/unit/deploy_hint_spec.bats (5)
+### test/bats/unit/deploy_hint_spec.bats (6)
 
 Covers the "regenerate this artifact" hints stamped into what the deploy
 generator emits -- the resolved `compose.yaml` header and the `deploy.sh`
@@ -1680,6 +1698,7 @@ through the real parser instead of asserting a hand-copied duplicate.
 | `cd-guard.sh documents the --stage form of the deploy command (#843)` | cd-guard hint |
 | `the compose-header hint's args are accepted by the deploy arg parser (#843)` | hint replayed through parser |
 | `the launcher hint's args are accepted by the deploy arg parser (#843)` | hint replayed through parser |
+| `no shipped artifact spells the deploy recipe without its module (#920)` | - |
 
 ### test/bats/unit/deploy_manifest_spec.bats (16)
 
@@ -1876,7 +1895,7 @@ the master switch `watchdog_check` is set, so the default-off case leaves
 rides on devel and extends:devel stages inherit it; and the resolver
 builds the env block only for the knobs the conf sets.
 
-### test/bats/unit/template_spec.bats (158)
+### test/bats/unit/template_spec.bats (159)
 
 | Test | Description |
 |------|-------------|
@@ -1936,7 +1955,8 @@ builds the env block only for the knobs the conf sets.
 | `run.sh -h shows --dry-run in help` | --dry-run help |
 | `exec.sh -h shows --dry-run in help` | --dry-run help |
 | `stop.sh -h shows --dry-run in help` | --dry-run help |
-| `exec.sh checks container is running before exec` | precheck |
+| `exec.sh checks the service is running before exec (#920)` | precheck asks compose |
+| `no wrapper or wrapper library reconstructs a container name from USER_NAME (#920)` | compose owns the derived name |
 | `exec.sh precheck error mentions run.sh hint` | friendly hint |
 | `exec.sh exits non-zero with friendly hint when container not running` | precheck e2e |
 | `exec.sh --dry-run skips precheck and prints compose command` | dry-run e2e |

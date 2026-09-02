@@ -247,6 +247,178 @@ EOF
   assert_success
 }
 
+@test "apply keeps the recorded name when the DERIVATION changes, and carries the new one (#920)" {
+  # The rename nobody asks for: `just upgrade` runs init.sh, which runs
+  # `setup apply`, and what the default derives can change under a stack
+  # that is still up. The project name is the key compose finds those
+  # containers by and compose cannot relabel a running container, so apply
+  # records the name the checkout already had and carries the resolved one
+  # beside it. The wrapper adopts it once the old project is empty.
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  local _derived=""
+  _derived="$(grep -m1 '^PROJECT_NAME=' "${TEMP_DIR}/.env.generated")"
+  _derived="${_derived#PROJECT_NAME=}"
+  [[ -n "${_derived}" ]] || fail "apply recorded no project name"
+
+  # A recorded name that no longer matches what the default derives --
+  # the shape a repo carries once it has recorded one at all.
+  sed -i "s/^PROJECT_NAME=.*/PROJECT_NAME=local-legacy/" \
+    "${TEMP_DIR}/.env.generated"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  run grep -Fx 'PROJECT_NAME=local-legacy' "${TEMP_DIR}/.env.generated"
+  assert_success
+  run grep -Fx "PROJECT_NAME_PENDING=${_derived}" "${TEMP_DIR}/.env.generated"
+  assert_success
+}
+
+@test "apply carries the name a PRE-record env file runs under, rather than reading it as fresh (#920)" {
+  # The population this deferral was written for is the one that has not
+  # upgraded yet, and its .env.generated has no PROJECT_NAME key at all:
+  # the emitter interpolated `name: ${DOCKER_HUB_USER}-${IMAGE_NAME}` and
+  # the wrapper assembled the same string for its -p. Read as a fresh
+  # checkout, that file would take the newly derived name with nothing
+  # pending -- the silent rename over a live stack, on precisely the repos
+  # that are mid-migration.
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  local _derived="" _image=""
+  _derived="$(grep -m1 '^PROJECT_NAME=' "${TEMP_DIR}/.env.generated")"
+  _derived="${_derived#PROJECT_NAME=}"
+  _image="$(grep -m1 '^IMAGE_NAME=' "${TEMP_DIR}/.env.generated")"
+  _image="${_image#IMAGE_NAME=}"
+  [[ -n "${_derived}" && -n "${_image}" ]] || fail "apply recorded no name"
+
+  # Turn it back into the older shape: drop the key, and leave a hub user
+  # that detection no longer yields -- a `docker logout`, or a login as a
+  # different account, between the last apply and this one.
+  sed -i '/^PROJECT_NAME=/d' "${TEMP_DIR}/.env.generated"
+  sed -i 's/^DOCKER_HUB_USER=.*/DOCKER_HUB_USER=bobhub/' \
+    "${TEMP_DIR}/.env.generated"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  # The name the LIVE containers carry, reconstructed from the same file.
+  run grep -Fx "PROJECT_NAME=bobhub-${_image}" "${TEMP_DIR}/.env.generated"
+  assert_success
+  run grep -Fx "PROJECT_NAME_PENDING=${_derived}" "${TEMP_DIR}/.env.generated"
+  assert_success
+}
+
+@test "apply adds no pending name when a PRE-record env file still derives the same name (#920)" {
+  # The other half: the reconstruction must not manufacture a rename. A
+  # repo whose recorded hub user is still the detected one runs under the
+  # name apply resolves, so the ordinary upgrade stays silent.
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  sed -i '/^PROJECT_NAME=/d' "${TEMP_DIR}/.env.generated"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  run grep -c '^PROJECT_NAME_PENDING=' "${TEMP_DIR}/.env.generated"
+  assert_failure
+}
+
+@test "apply on a fresh checkout records the resolved name with nothing pending (#920)" {
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  run grep -c '^PROJECT_NAME_PENDING=' "${TEMP_DIR}/.env.generated"
+  assert_failure
+}
+
+@test "apply drops a pending name once the derivation agrees again (#920)" {
+  # The pending key is a note about a divergence, not state to maintain:
+  # every apply re-derives it, so a resolution that agrees again clears it.
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  local _derived=""
+  _derived="$(grep -m1 '^PROJECT_NAME=' "${TEMP_DIR}/.env.generated")"
+  _derived="${_derived#PROJECT_NAME=}"
+
+  sed -i "s/^PROJECT_NAME=.*/PROJECT_NAME=local-legacy/" \
+    "${TEMP_DIR}/.env.generated"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  run grep -Fx "PROJECT_NAME_PENDING=${_derived}" "${TEMP_DIR}/.env.generated"
+  assert_success
+
+  # The wrapper's adoption, done by hand: the recorded name is the
+  # resolved one again.
+  sed -i "s/^PROJECT_NAME=.*/PROJECT_NAME=${_derived}/" \
+    "${TEMP_DIR}/.env.generated"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  run grep -Fx "PROJECT_NAME=${_derived}" "${TEMP_DIR}/.env.generated"
+  assert_success
+  run grep -c '^PROJECT_NAME_PENDING=' "${TEMP_DIR}/.env.generated"
+  assert_failure
+}
+
+@test "apply takes a CONFIGURED rename at once and warns about the old project (#920, #893)" {
+  # `[project] name` exists so a second worktree does not share the
+  # first's derived name; deferring it would defeat it exactly when the
+  # shared name is occupied. Taken at once, therefore -- and said out
+  # loud, because compose cannot relabel whatever is still up under the
+  # old name.
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  printf '\n[project]\nname = myrepo-wt1\n' >> "${TEMP_DIR}/.setup.conf"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  run grep -Fx 'PROJECT_NAME=myrepo-wt1' "${TEMP_DIR}/.env.generated"
+  assert_success
+
+  sed -i 's/^name = myrepo-wt1$/name = myrepo-wt2/' "${TEMP_DIR}/.setup.conf"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  assert_output --partial "myrepo-wt1"
+  assert_output --partial "myrepo-wt2"
+  assert_output --partial "no longer addressed by this checkout"
+  run grep -Fx 'PROJECT_NAME=myrepo-wt2' "${TEMP_DIR}/.env.generated"
+  assert_success
+  run grep -c '^PROJECT_NAME_PENDING=' "${TEMP_DIR}/.env.generated"
+  assert_failure
+}
+
 @test "the shipped template ships [project] name empty, so an upgrade changes nothing (#893)" {
   # The section must exist in .setup.conf too: .setup.conf.local is the
   # LOCAL VARIANT of .setup.conf and shares its grammar. A section that

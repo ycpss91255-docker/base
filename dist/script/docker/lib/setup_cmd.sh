@@ -1360,10 +1360,36 @@ _setup_apply() {
   # into .env.generated as PROJECT_NAME, which is what BOTH the wrapper's
   # `-p` and the emitted `name: ${PROJECT_NAME}` read -- so the two cannot
   # be two computations that agree.
-  local _project_name_conf="" project_name=""
+  local _project_name_conf="" _project_name_resolved=""
+  local project_name="" project_name_pending=""
   _conf_get_into _APPLY_CONF project name "" _project_name_conf
   _resolve_project_name "${_project_name_conf}" "${docker_hub_user}" \
-    "${image_name}" "${_base_path}" project_name
+    "${image_name}" "${_base_path}" _project_name_resolved
+  # What gets RECORDED is not always what just resolved: a checkout that
+  # already runs under a name keeps it, and the resolved one is carried
+  # beside it as pending until the wrapper can see the old project is
+  # empty. Read from the FILE rather than from the `source` above, so an
+  # inherited PROJECT_NAME in the environment cannot pose as a recorded
+  # one -- and through `_recorded_project_name`, which also recognises the
+  # older file shape that recorded no PROJECT_NAME key at all. Reading
+  # that one as "fresh checkout" is what would let the rename land
+  # silently on exactly the repos that are mid-migration.
+  local _project_name_recorded=""
+  _recorded_project_name "${_env_file}" _project_name_recorded
+  _carry_project_name "${_project_name_recorded}" "${_project_name_resolved}" \
+    "${_project_name_conf}" project_name project_name_pending
+  # A CONFIGURED rename is taken at once (see _carry_project_name), which
+  # is the one path here that can leave a running stack behind: compose
+  # cannot relabel a container, so anything still up under the old name
+  # stops answering to this checkout's wrappers. Said out loud rather than
+  # decided for the user -- setup.sh cannot ask the daemon whether there
+  # is anything up, and this is the rename the user typed.
+  if [[ -n "${_project_name_conf}" && -n "${_project_name_recorded}" \
+        && "${_project_name_recorded}" != "${project_name}" ]]; then
+    _log_warn setup project_name_reconfigured \
+      "display=compose project renamed: '${_project_name_recorded}' -> '${project_name}' (from [project] name). Anything still under '${_project_name_recorded}' is no longer addressed by this checkout -- containers, and named volumes, which './stop.sh' does not remove. Tear the old project down (or move its volumes) before renaming." \
+      "from=${_project_name_recorded}" "to=${project_name}"
+  fi
 
   # ── Compute hashes for drift detection ──
   local conf_hash=""
@@ -1413,6 +1439,10 @@ _setup_apply() {
     printf 'TARGET_ARCH=%s\n' "${target_arch}"
     printf 'BUILD_NETWORK=%s\n' "${build_network}"
     printf 'PROJECT_NAME=%s\n' "${project_name}"
+    # Only when a rename is waiting on an empty project; absent otherwise.
+    if [[ -n "${project_name_pending}" ]]; then
+      printf 'PROJECT_NAME_PENDING=%s\n' "${project_name_pending}"
+    fi
     printf 'SSH_X11=%s\n' "$(_is_ssh_x11 && echo true || echo false)"
     printf 'X11_COOKIE_SKIP=%s\n' "$(( _no_x11_cookie ))"
     return 0
@@ -1452,7 +1482,8 @@ _setup_apply() {
     "${target_arch}" \
     "${build_network}" \
     "${_ssh_x11_xauth}" \
-    "${project_name}"
+    "${project_name}" \
+    "${project_name_pending}"
 
   # `.env`: the container-bound defaults, regenerated every apply. The
   # `[environment]` list and the [lifecycle] WATCHDOG_* block land here
