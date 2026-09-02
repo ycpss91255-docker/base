@@ -679,16 +679,16 @@ cleared keys, plus the isolated `_setup_known_section` /
 | `set does NOT regenerate .env (mtime unchanged after set)` | - |
 | `show prints the value of a single key` | - |
 | `show prints all entries of a whole section in on-disk order` | - |
-| `show <section> keeps the per-service [logging.<svc>] keys out of the parent dump (#955)` | - |
-| `show logging.<svc> dumps the sub-section it accepts as a valid section (#955)` | - |
-| `show reports a typo under [logging] as a missing KEY, not an empty section (#955)` | - |
+| `show <section> keeps the per-service [logging.<svc>] keys out of the parent dump (#955)` | Sub-section keys stay out of the parent |
+| `show logging.<svc> dumps the sub-section it accepts as a valid section (#955)` | A section it accepts is a section it dumps |
+| `show reports a typo under [logging] as a missing KEY, not an empty section (#955)` | Missing key, not empty section |
 | `show returns non-zero on a missing key` | - |
 | `show falls back to template baseline when section absent in .local (#174)` | - |
 | `show rejects an unknown section name` | - |
 | `show with no arguments fails clean` | - |
 | `list with no arg prints every section header + key` | - |
-| `list emits a per-service logging key once, under its own section (#955)` | - |
-| `no setup.conf namespace-key reader re-derives section membership with a trailing-dot glob on a lone section variable (#955)` | - |
+| `list emits a per-service logging key once, under its own section (#955)` | One emission, correct section |
+| `no setup.conf namespace-key reader re-derives section membership with a trailing-dot glob on a lone section variable (#955)` | The split rule has one owner |
 | `list <section> mirrors show <section>` | - |
 | `list <section> rejects an unknown section` | - |
 | `set / show / list run end-to-end via subprocess` | - |
@@ -697,7 +697,7 @@ cleared keys, plus the isolated `_setup_known_section` /
 | `main add bootstraps setup.conf empty when missing (#174)` | - |
 | `main add picks max+1 even with gap from prior remove` | - |
 | `main add rejects unknown section` | - |
-| `main add binds a logging.<svc> spec to the sub-section, not the parent (#955)` | - |
+| `main add binds a logging.<svc> spec to the sub-section, not the parent (#955)` | add binds to the sub-section |
 | `main add rejects invalid mount value` | - |
 | `main add rejects missing list / value` | - |
 | `main add does not regen .env` | - |
@@ -2747,20 +2747,20 @@ processes / sleeps / signals, so the file is **kcov-fragile** (each test carries
 |------|-------------|
 | `restart-container monitor DEFERS checks during the start period (#797)` | - |
 | `restart-container monitor EXITS the container after consecutive failures (#797)` | - |
-| `_watchdog_start_service group-signals even when the pgid is read before setsid takes (#797)` | - |
+| `_watchdog_start_service group-signals even when the pgid is read before setsid takes (#797)` | Group signal survives the setsid race |
 | `restart-service supervisor restarts in place then GIVES UP loudly at MAX_RESTARTS (#797)` | - |
 | `_watchdog_stop_service SIGKILLs a SIGTERM-ignoring service within the bounded grace (no hang) (#797)` | - |
 | `_watchdog_stop_service kills the whole service subtree (no orphaned grandchild) (#797)` | - |
 | `restart-service give-up against a wedged (SIGTERM-ignoring) service still exits the container (#797)` | - |
 | `restart-service supervisor forwards SIGTERM PROMPTLY on docker stop, not deferred until the interval (#797)` | - |
-| `the readiness wait's own failure path returns within its bound, it does not hang (#965)` | - |
-| `a service the case gives up on cannot hold the case open past its bound (#965)` | - |
-| `a harness that swallows its own ceiling's signal is still bounded (#965)` | - |
-| `_kill_case_groups: never signals a bare pid, only a process GROUP (#965)` | - |
-| `_await_gone: a killed process nobody has reaped is GONE, not still alive (#965)` | - |
-| `_reap_child: a killed child and a completed one report DIFFERENT statuses (#965)` | - |
-| `_within_case_bound: answers no exactly when a case outran its own ceiling (#965)` | - |
-| `every SHELL this file starts is started inside the one bounded harness (#965)` | - |
+| `the readiness wait's own failure path returns within its bound, it does not hang (#965)` | The failure path is bounded too |
+| `a service the case gives up on cannot hold the case open past its bound (#965)` | A given-up service cannot hold the case |
+| `a harness that swallows its own ceiling's signal is still bounded (#965)` | SIGTERM is a request; the ceiling is not |
+| `_kill_case_groups: never signals a bare pid, only a process GROUP (#965)` | Group only, never a bare pid |
+| `_await_gone: a killed process nobody has reaped is GONE, not still alive (#965)` | A zombie is gone, not alive |
+| `_reap_child: a killed child and a completed one report DIFFERENT statuses (#965)` | A zombie and a corpse are different answers |
+| `_within_case_bound: answers no exactly when a case outran its own ceiling (#965)` | The bound is asserted, not hoped for |
+| `every SHELL this file starts is started inside the one bounded harness (#965)` | One door, so the fourth sibling cannot skip it |
 
 ### test/bats/unit/compose_watchdog_spec.bats (6)
 
@@ -3242,7 +3242,7 @@ defect in the capture (#965).
 | `_run_readme_sync: FAILS when the English README is missing (#846)` | No vacuous pass without a source |
 | `_run_readme_sync: FAILS when no translation files are found (#846)` | No vacuous pass without translations |
 | `_run_readme_sync: the REAL doc/readme/ tree is stamped and clean today (#846)` | Live tree clean |
-| `_assert_same_tree: a failure names WHAT differed, not just that something did (#965)` | - |
+| `_assert_same_tree: a failure names WHAT differed, not just that something did (#965)` | The failure carries its own evidence |
 | `_sync_readme_hashes: is a no-op on the REAL tree (already stamped) (#846)` | Live tree already generator-exact |
 | `_capture_readme_baseline: a capture the source changed under is DISCARDED, not used (#965)` | A torn read must never become the baseline a verdict rests on |
 | `_capture_readme_baseline: a source that never settles FAILS loudly, it does not hand back a torn set (#965)` | No snapshot means nothing to assert on; say so rather than pick a read |
@@ -4743,17 +4743,17 @@ rather than an assurance.
 | `_residue_paths: the ignore list is git's whole exclude stack, not .gitignore alone (#965)` | `.git/info/exclude` silences it too, and the same write one directory over is still named |
 | `_residue_paths: a path containing a space is named whole (#965)` | Read NUL-separated with the path last, so porcelain quoting cannot truncate the report |
 | `_residue_paths: a write the run UNDID before the snapshot is NOT named (#965)` | The first blind spot, measured: neither undo shape reaches `git status`, and the same write left in place is still named |
-| `_residue_paths: a write under .git/ is EXCLUDED, and the exclusion is narrow (#965)` | - |
+| `_residue_paths: a write under .git/ is EXCLUDED, and the exclusion is narrow (#965)` | The .git exclusion, and how narrow it is |
 | `_residue_paths: a permission change is seen only where git tracks one (#965)` | 644 -> 600 is invisible, 644 -> 755 is named: the shape of the limit, not just its existence |
 | `_residue_check: fails naming the path, and says what to do about it (#965)` | The report has to be actionable without opening the guard |
 | `_residue_check: passes on a run that changed nothing (#965)` | The path every green gate takes |
-| `_residue_check: a residue it already named is named AGAIN on the next run (#965)` | - |
+| `_residue_check: a residue it already named is named AGAIN on the next run (#965)` | The alarm is not one-shot |
 | `_residue_check: a run that changed nothing does not report that it did (#965)` | The lead sentence is about THIS run; a carried path says so in its own clause |
-| `_residue_check: the memory clears when the residue is GONE (#965)` | - |
-| `_residue_forget: an acknowledged path goes quiet with the file still there (#965)` | - |
+| `_residue_check: the memory clears when the residue is GONE (#965)` | Fixed residue stops being reported |
+| `_residue_forget: an acknowledged path goes quiet with the file still there (#965)` | An acknowledgement is honoured |
 | `_residue_forget: an acknowledgement is permanent while the bytes stay the same (#965)` | The escape hatch's price, decided and pinned: silent for an identical rewrite, named again when the bytes change |
-| `the pending record is kept OUTSIDE the working tree, so it is not residue itself (#965)` | - |
-| `_residue_before_snapshot: a baseline it could not take is a FAILURE, not an empty one (#965)` | - |
+| `the pending record is kept OUTSIDE the working tree, so it is not residue itself (#965)` | The record cannot be its own residue |
+| `_residue_before_snapshot: a baseline it could not take is a FAILURE, not an empty one (#965)` | A baseline it could not take fails closed |
 | `_residue_guard_available: answers no outside a git checkout (#965)` | A released tarball still runs the suite; absence costs nothing |
 | `_residue_guard_available: is switched off by TEST_RESIDUE_GUARD=0 (#965)` | The escape hatch for an edit made WHILE the suite runs, asserted in both directions |
 | `the compose dispatch is what runs the guard, not a caller that could forget (#965)` | Wired into the one host-side point every bats dispatch passes through |
