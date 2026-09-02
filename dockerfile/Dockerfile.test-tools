@@ -42,7 +42,7 @@ FROM alpine:${ALPINE_VERSION} AS lint-tools
 # arch-literal-lint: allow-begin -- the TARGETARCH-to-upstream-asset mapping is
 # the one place both spellings legitimately meet: TARGETARCH speaks amd64 /
 # arm64, shellcheck publishes linux.x86_64 / linux.aarch64 and hadolint
-# publishes Linux-x86_64 / Linux-arm64. Everything outside this block builds
+# publishes linux-x86_64 / linux-arm64. Everything outside this block builds
 # its architecture from ${TARGETARCH}.
 # TARGETARCH is auto-populated by BuildKit (docker 23+) with "amd64" /
 # "arm64" / etc. Do NOT set a default — a default value shadows
@@ -60,11 +60,11 @@ RUN apk add --no-cache curl xz && \
       *) echo "Unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
     esac && \
     curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 \
-        "https://github.com/koalaman/shellcheck/releases/download/v0.10.0/shellcheck-v0.10.0.linux.${sc_arch}.tar.xz" \
+        "https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.${sc_arch}.tar.xz" \
         | tar -xJ -C /tmp && \
-    mv "/tmp/shellcheck-v0.10.0/shellcheck" /usr/local/bin/shellcheck && \
+    mv "/tmp/shellcheck-v0.11.0/shellcheck" /usr/local/bin/shellcheck && \
     curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /usr/local/bin/hadolint \
-        "https://github.com/hadolint/hadolint/releases/download/v2.12.0/hadolint-Linux-${hd_arch}" && \
+        "https://github.com/hadolint/hadolint/releases/download/v2.15.1/hadolint-linux-${hd_arch}" && \
     chmod +x /usr/local/bin/hadolint
 # arch-literal-lint: allow-end
 
