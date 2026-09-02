@@ -150,28 +150,76 @@ only_comments() {
 }
 
 # code_lines <file>
-#   <file> with its comment-only and blank lines dropped. Exits non-zero when
-#   nothing survives (grep's own no-match status), so a spec that asserts
-#   success also learns that the file has no code at all.
+#   <file> with its comment-only and blank lines dropped.
+#
+#   The STATUS separates the two readings a caller must never merge:
+#     0  code lines were emitted;
+#     1  the file was READ and nothing survived the strip (grep's own
+#        no-match status) -- an all-comment or empty file;
+#     2  the file was not read at all -- missing, a directory, unreadable.
+#   Without the split the redirection's own failure arrives as 1, which is
+#   the status every guard in this tree reads as "the subject simply does
+#   not contain that string". A subject that was renamed away would then be
+#   reported as a clean subject. The `BUG:` line goes to stdout, the way
+#   every other derivation here reports one, because the scans that consume
+#   these helpers read stdout inside a pipeline where a status is invisible.
 code_lines() {
-    strip_comments < "${1}"
+    local _file="${1}"
+    if [[ ! -f "${_file}" || ! -r "${_file}" ]]; then
+        printf 'BUG: code_lines cannot read %s\n' "${_file}"
+        return 2
+    fi
+    strip_comments < "${_file}"
 }
 
 # code_grep <grep-arg>... <file>
 #   `grep <arg>... <file>` restricted to the code lines of <file>. Argument
 #   order mirrors grep's own, file last.
+#
+#   Statuses are code_lines' plus grep's, and they do not collide: 0 match,
+#   1 no match over a file that WAS read, 2 a file that was not. The read is
+#   therefore done into a variable rather than piped -- a pipeline's status
+#   is its LAST command's, so an unreadable subject would reach grep as
+#   empty stdin and come back as a plain no-match. Empty code is still fed
+#   to grep rather than short-circuited, so counting flags keep answering
+#   (`-c` over an all-comment file prints 0, exit 1).
+#
+#   The unreadable-subject report goes to STDERR here, which is the one
+#   place this tree's `BUG:` convention is inverted, and deliberately.
+#   code_grep's stdout is grep's: lines, or a count under `-c`. Every call
+#   site reads it as that -- `assert_output '2'`, an arithmetic comparison,
+#   a `| head -1` -- so a `BUG:` line printed there is a match that is not
+#   a match and a count that is not a number. code_lines keeps its report
+#   on stdout because ITS stdout is the report: its callers capture it and
+#   print what they captured when the status says the file was not read.
 code_grep() {
-    local _file="${*: -1}"
-    code_lines "${_file}" | grep "${@:1:$#-1}"
+    local _file="${*: -1}" _code _status=0
+    _code="$(code_lines "${_file}")" || _status=$?
+    if [[ "${_status}" -gt 1 ]]; then
+        printf '%s\n' "${_code}" >&2
+        return "${_status}"
+    fi
+    if [[ -n "${_code}" ]]; then
+        printf '%s\n' "${_code}" | grep "${@:1:$#-1}"
+    else
+        printf '' | grep "${@:1:$#-1}"
+    fi
 }
 
 # yaml_job_text <file> <job>
 #   One top-level `jobs:` entry of <file>, VERBATIM -- from `  <job>:` up to
 #   the next two-space-indented key. Comments included, so pair it with
 #   only_comments where the assertion is about the prose.
+#
+#   The terminator is ANY two-space-indented key, not a lowercase-initial
+#   one. `Sign:` and `_pub:` are legal GitHub job ids, and while the
+#   terminator only recognised `[a-z]` neither of them ended the job above
+#   it -- so that job's text, and every grant read out of it, was really
+#   the NEXT job's. A two-space comment line still does not terminate: a
+#   comment paragraph between two jobs belongs to the job it documents.
 yaml_job_text() {
     awk -v _key="^  ${2}:" \
-        '$0 ~ _key {flag=1; next} /^  [a-z]/{flag=0} flag' "${1}"
+        '$0 ~ _key {flag=1; next} /^  [^ #]/{flag=0} flag' "${1}"
 }
 
 # yaml_job_lines <file> <job>
@@ -199,6 +247,517 @@ yaml_top_text() {
 #   that follows it.
 yaml_top_lines() {
     yaml_top_text "${1}" "${2}" | strip_comments
+}
+
+# ── derived job / permission surfaces ────────────────────────────────────────
+#
+# A guard named for a SET ("every job", "every reusable worker") has to
+# compute that set from the tree at run time. A literal roster inside the
+# spec is the defect even while today's roster is complete, because the job
+# the guard exists for is tomorrow's addition: a five-name loop over
+# build-worker.yaml stayed green when a sixth job asking `contents: write`
+# was appended to the file. These helpers are the derivation the specs share
+# so that no spec has to keep a roster.
+#
+# They ask a YAML PARSER (`yq`, baked into the tooling image), not a regex.
+# The previous shape built the derivation out of awk over indentation, and
+# every YAML spelling that awk did not model made a job or a grant
+# INVISIBLE rather than loud -- which is the fail-open direction for a
+# guard whose entire assertion is "the scan came back empty":
+#
+#   * `sign-artifacts: # signs the images` -- a job key with a trailing
+#     comment did not match a pattern anchored at end of line, so the job
+#     was not a job and its `packages: write` was scanned by nothing;
+#   * `packages: write # cache push`, `packages: "write"` -- an entry the
+#     pattern rejected was read as the END of the permissions block, so it
+#     and every entry after it disappeared (and whether the elevation was
+#     seen depended on where in the block it sat);
+#   * `Sign:`, `_pub:` -- legal job ids that did not terminate the previous
+#     job, which then reported the NEXT job's grants as its own;
+#   * `"on":`, `on: {workflow_call: null}` -- a reusable worker the `^on:`
+#     text anchor did not recognise as reusable at all.
+#
+# A parser also buys two properties no grep can state: the key is at the
+# RIGHT LEVEL of the document (a `permissions:` under `jobs.x.steps` is not
+# a job's grant), and the value is the WHOLE value rather than a substring
+# of it. And it fails CLOSED: a file yq cannot parse is an error, where the
+# awk simply produced a shorter answer. Every helper below turns such an
+# error into a `BUG:` line on stdout AND a non-zero status, because the
+# scans that consume them read stdout inside a pipeline where a status is
+# invisible.
+#
+# yaml_job_text / yaml_job_lines / yaml_top_text / yaml_top_lines stay
+# textual on purpose: those return a block VERBATIM (comments included) and
+# the specs match raw strings against them, which a re-serialising parser
+# would reformat.
+
+# _yaml_eval <file> <expr>
+#   One yq expression over <file>. On any yq failure -- an unparsable
+#   document, an expression this yq cannot run -- print a single `BUG:`
+#   line carrying yq's own message and return 1. Nothing is printed for an
+#   expression that legitimately selects nothing, so a caller can tell
+#   "no entries" from "could not read".
+_yaml_eval() {
+    local _file="${1}" _expr="${2}" _out _status=0
+    _out="$(yq "${_expr}" "${_file}" 2>&1)" || _status=$?
+    if [[ "${_status}" -ne 0 ]]; then
+        printf 'BUG: yq exited %s on %s: %s\n' "${_status}" "${_file}" \
+            "$(printf '%s' "${_out}" | tr '\n' ' ')"
+        return 1
+    fi
+    if [[ -n "${_out}" ]]; then
+        printf '%s\n' "${_out}"
+    fi
+}
+
+# yaml_job_names <file>
+#   Every top-level `jobs:` key of <file>, in document order. A file whose
+#   `jobs:` is missing or is not a mapping is a `BUG:` line and a non-zero
+#   status, never an empty list: an empty list satisfies every "the scan
+#   came back empty" assertion in the repo.
+yaml_job_names() {
+    local _file="${1}" _kind _status=0
+    _kind="$(yq '.jobs | tag' "${_file}" 2>&1)" || _status=$?
+    if [[ "${_status}" -ne 0 ]]; then
+        printf 'BUG: yq exited %s reading the jobs mapping of %s: %s\n' \
+            "${_status}" "${_file}" "$(printf '%s' "${_kind}" | tr '\n' ' ')"
+        return 1
+    fi
+    if [[ "${_kind}" != '!!map' ]]; then
+        printf 'BUG: %s has no jobs: mapping (its jobs key reads as %s)\n' \
+            "${_file}" "${_kind}"
+        return 1
+    fi
+    _yaml_eval "${_file}" '.jobs | keys | .[]'
+}
+
+# yaml_job_permission_entries <file> <job>
+#   The `<scope>: <level>` entries of one job's own `permissions:` mapping,
+#   in document order. A job that declares no block, or an inline one
+#   (`permissions: read-all`, `permissions: {}`) that names no scope,
+#   yields nothing. A job that is not in the file yields a `BUG:` line --
+#   the caller named a job that was renamed, which is a defect and not an
+#   absence.
+#
+#   ENTRIES -- not the block -- are what make an EXACT-set assertion
+#   possible: a caller-facing `permissions:` may only NARROW the grant it
+#   was handed, so any extra scope is an elevation that fails the caller's
+#   run, and a presence check plus one `refute` of a known-bad scope cannot
+#   see it.
+yaml_job_permission_entries() {
+    local _file="${1}" _job="${2}" _kind _status=0
+    _kind="$(YAML_JOB="${_job}" yq '.jobs[strenv(YAML_JOB)] | tag' \
+        "${_file}" 2>&1)" || _status=$?
+    if [[ "${_status}" -ne 0 ]]; then
+        printf 'BUG: yq exited %s reading job %s of %s: %s\n' \
+            "${_status}" "${_job}" "${_file}" \
+            "$(printf '%s' "${_kind}" | tr '\n' ' ')"
+        return 1
+    fi
+    if [[ "${_kind}" != '!!map' ]]; then
+        printf 'BUG: %s declares no job %s (that key reads as %s)\n' \
+            "${_file}" "${_job}" "${_kind}"
+        return 1
+    fi
+    YAML_JOB="${_job}" _yaml_eval "${_file}" \
+        '.jobs[strenv(YAML_JOB)].permissions
+           | select(tag == "!!map")
+           | to_entries | .[]
+           | (.key | tostring) + ": " + (.value | tostring)'
+}
+
+# yaml_permission_surface <file>
+#   `<job>: <scope>: <level>` for every job DERIVED from <file>, in
+#   document order -- and `<job>: <no entries>` for a job that declares no
+#   block at all, or an inline one that yields no entry. The placeholder is
+#   load-bearing: without it a job with no grants would drop out of the
+#   listing, and an assertion over the listing would read "unbounded" as
+#   "nothing to see".
+#
+#   A read that fails anywhere aborts the whole surface with the `BUG:`
+#   line that caused it, rather than returning the jobs it managed to read
+#   -- a partial surface is exactly the under-reported grant set every
+#   assertion here exists to catch.
+yaml_permission_surface() {
+    local _file="${1}" _names _job _entries _status=0
+    _names="$(yaml_job_names "${_file}")" || _status=$?
+    if [[ "${_status}" -ne 0 ]]; then
+        printf '%s\n' "${_names}"
+        return 1
+    fi
+    while IFS= read -r _job; do
+        [[ -n "${_job}" ]] || continue
+        _status=0
+        _entries="$(yaml_job_permission_entries "${_file}" "${_job}")" \
+            || _status=$?
+        if [[ "${_status}" -ne 0 ]]; then
+            printf '%s\n' "${_entries}"
+            return 1
+        fi
+        if [[ -z "${_entries}" ]]; then
+            printf '%s: <no entries>\n' "${_job}"
+        else
+            printf '%s\n' "${_entries}" | sed "s|^|${_job}: |"
+        fi
+    done <<< "${_names}"
+}
+
+# yaml_trigger_keys <file>
+#   The keys of <file>'s `on:` mapping. Read as a KEY at the top level of
+#   the document, which is what makes every legal spelling of it one case:
+#   bare `on:`, `"on":` (the standard quoting workaround for YAML 1.1
+#   reading a bare `on` as a boolean, and what several formatters emit),
+#   and a flow-style mapping. The boolean spelling is matched too, for a
+#   parser that resolves the bare key to `true`.
+yaml_trigger_keys() {
+    _yaml_eval "${1}" '
+        to_entries
+          | map(select((.key | tostring) == "on"
+                       or (.key | tostring) == "true"))
+          | .[0].value
+          | select(tag == "!!map")
+          | keys | .[]'
+}
+
+# workflow_files [dir]
+#   Every workflow FILE in <dir> (default: this checkout's workflow
+#   directory): `*.yaml` first, then `*.yml`, each in the shell's glob
+#   order, skipping anything that is not a regular file.
+#
+#   Which extensions a workflow file may carry is written HERE and nowhere
+#   else. It used to be written twice -- once as this glob inside
+#   reusable_workflow_files, once inline in the cross-check that re-reads
+#   the same directory raw, the reading that exists to catch a worker the
+#   trigger derivation stopped seeing. A directory that grew a third
+#   spelling would have been enumerated by one of them and not the other,
+#   which makes the two readings disagree in exactly the direction the
+#   second one is there to detect.
+workflow_files() {
+    local _dir="${1:-/source/.github/workflows}" _f
+    for _f in "${_dir}"/*.yaml "${_dir}"/*.yml; do
+        [[ -f "${_f}" ]] || continue
+        printf '%s\n' "${_f}"
+    done
+}
+
+# reusable_workflow_files [dir]
+#   Every workflow file under <dir> (default: this checkout's workflow
+#   directory) that declares `on: workflow_call`, i.e. every workflow whose
+#   jobs run under a CALLING repo's token unless they say otherwise.
+#   Derived from each file's parsed trigger keys, so a reusable worker
+#   added to the directory is covered the day it lands however its author
+#   spelled `on`.
+#
+#   A file that cannot be read contributes a `BUG:` line to the listing
+#   instead of being skipped: a worker the derivation cannot parse is a
+#   worker nothing downstream scans.
+reusable_workflow_files() {
+    local _dir="${1:-/source/.github/workflows}" _f _keys _status
+    while IFS= read -r _f; do
+        [[ -n "${_f}" ]] || continue
+        _status=0
+        _keys="$(yaml_trigger_keys "${_f}")" || _status=$?
+        if [[ "${_status}" -ne 0 ]]; then
+            printf '%s\n' "${_keys}"
+            continue
+        fi
+        _status=0
+        # `grep -E ... >/dev/null` rather than `grep -q`: -q exits at the
+        # first match, and the SIGPIPE that gives the writer upstream of it
+        # becomes the pipeline's status under `pipefail` (141), which no
+        # `case` arm below should have to know about.
+        printf '%s\n' "${_keys}" \
+            | grep -Fx -- 'workflow_call' >/dev/null || _status=$?
+        case "${_status}" in
+            0) printf '%s\n' "${_f}" ;;
+            1) ;;
+            *) printf 'BUG: grep exited %s reading %s\n' "${_status}" "${_f}" ;;
+        esac
+    done < <(workflow_files "${_dir}")
+}
+
+# _spec_path_word <code> <word>
+#   Resolve one call-site ARGUMENT to the path it names, reading only
+#   <code> (the calling spec's own code lines). Prints the literal path, or
+#   `UNRESOLVED: <word>` when the text cannot decide it. Never guesses: a
+#   guess here certifies a workflow on the strength of a coin flip.
+_spec_path_word() {
+    local _code="${1}" _word="${2}" _var _hits _count
+    case "${_word}" in
+        '${'*'}') _var="${_word#'${'}"; _var="${_var%\}}" ;;
+        '$'*'$'*) printf 'UNRESOLVED: %s\n' "${_word}"; return 0 ;;
+        '$'*)     _var="${_word#\$}" ;;
+        *'$'*)    printf 'UNRESOLVED: %s\n' "${_word}"; return 0 ;;
+        *)        printf '%s\n' "${_word}"; return 0 ;;
+    esac
+    if [[ ! "${_var}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+        printf 'UNRESOLVED: %s\n' "${_word}"
+        return 0
+    fi
+    # Every assignment of that name to a bare or singly-quoted literal, with
+    # duplicates collapsed. Two DIFFERENT literals leave the call site
+    # undecidable, and so does a value that is itself an expansion.
+    _hits="$(printf '%s\n' "${_code}" | sed -nE \
+        "s/^[[:space:]]*(local[[:space:]]+|declare[[:space:]]+|export[[:space:]]+)?${_var}=[\"']?([^\"'[:space:]]*)[\"']?[[:space:]]*\$/\2/p" \
+        | sort -u)"
+    _count="$(printf '%s\n' "${_hits}" | awk 'NF { n++ } END { print n + 0 }')"
+    if [[ "${_count}" -ne 1 || "${_hits}" == *'$'* ]]; then
+        printf 'UNRESOLVED: %s\n' "${_word}"
+        return 0
+    fi
+    printf '%s\n' "${_hits}"
+}
+
+# ── reading a spec the way a shell reads it ───────────────────────────────────
+#
+# `spec_permission_surface_subjects` below asks which workflow a spec's
+# `yaml_permission_surface` CALL is applied to. Asked of the raw text, that
+# question is also answered by text which is not a call at all: a path
+# inside a quoted string (`"usage: yaml_permission_surface /a/b.yaml"`), a
+# path inside a heredoc BODY -- the shape this tree's own fixtures are
+# written in -- and a path after a trailing `#` all read as
+# `<name> <token>` on a code line, and each of them certified a worker
+# whose surface no spec reads.
+#
+# So the text is LEXED rather than matched, with the few shell rules that
+# decide the question: single quotes quote everything up to the next `'`;
+# double quotes quote everything up to the next `"` except a `$(`, which
+# opens a command context that is code again; a `\` escapes the next
+# character outside single quotes; `$(( ))` and a word-initial `(( ))` are
+# arithmetic, where `<<` is a shift and not a redirection; `<<WORD` opens a
+# heredoc whose body is DATA until a line that is EXACTLY WORD -- column 0,
+# nothing trailing -- where WORD is any of bash's spellings of it (`WORD`,
+# `'WORD'`, `"WORD"`, `\WORD`, and any mix, all read literally, since bash
+# expands nothing in a terminator), `<<-WORD` is the same with leading TABS
+# stripped from the closing line, and `<<<` is a here-string that opens
+# nothing; and a `#` that starts a word opens a comment that runs to end of
+# line.
+#
+# It is not a shell parser and does not try to be. It does not know `eval`,
+# an alias, a terminator carried onto the next line by a `\`, or a
+# different function that happens to carry the same name. Everything it
+# cannot read resolves to "not a call site", which reads downstream as
+# UNPINNED and fails loudly -- the direction that costs a spec author one
+# line, rather than the one that certifies a worker nothing reads. A `<<`
+# it cannot finish reading is the same choice made explicitly: it opens a
+# heredoc whose terminator no line matches, spending the rest of the file
+# rather than handing a fixture body back as code.
+
+# _shell_text_scan <mode> [name]
+#   Read shell CODE LINES on stdin (comment-only lines already dropped by
+#   `code_lines`) and report what a shell would see:
+#     code            -- every line that is shell code, i.e. every line
+#                        outside a heredoc BODY, verbatim;
+#     calls <name>    -- one record per CALL-SHAPED occurrence of <name>:
+#                        `ARG <token>` for the whitespace-delimited token
+#                        after it, `NOARG` when the name ends the line.
+#                        An occurrence inside quotes, inside a heredoc
+#                        body or after a comment `#` is not a call and
+#                        yields no record.
+#   Both modes run the same lexer, so "which lines are code" is decided
+#   once: a heredoc body that is data to one reading cannot be code to the
+#   other.
+_shell_text_scan() {
+    awk -v _mode="${1}" -v _name="${2:-}" '
+    # The terminator word of a heredoc redirection at position p of s,
+    # with its quoting removed: bash accepts it bare, `\`-escaped,
+    # single- or double-quoted, in any mix, and expands none of it. The
+    # empty string means "there is no word here this can read" -- an
+    # unfinished quote, or a `\` continuation carrying the word onto the
+    # next line -- which the caller turns into a terminator no line
+    # matches. `_hd_next` reports where the word ended.
+    function _hd_term(s, p, n2,   c, q, w, seen) {
+        w = ""; seen = 0
+        while (p <= n2) {
+            c = substr(s, p, 1)
+            if (c == " " || c == "\t" || c == ";" || c == "&" || c == "|" \
+                || c == "<" || c == ">" || c == "(" || c == ")") { break }
+            if (c == "\\") {
+                p++
+                if (p > n2) { _hd_next = p; return "" }
+                w = w substr(s, p, 1); p++; seen = 1; continue
+            }
+            if (c == "\047" || c == "\"") {
+                q = c; p++
+                while (p <= n2 && substr(s, p, 1) != q) { w = w substr(s, p, 1); p++ }
+                if (p > n2) { _hd_next = p; return "" }
+                p++; seen = 1; continue
+            }
+            w = w c; p++; seen = 1
+        }
+        _hd_next = p
+        return seen ? w : ""
+    }
+    # One past the `))` closing the arithmetic expansion or command whose
+    # first `(` sits at position p, or one past the end of the line when
+    # it does not close there.
+    function _arith_end(s, p, n2,   d, c) {
+        d = 0
+        while (p <= n2) {
+            c = substr(s, p, 1)
+            if (c == "(") { d++ }
+            else if (c == ")") { d--; if (d == 0) { return p + 1 } }
+            p++
+        }
+        return n2 + 1
+    }
+    BEGIN {
+        _len = length(_name); _in_hd = 0; _term = ""; _dash = 0
+        # A terminator for a `<<` this reader could not finish: no line of
+        # a body can equal it, so the heredoc runs to end of file.
+        _unmatchable = sprintf("%c<unreadable heredoc terminator>", 1)
+    }
+    {
+        line = $0
+        if (_in_hd) {
+            t = line
+            if (_dash) { sub(/^\t+/, "", t) }
+            if (t == _term) { _in_hd = 0 }
+            next
+        }
+        if (_mode == "code") { print line }
+        n = length(line); i = 1; stack = ""; pend = 0
+        while (i <= n) {
+            ch = substr(line, i, 1)
+            top = (length(stack) > 0) ? substr(stack, length(stack), 1) : "-"
+            if (top == "q") {
+                if (ch == "\047") { stack = substr(stack, 1, length(stack) - 1) }
+                i++; continue
+            }
+            if (ch == "\\") { i += 2; continue }
+            if (top == "d") {
+                if (ch == "\"") { stack = substr(stack, 1, length(stack) - 1); i++; continue }
+                if (ch == "$" && substr(line, i + 1, 2) == "((") { i = _arith_end(line, i + 1, n); continue }
+                if (ch == "$" && substr(line, i + 1, 1) == "(") { stack = stack "c"; i += 2; continue }
+                i++; continue
+            }
+            if (ch == "\047") { stack = stack "q"; i++; continue }
+            if (ch == "\"") { stack = stack "d"; i++; continue }
+            if (ch == "$" && substr(line, i + 1, 2) == "((") { i = _arith_end(line, i + 1, n); continue }
+            if (ch == "$" && substr(line, i + 1, 1) == "(") { stack = stack "c"; i += 2; continue }
+            if (ch == "(" && substr(line, i + 1, 1) == "(") {
+                pre = (i == 1) ? "" : substr(line, i - 1, 1)
+                if (pre == "" || pre == " " || pre == "\t" || pre == ";" \
+                    || pre == "|" || pre == "&" || pre == "(") {
+                    i = _arith_end(line, i, n); continue
+                }
+            }
+            if (ch == ")" && top == "c") { stack = substr(stack, 1, length(stack) - 1); i++; continue }
+            if (ch == "#") {
+                p = (i == 1) ? "" : substr(line, i - 1, 1)
+                if (p == "" || p == " " || p == "\t" || p == ";" || p == "|" || p == "&" || p == "(") { break }
+                i++; continue
+            }
+            if (ch == "<" && substr(line, i + 1, 1) == "<") {
+                if (substr(line, i + 2, 1) == "<") { i += 3; continue }
+                j = i + 2
+                _dash = 0
+                if (substr(line, j, 1) == "-") { _dash = 1; j++ }
+                while (substr(line, j, 1) == " " || substr(line, j, 1) == "\t") { j++ }
+                word = _hd_term(line, j, n)
+                _term = (word == "") ? _unmatchable : word
+                pend = 1
+                i = _hd_next; continue
+            }
+            if (_len > 0 && substr(line, i, _len) == _name) {
+                pre = (i == 1) ? "" : substr(line, i - 1, 1)
+                post = substr(line, i + _len, 1)
+                if ((pre == "" || pre !~ /[A-Za-z0-9_]/) \
+                    && (post == "" || post == " " || post == "\t")) {
+                    if (_mode == "calls") {
+                        rest = substr(line, i + _len)
+                        sub(/^[ \t]+/, "", rest)
+                        sub(/[ \t].*$/, "", rest)
+                        if (rest == "") { print "NOARG" } else { print "ARG " rest }
+                    }
+                }
+                i += _len; continue
+            }
+            i++
+        }
+        if (pend) { _in_hd = 1 }
+    }'
+}
+
+# spec_permission_surface_subjects <spec>
+#   The workflow file each `yaml_permission_surface` call in <spec> is
+#   applied TO -- one line per CALL SITE, in file order, resolved from the
+#   call's own argument.
+#
+#   This exists because "does this spec pin that worker's grants" was asked
+#   as two independent substring questions of the same file: does its text
+#   contain `yaml_permission_surface`, and does its text contain the
+#   worker's path. A spec answering both certifies the worker even when the
+#   surface call is applied to a different workflow -- and a spec that names
+#   two workers while pinning one answers both for the one it does not pin.
+#   Binding the subject to the ARGUMENT is what makes the question single.
+#
+#   A call site is decided by `_shell_text_scan` above rather than by
+#   matching the name in the text, so an occurrence sitting in a quoted
+#   string, in a heredoc body or after a comment `#` is what it is -- text
+#   -- and pins nothing.
+#
+#   The resolution of the argument is textual and deliberately timid. A
+#   call whose argument is a literal path resolves to it; one whose
+#   argument is `${VAR}` (or `$VAR`) resolves only when the spec's own
+#   shell code assigns that name exactly one literal; anything else is
+#   `UNRESOLVED: <argument>`. Both readings -- the call sites and the
+#   assignments they resolve against -- run over the same heredoc-free
+#   view, so a fixture that assigns `WF` inside a heredoc cannot decide a
+#   real call site.
+#
+#   What that buys, stated as what the code guarantees rather than as an
+#   absolute: nothing certifies a worker except a call-shaped, unquoted
+#   occurrence of the name whose argument resolves to that worker's path.
+#   It is not proof that such an occurrence CALLS this helper -- a
+#   same-named function, or an `echo yaml_permission_surface <path>`, would
+#   read as one -- and it is not proof that the caller ASSERTS anything on
+#   what it reads. What it does rule out is the failure that made it
+#   necessary: a spec that merely mentions the path, in prose, in a string
+#   or in a fixture it writes, certifying a worker it never reads. Timid is
+#   the safe direction for the rest: a call written in a shape this cannot
+#   read reads as UNPINNED and fails loudly, which is fixed by naming the
+#   path.
+#
+#   Status: 0 at least one call site; 1 the spec was READ and calls it
+#   nowhere; 2 the spec could not be read, or a call site carries no
+#   argument this can see -- both `BUG:` lines, because a call site that
+#   goes unseen is exactly how a spec that pins a worker stops counting as
+#   its pin.
+spec_permission_surface_subjects() {
+    local _spec="${1}" _raw _code _calls _call _arg
+    local _status=0
+    _raw="$(code_lines "${_spec}")" || _status=$?
+    if [[ "${_status}" -gt 1 ]]; then
+        printf '%s\n' "${_raw}"
+        return 2
+    fi
+    _code="$(printf '%s\n' "${_raw}" | _shell_text_scan code)"
+    _status=0
+    _calls="$(printf '%s\n' "${_raw}" \
+        | _shell_text_scan calls yaml_permission_surface)" || _status=$?
+    if [[ "${_status}" -ne 0 ]]; then
+        printf 'BUG: the call-site scan of %s exited %s\n' "${_spec}" "${_status}"
+        return 2
+    fi
+    [[ -n "${_calls}" ]] || return 1
+    while IFS= read -r _call; do
+        [[ -n "${_call}" ]] || continue
+        if [[ "${_call}" == 'NOARG' ]]; then
+            printf 'BUG: %s names yaml_permission_surface with no argument this can read\n' \
+                "${_spec}"
+            return 2
+        fi
+        _arg="${_call#ARG }"
+        # A call site carries the punctuation that follows it -- a process
+        # substitution's `)`, a `;`, a line continuation.
+        while [[ "${_arg}" == *[\)\;\\] ]]; do
+            _arg="${_arg%?}"
+        done
+        _arg="${_arg#[\"\']}"
+        _arg="${_arg%[\"\']}"
+        _spec_path_word "${_code}" "${_arg}"
+    done <<< "${_calls}"
 }
 
 # ── spec subject presence ─────────────────────────────────────────────────────

@@ -163,7 +163,7 @@ flowchart LR
 | `script/test/drivers/` | One driver per tool — `bats.sh` / `shellcheck.sh` / `hadolint.sh` |
 | `script/test/lint_bare_stderr.sh` | Bare stderr lint checker |
 | `config/` | Container-internal shell configs (bashrc, tmux, terminator) |
-| `setup.conf` | Single per-repo runtime configuration (image / build / deploy / gui / network / volumes) |
+| `.setup.conf` | Single per-repo runtime configuration (image / build / deploy / gui / network / volumes) |
 | `dist/test/bats/smoke/` | Shared smoke tests + runtime assertion helpers (see below) |
 | `test/bats/unit/` | base self-tests, Unit level (bats + kcov) |
 | `test/bats/integration/` | base self-tests, Integration level (init/upgrade end-to-end) |

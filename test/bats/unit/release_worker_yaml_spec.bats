@@ -94,3 +94,24 @@ setup() {
     return 1
   fi
 }
+
+# ── Per-job least privilege ──────────────────────────────────────────────────
+
+@test "release-worker.yaml: every job's grant is pinned as an exact set (#957)" {
+  # `contents: write` on `release` is the legitimate case here:
+  # softprops/action-gh-release creates a GitHub Release, which is a write
+  # to the repository's contents. `preflight` only validates the caller's
+  # inputs, so it reads.
+  #
+  # Pinned as an exact SET rather than a presence check, because this is a
+  # reusable workflow and both directions are failures: a scope the caller
+  # did not grant fails their whole run before it starts, and a scope
+  # nobody noticed being added is exactly the elevation this guard is
+  # about. The job list is DERIVED from the file, so a third job is named
+  # here on the day it lands, and a `BUG:` line from an unreadable file
+  # fails this rather than passing it.
+  run yaml_permission_surface "${WF}"
+  assert_success
+  assert_output 'preflight: contents: read
+release: contents: write'
+}
