@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3126 tests**.
+Unit specs under `test/bats/unit/`: **3127 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1678,7 +1678,7 @@ refused before any build or bundle step.
 | `main deploy routes to _setup_deploy (#832 dispatch)` | dispatch wiring |
 | `_resolve_deploy_context: warns when the legacy [deploy] runtime key is present but shadowed (#876)` | - |
 
-### test/bats/unit/deploy_hint_spec.bats (5)
+### test/bats/unit/deploy_hint_spec.bats (6)
 
 Covers the "regenerate this artifact" hints stamped into what the deploy
 generator emits -- the resolved `compose.yaml` header and the `deploy.sh`
@@ -1695,6 +1695,7 @@ through the real parser instead of asserting a hand-copied duplicate.
 | `cd-guard.sh documents the --stage form of the deploy command (#843)` | cd-guard hint |
 | `the compose-header hint's args are accepted by the deploy arg parser (#843)` | hint replayed through parser |
 | `the launcher hint's args are accepted by the deploy arg parser (#843)` | hint replayed through parser |
+| `no shipped artifact spells the deploy recipe without its module (#920)` | - |
 
 ### test/bats/unit/deploy_manifest_spec.bats (16)
 

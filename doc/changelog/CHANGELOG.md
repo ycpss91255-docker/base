@@ -107,6 +107,15 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 - **the changelog lint now catches an entry that was edited and not re-wrapped (refs #927)** -- a single word left alone on a continuation line with more of its paragraph on the next line. The length measure collapses whitespace on purpose and markdown collapses it again at render time, so nothing else could see it. A short final line, a table row, a fenced line and an HTML comment are left alone. Affects anyone writing an `[Unreleased]` entry.
 
 ### Fixed
+- **the field-deploy bundle now names a regenerate recipe that exists (refs
+  #920)** -- the resolved `compose.yaml` header, the generated `deploy.sh`
+  launcher and the shipped `cd-guard.sh` all told an operator to regenerate
+  with `just setup deploy`, which no repo has: both entry points reach the
+  verb through `mod? docker`, so the pasted hint dies with "justfile does not
+  contain recipe". Every shipped mention now reads
+  `just docker setup deploy`, and a scan derived over `dist/` refuses the
+  bare form wherever it reappears. Affects anyone copy-pasting a hint out of
+  a field bundle.
 - **workflow and template structural specs now assert against a file's CODE,
   not its comments (refs #954)** -- this repo's comments name in prose exactly
   what its specs pin, so a whole-file grep was satisfied by the explanation
