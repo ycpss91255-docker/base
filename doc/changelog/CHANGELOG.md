@@ -173,6 +173,16 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 - **the post-exec / post-setup hook now fires when the wrapped command fails (refs #956)** -- under `set -euo pipefail` the unguarded `compose exec` in `exec.sh` and the unguarded subcommand dispatch in `setup.sh` aborted `main` before the hook line, so a repo defining a hook for final reporting got it on every run except the one worth reporting on. `exec.sh` captures with `|| _rc=$?`, as `run.sh` already does around a compose passthrough; `setup.sh` registers the hook on the transcript `_atexit` trap, because the same guard there would disable errexit inside every handler. A failing hook still overrides the rc.
 - **a conflicting `git subtree pull` no longer leaves the repo mid-merge (refs #956)** -- the rollback trap is armed only once the pull has committed and cannot be armed earlier, so a pull that clashed with local edits inside `.base/` aborted leaving `MERGE_HEAD`, a staged `.base/.version` and conflict markers -- met one run later as the next upgrade's refusal to start, on a state nobody chose. `upgrade.sh` now captures the pull's status, aborts the merge it left, and fails naming the clash.
 - **a failing post-setup hook no longer costs the run its transcript (refs #956)** -- moving the hook onto the EXIT trap put its `exit` inside that trap, which ends the shell before the transcript is finalized: the run left an unstripped `log/setup/<ts>-<id>.log.raw`, no `transcript_complete` line, `latest.log` still naming the previous run and no retention prune -- on exactly the failing run worth reading (ADR-00000007). Callbacks now record their exit code with `_atexit_set_exit_code` and the handler exits with it after finalize, so the hook's rc still wins and the transcript survives.
+- **the smoke-spec COPY heal now covers the hand-listed spelling (refs
+  #928)** -- the dist relocation moved base's smoke specs out of
+  `.base/test/smoke/`, and the migration recognised only the wholesale
+  `COPY .base/test/smoke/`. Six of the org's 24 repos hand-list them instead
+  (`ai_agent`, `claude_code`, `codex_cli`, `gemini_cli`, `ros1_bridge`,
+  `urg_node_humble`), so their next upgrade leaves a Dockerfile that cannot
+  build. Each named spec now resolves against the pulled subtree by basename;
+  one it ships nowhere or at two paths is declined with a warning, and a
+  source on a backslash continuation is read as part of its statement, not
+  half-rewritten in silence.
 - **the field-deploy bundle now names a regenerate recipe that exists (refs
   #920)** -- the resolved `compose.yaml` header, the generated `deploy.sh`
   launcher and the shipped `cd-guard.sh` all told an operator to regenerate
