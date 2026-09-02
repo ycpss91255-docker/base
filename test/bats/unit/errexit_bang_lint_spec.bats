@@ -430,10 +430,16 @@ _write() {
   [ "${status}" -eq 0 ]
   [ "${lines[0]}" = "A" ]
   [ "${lines[1]}" = "B" ]
+  # The `&` spelling needs the EXACT line set, not a substring match:
+  # were `# note` an ordinary word it would run as a command, `run`
+  # merges its "command not found" into `output`, and the trailing
+  # `echo B` would still exit 0 -- so a status check plus two substring
+  # checks pass either way. `wait` makes the order deterministic.
   run bash -c $'echo A &# note\nwait\necho B'
   [ "${status}" -eq 0 ]
-  [[ "${output}" == *"A"* ]]
-  [[ "${output}" == *"B"* ]]
+  [ "${#lines[@]}" -eq 2 ]
+  [ "${lines[0]}" = "A" ]
+  [ "${lines[1]}" = "B" ]
   # The `|` spelling proves itself the other way round: the comment eats
   # the pipeline's right-hand side, so bash reports a SYNTAX error. Were
   # `#note` an ordinary word, it would run as a command and the failure
