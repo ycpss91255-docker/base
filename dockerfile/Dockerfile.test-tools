@@ -9,7 +9,13 @@
 #     COPY --from=test-tools:local /usr/local/bin/shellcheck /usr/local/bin/shellcheck
 
 ARG BATS_VERSION=1.13.0
-ARG ALPINE_VERSION=3.21
+# The alpine SERIES every stage below is built on. It is a series tag, not
+# a point release: it keeps moving within the series so security fixes
+# arrive without a commit here -- and it stops moving, silently, the day
+# the series goes end-of-life. Nothing about a build goes red on that day;
+# the image simply stops rebuilding onto anything maintained, and the ~20
+# apk packages the final stage installs inherit an unsupported base.
+ARG ALPINE_VERSION=3.24
 ARG KCOV_VERSION=v43
 
 FROM bats/bats:${BATS_VERSION} AS bats-src
