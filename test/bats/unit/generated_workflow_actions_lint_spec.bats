@@ -7,9 +7,9 @@
 # The gap this closes. dependabot reads WORKFLOW FILES. `init.sh` writes a
 # workflow into every downstream repo from a heredoc, and a `uses:` ref
 # inside a shell script is not a workflow file, so dependabot cannot see
-# it. It is also outside the upstream-release watch, which declines
-# `uses:` version refs precisely because they are dependabot's. And
-# `init.sh` generates no dependabot config downstream, and skips the file
+# it. It is outside `action-ref-agreement` too, which compares call sites
+# within `.github/workflows/` and so cannot see a ref in a shell script.
+# And `init.sh` generates no dependabot config downstream, and skips the file
 # when it already exists, so the downstream copy is never refreshed
 # either. That ref is watched by nothing at all.
 #

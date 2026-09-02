@@ -275,9 +275,9 @@ jobs:
     #                     generated downstream workflow names the same ref
     #                     .github/workflows/ uses -- dependabot reads
     #                     workflow FILES, so a ref inside a heredoc is
-    #                     outside it, and the release watch leaves `uses:`
-    #                     version refs to dependabot, so without this the
-    #                     ref is watched by nothing at all
+    #                     outside it, and action-ref-agreement compares
+    #                     call sites within .github/workflows/ only, so
+    #                     without this the ref is watched by nothing
     #   changelog-entry   no [Unreleased] changelog entry has grown into a
     #                     pasted PR body -- measured over the whole entry
     #                     with whitespace collapsed, so rewrapping it or

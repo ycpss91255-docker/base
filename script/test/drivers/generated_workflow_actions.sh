@@ -18,9 +18,10 @@
 # a workflow file, so dependabot cannot see it. Three other candidate
 # owners do not have it either:
 #
-#   - the upstream-release watch declines a `uses:` VERSION ref on
-#     purpose, because those are dependabot's and two mechanisms with
-#     opinions about one dependency is worse than one that works;
+#   - no other mechanism in this tree reads a `uses:` version ref.
+#     `action-ref-agreement` compares call sites WITHIN
+#     `.github/workflows/`, so a ref in a shell script is outside its
+#     population by construction;
 #   - `init.sh` generates no dependabot config into the downstream repo,
 #     so nothing bumps the copy where it lands;
 #   - `init.sh` skips the generated file when it already exists, so the
@@ -119,8 +120,7 @@ readonly _GWA_ACTION_RE='^([A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9._-]+)+)@([A-Za
 # `.prev-release/` is the one that matters. The self-test materialises
 # PAST releases into it, and their refs are stale BY DEFINITION -- a
 # release cannot be re-pinned. Scanning it means the first dependabot bump
-# after a release fails a lint no edit can satisfy. The same set is pruned
-# by the upstream-release watch's pin registry, for the same reason.
+# after a release fails a lint no edit can satisfy.
 readonly _GWA_SCAN_PRUNE=('.git' 'log' '.prev-release')
 
 # _gwa_is_comment <line> -- true when the line's first non-blank
@@ -332,7 +332,7 @@ _run_generated_workflow_actions() {
     # not-reached "clean" echo unreachable even where a caller stubs _die
     # to return instead of exit (e.g. the unit harness).
     _die ci_generated_workflow_actions \
-      "${_violations} generated workflow action ref(s) out of lockstep with ${_GWA_WORKFLOW_DIR_REL}/. A shell script that writes a workflow puts its \`uses:\` refs outside dependabot, which reads workflow FILES -- and outside the upstream-release watch, which leaves \`uses:\` version refs to dependabot. Holding the generated copy equal to this repo's own is what makes dependabot's bump reach it: bump both in the same commit."
+      "${_violations} generated workflow action ref(s) out of lockstep with ${_GWA_WORKFLOW_DIR_REL}/. A shell script that writes a workflow puts its \`uses:\` refs outside dependabot, which reads workflow FILES, and outside \`action-ref-agreement\`, which compares call sites within ${_GWA_WORKFLOW_DIR_REL}/ only. Holding the generated copy equal to this repo's own is what makes dependabot's bump reach it: bump both in the same commit."
     return 1
   fi
 
