@@ -198,7 +198,7 @@ flowchart LR
 | `dockerfile/Dockerfile.test-tools` | プリビルド lint/test ツール image（shellcheck、hadolint、bats、bats-mock） |
 | `.github/workflows/` | 再利用可能な CI workflows（build + release） |
 
-<!-- sync: dockerfile-stages-convention cfa1ef92737a 58d9b3fd819e -->
+<!-- sync: dockerfile-stages-convention e8e20b69013a d28560a09120 -->
 ### Dockerfile ステージ（規約）
 
 ダウンストリーム repo は `dist/dockerfile/Dockerfile` で定義される標準のマルチステージ構成に従います。
@@ -206,7 +206,7 @@ flowchart LR
 
 | ステージ | 親ステージ | 用途 | 出荷 |
 |----------|------------|------|------|
-| `sys` | `${BASE_IMAGE}` | ユーザー/グループ、sudo、タイムゾーン、ロケール、APT mirror | 中間 |
+| `sys` | `${BASE_IMAGE}` | ユーザー/グループ、sudo、タイムゾーン、ロケール、APT mirror、再現性 manifest | 中間 |
 | `devel-base` | `sys` | 開発ツールと言語パッケージ | 中間 |
 | `devel` | `devel-base` | アプリ固有ツール + `entrypoint.sh` + config レイヤリング | **はい**（主成果物） |
 | `devel-test` | `devel` | 一時的：ShellCheck + Hadolint + Bats smoke（いずれも `test-tools:local` から） | いいえ（build 後破棄） |
@@ -215,6 +215,31 @@ flowchart LR
 | `runtime-test`（任意） | `runtime` | 一時的：runtime install-check smoke | いいえ（build 後破棄） |
 
 補足：
+- `BASE_IMAGE` のデフォルトは動く tag `ubuntu:24.04` で、その上に入れる apt
+  パッケージにもバージョン指定がないため、同じ template バージョンでも時間が
+  経てば同じ image は再現しません。このドリフトは意図的です（consumer は
+  そもそも `BASE_IMAGE` を上書きしますし、dev image は template release なしで
+  セキュリティ更新を取り込めなければなりません）。ただし「記録」されます：
+  `sys` が `/usr/local/share/base/base-image.env`（base reference、その
+  reference が digest pin されているか、build が記録するよう指示された digest、
+  base OS）と
+  `/usr/local/share/base/packages.txt`（各パッケージとその正確なバージョン、
+  apt レイヤーごとに書き直し）を出力し、
+  `org.opencontainers.image.base.name` / `.base.digest` label を付けます。
+  `runtime-base` はまっさらな `${BASE_IMAGE}` から始まり何も継承しないため、
+  両方を再出力します。
+- 出荷時のデフォルトが「記録しない」もの：そのまま build すると manifest は
+  `base_image_pin=none`、`base_image_digest` は空になります——build の内部から
+  daemon に「その tag はどの image に解決したか」を尋ねる手段がないためです。
+  埋めたい場合は `BASE_IMAGE` と併せて `BASE_IMAGE_DIGEST`（pin ではなく記録）
+  を渡します。`BASE_IMAGE` を digest に pin するだけでも build は通り
+  `base_image_pin=digest` と記録されますが、そのフィールドは空のままです：
+  annotation を書くのは `LABEL` であり、`LABEL` は「reference が digest を
+  持つか」で分岐できません——digest を剥がす式は digest が無ければ reference
+  全体を返します——ので、載るのは build arg だけです。両方の sink が空なのは
+  「別途記録していない」という正直な記録なので build は拒否しません。失敗する
+  のは `BASE_IMAGE_DIGEST` が reference と違う digest を指す場合で、出荷される
+  smoke spec が `-test` stage で止めます。
 - developer image のみを出荷する repo（`env/*`）は `runtime-base` /
   `runtime` をスキップし、該当セクションは `Dockerfile` 内で
   コメントアウトしたままにします。
