@@ -372,10 +372,16 @@ _write_adr() {
   # manifest while saying so. Matching the file as prose reads that denial
   # as the reference it denies, so the rule passed the exact attribution it
   # exists to refuse.
-  # The fixture repo is SCRATCH, never /source. A spec that writes into the
-  # real checkout leaves residue in a directory other lints scan, and the
-  # residue is owned by the container's root, so the next reader cannot even
-  # see where it came from.
+  #
+  # The fixture workflow is the SUBJECT here, so it has to sit under the
+  # tree the checker scans -- but that tree does not have to be the live
+  # checkout, and must not be. Written into ${REPO}/.github/workflows/ it
+  # was never removed: every gate run left an untracked workflow behind, in
+  # the one directory the workflow specs and the self-hosted-runner lint
+  # both scan, which is how a spec makes every OTHER spec's read of that
+  # tree racy. The residue was also owned by the container's root, so the
+  # next reader could not see where it came from. A scratch root answers
+  # the same question and owns what it writes.
   mkdir -p "${SCRATCH}/.github/workflows"
   local _wf="${SCRATCH}/.github/workflows/commented.yaml"
   cat > "${_wf}" <<'YAML'
