@@ -123,12 +123,33 @@ _merge_onward() {
 
 # ── GHCR push permission ─────────────────────────────────────────────
 
-@test "publish-worker.yaml: declares packages: write on both push jobs" {
-  # build (by-digest push) and merge (manifest push) each need it;
-  # reusable-workflow permissions are per-job.
-  run code_grep -cE '^\s+packages:\s+write' "${WF}"
+@test "publish-worker.yaml: every job's grant is pinned as an exact set (#957)" {
+  # This is a REUSABLE workflow: a job with no `permissions:` runs under
+  # whatever the CALLING repo granted its calling job, and a job that
+  # names a scope the caller did not grant fails the caller's whole run
+  # before it starts. So the grant has to be pinned in BOTH directions,
+  # which only an exact set does -- a `-c ... >= 2` count of
+  # `packages: write` lines (what this assertion used to be) is blind to
+  # which job holds it, to a third job acquiring it, and to any other
+  # scope appearing next to it.
+  #
+  # `packages: write` on `publish` and `merge` is the legitimate case in
+  # this repo: publish pushes the per-arch images by digest and merge
+  # pushes the manifest list. compute-matrix only reads.
+  #
+  # The job list is DERIVED (yaml_permission_surface reads the file's own
+  # `jobs:` keys), so a fourth job appears in this output on the day it
+  # lands rather than being waved through -- and an unreadable file
+  # arrives as a `BUG:` line, which fails this assertion instead of
+  # passing it. The expected text is non-empty, so an empty surface
+  # cannot satisfy it either.
+  run yaml_permission_surface "${WF}"
   assert_success
-  [ "${output}" -ge 2 ]
+  assert_output 'compute-matrix: contents: read
+publish: contents: read
+publish: packages: write
+merge: contents: read
+merge: packages: write'
 }
 
 # ── Same-repository guard on the self-hosted-eligible publish job ──────

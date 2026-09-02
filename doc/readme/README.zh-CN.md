@@ -135,7 +135,7 @@ flowchart LR
     release_worker -->|"tar.gz + zip"| release["GitHub Release"]
 ```
 
-<!-- sync: whats-included 0ce60532434f 1551385f0eef -->
+<!-- sync: whats-included c1ac0bade5d6 a8d85c789c8d -->
 ### 包含内容
 
 | 文件 | 说明 |
@@ -168,7 +168,7 @@ flowchart LR
 | `script/test/drivers/` | 每个工具一个 driver — `bats.sh` / `shellcheck.sh` / `hadolint.sh` |
 | `script/test/lint_bare_stderr.sh` | Bare stderr lint 检查器 |
 | `config/` | Container 内部 shell 配置文件（bashrc、tmux、terminator） |
-| `setup.conf` | 单一 per-repo runtime 配置（image / build / deploy / gui / network / volumes） |
+| `.setup.conf` | 单一 per-repo runtime 配置（image / build / deploy / gui / network / volumes） |
 | `dist/test/bats/smoke/` | 共用 smoke 测试 + runtime assertion helpers（见下方） |
 | `test/bats/unit/` | base 自测，unit（bats + kcov） |
 | `test/bats/integration/` | base 自测，init/upgrade 端到端 |

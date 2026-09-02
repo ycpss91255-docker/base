@@ -323,6 +323,12 @@ jobs:
           # zero for -W version, so probe presence via the binary path.
           docker run --rm "${image}" sh -c 'command -v mawk'
           docker run --rm "${image}" gawk --version
+          # yq (#957): the spec suite's YAML derivations query a parser
+          # rather than matching indentation with awk, so a job or a
+          # permission entry written in a shape the regex did not model
+          # can no longer go missing. Alpine ships it as `yq-go`; the
+          # binary on PATH is `yq`, which is what this probe pins.
+          docker run --rm "${image}" yq --version
           # kcov (#686): source-built into the image (not in any alpine
           # repo) so the coverage matrix runs on this one shared image
           # instead of the old debian kcov/kcov + per-shard apt-install.
