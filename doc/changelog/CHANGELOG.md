@@ -204,6 +204,15 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   **only**, because `just base upgrade <tag>` is one subtree pull to that tag,
   so a Y delivers every Z in between and only the notification is batched.
   Affects anyone cutting a base release.
+- **ADR-00000028 + PRD invariant 10: documentation is derived from the code,
+  never duplicated beside it** -- the record only; the mechanism is a separate
+  change. A figure computable from the tree is not stored in a tracked file
+  somebody must keep in agreement with it, so test statistics leave
+  `doc/test/*.md` and exist only in a release, rendered from the JUnit XML the
+  tag-push run already emits. The record separates this from PR #943, which
+  removed a hand-built *source* archive GitHub already produces. Affects anyone
+  editing `doc/test/`, and invariant 2's guard list, which loses the doc-count
+  drift gate when the mechanism lands.
 ### Removed
 - **base's own release no longer attaches a hand-built source archive (closes
   #924)** -- the `release:` job assembled a `template-vX.Y.Z.tar.gz` / `.zip`
