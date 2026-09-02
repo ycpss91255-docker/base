@@ -662,3 +662,106 @@ SPEC
   assert_success
   assert_output '/fixture/workflows/rho.yaml'
 }
+
+# The three shapes below are the same defect as the ones above with the
+# terminator, rather than the quoting, misread: a heredoc this reader does
+# not OPEN, or one it CLOSES early, hands a fixture body back as code, and
+# a path a spec merely writes into a fixture certifies the worker it names.
+# The fourth is that defect with the sign flipped -- a `<<` that is not a
+# heredoc at all swallows the rest of the file, so a real call site stops
+# counting as the pin it is.
+
+@test "spec_permission_surface_subjects: a backslash-quoted heredoc body is not code (#957)" {
+  # `<<\INNER` is bash's third spelling of a QUOTED terminator, beside
+  # `<< 'INNER'` and `<< "INNER"`. A reader that knows only the other two
+  # reads no terminator, opens no heredoc, and emits the whole body as
+  # code -- so the worker named in the fixture this spec WRITES is
+  # certified by a file that never reads it.
+  local _spec
+  _spec="$(_fixture 'bslash_heredoc_spec.bats' << 'SPEC'
+setup() {
+  WF="/fixture/workflows/upsilon.yaml"
+}
+
+ @test "writes a spec and reads a surface" {
+  cat > "${SCRATCH}/inner_spec.bats" <<\INNER
+ @test "phi pins its grants" {
+  run yaml_permission_surface /fixture/workflows/phi.yaml
+}
+INNER
+  run yaml_permission_surface "${WF}"
+}
+SPEC
+)"
+  run spec_permission_surface_subjects "${_spec}"
+  assert_success
+  assert_output '/fixture/workflows/upsilon.yaml'
+}
+
+@test "spec_permission_surface_subjects: an indented terminator does not end a heredoc (#957)" {
+  # bash ends a `<<WORD` body at a line that is EXACTLY WORD -- column 0,
+  # no trailing blank (`<<-WORD` strips leading TABS, never spaces). A
+  # reader that trims the line before comparing ends the body at the
+  # fixture's own indented mention of it and reads the remainder as code.
+  local _spec
+  _spec="$(_fixture 'indented_terminator_spec.bats' << 'SPEC'
+setup() {
+  WF="/fixture/workflows/chi.yaml"
+}
+
+ @test "writes a spec and reads a surface" {
+  cat > "${SCRATCH}/inner_spec.bats" << 'INNER'
+ @test "psi pins its grants" {
+   INNER
+  run yaml_permission_surface /fixture/workflows/psi.yaml
+}
+INNER
+  run yaml_permission_surface "${WF}"
+}
+SPEC
+)"
+  run spec_permission_surface_subjects "${_spec}"
+  assert_success
+  assert_output '/fixture/workflows/chi.yaml'
+}
+
+@test "spec_permission_surface_subjects: a terminator it cannot read opens an unmatchable heredoc (#957)" {
+  # A `<<` whose terminator this cannot read -- here one carried onto the
+  # next line by a `\` continuation -- is still a heredoc. Opening one
+  # whose terminator nothing matches costs the rest of the file, which
+  # reads as UNPINNED and fails loudly; declining to open one hands the
+  # body back as code, which certifies a worker nothing reads.
+  local _spec
+  _spec="$(_fixture 'unreadable_terminator_spec.bats' << 'SPEC'
+ @test "writes a spec" {
+  cat > "${SCRATCH}/inner_spec.bats" << \
+INNER
+ run yaml_permission_surface /fixture/workflows/omega.yaml
+INNER
+}
+SPEC
+)"
+  run spec_permission_surface_subjects "${_spec}"
+  [ "${status}" -eq 1 ] \
+    || fail "expected 1 (read, no call site), got ${status} with output: ${output}"
+  assert_output ''
+}
+
+@test "spec_permission_surface_subjects: an arithmetic left shift is not a heredoc (#957)" {
+  # `$(( a << b ))` and `(( a <<= b ))` are shifts, not redirections. Read
+  # as a heredoc opener, the operand becomes a terminator no line matches
+  # and every later call site in the file is data -- so a spec that DOES
+  # pin its worker reports pinning nothing.
+  local _spec
+  _spec="$(_fixture 'arith_shift_spec.bats' << 'SPEC'
+ @test "counts, then reads a surface" {
+  local _n=$(( 1 << 2 ))
+  (( _n <<= 1 ))
+  run yaml_permission_surface /fixture/workflows/tau.yaml
+}
+SPEC
+)"
+  run spec_permission_surface_subjects "${_spec}"
+  assert_success
+  assert_output '/fixture/workflows/tau.yaml'
+}
