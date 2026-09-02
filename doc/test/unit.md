@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3149 tests**.
+Unit specs under `test/bats/unit/`: **3155 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -796,7 +796,7 @@ thirteen cumulative invariants:
 | `release` job needs `[shellcheck, hadolint, bats-fragile, bats-integration, coverage, integration-e2e, system]` before publishing a tag (#376 + #377 + #677) | 1 |
 | Probe-and-rebuild against a stale/racing `:main`: `bats-fragile` + `coverage` Obtain probe for kcov and rebuild on a miss + `REQUIRED_TOOLS` list is extensible + all five `build_local` obtain steps carry the guard (#697) | 4 |
 
-### test/bats/unit/release_test_tools_yaml_spec.bats (15)
+### test/bats/unit/release_test_tools_yaml_spec.bats (21)
 
 Structural assertions for `.github/workflows/release-test-tools.yaml`.
 Locks the publish surface that downstream Dockerfile.example's `FROM
@@ -826,6 +826,7 @@ which would leave a freshly-pushed `:main` unverified).
 | Smoke step pulls trigger's tag via `steps.tags.outputs.smoke` (#317 P2) | 1 |
 | Native-runner matrix (#587): drops `setup-qemu-action`; `compute-matrix` maps platforms to native runners; build shards run on `matrix.runner`; build per-platform + push by digest; `merge` job creates the manifest via `imagetools` | 5 |
 | Declares `packages: write` permission | 1 |
+| Smoke step COMPARES the shipped shellcheck / hadolint against the Dockerfile pins instead of asserting exit 0: merge job checks the repo out, both expectations are derived from the pinned release URLs, a mismatch exits non-zero, an unreadable pin is refused rather than compared empty-to-empty (#947) | 6 |
 
 ### test/bats/unit/release_worker_yaml_spec.bats (7)
 
