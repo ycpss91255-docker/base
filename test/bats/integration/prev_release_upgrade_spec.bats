@@ -187,7 +187,7 @@ _released_entry() {
 # that stops offering such a statement fails rather than quietly
 # consumerising nothing.
 
-# The tree the hand-listed smoke heal under repair (#928) acts on. Named
+# The tree the hand-listed smoke heal under repair acts on. Named
 # once because two things below have to agree about it: whether this arm's
 # release still ships it, and whether the re-spelling covered it.
 _RETIRED_SMOKE_TREE=".base/test/smoke"
@@ -230,7 +230,7 @@ _copy_expandable_source() {
 #   consumerises zero statements is the vacuous pass this exists to end.
 #
 #   A non-zero total is not by itself proof that the hand-listed HEAL runs
-#   in this arm. The heal (#928) only fires on the retired flat
+#   in this arm. The heal only fires on the retired flat
 #   `.base/test/smoke` tree, and whether the seeded release ships one is a
 #   property of the release, not something to list here: the N-1 release
 #   (flat tree) does, the N release (already on `.base/dist/test/bats/smoke`)

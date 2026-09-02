@@ -458,18 +458,34 @@ _migrate_nounset_source_apply() {
 # these lines. Idempotent: once rewritten no flat .base/test/smoke
 # reference remains, so detect is false on a second run.
 #
+# _dfm_smoke_copy_present <file>
+#   True when a COPY statement in <file> names the retired flat
+#   .base/test/smoke tree. The file is read FOLDED, so a source wrapped onto
+#   a backslash continuation counts as part of the statement it belongs to
+#   -- a ^COPY-anchored grep over raw lines cannot see one. Anchored at a
+#   path boundary (`/`, whitespace, or end of statement) so a sibling tree
+#   merely PREFIXED by the retired name -- .base/test/smoke_helpers -- is
+#   not mistaken for it.
+#
+#   The fold is captured into a variable rather than piped into grep: `grep
+#   -q` stops reading at the first match, which SIGPIPEs the writer, and
+#   under pipefail the caller would read a SUCCESSFUL match as "not found".
+_dfm_smoke_copy_present() {
+  local _file="$1"
+  local _joined
+  _joined="$(_dfm_join_copy_statements "${_file}")"
+  grep -qE '^[[:space:]]*COPY[[:space:]][^#]*\.base/test/smoke(/|[[:space:]]|$)' \
+    <<< "${_joined}"
+}
+
 # A COPY is a STATEMENT, not a line: a consumer wraps a long hand-listed one
 # across backslash continuations and Docker still reads it as one. Both the
-# detect and the post-apply warning therefore read the FOLDED file, via the
-# same _dfm_join_copy_statements this lib already ships for that reason.
-# Anchored at a path boundary (`/`, whitespace, or end of statement) so a
-# sibling tree merely PREFIXED by the retired name -- .base/test/smoke_helpers
-# -- is not mistaken for it and does not draw a patch log for a file nothing
-# touched.
+# detect and the post-apply warning ask _dfm_smoke_copy_present, which folds
+# first, so neither can miss a source on a continuation line or fire on a
+# sibling path merely prefixed by the retired name.
 _migrate_smoke_copy_detect() {
   local _file="$1"
-  _dfm_join_copy_statements "${_file}" \
-    | grep -qE '^[[:space:]]*COPY[[:space:]][^#]*\.base/test/smoke(/|[[:space:]]|$)'
+  _dfm_smoke_copy_present "${_file}"
 }
 
 _migrate_smoke_copy_apply() {
@@ -622,12 +638,11 @@ _migrate_smoke_copy_apply() {
 
   # Anything still naming the retired tree is a spec the pulled subtree no
   # longer ships under that name, or ships twice. Say so: the build will
-  # fail on it, and the message is the only chance to say why. Read folded,
-  # like the detect: a half-healed statement leaves its unresolved sources
-  # on continuation lines, which is exactly where a ^COPY-anchored grep
-  # cannot see them.
-  if _dfm_join_copy_statements "${_file}" \
-    | grep -qE '^[[:space:]]*COPY[[:space:]][^#]*\.base/test/smoke(/|[[:space:]]|$)'; then
+  # fail on it, and the message is the only chance to say why. Asked of the
+  # same folded view the detect uses: a half-healed statement leaves its
+  # unresolved sources on continuation lines, which is exactly where a
+  # ^COPY-anchored grep over raw lines cannot see them.
+  if _dfm_smoke_copy_present "${_file}"; then
     _log_warn upgrade upgrade_started "display=  Dockerfile still COPYs a retired .base/test/smoke/ spec the pulled subtree ships at no single path — resolve it by hand (#928)"
   fi
 }
