@@ -203,6 +203,58 @@ _seed_clean() {
   assert_output --partial "dist/script/base/init.sh:1"
 }
 
+@test "just provenance: the installer cannot borrow a --tag from a command chained onto its own line (#948)" {
+  # `&&` ENDS a command. A --tag belonging to the next command in the
+  # chain is somebody else's evidence exactly as it is when it sits on the
+  # next physical line -- joining the continuations is what made those two
+  # look different, and the joined line vouched for the installer.
+  _write "dist/script/base/init.sh" \
+    '  curl -sSf https://just.systems/install.sh | bash -s -- --to ~/.local/bin && docker build --tag img .'
+  run _run_just_provenance
+  assert_failure
+  assert_output --partial "dist/script/base/init.sh:1"
+}
+
+@test "just provenance: a --tag after a ';' on a continued line is not the installer's either (#948)" {
+  # Same borrow, spelled the two ways the tree actually writes multi-command
+  # lines: a `;` separator and a backslash continuation.
+  _write "dist/script/base/init.sh" \
+    '  curl -sSf https://just.systems/install.sh | bash -s -- --to ~/.local/bin; \' \
+    '  docker buildx imagetools create --tag "${image}:main" "${digest}"'
+  run _run_just_provenance
+  assert_failure
+  assert_output --partial "dist/script/base/init.sh:1"
+}
+
+@test "just provenance: a second acquisition on one logical line is its own site (#948)" {
+  # A Dockerfile RUN chain is ONE joined logical line. Classifying that
+  # line as at most one mechanism let an unpinned package-manager install
+  # hide behind the pinned download beside it: the pinned fetch answered
+  # for the line and the `apk add` never had to carry an advisory region.
+  _write "dockerfile/Dockerfile.test-tools" \
+    'ARG JUST_VERSION=1.58.0' \
+    'RUN curl -fsSL "https://github.com/casey/just/releases/download/${JUST_VERSION}/just.tar.gz" | tar -xz && \' \
+    '    apk add --no-cache just'
+  run _run_just_provenance
+  assert_failure
+  assert_output --partial "dockerfile/Dockerfile.test-tools:2"
+  assert_output --partial "advisory"
+}
+
+@test "just provenance: the hidden second acquisition is found in either order (#948)" {
+  # The marker table's order decided which mechanism won the line, so the
+  # same pair read clean whichever way round it was written. Neither
+  # order may depend on the table.
+  _write "dockerfile/Dockerfile.test-tools" \
+    'ARG JUST_VERSION=1.58.0' \
+    'RUN apk add --no-cache just && \' \
+    '    curl -fsSL "https://github.com/casey/just/releases/download/${JUST_VERSION}/just.tar.gz" | tar -xz'
+  run _run_just_provenance
+  assert_failure
+  assert_output --partial "dockerfile/Dockerfile.test-tools:2"
+  assert_output --partial "advisory"
+}
+
 @test "just provenance: a pinned release URL still counts when the version arg is on the same logical line (#948)" {
   # The mirror of the two cases above: narrowing the evidence to the site
   # itself must not start rejecting the shapes this tree actually uses.
