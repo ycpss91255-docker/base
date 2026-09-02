@@ -38,6 +38,11 @@ setup() {
   SCRATCH="$(mktemp -d)"
   mkdir -p "${SCRATCH}/doc/readme"
   REPO_ROOT="${SCRATCH}"
+
+  # The live checkout, for the two cases at the bottom that assert on the
+  # tracked READMEs. Held in a variable so the capture helper has a seam the
+  # cases exercising IT can point at a planted tree instead.
+  LIVE_README_ROOT=/source
 }
 
 teardown() {
@@ -623,14 +628,209 @@ _marker() {
   [[ "${output}" == *"clean"* ]]
 }
 
+# ── the real tree, captured as a snapshot the spec owns ──────────────
+#
+# The two cases below are the only ones that read the tracked READMEs, and
+# they used to let the live tree settle their verdict directly:
+# `diff -r /source/doc/readme "${SCRATCH}/doc/readme"`. This suite runs
+# 32-way parallel, often beside another checkout's gate, so anything that
+# wrote under doc/readme/ in the window changed the answer on a generator
+# that had done nothing wrong -- one of the two races this file was changed
+# for.
+#
+# Copying first fixed the diff but not the capture. Four sequential reads
+# of a tree nobody here owns can return a README.md the translations beside
+# it were never stamped against, and the generator does exactly the right
+# thing with that input: it REFUSES to re-stamp an English section whose
+# translation did not follow, because that is the drift it exists to catch.
+# The spec then reports a defect in the subject that was really a defect in
+# the capture. (Reading the four files out of the git object store would be
+# race-free by construction and was rejected on evidence: this checkout is
+# a worktree, so /source/.git is a FILE pointing at a gitdir that is not
+# mounted into the container, and `git show HEAD:README.md` would work in
+# CI and fail locally.)
+
+# _copy_readme_set <src-root> <dst-root> -- one pass over the four tracked
+# README files.
+_copy_readme_set() {
+  local _src="${1:?BUG: _copy_readme_set expects a source root}"
+  local _dst="${2:?BUG: _copy_readme_set expects a destination root}"
+  mkdir -p "${_dst}/doc/readme"
+  cp "${_src}/README.md" "${_dst}/README.md"
+  local _lang
+  for _lang in zh-TW zh-CN ja; do
+    cp "${_src}/doc/readme/README.${_lang}.md" \
+       "${_dst}/doc/readme/README.${_lang}.md"
+  done
+}
+
+# _capture_readme_baseline <dst-root> [src-root] -- capture the live README
+# set as a CONSISTENT snapshot the spec owns.
+#
+# Two passes, and the capture is only accepted when they agree. A writer
+# landing inside the first pass leaves it holding some files from before
+# the write and some from after; the second pass, made entirely after that
+# write, cannot reproduce the same mixture, so the two disagree and the
+# capture is retried. Agreement is therefore evidence that nothing wrote
+# across either pass, which is what makes the accepted set a snapshot.
+#
+# Both operands of that comparison are the spec's own copies -- never the
+# live tree -- which is the invariant spec_source_isolation_spec.bats pins
+# repo-wide, and it holds here for the same reason it exists: a check that
+# consults the live tree cannot tell a torn read from a real change.
+#
+# A source that never settles is a loud failure, not a skip and not a
+# guess: three disagreeing pairs means something is actively rewriting the
+# checkout, and the honest answer is that this spec has nothing to assert
+# on today.
+_capture_readme_baseline() {
+  local _dst="${1:?BUG: _capture_readme_baseline expects a destination root}"
+  local _src="${2:-${LIVE_README_ROOT}}"
+  local _probe="${_dst}.probe"
+  local _attempt
+  for _attempt in 1 2 3; do
+    _copy_readme_set "${_src}" "${_dst}"
+    _copy_readme_set "${_src}" "${_probe}"
+    if diff -r "${_dst}" "${_probe}" >/dev/null 2>&1; then
+      return 0
+    fi
+  done
+  fail "the README set under ${_src} changed across three consecutive captures; there is no snapshot to assert on, and guessing which read was the real one is how a correct generator gets reported as broken"
+}
+
+# _assert_generator_is_a_noop_on <baseline-dir> -- give the generator bytes
+# it has already stamped, and require the same bytes back.
+#
+# Both sides of the comparison are the spec's own: the baseline it captured
+# and the copy it stamped. The live tree supplies the INPUT and nothing
+# else.
+_assert_generator_is_a_noop_on() {
+  local _baseline="${1:?BUG: _assert_generator_is_a_noop_on expects a directory}"
+  cp "${_baseline}/README.md" "${SCRATCH}/README.md"
+  local _lang
+  for _lang in zh-TW zh-CN ja; do
+    cp "${_baseline}/doc/readme/README.${_lang}.md" \
+       "${SCRATCH}/doc/readme/README.${_lang}.md"
+  done
+
+  _sync_readme_hashes "${SCRATCH}" >/dev/null
+  _assert_same_tree "${_baseline}/doc/readme" "${SCRATCH}/doc/readme"
+}
+
+# _assert_same_tree <expected> <actual> -- equal, and SAY WHAT DIFFERED.
+#
+# The comparison used to be `run diff ...` followed by `[ "${status}" -eq 0
+# ]`, which threw ${output} away. When it failed, bats printed
+# `[ "${status}" -eq 0 ]' failed and nothing else -- which is verbatim the
+# symptom the parallel-race report quoted, and the reason its reader
+# concluded "flake" and re-ran rather than read. The diff itself named a sync stamp whose
+# second hash differed, i.e. a verdict about the generator.
+#
+# A failure that does not carry its evidence teaches re-running. That is the
+# habit this whole issue exists to break, so it costs one line to close.
+_assert_same_tree() {
+  local _expected="${1:?BUG: _assert_same_tree expects an expected tree}"
+  local _actual="${2:?BUG: _assert_same_tree expects an actual tree}"
+  local _diff
+  _diff="$(diff -r "${_expected}" "${_actual}" 2>&1)" && return 0
+  fail "the generator did not return the bytes it was given:
+${_diff}"
+}
+
+# _plant_readme_source <dir> -- a four-file stand-in for the tracked set.
+# The capture helper does not read the CONTENT, so the cases that drive it
+# do not need the real READMEs and do not pay for copying them.
+_plant_readme_source() {
+  local _dir="${1:?BUG: _plant_readme_source expects a directory}"
+  mkdir -p "${_dir}/doc/readme"
+  printf 'english v1\n' > "${_dir}/README.md"
+  local _lang
+  for _lang in zh-TW zh-CN ja; do
+    printf 'translation v1\n' > "${_dir}/doc/readme/README.${_lang}.md"
+  done
+}
+
+@test "_assert_same_tree: a failure names WHAT differed, not just that something did (#965)" {
+  # The oracle the no-op assertion below settles its verdict with. Its
+  # earlier spelling captured the diff and discarded it, so the failure read
+  # `[ "${status}" -eq 0 ]' failed and nothing else -- the exact line the
+  # parallel-race report quotes from the run that sent its reader down the
+  # flake path.
+  #
+  # Both directions, because a helper that always fails would satisfy the
+  # first half on its own.
+  local _a="${BATS_TEST_TMPDIR}/same_a" _b="${BATS_TEST_TMPDIR}/same_b"
+  mkdir -p "${_a}" "${_b}"
+  printf '<!-- sync: directory-structure aaaaaaa -->\n' > "${_a}/README.zh-TW.md"
+  printf '<!-- sync: directory-structure bbbbbbb -->\n' > "${_b}/README.zh-TW.md"
+  run _assert_same_tree "${_a}" "${_b}"
+  assert_failure
+  assert_output --partial "README.zh-TW.md"
+  assert_output --partial "aaaaaaa"
+  assert_output --partial "bbbbbbb"
+  cp "${_a}/README.zh-TW.md" "${_b}/README.zh-TW.md"
+  run _assert_same_tree "${_a}" "${_b}"
+  assert_success
+}
+
 @test "_sync_readme_hashes: is a no-op on the REAL tree (already stamped) (#846)" {
   # Run the generator against a copy so the live tree is never mutated by a
   # test; an already-stamped tree must come back byte-identical.
-  cp /source/README.md "${SCRATCH}/README.md"
-  cp /source/doc/readme/README.zh-TW.md "${SCRATCH}/doc/readme/README.zh-TW.md"
-  cp /source/doc/readme/README.zh-CN.md "${SCRATCH}/doc/readme/README.zh-CN.md"
-  cp /source/doc/readme/README.ja.md "${SCRATCH}/doc/readme/README.ja.md"
-  _sync_readme_hashes "${SCRATCH}" >/dev/null
-  run diff -r /source/doc/readme "${SCRATCH}/doc/readme"
-  [ "${status}" -eq 0 ]
+  local _baseline="${BATS_TEST_TMPDIR}/baseline"
+  _capture_readme_baseline "${_baseline}"
+  _assert_generator_is_a_noop_on "${_baseline}"
+}
+
+@test "_capture_readme_baseline: a capture the source changed under is DISCARDED, not used (#965)" {
+  # The race, made deterministic: `cp` is shadowed so the write lands at a
+  # fixed point -- immediately after the first pass has read README.md and
+  # before it reads the translations -- instead of being waited for.
+  local _src="${BATS_TEST_TMPDIR}/src"
+  _plant_readme_source "${_src}"
+
+  local _tear_armed=1
+  cp() {
+    command cp "$@"
+    if [[ "${_tear_armed}" == 1 && "${1}" == "${_src}/README.md" ]]; then
+      _tear_armed=0
+      printf 'english v2\n' > "${_src}/README.md"
+    fi
+  }
+
+  local _baseline="${BATS_TEST_TMPDIR}/baseline"
+  _capture_readme_baseline "${_baseline}" "${_src}"
+  unset -f cp
+
+  # v1 is the torn read: README.md from before the write, translations from
+  # after it. Accepting it is the defect; the capture has to come back with
+  # the set as it stands.
+  run cat "${_baseline}/README.md"
+  assert_output "english v2"
+}
+
+@test "_capture_readme_baseline: a source that never settles FAILS loudly, it does not hand back a torn set (#965)" {
+  # The other outcome, and the reason the retry is bounded. A checkout being
+  # rewritten continuously cannot produce a snapshot, and a spec that
+  # quietly picks one of the reads reports the generator as broken. Three
+  # tries, then say so.
+  local _src="${BATS_TEST_TMPDIR}/src"
+  _plant_readme_source "${_src}"
+
+  # Starts at 1, not 0: the planted source already says v1, so a counter
+  # starting there would "rewrite" it with its own contents and the two
+  # passes would agree on a tree that never actually settled.
+  local _n=1
+  cp() {
+    command cp "$@"
+    if [[ "${1}" == "${_src}/README.md" ]]; then
+      _n=$(( _n + 1 ))
+      printf 'english v%s\n' "${_n}" > "${_src}/README.md"
+    fi
+  }
+
+  run _capture_readme_baseline "${BATS_TEST_TMPDIR}/baseline" "${_src}"
+  unset -f cp
+
+  assert_failure
+  assert_output --partial "changed across three consecutive captures"
 }
