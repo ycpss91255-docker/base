@@ -919,3 +919,53 @@ EOF
   run bash -c "$(_src); _migrate_hadolint_detect '${DF}'"
   assert_failure
 }
+
+# ── DL3046: -u is not always the first flag ─────────────────────────────────
+#
+# The DL3046 heal matched `useradd` followed IMMEDIATELY by `-u`, which is
+# how base's own template writes it. No downstream repo has to: the shape
+# actually shipped in the org is
+#   useradd -m -s /bin/bash -u "${USER_UID}" -g "${USER_GID}" "${USER_NAME}"
+# and the anchored match walks straight past it. The migration then reports
+# a patched Dockerfile while DL3046 is still live in it, so the consumer's
+# self-lint fails on the first `just build test` after the upgrade -- the
+# same end state the missing DL3066 heal produced, reached a different way.
+#
+# `-l` is inserted directly after the `useradd` token rather than before
+# `-u`, so the position of the flag being answered stops mattering.
+
+@test "migration 5 (hadolint): DL3046 adds -l when -u is not the first flag (#946)" {
+  cat > "${DF}" <<'EOF'
+RUN useradd -m -s /bin/bash -u "${USER_UID}" -g "${USER_GID}" "${USER_NAME}"
+EOF
+  run bash -c "$(_src); _migrate_hadolint_detect '${DF}' && _migrate_hadolint_apply '${DF}'"
+  assert_success
+  grep -Fq 'useradd -l -m -s /bin/bash -u "${USER_UID}"' "${DF}"
+}
+
+@test "migration 5 (hadolint): DL3046 idempotent when -l already sits among the flags (#946)" {
+  cat > "${DF}" <<'EOF'
+RUN useradd -m -l -s /bin/bash -u "${USER_UID}" "${USER_NAME}"
+EOF
+  run bash -c "$(_src); apply_migrations '${DF}'; apply_migrations '${DF}'"
+  assert_success
+  [ "$(grep -co -- '-l' "${DF}")" = "1" ]
+}
+
+@test "migration 5 (hadolint): DL3046 leaves usermod -l alone (#946)" {
+  # The conflict-handling branch every downstream Dockerfile carries renames
+  # an existing account with `usermod -l`. It is not a useradd, it already
+  # has the flag, and rewriting it would corrupt the command.
+  cat > "${DF}" <<'EOF'
+RUN usermod -l "${USER_NAME}" -d "/home/${USER_NAME}" -m "$(id -nu 1000)"
+EOF
+  run bash -c "$(_src); _migrate_hadolint_apply '${DF}'"
+  assert_success
+  grep -Fxq 'RUN usermod -l "${USER_NAME}" -d "/home/${USER_NAME}" -m "$(id -nu 1000)"' "${DF}"
+}
+
+@test "migration 5 (hadolint): DL3046 detect sees the flags-before--u shape (#946)" {
+  printf 'RUN useradd -m -u "${USER_UID}" "${USER_NAME}"\n' > "${DF}"
+  run bash -c "$(_src); _migrate_hadolint_detect '${DF}'"
+  assert_success
+}
