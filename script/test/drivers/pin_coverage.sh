@@ -37,13 +37,22 @@
 # CANNOT BUMP". Dependabot reads `uses:` version refs IN WORKFLOW FILES
 # and does that job well -- its open login-action PR is the evidence -- so
 # covering them here would produce two mechanisms with opinions about one
-# dependency, which is worse than one. What it provably cannot see is a
-# Dockerfile ARG, an image reference at a version tag WHEREVER it is
-# written, a release-download URL, a `git clone -b <tag>`, a `uses:` ref
-# pinned to a BRANCH, and any `uses:` ref outside .github/workflows/ --
-# notably one a shell script writes into a file it GENERATES. Those shapes
-# are the detector, and they live in script/watch/lib.sh alongside the
-# grammar so the lint and the watch can never disagree about what a pin is.
+# dependency, which is worse than one. What it provably cannot see is an
+# assignment whose value is a version WHATEVER ITS KEYWORD, an image
+# reference at a version tag WHEREVER it is written, a release-download
+# URL, a `git clone -b <tag>`, a `uses:` ref pinned to a BRANCH, and any
+# `uses:` ref outside .github/workflows/ -- notably one a shell script
+# writes into a file it GENERATES. Those shapes are the detector, and they
+# live in script/watch/lib.sh alongside the grammar so the lint and the
+# watch can never disagree about what a pin is.
+#
+# "Whatever its keyword" was learned the same hard way as "wherever it is
+# written". The detector recognised `ARG` and nothing else, while the
+# registry's reader already EXTRACTED a version from `local`, `readonly`,
+# `declare` and `export` -- and while this file's own advice for a version
+# a marker cannot address is to hoist it onto a line of its own, which is
+# how you write one of those four. Deleting the markers from the two the
+# repo ships downstream left the lint clean.
 #
 # "Wherever it is written" is load-bearing and was learned the hard way.
 # The detector recognised a namespace-less image only with a `docker
@@ -74,10 +83,13 @@
 #   5. It is not vacuous: the walk yielded files, and the table yielded
 #      pinned entries. A reader regression that matched nothing would
 #      otherwise report a clean tree forever.
-#   6. Every pruned tree is one git ignores. The walk covers the whole
-#      repository, so the prune list is the only way to remove something
-#      from all of the above -- and it must not become the quiet place to
-#      put an awkward pin.
+#   6. Every tree the prune list removes -- at any depth, since the
+#      entries are basenames -- is one git ignores and does not track. The
+#      walk covers the whole repository, so the prune list is the only way
+#      to remove something from all of the above, and it must not become
+#      the quiet place to put an awkward pin. It has no environment in
+#      which it is skipped: where git cannot answer, the verdict is
+#      carried in from the host, and where neither can, this DIES.
 #   7. No `tool-pin:` marker sits in a file the walk EXEMPTS. The scan is
 #      whole-tree minus prose and specs, and that exemption list is the
 #      other way to remove something from every check above. A marker
@@ -165,27 +177,46 @@ Known resolvers: $(printf '%s ' "${_PIN_RESOLVERS[@]}"). An unknown one is not a
 
   # The prune list is the one hand-kept thing left in the registry, and an
   # entry added to it silently removes a whole tree from every check
-  # above. So it is checked rather than trusted: every entry must be a
-  # tree git already ignores (i.e. generated), which makes "prune the
-  # directory the awkward pin lives in" fail here instead of passing
-  # quietly. Skipped when REPO_ROOT is not a readable git repository --
-  # the container mounts the worktree without its git dir, and a guard
-  # that cannot run must not invent a verdict.
-  local _entry
-  local -a _tracked_prune=()
-  if git -C "${REPO_ROOT}" rev-parse --git-dir >/dev/null 2>&1; then
-    for _entry in "${_PIN_SCAN_PRUNE[@]}"; do
-      [[ "${_entry}" == '.git' ]] && continue
-      [[ -e "${REPO_ROOT}/${_entry}" ]] || continue
-      git -C "${REPO_ROOT}" check-ignore -q "${_entry}" \
-        || _tracked_prune+=("${_entry}")
-    done
+  # above. So it is checked rather than trusted: every directory the prune
+  # MATCHES -- at any depth, which is how `-name <entry> -prune` behaves --
+  # must be a tree git ignores and does not track. That is what makes
+  # "prune the directory the awkward pin lives in" fail here instead of
+  # passing quietly.
+  #
+  # Where the verdict comes from, and why it is never absent. The check
+  # needs git, and the suite's own container bind-mounts the checkout
+  # WITHOUT a resolvable .git -- a worktree's `.git` is a file naming a
+  # path outside the mount. This used to be an `if git ...` around the
+  # whole guard, i.e. a pass on the environment the repo's local gate
+  # actually runs in: a guard whose default on an environment it cannot
+  # inspect is "clean" is fail-open, and this one guards the mechanism
+  # that removes trees from every other check.
+  #
+  # So the answer is computed where git works and carried to where it does
+  # not. `PIN_PRUNE_TRACKED` is set by test.sh on the HOST before the
+  # compose run: `-` for clean, the offending paths otherwise. git wins
+  # when it is readable, so a stale or hand-set value can never silence a
+  # tree git can see. When neither source can answer, this DIES.
+  local _prune_offenders
+  if ! _prune_offenders="$(_pin_prune_offenders "${REPO_ROOT}")"; then
+    if [[ -z "${PIN_PRUNE_TRACKED:-}" ]]; then
+      _die ci_pin_coverage \
+        "this lint cannot check its prune list: ${REPO_ROOT} is not a readable git repository and no host-computed verdict arrived in PIN_PRUNE_TRACKED. The prune list removes whole trees from the walk, from this lint and from the watch, so an unchecked one is the failure this guard exists for -- not a detail to skip. Run './script/test/test.sh --pin-coverage-only' on the host, or set PIN_PRUNE_TRACKED (\`-\` when clean) the way test.sh does for the compose run."
+      return 1
+    fi
+    _prune_offenders="${PIN_PRUNE_TRACKED}"
+    [[ "${_prune_offenders}" == '-' ]] && _prune_offenders=""
   fi
-  if [[ "${#_tracked_prune[@]}" -gt 0 ]]; then
+  if [[ -n "${_prune_offenders}" ]]; then
+    local _off
+    local -a _prune_bad=()
+    while IFS= read -r _off; do
+      [[ -n "${_off}" ]] && _prune_bad+=("${_off}")
+    done <<< "${_prune_offenders}"
     _die ci_pin_coverage \
-      "script/watch/lib.sh prunes a tree that git does NOT ignore:
-$(printf '  %s\n' "${_tracked_prune[@]}")
-The prune list exists for generated trees. Pruning a tree the repo ships removes every version in it from the watch AND from this lint, and nothing else would report that."
+      "script/watch/lib.sh prunes a tree the repo tracks or does not ignore:
+$(printf '  %s\n' "${_prune_bad[@]}")
+The prune list exists for machine-local trees. Pruning a tree the repo ships removes every version in it from the watch AND from this lint, and nothing else would report that. Note the entries are BASENAMES: \`-name <entry> -prune\` matches at any depth, so an entry that is harmless at the root can still remove a tree deeper in."
     return 1
   fi
 

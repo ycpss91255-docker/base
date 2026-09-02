@@ -128,6 +128,12 @@ readonly _PIN_RESOLVERS=(
 # are supposed to be stale. `.claude/` is the agent harness a checkout may
 # or may not carry; scanning it would make the lint's verdict depend on
 # whose machine it ran on, which is the one thing a gate must not do.
+#
+# Note what an entry MEANS here, because the guard was once narrower than
+# it: these are BASENAMES, and `-name <entry> -prune` prunes a directory
+# of that name AT ANY DEPTH. `log` removes `dist/script/log/` as surely as
+# `./log/`. The check asserts the property over every directory the prune
+# actually matches -- see _pin_prune_offenders.
 readonly _PIN_SCAN_PRUNE=('.git' 'log' '.prev-release' '.claude')
 
 # What is NOT read -- and nothing else. This was a list of the shapes a
@@ -368,6 +374,55 @@ _pin_exempt_files() {
     \( "${_PIN_SCAN_EXEMPT_SHAPES[@]}" \) -print0)
   [[ "${#_found[@]}" -eq 0 ]] && return 0
   printf '%s\n' "${_found[@]}" | LC_ALL=C sort
+}
+
+# _pin_prune_offenders <repo-root>
+#
+# Print every directory the prune list actually removes that is NOT a
+# machine-local tree, repo-root-relative, one per line, sorted. Prints
+# nothing when the list is honest. Returns 1 -- rather than "nothing" --
+# when git cannot answer, because "no offenders" and "could not look" are
+# the two answers a caller must never confuse.
+#
+# Two questions, because the prune list can lie in two ways.
+#
+# It can name a tree git does not ignore, which is the roster failure this
+# whole file is built to avoid arriving through the back door: "the pin is
+# awkward, prune the directory it lives in" has to fail here, since
+# nothing else would report it.
+#
+# It can also name a tree that IS ignored and yet holds a force-added,
+# tracked file -- content the repo ships, out of the walk, out of this
+# lint and out of the watch, with `check-ignore` answering yes the whole
+# time.
+#
+# Both are asked of every directory the prune MATCHES, not of
+# `<repo-root>/<entry>`. The root-only form was the defect: an entry that
+# never appears at the root -- `workflows`, say -- was skipped by the
+# guard entirely while removing `.github/workflows/` from the scan.
+_pin_prune_offenders() {
+  local _root="${1}"
+  git -C "${_root}" rev-parse --git-dir >/dev/null 2>&1 || return 1
+  local _entry _dir _rel
+  local -a _offending=() _names=()
+  for _entry in "${_PIN_SCAN_PRUNE[@]}"; do
+    # git's own directory is not repo content and is never tracked.
+    [[ "${_entry}" == '.git' ]] && continue
+    [[ "${#_names[@]}" -gt 0 ]] && _names+=(-o)
+    _names+=(-name "${_entry}")
+  done
+  [[ "${#_names[@]}" -eq 0 ]] && return 0
+  while IFS= read -r -d '' _dir; do
+    _rel="${_dir#"${_root}/"}"
+    [[ "${_rel}" == "${_root}" ]] && continue
+    if ! git -C "${_root}" check-ignore -q "${_rel}" \
+       || [[ -n "$(git -C "${_root}" ls-files -- "${_rel}")" ]]; then
+      _offending+=("${_rel}")
+    fi
+  done < <(find "${_root}" -name '.git' -prune -o \
+    -type d \( "${_names[@]}" \) -print0)
+  [[ "${#_offending[@]}" -eq 0 ]] && return 0
+  printf '%s\n' "${_offending[@]}" | LC_ALL=C sort -u
 }
 
 # _pin_unquote <value> -- strip one layer of matching quotes.

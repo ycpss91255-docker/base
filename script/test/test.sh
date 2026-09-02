@@ -1385,6 +1385,30 @@ _residue_check() {
 
 # ── Docker compose wrapper ───────────────────────────────────────────────────
 
+# _pin_prune_verdict
+#
+# The pin-coverage lint's prune-list verdict, computed HERE because this
+# side can compute it: `-` when every tree the prune list removes is one
+# git ignores and does not track, the offending paths otherwise, and
+# EMPTY when this side cannot answer either.
+#
+# The lint needs git and the container has none -- a worktree's `.git` is
+# a file naming a path outside the bind mount. The lint used to answer
+# that by skipping the check, which made its default on the repo's own
+# local gate "clean". So the answer travels instead. Empty is not "clean":
+# the lint treats an empty value as no answer and dies, which is the
+# correct outcome for a run that could not check the one list that removes
+# whole trees from every other check.
+_pin_prune_verdict() {
+  local _offenders
+  _offenders="$(_pin_prune_offenders "${REPO_ROOT}")" || return 0
+  if [[ -z "${_offenders}" ]]; then
+    printf '%s' '-'
+    return 0
+  fi
+  printf '%s' "${_offenders}"
+}
+
 _run_via_compose() {
   # Service is the first arg so the caller picks the runner image:
   #   `ci`       — alpine test-tools (bats/shellcheck/hadolint baked in,
@@ -1494,6 +1518,7 @@ _run_via_compose() {
     -e BATS_FILTER="${BATS_FILTER:-}" \
     -e LINT_ONLY="${LINT_ONLY:-0}" \
     -e LINT_TOOL="${LINT_TOOL:-}" \
+    -e PIN_PRUNE_TRACKED="$(_pin_prune_verdict)" \
     "${_service}" || _rc=$?
   if [[ -n "${_residue_before}" ]]; then
     _residue_check "${_residue_before}" "${REPO_ROOT}" || _rc=1
