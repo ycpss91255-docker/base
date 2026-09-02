@@ -355,6 +355,34 @@ _write() {
   [[ "${output}" == *"x_spec.bats:2"* ]]
 }
 
+@test "_run_errexit_bang: PASSES on an '||' whose operand is a GROUP (#956)" {
+  # The narrowing the header states by name: `|| { true; }` and
+  # `|| ( true )` are as inert as `|| true` and go UNREPORTED, because
+  # "can this group fail" has no lexical answer in general.
+  #
+  # It is pinned by RUNNING it because of how the scan sees it. A
+  # `( ... )` operand is BLANKED by the paren rule, so the statement's
+  # CODE ends in a bare `||` with only spaces behind it -- and any rule
+  # that reads a trailing operator as an unfinished statement has to
+  # read it off something that remembers the operand was there, or it
+  # turns this disclosed silence into a false positive on a blocking
+  # gate.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "or a subshell" {' \
+    '  ! grep -q A "${_f}" || ( true )' \
+    '  assert_success' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -eq 0 ]
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "or a brace group" {' \
+    '  ! grep -q A "${_f}" || { true; }' \
+    '  assert_success' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -eq 0 ]
+}
+
 @test "_run_errexit_bang: PASSES on a ';' that sits in a trailing comment (#956)" {
   # The separator scan reads the statement's CODE. A ';' after the '#'
   # is prose, and the shell never sees a second command there.
@@ -507,6 +535,67 @@ _write() {
   run bash -c 'x=3; (( x & 1 ))#b; echo B'
   [ "${status}" -eq 0 ]
   [ -z "${output}" ]
+}
+
+@test "bash: a backslash-newline SPLICES the text, so a '#' after it may be data (#956)" {
+  # The rule the fold has to implement, pinned by RUNNING it rather than
+  # asserting it in prose. A backslash-newline is REMOVED and the two
+  # physical lines become one character sequence with nothing inserted
+  # between them. So whether a `#` that opens the next line starts a
+  # comment is decided by what the splice puts in front of it -- which is
+  # not answerable from that line.
+  #
+  # Glued to the word: the `#` lands mid-word and is DATA.
+  printf '%s\n' 'printf "[%s]\n" A\' '#b' > "${SCRATCH}/f.sh"
+  run bash "${SCRATCH}/f.sh"
+  [ "${status}" -eq 0 ]
+  [ "${output}" = "[A#b]" ]
+  # A blank in front of the backslash ends the word, so the same `#`
+  # opens a comment and everything behind it is prose.
+  printf '%s\n' 'printf "[%s]\n" A \' '#b' > "${SCRATCH}/f.sh"
+  run bash "${SCRATCH}/f.sh"
+  [ "${status}" -eq 0 ]
+  [ "${output}" = "[A]" ]
+  # And a splice is not a join: leading blanks on the next line survive
+  # it and end the word exactly as any other blank would.
+  printf '%s\n' 'printf "[%s]\n" A\' '   #b' > "${SCRATCH}/f.sh"
+  run bash "${SCRATCH}/f.sh"
+  [ "${status}" -eq 0 ]
+  [ "${output}" = "[A]" ]
+}
+
+@test "bash: an unfinished '||', '&&' or '|' continues onto the next line (#956)" {
+  # Incompleteness has a third form beside the open quote and the
+  # trailing backslash: a list or pipe operator with no right operand
+  # yet. bash reads on to the next line for it, with no backslash
+  # anywhere, so "the statement ends where the line does" is wrong again.
+  printf '%s\n' 'false ||' 'echo reached' > "${SCRATCH}/f.sh"
+  run bash "${SCRATCH}/f.sh"
+  [ "${status}" -eq 0 ]
+  [ "${output}" = "reached" ]
+  printf '%s\n' 'true &&' 'echo reached' > "${SCRATCH}/f.sh"
+  run bash "${SCRATCH}/f.sh"
+  [ "${status}" -eq 0 ]
+  [ "${output}" = "reached" ]
+  printf '%s\n' 'echo A |' 'cat' > "${SCRATCH}/f.sh"
+  run bash "${SCRATCH}/f.sh"
+  [ "${status}" -eq 0 ]
+  [ "${output}" = "A" ]
+  # Blank and comment lines between the operator and its operand are
+  # skipped, the way they are inside an open quote and unlike the way
+  # they terminate a backslash continuation.
+  printf '%s\n' 'false ||' '' '# a note' 'echo reached' > "${SCRATCH}/f.sh"
+  run bash "${SCRATCH}/f.sh"
+  [ "${status}" -eq 0 ]
+  [ "${output}" = "reached" ]
+  # The consequence for this lint, run rather than argued: split over
+  # the operator, `! <cmd> || true` is the same discarded negation as
+  # `! <cmd> || true` on one line -- the body returns 0 in precisely the
+  # branch where the command SUCCEEDED and the assertion should have
+  # failed.
+  printf '%s\n' 'set -e' 'f() {' '  ! true ||' '    true' '}' 'f' > "${SCRATCH}/f.sh"
+  run bash "${SCRATCH}/f.sh"
+  [ "${status}" -eq 0 ]
 }
 
 @test "_run_errexit_bang: PASSES on a bare trailing ';' followed by a comment (#956)" {
@@ -738,6 +827,111 @@ _write() {
   run _run_errexit_bang
   [ "${status}" -ne 0 ]
   [[ "${output}" == *"x_spec.bats:2"* ]]
+}
+
+@test "_run_errexit_bang: FAILS on a ';' behind a '#' spliced onto the word before it (#956)" {
+  # The backslash is glued to `A`, so the splice makes `A#b` one word:
+  # the `#` is DATA, and the `; true` behind it is this statement's own
+  # separator handing the negation away. Deciding comment-hood from the
+  # raw next line -- which does open with `#` -- read the whole text as
+  # prose and reported nothing at all, a MISSED violation on the exact
+  # shape the fold exists to answer.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "a glued continuation, then data" {' \
+    '  ! grep -q A\' \
+    '#b f; true' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"x_spec.bats:2"* ]]
+}
+
+@test "_run_errexit_bang: PASSES when the splice leaves the '#' opening a word (#956)" {
+  # The other side of that splice, and why the fold cannot simply
+  # swallow every `#` line: a blank in front of the backslash, or in
+  # front of the `#` on the next line, ends the word, so bash really does
+  # read a comment there and the text behind it is prose. Reading it as
+  # code would be a false positive on a blocking gate.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "a blank, then a comment line" {' \
+    '  ! grep -q A \' \
+    '#b f; true' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -eq 0 ]
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "glued, but the next line opens with blanks" {' \
+    '  ! grep -q A\' \
+    '   #b f; true' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -eq 0 ]
+}
+
+@test "_run_errexit_bang: FAILS on an '|| true' split across the operator (#956)" {
+  # A line ending in `||` is INCOMPLETE: bash reads the next line as its
+  # right operand, so this is the one statement `! grep -q A f || true`
+  # -- the `|| true` the lint names in its own failure message. Read as
+  # two statements, the first took the live-`||` exemption meant for
+  # `! A || return 1` and the lone `true` behind it was judged by
+  # nothing, so the whole hand-off was silent.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "handed off over the operator" {' \
+    '  echo a' \
+    '  ! grep -q A f ||' \
+    '    true' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"x_spec.bats:3"* ]]
+  [[ "${output}" == *"cannot fail"* ]]
+}
+
+@test "_run_errexit_bang: PASSES on a live '&&' split across the operator (#956)" {
+  # The same incompleteness in the direction that retires a false
+  # positive. `(! A) && true` short-circuits to 1 exactly when A
+  # succeeded, so as the body's LAST statement it still fails the test --
+  # which is why the header exempts `&&` by name. Read as two
+  # statements the `!` ended a line early, the position rule saw a later
+  # "last statement" line and reported a line that was never a violation.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "a live && over the operator" {' \
+    '  echo a' \
+    '  ! grep -q A f &&' \
+    '    true' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -eq 0 ]
+}
+
+@test "_run_errexit_bang: PASSES on a pipeline split across its '|' (#956)" {
+  # And the pipe. `! grep -q A f | cat` is ONE pipeline and the `!`
+  # negates all of it, so as the body's last statement its status is the
+  # body's. Read as two, the `!` again ended a line early.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "a pipeline over the operator" {' \
+    '  echo a' \
+    '  ! grep -q A f |' \
+    '    cat' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -eq 0 ]
+}
+
+@test "_run_errexit_bang: FAILS on a ';' behind a pipeline split across its '|' (#956)" {
+  # The violation on that same shape, and it must be reported for the
+  # SEPARATOR rather than for its position: the `;` hands the negation to
+  # `true` wherever the statement sits, so a row that merely says "not
+  # last" would go quiet the day the statement became last.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "a pipeline, then a second command" {' \
+    '  ! grep -q A f |' \
+    '    cat; true' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"x_spec.bats:2"* ]]
+  [[ "${output}" == *"another command in this statement"* ]]
 }
 
 @test "_run_errexit_bang: PASSES on a bang statement with a bare trailing ';' (#956)" {
@@ -977,6 +1171,39 @@ _write() {
     '}'
   run _run_errexit_bang
   [ "${status}" -eq 0 ]
+}
+
+@test "_run_errexit_bang: an allow region suppresses the unreadable-fold finding too (#956)" {
+  # Every row this lint prints has to be answerable by the documented
+  # opt-out, including the one the fold itself raises. A `!` line
+  # swallowed by an unterminated quote is reported because nothing else
+  # judged it -- but a line the operator has already bracketed IS judged,
+  # by hand, and a blocking gate with a finding its own escape hatch
+  # cannot silence is a gate nobody can get past.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "an unterminated quote over a bang, opted out" {' \
+    '  # errexit-bang-lint: allow-begin -- fixture text, not a statement' \
+    '  echo "unterminated' \
+    '  ! grep -q A f' \
+    '  # errexit-bang-lint: allow-end' \
+    '  assert_success' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -eq 0 ]
+  # And it suppresses only what it brackets. A region closed BEFORE the
+  # swallowed line leaves that line reported, so the opt-out cannot be
+  # widened into a fail-open by putting the markers somewhere cheaper.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "an unterminated quote over a bang, opted out too early" {' \
+    '  # errexit-bang-lint: allow-begin -- fixture text, not a statement' \
+    '  echo "unterminated' \
+    '  # errexit-bang-lint: allow-end' \
+    '  ! grep -q A f' \
+    '  assert_success' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"x_spec.bats:3"* ]]
 }
 
 @test "_run_errexit_bang: an unterminated allow region fails (#956)" {

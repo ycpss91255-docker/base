@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3322 tests**.
+Unit specs under `test/bats/unit/`: **3332 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3710,7 +3710,7 @@ inside the test that produces it, each case writes a one-test spec into
 | `no spec opens with a fail-open '\|\| skip' existence guard` | The repo-wide invariant, so the idiom cannot creep back in |
 | `the fail-open guard scan sees every spelling of the check, not just [[ -f ]]` | The invariant must be green because no guard exists, not because its pattern is blind |
 
-### test/bats/unit/errexit_bang_lint_spec.bats (59)
+### test/bats/unit/errexit_bang_lint_spec.bats (69)
 
 | Test | Description |
 |------|-------------|
@@ -3734,12 +3734,15 @@ inside the test that produces it, each case writes a one-test spec into
 | `bash: '! A \|\| return 1' DOES fail its test in the failing direction (#956)` | - |
 | `_run_errexit_bang: PASSES on '\|\| return 1' / '\|\| fail', which CAN fail the test (#956)` | - |
 | `_run_errexit_bang: still FAILS on '\|\| true' / '\|\| :', the operands that cannot fail (#956)` | - |
+| `_run_errexit_bang: PASSES on an '\|\|' whose operand is a GROUP (#956)` | - |
 | `_run_errexit_bang: PASSES on a ';' that sits in a trailing comment (#956)` | - |
 | `_run_errexit_bang: PASSES on a ';' inside a quoted argument (#956)` | - |
 | `_run_errexit_bang: FAILS on an '\|\|' that belongs to a command substitution (#956)` | A separator inside `( ... )` is the argument's, so the exemption for `! A || B` does not reach it |
 | `_run_errexit_bang: PASSES on a ';' that belongs to a command substitution (#956)` | The same flat match run the other way: a false positive on a blocking gate |
 | `bash: '#' opens a comment only where a WORD opens (#956)` | The lexical rule the code scan implements, pinned by RUNNING the shell -- the `\|` spelling, the mid-word `#` that stays data, and the closing quote / backslash escape that continue a word |
 | `bash: a ')' ends a word only when it closes a SUBSHELL (#956)` | The context-dependent half of the rule, run rather than asserted: a subshell's `)` ends a word, a `$( )` / `$(( ))` / `<( )` close does not |
+| `bash: a backslash-newline SPLICES the text, so a '#' after it may be data (#956)` | - |
+| `bash: an unfinished '\|\|', '&&' or '\|' continues onto the next line (#956)` | - |
 | `_run_errexit_bang: PASSES on a bare trailing ';' followed by a comment (#956)` | `;#` is a terminator and prose, not a verdict handed to a second command |
 | `_run_errexit_bang: PASSES on a comment that opens right after a ')' (#956)` | The same rule one metacharacter along |
 | `_run_errexit_bang: FAILS on a ';' behind a '#' that follows a substitution's ')' (#956)` | That `)` leaves the word open, so the `#` is data and the separator behind it is real |
@@ -3754,6 +3757,12 @@ inside the test that produces it, each case writes a one-test spec into
 | `_run_errexit_bang: PASSES when an unreadable statement folds no '!' line in (#956)` | - |
 | `_run_errexit_bang: FAILS on a ';' behind a '#' that follows a closing quote (#956)` | A closing quote does not end a word, so the `#` is data and the separator behind it is real |
 | `_run_errexit_bang: FAILS on a ';' behind a '#' that follows an escape (#956)` | The same word rule for the other spelling that continues a word |
+| `_run_errexit_bang: FAILS on a ';' behind a '#' spliced onto the word before it (#956)` | - |
+| `_run_errexit_bang: PASSES when the splice leaves the '#' opening a word (#956)` | - |
+| `_run_errexit_bang: FAILS on an '\|\| true' split across the operator (#956)` | - |
+| `_run_errexit_bang: PASSES on a live '&&' split across the operator (#956)` | - |
+| `_run_errexit_bang: PASSES on a pipeline split across its '\|' (#956)` | - |
+| `_run_errexit_bang: FAILS on a ';' behind a pipeline split across its '\|' (#956)` | - |
 | `_run_errexit_bang: PASSES on a bang statement with a bare trailing ';' (#956)` | - |
 | `_run_errexit_bang: PASSES on the '&' spellings that background nothing (#956)` | `&&`, `2>&1`, `&>` and `\|&` are other operators; `[[ a&b ]]` is a syntax error and needs no exemption |
 | `_run_errexit_bang: PASSES when the bang statement is the body's last (#956)` | - |
@@ -3770,6 +3779,7 @@ inside the test that produces it, each case writes a one-test spec into
 | `_run_errexit_bang: FAILS when a test header the parser never opened exists (#956)` | - |
 | `_run_errexit_bang: FAILS on a violation in a bats tree outside test/bats (#956)` | - |
 | `_run_errexit_bang: an allow region suppresses the finding (#956)` | - |
+| `_run_errexit_bang: an allow region suppresses the unreadable-fold finding too (#956)` | - |
 | `_run_errexit_bang: an unterminated allow region fails (#956)` | - |
 | `_run_errexit_bang: an unmatched allow-end fails (#956)` | - |
 | `_run_errexit_bang: the real bats tree is clean (#956)` | - |
