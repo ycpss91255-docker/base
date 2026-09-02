@@ -1907,10 +1907,19 @@ _DF_SWEPT_ROOTS=(
   /source/.github
 )
 
+# _df_swept_top_level -- the second derivation, spelled as its own
+# function so the caller can ask whether it CONTRIBUTED. Asking the
+# roster instead -- does it hold a single-component path -- answers that
+# question only while every root is a directory, and the roots are a
+# list someone edits.
+_df_swept_top_level() {
+  find /source -maxdepth 1 -type f
+}
+
 _df_swept_files() {
   {
     find "${_DF_SWEPT_ROOTS[@]}" -type f
-    find /source -maxdepth 1 -type f
+    _df_swept_top_level
   } | sort -u
 }
 
@@ -2042,8 +2051,11 @@ _df_claim_hits() {
   done
   # ... and so did the top-level derivation, which has no root name to
   # check: a `find` whose -maxdepth walk returned nothing is the same
-  # shorter list wearing the same clean report.
-  grep -qE '^/source/[^/]+$' <<< "${_roster}" \
+  # shorter list wearing the same clean report. Asked of the walk, not
+  # of the roster: a roster holding a single-component path proves only
+  # that SOME walk produced one, and a top-level file among the roots
+  # would produce it without this one running at all.
+  [[ -n "$(_df_swept_top_level)" ]] \
     || fail "the top-level sweep contributed no file to the roster"
 
   local _unbalanced
