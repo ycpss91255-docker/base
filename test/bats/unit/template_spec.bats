@@ -1952,6 +1952,12 @@ _df_vocabulary_unbalanced() {
 # _df_flatten <file> -- the file as ONE line of prose: comment markers,
 # quotes, backticks and line continuations blanked, whitespace squeezed.
 #
+# The carve-out closes only a block it OPENED. An `end` that closes
+# nothing is prose like any other line, and is swept: dropping it would
+# hide whatever else sits on it. `_df_vocabulary_unbalanced` refuses that
+# arrangement before the sweep reads the file, so this is the two
+# functions agreeing on one rule rather than a second guard.
+#
 # Searching line by line is why a sweep like this would have found one of
 # the nine occurrences and reported the other eight as clean. Every claim
 # below is WRAPPED where it ships -- across two comment lines in the
@@ -1961,7 +1967,7 @@ _df_vocabulary_unbalanced() {
 _df_flatten() {
   awk '
     /disproven-claim vocabulary: begin/ { skip = 1 }
-    /disproven-claim vocabulary: end/   { skip = 0; next }
+    /disproven-claim vocabulary: end/   { if (skip) { skip = 0; next } }
     !skip
   ' "${1:?_df_flatten: missing file}" \
     | sed 's/[#\\"`]/ /g' | tr '\n' ' ' | tr -s '[:space:]' ' '
