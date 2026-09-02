@@ -1461,8 +1461,11 @@ _df_base_image_note() {
 # spellings alike (the quoting only changes whether the SHELL expands the
 # body, which is nothing to do with what installs), and the block ends on
 # the line that is exactly the delimiter. `<<<` opens nothing: a
-# here-string is not a heredoc, and reading one as a delimiter would
-# swallow the rest of the file into a single block.
+# here-string is not a heredoc, and reading one as a delimiter swallows
+# every layer below it into a single block -- which the first spelling of
+# this rule did, because awk's `match` is LEFTMOST and found a `<<` inside
+# a `<<<` by starting at its second `<`. The `<<` is required to follow a
+# non-`<` for that reason.
 #
 # Comment lines INSIDE a block are dropped rather than folded in, in both
 # modes, because that is what Docker does with them -- a continuation line
@@ -1518,12 +1521,18 @@ _df_apt_run_blocks() {
       } else {
         buf = buf " " line
       }
-      # `<<[^<...]` so a `<<<` here-string is not mistaken for one. The
-      # delimiter is whatever is left after the quoting and the `-` are
-      # stripped, and it has to look like a word -- `$((1<<2))` leaves
-      # `2`, which does not.
-      if (match(line, /<<[^<[:space:]][^[:space:]]*/)) {
-        delim = substr(line, RSTART + 2, RLENGTH - 2)
+      # The `<<` has to be preceded by a NON-`<`, or the leftmost match awk
+      # takes finds one inside a `<<<` by starting at its second `<`: `grep -q x
+      # <<<"${y}"` then opens a heredoc delimited by `y` and swallows every
+      # layer below it into that block. A space is prepended so the guard
+      # still has a character to look at when the `<<` opens the line.
+      # The delimiter is whatever is left after the `<<`, the `-` and the
+      # quoting are stripped, and it has to look like a word --
+      # `$((1<<2))` leaves `2`, which does not.
+      probe = " " line
+      if (match(probe, /[^<]<<-?[^<[:space:]][^[:space:]]*/)) {
+        delim = substr(probe, RSTART + 1, RLENGTH - 1)
+        sub(/^<<-?/, "", delim)
         gsub(/[^A-Za-z0-9_]/, "", delim)
         if (delim ~ /^[A-Za-z_][A-Za-z0-9_]*$/) { hd = delim; next }
       }
