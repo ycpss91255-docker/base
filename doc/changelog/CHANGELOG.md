@@ -117,15 +117,16 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   `cache_backend: registry` is unreachable, and the preflight hint says so.
   The seeded `main.yaml` moves `contents: write` onto `call-release`, which
   reaches newly created repos only.
-- **a worker's grants pin must be applied to that worker (refs #957)** --
-  which scopes a worker's jobs may name is delegated to that worker's own
-  spec. The delegation was first an enumeration of the four specs that
-  existed; then two independent substring questions of one file -- does its
-  text name `yaml_permission_surface`, does its text name the worker --
-  which certified a worker whose surface the spec never reads. Call sites
-  are now derived by `find`, resolved through each call's own argument and
-  matched on the full path; an unresolvable argument pins nothing.
-  `code_lines` / `code_grep` also split "not read" (2) from "no match" (1).
+- **a worker's grants pin must be applied to that worker, and be a CALL
+  (refs #957)** -- which scopes a worker's jobs may name is delegated to
+  that worker's own spec. That delegation was first an enumeration of four
+  specs; then two substring questions of one file; then any occurrence of
+  `yaml_permission_surface` followed by a token, which a path inside a
+  message string or a heredoc fixture also answers -- certifying a worker
+  no spec reads. Call sites are now lexed with the shell's quoting,
+  heredoc and comment rules, and the guard is named for READING a surface,
+  which is what a call-site scan can check. `code_grep` reports an
+  unreadable subject on stderr, keeping its stdout grep-shaped.
 - **the README file table named `setup.conf`, a file that has not existed since
   the rename to `.setup.conf` (refs #957)** -- one row of "What's included" in
   all four READMEs; the prose around it was already dotted. Every row of that

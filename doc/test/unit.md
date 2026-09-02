@@ -1,7 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3131 tests**.
-Unit specs under `test/bats/unit/`: **3128 tests**.
+Unit specs under `test/bats/unit/`: **3179 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -2301,7 +2300,6 @@ resolved under the repo root, `dist/` or `script/`.
 | `README file table: the scan actually finds the rows (#957)` | Floor on the row count, so a renamed heading cannot silence the check above |
 
 
-### test/bats/unit/readme_sync_spec.bats (31)
 ### test/bats/unit/readme_sync_spec.bats (34)
 
 Unit tests for the localized-README drift guard (refs #846, #873):
@@ -3552,7 +3550,7 @@ untested) and uncommented.
 | `action-ref-agreement: is a member of the lint phase's tool table (#949)` | A lint nobody runs is a comment |
 | `action-ref-agreement: has a lint-static CI join (#949)` | Named plain-runner matrix entry, no docker |
 | `action-ref-agreement: its failure event id is registered (#949)` | An unregistered id is an anonymous exit |
-### test/bats/unit/code_lines_spec.bats (26)
+### test/bats/unit/code_lines_spec.bats (29)
 
 The comment-stripped file views in `test/bats/unit/test_helper.bash`
 (`strip_comments` / `only_comments` / `code_lines` / `code_grep` /
@@ -3598,6 +3596,9 @@ must still arrive as 1.
 | `code_grep: passes its flags through and takes the file last` | The signature mirrors grep's own, so a conversion is a one-word edit; `-c` counts over code lines only |
 | `code_grep: a subject it cannot read exits 2, not grep's no-match status` | grep prints the same nothing for "no match" and for "no file", so the status has to split them: 1 is a readable subject without the string, 2 is a subject that was never read |
 | `code_grep: a directory named as the subject exits 2, not 1` | The sibling shape: the redirection fails rather than the file being absent, and bash's own status for that is 1 as well |
+| `code_grep: an unreadable subject reports on stderr, leaving the grep-shaped output empty` | code_grep's stdout is grep's -- lines, or a count under `-c` -- so the reason a subject could not be read goes to stderr beside the status, never into the data a caller counts |
+| `code_grep: a directory subject reports the same way, on stderr` | The sibling shape: the redirection fails rather than the file being absent, and a caller counting matches must not receive prose either way |
+| `code_lines: an unreadable subject keeps its BUG line on stdout` | The complement, so the split cannot spread by symmetry: code_lines' stdout IS its report, and its callers print what they captured |
 | `code_lines: a subject it cannot read exits 2, not 1` | The other emitter of the same status; code_grep reads this one's, so both draw the line in the same place |
 | `code_lines: a readable file with no code line exits 1, not 2` | The complement, so the fix cannot be "return 2 whenever nothing came back": an all-comment file HAS been read |
 | `only_comments: keeps the comment-only lines and nothing else` | The mirror view, for the rare assertion genuinely about what a file SAYS |
@@ -3666,9 +3667,9 @@ one line away from.
 |------|-------------|
 | `reusable workers: every one of them yields at least one job (#957)` | The guard for the guard: every assertion here is "nothing came back wrong", which an extractor returning nothing at all satisfies perfectly. Pairs with the population floor (at least the 4 reusable workers the repo ships, build-worker.yaml among them) that both tests assert before reading a scan |
 | `reusable workers: no job inherits the caller's grant (#957)` | Names `<workflow>: <job>` for every job with no permission entry of its own -- no block, or an inline `permissions: read-all` that names no scope. Such a job runs under whatever the calling repo granted its calling job: a `contents: write` held to cut a release, a `packages: write` held to publish |
-| `reusable workers: every one of them has a spec pinning its grants (#957)` | The class-level half: a worker whose jobs all declare `contents: write` passes both tests above, so every derived worker must also have a spec that APPLIES `yaml_permission_surface` to it. Call sites are derived by `find` over the spec tree and resolved through each call's own argument, then matched against the worker's full path exactly, and the scan is floored at the derived worker count. This file is excluded because it reads every worker's surface to assert the complementary property (that a grant is declared, not which); on today's tree the exclusion changes no verdict, since its loop's argument is a loop variable that resolves to nothing |
+| `reusable workers: every one of them has a spec reading its permission surface (#957)` | The class-level half: a worker whose jobs all declare `contents: write` passes both tests above, so every derived worker must also have a spec that APPLIES `yaml_permission_surface` to it. Call sites are derived by `find` over the spec tree and resolved through each call's own argument, then matched against the worker's full path exactly, and the scan is floored at the derived worker count. Named for READING a surface, not for pinning a grant: whether the reader asserts the exact scope set is a property of the assertion, which no scan over call sites can see. This file is excluded because it reads every worker's surface to assert the complementary property (that a grant is declared, not which) |
 
-### test/bats/unit/yaml_permission_surface_spec.bats (25)
+### test/bats/unit/yaml_permission_surface_spec.bats (32)
 
 Unit tests for the DERIVED job and permission surfaces in
 `test/bats/unit/test_helper.bash` (`yaml_job_names` /
@@ -3731,6 +3732,8 @@ doc count generator counts a spec's tests with `grep -c '^@test'`.
 | `reusable_workflow_files: a worker spelling the trigger "on": is still a worker (#957)` | Quoting `on` is the standard workaround for YAML 1.1 reading it as a boolean, and what several formatters emit; the old `^on:` text anchor exempted such a worker from every least-privilege scan |
 | `reusable_workflow_files: a flow-style on mapping is still read (#957)` | `on: {workflow_call: null}` is the same declaration in flow style |
 | `reusable_workflow_files: a workflow that is not callable is not listed (#957)` | The other direction: a `push`-only workflow runs on its own repo's token and is not part of this population |
+| `workflow_files: lists .yaml and .yml, and nothing else (#957)` | One reading of which files a workflow directory holds, so a third extension cannot reach the derivation and miss the cross-check that re-reads the same directory raw |
+| `reusable_workflow_files: draws its candidates from workflow_files (#957)` | The consequence of the shared reading: a worker written with the other extension is derived, because one place says which extensions a workflow file may carry |
 | `reusable_workflow_files: an unreadable workflow is reported, not skipped (#957)` | A worker the derivation cannot parse is a worker nothing downstream scans, so it joins the listing as a `BUG:` line |
 | `spec_permission_surface_subjects: a mentioned path is not a subject (#957)` | The defect the class-level guard shipped with: a spec that MENTIONS a worker and separately calls the surface on another one certified both. The subject is resolved from the call's own argument |
 | `spec_permission_surface_subjects: a literal argument resolves to itself (#957)` | A call site that names the workflow inline needs no resolution |
@@ -3741,6 +3744,11 @@ doc count generator counts a spec's tests with `grep -c '^@test'`.
 | `spec_permission_surface_subjects: a call with no argument is a BUG line (#957)` | A call whose argument cannot be seen must not be dropped -- dropping it is how a spec that pins a worker stops counting as its pin |
 | `spec_permission_surface_subjects: a spec that never calls it prints nothing and exits 1 (#957)` | The status splits "read, no call site" from "not read", so a caller cannot count an unreadable spec as one that pins nothing |
 | `spec_permission_surface_subjects: a spec it cannot read is a BUG line, not silence (#957)` | The other half of that split, and the one that would otherwise shrink the certified population silently |
+| `spec_permission_surface_subjects: a path inside a double-quoted string is not a subject (#957)` | A quoted occurrence is text, not a call -- and a path in a message string certified a worker nothing reads |
+| `spec_permission_surface_subjects: a path inside a single-quoted string is not a subject (#957)` | The other spelling of the same shape, so a resolver that learns only about double quotes cannot pass |
+| `spec_permission_surface_subjects: a call inside a heredoc body is not a subject (#957)` | A heredoc body is data the spec writes, not code it runs; this tree's own fixtures carry that exact call shape |
+| `spec_permission_surface_subjects: a path after a trailing # is not a subject (#957)` | `code_lines` drops comment-ONLY lines by design, so a trailing comment reaches the derivation and the shell's word-initial `#` rule decides it |
+| `spec_permission_surface_subjects: a call inside a command substitution IS a subject (#957)` | The over-strict failure is the same defect with the sign flipped: `$( )` opened inside a double-quoted assignment is build_worker_yaml_spec's own shape |
 ### test/bats/unit/spec_source_isolation_spec.bats (4)
 
 One repo-wide invariant over `test/bats/`: a spec may READ the live
