@@ -2118,6 +2118,39 @@ _df_flatten() {
   rm -rf "${_tmp}"
 }
 
+@test "the claim sweep refuses a pattern it could not read (#951)" {
+  # `grep` answers three things, and the sweep read two of them as one:
+  # 0 states the claim, 1 does not, and 2 is "I could not evaluate this
+  # pattern at all". An `if` around grep takes the SAME branch for 1 and
+  # 2, so a sweep that never ran reports the file clean -- the shape this
+  # round exists to remove, one level below the patterns themselves.
+  #
+  # The claim strings here are sentinels: this spec is one of the files
+  # the sweep reads, so a real claim written as a fixture would trip it.
+  local _seen
+
+  # Control: the shape the sweep used cannot tell 1 from 2.
+  if grep -qiE -- '[' <<< 'a sentinel phrase' 2>/dev/null; then
+    _seen='stated'
+  else
+    _seen='clean'
+  fi
+  assert_equal "${_seen}" "clean"
+
+  # So the answer has to carry the third case. A pattern grep cannot
+  # compile is an error that says so, never a silent "no".
+  run _df_claim_hits 'a sentinel phrase' '['
+  assert_equal "${status}" "2"
+  assert_output --partial 'could not evaluate'
+
+  # ... and the two it CAN answer are still answered, both ways: a guard
+  # that errors on everything is as unusable as one that never errors.
+  run _df_claim_hits 'this prose holds a sentinel phrase' 'sentinel phrase'
+  assert_equal "${status}" "0"
+  run _df_claim_hits 'this prose holds nothing of the kind' 'sentinel phrase'
+  assert_equal "${status}" "1"
+}
+
 @test "the note gives one [build] arg slot per key (#951)" {
   local _df="/source/dist/dockerfile/Dockerfile"
   assert_spec_subject "${_df}" \
