@@ -402,6 +402,13 @@ _write() {
   run bash -c 'echo B#note'
   [ "${status}" -eq 0 ]
   [ "${output}" = "B#note" ]
+  # `<` and `>` end a word too, and a comment there eats the redirect's
+  # target: the line does not parse at all, so it cannot be a statement
+  # this lint has anything to say about. That is why the scan's set stops
+  # at the five metacharacters above rather than claiming all of them.
+  run bash -c 'echo A >#f'
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"syntax error"* ]]
 }
 
 @test "_run_errexit_bang: PASSES on a bare trailing ';' followed by a comment (#956)" {

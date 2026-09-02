@@ -212,10 +212,13 @@ readonly _ERREXIT_BANG_ALLOW_END='errexit-bang-lint: allow-end'
 #   outside single quotes, and nothing else -- expansions and heredocs are
 #   not modelled, exactly as the header says. A `#` ends the line only
 #   where it starts a WORD -- at the start of the line, after whitespace,
-#   or after one of the metacharacters that end a word (`;`, `&`, `|`,
-#   `(`, `)`) -- which is where the shell starts a comment; `;# note` is
-#   a terminator and prose, not a second command. In mid-word it is data
-#   and the line goes on. Blanking rather than deleting keeps the column
+#   or after one of the five word-ending metacharacters a statement can
+#   continue past (`;`, `&`, `|`, `(`, `)`) -- which is where the shell
+#   starts a comment; `;# note` is a terminator and prose, not a second
+#   command. In mid-word it is data and the line goes on. `<` and `>` end
+#   a word as well and are deliberately not in the set: a comment there
+#   eats the redirect's target, so the line is a SYNTAX ERROR and never a
+#   statement this lint judges (the spec runs that one too). Blanking rather than deleting keeps the column
 #   count, so a reported line still lines up with the file.
 #
 #   One nesting IS tracked: an unquoted `( ... )`. Everything inside it is
@@ -267,9 +270,10 @@ _errexit_bang_code_part() {
         ;;
       '#')
         # A comment starts where the `#` starts a WORD: after a blank, at
-        # the start of the line, or after one of the metacharacters that
-        # end a word. Anywhere else it is data (`echo B#note` prints
-        # `B#note`), which is why this is not an unconditional break.
+        # the start of the line, or after one of the five word-ending
+        # metacharacters a statement can continue past. Anywhere else it
+        # is data (`echo B#note` prints `B#note`), which is why this is
+        # not an unconditional break. `<` / `>` are out by the doc above.
         if [[ "${_depth}" -eq 0 ]]; then
           case "${_prev}" in
             ' '|$'\t'|';'|'&'|'|'|'('|')') break ;;
