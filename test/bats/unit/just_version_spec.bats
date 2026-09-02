@@ -157,7 +157,7 @@ _seed_tree() {
 # dist/script/base/just-version.sh" -- so a whole-file grep is satisfied by
 # the explanation of the reader instead of the reader, and the smoke check
 # could go back to restating the version literal with the spec still green.
-# Same conversion, same reason, as 2b6cbeb5 (closes #954).
+# Same conversion, same reason, as commit 2b6cbeb5.
 
 @test "self-test.yaml: setup-just is pinned from the accessor, not left to install latest (#948)" {
   local _wf=/source/.github/workflows/self-test.yaml

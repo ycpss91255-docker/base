@@ -64,11 +64,28 @@
 #   a package manager          NOTHING pins it -- the registry decides.
 #                              Such a site must be advisory (below)
 #
-# Evidence is looked for in the site's LOGICAL line (backslash
-# continuations joined, which is how both the Dockerfile RUN and the
-# shipped installer pipeline are written) plus the following non-comment
-# lines up to the first blank one, which is how a YAML `uses:` reaches the
-# `with:` block underneath it.
+# Evidence must belong to the SITE, which is why the region it is looked
+# for in is per-mechanism rather than one window for all four:
+#
+#   the upstream release URL   its own LOGICAL line (backslash
+#   the official installer     continuations joined, which is how both the
+#                              Dockerfile RUN and the shipped installer
+#                              pipeline are written). Both spellings put
+#                              the version IN the command -- a URL segment,
+#                              a `--tag` argument -- so evidence sitting on
+#                              a neighbouring command is somebody else's.
+#   the setup action           the logical line plus the following
+#                              non-comment lines, which is how a YAML
+#                              `uses:` reaches the `with:` block underneath
+#                              it. That window stops at the first blank
+#                              line AND at the next sequence item indented
+#                              at or outside the site, so a step cannot
+#                              borrow the next step's `just-version:`.
+#
+# A single shared window read both false negatives as clean: two adjacent
+# `uses: extractions/setup-just@v4` steps where only the second is pinned,
+# and an unpinned installer followed inside one `run: |` block by any
+# command that happens to take a `--tag`.
 #
 # Comment lines are not sites: a comment installs nothing, and prose about
 # this rule (this header, the accessor's, the ADR) must not violate it.
@@ -91,6 +108,15 @@
 # in the first place. Unbalanced markers (an unterminated begin, an
 # unmatched end) fail the lint -- a silently swallowed region would
 # re-open exactly this hole.
+#
+# What a region may mute is exactly the mechanism with no pinnable form --
+# the package-manager row above, whose pin pattern is empty. The three
+# mechanisms that CAN name the version are classified normally inside a
+# region, because the marker's own stated reason ("a host package manager
+# installs whatever its registry carries") says nothing about them: a
+# region opened for the apt/brew/cargo heredoc used to exempt an unpinned
+# `just.systems/install.sh` sitting beside it, which is a mute nobody
+# wrote down.
 #
 # ── Scope ───────────────────────────────────────────────────────────────────
 #
@@ -119,9 +145,11 @@ readonly _JP_ADVISORY_BEGIN='just-provenance: advisory-begin'
 readonly _JP_ADVISORY_END='just-provenance: advisory-end'
 readonly _JP_ADVISORY_SEP='--'
 
-# How far past the logical line pin evidence may sit. A YAML step reaches
-# its `with:` block in two lines; the window stops at the first blank line
-# so it cannot wander into an unrelated step.
+# How far past the logical line pin evidence may sit, for the one
+# mechanism whose evidence is legitimately not on its own line. A YAML step
+# reaches its `with:` block in two lines; the window stops at the first
+# blank line, and at the next sequence item indented at or outside the
+# site, so it cannot wander into the following step.
 readonly _JP_WINDOW=8
 
 # The acquisition vocabulary, and the pin evidence each mechanism admits.
@@ -129,7 +157,7 @@ readonly _JP_WINDOW=8
 # itself a regex full of alternation, and a packed field separator would
 # have to be chosen against them.
 readonly _JP_MARKER_RE=(
-  '(casey/just|releases/download/[^"]*just)'
+  '(casey/just/releases/download|releases/download/[^"]*just)'
   'setup-just'
   'just\.systems/install\.sh'
   '(apk add|apt-get install|apt install|brew install|cargo install|dnf install|yum install|pacman -S|snap install|pkg install|port install|choco install|scoop install|winget install|npm install|pipx install|go install|asdf install|mise install|mise use|nix-env)([^a-zA-Z0-9_-]|.*[^a-zA-Z0-9_-])just([^a-zA-Z0-9_.-]|$)'
@@ -140,6 +168,18 @@ readonly _JP_PIN_RE=(
   'JUST_VERSION'
   'just-version:'
   '--tag'
+  ''
+)
+# Where each mechanism's evidence may sit: `line` = the site's own logical
+# line, `window` = that line plus the bounded block under it. Parallel to
+# the two tables above, and empty where the mechanism has no pin at all.
+# The release URL and the installer take `line` because the version is an
+# argument OF the command; only the setup action's input lives in a
+# separate mapping below it.
+readonly _JP_PIN_SCOPE=(
+  'line'
+  'window'
+  'line'
   ''
 )
 
@@ -172,6 +212,18 @@ _jp_is_comment() {
   [[ "${_t}" == '#'* ]]
 }
 
+# _jp_opens_sibling <line> <site-indent> -- does <line> open a NEW YAML
+# sequence item at or outside the site's own indentation? Such a line
+# begins a sibling step, so everything from it on belongs to that step and
+# not to the site whose window is being built.
+_jp_opens_sibling() {
+  local _l="${1}" _site="${2}" _lead _tail
+  _lead="${_l%%[![:space:]]*}"
+  [[ "${#_lead}" -le "${_site}" ]] || return 1
+  _tail="${_l#"${_lead}"}"
+  [[ "${_tail}" == '- '* || "${_tail}" == '-' ]]
+}
+
 # _jp_scan_file <abs-path> <rel-path> <report-varname>
 #
 # Appends one line per finding to the named report variable.
@@ -187,8 +239,8 @@ _jp_scan_file() {
   fi
   _JP_FILES=$(( _JP_FILES + 1 ))
 
-  local _i=0 _lineno _line _joined _window _in_advisory=0 _begin_line=0
-  local _m _w _hit
+  local _i=0 _lineno _line _joined _window _indent _in_advisory=0 _begin_line=0
+  local _m _w _hit _evidence _lead
   while [[ "${_i}" -lt "${_n}" ]]; do
     _lineno=$(( _i + 1 ))
     _line="${_lines[_i]}"
@@ -224,10 +276,18 @@ _jp_scan_file() {
     done
 
     # The evidence window: the logical line plus the following non-comment
-    # lines, up to the first blank one.
+    # lines, up to the first blank one and up to the next sequence item at
+    # or outside this site's own indentation. Without that second bound the
+    # window walks into the following YAML step and the site is vouched for
+    # by its neighbour's `with:` block.
+    _lead="${_line%%[![:space:]]*}"
+    _indent="${#_lead}"
     _window="${_joined}"
     for (( _w = _i + 1; _w < _n && _w <= _i + _JP_WINDOW; _w++ )); do
       if [[ -z "${_lines[_w]//[[:space:]]/}" ]]; then
+        break
+      fi
+      if _jp_opens_sibling "${_lines[_w]}" "${_indent}"; then
         break
       fi
       if _jp_is_comment "${_lines[_w]}"; then
@@ -243,14 +303,26 @@ _jp_scan_file() {
       _hit="${BASH_REMATCH[0]}"
       _JP_SITES=$(( _JP_SITES + 1 ))
 
-      if [[ "${_in_advisory}" -eq 1 ]]; then
-        _JP_ADVISORY=$(( _JP_ADVISORY + 1 ))
-      elif [[ -z "${_JP_PIN_RE[_m]}" ]]; then
-        _jp_report+="${_rel}:${_lineno}: a package manager cannot be pointed at the pin -- '${_hit}'. Obtain the runner from the pinned upstream release instead, or record this site as advisory."$'\n'
-      elif [[ "${_window}" =~ ${_JP_PIN_RE[_m]} ]]; then
-        _JP_PINNED=$(( _JP_PINNED + 1 ))
+      # The mechanism decides FIRST, the advisory region only after: a
+      # region may mute the mechanism that has no pinnable form, never one
+      # that does.
+      if [[ -z "${_JP_PIN_RE[_m]}" ]]; then
+        if [[ "${_in_advisory}" -eq 1 ]]; then
+          _JP_ADVISORY=$(( _JP_ADVISORY + 1 ))
+        else
+          _jp_report+="${_rel}:${_lineno}: a package manager cannot be pointed at the pin -- '${_hit}'. Obtain the runner from the pinned upstream release instead, or record this site as advisory."$'\n'
+        fi
       else
-        _jp_report+="${_rel}:${_lineno}: unpinned -- '${_hit}' names no version; the site carries no '${_JP_PIN_RE[_m]}'."$'\n'
+        if [[ "${_JP_PIN_SCOPE[_m]}" == 'window' ]]; then
+          _evidence="${_window}"
+        else
+          _evidence="${_joined}"
+        fi
+        if [[ "${_evidence}" =~ ${_JP_PIN_RE[_m]} ]]; then
+          _JP_PINNED=$(( _JP_PINNED + 1 ))
+        else
+          _jp_report+="${_rel}:${_lineno}: unpinned -- '${_hit}' names no version; the site carries no '${_JP_PIN_RE[_m]}'. An advisory region does not cover this mechanism: it can be pinned."$'\n'
+        fi
       fi
       break
     done

@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3116 tests**.
+Unit specs under `test/bats/unit/`: **3124 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -551,7 +551,7 @@ the build side). #801 adds the build side's `cache_backend` export into
 the manifest guard env and a REAL packages: write probe (a GHCR
 blob-upload scope check, not a bare login) for the registry backend.
 
-### test/bats/unit/self_test_yaml_spec.bats (106)
+### test/bats/unit/self_test_yaml_spec.bats (107)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks
 thirteen cumulative invariants:
@@ -2312,7 +2312,7 @@ the resolved subtree root means "this is the base template source itself".
 | `_assert_not_template_source: refuses when the subtree root carries .git (base self)` | `.git` present -> non-zero + actionable error |
 | `_assert_not_template_source: passes when the subtree root has no .git (vendored subtree)` | real subtree -> no-op passthrough |
 
-### test/bats/unit/init_spec.bats (64)
+### test/bats/unit/init_spec.bats (66)
 
 Unit coverage for `init.sh` helpers that previous rounds exercised only
 through the Level-1 integration test. Complements
@@ -2367,10 +2367,12 @@ are hard to trigger from a real `bash template/init.sh` invocation
 | `_preflight_just: emits the init_just_missing event under LOG_FORMAT=json (#607)` | Structured event wired through |
 | `_preflight_just: install hint points at the documented methods (#607)` | Warning carries install pointer |
 | `_preflight_just: the install hint quotes the pin and calls package managers a fallback (#948)` | - |
+| `_just_install_hint: degrades to a placeholder when the pin cannot be read (#948)` | - |
 | `_preflight_just: silent and exits 0 when just is present (#607)` | Runner present -> no warning |
 | `_bootstrap_just: no-op when just is already on PATH (#607)` | Opt-in bootstrap skips when installed |
 | `_bootstrap_just: runs the official installer into ~/.local/bin when absent (#607)` | Opt-in installer pipeline to ~/.local/bin |
 | `_bootstrap_just: installs the pinned version, not whatever is latest (#948)` | - |
+| `_bootstrap_just: refuses to install anything when the pin cannot be resolved (#948)` | - |
 | `_bootstrap_just: aborts with a clear error when the installer pipeline fails (#692)` | #692 installer-failure _error path |
 | `_call_setup: warns but returns 0 when setup.sh exits non-zero (#692)` | #692 warn-on-failure degrade |
 | `_call_setup: skips with a notice when setup.sh is absent (#692)` | #692 skip-when-absent branch |
@@ -3540,7 +3542,7 @@ inside the test that produces it, each case writes a one-test spec into
 | `no spec opens with a fail-open '\|\| skip' existence guard` | The repo-wide invariant, so the idiom cannot creep back in |
 | `the fail-open guard scan sees every spelling of the check, not just [[ -f ]]` | The invariant must be green because no guard exists, not because its pattern is blind |
 
-### test/bats/unit/just_provenance_lint_spec.bats (15)
+### test/bats/unit/just_provenance_lint_spec.bats (20)
 
 | Test | Description |
 |------|-------------|
@@ -3553,6 +3555,11 @@ inside the test that produces it, each case writes a one-test spec into
 | `just provenance: an advisory region with no stated reason is a finding (#948)` | - |
 | `just provenance: an unterminated advisory region is a finding (#948)` | - |
 | `just provenance: an unmatched advisory-end is a finding (#948)` | - |
+| `just provenance: a step cannot borrow the NEXT step's just-version input (#948)` | - |
+| `just provenance: the installer cannot borrow a --tag from a later command (#948)` | - |
+| `just provenance: a pinned release URL still counts when the version arg is on the same logical line (#948)` | - |
+| `just provenance: an advisory region does not mute a mechanism that CAN be pinned (#948)` | - |
+| `just provenance: a pointer to the project's homepage is not an acquisition site (#948)` | - |
 | `just provenance: a missing scan root fails rather than passing vacuously (#948)` | - |
 | `just provenance: an empty scan root fails rather than passing vacuously (#948)` | - |
 | `just provenance: a tree with no provenance site at all fails vacuously-closed (#948)` | - |
