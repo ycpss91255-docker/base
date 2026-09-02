@@ -406,6 +406,19 @@ KEEP
   _log "  Created test/bats/smoke/shared/${name}_env.bats"
 
   # .github/workflows/main.yaml
+  #
+  # Emitted HERE and nowhere else, so the job-scoped grant below reaches
+  # newly created repos only, and that was checked rather than assumed.
+  # An existing repo's main.yaml is its own hand-maintained file (extra
+  # jobs, a pinned tag), so init deliberately never rewrites it -- and the
+  # never-overwrite shape used for base-version-monitor.yaml would be a
+  # no-op on a repo that already has the file, which every already-seeded
+  # downstream does. This function is also unreachable through
+  # bootstrap.sh today: the template ships a Dockerfile, so init takes the
+  # existing-repo branch instead. Re-granting an already-seeded downstream
+  # is delivery work tracked on its own, not this seed's; both halves of
+  # the boundary are pinned in
+  # test/bats/integration/init_new_repo_spec.bats.
   mkdir -p .github/workflows
   cat > .github/workflows/main.yaml <<YAML
 name: Main CI/CD
@@ -418,16 +431,13 @@ on:
   pull_request:
   workflow_dispatch:
 
-# call-release uses softprops/action-gh-release@v2 which needs
-# contents: write to create a GitHub Release. Reusable workflow
-# permissions intersect with the caller's, and GitHub Actions'
-# default GITHUB_TOKEN is read-only, so this grant must live here
-# (release-worker.yaml declaring it upstream is not enough).
-permissions:
-  contents: write
-
 jobs:
   call-docker-build:
+    # The build worker checks out and builds; it pushes no image and
+    # touches no package, so the build call stays read-only. A called
+    # workflow can only narrow this grant, never widen it.
+    permissions:
+      contents: read
     uses: ${BASE_UPSTREAM_SLUG}/.github/workflows/build-worker.yaml@${ref}
     with:
       image_name: ${name}
@@ -435,6 +445,15 @@ jobs:
   call-release:
     needs: call-docker-build
     if: startsWith(github.ref, 'refs/tags/')
+    # call-release uses softprops/action-gh-release@v2, which needs
+    # contents: write to create a GitHub Release. A called workflow can
+    # only narrow the grant it is handed, and GitHub Actions' default
+    # GITHUB_TOKEN is read-only, so this grant must live here
+    # (release-worker.yaml declaring it upstream is not enough). It sits on
+    # this job rather than at the workflow scope so call-docker-build does
+    # not inherit a write it never uses.
+    permissions:
+      contents: write
     uses: ${BASE_UPSTREAM_SLUG}/.github/workflows/release-worker.yaml@${ref}
     with:
       archive_name_prefix: ${name}

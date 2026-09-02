@@ -1,4 +1,4 @@
-<!-- sync: base e5eb312a5446 90441c2b9a5c -->
+<!-- sync: base ff88fde1be47 4e9345ef74cf -->
 # base
 
 [![Self Test](https://github.com/ycpss91255-docker/base/actions/workflows/self-test.yaml/badge.svg)](https://github.com/ycpss91255-docker/base/actions/workflows/self-test.yaml)
@@ -6,7 +6,7 @@
 ![Language](https://img.shields.io/badge/Language-Bash-blue?style=flat-square)
 ![Testing](https://img.shields.io/badge/Testing-Bats-orange?style=flat-square)
 ![ShellCheck](https://img.shields.io/badge/ShellCheck-Compliant-brightgreen?style=flat-square)
-![Coverage](https://img.shields.io/badge/Coverage-Kcov-blueviolet?style=flat-square)
+![Coverage](../badge/coverage.svg)
 [![License](https://img.shields.io/badge/License-Apache--2.0-blue?style=flat-square)](../../LICENSE)
 
 [ycpss91255-docker](https://github.com/ycpss91255-docker) 組織のすべての Docker コンテナ repo 用共有テンプレート。
@@ -141,7 +141,7 @@ flowchart LR
     release_worker -->|"tar.gz + zip"| release["GitHub Release"]
 ```
 
-<!-- sync: whats-included 0ce60532434f f53a0b8e894e -->
+<!-- sync: whats-included c1ac0bade5d6 84277f1bc8c7 -->
 ### 含まれるもの
 
 | ファイル | 説明 |
@@ -171,7 +171,7 @@ flowchart LR
 | `dist/script/docker/runtime/smoke.sh` | runtime install-check smoke |
 | `dist/script/docker/runtime/entrypoint.sh` | テンプレート entrypoint helper |
 | `config/` | コンテナ内部のシェル設定ファイル（bashrc、tmux、terminator、pip） |
-| `setup.conf` | 単一の repo ランタイム設定（image / build / deploy / gui / network / volumes） |
+| `.setup.conf` | 単一の repo ランタイム設定（image / build / deploy / gui / network / volumes） |
 | `dist/test/bats/smoke/` | 共有 smoke テスト + runtime assertion helpers（下記参照） |
 | `test/bats/unit/` | base 自己テスト、ユニット（bats + kcov） |
 | `test/bats/integration/` | base 自己テスト、init/upgrade の end-to-end |
@@ -201,7 +201,7 @@ flowchart LR
 | `dockerfile/Dockerfile.test-tools` | プリビルド lint/test ツール image（shellcheck、hadolint、bats、bats-mock） |
 | `.github/workflows/` | 再利用可能な CI workflows（build + release） |
 
-<!-- sync: dockerfile-stages-convention cfa1ef92737a 58d9b3fd819e -->
+<!-- sync: dockerfile-stages-convention e8e20b69013a d28560a09120 -->
 ### Dockerfile ステージ（規約）
 
 ダウンストリーム repo は `dist/dockerfile/Dockerfile` で定義される標準のマルチステージ構成に従います。
@@ -209,7 +209,7 @@ flowchart LR
 
 | ステージ | 親ステージ | 用途 | 出荷 |
 |----------|------------|------|------|
-| `sys` | `${BASE_IMAGE}` | ユーザー/グループ、sudo、タイムゾーン、ロケール、APT mirror | 中間 |
+| `sys` | `${BASE_IMAGE}` | ユーザー/グループ、sudo、タイムゾーン、ロケール、APT mirror、再現性 manifest | 中間 |
 | `devel-base` | `sys` | 開発ツールと言語パッケージ | 中間 |
 | `devel` | `devel-base` | アプリ固有ツール + `entrypoint.sh` + config レイヤリング | **はい**（主成果物） |
 | `devel-test` | `devel` | 一時的：ShellCheck + Hadolint + Bats smoke（いずれも `test-tools:local` から） | いいえ（build 後破棄） |
@@ -218,6 +218,31 @@ flowchart LR
 | `runtime-test`（任意） | `runtime` | 一時的：runtime install-check smoke | いいえ（build 後破棄） |
 
 補足：
+- `BASE_IMAGE` のデフォルトは動く tag `ubuntu:24.04` で、その上に入れる apt
+  パッケージにもバージョン指定がないため、同じ template バージョンでも時間が
+  経てば同じ image は再現しません。このドリフトは意図的です（consumer は
+  そもそも `BASE_IMAGE` を上書きしますし、dev image は template release なしで
+  セキュリティ更新を取り込めなければなりません）。ただし「記録」されます：
+  `sys` が `/usr/local/share/base/base-image.env`（base reference、その
+  reference が digest pin されているか、build が記録するよう指示された digest、
+  base OS）と
+  `/usr/local/share/base/packages.txt`（各パッケージとその正確なバージョン、
+  apt レイヤーごとに書き直し）を出力し、
+  `org.opencontainers.image.base.name` / `.base.digest` label を付けます。
+  `runtime-base` はまっさらな `${BASE_IMAGE}` から始まり何も継承しないため、
+  両方を再出力します。
+- 出荷時のデフォルトが「記録しない」もの：そのまま build すると manifest は
+  `base_image_pin=none`、`base_image_digest` は空になります——build の内部から
+  daemon に「その tag はどの image に解決したか」を尋ねる手段がないためです。
+  埋めたい場合は `BASE_IMAGE` と併せて `BASE_IMAGE_DIGEST`（pin ではなく記録）
+  を渡します。`BASE_IMAGE` を digest に pin するだけでも build は通り
+  `base_image_pin=digest` と記録されますが、そのフィールドは空のままです：
+  annotation を書くのは `LABEL` であり、`LABEL` は「reference が digest を
+  持つか」で分岐できません——digest を剥がす式は digest が無ければ reference
+  全体を返します——ので、載るのは build arg だけです。両方の sink が空なのは
+  「別途記録していない」という正直な記録なので build は拒否しません。失敗する
+  のは `BASE_IMAGE_DIGEST` が reference と違う digest を指す場合で、出荷される
+  smoke spec が `-test` stage で止めます。
 - developer image のみを出荷する repo（`env/*`）は `runtime-base` /
   `runtime` をスキップし、該当セクションは `Dockerfile` 内で
   コメントアウトしたままにします。
@@ -260,7 +285,7 @@ flowchart LR
 失敗します。ルール 1-2 は grep では判定できない設計判断です。根拠は
 [ADR-00000024](../adr/00000024-bake-artifacts-at-opt-not-home.md)。
 
-<!-- sync: adding-extra-stages-215 2da5b4c5cc6a d0dd264be639 -->
+<!-- sync: adding-extra-stages-215 7c90746cbedf 478d8c1193b8 -->
 #### 追加ステージの追加（#215）
 
 baseline blocklist `{sys, devel-base, devel, runtime-test}`
@@ -268,7 +293,7 @@ baseline blocklist `{sys, devel-base, devel, runtime-test}`
 `FROM <base> AS <stage>` は、自動的に compose サービスとして
 emit されます — `extends: devel`（volumes / network / GPU / GUI /
 cap_add / additional_contexts を継承）し、`build.target` /
-`image` / `container_name` / `stdin_open` / `tty` / `profiles`
+`image` / `stdin_open` / `tty` / `profiles`
 のみを override します。典型的な用途は entrypoint バリアント、
 例えば NVIDIA Isaac Sim の `devel` 上に乗せる `headless` + `gui`
 の 2 種類の起動モード。
@@ -857,53 +882,76 @@ if [ ! -f /proc/sys/fs/binfmt_misc/qemu-aarch64 ]; then
 fi
 ```
 
-<!-- sync: naming-scheme-three-namespaces-two-user-identities 66fe689054d6 bd1b2a0c153c -->
+<!-- sync: naming-scheme-three-namespaces-two-user-identities d45f877c5361 5dd858b76e55 -->
 ### 命名スキーム: 3 つの namespace と 2 つの user identity
 
-`setup.sh` は `.env` / `compose.yaml` に 3 つの名前を生成します。
-単一ユーザの開発機では見た目が似通っていますが、これらは**3 つの
-独立した namespace**に属し、**2 つの異なる user identity**から
-プレフィックスを取ります。共用ホスト（複数 OS user）のシナリオで
-は区別が顕在化します。個人開発機では 2 つの identity が一致する
-ことが多く、深追いする必要はありません。
+`setup.sh` は `.env` / `compose.yaml` に 2 つの名前を生成し、
+3 つめは compose が導出します。単一ユーザの開発機では見た目が
+似通っていますが、これらは**3 つの独立した namespace**に属し、
+**2 つの異なる user identity**からプレフィックスを取ります。共用
+ホスト（複数 OS user）のシナリオでは区別が顕在化します。個人開発
+機では 2 つの identity が一致することが多く、深追いする必要は
+ありません。
 
 | 名前 | 形式 | Namespace | User プレフィックス |
 |---|---|---|---|
 | `image:` | `${DOCKER_HUB_USER:-local}/<repo>:<tag>` | **Registry**（Docker Hub） | `DOCKER_HUB_USER` |
-| `container_name:` | `${USER_NAME}-<repo>` | **ローカル daemon**（同一 docker daemon 内のフラットなグローバル） | `USER_NAME`（OS user、refs #322） |
-| compose project name | `${DOCKER_HUB_USER}-<repo>` | **ローカル daemon**（デフォルト network / volume label に影響） | `DOCKER_HUB_USER` |
+| compose project name | `${DOCKER_HUB_USER}-<repo>` | **ローカル daemon**（container / デフォルト network / volume label のスコープ） | `DOCKER_HUB_USER`（ログインが無い場合は OS user として検出） |
+| container 名 | `<project>-<service>-<n>`、compose が導出 | **ローカル daemon**（フラットなグローバル） | project から継承 |
 
 - `DOCKER_HUB_USER` — Docker Hub アカウント。registry 側で image
   に名前空間を付けるために使います。実際に push しない場合でも、
   image tag は `<DOCKER_HUB_USER>/<repo>:<tag>` という形で
-  この identity を含みます。
-- `USER_NAME` — ホストの OS user（`id -un`）。同じマシン上の
-  異なる OS user が daemon のフラットな container 名前空間で
-  衝突するのを防ぐために使います。
+  この identity を含みます。Docker Hub にログインしていないマシン
+  では、`setup.sh` はこれを空のままにせず、あなたの **OS user**
+  （`${USER}`、無ければ `id -un`）として検出します。
+- `USER_NAME` — ホストの OS user（`id -un`）。container 内のユーザー
+  とホームディレクトリをあなたに合わせるための build arg として渡
+  されます。上の表のどの名前のプレフィックスでもありません。
 
 2 つの identity を意図的に分けています。Image は registry 上で
 アドレス可能なオブジェクトなので Docker Hub identity を使う —
 OS user でプレフィックスを付けてしまうと buildx cache や Docker
-Hub の layer 共有が破綻します。Container name に OS identity を
-使うのは、ここで解決したい衝突（同一ホスト上の 2 user が同一 repo
-を同時実行）が daemon 側の問題であり、registry とは無関係だからです。
+Hub の layer 共有が破綻します。Project name も同じ identity を使い
+ます。個人開発機で両者が揃うのはそのためで、共用ホストでは上の
+検出が既に OS user にフォールバックするため、2 つ目の規則も設定も
+無しに project name が人ごとに変わります。この identity で唯一
+分けられないのは、2 人の OS user が 1 つの Docker Hub ログインを
+共有している場合です。下の具体例を参照してください。
 
-Project name に `DOCKER_HUB_USER` を使うのは #322 以前からの
-決定で、そのまま据え置きました。個人開発機では 2 つの identity
-が重なるため `container_name` と視覚的に揃います。共用ホストでは
-`DOCKER_HUB_USER` も user ごとに異なるのが普通なので、project
-name も結果としてユーザ間衝突を回避できます。`#322` の CHANGELOG
-が言う「container レベルの命名を project レベルに揃える」とは
-「単一ユーザ機」前提での記述です — どちらも user プレフィックス
-を持つという意味では揃っていますが、複数ユーザ機ではそれぞれ別の
-変数から来るので前綴文字列は同一ではありません。
+**開発 stack は `container_name:` を emit しません — 唯一の例外は field
+deploy bundle (`just docker setup deploy`) です。** container 名は
+project ではなく daemon の namespace に属するため、固定名を書くと
+その service は「1 ホストにつき 1 インスタンス」に固定されます:
+同一 repo の 2 つめの stack は project name を何にしても
+`name ... is already in use` で起動できず、このフィールドがある限り
+compose は `--scale` を拒否します。compose に
+`<project>-<service>-<n>` を導出させれば名前は構造上一意になり、
+ホスト内の分離は完全に project name の担当になります。
 
-base は**単一インスタンス**です（#600）: repo ごとに固定名の
-container / project が 1 組だけ。マルチインスタンスのオーケストレーション
-（同一 repo を N 個の並行 container として、それぞれ独自の project name と
-port override で動かすこと）は compose レイヤの仕事です。`docker` 自体に
-project の概念がなく `-p` は `docker compose` が持つのと同じ構図で、base は
-multi には一切関与しません。
+唯一の例外は field deploy bundle (`just docker setup deploy`) で、これは
+`container_name:` を実際に焼き込みます。この bundle は完全に解決済み
+の自己完結した単一デバイス向け artifact -- 1 台に 1 stack、同一ホスト
+に並置されることはなく、展開する overlay も存在しません -- で、運用者
+が求めるのは `docker logs` に使える固定名です。emitter が 2 つ、規則
+も 2 つ。上の並置の議論は開発 stack のものです。
+
+```
+COMPOSE_PROJECT_NAME=isaac-ci      docker compose up -d stream  # isaac-ci-stream-1
+COMPOSE_PROJECT_NAME=isaac-manual  docker compose up -d stream  # isaac-manual-stream-1
+```
+
+利用者の操作は何も変わりません: `just exec -t <target>` が受け取る
+のは以前から compose の**サービス**名で（そのまま `compose exec`
+に渡されます）、`just run` / `just stop` はもともと project 単位
+です。変わるのは、手作業の `docker exec <固定名>` に使える固定名が
+無くなることだけ — compose に尋ねてください（`just exec`）。
+
+base 自身の操作面は**単一インスタンス**のままです（#600）: repo
+ごとに project は 1 つで、`setup apply` が一度だけ解決します。同一
+repo を N 個の並行 stack として動かすのは compose レイヤの仕事で、
+`docker` 自体に project の概念がなく `-p` は `docker compose` が
+持つのと同じ構図です。
 
 同一 repo の 2 つの *checkout* は別の話で、そちらには base の答えがあります:
 `.setup.conf.local` の `[project] name` で checkout ごとに固有の project name
@@ -915,23 +963,23 @@ multi には一切関与しません。
 
 ```
 image:          alice-hub/claude_code:devel
-container_name: alice-claude_code
 project name:   alice-hub-claude_code
+container:      alice-hub-claude_code-devel-1   (compose が導出)
 ```
 
-同じホスト上の別の OS user `bob`:
+同じホスト上の別の OS user `bob`（Docker Hub アカウント未設定）:
 
 ```
-image:          bob-hub/claude_code:devel          (registry tag が異なり cache 共有なし)
-container_name: bob-claude_code
-project name:   bob-hub-claude_code
+image:          bob/claude_code:devel           (hub user を OS user として検出)
+project name:   bob-claude_code                 (同じプレフィックス、設定不要)
+container:      bob-claude_code-devel-1         (compose が導出)
 ```
 
 `alice` と `bob` が同じ `DOCKER_HUB_USER` を共有している場合
-（例: 共用 CI サービスアカウント）、`image` は Docker Hub 上で
-衝突しますが `container_name` で区別できます — registry pull は
-キャッシュされた image を共有し、ホスト内の daemon では互いに
-分離されたままです。
+（例: 共用 CI サービスアカウント）、project name も同一になります。
+それこそが `[project] name` を設定すべきケースです — この設定は
+以前から存在し、`container_name` が上書きしなくなった今、ようやく
+container にも効くようになりました。
 
 <!-- sync: quick-start 629a4900e292 c1409df67119 -->
 ## クイックスタート
@@ -1199,7 +1247,7 @@ just --list  # CI ターゲット表示
 [system](../test/system.md) / [acceptance](../test/acceptance.md) /
 [smoke](../test/smoke.md)）。
 
-<!-- sync: directory-structure cdf5e1772b27 807021cee6fe -->
+<!-- sync: directory-structure 57d0265174f4 0977c0fc7c64 -->
 ## ディレクトリ構造
 
 ```
@@ -1276,6 +1324,7 @@ just --list  # CI ターゲット表示
 │       ├── release-test-tools.yaml     # base 自身の test-tools image release
 │       └── ghcr-cleanup.yaml           # GHCR 上の test-tools untagged orphan を毎週整理
 ├── doc/
+│   ├── badge/                          # 生成されるリリースカバレッジバッジ（リリース時に hand-run、bump caller は未接続：docker_harness#289）
 │   ├── readme/                         # README 翻訳（zh-TW / zh-CN / ja）
 │   ├── adr/                            # Architecture Decision Records（00000001 … 00000024）
 │   ├── test/

@@ -5,7 +5,7 @@
 ![Language](https://img.shields.io/badge/Language-Bash-blue?style=flat-square)
 ![Testing](https://img.shields.io/badge/Testing-Bats-orange?style=flat-square)
 ![ShellCheck](https://img.shields.io/badge/ShellCheck-Compliant-brightgreen?style=flat-square)
-![Coverage](https://img.shields.io/badge/Coverage-Kcov-blueviolet?style=flat-square)
+![Coverage](doc/badge/coverage.svg)
 [![License](https://img.shields.io/badge/License-Apache--2.0-blue?style=flat-square)](./LICENSE)
 
 Shared template for Docker container repos in the [ycpss91255-docker](https://github.com/ycpss91255-docker) organization.
@@ -167,7 +167,7 @@ flowchart LR
 | `script/test/drivers/` | One driver per tool — `bats.sh` / `shellcheck.sh` / `hadolint.sh` |
 | `script/test/lint_bare_stderr.sh` | Bare stderr lint checker |
 | `config/` | Container-internal shell configs (bashrc, tmux, terminator) |
-| `setup.conf` | Single per-repo runtime configuration (image / build / deploy / gui / network / volumes) |
+| `.setup.conf` | Single per-repo runtime configuration (image / build / deploy / gui / network / volumes) |
 | `dist/test/bats/smoke/` | Shared smoke tests + runtime assertion helpers (see below) |
 | `test/bats/unit/` | base self-tests, Unit level (bats + kcov) |
 | `test/bats/integration/` | base self-tests, Integration level (init/upgrade end-to-end) |
@@ -242,7 +242,7 @@ parameterized by `ARG BASE_IMAGE`.
 
 | Stage | Parent | Purpose | Shipped? |
 |-------|--------|---------|----------|
-| `sys` | `${BASE_IMAGE}` | User/group, sudo, timezone, locale, APT mirror | intermediate |
+| `sys` | `${BASE_IMAGE}` | User/group, sudo, timezone, locale, APT mirror, reproducibility manifest | intermediate |
 | `base` | `sys` | Development tools and language packages | intermediate |
 | `devel` | `base` | App-specific tools + `entrypoint.sh` + PlotJuggler (env repos) | **yes** (primary artifact) |
 | `test` | `devel` | Ephemeral: ShellCheck + Hadolint + Bats smoke (all from `test-tools:local`) | no (discarded) |
@@ -250,6 +250,32 @@ parameterized by `ARG BASE_IMAGE`.
 | `runtime` (optional) | `runtime-base` | Slim runtime image (application repos only) | yes, when enabled |
 
 Notes:
+- `BASE_IMAGE` defaults to the moving tag `ubuntu:24.04` and the apt layers on
+  top of it are unversioned, so the same template version does not reproduce
+  the same image over time. The drift is deliberate (consumers override
+  `BASE_IMAGE`, and a dev image must be able to take a security update without
+  a template release) but it is RECORDED: `sys` writes
+  `/usr/local/share/base/base-image.env` (the base reference, whether that
+  reference is digest-pinned, the digest the build was told to record, the
+  base OS) and
+  `/usr/local/share/base/packages.txt` (every package and its exact version,
+  rewritten after each apt layer), and labels the image
+  `org.opencontainers.image.base.name` / `.base.digest`. `runtime-base`
+  re-emits both, since it starts from a fresh `${BASE_IMAGE}` and inherits
+  nothing.
+- What the shipped default does **not** record: built as shipped, the manifest
+  says `base_image_pin=none` and leaves `base_image_digest` empty — nothing
+  inside a build can ask the daemon which image a tag resolved to. Pass
+  `BASE_IMAGE_DIGEST` (a record, not a pin) alongside `BASE_IMAGE` to fill it
+  in. Pinning `BASE_IMAGE` to a digest builds on its own and records
+  `base_image_pin=digest`, but still leaves that field empty: the annotation
+  is written by a `LABEL`, and a `LABEL` cannot branch on whether the
+  reference carries a digest — the expression that strips one returns the
+  whole reference when there is none — so it carries the build arg and
+  nothing else. Empty in both sinks is a truthful "not recorded", so the
+  build does not refuse it; what fails is a `BASE_IMAGE_DIGEST` naming a
+  different digest than the reference, caught by the shipped smoke spec in
+  the `-test` stage.
 - Repos that only ship a developer image (`env/*`) skip `runtime-base` /
   `runtime` — the section stays commented in `Dockerfile`.
 - `test` is always built from `devel`, so runtime assertions inside
@@ -308,7 +334,7 @@ Any `FROM <base> AS <stage>` outside the baseline blocklist
 auto-emitted as a compose service that
 `extends: devel` (inherits volumes / network / GPU / GUI / cap_add /
 additional_contexts) and overrides only `build.target` / `image` /
-`container_name` / `stdin_open` / `tty` / `profiles`. Use case:
+`stdin_open` / `tty` / `profiles`. Use case:
 entrypoint variants like NVIDIA Isaac Sim's `headless` + `gui` on top
 of `devel`.
 
@@ -1219,49 +1245,70 @@ fi
 
 ### Naming scheme: three namespaces, two user identities
 
-`setup.sh` emits three names in `.env` / `compose.yaml`. They look
-similar on a single-user dev machine, but they live in **three
-different namespaces** and pick their user prefix from **two
-different identities**. Sysadmins running shared hosts need to know
-the difference; solo developers can treat the two identities as the
-same and move on.
+`setup.sh` emits two names in `.env` / `compose.yaml`, and compose
+derives the third. They look similar on a single-user dev machine, but
+they live in **three different namespaces** and pick their user prefix
+from **two different identities**. Sysadmins running shared hosts need
+to know the difference; solo developers can treat the two identities as
+the same and move on.
 
 | Name | Format | Namespace | User prefix |
 |---|---|---|---|
 | `image:` | `${DOCKER_HUB_USER:-local}/<repo>:<tag>` | **Registry** (Docker Hub) | `DOCKER_HUB_USER` |
-| `container_name:` | `${USER_NAME}-<repo>` | **Host daemon** (per docker daemon, flat global) | `USER_NAME` (OS user, refs #322) |
-| compose project name | `${DOCKER_HUB_USER}-<repo>` | **Host daemon** (drives default network / volume labels) | `DOCKER_HUB_USER` |
+| compose project name | `${DOCKER_HUB_USER}-<repo>` | **Host daemon** (scopes containers / default network / volume labels) | `DOCKER_HUB_USER` (detected as the OS user when there is no login) |
+| container name | `<project>-<service>-<n>`, derived by compose | **Host daemon** (flat global) | inherited from the project |
 
 - `DOCKER_HUB_USER` — your Docker Hub account, used to namespace
   images on the registry side. Image tags are addressable as
   `<DOCKER_HUB_USER>/<repo>:<tag>` whether or not you actually push.
-- `USER_NAME` — the OS user (from `id -un`), used to keep two OS
-  users on the same host from colliding on the daemon's flat
-  container-name namespace.
+  On a machine with no Docker Hub login, `setup.sh` detects it as your
+  **OS user** (`${USER}`, else `id -un`) rather than leaving it empty.
+- `USER_NAME` — the OS user (from `id -un`), passed in as a build arg so
+  the container user and its home directory match yours. It prefixes no
+  name in the table above.
 
 The two identities are deliberately separate. Image names use the
 Docker Hub identity because images are addressable on the registry,
 and forcing per-OS-user image tags would shatter buildx cache reuse
-and Docker Hub layer sharing. Container names use the OS identity
-because the conflict it fixes (two users on the same host running
-the same repo) is a host-daemon problem with no registry component.
+and Docker Hub layer sharing. The project name uses that same identity,
+so on a single-user machine the two line up — and on a shared host it
+differs per OS user with nothing configured and no second rule, because
+the detection above already falls back to the OS user. The one thing
+that identity cannot separate is two OS users sharing a single Docker
+Hub login; see the worked example below.
 
-Project-name choice of `DOCKER_HUB_USER` predates #322 and was kept
-unchanged: on a single-user dev machine the two identities coincide
-so the names line up visually with `container_name`; on a shared
-host the project name still avoids cross-user collision *because*
-`DOCKER_HUB_USER` happens to differ per user too. The `#322`
-CHANGELOG entry's phrasing "aligns container-level naming with
-project-level naming" is true under that single-user-machine
-assumption — both are user-prefixed, just via different vars — not
-literally the same prefix string in the multi-user case.
+**The dev stack emits no `container_name:`, and the field-deploy bundle
+(`just docker setup deploy`) is the one exemption.** A container name is
+namespaced by the daemon rather than by the project, so a fixed one pins
+the service to a single instance per host: a second stack of the same
+repo fails to start with `name ... is already in use` however it is
+named, and compose refuses `--scale` while the directive is present.
+Letting compose derive `<project>-<service>-<n>` makes the name unique
+by construction, which is what puts per-host isolation entirely in the
+project name.
 
-base is **single-instance** (#600): one fixed-name container/project
-per repo. Multi-instance orchestration (running the same repo as N
-parallel containers with unique project names and port overrides)
-belongs to the compose layer, mirroring how `docker` has no project
-concept and `docker compose` owns `-p` — base does not do multi at
-all.
+The one exemption is the field-deploy bundle (`just docker setup deploy`),
+which does bake a `container_name:`. That bundle is a fully resolved,
+self-contained single-device artifact -- one stack per device, never
+co-located, no overlay expanding it -- and the operator running it wants
+one stable name to `docker logs`. Two emitters, two rules; the
+co-location argument above applies to the dev stack.
+
+```
+COMPOSE_PROJECT_NAME=isaac-ci      docker compose up -d stream  # isaac-ci-stream-1
+COMPOSE_PROJECT_NAME=isaac-manual  docker compose up -d stream  # isaac-manual-stream-1
+```
+
+Nothing you type changes: `just exec -t <target>` takes a compose
+**service** name (it always did — it is passed straight to `compose
+exec`), and `just run` / `just stop` are project-scoped already. What
+does change is that `docker exec <fixed-name>` by hand no longer has a
+fixed name to use; ask compose (`just exec`) instead.
+
+base's own control surface stays **single-instance** (#600): one project
+per repo, resolved once by `setup apply`. Running the same repo as N
+parallel stacks is the compose layer's job, mirroring how `docker` has
+no project concept and `docker compose` owns `-p`.
 
 Two *checkouts* of the same repo are a different question, and base
 does answer that one: give each checkout its own project name with
@@ -1273,22 +1320,23 @@ Worked example. OS user `alice`, Docker Hub user `alice-hub`, repo
 
 ```
 image:          alice-hub/claude_code:devel
-container_name: alice-claude_code
 project name:   alice-hub-claude_code
+container:      alice-hub-claude_code-devel-1   (derived by compose)
 ```
 
-A second OS user `bob` on the same host:
+A second OS user `bob` on the same host, with no Docker Hub account
+configured:
 
 ```
-image:          bob-hub/claude_code:devel          (different registry tag, no cache reuse)
-container_name: bob-claude_code
-project name:   bob-hub-claude_code
+image:          bob/claude_code:devel           (hub user detected as the OS user)
+project name:   bob-claude_code                 (same prefix, no configuration)
+container:      bob-claude_code-devel-1         (derived by compose)
 ```
 
 If `alice` and `bob` share `DOCKER_HUB_USER` (e.g. a shared CI
-service account), `image` collides on Docker Hub but `container_name`
-still differentiates — registry pulls share the cached image and
-hosts stay deconflicted.
+service account) they also share a project name, and that is the case
+to set `[project] name` for — the setting exists, and with no
+`container_name` baked over it, it now reaches the containers too.
 
 ## Quick Start
 
@@ -1697,6 +1745,7 @@ See [TEST.md](doc/test/TEST.md) for the test index (per-category catalogs:
 │       ├── release-test-tools.yaml     # base's own test-tools image release
 │       └── ghcr-cleanup.yaml           # Weekly prune of untagged test-tools orphans on GHCR
 ├── doc/
+│   ├── badge/                          # Generated release coverage badge (hand-run at release; bump caller pending, docker_harness#289)
 │   ├── readme/                         # README translations (zh-TW / zh-CN / ja)
 │   ├── adr/                            # Architecture Decision Records (00000001 … 00000024)
 │   ├── test/

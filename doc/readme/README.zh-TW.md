@@ -1,4 +1,4 @@
-<!-- sync: base e5eb312a5446 90ec11665567 -->
+<!-- sync: base ff88fde1be47 269fd00905ca -->
 # base
 
 [![Self Test](https://github.com/ycpss91255-docker/base/actions/workflows/self-test.yaml/badge.svg)](https://github.com/ycpss91255-docker/base/actions/workflows/self-test.yaml)
@@ -6,7 +6,7 @@
 ![Language](https://img.shields.io/badge/Language-Bash-blue?style=flat-square)
 ![Testing](https://img.shields.io/badge/Testing-Bats-orange?style=flat-square)
 ![ShellCheck](https://img.shields.io/badge/ShellCheck-Compliant-brightgreen?style=flat-square)
-![Coverage](https://img.shields.io/badge/Coverage-Kcov-blueviolet?style=flat-square)
+![Coverage](../badge/coverage.svg)
 [![License](https://img.shields.io/badge/License-Apache--2.0-blue?style=flat-square)](../../LICENSE)
 
 [ycpss91255-docker](https://github.com/ycpss91255-docker) 組織下所有 Docker 容器 repo 的共用模板。
@@ -137,7 +137,7 @@ flowchart LR
     release_worker -->|"tar.gz + zip"| release["GitHub Release"]
 ```
 
-<!-- sync: whats-included 0ce60532434f abd91fab30bb -->
+<!-- sync: whats-included c1ac0bade5d6 144b2b0e789f -->
 ### 包含內容
 
 | 檔案 | 說明 |
@@ -170,7 +170,7 @@ flowchart LR
 | `script/test/drivers/` | 每個工具一支 driver — `bats.sh` / `shellcheck.sh` / `hadolint.sh` |
 | `script/test/lint_bare_stderr.sh` | Bare stderr lint 檢查 |
 | `config/` | Container 內部 shell 設定檔（bashrc、tmux、terminator、pip） |
-| `setup.conf` | 單一 per-repo runtime 配置（image / build / deploy / gui / network / volumes） |
+| `.setup.conf` | 單一 per-repo runtime 配置（image / build / deploy / gui / network / volumes） |
 | `dist/test/bats/smoke/` | 共用 smoke 測試 + runtime assertion helpers（見下方） |
 | `test/bats/unit/` | base 自身測試，unit（bats + kcov） |
 | `test/bats/integration/` | base 自身測試，init/upgrade 端對端 |
@@ -196,7 +196,7 @@ flowchart LR
 | `dockerfile/Dockerfile.test-tools` | 預建置 lint/test 工具 image（shellcheck、hadolint、bats、bats-mock） |
 | `.github/workflows/` | 可重用 CI workflows（build + release） |
 
-<!-- sync: dockerfile-stages-convention cfa1ef92737a 610a26e2f7b8 -->
+<!-- sync: dockerfile-stages-convention e8e20b69013a 1281757a60af -->
 ### Dockerfile 分層（慣例）
 
 下游 repo 遵循標準多階段配置，定義於 `dist/dockerfile/Dockerfile`。
@@ -204,7 +204,7 @@ flowchart LR
 
 | 階段 | 父階段 | 用途 | 是否出貨 |
 |------|--------|------|---------|
-| `sys` | `${BASE_IMAGE}` | 使用者/群組、sudo、時區、語系、APT mirror | 中介 |
+| `sys` | `${BASE_IMAGE}` | 使用者/群組、sudo、時區、語系、APT mirror、可重現性 manifest | 中介 |
 | `devel-base` | `sys` | 開發工具與語言套件 | 中介 |
 | `devel` | `devel-base` | 應用專屬工具 + `entrypoint.sh` + config layering | **是**（主要產物） |
 | `devel-test` | `devel` | 短暫：ShellCheck + Hadolint + Bats smoke（均來自 `test-tools:local`） | 否（build 完即丟） |
@@ -213,6 +213,25 @@ flowchart LR
 | `runtime-test`（選用） | `runtime` | 短暫：runtime install-check smoke | 否（build 完即丟） |
 
 說明：
+- `BASE_IMAGE` 預設是會移動的 tag `ubuntu:24.04`，其上安裝的 apt 套件也沒有版本，
+  所以同一個 template 版本在不同時間並不會重現同一個 image。這個漂移是刻意的
+  （consumer 本來就會覆寫 `BASE_IMAGE`，而 dev image 必須能在不發 template
+  release 的情況下吃到安全性更新），但它會被「記錄」下來：`sys` 會寫出
+  `/usr/local/share/base/base-image.env`（base reference、該 reference 是否
+  digest-pinned、build 被告知要記錄的 digest、base OS）與 `/usr/local/share/base/packages.txt`
+  （每個套件與其確切版本，每個 apt layer 之後重寫一次），並標上
+  `org.opencontainers.image.base.name` / `.base.digest` label。`runtime-base`
+  因為是全新的 `${BASE_IMAGE}`、什麼都不繼承，所以會再寫一次。
+- 出貨預設「沒有」記錄到的部分：照預設 build 出來的 manifest 會是
+  `base_image_pin=none`、`base_image_digest` 留空——build 內部無法向 daemon
+  詢問某個 tag 解析到哪個 image。要補上就在 `BASE_IMAGE` 之外再傳
+  `BASE_IMAGE_DIGEST`（那是「記錄」不是 pin）。把 `BASE_IMAGE` pin 成 digest
+  本身就 build 得起來，也會記成 `base_image_pin=digest`，但那個欄位仍會留空：
+  annotation 是由 `LABEL` 寫的，而 `LABEL` 無法依「reference 有沒有帶 digest」
+  分支——同一個去頭運算式在沒有 digest 時會回傳整個 reference——所以它只帶
+  build arg。兩個 sink 同時留空是誠實的「未另外記錄」，build 不會因此拒絕；
+  真正會失敗的是 `BASE_IMAGE_DIGEST` 指到與 reference 不同的 digest，由出貨的
+  smoke spec 在 `-test` stage 擋下。
 - 只出貨 developer image 的 repo（`env/*`）會跳過 `runtime-base` /
   `runtime`——該 section 在 `Dockerfile` 維持註解狀態。
 - `devel-test` 永遠從 `devel` 繼承，所以 `test/bats/smoke/<repo>_env.bats` 裡的
@@ -251,7 +270,7 @@ image，`$HOME` 可能不一樣。
 第 1、2 條屬於判斷題，grep 判不出來。設計理由見
 [ADR-00000024](../adr/00000024-bake-artifacts-at-opt-not-home.md)。
 
-<!-- sync: adding-extra-stages-215 2da5b4c5cc6a fcbff20c6669 -->
+<!-- sync: adding-extra-stages-215 7c90746cbedf 90b4ca477f35 -->
 #### 新增額外 stage（#215）
 
 任何在 baseline blocklist `{sys, devel-base, devel, runtime-test}`
@@ -259,7 +278,7 @@ image，`$HOME` 可能不一樣。
 `FROM <base> AS <stage>`，會被自動 emit 成一個 compose 服務 —
 `extends: devel`（繼承 volumes / network / GPU / GUI / cap_add /
 additional_contexts），只 override `build.target` / `image` /
-`container_name` / `stdin_open` / `tty` / `profiles`。典型用例是
+`stdin_open` / `tty` / `profiles`。典型用例是
 entrypoint 變體，如 NVIDIA Isaac Sim 在 `devel` 之上的
 `headless` + `gui` 兩種啟動模式。
 
@@ -807,45 +826,67 @@ if [ ! -f /proc/sys/fs/binfmt_misc/qemu-aarch64 ]; then
 fi
 ```
 
-<!-- sync: naming-scheme-three-namespaces-two-user-identities 66fe689054d6 d28e58cf2c8d -->
+<!-- sync: naming-scheme-three-namespaces-two-user-identities d45f877c5361 0890e8fcfd09 -->
 ### 命名規則：三個 namespace、兩個 user 身份
 
-`setup.sh` 會在 `.env` / `compose.yaml` 產三個名稱。它們在單人開發
-機上長得像，但實際分布在**三個獨立 namespace**，並取兩個**不同的
-user 身份**做前綴。共用機器（多 OS user）的場景下這個差異會浮現；
-個人開發機上兩個身份通常一致可不必細究。
+`setup.sh` 會在 `.env` / `compose.yaml` 產兩個名稱，第三個由 compose
+自己推導。它們在單人開發機上長得像，但實際分布在**三個獨立
+namespace**，並取兩個**不同的 user 身份**做前綴。共用機器（多 OS
+user）的場景下這個差異會浮現；個人開發機上兩個身份通常一致可不必
+細究。
 
 | 名稱 | 格式 | Namespace | User 前綴 |
 |---|---|---|---|
 | `image:` | `${DOCKER_HUB_USER:-local}/<repo>:<tag>` | **Registry**（Docker Hub） | `DOCKER_HUB_USER` |
-| `container_name:` | `${USER_NAME}-<repo>` | **本地 daemon**（同 docker daemon 內 flat 全域） | `USER_NAME`（OS user，refs #322） |
-| compose project name | `${DOCKER_HUB_USER}-<repo>` | **本地 daemon**（影響預設 network / volume label） | `DOCKER_HUB_USER` |
+| compose project name | `${DOCKER_HUB_USER}-<repo>` | **本地 daemon**（界定 container / 預設 network / volume label） | `DOCKER_HUB_USER`（沒有登入時偵測為 OS user） |
+| container 名稱 | `<project>-<service>-<n>`，由 compose 推導 | **本地 daemon**（flat 全域） | 繼承自 project |
 
 - `DOCKER_HUB_USER` — 你的 Docker Hub 帳號，用來在 registry 端把
   image 加上命名空間。即使從未實際 push，image tag 仍透過這個
-  identity 寫成 `<DOCKER_HUB_USER>/<repo>:<tag>`。
-- `USER_NAME` — 主機 OS user（`id -un`），用來避免同台機器上不同
-  OS user 在 daemon 的 flat container 命名空間互撞。
+  identity 寫成 `<DOCKER_HUB_USER>/<repo>:<tag>`。機器上沒有登入
+  Docker Hub 時，`setup.sh` 不會讓它留空，而是偵測成你的 **OS
+  user**（`${USER}`，否則 `id -un`）。
+- `USER_NAME` — 主機 OS user（`id -un`），以 build arg 傳進去讓
+  container 內的使用者與家目錄和你一致。它不是上表任何名稱的前綴。
 
 刻意把兩個身份分開。Image 用 Docker Hub 身份，因為 image 是會在
 registry 上被定址的物件；若以 OS user 做前綴，buildx cache 與
-Docker Hub layer 共用會直接破功。Container name 用 OS 身份，因為
-這層解決的衝突（同 host 兩 user 同跑同 repo）是 daemon 端問題、
-無 registry 牽涉。
+Docker Hub layer 共用會直接破功。Project name 用的就是同一個身份，
+單人機上兩者才會對齊 — 而在共用機器上，因為上面那層偵測本來就會
+退回 OS user，不需要第二條規則、也不需要任何設定，project name 就
+已經因人而異。這個身份唯一分不開的情況，是兩個 OS user 共用同一個
+Docker Hub 登入；見下方範例。
 
-Project name 用 `DOCKER_HUB_USER` 是 #322 之前就決定，未動：在
-單人開發機上兩個身份重合，與 `container_name` 視覺上對齊；多人共
-用機則因為 `DOCKER_HUB_USER` 通常也不同，所以 project name 一樣
-能避開跨 user 衝突。`#322` 的 CHANGELOG 寫的「對齊 container-level
-與 project-level naming」在「單人機」假設下成立 — 兩者都帶 user
-前綴，差別只在「同一個 var 還是兩個 var」；多人機場景下兩個前綴
-是不同字串。
+**開發 stack 不 emit `container_name:`，唯一的例外是 field deploy
+bundle（`just docker setup deploy`）。** Container 名稱是 daemon
+層的 namespace、不是 project 層的，所以寫死一個名字等於把該 service
+綁在「每台 host 只能有一份」：同一個 repo 的第二份 stack 不管取什麼
+project name，都會以 `name ... is already in use` 起不來，而且只要
+這個欄位在，compose 就拒絕 `--scale`。交給 compose 推導
+`<project>-<service>-<n>`，名字就天生唯一 — 於是 host 層的隔離完全
+落在 project name 上。
 
-base 是**單一 instance**（#600）：每個 repo 只有一組固定名字的
-container / project。Multi-instance 編排（把同一個 repo 跑成 N 個
-平行 container，各有獨立 project name 與 port override）屬於 compose
-那一層，就像 `docker` 本身沒有 project 概念、`-p` 歸 `docker compose`
-管一樣 — base 完全不碰 multi。
+唯一的例外是 field deploy bundle（`just docker setup deploy`），它確實會
+寫死一個 `container_name:`。那份 bundle 是完全 resolve 過、自帶所有
+內容的單機 artifact — 一台裝置一份 stack、不會和別人同機共存、也沒有
+任何 overlay 會展開它 — 操作者要的就是一個固定名字可以 `docker
+logs`。兩個 emitter、兩套規則；上面共存的論述講的是開發 stack。
+
+```
+COMPOSE_PROJECT_NAME=isaac-ci      docker compose up -d stream  # isaac-ci-stream-1
+COMPOSE_PROJECT_NAME=isaac-manual  docker compose up -d stream  # isaac-manual-stream-1
+```
+
+使用方式沒有任何改變：`just exec -t <target>` 收的一直是 compose
+**service** 名稱（它本來就直接轉交給 `compose exec`），`just run` /
+`just stop` 本來就以 project 為範圍。真正改變的是：手動
+`docker exec <固定名稱>` 不再有固定名稱可用 — 改問 compose（`just
+exec`）。
+
+base 自己的操作面仍是**單一 instance**（#600）：每個 repo 一個
+project，由 `setup apply` 解析一次。把同一個 repo 跑成 N 份平行
+stack 屬於 compose 那一層，就像 `docker` 本身沒有 project 概念、
+`-p` 歸 `docker compose` 管一樣。
 
 同一個 repo 的兩個 *checkout* 是另一個問題，而這個 base 有解：用
 `.setup.conf.local` 的 `[project] name` 給每個 checkout 自己的
@@ -856,22 +897,22 @@ project name — 見[同時跑兩個 worktree](#同時跑兩個-worktree)。
 
 ```
 image:          alice-hub/claude_code:devel
-container_name: alice-claude_code
 project name:   alice-hub-claude_code
+container:      alice-hub-claude_code-devel-1   (compose 推導)
 ```
 
-第二位 OS user `bob` 在同台機器：
+第二位 OS user `bob` 在同台機器，且沒有設定 Docker Hub 帳號：
 
 ```
-image:          bob-hub/claude_code:devel          (不同 registry tag,無 cache 共用)
-container_name: bob-claude_code
-project name:   bob-hub-claude_code
+image:          bob/claude_code:devel           (hub user 偵測成 OS user)
+project name:   bob-claude_code                 (同一個前綴,零設定)
+container:      bob-claude_code-devel-1         (compose 推導)
 ```
 
 若 `alice` 與 `bob` 共用同一個 `DOCKER_HUB_USER`（例如共用 CI
-service 帳號），`image` 會在 Docker Hub 端撞名，但 `container_name`
-仍能區隔 — registry pull 共用 cached image、host 內 daemon 仍
-彼此隔離。
+service 帳號），連 project name 都會一樣 — 這正是該設
+`[project] name` 的場景：這個設定本來就存在，而現在沒有
+`container_name` 蓋在上面，它才真的管得到 container。
 
 <!-- sync: quick-start 629a4900e292 a10e7022bfcd -->
 ## 快速開始
@@ -1120,7 +1161,7 @@ just --list  # 顯示 CI 指令
 [system](../test/system.md) / [acceptance](../test/acceptance.md) /
 [smoke](../test/smoke.md)）。
 
-<!-- sync: directory-structure cdf5e1772b27 eb4bd3f434db -->
+<!-- sync: directory-structure 57d0265174f4 9abcfe808206 -->
 ## 目錄結構
 
 ```
@@ -1197,6 +1238,7 @@ just --list  # 顯示 CI 指令
 │       ├── release-test-tools.yaml     # base 自身的 test-tools image release
 │       └── ghcr-cleanup.yaml           # 每週清理 GHCR 上 test-tools 的 untagged orphan
 ├── doc/
+│   ├── badge/                          # 產生的發布覆蓋率徽章（release 時 hand-run，bump caller 待接：docker_harness#289）
 │   ├── readme/                         # README 翻譯（zh-TW / zh-CN / ja）
 │   ├── adr/                            # Architecture Decision Records（00000001 … 00000024）
 │   ├── test/

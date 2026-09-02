@@ -24,7 +24,7 @@ carrying its own test count) live in the sibling docs below.
 | [integration.md](integration.md) | `test/bats/integration/` -- init / upgrade / dispatch across components (Integration level) | 150 |
 | [system.md](system.md) | `test/bats/system/` -- opt-in `runtime-test` buildx specs, gate-fires Regression (System level, host docker) | 13 |
 | [acceptance.md](acceptance.md) | `test/bats/acceptance/` -- consumer framework + UX, UAT/OAT (Acceptance level; CI-only via the `acceptance` job, #785) | 0 |
-| [smoke.md](smoke.md) | `dist/test/bats/smoke/` -- shipped per-stage build-time smoke templates (Smoke type) | 34 |
+| [smoke.md](smoke.md) | `dist/test/bats/smoke/` -- shipped per-stage build-time smoke templates (Smoke type) | 38 |
 
 Self-test grand total (unit + integration): **3334**.
 
@@ -92,7 +92,7 @@ tool therefore needs its own join to `.github/workflows/self-test.yaml`:
 | `early-close-reader` | no `\| head` / `\| grep -q` under `dist/` or `script/`, where an early-closing reader strands its writer and `pipefail` inverts the answer | `lint-static (early-close-reader)` | ungated |
 | `derived-figures` | a figure a document repeats matches the code that defines it | `lint-static (derived-figures)` | ungated |
 | `i18n-orphan` | no identifier-shaped token in a translation's code spans that `README.md` never names | `lint-static (i18n-orphan)` | ungated |
-| `changelog-entry` | no `[Unreleased]` changelog entry over 700 chars (measured whitespace-collapsed over the whole entry), no entry repeating another's lead bullet, no `### <category>` heading opening twice in one release block | `lint-static (changelog-entry)` | ungated |
+| `changelog-entry` | no `[Unreleased]` changelog entry over 700 chars, measured whitespace-collapsed over the whole entry | `lint-static (changelog-entry)` | ungated |
 
 `lint-static` is a matrix so a red check names the lint that failed, and it is
 ungated because two of its entries (`adr-numbering`, `readme-sync`) are

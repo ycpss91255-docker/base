@@ -237,6 +237,67 @@ infrastructure, so it has to be as reviewable as the rest of the config.
 `name:`; the gitignored per-worktree layer that records the divergence);
 the content-keyed tooling tag + checkout-keyed test project (#891 / #892).
 
+### 10. Documentation is derived from the code, never duplicated beside it
+
+A figure or a listing that can be computed from the tree is computed when
+it is read, not stored in a tracked file that somebody must then keep in
+agreement with the tree. What a documentation file holds is what no
+generator can produce: intent, rationale, and the reason a thing is shaped
+the way it is.
+
+The corollary that decides where derived values live: **a derived figure
+that describes the tree is stale from the moment the next commit lands.**
+Storing it at a slower cadence than it changes does not fix that -- it
+makes the staleness harder to notice, and a number that is only sometimes
+right is harder to use than no number, because it must be distrusted every
+time. So such a value is not stored at a slower cadence; it is not stored.
+
+What that turns on is the referent, not the storage. A figure that names
+what it measured -- a coverage rate labelled with the version it was
+measured on -- makes no claim about the moving tree, so it cannot go stale
+and it may be committed. The test totals had no referent: `3239 tests`
+asserted something about the tree, which is why every branch had to edit
+it.
+
+Where a derived value is genuinely wanted by a reader, it is attached to
+the thing it describes at the moment it was measured -- a release carries
+its own test report -- rather than being maintained in a document that
+outlives its own accuracy.
+
+*Why it is fixed:* this is invariant 7's argument applied to the other
+half of what base ships. Invariant 7 fixes base's TEST bar on the grounds
+that "downstreams trust base because base is verifiably correct"; a
+downstream never runs base's suite, it inherits the consequence. The same
+holds for the documentation: base is vendored into every downstream, and
+what a downstream reads to decide how to use the foundation is base's own
+documentation. A document that looks authoritative and is wrong is
+invariant 2's silent failure, propagated -- and it is worse than a wrong
+figure in a report, because the reader has no way to tell which sentences
+are derived and stale from which are authored and current. So how base
+stores its documentation is a property of the product on exactly the
+footing invariant 7 stands on, not a housekeeping preference.
+
+The duplicate also costs on three measured axes at once (figures measured
+2026-09-02). It **rots**: 46% of the per-test
+catalogue's hand-written descriptions are placeholders (761 of 1,658 rows
+in `doc/test/unit.md`), and where filled they mostly restate the test name
+they sit beside. It **collides**: five lines carrying a test total are
+edited by every branch, so 61 of the 65 merges of `origin/main` into a
+branch since 2026-08-25 conflicted in `doc/test/`, and 35 commits over
+that window touched nothing else. And it **misleads**: a committed figure
+looks authoritative exactly when it is wrong, which is between every
+commit and the sync that follows it.
+
+*Serves / established by:* ADR-00000028 (test statistics live only in the
+release, sourced from the run's JUnit XML rather than from a scan of the
+source); ADR-00000027 (the release cadence this rides); the
+`derived-figures` lint, which enforces the same rule for the named
+constants it covers. Invariant 2's guard list names the doc-count drift
+gate, which ADR-00000028 removes along with the figures it guarded; that
+entry drops from invariant 2 when that mechanism lands. #952 (the release
+coverage badge, merged as PR #974) is the case that fixes where the line
+falls: it names the version it measured, so it is stored.
+
 ## Product Shape
 
 - **Vendored subtree, thin caller** (invariant 6): base is the shared core;

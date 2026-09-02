@@ -179,3 +179,25 @@ _input_block() {
   assert_success
   assert_output --partial 'name: ci-passed'
 }
+
+# ── Per-job least privilege ──────────────────────────────────────────────────
+
+@test "multi-distro-build-worker.yaml: every job's grant is pinned as an exact set (#957)" {
+  # The dispatcher itself builds nothing and pushes nothing: resolve-matrix
+  # emits JSON, call-build delegates to build-worker.yaml, ci-passed rolls
+  # the matrix result up for branch protection. None of the three needs
+  # more than a checkout, so all three are pinned to `contents: read`.
+  #
+  # This file is the reason the least-privilege guard was widened past
+  # build-worker: it had three jobs and no `permissions:` line anywhere, so
+  # every job ran on the CALLING repo's whole token while the guard next
+  # door was green.
+  # The exact set is what keeps that from coming back one scope at a time.
+  # The job list is DERIVED, so a fourth job is named here on the day it
+  # lands.
+  run yaml_permission_surface "${WF}"
+  assert_success
+  assert_output 'resolve-matrix: contents: read
+call-build: contents: read
+ci-passed: contents: read'
+}
