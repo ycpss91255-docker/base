@@ -258,12 +258,18 @@ the thing it describes at the moment it was measured -- a release carries
 its own test report -- rather than being maintained in a document that
 outlives its own accuracy.
 
-*Why it is fixed:* base is vendored into every downstream, and what a
-downstream reads to decide whether to trust the foundation is base's own
+*Why it is fixed:* this is invariant 7's argument applied to the other
+half of what base ships. Invariant 7 fixes base's TEST bar on the grounds
+that "downstreams trust base because base is verifiably correct"; a
+downstream never runs base's suite, it inherits the consequence. The same
+holds for the documentation: base is vendored into every downstream, and
+what a downstream reads to decide how to use the foundation is base's own
 documentation. A document that looks authoritative and is wrong is
-invariant 2's silent failure, propagated -- so how base stores its
-documentation is a property of the product, not a housekeeping
-preference. The duplicate also costs on three measured axes at once
+invariant 2's silent failure, propagated -- and it is worse than a wrong
+figure in a report, because the reader has no way to tell which sentences
+are derived and stale from which are authored and current. So how base
+stores its documentation is a property of the product on exactly the
+footing invariant 7 stands on, not a housekeeping preference. The duplicate also costs on three measured axes at once
 (figures measured 2026-09-02). It **rots**: 46% of the per-test
 catalogue's hand-written descriptions are placeholders (761 of 1,658 rows
 in `doc/test/unit.md`), and where filled they mostly restate the test name
