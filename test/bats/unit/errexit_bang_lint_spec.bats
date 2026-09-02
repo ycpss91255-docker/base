@@ -134,6 +134,50 @@ _write() {
   [[ "${output}" == *"x_spec.bats:2"* ]]
 }
 
+@test "bash: a backgrounded '!' returns 0 whatever the command did (#956)" {
+  # Why `&` is a hand-off, pinned by running it. `! A &` is an ASYNC
+  # list: the shell forks, does not wait, and the list's status is 0 --
+  # not the negation's. So the failing direction (A SUCCEEDED, the
+  # negation is 1, the body must fail) never reaches the body's status,
+  # and it does not reach it from the LAST statement either, which is
+  # where `!` is otherwise an assertion.
+  run bash -c 'set -e; body() { ! true & }; body'
+  [ "${status}" -eq 0 ]
+  run bash -c 'set -e; body() { ! true; }; body'
+  [ "${status}" -eq 1 ]
+  # And with something after it the `&` is a separator like `;`: the
+  # list's status is the LAST command's, unconditionally.
+  run bash -c 'set -e; body() { ! true & true; }; body'
+  [ "${status}" -eq 0 ]
+}
+
+@test "_run_errexit_bang: FAILS on a bang statement handed to the background (#956)" {
+  # The inert assertion this lint is named for, in the one position the
+  # position rule declines to judge: the body's LAST statement. Its
+  # status is the fork's, always 0, so the test passes whatever the
+  # command did.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "backgrounded" {' \
+    '  ! grep -q A "${_f}" &' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"x_spec.bats:2"* ]]
+}
+
+@test "_run_errexit_bang: FAILS when a '&' hands the statement to the next command (#956)" {
+  # The other half of the same character: `! A & B` discards the negation
+  # unconditionally and returns B's status, which is what a `;` does and
+  # why a `;` is reported.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "backgrounded, then another command" {' \
+    '  ! grep -q A "${_f}" & wait' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"x_spec.bats:2"* ]]
+}
+
 @test "_run_errexit_bang: FAILS on such a line even when the body continues past it (#956)" {
   # The masked shape is inert in EVERY position, so it is reported where
   # it stands rather than only when it lands on the last line -- and it is
@@ -497,6 +541,36 @@ _write() {
   [ "${status}" -eq 0 ]
 }
 
+
+@test "_run_errexit_bang: PASSES on the '&' spellings that background nothing (#956)" {
+  # `&` is only a hand-off when it is the async operator. `&&` is a list
+  # operator the header already exempts by name, and `2>&1`, `&>` and
+  # `|&` are parts of a redirection or a pipe operator -- in none of them
+  # does the statement stop being the negation's. An unquoted `&` inside
+  # `[[ ... ]]` needs no exemption: bash rejects it as a syntax error, so
+  # it is never a statement this lint judges.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "and-and" {' \
+    '  ! grep -q A "${_f}" && true' \
+    '}'
+  _write "test/bats/unit/y_spec.bats" \
+    '@test "stderr redirected" {' \
+    '  ! grep -q A "${_f}" 2>&1' \
+    '}'
+  _write "test/bats/unit/z_spec.bats" \
+    '@test "both streams redirected" {' \
+    '  ! grep -q A "${_f}" &>/dev/null' \
+    '}'
+  _write "test/bats/unit/w_spec.bats" \
+    '@test "piped with stderr" {' \
+    '  ! grep -q A "${_f}" |& grep -q B' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -eq 0 ]
+  run bash -c '[[ a&b == a ]]'
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"syntax error"* ]]
+}
 
 @test "_run_errexit_bang: PASSES when the bang statement is the body's last (#956)" {
   _write "test/bats/unit/x_spec.bats" \
