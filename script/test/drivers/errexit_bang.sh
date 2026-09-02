@@ -83,16 +83,28 @@
 # fail the test in that branch, correctly, and B's failure is not exempt
 # from errexit either, so they fail it from a non-final position too --
 # such a statement is out of BOTH rules. `true` and `:` are the only
-# operands that cannot fail; they are the language's two always-zero
-# builtins, a closed set fixed by bash rather than a roster of this tree,
-# which is why listing them is not the listed-population defect this file
-# otherwise refuses.
+# SIMPLE COMMANDS that cannot fail; they are the language's two
+# always-zero builtins, a closed set fixed by bash rather than a roster
+# of this tree, which is why listing them is not the listed-population
+# defect this file otherwise refuses.
 #
-# That is a deliberate narrowing with a cost: `! A || echo x` is inert and
-# goes unreported. This lint is named for statements that CANNOT fail
-# their test, and flagging one that can would be a wider claim than the
-# rule makes -- on a blocking gate the price of the wider claim is an
-# allow region hand-written for a line that was never a violation.
+# They are not, however, every always-zero OPERAND: a group is one too,
+# and `! A || { true; }` / `! A || ( true )` are as inert as `|| true`
+# while taking the live-`||` exemption. Both go unreported, and that is a
+# disclosed narrowing rather than a claim: the closed-set argument covers
+# builtins, not groups, and it does not extend. A `( ... )` operand is
+# blanked by the paren rule below, so this scan cannot see what is in it
+# at all; and "can this group fail" has no lexical answer in general
+# (`|| ( exit 1 )` fails, `|| { true; }` does not), so matching the one
+# spelling that happens to be writable as a regex would be a guard
+# narrower than its own name -- the defect this whole file exists to
+# stop. Fixing it needs a different question than a scan can ask.
+#
+# The same narrowing has a second cost: `! A || echo x` is inert and goes
+# unreported. This lint is named for statements that CANNOT fail their
+# test, and flagging one that can would be a wider claim than the rule
+# makes -- on a blocking gate the price of the wider claim is an allow
+# region hand-written for a line that was never a violation.
 #
 # `&&` is out for the same reason. `! A && B` parses as `(! A) && B` and
 # short-circuits to 1 whenever A succeeded, so as the body's last
@@ -256,9 +268,35 @@ readonly _ERREXIT_BANG_ALLOW_END='errexit-bang-lint: allow-end'
 #   verdict to nobody, and `! grep -q $(foo; bar) f` starts no second
 #   command; reading either separator as this statement's dropped the
 #   first out of both rules and reported the second as a violation it is
-#   not. Depth is per PHYSICAL line and clamps at zero: an unbalanced `(`
-#   blanks the rest of the line and a stray `)` is dropped, the same safe
-#   direction as an unbalanced quote (it can only HIDE a separator).
+#   not.
+#
+#   Both the depth and the quote state are per PHYSICAL line: the caller
+#   joins the CODE of each line of a continued statement rather than
+#   scanning the joined statement, so every line starts at depth 0 and
+#   unquoted. Only ONE of the two directions that produces is safe. An
+#   unbalanced `(` blanks the rest of ITS line and can only HIDE a
+#   separator -- the same direction as an unbalanced quote. A stray `)`
+#   is the UNSAFE one, and it is the shape that actually occurs: it is
+#   how the second line of a `$(` opened on the first one begins. Depth
+#   clamps at zero there, so the rest of that line is scanned at top
+#   level. Both readings are wrong, in both directions:
+#
+#     ! grep -q $(foo \
+#       || bar) f; true
+#         the `||` reads as this statement's own, takes the live-`||`
+#         exemption, and the `; true` behind it is judged by NEITHER
+#         rule -- a MISSED violation, the direction this lint refuses.
+#
+#     ! grep -q $(foo \
+#       ; bar) f
+#         the `;` reads as this statement's own and is reported: a false
+#         positive on a blocking gate, for a line that is not a
+#         violation at all.
+#
+#   Neither shape exists in this tree. The fix is structural -- scan the
+#   JOINED statement once instead of joining per-line scans -- so it is
+#   written down here, next to the heredoc limitation above, rather than
+#   left to be re-derived from a sentence that claimed the opposite.
 _errexit_bang_code_part() {
   local _s="${1}" _out='' _i _ch _q='' _prev=' ' _depth=0
   for (( _i = 0; _i < ${#_s}; _i++ )); do

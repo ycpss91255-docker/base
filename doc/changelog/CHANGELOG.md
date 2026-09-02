@@ -138,6 +138,15 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   positives go with it: a separator inside `( ... )` is the argument's, not the
   statement's, and a `#` opens a comment wherever the shell opens one -- after
   `;`, `&`, `\|`, `(`, `)` as well as after a blank.
+- **the bang lint now refuses a backgrounded assertion, and stops cutting a
+  line at a `#` that follows a quote (refs #956)** -- `! cmd &` is an async
+  list: the fork's status is 0 whatever the command did, so the assertion
+  cannot fail its test even as the body's LAST statement, the one position the
+  rule declines to judge. It is reported now, with `&&`, `\|&`, `>&` and `&>`
+  excluded by the operator they belong to rather than by a roster. Separately,
+  a closing quote and a backslash escape do not end a WORD, so the `#` in
+  `! grep -q 'a'#b f; true` is data and the `;` behind it is real: the scan
+  stopped reading such a line as a comment and dropping the separator.
 - **the standalone check still authorised a delete for a DIRECTORY it never
   read (refs #956)** -- open(2) on a directory succeeds, so the redirect probe
   `_dfm_pip_line_is_standalone` relies on returned 0 for a path whose every
