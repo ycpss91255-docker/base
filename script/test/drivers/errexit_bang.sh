@@ -215,11 +215,18 @@ readonly _ERREXIT_BANG_ALLOW_END='errexit-bang-lint: allow-end'
 #   or after one of the five word-ending metacharacters a statement can
 #   continue past (`;`, `&`, `|`, `(`, `)`) -- which is where the shell
 #   starts a comment; `;# note` is a terminator and prose, not a second
-#   command. In mid-word it is data and the line goes on. `<` and `>` end
-#   a word as well and are deliberately not in the set: a comment there
-#   eats the redirect's target, so the line is a SYNTAX ERROR and never a
-#   statement this lint judges (the spec runs that one too). Blanking rather than deleting keeps the column
-#   count, so a reported line still lines up with the file.
+#   command. In mid-word it is data and the line goes on. That is why the
+#   `_prev` marker is not blanked by a construct that CONTINUES a word: a
+#   closing quote and a consumed backslash escape each record themselves,
+#   because `'a'#b`, `"a"#b` and `a\ #b` are one argument apiece and the
+#   `#` in them is data. Blanking them to a space read the `#` as a
+#   comment and dropped the rest of the line, hiding a real separator --
+#   a MISSED violation, which is the one direction this lint refuses.
+#   `<` and `>` end a word as well and are deliberately not in the set: a
+#   comment there eats the redirect's target, so the line is a SYNTAX
+#   ERROR and never a statement this lint judges (the spec runs that one
+#   too). Blanking rather than deleting keeps the column count, so a
+#   reported line still lines up with the file.
 #
 #   One nesting IS tracked: an unquoted `( ... )`. Everything inside it is
 #   blanked, because a separator there belongs to a SUBSHELL or a command
@@ -237,16 +244,26 @@ _errexit_bang_code_part() {
     _ch="${_s:_i:1}"
     if [[ "${_q}" != "'" && "${_ch}" == $'\\' ]]; then
       # An escaped character is data, and a trailing backslash is the
-      # continuation marker. Neither is a separator.
+      # continuation marker. Neither is a separator -- and neither ENDS
+      # a word, so `_prev` records the backslash itself: `a\ #b` is the
+      # one argument `a #b` and the `#` is data.
       _out+='  '
       _i=$(( _i + 1 ))
-      _prev=' '
+      _prev=$'\\'
       continue
     fi
     if [[ -n "${_q}" ]]; then
-      [[ "${_ch}" == "${_q}" ]] && _q=''
+      # A quote that CLOSES does not end the word either (`'a'#b` is the
+      # one argument `a#b`), so `_prev` records the quote, not a blank.
+      # Inside the span the marker is never read: a `#` there reaches
+      # this branch, not the comment case below.
+      if [[ "${_ch}" == "${_q}" ]]; then
+        _q=''
+        _prev="${_ch}"
+      else
+        _prev=' '
+      fi
       _out+=' '
-      _prev=' '
       continue
     fi
     case "${_ch}" in
@@ -272,8 +289,9 @@ _errexit_bang_code_part() {
         # A comment starts where the `#` starts a WORD: after a blank, at
         # the start of the line, or after one of the five word-ending
         # metacharacters a statement can continue past. Anywhere else it
-        # is data (`echo B#note` prints `B#note`), which is why this is
-        # not an unconditional break. `<` / `>` are out by the doc above.
+        # is data (`echo B#note` prints `B#note`, and so do `'a'#b` and
+        # `a\ #b`), which is why this is not an unconditional break.
+        # `<` / `>` are out by the doc above.
         if [[ "${_depth}" -eq 0 ]]; then
           case "${_prev}" in
             ' '|$'\t'|';'|'&'|'|'|'('|')') break ;;
