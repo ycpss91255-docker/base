@@ -1701,15 +1701,39 @@ _df_swept_files() {
   find "${_DF_SWEPT_ROOTS[@]}" -type f | sort
 }
 
-# _df_vocabulary_unbalanced <file> -- prints the file when its `begin` /
-# `end` marker counts differ. A `begin` with no `end` excises everything
-# after it, which is a sweep that read nothing wearing the report of a
-# sweep that found nothing.
+# _df_vocabulary_unbalanced <file> -- prints the file, and why, when its
+# `begin` / `end` markers do not NEST: a `begin` left open at EOF, an
+# `end` with no `begin` above it, or a second `begin` inside one. A
+# `begin` that never closes excises everything after it, which is a sweep
+# that read nothing wearing the report of a sweep that found nothing.
+#
+# ORDER, not counts. Comparing a count of `begin` against a count of `end`
+# calls an INVERTED pair balanced -- 1 == 1 -- while `_df_flatten` opens
+# at the `begin` and never closes, so the file tail is excised anyway:
+# the same failure the guard is named for, wearing a clean report. Reading
+# the markers in order is also what retires the `|| true` the counting
+# spelling needed, under which a file grep could not read at all came
+# back as a count of zero.
 _df_vocabulary_unbalanced() {
-  local _f="${1:?_df_vocabulary_unbalanced: missing file}" _b _e
-  _b="$(grep -c 'disproven-claim vocabulary: begin' "${_f}" || true)"
-  _e="$(grep -c 'disproven-claim vocabulary: end' "${_f}" || true)"
-  [[ "${_b}" == "${_e}" ]] || printf '%s (begin=%s end=%s)\n' "${_f}" "${_b}" "${_e}"
+  local _f="${1:?_df_vocabulary_unbalanced: missing file}" _why
+  _why="$(awk '
+    /disproven-claim vocabulary: begin/ {
+      if (open) {
+        bad = "a second begin at line " NR " inside the one at line " at
+        exit
+      }
+      open = 1; at = NR; next
+    }
+    /disproven-claim vocabulary: end/ {
+      if (!open) { bad = "an end at line " NR " with no begin above it"; exit }
+      open = 0; next
+    }
+    END {
+      if (bad == "" && open) bad = "a begin at line " at " with no end below it"
+      if (bad != "") print bad
+    }
+  ' "${_f}")"
+  [[ -z "${_why}" ]] || printf '%s (%s)\n' "${_f}" "${_why}"
 }
 
 # _df_flatten <file> -- the file as ONE line of prose: comment markers,
