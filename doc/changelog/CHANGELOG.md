@@ -105,7 +105,7 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   day after that bump. A new `generated-workflow-actions` lint fails when the
   generated ref disagrees with `.github/workflows/`, so the next bump reaches
   both or fails the PR. The `docker` ecosystem is NOT added here: it stays
-  open under #946 / #951.
+  open under #946.
 
 - **the README's static `Coverage-Kcov` badge is replaced by a committed SVG carrying the release's measured line rate (closes #952)** -- the gate computed the figure on every run and threw it away, so the badge read the same string whatever coverage did. `just release coverage-badge` renders `doc/badge/coverage.svg` from the local kcov reports, stamped `coverage vX.Y.Z`, and refuses unless `coverage/.head-sha` says the WHOLE suite measured HEAD. That scope is DERIVED from what ran: `coverage/timings.tsv` against ONE spec roster, which the run, the shard partition and the certificate all read, so a run narrowed by anything cannot call itself whole. Hand-run; wiring is docker_harness#289.
 
