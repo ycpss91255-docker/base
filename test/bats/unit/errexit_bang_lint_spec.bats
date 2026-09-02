@@ -420,8 +420,11 @@ _write() {
   # The lexical rule the code scan implements, pinned by RUNNING it
   # rather than asserting it in prose: a `#` begins a comment when it
   # begins a WORD, and a word begins after a blank OR after one of the
-  # metacharacters that end one -- `;`, `&`, `|`, `(`, `)`. It is data
-  # only in the middle of a word (`echo B#note` prints `B#note`).
+  # metacharacters that end one -- `;`, `&`, `|`, `(` and the `)` that
+  # closes a SUBSHELL. It is data only in the middle of a word
+  # (`echo B#note` prints `B#note`). `)` is the context-dependent one and
+  # gets its own case below: the `)` of a `$( ... )` ends the expansion,
+  # not the word.
   run bash -c $'echo A;# note\necho B'
   [ "${status}" -eq 0 ]
   [ "${lines[0]}" = "A" ]
@@ -474,6 +477,38 @@ _write() {
   [ "${output}" = "[a #b]" ]
 }
 
+@test "bash: a ')' ends a word only when it closes a SUBSHELL (#956)" {
+  # The half of the word rule that is context dependent, and the half the
+  # scan read as one thing. A `)` that closes a SUBSHELL ends a word, so
+  # a `#` behind it opens a comment. A `)` that closes a command
+  # substitution, an arithmetic expansion or a process substitution does
+  # NOT: it ends the expansion, the word goes on around it, and the `#`
+  # behind it is data.
+  run bash -c $'(echo A)# note\necho B'
+  [ "${status}" -eq 0 ]
+  [ "${#lines[@]}" -eq 2 ]
+  [ "${lines[0]}" = "A" ]
+  [ "${lines[1]}" = "B" ]
+  run bash -c 'printf "[%s]\n" $(echo A)#b'
+  [ "${status}" -eq 0 ]
+  [ "${output}" = "[A#b]" ]
+  run bash -c 'printf "[%s]\n" $((1 + 1))#b'
+  [ "${status}" -eq 0 ]
+  [ "${output}" = "[2#b]" ]
+  # A process substitution proves itself the other way round: the word is
+  # the `/dev/fd` path with `#b` glued on, so the open FAILS -- were the
+  # `)` a word end the comment would have eaten the argument and `cat`
+  # would have read standard input instead.
+  run bash -c 'cat <(echo A)#b'
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"#b"* ]]
+  # The arithmetic COMMAND is the other bare-paren spelling, and its `))`
+  # does end a word: the `echo B` behind the comment never runs.
+  run bash -c 'x=3; (( x & 1 ))#b; echo B'
+  [ "${status}" -eq 0 ]
+  [ -z "${output}" ]
+}
+
 @test "_run_errexit_bang: PASSES on a bare trailing ';' followed by a comment (#956)" {
   # `;#` is a terminator and then a comment: the `;` ended the word, so
   # bash starts a comment at the `#` and there is no second command for
@@ -490,14 +525,49 @@ _write() {
 
 @test "_run_errexit_bang: PASSES on a comment that opens right after a ')' (#956)" {
   # The same rule one metacharacter along: the `#` after the `)` that
-  # closed the subshell starts a comment, so the `;` in the prose after
-  # it is not this statement's separator either.
+  # closed the SUBSHELL starts a comment, so the `;` in the prose after
+  # it is not this statement's separator either. Only that `)` -- the two
+  # cases below run the ones that close an expansion instead.
   _write "test/bats/unit/x_spec.bats" \
     '@test "a subshell, then a note" {' \
     '  ! (ovr_get some.key)# see also; the note below' \
     '}'
   run _run_errexit_bang
   [ "${status}" -eq 0 ]
+}
+
+@test "_run_errexit_bang: FAILS on a ';' behind a '#' that follows a substitution's ')' (#956)" {
+  # The `)` of a `$( ... )` closes the expansion, not the word -- the
+  # bash case above runs `printf '[%s]\n' $(echo A)#b` and gets the
+  # single argument `[A#b]`. So this `#` is data, the `; true` behind it
+  # is this statement's own separator, and the negation is handed away.
+  # Reading every `)` as a word end truncated the line at the `#` and hid
+  # the separator: a MISSED violation, the one direction this lint
+  # refuses -- and one the flat scan this comment rule replaced caught.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "a substitution, then data" {' \
+    '  ! grep -q A $(echo z)#b f; true' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"x_spec.bats:2"* ]]
+}
+
+@test "_run_errexit_bang: FAILS on a ';' behind a STRAY ')' and a '#' (#956)" {
+  # The unrecognised half of the same character. The scan reads one
+  # PHYSICAL line at a time, so the `)` closing a `$(` that opened on the
+  # line above arrives with nothing known about what it closes. Unknown
+  # must resolve to "not a word end": the rest of the line stays code and
+  # the `; true` is still read. The other answer discards the rest of the
+  # line on a guess -- the drop this lint refuses.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "a substitution across a continuation, then data" {' \
+    '  ! grep -q A $(printf x \' \
+    '    y)#b f; true' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"x_spec.bats:2"* ]]
 }
 
 @test "_run_errexit_bang: FAILS on a ';' behind a '#' that follows a closing quote (#956)" {

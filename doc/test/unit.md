@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3311 tests**.
+Unit specs under `test/bats/unit/`: **3314 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3710,7 +3710,7 @@ inside the test that produces it, each case writes a one-test spec into
 | `no spec opens with a fail-open '\|\| skip' existence guard` | The repo-wide invariant, so the idiom cannot creep back in |
 | `the fail-open guard scan sees every spelling of the check, not just [[ -f ]]` | The invariant must be green because no guard exists, not because its pattern is blind |
 
-### test/bats/unit/errexit_bang_lint_spec.bats (48)
+### test/bats/unit/errexit_bang_lint_spec.bats (51)
 
 | Test | Description |
 |------|-------------|
@@ -3739,8 +3739,11 @@ inside the test that produces it, each case writes a one-test spec into
 | `_run_errexit_bang: FAILS on an '\|\|' that belongs to a command substitution (#956)` | A separator inside `( ... )` is the argument's, so the exemption for `! A || B` does not reach it |
 | `_run_errexit_bang: PASSES on a ';' that belongs to a command substitution (#956)` | The same flat match run the other way: a false positive on a blocking gate |
 | `bash: '#' opens a comment only where a WORD opens (#956)` | The lexical rule the code scan implements, pinned by RUNNING the shell -- the `\|` spelling, the mid-word `#` that stays data, and the closing quote / backslash escape that continue a word |
+| `bash: a ')' ends a word only when it closes a SUBSHELL (#956)` | The context-dependent half of the rule, run rather than asserted: a subshell's `)` ends a word, a `$( )` / `$(( ))` / `<( )` close does not |
 | `_run_errexit_bang: PASSES on a bare trailing ';' followed by a comment (#956)` | `;#` is a terminator and prose, not a verdict handed to a second command |
 | `_run_errexit_bang: PASSES on a comment that opens right after a ')' (#956)` | The same rule one metacharacter along |
+| `_run_errexit_bang: FAILS on a ';' behind a '#' that follows a substitution's ')' (#956)` | That `)` leaves the word open, so the `#` is data and the separator behind it is real |
+| `_run_errexit_bang: FAILS on a ';' behind a STRAY ')' and a '#' (#956)` | A `)` whose opener the per-line scan never saw is unknown, and unknown must not mean "comment" |
 | `_run_errexit_bang: FAILS on a ';' behind a '#' that follows a closing quote (#956)` | A closing quote does not end a word, so the `#` is data and the separator behind it is real |
 | `_run_errexit_bang: FAILS on a ';' behind a '#' that follows an escape (#956)` | The same word rule for the other spelling that continues a word |
 | `_run_errexit_bang: PASSES on a bang statement with a bare trailing ';' (#956)` | - |
