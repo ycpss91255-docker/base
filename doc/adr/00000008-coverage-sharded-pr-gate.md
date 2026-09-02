@@ -317,3 +317,212 @@ that a real regression trips it instead of being absorbed. The v1
 absolute-floor posture is unchanged -- this re-bases the number, it does
 not adopt the v2 regression-vs-main-baseline gate, which remains the
 documented follow-up.
+
+## Amendment (#952): Decision 5's visibility half -- the figure is published per release, in the release commit
+
+- **Date:** 2026-08-28
+- **Status:** Accepted (completes the visibility half of the #710
+  amendment's Decision 5, which shipped the `$GITHUB_STEP_SUMMARY` table
+  and deferred everything durable). **Relates:** #710 (Codecov removed,
+  the dynamic badge with it), #709.
+
+### Context
+
+Decision 5 kept kcov's HTML and appended a summary table to
+`$GITHUB_STEP_SUMMARY`. Both live for the length of one CI run. When the
+Codecov badge was deleted, a **static** shields.io badge took its place:
+
+```markdown
+![Coverage](https://img.shields.io/badge/Coverage-Kcov-blueviolet?style=flat-square)
+```
+
+It reads `Coverage-Kcov` whatever the number does. The figure is computed
+on every coverage run -- `coverage_gate.sh` prints `merged line rate <N>%`
+and tabulates it -- and then discarded. A README that shows a badge nobody
+can be wrong about is worse than one that shows nothing: it makes a reader
+believe someone is watching.
+
+### Decision
+
+**The gate's line rate is rendered into a self-contained SVG committed to
+the repo, stamped with the version it belongs to, and regenerated into the
+release commit.**
+
+*Status of the release step:* the generator and its refusals shipped with
+this amendment; the automatic caller has NOT. Wiring it into the harness
+release bump is `docker_harness#289` (see 4). Until that lands, the step
+is `just release coverage-badge`, run by hand at bump time, and this ADR
+says so rather than describing the end state as if it were built.
+
+1. **A committed SVG, not an endpoint badge.** `doc/badge/coverage.svg` is
+   plain markup with no external reference; the README draws it as
+   `![Coverage](doc/badge/coverage.svg)`. The shields.io *endpoint*
+   pattern (`img.shields.io/endpoint?url=raw.githubusercontent.com/...`)
+   was considered and rejected twice over: it needs the repo to be
+   **public**, because `raw.githubusercontent.com` will not serve a
+   private repo to shields.io and shields.io cannot carry a token -- so it
+   could never fan out to the mostly-private downstream repos -- and the
+   URL binds to `raw.githubusercontent.com`, which is precisely the
+   coupling class this ADR's #710 amendment removed. A committed SVG has
+   neither problem and ports to GitLab as a file.
+
+2. **The figure carries its version.** The badge reads
+   `coverage vX.Y.Z | 84.7%`, never a bare percentage. The cadence is once
+   per release (see 4), so a bare number would be read as the coverage of
+   `main` and be wrong for the whole cycle -- the same failure as the
+   static badge, differently dressed.
+
+3. **The number comes from the gate's own merge math, re-run locally.**
+   `script/release/coverage_badge.sh` SOURCES `coverage_gate.sh` and calls
+   `_coverage_gate_run` over the kcov reports in `coverage/` -- the output
+   of `just test coverage`. The per-line union and the path-alias
+   canonicalisation of the previous amendments are not re-implemented, so
+   the badge and the gate cannot disagree about what the project rate is.
+   The alternatives were **reading the figure back out of the last CI run**
+   (fast, but couples the release to one CI provider's API and to a run
+   being findable for the exact commit) and **having CI publish the figure
+   into the repo** (a commit per merge whose whole content is one digit).
+   Recomputing costs a local kcov run before a release -- minutes, on an
+   operation that happens a few times a month -- and costs no coupling at
+   all: it is the same script, reading files, on a workstation or under
+   either CI.
+
+4. **It will be a step of the release bump, not a new mechanism -- and it
+   is not one yet.** `.claude/scripts/release-bump.sh` in the harness
+   already owns every mechanical release edit -- `.version`, the
+   `[Unreleased]` promotion, the regenerated compare-link block. The badge
+   **is to become** the fourth thing it regenerates, so that it rides the
+   `chore: release vX.Y.Z` commit: **zero new commits**, no new trigger,
+   and nothing anyone maintains by hand. That script's own header is the
+   argument: the compare-link block stopped being updated around `v0.6.8`
+   and ~90 releases rendered a dangling reference, because a hand-run step
+   decays. A hand-maintained percentage would decay identically.
+
+   That wiring could not ship here: `release-bump.sh` lives in
+   `docker_harness`, a different repo, so this change can only offer the
+   seam. It does -- a standalone script with the same `0` / `1` / `2` exit
+   triple `release-bump.sh` itself uses -- and the wiring is
+   `docker_harness#289`. **Until that issue lands the figure is one
+   hand-run command** (`just release coverage-badge`, before the release
+   commit is made), which is precisely the decay mode this decision argues
+   against; the honest reading of the interval is that it is a known,
+   tracked debt, not a completed mechanism. What it is NOT is silent:
+   `coverage_badge_spec` asserts the committed badge names the current
+   `.version`, so a release cut without the step turns `main` red.
+
+5. **Refusal, never a carried-over figure.** A release whose coverage
+   never ran must not publish a stale or an invented number. The generator
+   writes nothing and exits 1 when there is no report under `coverage/`,
+   when the reports **do not record the sha they were produced from** or
+   that sha **is not `HEAD`**, when they **do not record that the whole
+   suite produced them**, when a report is **older than the commit
+   being released** (it measured an earlier tree), or when instrumented
+   sources are **modified in the worktree** (the reports describe neither
+   the commit nor the tree). The recorded sha is the load-bearing one:
+   `just test coverage` writes it to `coverage/.head-sha`
+   (`_stamp_coverage_head`), because comparing the report's mtime against
+   `HEAD`'s commit time only catches reports that are too OLD. Measure
+   `main`, check an older tag out, and every timestamp check passes over a
+   clean worktree while the reports describe a different tree. The
+   release edits themselves -- `.version`, the CHANGELOG, the badge --
+   are deliberately not in that pathspec, so the check passes on a
+   half-applied bump and fails on a code change.
+
+   The sha alone was not enough, and the gap was reachable by an ordinary
+   sequence. `just test coverage <n>/<total>` -- the recipe that proves
+   the sharded path locally -- writes its slice into the SAME `coverage/`
+   tree the full run uses. A stamp that recorded only the sha then
+   certified a partition as `HEAD`'s measurement: matching sha, clean
+   worktree, fresh mtimes, and a badge off by a factor of N. So the stamp
+   records the SCOPE as well -- `scope=full` or
+   `scope=partial <m>/<n> specs` on a second line, truncating any earlier
+   stamp -- and the generator publishes only `full`. A stamp carrying no
+   scope is refused too: unscoped is unknown, and unknown is not
+   evidence. The sha answers WHICH tree; the scope answers WHETHER the
+   whole suite ran, and the promise of this amendment needs both.
+
+   **The scope is derived from the measurement, not from the
+   invocation**, and that correction came after four attempts to fix it
+   the other way. Read off the shard FLAG, the scope described the
+   arguments rather than the reports, so every input that narrows the run
+   without passing through that flag certified a partition as whole: an
+   inherited `COVERAGE_SHARD`, an inherited `COVERAGE_PATH` (which the
+   in-container dispatch reads first, and which makes the run write no
+   report at all), and whichever selector `_run_via_compose` forwards
+   next. Each round closed one door and the next round found another,
+   because the inputs to an invocation are not an enumerable set. What
+   was MEASURED is: `_measured_coverage_scope` compares
+   `coverage/timings.tsv` -- the manifest kcov's bats writes, one line
+   per spec file that ran -- against the tree's spec inventory, and a run
+   narrowed by anything at all leaves fewer specs in it. The manifest is
+   erased with the certificate before every run, so a run that writes no
+   manifest ends with no stamp rather than with the previous run's. What
+   remains enumerable is bounded and mechanically checked: the kcov
+   selectors are the `-e NAME="${NAME:-}"` lines of `_run_via_compose`,
+   read out of the source by a spec that fails until the coverage
+   dispatch assigns each of them. `--unmeasured` renders
+   `coverage vX.Y.Z | not measured` in grey: an explicit statement of
+   absence, which is what the badge carried for `v0.42.0`, the last
+   release cut before this mechanism existed.
+
+### Cadence -- and why it is written down three times
+
+**The figure refreshes once per release.** Not per merge: nobody acts on
+52.9% becoming 52.8%, and a commit per merge whose entire content is one
+digit fills `git log` with entries no one will read. "What is the coverage
+of v0.43.0" is a fact about a shipped artifact, and that is the question a
+README figure should answer.
+
+A reader who does not know the cadence misreads the figure as current, so
+it is stated where each kind of reader stands: **on the badge itself** (the
+version is in the image), **here**, and **in the tooling** -- the
+`coverage-badge` recipe doc in `script/release/justfile.release` and the
+generator's own `--help`, both of which state the once-per-release cadence
+and the ordering it implies (regenerate on the bump's working tree, before
+the release commit; afterwards `HEAD` is no longer the measured commit and
+the generator refuses).
+
+The fourth place is the one that matters most and is **not written yet**:
+the harness-side `.claude/commands/release.md` / `semver-bump` skill, where
+the person cutting the release is actually reading. That lives in
+`docker_harness` and is part of `docker_harness#289` along with the wiring.
+Recording it as done here would be worse than the gap.
+
+### GitLab portability mapping (mechanical, as above)
+
+- **The badge**: unchanged. A committed SVG referenced by a repo-relative
+  path renders in GitLab's Markdown exactly as in GitHub's; nothing
+  external is involved.
+- **The generator**: unchanged. It reads `coverage/**/cobertura.xml`, the
+  same artifact GitLab's `coverage_report` consumes, and shells out only
+  to `git` and `awk`.
+- **The release step**: the bump is a workstation script in either world.
+  Nothing in this mechanism reads a GitHub API, an artifact store or an
+  environment variable that only one CI defines.
+
+### Consequences (amendment)
+
+- The README figure is now falsifiable: it names a version, and the number
+  next to it was produced by the gate over that version's tree.
+- A release now needs a local coverage run first, on the commit being
+  released, or the generator refuses. That is the intended trade: the
+  alternative to paying minutes is publishing a figure nobody measured.
+- `just test coverage` now leaves `coverage/.head-sha` behind, carrying
+  the sha and the scope (`full`, or `partial <m>/<n> specs`, derived from
+  the run manifest `coverage/timings.tsv`). It is the only local evidence
+  of which tree the reports describe and how much of the suite produced
+  them; `just test clean` removes it with the rest of `coverage/`.
+- A local shard run (`just test coverage 1/4`) can no longer be published
+  as a release figure, at any commit. That is a refusal an operator can
+  hit while doing nothing wrong -- checking the sharded path and then
+  cutting a release -- and the cure is one full `just test coverage`.
+- Until `docker_harness#289` lands, the regeneration is a hand-run step,
+  and the guard against forgetting it is a red `main` after the tag rather
+  than a refused bump. That is the known cost of the repo boundary, and it
+  is tracked, not assumed away.
+- `v0.42.0`'s badge says `not measured`, honestly: it was cut before this
+  existed and no report for its tree survives. The first measured figure
+  is `v0.43.0`'s.
+- Publishing the kcov **HTML** remains Decision 5's other, still-deferred
+  half; it has its own obstacle (Pages on a private repo needs a paid
+  plan) and is out of scope here.

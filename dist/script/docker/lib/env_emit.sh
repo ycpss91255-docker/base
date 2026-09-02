@@ -44,6 +44,7 @@ _DOCKER_LIB_ENV_EMIT_SOURCED=1
 #                  <gui_detected> <conf_hash>
 #                  [<network_name>] [<user_build_args>] [<target_arch>]
 #                  [<build_network>] [<ssh_x11_xauth>] [<project_name>]
+#                  [<project_name_pending>]
 #
 # user_build_args is a newline-separated list of "KEY=VALUE" pairs
 # from `[build] arg_N` entries outside the three known keys
@@ -87,11 +88,15 @@ write_env() {
   # SSH X11 session, in which case host's XAUTHORITY flows through to
   # compose unchanged.
   local _ssh_x11_xauth="${1:-}"; shift || true
-  # The resolved compose project name (lib/compose.sh _resolve_project_name).
-  # Recorded here because .env.generated is the ONE place both consumers
-  # read it from: the wrapper's `-p` (via _load_env) and compose.yaml's
+  # The compose project name this checkout RUNS under. Recorded here
+  # because .env.generated is the ONE place both consumers read it from:
+  # the wrapper's `-p` (via _load_env) and compose.yaml's
   # `name: ${PROJECT_NAME}` (via --env-file).
-  local _project_name="${1:-}"
+  local _project_name="${1:-}"; shift || true
+  # A project name that RESOLVES but cannot take effect yet, because
+  # containers still exist under the recorded one (setup.sh cannot know
+  # that; see _carry_project_name). Empty is the normal case.
+  local _project_name_pending="${1:-}"
 
   local _comment=""
   _comment="$(_setup_msg env comment)"
@@ -137,6 +142,20 @@ SETUP_DOCKERFILE_HASH=${_dockerfile_hash}
 SETUP_GUI_DETECTED=${_gui_detected}
 SETUP_TIMESTAMP=$(date -Iseconds 2>/dev/null || date '+%Y-%m-%dT%H:%M:%S%z')
 EOF
+
+  # ── Deferred compose project rename ──
+  # PROJECT_NAME above is the name the containers of this checkout are
+  # under; this is the one its configuration now resolves to. Written only
+  # while the two differ, so the ordinary file has no such line. The
+  # wrapper adopts it on the first build / run that finds the old project
+  # empty -- compose cannot relabel a running container, so a rename can
+  # only take effect on an empty project.
+  if [[ -n "${_project_name_pending:-}" ]]; then
+    {
+      printf '\n%s\n' "${_PROJECT_PENDING_BANNER}"
+      printf 'PROJECT_NAME_PENDING=%s\n' "${_project_name_pending}"
+    } >> "${_env_file}"
+  fi
 
   # ── SSH X11 forwarding cookie override ──
   # Set by apply flow when _is_ssh_x11 detects an SSH X11 session.

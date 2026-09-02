@@ -675,6 +675,219 @@ _prepare_prev_release() {
   "${REPO_ROOT}/script/test/prepare-prev-release.sh"
 }
 
+# ── Coverage provenance ──────────────────────────────────────────────────────
+
+# Where the coverage provenance stamp lives, relative to the repo root.
+# One name for the writer, the eraser and script/release/coverage_badge.sh's
+# reader: three places that have to agree on a path is two too many.
+readonly _COVERAGE_HEAD_STAMP_REL="coverage/.head-sha"
+
+# The run manifest kcov's bats leaves next to the reports: `<seconds>
+# <basename>`, one line per spec FILE that actually ran (_junit_to_timings
+# in drivers/bats.sh, from bats' junit report). It exists to weigh the next
+# partition; it is reused here because it is the only local record of WHAT
+# was measured, written by the run rather than by its caller.
+readonly _COVERAGE_RUN_MANIFEST_REL="coverage/timings.tsv"
+
+# _coverage_spec_inventory [root] -- print, one per line, the sorted unique
+# BASENAMES of every spec a full coverage run covers.
+#
+# The pools and the file shape are NOT a second roster: both come from
+# _COVERAGE_FULL_SUITE_POOLS / _COVERAGE_SPEC_GLOB in drivers/bats.sh, the
+# same values _run_coverage builds its full-suite targets from and
+# _shard_unit_files partitions. The recursion is `bats --recursive`'s, so
+# the per-lib subfolders of ADR-00000015 count. Basenames, not paths, because
+# that is the key space the manifest is written in -- _junit_to_timings
+# reduces bats' junit `name=` to a basename so _spec_weight can read the
+# merged weights back.
+#
+# Two specs in different pools may share a basename (there are such pairs
+# here), so the inventory is smaller than the file count. That makes the
+# comparison below very slightly lenient: a measurement missing ONLY the
+# twin of a name it already carries would still compare equal. No
+# partition produces that set -- a shard is a fraction of the tree, not
+# the tree minus one file -- and the alternative, keying on paths, would
+# mean a second manifest format nothing else reads.
+#
+# Empty is a FAILURE (return 1), not an empty set: an inventory that
+# enumerated nothing would make every manifest look complete.
+_coverage_spec_inventory() {
+  local _root="${1:-${REPO_ROOT}}"
+  local _pool _f
+  local -a _names=() _dirs=()
+  for _pool in "${_COVERAGE_FULL_SUITE_POOLS[@]}"; do
+    [[ -d "${_root}/${_pool}" ]] && _dirs+=("${_root}/${_pool}")
+  done
+  (( ${#_dirs[@]} > 0 )) || return 1
+  while IFS= read -r _f; do
+    _names+=("${_f##*/}")
+  done < <(find "${_dirs[@]}" -type f -name "${_COVERAGE_SPEC_GLOB}")
+  (( ${#_names[@]} > 0 )) || return 1
+  printf '%s\n' "${_names[@]}" | LC_ALL=C sort -u
+}
+
+# _measured_coverage_scope [root] -- print the scope the reports EARNED:
+# `full` when the run manifest names every spec in the inventory,
+# `partial <measured>/<total> specs` otherwise. Returns 1, printing
+# nothing, when there is no evidence to read.
+#
+# This is the answer to a defect that kept coming back through a different
+# door. The scope used to be read off the invocation -- the shard flag the
+# caller passed -- and every input that narrows the RUN without passing
+# through that flag therefore certified a partial measurement as `full`:
+# an inherited COVERAGE_SHARD, an inherited COVERAGE_PATH (which the
+# in-container dispatch reads FIRST), and whichever selector is added
+# next. That set is not enumerable, so a certificate derived from it
+# cannot be made trustworthy by closing one more door.
+#
+# What was MEASURED is enumerable, and the run writes it down. Comparing
+# the manifest against the inventory cannot be fooled by an input nobody
+# thought of: a run narrowed by anything at all leaves fewer specs in the
+# manifest, and fewer specs is not `full`.
+_measured_coverage_scope() {
+  local _root="${1:-${REPO_ROOT}}"
+  local _manifest="${_root}/${_COVERAGE_RUN_MANIFEST_REL}"
+  [[ -s "${_manifest}" ]] || return 1
+  local _inventory
+  _inventory="$(_coverage_spec_inventory "${_root}")" || return 1
+  [[ -n "${_inventory}" ]] || return 1
+  local _measured
+  _measured="$(awk '($2 != "") { print $2 }' "${_manifest}" \
+    | LC_ALL=C sort -u)"
+  [[ -n "${_measured}" ]] || return 1
+  if [[ "${_measured}" == "${_inventory}" ]]; then
+    printf 'full\n'
+    return 0
+  fi
+  local _total _matched
+  _total="$(printf '%s\n' "${_inventory}" | grep -c .)"
+  _matched="$(LC_ALL=C comm -12 \
+    <(printf '%s\n' "${_inventory}") <(printf '%s\n' "${_measured}") \
+    | grep -c . || true)"
+  printf 'partial %s/%s specs\n' "${_matched}" "${_total}"
+}
+
+# _stamp_coverage_head [root] -- record, next to the reports, the sha they
+# were produced from AND how much of the suite produced them.
+#
+# The cobertura reports carry no identity: nothing in coverage/ says which
+# tree kcov walked. The release badge generator
+# (script/release/coverage_badge.sh) has to know, because publishing one
+# tree's rate under another tree's version is exactly the invented figure
+# its refusal exists to prevent -- and comparing the report's mtime against
+# HEAD's commit time cannot tell, since that only catches reports that are
+# too OLD, never a checkout that moved elsewhere after the run.
+#
+# The sha alone is not enough, and that gap was a real one. A sha answers
+# WHICH tree; it says nothing about WHETHER the whole suite ran.
+# `just test coverage <n>/<total>` writes its slice into the SAME
+# ${REPO_ROOT}/coverage tree the full run uses, so a stamp that recorded
+# only the sha certified a partition as HEAD's measurement: every check the
+# generator makes passed, and the badge published a figure off by a factor
+# of N. So the scope is stamped alongside the sha --
+#   <sha>
+#   scope=full                  (the manifest names every spec)
+#   scope=partial <m>/<n> specs (it names fewer)
+# -- and the generator publishes only `full`. The write is a truncating
+# one, so a later partial run at the same commit REPLACES an earlier
+# full-suite stamp rather than leaving its certificate standing.
+#
+# THE SCOPE IS DERIVED, NOT PASSED IN, and that is the whole of why this
+# function takes no second argument. A shard argument would make the
+# certificate a statement about the INVOCATION, and the invocation is not
+# what decides which specs kcov walks: _run_via_compose forwards
+# COVERAGE_SHARD and COVERAGE_PATH from the AMBIENT environment, the
+# in-container dispatch reads COVERAGE_PATH first, and the next selector
+# added to that list would be read before anybody remembered to clear it.
+# Four review rounds each closed one of those doors. _measured_coverage_scope
+# asks the reports instead: a run narrowed by ANY input leaves fewer specs
+# in coverage/timings.tsv, and fewer specs is not `full`.
+#
+# Written on the HOST, after the container run returns and after
+# _fix_permissions has handed coverage/ back: the coverage services run as
+# root over the mounted checkout, where git refuses the tree as dubiously
+# owned.
+#
+# Best-effort by design. A repo with no git (an unpacked tarball) still
+# gets its reports; it just cannot publish a release badge from them, which
+# is the safe direction -- the generator refuses on a missing stamp. A run
+# that left NO manifest is the same case: no evidence of what was measured
+# means no certificate, announced on stderr so the operator is not left
+# wondering why the badge refuses.
+_stamp_coverage_head() {
+  local _root="${1:-${REPO_ROOT}}" _sha _scope
+  _sha="$(git -C "${_root}" rev-parse HEAD 2>/dev/null)" || return 0
+  [[ -n "${_sha}" ]] || return 0
+  if ! _scope="$(_measured_coverage_scope "${_root}")" || [[ -z "${_scope}" ]]; then
+    printf '%s\n' \
+      "[test.sh] no coverage run manifest under ${_root}/${_COVERAGE_RUN_MANIFEST_REL}; writing no provenance stamp (a release badge will refuse rather than publish an unmeasured figure)." >&2
+    return 0
+  fi
+  mkdir -p "${_root}/coverage" 2>/dev/null || return 0
+  printf '%s\nscope=%s\n' "${_sha}" "${_scope}" \
+    > "${_root}/${_COVERAGE_HEAD_STAMP_REL}" 2>/dev/null || return 0
+}
+
+# _invalidate_coverage_head [root] -- drop the provenance stamp AND the run
+# manifest it is derived from, BEFORE a coverage run starts.
+#
+# The certificate must never outlive the reports it certifies, and
+# rewriting it after the run is not enough to guarantee that. The stamp is
+# written only when the run SUCCEEDS, while the reports are written as the
+# run goes: kcov has its cobertura.xml on disk before the driver returns
+# the failing spec's exit code (_run_coverage preserves it on purpose), and
+# Ctrl-C lands in the same place. A run that dies there overwrites the
+# reports and never reaches the writer, so an earlier `scope=full` stamp at
+# the same commit goes on certifying numbers it never measured -- matching
+# sha, clean worktree, whole-suite scope -- and `just release
+# coverage-badge` publishes a partition's rate as the release figure.
+#
+# Erasing up front makes the failure mode NO evidence instead of STALE
+# evidence. The generator refuses on a missing stamp, which is the safe
+# direction; it trusts a present one, which is why a present one may only
+# ever describe the run that just finished.
+#
+# NOT best-effort, unlike the writer it pairs with, and the asymmetry is
+# the point. A stamp the writer fails to write is a MISSING one, and the
+# generator refuses on a missing stamp; a stamp the eraser fails to remove
+# is a SURVIVING one, and the generator trusts a present one. So the
+# writer may shrug and this may not: swallowing the removal's status keeps
+# the run going in exactly the state the erasure exists to prevent.
+#
+# A missing stamp is still not a failure -- `rm -f` succeeds on a path
+# that is not there, which is the whole of what best-effort was buying
+# here. What is left to fail on is the stamp that is still present
+# afterwards: coverage/ owned by another uid (CI shard artifacts unpacked
+# as root, the workflow script/release/coverage_badge.sh's header
+# describes), a read-only checkout, an I/O error. The run stops before it
+# writes a single report under a certificate it could not invalidate.
+#
+# The RUN MANIFEST goes with it, and inherits the same rule, because the
+# scope on the certificate is now derived from the manifest: it is half
+# the certificate, so leaving it behind leaves half a certificate
+# standing. That matters for exactly the runs that write no manifest of
+# their own -- a run that dies before bats' junit report is converted, or
+# one narrowed to a single spec by an inherited COVERAGE_PATH, which
+# writes nothing into coverage/ at all. Erased, those runs end with no
+# evidence and get no stamp; left in place, the PREVIOUS run's record of
+# what was measured would certify them.
+_invalidate_coverage_head() {
+  local _root="${1:-${REPO_ROOT}}"
+  local _path
+  for _path in "${_root}/${_COVERAGE_HEAD_STAMP_REL}" \
+               "${_root}/${_COVERAGE_RUN_MANIFEST_REL}"; do
+    rm -f "${_path}" 2>/dev/null || true
+    # The status of `rm` is not the question; the file's presence is. They
+    # differ on the case that matters (a partial removal, a racing
+    # writer), and presence is what the next stamp will be derived from.
+    if [[ -e "${_path}" ]]; then
+      _die ci_coverage_evidence_not_erased \
+        "cannot remove the stale coverage evidence ${_path}; a run that starts with it standing would write fresh partial reports under an earlier whole-suite certificate. Remove it (or fix the ownership of ${_root}/coverage) and re-run."
+    fi
+  done
+  return 0
+}
+
 # ── Fix coverage permissions ─────────────────────────────────────────────────
 
 _fix_permissions() {
@@ -1573,11 +1786,67 @@ main() {
       # plumbs COVERAGE_SHARD into the container so _run_coverage kcov's
       # only this matrix slice. The self-test.yaml coverage matrix sets
       # the latter; local `just test coverage` uses the former.
-      if [[ -n "${coverage_shard}" ]]; then
-        COVERAGE_SHARD="${coverage_shard}" _run_via_compose coverage 1
-      else
+      # The reports are only usable for a release badge if something
+      # records WHICH commit they measured and HOW MUCH of the suite
+      # measured it; see _stamp_coverage_head. The writer is handed the
+      # ROOT ONLY: it derives the scope from the manifest the run left in
+      # coverage/, so no input to this dispatch can make a partial
+      # measurement wear a whole-suite certificate.
+      #
+      # The selectors are still passed to the CONTAINER on both branches,
+      # and the full run says the empty values OUT LOUD, because
+      # _run_via_compose forwards them from the AMBIENT environment: a
+      # bare `--coverage` under an inherited COVERAGE_SHARD would kcov a
+      # quarter of the specs, and under an inherited COVERAGE_PATH -- read
+      # FIRST by the in-container dispatch, so it out-ranks the partition
+      # -- would kcov ONE spec and write no report at all. The caller that
+      # carries either is this suite itself, run under `just test
+      # coverage` / `just test coverage-path`. Neither can lie about
+      # itself now, but both are still the WRONG RUN, so both are cleared.
+      #
+      # The certificate is erased BEFORE the run and written only after it
+      # succeeds, so the three states are the three truths: no stamp (no
+      # run, or a run that died), or a stamp describing the run that just
+      # finished. Leaving the old one in place through a failed run is the
+      # one state that lies -- fresh partial reports under an earlier
+      # `scope=full` certificate (see _invalidate_coverage_head).
+      #
+      # The eraser's status is read the same way the run's is below, and
+      # for the same reason: a sourced main (this suite) has errexit off,
+      # so an eraser that reported failure without exiting would be
+      # ignored here and the run would go on under the certificate it
+      # could not remove. Neither reading goes on the left of `||`.
+      local _invalidate_rc _coverage_rc
+      _invalidate_coverage_head "${REPO_ROOT}"
+      _invalidate_rc=$?
+      (( _invalidate_rc == 0 )) || return "${_invalidate_rc}"
+      # One call for both branches: the shard spec is empty on the full
+      # run, which is the value that has to be said out loud.
+      #
+      # The roster is not a memory exercise. coverage_badge_spec's "the
+      # coverage dispatch pins every selector the container reads"
+      # intersects the `-e NAME="${NAME:-}"` lines of _run_via_compose
+      # with the names the in-container COVERAGE branch reads, and fails
+      # until each member is assigned here -- so a third selector added to
+      # that forwarder arrives with its clearing already demanded.
+      COVERAGE_SHARD="${coverage_shard}" COVERAGE_PATH="" \
         _run_via_compose coverage 1
-      fi
+      # The status is read AFTER the branch, never as `|| rc=$?`: a
+      # command on the left of `||` runs with errexit suspended, and the
+      # suspension reaches inside the function -- a fatal step within
+      # _run_via_compose (an unresolvable prev-release fixture, say) would
+      # stop aborting the run and start being swallowed here.
+      #
+      # So under the real entry (strict mode) a failed run has already
+      # exited by this line, and the writer below is unreachable; this
+      # reading is what gives the SOURCED main -- the specs call it -- the
+      # same guarantee without errexit.
+      _coverage_rc=$?
+      (( _coverage_rc == 0 )) || return "${_coverage_rc}"
+      # The root, and nothing else. The writer derives the scope from the
+      # reports this run just left behind; handing it the FLAG is what let
+      # a run narrowed by something else wear a whole-suite certificate.
+      _stamp_coverage_head "${REPO_ROOT}"
       ;;
     compose)
       # Default: fast CI (shellcheck + bats, no kcov) via the alpine

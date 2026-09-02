@@ -160,3 +160,14 @@ teardown() {
   run cat "${BASH_TARGET}"
   assert_output 'eval "$(JUST_COMPLETE=bash just)"'
 }
+
+@test "--shell with no value is a usage error, not an infinite loop (#955)" {
+  # `shift 2` with a single positional left fails and shifts NOTHING, so a
+  # swallowed failure left `$1` as `--shell` and the arg loop spun
+  # forever. The sibling `--lang` case already required its value; the
+  # two flags must fail the same way.
+  # A 124 here is the timeout firing, i.e. the loop is still infinite.
+  run timeout 10 "${COMPLETIONS}" install --shell
+  assert_equal "${status}" 1
+  assert_output --partial "--shell requires a value"
+}
