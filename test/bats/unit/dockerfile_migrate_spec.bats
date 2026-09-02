@@ -815,3 +815,107 @@ EOF
   # base image is not a lint fix.
   grep -Fq 'FROM alpine:3.19' "${DF}"
 }
+
+# ── DL3066: the rule the 2022 hadolint could not report ─────────────────────
+#
+# hadolint 2.15.1 (this repo's pin since #947) reports DL3066 "non-numeric
+# user-id may not be resolvable by host system" on a literal `USER root`.
+# The rule postdates the 2.12.0 that stood here for three and a half years,
+# so no consumer Dockerfile carries a pragma for it -- and every consumer
+# Dockerfile has the line: it is the build-time hop the template's
+# devel-test stage takes so its COPYs can write into /usr/local/bin and
+# /lint.
+#
+# That matters because a consumer lints ITSELF -- `WORKDIR /lint` + `RUN
+# hadolint Dockerfile` -- inside the very image `just base upgrade`
+# re-pins. Without this migration the first `just build test` after an
+# upgrade fails on a rule the consumer never chose, while base's own gate
+# stays green: the "CI green, just build broken" shape v0.41.0 already
+# produced once. base's own template silences DL3066 inline with its
+# reason; upgrade.sh HEALS a consumer's Dockerfile and never overwrites it,
+# so the silencing has to be carried there by a migration, exactly as
+# DL3006's is.
+#
+# Only the literal `root` is silenced. DL3066's actual case -- a name the
+# host may not resolve -- is real for any other literal user, and
+# `USER "${USER}"`, the identity these images ship with, is left alone.
+
+@test "migration 5 (hadolint): DL3066 inline ignore before a literal USER root (#946)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS devel-test
+USER root
+COPY x /y
+USER "${USER}"
+EOF
+  run bash -c "$(_src); _migrate_hadolint_detect '${DF}' && _migrate_hadolint_apply '${DF}'"
+  assert_success
+  # hadolint binds an ignore to the NEXT LINE, so "present in the file" is
+  # not the assertion -- "immediately above the instruction" is.
+  run grep -A1 -Fx '# hadolint ignore=DL3066' "${DF}"
+  assert_success
+  assert_line --index 1 'USER root'
+}
+
+@test "migration 5 (hadolint): DL3066 extends an existing pragma rather than displacing it (#946)" {
+  cat > "${DF}" <<'EOF'
+# hadolint ignore=DL3002
+USER root
+EOF
+  run bash -c "$(_src); _migrate_hadolint_apply '${DF}'"
+  assert_success
+  # Inserting a second pragma line BETWEEN the two would push DL3002 off its
+  # instruction and silently re-arm a rule the consumer had already
+  # answered. The real downstream shape (isaac's Dockerfile:38-39) is
+  # exactly this one, so the merge path is the common case, not the corner.
+  grep -Fxq '# hadolint ignore=DL3002,DL3066' "${DF}"
+  [ "$(grep -c 'hadolint ignore=' "${DF}")" = "1" ]
+}
+
+@test "migration 5 (hadolint): DL3066 idempotent — does not double-insert (#946)" {
+  cat > "${DF}" <<'EOF'
+# hadolint ignore=DL3066
+USER root
+EOF
+  run bash -c "$(_src); apply_migrations '${DF}'; apply_migrations '${DF}'"
+  assert_success
+  [ "$(grep -c 'hadolint ignore=DL3066' "${DF}")" = "1" ]
+}
+
+@test "migration 5 (hadolint): DL3066 idempotent when merged into a sibling pragma (#946)" {
+  cat > "${DF}" <<'EOF'
+# hadolint ignore=DL3002
+USER root
+EOF
+  run bash -c "$(_src); apply_migrations '${DF}'; apply_migrations '${DF}'"
+  assert_success
+  grep -Fxq '# hadolint ignore=DL3002,DL3066' "${DF}"
+}
+
+@test "migration 5 (hadolint): DL3066 leaves every non-root USER alone (#946)" {
+  cat > "${DF}" <<'EOF'
+USER "${USER}"
+USER someoperator
+USER 1000
+EOF
+  run bash -c "$(_src); _migrate_hadolint_apply '${DF}'"
+  assert_success
+  # Silencing DL3066 on a name that is NOT root would switch off the case
+  # the rule is worth having, in the file the consumer actually ships.
+  ! grep -q 'hadolint ignore=DL3066' "${DF}"
+}
+
+@test "migration 5 (hadolint): DL3066 detect fires on an unguarded USER root (#946)" {
+  printf 'FROM busybox\nUSER root\n' > "${DF}"
+  run bash -c "$(_src); _migrate_hadolint_detect '${DF}'"
+  assert_success
+}
+
+@test "migration 5 (hadolint): DL3066 detect is quiet once the pragma is there (#946)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox
+# hadolint ignore=DL3002,DL3066
+USER root
+EOF
+  run bash -c "$(_src); _migrate_hadolint_detect '${DF}'"
+  assert_failure
+}
