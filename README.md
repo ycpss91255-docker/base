@@ -5,7 +5,7 @@
 ![Language](https://img.shields.io/badge/Language-Bash-blue?style=flat-square)
 ![Testing](https://img.shields.io/badge/Testing-Bats-orange?style=flat-square)
 ![ShellCheck](https://img.shields.io/badge/ShellCheck-Compliant-brightgreen?style=flat-square)
-![Coverage](https://img.shields.io/badge/Coverage-Kcov-blueviolet?style=flat-square)
+![Coverage](doc/badge/coverage.svg)
 [![License](https://img.shields.io/badge/License-Apache--2.0-blue?style=flat-square)](./LICENSE)
 
 Shared template for Docker container repos in the [ycpss91255-docker](https://github.com/ycpss91255-docker) organization.
@@ -141,7 +141,7 @@ flowchart LR
 | `stop.sh` | Stop and remove containers |
 | `prune.sh` | Prune dangling images / build cache for the repo |
 | `setup_tui.sh` | Interactive setup.conf editor (dialog / whiptail front-end) |
-| `dist/script/docker/wrapper/setup.sh` | Auto-detect system parameters and generate `.env` + `compose.yaml` |
+| `dist/script/docker/wrapper/setup.sh` | Auto-detect system parameters and generate `.env` / `.env.generated` + `compose.yaml` |
 | `dist/script/docker/lib/_lib.sh` | Core wrapper library (`_load_env`, `_compose`, `_compose_project`, ...) |
 | `dist/script/docker/lib/bootstrap.sh` | Common wrapper initialization and arg parsing |
 | `dist/script/docker/lib/compose.sh` | Docker Compose YAML generation and manipulation |
@@ -304,7 +304,7 @@ Any `FROM <base> AS <stage>` outside the baseline blocklist
 auto-emitted as a compose service that
 `extends: devel` (inherits volumes / network / GPU / GUI / cap_add /
 additional_contexts) and overrides only `build.target` / `image` /
-`container_name` / `stdin_open` / `tty` / `profiles`. Use case:
+`stdin_open` / `tty` / `profiles`. Use case:
 entrypoint variants like NVIDIA Isaac Sim's `headless` + `gui` on top
 of `devel`.
 
@@ -457,9 +457,16 @@ diagnostics pointing at the missing artifact.
 Each downstream repo drives its runtime config — GPU reservation, GUI
 env/volumes, network mode, extra volume mounts — through a single
 `setup.conf` INI file. `setup.sh` reads it (plus system detection) and
-regenerates both `.env.generated` and `compose.yaml`; users never hand-edit
-those two derived artifacts. The hand-authored `.env` overlay is a different
-file: setup scaffolds it once and never rewrites it.
+regenerates `.env`, `.env.generated` and `compose.yaml`; users never
+hand-edit those derived artifacts. `.env.local` is the different file: setup
+scaffolds it once and never rewrites it, and it is where your own values go.
+
+One naming rule covers all of them: **the standard name is ours, a suffix
+marks a local variant.** `Dockerfile`, `compose.yaml`, `.setup.conf` and
+`.env` are generated or shipped and get replaced on update; `.setup.conf.local`
+and `.env.local` are yours and are never touched. `.env.generated` keeps its
+suffix for a different reason -- it feeds compose's `${VAR}` interpolation and
+never enters a container, so the suffix marks a category, not ownership.
 
 ### One conf, 15 sections
 
@@ -486,8 +493,9 @@ or its count drifts from it.
 [security] privileged (false), cap_add_N, cap_drop_N, security_opt_N
            (+ the matching *_inherit toggles; opt-in, lean by default)
 [resources] shm_size
-[environment] env_N = KEY=VALUE — set-once defaults, baked as ENV into a
-           deployable stage; volatile per-task vars go in .env instead
+[environment] env_N = KEY=VALUE — set-once defaults, written to the
+           generated .env and baked as ENV into a deployable stage;
+           volatile per-task vars go in .env.local instead
 [tmpfs]    tmpfs_N = /path[:size=N] — RAM-backed mount points
 [devices]  device_N = host:container, plus cgroup rules (opt-in)
 [volumes]  mount_1 (workspace, auto-populated on first run)
@@ -777,16 +785,21 @@ into a field deployment that ships just the image:
 | Parameter kind | Examples | Where it lives | Dev host | Field |
 |---|---|---|---|---|
 | machine-bound / set-once | GPU reservation, `privileged`, device/volume mounts, `IMAGE_NAME`, APT mirror | `setup.conf` (committed) | rendered into `compose.yaml` | resolved into the bundle's self-contained `compose.yaml` (literal values, no `${VAR}`) |
-| volatile workload **env vars** | `ROS_DOMAIN_ID`, `LOG_LEVEL`, API tokens, dataset selectors | `.env` overlay (hand-authored, gitignored) | injected via `env_file` on top of the generated cache (later file wins) | **not carried** -- nothing copies `.env` into a bundle; a value the field needs belongs in `[environment]` (row 1), which bakes as `ENV` |
+| volatile workload **env vars** | `ROS_DOMAIN_ID`, `LOG_LEVEL`, API tokens, dataset selectors | `.env.local` (hand-authored, gitignored) | `env_file: [.env, .env.local]` -- the generated `.env` carries the `[environment]` defaults, yours override them (later file wins) | the bundle ships both: `.env` lists every default it runs with (incl. `WATCHDOG_*`), `.env.local` is where the operator retunes one without a rebuild |
 | structured app **config** | bridge topic lists, pipeline definitions | `config/app/` (#504) | bind-mounted at `/opt/app/config` (edit + restart, no rebuild) | `COPY`-baked default + optional mount-wins override via `config/<component>/deploy.manifest` (edit `config/` + `./deploy.sh up`, no rebuild) |
 
 `setup.conf`'s `[environment]` section is the *first* kind -- stable,
-machine-bound env defaults that get baked into the runtime image as
-`ENV`. Put per-task env vars in the `.env` overlay instead, so a tweak
-needs only `just docker run` (no `compose.yaml` regenerate, no `SETUP_CONF_HASH`
-drift, no git churn).
+machine-bound env defaults. They are written into the generated `.env` and
+baked into the runtime image as `ENV`. Put per-task env vars in `.env.local`
+instead, so a tweak needs only `just docker run` (no `compose.yaml`
+regenerate, no `SETUP_CONF_HASH` drift, no git churn).
 
-> The `.env` overlay, the runtime-stage `ENV` bake, and the self-contained
+Nothing in either file is emitted into a service's compose `environment:`
+list, and that is deliberate: compose ranks `environment:` above `env_file`,
+so a default left there would silently outrank your `.env.local` entry and
+nothing would report it.
+
+> The env-file pair, the runtime-stage `ENV` bake, and the self-contained
 > field-deploy bundle land through the
 > [#497](https://github.com/ycpss91255-docker/base/issues/497) epic; this
 > section documents the routing model they implement.
@@ -1038,11 +1051,11 @@ every build or launch:
 - **`just base init` / `./.base/dist/script/base/init.sh`** runs it once after the skeleton lands
 - **`just base upgrade` / `./.base/dist/script/base/upgrade.sh`** re-runs it via init.sh
   after the subtree pull, so an upgrade always lands with `.env` /
-  `compose.yaml` regenerated against the new baseline
+  `.env.generated` / `compose.yaml` regenerated against the new baseline
 - **`./build.sh --setup` / `./run.sh --setup`** (or `-s`) re-runs it on demand
 - **First-time bootstrap**: `./build.sh` / `./run.sh` auto-run setup.sh
-  the very first time (when `.env` is missing, e.g. after a fresh CI
-  clone) — no manual `--setup` needed
+  the very first time (when `.env.generated` is missing, e.g. after a
+  fresh CI clone) — no manual `--setup` needed
 
 > **Fresh-clone lint coverage (#216)**: `./run.sh` on a clone with no
 > image cached locally triggers Compose's auto-build, which only walks
@@ -1061,13 +1074,13 @@ every build or launch:
 
 `setup.sh apply` rewrites `compose.yaml` from scratch every time but
 preserves `WS_PATH` / `APT_MIRROR_UBUNTU` / `APT_MIRROR_DEBIAN` from any
-existing `.env`, so a hand-tuned workspace path or apt mirror survives
-upgrades.
+existing `.env.generated`, so a hand-tuned workspace path or apt mirror
+survives upgrades.
 
 ### Drift detection
 
 `setup.sh` stores `SETUP_CONF_HASH`, `SETUP_GUI_DETECTED`, and
-`SETUP_TIMESTAMP` in `.env`. On every `./build.sh` / `./run.sh`,
+`SETUP_TIMESTAMP` in `.env.generated`. On every `./build.sh` / `./run.sh`,
 stored values are compared against the current setup.conf hash + system
 detection; a `[WARNING]` is printed (non-blocking) when any of the
 following changed since last setup:
@@ -1108,14 +1121,14 @@ These are first-class operator knobs, not test-only hooks. See
 
 | Subcommand | Use |
 |---|---|
-| `apply` | Regenerate `.env.generated` + `compose.yaml` from setup.conf + system detection (never the hand-authored `.env` overlay) |
+| `apply` | Regenerate `.env` + `.env.generated` + `compose.yaml` from setup.conf + system detection (never `.env.local`) |
 | `check-drift` | Exit 0 in-sync / 1 drifted (drift descriptions on stderr) |
 | `set <section>.<key> <value>` | Write a single key. `--local` targets the gitignored `.setup.conf.local` instead of the committed `.setup.conf`; without it, writing a section `.setup.conf.local` already defines warns by name |
 | `show <section>[.<key>]` | Read single key or whole section |
 | `list [<section>]` | INI-style dump |
 | `add <section>.<list> <value>` | Append to list-style section (`mount_*` / `env_*` / `port_*` / …); reuses next empty slot or `max+1`. Takes `--local` |
 | `remove <section>.<key>` / `<section>.<list> <value>` | Delete by exact key, or by value match. Takes `--local` |
-| `reset [-y\|--yes]` | Restore template default; archives prior `.setup.conf` → `.setup.conf.bak`, prior `.env` → `.env.bak` |
+| `reset [-y\|--yes]` | Restore template default; archives prior `.setup.conf` → `.setup.conf.bak`, prior `.env.generated` → `.env.bak`. Leaves `.env.local` alone |
 | `deploy [--stage S] [--output F] [--dry-run] [-y] [--allow-local-override]` | Build a self-contained field-deploy **folder** (`image.tar.xz` + fully-resolved `compose.yaml` + editable `config/` + `up`/`down`/`logs` `deploy.sh` + `README`) for field stage `S` (default `runtime`; not `devel` / `*-test`); previews the resolved `compose.yaml` and prompts before building. Refuses while `.setup.conf.local` exists unless `--allow-local-override` is passed. See [Field deployment](#field-deployment-just-docker-setup-deploy) |
 
 Typed keys validate against `_tui_conf.sh` validators (the same ones the TUI uses). `set` / `add` / `remove` / `reset` do **not** regenerate `.env.generated` — chain `apply` afterwards, or `build.sh` / `run.sh` will trigger drift-regen on next invocation.
@@ -1134,18 +1147,28 @@ If a downstream repo has custom scripts invoking `setup.sh` directly, prepend `a
 
 ### Derived artifacts (gitignored)
 
-- `.env.generated` — runtime variable values (incl. the resolved
-  `PROJECT_NAME`) + `SETUP_*` drift metadata
+- `.env.generated` — compose interpolation values (incl. the resolved
+  `PROJECT_NAME`) + `SETUP_*` drift metadata; never enters a container
+- `.env` — the container-bound defaults: the `[environment]` list and the
+  `[lifecycle] watchdog_*` block, as a filled-in list
 - `compose.yaml` — full compose with baseline + conditional blocks
 
 Open `compose.yaml` anytime to inspect the repo's current effective
-configuration. Both files are regenerated on every `just base upgrade`
+configuration. All three are regenerated on every `just base upgrade`
 (init.sh re-runs `setup.sh apply` after the subtree pull) — never
 hand-edit them; put your overrides in `setup.conf` instead.
 
-`.env` is gitignored too but is **not** derived: it is the hand-authored
-workload overlay, scaffolded once on first apply and never rewritten
-afterwards. Editing it is safe, and running `setup` will not destroy it.
+`.env.local` is gitignored too but is **not** derived: it is yours,
+scaffolded once on first apply and never rewritten afterwards. Editing it is
+safe, and running `setup` will not destroy it. compose loads it after `.env`,
+so a key named in both resolves to your value.
+
+> **Upgrading from before v0.43.0:** `.env` used to be the hand-authored
+> file. `just base upgrade` renames an existing hand-written `.env` to
+> `.env.local` for you, before anything can regenerate over it. If you
+> skipped that upgrade path and ran `setup` first, your values are in
+> `.env.bak` only if the file was the old interpolation cache -- otherwise
+> restore them from your own backup.
 
 `.setup.conf.local` is the same shape one layer up: gitignored, yours,
 never rewritten by tooling. It is a config *input*, not an artifact -- see
@@ -1192,49 +1215,70 @@ fi
 
 ### Naming scheme: three namespaces, two user identities
 
-`setup.sh` emits three names in `.env` / `compose.yaml`. They look
-similar on a single-user dev machine, but they live in **three
-different namespaces** and pick their user prefix from **two
-different identities**. Sysadmins running shared hosts need to know
-the difference; solo developers can treat the two identities as the
-same and move on.
+`setup.sh` emits two names in `.env` / `compose.yaml`, and compose
+derives the third. They look similar on a single-user dev machine, but
+they live in **three different namespaces** and pick their user prefix
+from **two different identities**. Sysadmins running shared hosts need
+to know the difference; solo developers can treat the two identities as
+the same and move on.
 
 | Name | Format | Namespace | User prefix |
 |---|---|---|---|
 | `image:` | `${DOCKER_HUB_USER:-local}/<repo>:<tag>` | **Registry** (Docker Hub) | `DOCKER_HUB_USER` |
-| `container_name:` | `${USER_NAME}-<repo>` | **Host daemon** (per docker daemon, flat global) | `USER_NAME` (OS user, refs #322) |
-| compose project name | `${DOCKER_HUB_USER}-<repo>` | **Host daemon** (drives default network / volume labels) | `DOCKER_HUB_USER` |
+| compose project name | `${DOCKER_HUB_USER}-<repo>` | **Host daemon** (scopes containers / default network / volume labels) | `DOCKER_HUB_USER` (detected as the OS user when there is no login) |
+| container name | `<project>-<service>-<n>`, derived by compose | **Host daemon** (flat global) | inherited from the project |
 
 - `DOCKER_HUB_USER` — your Docker Hub account, used to namespace
   images on the registry side. Image tags are addressable as
   `<DOCKER_HUB_USER>/<repo>:<tag>` whether or not you actually push.
-- `USER_NAME` — the OS user (from `id -un`), used to keep two OS
-  users on the same host from colliding on the daemon's flat
-  container-name namespace.
+  On a machine with no Docker Hub login, `setup.sh` detects it as your
+  **OS user** (`${USER}`, else `id -un`) rather than leaving it empty.
+- `USER_NAME` — the OS user (from `id -un`), passed in as a build arg so
+  the container user and its home directory match yours. It prefixes no
+  name in the table above.
 
 The two identities are deliberately separate. Image names use the
 Docker Hub identity because images are addressable on the registry,
 and forcing per-OS-user image tags would shatter buildx cache reuse
-and Docker Hub layer sharing. Container names use the OS identity
-because the conflict it fixes (two users on the same host running
-the same repo) is a host-daemon problem with no registry component.
+and Docker Hub layer sharing. The project name uses that same identity,
+so on a single-user machine the two line up — and on a shared host it
+differs per OS user with nothing configured and no second rule, because
+the detection above already falls back to the OS user. The one thing
+that identity cannot separate is two OS users sharing a single Docker
+Hub login; see the worked example below.
 
-Project-name choice of `DOCKER_HUB_USER` predates #322 and was kept
-unchanged: on a single-user dev machine the two identities coincide
-so the names line up visually with `container_name`; on a shared
-host the project name still avoids cross-user collision *because*
-`DOCKER_HUB_USER` happens to differ per user too. The `#322`
-CHANGELOG entry's phrasing "aligns container-level naming with
-project-level naming" is true under that single-user-machine
-assumption — both are user-prefixed, just via different vars — not
-literally the same prefix string in the multi-user case.
+**The dev stack emits no `container_name:`, and the field-deploy bundle
+(`just docker setup deploy`) is the one exemption.** A container name is
+namespaced by the daemon rather than by the project, so a fixed one pins
+the service to a single instance per host: a second stack of the same
+repo fails to start with `name ... is already in use` however it is
+named, and compose refuses `--scale` while the directive is present.
+Letting compose derive `<project>-<service>-<n>` makes the name unique
+by construction, which is what puts per-host isolation entirely in the
+project name.
 
-base is **single-instance** (#600): one fixed-name container/project
-per repo. Multi-instance orchestration (running the same repo as N
-parallel containers with unique project names and port overrides)
-belongs to the compose layer, mirroring how `docker` has no project
-concept and `docker compose` owns `-p` — base does not do multi at
-all.
+The one exemption is the field-deploy bundle (`just docker setup deploy`),
+which does bake a `container_name:`. That bundle is a fully resolved,
+self-contained single-device artifact -- one stack per device, never
+co-located, no overlay expanding it -- and the operator running it wants
+one stable name to `docker logs`. Two emitters, two rules; the
+co-location argument above applies to the dev stack.
+
+```
+COMPOSE_PROJECT_NAME=isaac-ci      docker compose up -d stream  # isaac-ci-stream-1
+COMPOSE_PROJECT_NAME=isaac-manual  docker compose up -d stream  # isaac-manual-stream-1
+```
+
+Nothing you type changes: `just exec -t <target>` takes a compose
+**service** name (it always did — it is passed straight to `compose
+exec`), and `just run` / `just stop` are project-scoped already. What
+does change is that `docker exec <fixed-name>` by hand no longer has a
+fixed name to use; ask compose (`just exec`) instead.
+
+base's own control surface stays **single-instance** (#600): one project
+per repo, resolved once by `setup apply`. Running the same repo as N
+parallel stacks is the compose layer's job, mirroring how `docker` has
+no project concept and `docker compose` owns `-p`.
 
 Two *checkouts* of the same repo are a different question, and base
 does answer that one: give each checkout its own project name with
@@ -1246,22 +1290,23 @@ Worked example. OS user `alice`, Docker Hub user `alice-hub`, repo
 
 ```
 image:          alice-hub/claude_code:devel
-container_name: alice-claude_code
 project name:   alice-hub-claude_code
+container:      alice-hub-claude_code-devel-1   (derived by compose)
 ```
 
-A second OS user `bob` on the same host:
+A second OS user `bob` on the same host, with no Docker Hub account
+configured:
 
 ```
-image:          bob-hub/claude_code:devel          (different registry tag, no cache reuse)
-container_name: bob-claude_code
-project name:   bob-hub-claude_code
+image:          bob/claude_code:devel           (hub user detected as the OS user)
+project name:   bob-claude_code                 (same prefix, no configuration)
+container:      bob-claude_code-devel-1         (derived by compose)
 ```
 
 If `alice` and `bob` share `DOCKER_HUB_USER` (e.g. a shared CI
-service account), `image` collides on Docker Hub but `container_name`
-still differentiates — registry pulls share the cached image and
-hosts stay deconflicted.
+service account) they also share a project name, and that is the case
+to set `[project] name` for — the setting exists, and with no
+`container_name` baked over it, it now reaches the containers too.
 
 ## Quick Start
 
@@ -1551,6 +1596,25 @@ ghcr.io/<org>/my_image:v0.1.0-minimal
 
 Downstream app repos then `FROM ghcr.io/<org>/my_image:v0.1.0-standard` in their own Dockerfile, dropping the duplicated sys / base / devel layers.
 
+### Source archives on a base release
+
+A **base** release carries GitHub's own auto-generated source archives
+(`tarball_url` / `zipball_url`) and no other asset. Those archives hold the
+full tracked tree -- `.version`, the repo-root `init.sh`, `CONTEXT.md` and
+the dotfiles included -- so there is nothing for the release job to
+assemble.
+
+Do not re-add a hand-built `.tar.gz` / `.zip` pair beside them. The one that
+used to be there was a hardcoded `cp` operand list: a tracked file nobody
+remembered to add to the list was simply missing from the archive with no
+error to notice, and a listed path that went away failed the whole release
+at tag push.
+
+A **downstream** release is a different case: `release-worker.yaml`
+assembles `<archive_name_prefix>-vX.Y.Z.tar.gz` / `.zip` from a declared
+payload (`script/ci/release/archive.manifest`), because a consumer's archive
+is a curated deliverable rather than a snapshot of the source.
+
 ## Running Template Tests
 
 Using `script/test/justfile.test` (from template root):
@@ -1651,6 +1715,7 @@ See [TEST.md](doc/test/TEST.md) for the test index (per-category catalogs:
 │       ├── release-test-tools.yaml     # base's own test-tools image release
 │       └── ghcr-cleanup.yaml           # Weekly prune of untagged test-tools orphans on GHCR
 ├── doc/
+│   ├── badge/                          # Generated release coverage badge (hand-run at release; bump caller pending, docker_harness#289)
 │   ├── readme/                         # README translations (zh-TW / zh-CN / ja)
 │   ├── adr/                            # Architecture Decision Records (00000001 … 00000024)
 │   ├── test/

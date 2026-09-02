@@ -457,6 +457,160 @@ _long_prose() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# Orphaned wrap lines
+#
+# The length measure collapses whitespace on purpose, so it is blind to
+# how the entry is wrapped -- and markdown collapses the same whitespace
+# when it renders, so a hand-edit that leaves one word alone on its line
+# is invisible in both places and survives review. The source is where the
+# file is read while it is being written, so that is where the rule bites.
+# It is narrow by design: one word on the line AND more of the same
+# paragraph on the very next SOURCE line. Anything else -- a short final
+# line, a table row, a fenced line, an HTML comment -- is left alone,
+# which the cases below pin one by one.
+# ════════════════════════════════════════════════════════════════════
+
+@test "_run_changelog_entry: FAILS on a single word orphaned above the rest of its paragraph (#927)" {
+  _write_changelog '### Documentation' \
+    '- **an entry that was edited and not re-wrapped** -- the prose runs on' \
+    '  for a while and then the tail was rewritten in place, leaving one' \
+    '  word behind.' \
+    '  Affects' \
+    '  anyone reading the source.'
+  run _run_changelog_entry
+  assert_failure
+  assert_output --partial 'orphaned wrap line'
+  assert_output --partial "'Affects'"
+}
+
+@test "_run_changelog_entry: names the orphan's real line number in the file (#927)" {
+  # Reported against the CHANGELOG's own numbering, not an offset within
+  # the section -- the author has to be able to jump straight to it.
+  _write_changelog '### Documentation' \
+    '- **an entry** -- prose.' \
+    '  Affects' \
+    '  anyone reading the source.'
+  run _run_changelog_entry
+  assert_failure
+  # preamble (4 lines) + heading + blank + '### Documentation' + bullet = 8.
+  assert_output --partial 'CHANGELOG.md:9:'
+}
+
+@test "_run_changelog_entry: a one-word FINAL line of an entry is not an orphan (#927)" {
+  # A paragraph is allowed to end on a short line; nothing follows it to
+  # re-flow into, so there is nothing to fix.
+  _write_changelog '### Documentation' \
+    '- **an entry** -- the prose runs on for a while and then ends on a' \
+    '  word.'
+  run _run_changelog_entry
+  assert_success
+}
+
+@test "_run_changelog_entry: a one-word line above a BLANK line is not an orphan (#927)" {
+  # The next source line is not more of the same paragraph, so the two
+  # were never one wrapped run. Contiguity is the whole test.
+  _write_changelog '### Documentation' \
+    '- **an entry** -- prose that ends on a' \
+    '  word.' \
+    '' \
+    '  A second paragraph of the same entry.'
+  run _run_changelog_entry
+  assert_success
+}
+
+@test "_run_changelog_entry: an unbreakable token alone on its line is not an orphan (#927)" {
+  # A long URL or code span is alone on its line because nothing else fits
+  # there -- that is wrapping working, not wrapping skipped. Caught by the
+  # re-indentation case, which builds its fixture out of 60-character
+  # spaceless chunks and would otherwise report four orphans in an entry
+  # the lint is asserting PASSES.
+  _write_changelog '### Documentation' \
+    '- **an entry with a long span** -- see' \
+    "  \`$(_chars 60)\`" \
+    '  for the details.'
+  run _run_changelog_entry
+  assert_success
+}
+
+@test "_run_changelog_entry: an orphan is one that could have joined the line below (#927)" {
+  # The pair has to FIT: 79 columns is the file's wrap, and a word that
+  # cannot go anywhere is not a word left behind.
+  _write_changelog '### Documentation' \
+    '- **an entry** -- prose.' \
+    '  Affects' \
+    "  $(_chars 74)"
+  run _run_changelog_entry
+  assert_success
+}
+
+@test "_run_changelog_entry: a table separator row is not an orphaned word (#927)" {
+  # '|---|---|' is one whitespace-delimited word and always will be; a
+  # table is not a paragraph that failed to re-flow.
+  _write_changelog '### Documentation' \
+    '- **an entry with a table** -- the shapes:' \
+    '' \
+    '  | Tag | Bump |' \
+    '  |---|---|' \
+    '  | `vX.Y.Z` | Z |'
+  run _run_changelog_entry
+  assert_success
+}
+
+@test "_run_changelog_entry: a single-word line inside a fenced block is not an orphan (#927)" {
+  # Inside a fence the line is code, and code is not wrapped prose. The
+  # fence delimiters are single "words" of their own, too.
+  _write_changelog '### Documentation' \
+    '- **an entry with a snippet** -- like so:' \
+    '' \
+    '  ```bash' \
+    '  make' \
+    '  test' \
+    '  ```'
+  run _run_changelog_entry
+  assert_success
+}
+
+@test "_run_changelog_entry: an orphan inside an allow region is suppressed like any other defect (#927)" {
+  _write_changelog '<!-- changelog-entry-lint: allow-begin -- pinned quotation -->' \
+    '- **an entry** -- prose.' \
+    '  Affects' \
+    '  anyone reading the source.' \
+    '<!-- changelog-entry-lint: allow-end -->'
+  run _run_changelog_entry
+  assert_success
+}
+
+@test "_run_changelog_entry: an orphan in a RELEASED section is never checked (#927)" {
+  # Same scoping as the length cap: a shipped entry is history, and a lint
+  # that fails on something nobody may fix gets muted.
+  {
+    printf '# Changelog\n\n'
+    printf '## [Unreleased]\n\n'
+    printf '## [v0.1.0] - 2026-03-28\n\n'
+    printf '### Documentation\n'
+    printf -- '- **a shipped entry** -- prose.\n'
+    printf '  Affects\n'
+    printf '  anyone reading the source.\n'
+  } > "${CHANGELOG}"
+  run _run_changelog_entry
+  assert_success
+}
+
+@test "_run_changelog_entry: reports EVERY orphan in the section, not just the first (#927)" {
+  _write_changelog '### Documentation' \
+    '- **first** -- prose.' \
+    '  Affects' \
+    '  one reader.' \
+    '- **second** -- prose.' \
+    '  Breaks' \
+    '  another reader.'
+  run _run_changelog_entry
+  assert_failure
+  assert_output --partial "'Affects'"
+  assert_output --partial "'Breaks'"
+}
+
+# ════════════════════════════════════════════════════════════════════
 # The measure is characters, in every locale
 # ════════════════════════════════════════════════════════════════════
 
@@ -516,6 +670,179 @@ _long_prose() {
   run _run_changelog_entry
   assert_failure
   assert_output --partial 'Unreleased'
+}
+
+# ════════════════════════════════════════════════════════════════════
+# A duplicated entry
+# ════════════════════════════════════════════════════════════════════
+#
+# Landing branches serially against `strict` protection merges origin/main
+# into every branch, and two branches that each APPEND to [Unreleased]
+# merge cleanly with BOTH sides kept. Nothing conflicts, so nothing
+# prompts a human -- the shape had produced a duplicated entry four times
+# in one cycle, caught by eye every time, and two instances were sitting on
+# main when this was written.
+
+@test "_run_changelog_entry: FAILS on two entries with an identical lead bullet (#959)" {
+  _write_changelog '### Added' \
+    '- **a duplicated thing** -- what a merge keeps twice.' \
+    '- **a duplicated thing** -- what a merge keeps twice.'
+  run _run_changelog_entry
+  assert_failure
+  assert_output --partial 'duplicate entry'
+}
+
+@test "_run_changelog_entry: names BOTH lines of a duplicate, and both are findable (#959)" {
+  # A message naming only the copy leaves the reader to find the original
+  # by eye, which is the manual step this check removes. Both numbers come
+  # from the fixture via grep, so the assertion cannot agree with a
+  # miscounted offset -- and each is read back out of the file, so a number
+  # the reader could not find fails here.
+  _write_changelog '### Added' \
+    '- **a duplicated thing** -- what a merge keeps twice.' \
+    '- **a duplicated thing** -- what a merge keeps twice.'
+  local -a _hits=()
+  mapfile -t _hits < <(grep -n -- '- \*\*a duplicated thing\*\*' "${CHANGELOG}" | cut -d: -f1)
+  assert_equal "${#_hits[@]}" 2
+  local _first="${_hits[0]}" _second="${_hits[1]}" _text
+  _text="$(sed -n "${_second}p" "${CHANGELOG}")"
+  assert_equal "${_text}" '- **a duplicated thing** -- what a merge keeps twice.'
+  _text="$(sed -n "${_first}p" "${CHANGELOG}")"
+  assert_equal "${_text}" '- **a duplicated thing** -- what a merge keeps twice.'
+  run _run_changelog_entry
+  assert_failure
+  assert_output --partial "CHANGELOG.md:${_second}: duplicate entry"
+  assert_output --partial "already opened at doc/changelog/CHANGELOG.md:${_first}"
+}
+
+@test "_run_changelog_entry: the same entry RE-WRAPPED is still a duplicate (#959)" {
+  # The lead LINE stops being the same string once a copy is re-wrapped,
+  # so the lead-bullet key alone would go quiet on it. The whole-entry key
+  # behind it is what keeps the answer the same.
+  local _one _wrapped
+  _one='- **a duplicated thing** -- the same sentence appears in both copies of this entry.'
+  _wrapped="$(printf '%s' "${_one}" | fold -s -w 40 | sed '2,$s/^/  /')"
+  _write_changelog '### Added' "${_one}" "${_wrapped}"
+  run _run_changelog_entry
+  assert_failure
+  assert_output --partial 're-wrapped'
+}
+
+@test "_run_changelog_entry: two DIFFERENT entries are not a duplicate (#959)" {
+  # The other direction: a check that fires on entries which merely look
+  # alike is a check that gets muted.
+  _write_changelog '### Added' \
+    '- **the first thing** -- what a merge keeps once.' \
+    '- **the second thing** -- what a merge keeps once.'
+  run _run_changelog_entry
+  assert_success
+  refute_output --partial 'duplicate entry'
+}
+
+@test "_run_changelog_entry: a duplicate planted in a RELEASED section is NOT a finding (#959)" {
+  # Same rule as the length cap, same reason: a released section is a
+  # historical record, a duplicate that shipped is a fact about what
+  # shipped, and rewriting it falsifies the record. A repeated category
+  # heading there is exempt for the same reason.
+  {
+    printf '# Changelog\n\n'
+    printf '## [Unreleased]\n\n'
+    printf '### Added\n'
+    printf -- '- **a short entry** -- fine.\n\n'
+    printf '## [v0.42.0] - 2026-08-25\n\n'
+    printf '### Added\n'
+    printf -- '- **a shipped entry** -- fine.\n'
+    printf -- '- **a shipped entry** -- fine.\n\n'
+    printf '### Added\n'
+    printf -- '- **another shipped entry** -- fine.\n'
+  } > "${CHANGELOG}"
+  run _run_changelog_entry
+  assert_success
+  refute_output --partial 'duplicate entry'
+  refute_output --partial 'repeated category heading'
+}
+
+@test "_run_changelog_entry: a bullet and a heading shown inside a fenced example are not structure (#959)" {
+  # The changelog documents its own format in fenced examples, and that
+  # block deliberately carries a '- **' bullet and headings. Parsed as
+  # structure, the example IS a byte-identical second copy of the entry
+  # that introduces it, and its '### Added' IS a second opening -- a
+  # failure on a clean file, which is how a lint gets muted.
+  _write_changelog '### Added' \
+    '- **a thing** -- the shape a duplicate takes is:' \
+    '' \
+    '```markdown' \
+    '### Added' \
+    '- **a thing** -- the shape a duplicate takes is:' \
+    '```'
+  run _run_changelog_entry
+  assert_success
+  refute_output --partial 'duplicate entry'
+  refute_output --partial 'repeated category heading'
+}
+
+@test "_run_changelog_entry: an allow region suppresses a deliberate second copy (#959)" {
+  # The opt-out means the same thing here as for the cap: an entry inside
+  # a region is not measured, and a region is a visible line in the diff
+  # carrying a stated reason.
+  _write_changelog '### Added' \
+    '- **a thing** -- fine.' \
+    '<!-- changelog-entry-lint: allow-begin -- a deliberate second copy -->' \
+    '- **a thing** -- fine.' \
+    '<!-- changelog-entry-lint: allow-end -->'
+  run _run_changelog_entry
+  assert_success
+  refute_output --partial 'duplicate entry'
+}
+
+# ════════════════════════════════════════════════════════════════════
+# A category heading that opens twice
+# ════════════════════════════════════════════════════════════════════
+
+@test "_run_changelog_entry: FAILS when a category opens twice, naming both lines (#959)" {
+  _write_changelog \
+    '### Added' \
+    '- **the first thing** -- fine.' \
+    '### Fixed' \
+    '- **the second thing** -- fine.' \
+    '### Added' \
+    '- **the third thing** -- fine.'
+  # The released tail _write_changelog appends carries a '### Added' too,
+  # so the first two matches are the ones inside [Unreleased].
+  local -a _hits=()
+  mapfile -t _hits < <(grep -n '^### Added$' "${CHANGELOG}" | cut -d: -f1)
+  local _first="${_hits[0]}" _second="${_hits[1]}" _text
+  _text="$(sed -n "${_second}p" "${CHANGELOG}")"
+  assert_equal "${_text}" '### Added'
+  run _run_changelog_entry
+  assert_failure
+  assert_output --partial "CHANGELOG.md:${_second}: repeated category heading"
+  assert_output --partial "### Added already opened at doc/changelog/CHANGELOG.md:${_first}"
+}
+
+@test "_run_changelog_entry: the SAME category in a different release block is fine (#959)" {
+  # The rule is per release block, not per file: every release adds
+  # things, so '### Added' appearing once in each is the normal shape.
+  _write_changelog '### Added' '- **a thing** -- fine.'
+  local _count
+  _count="$(grep -c '^### Added$' "${CHANGELOG}")"
+  assert_equal "${_count}" 2
+  run _run_changelog_entry
+  assert_success
+  refute_output --partial 'repeated category heading'
+}
+
+@test "_run_changelog_entry: the clean line says how many category headings it compared (#959)" {
+  # Non-vacuity: a check that scanned nothing reports the same green line
+  # as a check that scanned the file, unless the line carries the count.
+  _write_changelog \
+    '### Added' \
+    '- **the first thing** -- fine.' \
+    '### Fixed' \
+    '- **the second thing** -- fine.'
+  run _run_changelog_entry
+  assert_success
+  assert_output --partial '2 category headings compared'
 }
 
 # ════════════════════════════════════════════════════════════════════

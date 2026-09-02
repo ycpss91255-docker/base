@@ -336,3 +336,339 @@ EOS
   assert_success
   assert_output --partial "NOARGS_OK"
 }
+
+# ── project-name settle (adopt a deferred rename) ───────────────────────────
+#
+# `setup apply` never renames a checkout out from under its own
+# containers: it records the name the checkout already had and carries the
+# newly resolved one beside it as PROJECT_NAME_PENDING (see
+# `_carry_project_name`, lib/compose.sh, and setup_cmd_spec). Adopting it
+# needs an answer setup cannot get -- is the old project empty? -- so the
+# wrapper asks the daemon and settles it here.
+#
+# The stub answers `docker ps --all --quiet --filter label=...`: the
+# projects named in ${DOCKER_OCCUPIED} own one container each, every other
+# project owns none, and DOCKER_PS_RC makes the daemon unreachable
+# instead. `docker volume ls --quiet --filter label=...` is the second
+# half of the same question -- the projects in ${DOCKER_VOLUMED} own one
+# named volume each, DOCKER_VOLUME_RC makes that query fail -- and the two
+# are separate knobs because the case that matters is a project with a
+# volume and NO container. `docker compose ... ps` answers the service
+# probe from ${COMPOSE_PS_SERVICES} for the project passed in `-p`.
+
+_make_docker_stub() {
+  local _bin="${TEMP_DIR}/bin"
+  mkdir -p "${_bin}"
+  cat > "${_bin}/docker" <<'EOS'
+#!/usr/bin/env bash
+_project=""
+_prev=""
+for _a in "$@"; do
+  case "${_prev}" in
+    -p) _project="${_a}" ;;
+  esac
+  case "${_a}" in
+    label=com.docker.compose.project=*) _project="${_a##*=}" ;;
+  esac
+  _prev="${_a}"
+done
+
+if [[ "$1" == "ps" ]]; then
+  if [[ -n "${DOCKER_PS_RC:-}" ]] && (( DOCKER_PS_RC != 0 )); then
+    printf 'Cannot connect to the Docker daemon\n' >&2
+    exit "${DOCKER_PS_RC}"
+  fi
+  for _p in ${DOCKER_OCCUPIED:-}; do
+    [[ "${_p}" == "${_project}" ]] && printf 'cid-%s\n' "${_p}"
+  done
+  exit 0
+fi
+
+if [[ "$1" == "volume" ]]; then
+  if [[ -n "${DOCKER_VOLUME_RC:-}" ]] && (( DOCKER_VOLUME_RC != 0 )); then
+    printf 'Cannot connect to the Docker daemon\n' >&2
+    exit "${DOCKER_VOLUME_RC}"
+  fi
+  for _p in ${DOCKER_VOLUMED:-}; do
+    [[ "${_p}" == "${_project}" ]] && printf '%s_mydata\n' "${_p}"
+  done
+  exit 0
+fi
+
+if [[ "$1" == "compose" ]]; then
+  for _a in "$@"; do
+    if [[ "${_a}" == "ps" ]]; then
+      if [[ -n "${COMPOSE_PS_RC:-}" ]] && (( COMPOSE_PS_RC != 0 )); then
+        printf 'unknown flag: --status\n' >&2
+        exit "${COMPOSE_PS_RC}"
+      fi
+      # Last argv element is the service; answer only for the -p asked.
+      for _s in ${COMPOSE_PS_SERVICES:-}; do
+        [[ "${_s}" == "${_project}/${!#}" ]] && printf 'cid-%s\n' "${_s}"
+      done
+      exit 0
+    fi
+  done
+fi
+exit 0
+EOS
+  chmod +x "${_bin}/docker"
+  PATH="${_bin}:${PATH}"
+  export PATH
+}
+
+# A repo that already ran: all three artifacts present, .env.generated
+# carrying the project name $2 and, when given, the pending name $3.
+#
+# The pending name is written as the whole BLOCK `write_env` emits -- a
+# blank separator, the banner comment, then the key -- and not as a bare
+# key. A fixture that writes only the key cannot see a remover that takes
+# only the key, which is exactly how an adopted rename came to leave its
+# banner standing over nothing. The banner is spelled out here rather than
+# read from `_PROJECT_PENDING_BANNER` so the constant and its consumers
+# are pinned by an independent copy of the text.
+_seed_recorded_repo() {
+  local _root="$1" _project="$2" _pending="${3-}"
+  _make_setup_sandbox "${_root}"
+  echo "x" > "${_root}/.setup.conf"
+  {
+    echo "USER_NAME=tester"
+    echo "IMAGE_NAME=mockimg"
+    echo "PROJECT_NAME=${_project}"
+    if [[ -n "${_pending}" ]]; then
+      echo ""
+      echo "# -- Deferred project rename (adopted once the old project is empty) --"
+      echo "PROJECT_NAME_PENDING=${_pending}"
+    fi
+  } > "${_root}/.env.generated"
+  echo "# c" > "${_root}/compose.yaml"
+}
+
+@test "a deferred rename is adopted by the first run that finds the project empty (#920)" {
+  # No drift, so setup does not run at all: the pending name alone drives
+  # the adoption. This is the step that makes `stop` the whole migration.
+  local R="${TEMP_DIR}/pending_empty"
+  _seed_recorded_repo "${R}" "local-mockimg" "tester-mockimg"
+  _make_docker_stub
+  export DOCKER_OCCUPIED=""
+  MOCK_DRIFT_RC=0 _run_setup_sync "${R}" build
+  assert_success
+  assert_output --partial "local-mockimg"
+  assert_output --partial "tester-mockimg"
+  run cat "${SETUP_LOG}"
+  refute_output --partial "apply base="
+  run cat "${R}/.env.generated"
+  assert_output --partial "PROJECT_NAME=tester-mockimg"
+  refute_output --partial "PROJECT_NAME_PENDING"
+  # The banner goes with the key. A generated file the user is told not to
+  # edit must not be left announcing a deferral that is over.
+  refute_output --partial "Deferred project rename"
+  # An edit, not a regeneration: every other line survives.
+  assert_output --partial "USER_NAME=tester"
+}
+
+@test "adopting a rename takes the deferral block out whole and nothing else (#920)" {
+  # Asserted byte for byte, because "every other line is copied through" is
+  # this function's contract and a blank line is a line. The bug it pins:
+  # dropping only the key left the banner standing over nothing, in a file
+  # whose own header tells the user not to edit it.
+  local F="${TEMP_DIR}/env.generated"
+  cat > "${F}" <<'ENVEOF'
+USER_NAME=tester
+PROJECT_NAME=local-mockimg
+
+# -- Deferred project rename (adopted once the old project is empty) --
+PROJECT_NAME_PENDING=tester-mockimg
+
+# -- SSH X11 forwarding cookie override --
+XAUTHORITY=/tmp/.docker.xauth
+ENVEOF
+  run bash -c "
+    source ${LIB}/_lib.sh; source ${LIB}/wrapper.sh
+    _wrapper_record_project_name '${F}' tester-mockimg
+    cat '${F}'
+  "
+  assert_success
+  assert_output "USER_NAME=tester
+PROJECT_NAME=tester-mockimg
+
+# -- SSH X11 forwarding cookie override --
+XAUTHORITY=/tmp/.docker.xauth"
+}
+
+@test "a deferred rename stays deferred while the old project is still up (#920)" {
+  local R="${TEMP_DIR}/pending_occupied"
+  _seed_recorded_repo "${R}" "local-mockimg" "tester-mockimg"
+  _make_docker_stub
+  export DOCKER_OCCUPIED="local-mockimg"
+  MOCK_DRIFT_RC=0 _run_setup_sync "${R}" run
+  assert_success
+  assert_output --partial "still has containers"
+  run cat "${R}/.env.generated"
+  assert_output --partial "PROJECT_NAME=local-mockimg"
+  assert_output --partial "PROJECT_NAME_PENDING=tester-mockimg"
+}
+
+@test "a rename is NOT adopted while the old project still holds named volumes (#920)" {
+  # `stop` runs `compose down` WITHOUT -v, so a torn-down stack routinely
+  # leaves its named volumes behind. Counting containers alone would read
+  # that project as empty, adopt the rename, and let compose create a
+  # fresh EMPTY volume under the new name -- the user's data left in an
+  # orphan no wrapper addresses and `prune --volumes` later deletes.
+  local R="${TEMP_DIR}/pending_volumes"
+  _seed_recorded_repo "${R}" "local-mockimg" "tester-mockimg"
+  _make_docker_stub
+  export DOCKER_OCCUPIED=""
+  export DOCKER_VOLUMED="local-mockimg"
+  MOCK_DRIFT_RC=0 _run_setup_sync "${R}" run
+  assert_success
+  assert_output --partial "still holds named volumes"
+  # And NOT the containers wording: './stop.sh' does not clear a volume,
+  # so sending the user there would be sending them nowhere.
+  refute_output --partial "still has containers"
+  run cat "${R}/.env.generated"
+  assert_output --partial "PROJECT_NAME=local-mockimg"
+  assert_output --partial "PROJECT_NAME_PENDING=tester-mockimg"
+}
+
+@test "a project holding BOTH containers and volumes is reported as containers (#920)" {
+  # The pair for the case above: with containers present, `stop` IS the
+  # next step, and it is what the user is told. Without this half the
+  # volume case passes on a stub that always says volumes.
+  local R="${TEMP_DIR}/pending_both"
+  _seed_recorded_repo "${R}" "local-mockimg" "tester-mockimg"
+  _make_docker_stub
+  export DOCKER_OCCUPIED="local-mockimg"
+  export DOCKER_VOLUMED="local-mockimg"
+  MOCK_DRIFT_RC=0 _run_setup_sync "${R}" run
+  assert_success
+  assert_output --partial "still has containers"
+  run cat "${R}/.env.generated"
+  assert_output --partial "PROJECT_NAME_PENDING=tester-mockimg"
+}
+
+@test "a volume query the daemon cannot answer leaves the rename deferred (#920)" {
+  # The volume half is load-bearing, so failing it must be fail-safe in
+  # the same way the container half is: an unanswerable probe defers.
+  local R="${TEMP_DIR}/volume_probe_fail"
+  _seed_recorded_repo "${R}" "local-mockimg" "tester-mockimg"
+  _make_docker_stub
+  export DOCKER_OCCUPIED=""
+  export DOCKER_VOLUME_RC=1
+  MOCK_DRIFT_RC=0 _run_setup_sync "${R}" run
+  assert_success
+  assert_output --partial "Could not ask the daemon"
+  assert_output --partial "Cannot connect to the Docker daemon"
+  run cat "${R}/.env.generated"
+  assert_output --partial "PROJECT_NAME=local-mockimg"
+  assert_output --partial "PROJECT_NAME_PENDING=tester-mockimg"
+}
+
+@test "an unanswerable daemon leaves the rename deferred and says why (#920)" {
+  # Fail-safe: deferring costs one more cycle under the old name, while
+  # adopting on a guess costs the running stack.
+  local R="${TEMP_DIR}/probe_fail"
+  _seed_recorded_repo "${R}" "local-mockimg" "tester-mockimg"
+  _make_docker_stub
+  export DOCKER_PS_RC=1
+  MOCK_DRIFT_RC=0 _run_setup_sync "${R}" run
+  assert_success
+  assert_output --partial "Could not ask the daemon"
+  assert_output --partial "Cannot connect to the Docker daemon"
+  run cat "${R}/.env.generated"
+  assert_output --partial "PROJECT_NAME=local-mockimg"
+  assert_output --partial "PROJECT_NAME_PENDING=tester-mockimg"
+}
+
+@test "no pending rename touches nothing and asks the daemon nothing (#920)" {
+  # The ordinary run: two greps of .env.generated, no docker call. Any
+  # call at all would answer this project as occupied, so a line about it
+  # would be the tell.
+  local R="${TEMP_DIR}/unchanged"
+  _seed_recorded_repo "${R}" "local-mockimg"
+  _make_docker_stub
+  export DOCKER_OCCUPIED="local-mockimg"
+  MOCK_DRIFT_RC=0 _run_setup_sync "${R}" run
+  assert_success
+  refute_output --partial "still has containers"
+  refute_output --partial "project name updated"
+  run cat "${R}/.env.generated"
+  assert_output --partial "PROJECT_NAME=local-mockimg"
+  refute_output --partial "PROJECT_NAME_PENDING"
+}
+
+# ── _wrapper_service_running (the probe both run and exec ask) ──────────────
+
+# The two answers are spelled as DISJOINT tokens, and every assertion on
+# them is a whole-line match (`assert_line`, never `--partial`). The pair
+# `RUNNING` / `NOT_RUNNING` read with `--partial` is what let a probe that
+# can never find anything pass the positive half too -- "NOT_RUNNING"
+# contains "RUNNING" -- so the discrimination the cases below claim to make
+# was made by nothing. `assert_line` also survives the warning line the
+# failing-probe case prints alongside the verdict.
+_run_service_probe() {
+  local _root="$1" _service="$2"
+  run bash -c "
+    source ${LIB}/_lib.sh; source ${LIB}/wrapper.sh
+    _LANG=en
+    FILE_PATH='${_root}'
+    PROJECT_NAME='proj'
+    DRY_RUN=true
+    if _wrapper_service_running '${_service}'; then
+      echo 'PROBE_UP'
+    else
+      echo 'PROBE_DOWN'
+    fi
+  "
+}
+
+@test "_wrapper_service_running answers per project, not per host (#920)" {
+  local R="${TEMP_DIR}/probe"
+  mkdir -p "${R}"
+  echo "# c" > "${R}/compose.yaml"
+  _make_docker_stub
+  # devel is up, but in a DIFFERENT project. The probe carries -p, so the
+  # neighbour is invisible to it -- which is what lets two stacks of one
+  # repo coexist at all.
+  export COMPOSE_PS_SERVICES="neighbour/devel"
+  _run_service_probe "${R}" devel
+  assert_success
+  assert_line "PROBE_DOWN"
+  # Same stub, same seed: asked about the project that DOES have it, the
+  # answer flips. Without that pair the case above passes on a stub that
+  # never answers anything.
+  export COMPOSE_PS_SERVICES="proj/devel"
+  _run_service_probe "${R}" devel
+  assert_success
+  assert_line "PROBE_UP"
+}
+
+@test "a FAILING service probe is reported, not silently read as not-running (#920)" {
+  # `ps --status` is newer than the Compose v2 the README promises. A
+  # compose that rejects it used to report every service as stopped with
+  # the parse error dropped on the floor: exec refuses a container that is
+  # up, and run's guard fails open onto a live stack.
+  local R="${TEMP_DIR}/probe_err"
+  mkdir -p "${R}"
+  echo "# c" > "${R}/compose.yaml"
+  _make_docker_stub
+  export COMPOSE_PS_RC=125
+  _run_service_probe "${R}" devel
+  assert_success
+  assert_line "PROBE_DOWN"
+  assert_output --partial "unknown flag: --status"
+  assert_output --partial "devel"
+  assert_output --partial "proj"
+}
+
+@test "a service probe that answers cleanly stays quiet (#920)" {
+  local R="${TEMP_DIR}/probe_quiet"
+  mkdir -p "${R}"
+  echo "# c" > "${R}/compose.yaml"
+  _make_docker_stub
+  export COMPOSE_PS_SERVICES="proj/devel"
+  _run_service_probe "${R}" devel
+  assert_success
+  assert_line "PROBE_UP"
+  refute_output --partial "Could not ask compose"
+}

@@ -394,10 +394,13 @@ _resolve_deploy_context() {
 # Write the self-contained, FULLY-RESOLVED field compose.yaml (ADR-00000023
 # sec.3, amending ADR-00000003's "compose does not travel"). Unlike the
 # dev compose (generate_compose_yaml), this carries literal resolved values
-# -- NO `${VAR}` interpolation, NO env_file / setup.conf / .env.generated
-# dependency, NO build section (the image is pre-built + docker-loaded), and
-# NO dev-host workspace bind -- so it runs on a field host that never had
-# base's toolchain. It ties the shared resolvers together exactly as apply
+# -- NO `${VAR}` interpolation, NO setup.conf / .env.generated dependency,
+# NO build section (the image is pre-built + docker-loaded), and NO
+# dev-host workspace bind -- so it runs on a field host that never had
+# base's toolchain. The one `env_file:` it carries names two files that
+# travel INSIDE the bundle (`.env` + `.env.local`), so the bundle stays
+# self-contained: they are the operator's override channel, not a
+# dependency on the build host. It ties the shared resolvers together exactly as apply
 # does (so the field never drifts from dev):
 #   _resolve_deploy_context (global conf) -> the stage parent
 #   _resolve_docker_flags   (per-stage [stage:*] overrides) -> effective record
@@ -407,10 +410,13 @@ _resolve_deploy_context() {
 # the deployed stage's resolved values (a headless runtime stage resolves
 # gui off; a gui stage keeps its X11 host-env passthrough). `restart:`
 # carries the [lifecycle] policy (shipped default `unless-stopped`, so the
-# container auto-starts on host reboot). The [lifecycle] WATCHDOG_* env is
-# emitted into `environment:` exactly as the dev compose does -- restart:
-# only recovers a container that EXITS, the watchdog is the only mechanism
-# that recovers a service that is alive but wedged. When <binds_assoc>
+# container auto-starts on host reboot). The [lifecycle] WATCHDOG_* env and
+# the `[environment]` defaults ride the bundle's `.env`, NOT `environment:`
+# -- restart: only recovers a container that EXITS and the watchdog is the
+# only mechanism that recovers a service that is alive but wedged, so an
+# operator has to be able to retune it in the field; compose ranks
+# `environment:` above `env_file`, so a threshold left in that list would
+# make the `.env.local` override silently inert. When <binds_assoc>
 # (basename -> container-path, from _collect_deploy_binds) is non-empty each
 # tunable file is bound `./config/<basename>:<container-path>:<mode>`
 # (mount-wins over the baked default, ADR-00000023 sec.2). <mode> comes from
@@ -524,7 +530,6 @@ _generate_resolved_compose() {
   local _priv="${_eff["privileged"]:-${_grc_ctx["privileged"]}}"
   local _devices_str="${_grc_ctx["devices_str"]}"
   local _shm="${_grc_ctx["shm_size"]}"
-  local _watchdog_env_str="${_grc_ctx["watchdog_env_str"]:-}"
 
   # restart: the bundle is a service-shaped container meant to run
   # forever, so `unless-stopped` (auto-start on host reboot) is the
@@ -541,7 +546,7 @@ _generate_resolved_compose() {
   {
     printf '# AUTO-GENERATED self-contained field deploy compose. DO NOT EDIT.\n'
     printf '# Fully resolved (no variable interpolation, no setup.conf/.env dep);\n'
-    printf '# run via ./deploy.sh up|down|logs. Regenerate: just setup deploy --stage %s\n' "${_stage}"
+    printf '# run via ./deploy.sh up|down|logs. Regenerate: just docker setup deploy --stage %s\n' "${_stage}"
     printf 'name: %s\n' "${_container}"
     printf 'services:\n'
     printf '  %s:\n' "${_stage}"
@@ -575,27 +580,26 @@ _generate_resolved_compose() {
     # caps / security_opt + group_add (dri, gui-gated) -- shared emitters.
     _emit_caps_block "${_eff["cap_add"]}" "${_eff["cap_drop"]}" "${_eff["security_opt"]}"
     _emit_group_add_block "${_eff_gui}" "${_grc_ctx["dri_groups_str"]}"
-    # environment: the GUI X11 host-env passthrough (only when the stage
-    # resolves gui on) plus the [lifecycle] WATCHDOG_* block (only when the
-    # conf armed the watchdog); the baked [environment] is ENV in the image
-    # and is not re-emitted. The watchdog is delivered through compose, not
-    # baked ENV, so the values stay visible and adjustable in the
-    # self-contained bundle -- and it is the ONLY mechanism that recovers a
-    # service that is alive but wedged (restart: only catches a container
-    # that actually exits). ${DISPLAY:-} etc. read the field host's own
-    # shell, not .env.generated. The header is emitted once for whichever
-    # of the two is present.
-    if [[ "${_eff_gui}" == "true" || -n "${_watchdog_env_str}" ]]; then
+    # env_file: the bundle's own two layers -- the defaults we generated
+    # (`.env`) and the operator's overrides (`.env.local`), later wins.
+    # Both ship inside the folder this compose sits in, so naming them
+    # costs the bundle none of its self-containment.
+    _emit_env_file_block
+    # environment: the GUI X11 host-env passthrough only, and only when the
+    # stage resolves gui on. `${DISPLAY:-}` etc. read the FIELD HOST's own
+    # shell, which is why they cannot move into `.env`. Everything an
+    # operator may retune -- the `[environment]` defaults, the [lifecycle]
+    # WATCHDOG_* block -- lives in `.env` instead, because a key in this
+    # list outranks every env_file and would silently defeat the override
+    # channel.
+    if [[ "${_eff_gui}" == "true" ]]; then
       printf '    environment:\n'
-      if [[ "${_eff_gui}" == "true" ]]; then
-        cat <<'YAML'
+      cat <<'YAML'
       - DISPLAY=${DISPLAY:-}
       - WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-}
       - XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/1000}
       - XAUTHORITY=/tmp/.docker.xauth
 YAML
-      fi
-      _emit_watchdog_env "${_watchdog_env_str}"
     fi
     # ports: literal host:container, only under bridge. Same gate as the dev
     # emitter, so the same diagnostic when the mapping is about to be dropped.
@@ -674,6 +678,31 @@ YAML
 }
 
 # ════════════════════════════════════════════════════════════════════
+# _generate_bundle_env <out> <ctx_assoc>
+#
+# Write the bundle's `.env`: every container-bound default the field
+# service runs with, as a filled-in list.
+#
+# `.env` means the same thing here as on a dev host -- ours, generated,
+# replaced by the next `just docker setup deploy`, loaded into the container ahead
+# of the operator's `.env.local`. The contents differ only because a bundle
+# has to be self-contained: the `[environment]` values are ALSO baked into
+# the image as ENV (ADR-00000003 S3), and restating them here turns
+# knowledge an operator would otherwise have to dig out of a Dockerfile
+# into a list they can read and copy a line from. Restating is safe and
+# lossless: an env_file outranks a baked ENV and the values are identical.
+#
+# No interpolation cache is passed: none exists in the field, and nothing
+# in a bundle may depend on one.
+# ════════════════════════════════════════════════════════════════════
+_generate_bundle_env() {
+  local _out="${1:?"${FUNCNAME[0]}: missing out path"}"
+  local -n _gbe_ctx="${2:?"${FUNCNAME[0]}: missing ctx assoc"}"
+  write_container_env "${_out}" \
+    "${_gbe_ctx["env_str"]-}" "${_gbe_ctx["watchdog_env_str"]-}"
+}
+
+# ════════════════════════════════════════════════════════════════════
 # _generate_deploy_launcher <out> <stage>
 #
 # Write the thin, arg-driven field launcher (`deploy.sh`). It carries NO
@@ -691,7 +720,7 @@ _generate_deploy_launcher() {
     cat <<EOF
 #!/usr/bin/env bash
 # AUTO-GENERATED field deploy launcher. DO NOT EDIT.
-# Regenerate via: just setup deploy --stage ${_stage}
+# Regenerate via: just docker setup deploy --stage ${_stage}
 #
 # Self-contained: loads the bundled image, then drives the resolved
 # compose.yaml. Runs from anywhere (cd's to its own bundle dir).
@@ -771,9 +800,17 @@ Self-contained deploy of the image ${_image}.
 Contents:
   image.tar.xz   the container image (deploy.sh docker-loads it)
   compose.yaml   fully-resolved, self-contained (do NOT edit)
+  .env           the container's env defaults, generated (do NOT edit)
+  .env.local     YOUR env overrides (edit, then ./deploy.sh up)
   config/        operator-tunable config copies (edit, then ./deploy.sh up)
   deploy.sh      this launcher
   README         this file
+
+The naming rule: the standard name is the tool's and is regenerated, a
+suffix marks the local variant that is yours. To retune an env value
+(a watchdog threshold, a component default), copy its line out of .env
+into .env.local and edit it there -- compose loads .env first and
+.env.local second, so yours wins, and .env.local survives a bundle update.
 
 Caution: compose.yaml is machine-generated and fully resolved. To adjust a
 tunable value in the field, edit the matching file under config/ (a mounted
@@ -917,6 +954,12 @@ _generate_deploy_bundle() {
   _generate_resolved_compose "${_base}" "${_stage}" "${_image}" "${_container}" \
     "${_work}/compose.yaml" _binds _ctx _bind_modes
   _generate_deploy_launcher "${_work}/deploy.sh" "${_stage}"
+  # The two env layers the resolved compose names. Both must exist in the
+  # bundle: compose fails the whole `up` when a listed env file is missing,
+  # and an operator who unpacks the folder should find the override file
+  # already there rather than have to know its name.
+  _generate_bundle_env "${_work}/.env" _ctx
+  _scaffold_env_local "${_work}/.env.local"
   # The bundle records the untracked sections it was built from, so the
   # record travels with the artifact rather than living only in the build
   # host's terminal scrollback.

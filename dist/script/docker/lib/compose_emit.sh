@@ -10,6 +10,21 @@
 #
 # Distinct from lib/compose.sh, which is the `docker compose` INVOCATION
 # wrapper + project naming (_compose / _compose_project / _compute_project_name).
+#
+# No service here emits `container_name:`, and that absence is load-bearing
+# (ADR-00000022 s4). A container name is namespaced by the DAEMON -- one flat
+# global list -- while everything else this file emits is namespaced by the
+# compose project. Naming a container therefore pins the service to exactly
+# one instance per host whatever project it is brought up under: a second
+# stack of the same repo dies with `name ... is already in use`, and compose
+# refuses `--scale` outright ("Compose does not scale a service beyond one
+# container if the Compose file specifies a container_name"). Omitting it
+# lets compose derive `<project>-<service>-<n>`, which is unique by
+# construction -- so per-host isolation is the PROJECT NAME's job. That name
+# differs per OS user with nothing configured because its `${DOCKER_HUB_USER}`
+# prefix does: detection falls back to the OS user when there is no Docker
+# Hub login (lib/compose.sh's _resolve_project_name header carries the whole
+# chain, including the one case it cannot separate).
 # Extracted from setup.sh (ADR-00000014, epic decompose-setup-sh). Calls into
 # setup.sh-resident deps (resolvers, _setup_msg, _SETUP_SCRIPT_DIR), deploy.sh
 # (_resolve_deploy_context), and conf.sh accessors; all resolve at call-time
@@ -285,21 +300,34 @@ _emit_watchdog_env() {
   done <<< "${_watchdog_env_str}"
 }
 
-# env_file emitter: inject the hand-authored .env workload
-# overlay into the service so per-task env vars take effect with
-# `just run` alone (no regenerate, no SETUP_CONF_HASH drift). Path is
-# relative to compose.yaml (repo root). The devel block emits it and
-# `extends: devel` stages inherit it; the per-stage standalone block
-# (override mode, no extends) re-emits it. Plain (not required:false):
-# setup.sh scaffolds .env on apply, so it always exists before compose
-# runs. .env.generated (the resolved cache) is NOT listed here -- it
-# feeds compose interpolation via the CLI --env-file flag, not the
-# container environment (two-role split).
+# env_file emitter: the container's env layers, in precedence order.
+#
+#   .env        the defaults we generate from .setup.conf (ours)
+#   .env.local  the operator's overrides (theirs, never rewritten)
+#
+# compose applies env_file entries in order and lets a later file win, so
+# a key in `.env.local` beats the shipped default -- which is the whole
+# point of the pair, and why no value that belongs to this pair may also
+# appear in the service's `environment:` list (that list outranks BOTH).
+#
+# Paths are relative to compose.yaml (repo root). The devel block emits
+# this and `extends: devel` stages inherit it; the per-stage standalone
+# block (override mode, no extends) re-emits it. Plain (not
+# required:false): apply writes `.env` and scaffolds `.env.local`, so both
+# exist before compose runs. `.env.generated` (the resolved interpolation
+# cache) is NOT listed -- it feeds compose interpolation via the CLI
+# --env-file flag and never enters a container.
+#
+# <scope> = "own" drops the shared `.env` and keeps only `.env.local`. Used
+# by a stage whose `[stage:*] environment.env_inherit = false` REPLACED the
+# top-level list: handing it `.env` would put back the very entries it
+# asked to drop. That stage re-states its own env (and the lifecycle
+# WATCHDOG_* block) inline instead.
 _emit_env_file_block() {
-  cat <<'YAML'
-    env_file:
-      - .env
-YAML
+  local _scope="${1-shared}"
+  echo "    env_file:"
+  [[ "${_scope}" != "own" ]] && echo "      - .env"
+  echo "      - .env.local"
 }
 
 # User-added [build] args: emit each as `KEY: ${KEY}` — Dockerfile's
@@ -615,6 +643,7 @@ _emit_stage_service() {
   local _init="${_ess_ctx[init]-true}"
   local _restart="${_ess_ctx[restart]-}"
   local _watchdog_env_str="${_ess_ctx[watchdog_env]-}"
+  local _env_top_str="${_ess_ctx[env_top]-}"
 
   # [lifecycle] restart is DEPLOY-scoped: emitted here, on the qualifying
   # stage services, and never on devel for `extends: devel` to inherit
@@ -646,7 +675,6 @@ YAML
     _emit_additional_contexts_block "${_additional_contexts_str}"
     cat <<YAML
     image: \${DOCKER_HUB_USER:-local}/${_name}:${_svc}
-    container_name: \${USER_NAME}-${_name}-${_svc}
     stdin_open: false
     tty: false
     profiles:
@@ -735,15 +763,36 @@ YAML
   _emit_user_build_args "${_user_build_args_str}"
   cat <<YAML
     image: \${DOCKER_HUB_USER:-local}/${_name}:${_svc}
-    container_name: \${USER_NAME}-${_name}-${_svc}
     stdin_open: false
     tty: false
     profiles:
       - ${_svc}
 YAML
-  # Workload overlay: standalone block has no `extends: devel`
-  # to inherit from, so re-emit env_file explicitly.
-  _emit_env_file_block
+  # Env layers: the standalone block has no `extends: devel` to inherit
+  # from, so re-emit env_file explicitly.
+  #
+  # Which layers depends on how this stage's `[environment]` list resolved.
+  # _resolve_stage_list appends the stage's own entries AFTER the top-level
+  # ones, so an effective list that still starts with the top-level list is
+  # in append mode: the shared `.env` already carries that prefix and only
+  # the tail is this stage's. An effective list that does not is replace
+  # mode (`environment.env_inherit = false`), and handing that stage `.env`
+  # would put back exactly the entries it asked to drop -- so it takes
+  # `.env.local` alone and re-states its own env plus the lifecycle
+  # WATCHDOG_* block inline. That inline block is the one place a compose
+  # `environment:` entry still outranks `.env.local`, and it is reached only
+  # by a stage whose conf explicitly opted out of the shared list.
+  local _stage_env_own="${_eff_environment}" _stage_env_scope="shared"
+  if [[ -n "${_env_top_str}" ]]; then
+    if [[ "${_eff_environment}" == "${_env_top_str}" ]]; then
+      _stage_env_own=""
+    elif [[ "${_eff_environment}" == "${_env_top_str}"$'\n'* ]]; then
+      _stage_env_own="${_eff_environment#"${_env_top_str}"$'\n'}"
+    else
+      _stage_env_scope="own"
+    fi
+  fi
+  _emit_env_file_block "${_stage_env_scope}"
   # privileged: literal when stage overrides; else env-var ref
   # (same shape devel emits — .env's PRIVILEGED applies).
   if [[ -n "${_eff_privileged}" ]]; then
@@ -814,7 +863,11 @@ YAML
   _logging_svc_local_path_mount "${_svc}" _stage_llp "${_name}" "${_setup_base}" "${_logging_global_str}" "${_logging_per_svc_str}"
   local _stage_log_file=""
   [[ -n "${_stage_llp}" ]] && _stage_log_file="/var/log/${_name}/${_svc}.log"
-  if [[ "${_eff_gui}" == "true" ]] || [[ -n "${_eff_environment}" ]] || [[ -n "${_stage_log_file}" ]] || [[ -n "${_watchdog_env_str}" ]]; then
+  # The stage's OWN env entries only: whatever the shared `.env` already
+  # carries is not restated here (restating it would outrank `.env.local`).
+  local _stage_wd_env=""
+  [[ "${_stage_env_scope}" == "own" ]] && _stage_wd_env="${_watchdog_env_str}"
+  if [[ "${_eff_gui}" == "true" ]] || [[ -n "${_stage_env_own}" ]] || [[ -n "${_stage_log_file}" ]] || [[ -n "${_stage_wd_env}" ]]; then
     echo "    environment:"
     if [[ "${_eff_gui}" == "true" ]]; then
       cat <<'YAML'
@@ -824,15 +877,37 @@ YAML
       - XAUTHORITY=/tmp/.docker.xauth
 YAML
     fi
-    if [[ -n "${_eff_environment}" ]]; then
-      local _ev _ev_dq
-      while IFS= read -r _ev; do
+    if [[ -n "${_stage_env_own}" ]]; then
+      # Expand `${KEY}` cross-references against earlier siblings first,
+      # exactly as the devel env block does. Skipping it here made the
+      # SAME setup.conf produce two different container envs: devel saw
+      # the expanded value and the stage service saw a literal `${KEY}`
+      # that compose's own substitution layer cannot resolve, because it
+      # never sees sibling env entries.
+      #
+      # Expansion runs over the FULL effective list while only the tail
+      # is emitted: in append mode the referenced sibling normally lives
+      # in the shared prefix that stays in `.env`, so expanding the tail
+      # alone would leave the reference literal again. Restating that
+      # prefix here (which would outrank `.env.local`) is still avoided.
+      local -a _stage_env_expanded=()
+      _expand_env_cross_refs "${_eff_environment}" _stage_env_expanded
+      # `(( _own_n++ ))` would return 1 on the first entry (post-increment
+      # yields 0) and kill the emitter under `set -e`.
+      local _own_n=0 _own_line
+      while IFS= read -r _own_line; do
+        [[ -z "${_own_line}" ]] && continue
+        _own_n=$(( _own_n + 1 ))
+      done <<< "${_stage_env_own}"
+      local _ev _ev_dq _ei
+      for (( _ei = ${#_stage_env_expanded[@]} - _own_n; _ei < ${#_stage_env_expanded[@]}; _ei++ )); do
+        _ev="${_stage_env_expanded[_ei]}"
         [[ -z "${_ev}" ]] && continue
         # Quote each entry as a YAML double-quoted scalar (see the devel
         # env block) so structural chars in the value can't be re-parsed.
         _yaml_dq "${_ev}" _ev_dq
         echo "      - ${_ev_dq}"
-      done <<< "${_eff_environment}"
+      done
     fi
     if [[ -n "${_stage_log_file}" ]]; then
       echo "      - LOG_FILE_PATH=${_stage_log_file}"
@@ -841,14 +916,14 @@ YAML
       echo "      - CONTAINER_LOG_KEEP=${_clog_keep}"
       echo "      - CONTAINER_LOG_DAYS=${_clog_days}"
     fi
-    # [lifecycle] watchdog: re-emit here because a standalone stage has no
-    # `extends: devel` to inherit devel's WATCHDOG_* env from.
-    _emit_watchdog_env "${_watchdog_env_str}"
+    # [lifecycle] watchdog: only for the replace-mode stage above, which
+    # cannot read it out of the shared `.env`.
+    _emit_watchdog_env "${_stage_wd_env}"
   fi
   # ports: only under bridge mode (compose ignores it under host).
   # Each published port is emitted as an overlay-overridable
   # ${PORT_<n>:-<default>} interpolation, not a baked literal, so a
-  # multi_run .env overlay can remap the host port per instance without a
+  # multi_run runtime overlay can remap the host port per instance without a
   # regenerate (ADR-00000022 forward invariant). Unset -> compose
   # substitutes the setup.conf default (identical single-run behaviour).
   # The index is 1-based (PORT_1 = first port) to match base's 1-based
@@ -984,8 +1059,8 @@ generate_compose_yaml() {
   # Auto-emit any `FROM <base> AS <stage>` outside the baseline
   # blocklist {sys, devel-base, devel, runtime-test} (legacy
   # {base, test}) as a compose service that
-  # `extends: devel` and only overrides target / image / container_name /
-  # stdin_open / tty / profiles. generalized the v0.10.0
+  # `extends: devel` and only overrides target / image / stdin_open /
+  # tty / profiles. generalized the v0.10.0
   # `runtime`-only detection so any user-added stage gets a
   # corresponding service automatically — e.g. NVIDIA Isaac Sim's
   # `headless` + `gui` stages share devel's baseline (GPU / network /
@@ -1111,7 +1186,6 @@ YAML
     _emit_user_build_args "${_user_build_args_str}"
     cat <<YAML
     image: \${DOCKER_HUB_USER:-local}/${_name}:devel
-    container_name: \${USER_NAME}-${_name}
     privileged: \${PRIVILEGED}
     ipc: \${IPC_MODE}
 YAML
@@ -1124,7 +1198,7 @@ YAML
     stdin_open: true
     tty: true
 YAML
-    # Workload overlay: devel emits it; extends:devel stages inherit.
+    # Env layers: devel emits them; extends:devel stages inherit.
     _emit_env_file_block
     _emit_runtime_line "${_runtime}"
     # No restart: on devel -- see _emit_restart_line. The deployable
@@ -1155,7 +1229,13 @@ YAML
     _logging_svc_local_path_mount devel _devel_llp "${_name}" "${_setup_base}" "${_logging_global_str}" "${_logging_per_svc_str}"
     local _devel_log_file=""
     [[ -n "${_devel_llp}" ]] && _devel_log_file="/var/log/${_name}/devel.log"
-    if [[ "${_gui}" == "true" ]] || [[ -n "${_env_str}" ]] || [[ -n "${_devel_log_file}" ]] || [[ -n "${_watchdog_env_str}" ]]; then
+    # environment: the X11 host-env passthrough (interpolated from the
+    # developer's own shell) and the per-service log target. The
+    # `[environment]` defaults and the [lifecycle] WATCHDOG_* block are
+    # deliberately NOT here -- they live in the generated `.env`, because
+    # compose ranks `environment:` above `env_file` and a value left here
+    # would make the `.env.local` override silently inert.
+    if [[ "${_gui}" == "true" ]] || [[ -n "${_devel_log_file}" ]]; then
       echo "    environment:"
       if [[ "${_gui}" == "true" ]]; then
         cat <<'YAML'
@@ -1165,24 +1245,6 @@ YAML
       - XAUTHORITY=/tmp/.docker.xauth
 YAML
       fi
-      if [[ -n "${_env_str}" ]]; then
-        # Expand `${KEY}` cross-references against earlier siblings so
-        # the emitted compose.yaml carries the user's intent verbatim
-        # (compose's own substitution layer does NOT see sibling env
-        # entries --).
-        local -a _env_expanded=()
-        _expand_env_cross_refs "${_env_str}" _env_expanded
-        local _ev _ev_dq
-        for _ev in "${_env_expanded[@]}"; do
-          [[ -z "${_ev}" ]] && continue
-          # Quote each entry as a YAML double-quoted scalar so a
-          # structural ": ", a leading flow indicator, or an inline " #"
-          # in the value survives the parse as one string (mirrors the
-          # ports/cgroup quoting; the asymmetric env sink).
-          _yaml_dq "${_ev}" _ev_dq
-          echo "      - ${_ev_dq}"
-        done
-      fi
       if [[ -n "${_devel_log_file}" ]]; then
         echo "      - LOG_FILE_PATH=${_devel_log_file}"
         local _clog_keep _clog_days
@@ -1190,14 +1252,11 @@ YAML
         echo "      - CONTAINER_LOG_KEEP=${_clog_keep}"
         echo "      - CONTAINER_LOG_DAYS=${_clog_days}"
       fi
-      # [lifecycle] watchdog: WATCHDOG_* env on devel; extends:devel stages
-      # inherit it (it is a uniform lifecycle property, not per-svc).
-      _emit_watchdog_env "${_watchdog_env_str}"
     fi
     # ports: only emitted when network_mode=bridge (ignored under host).
     # Each published port is emitted as an overlay-overridable
     # ${PORT_<n>:-<default>} interpolation, not a baked literal, so a
-    # multi_run .env overlay can remap the host port per instance without a
+    # multi_run runtime overlay can remap the host port per instance without a
     # regenerate (ADR-00000022 forward invariant). Unset -> compose
     # substitutes the setup.conf default (identical single-run behaviour).
     # The index is 1-based (PORT_1 = first port) to match base's 1-based
@@ -1278,8 +1337,8 @@ YAML
     #   - extends `devel` (compose merges network / ipc / privileged /
     #     cap_add / volumes / environment / deploy.resources / runtime)
     #   - overrides build.target so docker builds the right stage
-    #   - tags `image:` and `container_name:` per stage so multiple
-    #     stages coexist locally without clobbering devel's `:devel`
+    #   - tags `image:` per stage so multiple stages coexist locally
+    #     without clobbering devel's `:devel`
     #   - disables stdin_open / tty: stages are typically headless
     #     entrypoints (e.g. `headless` runs runheadless.sh, `runtime`
     #     runs CMD-driven daemons). Interactive debug uses
@@ -1327,6 +1386,7 @@ YAML
       [init]="${_init}"
       [restart]="${_restart}"
       [watchdog_env]="${_watchdog_env_str}"
+      [env_top]="${_env_str}"
       [logging_global]="${_logging_global_str}"
       [logging_per_svc]="${_logging_per_svc_str}"
       [net_mode]="${_net_mode}"

@@ -199,8 +199,12 @@ main() {
         shift
         ;;
       --shell)
-        shell="${2:-}"
-        shift 2 || true
+        # Require the value the way --lang below does. `shift 2` with a
+        # single positional left FAILS and shifts nothing, so the
+        # swallowed failure left $1 as --shell and spun this loop
+        # forever; a missing value is a usage error, not a hang.
+        shell="${2:?"--shell requires a value (bash|zsh|fish|all)"}"
+        shift 2
         ;;
       --lang)
         _LANG="${2:?"--lang requires a value (en|zh-TW|zh-CN|ja)"}"

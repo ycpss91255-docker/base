@@ -451,20 +451,30 @@ STUB
 
 # ── wiring guards ───────────────────────────────────────────────────
 
+# Both wiring guards assert over `code_grep`, not the whole file. Every
+# wrapper carries a header paragraph that names the helpers it sources --
+# setup_tui.sh's runs to three lines of prose about `_transcript_begin` and
+# `_transcript_detach` -- so a whole-file grep is satisfied by the
+# explanation of the call rather than by the call. Deleting both real calls
+# from setup_tui.sh left this guard green.
+
 @test "wiring: the 5 full verbs call _transcript_begin (#606)" {
   for _w in build stop prune setup; do
-    run grep -qF '_transcript_begin' "/source/dist/script/docker/wrapper/${_w}.sh"
+    run code_grep -F '_transcript_begin' \
+      "/source/dist/script/docker/wrapper/${_w}.sh"
     assert_success
   done
-  run grep -qF '_transcript_begin' /source/dist/script/base/upgrade.sh
+  run code_grep -F '_transcript_begin' /source/dist/script/base/upgrade.sh
   assert_success
 }
 
 @test "wiring: run/exec/setup_tui call both _transcript_begin and _transcript_detach (#608)" {
   for _w in run exec setup_tui; do
-    run grep -qF '_transcript_begin' "/source/dist/script/docker/wrapper/${_w}.sh"
+    run code_grep -F '_transcript_begin' \
+      "/source/dist/script/docker/wrapper/${_w}.sh"
     assert_success
-    run grep -qF '_transcript_detach' "/source/dist/script/docker/wrapper/${_w}.sh"
+    run code_grep -F '_transcript_detach' \
+      "/source/dist/script/docker/wrapper/${_w}.sh"
     assert_success
   done
 }

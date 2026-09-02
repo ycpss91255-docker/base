@@ -305,7 +305,8 @@ teardown() {
   # comment must point there so the documented adoption path matches
   # the COPY in Dockerfile.example.
   local _conf="/source/dist/.setup.conf"
-  [[ -f "${_conf}" ]] || skip ".setup.conf not present"
+  assert_spec_subject "${_conf}" \
+      "the shipped default setup.conf this spec pins"
   run grep -F '/usr/local/lib/base/_entrypoint_logging.sh' "${_conf}"
   assert_success
   # Negative guard: the broken path must not reappear.
@@ -321,7 +322,7 @@ teardown() {
 @test "generate_compose_yaml emits per-stage LOG_FILE_PATH on extends:devel stage when [logging] local_path is set (#367)" {
   # Without this fix, the zero-diff `extends: service: devel` branch
   # (the minimal-shape emit for stages with no [stage:<name>] override,
-  # ) only emits build / image / container_name / profiles. The
+  # ) only emits build / image / profiles. The
   # extends merge then inherits devel's LOG_FILE_PATH=devel.log into
   # every extending service, so `./run.sh -d runtime` ends up tee'ing
   # the runtime container's stdout to logs/devel.log -- breaking the

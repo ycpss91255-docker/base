@@ -155,17 +155,41 @@ _Avoid_: config search path, override cascade, merge order.
 The per-worktree layer of the chain: gitignored, never touched by tooling,
 visible on one machine. Where `[project] name` belongs so two worktrees of
 one repo can run at once. Written with `setup.sh set --local`. Distinct
-from ADR-00000022's per-instance `.env` overlay, which acts AFTER
+from ADR-00000022's per-instance `.env.local` overlay, which acts AFTER
 `compose.yaml` is generated.
 _Avoid_: local config, instance config, per-instance override.
 
 **Project name**:
 The compose project a checkout runs under, resolved ONCE by
 `_resolve_project_name` (`lib/compose.sh`) from `[project] name` (empty =
-derive `<DOCKER_HUB_USER>-<IMAGE_NAME>`) into `.env.generated` as
-`PROJECT_NAME`. Both the wrapper's `-p` and the emitted `name:` read that
-one value. Not the image tag, which is a separate axis.
+derive `<DOCKER_HUB_USER>-<IMAGE_NAME>`; there is no second OS-user rung,
+because detection already falls back to the OS user) into
+`.env.generated` as `PROJECT_NAME`. Both the wrapper's `-p` and the emitted
+`name:` read that one value. It is also the ONLY per-host isolation the
+stack has: the DEV stack emits no `container_name:` and the field-deploy
+bundle (`just docker setup deploy`) is the one exemption, so compose
+derives `<project>-<service>-<n>` (ADR-00000022 §3, 2026-08-26 amendment).
+That bundle -- `_generate_resolved_compose` -- still bakes a `container_name:`,
+deliberately: one stack per device, never co-located.
+Not the image tag, which is a separate axis.
 _Avoid_: instance name, stack name, container prefix.
+
+**Pending project name**:
+`PROJECT_NAME_PENDING` in `.env.generated`: a name the DEFAULT now derives
+for this checkout but which cannot take effect yet, because containers may
+still exist under the recorded one and compose cannot relabel a running
+container. Only a changed derivation is carried this way; a configured
+`[project] name` takes effect at once. Deciding to DEFER is `setup
+apply`'s half: it records the pending name and keeps `PROJECT_NAME` on the
+name the containers are under (`_carry_project_name`, `lib/compose.sh`),
+because it cannot ask whether that project is still occupied -- setup.sh
+resolves configuration on hosts where docker need not be reachable. The
+wrapper's half is ADOPTION alone: it reports the deferral on every `build`
+/ `run` and takes the pending name on the first one that finds the old
+project empty (`lib/wrapper.sh` `_wrapper_settle_project_name`,
+ADR-00000022 §3). Transient by design: the next `setup apply` re-derives
+it.
+_Avoid_: staged name, project rename flag.
 
 **setup.conf schema**:
 The set of valid sections/keys and their validation rules, single-sourced
@@ -186,9 +210,10 @@ replaces (#220).
 _Avoid_: stage config, per-stage section.
 
 **Env vs workload parameter boundary**:
-The split between set-once `[environment]` defaults (baked into the image
-as `ENV`) and volatile per-task variables in the gitignored `.env`
-workload overlay (ADR-00000003).
+The split between set-once `[environment]` defaults (written to the
+generated `.env` and baked into the image as `ENV`) and volatile per-task
+variables in the gitignored `.env.local` (ADR-00000003, A2 reversed in
+#868: the standard name is ours, a suffix marks the local variant).
 _Avoid_: env split, config layering.
 
 **Field deploy**:
@@ -221,7 +246,8 @@ _Avoid_: tunable list, override manifest, config manifest.
 
 **Managed `.gitignore` block**:
 The base-owned region of a downstream `.gitignore` that `lib/gitignore.sh`
-(re)syncs to ignore derived artifacts (`.env`, `compose.yaml`).
+(re)syncs to ignore derived artifacts (`.env`, `compose.yaml`) and the
+untracked local layers (`.env.local`, `.setup.conf.local`).
 _Avoid_: ignore block, generated gitignore.
 
 ### Logging and observability
@@ -339,9 +365,10 @@ _Avoid_: upgrade seds, Dockerfile patcher.
 > **Dev:** "And if I `setup.sh deploy --stage probe`?"
 > **Maintainer:** "That produces a **deploy bundle** for `probe`, if
 > `probe` is a **deployable stage**.
-> Its `[environment]` defaults are baked as image `ENV`, but your `.env`
-> workload overlay and the `~/work` bind stay behind — that is the **env
-> vs workload parameter boundary**."
+> Its `[environment]` defaults ride the bundle's own `.env` and are baked
+> as image `ENV`, but your `.env.local` and the `~/work` bind stay behind
+> — that is the **env vs workload parameter boundary**. The bundle ships
+> its own empty `.env.local` for you to fill in on the field host."
 
 ## Flagged ambiguities
 
