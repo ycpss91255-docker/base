@@ -459,13 +459,22 @@ EOF
   # caller keys off, and an unreadable file must land on it rather than on
   # some other number the caller does not test for.
   #
-  # Root reads a mode-000 file, so the fixtures are an ELOOP symlink and a
-  # path that is not there at all -- the same technique the sibling cases
-  # above use, and neither injects a seam.
+  # Root reads a mode-000 file, so the fixtures are an ELOOP symlink, a
+  # path that is not there at all, and a DIRECTORY -- the same technique
+  # the sibling cases above use, and none injects a seam.
   ln -s loop "${TEMP_DIR}/loop"
   run bash -c "$(_src); _dfm_pip_line_is_standalone '${TEMP_DIR}/loop'"
   assert_equal "${status}" 1
   run bash -c "$(_src); _dfm_pip_line_is_standalone '${TEMP_DIR}/gone'"
+  assert_equal "${status}" 1
+  # The directory is the leg the redirect probe does NOT answer, and the
+  # one the function's own safety sentence claims it does. On Linux
+  # open(2) on a directory for reading SUCCEEDS: `read` then fails with
+  # EISDIR, the loop exits, and the loop's status is 0 -- so the probe
+  # reports "standalone, safe to delete" for a path nothing read, which
+  # is the defect this whole block exists to refuse.
+  mkdir -p "${TEMP_DIR}/adir"
+  run bash -c "$(_src); _dfm_pip_line_is_standalone '${TEMP_DIR}/adir'"
   assert_equal "${status}" 1
 }
 
