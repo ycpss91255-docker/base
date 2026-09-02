@@ -478,6 +478,119 @@ _spec_path_word() {
     printf '%s\n' "${_hits}"
 }
 
+# ── reading a spec the way a shell reads it ───────────────────────────────────
+#
+# `spec_permission_surface_subjects` below asks which workflow a spec's
+# `yaml_permission_surface` CALL is applied to. Asked of the raw text, that
+# question is also answered by text which is not a call at all: a path
+# inside a quoted string (`"usage: yaml_permission_surface /a/b.yaml"`), a
+# path inside a heredoc BODY -- the shape this tree's own fixtures are
+# written in -- and a path after a trailing `#` all read as
+# `<name> <token>` on a code line, and each of them certified a worker
+# whose surface no spec reads.
+#
+# So the text is LEXED rather than matched, with the few shell rules that
+# decide the question: single quotes quote everything up to the next `'`;
+# double quotes quote everything up to the next `"` except a `$(`, which
+# opens a command context that is code again; a `\` escapes the next
+# character outside single quotes; `<<WORD`, `<<-WORD` and `<< 'WORD'` open
+# a heredoc whose body is DATA until a line that is exactly WORD, while
+# `<<<` is a here-string and opens nothing; and a `#` that starts a word
+# opens a comment that runs to end of line.
+#
+# It is not a shell parser and does not try to be. It does not know `eval`,
+# an alias, a heredoc terminator spelled with an expansion, or a different
+# function that happens to carry the same name. Everything it cannot read
+# resolves to "not a call site", which reads downstream as UNPINNED and
+# fails loudly -- the direction that costs a spec author one line, rather
+# than the one that certifies a worker nothing reads.
+
+# _shell_text_scan <mode> [name]
+#   Read shell CODE LINES on stdin (comment-only lines already dropped by
+#   `code_lines`) and report what a shell would see:
+#     code            -- every line that is shell code, i.e. every line
+#                        outside a heredoc BODY, verbatim;
+#     calls <name>    -- one record per CALL-SHAPED occurrence of <name>:
+#                        `ARG <token>` for the whitespace-delimited token
+#                        after it, `NOARG` when the name ends the line.
+#                        An occurrence inside quotes, inside a heredoc
+#                        body or after a comment `#` is not a call and
+#                        yields no record.
+#   Both modes run the same lexer, so "which lines are code" is decided
+#   once: a heredoc body that is data to one reading cannot be code to the
+#   other.
+_shell_text_scan() {
+    awk -v _mode="${1}" -v _name="${2:-}" '
+    BEGIN { _len = length(_name); _in_hd = 0; _term = "" }
+    {
+        line = $0
+        if (_in_hd) {
+            t = line
+            sub(/^[ \t]+/, "", t)
+            sub(/[ \t]+$/, "", t)
+            if (t == _term) { _in_hd = 0 }
+            next
+        }
+        if (_mode == "code") { print line }
+        n = length(line); i = 1; stack = ""; pend = 0
+        while (i <= n) {
+            ch = substr(line, i, 1)
+            top = (length(stack) > 0) ? substr(stack, length(stack), 1) : "-"
+            if (top == "q") {
+                if (ch == "\047") { stack = substr(stack, 1, length(stack) - 1) }
+                i++; continue
+            }
+            if (ch == "\\") { i += 2; continue }
+            if (top == "d") {
+                if (ch == "\"") { stack = substr(stack, 1, length(stack) - 1); i++; continue }
+                if (ch == "$" && substr(line, i + 1, 1) == "(") { stack = stack "c"; i += 2; continue }
+                i++; continue
+            }
+            if (ch == "\047") { stack = stack "q"; i++; continue }
+            if (ch == "\"") { stack = stack "d"; i++; continue }
+            if (ch == "$" && substr(line, i + 1, 1) == "(") { stack = stack "c"; i += 2; continue }
+            if (ch == ")" && top == "c") { stack = substr(stack, 1, length(stack) - 1); i++; continue }
+            if (ch == "#") {
+                p = (i == 1) ? "" : substr(line, i - 1, 1)
+                if (p == "" || p == " " || p == "\t" || p == ";" || p == "|" || p == "&" || p == "(") { break }
+                i++; continue
+            }
+            if (ch == "<" && substr(line, i + 1, 1) == "<") {
+                if (substr(line, i + 2, 1) == "<") { i += 3; continue }
+                j = i + 2
+                if (substr(line, j, 1) == "-") { j++ }
+                while (substr(line, j, 1) == " " || substr(line, j, 1) == "\t") { j++ }
+                qc = substr(line, j, 1); word = ""
+                if (qc == "\047" || qc == "\"") {
+                    j++
+                    while (j <= n && substr(line, j, 1) != qc) { word = word substr(line, j, 1); j++ }
+                    j++
+                } else {
+                    while (j <= n && substr(line, j, 1) ~ /[A-Za-z0-9_]/) { word = word substr(line, j, 1); j++ }
+                }
+                if (word != "") { _term = word; pend = 1 }
+                i = j; continue
+            }
+            if (_len > 0 && substr(line, i, _len) == _name) {
+                pre = (i == 1) ? "" : substr(line, i - 1, 1)
+                post = substr(line, i + _len, 1)
+                if ((pre == "" || pre !~ /[A-Za-z0-9_]/) \
+                    && (post == "" || post == " " || post == "\t")) {
+                    if (_mode == "calls") {
+                        rest = substr(line, i + _len)
+                        sub(/^[ \t]+/, "", rest)
+                        sub(/[ \t].*$/, "", rest)
+                        if (rest == "") { print "NOARG" } else { print "ARG " rest }
+                    }
+                }
+                i += _len; continue
+            }
+            i++
+        }
+        if (pend) { _in_hd = 1 }
+    }'
+}
+
 # spec_permission_surface_subjects <spec>
 #   The workflow file each `yaml_permission_surface` call in <spec> is
 #   applied TO -- one line per CALL SITE, in file order, resolved from the
@@ -491,54 +604,63 @@ _spec_path_word() {
 #   two workers while pinning one answers both for the one it does not pin.
 #   Binding the subject to the ARGUMENT is what makes the question single.
 #
-#   The resolution is textual and deliberately timid. A call whose argument
-#   is a literal path resolves to it; one whose argument is `${VAR}` (or
-#   `$VAR`) resolves only when the file assigns that name exactly one
-#   literal; anything else is `UNRESOLVED: <argument>`. Timid is the safe
-#   direction here: an unresolved call pins nothing, so a worker whose only
-#   pin is written in a shape this cannot read reads as UNPINNED and fails
-#   loudly, which is fixed by naming the path. It can never pass a worker
-#   that nothing pins.
+#   A call site is decided by `_shell_text_scan` above rather than by
+#   matching the name in the text, so an occurrence sitting in a quoted
+#   string, in a heredoc body or after a comment `#` is what it is -- text
+#   -- and pins nothing.
+#
+#   The resolution of the argument is textual and deliberately timid. A
+#   call whose argument is a literal path resolves to it; one whose
+#   argument is `${VAR}` (or `$VAR`) resolves only when the spec's own
+#   shell code assigns that name exactly one literal; anything else is
+#   `UNRESOLVED: <argument>`. Both readings -- the call sites and the
+#   assignments they resolve against -- run over the same heredoc-free
+#   view, so a fixture that assigns `WF` inside a heredoc cannot decide a
+#   real call site.
+#
+#   What that buys, stated as what the code guarantees rather than as an
+#   absolute: nothing certifies a worker except a call-shaped, unquoted
+#   occurrence of the name whose argument resolves to that worker's path.
+#   It is not proof that such an occurrence CALLS this helper -- a
+#   same-named function, or an `echo yaml_permission_surface <path>`, would
+#   read as one -- and it is not proof that the caller ASSERTS anything on
+#   what it reads. What it does rule out is the failure that made it
+#   necessary: a spec that merely mentions the path, in prose, in a string
+#   or in a fixture it writes, certifying a worker it never reads. Timid is
+#   the safe direction for the rest: a call written in a shape this cannot
+#   read reads as UNPINNED and fails loudly, which is fixed by naming the
+#   path.
 #
 #   Status: 0 at least one call site; 1 the spec was READ and calls it
-#   nowhere; 2 the spec could not be read, or it names the function more
-#   times than this could find arguments for -- both `BUG:` lines, because
-#   a call site that goes unseen is exactly how a spec that pins a worker
-#   stops counting as its pin.
+#   nowhere; 2 the spec could not be read, or a call site carries no
+#   argument this can see -- both `BUG:` lines, because a call site that
+#   goes unseen is exactly how a spec that pins a worker stops counting as
+#   its pin.
 spec_permission_surface_subjects() {
-    local _spec="${1}" _code _calls _call _arg
-    local _status=0 _mentions _found
-    _code="$(code_lines "${_spec}")" || _status=$?
+    local _spec="${1}" _raw _code _calls _call _arg
+    local _status=0
+    _raw="$(code_lines "${_spec}")" || _status=$?
     if [[ "${_status}" -gt 1 ]]; then
-        printf '%s\n' "${_code}"
+        printf '%s\n' "${_raw}"
         return 2
     fi
-    # A CALL-shaped mention: the name, as a whole word, with whitespace or
-    # end of line after it. `yaml_permission_surface:` opening a @test's
-    # own name is a mention and not a call, and counting it would make
-    # every spec that documents the helper report a missing argument.
-    _mentions="$(printf '%s\n' "${_code}" | grep -oE \
-        '(^|[^A-Za-z0-9_])yaml_permission_surface([[:space:]]|$)' | wc -l)"
+    _code="$(printf '%s\n' "${_raw}" | _shell_text_scan code)"
     _status=0
-    _calls="$(printf '%s\n' "${_code}" | grep -oE \
-        '(^|[^A-Za-z0-9_])yaml_permission_surface[[:space:]]+[^[:space:]]+')" \
-        || _status=$?
-    if [[ "${_status}" -gt 1 ]]; then
-        printf 'BUG: grep exited %s scanning %s for call sites\n' \
-            "${_status}" "${_spec}"
+    _calls="$(printf '%s\n' "${_raw}" \
+        | _shell_text_scan calls yaml_permission_surface)" || _status=$?
+    if [[ "${_status}" -ne 0 ]]; then
+        printf 'BUG: the call-site scan of %s exited %s\n' "${_spec}" "${_status}"
         return 2
     fi
-    _found="$(printf '%s\n' "${_calls}" | awk 'NF { n++ } END { print n + 0 }')"
-    if [[ "${_mentions}" -ne "${_found}" ]]; then
-        printf 'BUG: %s names yaml_permission_surface %s time(s) but %s carry an argument this can read\n' \
-            "${_spec}" "${_mentions}" "${_found}"
-        return 2
-    fi
-    [[ "${_found}" -gt 0 ]] || return 1
+    [[ -n "${_calls}" ]] || return 1
     while IFS= read -r _call; do
         [[ -n "${_call}" ]] || continue
-        _arg="${_call##*yaml_permission_surface}"
-        _arg="${_arg#"${_arg%%[![:space:]]*}"}"
+        if [[ "${_call}" == 'NOARG' ]]; then
+            printf 'BUG: %s names yaml_permission_surface with no argument this can read\n' \
+                "${_spec}"
+            return 2
+        fi
+        _arg="${_call#ARG }"
         # A call site carries the punctuation that follows it -- a process
         # substitution's `)`, a `;`, a line continuation.
         while [[ "${_arg}" == *[\)\;\\] ]]; do

@@ -237,8 +237,15 @@ _assert_surface_spec_population() {
 # substring match would let multi_distro_build_worker_yaml_spec.bats --
 # whose subject's name ENDS with `build-worker.yaml` -- stand in as
 # build-worker.yaml's pin. A spec whose call this cannot resolve reads here
-# as "unpinned", which fails loudly and is fixed by naming the path; it
-# cannot pass a worker nothing pins.
+# as "unpinned", which fails loudly and is fixed by naming the path.
+#
+# What a subject certifies is stated where it is derived
+# (spec_permission_surface_subjects): a call-shaped, unquoted occurrence of
+# the helper whose argument resolves to this file. Text that merely NAMES
+# the worker -- in prose, in a string, in a heredoc fixture the spec writes
+# -- is not one. What it does not certify is that the caller ASSERTS
+# anything on the surface it reads: a call site is where a surface is READ,
+# and that is the widest property this scan can honestly claim.
 _reusable_workers_with_no_surface_spec() {
   local _file _subjects _status
   _subjects="$(_pinned_surface_subjects)"
