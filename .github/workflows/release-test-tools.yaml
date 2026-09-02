@@ -248,8 +248,8 @@ jobs:
           docker pull "${image}"
           docker run --rm "${image}" bats --version
 
-          # shellcheck / hadolint are the two lint gates every PR in this
-          # repo must pass, and both are pinned by literal release URL in
+          # The two lint gates every PR in this repo must pass are the
+          # static-analysis pair pinned by literal release URL in
           # dockerfile/Dockerfile.test-tools -- a shape dependabot cannot
           # see. `<tool> --version` asserting exit 0, which is what stood
           # here, catches a tool that vanished from the image and nothing
