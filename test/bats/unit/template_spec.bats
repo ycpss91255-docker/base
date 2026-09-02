@@ -1967,8 +1967,30 @@ _df_flatten() {
     | sed 's/[#\\"`]/ /g' | tr '\n' ' ' | tr -s '[:space:]' ' '
 }
 
+# _df_claim_hits <prose> <claim> -- 0 when the prose states the claim, 1
+# when it does not, 2 when grep could not evaluate the pattern at all.
+#
+# THREE answers, because an `if` around grep has only two branches and
+# reads exit 2 the way it reads exit 1: a sweep that could not run comes
+# back as a file that is clean. The caller has to see the difference, so
+# the status is returned rather than collapsed, and the reason is printed
+# where a failing gate will show it.
+_df_claim_hits() {
+  local _prose="${1?_df_claim_hits: missing prose}" \
+        _claim="${2?_df_claim_hits: missing claim}" _st=0
+  grep -qiE -- "${_claim}" <<< "${_prose}" || _st=$?
+  case "${_st}" in
+    0 | 1) return "${_st}" ;;
+    *)
+      printf 'grep could not evaluate the pattern %s (exit %s)\n' \
+          "${_claim}" "${_st}"
+      return 2
+      ;;
+  esac
+}
+
 @test "no shipped text repeats the claim a build disproves (#951)" {
-  local _f _claim _flat _roster
+  local _f _claim _flat _roster _hit _why
   _roster="$(_df_swept_files)"
 
   # The derivation has to REACH the files that carried the claim. A `find`
@@ -2025,9 +2047,13 @@ _df_flatten() {
       || fail "unbalanced vocabulary markers: ${_unbalanced}"
     _flat="$(_df_flatten "${_f}")"
     for _claim in "${_DF_DISPROVEN_CLAIMS[@]}"; do
-      if grep -qiE -- "${_claim}" <<< "${_flat}"; then
-        fail "${_f} states '${_claim}', which building this repo disproves"
-      fi
+      _hit=0
+      _why="$(_df_claim_hits "${_flat}" "${_claim}")" || _hit=$?
+      case "${_hit}" in
+        0) fail "${_f} states '${_claim}', which building this repo disproves" ;;
+        1) ;;
+        *) fail "the sweep could not read ${_f} for '${_claim}': ${_why}" ;;
+      esac
     done
   done <<< "${_roster}"
 
