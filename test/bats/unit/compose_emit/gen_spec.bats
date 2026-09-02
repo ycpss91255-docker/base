@@ -330,6 +330,69 @@ teardown() {
 # expansion are covered where the code now lives, in env_emit_spec.bats
 # against write_container_env (ADR-00000015: tests mirror source).
 
+@test "generate_compose_yaml expands \${VAR} env cross-refs in a per-stage env_N addition (refs #955)" {
+  # A `[stage:*]` that APPENDS its own env_N is the append-mode case: the
+  # shared prefix stays in `.env` (where write_container_env expands
+  # it) and only this stage's own tail is restated inline. That tail
+  # skipped the expansion entirely, so the SAME setup.conf produced two
+  # different container envs -- `.env` carried the resolved value and the
+  # stage service a literal `${VAR}` compose cannot resolve, because its
+  # substitution layer never sees sibling env entries. Expansion has to
+  # run over the FULL effective list (the referenced sibling lives in the
+  # prefix) while still emitting only the tail.
+  cat > "${TEMP_DIR}/Dockerfile" <<'DOCK'
+FROM scratch AS sys
+FROM sys AS devel-base
+FROM devel-base AS devel
+FROM devel AS devel-test
+FROM devel AS probe
+DOCK
+  mkdir -p "${TEMP_DIR}"
+  cat > "${TEMP_DIR}/.setup.conf" <<'CONF'
+[stage:probe]
+environment.env_1 = LD_LIBRARY_PATH=/foo/${BUILD_TARGET}/lib
+CONF
+  local _extras=()
+  local _env="BUILD_TARGET=production"
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras "" "" "${_env}" "" "" "" "host" "host"
+
+  local _probe_block
+  _probe_block="$(awk '/^  probe:/{f=1;next} /^  [a-z]/{f=0} f' "${COMPOSE_OUT}")"
+  assert [ -n "$(grep -F -- 'LD_LIBRARY_PATH=/foo/production/lib' <<< "${_probe_block}")" ]
+  refute [ -n "$(grep -F -- '${BUILD_TARGET}' <<< "${_probe_block}")" ]
+  # The shared prefix is still NOT restated here: a compose
+  # `environment:` entry outranks `.env.local`.
+  refute [ -n "$(grep -F -- 'BUILD_TARGET=production' <<< "${_probe_block}")" ]
+}
+
+@test "generate_compose_yaml expands cross-refs in a per-stage environment.env_N replacement (refs #955)" {
+  # Same rule when the stage REPLACES the inherited list: the stage's own
+  # env_N entries cross-reference each other exactly like the devel ones.
+  cat > "${TEMP_DIR}/Dockerfile" <<'DOCK'
+FROM scratch AS sys
+FROM sys AS devel-base
+FROM devel-base AS devel
+FROM devel AS devel-test
+FROM devel AS probe
+DOCK
+  mkdir -p "${TEMP_DIR}"
+  cat > "${TEMP_DIR}/.setup.conf" <<'CONF'
+[stage:probe]
+environment.env_inherit = false
+environment.env_1 = ROOT=/opt
+environment.env_2 = BASE=${ROOT}/lib
+CONF
+  local _extras=()
+  generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
+    "false" "false" "0" "gpu" _extras "" "" "" "" "" "" "host" "host"
+
+  local _probe_block
+  _probe_block="$(awk '/^  probe:/{f=1;next} /^  [a-z]/{f=0} f' "${COMPOSE_OUT}")"
+  assert [ -n "$(grep -F -- 'BASE=/opt/lib' <<< "${_probe_block}")" ]
+  refute [ -n "$(grep -F -- '${ROOT}' <<< "${_probe_block}")" ]
+}
+
 @test "generate_compose_yaml emits tmpfs block from tmpfs_ list" {
   local _extras=()
   local _tmpfs
@@ -978,10 +1041,11 @@ DOCK
   # image tag is :runtime (not :devel)
   run grep -E '^    image:.*:runtime$' "${COMPOSE_OUT}"
   assert_success
-  # container_name: ${USER_NAME} prefix (multi-user disambiguation)
-  # + -runtime stage suffix
-  run grep -F 'container_name: ${USER_NAME}-myrepo-runtime' "${COMPOSE_OUT}"
-  assert_success
+  # No container_name: a fixed name is global to the daemon, so it pins the
+  # stage to one instance per host and makes compose refuse `--scale`. The
+  # name compose derives instead is project-scoped.
+  run grep -F 'container_name:' "${COMPOSE_OUT}"
+  assert_failure
   # non-interactive (runtime is headless auto-run, Dockerfile CMD drives)
   run grep -E '^    stdin_open: false$' "${COMPOSE_OUT}"
   assert_success
@@ -1231,7 +1295,6 @@ services:
         USER_UID: ${USER_UID}
         USER_GID: ${USER_GID}
     image: ${DOCKER_HUB_USER:-local}/myrepo:devel
-    container_name: ${USER_NAME}-myrepo
     privileged: ${PRIVILEGED}
     ipc: ${IPC_MODE}
     stdin_open: true
@@ -1273,7 +1336,6 @@ services:
       dockerfile: Dockerfile
       target: devel-test
     image: ${DOCKER_HUB_USER:-local}/myrepo:test
-    container_name: ${USER_NAME}-myrepo-test
     stdin_open: false
     tty: false
     profiles:
@@ -1294,7 +1356,6 @@ services:
         USER_UID: ${USER_UID}
         USER_GID: ${USER_GID}
     image: ${DOCKER_HUB_USER:-local}/myrepo:headless
-    container_name: ${USER_NAME}-myrepo-headless
     stdin_open: false
     tty: false
     profiles:

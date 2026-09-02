@@ -1,4 +1,4 @@
-<!-- sync: base e5eb312a5446 456381313862 -->
+<!-- sync: base ff88fde1be47 1b3d9c14e036 -->
 # base
 
 [![Self Test](https://github.com/ycpss91255-docker/base/actions/workflows/self-test.yaml/badge.svg)](https://github.com/ycpss91255-docker/base/actions/workflows/self-test.yaml)
@@ -6,7 +6,7 @@
 ![Language](https://img.shields.io/badge/Language-Bash-blue?style=flat-square)
 ![Testing](https://img.shields.io/badge/Testing-Bats-orange?style=flat-square)
 ![ShellCheck](https://img.shields.io/badge/ShellCheck-Compliant-brightgreen?style=flat-square)
-![Coverage](https://img.shields.io/badge/Coverage-Kcov-blueviolet?style=flat-square)
+![Coverage](../badge/coverage.svg)
 [![License](https://img.shields.io/badge/License-Apache--2.0-blue?style=flat-square)](../../LICENSE)
 
 [ycpss91255-docker](https://github.com/ycpss91255-docker) 组织下所有 Docker 容器 repo 的共用模板。
@@ -249,7 +249,7 @@ image，`$HOME` 可能不一样。
 第 1、2 条属于判断题，grep 判不出来。设计理由见
 [ADR-00000024](../adr/00000024-bake-artifacts-at-opt-not-home.md)。
 
-<!-- sync: adding-extra-stages-215 2da5b4c5cc6a 8e46b490ed24 -->
+<!-- sync: adding-extra-stages-215 7c90746cbedf a2d16bc44148 -->
 #### 添加额外 stage（#215）
 
 任何在 baseline blocklist `{sys, devel-base, devel, runtime-test}`
@@ -257,7 +257,7 @@ image，`$HOME` 可能不一样。
 `FROM <base> AS <stage>`，会被自动 emit 成一个 compose 服务 —
 `extends: devel`（继承 volumes / network / GPU / GUI / cap_add /
 additional_contexts），仅 override `build.target` / `image` /
-`container_name` / `stdin_open` / `tty` / `profiles`。典型用例是
+`stdin_open` / `tty` / `profiles`。典型用例是
 entrypoint 变体，如 NVIDIA Isaac Sim 在 `devel` 之上的
 `headless` + `gui` 两种启动模式。
 
@@ -805,45 +805,67 @@ if [ ! -f /proc/sys/fs/binfmt_misc/qemu-aarch64 ]; then
 fi
 ```
 
-<!-- sync: naming-scheme-three-namespaces-two-user-identities 66fe689054d6 7eb0fb0c8f90 -->
+<!-- sync: naming-scheme-three-namespaces-two-user-identities d45f877c5361 ddb294071fb9 -->
 ### 命名规则：三个 namespace、两个 user 身份
 
-`setup.sh` 会在 `.env` / `compose.yaml` 产生三个名称。它们在单人
-开发机上看起来很像，但其实分布在**三个独立的 namespace**，并使用
-两个**不同的 user 身份**作前缀。多 user 共用主机的场景下这层差异
-会浮现；个人开发机上两个身份通常一致可以不必深究。
+`setup.sh` 会在 `.env` / `compose.yaml` 产生两个名称，第三个由
+compose 自己推导。它们在单人开发机上看起来很像，但其实分布在**三个
+独立的 namespace**，并使用两个**不同的 user 身份**作前缀。多 user
+共用主机的场景下这层差异会浮现；个人开发机上两个身份通常一致可以
+不必深究。
 
 | 名称 | 格式 | Namespace | User 前缀 |
 |---|---|---|---|
 | `image:` | `${DOCKER_HUB_USER:-local}/<repo>:<tag>` | **Registry**（Docker Hub） | `DOCKER_HUB_USER` |
-| `container_name:` | `${USER_NAME}-<repo>` | **本地 daemon**（同 docker daemon 内 flat 全局） | `USER_NAME`（OS user，refs #322） |
-| compose project name | `${DOCKER_HUB_USER}-<repo>` | **本地 daemon**（影响默认 network / volume label） | `DOCKER_HUB_USER` |
+| compose project name | `${DOCKER_HUB_USER}-<repo>` | **本地 daemon**（界定 container / 默认 network / volume label） | `DOCKER_HUB_USER`（没有登录时检测为 OS user） |
+| container 名称 | `<project>-<service>-<n>`，由 compose 推导 | **本地 daemon**（flat 全局） | 继承自 project |
 
 - `DOCKER_HUB_USER` — 你的 Docker Hub 账号，用于在 registry 端把
   image 加上命名空间。即使从未实际 push，image tag 也以这个
-  identity 拼成 `<DOCKER_HUB_USER>/<repo>:<tag>`。
-- `USER_NAME` — 主机 OS user（`id -un`），用来防止同一台机器上
-  不同 OS user 在 daemon 的 flat container 命名空间内互撞。
+  identity 拼成 `<DOCKER_HUB_USER>/<repo>:<tag>`。机器上没有登录
+  Docker Hub 时，`setup.sh` 不会让它留空，而是检测成你的 **OS
+  user**（`${USER}`，否则 `id -un`）。
+- `USER_NAME` — 主机 OS user（`id -un`），以 build arg 传进去让
+  container 内的用户与家目录和你一致。它不是上表任何名称的前缀。
 
 刻意把两个身份分开。Image 用 Docker Hub 身份是因为 image 是会在
 registry 上被定址的；如果以 OS user 做前缀，buildx cache 与
-Docker Hub layer 共享会直接失效。Container name 用 OS 身份是
-因为它解决的冲突（同 host 两个 user 跑同一个 repo）是 daemon 端
-问题、与 registry 无关。
+Docker Hub layer 共享会直接失效。Project name 用的就是同一个身份，
+单人机上两者才会对齐 — 而在共享机器上，因为上面那层检测本来就会
+退回 OS user，不需要第二条规则、也不需要任何配置，project name 就
+已经因人而异。这个身份唯一分不开的情况，是两个 OS user 共用同一个
+Docker Hub 登录；见下方示例。
 
-Project name 用 `DOCKER_HUB_USER` 是 #322 之前的决定，未变：在单
-人开发机上两个身份重合，与 `container_name` 视觉对齐；多人共用机
-上 `DOCKER_HUB_USER` 通常也不同，所以 project name 同样能避开
-跨 user 冲突。`#322` CHANGELOG 写的「对齐 container-level 与
-project-level naming」在「单人机」假设下成立 — 两者都带 user
-前缀，差别只在「同一个 var 还是两个 var」；多人机场景下两个前缀
-不是同一字符串。
+**开发 stack 不 emit `container_name:`，唯一的例外是 field deploy
+bundle（`just docker setup deploy`）。** Container 名称属于 daemon 层的
+namespace、不属于 project 层，所以写死一个名字等于把该 service 绑
+在「每台 host 只能有一份」：同一个 repo 的第二份 stack 无论取什么
+project name，都会以 `name ... is already in use` 起不来，而且只要
+这个字段还在，compose 就拒绝 `--scale`。交给 compose 推导
+`<project>-<service>-<n>`，名字天生唯一 — 于是 host 层的隔离完全
+落在 project name 上。
 
-base 是**单一 instance**（#600）：每个 repo 只有一组固定名字的
-container / project。Multi-instance 编排（把同一个 repo 跑成 N 个
-并行 container，各有独立 project name 与 port override）属于 compose
-那一层，就像 `docker` 本身没有 project 概念、`-p` 归 `docker compose`
-管一样 — base 完全不碰 multi。
+唯一的例外是 field deploy bundle（`just docker setup deploy`），它确实会
+写死一个 `container_name:`。那份 bundle 是完全 resolve 过、自带所有
+内容的单机 artifact — 一台设备一份 stack、不会和别人同机共存、也没有
+任何 overlay 会展开它 — 操作者要的就是一个固定名字可以 `docker
+logs`。两个 emitter、两套规则；上面共存的论述讲的是开发 stack。
+
+```
+COMPOSE_PROJECT_NAME=isaac-ci      docker compose up -d stream  # isaac-ci-stream-1
+COMPOSE_PROJECT_NAME=isaac-manual  docker compose up -d stream  # isaac-manual-stream-1
+```
+
+使用方式没有任何改变：`just exec -t <target>` 收的一直是 compose
+**service** 名称（它本来就直接转交给 `compose exec`），`just run` /
+`just stop` 本来就以 project 为范围。真正改变的是：手动
+`docker exec <固定名称>` 不再有固定名称可用 — 改问 compose（`just
+exec`）。
+
+base 自己的操作面仍是**单一 instance**（#600）：每个 repo 一个
+project，由 `setup apply` 解析一次。把同一个 repo 跑成 N 份并行
+stack 属于 compose 那一层，就像 `docker` 本身没有 project 概念、
+`-p` 归 `docker compose` 管一样。
 
 同一个 repo 的两个 *checkout* 是另一个问题，而这个 base 有解：用
 `.setup.conf.local` 的 `[project] name` 给每个 checkout 自己的
@@ -854,22 +876,22 @@ project name — 见[同时跑两个 worktree](#同时跑两个-worktree)。
 
 ```
 image:          alice-hub/claude_code:devel
-container_name: alice-claude_code
 project name:   alice-hub-claude_code
+container:      alice-hub-claude_code-devel-1   (compose 推导)
 ```
 
-第二位 OS user `bob` 在同台机器上：
+第二位 OS user `bob` 在同台机器上，且没有配置 Docker Hub 账号：
 
 ```
-image:          bob-hub/claude_code:devel          (不同 registry tag,无 cache 共用)
-container_name: bob-claude_code
-project name:   bob-hub-claude_code
+image:          bob/claude_code:devel           (hub user 检测成 OS user)
+project name:   bob-claude_code                 (同一个前缀,零配置)
+container:      bob-claude_code-devel-1         (compose 推导)
 ```
 
 若 `alice` 与 `bob` 共用同一个 `DOCKER_HUB_USER`（例如共用 CI
-service 账号），`image` 会在 Docker Hub 端撞名，但 `container_name`
-仍能区隔 — registry pull 共用 cached image、host 内 daemon 仍
-彼此隔离。
+service 账号），连 project name 都会一样 — 这正是该设
+`[project] name` 的场景：这个配置本来就存在，而现在没有
+`container_name` 盖在上面，它才真的管得到 container。
 
 <!-- sync: quick-start 629a4900e292 af008f0c036e -->
 ## 快速开始
@@ -1118,7 +1140,7 @@ just --list        # 显示 CI 命令
 [system](../test/system.md) / [acceptance](../test/acceptance.md) /
 [smoke](../test/smoke.md)）。
 
-<!-- sync: directory-structure cdf5e1772b27 a43ee8662ca8 -->
+<!-- sync: directory-structure 57d0265174f4 c799ace4be65 -->
 ## 目录结构
 
 ```
@@ -1195,6 +1217,7 @@ just --list        # 显示 CI 命令
 │       ├── release-test-tools.yaml     # base 自身的 test-tools image release
 │       └── ghcr-cleanup.yaml           # 每周清理 GHCR 上 test-tools 的 untagged orphan
 ├── doc/
+│   ├── badge/                          # 生成的发布覆盖率徽章（release 时 hand-run，bump caller 待接：docker_harness#289）
 │   ├── readme/                         # README 翻译（zh-TW / zh-CN / ja）
 │   ├── adr/                            # Architecture Decision Records（00000001 … 00000024）
 │   ├── test/

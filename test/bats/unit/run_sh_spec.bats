@@ -67,25 +67,47 @@ EOS
   BIN_DIR="${TEMP_DIR}/bin"
   mkdir -p "${BIN_DIR}"
 
-  # docker stub: `docker ps` reads from DOCKER_PS_FILE so individual tests
-  # can simulate a running container; everything else is a no-op.
-  DOCKER_PS_FILE="${TEMP_DIR}/docker_ps.out"
-  export DOCKER_PS_FILE
-  : > "${DOCKER_PS_FILE}"
+  # docker stub: `docker compose ... ps <service>` reads from
+  # COMPOSE_PS_FILE so individual tests can simulate a running service;
+  # everything else is a no-op.
+  #
+  # A line is either `<service>` -- running, project not modelled, for the
+  # tests that are not about scoping -- or `<project>/<service>`, which
+  # only a probe carrying that same `-p` sees. The qualified form is what
+  # makes the project-scoping tests bite: the stub answers the question
+  # compose was actually asked, so a probe that dropped `-p` gets a
+  # different answer rather than the same one.
+  COMPOSE_PS_FILE="${TEMP_DIR}/compose_ps.out"
+  export COMPOSE_PS_FILE
+  : > "${COMPOSE_PS_FILE}"
 
   cat > "${BIN_DIR}/docker" <<'EOS'
 #!/usr/bin/env bash
-if [[ "$1" == "ps" ]]; then
-  cat "${DOCKER_PS_FILE}"
-  # Opt-in late write (${DOCKER_PS_LATE_FILE}): names that arrive only
-  # after a reader which stops reading has already left, so the write
-  # finds no reader. `exec` so the SIGPIPE is this stub's own exit
-  # status rather than being swallowed by the `exit 0` below.
-  if [[ -n "${DOCKER_PS_LATE_FILE:-}" ]]; then
-    sleep 0.2
-    exec cat "${DOCKER_PS_LATE_FILE}"
+if [[ "$1" == "compose" ]]; then
+  _is_ps=0
+  _project=""
+  _prev=""
+  for _a in "$@"; do
+    [[ "${_a}" == "ps" ]] && _is_ps=1
+    [[ "${_prev}" == "-p" ]] && _project="${_a}"
+    _prev="${_a}"
+  done
+  if (( _is_ps )); then
+    _svc="${!#}"
+    if grep -qxF -- "${_svc}" "${COMPOSE_PS_FILE}" 2>/dev/null \
+       || grep -qxF -- "${_project}/${_svc}" "${COMPOSE_PS_FILE}" 2>/dev/null; then
+      printf '%s\n' "cid-${_svc}"
+    fi
+    # Opt-in late write (${COMPOSE_PS_LATE_FILE}): ids that arrive only
+    # after a reader which stops reading has already left, so the write
+    # finds no reader. `exec` so the SIGPIPE is this stub's own exit
+    # status rather than being swallowed by the `exit 0` below.
+    if [[ -n "${COMPOSE_PS_LATE_FILE:-}" ]]; then
+      sleep 0.2
+      exec cat "${COMPOSE_PS_LATE_FILE}"
+    fi
+    exit 0
   fi
-  exit 0
 fi
 # image inspect: drives the soft guard. Env var
 # DOCKER_IMAGE_PRESENT=true makes the inspect succeed (image present
@@ -315,9 +337,8 @@ HOOK
 }
 
 @test "run.sh non-devel target without CMD uses 'compose up' foreground (#458)" {
-  # non-devel stages used to use 'compose run --rm' which bypassed
-  # container_name. Now unified to 'compose up' so container_name from
-  # takes effect.
+  # non-devel stages used to use 'compose run --rm', which never ran the
+  # Dockerfile CMD. Now unified to 'compose up' so the CMD drives.
   run bash "${SANDBOX}/run.sh" --dry-run -t test
   assert_success
   refute_output --partial "run --rm test"
@@ -435,16 +456,16 @@ HOOK
   assert_output --partial "./exec.sh"
 }
 
-@test "run.sh refuses to start when container already running (devel + no -d)" {
+@test "run.sh refuses to start when the service is already running (devel + no -d)" {
   {
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env.generated"
-  # Simulate a running container matching CONTAINER_NAME=${USER_NAME}-mockimg
-  # (container_name now includes USER_NAME prefix to disambiguate
-  # per-OS-user on shared hosts).
-  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  # The devel service is up inside THIS project. The guard asks compose,
+  # which is what scopes the question to the project rather than to the
+  # daemon's flat container-name namespace.
+  echo "devel" > "${COMPOSE_PS_FILE}"
 
   # Real mode (no --dry-run) triggers the guard; DRY_RUN=true bypasses it.
   run bash "${SANDBOX}/run.sh"
@@ -452,16 +473,81 @@ HOOK
   assert_output --partial "already running"
 }
 
-@test "run.sh: a docker ps still writing cannot make the guard miss a running container (#905)" {
-  # The already-running guard asks `docker ps ... | <reader>`. A reader
-  # that stops reading (`grep -q` leaves on its first match) strands a
-  # `docker ps` that is still writing: SIGPIPE, exit 141, and run.sh's
+@test "run.sh names the service and the project when it refuses (#920)" {
+  {
+    echo "USER_NAME=tester"
+    echo "IMAGE_NAME=mockimg"
+    echo "DOCKER_HUB_USER=mockuser"
+  } > "${SANDBOX}/.env.generated"
+  echo "devel" > "${COMPOSE_PS_FILE}"
+
+  run bash "${SANDBOX}/run.sh"
+  assert_failure
+  assert_output --partial "devel"
+  assert_output --partial "mockuser-mockimg"
+  # `tester-mockimg` is a name nothing owns now that compose derives it.
+  refute_output --partial "tester-mockimg"
+}
+
+@test "run.sh: a service running in ANOTHER project does not block this one (#920)" {
+  # The whole point of dropping container_name: two stacks of the same repo
+  # coexist under distinct project names. The guard must therefore ask
+  # about THIS project only -- which asking compose does by construction,
+  # since the probe carries -p.
+  #
+  # Real mode, deliberately: --dry-run skips the guard outright, so a
+  # dry-run version of this test would assert nothing about it.
+  {
+    echo "USER_NAME=tester"
+    echo "IMAGE_NAME=mockimg"
+    echo "DOCKER_HUB_USER=mockuser"
+    echo "PROJECT_NAME=mockimg-wt2"
+  } > "${SANDBOX}/.env.generated"
+  # Both present so the bootstrap does not regenerate .env.generated over
+  # the resolved project name this test is about.
+  echo "# mock" > "${SANDBOX}/compose.yaml"
+  echo "# stub" > "${SANDBOX}/.setup.conf"
+  # devel IS up -- in the neighbouring project. Only a probe carrying
+  # `-p mockuser-mockimg` sees it, and this run carries -p mockimg-wt2.
+  echo "mockuser-mockimg/devel" > "${COMPOSE_PS_FILE}"
+
+  run bash "${SANDBOX}/run.sh"
+  assert_success
+  refute_output --partial "already running"
+  assert_output --partial "-p mockimg-wt2"
+}
+
+@test "run.sh: the SAME project's running service still blocks (#920)" {
+  # The other half of the pair above: same stub, same shape of seed, and
+  # the ONLY difference is which project owns the running devel. Without
+  # this, "another project does not block" would also pass against a probe
+  # that can never find anything at all.
+  {
+    echo "USER_NAME=tester"
+    echo "IMAGE_NAME=mockimg"
+    echo "DOCKER_HUB_USER=mockuser"
+    echo "PROJECT_NAME=mockimg-wt2"
+  } > "${SANDBOX}/.env.generated"
+  echo "# mock" > "${SANDBOX}/compose.yaml"
+  echo "# stub" > "${SANDBOX}/.setup.conf"
+  echo "mockimg-wt2/devel" > "${COMPOSE_PS_FILE}"
+
+  run bash "${SANDBOX}/run.sh"
+  assert_failure
+  assert_output --partial "already running"
+  assert_output --partial "mockimg-wt2"
+}
+
+@test "run.sh: a probe still writing cannot make the guard miss a running service (#905)" {
+  # The already-running guard used to ask `docker ps ... | <reader>`. A
+  # reader that stops reading (`grep -q` leaves on its first match) strands
+  # a probe that is still writing: SIGPIPE, exit 141, and run.sh's
   # file-scope `pipefail` makes 141 the PIPELINE's status -- which the
   # `if` reads as "not running". The answer is inverted, not lost, and
   # run.sh then does not refuse at all: it starts a second container on
   # top of the live one instead of printing the guard's error.
   #
-  # The stub pins that interleaving. The matching name is written first,
+  # The stub pins that interleaving. The matching id is written first,
   # so a real early-closing reader really does match and really does
   # leave; the late write then finds nobody. Draining the whole stream
   # never leaves it, so the late write lands and the guard fires.
@@ -470,10 +556,10 @@ HOOK
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env.generated"
-  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
-  DOCKER_PS_LATE_FILE="${TEMP_DIR}/docker_ps.late"
-  export DOCKER_PS_LATE_FILE
-  echo "someone-elses-container" > "${DOCKER_PS_LATE_FILE}"
+  echo "devel" > "${COMPOSE_PS_FILE}"
+  COMPOSE_PS_LATE_FILE="${TEMP_DIR}/compose_ps.late"
+  export COMPOSE_PS_LATE_FILE
+  echo "cid-someone-else" > "${COMPOSE_PS_LATE_FILE}"
 
   run bash "${SANDBOX}/run.sh"
   assert_failure
@@ -592,8 +678,7 @@ HOOK
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env.generated"
-  # container_name now includes USER_NAME prefix.
-  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  echo "devel" > "${COMPOSE_PS_FILE}"
   run bash "${SANDBOX}/run.sh" --lang zh-TW
   assert_failure
   assert_output --partial "已在執行中"
@@ -605,8 +690,7 @@ HOOK
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env.generated"
-  # container_name now includes USER_NAME prefix.
-  echo "tester-mockimg" > "${DOCKER_PS_FILE}"
+  echo "devel" > "${COMPOSE_PS_FILE}"
   run bash "${SANDBOX}/run.sh" --lang ja
   assert_failure
   assert_output --partial "すでに実行中"
@@ -698,9 +782,18 @@ EOS
   printf ' %q' "$@"
   printf '\n'
 } >> "${TEMP_DIR}/docker.log"
-if [[ "$1" == "ps" ]]; then
-  cat "${DOCKER_PS_FILE}"
-  exit 0
+if [[ "$1" == "compose" ]]; then
+  _is_ps=0
+  for _a in "$@"; do
+    [[ "${_a}" == "ps" ]] && _is_ps=1
+  done
+  if (( _is_ps )); then
+    _svc="${!#}"
+    if grep -qxF -- "${_svc}" "${COMPOSE_PS_FILE}" 2>/dev/null; then
+      printf '%s\n' "cid-${_svc}"
+    fi
+    exit 0
+  fi
 fi
 if [[ "$1" == "image" && "$2" == "inspect" ]]; then
   exit 1
@@ -901,9 +994,19 @@ _exit_code_fixture() {
   export DOCKER_IMAGE_PRESENT=true
   cat > "${BIN_DIR}/docker" <<'EOS'
 #!/usr/bin/env bash
-case "$1" in
-  ps) cat "${DOCKER_PS_FILE}"; exit 0 ;;
-esac
+if [[ "$1" == "compose" ]]; then
+  _is_ps=0
+  for _a in "$@"; do
+    [[ "${_a}" == "ps" ]] && _is_ps=1
+  done
+  if (( _is_ps )); then
+    _svc="${!#}"
+    if grep -qxF -- "${_svc}" "${COMPOSE_PS_FILE}" 2>/dev/null; then
+      printf '%s\n' "cid-${_svc}"
+    fi
+    exit 0
+  fi
+fi
 if [[ "$1" == "image" && "$2" == "inspect" ]]; then exit 0; fi
 _has_up=0; _has_d=0; _has_exec=0; _has_run=0
 for _a in "$@"; do
@@ -1014,9 +1117,19 @@ HOOK
   : > "${DOCKER_DOWN_LOG}"
   cat > "${BIN_DIR}/docker" <<'EOS'
 #!/usr/bin/env bash
-case "$1" in
-  ps) cat "${DOCKER_PS_FILE}"; exit 0 ;;
-esac
+if [[ "$1" == "compose" ]]; then
+  _is_ps=0
+  for _a in "$@"; do
+    [[ "${_a}" == "ps" ]] && _is_ps=1
+  done
+  if (( _is_ps )); then
+    _svc="${!#}"
+    if grep -qxF -- "${_svc}" "${COMPOSE_PS_FILE}" 2>/dev/null; then
+      printf '%s\n' "cid-${_svc}"
+    fi
+    exit 0
+  fi
+fi
 if [[ "$1" == "image" && "$2" == "inspect" ]]; then exit 0; fi
 for _a in "$@"; do
   [[ "${_a}" == "down" ]] && printf 'down %s\n' "$*" >> "${DOCKER_DOWN_LOG}"

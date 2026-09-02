@@ -322,7 +322,7 @@ teardown() {
 @test "generate_compose_yaml emits per-stage LOG_FILE_PATH on extends:devel stage when [logging] local_path is set (#367)" {
   # Without this fix, the zero-diff `extends: service: devel` branch
   # (the minimal-shape emit for stages with no [stage:<name>] override,
-  # ) only emits build / image / container_name / profiles. The
+  # ) only emits build / image / profiles. The
   # extends merge then inherits devel's LOG_FILE_PATH=devel.log into
   # every extending service, so `./run.sh -d runtime` ends up tee'ing
   # the runtime container's stdout to logs/devel.log -- breaking the
