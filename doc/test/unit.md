@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3140 tests**.
+Unit specs under `test/bats/unit/`: **3149 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3762,3 +3762,17 @@ rather than an assurance.
 | `_residue_guard_available: answers no outside a git checkout (#965)` | A released tarball still runs the suite; absence costs nothing |
 | `_residue_guard_available: is switched off by TEST_RESIDUE_GUARD=0 (#965)` | The escape hatch for an edit made WHILE the suite runs, asserted in both directions |
 | `the compose dispatch is what runs the guard, not a caller that could forget (#965)` | Wired into the one host-side point every bats dispatch passes through |
+
+### test/bats/unit/alpine_eol_spec.bats (9)
+
+| Test | Description |
+|------|-------------|
+| `alpine eol: the test-tools Dockerfile records its series' end-of-life (#946)` | The expiry is written next to the pin as a marker, not left in a commit message |
+| `alpine eol: the recorded series is the series actually pinned (#946)` | A date attached to a series this image is not built on would arm the alarm for the wrong pin |
+| `alpine eol: the recorded date is parseable, not merely present (#946)` | Present-but-unreadable is the state a presence check would pass |
+| `alpine eol: the pinned series is more than the lead time from expiry (#946)` | The scheduled alarm itself: red 180 days out, so the bump is planned work rather than an incident |
+| `alpine eol reader: a Dockerfile with NO marker fails, it does not pass (#946)` | Fail-closed: a missing marker is a defect, never an absent constraint |
+| `alpine eol reader: TWO disagreeing markers fail rather than a side being picked (#946)` | Two dates for one pin is ambiguity the reader must refuse, not resolve |
+| `alpine eol reader: a marker naming a series the ARG does not pin is visible (#946)` | Proves the agreement check can actually see a disagreement |
+| `alpine eol reader: an already-expired date reads as negative days (#946)` | The past side of the window, exercised rather than assumed |
+| `alpine eol reader: a malformed date FAILS, it does not read as far away (#946)` | A typo must not disarm the alarm by parsing as a distant future |
