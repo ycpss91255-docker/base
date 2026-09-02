@@ -934,6 +934,102 @@ _write() {
   [[ "${output}" == *"another command in this statement"* ]]
 }
 
+@test "_run_errexit_bang: FAILS on a ';' behind a '!' the operator fold pulled in (#956)" {
+  # The fold answers where a statement STARTS as well as where it ends.
+  # `echo a ||` is incomplete, so bash reads the line below it as the
+  # operator's right operand -- and that line opens a `!` statement.
+  # Asking whether the LOGICAL line is a `!` one answers no, and the
+  # whole rule chain is then skipped: the `; true` that throws the
+  # negation away is judged by nothing. The `!` is judged from where it
+  # starts, which is line 3.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "a bang pulled in over the operator" {' \
+    '  echo a ||' \
+    '  ! grep -q A f; true' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"x_spec.bats:3"* ]]
+  [[ "${output}" == *"another command in this statement"* ]]
+}
+
+@test "_run_errexit_bang: FAILS on a '!' the fold pulled in that is not the body's last (#956)" {
+  # The position rule over the same fold, and with `&&` rather than
+  # `||` so the verdict does not depend on which operator opened it.
+  # `echo z` is the body's last statement, so the negation is exempt
+  # from errexit and could not have failed the test.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "a bang pulled in, then a later statement" {' \
+    '  echo a &&' \
+    '  ! grep -q A f' \
+    '  echo z' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"x_spec.bats:3"* ]]
+}
+
+@test "_run_errexit_bang: FAILS on an async '&' behind a '!' the fold pulled in (#956)" {
+  # And the async operator over the same fold: `&` discards the
+  # negation from any position, so this one is reported for the
+  # operator rather than for where the statement sits.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "a bang pulled in, then backgrounded" {' \
+    '  echo a ||' \
+    '  ! grep -q A f &' \
+    '  echo z' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"x_spec.bats:3"* ]]
+  [[ "${output}" == *"background fork"* ]]
+}
+
+@test "_run_errexit_bang: FAILS on a '!' the fold pulled in that never finishes (#956)" {
+  # An operator fold can also hand the scan a `!` line it cannot read to
+  # the end. Reported as unfinished from the line the `!` opens on,
+  # rather than judged on a partial reading or dropped as unreadable --
+  # a `!` statement is in reach of this rule wherever it started.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "a bang pulled in, then an unterminated quote" {' \
+    '  echo a ||' \
+    '  ! grep -q A "' \
+    '  echo z' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"x_spec.bats:3"* ]]
+  [[ "${output}" == *"still unfinished"* ]]
+}
+
+@test "_run_errexit_bang: PASSES on a '!' the fold pulled in that IS the body's last (#956)" {
+  # The other direction, and the reason a fold that pulls in a `!` line
+  # cannot simply report it: `echo a && ! grep -q A f` as the body's
+  # last statement leaves the negation as the body's status, so it does
+  # fail the test when grep succeeds.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "a bang pulled in, and nothing after it" {' \
+    '  echo a &&' \
+    '  ! grep -q A f' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -eq 0 ]
+}
+
+@test "_run_errexit_bang: PASSES on a second '!' that is the first's '||' operand (#956)" {
+  # The case the fold exists to get right, pinned so that judging a
+  # pulled-in `!` cannot widen into reporting one. Here the logical line
+  # ALREADY opens with `!`, so `! A || ! B` is one `||` list whose
+  # verdict is B's negation -- one statement, and a live one.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "two bangs, one list" {' \
+    '  ! grep -q A f ||' \
+    '  ! grep -q B g' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -eq 0 ]
+}
+
 @test "_run_errexit_bang: PASSES on a bang statement with a bare trailing ';' (#956)" {
   # A semicolon that terminates the statement rather than starting a
   # second one leaves the negation as the body's status.
@@ -1204,6 +1300,22 @@ _write() {
   run _run_errexit_bang
   [ "${status}" -ne 0 ]
   [[ "${output}" == *"x_spec.bats:3"* ]]
+}
+
+@test "_run_errexit_bang: an allow region suppresses a folded-in '!' too (#956)" {
+  # The row raised by an operator fold is gated like every other row
+  # that judges a `!` line: the operator has already bracketed this one
+  # by hand, so the lint has nothing left to tell them.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "a bang pulled in, opted out" {' \
+    '  # errexit-bang-lint: allow-begin -- fixture text, not a statement' \
+    '  echo a ||' \
+    '  ! grep -q A f; true' \
+    '  # errexit-bang-lint: allow-end' \
+    '  assert_success' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -eq 0 ]
 }
 
 @test "_run_errexit_bang: an unterminated allow region fails (#956)" {

@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3332 tests**.
+Unit specs under `test/bats/unit/`: **3339 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3710,7 +3710,7 @@ inside the test that produces it, each case writes a one-test spec into
 | `no spec opens with a fail-open '\|\| skip' existence guard` | The repo-wide invariant, so the idiom cannot creep back in |
 | `the fail-open guard scan sees every spelling of the check, not just [[ -f ]]` | The invariant must be green because no guard exists, not because its pattern is blind |
 
-### test/bats/unit/errexit_bang_lint_spec.bats (69)
+### test/bats/unit/errexit_bang_lint_spec.bats (76)
 
 | Test | Description |
 |------|-------------|
@@ -3763,6 +3763,12 @@ inside the test that produces it, each case writes a one-test spec into
 | `_run_errexit_bang: PASSES on a live '&&' split across the operator (#956)` | - |
 | `_run_errexit_bang: PASSES on a pipeline split across its '\|' (#956)` | - |
 | `_run_errexit_bang: FAILS on a ';' behind a pipeline split across its '\|' (#956)` | - |
+| `_run_errexit_bang: FAILS on a ';' behind a '!' the operator fold pulled in (#956)` | The fold answers where a statement STARTS too: a `!` line read in as an operator's right operand is still judged, from the line it opens on |
+| `_run_errexit_bang: FAILS on a '!' the fold pulled in that is not the body's last (#956)` | The position rule over the same fold |
+| `_run_errexit_bang: FAILS on an async '&' behind a '!' the fold pulled in (#956)` | - |
+| `_run_errexit_bang: FAILS on a '!' the fold pulled in that never finishes (#956)` | Reported as unfinished from the line the `!` opens on, not dropped as unreadable |
+| `_run_errexit_bang: PASSES on a '!' the fold pulled in that IS the body's last (#956)` | Why a pulled-in `!` is judged rather than reported |
+| `_run_errexit_bang: PASSES on a second '!' that is the first's '\|\|' operand (#956)` | `! A \|\| ! B` is one list with one verdict; pinned so judging a pulled-in `!` cannot widen into reporting one |
 | `_run_errexit_bang: PASSES on a bang statement with a bare trailing ';' (#956)` | - |
 | `_run_errexit_bang: PASSES on the '&' spellings that background nothing (#956)` | `&&`, `2>&1`, `&>` and `\|&` are other operators; `[[ a&b ]]` is a syntax error and needs no exemption |
 | `_run_errexit_bang: PASSES when the bang statement is the body's last (#956)` | - |
@@ -3780,6 +3786,7 @@ inside the test that produces it, each case writes a one-test spec into
 | `_run_errexit_bang: FAILS on a violation in a bats tree outside test/bats (#956)` | - |
 | `_run_errexit_bang: an allow region suppresses the finding (#956)` | - |
 | `_run_errexit_bang: an allow region suppresses the unreadable-fold finding too (#956)` | - |
+| `_run_errexit_bang: an allow region suppresses a folded-in '!' too (#956)` | - |
 | `_run_errexit_bang: an unterminated allow region fails (#956)` | - |
 | `_run_errexit_bang: an unmatched allow-end fails (#956)` | - |
 | `_run_errexit_bang: the real bats tree is clean (#956)` | - |
