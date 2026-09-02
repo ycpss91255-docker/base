@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3124 tests**.
+Unit specs under `test/bats/unit/`: **3174 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -324,7 +324,7 @@ Mirrors `lib/env_emit.sh`. `write_env` (.env contents + SETUP_*
 metadata, SSH X11 `XAUTHORITY` override #321) and `_scaffold_env_overlay`
 idempotency.
 
-#### test/bats/unit/setup_cmd_spec.bats (120)
+#### test/bats/unit/setup_cmd_spec.bats (126)
 
 Mirrors `lib/setup_cmd.sh`. The git-style subcommand dispatcher and its
 mutating verbs (#49): dispatch (Phase B-1), `set` / `show` / `list`
@@ -364,7 +364,7 @@ apart until a `FROM --platform=... AS <stage>` line was a stage to one
 call site and invisible to the others — it drives every call site off a
 single FROM line and asserts one verdict per site.
 
-### test/bats/unit/tui_spec.bats (135)
+### test/bats/unit/tui_spec.bats (138)
 
 Pure-logic unit tests for the TUI support libraries (`_tui_conf.sh`).
 No dialog/whiptail invocations here — strictly validators, mount-string
@@ -1404,7 +1404,7 @@ justfile_user_spec.bats.
 | `completions.sh --lang bogus warns and falls back to en (non-fatal)` | _sanitize_lang fallback |
 | `test.sh rejects --lang (test namespace is English-only, #655)` | machine/CI namespace, no i18n |
 
-### test/bats/unit/completions_spec.bats (14)
+### test/bats/unit/completions_spec.bats (15)
 
 Unit tests for the opt-in shell tab-completion installer
 `dist/script/base/completions.sh` (#653, ADR-00000011), reached as
@@ -1430,6 +1430,7 @@ standard auto-load dir (no rc edits), idempotency, the zsh fpath hint, default
 | `missing action is a usage error (exit 2) (#692)` | missing install/uninstall -> exit 2 |
 | `-h / --help exits 0 with usage` | help text |
 | `install is idempotent: a re-run overwrites cleanly` | overwrite-on-reinstall |
+| `--shell with no value is a usage error, not an infinite loop (#955)` | - |
 
 ### test/bats/unit/compose_emit/blocks_spec.bats (30)
 
@@ -1472,7 +1473,7 @@ running the whole ~900-line generator and grepping its YAML output.
 | `_emit_stage_service: override stage GPU resolution emits deploy reservation` | standalone GPU |
 | `_yaml_dq wraps a value as a double-quoted scalar, escaping \ then " (#698)` | YAML scalar quoting |
 
-### test/bats/unit/compose_emit/gen_spec.bats (81)
+### test/bats/unit/compose_emit/gen_spec.bats (83)
 
 Covers `generate_compose_yaml` conditional output: AUTO-GENERATED
 header, baseline workspace volume, network/ipc/privileged env-var
@@ -1511,6 +1512,8 @@ shapes, absent on any `*-test` stage).
 | `generate_compose_yaml: device ro,rshared emits read_only + propagation (#450 P1)` | - |
 | `generate_compose_yaml: propagation-only device creates volumes: header even without extras (#450)` | - |
 | `generate_compose_yaml: all devices have propagation → no devices: section (#450)` | - |
+| `generate_compose_yaml expands ${VAR} env cross-refs in a per-stage env_N addition (refs #955)` | - |
+| `generate_compose_yaml expands cross-refs in a per-stage environment.env_N replacement (refs #955)` | - |
 | `generate_compose_yaml emits tmpfs block from tmpfs_ list` | - |
 | `generate_compose_yaml emits ports block only under network_mode=bridge` | - |
 | `generate_compose_yaml emits shm_size only when ipc_mode != host` | - |
@@ -1802,7 +1805,7 @@ liveness helpers, the `WATCHDOG_NOTIFY` give-up hook, and the
 (reusing `logrotate.sh`). The process-level supervision loops + signal
 paths live in `watchdog_supervision_spec.bats`.
 
-### test/bats/unit/watchdog_supervision_spec.bats (7)
+### test/bats/unit/watchdog_supervision_spec.bats (16)
 
 Process-level supervision tests for the watchdog (#797): the
 `restart-container` monitor loop, the `restart-service` supervisor, and
@@ -2230,7 +2233,7 @@ throwaway fixture `dist/` trees, plus a real-tree guard that the live
 | `_run_stale_setup_conf: FAILS when the dist/ scan root is missing (no vacuous pass) (#845)` | Missing scan root fails, no vacuous pass |
 | `_run_stale_setup_conf: the REAL dist/ passes today (migration block allowlisted) (#845)` | Live tree clean |
 
-### test/bats/unit/readme_sync_spec.bats (31)
+### test/bats/unit/readme_sync_spec.bats (34)
 
 Unit tests for the localized-README drift guard (refs #846, #873):
 `script/test/sync-readme-hashes.sh` (`_sync_readme_hashes`, the generator
@@ -2279,7 +2282,10 @@ Driven over throwaway fixture trees, plus a real-tree pair proving
 | `_run_readme_sync: FAILS when the English README is missing (#846)` | No vacuous pass without a source |
 | `_run_readme_sync: FAILS when no translation files are found (#846)` | No vacuous pass without translations |
 | `_run_readme_sync: the REAL doc/readme/ tree is stamped and clean today (#846)` | Live tree clean |
+| `_assert_same_tree: a failure names WHAT differed, not just that something did (#965)` | - |
 | `_sync_readme_hashes: is a no-op on the REAL tree (already stamped) (#846)` | Live tree already generator-exact |
+| `_capture_readme_baseline: a capture the source changed under is DISCARDED, not used (#965)` | - |
+| `_capture_readme_baseline: a source that never settles FAILS loudly, it does not hand back a torn set (#965)` | - |
 
 ### test/bats/unit/lint_bare_stderr_spec.bats (6)
 
@@ -3580,3 +3586,39 @@ inside the test that produces it, each case writes a one-test spec into
 | `just-version.sh: fails loud when the declaration is empty (#948)` | - |
 | `self-test.yaml: setup-just is pinned from the accessor, not left to install latest (#948)` | - |
 | `release-test-tools.yaml: the just smoke check asserts the version, not exit 0 (#948)` | - |
+
+### test/bats/unit/residue_guard_spec.bats (22)
+
+| Test | Description |
+|------|-------------|
+| `_residue_paths: a file the run CREATED is named (#965)` | - |
+| `_residue_paths: an edit already in flight before the run is NOT named (#965)` | - |
+| `_residue_paths: a SECOND edit to an already-dirty file IS named (#965)` | - |
+| `_residue_paths: a tracked file the run DELETED is named (#965)` | - |
+| `_residue_paths: a gitignored path the run wrote is NOT named (#965)` | - |
+| `_residue_paths: the ignore list is git's whole exclude stack, not .gitignore alone (#965)` | - |
+| `_residue_paths: a path containing a space is named whole (#965)` | - |
+| `_residue_paths: a write the run UNDID before the snapshot is NOT named (#965)` | - |
+| `_residue_paths: a write under .git/ is EXCLUDED, and the exclusion is narrow (#965)` | - |
+| `_residue_paths: a permission change is seen only where git tracks one (#965)` | - |
+| `_residue_check: fails naming the path, and says what to do about it (#965)` | - |
+| `_residue_check: passes on a run that changed nothing (#965)` | - |
+| `_residue_check: a residue it already named is named AGAIN on the next run (#965)` | - |
+| `_residue_check: a run that changed nothing does not report that it did (#965)` | - |
+| `_residue_check: the memory clears when the residue is GONE (#965)` | - |
+| `_residue_forget: an acknowledged path goes quiet with the file still there (#965)` | - |
+| `_residue_forget: an acknowledgement is permanent while the bytes stay the same (#965)` | - |
+| `the pending record is kept OUTSIDE the working tree, so it is not residue itself (#965)` | - |
+| `_residue_before_snapshot: a baseline it could not take is a FAILURE, not an empty one (#965)` | - |
+| `_residue_guard_available: answers no outside a git checkout (#965)` | - |
+| `_residue_guard_available: is switched off by TEST_RESIDUE_GUARD=0 (#965)` | - |
+| `the compose dispatch is what runs the guard, not a caller that could forget (#965)` | - |
+
+### test/bats/unit/spec_source_isolation_spec.bats (4)
+
+| Test | Description |
+|------|-------------|
+| `no spec settles an assertion by comparing against the live checkout (#965)` | - |
+| `a scan of a tree that is not there answers 2, not 1 (#965)` | - |
+| `the comparison scan sees a live operand in each command position it names (#965)` | - |
+| `the comparison scan is an over-approximation, not a closed set (#965)` | - |
