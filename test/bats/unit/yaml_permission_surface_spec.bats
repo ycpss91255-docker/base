@@ -513,3 +513,119 @@ SPEC
     || fail "expected 2 (not read), got ${status}"
   assert_output --partial 'BUG:'
 }
+
+# ── an occurrence that is not a call ────────────────────────────────
+#
+# The derivation above resolves an ARGUMENT, which closed "a spec that
+# merely names a worker". It left the mirror open: text that is not a CALL
+# at all -- a path inside a quoted string, a path inside a heredoc BODY, a
+# path after a trailing `#` -- still looked like `<name> <token>` on a code
+# line, so it resolved to a subject and certified a worker whose surface
+# nothing reads. The heredoc case is not hypothetical: the fixtures in this
+# very file are heredocs carrying that exact call shape, and only the
+# ambiguity of their `WF` kept them from certifying a real workflow.
+#
+# So the shell text is read the way a shell reads it: an occurrence counts
+# as a call site only where quoting, a heredoc body and a comment say it is
+# code.
+
+@test "spec_permission_surface_subjects: a path inside a double-quoted string is not a subject (#957)" {
+  local _spec
+  _spec="$(_fixture 'quoted_spec.bats' << 'SPEC'
+ @test "prints its own usage" {
+  run printf '%s\n' "usage: yaml_permission_surface /fixture/workflows/mu.yaml"
+}
+SPEC
+)"
+  run spec_permission_surface_subjects "${_spec}"
+  [ "${status}" -eq 1 ] \
+    || fail "expected 1 (read, no call site), got ${status} with output: ${output}"
+  assert_output ''
+}
+
+@test "spec_permission_surface_subjects: a path inside a single-quoted string is not a subject (#957)" {
+  # The other spelling of the same shape. A resolver that learns only about
+  # double quotes reports this one as a call site, so both are pinned.
+  local _spec
+  _spec="$(_fixture 'squoted_spec.bats' << 'SPEC'
+ @test "prints its own usage" {
+  run printf '%s\n' 'usage: yaml_permission_surface /fixture/workflows/nu.yaml'
+}
+SPEC
+)"
+  run spec_permission_surface_subjects "${_spec}"
+  [ "${status}" -eq 1 ] \
+    || fail "expected 1 (read, no call site), got ${status} with output: ${output}"
+  assert_output ''
+}
+
+@test "spec_permission_surface_subjects: a call inside a heredoc body is not a subject (#957)" {
+  # A spec that WRITES another spec. The heredoc body is data this file
+  # emits, not code this file runs, so the worker it names is pinned by
+  # nothing here -- while the call on the last line is a real one.
+  local _spec
+  _spec="$(_fixture 'heredoc_spec.bats' << 'SPEC'
+setup() {
+  WF="/fixture/workflows/xi.yaml"
+}
+
+ @test "writes a spec and reads a surface" {
+  cat > "${SCRATCH}/inner_spec.bats" << 'INNER'
+ @test "omicron pins its grants" {
+  run yaml_permission_surface /fixture/workflows/omicron.yaml
+}
+INNER
+  run yaml_permission_surface "${WF}"
+}
+SPEC
+)"
+  run spec_permission_surface_subjects "${_spec}"
+  assert_success
+  assert_output '/fixture/workflows/xi.yaml'
+}
+
+@test "spec_permission_surface_subjects: a path after a trailing # is not a subject (#957)" {
+  # `code_lines` drops comment-ONLY lines, deliberately: a `#` after code
+  # may be inside a string. So a trailing comment reaches this derivation,
+  # and the shell rule -- a `#` that STARTS a word opens a comment -- is
+  # what decides it here.
+  local _spec
+  _spec="$(_fixture 'trailing_comment_spec.bats' << 'SPEC'
+setup() {
+  WF="/fixture/workflows/pi.yaml"
+}
+
+ @test "pi" {
+  run yaml_job_names "${WF}"  # yaml_permission_surface /fixture/workflows/sigma.yaml
+}
+SPEC
+)"
+  run spec_permission_surface_subjects "${_spec}"
+  [ "${status}" -eq 1 ] \
+    || fail "expected 1 (read, no call site), got ${status} with output: ${output}"
+  assert_output ''
+}
+
+@test "spec_permission_surface_subjects: a call inside a command substitution IS a subject (#957)" {
+  # The over-strict failure is the same defect with the sign flipped. This
+  # is build_worker_yaml_spec's own shape -- a `$( )` opened inside a
+  # double-quoted assignment -- and a resolver that treats every character
+  # after a `"` as string text would drop the pin that certifies today's
+  # most-scanned worker.
+  local _spec
+  _spec="$(_fixture 'cmdsub_spec.bats' << 'SPEC'
+setup() {
+  WF="/fixture/workflows/rho.yaml"
+}
+
+ @test "rho" {
+  local _out
+  _out="$(yaml_permission_surface "${WF}" | head -1)"
+  [ -n "${_out}" ]
+}
+SPEC
+)"
+  run spec_permission_surface_subjects "${_spec}"
+  assert_success
+  assert_output '/fixture/workflows/rho.yaml'
+}
