@@ -2144,6 +2144,56 @@ _df_claim_hits() {
   rm -rf "${_tmp}"
 }
 
+@test "the flattener closes only a block it opened (#951)" {
+  # `_df_vocabulary_unbalanced` reads the markers as a NESTING; the
+  # flattener read them as a switch, closing on any `end` whether or not
+  # a `begin` was open -- and dropping that line. Two functions, one
+  # carve-out, and only one of them knew the rule: text sharing a line
+  # with an unopened `end` left the sweep without either of them
+  # reporting anything. The guard refuses that file first, so this is the
+  # rule the two have to agree on, not a live hole.
+  #
+  # The markers are assembled from a variable, and the payload is a
+  # sentinel, for the reason the sibling test states: this spec is one of
+  # the files the sweep reads.
+  local _tmp _m='disproven-claim vocabulary' _flat
+  _tmp="$(mktemp -d)"
+
+  {
+    printf '%s -- # %s: end\n' 'A-SENTINEL-PHRASE' "${_m}"
+    printf '%s\n' 'BELOW-THE-STRAY-END'
+  } > "${_tmp}/stray-end"
+  _flat="$(_df_flatten "${_tmp}/stray-end")"
+  run grep -cF 'A-SENTINEL-PHRASE' <<< "${_flat}"
+  assert_success
+  assert_output '1'
+  run grep -cF 'BELOW-THE-STRAY-END' <<< "${_flat}"
+  assert_success
+  assert_output '1'
+
+  # ... and the carve-out the flattener exists for still cuts: a block
+  # that IS opened is excised, ends where its `end` is, and the file
+  # below it comes back.
+  {
+    printf '%s\n' 'ABOVE-THE-BLOCK'
+    printf '# %s: begin\n' "${_m}"
+    printf '%s\n' 'INSIDE-THE-BLOCK'
+    printf '# %s: end\n' "${_m}"
+    printf '%s\n' 'BELOW-THE-END'
+  } > "${_tmp}/nested"
+  _flat="$(_df_flatten "${_tmp}/nested")"
+  run grep -F 'INSIDE-THE-BLOCK' <<< "${_flat}"
+  assert_equal "${status}" "1"
+  run grep -cF 'ABOVE-THE-BLOCK' <<< "${_flat}"
+  assert_success
+  assert_output '1'
+  run grep -cF 'BELOW-THE-END' <<< "${_flat}"
+  assert_success
+  assert_output '1'
+
+  rm -rf "${_tmp}"
+}
+
 @test "the claim sweep refuses a pattern it could not read (#951)" {
   # `grep` answers three things, and the sweep read two of them as one:
   # 0 states the claim, 1 does not, and 2 is "I could not evaluate this
