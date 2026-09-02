@@ -183,11 +183,20 @@ code_lines() {
 #   empty stdin and come back as a plain no-match. Empty code is still fed
 #   to grep rather than short-circuited, so counting flags keep answering
 #   (`-c` over an all-comment file prints 0, exit 1).
+#
+#   The unreadable-subject report goes to STDERR here, which is the one
+#   place this tree's `BUG:` convention is inverted, and deliberately.
+#   code_grep's stdout is grep's: lines, or a count under `-c`. Every call
+#   site reads it as that -- `assert_output '2'`, an arithmetic comparison,
+#   a `| head -1` -- so a `BUG:` line printed there is a match that is not
+#   a match and a count that is not a number. code_lines keeps its report
+#   on stdout because ITS stdout is the report: its callers capture it and
+#   print what they captured when the status says the file was not read.
 code_grep() {
     local _file="${*: -1}" _code _status=0
     _code="$(code_lines "${_file}")" || _status=$?
     if [[ "${_status}" -gt 1 ]]; then
-        printf '%s\n' "${_code}"
+        printf '%s\n' "${_code}" >&2
         return "${_status}"
     fi
     if [[ -n "${_code}" ]]; then
