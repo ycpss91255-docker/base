@@ -150,30 +150,55 @@ _seed_tree() {
 # The readers
 # ════════════════════════════════════════════════════════════════════
 
-# The two reader assertions below read the workflows' CODE view
-# (code_grep, comment-only lines dropped), never the raw file. Both
-# workflows EXPLAIN this mechanism in prose that names the accessor's own
-# path -- release-test-tools.yaml says "read via
-# dist/script/base/just-version.sh" -- so a whole-file grep is satisfied by
-# the explanation of the reader instead of the reader, and the smoke check
-# could go back to restating the version literal with the spec still green.
-# Same conversion, same reason, as commit 2b6cbeb5.
+# The two reader assertions below are scoped to the JOB that installs the
+# runner, via yaml_job_lines, rather than grepping the whole workflow.
+# Whole-file evidence is not evidence about a step: self-test.yaml names
+# the accessor on six code lines (the acceptance job's resolve step plus
+# the five :main probes added for the version check), so a file-wide grep
+# for it stays green while the acceptance step goes back to restating the
+# literal -- the exact defect this spec exists to prevent, and the state it
+# was in until now.
+#
+# Job scope also subsumes the comment hazard the previous form was
+# converted for: yaml_job_lines strips comment-only lines, so
+# release-test-tools.yaml's prose "read via dist/script/base/just-version.sh"
+# (the file's ONLY other mention of the accessor) cannot vouch for the
+# smoke check that sits under it.
 
 @test "self-test.yaml: setup-just is pinned from the accessor, not left to install latest (#948)" {
   local _wf=/source/.github/workflows/self-test.yaml
+  local _body _pin_id
+  _body="$(yaml_job_lines "${_wf}" acceptance)"
+  [ -n "${_body}" ] \
+    || fail "derived an empty 'acceptance' job from ${_wf} -- the job reader is broken, so this test checked nothing"
   # The resolve step runs the accessor into a step output ...
-  run code_grep -F 'dist/script/base/just-version.sh' "${_wf}"
-  assert_success
-  # ... and setup-just consumes it through its just-version input.
-  run grep -E '^ *just-version: ' "${_wf}"
-  assert_success
-  assert_output --partial 'steps.'
+  [[ "${_body}" == *'dist/script/base/just-version.sh'* ]] \
+    || fail "the acceptance job installs just but never reads the declaration through dist/script/base/just-version.sh"
+  # ... and setup-just consumes THAT step's output. The id is derived from
+  # the body rather than remembered here, so the assertion states "the
+  # input comes from the step that read the declaration" instead of "some
+  # step output reaches the input".
+  _pin_id="$(printf '%s\n' "${_body}" \
+    | awk '/^[[:space:]]*id:[[:space:]]/{_id=$2}
+           /dist\/script\/base\/just-version\.sh/{print _id; exit}')"
+  [ -n "${_pin_id}" ] \
+    || fail "the accessor call sits in a step with no 'id:', so no other step can consume what it resolved"
+  [[ "${_body}" == *"just-version: \${{ steps.${_pin_id}.outputs."* ]] \
+    || fail "setup-just's just-version input does not read step '${_pin_id}' -- what it installs is not the declared pin"
 }
 
 @test "release-test-tools.yaml: the just smoke check asserts the version, not exit 0 (#948)" {
   local _wf=/source/.github/workflows/release-test-tools.yaml
-  run code_grep -F 'dist/script/base/just-version.sh' "${_wf}"
-  assert_success
+  local _body
+  _body="$(yaml_job_lines "${_wf}" merge)"
+  [ -n "${_body}" ] \
+    || fail "derived an empty 'merge' job from ${_wf} -- the job reader is broken, so this test checked nothing"
+  [[ "${_body}" == *'dist/script/base/just-version.sh'* ]] \
+    || fail "the merge job smoke-checks the published image but never reads the declared pin"
+  # Reading both versions is not comparing them: the compare is what
+  # turns "the binary is there" into "the binary is the pinned one".
+  [[ "${_body}" == *'!= "just ${just_pin}"'* ]] \
+    || fail "the merge job reads the pin and the image's version but never compares them"
   # A bare `docker run ... just --version` with nothing comparing its
   # output is the check that caught removal and never staleness.
   run grep -nE 'docker run --rm "\$\{image\}" just --version$' "${_wf}"

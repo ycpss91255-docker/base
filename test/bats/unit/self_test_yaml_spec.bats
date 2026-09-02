@@ -569,6 +569,20 @@ _job_comments() {
       || fail "job '${_job}' probes the pulled :main for tool presence but never reads the declared pin"
     [[ "${_body}" == *'just --version'* ]] \
       || fail "job '${_job}' reads the declared pin but never asks the image which version it ships"
+    # Holding both numbers is not comparing them. With only the two
+    # ingredients asserted, `if false; then` over the comparison keeps
+    # this test green while the probe stops self-correcting -- so the
+    # compare itself, and the verdict it has to flip, are what is
+    # asserted. The verdict is looked for in the compare's OWN branch
+    # (the following few lines), not anywhere in the job: `probe_ok=false`
+    # also sits in the presence loop above, which would vouch for a
+    # version check whose branch body was emptied.
+    [[ "${_body}" == *'!= "just ${just_pin}"'* ]] \
+      || fail "job '${_job}' reads both versions but never compares them"
+    printf '%s\n' "${_body}" \
+      | grep -A8 -F '!= "just ${just_pin}"' \
+      | grep -qF 'probe_ok=false' \
+      || fail "job '${_job}' compares the versions but the mismatch branch does not flip the probe verdict, so a stale :main is used anyway"
   done
   [ "${#_probing[@]}" -ge 5 ] \
     || fail "found ${#_probing[@]} probing job(s) among ${#_jobs[@]}; expected at least the five that run the baked tools -- the scan matched nothing, which is not a pass"
