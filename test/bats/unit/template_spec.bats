@@ -531,55 +531,61 @@ setup() {
 
   # Every reviewed read of the OS user in the wrapper runtime. None is a
   # container lookup; each is the user as an identity, a build arg, an
-  # emitted env line, or message text. Each entry is `<file>|<token>`, and
-  # the token is allowlisted ONLY on lines of that file:
+  # emitted env line, or message text.
   #
-  #   xhost ...            run.sh, an X11 identity
-  #   /home/.../data:rw    setup_tui mount-spec example, one per locale
-  #   ARG USER=...         dockerfile_migrate, a build arg it patches in
-  #   ${USER_NAME:--} etc  config_summary, a value it prints
-  #   USER_NAME=%s         setup_cmd, an emitted .env line
-  #   /home/.../work       setup_detect, the portable mount form
-  #   USER_NAME: ${...}    compose_emit, a compose build arg
-  #   USER_NAME=${_user..} env_emit, an emitted .env line
+  # Each entry is `<file>|<the exact reviewed LINE>`: a scanned line is
+  # exempt only when it comes from that file AND is that line, byte for
+  # byte. Two weaker anchors were tried here and each exempted a
+  # reconstruction:
   #
-  # They are allowlisted by STRIPPING THE TOKEN, not by dropping the line:
-  # dropping the line exempts anything that shares it, and appending
-  # `; _legacy="${USER_NAME}-${IMAGE_NAME}"` to the xhost line walked past
-  # an earlier line-dropping version untouched.
+  #   - dropping the whole line a token matched exempts whatever shares it,
+  #     so `; _legacy="${USER_NAME}-${IMAGE_NAME}"` appended to the xhost
+  #     line walked past untouched. An exact line stops matching the moment
+  #     anything is appended to it.
+  #   - stripping the TOKEN from the lines of its own file exempted a
+  #     SECOND use of a reviewed spelling inside that file. Appending
+  #     `_legacy_container_name() { printf %s "${USER_NAME:--}-${IMAGE_NAME}"; }`
+  #     to config_summary.sh -- the file that owns `${USER_NAME:--}` -- left
+  #     the guard at 159 ok / 0 not ok. That text is neither reviewed line
+  #     of that file, so it is now residue.
   #
-  # The token is ANCHORED TO ITS FILE because stripping it from the whole
-  # residue exempted files the read was never reviewed in. A reconstruction
-  # appended to run.sh that spells the read the way config_summary.sh does
-  # -- `_legacy_container_name() { printf '%s' "${USER_NAME:--}-${IMAGE_NAME}"; }`
-  # -- had its USER_NAME text deleted before the residue was scanned and
-  # passed, while the same function spelt `${USER_NAME}` was caught: the
-  # only difference between missed and caught was reusing an allowlisted
-  # spelling. An anchored token cannot travel to another file that way.
+  # The anchor is the line CONTENT, never a line NUMBER: a number would
+  # redden for every edit above a token. The cost of content is that a
+  # reworded read, or a fifth setup_tui locale adding a fifth mount-spec
+  # example, reddens once -- which is the correct signal, because a changed
+  # or new read has not been reviewed. Counting occurrences instead was
+  # rejected for exactly the case content handles: a new locale is a
+  # legitimate new line, and a count cannot tell one from a reconstruction.
   #
-  # What anchoring does NOT separate is a second use of a reviewed spelling
-  # inside its own file. Line anchoring would, at the cost of a guard that
-  # reddens for every edit above a token, and pinning an occurrence count
-  # would redden on a new setup_tui locale -- the mount-spec example is one
-  # read per locale, a legitimately repeating token. The narrower residual
-  # is taken deliberately and is recorded here rather than left implied.
+  # Fed from a quoted heredoc rather than an array literal: these are
+  # verbatim source lines carrying single quotes, `$`, backslashes and `|`,
+  # and a quoted heredoc is the one form that needs no escaping. The `|`
+  # separator is unambiguous because it is the FIRST one and no file name
+  # contains it (dockerfile_migrate.sh's sed expression contains several).
   #
-  # Each token must still be FOUND in its own file -- an allowlist entry
-  # that stopped matching would widen the guard into "nothing is checked",
-  # the same vacuous pass it exists to refuse.
-  local -a _allowed=(
-    'wrapper/run.sh|xhost "+SI:localuser:${USER_NAME}"'
-    'wrapper/setup_tui.sh|/home/${USER_NAME}/data:rw'
-    'lib/dockerfile_migrate.sh|ARG USER="${USER_NAME}"'
-    'lib/dockerfile_migrate.sh|ARG USER=\${USER_NAME}'
-    'lib/config_summary.sh|\${USER_NAME} = %s'
-    'lib/config_summary.sh|${USER_NAME:--}'
-    'lib/setup_cmd.sh|USER_NAME=%s'
-    'lib/setup_detect.sh|/home/${USER_NAME}/work'
-    'lib/setup_detect.sh|/home/\${USER_NAME}/work'
-    'lib/compose_emit.sh|USER_NAME: \${USER_NAME}'
-    'lib/env_emit.sh|USER_NAME=${_user_name}'
-  )
+  # Every entry must still MATCH a scanned line -- an entry that stopped
+  # matching would widen the guard into "nothing is checked", the same
+  # vacuous pass it exists to refuse.
+  local -a _allowed=()
+  local _entry
+  while IFS= read -r _entry; do
+    [[ -n "${_entry}" ]] && _allowed+=("${_entry}")
+  done <<'ALLOWED'
+lib/compose_emit.sh|        USER_NAME: \${USER_NAME}
+lib/config_summary.sh|    "$(_lib_msg user)" "${USER_NAME:--}" "${USER_UID:--}" \
+lib/config_summary.sh|  printf "[%s]   \${USER_NAME} = %s\n"  "${_tag}" "${USER_NAME:--}"
+lib/dockerfile_migrate.sh|  _log_info upgrade upgrade_started "display=  Dockerfile patched: ARG USER -> ARG USER=\${USER_NAME} (#567 m7 / #579)"
+lib/dockerfile_migrate.sh|  sed -i -E 's|^([[:space:]]*)ARG[[:space:]]+USER[[:space:]]*$|\1ARG USER="${USER_NAME}"|' "${_file}"
+lib/env_emit.sh|USER_NAME=${_user_name}
+lib/setup_cmd.sh|    printf 'USER_NAME=%s\n' "${user_name}"
+lib/setup_detect.sh|  local _ws_portable_form='${WS_PATH}:/home/${USER_NAME}/work'
+lib/setup_detect.sh|      _log_warn setup conf_mount_stale_path "display=[volumes] mount_1 host path '${_mount_1_host}' does not exist on this machine. This is usually a stale absolute path committed from a different machine. Rewriting mount_1 to the portable '\${WS_PATH}:/home/\${USER_NAME}/work' form and re-detecting WS_PATH locally. Commit the updated setup.conf to share." "path=${_mount_1_host}"
+wrapper/run.sh|    xhost "+SI:localuser:${USER_NAME}" >/dev/null 2>&1 || true
+wrapper/setup_tui.sh|_TUI_MSG_EN[volumes.edit.prompt]=$'Mount spec\n  - Format: <host>:<container>[:ro|rw]\n  - Empty = delete this entry\n  - Example: /data:/home/${USER_NAME}/data:rw'
+wrapper/setup_tui.sh|_TUI_MSG_JA[volumes.edit.prompt]=$'マウント指定\n  - 形式: <host>:<container>[:ro|rw]\n  - 空 = この項目を削除\n  - 例: /data:/home/${USER_NAME}/data:rw'
+wrapper/setup_tui.sh|_TUI_MSG_ZH_CN[volumes.edit.prompt]=$'挂载规格\n  - 格式：<host>:<container>[:ro|rw]\n  - 留空 = 删除此项目\n  - 示例：/data:/home/${USER_NAME}/data:rw'
+wrapper/setup_tui.sh|_TUI_MSG_ZH_TW[volumes.edit.prompt]=$'掛載規格\n  - 格式：<host>:<container>[:ro|rw]\n  - 留空 = 刪除此項目\n  - 範例：/data:/home/${USER_NAME}/data:rw'
+ALLOWED
 
   # The anchors are the harder floor: each names a file that must be in the
   # derived roster, so a roster that lost one fails here instead of passing
@@ -595,27 +601,31 @@ setup() {
       "allowlist anchor ${_anchor} is absent from the derived roster: the roster lost a file this guard's floor names"
   done
 
-  # Strip each token from the lines of its own file only. Literal substring
-  # removal via bash pattern quoting -- no sed escaping, so a token carrying
-  # `\$` strips the text it actually is.
   local -a _hit=()
   local _i
   for (( _i = 0; _i < ${#_allowed[@]}; _i++ )); do _hit[_i]=0; done
 
-  local _residue="" _line _path _kept _af _at
+  # Exempt a scanned line only when its FILE and its whole CONTENT are the
+  # reviewed pair. `_code` lines are `<path>:<lineno>:<content>`; neither a
+  # path nor a line number contains a colon, so the content is what follows
+  # the second one -- kept byte for byte, indentation included.
+  local _residue="" _line _path _content _af _at _exempt
   while IFS= read -r _line; do
     [[ -z "${_line}" ]] && continue
     _path="${_line%%:*}"
-    _kept="${_line}"
+    _content="${_line#*:}"
+    _content="${_content#*:}"
+    _exempt=0
     for (( _i = 0; _i < ${#_allowed[@]}; _i++ )); do
       _af="${_allowed[_i]%%|*}"
       _at="${_allowed[_i]#*|}"
       [[ "${_path}" == */"${_af}" ]] || continue
-      [[ "${_kept}" == *"${_at}"* ]] || continue
-      _kept="${_kept//"${_at}"/}"
+      [[ "${_content}" == "${_at}" ]] || continue
       _hit[_i]=1
+      _exempt=1
+      break
     done
-    _residue+="${_kept}"$'\n'
+    (( _exempt )) || _residue+="${_line}"$'\n'
   done <<< "${_code}"
 
   for (( _i = 0; _i < ${#_allowed[@]}; _i++ )); do
