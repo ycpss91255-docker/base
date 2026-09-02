@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3179 tests**.
+Unit specs under `test/bats/unit/`: **3183 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3669,7 +3669,7 @@ one line away from.
 | `reusable workers: no job inherits the caller's grant (#957)` | Names `<workflow>: <job>` for every job with no permission entry of its own -- no block, or an inline `permissions: read-all` that names no scope. Such a job runs under whatever the calling repo granted its calling job: a `contents: write` held to cut a release, a `packages: write` held to publish |
 | `reusable workers: every one of them has a spec reading its permission surface (#957)` | The class-level half: a worker whose jobs all declare `contents: write` passes both tests above, so every derived worker must also have a spec that APPLIES `yaml_permission_surface` to it. Call sites are derived by `find` over the spec tree and resolved through each call's own argument, then matched against the worker's full path exactly, and the scan is floored at the derived worker count. Named for READING a surface, not for pinning a grant: whether the reader asserts the exact scope set is a property of the assertion, which no scan over call sites can see. This file is excluded because it reads every worker's surface to assert the complementary property (that a grant is declared, not which) |
 
-### test/bats/unit/yaml_permission_surface_spec.bats (32)
+### test/bats/unit/yaml_permission_surface_spec.bats (36)
 
 Unit tests for the DERIVED job and permission surfaces in
 `test/bats/unit/test_helper.bash` (`yaml_job_names` /
@@ -3710,6 +3710,17 @@ a variable with exactly one unambiguous literal assignment in the same
 file), and everything it cannot resolve is reported as `UNRESOLVED:` or as
 `BUG:` rather than assumed either way.
 
+Which occurrences ARE call sites is decided by a lexer over the shell text,
+not by matching the name: an occurrence inside quotes, inside a heredoc BODY
+or after a word-initial `#` is text. The heredoc half is where that reading
+either holds or fails open, so it follows bash exactly -- a terminator may
+be bare, `\`-escaped or quoted with either character and is read literally;
+a body ends at a line that is EXACTLY the terminator (`<<-` strips leading
+TABS, nothing else does); `<<<` opens nothing and `<<` inside `$(( ))` is a
+shift; and a `<<` whose terminator this cannot read opens a heredoc no line
+closes, spending the rest of the file rather than handing a fixture body
+back as code.
+
 Fixtures are written to a scratch directory, never to the checkout: these
 are tests OF the extractor, so they need shapes the real workflows do not
 have. The fixtures' own `@test` headers are indented one space, because the
@@ -3749,6 +3760,10 @@ doc count generator counts a spec's tests with `grep -c '^@test'`.
 | `spec_permission_surface_subjects: a call inside a heredoc body is not a subject (#957)` | A heredoc body is data the spec writes, not code it runs; this tree's own fixtures carry that exact call shape |
 | `spec_permission_surface_subjects: a path after a trailing # is not a subject (#957)` | `code_lines` drops comment-ONLY lines by design, so a trailing comment reaches the derivation and the shell's word-initial `#` rule decides it |
 | `spec_permission_surface_subjects: a call inside a command substitution IS a subject (#957)` | The over-strict failure is the same defect with the sign flipped: `$( )` opened inside a double-quoted assignment is build_worker_yaml_spec's own shape |
+| `spec_permission_surface_subjects: a backslash-quoted heredoc body is not code (#957)` | bash quotes a terminator three ways and `<<\INNER` is the third. Reading no terminator opened no heredoc and emitted the body as code, so a worker named only in a fixture the spec WRITES was certified |
+| `spec_permission_surface_subjects: an indented terminator does not end a heredoc (#957)` | A body ends at a line that is EXACTLY the terminator (`<<-` strips leading TABS, never spaces). Trimming the line first ended the body at the fixture's own indented mention of it and read the rest as code |
+| `spec_permission_surface_subjects: a terminator it cannot read opens an unmatchable heredoc (#957)` | The unreadable case stated as a direction: a `<<` this cannot finish reading still opens a heredoc, one no line closes. It spends the rest of the file, which fails loudly, rather than handing a fixture body back as code |
+| `spec_permission_surface_subjects: an arithmetic left shift is not a heredoc (#957)` | `$(( 1 << 2 ))` and `(( n <<= 1 ))` are shifts. Read as openers they made every later line data, so a spec that DOES pin its worker reported pinning nothing |
 ### test/bats/unit/spec_source_isolation_spec.bats (4)
 
 One repo-wide invariant over `test/bats/`: a spec may READ the live
