@@ -162,6 +162,15 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      # The smoke step below compares the shipped shellcheck / hadolint
+      # against the versions dockerfile/Dockerfile.test-tools pins, so this
+      # job needs the file. Deriving the expectation from the pin is the
+      # whole point: a version literal in this workflow would be a second
+      # place to forget, and two literals that agree with each other prove
+      # only that someone edited both.
+      - name: Checkout
+        uses: actions/checkout@v7
+
       - name: Download digests
         uses: actions/download-artifact@v8
         with:
@@ -238,8 +247,51 @@ jobs:
           image="${{ steps.tags.outputs.smoke }}"
           docker pull "${image}"
           docker run --rm "${image}" bats --version
-          docker run --rm "${image}" shellcheck --version
-          docker run --rm "${image}" hadolint --version
+
+          # shellcheck / hadolint are the two lint gates every PR in this
+          # repo must pass, and both are pinned by literal release URL in
+          # dockerfile/Dockerfile.test-tools -- a shape dependabot cannot
+          # see. `<tool> --version` asserting exit 0, which is what stood
+          # here, catches a tool that vanished from the image and nothing
+          # else: a hadolint pin went 3.8 years stale behind this very
+          # check. So read the pin and compare it with what the image
+          # actually shipped.
+          #
+          # The expectations are GREPPED from the Dockerfile rather than
+          # written here. An empty grep result is a hard failure, never an
+          # empty-string comparison that agrees with itself: that is the
+          # state a moved URL or a renamed file produces, and it is exactly
+          # when a silent pass is worst.
+          df="dockerfile/Dockerfile.test-tools"
+          expected_sc="$(sed -n 's|.*shellcheck/releases/download/v\([0-9][0-9.]*\)/.*|\1|p' "${df}" | head -n1)"
+          expected_hd="$(sed -n 's|.*hadolint/releases/download/v\([0-9][0-9.]*\)/.*|\1|p' "${df}" | head -n1)"
+          if [[ -z "${expected_sc}" || -z "${expected_hd}" ]]; then
+            echo "could not read the shellcheck / hadolint pins from ${df} (shellcheck='${expected_sc}' hadolint='${expected_hd}'). The release URL moved, or the file did. Refusing to report agreement between two empty strings." >&2
+            exit 1
+          fi
+
+          # Both tools print their version as a bare number; the pins are
+          # tags, hence the stripped leading v above. The dots are escaped
+          # and the number is bounded on both sides, so 0.11.0 matches the
+          # version it is and not 0.11.01, nor a digit sequence that merely
+          # contains it.
+          re_sc="${expected_sc//./\\.}"
+          re_hd="${expected_hd//./\\.}"
+          actual_sc="$(docker run --rm "${image}" shellcheck --version)"
+          if ! grep -qE "(^|[^0-9.])${re_sc}([^0-9.]|$)" <<< "${actual_sc}"; then
+            echo "shellcheck version mismatch: ${df} pins v${expected_sc}, image reports:" >&2
+            echo "${actual_sc}" >&2
+            exit 1
+          fi
+          echo "shellcheck: pinned v${expected_sc}, image agrees"
+
+          actual_hd="$(docker run --rm "${image}" hadolint --version)"
+          if ! grep -qE "(^|[^0-9.])${re_hd}([^0-9.]|$)" <<< "${actual_hd}"; then
+            echo "hadolint version mismatch: ${df} pins v${expected_hd}, image reports:" >&2
+            echo "${actual_hd}" >&2
+            exit 1
+          fi
+          echo "hadolint: pinned v${expected_hd}, image agrees"
           docker run --rm "${image}" parallel --version
           docker run --rm "${image}" git --version
           # just (#546): the justfile entry point replaces the Makefile;

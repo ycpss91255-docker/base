@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3155 tests**.
+Unit specs under `test/bats/unit/`: **3160 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3777,3 +3777,13 @@ rather than an assurance.
 | `alpine eol reader: a marker naming a series the ARG does not pin is visible (#946)` | Proves the agreement check can actually see a disagreement |
 | `alpine eol reader: an already-expired date reads as negative days (#946)` | The past side of the window, exercised rather than assumed |
 | `alpine eol reader: a malformed date FAILS, it does not read as far away (#946)` | A typo must not disarm the alarm by parsing as a distant future |
+
+### test/bats/unit/tool_pin_agreement_spec.bats (5)
+
+| Test | Description |
+|------|-------------|
+| `tool pins: the shipped shellcheck is the version the Dockerfile pins` | Exit 0 says a binary exists; this says it is the one the pin asked for |
+| `tool pins: the shipped hadolint is the version the Dockerfile pins` | The drift that let a 2022 rule set stay behind a green gate, now asserted every run |
+| `tool pins reader: a Dockerfile with no pinned URL FAILS rather than returning nothing` | A reader returning nothing would reduce both checks to empty-vs-empty agreement |
+| `tool pins reader: a version is matched whole, not as a prefix of a longer one` | 0.11.0 must not be satisfied by 0.11.01 or by 10.11.0 |
+| `tool pins reader: the dots in a version are literal, not any-character` | An unescaped regex dot would let 0x11x0 pass as 0.11.0 |
