@@ -451,6 +451,15 @@ Default (no flag): ShellCheck + Hadolint + bats via docker compose, no
 kcov. Kcov wraps every bats command and slows the suite 2-5x, so the
 dev-loop default skips it.
 
+Every compose dispatch snapshots the checkout either side of the run and
+fails naming any path the suite changed: a spec may READ the live tree,
+but a write there makes every other spec's read racy under the 32-way
+parallel suite. An edit you already had in flight appears in both
+snapshots and cancels, so a dirty working tree is fine; an edit made
+WHILE the suite runs cannot be told apart from a spec's write, and
+TEST_RESIDUE_GUARD=0 switches the guard off for that one invocation. It
+is inert outside a git checkout (a released tarball).
+
 Examples:
   ./test.sh                       # Fast: ShellCheck + Hadolint + Bats (no kcov)
   just test      # Same as above
@@ -846,6 +855,321 @@ _resolve_compose_project_name() {
   return 0
 }
 
+# ── Live-tree residue guard ──────────────────────────────────────────────────
+#
+# The authoritative answer to "did the suite write into the checkout it does
+# not own". A spec that writes there makes every OTHER spec's read of the
+# live tree racy: the suite runs 32-way parallel, often beside a sibling
+# checkout's gate, so a write in the window flips a verdict on correct code.
+# Two specs lost that race and cost two or three full gate runs per landed
+# branch.
+#
+# Why this shape and not a scan of the specs. The scan that came first
+# enumerated the commands a write could be spelled with, and every review of
+# it found another spelling it claimed and could not see -- a third operand
+# of `mv`, `dd`'s `of=`, `rsync` named in no pattern at all -- plus
+# `install` flagged for READING the tree. A roster of spellings is never
+# finished. This asks the filesystem instead: whatever wrote, however it was
+# spelled, through an alias or a subshell or a tool this repo has never
+# heard of, the bytes moved and the snapshot moved with them. It also cannot
+# fire on the suite's own setup, which is what made the scan's cp / ln rule
+# delicate -- reading the live tree leaves nothing behind.
+#
+# THE COST, and the reason for two snapshots rather than one. A bare "is the
+# tree clean afterwards" check needs a clean tree to start from and would
+# red every developer with work in flight -- and a gate that cries wolf on a
+# dirty working tree is switched off within the week. Comparing the
+# snapshots taken either side of the run makes an in-flight edit appear in
+# BOTH and cancel, so the guard speaks only about what changed DURING the
+# run. What it cannot cancel is an edit made WHILE the suite runs; that one
+# has the TEST_RESIDUE_GUARD=0 escape hatch, and the failure message names
+# it at the moment a developer needs it.
+#
+# WHAT IT DOES NOT COVER, listed because a guard whose limits are implied
+# gets believed past them. Every one of these is measured by a case in
+# test/bats/unit/residue_guard_spec.bats rather than assumed:
+#
+#   - a spec that writes into the checkout and removes its own traces
+#     before the phase ends. The race window is real and invisible here.
+#     Closing it means snapshotting per SPEC rather than per run, which
+#     costs a `git status` per spec instead of one per phase, and it is a
+#     change to the in-container bats driver rather than to this host-side
+#     wrapper.
+#   - anything git ignores, through any of the files git reads to decide
+#     that -- see `_residue_snapshot`.
+#   - anything under `.git/`, which `git status` never reports: a planted
+#     hook, config key or alternates entry is the most damaging write there
+#     is and this cannot see it. Excluded rather than closed, because
+#     snapshotting that directory is noise by construction (git rewrites it
+#     on almost any command, this guard's own `git status` included) and
+#     narrowing it to "the parts that matter" is an open-set roster.
+#   - a permission change git does not track. Git records one bit of a
+#     file's mode, the exec bit, so 644 -> 755 IS named and 644 -> 600 is
+#     invisible: the status line stays clean and the content hash does not
+#     move.
+#
+# And one thing it does not attempt: this names PATHS, not the spec that
+# wrote them -- with 32 jobs in flight there is no attribution to be had at
+# the phase boundary, and a `grep -rn` over test/bats/ turns a path into a
+# spec in one step.
+
+# _residue_guard_available <repo>
+#   Whether the guard can speak about <repo> at all. A released tarball is
+#   not a checkout, and a suite that refuses to run where git is not is a
+#   worse outcome than an unguarded run, so absence costs nothing.
+_residue_guard_available() {
+  local _repo="${1:?BUG: _residue_guard_available expects <repo>}"
+  [[ "${TEST_RESIDUE_GUARD:-1}" != "0" ]] || return 1
+  command -v git >/dev/null 2>&1 || return 1
+  git -C "${_repo}" rev-parse --git-dir >/dev/null 2>&1
+}
+
+# _residue_snapshot <repo>
+#   One sorted TAB-separated record per path git reports as changed:
+#   `<xy>\t<hash>\t<path>`. Ignored paths are absent, which is how the
+#   trees the suite legitimately writes -- coverage/, log/, .prev-release/
+#   -- stay out of it: the list is git's, not a second allowlist here that
+#   would have to be remembered separately. Git's, and not just
+#   `.gitignore`'s: `git status` also obeys `.git/info/exclude` and
+#   `core.excludesFile`, so a path ignored by either of those is equally
+#   invisible here. That is the cost of inheriting the list rather than
+#   keeping one -- an ignore rule this repo never wrote, in a file it does
+#   not ship, silences the guard for the paths it covers -- and it is
+#   still the better trade than an allowlist that has to be remembered
+#   every time the suite grows a generated tree.
+#
+#   The CONTENT HASH is what makes a record more than git's status code. A
+#   spec overwriting a file the developer had already modified leaves the
+#   status line ` M <path>` identical in both snapshots; only the hash
+#   moves. The path is the LAST field and is read NUL-separated, so a name
+#   containing a space -- which porcelain output would otherwise quote --
+#   survives whole.
+#
+#   Failing to read the tree is a FAILURE, never an empty snapshot: two
+#   empty snapshots agree, and agreeing is exactly what this guard reports
+#   as "nothing happened".
+_residue_snapshot() {
+  local _repo="${1:?BUG: _residue_snapshot expects <repo>}"
+  local _raw _rc=0
+  _raw="$(mktemp)"
+  if ! git -C "${_repo}" status --porcelain --untracked-files=all -z > "${_raw}"; then
+    rm -f "${_raw}"
+    return 1
+  fi
+  local _entry _code _path _hash
+  while IFS= read -r -d '' _entry; do
+    _code="${_entry:0:2}"
+    _path="${_entry:3}"
+    # A rename / copy record is followed by its ORIGIN path in a field of
+    # its own. Consume it here, or every later record reads one field out
+    # of step -- and a scan that silently loses its place names the wrong
+    # paths, which is worse than naming none.
+    case "${_code}" in
+      R?|C?|?R|?C) IFS= read -r -d '' _ || true ;;
+    esac
+    # Directories, symlinks and deleted paths have no blob to hash; their
+    # status code already carries the whole change.
+    if [[ -f "${_repo}/${_path}" && ! -L "${_repo}/${_path}" ]]; then
+      _hash="$(git -C "${_repo}" hash-object -- "${_path}" 2>/dev/null)" \
+        || _hash="unreadable"
+    else
+      _hash="-"
+    fi
+    printf '%s\t%s\t%s\n' "${_code}" "${_hash}" "${_path}"
+  done < "${_raw}" | LC_ALL=C sort || _rc=$?
+  rm -f "${_raw}"
+  return "${_rc}"
+}
+
+# _residue_paths <before> <after>
+#   The paths whose record differs between the two snapshots, one per line.
+#   Both directions: a record that APPEARED is a write, and one that
+#   DISAPPEARED is the suite putting back something the developer had
+#   changed. `comm -3` prefixes its second column with a tab, so that is
+#   stripped before the path (field 3 to end of line, tabs and all) is cut.
+_residue_paths() {
+  local _before="${1:?BUG: _residue_paths expects <before>}"
+  local _after="${2:?BUG: _residue_paths expects <after>}"
+  LC_ALL=C comm -3 "${_before}" "${_after}" \
+    | sed 's/^\t//' \
+    | cut -f3- \
+    | LC_ALL=C sort -u
+}
+
+# ── the guard's memory ───────────────────────────────────────────────────────
+#
+# Why there is one at all. The two-snapshot form is what makes the guard
+# usable -- an edit already in flight appears in both snapshots and cancels,
+# so a developer mid-change can run the gate -- and it is exactly that which
+# made the alarm ONE-SHOT: residue left by run N is on disk before run N+1
+# starts, so run N+1 reads it as "in flight" and goes green with the defect
+# unchanged. Measured: run 1 named the path and exited 1, run 2 with nothing
+# fixed exited 0.
+#
+# Three shapes were weighed. Taking the baseline from the INDEX instead of
+# the working tree removes the laundering, and with it the whole reason the
+# guard is usable: every in-flight edit becomes residue and the guard is
+# switched off within the week. Narrowing what BEFORE may cancel -- say, only
+# tracked modifications, never a new untracked file -- is a guess about which
+# changes are developer-shaped, and it is wrong for anyone adding a file.
+# What is left is to REMEMBER, which is precise: the un-cancellable set is
+# exactly the paths this guard has already named out loud.
+#
+# What it costs the dirty working tree, stated. An edit made BEFORE a run
+# cancels, is never named, and is therefore never remembered -- unchanged.
+# The one edit that becomes sticky is one made WHILE the suite ran, which is
+# the single false positive this guard already documents; it now costs one
+# acknowledged invocation instead of evaporating on the next run. That is
+# the trade: an alarm that persists until somebody answers it, against a
+# second knob nobody would remember. There is no second knob --
+# TEST_RESIDUE_GUARD=0, which the failure message already names, drops the
+# record on its way past.
+#
+# WHAT THE ACKNOWLEDGEMENT COSTS, and why it is permanent. Dropping the
+# record ends the alarm for good for a spec that writes the SAME BYTES on
+# every run: the path is then identical in both snapshots for ever, so
+# nothing at the phase boundary ever mentions it again. One flag, once, and
+# a genuine defect is silent -- the "one more run and it goes green" habit
+# with an extra keystroke.
+#
+# It is permanent anyway, because the two candidate fixes both fail on the
+# same fact. EXPIRING the acknowledgement re-raises whatever it silenced on
+# a timer, and what it silenced is by construction the developer's own edit
+# -- an alarm that returns on a schedule teaches re-running exactly as well
+# as one that never fires. SCOPING it to the paths it acknowledged changes
+# nothing: those are the same paths, and the signal is missing rather than
+# misrouted. An acknowledged path rewritten with identical bytes is, at the
+# phase boundary, indistinguishable from an unfinished edit sitting in the
+# tree -- same status line, same hash, and no snapshot of the tree either
+# side of the run can tell them apart.
+#
+# Nor does the residual gap above close it. A per-SPEC snapshot catches a
+# write-then-restore, but an identical rewrite moves no bytes at any
+# granularity; separating those two would mean watching the WRITES (mtime
+# across the whole tree, or an audit of the phase), which reports every file
+# git itself touched and is noise by construction. So the cost is stated
+# here, the failure message says what the flag gives up at the moment it
+# offers it, and a case pins both the silence and its limit: bytes that
+# CHANGE after an acknowledgement are named again.
+
+# _residue_state_file <repo>
+#   Where the pending record lives: inside the GIT DIR, never in the working
+#   tree. `git status` does not report it, nothing ships it, and
+#   `--absolute-git-dir` resolves a worktree to its own gitdir, so two
+#   worktrees of one repo do not inherit each other's residue. A record kept
+#   in the tree would be residue on the next run and the guard would report
+#   itself for ever.
+_residue_state_file() {
+  local _repo="${1:?BUG: _residue_state_file expects <repo>}"
+  local _gitdir
+  _gitdir="$(git -C "${_repo}" rev-parse --absolute-git-dir 2>/dev/null)" || return 1
+  printf '%s\n' "${_gitdir}/test-residue-pending"
+}
+
+# _residue_forget <repo>
+#   Drop the record. Called when the run is clean and the remembered paths
+#   are gone, and on any invocation that switched the guard off -- which is
+#   how a developer says "that one was mine".
+_residue_forget() {
+  local _repo="${1:?BUG: _residue_forget expects <repo>}"
+  local _record
+  _record="$(_residue_state_file "${_repo}")" || return 0
+  rm -f "${_record}"
+}
+
+# _residue_remember <repo> <paths>
+#   Persist the paths just named, one per line, replacing whatever was
+#   there: the report is always the whole pending set, so the record is too.
+_residue_remember() {
+  local _repo="${1:?BUG: _residue_remember expects <repo>}"
+  local _paths="${2-}"
+  local _record
+  _record="$(_residue_state_file "${_repo}")" || return 0
+  printf '%s\n' "${_paths}" > "${_record}"
+}
+
+# _residue_carried <repo> <after-snapshot>
+#   The remembered paths that are STILL changed in the checkout. A path the
+#   developer removed, reverted or committed has left the AFTER snapshot and
+#   is dropped here -- cleaning up is the acknowledgement, and nothing has to
+#   be typed for it.
+_residue_carried() {
+  local _repo="${1:?BUG: _residue_carried expects <repo>}"
+  local _after="${2:?BUG: _residue_carried expects <after-snapshot>}"
+  local _record
+  _record="$(_residue_state_file "${_repo}")" || return 0
+  [[ -s "${_record}" ]] || return 0
+  local _still
+  _still="$(cut -f3- < "${_after}" | LC_ALL=C sort -u)"
+  LC_ALL=C comm -12 \
+    <(LC_ALL=C sort -u "${_record}") \
+    <(printf '%s\n' "${_still}")
+}
+
+# _residue_before_snapshot <repo> <out>
+#   The BEFORE half, with the same treatment the AFTER half already had: a
+#   snapshot that could not be taken is a FAILURE, never an empty baseline.
+#   Left unchecked it aborts the whole dispatch under errexit with no event
+#   line to read, and without errexit it hands the comparison an empty
+#   baseline -- which names every edit in the developer's tree as residue,
+#   the exact cry-wolf outcome the two-snapshot design exists to avoid.
+_residue_before_snapshot() {
+  local _repo="${1:?BUG: _residue_before_snapshot expects <repo>}"
+  local _out="${2:?BUG: _residue_before_snapshot expects <out>}"
+  _residue_snapshot "${_repo}" > "${_out}" && return 0
+  _log_err ci ci_live_tree_residue \
+    "display=Could not read the checkout BEFORE the test run, so there is no baseline to say what it looked like going in. Running unguarded would report every edit already in flight as residue, so this is reported as a failure instead."
+  return 1
+}
+
+# _residue_check <before-snapshot> <repo>
+#   Take the AFTER snapshot and report. Returns 1 and names every path when
+#   the run changed the checkout -- and every path an earlier run named that
+#   is still there, because residue nobody has answered for is still
+#   residue however many runs ago it appeared.
+_residue_check() {
+  local _before="${1:?BUG: _residue_check expects <before-snapshot>}"
+  local _repo="${2:?BUG: _residue_check expects <repo>}"
+  local _after _new _carried _paths
+  _after="$(mktemp)"
+  if ! _residue_snapshot "${_repo}" > "${_after}"; then
+    rm -f "${_after}"
+    _log_err ci ci_live_tree_residue \
+      "display=Could not read the checkout after the test run, so whether it was left unchanged is unknown; treating that as a failure rather than as a clean tree."
+    return 1
+  fi
+  _new="$(_residue_paths "${_before}" "${_after}")"
+  _carried="$(_residue_carried "${_repo}" "${_after}")"
+  rm -f "${_after}"
+  # `sed`, not `grep -v`: this file runs under pipefail, and grep answers 1
+  # when it filters everything away -- which is exactly the clean run -- so a
+  # grep here would abort the whole dispatch on the path that has nothing to
+  # report.
+  _paths="$(printf '%s\n%s\n' "${_new}" "${_carried}" \
+    | sed '/^$/d' | LC_ALL=C sort -u)"
+  if [[ -z "${_paths}" ]]; then
+    _residue_forget "${_repo}"
+    return 0
+  fi
+  _residue_remember "${_repo}" "${_paths}"
+  # Two different facts, reported as two: what THIS run wrote, and what an
+  # earlier run left that nobody has answered for. Leading with the union
+  # asserted a write on every re-run of an unfixed residue, and a reader who
+  # believes that sentence goes looking through a run that touched nothing.
+  local _new_note="" _carried_note=""
+  [[ -z "${_new}" ]] || _new_note="The test run changed the checkout it does not own: $(printf '%s' "${_new}" | tr '\n' ' '). "
+  # printf with a trailing newline, so `tr` leaves a trailing SPACE whether
+  # the set has one path or ten.
+  if [[ -n "${_carried}" ]] && [[ -n "${_new}" ]]; then
+    _carried_note="Already reported by an earlier run and still there: $(printf '%s\n' "${_carried}" | tr '\n' ' ')-- a re-run does not clear this, which is the point. "
+  elif [[ -n "${_carried}" ]]; then
+    _carried_note="This run changed nothing. What is named here was reported by an EARLIER run and is still in the checkout: $(printf '%s\n' "${_carried}" | tr '\n' ' ')-- a re-run does not clear this, which is the point. "
+  fi
+  _log_err ci ci_live_tree_residue \
+    "display=${_new_note}${_carried_note}A spec may READ the live tree -- that is where its subject is -- but a write there makes every other spec's read racy under the 32-way parallel suite. Inspect with 'git diff -- <path>' (or 'git status' for an untracked one) and move the write into the spec's own scratch dir; 'grep -rn <path> test/bats/' finds the spec. This is remembered until the path is gone from the checkout, so the next run reports it again rather than mistaking it for an edit you had in flight. If the change was YOURS -- made while the suite was running, which is the one thing two snapshots cannot cancel -- re-run once with TEST_RESIDUE_GUARD=0, which drops the record -- and with it the guard's memory of that path, so a spec rewriting exactly the same bytes there stays unreported until they change."
+  return 1
+}
+
 # ── Docker compose wrapper ───────────────────────────────────────────────────
 
 _run_via_compose() {
@@ -914,6 +1238,36 @@ _run_via_compose() {
   _image="$(_resolve_test_tools_image)"
   _ensure_test_tools_image "${_image}" "${_project}"
   export TEST_TOOLS_IMAGE="${_image}"
+  # The BEFORE half of the residue guard, taken here and not in main: this
+  # is the ONE host-side point every bats dispatch passes through -- the
+  # local gate, each CI shard, the fragile set, a single --bats-path run --
+  # and it is host-side, which the guard needs. A worktree checkout's `.git`
+  # is a FILE naming a gitdir outside the bind mount, so no in-container git
+  # command can read this tree at all.
+  #
+  # It goes AFTER the image build and the fixture preparation on purpose:
+  # `.prev-release/` is ignored, but the snapshot should describe the tree
+  # the CONTAINER is handed, not the one this function was entered with.
+  local _residue_before="" _residue_blind=0
+  if _residue_guard_available "${REPO_ROOT}"; then
+    _residue_before="$(mktemp)"
+    if ! _residue_before_snapshot "${REPO_ROOT}" "${_residue_before}"; then
+      rm -f "${_residue_before}"
+      _residue_before=""
+      _residue_blind=1
+    fi
+  else
+    # An invocation that switched the guard off is the acknowledgement: it
+    # is how a developer says the path it keeps naming is their own edit,
+    # so the pending record goes with it. Outside a checkout there is no
+    # record and this is a no-op.
+    _residue_forget "${REPO_ROOT}" || true
+  fi
+  # The compose status is captured rather than left to errexit so the
+  # residue check still runs after a FAILING suite -- a run that both failed
+  # and wrote into the checkout has two things to say, and the second one
+  # explains re-runs that disagree with each other.
+  local _rc=0
   docker compose -p "${_project}" \
     -f "${REPO_ROOT}/compose.yaml" run --rm \
     -e COVERAGE="${_coverage}" \
@@ -927,7 +1281,17 @@ _run_via_compose() {
     -e BATS_FILTER="${BATS_FILTER:-}" \
     -e LINT_ONLY="${LINT_ONLY:-0}" \
     -e LINT_TOOL="${LINT_TOOL:-}" \
-    "${_service}"
+    "${_service}" || _rc=$?
+  if [[ -n "${_residue_before}" ]]; then
+    _residue_check "${_residue_before}" "${REPO_ROOT}" || _rc=1
+    rm -f "${_residue_before}"
+  fi
+  # A baseline that could not be taken fails the dispatch AFTER the suite has
+  # run and said its own piece: the run is still worth having, but a gate
+  # that could not answer "was the checkout left as it was found" must not
+  # answer it with silence.
+  [[ "${_residue_blind}" -eq 0 ]] || _rc=1
+  return "${_rc}"
 }
 
 # ── Main ─────────────────────────────────────────────────────────────────────
