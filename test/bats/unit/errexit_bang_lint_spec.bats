@@ -372,7 +372,7 @@ _write() {
   [ "${status}" -eq 0 ]
 }
 
-@test "bash: '#' starts a comment after an unquoted metacharacter too (#956)" {
+@test "bash: '#' opens a comment only where a WORD opens (#956)" {
   # The lexical rule the code scan implements, pinned by RUNNING it
   # rather than asserting it in prose: a `#` begins a comment when it
   # begins a WORD, and a word begins after a blank OR after one of the
@@ -409,6 +409,19 @@ _write() {
   run bash -c 'echo A >#f'
   [ "${status}" -ne 0 ]
   [[ "${output}" == *"syntax error"* ]]
+  # The other half of the same rule, and the half the scan got wrong: a
+  # CLOSING QUOTE does not end a word, and neither does a backslash
+  # escape. Both continue the word they sit in, so a `#` right after one
+  # is data and the line goes on.
+  run bash -c 'printf "[%s]\n" '"'"'a'"'"'#b'
+  [ "${status}" -eq 0 ]
+  [ "${output}" = "[a#b]" ]
+  run bash -c 'printf "[%s]\n" "a"#b'
+  [ "${status}" -eq 0 ]
+  [ "${output}" = "[a#b]" ]
+  run bash -c 'printf "[%s]\n" a\ #b'
+  [ "${status}" -eq 0 ]
+  [ "${output}" = "[a #b]" ]
 }
 
 @test "_run_errexit_bang: PASSES on a bare trailing ';' followed by a comment (#956)" {
@@ -435,6 +448,42 @@ _write() {
     '}'
   run _run_errexit_bang
   [ "${status}" -eq 0 ]
+}
+
+@test "_run_errexit_bang: FAILS on a ';' behind a '#' that follows a closing quote (#956)" {
+  # A closing quote does not end a WORD -- the bash case above runs
+  # `printf '[%s]\n' 'a'#b` and gets the single argument `[a#b]`. So the
+  # `#` here is data, the `;` behind it is this statement's own
+  # separator, and the negation is handed to `true`. Reading the quote as
+  # a word end truncated the line at the `#` and hid the separator: a
+  # MISSED violation, the direction this lint exists to refuse.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "a quoted word, then data" {' \
+    "  ! grep -q 'a'#b f; true" \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"x_spec.bats:2"* ]]
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "a quoted word, then data" {' \
+    '  ! grep -q "a"#b f; true' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"x_spec.bats:2"* ]]
+}
+
+@test "_run_errexit_bang: FAILS on a ';' behind a '#' that follows an escape (#956)" {
+  # The same word rule, the other spelling that continues a word: a
+  # backslash escape. `a\ #b` is the one argument `a #b`, so this `#` is
+  # data too and the `; true` behind it is real.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "an escaped blank, then data" {' \
+    '  ! grep -q a\ #b f; true' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"x_spec.bats:2"* ]]
 }
 
 @test "_run_errexit_bang: PASSES on a bang statement with a bare trailing ';' (#956)" {
