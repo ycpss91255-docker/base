@@ -372,6 +372,64 @@ _write() {
   [ "${status}" -eq 0 ]
 }
 
+@test "bash: '#' starts a comment after an unquoted metacharacter too (#956)" {
+  # The lexical rule the code scan implements, pinned by RUNNING it
+  # rather than asserting it in prose: a `#` begins a comment when it
+  # begins a WORD, and a word begins after a blank OR after one of the
+  # metacharacters that end one -- `;`, `&`, `|`, `(`, `)`. It is data
+  # only in the middle of a word (`echo B#note` prints `B#note`).
+  run bash -c $'echo A;# note\necho B'
+  [ "${status}" -eq 0 ]
+  [ "${lines[0]}" = "A" ]
+  [ "${lines[1]}" = "B" ]
+  run bash -c $'(echo A)# note\necho B'
+  [ "${status}" -eq 0 ]
+  [ "${lines[0]}" = "A" ]
+  [ "${lines[1]}" = "B" ]
+  run bash -c $'echo A &# note\nwait\necho B'
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"A"* ]]
+  [[ "${output}" == *"B"* ]]
+  # The `|` spelling proves itself the other way round: the comment eats
+  # the pipeline's right-hand side, so bash reports a SYNTAX error. Were
+  # `#note` an ordinary word, it would run as a command and the failure
+  # would be a not-found at run time instead.
+  run bash -c 'echo A|# note'
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"syntax error"* ]]
+  # And the middle-of-a-word case, which is why the scan cannot simply
+  # break on every '#'.
+  run bash -c 'echo B#note'
+  [ "${status}" -eq 0 ]
+  [ "${output}" = "B#note" ]
+}
+
+@test "_run_errexit_bang: PASSES on a bare trailing ';' followed by a comment (#956)" {
+  # `;#` is a terminator and then a comment: the `;` ended the word, so
+  # bash starts a comment at the `#` and there is no second command for
+  # the negation to be handed to. Reading it as one is a false positive,
+  # and on a blocking gate the price of a false positive is an allow
+  # region hand-written for a line that was never a violation.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "terminated, then a note" {' \
+    '  ! ovr_get some.key;# the override was never written' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -eq 0 ]
+}
+
+@test "_run_errexit_bang: PASSES on a comment that opens right after a ')' (#956)" {
+  # The same rule one metacharacter along: the `#` after the `)` that
+  # closed the subshell starts a comment, so the `;` in the prose after
+  # it is not this statement's separator either.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "a subshell, then a note" {' \
+    '  ! (ovr_get some.key)# see also; the note below' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -eq 0 ]
+}
+
 @test "_run_errexit_bang: PASSES on a bang statement with a bare trailing ';' (#956)" {
   # A semicolon that terminates the statement rather than starting a
   # second one leaves the negation as the body's status.
