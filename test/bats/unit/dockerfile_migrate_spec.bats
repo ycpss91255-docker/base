@@ -363,9 +363,10 @@ EOF
   assert_failure
 }
 
-# The same tree was also reached FILE BY FILE. Two consumer repos hand-list
-# the specs instead of copying the directory -- one COPY per spec, and every
-# spec on a single COPY -- and those sources died in the same relocation.
+# The same tree was also reached FILE BY FILE. Six of the org's consumer
+# repos hand-list the specs instead of copying the directory -- four write one
+# COPY per spec, two put every spec on a single COPY -- and those sources died
+# in the same relocation.
 # The migration resolves each named spec against the freshly pulled subtree
 # by basename, so what heals them is where the tree says the spec now is.
 

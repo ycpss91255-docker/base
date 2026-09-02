@@ -97,16 +97,16 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 - **the changelog lint now catches an entry that was edited and not re-wrapped (refs #927)** -- a single word left alone on a continuation line with more of its paragraph on the next line. The length measure collapses whitespace on purpose and markdown collapses it again at render time, so nothing else could see it. A short final line, a table row, a fenced line and an HTML comment are left alone. Affects anyone writing an `[Unreleased]` entry.
 
 ### Fixed
-- **the smoke-spec COPY heal now covers the hand-listed spelling, not only the
-  wholesale one (refs #928)** -- the dist relocation moved base's smoke specs
-  out of `.base/test/smoke/`, and the migration written for it recognised only
-  `COPY .base/test/smoke/ /smoke_test/`, the spelling base's own Dockerfile
-  uses. Two consumer repos hand-list the specs instead, so their next upgrade
-  lands on a Dockerfile that cannot build. Each named spec now resolves against
-  the pulled subtree by basename; one it ships nowhere, or at two paths, is
-  declined with a warning rather than guessed at. The released-upgrade fixture
-  is re-spelled the same way, so the delivery guard is asked about a shape a
-  consumer has.
+- **the smoke-spec COPY heal now covers the hand-listed spelling (refs
+  #928)** -- the dist relocation moved base's smoke specs out of
+  `.base/test/smoke/`, and the migration recognised only the wholesale
+  `COPY .base/test/smoke/`. Six of the org's 24 repos hand-list them instead
+  (`ai_agent`, `claude_code`, `codex_cli`, `gemini_cli`, `ros1_bridge`,
+  `urg_node_humble`), so their next upgrade leaves a Dockerfile that cannot
+  build. Each named spec now resolves against the pulled subtree by basename;
+  one it ships nowhere or at two paths is declined with a warning, and a
+  source on a backslash continuation is read as part of its statement, not
+  half-rewritten in silence.
 - **workflow and template structural specs now assert against a file's CODE,
   not its comments (refs #954)** -- this repo's comments name in prose exactly
   what its specs pin, so a whole-file grep was satisfied by the explanation
