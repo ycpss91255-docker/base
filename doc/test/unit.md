@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3140 tests**.
+Unit specs under `test/bats/unit/`: **3188 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -2059,7 +2059,7 @@ builds the env block only for the knobs the conf sets.
 | `name_host_groups: a nameless gid triggers sudo groupadd hostgrp<gid>` | #589 behaviour (mocked) |
 | `name_host_groups: a named gid does not trigger groupadd` | #589 idempotent skip (mocked) |
 
-### test/bats/unit/ci_spec.bats (114)
+### test/bats/unit/ci_spec.bats (117)
 
 | Test | Description |
 |------|-------------|
@@ -2096,6 +2096,8 @@ builds the env block only for the knobs the conf sets.
 | `_junit_to_timings: emits <seconds> <basename> per testsuite, rounded and floored at 1 (#733)` | - |
 | `_junit_to_timings: ignores the <testsuites> root and a missing file is a no-op (#733)` | - |
 | `_run_coverage: writes coverage/timings.tsv from the bats junit report (#733)` | - |
+| `_run_coverage: a full-suite run names every spec file, subfolders included (#952)` | - |
+| `_run_coverage: the full run covers the pools the inventory reads (#952)` | - |
 | `_shard_unit_files: integration specs are partitioned into the pool, not pinned to one shard (#724)` | - |
 | `_run_coverage: shard N/T kcov's only that unit slice, not the whole tree (#615)` | #615 sharded kcov targets |
 | `_run_coverage: shard targets are individual spec files, never the whole integration dir (#724)` | - |
@@ -2103,6 +2105,7 @@ builds the env block only for the knobs the conf sets.
 | `main --coverage-shard: routes to the coverage service with COVERAGE_SHARD set (#615)` | #615 shard env plumbing |
 | `main --ci with COVERAGE=1 skips the lint phase (lint is a separate matrix concern) (#615)` | #615 coverage path skips lint |
 | `main --coverage-shard + --bats-path is rejected (coverage mode guard) (#615)` | #615 single-path/coverage combo guard |
+| `no spec drives a coverage run against the mounted checkout (#952)` | - |
 | `_fragile_unit_files: returns exactly the spec files with a kcov-skip guard (#677)` | #677 runtime fragile-set == anchored grep |
 | `_fragile_unit_files: every kcov-skipped file is in the fragile set (no unit test goes unrun) (#677)` | #677 inverse-direction completeness guard |
 | `_run_bats_fragile: runs bats over only the fragile spec files, not the whole unit tree (#677)` | #677 fragile job targets only fragile files |
@@ -3483,6 +3486,68 @@ untested) and uncommented.
 | `runtime_stages: runtime-test without runtime fails naming both stages and the Dockerfile` | The mirror case, which cannot build at all |
 | `runtime_stages: a missing Dockerfile fails naming the path it looked for` | A wrong `context_path` / `dockerfile_path` is reported by path |
 | `runtime_stages: an empty DOCKERFILE path fails loudly` | No path means no source of truth to read |
+
+### test/bats/unit/coverage_badge_spec.bats (45)
+
+Unit tests for `script/release/coverage_badge.sh` (#952) -- the release
+coverage badge generator that replaces the README's static `Coverage-Kcov`
+shields.io badge with a self-contained SVG committed to the repo. It obtains
+the figure by re-running `coverage_gate.sh`'s own merge math over the local
+kcov reports and stamps the version the figure belongs to, so a per-release
+number cannot be read as `main`'s. The load-bearing half is the refusal: a
+release whose coverage never ran must not publish a stale or an invented
+figure, so a missing or mismatched provenance stamp (`coverage/.head-sha`,
+written by the coverage run), a report older than the commit being released,
+or a modified instrumented source each refuse and write nothing. The last
+three tests assert the repo's own published figure, not the generator.
+
+| Test | Description |
+|------|-------------|
+| `coverage_badge: renders the measured rate into a self-contained SVG` | The output is an SVG carrying the measured percentage |
+| `coverage_badge: the SVG carries the version the figure belongs to` | Defaults to `.version`, so the figure names its release |
+| `coverage_badge: --version overrides the .version default` | The bump passes the version it is promoting to |
+| `coverage_badge: the SVG references no external host` | No renderer, no fetch -- it ports to GitLab unchanged |
+| `coverage_badge: the rate is the gate's own merge math, not a re-implementation` | Two shards over the same file: the per-line union (75%), not the root-counter sum (50%) |
+| `coverage_badge: a high rate grades green` | Shields' own flat palette, as the removed Codecov badge read |
+| `coverage_badge: a low rate grades red` | The bottom of the same grading |
+| `coverage_badge: refuses when no coverage report exists` | No measurement means no figure, not the previous one |
+| `coverage_badge: refuses when the reports predate the commit being released` | A report older than HEAD measured an earlier tree |
+| `coverage_badge: refuses when the reports were produced from a different commit` | Measure one tree, check an older commit out: every timestamp check passes and the sha does not |
+| `coverage_badge: refuses when the reports carry no provenance` | Reports with no recorded sha describe no particular tree |
+| `coverage_badge: the coverage run records the sha its reports describe` | The producer half: without a writer the reader refuses every real release |
+| `coverage_badge: a partial measurement is not certified whole, whatever the invocation said` | - |
+| `coverage_badge: a run that recorded no measurement is certified as nothing` | - |
+| `coverage_badge: a later partial measurement overwrites an earlier full one` | - |
+| `coverage_badge: the measured-scope inventory is this repo's real spec tree` | - |
+| `coverage_badge: the coverage run drops the old certificate before it starts` | - |
+| `coverage_badge: the eraser drops the manifest the scope is derived from` | - |
+| `coverage_badge: a manifest that outlives its erasure fails the run` | - |
+| `coverage_badge: a certificate that outlives its erasure fails the run` | - |
+| `coverage_badge: a failed coverage run leaves no certificate behind` | - |
+| `coverage_badge: a coverage run that succeeds still writes its certificate` | - |
+| `coverage_badge: a sourced dispatch withholds the certificate too` | - |
+| `coverage_badge: --coverage-shard partitions the CONTAINER, and tells the writer nothing` | - |
+| `coverage_badge: a full --coverage run hands the writer only the root` | - |
+| `coverage_badge: a full --coverage run tells the CONTAINER no selector at all` | - |
+| `coverage_badge: the coverage dispatch pins every selector the container reads` | - |
+| `coverage_badge: refuses when the reports cover one shard, not the suite` | Every identity check passes and the figure is still a quarter of the suite |
+| `coverage_badge: refuses when the stamp records no scope at all` | An unscoped stamp is no evidence of a release figure |
+| `coverage_badge: the operator sequence shard-then-badge publishes nothing` | `just test coverage 1/4` then `just release coverage-badge` at one commit |
+| `coverage_badge: refuses when instrumented sources are modified in the worktree` | The reports then describe neither the commit nor the tree |
+| `coverage_badge: a release-bump edit is not a source change` | `.version` moving is the bump's own edit and must not block the step it runs |
+| `coverage_badge: refuses to overwrite an existing badge when it cannot measure` | A refusal leaves the last good badge byte-identical |
+| `coverage_badge: --unmeasured states the absence instead of inventing a figure` | The honest rendering for a version that has no measurement |
+| `coverage_badge: rejects an unknown option` | Arg errors exit 2, distinct from a refusal's 1 |
+| `coverage_badge: a missing option value is an arg error, not a refusal` | A typo'd flag must not wear the "re-run just test coverage" exit code |
+| `coverage_badge: --help states the once-per-release cadence` | The claim itself, not the incidental word "release" |
+| `coverage_badge: the un-wired release step is recorded as pending, with its issue` | The ADR and the recipe doc name docker_harness#289 instead of claiming a caller that does not exist |
+| `coverage_badge: the generator header records the bump wiring as pending` | The property list is where the round-2 reword did not reach |
+| `coverage_badge: the dirty check covers every source kcov instruments` | - |
+| `coverage_badge: the roster's drift note promises only the guard it has` | - |
+| `coverage_badge: the README shows the committed badge, not a static one` | The `Coverage-Kcov` badge is gone and the SVG is referenced |
+| `coverage_badge: every localized README shows the committed badge` | All three translations, by their own relative path |
+| `coverage_badge: the committed badge names the released version` | The published SVG and `.version` agree |
+| `coverage_badge: every README records the release step as hand-run, not the bump's` | - |
 
 ### test/bats/unit/adr_doc_claims_spec.bats (17)
 

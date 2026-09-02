@@ -5,7 +5,7 @@
 ![Language](https://img.shields.io/badge/Language-Bash-blue?style=flat-square)
 ![Testing](https://img.shields.io/badge/Testing-Bats-orange?style=flat-square)
 ![ShellCheck](https://img.shields.io/badge/ShellCheck-Compliant-brightgreen?style=flat-square)
-![Coverage](https://img.shields.io/badge/Coverage-Kcov-blueviolet?style=flat-square)
+![Coverage](doc/badge/coverage.svg)
 [![License](https://img.shields.io/badge/License-Apache--2.0-blue?style=flat-square)](./LICENSE)
 
 Shared template for Docker container repos in the [ycpss91255-docker](https://github.com/ycpss91255-docker) organization.
@@ -1693,6 +1693,7 @@ See [TEST.md](doc/test/TEST.md) for the test index (per-category catalogs:
 │       ├── release-test-tools.yaml     # base's own test-tools image release
 │       └── ghcr-cleanup.yaml           # Weekly prune of untagged test-tools orphans on GHCR
 ├── doc/
+│   ├── badge/                          # Generated release coverage badge (hand-run at release; bump caller pending, docker_harness#289)
 │   ├── readme/                         # README translations (zh-TW / zh-CN / ja)
 │   ├── adr/                            # Architecture Decision Records (00000001 … 00000024)
 │   ├── test/
