@@ -1884,8 +1884,20 @@ _DF_DISPROVEN_CLAIMS=(
 # just retired. So the top level is swept as a level -- `-maxdepth 1
 # -type f`, which reaches a fifth such file the day it lands -- and
 # README.md is dropped from the roots because that derivation now covers
-# it. Directories at the top level that are not roots (`log/`, the git
-# dir) stay out: `-type f` does not descend.
+# it. A directory at the top level that is not a root stays out --
+# `-type f` does not descend -- which covers `log/` and the git
+# DIRECTORY of an ordinary clone.
+#
+# It is the WORKING TREE that is walked, not the index, so the roster is
+# what is on disk: in a worktree checkout `.git` is a pointer FILE and is
+# read, and so is any untracked top-level file a developer leaves lying
+# around. The roster therefore differs between two checkouts of one
+# commit. That is tolerated rather than fixed here, because the walk only
+# READS -- an extra file can fail the sweep by stating a disproven claim,
+# never hide one -- and because the derivation that would not vary is
+# unavailable where this runs: /source is a bind mount of the checkout
+# alone, and a worktree's `.git` names a gitdir outside it, so no git
+# question can be asked in the container.
 #
 # The spec tree, the tooling tree and the workflows are IN it. They were
 # left out on the theory that the claims are spelled there as data -- but
