@@ -523,17 +523,25 @@ _spec_path_word() {
 # decide the question: single quotes quote everything up to the next `'`;
 # double quotes quote everything up to the next `"` except a `$(`, which
 # opens a command context that is code again; a `\` escapes the next
-# character outside single quotes; `<<WORD`, `<<-WORD` and `<< 'WORD'` open
-# a heredoc whose body is DATA until a line that is exactly WORD, while
-# `<<<` is a here-string and opens nothing; and a `#` that starts a word
-# opens a comment that runs to end of line.
+# character outside single quotes; `$(( ))` and a word-initial `(( ))` are
+# arithmetic, where `<<` is a shift and not a redirection; `<<WORD` opens a
+# heredoc whose body is DATA until a line that is EXACTLY WORD -- column 0,
+# nothing trailing -- where WORD is any of bash's spellings of it (`WORD`,
+# `'WORD'`, `"WORD"`, `\WORD`, and any mix, all read literally, since bash
+# expands nothing in a terminator), `<<-WORD` is the same with leading TABS
+# stripped from the closing line, and `<<<` is a here-string that opens
+# nothing; and a `#` that starts a word opens a comment that runs to end of
+# line.
 #
 # It is not a shell parser and does not try to be. It does not know `eval`,
-# an alias, a heredoc terminator spelled with an expansion, or a different
-# function that happens to carry the same name. Everything it cannot read
-# resolves to "not a call site", which reads downstream as UNPINNED and
-# fails loudly -- the direction that costs a spec author one line, rather
-# than the one that certifies a worker nothing reads.
+# an alias, a terminator carried onto the next line by a `\`, or a
+# different function that happens to carry the same name. Everything it
+# cannot read resolves to "not a call site", which reads downstream as
+# UNPINNED and fails loudly -- the direction that costs a spec author one
+# line, rather than the one that certifies a worker nothing reads. A `<<`
+# it cannot finish reading is the same choice made explicitly: it opens a
+# heredoc whose terminator no line matches, spending the rest of the file
+# rather than handing a fixture body back as code.
 
 # _shell_text_scan <mode> [name]
 #   Read shell CODE LINES on stdin (comment-only lines already dropped by
@@ -551,13 +559,59 @@ _spec_path_word() {
 #   other.
 _shell_text_scan() {
     awk -v _mode="${1}" -v _name="${2:-}" '
-    BEGIN { _len = length(_name); _in_hd = 0; _term = "" }
+    # The terminator word of a heredoc redirection at position p of s,
+    # with its quoting removed: bash accepts it bare, `\`-escaped,
+    # single- or double-quoted, in any mix, and expands none of it. The
+    # empty string means "there is no word here this can read" -- an
+    # unfinished quote, or a `\` continuation carrying the word onto the
+    # next line -- which the caller turns into a terminator no line
+    # matches. `_hd_next` reports where the word ended.
+    function _hd_term(s, p, n2,   c, q, w, seen) {
+        w = ""; seen = 0
+        while (p <= n2) {
+            c = substr(s, p, 1)
+            if (c == " " || c == "\t" || c == ";" || c == "&" || c == "|" \
+                || c == "<" || c == ">" || c == "(" || c == ")") { break }
+            if (c == "\\") {
+                p++
+                if (p > n2) { _hd_next = p; return "" }
+                w = w substr(s, p, 1); p++; seen = 1; continue
+            }
+            if (c == "\047" || c == "\"") {
+                q = c; p++
+                while (p <= n2 && substr(s, p, 1) != q) { w = w substr(s, p, 1); p++ }
+                if (p > n2) { _hd_next = p; return "" }
+                p++; seen = 1; continue
+            }
+            w = w c; p++; seen = 1
+        }
+        _hd_next = p
+        return seen ? w : ""
+    }
+    # One past the `))` closing the arithmetic expansion or command whose
+    # first `(` sits at position p, or one past the end of the line when
+    # it does not close there.
+    function _arith_end(s, p, n2,   d, c) {
+        d = 0
+        while (p <= n2) {
+            c = substr(s, p, 1)
+            if (c == "(") { d++ }
+            else if (c == ")") { d--; if (d == 0) { return p + 1 } }
+            p++
+        }
+        return n2 + 1
+    }
+    BEGIN {
+        _len = length(_name); _in_hd = 0; _term = ""; _dash = 0
+        # A terminator for a `<<` this reader could not finish: no line of
+        # a body can equal it, so the heredoc runs to end of file.
+        _unmatchable = sprintf("%c<unreadable heredoc terminator>", 1)
+    }
     {
         line = $0
         if (_in_hd) {
             t = line
-            sub(/^[ \t]+/, "", t)
-            sub(/[ \t]+$/, "", t)
+            if (_dash) { sub(/^\t+/, "", t) }
             if (t == _term) { _in_hd = 0 }
             next
         }
@@ -573,12 +627,21 @@ _shell_text_scan() {
             if (ch == "\\") { i += 2; continue }
             if (top == "d") {
                 if (ch == "\"") { stack = substr(stack, 1, length(stack) - 1); i++; continue }
+                if (ch == "$" && substr(line, i + 1, 2) == "((") { i = _arith_end(line, i + 1, n); continue }
                 if (ch == "$" && substr(line, i + 1, 1) == "(") { stack = stack "c"; i += 2; continue }
                 i++; continue
             }
             if (ch == "\047") { stack = stack "q"; i++; continue }
             if (ch == "\"") { stack = stack "d"; i++; continue }
+            if (ch == "$" && substr(line, i + 1, 2) == "((") { i = _arith_end(line, i + 1, n); continue }
             if (ch == "$" && substr(line, i + 1, 1) == "(") { stack = stack "c"; i += 2; continue }
+            if (ch == "(" && substr(line, i + 1, 1) == "(") {
+                pre = (i == 1) ? "" : substr(line, i - 1, 1)
+                if (pre == "" || pre == " " || pre == "\t" || pre == ";" \
+                    || pre == "|" || pre == "&" || pre == "(") {
+                    i = _arith_end(line, i, n); continue
+                }
+            }
             if (ch == ")" && top == "c") { stack = substr(stack, 1, length(stack) - 1); i++; continue }
             if (ch == "#") {
                 p = (i == 1) ? "" : substr(line, i - 1, 1)
@@ -588,18 +651,13 @@ _shell_text_scan() {
             if (ch == "<" && substr(line, i + 1, 1) == "<") {
                 if (substr(line, i + 2, 1) == "<") { i += 3; continue }
                 j = i + 2
-                if (substr(line, j, 1) == "-") { j++ }
+                _dash = 0
+                if (substr(line, j, 1) == "-") { _dash = 1; j++ }
                 while (substr(line, j, 1) == " " || substr(line, j, 1) == "\t") { j++ }
-                qc = substr(line, j, 1); word = ""
-                if (qc == "\047" || qc == "\"") {
-                    j++
-                    while (j <= n && substr(line, j, 1) != qc) { word = word substr(line, j, 1); j++ }
-                    j++
-                } else {
-                    while (j <= n && substr(line, j, 1) ~ /[A-Za-z0-9_]/) { word = word substr(line, j, 1); j++ }
-                }
-                if (word != "") { _term = word; pend = 1 }
-                i = j; continue
+                word = _hd_term(line, j, n)
+                _term = (word == "") ? _unmatchable : word
+                pend = 1
+                i = _hd_next; continue
             }
             if (_len > 0 && substr(line, i, _len) == _name) {
                 pre = (i == 1) ? "" : substr(line, i - 1, 1)
