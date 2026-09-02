@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3296 tests**.
+Unit specs under `test/bats/unit/`: **3302 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3701,7 +3701,7 @@ inside the test that produces it, each case writes a one-test spec into
 | `no spec opens with a fail-open '\|\| skip' existence guard` | The repo-wide invariant, so the idiom cannot creep back in |
 | `the fail-open guard scan sees every spelling of the check, not just [[ -f ]]` | The invariant must be green because no guard exists, not because its pattern is blind |
 
-### test/bats/unit/errexit_bang_lint_spec.bats (42)
+### test/bats/unit/errexit_bang_lint_spec.bats (48)
 
 | Test | Description |
 |------|-------------|
@@ -3711,6 +3711,9 @@ inside the test that produces it, each case writes a one-test spec into
 | `_run_errexit_bang: FAILS on the FIRST line of a continued bang statement that is not last (#956)` | - |
 | `_run_errexit_bang: FAILS on a bang statement followed by another command via ';' (#956)` | - |
 | `_run_errexit_bang: FAILS on a bang statement whose '\|\|' hands off the verdict (#956)` | - |
+| `bash: a backgrounded '!' returns 0 whatever the command did (#956)` | Why `&` is a hand-off, run rather than asserted: an async list's status is the fork's |
+| `_run_errexit_bang: FAILS on a bang statement handed to the background (#956)` | Inert in the one position the rule declines to judge -- the body's last statement |
+| `_run_errexit_bang: FAILS when a '&' hands the statement to the next command (#956)` | The same discard as a `;`, spelled with the async operator |
 | `_run_errexit_bang: FAILS on such a line even when the body continues past it (#956)` | - |
 | `bash: a separator on the CONTINUATION line discards the negation too (#956)` | - |
 | `_run_errexit_bang: FAILS when the ';' sits on a continuation line (#956)` | - |
@@ -3726,10 +3729,13 @@ inside the test that produces it, each case writes a one-test spec into
 | `_run_errexit_bang: PASSES on a ';' inside a quoted argument (#956)` | - |
 | `_run_errexit_bang: FAILS on an '\|\|' that belongs to a command substitution (#956)` | A separator inside `( ... )` is the argument's, so the exemption for `! A || B` does not reach it |
 | `_run_errexit_bang: PASSES on a ';' that belongs to a command substitution (#956)` | The same flat match run the other way: a false positive on a blocking gate |
-| `bash: '#' starts a comment after an unquoted metacharacter too (#956)` | The lexical rule the code scan implements, pinned by RUNNING the shell -- including the `|` spelling and the mid-word `#` that stays data |
+| `bash: '#' opens a comment only where a WORD opens (#956)` | The lexical rule the code scan implements, pinned by RUNNING the shell -- the `\|` spelling, the mid-word `#` that stays data, and the closing quote / backslash escape that continue a word |
 | `_run_errexit_bang: PASSES on a bare trailing ';' followed by a comment (#956)` | `;#` is a terminator and prose, not a verdict handed to a second command |
 | `_run_errexit_bang: PASSES on a comment that opens right after a ')' (#956)` | The same rule one metacharacter along |
+| `_run_errexit_bang: FAILS on a ';' behind a '#' that follows a closing quote (#956)` | A closing quote does not end a word, so the `#` is data and the separator behind it is real |
+| `_run_errexit_bang: FAILS on a ';' behind a '#' that follows an escape (#956)` | The same word rule for the other spelling that continues a word |
 | `_run_errexit_bang: PASSES on a bang statement with a bare trailing ';' (#956)` | - |
+| `_run_errexit_bang: PASSES on the '&' spellings that background nothing (#956)` | `&&`, `2>&1`, `&>` and `\|&` are other operators; `[[ a&b ]]` is a syntax error and needs no exemption |
 | `_run_errexit_bang: PASSES when the bang statement is the body's last (#956)` | - |
 | `_run_errexit_bang: PASSES when only comments and blanks follow the bang (#956)` | - |
 | `_run_errexit_bang: PASSES when the bang statement ends the body across a continuation (#956)` | - |
