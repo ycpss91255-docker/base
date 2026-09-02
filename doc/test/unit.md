@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3128 tests**.
+Unit specs under `test/bats/unit/`: **3140 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -324,7 +324,7 @@ Mirrors `lib/env_emit.sh`. `write_env` (.env contents + SETUP_*
 metadata, SSH X11 `XAUTHORITY` override #321) and `_scaffold_env_overlay`
 idempotency.
 
-#### test/bats/unit/setup_cmd_spec.bats (120)
+#### test/bats/unit/setup_cmd_spec.bats (126)
 
 Mirrors `lib/setup_cmd.sh`. The git-style subcommand dispatcher and its
 mutating verbs (#49): dispatch (Phase B-1), `set` / `show` / `list`
@@ -364,7 +364,7 @@ apart until a `FROM --platform=... AS <stage>` line was a stage to one
 call site and invisible to the others — it drives every call site off a
 single FROM line and asserts one verdict per site.
 
-### test/bats/unit/tui_spec.bats (135)
+### test/bats/unit/tui_spec.bats (138)
 
 Pure-logic unit tests for the TUI support libraries (`_tui_conf.sh`).
 No dialog/whiptail invocations here — strictly validators, mount-string
@@ -1403,7 +1403,7 @@ justfile_user_spec.bats.
 | `completions.sh --lang bogus warns and falls back to en (non-fatal)` | _sanitize_lang fallback |
 | `test.sh rejects --lang (test namespace is English-only, #655)` | machine/CI namespace, no i18n |
 
-### test/bats/unit/completions_spec.bats (14)
+### test/bats/unit/completions_spec.bats (15)
 
 Unit tests for the opt-in shell tab-completion installer
 `dist/script/base/completions.sh` (#653, ADR-00000011), reached as
@@ -1429,6 +1429,7 @@ standard auto-load dir (no rc edits), idempotency, the zsh fpath hint, default
 | `missing action is a usage error (exit 2) (#692)` | missing install/uninstall -> exit 2 |
 | `-h / --help exits 0 with usage` | help text |
 | `install is idempotent: a re-run overwrites cleanly` | overwrite-on-reinstall |
+| `--shell with no value is a usage error, not an infinite loop (#955)` | missing flag value -> exit 1, no arg-loop spin |
 
 ### test/bats/unit/compose_emit/blocks_spec.bats (30)
 
@@ -1471,7 +1472,7 @@ running the whole ~900-line generator and grepping its YAML output.
 | `_emit_stage_service: override stage GPU resolution emits deploy reservation` | standalone GPU |
 | `_yaml_dq wraps a value as a double-quoted scalar, escaping \ then " (#698)` | YAML scalar quoting |
 
-### test/bats/unit/compose_emit/gen_spec.bats (81)
+### test/bats/unit/compose_emit/gen_spec.bats (83)
 
 Covers `generate_compose_yaml` conditional output: AUTO-GENERATED
 header, baseline workspace volume, network/ipc/privileged env-var
@@ -1510,6 +1511,8 @@ shapes, absent on any `*-test` stage).
 | `generate_compose_yaml: device ro,rshared emits read_only + propagation (#450 P1)` | - |
 | `generate_compose_yaml: propagation-only device creates volumes: header even without extras (#450)` | - |
 | `generate_compose_yaml: all devices have propagation → no devices: section (#450)` | - |
+| `generate_compose_yaml expands ${VAR} env cross-refs in a per-stage env_N addition (refs #955)` | append-mode tail expands against the shared prefix |
+| `generate_compose_yaml expands cross-refs in a per-stage environment.env_N replacement (refs #955)` | stage replaces the list, its own env_N cross-refs |
 | `generate_compose_yaml emits tmpfs block from tmpfs_ list` | - |
 | `generate_compose_yaml emits ports block only under network_mode=bridge` | - |
 | `generate_compose_yaml emits shm_size only when ipc_mode != host` | - |
