@@ -255,6 +255,63 @@ _HARNESS_EXEMPT_SRCS=(
   assert_success
 }
 
+@test "the harness Dockerfile writes the manifest before the specs read it (#951)" {
+  # Named for what a grep of a Dockerfile can establish: the instructions
+  # are there, in that order. Whether the specs then RUN rather than skip
+  # is a runtime outcome no text can see -- the system spec asserts that,
+  # by building this file and refusing any `# skip` in the output.
+  #
+  # smoke/shared/reproducibility.bats skips itself when neither
+  # /usr/local/share/base/base-image.env nor packages.txt exists, because
+  # a consumer image built before that template revision genuinely has
+  # no manifest and failing there would turn an upgrade into a broken
+  # build. base is not that consumer, and a harness that omits the
+  # manifest turns all three of them into `ok N # skip` -- a green run
+  # reporting that nothing was checked, over the one assertion the whole
+  # change exists for (a manifest that IS written and records nothing,
+  # which no amount of grepping the template can catch).
+  #
+  # So the harness writes it, and this test is what keeps it written.
+  # What is reproduced is the sys stage's RECORD, not its commands: the
+  # tooling image is Alpine, which has no dpkg, so the package half is
+  # read out of the apk database in the same `<name><TAB><version>`
+  # shape. The specs assert the record, and the record is what stands in.
+  run grep -nE '> /usr/local/share/base/base-image\.env' "${HARNESS_DOCKERFILE}"
+  assert_success
+  run grep -nE '> /usr/local/share/base/packages\.txt' "${HARNESS_DOCKERFILE}"
+  assert_success
+  # Non-empty values, which is the whole property. The bare in-stage
+  # re-declaration of the FROM-scope ARG is what the template needs for
+  # the same reason, and getting it wrong here would ship a harness that
+  # is green on exactly the record the specs exist to reject.
+  run grep -nE '^ARG BASE_IMAGE$' "${HARNESS_DOCKERFILE}"
+  assert_success
+  # The record's SECOND sink: the OCI base.digest annotation the template's
+  # sys stage labels the image with. Mirrored here so
+  # test/bats/system/smoke_harness_spec.bats can build this file and read
+  # both sinks off one image -- a label is invisible to any spec running
+  # INSIDE the image, which is how the two came to disagree unnoticed.
+  # ONE expression feeds both, here as in the template.
+  run grep -F 'org.opencontainers.image.base.digest="${BASE_IMAGE_DIGEST}"' \
+    "${HARNESS_DOCKERFILE}"
+  assert_success
+  # ... and the harness does not stop a build the template no longer
+  # stops. It carried a copy of a refusal over a digest-carrying
+  # BASE_IMAGE whose arg did not repeat it; with the template's gone, a
+  # surviving copy here would make the harness reject the very
+  # configuration the system spec builds to prove it is accepted.
+  run grep -c 'exit 1' "${HARNESS_DOCKERFILE}"
+  assert_output "0"
+  # ... and written before the specs read it.
+  local _manifest_line _bats_line
+  _manifest_line="$(grep -n '> /usr/local/share/base/base-image\.env' \
+    "${HARNESS_DOCKERFILE}" | head -n1)"
+  _bats_line="$(grep -n '^RUN bats ' "${HARNESS_DOCKERFILE}" | head -n1)"
+  assert [ -n "${_manifest_line}" ]
+  assert [ -n "${_bats_line}" ]
+  assert [ "${_manifest_line%%:*}" -lt "${_bats_line%%:*}" ]
+}
+
 @test "the harness exports BATS_LIB_PATH like the devel-test stage does" {
   # The shared test_helper does `bats_load_library bats-support` /
   # `bats-assert`; without the library path they are not found and every

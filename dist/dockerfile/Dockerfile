@@ -61,14 +61,142 @@
 # Dockerfiles renamed to `devel-base` / `devel-test` over a coordinated
 # rollout). They will be removed from the blocklist in a future major.
 
-# tool-pin: unpinned base-image -- `ubuntu:24.04` is a MOVING tag (it
-# resolves to 24.04.4 today) and it is what every consumer of this template
-# builds from, so what to do about it is a consumer-facing decision, not a
-# mechanical bump: pinning it to a patch tag changes the image every
-# downstream repo produces. Declared here so the watch names it on every
-# run rather than letting two builds of the same template tag differ in
-# silence. Unlike the test-tools image there is no second bound -- the apt
-# packages below float on top of a floating base.
+# BASE_IMAGE defaults to a MOVING tag: `ubuntu:24.04` re-resolves on every
+# Ubuntu point release and every security respin, and the apt packages
+# installed on top of it (here and in devel-base) carry no versions. Two
+# builds of the same template version a month apart are therefore not the
+# same image. That is a deliberate trade, not an oversight:
+#
+#   - The default is only a default. Consumers routinely override
+#     BASE_IMAGE from their own Dockerfile or CI matrix (ros:humble,
+#     nvidia/cuda, python:3.11-slim, ...), so a digest baked in here would
+#     govern almost nothing -- while making every upstream security respin
+#     a template release fanned out across every repo under the org.
+#   - These are DEVELOPMENT images. One that cannot pick up a security
+#     update without a template release is worse for its audience than one
+#     that drifts.
+#
+# What compensates is that the drift is RECORDED rather than silent. Every
+# image built from this file carries, from the image alone:
+#
+#   /usr/local/share/base/base-image.env  the base reference as given,
+#                                         whether that reference is
+#                                         digest-pinned, the digest the
+#                                         build was told to record, and
+#                                         the base OS identity
+#   /usr/local/share/base/packages.txt    every installed package and its
+#                                         exact version, rewritten after
+#                                         each apt layer
+#
+# plus the OCI `org.opencontainers.image.base.name` /
+# `org.opencontainers.image.base.digest` labels, so `docker inspect`
+# answers without unpacking. Two consumer images that behave differently
+# can be diffed down to the package version that changed. This is also
+# what the DL3008 ignore in .hadolint.yaml names as its compensating
+# control.
+#
+# WHAT THE SHIPPED DEFAULT STILL DOES NOT ANSWER, stated plainly rather
+# than left for a reader to discover: built as shipped -- `ubuntu:24.04`,
+# no build args -- the manifest records
+#
+#   base_image_ref=ubuntu:24.04
+#   base_image_pin=none
+#   base_image_digest=
+#
+# i.e. it does NOT record which digest that tag resolved to, because
+# nothing INSIDE a build can ask the daemon what it pulled. Pinning the
+# reference to a digest does not fill the field on its own either -- the
+# pinning paragraph below says why, and what it costs to fill. Filling it
+# costs one build arg, from whoever runs the build and can ask:
+#
+#   BASE_IMAGE_DIGEST="$(docker image inspect \
+#     --format '{{index .RepoDigests 0}}' ubuntu:24.04)"
+#   BASE_IMAGE_DIGEST="${BASE_IMAGE_DIGEST##*@}"
+#
+# The second line is not tidiness. `.RepoDigests` holds REFERENCES
+# (`ubuntu@sha256:<hex>`), and this value is recorded verbatim as
+# `base_image_digest` and as the OCI
+# `org.opencontainers.image.base.digest` annotation, where OCI defines a
+# digest and not a reference. Unstripped it puts a reference in both
+# sinks at once, and every reader of the field expects a digest -- the
+# annotation by the OCI spec, and the shipped smoke spec, which asserts
+# `base_image_digest` is empty or `sha256:` plus 64 hex and fails the
+# `-test` stage when it is neither.
+#
+# The value reaches the build alongside BASE_IMAGE, by one of three
+# routes, in the order to reach for them:
+#
+#   1. LOCAL, and the one this repo actually drives builds through: add
+#      it to the `[build]` arg list in the repo-root `.setup.conf`, next
+#      to the APT_MIRROR_* / TZ args already there --
+#
+#        arg_4 = BASE_IMAGE_DIGEST=sha256:<digest>
+#
+#      -- then `just setup` (which emits it into compose.yaml's build
+#      `args:` and into `.env`) and `just build`. The value is versioned
+#      with the repo instead of living in one shell's history, and no
+#      template-owned line is edited. `.setup.conf.local` takes the same
+#      key for a machine-local value, but a section written there
+#      replaces the whole `[build]` section -- restate the other args
+#      in it or lose them.
+#   2. CI: the `build_args:` input of base's reusable build-worker
+#      workflow, which forwards it to every build step.
+#   3. `--build-arg`, for a throwaway one-off. Every container operation
+#      here goes through `just`, so this is the route that leaves nothing
+#      behind and repeats nothing; prefer (1) unless that is the point.
+#
+# It is a RECORD, not a pin: the build still resolves the tag, and the
+# digest lands in base-image.env and in the OCI base.digest label.
+#
+# Need bit-for-bit reproducibility instead? Give BASE_IMAGE an immutable
+# reference:
+#
+#   BASE_IMAGE=ubuntu@sha256:<digest>
+#
+# That builds, and it is enough on its own: the manifest records
+# `base_image_pin=digest` and a `base_image_ref` that carries the digest.
+# What it does not do is fill `base_image_digest` / the OCI
+# `base.digest` annotation. The reason is narrow and worth stating
+# exactly, because a wider version of it once stopped this build: a LABEL
+# CAN read a digest out of a reference -- `${BASE_IMAGE##*@}` in a LABEL
+# resolves to `sha256:<hex>` for `ubuntu@sha256:<hex>`, which base
+# verifies by building its smoke harness with a probe label and reading
+# it back with `docker inspect`. What a LABEL cannot do is BRANCH. The
+# same expression resolves to `ubuntu:24.04` for an unpinned reference,
+# i.e. a tag in the field OCI reserves for a digest, which the shipped
+# smoke spec rejects; and pattern expansion inside a LABEL is
+# builder-dependent besides (this template pins no `syntax=` directive).
+# One expression cannot be right for both, so the annotation carries the
+# build arg and nothing else -- and the file records that same arg, which
+# is what keeps the two sinks from ever disagreeing.
+#
+# So pass both if you want the field filled:
+#
+#   BASE_IMAGE=ubuntu@sha256:<digest>
+#   BASE_IMAGE_DIGEST=sha256:<digest>
+#
+# The build does NOT refuse the reference-only form. An empty
+# `base_image_digest` beside `base_image_pin=digest` is a truthful
+# "pinned, digest not separately recorded", identical in both sinks, and
+# refusing it would break a configuration this note recommends. What is
+# rejected is DISAGREEMENT: state both halves naming different digests
+# and the shipped smoke spec fails the `-test` stage, because a record
+# that answers one field two ways is false however it is read.
+#
+# The pair travels the same three routes. Under `[build]` that is
+# `arg_5 = BASE_IMAGE=ubuntu@sha256:<digest>` beside the
+# `arg_4 = BASE_IMAGE_DIGEST=sha256:<digest>` above -- the route that
+# costs no hand-edit of this file and survives the next `just upgrade`,
+# whereas changing the `ARG BASE_IMAGE=` default below edits a
+# template-owned line a later migration may rewrite.
+# Pinning is a per-repo call because the bump maintenance it costs is the
+# repo's to carry -- and one repo pinning does not conscript every other
+# repo under the org.
+#
+# tool-pin: unpinned base-image -- a MOVING tag, and what to do about it
+# is the consumer-facing decision the block above states in full. Declared
+# so the watch NAMES it on every run rather than letting two builds of one
+# template tag differ in silence; there is no version here to compare.
 ARG BASE_IMAGE="ubuntu:24.04"
 # No bare-tag default (was `test-tools:local`): build.sh (local) passes a
 # version-scoped `test-tools:<base-version>` and CI passes
@@ -88,6 +216,20 @@ ARG USER_GROUP="user"
 ARG TZ="Asia/Taipei"
 ARG APT_MIRROR_UBUNTU="tw.archive.ubuntu.com"
 ARG DEBIAN_FRONTEND=noninteractive
+# Re-declared bare so the RUN below can record it: the pre-FROM ARG is
+# FROM-scope only, and without this line ${BASE_IMAGE} expands to the
+# empty string inside the stage and the manifest records nothing.
+ARG BASE_IMAGE
+# The digest BASE_IMAGE resolved to, as the caller supplies it (see the
+# note above `ARG BASE_IMAGE`). This is the ONLY expression both sinks of
+# the record can read -- the file below and the OCI annotation further
+# down -- so a reference that carries its own digest does not fill it by
+# a second route, and unsupplied it leaves both sinks equally empty. That
+# is a record with a blank field, not a broken one, and the build says so
+# by continuing. Defaulted rather than left bare: this stage's SHELL runs
+# with `-u`, and an unsupplied bare ARG is what turns a missing optional
+# record into a failed build.
+ARG BASE_IMAGE_DIGEST=""
 
 SHELL ["/bin/bash", "-x", "-euo", "pipefail", "-c"]
 
@@ -105,7 +247,36 @@ RUN sed -i "s@archive.ubuntu.com@${APT_MIRROR_UBUNTU}@g" /etc/apt/sources.list |
     sed -i 's/^# *en_US.UTF-8/en_US.UTF-8/' /etc/locale.gen && \
     locale-gen && \
     update-locale LANG="en_US.UTF-8" && \
-    ln -snf /usr/share/zoneinfo/"${TZ}" /etc/localtime && echo "${TZ}" > /etc/timezone
+    ln -snf /usr/share/zoneinfo/"${TZ}" /etc/localtime && echo "${TZ}" > /etc/timezone && \
+    mkdir -p /usr/local/share/base && \
+    _ref_digest=""; \
+    case "${BASE_IMAGE}" in \
+      *@sha256:*) _ref_digest="sha256:${BASE_IMAGE##*@sha256:}" ;; \
+    esac; \
+    { \
+      echo "base_image_ref=${BASE_IMAGE}"; \
+      if [ -n "${_ref_digest}" ]; then \
+        echo "base_image_pin=digest"; \
+      else \
+        echo "base_image_pin=none"; \
+      fi; \
+      echo "base_image_digest=${BASE_IMAGE_DIGEST}"; \
+      sed -n 's/^PRETTY_NAME=/base_os=/p' /etc/os-release; \
+    } > /usr/local/share/base/base-image.env && \
+    dpkg-query -W > /usr/local/share/base/packages.txt
+
+# The reference this image was built FROM, readable via `docker inspect`
+# without unpacking the image. Inherited by every stage below. The digest
+# is `${BASE_IMAGE_DIGEST}` and nothing else -- the same expression the
+# file above records. Not because a LABEL is unable to read a digest out
+# of a reference: it is able to, and a probe label proves it. Because a
+# LABEL cannot BRANCH, so the expression that strips a digest returns the
+# whole reference when there is none to strip, which would put a tag in
+# the field OCI reserves for a digest. One expression, one answer, both
+# sinks. Empty is a truthful "not recorded", which is what a consumer
+# needs to know before trusting the ref as reproducible.
+LABEL org.opencontainers.image.base.name="${BASE_IMAGE}" \
+      org.opencontainers.image.base.digest="${BASE_IMAGE_DIGEST}"
 
 ENV LC_ALL="en_US.UTF-8"
 ENV LANG="en_US.UTF-8"
@@ -147,7 +318,8 @@ RUN apt-get update && \
         wget \
         && \
     apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+    rm -rf /var/lib/apt/lists/* && \
+    dpkg-query -W > /usr/local/share/base/packages.txt
 
 ############################## devel ##############################
 FROM devel-base AS devel
@@ -170,13 +342,16 @@ ARG CONFIG_DIR="/tmp/config"
 # template default to start receiving template-side improvements.
 ARG CONFIG_SRC="config"
 
-# Add your application-specific packages here
+# Add your application-specific packages here. Keep the trailing
+# dpkg-query: it rewrites the reproducibility manifest so YOUR packages
+# and their versions are recorded too (see the BASE_IMAGE note at the top).
 # RUN apt-get update && \
 #     apt-get install -y --no-install-recommends \
 #         your-package \
 #         && \
 #     apt-get clean && \
-#     rm -rf /var/lib/apt/lists/*
+#     rm -rf /var/lib/apt/lists/* && \
+#     dpkg-query -W > /usr/local/share/base/packages.txt
 
 COPY --chmod=0755 "./${ENTRYPOINT_FILE}" "/entrypoint.sh"
 # Host-side log tee helper. Source from
@@ -465,7 +640,8 @@ RUN bats /smoke_test/
 #         python3-dev \
 #         && \
 #     apt-get clean && \
-#     rm -rf /var/lib/apt/lists/*
+#     rm -rf /var/lib/apt/lists/* && \
+#     dpkg-query -W > /usr/local/share/base/packages.txt
 #
 # # Fetch + build (example: a colcon workspace).
 # WORKDIR /build_ws
@@ -473,7 +649,8 @@ RUN bats /smoke_test/
 # RUN apt-get update && \
 #     rosdep install --from-paths ./src --ignore-src -y && \
 #     apt-get clean && \
-#     rm -rf /var/lib/apt/lists/*
+#     rm -rf /var/lib/apt/lists/* && \
+#     dpkg-query -W > /usr/local/share/base/packages.txt
 # RUN colcon build --install-base /build_ws/install
 # # IMPORTANT: do NOT rm -rf source/build trees here. devel needs them
 # # for the rebuild workflow; runtime only pulls /build_ws/install via
@@ -483,9 +660,20 @@ RUN bats /smoke_test/
 # FROM ${BASE_IMAGE} AS runtime-base
 #
 # ARG DEBIAN_FRONTEND=noninteractive
-# # Fresh FROM, so nothing above is inherited -- including `ARG TARGETARCH`.
-# # A runtime stage that fetches a per-architecture artifact declares and maps
-# # it here again, per the TARGETARCH convention in the devel stage above.
+# # runtime-base is a FRESH ${BASE_IMAGE}: it inherits nothing the sys
+# # stage wrote, so the reproducibility manifest and the OCI base labels
+# # have to be re-emitted here or the runtime image -- the one image of
+# # this graph that actually ships -- becomes the only one that cannot say
+# # what it was built from. Same bare re-declaration, same reason (the
+# # pre-FROM ARG is FROM-scope only). Note this block runs under /bin/sh,
+# # not the bash SHELL sys sets, so keep it POSIX -- which `${VAR##...}`
+# # is. Bare here, unlike sys: /bin/sh carries no `-u`.
+# ARG BASE_IMAGE
+# ARG BASE_IMAGE_DIGEST
+#
+# # The same fresh FROM drops `ARG TARGETARCH` too. A runtime stage that
+# # fetches a per-architecture artifact declares and maps it here again,
+# # per the TARGETARCH convention in the devel stage above.
 #
 # # Minimal runtime apt: sudo (entrypoint usually needs it), tini
 # # (PID 1 signal-handler), plus the ldd-identified shared libs that
@@ -501,7 +689,26 @@ RUN bats /smoke_test/
 #         # libgpgme11 \
 #         && \
 #     apt-get clean && \
-#     rm -rf /var/lib/apt/lists/*
+#     rm -rf /var/lib/apt/lists/* && \
+#     mkdir -p /usr/local/share/base && \
+#     _ref_digest=""; \
+#     case "${BASE_IMAGE}" in \
+#       *@sha256:*) _ref_digest="sha256:${BASE_IMAGE##*@sha256:}" ;; \
+#     esac; \
+#     { \
+#       echo "base_image_ref=${BASE_IMAGE}"; \
+#       if [ -n "${_ref_digest}" ]; then \
+#         echo "base_image_pin=digest"; \
+#       else \
+#         echo "base_image_pin=none"; \
+#       fi; \
+#       echo "base_image_digest=${BASE_IMAGE_DIGEST}"; \
+#       sed -n 's/^PRETTY_NAME=/base_os=/p' /etc/os-release; \
+#     } > /usr/local/share/base/base-image.env && \
+#     dpkg-query -W > /usr/local/share/base/packages.txt
+#
+# LABEL org.opencontainers.image.base.name="${BASE_IMAGE}" \
+#       org.opencontainers.image.base.digest="${BASE_IMAGE_DIGEST}"
 #
 # FROM runtime-base AS runtime
 #

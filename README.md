@@ -239,7 +239,7 @@ parameterized by `ARG BASE_IMAGE`.
 
 | Stage | Parent | Purpose | Shipped? |
 |-------|--------|---------|----------|
-| `sys` | `${BASE_IMAGE}` | User/group, sudo, timezone, locale, APT mirror | intermediate |
+| `sys` | `${BASE_IMAGE}` | User/group, sudo, timezone, locale, APT mirror, reproducibility manifest | intermediate |
 | `base` | `sys` | Development tools and language packages | intermediate |
 | `devel` | `base` | App-specific tools + `entrypoint.sh` + PlotJuggler (env repos) | **yes** (primary artifact) |
 | `test` | `devel` | Ephemeral: ShellCheck + Hadolint + Bats smoke (all from `test-tools:local`) | no (discarded) |
@@ -247,6 +247,32 @@ parameterized by `ARG BASE_IMAGE`.
 | `runtime` (optional) | `runtime-base` | Slim runtime image (application repos only) | yes, when enabled |
 
 Notes:
+- `BASE_IMAGE` defaults to the moving tag `ubuntu:24.04` and the apt layers on
+  top of it are unversioned, so the same template version does not reproduce
+  the same image over time. The drift is deliberate (consumers override
+  `BASE_IMAGE`, and a dev image must be able to take a security update without
+  a template release) but it is RECORDED: `sys` writes
+  `/usr/local/share/base/base-image.env` (the base reference, whether that
+  reference is digest-pinned, the digest the build was told to record, the
+  base OS) and
+  `/usr/local/share/base/packages.txt` (every package and its exact version,
+  rewritten after each apt layer), and labels the image
+  `org.opencontainers.image.base.name` / `.base.digest`. `runtime-base`
+  re-emits both, since it starts from a fresh `${BASE_IMAGE}` and inherits
+  nothing.
+- What the shipped default does **not** record: built as shipped, the manifest
+  says `base_image_pin=none` and leaves `base_image_digest` empty — nothing
+  inside a build can ask the daemon which image a tag resolved to. Pass
+  `BASE_IMAGE_DIGEST` (a record, not a pin) alongside `BASE_IMAGE` to fill it
+  in. Pinning `BASE_IMAGE` to a digest builds on its own and records
+  `base_image_pin=digest`, but still leaves that field empty: the annotation
+  is written by a `LABEL`, and a `LABEL` cannot branch on whether the
+  reference carries a digest — the expression that strips one returns the
+  whole reference when there is none — so it carries the build arg and
+  nothing else. Empty in both sinks is a truthful "not recorded", so the
+  build does not refuse it; what fails is a `BASE_IMAGE_DIGEST` naming a
+  different digest than the reference, caught by the shipped smoke spec in
+  the `-test` stage.
 - Repos that only ship a developer image (`env/*`) skip `runtime-base` /
   `runtime` — the section stays commented in `Dockerfile`.
 - `test` is always built from `devel`, so runtime assertions inside
