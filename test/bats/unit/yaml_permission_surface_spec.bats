@@ -325,6 +325,39 @@ YAML
   assert_output ''
 }
 
+# ── the file set both readings of the directory share ────────────────
+
+@test "workflow_files: lists .yaml and .yml, and nothing else (#957)" {
+  # The extension set is one reading, not two. reusable_workflow_files
+  # globbed the directory, and the cross-check that re-reads the same
+  # directory raw -- the one that catches a worker the trigger derivation
+  # stopped seeing -- globbed it again with its own copy of the pair. A
+  # directory that grew a third spelling would have been seen by one of
+  # them and not the other, in exactly the direction that cross-check
+  # exists to detect.
+  local _dir="${SCRATCH}/wf"
+  mkdir -p "${_dir}/nested"
+  printf 'on:\n  push:\n' > "${_dir}/alpha.yaml"
+  printf 'on:\n  push:\n' > "${_dir}/beta.yml"
+  printf 'not a workflow\n' > "${_dir}/notes.md"
+  run workflow_files "${_dir}"
+  assert_success
+  assert_output "${_dir}/alpha.yaml
+${_dir}/beta.yml"
+}
+
+@test "reusable_workflow_files: draws its candidates from workflow_files (#957)" {
+  # The consequence of the shared reading: a worker written with the OTHER
+  # extension is derived, because there is only one place that says which
+  # extensions a workflow file may carry.
+  local _dir="${SCRATCH}/wf-yml"
+  mkdir -p "${_dir}"
+  printf 'on:\n  workflow_call:\n' > "${_dir}/gamma.yml"
+  run reusable_workflow_files "${_dir}"
+  assert_success
+  assert_output "${_dir}/gamma.yml"
+}
+
 @test "reusable_workflow_files: an unreadable workflow is reported, not skipped (#957)" {
   local _dir="${SCRATCH}/broken"
   mkdir -p "${_dir}"
