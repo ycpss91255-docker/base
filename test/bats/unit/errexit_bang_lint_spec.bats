@@ -341,6 +341,37 @@ _write() {
   [ "${status}" -eq 0 ]
 }
 
+@test "_run_errexit_bang: FAILS on an '||' that belongs to a command substitution (#956)" {
+  # `$( ... )` is an ARGUMENT, not this statement's top-level list. The
+  # `||` inside it decides nothing about who owns the verdict, so the
+  # exemption for `! A || B` -- earned by B being the operand whose
+  # failure the test still sees -- does not reach it, and the bang is as
+  # inert as any other non-final one. A flat text match over the whole
+  # statement read it as a hand-off and dropped the statement out of BOTH
+  # rules.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "an or inside a substitution" {' \
+    '  ! grep -q $(foo || bar) "${_f}"' \
+    '  assert_success' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"x_spec.bats:2"* ]]
+}
+
+@test "_run_errexit_bang: PASSES on a ';' that belongs to a command substitution (#956)" {
+  # The same flat match, spelled with the other separator: a `;` inside
+  # `$( ... )` separates two commands INSIDE the argument, not this
+  # statement from a second one. The negation is still the body's status,
+  # so reporting it is a false positive on a blocking gate.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "a semicolon inside a substitution" {' \
+    '  ! grep -q $(foo; bar) "${_f}"' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -eq 0 ]
+}
+
 @test "_run_errexit_bang: PASSES on a bang statement with a bare trailing ';' (#956)" {
   # A semicolon that terminates the statement rather than starting a
   # second one leaves the negation as the body's status.
