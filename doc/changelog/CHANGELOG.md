@@ -111,6 +111,16 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   folded a line opening with `!` into itself; otherwise it is unreadable but
   hid nothing this rule judges.
 
+- **`errexit-bang`: a statement ends where bash says, not where the line ends
+  (refs #956)** -- a `\` glued to a WORD splices: `! grep -q A\` over
+  `#b f; true` is the one word `A#b` and a live `; true`, not the comment the
+  old per-line test read. A line ending in `|`, `||`, `&&` or `|&` is
+  INCOMPLETE, so `! cmd ||` over `true` is the one `|| true` the lint names in
+  its own message -- and the same split over `&&` or `|` no longer reports the
+  body's own last statement. The unreadable-fold row is now silenced by the
+  allow region, like every row that judges a `!` line. What stays unmodelled is
+  listed in the driver with the direction each errs in; #989-#991 track it.
+
 - **a test that runs a RELEASED `upgrade.sh` against the current tree (refs #915)** -- `test/bats/integration/prev_release_upgrade_spec.bats` stands a real released tree up as a consumer's `.base/` and lets ITS scripts drive the upgrade against the working tree. It asserts the consumer is left working -- no dangling symlinks, `just --list` succeeds -- not merely version-bumped. This is the only shape that can catch a break in an out-of-tree caller, and the third instance of that class this cycle. Which releases are covered resolves from the repo's own tags every run; the trees are materialised host-side into a gitignored `.prev-release/`.
 
 - **`changelog-entry`: a duplicated entry and a repeated category heading now fail the lint (closes #959)** -- merging `origin/main` into a branch that appended to `[Unreleased]` keeps BOTH sides without conflicting, so a verbatim second copy of an entry, or a second `### Added`, arrives with nothing for a reviewer to resolve -- and both were sitting on main. A lead bullet repeating another, and a category opening twice in one release block, are now refused naming BOTH lines. Released sections stay exempt. Affects anyone adding an entry: fold the second copy into the first.

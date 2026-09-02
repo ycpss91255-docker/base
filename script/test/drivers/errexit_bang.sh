@@ -51,7 +51,7 @@
 #   (a) the statement does not end on the body's last statement line, or
 #   (b) the statement hands its verdict away -- a `;` with anything after
 #       it, an async `&` (trailing or not), or `|| true` / `|| :` --
-#       ANYWHERE in it, including on a `\` continuation line.
+#       ANYWHERE in it, including on a continuation line.
 #
 # (b) exists because (a) is judged by POSITION, and one statement can hold
 # more than one command. `! cmd; other` returns `other`'s status
@@ -70,12 +70,21 @@
 # left `! grep -q A \` / `"${_f}"; true` reported by nothing at all.
 #
 # Reading the whole statement means reading it to its END, wherever that
-# falls. A continued statement ends on the first line that does not
-# continue -- INCLUDING a blank or a comment line, which bash reads as
-# the terminator once the backslash-newline is removed. Such a statement
-# is judged there, on the last line that carried code, rather than being
-# carried to the next real line (where it was silently discarded, and so
-# escaped both rules).
+# falls -- and whether the NEXT physical line belongs to it is answered
+# by the folded text, with exactly one thing read off the raw line: a
+# completely BLANK line ends a backslash continuation, because bash
+# removes the backslash-newline and the blank line's own newline is then
+# the terminator. A line that merely OPENS with `#` does NOT end one, and
+# that is the whole difference from the predicate this replaced, because
+# the backslash-newline is a SPLICE and not a join:
+# `! grep -q A\` followed by `#b f; true` is the one word `A#b` and a
+# live `; true` behind it, while `! grep -q A \` followed by the same
+# `#b f; true` -- one blank further left -- really is a comment. Reading
+# the second line on its own gets one of the two wrong whichever answer
+# it picks, which is why it is not asked. The statement is judged where
+# it ends, on the last line that carried code, rather than being carried
+# to the next real line (where it was silently discarded, and so escaped
+# both rules).
 #
 # NOT every `||` is that hand-off, and the two named above are the only
 # ones flagged. `! A || B` runs B exactly when A SUCCEEDED, so who owns
@@ -134,8 +143,9 @@
 # is an argument's, and reading it as the statement's exempted an inert
 # `! grep -q $(foo || bar) f` from both rules while reporting a
 # `$(foo; bar)` that was never a violation. The tracker is three quote
-# states, a backslash escape and one paren depth -- it is not a second
-# bash parser and does not try to be one (no expansion, no heredoc).
+# states, a backslash escape, one paren depth and four list/pipe
+# operators -- it is not a second bash parser and does not try to be one
+# (no expansion, no heredoc, no compound command).
 #
 # That scan runs on the LOGICAL line, never on a physical one, and that
 # is the structure rather than a tuning of the predicate. Whether a `#`
@@ -155,34 +165,113 @@
 # dist/script/docker/lib/dockerfile_migrate.sh already uses for multi-line
 # COPY statements (`_dfm_join_copy_statements`, `_dfm_smoke_copy_present`).
 #
-# A logical line continues while the folded text is INCOMPLETE, which is
-# two things: a line-continuation backslash, and a quote or a `(` still
-# open at the end of it. The second is what carries the paren depth and
-# the quote state across the fold instead of resetting them, and it is
-# also what reads a `$( ... )` spanning lines with no backslash at all as
-# the one statement it is.
+# A logical line continues while the folded text is INCOMPLETE, and this
+# scan models three forms of that. A line-continuation backslash. A
+# quote or a `(` still open at the end of the text -- which is what
+# carries the paren depth and the quote state across the fold instead of
+# resetting them, and what reads a `$( ... )` spanning lines with no
+# backslash at all as the one statement it is. And a list or pipe
+# operator with no right operand yet (`|`, `||`, `&&`, `|&`), which bash
+# reads on for with no backslash either: without it,
 #
-# What the scan does with a construct it does not recognise is the
+#     ! grep -q A f ||
+#       true
+#
+# read as two statements, the first took the live-`||` exemption meant
+# for `! A || return 1`, the lone `true` was judged by no rule, and the
+# `|| true` this lint names in its own message went unreported -- while
+# the same split over `&&` or `|` ended the `!` a line early and had the
+# position rule report a statement that WAS the body's last.
+#
+# The three differ in how they treat the lines they read through. A
+# backslash SPLICES: the two physical lines become one character
+# sequence with nothing between them, so a word broken across the join
+# stays one word. The other two are separated by a real newline, which
+# is a blank, and both read straight past blank and comment lines the
+# way bash does.
+#
+# Bash has more incompleteness than these three -- an `if`/`while`/`for`/
+# `case` block, a `{` list, a heredoc awaiting its terminator. None is
+# modelled. Each is in the WHAT IS NOT MODELLED list below with the
+# direction it errs in; the list is the limit of this scan, stated, not
+# a promise that there is no other.
+#
+# Where the scan meets a construct it does not recognise it AIMS at the
 # REFUSING direction, because a dropped statement is invisible and a
-# false positive is not. Two answers spell that out.
+# false positive is not. Two answers spell that out. They are answers
+# about two specific constructs, not a property this scan has in
+# general: the list below names where the aim does not hold.
 #
 # A `)` that closes a `(` opened outside this statement -- a heredoc
 # body, a `case` pattern -- does not end a word. The text stays CODE and
 # is read on rather than truncated on a guess, so no separator behind it
 # is discarded.
 #
-# A quote or a `(` still open when the fold reaches the body's `}` is the
-# scan saying it lost track. It is reported when it can have cost
-# something: when the statement it opened on is a `!` one (its code was
-# read only as far as the scan got), or when a line that OPENS a `!`
-# statement was folded into it while it was open (that line is then
-# judged by no rule). It is NOT reported otherwise, and that is a claim
-# rather than a shrug: the only lines this lint judges are the ones
-# opening with `!`, so a fold that swallowed none of them hid no
+# A statement still UNFINISHED when the fold reaches the body's `}` --
+# an open quote or `(`, or an operator that never got its right operand
+# -- is the scan saying it lost track. It is reported when it can have
+# cost something: when the statement it opened on is a `!` one (its code
+# was read only as far as the scan got), or when a line that OPENS a `!`
+# statement was folded into it while a quote or `(` was open (that line
+# is then judged by no rule). It is NOT reported otherwise, and that is
+# a claim rather than a shrug: the only lines this lint judges are the
+# ones opening with `!`, so a fold that swallowed none of them hid no
 # violation. What stays unreadable is a heredoc body or a multi-line
 # string -- constructs this scan never modelled -- and they no longer
 # fail a gate they have no bearing on. A `!` line inside a heredoc still
-# reads as a statement, the false alarm the allow region answers.
+# reads as a statement, the false alarm the allow region answers -- and
+# BOTH of those rows are gated on the allow region, like every row that
+# judges a `!` line, because a finding the documented opt-out cannot
+# silence is a blocking gate nobody can get past. (The two rows that are
+# NOT so gated report the file itself, not a statement in it: a body
+# left open at EOF, and an unbalanced allow marker. Silencing either
+# with the mechanism they are about would close the hole they exist to
+# keep open.)
+#
+# An operator fold is deliberately NOT part of the swallow row. There the
+# line folded in is the operator's right operand and bash reads it into
+# this statement too, so `! A ||` over `! B` is one `||` list and
+# reporting the second `!` would be a false positive. The cost of that
+# choice is in the heredoc entry below.
+#
+# WHAT IS NOT MODELLED, and which way each one is wrong. This list is
+# the honest half of the paragraph above: the scan is three quote
+# states, one paren depth, a backslash and four operators, so anything
+# else is read with the wrong rule. Each entry says which direction that
+# lands in, because "refusing" is a claim about a specific construct and
+# not a property the scan has in general.
+#
+#   - ANSI-C quoting, `$'...'`. The `$` is an ordinary character here
+#     and the `'` opens a plain single-quoted span, so an escaped quote
+#     inside it (`$'a\'b'`) leaves the scan with a quote it never sees
+#     closed. OVER-reports: the statement is reported as still
+#     UNFINISHED where the body closes -- verified, that is the row it
+#     prints. Refusing direction; costs one allow region.
+#   - Backtick command substitution. No depth is opened for it, so its
+#     text is read as this statement's own -- a `;` or an `||` inside
+#     backticks is taken for the statement's separator. OVER-reports,
+#     and did so before this scan existed too. Refusing direction.
+#   - Heredocs, as the limitation note below already says, with one new
+#     edge: a heredoc BODY line that ends in `|`, `||`, `&&` or `|&`
+#     now folds the line after it in, so a fixture line opening with
+#     `!` right below one is swallowed instead of raising the usual
+#     false alarm. In an untracked heredoc that is a MISS, not a
+#     refusal -- the one place these four operators cost something. The
+#     tree has no heredoc holding either shape today; base#989 tracks it.
+#   - Compound commands -- `if`, `while`, `for`, `case`, a `{ ... }`
+#     list. A block's STATUS is its last command's, but the scan reads
+#     each line inside one as its own statement and counts the closing
+#     `fi` / `done` / `esac` / `}` as the body's last. A `!` that ends
+#     such a block, where the block ends the test body, is therefore
+#     reported although it IS the verdict. OVER-reports; refusing
+#     direction; costs one allow region. base#991 tracks it.
+#   - CRLF line endings. `IFS= read -r` keeps the `\r`, so a trailing
+#     backslash escapes the CARRIAGE RETURN rather than the newline and
+#     the continuation is never seen. Mostly that over-reports (the
+#     statement is judged short and the position rule fires on the
+#     wrong line), but the splice above is lost with it, so
+#     `! grep -q A\` + `#b f; true` written with CRLF is a silent MISS.
+#     Every *.bats in this tree is LF; base#990 tracks it.
 #
 # What is NOT:
 #   - the body's last statement (across a `\` continuation, and with any
@@ -195,9 +284,11 @@
 #
 # Known limitation, stated rather than papered over: a heredoc body
 # inside a test is not tracked. A fixture line beginning with `! ` inside
-# one reads as a statement (a false alarm the allow region answers), and
-# a `}` at column 0 inside one closes the body early, taking the REST of
-# that body out of the rule's reach (a MISSED violation). The tree has
+# one reads as a statement (a false alarm the allow region answers,
+# unless the line above it ends in a list or pipe operator, which folds
+# it in silently -- see the unmodelled list above), and a `}` at column 0
+# inside one closes the body early, taking the REST of that body out of
+# the rule's reach (a MISSED violation). The tree has
 # neither today, and a heredoc tracker would be a second bash parser.
 # The converse shape -- a heredoc that swallows the body's real closing
 # brace -- is no longer silent: it leaves the body open at EOF, which the
@@ -366,6 +457,14 @@ _errexit_bang_code_scan() {
   local -n _ebcs_code="${2}"
   local -n _ebcs_cont="${3}"
   local _out='' _i _ch _q='' _prev=' ' _depth=0 _trail=0
+  # A SHADOW of the code, built alongside it, where every span the code
+  # blanks contributes the placeholder `x` instead of a space. The
+  # trailing-operator test below is read off THIS, never off `_out`: the
+  # code blanks a `( ... )` to spaces, so `! A || ( true )` ends in a
+  # bare `||` there and would read as a statement still waiting for its
+  # operand -- turning the disclosed `|| ( true )` narrowing into a false
+  # positive. `x` remembers that an operand was in fact written.
+  local _sig=''
   # Would a `#` HERE open a comment? A logical line opens a word, so this
   # starts set; every branch below answers for itself. Anything
   # unrecognised leaves it 0 -- "no comment here" -- which keeps the rest
@@ -387,8 +486,10 @@ _errexit_bang_code_scan() {
       # NEWLINE: the statement continues onto the next physical line, and
       # the caller folds it in.
       _out+=' '
+      _sig+='x'
       if (( _i + 1 < ${#_s} )); then
         _out+=' '
+        _sig+='x'
         _i=$(( _i + 1 ))
       else
         _trail=1
@@ -405,6 +506,7 @@ _errexit_bang_code_scan() {
         _q=''
       fi
       _out+=' '
+      _sig+='x'
       _prev="${_ch}"
       _word_end=0
       continue
@@ -413,6 +515,7 @@ _errexit_bang_code_scan() {
       "'"|'"')
         _q="${_ch}"
         _out+=' '
+        _sig+='x'
         _prev="${_ch}"
         _word_end=0
         continue
@@ -432,6 +535,7 @@ _errexit_bang_code_scan() {
         fi
         _depth=$(( _depth + 1 ))
         _out+=' '
+        _sig+='x'
         _prev='('
         _word_end=1
         continue
@@ -453,6 +557,7 @@ _errexit_bang_code_scan() {
           _word_end=0
         fi
         _out+=' '
+        _sig+='x'
         _prev=')'
         continue
         ;;
@@ -470,11 +575,13 @@ _errexit_bang_code_scan() {
       # Inside `( ... )`: an argument's own text, never this statement's
       # separator.
       _out+=' '
+      _sig+='x'
       _prev=' '
       _word_end=0
       continue
     fi
     _out+="${_ch}"
+    _sig+="${_ch}"
     _prev="${_ch}"
     # The word-ending characters a statement can continue past. `)` is not
     # among them: it answered for itself above, and everything else -- an
@@ -485,13 +592,29 @@ _errexit_bang_code_scan() {
     esac
   done
   _ebcs_code="${_out}"
-  # An open quote or `(` outranks a trailing backslash: both continue the
-  # statement, and the caller only distinguishes them to know whether a
+  # The last run of non-blank text in the SHADOW, for the operator test
+  # below. Reading it there rather than off the raw line is what keeps a
+  # `|` inside a quote, inside a `( ... )` or behind a `#` from being
+  # mistaken for the statement's own unfinished operator; reading it
+  # there rather than off `_out` is what keeps a blanked operand from
+  # LOOKING like a missing one.
+  local _tail=''
+  [[ "${_sig}" =~ ([^[:space:]]+)[[:space:]]*$ ]] && _tail="${BASH_REMATCH[1]}"
+  # An open quote or `(` outranks the other two: all three continue the
+  # statement, and the caller distinguishes them only to know whether a
   # blank or comment line can end it.
   if [[ -n "${_q}" || "${_depth}" -gt 0 ]]; then
     _ebcs_cont=2
   elif [[ "${_trail}" -eq 1 ]]; then
     _ebcs_cont=1
+  elif [[ "${_tail}" == *'|' || "${_tail}" == *'&&' || "${_tail}" == *'|&' ]]; then
+    # A list or pipe operator with no right operand yet. `|`, `||`, `&&`
+    # and `|&` all need one, and bash reads on -- across blank and
+    # comment lines -- until it has it. A lone trailing `&` is NOT one of
+    # them: it is the async operator and it TERMINATES the list, which is
+    # why the test looks at the last two characters rather than at the
+    # character class.
+    _ebcs_cont=3
   else
     _ebcs_cont=0
   fi
@@ -527,13 +650,17 @@ _errexit_bang_scan_file() {
   local -n _ebsf_headers="${4}"
 
   local _line _lineno=0 _in_body=0 _body_open=0 _last_stmt=0
-  local _in_allow=0 _begin_line=0 _close=0 _is_stmt=0 _judge=0
+  local _in_allow=0 _begin_line=0 _close=0 _is_stmt=0 _is_blank=0
+  local _judge=0 _fold=0
   # The logical line in progress; an empty `_lbuf` means there is none.
   local _lbuf='' _ltext='' _lcode='' _lstart=0 _lend=0 _lcont=0 _lbang=0
-  # Set when a line that OPENS a `!` statement was folded in because the
-  # scan had an unterminated quote or `(` -- the one way the fold can
-  # take a statement this lint judges out of its reach.
-  local _lswallow=0 _why=0
+  # Set, with the line number, when a line that OPENS a `!` statement was
+  # folded in because the scan had an unterminated quote or `(` -- the
+  # one way the fold can take a statement this lint judges out of its
+  # reach. An operator fold (3) does not set it: there the folded line
+  # is the operator's right operand and bash reads it as part of this
+  # statement too, so it is out of reach correctly.
+  local _lswallow=0 _lswallow_line=0 _why=0
   local -a _pending_line=() _pending_end=() _pending_text=()
   local _i
 
@@ -572,37 +699,80 @@ _errexit_bang_scan_file() {
 
     _close=0
     [[ "${_line}" =~ ${_ERREXIT_BANG_TEST_CLOSE_RE} ]] && _close=1
-    # Blank and comment lines open no statement and start none. They DO
-    # end a backslash continuation -- bash removes the backslash-newline,
-    # so a blank line contributes its own newline as the terminator and a
-    # comment line becomes a comment trailing the command -- but they do
-    # not end a quote or a `(` that is still open, which bash reads
-    # straight through. That is why the fold below asks `_lcont` first.
+    # Two questions about the raw line, and neither of them is "does this
+    # line start with a `#`". A BLANK line opens no statement and, alone
+    # among the three kinds of continuation, ends a backslash one: bash
+    # removes the backslash-newline, and the blank line's own newline is
+    # then the terminator. A line that merely LOOKS like a comment is not
+    # asked about here at all -- whether its `#` opens a comment is a
+    # question about the spliced text, which only the code scan can
+    # answer, and asking it here is the per-physical-line predicate this
+    # driver exists to be rid of. `_is_stmt` is used for one thing only:
+    # whether this line can OPEN a logical line, where there is no text
+    # in front of the `#` and the answer really is local.
+    _is_blank=0
+    [[ -z "${_line//[[:space:]]/}" ]] && _is_blank=1
     _is_stmt=1
-    if [[ -z "${_line//[[:space:]]/}" ]] || [[ "${_line}" =~ ^[[:space:]]*# ]]; then
+    if [[ "${_is_blank}" -eq 1 ]] || [[ "${_line}" =~ ^[[:space:]]*# ]]; then
       _is_stmt=0
+    fi
+
+    # Does this physical line belong to the logical line above it? An
+    # open quote or `(` (2) and an unfinished operator (3) read straight
+    # through blank and comment lines, exactly as bash does. A backslash
+    # (1) is ended by a blank line and by nothing else -- a comment-
+    # looking line is spliced in and then judged by the scan, because
+    # `A\` + `#b` is the single word `A#b` and the `#` in it is data.
+    _fold=0
+    if [[ "${_close}" -eq 0 && -n "${_lbuf}" ]]; then
+      case "${_lcont}" in
+        2|3) _fold=1 ;;
+        1)   [[ "${_is_blank}" -eq 0 ]] && _fold=1 ;;
+        *)   ;;
+      esac
     fi
 
     _judge=0
     if [[ -n "${_lbuf}" ]]; then
-      if [[ "${_close}" -eq 0 && ( "${_lcont}" -eq 2 || "${_is_stmt}" -eq 1 ) ]]; then
+      if [[ "${_fold}" -eq 1 ]]; then
         # This physical line belongs to the statement above it. Fold it
         # in and re-decide on the WHOLE text: the quote state and the
         # paren depth are rebuilt from the first character, which is what
         # a per-line scan could not do.
         #
-        # WHY it is folded decides what the fold owes. A backslash is
-        # bash's own continuation and the line is genuinely part of this
-        # statement (`find ... \` + `! -name x` is a find predicate, not
-        # an assertion). An unterminated quote or `(` is instead the scan
-        # admitting it lost track, and a line that would OPEN a `!`
-        # statement disappearing into one is the only way this fold can
-        # hide something the rule judges. Remember it and report it below.
+        # WHY it is folded decides what the fold owes. A backslash (1)
+        # and an unfinished operator (3) are bash's own continuations and
+        # the line is genuinely part of this statement (`find ... \` +
+        # `! -name x` is a find predicate, and `! A ||` + `! B` is one
+        # `||` list, neither of them a second assertion). An unterminated
+        # quote or `(` (2) is instead the scan admitting it lost track,
+        # and a line that would OPEN a `!` statement disappearing into
+        # one is the only way this fold can hide something the rule
+        # judges. Remember it and report it below.
         _why="${_lcont}"
-        if [[ "${_why}" -eq 2 && "${_line}" =~ ${_ERREXIT_BANG_STMT_RE} ]]; then
+        if [[ "${_why}" -eq 2 && "${_in_allow}" -eq 0 \
+              && "${_line}" =~ ${_ERREXIT_BANG_STMT_RE} ]]; then
+          # Gated on the allow region for the same reason every other row
+          # is: a line the operator has already bracketed by hand is a
+          # line they have judged, and the row below tells them to
+          # bracket exactly this one. A finding its own documented
+          # opt-out cannot silence is a blocking gate nobody can get
+          # past.
           _lswallow=1
+          _lswallow_line="${_lineno}"
         fi
-        _lbuf+=" ${_line}"
+        if [[ "${_why}" -eq 1 ]]; then
+          # A backslash-newline is REMOVED: the two physical lines become
+          # one character sequence with nothing inserted between them, so
+          # the splice is written that way. Joining them with a space
+          # instead would end the word the backslash was glued to and
+          # turn a following `#` from data into a comment. The other two
+          # continuations really are separated by a newline, which is a
+          # blank, so a space stands in for it there.
+          _lbuf="${_lbuf%\\}${_line}"
+        else
+          _lbuf+=" ${_line}"
+        fi
         _lend="${_lineno}"
         _last_stmt="${_lineno}"
         _errexit_bang_code_scan "${_lbuf}" _lcode _lcont
@@ -635,14 +805,15 @@ _errexit_bang_scan_file() {
         # a statement judged by nothing is exactly what this lint exists
         # to stop -- so it is reported, and the price of being wrong is
         # one hand-written allow region.
-        _ebsf_rows+=("${_rel}:${_lstart}: ${_ltext}  -- an unterminated quote or '(' folded a line opening with '!' into this statement, so that line was judged by no rule")
-      elif [[ "${_lcont}" -eq 2 && "${_lbang}" -eq 1 ]]; then
-        # A `!` statement whose quote or `(` never closed before the body
-        # did. Its code is whatever the scan could read, which is not the
-        # statement -- so it is reported rather than judged on a partial
-        # reading.
-        _ebsf_rows+=("${_rel}:${_lstart}: ${_ltext}  -- this '!' statement is still open where the body closes (an unterminated quote or '('), so the scan cannot tell where it ends")
-      elif [[ "${_lcont}" -eq 2 ]]; then
+        _ebsf_rows+=("${_rel}:${_lstart}: ${_ltext}  -- an unterminated quote or '(' folded line ${_lswallow_line}, which opens with '!', into this statement, so that line was judged by no rule (bracket line ${_lswallow_line} with the allow markers if that is deliberate)")
+      elif [[ ( "${_lcont}" -eq 2 || "${_lcont}" -eq 3 ) && "${_lbang}" -eq 1 ]]; then
+        # A `!` statement still unfinished where the body closed: a
+        # quote or `(` that never closed, or an operator that never got
+        # its right operand. Its code is whatever the scan could read,
+        # which is not the statement -- so it is reported rather than
+        # judged on a partial reading.
+        _ebsf_rows+=("${_rel}:${_lstart}: ${_ltext}  -- this '!' statement is still unfinished where the body closes (an unterminated quote, '(' or list operator), so the scan cannot tell where it ends")
+      elif [[ "${_lcont}" -eq 2 || "${_lcont}" -eq 3 ]]; then
         # Unreadable, but provably harmless to THIS rule: nothing folded
         # into it opens with `!`, and the only lines this lint judges are
         # the ones that do. Stated in the header rather than reported, so
