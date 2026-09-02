@@ -2150,6 +2150,32 @@ _df_claim_hits() {
   rm -rf "${_tmp}"
 }
 
+@test "the top-level walk is read on its own, not off the roster (#951)" {
+  # The roster is the union of two walks, and only one of them has a
+  # name to check: a root that was renamed is caught because the roster
+  # holds nothing under it. The `-maxdepth` walk was checked by asking
+  # the roster for a single-component path -- which discriminates only
+  # while every root is a DIRECTORY. Put one top-level FILE back in the
+  # roots (README.md was one until this round) and the roots walk alone
+  # satisfies it, so a `-maxdepth` walk returning nothing reads as a
+  # contribution. The walk has to answer for itself.
+  local _f _top
+
+  # Control: the roster-shaped question, answered with no top-level walk.
+  run grep -qE '^/source/[^/]+$' <<< '/source/README.md'
+  assert_success
+
+  _top="$(_df_swept_top_level)"
+  [[ -n "${_top}" ]] \
+    || fail "the top-level walk contributed no file"
+  while IFS= read -r _f; do
+    [[ "${_f}" =~ ^/source/[^/]+$ ]] \
+      || fail "the top-level walk returned ${_f}, which is not a top-level file"
+    grep -qxF -- "${_f}" <<< "$(_df_swept_files)" \
+      || fail "${_f} is walked at the top level and the roster misses it"
+  done <<< "${_top}"
+}
+
 @test "the flattener closes only a block it opened (#951)" {
   # `_df_vocabulary_unbalanced` reads the markers as a NESTING; the
   # flattener read them as a switch, closing on any `end` whether or not
