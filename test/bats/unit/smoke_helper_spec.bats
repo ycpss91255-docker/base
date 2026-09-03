@@ -262,3 +262,48 @@ _WRAPPER_UNDER_TEST=/source/dist/script/docker/wrapper/run.sh
   assert_failure
   assert_output --partial "missing wrapper path"
 }
+
+# ════════════════════════════════════════════════════════════════════
+# entrypoint_is_single_file
+# ════════════════════════════════════════════════════════════════════
+#
+# The probe the shared smoke baseline uses to tell the two entry-point
+# models apart from INSIDE an image, where the Dockerfile's ENTRYPOINT line
+# is not readable. A pre-ADR-00000030 repo runs its own /entrypoint.sh and
+# never installs the orchestrator; asserting the orchestrator unconditionally
+# turns that repo's next `just upgrade` into a red build over a model it
+# never adopted.
+
+@test "entrypoint_is_single_file: true for a file that execs the workload" {
+  printf '#!/usr/bin/env bash\n. /usr/local/lib/base/logging.sh\nexec "${@}"\n' \
+    > "${TEMP_DIR}/entrypoint.sh"
+  run entrypoint_is_single_file "${TEMP_DIR}/entrypoint.sh"
+  assert_success
+}
+
+@test "entrypoint_is_single_file: false for a bringup that only sets env" {
+  printf '#!/usr/bin/env bash\nexport ROS_DOMAIN_ID=0\n' \
+    > "${TEMP_DIR}/entrypoint.sh"
+  run entrypoint_is_single_file "${TEMP_DIR}/entrypoint.sh"
+  assert_failure
+}
+
+@test "entrypoint_is_single_file: a commented exec is not an exec" {
+  # The seeded bringup template TALKS about the exec it must not have, and
+  # a repo that migrated by commenting the line out has migrated.
+  printf '#!/usr/bin/env bash\n# NO exec -- the orchestrator owns it.\n#exec "${@}"\n' \
+    > "${TEMP_DIR}/entrypoint.sh"
+  run entrypoint_is_single_file "${TEMP_DIR}/entrypoint.sh"
+  assert_failure
+}
+
+@test "entrypoint_is_single_file: false when the path does not exist" {
+  run entrypoint_is_single_file "${TEMP_DIR}/no_such_entrypoint.sh"
+  assert_failure
+}
+
+@test "entrypoint_is_single_file: errors when the path arg is missing" {
+  run entrypoint_is_single_file
+  assert_failure
+  assert_output --partial "missing path"
+}
