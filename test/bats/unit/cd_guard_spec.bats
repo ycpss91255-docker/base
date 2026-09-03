@@ -9,6 +9,14 @@
 # branch to its own condition.
 #
 # Pure git + filesystem, no docker: Unit level (ADR-00000018).
+#
+# why: Behaviour of the shipped CD pre-deploy gate `dist/deploy/cd-guard.sh`
+# (ADR-00000023): refuse to deploy unless the tree is clean **and** HEAD
+# sits on a tag, so an automated field bundle is always traceable to a
+# released version. Four `mktemp` git fixtures drive the real script and
+# assert exit status **and** the specific refusal message — a status-only
+# check passes with the conditions inverted (dirty reported as untagged and
+# vice versa). Pure git + filesystem, no docker.
 
 bats_require_minimum_version 1.5.0
 

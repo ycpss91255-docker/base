@@ -11,6 +11,12 @@
 # root means "this is the base template source itself", and running init /
 # upgrade there would scaffold / subtree-pull into base's PARENT dir. The
 # guard refuses that.
+#
+# why: Unit coverage for `lib/template_guard.sh`
+# (`_assert_not_template_source`) -- the init/upgrade self-run guard
+# (ADR-00000011 sec.8). A vendored `.base/` subtree never carries `.git`;
+# the base checkout/worktree does, so `.git` at the resolved subtree root
+# means "this is the base template source itself".
 
 bats_require_minimum_version 1.5.0
 
@@ -21,6 +27,7 @@ setup() {
   GUARD="/source/dist/script/docker/lib/template_guard.sh"
 }
 
+# why: `.git` present -> non-zero + actionable error
 @test "_assert_not_template_source: refuses when the subtree root carries .git (base self)" {
   local root
   root="$(mktemp -d)"
@@ -31,6 +38,7 @@ setup() {
   assert_output --partial "template source"
 }
 
+# why: real subtree -> no-op passthrough
 @test "_assert_not_template_source: passes when the subtree root has no .git (vendored subtree)" {
   local root
   root="$(mktemp -d)"

@@ -18,6 +18,14 @@
 # with no TUI editor), and every mapped i18n key is present in all four
 # locale tables (en / zh-TW / zh-CN / ja). A missing translation in any
 # locale, or a new validator key without an index entry, fails CI here.
+#
+# why: Registry drift guards (#562, schema epic #559 phase 3): the registry
+# must stay internally consistent and in sync with the `setup.conf`
+# template, so drift fails CI. The deferred i18n coverage now lands via the
+# `SCHEMA_I18N` index column (#591): every registered key maps to a TUI
+# message key (or an explicit `""` opt-out for keys with no editor), and
+# every mapped key is present in all four locale tables (en / zh-TW / zh-CN
+# / ja) -- a missing translation in any locale fails CI.
 
 bats_require_minimum_version 1.5.0
 
@@ -36,6 +44,7 @@ _load_locale_tables() {
   source /source/dist/script/docker/wrapper/setup_tui.sh
 }
 
+# why: no ghost validators (#562)
 @test "every SCHEMA_VALIDATOR validator name resolves to a defined function (#562)" {
   local _canon _fn _missing=""
   for _canon in "${!SCHEMA_VALIDATOR[@]}"; do
@@ -45,6 +54,7 @@ _load_locale_tables() {
   [ -z "${_missing}" ] || { echo "validators not defined:${_missing}"; false; }
 }
 
+# why: registry/template drift (#562)
 @test "SCHEMA_SECTIONS matches the setup.conf template headers in file order (#562)" {
   # Registry / template drift guard: the ordered SCHEMA_SECTIONS list must
   # equal the [section] headers in the shipped template, in file order. A
@@ -59,6 +69,7 @@ _load_locale_tables() {
   [ "${SCHEMA_SECTIONS[*]}" = "${_hdrs[*]}" ]
 }
 
+# why: no dead empty-policy entries (#562)
 @test "every SCHEMA_EMPTY key is a registered SCHEMA_VALIDATOR key (#562)" {
   # The empty-value policy table may only reference keys that actually
   # have a validator -- an orphan SCHEMA_EMPTY entry is dead config.
@@ -69,6 +80,7 @@ _load_locale_tables() {
   [ -z "${_missing}" ] || { echo "orphan SCHEMA_EMPTY keys:${_missing}"; false; }
 }
 
+# why: no key stranded under an unlisted section (#562)
 @test "every registered key is reachable via SCHEMA_SECTIONS (#562)" {
   # No validator key may be stranded under a section missing from
   # SCHEMA_SECTIONS: the count of keys reachable by walking
@@ -82,6 +94,7 @@ _load_locale_tables() {
   [ "${_seen}" -eq "${#SCHEMA_VALIDATOR[@]}" ]
 }
 
+# why: i18n-index is complete (#591)
 @test "every SCHEMA_VALIDATOR key has a SCHEMA_I18N index entry (#591)" {
   # The i18n-index must be complete: every registered validator key needs
   # an SCHEMA_I18N row (a message key, or an explicit "" opt-out for keys
@@ -94,6 +107,7 @@ _load_locale_tables() {
   [ -z "${_missing}" ] || { echo "validator keys missing SCHEMA_I18N entry:${_missing}"; false; }
 }
 
+# why: no orphan index rows (#591)
 @test "every SCHEMA_I18N key is a registered SCHEMA_VALIDATOR key (#591)" {
   # No orphan index rows: an SCHEMA_I18N entry pointing at a key with no
   # validator is dead config (mirrors the SCHEMA_EMPTY orphan guard).
@@ -104,6 +118,7 @@ _load_locale_tables() {
   [ -z "${_missing}" ] || { echo "orphan SCHEMA_I18N keys:${_missing}"; false; }
 }
 
+# why: no missing translation in any locale (#591)
 @test "every SCHEMA_I18N message key exists in all four locale tables (#591)" {
   # The coverage assertion deferred: resolve each registered key's
   # i18n key through SCHEMA_I18N and assert it is present in EN / ZH_TW /
@@ -128,6 +143,7 @@ _load_locale_tables() {
   [ -z "${_missing}" ] || { echo "i18n keys missing from a locale:${_missing}"; false; }
 }
 
+# why: accessor the TUI routes through (#591)
 @test "_schema_i18n_key resolves scalar + list keys, falls back when free-form (#591)" {
   # The accessor the TUI routes through. Scalar + numbered-list keys resolve
   # to their indexed message key; a free-form key (no registry row) returns

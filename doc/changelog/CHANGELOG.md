@@ -58,6 +58,15 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 ## [Unreleased]
 
 ### Changed
+- **a test's description is written above the `@test`, and `doc/test/` is
+  generated from it (closes #922, amends ADR-00000028)** -- write
+  `# why: <prose>` above a test; `just test sync-docs` renders the catalogue
+  from those markers into a fenced region it replaces wholesale, so editing
+  that region does nothing. A rename now carries its description, a deleted
+  row is restored byte-for-byte, and deleting the marker fails the drift
+  gate. The new `catalog-description` lint reads `^@test` over the spec
+  trees, so no section shape exempts a test. 1209 descriptions and 106
+  blurbs were relocated by script.
 - **the dev bind and the deploy bake now cover every `config/<component>/`, not the literal `config/app` (closes #1000)**
   -- both halves tested one hardcoded directory name **no repo in the org
   has**, so the `[[ -d ]]` was always false: nothing mounted, nothing baked,

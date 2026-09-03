@@ -39,6 +39,7 @@ default:
 # / `just test lint --derived-figures` / `just test lint --changelog-entry`
 # / `just test lint --action-ref-agreement`
 # / `just test lint --just-provenance`
+# / `just test lint --catalog-description`
 # (ADR-00000011 sec.3 min->max). Every narrowing flag runs in-container so
 # the behaviour matches the bare `lint`; the GHA lint jobs use the host-only
 # `test.sh --<tool>-only` primitives instead (shellcheck, doc-counts, and
@@ -270,9 +271,13 @@ clean:
 # the `base` namespace supersedes them -- use `just base init`,
 # `just base upgrade [vX.Y.Z]`, `just base update` (the apt-style check).
 
-# just test sync-docs -> regenerate doc/test/*.md count figures from the specs
-# (grep -c '^@test'), so the per-spec headings + per-type/grand totals stop
-# being hand-edited. Idempotent; check_test_md_drift.sh remains the validator.
+# just test sync-docs -> regenerate doc/test/*.md from the specs: the count
+# figures (grep -c '^@test') AND the catalogue sections, whose blurbs and
+# per-test descriptions are read out of the spec files' own `# why:` marker
+# blocks. One-directional -- nothing is read back out of the catalogue, so a
+# row deleted there is restored byte-for-byte and a renamed test carries its
+# description with it. Idempotent; check_test_md_drift.sh remains the
+# validator, and it runs THIS generator against a throwaway copy.
 sync-docs:
     ./script/test/sync-doc-counts.sh
 
@@ -286,12 +291,11 @@ sync-docs-check:
     ./script/test/test.sh --lint --doc-counts
 
 # just test resolve-docs -> resolve a doc/test/*.md MERGE CONFLICT in one
-# command: collapse the markers, regenerate the figures from the merged spec
-# tree, verify, and stage. Replaces the hand-retyped
-# awk-collapse + sync-docs + sync-docs-check recipe. It refuses (loudly,
-# staging nothing) rather than pick a side whenever the two sides disagree
-# about something regeneration cannot justify -- notably a catalog row that
-# both sides describe differently.
+# command: collapse the markers, regenerate from the merged spec tree,
+# verify, and stage. It refuses (loudly, staging nothing) rather than pick a
+# side whenever the two collapses still differ after regeneration -- which
+# now means only hand-written prose OUTSIDE the generated region, since
+# everything inside it is derived from the specs both sides already merged.
 resolve-docs:
     ./script/test/resolve-doc-counts.sh
 

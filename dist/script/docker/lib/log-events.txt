@@ -188,6 +188,7 @@ ci_adr_structure
 ci_stale_setup_conf_path
 ci_readme_sync
 ci_doc_counts
+ci_catalog_description
 ci_home_literal
 ci_arch_literal
 ci_bash_source_guard

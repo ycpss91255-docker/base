@@ -15,6 +15,13 @@
 # context), so the two never drift; per-repo build-context specifics
 # (script/ test/ config/, .git, docs) stay hand-maintained above the
 # managed block and are never touched by the sync.
+#
+# why: Unit tests for the `.dockerignore` canonical-sync helpers in
+# `script/docker/lib/gitignore.sh` (#604). `_canonical_dockerignore_entries`
+# delegates to `_canonical_gitignore_entries` (a derived artifact not worth
+# committing is not worth shipping in the build context, so the two share a
+# single source and never drift); `_sync_dockerignore` + `_sync_gitignore`
+# are thin wrappers over the shared `_sync_managed_entries` mechanism.
 
 bats_require_minimum_version 1.5.0
 
@@ -37,6 +44,7 @@ teardown() {
 # _canonical_dockerignore_entries
 # ════════════════════════════════════════════════════════════════════
 
+# why: Membership
 @test "_canonical_dockerignore_entries: emits the derived-artifact set (#604)" {
   run _canonical_dockerignore_entries
   assert_success
@@ -56,12 +64,14 @@ teardown() {
   assert_line ".docker.xauth"
 }
 
+# why: Anti-drift invariant
 @test "_canonical_dockerignore_entries: shares the single canonical source with gitignore (no drift) (#604)" {
   # Derived artifacts excluded from the build context are exactly those
   # excluded from git; locking equality keeps the two from diverging.
   assert_equal "$(_canonical_dockerignore_entries)" "$(_canonical_gitignore_entries)"
 }
 
+# why: Deterministic output
 @test "_canonical_dockerignore_entries: list is stable order (#604)" {
   assert_equal "$(_canonical_dockerignore_entries)" "$(_canonical_dockerignore_entries)"
 }
@@ -77,6 +87,7 @@ teardown() {
 # _sync_dockerignore
 # ════════════════════════════════════════════════════════════════════
 
+# why: Greenfield
 @test "_sync_dockerignore: creates the file when missing, with marker + all entries (#604)" {
   local _f="${TMP_DIR}/.dockerignore"
   run _sync_dockerignore "${_f}"
@@ -89,6 +100,7 @@ teardown() {
   assert_line "coverage/"
 }
 
+# why: Already-synced
 @test "_sync_dockerignore: file with all entries already present is a no-op (#604)" {
   local _f="${TMP_DIR}/.dockerignore"
   _canonical_dockerignore_entries > "${_f}"
@@ -99,6 +111,7 @@ teardown() {
   assert_equal "$(cat "${_f}")" "${_before}"
 }
 
+# why: Drift fill-in
 @test "_sync_dockerignore: appends only missing entries when subset present (#604)" {
   local _f="${TMP_DIR}/.dockerignore"
   printf '%s\n' '.env' 'script/' > "${_f}"
@@ -112,6 +125,7 @@ teardown() {
   assert_output "1"
 }
 
+# why: User-line preservation
 @test "_sync_dockerignore: preserves hand-maintained build-context lines (#604)" {
   local _f="${TMP_DIR}/.dockerignore"
   printf '%s\n' 'script/' 'test/' 'config/' '.git' > "${_f}"
@@ -124,6 +138,7 @@ teardown() {
   assert_line ".git"
 }
 
+# why: Idempotency
 @test "_sync_dockerignore: idempotent — second run leaves the file unchanged (#604)" {
   local _f="${TMP_DIR}/.dockerignore"
   printf '%s\n' '.env' > "${_f}"
@@ -134,6 +149,7 @@ teardown() {
   assert_equal "$(cat "${_f}")" "${_a}"
 }
 
+# why: Single-marker invariant
 @test "_sync_dockerignore: marker added only once across re-syncs (#604)" {
   local _f="${TMP_DIR}/.dockerignore"
   _sync_dockerignore "${_f}"
@@ -142,6 +158,7 @@ teardown() {
   assert_output "1"
 }
 
+# why: Trailing-newline guard
 @test "_sync_dockerignore: file without trailing newline gets one before append (#604)" {
   local _f="${TMP_DIR}/.dockerignore"
   printf 'script/' > "${_f}"
