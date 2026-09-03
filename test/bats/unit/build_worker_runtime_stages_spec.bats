@@ -134,6 +134,19 @@ EOF
   assert_output "true"
 }
 
+@test "runtime_stages: a Dockerfile with no trailing newline declares the pair (#1013)" {
+  # The roster reader's `while read` loop returns false on a final partial
+  # line, so a Dockerfile that ends without a newline loses its last stage.
+  # Here that turns a COMPLETE runtime pair into a half-declared one and
+  # fails the build with "declares stage runtime but not runtime-test",
+  # naming a stage the file plainly declares.
+  printf 'FROM alpine:3 AS sys\nFROM sys AS devel-base\nFROM devel-base AS devel\nFROM sys AS runtime\nFROM runtime AS runtime-test' \
+      > "${TMP}/Dockerfile"
+  DOCKERFILE="${TMP}/Dockerfile" run --separate-stderr bash "${SCRIPT}"
+  assert_success
+  assert_output "true"
+}
+
 @test "runtime_stages: a stray bare token before AS declares nothing (#1013)" {
   # `FROM <image> <junk> AS <stage>` is not a directive docker accepts, and
   # the old `.*` regex read it as a declaration -- so the worker would ask

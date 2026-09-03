@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3558 tests**.
+Unit specs under `test/bats/unit/`: **3560 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3561,7 +3561,7 @@ ways this goes catastrophically wrong are all edits to the file:
 | `_run_arch_literal: FAILS when a scan root is missing (#939)` | - |
 | `_run_arch_literal: FAILS when a scan root holds no Dockerfile (#939)` | - |
 | `_run_arch_literal: the REAL shipped Dockerfiles pass today (#939)` | - |
-### test/bats/unit/build_worker_runtime_stages_spec.bats (15)
+### test/bats/unit/build_worker_runtime_stages_spec.bats (16)
 
 `script/ci/build_worker/runtime_stages.sh`, the resolver that decides
 whether build-worker.yaml runs its `runtime-test` / `runtime` targets
@@ -3581,6 +3581,7 @@ untested) and uncommented.
 | `runtime_stages: commented-out runtime stages do not count as declared` | A `#`-prefixed `FROM ... AS runtime` is documentation, not a stage |
 | `runtime_stages: a lowercase 'from ... as' line declares nothing, here as everywhere (#1013)` | The resolver stops being the one reader in the tree that sees a stage there |
 | `runtime_stages: the cross-build --platform FROM form declares the pair (#1013)` | The shape the arm64 matrix invites, and the one the sibling loop missed |
+| `runtime_stages: a Dockerfile with no trailing newline declares the pair (#1013)` | - |
 | `runtime_stages: a stray bare token before AS declares nothing (#1013)` | A target no Dockerfile can produce is not a runtime split |
 | `runtime_stages: the shipped dist Dockerfile (runtime blocks commented out) resolves to false` | The real default artifact, the shape that shipped red |
 | `runtime_stages: the shipped dist Dockerfile with its runtime blocks uncommented resolves to true` | Uncommenting is sufficient to get a runtime build |
@@ -4291,7 +4292,7 @@ rather than an assurance.
 | `_run_adr_structure: REFUSES when doc/adr/ does not exist (#994)` | - |
 | `_run_adr_structure: the REAL doc/adr/ passes today (#994)` | - |
 
-### test/bats/unit/build_worker_stage_names_spec.bats (5)
+### test/bats/unit/build_worker_stage_names_spec.bats (6)
 
 Unit tests for `script/ci/build_worker/stage_names.sh`, the build worker's
 one reader of which stages a Dockerfile declares. The extra-stages loop and
@@ -4308,6 +4309,7 @@ be read.
 | `stage_names: lists every declared stage in file order` | The roster the worker's two steps read, in the order the file declares it |
 | `stage_names: keeps the stages the compose parser filters out` | runtime-test / devel-test are the names the worker asks about |
 | `stage_names: a Dockerfile declaring no stages is an empty roster, not an error` | "No extra stages" is an answer; the caller decides what it means |
+| `stage_names: the last line declares a stage even with no trailing newline (#1013)` | - |
 | `stage_names: a missing Dockerfile fails naming the path it looked for` | An unreadable Dockerfile is not "no stages", it is "we do not know" |
 | `stage_names: an empty DOCKERFILE path fails loudly` | The unset input fails at the reader, not as a skipped build |
 

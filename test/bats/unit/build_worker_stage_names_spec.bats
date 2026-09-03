@@ -92,6 +92,23 @@ EOF
   assert_output ""
 }
 
+@test "stage_names: the last line declares a stage even with no trailing newline (#1013)" {
+  # `while read` returns false on the final partial line, so a loop without
+  # the `|| [[ -n ... ]]` continuation DROPS it. A Dockerfile ending without
+  # a newline is ordinary -- an editor setting, a generator, a `printf`
+  # without the last `\n` -- and the grep this reader replaced had no such
+  # blind spot. Losing the last line here is the same symptom exactly: the
+  # extra-stages loop stops seeing `<stage>-test` and builds no smoke test,
+  # and runtime_stages.sh reads a complete pair as a half-declared one.
+  printf 'FROM alpine:3 AS sys\nFROM sys AS foo\nFROM foo AS foo-test' \
+      > "${TMP}/Dockerfile"
+  DOCKERFILE="${TMP}/Dockerfile" run --separate-stderr bash "${SCRIPT}"
+  assert_success
+  assert_output "sys
+foo
+foo-test"
+}
+
 # ── What it refuses to guess ───────────────────────────────────
 
 @test "stage_names: a missing Dockerfile fails naming the path it looked for" {
