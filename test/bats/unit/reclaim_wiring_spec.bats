@@ -297,3 +297,87 @@ setup() {
   run grep -F './script/prune.sh {{args}}' "${JUSTDOCKER}"
   assert_success
 }
+
+# ── `just test stop`: the verb that ends what `just test` started ──────────
+#
+# base runs TWO compose projects out of one checkout, and only one of them
+# had a stop. `just docker build` / `run` mint the `local-<dir>` project
+# the shipped wrapper owns; `just test` mints `base-<sha256(path)[0:12]>`,
+# a name derived from the checkout PATH so two worktrees cannot share one
+# set of containers. Nothing in `just` ended the second: `just docker stop`
+# resolves the FIRST name, and `just docker prune` says in its own help
+# that it does not touch running containers. The only way to clear an
+# interrupted run's container was raw `docker`, which is a gap in the
+# control surface rather than a licence to reach past it.
+#
+# These run `just` for real. The recipe is a seam, and a seam is exactly
+# what a grep cannot check: what matters is that the name reaching stop is
+# the one the SINGLE producer printed, not a second derivation that agrees
+# today.
+
+_just_test_sandbox() {
+  local _dir="${1:?_just_test_sandbox requires a dir}"
+  mkdir -p "${_dir}/script/test"
+  cp /source/justfile "${_dir}/justfile"
+  cp /source/script/test/justfile.test "${_dir}/script/test/justfile.test"
+  cat > "${_dir}/script/stop.sh" <<'STUB'
+#!/usr/bin/env bash
+printf 'stop project=%s args=%s\n' "${PROJECT_NAME:-<unset>}" "$*"
+STUB
+  chmod +x "${_dir}/script/stop.sh"
+  # The one producer of the self-test project name, stubbed to print a
+  # value nothing else could derive: a recipe that hashed the path itself
+  # would print something else and the assertion would name it.
+  cat > "${_dir}/script/test/test.sh" <<'STUB'
+#!/usr/bin/env bash
+case "${1:-}" in
+  --compose-project-name) printf 'base-onlyproducer\n' ;;
+  *) printf 'test.sh stub: unexpected %s\n' "$*" >&2; exit 9 ;;
+esac
+STUB
+  chmod +x "${_dir}/script/test/test.sh"
+}
+
+@test "just test stop ends this checkout's self-test project" {
+  command -v just >/dev/null 2>&1 \
+    || skip "this test-tools image has no just (older pinned TEST_TOOLS_IMAGE)"
+  local _tmp
+  _tmp="$(mktemp -d)"
+  _just_test_sandbox "${_tmp}"
+  run just --justfile "${_tmp}/justfile" --working-directory "${_tmp}" test stop
+  local _s="${status}" _o="${output}"
+  rm -rf "${_tmp}"
+  status="${_s}"; output="${_o}"
+  assert_success
+  assert_output --partial "project=base-onlyproducer"
+}
+
+@test "just test stop asks the single producer for the name instead of deriving a second" {
+  command -v just >/dev/null 2>&1 \
+    || skip "this test-tools image has no just (older pinned TEST_TOOLS_IMAGE)"
+  local _tmp
+  _tmp="$(mktemp -d)"
+  _just_test_sandbox "${_tmp}"
+  run just --justfile "${_tmp}/justfile" --working-directory "${_tmp}" test stop
+  local _s="${status}" _o="${output}"
+  rm -rf "${_tmp}"
+  status="${_s}"; output="${_o}"
+  assert_success
+  # `base-<12 hex>` is what the real derivation prints. Seeing it here
+  # would mean the recipe hashed the sandbox path itself.
+  refute_output --regexp 'project=base-[0-9a-f]{12}( |$)'
+}
+
+@test "just test stop forwards its arguments to the wrapper" {
+  command -v just >/dev/null 2>&1 \
+    || skip "this test-tools image has no just (older pinned TEST_TOOLS_IMAGE)"
+  local _tmp
+  _tmp="$(mktemp -d)"
+  _just_test_sandbox "${_tmp}"
+  run just --justfile "${_tmp}/justfile" --working-directory "${_tmp}" test stop -v --dry-run
+  local _s="${status}" _o="${output}"
+  rm -rf "${_tmp}"
+  status="${_s}"; output="${_o}"
+  assert_success
+  assert_output --partial "args=-v --dry-run"
+}

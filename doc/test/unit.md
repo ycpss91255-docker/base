@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3606 tests**.
+Unit specs under `test/bats/unit/`: **3609 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -4301,7 +4301,7 @@ rather than an assurance.
 | `the retained-tag count is overridable by the environment` | - |
 | `the pinned tag set is the invoking tree plus every live checkout` | - |
 
-### test/bats/unit/reclaim_wiring_spec.bats (22)
+### test/bats/unit/reclaim_wiring_spec.bats (25)
 
 | Test | Description |
 |------|-------------|
@@ -4327,6 +4327,9 @@ rather than an assurance.
 | `--all does not quietly acquire the scoped reclaim` | - |
 | `the daemon-wide prune targets are untouched` | - |
 | `the scoped reclaim is reachable through just, with no new namespace` | - |
+| `just test stop ends this checkout's self-test project` | - |
+| `just test stop asks the single producer for the name instead of deriving a second` | - |
+| `just test stop forwards its arguments to the wrapper` | - |
 ### test/bats/unit/adr_structure_spec.bats (27)
 
 | Test | Description |
