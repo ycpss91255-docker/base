@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3688 tests**.
+Unit specs under `test/bats/unit/`: **3690 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -5821,7 +5821,7 @@ space-bearing path rejection (#687).
 | `_prompt_mount_with_picker no propagation gives just host:container:access (#461)` | Access-only picker |
 | `_prompt_mount_with_picker no access + no propagation gives just host:container (#461)` | Bare picker |
 
-### test/bats/unit/tui_spec.bats (138)
+### test/bats/unit/tui_spec.bats (140)
 
 Pure-logic unit tests for the TUI support libraries (`_tui_conf.sh`). No
 dialog/whiptail invocations here — strictly validators, mount-string
@@ -5971,6 +5971,8 @@ overlay; writes no override)
 | `_upsert_conf_value replaces a value carrying an inline ' #' instead of appending a duplicate key (#955)` | - |
 | `_write_setup_conf keeps a logging.<svc> override out of the parent [logging] section (#955)` | - |
 | `_write_setup_conf appends a brand-new [logging.<svc>] section rather than folding it into [logging] (#955)` | - |
+| `_edit_list_section: an unknown list has no label row, and fails rather than drawing a blank screen (base#994)` | The labels stopped being call-site arguments and became a table, and the failure mode moved with them: a missing row can no longer be a wrong argument, it is a screen with no words on it. This is the case that keeps that from rendering -- an unknown (section, prefix) pair fails loudly instead of drawing a menu whose title, Add and Back rows are empty strings, which is the silent-failure shape invariant 2 exists to refuse. |
+| `_edit_list_section: every list editor the TUI ships has a complete label row (base#994)` | The complement, and the reason the guard is not vacuous: every list the TUI actually ships has a complete row, so the failure above can only ever be a typo or an editor somebody added without a screen. |
 | `_edit_list_section shows mount_1 when value is non-empty` | - |
 | `_edit_list_section add reuses empty mount_1 slot instead of leapfrogging` | - |
 | `_edit_list_section add uses max+1 when no empty slots exist` | - |

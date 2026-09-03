@@ -818,7 +818,7 @@ EOF
   local -a _sections=(image build) _keys=(image.rules build.apt_mirror_ubuntu) \
     _values=("@default:newval" "tw.archive.example.com")
   _write_setup_conf "${TEMP_DIR}/out.conf" "${TEMP_DIR}/template.conf" \
-    _sections _keys _values
+    _keys _values
 
   run cat "${TEMP_DIR}/out.conf"
   [ "${status}" -eq 0 ]
@@ -840,7 +840,7 @@ privileged = true
 EOF
   local -a _sections=(network) _keys=(network.mode) _values=(bridge)
   _write_setup_conf "${TEMP_DIR}/out.conf" "${TEMP_DIR}/template.conf" \
-    _sections _keys _values
+    _keys _values
 
   run cat "${TEMP_DIR}/out.conf"
   [[ "${output}" == *"mode = bridge"* ]]
@@ -877,7 +877,7 @@ EOF
     _values=("string:my_unique_image")
   # dst and tpl point at the same path — the bug's exact trigger.
   _write_setup_conf "${TEMP_DIR}/conf" "${TEMP_DIR}/conf" \
-    _sections _keys _values
+    _keys _values
 
   # The override must land + the rest of the template content must be
   # preserved. Pre-fix this test produces a 0-byte file.
@@ -907,7 +907,7 @@ EOF
     _keys=(image.rules deploy.gpu_mode deploy.gpu_count) \
     _values=("prefix:docker_, @default:foo" "force" "2")
   _write_setup_conf "${TEMP_DIR}/out.conf" "${TEMP_DIR}/template.conf" \
-    _sections _keys _values
+    _keys _values
 
   local -a _sect2=() _keys2=() _vals2=()
   _load_setup_conf_full "${TEMP_DIR}/out.conf" _sect2 _keys2 _vals2
@@ -946,7 +946,7 @@ mount_3 = /c:/c
 EOF
   local -a _sections=(volumes) _keys=() _values=()
   _write_setup_conf "${TEMP_DIR}/out.conf" "${TEMP_DIR}/template.conf" \
-    _sections _keys _values "volumes.mount_2"
+    _keys _values "volumes.mount_2"
 
   run cat "${TEMP_DIR}/out.conf"
   [[ "${output}" == *"mount_1 = /a:/a"* ]]
@@ -966,7 +966,7 @@ EOF
     _keys=(image.rule_1 image.rule_2) \
     _values=("prefix:docker_" "@default:fallback")
   _write_setup_conf "${TEMP_DIR}/out.conf" "${TEMP_DIR}/template.conf" \
-    _sections _keys _values
+    _keys _values
 
   run cat "${TEMP_DIR}/out.conf"
   # Added rule_2 should appear under [image]
@@ -1039,7 +1039,7 @@ EOF
     _keys=(volumes.mount_9) \
     _values=("/extra:/extra")
   _write_setup_conf "${TEMP_DIR}/out.conf" "${TEMP_DIR}/template.conf" \
-    _sections _keys _values
+    _keys _values
 
   run cat "${TEMP_DIR}/out.conf"
   assert_output --partial "mount_1 = /a:/a"
@@ -1060,7 +1060,7 @@ EOF
     _keys=(volumes.mount_9) \
     _values=("/extra:/extra")
   _write_setup_conf "${TEMP_DIR}/out.conf" "${TEMP_DIR}/template.conf" \
-    _sections _keys _values "volumes.mount_9"
+    _keys _values "volumes.mount_9"
 
   run cat "${TEMP_DIR}/out.conf"
   refute_output --partial "mount_9"
@@ -1110,7 +1110,7 @@ EOF
   local -a _sections=() _keys=() _values=()
   _load_setup_conf_full "${TEMP_DIR}/template.conf" _sections _keys _values
   _write_setup_conf "${TEMP_DIR}/out.conf" "${TEMP_DIR}/template.conf" \
-    _sections _keys _values
+    _keys _values
 
   run cat "${TEMP_DIR}/out.conf"
   refute_output --partial "web.driver"
@@ -1134,7 +1134,7 @@ EOF
     _keys=(logging.devel.driver) \
     _values=("local")
   _write_setup_conf "${TEMP_DIR}/out.conf" "${TEMP_DIR}/template.conf" \
-    _sections _keys _values
+    _keys _values
 
   run cat "${TEMP_DIR}/out.conf"
   assert_output --partial "[logging.devel]"
@@ -1178,6 +1178,39 @@ _b5_setup_tui() {
   : > "${_B5_MENU_ARGS_FILE}"
 }
 
+# why: The labels stopped being call-site arguments and became a table,
+# and the failure mode moved with them: a missing row can no longer be a
+# wrong argument, it is a screen with no words on it. This is the case
+# that keeps that from rendering -- an unknown (section, prefix) pair
+# fails loudly instead of drawing a menu whose title, Add and Back rows
+# are empty strings, which is the silent-failure shape invariant 2 exists
+# to refuse.
+@test "_edit_list_section: an unknown list has no label row, and fails rather than drawing a blank screen (base#994)" {
+  _b5_setup_tui
+  _tui_menu() { printf 'back'; return 0; }
+
+  run _edit_list_section volumes not_a_list_
+  assert_failure
+  assert_output --partial "volumes.not_a_list_"
+}
+
+# why: The complement, and the reason the guard is not vacuous: every
+# list the TUI actually ships has a complete row, so the failure above
+# can only ever be a typo or an editor somebody added without a screen.
+@test "_edit_list_section: every list editor the TUI ships has a complete label row (base#994)" {
+  _b5_setup_tui
+  local -A _labels=()
+  local _pair
+  for _pair in "build arg_" "security cap_add_" "security cap_drop_" \
+    "security security_opt_" "volumes mount_" "environment env_" \
+    "tmpfs tmpfs_" "network port_" "devices device_" \
+    "devices cgroup_rule_" "additional_contexts context_"; do
+    # shellcheck disable=SC2086
+    _tui_list_labels ${_pair} _labels \
+      || fail "no complete label row for '${_pair}'"
+  done
+}
+
 @test "_edit_list_section shows mount_1 when value is non-empty" {
   _b5_setup_tui
   _TUI_CURRENT[volumes.mount_1]="/foo:/bar"
@@ -1189,9 +1222,7 @@ _b5_setup_tui() {
     return 0
   }
 
-  _edit_list_section volumes mount_ \
-    volumes.title volumes.menu volumes.add volumes.back volumes.edit.prompt \
-    _validate_mount err.invalid_mount
+  _edit_list_section volumes mount_
 
   run cat "${_B5_MENU_ARGS_FILE}"
   # The menu tag/label stream must include mount_1 with its value.
@@ -1228,9 +1259,7 @@ _b5_setup_tui() {
     return 0
   }
 
-  _edit_list_section volumes mount_ \
-    volumes.title volumes.menu volumes.add volumes.back volumes.edit.prompt \
-    _validate_mount err.invalid_mount
+  _edit_list_section volumes mount_
 
   # Expect the new mount to land in mount_1 (the empty slot), not mount_3.
   run _override_get "volumes.mount_1" ""
@@ -1262,9 +1291,7 @@ _b5_setup_tui() {
     return 0
   }
 
-  _edit_list_section volumes mount_ \
-    volumes.title volumes.menu volumes.add volumes.back volumes.edit.prompt \
-    _validate_mount err.invalid_mount
+  _edit_list_section volumes mount_
 
   run _override_get "volumes.mount_3" ""
   assert_output "/c:/c"
@@ -1281,9 +1308,7 @@ _b5_setup_tui() {
     return 0
   }
 
-  _edit_list_section volumes mount_ \
-    volumes.title volumes.menu volumes.add volumes.back volumes.edit.prompt \
-    _validate_mount err.invalid_mount
+  _edit_list_section volumes mount_
 
   run cat "${_B5_MENU_ARGS_FILE}"
   # Empty mount_1 must not appear as an entry row.
@@ -1782,7 +1807,7 @@ EOF
     _keys=("stage:headless.gui.mode" "stage:headless.network.mode") \
     _values=("off" "bridge")
   _write_setup_conf "${TEMP_DIR}/out.conf" "${TEMP_DIR}/template.conf" \
-    _sections _keys _values
+    _keys _values
 
   run cat "${TEMP_DIR}/out.conf"
   assert_success
@@ -1806,7 +1831,7 @@ EOF
     _keys=("stage:headless.gui.mode" "stage:gui.gui.mode") \
     _values=("off" "force")
   _write_setup_conf "${TEMP_DIR}/out.conf" "${TEMP_DIR}/template.conf" \
-    _sections _keys _values
+    _keys _values
 
   run cat "${TEMP_DIR}/out.conf"
   assert_success
@@ -1823,7 +1848,7 @@ EOF
     _keys=("gui.mode" "stage:headless.gui.mode" "stage:headless.network.port_1") \
     _values=("auto" "off" "8080:80")
   _write_setup_conf "${TEMP_DIR}/out.conf" "${TEMP_DIR}/template.conf" \
-    _sections _keys _values
+    _keys _values
 
   local -a _sect2=() _keys2=() _values2=()
   _load_setup_conf_full "${TEMP_DIR}/out.conf" _sect2 _keys2 _values2
@@ -1865,7 +1890,7 @@ EOF
     _keys=("stage:headless.gui.mode") \
     _values=("force")
   _write_setup_conf "${TEMP_DIR}/out.conf" "${TEMP_DIR}/template.conf" \
-    _sections _keys _values
+    _keys _values
 
   run cat "${TEMP_DIR}/out.conf"
   assert_success

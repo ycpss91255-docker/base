@@ -58,6 +58,15 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 ## [Unreleased]
 
 ### Changed
+- **three of base's widest signatures narrow to what they actually take
+  (refs #994)** -- `_write_setup_conf` no longer takes the section array it
+  never read; `_resolve_stage_list` derives its `<prefix>inherit` meta-key
+  instead of taking it, which all six call sites spelled out identically;
+  and the TUI list editor's six message keys move out of eight positional
+  parameters into one `_TUI_LIST_LABELS` table keyed by section and prefix,
+  where a missing row now fails loudly instead of drawing a screen with no
+  words on it. Internal functions only -- no wrapper, recipe or
+  `.setup.conf` surface moves, and behaviour is unchanged.
 - **the three implementation-standard metric lints judge by an adoption
   ceiling (refs #994)** -- `just test metrics` still prints every function
   past depth 3 / 50 body code lines / 5 positional parameters, and now fails
