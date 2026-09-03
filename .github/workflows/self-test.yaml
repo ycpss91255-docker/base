@@ -1698,7 +1698,8 @@ jobs:
     # `ci-summary` and env/* `ci-passed`.
     #
     # Hard-mandatory jobs (actionlint / classify / doc-counts /
-    # lint-static) must succeed: SKIPPED there indicates a workflow bug,
+    # lint-static / compute-shards) must succeed: SKIPPED there indicates
+    # a workflow bug,
     # not an intentional gate. doc-counts is hard-mandatory because it
     # carries no `if:` -- the generated doc/test catalogue can be broken by
     # a doc-only edit, so gating it on code_changed would skip it on
@@ -1723,7 +1724,16 @@ jobs:
     # fails when the project rate drops below COVERAGE_MIN. Joining it here
     # enforces the floor through ci-rollup -- no branch-protection change,
     # and no external SaaS.
-    needs: [actionlint, classify, shellcheck, doc-counts, lint-static, hadolint, bats-fragile, bats-integration, coverage, coverage-gate, acceptance, system, worker-selftest]
+    #
+    # `compute-shards` is IN `needs:` and in the HARD-mandatory loop. It
+    # is the producer the coverage matrix expands via fromJSON, and it
+    # carries no `if:`, so a SKIPPED there is a workflow bug. Leaving it
+    # out was not a missing decoration: coverage needs it, coverage-gate
+    # needs coverage, and both live in the skip-tolerant bucket, so a
+    # compute-shards failure cascaded into two skips and the required
+    # check went green with the whole unit suite and the coverage floor
+    # never run. A skipped shard computation is not a pass.
+    needs: [actionlint, classify, shellcheck, doc-counts, lint-static, hadolint, bats-fragile, bats-integration, compute-shards, coverage, coverage-gate, acceptance, system, worker-selftest]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -1737,6 +1747,7 @@ jobs:
           HADOLINT_RESULT: ${{ needs.hadolint.result }}
           BATS_FRAGILE_RESULT: ${{ needs.bats-fragile.result }}
           BATS_INTEGRATION_RESULT: ${{ needs.bats-integration.result }}
+          COMPUTE_SHARDS_RESULT: ${{ needs.compute-shards.result }}
           COVERAGE_RESULT: ${{ needs.coverage.result }}
           COVERAGE_GATE_RESULT: ${{ needs.coverage-gate.result }}
           ACCEPTANCE_RESULT: ${{ needs.acceptance.result }}
@@ -1763,19 +1774,23 @@ jobs:
           echo "hadolint:         ${HADOLINT_RESULT}"
           echo "bats-fragile:     ${BATS_FRAGILE_RESULT}"
           echo "bats-integration: ${BATS_INTEGRATION_RESULT}"
+          echo "compute-shards:   ${COMPUTE_SHARDS_RESULT}"
           echo "coverage:         ${COVERAGE_RESULT}"
           echo "coverage-gate:    ${COVERAGE_GATE_RESULT}"
           echo "acceptance:       ${ACCEPTANCE_RESULT}"
           echo "system:           ${SYSTEM_RESULT}"
           echo "worker-selftest:  ${WORKER_SELFTEST_RESULT}"
           fail=0
-          # doc-counts and lint-static carry no `if:` gate, so SKIPPED
-          # means a workflow bug, not an intentional skip -- they are
-          # hard-mandatory like actionlint / classify. lint-static is a
-          # matrix; its entries fold into one result, so a single failing
-          # lint fails the rollup.
+          # doc-counts, lint-static and compute-shards carry no `if:`
+          # gate, so SKIPPED means a workflow bug, not an intentional
+          # skip -- they are hard-mandatory like actionlint / classify.
+          # lint-static is a matrix; its entries fold into one result, so
+          # a single failing lint fails the rollup. compute-shards is the
+          # producer coverage expands, so its skip is what silently
+          # removes the unit suite AND the coverage floor from this run.
           for r in "${ACTIONLINT_RESULT}" "${CLASSIFY_RESULT}" \
-                   "${DOC_COUNTS_RESULT}" "${LINT_STATIC_RESULT}"; do
+                   "${DOC_COUNTS_RESULT}" "${LINT_STATIC_RESULT}" \
+                   "${COMPUTE_SHARDS_RESULT}"; do
             [[ "${r}" == "success" ]] || fail=1
           done
           for r in "${SHELLCHECK_RESULT}" "${HADOLINT_RESULT}" \
@@ -1799,7 +1814,12 @@ jobs:
           exit "${fail}"
 
   release:
-    needs: [shellcheck, doc-counts, lint-static, hadolint, bats-fragile, bats-integration, coverage, acceptance, system, worker-selftest]
+    # The tag path's own gate. It does NOT go through ci-rollup (ci-rollup
+    # is not a `needs:` here), so every gate a tag must clear has to be
+    # named in this list -- and `coverage-gate` was not, which left the
+    # coverage FLOOR enforced on PRs and unenforced on the one path that
+    # produces an artifact users consume.
+    needs: [shellcheck, doc-counts, lint-static, hadolint, bats-fragile, bats-integration, coverage, coverage-gate, acceptance, system, worker-selftest]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
