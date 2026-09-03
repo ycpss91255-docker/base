@@ -116,6 +116,14 @@ coverage-path spec *args:
 # _test_exit_reclaim). A recipe may collect its own litter unasked; it may
 # not retire an image a sibling checkout might still want.
 
+# Each also carries its own `--await-project` line, for the same reason it
+# carries its own reclaim line: neither goes through test.sh's dispatcher,
+# so neither inherits the question the dispatcher asks before it hands
+# compose a project name -- has the previous run let go of this project's
+# network? It is a query that mints nothing, and it is what turns the
+# daemon's raw "has active endpoints" text into either a bounded wait or a
+# refusal naming the container and `just test stop`.
+
 # just test system -> system runtime-test specs (opt-in; host docker.sock)
 # Builds the test-tools image through the docker namespace base self-uses
 # (ADR-00000011 sec.5) rather than a raw `docker build -f` one-liner.
@@ -152,6 +160,7 @@ system:
     HOST_UID="$(id -u)"
     HOST_GID="$(id -g)"
     export HOST_UID HOST_GID
+    ./script/test/test.sh --await-project
     just docker build --target test-tools
     docker compose run --rm ci-system
 
@@ -216,6 +225,7 @@ smoke *args:
     HOST_GID="$(id -g)"
     export HOST_UID HOST_GID
     export BUILDKIT_PROGRESS=plain
+    ./script/test/test.sh --await-project
     just docker build --target test-tools
     just docker build {{args}} --target smoke
 

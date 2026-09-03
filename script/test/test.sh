@@ -480,6 +480,15 @@ Options:
                           resolves (a content hash of
                           dockerfile/Dockerfile.test-tools) and exit.
                           TEST_TOOLS_IMAGE, when set, is echoed verbatim.
+  --await-project         Wait for the previous run's container to let go
+                          of this checkout's compose project network, then
+                          exit 0; exit non-zero -- naming the container and
+                          the verb that clears it -- when it is still held
+                          after the window (BASE_PROJECT_WAIT, default 2m).
+                          A query that mints nothing, for the flows that
+                          drive compose themselves (`just test system` /
+                          `just test smoke`); the ordinary dispatch asks on
+                          its own
   --compose-project-name  Print the compose project name this checkout
                           resolves (a hash of its absolute path, so two
                           checkouts sharing a directory basename do not
@@ -1783,6 +1792,15 @@ main() {
       -h|--help) usage ;;
       --ci) mode="ci"; shift ;;
       --lint) lint=1; shift ;;
+      --await-project)
+        # A query, like --compose-project-name / --test-tools-image: it
+        # answers about this checkout and exits, minting nothing. The
+        # project it asks about comes from the same resolver the dispatch
+        # uses, so a caller that has already exported COMPOSE_PROJECT_NAME
+        # is asking about the project it is actually going to drive.
+        _await_project_quiescent "$(_resolve_compose_project_name)" "${REPO_ROOT}"
+        exit $?
+        ;;
       --shellcheck) lint_tool="shellcheck"; shift ;;
       --hadolint) lint_tool="hadolint"; shift ;;
       --issueref) lint_tool="issueref"; shift ;;
