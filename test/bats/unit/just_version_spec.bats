@@ -181,10 +181,12 @@ _seed_tree() {
   # "the input comes from the step that read the declaration", not the
   # weaker "some step output reaches the input".
   #
-  # When the shape is not the one it recognises -- the accessor call is in
-  # a step with no id, or the job stopped calling the accessor at all --
-  # the helper answers with an empty id and the guard below fails. An
-  # unattributable match never becomes a step name here.
+  # When the shape is not one it can place -- the accessor call sits in a
+  # step that declares no `id:`, or above the job's steps, or the job
+  # stopped calling the accessor at all -- the helper answers with an empty
+  # id and the guard below fails. It names a step only for a match inside
+  # that step's own body in the `steps:` list, so what an unplaceable match
+  # produces here is a loud failure, not an id it guessed.
   _pin_id="$(yaml_step_id_for "${_wf}" acceptance \
     'dist/script/base/just-version[.]sh')"
   [ -n "${_pin_id}" ] \

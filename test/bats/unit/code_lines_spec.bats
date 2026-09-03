@@ -74,6 +74,8 @@ YAML
 jobs:
   acceptance:
     runs-on: ubuntu-latest
+    env:
+      ABOVE: ./above-the-steps.sh
     steps:
       - name: Resolve the pin
         id: resolver
@@ -95,6 +97,13 @@ jobs:
           args:
             - --marker
             - ./nested-only.sh
+      - name: An action input that happens to be called id
+        uses: third/action@v4
+        with:
+          id: not-a-step-id
+          script: ./with-input-only.sh
+    outputs:
+      note: ./below-the-steps.sh
 
   other:
     runs-on: ubuntu-latest
@@ -102,6 +111,47 @@ jobs:
       - name: A step in a different job
         id: elsewhere
         run: ./other-job-only.sh
+YAML
+
+  # The job's FIRST sequence dash is SHALLOWER than its step dashes. Both
+  # spellings below are valid YAML and valid GitHub Actions; each is the
+  # ordinary way somebody writes the key it uses.
+  #
+  #   SHALLOW -- a block-style `needs:` sits at the job-key indent (4),
+  #              two levels above the step dashes (6).
+  #   DEEP    -- a `strategy.matrix` sequence written at its parent's
+  #              indent (6) sits above a steps list indented one level
+  #              deeper than usual (8).
+  SHALLOW="${SCRATCH}/shallow-first-dash.yaml"
+  cat > "${SHALLOW}" << 'YAML'
+jobs:
+  acceptance:
+    needs:
+    - actionlint
+    - classify
+    steps:
+      - name: Resolve the pin
+        id: resolver
+        run: ./accessor.sh
+      - name: A later step that carries no id
+        run: |
+          echo "a later mention of ./accessor.sh"
+YAML
+
+  DEEP="${SCRATCH}/deep-steps.yaml"
+  cat > "${DEEP}" << 'YAML'
+jobs:
+  acceptance:
+    strategy:
+      matrix:
+      - os: ubuntu-latest
+    steps:
+        - name: Resolve the pin
+          id: resolver
+          run: ./accessor.sh
+        - name: A later step that carries no id
+          run: |
+            echo "a later mention of ./accessor.sh"
 YAML
 }
 
@@ -422,6 +472,71 @@ DOCKERFILE
 
 @test "yaml_step_id_for: does not reach into another job for its match" {
   run yaml_step_id_for "${STEPS}" acceptance './other-job-only[.]sh'
+  assert_success
+  assert_output ''
+}
+
+# ── the steps list is the anchor, not "the shallowest dash so far" ───
+#
+# The rule above was once "a dash at the shallowest indent the job has
+# shown", latched from the job's FIRST dash. That reads the boundary off
+# whichever list the job happened to write first, and a job's first list is
+# not always its steps: a block-style `needs:`, or a `strategy.matrix`
+# sequence above a deeper-indented steps list, puts a dash ABOVE the step
+# indent. No step dash then counted as a boundary, so one id was carried
+# across every step in the job -- byte for byte the fail-open the helper was
+# extracted to close, and invisible because both spellings are ordinary
+# YAML that actionlint accepts.
+#
+# The boundary is therefore taken from the first dash AFTER the `steps:`
+# key. Each shape below is pinned in both directions: the id-less step must
+# yield nothing, AND the step that really matches must still be named -- a
+# helper that answered "" to everything would satisfy the first assertion
+# alone.
+
+@test "yaml_step_id_for: a block-style needs: above the steps is not the step indent (#993)" {
+  run yaml_step_id_for "${SHALLOW}" acceptance 'a later mention'
+  assert_success
+  assert_output ''
+}
+
+@test "yaml_step_id_for: the matching step is still named when a block-style needs: precedes it (#993)" {
+  run yaml_step_id_for "${SHALLOW}" acceptance './accessor[.]sh'
+  assert_success
+  assert_output 'resolver'
+}
+
+@test "yaml_step_id_for: a shallower list above a deeper steps list is not the step indent (#993)" {
+  run yaml_step_id_for "${DEEP}" acceptance 'a later mention'
+  assert_success
+  assert_output ''
+}
+
+@test "yaml_step_id_for: the matching step is still named when a shallower list precedes a deeper steps list (#993)" {
+  run yaml_step_id_for "${DEEP}" acceptance './accessor[.]sh'
+  assert_success
+  assert_output 'resolver'
+}
+
+@test "yaml_step_id_for: an action input named id does not become the step name (#993)" {
+  # `id` is an ordinary input name for an action. Read as the step's own
+  # key it renames the step to a string no `steps.<id>.outputs` reference
+  # can resolve -- an id the function invented rather than read.
+  run yaml_step_id_for "${STEPS}" acceptance './with-input-only[.]sh'
+  assert_success
+  assert_output ''
+}
+
+@test "yaml_step_id_for: a match above the job's first step names no step (#993)" {
+  run yaml_step_id_for "${STEPS}" acceptance './above-the-steps[.]sh'
+  assert_success
+  assert_output ''
+}
+
+@test "yaml_step_id_for: a match below the steps list names no step (#993)" {
+  # A job key AFTER the steps list is out of the region again; the last
+  # step's id must not follow the scan out of it.
+  run yaml_step_id_for "${STEPS}" acceptance './below-the-steps[.]sh'
   assert_success
   assert_output ''
 }
