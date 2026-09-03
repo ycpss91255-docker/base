@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3548 tests**.
+Unit specs under `test/bats/unit/`: **3554 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -4306,3 +4306,26 @@ be read.
 | `stage_names: a Dockerfile declaring no stages is an empty roster, not an error` | "No extra stages" is an answer; the caller decides what it means |
 | `stage_names: a missing Dockerfile fails naming the path it looked for` | An unreadable Dockerfile is not "no stages", it is "we do not know" |
 | `stage_names: an empty DOCKERFILE path fails loudly` | The unset input fails at the reader, not as a skipped build |
+
+### test/bats/unit/workflow_unchecked_producer_spec.bats (6)
+
+"No workflow step reads a loop from a producer whose failure it cannot
+see." `done < <(cmd)` hands the loop cmd's output and never its status, so
+a producer that fails delivers zero lines -- and zero lines is a plausible
+answer to nearly every question a CI step asks. build-worker.yaml's
+doc-only classifier read `git diff` that way and took the required
+`docker-build` check green having built nothing (#1013). Nothing else in
+the tree can see the shape: shellcheck never reads a workflow `run:` block,
+and a behavioural test of the step asserts what it does when the producer
+worked. The population is derived from `.github/workflows/`, and the last
+case asserts the scan walked it -- an empty scan passes "nothing found" for
+the wrong reason.
+
+| Test | Description |
+|------|-------------|
+| `workflow run blocks: a loop fed by a process substitution is reported` | The scan detects the shape, over a fixture rather than the live tree |
+| `workflow run blocks: capturing the producer and checking it is clean` | The fix shape: the status is the assignment's, so `set -e` sees it |
+| `workflow run blocks: a comment naming the shape is not the shape` | The repo's own fix quotes the construct it replaced; prose is not code |
+| `workflow run blocks: a job with no steps is scanned, not an error` | A pure `uses:` caller must not abort the walk over the directory |
+| `every workflow in this repo reads its producers checked` | The live tree, over a population derived from the directory |
+| `the scan really walked this repo's workflows, so a clean result means something` | A floor on the workflows walked and on the run blocks read |

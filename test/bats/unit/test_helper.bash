@@ -339,6 +339,20 @@ yaml_step_run() {
         ".jobs.\"${2}\".steps[] | select(.id == \"${3}\" or .name == \"${3}\") | .run"
 }
 
+# yaml_run_blocks <file>
+#   Every step `run:` script in <file>, in document order, one block after
+#   another -- the shell a workflow actually executes, separated from the
+#   YAML that carries it. A scan whose subject is what workflow shell DOES
+#   has to read it here: shellcheck never sees these blocks (they are not
+#   shell FILES), so nothing else in the tree reads them as code.
+#
+#   A job with no `steps:` contributes nothing rather than an error, so a
+#   workflow whose jobs are pure `uses:` calls is scanned like any other.
+yaml_run_blocks() {
+    _yaml_eval "${1}" \
+        '.jobs | to_entries | .[] | .value.steps // [] | .[] | select(has("run")) | .run'
+}
+
 # yaml_job_names <file>
 #   The top-level `jobs:` keys of <file>, one per line -- the workflow's own
 #   job roster, DERIVED from the file rather than remembered by the spec. A
