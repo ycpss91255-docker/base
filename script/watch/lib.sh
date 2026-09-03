@@ -320,6 +320,18 @@ readonly _PIN_CLONE_REF_RE='(^|[[:space:]])(-b|--branch)[[:space:]]+["'"'"']?v?[
 # intended.
 readonly _PIN_ASSIGN_RE='^([[:space:]]*(ARG|local|readonly|declare|export)?[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=)(.*)$'
 
+# A versioned ACTION reference as a whole value: `<owner>/<repo>@<ref>`,
+# with any number of path segments in between. Capture 1 is the action,
+# capture 3 the ref. The required `/` is what keeps a bare word ahead of an
+# `@` -- an email address, a `user@host` -- from reading as an action.
+#
+# It is here rather than in the lint that compares refs for the reason
+# `_PIN_ASSIGN_RE` is here: an assignment of one is a DECLARATION SITE (the
+# shape below), and it is also the value that lint resolves a variable to.
+# Two spellings of "what an action ref is" would let the guard and the
+# reader disagree about which lines are pins.
+readonly _PIN_ACTION_REF_RE='^([A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9._-]+)+)@([A-Za-z0-9._-]+)$'
+
 # ── Reader ──────────────────────────────────────────────────────────────────
 
 # _pin_files <repo-root>
@@ -468,10 +480,39 @@ _pin_rhs_tail() {
 #
 # Anchoring the second form on the coordinate is what keeps extraction
 # precise on a line that also carries flags, paths and other colons.
+# _pin_assign_value <line> -- the value <line> assigns, unquoted and with
+# any trailing comment removed; non-zero when <line> assigns nothing.
+#
+# The assignment half of _pin_extract_value, split out because two callers
+# need it WITHOUT a coordinate: _pin_read, filling the value column of an
+# `unpinned` record (which carries no coordinate at all), and the
+# generated-workflow lint, asking what one variable the registry declares
+# holds. Anchoring on the shared regex is what keeps all three agreeing
+# about which lines are assignments.
+_pin_assign_value() {
+  local _line="${1}"
+  [[ "${_line}" =~ ${_PIN_ASSIGN_RE} ]] || return 1
+  _pin_unquote "$(_pin_rhs_value "${BASH_REMATCH[3]}")"
+}
+
+# _pin_assign_name <line> -- the variable name <line> assigns to; non-zero
+# when <line> assigns nothing.
+#
+# Read off the shared regex's first capture -- the whole `[<keyword> ]NAME=`
+# head -- rather than by adding a capture group to it: every caller of
+# `${_PIN_ASSIGN_RE}` addresses the right-hand side as `BASH_REMATCH[3]`,
+# so a new group in the middle would silently re-point all of them.
+_pin_assign_name() {
+  local _line="${1}" _head
+  [[ "${_line}" =~ ${_PIN_ASSIGN_RE} ]] || return 1
+  _head="${BASH_REMATCH[1]%=}"
+  _head="${_head%"${_head##*[![:space:]]}"}"
+  printf '%s' "${_head##*[[:space:]]}"
+}
+
 _pin_extract_value() {
   local _line="${1}" _coord="${2}"
-  if [[ "${_line}" =~ ${_PIN_ASSIGN_RE} ]]; then
-    _pin_unquote "$(_pin_rhs_value "${BASH_REMATCH[3]}")"
+  if _pin_assign_value "${_line}"; then
     return 0
   fi
   local _re="${_coord}[:@]([A-Za-z0-9][A-Za-z0-9._-]*)"
@@ -588,6 +629,17 @@ _pin_read() {
             "${_file}" "${_target_no}" "${_name}" "${_coord}" >&2
           return 1
         fi
+      elif [[ "${_state}" == "${_PIN_STATE_UNPINNED}" ]]; then
+        # `unpinned` says the dependency FLOATS, not that the line holds
+        # nothing: where the target is an assignment the record can carry
+        # the value it declares, and a caller that would otherwise re-derive
+        # it by reading the file reads the table instead.
+        #
+        # The assignment form only. An unpinned marker carries no
+        # coordinate, so the token-after-coordinate branch has nothing to
+        # anchor on and would put a fabricated version in the table -- `-`
+        # is the honest column for `RUN apk add ...`.
+        _current="$(_pin_assign_value "${_target}")" || _current=""
       fi
       printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%d\n' \
         "${_state}" "${_name}" "${_resolver:--}" "${_coord:--}" \
@@ -672,6 +724,16 @@ _pin_is_declaration() {
   if [[ "${_line}" =~ ${_PIN_ASSIGN_RE} ]]; then
     _value="$(_pin_unquote "$(_pin_rhs_value "${BASH_REMATCH[3]}")")"
     [[ "${_value}" =~ ${_PIN_VERSION_RE} ]] && return 0
+    # An action REF assigned whole -- `readonly REF='actions/checkout@v7'`.
+    # This file's advice for a version no marker can address is to hoist it
+    # onto a line of its own, and for a `uses:` ref inside a heredoc that
+    # advice produces exactly this line. Recognising the version shape but
+    # not this one made the marker on every hoisted ref VOLUNTARY: deleting
+    # it left both this lint and the generated-workflow lint green over a
+    # ref nothing watches, which is the state the hoist was performed to
+    # end. Same correction as the four before it -- the guard could not see
+    # the shape of its own recommended fix.
+    [[ "${_value}" =~ ${_PIN_ACTION_REF_RE} ]] && return 0
   fi
 
   if [[ "${_line}" =~ ${_PIN_USES_RE} ]]; then
