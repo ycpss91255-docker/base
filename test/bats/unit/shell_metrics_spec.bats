@@ -817,6 +817,11 @@ _write_many_long() {
   assert_output --partial "slack 0"
 }
 
+# why: The threshold's own boundary from below, and the case that stops
+# the reader drifting one level: a three-deep function is the shape the
+# limit was set to admit (65 functions in the tree sit exactly here), so
+# an off-by-one in the counter would be visible as a green tree turning
+# red on code nobody changed.
 @test "_run_nesting_depth: passes at depth 3 (#994)" {
   _write "a.sh" \
     'ok() {' \
@@ -858,6 +863,9 @@ _write_many_long() {
   assert_output --partial "ceiling ${_SM_LENGTH_CEILING}"
 }
 
+# why: Exactly at the limit, which is where a length metric is most
+# likely to be wrong by one -- the header line and the closing brace are
+# both excluded, and this is the case that says so.
 @test "_run_function_length: passes at exactly 50 body code lines (#994)" {
   {
     echo 'atlimit() {'
@@ -895,6 +903,9 @@ _write_many_long() {
   assert_output --partial "ceiling ${_SM_PARAMS_CEILING}"
 }
 
+# why: Five is the widest signature base admits, and the case that keeps
+# the in/out nameref shape legal: two arrays in, one out and two scalars
+# is a real function here, not a violation waiting to be counted.
 @test "_run_positional_params: passes at exactly 5 (#994)" {
   _write "a.sh" \
     'atlimit() {' \
@@ -935,6 +946,10 @@ _write_many_long() {
   refute_output --regexp '(EXEMPT|exempt|ALLOWLIST|allowlist|BASELINE|baseline|WAIVER|waiver)'
 }
 
+# why: The one-reader claim in the driver header is the reason three
+# lints live in one file, and it is a performance AND a correctness claim:
+# three passes could disagree about where a function begins. This is the
+# case that keeps the memoisation from being quietly lost.
 @test "the three lints share ONE reader pass (#994)" {
   _write "a.sh" 'f() {' '  echo x' '}'
   _shell_metrics_load

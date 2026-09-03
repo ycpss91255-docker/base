@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3681 tests**.
+Unit specs under `test/bats/unit/`: **3688 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -4713,7 +4713,7 @@ duplicate-target guards, and S7 `runtime.env` retirement (#507).
 | `apply no longer emits runtime.env; [environment] still reaches the container (#868)` | - |
 | `_write_runtime_env is removed (#507)` | - |
 
-### test/bats/unit/shell_metrics_spec.bats (52)
+### test/bats/unit/shell_metrics_spec.bats (59)
 
 | Test | Description |
 |------|-------------|
@@ -4761,14 +4761,21 @@ duplicate-target guards, and S7 `runtime.env` retirement (#507).
 | `refusal: a legacy backtick substitution is reported rather than guessed at (#994)` | - |
 | `limitation: a function body that is not a brace group is a finding, not a record (base#994)` | - |
 | `limitation: an arithmetic left shift is misread as a heredoc, and errs toward a finding (base#994)` | - |
-| `_run_nesting_depth: FAILS at depth 4, naming file and function (#994)` | - |
-| `_run_nesting_depth: passes at depth 3 (#994)` | - |
-| `_run_function_length: FAILS at 51 body code lines (#994)` | - |
-| `_run_function_length: passes at exactly 50 body code lines (#994)` | - |
-| `_run_positional_params: FAILS at 6 positional parameters (#994)` | - |
-| `_run_positional_params: passes at exactly 5 (#994)` | - |
-| `the three lints share ONE reader pass (#994)` | - |
-| `_run_shell_metrics: reports all three metrics in one run (#994)` | - |
+| `_run_nesting_depth: reports a depth-4 function by file, name and value whatever the verdict (#994)` | The row is what phase 3 works from, and it is printed whatever the verdict -- a run that showed the worklist only when the ceiling broke would be a lint nobody could act on between slices. The status is deliberately NOT asserted here: whether ONE violation fails depends on the ceiling, which every slice lowers, and pinning it would make this case need an edit each time. |
+| `_run_nesting_depth: FAILS one over the adoption ceiling, naming both figures (#994)` | The ceiling is the verdict, so this is the case that says what the gate is FOR: one more violation than the tree is carrying today fails, and the failure names both figures so the reader knows whether to fix the function or lower the number. |
+| `_run_nesting_depth: a population AT the ceiling passes (#994)` | The other side of the boundary, and the one that makes the ratchet usable at all: a population AT the ceiling passes, which is what lets a slice land without flattening all 23 functions at once. |
+| `_run_nesting_depth: passes at depth 3 (#994)` | The threshold's own boundary from below, and the case that stops the reader drifting one level: a three-deep function is the shape the limit was set to admit (65 functions in the tree sit exactly here), so an off-by-one in the counter would be visible as a green tree turning red on code nobody changed. |
+| `_run_function_length: reports a function at 51 body code lines (#994)` | The threshold's own boundary, one body code line over. It is the row and not the verdict for the same reason as the depth case above. |
+| `_run_function_length: FAILS one over the adoption ceiling (#994)` | Length carries the largest unflattened population of the three, so it is the ceiling most likely to be reached for by a change that wants to add one more long function rather than split it. |
+| `_run_function_length: passes at exactly 50 body code lines (#994)` | Exactly at the limit, which is where a length metric is most likely to be wrong by one -- the header line and the closing brace are both excluded, and this is the case that says so. |
+| `_run_positional_params: reports a function at 6 positional parameters (#994)` | Six positions is the first value past the threshold, and the parameter metric is the one the epic sized its first slice from, so the row's exact wording is what that slice reads. |
+| `_run_positional_params: FAILS one over the adoption ceiling (#994)` | The parameter ceiling is the lowest of the three and the first one a slice will drive to zero, so this is the case that will still be meaningful when the other two are still counting down. |
+| `_run_positional_params: passes at exactly 5 (#994)` | Five is the widest signature base admits, and the case that keeps the in/out nameref shape legal: two arrays in, one out and two scalars is a real function here, not a violation waiting to be counted. |
+| `the census names count, limit, ceiling and slack on a CLEAN run (#994)` | The census is the cost of the ceiling made visible -- slack is the room in which a new violation can land green -- and a cost nobody can see is one nobody closes. It prints on a CLEAN run too, which is the run where nobody would otherwise look. |
+| `each ceiling is ONE readonly integer, and the driver carries no exemption vocabulary (#994)` | One number per metric is what "no roster" has to mean in the code, and it is checkable: a ceiling that named sites would need a data structure or a vocabulary of exemption, and this refuses both. The header argues the case; without this the argument is the only thing holding it. |
+| `the three lints share ONE reader pass (#994)` | The one-reader claim in the driver header is the reason three lints live in one file, and it is a performance AND a correctness claim: three passes could disagree about where a function begins. This is the case that keeps the memoisation from being quietly lost. |
+| `_run_shell_metrics: reports all three metrics in one run (#994)` | The combined report is what `just test metrics` runs, so it has to say all three states in one pass rather than stopping at the first -- a report that stopped would hide two thirds of the tree behind whichever metric ran first. |
+| `_run_shell_metrics: FAILS when ONE metric is past its ceiling (#994)` | The combined report has three verdicts to reconcile and one exit status to say them in. Failing when ANY metric is past its own ceiling is what keeps it from being the loosest of the three -- the shape a caller would reach for if it reported the union but judged by the minimum. |
 
 ### test/bats/unit/smoke_harness_spec.bats (14)
 

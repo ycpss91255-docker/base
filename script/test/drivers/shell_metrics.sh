@@ -154,15 +154,26 @@
 # useless. The CI join is the host-direct primitive, which is what the
 # `lint-static` matrix already uses for every pure-bash lint.
 #
-# ── NOT in the default gate ──────────────────────────────────────────────────
+# ── NOT in the default gate, and what still blocks that ─────────────────────
 #
-# These three names are deliberately NOT in test.sh's `_LINT_TOOLS`. On
-# today's tree they report 102 violations across 89 files and 775
-# functions -- 26 over nesting depth, 69 over function length, 7 over
-# positional parameters; phase 3 flattens the tree in slices and phase 4
-# wires them in, on a clean tree, with the CI jobs the `_LINT_TOOLS`
-# completeness guard then demands. They are runnable now because phase 3
-# works from their output.
+# These three names are deliberately NOT in test.sh's `_LINT_TOOLS`.
+# Measured 2026-09-03 (base#994 phase 3, before its first flattening slice):
+# 108 violations across 93 files and 803 functions -- 23 over nesting
+# depth, 77 over function length, 8 over positional parameters. Phase 2
+# reported 102 on a smaller tree; the movement is the tree's, not the
+# reader's.
+#
+# The blocker is no longer "the tree is not clean" -- the adoption
+# ceilings below let a lint gate a tree that is still being flattened, and
+# they are why the tree does not have to be clean first. What is left is
+# structural, and it belongs to phase 4: `_LINT_TOOLS` is run INSIDE the
+# ci container, and this lint's population comes from the git index, which
+# a `git worktree` checkout cannot serve from inside the bind mount (its
+# `.git` is a file pointing at a path outside it). Joining the lint phase
+# therefore means giving the phase a host-direct leg, not adding three
+# strings to a table. Until then the entry points are `just test metrics`
+# and `test.sh --<metric>-only`, which is what CI's lint-static matrix
+# already uses for every pure-bash lint.
 #
 # ── The counting rules ───────────────────────────────────────────────────────
 #
@@ -327,9 +338,79 @@
 
 # The three implementation standards (base#994). They are constants here and
 # not a config surface: a threshold a caller can lower is a threshold.
+#
+# WHERE EACH NUMBER COMES FROM is not written here. It is PRD invariant 11,
+# amended by base#994 phase 3 to cover a magnitude: each value is the lowest one
+# that fails no correct function, and the measured distribution that answers
+# that question for each metric is in the amendment. A copy of the argument
+# beside the constants would be a second place to keep it true
+# (ADR-00000028).
 readonly _SM_MAX_DEPTH=3
 readonly _SM_MAX_LENGTH=50
 readonly _SM_MAX_PARAMS=5
+
+# ── The adoption ceilings ────────────────────────────────────────────────────
+#
+# A THRESHOLD says what the standard is. A CEILING says how much of the
+# tree has not been brought to it yet. They are different numbers with
+# different rules, and conflating them is how a quality bar becomes a
+# record of the worst code in the tree: the threshold above never moves
+# to make the tree pass -- that is the whole of ADR-00000029 -- and the
+# ceiling below may only ever go DOWN.
+#
+# Phase 2 measured the tree and left the lints ungated because 108
+# functions were over the three thresholds (23 depth, 77 length, 8
+# parameters, on 803 functions across 93 files). Phase 3 is the
+# flattening, and it does not fit in one reviewable PR: a single change
+# rewriting 108 functions across the shipped `dist/` tree and the test
+# drivers is one nobody can review, which is the shape ADR-00000014 rule
+# 3 already refuses for the same reason. So the population is closed in
+# slices, and between slices the lint has to be able to say something
+# other than "still red".
+#
+# THIS IS NOT THE BASELINE ADR-00000029 REJECTED, and the difference is
+# argued rather than asserted (see that ADR's amendment for base#994). The
+# rejected alternative was a hand-kept ROSTER: one entry per violating
+# site, which has to be regenerated when a file moves, drifts silently
+# against the tree (P2), cannot tell "fixed" from "no longer matches",
+# and states the gate as "the standard holds except in these 108 places".
+# A ceiling is one integer. It names no site, so it cannot excuse a
+# particular function and cannot be individually stale; it cannot be
+# wrong about which functions exist, because the count is recomputed from
+# the tree on every run; and it has no entries to decay. The person
+# ratifies a number the tree computed. It is the same instrument, and the
+# same argument, as the transition ceiling in drivers/catalog_description.sh
+# (base#999).
+#
+# THE COST, stated rather than papered over. Slack = ceiling - count. It
+# starts at 0 for all three and grows by one each time a function is
+# flattened without lowering the ceiling, and within that slack a NEW
+# violation can land green. That is a real weakening against a per-site
+# baseline, which would have caught it. What bounds it: every run prints
+# the census -- count, limit, ceiling, slack -- clean or not, so the slack
+# is a visible figure rather than an invisible category, and closing it is
+# a one-line PR. Raising a ceiling is one reviewable line, and the policy
+# is that it may only go down; that is NOT mechanically enforceable
+# without history, and this driver does not pretend otherwise.
+#
+# Considered and rejected:
+#   - per-file ceilings: 93 numbers instead of 3, no decision carried by
+#     the split, each acquiring its own slack. That is the roster again
+#     with a coarser key.
+#   - a ceiling on the WORST value (deepest, longest, widest) instead of
+#     the count: it would let 77 functions at 51 lines each land while
+#     reporting the tree improved, because the extreme is one function's
+#     property and adoption is a population's.
+#   - exact equality (fail when count != ceiling): the stronger ratchet,
+#     rejected on this repo's own evidence -- five self-declared totals
+#     every branch edits caused 61 conflicts in 65 merges
+#     (ADR-00000028). Every flattening PR and every new-function PR would
+#     edit the same three lines. A ceiling is edited only by a branch
+#     that ADDS a violation, which is precisely the branch a reviewer
+#     should be looking at.
+readonly _SM_DEPTH_CEILING=23
+readonly _SM_LENGTH_CEILING=77
+readonly _SM_PARAMS_CEILING=8
 
 # ── Reader state ─────────────────────────────────────────────────────────────
 #
@@ -1657,37 +1738,84 @@ _sm_variadic_count() {
   printf '%s' "${_n}"
 }
 
-# _sm_gate <metric> <limit> <label> <event> <remedy> -- the shared body of
-# the three lints. Sorted output, one row per function, the count named.
+# _sm_metric_facts <metric> -- the threshold, the adoption ceiling, the
+# human label and the die event of one metric, tab separated in that
+# order. The ONE place a metric name is matched to the constants that
+# bound it (P4): the three gates and the combined report all read it, so
+# a fourth caller cannot invent a fourth pairing.
+_sm_metric_facts() {
+  case "${1}" in
+    depth)
+      printf '%s\t%s\t%s\t%s' "${_SM_MAX_DEPTH}" "${_SM_DEPTH_CEILING}" \
+        'nesting depth' 'ci_nesting_depth' ;;
+    length)
+      printf '%s\t%s\t%s\t%s' "${_SM_MAX_LENGTH}" "${_SM_LENGTH_CEILING}" \
+        'function length' 'ci_function_length' ;;
+    params)
+      printf '%s\t%s\t%s\t%s' "${_SM_MAX_PARAMS}" "${_SM_PARAMS_CEILING}" \
+        'positional parameters' 'ci_positional_params' ;;
+    *) return 2 ;;
+  esac
+}
+
+# _sm_census <label> <count> <limit> <ceiling> -- the one line every run
+# prints, clean or not. Slack is the room a new violation could land in
+# green (see the ceiling header); a cost nobody can see is one nobody
+# closes, so it is printed rather than computed on request.
+_sm_census() {
+  local _label="${1}" _count="${2}" _limit="${3}" _ceiling="${4}"
+  if (( _count == 0 )); then
+    printf '%s lint: clean (%s function(s) in %s shell file(s), limit %s, ceiling %s, slack %s)\n' \
+      "${_label}" "${#_SM_R_NAME[@]}" "${#_SM_FILES[@]}" "${_limit}" \
+      "${_ceiling}" "${_ceiling}"
+    return 0
+  fi
+  printf '%s lint: %s function(s) over the limit of %s (%s function(s) in %s shell file(s), ceiling %s, slack %s)\n' \
+    "${_label}" "${_count}" "${_limit}" "${#_SM_R_NAME[@]}" \
+    "${#_SM_FILES[@]}" "${_ceiling}" "$(( _ceiling - _count ))"
+}
+
+# _sm_gate <metric> <remedy> -- the shared body of the three lints. Every
+# function past the THRESHOLD is printed, sorted, whatever the verdict --
+# those rows are the worklist phase 3 works from, and a report that
+# appeared only on failure would leave the slices with nothing to read.
+# The VERDICT is the adoption CEILING.
 _sm_gate() {
-  local _metric="${1}" _limit="${2}" _label="${3}" _event="${4}" _remedy="${5}"
+  local _metric="${1}" _remedy="${2}"
+  local _facts _limit _ceiling _label _event
+  if ! _facts="$(_sm_metric_facts "${_metric}")"; then
+    _die ci_shell_metrics "unknown metric '${_metric}'"
+    return 1
+  fi
+  IFS=$'\t' read -r _limit _ceiling _label _event <<<"${_facts}"
+
   local -a _rows=()
   _shell_metrics_violations "${_metric}" "${_limit}" _rows
   local _row
   for _row in ${_rows[@]+"${_rows[@]}"}; do
     printf '%s lint: %s\n' "${_label}" "${_row}"
   done
-  if (( ${#_rows[@]} > 0 )); then
+  _sm_census "${_label}" "${#_rows[@]}" "${_limit}" "${_ceiling}"
+
+  if (( ${#_rows[@]} > _ceiling )); then
     _die "${_event}" \
-      "${#_rows[@]} function(s) over the ${_label} limit of ${_limit}, across ${#_SM_FILES[@]} shell file(s) / ${#_SM_R_NAME[@]} function(s). ${_remedy}"
+      "${#_rows[@]} function(s) over the ${_label} limit of ${_limit}, against an adoption ceiling of ${_ceiling} (across ${#_SM_FILES[@]} shell file(s) / ${#_SM_R_NAME[@]} function(s)). The ceiling is the population #994 phase 3 has not flattened yet and it may only ever go DOWN: if this change added a function past the limit, split it rather than raising the number. ${_remedy}"
     return 1
   fi
-  printf '%s lint: clean (%s function(s) in %s shell file(s), limit %s)\n' \
-    "${_label}" "${#_SM_R_NAME[@]}" "${#_SM_FILES[@]}" "${_limit}"
   return 0
 }
 
 _run_nesting_depth() {
   echo "--- Running nesting depth lint ---"
   _shell_metrics_load || return 1
-  _sm_gate depth "${_SM_MAX_DEPTH}" "nesting depth" ci_nesting_depth \
+  _sm_gate depth \
     "Depth is what happens when the guard clause at the top was not written (PRD design principle P1, ADR-00000029): validate, reject, return, and the body that is left is one level shallower. A 'case' arm and a brace group add no level here, so a reported depth is real nesting."
 }
 
 _run_function_length() {
   echo "--- Running function length lint ---"
   _shell_metrics_load || return 1
-  _sm_gate length "${_SM_MAX_LENGTH}" "function length" ci_function_length \
+  _sm_gate length \
     "Length here counts BODY CODE lines only -- blank lines, comment lines and heredoc bodies are already excluded -- so a reported figure is that many statements under one name. Split it at the seam its guard clauses already suggest."
 }
 
@@ -1698,7 +1826,7 @@ _run_positional_params() {
   _var="$(_sm_variadic_count)"
   printf 'positional parameters: advisory: %s function(s) are variadic ("$@" / "$*", or a shift this reader cannot bound); their arity is not bounded by this metric\n' \
     "${_var}"
-  _sm_gate params "${_SM_MAX_PARAMS}" "positional parameters" ci_positional_params \
+  _sm_gate params \
     "The figure is the highest index the function can reach, shift offsets included. Past five, pass a record instead of a position: an options struct, an associative array, or a smaller function."
 }
 
@@ -1706,32 +1834,42 @@ _run_positional_params() {
 # first. This is what `just test metrics` runs and what phase 3 works
 # from: a report that stopped at the first metric would hide two thirds of
 # the tree's state behind whichever lint happened to run first.
+#
+# It judges by the same three ceilings the individual gates do, and fails
+# when ANY metric is past its own. Judging the sum against a sum would let
+# a slice that flattened ten long functions pay for a new one at depth 5.
 _run_shell_metrics() {
   echo "--- Running shell implementation-standard metrics (nesting depth, function length, positional parameters) ---"
   _shell_metrics_load || return 1
 
-  local -a _depth=() _length=() _params=()
-  _shell_metrics_violations depth "${_SM_MAX_DEPTH}" _depth
-  _shell_metrics_violations length "${_SM_MAX_LENGTH}" _length
-  _shell_metrics_violations params "${_SM_MAX_PARAMS}" _params
+  local _metric _facts _limit _ceiling _label _row
+  local _total=0 _over=0
+  local -a _rows=()
+  for _metric in depth length params; do
+    _facts="$(_sm_metric_facts "${_metric}")"
+    IFS=$'\t' read -r _limit _ceiling _label _ <<<"${_facts}"
+    _rows=()
+    _shell_metrics_violations "${_metric}" "${_limit}" _rows
+    printf '\n== %s > %s (ceiling %s) ==\n' "${_label}" "${_limit}" "${_ceiling}"
+    for _row in ${_rows[@]+"${_rows[@]}"}; do printf '%s\n' "${_row}"; done
+    _sm_census "${_label}" "${#_rows[@]}" "${_limit}" "${_ceiling}"
+    _total=$(( _total + ${#_rows[@]} ))
+    (( ${#_rows[@]} > _ceiling )) && _over=$(( _over + 1 ))
+  done
 
-  local _row
-  printf '\n== nesting depth > %s ==\n' "${_SM_MAX_DEPTH}"
-  for _row in ${_depth[@]+"${_depth[@]}"}; do printf '%s\n' "${_row}"; done
-  printf '\n== function length > %s ==\n' "${_SM_MAX_LENGTH}"
-  for _row in ${_length[@]+"${_length[@]}"}; do printf '%s\n' "${_row}"; done
-  printf '\n== positional parameters > %s ==\n' "${_SM_MAX_PARAMS}"
-  for _row in ${_params[@]+"${_params[@]}"}; do printf '%s\n' "${_row}"; done
-
-  local _total=$(( ${#_depth[@]} + ${#_length[@]} + ${#_params[@]} ))
-  printf '\n%s shell file(s), %s function(s), %s variadic; %s over nesting depth, %s over function length, %s over positional parameters\n' \
+  printf '\n%s shell file(s), %s function(s), %s variadic; %s function(s) over an implementation standard, %s metric(s) past their adoption ceiling\n' \
     "${#_SM_FILES[@]}" "${#_SM_R_NAME[@]}" "$(_sm_variadic_count)" \
-    "${#_depth[@]}" "${#_length[@]}" "${#_params[@]}"
+    "${_total}" "${_over}"
 
-  if (( _total > 0 )); then
+  if (( _over > 0 )); then
     _die ci_shell_metrics \
-      "${_total} implementation-standard violation(s) across ${#_SM_FILES[@]} shell file(s). These three lints are NOT in the default gate yet (base#994 phase 4 wires them once phase 3 has flattened the tree); this report is what phase 3 works from."
+      "${_over} metric(s) past their adoption ceiling, ${_total} violation(s) in total across ${#_SM_FILES[@]} shell file(s). The ceilings are the population #994 phase 3 has not flattened yet and they may only ever go DOWN."
     return 1
+  fi
+  if (( _total > 0 )); then
+    printf 'shell implementation-standard metrics: %s violation(s), all within the adoption ceilings (#994 phase 3 is still flattening them)\n' \
+      "${_total}"
+    return 0
   fi
   echo "shell implementation-standard metrics: clean"
   return 0

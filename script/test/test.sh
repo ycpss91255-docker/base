@@ -251,12 +251,13 @@ _run_lint_tool() {
     # report (base#994 phase 2). Dispatchable here -- this is the one
     # place a lint driver is run, and the ERR trap above is what names
     # the tool when one dies on a signal -- but deliberately ABSENT from
-    # _LINT_TOOLS: on today's tree they report 102 violations, so phase 4
-    # adds them to the table (and to CI, which the table's completeness
-    # guard then demands) once phase 3 has flattened the tree. They also
-    # have no `--lint --<tool>` in-container narrowing, because their
-    # population comes from the git index and a `git worktree` checkout's
-    # `.git` is a file pointing outside the container's bind mount.
+    # _LINT_TOOLS. Each judges by an adoption ceiling (base#994 phase 3), so
+    # what keeps them out of the table is no longer an unflattened tree:
+    # it is that _LINT_TOOLS runs INSIDE the ci container while their
+    # population comes from the git index, and a `git worktree`
+    # checkout's `.git` is a file pointing outside the bind mount. Giving
+    # the lint phase a host-direct leg is phase 4's, along with the CI
+    # jobs the table's completeness guard then demands.
     nesting-depth)    _run_nesting_depth ;;
     function-length)  _run_function_length ;;
     positional-params) _run_positional_params ;;

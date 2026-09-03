@@ -58,6 +58,15 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 ## [Unreleased]
 
 ### Changed
+- **the three implementation-standard metric lints judge by an adoption
+  ceiling (refs #994)** -- `just test metrics` still prints every function
+  past depth 3 / 50 body code lines / 5 positional parameters, and now fails
+  only ABOVE a per-metric ceiling: one readonly integer in
+  `script/test/drivers/shell_metrics.sh` recording how much of the tree #994
+  phase 3 has not flattened yet, which may only ever go down. Every run
+  prints count / limit / ceiling / slack, so the room a new violation could
+  land in green is a figure on the log rather than an invisible category.
+  Not the per-site baseline ADR-00000029 rejected: it names no function.
 - **a test's description is written above the `@test`, and `doc/test/` is
   generated from it (closes #922, amends ADR-00000028)** -- write
   `# why: <prose>` above a test; `just test sync-docs` renders the catalogue
