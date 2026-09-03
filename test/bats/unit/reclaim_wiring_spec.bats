@@ -273,6 +273,26 @@ setup() {
   assert_success
 }
 
+# why: the help is four translations of one promise, and a half-updated one is
+# worse than an untouched one: it tells a reader the mode collects an image
+# and then tells them only the network carries the proof of ownership,
+# which is the sentence someone reaches for when deciding whether the mode
+# can be trusted with an image.
+@test "every language's --orphan-projects help stamps the path on both artifacts (#997)" {
+  local _p
+  # The phrase each translation uses for "onto both", one per language:
+  # zh-TW, zh-CN, ja, en.
+  for _p in '寫進兩者的' '写进两者的' '両方の' 'onto both'; do
+    run grep -F -- "${_p}" "${PRUNESH}"
+    assert_success
+  done
+  # and none of them still promises that the network alone carries it.
+  for _p in '寫進 network 的' '写进 network 的'; do
+    run grep -F -- "${_p}" "${PRUNESH}"
+    assert_failure
+  done
+}
+
 @test "--all does not quietly acquire the scoped reclaim" {
   # --all is the daemon-wide hammer and stays exactly what it was:
   # networks + images + builder. Widening it here would make every

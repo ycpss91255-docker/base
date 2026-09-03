@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3723 tests**.
+Unit specs under `test/bats/unit/`: **3724 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3339,7 +3339,7 @@ the capture (#965).
 | `_capture_readme_baseline: a capture the source changed under is DISCARDED, not used (#965)` | A torn read must never become the baseline a verdict rests on |
 | `_capture_readme_baseline: a source that never settles FAILS loudly, it does not hand back a torn set (#965)` | No snapshot means nothing to assert on; say so rather than pick a read |
 
-### test/bats/unit/reclaim_wiring_spec.bats (31)
+### test/bats/unit/reclaim_wiring_spec.bats (32)
 
 | Test | Description |
 |------|-------------|
@@ -3362,6 +3362,7 @@ the capture (#965).
 | `stop.sh's reclaim cannot fail the stop` | - |
 | `the verbs that BEGIN a flow do not reclaim` | - |
 | `prune.sh exposes the scoped reclaim as its own mode` | - |
+| `every language's --orphan-projects help stamps the path on both artifacts (#997)` | the help is four translations of one promise, and a half-updated one is worse than an untouched one: it tells a reader the mode collects an image and then tells them only the network carries the proof of ownership, which is the sentence someone reaches for when deciding whether the mode can be trusted with an image. |
 | `--all does not quietly acquire the scoped reclaim` | - |
 | `the daemon-wide prune targets are untouched` | - |
 | `the scoped reclaim is reachable through just, with no new namespace` | - |
