@@ -9,26 +9,31 @@ setup() {
 # Structure: required files exist
 # ════════════════════════════════════════════════════════════════════
 
+# why: File check
 @test "build.sh exists and is executable" {
   assert [ -f /source/dist/script/docker/wrapper/build.sh ]
   assert [ -x /source/dist/script/docker/wrapper/build.sh ]
 }
 
+# why: File check
 @test "run.sh exists and is executable" {
   assert [ -f /source/dist/script/docker/wrapper/run.sh ]
   assert [ -x /source/dist/script/docker/wrapper/run.sh ]
 }
 
+# why: File check
 @test "exec.sh exists and is executable" {
   assert [ -f /source/dist/script/docker/wrapper/exec.sh ]
   assert [ -x /source/dist/script/docker/wrapper/exec.sh ]
 }
 
+# why: File check
 @test "stop.sh exists and is executable" {
   assert [ -f /source/dist/script/docker/wrapper/stop.sh ]
   assert [ -x /source/dist/script/docker/wrapper/stop.sh ]
 }
 
+# why: File check
 @test "setup.sh exists and is executable" {
   assert [ -f /source/dist/script/docker/wrapper/setup.sh ]
   assert [ -x /source/dist/script/docker/wrapper/setup.sh ]
@@ -38,11 +43,13 @@ setup() {
 # Structure: test.sh and justfile.test exist
 # ════════════════════════════════════════════════════════════════════
 
+# why: File check
 @test "test.sh exists and is executable" {
   assert [ -f /source/script/test/test.sh ]
   assert [ -x /source/script/test/test.sh ]
 }
 
+# why: Shell convention
 @test "test.sh uses set -euo pipefail" {
   run grep "set -euo pipefail" /source/script/test/test.sh
   assert_success
@@ -55,14 +62,17 @@ setup() {
 # carries a single runner (just); `just test <recipe>` mirrors
 # the former `make -f Makefile.ci <target>`.
 
+# why: File check
 @test "justfile.test exists (template CI gate)" {
   assert [ -f /source/script/test/justfile.test ]
 }
 
+# why: File absence (single runner)
 @test "Makefile.ci no longer exists (retired for justfile.test)" {
   assert [ ! -e /source/Makefile.ci ]
 }
 
+# why: just recipe
 @test "justfile.test default recipe runs the suite (bare just test)" {
   # min->max (ADR-00000011 #3): bare `just test` runs the whole self-test,
   # so the namespace default recipe invokes test.sh.
@@ -72,6 +82,7 @@ setup() {
   assert_success
 }
 
+# why: just recipe
 @test "justfile.test has lint recipe" {
   # lint takes *args so it can forward --shellcheck / --hadolint
   # narrowing flags (`lint *args:`), so match the recipe name, not `lint:`.
@@ -79,6 +90,7 @@ setup() {
   assert_success
 }
 
+# why: `lint *args` forwards --shellcheck/--hadolint
 @test "justfile.test lint recipe forwards args + runs all linters by default (#650)" {
   # `just test lint` (no flag) runs --lint (all linters: shellcheck +
   # hadolint via the test-tools container); `--shellcheck` / `--hadolint`
@@ -90,6 +102,7 @@ setup() {
   assert_success
 }
 
+# why: just recipe
 @test "justfile.test has coverage recipe" {
   # the recipe takes an optional shard arg (`just test coverage 1/4`)
   # for the sharded kcov path; bare `just test coverage` still runs the
@@ -121,26 +134,32 @@ setup() {
 # Structure: test directory layout
 # ════════════════════════════════════════════════════════════════════
 
+# why: Directory structure
 @test "dist smoke test_helper.bash exists under shared/" {
   assert [ -f /source/dist/test/bats/smoke/shared/test_helper.bash ]
 }
 
+# why: Directory structure
 @test "dist smoke shared entrypoint spec exists under shared/" {
   assert [ -f /source/dist/test/bats/smoke/shared/entrypoint.bats ]
 }
 
+# why: Directory structure
 @test "dist smoke script_help.bats exists under devel-test/" {
   assert [ -f /source/dist/test/bats/smoke/devel-test/script_help.bats ]
 }
 
+# why: Directory structure
 @test "dist smoke display_env.bats exists under devel-test/" {
   assert [ -f /source/dist/test/bats/smoke/devel-test/display_env.bats ]
 }
 
+# why: Directory structure
 @test "old flat dist/test/smoke/ layout is gone" {
   assert [ ! -d /source/dist/test/smoke ]
 }
 
+# why: Directory structure
 @test "test/bats/unit/ directory exists" {
   assert [ -d /source/test/bats/unit ]
 }
@@ -149,14 +168,17 @@ setup() {
 # Structure: doc directory layout
 # ════════════════════════════════════════════════════════════════════
 
+# why: Directory structure
 @test "doc/readme/ directory exists" {
   assert [ -d /source/doc/readme ]
 }
 
+# why: Directory structure
 @test "doc/test/ directory exists" {
   assert [ -d /source/doc/test ]
 }
 
+# why: Directory structure
 @test "doc/changelog/ directory exists" {
   assert [ -d /source/doc/changelog ]
 }
@@ -186,21 +208,25 @@ setup() {
 # Shell conventions: set -euo pipefail
 # ════════════════════════════════════════════════════════════════════
 
+# why: Shell convention
 @test "build.sh uses set -euo pipefail" {
   run grep "set -euo pipefail" /source/dist/script/docker/wrapper/build.sh
   assert_success
 }
 
+# why: Force rebuild flag
 @test "build.sh supports --no-cache flag" {
   run grep -E '\-\-no-cache' /source/dist/script/docker/wrapper/build.sh
   assert_success
 }
 
+# why: NO_CACHE forwarded
 @test "build.sh passes --no-cache to docker compose build when set" {
   run grep -E 'NO_CACHE.*=.*true' /source/dist/script/docker/wrapper/build.sh
   assert_success
 }
 
+# why: Default keep tools
 @test "build.sh keeps test-tools image by default (cleanup gated by CLEAN_TOOLS)" {
   # Default behavior: do NOT auto-remove test-tools:local
   # cleanup must be conditional on CLEAN_TOOLS
@@ -208,26 +234,31 @@ setup() {
   assert_success
 }
 
+# why: Clean tools flag
 @test "build.sh supports --clean-tools flag" {
   run grep -E '\-\-clean-tools' /source/dist/script/docker/wrapper/build.sh
   assert_success
 }
 
+# why: CLEAN_TOOLS forwarded
 @test "build.sh removes test-tools image when --clean-tools is set" {
   run grep -E 'CLEAN_TOOLS.*=.*true' /source/dist/script/docker/wrapper/build.sh
   assert_success
 }
 
+# why: Shell convention
 @test "run.sh uses set -euo pipefail" {
   run grep "set -euo pipefail" /source/dist/script/docker/wrapper/run.sh
   assert_success
 }
 
+# why: Shell convention
 @test "exec.sh uses set -euo pipefail" {
   run grep "set -euo pipefail" /source/dist/script/docker/wrapper/exec.sh
   assert_success
 }
 
+# why: Shell convention
 @test "stop.sh uses set -euo pipefail" {
   run grep "set -euo pipefail" /source/dist/script/docker/wrapper/stop.sh
   assert_success
@@ -268,11 +299,13 @@ setup() {
 # they broke on every internal rename (shim, rename) and could
 # not catch a bypass.
 
+# why: Uses shared lib
 @test "exec.sh loads .env via _load_env helper" {
   run grep -E '_load_env .*\.env' /source/dist/script/docker/wrapper/exec.sh
   assert_success
 }
 
+# why: Uses shared lib
 @test "stop.sh loads .env via _load_env helper" {
   run grep -E '_load_env .*\.env' /source/dist/script/docker/wrapper/stop.sh
   assert_success
@@ -293,6 +326,7 @@ setup() {
   assert_success
 }
 
+# why: No more orphan
 @test "stop.sh no longer needs orphan cleanup (run.sh devel uses up not run)" {
   # v0.6.6: run.sh devel switched to compose up + exec, so no more orphan
   # containers from `compose run --name`. The orphan cleanup line is removed.
@@ -300,6 +334,7 @@ setup() {
   assert_failure
 }
 
+# why: up + exec model
 @test "run.sh devel target uses compose up -d (not compose run --name)" {
   # Regression: foreground devel previously used `compose run --name` which
   # created a one-off container that `./exec.sh` (compose exec) couldn't see,
@@ -308,6 +343,7 @@ setup() {
   assert_success
 }
 
+# why: up + exec model
 @test "run.sh devel branch uses compose exec to enter shell" {
   run grep -E '_compose_project exec' /source/dist/script/docker/wrapper/run.sh
   assert_success
@@ -318,6 +354,7 @@ setup() {
 # wrapper_compose_dispatch_spec.bats via the dry-run output, instead
 # of grepping the `_app_cleanup` identifier (renamed in).
 
+# why: One-shot stages: no-CMD up, CMD run --rm
 @test "run.sh non-devel TARGET: foreground 'up', CMD-override 'run --rm' (#458/#679)" {
   # non-devel + no CMD uses foreground `compose up` so the Dockerfile CMD
   # runs.
@@ -331,6 +368,7 @@ setup() {
   assert_success
 }
 
+# why: Old pattern gone
 @test "run.sh devel branch does not use 'compose run --name'" {
   # The old buggy pattern must be gone for devel; only run --rm for one-shots
   run grep -E 'run .*--name' /source/dist/script/docker/wrapper/run.sh
@@ -341,6 +379,7 @@ setup() {
 # single-instance container naming
 # ════════════════════════════════════════════════════════════════════
 
+# why: collision
 @test "run.sh refuses when the default container is already running" {
   # The refusal is the GUARD, not the wording. The old assertion greped
   # the whole file for `already running|already exists`, which the i18n
@@ -369,6 +408,7 @@ setup() {
   assert_output --partial 'exit 1'
 }
 
+# why: single-instance (no flag)
 @test "base is single-instance: no --instance flag remains (#600)" {
   run grep -E '\-\-instance' /source/dist/script/docker/wrapper/run.sh
   assert_failure
@@ -378,6 +418,7 @@ setup() {
   assert_failure
 }
 
+# why: single-instance (no suffix)
 @test "base is single-instance: no INSTANCE_SUFFIX remains (#600)" {
   run grep -E 'INSTANCE_SUFFIX' /source/dist/script/docker/wrapper/run.sh
   assert_failure
@@ -393,41 +434,49 @@ setup() {
 # --dry-run flag (PR B)
 # ════════════════════════════════════════════════════════════════════
 
+# why: --dry-run
 @test "build.sh supports --dry-run flag" {
   run grep -E '\-\-dry-run' /source/dist/script/docker/wrapper/build.sh
   assert_success
 }
 
+# why: --dry-run
 @test "run.sh supports --dry-run flag" {
   run grep -E '\-\-dry-run' /source/dist/script/docker/wrapper/run.sh
   assert_success
 }
 
+# why: --dry-run
 @test "exec.sh supports --dry-run flag" {
   run grep -E '\-\-dry-run' /source/dist/script/docker/wrapper/exec.sh
   assert_success
 }
 
+# why: --dry-run
 @test "stop.sh supports --dry-run flag" {
   run grep -E '\-\-dry-run' /source/dist/script/docker/wrapper/stop.sh
   assert_success
 }
 
+# why: --dry-run help
 @test "build.sh -h shows --dry-run in help" {
   run bash -c "bash /source/dist/script/docker/wrapper/build.sh -h 2>&1"
   assert_output --partial "--dry-run"
 }
 
+# why: --dry-run help
 @test "run.sh -h shows --dry-run in help" {
   run bash -c "bash /source/dist/script/docker/wrapper/run.sh -h 2>&1"
   assert_output --partial "--dry-run"
 }
 
+# why: --dry-run help
 @test "exec.sh -h shows --dry-run in help" {
   run bash -c "bash /source/dist/script/docker/wrapper/exec.sh -h 2>&1"
   assert_output --partial "--dry-run"
 }
 
+# why: --dry-run help
 @test "stop.sh -h shows --dry-run in help" {
   run bash -c "bash /source/dist/script/docker/wrapper/stop.sh -h 2>&1"
   assert_output --partial "--dry-run"
@@ -437,6 +486,7 @@ setup() {
 # exec.sh container precheck (PR B)
 # ════════════════════════════════════════════════════════════════════
 
+# why: precheck asks compose
 @test "exec.sh checks the service is running before exec (#920)" {
   # The precheck asks the shared probe rather than spelling the query
   # inline: run.sh asks the identical question, and the two inline copies
@@ -463,6 +513,7 @@ setup() {
   assert_success
 }
 
+# why: compose owns the derived name
 @test "no wrapper or wrapper library reconstructs a container name from USER_NAME (#920)" {
   # The derived-name reconstruction is what made the precheck a second
   # answerer to "what is this container called". Compose owns that name now;
@@ -643,12 +694,14 @@ ALLOWED
   }
 }
 
+# why: friendly hint
 @test "exec.sh precheck error mentions run.sh hint" {
   # Friendly error pointing user at ./run.sh
   run grep -E 'run\.sh' /source/dist/script/docker/wrapper/exec.sh
   assert_success
 }
 
+# why: precheck e2e
 @test "exec.sh exits non-zero with friendly hint when container not running" {
   # Simulate a tmp repo with .env so exec.sh gets past _load_env, then call
   # without docker on PATH so the precheck fails (no container can be found).
@@ -673,6 +726,7 @@ EOF
   rm -rf "${_tmp}"
 }
 
+# why: dry-run e2e
 @test "exec.sh --dry-run skips precheck and prints compose command" {
   local _tmp
   _tmp="$(mktemp -d)"
@@ -703,6 +757,7 @@ EOF
   assert [ -f /source/dist/script/docker/lib/i18n.sh ]
 }
 
+# why: bats-mock available in test image
 @test "Dockerfile.test-tools includes bats-mock" {
   run grep 'bats-mock' /source/dockerfile/Dockerfile.test-tools
   assert_success
@@ -731,6 +786,8 @@ EOF
     || fail "grep errored (${status}), it did not merely fail to match"
 }
 
+# why: The fail-closed half of compose_host_identity_spec's runtime `docker
+# compose version` skip
 @test "Dockerfile.test-tools installs the docker compose plugin (docker-cli-compose)" {
   # The runtime counterpart of this assertion
   # (test/bats/integration/compose_host_identity_spec.bats, which drives
@@ -750,6 +807,8 @@ EOF
   assert_success
 }
 
+# why: The fail-closed half of deploy_spec's runtime `command -v shellcheck`
+# skip
 @test "Dockerfile.test-tools COPYs shellcheck + hadolint into the final image" {
   # The runtime counterpart of this assertion (deploy_spec's generated
   # launcher being ShellCheck-clean) can only skip when the binary is
@@ -762,6 +821,7 @@ EOF
   assert_success
 }
 
+# why: kcov compiled from source (not in alpine repos)
 @test "Dockerfile.test-tools source-builds kcov in a builder stage (#686)" {
   # kcov is not packaged in any alpine repo, so it is compiled from source
   # in a discardable builder stage and COPY'd into the final image. This
@@ -779,12 +839,14 @@ EOF
   assert_success
 }
 
+# why: kcov binary present in final image
 @test "Dockerfile.test-tools COPYs the kcov binary into the final image (#686)" {
   run grep -E '^COPY --from=kcov-builder .*kcov' \
     /source/dockerfile/Dockerfile.test-tools
   assert_success
 }
 
+# why: kcov runtime libs (libstdc++/libcurl/libdw/...) present
 @test "Dockerfile.test-tools installs kcov's runtime shared libs in the final stage (#686)" {
   # The source-built kcov binary links against these runtime libs; without
   # them it fails to load (verified via ldd in the spike). Pin them so
@@ -795,6 +857,7 @@ EOF
   assert_success
 }
 
+# why: dead make dependency stays out of final image
 @test "Dockerfile.test-tools no longer installs make into the final image (single runner: just)" {
   # make was retired with Makefile.ci; the integration tests now exercise
   # the downstream justfile (`just upgrade-check`), so the dead make
@@ -813,6 +876,7 @@ EOF
   assert_success
 }
 
+# why: multi-arch build regression
 @test "Dockerfile.test-tools ARG TARGETARCH has no default value (must not shadow BuildKit auto-inject)" {
   # Regression guard: `ARG TARGETARCH=amd64` with a default shadows
   # BuildKit's per-platform auto-inject (moby/buildkit#3403), which
@@ -855,11 +919,13 @@ EOF
   assert_success
 }
 
+# why: _detect_lang in i18n.sh
 @test "i18n.sh defines _detect_lang function" {
   run grep -E '^_detect_lang\(\)' /source/dist/script/docker/lib/i18n.sh
   assert_success
 }
 
+# why: bootstrap dispatch, not the comment naming _lib.sh
 @test "build.sh sources lib/bootstrap.sh (which sources _lib.sh)" {
   # The wrapper does not source _lib.sh itself. It searches the
   # candidate paths for lib/bootstrap.sh and sources THAT; bootstrap.sh
@@ -876,6 +942,7 @@ EOF
   assert_success
 }
 
+# why: bootstrap dispatch, not the comment naming _lib.sh
 @test "run.sh sources lib/bootstrap.sh (which sources _lib.sh)" {
   # See build.sh above for why the dispatch is what is pinned.
   run code_grep -F 'for _bootstrap_cand in' \
@@ -886,6 +953,7 @@ EOF
   assert_success
 }
 
+# why: bootstrap dispatch, not the comment naming _lib.sh
 @test "exec.sh sources lib/bootstrap.sh (which sources _lib.sh)" {
   # See build.sh above for why the dispatch is what is pinned.
   run code_grep -F 'for _bootstrap_cand in' \
@@ -896,6 +964,7 @@ EOF
   assert_success
 }
 
+# why: bootstrap dispatch, not the comment naming _lib.sh
 @test "stop.sh sources lib/bootstrap.sh (which sources _lib.sh)" {
   # See build.sh above for why the dispatch is what is pinned.
   run code_grep -F 'for _bootstrap_cand in' \
@@ -906,6 +975,7 @@ EOF
   assert_success
 }
 
+# why: the _lib.sh claim asserted where it is true
 @test "lib/bootstrap.sh sources _lib.sh (the claim the wrappers delegate)" {
   # The wrapper-side half of this claim lives in the four specs above,
   # which pin the bootstrap dispatch. This is the other half, asserted
@@ -916,12 +986,14 @@ EOF
   assert_success
 }
 
+# why: _lib delegates i18n
 @test "_lib.sh sources i18n.sh (delegates language detection)" {
   run code_grep -E '^[[:space:]]*(source|\.)[[:space:]].*i18n\.sh' \
     /source/dist/script/docker/lib/_lib.sh
   assert_success
 }
 
+# why: setup.sh uses shared i18n
 @test "setup.sh sources i18n.sh" {
   # Anchored for the same reason as the bootstrap specs above: the
   # unanchored whole-file grep was also satisfied by the header comment
@@ -1130,6 +1202,8 @@ _stage_lint_layout() {
   (( _log_line < _wd_line ))
 }
 
+# why: Both source lines wrapped in `[[ -r ]]`, matching the logrotate.sh
+# pattern
 @test "dockerfile/entrypoint.sh guards both lib sources with a readability test (#842)" {
   # The runtime stage's logging/watchdog COPYs are opt-in and init.sh seeds
   # this entrypoint verbatim into every repo, so an image that skipped them
@@ -1142,6 +1216,8 @@ _stage_lint_layout() {
   assert_success
 }
 
+# why: Opt-out runtime image: reaches `exec`, no stderr, no strict-mode
+# abort
 @test "dockerfile/entrypoint.sh execs cleanly under set -euo pipefail with the libs absent (#842)" {
   # The observable half of the guard: with neither helper installed the
   # entrypoint must still reach `exec` -- no missing-file stderr, and no
@@ -1178,6 +1254,7 @@ _stage_lint_layout() {
   assert_output "1"
 }
 
+# why: No duplication
 @test "setup.sh does not redefine _detect_lang" {
   # setup.sh is not COPY'd into consumer /lint stage, so no fallback needed
   run grep -cE '^_detect_lang\(\)' /source/dist/script/docker/wrapper/setup.sh
@@ -1222,6 +1299,7 @@ _stage_lint_layout() {
   assert_output "regenerating"
 }
 
+# why: structural guard for #101 class
 @test "build.sh does not source setup.sh (#49 Phase B-1)" {
   # Structural guard for the fix: B-1 replaced build.sh's
   # `source "${_setup}"` + `_check_setup_drift "${FILE_PATH}"` with a
@@ -1232,6 +1310,7 @@ _stage_lint_layout() {
   assert_output "0"
 }
 
+# why: structural guard for #101 class
 @test "run.sh does not source setup.sh (#49 Phase B-1)" {
   # Mirror of build.sh structural guard above.
   run grep -cE '^[[:space:]]*source[[:space:]]+"\$\{_setup\}"' /source/dist/script/docker/wrapper/run.sh
@@ -1252,6 +1331,7 @@ _stage_lint_layout() {
 # upgrade.sh
 # ════════════════════════════════════════════════════════════════════
 
+# why: Version file check
 @test ".version file exists in template root" {
   # Semver with optional pre-release (e.g. v0.10.0-rc1). Accepts plain
   # `vX.Y.Z` and `vX.Y.Z-<identifiers>` per semver §9 so the RC release
@@ -1269,6 +1349,7 @@ _stage_lint_layout() {
   assert_success
 }
 
+# why: Legacy refs purged
 @test "upgrade.sh does not reference legacy VERSION or .template_version" {
   # After the .version rename, upgrade.sh must not mention either
   # legacy filename — no backward-compat fallback is carried.
@@ -1277,27 +1358,32 @@ _stage_lint_layout() {
   assert_output "0"
 }
 
+# why: Sync symlinks
 @test "upgrade.sh runs init.sh after subtree pull" {
   run grep -E 'init\.sh' /source/dist/script/base/upgrade.sh
   assert_success
 }
 
+# why: Flag exists
 @test "upgrade.sh supports --gen-conf flag" {
   run grep -E '\-\-gen-conf' /source/dist/script/base/upgrade.sh
   assert_success
 }
 
+# why: Delegation
 @test "upgrade.sh --gen-conf delegates to init.sh --gen-conf" {
   run grep -E 'init\.sh.*--gen-conf' /source/dist/script/base/upgrade.sh
   assert_success
 }
 
+# why: Help text
 @test "upgrade.sh --help mentions --gen-conf" {
   run bash -c "bash /source/dist/script/base/upgrade.sh --help 2>&1"
   assert_success
   assert_output --partial "--gen-conf"
 }
 
+# why: sed regression
 @test "upgrade.sh updates main.yaml @tag without clobbering release-worker.yaml" {
   # Regression: a greedy sed pattern .*@v[0-9.]* matched both build-worker
   # and release-worker references, replacing both with build-worker.yaml@<ver>
@@ -1339,6 +1425,7 @@ EOF
   rm -rf "${_tmp}"
 }
 
+# why: `-rcN-rcN` regression
 @test "upgrade.sh main.yaml sed handles semver pre-release tags (RC → RC)" {
   # Regression: the previous `[0-9.]*` character class stopped at the
   # first `-`, so upgrading from an existing RC tag left the old
@@ -1379,6 +1466,7 @@ EOF
   rm -rf "${_tmp}"
 }
 
+# why: RC → stable cleanup
 @test "upgrade.sh main.yaml sed handles stable → stable + RC → stable transitions" {
   # Edge cases around the pre-release group: from plain semver to plain,
   # and from RC back to plain stable (e.g. v0.10.0-rc2 → v0.10.0).
@@ -1420,6 +1508,7 @@ EOF
 # build-worker.yaml: GHCR test-tools migration (D plan)
 # ════════════════════════════════════════════════════════════════════
 
+# why: v0.9.13 GHCR migration
 @test "build-worker.yaml: no legacy in-job test-tools build step" {
   # The old `Build test-tools image` step is replaced by GHCR pull
   # via the TEST_TOOLS_IMAGE build-arg. If it reappears, CI will hit
@@ -1431,6 +1520,7 @@ EOF
   assert_output "0"
 }
 
+# why: v0.10.1 input replaces GITHUB_WORKFLOW_REF parse
 @test "build-worker.yaml: declares test_tools_version input" {
   # Replaces the v0.10.0 GITHUB_WORKFLOW_REF auto-parse, which read the
   # caller's own tag ref (e.g. a downstream repo's v1.5.0) rather than
@@ -1450,6 +1540,7 @@ EOF
   assert_output --partial '"latest"'
 }
 
+# why: regression guard
 @test "build-worker.yaml: does not resurrect the GITHUB_WORKFLOW_REF parse step" {
   # Regression guard: the legacy auto-parse step must not come back.
   # Comments referencing it are fine (they explain the deprecation).
@@ -1481,6 +1572,7 @@ EOF
 # Dockerfile.example: TEST_TOOLS_IMAGE ARG + named stage
 # ════════════════════════════════════════════════════════════════════
 
+# why: version-scoped tag: no bare-tag ARG default (#828)
 @test "Dockerfile.example has ARG TEST_TOOLS_IMAGE with no bare test-tools:local default" {
   local _df="/source/dist/dockerfile/Dockerfile"
   assert_spec_subject "${_df}" \
@@ -1494,6 +1586,7 @@ EOF
   assert_failure
 }
 
+# why: named stage alias
 @test "Dockerfile.example FROM \${TEST_TOOLS_IMAGE} AS test-tools-stage" {
   local _df="/source/dist/dockerfile/Dockerfile"
   assert_spec_subject "${_df}" \
@@ -1502,6 +1595,7 @@ EOF
   assert_success
 }
 
+# why: stage rename migration
 @test "Dockerfile.example test stage copies from test-tools-stage, not test-tools:local" {
   local _df="/source/dist/dockerfile/Dockerfile"
   assert_spec_subject "${_df}" \
@@ -1521,6 +1615,7 @@ EOF
 
 # ──generalized -test toolchain pattern ────────────────────────
 
+# why: generalized -test toolchain (style (b) Bats smoke)
 @test "Dockerfile.example runtime-test shows commented Bats COPY from test-tools-stage (#647)" {
   local _df="/source/dist/dockerfile/Dockerfile"
   assert_spec_subject "${_df}" \
@@ -1539,6 +1634,7 @@ EOF
   assert_output "1"
 }
 
+# why: anti-pattern guard + consumer-owns-flavour-tools
 @test "Dockerfile.example documents -test stages stay FROM the real stage + heavier-is-fine (#647)" {
   local _df="/source/dist/dockerfile/Dockerfile"
   assert_spec_subject "${_df}" \
@@ -2032,6 +2128,12 @@ _df_claim_hits() {
   esac
 }
 
+# why: A LABEL does read a digest out of a reference (probed by build); it
+# only cannot BRANCH. Sweeps a DERIVED roster -- the template, tooling, doc,
+# workflow and spec trees, plus every file at the top of the checkout
+# (`init.sh`, `justfile`, `compose.yaml`, `CONTEXT.md`, the READMEs) -- for
+# the categorical claim, and demands the narrow one where the design rests
+# on it
 @test "no shipped text repeats the claim a build disproves (#951)" {
   local _f _claim _flat _roster _hit _why
   _roster="$(_df_swept_files)"
@@ -2115,6 +2217,9 @@ _df_claim_hits() {
   assert_success
 }
 
+# why: An inverted marker pair (`end` above its `begin`) counts 1 == 1 while
+# `_df_flatten` still excises the file tail, so the balance guard reads the
+# markers in order
 @test "the vocabulary marker guard reads order, not counts (#951)" {
   # `_df_flatten` excises from a `begin` to the `end` that follows it, so
   # a marker pair that does not nest deletes the rest of the file from
@@ -2190,6 +2295,10 @@ _df_claim_hits() {
   rm -rf "${_tmp}"
 }
 
+# why: The roster is two walks unioned; asking the roster for a
+# single-component path shows the top-level walk ran only while every sweep
+# root is a directory, so the walk is asked directly and each path it
+# returns must reach the roster
 @test "the top-level walk is read on its own, not off the roster (#951)" {
   # The roster is the union of two walks, and only one of them has a
   # name to check: a root that was renamed is caught because the roster
@@ -2216,6 +2325,10 @@ _df_claim_hits() {
   done <<< "${_top}"
 }
 
+# why: An `end` marker with no `begin` above it closed the vocabulary
+# carve-out and took its own line with it, so prose sharing that line left
+# the sweep; the flattener now closes only what it opened, while a real
+# block is still excised
 @test "the flattener closes only a block it opened (#951)" {
   # `_df_vocabulary_unbalanced` reads the markers as a NESTING; the
   # flattener read them as a switch, closing on any `end` whether or not
@@ -2266,6 +2379,10 @@ _df_claim_hits() {
   rm -rf "${_tmp}"
 }
 
+# why: grep's exit 2 -- a pattern it could not evaluate -- shared an `if`
+# branch with exit 1, so a sweep that never ran reported the file clean;
+# `_df_claim_hits` returns that third answer and the caller fails loudly on
+# it
 @test "the claim sweep refuses a pattern it could not read (#951)" {
   # `grep` answers three things, and the sweep read two of them as one:
   # 0 states the claim, 1 does not, and 2 is "I could not evaluate this
@@ -2299,6 +2416,9 @@ _df_claim_hits() {
   assert_equal "${status}" "1"
 }
 
+# why: Derived from the note's own `arg_N = KEY=` lines: two paragraphs
+# handing one slot to different keys is silent, because a `[build]` section
+# in `.setup.conf.local` replaces the whole section
 @test "the note gives one [build] arg slot per key (#951)" {
   local _df="/source/dist/dockerfile/Dockerfile"
   assert_spec_subject "${_df}" \
@@ -2333,6 +2453,9 @@ _df_claim_hits() {
     || fail "expected the note to spell >= 2 '[build] arg_N = KEY=' routes, found ${#_by_slot[@]}"
 }
 
+# why: Reach and restraint of `_DF_APT_INSTALL_RE`: an option taking a
+# separate argument (`-o Dpkg::Options::=` before the subcommand) is an
+# install layer, while `apt-get clean` chains and `pip install` are not
 @test "the apt-layer guard sees the install shapes this template writes (#951)" {
   # The guard's REACH is the property "every apt layer refreshes the
   # manifest": a shape _DF_APT_INSTALL_RE does not match is a layer the
@@ -2367,6 +2490,10 @@ _df_claim_hits() {
   done
 }
 
+# why: read from the note's own comment window above `ARG BASE_IMAGE=`,
+# since every path it names is also spelled in the code that implements it:
+# the moving default, the recorded manifest and the digest escape hatch are
+# stated where a downstream author edits
 @test "Dockerfile.example states the moving-BASE_IMAGE reproducibility trade-off (#951)" {
   local _df="/source/dist/dockerfile/Dockerfile"
   assert_spec_subject "${_df}" \
@@ -2404,6 +2531,9 @@ _df_claim_hits() {
   assert_success
 }
 
+# why: read from the note's own window: the digest half AC1 asks for is
+# empty in the shipped default, the note says so, and the recipe it gives
+# strips to `sha256:<hex>` so both routes record the same shape
 @test "Dockerfile.example states what the UNPINNED default does not record (#951)" {
   local _df="/source/dist/dockerfile/Dockerfile"
   assert_spec_subject "${_df}" \
@@ -2454,6 +2584,9 @@ _df_claim_hits() {
   assert_success
 }
 
+# why: bare in-stage `ARG BASE_IMAGE` re-declaration, `base-image.env`
+# write, digest-pin flag, the digest on both routes it can be known, OCI
+# base-name/base-digest labels
 @test "Dockerfile.example sys stage records the base ref it resolved (#951)" {
   local _df="/source/dist/dockerfile/Dockerfile"
   assert_spec_subject "${_df}" \
@@ -2517,6 +2650,10 @@ _df_claim_hits() {
   assert_output "0"
 }
 
+# why: a relation over the apt layers, not a tally: every RUN block that
+# installs apt packages (`apt-get install`, `apt install` or `rosdep
+# install`, indented or not, live or commented-for-uncommenting) must
+# refresh `packages.txt`
 @test "Dockerfile.example rewrites the package manifest after every apt layer (#951)" {
   local _df="/source/dist/dockerfile/Dockerfile"
   assert_spec_subject "${_df}" \
@@ -2553,6 +2690,10 @@ _df_claim_hits() {
   (( _n >= 3 )) || fail "expected >= 3 commented apt RUN examples in ${_df}, found ${_n}"
 }
 
+# why: pins the helper behind that relation against a scratch fixture: `RUN
+# <<EOF` / `<<-'EOF'` carries no backslash continuations, so the block must
+# be closed by its delimiter -- live and commented, order enforced inside
+# it, and `<<<` opening nothing
 @test "_df_apt_run_blocks sees a BuildKit heredoc apt layer (#951)" {
   # `RUN <<EOF` ... `EOF` is one layer whose body carries no backslash
   # continuations, so a scanner that opens on `RUN ` and closes on the
@@ -2646,6 +2787,9 @@ FIXTURE
   rm -rf "${_tmp}"
 }
 
+# why: read from that stage's own window, since the same commented lines
+# appear in devel's and builder's blocks: the optional fresh-`${BASE_IMAGE}`
+# stage stays correct when uncommented
 @test "Dockerfile.example commented runtime-base records its own manifest (#951)" {
   local _df="/source/dist/dockerfile/Dockerfile"
   assert_spec_subject "${_df}" \
@@ -2694,6 +2838,9 @@ FIXTURE
   assert_output "0"
 }
 
+# why: read from DL3008's own rationale block, and it must name the
+# downstream repos the symlinked config reaches whose Dockerfile predates
+# the manifest
 @test ".hadolint.yaml DL3008 ignore names its compensating control (#951)" {
   local _cfg="/source/dist/.hadolint.yaml"
   assert_spec_subject "${_cfg}" \
@@ -2732,6 +2879,9 @@ FIXTURE
   assert_success
 }
 
+# why: the shipped spec asserts a non-empty `base_image_ref` and a
+# `sha256:<hex>`-shaped digest, and its skip fires only when NEITHER
+# manifest file exists
 @test "the shipped smoke spec demands the manifest's VALUE and fails closed on half of one (#951)" {
   local _spec="/source/dist/test/bats/smoke/shared/reproducibility.bats"
   # This test is TEXT about a spec, and it is named for what text can
@@ -2786,6 +2936,7 @@ FIXTURE
   assert_success
 }
 
+# why: runtime-test COPY --from=test-tools-stage needs the pinned image too
 @test "build-worker.yaml: runtime-test build forwards TEST_TOOLS_IMAGE (#647 prerequisite)" {
   # When runtime-test does COPY --from=test-tools-stage, test-tools
   # enters its build graph, so its build must receive the pinned
@@ -2956,6 +3107,7 @@ FIXTURE
 # line so the pattern can't silently disappear.
 # ════════════════════════════════════════════════════════════════════
 
+# why: PID 1 / interactive / non-interactive complementary mechanisms
 @test "Dockerfile.example runtime documents 3-process-kinds env rationale (#657)" {
   local _df="/source/dist/dockerfile/Dockerfile"
   assert_spec_subject "${_df}" \
@@ -2967,6 +3119,7 @@ FIXTURE
   assert_success
 }
 
+# why: opt-in interactive-exec env source, consumer supplies ROS line
 @test "Dockerfile.example runtime shows commented /etc/bash.bashrc source example (#657)" {
   local _df="/source/dist/dockerfile/Dockerfile"
   assert_spec_subject "${_df}" \
@@ -2978,6 +3131,7 @@ FIXTURE
   assert_success
 }
 
+# why: no ENV LD_LIBRARY_PATH / PYTHONPATH baked
 @test "Dockerfile.example runtime does NOT bake ROS env into ENV (#657 fragility guard)" {
   local _df="/source/dist/dockerfile/Dockerfile"
   assert_spec_subject "${_df}" \
@@ -3024,6 +3178,7 @@ FIXTURE
 # tz resolution paths), but new repos should match the fleet.
 # ════════════════════════════════════════════════════════════════════
 
+# why: runtime $TZ alignment
 @test "Dockerfile.example declares ENV TZ (matches downstream fleet, #210)" {
   local _df="/source/dist/dockerfile/Dockerfile"
   assert_spec_subject "${_df}" \
@@ -3036,6 +3191,7 @@ FIXTURE
   assert_success
 }
 
+# why: runtime $LANGUAGE alignment
 @test "Dockerfile.example declares ENV LANGUAGE=en_US:en (matches downstream fleet, #210)" {
   local _df="/source/dist/dockerfile/Dockerfile"
   assert_spec_subject "${_df}" \
@@ -3051,6 +3207,7 @@ FIXTURE
 # release-test-tools.yaml: GHCR publisher workflow
 # ════════════════════════════════════════════════════════════════════
 
+# why: GHCR publisher
 @test "release-test-tools.yaml exists and pushes to ghcr.io/ycpss91255-docker/test-tools" {
   local _yaml="/source/.github/workflows/release-test-tools.yaml"
   assert_spec_subject "${_yaml}" \
@@ -3059,6 +3216,7 @@ FIXTURE
   assert_success
 }
 
+# why: ghcr auth scope
 @test "release-test-tools.yaml declares packages:write permission" {
   local _yaml="/source/.github/workflows/release-test-tools.yaml"
   assert_spec_subject "${_yaml}" \
@@ -3067,6 +3225,7 @@ FIXTURE
   assert_success
 }
 
+# why: arch coverage
 @test "release-test-tools.yaml builds multi-arch (amd64 + arm64)" {
   # arches build on their native runners (not one QEMU runner),
   # then a merge job assembles the manifest list. Assert both native
@@ -3082,6 +3241,7 @@ FIXTURE
   assert_success
 }
 
+# why: no subtree path confusion
 @test "release-test-tools.yaml uses template-repo-local Dockerfile path" {
   # Regression: this workflow runs in the template repo, so Dockerfile.test-tools
   # path must be `dockerfile/...` (not `.base/dockerfile/...` which is the
@@ -3100,6 +3260,7 @@ FIXTURE
 # release-worker.yaml: archive composition
 # ════════════════════════════════════════════════════════════════════
 
+# why: no compose.yaml / .setup.conf in the manifest
 @test "release archive payload declares no derived per-host artifact" {
   # compose.yaml has been gitignored since v0.9.0 (setup.sh-generated
   # derived artifact). An earlier release-worker.yaml listed it as a `cp`
@@ -3139,6 +3300,7 @@ _manifest_declares() {
   return 1
 }
 
+# why: positive payload guard (no over-prune)
 @test "release archive payload still declares Dockerfile + script/ + .base/" {
   # Positive guard: making the payload tolerant of absence must not become
   # an excuse to drop entries from it. The user-facing wrappers ship via
@@ -3154,6 +3316,7 @@ _manifest_declares() {
   done
 }
 
+# why: The `.base/` guard reads the paths column, not a neighbour's prose
 @test "release archive payload guard is not satisfied by another entry's description" {
   # A manifest line is <kind>|<key>|<paths>|<description>|<consequence>, so a
   # reader that matches anywhere in the line also matches the prose in the
@@ -3177,16 +3340,19 @@ _manifest_declares() {
 # run.sh: XDG_SESSION_TYPE branching
 # ════════════════════════════════════════════════════════════════════
 
+# why: X11/Wayland branch
 @test "run.sh contains XDG_SESSION_TYPE check" {
   run grep "XDG_SESSION_TYPE" /source/dist/script/docker/wrapper/run.sh
   assert_success
 }
 
+# why: Wayland xhost
 @test "run.sh contains xhost +SI:localuser for wayland" {
   run grep 'xhost "+SI:localuser' /source/dist/script/docker/wrapper/run.sh
   assert_success
 }
 
+# why: X11 xhost
 @test "run.sh contains xhost +local: for X11" {
   run grep 'xhost +local:' /source/dist/script/docker/wrapper/run.sh
   assert_success
@@ -3196,6 +3362,7 @@ _manifest_declares() {
 # setup.sh: default _base_path goes up 1 level (not 2)
 # ════════════════════════════════════════════════════════════════════
 
+# why: Path resolution
 @test "setup.sh default _base_path uses /.." {
   # In template, setup.sh is at .base/dist/script/docker/wrapper/setup.sh
   # So it should go up 1 level (..) to reach repo root
@@ -3203,6 +3370,7 @@ _manifest_declares() {
   assert_success  # Should have ../../ ../../ (that was old docker_setup_helper/src/ pattern)
 }
 
+# why: Repo root traversal
 @test "setup.sh default _base_path uses double parent traversal" {
   # setup.sh resolves the script directory once via readlink -f into
   # _SETUP_SCRIPT_DIR (so invocation through the root-level symlink works),

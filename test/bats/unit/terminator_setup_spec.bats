@@ -19,12 +19,14 @@ teardown() {
 # check_deps
 # ════════════════════════════════════════════════════════════════════
 
+# why: Dependency check
 @test "check_deps returns 0 when terminator is installed" {
   mock_cmd "terminator" 'exit 0'
   run check_deps
   assert_success
 }
 
+# why: Missing dep
 @test "check_deps fails when terminator is not installed" {
   PATH="${MOCK_DIR}" run check_deps
   assert_failure
@@ -35,6 +37,7 @@ teardown() {
 # _entry_point
 # ════════════════════════════════════════════════════════════════════
 
+# why: Entry point
 @test "_entry_point calls main when deps pass" {
   mock_cmd "terminator" 'exit 0'
   mock_cmd "chown" 'exit 0'
@@ -42,6 +45,7 @@ teardown() {
   assert_success
 }
 
+# why: Entry point fail
 @test "_entry_point fails when deps missing" {
   PATH="${MOCK_DIR}" run _entry_point
   assert_failure
@@ -52,18 +56,21 @@ teardown() {
 # main
 # ════════════════════════════════════════════════════════════════════
 
+# why: Config dir
 @test "main creates terminator config directory" {
   mock_cmd "chown" 'exit 0'
   run main
   assert [ -d "${TEMP_DIR}/.config/terminator" ]
 }
 
+# why: Config copy
 @test "main copies terminator config file" {
   mock_cmd "chown" 'exit 0'
   run main
   assert [ -f "${TEMP_DIR}/.config/terminator/config" ]
 }
 
+# why: Permissions
 @test "main calls chown with correct user and group" {
   mock_cmd "chown" 'echo "chown called: $*"; exit 0'
   run main
@@ -71,6 +78,7 @@ teardown() {
   assert_output --partial "chown called:"
 }
 
+# why: Direct-run guard
 @test "script runs entry_point when executed directly" {
   mock_cmd "terminator" 'exit 0'
   mock_cmd "chown" 'exit 0'

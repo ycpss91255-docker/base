@@ -8,6 +8,20 @@
 # registry maps a canonical (section,key) to the validator that lives in
 # _tui_conf.sh; the dispatcher normalises per-service logging sections
 # and numbered list keys before lookup.
+#
+# why: Covers the setup.conf validation registry (`lib/schema.sh`, #560):
+# the single `_schema_validate <section> <key> <value>` gate that both
+# setup.sh (`set` / `add`) and the TUI route through. Verifies registry
+# dispatch (scalar exact-match + numbered-list prefix normalisation),
+# per-service `[logging.<svc>]` section normalisation, the empty-value
+# policy (default allow / clear; `deploy.gpu_count` rejects empty), and the
+# full union of validated keys -- including the keys that were historically
+# free-form in setup.sh (`build.network` / `build.arg_` /
+# `deploy.gpu_runtime` + `runtime` alias / `network.network_name` /
+# `devices.device_` / `security.cap_add_` / `cap_drop_`). Phase 2 (#561)
+# adds the section-list single source: `SCHEMA_SECTIONS` (ordered list),
+# `_schema_is_section` (membership), `_schema_section_keys` (a section's
+# registered keys derived from `SCHEMA_VALIDATOR`).
 
 bats_require_minimum_version 1.5.0
 
@@ -46,6 +60,7 @@ setup() {
   [ "${status}" -ne 0 ]
 }
 
+# why: empty exception
 @test "_schema_validate rejects empty deploy.gpu_count (empty policy = validate)" {
   run _schema_validate deploy gpu_count ""
   [ "${status}" -ne 0 ]
@@ -66,6 +81,7 @@ setup() {
   [ "${status}" -ne 0 ]
 }
 
+# why: empty default
 @test "_schema_validate allows empty logging.driver (empty policy = allow)" {
   run _schema_validate logging driver ""
   [ "${status}" -eq 0 ]
@@ -103,6 +119,7 @@ _assert_schema() {
   fi
 }
 
+# why: union coverage (accept)
 @test "_schema_validate accepts every registered key's valid sample" {
   _assert_schema resources shm_size "2gb" ok
   _assert_schema lifecycle restart "unless-stopped" ok
@@ -152,6 +169,7 @@ _assert_schema() {
   _assert_schema security security_opt_1 "seccomp:unconfined" ok
 }
 
+# why: union coverage (reject)
 @test "_schema_validate rejects every registered key's invalid sample" {
   _assert_schema resources shm_size "huge" fail
   _assert_schema lifecycle restart "sometimes" fail
@@ -228,6 +246,7 @@ _assert_schema() {
   _assert_schema logging max_file "0" fail
 }
 
+# why: clear-key semantics
 @test "_schema_validate allows empty (clear) for every list + clearable scalar key" {
   _assert_schema resources shm_size "" ok
   _assert_schema lifecycle restart "" ok
@@ -246,6 +265,7 @@ _assert_schema() {
   _assert_schema security cap_add_1 "" ok
 }
 
+# why: default-accept
 @test "_schema_validate accepts free-form (unregistered) keys" {
   # security.security_opt_ and image.rule_ used to sit here: both have a
   # closed value set their consumer dispatches on, so both are registered
@@ -262,6 +282,7 @@ _assert_schema() {
 # section here makes it known/dispatchable without hand-editing them.
 # ════════════════════════════════════════════════════════════════════
 
+# why: ordered section list (#561)
 @test "SCHEMA_SECTIONS lists every setup.conf section in file order (#561)" {
   local _expected="project image build deploy lifecycle gui network security resources environment tmpfs devices volumes additional_contexts logging"
   [ "${SCHEMA_SECTIONS[*]}" = "${_expected}" ]
@@ -271,21 +292,25 @@ _assert_schema() {
 # _schema_is_section — SCHEMA_SECTIONS membership predicate
 # ════════════════════════════════════════════════════════════════════
 
+# why: membership accept (#561)
 @test "_schema_is_section accepts a registered section with typed keys (#561)" {
   run _schema_is_section build
   [ "${status}" -eq 0 ]
 }
 
+# why: membership accept, no keys (#561)
 @test "_schema_is_section accepts a free-form-only section (image) (#561)" {
   run _schema_is_section image
   [ "${status}" -eq 0 ]
 }
 
+# why: membership reject (#561)
 @test "_schema_is_section rejects an unknown section (#561)" {
   run _schema_is_section nonsense
   [ "${status}" -ne 0 ]
 }
 
+# why: logging.<svc> not a base section (#561)
 @test "_schema_is_section rejects a per-service logging variant (#561)" {
   # [logging.<svc>] is not a base section; its known-ness is the
   # _setup_known_section special case, not this membership predicate.
@@ -293,6 +318,7 @@ _assert_schema() {
   [ "${status}" -ne 0 ]
 }
 
+# why: single source (#561)
 @test "_schema_is_section tracks SCHEMA_SECTIONS additions (single source) (#561)" {
   SCHEMA_SECTIONS+=(brandnew)
   run _schema_is_section brandnew
@@ -313,14 +339,17 @@ _sorted_keys() {
   printf '%s\n' "${_k[@]}" | sort | tr '\n' ' '
 }
 
+# why: keys by prefix (#561)
 @test "_schema_section_keys returns scalar+list keys for build (#561)" {
   [ "$(_sorted_keys build)" = "arg_ network target_arch " ]
 }
 
+# why: keys by prefix (#561)
 @test "_schema_section_keys returns all logging keys (#561, #606)" {
   [ "$(_sorted_keys logging)" = "compress container_log_days container_log_keep driver local_path max_file max_size wrapper_transcript wrapper_transcript_days wrapper_transcript_keep " ]
 }
 
+# why: keys incl. runtime alias (#561)
 @test "_schema_section_keys returns deploy keys incl. legacy alias (#561)" {
   [ "$(_sorted_keys deploy)" = "dri_groups gpu_capabilities gpu_count gpu_mode gpu_runtime runtime " ]
 }

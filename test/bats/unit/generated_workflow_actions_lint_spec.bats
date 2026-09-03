@@ -104,6 +104,8 @@ _write_generator() {
 
 # ── The drift the lint exists to catch ──────────────────────────────────
 
+# why: The drift itself -- dependabot bumps the workflows and cannot reach
+# the heredoc
 @test "generated-workflow-actions: fails when a generated ref is behind this repo's own (#950)" {
   _load_driver
   _write_workflow 'actions/checkout@v8'
@@ -117,6 +119,7 @@ _write_generator() {
   assert_output --partial 'dist/init.sh'
 }
 
+# why: A bump proposal is actionable only if it says which line to edit
 @test "generated-workflow-actions: names the generated ref's file and line (#950)" {
   _load_driver
   _write_workflow 'actions/checkout@v8'
@@ -127,6 +130,8 @@ _write_generator() {
   assert_output --partial 'dist/init.sh:7'
 }
 
+# why: Lockstep is the whole assertion; the lint owns no opinion on which
+# version is right
 @test "generated-workflow-actions: passes when the two copies agree (#950)" {
   _load_driver
   _write_workflow 'actions/checkout@v8' 'actions/upload-artifact@v7'
@@ -137,6 +142,8 @@ _write_generator() {
   assert_output --partial 'clean'
 }
 
+# why: Direction-agnostic: a hand-edit past the workflows is the same
+# defect, other sign
 @test "generated-workflow-actions: a ref ahead of this repo's own fails too (#950)" {
   # Direction-agnostic on purpose: the failure is disagreement, not
   # staleness. A generated copy edited past the workflows is the same
@@ -152,6 +159,8 @@ _write_generator() {
 
 # ── What is deliberately not a generated pin ────────────────────────────
 
+# why: This repo calling its OWN reusable workflow -- no literal to compare,
+# upgrade.sh rewrites it
 @test "generated-workflow-actions: ignores an interpolated ref (#950)" {
   # `uses: ${SLUG}/.github/workflows/w.yaml@${ref}` is this repo calling
   # its OWN reusable workflow at the pinned subtree version. Both halves
@@ -167,6 +176,8 @@ _write_generator() {
   [ "${status}" -eq 0 ]
 }
 
+# why: Prose quoting a step is not a step; a lint that fails on its own docs
+# gets muted
 @test "generated-workflow-actions: ignores a uses: ref inside a shell comment (#950)" {
   # Driver prose quotes `uses: owner/repo@ref` when explaining what it
   # scans. Prose is not a pin, and a lint that fails on its own
@@ -340,6 +351,8 @@ _write_generator() {
   [ "${status}" -eq 0 ]
 }
 
+# why: A shipped release cannot be re-pinned, so scanning it fails a lint no
+# edit can satisfy
 @test "generated-workflow-actions: ignores a generator under .prev-release/ (#950)" {
   # The self-test materialises PAST releases into .prev-release/, and a
   # shipped release's refs are stale BY DEFINITION -- a release cannot be
@@ -359,6 +372,8 @@ _write_generator() {
 
 # ── The cases where there is no single ref to follow ────────────────────
 
+# why: No answer to which ref the generated copy should carry, so it says so
+# rather than guessing
 @test "generated-workflow-actions: fails when this repo pins the action at two refs (#950)" {
   # With the workflows themselves disagreeing there is no answer to
   # "which ref should the generated copy carry", so the lint says that
@@ -374,6 +389,8 @@ _write_generator() {
   assert_output --partial 'v7'
 }
 
+# why: No dependabot PR for the generated ref to inherit -- the bare form of
+# the defect
 @test "generated-workflow-actions: fails when this repo never uses the generated action (#950)" {
   # An action this repo does not call itself has no dependabot PR to
   # inherit from, so the generated ref is pinned by nobody -- the exact
@@ -387,6 +404,7 @@ _write_generator() {
   assert_output --partial 'actions/setup-node'
 }
 
+# why: A renamed generator or a dead matcher must not read as lockstep
 @test "generated-workflow-actions: refuses a tree it found no generated ref in (#950)" {
   # Reporting clean over a scan that read nothing is how a lint quietly
   # stops covering anything -- a renamed generator, a moved directory, a
@@ -402,6 +420,8 @@ _write_generator() {
 
 # ── The real tree ───────────────────────────────────────────────────────
 
+# why: Drives the live tree, so the fixtures cannot drift away from what
+# ships
 @test "generated-workflow-actions: the real repo is in lockstep (#950)" {
   _load_driver
   REPO_ROOT=/source

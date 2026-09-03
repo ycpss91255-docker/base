@@ -26,6 +26,47 @@
 # the tag the current trigger produced (rather than statically
 # pulling :latest, which would leave a freshly-pushed :main
 # unverified).
+#
+# why: Structural assertions for
+# `.github/workflows/release-test-tools.yaml`. Locks the publish surface
+# that downstream Dockerfile.example's `FROM ${TEST_TOOLS_IMAGE} AS
+# test-tools-stage` depends on. The workflow has three publish modes:
+#
+# 1. **Tag push (`v*`)** — multi-arch `:<version>` + `:latest`. Cuts the
+# release downstream consumers pin via `inputs.test_tools_version`. 2.
+# **Main push** (#317 P2) — multi-arch `:main` rolling tag. Used by
+# self-test.yaml's Obtain step to skip from-source rebuilds. Paths filter
+# (gotcha 3) restricts to commits that touched
+# `dockerfile/Dockerfile.test-tools` or this workflow. 3.
+# **workflow_dispatch** — manual `:latest` republish, kept unfiltered for
+# bootstrap.
+#
+# Smoke step uses `steps.tags.outputs.smoke` so it always pulls the tag the
+# current trigger produced (rather than statically pulling `:latest`, which
+# would leave a freshly-pushed `:main` unverified).
+#
+# Grouped by concern:
+#
+# - Triggers on `v*` tag push (existing)
+#
+# - Triggers on main push (#317 P2)
+#
+# - Main push trigger has `paths:` filter limiting to Dockerfile.test-tools
+# + workflow self (#317 P2 gotcha-3)
+#
+# - Triggers on `workflow_dispatch` (existing)
+#
+# - Resolve tags step: 3 publish modes (`v*` + `main` + dispatch) emit
+# correct tag sets and `smoke` output
+#
+# - Smoke step pulls trigger's tag via `steps.tags.outputs.smoke` (#317 P2)
+#
+# - Native-runner matrix (#587): drops `setup-qemu-action`; `compute-matrix`
+# maps platforms to native runners; build shards run on `matrix.runner`;
+# build per-platform + push by digest; `merge` job creates the manifest via
+# `imagetools`
+#
+# - Declares `packages: write` permission
 
 bats_require_minimum_version 1.5.0
 

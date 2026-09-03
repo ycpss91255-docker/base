@@ -19,6 +19,14 @@
 # prints the base key `${image_name}[-${cache_variant}]-${hardware}`; the
 # per-target suffix (-devel-cache, ...) is still appended at each use site,
 # and the GITHUB_OUTPUT plumbing stays thin in the YAML.
+#
+# why: Unit tests for `script/ci/build_worker/cache_scope.sh`, the buildx
+# cache-scope base-key resolver extracted out of build-worker.yaml's inline
+# `Compute cache scope` step (#802). Locks the
+# `${image_name}[-${cache_variant}]-${hardware}` shape (with its #272 / #378
+# bug history): the optional `cache_variant` segment single-call callers
+# omit, the per-arch hardware suffix, and the distro-in-image_name case that
+# needs no variant.
 
 bats_require_minimum_version 1.5.0
 

@@ -71,6 +71,8 @@ usage() {
       cat >&2 <<'EOF'
 用法: ./prune.sh [-h] [-C|--chdir DIR] [--networks] [--images] [--volumes] [--builder] [--all]
                   [--worktree-orphans [--workspace DIR] [--owner NAME] [--repo NAME]]
+                  [--reclaim | --orphan-projects [--grace DURATION]]
+                  [--tool-tags [--keep N]]
                   [--until DURATION] [-y|--yes] [--dry-run] [--lang LANG]
 
 清理本機 docker 垃圾（unused network / dangling image / buildx cache / volume）。
@@ -83,7 +85,26 @@ usage() {
   --images          清 dangling images（預設 --filter until=24h）
   --volumes         清未使用的 volumes（**會刪資料**；預設需 -y 確認）
   --builder         清 buildx cache（預設 --filter until=24h）— 釋放大量磁碟
-  --all             = --networks --images --builder（不含 --volumes，亦不含 --worktree-orphans）
+  --all             = --networks --images --builder（不含 --volumes / --worktree-orphans /
+                    以下的 scoped reclaim）。--all 是 daemon 全域的大槌，維持原樣。
+  --reclaim         = --orphan-projects --tool-tags。scoped 回收器：只刪能「證明」
+                    屬於已不存在的 base checkout 的東西，因此不需要先判斷這台機器
+                    上還有什麼在跑。注意只有 --orphan-projects 會在 `just stop` /
+                    `just test` 結束後自動執行；--tool-tags 一律要明確指定。
+  --orphan-projects 刪除「所記錄的 checkout 已不存在」的 compose project network。
+                    base 的 compose.yaml 會把 checkout 的絕對路徑寫進 network 的
+                    `base.checkout.path` label；本模式把該路徑讀回來，只有在該路徑
+                    已不存在、沒有 container 附著、且超過保護窗時才刪。任何無法判定
+                    的輸入（沒有這個 label——本機制之前建立的 network 全都如此、label
+                    不是絕對路徑、讀不到建立時間）一律「不動」；docker 讀取失敗則直接
+                    中止、不刪任何東西。
+  --tool-tags       將本機 `test-tools:<12hex>` image 收斂到「仍存在的 checkout 會解析
+                    到的 tag」加上最近 --keep 個。已發布 / 被指定的 tag 永遠不碰。
+  --grace DURATION  --orphan-projects 的保護窗（預設 6h，或 BASE_RECLAIM_GRACE）。
+                    路徑還在本身已經保住正在跑的 checkout；這個窗是留給「路徑因搬移
+                    或重建而短暫不存在」的情況。調大只會刪更少。
+  --keep N          --tool-tags 額外保留的最近 tag 數（預設＝仍存在的 checkout 解析出
+                    的相異 tag 數，下限 3，或 BASE_TOOL_TAGS_KEEP）。
   --worktree-orphans
                     清理由已移除 worktree 所遺留的 tagged image (#388)。對每個
                     `<owner>/<name>-<suffix>:<tag>` image 檢查
@@ -106,12 +127,16 @@ usage() {
   ./prune.sh --all --until 1h     # 把門檻拉嚴到 1 小時
   ./prune.sh --worktree-orphans --dry-run   # 看 worktree-orphan 候選
   ./prune.sh --worktree-orphans -y          # 實清，跳過確認
+  ./prune.sh --reclaim --dry-run   # 預覽 base 自己的垃圾（不碰其他 tenant）
+  ./prune.sh --reclaim             # 實際回收
 EOF
       ;;
     zh-CN)
       cat >&2 <<'EOF'
 用法: ./prune.sh [-h] [-C|--chdir DIR] [--networks] [--images] [--volumes] [--builder] [--all]
                   [--worktree-orphans [--workspace DIR] [--owner NAME] [--repo NAME]]
+                  [--reclaim | --orphan-projects [--grace DURATION]]
+                  [--tool-tags [--keep N]]
                   [--until DURATION] [-y|--yes] [--dry-run] [--lang LANG]
 
 清理本机 docker 垃圾（unused network / dangling image / buildx cache / volume）。
@@ -124,7 +149,26 @@ EOF
   --images          清 dangling images（默认 --filter until=24h）
   --volumes         清未使用的 volumes（**会删数据**；默认需 -y 确认）
   --builder         清 buildx cache（默认 --filter until=24h）— 释放大量磁盘
-  --all             = --networks --images --builder（不含 --volumes，也不含 --worktree-orphans）
+  --all             = --networks --images --builder（不含 --volumes / --worktree-orphans /
+                    以下的 scoped reclaim）。--all 是 daemon 全局的大锤，保持原样。
+  --reclaim         = --orphan-projects --tool-tags。scoped 回收器：只删能「证明」
+                    属于已不存在的 base checkout 的东西，因此不需要先判断这台机器
+                    上还有什么在跑。注意只有 --orphan-projects 会在 `just stop` /
+                    `just test` 结束后自动执行；--tool-tags 一律要明确指定。
+  --orphan-projects 删除「所记录的 checkout 已不存在」的 compose project network。
+                    base 的 compose.yaml 会把 checkout 的绝对路径写进 network 的
+                    `base.checkout.path` label；本模式把该路径读回来，只有在该路径
+                    已不存在、没有 container 附着、且超过保护窗时才删。任何无法判定
+                    的输入（没有这个 label——本机制之前创建的 network 全都如此、label
+                    不是绝对路径、读不到创建时间）一律「不动」；docker 读取失败则直接
+                    中止、不删任何东西。
+  --tool-tags       将本机 `test-tools:<12hex>` image 收敛到「仍存在的 checkout 会解析
+                    到的 tag」加上最近 --keep 个。已发布 / 被指定的 tag 永远不碰。
+  --grace DURATION  --orphan-projects 的保护窗（默认 6h，或 BASE_RECLAIM_GRACE）。
+                    路径还在本身已经保住正在跑的 checkout；这个窗是留给「路径因搬移
+                    或重建而短暂不存在」的情况。调大只会删更少。
+  --keep N          --tool-tags 额外保留的最近 tag 数（默认＝仍存在的 checkout 解析出
+                    的相异 tag 数，下限 3，或 BASE_TOOL_TAGS_KEEP）。
   --worktree-orphans
                     清理由已移除 worktree 遗留的 tagged image (#388)。对每个
                     `<owner>/<name>-<suffix>:<tag>` image 检查
@@ -147,13 +191,17 @@ EOF
   ./prune.sh --all --until 1h     # 把门槛拉严到 1 小时
   ./prune.sh --worktree-orphans --dry-run   # 看 worktree-orphan 候选
   ./prune.sh --worktree-orphans -y          # 实清，跳过确认
+  ./prune.sh --reclaim --dry-run   # 预览 base 自己的垃圾（不碰其他 tenant）
+  ./prune.sh --reclaim             # 实际回收
 EOF
       ;;
     ja)
       cat >&2 <<'EOF'
 使用法: ./prune.sh [-h] [-C|--chdir DIR] [--networks] [--images] [--volumes] [--builder] [--all]
                    [--worktree-orphans [--workspace DIR] [--owner NAME] [--repo NAME]]
-                   [--until DURATION] [-y|--yes] [--dry-run] [--lang LANG]
+                   [--reclaim | --orphan-projects [--grace DURATION]]
+                  [--tool-tags [--keep N]]
+                  [--until DURATION] [-y|--yes] [--dry-run] [--lang LANG]
 
 ローカルの docker ガベージ（未使用 network / dangling image / buildx cache / volume）を整理します。
 実行中のコンテナや active なリソースには手を出しません。
@@ -165,7 +213,33 @@ EOF
   --images          dangling image を整理（デフォルト --filter until=24h）
   --volumes         未使用 volume を整理（**データ削除**；デフォルト -y 確認必要）
   --builder         buildx cache を整理（デフォルト --filter until=24h）— ディスク大量解放
-  --all             = --networks --images --builder（--volumes / --worktree-orphans は含まない）
+  --all             = --networks --images --builder（--volumes / --worktree-orphans /
+                    以下の scoped reclaim は含まない）。--all は daemon 全体の
+                    大きなハンマーで、そのまま変更されません。
+  --reclaim         = --orphan-projects --tool-tags。scoped コレクタ: 既に存在しない
+                    base checkout のものだと「証明」できるものだけを削除するため、
+                    ホスト上で他に何が動いているかを判断する必要がありません。
+                    自動実行されるのは --orphan-projects だけです（`just stop` /
+                    `just test` の終了時）。--tool-tags は常に明示指定が必要です。
+  --orphan-projects 「記録された checkout がもう存在しない」compose project の
+                    network を削除します。base の compose.yaml が checkout の絶対
+                    パスを network の `base.checkout.path` label に刻むので、本
+                    モードはそのパスを読み戻し、そこに何も無く、container も付いて
+                    おらず、保護ウィンドウを過ぎている場合にだけ削除します。判定
+                    できない入力（この label が無い——この仕組み以前に作られた
+                    network はすべてそう、label が絶対パスでない、作成時刻が読めない）
+                    はすべて「触れない」。docker の読み取りが失敗した場合は何も削除
+                    せず中止します。
+  --tool-tags       ローカルの `test-tools:<12hex>` image を、まだ存在する checkout が
+                    解決する tag ＋ 直近 --keep 個に収束させます。公開済み / 指定済みの
+                    tag は決して触れません。
+  --grace DURATION  --orphan-projects の保護ウィンドウ（既定 6h、または
+                    BASE_RECLAIM_GRACE）。パスが在ること自体が実行中の checkout を
+                    既に守るので、このウィンドウは「移動や再作成でパスが一時的に
+                    消えている」場合のためのものです。大きくすると削除は減るだけです。
+  --keep N          --tool-tags が追加で保持する直近 tag 数（既定＝まだ存在する
+                    checkout が解決する相異なる tag の数、下限 3、または
+                    BASE_TOOL_TAGS_KEEP）。
   --worktree-orphans
                     削除済み worktree が残した tagged image を整理 (#388)。各
                     `<owner>/<name>-<suffix>:<tag>` image について
@@ -189,12 +263,16 @@ EOF
   ./prune.sh --all --until 1h     # しきい値を 1 時間に厳しく
   ./prune.sh --worktree-orphans --dry-run   # worktree-orphan 候補を確認
   ./prune.sh --worktree-orphans -y          # 実削除（確認スキップ）
+  ./prune.sh --reclaim --dry-run   # base 自身のごみをプレビュー（他テナントには触れない）
+  ./prune.sh --reclaim             # 実際に回収
 EOF
       ;;
     *)
       cat >&2 <<'EOF'
 Usage: ./prune.sh [-h] [-C|--chdir DIR] [--networks] [--images] [--volumes] [--builder] [--all]
                   [--worktree-orphans [--workspace DIR] [--owner NAME] [--repo NAME]]
+                  [--reclaim | --orphan-projects [--grace DURATION]]
+                  [--tool-tags [--keep N]]
                   [--until DURATION] [-y|--yes] [--dry-run] [--lang LANG]
 
 Clean up local docker garbage (unused networks / dangling images / buildx cache / volumes).
@@ -213,8 +291,50 @@ Options:
                     unless -y).
   --builder         Prune buildx cache (default --filter until=24h). Significant
                     disk reclaim.
-  --all             = --networks --images --builder. Does NOT include --volumes
-                    or --worktree-orphans (those require explicit opt-in).
+  --all             = --networks --images --builder. Does NOT include --volumes,
+                    --worktree-orphans, or the scoped reclaim below (each
+                    requires explicit opt-in). --all is the daemon-wide
+                    bigger hammer and stays exactly that: it reasons about
+                    the whole machine, so it is for an operator who has
+                    judged the machine.
+  --reclaim         = --orphan-projects --tool-tags. The scoped collector:
+                    it removes only what it can PROVE belongs to a base
+                    checkout that no longer exists, so unlike --all it needs
+                    no judgement about what else on this host is in flight.
+                    Only --orphan-projects runs automatically (after
+                    `just stop` and `just test`) -- it acts on that proof.
+                    --tool-tags is always explicit: no artifact can name all
+                    of a content-shared tag's users, so retiring one rests on
+                    a measurement rather than a proof.
+  --orphan-projects Remove the network of every compose project whose
+                    RECORDED CHECKOUT IS GONE. base's compose.yaml stamps
+                    the checkout's absolute path onto the network it creates
+                    as `base.checkout.path`; this mode reads that path back
+                    off the artifact and removes the network only when
+                    nothing is there, no container is attached to the
+                    project, and the grace window has passed. Anything it
+                    cannot place -- no such label (which every network made
+                    before this existed lacks, and which is therefore left
+                    to the daemon-wide prune), a label that is not an
+                    absolute path, an unreadable creation time -- is LEFT
+                    ALONE, and a docker read that FAILS aborts without
+                    removing anything.
+  --tool-tags       Retire local `test-tools:<12hex>` images down to the tags
+                    a checkout that still exists resolves, plus the --keep
+                    most recent. Published / pinned tags (`test-tools:local`,
+                    a registry-qualified tag, any other repository) are never
+                    touched.
+  --grace DURATION  How recent an artifact must be for --orphan-projects to
+                    leave it alone regardless (default 6h, or
+                    BASE_RECLAIM_GRACE). A checkout that is there already
+                    spares its own network by existing; this window covers a
+                    path that is momentarily absent because something is
+                    moving or re-creating it. Raising it only ever removes
+                    less.
+  --keep N          How many recent tooling tags --tool-tags keeps on top of
+                    the ones live checkouts resolve (default: the number of
+                    distinct tags those checkouts resolve, floor 3, or
+                    BASE_TOOL_TAGS_KEEP).
   --worktree-orphans
                     Remove tagged images left behind by removed worktrees (#388).
                     For each image `<owner>/<name>-<suffix>:<tag>`, check if
@@ -243,6 +363,8 @@ Examples:
   ./prune.sh --all --until 1h      # Tighten threshold to 1 hour
   ./prune.sh --worktree-orphans --dry-run   # Preview worktree-orphan candidates
   ./prune.sh --worktree-orphans -y          # Actually clean, skip prompt
+  ./prune.sh --reclaim --dry-run   # Preview base's own litter, touch nothing else
+  ./prune.sh --reclaim             # Collect it
 EOF
       ;;
   esac
@@ -459,6 +581,10 @@ main() {
   local DO_VOLUMES=false
   local DO_BUILDER=false
   local DO_WORKTREE_ORPHANS=false
+  local DO_ORPHAN_PROJECTS=false
+  local DO_TOOL_TAGS=false
+  local GRACE_OVERRIDE=""
+  local KEEP_OVERRIDE=""
   local WORKSPACE_OVERRIDE=""
   local OWNER_OVERRIDE=""
   local -a REPO_FILTERS=()
@@ -493,10 +619,13 @@ main() {
         ;;
       --all)
         # Excludes --volumes intentionally (see usage).
-        # Also excludes --worktree-orphans intentionally — that mode
-        # requires workspace + filesystem context the daemon-wide
-        # bulk prune does not have. Chain explicitly when needed:
+        # Also excludes --worktree-orphans and the scoped reclaim
+        # intentionally — those modes require workspace + filesystem
+        # context the daemon-wide bulk prune does not have, and folding
+        # either in would change the RULE every existing --all invocation
+        # deletes by. Chain explicitly when needed:
         #   ./prune.sh --all --worktree-orphans
+        #   ./prune.sh --all --reclaim
         DO_NETWORKS=true
         DO_IMAGES=true
         DO_BUILDER=true
@@ -508,6 +637,32 @@ main() {
         # DOCKER_HUB_USER's images only.
         DO_WORKTREE_ORPHANS=true
         shift
+        ;;
+      --reclaim)
+        # The scoped collector, both halves. Deliberately NOT folded into
+        # --all: --all reasons about the whole daemon and this reasons only
+        # about what it can prove is base's, so widening --all would make
+        # every existing invocation of it start deleting on a different
+        # rule.
+        DO_ORPHAN_PROJECTS=true
+        DO_TOOL_TAGS=true
+        shift
+        ;;
+      --orphan-projects)
+        DO_ORPHAN_PROJECTS=true
+        shift
+        ;;
+      --tool-tags)
+        DO_TOOL_TAGS=true
+        shift
+        ;;
+      --grace)
+        GRACE_OVERRIDE="${2:?"--grace requires a value (e.g. 30m, 6h)"}"
+        shift 2
+        ;;
+      --keep)
+        KEEP_OVERRIDE="${2:?"--keep requires a count"}"
+        shift 2
         ;;
       --workspace)
         WORKSPACE_OVERRIDE="${2:?"--workspace requires a value"}"
@@ -550,7 +705,8 @@ main() {
   # invoked us by mistake — avoid silent no-op).
   if [[ "${DO_NETWORKS}" != true && "${DO_IMAGES}" != true \
         && "${DO_VOLUMES}" != true && "${DO_BUILDER}" != true \
-        && "${DO_WORKTREE_ORPHANS}" != true ]]; then
+        && "${DO_WORKTREE_ORPHANS}" != true \
+        && "${DO_ORPHAN_PROJECTS}" != true && "${DO_TOOL_TAGS}" != true ]]; then
     _log_err prune prune_nothing_selected "display=$(_msg info nothing_selected)"
     exit 2
   fi
@@ -606,6 +762,31 @@ main() {
 
   if [[ "${DO_WORKTREE_ORPHANS}" == true ]]; then
     _run_worktree_orphans_prune
+  fi
+
+  # The scoped reclaim (lib/project_reclaim.sh). No prompt and no -y gate,
+  # unlike --volumes and --worktree-orphans: those two ask because they act
+  # on a heuristic (a volume's data may still be wanted; an image's owner is
+  # inferred from a name), and this one acts on a proof. A prompt on a
+  # provable removal is what turns an automatic collector back into a chore
+  # somebody has to remember.
+  local _reclaim_rc=0
+  if [[ "${DO_ORPHAN_PROJECTS}" == true ]]; then
+    # No root: the sweep reads each artifact's own checkout-path label, so
+    # its answer does not depend on which repository prune.sh was run in.
+    _reclaim_orphan_projects "${GRACE_OVERRIDE}" || _reclaim_rc=$?
+  fi
+  if [[ "${DO_TOOL_TAGS}" == true ]]; then
+    _reclaim_tool_tags "${FILE_PATH}" "${KEEP_OVERRIDE}" || _reclaim_rc=$?
+  fi
+  if (( _reclaim_rc != 0 )); then
+    # An explicit `prune --reclaim` DOES report a refusal in its exit
+    # status: the caller asked for the sweep and is entitled to know it did
+    # not happen. The automatic callers (stop.sh, test.sh) swallow it
+    # instead -- see their own comments for why.
+    _log_err prune prune_reclaim_failed \
+      "display=the scoped reclaim refused to act; nothing was removed."
+    exit "${_reclaim_rc}"
   fi
 
   # post-prune hook fires at end of main, after all prune

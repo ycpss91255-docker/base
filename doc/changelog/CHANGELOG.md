@@ -58,6 +58,15 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 ## [Unreleased]
 
 ### Changed
+- **a test's description is written above the `@test`, and `doc/test/` is
+  generated from it (closes #922, amends ADR-00000028)** -- write
+  `# why: <prose>` above a test; `just test sync-docs` renders the catalogue
+  from those markers into a fenced region it replaces wholesale, so editing
+  that region does nothing. A rename now carries its description, a deleted
+  row is restored byte-for-byte, and deleting the marker fails the drift
+  gate. The new `catalog-description` lint reads `^@test` over the spec
+  trees, so no section shape exempts a test. 1209 descriptions and 106
+  blurbs were relocated by script.
 - **the dev bind and the deploy bake now cover every `config/<component>/`, not the literal `config/app` (closes #1000)**
   -- both halves tested one hardcoded directory name **no repo in the org
   has**, so the `[[ -d ]]` was always false: nothing mounted, nothing baked,
@@ -95,6 +104,16 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   type at 1.7.12.
 
 ### Added
+- **`just test metrics`: one shell reader, three implementation-standard thresholds (refs #994)** -- nesting depth <= 3, function length <= 50 body code lines, positional parameters <= 5, measured in one pass over every tracked shell file. Not in `just test` or `just test lint`: today's tree reports 26 / 69 / 7, which phase 3 flattens and phase 4 then gates. The figures replace an ad-hoc count whose parser bugs are now fixtures, and every counting rule the reader states has its worked example as a fixture too -- three defects were found by running them, one of them fail-open. A file the reader cannot parse is a finding, never a skip. Host-direct: the population is the git index.
+- **`just docker prune --reclaim`: base collects its own compose litter
+  (closes #995)** -- compose stamps the checkout's absolute path on its
+  network (`base.checkout.path`); the sweep reads it back and removes the
+  network only when nothing is there, no container is attached, and a 6h
+  grace (`--grace`, `BASE_RECLAIM_GRACE`) has passed -- correct from any
+  directory, in any repository. A network without that label (every one made
+  before this) is left to the daemon-wide prune. It runs after `just stop` /
+  `just test` without changing their status. `--tool-tags` retires unresolved
+  `test-tools:<12hex>` images, but only when asked.
 - **`adr-structure`: an ADR must carry the parts an ADR is read for (refs
   #994)** -- `adr_numbering` guarded what an ADR file is called; nothing
   guarded what is in it, and 20 of 27 ADRs met this contract by convention
@@ -214,6 +233,15 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   unreachable index reads as an empty one. Pass
   `APK_MIRROR=<host> just test`. The default is the upstream CDN and the
   rewrite is skipped there, so a machine that can reach it sees no change.
+- **the errexit-bang lint's three named misses (closes #990, #991, #992)** --
+  a CRLF `*.bats` is REFUSED by name (a `\r` disarmed the line continuation,
+  so a spliced `; true` went unreported); a `!` ending an `if` / `while` /
+  `for` / `case` / `{ }` block is judged against its BLOCK, not the body; and
+  a `;` now outranks the live-`||` exemption, with the always-zero operand
+  set widened to `echo` and `return 0` and an unreadable group operand
+  refused. A spec holding `! A || echo x`, `! A || { ... }` or
+  `! A || return "${_rc}"` now fails the gate and needs a real assertion or
+  an allow region.
 - **`just upgrade` no longer deletes a working pip install from a consumer
   Dockerfile (refs #956)** -- the migration dropped every `pip install -r
   ${CONFIG_DIR}/pip/requirements.txt` line as base's empty placeholder, but

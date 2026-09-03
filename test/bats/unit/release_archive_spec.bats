@@ -23,6 +23,13 @@
 # Pure filesystem, no docker, no network: Unit level (ADR-00000018).
 # The real shipped manifest is driven separately, at Integration level, by
 # release_archive_contract_spec.bats.
+#
+# why: Unit coverage for `script/ci/release-archive.sh`, the payload
+# assembler the reusable release worker runs at tag time. Synthetic
+# manifests over synthesised repo trees, so absence -- the case the previous
+# hardcoded `cp -r` list could never survive and no test ever drove -- is
+# expressible: an optional path missing degrades the archive, a required one
+# missing fails naming the path and what its absence costs.
 
 bats_require_minimum_version 1.5.0
 
@@ -81,6 +88,7 @@ _archive_list() {
 
 # ── required paths ───────────────────────────────────────────────────────────
 
+# why: A declared required path present is copied into the archive
 @test "release-archive: archives a required path that exists" {
   _seed 'Dockerfile'
   _manifest 'required|dockerfile|Dockerfile|the image definition|nothing to build without it'
@@ -89,6 +97,8 @@ _archive_list() {
   [ -f "${REPO}/${DEST}/Dockerfile" ]
 }
 
+# why: Names the path, the item and the consequence; never a bare `cp:
+# cannot stat`
 @test "release-archive: a missing required path fails naming that path, not a bare cp error (#914)" {
   # The whole point of the mandatory half: an archive without it is not a
   # release, it is a broken artifact someone discovers later. It must fail,
@@ -104,6 +114,7 @@ _archive_list() {
   refute_output --partial 'cannot stat'
 }
 
+# why: Validation precedes any copy: no partial payload survives a failure
 @test "release-archive: a missing required path leaves no half-built archive (#914)" {
   # A tarball of a partial payload is worse than no tarball: it uploads
   # clean and breaks at the consumer. The step must not hand `tar` a
@@ -117,6 +128,7 @@ _archive_list() {
   [ ! -e "${REPO}/${DEST}" ]
 }
 
+# why: Both gaps reported in one run, with the count
 @test "release-archive: reports every missing required path in one pass (#914)" {
   _seed 'README.md'
   _manifest \
@@ -131,6 +143,8 @@ _archive_list() {
 
 # ── optional paths: the class the two instances belong to ────────────────────
 
+# why: The regression class: one absent optional path no longer costs the
+# release
 @test "release-archive: a consumer tree lacking an optional path still archives (#914)" {
   # The regression both instances were: one absent standard path took down
   # the entire release. Absence of an optional path is now a note, not a
@@ -147,6 +161,8 @@ _archive_list() {
   [ ! -e "${REPO}/${DEST}/test" ]
 }
 
+# why: Tolerance is not silence -- the tag log names what is not in the
+# archive
 @test "release-archive: an absent optional path is reported by name, never silently dropped (#914)" {
   # Tolerance must not become silence: the tag log has to show what the
   # archive does NOT contain, or a payload path that quietly stopped being
@@ -161,6 +177,7 @@ _archive_list() {
   assert_output --partial 'the documentation tree'
 }
 
+# why: The tag log shows the payload that was assembled
 @test "release-archive: names every archived path so the tag log shows the payload" {
   _seed 'Dockerfile' 'doc/'
   _manifest \
@@ -174,6 +191,7 @@ _archive_list() {
 
 # ── layout alternatives: both historical smoke trees ─────────────────────────
 
+# why: `test/smoke/` consumer archives at its own path
 @test "release-archive: an entry archives whichever candidate layout the consumer has (old) (#914)" {
   _seed 'Dockerfile' 'test/smoke/'
   _manifest \
@@ -184,6 +202,7 @@ _archive_list() {
   [ -f "${REPO}/${DEST}/test/smoke/payload.txt" ]
 }
 
+# why: `test/bats/smoke/` consumer archives at its own path
 @test "release-archive: an entry archives whichever candidate layout the consumer has (new) (#914)" {
   _seed 'Dockerfile' 'test/bats/smoke/'
   _manifest \
@@ -194,6 +213,7 @@ _archive_list() {
   [ -f "${REPO}/${DEST}/test/bats/smoke/payload.txt" ]
 }
 
+# why: A mid-migration tree loses neither layout and they do not collide
 @test "release-archive: a tree carrying both candidate layouts archives both (#914)" {
   # Mid-migration trees exist. Copying every candidate that is present --
   # each at its own relative path -- means neither layout is dropped and
@@ -208,6 +228,7 @@ _archive_list() {
   [ -f "${REPO}/${DEST}/test/smoke/payload.txt" ]
 }
 
+# why: Every candidate path is named in the failure
 @test "release-archive: a required entry with no candidate present names all of them (#914)" {
   _seed 'Dockerfile'
   _manifest 'required|smoke|test/bats/smoke/ test/smoke/|the smoke specs|no assertions'
@@ -219,6 +240,7 @@ _archive_list() {
 
 # ── copy semantics ───────────────────────────────────────────────────────────
 
+# why: A nested path is not flattened (which would collide the two layouts)
 @test "release-archive: a nested path keeps its relative position in the archive (#914)" {
   # `cp -r test/bats/smoke/ dest/` flattens to `dest/smoke/`, which makes
   # the two historical layouts collide on one destination and loses the
@@ -233,6 +255,8 @@ _archive_list() {
   [ ! -e "${REPO}/${DEST}/smoke" ]
 }
 
+# why: `cp -r` keeps symlinks; they resolve because `.base/` is required and
+# travels along
 @test "release-archive: symlinked wrappers still resolve inside the archive (#914)" {
   # `script/*.sh` are relative symlinks into `.base/dist/script/docker/`.
   # `cp -r` copies a symlink AS a symlink (measured: GNU coreutils 8.32
@@ -254,6 +278,7 @@ _archive_list() {
   assert_output --partial 'content of .base/dist/script/docker/wrapper/build.sh'
 }
 
+# why: The step no longer needs a separate `mkdir -p`
 @test "release-archive: creates the archive directory when it does not exist" {
   _seed 'Dockerfile'
   _manifest 'required|dockerfile|Dockerfile|the image definition|nothing to build'
@@ -265,6 +290,7 @@ _archive_list() {
 
 # ── caller-supplied extras ───────────────────────────────────────────────────
 
+# why: Caller-supplied extras are archived
 @test "release-archive: archives extra_files that exist" {
   _seed 'Dockerfile' 'config/' 'entrypoint.sh'
   _manifest 'required|dockerfile|Dockerfile|the image definition|nothing to build'
@@ -274,6 +300,7 @@ _archive_list() {
   [ -f "${REPO}/${DEST}/entrypoint.sh" ]
 }
 
+# why: Extras have never been mandatory, and still are not
 @test "release-archive: an absent extra_file is tolerated, as it always was" {
   _seed 'Dockerfile'
   _manifest 'required|dockerfile|Dockerfile|the image definition|nothing to build'
@@ -282,6 +309,7 @@ _archive_list() {
   [ -d "${REPO}/${DEST}" ]
 }
 
+# why: `..` in a caller path would write outside the archive: refused
 @test "release-archive: an extra_file escaping the repo root is refused, not copied out (#914)" {
   # `..` in a caller-supplied path resolves OUTSIDE the archive directory,
   # so a `cp` would write into the checkout instead of the payload and the
@@ -293,6 +321,7 @@ _archive_list() {
   assert_output --partial '../escape'
 }
 
+# why: Same guard for an absolute caller path
 @test "release-archive: an absolute extra_file path is refused (#914)" {
   _seed 'Dockerfile'
   _manifest 'required|dockerfile|Dockerfile|the image definition|nothing to build'
@@ -303,6 +332,7 @@ _archive_list() {
 
 # ── malformed input never archives silently ──────────────────────────────────
 
+# why: Fail closed: a typo'd kind never decides whether a path is archived
 @test "release-archive: an unknown manifest kind fails loudly, naming it (#914)" {
   # Fail closed: a typo'd kind column must never mean "copy it if you feel
   # like it". Same class as preflight.sh's unknown-kind guard.
@@ -313,6 +343,7 @@ _archive_list() {
   assert_output --partial 'requried'
 }
 
+# why: An empty `<paths>` column is a typo, and a typo is not an absence
 @test "release-archive: an entry declaring no candidate path is a config error, not an absent path (#914)" {
   # An empty <paths> column declares nothing, so there is nothing to look for.
   # Resolved as "found nothing" it becomes indistinguishable from a consumer
@@ -343,6 +374,7 @@ _archive_list() {
   refute_output --partial 'assembled'
 }
 
+# why: A short line under-declares the entry: refused, never half-read
 @test "release-archive: an entry missing a column is a config error, not a nameless report (#914)" {
   # Short line: the trailing columns read as empty, so the absence report
   # names the item with a blank description. The manifest IS the contract, so
@@ -358,6 +390,7 @@ _archive_list() {
   refute_output --partial 'assembled'
 }
 
+# why: An empty payload is a config error, not an empty release
 @test "release-archive: a manifest declaring nothing is a config error, not an empty archive (#914)" {
   _seed 'Dockerfile'
   _manifest '# only a comment' ''
@@ -366,6 +399,7 @@ _archive_list() {
   assert_output --partial 'no payload'
 }
 
+# why: Tolerance stops short of uploading an empty tarball as a release
 @test "release-archive: an all-optional manifest matching nothing refuses to build an empty archive (#914)" {
   # Tolerance stops short of shipping an empty tarball: an artifact that
   # uploads like a release and contains nothing is the silent-broken-artifact
@@ -380,6 +414,7 @@ _archive_list() {
   [ ! -e "${REPO}/${DEST}" ]
 }
 
+# why: Config error (exit 2), distinct from a payload gap
 @test "release-archive: a missing manifest file is a config error" {
   _seed 'Dockerfile'
   rm -f "${MANIFEST}"
@@ -388,6 +423,7 @@ _archive_list() {
   assert_output --partial 'manifest'
 }
 
+# why: Same escape guard on the declared paths
 @test "release-archive: refuses a manifest path that escapes the repo root (#914)" {
   _seed 'Dockerfile'
   _manifest 'optional|escape|../outside|a path outside the checkout|nothing'
@@ -398,6 +434,7 @@ _archive_list() {
 
 # ── the payload contract is readable ─────────────────────────────────────────
 
+# why: The payload contract is readable without running an archive
 @test "release-archive: --list prints the declared payload with its required/optional split" {
   _manifest \
     'required|dockerfile|Dockerfile|the image definition|nothing to build' \

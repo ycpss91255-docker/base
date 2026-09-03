@@ -51,6 +51,25 @@
 # caller set one, so the upstream host keeps being named in exactly one
 # place -- is compose's own interpolation and is asserted by driving it,
 # in test/bats/integration/apk_mirror_spec.bats.
+#
+# why: APK_MIRROR is the Alpine mirror knob on
+# dockerfile/Dockerfile.test-tools -- the image the WHOLE local gate runs
+# inside. Without it a host that cannot reach dl-cdn.alpinelinux.org
+# cannot build the gate at all, and the only thing it is told is `no such
+# package` for every package after ~480s, because an unreachable index
+# reads as an empty one rather than as a network failure.
+#
+# The rewrite properties are EXECUTED rather than grepped: the rewrite is
+# a shell rule, so the way to assert what it does at the default is to run
+# the extracted rule over a repositories file. What is pinned: the default
+# is the upstream CDN declared once; the mirror stage's alpine is the
+# pinned ARG and no other stage names an alpine of its own (this file
+# holds the tree's only such tie, which template_spec's kcov-builder
+# assertion used to carry); the rewrite is skipped at the default, checked
+# by the file's inode and mtime because a sed replacing the host with
+# itself is byte-identical; and every stage that installs packages derives
+# from the one stage that declares the arg. The forwarding half is
+# test/bats/integration/apk_mirror_spec.bats'.
 
 bats_require_minimum_version 1.5.0
 
@@ -137,6 +156,10 @@ _stages_off_the_mirror() {
 # The declaration
 # ════════════════════════════════════════════════════════════════════
 
+# why: The upstream host is declared in exactly ONE place, so nothing
+# else has to be kept in agreement with it. A second ARG, or a default
+# spelled elsewhere, is how the two start disagreeing silently -- and the
+# default has to BE the CDN, or a machine that named no mirror gets one.
 @test "APK_MIRROR: declared exactly once, defaulting to the upstream CDN (#1008)" {
   run grep -cE '^ARG[[:space:]]+APK_MIRROR=' "${DOCKERFILE}"
   assert_success
@@ -144,6 +167,12 @@ _stages_off_the_mirror() {
   assert_equal "$(_declared_default)" "${UPSTREAM_CDN}"
 }
 
+# why: The tree's ONLY tie between a tooling stage's alpine and
+# ARG ALPINE_VERSION, after template_spec's kcov-builder assertion had to
+# give it up (that stage is `FROM alpine-apk` now). Nothing else in the
+# gate catches a divergent one: hadolint refuses `:latest` but not a
+# `FROM alpine:3.20` sitting next to `ARG ALPINE_VERSION=3.21`, which
+# builds green and ships tooling on a release the file does not declare.
 @test "APK_MIRROR: the mirror stage's alpine is the pinned ARG, and so is every other (#1008)" {
   # The tree's only assertion tying a tooling stage's alpine to
   # ARG ALPINE_VERSION. template_spec carried it on kcov-builder, which is
@@ -171,6 +200,11 @@ _stages_off_the_mirror() {
   assert_output ""
 }
 
+# why: What keeps "declared once" true across FILES. A
+# `${APK_MIRROR:-dl-cdn.alpinelinux.org}` in compose.yaml would move the
+# upstream host's declaration into a file the Dockerfile cannot see, so
+# the Dockerfile could no longer change it -- the failure the APT_MIRROR_*
+# pair already has in the emitted downstream compose.
 @test "APK_MIRROR: the build path names no alpine mirror of its own (#1008)" {
   # The default lives in the Dockerfile and nowhere else. A
   # `\${APK_MIRROR:-dl-cdn.alpinelinux.org}` in compose would be a second
@@ -186,6 +220,12 @@ _stages_off_the_mirror() {
 # The rewrite, executed
 # ════════════════════════════════════════════════════════════════════
 
+# why: The load-bearing case, and the one a byte comparison cannot make.
+# Dropping the guard leaves a sed that replaces the host with ITSELF --
+# the exact rule the guard prevents -- and its output is byte-identical,
+# so bytes green-light it. Identity (inode, mtime) is what says the
+# rewrite never ran, and that is what buys reach: a mistake in the rule
+# can then only be reached by a caller who asked for a mirror.
 @test "APK_MIRROR: at the default the repositories file is not touched at all (#1008)" {
   # Identity, not bytes. Dropping the `!= dl-cdn.alpinelinux.org` guard
   # leaves a sed that replaces the host with ITSELF, whose output is
@@ -209,6 +249,11 @@ _stages_off_the_mirror() {
     || fail "the default REWROTE the repositories file (inode/mtime ${_ident} -> ${_ident_after}); byte-identical output is not a skip, and a rule that runs at the default puts itself in the path of every build, including the ones that named no mirror"
 }
 
+# why: EVERY line moves, not just the first. The seed file carries two
+# repositories because that is the shape alpine ships, and a rule that
+# stops after `main` leaves `community` pointing at the host the caller
+# cannot reach -- a build that then dies halfway through, on the mirror
+# that was supposed to have fixed it.
 @test "APK_MIRROR: an override repoints every repository line (#1008)" {
   local _repos _rule
   _repos="$(_seed_repositories)"
@@ -224,6 +269,11 @@ _stages_off_the_mirror() {
   [ "${status}" -eq 1 ] || fail "grep errored (${status}), it did not merely fail to match"
 }
 
+# why: An empty value is the one input that would REPRODUCE the bug this
+# knob removes: rewriting the host to nothing hands back the same
+# misleading `no such package`, now with a mirror set, which is the worst
+# place to leave the reader. Refusing it by name is what separates a
+# caller mistake from the original defect.
 @test "APK_MIRROR: an empty override is refused by name, not turned into an empty host (#1008)" {
   # `--build-arg APK_MIRROR=` would otherwise rewrite the host to nothing
   # and hand back the SAME misleading `no such package` this knob exists
@@ -245,6 +295,11 @@ _stages_off_the_mirror() {
 # Reach: every stage that installs packages
 # ════════════════════════════════════════════════════════════════════
 
+# why: The file runs apk in four stages, so a knob wired into one leaves
+# the build dying in the next -- later, and with the same misleading
+# message. This is the assertion that names a newly added alpine stage
+# here, on any machine, rather than on the one host that cannot reach
+# dl-cdn and would otherwise be the only place it shows up.
 @test "APK_MIRROR: every stage that installs packages inherits the mirror choice (#1008)" {
   # A knob on one stage of four leaves the other three pinned to the CDN,
   # so the build still dies -- later, and with the same message. The

@@ -6,6 +6,19 @@
 # basename-collision guard). base delivers the files a manifest names; it
 # does not parse their content. A missing manifest = nothing tunable (all
 # baked, the fail-safe default); a malformed manifest fails loud.
+#
+# why: Covers the per-component tunable-config manifest primitives (#833;
+# ADR-00000023 sec.5): `_parse_deploy_manifest` (a committed,
+# downstream-owned `config/<component>/deploy.manifest` declaring the
+# container-internal paths an operator may override per stage) and
+# `_collect_deploy_binds` (aggregating every component's declarations by
+# basename, the name the file takes in the bundle `config/` + its compose
+# bind). base delivers files; it does not parse content. A missing manifest
+# is nothing-tunable (fail-safe); a malformed manifest, or a duplicate
+# basename across components, fails loud. Each declaration also carries an
+# access mode (#870): no flag means read-only, `rw` opts that one path into
+# container writes, and any other trailing token is malformed -- reported
+# with file and line, never skipped and never downgraded in silence.
 
 bats_require_minimum_version 1.5.0
 
@@ -25,6 +38,7 @@ _write_manifest() {
 # _parse_deploy_manifest
 # ════════════════════════════════════════════════════════════════════
 
+# why: per-stage selection
 @test "_parse_deploy_manifest: returns only the requested stage's paths (tunable-manifest)" {
   local _d; _d="$(mktemp -d)"
   _write_manifest "${_d}/deploy.manifest" \
@@ -38,6 +52,7 @@ _write_manifest() {
   rm -rf "${_d}"
 }
 
+# why: unlisted = baked
 @test "_parse_deploy_manifest: a path unlisted for the stage stays baked-only (tunable-manifest)" {
   local _d; _d="$(mktemp -d)"
   _write_manifest "${_d}/deploy.manifest" \
@@ -50,6 +65,7 @@ _write_manifest() {
   rm -rf "${_d}"
 }
 
+# why: lexing
 @test "_parse_deploy_manifest: skips blank + comment lines and trims whitespace (tunable-manifest)" {
   local _d; _d="$(mktemp -d)"
   _write_manifest "${_d}/deploy.manifest" \
@@ -65,6 +81,7 @@ _write_manifest() {
   rm -rf "${_d}"
 }
 
+# why: access mode: ro default, rw opt-in
 @test "_parse_deploy_manifest: an unflagged path is read-only, an explicit rw opts in (tunable-manifest)" {
   local _d; _d="$(mktemp -d)"
   _write_manifest "${_d}/deploy.manifest" \
@@ -80,6 +97,7 @@ _write_manifest() {
   rm -rf "${_d}"
 }
 
+# why: the default spelled out
 @test "_parse_deploy_manifest: an explicit ro flag is accepted (tunable-manifest)" {
   local _d; _d="$(mktemp -d)"
   _write_manifest "${_d}/deploy.manifest" "[runtime]" "/etc/app/host.yaml ro"
@@ -90,6 +108,7 @@ _write_manifest() {
   rm -rf "${_d}"
 }
 
+# why: bad flag, not a silent skip
 @test "_parse_deploy_manifest: an unknown access flag fails loud naming file and line (tunable-manifest)" {
   local _d; _d="$(mktemp -d)"
   _write_manifest "${_d}/deploy.manifest" \
@@ -103,6 +122,7 @@ _write_manifest() {
   rm -rf "${_d}"
 }
 
+# why: one flag only
 @test "_parse_deploy_manifest: a trailing token after a valid flag fails loud (tunable-manifest)" {
   local _d; _d="$(mktemp -d)"
   _write_manifest "${_d}/deploy.manifest" "[runtime]" "/etc/app/host.yaml rw ro"
@@ -113,6 +133,7 @@ _write_manifest() {
   rm -rf "${_d}"
 }
 
+# why: missing = empty
 @test "_parse_deploy_manifest: a missing manifest is not an error -> empty (tunable-manifest)" {
   local _d; _d="$(mktemp -d)"
   local -a _paths=("stale")
@@ -123,6 +144,7 @@ _write_manifest() {
   rm -rf "${_d}"
 }
 
+# why: bad section
 @test "_parse_deploy_manifest: a malformed section header fails loud (tunable-manifest)" {
   local _d; _d="$(mktemp -d)"
   _write_manifest "${_d}/deploy.manifest" "[Runtime]" "/camera_config.yaml"
@@ -133,6 +155,7 @@ _write_manifest() {
   rm -rf "${_d}"
 }
 
+# why: non-absolute path
 @test "_parse_deploy_manifest: a non-absolute content line fails loud (tunable-manifest)" {
   local _d; _d="$(mktemp -d)"
   _write_manifest "${_d}/deploy.manifest" "[runtime]" "camera_config.yaml"
@@ -143,6 +166,7 @@ _write_manifest() {
   rm -rf "${_d}"
 }
 
+# why: orphan path
 @test "_parse_deploy_manifest: a path before any section fails loud (tunable-manifest)" {
   local _d; _d="$(mktemp -d)"
   _write_manifest "${_d}/deploy.manifest" "/camera_config.yaml" "[runtime]"
@@ -157,6 +181,7 @@ _write_manifest() {
 # _collect_deploy_binds
 # ════════════════════════════════════════════════════════════════════
 
+# why: aggregation
 @test "_collect_deploy_binds: aggregates every component's stage paths keyed by basename (tunable-manifest)" {
   local _d; _d="$(mktemp -d)"
   _write_manifest "${_d}/config/camera/deploy.manifest" "[runtime]" "/camera_config.yaml"
@@ -168,6 +193,7 @@ _write_manifest() {
   rm -rf "${_d}"
 }
 
+# why: mode aggregation
 @test "_collect_deploy_binds: carries each path's access mode keyed by basename (tunable-manifest)" {
   local _d; _d="$(mktemp -d)"
   _write_manifest "${_d}/config/camera/deploy.manifest" "[runtime]" "/camera_config.yaml"
@@ -180,6 +206,7 @@ _write_manifest() {
   rm -rf "${_d}"
 }
 
+# why: nothing tunable
 @test "_collect_deploy_binds: no manifests -> empty map (nothing tunable) (tunable-manifest)" {
   local _d; _d="$(mktemp -d)"
   mkdir -p "${_d}/config/camera"
@@ -189,6 +216,7 @@ _write_manifest() {
   rm -rf "${_d}"
 }
 
+# why: basename collision
 @test "_collect_deploy_binds: duplicate basename across components fails loud (tunable-manifest)" {
   local _d; _d="$(mktemp -d)"
   _write_manifest "${_d}/config/a/deploy.manifest" "[runtime]" "/etc/a/host.yaml"
@@ -200,6 +228,7 @@ _write_manifest() {
   rm -rf "${_d}"
 }
 
+# why: fail propagation
 @test "_collect_deploy_binds: propagates a malformed manifest failure (tunable-manifest)" {
   local _d; _d="$(mktemp -d)"
   _write_manifest "${_d}/config/a/deploy.manifest" "[runtime]" "not-absolute"

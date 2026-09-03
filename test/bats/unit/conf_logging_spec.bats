@@ -8,6 +8,11 @@
 # same logic without circular sourcing (setup.sh used to own both the
 # parser and the runtime-time gitignore sync; PR-B moves the sync to
 # init.sh while keeping the parser as a shared primitive).
+#
+# why: Unit tests for the logging-config collectors
+# (`_parse_logging_svc_sections` / `_collect_logging`): per-service
+# `[logging.<svc>]` enumeration in file order, plain `[logging]` global
+# handling, and empty-when-absent behaviour.
 
 bats_require_minimum_version 1.5.0
 
@@ -36,6 +41,7 @@ teardown() {
 # _parse_logging_svc_sections
 # ════════════════════════════════════════════════════════════════════
 
+# why: File-order service enumeration
 @test "_parse_logging_svc_sections enumerates services in file order" {
   cat > "${CONF_FILE}" <<'CONF'
 [logging]
@@ -54,6 +60,7 @@ CONF
   [[ "${_svcs[1]}" == "devel" ]]
 }
 
+# why: Global section not a service
 @test "_parse_logging_svc_sections ignores plain [logging] section" {
   cat > "${CONF_FILE}" <<'CONF'
 [logging]
@@ -64,6 +71,7 @@ CONF
   [[ "${#_svcs[@]}" -eq 0 ]]
 }
 
+# why: Missing-file empty
 @test "_parse_logging_svc_sections returns empty when file does not exist" {
   local -a _svcs=()
   _parse_logging_svc_sections "/no/such/file" _svcs
@@ -74,6 +82,7 @@ CONF
 # _collect_logging
 # ════════════════════════════════════════════════════════════════════
 
+# why: Global logging read
 @test "_collect_logging reads global [logging] from per-repo setup.conf" {
   mkdir -p "${TEMP_DIR}"
   cat > "${TEMP_DIR}/.setup.conf" <<'CONF'
@@ -88,6 +97,7 @@ CONF
   [[ -z "${_p}" ]]
 }
 
+# why: Per-service logging read
 @test "_collect_logging reads per-service [logging.<svc>] sections" {
   mkdir -p "${TEMP_DIR}"
   cat > "${TEMP_DIR}/.setup.conf" <<'CONF'
@@ -151,6 +161,7 @@ CONF
   [[ "${_g}" == *"driver=local"* ]] || { echo "got: ${_g}"; return 1; }
 }
 
+# why: No-config empty
 @test "_collect_logging returns empty when no [logging] sections anywhere" {
   mkdir -p "${TEMP_DIR}"
   cat > "${TEMP_DIR}/.setup.conf" <<'CONF'

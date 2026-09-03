@@ -168,3 +168,30 @@ services:
     command:
       - -c
       - ./script/test/test.sh --ci
+
+# The default network every service above attaches to, declared here for
+# one reason: to stamp the ABSOLUTE PATH of the checkout that ran this file
+# onto it.
+#
+# Compose already labels the network `com.docker.compose.project`, which
+# says WHICH project made it but not WHERE that project was. The scoped
+# reclaim (dist/script/docker/lib/project_reclaim.sh) removes a network
+# only when it can prove the checkout that created it is gone, and the
+# proof it uses is this label: read the path back off the artifact and ask
+# whether anything is still there. Recorded HERE, at creation, rather than
+# reconstructed at collection time by enumerating worktrees -- an
+# enumeration is only ever the right one when the sweep happens to be run
+# in the right repository, and the sweep that got this wrong deleted the
+# networks of live checkouts.
+#
+# `:?` and no default, like every other interpolation in this file. An
+# artifact created without this label can never be attributed to anything
+# and is left alone forever, so the failure has to land on the invocation
+# that would have created it. The root justfile exports the variable for
+# the whole `just` surface, script/test/test.sh sets it for the direct
+# invocations CI makes, and self-test.yaml sets it for the one CI job that
+# drives compose itself.
+networks:
+  default:
+    labels:
+      base.checkout.path: ${BASE_CHECKOUT_PATH:?set by 'just' / 'just test' -- run one of those instead of driving docker compose directly}
