@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3488 tests**.
+Unit specs under `test/bats/unit/`: **3490 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -990,7 +990,7 @@ forwarding for caller abort, and DRY_RUN skip.
 | `_run_pre_hook: DRY_RUN=true -> hook skipped silently (#440)` | DRY_RUN skip (pre) |
 | `_run_post_hook: DRY_RUN=true -> hook skipped silently (#440)` | DRY_RUN skip (post) |
 
-### test/bats/unit/dockerfile_migrate_spec.bats (81)
+### test/bats/unit/dockerfile_migrate_spec.bats (86)
 
 Unit tests for the declarative Dockerfile-migration list
 `lib/dockerfile_migrate.sh` (#567, folds #579 facet B). The lib exposes a
@@ -1061,14 +1061,19 @@ shape auto-applies idempotently, a missing/ambiguous shape is skipped
 | `migration (flat-to-dist): dispatcher run twice rewrites exactly once (#915)` | - |
 | `apply_migrations leaves no .base COPY source behind on the v0.41.0 shape (#915)` | - |
 | `apply_migrations leaves every .base COPY source resolvable in the shipped tree (#969)` | - |
-| `migration (logrotate-copy): inserts logrotate.sh COPY after the logging.sh COPY (#805)` | - |
-| `migration (logrotate-copy): detect false when logrotate COPY already present (idempotent) (#805)` | - |
-| `migration (logrotate-copy): detect false when no logging.sh COPY present (#805)` | - |
-| `migration (logrotate-copy): dispatcher run twice inserts the COPY exactly once (#805)` | - |
-| `migration (watchdog-copy): inserts watchdog.sh COPY after the logging.sh COPY (#797)` | - |
-| `migration (watchdog-copy): detect false when watchdog COPY already present (idempotent) (#797)` | - |
-| `migration (watchdog-copy): detect false when no logging.sh COPY present (#797)` | - |
-| `migration (watchdog-copy): dispatcher run twice inserts the COPY exactly once (#797)` | - |
+| `migration (runtime-moved-files): rewrites the smoke.sh source to the shipped test tree (#971)` | - |
+| `migration (runtime-moved-files): rewrites the entrypoint.sh source at the pre-dist path (#971)` | - |
+| `migration (runtime-moved-files): detect false once nothing names the old paths (#971)` | - |
+| `migration (runtime-dir-copy): collapses the three per-file COPYs into one dir COPY (#971)` | - |
+| `migration (runtime-dir-copy): collapses a subset in any order at the pre-dist path (#971)` | - |
+| `migration (runtime-dir-copy): one dir COPY per stage, not one for the file (#971)` | - |
+| `migration (runtime-dir-copy): a statement hand-listing two helpers collapses to one source (#971)` | - |
+| `migration (runtime-dir-copy): a hand-relocated destination is preserved (#971)` | - |
+| `migration (runtime-dir-copy): rewrites the commented runtime-stage example too (#971)` | - |
+| `migration (runtime-dir-copy): an already-collapsed dir COPY is left alone (#971)` | - |
+| `migration (runtime-dir-copy): dispatcher run twice collapses exactly once (#971)` | - |
+| `migration (runtime-dir-copy): detect false when no helper COPY is present (#971)` | - |
+| `apply_migrations heals the runtime COPYs every real consumer actually carries (#971)` | - |
 | `migration 5 (hadolint): DL3007 pins bats/alpine :latest tags (#567)` | - |
 | `migration 5 (hadolint): DL3046 adds useradd -l (#567)` | - |
 | `migration 5 (hadolint): DL3003 cd /lint -> WORKDIR /lint + RUN (#567)` | - |
@@ -1928,7 +1933,7 @@ the master switch `watchdog_check` is set, so the default-off case leaves
 rides on devel and extends:devel stages inherit it; and the resolver
 builds the env block only for the knobs the conf sets.
 
-### test/bats/unit/template_spec.bats (174)
+### test/bats/unit/template_spec.bats (171)
 
 | Test | Description |
 |------|-------------|
@@ -2021,16 +2026,13 @@ builds the env block only for the knobs the conf sets.
 | `stop.sh -h works in /lint/ layout` | - |
 | `build.sh errors with a clear diagnostic when bootstrap/_lib.sh missing (issue #104, #408)` | - |
 | `Dockerfile.example copies lib/ and wrapper/ into /lint/ (#406)` | - |
-| `Dockerfile.example copies logging.sh to /usr/local/lib/base/ in devel stage (#368)` | - |
-| `Dockerfile.example commented runtime stage shows logging.sh COPY example (#368)` | - |
+| `Dockerfile.example copies the runtime helper dir into /usr/local/lib/base/ in devel stage (#971)` | - |
+| `nothing in dist/script/docker/runtime/ has a destiny other than the helper dir (#971)` | - |
+| `Dockerfile.example commented runtime stage shows the helper-dir COPY example (#971)` | - |
 | `runtime/logging.sh header documents in-image source-line (no $USER, no work/.base) (#368)` | - |
-| `Dockerfile.example copies logrotate.sh to /usr/local/lib/base/ in devel stage (#805)` | - |
-| `Dockerfile.example copies watchdog.sh to /usr/local/lib/base/ in devel stage (#797)` | - |
-| `Dockerfile.example commented runtime stage shows watchdog.sh COPY example (#797)` | - |
-| `runtime/entrypoint.sh sources the watchdog helper after logging (#797)` | - |
-| `runtime/entrypoint.sh guards both lib sources with a readability test (#842)` | Both source lines wrapped in `[[ -r ]]`, matching the logrotate.sh pattern |
-| `runtime/entrypoint.sh execs cleanly under set -euo pipefail with the libs absent (#842)` | Opt-out runtime image: reaches `exec`, no stderr, no strict-mode abort |
-| `Dockerfile.example commented runtime stage shows logrotate.sh COPY example (#805)` | - |
+| `dockerfile/entrypoint.sh sources the watchdog helper after logging (#797)` | - |
+| `dockerfile/entrypoint.sh guards both lib sources with a readability test (#842)` | - |
+| `dockerfile/entrypoint.sh execs cleanly under set -euo pipefail with the libs absent (#842)` | - |
 | `no inline _detect_lang fallbacks remain after dedupe (issue #104)` | - |
 | `setup.sh does not redefine _detect_lang` | No duplication |
 | `setup.sh defines _setup_msg, not _msg (closes #101)` | - |
