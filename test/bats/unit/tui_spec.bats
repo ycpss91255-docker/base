@@ -815,7 +815,7 @@ rules = @default:orig
 [build]
 apt_mirror_ubuntu =
 EOF
-  local -a _sections=(image build) _keys=(image.rules build.apt_mirror_ubuntu) \
+  local -a _keys=(image.rules build.apt_mirror_ubuntu) \
     _values=("@default:newval" "tw.archive.example.com")
   _write_setup_conf "${TEMP_DIR}/out.conf" "${TEMP_DIR}/template.conf" \
     _keys _values
@@ -838,7 +838,7 @@ mode = host
 ipc = host
 privileged = true
 EOF
-  local -a _sections=(network) _keys=(network.mode) _values=(bridge)
+  local -a _keys=(network.mode) _values=(bridge)
   _write_setup_conf "${TEMP_DIR}/out.conf" "${TEMP_DIR}/template.conf" \
     _keys _values
 
@@ -873,7 +873,7 @@ EOF
   [[ "${_before}" -gt 0 ]] \
     || fail "fixture seed is empty -- the heredoc above wrote nothing, so the 0-byte-truncation assertion below would pass vacuously"
 
-  local -a _sections=(image) _keys=(image.rules) \
+  local -a _keys=(image.rules) \
     _values=("string:my_unique_image")
   # dst and tpl point at the same path — the bug's exact trigger.
   _write_setup_conf "${TEMP_DIR}/conf" "${TEMP_DIR}/conf" \
@@ -903,8 +903,7 @@ gpu_mode = auto
 gpu_count = all
 gpu_capabilities = gpu
 EOF
-  local -a _sections=(image deploy) \
-    _keys=(image.rules deploy.gpu_mode deploy.gpu_count) \
+  local -a _keys=(image.rules deploy.gpu_mode deploy.gpu_count) \
     _values=("prefix:docker_, @default:foo" "force" "2")
   _write_setup_conf "${TEMP_DIR}/out.conf" "${TEMP_DIR}/template.conf" \
     _keys _values
@@ -944,7 +943,7 @@ mount_1 = /a:/a
 mount_2 = /b:/b
 mount_3 = /c:/c
 EOF
-  local -a _sections=(volumes) _keys=() _values=()
+  local -a _keys=() _values=()
   _write_setup_conf "${TEMP_DIR}/out.conf" "${TEMP_DIR}/template.conf" \
     _keys _values "volumes.mount_2"
 
@@ -962,8 +961,7 @@ rule_1 = prefix:docker_
 [network]
 mode = host
 EOF
-  local -a _sections=(image) \
-    _keys=(image.rule_1 image.rule_2) \
+  local -a _keys=(image.rule_1 image.rule_2) \
     _values=("prefix:docker_" "@default:fallback")
   _write_setup_conf "${TEMP_DIR}/out.conf" "${TEMP_DIR}/template.conf" \
     _keys _values
@@ -1035,8 +1033,7 @@ rule_1 = prefix:docker_
 mount_1 = /a:/a
 EOF
   # volumes is the last section; mount_9 is a new key not in template.
-  local -a _sections=(volumes) \
-    _keys=(volumes.mount_9) \
+  local -a _keys=(volumes.mount_9) \
     _values=("/extra:/extra")
   _write_setup_conf "${TEMP_DIR}/out.conf" "${TEMP_DIR}/template.conf" \
     _keys _values
@@ -1056,8 +1053,7 @@ rule_1 = prefix:docker_
 [volumes]
 mount_1 = /a:/a
 EOF
-  local -a _sections=(volumes) \
-    _keys=(volumes.mount_9) \
+  local -a _keys=(volumes.mount_9) \
     _values=("/extra:/extra")
   _write_setup_conf "${TEMP_DIR}/out.conf" "${TEMP_DIR}/template.conf" \
     _keys _values "volumes.mount_9"
@@ -1130,8 +1126,7 @@ EOF
 [logging]
 driver = json-file
 EOF
-  local -a _sections=(logging.devel) \
-    _keys=(logging.devel.driver) \
+  local -a _keys=(logging.devel.driver) \
     _values=("local")
   _write_setup_conf "${TEMP_DIR}/out.conf" "${TEMP_DIR}/template.conf" \
     _keys _values
@@ -1815,8 +1810,7 @@ mode = auto
 [network]
 mode = host
 EOF
-  local -a _sections=("stage:headless") \
-    _keys=("stage:headless.gui.mode" "stage:headless.network.mode") \
+  local -a _keys=("stage:headless.gui.mode" "stage:headless.network.mode") \
     _values=("off" "bridge")
   _write_setup_conf "${TEMP_DIR}/out.conf" "${TEMP_DIR}/template.conf" \
     _keys _values
@@ -1839,8 +1833,7 @@ EOF
 [gui]
 mode = auto
 EOF
-  local -a _sections=("stage:headless" "stage:gui") \
-    _keys=("stage:headless.gui.mode" "stage:gui.gui.mode") \
+  local -a _keys=("stage:headless.gui.mode" "stage:gui.gui.mode") \
     _values=("off" "force")
   _write_setup_conf "${TEMP_DIR}/out.conf" "${TEMP_DIR}/template.conf" \
     _keys _values
@@ -1856,8 +1849,7 @@ EOF
 [gui]
 mode = auto
 EOF
-  local -a _sections=("gui" "stage:headless") \
-    _keys=("gui.mode" "stage:headless.gui.mode" "stage:headless.network.port_1") \
+  local -a _keys=("gui.mode" "stage:headless.gui.mode" "stage:headless.network.port_1") \
     _values=("auto" "off" "8080:80")
   _write_setup_conf "${TEMP_DIR}/out.conf" "${TEMP_DIR}/template.conf" \
     _keys _values
@@ -1898,8 +1890,7 @@ mode = auto
 [stage:headless]
 gui.mode = off
 EOF
-  local -a _sections=("stage:headless") \
-    _keys=("stage:headless.gui.mode") \
+  local -a _keys=("stage:headless.gui.mode") \
     _values=("force")
   _write_setup_conf "${TEMP_DIR}/out.conf" "${TEMP_DIR}/template.conf" \
     _keys _values

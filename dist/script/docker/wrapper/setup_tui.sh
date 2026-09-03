@@ -2771,7 +2771,7 @@ _commit_and_setup() {
   # Merge current baseline into overrides for keys the user did not touch
   # (so _write_setup_conf preserves untouched values via template).
   # Build final arrays directly from _TUI_OVR_* + _TUI_CURRENT.
-  local -a _final_sections=() _final_keys=() _final_values=()
+  local -a _final_keys=() _final_values=()
   local _k
   for _k in "${!_TUI_CURRENT[@]}"; do
     _final_keys+=("${_k}")
