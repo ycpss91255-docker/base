@@ -23,6 +23,32 @@
 # being interpolated into the run block. The payload's own behaviour is
 # covered by release_archive_spec.bats (engine) and
 # release_archive_contract_spec.bats (the real manifest).
+#
+# why: Structural assertions for `.github/workflows/release-worker.yaml`'s
+# archive step. The step used to hardcode the payload as operands of one `cp
+# -r`; `cp` aborts non-zero on a missing operand and the `run:` step is
+# `bash -e`, so any consumer lacking one standard path lost its release at
+# tag push -- twice, on a different path each time (#558, then #914), each
+# fixed by re-editing the list to match base's own layout. The payload now
+# lives in a declared manifest assembled by `script/ci/release-archive.sh`;
+# these tests lock the workflow's half of that split (the payload's own
+# behaviour is covered by `release_archive_spec.bats` and
+# `release_archive_contract_spec.bats`).
+#
+# Grouped by concern:
+#
+# - No hardcoded payload path list survives in the workflow (#914)
+#
+# - Archive step delegates to the assembler + its declared manifest
+#
+# - Assembler is version-matched to the worker (`job_workflow_sha`, checkout
+# path)
+#
+# - Caller input reaches the step via `env:`, never run-block interpolation
+#
+# - Every job's grant pinned as an exact per-job entry set, over the job
+# list derived from the file (`preflight: contents: read`, `release:
+# contents: write`)
 
 bats_require_minimum_version 1.5.0
 

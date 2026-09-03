@@ -5,6 +5,14 @@
 # environment is emitted ONLY when the master switch (watchdog_check) is
 # set, so the default-off case leaves compose.yaml byte-identical (the
 # default-off golden is unaffected).
+#
+# why: Tests for `[lifecycle]` watchdog (#797) support in
+# `generate_compose_yaml` and its resolution in `_resolve_deploy_context`:
+# the `WATCHDOG_*` service environment is emitted (YAML-quoted) only when
+# the master switch `watchdog_check` is set, so the default-off case leaves
+# `compose.yaml` byte-identical (the #505 golden is unaffected); the env
+# rides on devel and extends:devel stages inherit it; and the resolver
+# builds the env block only for the knobs the conf sets.
 
 bats_require_minimum_version 1.5.0
 

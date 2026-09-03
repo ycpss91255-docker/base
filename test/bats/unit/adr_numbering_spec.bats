@@ -7,6 +7,14 @@
 # runs against a controlled temp REPO_ROOT so the spec is independent of the
 # live tree's contents; a final case drives the REAL doc/adr/ to prove it
 # passes today with the intentional 00000009 gap warned-not-failed.
+#
+# why: Unit tests for `script/test/drivers/adr_numbering.sh`
+# (`_run_adr_numbering`, refs #808), the ADR-numbering lint. The registry is
+# the filesystem (`doc/adr/NNNNNNNN-<slug>.md`): the lint FAILS on a
+# duplicate ADR number or a malformed filename and WARNS (exit 0) on a
+# numbering gap. Driven at the driver CLI over throwaway fixture `doc/adr/`
+# trees, plus a real-tree guard that the live `doc/adr/` passes today with
+# the intentional `00000009` gap warned.
 
 setup() {
   export LOG_FORMAT=text
@@ -105,6 +113,7 @@ EOF
 # _run_adr_numbering: failures
 # ════════════════════════════════════════════════════════════════════
 
+# why: Duplicate number fails, both files named
 @test "_run_adr_numbering: FAILS on a duplicate ADR number, naming both files (#808)" {
   _touch_adr "00000001-alpha.md"
   _touch_adr "00000002-beta.md"
@@ -116,6 +125,7 @@ EOF
   [[ "${output}" == *"00000002-gamma.md"* ]]
 }
 
+# why: Malformed filename fails, file named
 @test "_run_adr_numbering: FAILS on a malformed filename, naming the file (#808)" {
   _touch_adr "00000001-alpha.md"
   _touch_adr "notes.md"
@@ -124,6 +134,7 @@ EOF
   [[ "${output}" == *"notes.md"* ]]
 }
 
+# why: Non-8-digit prefix fails
 @test "_run_adr_numbering: FAILS on a too-short (non-8-digit) number prefix (#808)" {
   _touch_adr "00000001-alpha.md"
   _touch_adr "0001-short.md"
@@ -132,6 +143,7 @@ EOF
   [[ "${output}" == *"0001-short.md"* ]]
 }
 
+# why: README.md index exempt from the naming contract
 @test "_run_adr_numbering: EXEMPTS doc/adr/README.md (the index), not flagged malformed (#808)" {
   _touch_adr "00000001-alpha.md"
   _touch_adr "00000002-beta.md"
@@ -146,6 +158,7 @@ EOF
 # _run_adr_numbering: passes (gaps allowed)
 # ════════════════════════════════════════════════════════════════════
 
+# why: Gap warned, exit 0
 @test "_run_adr_numbering: PASSES a clean set WITH a gap, warning the gap (exit 0) (#808)" {
   _touch_adr "00000001-alpha.md"
   _touch_adr "00000002-beta.md"
@@ -157,6 +170,7 @@ EOF
   [[ "${output}" == *"clean"* ]]
 }
 
+# why: Contiguous set clean, no gap line
 @test "_run_adr_numbering: PASSES a clean contiguous set with no gap warning (#808)" {
   _touch_adr "00000001-alpha.md"
   _touch_adr "00000002-beta.md"
@@ -167,6 +181,7 @@ EOF
   [[ "${output}" != *"gap"* ]]
 }
 
+# why: Gaps are advisory, not failures
 @test "_run_adr_numbering: does NOT flag a gap as a duplicate or malformed (#808)" {
   _touch_adr "00000001-alpha.md"
   _touch_adr "00000005-epsilon.md"
@@ -188,6 +203,7 @@ EOF
 # losing interleaving so the defect cannot come back intermittently.
 # ════════════════════════════════════════════════════════════════════
 
+# why: No pipeline status owned by a departing reader
 @test "_run_adr_numbering: an early-closing reader cannot abort the min/max scan (#898)" {
   _touch_adr "00000001-alpha.md"
   _touch_adr "00000002-beta.md"
@@ -201,6 +217,7 @@ EOF
   [[ "${output}" == *"clean"* ]]
 }
 
+# why: In-shell range still bounds the gap scan
 @test "_run_adr_numbering: min/max stay correct with sort/head unusable (#898)" {
   _touch_adr "00000002-beta.md"
   _touch_adr "00000005-epsilon.md"
@@ -220,6 +237,7 @@ EOF
 # _run_adr_numbering: real tree guard
 # ════════════════════════════════════════════════════════════════════
 
+# why: Live tree clean, 00000009 gap warned
 @test "_run_adr_numbering: the REAL doc/adr/ passes today (00000009 gap warned) (#808)" {
   REPO_ROOT="/source"
   run _run_adr_numbering

@@ -7,6 +7,10 @@
 # the wrapper's "$@". Folder split + strict executable check + dry-run
 # skip + pre-abort / post-strict semantics are all part of the
 # observable behaviour these tests pin.
+#
+# why: Unit tests for the pre/post user-hook runners (`_run_pre_hook` /
+# `_run_post_hook`, #440): presence + executable-bit gating, exit-code
+# forwarding for caller abort, and DRY_RUN skip.
 
 bats_require_minimum_version 1.5.0
 
@@ -37,6 +41,7 @@ teardown() {
 # Cycle 1: tracer — no hook file present means silent no-op
 # ════════════════════════════════════════════════════════════════════
 
+# why: Absent hook is a no-op
 @test "_run_pre_hook: returns success when no hook file present (#440)" {
   run _run_pre_hook run
   assert_success
@@ -47,6 +52,7 @@ teardown() {
 # Cycle 2: hook present + executable + exits 0 -> runs, args forwarded
 # ════════════════════════════════════════════════════════════════════
 
+# why: Runs and forwards argv
 @test "_run_pre_hook: present + +x + exit 0 -> runs and forwards args (#440)" {
   cat > "${FILE_PATH}/script/hooks/pre/run.sh" <<'HOOK'
 #!/usr/bin/env bash
@@ -64,6 +70,7 @@ HOOK
 # Cycle 3: pre-hook non-zero -> propagates to caller (caller does `|| exit $?`)
 # ════════════════════════════════════════════════════════════════════
 
+# why: Exit-code propagation (pre)
 @test "_run_pre_hook: hook exit 7 -> helper returns 7 for caller to abort (#440)" {
   cat > "${FILE_PATH}/script/hooks/pre/run.sh" <<'HOOK'
 #!/usr/bin/env bash
@@ -78,6 +85,7 @@ HOOK
 # Cycle 4: post-hook non-zero -> helper returns rc; caller decides
 # ════════════════════════════════════════════════════════════════════
 
+# why: Exit-code propagation (post)
 @test "_run_post_hook: hook exit 11 -> helper returns 11 (#440)" {
   cat > "${FILE_PATH}/script/hooks/post/run.sh" <<'HOOK'
 #!/usr/bin/env bash
@@ -92,6 +100,7 @@ HOOK
 # Cycle 5: hook file present but NOT executable -> hard fail
 # ════════════════════════════════════════════════════════════════════
 
+# why: Non-exec hard fail (pre)
 @test "_run_pre_hook: present but not executable -> hard fail with clear msg (#440)" {
   cat > "${FILE_PATH}/script/hooks/pre/run.sh" <<'HOOK'
 #!/usr/bin/env bash
@@ -104,6 +113,7 @@ HOOK
   assert_output --partial "chmod +x"
 }
 
+# why: Non-exec hard fail (post)
 @test "_run_post_hook: present but not executable -> hard fail with clear msg (#440)" {
   cat > "${FILE_PATH}/script/hooks/post/run.sh" <<'HOOK'
 #!/usr/bin/env bash
@@ -118,6 +128,7 @@ HOOK
 # Cycle 6: DRY_RUN=true -> both helpers silently skip even when hook present + +x
 # ════════════════════════════════════════════════════════════════════
 
+# why: DRY_RUN skip (pre)
 @test "_run_pre_hook: DRY_RUN=true -> hook skipped silently (#440)" {
   cat > "${FILE_PATH}/script/hooks/pre/run.sh" <<'HOOK'
 #!/usr/bin/env bash
@@ -130,6 +141,7 @@ HOOK
   refute_output --partial "SHOULD-NOT-RUN"
 }
 
+# why: DRY_RUN skip (post)
 @test "_run_post_hook: DRY_RUN=true -> hook skipped silently (#440)" {
   cat > "${FILE_PATH}/script/hooks/post/run.sh" <<'HOOK'
 #!/usr/bin/env bash

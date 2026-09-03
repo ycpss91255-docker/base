@@ -13,6 +13,14 @@
 # The cases below therefore split into two halves: the toil half (markers go,
 # figures come back right) and the safety half (anything the collapse cannot
 # justify by regeneration is refused loudly, never adopted quietly).
+#
+# why: Unit coverage for `script/test/resolve-doc-counts.sh` -- the one
+# command that resolves a `doc/test/*.md` merge conflict. Two halves: the
+# toil (markers go, figures come back regenerated from the merged spec tree)
+# and the safety (a relative root, a surviving marker, an unhappy drift
+# gate, and any disagreement regeneration cannot settle are all refused
+# loudly rather than resolved to whichever side the collapse happened to
+# keep).
 
 bats_require_minimum_version 1.5.0
 
@@ -63,7 +71,8 @@ setup() {
       "Unit specs under \`test/bats/unit/\`: **2 tests**." \
       ">>>>>>> origin/main" \
       "" \
-      "### test/bats/unit/x_spec.bats (1)" > "${root}/doc/test/unit.md"
+      "<!-- generated: catalogue sections -->" \
+      "<!-- /generated -->" > "${root}/doc/test/unit.md"
     _resolve_doc_counts "${root}"
     cat "${root}/doc/test/unit.md"
   '
@@ -88,7 +97,10 @@ setup() {
       "Unit specs under \`test/bats/unit/\`: **7 tests**." \
       "=======" \
       "Unit specs under \`test/bats/unit/\`: **8 tests**." \
-      ">>>>>>> origin/main" > "${root}/doc/test/unit.md"
+      ">>>>>>> origin/main" \
+      "" \
+      "<!-- generated: catalogue sections -->" \
+      "<!-- /generated -->" > "${root}/doc/test/unit.md"
     _resolve_doc_counts "${root}"
     cat "${root}/doc/test/unit.md"
   '
@@ -98,26 +110,31 @@ setup() {
   refute_output --partial "merged common ancestors"
 }
 
-@test "_resolve_doc_counts: rescues the catalog prose from BOTH sides (#857)" {
-  # Each side described a test the other side's table does not carry. A
-  # mechanical collapse keeps one description and drops the other; there is
-  # nothing to regenerate it from, so it would be lost silently.
+# why: What used to need reconciling, and no longer can. Each side's
+# collapse used to carry hand-written descriptions the generator could not
+# re-derive, so a mechanical collapse dropped a sentence nothing would put
+# back and this script had to merge them row by row. Descriptions are
+# authored in the specs now, so both collapses regenerate the SAME rows
+# from the SAME merged spec tree -- whichever side a conflicted counter
+# line came from. This case pins that the prose survives a conflict
+# without any reconciliation code left to do it.
+@test "_resolve_doc_counts: catalogue prose survives a conflict because both sides regenerate it (#857)" {
   run bash -c '
     source "'"${RESOLVE}"'"
     root="${BATS_TEST_TMPDIR}/r"
     mkdir -p "${root}/test/bats/unit" "${root}/doc/test"
-    printf "%s\n" "@test \"alpha\" {" ":" "}" "@test \"beta\" {" ":" "}" \
+    printf "%s\n" "# why: ours describes alpha" "@test \"alpha\" {" ":" "}" \
+      "# why: theirs describes beta" "@test \"beta\" {" ":" "}" \
       > "${root}/test/bats/unit/x_spec.bats"
     printf "%s\n" \
-      "### test/bats/unit/x_spec.bats (2)" \
-      "" \
-      "| Test | Description |" \
-      "|------|-------------|" \
       "<<<<<<< HEAD" \
-      "| \`alpha\` | ours describes alpha |" \
+      "Unit specs under \`test/bats/unit/\`: **1 tests**." \
       "=======" \
-      "| \`beta\` | theirs describes beta |" \
-      ">>>>>>> origin/main" > "${root}/doc/test/unit.md"
+      "Unit specs under \`test/bats/unit/\`: **9 tests**." \
+      ">>>>>>> origin/main" \
+      "" \
+      "<!-- generated: catalogue sections -->" \
+      "<!-- /generated -->" > "${root}/doc/test/unit.md"
     _resolve_doc_counts "${root}"
     cat "${root}/doc/test/unit.md"
   '
@@ -125,7 +142,6 @@ setup() {
   assert_line '| `alpha` | ours describes alpha |'
   assert_line '| `beta` | theirs describes beta |'
   refute_output --partial "<<<<<<<"
-  refute_output --partial "======="
 }
 
 @test "_resolve_doc_counts: an unconflicted tree is verified, not rewritten (#857)" {
@@ -135,8 +151,10 @@ setup() {
     mkdir -p "${root}/test/bats/unit" "${root}/doc/test"
     printf "%s\n" "@test \"alpha\" {" ":" "}" \
       > "${root}/test/bats/unit/x_spec.bats"
-    printf "%s\n" "Unit specs under \`test/bats/unit/\`: **1 tests**." "" \
-      "### test/bats/unit/x_spec.bats (1)" > "${root}/doc/test/unit.md"
+    printf "%s\n" "Unit specs under \`test/bats/unit/\`: **0 tests**." "" \
+      "<!-- generated: catalogue sections -->" "<!-- /generated -->" \
+      > "${root}/doc/test/unit.md"
+    _sync_doc_counts "${root}"
     before=$(cat "${root}/doc/test/unit.md")
     _resolve_doc_counts "${root}"
     after=$(cat "${root}/doc/test/unit.md")
@@ -149,31 +167,6 @@ setup() {
 
 # ── The trap ─────────────────────────────────────────────────────────────────
 
-@test "_resolve_doc_counts: FAILS when the two sides describe the same test differently (#857)" {
-  run bash -c '
-    source "'"${RESOLVE}"'"
-    root="${BATS_TEST_TMPDIR}/r"
-    mkdir -p "${root}/test/bats/unit" "${root}/doc/test"
-    printf "%s\n" "@test \"alpha\" {" ":" "}" \
-      > "${root}/test/bats/unit/x_spec.bats"
-    printf "%s\n" \
-      "### test/bats/unit/x_spec.bats (1)" \
-      "" \
-      "| Test | Description |" \
-      "|------|-------------|" \
-      "<<<<<<< HEAD" \
-      "| \`alpha\` | ours wording |" \
-      "=======" \
-      "| \`alpha\` | theirs wording |" \
-      ">>>>>>> origin/main" > "${root}/doc/test/unit.md"
-    _resolve_doc_counts "${root}"
-  '
-  assert_failure
-  assert_output --partial "alpha"
-  assert_output --partial "ours wording"
-  assert_output --partial "theirs wording"
-}
-
 @test "_resolve_doc_counts: FAILS when the sides differ in prose the generator does not derive (#857)" {
   # The exact trap the manual recipe carried: the collapse adopts whichever
   # side it kept for a hand-maintained sentence sitting next to the generated
@@ -185,13 +178,14 @@ setup() {
     printf "%s\n" "@test \"alpha\" {" ":" "}" \
       > "${root}/test/bats/unit/x_spec.bats"
     printf "%s\n" \
-      "### test/bats/unit/x_spec.bats (1)" \
-      "" \
       "<<<<<<< HEAD" \
       "Covers the old behaviour, hand written." \
       "=======" \
       "Covers the new behaviour, hand written." \
-      ">>>>>>> origin/main" > "${root}/doc/test/unit.md"
+      ">>>>>>> origin/main" \
+      "" \
+      "<!-- generated: catalogue sections -->" \
+      "<!-- /generated -->" > "${root}/doc/test/unit.md"
     _resolve_doc_counts "${root}"
   '
   assert_failure
@@ -210,7 +204,10 @@ setup() {
       "Unit specs under \`test/bats/unit/\`: **1 tests**." \
       "=======" \
       "Unit specs under \`test/bats/unit/\`: **2 tests**." \
-      ">>>>>>> origin/main" > "${root}/doc/test/unit.md"
+      ">>>>>>> origin/main" \
+      "" \
+      "<!-- generated: catalogue sections -->" \
+      "<!-- /generated -->" > "${root}/doc/test/unit.md"
     _resolve_doc_counts "${root}"
   '
   assert_failure

@@ -19,6 +19,7 @@ teardown() {
 # check_deps
 # ════════════════════════════════════════════════════════════════════
 
+# why: Dependency check
 @test "check_deps returns 0 when tmux and git are installed" {
   mock_cmd "tmux" 'exit 0'
   mock_cmd "git" 'exit 0'
@@ -26,6 +27,7 @@ teardown() {
   assert_success
 }
 
+# why: Missing tmux
 @test "check_deps fails when tmux is not installed" {
   mock_cmd "git" 'exit 0'
   PATH="${MOCK_DIR}" run check_deps
@@ -33,6 +35,7 @@ teardown() {
   assert_output --partial "Error:"
 }
 
+# why: Missing git
 @test "check_deps fails when git is not installed" {
   mock_cmd "tmux" 'exit 0'
   PATH="${MOCK_DIR}" run check_deps
@@ -44,6 +47,7 @@ teardown() {
 # _entry_point
 # ════════════════════════════════════════════════════════════════════
 
+# why: Entry point
 @test "_entry_point calls main when deps pass" {
   mock_cmd "tmux" 'exit 0'
   mock_cmd "git" '
@@ -57,6 +61,7 @@ exit 0'
   assert_success
 }
 
+# why: Entry point fail
 @test "_entry_point fails when deps missing" {
   PATH="${MOCK_DIR}" run _entry_point
   assert_failure
@@ -67,6 +72,7 @@ exit 0'
 # main
 # ════════════════════════════════════════════════════════════════════
 
+# why: tpm clone
 @test "main clones tpm repository" {
   mock_cmd "tmux" 'exit 0'
   mock_cmd "git" '
@@ -80,6 +86,7 @@ exit 0'
   assert [ -d "${TEMP_DIR}/.tmux/plugins/tpm" ]
 }
 
+# why: Config dir
 @test "main creates tmux config directory" {
   mock_cmd "tmux" 'exit 0'
   mock_cmd "git" '
@@ -93,6 +100,7 @@ exit 0'
   assert [ -d "${TEMP_DIR}/.config/tmux" ]
 }
 
+# why: Config copy
 @test "main copies tmux.conf to config directory" {
   mock_cmd "tmux" 'exit 0'
   mock_cmd "git" '
@@ -106,6 +114,7 @@ exit 0'
   assert [ -f "${TEMP_DIR}/.config/tmux/tmux.conf" ]
 }
 
+# why: Direct-run guard
 @test "script runs entry_point when executed directly" {
   mock_cmd "tmux" 'exit 0'
   mock_cmd "git" '

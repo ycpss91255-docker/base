@@ -1,12 +1,18 @@
 #!/usr/bin/env bash
 #
-# check_test_md_drift.sh - validate that doc/test/*.md count figures match
-# the specs. The read-only twin of sync-doc-counts.sh: it re-derives every
-# count from the SAME single source of truth (`grep -c '^@test'` per spec,
-# via sync-doc-counts.sh's _sync_doc_counts) and exits non-zero when the
-# committed docs have drifted -- so a PR that adds or removes a @test without
-# running `just test sync-docs` fails the gate instead of shipping stale
-# numbers. ISTQB taxonomy (ADR-00000018): unit / integration / system /
+# check_test_md_drift.sh - validate that doc/test/*.md still matches the
+# specs. The read-only twin of sync-doc-counts.sh: it runs THAT generator
+# against a throwaway copy and diffs, so validator and generator cannot
+# disagree, and exits non-zero when the committed docs have drifted -- a PR
+# that adds a @test, deletes a `# why:` block, or hand-edits the generated
+# region fails the gate instead of shipping a catalogue that disagrees with
+# the tree.
+#
+# Both halves of the catalogue are derived: the counts from
+# `grep -c '^@test'` per spec, and the sections (blurb + one row per test)
+# from the spec files' own `# why:` markers. So "byte-identical to what is
+# committed" is the whole gate -- there is no preserved content for a
+# regeneration to be merged into. ISTQB taxonomy (ADR-00000018): unit / integration / system /
 # acceptance levels + the shipped smoke type; empty level dirs count 0.
 #
 # Usage:
@@ -131,7 +137,12 @@ _check_test_md_drift() {
   ln -s "${_root}/test" "${_tmp}/test"
   [[ -d "${_root}/dist" ]] && ln -s "${_root}/dist" "${_tmp}/dist"
 
-  _sync_doc_counts "${_tmp}" >/dev/null
+  if ! _sync_doc_counts "${_tmp}" >/dev/null; then
+    rm -rf "${_tmp}"
+    _check_drift_err \
+      "the generator refused to run over the copied doc/test -- see its diagnostic above. Reporting drift here would name the wrong problem."
+    return 1
+  fi
 
   local _diff _rc=0
   _diff="$(diff -ru "${_root}/doc/test" "${_tmp}/doc/test" 2>/dev/null)" || _rc=1

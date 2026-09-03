@@ -10,6 +10,116 @@
 # inputs and the corresponding `context:` / `file:` lines in the 3
 # build steps — so a future refactor that drops one of them lights up
 # CI red instead of silently breaking nested-Dockerfile downstreams.
+#
+# why: Structural assertions for `.github/workflows/build-worker.yaml` (#195
+# + #243 + #272 + #273 + #378 b1). Reusable workflows are not exec'd by
+# these tests; instead grep patterns lock the YAML invariants —
+# `context_path` / `dockerfile_path` inputs declared with the right
+# defaults, all 4 `docker/build-push-action` steps (devel-test / devel /
+# runtime-test / runtime after #243) forwarding those inputs, no leftover
+# `context: .` / `file: ./Dockerfile` literals, the GHA-cache plumbing
+# (#272: `cache_variant` input, `Compute cache scope` step; #378 b1:
+# per-target scope suffix so a late-stage COPY change in one target no
+# longer cascades into siblings' manifests; #801: `cache_backend` input
+# selecting the gha default or a GHCR registry backend via a per-step
+# ternary, a guarded `docker/login-action` step), and the #273 doc-only PR
+# fast-pass (`path-filter` job; Phase 2 classifier is pure shell via `git
+# diff --name-only base...head` + `case` glob, no `dorny/paths-filter`
+# dependency; 6-path allowlist; compute-matrix + build gated on
+# `code_changed`; docker-build aggregator short-circuits on doc-only PRs).
+#
+# Grouped by concern:
+#
+# - `inputs.context_path` declared with `default: "."`
+#
+# - `inputs.dockerfile_path` declared with `default: ""`
+#
+# - 4 build steps reference `inputs.context_path` (#243 added runtime-test)
+#
+# - 4 build steps reference `inputs.dockerfile_path` with `format()`
+# fallback
+#
+# - No leftover `context: .` literals
+#
+# - No leftover `file: ./Dockerfile` literals
+#
+# - Default values together preserve repo-root-Dockerfile callers
+#
+# - User build-args use long form matching Dockerfile.example sys stage
+# (#198: USER_NAME / USER_GROUP / USER_UID / USER_GID across 4 build steps +
+# no short-form regression)
+#
+# - `build_contexts` input forwards to docker/build-push-action
+# `build-contexts:` (#207: input declared with empty default, 4 build steps
+# forward, default preserves zero-diff)
+#
+# - #243 stage rename + runtime-test smoke: `target: devel-test` (renamed
+# from `test`), no leftover `target: test`, `target: runtime-test` exists,
+# runtime-test gated on the resolved runtime answer (>=2 occurrences shared
+# with runtime gate)
+#
+# - #272 + #378 b1 GHA buildx cache: `cache_variant` input declared with
+# empty default, `Compute cache scope` step emits `id: cache` + base key (no
+# `-cache` suffix; per-target suffix appended at use site), 4 build steps
+# use per-target `<base>-<target>-cache` gha scopes in the default ternary
+# branch, no legacy shared-scope leftover (negative regression), 4 build
+# steps preserve `mode=max` on both branches, default preserves zero-diff
+# for single-call callers
+#
+# - #801 registry cache backend: `cache_backend` input declared `type:
+# string` default `"gha"` (default preserves the gha backend for existing
+# callers), all 4 build steps emit a
+# `type=registry,ref=ghcr.io/<repo>/buildcache:<scope>` ref in the registry
+# branch, cache-from/cache-to select the backend on `inputs.cache_backend`
+# (8 lines), the `extra_stages` buildx loop honors `cache_backend` too
+# (shell-side selection, no hardwired gha ref), GHCR `docker/login-action`
+# step gated on `cache_backend == 'registry'`
+#
+# - #273 doc-only PR fast-pass (Phase 1 + Phase 2 shell rewrite):
+# `path-filter` job declared, classifier is pure shell (`git diff
+# --name-only base...head` + `case` glob; no `dorny/paths-filter`
+# dependency), reads EVENT_NAME / BASE_SHA / HEAD_SHA from env: keys so the
+# case body stays portable, non-PR event short-circuits before git diff
+# (BASE_SHA / HEAD_SHA empty on push / tag / workflow_dispatch), 6-path
+# allowlist (`**/*.md`, `doc/**`, `LICENSE`, `.gitignore`,
+# `.github/CODEOWNERS`, `.github/dependabot.yml`) in a single `case` arm,
+# `compute-matrix` + `build` jobs gated on `code_changed == 'true'` (2
+# occurrences), `docker-build` aggregator handles `code_changed == 'false'`
+# short-circuit + `needs: [path-filter, build]`, non-PR triggers always set
+# `code_changed=true`
+#
+# - #470 opt-in `free_disk_space` for large BASE_IMAGE repos: input declared
+# `type: boolean` default `false`, step gated on `inputs.free_disk_space`,
+# uses `jlumbroso/free-disk-space@...`, positioned before `Set up Docker
+# Buildx` so the overlayfs snapshot dir has room
+#
+# - #925 runtime gate read from the Dockerfile: a `Resolve runtime stages`
+# step delegates to `runtime_stages.sh`, exports `build_runtime` to
+# `GITHUB_OUTPUT`, both runtime build steps gate on
+# `steps.runtime.outputs.build_runtime`, and no build step gates on
+# `inputs.build_runtime` directly
+#
+# - #802 push worker logic down: `compute-matrix` delegates to
+# `compute_matrix.sh` (no inline platform fan-out) and version-matches it
+# via `job_workflow_sha` into `.worker-base`, `Compute cache scope`
+# delegates to `cache_scope.sh` (feeds IMAGE_NAME / CACHE_VARIANT /
+# HARDWARE, no inline derivation), build job checks out base worker source
+# into `.worker-base`
+#
+# - #957 per-job least privilege, over a job list DERIVED from the workflow
+# (never a roster in the spec -- the five-name loop this replaced stayed
+# green when a sixth job asking `contents: write` was appended): every job
+# declares its own `permissions:` block (a bare job inherits the CALLER's
+# grant), no job names `packages: write` (a called job that asks for a scope
+# its caller did not grant fails the run instead of intersecting down), no
+# job's entry set is anything but `contents: read` (comments stripped so a
+# rationale quoting a grant cannot stand in for one; a job with no block
+# surfaces as `<no entries>` and fails the same way), and the `build` job's
+# rationale never cites the preflight probe as proof of a caller's package
+# grant (the preflight is capped at `contents: read` itself). Each of the
+# four asserts its own population first -- a floor on the derived job count,
+# cross-checked against a second reading of the file -- so an extractor that
+# stopped matching fails instead of reporting a clean scan
 
 bats_require_minimum_version 1.5.0
 

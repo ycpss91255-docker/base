@@ -6,6 +6,13 @@
 # edge cases that are hard to trigger from a real `bash .base/dist/script/base/init.sh`
 # invocation (e.g. network-down version detection, main.yaml @ref
 # fallback, _create_version_file with no argument).
+#
+# why: Unit coverage for `init.sh` helpers that previous rounds exercised
+# only through the Level-1 integration test. Complements
+# `test/bats/integration/init_new_repo_spec.bats` by locking edge cases that
+# are hard to trigger from a real `bash template/init.sh` invocation
+# (network-down version detection, main.yaml `@ref` fallback,
+# `_create_version_file` with no argument).
 
 setup() {
   export LOG_FORMAT=text
@@ -57,11 +64,19 @@ setup() {
         "${TMP_REPO}/.base/dist/script/docker/lib/_lib.sh"
   ln -s /source/dist/script/docker/lib/i18n.sh \
         "${TMP_REPO}/.base/dist/script/docker/lib/i18n.sh"
-  # schema.sh joined the _lib.sh chain in; it sources _tui_conf.sh
-  # for the validator bodies, so symlink both alongside the rest.
-  for _sl in log transcript env conf setup_conf conf_logging _tui_conf schema stage resolve compose deploy compose_emit env_emit config_summary setup_cmd setup_detect drift hook dockerfile_migrate; do
-    ln -s "/source/dist/script/docker/lib/${_sl}.sh" \
-          "${TMP_REPO}/.base/dist/script/docker/lib/${_sl}.sh"
+  # Every sub-lib in lib/, by GLOB and not by roster. A hand-written list
+  # sat here and had to be edited in lockstep with _lib.sh's own source
+  # list; the first lib added after it was written took 65 specs in this
+  # file down with `project_reclaim.sh: No such file or directory`, in a
+  # sandbox that had nothing to do with the change. The glob says what the
+  # comment above always meant -- _lib.sh sources lib/*.sh, so the sandbox
+  # carries lib/*.sh -- and cannot drift from it. `-f` because a few
+  # surfaces above are symlinked individually for their own reasons and
+  # this pass reaches them too.
+  local _sl
+  for _sl in /source/dist/script/docker/lib/*.sh; do
+    ln -sf "${_sl}" \
+           "${TMP_REPO}/.base/dist/script/docker/lib/$(basename -- "${_sl}")"
   done
   unset _sl
   ln -s /source/dist/script/docker/lib/log-events.txt \
@@ -104,6 +119,7 @@ _source_init() {
 # _detect_template_version
 # ════════════════════════════════════════════════════════════════════
 
+# why: Happy path + head -1
 @test "_detect_template_version: parses newest vX.Y.Z tag from git ls-remote" {
   # Mock emits refs in the order the real `--sort=-v:refname` would produce
   # (newest-first). _detect_template_version trusts the sort and just
@@ -128,6 +144,7 @@ REMOTE
   assert_equal "${result}" "v0.7.2"
 }
 
+# why: Network-down fallback
 @test "_detect_template_version: returns empty when git ls-remote fails" {
   mock_cmd "git" 'exit 128'
   _source_init
@@ -137,6 +154,7 @@ REMOTE
   assert_equal "${result}" ""
 }
 
+# why: Nothing to match
 @test "_detect_template_version: returns empty when no v*.*.* tags exist" {
   mock_cmd "git" '
     if [[ "$1" == "ls-remote" ]]; then
@@ -154,6 +172,7 @@ REMOTE
   assert_equal "${result}" ""
 }
 
+# why: Regex filters rc / pre-release
 @test "_detect_template_version: ignores non-semver tags (e.g. rc suffixes)" {
   # --sort=-v:refname would rank v0.8.0-rc2 > v0.7.2-rc1 > v0.7.0, but
   # the regex strips the rc variants, leaving v0.7.0 as the only valid
@@ -200,6 +219,7 @@ REMOTE
   assert_equal "${result}" "v0.7.2"
 }
 
+# why: .version file priority
 @test "_detect_template_version: reads .version file when present (no network)" {
   echo "v1.5.0" > "${TMP_REPO}/.base/.version"
   # Mock git to fail (simulate offline)
@@ -210,6 +230,7 @@ REMOTE
   assert_equal "${result}" "v1.5.0"
 }
 
+# why: Local-first resolution
 @test "_detect_template_version: .version file takes priority over git ls-remote" {
   echo "v1.5.0" > "${TMP_REPO}/.base/.version"
   mock_cmd "git" '
@@ -230,6 +251,7 @@ REMOTE
 # _create_new_repo: ref threading into main.yaml
 # ════════════════════════════════════════════════════════════════════
 
+# why: Ref threading
 @test "_create_new_repo: main.yaml uses given ref in workflow @ref" {
   _source_init
   _create_new_repo "v9.9.9"
@@ -242,6 +264,7 @@ REMOTE
   assert_success
 }
 
+# why: Default ref
 @test "_create_new_repo: main.yaml falls back to @main when ref arg omitted" {
   _source_init
   _create_new_repo
@@ -253,6 +276,7 @@ REMOTE
   assert_success
 }
 
+# why: Empty-string → `@main`
 @test "_create_new_repo: main.yaml falls back to @main when ref arg is empty" {
   _source_init
   _create_new_repo ""
@@ -261,6 +285,7 @@ REMOTE
   assert_success
 }
 
+# why: setup.conf rules drive IMAGE_NAME
 @test "_create_new_repo: does NOT generate .env.example (image name via setup.conf)" {
   _source_init
   _create_new_repo "main"
@@ -271,6 +296,8 @@ REMOTE
 # _create_symlinks
 # ════════════════════════════════════════════════════════════════════
 
+# why: 7 wrappers under script/ with ../ targets; justfile at root, no
+# Makefile
 @test "_create_symlinks: places 7 wrapper symlinks under script/ (#330)" {
   _source_init
   _create_symlinks
@@ -287,6 +314,7 @@ REMOTE
   assert [ ! -e "${TMP_REPO}/Makefile" ]
 }
 
+# why: root justfile -> .base/script/docker/justfile
 @test "_create_symlinks: places justfile at root with the direct .base/ target (#545)" {
   _source_init
   _create_symlinks
@@ -297,6 +325,7 @@ REMOTE
   assert_output "script/justfile"
 }
 
+# why: Makefile retired; stale symlink dropped on upgrade
 @test "_create_symlinks: does NOT symlink Makefile and cleans a stale root Makefile symlink (#546)" {
   # ADR-00000005 phase 2: the Makefile is retired in favour of `just`.
   # _create_symlinks must no longer create a root Makefile, and an
@@ -309,6 +338,7 @@ REMOTE
   assert [ ! -L "${TMP_REPO}/Makefile" ]
 }
 
+# why: Re-init over stale file at script/build.sh
 @test "_create_symlinks: replaces a stale file at the new symlink path under script/ (#330)" {
   # Pretend an earlier run left a regular file where the symlink should go.
   # the symlinks live under script/, so the stale-replacement
@@ -320,6 +350,7 @@ REMOTE
   assert [ -L "${TMP_REPO}/script/build.sh" ]
 }
 
+# why: Migration: plant 7 root symlinks, re-run, all gone + script/ created
 @test "_create_symlinks: removes stale root *.sh symlinks left by pre-#330 init (#330 migration loop)" {
   # Plant the seven root-level symlinks an older init.sh would have made;
   # the loop must drop them all so the user-facing entry is the
@@ -335,6 +366,7 @@ REMOTE
   done
 }
 
+# why: Custom-hadolint preservation
 @test "_create_symlinks: keeps custom .hadolint.yaml when it differs" {
   echo "# repo-specific rules" > "${TMP_REPO}/.hadolint.yaml"
   # Template's stub is empty — force a difference
@@ -392,6 +424,7 @@ REMOTE
   assert_output "USER_NAME=existing"
 }
 
+# why: #692 missing-template _error
 @test "_gen_setup_conf errors when the template setup.conf is absent (#692)" {
   # A broken/partial subtree has no template setup.conf -- the exact
   # scenario --gen-conf is meant to diagnose. _gen_setup_conf must fail
@@ -638,6 +671,7 @@ _nojust_path() {
   printf '%s' "${MOCK_DIR}:${_clean}"
 }
 
+# why: Missing runner -> non-fatal WARN
 @test "_preflight_just: warns and exits 0 when just is absent (#607)" {
   _source_init
   PATH="$(_nojust_path)" run _preflight_just
@@ -646,6 +680,7 @@ _nojust_path() {
   assert_output --partial "just runner not found on PATH"
 }
 
+# why: Structured event wired through
 @test "_preflight_just: emits the init_just_missing event under LOG_FORMAT=json (#607)" {
   _source_init
   # JSON format carries the structured event name (text format renders the
@@ -655,6 +690,7 @@ _nojust_path() {
   assert_output --partial '"body":"init_just_missing"'
 }
 
+# why: Warning carries install pointer
 @test "_preflight_just: install hint points at the documented methods (#607)" {
   _source_init
   PATH="$(_nojust_path)" run _preflight_just
@@ -694,6 +730,7 @@ _nojust_path() {
   assert_output --partial "just is NOT auto-installed"
 }
 
+# why: Runner present -> no warning
 @test "_preflight_just: silent and exits 0 when just is present (#607)" {
   _source_init
   mock_cmd "just" 'exit 0'
@@ -703,6 +740,7 @@ _nojust_path() {
   refute_output --partial "just runner not found"
 }
 
+# why: Opt-in bootstrap skips when installed
 @test "_bootstrap_just: no-op when just is already on PATH (#607)" {
   _source_init
   mock_cmd "just" 'exit 0'
@@ -712,6 +750,7 @@ _nojust_path() {
   refute_output --partial "Bootstrapping just"
 }
 
+# why: Opt-in installer pipeline to ~/.local/bin
 @test "_bootstrap_just: runs the official installer into ~/.local/bin when absent (#607)" {
   _source_init
   # Mock curl + bash (the installer pipeline) into MOCK_DIR so it is
@@ -759,6 +798,7 @@ _nojust_path() {
   refute_output --partial "CURL_INVOKED"
 }
 
+# why: #692 installer-failure _error path
 @test "_bootstrap_just: aborts with a clear error when the installer pipeline fails (#692)" {
   _source_init
   # The curl|bash installer pipeline returns non-zero (network down,
@@ -775,6 +815,7 @@ _nojust_path() {
 # _call_setup
 # ════════════════════════════════════════════════════════════════════
 
+# why: #692 warn-on-failure degrade
 @test "_call_setup: warns but returns 0 when setup.sh exits non-zero (#692)" {
   _source_init
   # A failing setup.sh must degrade to a WARNING, never abort init/upgrade.
@@ -787,6 +828,7 @@ EOF
   assert_output --partial "setup.sh exited non-zero"
 }
 
+# why: #692 skip-when-absent branch
 @test "_call_setup: skips with a notice when setup.sh is absent (#692)" {
   _source_init
   rm -f "${TMP_REPO}/.base/dist/script/docker/wrapper/setup.sh"
@@ -795,6 +837,7 @@ EOF
   assert_output --partial "Skipping setup.sh"
 }
 
+# why: #692 happy path no-noise
 @test "_call_setup: returns 0 on a setup.sh that succeeds (#692)" {
   _source_init
   cat > "${TMP_REPO}/.base/dist/script/docker/wrapper/setup.sh" <<'EOF'

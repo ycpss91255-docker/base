@@ -15,6 +15,14 @@
 # removed but what command was never issued at all.
 #
 # Refs
+#
+# why: Ownership-scoped CI-host garbage collection (`script/ci/reclaim.sh`,
+# #900). `runs-on: ubuntu-latest` gives every job a fresh single-tenant VM,
+# so no run on the current CI can exhibit either failure the collector
+# exists to prevent -- one run deleting a concurrent run's artifacts, and a
+# killed runner leaving artifacts nobody collects. A fake docker daemon (a
+# PATH shim over a state file) is what puts two runs' artifacts on ONE host
+# so the boundary between them can be asserted at all.
 
 bats_require_minimum_version 1.5.0
 

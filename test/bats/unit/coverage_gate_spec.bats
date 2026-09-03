@@ -9,6 +9,17 @@
 # and exits non-zero when the merged rate is below COVERAGE_MIN. These
 # tests drive it against controlled cobertura fixtures so they are
 # independent of any live kcov run.
+#
+# why: Unit tests for `script/test/drivers/coverage_gate.sh` (#710) -- the
+# self-hosted, CI-agnostic coverage-floor gate that replaces the removed
+# Codecov merge+status path. The gate MERGES the per-shard kcov cobertura
+# reports into ONE line-weighted project rate (summing covered/valid lines
+# across shards, NOT averaging the per-shard rates) and exits non-zero when
+# the merged rate is below `COVERAGE_MIN`. Driven against controlled
+# cobertura fixtures so the spec is independent of any live kcov run. Since
+# #853 the union key is CANONICALISED first: kcov reports one source file
+# under several prefix-truncated aliases, and each alias used to add its own
+# full copy of the file's lines to the denominator.
 
 setup() {
   export LOG_FORMAT=text
@@ -93,6 +104,7 @@ _make_multi_cobertura() {
 # Floor pass / fail
 # ════════════════════════════════════════════════════════════════════
 
+# why: Floor pass
 @test "coverage_gate: passes when merged rate >= COVERAGE_MIN" {
   _make_cobertura "${SCRATCH}/a/cobertura.xml" 60 100
   run env COVERAGE_MIN=50 bash "${GATE}" "${SCRATCH}/a/cobertura.xml"
@@ -100,12 +112,14 @@ _make_multi_cobertura() {
   [[ "${output}" == *"60.00"* ]]
 }
 
+# why: Boundary (==) pass
 @test "coverage_gate: passes at exactly the floor (boundary)" {
   _make_cobertura "${SCRATCH}/a/cobertura.xml" 50 100
   run env COVERAGE_MIN=50 bash "${GATE}" "${SCRATCH}/a/cobertura.xml"
   [ "${status}" -eq 0 ]
 }
 
+# why: Floor fail (non-zero exit)
 @test "coverage_gate: fails when merged rate < COVERAGE_MIN" {
   _make_cobertura "${SCRATCH}/a/cobertura.xml" 40 100
   run env COVERAGE_MIN=50 bash "${GATE}" "${SCRATCH}/a/cobertura.xml"
@@ -165,6 +179,7 @@ _make_multi_cobertura() {
   [[ "${output}" != *"30.00"* ]]
 }
 
+# why: 4-shard merge total
 @test "coverage_gate: four shards merge into one weighted total" {
   _make_cobertura "${SCRATCH}/s1/cobertura.xml" 25 100
   _make_cobertura "${SCRATCH}/s2/cobertura.xml" 25 100
@@ -183,6 +198,7 @@ _make_multi_cobertura() {
 # (longest observed path-suffix match) before it is counted
 # ════════════════════════════════════════════════════════════════════
 
+# why: Alias-inflated denominator (the bug)
 @test "coverage_gate: prefix path aliases of one file are counted once (#853)" {
   # kcov emits the SAME source file under several prefix truncations. Each
   # alias is a different union key, so each contributes its own full copy of
@@ -200,6 +216,7 @@ _make_multi_cobertura() {
   [[ "${output}" != *"12.50"* ]]
 }
 
+# why: Basename-only keying is wrong (the trap)
 @test "coverage_gate: different files sharing a basename stay separate (#853)" {
   # The trap that rules basename-only keying out: distinct files legitimately
   # share a basename (a shipped lib deploy.sh and the generated field
@@ -214,6 +231,7 @@ _make_multi_cobertura() {
   [[ "${output}" != *"80.00"* ]]
 }
 
+# why: Shard-membership invariance
 @test "coverage_gate: rate is unchanged when the suite is resharded under other aliases (#853)" {
   # The invariant the union already claimed but aliasing broke: which alias a
   # file appears under depends on which shard executed it, and shard
@@ -242,6 +260,7 @@ _make_multi_cobertura() {
   [[ "${output}" == *"60.00"* ]]
 }
 
+# why: Alias-collapse diagnostic
 @test "coverage_gate: reports the collapsed-alias count as a diagnostic (#853)" {
   # A regression in kcov's path reporting must be visible, not silent: the
   # gate states how many observed filenames collapsed into a canonical one.
@@ -257,6 +276,7 @@ _make_multi_cobertura() {
   [[ "${output}" == *"collapsed 3"* ]]
 }
 
+# why: Diagnostic reports 0, not silence
 @test "coverage_gate: reports zero collapsed aliases when nothing is aliased (#853)" {
   _make_multi_cobertura "${SCRATCH}/a/cobertura.xml" \
     "dist/script/docker/lib/_lib.sh:10:1:5" \
@@ -270,22 +290,26 @@ _make_multi_cobertura() {
 # Missing / empty / malformed report handling
 # ════════════════════════════════════════════════════════════════════
 
+# why: No-args error
 @test "coverage_gate: errors when no report files are given" {
   run env COVERAGE_MIN=50 bash "${GATE}"
   [ "${status}" -ne 0 ]
 }
 
+# why: Missing-file error
 @test "coverage_gate: errors when a named report file is missing" {
   run env COVERAGE_MIN=50 bash "${GATE}" "${SCRATCH}/does-not-exist.xml"
   [ "${status}" -ne 0 ]
 }
 
+# why: Empty-report error
 @test "coverage_gate: errors when total valid lines is zero (empty report)" {
   _make_cobertura "${SCRATCH}/a/cobertura.xml" 0 0
   run env COVERAGE_MIN=50 bash "${GATE}" "${SCRATCH}/a/cobertura.xml"
   [ "${status}" -ne 0 ]
 }
 
+# why: Malformed-report error
 @test "coverage_gate: errors on a report missing the line counters" {
   mkdir -p "${SCRATCH}/a"
   printf '%s\n' '<coverage version="1.9"></coverage>' \
@@ -298,6 +322,7 @@ _make_multi_cobertura() {
 # COVERAGE_MIN default + visibility
 # ════════════════════════════════════════════════════════════════════
 
+# why: Built-in default does not false-fail
 @test "coverage_gate: default COVERAGE_MIN does not false-fail at the measured 84.72%" {
   # The rate CI measures on main (84.72%, 5907/6972 lines) must clear the
   # built-in default floor. Model it with a report at that rate and assert
@@ -308,6 +333,7 @@ _make_multi_cobertura() {
   [[ "${output}" == *"84.72"* ]]
 }
 
+# why: Floor value pinned from below
 @test "coverage_gate: default COVERAGE_MIN is 80 -- a report exactly at 80 passes" {
   # Pin the floor VALUE from below: 80.00% is the lowest rate the built-in
   # default accepts. Asserted with NO override so the constant itself is
@@ -319,6 +345,7 @@ _make_multi_cobertura() {
   [[ "${output}" == *"floor 80% -> PASS"* ]]
 }
 
+# why: Floor value pinned from above
 @test "coverage_gate: default COVERAGE_MIN is 80 -- a report just under 80 fails" {
   # Pin the same value from above: 79.99% must FAIL on the built-in
   # default. Together with the boundary-pass case this fixes the floor at
@@ -329,6 +356,7 @@ _make_multi_cobertura() {
   [[ "${output}" == *"floor 80% -> FAIL"* ]]
 }
 
+# why: GitHub visibility (no SaaS)
 @test "coverage_gate: emits a GitHub step summary table when GITHUB_STEP_SUMMARY is set" {
   _make_cobertura "${SCRATCH}/a/cobertura.xml" 60 100
   local _summary="${SCRATCH}/summary.md"

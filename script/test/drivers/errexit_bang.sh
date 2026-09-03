@@ -48,10 +48,11 @@
 #
 # What is a violation: inside a `@test ... {` body, a STATEMENT whose
 # first token is `!`, when EITHER
-#   (a) the statement does not end on the body's last statement line, or
+#   (a) the statement is not the last one of its BLOCK, out through every
+#       enclosing block to the body itself, or
 #   (b) the statement hands its verdict away -- a `;` with anything after
-#       it, an async `&` (trailing or not), or `|| true` / `|| :` --
-#       ANYWHERE in it, including on a continuation line.
+#       it, an async `&` (trailing or not), or a final `||` operand that
+#       cannot fail -- ANYWHERE in it, including on a continuation line.
 #
 # (b) exists because (a) is judged by POSITION, and one statement can hold
 # more than one command. `! cmd; other` returns `other`'s status
@@ -61,6 +62,23 @@
 # All three are the same discarded negation as a `!` on an earlier line,
 # so all three are reported wherever they sit rather than only when they
 # land last.
+#
+# (a) says BLOCK and not "body" because a compound command's status is
+# its last command's. `if true; then ! A; fi` as a body's last statement
+# really is the body's verdict, and reading the `fi` as the body's last
+# statement reported it (base#991). The position rule is therefore asked
+# once per nesting LEVEL: a `!` last in its block is held rather than
+# judged, the block carries it out when it closes, and the answer at the
+# body's level is the same one it always was. Moving where the question
+# is asked, rather than adding a condition to the answer, is what keeps
+# `!` buried EARLIER in the same block reported.
+#
+# The level count is `_errexit_bang_block_delta`, a count of reserved
+# words in command position and not a parser, and it can lose track. When
+# it does -- an opener with no closer, a closer with none open, a branch
+# marker at the body's top level -- EVERY pending `!` in that body is
+# reported with that reason. A mis-counted block costs an allow region;
+# it never costs a silent pass.
 #
 # The WHOLE statement is read, not its opening physical line. A backslash
 # moves a separator one line down and changes nothing about who owns the
@@ -86,12 +104,22 @@
 # to the next real line (where it was silently discarded, and so escaped
 # both rules).
 #
-# NOT every `||` is that hand-off, and the two named above are the only
-# ones flagged. `! A || B` runs B exactly when A SUCCEEDED, so who owns
-# the verdict is decided by B: `! A || return 1` and `! A || fail "..."`
-# fail the test in that branch, correctly, and an ORDINARY B's failure is
-# not exempt from errexit either, so they fail it from a non-final
-# position too -- such a statement is out of BOTH rules.
+# NOT every `||` is that hand-off. `! A || B` runs B exactly when A
+# SUCCEEDED, so who owns the verdict is decided by B: `! A || return 1`
+# and `! A || fail "..."` fail the test in that branch, correctly, and an
+# ORDINARY B's failure is not exempt from errexit either, so they fail it
+# from a non-final position too -- such a statement is out of BOTH rules.
+# WHICH B those are is the operand classification below, and it is a
+# closed set of always-zero words plus a refusal for anything the scan
+# cannot read, not a pair of spellings.
+#
+# A `;` outranks all of it, and that ordering is base#992's fix. The
+# exemption rests on the LIST's verdict being the statement's; a `;` with
+# a command behind it means the list's verdict is not the statement's at
+# all, so no reasoning about the list's operands can speak for it. Tested
+# after the exemption, the separator rule was never reached by any `!`
+# holding a `||` ahead of its first `;`, and `! A || echo x; true` -- a
+# body that returns 0 with its assertion failed -- came back clean.
 #
 # One B breaks that, and it is the one the exemption used to cover: a B
 # that is itself `!`-inverted. bash suppresses errexit for a command
@@ -104,11 +132,10 @@
 # The exemption is therefore DECLINED as soon as any RIGHT operand in
 # the list -- an operand AFTER one of those operators, never the leading
 # `!` that made the statement a candidate in the first place -- opens
-# with `!`, and the statement falls through to the position and `;`
-# rules like every other one. As the body's LAST statement it still
-# passes, because there its own status is the verdict (B succeeding
-# returns 1) -- position, not the exemption, is what makes that case
-# clean. Declining it for the whole class rather than only where the list
+# with `!`, and the statement falls through to the position rule like
+# every other one. As its block's LAST statement it still passes, because
+# there its own status is the verdict (B succeeding returns 1) --
+# position, not the exemption, is what makes that case clean. Declining it for the whole class rather than only where the list
 # is provably inert is deliberate: `! A || ! B || return 1` DOES fail
 # from a non-final position, and telling it apart from `! A || ! B` needs
 # the chain EVALUATED rather than read, so it is reported too. That
@@ -116,28 +143,53 @@
 # this file takes wherever the text stops answering the question.
 # errexit_bang_lint_spec pins both halves by RUNNING them.
 #
-# `true` and `:` are the only SIMPLE COMMANDS that cannot fail; they are
-# the language's two always-zero builtins, a closed set fixed by bash
-# rather than a roster of this tree, which is why listing them is not the
-# listed-population defect this file otherwise refuses.
+# WHICH `||` operand is inert is therefore a question with three answers,
+# not two, and naming the third is what closed base#992's own instance.
+# The operand asked about is the FINAL one of the statement's top-level
+# list -- the text after the last top-level `||` and before the first
+# top-level `;` or `&` -- because that is the operand whose status the
+# list returns. It is classified by its COMMAND WORD alone:
 #
-# They are not, however, every always-zero OPERAND: a group is one too,
-# and `! A || { true; }` / `! A || ( true )` are as inert as `|| true`
-# while taking the live-`||` exemption. Both go unreported, and that is a
-# disclosed narrowing rather than a claim: the closed-set argument covers
-# builtins, not groups, and it does not extend. A `( ... )` operand is
-# blanked by the paren rule below, so this scan cannot see what is in it
-# at all; and "can this group fail" has no lexical answer in general
-# (`|| ( exit 1 )` fails, `|| { true; }` does not), so matching the one
-# spelling that happens to be writable as a regex would be a guard
-# narrower than its own name -- the defect this whole file exists to
-# stop. Fixing it needs a different question than a scan can ask.
+#   ALWAYS ZERO -- `true`, `:`, `echo`. A closed set fixed by bash rather
+#     than a roster of this tree, which is why listing it is not the
+#     listed-population defect this file otherwise refuses: a word is in
+#     it only where bash fixes the status at 0 for EVERY argument list.
+#     `true` and `:` are the language's two always-zero builtins. `echo`
+#     is the third and is here for a stated reason: as a builtin writing
+#     to the stream bats has already opened for the body, its only
+#     failure is a write error, which no test body arranges and none can
+#     assert on. `printf` is NOT in the set -- `printf '%d' abc` fails,
+#     and errexit_bang_lint_spec pins that by running it -- and neither
+#     is any word whose status is its ARGUMENT. The list returns 0
+#     whatever the `!` computed, so the statement is inert in EVERY
+#     position and is reported wherever it sits, exactly as `|| true`
+#     always was.
 #
-# The same narrowing has a second cost: `! A || echo x` is inert and goes
-# unreported. This lint is named for statements that CANNOT fail their
-# test, and flagging one that can would be a wider claim than the rule
-# makes -- on a blocking gate the price of the wider claim is an allow
-# region hand-written for a line that was never a violation.
+#   CAN FAIL -- an ordinary command word: `return 1`, `fail "..."`, a
+#     grep, a function, a word this scan can only see as a blanked quoted
+#     span. Its failure is not exempt from errexit, so the statement can
+#     fail its test from any position and is out of BOTH rules. This is
+#     the live-`||` exemption, and it is what `! A || return 1` and
+#     `! A || fail "..."` rest on.
+#
+#   UNCLASSIFIABLE -- a GROUP: `{ ... }`, whose contents this scan does
+#     not model, or `( ... )`, which the paren rule below has already
+#     blanked away. "Can this group fail" has no lexical answer in
+#     general -- `|| ( exit 1 )` fails, `|| { true; }` does not -- and
+#     an operand whose status is its argument (`|| return "${_rc}"`) is
+#     the same case one level down. The exemption is REFUSED and the
+#     statement reported. That is the direction this file takes wherever
+#     the text stops answering the question: granting it hid
+#     `! A || { true; }` and `! A || ( true )`, which are inert, and
+#     refusing it costs one allow region on `! A || { fail "..."; }`,
+#     which is not.
+#
+# `return` and `exit` are the one place the command word is not the whole
+# answer, and they are not an exception to the rule but the same rule one
+# token further in: their status IS their argument, so the argument is
+# what gets classified. `|| return 0` and `|| exit 0` are always-zero and
+# were a miss until they were read that way; `|| return 1` can fail;
+# `|| return "${_rc}"` is unclassifiable and is refused.
 #
 # `&&` is out for the same reason. `! A && B` parses as `(! A) && B` and
 # short-circuits to 1 whenever A succeeded, so as the body's last
@@ -303,38 +355,42 @@
 #     alarm, answered by one allow region. Refusing direction. The MISS
 #     heredocs carry is the other shape in that note: a `}` at column 0
 #     inside one closes the body early.
-#   - Compound commands -- `if`, `while`, `for`, `case`, a `{ ... }`
-#     list. Wrong in BOTH directions, which this entry claimed until the
-#     shapes were run. A block's STATUS is its last command's, but the
-#     scan reads each line inside one as its own statement and counts
-#     the closing `fi` / `done` / `esac` / `}` as the body's last, so a
-#     `!` that ends such a block where the block ends the test body is
-#     reported although it IS the verdict: OVER-reports, refusing
-#     direction, one allow region. The `{ ... }` spelling also MISSES,
-#     the other way: a brace group carries the `!` exemption OUT of
-#     itself, so a one-line `{ ! grep -q A f; }` away from the body's
-#     last statement is an inert assertion and nothing reports it --
-#     `_ERREXIT_BANG_STMT_RE` needs `!` as the statement's first token
-#     and here that token is `{`. Verified rather than reasoned:
+#   - A `{ ! A; }` brace group written on ONE line. base#991's other
+#     half, and the one shape of it still open: a brace group carries
+#     the `!` exemption OUT of itself, so `{ ! grep -q A f; }` away from
+#     its block's last statement is an inert assertion and nothing
+#     reports it -- `_ERREXIT_BANG_STMT_RE` needs `!` as the statement's
+#     first token and here that token is `{`. Verified rather than
+#     reasoned:
 #       set -e; b(){ { ! true; }; echo REACHED; }; b -> REACHED, 0
 #       set -e; b(){ { false; };  echo REACHED; }; b -> aborts,  1
 #       set -e; b(){ ( ! true );  echo REACHED; }; b -> aborts,  1
 #     -- a SUBSHELL does not carry it out, so silence on `( ! A )` is
-#     right and only the brace form hides anything. Every `{ !` this
-#     tree's specs hold sits inside a `run bash -c '...'` fixture
+#     right and only the brace form hides anything. MISSES; the one
+#     entry on this list that does. The MULTI-LINE spelling is not on it
+#     any more: `{` / `! A` / `}` opens a level the block count tracks,
+#     and the `!` is judged against its block. Matching `{ !` as a
+#     statement opener would close the one-liner by trading it for a
+#     false positive on the shape where the group IS the verdict -- the
+#     group's own internal `;` fires the separator rule -- so it needs
+#     the group's CONTENTS modelled, not its opener matched. Every `{ !`
+#     this tree's specs hold sits inside a `run bash -c '...'` fixture
 #     string, where the statement opener is `run`, so no body has one as
-#     a statement today (grepped). base#991 tracks both halves.
-#   - CRLF line endings. `IFS= read -r` keeps the `\r`, so a trailing
-#     backslash escapes the CARRIAGE RETURN rather than the newline and
-#     the continuation is never seen. Mostly that over-reports (the
-#     statement is judged short and the position rule fires on the
-#     wrong line), but the splice above is lost with it, so
-#     `! grep -q A\` + `#b f; true` written with CRLF is a silent MISS.
-#     Every *.bats in this tree is LF; base#990 tracks it.
+#     a statement today (grepped).
+#   - A `;` behind a final `||` operand that transfers control.
+#     `! A || return 1; true` can fail its test -- the `return` runs in
+#     precisely the branch that matters and the `; true` behind it is
+#     never reached -- and is reported anyway, because the separator
+#     rule now outranks the live-`||` exemption (base#992) and telling
+#     the reachable `;` from the unreachable one needs the operand's
+#     ARGUMENT evaluated, not read. OVER-reports; refusing direction,
+#     one allow region. The same rule is what catches
+#     `! A || return 0; true`, which is inert.
 #
 # What is NOT:
-#   - the body's last statement (across a `\` continuation, and with any
-#     number of trailing comment / blank lines after it).
+#   - the last statement of its BLOCK, out through every enclosing block
+#     to the body (across a `\` continuation, and with any number of
+#     trailing comment / blank lines after it).
 #   - a line that CONTINUES the previous one. `find ... \` + `! -name x`
 #     is a find predicate, not a statement, and the tree has one.
 #   - a `!` outside any test body (a file-scope helper function): errexit
@@ -414,13 +470,17 @@ readonly _ERREXIT_BANG_SEQ_RE=';[[:space:]]*[^[:space:]]'
 # can hold one, the same argument that keeps `<` and `>` out of the
 # comment-start set.
 readonly _ERREXIT_BANG_ASYNC_RE='(^|[^&<>|])&([^&>]|$)'
-# An `||` whose right operand CANNOT fail. `true` and `:` are bash's two
-# always-zero builtins -- a closed set, which is why matching them by name
-# is not the listed-population defect this file otherwise refuses. It is
-# not every inert shape: an always-zero GROUP (`|| { true; }`,
-# `|| ( true )`) is inert too and goes unreported, for the reason the
-# header gives.
-readonly _ERREXIT_BANG_INERT_OR_RE='\|\|[[:space:]]*(true|:)([[:space:]]*;|[[:space:]]*$)'
+# The ALWAYS-ZERO OPERAND set, matched against the final `||` operand's
+# COMMAND WORD alone (see the header for how the set is decided and what
+# happens to an operand it cannot classify). `true` and `:` are bash's
+# two always-zero builtins; `echo` is the third member and is here for a
+# stated reason rather than for convenience -- as a builtin writing to
+# the stream bats already opened for the body, its only failure is a
+# write error, which no test body arranges and none can assert on.
+# `printf` and `return` are deliberately OUT: `printf '%d' abc` fails and
+# `return`'s status is its argument, so neither is fixed at 0 by the
+# command word. errexit_bang_lint_spec pins that boundary by running it.
+readonly _ERREXIT_BANG_ZERO_OPERAND_RE='^(true|:|echo)$'
 # An `||` that belongs to the bang command itself -- no `;` closes the
 # list before it. With any other right operand the verdict is that
 # operand's and the statement leaves this rule entirely (see the header).
@@ -432,6 +492,232 @@ readonly _ERREXIT_BANG_LIVE_OR_RE='^[^;]*\|\|'
 # fold reads on across (`|`, `||`, `&&`, `|&`), and the trailing space is
 # the one `_ERREXIT_BANG_STMT_RE` uses: `!=` and `!(` are not this.
 readonly _ERREXIT_BANG_BANG_OPERAND_RE='(\|\||&&|\|&|\|)[[:space:]]*![[:space:]]'
+
+# _errexit_bang_final_operand <code> <sig> <kind_outvar>
+#   Classify the FINAL OPERAND of the `!` statement's own top-level list,
+#   which is the operand whose status the list -- and therefore the
+#   statement -- ends up returning.
+#
+#   The list is the text up to the statement's first top-level `;` or
+#   `&`: what follows those belongs to another command, and a rule about
+#   whose verdict the `!` owns has nothing to say about it. Inside that
+#   region the LAST list or pipe operator is found, and only a `||`
+#   yields a verdict-bearing operand -- after `&&`, `|` or `|&` the
+#   statement's status is not simply the right operand's, so no claim is
+#   made. <kind_outvar> gets one of:
+#
+#     none        no top-level `||` in the region: this rule says nothing.
+#     zero        the operand's COMMAND WORD is in the always-zero set,
+#                 so the list returns 0 whatever the `!` computed: the
+#                 statement is inert in EVERY position, exactly as
+#                 `|| true` is, and is reported wherever it sits.
+#     unreadable  the operand is a GROUP -- `{ ... }`, whose contents
+#                 this scan does not model, or `( ... )`, which the paren
+#                 rule has already blanked. Whether it can fail has no
+#                 answer here, so the live-`||` exemption is REFUSED and
+#                 the statement is reported. That is the refusing
+#                 direction: granting it hid `! A || { true; }`, which is
+#                 inert, and refusing it costs one allow region on
+#                 `! A || { fail "..."; }`, which is not.
+#     other       an ordinary command word (`return`, `fail`, `grep`, a
+#                 function, a quoted or expanded word). Ordinary commands
+#                 CAN fail and their failure is not exempt from errexit,
+#                 so the statement can fail its test from any position.
+#
+#   A quoted operand is `other` and not `unreadable` on purpose: the scan
+#   cannot spell the word, but a word is a command and a command can
+#   fail. Only a group leaves the QUESTION unanswerable, which is what
+#   the `p` placeholder in the shadow distinguishes.
+_errexit_bang_final_operand() {
+  local _code="${1}" _sig="${2}"
+  local -n _ebfo_kind="${3}"
+  _ebfo_kind='none'
+
+  local _i=0 _two _one _op='' _pos=-1 _end="${#_code}"
+  while (( _i < ${#_code} )); do
+    _two="${_code:_i:2}"
+    case "${_two}" in
+      '||'|'&&'|'|&')
+        _op="${_two}"
+        _pos=$(( _i + 2 ))
+        _i=$(( _i + 2 ))
+        continue
+        ;;
+    esac
+    _one="${_code:_i:1}"
+    case "${_one}" in
+      '|')
+        _op='|'
+        _pos=$(( _i + 1 ))
+        _i=$(( _i + 1 ))
+        continue
+        ;;
+      ';'|'&')
+        # The statement's own list ends here.
+        _end="${_i}"
+        break
+        ;;
+    esac
+    _i=$(( _i + 1 ))
+  done
+
+  [[ "${_op}" == '||' && "${_pos}" -ge 0 && "${_pos}" -le "${_end}" ]] || return 0
+
+  local _operand="${_code:_pos:_end - _pos}"
+  local _shadow="${_sig:_pos:_end - _pos}"
+  local _word="${_operand%%[[:space:]]*}"
+  _operand="${_operand#"${_operand%%[![:space:]]*}"}"
+  _word="${_operand%%[[:space:]]*}"
+
+  if [[ -z "${_word}" ]]; then
+    # Nothing readable was written here. A `( ... )` leaves `p` behind in
+    # the shadow and is a group; anything else (a quoted word) is a
+    # command this scan merely cannot spell.
+    [[ "${_shadow}" == *p* ]] && _ebfo_kind='unreadable'
+    return 0
+  fi
+  if [[ "${_word}" == '{' ]]; then
+    _ebfo_kind='unreadable'
+    return 0
+  fi
+  if [[ "${_word}" =~ ${_ERREXIT_BANG_ZERO_OPERAND_RE} ]]; then
+    _ebfo_kind='zero'
+    return 0
+  fi
+  if [[ "${_word}" == 'return' || "${_word}" == 'exit' ]]; then
+    # The one place the command word is not the whole answer, and it is
+    # not an exception to the rule above but the same rule applied: these
+    # two take their status FROM THEIR ARGUMENT, so the argument is what
+    # gets classified, and an argument this scan cannot read leaves the
+    # operand unclassified rather than assumed.
+    #
+    #   `|| return 0` / `|| exit 0`   always zero: the test passes with
+    #                                 the assertion failed -- inert, and
+    #                                 a miss until this branch existed.
+    #   `|| return 1` / `|| exit 7`   a literal non-zero: fails the test
+    #                                 in the branch that matters.
+    #   `|| return` (no argument)     returns the status that made the
+    #                                 `||` fire, which is the `!`'s own
+    #                                 1: fails the test.
+    #   `|| return "${_rc}"`          unreadable: the argument is blanked
+    #                                 by the quote rule and the value is
+    #                                 not a lexical fact. Refused.
+    local _rest="${_operand#"${_word}"}"
+    local _shrest="${_shadow:${#_shadow} - ${#_rest}}"
+    _rest="${_rest#"${_rest%%[![:space:]]*}"}"
+    local _arg="${_rest%%[[:space:]]*}"
+    if [[ -z "${_arg}" ]]; then
+      [[ "${_shrest}" == *[qp]* ]] && _ebfo_kind='unreadable' || _ebfo_kind='other'
+      return 0
+    fi
+    if [[ "${_arg}" == '0' ]]; then
+      _ebfo_kind='zero'
+    elif [[ "${_arg}" =~ ^[0-9]+$ ]]; then
+      _ebfo_kind='other'
+    else
+      _ebfo_kind='unreadable'
+    fi
+    return 0
+  fi
+  _ebfo_kind='other'
+}
+
+# _errexit_bang_block_delta <code> <delta_outvar> <branch_outvar>
+#   Read ONE logical line's CODE as BLOCK STRUCTURE: how many compound
+#   commands it opens minus how many it closes, and whether it is a
+#   branch boundary (`else` / `elif` / `;;`) inside one.
+#
+#   This is a COUNT of reserved words in command position, not a parser.
+#   It has to be: a compound command's status is its last command's, so
+#   the position rule is wrong at every nesting level unless something
+#   knows where the levels are -- but knowing which command a block will
+#   end on needs no more than knowing where the block ends. Quoted spans
+#   and `( ... )` are already blanked by the code scan, so `echo "done"`,
+#   `run bash -c 'if ...; fi'` and a subshell's own `if` are invisible
+#   here; command position is what keeps `grep -q if f` and `echo done`
+#   from counting. Everything the count gets wrong lands in the caller's
+#   refusing fallback: a stack that does not balance by the body's `}`
+#   reports every pending `!` in that body rather than dropping it.
+#
+#   `{` and `}` are counted WHEREVER they stand as a token of their own,
+#   command position or not, while the word openers and closers are not.
+#   The asymmetry is the difference between them: `if`, `done` and `esac`
+#   are ordinary words that a command takes as arguments (`grep -q if f`,
+#   `echo done`), so they need command position to be told apart from
+#   data -- but a lone `{` is never an argument anyone writes, while it
+#   IS the brace of `foo() { ...; }`, whose `(` and `)` the code scan has
+#   already blanked away, leaving the brace with an ordinary word in
+#   front of it. Requiring command position there counted the `}` and
+#   not the `{`, which unbalanced every body holding a one-line helper
+#   function -- the tree has one.
+_errexit_bang_block_delta() {
+  local _t="${1}"
+  local -n _ebbd_delta="${2}"
+  local -n _ebbd_branch="${3}"
+  _ebbd_delta=0
+  _ebbd_branch=0
+
+  # `;;`, `;&` and `;;&` are ONE token -- a case-branch terminator -- and
+  # must not be split into the `;` separators below. Longest first.
+  _t="${_t//;;&/ __ebdsemi__ }"
+  _t="${_t//;;/ __ebdsemi__ }"
+  _t="${_t//;&/ __ebdsemi__ }"
+  _t="${_t//;/ ; }"
+  _t="${_t//&/ & }"
+  _t="${_t//|/ | }"
+
+  local -a _toks=()
+  # `read -ra` rather than an unquoted expansion: the code can hold a `*`
+  # and word splitting would glob it against the working directory.
+  read -ra _toks <<< "${_t}"
+
+  local _i=0 _cmdpos=1 _opens=0 _closes=0 _tok
+  for _tok in ${_toks[@]+"${_toks[@]}"}; do
+    case "${_tok}" in
+      ';'|'&'|'|')
+        _cmdpos=1
+        _i=$(( _i + 1 ))
+        continue
+        ;;
+      '__ebdsemi__')
+        [[ "${_i}" -eq 0 ]] && _ebbd_branch=1
+        _cmdpos=1
+        _i=$(( _i + 1 ))
+        continue
+        ;;
+      '{')
+        _opens=$(( _opens + 1 ))
+        _cmdpos=1
+        _i=$(( _i + 1 ))
+        continue
+        ;;
+      '}')
+        _closes=$(( _closes + 1 ))
+        _cmdpos=1
+        _i=$(( _i + 1 ))
+        continue
+        ;;
+    esac
+    if [[ "${_cmdpos}" -eq 1 ]]; then
+      case "${_tok}" in
+        'if'|'while'|'until'|'for'|'case'|'select') _opens=$(( _opens + 1 )) ;;
+        'fi'|'done'|'esac')                         _closes=$(( _closes + 1 )) ;;
+        # A branch marker only where it OPENS the logical line. On a
+        # one-liner (`if x; then y; else z; fi`) the whole construct is
+        # one statement of the enclosing level and its `else` is none of
+        # that level's business -- reading it as one would mark the
+        # level's pending statements final a statement too early.
+        'else'|'elif') [[ "${_i}" -eq 0 ]] && _ebbd_branch=1 ;;
+      esac
+    fi
+    case "${_tok}" in
+      'then'|'do'|'else'|'elif'|'in'|'!') _cmdpos=1 ;;
+      *)                                  _cmdpos=0 ;;
+    esac
+    _i=$(( _i + 1 ))
+  done
+  _ebbd_delta=$(( _opens - _closes ))
+}
 
 # Region markers for the explicit opt-out (see the header note).
 readonly _ERREXIT_BANG_ALLOW_BEGIN='errexit-bang-lint: allow-begin'
@@ -521,14 +807,25 @@ _errexit_bang_code_scan() {
   local _s="${1}"
   local -n _ebcs_code="${2}"
   local -n _ebcs_cont="${3}"
+  local -n _ebcs_sig="${4}"
   local _out='' _i _ch _q='' _prev=' ' _depth=0 _trail=0
-  # A SHADOW of the code, built alongside it, where every span the code
-  # blanks contributes the placeholder `x` instead of a space. The
-  # trailing-operator test below is read off THIS, never off `_out`: the
-  # code blanks a `( ... )` to spaces, so `! A || ( true )` ends in a
-  # bare `||` there and would read as a statement still waiting for its
-  # operand -- turning the disclosed `|| ( true )` narrowing into a false
-  # positive. `x` remembers that an operand was in fact written.
+  # A SHADOW of the code, built alongside it character for character,
+  # where every span the code blanks contributes a placeholder instead of
+  # a space: `q` for a quoted or backslash-escaped span, `p` for an
+  # unquoted `( ... )`. Two placeholders and not one, because the callers
+  # ask two different questions of it.
+  #
+  # The trailing-operator test below reads it to know that an operand was
+  # WRITTEN at all: the code blanks a `( ... )` to spaces, so
+  # `! A || ( true )` ends in a bare `||` there and would otherwise read
+  # as a statement still waiting for its operand.
+  #
+  # The final-operand classifier reads it to know WHICH kind of span was
+  # blanked. A quoted operand (`|| "${_helper}"`) is a command this scan
+  # merely cannot spell, and an ordinary command can fail; a `( ... )`
+  # operand is a GROUP whose contents it cannot see at all. Only the
+  # second is unclassifiable, and telling them apart is what keeps the
+  # refusal narrow.
   local _sig=''
   # Would a `#` HERE open a comment? A logical line opens a word, so this
   # starts set; every branch below answers for itself. Anything
@@ -551,10 +848,10 @@ _errexit_bang_code_scan() {
       # NEWLINE: the statement continues onto the next physical line, and
       # the caller folds it in.
       _out+=' '
-      _sig+='x'
+      _sig+='q'
       if (( _i + 1 < ${#_s} )); then
         _out+=' '
-        _sig+='x'
+        _sig+='q'
         _i=$(( _i + 1 ))
       else
         _trail=1
@@ -571,7 +868,7 @@ _errexit_bang_code_scan() {
         _q=''
       fi
       _out+=' '
-      _sig+='x'
+      _sig+='q'
       _prev="${_ch}"
       _word_end=0
       continue
@@ -580,7 +877,7 @@ _errexit_bang_code_scan() {
       "'"|'"')
         _q="${_ch}"
         _out+=' '
-        _sig+='x'
+        _sig+='q'
         _prev="${_ch}"
         _word_end=0
         continue
@@ -600,7 +897,7 @@ _errexit_bang_code_scan() {
         fi
         _depth=$(( _depth + 1 ))
         _out+=' '
-        _sig+='x'
+        _sig+='p'
         _prev='('
         _word_end=1
         continue
@@ -622,7 +919,7 @@ _errexit_bang_code_scan() {
           _word_end=0
         fi
         _out+=' '
-        _sig+='x'
+        _sig+='p'
         _prev=')'
         continue
         ;;
@@ -640,7 +937,7 @@ _errexit_bang_code_scan() {
       # Inside `( ... )`: an argument's own text, never this statement's
       # separator.
       _out+=' '
-      _sig+='x'
+      _sig+='p'
       _prev=' '
       _word_end=0
       continue
@@ -657,6 +954,7 @@ _errexit_bang_code_scan() {
     esac
   done
   _ebcs_code="${_out}"
+  _ebcs_sig="${_sig}"
   # The last run of non-blank text in the SHADOW, for the operator test
   # below. Reading it there rather than off the raw line is what keeps a
   # `|` inside a quote, inside a `( ... )` or behind a `#` from being
@@ -696,8 +994,10 @@ _errexit_bang_code_scan() {
 # being read (its folded text, the physical line it opened on, the line
 # it has reached, its opening text for the report, its code, how that
 # code ENDS and whether it is a `!` statement this lint judges), the
-# pending `!` statements of the current body (start line, END line, text)
-# and the line number of the body's last statement.
+# pending `!` statements of the current body (start line, END line, text,
+# the block level each was read at and whether it has been reported or
+# carried out of a closed branch) and, per level, the line on which that
+# level's last statement ended.
 #
 # EVERY line inside a body is folded, not only a `!` one. Which physical
 # line the next statement starts on is exactly the question the fold
@@ -707,25 +1007,28 @@ _errexit_bang_code_scan() {
 #
 # A statement is judged when it ENDS -- a separator can still arrive on a
 # continuation line -- and a pending statement is judged for (a) only
-# when the body closes, since "is this the last statement" is not
-# knowable before then.
+# when its BLOCK closes, since "is this the last statement" is not
+# knowable before then. Closing a block answers it for that level and
+# hands what was last there out to the parent, where the same question is
+# asked again about the block; the body's `}` is the outermost of those
+# closes.
 _errexit_bang_scan_file() {
   local _abs="${1}" _rel="${2}"
   local -n _ebsf_rows="${3}"
   local -n _ebsf_headers="${4}"
 
-  local _line _lineno=0 _in_body=0 _body_open=0 _last_stmt=0
+  local _line _lineno=0 _in_body=0 _body_open=0 _crlf=0
   local _in_allow=0 _begin_line=0 _close=0 _is_stmt=0 _is_blank=0
-  local _judge=0 _fold=0
+  local _judge=0 _fold=0 _kind='none' _delta=0 _branch=0 _k=0
   # The logical line in progress; an empty `_lbuf` means there is none.
-  local _lbuf='' _ltext='' _lcode='' _lstart=0 _lend=0 _lcont=0 _lbang=0
+  local _lbuf='' _ltext='' _lcode='' _lsig='' _lstart=0 _lend=0 _lcont=0 _lbang=0
   # The SPAN the rules are asked about: the `!` statement inside the
   # logical line above. It is the whole of it when the line opens with
   # `!`, and a TAIL of it when an operator fold pulled a `!` line in --
   # asking the rules about the whole line there would read a `||` that
   # belongs to the line ABOVE the `!` as the `!`'s own hand-off, and
   # would name the wrong line in the row.
-  local _lbbuf='' _lbtext='' _lbcode='' _lbstart=0 _lbcont=0
+  local _lbbuf='' _lbtext='' _lbcode='' _lbsig='' _lbstart=0 _lbcont=0
   # Set, with the line number, when a line that OPENS a `!` statement was
   # folded in because the scan had an unterminated quote or `(` -- the
   # one way the fold can take a statement this lint judges out of its
@@ -733,11 +1036,48 @@ _errexit_bang_scan_file() {
   # is the operator's right operand and bash reads it as part of this
   # statement too, so it is out of reach correctly.
   local _lswallow=0 _lswallow_line=0 _why=0
+  # The BLOCK STACK. A compound command's status is its last command's,
+  # so "is this the body's last statement" is the wrong question one
+  # level in: the right one is "is this its BLOCK's last command, and is
+  # that block its own block's last command, all the way out". `_lvl` is
+  # the current nesting depth inside the body (0 = the body itself),
+  # `_lvl_last[i]` the line on which level i's last statement ENDED, and
+  # `_lost` the scan admitting the stack did not balance -- which makes
+  # every pending statement in the body a finding rather than a drop.
+  local _lvl=0 _lost=0
+  local -a _lvl_last=(0)
+  # A pending `!`: where it starts, where it ends, its text, the level it
+  # was read at, and its state (0 pending, 1 last in a closed branch of
+  # its level, 2 already reported).
   local -a _pending_line=() _pending_end=() _pending_text=()
+  local -a _pending_lvl=() _pending_state=()
   local _i
 
   while IFS= read -r _line || [[ -n "${_line}" ]]; do
     _lineno=$(( _lineno + 1 ))
+
+    # CRLF is REFUSED, once per file, before anything else reads the
+    # line. `IFS= read -r` keeps the `\r`, and a trailing backslash then
+    # escapes the CARRIAGE RETURN rather than the newline: the line
+    # continuation is never seen, the statement is judged short, and the
+    # SPLICE that makes `! grep -q A\` + `#b f; true` one word with a
+    # live `; true` behind it is lost with it -- a silent MISS. The row
+    # reports the FILE, not a statement in it, so it is NOT gated on the
+    # allow region, the same class as the unclosed-body row below:
+    # silencing it with the per-statement opt-out would close the hole it
+    # exists to keep open.
+    #
+    # The `\r` is then stripped and the scan goes on, so the rest of the
+    # findings are the ones the file's author would recognise -- the LF
+    # verdict. Stripping cannot fail open: the file has already been
+    # reported and the lint already fails on it.
+    if [[ "${_line}" == *$'\r' ]]; then
+      if [[ "${_crlf}" -eq 0 ]]; then
+        _crlf="${_lineno}"
+        _ebsf_rows+=("${_rel}:${_lineno}: CRLF line endings (first seen here) -- this lint reads the file as bash does, and a '\r' escapes a trailing backslash's newline so a line continuation is never seen; bats is not reliable on such a body either. Convert the file to LF.")
+      fi
+      _line="${_line%$'\r'}"
+    fi
 
     if [[ "${_line}" == *"${_ERREXIT_BANG_ALLOW_BEGIN}"* ]]; then
       _in_allow=1
@@ -760,11 +1100,15 @@ _errexit_bang_scan_file() {
       if [[ "${_line}" =~ ${_ERREXIT_BANG_TEST_OPEN_RE} ]]; then
         _in_body=1
         _body_open="${_lineno}"
-        _last_stmt=0
+        _lvl=0
+        _lvl_last=(0)
+        _lost=0
         _lbuf=''
         _pending_line=()
         _pending_end=()
         _pending_text=()
+        _pending_lvl=()
+        _pending_state=()
       fi
       continue
     fi
@@ -871,12 +1215,11 @@ _errexit_bang_scan_file() {
           _lbuf+=" ${_line}"
         fi
         _lend="${_lineno}"
-        _last_stmt="${_lineno}"
-        _errexit_bang_code_scan "${_lbuf}" _lcode _lcont
+        _errexit_bang_code_scan "${_lbuf}" _lcode _lcont _lsig
         # The span is scanned on its own: the rules below read its code,
         # not the logical line's.
         [[ "${_lbang}" -eq 1 ]] \
-          && _errexit_bang_code_scan "${_lbbuf}" _lbcode _lbcont
+          && _errexit_bang_code_scan "${_lbbuf}" _lbcode _lbcont _lbsig
         [[ "${_lcont}" -eq 0 ]] && _judge=1
       else
         # The statement ends WITHOUT consuming this line: a blank or a
@@ -889,7 +1232,6 @@ _errexit_bang_scan_file() {
       _ltext="${_line}"
       _lstart="${_lineno}"
       _lend="${_lineno}"
-      _last_stmt="${_lineno}"
       _lbang=0
       _lswallow=0
       _lbbuf=''
@@ -899,9 +1241,9 @@ _errexit_bang_scan_file() {
         _lbtext="${_line}"
         _lbbuf="${_line}"
       fi
-      _errexit_bang_code_scan "${_lbuf}" _lcode _lcont
+      _errexit_bang_code_scan "${_lbuf}" _lcode _lcont _lsig
       [[ "${_lbang}" -eq 1 ]] \
-        && _errexit_bang_code_scan "${_lbbuf}" _lbcode _lbcont
+        && _errexit_bang_code_scan "${_lbbuf}" _lbcode _lbcont _lbsig
       [[ "${_lcont}" -eq 0 ]] && _judge=1
     fi
 
@@ -931,20 +1273,37 @@ _errexit_bang_scan_file() {
         # it has no bearing on.
         :
       elif [[ "${_lbang}" -eq 1 ]]; then
-        # Order matters. The async operator is judged FIRST: a `&`
-        # anywhere at top level discards the negation whatever else the
-        # statement holds, so no `||` arm below it can speak for the
-        # statement. Then an `|| true` is judged before the generic `||`
-        # escape, so the one hand-off that IS inert is still reported.
+        # ORDER. Each rule below outranks the ones after it because it
+        # answers a question that makes theirs moot, and the order is the
+        # fix for base#992: the live-`||` exemption used to be tested
+        # before the `;` rule, so any `!` holding a `||` ahead of its
+        # first `;` took the exemption and never reached the separator.
+        # The exemption's own justification does not survive that `;` --
+        # it rests on the LIST's verdict being the statement's, and a `;`
+        # means the list's verdict is not the statement's at all.
+        #
+        #   1. an async `&` discards the negation from any position;
+        #   2. a final operand the scan cannot classify gets no
+        #      exemption (see _errexit_bang_final_operand);
+        #   3. a final operand that cannot fail makes the list inert in
+        #      EVERY position, which `|| true` was always read as;
+        #   4. a `;` hands the verdict to another command;
+        #   5. only then the live-`||` exemption;
+        #   6. and finally position.
+        _errexit_bang_final_operand "${_lbcode}" "${_lbsig}" _kind
         if [[ "${_lbcode}" =~ ${_ERREXIT_BANG_ASYNC_RE} ]]; then
           _ebsf_rows+=("${_rel}:${_lbstart}: ${_lbtext}  -- the '!' is handed to a background fork, whose status is 0 whatever the command did ('&')")
-        elif [[ "${_lbcode}" =~ ${_ERREXIT_BANG_INERT_OR_RE} ]]; then
+        elif [[ "${_kind}" == 'unreadable' ]]; then
+          _ebsf_rows+=("${_rel}:${_lbstart}: ${_lbtext}  -- the final '||' operand is a group ('{ ... }' / '( ... )') whose contents this scan does not read, so it cannot tell whether that operand can fail; the exemption is refused rather than guessed (bracket the line with the allow markers if the group really can fail)")
+        elif [[ "${_kind}" == 'zero' ]]; then
           # Inert in EVERY position, so it is judged here rather than
           # queued: waiting for the body to close would report it only
           # when it happened not to be last, which is the hole this
           # closes. It is deliberately not ALSO queued -- one statement,
           # one row.
-          _ebsf_rows+=("${_rel}:${_lbstart}: ${_lbtext}  -- the '!' hands its status to an operand that cannot fail ('|| true' / '|| :')")
+          _ebsf_rows+=("${_rel}:${_lbstart}: ${_lbtext}  -- the '!' hands its status to a final '||' operand that cannot fail ('true', ':' or 'echo'), so the list returns 0 whatever the command did")
+        elif [[ "${_lbcode}" =~ ${_ERREXIT_BANG_SEQ_RE} ]]; then
+          _ebsf_rows+=("${_rel}:${_lbstart}: ${_lbtext}  -- the '!' hands its status to another command in this statement (';')")
         elif [[ "${_lbcode}" =~ ${_ERREXIT_BANG_LIVE_OR_RE} \
              && ! "${_lbcode}" =~ ${_ERREXIT_BANG_BANG_OPERAND_RE} ]]; then
           # `! A || B` with an ORDINARY B that can fail. The verdict is
@@ -970,26 +1329,110 @@ _errexit_bang_scan_file() {
           # over-report costs one allow region, the refusing direction
           # this file takes. See the header.
           :
-        elif [[ "${_lbcode}" =~ ${_ERREXIT_BANG_SEQ_RE} ]]; then
-          _ebsf_rows+=("${_rel}:${_lbstart}: ${_lbtext}  -- the '!' hands its status to another command in this statement (';')")
         else
           _pending_line+=("${_lbstart}")
           _pending_end+=("${_lend}")
           _pending_text+=("${_lbtext}")
+          _pending_lvl+=("${_lvl}")
+          _pending_state+=(0)
         fi
+      fi
+
+      # ── Which BLOCK this logical line belongs to ────────────────────
+      # Read AFTER the rules above, which are about the statement's own
+      # list and care nothing for nesting, and BEFORE the next line, so
+      # that a `!` is always queued at the level it was read at.
+      _errexit_bang_block_delta "${_lcode}" _delta _branch
+      if [[ "${_delta}" -gt 0 ]]; then
+        # This line opens block(s). It is not yet a statement of the
+        # current level -- the BLOCK will be, when it closes.
+        for (( _k = 0; _k < _delta; _k++ )); do
+          _lvl=$(( _lvl + 1 ))
+          _lvl_last[_lvl]=0
+        done
+      elif [[ "${_delta}" -lt 0 ]]; then
+        for (( _k = 0; _k > _delta; _k-- )); do
+          if [[ "${_lvl}" -eq 0 ]]; then
+            # A closer with no opener: the count lost track. Say so.
+            _lost=1
+            break
+          fi
+          # Close this level's current branch, then carry what was LAST
+          # in it out: the block is ONE statement of the parent level and
+          # its status is the status of the command that ended it, so the
+          # pending `!` inherits the block's position.
+          for (( _i = 0; _i < ${#_pending_line[@]}; _i++ )); do
+            [[ "${_pending_state[_i]}" -eq 0 ]] || continue
+            [[ "${_pending_lvl[_i]}" -eq "${_lvl}" ]] || continue
+            if [[ "${_pending_end[_i]}" == "${_lvl_last[_lvl]}" ]]; then
+              _pending_state[_i]=1
+            else
+              _ebsf_rows+=("${_rel}:${_pending_line[_i]}: ${_pending_text[_i]}")
+              _pending_state[_i]=2
+            fi
+          done
+          for (( _i = 0; _i < ${#_pending_line[@]}; _i++ )); do
+            [[ "${_pending_state[_i]}" -eq 1 ]] || continue
+            [[ "${_pending_lvl[_i]}" -eq "${_lvl}" ]] || continue
+            _pending_lvl[_i]=$(( _lvl - 1 ))
+            _pending_end[_i]="${_lend}"
+            _pending_state[_i]=0
+          done
+          _lvl=$(( _lvl - 1 ))
+          _lvl_last[_lvl]="${_lend}"
+        done
+      elif [[ "${_branch}" -eq 1 ]]; then
+        # `else` / `elif` / `;;` close one branch and open the next. A
+        # `!` last in the branch just closed is the block's status just
+        # as much as one last in the branch after it, so it is held --
+        # not reported, not yet final -- until the block itself closes.
+        if [[ "${_lvl}" -eq 0 ]]; then
+          # A branch marker at the body's top level means no opener was
+          # counted for the construct it belongs to.
+          _lost=1
+        fi
+        for (( _i = 0; _i < ${#_pending_line[@]}; _i++ )); do
+          [[ "${_pending_state[_i]}" -eq 0 ]] || continue
+          [[ "${_pending_lvl[_i]}" -eq "${_lvl}" ]] || continue
+          if [[ "${_pending_end[_i]}" == "${_lvl_last[_lvl]}" ]]; then
+            _pending_state[_i]=1
+          else
+            _ebsf_rows+=("${_rel}:${_pending_line[_i]}: ${_pending_text[_i]}")
+            _pending_state[_i]=2
+          fi
+        done
+        _lvl_last[_lvl]=0
+      else
+        _lvl_last[_lvl]="${_lend}"
       fi
       _lbuf=''
     fi
 
     if [[ "${_close}" -eq 1 ]]; then
       # The body is closed: every pending `!` whose statement did not END
-      # on the body's last statement line was exempt from errexit and
+      # on its level's last statement line was exempt from errexit and
       # could not have failed the test.
-      for (( _i = 0; _i < ${#_pending_line[@]}; _i++ )); do
-        if [[ "${_pending_end[_i]}" != "${_last_stmt}" ]]; then
-          _ebsf_rows+=("${_rel}:${_pending_line[_i]}: ${_pending_text[_i]}")
-        fi
-      done
+      #
+      # Unless the block stack did not balance -- an opener with no
+      # closer, a closer with no opener, a branch marker at the top
+      # level. Then no level's "last statement" is a fact, and EVERY
+      # pending statement is reported: a mis-counted block must cost an
+      # allow region, never a silent pass. This is the fallback that
+      # keeps _errexit_bang_block_delta's approximation in the refusing
+      # direction.
+      if [[ "${_lvl}" -ne 0 || "${_lost}" -eq 1 ]]; then
+        for (( _i = 0; _i < ${#_pending_line[@]}; _i++ )); do
+          [[ "${_pending_state[_i]}" -eq 2 ]] && continue
+          _ebsf_rows+=("${_rel}:${_pending_line[_i]}: ${_pending_text[_i]}  -- this body's compound commands did not balance (an 'if' / 'while' / 'for' / 'case' / '{' with no matching closer, or a closer with none open), so the scan cannot say which statement is last; bracket the line with the allow markers if it is deliberate")
+        done
+      else
+        for (( _i = 0; _i < ${#_pending_line[@]}; _i++ )); do
+          [[ "${_pending_state[_i]}" -eq 0 ]] || continue
+          if [[ "${_pending_end[_i]}" != "${_lvl_last[0]}" ]]; then
+            _ebsf_rows+=("${_rel}:${_pending_line[_i]}: ${_pending_text[_i]}")
+          fi
+        done
+      fi
       _in_body=0
       _lbuf=''
     fi
@@ -1110,7 +1553,7 @@ _run_errexit_bang() {
     # not-reached "clean" echo unreachable even where a caller stubs _die
     # to return instead of exit (e.g. the unit harness).
     _die ci_errexit_bang \
-      "${_violations} non-final / masked '!' statement(s), unclosed body/bodies or unbalanced allow marker(s) across the ${#_files[@]} *.bats file(s) in this repo. bash exempts a '!' pipeline from errexit, so such a line is an assertion ONLY as the last COMMAND of a test body's last statement -- anywhere else, and after a ';' or an '|| true' / '|| :' anywhere in that statement, or with an async '&' anywhere in it, the command runs, the negation is computed and the answer is discarded, and the test passes whatever the code did. Assert it with an explicit 'if <cmd>; then <message>; return 1; fi', with 'refute'/'refute_output', or move it to the end of the body. A line that genuinely cannot be written that way opts out by bracketing it with '# ${_ERREXIT_BANG_ALLOW_BEGIN} -- <why>' / '# ${_ERREXIT_BANG_ALLOW_END}'."
+      "${_violations} non-final / masked '!' statement(s), CRLF file(s), unclosed body/bodies or unbalanced allow marker(s) across the ${#_files[@]} *.bats file(s) in this repo. bash exempts a '!' pipeline from errexit, so such a line is an assertion ONLY as the last COMMAND of the last statement of its block, out to the test body -- anywhere else, and after a ';' anywhere in that statement, with an async '&' anywhere in it, or with a final '||' operand that cannot fail ('true', ':', 'echo', 'return 0') or that this scan cannot read (a '{ ... }' / '( ... )' group), the command runs, the negation is computed and the answer is discarded, and the test passes whatever the code did. Assert it with an explicit 'if <cmd>; then <message>; return 1; fi', with 'refute'/'refute_output', or move it to the end of the body. A line that genuinely cannot be written that way opts out by bracketing it with '# ${_ERREXIT_BANG_ALLOW_BEGIN} -- <why>' / '# ${_ERREXIT_BANG_ALLOW_END}'."
     return 1
   fi
   echo "non-final bang-statement lint: clean (${#_files[@]} spec file(s) under ${_roots[*]}, ${_headers} test bodies)"

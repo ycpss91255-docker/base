@@ -58,4 +58,10 @@ source "${_lib_dir}/setup_detect.sh"
 source "${_lib_dir}/drift.sh"
 # shellcheck disable=SC1091
 source "${_lib_dir}/hook.sh"
+# The scoped reclaim (the collector that needs no operator judgement to
+# run). Sourced for every wrapper because two of them -- stop.sh and
+# prune.sh -- invoke it, and base's own test.sh delegates its compose
+# project name and tooling tag to the producers it defines.
+# shellcheck disable=SC1091
+source "${_lib_dir}/project_reclaim.sh"
 unset _lib_dir

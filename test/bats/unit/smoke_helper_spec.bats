@@ -5,6 +5,10 @@
 # These helpers are intended to be load-ed by per-repo smoke specs inside
 # the Docker `test` stage; here we exercise them in isolation under the
 # template's own CI.
+#
+# why: Exercises the runtime assertion helpers shipped in
+# `dist/test/bats/smoke/shared/test_helper.bash` (used by downstream-repo
+# smoke specs via `load "${BATS_TEST_DIRNAME}/test_helper"`).
 
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
@@ -23,12 +27,14 @@ teardown() {
 # assert_cmd_installed
 # ════════════════════════════════════════════════════════════════════
 
+# why: Happy path
 @test "assert_cmd_installed passes when cmd is on PATH" {
   mock_cmd "fakecmd" 'exit 0'
   run assert_cmd_installed fakecmd
   assert_success
 }
 
+# why: Missing cmd
 @test "assert_cmd_installed fails with descriptive message when cmd missing" {
   run assert_cmd_installed no_such_cmd_xyzzy
   assert_failure
@@ -36,6 +42,7 @@ teardown() {
   assert_output --partial "no_such_cmd_xyzzy"
 }
 
+# why: Required arg check
 @test "assert_cmd_installed errors when cmd arg missing" {
   run assert_cmd_installed
   assert_failure
@@ -46,12 +53,14 @@ teardown() {
 # assert_cmd_runs
 # ════════════════════════════════════════════════════════════════════
 
+# why: Happy path
 @test "assert_cmd_runs passes when cmd exits 0" {
   mock_cmd "fakecmd" 'echo "v1.2.3"; exit 0'
   run assert_cmd_runs fakecmd
   assert_success
 }
 
+# why: Custom flag
 @test "assert_cmd_runs uses custom version flag when given" {
   mock_cmd "fakecmd" '
     if [[ "$1" == "-V" ]]; then exit 0; fi
@@ -60,6 +69,7 @@ teardown() {
   assert_success
 }
 
+# why: Broken binary
 @test "assert_cmd_runs fails when cmd exits non-zero" {
   mock_cmd "fakecmd" 'echo "boom" >&2; exit 7'
   run assert_cmd_runs fakecmd
@@ -68,6 +78,7 @@ teardown() {
   assert_output --partial "status"
 }
 
+# why: Missing cmd
 @test "assert_cmd_runs fails when cmd is not installed" {
   run assert_cmd_runs no_such_cmd_xyzzy
   assert_failure
@@ -78,6 +89,7 @@ teardown() {
 # assert_file_exists
 # ════════════════════════════════════════════════════════════════════
 
+# why: Happy path
 @test "assert_file_exists passes when file is a regular file" {
   local _file="${TEMP_DIR}/present.txt"
   : > "${_file}"
@@ -85,12 +97,14 @@ teardown() {
   assert_success
 }
 
+# why: Missing path
 @test "assert_file_exists fails when path is missing" {
   run assert_file_exists "${TEMP_DIR}/missing.txt"
   assert_failure
   assert_output --partial "file does not exist"
 }
 
+# why: Type check
 @test "assert_file_exists fails when path is a directory" {
   run assert_file_exists "${TEMP_DIR}"
   assert_failure
@@ -101,17 +115,20 @@ teardown() {
 # assert_dir_exists
 # ════════════════════════════════════════════════════════════════════
 
+# why: Happy path
 @test "assert_dir_exists passes when path is a directory" {
   run assert_dir_exists "${TEMP_DIR}"
   assert_success
 }
 
+# why: Missing path
 @test "assert_dir_exists fails when path is missing" {
   run assert_dir_exists "${TEMP_DIR}/nodir"
   assert_failure
   assert_output --partial "directory does not exist"
 }
 
+# why: Type check
 @test "assert_dir_exists fails when path is a file" {
   local _file="${TEMP_DIR}/a_file"
   : > "${_file}"
@@ -124,6 +141,7 @@ teardown() {
 # assert_file_owned_by
 # ════════════════════════════════════════════════════════════════════
 
+# why: Happy path
 @test "assert_file_owned_by passes when owner matches" {
   local _file="${TEMP_DIR}/owned.txt"
   : > "${_file}"
@@ -133,6 +151,7 @@ teardown() {
   assert_success
 }
 
+# why: Owner mismatch
 @test "assert_file_owned_by fails with owner diff when user mismatches" {
   local _file="${TEMP_DIR}/owned.txt"
   : > "${_file}"
@@ -143,6 +162,7 @@ teardown() {
   assert_output --partial "actual"
 }
 
+# why: Missing path
 @test "assert_file_owned_by fails when path missing" {
   run assert_file_owned_by root "${TEMP_DIR}/missing"
   assert_failure
@@ -153,6 +173,7 @@ teardown() {
 # assert_pip_pkg
 # ════════════════════════════════════════════════════════════════════
 
+# why: Package installed
 @test "assert_pip_pkg passes when pip show returns 0" {
   mock_cmd "pip" '
     if [[ "$1" == "show" ]]; then exit 0; fi
@@ -161,6 +182,7 @@ teardown() {
   assert_success
 }
 
+# why: Package missing
 @test "assert_pip_pkg fails when pip show returns non-zero" {
   mock_cmd "pip" '
     if [[ "$1" == "show" ]]; then exit 1; fi
@@ -171,6 +193,7 @@ teardown() {
   assert_output --partial "missingpkg"
 }
 
+# why: pip itself missing
 @test "assert_pip_pkg fails when pip is not installed" {
   run assert_pip_pkg any
   assert_failure
