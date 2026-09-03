@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3688 tests**.
+Unit specs under `test/bats/unit/`: **3690 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -2463,7 +2463,7 @@ forwarding for caller abort, and DRY_RUN skip.
 | `init.sh --list-installed-paths output is sorted and free of duplicates` | - |
 | `init.sh --list-installed-paths mutates nothing and never leaves its cwd` | - |
 
-### test/bats/unit/init_spec.bats (66)
+### test/bats/unit/init_spec.bats (68)
 
 Unit coverage for `init.sh` helpers that previous rounds exercised only
 through the Level-1 integration test. Complements
@@ -2540,6 +2540,8 @@ are hard to trigger from a real `bash template/init.sh` invocation
 | `_init_restore_tree: restores a rewritten file byte for byte (#937)` | - |
 | `_init_restore_tree: refuses to delete when its snapshot copy is missing (#937)` | - |
 | `_init_existing_repo: hands back the caller's EXIT trap on success (#937)` | - |
+| `_populate_config: the seeded placeholder names the config/<component>/ channel` | the seeded text names the structured channel |
+| `_populate_config: the seeded placeholder still names the build-time overlay` | the seeded text keeps the build-time channel |
 
 ### test/bats/unit/issueref_lint_spec.bats (20)
 
