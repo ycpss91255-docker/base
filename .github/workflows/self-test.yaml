@@ -1647,8 +1647,12 @@ jobs:
         # (they own whatever the suite writes into the mounted checkout).
         # TEST_TOOLS_IMAGE is NOT set here: it is workflow-level and
         # run-keyed, and a spec asserts the old literal appears nowhere.
+        # BASE_CHECKOUT_PATH is the provenance compose.yaml stamps onto the
+        # network (`base.checkout.path`), also with no default: an artifact
+        # created without it can never be attributed by the scoped reclaim.
         run: |
           HOST_UID="$(id -u)" HOST_GID="$(id -g)" \
+            BASE_CHECKOUT_PATH="$(pwd -P)" \
             docker compose run --rm ci-system
 
       - name: Reclaim this run's docker artifacts

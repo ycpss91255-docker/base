@@ -95,6 +95,15 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   type at 1.7.12.
 
 ### Added
+- **`just docker prune --reclaim`: base collects its own compose litter
+  (closes #995)** -- compose stamps the checkout's absolute path on its
+  network (`base.checkout.path`); the sweep reads it back and removes the
+  network only when nothing is there, no container is attached, and a 6h
+  grace (`--grace`, `BASE_RECLAIM_GRACE`) has passed -- correct from any
+  directory, in any repository. A network without that label (every one made
+  before this) is left to the daemon-wide prune. It runs after `just stop` /
+  `just test` without changing their status. `--tool-tags` retires unresolved
+  `test-tools:<12hex>` images, but only when asked.
 - **`adr-structure`: an ADR must carry the parts an ADR is read for (refs
   #994)** -- `adr_numbering` guarded what an ADR file is called; nothing
   guarded what is in it, and 20 of 27 ADRs met this contract by convention

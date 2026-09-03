@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3535 tests**.
+Unit specs under `test/bats/unit/`: **3589 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -4252,6 +4252,69 @@ rather than an assurance.
 | `release-test-tools.yaml: the just smoke check asserts the version, not exit 0 (#948)` | - |
 
 
+### test/bats/unit/project_reclaim_spec.bats (32)
+
+| Test | Description |
+|------|-------------|
+| `_reclaim_project_for_path derives the same base-<12hex> name test.sh does` | - |
+| `script/test/test.sh derives its compose project name through the shared producer` | - |
+| `script/test/test.sh derives its test-tools tag through the shared producer` | - |
+| `a network whose recorded checkout is gone is collected` | - |
+| `a sweep launched from an unrelated repository spares every live checkout` | - |
+| `a live checkout whose path contains a newline is NOT collected` | - |
+| `an orphan whose path contains a newline IS collected` | - |
+| `the sweep consults no git at all` | - |
+| `a network whose recorded checkout still exists is NOT collected` | - |
+| `a path that exists but is no longer a checkout is spared` | - |
+| `a network with NO checkout-path label is left alone` | - |
+| `a checkout label that is not an absolute path is left alone` | - |
+| `another tenant's network is left alone` | - |
+| `a project with a container attached is NOT collected` | - |
+| `an orphan created inside the grace window is NOT collected` | - |
+| `a network whose facts cannot be read is left alone` | - |
+| `an unreadable network listing ABORTS rather than collecting everything` | - |
+| `an unreadable network listing issues no removal command at all` | - |
+| `an unreadable container listing ABORTS -- it cannot say nothing is attached` | - |
+| `an unparseable grace aborts before any docker call` | - |
+| `images are never collected by the project rule (the tooling tag is shared)` | - |
+| `the fact read asks for the JSON creation time and both labels` | - |
+| `the live-checkout set comes from the artifacts, not from any worktree list` | - |
+| `tag retention keeps the current tree's tag and the last N and retires the rest` | - |
+| `tag retention keeps a tag a live checkout still resolves to` | - |
+| `tag retention drops a checkout whose path is gone` | - |
+| `tag retention leaves a tag it cannot place alone` | - |
+| `tag retention ABORTS when the artifacts cannot be listed` | - |
+| `tag retention ABORTS when the image listing fails` | - |
+| `the retained-tag count is derived from the live checkouts, not a buried literal` | - |
+| `the retained-tag count is overridable by the environment` | - |
+| `the pinned tag set is the invoking tree plus every live checkout` | - |
+
+### test/bats/unit/reclaim_wiring_spec.bats (22)
+
+| Test | Description |
+|------|-------------|
+| `compose.yaml records the checkout path on the network it creates` | - |
+| `the label compose writes is the label the collector reads` | - |
+| `a compose invocation that cannot say which checkout it is, is refused` | - |
+| `every entry point that drives compose supplies the checkout path` | - |
+| `no caller hands the project sweep a repo root` | - |
+| `test.sh installs the reclaim as an EXIT handler on the direct-run path only` | - |
+| `test.sh arms the reclaim where a compose project is actually minted` | - |
+| `a dispatch that refuses to start reclaims nothing` | - |
+| `a reclaim failure does not change the suite's verdict` | - |
+| `a reclaim failure does not turn a green run red` | - |
+| `a reclaim failure is reported rather than swallowed` | - |
+| `the reclaim still runs when the suite FAILED -- litter from a red run is litter` | - |
+| `retiring a tooling image is never automatic` | - |
+| `a run that minted no compose project reclaims nothing` | - |
+| `just test system reclaims when it is done, pass or fail` | - |
+| `stop.sh reclaims after the project comes down` | - |
+| `stop.sh's reclaim cannot fail the stop` | - |
+| `the verbs that BEGIN a flow do not reclaim` | - |
+| `prune.sh exposes the scoped reclaim as its own mode` | - |
+| `--all does not quietly acquire the scoped reclaim` | - |
+| `the daemon-wide prune targets are untouched` | - |
+| `the scoped reclaim is reachable through just, with no new namespace` | - |
 ### test/bats/unit/adr_structure_spec.bats (27)
 
 | Test | Description |
