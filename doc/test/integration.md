@@ -8,18 +8,162 @@ Integration specs under `test/bats/integration/`: **155 tests**.
 
 ## Test Files
 
+<!-- generated: catalogue sections -->
+
+### test/bats/integration/ci_preflight_contract_spec.bats (8)
+
+Drives `script/ci/preflight.sh` against the ACTUAL shipped requirement
+manifests (`script/ci/preflight/build.manifest` + `release.manifest`) with a
+deliberately-incomplete fake caller environment. A complete caller passes; a
+caller that forgot `image_name` (build) or `archive_name_prefix` (release)
+fails early with the plain-language `main.yaml` fix. The packages
+requirement is `cache_backend`-conditional (#801): a `registry`-cache caller
+whose probe came back missing fails with a hint that names the real fix --
+drop the registry backend, which base's own `build` job cannot reach under
+its read-only `permissions:` block -- and never hands the caller a grant
+snippet (#957, superseding the #801 wording; the hint and the requirement
+description are both printed on failure, so the assertion covers both). A
+`registry` caller whose probe came back granted passes, and the default
+`gha` caller passes even without the permission (backward compatible);
+`--list` self-describes the build contract, annotating packages as
+registry-conditional.
+
+| Test | Description |
+|------|-------------|
+| `build manifest: a complete caller passes preflight` | - |
+| `build manifest: a caller that forgot image_name fails early, naming the fix` | - |
+| `build manifest: a registry-cache caller is told the backend is unreachable, not to grant more (#957)` | - |
+| `build manifest: the default gha caller without packages permission still passes (#801 backward compat)` | - |
+| `build manifest: a registry-cache caller with packages granted passes (#801)` | - |
+| `build manifest --list: self-describes both requirements, packages as registry-conditional (#801)` | - |
+| `release manifest: a complete caller passes preflight` | - |
+| `release manifest: a caller that forgot archive_name_prefix fails early, naming the fix` | - |
+
+### test/bats/integration/compose_host_identity_spec.bats (3)
+
+| Test | Description |
+|------|-------------|
+| `compose.yaml: an unset HOST_UID fails naming the entry point to use (#895)` | - |
+| `compose.yaml: an unset HOST_GID fails the same way (#895)` | - |
+| `compose.yaml: every checkout-mounting service takes the supplied ids verbatim (#895)` | - |
+
+### test/bats/integration/compose_test_tools_image_spec.bats (3)
+
+How the repo-root `compose.yaml` resolves `TEST_TOOLS_IMAGE` -- the one
+variable naming both the image the build-only `test-tools` service writes
+and the image the `ci` / `coverage` / `ci-system` services run. The
+assertions drive `docker compose config` (pure client-side interpolation:
+compose CLI, no daemon, no socket) rather than reading the file's text,
+because the text is not what decides which image a run pulls.
+
+| Test | Description |
+|------|-------------|
+| `compose.yaml: with TEST_TOOLS_IMAGE unset the tag the test-tools build writes is the tag the ci run reads (#896)` | #896 build side vs run side |
+| `compose.yaml: with TEST_TOOLS_IMAGE unset every consumer service reaches the same outcome as the build (#896)` | #896 coverage / ci-system too |
+| `compose.yaml: an unset TEST_TOOLS_IMAGE fails naming the just recipe to run (#896)` | #896 loud, and actionable |
+
+### test/bats/integration/deploy_bundle_flow_spec.bats (7)
+
+The field-deploy generator end-to-end across components (ADR-00000023): a
+fixture repo (repo-root `.setup.conf`, a Dockerfile with a `runtime` stage,
+a `config/<component>/deploy.manifest` declaring one tunable path) drives
+the real `_setup_deploy` -> `_generate_deploy_bundle` flow with a docker +
+xz PATH-shim (no real daemon), and asserts the produced output folder
+`deploy/<repo>-<stage>-<version>/` is correct. Distinct from the
+isolated-function unit specs: this exercises the manifest -> resolve ->
+resolved-compose -> bundle-files wiring as a flow.
+
+| Test | Description |
+|------|-------------|
+| `deploy flow: produces the version-named output folder with all bundle files (field-deploy)` | folder + files |
+| `deploy flow: the resolved compose is self-contained and pins the versioned image (field-deploy)` | self-contained compose |
+| `deploy flow: the manifest path is delivered as an editable copy + a mount-wins bind (field-deploy)` | tunable delivery |
+| `deploy flow: the thin launcher drives docker load + compose up/down (field-deploy)` | launcher shape |
+| `deploy flow: the bundle ships .env + .env.local and the restart policy end to end (#868)` | - |
+| `deploy flow: [environment] is baked as ENV into a stage that is not named runtime (#840)` | - |
+| `deploy flow: the README names the versioned image + the tunable config workflow (field-deploy)` | README template |
+
+### test/bats/integration/doc_counts_merge_spec.bats (2)
+
+The unit spec drives the resolver's functions over hand-written marker
+fixtures. This one reproduces what actually happens: two branches each added
+tests, both bumped the same generated total in doc/test/unit.md, and the
+merge conflicts on it -- the conflict shape every branch refresh in the base
+review batch produced, resolved by hand six times in one of them.
+
+One command has to leave a merged, regenerated, staged, gate-clean tree
+behind. The catalogue prose is the half that used to need rescuing, and it
+is the half this case now proves needs nothing: both branches authored their
+descriptions in the SPEC files, so both collapses regenerate the same rows
+from the same merged spec tree and there is nothing left for a collapse to
+drop.
+
+What can still be refused is a disagreement OUTSIDE the generated region,
+where the document is hand-written and regeneration justifies nothing. The
+second case drives that, and asserts nothing is staged.
+
+| Test | Description |
+|------|-------------|
+| `resolve-doc-counts: resolves a real two-branch counter conflict end to end (#857)` | The whole toil, end to end. The load-bearing assertion is that BOTH branches' descriptions survive: a mechanical collapse keeps one side's document, and under the old design that dropped whichever description the other side had written. Here neither side's document holds a description at all, so there is nothing to drop. |
+| `resolve-doc-counts: REFUSES a merge whose sides differ OUTSIDE the generated region, staging nothing (#857)` | The refusal that survives. Inside the fence there is nothing left to disagree about, but the preamble is still hand-written, and adopting one side of a sentence regeneration cannot justify is exactly the trap the hand-typed recipe carried. Nothing is staged, so a half-resolved tree cannot be committed by accident. |
+
+### test/bats/integration/fresh_clone_portability_spec.bats (2)
+
+End-to-end verification for the fresh-clone-on-a-different-machine scenario:
+the consumer repo's `setup.conf` has already been committed by another
+contributor and carries either a stale absolute `mount_1` path (the Jetson
+bug) or the portable `${WS_PATH}` form. Runs the real `build.sh` +
+`setup.sh` (no mocks) and asserts the auto-migration / per-machine detection
+pipeline lands a valid `.env` + `compose.yaml`. **Level 1** (no Docker
+invocation — `build.sh --dry-run`).
+
+| Test | Description |
+|------|-------------|
+| `fresh clone with stale absolute mount_1: setup.conf is regenerated, no path leak (#174)` | - |
+| `fresh clone with portable ${WS_PATH} mount_1: no warning, .env gets local path` | Happy path round-trip |
+
+### test/bats/integration/gitignore_sync_spec.bats (13)
+
+End-to-end coverage that wires `lib/gitignore.sh` through `init.sh`'s
+new-repo + existing-repo paths and `upgrade.sh`'s commit step. Standalone
+fixture (independent of `upgrade_spec.bats`'s stub-init fixture) because
+gitignore sync requires the **real** `init.sh` to run during Step 3 of
+`upgrade.sh`. Issue #172.
+
+| Test | Description |
+|------|-------------|
+| `init.sh new-repo: .gitignore contains all canonical entries (#507: runtime.env retired)` | - |
+| `init.sh new-repo: .gitignore has the 'managed by template' marker` | Marker comment present |
+| `init.sh new-repo: .dockerignore contains all canonical derived entries (#604)` | - |
+| `init.sh new-repo: .dockerignore has the 'managed by template' marker (#604)` | - |
+| `init.sh new-repo: log/ lands in BOTH the .gitignore and .dockerignore canonical sets (#606)` | - |
+| `init.sh existing-repo: appends missing canonical entries to user .gitignore` | Drift fill-in |
+| `init.sh existing-repo: untracks compose.yaml that was committed` | 15-repo drift heal |
+| `init.sh existing-repo: setup.conf stays committed across init runs (#201)` | 2-file model: setup.conf is user override |
+| `init.sh existing-repo: idempotent — second run produces no .gitignore changes` | Re-run no-op |
+| `init.sh existing-repo: appends missing canonical entries to a user .dockerignore, preserving build-context lines (#604)` | - |
+| `init.sh existing-repo: idempotent — second run produces no .dockerignore changes (#604)` | - |
+| `upgrade.sh end-to-end: synced .gitignore + untracked compose.yaml in single commit` | One-shot upgrade |
+| `upgrade.sh end-to-end: idempotent on a second run — no extra commits` | Re-upgrade clean |
+
+### test/bats/integration/init_installed_paths_spec.bats (1)
+
+| Test | Description |
+|------|-------------|
+| `the printed manifest equals what the resync installs (refs #927)` | - |
+
 ### test/bats/integration/init_new_repo_spec.bats (62)
 
 End-to-end verification that `init.sh` produces a complete repo skeleton in
 an empty directory. **Level 1** (file generation only, no Docker). The
 **Level 2** equivalent runs as the `acceptance` job in
-`.github/workflows/self-test.yaml` (the host-driven consumer/UX checks;
-see [acceptance.md](acceptance.md)), which has access to a Docker daemon on
-the host runner. It drives the documented `just` verbs with REAL execution
-on native amd64 + arm64: the build / run -d / exec / stop runnability core
-(#579/#603) plus (#769) the foreground `run` command variant, `start`
-(build + run), a real `prune`, an explicit `setup apply`, the `base update`
-check, and the `base completions` installer. `setup-tui` (interactive) is
+`.github/workflows/self-test.yaml` (the host-driven consumer/UX checks; see
+[acceptance.md](acceptance.md)), which has access to a Docker daemon on the
+host runner. It drives the documented `just` verbs with REAL execution on
+native amd64 + arm64: the build / run -d / exec / stop runnability core
+(#579/#603) plus (#769) the foreground `run` command variant, `start` (build
++ run), a real `prune`, an explicit `setup apply`, the `base update` check,
+and the `base completions` installer. `setup-tui` (interactive) is
 intentionally out of the e2e -- it needs a pseudo-TTY and stays covered by
 the unit `tui_spec`.
 
@@ -88,62 +232,69 @@ the unit `tui_spec`.
 | `existing repo: init never rewrites a main.yaml it did not create (#957)` | Delivery boundary: an existing repo's hand-maintained CI survives init byte-for-byte |
 | `existing repo: init syncs the monitor workflow but seeds no main.yaml (#957)` | The same boundary stated positively: the monitor converges, main.yaml is new-repo-only (#927 / #928) |
 
-### test/bats/integration/fresh_clone_portability_spec.bats (2)
-
-End-to-end verification for the fresh-clone-on-a-different-machine scenario:
-the consumer repo's `setup.conf` has already been committed by another
-contributor and carries either a stale absolute `mount_1` path (the Jetson
-bug) or the portable `${WS_PATH}` form. Runs the real `build.sh` +
-`setup.sh` (no mocks) and asserts the auto-migration / per-machine detection
-pipeline lands a valid `.env` + `compose.yaml`. **Level 1** (no Docker
-invocation — `build.sh --dry-run`).
+### test/bats/integration/init_rollback_spec.bats (5)
 
 | Test | Description |
 |------|-------------|
-| `fresh clone with stale absolute mount_1: setup.conf is regenerated, no path leak (#174)` | - |
-| `fresh clone with portable ${WS_PATH} mount_1: no warning, .env gets local path` | Happy path round-trip |
+| `just base init: the recipe passes straight through to init.sh (#937)` | - |
+| `just base init: a mid-migration failure leaves the consumer byte-identical (#937)` | - |
+| `just base init: the failed resync says it restored the files (#937)` | - |
+| `a v0.41.0-style upgrade.sh (no trap): the consumer is left byte-identical (#937)` | - |
+| `the current upgrade.sh: inner and outer rollback compose, not fight (#937)` | - |
 
-### test/bats/integration/wrapper_compose_dispatch_spec.bats (10)
-
-Behaviour-based assertion (#490) that every wrapper routes its `docker compose`
-calls through the `-p`-injecting dispatcher. Reuses the
-`fresh_clone_portability_spec.bats` fixture pattern (cp `/source` -> `.base/`,
-symlink the wrappers from the repo root, materialize `.env` + `compose.yaml`
-via `build.sh --dry-run`), then runs each wrapper with `--dry-run` and
-inspects the planned `[dry-run] docker compose -p <project> <verb>` line.
-Immune to internal renames (replaces the old name-coupled `_compose_project` /
-`_app_cleanup` greps in `template_spec.bats`) and catches a raw-`docker
-compose` bypass (a missing `-p`). **Level 1** (no Docker invocation).
+### test/bats/integration/just_runner_version_spec.bats (1)
 
 | Test | Description |
 |------|-------------|
-| `build.sh --dry-run dispatches compose build with -p project flag` | build dispatch |
-| `run.sh --dry-run (default devel) dispatches compose up + exec with -p` | run devel up+exec |
-| `exec.sh --dry-run dispatches compose exec with -p` | exec dispatch |
-| `stop.sh --dry-run dispatches compose down with -p` | stop dispatch |
-| `run.sh foreground --dry-run installs cleanup that downs with --remove-orphans` | EXIT-trap cleanup |
-| `no wrapper dispatches compose without -p (bypass regression)` | bypass catcher |
-| `the -p project name and compose.yaml's name: are one value, not two computations` | - |
-| `[project] name in .setup.conf.local moves BOTH the -p and the emitted name:` | - |
-| `two checkouts of one repo dispatch different projects after a local override` | - |
-| `an unchanged repo keeps the project name it resolved before [project] existed` | - |
+| `test-tools image: just --version equals the declared pin (#948)` | - |
+
+### test/bats/integration/prev_release_upgrade_spec.bats (3)
+
+| Test | Description |
+|------|-------------|
+| `a released upgrade.sh still migrates a hand-written .env to .env.local (#868)` | - |
+| `the newest released upgrade.sh drives the current tree to a working consumer` | - |
+| `the previous released upgrade.sh drives the current tree to a working consumer (N-1)` | - |
+
+### test/bats/integration/release_archive_contract_spec.bats (11)
+
+Drives `script/ci/release-archive.sh` against the REAL shipped payload
+manifest (`script/ci/release/archive.manifest`) over synthesised consumer
+trees. base's own checkout cannot stand in for a consumer -- it has no
+`.base/` subtree (it is the template source) and its smoke templates live
+under `dist/` -- and, more to the point, a real tree cannot express the case
+that matters: a repo deliberately MISSING a standard path. That vacuity is
+why the same defect shipped twice.
+
+| Test | Description |
+|------|-------------|
+| `archive manifest: a current-layout consumer (test/bats/smoke/) archives its whole payload (#914)` | Full payload, `test/bats/smoke/` layout: every declared path lands |
+| `archive manifest: a previous-layout consumer (test/smoke/) archives without restructuring (#914)` | `test/smoke/` layout archives with no restructuring (the v0.42.0 casualty) |
+| `archive manifest: neither smoke layout present still cuts a release (#914)` | No smoke tree at all still cuts a release; the absence is reported |
+| `archive manifest: a consumer with no doc/ and no .hadolint.yaml still archives (#914)` | Missing docs + lint config degrade the archive, they do not fail it |
+| `archive manifest: a consumer with no script/ wrappers still archives (#914)` | Missing wrapper tree degrades the archive, it does not fail it |
+| `archive manifest: a tree with no Dockerfile fails, naming Dockerfile (#914)` | Mandatory gap fails naming `Dockerfile`, never `cp: cannot stat` |
+| `archive manifest: a tree with no .base/ subtree fails, naming .base/ (#914)` | Mandatory gap fails naming `.base/`, never `cp: cannot stat` |
+| `archive manifest: declares exactly two required entries (Dockerfile and .base/) (#914)` | Pins the mandatory set so widening it is a deliberate, reviewed edit |
+| `archive manifest: still declares every path the hardcoded cp list carried (#914)` | No payload path was silently pruned while making the list tolerant |
+| `archive manifest: a payload entry deleted behind its own comment is no longer declared (#914)` | The payload guard cannot be satisfied by the prose that explains the entry |
+| `archive manifest: names no wrapper that init.sh no longer creates at the repo root (#914)` | The #558 instance: no removed root wrapper is declared as a payload path |
 
 ### test/bats/integration/upgrade_spec.bats (24)
 
 End-to-end verification for `upgrade.sh` driving a real subtree update
-against a fake template remote (bare repo with `v0.9.5` / `v0.9.7` tags
-on a minimal subtree layout) attached to a sandbox downstream repo.
-**Level 1** (no Docker). Exercises the happy path, the pre-flight
-guards, the destructive-FF rollback path added after the Jetson v0.9.7
-incident (stubs `git-subtree pull` via `GIT_EXEC_PATH` to simulate the
-bug and asserts the repo is restored), and Step 5's declarative
-Dockerfile/entrypoint migration pass (#567 / #579) — sourcing
-`lib/dockerfile_migrate.sh` and running `apply_migrations` over the
-repo-root Dockerfile + sibling `script/entrypoint.sh` (the per-migration
-{detect, transform} units are unit-tested in `dockerfile_migrate_spec.bats`),
-plus the pre-pull `.setup.conf` migrations (legacy override relocation and
-the `[lifecycle] restart` default retirement) observed through a real
-upgrade run.
+against a fake template remote (bare repo with `v0.9.5` / `v0.9.7` tags on a
+minimal subtree layout) attached to a sandbox downstream repo. **Level 1**
+(no Docker). Exercises the happy path, the pre-flight guards, the
+destructive-FF rollback path added after the Jetson v0.9.7 incident (stubs
+`git-subtree pull` via `GIT_EXEC_PATH` to simulate the bug and asserts the
+repo is restored), and Step 5's declarative Dockerfile/entrypoint migration
+pass (#567 / #579) — sourcing `lib/dockerfile_migrate.sh` and running
+`apply_migrations` over the repo-root Dockerfile + sibling
+`script/entrypoint.sh` (the per-migration {detect, transform} units are
+unit-tested in `dockerfile_migrate_spec.bats`), plus the pre-pull
+`.setup.conf` migrations (legacy override relocation and the `[lifecycle]
+restart` default retirement) observed through a real upgrade run.
 
 | Test | Description |
 |------|-------------|
@@ -172,158 +323,30 @@ upgrade run.
 | `upgrade.sh (#654 relocated): git subtree pull uses --prefix=.base, not --prefix=base` | Walk-up self-location resolves the subtree prefix to `.base` after the deep relocation; real subtree pull lands with no stray `base/` dir |
 | `upgrade.sh refuses to run when the subtree root carries .git (base template source, #721)` | - |
 
-### test/bats/integration/gitignore_sync_spec.bats (13)
+### test/bats/integration/wrapper_compose_dispatch_spec.bats (10)
 
-End-to-end coverage that wires `lib/gitignore.sh` through `init.sh`'s
-new-repo + existing-repo paths and `upgrade.sh`'s commit step. Standalone
-fixture (independent of `upgrade_spec.bats`'s stub-init fixture) because
-gitignore sync requires the **real** `init.sh` to run during Step 3 of
-`upgrade.sh`. Issue #172.
-
-| Test | Description |
-|------|-------------|
-| `init.sh new-repo: .gitignore contains all canonical entries (#507: runtime.env retired)` | - |
-| `init.sh new-repo: .gitignore has the 'managed by template' marker` | Marker comment present |
-| `init.sh new-repo: .dockerignore contains all canonical derived entries (#604)` | - |
-| `init.sh new-repo: .dockerignore has the 'managed by template' marker (#604)` | - |
-| `init.sh new-repo: log/ lands in BOTH the .gitignore and .dockerignore canonical sets (#606)` | - |
-| `init.sh existing-repo: appends missing canonical entries to user .gitignore` | Drift fill-in |
-| `init.sh existing-repo: untracks compose.yaml that was committed` | 15-repo drift heal |
-| `init.sh existing-repo: setup.conf stays committed across init runs (#201)` | 2-file model: setup.conf is user override |
-| `init.sh existing-repo: idempotent — second run produces no .gitignore changes` | Re-run no-op |
-| `init.sh existing-repo: appends missing canonical entries to a user .dockerignore, preserving build-context lines (#604)` | - |
-| `init.sh existing-repo: idempotent — second run produces no .dockerignore changes (#604)` | - |
-| `upgrade.sh end-to-end: synced .gitignore + untracked compose.yaml in single commit` | One-shot upgrade |
-| `upgrade.sh end-to-end: idempotent on a second run — no extra commits` | Re-upgrade clean |
-
-### test/bats/integration/ci_preflight_contract_spec.bats (8)
-
-Drives `script/ci/preflight.sh` against the ACTUAL shipped requirement
-manifests (`script/ci/preflight/build.manifest` +
-`release.manifest`) with a deliberately-incomplete fake caller
-environment. A complete caller passes; a caller that forgot `image_name`
-(build) or `archive_name_prefix` (release) fails early with the
-plain-language `main.yaml` fix. The packages requirement is
-`cache_backend`-conditional (#801): a `registry`-cache caller whose
-probe came back missing fails with a hint that names the real fix --
-drop the registry backend, which base's own `build` job cannot reach
-under its read-only `permissions:` block -- and never hands the caller a
-grant snippet (#957, superseding the #801 wording; the hint and the
-requirement description are both printed on failure, so the assertion
-covers both). A `registry` caller whose probe came back granted passes,
-and the default `gha` caller passes even without the permission
-(backward compatible); `--list` self-describes the build contract,
-annotating packages as registry-conditional.
-
-
-### test/bats/integration/deploy_bundle_flow_spec.bats (7)
-
-The field-deploy generator end-to-end across components (ADR-00000023):
-a fixture repo (repo-root `.setup.conf`, a Dockerfile with a `runtime`
-stage, a `config/<component>/deploy.manifest` declaring one tunable path)
-drives the real `_setup_deploy` -> `_generate_deploy_bundle` flow with a
-docker + xz PATH-shim (no real daemon), and asserts the produced output
-folder `deploy/<repo>-<stage>-<version>/` is correct. Distinct from the
-isolated-function unit specs: this exercises the manifest -> resolve ->
-resolved-compose -> bundle-files wiring as a flow.
+Behaviour-based assertion (#490) that every wrapper routes its `docker
+compose` calls through the `-p`-injecting dispatcher. Reuses the
+`fresh_clone_portability_spec.bats` fixture pattern (cp `/source` ->
+`.base/`, symlink the wrappers from the repo root, materialize `.env` +
+`compose.yaml` via `build.sh --dry-run`), then runs each wrapper with
+`--dry-run` and inspects the planned `[dry-run] docker compose -p <project>
+<verb>` line. Immune to internal renames (replaces the old name-coupled
+`_compose_project` / `_app_cleanup` greps in `template_spec.bats`) and
+catches a raw-`docker compose` bypass (a missing `-p`). **Level 1** (no
+Docker invocation).
 
 | Test | Description |
 |------|-------------|
-| `deploy flow: produces the version-named output folder with all bundle files (field-deploy)` | folder + files |
-| `deploy flow: the resolved compose is self-contained and pins the versioned image (field-deploy)` | self-contained compose |
-| `deploy flow: the manifest path is delivered as an editable copy + a mount-wins bind (field-deploy)` | tunable delivery |
-| `deploy flow: the thin launcher drives docker load + compose up/down (field-deploy)` | launcher shape |
-| `deploy flow: the bundle ships .env + .env.local and the restart policy end to end (#868)` | - |
-| `deploy flow: [environment] is baked as ENV into a stage that is not named runtime (#840)` | - |
-| `deploy flow: the README names the versioned image + the tunable config workflow (field-deploy)` | README template |
+| `build.sh --dry-run dispatches compose build with -p project flag` | build dispatch |
+| `run.sh --dry-run (default devel) dispatches compose up + exec with -p` | run devel up+exec |
+| `exec.sh --dry-run dispatches compose exec with -p` | exec dispatch |
+| `stop.sh --dry-run dispatches compose down with -p` | stop dispatch |
+| `run.sh foreground --dry-run installs cleanup that downs with --remove-orphans` | EXIT-trap cleanup |
+| `no wrapper dispatches compose without -p (bypass regression)` | bypass catcher |
+| `the -p project name and compose.yaml's name: are one value, not two computations` | - |
+| `[project] name in .setup.conf.local moves BOTH the -p and the emitted name:` | - |
+| `two checkouts of one repo dispatch different projects after a local override` | - |
+| `an unchanged repo keeps the project name it resolved before [project] existed` | - |
 
-### test/bats/integration/doc_counts_merge_spec.bats (2)
-
-Drives `script/test/resolve-doc-counts.sh` against a REAL git merge conflict:
-two branches that each added tests and both bumped the same generated totals,
-which is the conflict shape every branch refresh in the base review batch
-produced. Asserts the merged tree is regenerated, complete, staged and
-gate-clean -- and that a merge whose sides describe the same test differently
-is refused with nothing staged.
-
-| Test | Description |
-|------|-------------|
-| `resolve-doc-counts: resolves a real two-branch counter conflict end to end (#857)` | - |
-| `resolve-doc-counts: REFUSES a merge whose sides differ OUTSIDE the generated region, staging nothing (#857)` | - |
-
-### test/bats/integration/compose_test_tools_image_spec.bats (3)
-
-How the repo-root `compose.yaml` resolves `TEST_TOOLS_IMAGE` -- the one
-variable naming both the image the build-only `test-tools` service writes
-and the image the `ci` / `coverage` / `ci-system` services run. The
-assertions drive `docker compose config` (pure client-side interpolation:
-compose CLI, no daemon, no socket) rather than reading the file's text,
-because the text is not what decides which image a run pulls.
-
-| Test | Description |
-|------|-------------|
-| `compose.yaml: with TEST_TOOLS_IMAGE unset the tag the test-tools build writes is the tag the ci run reads (#896)` | #896 build side vs run side |
-| `compose.yaml: with TEST_TOOLS_IMAGE unset every consumer service reaches the same outcome as the build (#896)` | #896 coverage / ci-system too |
-| `compose.yaml: an unset TEST_TOOLS_IMAGE fails naming the just recipe to run (#896)` | #896 loud, and actionable |
-
-### test/bats/integration/compose_host_identity_spec.bats (3)
-
-| Test | Description |
-|------|-------------|
-| `compose.yaml: an unset HOST_UID fails naming the entry point to use (#895)` | - |
-| `compose.yaml: an unset HOST_GID fails the same way (#895)` | - |
-| `compose.yaml: every checkout-mounting service takes the supplied ids verbatim (#895)` | - |
-
-### test/bats/integration/release_archive_contract_spec.bats (11)
-
-Drives `script/ci/release-archive.sh` against the REAL shipped payload
-manifest (`script/ci/release/archive.manifest`) over synthesised consumer
-trees. base's own checkout cannot stand in for a consumer -- it has no
-`.base/` subtree (it is the template source) and its smoke templates live
-under `dist/` -- and, more to the point, a real tree cannot express the
-case that matters: a repo deliberately MISSING a standard path. That
-vacuity is why the same defect shipped twice.
-
-| Test | Description |
-|------|-------------|
-| `archive manifest: a current-layout consumer (test/bats/smoke/) archives its whole payload (#914)` | Full payload, `test/bats/smoke/` layout: every declared path lands |
-| `archive manifest: a previous-layout consumer (test/smoke/) archives without restructuring (#914)` | `test/smoke/` layout archives with no restructuring (the v0.42.0 casualty) |
-| `archive manifest: neither smoke layout present still cuts a release (#914)` | No smoke tree at all still cuts a release; the absence is reported |
-| `archive manifest: a consumer with no doc/ and no .hadolint.yaml still archives (#914)` | Missing docs + lint config degrade the archive, they do not fail it |
-| `archive manifest: a consumer with no script/ wrappers still archives (#914)` | Missing wrapper tree degrades the archive, it does not fail it |
-| `archive manifest: a tree with no Dockerfile fails, naming Dockerfile (#914)` | Mandatory gap fails naming `Dockerfile`, never `cp: cannot stat` |
-| `archive manifest: a tree with no .base/ subtree fails, naming .base/ (#914)` | Mandatory gap fails naming `.base/`, never `cp: cannot stat` |
-| `archive manifest: declares exactly two required entries (Dockerfile and .base/) (#914)` | Pins the mandatory set so widening it is a deliberate, reviewed edit |
-| `archive manifest: still declares every path the hardcoded cp list carried (#914)` | No payload path was silently pruned while making the list tolerant |
-| `archive manifest: a payload entry deleted behind its own comment is no longer declared (#914)` | The payload guard cannot be satisfied by the prose that explains the entry |
-| `archive manifest: names no wrapper that init.sh no longer creates at the repo root (#914)` | The #558 instance: no removed root wrapper is declared as a payload path |
-
-### test/bats/integration/prev_release_upgrade_spec.bats (3)
-
-| Test | Description |
-|------|-------------|
-| `a released upgrade.sh still migrates a hand-written .env to .env.local (#868)` | - |
-| `the newest released upgrade.sh drives the current tree to a working consumer` | - |
-| `the previous released upgrade.sh drives the current tree to a working consumer (N-1)` | - |
-
-### test/bats/integration/init_rollback_spec.bats (5)
-
-| Test | Description |
-|------|-------------|
-| `just base init: the recipe passes straight through to init.sh (#937)` | - |
-| `just base init: a mid-migration failure leaves the consumer byte-identical (#937)` | - |
-| `just base init: the failed resync says it restored the files (#937)` | - |
-| `a v0.41.0-style upgrade.sh (no trap): the consumer is left byte-identical (#937)` | - |
-| `the current upgrade.sh: inner and outer rollback compose, not fight (#937)` | - |
-
-### test/bats/integration/init_installed_paths_spec.bats (1)
-
-| Test | Description |
-|------|-------------|
-| `the printed manifest equals what the resync installs (refs #927)` | - |
-
-### test/bats/integration/just_runner_version_spec.bats (1)
-
-| Test | Description |
-|------|-------------|
-| `test-tools image: just --version equals the declared pin (#948)` | - |
+<!-- /generated -->
