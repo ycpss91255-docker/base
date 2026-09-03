@@ -92,6 +92,26 @@ Three consequences of stating it that way rather than as a limit:
    muted gate is a gate that has been removed with the maintenance cost
    left in.
 
+   **Amendment (#994, 2026-09-03): a clean tree is what the gate needed
+   to land GREEN, and an adoption ceiling supplies that without one.**
+   The reason above is intact and it is the reason: a gate must not be
+   red on the day it lands. What phase 3 found is that "the tree is
+   clean" was one way to get there and not the property being asked for.
+   Each lint now judges by a per-metric CEILING -- the count of functions
+   still past the threshold, one readonly integer in
+   `script/test/drivers/shell_metrics.sh`, which may only ever go down --
+   so it is green on arrival, fails the moment a change adds a
+   violation, and tightens as each slice lands. The thresholds
+   themselves do not move; that is the distinction the next section
+   turns on.
+
+   This matters because of what the original wording implied about
+   ordering: it made the whole 108-function flattening a prerequisite of
+   any enforcement at all, so until the last slice landed nothing
+   stopped the next function from being written at depth 5 -- and the
+   flattening is measured in months of slices. The ceiling reverses that:
+   enforcement arrives first and the population drains under it.
+
 ## Consequences
 
 - The three metric lints (nesting, length, parameters) are written before
@@ -135,6 +155,38 @@ recorded here", and that file is a permanent, tracked, growing record of
 what we decided not to do. It converts a quality bar into an inventory of
 debt with an accountant attached. The tree is made clean instead, and the
 gate lands on a clean tree.
+
+> **Amendment (#994, 2026-09-03): the single-integer CEILING phase 3
+> adopted is not this alternative, and here is the test that separates
+> them.** Every reason above is a property of a per-SITE roster, and
+> each fails to attach to one number. It has to be regenerated when a
+> file moves -- a count does not know what a file is. It drifts silently
+> against the tree -- a count is recomputed from the tree on every run.
+> Nothing in it distinguishes "fixed" from "no longer matches" -- a
+> count has no entries to be stale about. It says "the standard holds
+> except in these 108 places" -- a count names no place, so it can
+> excuse no particular function; what it says is "the standard holds,
+> and 108 functions have not been brought to it yet", which is a true
+> statement about a migration rather than a permanent exemption. P2 is
+> the sharpest of these and it comes out the same way: the population is
+> still derived from the git index every run, and the only hand-kept
+> figure is how far the migration has got.
+>
+> The concession, stated because an amendment that only argues its own
+> side is worth nothing: a ceiling has SLACK. Flatten one function
+> without lowering the number and a new violation can land green in the
+> room that opens. A per-site baseline would have caught that. What
+> bounds it is that the slack is printed on every run, clean or not, and
+> that lowering the number is a one-line change any reviewer can ask
+> for; what makes it acceptable is that the alternative on offer was not
+> a per-site baseline but no enforcement for the length of the
+> migration.
+>
+> The instrument is not new here. `drivers/catalog_description.sh` (#999)
+> carries the same one-number transition ceiling for the same reason,
+> with the same argument and the same disclosed cost -- so this is base
+> applying a mechanism it had already settled, not inventing an
+> exception for its own metrics.
 
 **Gate new and changed code only, with no baseline file** -- compute the
 violation set against the merge base and fail only on additions. Rejected
