@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3641 tests**.
+Unit specs under `test/bats/unit/`: **3644 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -4386,12 +4386,15 @@ rather than an assurance.
 | `release_notes.sh: the version being released has exactly one section in the live tree` | - |
 | `release_notes.sh: a real released tag assembles from the live tree` | - |
 
-### test/bats/unit/changelog_layout_lint_spec.bats (9)
+### test/bats/unit/changelog_layout_lint_spec.bats (12)
 
 | Test | Description |
 |------|-------------|
 | `changelog layout: a split whose index matches its series files is clean` | - |
 | `changelog layout: a section in the wrong series file is named` | - |
+| `changelog layout: a version section that appears TWICE is named` | - |
+| `changelog layout: a section heading that is not a version is named` | - |
+| `changelog layout: _cll_series_of answers for a non-version tag instead of FAILING` | - |
 | `changelog layout: a version section with no compare link is named` | - |
 | `changelog layout: a compare link whose section is elsewhere is named` | - |
 | `changelog layout: an index that has drifted from the series files is refused` | - |

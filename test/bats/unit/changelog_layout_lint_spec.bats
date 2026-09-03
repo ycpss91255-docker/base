@@ -149,6 +149,91 @@ _reindex() {
   assert_output --partial '1 misplaced section'
 }
 
+@test "changelog layout: a version section that appears TWICE is named" {
+  _clean_tree
+  # What a union merge leaves behind. `doc/changelog/*.md merge=union` keeps
+  # both sides of every overlapping hunk and conflicts on nothing, so two
+  # branches that both promote the same section land it twice in one file --
+  # with nothing to review. Both copies are in the file the version names,
+  # so the placement rule has nothing to say about either and this is the
+  # only rule that can fire.
+  _series v0.2 \
+    '# base changelog -- v0.2' \
+    '' \
+    '## [v0.2.0] - 2026-04-02' \
+    '' \
+    '### Added' \
+    '- the second thing (#2, PR #3)' \
+    '' \
+    '## [v0.2.0] - 2026-04-02' \
+    '' \
+    '### Added' \
+    '- the second thing, kept twice (#2, PR #3)' \
+    '' \
+    '[v0.2.0]: https://example.invalid/compare/v0.1.0...v0.2.0'
+  _reindex
+
+  run _run_changelog_layout
+  [ "${status}" -ne 0 ]
+  # The duplicate rule's own sentence, naming the file the first copy is in.
+  assert_output --partial 'duplicate section -- v0.2.0 already has a section in doc/changelog/v0.2.md'
+  # And nothing else fired: a second violation would mean the fixture is
+  # testing something other than duplication.
+  assert_output --partial '1 misplaced section'
+}
+
+@test "changelog layout: a section heading that is not a version is named" {
+  _clean_tree
+  # `## [Yanked]` renders like any other section and belongs to no series,
+  # so there is no file the placement rule could say it belongs in -- it
+  # would be filed under whichever file it happened to be found in, which
+  # is a pass. A heading in the section position that is not a version is
+  # its own finding.
+  _series v0.2 \
+    '# base changelog -- v0.2' \
+    '' \
+    '## [Yanked] - 2026-04-02' \
+    '' \
+    '### Removed' \
+    '- pulled after release (#9, PR #10)' \
+    '' \
+    '## [v0.2.0] - 2026-04-02' \
+    '' \
+    '### Added' \
+    '- the second thing (#2, PR #3)' \
+    '' \
+    '[Yanked]: https://example.invalid/compare/v0.1.0...v0.2.0' \
+    '[v0.2.0]: https://example.invalid/compare/v0.1.0...v0.2.0'
+  _reindex
+
+  run _run_changelog_layout
+  [ "${status}" -ne 0 ]
+  assert_output --partial 'section heading is not a version -- Yanked'
+  assert_output --partial '1 misplaced section'
+}
+
+@test "changelog layout: _cll_series_of answers for a non-version tag instead of FAILING" {
+  # The rule above is only reachable if this answers with a status of 0.
+  # The lint phase runs every driver under `set -e` with an ERR trap
+  # (script/test/test.sh's _run_lint_tool), and the caller takes the answer
+  # through a plain `_want="$(_cll_series_of ...)"` -- a command
+  # substitution whose non-zero status ends the driver at that line. The
+  # finding above would then never be printed: the run would stop with
+  # ci_lint_driver_failed naming an assignment, which reads as a broken
+  # lint rather than as a changelog that needs fixing.
+  #
+  # bats runs a `run` command with errexit OFF, so the case above cannot
+  # see this on its own -- which is exactly why it is asserted here, on the
+  # status, rather than left to be inferred.
+  run _cll_series_of 'Yanked'
+  [ "${status}" -eq 0 ]
+  [ -z "${output}" ]
+
+  run _cll_series_of 'v0.2.0'
+  [ "${status}" -eq 0 ]
+  [ "${output}" = 'v0.2' ]
+}
+
 @test "changelog layout: a version section with no compare link is named" {
   _clean_tree
   _series v0.2 \
