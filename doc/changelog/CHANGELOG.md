@@ -58,15 +58,16 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 ## [Unreleased]
 
 ### Changed
-- **the test-tools image moved to alpine 3.24, and the next series expiry is
+- **the test-tools image moved to alpine 3.22, and the next series expiry is
   now a scheduled red build (closes #946)** -- 3.21 goes end-of-life
   2026-11-01, and a series tag cannot show that: it keeps resolving, the image
-  keeps building, and the content-hash tag derived from the Dockerfile's bytes
-  does not even churn, so the ~20 unpinned apk packages would have quietly
-  inherited an unsupported base. The chosen series' end-of-life is now recorded
-  beside the pin as `# alpine-eol: 3.24 2028-06-01`, and a spec fails the suite
-  180 days before it. Affects anyone rebuilding test-tools: the series jump
-  re-resolves every unpinned apk package at once.
+  keeps building, and even the content-hash tag does not churn, so the ~20
+  unpinned apk packages quietly inherit an unsupported base. The expiry sits
+  beside the pin as `# alpine-eol: 3.22 2027-05-01` and a spec fails the suite
+  180 days before it. 3.22 and not a newer series because alpine picks up bash
+  5.3 at 3.23, whose xtrace quoting makes kcov under-report; that has a spec
+  now. Affects anyone rebuilding test-tools: the jump re-resolves every
+  unpinned apk package at once.
 - **shellcheck 0.10.0 -> 0.11.0, hadolint 2.12.0 -> 2.15.1, and the version is
   now compared rather than printed (closes #947)** -- a stale linter does not
   fail, it under-reports: every rule added since 2022-11-09 had never run here.
@@ -145,15 +146,6 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 - **the changelog lint now catches an entry that was edited and not re-wrapped (refs #927)** -- a single word left alone on a continuation line with more of its paragraph on the next line. The length measure collapses whitespace on purpose and markdown collapses it again at render time, so nothing else could see it. A short final line, a table row, a fenced line and an HTML comment are left alone. Affects anyone writing an `[Unreleased]` entry.
 
 ### Fixed
-- **the coverage instrument stopped recording lines that ran (refs #946)** --
-  kcov reads bash coverage out of the xtrace stream and tracks single-quote
-  parity across lines; while it believes it is mid-quote it discards every
-  line, markers included. The alpine 3.24 bump brought bash 5.3, whose xtrace
-  switched to ANSI-C quoting (`$'a\nb'`, an embedded quote written `\'`), and
-  each of those flipped the counter. 572 lines that had just run, across
-  sixteen untouched files, were reported as never run -- 84.97% -> 77.60% with
-  no source change. The tooling image now patches that counter, and a
-  behavioural spec fails loudly on an unpatched one.
 - **the least-privilege guards now query a YAML parser instead of matching
   indentation (refs #957)** -- four legal workflow shapes made a job or a
   grant INVISIBLE to them, which is the fail-open direction for a scan whose
