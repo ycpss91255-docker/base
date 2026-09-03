@@ -113,3 +113,45 @@ for readers who never open the Dockerfile, and this record for the why.
   (it needs the lint to run from a downstream `just test`, which base does
   not own today); until then rule 3 is enforced in base and reviewed
   downstream.
+
+## Alternatives
+
+**Amendment (#994, 2026-09-03):** this section was added when
+`adr_structure.sh` made Alternatives a required part of the format. It is
+reconstructed from the options this decision's own Context and
+Consequences already weigh -- it is not a later re-deliberation, and
+nothing below changes what was decided.
+
+**Keep artifacts under `$HOME`, but always spell the path
+`${HOME}` / `${USER_NAME}` so it tracks the build arg.** This is the
+narrower fix, and it is the one rule 3 keeps for the cases where a home
+path is genuinely wanted. Rejected as the general answer because tracking
+the build arg is not the problem: a path that correctly resolves to
+`/home/<other>/some_ws` on a `docker save`+`load` or a GHCR pull is
+pointing at a different, empty directory, and it fails the same way a
+literal does. The indirection has to go, not be spelled better.
+
+**Fix it at deploy time -- pass the right `USER_NAME` when running a
+prebuilt image.** Rejected: `ENV HOME` resolves at BUILD time, so the
+value is already frozen in the image the consumer pulled. There is
+nothing a run-time flag can change, and the failure surfaces as an empty
+directory rather than an error, which is invariant 2's silent failure in
+the place it is hardest to diagnose.
+
+**Drop the `~/<name> -> /opt/<name>` symlink** and have exactly one path
+for one thing. Rejected in Consequences: it buys one less concept at the
+cost of an interactive convenience the team actually uses. The symlink is
+kept, and rule 2 draws the line that makes it safe -- it exists for humans
+at a prompt, and nothing may `source` through it.
+
+**Extend the `home-literal` lint to a consumer's own `Dockerfile` and
+`script/entrypoint.sh`.** Not rejected -- deferred, and recorded in
+Consequences. It needs the lint to run from a downstream `just test`,
+which base does not own today; until then rule 3 is gated inside base's
+shipped trees and reviewed downstream.
+
+**Ship this as guidance only, with no lint.** Rejected. Rule 3 is
+mechanical -- a concrete username in a path is decidable by inspection --
+and base's own experience is that a non-gating convention is followed for
+as long as somebody remembers it. The rules that need judgement (1 and 2)
+stay guidance; the one that does not is gated.

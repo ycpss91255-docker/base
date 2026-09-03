@@ -4,9 +4,9 @@
 > -- `just` as the single user-facing entry; mechanism.
 
 - **Date:** 2026-06-08
-- **Status:** Accepted (amended 2026-06-12)
+- **Status:** Accepted
 
-## Amendment (2026-06-12, #573): `Makefile.ci` also retired
+## Amendment (#573, 2026-06-12): `Makefile.ci` also retired
 
 The original decision (below) scoped `Makefile.ci` **out** (per #475):
 the base-only CI lint/test wrapper would stay on make because its argv
