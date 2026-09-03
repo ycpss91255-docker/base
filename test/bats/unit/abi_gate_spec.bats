@@ -169,10 +169,15 @@ _gate() {
 # why: A wrapper declares the dependency version it was tested against, and
 # a pair upstream never shipped together is not made safe by each half being
 # ABI-clean on its own. When the caller supplies that declaration, the new
-# pin has to agree with it on the ABI axis.
-@test "abi-gate: refuses a bump the upstream compat declaration does not sanction" {
-  _gate "2.56.1" "2.57.2" "major.minor" "2.56.0"
+# pin has to agree with it on the ABI axis. The bump here is one the axis
+# test alone would release -- 2.56.1 -> 2.56.4 leaves the major.minor
+# untouched -- so only the declaration (2.55.0) can be refusing it. A pair
+# the axis check already stops would hold with this rule deleted, and pin
+# nothing.
+@test "abi-gate: refuses a bump only the upstream compat declaration stops" {
+  _gate "2.56.1" "2.56.4" "major.minor" "2.55.0"
   assert_failure
+  [[ "${output}" == *"2.55.0"* ]]
 }
 
 # why: The sanctioned pair passes -- the declaration is a constraint, not a
