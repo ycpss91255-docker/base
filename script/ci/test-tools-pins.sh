@@ -30,10 +30,11 @@
 # Three more comparisons leave the same defect one ARG away: the next
 # pinned tool arrives with no probe and nothing notices, exactly as these
 # three did. So the POPULATION is computed from the declaration -- every
-# `ARG <NAME>_VERSION=<value>` in that Dockerfile -- and `roster` REFUSES
-# to answer while a declared pin has no probe, naming it. A tool cannot
-# be pinned there and go unasserted, because the roster its consumers
-# iterate cannot be produced while one of them has no way to be asked.
+# `ARG <NAME>_VERSION=<value>` in that Dockerfile, in every spelling the
+# Dockerfile format allows for one -- and `roster` REFUSES to answer while
+# a declared pin has no probe, naming it. A tool cannot be pinned there and
+# go unasserted, because the roster its consumers iterate cannot be
+# produced while one of them has no way to be asked.
 #
 # What stays a fixed table is the vocabulary: HOW to ask a given tool its
 # version. That is the detector, not the population -- the same split
@@ -114,12 +115,22 @@ _ttp_probe_for() {
 # carry no `=` (`ARG JUST_VERSION` inside a builder stage) are not
 # matches, which is what keeps a build arg's re-declaration from reading
 # as a second pin.
+#
+# The expression accepts the declaration as the Dockerfile format defines
+# it, not as this repo happens to type it today. An instruction may be
+# INDENTED and its keyword is CASE-INSENSITIVE, and an ARG name is an
+# ordinary identifier that need not be upper-case. A narrower anchor
+# (`^ARG`, `[A-Z0-9_]`) does not report the lines it cannot read -- it
+# omits them, and the roster then answers successfully with a SHORTER
+# population. That is the one failure this file exists to prevent, arriving
+# by the back door: a pin nobody can ask about, with every gate green.
 _ttp_declarations() {
   local -n _ttpd_out="${1}"
   local _file="${2}"
   _ttpd_out=()
   mapfile -t _ttpd_out < <(
-    sed -n 's/^ARG[[:space:]]\{1,\}\([A-Z0-9_]\{1,\}_VERSION\)=[[:space:]]*/\1=/p' \
+    sed -n \
+      's/^[[:space:]]*[Aa][Rr][Gg][[:space:]]\{1,\}\([A-Za-z0-9_]\{1,\}_[Vv][Ee][Rr][Ss][Ii][Oo][Nn]\)=[[:space:]]*/\1=/p' \
       "${_file}"
   )
 }

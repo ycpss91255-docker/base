@@ -59,9 +59,30 @@ teardown() {
 # read with an expression that is NOT the accessor's, so "the roster
 # covers the declarations" is a real comparison rather than the accessor
 # agreeing with itself.
+#
+# Independent in MECHANISM, not merely in spelling: a second regex with the
+# accessor's anchor agrees with it by construction, and a shape neither can
+# see is invisible to the differential rather than reported by it -- which
+# is how an indented or lower-case declaration stayed unnoticed while both
+# sides were green. This one tokenises the line instead: strip the
+# indentation, accept the keyword case-insensitively as the Dockerfile
+# format defines it, and split the operand at its first `=`.
 _declared_args() {
-  grep -E '^ARG[[:space:]]+[A-Z0-9_]+_VERSION=' "${DOCKERFILE}" \
-    | sed -E 's/^ARG[[:space:]]+([A-Z0-9_]+_VERSION)=.*/\1/' | sort
+  awk '
+    {
+      line = $0
+      sub(/^[[:space:]]+/, "", line)
+      if (tolower(line) !~ /^arg[[:space:]]/) { next }
+      rest = substr(line, 4)
+      sub(/^[[:space:]]+/, "", rest)
+      eq = index(rest, "=")
+      if (eq < 2) { next }
+      name = substr(rest, 1, eq - 1)
+      if (name !~ /^[A-Za-z0-9_]+$/) { next }
+      if (tolower(name) !~ /_version$/) { next }
+      print name
+    }
+  ' "${DOCKERFILE}" | sort
 }
 
 # _roster_args -- the ARG column of the roster, sorted.
