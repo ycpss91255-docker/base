@@ -343,27 +343,38 @@ ARG CONFIG_SRC="config"
 #     rm -rf /var/lib/apt/lists/* && \
 #     dpkg-query -W > /usr/local/share/base/packages.txt
 
+# The repo's BRINGUP -- not the container ENTRYPOINT. base's orchestrator
+# (below) is, and it SOURCES this file, so it holds only the repo's own
+# bringup: env for the workload, an overlay to source, a directory to
+# create. No `exec`, and none of base's plumbing; the file's own header
+# says so. Everything base needs is already wired by the orchestrator, so
+# a repo opting into [logging] local_path or [lifecycle] watchdog_check
+# adds nothing here.
 COPY --chmod=0755 "./${ENTRYPOINT_FILE}" "/entrypoint.sh"
-# base's container-side helper libraries, source them from
-# script/entrypoint.sh with a single un-guarded line each:
+# base's container-side runtime helpers AND the orchestrator that sources
+# them, in one directory:
 #
-#   . /usr/local/lib/base/logging.sh    host-side log tee
-#   . /usr/local/lib/base/watchdog.sh   generic single-service watchdog
+#   entrypoint.sh   the container ENTRYPOINT (see the bottom of this stage)
+#   logging.sh      host-side log tee            ([logging] local_path)
+#   watchdog.sh     single-service watchdog      ([lifecycle] watchdog_check)
+#   logrotate.sh    shared rotate/prune primitives
 #
-# Each is a no-op until its knob is set ([logging] local_path,
-# [lifecycle] watchdog_check), so the source lines are safe to add
-# unconditionally -- repos that have not opted in stay unaffected. The
-# in-image path (vs the bind-mounted .base) avoids two failure modes:
-# build-time smoke crashes when $USER is unset, and multi-repo workspaces
-# where WS_PATH is the workspace parent rather than the repo root.
+# Each feature is a no-op until its knob is set, so the whole set is safe
+# to carry unconditionally -- a repo that has opted into neither is
+# unaffected. The in-image path (vs the bind-mounted .base) avoids two
+# failure modes: build-time smoke crashes when $USER is unset, and
+# multi-repo workspaces where WS_PATH is the workspace parent rather than
+# the repo root.
 #
-# The DIRECTORY, not a file list. The helpers depend on each other
-# (logging.sh and watchdog.sh both source logrotate.sh from this same
-# in-image dir), and a hand-written list is one more thing that can fall
-# out of agreement with what base ships -- which it did twice, each time
-# costing every consumer repo a Dockerfile edit. The directory holds only
-# helpers that belong here, and base asserts that from the directory
-# itself rather than from a list of names.
+# The DIRECTORY, not a file list. The files depend on each other (logging
+# and watchdog both source logrotate.sh from this same in-image dir, and
+# the orchestrator sources both), and a hand-written list is one more
+# thing that can fall out of agreement with what base ships -- which it
+# did twice, each time costing every consumer repo a Dockerfile edit. The
+# directory holds only files that belong here, and base asserts that from
+# the directory itself rather than from a list of names. It is also what
+# makes the orchestrator arrive on a subtree pull with no Dockerfile edit
+# at all.
 COPY --chmod=0755 .base/dist/script/docker/runtime/ /usr/local/lib/base/
 # Layer 1: .base/dist/config/ defaults (subtree-managed, updates with
 # .base/dist/script/base/upgrade.sh).
@@ -496,7 +507,12 @@ WORKDIR "${HOME}/work"
 
 EXPOSE 22
 
-ENTRYPOINT ["/entrypoint.sh"]
+# base's orchestrator, not the repo's file. It opens the host log tee,
+# SOURCES the repo bringup at /entrypoint.sh, arms the watchdog and execs
+# the CMD. Naming a /usr/local/lib/base/ path here is also the record: the
+# entry point is base's, visible in `docker inspect`, and it updates with
+# the subtree rather than being frozen in a copy this repo owns.
+ENTRYPOINT ["/usr/local/lib/base/entrypoint.sh"]
 CMD ["bash"]
 
 ############################## devel-test ##############################
@@ -708,12 +724,12 @@ RUN bats /smoke_test/
 # COPY --from=builder /build_ws/install /opt/app/install
 #
 # COPY --chmod=0755 script/entrypoint.sh /entrypoint.sh
-# # base's container-side helper libraries. Runtime starts from a
-# # fresh BASE_IMAGE so the devel stage's helper COPY is NOT
-# # inherited -- repos that ship a runtime image and want to opt into
-# # [logging] local_path tee or the [lifecycle] watchdog must repeat
-# # the COPY here so `. /usr/local/lib/base/logging.sh` and
-# # `. /usr/local/lib/base/watchdog.sh` work in the runtime image too.
+# # base's runtime helpers AND the orchestrator. Runtime starts from a
+# # fresh BASE_IMAGE so the devel stage's COPY is NOT inherited: this
+# # one is required, not optional, because the ENTRYPOINT below is the
+# # orchestrator and it lives in this directory. It also carries the
+# # [logging] local_path tee and the [lifecycle] watchdog into the
+# # runtime image, both still no-ops until their knob is set.
 # COPY --chmod=0755 .base/dist/script/docker/runtime/ /usr/local/lib/base/
 #
 # # (Optional) Interactive-shell env source for `docker exec`.
@@ -753,7 +769,7 @@ RUN bats /smoke_test/
 # # for why the explicit ENV is required.
 # ENV HOME="/home/${USER_NAME}"
 # WORKDIR "${HOME}/work"
-# ENTRYPOINT ["/entrypoint.sh"]
+# ENTRYPOINT ["/usr/local/lib/base/entrypoint.sh"]
 # CMD ["bash"]
 
 ############################## runtime-test (optional) ##############################

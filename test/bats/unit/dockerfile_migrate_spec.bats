@@ -1620,3 +1620,168 @@ EOF
   run bash -c "$(_src); _migrate_nounset_source_detect '${DF}'"
   assert_failure
 }
+
+# ── migration (entrypoint-orchestrator / bringup-residue): notice, no rewrite ─
+#
+# base's plumbing moved into an orchestrator that ships from .base/. The two
+# per-repo edits that adopt it -- flip ENTRYPOINT, clean the bringup -- are
+# the repo owner's, because only the owner can tell a bringup line from base
+# plumbing in a file that has been hand-edited for a year. So base NOTICES.
+#
+# The hard half of "warn-only" is not the warning, it is the two claims
+# either side of it: that nothing on disk moves, and that the notice is
+# silent on every shape it does not name. An alarm that fires on a migrated
+# repo, or on a repo whose ENTRYPOINT is some third file, is one a reader
+# learns to ignore -- and it would fire on every upgrade of every repo.
+
+# _write_old_model_repo -- a repo on the pre-orchestrator model: its own
+# /entrypoint.sh as the ENTRYPOINT, and a bringup carrying base's plumbing
+# and the exec. This is the shape every consumer repo is in today.
+_write_old_model_repo() {
+  cat > "${DF}" <<'EOF'
+FROM ubuntu:24.04 AS devel
+ARG ENTRYPOINT_FILE="script/entrypoint.sh"
+COPY --chmod=0755 "./${ENTRYPOINT_FILE}" "/entrypoint.sh"
+COPY --chmod=0755 .base/dist/script/docker/runtime/ /usr/local/lib/base/
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["bash"]
+EOF
+  mkdir -p "${TEMP_DIR}/script"
+  cat > "${TEMP_DIR}/script/entrypoint.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+# shellcheck disable=SC1091
+. /usr/local/lib/base/logging.sh
+export MY_APP_HOME=/opt/app
+exec "${@}"
+EOF
+}
+
+# _write_migrated_repo <bringup-body> -- a repo that has flipped its
+# ENTRYPOINT to the orchestrator, with the given bringup.
+_write_migrated_repo() {
+  cat > "${DF}" <<'EOF'
+FROM ubuntu:24.04 AS devel
+ARG ENTRYPOINT_FILE="script/entrypoint.sh"
+COPY --chmod=0755 "./${ENTRYPOINT_FILE}" "/entrypoint.sh"
+COPY --chmod=0755 .base/dist/script/docker/runtime/ /usr/local/lib/base/
+ENTRYPOINT ["/usr/local/lib/base/entrypoint.sh"]
+CMD ["bash"]
+EOF
+  mkdir -p "${TEMP_DIR}/script"
+  printf '#!/usr/bin/env bash\n%s\n' "$1" > "${TEMP_DIR}/script/entrypoint.sh"
+}
+
+@test "migration (entrypoint-orchestrator): notices a repo still running its own entrypoint (#945)" {
+  _write_old_model_repo
+  run bash -c "$(_src); _migrate_entrypoint_orchestrator_detect '${DF}'"
+  assert_success
+}
+
+@test "migration (entrypoint-orchestrator): the notice changes nothing on disk (#945)" {
+  # The whole contract. A repo that has not migrated must come out of an
+  # upgrade byte-identical -- Dockerfile AND bringup -- and go on working.
+  _write_old_model_repo
+  cp "${DF}" "${TEMP_DIR}/Dockerfile.orig"
+  cp "${TEMP_DIR}/script/entrypoint.sh" "${TEMP_DIR}/ep.orig"
+  run bash -c "$(_src); _migrate_entrypoint_orchestrator_apply '${DF}'"
+  assert_success
+  assert_output --partial "orchestrator"
+  diff "${DF}" "${TEMP_DIR}/Dockerfile.orig"
+  diff "${TEMP_DIR}/script/entrypoint.sh" "${TEMP_DIR}/ep.orig"
+}
+
+@test "migration (entrypoint-orchestrator): silent once the ENTRYPOINT is the orchestrator (#945)" {
+  _write_migrated_repo 'export MY_APP_HOME=/opt/app'
+  run bash -c "$(_src); _migrate_entrypoint_orchestrator_detect '${DF}'"
+  assert_failure
+}
+
+@test "migration (entrypoint-orchestrator): a commented ENTRYPOINT is not the live model (#945)" {
+  # The shipped Dockerfile carries a commented runtime-stage scaffold, and
+  # so does every repo generated from it. A notice that read those would
+  # fire on a fully migrated repo for ever.
+  _write_migrated_repo 'export MY_APP_HOME=/opt/app'
+  printf '# ENTRYPOINT ["/entrypoint.sh"]\n' >> "${DF}"
+  run bash -c "$(_src); _migrate_entrypoint_orchestrator_detect '${DF}'"
+  assert_failure
+}
+
+@test "migration (entrypoint-orchestrator): an unrelated ENTRYPOINT is not this model (#945)" {
+  # ros1_bridge's runtime stage runs the upstream image's
+  # /ros_entrypoint.sh. Naming a different file is not being un-migrated.
+  _write_migrated_repo 'export MY_APP_HOME=/opt/app'
+  printf 'ENTRYPOINT ["/ros_entrypoint.sh"]\n' >> "${DF}"
+  run bash -c "$(_src); _migrate_entrypoint_orchestrator_detect '${DF}'"
+  assert_failure
+}
+
+@test "migration (bringup-residue): notices an exec left in a migrated repo's bringup (#945)" {
+  # The coupling the two edits have: the orchestrator SOURCES the bringup,
+  # so a surviving exec fires mid-source, the watchdog never arms, and the
+  # container looks fine until the day it needed restarting.
+  _write_migrated_repo 'exec "${@}"'
+  run bash -c "$(_src); _migrate_bringup_residue_detect '${DF}'"
+  assert_success
+  run bash -c "$(_src); _migrate_bringup_residue_apply '${DF}'"
+  assert_success
+  assert_output --partial "exec"
+}
+
+@test "migration (bringup-residue): notices a helper the orchestrator already sources (#945)" {
+  # Sourced twice, logging.sh opens a SECOND per-start file and re-tees;
+  # watchdog.sh arms a second supervisor.
+  _write_migrated_repo '. /usr/local/lib/base/logging.sh'
+  run bash -c "$(_src); _migrate_bringup_residue_detect '${DF}'"
+  assert_success
+  run bash -c "$(_src); _migrate_bringup_residue_apply '${DF}'"
+  assert_success
+  assert_output --partial "twice"
+}
+
+@test "migration (bringup-residue): changes nothing on disk (#945)" {
+  _write_migrated_repo 'exec "${@}"'
+  cp "${DF}" "${TEMP_DIR}/Dockerfile.orig"
+  cp "${TEMP_DIR}/script/entrypoint.sh" "${TEMP_DIR}/ep.orig"
+  run bash -c "$(_src); _migrate_bringup_residue_apply '${DF}'"
+  assert_success
+  diff "${DF}" "${TEMP_DIR}/Dockerfile.orig"
+  diff "${TEMP_DIR}/script/entrypoint.sh" "${TEMP_DIR}/ep.orig"
+}
+
+@test "migration (bringup-residue): silent while the repo still owns the ENTRYPOINT (#945)" {
+  # Before the flip the exec is CORRECT and the helper sources are the
+  # documented pre-migration wiring. Warning there would put a second
+  # notice on every upgrade of every un-migrated repo, about a file that
+  # is doing exactly what its Dockerfile asks of it.
+  _write_old_model_repo
+  run bash -c "$(_src); _migrate_bringup_residue_detect '${DF}'"
+  assert_failure
+}
+
+@test "migration (bringup-residue): silent for a clean bringup (#945)" {
+  _write_migrated_repo 'export MY_APP_HOME=/opt/app'
+  run bash -c "$(_src); _migrate_bringup_residue_detect '${DF}'"
+  assert_failure
+}
+
+@test "migration (bringup-residue): silent when the repo has no bringup at all (#945)" {
+  _write_migrated_repo 'export MY_APP_HOME=/opt/app'
+  rm -f "${TEMP_DIR}/script/entrypoint.sh"
+  run bash -c "$(_src); _migrate_bringup_residue_detect '${DF}'"
+  assert_failure
+}
+
+@test "apply_migrations: an un-migrated repo comes out of the dispatcher untouched (#945)" {
+  # Through the real dispatcher rather than the pair directly: the claim a
+  # consumer cares about is that `just upgrade` leaves the file it has been
+  # running for a year alone, whatever else is in the migration list.
+  _write_old_model_repo
+  cp "${DF}" "${TEMP_DIR}/Dockerfile.orig"
+  cp "${TEMP_DIR}/script/entrypoint.sh" "${TEMP_DIR}/ep.orig"
+  run bash -c "$(_src); apply_migrations '${DF}'"
+  assert_success
+  assert_output --partial "orchestrator"
+  diff "${DF}" "${TEMP_DIR}/Dockerfile.orig"
+  diff "${TEMP_DIR}/script/entrypoint.sh" "${TEMP_DIR}/ep.orig"
+}

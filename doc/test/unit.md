@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3610 tests**.
+Unit specs under `test/bats/unit/`: **3622 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -990,7 +990,7 @@ forwarding for caller abort, and DRY_RUN skip.
 | `_run_pre_hook: DRY_RUN=true -> hook skipped silently (#440)` | DRY_RUN skip (pre) |
 | `_run_post_hook: DRY_RUN=true -> hook skipped silently (#440)` | DRY_RUN skip (post) |
 
-### test/bats/unit/dockerfile_migrate_spec.bats (86)
+### test/bats/unit/dockerfile_migrate_spec.bats (98)
 
 Unit tests for the declarative Dockerfile-migration list
 `lib/dockerfile_migrate.sh` (#567, folds #579 facet B). The lib exposes a
@@ -1091,6 +1091,18 @@ shape auto-applies idempotently, a missing/ambiguous shape is skipped
 | `migration 8 (nounset-source): brackets the ROS source with set +u/-u (#579)` | - |
 | `migration 8 (nounset-source): idempotent — already-guarded source untouched (#579)` | - |
 | `migration 8 (nounset-source): detect false when no set -u in entrypoint (#579)` | - |
+| `migration (entrypoint-orchestrator): notices a repo still running its own entrypoint (#945)` | - |
+| `migration (entrypoint-orchestrator): the notice changes nothing on disk (#945)` | - |
+| `migration (entrypoint-orchestrator): silent once the ENTRYPOINT is the orchestrator (#945)` | - |
+| `migration (entrypoint-orchestrator): a commented ENTRYPOINT is not the live model (#945)` | - |
+| `migration (entrypoint-orchestrator): an unrelated ENTRYPOINT is not this model (#945)` | - |
+| `migration (bringup-residue): notices an exec left in a migrated repo's bringup (#945)` | - |
+| `migration (bringup-residue): notices a helper the orchestrator already sources (#945)` | - |
+| `migration (bringup-residue): changes nothing on disk (#945)` | - |
+| `migration (bringup-residue): silent while the repo still owns the ENTRYPOINT (#945)` | - |
+| `migration (bringup-residue): silent for a clean bringup (#945)` | - |
+| `migration (bringup-residue): silent when the repo has no bringup at all (#945)` | - |
+| `apply_migrations: an un-migrated repo comes out of the dispatcher untouched (#945)` | - |
 
 ### test/bats/unit/build_sh_spec.bats (58)
 
