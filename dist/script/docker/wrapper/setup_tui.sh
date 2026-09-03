@@ -1493,9 +1493,7 @@ _edit_section_build() {
         _override_set "build.network" "${_new_net}"
         ;;
       args)
-        _edit_list_section build arg_ \
-          build.title build.menu build.add build.back \
-          build.arg.prompt err.invalid_env_kv
+        _edit_list_section build arg_
         ;;
       __back|"") return 0 ;;
     esac
@@ -1601,19 +1599,13 @@ _edit_section_security() {
         fi
         ;;
       cap_add)
-        _edit_list_section security cap_add_ \
-          security.title security.cap_add.menu security.cap_add.add security.back \
-          security.cap_add.prompt err.invalid_capability
+        _edit_list_section security cap_add_
         ;;
       cap_drop)
-        _edit_list_section security cap_drop_ \
-          security.title security.cap_drop.menu security.cap_drop.add security.back \
-          security.cap_drop.prompt err.invalid_capability
+        _edit_list_section security cap_drop_
         ;;
       security_opt)
-        _edit_list_section security security_opt_ \
-          security.title security.security_opt.menu security.security_opt.add security.back \
-          security.security_opt.prompt
+        _edit_list_section security security_opt_
         ;;
       __back|"") return 0 ;;
     esac
@@ -1800,9 +1792,7 @@ _prompt_mount_with_picker() {
 }
 
 _edit_section_volumes() {
-  _edit_list_section volumes mount_ \
-    volumes.title volumes.menu volumes.add volumes.back volumes.edit.prompt \
-    err.invalid_mount
+  _edit_list_section volumes mount_
 }
 
 _edit_section_resources() {
@@ -1822,16 +1812,152 @@ _edit_section_resources() {
   _override_set "resources.shm_size" "${_v}"
 }
 
-# _edit_list_section <section> <prefix> <title_key> <menu_key> <add_key> <back_key> <entry_prompt_key>
+# ── The list editors' screen labels ──────────────────────────────────
+#
+# Every list editor below is the SAME screen -- a title, a menu prompt,
+# an Add row, a Back row, a per-entry prompt and the message shown when a
+# typed value is refused -- differing only in which six i18n keys fill
+# it. Those six used to travel as positional parameters, which made
+# `_edit_list_section` the widest signature in this file at eight
+# (base#994 measured it; the threshold is five), repeated at eleven call
+# sites.
+#
+# They are one table here, keyed by the `<section>.<prefix>` pair the
+# editor already receives, so a caller says WHAT it is editing and
+# nothing else. The keys are not derivable from the section -- `network`
+# labels its screen `ports.*`, volumes' per-entry prompt is
+# `volumes.edit.prompt` where environment's is `environment.entry.prompt`
+# -- which is exactly why they are data and not a naming convention.
+#
+# The eight positions were also demonstrably hard to fill: four call
+# sites in test/bats/unit/tui_spec.bats passed a validator name in the
+# error-key slot, silently mislabelling the error box. A table row cannot
+# be off by one.
+#
+# `err` is the one optional slot: two editors validate nothing, so they
+# have no message to show. Every other slot missing is a DEFECT and
+# `_tui_list_labels` says so rather than drawing a screen with blank
+# labels.
+declare -gA _TUI_LIST_LABELS=(
+  [build.arg_.title]=build.title
+  [build.arg_.menu]=build.menu
+  [build.arg_.add]=build.add
+  [build.arg_.back]=build.back
+  [build.arg_.entry]=build.arg.prompt
+  [build.arg_.err]=err.invalid_env_kv
+
+  [security.cap_add_.title]=security.title
+  [security.cap_add_.menu]=security.cap_add.menu
+  [security.cap_add_.add]=security.cap_add.add
+  [security.cap_add_.back]=security.back
+  [security.cap_add_.entry]=security.cap_add.prompt
+  [security.cap_add_.err]=err.invalid_capability
+
+  [security.cap_drop_.title]=security.title
+  [security.cap_drop_.menu]=security.cap_drop.menu
+  [security.cap_drop_.add]=security.cap_drop.add
+  [security.cap_drop_.back]=security.back
+  [security.cap_drop_.entry]=security.cap_drop.prompt
+  [security.cap_drop_.err]=err.invalid_capability
+
+  # No validator, so no error message: the security_opt list takes any
+  # string docker accepts.
+  [security.security_opt_.title]=security.title
+  [security.security_opt_.menu]=security.security_opt.menu
+  [security.security_opt_.add]=security.security_opt.add
+  [security.security_opt_.back]=security.back
+  [security.security_opt_.entry]=security.security_opt.prompt
+
+  [volumes.mount_.title]=volumes.title
+  [volumes.mount_.menu]=volumes.menu
+  [volumes.mount_.add]=volumes.add
+  [volumes.mount_.back]=volumes.back
+  [volumes.mount_.entry]=volumes.edit.prompt
+  [volumes.mount_.err]=err.invalid_mount
+
+  [environment.env_.title]=environment.title
+  [environment.env_.menu]=environment.menu
+  [environment.env_.add]=environment.add
+  [environment.env_.back]=environment.back
+  [environment.env_.entry]=environment.entry.prompt
+  [environment.env_.err]=err.invalid_env_kv
+
+  # Free-form mount spec, no validator (see _edit_section_tmpfs).
+  [tmpfs.tmpfs_.title]=tmpfs.title
+  [tmpfs.tmpfs_.menu]=tmpfs.menu
+  [tmpfs.tmpfs_.add]=tmpfs.add
+  [tmpfs.tmpfs_.back]=tmpfs.back
+  [tmpfs.tmpfs_.entry]=tmpfs.entry.prompt
+
+  # The port list lives in [network] and labels its screen `ports.*`.
+  [network.port_.title]=ports.title
+  [network.port_.menu]=ports.menu
+  [network.port_.add]=ports.add
+  [network.port_.back]=ports.back
+  [network.port_.entry]=ports.entry.prompt
+  [network.port_.err]=err.invalid_port_mapping
+
+  [devices.device_.title]=devices.title
+  [devices.device_.menu]=devices.menu
+  [devices.device_.add]=devices.add_device
+  [devices.device_.back]=devices.back
+  [devices.device_.entry]=devices.device.prompt
+  [devices.device_.err]=err.invalid_mount
+
+  [devices.cgroup_rule_.title]=devices.cgroup.title
+  [devices.cgroup_rule_.menu]=devices.cgroup.menu
+  [devices.cgroup_rule_.add]=devices.add_cgroup
+  [devices.cgroup_rule_.back]=devices.back
+  [devices.cgroup_rule_.entry]=devices.cgroup.prompt
+  [devices.cgroup_rule_.err]=err.invalid_cgroup_rule
+
+  [additional_contexts.context_.title]=additional_contexts.title
+  [additional_contexts.context_.menu]=additional_contexts.menu
+  [additional_contexts.context_.add]=additional_contexts.add
+  [additional_contexts.context_.back]=additional_contexts.back
+  [additional_contexts.context_.entry]=additional_contexts.entry.prompt
+  [additional_contexts.context_.err]=err.invalid_additional_context
+)
+
+# _tui_list_labels <section> <prefix> <out-assoc> -- the six screen
+# labels for one list editor, read out of _TUI_LIST_LABELS into <out>
+# under the slot names `title menu add back entry err`.
+#
+# A row that is missing, or missing anything but `err`, FAILS here rather
+# than reaching the screen: a menu labelled with empty strings is a
+# defect that renders (PRD invariant 2).
+_tui_list_labels() {
+  local _section="${1}" _prefix="${2}"
+  local -n _tll_out="${3}"
+  local _row="${_section}.${_prefix}" _slot _missing=0
+  _tll_out=()
+  for _slot in title menu add back entry err; do
+    _tll_out["${_slot}"]="${_TUI_LIST_LABELS[${_row}.${_slot}]:-}"
+  done
+  for _slot in title menu add back entry; do
+    [[ -n "${_tll_out[${_slot}]}" ]] || _missing=1
+  done
+  (( _missing )) || return 0
+  _log_err setup_tui tui_list_labels_missing \
+    "display=no complete _TUI_LIST_LABELS row for '${_row}' -- the list editor has no screen to label. Add the row beside the others in setup_tui.sh; the labels are a table, not a call-site argument." \
+    "list=${_row}"
+  return 1
+}
+
+# _edit_list_section <section> <prefix>
 #
 # Generic list editor used by environment / tmpfs / ports. Mirrors the
 # volumes pattern: shows existing entries, Add creates the next numbered
-# slot, existing items go through Edit / Remove / Back sub-menu.
+# slot, existing items go through Edit / Remove / Back sub-menu. The
+# screen's message keys come from _TUI_LIST_LABELS above, keyed by this
+# same (section, prefix) pair.
 _edit_list_section() {
   local _section="${1}" _prefix="${2}"
-  local _title_key="${3}" _menu_key="${4}" _add_key="${5}" _back_key="${6}"
-  local _entry_key="${7}"
-  local _err_key="${8:-}"
+  local -A _labels=()
+  _tui_list_labels "${_section}" "${_prefix}" _labels || return 1
+  local _title_key="${_labels[title]}" _menu_key="${_labels[menu]}"
+  local _add_key="${_labels[add]}" _back_key="${_labels[back]}"
+  local _entry_key="${_labels[entry]}" _err_key="${_labels[err]}"
 
   # Resolve the per-entry prompt key through the schema i18n-index
   # when this list key is registered, so the menu string is the same key
@@ -1935,14 +2061,11 @@ _edit_list_entry() {
 }
 
 _edit_section_environment() {
-  _edit_list_section environment env_ \
-    environment.title environment.menu environment.add environment.back \
-    environment.entry.prompt err.invalid_env_kv
+  _edit_list_section environment env_
 }
 
 _edit_section_tmpfs() {
-  _edit_list_section tmpfs tmpfs_ \
-    tmpfs.title tmpfs.menu tmpfs.add tmpfs.back tmpfs.entry.prompt
+  _edit_list_section tmpfs tmpfs_
 }
 
 _edit_section_ports() {
@@ -1956,9 +2079,7 @@ _edit_section_ports() {
     _msg="$(printf "${_fmt}" "${_mode}")"
     _tui_msgbox "$(_tui_msg ports.title)" "${_msg}"
   fi
-  _edit_list_section network port_ \
-    ports.title ports.menu ports.add ports.back ports.entry.prompt \
-    err.invalid_port_mapping
+  _edit_list_section network port_
 }
 
 _edit_section_devices() {
@@ -1972,25 +2093,17 @@ _edit_section_devices() {
     case "${_choice}" in
       back|"") return 0 ;;
       device)
-        _edit_list_section devices device_ \
-          devices.title devices.menu devices.add_device devices.back \
-          devices.device.prompt err.invalid_mount
+        _edit_list_section devices device_
         ;;
       cgroup_rule)
-        _edit_list_section devices cgroup_rule_ \
-          devices.cgroup.title devices.cgroup.menu devices.add_cgroup devices.back \
-          devices.cgroup.prompt err.invalid_cgroup_rule
+        _edit_list_section devices cgroup_rule_
         ;;
     esac
   done
 }
 
 _edit_section_additional_contexts() {
-  _edit_list_section additional_contexts context_ \
-    additional_contexts.title additional_contexts.menu \
-    additional_contexts.add additional_contexts.back \
-    additional_contexts.entry.prompt \
-    err.invalid_additional_context
+  _edit_list_section additional_contexts context_
 }
 
 # _edit_logging_keys <section>
@@ -2658,7 +2771,7 @@ _commit_and_setup() {
   # Merge current baseline into overrides for keys the user did not touch
   # (so _write_setup_conf preserves untouched values via template).
   # Build final arrays directly from _TUI_OVR_* + _TUI_CURRENT.
-  local -a _final_sections=() _final_keys=() _final_values=()
+  local -a _final_keys=() _final_values=()
   local _k
   for _k in "${!_TUI_CURRENT[@]}"; do
     _final_keys+=("${_k}")
@@ -2683,7 +2796,7 @@ _commit_and_setup() {
   [[ -f "${_repo_conf}" ]] && _template_src="${_repo_conf}"
 
   _write_setup_conf "${_repo_conf}" "${_template_src}" \
-    _final_sections _final_keys _final_values \
+    _final_keys _final_values \
     "${_TUI_REMOVED[*]:-}"
   _tui_clear
   # The `saved` message contains a %s placeholder that we feed _repo_conf

@@ -205,7 +205,16 @@ readonly _CATALOG_DESC_SCAN_GLOBS=(
 # migrated into markers here rather than counted as debt somebody else
 # would have to re-derive. See the header for why this is one number and
 # not a file of them.
-readonly _CATALOG_DESC_UNDESCRIBED_CEILING=2617
+#
+# 2622 -> 2614 (base#994 phase 3): that branch described eight cases in
+# test/bats/unit/shell_metrics_spec.bats -- four it was rewriting anyway
+# and the four boundary cases beside them -- and that is the whole of the
+# 8. Every case it ADDED carries a marker, so none of them moved this
+# number in either direction. Lowering the ceiling is not REQUIRED of a
+# branch that writes descriptions; that is the slack this design accepts.
+# But the slack was its own, so it closed it, which is the ordinary
+# direction.
+readonly _CATALOG_DESC_UNDESCRIBED_CEILING=2609
 
 # The written-out non-answers, matched case-insensitively on the whole
 # trimmed marker. `nil`, `none`, `tbd`, `todo` and `unknown` carry a
