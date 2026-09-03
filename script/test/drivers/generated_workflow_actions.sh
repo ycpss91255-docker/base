@@ -57,12 +57,11 @@
 # "which assignment of NAME is live at this line", and that question was
 # answered here by a scanner: function bodies tracked by brace
 # indentation, compound commands counted by keyword at column 0, `local`
-# refused by keyword, heredoc bodies skipped by delimiter. Four ways to be
-# wrong were found in it and every one failed OPEN -- a bare `{` at column
-# 0 inside a function, `for((i=0;...))` (the counter matched `for ` with a
-# space), `if<TAB>`, and a `uses:` line inside `<<'QUOTED'` whose
-# `${NAME}` the generator writes out verbatim. In each the lint reported
-# lockstep over a value the generator never writes.
+# refused by keyword. Three ways to be wrong were found in it and every
+# one failed OPEN -- a bare `{` at column 0 inside a function,
+# `for((i=0;...))` (the counter matched `for ` with a space), and
+# `if<TAB>`. In each the lint reported lockstep over a ref it had never
+# resolved.
 #
 # The registry answers that question without deriving anything. Every
 # version this repo names carries a `tool-pin:` marker on its declaration
@@ -102,7 +101,7 @@
 # inside a function nothing ever calls still yields a record, and this
 # driver will resolve a `uses:` ref against it. That is a real loss of
 # precision against the scanner's intent -- and the scanner did not
-# deliver that intent either, in four ways, silently. What is gained is
+# deliver that intent either, in three ways, silently. What is gained is
 # that the property is now DECLARED instead of inferred, by the person who
 # wrote the line, and that a missing declaration is a lint failure rather
 # than a resolution this driver quietly performs. It is the direction this
@@ -165,34 +164,55 @@
 #     basenames this repo happens to ship -- nine of them, several generic
 #     -- and somebody else's `build-worker.yaml` was exempted for being
 #     spelled like one of ours.
+#   - a `${{ ... }}` GitHub Actions expression. It is the one `$` spelling
+#     a `uses:` value can carry that is not a shell reference at all:
+#     GitHub resolves it, at run time, out of a context this tree cannot
+#     read, so there is no ref here to hold in lockstep with anything. It
+#     is named rather than left to fall through the resolver as an
+#     unreadable value -- and it excludes the EXPRESSION, not the value
+#     carrying one: shell references beside it are resolved first, so
+#     `${UNDECLARED}/x@${{ env.V }}` is still a finding.
 #
-# One case IS modelled here rather than in the registry, because it is a
-# property of the USE site and not of the declaration: heredoc QUOTING. A
-# `uses:` line inside `<<'QUOTED'` is written out with its `${NAME}`
-# intact, so the generated workflow carries those characters and not a ref
-# at all. Resolving it would compare a value the generator provably never
-# writes.
+# One thing is deliberately NOT modelled here, and its absence is the
+# rule. A `uses:` value is read LEXICALLY: `${{ ... }}` is the GitHub
+# expression excluded above, and any OTHER `${...}` or `$NAME` must
+# resolve against a tool-pin declaration in the same file, with anything
+# that does not resolve a finding. No code here parses a heredoc.
 #
-# That is a model of bash written in bash, which is the class of thing the
-# deleted scanner was, so it is built to fail the other way: it either
-# walks a file's heredocs with a model it can defend, or it refuses every
-# use in that file. Three things make it refuse -- a `<<` whose delimiter
-# word it cannot name (`<<"${_D}"`, two openers on one line), a delimiter
-# still open at end of file (proof it opened a body bash did not), and the
-# use line sitting inside a body it read as quoted. Only a file it walked
-# to EOF with every heredoc closed resolves.
+# What that does NOT do, said plainly: it does not know whether a given
+# site expands. A `${NAME}` written inside `<<'QUOTED'` is resolved and
+# compared exactly as one inside `<<QUOTED` is, so where the two copies
+# agree this lint reports clean over a line whose generated copy reads
+# `${NAME}` verbatim.
 #
-# Four spellings used to slip through, each with a spec of its own:
-# `<<\D`, which is quoted and was unrecognised, so the body was walked as
-# ordinary lines; a terminator with leading space, which closed a heredoc
-# bash had not left; `<<"${_D}"`, passed over as though the line held no
-# redirection; and a `<<` inside a quoted string, which opened a body that
-# never closed and hid the real `<<'QUOTED'` further down the file.
+# It does not need to know. A `uses:` value of `${NAME}` is none of the
+# three forms `uses:` accepts -- `<owner>/<repo>[/<path>]@<ref>`, a `./`
+# local path, `docker://<image>` -- so a shell reference that reaches a
+# workflow file unexpanded is a generator writing a workflow that does
+# not run. That is reportable on its own terms, and it is a different
+# defect from the one here. Whether the ref is THE SAME REF is the
+# question this lint owns, and it has the same answer on both sides of
+# the quote.
 #
-# What is still NOT attempted is proving a site DOES expand from the
-# other side -- modelling every quoting context a `uses:` value can be
-# written in. A line in no heredoc at all, in a file that walked clean,
-# is treated as expanding.
+# The predecessor was `_gwa_use_expands`: a model of bash's heredoc
+# grammar written in bash, the same class of thing as the scanner deleted
+# above it, and it went the same way for the same reason. Six defects
+# were found in it. Three were run against real bash and each made the
+# lint report lockstep over a string bash provably never writes --
+# `<<\D`, unrecognised, so its body was walked as ordinary lines; a
+# terminator with leading space, which closed a body bash had not left;
+# and a delimiter word truncated at a blank inside its own quotes, so
+# `<<'A B'` closed on a bare `A`, the same early close one layer down.
+# Three more were spellings it did not cover on its own and had to be
+# taught, each named by a spec or by a line of code: `<<"${_D}"`,
+# passed over as though the line held no redirection; a `<<` inside a
+# quoted string, opening a body that never closed; and `<<<`, read as an
+# opener unless deleted first.
+#
+# It also never ran against the case it was written for. This tree writes
+# three `uses:` refs from a shell script, all three in
+# `dist/script/base/init.sh`, and both heredocs that write them are
+# UNQUOTED. There is no quoted case here and never was one.
 #
 # Nor is a ref quoted inside a shell or YAML COMMENT read: prose
 # explaining what a step looks like is not a step, and a lint that fails
@@ -233,10 +253,12 @@ readonly _GWA_USES_LINE_RE='uses:[[:space:]]+(.+)$'
 
 # One shell VARIABLE REFERENCE inside a `uses:` value: `${NAME}` or
 # `$NAME`. Deliberately only the two plain spellings. `${NAME:-default}`,
-# `${NAME#prefix}`, `$(command)` and GitHub's own `${{ expr }}` all fail to
-# match, and a value still carrying a `$` after resolution is refused --
-# so a spelling this matcher does not read becomes a finding rather than a
-# value it guessed at.
+# `${NAME#prefix}` and `$(command)` all fail to match, and a value still
+# carrying a `$` after resolution is refused -- so a spelling this matcher
+# does not read becomes a finding rather than a value it guessed at.
+# GitHub's `${{ expr }}` fails to match too and never reaches here: it is
+# excised first, because it is an exclusion rather than an unreadable
+# shell reference.
 # shellcheck disable=SC2016 # an ERE matching a `$`; nothing here expands.
 readonly _GWA_VAR_RE='\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)'
 
@@ -478,124 +500,27 @@ _gwa_resolve() {
   printf '%s' "${_v}"
 }
 
-# ── The one thing the registry cannot answer: the USE site ──────────────
+# ── The one `$` that is not a shell reference ───────────────────────────
 
-# _gwa_heredoc_open <line> -- what heredoc <line> opens.
-#
-# Prints `<quoted>\t<dash>\t<delimiter>` and returns 0 when it opens one
-# this reader can name; 1 when it opens none; 2 when it carries a heredoc
-# operator this reader CANNOT read. The third answer is the point: a
-# spelling the model does not cover must not look like a line with no
-# redirection on it, which is how every hole in the deleted scanner
-# worked.
-#
-# <quoted> is 1 when the delimiter word carries any quoting -- `'D'`,
-# `"D"`, `\D`, `D\ 1`, `'D'ELIM` are one rule in bash and one rule here:
-# ANY quoted character turns the whole body non-expanding. <dash> is 1
-# for `<<-`, which is the only form whose terminator may be indented, and
-# then by TABS only.
-#
-# Herestrings are deleted first: `<<<'word'` otherwise reads as a heredoc
-# opened on `word`, and the walk would then swallow the rest of the file
-# looking for a terminator that never comes.
-_gwa_heredoc_open() {
-  local _l="${1//<<</ }" _tail _tok _d _q=0 _dash=0
-  [[ "${_l}" == *'<<'* ]] || return 1
-  _tail="${_l#*<<}"
-  # Two heredocs on one line. bash opens both, in order; this reader
-  # tracks one, so it can place neither body.
-  [[ "${_tail}" == *'<<'* ]] && return 2
-  if [[ "${_tail}" == -* ]]; then
-    _dash=1
-    _tail="${_tail#-}"
-  fi
-  # The delimiter WORD: blanks may follow the operator, and the word ends
-  # at the first blank or at an operator that can follow a redirection.
-  _tail="${_tail#"${_tail%%[![:space:]]*}"}"
-  _tok="${_tail%%[[:space:];|&<>()]*}"
-  [[ "${_tok}" == *[\'\"\\]* ]] && _q=1
-  _d="${_tok//[\'\"\\]/}"
-  # What is left has to be a word a later line can be compared against.
-  # A delimiter built at run time -- `<<"${_D}"` -- is one bash reads and
-  # this does not, and so is an empty one.
-  [[ "${_d}" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]*$ ]] || return 2
-  printf '%s\t%s\t%s' "${_q}" "${_dash}" "${_d}"
-}
+# A GitHub Actions expression inside a `uses:` value. `[^}]*` cannot run
+# past the first `}`, so a value carrying two expressions yields two
+# matches rather than one spanning both. An expression this does not match
+# -- a nested brace, say -- keeps its `$`, is not excluded, and lands in
+# the finding branch, which is the safe way to be wrong about it.
+# shellcheck disable=SC2016 # an ERE matching a `$`; nothing here expands.
+readonly _GWA_GHA_EXPR_RE='\$\{\{[^}]*\}\}'
 
-# _gwa_use_expands <file> <lineno> -- true only when this reader walked
-# <file> to EOF with a model it can defend AND line <lineno> sits in no
-# quoted heredoc body.
+# _gwa_strip_gha_expr <value> -- <value> with every `${{ ... }}` removed.
 #
-# The registry says what a variable holds. It cannot say whether the
-# generator interpolates it HERE, and that is a property of the use site:
-# `<<'YAML'` turns expansion off, so `${NAME}` reaches the generated
-# workflow as those characters. Resolving such a line compares a value the
-# generator provably never writes -- and reports lockstep.
-#
-# So this is a model of bash's heredoc grammar written in bash, which is
-# exactly what was just deleted from this file for failing open in four
-# places. It is built to fail the other way instead. It refuses -- says
-# "I cannot show this expands" -- on all of:
-#
-#   - a heredoc operator _gwa_heredoc_open cannot name. Passing it over
-#     is what let `<<\YAML` be walked as ordinary lines;
-#   - a delimiter still open at end of file. bash closes what it opens
-#     here, so an unclosed one is proof this reader opened a body bash
-#     did not -- a `<<` inside a quoted string, an arithmetic `1 << 2` --
-#     and everything it swallowed was mis-modelled, including any real
-#     opener further down;
-#   - a <lineno> past the end of the file, or a file it cannot read;
-#   - and the case it exists for: <lineno> inside a QUOTED body.
-#
-# The close test is bash's: the terminator is the delimiter alone on its
-# line, at column 0, with `<<-` the single exception that allows leading
-# TABS (not spaces). A test that tolerated leading whitespace ended a
-# heredoc bash had not left, and modelled every line after it as outside
-# a body it was still inside.
-#
-# What is NOT attempted is the converse -- proving a site expands by
-# modelling every quoting context a `uses:` value can be written in. A
-# line in no heredoc, in a file that walked clean, is treated as
-# expanding.
-_gwa_use_expands() {
-  local _file="${1}" _want="${2}"
-  [[ -f "${_file}" ]] || return 1
-  local _lineno=0 _delim='' _quoted=0 _dash=0 _line _open _status _term
-  local _answer=1
-  while IFS= read -r _line || [[ -n "${_line}" ]]; do
-    _lineno=$(( _lineno + 1 ))
-    if (( _lineno == _want )); then
-      if [[ -n "${_delim}" ]] && (( _quoted )); then
-        _answer=1
-      else
-        _answer=0
-      fi
-    fi
-    if [[ -n "${_delim}" ]]; then
-      _term="${_line}"
-      # `<<-` strips leading TABS from the terminator; nothing strips
-      # spaces, and the plain form strips nothing at all.
-      (( _dash )) && _term="${_term#"${_term%%[!$'\t']*}"}"
-      if [[ "${_term}" == "${_delim}" ]]; then
-        _delim=''
-        _quoted=0
-        _dash=0
-      fi
-      continue
-    fi
-    _gwa_is_comment "${_line}" && continue
-    _status=0
-    _open="$(_gwa_heredoc_open "${_line}")" || _status=$?
-    (( _status > 1 )) && return 1
-    if (( _status == 0 )); then
-      _quoted="${_open%%$'\t'*}"
-      _open="${_open#*$'\t'}"
-      _dash="${_open%%$'\t'*}"
-      _delim="${_open#*$'\t'}"
-    fi
-  done < "${_file}"
-  [[ -n "${_delim}" ]] && return 1
-  return "${_answer}"
+# Termination: every pass deletes a run of text beginning `${{`, deletion
+# adds no character, so the number of `$` in the value strictly falls.
+_gwa_strip_gha_expr() {
+  local _v="${1}" _e
+  while [[ "${_v}" =~ ${_GWA_GHA_EXPR_RE} ]]; do
+    _e="${BASH_REMATCH[0]}"
+    _v="${_v//"${_e}"/}"
+  done
+  printf '%s' "${_v}"
 }
 
 # ── This repo's own name, and the calls home it excludes ────────────────
@@ -671,11 +596,10 @@ _gwa_ships_workflow() {
   _gwa_owner_is_self "${_owner}"
 }
 
-# _gwa_classify <value> [<file> <lineno>] -- decide what one `uses:` value
-# is. <file> is REPO-ROOT-RELATIVE, because that is the spelling the pin
-# registry's records use, and both things this function asks about a use
-# site -- whose declaration of a name applies, and whether the site
-# expands -- are keyed on it.
+# _gwa_classify <value> [<file>] -- decide what one `uses:` value is.
+# <file> is REPO-ROOT-RELATIVE, because that is the spelling the pin
+# registry's records use, and whose declaration of a name applies is keyed
+# on it.
 #
 # Prints `<action>\t<ref>` and returns 0 for a versioned action this lint
 # can compare; returns 1 for a value EXCLUDED BY NAME; returns 2 for one
@@ -686,8 +610,14 @@ _gwa_ships_workflow() {
 # A matcher answering only "matched / did not match" collapses them and
 # has to pick one default for both, and picking "pass" is how a lint
 # quietly stops covering whatever its author did not foresee.
+#
+# A value carrying a `$` is read in one order and it matters: GitHub's
+# expressions are excised, what is LEFT must resolve against this file's
+# declarations, and only then does the presence of an expression exclude
+# the value. Excluding first would make `${{ }}` a pass for any value
+# with one anywhere in it.
 _gwa_classify() {
-  local _v="${1}" _file="${2:-}" _lineno="${3:-0}"
+  local _v="${1}" _file="${2:-}" _rest _expr=0
   case "${_v}" in
     # A local callee carries no ref: it is this tree, at this commit.
     ./*|/*) return 1 ;;
@@ -700,13 +630,15 @@ _gwa_classify() {
   # marketplace action this repo also calls by ref.
   _gwa_ships_workflow "${_v}" && return 1
   if [[ "${_v}" == *'$'* ]]; then
-    # A quoted heredoc writes the reference out verbatim, so there is no
-    # ref here to be in lockstep with anything.
-    if [[ -n "${_file}" ]] \
-       && ! _gwa_use_expands "${REPO_ROOT}/${_file}" "${_lineno}"; then
-      return 2
+    _rest="$(_gwa_strip_gha_expr "${_v}")"
+    [[ "${_rest}" == "${_v}" ]] || _expr=1
+    if [[ "${_rest}" == *'$'* ]]; then
+      _rest="$(_gwa_resolve "${_rest}" "${_file}")" || return 2
     fi
-    _v="$(_gwa_resolve "${_v}" "${_file}")" || return 2
+    if (( _expr )); then
+      return 1
+    fi
+    _v="${_rest}"
   fi
   [[ "${_v}" =~ ${_PIN_ACTION_REF_RE} ]] || return 2
   printf '%s\t%s' "${BASH_REMATCH[1]}" "${BASH_REMATCH[3]}"
@@ -729,8 +661,7 @@ _gwa_workflow_refs() {
     # never turn one into a pass. `.github/workflows/` is the
     # action-ref-agreement lint's population, and this lint does not
     # re-judge what that one already owns.
-    _pair="$(_gwa_classify "${_value}" "${_GWA_FILE}" \
-      "${_GWA_LINENO}")" || continue
+    _pair="$(_gwa_classify "${_value}" "${_GWA_FILE}")" || continue
     printf '%s\n' "${_pair}"
   done < <(_gwa_hits 'dependabot')
 }
@@ -752,8 +683,7 @@ _gwa_generated_refs() {
     _gwa_is_comment "${_GWA_TEXT}" && continue
     _value="$(_gwa_value "${_GWA_TEXT}")" || continue
     _status=0
-    _pair="$(_gwa_classify "${_value}" "${_GWA_FILE}" \
-      "${_GWA_LINENO}")" || _status=$?
+    _pair="$(_gwa_classify "${_value}" "${_GWA_FILE}")" || _status=$?
     if (( _status == 0 )); then
       printf '%s\t%s\t%s\n' "${_GWA_FILE}" "${_GWA_LINENO}" "${_pair}"
     elif (( _status > 1 )); then
@@ -816,7 +746,9 @@ _run_generated_workflow_actions() {
       # itself one of the files the walk reads: a `uses:` followed by a
       # space in an emitted message is read as a generated ref on the next
       # run, and the lint fails on its own error text.
-      printf '%s:%s: %s -- not a versioned action reference, and not one of the documented exclusions (a local ./ callee, a docker:// image, a call to a reusable workflow this repo ships, from this repo, by its own name). A variable is read only where the pin registry DECLARES its value IN THIS FILE: a tool-pin: marker on an assignment here that gives it that value. A marker on the same name in another file declares the variable OF THAT FILE and is not an answer here. Undeclared in this file, declared here at two sites that disagree, holding a value that is itself interpolated, or written into a heredoc this reader could not walk or read as quoted, it lands here. This lint cannot say whether that is in lockstep, so it refuses rather than skipping it: spell it <owner>/<repo>[/<path>]@<ref>, or hoist it into an assignment and put a tool-pin: marker on that line -- which is what makes the ref watched as well as checked.\n' \
+      # shellcheck disable=SC2016 # the exclusion list names GitHub's
+      # `${{ }}` spelling; this is prose, not an expansion.
+      printf '%s:%s: %s -- not a versioned action reference, and not one of the documented exclusions (a local ./ callee, a docker:// image, a call to a reusable workflow this repo ships, from this repo, by its own name, a ${{ }} GitHub Actions expression). A variable is read only where the pin registry DECLARES its value IN THIS FILE: a tool-pin: marker on an assignment here that gives it that value. A marker on the same name in another file declares the variable OF THAT FILE and is not an answer here. Undeclared in this file, declared here at two sites that disagree, or holding a value that is itself interpolated, it lands here. This lint cannot say whether that is in lockstep, so it refuses rather than skipping it: spell it <owner>/<repo>[/<path>]@<ref>, or hoist it into an assignment and put a tool-pin: marker on that line -- which is what makes the ref watched as well as checked.\n' \
         "${_file}" "${_lineno}" "${_ref}"
       _violations=$(( _violations + 1 ))
       continue
