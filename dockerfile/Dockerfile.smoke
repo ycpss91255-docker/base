@@ -135,7 +135,7 @@ LABEL org.opencontainers.image.base.name="${BASE_IMAGE}" \
 # executable. A consumer gets it from the devel stage, whose
 # ENTRYPOINT_FILE points at the script/entrypoint.sh that init.sh seeded
 # from this very path.
-COPY --chmod=0755 dist/script/docker/runtime/entrypoint.sh /entrypoint.sh
+COPY --chmod=0755 dist/dockerfile/entrypoint.sh /entrypoint.sh
 
 # ── mirrors `devel-test` ────────────────────────────────────────────────
 # /lint: the wrappers the specs execute, plus the lib chain they source.

@@ -344,30 +344,27 @@ ARG CONFIG_SRC="config"
 #     dpkg-query -W > /usr/local/share/base/packages.txt
 
 COPY --chmod=0755 "./${ENTRYPOINT_FILE}" "/entrypoint.sh"
-# Host-side log tee helper. Source from
-# script/entrypoint.sh with a single un-guarded line:
-#   . /usr/local/lib/base/logging.sh
-# The helper is a no-op when LOG_FILE_PATH is unset, so the source
-# line is safe to add unconditionally -- repos that haven't opted
-# into [logging] local_path stay unaffected. In-image path (vs the
-# bind-mounted .base) avoids two failure modes: build-time smoke
-# crashes when $USER is unset, and multi-repo workspaces where
-# WS_PATH is the workspace parent rather than the repo root.
-COPY --chmod=0755 .base/dist/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
-# Shared glog-style rotate/symlink/prune helper. logging.sh sources
-# this sibling from the same in-image dir to write per-start log files, a
-# stable <svc>.log symlink, and keep/days retention; it must be COPY'd
-# alongside logging.sh or the container tee degrades to no rotation/prune.
-COPY --chmod=0755 .base/dist/script/docker/runtime/logrotate.sh /usr/local/lib/base/logrotate.sh
-# Generic single-service watchdog. Sourced from
-# script/entrypoint.sh right after logging.sh with a single un-guarded
-# line:
-#   . /usr/local/lib/base/watchdog.sh
-# The helper is a no-op while the [lifecycle] watchdog_check knob is unset
-# (WATCHDOG_CHECK empty), so the source line is safe to add
-# unconditionally. It reuses logrotate.sh for its own watchdog.log, so it
-# must be COPY'd alongside logging.sh / logrotate.sh.
-COPY --chmod=0755 .base/dist/script/docker/runtime/watchdog.sh /usr/local/lib/base/watchdog.sh
+# base's container-side helper libraries, source them from
+# script/entrypoint.sh with a single un-guarded line each:
+#
+#   . /usr/local/lib/base/logging.sh    host-side log tee
+#   . /usr/local/lib/base/watchdog.sh   generic single-service watchdog
+#
+# Each is a no-op until its knob is set ([logging] local_path,
+# [lifecycle] watchdog_check), so the source lines are safe to add
+# unconditionally -- repos that have not opted in stay unaffected. The
+# in-image path (vs the bind-mounted .base) avoids two failure modes:
+# build-time smoke crashes when $USER is unset, and multi-repo workspaces
+# where WS_PATH is the workspace parent rather than the repo root.
+#
+# The DIRECTORY, not a file list. The helpers depend on each other
+# (logging.sh and watchdog.sh both source logrotate.sh from this same
+# in-image dir), and a hand-written list is one more thing that can fall
+# out of agreement with what base ships -- which it did twice, each time
+# costing every consumer repo a Dockerfile edit. The directory holds only
+# helpers that belong here, and base asserts that from the directory
+# itself rather than from a list of names.
+COPY --chmod=0755 .base/dist/script/docker/runtime/ /usr/local/lib/base/
 # Layer 1: .base/dist/config/ defaults (subtree-managed, updates with
 # .base/dist/script/base/upgrade.sh).
 COPY --chown="${USER}":"${GROUP}" --chmod=0755 .base/dist/config "${CONFIG_DIR}"
@@ -711,21 +708,13 @@ RUN bats /smoke_test/
 # COPY --from=builder /build_ws/install /opt/app/install
 #
 # COPY --chmod=0755 script/entrypoint.sh /entrypoint.sh
-# # Host-side log tee helper. Runtime starts from a
+# # base's container-side helper libraries. Runtime starts from a
 # # fresh BASE_IMAGE so the devel stage's helper COPY is NOT
-# # inherited -- repos that ship a runtime image and want to opt
-# # into [logging] local_path tee must repeat the COPY here so
-# # `. /usr/local/lib/base/logging.sh` works in the
-# # runtime image too.
-# COPY --chmod=0755 .base/dist/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
-# # logging.sh sources its logrotate.sh sibling for per-start files +
-# # symlink + retention, so COPY it here too.
-# COPY --chmod=0755 .base/dist/script/docker/runtime/logrotate.sh /usr/local/lib/base/logrotate.sh
-# # Generic single-service watchdog. A no-op while
-# # [lifecycle] watchdog_check is unset; a repo enabling it in the runtime
-# # image must COPY it here too (runtime is a fresh BASE_IMAGE, so devel's
-# # COPY is not inherited). It reuses logrotate.sh (above) for watchdog.log.
-# COPY --chmod=0755 .base/dist/script/docker/runtime/watchdog.sh /usr/local/lib/base/watchdog.sh
+# # inherited -- repos that ship a runtime image and want to opt into
+# # [logging] local_path tee or the [lifecycle] watchdog must repeat
+# # the COPY here so `. /usr/local/lib/base/logging.sh` and
+# # `. /usr/local/lib/base/watchdog.sh` work in the runtime image too.
+# COPY --chmod=0755 .base/dist/script/docker/runtime/ /usr/local/lib/base/
 #
 # # (Optional) Interactive-shell env source for `docker exec`.
 # #
@@ -835,10 +824,10 @@ RUN bats /smoke_test/
 #
 # # Style (a) -- ldd-based install-check (default, no toolchain needed).
 # #default smoke check includes an ldd-based missing-dep scan
-# # via runtime/smoke.sh (catches missing .so installs that the old
+# # via the shipped smoke.sh (catches missing .so installs that the old
 # # 'whoami && bash --version' default silently passed -- e.g.
 # # libboost_regex.so absent in ros1_bridge#123).
-# COPY .base/dist/script/docker/runtime/smoke.sh /usr/local/lib/base/smoke.sh
+# COPY .base/dist/test/bats/smoke/smoke.sh /usr/local/lib/base/smoke.sh
 # ARG RUNTIME_SMOKE_CMD='whoami && bash --version && bash /usr/local/lib/base/smoke.sh'
 # # Inherit USER from runtime (non-root). install-check doesn't need
 # # privilege; if downstream override needs root, prefix with sudo.

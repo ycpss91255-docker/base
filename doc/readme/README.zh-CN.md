@@ -137,7 +137,7 @@ flowchart LR
     release_worker -->|"tar.gz + zip"| release["GitHub Release"]
 ```
 
-<!-- sync: whats-included c1ac0bade5d6 a8d85c789c8d -->
+<!-- sync: whats-included 26ac98cd01c1 af5052d5456f -->
 ### 包含内容
 
 | 文件 | 说明 |
@@ -162,10 +162,11 @@ flowchart LR
 | `dist/script/docker/lib/config_summary.sh` | runtime 配置摘要 |
 | `dist/script/docker/lib/_tui_backend.sh` | TUI 用的 dialog / whiptail 包装函数 |
 | `dist/script/docker/lib/_tui_conf.sh` | TUI 的 INI validator + 读写逻辑 |
-| `dist/script/docker/runtime/entrypoint.sh` | 模板 entrypoint helper |
 | `dist/script/docker/runtime/logging.sh` | host 端 log tee helper（per-start 文件 + 稳定 symlink） |
 | `dist/script/docker/runtime/logrotate.sh` | 共用 rotate/symlink/prune primitives（tee + transcript 共用） |
-| `dist/script/docker/runtime/smoke.sh` | runtime 安装检查 smoke |
+| `dist/script/docker/runtime/watchdog.sh` | 通用单服务 watchdog（重启 + 可插拔健康检查） |
+| `dist/dockerfile/entrypoint.sh` | 模板 entrypoint，创建新 repo 时 seed 成 `script/entrypoint.sh` |
+| `dist/test/bats/smoke/smoke.sh` | runtime 安装检查 smoke（ldd 缺依赖扫描） |
 | `script/test/test.sh` | base 自测调度器（本地 + container 内） |
 | `script/test/drivers/` | 每个工具一个 driver — `bats.sh` / `shellcheck.sh` / `hadolint.sh` |
 | `script/test/lint_bare_stderr.sh` | Bare stderr lint 检查器 |
@@ -668,7 +669,7 @@ Main
 
 带 `--setup` 重跑以重新生成 `.env.generated` + `compose.yaml`。
 
-<!-- sync: field-deployment-just-docker-setup-deploy 66110bfc975b 32674f0aa7b6 -->
+<!-- sync: field-deployment-just-docker-setup-deploy 9112a5c7eaaa 51e3749d109d -->
 ### Field 部署（`just docker setup deploy`）
 
 `just docker setup deploy`（或直接调用 `./setup.sh deploy`）用同一份 `setup.conf` 打包出自带式的 field 部署**目录** —— 即上述路由模型的 deploy 半边（[ADR-00000023](../adr/00000023-config-field-override-and-field-deploy-contract.md)，修订 [ADR-00000003](../adr/00000003-env-vs-workload-param-boundary.md)；[PRD invariant 8](../PRD.md)）。它针对 *field 导向* 的 stage（默认 `runtime`；**绝不**是 `devel` 或任何 `*-test` stage），产出的目录带齐目标主机需要的一切 —— field 主机不会看到 base 的工具链、源码树或 `setup.conf`。
@@ -693,7 +694,7 @@ Bundle 落在 `deploy/<repo>-<stage>-<version>/`（repo 根的 `deploy/` 目录�
 
 依序做这些事：
 
-1. 把 `[environment]` 默认烤成镜像的真 `ENV`（S3），有 `config/app/` 就 `COPY` 进镜像（S4）—— 使 field 镜像自带（不带 env 文件、不带 config bind）；
+1. 把 `[environment]` 默认烤成镜像的真 `ENV`（S3），每个 `config/<component>/` 都 `COPY` 进镜像的 `/opt/app/config/<component>`（S4）—— 使 field 镜像自带（不带 env 文件、不带 config bind）；
 2. `docker build --target <stage>` 出不可变镜像，tag 为 `<repo>:<stage>-<version>`；
 3. `docker save | xz` 成 `image.tar.xz`；
 4. 写出完全解析的 `compose.yaml`（与 `apply` 共用同一套 resolver，所以 field 永远不会跟 dev 漂移）、`deploy.sh` 启动器与 `README`，再把每个可调整文件 baked 的默认抽出来放进 `config/`。

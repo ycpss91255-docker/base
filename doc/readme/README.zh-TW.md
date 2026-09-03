@@ -137,7 +137,7 @@ flowchart LR
     release_worker -->|"tar.gz + zip"| release["GitHub Release"]
 ```
 
-<!-- sync: whats-included c1ac0bade5d6 144b2b0e789f -->
+<!-- sync: whats-included 26ac98cd01c1 045496e721b2 -->
 ### 包含內容
 
 | 檔案 | 說明 |
@@ -164,8 +164,9 @@ flowchart LR
 | `dist/script/docker/lib/_tui_conf.sh` | TUI 的 INI validator + 讀寫 |
 | `dist/script/docker/runtime/logging.sh` | host 端 log tee helper（per-start 檔案 + 穩定 symlink） |
 | `dist/script/docker/runtime/logrotate.sh` | 共用 rotate/symlink/prune primitives（tee + transcript 共用） |
-| `dist/script/docker/runtime/smoke.sh` | runtime install-check smoke |
-| `dist/script/docker/runtime/entrypoint.sh` | template entrypoint helper |
+| `dist/script/docker/runtime/watchdog.sh` | 通用單服務 watchdog（重啟 + 可插拔健康檢查） |
+| `dist/dockerfile/entrypoint.sh` | template entrypoint，建立新 repo 時 seed 成 `script/entrypoint.sh` |
+| `dist/test/bats/smoke/smoke.sh` | runtime install-check smoke（ldd 缺依賴掃描） |
 | `script/test/test.sh` | base 自身測試 dispatcher（本地 + 容器內） |
 | `script/test/drivers/` | 每個工具一支 driver — `bats.sh` / `shellcheck.sh` / `hadolint.sh` |
 | `script/test/lint_bare_stderr.sh` | Bare stderr lint 檢查 |
@@ -668,7 +669,7 @@ Main
 
 帶 `--setup` 重跑以重新產 `.env.generated` + `compose.yaml`。
 
-<!-- sync: field-deployment-just-docker-setup-deploy 66110bfc975b 57181691d363 -->
+<!-- sync: field-deployment-just-docker-setup-deploy 9112a5c7eaaa a7a48df3b067 -->
 ### Field 部署（`just docker setup deploy`）
 
 `just docker setup deploy`（或直接呼叫 `./setup.sh deploy`）用同一份 `setup.conf` 打包出自帶式的 field 部署**資料夾** —— 即上述路由模型的 deploy 半邊（[ADR-00000023](../adr/00000023-config-field-override-and-field-deploy-contract.md)，修訂 [ADR-00000003](../adr/00000003-env-vs-workload-param-boundary.md)；[PRD invariant 8](../PRD.md)）。它針對 *field 導向* 的 stage（預設 `runtime`；**絕不**是 `devel` 或任何 `*-test` stage），產出的資料夾帶齊目標主機需要的一切 —— field 主機不會看到 base 的工具鏈、原始碼樹或 `setup.conf`。
@@ -693,7 +694,7 @@ Bundle 落在 `deploy/<repo>-<stage>-<version>/`（repo 根的 `deploy/` 資料�
 
 依序做這些事：
 
-1. 把 `[environment]` 預設烤成映像的真 `ENV`（S3），有 `config/app/` 就 `COPY` 進映像（S4）—— 使 field 映像自帶（不帶 env 檔、不帶 config bind）；
+1. 把 `[environment]` 預設烤成映像的真 `ENV`（S3），每個 `config/<component>/` 都 `COPY` 進映像的 `/opt/app/config/<component>`（S4）—— 使 field 映像自帶（不帶 env 檔、不帶 config bind）；
 2. `docker build --target <stage>` 出不可變映像，tag 為 `<repo>:<stage>-<version>`；
 3. `docker save | xz` 成 `image.tar.xz`；
 4. 寫出完全解析的 `compose.yaml`（與 `apply` 共用同一支 resolver，所以 field 永遠不會跟 dev 漂移）、`deploy.sh` 啟動器與 `README`，再把每個可調整檔案 baked 的預設抽出來放進 `config/`。

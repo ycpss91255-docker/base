@@ -276,7 +276,7 @@ tests to their owning lib's spec: the `_parse_ini_section` /
 (`lib/setup_cmd.sh`), and the `_setup_ssh_x11_cookie` helper tests to
 `setup_detect_spec.bats` (`lib/setup_detect.sh`).
 
-#### test/bats/unit/setup_spec.bats (117)
+#### test/bats/unit/setup_spec.bats (121)
 
 The `setup.sh` orchestrator spec. `main` subcommand dispatch (`set` /
 `show` / `remove` for `[logging]` #328 and `[lifecycle]` #478, `reset`,
@@ -287,7 +287,7 @@ emitted blocks for
 `[lifecycle]` restart (#478), `[deploy]` `dri_groups` (#496) and
 `gpu_runtime` alias (#481), `[additional_contexts]` (#199), `[build]`
 `arg_N` / `target_arch` / `network`, `[security]` opt-in (#466),
-`config/app/` bind (#504), `.env.generated` cache + `.env` overlay
+`config/<component>/` bind (#504/#1000), `.env.generated` cache + `.env` overlay
 (#502), workspace writeback (#174/#201), `--gui` / `--no-x11-cookie` /
 `--print-resolved` flags (#338), `--quiet` confirmation lines (#285),
 #450 propagation + duplicate-target guards, and S7 `runtime.env`
@@ -990,7 +990,7 @@ forwarding for caller abort, and DRY_RUN skip.
 | `_run_pre_hook: DRY_RUN=true -> hook skipped silently (#440)` | DRY_RUN skip (pre) |
 | `_run_post_hook: DRY_RUN=true -> hook skipped silently (#440)` | DRY_RUN skip (post) |
 
-### test/bats/unit/dockerfile_migrate_spec.bats (81)
+### test/bats/unit/dockerfile_migrate_spec.bats (86)
 
 Unit tests for the declarative Dockerfile-migration list
 `lib/dockerfile_migrate.sh` (#567, folds #579 facet B). The lib exposes a
@@ -1061,14 +1061,19 @@ shape auto-applies idempotently, a missing/ambiguous shape is skipped
 | `migration (flat-to-dist): dispatcher run twice rewrites exactly once (#915)` | - |
 | `apply_migrations leaves no .base COPY source behind on the v0.41.0 shape (#915)` | - |
 | `apply_migrations leaves every .base COPY source resolvable in the shipped tree (#969)` | - |
-| `migration (logrotate-copy): inserts logrotate.sh COPY after the logging.sh COPY (#805)` | - |
-| `migration (logrotate-copy): detect false when logrotate COPY already present (idempotent) (#805)` | - |
-| `migration (logrotate-copy): detect false when no logging.sh COPY present (#805)` | - |
-| `migration (logrotate-copy): dispatcher run twice inserts the COPY exactly once (#805)` | - |
-| `migration (watchdog-copy): inserts watchdog.sh COPY after the logging.sh COPY (#797)` | - |
-| `migration (watchdog-copy): detect false when watchdog COPY already present (idempotent) (#797)` | - |
-| `migration (watchdog-copy): detect false when no logging.sh COPY present (#797)` | - |
-| `migration (watchdog-copy): dispatcher run twice inserts the COPY exactly once (#797)` | - |
+| `migration (runtime-moved-files): rewrites the smoke.sh source to the shipped test tree (#971)` | - |
+| `migration (runtime-moved-files): rewrites the entrypoint.sh source at the pre-dist path (#971)` | - |
+| `migration (runtime-moved-files): detect false once nothing names the old paths (#971)` | - |
+| `migration (runtime-dir-copy): collapses the three per-file COPYs into one dir COPY (#971)` | - |
+| `migration (runtime-dir-copy): collapses a subset in any order at the pre-dist path (#971)` | - |
+| `migration (runtime-dir-copy): one dir COPY per stage, not one for the file (#971)` | - |
+| `migration (runtime-dir-copy): a statement hand-listing two helpers collapses to one source (#971)` | - |
+| `migration (runtime-dir-copy): a hand-relocated destination is preserved (#971)` | - |
+| `migration (runtime-dir-copy): rewrites the commented runtime-stage example too (#971)` | - |
+| `migration (runtime-dir-copy): an already-collapsed dir COPY is left alone (#971)` | - |
+| `migration (runtime-dir-copy): dispatcher run twice collapses exactly once (#971)` | - |
+| `migration (runtime-dir-copy): detect false when no helper COPY is present (#971)` | - |
+| `apply_migrations heals the runtime COPYs every real consumer actually carries (#971)` | - |
 | `migration 5 (hadolint): DL3007 pins bats/alpine :latest tags (#567)` | - |
 | `migration 5 (hadolint): DL3046 adds useradd -l (#567)` | - |
 | `migration 5 (hadolint): DL3003 cd /lint -> WORKDIR /lint + RUN (#567)` | - |
@@ -1639,7 +1644,7 @@ per-instance field fails immediately.
 | `overlay guard: no baked published-port literal anywhere (forward invariant)` | no baked port literal |
 | `overlay guard: published ports are emitted as ${PORT_N:-default} on devel and stages` | ports overlay form |
 
-### test/bats/unit/deploy_spec.bats (53)
+### test/bats/unit/deploy_spec.bats (59)
 
 Covers the self-contained field-deploy generator (#832; ADR-3 amended by
 ADR-00000023). Deploy produces an output FOLDER run via a fully-resolved,
@@ -1688,8 +1693,14 @@ refused before any build or bundle step.
 | `_generate_deploy_launcher: writes an executable up/down/logs launcher (#832)` | launcher shape |
 | `_generate_deploy_launcher: a no-arg invocation defaults to up without a set -e early exit (#832)` | no-arg default up |
 | `_generate_deploy_launcher: generated launcher is ShellCheck-clean (#832)` | shellcheck-clean output |
-| `_bake_config_copy: splices COPY config/app into the target stage (#506/#504)` | config COPY bake |
-| `_bake_config_copy: handles src == out in place (#506/#504)` | in-place bake |
+| `_collect_config_components: names every config/*/ dir, sorted` | component population |
+| `_collect_config_components: skips files and hidden entries` | dir-only discriminator |
+| `_collect_config_components: empty result on a repo with no config/` | empty population |
+| `_bake_config_copy: splices COPY config/<component> into the target stage (#506/#504/#1000)` | config COPY bake |
+| `_bake_config_copy: handles src == out in place (#506/#504/#1000)` | in-place bake |
+| `_bake_config_copy: bakes every component to its own destination (#1000)` | per-component target |
+| `_bake_config_copy: bakes config/shell and config/pip too (#1000)` | no name list |
+| `_bake_config_copy: returns 1 and writes nothing when no component dir exists (#1000)` | nothing-to-bake |
 | `_generate_deploy_bundle: dry-run plans build (versioned image) + save + xz + install (#832)` | bundle plan |
 | `_generate_deploy_bundle: dry-run builds from the baked Dockerfile when [environment] is set (#832/#503)` | env-bake build |
 | `_generate_deploy_bundle: dry-run plans a docker cp per tunable-manifest path (#833)` | tunable extract |
@@ -1928,7 +1939,7 @@ the master switch `watchdog_check` is set, so the default-off case leaves
 rides on devel and extends:devel stages inherit it; and the resolver
 builds the env block only for the knobs the conf sets.
 
-### test/bats/unit/template_spec.bats (174)
+### test/bats/unit/template_spec.bats (171)
 
 | Test | Description |
 |------|-------------|
@@ -2021,16 +2032,13 @@ builds the env block only for the knobs the conf sets.
 | `stop.sh -h works in /lint/ layout` | - |
 | `build.sh errors with a clear diagnostic when bootstrap/_lib.sh missing (issue #104, #408)` | - |
 | `Dockerfile.example copies lib/ and wrapper/ into /lint/ (#406)` | - |
-| `Dockerfile.example copies logging.sh to /usr/local/lib/base/ in devel stage (#368)` | - |
-| `Dockerfile.example commented runtime stage shows logging.sh COPY example (#368)` | - |
+| `Dockerfile.example copies the runtime helper dir into /usr/local/lib/base/ in devel stage (#971)` | - |
+| `nothing in dist/script/docker/runtime/ has a destiny other than the helper dir (#971)` | - |
+| `Dockerfile.example commented runtime stage shows the helper-dir COPY example (#971)` | - |
 | `runtime/logging.sh header documents in-image source-line (no $USER, no work/.base) (#368)` | - |
-| `Dockerfile.example copies logrotate.sh to /usr/local/lib/base/ in devel stage (#805)` | - |
-| `Dockerfile.example copies watchdog.sh to /usr/local/lib/base/ in devel stage (#797)` | - |
-| `Dockerfile.example commented runtime stage shows watchdog.sh COPY example (#797)` | - |
-| `runtime/entrypoint.sh sources the watchdog helper after logging (#797)` | - |
-| `runtime/entrypoint.sh guards both lib sources with a readability test (#842)` | Both source lines wrapped in `[[ -r ]]`, matching the logrotate.sh pattern |
-| `runtime/entrypoint.sh execs cleanly under set -euo pipefail with the libs absent (#842)` | Opt-out runtime image: reaches `exec`, no stderr, no strict-mode abort |
-| `Dockerfile.example commented runtime stage shows logrotate.sh COPY example (#805)` | - |
+| `dockerfile/entrypoint.sh sources the watchdog helper after logging (#797)` | - |
+| `dockerfile/entrypoint.sh guards both lib sources with a readability test (#842)` | - |
+| `dockerfile/entrypoint.sh execs cleanly under set -euo pipefail with the libs absent (#842)` | - |
 | `no inline _detect_lang fallbacks remain after dedupe (issue #104)` | - |
 | `setup.sh does not redefine _detect_lang` | No duplication |
 | `setup.sh defines _setup_msg, not _msg (closes #101)` | - |
@@ -2127,7 +2135,7 @@ builds the env block only for the knobs the conf sets.
 | `name_host_groups: a nameless gid triggers sudo groupadd hostgrp<gid>` | #589 behaviour (mocked) |
 | `name_host_groups: a named gid does not trigger groupadd` | #589 idempotent skip (mocked) |
 
-### test/bats/unit/ci_spec.bats (117)
+### test/bats/unit/ci_spec.bats (118)
 
 | Test | Description |
 |------|-------------|
@@ -2205,6 +2213,7 @@ builds the env block only for the knobs the conf sets.
 | `main --ci: LINT_TOOL=doc-counts runs the doc/test count drift gate (#864)` | #864 doc/test count drift gate reaches the CI gate |
 | `main --doc-counts-only: runs the drift gate on the host, no compose (#864)` | #864 host-direct primitive so a CI job can run the gate without compose |
 | `main --issueref-only: runs the issue-ref comment lint on the host, no compose (#866)` | - |
+| `main --adr-structure-only: runs the ADR-structure lint on the host, no compose (#994)` | - |
 | `main --adr-numbering-only: runs the ADR-numbering lint on the host, no compose (#866)` | - |
 | `main --stale-setup-conf-only: runs the stale setup.conf path lint on the host, no compose (#866)` | - |
 | `main --home-literal-only: runs the hardcoded home path lint on the host, no compose (#799)` | - |
@@ -3688,12 +3697,13 @@ three tests assert the repo's own published figure, not the generator.
 | `action-ref-agreement: is a member of the lint phase's tool table (#949)` | A lint nobody runs is a comment |
 | `action-ref-agreement: has a lint-static CI join (#949)` | Named plain-runner matrix entry, no docker |
 | `action-ref-agreement: its failure event id is registered (#949)` | An unregistered id is an anonymous exit |
-### test/bats/unit/code_lines_spec.bats (35)
+### test/bats/unit/code_lines_spec.bats (42)
 
 The comment-stripped file views in `test/bats/unit/test_helper.bash`
 (`strip_comments` / `only_comments` / `code_lines` / `code_grep` /
-`yaml_job_{text,lines}` / `yaml_top_{text,lines}`), which the workflow and
-template structural specs assert against instead of the raw file.
+`yaml_job_{text,lines}` / `yaml_top_{text,lines}` / `yaml_step_id_for`),
+which the workflow and template structural specs assert against instead of
+the raw file.
 
 They exist because a spec that greps a WHOLE file lets a string appearing
 only in a COMMENT satisfy an assertion about CODE, and this repo's comments
@@ -3748,12 +3758,19 @@ must still arrive as 1.
 | `yaml_top_lines: returns a top-level block's code without the prose between keys` | `on` / `env` / `permissions` / `concurrency`; a comment paragraph between two top-level keys is not indented out by the terminator |
 | `yaml_top_lines: stops at the next top-level key` | Block scoping for the top-level mappings |
 | `yaml_top_text: keeps the block's comments` | The verbatim counterpart, for symmetry with `yaml_job_text` |
-| `yaml_step_id_for: names the step whose own body matches` | - |
-| `yaml_step_id_for: an id-less matching step yields nothing, it does not borrow the id of an earlier step` | - |
-| `yaml_step_id_for: a nested list inside a step is not a step boundary` | - |
-| `yaml_step_id_for: a match in a comment cannot name a step` | - |
-| `yaml_step_id_for: a pattern that matches nowhere in the job yields nothing` | - |
-| `yaml_step_id_for: does not reach into another job for its match` | - |
+| `yaml_step_id_for: names the step whose own body matches` | The step id an assertion needs to say "the consumer reads THE STEP THAT DID THE WORK", derived from the file so a rename moves the assertion with it |
+| `yaml_step_id_for: an id-less matching step yields nothing, it does not borrow the id of an earlier step` | The regression it was extracted for: the inline awk carried the last id forward across step boundaries, so a match in a later id-less step wore an earlier step's id and the assertion vouched for a step that no longer contained its subject |
+| `yaml_step_id_for: a nested list inside a step is not a step boundary` | The inverse mistake: resetting on every sequence dash loses the id of a step whose match sits in a `with:` list. Only a dash at the step indent is a boundary |
+| `yaml_step_id_for: a match in a comment cannot name a step` | It reads the job's code lines, so the same prose hazard the rest of this file exists for cannot name a step either |
+| `yaml_step_id_for: a pattern that matches nowhere in the job yields nothing` | An unattributable match is answered with an empty id, never a guessed one; the caller's `[ -n ... ]` turns that into a loud failure |
+| `yaml_step_id_for: does not reach into another job for its match` | Job scoping, inherited from `yaml_job_lines`: a step in a neighbouring job cannot supply this job's id |
+| `yaml_step_id_for: a block-style needs: above the steps is not the step indent (#993)` | The escape the #948 fix left open: taking the boundary from the shallowest dash the job had shown read it off the block-style `needs:` at indent 4, so no step dash at 6 was ever a boundary and one id ran the length of the job |
+| `yaml_step_id_for: the matching step is still named when a block-style needs: precedes it (#993)` | Non-vacuity for the row above -- a helper that answered nothing to everything would satisfy it, and refusing every shape is the same guard deleted |
+| `yaml_step_id_for: a shallower list above a deeper steps list is not the step indent (#993)` | The same escape without `needs:`: a `strategy.matrix` sequence written at its parent's indent, above a steps list indented one level deeper. The anchor is the `steps:` key, not any one spelling |
+| `yaml_step_id_for: the matching step is still named when a shallower list precedes a deeper steps list (#993)` | Non-vacuity for the row above, on the second shape |
+| `yaml_step_id_for: an action input named id does not become the step name (#993)` | `id` is an ordinary action input; read as the step's own key it renames the step to a string no `steps.<id>.outputs` reference resolves. A step's own keys sit at the indent its dash set, a `with:` input deeper |
+| `yaml_step_id_for: a match above the job's first step names no step (#993)` | The job keys above `steps:` are outside the region the helper can attribute, so nothing there is answered with an id |
+| `yaml_step_id_for: a match below the steps list names no step (#993)` | The other end of that region: a job key after the steps list ends attribution, so the id of the last step does not follow the scan out |
 ### test/bats/unit/spec_subject_guard_spec.bats (11)
 
 `assert_spec_subject` (test/bats/unit/test_helper.bash), the fail-closed
@@ -4291,3 +4308,97 @@ rather than an assurance.
 | `_run_positional_params: passes at exactly 5 (#994)` | - |
 | `the three lints share ONE reader pass (#994)` | - |
 | `_run_shell_metrics: reports all three metrics in one run (#994)` | - |
+### test/bats/unit/project_reclaim_spec.bats (32)
+
+| Test | Description |
+|------|-------------|
+| `_reclaim_project_for_path derives the same base-<12hex> name test.sh does` | - |
+| `script/test/test.sh derives its compose project name through the shared producer` | - |
+| `script/test/test.sh derives its test-tools tag through the shared producer` | - |
+| `a network whose recorded checkout is gone is collected` | - |
+| `a sweep launched from an unrelated repository spares every live checkout` | - |
+| `a live checkout whose path contains a newline is NOT collected` | - |
+| `an orphan whose path contains a newline IS collected` | - |
+| `the sweep consults no git at all` | - |
+| `a network whose recorded checkout still exists is NOT collected` | - |
+| `a path that exists but is no longer a checkout is spared` | - |
+| `a network with NO checkout-path label is left alone` | - |
+| `a checkout label that is not an absolute path is left alone` | - |
+| `another tenant's network is left alone` | - |
+| `a project with a container attached is NOT collected` | - |
+| `an orphan created inside the grace window is NOT collected` | - |
+| `a network whose facts cannot be read is left alone` | - |
+| `an unreadable network listing ABORTS rather than collecting everything` | - |
+| `an unreadable network listing issues no removal command at all` | - |
+| `an unreadable container listing ABORTS -- it cannot say nothing is attached` | - |
+| `an unparseable grace aborts before any docker call` | - |
+| `images are never collected by the project rule (the tooling tag is shared)` | - |
+| `the fact read asks for the JSON creation time and both labels` | - |
+| `the live-checkout set comes from the artifacts, not from any worktree list` | - |
+| `tag retention keeps the current tree's tag and the last N and retires the rest` | - |
+| `tag retention keeps a tag a live checkout still resolves to` | - |
+| `tag retention drops a checkout whose path is gone` | - |
+| `tag retention leaves a tag it cannot place alone` | - |
+| `tag retention ABORTS when the artifacts cannot be listed` | - |
+| `tag retention ABORTS when the image listing fails` | - |
+| `the retained-tag count is derived from the live checkouts, not a buried literal` | - |
+| `the retained-tag count is overridable by the environment` | - |
+| `the pinned tag set is the invoking tree plus every live checkout` | - |
+
+### test/bats/unit/reclaim_wiring_spec.bats (22)
+
+| Test | Description |
+|------|-------------|
+| `compose.yaml records the checkout path on the network it creates` | - |
+| `the label compose writes is the label the collector reads` | - |
+| `a compose invocation that cannot say which checkout it is, is refused` | - |
+| `every entry point that drives compose supplies the checkout path` | - |
+| `no caller hands the project sweep a repo root` | - |
+| `test.sh installs the reclaim as an EXIT handler on the direct-run path only` | - |
+| `test.sh arms the reclaim where a compose project is actually minted` | - |
+| `a dispatch that refuses to start reclaims nothing` | - |
+| `a reclaim failure does not change the suite's verdict` | - |
+| `a reclaim failure does not turn a green run red` | - |
+| `a reclaim failure is reported rather than swallowed` | - |
+| `the reclaim still runs when the suite FAILED -- litter from a red run is litter` | - |
+| `retiring a tooling image is never automatic` | - |
+| `a run that minted no compose project reclaims nothing` | - |
+| `just test system reclaims when it is done, pass or fail` | - |
+| `stop.sh reclaims after the project comes down` | - |
+| `stop.sh's reclaim cannot fail the stop` | - |
+| `the verbs that BEGIN a flow do not reclaim` | - |
+| `prune.sh exposes the scoped reclaim as its own mode` | - |
+| `--all does not quietly acquire the scoped reclaim` | - |
+| `the daemon-wide prune targets are untouched` | - |
+| `the scoped reclaim is reachable through just, with no new namespace` | - |
+### test/bats/unit/adr_structure_spec.bats (27)
+
+| Test | Description |
+|------|-------------|
+| `_run_adr_structure: FAILS on a missing '> Serves:' back-pointer, naming the file (#994)` | - |
+| `_run_adr_structure: a '> Serves:' that is not at line start does NOT count (#994)` | - |
+| `_run_adr_structure: FAILS on a missing '## Context' (#994)` | - |
+| `_run_adr_structure: FAILS on a missing '## Decision' (#994)` | - |
+| `_run_adr_structure: FAILS on a missing '## Consequences' (#994)` | - |
+| `_run_adr_structure: FAILS on a missing '## Alternatives' -- required, not advisory (#994)` | - |
+| `_run_adr_structure: ACCEPTS the house heading variants with trailing text (#994)` | - |
+| `_run_adr_structure: a required heading appearing TWICE at column 0 is refused (#994)` | - |
+| `_run_adr_structure: indenting the illustrated heading is the whole fix (#994)` | - |
+| `_run_adr_structure: a second '> Serves:' at column 0 is refused (#994)` | - |
+| `_run_adr_structure: a second '- **Status:**' at column 0 is refused (#994)` | - |
+| `_run_adr_structure: an illustrated ADR template is refused on the parts the file DOES carry (#994)` | - |
+| `_run_adr_structure: KNOWN FAIL-OPEN -- a part omitted AND illustrated at column 0 reads as compliant (#994)` | - |
+| `_run_adr_structure: FAILS on free text after Accepted (#994)` | - |
+| `_run_adr_structure: FAILS on free text after Rejected (#994)` | - |
+| `_run_adr_structure: FAILS on a Status line that is absent entirely (#994)` | - |
+| `_run_adr_structure: FAILS on 'Proposed', which is not one of the three values (#994)` | - |
+| `_run_adr_structure: FAILS on a supersession pointing at a non-8-digit number (#994)` | - |
+| `_run_adr_structure: FAILS on a supersession carrying a trailing date (#994)` | - |
+| `_run_adr_structure: ACCEPTS all three contract values (#994)` | - |
+| `_run_adr_structure: EXEMPTS doc/adr/README.md (the index) (#994)` | - |
+| `_run_adr_structure: names EVERY offending file, not just the first (#994)` | - |
+| `_run_adr_structure: reports how many ADRs it examined (#994)` | - |
+| `_run_adr_structure: REFUSES when doc/adr/ holds no ADR at all (#994)` | - |
+| `_run_adr_structure: REFUSES when doc/adr/ holds ONLY the exempt README (#994)` | - |
+| `_run_adr_structure: REFUSES when doc/adr/ does not exist (#994)` | - |
+| `_run_adr_structure: the REAL doc/adr/ passes today (#994)` | - |

@@ -221,8 +221,14 @@ DOCK
   run cat "${TMP_ROOT}/build.Dockerfile"
   assert_success
   assert_output --partial 'ENV ROS_DOMAIN_ID="42"'
-  run grep -A 2 '^FROM sys AS field$' "${TMP_ROOT}/build.Dockerfile"
+  # Both splices insert right after the stage's FROM line, so the window has
+  # to hold both: the config bake (config/camera is a component directory)
+  # and the ENV bake. Asserting them together is the point -- they must land
+  # in the SAME stage, which is the agreement the shared FROM-line matcher
+  # exists to guarantee.
+  run grep -A 4 '^FROM sys AS field$' "${TMP_ROOT}/build.Dockerfile"
   assert_output --partial 'ENV ROS_DOMAIN_ID="42"'
+  assert_output --partial 'COPY config/camera /opt/app/config/camera'
 }
 
 @test "deploy flow: the README names the versioned image + the tunable config workflow (field-deploy)" {

@@ -232,6 +232,8 @@ main() {
 
   _maybe_prune
 
+  _reclaim_after_stop || true
+
   # post-stop hook fires at end of main, after compose down +
   # opt-in prune are complete.
   _run_post_hook stop "$@"
@@ -254,6 +256,45 @@ _maybe_prune() {
   "${_net_cmd[@]}" || true
   _log_info stop stop_prune_images "display=Pruning dangling images (until=24h)..."
   "${_img_cmd[@]}" || true
+}
+
+# _reclaim_after_stop runs the scoped reclaim (lib/project_reclaim.sh)
+# unconditionally after the project is down.
+#
+# `stop` is the verb a user reaches for when they are DONE, so it is the
+# verb that has to leave the machine as it found it. It was reasonable to
+# expect that it already did: the gap the 417 orphaned networks came
+# through was not a missing tool, it was that the only tool was
+# opt-in (`--prune`) and daemon-wide, so nobody could reach for it without
+# first judging what else on a shared host was mid-flight.
+#
+# UNCONDITIONAL, where --prune stays opt-in, because the two are not the
+# same act. --prune runs `docker {network,image} prune` across the whole
+# daemon and can reach a sibling tenant's artifacts; this removes only what
+# it can prove belongs to a base checkout that no longer exists, so there
+# is nothing for the user to weigh and therefore nothing to ask.
+#
+# The caller discards the status (`|| true`) on purpose. `stop` reports
+# whether the project came down; a network that could not be collected is
+# not a failure to stop, and a stop that started reporting one would be a
+# stop people stop trusting. The reclaim logs its own refusal, and the next
+# stop or test sweeps again.
+#
+# It is handed no root, and that is what makes it safe to ship. This file
+# is vendored into every downstream repo as `.base/`, so the sweep it calls
+# runs from a consumer's checkout far more often than from base's. The rule
+# that came first took a root, enumerated THAT repository's worktrees and
+# deleted every base project outside them -- so in a consumer, where none
+# of base's checkouts is in the list, it removed the network of every live
+# base project on the host. The sweep now reads the checkout path off each
+# artifact, which is the same answer in a consumer as it is in base: it
+# collects base's dead-checkout networks wherever it is run, and touches
+# nothing that a consumer's own compose created, because a consumer's
+# compose stamps no such label.
+_reclaim_after_stop() {
+  _reclaim_orphan_projects \
+    || _log_warn stop stop_reclaim_failed \
+      "display=scoped reclaim after stop failed; leaving it for the next run (the stop itself succeeded)."
 }
 
 main "$@"
