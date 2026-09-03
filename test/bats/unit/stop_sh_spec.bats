@@ -329,3 +329,37 @@ HOOK
   refute_output --partial "docker compose"
   refute_output --partial "down --remove-orphans"
 }
+
+# ── a checkout with no .env.generated is a checkout stop still has to end ─
+#
+# `.env.generated` is a CONFIGURED CONSUMER's interpolation cache. base
+# itself has none -- `just docker build` in a base checkout mints the
+# `local-<dir>` project from the hand-authored compose.yaml and never
+# writes one -- so `stop` was the one verb in that flow that could not run:
+# it sourced the file unconditionally and died on `No such file or
+# directory` before reaching compose at all. build.sh and prune.sh already
+# treated the file as optional; stop / run / exec did not, and the flow
+# they make together is build -> run -> exec -> stop.
+#
+# The name it stops under is deliberately unchanged: with no recorded
+# PROJECT_NAME, _compute_project_name derives the same `local-<basename>`
+# the build used, so stop ends exactly the project build created.
+
+@test "stop.sh ends the project when the checkout has no .env.generated (#1015)" {
+  rm -f "${SANDBOX}/.env.generated"
+  run bash "${SANDBOX}/stop.sh" --dry-run
+  assert_success
+  assert_output --partial "down"
+  refute_output --partial "No such file or directory"
+}
+
+@test "stop.sh honours an ambient PROJECT_NAME with no .env.generated to read (#1015)" {
+  # The seam `just test stop` uses: base's self-test project name is
+  # derived from the checkout PATH, not from a consumer's env cache, so the
+  # caller that already knows it hands it over and stop does not compute a
+  # second one.
+  rm -f "${SANDBOX}/.env.generated"
+  PROJECT_NAME=base-0123456789ab run bash "${SANDBOX}/stop.sh" --dry-run
+  assert_success
+  assert_output --partial "base-0123456789ab"
+}

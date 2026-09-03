@@ -134,3 +134,72 @@ setup() {
   run grep -nE '^ +export COMPOSE_PROJECT_NAME$' "${ROOT}/script/test/justfile.test"
   assert_success
 }
+
+# ── base self-use has no .env.generated, and never will ──────────────────
+#
+# `.env.generated` is a CONFIGURED CONSUMER's interpolation cache, written
+# by `setup apply` from a `.setup.conf`. base is the template SOURCE: it
+# ships a hand-authored compose.yaml, has no `.setup.conf` and no `.base/`
+# subtree, and _wrapper_setup_sync deliberately returns early for exactly
+# that shape -- so nothing in a base checkout ever writes the file.
+#
+# build.sh and prune.sh already treated it as optional. stop / run / exec
+# sourced it unconditionally and died on `No such file or directory`
+# before reaching compose, which left `just docker build` in a base
+# checkout minting a project that no `just` verb could end. Generating one
+# to get a stop is not the answer either: it would write files into the
+# tree that is under test.
+#
+# The assertion is behavioural, not a grep for the guard: what matters is
+# that the wrapper REACHES compose, and only running it can say that.
+
+# _base_shaped_checkout <dir>
+#   A checkout with base's own layout: dist/ at the root, flat wrapper
+#   symlinks under script/, no .base/, no .setup.conf, no .env.generated.
+_base_shaped_checkout() {
+  local _dir="${1:?_base_shaped_checkout requires a dir}"
+  mkdir -p "${_dir}/dist/script/docker/lib" "${_dir}/dist/script/docker/wrapper" \
+           "${_dir}/script"
+  cp /source/dist/script/docker/lib/* "${_dir}/dist/script/docker/lib/"
+  cp /source/dist/script/docker/wrapper/*.sh "${_dir}/dist/script/docker/wrapper/"
+  cp /source/compose.yaml "${_dir}/compose.yaml"
+  local _w
+  for _w in build run exec stop prune; do
+    ln -s "../dist/script/docker/wrapper/${_w}.sh" "${_dir}/script/${_w}.sh"
+  done
+  assert [ ! -e "${_dir}/.base" ]
+  assert [ ! -e "${_dir}/.setup.conf" ]
+  assert [ ! -e "${_dir}/.env.generated" ]
+}
+
+@test "just docker stop ends the project in a checkout with no .env.generated (#1015)" {
+  local _tmp
+  _tmp="$(mktemp -d)"
+  _base_shaped_checkout "${_tmp}"
+  run bash "${_tmp}/script/stop.sh" --dry-run
+  rm -rf "${_tmp}"
+  assert_success
+  assert_output --regexp '\[dry-run\] docker compose -p [a-zA-Z0-9._-]+ .* down'
+}
+
+@test "just docker exec reaches compose in a checkout with no .env.generated (#1015)" {
+  local _tmp
+  _tmp="$(mktemp -d)"
+  _base_shaped_checkout "${_tmp}"
+  run bash "${_tmp}/script/exec.sh" --dry-run
+  local _status="${status}" _output="${output}"
+  rm -rf "${_tmp}"
+  status="${_status}"; output="${_output}"
+  refute_output --partial "No such file or directory"
+}
+
+@test "just docker run reaches compose in a checkout with no .env.generated (#1015)" {
+  local _tmp
+  _tmp="$(mktemp -d)"
+  _base_shaped_checkout "${_tmp}"
+  run bash "${_tmp}/script/run.sh" --dry-run
+  local _status="${status}" _output="${output}"
+  rm -rf "${_tmp}"
+  status="${_status}"; output="${_output}"
+  refute_output --partial "No such file or directory"
+}
