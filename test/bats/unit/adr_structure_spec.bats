@@ -155,6 +155,64 @@ _adr() {
   [[ "${output}" == *"Decision"* ]]
 }
 
+@test "_run_adr_structure: a heading in a backtick block nested in a longer backtick fence does NOT satisfy the check (#994)" {
+  # The fail-open the marker-length rule closes. CommonMark's only legal way
+  # to show a fenced block inside a fenced block is a LONGER outer fence, so
+  # any ADR that documents a markdown or `just` snippet reaches for exactly
+  # this shape. Closing on any ``` regardless of run length mis-parses it:
+  # the inner ``` ends the outer block, the example heading is emitted as
+  # real content, and the file passes with no Decision section of its own.
+  {
+    echo "# A title"
+    echo
+    echo "${_SERVES}"
+    echo
+    echo "- **Status:** Accepted"
+    echo
+    echo "## Context"
+    echo
+    echo '````markdown'
+    echo '```'
+    echo "## Decision"
+    echo '```'
+    echo '````'
+    echo
+    echo "## Consequences"
+    echo "## Alternatives"
+  } > "${SCRATCH}/doc/adr/00000001-alpha.md"
+  run _run_adr_structure
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"Decision"* ]]
+}
+
+@test "_run_adr_structure: a closing fence LONGER than its opener still closes it (#994)" {
+  # The other half of the length rule, pinned so the fix for the case above
+  # cannot be "the runs must match exactly". CommonMark closes on a marker at
+  # least as long as the opener, so the ```` here ends the ``` block and the
+  # headings after it are real content -- a file that would go red if the
+  # block never closed and swallowed the rest of the file.
+  {
+    echo "# A title"
+    echo
+    echo "${_SERVES}"
+    echo
+    echo "- **Status:** Accepted"
+    echo
+    echo "## Context"
+    echo
+    echo '```'
+    echo "an example"
+    echo '````'
+    echo
+    echo "## Decision"
+    echo "## Consequences"
+    echo "## Alternatives"
+  } > "${SCRATCH}/doc/adr/00000001-alpha.md"
+  run _run_adr_structure
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"clean"* ]]
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _run_adr_structure: the three-value Status contract
 # ════════════════════════════════════════════════════════════════════
