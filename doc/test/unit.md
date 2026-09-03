@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3607 tests**.
+Unit specs under `test/bats/unit/`: **3606 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1939,7 +1939,7 @@ the master switch `watchdog_check` is set, so the default-off case leaves
 rides on devel and extends:devel stages inherit it; and the resolver
 builds the env block only for the knobs the conf sets.
 
-### test/bats/unit/template_spec.bats (171)
+### test/bats/unit/template_spec.bats (170)
 
 | Test | Description |
 |------|-------------|
@@ -1978,8 +1978,7 @@ builds the env block only for the knobs the conf sets.
 | `exec.sh uses set -euo pipefail` | Shell convention |
 | `stop.sh uses set -euo pipefail` | Shell convention |
 | `lib/compose.sh is the ONLY producer of a project name (#893)` | - |
-| `exec.sh loads .env via _load_env helper` | Uses shared lib |
-| `stop.sh loads .env via _load_env helper` | Uses shared lib |
+| `every wrapper loads .env.generated through the shared optional loader (#1015)` | - |
 | `lib/env.sh defines _load_env helper` | - |
 | `lib/compose.sh defines _compute_project_name helper` | - |
 | `lib/compose.sh defines _compose wrapper` | - |
