@@ -358,15 +358,21 @@ readonly _SM_MAX_PARAMS=5
 # to make the tree pass -- that is the whole of ADR-00000029 -- and the
 # ceiling below may only ever go DOWN.
 #
-# Phase 2 measured the tree and left the lints ungated because 108
-# functions were over the three thresholds (23 depth, 77 length, 8
-# parameters, on 803 functions across 93 files). Phase 3 is the
-# flattening, and it does not fit in one reviewable PR: a single change
-# rewriting 108 functions across the shipped `dist/` tree and the test
-# drivers is one nobody can review, which is the shape ADR-00000014 rule
-# 3 already refuses for the same reason. So the population is closed in
-# slices, and between slices the lint has to be able to say something
-# other than "still red".
+# Phase 2 measured the tree and left the lints ungated. Phase 3 measured
+# it again on arrival -- the figures the ceilings below start from, and
+# the same measurement the header quotes above: 108 functions over the
+# three thresholds (23 depth, 77 length, 8 parameters, on 803 functions
+# across 93 files). Phase 2's own count was 102 on a smaller tree, and
+# the difference between them is the tree's movement rather than a
+# change of rule; the ceilings are set from the phase-3 figure because
+# that is the tree they gate.
+#
+# Phase 3 is the flattening, and it does not fit in one reviewable PR: a
+# single change rewriting 108 functions across the shipped `dist/` tree
+# and the test drivers is one nobody can review, which is the shape
+# ADR-00000014 rule 3 already refuses for the same reason. So the
+# population is closed in slices, and between slices the lint has to be
+# able to say something other than "still red".
 #
 # THIS IS NOT THE BASELINE ADR-00000029 REJECTED, and the difference is
 # argued rather than asserted (see that ADR's amendment for base#994). The
