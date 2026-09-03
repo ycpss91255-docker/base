@@ -29,6 +29,16 @@
 # second place to bump, and two literals that agree with each other prove
 # only that someone edited both.
 #
+# The same argument reaches one pin further. Every stage of that Dockerfile
+# is built `FROM alpine:${ALPINE_VERSION}`, and the series decides which
+# bash the image ships -- which decides whether kcov can read this suite's
+# coverage at all, since bash 5.3's xtrace quoting makes it report lines
+# that ran as never run (the measured table sits beside the pin). An image
+# on another series is a different image in the way that matters, so the
+# series is compared first: it is the coarsest disagreement, and a tool
+# reading taken from an image built on the wrong base answers a question
+# nobody asked.
+#
 # The caller's contract is a verdict, not a diagnosis:
 #
 #   exit 0   the image corresponds to this checkout; use it
@@ -117,6 +127,27 @@ _probe_pinned_version() {
   printf '%s\n' "${_v}"
 }
 
+# _probe_pinned_series <dockerfile>
+#   The alpine SERIES the checkout pins, from `ARG ALPINE_VERSION=`. Prints
+#   nothing and returns 1 when the ARG is absent or declared more than
+#   once: two pins disagreeing with each other is a state in which no
+#   expectation exists, not one where a reader may pick a side.
+_probe_pinned_series() {
+  local _file="${1:?BUG: _probe_pinned_series expects a file}"
+  [[ -f "${_file}" ]] || return 1
+  local _script _line
+  local -a _hits=()
+  # Named for the same reason as the version reader's program below: a
+  # `\`-continued command substitution is one statement over two source
+  # lines and kcov credits its execution to neither.
+  _script='s|^ARG ALPINE_VERSION=\([0-9][0-9.]*\)[[:space:]]*$|\1|p'
+  while IFS= read -r _line; do
+    _hits+=("${_line}")
+  done < <(sed -n "${_script}" "${_file}")
+  [[ "${#_hits[@]}" -eq 1 ]] || return 1
+  printf '%s\n' "${_hits[0]}"
+}
+
 # _probe_reports_version <text> <version>
 #   Does the tool's own --version output carry exactly this version? The
 #   dots are escaped so they cannot match any character, and the number is
@@ -159,6 +190,27 @@ _probe_image() {
       return 2
     fi
   done
+
+  # The series, before any tool: see the header. A reading the image cannot
+  # produce is a mismatch rather than a pass, and the comparison is on the
+  # whole series field -- a pin of 3.2 does not agree with a 3.22 image.
+  local _series _release
+  if ! _series="$(_probe_pinned_series "${_file}")"; then
+    printf 'probe: could not read the alpine series pin (ARG ALPINE_VERSION) from %s. The file moved, or it names the series twice. Refusing to report agreement with an image whose base is unknown.\n' \
+      "${_file}" >&2
+    return 2
+  fi
+  _release="$(_probe_run "${_image}" 'cat /etc/alpine-release' 2>/dev/null)" \
+    || _release=""
+  case "${_release}" in
+    "${_series}" | "${_series}".*) ;;
+    *)
+      printf 'probe: %s pins alpine %s but %s reports: %s\n' \
+        "${_file}" "${_series}" "${_image}" "${_release:-<nothing>}" >&2
+      return 1
+      ;;
+  esac
+  printf 'probe: alpine %s matches the pin.\n' "${_series}"
 
   local _tool _pin _actual
   for _tool in "${_required[@]}"; do
