@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3681 tests**.
+Unit specs under `test/bats/unit/`: **3693 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3427,6 +3427,43 @@ per-platform + push by digest; `merge` job creates the manifest via
 | `release-test-tools.yaml: merge job creates the multi-arch manifest via imagetools (#587)` | - |
 | `release-test-tools.yaml: declares packages: write permission for GHCR push` | - |
 | `release-test-tools.yaml: the build job carries the same-repo guard (#766)` | - |
+
+### test/bats/unit/release_version_spec.bats (12)
+
+Unit tests for `script/ci/release-version.sh`, the resolver that decides
+WHICH version `release-worker.yaml` cuts and whether it is a prerelease
+(#829). The worker used to read both off `github.ref_name`, which only
+exists on a tag push; a downstream that wants to auto-release a merged
+dependency bump cannot push a tag with `GITHUB_TOKEN` and have the tag event
+fire (GitHub's recursion guard), so it calls the worker directly and the ref
+is a BRANCH. The resolver takes the caller's `version` input when there is
+one, falls back to the ref otherwise, and derives the prerelease flag from
+the version it resolved rather than from the ref -- the same defect shape as
+#1012, where a decision about a version was read off a ref that did not
+carry one.
+
+Every unresolvable case REFUSES: an input the resolver cannot read becomes
+the name of a git tag and a published GitHub Release, so "cannot determine"
+must not fall through to the ref, to a default, or to any name that is
+already consumed (#1012's `else` arm resolved to `:latest`). A refusal
+prints nothing on stdout, so a caller appending stdout to `GITHUB_OUTPUT`
+ends up with no `version` key at all and every downstream `if:` on it is
+false.
+
+| Test | Description |
+|------|-------------|
+| `release-version: no input resolves the pushed tag, not a prerelease` | The pre-existing path: a tag push, no `version` input. The resolved version is the tag and the release is not a prerelease, so adding the input does not move what a tag-triggered release cuts today. |
+| `release-version: no input marks an rc tag as a prerelease` | A hyphen in the resolved version is what marks a prerelease, which is the test `release-worker.yaml` already applied to `github.ref_name`. On the tag path the answer must not change. |
+| `release-version: the version input wins over a branch ref` | The point of the input: called from a merged bump on the default branch, `github.ref_name` is `main`, which is not a version at all. The caller's version wins and the ref is never consulted. |
+| `release-version: a prerelease input is a prerelease even from a branch ref` | The #1012 shape, in the direction that matters here: a prerelease cut from a branch. If the flag were still read off the ref, `main` carries no hyphen and an RC would publish as a full release. It is derived from the resolved version instead. |
+| `release-version: a whitespace-only input means not supplied` | `version` is declared with an empty default, so "not supplied" reaches the resolver as an empty (or whitespace-only) string and must mean the tag path rather than a refusal. |
+| `release-version: refuses an input that is not a version, naming it` | #1012's `else` arm resolved an unrecognised input to `:latest`, the most-consumed name in the registry. The inverse is the rule here: a version the resolver cannot read is refused by name, never resolved to anything. |
+| `release-version: refuses a version missing the v prefix` | The resolved value becomes a git tag and downstream repos pin `vX.Y.Z` (ADR-00000002). A bare `1.2.3` is refused rather than silently prefixed: normalising would publish a tag the caller did not ask for. |
+| `release-version: refuses a two-component version` | A two-component version cannot be classified -- there is no patch component to say whether this is the Z the caller means -- so it is refused rather than completed with a zero. |
+| `release-version: refuses a version carrying shell metacharacters` | The resolved value is interpolated into a tag name and a release title. The shape check is what keeps caller-controlled text from carrying shell or ref metacharacters through, so a version with a command in it is refused. |
+| `release-version: refuses a ref that is not a version` | The fallback is subject to the same rule as the input. A tag that is not a version reaches this worker whenever a repo pushes one (the caller's `call-release` fires on any tag), and releasing under a name nothing can pin is the failure being refused. |
+| `release-version: refuses when neither input nor ref is supplied` | Neither source supplied is the caller-contract error, and it must be named as such rather than producing an empty version. |
+| `release-version: a refusal prints nothing on stdout` | The fail-closed property the whole design rests on. The workflow appends this script's stdout to GITHUB_OUTPUT; a refusal that printed a partial `version=` line would leave a value for a later step to release under. A refusal writes to stderr only, so there is no output key and every `if:` reading it is false. |
 
 ### test/bats/unit/release_worker_yaml_spec.bats (8)
 
