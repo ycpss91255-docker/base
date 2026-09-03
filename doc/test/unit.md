@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3699 tests**.
+Unit specs under `test/bats/unit/`: **3717 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -81,6 +81,49 @@ tests to their owning lib's spec: the `_parse_ini_section` /
 ## Test Files
 
 <!-- generated: catalogue sections -->
+
+### test/bats/unit/abi_gate_spec.bats (18)
+
+Unit tests for `script/ci/abi-gate.sh`, the shared gate a downstream repo
+asks before auto-releasing a merged dependency bump (#829). The question it
+answers is narrow on purpose -- is this old -> new pin change ABI-safe by
+the rule this dependency itself follows -- and every other question (which
+version to cut, whether to fan out) belongs to the caller.
+
+The fail-open direction here is declaring a breaking change safe, so "cannot
+determine" resolves to NOT releasing, always: an unparseable version, a
+missing declaration, an axis this cannot read, a downgrade, a pair the
+upstream never sanctioned. There is deliberately no default for the ABI axis
+-- which component of a version is that dependency's ABI is a fact about the
+dependency (librealsense's SONAME carries its minor, plenty of libraries
+only their major), and base guessing it is exactly the fail-open this gate
+exists to prevent.
+
+A refusal exits non-zero and prints NOTHING on stdout, so a caller appending
+stdout to GITHUB_OUTPUT gets no `decision` key -- both the
+`steps.x.outputs.decision == 'release'` wiring and the bare exit status read
+a refusal as "do not release".
+
+| Test | Description |
+|------|-------------|
+| `abi-gate: a patch bump under a major.minor ABI is released` | The case the whole mechanism exists for: a patch bump of a dependency whose ABI is its major.minor. Nothing about the interface moved, so the repo may cut a Z without a human (ADR-00000027 sec.1). |
+| `abi-gate: a minor bump under a major-only ABI is released` | The same bump judged by a dependency whose ABI is only its major. The axis is the caller's declaration, so a minor move is safe here and is not safe above -- one rule, two answers, which is why the axis has no default. |
+| `abi-gate: an approval prints exactly a decision and a one-line reason` | GITHUB_OUTPUT is line-oriented, so the reason has to be one line or the key after it is lost. Also pins the shape a caller reads: exactly a decision and a reason. |
+| `abi-gate: refuses a minor bump under a major.minor ABI` | The bump this gate is for: the minor moved on a dependency whose SONAME carries the minor, so the ABI changed and a downstream rebuild is not a formality. Refused by name, with the axis in the message. |
+| `abi-gate: refuses a major bump` | The unambiguous break, under any convention. |
+| `abi-gate: refuses when no ABI axis is declared, naming what to declare` | The gate cannot know which component is a given dependency's ABI, and a default would be a guess that silently releases a break. Absent means refuse, and the message has to say what to declare. |
+| `abi-gate: refuses an ABI axis it does not recognise` | An axis the gate does not recognise is the #1012 shape -- an unrecognised input must not resolve to the permissive branch. It refuses instead of falling back to either known axis. |
+| `abi-gate: refuses an unparseable new version, naming it` | A version the gate cannot parse cannot be compared, and an uncomparable pair is the definition of "cannot determine". Named in the message so the reader sees which side was unreadable. |
+| `abi-gate: refuses an unparseable old version` | The same rule on the other side. An old pin recorded as a commit sha says nothing about the interface it carried. |
+| `abi-gate: refuses a version carrying a suffix` | A suffixed upstream version is a prerelease or a vendor build, not a released interface. It is refused rather than compared on its numbers. |
+| `abi-gate: refuses when the version did not change` | Nothing changed, so there is nothing to release. Silence here would cut a release whose changelog says a dependency moved when it did not. |
+| `abi-gate: refuses a downgrade the axis test would call safe` | A downgrade is never a routine bump -- it is a revert or a mistake, and either way it is a person's call. The component test alone would call 2.56.2 -> 2.56.1 a safe patch move. |
+| `abi-gate: refuses a 0.x pair declared with a major-only ABI` | Under 0.x a major carries no compatibility promise, so `major` is not a meaningful axis for such a pin. Refused with the fix rather than silently re-read as major.minor: a declaration nobody corrected would keep meaning something other than what it says. |
+| `abi-gate: a 0.x patch bump under a major.minor ABI is released` | The same 0.x dependency declared correctly still auto-releases its patch bumps -- the rule above is about the declaration, not a blanket ban on 0.x. |
+| `abi-gate: refuses a bump the upstream compat declaration does not sanction` | A wrapper declares the dependency version it was tested against, and a pair upstream never shipped together is not made safe by each half being ABI-clean on its own. When the caller supplies that declaration, the new pin has to agree with it on the ABI axis. |
+| `abi-gate: releases a bump the upstream compat declaration sanctions` | The sanctioned pair passes -- the declaration is a constraint, not a second reason to refuse everything. |
+| `abi-gate: refuses an unparseable upstream compat declaration` | A declaration the gate cannot parse is not a satisfied constraint. It is refused rather than dropped, which is what an ignored unreadable input amounts to. |
+| `abi-gate: a refusal prints nothing on stdout and names the dependency` | The fail-closed property the wiring rests on. A refusal that printed a partial decision would leave an output key for a later job to gate on. It writes to stderr only, so there is no `decision` key at all, and the dependency is named there for whoever reads the log. |
 
 ### test/bats/unit/action_ref_agreement_lint_spec.bats (21)
 
