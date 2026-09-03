@@ -350,6 +350,31 @@ _changelog_entry_fences() {
   done
 }
 
+# _changelog_entry_carries_heading <file> -- does the file carry the
+# heading at column 0, OUTSIDE a fenced code block?
+#
+# The fence state is not decoration here. doc/changelog/CONVENTIONS.md is
+# the document whose entire subject is how to write an entry, so it is the
+# document that SHOWS the heading, in a ```markdown example. A plain text
+# match reads that example as a second live series and dies saying there
+# are two -- and the only way to clear it would be to delete the example
+# from the document that exists to carry it. Every other markdown scan in
+# this driver and its two siblings already treats a fence as inert.
+_changelog_entry_carries_heading() {
+  local -a _cl_lines=()
+  local -A _cl_fenced=()
+  local _cl_i
+  mapfile -t _cl_lines < "${1}"
+  _changelog_entry_fences _cl_fenced "${_cl_lines[@]}"
+  for (( _cl_i = 0; _cl_i < ${#_cl_lines[@]}; _cl_i++ )); do
+    if [[ -z "${_cl_fenced[${_cl_i}]:-}" ]] \
+      && [[ "${_cl_lines[_cl_i]}" == "${_CHANGELOG_ENTRY_HEADING}" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 # _changelog_entry_locate -- set _CHANGELOG_ENTRY_FILE to the repo-relative
 # path of the ONE file under doc/changelog/ carrying the heading, or fail
 # saying which way it went wrong.
@@ -369,7 +394,7 @@ _changelog_entry_locate() {
   fi
   for _file in "${_dir}"/*.md; do
     [[ -f "${_file}" ]] || continue
-    grep -qxF -- "${_CHANGELOG_ENTRY_HEADING}" "${_file}" || continue
+    _changelog_entry_carries_heading "${_file}" || continue
     _count=$(( _count + 1 ))
     _found+="${_CHANGELOG_ENTRY_DIR}/$(basename "${_file}") "
   done

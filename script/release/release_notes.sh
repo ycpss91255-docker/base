@@ -173,6 +173,26 @@ _rc_tags() {
   done | sort -n | cut -d' ' -f2
 }
 
+# _trim_blank_edges -- drop leading AND trailing blank lines from stdin.
+# The lead paragraph needs both ends: a `## [tag]` heading is always
+# followed by a blank line, so the first line of a lead is always blank.
+_trim_blank_edges() {
+  local -a _buf=()
+  local _line _i _first=-1 _last=-1
+  while IFS= read -r _line; do
+    _buf+=("${_line}")
+    if [[ -n "${_line// }" ]]; then
+      [[ "${_first}" -lt 0 ]] && _first=$(( ${#_buf[@]} - 1 ))
+      _last=$(( ${#_buf[@]} - 1 ))
+    fi
+  done
+  if [[ "${_first}" -ge 0 ]]; then
+    for (( _i = _first; _i <= _last; _i++ )); do
+      printf '%s\n' "${_buf[_i]}"
+    done
+  fi
+}
+
 # _trim_trailing_blanks -- drop trailing blank lines from stdin.
 _trim_trailing_blanks() {
   local -a _buf=()
@@ -230,8 +250,18 @@ _assemble() {
   # The lead paragraph is prose the release itself wrote. A section with no
   # `### ` of its own wrote no entries either, so its prose is the pointer
   # at the RC sections whose union is about to replace it.
+  #
+  # The guard is on the TEXT, not on the line count. A `## [tag]` heading is
+  # always followed by a blank line, so _lead is never an empty array --
+  # only ever an array of blanks -- and a count-based guard therefore fires
+  # for every release that wrote no lead at all, emitting a blank line ahead
+  # of the first `### `. Every assembled body opened with one.
+  local _lead_text=''
   if [[ "${_own_headings}" -gt 0 && "${#_lead[@]}" -gt 0 ]]; then
-    printf '%s\n' "${_lead[@]}" | _trim_trailing_blanks
+    _lead_text="$(printf '%s\n' "${_lead[@]}" | _trim_blank_edges)"
+  fi
+  if [[ -n "${_lead_text}" ]]; then
+    printf '%s\n' "${_lead_text}"
     printf '\n'
   fi
 

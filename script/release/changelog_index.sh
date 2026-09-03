@@ -220,6 +220,15 @@ _ci_row() {
 # markers are matched with awk's index(), not a sed address: they carry
 # backticks, slashes and brackets, and a regex-escaped address for them is a
 # second place the marker text has to be got exactly right.
+#
+# The three strings reach awk through the ENVIRONMENT, not through `-v`.
+# awk expands backslash escape sequences in a -v assignment, so a BREAKING
+# lead bullet quoting a `\n` -- and this repo's entries do quote `\n`, `\r`
+# and `\t` when the change is about one -- would be written back with a real
+# newline in it. The layout lint would then refuse the file, and
+# `just release changelog-index`, the fix that lint's own message names,
+# would reproduce the same corruption on every run. ENVIRON values are
+# taken literally.
 _ci_write() {
   local _dir="${1}" _index="${1}/CHANGELOG.md" _tmp _rendered
   if [[ ! -f "${_index}" ]]; then
@@ -233,12 +242,24 @@ _ci_write() {
   fi
   _rendered="$(_ci_render "${_dir}")"
   _tmp="$(mktemp)"
-  awk -v begin="${_CHANGELOG_INDEX_BEGIN}" -v end="${_CHANGELOG_INDEX_END}" \
-      -v block="${_rendered}" '
+  _CI_BEGIN="${_CHANGELOG_INDEX_BEGIN}" \
+  _CI_END="${_CHANGELOG_INDEX_END}" \
+  _CI_BLOCK="${_rendered}" \
+  awk '
+    BEGIN {
+      begin = ENVIRON["_CI_BEGIN"]
+      end   = ENVIRON["_CI_END"]
+      block = ENVIRON["_CI_BLOCK"]
+    }
     $0 == begin { print block; skip = 1; next }
     $0 == end   { skip = 0; next }
     !skip
   ' "${_index}" > "${_tmp}"
+  # mktemp creates 0600. Without this the documented refresh leaves the
+  # changelog owner-only-readable in the working tree, on a bit git does
+  # not track -- so nothing downstream reports it and the next reader has
+  # no way to tell what changed the mode.
+  chmod --reference="${_index}" "${_tmp}" 2> /dev/null || true
   mv -- "${_tmp}" "${_index}"
   printf 'changelog index: refreshed %s\n' "${_index}"
 }
