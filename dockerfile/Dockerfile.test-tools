@@ -29,14 +29,17 @@ ARG JUST_VERSION=1.58.0
 # replace the host with itself.
 #
 # Networks a build cannot reach dl-cdn.alpinelinux.org from exist -- on
-# one of ours the general internet is fine and this one host is refused
-# -- and what apk does there is spend 480s across the two repository
-# indexes and then report every package as "no such package", because an
-# unreachable index reads as an EMPTY one. The reader is told the package
-# list does not contain `bash`, not that it could not be fetched, and
-# goes looking for a packaging mistake that does not exist. The Ubuntu
-# half of this already exists as APT_MIRROR_UBUNTU in
-# dist/dockerfile/Dockerfile; this is the Alpine spelling of it.
+# one of ours the general internet is fine while this one host resolves
+# in DNS and then HANGS at TCP connect, which is why the wait is minutes
+# rather than the microseconds a refusal would take, and why there is no
+# error line to recognise it by -- and what apk does there is spend 480s
+# across the two repository indexes and then report every package as
+# "no such package", because an unreachable index reads as an EMPTY one.
+# The reader is told the package list does not contain `bash`, not that
+# it could not be fetched, and goes looking for a packaging mistake that
+# does not exist. The Ubuntu half of this already exists as
+# APT_MIRROR_UBUNTU in dist/dockerfile/Dockerfile; this is the Alpine
+# spelling of it.
 #
 # It is ONE stage rather than an ARG repeated per stage because four
 # stages here install packages, and a knob wired into one of them leaves

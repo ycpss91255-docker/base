@@ -1,8 +1,9 @@
 #!/usr/bin/env bats
 #
 # Unit tests for APK_MIRROR -- the Alpine spelling of the APT_MIRROR_*
-# build args base already ships (dist/dockerfile/Dockerfile carries
-# APT_MIRROR_UBUNTU / APT_MIRROR_DEBIAN).
+# build args base already ships (the sibling knob in the shipped
+# dist/dockerfile/Dockerfile is APT_MIRROR_UBUNTU alone; APT_MIRROR_DEBIAN
+# is a build arg the setup / env emitters carry, not an ARG in that file).
 #
 # dockerfile/Dockerfile.test-tools builds the image the WHOLE local gate
 # runs inside, and it had no mirror knob at all, so a host that cannot
