@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3632 tests**.
+Unit specs under `test/bats/unit/`: **3641 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3454,7 +3454,7 @@ ways this goes catastrophically wrong are all edits to the file:
 | `build.sh --target test-tools: the tooling image build is not a verification target` | The tooling image `just test` builds first runs no checks |
 | `build.sh smoke: base's own smoke harness IS a verification target` | base's `just test smoke` had the identical hole |
 | `build.sh --dry-run test: no build ran, so nothing is reported about one` | Nothing executed, so nothing is claimed about execution |
-### test/bats/unit/changelog_entry_lint_spec.bats (61)
+### test/bats/unit/changelog_entry_lint_spec.bats (62)
 
 | Test | Description |
 |------|-------------|
@@ -3502,6 +3502,7 @@ ways this goes catastrophically wrong are all edits to the file:
 | `_run_changelog_entry: measures [Unreleased] in the series file that carries it (#926)` | - |
 | `_run_changelog_entry: the compare-link block is not part of the section (#926)` | - |
 | `_run_changelog_entry: DIES when two files carry [Unreleased] (#926)` | - |
+| `_run_changelog_entry: a '## [Unreleased]' inside a fenced example is not a second live series (#926)` | - |
 | `_run_changelog_entry: DIES when the [Unreleased] heading is missing rather than passing vacuously (#917)` | - |
 | `_run_changelog_entry: FAILS on two entries with an identical lead bullet (#959)` | - |
 | `_run_changelog_entry: names BOTH lines of a duplicate, and both are findable (#959)` | - |
@@ -4367,7 +4368,7 @@ rather than an assurance.
 | `_run_adr_structure: REFUSES when doc/adr/ does not exist (#994)` | - |
 | `_run_adr_structure: the REAL doc/adr/ passes today (#994)` | - |
 
-### test/bats/unit/release_notes_spec.bats (12)
+### test/bats/unit/release_notes_spec.bats (13)
 
 | Test | Description |
 |------|-------------|
@@ -4377,6 +4378,7 @@ rather than an assurance.
 | `release_notes.sh: a promoted final release's notes are the union of its RCs` | - |
 | `release_notes.sh: categories are emitted in the locked roster order` | - |
 | `release_notes.sh: a final release with its own entries keeps its lead paragraph` | - |
+| `release_notes.sh: a section with no lead paragraph does not open with a blank line` | - |
 | `release_notes.sh: a '## [' inside a fenced block does not end the section` | - |
 | `release_notes.sh: the compare-link block is not part of the notes` | - |
 | `release_notes.sh: a tag present in two series files is refused` | - |
@@ -4397,3 +4399,20 @@ rather than an assurance.
 | `changelog layout: no [Unreleased] anywhere is refused, not passed` | - |
 | `changelog layout: a changelog directory with no series files DIES` | - |
 | `changelog layout: the live changelog tree is clean` | - |
+
+### test/bats/unit/changelog_index_spec.bats (4)
+
+| Test | Description |
+|------|-------------|
+| `changelog_index.sh --write: the block it writes is the block it prints (#926)` | - |
+| `changelog_index.sh --write: a backslash escape in a quoted BREAKING entry is written verbatim (#926)` | - |
+| `changelog_index.sh --write: the index keeps its own file mode (#926)` | - |
+| `changelog_index.sh --write: an index with no markers is REFUSED, not appended to (#926)` | - |
+
+### test/bats/unit/gitattributes_spec.bats (3)
+
+| Test | Description |
+|------|-------------|
+| `.gitattributes: a changelog series file merges by union (#926)` | - |
+| `.gitattributes: the generated changelog index merges by union (#926)` | - |
+| `.gitattributes: CONVENTIONS.md is NOT union-merged (#926)` | - |

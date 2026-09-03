@@ -724,6 +724,34 @@ _long_prose() {
   assert_output --partial 'Unreleased'
 }
 
+@test "_run_changelog_entry: a '## [Unreleased]' inside a fenced example is not a second live series (#926)" {
+  # doc/changelog/CONVENTIONS.md is the document whose entire subject is how
+  # to write an entry, so the heading it documents is the heading it SHOWS.
+  # Locating the live series by a plain text match, with no fence state,
+  # reads that example as a second live series and dies saying there are
+  # two -- and the only way to clear it is to delete the example from the
+  # document that exists to carry it. Every other markdown scan this lint
+  # and its two siblings perform already treats a fence as inert.
+  rm -f "${CHANGELOG}"
+  {
+    printf '\n```markdown\n'
+    printf '## [Unreleased]\n\n'
+    printf '### Added\n'
+    printf -- '- **a thing** (#1, PR #2) -- what it does.\n'
+    printf '```\n'
+  } >> "${SCRATCH}/doc/changelog/CONVENTIONS.md"
+  {
+    printf '# base changelog -- v0.43\n\n## [Unreleased]\n\n'
+    printf '### Added\n'
+    printf -- '- one (#1, PR #2)\n'
+  } > "${SCRATCH}/doc/changelog/v0.43.md"
+
+  run _run_changelog_entry
+  assert_success
+  # The one real series was the one measured: one entry, not the example's.
+  assert_output --partial 'clean (1 entries'
+}
+
 @test "_run_changelog_entry: DIES when the [Unreleased] heading is missing rather than passing vacuously (#917)" {
   # No heading means the file's shape changed, and a lint that scans
   # nothing and reports clean is exactly the vacuous pass this repo keeps

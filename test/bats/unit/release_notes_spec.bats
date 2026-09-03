@@ -181,6 +181,23 @@ _series() {
   assert_output --partial '- the candidate entry (#10, PR #11)'
 }
 
+@test "release_notes.sh: a section with no lead paragraph does not open with a blank line" {
+  # A `## [tag]` heading is always followed by a blank line, so the lead the
+  # assembler collects is never an EMPTY array -- only ever an array of
+  # blanks. A guard on its length therefore passes for a section that wrote
+  # no lead at all, and the blank line is emitted ahead of the first
+  # `### `: every assembled body opens with one, on every release page.
+  _series v0.9 \
+    '## [v0.9.0] - 2026-04-03' \
+    '' \
+    '### Added' \
+    '- an entry (#1, PR #2)'
+
+  run "${NOTES}" v0.9.0 "${CL}"
+  [ "${status}" -eq 0 ]
+  [ "${lines[0]}" = '### Added' ]
+}
+
 @test "release_notes.sh: a '## [' inside a fenced block does not end the section" {
   _series v0.9 \
     '## [v0.9.0] - 2026-04-03' \
@@ -289,4 +306,7 @@ _series() {
   [ "${status}" -eq 0 ]
   assert_output --partial '- '
   assert_output --partial '### '
+  # And it opens with content, not with the blank line that sits between a
+  # `## [tag]` heading and its first category in every series file.
+  [ -n "${lines[0]}" ]
 }
