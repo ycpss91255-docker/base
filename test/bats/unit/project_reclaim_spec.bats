@@ -448,11 +448,18 @@ _img() {
   assert_output ""
 }
 
-@test "images are never collected by the project rule (the tooling tag is shared)" {
+@test "a PROJECT label on an image is not a proof, whatever it says" {
   # test-tools is content-hash tagged, so its project label names the
-  # checkout that happened to build it, never the checkouts that use it.
-  printf 'image|i1|test-tools:aaaaaaaaaaaa|%s|86400|%s\n' \
-    "$(_project "${TEMP_DIR}/gone")" "${TEMP_DIR}/gone" > "${DOCKER_STATE}"
+  # checkout that happened to build it, never the checkouts that use it --
+  # and the checkout that built it being gone says nothing about the
+  # checkouts that still resolve the tag. The only image label that IS a
+  # proof is the checkout path, which compose.yaml stamps on the
+  # per-checkout build image and deliberately not on this one (asserted in
+  # reclaim_wiring_spec). So the fixture carries the project label of a
+  # dead checkout and no path label, which is the shape of a real tooling
+  # image, and nothing may act on it.
+  printf 'image|i1|test-tools:aaaaaaaaaaaa|%s|86400|\n' \
+    "$(_project "${TEMP_DIR}/gone")" > "${DOCKER_STATE}"
   _reclaim
   assert_success
   run cat "${DOCKER_REMOVED}"
@@ -694,18 +701,30 @@ _tag() {
   refute_output --partial "<none>"
 }
 
-@test "an image whose checkout path contains a newline is read whole" {
+@test "an image whose live checkout path contains a newline is NOT retired" {
   # The same failure shape the network rule was built around: a shorter,
   # non-existent path read out of a truncated field is very plausibly
-  # absent, and absent is what makes an artifact a candidate.
-  local _live="${TEMP_DIR}/line1"
+  # absent, and absent is what makes an artifact a candidate. The label is
+  # read per artifact with the path last, so every byte survives.
+  local _live="${TEMP_DIR}/line1"$'\n'"line2"
   mkdir -p "${_live}"
-  printf 'image|i9|base-deadbeef1234-smoke:latest||86400|%s\\nline2\n' "${_live}" \
-    > "${DOCKER_STATE}"
+  printf 'image|i9|base-deadbeef1234-smoke:latest||86400|%s\\nline2\n' \
+    "${TEMP_DIR}/line1" > "${DOCKER_STATE}"
   _reclaim
   assert_success
   run cat "${DOCKER_REMOVED}"
   refute_output --partial "base-deadbeef1234-smoke"
+}
+
+@test "an image whose DEAD checkout path contains a newline IS retired" {
+  # The pair to the case above: read wrongly in either direction the rule
+  # is broken, so both directions are pinned.
+  printf 'image|i9|base-deadbeef1234-smoke:latest||86400|%s\\nline2\n' \
+    "${TEMP_DIR}/gone" > "${DOCKER_STATE}"
+  _reclaim
+  assert_success
+  run cat "${DOCKER_REMOVED}"
+  assert_output --partial "image base-deadbeef1234-smoke:latest"
 }
 
 @test "an unreadable image listing retires nothing" {

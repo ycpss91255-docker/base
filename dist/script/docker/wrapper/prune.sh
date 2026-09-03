@@ -91,8 +91,10 @@ usage() {
                     屬於已不存在的 base checkout 的東西，因此不需要先判斷這台機器
                     上還有什麼在跑。注意只有 --orphan-projects 會在 `just stop` /
                     `just test` 結束後自動執行；--tool-tags 一律要明確指定。
-  --orphan-projects 刪除「所記錄的 checkout 已不存在」的 compose project network。
-                    base 的 compose.yaml 會把 checkout 的絕對路徑寫進 network 的
+  --orphan-projects 刪除「所記錄的 checkout 已不存在」的 compose project network
+                    與該 checkout 專屬的 build image（`<project>-smoke`；共用的
+                    tooling image 沒有這個 label，永遠不會被這裡碰到）。
+                    base 的 compose.yaml 會把 checkout 的絕對路徑寫進兩者的
                     `base.checkout.path` label；本模式把該路徑讀回來，只有在該路徑
                     已不存在、沒有 container 附著、且超過保護窗時才刪。任何無法判定
                     的輸入（沒有這個 label——本機制之前建立的 network 全都如此、label
@@ -155,7 +157,9 @@ EOF
                     属于已不存在的 base checkout 的东西，因此不需要先判断这台机器
                     上还有什么在跑。注意只有 --orphan-projects 会在 `just stop` /
                     `just test` 结束后自动执行；--tool-tags 一律要明确指定。
-  --orphan-projects 删除「所记录的 checkout 已不存在」的 compose project network。
+  --orphan-projects 删除「所记录的 checkout 已不存在」的 compose project network
+                    与该 checkout 专属的 build image（`<project>-smoke`；共用的
+                    tooling image 没有这个 label，永远不会被这里碰到）。
                     base 的 compose.yaml 会把 checkout 的绝对路径写进 network 的
                     `base.checkout.path` label；本模式把该路径读回来，只有在该路径
                     已不存在、没有 container 附着、且超过保护窗时才删。任何无法判定
@@ -222,8 +226,11 @@ EOF
                     自動実行されるのは --orphan-projects だけです（`just stop` /
                     `just test` の終了時）。--tool-tags は常に明示指定が必要です。
   --orphan-projects 「記録された checkout がもう存在しない」compose project の
-                    network を削除します。base の compose.yaml が checkout の絶対
-                    パスを network の `base.checkout.path` label に刻むので、本
+                    network と、その checkout 専用の build image
+                    (`<project>-smoke`; 共有される tooling image はこの label を
+                    持たないため決して触れません) を削除します。base の
+                    compose.yaml が checkout の絶対パスを両方の
+                    `base.checkout.path` label に刻むので、本
                     モードはそのパスを読み戻し、そこに何も無く、container も付いて
                     おらず、保護ウィンドウを過ぎている場合にだけ削除します。判定
                     できない入力（この label が無い——この仕組み以前に作られた
@@ -306,13 +313,17 @@ Options:
                     --tool-tags is always explicit: no artifact can name all
                     of a content-shared tag's users, so retiring one rests on
                     a measurement rather than a proof.
-  --orphan-projects Remove the network of every compose project whose
-                    RECORDED CHECKOUT IS GONE. base's compose.yaml stamps
-                    the checkout's absolute path onto the network it creates
-                    as `base.checkout.path`; this mode reads that path back
-                    off the artifact and removes the network only when
+  --orphan-projects Remove the network AND the per-checkout build image of
+                    every compose project whose RECORDED CHECKOUT IS GONE.
+                    base's compose.yaml stamps the checkout's absolute path
+                    onto both, as `base.checkout.path`; this mode reads that
+                    path back off the artifact and removes it only when
                     nothing is there, no container is attached to the
-                    project, and the grace window has passed. Anything it
+                    project, and the grace window has passed. The image half
+                    covers `<project>-smoke`, tagged after one checkout and
+                    consumed by nothing after its build; the shared tooling
+                    image carries no such label and is never touched here.
+                    Anything it
                     cannot place -- no such label (which every network made
                     before this existed lacks, and which is therefore left
                     to the daemon-wide prune), a label that is not an

@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3636 tests**.
+Unit specs under `test/bats/unit/`: **3637 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -4264,7 +4264,7 @@ rather than an assurance.
 | `release-test-tools.yaml: the just smoke check asserts the version, not exit 0 (#948)` | - |
 
 
-### test/bats/unit/project_reclaim_spec.bats (41)
+### test/bats/unit/project_reclaim_spec.bats (42)
 
 | Test | Description |
 |------|-------------|
@@ -4288,7 +4288,7 @@ rather than an assurance.
 | `an unreadable network listing issues no removal command at all` | - |
 | `an unreadable container listing ABORTS -- it cannot say nothing is attached` | - |
 | `an unparseable grace aborts before any docker call` | - |
-| `images are never collected by the project rule (the tooling tag is shared)` | - |
+| `a PROJECT label on an image is not a proof, whatever it says` | - |
 | `the fact read asks for the JSON creation time and both labels` | - |
 | `the live-checkout set comes from the artifacts, not from any worktree list` | - |
 | `tag retention keeps the current tree's tag and the last N and retires the rest` | - |
@@ -4306,7 +4306,8 @@ rather than an assurance.
 | `the tooling image carries no checkout label and is never a candidate here` | - |
 | `an image whose path label is not absolute is left alone` | - |
 | `a dangling labelled image is left alone rather than removed by id` | - |
-| `an image whose checkout path contains a newline is read whole` | - |
+| `an image whose live checkout path contains a newline is NOT retired` | - |
+| `an image whose DEAD checkout path contains a newline IS retired` | - |
 | `an unreadable image listing retires nothing` | - |
 | `a dry run names the image it would retire and removes nothing` | - |
 

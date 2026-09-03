@@ -128,6 +128,10 @@ reclaim_scan
 reclaim_orphan_dry_run
 reclaim_orphan_removed
 reclaim_network_rm_failed
+reclaim_image_scan
+reclaim_image_dry_run
+reclaim_image_removed
+reclaim_image_rm_failed
 reclaim_tool_tags_scan
 reclaim_tool_tags_dry_run
 reclaim_tool_tag_retired
