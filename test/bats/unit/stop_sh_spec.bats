@@ -366,14 +366,45 @@ HOOK
 # PROJECT_NAME, _compute_project_name derives the same `local-<basename>`
 # the build used, so stop ends exactly the project build created.
 
+# _self_managed_sandbox <dir>
+#   A checkout that owns its own compose.yaml: no `.base/` subtree, no
+#   `.setup.conf`, and therefore no `.env.generated` anyone could have
+#   written. base's own shape.
+_self_managed_sandbox() {
+  local _dir="${1:?_self_managed_sandbox requires a dir}"
+  mkdir -p "${_dir}/dist/script/docker/lib"
+  cp /source/dist/script/docker/lib/* "${_dir}/dist/script/docker/lib/"
+  ln -s /source/dist/script/docker/wrapper/stop.sh "${_dir}/stop.sh"
+  assert [ ! -e "${_dir}/.base" ]
+  assert [ ! -e "${_dir}/.setup.conf" ]
+  assert [ ! -e "${_dir}/.env.generated" ]
+}
+
 # why: the defect in its smallest form: the wrapper died on a missing file before
-# it reached compose at all.
-@test "stop.sh ends the project when the checkout has no .env.generated (#1015)" {
-  rm -f "${SANDBOX}/.env.generated"
-  run bash "${SANDBOX}/stop.sh" --dry-run
+# it reached compose at all. The checkout is self-managed, which is the
+# shape in which that file's absence is normal rather than a question.
+@test "stop.sh ends the project when a self-managed checkout has no .env.generated (#1015)" {
+  local _sm="${TEMP_DIR}/self-managed"
+  _self_managed_sandbox "${_sm}"
+  run bash "${_sm}/stop.sh" --dry-run
   assert_success
   assert_output --partial "down"
   refute_output --partial "No such file or directory"
+}
+
+# why: the other half of that shape, and the destructive one. A CONFIGURED
+# checkout records its project name in the cache; with the cache gone and
+# no name handed in, the derived `local-<basename>` is a name this checkout
+# never ran under and, on a shared host, one another checkout may be
+# running under right now -- so `down --remove-orphans` against it reports
+# success having ended the wrong thing, or nothing.
+@test "stop.sh refuses a derived name when a configured checkout lost its cache (#1015)" {
+  rm -f "${SANDBOX}/.env.generated"
+  assert [ -d "${SANDBOX}/.base" ]
+  run bash "${SANDBOX}/stop.sh" --dry-run
+  assert_failure
+  assert_output --partial ".env.generated"
+  refute_output --partial "down --remove-orphans"
 }
 
 # why: the seam `just test stop` uses -- the caller that already knows the name

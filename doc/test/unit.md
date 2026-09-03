@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3720 tests**.
+Unit specs under `test/bats/unit/`: **3723 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -2683,7 +2683,7 @@ status).
 | `just template new <name> scaffolds a working repo-local group (#633, closes #594)` | #633 / closes #594 -- scaffold + immediately usable |
 | `bare just template prints help (#633)` | #633 -- module default recipe |
 
-### test/bats/unit/lib_spec.bats (65)
+### test/bats/unit/lib_spec.bats (67)
 
 | Test | Description |
 |------|-------------|
@@ -2718,6 +2718,8 @@ status).
 | `_resolve_project_name: two OS users with no Docker Hub login derive distinct project names (#920)` | Multi-user isolation with no config, pinned through the detection that delivers it |
 | `_resolve_project_name: falls back to local + directory basename with nothing to go on (#893)` | - |
 | `_compute_project_name warns when .env.generated carries no PROJECT_NAME (#893)` | - |
+| `_compute_project_name refuses to derive for a configured checkout with no cache (#1015)` | the missing-cache case the warning above does not cover. A configured checkout RECORDS its project name; deriving one over the gap invents a name this checkout never ran under, and acting on it can reach a different live checkout on a shared host. Only a self-managed checkout may derive. |
+| `_compute_project_name still derives for a self-managed checkout (#1015)` | the same gap in a self-managed checkout is that checkout's normal state -- nothing writes the cache there and nothing ever will -- so the derivation is the answer rather than a guess over a missing one. |
 | `_compose with DRY_RUN=true prints command instead of running` | DRY_RUN path |
 | `_compose without DRY_RUN tries to invoke docker compose (sanity)` | Real-call branch |
 | `_compose_project pre-fills -p / -f / --env-file from PROJECT_NAME and FILE_PATH` | Project wrapper |
@@ -5157,7 +5159,7 @@ throwaway fixture `dist/` trees, plus a real-tree guard that the live
 | `_run_stale_setup_conf: FAILS when the dist/ scan root is missing (no vacuous pass) (#845)` | Missing scan root fails, no vacuous pass |
 | `_run_stale_setup_conf: the REAL dist/ passes today (migration block allowlisted) (#845)` | Live tree clean |
 
-### test/bats/unit/stop_sh_spec.bats (30)
+### test/bats/unit/stop_sh_spec.bats (31)
 
 Unit tests for `stop.sh` argument parsing, the single-project teardown, and
 i18n. `docker ps -a` output is PATH-shimmed via `${DOCKER_PS_A_FILE}` so
@@ -5209,7 +5211,8 @@ runs).
 | `stop.sh without --prune does NOT emit prune commands (#319)` | - |
 | `stop.sh --prune --dry-run runs prune after compose down (#319)` | - |
 | `stop.sh aborts on a failing pre-stop hook and skips compose down (#690)` | - |
-| `stop.sh ends the project when the checkout has no .env.generated (#1015)` | the defect in its smallest form: the wrapper died on a missing file before it reached compose at all. |
+| `stop.sh ends the project when a self-managed checkout has no .env.generated (#1015)` | the defect in its smallest form: the wrapper died on a missing file before it reached compose at all. The checkout is self-managed, which is the shape in which that file's absence is normal rather than a question. |
+| `stop.sh refuses a derived name when a configured checkout lost its cache (#1015)` | the other half of that shape, and the destructive one. A CONFIGURED checkout records its project name in the cache; with the cache gone and no name handed in, the derived `local-<basename>` is a name this checkout never ran under and, on a shared host, one another checkout may be running under right now -- so `down --remove-orphans` against it reports success having ended the wrong thing, or nothing. |
 | `stop.sh honours an ambient PROJECT_NAME with no .env.generated to read (#1015)` | the seam `just test stop` uses -- the caller that already knows the name hands it over, so no second derivation exists to drift. |
 
 ### test/bats/unit/template_guard_spec.bats (2)
