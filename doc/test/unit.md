@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3718 tests**.
+Unit specs under `test/bats/unit/`: **3720 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -210,7 +210,7 @@ warned.
 | `_run_arch_literal: FAILS when a scan root holds no Dockerfile (#939)` | - |
 | `_run_arch_literal: the REAL shipped Dockerfiles pass today (#939)` | - |
 
-### test/bats/unit/base_docker_namespace_spec.bats (14)
+### test/bats/unit/base_docker_namespace_spec.bats (16)
 
 base's self-use of the `docker` namespace (#713, ADR-00000011 sec.2/4/5):
 root justfile `mod? docker`, the committed `script/docker/justfile.docker` +
@@ -239,9 +239,11 @@ write one tag while the run read another.
 | `base root justfile exports the host identity every compose read needs (#895)` | - |
 | `just test system supplies the host identity its bare compose run needs (#895)` | - |
 | `just test system names the compose project instead of inheriting the basename (#891)` | - |
-| `just docker stop ends the project in a checkout with no .env.generated (#1015)` | the load-bearing one: base never writes an interpolation cache, so a stop that requires one is a flow `just docker build` can start and no verb can end. Behavioural, because only running it shows the wrapper reaching compose. |
+| `just docker stop builds a compose command with no .env.generated (#1015)` | the env-load half: base never writes an interpolation cache, so a stop that dies sourcing one is a flow `just docker build` can start and no verb can end. Says only that the wrapper gets as far as building a compose command -- `--dry-run` returns before compose is called, so it cannot speak for what compose is handed. That is the test below. |
 | `just docker exec reaches compose in a checkout with no .env.generated (#1015)` | exec carried the same unconditional source as stop, so the whole build -> run -> exec -> stop flow was dead in a self-managed checkout, not just its last verb. |
 | `just docker run reaches compose in a checkout with no .env.generated (#1015)` | the third wrapper with the same defect. Fixing only the verb named in the report would have left the flow it belongs to still broken. |
+| `just docker stop hands compose the tooling tag its compose.yaml demands (#1015)` | the verb that ENDS the flow has to hand compose the one value its compose.yaml refuses to be read without, and it has to be the value the checkout's own resolver produces -- a second derivation would agree today and drift tomorrow. |
+| `just docker exec hands compose the tooling tag its compose.yaml demands (#1015)` | exec asks the same file the same way (its running-service precheck is a `compose ps`), so fixing only stop would leave the flow broken one verb earlier. |
 
 ### test/bats/unit/base_version_monitor_spec.bats (13)
 

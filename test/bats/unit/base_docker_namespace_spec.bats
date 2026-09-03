@@ -170,14 +170,19 @@ setup() {
 
 # _base_shaped_checkout <dir>
 #   A checkout with base's own layout: dist/ at the root, flat wrapper
-#   symlinks under script/, no .base/, no .setup.conf, no .env.generated.
+#   symlinks under script/, its own test entry (the one producer of the
+#   tooling tag its hand-authored compose.yaml interpolates) and the
+#   tooling Dockerfile that tag is a content hash of; no .base/, no
+#   .setup.conf, no .env.generated.
 _base_shaped_checkout() {
   local _dir="${1:?_base_shaped_checkout requires a dir}"
   mkdir -p "${_dir}/dist/script/docker/lib" "${_dir}/dist/script/docker/wrapper" \
-           "${_dir}/script"
+           "${_dir}/dockerfile" "${_dir}/script"
   cp /source/dist/script/docker/lib/* "${_dir}/dist/script/docker/lib/"
   cp /source/dist/script/docker/wrapper/*.sh "${_dir}/dist/script/docker/wrapper/"
   cp /source/compose.yaml "${_dir}/compose.yaml"
+  cp /source/dockerfile/Dockerfile.test-tools "${_dir}/dockerfile/"
+  cp -r /source/script/test "${_dir}/script/test"
   local _w
   for _w in build run exec stop prune; do
     ln -s "../dist/script/docker/wrapper/${_w}.sh" "${_dir}/script/${_w}.sh"
@@ -187,11 +192,39 @@ _base_shaped_checkout() {
   assert [ ! -e "${_dir}/.env.generated" ]
 }
 
-# why: the load-bearing one: base never writes an interpolation cache, so a stop
-# that requires one is a flow `just docker build` can start and no verb can
-# end. Behavioural, because only running it shows the wrapper reaching
-# compose.
-@test "just docker stop ends the project in a checkout with no .env.generated (#1015)" {
+# _recording_docker <dir>
+#   Put a `docker` on PATH that records, per call, the value of
+#   TEST_TOOLS_IMAGE it was handed and the argv it was given, then
+#   succeeds. Every compose call a wrapper makes is a line in
+#   ${DOCKER_CALLS_FILE}.
+#
+#   A stub, because the assertion is about what the WRAPPER exports before
+#   it hands compose.yaml over -- not about what compose then does with it.
+#   compose's own behaviour is not in question: the file names
+#   `${TEST_TOOLS_IMAGE:?...}` with no default, so an unset value is an
+#   interpolation error whatever verb follows.
+_recording_docker() {
+  local _dir="${1:?_recording_docker requires a dir}"
+  mkdir -p "${_dir}/bin"
+  DOCKER_CALLS_FILE="${_dir}/docker-calls.txt"
+  export DOCKER_CALLS_FILE
+  : > "${DOCKER_CALLS_FILE}"
+  cat > "${_dir}/bin/docker" <<'EOS'
+#!/usr/bin/env bash
+printf 'TEST_TOOLS_IMAGE=%s argv=%s\n' \
+  "${TEST_TOOLS_IMAGE-<unset>}" "$*" >> "${DOCKER_CALLS_FILE}"
+exit 0
+EOS
+  chmod +x "${_dir}/bin/docker"
+  export PATH="${_dir}/bin:${PATH}"
+}
+
+# why: the env-load half: base never writes an interpolation cache, so a stop that
+# dies sourcing one is a flow `just docker build` can start and no verb can
+# end. Says only that the wrapper gets as far as building a compose command
+# -- `--dry-run` returns before compose is called, so it cannot speak for
+# what compose is handed. That is the test below.
+@test "just docker stop builds a compose command with no .env.generated (#1015)" {
   local _tmp
   _tmp="$(mktemp -d)"
   _base_shaped_checkout "${_tmp}"
@@ -226,4 +259,53 @@ _base_shaped_checkout() {
   rm -rf "${_tmp}"
   status="${_status}"; output="${_output}"
   refute_output --partial "No such file or directory"
+}
+
+# ── reaching compose is not the same as compose reading the file ─────────
+#
+# A self-managed checkout's hand-authored compose.yaml names every image
+# `${TEST_TOOLS_IMAGE:?...}` with NO default, and compose interpolates the
+# WHOLE file whatever verb it is handed -- `down` and `ps` included. So a
+# wrapper that reaches compose without that value in its environment still
+# tears nothing down: it dies at interpolation, naming five services,
+# before the verb runs. `just docker build` resolves the tag because it
+# BUILDS with it, which is why build works and the verbs that END a flow
+# did not.
+#
+# These run the wrapper for real against a recording `docker`, because
+# `--dry-run` cannot see it: dry-run never calls compose.
+
+# why: the verb that ENDS the flow has to hand compose the one value its
+# compose.yaml refuses to be read without, and it has to be the value the
+# checkout's own resolver produces -- a second derivation would agree today
+# and drift tomorrow.
+@test "just docker stop hands compose the tooling tag its compose.yaml demands (#1015)" {
+  local _tmp _expected
+  _tmp="$(mktemp -d)"
+  _base_shaped_checkout "${_tmp}"
+  _recording_docker "${_tmp}"
+  _expected="$("${_tmp}/script/test/test.sh" --test-tools-image)"
+  assert [ -n "${_expected}" ]
+  run bash "${_tmp}/script/stop.sh"
+  run cat "${DOCKER_CALLS_FILE}"
+  rm -rf "${_tmp}"
+  assert_output --partial "TEST_TOOLS_IMAGE=${_expected}"
+  refute_output --partial "TEST_TOOLS_IMAGE=<unset>"
+}
+
+# why: exec asks the same file the same way (its running-service precheck is a
+# `compose ps`), so fixing only stop would leave the flow broken one verb
+# earlier.
+@test "just docker exec hands compose the tooling tag its compose.yaml demands (#1015)" {
+  local _tmp _expected
+  _tmp="$(mktemp -d)"
+  _base_shaped_checkout "${_tmp}"
+  _recording_docker "${_tmp}"
+  _expected="$("${_tmp}/script/test/test.sh" --test-tools-image)"
+  assert [ -n "${_expected}" ]
+  run bash "${_tmp}/script/exec.sh" true
+  run cat "${DOCKER_CALLS_FILE}"
+  rm -rf "${_tmp}"
+  assert_output --partial "TEST_TOOLS_IMAGE=${_expected}"
+  refute_output --partial "TEST_TOOLS_IMAGE=<unset>"
 }
