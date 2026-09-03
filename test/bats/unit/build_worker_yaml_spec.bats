@@ -370,6 +370,19 @@ FROM --platform=$BUILDPLATFORM debian:bookworm AS foo-test' foo
   refute_output --partial '--target foo-test'
 }
 
+@test "build-worker.yaml: the extra-stages roster comes from the shared resolver (#1013)" {
+  # Two readers of one fact, with a comment asserting they agree, is how
+  # this file got a stage detector that missed the cross-build FROM form
+  # while its sibling resolver read it correctly. The roster is now read
+  # through script/ci/build_worker/stage_names.sh -- the same script
+  # runtime_stages.sh reads it through, which in turn calls the tree's one
+  # FROM-line matcher -- and this file carries no such pattern of its own.
+  run code_grep -F 'build_worker/stage_names.sh' "${WF}"
+  assert_success
+  run code_grep -E 'FROM\[\[:space:\]\]' "${WF}"
+  [ "${status}" -ne 0 ] || [ -z "${output}" ]
+}
+
 @test "build-worker.yaml: cache lines select the backend on inputs.cache_backend (#801)" {
   # Both cache-from and cache-to (8 lines total) gate on the input so the
   # backend is chosen per call, defaulting to gha.

@@ -97,17 +97,58 @@ EOF
   assert_output "false"
 }
 
-@test "runtime_stages: stage detection is case-insensitive (Dockerfile keywords are)" {
+@test "runtime_stages: a lowercase 'from ... as' line declares nothing, here as everywhere (#1013)" {
+  # The resolver used to carry its own case-insensitive regex, which made
+  # it the ONE reader in the tree that saw a stage on this line: the
+  # compose emitter, the [environment] ENV bake and the config COPY bake
+  # all agree a lowercase keyword declares nothing (stage_spec.bats, #875,
+  # where the rule is argued). Reading the roster through that same matcher
+  # ends the disagreement -- a Dockerfile written this way now gets one
+  # answer everywhere, instead of a runtime image CI builds and compose has
+  # no service for.
   _fixture <<'EOF'
-from alpine:3 as sys
-from sys as devel
-from devel as devel-test
+FROM alpine:3 AS sys
+FROM sys AS devel
+FROM devel AS devel-test
 from sys as runtime
 from runtime as runtime-test
 EOF
   DOCKERFILE="${TMP}/Dockerfile" run --separate-stderr bash "${SCRIPT}"
   assert_success
+  assert_output "false"
+}
+
+@test "runtime_stages: the cross-build --platform FROM form declares the pair (#1013)" {
+  # The form the arm64 matrix invites. The old regex read it correctly and
+  # so does the shared matcher; the case is here so the delegation cannot
+  # regress the one shape the sibling extra-stages loop got wrong.
+  _fixture <<'EOF'
+FROM alpine:3 AS sys
+FROM sys AS devel
+FROM devel AS devel-test
+FROM --platform=$BUILDPLATFORM alpine:3 AS runtime
+FROM --platform=$BUILDPLATFORM runtime AS runtime-test
+EOF
+  DOCKERFILE="${TMP}/Dockerfile" run --separate-stderr bash "${SCRIPT}"
+  assert_success
   assert_output "true"
+}
+
+@test "runtime_stages: a stray bare token before AS declares nothing (#1013)" {
+  # `FROM <image> <junk> AS <stage>` is not a directive docker accepts, and
+  # the old `.*` regex read it as a declaration -- so the worker would ask
+  # buildx for a target no Dockerfile could produce. The shared matcher
+  # refuses it, and the pair reads as absent rather than half-present.
+  _fixture <<'EOF'
+FROM alpine:3 AS sys
+FROM sys AS devel
+FROM devel AS devel-test
+FROM alpine:3 junk AS runtime
+FROM alpine:3 junk AS runtime-test
+EOF
+  DOCKERFILE="${TMP}/Dockerfile" run --separate-stderr bash "${SCRIPT}"
+  assert_success
+  assert_output "false"
 }
 
 # ── The two shapes the shipped Dockerfile can be in ────────────
