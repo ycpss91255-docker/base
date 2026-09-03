@@ -98,6 +98,59 @@ teardown() {
 # _run_issueref: must-keep (no false positives)
 # ════════════════════════════════════════════════════════════════════
 
+# why: The `# why:` block is CATALOGUE PROSE authored at the site it
+# describes and rendered into doc/test/*.md -- the same artifact class as
+# the `@test` name below it, which this lint has always skipped. That
+# prose used to live in a document this lint does not scan, and 147 of the
+# sentences the migration moved name the issue they came from: if moving
+# where a sentence is STORED changed whether it may say `#NNN`, the
+# migration could only have landed by rewording them.
+@test "_run_issueref: does NOT flag a ref inside a '# why:' block in a .bats spec" {
+  local ref='#921'
+  {
+    printf '%s\n' '#!/usr/bin/env bats'
+    printf '%s\n' "# why: the regression ${ref} left behind, and why it matters"
+    printf '%s\n' '# a continuation line of the same block'
+    printf '%s\n' '@test "a" {'
+    printf '%s\n' '  true'
+    printf '%s\n' '}'
+  } > "${SCRATCH}/test/sample.bats"
+  run _run_issueref
+  [ "${status}" -eq 0 ]
+}
+
+# why: The exemption is the BLOCK, not the file and not the token. It ends
+# at the first non-comment line exactly as spec-markers.sh ends it, so an
+# ordinary helper comment further down the same spec is still scanned --
+# otherwise one marker anywhere would switch the lint off for the file.
+@test "_run_issueref: still flags a ref in an ordinary comment AFTER a '# why:' block" {
+  local ref='#922'
+  {
+    printf '%s\n' '#!/usr/bin/env bats'
+    printf '%s\n' '# why: a described test'
+    printf '%s\n' '@test "a" {'
+    printf '%s\n' '  true'
+    printf '%s\n' '}'
+    printf '%s\n' "# an ordinary helper comment with a stale ref ${ref}"
+  } > "${SCRATCH}/test/sample.bats"
+  run _run_issueref
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"${ref}"* ]]
+}
+
+# why: A `# why:` in a shell script is a comment like any other. The
+# exemption is scoped to `.bats` because that is where the marker grammar
+# is read; widening it to every file would turn one spelling into a
+# general opt-out from ADR-00000013.
+@test "_run_issueref: DOES flag a ref in a '# why:' comment in a .sh file" {
+  local ref='#923'
+  printf '%s\n' "# why: this is just a comment ${ref}" \
+    > "${SCRATCH}/script/sample.sh"
+  run _run_issueref
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"${ref}"* ]]
+}
+
 @test "_run_issueref: passes clean on a tree with no comment refs" {
   printf '%s\n' '# describes what the gate does, no number' \
     > "${SCRATCH}/script/sample.sh"

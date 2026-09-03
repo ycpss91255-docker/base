@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3488 tests**.
+Unit specs under `test/bats/unit/`: **3491 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -2280,7 +2280,7 @@ generator that derives the `doc/test/*.md` count figures from the specs
 | `_sync_doc_sections: an existing section is never duplicated (#859)` | - |
 | `_sync_doc_sections: a shipped smoke spec lands in smoke.md (#859)` | - |
 
-### test/bats/unit/issueref_lint_spec.bats (17)
+### test/bats/unit/issueref_lint_spec.bats (20)
 
 | Test | Description |
 |------|-------------|
@@ -2290,6 +2290,9 @@ generator that derives the `doc/test/*.md` count figures from the specs
 | `_run_issueref: flags a bare 2-digit ref (lower accept boundary) (#692)` | #692 2-digit lower bound flagged |
 | `_run_issueref: flags a bare 4-digit ref (upper accept boundary) (#692)` | #692 4-digit upper bound flagged |
 | `_run_issueref: flags refs in .bats helper comments (not @test names)` | Helper comment flagged, @test name kept |
+| `_run_issueref: does NOT flag a ref inside a '# why:' block in a .bats spec` | - |
+| `_run_issueref: still flags a ref in an ordinary comment AFTER a '# why:' block` | - |
+| `_run_issueref: DOES flag a ref in a '# why:' comment in a .sh file` | - |
 | `_run_issueref: passes clean on a tree with no comment refs` | Clean tree passes |
 | `_run_issueref: does NOT flag a #NNN inside a string literal` | String-literal ref kept |
 | `_run_issueref: does NOT flag ADR-0000xxxx references` | ADR refs kept |
