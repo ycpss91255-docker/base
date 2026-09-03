@@ -720,7 +720,7 @@ apt mirror はアップグレードで上書きされません。
 
 `--setup` を付けて再実行すれば `.env.generated` + `compose.yaml` を再生成できます。
 
-<!-- sync: field-deployment-just-docker-setup-deploy 66110bfc975b eba624dfb163 -->
+<!-- sync: field-deployment-just-docker-setup-deploy 9112a5c7eaaa 93fb0bfe1ba5 -->
 ### フィールド配備（`just docker setup deploy`）
 
 `just docker setup deploy`（または直接 `./setup.sh deploy`）は同じ `setup.conf` から自己完結型のフィールド配備**ディレクトリ**を生成します —— 上記ルーティングモデルの deploy 側です（[ADR-00000023](../adr/00000023-config-field-override-and-field-deploy-contract.md)、[ADR-00000003](../adr/00000003-env-vs-workload-param-boundary.md) を改訂；[PRD invariant 8](../PRD.md)）。対象は *フィールド向け* ステージ（既定 `runtime`；`devel` や `*-test` ステージは**決して**対象になりません）で、生成されるディレクトリは配備先ホストが必要とするものをすべて含みます —— フィールドホストが base のツールチェーン・ソースツリー・`setup.conf` を見ることはありません。
@@ -745,7 +745,7 @@ just docker setup deploy -o /tmp/robot-bundle # 出力ディレクトリを指�
 
 処理は順に:
 
-1. `[environment]` の既定値をイメージの実 `ENV` として焼き込み（S3）、`config/app/` があればイメージへ `COPY`（S4）—— フィールドイメージを自己完結化（env ファイルも config bind も持ち運ばない）;
+1. `[environment]` の既定値をイメージの実 `ENV` として焼き込み（S3）、各 `config/<component>/` をイメージの `/opt/app/config/<component>` へ `COPY`（S4）—— フィールドイメージを自己完結化（env ファイルも config bind も持ち運ばない）;
 2. `docker build --target <stage>` で不変イメージを build し、`<repo>:<stage>-<version>` を tag;
 3. `docker save | xz` で `image.tar.xz` を作成;
 4. 完全に解決済みの `compose.yaml`（`apply` と同じ resolver を共用するため、フィールドが dev からドリフトしない）、`deploy.sh` ランチャ、`README` を書き出し、調整可能な各ファイルの焼き込み済みデフォルトを `config/` へ取り出す。

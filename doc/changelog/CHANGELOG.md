@@ -58,6 +58,15 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 ## [Unreleased]
 
 ### Changed
+- **the dev bind and the deploy bake now cover every `config/<component>/`, not the literal `config/app` (closes #1000)**
+  -- both halves tested one hardcoded directory name **no repo in the org
+  has**, so the `[[ -d ]]` was always false: nothing mounted, nothing baked,
+  nothing said. Both now derive the population from `config/*/` -- the glob
+  `deploy.manifest` already uses -- each component landing at
+  `/opt/app/config/<component>`. No name list, so `config/shell/` and
+  `config/pip/` come along, inert (their build-time channel is `/tmp/config`,
+  deleted mid-`RUN`). PRD invariant 8 becomes true. Every run states what it
+  provisioned; a file directly under `config/` is WARNed by name.
 - **base's runtime helpers arrive by one directory COPY (closes #971)** --
   a consumer Dockerfile listed them one `COPY` per file, so base adding a
   helper was a change to every consumer repo. The directory is now the list.

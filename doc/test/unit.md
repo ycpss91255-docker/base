@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3525 tests**.
+Unit specs under `test/bats/unit/`: **3535 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -276,7 +276,7 @@ tests to their owning lib's spec: the `_parse_ini_section` /
 (`lib/setup_cmd.sh`), and the `_setup_ssh_x11_cookie` helper tests to
 `setup_detect_spec.bats` (`lib/setup_detect.sh`).
 
-#### test/bats/unit/setup_spec.bats (117)
+#### test/bats/unit/setup_spec.bats (121)
 
 The `setup.sh` orchestrator spec. `main` subcommand dispatch (`set` /
 `show` / `remove` for `[logging]` #328 and `[lifecycle]` #478, `reset`,
@@ -287,7 +287,7 @@ emitted blocks for
 `[lifecycle]` restart (#478), `[deploy]` `dri_groups` (#496) and
 `gpu_runtime` alias (#481), `[additional_contexts]` (#199), `[build]`
 `arg_N` / `target_arch` / `network`, `[security]` opt-in (#466),
-`config/app/` bind (#504), `.env.generated` cache + `.env` overlay
+`config/<component>/` bind (#504/#1000), `.env.generated` cache + `.env` overlay
 (#502), workspace writeback (#174/#201), `--gui` / `--no-x11-cookie` /
 `--print-resolved` flags (#338), `--quiet` confirmation lines (#285),
 #450 propagation + duplicate-target guards, and S7 `runtime.env`
@@ -1644,7 +1644,7 @@ per-instance field fails immediately.
 | `overlay guard: no baked published-port literal anywhere (forward invariant)` | no baked port literal |
 | `overlay guard: published ports are emitted as ${PORT_N:-default} on devel and stages` | ports overlay form |
 
-### test/bats/unit/deploy_spec.bats (53)
+### test/bats/unit/deploy_spec.bats (59)
 
 Covers the self-contained field-deploy generator (#832; ADR-3 amended by
 ADR-00000023). Deploy produces an output FOLDER run via a fully-resolved,
@@ -1693,8 +1693,14 @@ refused before any build or bundle step.
 | `_generate_deploy_launcher: writes an executable up/down/logs launcher (#832)` | launcher shape |
 | `_generate_deploy_launcher: a no-arg invocation defaults to up without a set -e early exit (#832)` | no-arg default up |
 | `_generate_deploy_launcher: generated launcher is ShellCheck-clean (#832)` | shellcheck-clean output |
-| `_bake_config_copy: splices COPY config/app into the target stage (#506/#504)` | config COPY bake |
-| `_bake_config_copy: handles src == out in place (#506/#504)` | in-place bake |
+| `_collect_config_components: names every config/*/ dir, sorted` | component population |
+| `_collect_config_components: skips files and hidden entries` | dir-only discriminator |
+| `_collect_config_components: empty result on a repo with no config/` | empty population |
+| `_bake_config_copy: splices COPY config/<component> into the target stage (#506/#504/#1000)` | config COPY bake |
+| `_bake_config_copy: handles src == out in place (#506/#504/#1000)` | in-place bake |
+| `_bake_config_copy: bakes every component to its own destination (#1000)` | per-component target |
+| `_bake_config_copy: bakes config/shell and config/pip too (#1000)` | no name list |
+| `_bake_config_copy: returns 1 and writes nothing when no component dir exists (#1000)` | nothing-to-bake |
 | `_generate_deploy_bundle: dry-run plans build (versioned image) + save + xz + install (#832)` | bundle plan |
 | `_generate_deploy_bundle: dry-run builds from the baked Dockerfile when [environment] is set (#832/#503)` | env-bake build |
 | `_generate_deploy_bundle: dry-run plans a docker cp per tunable-manifest path (#833)` | tunable extract |

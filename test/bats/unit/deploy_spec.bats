@@ -509,39 +509,119 @@ SH
 }
 
 # ════════════════════════════════════════════════════════════════════
-# _bake_config_copy -- splice COPY config/app into the target
-# stage of the deploy Dockerfile.
+# _collect_config_components / _bake_config_copy -- the deploy half of
+# the config/<component>/ channel, generalised over the component name.
+#
+# One derivation feeds BOTH halves: the dev bind in setup_cmd.sh and the
+# COPY bake here read the same `config/*/` glob, so a repo can never be
+# mounted in dev and left unbaked at deploy (PRD invariant 8's "opposite
+# means" only holds if the two agree on the population).
 # ════════════════════════════════════════════════════════════════════
 
-@test "_bake_config_copy: splices COPY config/app into the target stage (#506/#504)" {
+@test "_collect_config_components: names every config/*/ dir, sorted" {
   local _d; _d="$(mktemp -d)"
+  mkdir -p "${_d}/config/ros1_bridge" "${_d}/config/realsense" "${_d}/config/shell"
+  local -a _got=()
+  _collect_config_components "${_d}" _got
+  [[ "${_got[*]}" == "realsense ros1_bridge shell" ]]
+  rm -rf "${_d}"
+}
+
+@test "_collect_config_components: skips files and hidden entries" {
+  local _d; _d="$(mktemp -d)"
+  mkdir -p "${_d}/config/realsense"
+  : > "${_d}/config/params_ether.yaml"
+  : > "${_d}/config/.gitkeep"
+  mkdir -p "${_d}/config/.hidden"
+  local -a _got=()
+  _collect_config_components "${_d}" _got
+  [[ "${_got[*]}" == "realsense" ]]
+  rm -rf "${_d}"
+}
+
+@test "_collect_config_components: empty result on a repo with no config/" {
+  local _d; _d="$(mktemp -d)"
+  local -a _got=(stale)
+  _collect_config_components "${_d}" _got
+  (( ${#_got[@]} == 0 ))
+  rm -rf "${_d}"
+}
+
+@test "_bake_config_copy: splices COPY config/<component> into the target stage (#506/#504/#1000)" {
+  local _d; _d="$(mktemp -d)"
+  mkdir -p "${_d}/config/realsense"
   cat > "${_d}/Dockerfile" <<'DOCK'
 FROM scratch AS sys
 FROM sys AS devel
 FROM devel AS runtime
 CMD ["/app"]
 DOCK
-  _bake_config_copy "${_d}/Dockerfile" "runtime" "${_d}/out"
+  _bake_config_copy "${_d}/Dockerfile" "runtime" "${_d}/out" "${_d}"
   run cat "${_d}/out"
-  assert_output --partial "COPY config/app /opt/app/config"
+  assert_output --partial "COPY config/realsense /opt/app/config/realsense"
   local _from _copy _cmd
   _from="$(grep -n 'AS runtime' "${_d}/out" | head -1 | cut -d: -f1)"
-  _copy="$(grep -n 'COPY config/app' "${_d}/out" | head -1 | cut -d: -f1)"
+  _copy="$(grep -n 'COPY config/realsense' "${_d}/out" | head -1 | cut -d: -f1)"
   _cmd="$(grep -n 'CMD' "${_d}/out" | head -1 | cut -d: -f1)"
   (( _from < _copy )) && (( _copy < _cmd ))
   rm -rf "${_d}"
 }
 
-@test "_bake_config_copy: handles src == out in place (#506/#504)" {
+@test "_bake_config_copy: handles src == out in place (#506/#504/#1000)" {
   local _d; _d="$(mktemp -d)"
+  mkdir -p "${_d}/config/realsense"
   cat > "${_d}/Dockerfile" <<'DOCK'
 FROM scratch AS runtime
 CMD ["/app"]
 DOCK
-  _bake_config_copy "${_d}/Dockerfile" "runtime" "${_d}/Dockerfile"
+  _bake_config_copy "${_d}/Dockerfile" "runtime" "${_d}/Dockerfile" "${_d}"
   run cat "${_d}/Dockerfile"
-  assert_output --partial "COPY config/app /opt/app/config"
+  assert_output --partial "COPY config/realsense /opt/app/config/realsense"
   assert_output --partial "FROM scratch AS runtime"
+  rm -rf "${_d}"
+}
+
+@test "_bake_config_copy: bakes every component to its own destination (#1000)" {
+  # Two components, two COPY lines, two distinct targets. The old code
+  # had ONE hardcoded COPY into ONE destination, so a second component
+  # had nowhere to go; the derivation <root>/<dirname> gives each its own
+  # and, being a function of a sibling's name, can never collide.
+  local _d; _d="$(mktemp -d)"
+  mkdir -p "${_d}/config/realsense" "${_d}/config/ros1_bridge"
+  printf 'FROM scratch AS runtime\nCMD ["/app"]\n' > "${_d}/Dockerfile"
+  _bake_config_copy "${_d}/Dockerfile" "runtime" "${_d}/out" "${_d}"
+  run cat "${_d}/out"
+  assert_output --partial "COPY config/realsense /opt/app/config/realsense"
+  assert_output --partial "COPY config/ros1_bridge /opt/app/config/ros1_bridge"
+  rm -rf "${_d}"
+}
+
+@test "_bake_config_copy: bakes config/shell and config/pip too (#1000)" {
+  # Same decision as the dev-bind half, pinned on the deploy side so the
+  # two cannot drift apart: no name list, so the two build-time dirs come
+  # along. They land at /opt/app/config/<x>, which nothing in the image
+  # reads, and their build-time use (/tmp/config, deleted in the same RUN)
+  # is over before the field container exists.
+  local _d; _d="$(mktemp -d)"
+  mkdir -p "${_d}/config/shell" "${_d}/config/pip"
+  printf 'FROM scratch AS runtime\nCMD ["/app"]\n' > "${_d}/Dockerfile"
+  _bake_config_copy "${_d}/Dockerfile" "runtime" "${_d}/out" "${_d}"
+  run cat "${_d}/out"
+  assert_output --partial "COPY config/shell /opt/app/config/shell"
+  assert_output --partial "COPY config/pip /opt/app/config/pip"
+  rm -rf "${_d}"
+}
+
+@test "_bake_config_copy: returns 1 and writes nothing when no component dir exists (#1000)" {
+  # The "nothing to bake" non-result, matching its sibling
+  # _generate_runtime_dockerfile: return 1, leave <out> alone, and let the
+  # caller keep building from the plain Dockerfile. The guard is not
+  # widened to fail-open -- the caller reports the empty case out loud.
+  local _d; _d="$(mktemp -d)"
+  printf 'FROM scratch AS runtime\nCMD ["/app"]\n' > "${_d}/Dockerfile"
+  run _bake_config_copy "${_d}/Dockerfile" "runtime" "${_d}/out" "${_d}"
+  assert_failure
+  refute [ -e "${_d}/out" ]
   rm -rf "${_d}"
 }
 
