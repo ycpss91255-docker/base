@@ -226,21 +226,15 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 
 ### Fixed
 - **`just` owns the lifecycle of what `just` creates (closes #1015, #997)** --
-  `just test stop` ends this checkout's self-test project, needing no
-  `.env.generated`; the five wrappers now treat that file as optional, and
-  every compose call in a self-managed checkout carries the tooling tag that
-  checkout's hand-authored compose.yaml interpolates for `down` and `ps` as
-  much as for `build`, so `just docker stop` and `just docker exec` work
-  there instead of dying twice over -- first sourcing the file, then at
-  interpolation. A checkout that SHOULD carry that file and does not is
-  refused by name instead of tearing down a project name derived from its
-  directory, which on a shared host can be another checkout's.
-  A run whose predecessor still holds the project network waits
-  (`BASE_PROJECT_WAIT`, default 2m) saying what for, or fails naming the
-  container and the verb that clears it, rather than the daemon's raw text at
-  `not_ok=0`. `just test smoke`'s per-checkout image is stamped and collected by
-  the same reclaim as the network. Every docker-reaching recipe states its
-  lifecycle, against a derived population.
+  `just test stop` ends this checkout's self-test project. `just docker stop`
+  and `just docker exec` work in a self-managed checkout: `.env.generated` is
+  optional, and every compose call carries the tooling tag its compose.yaml
+  interpolates for `down` as much as for `build`. A checkout that SHOULD carry
+  that file and does not is refused, not ended under a name derived from its
+  directory. A run whose predecessor holds the project network waits
+  (`BASE_PROJECT_WAIT`, default 2m), saying why. `just test smoke`'s
+  per-checkout image is reclaimed like the network, and every docker-reaching
+  recipe states its lifecycle.
 - **the errexit-bang lint's three named misses (closes #990, #991, #992)** --
   a CRLF `*.bats` is REFUSED by name (a `\r` disarmed the line continuation,
   so a spliced `; true` went unreported); a `!` ending an `if` / `while` /
