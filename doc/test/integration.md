@@ -330,6 +330,15 @@ vacuity is why the same defect shipped twice.
 
 ### test/bats/integration/test_tools_pins_spec.bats (1)
 
+The image really ships the versions its Dockerfile pins -- the
+behavioural half of `test/bats/unit/test_tools_pins_spec.bats`. The suite
+runs INSIDE the test-tools image, so every tool on `PATH` is the image's
+own copy and the probe the roster names can simply be run. Fail-closed,
+for the reason its `just` sibling states: an image whose tool disagrees
+with the declaration is exactly the drift this exists to report, and a
+skip would restore the silence. A probe that cannot run at all is
+reported too -- it is not evidence that the version is right (#1012).
+
 | Test | Description |
 |------|-------------|
-| `test-tools image: every pinned tool answers with the declared version (#1012)` | - |
+| `test-tools image: every pinned tool answers with the declared version (#1012)` | Iterates the roster, so a pin declared tomorrow is asserted tomorrow. |

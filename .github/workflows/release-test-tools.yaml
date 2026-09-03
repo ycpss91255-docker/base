@@ -287,27 +287,47 @@ jobs:
           set -euo pipefail
           image="${{ steps.tags.outputs.smoke }}"
           docker pull "${image}"
-          docker run --rm "${image}" bats --version
+          # bats and kcov are NOT probed here: both are pinned by an ARG,
+          # so the roster loop below asserts them by version, which is
+          # strictly more than the exit status a probe here would read.
           docker run --rm "${image}" shellcheck --version
           docker run --rm "${image}" hadolint --version
           docker run --rm "${image}" parallel --version
           docker run --rm "${image}" git --version
-          # just (#546, #948): the justfile entry point replaces the
-          # Makefile; downstream + CI run `just <verb>` (the single
-          # runner, make is retired), so the image must carry it -- at the
-          # PINNED version. Every other check in this step asserts exit 0,
-          # which catches a tool's removal and never its staleness; that
-          # is precisely how this image sat 37 minors behind the `just`
-          # CI and developer hosts ran, green throughout. So compare the
-          # version string against the declaration the image was built
-          # from.
-          just_pin="$(./dist/script/base/just-version.sh)"
-          just_actual="$(docker run --rm "${image}" just --version)"
-          if [ "${just_actual}" != "just ${just_pin}" ]; then
-            echo "::error::${image} ships '${just_actual}' but dockerfile/Dockerfile.test-tools declares ARG JUST_VERSION=${just_pin}" >&2
+          # Every probe above asserts an exit status and nothing else,
+          # which catches a tool's REMOVAL and never its staleness -- that
+          # is how this image sat 37 minors behind the `just` CI and
+          # developer hosts ran, green throughout. The tools the
+          # Dockerfile PINS are therefore compared to their declaration,
+          # and the list of them is the declaration's, not one kept here:
+          # script/ci/test-tools-pins.sh reads every `ARG <NAME>_VERSION=`
+          # in dockerfile/Dockerfile.test-tools and refuses to answer
+          # while any of them has no probe. So a tool pinned tomorrow is
+          # asserted tomorrow, rather than joining the three (bats, kcov,
+          # alpine) that were pinned and compared to nothing.
+          #
+          # The roster is captured into a variable BEFORE the loop rather
+          # than piped into it: a loop fed by a command that failed simply
+          # gets no input and passes, which for a step whose whole
+          # assertion is "the versions were checked" is the fail-open
+          # direction. An assignment from a failing command substitution
+          # trips errexit, and emptiness is refused by name below.
+          roster="$(./script/ci/test-tools-pins.sh roster)"
+          if [ -z "${roster}" ]; then
+            echo "::error::the pin roster came back empty, so no version" \
+              "was checked at all. Read script/ci/test-tools-pins.sh." >&2
             exit 1
           fi
-          echo "just ${just_pin} confirmed in ${image}"
+          while IFS="$(printf '\t')" read -r pin_arg pin_ver pin_probe; do
+            observed="$(docker run --rm "${image}" sh -c "${pin_probe}" 2>&1)"
+            if ! ./script/ci/test-tools-pins.sh check "${pin_arg}" "${observed}"; then
+              echo "::error::${image} answers '${observed}' for" \
+                "${pin_probe}, but dockerfile/Dockerfile.test-tools" \
+                "declares ARG ${pin_arg}=${pin_ver}" >&2
+              exit 1
+            fi
+            echo "${pin_arg}=${pin_ver} confirmed in ${image} (${observed})"
+          done <<< "${roster}"
           # `git subtree --help` would invoke `man git-subtree`, but alpine
           # ships no man viewer in the test-tools image (and we don't want
           # to install one just for this smoke check). Confirm the binary
@@ -339,9 +359,3 @@ jobs:
           # can no longer go missing. Alpine ships it as `yq-go`; the
           # binary on PATH is `yq`, which is what this probe pins.
           docker run --rm "${image}" yq --version
-          # kcov (#686): source-built into the image (not in any alpine
-          # repo) so the coverage matrix runs on this one shared image
-          # instead of the old debian kcov/kcov + per-shard apt-install.
-          # Smoke-check the binary loads (its runtime shared libs are
-          # apk-installed in the final stage); --version exits 0.
-          docker run --rm "${image}" kcov --version

@@ -206,6 +206,14 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 - **the changelog lint now catches an entry that was edited and not re-wrapped (refs #927)** -- a single word left alone on a continuation line with more of its paragraph on the next line. The length measure collapses whitespace on purpose and markdown collapses it again at render time, so nothing else could see it. A short final line, a table row, a fenced line and an HTML comment are left alone. Affects anyone writing an `[Unreleased]` entry.
 
 ### Fixed
+- **the tooling image's pinned tools are checked by version, from a derived
+  roster (refs #1012)** -- fourteen of the fifteen probes in the release
+  smoke step asserted an exit status only, so `bats`, `kcov` and `alpine`
+  could go stale silently and `alpine` was never probed. The step now
+  iterates `script/ci/test-tools-pins.sh`, which reads every
+  `ARG <NAME>_VERSION=` in `dockerfile/Dockerfile.test-tools` and refuses
+  to answer while one of them has no probe -- so a tool pinned tomorrow is
+  asserted tomorrow.
 - **one classifier decides whether a tag is a prerelease (refs #1012)** --
   the question decided three things across the org and was spelled twice as
   an inline `contains(github.ref_name, '-')`, which is also true of

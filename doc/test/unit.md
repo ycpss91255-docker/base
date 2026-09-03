@@ -4297,6 +4297,38 @@ rather than an assurance.
 | `release-test-tools.yaml: the just smoke check asserts the version, not exit 0 (#948)` | - |
 
 
+### test/bats/unit/test_tools_pins_spec.bats (11)
+
+The release smoke step ran fifteen probes against the image it had just
+published, and fourteen of them asserted an exit status and nothing else
+-- which catches a tool's removal and never its staleness. Three tools
+besides `just` are pinned by an `ARG` in
+`dockerfile/Dockerfile.test-tools` (`BATS_VERSION`, `KCOV_VERSION`,
+`ALPINE_VERSION`) and none was compared to anything; the last was not
+probed at all (#1012).
+
+Three more comparisons would leave the same defect one `ARG` away, so
+`script/ci/test-tools-pins.sh` derives the POPULATION from the
+declaration and **refuses to produce a roster while a declared pin has no
+probe**. What stays a fixed table is the vocabulary -- how to ask a given
+tool its version -- the same detector/population split
+`script/test/drivers/just_provenance.sh` draws. The behavioural half is
+`test/bats/integration/test_tools_pins_spec.bats`; the published-image
+half is the smoke step, which iterates this same roster.
+
+| Test | Description |
+|------|-------------|
+| `test-tools pins: the roster names every ARG *_VERSION the Dockerfile declares (#1012)` | Population compared against a reader that is not the accessor's, so this is not the accessor agreeing with itself. |
+| `test-tools pins: every roster row carries a pin and a probe (#1012)` | A row with no probe is a pin nobody can ask about. |
+| `test-tools pins: a declared pin with no probe is refused, naming it (#1012)` | The anti-recurrence property: a tool cannot be pinned in that Dockerfile and go unasserted. |
+| `test-tools pins: a Dockerfile declaring no pin at all is refused, not answered empty (#1012)` | An empty roster satisfies every consumer that iterates it, in silence. |
+| `test-tools pins: check accepts the exact declared version (#1012)` | `Bats 1.13.0`, `just 1.58.0`, `kcov v43`. |
+| `test-tools pins: check accepts a longer version under a series pin (#1012)` | `ALPINE_VERSION=3.21` against `/etc/alpine-release`'s `3.21.7`; equality would fail every image the Dockerfile can build. |
+| `test-tools pins: check refuses a downlevel version (#1012)` | Staleness, which is the whole reason the exit-0 probes were not enough. |
+| `test-tools pins: check refuses a version the pin is merely a digit prefix of (#1012)` | `v43` is not satisfied by `v431` -- the false green a substring test gives. |
+| `test-tools pins: check refuses empty observed output (#1012)` | A probe that did not run is not agreement. |
+| `test-tools pins: check refuses an ARG that is not on the roster (#1012)` | There is nothing to compare against, so it refuses rather than passing. |
+| `test-tools pins: an unrecognised subcommand is refused and names what it does answer (#1012)` | It does not fall through to the roster. |
 ### test/bats/unit/adr_structure_spec.bats (27)
 
 | Test | Description |
@@ -4330,18 +4362,3 @@ rather than an assurance.
 | `_run_adr_structure: the REAL doc/adr/ passes today (#994)` | - |
 
 
-### test/bats/unit/test_tools_pins_spec.bats (11)
-
-| Test | Description |
-|------|-------------|
-| `test-tools pins: the roster names every ARG *_VERSION the Dockerfile declares (#1012)` | - |
-| `test-tools pins: every roster row carries a pin and a probe (#1012)` | - |
-| `test-tools pins: a declared pin with no probe is refused, naming it (#1012)` | - |
-| `test-tools pins: a Dockerfile declaring no pin at all is refused, not answered empty (#1012)` | - |
-| `test-tools pins: check accepts the exact declared version (#1012)` | - |
-| `test-tools pins: check accepts a longer version under a series pin (#1012)` | - |
-| `test-tools pins: check refuses a downlevel version (#1012)` | - |
-| `test-tools pins: check refuses a version the pin is merely a digit prefix of (#1012)` | - |
-| `test-tools pins: check refuses empty observed output (#1012)` | - |
-| `test-tools pins: check refuses an ARG that is not on the roster (#1012)` | - |
-| `test-tools pins: an unrecognised subcommand is refused and names what it does answer (#1012)` | - |
