@@ -253,15 +253,21 @@ smoke *args:
 # interpolation cache, and generating one just to stop a container would
 # write into the tree under test.
 #
-# HOST_UID / HOST_GID are exported for the reason `system` and `smoke`
-# export them: compose interpolates the WHOLE file whatever service a
-# command names, and this recipe is also reachable through a direct
-# `just -f`, which the root entry's exports do not cover.
+# TEST_TOOLS_IMAGE and HOST_UID / HOST_GID are resolved here for the
+# reason `system` and `smoke` resolve them: compose interpolates the WHOLE
+# file whatever command it is given -- `down` included -- so every
+# `${VAR:?}` in compose.yaml has to have a value or compose refuses to
+# read the file at all. A stop that supplied only the project name died
+# naming four services and tore nothing down, and `--dry-run` could not
+# show it because dry-run never calls compose. The ids are also what a
+# direct `just -f` needs, which the root entry's exports do not reach.
 stop *args:
     #!/usr/bin/env bash
     set -euo pipefail
     PROJECT_NAME="$(./script/test/test.sh --compose-project-name)"
     export PROJECT_NAME
+    TEST_TOOLS_IMAGE="${TEST_TOOLS_IMAGE:-$(./script/test/test.sh --test-tools-image)}"
+    export TEST_TOOLS_IMAGE
     HOST_UID="$(id -u)"
     HOST_GID="$(id -g)"
     export HOST_UID HOST_GID
