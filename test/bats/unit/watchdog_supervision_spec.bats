@@ -951,8 +951,15 @@ EOF
   # ONE spelling in ONE named place, not an open claim about processes.
   local _spec="${BATS_TEST_FILENAME}"
   # Assembled from pieces, and every fixture below builds its shell name
-  # from a printf ARGUMENT, so that no line of this file can match the scan
-  # it runs and fail the invariant on its own source.
+  # from a printf ARGUMENT, so that no CODE line of this file can match the
+  # scan it runs and fail the invariant on its own source.
+  #
+  # Comment lines are blanked before the scan, and blanked rather than
+  # deleted so the line numbers below stay the file's. A `bash -c` inside
+  # prose starts nothing, and reading one as a violation makes this guard
+  # fail on its own explanation of itself -- which is what happened the
+  # moment the catalogue descriptions moved into the spec files and this
+  # file's header gained a sentence naming the spelling it forbids.
   # `\b(ba)?sh`: the word boundary is what keeps this off `dash` and off
   # any other name ending in sh, while covering the two spellings that
   # actually start a shell here.
@@ -962,10 +969,10 @@ EOF
   [[ -n "${_door}" ]] || fail \
     "this file defines no _run_bounded, so there is no single door for a case to start a process through"
   _door_end="$(awk -v s="${_door}" 'NR>=s && /^}$/ {print NR; exit}' "${_spec}")"
-  _hits="$(grep -cE "${_pat}" "${_spec}" || true)"
+  _hits="$(sed 's/^[[:space:]]*#.*$//' "${_spec}" | grep -cE "${_pat}" || true)"
   [[ "${_hits}" -eq 1 ]] || fail \
     "${_hits} places in this file start a shell, not 1: every case must go through _run_bounded, which is what hands the process a log file instead of the descriptor bats reads the case's output from, and what kills its process group afterwards"
-  _hit_line="$(grep -nE "${_pat}" "${_spec}" | cut -d: -f1)"
+  _hit_line="$(sed 's/^[[:space:]]*#.*$//' "${_spec}" | grep -nE "${_pat}" | cut -d: -f1)"
   [[ "${_hit_line}" -gt "${_door}" && "${_hit_line}" -lt "${_door_end}" ]] || fail \
     "the one place that starts a shell is at line ${_hit_line}, outside _run_bounded (lines ${_door}-${_door_end})"
 
