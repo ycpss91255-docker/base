@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3609 tests**.
+Unit specs under `test/bats/unit/`: **3620 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -4361,3 +4361,19 @@ rather than an assurance.
 | `_run_adr_structure: REFUSES when doc/adr/ holds ONLY the exempt README (#994)` | - |
 | `_run_adr_structure: REFUSES when doc/adr/ does not exist (#994)` | - |
 | `_run_adr_structure: the REAL doc/adr/ passes today (#994)` | - |
+
+### test/bats/unit/project_wait_spec.bats (11)
+
+| Test | Description |
+|------|-------------|
+| `a project with nothing attached to its network is ready at once` | - |
+| `a project with no network of its own at all is ready at once` | - |
+| `the listing is filtered by both labels, so only this checkout's project is looked at` | - |
+| `a container still detaching is waited for, and the wait says what it waits for` | - |
+| `a container that never detaches fails naming it and the verb that clears it` | - |
+| `the wedged run says no test failed, so the reader stops hunting for one` | - |
+| `a running container is a concurrent run, not a wedge` | - |
+| `an unreadable docker is not evidence of a wedge` | - |
+| `a malformed wait window is named and the default is used, not the run refused` | - |
+| `a wedged project stops the dispatch before compose is called` | - |
+| `a quiescent project lets the dispatch through` | - |
