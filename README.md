@@ -539,9 +539,22 @@ and the orchestrator now arrives the same way.
   # script/entrypoint.sh -- keep your bringup, drop base's plumbing
 - . /usr/local/lib/base/logging.sh
 - . /usr/local/lib/base/watchdog.sh
++ set +u
+  source "/opt/ros/${ROS_DISTRO}/setup.bash"
++ set -u
   export MY_APP_HOME=/opt/app
 - exec "${@}"
 ```
+
+**The `set +u` is not cosmetic** if your bringup sources anything that
+dereferences unbound variables — a ROS overlay being that case in this org.
+Your file used to be the `ENTRYPOINT`, running under whatever options it set
+itself, and the file `init.sh` seeded before this release sets none. Sourced
+by the orchestrator it now runs under `set -euo pipefail`, so the same line
+aborts on ROS's unbound `AMENT_TRACE_SETUP_FILES` and the container dies
+before your workload ever starts. Bracket it in the SAME commit as the other
+two edits. `just upgrade` writes the bracket too, but only on the upgrade
+AFTER the flip — the flip commit itself has to carry it.
 
 Flipping the `ENTRYPOINT` first breaks the container (the un-removed `exec`
 pre-empts the watchdog); cleaning the bringup first is merely inert. Until

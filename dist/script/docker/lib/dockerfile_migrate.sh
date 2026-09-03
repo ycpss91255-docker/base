@@ -729,14 +729,40 @@ _migrate_arg_user_apply() {
 # container / runs the ENTRYPOINT. Bracket the source with `set +u` before
 # and `set -u` after so unbound vars inside setup.bash do not abort PID 1.
 #
-# Only fires when the entrypoint actually runs under nounset (`set -u` /
-# `set -eu` / `set -euo pipefail`) AND the source is not already guarded by
-# an immediately-preceding `set +u`.
+# Only fires when the entrypoint actually runs under nounset AND the source
+# is not already guarded by an immediately-preceding `set +u`.
+#
+# _dfm_entry_runs_under_nounset <dockerfile>
+#   True when the file beside <dockerfile> executes with nounset in effect.
+#   TWO independent sources, and the second is nowhere in the file:
+#     - the file turns it on itself (`set -u` / `set -eu` / `set -euo
+#       pipefail`) -- the whole story while the repo's own file IS the
+#       ENTRYPOINT;
+#     - the Dockerfile names base's orchestrator as the ENTRYPOINT, and the
+#       orchestrator SOURCES this file under its own `set -euo pipefail`
+#       (ADR-00000030). A repo that migrated to that model carrying the
+#       bringup init.sh seeded BEFORE it -- which has no `set` line at all
+#       -- runs its ROS source under nounset for the first time, with
+#       nothing in the file saying so.
+#   Reads the orchestrator ENTRYPOINT through _dfm_bringup_on_orchestrator
+#   so that spelling lives in one place; it is defined further down and
+#   both are in scope by the time apply_migrations calls either.
+_dfm_entry_runs_under_nounset() {
+  local _file="$1"
+  local _entry
+  _entry="$(_dfm_entrypoint_path "${_file}")"
+  [[ -f "${_entry}" ]] || return 1
+  if grep -Eq '^[[:space:]]*set[[:space:]]+-[a-z]*u' "${_entry}"; then
+    return 0
+  fi
+  _dfm_bringup_on_orchestrator "${_file}" >/dev/null
+}
+
 _migrate_nounset_source_detect() {
   local _entry
   _entry="$(_dfm_entrypoint_path "$1")"
   [[ -f "${_entry}" ]] || return 1
-  grep -Eq '^[[:space:]]*set[[:space:]]+-[a-z]*u' "${_entry}" || return 1
+  _dfm_entry_runs_under_nounset "$1" || return 1
   # An un-guarded source is one whose nearest preceding non-shellcheck-comment
   # line is NOT `set +u` (a shellcheck directive sits between guard and source
   # and must be treated as transparent so re-runs stay idempotent).

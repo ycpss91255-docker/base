@@ -88,6 +88,17 @@ an un-migrated repo runs exactly as before.
   strict mode the orchestrator already runs under, so the effect is nil
   today, but a bringup that turns an option OFF and does not restore it
   leaks into the exec.
+- That edge runs the OTHER way too, and there it is not nil: the
+  orchestrator's `set -euo pipefail` now applies to a bringup that never
+  set it. The file `init.sh` seeded before this release carries no `set`
+  line, so a repo migrating one that sources a ROS overlay runs that source
+  under nounset for the first time and dies on ROS's unbound
+  `AMENT_TRACE_SETUP_FILES` before the workload starts. The existing
+  nounset-source migration is the guard for exactly that, so it now reads
+  the ENTRYPOINT as a second source of nounset rather than only the `set`
+  line in the file, and README's migration steps carry the `set +u` bracket
+  -- the migration can only heal the upgrade AFTER the flip, so the flip
+  commit has to carry it itself.
 - Two shapes are now footguns the warn-only detector names rather than
   prevents: a bringup that still execs (the watchdog never arms) and one
   that still sources a helper (a second per-start log, or a second

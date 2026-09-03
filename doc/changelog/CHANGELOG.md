@@ -66,7 +66,14 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   existing repo is unchanged**: it adopts the model by flipping `ENTRYPOINT`
   and dropping the plumbing + `exec` from its bringup **in one commit** --
   flipping first breaks it, because the orchestrator SOURCES the bringup.
-  `just upgrade` notices until then and rewrites neither file.
+  `just upgrade` notices until then and rewrites neither file. A bringup
+  that sources a ROS overlay needs a third edit in that same commit --
+  `set +u` around the source -- because the orchestrator sources it under
+  `set -euo pipefail` while the pre-#945 seeded file set nothing, and the
+  unbound `AMENT_TRACE_SETUP_FILES` then kills the container before the
+  workload starts; the existing nounset-source migration now reads the
+  `ENTRYPOINT` as a second source of nounset, so it heals a repo that
+  flipped without it on the next upgrade.
 - **the dev bind and the deploy bake now cover every `config/<component>/`, not the literal `config/app` (closes #1000)**
   -- both halves tested one hardcoded directory name **no repo in the org
   has**, so the `[[ -d ]]` was always false: nothing mounted, nothing baked,
