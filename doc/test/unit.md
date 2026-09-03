@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3488 tests**.
+Unit specs under `test/bats/unit/`: **3532 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -4234,3 +4234,52 @@ rather than an assurance.
 | `self-test.yaml: setup-just is pinned from the accessor, not left to install latest (#948)` | - |
 | `release-test-tools.yaml: the just smoke check asserts the version, not exit 0 (#948)` | - |
 
+
+### test/bats/unit/shell_metrics_spec.bats (44)
+
+| Test | Description |
+|------|-------------|
+| `population: a tracked .sh file is read (#994)` | - |
+| `population: a tracked EXTENSIONLESS file whose first two bytes are '#!' is read (#994)` | - |
+| `population: a tracked extensionless file WITHOUT a shebang is not read (#994)` | - |
+| `population: a tracked SYMLINK ending .sh is not read (#994)` | - |
+| `population: an UNTRACKED .sh file is not read (#994)` | - |
+| `population: an EMPTY population is refused, never reported clean (#994)` | - |
+| `parser: a shell KEYWORD USED AS AN ARGUMENT closes nothing (#994)` | - |
+| `parser: double-quote scanning RECURSES into command substitution (#994)` | - |
+| `parser: a dollar-single-quote holding an escaped quote does not swallow the file (#994)` | - |
+| `parser: a heredoc body containing 'if' and 'done' is data, not syntax (#994)` | - |
+| `parser: a heredoc body does not count toward function length (#994)` | - |
+| `parser: a case pattern containing ')' does not end the pattern early (#994)` | - |
+| `parser: a double-semicolon inside a string does not end a case arm (#994)` | - |
+| `parser: a comment containing 'fi' closes nothing (#994)` | - |
+| `parser: a comment-only line does not count toward length (#994)` | - |
+| `parser: a function defined INSIDE a function yields two records (#994)` | - |
+| `parser: an inner function definition adds a level to the OUTER depth (#994)` | - |
+| `parser: 'function name {' with no parens is a function definition (#994)` | - |
+| `parser: 'function name() {' is a function definition (#994)` | - |
+| `parser: a one-line function body is measured as one line (#994)` | - |
+| `parser: an array assignment is not read as a function definition (#994)` | - |
+| `parser: CRLF line endings are read like LF (#994)` | - |
+| `counting: a case arm adds NO level, so case matches the if/elif chain it replaces (#994)` | - |
+| `counting: a brace group and a subshell add no level; the construct inside them does (#994)` | - |
+| `counting: length is body CODE lines, excluding the header and closing brace (#994)` | - |
+| `counting: positional parameters are the HIGHEST index reached, not the count of distinct ones (#994)` | - |
+| `counting: an unbraced positional takes ONE digit, the way bash reads it (#994)` | - |
+| `counting: a forwarded argument list does not raise the count but marks the function variadic (#994)` | - |
+| `counting: a 'shift' raises the index a later positional reaches (#994)` | - |
+| `counting: a 'shift' inside a loop is unbounded, so the function is variadic (#994)` | - |
+| `counting: a nested function has its OWN positional parameters (#994)` | - |
+| `refusal: an unbalanced construct is reported, and the file's records are dropped (#994)` | - |
+| `refusal: an unterminated quote is reported (#994)` | - |
+| `refusal: a legacy backtick substitution is reported rather than guessed at (#994)` | - |
+| `limitation: a function body that is not a brace group is a finding, not a record (base#994)` | - |
+| `limitation: an arithmetic left shift is misread as a heredoc, and errs toward a finding (base#994)` | - |
+| `_run_nesting_depth: FAILS at depth 4, naming file and function (#994)` | - |
+| `_run_nesting_depth: passes at depth 3 (#994)` | - |
+| `_run_function_length: FAILS at 51 body code lines (#994)` | - |
+| `_run_function_length: passes at exactly 50 body code lines (#994)` | - |
+| `_run_positional_params: FAILS at 6 positional parameters (#994)` | - |
+| `_run_positional_params: passes at exactly 5 (#994)` | - |
+| `the three lints share ONE reader pass (#994)` | - |
+| `_run_shell_metrics: reports all three metrics in one run (#994)` | - |
