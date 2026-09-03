@@ -90,6 +90,18 @@ _clean_tree() {
     '' \
     '[Unreleased]: https://example.invalid/compare/v0.2.0...HEAD' \
     '[v0.1.0]: https://example.invalid/releases/tag/v0.1.0'
+  _reindex
+}
+
+# _reindex -- re-derive the index from whatever series files are on disk.
+# A perturbation that changes a series' version count, its date span or
+# which file holds [Unreleased] also changes the DERIVED index, so without
+# this it trips the index-drift rule as well as the rule it is about, and
+# that collateral is what lets a loose assertion pass on a driver whose rule
+# has been deleted. So a case whose perturbation moves the index re-derives
+# it here; a case that leaves every derived row alone has nothing to
+# re-derive, and the drift case must not.
+_reindex() {
   printf '# Changelog\n\n' > "${CL}/CHANGELOG.md"
   bash "${SCRATCH}/script/release/changelog_index.sh" "${CL}" \
     >> "${CL}/CHANGELOG.md"
@@ -105,9 +117,13 @@ _clean_tree() {
 
 @test "changelog layout: a section in the wrong series file is named" {
   _clean_tree
-  # v0.2.0's section moved into the v0.1 file: it still renders, and the
-  # index still lists both series, so nothing else notices.
+  # v0.2.0's section MOVED into the v0.1 file -- carried over whole, links
+  # included, and gone from v0.2.md rather than duplicated into it. A copy
+  # would trip the duplicate-section rule too, and then the assertions below
+  # would be satisfied with the placement rule deleted.
   _series v0.1 \
+    '# base changelog -- v0.1' \
+    '' \
     '## [Unreleased]' \
     '' \
     '### Fixed' \
@@ -120,11 +136,17 @@ _clean_tree() {
     '' \
     '[Unreleased]: https://example.invalid/compare/v0.2.0...HEAD' \
     '[v0.2.0]: https://example.invalid/compare/v0.1.0...v0.2.0'
+  _series v0.2 '# base changelog -- v0.2'
+  _reindex
 
   run _run_changelog_layout
   [ "${status}" -ne 0 ]
-  assert_output --partial 'v0.2.0'
-  assert_output --partial 'v0.1.md'
+  # The placement rule's own sentence, not a substring the duplicate-section
+  # message and the index-drift diff also print.
+  assert_output --partial 'v0.2.0 belongs in doc/changelog/v0.2.md'
+  # And it is the ONLY rule that fired: a second violation here would mean
+  # the fixture is testing something other than placement.
+  assert_output --partial '1 misplaced section'
 }
 
 @test "changelog layout: a version section with no compare link is named" {
@@ -181,6 +203,8 @@ _clean_tree() {
   # the entry lint measures whichever one it finds first.
   _clean_tree
   _series v0.2 \
+    '# base changelog -- v0.2' \
+    '' \
     '## [Unreleased]' \
     '' \
     '### Added' \
@@ -193,25 +217,33 @@ _clean_tree() {
     '' \
     '[Unreleased]: https://example.invalid/compare/v0.2.0...HEAD' \
     '[v0.2.0]: https://example.invalid/compare/v0.1.0...v0.2.0'
+  _reindex
 
   run _run_changelog_layout
   [ "${status}" -ne 0 ]
-  assert_output --partial 'Unreleased'
+  # The live-series rule's own count, not the word 'Unreleased' -- which the
+  # index-drift diff prints too, in the row that gains '(plus [Unreleased])'.
+  assert_output --partial "'## [Unreleased]' appears in 2 series files"
+  assert_output --partial '1 misplaced section'
 }
 
 @test "changelog layout: no [Unreleased] anywhere is refused, not passed" {
   _clean_tree
   _series v0.1 \
+    '# base changelog -- v0.1' \
+    '' \
     '## [v0.1.0] - 2026-04-01' \
     '' \
     '### Added' \
     '- the first thing (#1, PR #2)' \
     '' \
     '[v0.1.0]: https://example.invalid/releases/tag/v0.1.0'
+  _reindex
 
   run _run_changelog_layout
   [ "${status}" -ne 0 ]
-  assert_output --partial 'Unreleased'
+  assert_output --partial "'## [Unreleased]' appears in 0 series files"
+  assert_output --partial '1 misplaced section'
 }
 
 @test "changelog layout: a changelog directory with no series files DIES" {
