@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3356 tests**.
+Unit specs under `test/bats/unit/`: **3369 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1000,7 +1000,7 @@ forwarding for caller abort, and DRY_RUN skip.
 | `_run_pre_hook: DRY_RUN=true -> hook skipped silently (#440)` | DRY_RUN skip (pre) |
 | `_run_post_hook: DRY_RUN=true -> hook skipped silently (#440)` | DRY_RUN skip (post) |
 
-### test/bats/unit/dockerfile_migrate_spec.bats (75)
+### test/bats/unit/dockerfile_migrate_spec.bats (76)
 
 Unit tests for the declarative Dockerfile-migration list
 `lib/dockerfile_migrate.sh` (#567, folds #579 facet B). The lib exposes a
@@ -1090,6 +1090,7 @@ shape auto-applies idempotently, a missing/ambiguous shape is skipped
 | `migration 5 (hadolint): DL3046 idempotent when -l already sits among the flags (#946)` | The flag can already be anywhere in the invocation, not only where the migration would put it |
 | `migration 5 (hadolint): DL3046 leaves usermod -l alone (#946)` | The conflict-handling branch beside it is a different command; rewriting it would corrupt it |
 | `migration 5 (hadolint): DL3046 detect sees the flags-before--u shape (#946)` | A detect blind to the shipped shape logs a patched Dockerfile with the finding still live |
+| `migration 5 (hadolint): DL3046 heals a useradd whose own line also runs usermod -l (#946)` | A sibling flag after `&&` is not this command's flag; scanning to end of line left the finding live |
 
 ### test/bats/unit/build_sh_spec.bats (58)
 
@@ -4080,7 +4081,7 @@ rather than an assurance.
 | `alpine eol reader: an already-expired date reads as negative days (#946)` | The past side of the window, exercised rather than assumed |
 | `alpine eol reader: a malformed date FAILS, it does not read as far away (#946)` | A typo must not disarm the alarm by parsing as a distant future |
 
-### test/bats/unit/tool_pin_agreement_spec.bats (5)
+### test/bats/unit/tool_pin_agreement_spec.bats (10)
 
 | Test | Description |
 |------|-------------|
@@ -4089,14 +4090,22 @@ rather than an assurance.
 | `tool pins reader: a Dockerfile with no pinned URL FAILS rather than returning nothing` | A reader returning nothing would reduce both checks to empty-vs-empty agreement |
 | `tool pins reader: a version is matched whole, not as a prefix of a longer one` | 0.11.0 must not be satisfied by 0.11.01 or by 10.11.0 |
 | `tool pins reader: the dots in a version are literal, not any-character` | An unescaped regex dot would let 0x11x0 pass as 0.11.0 |
+| `tool pins: the alpine this image runs on is the series the Dockerfile pins` | The base every stage is built on, compared with the image the suite is actually running in |
+| `tool pins: the bash this image ships is the series the pin's table records` | The bash-per-series table the series was chosen on, asserted rather than left as a comment |
+| `tool pins reader: a series the table does not cover FAILS rather than returning nothing` | A pin the table has no row for is a choice nothing supports |
+| `tool pins reader: a table row is matched whole, not as a prefix of a longer series` | A row for 3.2 must not answer for 3.22, nor one for 13.22 |
+| `tool pins reader: an ALPINE_VERSION declared twice FAILS rather than picking one` | With two pins there is no single series for the image to agree with |
 
-### test/bats/unit/probe_test_tools_spec.bats (16)
+### test/bats/unit/probe_test_tools_spec.bats (23)
 
 Unit tests for `script/ci/probe_test_tools.sh`, the CI-side verdict on
 whether a pulled `test-tools:main` corresponds to the checkout that pulled
 it. Presence answers the kcov race; the VERSION comparison answers the
 quieter half, a lint gate silently running the rule set the repo just
-moved off. The expectations are read out of
+moved off. The alpine SERIES is compared first and for the same reason:
+it decides which bash the image ships, and bash decides whether kcov
+reads this suite's coverage or under-reports it. The expectations are
+read out of
 `dockerfile/Dockerfile.test-tools`, so neither the probe nor this spec
 names a version. Docker is reached through a single `_probe_run` seam,
 which is what lets the decision logic be driven here with no daemon.
@@ -4108,6 +4117,9 @@ which is what lets the decision logic be driven here with no daemon.
 | `probe: a Dockerfile with no pinned URL FAILS rather than returning nothing (#947)` | A reader returning nothing would reduce the comparison to empty-vs-empty |
 | `probe: a version is matched whole, not as a prefix of a longer one (#947)` | 0.11.0 must not be satisfied by 0.11.01 or by 10.11.0 |
 | `probe: the dots in a version are literal, not any-character (#947)` | An unescaped regex dot would let 0x11x0 pass as 0.11.0 |
+| `probe: reads the alpine series pin out of the real Dockerfile (#946)` | The third pin in the file, read from the checkout rather than restated in the probe |
+| `probe: a Dockerfile with no ALPINE_VERSION FAILS rather than returning nothing (#946)` | A reader returning nothing would reduce the comparison to empty-vs-empty |
+| `probe: two ALPINE_VERSION pins are refused, not silently the first (#946)` | Whichever one a reader picked, half the stages would be built on the other |
 | `probe: an image carrying every tool at the pinned version is accepted (#947)` | The hot path: a matching `:main` must not cost every PR a local rebuild |
 | `probe: a MISSING tool is refused and named (#947)` | The kcov race the probe was originally written for |
 | `probe: a tool at the WRONG version is refused and both versions are named (#947)` | The quiet failure: a lint gate on an older rule set under-reports rather than failing |
@@ -4115,6 +4127,10 @@ which is what lets the decision logic be driven here with no daemon.
 | `probe: an unreadable pin for a PINNED tool is a hard refusal (#947)` | The state a moved release URL produces; cannot-tell is not matches |
 | `probe: an empty REQUIRED_TOOLS is refused rather than passing vacuously (#947)` | A probe over an empty list answers yes to every image |
 | `probe: a PINNED tool absent from REQUIRED_TOOLS is refused as a contradiction (#947)` | A tool whose version matters that the probe never looks for is drift, not narrowing |
+| `probe: an image built on ANOTHER alpine series is refused and both named (#946)` | Another series means another bash, which is what decides whether kcov can read this suite at all |
+| `probe: an image that reports no alpine series is refused, not read as agreement (#946)` | A reading the image cannot produce is a mismatch, never an absent constraint |
+| `probe: a series pin the probe cannot read is a hard refusal (#946)` | Cannot tell is not matches: exit 2 rather than a comparison with no expectation |
+| `probe: a longer series is not satisfied by a prefix of it (#946)` | The comparison is on the whole series field, so 3.2 does not agree with a 3.22 image |
 | `probe: main refuses an invocation that names no image (#947)` | A usage error is its own exit status, not a verdict about an image |
 | `probe: end to end, an image reporting the pinned versions is accepted (#947)` | Drives the script as a program over a PATH-shimmed docker, so the one function that touches the daemon is actually entered |
 | `probe: end to end, an image reporting a STALE version is refused (#947)` | The whole point of the probe, asserted end to end: present but out of date is a refusal, not a pass |

@@ -31,10 +31,18 @@
 # and the pin must move together or the agreement test below fails.
 #
 # LEAD_DAYS is 180. Alpine cuts a series roughly every six months and
-# supports each for two years, so a freshly chosen series always clears 180
-# days by a wide margin, and the alarm lands about two releases before the
+# supports each for two years, so the NEWEST supported series clears 180
+# days by a wide margin and the alarm lands about two releases before the
 # series it names actually dies -- early enough to choose a successor, late
 # enough not to be noise.
+#
+# The pin does not have to be the newest supported series, though, and
+# right now it is not: 3.22 was chosen for the bash it ships, because every
+# newer series ships a bash whose xtrace this repo's coverage instrument
+# misreads, and it clears the window by weeks rather than by a year. So
+# this alarm is not measuring slack here -- it is dating the work that lets
+# the pin move at all. Read the comment beside the pin before treating a
+# red from this file as a routine bump.
 #
 # Every rule is DERIVED from the file rather than restated from it: no test
 # below names 3.22 or 2027-05-01, so a future bump changes the Dockerfile

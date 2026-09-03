@@ -24,10 +24,16 @@
 #
 # Nothing failed. The suite stayed green, the shards stayed green, and a
 # contiguous BURST of lines that had just executed was reported as never
-# run -- 572 of them across sixteen untouched files, moving the project
-# line rate 84.97% -> 77.60% with no source change. A coverage floor cannot
-# tell that from a real regression, which is the whole reason it is worth a
-# spec: the failure mode of a broken instrument is a plausible number.
+# run -- 598 of them, moving the project line rate 84.77% (7058/8326) ->
+# 77.60% (6460/8325). Both figures are the same source on alpine 3.24;
+# the only difference between the two images is whether kcov's parity
+# counter had been patched. (The reading that first showed it up was
+# 84.97%, main's, which is a different tree: its numerator falls by 520
+# across sixteen files this branch never touched while its denominator
+# moves by +110, so it is the alarm rather than the measurement.) A
+# coverage floor cannot tell any of that from a real regression, which is
+# the whole reason it is worth a spec: the failure mode of a broken
+# instrument is a plausible number.
 #
 # What this repo does about it is choose the series: the ALPINE_VERSION
 # pinned in dockerfile/Dockerfile.test-tools stays on the bash 5.2 side of
