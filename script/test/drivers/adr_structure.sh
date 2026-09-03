@@ -60,7 +60,10 @@
 # Headings inside a fenced code block do NOT count. An ADR that shows a
 # markdown example -- and several do -- would otherwise satisfy the
 # section check with an illustration, which is a fail-open: the check
-# would pass a file that has no Decision section at all.
+# would pass a file that has no Decision section at all. `_adr_outline`
+# below is where that stripping lives; it states the fence rule it
+# implements and the three places it deliberately strips more than
+# CommonMark would.
 #
 # An empty population is a REFUSAL. A lint that examined zero ADRs and
 # printed "clean" cannot distinguish a tree with no ADRs from a scan whose
@@ -85,17 +88,37 @@ readonly _ADR_REQUIRED_SECTIONS=(Context Decision Consequences Alternatives)
 # _adr_outline <file>
 #
 # Print the file's structural lines -- the ones a check may read -- with
-# every line inside a fenced code block dropped. Fences are ``` or ~~~ at
-# any indent, and the run LENGTH is part of the fence, per CommonMark: a
-# block closes only on a marker of the same character at least as long as
-# the one that opened it, followed by nothing but whitespace.
+# every line inside a fenced code block dropped. Both fence characters are
+# handled, in both roles, and three properties of the opening marker are
+# carried, per CommonMark: a block closes only on a marker of the same
+# CHARACTER, at least as LONG as the one that opened it, INDENTED no more
+# than three columns past it, and followed by nothing but whitespace.
 #
-# Length is what makes nesting parse. A fenced block shown inside a fenced
-# block is legal only with a longer outer fence, so closing on any ``` at
-# all would let the inner ``` end the outer block and emit the example
-# heading as real content -- the fail-open this stripping exists to
-# prevent. Requiring the same character keeps the sibling case honest: a
-# ``` example nested in a ~~~ block does not end the outer block either.
+# Each of the three closes one way an illustration leaks out as real
+# content. LENGTH: a fenced block shown inside a fenced block is legal only
+# with a longer outer fence, so closing on any ``` at all lets the inner
+# ``` end the outer block. CHARACTER: a ``` example nested in a ~~~ block
+# does not end it either. INDENT: CommonMark bounds a closing fence's
+# indent, so a ``` indented eight columns inside a block is block CONTENT,
+# and reading it as a close ends the block early. That bound is measured
+# from the OPENER rather than from column 0, so a block indented as a whole
+# -- the way one nested in a list item is -- still closes.
+#
+# Where this departs from CommonMark it departs by treating MORE text as
+# fenced, never less, and that is the direction that refuses here: every
+# check below asks whether a line is PRESENT, so a line wrongly dropped can
+# only add a violation and can never invent a section. The known
+# departures:
+#
+#   - An OPENING marker is read at any indent. CommonMark reads one
+#     indented four columns or more as an indented code block instead;
+#     here it opens a fence, so what follows is dropped rather than read.
+#   - An opening backtick fence's info string is not checked for the
+#     backtick CommonMark forbids in it, so such a line opens a block
+#     rather than staying prose.
+#   - A fence left OPEN at end of file is not reinterpreted: it swallows
+#     the rest of the file, so the sections after it are reported missing.
+#     That names the wrong defect, and it is still a refusal.
 _adr_outline() {
   local _file="${1}"
   awk '
@@ -105,23 +128,39 @@ _adr_outline() {
       while (substr(s, n + 1, 1) == ch) { n++ }
       return n
     }
+    # Indent of <s> in columns, a tab advancing to the next multiple of 4
+    # (CommonMark tab stops).
+    function _indent(s,   i, c, col) {
+      col = 0
+      for (i = 1; i <= length(s); i++) {
+        c = substr(s, i, 1)
+        if (c == " ") { col++ }
+        else if (c == "\t") { col += 4 - (col % 4) }
+        else { break }
+      }
+      return col
+    }
     {
       line = $0
+      ind = _indent(line)
       sub(/^[ \t]+/, "", line)
       if (fence == "") {
         n = _run(line, "`")
-        if (n >= 3) { fence = "`"; flen = n; next }
+        if (n >= 3) { fence = "`"; flen = n; find = ind; next }
         n = _run(line, "~")
-        if (n >= 3) { fence = "~"; flen = n; next }
+        if (n >= 3) { fence = "~"; flen = n; find = ind; next }
         print $0
         next
       }
-      # Inside a block: same marker, at least as long, nothing trailing.
-      n = _run(line, fence)
-      if (n >= flen) {
-        rest = substr(line, n + 1)
-        sub(/[ \t]+$/, "", rest)
-        if (rest == "") { fence = ""; flen = 0 }
+      # Inside a block: same marker, at least as long, no deeper than three
+      # columns past the opener, nothing trailing.
+      if (ind <= find + 3) {
+        n = _run(line, fence)
+        if (n >= flen) {
+          rest = substr(line, n + 1)
+          sub(/[ \t]+$/, "", rest)
+          if (rest == "") { fence = ""; flen = 0; find = 0 }
+        }
       }
       next
     }
