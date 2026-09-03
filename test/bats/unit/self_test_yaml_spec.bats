@@ -957,6 +957,7 @@ _job_comments() {
   assert_output --partial 'fail-fast: false'
   assert_output --partial '- issueref'
   assert_output --partial '- adr-numbering'
+  assert_output --partial '- adr-structure'
   assert_output --partial '- stale-setup-conf'
   assert_output --partial '- readme-sync'
   # The hardcoded-home-path lint joined the same matrix: it reads the
@@ -966,6 +967,8 @@ _job_comments() {
   assert_output --partial '- bash-source-guard'
   # And for the early-closing-reader pipeline lint, same trees, same shape.
   assert_output --partial '- early-close-reader'
+  # And for the non-final bang-statement lint, over the bats tree.
+  assert_output --partial '- errexit-bang'
   assert_output --partial './script/test/test.sh'
   refute_output --partial 'docker/setup-buildx-action'
   refute_output --partial 'docker pull'
@@ -1040,8 +1043,9 @@ _job_comments() {
   [ "${#_tools[@]}" -ge 13 ] \
     || fail "_LINT_TOOLS yielded ${#_tools[@]} entries; the table did not parse"
   local _t
-  for _t in issueref adr-numbering stale-setup-conf readme-sync home-literal \
-    bash-source-guard i18n-orphan early-close-reader changelog-entry; do
+  for _t in issueref adr-numbering adr-structure stale-setup-conf readme-sync \
+    home-literal bash-source-guard i18n-orphan early-close-reader \
+    changelog-entry; do
     printf '%s\n' "${_tools[@]}" | grep -qx -- "${_t}" \
       || fail "_LINT_TOOLS does not list '${_t}'"
   done

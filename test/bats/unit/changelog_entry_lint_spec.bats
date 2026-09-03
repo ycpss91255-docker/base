@@ -854,3 +854,35 @@ _long_prose() {
   run _run_changelog_entry
   assert_success
 }
+
+# ════════════════════════════════════════════════════════════════════
+# The rule as documented
+# ════════════════════════════════════════════════════════════════════
+
+# doc/test/TEST.md's lint table is where a reader learns what this lint
+# refuses, and it has already drifted once: an origin/main merge resolved
+# the row wholly to the branch's older side and dropped the two rules the
+# duplicate-entry work had just added, leaving the driver enforcing more
+# than the doc claims and nothing to notice.
+#
+# The name of this case is deliberately narrow. It guards ONE row and the
+# three rules that row must name -- not the whole table, and not "the docs
+# match the drivers": what a driver refuses cannot be derived from its
+# source, so a wider name here would be a claim the body cannot keep.
+@test "TEST.md's changelog-entry row names all three rules this lint enforces (#956)" {
+  local _doc=/source/doc/test/TEST.md
+  local _row _st=0
+  _row="$(grep -F '| `changelog-entry` |' "${_doc}")" || _st=$?
+  # Population before content: the row must exist (grep status pinned to
+  # 0 -- a 1 is "no such row" and a 2 is "could not read the doc", and
+  # neither is a pass) and must be the only one.
+  if [[ "${_st}" -ne 0 ]]; then
+    fail "no readable '| \`changelog-entry\` |' row in ${_doc} (grep exit ${_st})"
+  fi
+  assert_equal "$(printf '%s\n' "${_row}" | wc -l)" 1
+  # The over-length rule, the duplicate-entry rule and the
+  # repeated-category-heading rule -- one clause each.
+  [[ "${_row}" == *"700 chars"* ]]
+  [[ "${_row}" == *"lead bullet"* ]]
+  [[ "${_row}" == *"heading opening twice"* ]]
+}

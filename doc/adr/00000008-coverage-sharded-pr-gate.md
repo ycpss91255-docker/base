@@ -151,8 +151,8 @@ coverage:
 ## Amendment (#710): self-hosted, GitLab-portable gate; Codecov removed
 
 - **Date:** 2026-06-25
-- **Status:** Accepted (supersedes the Codecov merge + `codecov/project`
-  status decided in sections 2 and 3 above)
+- **Amendment status:** Accepted -- supersedes the Codecov merge +
+  `codecov/project` status decided in sections 2 and 3 above.
 - **Resolves:** #709 (`codecov/project` is Pro-only, so the project gate
   never worked on the free plan). **Relates:** #678 (no Codecov status to
   wire -- the gate moves into `ci-rollup` directly), #686, #677.
@@ -321,9 +321,9 @@ documented follow-up.
 ## Amendment (#952): Decision 5's visibility half -- the figure is published per release, in the release commit
 
 - **Date:** 2026-08-28
-- **Status:** Accepted (completes the visibility half of the #710
-  amendment's Decision 5, which shipped the `$GITHUB_STEP_SUMMARY` table
-  and deferred everything durable). **Relates:** #710 (Codecov removed,
+- **Amendment status:** Accepted -- completes the visibility half of the
+  #710 amendment's Decision 5, which shipped the `$GITHUB_STEP_SUMMARY`
+  table and deferred everything durable. **Relates:** #710 (Codecov removed,
   the dynamic badge with it), #709.
 
 ### Context

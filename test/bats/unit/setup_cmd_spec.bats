@@ -2015,3 +2015,81 @@ EOF
   SCHEMA_SECTIONS+=(brandnew)
   _setup_known_section "brandnew"
 }
+
+# ── post-setup hook on the failure path ─────────────────────────────
+#
+# The post-setup hook must fire whether the subcommand succeeded or not.
+# These run setup.sh as a SCRIPT rather than sourcing it, because that is
+# the only way `set -euo pipefail` is in force -- setup.sh sets strict mode
+# only when it is the entry point, and the defect is an unguarded
+# subcommand call aborting main before the hook line is reached.
+# hook.sh resolves a setup hook under $PWD (setup.sh exports no FILE_PATH),
+# so the sandbox is the working directory.
+
+# _seed_post_setup_hook <exit_code>
+_seed_post_setup_hook() {
+  mkdir -p "${TEMP_DIR}/script/hooks/post"
+  printf '#!/usr/bin/env bash\necho POST_SETUP_HOOK_FIRED\nexit %s\n' "$1" \
+    > "${TEMP_DIR}/script/hooks/post/setup.sh"
+  chmod +x "${TEMP_DIR}/script/hooks/post/setup.sh"
+}
+
+@test "setup.sh runs the post-setup hook when the subcommand fails (#956)" {
+  _seed_post_setup_hook 0
+  cd "${TEMP_DIR}"
+  # `show <unknown-section>` is a deterministic post-dispatch failure (rc 2).
+  run -2 bash /source/dist/script/docker/wrapper/setup.sh \
+    show bogus-section --base-path "${TEMP_DIR}"
+  assert_output --partial "POST_SETUP_HOOK_FIRED"
+}
+
+@test "setup.sh post-setup hook failure overrides a failing subcommand rc (#956)" {
+  _seed_post_setup_hook 9
+  cd "${TEMP_DIR}"
+  run -9 bash /source/dist/script/docker/wrapper/setup.sh \
+    show bogus-section --base-path "${TEMP_DIR}"
+  assert_output --partial "POST_SETUP_HOOK_FIRED"
+}
+
+@test "setup.sh apply aborts where a handler command fails mid-apply (#956)" {
+  # errexit must stay in force INSIDE the subcommand handlers. Bash
+  # suppresses `set -e` for the whole call tree of a `||` left operand, so
+  # guarding the dispatch itself (`_setup_dispatch ... || _rc=$?`) turns
+  # every unguarded mid-handler failure -- an unwritable .env, ENOSPC --
+  # into a silent exit 0 that still prints the done message and leaves
+  # build/run consuming a half-written config set.
+  #
+  # The trigger here is a real one, not an injected stub: a corrupt
+  # .env.generated (the truncated cache an interrupted apply leaves
+  # behind) makes _setup_apply's unguarded `source "${_env_file}"` fail
+  # before a single file is written. Run as a SCRIPT -- strict mode is
+  # only in force when setup.sh is the entry point.
+  printf 'FOO=1\n((( \n' > "${TEMP_DIR}/.env.generated"
+  cd "${TEMP_DIR}"
+  run ! bash /source/dist/script/docker/wrapper/setup.sh \
+    apply --base-path "${TEMP_DIR}" -q
+  # Aborting AT the failure, not carrying on to the end of apply.
+  assert [ ! -f "${TEMP_DIR}/compose.yaml" ]
+  assert [ ! -f "${TEMP_DIR}/.env" ]
+}
+
+@test "setup.sh finalizes the transcript when the post-setup hook fails (#956)" {
+  # ADR-00000007: a non-interactive verb leaves log/<verb>/<ts>-<id>.log --
+  # ANSI stripped, closed with a transcript_complete line, latest.log
+  # repointed. The failing run is the one worth reading, and moving the
+  # post-hook onto the EXIT trap put a hook `exit` INSIDE that trap: it
+  # terminates the shell mid-atexit-loop, before the handler finalizes, so
+  # the run leaves only the unstripped .raw and latest.log still names the
+  # previous run. The hook's rc must win without costing the transcript.
+  _seed_post_setup_hook 9
+  cd "${TEMP_DIR}"
+  run -9 env WRAPPER_TRANSCRIPT=true \
+    bash /source/dist/script/docker/wrapper/setup.sh \
+    show bogus-section --base-path "${TEMP_DIR}"
+  assert_output --partial "POST_SETUP_HOOK_FIRED"
+  assert_equal "$(find "${TEMP_DIR}/log/setup" -name '*.raw' | wc -l)" 0
+  assert [ -L "${TEMP_DIR}/log/setup/latest.log" ]
+  run cat "${TEMP_DIR}/log/setup/latest.log"
+  assert_output --partial "POST_SETUP_HOOK_FIRED"
+  assert_output --partial "transcript_complete exit_code=9"
+}
