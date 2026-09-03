@@ -1,8 +1,12 @@
 # base -- Product Requirements (PRD)
 
 > base's north star: the fixed reference every decision is checked against.
-> This document holds only **invariants** -- properties that must always be
-> true of base. It changes only when base's **product goals** change, not when
+> It holds three layers and nothing else: **invariants**, properties that
+> must always be true of base and that no ADR may violate; **design
+> principles**, the judgement criteria base decides by when two options are
+> both available; and the **conflict priority**, which of two legitimate
+> properties gives way when a decision cannot have both. It changes only
+> when base's **product goals** or the criteria behind them change, not when
 > a mechanism changes. Individual decisions live in [`doc/adr/`](adr/); domain
 > facts live in [`CONTEXT.md`](../CONTEXT.md); the working contract lives in
 > [`CLAUDE.md`](../CLAUDE.md).
@@ -120,19 +124,33 @@ of a silently-unsafe default is borne org-wide.
 `bridge` default silently breaks cross-machine ROS); this is the general
 principle, of which the network decision is one instance.
 
-### 5. The two-branch default rule
+### 5. The two-branch default rule, applied to lifecycle knobs
 
-A lifecycle knob defaults **ON** if and only if enabling it is transparent to a
-correct single-service workload **and** its absence is a footgun; otherwise it
-defaults **OFF / Docker-native**. Defaults are chosen by this rule, not per
-maintainer taste.
+**Invariant 11 is the rule; this is where it was first written down and
+what it lands on for a lifecycle knob.** The two questions there --
+can enabling it break a working setup, and does forgetting it hurt --
+are for a lifecycle knob the two branches this invariant is named for:
+"transparent to a correct single-service workload" and "its absence is a
+footgun". Both must hold to default ON.
 
-*Why it is fixed:* it makes "what should default on?" a checkable rule rather
-than a recurring judgement call, so defaults stay coherent as knobs accrue.
+What this invariant adds to invariant 11 is the **landing**: a lifecycle
+knob that does not default ON does not default to some third base-chosen
+setting, it defaults **OFF / Docker-native** -- the behaviour a plain
+`docker run` would have given. base owning the lifecycle (invariant 1) is
+not a licence to change what an unconfigured container does; the knob
+exists so a downstream can ask for more than Docker's behaviour, never so
+base can quietly substitute its own.
 
-*Serves / established by:* ADR-00000020 (init defaults ON as the transparent-
-and-footgun case; watchdog restart-service and network default OFF/Docker-
-native as workload-semantics-changing cases).
+*Why it is fixed:* invariant 1 makes base the owner of every downstream's
+lifecycle, which means a base-chosen default is not one of several
+settings a reader might find -- it is the only behaviour that repo has
+ever seen. Docker-native is the one landing a downstream maintainer can
+predict without reading base, so it is what an OFF has to mean.
+
+*Serves / established by:* ADR-00000020 (init defaults ON as the
+transparent-and-footgun case; watchdog restart-service and network
+default OFF/Docker-native as workload-semantics-changing cases);
+generalised by invariant 11.
 
 ### 6. base is a subtree; downstream is a thin caller
 
@@ -297,6 +315,355 @@ gate, which ADR-00000028 removes along with the figures it guarded; that
 entry drops from invariant 2 when that mechanism lands. #952 (the release
 coverage badge, merged as PR #974) is the case that fixes where the line
 falls: it names the version it measured, so it is stored.
+
+### 11. A default is decided by two questions, not by preference
+
+Every default base ships is settled by asking, in order:
+
+1. **If it is on, can it make something that currently works
+   incorrect?** Yes -> it defaults **off**.
+2. **If someone forgets to turn it on, does something go wrong?** Yes ->
+   it defaults **on**.
+
+Only when **both** hold -- it cannot break a working setup, *and* its
+absence is a defect waiting to happen -- does a setting default on.
+Every other combination defaults off, including the common one where
+neither question has a "yes": a setting nobody is hurt by forgetting is
+not worth the blast radius of shipping it enabled to every downstream.
+
+Four things decide what the two questions are asked *about*, and they
+are what make the rule mechanical rather than rhetorical:
+
+- **The unit is a (setting, scope) pair, not a setting.** The same
+  setting can be correct on in one scope and correct off in another, and
+  asking the questions per scope is what produces that rather than
+  forcing one answer everywhere. Restart policy is the worked case: on a
+  `devel` or `*-test` container, restart-on makes `exit` incorrect
+  (question 1: yes -> off); on a deployable stage it cannot make a
+  correct long-running service incorrect and forgetting it means the
+  service does not survive a crash or a host reboot (question 1: no,
+  question 2: yes -> on). Invariant 1 states that scoping as a fixed
+  property; this rule is where it comes from.
+- **Question 1 asks about something that *works*, not something that
+  *passes*.** A guard that turns a vacuous green into a red has not made
+  anything incorrect -- it has stopped something incorrect from
+  reporting otherwise, which is invariant 2's whole subject. A check
+  whose absence lets a defect ship green answers "no" to question 1 and
+  "yes" to question 2, and so defaults on.
+- **A "yes" to question 1 has two answers, not one.** Defaulting off is
+  the cheap one; removing the way the setting can break a working setup
+  is the other, and it is available whenever the breakage is a property
+  of the implementation rather than of the feature. The wrapper
+  transcript is the recorded case: tee-ing a transcript could re-flip
+  single-sink dispatch and change a terminal's output format, which is a
+  question-1 yes. Base did not default it off -- it cached TTY-ness at
+  startup so the tee cannot re-flip anything, turning the yes into a no
+  (ADR-00000007), and `wrapper_transcript` ships `true`.
+- **The rule adjudicates a toggle, not a magnitude.** `container_log_keep
+  = 20` has no "off", so neither question applies to it; how large a
+  default number should be is invariant 4's direction question, answered
+  by which way the harm falls.
+
+Applied to the defaults base ships today, the rule reproduces every one
+of them:
+
+| Default | Q1: can on break a working setup? | Q2: does forgetting hurt? | Yields | Ships |
+|---|---|---|---|---|
+| `[lifecycle] init` | no -- PID1 reaping is transparent to a correct single-service workload | yes -- zombies accrue and signals are not forwarded | on | `true` |
+| watchdog `restart-service` | yes -- it relaunches a service the workload meant to stop | -- | off | commented out |
+| `[network]` bridge (vs `host`) | yes -- a `172.17.x` address is not routable off-box, so cross-machine ROS goes silently unreachable | -- | off | `mode = host` |
+| `[security] privileged` | yes -- it widens every container's privilege beyond what it needs | -- | off | `false` |
+| `[logging] wrapper_transcript` | no, once ADR-00000007 removed the re-flip | yes -- the debugging record is missing exactly when it is wanted | on | `true` |
+| GHCR untagged-image cleanup | yes -- an untagged child a live tag still references would 404 a `docker pull` | -- | off | dry-run until `GHCR_CLEANUP_ENFORCE` |
+| config mount-override writable | yes -- the container could rewrite the operator's file | -- | off | read-only, `rw` opt-in |
+
+*Why it is fixed:* base's defaults are the configuration every downstream
+runs before anybody edits anything, and they arrive by subtree upgrade
+rather than by choice -- a downstream inherits a moved default in the
+same commit that delivers the fix it asked for, from a maintainer who is
+not in the room and cannot be asked. So the question a default must
+survive is not "which setting do we prefer" but "which setting is safe to
+apply, unattended, to a repo we cannot see". Invariant 4 fixes which
+*direction* is safe when the tension is safe-versus-convenient; it does
+not say whether a given setting is in that tension at all, or when a
+default is allowed to move. Without a test the answer is recalled rather
+than derived, and recollection does not survive the number of toggles
+base already ships: two maintainers, or one maintainer six months apart,
+reach opposite conclusions and both sound defensible. Making it two
+questions makes a default *reviewable* -- it is challenged by disputing
+an answer about the workload, which is a fact, instead of by disputing
+taste, which is not. That is the same reason invariant 2 refuses a silent
+skip: base is a shared foundation, so its judgement calls have to be
+checkable by someone who was not part of them.
+
+*Serves / established by:* invariant 5, which is this rule applied to
+lifecycle knobs and where it was first written down (ADR-00000020 -- init
+on as the transparent-and-footgun case, watchdog restart-service off as
+the workload-semantics-changing one); ADR-00000019 (the network default,
+question 1 answered by cross-machine ROS); ADR-00000007 (the case that
+fixes the second answer to a question-1 yes); invariant 4, which supplies
+the direction this supplies the test for.
+
+## Design Principles
+
+Beneath the invariants and above the individual decisions. An invariant
+is a property of the product that no ADR may violate; a design principle
+is a **judgement criterion** -- how base decides, when two correct-looking
+options are both available. They are weaker than invariants on purpose: a
+principle can be departed from in a decision that says why, and the ADR
+recording that departure is the artifact. An invariant cannot.
+
+Every principle below was **derived from decisions base has already
+taken**, not imported from a list, and each one cites where it is
+currently written. Where a principle is already fully stated somewhere,
+this section points at it and does not restate it -- duplicating a
+decision into a second document is what ADR-00000028 and invariant 10
+forbid, and a governance document is not exempt from its own rule.
+
+### P1. Early return is the default shape of every function
+
+A guard clause at the top -- validate, reject, return -- is how a
+function is written here, not a remedy applied once a nesting or length
+threshold is breached. Thresholds are a net, not a target: depth 4 is
+what happens when the guard was not written, and the number is how base
+finds out, not what base is aiming at.
+
+*Where written:* ADR-00000029 (this principle's record; the earlier
+framing it corrects treated depth as a ranked list of violations to fix,
+which produces the fixes and not the shape).
+*Serves:* no invariant directly. It is the source shape ADR-00000014's
+decomposition already assumes -- a lib is only a seam if its functions
+can be read one branch at a time -- and so it stands behind invariant 7's
+testability rather than beside it.
+
+### P2. Derive the population; never enumerate it
+
+Where a check, a figure or a roster can be computed from the tree, it is
+computed. A hand-kept list is wrong from the first item added elsewhere,
+and it is wrong silently -- the list does not know it is short, so the
+check it feeds reports clean.
+
+*Where written:* ADR-00000026 (eligibility is computed from each job's
+`runs-on`, explicitly "a label-family pattern rather than a roster",
+after `_LINT_TOOLS`, the downstream roster and the release archive path
+list had each been missed by the next addition); ADR-00000028 (a figure
+that can be computed is not stored); `doc/adr/README.md` ("the filesystem
+is the ADR registry -- there is no database and no manually-curated
+master list of numbers").
+*Serves:* invariants 2 and 10.
+
+### P3. A check that finds nothing must distinguish an empty population from a broken scan
+
+"Zero violations" and "zero files examined" are different results and a
+guard has to be able to say which one it got. A scan whose matcher has
+stopped matching reports exactly what a clean tree reports, so the
+difference has to be measured -- the count of things examined -- and a
+zero there is a refusal, not a pass.
+
+*Where written:* ADR-00000026 (anything the lint cannot statically prove
+is eligible -- the rule fails closed -- and `ci-rollup` fails a fork PR
+rather than collapsing a guarded skip into a green required check).
+*Serves:* invariant 2. This is the mechanical half of "never fail
+silently": a gate that has quietly stopped gating is the silent failure
+that is hardest to notice, because its output is indistinguishable from
+success.
+
+### P4. One rule has one owner and many entry points
+
+A rule is implemented once and every caller reaches that implementation.
+Two implementations that must agree are a drift with a delay on it, and
+the delay is however long it takes for one of them to be edited alone.
+
+*Where written:* ADR-00000011 (the CI job runs the same driver `just
+test` runs locally, so the local gate and the CI gate cannot drift);
+ADR-00000024 (the mechanical half of the rule is gated by one lint);
+invariant 8 (`_is_deployable_stage` is "the one predicate", and the
+invariant is stated in full precisely "so the two cannot disagree"); the
+`doc-counts` gate, described in `test.sh` as one rule with three entry
+points of which this is the blocking one.
+*Serves:* invariants 2 and 6.
+
+### P5. Zero special cases outranks a shorter invocation
+
+Where a rule can hold without exception at the cost of ergonomics, base
+pays the ergonomics. One rule with no exceptions is learnable once and
+stays true; a rule with two exceptions has to be recalled with them, and
+the third exception is the one nobody remembers.
+
+*Where written:* ADR-00000011 sec.1, in base's own words: "The cost
+(longer invocations) is accepted in exchange for one rule with no
+exceptions." `just build` became `just docker build`, reversing
+ADR-00000010's top-level-docker carve-out.
+*Serves:* invariant 6 -- a thin caller can only stay thin if the shape it
+forwards has no cases in it.
+
+### P6. Relocate into an existing seam before creating a new one
+
+When code needs a home, the first question is which established seam it
+belongs to; a new file is created only for what genuinely has none. A
+parallel namespace that duplicates seams already present is how a
+decomposition ends up with more surface than it removed.
+
+*Where written:* ADR-00000014 rule 1 ("Relocate into existing libs first;
+create new libs only for the homeless ... We do NOT introduce a parallel
+`setup_*.sh` namespace that duplicates seams that already exist").
+*Serves:* no invariant. It is a source-architecture criterion, and the
+seams it applies to are named in `CONTEXT.md`.
+
+### P7. Every escape hatch is explicit, named, and records why it was taken
+
+base ships escape hatches rather than pretending every case fits. What it
+does not ship is a silent one: taking the hatch is a visible act, it is
+named at the point of use, and where the consequence outlives the person
+who chose it, the artifact carries the reason.
+
+*Where written:* ADR-00000001 (compose-native mechanisms are an escape
+hatch "reserved for genuinely custom needs", not a second main path);
+ADR-00000025 (`setup deploy` refuses while an untracked config layer
+exists, and the explicit override records in the bundle which sections
+came from it -- "because the person holding the bundle in the field is
+not the person who chose to bypass the gate"); ADR-00000023 as amended by
+#874 (a config mount-override is read-only with an explicit `rw` opt-in);
+the `changelog-entry` opt-out, which is a comment pair carrying `<why>`;
+the `arch-literal` lint, whose mapping exception "opts out with a stated
+reason".
+*Serves:* invariant 2.
+
+### P8. Additive first, retirement second
+
+A change that would break a consumer is split so the break is its own
+deliberate step. The new path lands beside the old one, both work, and
+the removal is a separate decision that can be timed, announced and
+reverted independently of the thing that motivated it.
+
+*Where written:* ADR-00000005 ("Rollout is additive first, retirement
+second, split so the breaking change is deliberate"); ADR-00000014 rule 3
+(one slice = one issue = one PR, behaviour identical, the existing specs
+standing as the regression net).
+*Serves:* invariant 6. base propagates by subtree upgrade, so every
+consumer takes the step at a moment base does not choose; a combined
+add-and-remove is a step they cannot take halfway.
+
+### P9. A record lives where its reader will be standing
+
+The same fact is not written into every document that could hold it. It
+is written where the person who needs it is already looking, and the
+other places link to it. Which document that is follows from who the
+reader is and what they are trying to decide.
+
+*Where written:* the PR body is this repo's canonical decision record
+(`CLAUDE.md`, enforced on `gh pr create`), which is why the
+`changelog-entry` lint's header states that an entry answers what changed
+and whether it affects you, "not why, and not what was rejected";
+ADR-00000013 (drop the transient issue number from a code comment, keep
+the sentence -- the number's reader is in the tracker, the sentence's
+reader is in the file); ADR-00000027 sec.3 (the release classification's
+reasoning is recorded so a wrong call is reviewable rather than
+invisible).
+*Serves:* invariant 10 -- this is its "authored, not derived" half asked
+about placement rather than about generation.
+
+### Stated elsewhere, not repeated here
+
+Three principles that belong to this layer by shape are already stated in
+full above it or beside it, so they are referenced rather than restated:
+
+- **Naming follows ownership** -- the standard name is base's and is
+  regenerated, a suffix marks the operator's and is never rewritten. This
+  is part of invariant 8, not a principle beneath it.
+- **Test files mirror source; source structure is never decided by
+  tests** -- ADR-00000015, which states it and its consequences
+  completely.
+- **Deep modules: a small interface over a private implementation** --
+  ADR-00000014 plus the seam vocabulary in `CONTEXT.md`.
+
+## Conflict Priority
+
+What this order is **for**: two properties base holds are both
+legitimate, both wanted, and a particular decision cannot have both. The
+order says which one gives way. That is all it says.
+
+What it is **not** for: it is not a licence to rank "this is hard" above
+anything. Difficulty is not one of the properties below and never enters
+the comparison -- a change that is hard to make safely is a finding about
+the code (ADR-00000029), not a competing claim. A decision that reaches
+for this order has to name the two properties in tension and show that
+having both is genuinely impossible here; if it cannot, the conflict is
+imagined and the order does not apply.
+
+Higher wins.
+
+**1. Correctness of what the consumer runs.** The artifact a downstream
+builds, runs or ships to the field behaves as its operator has every
+reason to expect. *Rests on invariants 1, 2 and 8.*
+
+**2. A defect is loud, and early.** Where something is wrong, the run
+says so at the first point a human is present, rather than continuing and
+reporting green. *Rests on invariant 2.*
+
+**3. One owner for one rule.** A rule is implemented once, propagated,
+and reached through as many entry points as are wanted. *Rests on
+invariants 6 and 10; this is P4 as a property rather than as a
+criterion.*
+
+**4. Convenience at the point of use.** Fewer steps, shorter
+invocations, less to type and less to know. *Rests on no invariant, which
+is why it is last -- not because it does not matter.*
+
+### Worked examples, each from a conflict base actually settled
+
+**1 over 2 -- the log-retention clamp (ADR-00000021).**
+`container_log_keep` and `container_log_days` are validated as positive
+integers by the schema registry, so a bad value in `.setup.conf` is
+refused loudly at `just setup`, where a human is standing. The same
+values arrive at the container entrypoint a second time through a
+hand-editable `compose.yaml`, and there
+`dist/script/docker/runtime/logging.sh` **clamps** a non-positive value
+back to 20 / 14 without a word. Property 2 taken alone says refuse; the
+refusal would mean the container does not start, or starts with a prune
+that wipes every log -- so property 1 wins and the clamp is silent. The
+order is what makes this a decision rather than an inconsistency with
+invariant 2: loud where a human is present, safe where one is not.
+
+**2 over 3 -- the fork-PR rollup (ADR-00000026).** The one-owner answer
+to "did CI pass" is a single rollup status summarising the matrix, and a
+guarded job that skips contributes a skip to it. base refuses that:
+`ci-rollup` **fails** a fork PR rather than let a guarded skip collapse
+into a green required check, and the eligibility lint fails closed on
+every `runs-on` it cannot statically prove. A vacuous green is the
+failure invariant 2 exists to prevent, so the tidier single status gives
+way.
+
+**3 over 4 -- namespacing every action (ADR-00000011 sec.1).** Recorded
+in the ADR's own words: "The cost (longer invocations) is accepted in
+exchange for one rule with no exceptions." `just build` became `just
+docker build`, reversing the top-level-docker carve-out ADR-00000010 had
+made for exactly the convenience being given up here.
+
+**1 over 4 -- the network default (ADR-00000019) and the `/opt` bake
+(ADR-00000024).** #794 proposed flipping `network.mode` to `bridge` on
+least-privilege grounds, which is the more idiomatic and more convenient
+posture; it was reversed because a bridge's `172.17.x` address is not
+routable off-box and cross-machine ROS would go silently unreachable.
+Likewise `~/name` is the convenient path to source and `/opt/name` is
+not, but `ENV HOME` resolves at build time, so anything sourced through
+`$HOME` breaks under a different `USER_NAME`; the symlink stays for
+discoverability and nothing sources it.
+
+**2 over 4 -- the deploy refusal (ADR-00000025).** The convenient
+outcome of `setup deploy` is a bundle. base refuses to produce one while
+a gitignored `.setup.conf.local` exists, because a bundle built from a
+layer visible on one machine cannot be reproduced from a clean checkout
+and nothing about the bundle would say why.
+
+### When the order does not decide it
+
+Two properties at the same rank do not resolve by this list, and neither
+does a conflict between an invariant and anything at all -- an invariant
+is not a property that can give way, which is what makes it an invariant.
+A decision that finds itself trading one invariant against another has
+found a defect in the invariants, and the artifact is an amendment to
+this document, not an ADR that picks a winner.
 
 ## Product Shape
 
