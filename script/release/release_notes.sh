@@ -49,7 +49,10 @@
 # whole body is a pointer at the RCs, and the union it points at is about to
 # be emitted in its place.
 #
-# WHAT IT REFUSES. No section for the tag; a tag whose section appears in
+# WHAT IT REFUSES. A body over GitHub's 125,000-character release-body cap
+# (the union of v0.42's four RCs is 326,638, so this is not hypothetical --
+# handing it over would be a 422 at tag push, after every gate has passed);
+# no section for the tag; a tag whose section appears in
 # more than one file (the split's own failure mode -- a section copied
 # rather than moved leaves two answers to "what shipped", and picking either
 # silently is how the wrong one reaches a release page); and an assembled
@@ -67,6 +70,11 @@
 _RELEASE_NOTES_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" \
   &> /dev/null && pwd)"
 readonly _RELEASE_NOTES_DIR
+
+# GitHub's cap on a release body. A body over it is rejected by the API
+# with a 422, so the choice is to find that out here or at tag push after
+# every gate has passed.
+readonly _RELEASE_NOTES_MAX=125000
 
 err() { printf '[release-notes] %s\n' "$*" >&2; }
 
@@ -302,6 +310,23 @@ main() {
     err "REFUSING: the assembled notes for ${_tag} carry no entry." \
         "Sections read: ${_sources[*]}. A promoted release whose section" \
         "only points at its RCs needs those RC sections present to union."
+    return 1
+  fi
+  # Measured in BYTES, which is at least the character count GitHub
+  # actually caps, so the refusal errs toward firing early rather than
+  # toward a release that fails at the API.
+  local _size
+  _size="$(LC_ALL=C printf '%s' "${_notes}" | wc -c)"
+  if (( _size > _RELEASE_NOTES_MAX )); then
+    err "REFUSING: the assembled notes for ${_tag} are ${_size} bytes," \
+        "over GitHub's ${_RELEASE_NOTES_MAX}-character release body limit." \
+        "Sections read: ${_sources[*]}. action-gh-release would reject this" \
+        "with a 422 at tag push, after every gate has passed. Truncating" \
+        "silently is not the alternative: a release page missing entries" \
+        "nobody was told were dropped is the failure this script exists to" \
+        "stop. Shorten the entries -- the 700-character cap the changelog" \
+        "lint applies to [Unreleased] keeps a release written under it well" \
+        "clear of this."
     return 1
   fi
   printf '%s\n' "${_notes}"
