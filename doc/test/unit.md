@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3637 tests**.
+Unit specs under `test/bats/unit/`: **3639 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -4311,7 +4311,7 @@ rather than an assurance.
 | `an unreadable image listing retires nothing` | - |
 | `a dry run names the image it would retire and removes nothing` | - |
 
-### test/bats/unit/reclaim_wiring_spec.bats (29)
+### test/bats/unit/reclaim_wiring_spec.bats (31)
 
 | Test | Description |
 |------|-------------|
@@ -4344,6 +4344,8 @@ rather than an assurance.
 | `compose.yaml records the checkout path on the image it builds` | - |
 | `the image stamp is refused rather than defaulted, like every other` | - |
 | `the tooling image is NOT stamped, because it is shared on purpose` | - |
+| `every recipe that reaches docker states its lifecycle` | - |
+| `the derived population is not empty, and reaches both namespaces` | - |
 ### test/bats/unit/adr_structure_spec.bats (27)
 
 | Test | Description |

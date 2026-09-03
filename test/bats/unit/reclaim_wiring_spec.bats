@@ -437,3 +437,133 @@ STUB
   run bash -c "sed -n '/^  test-tools:/,/^  [a-z]/p' '${COMPOSE}' | grep -F 'base.checkout.path'"
   assert_failure
 }
+
+# ── the rule outlives this instance ───────────────────────────────────────
+#
+# Everything above this line is a hand-kept list: it names build, run and
+# exec as the verbs that deliberately do not reclaim, and it names stop,
+# test, system and smoke as the ones that do. A hand-kept list answers for
+# the recipes that existed when it was written and for no others, which is
+# the exact failure the whole issue is about -- `just docker prune` existed
+# and collected the right things, and was never invoked.
+#
+# So the population below is DERIVED. Every justfile base owns is parsed,
+# every recipe whose body reaches docker is found, and each one must either
+# carry a reclaim or carry a `# lifecycle:` line in its doc comment saying
+# why not. A new recipe that drives docker fails this test until its author
+# has written that sentence -- which is the whole mechanism: not a rule
+# someone has to remember, but a question they cannot avoid being asked.
+#
+# WHY MECHANICAL AND NOT A WRITTEN CONVENTION ALONE. Both, in fact -- the
+# sentence the lint demands lands in the justfile, next to the recipe,
+# which is where the next author reads it. What a written convention alone
+# could not do is notice the recipe that skipped it; this repo already had
+# the convention (ADR-00000005: `just` is the control surface) and 468
+# orphaned networks.
+#
+# WHY A SPEC AND NOT A LINT DRIVER. A `--<tool>-only` primitive costs a
+# driver, a flag, a CI job (self_test_yaml_spec requires one per lint
+# tool), a README row and a doc/test row -- for a rule whose entire subject
+# is a handful of files already inside this suite's reach. The suite is the
+# gate; a second gate for the same population would be a second thing to
+# keep in sync.
+
+# The justfiles base owns. -type f drops the consumer-shaped symlinks
+# (script/docker/justfile.docker -> dist/...) so each file is read once,
+# and .prev-release/ holds published tarballs of OLDER releases, which are
+# not this tree's to hold to this tree's rules.
+_owned_justfiles() {
+  find /source -type f \
+    \( -name 'justfile' -o -name 'justfile.*' \) \
+    -not -path '*/.prev-release/*' | sort
+}
+
+# _recipe_names <justfile> -- every recipe header's name. A line carrying
+# `:=` is an assignment (`set working-directory :=`, `export HOST_UID :=`,
+# `alias h := help`), not a recipe.
+_recipe_names() {
+  awk '
+    /^[[:space:]]/ { next }
+    /^#/ { next }
+    /:=/ { next }
+    /^[a-z][a-zA-Z0-9_-]*([ ][^:]*)?:/ {
+      split($0, _a, /[ :]/); print _a[1]
+    }
+  ' "${1}"
+}
+
+# _recipe_part <justfile> <name> <doc|body>
+#
+# The recipe's doc comment block, or its body. They are read apart on
+# purpose: what a recipe DOES is its body, and a doc comment that mentions
+# `just docker build` while the recipe lists verbs is not a recipe that
+# drives docker. The `# lifecycle:` note, conversely, lives in the doc.
+_recipe_part() {
+  awk -v want="${2}" -v part="${3}" '
+    /^[[:space:]]*$/ { inbody = 0; doc = ""; next }
+    /^#/ { doc = doc $0 "\n"; next }
+    /^[[:space:]]/ { if (inbody && part == "body") print; next }
+    {
+      inbody = 0
+      if ($0 ~ /:=/) { doc = ""; next }
+      if ($0 ~ /^[a-z][a-zA-Z0-9_-]*([ ][^:]*)?:/) {
+        split($0, _a, /[ :]/)
+        if (_a[1] == want) {
+          if (part == "doc") { printf "%s", doc } else { print }
+          inbody = 1
+        }
+      }
+      doc = ""
+    }
+  ' "${1}"
+}
+
+# _reaches_docker <justfile> <name> -- whether the recipe BODY drives
+# compose itself, forwards to a wrapper that does, or hands the work to the
+# self-test runner that does.
+_reaches_docker() {
+  _recipe_part "${1}" "${2}" body \
+    | grep -qE 'docker compose|\./script/(build|run|exec|stop|prune)\.sh|just docker |\./script/test/test\.sh'
+}
+
+# _answers_for_it <justfile> <name> -- whether the recipe reclaims in its
+# body, or says in its doc comment why the verb it is does not.
+_answers_for_it() {
+  _recipe_part "${1}" "${2}" body \
+    | grep -qE -- '--orphan-projects|--reclaim|_reclaim|\./script/(stop|prune)\.sh' && return 0
+  _recipe_part "${1}" "${2}" doc | grep -qE '^# lifecycle:'
+}
+
+@test "every recipe that reaches docker states its lifecycle" {
+  local _f _name _missing=""
+  while IFS= read -r _f; do
+    [[ -n "${_f}" ]] || continue
+    while IFS= read -r _name; do
+      [[ -n "${_name}" ]] || continue
+      _reaches_docker "${_f}" "${_name}" || continue
+      _answers_for_it "${_f}" "${_name}" && continue
+      _missing+="${_f}:${_name} "
+    done < <(_recipe_names "${_f}")
+  done < <(_owned_justfiles)
+  [[ -z "${_missing}" ]] \
+    || fail "these recipes reach docker and neither reclaim nor carry a '# lifecycle:' note saying why not: ${_missing}"
+}
+
+@test "the derived population is not empty, and reaches both namespaces" {
+  # A parser that silently matched nothing would make the test above pass
+  # for every tree, which is the failure mode of every derived population.
+  local _n=0 _f _name
+  local _saw_docker=0 _saw_test=0
+  while IFS= read -r _f; do
+    while IFS= read -r _name; do
+      [[ -n "${_name}" ]] || continue
+      _reaches_docker "${_f}" "${_name}" || continue
+      _n=$(( _n + 1 ))
+      [[ "${_f}" == *justfile.docker ]] && _saw_docker=1
+      [[ "${_f}" == *justfile.test ]] && _saw_test=1
+    done < <(_recipe_names "${_f}")
+  done < <(_owned_justfiles)
+  (( _n >= 10 )) || fail "the recipe parser found only ${_n} docker-reaching recipes; it has stopped parsing"
+  (( _saw_docker == 1 )) || fail "no docker-namespace recipe was found"
+  (( _saw_test == 1 )) || fail "no test-namespace recipe was found"
+}
