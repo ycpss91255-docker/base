@@ -877,7 +877,19 @@ jobs:
             done
 
             test_stage="${stage}-test"
-            if echo "${available_stages}" | grep -qx "${test_stage}"; then
+            # A here-string and a `> /dev/null`, not a pipe into `grep -q`:
+            # that reader leaves at the first match, the writer upstream
+            # takes SIGPIPE, and under this step's `pipefail` its 141
+            # becomes the pipeline's status -- so a stage that WAS found
+            # reads as absent and its smoke test is silently not built.
+            # `-Fx` because the stage name is DATA: it reaches here from
+            # the caller's `extra_stages` input, and read as a basic
+            # regular expression a `.` in it (docker allows one in a
+            # target name) matches a DIFFERENT stage, sending buildx after
+            # a target the Dockerfile does not declare. Same spelling as
+            # runtime_stages.sh's `_declares_stage`, which reads the same
+            # roster for the same reason.
+            if grep -Fx -- "${test_stage}" > /dev/null <<< "${available_stages}"; then
               echo "::group::Build ${test_stage} (extra stage test)"
               docker buildx build \
                 --file "${DOCKERFILE}" \
