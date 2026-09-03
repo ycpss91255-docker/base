@@ -5,8 +5,9 @@
 #
 # Locks the publish surface for the test-tools image consumed by every
 # downstream Dockerfile.example (`FROM ${TEST_TOOLS_IMAGE} AS
-# test-tools-stage`). The workflow has three publish modes; the first
-# two ship behaviour that downstream CI depends on:
+# test-tools-stage`). The workflow has three triggers and two tag sets:
+# the first two triggers each resolve one, and both ship behaviour that
+# downstream CI depends on:
 #
 # 1. **Tag push (`v*`)** — multi-arch `:<version>`, plus `:latest` only
 #    when the tag is NOT a prerelease. Cuts the release downstream
@@ -200,9 +201,9 @@ _doc_section_sum() {
   assert_output --partial 'workflow_dispatch:'
 }
 
-# ── Resolve tags step: 3 publish modes ───────────────────────────────
+# ── Resolve tags step: the two tag sets, read ────────────────────────
 
-@test "release-test-tools.yaml: Resolve tags step handles v* tag push -> :<ver> + :latest" {
+@test "release-test-tools.yaml: Resolve tags step handles v* tag push -> :<ver>, and :latest for a finished release" {
   run _resolve_tags_step
   assert_success
   assert_output --partial 'refs/tags/v*'

@@ -200,10 +200,14 @@ jobs:
       - name: Resolve tags
         id: tags
         shell: bash
-        # Three publish modes, three tag sets. `smoke` is the single tag
-        # the post-publish smoke step pulls so we always exercise the
-        # image we just pushed (rather than statically pulling :latest
-        # and missing :main bootstrapping bugs).
+        # Two tag sets and a refusal. A finished `v*` tag and a push to
+        # main each resolve a tag set; every other ref -- which is the
+        # only thing `workflow_dispatch` can add, since it carries the
+        # ref it was dispatched FROM -- resolves nothing and fails.
+        # `smoke` is the single tag the post-publish smoke step pulls so
+        # we always exercise the image we just pushed (rather than
+        # statically pulling :latest and missing :main bootstrapping
+        # bugs).
         #
         # `:latest` is the tag the whole org consumes: publish-worker.yaml
         # DEFAULTS `test_tools_version` to it, so every downstream repo

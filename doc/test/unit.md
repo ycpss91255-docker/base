@@ -813,7 +813,8 @@ thirteen cumulative invariants:
 Structural assertions for `.github/workflows/release-test-tools.yaml`.
 Locks the publish surface that downstream Dockerfile.example's `FROM
 ${TEST_TOOLS_IMAGE} AS test-tools-stage` depends on. The workflow has
-three publish modes:
+three triggers and two tag sets -- the first two triggers each resolve
+one:
 
 1. **Tag push (`v*`)** — multi-arch `:<version>`, plus `:latest` when the
    tag is not a prerelease. Cuts the release downstream consumers pin via
@@ -843,7 +844,7 @@ RC tags that each moved `:latest`.
 | Triggers on main push (#317 P2) | 1 |
 | Main push trigger has `paths:` filter limiting to Dockerfile.test-tools + workflow self (#317 P2 gotcha-3) | 1 |
 | Triggers on `workflow_dispatch` (existing) | 1 |
-| Resolve tags step: 3 publish modes (`v*` + `main` + dispatch) emit correct tag sets and `smoke` output | 3 |
+| Resolve tags step, read: a `v*` tag arm, a `main` arm and a `smoke` output (a dispatch carries the ref it was dispatched from, so it adds no arm of its own) | 3 |
 | Smoke step pulls trigger's tag via `steps.tags.outputs.smoke` (#317 P2) | 1 |
 | Resolver EXECUTED over the four ref shapes (#1012): a release tag moves `:latest`; an RC tag does not; a main push publishes `:main` only; an unrecognised ref exits non-zero and publishes nothing | 4 |
 | Header prose describes the rules the resolver applies, not a dispatch-only `:latest` branch the code cannot reach (#1012) | 1 |
