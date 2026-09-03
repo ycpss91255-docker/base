@@ -709,12 +709,54 @@ _field() {
   assert_output --partial "heredoc"
 }
 
+
 # ════════════════════════════════════════════════════════════════════
-# The three lints. Each is a threshold over the record above, and each
-# has a case proving it can FAIL.
+# The three lints. Each is a threshold over the record above: it REPORTS
+# every function past the threshold, and its VERDICT is the adoption
+# ceiling -- the population phase 3 has not flattened yet, one number per
+# metric, which may only ever go down.
 # ════════════════════════════════════════════════════════════════════
 
-@test "_run_nesting_depth: FAILS at depth 4, naming file and function (#994)" {
+# _write_many <prefix> <count> <body-line>... -- <count> copies of one
+# function shape, distinctly named, in one tracked file. The counts here
+# are derived from the ceiling constants rather than written out, so a
+# slice that lowers a ceiling does not have to come back and edit the
+# figure in four fixtures.
+_write_many() {
+  local _prefix="${1}" _count="${2}"; shift 2
+  local _i
+  : > "${SCRATCH}/many.sh"
+  for (( _i = 0; _i < _count; _i++ )); do
+    printf '%s%s() {\n' "${_prefix}" "${_i}" >> "${SCRATCH}/many.sh"
+    printf '%s\n' "$@" >> "${SCRATCH}/many.sh"
+    printf '}\n' >> "${SCRATCH}/many.sh"
+  done
+  git -C "${SCRATCH}" add -- many.sh
+}
+
+# _write_many_long <count> -- <count> functions of 51 body code lines,
+# one over the length threshold. Separate from _write_many because the
+# body is generated rather than given.
+_write_many_long() {
+  local _count="${1}" _i _j
+  : > "${SCRATCH}/many.sh"
+  for (( _i = 0; _i < _count; _i++ )); do
+    printf 'long%s() {\n' "${_i}" >> "${SCRATCH}/many.sh"
+    for (( _j = 1; _j <= 51; _j++ )); do
+      printf '  echo %s\n' "${_j}" >> "${SCRATCH}/many.sh"
+    done
+    printf '}\n' >> "${SCRATCH}/many.sh"
+  done
+  git -C "${SCRATCH}" add -- many.sh
+}
+
+# why: The row is what phase 3 works from, and it is printed whatever the
+# verdict -- a run that showed the worklist only when the ceiling broke
+# would be a lint nobody could act on between slices. The status is
+# deliberately NOT asserted here: whether ONE violation fails depends on
+# the ceiling, which every slice lowers, and pinning it would make this
+# case need an edit each time.
+@test "_run_nesting_depth: reports a depth-4 function by file, name and value whatever the verdict (#994)" {
   _write "a.sh" \
     'deep() {' \
     '  if true; then' \
@@ -728,10 +770,51 @@ _field() {
     '  fi' \
     '}'
   run _run_nesting_depth
-  assert_failure
   assert_output --partial "a.sh"
   assert_output --partial "deep"
-  assert_output --partial "4"
+  assert_output --partial "depth 4 (limit 3)"
+}
+
+# why: The ceiling is the verdict, so this is the case that says what the
+# gate is FOR: one more violation than the tree is carrying today fails,
+# and the failure names both figures so the reader knows whether to fix
+# the function or lower the number.
+@test "_run_nesting_depth: FAILS one over the adoption ceiling, naming both figures (#994)" {
+  [ -n "${_SM_DEPTH_CEILING:-}" ] || fail "the driver declares no depth ceiling"
+  _write_many deep "$(( _SM_DEPTH_CEILING + 1 ))" \
+    '  if true; then' \
+    '    if true; then' \
+    '      if true; then' \
+    '        if true; then' \
+    '          echo x' \
+    '        fi' \
+    '      fi' \
+    '    fi' \
+    '  fi'
+  run _run_nesting_depth
+  assert_failure
+  assert_output --partial "ceiling ${_SM_DEPTH_CEILING}"
+  assert_output --partial "limit of 3"
+}
+
+# why: The other side of the boundary, and the one that makes the ratchet
+# usable at all: a population AT the ceiling passes, which is what lets a
+# slice land without flattening all 23 functions at once.
+@test "_run_nesting_depth: a population AT the ceiling passes (#994)" {
+  [ -n "${_SM_DEPTH_CEILING:-}" ] || fail "the driver declares no depth ceiling"
+  _write_many deep "${_SM_DEPTH_CEILING}" \
+    '  if true; then' \
+    '    if true; then' \
+    '      if true; then' \
+    '        if true; then' \
+    '          echo x' \
+    '        fi' \
+    '      fi' \
+    '    fi' \
+    '  fi'
+  run _run_nesting_depth
+  assert_success
+  assert_output --partial "slack 0"
 }
 
 @test "_run_nesting_depth: passes at depth 3 (#994)" {
@@ -750,7 +833,9 @@ _field() {
   assert_output --partial "clean"
 }
 
-@test "_run_function_length: FAILS at 51 body code lines (#994)" {
+# why: The threshold's own boundary, one body code line over. It is the
+# row and not the verdict for the same reason as the depth case above.
+@test "_run_function_length: reports a function at 51 body code lines (#994)" {
   {
     echo 'long() {'
     for _i in $(seq 1 51); do echo "  echo ${_i}"; done
@@ -758,9 +843,19 @@ _field() {
   } > "${SCRATCH}/a.sh"
   git -C "${SCRATCH}" add -- a.sh
   run _run_function_length
-  assert_failure
   assert_output --partial "long"
-  assert_output --partial "51"
+  assert_output --partial "length 51 (limit 50)"
+}
+
+# why: Length carries the largest unflattened population of the three, so
+# it is the ceiling most likely to be reached for by a change that wants
+# to add one more long function rather than split it.
+@test "_run_function_length: FAILS one over the adoption ceiling (#994)" {
+  [ -n "${_SM_LENGTH_CEILING:-}" ] || fail "the driver declares no length ceiling"
+  _write_many_long "$(( _SM_LENGTH_CEILING + 1 ))"
+  run _run_function_length
+  assert_failure
+  assert_output --partial "ceiling ${_SM_LENGTH_CEILING}"
 }
 
 @test "_run_function_length: passes at exactly 50 body code lines (#994)" {
@@ -775,15 +870,29 @@ _field() {
   assert_output --partial "clean"
 }
 
-@test "_run_positional_params: FAILS at 6 positional parameters (#994)" {
+# why: Six positions is the first value past the threshold, and the
+# parameter metric is the one the epic sized its first slice from, so the
+# row's exact wording is what that slice reads.
+@test "_run_positional_params: reports a function at 6 positional parameters (#994)" {
   _write "a.sh" \
     'wide() {' \
     '  echo "${1}${2}${3}${4}${5}${6}"' \
     '}'
   run _run_positional_params
-  assert_failure
   assert_output --partial "wide"
-  assert_output --partial "6"
+  assert_output --partial "params 6 (limit 5)"
+}
+
+# why: The parameter ceiling is the lowest of the three and the first one
+# a slice will drive to zero, so this is the case that will still be
+# meaningful when the other two are still counting down.
+@test "_run_positional_params: FAILS one over the adoption ceiling (#994)" {
+  [ -n "${_SM_PARAMS_CEILING:-}" ] || fail "the driver declares no params ceiling"
+  _write_many wide "$(( _SM_PARAMS_CEILING + 1 ))" \
+    '  echo "${1}${2}${3}${4}${5}${6}"'
+  run _run_positional_params
+  assert_failure
+  assert_output --partial "ceiling ${_SM_PARAMS_CEILING}"
 }
 
 @test "_run_positional_params: passes at exactly 5 (#994)" {
@@ -796,6 +905,36 @@ _field() {
   assert_output --partial "clean"
 }
 
+# why: The census is the cost of the ceiling made visible -- slack is the
+# room in which a new violation can land green -- and a cost nobody can
+# see is one nobody closes. It prints on a CLEAN run too, which is the
+# run where nobody would otherwise look.
+@test "the census names count, limit, ceiling and slack on a CLEAN run (#994)" {
+  _write "a.sh" 'f() {' '  echo x' '}'
+  run _run_nesting_depth
+  assert_success
+  assert_output --partial "clean"
+  assert_output --partial "limit 3"
+  assert_output --partial "ceiling ${_SM_DEPTH_CEILING}"
+  assert_output --partial "slack ${_SM_DEPTH_CEILING}"
+}
+
+# why: One number per metric is what "no roster" has to mean in the code,
+# and it is checkable: a ceiling that named sites would need a data
+# structure or a vocabulary of exemption, and this refuses both. The
+# header argues the case; without this the argument is the only thing
+# holding it.
+@test "each ceiling is ONE readonly integer, and the driver carries no exemption vocabulary (#994)" {
+  local _drv="/source/script/test/drivers/shell_metrics.sh"
+  assert_spec_subject "${_drv}" "the driver whose adoption ceilings this pins"
+  run grep -cE '^readonly _SM_(DEPTH|LENGTH|PARAMS)_CEILING=[0-9]+$' "${_drv}"
+  assert_success
+  assert_output "3"
+  run grep -nvE '^[[:space:]]*#' "${_drv}"
+  assert_success
+  refute_output --regexp '(EXEMPT|exempt|ALLOWLIST|allowlist|BASELINE|baseline|WAIVER|waiver)'
+}
+
 @test "the three lints share ONE reader pass (#994)" {
   _write "a.sh" 'f() {' '  echo x' '}'
   _shell_metrics_load
@@ -806,6 +945,10 @@ _field() {
   [ "${_first}" -eq 1 ]
 }
 
+# why: The combined report is what `just test metrics` runs, so it has to
+# say all three states in one pass rather than stopping at the first --
+# a report that stopped would hide two thirds of the tree behind whichever
+# metric ran first.
 @test "_run_shell_metrics: reports all three metrics in one run (#994)" {
   _write "a.sh" \
     'deep() {' \
@@ -820,9 +963,22 @@ _field() {
     '  fi' \
     '}'
   run _run_shell_metrics
-  assert_failure
   assert_output --partial "nesting depth"
   assert_output --partial "function length"
   assert_output --partial "positional parameters"
   assert_output --partial "deep"
+}
+
+# why: The combined report has three verdicts to reconcile and one exit
+# status to say them in. Failing when ANY metric is past its own ceiling
+# is what keeps it from being the loosest of the three -- the shape a
+# caller would reach for if it reported the union but judged by the
+# minimum.
+@test "_run_shell_metrics: FAILS when ONE metric is past its ceiling (#994)" {
+  [ -n "${_SM_PARAMS_CEILING:-}" ] || fail "the driver declares no params ceiling"
+  _write_many wide "$(( _SM_PARAMS_CEILING + 1 ))" \
+    '  echo "${1}${2}${3}${4}${5}${6}"'
+  run _run_shell_metrics
+  assert_failure
+  assert_output --partial "positional parameters"
 }
