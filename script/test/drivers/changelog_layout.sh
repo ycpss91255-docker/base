@@ -63,8 +63,19 @@ readonly _CHANGELOG_LAYOUT_UNRELEASED='## [Unreleased]'
 # in. A pure function of the tag: at 0.x the minor is the breaking axis, so
 # the 0.Y series is the unit, and the filename is derived rather than
 # mapped. A mapping would be one more roster to keep honest.
+#
+# TOTAL, deliberately: it answers with an empty string for a tag it cannot
+# parse rather than with a non-zero status. The caller reads it through
+# `_want="$(_cll_series_of ...)"`, and the lint phase runs every driver
+# under `set -e` with an ERR trap, so a failing status there ends the
+# driver at that assignment -- the "not a version" finding below would
+# never be printed, and the run would stop with ci_lint_driver_failed
+# naming an assignment, which reads as a broken lint rather than as a
+# changelog that needs fixing.
 _cll_series_of() {
-  [[ "${1}" =~ ^(v[0-9]+\.[0-9]+) ]] && printf '%s' "${BASH_REMATCH[1]}"
+  if [[ "${1}" =~ ^(v[0-9]+\.[0-9]+) ]]; then
+    printf '%s' "${BASH_REMATCH[1]}"
+  fi
 }
 
 # _cll_scan <file> -- print one record per structural line of the file,
