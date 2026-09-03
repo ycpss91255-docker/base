@@ -107,6 +107,43 @@ _header_comments() {
   awk '/^on:/{exit} {print}' "${WF}" | only_comments
 }
 
+# _merge_checkout_rationale -- the merge job's prose above its Checkout step.
+# That job needs the tree for one reason (the smoke step compares the
+# published image against the declaration it was built from), and the
+# sentence naming that reason is the thing a reader follows to the file
+# doing the comparison.
+_merge_checkout_rationale() {
+  yaml_job_text "${WF}" merge | awk '/- name: Checkout/{exit} {print}' \
+    | only_comments
+}
+
+# _spec_header -- THIS file's own header prose, above the bats preamble. A
+# spec's header is read far more often than its cases, so a header still
+# describing the behaviour the cases refute misinforms every later reader
+# -- the same defect as a workflow header describing an unreachable branch,
+# one file over.
+_spec_header() {
+  awk '/^bats_require_minimum_version/{exit} {print}' \
+    "${BATS_TEST_DIRNAME}/release_test_tools_yaml_spec.bats" | only_comments
+}
+
+# _doc_section_sum -- the `| Category | Tests |` column total for this
+# spec's section of doc/test/unit.md.
+_doc_section_sum() {
+  awk '
+    /^### test\/bats\/unit\/release_test_tools_yaml_spec\.bats/ { insec = 1; next }
+    insec && /^### / { exit }
+    insec && /^\| *Category *\| *Tests *\|/ { intable = 1; next }
+    insec && intable && /^\|/ {
+      n = split($0, f, "|"); v = f[n - 1]; gsub(/ /, "", v)
+      if (v ~ /^[0-9]+$/) { sum += v }
+      next
+    }
+    insec && intable { intable = 0 }
+    END { print sum + 0 }
+  ' "$(_repo_root)/doc/test/unit.md"
+}
+
 # ── Trigger surface ──────────────────────────────────────────────────
 
 @test "release-test-tools.yaml: triggers on tag push v* (existing)" {
@@ -210,6 +247,42 @@ _header_comments() {
   assert_output --partial 'prerelease'
 }
 
+@test "release-test-tools.yaml: this spec's own header describes the surface it pins (#1012)" {
+  # The header above is the first thing a reader of this file meets, and it
+  # documented the surface these cases now refute: `:<version>` + `:latest`
+  # on every `v*` tag, and a `workflow_dispatch` that republishes
+  # `:latest`. Both are what four RC tags did to `:latest` and what an
+  # unrecognised dispatch ref could still do. The workflow's header was
+  # corrected and this one was not, which leaves the correction half made
+  # -- and a reader who trusts the header reads the cases as the anomaly.
+  run _spec_header
+  assert_success
+  refute_output --partial 'republish'
+  refute_output --partial '+ `:latest`'
+  assert_output --partial 'prerelease'
+}
+
+@test "release-test-tools.yaml: doc/test/unit.md accounts for every case in this spec (#1012)" {
+  # The section heading's figure is GENERATED (sync-doc-counts.sh counts
+  # `^@test`) and the category table under it is hand-maintained, so the
+  # two drift apart in silence: the rows for the smoke step's two roster
+  # assertions were never added and the table summed to 20 while this file
+  # held 22 cases. The doc-counts gate validates the heading and never the
+  # table, so nothing else can see it.
+  #
+  # Scoped to this spec on purpose: seven other sections of that file do not
+  # hold this property today (measured 2026-09-03), so the repo-wide form is
+  # a change to the doc-counts gate and to those sections, not to this file.
+  local _cases _sum
+  _cases="$(grep -c '^@test' \
+    "${BATS_TEST_DIRNAME}/release_test_tools_yaml_spec.bats")"
+  _sum="$(_doc_section_sum)"
+  [[ "${_sum}" -gt 0 ]] || fail \
+    "doc/test/unit.md carries no category table for this spec -- the section was renamed or the table removed."
+  [[ "${_sum}" == "${_cases}" ]] || fail \
+    "doc/test/unit.md's category table for this spec sums to ${_sum}, but the spec holds ${_cases} cases."
+}
+
 # ── Smoke test step ──────────────────────────────────────────────────
 
 @test "release-test-tools.yaml: smoke step pulls the trigger's tag (not statically :latest) (#317 P2)" {
@@ -242,6 +315,20 @@ _header_comments() {
   run _smoke_step
   assert_success
   assert_output --partial 'the pin roster came back empty'
+}
+
+@test "release-test-tools.yaml: the merge job's checkout rationale names what the smoke step reads (#1012)" {
+  # That job checks the tree out for exactly one reason, and the sentence
+  # saying so still sent a reader to dist/script/base/just-version.sh --
+  # the file the smoke step compared `just` against BEFORE this workflow
+  # started iterating the pin roster instead. The step no longer opens it,
+  # so the rationale named a dependency the job does not have and hid the
+  # one it does.
+  run grep -n 'just-version\.sh' "${WF}"
+  assert_failure
+  run _merge_checkout_rationale
+  assert_success
+  assert_output --partial 'test-tools-pins.sh'
 }
 
 # ── Native-runner matrix + push-by-digest + manifest merge ─────
