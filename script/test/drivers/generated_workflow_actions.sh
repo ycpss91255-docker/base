@@ -175,9 +175,10 @@
 #
 # One thing is deliberately NOT modelled here, and its absence is the
 # rule. A `uses:` value is read LEXICALLY: `${{ ... }}` is the GitHub
-# expression excluded above, and any OTHER `${...}` or `$NAME` must
-# resolve against a tool-pin declaration in the same file, with anything
-# that does not resolve a finding. No code here parses a heredoc.
+# expression excluded above, and a braced `${NAME}` must resolve against a
+# tool-pin declaration in the same file. Anything else carrying a `$` --
+# an undeclared name, a bare `$NAME`, `${NAME:-x}`, `$(cmd)` -- is a
+# finding. No code here parses a heredoc.
 #
 # What that does NOT do, said plainly: it does not know whether a given
 # site expands. A `${NAME}` written inside `<<'QUOTED'` is resolved and
@@ -260,7 +261,16 @@ readonly _GWA_USES_LINE_RE='uses:[[:space:]]+(.+)$'
 # excised first, because it is an exclusion rather than an unreadable
 # shell reference.
 # shellcheck disable=SC2016 # an ERE matching a `$`; nothing here expands.
-readonly _GWA_VAR_RE='\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)'
+# Only the BRACED spelling is readable. `${NAME}` is a closed token, so a
+# global substitution of it cannot reach into a neighbouring reference.
+# The bare `$NAME` spelling is deliberately NOT here: it has no terminator,
+# so a short name that is a prefix of a longer one consumed the longer
+# one's `$` -- `$A/checkout@$A7` with A=v and A7=v6 resolved to
+# `v/checkout@v7`, a ref that appears in no declaration, and the `$`
+# backstop below found nothing left to refuse. A bare `$NAME` is therefore
+# a value this reader cannot read, which is the finding branch, and the
+# fix at the call site is one character: write `${NAME}`.
+readonly _GWA_VAR_RE='\$\{([A-Za-z_][A-Za-z0-9_]*)\}'
 
 # Where this repo declares the `<owner>/<repo>` it is served from, and the
 # name it declares it under. base is its own upstream, so that slug is this
@@ -484,18 +494,17 @@ _gwa_registry_literal() {
 _gwa_resolve() {
   local _v="${1}" _file="${2}" _ref _name _lit
   while [[ "${_v}" =~ ${_GWA_VAR_RE} ]]; do
-    # Both halves of the match are read BEFORE anything else runs. The
-    # braced spelling fills capture 1 and the bare one capture 2, so the
-    # name is whichever is non-empty; and the next statement re-matches
-    # inside its own regex, which is exactly what would overwrite these.
+    # Both halves of the match are read BEFORE anything else runs: the next
+    # statement re-matches inside its own regex, which is exactly what
+    # would overwrite these.
     _ref="${BASH_REMATCH[0]}"
-    _name="${BASH_REMATCH[1]:-${BASH_REMATCH[2]}}"
+    _name="${BASH_REMATCH[1]}"
     _lit="$(_gwa_registry_literal "${_file}" "${_name}")" || return 1
     _v="${_v//"${_ref}"/${_lit}}"
   done
   # A `$` the reference matcher could not read at all -- `${{ }}`,
-  # `${NAME:-x}`, `$(cmd)` -- survives the loop. Refuse it rather than
-  # comparing a value still carrying an unexpanded fragment.
+  # `${NAME:-x}`, `$(cmd)`, a bare `$NAME` -- survives the loop. Refuse it
+  # rather than comparing a value still carrying an unexpanded fragment.
   [[ "${_v}" == *'$'* ]] && return 1
   printf '%s' "${_v}"
 }

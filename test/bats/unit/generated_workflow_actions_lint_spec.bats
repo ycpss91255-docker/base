@@ -1120,6 +1120,29 @@ _write_generator_raw() {
   assert_output --partial 'v8'
 }
 
+@test "generated-workflow-actions: a bare \$NAME is a finding, not a resolution (#987)" {
+  # why: the bare spelling has no terminator, so a global substitution of a
+  # SHORT name reached into a LONGER name it prefixes. With A declared as
+  # `v` and A7 as `v6`, `$A/checkout@$A7` resolved to `v/checkout@v7` -- a
+  # ref that appears in no declaration -- and the trailing `$` backstop
+  # found nothing left to refuse, so a fabricated ref reached the
+  # comparison. Only `${NAME}` is read now: it is a closed token, so a
+  # substitution of it cannot reach a neighbour. The bare spelling lands in
+  # the finding branch, and the fix at any call site is one character.
+  _load_driver
+  _write_workflow 'actions/checkout@v7'
+  _write_generator_var \
+    '# tool-pin: unpinned monitor-checkout -- a major ref on purpose' \
+    "readonly A='actions'" \
+    '# tool-pin: unpinned monitor-ref -- a major ref on purpose' \
+    "readonly A7='v6'" \
+    -- '      - uses: $A/checkout@$A7'
+
+  run _run_generated_workflow_actions
+  [ "${status}" -ne 0 ]
+  refute_output --partial 'v7'
+}
+
 @test "generated-workflow-actions: an assignment no marker claims is a finding (#987)" {
   # The whole trade in one case. The assignment below is file-scope,
   # unconditional, at column 0 and above the use -- everything the deleted
