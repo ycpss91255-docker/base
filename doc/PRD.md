@@ -363,16 +363,25 @@ are what make the rule mechanical rather than rhetorical:
   = 20` has no "off", so neither question applies to it; how large a
   default number should be is invariant 4's direction question, answered
   by which way the harm falls.
+- **It is a correctness test, not a security analysis.** A permissive
+  setting breaks nothing that works, so question 1 does not catch it;
+  `[security] privileged` reaches `false` through the neither-yes branch,
+  which is the right landing but not for the reason that matters. What
+  makes it the right landing is invariant 4 -- the tension there is
+  safe-versus-convenient, and the direction is safe. Where the two
+  disagree the answer is still off, because both branches only ever
+  license an ON.
 
-Applied to the defaults base ships today, the rule reproduces every one
-of them:
+Applied to seven of the defaults base ships today -- those chosen for
+having a recorded rationale to check the rule against, not by a sweep of
+every default in the tree -- it reproduces each:
 
 | Default | Q1: can on break a working setup? | Q2: does forgetting hurt? | Yields | Ships |
 |---|---|---|---|---|
 | `[lifecycle] init` | no -- PID1 reaping is transparent to a correct single-service workload | yes -- zombies accrue and signals are not forwarded | on | `true` |
 | watchdog `restart-service` | yes -- it relaunches a service the workload meant to stop | -- | off | commented out |
 | `[network]` bridge (vs `host`) | yes -- a `172.17.x` address is not routable off-box, so cross-machine ROS goes silently unreachable | -- | off | `mode = host` |
-| `[security] privileged` | yes -- it widens every container's privilege beyond what it needs | -- | off | `false` |
+| `[security] privileged` | no -- it is permissive, so nothing that works stops working | no -- a container that does not need it is not hurt by its absence | off (the neither-yes branch) | `false` |
 | `[logging] wrapper_transcript` | no, once ADR-00000007 removed the re-flip | yes -- the debugging record is missing exactly when it is wanted | on | `true` |
 | GHCR untagged-image cleanup | yes -- an untagged child a live tag still references would 404 a `docker pull` | -- | off | dry-run until `GHCR_CLEANUP_ENFORCE` |
 | config mount-override writable | yes -- the container could rewrite the operator's file | -- | off | read-only, `rw` opt-in |
@@ -551,10 +560,11 @@ is written where the person who needs it is already looking, and the
 other places link to it. Which document that is follows from who the
 reader is and what they are trying to decide.
 
-*Where written:* the PR body is this repo's canonical decision record
-(`CLAUDE.md`, enforced on `gh pr create`), which is why the
-`changelog-entry` lint's header states that an entry answers what changed
-and whether it affects you, "not why, and not what was rejected";
+*Where written:* `script/test/drivers/changelog_entry.sh`'s header, which
+states the rule and the placement together -- "this repo already decided
+that the PR body is the canonical decision record, enforced by a hook on
+`gh pr create` ... A changelog entry answers two questions -- what
+changed, and does it affect me. Not why, and not what was rejected";
 ADR-00000013 (drop the transient issue number from a code comment, keep
 the sentence -- the number's reader is in the tracker, the sentence's
 reader is in the file); ADR-00000027 sec.3 (the release classification's
