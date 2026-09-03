@@ -77,14 +77,14 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   `github.job_workflow_sha` is still missing from actionlint's github-context
   type at 1.7.12.
 - **`generated-workflow-actions` resolves a generated ref from the pin
-  registry instead of scanning for it (refs #950, #987)** -- the lint decided
-  which assignment was live: file scope, unconditional, column 0, not
-  `local`. Four shapes fooled that and every one failed OPEN -- a `{` at
-  column 0, `for((i=0;...))`, `if<TAB>`, and a quoted heredoc, which expands
-  nothing, so the lint compared a value the generator never writes. A
-  variable is now read only where a `tool-pin:` marker DECLARES its value,
-  and the population is the pin registry's walk rather than `*.sh`. Hoisting
-  a ref out of a heredoc needs a marker, which is what watches it.
+  registry, and only within one file (refs #950, #987)** -- the lint used to
+  decide which assignment was live, and four shapes fooled it, every one
+  failing OPEN. A variable is now read only where a `tool-pin:` marker
+  DECLARES its value IN THE SAME FILE: the record names a file and a line, so
+  a marker on that name elsewhere declares a different variable, and
+  borrowing it reported lockstep over a value the generator may never write.
+  The reader that says whether a use site expands now refuses a `<<` it
+  cannot name, a body still open at EOF, and an indented terminator.
 
 ### Added
 - **`init.sh --list-installed-paths`: the installer now states which files it puts into a consumer (refs #927)** -- `.base` files reach a repo only through an upgrade's resync, so "which release is this repo on" was answerable while "did that release's files actually arrive" was not; the base-version monitor sat at zero adoption, unreported, for months. The manifest is read from init.sh instead of copied, and an integration spec diffs it against a real resync in both directions -- which immediately caught `.setup.conf` missing from the first draft. Affects anyone auditing `.base` delivery across repos.

@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3499 tests**.
+Unit specs under `test/bats/unit/`: **3504 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -4202,7 +4202,7 @@ rather than an assurance.
 | `watch: --drift-tsv emits no machine answer when the table is unreadable` | The workflow builds its bump matrix from this stdout; an empty list with status 0 is the silent clean week. |
 | `watch: --drift-tsv puts the drifted pins on stdout, the report on stderr` | One invocation serves both the machine and the human: two walks of the upstream APIs can disagree. |
 | `watch: an unknown option is a usage error, distinct from both` | Exit 2 cannot be mistaken for "drifted" or for "could not resolve". |
-### test/bats/unit/generated_workflow_actions_lint_spec.bats (52)
+### test/bats/unit/generated_workflow_actions_lint_spec.bats (57)
 
 | Test | Description |
 |------|-------------|
@@ -4236,7 +4236,8 @@ rather than an assurance.
 | `generated-workflow-actions: resolves an unbraced $NAME reference (#950)` | - |
 | `generated-workflow-actions: resolves the ref half alone (#950)` | - |
 | `generated-workflow-actions: a resolved ref to an action this repo never uses still fails (#950)` | - |
-| `generated-workflow-actions: a declaration in ANOTHER file resolves (#987)` | - |
+| `generated-workflow-actions: a declaration in ANOTHER file does not resolve (#987)` | - |
+| `generated-workflow-actions: a marked name elsewhere does not vouch for a runtime value here (#987)` | - |
 | `generated-workflow-actions: a declaration BELOW the use still resolves (#987)` | - |
 | `generated-workflow-actions: two declarations that disagree are a finding (#950)` | - |
 | `generated-workflow-actions: a declared command substitution is a finding (#950)` | - |
@@ -4252,6 +4253,10 @@ rather than an assurance.
 | `generated-workflow-actions: a C-style for loop is a conditional block (#987)` | - |
 | `generated-workflow-actions: a tab after if still opens a block (#987)` | - |
 | `generated-workflow-actions: a ref in a QUOTED heredoc is written verbatim (#987)` | - |
+| `generated-workflow-actions: a backslash-quoted heredoc delimiter expands nothing (#987)` | - |
+| `generated-workflow-actions: an indented terminator does not close a quoted heredoc (#987)` | - |
+| `generated-workflow-actions: a heredoc operator the reader cannot name refuses the file (#987)` | - |
+| `generated-workflow-actions: a heredoc still open at end of file refuses the file (#987)` | - |
 | `generated-workflow-actions: a variable the registry declares is resolved (#987)` | - |
 | `generated-workflow-actions: an assignment no marker claims is a finding (#987)` | - |
 | `generated-workflow-actions: one reader -- a declared local resolves too (#987)` | - |

@@ -469,17 +469,6 @@ _pin_rhs_tail() {
   printf '%s' "${1#"${_v}"}"
 }
 
-# _pin_extract_value <target-line> <coordinate>
-#
-# The version the target line currently carries.
-#
-#   ARG <NAME>=<value>   ->  <value>, unquoted, comment stripped
-#   <NAME>=<value>       ->  the same, for a shell declaration site
-#   anything else        ->  the token following <coordinate>, separated by
-#                            `:` (an image tag) or `@` (a ref)
-#
-# Anchoring the second form on the coordinate is what keeps extraction
-# precise on a line that also carries flags, paths and other colons.
 # _pin_assign_value <line> -- the value <line> assigns, unquoted and with
 # any trailing comment removed; non-zero when <line> assigns nothing.
 #
@@ -510,6 +499,17 @@ _pin_assign_name() {
   printf '%s' "${_head##*[[:space:]]}"
 }
 
+# _pin_extract_value <target-line> <coordinate>
+#
+# The version the target line currently carries.
+#
+#   ARG <NAME>=<value>   ->  <value>, unquoted, comment stripped
+#   <NAME>=<value>       ->  the same, for a shell declaration site
+#   anything else        ->  the token following <coordinate>, separated by
+#                            `:` (an image tag) or `@` (a ref)
+#
+# Anchoring the second form on the coordinate is what keeps extraction
+# precise on a line that also carries flags, paths and other colons.
 _pin_extract_value() {
   local _line="${1}" _coord="${2}"
   if _pin_assign_value "${_line}"; then
