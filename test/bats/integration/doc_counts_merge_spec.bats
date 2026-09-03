@@ -10,6 +10,13 @@
 # review batch. One command has to leave a merged, regenerated, staged,
 # gate-clean tree behind -- and, when the two sides disagree about something
 # regeneration cannot settle, refuse without staging anything.
+#
+# why: Drives `script/test/resolve-doc-counts.sh` against a REAL git merge
+# conflict: two branches that each added tests and both bumped the same
+# generated totals, which is the conflict shape every branch refresh in the
+# base review batch produced. Asserts the merged tree is regenerated,
+# complete, staged and gate-clean -- and that a merge whose sides describe
+# the same test differently is refused with nothing staged.
 
 bats_require_minimum_version 1.5.0
 

@@ -13,6 +13,26 @@
 # Pushing the logic here (host-testable under `just test`) keeps the GHA
 # wiring in build-worker.yaml / release-worker.yaml thin: the workflow only
 # exports the env and calls this script.
+#
+# why: Unit tests for `script/ci/preflight.sh`, the caller-contract
+# validator the reusable build / release workers run before any real work.
+# Drives the pure-shell engine over synthetic requirement manifests: a
+# present required input passes; an empty required input, or an ungranted /
+# unset permission probe, fails non-zero with a plain-language message
+# naming the gap and the `main.yaml` fix; every unmet requirement is
+# reported in one pass (not fail-on-first); `--list` self-describes the
+# manifest; comment / blank manifest lines are ignored. Malformed-manifest
+# guards keep the never-silent thesis honest: an unknown requirement kind (a
+# typo'd `kind` column) fails loudly naming the offending kind, and a
+# missing / empty / all-comment (zero-requirement) manifest is a config
+# error (exit 2) rather than a silent green. Conditional requirements
+# (#801): an optional 6th manifest field `<condvar>=<value>` gates a
+# requirement on another env var (e.g. `packages: write` only when
+# `cache_backend: registry`) -- a guard that does not match is
+# declared-but-skipped (never a failure), a matching guard enforces the
+# requirement without leaking the guard into the hint, and `--list`
+# annotates it as `(when <condvar>=<value>)`. A malformed guard field
+# lacking `=` fails loud as a config error (exit 2), never failing open.
 
 bats_require_minimum_version 1.5.0
 

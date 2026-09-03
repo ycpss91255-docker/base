@@ -10,6 +10,66 @@
 # carries the line-anchored `[ "${COVERAGE:-0}" = 1 ] && skip` guard so
 # the coverage matrix skips this file and it runs PLAIN under bats-fragile.
 # The kcov-safe pure-logic units live in watchdog_spec.bats.
+#
+# why: Process-level supervision tests for the watchdog (#797): the
+# `restart-container` monitor loop, the `restart-service` supervisor, and
+# the real signal / process-group teardown paths -- bounded SIGTERM → grace
+# → SIGKILL (a SIGTERM-ignoring service is killed within the grace, no
+# unbounded-`wait` hang), whole-subtree kill via `setsid` (no orphaned
+# grandchild leaks per restart), give-up against a wedged service still
+# reaching container-exit, and the `docker stop` SIGTERM forward to the
+# service group. Every wait is event-driven (poll for the pid file, the
+# ready marker, the process going away) rather than a fixed `sleep`, and
+# every case starts its processes through ONE harness, `_run_bounded`, so a
+# failure costs what its ceiling says it costs. Two things are needed for
+# that and each was measured alone: the harness hands the body a log file
+# instead of the case's own output descriptor (a setsid'd service inherits
+# that descriptor and holds `run` waiting for EOF for its whole lifetime --
+# 45s against a 30s ceiling, and 326s on the readiness path), and the
+# ceiling ends in SIGKILL (`--kill-after`), because the product installs its
+# own SIGTERM handler and unwinds into an unbounded `wait` against a service
+# that ignores signals -- 300s against a stated `timeout 45` (#965). The
+# process groups the fixtures record are torn down in `teardown` rather than
+# from a trap inside the harness, which is where it was first put and where
+# it did not run, and ONLY ever as a process group -- a bare-pid fallback
+# could hit a stranger in another job, and the case that says so settles its
+# verdict on the child's exit status through `wait` rather than on `kill
+# -0`, which answers "alive" both for a process sent SIGKILL and not yet
+# scheduled to die and for one dead and not yet reaped (measured: three
+# false greens in fifteen full-file runs against a harness that DID signal
+# the bare pid; zero in fifteen with the rendezvous). The same glance was in
+# `_await_gone`, which every subtree case settles its verdict with, and it
+# cost a full gate run on this branch: the group SIGKILL takes the
+# grandchild's parent too, so nobody is left to wait for it, and the case
+# reported ORPHAN_ALIVE against a correct product. It now reads the process
+# state, so an exited unreaped pid counts as gone -- the answer the product
+# already gives in `_watchdog_child_alive`.
+#
+# The `docker stop` forward case is the one this issue reported as
+# NO_SIGNAL, and the last of it was not a test defect at all. `setsid cmd &`
+# returns at the fork, so the supervisor sampled the child's process group
+# before setsid() had run and a lost race left it signalling the bare pid --
+# 3 of 40 starts on a deliberately loaded machine. A service whose shell
+# sits in a foreground command then never runs its SIGTERM trap (bash holds
+# a trap until the foreground command returns, and it returns because the
+# group signal reached it too), the grace expires, and a correct service is
+# SIGKILLed. The product now waits briefly for the group to appear, the
+# fixture waits on a BACKGROUNDED sleep so a signal reaches it in one hop
+# rather than three, and the harness's two numbers are derived from the
+# interval rather than guessed. Measured: 0 failures in 30 loaded runs
+# against 3 in 8 before.
+#
+# The net for the file as a whole is the bound guard in `teardown`, which
+# measures every case against the ceiling its own harness declared: it holds
+# for a sibling written in a spelling nothing anticipated, and a
+# continuation-line `bash -c` sibling that walks past the structural scan is
+# caught there at 45s against a declared 0. The structural case is the
+# narrower claim on top of it -- exactly one place in the file starts a
+# shell, inside `_run_bounded` -- and its job is to say WHICH LINE drifted
+# at the moment it is written, not to be the thing that catches the drift.
+# These drive real background processes / sleeps / signals, so the file is
+# **kcov-fragile** (each test carries the `[ "${COVERAGE:-0}" = 1 ] && skip`
+# guard; it runs plain under `bats-fragile`, ADR-00000008 / #613 / #677).
 
 bats_require_minimum_version 1.5.0
 

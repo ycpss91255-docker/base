@@ -10,6 +10,12 @@
 # to it were hand-written, so the rows rotted silently under a green gate.
 # The rows are generated too now, and these cases pin the contract --
 # preservation, deletion, rename, ordering, opt-out, escaping.
+#
+# why: Unit coverage for `script/test/sync-doc-counts.sh`
+# (`_sync_doc_counts`) -- the generator that derives the `doc/test/*.md`
+# count figures from the specs (`grep -c '^@test'`) so they stop being
+# hand-edited. The `check_test_md_drift.sh` hook stays the validating safety
+# net.
 
 bats_require_minimum_version 1.5.0
 
@@ -19,6 +25,7 @@ setup() {
   GEN="/source/script/test/sync-doc-counts.sh"
 }
 
+# why: per-spec heading recompute
 @test "_sync_doc_counts: rewrites a stale ### heading to the real @test count (#727)" {
   run bash -c '
     source "'"${GEN}"'"
@@ -33,6 +40,7 @@ setup() {
   assert_output --partial "### test/bats/unit/x_spec.bats (3)"
 }
 
+# why: #815 deeper ATX depth regenerated, not just ###
 @test "_sync_doc_counts: rewrites a stale #### (level-4) heading too (#815)" {
   # Regression: _sync_headings must regenerate deeper ATX headings, not just
   # `###`. Before the fix its regex anchored `^###[[:space:]]`, so a `####`
@@ -51,6 +59,7 @@ setup() {
   assert_output --partial "#### test/bats/unit/x_spec.bats (3)"
 }
 
+# why: per-type total from grep-over-files
 @test "_sync_doc_counts: rewrites the per-type total to the sum of the headings (#727)" {
   run bash -c '
     source "'"${GEN}"'"
@@ -66,6 +75,7 @@ setup() {
   refute_output --partial "**99 tests**"
 }
 
+# why: re-run no-op
 @test "_sync_doc_counts: is idempotent on an already-synced tree (#727)" {
   run bash -c '
     source "'"${GEN}"'"

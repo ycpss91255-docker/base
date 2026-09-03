@@ -13,6 +13,14 @@
 # The cases below therefore split into two halves: the toil half (markers go,
 # figures come back right) and the safety half (anything the collapse cannot
 # justify by regeneration is refused loudly, never adopted quietly).
+#
+# why: Unit coverage for `script/test/resolve-doc-counts.sh` -- the one
+# command that resolves a `doc/test/*.md` merge conflict. Two halves: the
+# toil (markers go, figures come back regenerated from the merged spec tree)
+# and the safety (a relative root, a surviving marker, an unhappy drift
+# gate, and any disagreement regeneration cannot settle are all refused
+# loudly rather than resolved to whichever side the collapse happened to
+# keep).
 
 bats_require_minimum_version 1.5.0
 

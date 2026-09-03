@@ -1,4 +1,18 @@
 #!/usr/bin/env bats
+#
+# why: The `setup.sh` orchestrator spec. `main` subcommand dispatch (`set` /
+# `show` / `remove` for `[logging]` #328 and `[lifecycle]` #478, `reset`,
+# `--lang` / error paths), `usage`, `_setup_msg` / `_msg` i18n, and the
+# `apply` pipeline integration tests that drive detect → resolve → write_env
+# → compose emit end-to-end: template-shipped defaults and emitted blocks
+# for `[lifecycle]` restart (#478), `[deploy]` `dri_groups` (#496) and
+# `gpu_runtime` alias (#481), `[additional_contexts]` (#199), `[build]`
+# `arg_N` / `target_arch` / `network`, `[security]` opt-in (#466),
+# `config/app/` bind (#504), `.env.generated` cache + `.env` overlay (#502),
+# workspace writeback (#174/#201), `--gui` / `--no-x11-cookie` /
+# `--print-resolved` flags (#338), `--quiet` confirmation lines (#285), #450
+# propagation + duplicate-target guards, and S7 `runtime.env` retirement
+# (#507).
 
 bats_require_minimum_version 1.5.0
 

@@ -6,6 +6,13 @@
 # source) and exits non-zero when the committed docs have drifted, so a PR
 # that adds a @test without running `just test sync-docs` fails the gate
 # instead of silently shipping stale counts.
+#
+# why: The read-only validating twin of `sync-doc-counts.sh`: it re-derives
+# every doc/test figure from the same source (`grep -c '^@test'`) and exits
+# non-zero when the committed docs have drifted. Covers the in-sync /
+# drifted verdicts, a short catalog table, and the unusable-scan-root guards
+# that keep the gate from passing vacuously (relative root, missing root, no
+# `doc/test/`, no specs).
 
 bats_require_minimum_version 1.5.0
 

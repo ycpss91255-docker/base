@@ -30,6 +30,33 @@
 # The rule the helpers implement is deliberately the narrowest one that can
 # be applied without parsing the host language: a line is a comment when its
 # first non-blank character is `#`, and nothing else is touched.
+#
+# why: The comment-stripped file views in `test/bats/unit/test_helper.bash`
+# (`strip_comments` / `only_comments` / `code_lines` / `code_grep` /
+# `yaml_job_{text,lines}` / `yaml_top_{text,lines}`), which the workflow and
+# template structural specs assert against instead of the raw file.
+#
+# They exist because a spec that greps a WHOLE file lets a string appearing
+# only in a COMMENT satisfy an assertion about CODE, and this repo's
+# comments name in prose exactly what its specs pin. Measured, not
+# theorised: deleting both real `_transcript_begin` / `_transcript_detach`
+# calls from `setup_tui.sh`, the active `logging.sh` COPY from the template
+# Dockerfile, and `hook.sh`'s `DRY_RUN` early return each left the guard
+# named for it green, matching a comment instead.
+#
+# The conversion has a mirror-image failure mode, and it is the more
+# dangerous one: a stripper that also eats a line which is genuinely code
+# turns a working guard into one that cannot match its subject -- and the
+# natural "fix" for the resulting red is to weaken the assertion. Both
+# directions are therefore pinned here, against one fixture carrying every
+# shape that can be got wrong.
+#
+# A third direction is pinned alongside them: the STATUS these views hand
+# back. `grep` prints the same nothing for "this file has no such line" and
+# for "there was no file", and the guards in this tree branch on that status
+# to tell the two apart -- so a subject that was renamed away must arrive as
+# 2 (not read) rather than as 1 (read, no match), and an all-comment file
+# must still arrive as 1.
 
 bats_require_minimum_version 1.5.0
 
@@ -111,12 +138,16 @@ teardown() {
 
 # ── UNDER-strict direction: comment-only lines are gone ──────────────
 
+# why: The base case: a file-header paragraph naming the action the workflow
+# must never use
 @test "code_lines: drops an unindented comment-only line" {
   run code_lines "${FIXTURE}"
   assert_success
   refute_output --partial 'delete-package-versions'
 }
 
+# why: The form that matters most -- a workflow's explanatory prose sits at
+# the indentation of the block it explains
 @test "code_lines: drops an INDENTED comment-only line" {
   # The form that matters most: a workflow's explanatory paragraphs sit
   # inside the block they explain, at the block's own indentation.
@@ -125,6 +156,8 @@ teardown() {
   refute_output --partial 'An indented comment inside a top-level block'
 }
 
+# why: A `#` line inside a `run:` block scalar is a shell comment: prose, in
+# the exact place a workflow explains the command it is about to run
 @test "code_lines: drops a shell comment inside a run: block scalar" {
   # A `#` line inside `run: |` is a shell comment: prose, in the exact
   # place a workflow explains the command it is about to run.
@@ -133,12 +166,16 @@ teardown() {
   refute_output --partial 'A shell comment inside a block scalar'
 }
 
+# why: Blank lines are neither code nor documentation and would pad any
+# count assertion
 @test "code_lines: drops blank lines" {
   local _blank
   _blank="$(code_lines "${FIXTURE}" | grep -c '^[[:space:]]*$' || true)"
   [ "${_blank}" -eq 0 ] || fail "code_lines emitted ${_blank} blank line(s)"
 }
 
+# why: The live hazard in this repo's template Dockerfile: the same COPY
+# appears twice, once active and once as a worked example
 @test "code_lines: drops a Dockerfile comment, including a commented-out directive" {
   # The commented-out worked example is the live hazard in this repo's
   # Dockerfile: the same COPY appears twice, once active and once as prose.
@@ -155,6 +192,9 @@ DOCKERFILE
 
 # ── OVER-strict direction: real code survives intact ─────────────────
 
+# why: Over-strict direction. The `# v1.2.2` after a pinned action SHA is
+# code's, not prose's -- a spec asserts the pin and its version comment
+# together
 @test "code_lines: keeps a trailing comment on a code line, verbatim" {
   # The `# v1.2.2` after a pinned action SHA is the form Dependabot
   # rewrites on bump; a stripper that removed it would break the spec that
@@ -164,18 +204,23 @@ DOCKERFILE
   assert_output --partial 'uses: dataaxiom/ghcr-cleanup-action@0123456789abcdef # v1.2.2'
 }
 
+# why: Over-strict direction. A naive `s/#.*//` would silently shorten the
+# line into something no assertion matches
 @test "code_lines: keeps a # inside a double-quoted string" {
   run code_lines "${FIXTURE}"
   assert_success
   assert_output --partial 'heading: "a # inside a double-quoted string"'
 }
 
+# why: Same, for the other quoting style
 @test "code_lines: keeps a # inside a single-quoted string" {
   run code_lines "${FIXTURE}"
   assert_success
   assert_output --partial "fragment: 'a # inside a single-quoted string'"
 }
 
+# why: `echo "# heading"` is code whose payload opens with a hash; the
+# line's first non-blank character is `e`, so it stays
 @test "code_lines: keeps a block-scalar line whose STRING starts with #" {
   # `echo "# ..."` is code whose payload happens to open with a hash. The
   # first non-blank character of the LINE is `e`, so it stays.
@@ -184,6 +229,8 @@ DOCKERFILE
   assert_output --partial 'echo "# not a comment: a markdown heading"'
 }
 
+# why: A colour literal, a fragment, an anchor -- a `#` mid-value never
+# begins a comment
 @test "code_lines: keeps a # that is part of a value, not a comment" {
   run code_lines "${FIXTURE}"
   assert_success
@@ -192,22 +239,29 @@ DOCKERFILE
 
 # ── code_grep ────────────────────────────────────────────────────────
 
+# why: The defect itself, at the call site every converted spec uses
 @test "code_grep: a string present only in a comment does not match" {
   run code_grep -F 'delete-package-versions' "${FIXTURE}"
   assert_failure
 }
 
+# why: Non-vacuity: the filter must still find what is really there
 @test "code_grep: a string present in code does match" {
   run code_grep -F 'MARKER: keep-me' "${FIXTURE}"
   assert_success
 }
 
+# why: The signature mirrors grep's own, so a conversion is a one-word edit;
+# `-c` counts over code lines only
 @test "code_grep: passes its flags through and takes the file last" {
   run code_grep -cE '^ +runs-on: ubuntu-latest$' "${FIXTURE}"
   assert_success
   assert_output '2'
 }
 
+# why: grep prints the same nothing for "no match" and for "no file", so the
+# status has to split them: 1 is a readable subject without the string, 2 is
+# a subject that was never read
 @test "code_grep: a subject it cannot read exits 2, not grep's no-match status" {
   # The two readings a caller must never confuse. `grep` prints the same
   # nothing for "this file does not contain the string" and for "there was
@@ -221,6 +275,8 @@ DOCKERFILE
     || fail "code_grep exited ${status} for a missing file; expected 2, and 1 would be read as 'no match'"
 }
 
+# why: The sibling shape: the redirection fails rather than the file being
+# absent, and bash's own status for that is 1 as well
 @test "code_grep: a directory named as the subject exits 2, not 1" {
   # The sibling shape of the same mistake: the redirection fails rather than
   # the file being absent, and bash's status for that is 1 as well.
@@ -229,6 +285,9 @@ DOCKERFILE
     || fail "code_grep exited ${status} for a directory; expected 2, and 1 would be read as 'no match'"
 }
 
+# why: code_grep's stdout is grep's -- lines, or a count under `-c` -- so
+# the reason a subject could not be read goes to stderr beside the status,
+# never into the data a caller counts
 @test "code_grep: an unreadable subject reports on stderr, leaving the grep-shaped output empty" {
   # code_grep's stdout is DATA -- lines, or a count under `-c` -- and every
   # call site reads it as such: `assert_output '2'`, an arithmetic
@@ -249,6 +308,8 @@ DOCKERFILE
     || fail "expected a BUG: line on stderr, got: ${stderr}"
 }
 
+# why: The sibling shape: the redirection fails rather than the file being
+# absent, and a caller counting matches must not receive prose either way
 @test "code_grep: a directory subject reports the same way, on stderr" {
   # The sibling shape of the same statement: the redirection fails rather
   # than the file being absent, and a caller counting matches must not
@@ -261,6 +322,8 @@ DOCKERFILE
     || fail "expected a BUG: line on stderr, got: ${stderr}"
 }
 
+# why: The complement, so the split cannot spread by symmetry: code_lines'
+# stdout IS its report, and its callers print what they captured
 @test "code_lines: an unreadable subject keeps its BUG line on stdout" {
   # The complement, pinned so the change above cannot spread by symmetry.
   # code_lines is the reporting view: `spec_permission_surface_subjects`
@@ -273,6 +336,8 @@ DOCKERFILE
   assert_output --partial 'BUG:'
 }
 
+# why: The other emitter of the same status; code_grep reads this one's, so
+# both draw the line in the same place
 @test "code_lines: a subject it cannot read exits 2, not 1" {
   # The other emitter of the same status. code_grep reads code_lines', so
   # both have to draw the line in the same place or the pipeline re-merges
@@ -282,6 +347,8 @@ DOCKERFILE
     || fail "code_lines exited ${status} for a missing file; expected 2"
 }
 
+# why: The complement, so the fix cannot be "return 2 whenever nothing came
+# back": an all-comment file HAS been read
 @test "code_lines: a readable file with no code line exits 1, not 2" {
   # The complement, so the fix cannot be "return 2 whenever nothing came
   # back". A file that is all comments HAS been read, and its emptiness is
@@ -296,6 +363,8 @@ DOCKERFILE
 
 # ── only_comments: the mirror ────────────────────────────────────────
 
+# why: The mirror view, for the rare assertion genuinely about what a file
+# SAYS
 @test "only_comments: keeps the comment-only lines and nothing else" {
   local _out
   _out="$(only_comments < "${FIXTURE}")"
@@ -307,6 +376,8 @@ DOCKERFILE
     || fail "only_comments kept a code line"
 }
 
+# why: No line may be dropped by both filters or counted by both -- the
+# invariant that makes "code" and "documentation" an exhaustive split
 @test "only_comments: is the exact complement of strip_comments" {
   # Together the two filters must reproduce the file's non-blank lines --
   # no line may be dropped by both, and none counted by both.
@@ -318,6 +389,9 @@ DOCKERFILE
     || fail "code ${_code} + comments ${_comments} != non-blank ${_all}"
 }
 
+# why: A trailing-comment line belongs to the code view alone; counting it
+# as documentation would let a pin's version comment satisfy a prose
+# assertion
 @test "only_comments: keeps a trailing-comment line out of the comment view" {
   # A line with a trailing comment belongs to the CODE view and to it
   # alone; counting it as documentation would let a pin's version comment
@@ -330,6 +404,8 @@ DOCKERFILE
 
 # ── block extractors ─────────────────────────────────────────────────
 
+# why: The workflow specs' main entry point, replacing the awk block
+# extractor each file used to carry
 @test "yaml_job_lines: returns the job's code and drops its comment paragraph" {
   run yaml_job_lines "${FIXTURE}" build
   assert_success
@@ -337,12 +413,16 @@ DOCKERFILE
   refute_output --partial 'cannot add a label'
 }
 
+# why: Block scoping: an assertion about one job must not be satisfied by
+# the next
 @test "yaml_job_lines: stops at the next job" {
   run yaml_job_lines "${FIXTURE}" build
   assert_success
   refute_output --partial 'other:'
 }
 
+# why: The escape hatch. Keeping it a separate call makes "asserted against
+# a comment" a visible choice
 @test "yaml_job_text: keeps the job's comment paragraph verbatim" {
   # The escape hatch for the rare assertion that is genuinely about what a
   # workflow SAYS. Keeping it separate makes that a visible choice.
@@ -351,6 +431,8 @@ DOCKERFILE
   assert_output --partial 'cannot add a label'
 }
 
+# why: `on` / `env` / `permissions` / `concurrency`; a comment paragraph
+# between two top-level keys is not indented out by the terminator
 @test "yaml_top_lines: returns a top-level block's code without the prose between keys" {
   run yaml_top_lines "${FIXTURE}" on
   assert_success
@@ -358,6 +440,7 @@ DOCKERFILE
   refute_output --partial 'An indented comment'
 }
 
+# why: Block scoping for the top-level mappings
 @test "yaml_top_lines: stops at the next top-level key" {
   run yaml_top_lines "${FIXTURE}" env
   assert_success
@@ -365,6 +448,7 @@ DOCKERFILE
   refute_output --partial 'runs-on'
 }
 
+# why: The verbatim counterpart, for symmetry with `yaml_job_text`
 @test "yaml_top_text: keeps the block's comments" {
   run yaml_top_text "${FIXTURE}" on
   assert_success

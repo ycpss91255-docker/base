@@ -37,6 +37,62 @@
 # The fixtures are written to a scratch directory, never to the checkout:
 # these are tests OF the extractor, so they need shapes the real workflows
 # do not have.
+#
+# why: Unit tests for the DERIVED job and permission surfaces in
+# `test/bats/unit/test_helper.bash` (`yaml_job_names` /
+# `yaml_job_permission_entries` / `yaml_permission_surface` /
+# `reusable_workflow_files`) and for the boundary `yaml_job_text` draws
+# between two jobs.
+#
+# Every least-privilege guard in this repo is a scan over one of those
+# derivations, and every one of them asserts the scan came back EMPTY -- so
+# a derivation that stops seeing part of the file reports exactly what a
+# clean file reports. The derivations therefore need tests whose fixtures
+# CONTAIN the elevation and which fail when it is not reported.
+#
+# The four shapes pinned here are all legal GitHub workflow, and each made a
+# whole job or a whole grant invisible to the hand-rolled awk these helpers
+# used to be: a trailing comment on a job key (the key pattern was anchored
+# at end of line, so the job was not a job); a trailing comment or a quoted
+# level on a permission entry (an entry the pattern rejected ENDED the
+# block, dropping it and everything after it, so whether an elevation was
+# seen depended on where in the block it sat); a job id that does not begin
+# with a lowercase letter (`Sign:`, `_pub:` did not terminate the job above
+# them, which then reported their grants as its own); and `"on":` or a
+# flow-style `on:` mapping (the reusable-worker derivation matched `^on:` as
+# text, so a worker written either way was scanned by nothing). The helpers
+# now query a YAML parser (`yq`, added to `dockerfile/Dockerfile.test-tools`
+# as Alpine's `yq-go`), which also fails CLOSED: a file it cannot parse is a
+# `BUG:` line and a non-zero status, where the awk simply produced a shorter
+# answer.
+#
+# A fifth derivation joins them: `spec_permission_surface_subjects`, which
+# answers "which workflow file is this spec's surface call applied TO". The
+# class-level guard used to answer that with two independent substring
+# questions of the same file -- does it contain the string
+# `yaml_permission_surface`, and does it contain the worker's path -- so any
+# spec answering both certified a worker whose surface it never reads.
+# Appending one call about worker A to a spec that merely MENTIONS worker B
+# certified B. The derivation resolves the call's own ARGUMENT (a literal,
+# or a variable with exactly one unambiguous literal assignment in the same
+# file), and everything it cannot resolve is reported as `UNRESOLVED:` or as
+# `BUG:` rather than assumed either way.
+#
+# Which occurrences ARE call sites is decided by a lexer over the shell
+# text, not by matching the name: an occurrence inside quotes, inside a
+# heredoc BODY or after a word-initial `#` is text. The heredoc half is
+# where that reading either holds or fails open, so it follows bash exactly
+# -- a terminator may be bare, `\`-escaped or quoted with either character
+# and is read literally; a body ends at a line that is EXACTLY the
+# terminator (`<<-` strips leading TABS, nothing else does); `<<<` opens
+# nothing and `<<` inside `$(( ))` is a shift; and a `<<` whose terminator
+# this cannot read opens a heredoc no line closes, spending the rest of the
+# file rather than handing a fixture body back as code.
+#
+# Fixtures are written to a scratch directory, never to the checkout: these
+# are tests OF the extractor, so they need shapes the real workflows do not
+# have. The fixtures' own `@test` headers are indented one space, because
+# the doc count generator counts a spec's tests with `grep -c '^@test'`.
 
 bats_require_minimum_version 1.5.0
 
@@ -59,6 +115,9 @@ _fixture() {
 
 # ── job derivation: a job key the pattern must still see ──────────────
 
+# why: `sign-artifacts: # signs the images` is a job. The old key pattern
+# was anchored at end of line, so it was not one -- and its `packages:
+# write` was scanned by nothing
 @test "yaml_job_names: a trailing comment on the job key does not hide the job (#957)" {
   local _f
   _f="$(_fixture jobs-with-trailing-comment.yaml << 'YAML'
@@ -75,6 +134,8 @@ YAML
 sign-artifacts'
 }
 
+# why: The same shape end to end: an elevation on a job the derivation
+# cannot see is an elevation no assertion over the surface can fail on
 @test "yaml_permission_surface: a job whose key carries a trailing comment reports its grants (#957)" {
   # The whole point of the surface: an elevation on a job the derivation
   # cannot see is an elevation no assertion over the surface can fail on.
@@ -97,6 +158,8 @@ sign-artifacts: contents: write
 sign-artifacts: packages: write'
 }
 
+# why: `Sign` and `_pub` are legal GitHub job ids and must appear in the
+# derived list
 @test "yaml_job_names: a job id that does not start with a lowercase letter is a job (#957)" {
   # `Sign` and `_pub` are both legal GitHub job ids.
   local _f
@@ -117,6 +180,9 @@ Sign
 _pub'
 }
 
+# why: The mis-attribution is worse than a miss: the job with NO block of
+# its own reported the next job's grants, so it looked bounded while it was
+# the one running on the caller's whole token
 @test "yaml_permission_surface: an uppercase-initial job does not lend its grants to the job above it (#957)" {
   # The mis-attribution is worse than a miss: the job with NO block of its
   # own reports the next job's grants, so it looks bounded while it is the
@@ -141,6 +207,9 @@ Sign: contents: write
 _pub: packages: write'
 }
 
+# why: The boundary underneath that mis-attribution: the terminator is any
+# two-space-indented key, not a lowercase-initial one (a two-space comment
+# line still does not terminate)
 @test "yaml_job_text: stops at a job key that does not start with a lowercase letter (#957)" {
   local _f
   _f="$(_fixture uppercase-job-text.yaml << 'YAML'
@@ -157,6 +226,8 @@ YAML
   refute_output --partial 'macos-latest'
 }
 
+# why: An empty derivation satisfies every "the scan came back empty"
+# assertion in the repo, so it may never be a silent success
 @test "yaml_job_names: a file with no jobs: mapping fails loudly rather than returning nothing (#957)" {
   # An empty derivation satisfies every "the scan came back empty"
   # assertion in the repo, so it may never be a silent success.
@@ -174,6 +245,9 @@ YAML
 
 # ── permission entries: an entry the block must not end on ────────────
 
+# why: `packages: write # cache push` is an entry. The old scanner read a
+# line it could not match as the END of the block, dropping that entry and
+# every one after it
 @test "yaml_job_permission_entries: a trailing comment on an entry does not truncate the block (#957)" {
   local _f
   _f="$(_fixture entry-trailing-comment.yaml << 'YAML'
@@ -190,6 +264,8 @@ YAML
 packages: write'
 }
 
+# why: `packages: "write"` is the same grant written differently; a text
+# match on the level missed it
 @test "yaml_job_permission_entries: a quoted level is still an entry (#957)" {
   local _f
   _f="$(_fixture entry-quoted-level.yaml << 'YAML'
@@ -206,6 +282,9 @@ YAML
 packages: write'
 }
 
+# why: Order-dependence is the tell of a scanner that ends its block on the
+# first line it cannot read: the same entry was reported when it came last
+# and swallowed the whole block when it came first
 @test "yaml_job_permission_entries: an elevation is reported wherever it sits in the block (#957)" {
   # Order-dependence is the tell of a scanner that ends its block on the
   # first line it cannot read: the same entry was reported when it came
@@ -225,6 +304,8 @@ YAML
 contents: read'
 }
 
+# why: The fail-open direction as its own property: a file the extractor
+# cannot parse must not reach a caller as a clean, under-reported grant set
 @test "yaml_job_permission_entries: an unreadable file fails loudly instead of reporting a short block (#957)" {
   # The fail-open direction, stated as its own property: a file the
   # extractor cannot parse must not arrive at a caller as a clean,
@@ -243,6 +324,8 @@ YAML
   assert_output --partial 'BUG:'
 }
 
+# why: A spec naming a job that was renamed is a defect, not an absence --
+# it must not return an empty entry set
 @test "yaml_job_permission_entries: a job that is not in the file fails loudly (#957)" {
   local _f
   _f="$(_fixture missing-job.yaml << 'YAML'
@@ -257,6 +340,9 @@ YAML
   assert_output --partial 'BUG:'
 }
 
+# why: `permissions: read-all` / `permissions: {}` name no scope, so they
+# bound nothing: the job has to be VISIBLE as unbounded rather than absent
+# from the listing
 @test "yaml_permission_surface: an inline permissions scalar surfaces as no entries (#957)" {
   # `permissions: read-all` names no scope, so it bounds nothing this
   # spec suite can assert against -- it has to be visible, not absent.
@@ -277,6 +363,9 @@ other: <no entries>'
 
 # ── reusable-worker derivation: every spelling of the trigger key ─────
 
+# why: Quoting `on` is the standard workaround for YAML 1.1 reading it as a
+# boolean, and what several formatters emit; the old `^on:` text anchor
+# exempted such a worker from every least-privilege scan
 @test "reusable_workflow_files: a worker spelling the trigger \"on\": is still a worker (#957)" {
   # `"on"` in quotes is the standard workaround for YAML 1.1 reading a
   # bare `on` as a boolean, and it is what several formatters emit.
@@ -295,6 +384,7 @@ YAML
   assert_output "${_dir}/quoted-on-worker.yaml"
 }
 
+# why: `on: {workflow_call: null}` is the same declaration in flow style
 @test "reusable_workflow_files: a flow-style on mapping is still read (#957)" {
   local _dir="${SCRATCH}/flow"
   mkdir -p "${_dir}"
@@ -309,6 +399,8 @@ YAML
   assert_output "${_dir}/flow-worker.yml"
 }
 
+# why: The other direction: a `push`-only workflow runs on its own repo's
+# token and is not part of this population
 @test "reusable_workflow_files: a workflow that is not callable is not listed (#957)" {
   local _dir="${SCRATCH}/plain"
   mkdir -p "${_dir}"
@@ -327,6 +419,9 @@ YAML
 
 # ── the file set both readings of the directory share ────────────────
 
+# why: One reading of which files a workflow directory holds, so a third
+# extension cannot reach the derivation and miss the cross-check that
+# re-reads the same directory raw
 @test "workflow_files: lists .yaml and .yml, and nothing else (#957)" {
   # The extension set is one reading, not two. reusable_workflow_files
   # globbed the directory, and the cross-check that re-reads the same
@@ -346,6 +441,9 @@ YAML
 ${_dir}/beta.yml"
 }
 
+# why: The consequence of the shared reading: a worker written with the
+# other extension is derived, because one place says which extensions a
+# workflow file may carry
 @test "reusable_workflow_files: draws its candidates from workflow_files (#957)" {
   # The consequence of the shared reading: a worker written with the OTHER
   # extension is derived, because there is only one place that says which
@@ -358,6 +456,8 @@ ${_dir}/beta.yml"
   assert_output "${_dir}/gamma.yml"
 }
 
+# why: A worker the derivation cannot parse is a worker nothing downstream
+# scans, so it joins the listing as a `BUG:` line
 @test "reusable_workflow_files: an unreadable workflow is reported, not skipped (#957)" {
   local _dir="${SCRATCH}/broken"
   mkdir -p "${_dir}"
@@ -386,6 +486,9 @@ YAML
 # count generator counts a spec's tests with `grep -c '^@test'`, so a
 # fixture written at column 0 would be counted as a test of this file.
 
+# why: The defect the class-level guard shipped with: a spec that MENTIONS a
+# worker and separately calls the surface on another one certified both. The
+# subject is resolved from the call's own argument
 @test "spec_permission_surface_subjects: a mentioned path is not a subject (#957)" {
   # The defect itself. The fixture names beta.yaml twice -- an assignment
   # and a call to another helper -- and applies the surface only to alpha.
@@ -410,6 +513,7 @@ SPEC
   assert_output '/fixture/workflows/alpha.yaml'
 }
 
+# why: A call site that names the workflow inline needs no resolution
 @test "spec_permission_surface_subjects: a literal argument resolves to itself (#957)" {
   local _spec
   _spec="$(_fixture 'literal_spec.bats' << 'SPEC'
@@ -423,6 +527,8 @@ SPEC
   assert_output '/fixture/workflows/gamma.yaml'
 }
 
+# why: The shape the scanning specs use: the argument carries the
+# substitution's closing paren and the line continues after it
 @test "spec_permission_surface_subjects: reads a call inside a process substitution (#957)" {
   # The call shape the scanning specs use: the argument carries the
   # substitution's closing paren, and the line continues afterwards.
@@ -444,6 +550,8 @@ SPEC
   assert_output '/fixture/workflows/delta.yaml'
 }
 
+# why: A prose paragraph naming a worker is not a pin -- the same reason
+# every structural assertion here reads code lines
 @test "spec_permission_surface_subjects: a path named only in a comment is not a subject (#957)" {
   local _spec
   _spec="$(_fixture 'comment_spec.bats' << 'SPEC'
@@ -462,6 +570,9 @@ SPEC
   assert_output '/fixture/workflows/zeta.yaml'
 }
 
+# why: A generated fixture path is a legitimate subject that is no tracked
+# workflow; it reads as UNRESOLVED, never as one of the paths the file
+# happens to mention and never as nothing
 @test "spec_permission_surface_subjects: an argument it cannot resolve says so (#957)" {
   # A generated fixture path is a legitimate subject that is not a tracked
   # workflow. It must read as UNRESOLVED -- never as one of the paths the
@@ -484,6 +595,9 @@ SPEC
   assert_output 'UNRESOLVED: ${_f}'
 }
 
+# why: Two assignments and two literals: which one the call site saw is not
+# decidable from the text, and guessing would certify a worker on a coin
+# flip
 @test "spec_permission_surface_subjects: an ambiguous variable is not resolved (#957)" {
   # Two assignments, two different literals: which one the call site saw is
   # not decidable from the text, and guessing either would certify a worker
@@ -508,6 +622,8 @@ SPEC
   assert_output 'UNRESOLVED: ${WF}'
 }
 
+# why: A call whose argument cannot be seen must not be dropped -- dropping
+# it is how a spec that pins a worker stops counting as its pin
 @test "spec_permission_surface_subjects: a call with no argument is a BUG line (#957)" {
   # A call this cannot see the argument of must not be dropped: dropping it
   # is exactly how a spec that pins a worker stops counting as its pin.
@@ -526,6 +642,8 @@ SPEC
   assert_output --partial 'BUG:'
 }
 
+# why: The status splits "read, no call site" from "not read", so a caller
+# cannot count an unreadable spec as one that pins nothing
 @test "spec_permission_surface_subjects: a spec that never calls it prints nothing and exits 1 (#957)" {
   local _spec
   _spec="$(_fixture 'silent_spec.bats' << 'SPEC'
@@ -540,6 +658,8 @@ SPEC
   assert_output ''
 }
 
+# why: The other half of that split, and the one that would otherwise shrink
+# the certified population silently
 @test "spec_permission_surface_subjects: a spec it cannot read is a BUG line, not silence (#957)" {
   run spec_permission_surface_subjects "${SCRATCH}/no-such-spec.bats"
   [ "${status}" -eq 2 ] \
@@ -562,6 +682,8 @@ SPEC
 # as a call site only where quoting, a heredoc body and a comment say it is
 # code.
 
+# why: A quoted occurrence is text, not a call -- and a path in a message
+# string certified a worker nothing reads
 @test "spec_permission_surface_subjects: a path inside a double-quoted string is not a subject (#957)" {
   local _spec
   _spec="$(_fixture 'quoted_spec.bats' << 'SPEC'
@@ -576,6 +698,8 @@ SPEC
   assert_output ''
 }
 
+# why: The other spelling of the same shape, so a resolver that learns only
+# about double quotes cannot pass
 @test "spec_permission_surface_subjects: a path inside a single-quoted string is not a subject (#957)" {
   # The other spelling of the same shape. A resolver that learns only about
   # double quotes reports this one as a call site, so both are pinned.
@@ -592,6 +716,8 @@ SPEC
   assert_output ''
 }
 
+# why: A heredoc body is data the spec writes, not code it runs; this tree's
+# own fixtures carry that exact call shape
 @test "spec_permission_surface_subjects: a call inside a heredoc body is not a subject (#957)" {
   # A spec that WRITES another spec. The heredoc body is data this file
   # emits, not code this file runs, so the worker it names is pinned by
@@ -617,6 +743,9 @@ SPEC
   assert_output '/fixture/workflows/xi.yaml'
 }
 
+# why: `code_lines` drops comment-ONLY lines by design, so a trailing
+# comment reaches the derivation and the shell's word-initial `#` rule
+# decides it
 @test "spec_permission_surface_subjects: a path after a trailing # is not a subject (#957)" {
   # `code_lines` drops comment-ONLY lines, deliberately: a `#` after code
   # may be inside a string. So a trailing comment reaches this derivation,
@@ -639,6 +768,9 @@ SPEC
   assert_output ''
 }
 
+# why: The over-strict failure is the same defect with the sign flipped: `$(
+# )` opened inside a double-quoted assignment is build_worker_yaml_spec's
+# own shape
 @test "spec_permission_surface_subjects: a call inside a command substitution IS a subject (#957)" {
   # The over-strict failure is the same defect with the sign flipped. This
   # is build_worker_yaml_spec's own shape -- a `$( )` opened inside a
@@ -671,6 +803,9 @@ SPEC
 # heredoc at all swallows the rest of the file, so a real call site stops
 # counting as the pin it is.
 
+# why: bash quotes a terminator three ways and `<<\INNER` is the third.
+# Reading no terminator opened no heredoc and emitted the body as code, so a
+# worker named only in a fixture the spec WRITES was certified
 @test "spec_permission_surface_subjects: a backslash-quoted heredoc body is not code (#957)" {
   # `<<\INNER` is bash's third spelling of a QUOTED terminator, beside
   # `<< 'INNER'` and `<< "INNER"`. A reader that knows only the other two
@@ -698,6 +833,9 @@ SPEC
   assert_output '/fixture/workflows/upsilon.yaml'
 }
 
+# why: A body ends at a line that is EXACTLY the terminator (`<<-` strips
+# leading TABS, never spaces). Trimming the line first ended the body at the
+# fixture's own indented mention of it and read the rest as code
 @test "spec_permission_surface_subjects: an indented terminator does not end a heredoc (#957)" {
   # bash ends a `<<WORD` body at a line that is EXACTLY WORD -- column 0,
   # no trailing blank (`<<-WORD` strips leading TABS, never spaces). A
@@ -725,6 +863,10 @@ SPEC
   assert_output '/fixture/workflows/chi.yaml'
 }
 
+# why: The unreadable case stated as a direction: a `<<` this cannot finish
+# reading still opens a heredoc, one no line closes. It spends the rest of
+# the file, which fails loudly, rather than handing a fixture body back as
+# code
 @test "spec_permission_surface_subjects: a terminator it cannot read opens an unmatchable heredoc (#957)" {
   # A `<<` whose terminator this cannot read -- here one carried onto the
   # next line by a `\` continuation -- is still a heredoc. Opening one
@@ -747,6 +889,9 @@ SPEC
   assert_output ''
 }
 
+# why: `$(( 1 << 2 ))` and `(( n <<= 1 ))` are shifts. Read as openers they
+# made every later line data, so a spec that DOES pin its worker reported
+# pinning nothing
 @test "spec_permission_surface_subjects: an arithmetic left shift is not a heredoc (#957)" {
   # `$(( a << b ))` and `(( a <<= b ))` are shifts, not redirections. Read
   # as a heredoc opener, the operand becomes a terminator no line matches

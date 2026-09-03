@@ -3,6 +3,15 @@
 # Tests for generate_compose_yaml in dist/script/docker/wrapper/setup.sh.
 # Verifies conditional emission of GPU deploy block, GUI env/volumes,
 # extra volumes list, and baseline structural elements.
+#
+# why: Covers `generate_compose_yaml` conditional output: AUTO-GENERATED
+# header, baseline workspace volume, network/ipc/privileged env-var
+# references, conditional pid emission (only for `host`; omitted for
+# `private` since Docker rejects the literal), `test` service presence,
+# image name threading, conditional GPU deploy block + GUI env/volumes +
+# extra volumes from `[volumes]` section, and the deploy-scoped `[lifecycle]
+# restart` emission (never on devel, on a deployable stage in both the
+# `extends: devel` and the standalone shapes, absent on any `*-test` stage).
 
 bats_require_minimum_version 1.5.0
 
@@ -35,6 +44,7 @@ teardown() {
 # Baseline (always present)
 # ════════════════════════════════════════════════════════════════════
 
+# why: Header check
 @test "generate_compose_yaml outputs AUTO-GENERATED header" {
   local _extras=()
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
@@ -330,6 +340,7 @@ teardown() {
 # expansion are covered where the code now lives, in env_emit_spec.bats
 # against write_container_env (ADR-00000015: tests mirror source).
 
+# why: append-mode tail expands against the shared prefix
 @test "generate_compose_yaml expands \${VAR} env cross-refs in a per-stage env_N addition (refs #955)" {
   # A `[stage:*]` that APPENDS its own env_N is the append-mode case: the
   # shared prefix stays in `.env` (where write_container_env expands
@@ -366,6 +377,7 @@ CONF
   refute [ -n "$(grep -F -- 'BUILD_TARGET=production' <<< "${_probe_block}")" ]
 }
 
+# why: stage replaces the list, its own env_N cross-refs
 @test "generate_compose_yaml expands cross-refs in a per-stage environment.env_N replacement (refs #955)" {
   # Same rule when the stage REPLACES the inherited list: the stage's own
   # env_N entries cross-reference each other exactly like the devel ones.
@@ -497,6 +509,7 @@ CONF
   assert_failure
 }
 
+# why: per-stage caps clear
 @test "generate_compose_yaml per-stage security.cap_add_inherit=false clears inherited caps for that stage only (#526)" {
   cat > "${TEMP_DIR}/Dockerfile" <<'DOCK'
 FROM scratch AS sys
@@ -527,6 +540,7 @@ CONF
   refute [ -n "$(grep -F 'seccomp:unconfined' <<< "${_probe_block}")" ]
 }
 
+# why: per-stage caps append emit
 @test "generate_compose_yaml per-stage security.cap_add_N appends to inherited caps (#526)" {
   cat > "${TEMP_DIR}/Dockerfile" <<'DOCK'
 FROM scratch AS sys
@@ -549,6 +563,7 @@ CONF
   assert [ -n "$(grep -F 'MKNOD' <<< "${_flash_block}")" ]
 }
 
+# why: env-var baked
 @test "generate_compose_yaml emits network_mode/ipc/privileged via env var" {
   local _extras=()
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
@@ -561,6 +576,7 @@ CONF
   assert_success
 }
 
+# why: pid omit
 @test "generate_compose_yaml omits pid when default private" {
   local _extras=()
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
@@ -569,6 +585,7 @@ CONF
   assert_failure
 }
 
+# why: pid host
 @test "generate_compose_yaml emits pid env-var ref when host" {
   local _extras=()
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
@@ -577,6 +594,7 @@ CONF
   assert_success
 }
 
+# why: test service
 @test "generate_compose_yaml emits test service with profiles: [test]" {
   local _extras=()
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
@@ -587,6 +605,7 @@ CONF
   assert_success
 }
 
+# why: Image name
 @test "generate_compose_yaml image field contains repo name" {
   local _extras=()
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
@@ -652,6 +671,7 @@ CONF
   assert_failure
 }
 
+# why: Baseline scope
 @test "generate_compose_yaml does NOT emit /dev:/dev by default (not in baseline)" {
   local _extras=()
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
@@ -664,6 +684,7 @@ CONF
 # GPU deploy block — conditional
 # ════════════════════════════════════════════════════════════════════
 
+# why: GPU on
 @test "generate_compose_yaml GPU enabled => deploy block present" {
   local _extras=()
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
@@ -676,6 +697,7 @@ CONF
   assert_success
 }
 
+# why: GPU off
 @test "generate_compose_yaml GPU disabled => no deploy block" {
   local _extras=()
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
@@ -686,6 +708,7 @@ CONF
   assert_failure
 }
 
+# why: GPU args
 @test "generate_compose_yaml GPU with specific count and capabilities" {
   local _extras=()
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
@@ -700,6 +723,7 @@ CONF
 # GUI block — conditional
 # ════════════════════════════════════════════════════════════════════
 
+# why: GUI on
 @test "generate_compose_yaml GUI enabled => DISPLAY env + X11 volumes present" {
   local _extras=()
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
@@ -714,6 +738,7 @@ CONF
   assert_success
 }
 
+# why: #582 mount target
 @test "generate_compose_yaml GUI: xauth mounts at fixed neutral target, not host abs path (#582)" {
   # The host XAUTHORITY resolves to a deep absolute path (e.g.
   # <...>/workspace/docker/app/<repo>/.docker.xauth). Mirroring it as the
@@ -730,6 +755,7 @@ CONF
   assert_failure
 }
 
+# why: #582 env sync
 @test "generate_compose_yaml GUI: container XAUTHORITY points at the fixed mount target (#582)" {
   # The in-container XAUTHORITY env must match where the cookie is now
   # mounted, otherwise X11 clients cannot find it.
@@ -740,6 +766,7 @@ CONF
   assert_success
 }
 
+# why: GUI off
 @test "generate_compose_yaml GUI disabled => no DISPLAY env + no X11 volumes" {
   local _extras=()
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
@@ -863,6 +890,7 @@ YAML
 # Extra volumes ([volumes] section)
 # ════════════════════════════════════════════════════════════════════
 
+# why: volumes list
 @test "generate_compose_yaml extra volumes appended after baseline" {
   local _extras=("/dev:/dev" "/data:/data" "/etc/machine-id:/etc/machine-id:ro")
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
@@ -875,6 +903,7 @@ YAML
   assert_success
 }
 
+# why: empty list
 @test "generate_compose_yaml empty extras => no extra mount lines" {
   local _extras=()
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
@@ -889,6 +918,7 @@ YAML
 # Fully loaded — GUI + GPU + extras
 # ════════════════════════════════════════════════════════════════════
 
+# why: fully loaded
 @test "generate_compose_yaml with GUI+GPU+extras => all sections present" {
   local _extras=("/dev:/dev" "/srv:/srv")
   generate_compose_yaml "${COMPOSE_OUT}" "isaac_sim" \
@@ -985,6 +1015,7 @@ YAML
 # Absent that stage, emission is skipped so plain-dev repos don't get a
 # broken service entry.
 
+# why: #108 auto-emit
 @test "generate_compose_yaml emits runtime service when Dockerfile has AS runtime" {
   cat > "${TEMP_DIR}/Dockerfile" <<'DOCK'
 FROM ubuntu:24.04 AS devel
@@ -1000,6 +1031,7 @@ DOCK
   assert_success
 }
 
+# why: opt-out by absence
 @test "generate_compose_yaml skips runtime service when Dockerfile lacks AS runtime" {
   cat > "${TEMP_DIR}/Dockerfile" <<'DOCK'
 FROM ubuntu:24.04 AS devel
@@ -1012,6 +1044,7 @@ DOCK
   assert_output "0"
 }
 
+# why: no-Dockerfile guard
 @test "generate_compose_yaml skips runtime service when Dockerfile is absent" {
   # No Dockerfile in TEMP_DIR at all.
   local _extras=()
@@ -1021,6 +1054,7 @@ DOCK
   assert_output "0"
 }
 
+# why: compose extends shape
 @test "runtime service extends devel and overrides target/image/tty/profile" {
   cat > "${TEMP_DIR}/Dockerfile" <<'DOCK'
 FROM ubuntu:24.04 AS devel
@@ -1057,6 +1091,7 @@ DOCK
   assert_success
 }
 
+# why: ordering
 @test "runtime service appears between devel and test blocks" {
   cat > "${TEMP_DIR}/Dockerfile" <<'DOCK'
 FROM ubuntu:24.04 AS devel
@@ -1078,6 +1113,7 @@ DOCK
   (( _runtime < _test ))
 }
 
+# why: regex tolerance
 @test "runtime detection is robust against weird whitespace" {
   cat > "${TEMP_DIR}/Dockerfile" <<'DOCK'
 FROM ubuntu:24.04    AS    devel
@@ -1093,6 +1129,7 @@ DOCK
   assert_success
 }
 
+# why: strict match
 @test "runtime detection ignores non-runtime stage names" {
   cat > "${TEMP_DIR}/Dockerfile" <<'DOCK'
 FROM ubuntu:24.04 AS runtime-base
@@ -1226,6 +1263,7 @@ DOCK
   assert_success
 }
 
+# why: byte-identical golden
 @test "generate_compose_yaml per-stage emit is byte-identical via _resolve_docker_flags (#505 golden master)" {
   # Full-file golden master guarding the refactor: the per-stage
   # resolution now flows through the single _resolve_docker_flags layer.

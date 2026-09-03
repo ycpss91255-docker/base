@@ -134,6 +134,8 @@ _write() {
   [[ "${output}" == *"x_spec.bats:2"* ]]
 }
 
+# why: Why `&` is a hand-off, run rather than asserted: an async list's
+# status is the fork's
 @test "bash: a backgrounded '!' returns 0 whatever the command did (#956)" {
   # Why `&` is a hand-off, pinned by running it. `! A &` is an ASYNC
   # list: the shell forks, does not wait, and the list's status is 0 --
@@ -151,6 +153,8 @@ _write() {
   [ "${status}" -eq 0 ]
 }
 
+# why: Inert in the one position the rule declines to judge -- the body's
+# last statement
 @test "_run_errexit_bang: FAILS on a bang statement handed to the background (#956)" {
   # The inert assertion this lint is named for, in the one position the
   # position rule declines to judge: the body's LAST statement. Its
@@ -165,6 +169,7 @@ _write() {
   [[ "${output}" == *"x_spec.bats:2"* ]]
 }
 
+# why: The same discard as a `;`, spelled with the async operator
 @test "_run_errexit_bang: FAILS when a '&' hands the statement to the next command (#956)" {
   # The other half of the same character: `! A & B` discards the negation
   # unconditionally and returns B's status, which is what a `;` does and
@@ -231,6 +236,8 @@ _write() {
   [[ "${output}" == *"x_spec.bats:2"* ]]
 }
 
+# why: bash joins the backslash-newline; the blank line ENDS the statement,
+# and a statement judged nowhere is exempt from both rules
 @test "_run_errexit_bang: FAILS when a BLANK line ends a continued bang statement (#956)" {
   # bash removes the backslash-newline, so what ends the statement is the
   # BLANK line's own newline: `! grep -q A` is one statement and
@@ -250,6 +257,7 @@ _write() {
   [[ "${output}" == *"x_spec.bats:2"* ]]
 }
 
+# why: The same drop, spelled with a comment line
 @test "_run_errexit_bang: FAILS when a COMMENT line ends a continued bang statement (#956)" {
   # The blank line's sibling, and the same drop: the join puts the comment
   # after the bang command (`! grep -q A   # a note`), the statement ends
@@ -265,6 +273,8 @@ _write() {
   [[ "${output}" == *"x_spec.bats:2"* ]]
 }
 
+# why: The other direction: judging it there must not move its end line off
+# the body's last statement
 @test "_run_errexit_bang: PASSES when the blank line that ends a continued bang ends the BODY too (#956)" {
   # The other direction of the same judgement: the statement closed by a
   # blank line is still the body's LAST statement, so judging it there
@@ -413,6 +423,8 @@ _write() {
   [ "${status}" -eq 0 ]
 }
 
+# why: A separator inside `( ... )` is the argument's, so the exemption for
+# `! A || B` does not reach it
 @test "_run_errexit_bang: FAILS on an '||' that belongs to a command substitution (#956)" {
   # `$( ... )` is an ARGUMENT, not this statement's top-level list. The
   # `||` inside it decides nothing about who owns the verdict, so the
@@ -431,6 +443,8 @@ _write() {
   [[ "${output}" == *"x_spec.bats:2"* ]]
 }
 
+# why: The same flat match run the other way: a false positive on a blocking
+# gate
 @test "_run_errexit_bang: PASSES on a ';' that belongs to a command substitution (#956)" {
   # The same flat match, spelled with the other separator: a `;` inside
   # `$( ... )` separates two commands INSIDE the argument, not this
@@ -444,6 +458,9 @@ _write() {
   [ "${status}" -eq 0 ]
 }
 
+# why: The lexical rule the code scan implements, pinned by RUNNING the
+# shell -- the `|` spelling, the mid-word `#` that stays data, and the
+# closing quote / backslash escape that continue a word
 @test "bash: '#' opens a comment only where a WORD opens (#956)" {
   # The lexical rule the code scan implements, pinned by RUNNING it
   # rather than asserting it in prose: a `#` begins a comment when it
@@ -505,6 +522,8 @@ _write() {
   [ "${output}" = "[a #b]" ]
 }
 
+# why: The context-dependent half of the rule, run rather than asserted: a
+# subshell's `)` ends a word, a `$( )` / `$(( ))` / `<( )` close does not
 @test "bash: a ')' ends a word only when it closes a SUBSHELL (#956)" {
   # The half of the word rule that is context dependent, and the half the
   # scan read as one thing. A `)` that closes a SUBSHELL ends a word, so
@@ -598,6 +617,8 @@ _write() {
   [ "${status}" -eq 0 ]
 }
 
+# why: `;#` is a terminator and prose, not a verdict handed to a second
+# command
 @test "_run_errexit_bang: PASSES on a bare trailing ';' followed by a comment (#956)" {
   # `;#` is a terminator and then a comment: the `;` ended the word, so
   # bash starts a comment at the `#` and there is no second command for
@@ -612,6 +633,7 @@ _write() {
   [ "${status}" -eq 0 ]
 }
 
+# why: The same rule one metacharacter along
 @test "_run_errexit_bang: PASSES on a comment that opens right after a ')' (#956)" {
   # The same rule one metacharacter along: the `#` after the `)` that
   # closed the SUBSHELL starts a comment, so the `;` in the prose after
@@ -625,6 +647,8 @@ _write() {
   [ "${status}" -eq 0 ]
 }
 
+# why: That `)` leaves the word open, so the `#` is data and the separator
+# behind it is real
 @test "_run_errexit_bang: FAILS on a ';' behind a '#' that follows a substitution's ')' (#956)" {
   # The `)` of a `$( ... )` closes the expansion, not the word -- the
   # bash case above runs `printf '[%s]\n' $(echo A)#b` and gets the
@@ -793,6 +817,8 @@ _write() {
   [ "${status}" -eq 0 ]
 }
 
+# why: A closing quote does not end a word, so the `#` is data and the
+# separator behind it is real
 @test "_run_errexit_bang: FAILS on a ';' behind a '#' that follows a closing quote (#956)" {
   # A closing quote does not end a WORD -- the bash case above runs
   # `printf '[%s]\n' 'a'#b` and gets the single argument `[a#b]`. So the
@@ -816,6 +842,7 @@ _write() {
   [[ "${output}" == *"x_spec.bats:2"* ]]
 }
 
+# why: The same word rule for the other spelling that continues a word
 @test "_run_errexit_bang: FAILS on a ';' behind a '#' that follows an escape (#956)" {
   # The same word rule, the other spelling that continues a word: a
   # backslash escape. `a\ #b` is the one argument `a #b`, so this `#` is
@@ -934,6 +961,8 @@ _write() {
   [[ "${output}" == *"another command in this statement"* ]]
 }
 
+# why: The fold answers where a statement STARTS too: a `!` line read in as
+# an operator's right operand is still judged, from the line it opens on
 @test "_run_errexit_bang: FAILS on a ';' behind a '!' the operator fold pulled in (#956)" {
   # The fold answers where a statement STARTS as well as where it ends.
   # `echo a ||` is incomplete, so bash reads the line below it as the
@@ -953,6 +982,7 @@ _write() {
   [[ "${output}" == *"another command in this statement"* ]]
 }
 
+# why: The position rule over the same fold
 @test "_run_errexit_bang: FAILS on a '!' the fold pulled in that is not the body's last (#956)" {
   # The position rule over the same fold, and with `&&` rather than
   # `||` so the verdict does not depend on which operator opened it.
@@ -985,6 +1015,8 @@ _write() {
   [[ "${output}" == *"background fork"* ]]
 }
 
+# why: Reported as unfinished from the line the `!` opens on, not dropped as
+# unreadable
 @test "_run_errexit_bang: FAILS on a '!' the fold pulled in that never finishes (#956)" {
   # An operator fold can also hand the scan a `!` line it cannot read to
   # the end. Reported as unfinished from the line the `!` opens on,
@@ -1002,6 +1034,7 @@ _write() {
   [[ "${output}" == *"still unfinished"* ]]
 }
 
+# why: Why a pulled-in `!` is judged rather than reported
 @test "_run_errexit_bang: PASSES on a '!' the fold pulled in that IS the body's last (#956)" {
   # The other direction, and the reason a fold that pulls in a `!` line
   # cannot simply report it: `echo a && ! grep -q A f` as the body's
@@ -1163,6 +1196,8 @@ _write() {
 }
 
 
+# why: `&&`, `2>&1`, `&>` and `|&` are other operators; `[[ a&b ]]` is a
+# syntax error and needs no exemption
 @test "_run_errexit_bang: PASSES on the '&' spellings that background nothing (#956)" {
   # `&` is only a hand-off when it is the async operator. `&&` is a list
   # operator the header already exempts by name, and `2>&1`, `&>` and

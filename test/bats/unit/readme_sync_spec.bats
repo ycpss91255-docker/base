@@ -20,6 +20,27 @@
 # Detection runs against a controlled temp REPO_ROOT so the spec is
 # independent of the live READMEs; a final pair of cases drives the REAL
 # tree to prove it is stamped and clean today.
+#
+# why: Unit tests for the localized-README drift guard (refs #846, #873):
+# `script/test/sync-readme-hashes.sh` (`_sync_readme_hashes`, the generator
+# that stamps each translated section with the hash of the English section
+# it was translated against AND of the translated section itself) and
+# `script/test/drivers/readme_sync.sh` (`_run_readme_sync`, the read-only
+# lint that compares those records against the current `README.md`). The
+# English author changes nothing and the translator never types a hash, so
+# the guard has to answer three questions per translated file -- is this
+# section stale, is it missing, is it deliberately untranslated. A fourth
+# block PERFORMS the silencing case (refs #873) -- edit the English, run the
+# generator, expect a green tree -- and asserts it does not work, because
+# recording only the English hash made a bare re-stamp indistinguishable
+# from a re-translation. Driven over throwaway fixture trees, plus a
+# real-tree pair proving `doc/readme/` is stamped and clean today. That pair
+# asserts on a CAPTURE of the tracked files, never on the tree itself: the
+# capture is taken twice and accepted only when both passes agree, because
+# four sequential reads of a tree this spec does not own can return a
+# `README.md` the translations beside it were never stamped against, and the
+# generator then correctly refuses to re-stamp -- reporting a defect in the
+# subject that was really a defect in the capture (#965).
 
 setup() {
   export LOG_FORMAT=text
@@ -136,6 +157,7 @@ _marker() {
 # _run_readme_sync: the failure that motivated the guard
 # ════════════════════════════════════════════════════════════════════
 
+# why: The drift that motivated the guard
 @test "_run_readme_sync: FAILS when an English section is rewritten in place and the translation is untouched (#846)" {
   _stamped
   # The heading survives, the body is rewritten -- the exact shape of the
@@ -157,6 +179,7 @@ _marker() {
   [[ "${output}" == *"README.zh-TW.md"* ]]
 }
 
+# why: Per-section reporting, untouched sections silent
 @test "_run_readme_sync: names the drifted SECTION, not just the file (#846)" {
   _stamped
   _en \
@@ -178,6 +201,7 @@ _marker() {
   [[ "${output}" != *"'alpha'"* ]]
 }
 
+# why: Structural case: MISSING
 @test "_run_readme_sync: FAILS on an English section with no marker in a translation (#846)" {
   _stamped
   _en \
@@ -202,6 +226,7 @@ _marker() {
   [[ "${output}" == *"MISSING"* ]]
 }
 
+# why: Clean after sync
 @test "_run_readme_sync: PASSES a tree the generator has just stamped (#846)" {
   _stamped
   run _run_readme_sync
@@ -209,6 +234,7 @@ _marker() {
   [[ "${output}" == *"clean"* ]]
 }
 
+# why: Re-stamp is the one-command fix, once the translation moved too
 @test "_run_readme_sync: PASSES again after an English edit, a re-translation and a re-run of the generator (#846)" {
   _stamped
   _en \
@@ -234,6 +260,7 @@ _marker() {
 # _run_readme_sync: untranslated sections, marker hygiene
 # ════════════════════════════════════════════════════════════════════
 
+# why: Deliberate omission, declared not forgotten
 @test "_run_readme_sync: EXEMPTS a section declared untranslated with sync-skip (#846)" {
   _en_default
   _tr zh-TW \
@@ -254,6 +281,7 @@ _marker() {
   [[ "${output}" == *"clean"* ]]
 }
 
+# why: An id with no hash claims nothing
 @test "_run_readme_sync: FAILS on an UNSTAMPED marker (id written, generator never run) (#846)" {
   _en_default
   _tr_default
@@ -262,6 +290,7 @@ _marker() {
   [[ "${output}" == *"UNSTAMPED"* ]]
 }
 
+# why: UNKNOWN id (rename / removal / typo)
 @test "_run_readme_sync: FAILS on a marker naming an id that is not an English section (#846)" {
   _stamped
   _tr zh-TW \
@@ -281,6 +310,7 @@ _marker() {
   [[ "${output}" == *"delta"* ]]
 }
 
+# why: DUPLICATE claim
 @test "_run_readme_sync: FAILS on the same id claimed twice in one translation (#846)" {
   _stamped
   _tr zh-TW \
@@ -299,6 +329,7 @@ _marker() {
   [[ "${output}" == *"DUPLICATE"* ]]
 }
 
+# why: MISPLACED marker
 @test "_run_readme_sync: FAILS on a sync marker that is not followed by a heading (#846)" {
   _stamped
   _tr zh-TW \
@@ -318,6 +349,7 @@ _marker() {
 # Section identity and hash input
 # ════════════════════════════════════════════════════════════════════
 
+# why: Fenced shell comments are not headings
 @test "_run_readme_sync: ignores ATX-looking lines inside fenced code blocks (#846)" {
   # README.md's TL;DR fences shell comments starting with '#'; treating them
   # as headings would invent sections that no translation can ever carry.
@@ -344,6 +376,7 @@ _marker() {
   [[ "${output}" == *"clean"* ]]
 }
 
+# why: Hash-input normalisation
 @test "_run_readme_sync: trailing whitespace in the English body does not flip the hash (#846)" {
   _stamped
   _en \
@@ -364,6 +397,7 @@ _marker() {
   [[ "${output}" == *"clean"* ]]
 }
 
+# why: Section granularity
 @test "_run_readme_sync: a nested subsection is its own section, the parent body stops at it (#846)" {
   _en \
     '# Title' \
@@ -410,6 +444,7 @@ _marker() {
   [[ "${output}" != *"'alpha'"* ]]
 }
 
+# why: AMBIGUOUS section id
 @test "_run_readme_sync: FAILS when two English headings share one slug (ambiguous id) (#846)" {
   _en \
     '# Title' \
@@ -433,6 +468,7 @@ _marker() {
 # _sync_readme_hashes: the generator
 # ════════════════════════════════════════════════════════════════════
 
+# why: The translator writes the id, the tool writes the hash
 @test "_sync_readme_hashes: stamps an id-only marker with the English section hash (#846)" {
   _en_default
   _tr_default
@@ -443,6 +479,7 @@ _marker() {
   [ "${status}" -eq 0 ]
 }
 
+# why: Generator updates an existing record
 @test "_sync_readme_hashes: re-stamps a stale hash (#846)" {
   _stamped
   before="$(_marker beta)"
@@ -463,6 +500,7 @@ _marker() {
   [[ "$(_marker beta)" != "${before}" ]]
 }
 
+# why: No churn on a clean tree
 @test "_sync_readme_hashes: is idempotent on an already-stamped tree (#846)" {
   _stamped
   a="$(cat "${SCRATCH}/doc/readme/README.zh-TW.md")"
@@ -471,6 +509,7 @@ _marker() {
   [[ "${a}" == "${b}" ]]
 }
 
+# why: Only marker lines are rewritten
 @test "_sync_readme_hashes: leaves the translated prose untouched (stamps only markers) (#846)" {
   _stamped
   run grep -c '甲本文。' "${SCRATCH}/doc/readme/README.zh-TW.md"
@@ -478,6 +517,7 @@ _marker() {
   [[ "${output}" == "1" ]]
 }
 
+# why: Advisory, never auto-declared
 @test "_sync_readme_hashes: reports the sections a translation is still missing (#846)" {
   _en_default
   _tr zh-TW \
@@ -498,6 +538,7 @@ _marker() {
 # assert it does not end in a green tree.
 # ════════════════════════════════════════════════════════════════════
 
+# why: The silencing case, performed; the marker must not move
 @test "_sync_readme_hashes: REFUSES to re-stamp a section whose English moved while the translation did not (#873)" {
   _stamped
   before="$(_marker beta)"
@@ -510,6 +551,7 @@ _marker() {
   [[ "$(_marker beta)" == "${before}" ]]
 }
 
+# why: End to end: syncing does not buy a green tree
 @test "_sync_readme_hashes: an English-only edit plus a sync run leaves the lint RED (#873)" {
   _stamped
   _en_beta_rewritten
@@ -521,6 +563,7 @@ _marker() {
   [[ "${output}" == *"beta"* ]]
 }
 
+# why: Refusal is per section, not a whole-run abort
 @test "_sync_readme_hashes: refusing one section still stamps the untouched ones (#873)" {
   _en_default
   _tr_default
@@ -534,6 +577,7 @@ _marker() {
   [[ "${output}" != *"'alpha'"* ]]
 }
 
+# why: The working case still takes one command
 @test "_sync_readme_hashes: re-stamps when the translation moved together with the English (#873)" {
   _stamped
   _en_beta_rewritten
@@ -545,6 +589,7 @@ _marker() {
   [[ "${output}" == *"clean"* ]]
 }
 
+# why: The English-typo escape hatch, explicit and by name
 @test "_sync_readme_hashes: --accept records a reviewed no-op and clears the lint (#873)" {
   # The accepted cost from the guard's introduction: an English typo fix
   # marks the translations stale and the human confirms nothing needs
@@ -558,6 +603,7 @@ _marker() {
   [[ "${output}" == *"clean"* ]]
 }
 
+# why: Accepting one section is not a blanket pass
 @test "_sync_readme_hashes: --accept clears only the section it names (#873)" {
   _stamped
   _en \
@@ -580,6 +626,7 @@ _marker() {
   [[ "${output}" == *"alpha"* ]]
 }
 
+# why: Both sides stored, so a diff shows which one moved
 @test "_sync_readme_hashes: records the translation's own hash beside the English one (#873)" {
   _stamped
   run grep -E '^<!-- sync: beta [0-9a-f]{12} [0-9a-f]{12} -->$' \
@@ -587,6 +634,7 @@ _marker() {
   [ "${status}" -eq 0 ]
 }
 
+# why: UNRECORDED: the translation-side record must stay fresh
 @test "_run_readme_sync: FAILS when the translated prose changed since it was stamped (#873)" {
   # Without this the recorded translation hash goes stale, and a later
   # English edit would read the un-stamped translation edit as evidence of
@@ -603,6 +651,7 @@ _marker() {
 # Fail-loud guards: never pass vacuously
 # ════════════════════════════════════════════════════════════════════
 
+# why: No vacuous pass without a source
 @test "_run_readme_sync: FAILS when the English README is missing (#846)" {
   _tr_default
   run _run_readme_sync
@@ -610,6 +659,7 @@ _marker() {
   [[ "${output}" == *"README.md"* ]]
 }
 
+# why: No vacuous pass without translations
 @test "_run_readme_sync: FAILS when no translation files are found (#846)" {
   _en_default
   run _run_readme_sync
@@ -621,6 +671,7 @@ _marker() {
 # Real tree guard
 # ════════════════════════════════════════════════════════════════════
 
+# why: Live tree clean
 @test "_run_readme_sync: the REAL doc/readme/ tree is stamped and clean today (#846)" {
   REPO_ROOT="/source"
   run _run_readme_sync
@@ -773,6 +824,7 @@ _plant_readme_source() {
   assert_success
 }
 
+# why: Live tree already generator-exact
 @test "_sync_readme_hashes: is a no-op on the REAL tree (already stamped) (#846)" {
   # Run the generator against a copy so the live tree is never mutated by a
   # test; an already-stamped tree must come back byte-identical.
@@ -781,6 +833,7 @@ _plant_readme_source() {
   _assert_generator_is_a_noop_on "${_baseline}"
 }
 
+# why: A torn read must never become the baseline a verdict rests on
 @test "_capture_readme_baseline: a capture the source changed under is DISCARDED, not used (#965)" {
   # The race, made deterministic: `cp` is shadowed so the write lands at a
   # fixed point -- immediately after the first pass has read README.md and
@@ -808,6 +861,8 @@ _plant_readme_source() {
   assert_output "english v2"
 }
 
+# why: No snapshot means nothing to assert on; say so rather than pick a
+# read
 @test "_capture_readme_baseline: a source that never settles FAILS loudly, it does not hand back a torn set (#965)" {
   # The other outcome, and the reason the retry is bounded. A checkout being
   # rewritten continuously cannot produce a snapshot, and a spec that

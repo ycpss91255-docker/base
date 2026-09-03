@@ -47,6 +47,39 @@
 # certified release-worker.yaml, and two of today's four workers sit one
 # such line away. A sentence cannot be the guard, and neither can a pair of
 # questions that never meet; the sentence names what the guard derives.
+#
+# why: Least privilege across EVERY reusable workflow in
+# `.github/workflows/`, rather than the one file #957 was filed against. The
+# population is derived: each `*.yaml` / `*.yml` whose parsed `on:` mapping
+# declares `workflow_call`, so a reusable worker added tomorrow is covered
+# the day it lands however its author spelled the trigger key. A second
+# reading over the raw text -- every file whose code lines name
+# `workflow_call` at all must be in the derived list, and nothing else may
+# be -- fails if the two disagree, so a spelling the parser stopped
+# resolving cannot drop a worker out of the scan silently. That derivation
+# is what found the rest of the gap -- `multi-distro-build-worker.yaml` had
+# three jobs and no `permissions:` line anywhere, and `publish-worker`'s
+# `compute-matrix` and `release-worker`'s `release` were two more, all of
+# them running on the CALLING repo's whole token while build-worker.yaml's
+# own guard was green.
+#
+# Which scopes a job may name is deliberately NOT asserted here
+# (publish-worker holds `packages: write` legitimately, release-worker
+# `contents: write`); the property here is that the grant is DECLARED rather
+# than inherited. The exact per-job sets live with each worker's own spec,
+# and the third test holds that delegation to its word: for every DERIVED
+# reusable worker it requires some other spec in the tree that APPLIES
+# `yaml_permission_surface` to that very file -- resolved from the call's
+# own argument -- and names the worker that has none. The division was prose
+# three times before it was a guard. As a promise about jobs, every grant
+# outside build-worker.yaml was pinned by nothing and widening one to
+# `packages: write` passed the whole suite; as a promise about FILES backed
+# by an enumeration of the four specs that existed, a fifth worker landing
+# with an unpinned `contents: write` still passed; and as two independent
+# substring questions of one file -- does its text name the function, does
+# its text name the worker -- a spec that pinned worker A while merely
+# MENTIONING worker B certified B, which two of today's four workers sit one
+# line away from.
 
 bats_require_minimum_version 1.5.0
 
@@ -149,6 +182,11 @@ _reusable_workers_with_no_jobs() {
   done < <(reusable_workflow_files "${WORKFLOW_DIR}")
 }
 
+# why: The guard for the guard: every assertion here is "nothing came back
+# wrong", which an extractor returning nothing at all satisfies perfectly.
+# Pairs with the population floor (at least the 4 reusable workers the repo
+# ships, build-worker.yaml among them) that both tests assert before reading
+# a scan
 @test "reusable workers: every one of them yields at least one job (#957)" {
   # The guard for the guard. Every assertion in this file is "nothing came
   # back wrong", which an extractor that returns nothing at all satisfies
@@ -159,6 +197,11 @@ _reusable_workers_with_no_jobs() {
   assert_output ''
 }
 
+# why: Names `<workflow>: <job>` for every job with no permission entry of
+# its own -- no block, or an inline `permissions: read-all` that names no
+# scope. Such a job runs under whatever the calling repo granted its calling
+# job: a `contents: write` held to cut a release, a `packages: write` held
+# to publish
 @test "reusable workers: no job inherits the caller's grant (#957)" {
   # The property the originating issue is about, over every reusable worker
   # rather than the one it happened to name. A job listed here runs under the
@@ -284,6 +327,16 @@ _reusable_workers_with_no_surface_spec() {
   done < <(reusable_workflow_files "${WORKFLOW_DIR}")
 }
 
+# why: The class-level half: a worker whose jobs all declare `contents:
+# write` passes both tests above, so every derived worker must also have a
+# spec that APPLIES `yaml_permission_surface` to it. Call sites are derived
+# by `find` over the spec tree and resolved through each call's own
+# argument, then matched against the worker's full path exactly, and the
+# scan is floored at the derived worker count. Named for READING a surface,
+# not for pinning a grant: whether the reader asserts the exact scope set is
+# a property of the assertion, which no scan over call sites can see. This
+# file is excluded because it reads every worker's surface to assert the
+# complementary property (that a grant is declared, not which)
 @test "reusable workers: every one of them has a spec reading its permission surface (#957)" {
   # The class-level half of the property. The two tests above assert that
   # every job of every reusable worker DECLARES a grant; WHICH scopes that

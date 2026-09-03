@@ -255,6 +255,9 @@ _HARNESS_EXEMPT_SRCS=(
   assert_success
 }
 
+# why: The manifest and the OCI annotation the sys stage writes are mirrored
+# here, and written before `RUN bats`; whether the specs then run rather
+# than skip is asserted at system level, which builds this file
 @test "the harness Dockerfile writes the manifest before the specs read it (#951)" {
   # Named for what a grep of a Dockerfile can establish: the instructions
   # are there, in that order. Whether the specs then RUN rather than skip

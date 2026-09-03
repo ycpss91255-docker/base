@@ -13,6 +13,17 @@
 # Apply policy (inherited from upgrade.sh's Step-5 convention):
 #   - detect matches a known shape  -> transform auto-applies, idempotent
 #   - structure absent / ambiguous  -> _log_warn + SKIP (never force-rewrite)
+#
+# why: Unit tests for the declarative Dockerfile-migration list
+# `lib/dockerfile_migrate.sh` (#567, folds #579 facet B). The lib exposes a
+# small interface — `apply_migrations <dockerfile>` — over an ordered,
+# data-driven `_MIGRATIONS` table of `{detect, transform}` units, each
+# healing one v0.41.0-fanout Dockerfile/entrypoint breakage. upgrade.sh Step
+# 5 sources the lib and calls the dispatcher (replacing the old one-off
+# seds). Each migration is driven in isolation via before/after fixtures
+# plus the dispatcher's apply / skip / idempotency contract: a detected
+# shape auto-applies idempotently, a missing/ambiguous shape is skipped
+# (warn, never force-rewrite).
 
 bats_require_minimum_version 1.5.0
 
@@ -63,17 +74,20 @@ _stage_template_tree() {
 
 # ── dispatcher contract: apply_migrations ───────────────────────────────────
 
+# why: Small interface exists
 @test "apply_migrations is the public dispatcher entry (#567)" {
   run bash -c "$(_src); declare -F apply_migrations"
   assert_success
 }
 
+# why: No-Dockerfile skip
 @test "apply_migrations skips cleanly when path does not exist (#567)" {
   run bash -c "$(_src); apply_migrations '${TEMP_DIR}/nope'"
   assert_success
   assert_output --partial "no Dockerfile"
 }
 
+# why: Data-driven table is seeded
 @test "_MIGRATIONS is a non-empty ordered list (#567)" {
   run bash -c "$(_src); printf '%s\n' \"\${_MIGRATIONS[@]}\""
   assert_success

@@ -1,4 +1,8 @@
 #!/usr/bin/env bats
+#
+# why: Mirrors `lib/env_emit.sh`. `write_env` (.env contents + SETUP_*
+# metadata, SSH X11 `XAUTHORITY` override #321) and `_scaffold_env_overlay`
+# idempotency.
 
 bats_require_minimum_version 1.5.0
 

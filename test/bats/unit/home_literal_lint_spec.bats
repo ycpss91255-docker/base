@@ -15,6 +15,18 @@
 # independent of the live tree's contents; a final case drives the REAL
 # shipped tree to prove it passes today. Shape mirrors
 # stale_setup_conf_lint_spec.bats.
+#
+# why: Unit coverage for `script/test/drivers/home_literal.sh` -- the
+# mechanical half of the "bake self-built artifacts at `/opt`, not under
+# `$HOME`" convention (ADR-00000024). The container user is a BUILD arg, so
+# a concrete username in a shipped Dockerfile / entrypoint / in-image config
+# file breaks the moment the image is rebuilt or `docker save`+`load`'ed
+# under a different `USER_NAME`. The parameterised `${USER_NAME}` / escaped
+# `\${USER_NAME}` / `<placeholder>` forms and absolute `/opt` paths pass; a
+# narrative mention opts out through a bracketed allow region that must be
+# balanced and does not leak past its end; a missing scan root fails loudly
+# instead of passing vacuously; and a final case drives the REAL shipped
+# tree.
 
 setup() {
   export LOG_FORMAT=text

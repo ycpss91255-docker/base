@@ -33,6 +33,7 @@ teardown() {
 # _run_issueref: violations
 # ════════════════════════════════════════════════════════════════════
 
+# why: Leading comment ref detected
 @test "_run_issueref: flags a bare #NNN in a leading comment" {
   printf '%s\n' '# rationale for the gate #440' \
     > "${SCRATCH}/script/sample.sh"
@@ -41,6 +42,7 @@ teardown() {
   [[ "${output}" == *'#440'* ]]
 }
 
+# why: Trailing comment ref detected
 @test "_run_issueref: flags a bare #NNN in a trailing comment" {
   printf '%s\n' 'echo hi   # auto-build gate #216' \
     > "${SCRATCH}/script/sample.sh"
@@ -49,6 +51,7 @@ teardown() {
   [[ "${output}" == *'#216'* ]]
 }
 
+# why: Parenthesised ref detected
 @test "_run_issueref: flags the (#NNN) paren form in a comment" {
   printf '%s\n' '# the EXIT-trap cleanup (#429)' \
     > "${SCRATCH}/script/sample.sh"
@@ -57,6 +60,7 @@ teardown() {
   [[ "${output}" == *'(#429)'* ]]
 }
 
+# why: #692 2-digit lower bound flagged
 @test "_run_issueref: flags a bare 2-digit ref (lower accept boundary) (#692)" {
   # The accept window is [2,4] digits. Pin the 2-digit lower bound so a
   # regression re-capping it (the original mawk bug capped at 2) is caught.
@@ -66,6 +70,7 @@ teardown() {
   [[ "${output}" == *'#42'* ]]
 }
 
+# why: #692 4-digit upper bound flagged
 @test "_run_issueref: flags a bare 4-digit ref (upper accept boundary) (#692)" {
   # The whole awk `+` rewrite exists because 3-4 digit refs were silently
   # exempted under Debian mawk; pin the 4-digit upper bound is flagged.
@@ -75,6 +80,7 @@ teardown() {
   [[ "${output}" == *'#1234'* ]]
 }
 
+# why: Helper comment flagged, @test name kept
 @test "_run_issueref: flags refs in .bats helper comments (not @test names)" {
   # Fixture built via printf with the refs in vars (not a heredoc with bare
   # comment tokens) so this spec is itself immune to the comment sweep that
@@ -151,6 +157,7 @@ teardown() {
   [[ "${output}" == *"${ref}"* ]]
 }
 
+# why: Clean tree passes
 @test "_run_issueref: passes clean on a tree with no comment refs" {
   printf '%s\n' '# describes what the gate does, no number' \
     > "${SCRATCH}/script/sample.sh"
@@ -159,6 +166,7 @@ teardown() {
   [[ "${output}" == *'clean'* ]]
 }
 
+# why: String-literal ref kept
 @test "_run_issueref: does NOT flag a #NNN inside a string literal" {
   printf '%s\n' 'echo "patched (#567 m7)"   # plain comment, no ref' \
     > "${SCRATCH}/script/sample.sh"
@@ -166,6 +174,7 @@ teardown() {
   [ "${status}" -eq 0 ]
 }
 
+# why: ADR refs kept
 @test "_run_issueref: does NOT flag ADR-0000xxxx references" {
   printf '%s\n' '# layered consumer entry (ADR-00000011)' \
     > "${SCRATCH}/script/sample.sh"
@@ -173,6 +182,7 @@ teardown() {
   [ "${status}" -eq 0 ]
 }
 
+# why: DL/SC/version tokens kept
 @test "_run_issueref: does NOT flag DL/SC directive codes or version tags" {
   printf '%s\n' '# hadolint DL3007 / shellcheck SC1090, since v0.41.0' \
     > "${SCRATCH}/script/sample.sh"
@@ -180,6 +190,7 @@ teardown() {
   [ "${status}" -eq 0 ]
 }
 
+# why: Cross-repo refs kept
 @test "_run_issueref: does NOT flag word-prefixed cross-repo refs" {
   printf '%s\n' '# layered COPY chain (template#254), see harness#53' \
     > "${SCRATCH}/script/sample.sh"
@@ -187,6 +198,7 @@ teardown() {
   [ "${status}" -eq 0 ]
 }
 
+# why: Out-of-range numbers kept
 @test "_run_issueref: does NOT flag single-digit or 5+-digit numbers" {
   printf '%s\n' '# step #1 of the loop; PID #12345 placeholder' \
     > "${SCRATCH}/script/sample.sh"
@@ -194,6 +206,7 @@ teardown() {
   [ "${status}" -eq 0 ]
 }
 
+# why: Parameter expansion kept
 @test "_run_issueref: does NOT treat a \${#arr[@]} expansion as a comment" {
   printf '%s\n' 'len=${#arr[@]}; echo "${len} items"' \
     > "${SCRATCH}/script/sample.sh"
@@ -201,6 +214,7 @@ teardown() {
   [ "${status}" -eq 0 ]
 }
 
+# why: Heredoc usage prose kept
 @test "_run_issueref: does NOT flag a #NNN opener in heredoc usage prose" {
   # A token-leading '#' directly followed by a digit is not a comment
   # marker (no real comment opens with hash-then-digit); it only occurs as
@@ -242,6 +256,7 @@ _issueref_engines() {
   command -v gawk    >/dev/null 2>&1 && echo "gawk"
 }
 
+# why: Detection parity across busybox-awk / mawk / gawk
 @test "_ISSUEREF_AWK: flags a 3-digit ref identically under every awk engine" {
   local fixture="${SCRATCH}/script/sample.sh"
   printf '%s\n' '# rationale for the gate #440' > "${fixture}"
@@ -259,6 +274,7 @@ _issueref_engines() {
   [[ "${found}" -eq 1 ]]
 }
 
+# why: #692 boundary parity across engines
 @test "_ISSUEREF_AWK: flags the 2-digit and 4-digit accept boundaries under every awk engine (#692)" {
   # Pin BOTH ends of the [2,4] accept window across every awk engine so a
   # portability regression (e.g. mawk re-capping the window to 2) fails the
@@ -280,6 +296,7 @@ _issueref_engines() {
   [[ "${found}" -eq 1 ]]
 }
 
+# why: Exemption parity across busybox-awk / mawk / gawk
 @test "_ISSUEREF_AWK: keeps the must-keep cases clean under every awk engine" {
   local fixture="${SCRATCH}/script/sample.sh"
   # One line per exemption: string-literal ref, ADR ref, DL/SC + version,

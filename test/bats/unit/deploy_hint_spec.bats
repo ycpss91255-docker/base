@@ -11,6 +11,15 @@
 # tests assert the emitted hint is a form the parser actually accepts
 # (base#843). Lives apart from deploy_spec.bats so the hint contract has a
 # named home instead of hiding inside the generator's behavioural specs.
+#
+# why: Covers the "regenerate this artifact" hints stamped into what the
+# deploy generator emits -- the resolved `compose.yaml` header and the
+# `deploy.sh` launcher -- plus the sibling hint in the shipped
+# `dist/deploy/cd-guard.sh` (#843). The hints used to print a bare
+# positional stage, which `_setup_deploy` rejects as an unknown arg, so the
+# printed command failed when copy-pasted; these specs replay the emitted
+# hint's own argument list through the real parser instead of asserting a
+# hand-copied duplicate.
 
 bats_require_minimum_version 1.5.0
 
@@ -42,6 +51,7 @@ _hint_args() {
   printf '%s\n' "${_line}"
 }
 
+# why: compose header hint
 @test "resolved compose header hint uses --stage, not a bare positional stage (#843)" {
   local _d; _d="$(mktemp -d)"
   _write_hint_repo "${_d}"
@@ -54,6 +64,7 @@ _hint_args() {
   rm -rf "${_d}"
 }
 
+# why: launcher hint
 @test "deploy.sh launcher hint uses --stage, not a bare positional stage (#843)" {
   local _d; _d="$(mktemp -d)"
   _generate_deploy_launcher "${_d}/deploy.sh" runtime
@@ -63,12 +74,14 @@ _hint_args() {
   rm -rf "${_d}"
 }
 
+# why: cd-guard hint
 @test "cd-guard.sh documents the --stage form of the deploy command (#843)" {
   run grep -m1 'before .just docker setup deploy' /source/dist/deploy/cd-guard.sh
   assert_success
   assert_output --partial "just docker setup deploy --stage <stage>"
 }
 
+# why: hint replayed through parser
 @test "the compose-header hint's args are accepted by the deploy arg parser (#843)" {
   local _d; _d="$(mktemp -d)"
   _write_hint_repo "${_d}"
@@ -87,6 +100,7 @@ _hint_args() {
   rm -rf "${_d}"
 }
 
+# why: hint replayed through parser
 @test "the launcher hint's args are accepted by the deploy arg parser (#843)" {
   local _d; _d="$(mktemp -d)"
   _write_hint_repo "${_d}"
