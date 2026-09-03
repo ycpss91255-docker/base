@@ -527,7 +527,13 @@ _classify() {
   # docker-build check green having built nothing -- and the reason it built
   # nothing was a failure nobody was told about.
   run _classify 'exit 128'
-  assert_failure
+  # The step's OWN status, not merely non-zero: `_classify` returns 2 when
+  # it could not lift a script out of the YAML at all, and a bare
+  # `assert_failure` reads that harness-level miss as the step failing --
+  # which is how this case would stay green against a workflow whose
+  # classify step ran no shell at all.
+  assert_failure 1
+  assert_output --partial '::error::classify:'
   run cat "${BATS_TEST_TMPDIR}/classify/out"
   assert_success
   refute_output --partial 'code_changed=false'
