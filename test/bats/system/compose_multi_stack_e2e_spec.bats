@@ -26,6 +26,13 @@
 # Plain-bash assertions only (status / output), matching the sibling
 # runtime_test_smoke_spec.bats / deploy_bundle_e2e_spec.bats: the system
 # bats environment ships no bats-assert / bats-support.
+#
+# why: Two stacks of ONE repo, co-hosted, driven against a real daemon.
+# Compose is what refuses a duplicate container name and what refuses to
+# scale a service that declares one, so neither question can be answered by
+# reading the emitted file -- these run it. The fixture is a real repo put
+# through `setup apply` (the emitter is the subject) and needs no bind
+# mounts.
 
 setup_file() {
   # Every test here drives ONE fixture repo and ONE image tag, so they must
@@ -105,6 +112,8 @@ _stack() {
     "$@"
 }
 
+# why: Both `up`s succeed and land in their own project, with project-scoped
+# names
 @test "co-hosted stacks: two project names bring the SAME repo up twice (#920)" {
   # The bug: a baked container_name is namespaced by the daemon, not by the
   # project, so the second `up` died with `name ... is already in use`
@@ -131,6 +140,8 @@ _stack() {
   [[ "${_nb}" == *"${PROJ_B}"* ]] || { echo "name not project-scoped: ${_nb}"; false; }
 }
 
+# why: Project-scoped teardown reaps one stack and leaves the co-hosted one
+# alone
 @test "co-hosted stacks: tearing one down leaves the other running (#920)" {
   # Project-scoped teardown is only meaningful if the containers are
   # project-scoped too. Ordered after the bring-up above (bats runs a file
@@ -145,6 +156,7 @@ _stack() {
   [ -n "${_b}" ] || { echo "the OTHER project's container was reaped too"; false; }
 }
 
+# why: `--scale devel=2` yields two running containers instead of a refusal
 @test "--scale: one service runs as more than one container (#920)" {
   # Compose refuses `--scale` outright while a service declares
   # container_name ("Compose does not scale a service beyond one container

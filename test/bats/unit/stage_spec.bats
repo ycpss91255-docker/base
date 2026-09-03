@@ -1,4 +1,25 @@
 #!/usr/bin/env bats
+#
+# why: Mirrors `lib/stage.sh`. The per-stage engine: `_validate_stage_name`
+# (#215), `_parse_dockerfile_stages`, `_compute_dockerfile_hash`, `main
+# apply` auto-emit of non-baseline stages (#215), per-stage overrides #220
+# (`_parse_stage_sections` / `_load_stage_overrides` /
+# `_validate_stage_override_key` / `_resolve_stage_scalar` /
+# `_resolve_stage_list` + compose-emit integration, incl. #493 `devel-test`
+# override surface), the `_resolve_docker_flags` single per-stage
+# flag-resolution layer (#505/#526, relocated from the compose spec in P1a),
+# `_generate_runtime_dockerfile` ENV-bake (#503/#688, relocated from
+# setup_emit in P1a), and `_is_deployable_stage`, the ADR-00000023 sec.4
+# stage-eligibility predicate (`deployable = not devel and not *-test`,
+# widened in #841 to the whole template-managed baseline incl. the `sys` /
+# `devel-base` build intermediates) that both the deploy-scoped `[lifecycle]
+# restart` emission and the `setup deploy` stage guard gate on. Also carries
+# the #875 AGREEMENT spec for `_dockerfile_stage_from_line`, the one shared
+# "which line declares stage `<S>`" matcher: instead of testing each reader
+# against its own regex — the shape that let three regexes drift apart until
+# a `FROM --platform=... AS <stage>` line was a stage to one call site and
+# invisible to the others — it drives every call site off a single FROM line
+# and asserts one verdict per site.
 
 bats_require_minimum_version 1.5.0
 

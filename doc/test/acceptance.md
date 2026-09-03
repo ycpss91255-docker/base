@@ -68,3 +68,9 @@ each time:
   is a recorded decision (this note + #769 / #785), not a silent gap. The
   non-interactive `just docker setup apply` path -- which shares the same
   emitters -- IS driven for real in the acceptance job above.
+
+## Test Files
+
+<!-- generated: catalogue sections -->
+
+<!-- /generated -->

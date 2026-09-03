@@ -8,6 +8,27 @@
 # format is checked structurally (grep) + functionally: the embedded
 # regex (extracted + JSON-unescaped) must match real transcript lines and
 # the 5 levels via `grep -P` (PCRE, same engine class lnav uses).
+#
+# why: Regex-type lnav format for the plain-text wrapper transcript
+# (`transcript.lnav-format.json`, #609): parses `<ISO ts> [service] LEVEL:
+# msg` lines, coexisting with the JSON `log.lnav-format.json` (`*.jsonl`).
+# The CI image has no jq/lnav, so it is checked structurally (grep) +
+# functionally (the embedded regex, extracted and JSON-unescaped, must match
+# real transcript lines and the 5 levels via `grep -P`).
+#
+# Grouped by concern:
+#
+# - Declares the lnav schema + format key; is a regex format (not json)
+#
+# - Maps all 5 levels; timestamp/level/body fields + `log/` file-pattern
+# wired
+#
+# - Regex matches real transcript lines incl. all 5 levels; raw docker line
+# does NOT match
+#
+# - Every declared sample matches the pattern
+#
+# - `log.lnav-format.json` (JSON) still coexists unchanged
 
 bats_require_minimum_version 1.5.0
 

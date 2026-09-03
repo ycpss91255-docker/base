@@ -47,18 +47,30 @@ _merge_attr() {
   git -C "${SCRATCH}" check-attr merge -- "${1}" | sed 's/.*: //'
 }
 
+# why: The reason the pattern was widened at all: [Unreleased] moved into the
+# series file being written, so that -- not CHANGELOG.md -- is the file
+# two branches both append to, and a pattern naming only the index leaves
+# it on the default three-way merge.
 @test ".gitattributes: a changelog series file merges by union (#926)" {
   # The reason the pattern exists: [Unreleased] lives in the series file
   # being written, so that is the file two branches both append to.
   [ "$(_merge_attr doc/changelog/v0.43.md)" = 'union' ]
 }
 
+# why: The original scope of the rule, kept rather than assumed: the index is
+# derived and the layout lint re-derives it, so a union duplicate there is
+# reported instead of shipped.
 @test ".gitattributes: the generated changelog index merges by union (#926)" {
   # The original scope of the rule, kept: the index is derived, and the
   # layout lint re-derives it, so a union duplicate there is reported.
   [ "$(_merge_attr doc/changelog/CHANGELOG.md)" = 'union' ]
 }
 
+# why: The boundary the widened glob nearly crossed. A gitattributes `*` does
+# not cross `/`, so `doc/changelog/*.md` would have covered hand-written
+# prose -- where union merging keeps both copies of a rewritten paragraph
+# in silence, and no gate in this repo reads that file outside its marker
+# block.
 @test ".gitattributes: CONVENTIONS.md is NOT union-merged (#926)" {
   # Prose, not a log. Two edits to the same paragraph would both be kept,
   # silently, and no gate in this repo reads that part of the file.

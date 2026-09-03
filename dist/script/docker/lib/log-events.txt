@@ -188,6 +188,7 @@ ci_adr_structure
 ci_stale_setup_conf_path
 ci_readme_sync
 ci_doc_counts
+ci_catalog_description
 ci_home_literal
 ci_arch_literal
 ci_bash_source_guard
@@ -201,6 +202,10 @@ ci_changelog_layout
 ci_action_ref_agreement
 ci_generated_workflow_actions
 ci_just_provenance
+ci_shell_metrics
+ci_nesting_depth
+ci_function_length
+ci_positional_params
 ci_lint_bad_root
 ci_no_hadolint
 ci_lint_tool_without_lint

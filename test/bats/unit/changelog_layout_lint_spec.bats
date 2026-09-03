@@ -107,6 +107,9 @@ _reindex() {
     >> "${CL}/CHANGELOG.md"
 }
 
+# why: The negative control for the eleven refusals below, all of which a lint
+# that refused everything would also satisfy. The '2 series' assertion is
+# what stops it passing over a tree it never walked.
 @test "changelog layout: a split whose index matches its series files is clean" {
   _clean_tree
   run _run_changelog_layout
@@ -115,6 +118,10 @@ _reindex() {
   assert_output --partial '2 series'
 }
 
+# why: A vX.Y.Z section renders identically wherever it sits, so nothing but a
+# lint notices it in the wrong file. The fixture MOVES rather than copies
+# the section precisely so the duplicate-section rule cannot satisfy this
+# assertion with the placement rule deleted.
 @test "changelog layout: a section in the wrong series file is named" {
   _clean_tree
   # v0.2.0's section MOVED into the v0.1 file -- carried over whole, links
@@ -149,6 +156,10 @@ _reindex() {
   assert_output --partial '1 misplaced section'
 }
 
+# why: What `merge=union` leaves behind: union keeps both sides and conflicts
+# on nothing, so two branches promoting the same section land it twice
+# with nothing to review. Both copies sit in the file the version names,
+# so this is the only rule that can catch it.
 @test "changelog layout: a version section that appears TWICE is named" {
   _clean_tree
   # What a union merge leaves behind. `doc/changelog/*.md merge=union` keeps
@@ -182,6 +193,10 @@ _reindex() {
   assert_output --partial '1 misplaced section'
 }
 
+# why: A heading belonging to no series has no file the placement rule could
+# say it belongs in, so it would be filed wherever it was found and pass.
+# Without this rule the layout check is silent on exactly the headings the
+# roster does not govern.
 @test "changelog layout: a section heading that is not a version is named" {
   _clean_tree
   # `## [Yanked]` renders like any other section and belongs to no series,
@@ -212,6 +227,11 @@ _reindex() {
   assert_output --partial '1 misplaced section'
 }
 
+# why: The case above is unreachable unless this returns 0. The lint phase runs
+# drivers under errexit and the caller reads the answer through a command
+# substitution, so a non-zero status ends the driver on an assignment and
+# the finding is never printed. bats turns errexit off for a `run`, so no
+# other case here can see it.
 @test "changelog layout: _cll_series_of answers for a non-version tag instead of FAILING" {
   # The rule above is only reachable if this answers with a status of 0.
   # The lint phase runs every driver under `set -e` with an ERR trap
@@ -234,6 +254,10 @@ _reindex() {
   [ "${output}" = 'v0.2' ]
 }
 
+# why: Markdown link definitions are file-scoped, so the split's mechanical
+# risk is a definition that stayed behind while its section moved. A
+# section whose link is simply absent is that defect at its simplest, and
+# it renders as plain text nobody reads as broken.
 @test "changelog layout: a version section with no compare link is named" {
   _clean_tree
   _series v0.2 \
@@ -247,6 +271,10 @@ _reindex() {
   assert_output --partial 'v0.2.0'
 }
 
+# why: The half that goes wrong quietly -- the section moved and the definition
+# did not, so the link resolves to nothing in the file the reader has
+# open. The single-file changelog already lost its compare links this way
+# once, around v0.6.8.
 @test "changelog layout: a compare link whose section is elsewhere is named" {
   # The half of the split that goes wrong quietly: the section moved and
   # the link did not, so the link resolves to nothing in the file a reader
@@ -266,6 +294,10 @@ _reindex() {
   assert_output --partial 'v0.1.0'
 }
 
+# why: A missing index row reads exactly like a series that does not exist,
+# which is why the block is derived rather than written. This is the case
+# that makes the derivation load-bearing: a new series file nobody
+# re-indexed is the ordinary way it goes stale.
 @test "changelog layout: an index that has drifted from the series files is refused" {
   _clean_tree
   # A new series lands and nobody refreshes the index -- the failure the
@@ -283,6 +315,10 @@ _reindex() {
   assert_output --partial 'v0.3'
 }
 
+# why: Two live series is two places to write the next entry and two places a
+# merge can keep, with the entry lint measuring whichever it reaches
+# first. The assertion names the rule's own count rather than the word
+# Unreleased, which the drift diff prints too.
 @test "changelog layout: [Unreleased] in two files is refused" {
   # Two places to write the next entry is two places a merge can keep, and
   # the entry lint measures whichever one it finds first.
@@ -312,6 +348,9 @@ _reindex() {
   assert_output --partial '1 misplaced section'
 }
 
+# why: The same rule in the direction that fails open: with no live series
+# every placement rule holds and the tree reports clean, while there is
+# nowhere left to write the next entry.
 @test "changelog layout: no [Unreleased] anywhere is refused, not passed" {
   _clean_tree
   _series v0.1 \
@@ -331,6 +370,9 @@ _reindex() {
   assert_output --partial '1 misplaced section'
 }
 
+# why: The vacuous pass this repo keeps paying for. With nothing to walk, every
+# rule above holds and the lint prints a green line that means the scan
+# found nothing, not that nothing is wrong.
 @test "changelog layout: a changelog directory with no series files DIES" {
   # The vacuous pass this repo keeps having to fix: with nothing to walk,
   # every rule above holds and the lint reports clean over zero files.
@@ -339,6 +381,10 @@ _reindex() {
   [ "${status}" -ne 0 ]
 }
 
+# why: Every other case drives a scratch fixture, so this is the only one that
+# says the rules hold for the 43 series files that actually ship -- which
+# is what makes the split's own landing a gated change rather than a
+# claim.
 @test "changelog layout: the live changelog tree is clean" {
   REPO_ROOT=/source
   run _run_changelog_layout

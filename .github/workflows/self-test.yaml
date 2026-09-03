@@ -316,6 +316,15 @@ jobs:
     #                     diffed. A missing index row reads exactly like a
     #                     series that does not exist, which is why the row
     #                     is derived and not written
+    #   catalog-description
+    #                     every `@test` in the spec trees carries a
+    #                     `# why:` block on the lines above it, every
+    #                     block is attached to a test, and the count of
+    #                     tests that still have none stays under the
+    #                     transition ceiling the driver declares. The
+    #                     catalogue under doc/test/ is rendered from those
+    #                     blocks, so this is the rule at its source rather
+    #                     than over the rendered table
     #   just-provenance   every site that OBTAINS the `just` runner names
     #                     the one pinned version -- the image's fetch, the
     #                     setup-just input, the just.systems installer's
@@ -376,6 +385,7 @@ jobs:
           - action-ref-agreement
           - generated-workflow-actions
           - just-provenance
+          - catalog-description
     steps:
       - name: Checkout
         uses: actions/checkout@v7

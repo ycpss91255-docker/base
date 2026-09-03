@@ -17,6 +17,41 @@
 # BY DIGEST (no tag), uploads its digest as an artifact, and a `merge`
 # job assembles the tagged manifest list via
 # `docker buildx imagetools create`. These guards lock that contract.
+#
+# why: Structural assertions for the `.github/workflows/publish-worker.yaml`
+# reusable `call-publish` workflow (foundational image repos push their
+# Dockerfile target stage to a registry on tag push; downstream app repos
+# consume via `FROM ${registry}/${owner}/<image>`). #602: the original
+# `publish` job had every matrix shard push the SAME computed tag(s) via
+# `push: true` + `tags:`, leaving a last-shard-wins single-arch tag on a
+# multi-platform call (no manifest merge). The fix mirrors the #587
+# release-test-tools pattern — each shard pushes by digest, uploads its
+# digest, and a `merge` job assembles the tagged manifest list via `docker
+# buildx imagetools create`. These guards lock that contract.
+#
+# Grouped by concern:
+#
+# - Stays a reusable `workflow_call` workflow; preserves the
+# registry-parameterised inputs
+#
+# - Native-runner matrix: `compute-matrix` maps platforms to native runners;
+# build shards run on `matrix.runner`
+#
+# - Push-by-digest per shard (#602): build pushes by digest; no shared
+# same-tag-per-shard push (regression guard); digest exported + uploaded as
+# artifact
+#
+# - Merge job (#602): downloads digests + creates the manifest via
+# `imagetools`; resolves tags from inputs once; login uses the parameterised
+# registry
+#
+# - Every job's grant pinned as an exact per-job entry set, over the job
+# list derived from the file -- `packages: write` on `publish` + `merge`
+# only, `compute-matrix` read-only. Replaces a `grep -c
+# '^\s+packages:\s+write' >= 2` count, which was blind to WHICH job held the
+# scope, to a third job acquiring it, and to any other scope beside it
+#
+# - Same-repo guard on the self-hosted-eligible `publish` job (#766)
 
 bats_require_minimum_version 1.5.0
 

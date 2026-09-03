@@ -656,6 +656,9 @@ _long_prose() {
 # Non-vacuity
 # ════════════════════════════════════════════════════════════════════
 
+# why: The lint scans a directory now rather than one path, so the thing that
+# can go missing is the tree. A scan with no root reports clean, which is
+# the vacuous pass this repo keeps having to fix.
 @test "_run_changelog_entry: DIES when the changelog tree is missing rather than passing vacuously (#917)" {
   rm -rf "${SCRATCH}/doc/changelog"
   run _run_changelog_entry
@@ -663,6 +666,10 @@ _long_prose() {
   assert_output --partial 'doc/changelog'
 }
 
+# why: After the split the live section lives in the series being written, and
+# the path the lint used to be pinned to is now the INDEX, which never
+# holds an entry. Pointing at it would report clean over a file that
+# cannot fail -- a green line meaning nothing was measured.
 @test "_run_changelog_entry: measures [Unreleased] in the series file that carries it (#926)" {
   # The changelog is one file per 0.Y series, so [Unreleased] lives in the
   # series being written -- not at a fixed path. A lint pinned to
@@ -685,6 +692,10 @@ _long_prose() {
   assert_output --partial 'doc/changelog/v0.43.md:'
 }
 
+# why: In a series file [Unreleased] is the last thing before the link
+# definitions, so a section that ends only at the next `## [` swallows
+# them and reports every one as unrecognised content. The split is what
+# moved reference data inside the measured span.
 @test "_run_changelog_entry: the compare-link block is not part of the section (#926)" {
   # In a series file the [Unreleased] section is the LAST thing before the
   # compare-link definitions, so a section that ends only at the next
@@ -704,6 +715,9 @@ _long_prose() {
   refute_output --partial 'unrecognised content'
 }
 
+# why: Two live series is two places a merge can keep, and measuring whichever
+# the glob reaches first reports clean over the other. The ambiguity is
+# refused by name rather than resolved by filename order.
 @test "_run_changelog_entry: DIES when two files carry [Unreleased] (#926)" {
   # Two live series is two places to write the next entry and two places a
   # merge can keep. Measuring whichever one the glob reaches first would
@@ -724,6 +738,10 @@ _long_prose() {
   assert_output --partial 'Unreleased'
 }
 
+# why: CONVENTIONS.md is the document whose subject is how to write an entry,
+# so it is the document that shows the heading. A locate with no fence
+# state dies claiming two live series, and the only way to clear that is
+# deleting the example from the file that exists to carry it.
 @test "_run_changelog_entry: a '## [Unreleased]' inside a fenced example is not a second live series (#926)" {
   # doc/changelog/CONVENTIONS.md is the document whose entire subject is how
   # to write an entry, so the heading it documents is the heading it SHOWS.
@@ -944,6 +962,10 @@ _long_prose() {
 # The real tree
 # ════════════════════════════════════════════════════════════════════
 
+# why: Twenty category headings where seven will do is what an unlocked axis
+# produced, and a reader scanning for what broke then has no heading to
+# scan for. The refusal also hands over the roster, because one that does
+# not say what IS allowed is answered by guessing.
 @test "_run_changelog_entry: FAILS on an [Unreleased] heading outside the locked roster (#926)" {
   # Twenty category headings where seven will do: `Documentation`, `Tests`,
   # `Migration`, `Migration notes`, `Performance`, `Known issues`,
@@ -963,6 +985,11 @@ _long_prose() {
   assert_output --partial 'Security'
 }
 
+# why: The complement that catches a roster typed twice: a lint refusing
+# `Deprecated` because the driver's copy lost it fails on the honest
+# entry, which is how a roster gets muted rather than fixed. Driven from
+# the sourced array, so the case cannot drift from the definition it
+# checks.
 @test "_run_changelog_entry: PASSES every heading in the locked roster (#926)" {
   # The complement of the case above, and the one that catches a roster
   # typed twice: a lint that refuses `Deprecated` because the driver's copy
@@ -980,6 +1007,9 @@ _long_prose() {
   done
 }
 
+# why: The roster governs what is written from now on. A shipped `### Tests` is
+# a fact about what shipped, and a lint that could fail on it would be one
+# nobody can make pass without falsifying the record.
 @test "_run_changelog_entry: a released section's off-roster heading is never checked (#926)" {
   # The roster governs what is written from now on. A shipped `### Tests`
   # is a fact about what shipped, and a lint that could fail on it would be
@@ -997,6 +1027,11 @@ _long_prose() {
   assert_success
 }
 
+# why: A roster written in two places drifts one place at a time, and the copy
+# that drifts is the one contributors read. This is what keeps the single
+# definition honest: the prose is a rendering, and a rendering that has
+# stopped agreeing is a wrong answer delivered confidently to the person
+# asking.
 @test "_run_changelog_entry: FAILS when the documented roster disagrees with the code (#926)" {
   # A roster written in two places drifts one place at a time, and the
   # copy that drifts is the one contributors read. The driver's array is
@@ -1040,6 +1075,10 @@ _long_prose() {
 # three rules that row must name -- not the whole table, and not "the docs
 # match the drivers": what a driver refuses cannot be derived from its
 # source, so a wider name here would be a claim the body cannot keep.
+# why: The row is where a reader learns what this lint refuses, and it has
+# already drifted once -- a merge resolved it wholly to the older side and
+# dropped two rules with nothing to notice. Narrow by design: it guards
+# one row and the rules that row must name, not the whole table.
 @test "TEST.md's changelog-entry row names all four rules this lint enforces (#956)" {
   local _doc=/source/doc/test/TEST.md
   local _row _st=0

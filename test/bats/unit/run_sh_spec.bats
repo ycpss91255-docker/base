@@ -4,6 +4,53 @@
 # See build_sh_spec.bats for the sandbox/mock strategy — this file mirrors it
 # and focuses on run.sh-specific branches: --detach, TARGET
 # routing (devel vs non-devel), already-running guard, and bootstrap/drift.
+#
+# why: Unit tests for `run.sh`. Mirrors the build_sh_spec.bats harness; the
+# `docker compose ... ps` probe reads from a controllable stub file (one
+# running service per line, either bare `<service>` or `<project>/<service>`
+# for the tests that are about project scoping -- the qualified form is
+# visible only to a probe carrying that same `-p`) so tests can simulate
+# "container already running" scenarios.
+#
+# Covers: `--help` (en/zh/zh-CN/ja), `--setup`/`-s`, bootstrap on missing
+# `.env` / `setup.conf` / `compose.yaml`, drift-check path, bootstrap
+# staying non-interactive (setup.sh, not TUI), defensive guard when setup
+# produces no `.env`, `--detach`, devel vs non-devel TARGET routing,
+# already-running guard, Wayland xhost path, `--lang` argument validation,
+# fallback `_detect_lang` branches, **runtime log-line i18n** (bootstrap +
+# already-running error translate in all four languages via the local
+# `_msg()` table), **#216/#429 auto-build gate** (image present → silent +
+# no build, image absent → auto-delegates to `./build.sh TARGET`, non-devel
+# target forwarded, build failure aborts run, per-target image inspect,
+# `--build` invokes `./build.sh test` before compose up, `--build` after
+# check-drift), and **`-C` / `--chdir` flag** (docker_harness#53: redirect
+# FILE_PATH, short + long form, value-required and directory guards, usage
+# help mention), and **`-v` / `--verbose` / `-vv` / `--very-verbose` flag**
+# (#311: same export + trace pattern as build.sh, parity across wrappers),
+# and **#386 foreground exit auto compose-down** (default-on for devel +
+# one-shot non-devel targets, `--no-rm` opts out, `-d` suppresses the trap;
+# the trap fires `down --remove-orphans` to mirror stop.sh and close the
+# worktree-removed-before-stop network leak), and **#448 `--` CMD
+# separator** (`--` stops flag parsing so CMD flags like `--target` don't
+# collide; positional CMD also stops parsing; usage documents `--`), and
+# **#580 interactive exit-code normalization** (`_normalize_interactive_rc`
+# maps clean-exit codes 0 and 130 to 0 on the no-CMD foreground paths --
+# devel attached shell and one-shot stage `compose up` -- so a
+# Ctrl-C-cleared line carried out on exit isn't a recipe failure, while a
+# genuine non-clean code like 127 still propagates and command mode `just
+# run <cmd>` keeps the real exit code), and **#679 non-`devel` CMD-override
+# dispatch** (a non-`devel` one-shot target WITH a CMD dispatches `compose
+# run --rm <SERVICE> <CMD…>` so the ENTRYPOINT runs and the override
+# replaces the default CMD — NOT the pre-#679 `up -d` + `exec` pair that
+# bypassed the ENTRYPOINT and double-launched the default CMD; the #679
+# repro shape `-t runtime ros2 launch …` is asserted; `devel` + CMD still
+# uses `up -d` + `exec`; the no-CMD paths are unchanged; #580 exit-code
+# propagation rides the `run` path for non-`devel` command mode), and **#690
+# pre-run hook abort + foreground post-run hook exit override** (a failing
+# `script/hooks/pre/run.sh` aborts the wrapper with the hook's rc before the
+# build delegate / `compose up`; in the foreground path a failing
+# `script/hooks/post/run.sh` makes `_app_cleanup` override the wrapper exit
+# with the hook's rc while `compose down --remove-orphans` still runs).
 
 bats_require_minimum_version 1.5.0
 

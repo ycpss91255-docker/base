@@ -57,6 +57,10 @@ _series() {
   printf '%s\n' "$@" > "${CL}/${_name}.md"
 }
 
+# why: The base case the twelve below deviate from, and the one that pins that
+# the `## [tag]` heading itself is NOT part of the body: the release page
+# already prints the tag as its title, so emitting it again is a
+# duplicated heading on every page.
 @test "release_notes.sh: an RC tag's notes are that RC's own entries" {
   _series v0.9 \
     '# v0.9' \
@@ -80,6 +84,11 @@ _series() {
   refute_output --partial '## [v0.9.0-rc2]'
 }
 
+# why: The regression the whole script exists for. The awk it replaces exited 0
+# on no match and wrote an empty file, which action-gh-release publishes
+# without complaint, so a renamed heading shipped a release whose whole
+# body was GitHub's PR-title list. Only a refusal makes that visible at
+# tag push.
 @test "release_notes.sh: a tag with no section DIES rather than emitting an empty body" {
   _series v0.9 \
     '## [v0.9.0] - 2026-04-03' \
@@ -92,6 +101,10 @@ _series() {
   assert_output --partial 'v0.9.1'
 }
 
+# why: Finding the section is not the same question as finding release notes.
+# The measured v0.42.0 shape is a promoted final whose entire section is a
+# paragraph pointing at its RCs, so a check that only asks whether the tag
+# was found passes on a body worth nothing to a reader.
 @test "release_notes.sh: a section whose body carries no entry DIES" {
   # The measured v0.42.0 shape: a promoted final whose whole section is a
   # paragraph pointing at the RCs -- and, with no RC sections to union in,
@@ -107,6 +120,11 @@ _series() {
   assert_output --partial 'v0.42.0'
 }
 
+# why: This project cuts RCs and promotes one unchanged, so a final tag's own
+# section is a pointer and the entries sit under headings a reader of
+# vX.Y.0 has no interest in. One heading per category across the whole
+# union is what makes the page complete without republishing RC structure
+# as if it were history.
 @test "release_notes.sh: a promoted final release's notes are the union of its RCs" {
   _series v0.42 \
     '## [v0.42.0] - 2026-08-25' \
@@ -138,6 +156,10 @@ _series() {
   refute_output --partial 'promoted unchanged'
 }
 
+# why: The union merges by category, which is a few lines only because the
+# headings come from a known set. This is where the locked roster pays for
+# itself: the page opens with BREAKING rather than in whatever order the
+# RCs happened to land in.
 @test "release_notes.sh: categories are emitted in the locked roster order" {
   _series v0.9 \
     '## [v0.9.0] - 2026-04-03' \
@@ -160,6 +182,10 @@ _series() {
     = '### BREAKING,### Added,### Fixed,### Security' ]
 }
 
+# why: The union must add, not replace. A final release that says something of
+# its own is the one part written for the release page itself, and losing
+# it to the merge would silently delete the only prose a human aimed at
+# that page.
 @test "release_notes.sh: a final release with its own entries keeps its lead paragraph" {
   _series v0.9 \
     '## [v0.9.0] - 2026-04-03' \
@@ -181,6 +207,11 @@ _series() {
   assert_output --partial '- the candidate entry (#10, PR #11)'
 }
 
+# why: The guard tests the lead ARRAY's length, and a `## [tag]` heading is
+# always followed by a blank line, so the array is never empty -- only
+# ever blank. Every assembled body therefore opened with a stray blank
+# line, on every release page, and nothing but an assertion on the first
+# line can see it.
 @test "release_notes.sh: a section with no lead paragraph does not open with a blank line" {
   # A `## [tag]` heading is always followed by a blank line, so the lead the
   # assembler collects is never an EMPTY array -- only ever an array of
@@ -198,6 +229,10 @@ _series() {
   [ "${lines[0]}" = '### Added' ]
 }
 
+# why: The entry most likely to quote a section heading is the entry about the
+# changelog's own format. A scan with no fence state truncates there and
+# drops every entry after it, so the release documenting the split is the
+# release the split silently shortens.
 @test "release_notes.sh: a '## [' inside a fenced block does not end the section" {
   _series v0.9 \
     '## [v0.9.0] - 2026-04-03' \
@@ -216,6 +251,10 @@ _series() {
   assert_output --partial '- the entry after the fence (#3, PR #4)'
 }
 
+# why: In a series file the link definitions follow the section directly, so a
+# section that ends only at the next `## [` publishes reference data as
+# page content. The split is what moved those definitions inside the span
+# the assembler reads.
 @test "release_notes.sh: the compare-link block is not part of the notes" {
   _series v0.9 \
     '## [v0.9.0] - 2026-04-03' \
@@ -230,6 +269,10 @@ _series() {
   refute_output --partial 'example.invalid'
 }
 
+# why: The split's own failure mode: a section copied rather than moved leaves
+# two answers to what shipped in this tag. Picking either silently puts
+# one of them on a page nobody can correct afterwards, so the ambiguity is
+# refused instead of ordered away.
 @test "release_notes.sh: a tag present in two series files is refused" {
   # The split's own failure mode: a section copied rather than moved leaves
   # two answers to "what shipped in this tag", and picking either silently
@@ -250,6 +293,12 @@ _series() {
   assert_output --partial 'v0.9.0'
 }
 
+# why: Measured on the real tree: v0.42's RC union is 326,638 characters
+# against GitHub's 125,000 cap, so the API answers the tag push with a 422
+# after every gate has gone green. Refusing here fails the release with
+# our message and both numbers, and refuses rather than truncates because
+# a page silently missing entries is the failure this script exists to
+# stop.
 @test "release_notes.sh: a body over GitHub's release-body limit is refused, naming both numbers" {
   # Found by running the assembler over the real v0.42.0: the union of
   # rc1..rc4 is 326,638 characters, and GitHub caps a release body at
@@ -281,6 +330,10 @@ _series() {
   assert_output --partial 'v0.9.0'
 }
 
+# why: The regression stated as a property of the REAL tree rather than of a
+# fixture, so it still holds for a version whose notes are too large to
+# assemble. This is the assertion that would have caught a doc-only
+# heading rename before the release job ran on it.
 @test "release_notes.sh: the version being released has exactly one section in the live tree" {
   # The regression this whole file exists for, asserted against the real
   # tree: a doc-only change that renames or reformats a `## [vX.Y.Z]`
@@ -295,6 +348,11 @@ _series() {
     || fail "'## [${_version}]' appears in ${_hits} files under doc/changelog/, expected exactly 1"
 }
 
+# why: Every other case drives a scratch fixture, so without this the spec
+# could pass in full against a changelog shaped nothing like the one that
+# ships. v0.41.0 rather than `.version`, because v0.42's released text
+# predates the entry cap and is refused for size -- a fact about history,
+# not about this script.
 @test "release_notes.sh: a real released tag assembles from the live tree" {
   # v0.41.0 rather than .version: v0.42's sections predate the 700-character
   # entry cap, and its RC union measures 326,638 characters against

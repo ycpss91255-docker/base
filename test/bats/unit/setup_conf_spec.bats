@@ -1,4 +1,13 @@
 #!/usr/bin/env bats
+#
+# why: Mirrors `lib/setup_conf.sh`. setup.conf merging (`_load_setup_conf`
+# replace strategy) resolving the per-repo override from the repo-root
+# `.setup.conf` dotfile (a legacy `config/docker/setup.conf` is no longer
+# read), `_get_conf_value` / `_get_conf_list_sorted` (incl. empty-skip), and
+# the `_rule_basename` image-rule helper. Also guards the shipped `dist/`
+# prose against pre-relocation path names: the four `setup_tui.sh` usage
+# heredocs must advertise `.setup.conf`, and no shipped text may still say
+# `<repo>/setup.conf` or `.base/setup.conf` (#842).
 
 bats_require_minimum_version 1.5.0
 

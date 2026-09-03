@@ -82,6 +82,10 @@ _committed_block() {
   ' "${CL}/CHANGELOG.md"
 }
 
+# why: The property the generator/checker split rests on. If --write and print
+# disagree, the layout lint refuses the file and the fix its own message
+# names rewrites the same corruption -- a loop with no way out but
+# hand-editing a generated block.
 @test "changelog_index.sh --write: the block it writes is the block it prints (#926)" {
   # The property the whole generator/checker split rests on. If these two
   # disagree, `just release changelog-index` cannot clear the drift its own
@@ -100,6 +104,10 @@ _committed_block() {
   [ "$(_committed_block)" = "${_printed}" ]
 }
 
+# why: The concrete corruption behind the case above, asserted alone so a
+# failure names the character that was eaten instead of dumping two
+# blocks. awk expands escape sequences in a `-v` value, and this tree's
+# entries routinely quote a `\n` or a `\r` when the change is about one.
 @test "changelog_index.sh --write: a backslash escape in a quoted BREAKING entry is written verbatim (#926)" {
   # The concrete corruption behind the case above, asserted on its own so a
   # failure says which character was eaten rather than dumping two blocks.
@@ -112,6 +120,10 @@ _committed_block() {
   [ "${output}" = '1' ]
 }
 
+# why: The rewrite goes through mktemp, which creates 0600. Git does not track
+# the bit, so the documented refresh would leave the changelog
+# owner-only-readable in a state no gate reports and no later reader can
+# explain.
 @test "changelog_index.sh --write: the index keeps its own file mode (#926)" {
   # The rewrite goes through mktemp, which creates 0600. Carrying that mode
   # onto the index makes the changelog owner-only-readable in the working
@@ -126,6 +138,10 @@ _committed_block() {
   [ "$(stat -c %a "${CL}/CHANGELOG.md")" = '644' ]
 }
 
+# why: Non-vacuity for the three cases above, which all assert on what lands
+# BETWEEN the markers: a --write that silently wrote nowhere when it could
+# not find them would satisfy each of them and be caught by nothing else
+# here.
 @test "changelog_index.sh --write: an index with no markers is REFUSED, not appended to (#926)" {
   # Non-vacuity for the two cases above: they assert on what lands between
   # the markers, so a --write that silently wrote nowhere when it could not

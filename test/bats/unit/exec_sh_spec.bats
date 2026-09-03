@@ -7,6 +7,39 @@
 # `docker compose ... ps` answer is controlled by ${COMPOSE_PS_FILE} (one
 # running SERVICE name per line) so individual tests can toggle "service
 # running" state.
+#
+# why: Unit tests for `exec.sh` argument parsing, the container-running
+# precheck, and i18n. Sandbox tree mirrors build_sh_spec.bats; `docker ps`
+# reads from a controllable stub file so tests can toggle "container
+# running" state without a real docker daemon. `.env` is pre-seeded so
+# `_load_env` / `_compute_project_name` succeed without a bootstrap step.
+#
+# Covers: `--help` (en/zh/zh-CN/ja), `--lang` / `--target` value validation,
+# English-default not-running error, Chinese / Simplified Chinese / Japanese
+# not-running error text, the `./run.sh` start hint (en + zh-TW),
+# `--dry-run` bypassing the guard, compose exec routing when container is
+# running, **`--` flag/CMD separator** (#289: standalone `--` consumed
+# before CMD flows through to `docker compose exec`, lets a dash-leading CMD
+# pass through, works after `-t TARGET` for run.sh parity, no-`--`
+# positional path stays backward-compatible, `-h` usage mentions `--`),
+# fallback `_detect_lang` branches when `template/` is absent, **`-C` /
+# `--chdir` flag** (docker_harness#53: redirect FILE_PATH so .env / project
+# name come from the alt repo, short + long form, value-required and
+# directory guards, usage help mention), **`-v` / `--verbose` / `-vv` /
+# `--very-verbose` flag** (#311: symmetry-only for exec since `docker exec`
+# itself does not build, but flag is accepted and `-vv` enables wrapper
+# trace), and **`-T` / `--no-tty` + `-i` / `--tty` TTY-mode flags +
+# auto-detect of `bash|sh|dash|zsh|ash|ksh -c '...'`** (#382 Option 1+2: 17
+# assertions covering the no-CMD default (TTY), interactive binary default
+# (TTY), 4 shell flavours with `-c` auto-add `-T`, `bash hello.sh` (no `-c`)
+# keeps TTY, explicit `-T`/`--no-tty` forces no-TTY, explicit `-i`/`--tty`
+# overrides heuristic, last-wins precedence between `-T` and `-i` in both
+# orders, `-T` + `-t TARGET` attaches to the right service, `-T` + `--`
+# separator round-trip, `--help` mentions both flag pairs), and **#690
+# exit-code forwarding + pre/post hook error paths** (the container
+# command's exit code is forwarded unchanged via `return "${_exec_rc}"` — 42
+# / 0 / 7 cases; a failing post-exec hook overrides the forwarded rc via `||
+# exit $?`; a failing pre-exec hook aborts before `compose exec` runs).
 
 bats_require_minimum_version 1.5.0
 
