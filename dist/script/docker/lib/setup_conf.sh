@@ -67,24 +67,38 @@ unset _setup_conf_lib_dir
 # compose.yaml. Neither substitutes for the other.
 # ════════════════════════════════════════════════════════════════════
 
-# _setup_conf_layers <base_path> <outarray>
+# _setup_conf_layers <base_path> <outarray> [template_dist_dir]
 #
 # Fill <outarray> with the chain's paths in INCREASING precedence. Paths
 # are returned whether or not they exist -- an absent layer contributes
 # nothing, and every reader passes the whole chain unconditionally so the
 # precedence lives in exactly one place.
 #
-# The template layer is OMITTED when _SETUP_SCRIPT_DIR is unset (init.sh /
-# upgrade.sh reach the readers via conf_logging.sh without sourcing
-# setup.sh). Omitted rather than left to resolve: an empty prefix would
-# make the path `/../../../.setup.conf`, i.e. `/.setup.conf` -- a real,
-# readable path that has nothing to do with this repo.
+# The template layer sits at <template_dist>/.setup.conf. Its directory is
+# taken from the optional third argument, else from _SETUP_SCRIPT_DIR (the
+# shipped wrapper dir, three levels below dist/), and the layer is OMITTED
+# when neither is available. Omitted rather than left to resolve: an empty
+# prefix would make the path `/../../../.setup.conf`, i.e. `/.setup.conf`
+# -- a real, readable path that has nothing to do with this repo.
+#
+# The third argument exists for the callers that reach the readers WITHOUT
+# setup.sh and therefore without _SETUP_SCRIPT_DIR (init.sh / upgrade.sh,
+# and lib/dockerfile_migrate.sh which they source). For them the omission
+# is not free: a guard that decides whether a build reads <repo>/config/
+# would scan two of the three layers and answer for a chain it never saw.
+# Such a caller passes the dist/ dir it already knows and gets the full
+# chain; what the chain CONTAINS and in which ORDER stays here either way,
+# which is the property that keeps a second, drifting copy from appearing
+# at each call site.
 _setup_conf_layers() {
   local _base="${1:?"${FUNCNAME[0]}: missing base_path"}"
   local -n _scl_out="${2:?"${FUNCNAME[0]}: missing outvar"}"
+  local _scl_dist="${3:-}"
   _scl_out=()
-  [[ -n "${_SETUP_SCRIPT_DIR:-}" ]] \
-    && _scl_out+=("${_SETUP_SCRIPT_DIR}/../../../.setup.conf")
+  if [[ -z "${_scl_dist}" && -n "${_SETUP_SCRIPT_DIR:-}" ]]; then
+    _scl_dist="${_SETUP_SCRIPT_DIR}/../../.."
+  fi
+  [[ -n "${_scl_dist}" ]] && _scl_out+=("${_scl_dist}/.setup.conf")
   _scl_out+=(
     "${_base}/.setup.conf"
     "${_base}/.setup.conf.local"

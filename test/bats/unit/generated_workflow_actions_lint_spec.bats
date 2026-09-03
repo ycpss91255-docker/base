@@ -630,7 +630,15 @@ _write_generator_raw() {
   assert_output --partial 'v7'
 }
 
-@test "generated-workflow-actions: resolves an unbraced \$NAME reference (#950)" {
+@test "generated-workflow-actions: an unbraced \$NAME is refused with no neighbour to collide with (#987)" {
+  # This used to assert the opposite -- that the bare spelling RESOLVES --
+  # and the driver was narrowed to read only `${NAME}` because the bare
+  # form has no terminator: see the prefix-collision case below, where a
+  # short name substituted into a longer one it prefixes and fabricated a
+  # ref that appeared in no declaration. The rule the driver now applies
+  # is not "a bare name that could collide", it is "a bare name", so the
+  # single-variable shape -- nothing here for it to run into -- is the one
+  # worth stating separately from the collision that motivated it.
   _load_driver
   _write_workflow 'actions/checkout@v8'
   _write_generator_var \
@@ -640,7 +648,9 @@ _write_generator_raw() {
 
   run _run_generated_workflow_actions
   [ "${status}" -ne 0 ]
-  assert_output --partial 'v7'
+  assert_output --partial 'not a versioned action reference'
+  assert_output --partial '_MONITOR_REF'
+  refute_output --partial 'v7'
 }
 
 @test "generated-workflow-actions: resolves the ref half alone (#950)" {

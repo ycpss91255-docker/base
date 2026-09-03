@@ -474,7 +474,15 @@ _pins() {
   # Without this the workflow would carry a fourth copy of the number, and
   # a bump PR that moved the Dockerfile alone would leave CI testing a
   # different just than the image ships.
-  run grep -F 'pins.sh --value just' /source/.github/workflows/self-test.yaml
+  #
+  # The reader is the shipped accessor, not pins.sh: both read the
+  # SAME line -- the `ARG JUST_VERSION` the `tool-pin: just` marker sits
+  # on -- and the test above already asserts they agree, so CI resolving
+  # the number twice would only be two chances to disagree about one
+  # declaration. What this test is about is that the workflow READS it
+  # rather than repeating it; which of the two readers it uses is not.
+  run grep -F 'dist/script/base/just-version.sh' \
+    /source/.github/workflows/self-test.yaml
   assert_success
   run grep -F 'just-version: ${{ steps.just-pin.outputs.version }}' \
     /source/.github/workflows/self-test.yaml

@@ -2,7 +2,8 @@
 #
 # code_lines_spec.bats -- unit tests for the comment-stripped file views in
 # test/bats/unit/test_helper.bash (strip_comments / only_comments /
-# code_lines / code_grep / yaml_job_{text,lines} / yaml_top_{text,lines}).
+# code_lines / code_grep / yaml_job_{text,lines} / yaml_top_{text,lines}),
+# and for yaml_step_id_for, the step-scoped reader built on top of them.
 #
 # These helpers exist because a structural spec that greps a WHOLE file lets
 # a string appearing only in a COMMENT satisfy an assertion about CODE, and
@@ -66,6 +67,41 @@ jobs:
 
   other:
     runs-on: ubuntu-latest
+YAML
+
+  STEPS="${SCRATCH}/steps.yaml"
+  cat > "${STEPS}" << 'YAML'
+jobs:
+  acceptance:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve the pin
+        id: resolver
+        run: |
+          printf 'version=%s\n' "$(./accessor.sh)"
+      - name: Consume it
+        uses: some/setup-action@v4
+        with:
+          version: ${{ steps.resolver.outputs.version }}
+      # A comment paragraph that names ./commented-only.sh, which no step
+      # in this job runs.
+      - name: A later step that carries no id
+        run: |
+          echo "a later mention of ./accessor.sh"
+      - name: Nested lists live INSIDE a step
+        id: nested_owner
+        uses: other/action@v4
+        with:
+          args:
+            - --marker
+            - ./nested-only.sh
+
+  other:
+    runs-on: ubuntu-latest
+    steps:
+      - name: A step in a different job
+        id: elsewhere
+        run: ./other-job-only.sh
 YAML
 }
 
@@ -333,4 +369,59 @@ DOCKERFILE
   run yaml_top_text "${FIXTURE}" on
   assert_success
   assert_output --partial 'An indented comment'
+}
+
+# ── step-id derivation ───────────────────────────────────────────────
+#
+# `yaml_step_id_for` exists so an assertion can say "the consumer reads THE
+# STEP THAT DID THE WORK" rather than the weaker "some step output reaches
+# the consumer". Its predecessor was an inline awk that carried the last
+# `id:` it had seen forward across step boundaries, so a match in a LATER,
+# id-less step came back wearing an EARLIER step's id, and the assertion
+# built on it vouched for a step that no longer contained its subject. Every
+# case below that expects no output is that same fail-open direction closed:
+# an unrecognised shape yields an empty id, and the caller's `[ -n ... ]`
+# guard turns that into a loud failure.
+
+@test "yaml_step_id_for: names the step whose own body matches" {
+  run yaml_step_id_for "${STEPS}" acceptance './accessor[.]sh'
+  assert_success
+  assert_output 'resolver'
+}
+
+@test "yaml_step_id_for: an id-less matching step yields nothing, it does not borrow the id of an earlier step" {
+  # The regression this helper was extracted for: the mention lives in the
+  # third step, which has no id at all. Answering `resolver` here is what
+  # let the acceptance job restate the pinned version as a literal while
+  # the guard still reported that the consumer read the resolve step.
+  run yaml_step_id_for "${STEPS}" acceptance 'a later mention'
+  assert_success
+  assert_output ''
+}
+
+@test "yaml_step_id_for: a nested list inside a step is not a step boundary" {
+  # The inverse mistake: resetting on EVERY sequence dash would lose the id
+  # of a step whose match sits in a `with:` list. That direction fails
+  # closed, but it fails on shapes that are perfectly ordinary.
+  run yaml_step_id_for "${STEPS}" acceptance './nested-only[.]sh'
+  assert_success
+  assert_output 'nested_owner'
+}
+
+@test "yaml_step_id_for: a match in a comment cannot name a step" {
+  run yaml_step_id_for "${STEPS}" acceptance './commented-only[.]sh'
+  assert_success
+  assert_output ''
+}
+
+@test "yaml_step_id_for: a pattern that matches nowhere in the job yields nothing" {
+  run yaml_step_id_for "${STEPS}" acceptance './absent[.]sh'
+  assert_success
+  assert_output ''
+}
+
+@test "yaml_step_id_for: does not reach into another job for its match" {
+  run yaml_step_id_for "${STEPS}" acceptance './other-job-only[.]sh'
+  assert_success
+  assert_output ''
 }

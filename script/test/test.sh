@@ -23,6 +23,7 @@
 #                             # --bash-source-guard-only /
 #                             # --derived-figures-only / --i18n-orphan-only /
 #                             # --early-close-reader-only /
+#                             # --errexit-bang-only /
 #                             # --self-hosted-guard-only /
 #                             # --changelog-entry-only /
 #                             # --pin-coverage-only /
@@ -112,6 +113,8 @@ source "${SCRIPT_DIR}/drivers/arch_literal.sh"
 source "${SCRIPT_DIR}/drivers/bash_source_guard.sh"
 # shellcheck source=script/test/drivers/early_close_reader.sh
 source "${SCRIPT_DIR}/drivers/early_close_reader.sh"
+# shellcheck source=script/test/drivers/errexit_bang.sh
+source "${SCRIPT_DIR}/drivers/errexit_bang.sh"
 # shellcheck source=script/test/drivers/derived_figures.sh
 source "${SCRIPT_DIR}/drivers/derived_figures.sh"
 # shellcheck source=script/test/drivers/i18n_orphan.sh
@@ -126,6 +129,8 @@ source "${SCRIPT_DIR}/drivers/pin_coverage.sh"
 source "${SCRIPT_DIR}/drivers/action_ref_agreement.sh"
 # shellcheck source=script/test/drivers/generated_workflow_actions.sh
 source "${SCRIPT_DIR}/drivers/generated_workflow_actions.sh"
+# shellcheck source=script/test/drivers/just_provenance.sh
+source "${SCRIPT_DIR}/drivers/just_provenance.sh"
 
 # ── The lint phase's tool table ──────────────────────────────────────────────
 
@@ -153,6 +158,7 @@ readonly _LINT_TOOLS=(
   arch-literal
   bash-source-guard
   early-close-reader
+  errexit-bang
   derived-figures
   i18n-orphan
   self-hosted-guard
@@ -160,6 +166,7 @@ readonly _LINT_TOOLS=(
   pin-coverage
   action-ref-agreement
   generated-workflow-actions
+  just-provenance
 )
 
 # Every tool but hadolint is runnable host-direct (`--<tool>-only`): the
@@ -225,6 +232,7 @@ _run_lint_tool() {
     arch-literal)     _run_arch_literal ;;
     bash-source-guard) _run_bash_source_guard ;;
     early-close-reader) _run_early_close_reader ;;
+    errexit-bang)     _run_errexit_bang ;;
     derived-figures)  _run_derived_figures ;;
     i18n-orphan)      _run_i18n_orphan ;;
     self-hosted-guard) _run_self_hosted_guard ;;
@@ -232,6 +240,7 @@ _run_lint_tool() {
     pin-coverage)     _run_pin_coverage ;;
     action-ref-agreement) _run_action_ref_agreement ;;
     generated-workflow-actions) _run_generated_workflow_actions ;;
+    just-provenance)  _run_just_provenance ;;
     *) _die ci_unknown_lint_tool \
          "Unknown LINT_TOOL '${1:-}' (expected $(printf '%s | ' "${_LINT_TOOLS[@]}")empty)." ;;
   esac
@@ -319,6 +328,13 @@ Options:
                           still writing takes SIGPIPE, and pipefail turns a
                           SUCCESSFUL match into the pipeline's failure --
                           an inverted answer the caller acts on in silence)
+  --errexit-bang          With --lint: run only the non-final bang-statement
+                          lint (inside a bats test body, a `! <cmd>` line is
+                          an assertion ONLY as the body's last statement --
+                          bash exempts a `!` pipeline from errexit, so
+                          anywhere else the command runs, the negation is
+                          computed and the answer discarded, and the case
+                          name claims a property the body never checked)
   --derived-figures       With --lint: run only the derived-figure lint (a
                           figure a document repeats must match the code
                           that defines it -- the baseline stage blocklist
@@ -372,6 +388,16 @@ Options:
                           name the ref .github/workflows/ uses, since
                           dependabot reads workflow files and cannot see
                           a ref inside a heredoc)
+  --just-provenance       With --lint: run only the just provenance pin
+                          lint (every site under dockerfile/,
+                          .github/workflows/, dist/ or script/ that
+                          OBTAINS the `just` runner names the one pinned
+                          version -- ARG JUST_VERSION in
+                          dockerfile/Dockerfile.test-tools, read through
+                          dist/script/base/just-version.sh -- or carries a
+                          justified advisory region saying why it cannot
+                          be pinned; the marker grammar is documented in
+                          script/test/drivers/just_provenance.sh)
   --<tool>-only           Run ONE lint from the phase directly on this
                           host: no compose, no test-tools image. These are
                           the CI join for the lint phase -- no CI job runs
@@ -393,6 +419,7 @@ Options:
                             --arch-literal-only      pure bash
                             --bash-source-guard-only pure bash
                             --early-close-reader-only pure bash
+                            --errexit-bang-only      pure bash
                             --derived-figures-only   pure bash
                             --i18n-orphan-only       pure bash
                             --self-hosted-guard-only pure bash
@@ -488,6 +515,8 @@ Examples:
   just test lint --arch-literal   # bare architecture literal lint only
   just test lint --bash-source-guard  # unguarded BASH_SOURCE read lint only
   just test lint --early-close-reader # early-closing-reader pipeline lint only
+  just test lint --errexit-bang   # non-final bang-statement lint only
+  just test lint --just-provenance # just provenance pin lint only
   ./test.sh --shellcheck-only     # Direct shellcheck, no compose
   ./test.sh --doc-counts-only     # Direct doc/test count drift gate, no compose
   ./test.sh --readme-sync-only    # Direct localized README sync lint, no compose
@@ -495,6 +524,7 @@ Examples:
   ./test.sh --arch-literal-only   # Direct bare architecture literal lint, no compose
   ./test.sh --bash-source-guard-only  # Direct unguarded BASH_SOURCE lint, no compose
   ./test.sh --early-close-reader-only # Direct early-closing-reader lint, no compose
+  ./test.sh --errexit-bang-only   # Direct non-final bang-statement lint, no compose
   ./test.sh --derived-figures-only # Direct derived-figure lint, no compose
   ./test.sh --i18n-orphan-only    # Direct translation-only identifier lint, no compose
   ./test.sh --self-hosted-guard-only # Direct self-hosted runner guard lint, no compose
@@ -502,6 +532,7 @@ Examples:
   ./test.sh --pin-coverage-only   # Direct tool-pin coverage lint, no compose
   ./test.sh --action-ref-agreement-only # Direct action ref agreement lint, no compose
   ./test.sh --generated-workflow-actions-only # Direct generated-workflow action ref lint, no compose
+  ./test.sh --just-provenance-only # Direct just provenance pin lint, no compose
   ./test.sh --hadolint-only       # Hadolint only (inside ci container)
   ./test.sh --bats-only           # Compose-bats only, skip ShellCheck
   ./test.sh --bats-unit-shard 1/2 # Compose-bats unit shard 1 of 2
@@ -1584,6 +1615,7 @@ main() {
       --arch-literal) lint_tool="arch-literal"; shift ;;
       --bash-source-guard) lint_tool="bash-source-guard"; shift ;;
       --early-close-reader) lint_tool="early-close-reader"; shift ;;
+      --errexit-bang) lint_tool="errexit-bang"; shift ;;
       --derived-figures) lint_tool="derived-figures"; shift ;;
       --i18n-orphan) lint_tool="i18n-orphan"; shift ;;
       --self-hosted-guard) lint_tool="self-hosted-guard"; shift ;;
@@ -1591,6 +1623,7 @@ main() {
       --pin-coverage) lint_tool="pin-coverage"; shift ;;
       --action-ref-agreement) lint_tool="action-ref-agreement"; shift ;;
       --generated-workflow-actions) lint_tool="generated-workflow-actions"; shift ;;
+      --just-provenance) lint_tool="just-provenance"; shift ;;
       --shellcheck-only) host_lint="shellcheck"; shift ;;
       --issueref-only) host_lint="issueref"; shift ;;
       --adr-numbering-only) host_lint="adr-numbering"; shift ;;
@@ -1601,6 +1634,7 @@ main() {
       --arch-literal-only) host_lint="arch-literal"; shift ;;
       --bash-source-guard-only) host_lint="bash-source-guard"; shift ;;
       --early-close-reader-only) host_lint="early-close-reader"; shift ;;
+      --errexit-bang-only) host_lint="errexit-bang"; shift ;;
       --derived-figures-only) host_lint="derived-figures"; shift ;;
       --i18n-orphan-only) host_lint="i18n-orphan"; shift ;;
       --self-hosted-guard-only) host_lint="self-hosted-guard"; shift ;;
@@ -1608,6 +1642,7 @@ main() {
       --pin-coverage-only) host_lint="pin-coverage"; shift ;;
       --action-ref-agreement-only) host_lint="action-ref-agreement"; shift ;;
       --generated-workflow-actions-only) host_lint="generated-workflow-actions"; shift ;;
+      --just-provenance-only) host_lint="just-provenance"; shift ;;
       --hadolint-only) hadolint_only=1; shift ;;
       --bats-only) bats_only=1; shift ;;
       --bats-unit-shard) bats_unit_shard="${2:?--bats-unit-shard expects <n>/<total>}"; shift 2 ;;
@@ -1644,6 +1679,7 @@ main() {
   # `--doc-counts-only`, `--home-literal-only`, `--arch-literal-only`,
   # `--bash-source-guard-only`, `--derived-figures-only`,
   # `--i18n-orphan-only`, `--early-close-reader-only`,
+  # `--errexit-bang-only`,
   # `--self-hosted-guard-only`, `--changelog-entry-only`,
   # `--pin-coverage-only`, `--action-ref-agreement-only`) short-circuit
   # before any mode dispatch and run

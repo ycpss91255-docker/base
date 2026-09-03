@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **152 tests**.
+Integration specs under `test/bats/integration/`: **155 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -128,7 +128,7 @@ compose` bypass (a missing `-p`). **Level 1** (no Docker invocation).
 | `two checkouts of one repo dispatch different projects after a local override` | - |
 | `an unchanged repo keeps the project name it resolved before [project] existed` | - |
 
-### test/bats/integration/upgrade_spec.bats (22)
+### test/bats/integration/upgrade_spec.bats (24)
 
 End-to-end verification for `upgrade.sh` driving a real subtree update
 against a fake template remote (bare repo with `v0.9.5` / `v0.9.7` tags
@@ -153,6 +153,7 @@ upgrade run.
 | `upgrade.sh nounset-guards a sibling entrypoint ROS source (#567 m8 / #579)` | End-to-end entrypoint nounset guard around the ROS setup.bash source |
 | `upgrade.sh Step 5 continues cleanly when no Dockerfile at repo root (#567)` | Subtree-only repos (no consumer Dockerfile) skip silently |
 | `upgrade.sh migrations are idempotent — already-migrated Dockerfile unchanged (#567)` | A second upgrade is a no-op on an already-migrated Dockerfile |
+| `upgrade.sh keeps the pip install when the repo ships real requirements (#956)` | Fanout guard: Step 5 must not delete a working dependency install |
 | `upgrade.sh v0.9.7 is idempotent on a second run` | Re-run is no-op |
 | `upgrade.sh --check reports update available from v0.9.5 → v0.9.7` | --check flag |
 | `just base update (downstream entry): exit 0 when update available (#175, #546, #652)` | Regression #175: recipe wraps exit 1 (skips w/o just) |
@@ -165,6 +166,7 @@ upgrade run.
 | `upgrade.sh leaves a deliberately configured restart policy alone` | - |
 | `upgrade.sh fails fast when git identity is missing` | Pre-flight identity guard |
 | `upgrade.sh fails fast when MERGE_HEAD is present` | Pre-flight merge-state guard |
+| `upgrade.sh leaves no merge in progress when the subtree pull conflicts (#956)` | A conflicting pull aborts its own merge instead of leaving a mid-merge tree |
 | `upgrade.sh rolls back when git-subtree does a destructive fast-forward` | Destructive-FF rollback |
 | `upgrade.sh rolls back the whole upgrade when a post-pull step fails` | - |
 | `upgrade.sh (#654 relocated): git subtree pull uses --prefix=.base, not --prefix=base` | Walk-up self-location resolves the subtree prefix to `.base` after the deep relocation; real subtree pull lands with no stray `base/` dir |
@@ -319,3 +321,9 @@ vacuity is why the same defect shipped twice.
 | Test | Description |
 |------|-------------|
 | `the printed manifest equals what the resync installs (refs #927)` | - |
+
+### test/bats/integration/just_runner_version_spec.bats (1)
+
+| Test | Description |
+|------|-------------|
+| `test-tools image: just --version equals the declared pin (#948)` | - |

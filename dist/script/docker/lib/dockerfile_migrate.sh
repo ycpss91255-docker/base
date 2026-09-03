@@ -35,6 +35,28 @@ if [[ -n "${_DOCKER_LIB_DOCKERFILE_MIGRATE_SOURCED:-}" ]]; then
 fi
 _DOCKER_LIB_DOCKERFILE_MIGRATE_SOURCED=1
 
+# Self-source the conf-chain resolver. The pip-helper migration has to
+# know whether anything redirects the CONFIG_SRC build arg, and the set of
+# files that can say so is lib/setup_conf.sh's _setup_conf_layers -- the
+# one place the chain's membership and precedence are defined. Pulled in
+# directly (idempotent via its own double-source guard) so the load order
+# of _lib.sh is not load-bearing: init.sh and upgrade.sh source this file
+# on its own, without setup.sh.
+#
+# _DFM_TEMPLATE_DIST_DIR is the other half of that. _setup_conf_layers
+# places the template layer from _SETUP_SCRIPT_DIR, which ONLY setup.sh
+# sets; init.sh / upgrade.sh have no such global, and a chain that
+# silently loses its lowest layer would let a template-level redirect go
+# unseen. This file ships at <template>/dist/script/docker/lib/, so its
+# own directory locates dist/ in both callers -- the subtree root
+# upgrade.sh sources from and the template dir init.sh sources from --
+# without either having to pass anything.
+_dfm_lib_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
+# shellcheck source=dist/script/docker/lib/setup_conf.sh
+source "${_dfm_lib_dir}/setup_conf.sh"
+readonly _DFM_TEMPLATE_DIST_DIR="${_dfm_lib_dir}/../../.."
+unset _dfm_lib_dir
+
 # ── Internal helpers ────────────────────────────────────────────────────────
 
 # _dfm_entrypoint_path <dockerfile>
@@ -135,19 +157,347 @@ _migrate_wrapper_copy_apply() {
 # v0.41.0 retired the .base/dockerfile/setup pip flow. The downstream RUN
 #   RUN PIP_BREAK_SYSTEM_PACKAGES=1 pip install --no-cache-dir \
 #       -r "${CONFIG_DIR}"/pip/requirements.txt
-# (optionally preceded by a "# Setup pip packages" comment) only ever
-# installed base's empty placeholder, so it is a no-op once the helper is
-# gone — and a hard failure if CONFIG_DIR/pip/requirements.txt is absent.
-# Drop both lines; a repo with a real requirements file re-adds an explicit
-# pip step pointing at its own path.
+# (optionally preceded by a "# Setup pip packages" comment) installs base's
+# empty placeholder in most repos, so it is a no-op once the helper is gone
+# — and a hard failure if CONFIG_DIR/pip/requirements.txt is absent, since
+# the shipped dist/config/ no longer carries one. Drop both lines.
+#
+# WHAT THE LINE ALONE CANNOT SAY, and why this migration reads more than
+# the Dockerfile. dist/dockerfile/Dockerfile layers the config directory
+# twice: `.base/dist/config` (base's own, no pip/ any more) and then the
+# repo's `${CONFIG_SRC}` -- ARG CONFIG_SRC="config", i.e. <repo>/config --
+# onto the same ${CONFIG_DIR}. So the in-image
+# ${CONFIG_DIR}/pip/requirements.txt IS the repo's own file, and the RUN
+# line is byte-identical whether that file is the placeholder or a real
+# dependency list. Deleting it in the second case removes a WORKING install:
+# the build still succeeds and the packages are silently gone. This
+# migration reaches every consumer repo mechanically through
+# `just upgrade`, so a delete it cannot justify is a delete it must not do.
+#
+# The precondition is checkable, so it is checked: the requirements file
+# sits next to the Dockerfile the migration was handed. The line is dropped
+# only where the install is PROVABLY inert -- the file is absent (the
+# build-breaking case the migration exists for) or carries nothing but
+# blanks and comments. Anything with a real requirement in it is kept and
+# reported, per the apply policy at the top of this file: a shape the
+# migration does not recognise is warned about, never force-rewritten.
+#
+# WHICH directory that file sits in is itself a question, and answering it
+# "config/, always" would narrow the silent package loss rather than close
+# it. CONFIG_SRC is a build ARG: a repo can redeclare it in its own
+# Dockerfile, or set it as a compose build arg via a
+# `[build] arg_N = CONFIG_SRC=...` entry in .setup.conf. Either way
+# ${CONFIG_DIR} is overlaid from <repo>/<something-else>, config/ holds
+# nothing the RUN line reads, and reading it anyway would report "not
+# populated" over a real dependency list. So the source directory has to
+# RESOLVE to the default before its contents count as proof; where the
+# migration cannot locate it -- redirected, or simply not there -- the
+# install is unprovable and the line is kept, same as any other shape this
+# migration does not recognise.
+#
+# The delete is also line-based, so it is only safe on a pip line that is a
+# complete physical instruction. Inside a backslash-continued RUN, removing
+# one physical line either dangles the previous line's continuation (which
+# swallows the next instruction) or orphans the tail as a bare
+# non-instruction line (a Dockerfile parse error). Those shapes are kept and
+# reported too; restructuring someone's compound RUN is not a mechanical
+# edit.
+
+# The one spelling of the retired helper line, shared by the detector, the
+# continuation check and the delete. `\%...%` addresses the sed so the
+# pattern's own slashes need no escaping.
+readonly _DFM_PIP_HELPER_RE='pip install .*-r[[:space:]]+.*\$\{?CONFIG_DIR\}?.*/pip/requirements\.txt'
+
+# A physical line that continues onto the next one. Held in a variable
+# because an inline `=~` right-hand side loses one level of backslash to
+# quote removal, which would silently turn this into "a literal [".
+readonly _DFM_LINE_CONTINUES_RE='\\[[:space:]]*$'
+
+# The default of the Dockerfile's `ARG CONFIG_SRC` -- the repo directory the
+# layer-2 `COPY "${CONFIG_SRC}" "${CONFIG_DIR}"` overlays onto ${CONFIG_DIR}.
+readonly _DFM_CONFIG_SRC_DEFAULT='config'
+
+# The conf keys that redirect the overlay, as one pattern. A build arg is
+# `arg_N = CONFIG_SRC=<dir>` under [build]; the section is not matched
+# because a key of this shape means nothing outside it.
+readonly _DFM_CONF_REDIRECT_RE='^[[:space:]]*arg_[0-9]+[[:space:]]*=[[:space:]]*CONFIG_SRC='
+readonly _DFM_ARG_REDIRECT_RE='^[[:space:]]*ARG[[:space:]]+CONFIG_SRC='
+
+# The floor the conf chain must clear. _setup_conf_layers documents three
+# layers -- template, per-repo, per-worktree -- and this guard authorises a
+# DELETE, so a chain that came back shorter means a layer dropped out of
+# the resolution and the scan did not see the population it is answering
+# for. That is a refusal, not a pass.
+readonly _DFM_CONF_LAYER_FLOOR=3
+
+# READING A STATUS IN THIS FILE. Every decision below comes from some
+# command's exit status, and each one of them has THREE answers, not two:
+#
+#   YES              the thing is there / the property holds
+#   NO               it is provably not there -- the check OBSERVED its
+#                    absence, having read everything it had to read
+#   I-COULD-NOT-TELL the check returned "not found" without observing
+#                    anything: grep exited 2, a directory could not be
+#                    traversed, a path did not resolve
+#
+# The third answer must never authorise an action. Migration 2 is the only
+# one here that DELETES a line on the strength of what it read outside the
+# Dockerfile, so it is the one where the distinction is load-bearing: its
+# guards return 0/1/2 and only 1 -- the observed NO -- reaches the delete.
+# Every other migration decides only whether to ADD or rewrite a known
+# shape, so an unanswered question in its DETECT means "detect did not
+# fire" and the file is left alone, which is already the safe direction:
+# _dfm_needs_dl4006 / _dfm_needs_dl3006 and every `_detect` fold 2 into
+# "no", and _dfm_pip_line_is_standalone returns non-zero (= keep the line)
+# when it cannot read the file at all.
+#
+# ONE migration asks an unanswered question in its APPLY instead, where
+# that argument does not reach it, and it is NOT fixed: _migrate_smoke_copy
+# globs <repo>/.base/dist/test/bats/smoke/*/ to decide which per-stage
+# folders the freshly pulled subtree ships, and its `[[ -d ]] || continue`
+# reads a path it could not traverse as "this stage ships no folder". The
+# Dockerfile is then rewritten with the shared baseline COPY alone and the
+# `-test` stage silently loses the smoke specs it used to run -- the same
+# "a path nobody read is not an empty one" this block is about, one
+# migration further down. Stated rather than implied, and pinned by
+# dockerfile_migrate_spec ("an unresolvable per-stage path costs the stage
+# its own COPY") so the deviation is a measured fact; a follow-up issue
+# carries the fix, which is why this block does not claim it is closed.
+
+# _dfm_dir_is_readable <path>
+#   Exit 0 when <path> is a directory this process can stat AND list, 1
+#   otherwise -- it is not a directory, the path did not resolve (a
+#   dangling or looping symlink, a non-directory component), or its mode
+#   forbids reading or searching it.
+#
+#   This is the question the word "absent" depends on. `[[ -f <dir>/x ]]`
+#   is false both when x is not in <dir> and when <dir> was never read,
+#   and only the first is proof; a caller that folds the second into it
+#   turns an unreadable directory into permission to delete. Callers ask
+#   this BEFORE they are allowed to call a missing file absent.
+_dfm_dir_is_readable() {
+  local _dir="$1"
+  [[ -d "${_dir}" && -r "${_dir}" && -x "${_dir}" ]]
+}
+
+# _dfm_conf_declares_redirect <conf_file>
+#   Exit 0 when this layer redirects CONFIG_SRC, 1 when it provably does
+#   not, 2 when the question could not be answered (grep could not read
+#   what it was pointed at). The third status is the point: `grep -q`
+#   exits 2 when it scanned nothing, and a caller that folds 2 into "no
+#   match" turns an unreadable layer into permission to delete.
+_dfm_conf_declares_redirect() {
+  local _conf="$1" _st=0
+  grep -qE "${_DFM_CONF_REDIRECT_RE}" "${_conf}" || _st=$?
+  case "${_st}" in
+    0) return 0 ;;
+    1) return 1 ;;
+    *) return 2 ;;
+  esac
+}
+
+# _dfm_pip_config_dir <dockerfile>
+#   Print the repo directory ${CONFIG_DIR} is overlaid from, or exit
+#   non-zero when this migration cannot know it. Non-zero on each of the
+#   three ways the answer stops being a provable <repo>/config: something
+#   redirects CONFIG_SRC (an `ARG CONFIG_SRC=<non-default>` in the
+#   Dockerfile itself, or a `[build] arg_N = CONFIG_SRC=...` in ANY layer
+#   of the setup.conf chain, which reaches the build as a compose build
+#   arg); the default directory is not next to the Dockerfile at all; or
+#   some layer of the chain could not be READ, which is not the same as a
+#   layer that says nothing. A bare `ARG CONFIG_SRC` with no `=` is a
+#   per-stage re-scope, not a redirect, and is ignored.
+#
+#   The conf layers are DERIVED from _setup_conf_layers rather than listed
+#   here. The chain is three files, not the two per-repo ones: the lowest
+#   is the template's own .setup.conf inside .base/dist, and the build
+#   reads all three (setup_cmd.sh -> _setup_conf_handle ->
+#   _setup_conf_layers). A repo that never ran `init.sh --gen-conf` has no
+#   per-repo conf at all and runs on template defaults, so a hand-listed
+#   roster would answer "no redirect" for exactly the repos whose answer
+#   comes from the layer it omitted -- and delete their pip install.
+_dfm_pip_config_dir() {
+  local _file="$1"
+  local _dir
+  _dir="$(dirname -- "${_file}")"
+
+  # The Dockerfile's own ARG. Read through a variable rather than a
+  # process substitution so grep's status is not thrown away: exit 2 here
+  # would present an unscanned file as "no ARG CONFIG_SRC", i.e. as the
+  # default.
+  local _args _st=0
+  _args="$(grep -E "${_DFM_ARG_REDIRECT_RE}" "${_file}")" || _st=$?
+  case "${_st}" in
+    0|1) ;;
+    *) return 1 ;;
+  esac
+
+  local _line _val
+  while IFS= read -r _line || [[ -n "${_line}" ]]; do
+    [[ -n "${_line}" ]] || continue
+    _val="${_line#*=}"
+    _val="${_val%\"}"; _val="${_val#\"}"
+    _val="${_val%\'}"; _val="${_val#\'}"
+    [[ "${_val}" == "${_DFM_CONFIG_SRC_DEFAULT}" ]] || return 1
+  done <<< "${_args}"
+
+  local -a _layers=()
+  _setup_conf_layers "${_dir}" _layers "${_DFM_TEMPLATE_DIST_DIR}"
+  (( ${#_layers[@]} >= _DFM_CONF_LAYER_FLOOR )) || return 1
+
+  local _conf _cst
+  for _conf in "${_layers[@]}"; do
+    if [[ ! -f "${_conf}" ]]; then
+      # An absent layer declares nothing, which is a legitimate NO -- but
+      # only once this has OBSERVED the absence. `[[ -f ]]` also answers
+      # false for a layer that exists and is not a readable regular file,
+      # and for one whose directory could not be traversed; both are
+      # I-COULD-NOT-TELL, and a chain with an unread layer in it cannot
+      # say the build reads <repo>/config.
+      _dfm_dir_is_readable "$(dirname -- "${_conf}")" || return 1
+      [[ -e "${_conf}" || -L "${_conf}" ]] && return 1
+      continue
+    fi
+    _cst=0
+    _dfm_conf_declares_redirect "${_conf}" || _cst=$?
+    # 1 -- and only 1 -- is "this layer provably declares no redirect".
+    # 0 is a redirect and 2 is an unanswered question; both mean the
+    # overlay source is not <repo>/config as far as this guard can prove.
+    (( _cst == 1 )) || return 1
+  done
+
+  [[ -d "${_dir}/${_DFM_CONFIG_SRC_DEFAULT}" ]] || return 1
+  printf '%s' "${_dir}/${_DFM_CONFIG_SRC_DEFAULT}"
+}
+
+# _dfm_pip_requirements_populated <config_dir>
+#   Exit 0 when the repo ships a requirements file with at least one real
+#   requirement (any line that is neither blank nor a `#` comment), 1 when
+#   it PROVABLY ships none -- the file is absent, which is the case whose
+#   build the migration is repairing, or it was read end to end and holds
+#   nothing but blanks and comments -- and 2 when the question could not
+#   be answered because something on the way to the file, or the file
+#   itself, could not be read.
+#
+#   The third status is the point, and it is the same one
+#   _dfm_conf_declares_redirect carries. It has TWO sources here, not one.
+#   `grep -q` exits 2 when it scanned nothing -- and, before grep is ever
+#   reached, `[[ -f ]]` answers false both for a file that is not there
+#   and for a path that could not be traversed at all (a mode that
+#   forbids searching config/ or config/pip/, a symlink that does not
+#   resolve). Only the first is the absence this migration repairs; the
+#   second is a file nobody read, and a file nobody read is not a file
+#   with nothing in it. Takes the RESOLVED config source dir, so it is
+#   never the one that decides where to look.
+_dfm_pip_requirements_populated() {
+  local _config_dir="$1"
+  local _pip_dir="${_config_dir}/pip"
+  local _req="${_pip_dir}/requirements.txt"
+
+  if [[ ! -f "${_req}" ]]; then
+    # Walk down to the file, refusing at the first level this process
+    # could not read. Absence counts as proof only below a directory that
+    # was actually listed.
+    _dfm_dir_is_readable "${_config_dir}" || return 2
+    if [[ -e "${_pip_dir}" || -L "${_pip_dir}" ]]; then
+      _dfm_dir_is_readable "${_pip_dir}" || return 2
+      # pip/ was read; something sits at requirements.txt that is not a
+      # regular file this process can open.
+      [[ -e "${_req}" || -L "${_req}" ]] && return 2
+    fi
+    # config/ was read and holds no pip/requirements.txt: the observed
+    # absence, and the v0.41.0 build breakage this migration exists for.
+    return 1
+  fi
+
+  local _st=0
+  grep -qE '^[[:space:]]*[^#[:space:]]' "${_req}" || _st=$?
+  case "${_st}" in
+    0) return 0 ;;
+    1) return 1 ;;
+    *) return 2 ;;
+  esac
+}
+
+# _dfm_pip_line_is_standalone <dockerfile>
+#   Exit 0 when every matched helper line is a complete physical
+#   instruction -- it neither continues the previous line nor continues
+#   onto the next. Only that shape survives a line-based delete intact.
+#
+#   Exit 1 both when one of them does not AND when the file could not be
+#   READ at all. The loop below reads through a redirect, and a redirect
+#   that fails leaves the loop unrun: without the status check the
+#   unconditional `return 0` at the end would answer "standalone, safe to
+#   delete" for a file nothing opened. This is the leg of the status block
+#   at the top of the file that names this function, so it has to hold --
+#   I-COULD-NOT-TELL never authorises the delete.
+#
+#   Two probes, because one does not cover it. `[[ -f ]]` answers for
+#   every path that is not a regular file to begin with: a missing one,
+#   an unresolvable symlink, and a DIRECTORY -- which the redirect alone
+#   reads as clean, since on Linux open(2) on a directory succeeds, the
+#   first `read` fails with EISDIR, and the loop then exits with the
+#   status of its last assignment, 0. The redirect's own status answers
+#   for the rest: a path that IS a regular file and still could not be
+#   opened (its mode, a mount that went away between the test and the
+#   open). Neither is redundant and neither is the whole probe.
+_dfm_pip_line_is_standalone() {
+  local _file="$1"
+  [[ -f "${_file}" ]] || return 1
+  local _line _prev_cont=false _cont _read_st=0
+  while IFS= read -r _line || [[ -n "${_line}" ]]; do
+    if [[ "${_line}" =~ ${_DFM_LINE_CONTINUES_RE} ]]; then
+      _cont=true
+    else
+      _cont=false
+    fi
+    if [[ "${_line}" =~ ${_DFM_PIP_HELPER_RE} ]] \
+        && { [[ "${_prev_cont}" == true ]] || [[ "${_cont}" == true ]]; }; then
+      return 1
+    fi
+    _prev_cont="${_cont}"
+  done < "${_file}" || _read_st=$?
+  [[ "${_read_st}" -eq 0 ]] || return 1
+  return 0
+}
+
 _migrate_pip_helper_detect() {
   local _file="$1"
-  grep -qE 'pip install .*-r[[:space:]]+.*\$\{?CONFIG_DIR\}?.*/pip/requirements\.txt' "${_file}"
+  grep -qE "${_DFM_PIP_HELPER_RE}" "${_file}"
 }
 
 _migrate_pip_helper_apply() {
   local _file="$1"
-  sed -i -E '/pip install .*-r[[:space:]]+.*\$\{?CONFIG_DIR\}?.*\/pip\/requirements\.txt/d' "${_file}"
+
+  local _config_dir
+  if ! _config_dir="$(_dfm_pip_config_dir "${_file}")"; then
+    _log_warn upgrade upgrade_started "display=  Dockerfile unchanged: retired CONFIG_DIR pip helper line kept — CONFIG_DIR is not provably overlaid from <repo>/config here (CONFIG_SRC is redirected, a conf layer could not be read, or that directory is absent), so what the line installs cannot be read from here; drop it by hand if it installs nothing (#567 m2)"
+    return 0
+  fi
+
+  # 1 -- and only 1 -- is "this repo provably installs nothing here", the
+  # single status that may reach the delete below. 0 is a real requirement
+  # list and 2 is an unanswered question; both keep the line.
+  local _rst=0
+  _dfm_pip_requirements_populated "${_config_dir}" || _rst=$?
+  case "${_rst}" in
+    0)
+      _log_warn upgrade upgrade_started "display=  Dockerfile unchanged: retired CONFIG_DIR pip helper line kept — config/pip/requirements.txt carries real requirements, so the line still installs them (#567 m2)"
+      return 0
+      ;;
+    1) ;;
+    *)
+      _log_warn upgrade upgrade_started "display=  Dockerfile unchanged: retired CONFIG_DIR pip helper line kept — config/pip/requirements.txt could not be read, so what the line installs is unknown; a file this migration never read is not a file with nothing in it (#567 m2)"
+      return 0
+      ;;
+  esac
+
+  if ! _dfm_pip_line_is_standalone "${_file}"; then
+    _log_warn upgrade upgrade_started "display=  Dockerfile unchanged: retired CONFIG_DIR pip helper line kept — it is part of a backslash-continued RUN a line delete would break; drop it by hand (#567 m2)"
+    return 0
+  fi
+
+  sed -i -E "\\%${_DFM_PIP_HELPER_RE}%d" "${_file}"
   sed -i '/^# Setup pip packages$/d' "${_file}"
   _log_warn upgrade upgrade_started "display=  Dockerfile patched: dropped retired CONFIG_DIR pip helper line (#567 m2) — re-add an explicit pip step if you ship a real requirements file"
 }

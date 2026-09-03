@@ -50,7 +50,7 @@ just test   # ShellCheck + Bats + Kcov
 just                       # 全 recipe 表示
 ```
 
-<!-- sync: prerequisites 71356c1216b6 570879685262 -->
+<!-- sync: prerequisites 6af9b726b732 5ee5a4c4949c -->
 ## 前提条件
 
 コンテナ操作は Docker 上で [`just`](https://github.com/casey/just)（command
@@ -58,20 +58,23 @@ runner）を介して実行します。`just <verb>` エントリポイントを
 両方をインストールしてください:
 
 - **Docker** + Docker Compose v2（`docker compose`）。
-- **just** -- 近年のどのリリースでも動作します（recipe は variadic
-  パラメータのみ使用、初期バージョンから対応）。パッケージマネージャまたは
-  公式インストーラで導入します:
+- **just** -- 本 repo はバージョンを 1 つに固定しています。test-tools
+  イメージ、CI、`--bootstrap-just` インストーラはすべてその版を使うため、同じ
+  recipe が 3 箇所で同じ挙動になります。版は
+  `./.base/dist/script/base/just-version.sh` で表示できます（本 repo 内では
+  `./dist/script/base/just-version.sh`）。版を指定できる公式のビルド済み
+  バイナリインストーラでその版を導入してください:
 
   ```bash
-  apt install just         # Debian 13+ / Ubuntu 24.04+
-  brew install just        # macOS / Linuxbrew
-  cargo install just       # crates.io から
-  # または公式のビルド済みバイナリインストーラ:
+  pin="$(./.base/dist/script/base/just-version.sh)"
   curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh \
-      | bash -s -- --to ~/.local/bin
+      | bash -s -- --to ~/.local/bin --tag "${pin}"
   ```
 
-  全方式は[公式インストールガイド](https://github.com/casey/just#installation)を
+  host のパッケージマネージャ（`apt install just`、`brew install just`、
+  `cargo install just`）は**等価な選択肢ではなくフォールバック**です:
+  それぞれの registry が持つ版が入るため、固定版より何マイナーも古い場合が
+  あります。全方式は[公式インストールガイド](https://github.com/casey/just#installation)を
   参照。`just` が使えない場合、各 recipe には raw fallback
   （`./script/<verb>.sh`、`./.base/dist/script/base/upgrade.sh`）があります
   -- [クイックスタート](#クイックスタート)参照。
