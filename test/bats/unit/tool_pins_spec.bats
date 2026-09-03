@@ -141,6 +141,35 @@ _pins() {
   assert_output --partial $'unpinned\tapk-packages'
 }
 
+@test "pins: an unpinned marker on an assignment records the value it declares" {
+  # An `unpinned` marker says "this dependency floats", not "this line
+  # holds nothing". Where the target IS an assignment the reader can
+  # already extract the right-hand side from, leaving the value column
+  # empty throws away the one fact the record could carry -- and the
+  # generated-workflow lint needs exactly that fact to answer "what does
+  # this variable hold" without re-deriving it from the file.
+  _dockerfile \
+    '# tool-pin: unpinned downstream-checkout -- a major ref on purpose' \
+    "readonly _MONITOR_REF='actions/checkout@v7'"
+  _pins --list
+  assert_success
+  assert_output --partial $'unpinned\tdownstream-checkout'
+  assert_output --partial $'actions/checkout@v7\tdockerfile/Dockerfile.test-tools\t2'
+}
+
+@test "pins: an unpinned marker on a NON-assignment still records no value" {
+  # The other side of that rule. `RUN apk add ...` names no single value,
+  # and an unpinned marker carries no coordinate to anchor an extraction
+  # on, so guessing a token off the line would put a fabricated version in
+  # the table. `-` is the honest column.
+  _dockerfile \
+    '# tool-pin: unpinned apk-packages -- bounded by the alpine pin' \
+    'RUN apk add --no-cache bash git'
+  _pins --list
+  assert_success
+  assert_output --partial $'unpinned\tapk-packages\t-\t-\t-\t-\t-\t'
+}
+
 @test "pins: an unpinned marker that names no dependency FAILS" {
   _dockerfile \
     '# tool-pin: unpinned -- no name at all' \

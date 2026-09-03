@@ -181,6 +181,51 @@ _one_good_pin() {
   assert_output --partial 'actions/checkout@v7'
 }
 
+@test "_run_pin_coverage: FAILS on an assignment whose value is an action ref" {
+  # The shape this repo's own advice produces, and the hole under it. When
+  # a `uses:` ref inside a heredoc has no line a marker can address, the
+  # documented fix is to HOIST it: `readonly REF='actions/checkout@v7'`
+  # above the heredoc, marker on the assignment. But an action ref is not
+  # a version by the version rule and names no image, so the detector saw
+  # nothing there -- which made the marker on the hoisted line VOLUNTARY.
+  # Delete it and this lint stays green over a generated ref nothing
+  # watches, which is the exact state the hoist was performed to leave.
+  _one_good_pin
+  _script 'gen.sh' \
+    '#!/usr/bin/env bash' \
+    "readonly _MONITOR_REF='actions/checkout@v7'"
+  run _run_pin_coverage
+  assert_failure
+  assert_output --partial '_MONITOR_REF'
+}
+
+@test "_run_pin_coverage: a marked assignment of an action ref satisfies it" {
+  # The other half: the hoist is the fix, so declaring it has to be
+  # enough. `unpinned` is the honest state for a MAJOR ref -- there is no
+  # comparable version -- and it keeps the ref on the floating list every
+  # run instead of pretending it is checked.
+  _one_good_pin
+  _script 'gen.sh' \
+    '#!/usr/bin/env bash' \
+    '# tool-pin: unpinned downstream-checkout -- a major ref on purpose' \
+    "readonly _MONITOR_REF='actions/checkout@v7'"
+  run _run_pin_coverage
+  assert_success
+}
+
+@test "_run_pin_coverage: an assignment of a plain path is not an action ref" {
+  # The rule is `<owner>/<repo>@<ref>`, not "has a slash in it". A path, a
+  # glob or a URL fragment assigned to a name is not a third-party pin,
+  # and a detector that said otherwise would be muted within a week.
+  _one_good_pin
+  _script 'gen.sh' \
+    '#!/usr/bin/env bash' \
+    "readonly _DIR='dist/script/base'" \
+    "readonly _GLOB='dist/script/*.sh'"
+  run _run_pin_coverage
+  assert_success
+}
+
 @test "_run_pin_coverage: FAILS on an image tag sed into a generated Dockerfile" {
   # The live instance: dockerfile_migrate.sh wrote `bats/bats:1.11.0` into
   # every downstream Dockerfile it migrated, two minors behind this repo's

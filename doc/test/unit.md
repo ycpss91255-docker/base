@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3487 tests**.
+Unit specs under `test/bats/unit/`: **3492 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -4049,7 +4049,7 @@ rather than an assurance.
 | `_residue_guard_available: is switched off by TEST_RESIDUE_GUARD=0 (#965)` | The escape hatch for an edit made WHILE the suite runs, asserted in both directions |
 | `the compose dispatch is what runs the guard, not a caller that could forget (#965)` | Wired into the one host-side point every bats dispatch passes through |
 
-### test/bats/unit/pin_coverage_lint_spec.bats (60)
+### test/bats/unit/pin_coverage_lint_spec.bats (63)
 
 | Test | Description |
 |------|-------------|
@@ -4061,6 +4061,9 @@ rather than an assurance.
 | `_run_pin_coverage: FAILS on a git clone pinned to a literal tag` | The form the three bats helper libraries were pinned in, for the same reason. |
 | `_run_pin_coverage: FAILS on an OFFICIAL image, which has no namespace` | `alpine:3.21` carries no slash, so the registry-reference shape cannot anchor on it; the `docker run` context is what keeps digests and port examples out. |
 | `_run_pin_coverage: FAILS on a uses: ref written inside a SHELL SCRIPT` | dependabot reads workflow FILES; a ref inside a generator's heredoc is nobody's job but the watch's. |
+| `_run_pin_coverage: FAILS on an assignment whose value is an action ref` | - |
+| `_run_pin_coverage: a marked assignment of an action ref satisfies it` | - |
+| `_run_pin_coverage: an assignment of a plain path is not an action ref` | - |
 | `_run_pin_coverage: FAILS on an image tag sed into a generated Dockerfile` | The live instance: a bats tag written into every migrated downstream Dockerfile, two minors behind this repo's own pin. |
 | `_run_pin_coverage: FAILS on a uses: ref pinned to a BRANCH` | dependabot advances a version ref to the next version; `@main` is not one, so it never can. |
 | `_run_pin_coverage: a uses: VERSION ref needs no marker (dependabot's job)` | Scope boundary: two mechanisms with opinions about one dependency is worse than one that works. |
@@ -4114,7 +4117,7 @@ rather than an assurance.
 | `_run_pin_coverage: pin-coverage is in test.sh's _LINT_TOOLS table` | Membership is what gives the lint a CI job via the completeness guard. |
 | `_run_pin_coverage: --pin-coverage-only runs it host-direct` | The primitive the lint-static matrix entry calls -- pure bash, no compose. |
 
-### test/bats/unit/tool_pins_spec.bats (34)
+### test/bats/unit/tool_pins_spec.bats (36)
 
 | Test | Description |
 |------|-------------|
@@ -4126,6 +4129,8 @@ rather than an assurance.
 | `pins: a marker carrying an unknown option FAILS` | A misspelled `skip=` that parsed as nothing would silently un-refuse a version. |
 | `pins: a pinned marker whose target carries no version FAILS` | The marker and its target must actually agree about where the number is. |
 | `pins: an unpinned marker records the dependency and no version` | It appears in the table as floating, which is the whole point of declaring it. |
+| `pins: an unpinned marker on an assignment records the value it declares` | - |
+| `pins: an unpinned marker on a NON-assignment still records no value` | - |
 | `pins: an unpinned marker that names no dependency FAILS` | An anonymous float cannot be reported usefully. |
 | `pins: pattern= and skip= are carried through to the table` | The two per-pin options: which tags are comparable, and which version was refused. |
 | `pins: an ARG target yields its right-hand side, unquoted` | The common Dockerfile shape. |
