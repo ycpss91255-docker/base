@@ -323,6 +323,178 @@ _adr() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# _run_adr_structure: exactly one occurrence, at column 0
+#
+# The contract the driver checks, and the reason it needs no fence parser
+# to check it. A part that occurs twice is a file that does not say which
+# occurrence is the record; that is a finding, not something the lint
+# resolves by picking one.
+# ════════════════════════════════════════════════════════════════════
+
+@test "_run_adr_structure: a required heading appearing TWICE at column 0 is refused (#994)" {
+  # An illustration that shows `## Decision` at column 0 gives the file two
+  # of them, and nothing in the file says which is the section. Answering
+  # that needs a CommonMark parser; refusing it does not.
+  {
+    echo "# A title"
+    echo
+    echo "${_SERVES}"
+    echo
+    echo "- **Status:** Accepted"
+    echo
+    echo "## Context"
+    echo
+    echo '```markdown'
+    echo "## Decision"
+    echo '```'
+    echo
+    echo "## Decision"
+    echo "## Consequences"
+    echo "## Alternatives"
+  } > "${SCRATCH}/doc/adr/00000001-alpha.md"
+  run _run_adr_structure
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"'## Decision' appears 2 times"* ]]
+}
+
+@test "_run_adr_structure: indenting the illustrated heading is the whole fix (#994)" {
+  # The escape the rule leaves an author, pinned so the cost of the rule is
+  # a measured one: a single leading space, which inside a fenced block is
+  # sample text rather than structure.
+  {
+    echo "# A title"
+    echo
+    echo "${_SERVES}"
+    echo
+    echo "- **Status:** Accepted"
+    echo
+    echo "## Context"
+    echo
+    echo '```markdown'
+    echo " ## Decision"
+    echo '```'
+    echo
+    echo "## Decision"
+    echo "## Consequences"
+    echo "## Alternatives"
+  } > "${SCRATCH}/doc/adr/00000001-alpha.md"
+  run _run_adr_structure
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"clean"* ]]
+}
+
+@test "_run_adr_structure: a second '> Serves:' at column 0 is refused (#994)" {
+  # Same rule on the back-pointer. An ADR that quotes a back-pointer as an
+  # example carries two, and which invariant the decision serves stops
+  # being a question the file answers.
+  {
+    echo "# A title"
+    echo
+    echo "${_SERVES}"
+    echo
+    echo "- **Status:** Accepted"
+    echo
+    echo "## Context"
+    echo
+    echo '```markdown'
+    echo "${_SERVES}"
+    echo '```'
+    echo
+    echo "## Decision"
+    echo "## Consequences"
+    echo "## Alternatives"
+  } > "${SCRATCH}/doc/adr/00000001-alpha.md"
+  run _run_adr_structure
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"'> Serves:' appears 2 times"* ]]
+}
+
+@test "_run_adr_structure: a second '- **Status:**' at column 0 is refused (#994)" {
+  # What reading only the FIRST match hid: an amendment section restating
+  # Status in free text -- the very shape the three-value contract exists
+  # to reject -- invisible because the record's own Status came first.
+  # ADR-00000008 carried three such lines while the lint reported it clean.
+  {
+    echo "# A title"
+    echo
+    echo "${_SERVES}"
+    echo
+    echo "- **Status:** Accepted"
+    echo
+    echo "## Context"
+    echo
+    echo "## Amendment (an issue, a date)"
+    echo
+    echo "- **Status:** Accepted (amended later)"
+    echo
+    echo "## Decision"
+    echo "## Consequences"
+    echo "## Alternatives"
+  } > "${SCRATCH}/doc/adr/00000001-alpha.md"
+  run _run_adr_structure
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"'- **Status:**' appears 2 times"* ]]
+}
+
+@test "_run_adr_structure: an illustrated ADR template is refused on the parts the file DOES carry (#994)" {
+  # What bounds the fail-open pinned below. A file that shows the template
+  # at column 0 turns every part it also carries into a duplicate, so it is
+  # refused -- even though the one part it is missing is, on its own, not
+  # detectable without deciding which lines are code.
+  {
+    echo "# A title"
+    echo
+    echo "${_SERVES}"
+    echo
+    echo "- **Status:** Accepted"
+    echo
+    echo "## Context"
+    echo
+    echo '```markdown'
+    echo "## Context"
+    echo "## Decision"
+    echo "## Consequences"
+    echo "## Alternatives"
+    echo '```'
+    echo
+    echo "## Consequences"
+    echo "## Alternatives"
+  } > "${SCRATCH}/doc/adr/00000001-alpha.md"
+  run _run_adr_structure
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"'## Context' appears 2 times"* ]]
+}
+
+@test "_run_adr_structure: KNOWN FAIL-OPEN -- a part omitted AND illustrated at column 0 reads as compliant (#994)" {
+  # The one shape a count cannot catch, pinned so it stays visible instead
+  # of being a property nobody has watched. The illustration is the only
+  # `## Decision` in the file, so the count is one and the file passes with
+  # no Decision section of its own. Closing it needs the driver to decide
+  # which lines are code -- the CommonMark parser it deliberately no longer
+  # carries, whose own holes passed well-formed ADRs twice. Stated as a
+  # known departure in the driver header, with its direction.
+  {
+    echo "# A title"
+    echo
+    echo "${_SERVES}"
+    echo
+    echo "- **Status:** Accepted"
+    echo
+    echo "## Context"
+    echo
+    echo '```markdown'
+    echo "## Decision"
+    echo '```'
+    echo
+    echo "## Consequences"
+    echo "## Alternatives"
+  } > "${SCRATCH}/doc/adr/00000001-alpha.md"
+  run _run_adr_structure
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"clean"* ]]
+}
+
+# ════════════════════════════════════════════════════════════════════
 # _run_adr_structure: the three-value Status contract
 # ════════════════════════════════════════════════════════════════════
 
