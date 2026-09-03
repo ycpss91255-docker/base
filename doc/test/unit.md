@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3691 tests**.
+Unit specs under `test/bats/unit/`: **3693 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -4584,7 +4584,7 @@ sanitization, `detect_ws_path`, and `_reconcile_workspace_path` (#569).
 | `_setup_ssh_x11_cookie returns 1 with warning when nmerge pipe exits non-zero (#688)` | - |
 | `_setup_ssh_x11_cookie returns 1 with warning when xauth is not installed (#321)` | - |
 
-### test/bats/unit/setup_spec.bats (121)
+### test/bats/unit/setup_spec.bats (123)
 
 The `setup.sh` orchestrator spec. `main` subcommand dispatch (`set` / `show`
 / `remove` for `[logging]` #328 and `[lifecycle]` #478, `reset`, `--lang` /
@@ -4673,6 +4673,8 @@ duplicate-target guards, and S7 `runtime.env` retirement (#507).
 | `apply omits the config bind when no component dir exists, and SAYS so (#504/#1000)` | - |
 | `apply WARNs about config files sitting directly under config/ (#1000)` | - |
 | `apply stays quiet about the config/.gitkeep placeholder (#1000)` | - |
+| `apply names the preset selector and the file it resolves to (#826)` | the selector reaches the real apply path |
+| `apply WARNs when the preset selector resolves to nothing (#826)` | a broken selector reaches the real apply path |
 | `main reset --yes works on first-time bootstrap (no prior .local or setup.conf) (#174)` | - |
 | `_setup_msg returns English messages by default` | - |
 | `_setup_msg returns Traditional Chinese messages when _LANG=zh-TW` | - |
