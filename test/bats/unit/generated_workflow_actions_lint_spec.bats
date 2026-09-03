@@ -145,6 +145,28 @@ _write_own_reusable_workflow() {
     > "${SCRATCH}/.github/workflows/${1}"
 }
 
+# _write_upstream_slug <slug> [<variable>] -- the tree's single declaration
+# of the `<owner>/<repo>` this repo is served from. base is its own
+# upstream, so that slug is this repo's own name, and the driver reads it
+# off this file rather than carrying a copy. Both the slug AND the variable
+# it lives in are arguments so a spec can move either and watch the driver
+# follow: a hardcoded reader passes the default and fails the moved one.
+_write_upstream_slug() {
+  local _slug="${1}" _var="${2:-BASE_UPSTREAM_SLUG}"
+  mkdir -p "${SCRATCH}/dist/script/base"
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf "%s='%s'\n" "${_var}" "${_slug}"
+  } > "${SCRATCH}/dist/script/base/upstream.sh"
+}
+
+# _write_generator_raw <line>... -- a generator written out verbatim, for
+# the cases whose defect IS the file's shape: where an assignment sits
+# relative to the heredoc that uses it, and what it sits inside.
+_write_generator_raw() {
+  printf '%s\n' "$@" > "${SCRATCH}/dist/init.sh"
+}
+
 # ── The drift the lint exists to catch ──────────────────────────────────
 
 @test "generated-workflow-actions: fails when a generated ref is behind this repo's own (#950)" {
@@ -206,6 +228,7 @@ _write_own_reusable_workflow() {
   # worker locally, as `./`.
   _load_driver
   _write_workflow 'actions/checkout@v8'
+  _write_upstream_slug 'ycpss91255-docker/base'
   _write_own_reusable_workflow 'build-worker.yaml'
   _write_generator \
     '      - uses: ${BASE_UPSTREAM_SLUG}/.github/workflows/build-worker.yaml@${ref}' \
@@ -213,6 +236,106 @@ _write_own_reusable_workflow() {
 
   run _run_generated_workflow_actions
   [ "${status}" -eq 0 ]
+}
+
+@test "generated-workflow-actions: somebody else's copy of one of our workflow filenames is not excluded (#950)" {
+  # The hole this closes. The exclusion used to key on the callee's
+  # BASENAME alone, and this repo ships nine of them -- build-worker,
+  # release-worker, self-test, publish-worker, ghcr-cleanup and friends,
+  # names anybody would pick. A call to somebody ELSE's build-worker.yaml
+  # was therefore exempted for being spelled like ours, with no diagnostic:
+  # a literal, fully readable ref left the population in silence. The
+  # reason for the exclusion -- upgrade.sh rewrites `<worker>.yaml@vX.Y.Z`
+  # in every downstream main.yaml -- only holds when the owner is us.
+  _load_driver
+  _write_workflow 'actions/checkout@v8'
+  _write_upstream_slug 'ycpss91255-docker/base'
+  _write_own_reusable_workflow 'build-worker.yaml'
+  _write_generator \
+    '      - uses: evilorg/evilrepo/.github/workflows/build-worker.yaml@v1' \
+    '      - uses: actions/checkout@v8'
+
+  run _run_generated_workflow_actions
+  [ "${status}" -ne 0 ]
+  assert_output --partial 'evilorg/evilrepo'
+}
+
+@test "generated-workflow-actions: an unresolved variable is not a stand-in for our own slug (#950)" {
+  # The obvious repair for the basename hole is its own hole: init.sh HAS
+  # to spell the owner as `${BASE_UPSTREAM_SLUG}`, so a reader that accepts
+  # "any variable, since it might be us" re-opens the same exemption one
+  # layer up -- `${OTHER_SLUG}` is not this repo, and the tree never says
+  # it is. Only the variable the tree declares its own slug in stands in.
+  _load_driver
+  _write_workflow 'actions/checkout@v8'
+  _write_upstream_slug 'ycpss91255-docker/base'
+  _write_own_reusable_workflow 'build-worker.yaml'
+  _write_generator \
+    '      - uses: ${OTHER_SLUG}/.github/workflows/build-worker.yaml@${ref}' \
+    '      - uses: actions/checkout@v8'
+
+  run _run_generated_workflow_actions
+  [ "${status}" -ne 0 ]
+  assert_output --partial 'OTHER_SLUG'
+}
+
+@test "generated-workflow-actions: our own slug spelled out is excluded (#950)" {
+  # The other half of the owner check: written literally, with no variable
+  # anywhere, the call home is still a call home.
+  _load_driver
+  _write_workflow 'actions/checkout@v8'
+  _write_upstream_slug 'ycpss91255-docker/base'
+  _write_own_reusable_workflow 'build-worker.yaml'
+  _write_generator \
+    '      - uses: ycpss91255-docker/base/.github/workflows/build-worker.yaml@v1.2.3' \
+    '      - uses: actions/checkout@v8'
+
+  run _run_generated_workflow_actions
+  [ "${status}" -eq 0 ]
+  assert_output --partial '1 generated ref'
+}
+
+@test "generated-workflow-actions: the owner is read off the tree, not carried in the driver (#950)" {
+  # Derived, not hardcoded. Rename the repo -- move BOTH the slug and the
+  # variable it lives in -- and the exclusion follows: the moved name is
+  # excluded and the OLD one, which the tree no longer declares, is not. A
+  # driver holding a copy of either literal fails one of these two.
+  _load_driver
+  _write_workflow 'actions/checkout@v8'
+  _write_upstream_slug 'someone/elsewhere' 'MY_UPSTREAM'
+  _write_own_reusable_workflow 'build-worker.yaml'
+  _write_generator \
+    '      - uses: ${MY_UPSTREAM}/.github/workflows/build-worker.yaml@${ref}' \
+    '      - uses: actions/checkout@v8'
+
+  run _run_generated_workflow_actions
+  [ "${status}" -eq 0 ]
+
+  _write_generator \
+    '      - uses: ${BASE_UPSTREAM_SLUG}/.github/workflows/build-worker.yaml@${ref}' \
+    '      - uses: actions/checkout@v8'
+
+  run _run_generated_workflow_actions
+  [ "${status}" -ne 0 ]
+  assert_output --partial 'BASE_UPSTREAM_SLUG'
+}
+
+@test "generated-workflow-actions: a deeper path under .github/workflows/ is not excluded (#950)" {
+  # `<owner>/<repo>/.github/workflows/<file>` is the only shape GitHub
+  # calls a reusable workflow by, so a nested path is not that call at all
+  # -- and reading the basename off the tail of an arbitrary path is how
+  # `.../workflows/vendor/build-worker.yaml` claimed our exemption.
+  _load_driver
+  _write_workflow 'actions/checkout@v8'
+  _write_upstream_slug 'ycpss91255-docker/base'
+  _write_own_reusable_workflow 'build-worker.yaml'
+  _write_generator \
+    '      - uses: ${BASE_UPSTREAM_SLUG}/.github/workflows/sub/build-worker.yaml@v1' \
+    '      - uses: actions/checkout@v8'
+
+  run _run_generated_workflow_actions
+  [ "${status}" -ne 0 ]
+  assert_output --partial 'sub/build-worker.yaml'
 }
 
 @test "generated-workflow-actions: a reusable workflow this repo does NOT ship is not excluded (#950)" {
@@ -604,6 +727,124 @@ _write_own_reusable_workflow() {
   run _run_generated_workflow_actions
   [ "${status}" -ne 0 ]
   assert_output --partial 'not a versioned action reference'
+}
+
+@test "generated-workflow-actions: an assignment BELOW the use is a finding (#950)" {
+  # "Assigned somewhere in this file" is not "assigned before the use". At
+  # the heredoc the name still holds whatever the environment or the caller
+  # put there, and the assignment further down is a different value at a
+  # different time. Resolving against it reports on a ref the generator
+  # never writes -- and reports it GREEN, because a stale line and a
+  # matching literal look identical once order is dropped.
+  _load_driver
+  _write_workflow 'actions/checkout@v8'
+  _write_generator_raw \
+    '#!/usr/bin/env bash' \
+    '_gen() {' \
+    '  cat > "${_wf}" <<YAML' \
+    '      - uses: ${_MONITOR_REF}' \
+    'YAML' \
+    '}' \
+    "readonly _MONITOR_REF='actions/checkout@v8'"
+
+  run _run_generated_workflow_actions
+  [ "${status}" -ne 0 ]
+  assert_output --partial 'not a versioned action reference'
+  assert_output --partial '_MONITOR_REF'
+}
+
+@test "generated-workflow-actions: an assignment inside a function body is a finding (#950)" {
+  # Ordered correctly and still not live: a function body runs when the
+  # function is CALLED, which is control flow this reader does not
+  # evaluate. The helper here is defined ABOVE the heredoc and its
+  # assignment is unindented, so neither position nor indentation can be
+  # what refuses it -- the brace tracking has to.
+  _load_driver
+  _write_workflow 'actions/checkout@v8'
+  _write_generator_raw \
+    '#!/usr/bin/env bash' \
+    '_helper() {' \
+    "_MONITOR_REF='actions/checkout@v8'" \
+    '}' \
+    '_gen() {' \
+    '  cat > "${_wf}" <<YAML' \
+    '      - uses: ${_MONITOR_REF}' \
+    'YAML' \
+    '}'
+
+  run _run_generated_workflow_actions
+  [ "${status}" -ne 0 ]
+  assert_output --partial 'not a versioned action reference'
+}
+
+@test "generated-workflow-actions: a local declaration is a finding wherever it sits (#950)" {
+  # `local` is legal only inside a function, so the keyword proves function
+  # scope on its own -- a second, independent statement of the same
+  # property, so that a mis-read brace cannot promote a function-local
+  # value to file scope by itself.
+  _load_driver
+  _write_workflow 'actions/checkout@v8'
+  _write_generator_raw \
+    '#!/usr/bin/env bash' \
+    '_helper() {' \
+    "  local _MONITOR_REF='actions/checkout@v8'" \
+    '  echo "${_MONITOR_REF}"' \
+    '}' \
+    '_gen() {' \
+    '  cat > "${_wf}" <<YAML' \
+    '      - uses: ${_MONITOR_REF}' \
+    'YAML' \
+    '}'
+
+  run _run_generated_workflow_actions
+  [ "${status}" -ne 0 ]
+  assert_output --partial 'not a versioned action reference'
+}
+
+@test "generated-workflow-actions: an assignment under an open if is a finding (#950)" {
+  # File scope is not the same as unconditional. An assignment below a
+  # still-open `if` runs only when that test passes, so it is control flow
+  # again -- and written unindented it would pass an indentation check.
+  _load_driver
+  _write_workflow 'actions/checkout@v8'
+  _write_generator_raw \
+    '#!/usr/bin/env bash' \
+    'if [[ -n "${CI:-}" ]]; then' \
+    "_MONITOR_REF='actions/checkout@v8'" \
+    'fi' \
+    '_gen() {' \
+    '  cat > "${_wf}" <<YAML' \
+    '      - uses: ${_MONITOR_REF}' \
+    'YAML' \
+    '}'
+
+  run _run_generated_workflow_actions
+  [ "${status}" -ne 0 ]
+  assert_output --partial 'not a versioned action reference'
+}
+
+@test "generated-workflow-actions: a file-scope assignment after a CLOSED if still resolves (#950)" {
+  # The other side of that rule, so it stays a rule about scope rather than
+  # a rule that refuses anything below any keyword: once the block is
+  # closed the assignment is file-scope again and the ref is compared.
+  _load_driver
+  _write_workflow 'actions/checkout@v8'
+  _write_generator_raw \
+    '#!/usr/bin/env bash' \
+    'if [[ -n "${CI:-}" ]]; then' \
+    '  :' \
+    'fi' \
+    "readonly _MONITOR_REF='actions/checkout@v7'" \
+    '_gen() {' \
+    '  cat > "${_wf}" <<YAML' \
+    '      - uses: ${_MONITOR_REF}' \
+    'YAML' \
+    '}'
+
+  run _run_generated_workflow_actions
+  [ "${status}" -ne 0 ]
+  assert_output --partial 'v7'
+  assert_output --partial 'v8'
 }
 
 @test "generated-workflow-actions: an appended variable is a finding (#950)" {

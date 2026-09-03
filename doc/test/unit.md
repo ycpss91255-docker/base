@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3477 tests**.
+Unit specs under `test/bats/unit/`: **3487 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -4197,7 +4197,7 @@ rather than an assurance.
 | `watch: --drift-tsv emits no machine answer when the table is unreadable` | The workflow builds its bump matrix from this stdout; an empty list with status 0 is the silent clean week. |
 | `watch: --drift-tsv puts the drifted pins on stdout, the report on stderr` | One invocation serves both the machine and the human: two walks of the upstream APIs can disagree. |
 | `watch: an unknown option is a usage error, distinct from both` | Exit 2 cannot be mistaken for "drifted" or for "could not resolve". |
-### test/bats/unit/generated_workflow_actions_lint_spec.bats (35)
+### test/bats/unit/generated_workflow_actions_lint_spec.bats (45)
 
 | Test | Description |
 |------|-------------|
@@ -4206,6 +4206,11 @@ rather than an assurance.
 | `generated-workflow-actions: passes when the two copies agree (#950)` | Lockstep is the whole assertion; the lint owns no opinion on which version is right |
 | `generated-workflow-actions: a ref ahead of this repo's own fails too (#950)` | Direction-agnostic: a hand-edit past the workflows is the same defect, other sign |
 | `generated-workflow-actions: ignores a call to a reusable workflow this repo ships (#950)` | - |
+| `generated-workflow-actions: somebody else's copy of one of our workflow filenames is not excluded (#950)` | Keyed on the basename alone, the exclusion was as wide as the nine names this repo happens to ship |
+| `generated-workflow-actions: an unresolved variable is not a stand-in for our own slug (#950)` | The obvious repair re-opens the hole one layer up: `${OTHER_SLUG}` is not this repo |
+| `generated-workflow-actions: our own slug spelled out is excluded (#950)` | The other half of the owner check: written literally, a call home is still a call home |
+| `generated-workflow-actions: the owner is read off the tree, not carried in the driver (#950)` | Move the slug AND the variable holding it; a driver with a copy of either literal fails one of the two |
+| `generated-workflow-actions: a deeper path under .github/workflows/ is not excluded (#950)` | `<owner>/<repo>/.github/workflows/<file>` is the only shape GitHub calls a reusable workflow by |
 | `generated-workflow-actions: a reusable workflow this repo does NOT ship is not excluded (#950)` | - |
 | `generated-workflow-actions: ignores a uses: ref inside a shell comment (#950)` | Prose quoting a step is not a step; a lint that fails on its own docs gets muted |
 | `generated-workflow-actions: a double-quoted generated ref is compared, not skipped (#950)` | - |
@@ -4231,6 +4236,11 @@ rather than an assurance.
 | `generated-workflow-actions: a double-quoted assignment with an interpolation is a finding (#950)` | - |
 | `generated-workflow-actions: a variable the file never assigns is a finding (#950)` | - |
 | `generated-workflow-actions: resolution is same-file only (#950)` | - |
+| `generated-workflow-actions: an assignment BELOW the use is a finding (#950)` | "Assigned in this file" is not "assigned before the use"; dropping order reports green on a ref never written |
+| `generated-workflow-actions: an assignment inside a function body is a finding (#950)` | Ordered correctly and still not live: a body runs when CALLED, which this reader does not evaluate |
+| `generated-workflow-actions: a local declaration is a finding wherever it sits (#950)` | `local` is legal only inside a function, so the keyword proves function scope on its own |
+| `generated-workflow-actions: an assignment under an open if is a finding (#950)` | File scope is not unconditional; written unindented it would pass an indentation check |
+| `generated-workflow-actions: a file-scope assignment after a CLOSED if still resolves (#950)` | The other side of that rule, so it stays about scope rather than refusing anything below any keyword |
 | `generated-workflow-actions: an appended variable is a finding (#950)` | - |
 | `generated-workflow-actions: fails when this repo pins the action at two refs (#950)` | No answer to which ref the generated copy should carry, so it says so rather than guessing |
 | `generated-workflow-actions: fails when this repo never uses the generated action (#950)` | No dependabot PR for the generated ref to inherit -- the bare form of the defect |
