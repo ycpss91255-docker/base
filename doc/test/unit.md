@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3620 tests**.
+Unit specs under `test/bats/unit/`: **3623 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -4362,7 +4362,7 @@ rather than an assurance.
 | `_run_adr_structure: REFUSES when doc/adr/ does not exist (#994)` | - |
 | `_run_adr_structure: the REAL doc/adr/ passes today (#994)` | - |
 
-### test/bats/unit/project_wait_spec.bats (11)
+### test/bats/unit/project_wait_spec.bats (14)
 
 | Test | Description |
 |------|-------------|
@@ -4377,3 +4377,6 @@ rather than an assurance.
 | `a malformed wait window is named and the default is used, not the run refused` | - |
 | `a wedged project stops the dispatch before compose is called` | - |
 | `a quiescent project lets the dispatch through` | - |
+| `test.sh --await-project answers for this checkout and exits` | - |
+| `test.sh --await-project refuses when the project is still held` | - |
+| `system and smoke both ask before they build` | - |

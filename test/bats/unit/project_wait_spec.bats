@@ -259,3 +259,39 @@ _await() {
   run cat "${DOCKER_STUB_DIR}/calls"
   assert_output --partial "compose -p ${PROJECT}"
 }
+
+# ── the two flows that drive compose without the dispatcher ───────────────
+#
+# `just test system` and `just test smoke` do not go through
+# _run_via_compose: each drives compose itself, against the SAME project
+# the dispatcher uses. They already carry their own reclaim line for that
+# reason; the same argument makes them carry their own wait. Without it,
+# the flow that most often leaves a container behind (a system run
+# interrupted mid-build) is the one flow that still meets the daemon's raw
+# text on its next attempt.
+#
+# The flag is how they ask, so that the question has ONE implementation
+# rather than a copy of the poll loop in each recipe body.
+
+@test "test.sh --await-project answers for this checkout and exits" {
+  printf 'net1\n' > "${DOCKER_STUB_DIR}/net_ls"
+  : > "${DOCKER_STUB_DIR}/endpoints.net1"
+  PATH="${BIN_DIR}:${PATH}" run bash /source/script/test/test.sh --await-project
+  assert_success
+}
+
+@test "test.sh --await-project refuses when the project is still held" {
+  printf 'net1\n' > "${DOCKER_STUB_DIR}/net_ls"
+  printf 'someproject-ci-run-stuck\n' > "${DOCKER_STUB_DIR}/endpoints.net1"
+  printf 'exited\n' > "${DOCKER_STUB_DIR}/state.someproject-ci-run-stuck"
+  PATH="${BIN_DIR}:${PATH}" BASE_PROJECT_WAIT=1s \
+    run bash /source/script/test/test.sh --await-project
+  assert_failure
+  assert_output --partial "someproject-ci-run-stuck"
+  assert_output --partial "just test stop"
+}
+
+@test "system and smoke both ask before they build" {
+  run grep -cF -- './script/test/test.sh --await-project' /source/script/test/justfile.test
+  assert_output "2"
+}
