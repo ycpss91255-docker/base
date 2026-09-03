@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3552 tests**.
+Unit specs under `test/bats/unit/`: **3565 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -808,7 +808,7 @@ thirteen cumulative invariants:
 | `release` job needs `[shellcheck, hadolint, bats-fragile, bats-integration, coverage, integration-e2e, system]` before publishing a tag (#376 + #377 + #677) | 1 |
 | Probe-and-rebuild against a stale/racing `:main`: `bats-fragile` + `coverage` Obtain probe for kcov and rebuild on a miss + `REQUIRED_TOOLS` list is extensible + all five `build_local` obtain steps carry the guard (#697) | 4 |
 
-### test/bats/unit/release_test_tools_yaml_spec.bats (20)
+### test/bats/unit/release_test_tools_yaml_spec.bats (22)
 
 Structural assertions for `.github/workflows/release-test-tools.yaml`.
 Locks the publish surface that downstream Dockerfile.example's `FROM
@@ -4329,3 +4329,19 @@ rather than an assurance.
 | `_run_adr_structure: REFUSES when doc/adr/ does not exist (#994)` | - |
 | `_run_adr_structure: the REAL doc/adr/ passes today (#994)` | - |
 
+
+### test/bats/unit/test_tools_pins_spec.bats (11)
+
+| Test | Description |
+|------|-------------|
+| `test-tools pins: the roster names every ARG *_VERSION the Dockerfile declares (#1012)` | - |
+| `test-tools pins: every roster row carries a pin and a probe (#1012)` | - |
+| `test-tools pins: a declared pin with no probe is refused, naming it (#1012)` | - |
+| `test-tools pins: a Dockerfile declaring no pin at all is refused, not answered empty (#1012)` | - |
+| `test-tools pins: check accepts the exact declared version (#1012)` | - |
+| `test-tools pins: check accepts a longer version under a series pin (#1012)` | - |
+| `test-tools pins: check refuses a downlevel version (#1012)` | - |
+| `test-tools pins: check refuses a version the pin is merely a digit prefix of (#1012)` | - |
+| `test-tools pins: check refuses empty observed output (#1012)` | - |
+| `test-tools pins: check refuses an ARG that is not on the roster (#1012)` | - |
+| `test-tools pins: an unrecognised subcommand is refused and names what it does answer (#1012)` | - |

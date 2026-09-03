@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **155 tests**.
+Integration specs under `test/bats/integration/`: **156 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -327,3 +327,9 @@ vacuity is why the same defect shipped twice.
 | Test | Description |
 |------|-------------|
 | `test-tools image: just --version equals the declared pin (#948)` | - |
+
+### test/bats/integration/test_tools_pins_spec.bats (1)
+
+| Test | Description |
+|------|-------------|
+| `test-tools image: every pinned tool answers with the declared version (#1012)` | - |

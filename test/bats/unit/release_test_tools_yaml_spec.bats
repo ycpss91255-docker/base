@@ -221,6 +221,29 @@ _header_comments() {
   assert_output --partial 'steps.tags.outputs.smoke'
 }
 
+@test "release-test-tools.yaml: the smoke step derives its version assertions from the pin roster (#1012)" {
+  # Fourteen of the fifteen probes asserted exit 0 and nothing else,
+  # which catches a tool's removal and never its staleness. The repair is
+  # not fourteen hand-written comparisons: it is one loop over the pins
+  # the Dockerfile declares, so a tool pinned tomorrow is asserted
+  # tomorrow. script/ci/test-tools-pins.sh refuses to produce a roster
+  # while any declared pin lacks a probe.
+  run _smoke_step
+  assert_success
+  assert_output --partial 'script/ci/test-tools-pins.sh roster'
+  assert_output --partial 'script/ci/test-tools-pins.sh check'
+  refute_output --partial 'just_pin='
+}
+
+@test "release-test-tools.yaml: the smoke step refuses an empty pin roster (#1012)" {
+  # A loop fed by a command that failed simply gets no input and passes.
+  # For a step whose whole assertion is "the versions were checked", that
+  # is the fail-open direction, so emptiness is refused by name.
+  run _smoke_step
+  assert_success
+  assert_output --partial 'the pin roster came back empty'
+}
+
 # ── Native-runner matrix + push-by-digest + manifest merge ─────
 
 @test "release-test-tools.yaml: drops docker/setup-qemu-action (native arm64 runner, #587)" {
