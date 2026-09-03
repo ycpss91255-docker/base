@@ -1139,3 +1139,22 @@ EOF
   run bash -c "$(_src); _migrate_hadolint_detect '${DF}'"
   assert_success
 }
+
+@test "migration 5 (hadolint): DL3046 heals a useradd whose own line also runs usermod -l (#946)" {
+  # A sibling `usermod -l` after `&&` sits in the text that follows the
+  # `useradd` token, so scanning to end of line reads the useradd as
+  # already carrying the flag and the heal never fires -- DL3046 left live
+  # in a Dockerfile the migration reports as patched, which is the exact
+  # failure the flags-before--u case above was opened for. The scan window
+  # is the useradd's OWN command segment, up to the first `&&`, `||`, `;`
+  # or `|`.
+  cat > "${DF}" <<'EOF'
+RUN useradd -m -s /bin/bash -u "${USER_UID}" "${USER_NAME}" && usermod -l "${USER_NAME}" "$(id -nu 1000)"
+EOF
+  run bash -c "$(_src); _dfm_needs_dl3046 '${DF}'"
+  assert_success
+  run bash -c "$(_src); _migrate_hadolint_apply '${DF}'; _migrate_hadolint_apply '${DF}'"
+  assert_success
+  grep -Fq 'useradd -l -m -s /bin/bash -u "${USER_UID}"' "${DF}"
+  grep -Fq 'usermod -l "${USER_NAME}"' "${DF}"
+}
