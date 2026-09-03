@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3602 tests**.
+Unit specs under `test/bats/unit/`: **3614 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -563,7 +563,7 @@ the build side). #801 adds the build side's `cache_backend` export into
 the manifest guard env and a REAL packages: write probe (a GHCR
 blob-upload scope check, not a bare login) for the registry backend.
 
-### test/bats/unit/self_test_yaml_spec.bats (107)
+### test/bats/unit/self_test_yaml_spec.bats (109)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks
 thirteen cumulative invariants:
@@ -4359,3 +4359,18 @@ rather than an assurance.
 | `_run_adr_structure: REFUSES when doc/adr/ holds ONLY the exempt README (#994)` | - |
 | `_run_adr_structure: REFUSES when doc/adr/ does not exist (#994)` | - |
 | `_run_adr_structure: the REAL doc/adr/ passes today (#994)` | - |
+
+### test/bats/unit/release_notes_spec.bats (10)
+
+| Test | Description |
+|------|-------------|
+| `release_notes.sh: an RC tag's notes are that RC's own entries` | - |
+| `release_notes.sh: a tag with no section DIES rather than emitting an empty body` | - |
+| `release_notes.sh: a section whose body carries no entry DIES` | - |
+| `release_notes.sh: a promoted final release's notes are the union of its RCs` | - |
+| `release_notes.sh: categories are emitted in the locked roster order` | - |
+| `release_notes.sh: a final release with its own entries keeps its lead paragraph` | - |
+| `release_notes.sh: a '## [' inside a fenced block does not end the section` | - |
+| `release_notes.sh: the compare-link block is not part of the notes` | - |
+| `release_notes.sh: a tag present in two series files is refused` | - |
+| `release_notes.sh: the live changelog tree answers for the current release` | - |
