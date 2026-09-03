@@ -12,6 +12,12 @@
 # stub dispatches on "$1:$2" and reads its fixtures from MOCK_* env vars
 # so each test can vary latest-release / existing-issues without
 # rewriting the stub body.
+#
+# why: Version-compare + issue-open logic of the pull-based base version
+# monitor: semver ordering (numeric, not lexical), a missing leading `v`,
+# and the `run` path that opens exactly one labelled tracking issue per
+# target version (dedup on an already-open one, no issue when up to date,
+# loud failure on an empty API answer).
 
 bats_require_minimum_version 1.5.0
 

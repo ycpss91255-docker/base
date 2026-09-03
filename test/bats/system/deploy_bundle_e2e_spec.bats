@@ -27,6 +27,33 @@
 # Plain-bash assertions only (status / output), matching the sibling
 # runtime_test_smoke_spec.bats: the system bats environment ships no
 # bats-assert / bats-support and loads no test_helper.
+#
+# why: A REAL field deploy end-to-end (ADR-00000023; System level, E2E
+# type). Generates the bundle for real (`docker build` + `docker save |
+# xz`), docker-loads the image, runs the generated `deploy.sh up` (real
+# `docker compose up -d`), asserts the container is Up, then asserts the
+# tunable-config override applies at the mounted container path (edit the
+# bundle `config/`, re-up, read it back inside the container), and tears
+# down with `deploy.sh down`. A tiny alpine `runtime` stage keeps it fast;
+# the point is the orchestration (build -> save -> load -> compose up ->
+# mount-wins override -> down), not a heavy image. Needs the `ci-system`
+# service's docker.sock plus the `docker compose` plugin + `xz` baked into
+# the test-tools image; auto-skips cleanly when any is absent.
+#
+# The fixture repo is a real git tree carrying a tag, with a run-unique
+# basename: the deploy stamp resolves to that tag rather than the `unknown`
+# fallback (so the version-scoped image identity `<repo>:<stage>-<version>`
+# is what actually gets built, loaded and asserted), and no container leaked
+# by a crashed earlier run can share this run's name namespace.
+#
+# It declares one default-access and one `rw` tunable so the read-only
+# default (#870) is proven by BEHAVIOUR, not by grepping `:ro` out of the
+# generated compose: a real `docker exec` write to the default-access mount
+# must fail with a read-only filesystem error and leave the operator's host
+# copy untouched, while the declared-`rw` write must succeed and land in the
+# bundle's `config/`. Every test here drives the one bundle and the one
+# container name, so the file pins `BATS_NO_PARALLELIZE_WITHIN_FILE` --
+# concurrent `deploy.sh up` calls would race for that name.
 
 setup_file() {
   # Every test in this file drives ONE bundle and ONE container name, so they
@@ -151,6 +178,7 @@ teardown_file() {
   [[ -n "${TMP_ROOT:-}" ]] && rm -rf "${TMP_ROOT}"
 }
 
+# why: tagged fixture -> real version stamp
 @test "field-deploy e2e: the image identity is version-stamped, not the 'unknown' fallback" {
   # The stamp is the collision avoidance for loading multiple field versions
   # on one host, so the e2e must run against a real tagged tree.
@@ -160,6 +188,7 @@ teardown_file() {
   [[ "${BUNDLE}" == *"-runtime-${FIXTURE_TAG}" ]]
 }
 
+# why: real bundle output
 @test "field-deploy e2e: the generator produced a self-contained bundle folder" {
   [ -d "${BUNDLE}" ]
   [ -f "${BUNDLE}/image.tar.xz" ]
@@ -177,6 +206,7 @@ teardown_file() {
   [[ "${output}" == *"- ./config/calib.yaml:/var/lib/app/calib.yaml:rw"* ]]
 }
 
+# why: run + mount-wins override
 @test "field-deploy e2e: deploy.sh up loads the image, runs the container, and the tunable override applies" {
   # Real load + compose up. Echo output on failure so a genuine deploy bug
   # is debuggable in the CI log rather than a bare non-zero status.
@@ -285,6 +315,7 @@ teardown_file() {
   [ "${status}" -eq 0 ] || { echo "deploy.sh down failed: ${output}"; false; }
 }
 
+# why: read-only default proven by a real write
 @test "field-deploy e2e: a container write to an undeclared-rw tunable really FAILS, a declared rw one lands on the host" {
   # The whole point of the read-only default is that the failure is real and
   # immediate, so this asserts the container's write, not the `:ro` string.

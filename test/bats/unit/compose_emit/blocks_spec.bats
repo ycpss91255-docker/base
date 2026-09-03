@@ -8,6 +8,12 @@
 # function and grepping its YAML output. Hoisting them to top level lets
 # each one be exercised in isolation: build the inputs, call the emitter,
 # assert on the small fragment it returns.
+#
+# why: Covers the per-service compose emitter (`_emit_stage_service`) and
+# its shared leaf-emitter sub-seams, hoisted out of `generate_compose_yaml`
+# (#566). Each emitter is exercised in isolation -- build the inputs, call
+# the emitter, assert on the small fragment it returns -- instead of running
+# the whole ~900-line generator and grepping its YAML output.
 
 bats_require_minimum_version 1.5.0
 
@@ -21,12 +27,14 @@ setup() {
 # _emit_gpu_deploy_block <gui> <count> <caps_yaml>
 # ════════════════════════════════════════════════════════════════════
 
+# why: GPU off
 @test "_emit_gpu_deploy_block: gui=false emits nothing" {
   run _emit_gpu_deploy_block false 1 "[gpu]"
   assert_success
   assert_output ""
 }
 
+# why: GPU on
 @test "_emit_gpu_deploy_block: gui=true emits deploy reservation with count + caps" {
   run _emit_gpu_deploy_block true 2 "[gpu, compute]"
   assert_line --partial "deploy:"
@@ -39,12 +47,14 @@ setup() {
 # _emit_caps_block <cap_add> <cap_drop> <sec_opt>
 # ════════════════════════════════════════════════════════════════════
 
+# why: caps off
 @test "_emit_caps_block: all empty emits nothing" {
   run _emit_caps_block "" "" ""
   assert_success
   assert_output ""
 }
 
+# why: cap_add
 @test "_emit_caps_block: cap_add list emits cap_add block" {
   run _emit_caps_block $'SYS_PTRACE\nNET_ADMIN' "" ""
   assert_line "    cap_add:"
@@ -53,6 +63,7 @@ setup() {
   refute_line "    cap_drop:"
 }
 
+# why: cap_drop/sec_opt
 @test "_emit_caps_block: cap_drop + security_opt emit their blocks" {
   run _emit_caps_block "" $'MKNOD' $'no-new-privileges:true'
   assert_line "    cap_drop:"
@@ -95,6 +106,7 @@ EXPECTED
   assert_output '        TARGETARCH: ${TARGET_ARCH}'
 }
 
+# why: build.network
 @test "_emit_build_network_line: empty omits; set emits network line" {
   run _emit_build_network_line ""
   assert_output ""
@@ -102,6 +114,7 @@ EXPECTED
   assert_output "      network: host"
 }
 
+# why: runtime
 @test "_emit_runtime_line: empty omits; set emits runtime line" {
   run _emit_runtime_line ""
   assert_output ""
@@ -109,6 +122,7 @@ EXPECTED
   assert_output "    runtime: nvidia"
 }
 
+# why: #478 restart
 @test "_emit_restart_line: 'no' omits; plain value plain; on-failure:N quoted" {
   run _emit_restart_line "no"
   assert_output ""
@@ -129,6 +143,7 @@ EXPECTED
   assert_output ""
 }
 
+# why: additional_contexts
 @test "_emit_additional_contexts_block: empty omits; entries emit block" {
   run _emit_additional_contexts_block ""
   assert_output ""
@@ -138,6 +153,7 @@ EXPECTED
   assert_line "        lib: ./lib"
 }
 
+# why: cgroup rules
 @test "_emit_cgroup_rules_block: empty omits; entries emit quoted rules" {
   run _emit_cgroup_rules_block ""
   assert_output ""
@@ -146,6 +162,7 @@ EXPECTED
   assert_line '      - "c 81:* rmw"'
 }
 
+# why: tmpfs
 @test "_emit_tmpfs_block: empty omits; entries emit tmpfs list" {
   run _emit_tmpfs_block ""
   assert_output ""
@@ -155,6 +172,7 @@ EXPECTED
   assert_line "      - /tmp:size=64m"
 }
 
+# why: #496 group_add
 @test "_emit_group_add_block: gated on gui AND non-empty groups; emits quoted gids" {
   run _emit_group_add_block false "44 video"
   assert_output ""
@@ -166,6 +184,7 @@ EXPECTED
   assert_line '      - "video"'
 }
 
+# why: build args
 @test "_emit_user_build_args: empty omits; entries emit KEY: \${KEY} pairs" {
   run _emit_user_build_args ""
   assert_output ""
@@ -182,6 +201,7 @@ EXPECTED
 #   _logging_svc_local_path_mount <svc> <out> <name> <base> <global> <per_svc>
 # ════════════════════════════════════════════════════════════════════
 
+# why: logging merge
 @test "_logging_svc_kv: seeds from global then overlays per-service (key-level merge)" {
   local -A _kv=()
   _logging_svc_kv test _kv $'driver=json-file\nmax_size=10m' $'test:driver=local'
@@ -189,18 +209,21 @@ EXPECTED
   [ "${_kv[max_size]}" = "10m" ]      # global survives where not overridden
 }
 
+# why: svc keying
 @test "_logging_svc_kv: a different service does not pick up another svc overlay" {
   local -A _kv=()
   _logging_svc_kv devel _kv $'driver=json-file' $'test:driver=local'
   [ "${_kv[driver]}" = "json-file" ]
 }
 
+# why: logging off
 @test "_emit_logging_block: empty global + per-svc emits nothing" {
   run _emit_logging_block devel "" ""
   assert_success
   assert_output ""
 }
 
+# why: logging opts
 @test "_emit_logging_block: driver + rotation maps to compose options block" {
   run _emit_logging_block devel $'driver=json-file\nmax_size=10m\nmax_file=3\ncompress=true' ""
   assert_line "    logging:"
@@ -211,24 +234,28 @@ EXPECTED
   assert_line '        compress: "true"'
 }
 
+# why: per-svc
 @test "_emit_logging_block: keys off the service name for per-svc overrides" {
   run _emit_logging_block test $'driver=json-file' $'test:max_size=5m'
   assert_line "      driver: json-file"
   assert_line '        max-size: "5m"'
 }
 
+# why: #328 off
 @test "_logging_svc_local_path_mount: empty local_path yields empty mount" {
   local _m="sentinel"
   _logging_svc_local_path_mount devel _m myrepo /tmp/lpbase "" ""
   [ -z "${_m}" ]
 }
 
+# why: rel path
 @test "_logging_svc_local_path_mount: relative path resolves against base, mounts /var/log/<name>" {
   local _m=""
   _logging_svc_local_path_mount devel _m myrepo /tmp/lpbase $'local_path=logs' ""
   [ "${_m}" = "/tmp/lpbase/logs:/var/log/myrepo" ]
 }
 
+# why: abs path
 @test "_logging_svc_local_path_mount: absolute path passed verbatim (trailing slash stripped)" {
   local _m=""
   _logging_svc_local_path_mount devel _m myrepo /tmp/lpbase $'local_path=/srv/logs/' ""
@@ -258,6 +285,7 @@ _mk_ctx() {
   )
 }
 
+# why: #215 zero-diff
 @test "_emit_stage_service: zero-diff stage emits the extends:devel shape" {
   local -A _ctx=(); _mk_ctx _ctx
   local -A _res=()
@@ -273,6 +301,7 @@ _mk_ctx() {
   assert_line "      - test"
 }
 
+# why: zero-diff logging
 @test "_emit_stage_service: zero-diff stage with per-svc logging override emits logging block" {
   local -A _ctx=(); _mk_ctx _ctx
   _ctx[logging_per_svc]=$'test:driver=local'
@@ -282,6 +311,7 @@ _mk_ctx() {
   assert_line "      driver: local"
 }
 
+# why: #220 standalone
 @test "_emit_stage_service: stage with overrides emits a standalone block (no extends)" {
   local -A _ctx=(); _mk_ctx _ctx
   local -A _res=(
@@ -303,6 +333,7 @@ _mk_ctx() {
   assert_line "      - headless"
 }
 
+# why: standalone GPU
 @test "_emit_stage_service: override stage GPU resolution emits deploy reservation" {
   local -A _ctx=(); _mk_ctx _ctx
   local -A _res=(
@@ -321,6 +352,7 @@ _mk_ctx() {
 # _yaml_dq <value> <out>
 # ════════════════════════════════════════════════════════════════════
 
+# why: YAML scalar quoting
 @test "_yaml_dq wraps a value as a double-quoted scalar, escaping \\ then \" (#698)" {
   # The compose environment: sink routes each entry through _yaml_dq so a
   # value with YAML-structural chars survives the parse as one string. The

@@ -10,6 +10,44 @@
 #   * docker is stubbed via PATH prepend — the stub logs its argv to
 #     ${DOCKER_LOG} and exits 0. Combined with DRY_RUN=true in build.sh's
 #     _compose path, the stub only receives docker build / docker rmi calls.
+#
+# why: Unit tests for `build.sh` argument handling and control flow. Uses a
+# sandbox tree mirroring the expected layout (build.sh + `template/` subtree
+# with real `_lib.sh` / `i18n.sh`, mock `setup.sh`). `docker` is
+# PATH-shimmed so the stub captures argv; `build.sh` is symlinked (not
+# copied) so kcov attributes coverage to the real source file.
+#
+# Covers: `--help` (en/zh/zh-CN/ja), `--setup`/`-s`, auto-bootstrap on
+# missing `.env` / `setup.conf` / `compose.yaml`, drift-check path when all
+# three are present, bootstrap staying non-interactive (setup.sh direct, not
+# `setup_tui.sh`), defensive guard when setup produces no `.env`, TARGETARCH
+# build-arg forwarding, `--no-cache`, `--clean-tools`, positional `TARGET`,
+# **`-t` / `--target TARGET` alias** (#280: short + long form, last-wins
+# resolution against positional `[TARGET]` in both orderings, `-t`
+# value-required guard, usage help mention), `--lang` argument validation,
+# fallback `_detect_lang` branches (zh_TW/zh_CN/ja), real (non-dry-run)
+# docker build invocation, **version-scoped local test-tools tag** (#828:
+# the internal build derives `test-tools:<version>` from `.base/.version`
+# and forwards it as the `TEST_TOOLS_IMAGE` build-arg; fails loud on a
+# missing version, no bare-tag fallback), **the self-managed-repo tooling
+# tag** (#896: a repo with no `.base/` subtree has no pinned version to
+# scope a local tag by, so build.sh asks that repo's own
+# `script/test/test.sh --test-tools-image` rather than deriving a second
+# tag, and forwards the result on BOTH channels -- the `--build-arg` a
+# consumer Dockerfile reads and the exported environment a self-managed
+# `compose.yaml` interpolates; repos that do carry `.base/` keep the
+# version-scoped derivation), **runtime log-line i18n** (bootstrap /
+# drift-regen / err_no_env messages translate in all four languages via the
+# local `_msg()` table; English remains the default), and **`-C` / `--chdir`
+# flag** (docker_harness#53: pre-pass overrides FILE_PATH to redirect the
+# wrapper to a different repo, both short and long form, value-required and
+# directory-existence guards, usage help mention), and **`-v` / `--verbose`
+# / `-vv` / `--very-verbose` flag** (#311: exports `BUILDKIT_PROGRESS=plain`
+# so a hung `docker build`'s RUN step output is visible; `-vv` adds `set -x`
+# on the wrapper itself; usage help mentions all four spellings), and **#690
+# pre-build hook abort** (a failing `script/hooks/pre/build.sh` makes the
+# wrapper exit the hook's rc via `_run_pre_hook build "$@" || exit $?` AND
+# `docker compose build` never runs).
 
 bats_require_minimum_version 1.5.0
 

@@ -12,6 +12,24 @@
 # _generate_deploy_bundle (the folder orchestrator; docker steps mocked via
 # _dry_run_cmd, no real daemon). The tunable-manifest parser lives in its
 # sibling deploy_manifest_spec.bats.
+#
+# why: Covers the self-contained field-deploy generator (#832; ADR-3 amended
+# by ADR-00000023). Deploy produces an output FOLDER run via a
+# fully-resolved, self-contained `docker compose` (superseding the #497 raw
+# `docker run` tar.xz): `_resolve_deploy_version` (the
+# `<repo>:<stage>-<version>` image stamp), `_resolve_deploy_context` (the
+# conf-resolution shared with apply), `_generate_resolved_compose` (the
+# resolved `compose.yaml` -- no variable interpolation, no
+# `setup.conf`/`.env` dependency, dev-host workspace bind stripped,
+# `restart: unless-stopped` added, tunable-manifest paths bound, per-stage
+# params carried, follows the stage for GUI/X11),
+# `_generate_deploy_launcher` (the thin up/down/logs `deploy.sh`), and
+# `_generate_deploy_bundle` (the folder orchestrator; docker/xz/cp steps
+# mocked via `_dry_run_cmd`, no real daemon). Also covers `_setup_deploy`'s
+# stage-eligibility guard (#841): the `--stage` a user names must satisfy
+# `_is_deployable_stage` (PRD invariant 8 / ADR-00000023 sec.4), so the
+# template-managed baseline, the legacy aliases and any `*-test` stage are
+# refused before any build or bundle step.
 
 bats_require_minimum_version 1.5.0
 
@@ -33,6 +51,7 @@ _write_conf() {
 # --dirty; `unknown` outside a git tree).
 # ════════════════════════════════════════════════════════════════════
 
+# why: version tag
 @test "_resolve_deploy_version: returns the tag in a tagged git tree (field-deploy)" {
   local _d; _d="$(mktemp -d)"
   git -C "${_d}" init -q
@@ -45,6 +64,7 @@ _write_conf() {
   rm -rf "${_d}"
 }
 
+# why: dirty stamp
 @test "_resolve_deploy_version: appends -dirty when the tree has uncommitted changes (field-deploy)" {
   local _d; _d="$(mktemp -d)"
   git -C "${_d}" init -q
@@ -58,6 +78,7 @@ _write_conf() {
   rm -rf "${_d}"
 }
 
+# why: tagless `--always` fallback
 @test "_resolve_deploy_version: falls back to the short commit SHA in a tagless clone (#844)" {
   # The middle branch of `git describe --tags --always --dirty`: a real repo
   # with commits but no tags, where --always is what keeps the stamp
@@ -75,6 +96,7 @@ _write_conf() {
   rm -rf "${_d}"
 }
 
+# why: non-git fallback
 @test "_resolve_deploy_version: degrades to 'unknown' outside a git tree (field-deploy)" {
   local _d; _d="$(mktemp -d)"
   run _resolve_deploy_version "${_d}"
@@ -89,6 +111,7 @@ _write_conf() {
 # docker/build scalars + list strings into one record.
 # ════════════════════════════════════════════════════════════════════
 
+# why: full resolution
 @test "_resolve_deploy_context: resolves scalars + list strings from setup.conf (#506)" {
   local _d; _d="$(mktemp -d)"
   _write_conf "${_d}" \
@@ -117,6 +140,7 @@ _write_conf() {
   rm -rf "${_d}"
 }
 
+# why: template-merged defaults
 @test "_resolve_deploy_context: applies effective defaults for a minimal repo conf (#506)" {
   local _d; _d="$(mktemp -d)"
   _write_conf "${_d}" "[image_name]" "name = placeholder"
@@ -162,6 +186,7 @@ _write_conf() {
   rm -rf "${_d}"
 }
 
+# why: legacy alias
 @test "_resolve_deploy_context: legacy [deploy] runtime alias resolves gpu_runtime_mode (#506/#481)" {
   local _d; _d="$(mktemp -d)"
   _write_conf "${_d}" "[deploy]" "runtime = nvidia"
@@ -171,6 +196,7 @@ _write_conf() {
   rm -rf "${_d}"
 }
 
+# why: dri auto
 @test "_resolve_deploy_context: dri_groups auto resolves host GIDs via the SETUP_DETECT_DRI_GROUPS operator override (#506/#496)" {
   local _d; _d="$(mktemp -d)"
   _write_conf "${_d}" "[deploy]" "dri_groups = auto"
@@ -180,6 +206,7 @@ _write_conf() {
   rm -rf "${_d}"
 }
 
+# why: dri off
 @test "_resolve_deploy_context: dri_groups off yields empty (#506/#496)" {
   local _d; _d="$(mktemp -d)"
   _write_conf "${_d}" "[deploy]" "dri_groups = off"
@@ -203,6 +230,7 @@ _write_headless_conf() {
   _write_conf "${1}" "[deploy]" "gpu_mode = off" "dri_groups = off" "[gui]" "mode = off"
 }
 
+# why: resolved + self-contained
 @test "_generate_resolved_compose: self-contained -- no variable interpolation, restart present, image pinned (#832)" {
   local _d; _d="$(mktemp -d)"
   _write_headless_conf "${_d}"
@@ -227,6 +255,7 @@ _write_headless_conf() {
   rm -rf "${_d}"
 }
 
+# why: dev-host strip
 @test "_generate_resolved_compose: strips the dev-host workspace bind and bakes env (no -v/-e) (#832)" {
   local _d; _d="$(mktemp -d)"
   # SC2016: literal ${WS_PATH} is the portable workspace-bind form in
@@ -246,6 +275,7 @@ _write_headless_conf() {
   rm -rf "${_d}"
 }
 
+# why: tunable binds
 @test "_generate_resolved_compose: binds each tunable-manifest file mount-wins over the baked default (#833)" {
   local _d; _d="$(mktemp -d)"
   _write_headless_conf "${_d}"
@@ -260,6 +290,7 @@ _write_headless_conf() {
   rm -rf "${_d}"
 }
 
+# why: :ro default, :rw when declared
 @test "_generate_resolved_compose: a tunable bind is read-only unless the manifest declared rw (#870)" {
   local _d; _d="$(mktemp -d)"
   _write_headless_conf "${_d}"
@@ -274,6 +305,7 @@ _write_headless_conf() {
   rm -rf "${_d}"
 }
 
+# why: per-stage params
 @test "_generate_resolved_compose: carries the deployed stage's resolved params (privileged/gpu/devices) (#832)" {
   local _d; _d="$(mktemp -d)"
   _write_conf "${_d}" "[deploy]" "gpu_mode = force" "gpu_count = 2" \
@@ -293,6 +325,7 @@ _write_headless_conf() {
   rm -rf "${_d}"
 }
 
+# why: follow-stage GUI
 @test "_generate_resolved_compose: follows the stage -- gui off headless, gui force emits X11 (#832)" {
   local _d; _d="$(mktemp -d)"
   # gui off -> no X11.
@@ -313,6 +346,7 @@ _write_headless_conf() {
   rm -rf "${_d}"
 }
 
+# why: per-stage override
 @test "_generate_resolved_compose: per-stage [stage:runtime] override is applied (#832)" {
   local _d; _d="$(mktemp -d)"
   _write_conf "${_d}" "[deploy]" "gpu_mode = off" "dri_groups = off" "[gui]" "mode = off" \
@@ -328,6 +362,7 @@ _write_headless_conf() {
   rm -rf "${_d}"
 }
 
+# why: ipc/shm literals
 @test "_generate_resolved_compose: shm_size + ipc emitted as literals under non-host ipc (#832)" {
   local _d; _d="$(mktemp -d)"
   _write_conf "${_d}" "[deploy]" "gpu_mode = off" "dri_groups = off" "[gui]" "mode = off" \
@@ -451,6 +486,7 @@ _write_headless_conf() {
 # ShellCheck-clean.
 # ════════════════════════════════════════════════════════════════════
 
+# why: launcher shape
 @test "_generate_deploy_launcher: writes an executable up/down/logs launcher (#832)" {
   local _d; _d="$(mktemp -d)"
   local _out="${_d}/deploy.sh"
@@ -468,6 +504,7 @@ _write_headless_conf() {
   rm -rf "${_d}"
 }
 
+# why: no-arg default up
 @test "_generate_deploy_launcher: a no-arg invocation defaults to up without a set -e early exit (#832)" {
   # Regression: the launcher runs under `set -euo pipefail`; a `[[ $# -gt 0 ]]
   # && shift` guard returns non-zero on the no-arg (default `up`) path and
@@ -492,6 +529,7 @@ SH
   rm -rf "${_d}"
 }
 
+# why: shellcheck-clean output
 @test "_generate_deploy_launcher: generated launcher is ShellCheck-clean (#832)" {
   # Optional on purpose: shellcheck is a capability of the TOOLING
   # IMAGE, not an artifact of this repo, so a pinned TEST_TOOLS_IMAGE
@@ -518,6 +556,7 @@ SH
 # means" only holds if the two agree on the population).
 # ════════════════════════════════════════════════════════════════════
 
+# why: component population
 @test "_collect_config_components: names every config/*/ dir, sorted" {
   local _d; _d="$(mktemp -d)"
   mkdir -p "${_d}/config/ros1_bridge" "${_d}/config/realsense" "${_d}/config/shell"
@@ -527,6 +566,7 @@ SH
   rm -rf "${_d}"
 }
 
+# why: dir-only discriminator
 @test "_collect_config_components: skips files and hidden entries" {
   local _d; _d="$(mktemp -d)"
   mkdir -p "${_d}/config/realsense"
@@ -539,6 +579,7 @@ SH
   rm -rf "${_d}"
 }
 
+# why: empty population
 @test "_collect_config_components: empty result on a repo with no config/" {
   local _d; _d="$(mktemp -d)"
   local -a _got=(stale)
@@ -547,6 +588,7 @@ SH
   rm -rf "${_d}"
 }
 
+# why: config COPY bake
 @test "_bake_config_copy: splices COPY config/<component> into the target stage (#506/#504/#1000)" {
   local _d; _d="$(mktemp -d)"
   mkdir -p "${_d}/config/realsense"
@@ -567,6 +609,7 @@ DOCK
   rm -rf "${_d}"
 }
 
+# why: in-place bake
 @test "_bake_config_copy: handles src == out in place (#506/#504/#1000)" {
   local _d; _d="$(mktemp -d)"
   mkdir -p "${_d}/config/realsense"
@@ -581,6 +624,7 @@ DOCK
   rm -rf "${_d}"
 }
 
+# why: per-component target
 @test "_bake_config_copy: bakes every component to its own destination (#1000)" {
   # Two components, two COPY lines, two distinct targets. The old code
   # had ONE hardcoded COPY into ONE destination, so a second component
@@ -596,6 +640,7 @@ DOCK
   rm -rf "${_d}"
 }
 
+# why: no name list
 @test "_bake_config_copy: bakes config/shell and config/pip too (#1000)" {
   # Same decision as the dev-bind half, pinned on the deploy side so the
   # two cannot drift apart: no name list, so the two build-time dirs come
@@ -612,6 +657,7 @@ DOCK
   rm -rf "${_d}"
 }
 
+# why: nothing-to-bake
 @test "_bake_config_copy: returns 1 and writes nothing when no component dir exists (#1000)" {
   # The "nothing to bake" non-result, matching its sibling
   # _generate_runtime_dockerfile: return 1, leave <out> alone, and let the
@@ -645,6 +691,7 @@ CMD ["/app"]
 DOCK
 }
 
+# why: bundle plan
 @test "_generate_deploy_bundle: dry-run plans build (versioned image) + save + xz + install (#832)" {
   local _d; _d="$(mktemp -d)"
   _write_deploy_repo "${_d}"
@@ -666,6 +713,7 @@ DOCK
   rm -rf "${_d}"
 }
 
+# why: env-bake build
 @test "_generate_deploy_bundle: dry-run builds from the baked Dockerfile when [environment] is set (#832/#503)" {
   local _d; _d="$(mktemp -d)"
   _write_deploy_repo "${_d}"
@@ -677,6 +725,7 @@ DOCK
   rm -rf "${_d}"
 }
 
+# why: tunable extract
 @test "_generate_deploy_bundle: dry-run plans a docker cp per tunable-manifest path (#833)" {
   local _d; _d="$(mktemp -d)"
   _write_deploy_repo "${_d}"
@@ -692,6 +741,7 @@ DOCK
   rm -rf "${_d}"
 }
 
+# why: fail-loud guard
 @test "_generate_deploy_bundle: a malformed manifest fails loud before building (#833)" {
   local _d; _d="$(mktemp -d)"
   _write_deploy_repo "${_d}"
@@ -705,6 +755,7 @@ DOCK
   rm -rf "${_d}"
 }
 
+# why: missing baked default
 @test "_generate_deploy_bundle: fails loud when the image bakes no file at a declared tunable path (#833)" {
   # The baked-default + mount-wins model requires the image to bake a FILE at
   # each manifest path; a bind whose target is missing fails at up with a
@@ -745,6 +796,7 @@ SH
 # preview + confirmation + _generate_deploy_bundle (folder output).
 # ════════════════════════════════════════════════════════════════════
 
+# why: deploy dry-run
 @test "_setup_deploy: --dry-run previews the resolved compose + prints the build plan (#832)" {
   local _d; _d="$(mktemp -d)"
   _write_deploy_repo "${_d}"
@@ -758,6 +810,7 @@ SH
   rm -rf "${_d}"
 }
 
+# why: preview matches the bundle
 @test "_setup_deploy: the preview shows each tunable bind at its declared access (#870)" {
   # The preview is what the operator reviews before agreeing to build, so it
   # has to carry the same access modes the generated bundle will.
@@ -857,6 +910,7 @@ SH
   rm -rf "${_d}"
 }
 
+# why: non-tty refuse
 @test "_setup_deploy: refuses in a non-interactive shell without -y (#832)" {
   local _d; _d="$(mktemp -d)"
   _write_deploy_repo "${_d}"
@@ -866,6 +920,7 @@ SH
   rm -rf "${_d}"
 }
 
+# why: no-Dockerfile guard
 @test "_setup_deploy: errors when the repo has no Dockerfile (#832)" {
   local _d; _d="$(mktemp -d)"
   mkdir -p "${_d}"
@@ -876,6 +931,7 @@ SH
   rm -rf "${_d}"
 }
 
+# why: arg validation
 @test "_setup_deploy: rejects an unknown flag (#832)" {
   local _d; _d="$(mktemp -d)"
   _write_deploy_repo "${_d}"
@@ -884,6 +940,7 @@ SH
   rm -rf "${_d}"
 }
 
+# why: stage select
 @test "_setup_deploy: --stage selects the target stage (#832/#841)" {
   local _d; _d="$(mktemp -d)"
   _write_deploy_repo "${_d}"
@@ -901,6 +958,7 @@ SH
 # (ADR-00000023 sec.4 / PRD invariant 8), enforced in _setup_deploy via
 # the shared _is_deployable_stage predicate.
 
+# why: stage eligibility (baseline)
 @test "_setup_deploy: refuses a template-baseline stage (#841)" {
   local _d _s
   for _s in sys devel-base devel devel-test runtime-test; do
@@ -915,6 +973,7 @@ SH
   done
 }
 
+# why: stage eligibility (legacy alias)
 @test "_setup_deploy: refuses a legacy baseline alias (#841)" {
   local _d _s
   for _s in base test; do
@@ -928,6 +987,7 @@ SH
   done
 }
 
+# why: stage eligibility (*-test)
 @test "_setup_deploy: refuses a downstream-shaped <x>-test stage (#841)" {
   local _d; _d="$(mktemp -d)"
   _write_deploy_repo "${_d}"
@@ -939,6 +999,7 @@ SH
   rm -rf "${_d}"
 }
 
+# why: guard fires before build
 @test "_setup_deploy: a refused stage writes no bundle even with -y (#841)" {
   # -y skips the confirmation prompt, so this is the shape that would have
   # produced a real field bundle from a devel image. The guard must fire
@@ -955,6 +1016,7 @@ SH
   rm -rf "${_d}"
 }
 
+# why: dispatch wiring
 @test "main deploy routes to _setup_deploy (#832 dispatch)" {
   local _d; _d="$(mktemp -d)"
   _write_deploy_repo "${_d}"

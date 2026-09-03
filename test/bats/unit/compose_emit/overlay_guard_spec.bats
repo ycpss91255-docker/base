@@ -20,6 +20,13 @@
 #   - compose-merge overlay: writable volume topology.
 #   - host-bound / shared across co-located instances (NOT per-instance):
 #     runtime, hostname, GPU.
+#
+# why: Forward-invariant guard (ADR-00000022): base's emitted compose must
+# never bake a hardcoded per-instance literal over the interpolation-channel
+# field set, so base-generated stacks are multi_run-expandable by
+# construction. A predicate self-check proves the guard discriminates a
+# baked literal from a `${VAR:-default}` interpolation, so a future change
+# that hardcodes a per-instance field fails immediately.
 
 bats_require_minimum_version 1.5.0
 
@@ -236,6 +243,7 @@ CONF
 
 # ── Predicate self-check: proves the guard FAILS on a baked literal ─────
 
+# why: self-check discrimination
 @test "overlay guard predicate rejects a baked literal, accepts an interpolation" {
   # A hardcoded per-instance literal (what a regression would emit).
   run _is_overlay_overridable '8080:80'
@@ -249,6 +257,7 @@ CONF
 
 # ── Forward invariant over the interpolation-channel field set ──────────
 
+# why: name interpolated
 @test "overlay guard: project name: is an overlay interpolation" {
   _emit_exercised_compose
   _require_emitted_population
@@ -258,6 +267,7 @@ CONF
   _is_overlay_overridable "${_val}"
 }
 
+# why: no container name to collide on
 @test "overlay guard: the dev-stack emitter emits no container_name at all (#920)" {
   # The weaker predicate this replaces asked only that the value carry SOME
   # interpolation, and `${USER_NAME}-myrepo-headless` satisfied it -- yet
@@ -270,6 +280,7 @@ CONF
   _assert_emitted_without '^[[:space:]]*container_name:' 'a container_name: key'
 }
 
+# why: deploy bundle exemption stated in README + ADR
 @test "the field-deploy emitter's baked container_name is a STATED exemption (#920)" {
   # The guard above scans `generate_compose_yaml` -- the dev stack, the
   # only emission a multi_run overlay ever expands. It is not the only
@@ -400,6 +411,7 @@ CONF
   done
 }
 
+# why: network_mode interpolated
 @test "overlay guard: network_mode: is an env interpolation, never a baked literal" {
   _emit_exercised_compose
   _require_emitted_population
@@ -414,6 +426,7 @@ CONF
   done < <(grep -E '^[[:space:]]*network_mode:' "${COMPOSE_OUT}")
 }
 
+# why: no baked port literal
 @test "overlay guard: no baked published-port literal anywhere (forward invariant)" {
   _emit_exercised_compose
   # A baked port entry is a quoted list item beginning with a digit under a
@@ -423,6 +436,7 @@ CONF
   _assert_emitted_without '^[[:space:]]+- "[0-9][0-9.]*:' 'a baked published-port literal'
 }
 
+# why: ports overlay form
 @test "overlay guard: published ports are emitted as \${PORT_N:-default} on devel and stages" {
   _emit_exercised_compose
   # devel ports (from the top-level list) and the headless stage's ports

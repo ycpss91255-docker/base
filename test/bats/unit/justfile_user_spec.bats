@@ -19,6 +19,16 @@
 # Strategy mirrors the old makefile_user_spec: sandbox a repo with the
 # justfile symlinked at root and the wrapper scripts stubbed under
 # script/, each recording `<name> <args...>` to ${TMP_REPO}/.invocation_log.
+#
+# why: Executable tests for the user-facing layered entry + namespaces (#546
+# / ADR-00000005; ADR-00000011: docker is a namespace, `just docker build`).
+# Parity with the removed `makefile_user_spec`: sandboxes a repo with the
+# entry + module symlink chain at root + stub `script/*.sh` recorders, and
+# RUNS `just <ns> <verb>` to assert 1:1 forwarding with `{{args}}`
+# passthrough. Skips when `just` is not yet in the test-tools image
+# (pre-release GHCR pull -- see template_spec for the pinned-fetch guard +
+# the release smoke check, which compares the version string rather than the
+# exit status).
 
 bats_require_minimum_version 1.5.0
 
@@ -122,24 +132,28 @@ teardown() {
   fi
 }
 
+# why: `just docker build test` -> build.sh test
 @test "just docker build forwards positional args to ./script/build.sh" {
   run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" docker build test
   assert_success
   assert_output --partial "build test"
 }
 
+# why: no `--` separator needed
 @test "just docker build passes flags through verbatim (no -- separator needed)" {
   run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" docker build --no-cache test
   assert_success
   assert_output --partial "build --no-cache test"
 }
 
+# why: no EXEC_ARGS shim (#469)
 @test "just docker exec passes = -bearing Kit-style args through (no EXEC_ARGS shim, #469)" {
   run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" docker exec -t cli --/app/k=v
   assert_success
   assert_output --partial "exec -t cli --/app/k=v"
 }
 
+# why: wrapper dispatch
 @test "just docker run / stop / prune / setup forward to their wrappers" {
   run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" docker run -d
   assert_success
@@ -182,6 +196,7 @@ teardown() {
   assert_output --partial "upgrade v0.30.0"
 }
 
+# why: #652 -- apt-aligned check
 @test "just base update runs upgrade.sh --check (apt-aligned, #652)" {
   run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" base update
   assert_success
@@ -194,12 +209,14 @@ teardown() {
   assert_output --partial "init --force"
 }
 
+# why: #653 -- opt-in completions installer dispatch
 @test "just base completions forwards to script/base/completions.sh (#653, ADR-00000011)" {
   run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" base completions install --shell bash
   assert_success
   assert_output --partial "completions install --shell bash"
 }
 
+# why: replaces `make help`; lists `docker`/`base`/...
 @test "bare just lists namespaces (replaces make help)" {
   run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}"
   assert_success
@@ -210,18 +227,21 @@ teardown() {
 
 # ──namespace bare help + recipe --help/--lang forwarding ───────────────
 
+# why: #655 -- namespace help via module default (source_file() --list)
 @test "bare just docker lists the docker verbs (namespace help, #655)" {
   run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" docker
   assert_success
   assert_output --partial "build"
 }
 
+# why: #655 -- namespace help via module default
 @test "bare just base lists the base verbs (namespace help, #655)" {
   run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" base
   assert_success
   assert_output --partial "upgrade"
 }
 
+# why: #655 -- recipe `--help` reaches the script as an arg
 @test "just docker build --help forwards --help to the backing script (#655)" {
   # The docker recipe is `build *args:` -> ./script/build.sh {{args}}, so
   # --help reaches the script as an arg (just 1.52 forwards recipe flags).
@@ -230,12 +250,14 @@ teardown() {
   assert_output --partial "build --help"
 }
 
+# why: #655 -- recipe `--lang` forwarded
 @test "just docker build --lang ja forwards --lang to the backing script (#655)" {
   run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" docker build --lang ja
   assert_success
   assert_output --partial "build --lang ja"
 }
 
+# why: #655 -- base ns recipe `--lang` forwarded
 @test "just base completions --lang forwards --lang to completions.sh (#655)" {
   run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" base completions install --lang zh-TW
   assert_success
@@ -352,6 +374,7 @@ teardown() {
   assert_output --partial "Usage: just template new"
 }
 
+# why: #632 `import?` registry + `mod?` group
 @test "repo-local group via script/local/justfile.local resolves as a top-level namespace (#632)" {
   # The entry imports script/local/justfile.local (`import?`); a group
   # registered there with a `mod?` line (path relative to script/local)
@@ -364,6 +387,7 @@ teardown() {
   assert_output --partial "greet-hi"
 }
 
+# why: #633 / closes #594 -- scaffold + immediately usable
 @test "just template new <name> scaffolds a working repo-local group (#633, closes #594)" {
   run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" template new deploy
   assert_success
@@ -374,6 +398,7 @@ teardown() {
   assert_output --partial "hello from the deploy group"
 }
 
+# why: #633 -- module default recipe
 @test "bare just template prints help (#633)" {
   run just --justfile "${TMP_REPO}/justfile" --working-directory "${TMP_REPO}" template
   assert_success

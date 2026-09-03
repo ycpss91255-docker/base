@@ -1,25 +1,30 @@
 #!/usr/bin/env bash
 #
-# sync-doc-counts.sh - regenerate the test-count figures in doc/test/*.md
-# from the specs themselves, so they stop being hand-edited every PR.
+# sync-doc-counts.sh - regenerate doc/test/*.md from the specs themselves,
+# so no part of the catalogue is hand-kept in agreement with the tree.
 #
-# Single source of truth: `grep -c '^@test'` over each spec file. The
-# check_test_md_drift.sh hook stays the validating safety net; this is the
-# generator that makes the docs match. Idempotent.
+# ONE-DIRECTIONAL, and that is the whole design. Everything derived flows
+# spec -> document:
 #
-# Two kinds of derived content are generated:
+#   1. The count figures -- per-spec `### <path> (N)` headings, the
+#      per-type `**N tests**` totals, and TEST.md's index table +
+#      blockquote prose. Source: `grep -c '^@test'` per spec file.
+#   2. The catalogue SECTIONS -- one per spec file, each with its blurb
+#      and one row per `@test`. Source: the `# why:` markers the spec
+#      files carry (script/test/spec-markers.sh).
 #
-#   1. The count figures -- per-spec `### <path> (N)` headings, the per-type
-#      `**N tests**` totals, and TEST.md's index table + blockquote prose.
-#   2. The per-test CATALOG ROWS -- the `| Test | Description |` tables, one
-#      row per `@test` (see "Catalog rows" below).
+# Nothing flows the other way. A description used to be hand-written in
+# the document and PRESERVED here across regeneration, which made a person
+# the mechanism keeping two files in agreement: a rename lost the prose
+# (the catalogue documented that loss as a rule), a merge could drop a
+# section body while keeping its heading, and a section could leave the
+# per-test rule by changing its table's shape. With the description
+# authored beside the test, a rename carries it, a merge cannot lose it,
+# and a deleted row is restored byte-for-byte by the next run.
 #
-# (2) exists because (1) alone produced the worst kind of stale document: the
-# heading count was regenerated and gated, the hand-written table of per-test
-# rows beside it was neither, so the catalogue silently fell behind while the
-# gate reported "in sync" (deploy_spec.bats: 43 tests, 36 rows, green).
-# Generating the rows makes the catalogue complete by construction -- a human
-# enriches a description, nobody has to remember to add one.
+# The check_test_md_drift.sh hook stays the validating safety net: it runs
+# THIS generator against a throwaway copy and diffs, so the validator
+# cannot drift from the generator. Idempotent.
 #
 # Usage:
 #   ./script/test/sync-doc-counts.sh            # sync REPO_ROOT/doc/test/*.md
@@ -30,6 +35,19 @@
 if [[ "${BASH_SOURCE[0]:-}" == "${0:-}" ]]; then
   set -euo pipefail
 fi
+
+_SYNC_DOC_COUNTS_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
+
+# The marker reader, shared rather than copied. One `# why:` block has
+# exactly one correct reading, and a second copy of that loop would agree
+# with this one on the day it was pasted and drift afterwards -- the defect
+# class this whole change removes. The lint sources the same file; what it
+# does NOT share is the SCAN (which specs are in scope), because a lint
+# that inherits the generator's idea of the population agrees by
+# construction that a spec the generator stopped seeing has nothing to
+# check.
+# shellcheck source=script/test/spec-markers.sh
+source "${_SYNC_DOC_COUNTS_DIR}/spec-markers.sh"
 
 # _dir_test_count <root> <relglob> -- total `^@test` count across the spec
 # files matching <root>/<relglob>. This is the authoritative per-type total
@@ -68,367 +86,219 @@ _doc_spec_glob() {
   esac
 }
 
-# _sync_doc_sections <root> <doc> -- append a catalogue section for every spec
-# file <doc>'s level covers but never mentions.
+# ── Catalogue sections ───────────────────────────────────────────────────────
 #
-# Generating the ROWS makes a table complete; it cannot help a spec file that
-# never got a `### <path> (N)` heading in the first place, which is the same
-# rot one level up and just as invisible to a gate that only re-derives what
-# the doc already mentions. So the section is generated too, for the same
-# reason the rows are: the author enriches the prose, nobody has to remember
-# the scaffolding. New sections land at the end of the doc; move one into its
-# thematic group freely, the generator keys on the heading, not the position.
-_sync_doc_sections() {
-  local _root="$1" _doc="$2" _glob
-  [[ -f "${_doc}" ]] || return 0
-  _glob="$(_doc_spec_glob "$(basename -- "${_doc}")")"
-  [[ -n "${_glob}" ]] || return 0
-
-  # An appended heading must start its own line even if the doc did not end
-  # with a newline.
-  [[ -s "${_doc}" && -n "$(tail -c1 "${_doc}")" ]] && printf '\n' >> "${_doc}"
-
-  local _globstar_was_set=0
-  shopt -q globstar && _globstar_was_set=1
-  shopt -s globstar
-  local _f _rel
-  for _f in "${_root}"/${_glob}; do
-    [[ -f "${_f}" ]] || continue
-    _rel="${_f#"${_root}"/}"
-    grep -qE "^#{3,6}[[:space:]]+${_rel//./\\.}[[:space:]]+\([0-9]+\)[[:space:]]*$" \
-      "${_doc}" && continue
-    {
-      printf '\n### %s (0)\n\n' "${_rel}"
-      printf '| Test | Description |\n|------|-------------|\n'
-    } >> "${_doc}"
-  done
-  (( _globstar_was_set )) || shopt -u globstar
-  return 0
-}
-
-# _sync_headings <root> <doc> -- rewrite each `<hashes> <relpath> (N)` heading's
-# N from grep -c '^@test' on <root>/<relpath> (leaving headings whose path does
-# not resolve untouched). Any ATX depth is matched (### and #### and deeper) and
-# re-emitted at its original depth: per-leaf-lib specs use level-4 `####`
-# sub-headings (ADR-00000015), and anchoring on `###` alone left those counts
-# unregenerated -- a silent drift the drift checker (same generator) was blind
-# to.
-_sync_headings() {
-  local _root="$1" _doc="$2" _tmp _line
-  [[ -f "${_doc}" ]] || return 0
-  _tmp="$(mktemp "${_doc}.XXXXXX")" || return 1
-  while IFS= read -r _line || [[ -n "${_line}" ]]; do
-    if [[ "${_line}" =~ ^(#{3,6})[[:space:]]+(.+)[[:space:]]+\([0-9]+\)[[:space:]]*$ ]]; then
-      local _hashes="${BASH_REMATCH[1]}" _path="${BASH_REMATCH[2]}" _n
-      if [[ -f "${_root}/${_path}" ]]; then
-        _n="$(grep -cE '^@test' "${_root}/${_path}" 2>/dev/null || true)"
-        printf '%s %s (%s)\n' "${_hashes}" "${_path}" "${_n:-0}"
-        continue
-      fi
-    fi
-    printf '%s\n' "${_line}"
-  done < "${_doc}" > "${_tmp}"
-  mv "${_tmp}" "${_doc}"
-}
-
-# ── Catalog rows ─────────────────────────────────────────────────────────────
+# The generation is ONE-DIRECTIONAL. Descriptions and section blurbs are
+# read out of the SPEC FILES (script/test/spec-markers.sh, `# why:`) and
+# written into doc/test/*.md. Nothing reads a description back out of the
+# catalogue: the round trip is what made a person the mechanism keeping
+# two files in agreement, and it is what a rename used to break.
 #
-# A spec section opts INTO a generated per-test catalogue by carrying a
-# `| Test | Description |` table; the generator then guarantees exactly one
-# row per `@test`, in spec file order. A section that summarises instead (the
-# `| Category | Tests |` shape used by the very large specs) or carries only
-# prose is left untouched -- an editorial choice about presentation, visible
-# in the diff, not silent rot inside a table that claims to be per-test.
+# The generated region is delimited and replaced WHOLESALE:
+#
+#   <!-- generated: catalogue sections -->
+#   ... every section, regenerated from the spec tree ...
+#   <!-- /generated -->
+#
+# Wholesale, never merged, because merging is the behaviour that let a
+# section survive its spec and a table survive its rows. Outside the
+# fence the document is hand-written and this generator does not touch
+# it: the title, the "how this catalogue is maintained" prose, and the
+# per-level narrative sections enumerate nothing -- no spec, no test, no
+# count -- so nothing out there can fall behind the tree.
 #
 # The contract, in full (doc/test/unit.md states it for readers too):
 #
-#   Row identity   The test name, exactly as bats reports it. The name is
-#                  read from the `@test "..." {` line with bash double-quote
-#                  unescaping applied (`\"` `\\` `\$` `` \` `` lose the
-#                  backslash), so a row can be pasted straight into
-#                  `--filter`. A `|` in the name is escaped `\|` on the way
-#                  into the table and unescaped on the way back out, so the
-#                  table cannot be broken by a test name.
-#   Preservation   A row whose test still exists keeps its description
-#                  verbatim -- match is on the name, so hand-written prose
-#                  survives regeneration. That is the whole point: the count
-#                  was generated and the prose was not, and the asymmetry is
-#                  what rotted.
-#   Deletion       A row naming no existing test is dropped.
-#   Rename         Delete plus add: the old row goes, the new name arrives
-#                  with the placeholder description. Prose does NOT follow a
-#                  rename -- there is no reliable way to tell a rename from a
-#                  delete+add. To carry prose across a rename, rename the row
-#                  in the doc in the same commit, then regenerate.
-#   Ordering       Spec file order, not alphabetical. The table then reads as
-#                  the spec reads (the deliberate grouping of related cases
-#                  survives), and reordering a spec produces the matching doc
-#                  diff instead of an unrelated scatter.
-#   Placeholder    A test with no description gets `-`, the same "unset"
-#                  marker the config summary uses. Enriching it is optional;
-#                  omitting it is not possible.
+#   Row identity   The test name, exactly as bats reports it, so a row can
+#                  be pasted straight into `--filter`. A `|` in the name is
+#                  escaped `\|` on the way into the table.
+#   Description    Whatever the test's `# why:` block says, joined to one
+#                  line. A `|` in it is escaped by the RENDERER: the marker
+#                  holds prose and markdown is the renderer's problem.
+#                  A test with no marker renders `-`.
+#   Blurb          The spec file's own file-level `# why:` block, wrapped.
+#   Ordering       Spec-file order within a section; the level's glob order
+#                  between sections. Both are derivable from a checkout,
+#                  which hand-placed sections were not.
+#   Rename         Carries the description with it, because the description
+#                  is on the lines above the test that moved.
+
+# The fence. A catalogue that has lost it is an ERROR, not a document with
+# nothing to generate: silently writing no sections is how a generator
+# stops covering a level while its gate stays green.
+_CATALOG_FENCE_OPEN='<!-- generated: catalogue sections -->'
+_CATALOG_FENCE_CLOSE='<!-- /generated -->'
+
+# Prose is wrapped at this tree's own norm rather than emitted as one long
+# line, so the committed catalogue stays readable and a blurb edit shows up
+# as a local diff instead of one rewritten paragraph-line.
+_CATALOG_WRAP_WIDTH=76
+
+# The two line-openers that would turn wrapped prose into markdown
+# STRUCTURE: an ATX heading and a table row. Wrapping decides where a line
+# starts, so without this a blurb could grow a heading at a line break that
+# has nothing to do with the prose.
 #
-# Only the FIRST per-test table in a section is treated as the catalogue; a
-# second one is left to the author.
+# The heading pattern requires the space CommonMark requires, which is not
+# pedantry: a bare issue reference (a hash followed straight by digits)
+# opens no heading, and escaping one would rewrite prose a blurb is
+# entitled to contain -- it happens in this tree. List markers are
+# deliberately NOT escaped: a blurb that argues in bullets should render
+# as bullets.
+_CATALOG_PROSE_ESCAPE_RE='^(#{1,6}([[:space:]]|$)|\|)'
 
-# _catalog_unescape_into <outvar> <raw> -- bash double-quote unescaping of
-# <raw> into <outvar>: `\X` collapses to `X` for the four characters bash
-# treats specially inside "...", every other backslash is literal. This is
-# what bats does to the `@test "..."` name before printing it, so applying it
-# here keeps a row's identity equal to the name in the TAP output.
-_catalog_unescape_into() {
-  local -n _catalog_unescape_out="$1"
-  local _raw="$2" _res='' _i _ch _next
-  local _bs=$'\\'
-  local _len="${#_raw}"
-  for (( _i = 0; _i < _len; _i++ )); do
-    _ch="${_raw:_i:1}"
-    if [[ "${_ch}" == "${_bs}" && $(( _i + 1 )) -lt "${_len}" ]]; then
-      _next="${_raw:_i+1:1}"
-      if [[ "${_next}" == '"' || "${_next}" == "${_bs}" \
-        || "${_next}" == '$' || "${_next}" == '`' ]]; then
-        _res+="${_next}"
-        (( _i++ ))
-        continue
-      fi
+# _catalog_prose_line <line> -- one wrapped prose line, escaped if it would
+# otherwise open a block.
+_catalog_prose_line() {
+  if [[ "$1" =~ ${_CATALOG_PROSE_ESCAPE_RE} ]]; then
+    printf '\\%s\n' "$1"
+    return 0
+  fi
+  printf '%s\n' "$1"
+}
+
+# _catalog_wrap <text> -- <text> greedily wrapped to _CATALOG_WRAP_WIDTH.
+# `read -r -a` rather than an unquoted expansion: word splitting is wanted
+# here, filename globbing is not, and a blurb that mentions `*.sh` would
+# otherwise be replaced by whatever the working directory holds.
+_catalog_wrap() {
+  local _text="$1" _line='' _word
+  local -a _words=()
+  read -r -a _words <<< "${_text}"
+  for _word in "${_words[@]}"; do
+    if [[ -z "${_line}" ]]; then
+      _line="${_word}"
+    elif (( ${#_line} + 1 + ${#_word} <= _CATALOG_WRAP_WIDTH )); then
+      _line+=" ${_word}"
+    else
+      _catalog_prose_line "${_line}"
+      _line="${_word}"
     fi
-    _res+="${_ch}"
   done
-  _catalog_unescape_out="${_res}"
+  [[ -n "${_line}" ]] && _catalog_prose_line "${_line}"
+  return 0
 }
 
-# _spec_test_names <file> -- the bats test names in <file>, in file order,
-# one per line. Kept in step with the `grep -cE '^@test'` the counts use: the
-# same lines match, so a heading count and its row count cannot disagree.
-_spec_test_names() {
-  local _file="$1" _line _name
-  [[ -f "${_file}" ]] || return 0
-  while IFS= read -r _line || [[ -n "${_line}" ]]; do
-    [[ "${_line}" =~ ^@test[[:space:]]+\"(.*)\"[[:space:]]*\{[[:space:]]*$ ]] \
-      || continue
-    _catalog_unescape_into _name "${BASH_REMATCH[1]}"
-    printf '%s\n' "${_name}"
-  done < "${_file}"
+# _catalog_wrap_paragraphs <text> -- <text> as wrapped markdown paragraphs,
+# one blank line between them. A file-level `# why:` block keeps its
+# paragraph breaks (spec-markers.sh returns them as newlines), so a blurb
+# that argues in three paragraphs renders as three, not as one wall.
+_catalog_wrap_paragraphs() {
+  local _text="$1" _para _first=1
+  while IFS= read -r _para; do
+    [[ -n "${_para}" ]] || continue
+    (( _first )) || printf '\n'
+    _first=0
+    _catalog_wrap "${_para}"
+  done <<< "${_text}"
+  return 0
 }
 
-# _catalog_cell_split_into <name-outvar> <desc-outvar> <line> -- split a
-# `| `name` | description |` row. Returns 1 for a line that is not a table
-# row. Splitting is done on the first UNESCAPED `|` so a `\|` inside a test
-# name does not end the cell; the description keeps any `|` it contains.
-_catalog_cell_split_into() {
-  local -n _catalog_split_name="$1"
-  local -n _catalog_split_desc="$2"
-  local _line="$3"
-  [[ "${_line}" == '|'* ]] || return 1
-  local _body="${_line#|}"
-  local _cell='' _rest='' _i _ch
-  local _bs=$'\\'
-  local _len="${#_body}"
-  for (( _i = 0; _i < _len; _i++ )); do
-    _ch="${_body:_i:1}"
-    if [[ "${_ch}" == "${_bs}" && $(( _i + 1 )) -lt "${_len}" ]]; then
-      _cell+="${_body:_i:2}"
-      (( _i++ ))
-      continue
-    fi
-    if [[ "${_ch}" == '|' ]]; then
-      _rest="${_body:_i+1}"
-      break
-    fi
-    _cell+="${_ch}"
-  done
-  # Trim, drop the code-span backticks (one or two, whatever the name needed)
-  # and undo the table-level `\|` escaping to recover the raw test name.
-  _cell="${_cell#"${_cell%%[![:space:]]*}"}"
-  _cell="${_cell%"${_cell##*[![:space:]]}"}"
-  _cell="${_cell#\`\`}"
-  _cell="${_cell%\`\`}"
-  _cell="${_cell#\`}"
-  _cell="${_cell%\`}"
-  _cell="${_cell//\\|/|}"
-  # The description is everything up to the closing pipe of the row.
-  _rest="${_rest%|}"
-  _rest="${_rest#"${_rest%%[![:space:]]*}"}"
-  _rest="${_rest%"${_rest##*[![:space:]]}"}"
-  _catalog_split_name="${_cell}"
-  _catalog_split_desc="${_rest}"
-}
-
-# _catalog_render_row <name> <desc> -- one markdown catalog row. A `|` in the
-# name is escaped; a name containing a backtick gets a double-backtick code
-# span so the span still closes where it should.
+# _catalog_render_row <name> <desc> -- one markdown catalog row. A `|` is
+# escaped in BOTH cells: the name has always been escaped here, and the
+# description now is too, because the author types prose into a `# why:`
+# block and must not be asked to know it will end up between pipes. A name
+# containing a backtick gets a double-backtick code span so the span still
+# closes where it should.
 _catalog_render_row() {
   local _name="$1" _desc="$2" _fence='`'
   [[ "${_name}" == *'`'* ]] && _fence='``'
-  printf '| %s%s%s | %s |\n' "${_fence}" "${_name//|/\\|}" "${_fence}" "${_desc}"
+  printf '| %s%s%s | %s |\n' \
+    "${_fence}" "${_name//|/\\|}" "${_fence}" "${_desc//|/\\|}"
 }
 
-# _catalog_flush <spec-file> <descmap-varname> <rule-seen> -- emit the table
-# body: the canonical rule when the source table had none, then one row per
-# `@test` in <spec-file>, each carrying the description <descmap-varname>
-# recorded for that name (`-` when there is none).
-_catalog_flush() {
-  local _spec_file="$1" _rule_seen="$3" _name
-  local -n _catalog_flush_desc="$2"
-  (( _rule_seen )) || printf '%s\n' '|------|-------------|'
-  while IFS= read -r _name; do
-    _catalog_render_row "${_name}" "${_catalog_flush_desc[${_name}]:--}"
-  done < <(_spec_test_names "${_spec_file}")
+# _catalog_render_sections <root> <glob> -- the whole generated region for
+# one level, on stdout: one section per spec file the glob matches, in glob
+# order, each with its heading + count, its blurb, and one row per `@test`.
+_catalog_render_sections() {
+  local _root="$1" _glob="$2" _f _rel _n _rec _name _desc
+  local -a _cat_tests=() _cat_findings=()
+  local _cat_blurb=''
+
+  # Section order is the glob's, sorted EXPLICITLY under LC_ALL=C rather
+  # than left to pathname expansion. Bash sorts a glob by the current
+  # locale's collation, and this generator runs in two of them: the musl
+  # alpine test-tools container and a glibc host. Under en_US
+  # `log_spec.bats` and `logrotate_spec.bats` come out in the opposite
+  # order to C, because the underscore is ignored at the primary level --
+  # so the same tree regenerated in the two places produced two byte
+  # sequences and the drift gate fired on a checkout nobody had touched.
+  # The globstar dance happens in the subshell, which is also why nothing
+  # has to be saved and restored here.
+  local -a _cat_files=()
+  mapfile -t _cat_files < <(
+    shopt -s globstar
+    for _f in "${_root}"/${_glob}; do
+      # `|| continue` and not `&& printf`: under pipefail the loop's status
+      # is the last iteration's, so a final non-file match would fail the
+      # pipeline and take the whole generator with it.
+      [[ -f "${_f}" ]] || continue
+      printf '%s\n' "${_f}"
+    done | LC_ALL=C sort
+  )
+
+  for _f in "${_cat_files[@]+"${_cat_files[@]}"}"; do
+    _rel="${_f#"${_root}"/}"
+    # The SAME `grep -cE '^@test'` the per-type totals use, so a heading
+    # count and its row count cannot disagree -- a line this counts and
+    # the reader refuses is a finding there, not a silent gap here.
+    _n="$(grep -cE '^@test' "${_f}" 2>/dev/null || true)"
+    _spec_markers_scan "${_f}" _cat_tests _cat_findings _cat_blurb
+    printf '\n### %s (%s)\n' "${_rel}" "${_n:-0}"
+    if [[ -n "${_cat_blurb}" ]]; then
+      printf '\n'
+      _catalog_wrap_paragraphs "${_cat_blurb}"
+    fi
+    printf '\n| Test | Description |\n|------|-------------|\n'
+    if (( ${#_cat_tests[@]} > 0 )); then
+      for _rec in "${_cat_tests[@]}"; do
+        # `<line> TAB <marked> TAB <name> TAB <desc>`; the description is
+        # the remainder, so a TAB in it would be kept, not split on.
+        _name="${_rec#*$'\t'}"
+        _name="${_name#*$'\t'}"
+        _desc="${_name#*$'\t'}"
+        _name="${_name%%$'\t'*}"
+        _catalog_render_row "${_name}" "${_desc:--}"
+      done
+    fi
+  done
+  printf '\n'
 }
 
-# _sync_catalog_rows <root> <doc> -- regenerate every per-test catalog table
-# in <doc> from the spec file its section heading names.
-#
-# Line-oriented state machine over the doc: the heading sets the current spec
-# (empty when the path does not resolve, so a section about a spec that left
-# the tree is preserved as history), the `| Test | Description |` header opens
-# the table, the rows that follow are absorbed into a name -> description map,
-# and the map plus the spec's own test list produce the new rows.
-_sync_catalog_rows() {
-  local _root="$1" _doc="$2"
+# _sync_catalog_region <root> <doc> <glob> -- replace <doc>'s fenced region
+# with a freshly rendered one. Fails, naming the document, when either
+# fence is missing.
+_sync_catalog_region() {
+  local _root="$1" _doc="$2" _glob="$3"
   [[ -f "${_doc}" ]] || return 0
   local _tmp
   _tmp="$(mktemp "${_doc}.XXXXXX")" || return 1
-
-  local _spec='' _line _in_table=0 _rule_seen=0
-  local -A _desc=()
-  local _rowname _rowdesc
-
+  local _line _inside=0 _open=0 _close=0
   while IFS= read -r _line || [[ -n "${_line}" ]]; do
-    if (( _in_table )); then
-      if [[ "${_line}" == '|'* ]]; then
-        if (( ! _rule_seen )) && [[ "${_line}" =~ ^\|[-:[:space:]|]+\|[[:space:]]*$ ]]; then
-          printf '%s\n' "${_line}"
-          _rule_seen=1
-          continue
-        fi
-        if _catalog_cell_split_into _rowname _rowdesc "${_line}"; then
-          [[ -n "${_rowname}" ]] && _desc["${_rowname}"]="${_rowdesc}"
-        fi
-        continue
-      fi
-      _catalog_flush "${_root}/${_spec}" _desc "${_rule_seen}"
-      _in_table=0
-      _rule_seen=0
-      _desc=()
+    if [[ "${_line}" == "${_CATALOG_FENCE_OPEN}" ]]; then
+      _open=1
+      _inside=1
+      printf '%s\n' "${_line}"
+      _catalog_render_sections "${_root}" "${_glob}"
+      continue
     fi
-
-    if [[ "${_line}" =~ ^#{1,6}[[:space:]] ]]; then
-      _spec=''
-      if [[ "${_line}" =~ ^#{3,6}[[:space:]]+(.+)[[:space:]]+\([0-9]+\)[[:space:]]*$ ]] \
-        && [[ -f "${_root}/${BASH_REMATCH[1]}" ]]; then
-        _spec="${BASH_REMATCH[1]}"
-      fi
+    if [[ "${_line}" == "${_CATALOG_FENCE_CLOSE}" ]]; then
+      _close=1
+      _inside=0
       printf '%s\n' "${_line}"
       continue
     fi
-
-    if [[ -n "${_spec}" ]] \
-      && [[ "${_line}" =~ ^\|[[:space:]]*Test[[:space:]]*\|[[:space:]]*Description[[:space:]]*\|[[:space:]]*$ ]]; then
-      printf '%s\n' "${_line}"
-      _in_table=1
-      continue
-    fi
-
+    (( _inside )) && continue
     printf '%s\n' "${_line}"
   done < "${_doc}" > "${_tmp}"
-  # A table that runs to the end of file never hit the non-row line that
-  # flushes it inside the loop.
-  if (( _in_table )); then
-    _catalog_flush "${_root}/${_spec}" _desc "${_rule_seen}" >> "${_tmp}"
+  if (( ! _open || ! _close )); then
+    rm -f "${_tmp}"
+    {
+      printf "sync-doc-counts: %s carries no '%s' ... '%s' region -- the catalogue sections are generated into it, so a document without one would silently stop covering its level.\n" \
+        "${_doc}" "${_CATALOG_FENCE_OPEN}" "${_CATALOG_FENCE_CLOSE}"
+    } >&2
+    return 1
   fi
-
-  mv "${_tmp}" "${_doc}"
-}
-
-# _catalog_key <spec> <name> -- map key for one catalog row. Scoped by spec
-# file because the same test name legitimately appears in two specs with two
-# different descriptions.
-_catalog_key() {
-  printf '%s\t%s\n' "$1" "$2"
-}
-
-# _catalog_collect_descriptions <root> <doc> <mapvar> -- record every catalog
-# row's description into the associative array <mapvar>, keyed by
-# _catalog_key. Read-only. Used by resolve-doc-counts.sh to reconcile the two
-# sides of a merge: descriptions are the one part of a catalog table the
-# generator preserves rather than derives, so they are the one part a
-# mechanical collapse could silently drop.
-_catalog_collect_descriptions() {
-  local _root="$1" _doc="$2"
-  local -n _catalog_collect_map="$3"
-  [[ -f "${_doc}" ]] || return 0
-  local _spec='' _line _in_table=0 _rowname _rowdesc
-  while IFS= read -r _line || [[ -n "${_line}" ]]; do
-    if (( _in_table )); then
-      if [[ "${_line}" == '|'* ]]; then
-        [[ "${_line}" =~ ^\|[-:[:space:]|]+\|[[:space:]]*$ ]] && continue
-        if _catalog_cell_split_into _rowname _rowdesc "${_line}"; then
-          [[ -n "${_rowname}" ]] \
-            && _catalog_collect_map["$(_catalog_key "${_spec}" "${_rowname}")"]="${_rowdesc}"
-        fi
-        continue
-      fi
-      _in_table=0
-    fi
-    if [[ "${_line}" =~ ^#{1,6}[[:space:]] ]]; then
-      _spec=''
-      if [[ "${_line}" =~ ^#{3,6}[[:space:]]+(.+)[[:space:]]+\([0-9]+\)[[:space:]]*$ ]] \
-        && [[ -f "${_root}/${BASH_REMATCH[1]}" ]]; then
-        _spec="${BASH_REMATCH[1]}"
-      fi
-      continue
-    fi
-    [[ -n "${_spec}" ]] \
-      && [[ "${_line}" =~ ^\|[[:space:]]*Test[[:space:]]*\|[[:space:]]*Description[[:space:]]*\|[[:space:]]*$ ]] \
-      && _in_table=1
-  done < "${_doc}"
-}
-
-# _catalog_apply_descriptions <root> <doc> <mapvar> -- rewrite each catalog
-# row's description from <mapvar> (rows with no entry keep what they have).
-# The inverse of _catalog_collect_descriptions.
-_catalog_apply_descriptions() {
-  local _root="$1" _doc="$2"
-  local -n _catalog_apply_map="$3"
-  [[ -f "${_doc}" ]] || return 0
-  local _tmp
-  _tmp="$(mktemp "${_doc}.XXXXXX")" || return 1
-  local _spec='' _line _in_table=0 _rowname _rowdesc _key
-  while IFS= read -r _line || [[ -n "${_line}" ]]; do
-    if (( _in_table )); then
-      if [[ "${_line}" == '|'* ]]; then
-        if [[ "${_line}" =~ ^\|[-:[:space:]|]+\|[[:space:]]*$ ]]; then
-          printf '%s\n' "${_line}"
-          continue
-        fi
-        if _catalog_cell_split_into _rowname _rowdesc "${_line}" \
-          && [[ -n "${_rowname}" ]]; then
-          _key="$(_catalog_key "${_spec}" "${_rowname}")"
-          _catalog_render_row "${_rowname}" \
-            "${_catalog_apply_map[${_key}]:-${_rowdesc}}"
-          continue
-        fi
-        printf '%s\n' "${_line}"
-        continue
-      fi
-      _in_table=0
-    fi
-    if [[ "${_line}" =~ ^#{1,6}[[:space:]] ]]; then
-      _spec=''
-      if [[ "${_line}" =~ ^#{3,6}[[:space:]]+(.+)[[:space:]]+\([0-9]+\)[[:space:]]*$ ]] \
-        && [[ -f "${_root}/${BASH_REMATCH[1]}" ]]; then
-        _spec="${BASH_REMATCH[1]}"
-      fi
-      printf '%s\n' "${_line}"
-      continue
-    fi
-    if [[ -n "${_spec}" ]] \
-      && [[ "${_line}" =~ ^\|[[:space:]]*Test[[:space:]]*\|[[:space:]]*Description[[:space:]]*\|[[:space:]]*$ ]]; then
-      _in_table=1
-    fi
-    printf '%s\n' "${_line}"
-  done < "${_doc}" > "${_tmp}"
   mv "${_tmp}" "${_doc}"
 }
 
@@ -475,18 +345,20 @@ _sync_test_md_index() {
   sed -i -E "s/(grand total \(unit \+ integration\): )\*\*[0-9]+\*\*/\1**${_tot}**/" "${_t}"
 }
 
-# _sync_doc_counts [root] -- regenerate all doc/test/*.md count figures.
+
+# _sync_doc_counts [root] -- regenerate every derived figure and every
+# catalogue section under <root>/doc/test.
 _sync_doc_counts() {
   local _root="${1:-${REPO_ROOT:-.}}"
-  local _doc
-  local _glob
+  local _doc _glob
   for _doc in "${_root}"/doc/test/*.md; do
     [[ -f "${_doc}" ]] || continue
-    _sync_doc_sections "${_root}" "${_doc}"
-    _sync_headings "${_root}" "${_doc}"
-    _sync_catalog_rows "${_root}" "${_doc}"
     _glob="$(_doc_spec_glob "$(basename -- "${_doc}")")"
+    # TEST.md is the index, not a per-level catalogue: it has no spec glob
+    # and no fenced region, and its figures are written by
+    # _sync_test_md_index below.
     [[ -n "${_glob}" ]] || continue
+    _sync_catalog_region "${_root}" "${_doc}" "${_glob}" || return 1
     _sync_type_total "${_doc}" "$(_dir_test_count "${_root}" "${_glob}")"
   done
   _sync_test_md_index "${_root}"
@@ -494,8 +366,8 @@ _sync_doc_counts() {
 
 main() {
   local _root="${1:-${REPO_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}}"
-  _sync_doc_counts "${_root}"
-  printf 'synced doc/test counts under %s\n' "${_root}/doc/test"
+  _sync_doc_counts "${_root}" || return 1
+  printf 'synced doc/test catalogues under %s\n' "${_root}/doc/test"
 }
 
 if [[ "${BASH_SOURCE[0]:-}" == "${0:-}" ]]; then

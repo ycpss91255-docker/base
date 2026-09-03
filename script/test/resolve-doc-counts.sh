@@ -25,24 +25,24 @@
 # the generator does not derive. That already bit this repo: the "System (N)
 # and smoke (N)" prose in TEST.md was hand-maintained, and a collapse silently
 # carried the stale side through three times before the generator learned to
-# regenerate it. Per-test catalog rows reopened the same hazard from the other
-# end -- the row NAMES are generated, the DESCRIPTIONS are hand-written prose
-# the generator preserves but cannot re-derive, so a collapse can drop a
-# sentence nothing will ever put back.
+# regenerate it.
 #
 # So this script never trusts one side. It regenerates BOTH collapses and
-# reconciles them:
+# then compares them. Any remaining difference is, by construction, content
+# the generator does not own -- and it is refused with the diff rather than
+# picked. That check is what keeps this script honest as the generator grows:
+# it does not carry a list of "figures that are generated" to fall out of
+# date, it simply refuses to adopt anything regeneration cannot justify.
 #
-#   * A description present on one side and absent (placeholder `-`) on the
-#     other is adopted -- prose is additive, and a branch that predates a row
-#     is not an opinion about it.
-#   * Two different descriptions for the same test are a genuine editorial
-#     conflict: refused, naming the test and both wordings.
-#   * Any remaining difference between the two regenerated sides is, by
-#     construction, content the generator does not own: refused with the diff.
-#     That check is what keeps this script honest as the generator grows --
-#     it does not carry a list of "figures that are generated" to fall out of
-#     date, it simply refuses to adopt anything regeneration cannot justify.
+# What USED to need more than that was the per-test description: the row
+# names were generated and the descriptions were hand-written prose the
+# generator preserved but could not re-derive, so a collapse could drop a
+# sentence nothing would put back, and this script had to reconcile the two
+# sides row by row. Descriptions are now authored in the spec files and
+# rendered from there, so both sides of a merge regenerate them from the same
+# merged spec tree and there is nothing left to reconcile. The reconciliation
+# is deleted rather than kept "in case": code that reads prose out of the
+# catalogue is exactly the direction the catalogue no longer flows.
 #
 # Style: Google Shell Style Guide.
 
@@ -164,50 +164,6 @@ _resolve_build_side() {
   return 0
 }
 
-# _resolve_placeholder <desc> -- true when <desc> carries no information, so
-# the other side's wording can be adopted without overruling anyone.
-_resolve_placeholder() {
-  [[ -z "$1" || "$1" == '-' ]]
-}
-
-# _resolve_merge_descriptions <ours-root> <theirs-root> <out-mapvar> --
-# reconcile the catalog descriptions of the two regenerated sides into
-# <out-mapvar>. Fails, naming every offender, when the two sides describe the
-# same test differently: that is an editorial decision, not derived data, and
-# it is the one thing this script must never quietly pick a winner for.
-_resolve_merge_descriptions() {
-  local _ours="$1" _theirs="$2"
-  local -n _resolve_merge_out="$3"
-  local -A _resolve_d_ours=() _resolve_d_theirs=()
-  local _doc _key _o _t _bad=0
-
-  for _doc in "${_ours}"/doc/test/*.md; do
-    [[ -f "${_doc}" ]] && _catalog_collect_descriptions "${_ours}" "${_doc}" \
-      _resolve_d_ours
-  done
-  for _doc in "${_theirs}"/doc/test/*.md; do
-    [[ -f "${_doc}" ]] && _catalog_collect_descriptions "${_theirs}" "${_doc}" \
-      _resolve_d_theirs
-  done
-
-  for _key in "${!_resolve_d_ours[@]}" "${!_resolve_d_theirs[@]}"; do
-    [[ -n "${_resolve_merge_out[${_key}]+x}" ]] && continue
-    _o="${_resolve_d_ours[${_key}]:-}"
-    _t="${_resolve_d_theirs[${_key}]:-}"
-    if [[ "${_o}" == "${_t}" ]]; then
-      _resolve_merge_out["${_key}"]="${_o}"
-    elif _resolve_placeholder "${_o}"; then
-      _resolve_merge_out["${_key}"]="${_t}"
-    elif _resolve_placeholder "${_t}"; then
-      _resolve_merge_out["${_key}"]="${_o}"
-    else
-      _resolve_err "both sides describe ${_key%%$'\t'*} test '${_key#*$'\t'}' differently -- ours: '${_o}' / theirs: '${_t}'. Pick the wording by hand, then re-run."
-      _bad=1
-    fi
-  done
-  return "${_bad}"
-}
-
 # _resolve_doc_counts [root] -- the whole flow. See the file header for the
 # reconciliation contract.
 _resolve_doc_counts() {
@@ -272,22 +228,10 @@ _resolve_reconcile() {
   _resolve_build_side "${_root}" "${_ours}" ours "${_conflicted[@]}" || return 1
   _resolve_build_side "${_root}" "${_theirs}" theirs "${_conflicted[@]}" \
     || return 1
-  _sync_doc_counts "${_ours}" >/dev/null
-  _sync_doc_counts "${_theirs}" >/dev/null
+  _sync_doc_counts "${_ours}" >/dev/null || return 1
+  _sync_doc_counts "${_theirs}" >/dev/null || return 1
 
-  local -A _merged=()
-  _resolve_merge_descriptions "${_ours}" "${_theirs}" _merged || return 1
-
-  local _doc _base
-  for _doc in "${_ours}"/doc/test/*.md; do
-    [[ -f "${_doc}" ]] && _catalog_apply_descriptions "${_ours}" "${_doc}" _merged
-  done
-  for _doc in "${_theirs}"/doc/test/*.md; do
-    [[ -f "${_doc}" ]] && _catalog_apply_descriptions "${_theirs}" "${_doc}" \
-      _merged
-  done
-
-  local _diff
+  local _doc _base _diff
   if ! _diff="$(diff -ru "${_ours}/doc/test" "${_theirs}/doc/test" 2>/dev/null)"; then
     {
       printf 'resolve-doc-counts: the two sides do not agree on content the generator does not derive, so no collapse can be justified by regeneration. Resolve these by hand:\n'

@@ -53,6 +53,7 @@ default:
 # / `just test lint --derived-figures` / `just test lint --changelog-entry`
 # / `just test lint --action-ref-agreement`
 # / `just test lint --just-provenance`
+# / `just test lint --catalog-description`
 # (ADR-00000011 sec.3 min->max). Every narrowing flag runs in-container so
 # the behaviour matches the bare `lint`; the GHA lint jobs use the host-only
 # `test.sh --<tool>-only` primitives instead (shellcheck, doc-counts, and
@@ -61,6 +62,52 @@ default:
 # runs, and self_test_yaml_spec asserts every entry of it has a CI job.
 lint *args:
     ./script/test/test.sh --lint {{args}}
+
+# lifecycle: CREATES NOTHING. It is the one recipe here that runs
+# host-direct -- pure bash over the checkout, no compose, no container --
+# so there is no project to reclaim and no previous run to wait for.
+#
+# just test metrics -> the three implementation-standard shell metrics
+# (base#994 phase 2): nesting depth <= 3, function length <= 50 body code
+# lines, positional parameters <= 5, measured over every tracked shell
+# file by ONE reader in ONE pass (script/test/drivers/shell_metrics.sh).
+#
+# It is NOT part of the default `just test` gate and not part of
+# `just test lint`: on today's tree it reports 102 violations (26 over
+# nesting depth, 69 over function length, 7 over positional parameters),
+# which phase 3 flattens in slices and phase 4 then gates.
+# This recipe exists because phase 3 works from its output -- every
+# violation is printed, one per line, `file:line: name -- metric N`.
+#
+# `metric` narrows to one of the three, for a slice that is working on
+# just that number:
+#
+#   just test metrics                     # all three
+#   just test metrics nesting-depth
+#   just test metrics function-length
+#   just test metrics positional-params
+#
+# It runs on the HOST rather than through the ci container, unlike every
+# recipe above. The population is derived from the git index, and a
+# `git worktree` checkout's `.git` is a FILE naming a path outside the
+# container's bind mount -- inside the container the lint would refuse
+# rather than measure. The driver is pure bash over the checkout, which
+# is the same shape the `lint-static` CI matrix already runs host-direct.
+#
+# just test metrics [nesting-depth|function-length|positional-params]
+metrics metric='':
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case '{{metric}}' in
+      '')                 ./script/test/test.sh --shell-metrics-only ;;
+      nesting-depth)      ./script/test/test.sh --nesting-depth-only ;;
+      function-length)    ./script/test/test.sh --function-length-only ;;
+      positional-params)  ./script/test/test.sh --positional-params-only ;;
+      *)
+        echo "just test metrics: unknown metric '{{metric}}' (expected nesting-depth | function-length | positional-params | empty)" >&2
+        exit 2
+        ;;
+    esac
 
 # lifecycle: RECLAIMED BY THE RUNNER. script/test/test.sh installs an EXIT
 # trap that sweeps orphaned compose projects on every dispatch it arms,
@@ -309,9 +356,13 @@ clean:
 # the `base` namespace supersedes them -- use `just base init`,
 # `just base upgrade [vX.Y.Z]`, `just base update` (the apt-style check).
 
-# just test sync-docs -> regenerate doc/test/*.md count figures from the specs
-# (grep -c '^@test'), so the per-spec headings + per-type/grand totals stop
-# being hand-edited. Idempotent; check_test_md_drift.sh remains the validator.
+# just test sync-docs -> regenerate doc/test/*.md from the specs: the count
+# figures (grep -c '^@test') AND the catalogue sections, whose blurbs and
+# per-test descriptions are read out of the spec files' own `# why:` marker
+# blocks. One-directional -- nothing is read back out of the catalogue, so a
+# row deleted there is restored byte-for-byte and a renamed test carries its
+# description with it. Idempotent; check_test_md_drift.sh remains the
+# validator, and it runs THIS generator against a throwaway copy.
 sync-docs:
     ./script/test/sync-doc-counts.sh
 
@@ -332,12 +383,11 @@ sync-docs-check:
     ./script/test/test.sh --lint --doc-counts
 
 # just test resolve-docs -> resolve a doc/test/*.md MERGE CONFLICT in one
-# command: collapse the markers, regenerate the figures from the merged spec
-# tree, verify, and stage. Replaces the hand-retyped
-# awk-collapse + sync-docs + sync-docs-check recipe. It refuses (loudly,
-# staging nothing) rather than pick a side whenever the two sides disagree
-# about something regeneration cannot justify -- notably a catalog row that
-# both sides describe differently.
+# command: collapse the markers, regenerate from the merged spec tree,
+# verify, and stage. It refuses (loudly, staging nothing) rather than pick a
+# side whenever the two collapses still differ after regeneration -- which
+# now means only hand-written prose OUTSIDE the generated region, since
+# everything inside it is derived from the specs both sides already merged.
 resolve-docs:
     ./script/test/resolve-doc-counts.sh
 

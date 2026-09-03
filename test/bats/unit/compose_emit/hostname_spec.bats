@@ -10,6 +10,11 @@
 # hostname to the host's name so local X still authenticates. Under host
 # networking (the container already shares the host's UTS namespace) or
 # when GUI is off, no hostname line is injected.
+#
+# why: The GUI-under-bridge `hostname:` injection: a bridge-network GUI
+# container pins its hostname to the host name so X11 authority matches,
+# host-network and GUI-off cases inject nothing, and a per-stage override
+# decides per stage.
 
 bats_require_minimum_version 1.5.0
 

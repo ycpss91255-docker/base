@@ -3,6 +3,27 @@
 # Unit tests for dist/script/docker/wrapper/stop.sh argument handling and i18n log lines.
 # Sandbox tree mirrors build_sh_spec.bats. A PATH-shimmed `docker` stub
 # lets tests control `docker ps -a` output without a real docker daemon.
+#
+# why: Unit tests for `stop.sh` argument parsing, the single-project
+# teardown, and i18n. `docker ps -a` output is PATH-shimmed via
+# `${DOCKER_PS_A_FILE}` so tests can seed the project container list for the
+# verbose listing.
+#
+# Covers: `--help` (en/zh/zh-CN/ja), `--lang` value validation, teardown via
+# `docker compose down` (base is single-instance, #600), fallback
+# `_detect_lang` branches, **`-C` / `--chdir` flag** (docker_harness#53:
+# redirect FILE_PATH so .env / project name come from the alt repo, short +
+# long form, value-required and directory guards, usage help mention), and
+# **`-v` / `--verbose` / `-vv` / `--very-verbose` flag** (#311: parity
+# across wrappers; flag is a no-op for `docker compose down` but `-vv` still
+# enables wrapper trace; the verbose path lists the project containers
+# before tearing them down), and **`--prune` flag** (#319: opt-in
+# lightweight cleanup after compose down — `docker network prune --filter
+# until=10m` + `docker image prune --filter until=24h`; usage help mentions
+# `--prune` with the two grace windows; the plain `stop.sh --dry-run` path
+# emits no `docker prune` commands), and **#690 pre-stop hook abort** (a
+# failing `script/hooks/pre/stop.sh` aborts with the hook's rc before
+# `compose down` runs).
 
 bats_require_minimum_version 1.5.0
 

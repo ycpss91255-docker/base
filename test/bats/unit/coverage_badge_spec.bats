@@ -15,6 +15,19 @@
 # the rate by re-running the gate's own merge math over the local kcov
 # reports, and refuses when those reports cannot be shown to describe the
 # commit being released.
+#
+# why: Unit tests for `script/release/coverage_badge.sh` (#952) -- the
+# release coverage badge generator that replaces the README's static
+# `Coverage-Kcov` shields.io badge with a self-contained SVG committed to
+# the repo. It obtains the figure by re-running `coverage_gate.sh`'s own
+# merge math over the local kcov reports and stamps the version the figure
+# belongs to, so a per-release number cannot be read as `main`'s. The
+# load-bearing half is the refusal: a release whose coverage never ran must
+# not publish a stale or an invented figure, so a missing or mismatched
+# provenance stamp (`coverage/.head-sha`, written by the coverage run), a
+# report older than the commit being released, or a modified instrumented
+# source each refuse and write nothing. The last three tests assert the
+# repo's own published figure, not the generator.
 
 setup() {
   export LOG_FORMAT=text
@@ -144,6 +157,7 @@ _make_cobertura() {
 
 # ── The figure and the version it belongs to ─────────────────────────────────
 
+# why: The output is an SVG carrying the measured percentage
 @test "coverage_badge: renders the measured rate into a self-contained SVG" {
   local _root
   _root="$(_make_release_tree 84 100)"
@@ -157,6 +171,7 @@ _make_cobertura() {
   assert_output --partial '84.0%'
 }
 
+# why: Defaults to `.version`, so the figure names its release
 @test "coverage_badge: the SVG carries the version the figure belongs to" {
   local _root
   _root="$(_make_release_tree 84 100)"
@@ -168,6 +183,7 @@ _make_cobertura() {
   assert_output --partial 'v1.2.3'
 }
 
+# why: The bump passes the version it is promoting to
 @test "coverage_badge: --version overrides the .version default" {
   local _root
   _root="$(_make_release_tree 84 100)"
@@ -181,6 +197,7 @@ _make_cobertura() {
   refute_output --partial 'v1.2.3'
 }
 
+# why: No renderer, no fetch -- it ports to GitLab unchanged
 @test "coverage_badge: the SVG references no external host" {
   local _root
   _root="$(_make_release_tree 84 100)"
@@ -198,6 +215,8 @@ _make_cobertura() {
   refute_output --partial '@import'
 }
 
+# why: Two shards over the same file: the per-line union (75%), not the
+# root-counter sum (50%)
 @test "coverage_badge: the rate is the gate's own merge math, not a re-implementation" {
   local _root
   _root="$(_make_release_tree 1 4)"
@@ -220,6 +239,7 @@ _make_cobertura() {
 
 # ── Colour grading ───────────────────────────────────────────────────────────
 
+# why: Shields' own flat palette, as the removed Codecov badge read
 @test "coverage_badge: a high rate grades green" {
   local _root
   _root="$(_make_release_tree 95 100)"
@@ -231,6 +251,7 @@ _make_cobertura() {
   assert_output --partial '#4c1'
 }
 
+# why: The bottom of the same grading
 @test "coverage_badge: a low rate grades red" {
   local _root
   _root="$(_make_release_tree 20 100)"
@@ -244,6 +265,7 @@ _make_cobertura() {
 
 # ── Refusal: never a stale or an invented number ─────────────────────────────
 
+# why: No measurement means no figure, not the previous one
 @test "coverage_badge: refuses when no coverage report exists" {
   local _root
   _root="$(_make_release_tree 84 100)"
@@ -255,6 +277,7 @@ _make_cobertura() {
   [ ! -f "${_root}/badge.svg" ]
 }
 
+# why: A report older than HEAD measured an earlier tree
 @test "coverage_badge: refuses when the reports predate the commit being released" {
   local _root
   _root="$(_make_release_tree 84 100)"
@@ -267,6 +290,8 @@ _make_cobertura() {
   [ ! -f "${_root}/badge.svg" ]
 }
 
+# why: Measure one tree, check an older commit out: every timestamp check
+# passes and the sha does not
 @test "coverage_badge: refuses when the reports were produced from a different commit" {
   local _root _first
   _root="$(_make_release_tree 84 100)"
@@ -286,6 +311,7 @@ _make_cobertura() {
   [ ! -f "${_root}/badge.svg" ]
 }
 
+# why: Reports with no recorded sha describe no particular tree
 @test "coverage_badge: refuses when the reports carry no provenance" {
   local _root
   _root="$(_make_release_tree 84 100)"
@@ -297,6 +323,8 @@ _make_cobertura() {
   [ ! -f "${_root}/badge.svg" ]
 }
 
+# why: The producer half: without a writer the reader refuses every real
+# release
 @test "coverage_badge: the coverage run records the sha its reports describe" {
   local _root
   _root="$(_make_release_tree 84 100)"
@@ -750,6 +778,8 @@ _make_cobertura() {
   [ "${_n}" -ge 2 ]
 }
 
+# why: Every identity check passes and the figure is still a quarter of the
+# suite
 @test "coverage_badge: refuses when the reports cover one shard, not the suite" {
   local _root
   _root="$(_make_release_tree 13 100)"
@@ -768,6 +798,7 @@ _make_cobertura() {
   [ ! -f "${_root}/badge.svg" ]
 }
 
+# why: An unscoped stamp is no evidence of a release figure
 @test "coverage_badge: refuses when the stamp records no scope at all" {
   local _root
   _root="$(_make_release_tree 84 100)"
@@ -782,6 +813,8 @@ _make_cobertura() {
   [ ! -f "${_root}/badge.svg" ]
 }
 
+# why: `just test coverage 1/4` then `just release coverage-badge` at one
+# commit
 @test "coverage_badge: the operator sequence shard-then-badge publishes nothing" {
   local _root
   _root="$(_make_release_tree 13 100)"
@@ -820,6 +853,7 @@ _make_cobertura() {
   refute_output --partial "13.0%"
 }
 
+# why: The reports then describe neither the commit nor the tree
 @test "coverage_badge: refuses when instrumented sources are modified in the worktree" {
   local _root
   _root="$(_make_release_tree 84 100)"
@@ -831,6 +865,8 @@ _make_cobertura() {
   [ ! -f "${_root}/badge.svg" ]
 }
 
+# why: `.version` moving is the bump's own edit and must not block the step
+# it runs
 @test "coverage_badge: a release-bump edit is not a source change" {
   local _root
   _root="$(_make_release_tree 84 100)"
@@ -840,6 +876,7 @@ _make_cobertura() {
   [ "${status}" -eq 0 ]
 }
 
+# why: A refusal leaves the last good badge byte-identical
 @test "coverage_badge: refuses to overwrite an existing badge when it cannot measure" {
   local _root
   _root="$(_make_release_tree 84 100)"
@@ -855,6 +892,7 @@ _make_cobertura() {
   [ "$(cat "${_root}/badge.svg")" = "${_before}" ]
 }
 
+# why: The honest rendering for a version that has no measurement
 @test "coverage_badge: --unmeasured states the absence instead of inventing a figure" {
   local _root
   _root="$(_make_release_tree 84 100)"
@@ -870,11 +908,13 @@ _make_cobertura() {
   refute_output --partial '%'
 }
 
+# why: Arg errors exit 2, distinct from a refusal's 1
 @test "coverage_badge: rejects an unknown option" {
   run bash "${BADGE}" --repo-root "${SCRATCH}" --nonsense
   [ "${status}" -eq 2 ]
 }
 
+# why: A typo'd flag must not wear the "re-run just test coverage" exit code
 @test "coverage_badge: a missing option value is an arg error, not a refusal" {
   # 1 means "no usable measurement -- re-run just test coverage", the
   # sentence the caller prints to the operator. A typo'd flag is a caller
@@ -887,6 +927,7 @@ _make_cobertura() {
   done
 }
 
+# why: The claim itself, not the incidental word "release"
 @test "coverage_badge: --help states the once-per-release cadence" {
   # The title used to be satisfied by the word "release" appearing
   # anywhere in the usage block; assert the claim itself.
@@ -895,6 +936,8 @@ _make_cobertura() {
   assert_output --partial "once per release"
 }
 
+# why: The ADR and the recipe doc name docker_harness#289 instead of
+# claiming a caller that does not exist
 @test "coverage_badge: the un-wired release step is recorded as pending, with its issue" {
   # The generator has no automatic caller: the release bump lives in the
   # harness repo, not this one. A decision record that describes that
@@ -936,6 +979,7 @@ _make_cobertura() {
   [ "${status}" -eq 0 ]
 }
 
+# why: The property list is where the round-2 reword did not reach
 @test "coverage_badge: the generator header records the bump wiring as pending" {
   # The same false record, in the one place the reword did not reach. The
   # header's property list is what a reader stops at; the Cadence block 50
@@ -1101,6 +1145,7 @@ _make_cobertura() {
 
 # ── The repo's own published figure ──────────────────────────────────────────
 
+# why: The `Coverage-Kcov` badge is gone and the SVG is referenced
 @test "coverage_badge: the README shows the committed badge, not a static one" {
   run grep -c 'Coverage-Kcov' "${REPO}/README.md"
   [ "${output}" -eq 0 ]
@@ -1109,6 +1154,7 @@ _make_cobertura() {
   [ "${status}" -eq 0 ]
 }
 
+# why: All three translations, by their own relative path
 @test "coverage_badge: every localized README shows the committed badge" {
   local _f
   for _f in "${REPO}"/doc/readme/README.*.md; do
@@ -1119,6 +1165,7 @@ _make_cobertura() {
   done
 }
 
+# why: The published SVG and `.version` agree
 @test "coverage_badge: the committed badge names the released version" {
   [ -f "${REPO}/doc/badge/coverage.svg" ]
 

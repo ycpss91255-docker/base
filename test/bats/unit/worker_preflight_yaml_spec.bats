@@ -11,6 +11,18 @@
 # drift from the worker it guards), and (c) calls preflight.sh with the
 # per-worker manifest and the real inputs exported into the env vars the
 # manifest names.
+#
+# why: Structural assertions that `build-worker.yaml` and
+# `release-worker.yaml` wire in the caller-contract preflight: a `preflight`
+# job that the real build / release job gates on (its `needs:` list includes
+# it), fetching the validator + manifest from base at the worker's own ref
+# (`github.job_workflow_sha`, so the validator can never drift from the
+# worker it guards), then calling `preflight.sh` with the per-worker
+# manifest and the real inputs exported into the env vars the manifest names
+# (plus a GHCR-login probe feeding the packages-permission check on the
+# build side). #801 adds the build side's `cache_backend` export into the
+# manifest guard env and a REAL packages: write probe (a GHCR blob-upload
+# scope check, not a bare login) for the registry backend.
 
 bats_require_minimum_version 1.5.0
 

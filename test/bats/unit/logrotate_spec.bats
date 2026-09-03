@@ -4,6 +4,12 @@
 # glog-style rotate/symlink/prune primitives reused by BOTH the wrapper
 # transcript (lib/transcript.sh) and the container-log tee
 # (runtime/logging.sh). See ADR-00000021.
+#
+# why: Wrapper transcript retention: `_logrotate_repoint` (the stable
+# `latest.log` symlink follows the newest real file without deleting the
+# previous one) and `_logrotate_prune` (keep N most recent plus an age
+# bound, never touch the symlink itself or a sibling service's symlink
+# sharing the directory, missing directory is a no-op).
 
 bats_require_minimum_version 1.5.0
 

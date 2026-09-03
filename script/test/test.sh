@@ -131,6 +131,10 @@ source "${SCRIPT_DIR}/drivers/action_ref_agreement.sh"
 source "${SCRIPT_DIR}/drivers/generated_workflow_actions.sh"
 # shellcheck source=script/test/drivers/just_provenance.sh
 source "${SCRIPT_DIR}/drivers/just_provenance.sh"
+# shellcheck source=script/test/drivers/catalog_description.sh
+source "${SCRIPT_DIR}/drivers/catalog_description.sh"
+# shellcheck source=script/test/drivers/shell_metrics.sh
+source "${SCRIPT_DIR}/drivers/shell_metrics.sh"
 
 # ── The lint phase's tool table ──────────────────────────────────────────────
 
@@ -167,6 +171,7 @@ readonly _LINT_TOOLS=(
   action-ref-agreement
   generated-workflow-actions
   just-provenance
+  catalog-description
 )
 
 # Every tool but hadolint is runnable host-direct (`--<tool>-only`): the
@@ -241,6 +246,21 @@ _run_lint_tool() {
     action-ref-agreement) _run_action_ref_agreement ;;
     generated-workflow-actions) _run_generated_workflow_actions ;;
     just-provenance)  _run_just_provenance ;;
+    catalog-description) _run_catalog_description ;;
+    # The three implementation-standard metric lints and their combined
+    # report (base#994 phase 2). Dispatchable here -- this is the one
+    # place a lint driver is run, and the ERR trap above is what names
+    # the tool when one dies on a signal -- but deliberately ABSENT from
+    # _LINT_TOOLS: on today's tree they report 102 violations, so phase 4
+    # adds them to the table (and to CI, which the table's completeness
+    # guard then demands) once phase 3 has flattened the tree. They also
+    # have no `--lint --<tool>` in-container narrowing, because their
+    # population comes from the git index and a `git worktree` checkout's
+    # `.git` is a file pointing outside the container's bind mount.
+    nesting-depth)    _run_nesting_depth ;;
+    function-length)  _run_function_length ;;
+    positional-params) _run_positional_params ;;
+    shell-metrics)    _run_shell_metrics ;;
     *) _die ci_unknown_lint_tool \
          "Unknown LINT_TOOL '${1:-}' (expected $(printf '%s | ' "${_LINT_TOOLS[@]}")empty)." ;;
   esac
@@ -282,6 +302,20 @@ Options:
   --hadolint              With --lint: run only Hadolint (still via compose)
   --issueref              With --lint: run only the issue-ref comment lint
                           (no transient #NNN in code comments; ADR-00000013)
+  --shell-metrics-only    Report the three implementation-standard shell
+                          metrics -- nesting depth <= 3, function length
+                          <= 50 body code lines, positional parameters
+                          <= 5 -- over every tracked shell file, and fail
+                          if any is over. Also --nesting-depth-only /
+                          --function-length-only /
+                          --positional-params-only for one metric at a
+                          time. NOT part of the default gate or of --lint
+                          (base#994 phase 4 wires them once phase 3 has
+                          flattened the tree), and host-direct only: the
+                          population is derived from the git index, which
+                          a container bind-mounting a `git worktree`
+                          checkout cannot read. `just test metrics` is
+                          the wrapper.
   --adr-numbering         With --lint: run only the ADR-numbering lint
                           (doc/adr/ duplicate-free + well-formed; gaps
                           warned, not failed)
@@ -387,6 +421,11 @@ Options:
                           name the ref .github/workflows/ uses, since
                           dependabot reads workflow files and cannot see
                           a ref inside a heredoc)
+  --catalog-description   With --lint: run only the test description
+                          marker lint (every `@test` in the spec trees
+                          carries a `# why:` block above it, and every
+                          block is attached to one; the undescribed count
+                          stays under the driver's transition ceiling)
   --just-provenance       With --lint: run only the just provenance pin
                           lint (every site under dockerfile/,
                           .github/workflows/, dist/ or script/ that
@@ -525,6 +564,7 @@ Examples:
   just test lint --early-close-reader # early-closing-reader pipeline lint only
   just test lint --errexit-bang   # non-final bang-statement lint only
   just test lint --just-provenance # just provenance pin lint only
+  just test lint --catalog-description # test description marker lint only
   ./test.sh --shellcheck-only     # Direct shellcheck, no compose
   ./test.sh --doc-counts-only     # Direct doc/test count drift gate, no compose
   ./test.sh --readme-sync-only    # Direct localized README sync lint, no compose
@@ -540,6 +580,7 @@ Examples:
   ./test.sh --action-ref-agreement-only # Direct action ref agreement lint, no compose
   ./test.sh --generated-workflow-actions-only # Direct generated-workflow action ref lint, no compose
   ./test.sh --just-provenance-only # Direct just provenance pin lint, no compose
+  ./test.sh --catalog-description-only # Direct test description marker lint, no compose
   ./test.sh --hadolint-only       # Hadolint only (inside ci container)
   ./test.sh --bats-only           # Compose-bats only, skip ShellCheck
   ./test.sh --bats-unit-shard 1/2 # Compose-bats unit shard 1 of 2
@@ -1821,6 +1862,7 @@ main() {
       --action-ref-agreement) lint_tool="action-ref-agreement"; shift ;;
       --generated-workflow-actions) lint_tool="generated-workflow-actions"; shift ;;
       --just-provenance) lint_tool="just-provenance"; shift ;;
+      --catalog-description) lint_tool="catalog-description"; shift ;;
       --shellcheck-only) host_lint="shellcheck"; shift ;;
       --issueref-only) host_lint="issueref"; shift ;;
       --adr-numbering-only) host_lint="adr-numbering"; shift ;;
@@ -1840,6 +1882,11 @@ main() {
       --action-ref-agreement-only) host_lint="action-ref-agreement"; shift ;;
       --generated-workflow-actions-only) host_lint="generated-workflow-actions"; shift ;;
       --just-provenance-only) host_lint="just-provenance"; shift ;;
+      --catalog-description-only) host_lint="catalog-description"; shift ;;
+      --nesting-depth-only) host_lint="nesting-depth"; shift ;;
+      --function-length-only) host_lint="function-length"; shift ;;
+      --positional-params-only) host_lint="positional-params"; shift ;;
+      --shell-metrics-only) host_lint="shell-metrics"; shift ;;
       --hadolint-only) hadolint_only=1; shift ;;
       --bats-only) bats_only=1; shift ;;
       --bats-unit-shard) bats_unit_shard="${2:?--bats-unit-shard expects <n>/<total>}"; shift 2 ;;

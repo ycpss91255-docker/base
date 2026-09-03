@@ -5,6 +5,19 @@
 # logging.sh). Health-check-driven supervision with two failure actions
 # (restart-container default / restart-service), all knobs default OFF.
 # See ADR-00000020 (base owns the single-service lifecycle).
+#
+# why: Pure-logic (kcov-safe) unit tests for
+# `dist/script/docker/runtime/watchdog.sh` (#797), the generic
+# single-service watchdog sourced from a repo entrypoint (sibling of
+# `logging.sh`). Covers the master off switch (no-op when `WATCHDOG_CHECK`
+# unset), config load defaults + clamping, the pluggable health-check runner
+# (pass / fail / timeout), the shared `_watchdog_evaluate` decision seam
+# (healthy reset / under-threshold / act), the `_watchdog_grace` bounded
+# stop window, `_watchdog_pgid_of` / `_watchdog_child_alive` liveness
+# helpers, the `WATCHDOG_NOTIFY` give-up hook, and the `watchdog.log`
+# per-start file + symlink under a `watchdog/` subdir (reusing
+# `logrotate.sh`). The process-level supervision loops + signal paths live
+# in `watchdog_supervision_spec.bats`.
 
 bats_require_minimum_version 1.5.0
 
