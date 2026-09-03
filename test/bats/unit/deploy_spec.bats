@@ -674,7 +674,7 @@ DOCK
 # ════════════════════════════════════════════════════════════════════
 # _collect_preset_selectors / the selector half of _report_config_components
 # -- how a repo says WHICH of its curated presets is the one it bakes
-# (#826 ask 1, ADR-00000030).
+# (ADR-00000030).
 #
 # The population is derived, never listed: a selector is a repo-root
 # SYMLINK whose link text names a path under config/. That is what

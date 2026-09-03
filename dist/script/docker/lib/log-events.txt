@@ -25,6 +25,8 @@ conf_write_shadowed
 config_components_provisioned
 config_components_absent
 config_files_unprovisioned
+config_preset_selected
+config_preset_dangling
 deploy_local_override_refused
 deploy_local_override_accepted
 conf_upsert_newline_rejected

@@ -12,6 +12,8 @@
 #   _generate_deploy_launcher : write the thin up/down/logs deploy.sh
 #   _render_deploy_readme     : write the generic bundle README
 #   _collect_config_components: the config/<component>/ population (both halves)
+#   _collect_preset_selectors : the repo-root symlinks naming which curated
+#                               preset a build bakes (ADR-00000030)
 #   _bake_config_copy         : COPY structured config into the runtime stage
 #   _generate_deploy_bundle   : build -> save|xz -> resolved compose folder
 #   _expand_env_cross_refs    : expand ${VAR} cross-refs in env values
@@ -976,6 +978,111 @@ _report_config_components() {
       "display=[setup] these files sit directly under ${_base}/config/ and are provisioned by NEITHER half of the config channel (it works per component directory): ${_stray[*]}. Move them under config/<component>/ to have them bind-mounted in development and baked at deploy." \
       "count=${#_stray[@]}"
   fi
+
+  _report_preset_selectors "${_base}"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _collect_preset_selectors <base_path> <out_names> <out_targets>
+#
+# Fill the two parallel arrays with the repo's PRESET SELECTORS: the
+# committed repo-root symlinks that say WHICH of a component's curated
+# presets is the one this repo bakes (ADR-00000030). <out_names>[i] is the
+# root entry, <out_targets>[i] the path it names, both in glob order.
+#
+# The population is DERIVED, and the derivation is the whole definition: a
+# selector is a root entry that is a symlink AND whose link text names a
+# path under `config/`. Nothing about its filename enters into it. That is
+# what separates a selector from the root symlinks base itself installs --
+# `justfile` and `.hadolint.yaml` point into `.base/`, the wrapper scripts
+# are not at the root -- without a name list that a new wrapper would
+# silently fall off (PRD design principle P2).
+#
+# The link TEXT is what is read, not `readlink -f`, for two reasons. It is
+# what `COPY "${CAMERA_CONFIG}"` resolves inside the build context, so it
+# is the string whose correctness actually decides whether the build
+# works; and a dangling selector has no resolved path at all, which is
+# precisely the case worth reporting. A leading `./` is stripped so the
+# two spellings of one selector do not read as two.
+#
+# Dot-entries are IN the population. The discriminator is the target, not
+# the name, and a hidden selector is still a selector -- it is just a
+# worse one, and one nobody would find by hand.
+#
+# An empty result is a legitimate repo shape (most repos have no preset
+# library at all), so this always returns 0; saying so is the reporter's
+# job, exactly as it is for _collect_config_components.
+# ════════════════════════════════════════════════════════════════════
+_collect_preset_selectors() {
+  local _base="${1:?"${FUNCNAME[0]}: missing base_path"}"
+  local -n _cps_names="${2:?"${FUNCNAME[0]}: missing out names array"}"
+  local -n _cps_targets="${3:?"${FUNCNAME[0]}: missing out targets array"}"
+  _cps_names=()
+  _cps_targets=()
+  # dotglob is restored to what the caller had, never blanket-unset: this
+  # is a library function and the shell option is the caller's.
+  local _dotglob_was_set=true
+  shopt -q dotglob || _dotglob_was_set=false
+  shopt -s dotglob nullglob
+  local _entry _target
+  for _entry in "${_base}"/*; do
+    [[ -L "${_entry}" ]] || continue
+    _target="$(readlink -- "${_entry}")"
+    _target="${_target#./}"
+    [[ "${_target}" == config/?* ]] || continue
+    _cps_names+=("${_entry##*/}")
+    _cps_targets+=("${_target}")
+  done
+  shopt -u nullglob
+  [[ "${_dotglob_was_set}" == true ]] || shopt -u dotglob
+  return 0
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _report_preset_selectors <base_path>
+#
+# Say which preset each selector currently selects, and refuse to be
+# silent about one that selects nothing. Called from
+# _report_config_components, so BOTH halves of the config channel report
+# it from one call site and cannot disagree.
+#
+# Two messages, and the split is the point:
+#
+#   * INFO naming every `<selector> -> <preset>` pair. Which profile the
+#     next `just build` bakes is otherwise invisible -- it is the content
+#     of a symlink blob -- and "which profile is this image running" is
+#     the first question asked of a deployed camera.
+#   * WARN naming any selector whose target does not exist. That is a
+#     `docker build` that will die on `COPY "${CAMERA_CONFIG}"` with a
+#     message naming neither the symlink nor the missing preset, and it
+#     dies AFTER the layers above it have been rebuilt.
+#
+# A repo with no selector says nothing at all: silence here means "this
+# repo makes no preset claim", which is the common shape, and a line
+# saying so on every run of every repo would be noise (contrast the
+# component report, where the empty case was the defect itself).
+# ════════════════════════════════════════════════════════════════════
+_report_preset_selectors() {
+  local _base="${1:?"${FUNCNAME[0]}: missing base_path"}"
+  local -a _names=() _targets=()
+  _collect_preset_selectors "${_base}" _names _targets
+  (( ${#_names[@]} > 0 )) || return 0
+
+  local -a _pairs=() _broken=()
+  local _i
+  for (( _i = 0; _i < ${#_names[@]}; _i++ )); do
+    _pairs+=("${_names[_i]} -> ${_targets[_i]}")
+    [[ -f "${_base}/${_targets[_i]}" ]] && continue
+    _broken+=("${_names[_i]} -> ${_targets[_i]}")
+  done
+  _log_info setup config_preset_selected \
+    "display=[setup] preset selectors (the curated config each build bakes): ${_pairs[*]}" \
+    "count=${#_pairs[@]}"
+
+  (( ${#_broken[@]} > 0 )) || return 0
+  _log_warn setup config_preset_dangling \
+    "display=[setup] these preset selectors name a file that is not in the repo: ${_broken[*]}. A build that COPYs one fails inside docker with a message naming neither the symlink nor the preset; re-point the symlink at a file under config/<component>/." \
+    "count=${#_broken[@]}"
 }
 
 # ════════════════════════════════════════════════════════════════════

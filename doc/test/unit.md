@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3681 tests**.
+Unit specs under `test/bats/unit/`: **3688 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1594,7 +1594,7 @@ downgraded in silence.
 | `_collect_deploy_binds: duplicate basename across components fails loud (tunable-manifest)` | basename collision |
 | `_collect_deploy_binds: propagates a malformed manifest failure (tunable-manifest)` | fail propagation |
 
-### test/bats/unit/deploy_spec.bats (59)
+### test/bats/unit/deploy_spec.bats (66)
 
 Covers the self-contained field-deploy generator (#832; ADR-3 amended by
 ADR-00000023). Deploy produces an output FOLDER run via a fully-resolved,
@@ -1651,6 +1651,13 @@ refused before any build or bundle step.
 | `_bake_config_copy: bakes every component to its own destination (#1000)` | per-component target |
 | `_bake_config_copy: bakes config/shell and config/pip too (#1000)` | no name list |
 | `_bake_config_copy: returns 1 and writes nothing when no component dir exists (#1000)` | nothing-to-bake |
+| `_collect_preset_selectors: a root symlink into config/ is a selector, other root symlinks are not (#826)` | selector derivation |
+| `_collect_preset_selectors: collects a selector whose target does not exist (#826)` | dangling is collected, not hidden |
+| `_collect_preset_selectors: a ./-prefixed link text is the same selector (#826)` | link-text normalisation |
+| `_collect_preset_selectors: a repo with no selector yields nothing (#826)` | empty population |
+| `_report_config_components: states which preset each selector currently selects (#826)` | which preset is live |
+| `_report_config_components: WARNs a selector whose preset is missing (#826)` | dangling selector named |
+| `_report_config_components: says nothing about presets when the repo has no selector (#826)` | silence when there is no selector |
 | `_generate_deploy_bundle: dry-run plans build (versioned image) + save + xz + install (#832)` | bundle plan |
 | `_generate_deploy_bundle: dry-run builds from the baked Dockerfile when [environment] is set (#832/#503)` | env-bake build |
 | `_generate_deploy_bundle: dry-run plans a docker cp per tunable-manifest path (#833)` | tunable extract |
