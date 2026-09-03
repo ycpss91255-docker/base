@@ -28,9 +28,15 @@
 #     compared instead is the file's IDENTITY: inode and mtime. `sed -i`
 #     renames a fresh file over the target, so the inode moves; any
 #     writer that edits in place moves the mtime. Unchanged identity is
-#     the executable form of "the stage touched nothing at all", which is
-#     the property the image leans on -- an empty layer, so BuildKit
-#     carries every downstream apk layer through unrebuilt.
+#     the executable form of "the stage touched nothing at all", and what
+#     that buys is reach: on the default path the repositories file is
+#     the one alpine shipped, so a mistake in the rewrite rule can only
+#     ever reach a build that asked for a mirror. What it does NOT buy
+#     is build cache: BuildKit keys a RUN on its parent's CACHE KEY, not
+#     on the parent's content, so an inserted stage that writes nothing
+#     still rebuilds every stage below it -- an empty layer carries
+#     nothing through, and no cache argument should be built on top of
+#     this one.
 #   - Every stage that installs packages inherits that choice. The file
 #     has four such stages; a knob wired into one of them leaves the
 #     other three unbuildable, which is the failure this file's stage
@@ -147,7 +153,7 @@ _stages_off_the_mirror() {
   assert_equal "$(cat "${_repos}")" "${_before}"
   _ident_after="$(stat -c '%i %y' "${_repos}")"
   [ "${_ident_after}" = "${_ident}" ] \
-    || fail "the default REWROTE the repositories file (inode/mtime ${_ident} -> ${_ident_after}); byte-identical output is not a skip, and a stage that rewrites the file busts every downstream apk layer's cache"
+    || fail "the default REWROTE the repositories file (inode/mtime ${_ident} -> ${_ident_after}); byte-identical output is not a skip, and a rule that runs at the default puts itself in the path of every build, including the ones that named no mirror"
 }
 
 @test "APK_MIRROR: an override repoints every repository line (#1008)" {
