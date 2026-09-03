@@ -1068,3 +1068,35 @@ _stage_missing_template_conf() {
   run cat "${TMP_REPO}/config/.gitkeep"
   assert_output --partial ".base/dist/config/"
 }
+
+# why: seeded text and the record use one vocabulary
+@test "_populate_config: the seeded placeholder and ADR-00000030 name the convention identically" {
+  # The convention now lives in two artifacts by design, and ADR-00000028
+  # is the reason that needs a guard rather than a shrug: the ADR carries
+  # the RATIONALE (why a symlink, why no audience level) and the
+  # placeholder carries the INSTRUCTION, at the one moment a repo author
+  # meets config/. Different jobs, so neither is derivable from the other
+  # -- but they share the convention's proper nouns, and a rename that
+  # reaches only one of them leaves a new repo being told to create
+  # something the record no longer describes.
+  #
+  # The three terms are LISTED, not derived from the placeholder's text,
+  # and the reason is worth stating because this repo prefers derivation
+  # (PRD design principle P2). The placeholder also documents the
+  # build-time template overlay, whose examples (config/shell/bashrc and
+  # friends) the ADR has no reason to mention at all, so a derivation over
+  # the whole text would assert agreement the two artifacts do not owe
+  # each other. These three are the structured channel's names, and the
+  # set is closed because the convention is.
+  _source_init
+  _populate_config
+  local _adr=/source/doc/adr/00000030-config-component-layout-and-preset-selector.md
+  local _seed="${TMP_REPO}/config/.gitkeep"
+  local _term
+  for _term in 'config/<component>/' 'deploy.manifest' '.example.'; do
+    grep -qF -- "${_term}" "${_seed}" \
+      || { echo "the seeded placeholder no longer names: ${_term}"; return 1; }
+    grep -qF -- "${_term}" "${_adr}" \
+      || { echo "ADR-00000030 does not name: ${_term}"; return 1; }
+  done
+}
