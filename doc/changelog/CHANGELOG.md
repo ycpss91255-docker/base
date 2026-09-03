@@ -66,6 +66,24 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   releases the version it was given rather than the branch. **A tag that is
   not `vX.Y.Z[-suffix]` now fails the release at the resolve step** instead
   of publishing under a name nothing can pin.
+- **three of base's widest signatures narrow to what they actually take
+  (refs #994)** -- `_write_setup_conf` no longer takes the section array it
+  never read; `_resolve_stage_list` derives its `<prefix>inherit` meta-key
+  instead of taking it, which all six call sites spelled out identically;
+  and the TUI list editor's six message keys move out of eight positional
+  parameters into one `_TUI_LIST_LABELS` table keyed by section and prefix,
+  where a missing row now fails loudly instead of drawing a screen with no
+  words on it. Internal functions only -- no wrapper, recipe or
+  `.setup.conf` surface moves, and behaviour is unchanged.
+- **the three implementation-standard metric lints judge by an adoption
+  ceiling (refs #994)** -- `just test metrics` still prints every function
+  past depth 3 / 50 body code lines / 5 positional parameters, and now fails
+  only ABOVE a per-metric ceiling: one readonly integer in
+  `script/test/drivers/shell_metrics.sh` recording how much of the tree #994
+  phase 3 has not flattened yet, which may only ever go down. Every run
+  prints count / limit / ceiling / slack, so the room a new violation could
+  land in green is a figure on the log rather than an invisible category.
+  Not the per-site baseline ADR-00000029 rejected: it names no function.
 - **a test's description is written above the `@test`, and `doc/test/` is
   generated from it (closes #922, amends ADR-00000028)** -- write
   `# why: <prose>` above a test; `just test sync-docs` renders the catalogue
