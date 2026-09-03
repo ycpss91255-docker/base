@@ -910,6 +910,82 @@ _long_prose() {
 # The real tree
 # ════════════════════════════════════════════════════════════════════
 
+@test "_run_changelog_entry: FAILS on an [Unreleased] heading outside the locked roster (#926)" {
+  # Twenty category headings where seven will do: `Documentation`, `Tests`,
+  # `Migration`, `Migration notes`, `Performance`, `Known issues`,
+  # `Release summary`, and one-offs carrying a date or a parenthetical. Each
+  # was one person's reasonable local choice, and together they mean a
+  # reader scanning for what broke has no heading to scan for.
+  _write_changelog \
+    '### Documentation' \
+    '- **a doc change** (#1, PR #2) -- fine on its own.'
+  run _run_changelog_entry
+  assert_failure
+  assert_output --partial 'Documentation'
+  # The message hands over the roster rather than leaving the author to
+  # find it: a refusal that does not say what IS allowed is a refusal the
+  # author answers by guessing.
+  assert_output --partial 'BREAKING'
+  assert_output --partial 'Security'
+}
+
+@test "_run_changelog_entry: PASSES every heading in the locked roster (#926)" {
+  # The complement of the case above, and the one that catches a roster
+  # typed twice: a lint that refuses `Deprecated` because the driver's copy
+  # of the list lost it fails on the honest entry, which is how a roster
+  # gets muted rather than fixed.
+  # shellcheck disable=SC1091
+  source /source/script/release/changelog_categories.sh
+  local _cat
+  for _cat in "${CHANGELOG_CATEGORIES[@]}"; do
+    _write_changelog \
+      "### ${_cat}" \
+      "- **an entry** (#1, PR #2) -- under ${_cat}."
+    run _run_changelog_entry
+    assert_success
+  done
+}
+
+@test "_run_changelog_entry: a released section's off-roster heading is never checked (#926)" {
+  # The roster governs what is written from now on. A shipped `### Tests`
+  # is a fact about what shipped, and a lint that could fail on it would be
+  # a lint nobody can make pass without falsifying the record.
+  {
+    printf '# Changelog\n\n'
+    printf '## [Unreleased]\n\n'
+    printf '### Added\n'
+    printf -- '- **a live entry** (#1, PR #2) -- fine.\n\n'
+    printf '## [v0.42.0] - 2026-08-25\n\n'
+    printf '### Tests\n'
+    printf -- '- **a shipped entry** -- under a heading nobody may now write.\n'
+  } > "${CHANGELOG}"
+  run _run_changelog_entry
+  assert_success
+}
+
+@test "_run_changelog_entry: FAILS when the documented roster disagrees with the code (#926)" {
+  # A roster written in two places drifts one place at a time, and the
+  # copy that drifts is the one contributors read. The driver's array is
+  # the definition; CONVENTIONS.md is a rendering of it, and a rendering
+  # that has stopped agreeing is worse than none -- it is a wrong answer
+  # delivered confidently to exactly the person asking the question.
+  mkdir -p "${SCRATCH}/doc/changelog"
+  {
+    printf '# Writing a changelog entry\n\n'
+    printf '<!-- changelog-categories: begin -->\n\n'
+    printf -- '- `BREAKING`\n'
+    printf -- '- `Added`\n'
+    printf -- '- `Documentation`\n\n'
+    printf '<!-- changelog-categories: end -->\n'
+  } > "${SCRATCH}/doc/changelog/CONVENTIONS.md"
+  _write_changelog \
+    '### Added' \
+    '- **an entry** (#1, PR #2) -- fine.'
+  run _run_changelog_entry
+  assert_failure
+  assert_output --partial 'CONVENTIONS.md'
+}
+
 @test "_run_changelog_entry: the real repo tree's [Unreleased] section is clean (#917)" {
   REPO_ROOT=/source
   run _run_changelog_entry
