@@ -492,9 +492,11 @@ check it feeds reports clean.
 `runs-on`, explicitly "a label-family pattern rather than a roster",
 after `_LINT_TOOLS`, the downstream roster and the release archive path
 list had each been missed by the next addition); ADR-00000028 (a figure
-that can be computed is not stored); `doc/adr/README.md` ("the filesystem
-is the ADR registry -- there is no database and no manually-curated
-master list of numbers").
+that can be computed from the tree is computed when it is needed and not
+stored -- and the one exception, a figure that names what it measured, is
+stated there rather than left to be found); `doc/adr/README.md` ("There is
+no database and no manually-curated master list of numbers -- the set of
+`doc/adr/NNNNNNNN-<slug>.md` files *is* the registry").
 *Serves:* invariants 2 and 10.
 
 ### P3. A check that finds nothing must distinguish an empty population from a broken scan
@@ -519,15 +521,20 @@ A rule is implemented once and every caller reaches that implementation.
 Two implementations that must agree are a drift with a delay on it, and
 the delay is however long it takes for one of them to be edited alone.
 
-*Where written:* ADR-00000011 sec.5 (one driver per tool, and the local
-lint phase and the CI lint job both run that driver -- the rule has a
-single implementation); the `_LINT_TOOLS` completeness guard in
-`test/bats/unit/self_test_yaml_spec.bats`, which is what makes the "many
-entry points" half hold rather than be hoped for: a lint can have one
-owner and still reach only one caller, and four did ship local-only
-before that guard failed a `_LINT_TOOLS` entry with no CI job (the
-`_LINT_TOOLS` table is explicitly not the CI gate -- see doc/test/TEST.md,
-"Static lints and where they are enforced"); ADR-00000024 (the
+*Where written:* ADR-00000011 sec.5, for the OWNER half only -- one driver
+per tool, so "adding a tool is a new driver + a folder, the dispatcher is
+untouched". That ADR says nothing about CI. The entry points are written
+in `.github/workflows/self-test.yaml`, where every `lint-static` matrix
+entry runs `./script/test/test.sh --<tool>-only` and the hadolint job's
+comment states the property in those terms: "this job now runs the SAME
+driver ... that `just test` runs locally ... so local `just test` and this
+CI job can never drift". What makes the "many entry points" half hold
+rather than be hoped for is neither of those, but the `_LINT_TOOLS`
+completeness guard in `test/bats/unit/self_test_yaml_spec.bats`: a lint
+can have one owner and still reach only one caller, and four shipped
+local-only before that guard existed to fail a `_LINT_TOOLS` entry with no
+CI job (the table itself is explicitly not the CI gate -- doc/test/TEST.md,
+"Static lints and where they are enforced"). ADR-00000024 (the
 mechanical half of the rule is gated by one lint); invariant 8
 (`_is_deployable_stage` is "the one predicate", and the invariant is
 stated in full precisely "so the two cannot disagree"); the
@@ -573,8 +580,8 @@ who chose it, the artifact carries the reason.
 hatch "reserved for genuinely custom needs", not a second main path);
 ADR-00000025 (`setup deploy` refuses while an untracked config layer
 exists, and the explicit override records in the bundle which sections
-came from it -- "because the person holding the bundle in the field is
-not the person who chose to bypass the gate"); ADR-00000023 as amended by
+came from it, so the record "travels with the artifact and reaches the
+person in the field, who is not the person who chose to bypass the gate"); ADR-00000023 as amended by
 #870 (a config mount-override is read-only with an explicit `rw` opt-in);
 the `changelog-entry` opt-out, which is a comment pair carrying `<why>`;
 the `arch-literal` lint, whose mapping exception "opts out with a stated
