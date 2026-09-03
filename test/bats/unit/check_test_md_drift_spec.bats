@@ -1,18 +1,21 @@
 #!/usr/bin/env bats
 #
-# Unit tests for script/test/check_test_md_drift.sh (_check_test_md_drift) --
-# the read-only validating twin of sync-doc-counts.sh. It re-derives the
-# doc/test/*.md count figures from the specs (the same `grep -c '^@test'`
-# source) and exits non-zero when the committed docs have drifted, so a PR
-# that adds a @test without running `just test sync-docs` fails the gate
-# instead of silently shipping stale counts.
+# Unit tests for script/test/check_test_md_drift.sh (_check_test_md_drift).
 #
-# why: The read-only validating twin of `sync-doc-counts.sh`: it re-derives
-# every doc/test figure from the same source (`grep -c '^@test'`) and exits
-# non-zero when the committed docs have drifted. Covers the in-sync /
-# drifted verdicts, a short catalog table, and the unusable-scan-root guards
-# that keep the gate from passing vacuously (relative root, missing root, no
-# `doc/test/`, no specs).
+# why: The read-only validating twin of `sync-doc-counts.sh`. It runs THAT
+# generator against a throwaway copy and diffs, so "byte-identical to what
+# is committed" is the whole gate and the validator cannot drift from the
+# generator. Covers the in-sync / drifted verdicts -- including a deleted
+# `# why:` block, which is the edit the catalogue is now the only place to
+# notice -- and the unusable-scan-root guards that keep the gate from
+# passing vacuously (relative root, missing root, no `doc/test/`, no
+# specs).
+#
+# The in-sync fixtures are BUILT BY THE GENERATOR rather than typed out.
+# Hand-writing what a generator emits is the habit this change exists to
+# end, and a fixture that only happens to match today would make every case
+# here fail on the next formatting change for a reason none of them is
+# about.
 
 bats_require_minimum_version 1.5.0
 
@@ -27,8 +30,9 @@ setup() {
     source "'"${CHECK}"'"
     root="${BATS_TEST_TMPDIR}/r"
     mkdir -p "${root}/test/bats/unit" "${root}/doc/test"
-    printf "@test \"a\" {\n:\n}\n@test \"b\" {\n:\n}\n" > "${root}/test/bats/unit/x_spec.bats"
-    printf "%s\n" "Unit specs under \`test/bats/unit/\`: **2 tests**." "" "### test/bats/unit/x_spec.bats (2)" > "${root}/doc/test/unit.md"
+    printf "%s\n" "# why: described" "@test \"a\" {" ":" "}" "@test \"b\" {" ":" "}" > "${root}/test/bats/unit/x_spec.bats"
+    printf "%s\n" "Unit specs under \`test/bats/unit/\`: **0 tests**." "" "<!-- generated: catalogue sections -->" "<!-- /generated -->" > "${root}/doc/test/unit.md"
+    _sync_doc_counts "${root}"
     _check_test_md_drift "${root}"
   '
   assert_success
@@ -39,12 +43,36 @@ setup() {
     source "'"${CHECK}"'"
     root="${BATS_TEST_TMPDIR}/r"
     mkdir -p "${root}/test/bats/unit" "${root}/doc/test"
-    printf "@test \"a\" {\n:\n}\n@test \"b\" {\n:\n}\n@test \"c\" {\n:\n}\n" > "${root}/test/bats/unit/x_spec.bats"
-    printf "%s\n" "Unit specs under \`test/bats/unit/\`: **2 tests**." "" "### test/bats/unit/x_spec.bats (2)" > "${root}/doc/test/unit.md"
+    printf "%s\n" "@test \"a\" {" ":" "}" > "${root}/test/bats/unit/x_spec.bats"
+    printf "%s\n" "Unit specs under \`test/bats/unit/\`: **0 tests**." "" "<!-- generated: catalogue sections -->" "<!-- /generated -->" > "${root}/doc/test/unit.md"
+    _sync_doc_counts "${root}"
+    printf "%s\n" "@test \"a\" {" ":" "}" "@test \"b\" {" ":" "}" > "${root}/test/bats/unit/x_spec.bats"
     _check_test_md_drift "${root}"
   '
   assert_failure
   assert_output --partial "unit.md"
+}
+
+# why: THE case this change adds to the gate. A description now lives in
+# one place, so deleting it has to be visible somewhere -- and the
+# catalogue is that somewhere: the row falls back to `-` while the
+# committed one still carries prose, and the drift diff fires. Without
+# this, the one edit that silently empties the catalogue would be the one
+# edit nothing checks.
+@test "_check_test_md_drift: FAILS when a '# why:' block is deleted from a spec" {
+  run bash -c '
+    source "'"${CHECK}"'"
+    root="${BATS_TEST_TMPDIR}/r"
+    mkdir -p "${root}/test/bats/unit" "${root}/doc/test"
+    printf "%s\n" "# why: the sentence that is about to go" "@test \"a\" {" ":" "}" \
+      > "${root}/test/bats/unit/x_spec.bats"
+    printf "%s\n" "Unit specs under \`test/bats/unit/\`: **0 tests**." "" "<!-- generated: catalogue sections -->" "<!-- /generated -->" > "${root}/doc/test/unit.md"
+    _sync_doc_counts "${root}"
+    printf "%s\n" "@test \"a\" {" ":" "}" > "${root}/test/bats/unit/x_spec.bats"
+    _check_test_md_drift "${root}"
+  '
+  assert_failure
+  assert_output --partial "the sentence that is about to go"
 }
 
 @test "_check_test_md_drift: tolerates an empty acceptance level dir (count 0) (#782)" {
@@ -53,8 +81,9 @@ setup() {
     root="${BATS_TEST_TMPDIR}/r"
     mkdir -p "${root}/test/bats/unit" "${root}/test/bats/acceptance" "${root}/doc/test"
     printf "@test \"a\" {\n:\n}\n" > "${root}/test/bats/unit/x_spec.bats"
-    printf "%s\n" "Unit specs under \`test/bats/unit/\`: **1 tests**." "" "### test/bats/unit/x_spec.bats (1)" > "${root}/doc/test/unit.md"
-    printf "%s\n" "Acceptance specs under \`test/bats/acceptance/\`: **0 tests**." > "${root}/doc/test/acceptance.md"
+    printf "%s\n" "Unit specs under \`test/bats/unit/\`: **0 tests**." "" "<!-- generated: catalogue sections -->" "<!-- /generated -->" > "${root}/doc/test/unit.md"
+    printf "%s\n" "Acceptance specs under \`test/bats/acceptance/\`: **0 tests**." "" "<!-- generated: catalogue sections -->" "<!-- /generated -->" > "${root}/doc/test/acceptance.md"
+    _sync_doc_counts "${root}"
     _check_test_md_drift "${root}"
   '
   assert_success
@@ -75,7 +104,8 @@ setup() {
     root="${BATS_TEST_TMPDIR}/r"
     mkdir -p "${root}/test/bats/unit" "${root}/doc/test"
     printf "@test \"a\" {\n:\n}\n@test \"b\" {\n:\n}\n" > "${root}/test/bats/unit/x_spec.bats"
-    printf "%s\n" "Unit specs under \`test/bats/unit/\`: **2 tests**." "" "### test/bats/unit/x_spec.bats (2)" > "${root}/doc/test/unit.md"
+    printf "%s\n" "Unit specs under \`test/bats/unit/\`: **0 tests**." "" "<!-- generated: catalogue sections -->" "<!-- /generated -->" > "${root}/doc/test/unit.md"
+    _sync_doc_counts "${root}"
     cd "${root}" || exit 2
     _check_test_md_drift .
   '
@@ -87,8 +117,10 @@ setup() {
     source "'"${CHECK}"'"
     root="${BATS_TEST_TMPDIR}/r"
     mkdir -p "${root}/test/bats/unit" "${root}/doc/test"
-    printf "@test \"a\" {\n:\n}\n@test \"b\" {\n:\n}\n@test \"c\" {\n:\n}\n" > "${root}/test/bats/unit/x_spec.bats"
-    printf "%s\n" "Unit specs under \`test/bats/unit/\`: **2 tests**." "" "### test/bats/unit/x_spec.bats (2)" > "${root}/doc/test/unit.md"
+    printf "@test \"a\" {\n:\n}\n" > "${root}/test/bats/unit/x_spec.bats"
+    printf "%s\n" "Unit specs under \`test/bats/unit/\`: **0 tests**." "" "<!-- generated: catalogue sections -->" "<!-- /generated -->" > "${root}/doc/test/unit.md"
+    _sync_doc_counts "${root}"
+    printf "@test \"a\" {\n:\n}\n@test \"b\" {\n:\n}\n" > "${root}/test/bats/unit/x_spec.bats"
     cd "${root}" || exit 2
     _check_test_md_drift .
   '
@@ -122,7 +154,7 @@ setup() {
     source "'"${CHECK}"'"
     root="${BATS_TEST_TMPDIR}/r"
     mkdir -p "${root}/doc/test"
-    printf "%s\n" "Unit specs under \`test/bats/unit/\`: **0 tests**." > "${root}/doc/test/unit.md"
+    printf "%s\n" "Unit specs under \`test/bats/unit/\`: **0 tests**." "" "<!-- generated: catalogue sections -->" "<!-- /generated -->" > "${root}/doc/test/unit.md"
     _check_test_md_drift "${root}"
   '
   assert_failure
@@ -135,29 +167,32 @@ setup() {
     root="${BATS_TEST_TMPDIR}/r"
     mkdir -p "${root}/dist/test/bats/smoke" "${root}/doc/test"
     printf "@test \"a\" {\n:\n}\n" > "${root}/dist/test/bats/smoke/s.bats"
-    printf "%s\n" "Shared smoke specs that ship under \`dist/test/bats/smoke/\`: **1 tests**." \
-      "" "### dist/test/bats/smoke/s.bats (1)" "" \
-      "| Test | Description |" "|------|-------------|" "| \`a\` | - |" \
+    printf "%s\n" "Shared smoke specs that ship under \`dist/test/bats/smoke/\`: **0 tests**." \
+      "" "<!-- generated: catalogue sections -->" "<!-- /generated -->" \
       > "${root}/doc/test/smoke.md"
+    _sync_doc_counts "${root}"
     _check_test_md_drift "${root}"
   '
   assert_success
 }
 
-@test "_check_test_md_drift: FAILS when a spec has more tests than catalog rows (#859)" {
-  # The rot this closes: the heading count was regenerated (so the gate said
-  # in sync) while the per-test table next to it stayed short. Rows are
-  # generated now, so a short table IS drift.
+# why: The rot this closes: the heading count was regenerated -- so the gate
+# said in sync -- while the per-test table next to it stayed short, 36 rows
+# against 43 tests. The region is generated wholesale now, so a hand-edited
+# row IS drift, and the gate names it.
+@test "_check_test_md_drift: FAILS when a row is deleted from the generated region (#859)" {
   run bash -c '
     source "'"${CHECK}"'"
     root="${BATS_TEST_TMPDIR}/r"
     mkdir -p "${root}/test/bats/unit" "${root}/doc/test"
     printf "%s\n" "@test \"alpha\" {" ":" "}" "@test \"beta\" {" ":" "}" \
       > "${root}/test/bats/unit/x_spec.bats"
-    printf "%s\n" "Unit specs under \`test/bats/unit/\`: **2 tests**." "" \
-      "### test/bats/unit/x_spec.bats (2)" "" \
-      "| Test | Description |" "|------|-------------|" \
-      "| \`alpha\` | only one of the two |" > "${root}/doc/test/unit.md"
+    printf "%s\n" "Unit specs under \`test/bats/unit/\`: **0 tests**." "" \
+      "<!-- generated: catalogue sections -->" "<!-- /generated -->" \
+      > "${root}/doc/test/unit.md"
+    _sync_doc_counts "${root}"
+    grep -v "beta" "${root}/doc/test/unit.md" > "${root}/doc/test/unit.md.new"
+    mv "${root}/doc/test/unit.md.new" "${root}/doc/test/unit.md"
     _check_test_md_drift "${root}"
   '
   assert_failure

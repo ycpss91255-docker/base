@@ -3,20 +3,23 @@
 # doc_counts_merge_spec.bats -- integration coverage for
 # script/test/resolve-doc-counts.sh against a REAL git merge conflict.
 #
-# The unit spec drives the resolver's functions over hand-written marker
-# fixtures. This one reproduces what actually happens: two branches each added
-# tests, both bumped the same generated totals in doc/test/unit.md, and the
-# merge conflicts on them. That conflict was resolved by hand six times in one
-# review batch. One command has to leave a merged, regenerated, staged,
-# gate-clean tree behind -- and, when the two sides disagree about something
-# regeneration cannot settle, refuse without staging anything.
+# why: The unit spec drives the resolver's functions over hand-written
+# marker fixtures. This one reproduces what actually happens: two branches
+# each added tests, both bumped the same generated total in
+# doc/test/unit.md, and the merge conflicts on it -- the conflict shape
+# every branch refresh in the base review batch produced, resolved by hand
+# six times in one of them.
 #
-# why: Drives `script/test/resolve-doc-counts.sh` against a REAL git merge
-# conflict: two branches that each added tests and both bumped the same
-# generated totals, which is the conflict shape every branch refresh in the
-# base review batch produced. Asserts the merged tree is regenerated,
-# complete, staged and gate-clean -- and that a merge whose sides describe
-# the same test differently is refused with nothing staged.
+# One command has to leave a merged, regenerated, staged, gate-clean tree
+# behind. The catalogue prose is the half that used to need rescuing, and
+# it is the half this case now proves needs nothing: both branches
+# authored their descriptions in the SPEC files, so both collapses
+# regenerate the same rows from the same merged spec tree and there is
+# nothing left for a collapse to drop.
+#
+# What can still be refused is a disagreement OUTSIDE the generated
+# region, where the document is hand-written and regeneration justifies
+# nothing. The second case drives that, and asserts nothing is staged.
 
 bats_require_minimum_version 1.5.0
 
@@ -33,40 +36,43 @@ setup() {
   _seed
 }
 
-# _spec <name> <test-name>... -- (re)write a spec file carrying the named tests.
+# _spec <name> <test-name>:<description>... -- (re)write a spec file
+# carrying the named tests, each with its `# why:` marker above it. An
+# empty description after the colon leaves the test undescribed.
 _spec() {
-  local _name="${1}"; shift
-  local _t
+  local _name="${1}"
+  shift
+  local _t _testname _desc
   : > "${REPO}/test/bats/unit/${_name}.bats"
   for _t in "$@"; do
-    printf '@test "%s" {\n:\n}\n' "${_t}" \
+    _testname="${_t%%:*}"
+    _desc="${_t#*:}"
+    [[ -n "${_desc}" ]] \
+      && printf '# why: %s\n' "${_desc}" >> "${REPO}/test/bats/unit/${_name}.bats"
+    printf '@test "%s" {\n:\n}\n' "${_testname}" \
       >> "${REPO}/test/bats/unit/${_name}.bats"
   done
 }
 
-# _doc <total> <a-count> <a-row>... -- rewrite unit.md. The b_spec section is
-# constant so the two branches touch well-separated regions and only the
-# total line collides, which is the conflict shape the review batch produced.
+# _doc <total> <lead-prose> -- rewrite unit.md's hand-written half. The
+# generated region is left empty on purpose: the resolver regenerates it,
+# and a fixture that pre-typed what a generator emits would be the habit
+# this whole change removes. Only the total line and the lead prose are
+# hand-written, which is where the two branches collide.
 _doc() {
-  local _total="${1}" _acount="${2}"; shift 2
+  local _total="${1}" _lead="${2:-Spacer prose, hand written and identical on both sides.}"
   {
     printf 'Unit specs under `test/bats/unit/`: **%s tests**.\n' "${_total}"
-    printf '\nSpacer prose so the total and the first section are separate hunks.\n'
-    printf '\nMore spacer prose, same reason.\n'
-    printf '\n### test/bats/unit/a_spec.bats (%s)\n\n' "${_acount}"
-    printf '| Test | Description |\n|------|-------------|\n'
-    printf '%s\n' "$@"
-    printf '\n### test/bats/unit/b_spec.bats (1)\n\n'
-    printf '| Test | Description |\n|------|-------------|\n'
-    printf '| `bravo` | the other original |\n'
+    printf '\n%s\n' "${_lead}"
+    printf '\n<!-- generated: catalogue sections -->\n<!-- /generated -->\n'
   } > "${REPO}/doc/test/unit.md"
 }
 
 # _seed -- the common ancestor both branches start from.
 _seed() {
-  _spec a_spec alpha
-  _spec b_spec bravo
-  _doc 2 1 '| `alpha` | the original |'
+  _spec a_spec 'alpha:the original'
+  _spec b_spec 'bravo:the other original'
+  _doc 2
   git -C "${REPO}" add -A
   git -C "${REPO}" commit -qm base
 }
@@ -77,18 +83,20 @@ _commit_all() {
   git -C "${REPO}" commit -qm "${1}"
 }
 
+# why: The whole toil, end to end. The load-bearing assertion is that BOTH
+# branches' descriptions survive: a mechanical collapse keeps one side's
+# document, and under the old design that dropped whichever description the
+# other side had written. Here neither side's document holds a description
+# at all, so there is nothing to drop.
 @test "resolve-doc-counts: resolves a real two-branch counter conflict end to end (#857)" {
   git -C "${REPO}" checkout -q -b feature
-  _spec a_spec alpha beta charlie
-  _doc 4 3 '| `alpha` | the original |' '| `beta` | added on the branch |' \
-    '| `charlie` | - |'
+  _spec a_spec 'alpha:the original' 'beta:added on the branch' 'charlie:'
+  _doc 4
   _commit_all feature
 
   git -C "${REPO}" checkout -q main
-  _spec b_spec bravo delta
-  _doc 3 1 '| `alpha` | the original |'
-  # main also documents its own new test, in the b_spec section at the end.
-  printf '| `delta` | added on main |\n' >> "${REPO}/doc/test/unit.md"
+  _spec b_spec 'bravo:the other original' 'delta:added on main'
+  _doc 3
   _commit_all main
 
   run git -C "${REPO}" merge --no-edit feature
@@ -103,15 +111,14 @@ _commit_all() {
   assert_success
   refute_output --partial '<<<<<<<'
   refute_output --partial '>>>>>>>'
-  # Both branches' tests are catalogued and both branches' prose survives:
-  # a mechanical collapse to one side would have dropped one of them.
   assert_line '| `alpha` | the original |'
   assert_line '| `beta` | added on the branch |'
   assert_line '| `charlie` | - |'
   assert_line '| `bravo` | the other original |'
   assert_line '| `delta` | added on main |'
-  # The totals are regenerated from the MERGED spec tree, not inherited from
-  # whichever side the collapse kept (3 + 2 = 5, a number neither side wrote).
+  # The totals are regenerated from the MERGED spec tree, not inherited
+  # from whichever side the collapse kept (3 + 2 = 5, a number neither
+  # side wrote).
   assert_output --partial '**5 tests**'
   assert_output --partial '### test/bats/unit/a_spec.bats (3)'
   assert_output --partial '### test/bats/unit/b_spec.bats (2)'
@@ -126,15 +133,20 @@ _commit_all() {
   assert_success
 }
 
-@test "resolve-doc-counts: REFUSES a merge whose sides describe the same test differently, staging nothing (#857)" {
+# why: The refusal that survives. Inside the fence there is nothing left to
+# disagree about, but the preamble is still hand-written, and adopting one
+# side of a sentence regeneration cannot justify is exactly the trap the
+# hand-typed recipe carried. Nothing is staged, so a half-resolved tree
+# cannot be committed by accident.
+@test "resolve-doc-counts: REFUSES a merge whose sides differ OUTSIDE the generated region, staging nothing (#857)" {
   git -C "${REPO}" checkout -q -b feature
-  _spec a_spec alpha beta
-  _doc 3 2 '| `alpha` | the original |' '| `beta` | the branch wording |'
+  _spec a_spec 'alpha:the original' 'beta:added on the branch'
+  _doc 3 'Covers the old behaviour, hand written.'
   _commit_all feature
 
   git -C "${REPO}" checkout -q main
-  _spec a_spec alpha beta
-  _doc 3 2 '| `alpha` | the original |' '| `beta` | the main wording |'
+  _spec a_spec 'alpha:the original' 'beta:added on the branch'
+  _doc 3 'Covers the new behaviour, hand written.'
   _commit_all main
 
   run git -C "${REPO}" merge --no-edit feature
@@ -142,9 +154,7 @@ _commit_all() {
 
   run bash "${RESOLVE}" "${REPO}"
   assert_failure
-  assert_output --partial 'beta'
-  assert_output --partial 'the branch wording'
-  assert_output --partial 'the main wording'
+  assert_output --partial 'hand written'
 
   # Refused means untouched as far as git is concerned: still unmerged, so
   # nobody can commit a half-resolved tree by accident.

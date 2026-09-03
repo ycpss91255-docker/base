@@ -249,7 +249,7 @@ is refused with nothing staged.
 | Test | Description |
 |------|-------------|
 | `resolve-doc-counts: resolves a real two-branch counter conflict end to end (#857)` | - |
-| `resolve-doc-counts: REFUSES a merge whose sides describe the same test differently, staging nothing (#857)` | - |
+| `resolve-doc-counts: REFUSES a merge whose sides differ OUTSIDE the generated region, staging nothing (#857)` | - |
 
 ### test/bats/integration/compose_test_tools_image_spec.bats (3)
 

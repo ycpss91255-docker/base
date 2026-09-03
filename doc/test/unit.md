@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3491 tests**.
+Unit specs under `test/bats/unit/`: **3515 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -2249,7 +2249,7 @@ builds the env block only for the knobs the conf sets.
 | `_run_via_compose: the real ids are in the environment compose interpolates (#895)` | - |
 | `_fix_permissions: refuses a non-numeric id instead of handing it to chown (#895)` | - |
 
-### test/bats/unit/doc_counts_spec.bats (21)
+### test/bats/unit/doc_counts_spec.bats (22)
 
 Unit coverage for `script/test/sync-doc-counts.sh` (`_sync_doc_counts`) -- the
 generator that derives the `doc/test/*.md` count figures from the specs
@@ -2259,26 +2259,27 @@ generator that derives the `doc/test/*.md` count figures from the specs
 | Test | Description |
 |------|-------------|
 | `_sync_doc_counts: rewrites a stale ### heading to the real @test count (#727)` | per-spec heading recompute |
-| `_sync_doc_counts: rewrites a stale #### (level-4) heading too (#815)` | #815 deeper ATX depth regenerated, not just ### |
+| `_sync_doc_counts: every section heading is emitted at one derivable depth` | - |
 | `_sync_doc_counts: rewrites the per-type total to the sum of the headings (#727)` | per-type total from grep-over-files |
 | `_sync_doc_counts: is idempotent on an already-synced tree (#727)` | re-run no-op |
 | `_sync_doc_counts: rewrites the system per-type total from test/bats/system/ (#782)` | - |
 | `_sync_doc_counts: tolerates an empty acceptance dir (count 0, no error) (#782)` | - |
 | `_sync_test_md_index: fills the system + acceptance rows, retires behavioural (#782)` | - |
 | `_sync_test_md_index: regenerates the blockquote prose System/smoke pair (#843)` | - |
-| `_sync_catalog_rows: generates a row for every @test the table is missing (#859)` | - |
-| `_sync_catalog_rows: a hand-written description survives regeneration (#859)` | - |
-| `_sync_catalog_rows: the row of a deleted test goes away (#859)` | - |
-| `_sync_catalog_rows: a renamed test is a delete plus an add, prose does not follow (#859)` | - |
-| `_sync_catalog_rows: rows follow spec file order, not the old table order (#859)` | - |
-| `_sync_catalog_rows: a section without a per-test table is left alone (#859)` | - |
-| `_sync_catalog_rows: a heading whose spec path does not resolve is left alone (#859)` | - |
-| `_sync_catalog_rows: a pipe in a test name is escaped so the table stays well formed (#859)` | - |
-| `_sync_catalog_rows: backslash escapes resolve to the name bats reports (#859)` | - |
-| `_sync_catalog_rows: is idempotent on an already-generated catalog (#859)` | - |
-| `_sync_doc_sections: a spec file with no section at all gets one (#859)` | - |
-| `_sync_doc_sections: an existing section is never duplicated (#859)` | - |
-| `_sync_doc_sections: a shipped smoke spec lands in smoke.md (#859)` | - |
+| `_sync_doc_counts: a '# why:' block above a test becomes that row's description` | - |
+| `_sync_doc_counts: renaming a test carries its description to the new name` | - |
+| `_sync_doc_counts: a row deleted from the catalogue is restored byte-for-byte` | - |
+| `_sync_doc_counts: deleting a '# why:' block turns its row back into the placeholder` | - |
+| `_sync_doc_counts: a pipe in a DESCRIPTION is escaped, so the row keeps two cells` | - |
+| `_sync_doc_counts: a pipe in a test NAME is escaped so the table stays well formed` | - |
+| `_sync_doc_counts: the file-level '# why:' block renders as the section blurb` | - |
+| `_sync_doc_counts: every spec the glob matches gets a section, in glob order` | - |
+| `_sync_doc_counts: section order is the C collation, not the ambient locale's` | - |
+| `_sync_doc_counts: rows follow spec file order, not alphabetical order` | - |
+| `_sync_doc_counts: text outside the fence is left exactly as written` | - |
+| `_sync_doc_counts: FAILS naming the document when the generated fence is missing` | - |
+| `_sync_doc_counts: a second run over a generated catalogue changes nothing` | - |
+| `_sync_doc_counts: a shipped smoke spec lands in smoke.md` | - |
 
 ### test/bats/unit/issueref_lint_spec.bats (20)
 
@@ -2945,7 +2946,7 @@ empty API answer).
 | `run: a gh still listing titles cannot make the dedupe gate miss an open issue (#905)` | - |
 | `run: empty latest from API -> fails without creating an issue` | - |
 
-### test/bats/unit/check_test_md_drift_spec.bats (10)
+### test/bats/unit/check_test_md_drift_spec.bats (11)
 
 The read-only validating twin of `sync-doc-counts.sh`: it re-derives every
 doc/test figure from the same source (`grep -c '^@test'`) and exits non-zero
@@ -2957,6 +2958,7 @@ passing vacuously (relative root, missing root, no `doc/test/`, no specs).
 |------|-------------|
 | `_check_test_md_drift: exits 0 on an in-sync tree (#782)` | - |
 | `_check_test_md_drift: exits non-zero and names the drifted doc on a stale count (#782)` | - |
+| `_check_test_md_drift: FAILS when a '# why:' block is deleted from a spec` | - |
 | `_check_test_md_drift: tolerates an empty acceptance level dir (count 0) (#782)` | - |
 | `_check_test_md_drift: a RELATIVE root gives the same verdict as the absolute one (#848)` | - |
 | `_check_test_md_drift: a RELATIVE root still detects real drift (#848)` | - |
@@ -2964,7 +2966,7 @@ passing vacuously (relative root, missing root, no `doc/test/`, no specs).
 | `_check_test_md_drift: FAILS on a scan root with no doc/test (no vacuous pass) (#848)` | - |
 | `_check_test_md_drift: FAILS on a spec-free scan root (no vacuous pass) (#848)` | - |
 | `_check_test_md_drift: counts a shipped smoke spec as spec files (#848)` | - |
-| `_check_test_md_drift: FAILS when a spec has more tests than catalog rows (#859)` | - |
+| `_check_test_md_drift: FAILS when a row is deleted from the generated region (#859)` | - |
 
 ### test/bats/unit/compose_emit/hostname_spec.bats (5)
 
@@ -2998,7 +3000,7 @@ directory is a no-op).
 | `_logrotate_prune: never prunes a SIBLING service's symlink sharing the dir (#805)` | - |
 | `_logrotate_prune: missing dir is a no-op (best-effort) (#805)` | - |
 
-### test/bats/unit/resolve_doc_counts_spec.bats (10)
+### test/bats/unit/resolve_doc_counts_spec.bats (9)
 
 Unit coverage for `script/test/resolve-doc-counts.sh` -- the one command that
 resolves a `doc/test/*.md` merge conflict. Two halves: the toil (markers go,
@@ -3013,9 +3015,8 @@ resolved to whichever side the collapse happened to keep).
 | `_resolve_doc_counts: FAILS on a nonexistent root, naming it (#857)` | - |
 | `_resolve_doc_counts: collapses a counter-only conflict and regenerates (#857)` | - |
 | `_resolve_doc_counts: drops the diff3 base section too (#857)` | - |
-| `_resolve_doc_counts: rescues the catalog prose from BOTH sides (#857)` | - |
+| `_resolve_doc_counts: catalogue prose survives a conflict because both sides regenerate it (#857)` | - |
 | `_resolve_doc_counts: an unconflicted tree is verified, not rewritten (#857)` | - |
-| `_resolve_doc_counts: FAILS when the two sides describe the same test differently (#857)` | - |
 | `_resolve_doc_counts: FAILS when the sides differ in prose the generator does not derive (#857)` | - |
 | `_resolve_doc_counts: FAILS when the drift gate is unhappy afterwards (#857)` | - |
 | `_resolve_assert_no_markers: FAILS naming the file and line of a survivor (#857)` | - |
@@ -4237,3 +4238,36 @@ rather than an assurance.
 | `self-test.yaml: setup-just is pinned from the accessor, not left to install latest (#948)` | - |
 | `release-test-tools.yaml: the just smoke check asserts the version, not exit 0 (#948)` | - |
 
+
+### test/bats/unit/catalog_description_lint_spec.bats (11)
+
+| Test | Description |
+|------|-------------|
+| `_run_catalog_description: a fully described tree is clean and prints the counts` | - |
+| `_run_catalog_description: an undescribed test under the ceiling counts but does not fail` | - |
+| `_run_catalog_description: breaching the ceiling FAILS and names the undescribed tests` | - |
+| `_run_catalog_description: a '# why:' block with no @test beneath it FAILS` | - |
+| `_run_catalog_description: a detached block FAILS` | - |
+| `_run_catalog_description: a marker that says nothing FAILS at any count` | - |
+| `_run_catalog_description: a short but real description passes the floor` | - |
+| `_run_catalog_description: an unreadable '@test' line FAILS` | - |
+| `_run_catalog_description: a spec-free scan root dies rather than passing vacuously` | - |
+| `_run_catalog_description: a nonexistent scan root dies, naming it` | - |
+| `_run_catalog_description: the real tree passes, at or under the declared ceiling` | - |
+
+### test/bats/unit/spec_markers_spec.bats (12)
+
+| Test | Description |
+|------|-------------|
+| `_spec_markers_scan: a one-line block above a test is that test's description` | - |
+| `_spec_markers_scan: continuation lines join with a single space` | - |
+| `_spec_markers_scan: comment lines ABOVE the marker are not part of it` | - |
+| `_spec_markers_scan: a blank line between block and test detaches it, and the block is an orphan` | - |
+| `_spec_markers_scan: a bare '#' inside a test's block is a detached finding` | - |
+| `_spec_markers_scan: a second '# why:' inside one block is a nested-marker finding` | - |
+| `_spec_markers_scan: a '@test' line the canonical form cannot read is a finding, not a skip` | - |
+| `_spec_markers_scan: a '# why:' in the opening comment run is the file blurb` | - |
+| `_spec_markers_scan: a bare '#' in the FILE block is a paragraph break, not a finding` | - |
+| `_spec_markers_scan: an opening run touching the first @test is an ambiguous-blurb finding` | - |
+| `_spec_markers_scan: a backslash-escaped name resolves to what bats reports` | - |
+| `_spec_markers_scan: a spec with no markers yields tests, no blurb and no findings` | - |
