@@ -86,22 +86,44 @@ readonly _ADR_REQUIRED_SECTIONS=(Context Decision Consequences Alternatives)
 #
 # Print the file's structural lines -- the ones a check may read -- with
 # every line inside a fenced code block dropped. Fences are ``` or ~~~ at
-# any indent; the opening fence's marker closes it, so a ``` example
-# nested in a ~~~ block does not end the outer block early.
+# any indent, and the run LENGTH is part of the fence, per CommonMark: a
+# block closes only on a marker of the same character at least as long as
+# the one that opened it, followed by nothing but whitespace.
+#
+# Length is what makes nesting parse. A fenced block shown inside a fenced
+# block is legal only with a longer outer fence, so closing on any ``` at
+# all would let the inner ``` end the outer block and emit the example
+# heading as real content -- the fail-open this stripping exists to
+# prevent. Requiring the same character keeps the sibling case honest: a
+# ``` example nested in a ~~~ block does not end the outer block either.
 _adr_outline() {
   local _file="${1}"
   awk '
+    # Length of the leading run of <ch> in <s>.
+    function _run(s, ch,   n) {
+      n = 0
+      while (substr(s, n + 1, 1) == ch) { n++ }
+      return n
+    }
     {
       line = $0
       sub(/^[ \t]+/, "", line)
       if (fence == "") {
-        if (line ~ /^```/)      { fence = "```"; next }
-        if (line ~ /^~~~/)      { fence = "~~~"; next }
+        n = _run(line, "`")
+        if (n >= 3) { fence = "`"; flen = n; next }
+        n = _run(line, "~")
+        if (n >= 3) { fence = "~"; flen = n; next }
         print $0
         next
       }
-      if (fence == "```" && line ~ /^```/) { fence = ""; next }
-      if (fence == "~~~" && line ~ /^~~~/) { fence = ""; next }
+      # Inside a block: same marker, at least as long, nothing trailing.
+      n = _run(line, fence)
+      if (n >= flen) {
+        rest = substr(line, n + 1)
+        sub(/[ \t]+$/, "", rest)
+        if (rest == "") { fence = ""; flen = 0 }
+      }
+      next
     }
   ' "${_file}"
 }
