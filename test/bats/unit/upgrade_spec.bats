@@ -4,6 +4,29 @@
 # helper that tells the user when the upstream .base/dist/config/ tree
 # moved during a subtree pull so they can reconcile their per-repo
 # <repo>/config/ copy.
+#
+# why: Unit tests for `upgrade.sh` helpers. Uses the sed-range pattern to
+# extract one function at a time into a minimal harness (with `_log` /
+# `_error` stubs), so each helper runs in a sandboxed git repo without
+# needing to source the full `upgrade.sh` (which would trigger its top-level
+# `cd REPO_ROOT`).
+#
+# Covers: `_warn_config_drift` (silent / fires on drift / diff hint), the
+# three safety guards added after the v0.9.7 Jetson incident
+# (`_require_git_identity`, `_require_clean_merge_state`,
+# `_verify_subtree_intact` with rollback), structural invariants that pin
+# call-ordering in `_upgrade` (identity check runs before subtree pull,
+# integrity verification runs after, pre-pull HEAD is snapshotted for
+# rollback), the R1+ rewrite of `_verify_subtree_intact` (#477) that
+# replaces the hard-coded marker list with a path-agnostic structural
+# invariant + target-version match (catches destructive fast-forward, empty
+# subtree, malformed `.version`, and wrong-tag pulls), and the SemVer
+# §11-aware `_semver_cmp` + `_check` behavior added for issue #156
+# (prerelease ahead of latest stable must not be reported as "needing
+# downgrade"), and `_migrate_lifecycle_restart_default`, which retires the
+# stale devel-scoped `[lifecycle] restart = no` the old template seeded into
+# every downstream repo (gated on the pre-pull vendored template, so a
+# deliberately chosen policy is never rewritten).
 
 bats_require_minimum_version 1.5.0
 
@@ -89,6 +112,7 @@ teardown() {
   refute_output --partial "WARNING"
 }
 
+# why: No drift
 @test "_warn_config_drift silent when pre and post hashes match" {
   local _git_dir="${TEMP_DIR}/same"
   mkdir -p "${_git_dir}/.base/dist/config"
@@ -109,6 +133,7 @@ teardown() {
   refute_output --partial "WARNING"
 }
 
+# why: Drift reported
 @test "_warn_config_drift prints WARNING + diff hint when hashes differ" {
   local _git_dir="${TEMP_DIR}/drift"
   mkdir -p "${_git_dir}/.base/dist/config"
@@ -134,11 +159,13 @@ teardown() {
 
 # ── upgrade.sh structural invariants ────────────────────────────────────────
 
+# why: Helper present
 @test "upgrade.sh defines _warn_config_drift" {
   run grep -F '_warn_config_drift()' "${UPGRADE}"
   assert_success
 }
 
+# why: Call site present
 @test "upgrade.sh invokes _warn_config_drift after subtree pull" {
   # The helper existing without a call site is a bug; count references
   # so a refactor that drops the invocation trips this test.
@@ -158,6 +185,7 @@ teardown() {
 
 # ── _require_git_identity ───────────────────────────────────────────────────
 
+# why: Happy path
 @test "_require_git_identity succeeds when name + email are set" {
   local _git_dir="${TEMP_DIR}/ident_ok"
   mkdir -p "${_git_dir}"
@@ -168,6 +196,7 @@ teardown() {
   assert_success
 }
 
+# why: Email guard
 @test "_require_git_identity fails when user.email is unset" {
   local _git_dir="${TEMP_DIR}/ident_noemail"
   mkdir -p "${_git_dir}"
@@ -184,6 +213,7 @@ teardown() {
   assert_output --partial "git identity not configured"
 }
 
+# why: Name guard
 @test "_require_git_identity fails when user.name is unset" {
   local _git_dir="${TEMP_DIR}/ident_noname"
   mkdir -p "${_git_dir}"
@@ -201,6 +231,7 @@ teardown() {
 
 # ── _require_clean_merge_state ──────────────────────────────────────────────
 
+# why: Happy path
 @test "_require_clean_merge_state succeeds in clean repo" {
   local _git_dir="${TEMP_DIR}/clean"
   mkdir -p "${_git_dir}"
@@ -209,6 +240,7 @@ teardown() {
   assert_success
 }
 
+# why: Mid-merge guard
 @test "_require_clean_merge_state fails when MERGE_HEAD exists" {
   local _git_dir="${TEMP_DIR}/midmerge"
   mkdir -p "${_git_dir}"
@@ -219,6 +251,7 @@ teardown() {
   assert_output --partial "MERGE_HEAD present"
 }
 
+# why: Mid-rebase guard
 @test "_require_clean_merge_state fails when rebase-merge dir exists" {
   local _git_dir="${TEMP_DIR}/midrebase"
   mkdir -p "${_git_dir}"
@@ -247,6 +280,7 @@ _mk_subtree_repo() {
   git -C "${_dir}" commit -q -m "initial"
 }
 
+# why: R1+ happy path
 @test "_verify_subtree_intact succeeds when subtree dir + version match target (#477 happy path)" {
   local _git_dir="${TEMP_DIR}/intact_ok"
   _mk_subtree_repo "${_git_dir}"  # writes .version=v0.9.5
@@ -316,6 +350,7 @@ _mk_subtree_repo() {
   [ -f "${_git_dir}/.base/.version" ]
 }
 
+# why: R1+ semver-shape guard
 @test "_verify_subtree_intact rolls back when .version content is not semver (#477)" {
   local _git_dir="${TEMP_DIR}/intact_notsemver"
   _mk_subtree_repo "${_git_dir}"
@@ -337,6 +372,7 @@ _mk_subtree_repo() {
   assert_output "v0.9.5"
 }
 
+# why: R1+ wrong-tag detector
 @test "_verify_subtree_intact rolls back when .version does not match target (#477 wrong-tag detector)" {
   local _git_dir="${TEMP_DIR}/intact_wrongtag"
   _mk_subtree_repo "${_git_dir}"  # writes v0.9.5
@@ -353,6 +389,7 @@ _mk_subtree_repo() {
   assert_output --partial "v0.8.0"
 }
 
+# why: Failed-reset escalation (no false 'restored' message)
 @test "_rollback_subtree_pull surfaces a failed reset instead of falsely reporting 'restored' (#700)" {
   # The rollback exists to rescue a tree the destructive subtree FF
   # already mangled. If the rescue `git reset --hard` itself fails
@@ -377,6 +414,7 @@ _mk_subtree_repo() {
 
 # ── upgrade.sh structural invariants (safety guards) ───────────────────────
 
+# why: Pre-flight ordering
 @test "upgrade.sh calls _require_git_identity before subtree pull" {
   # Confirm both that the helper is called AND the ordering is correct.
   # The anchor is the INVOCATION -- an indented `git subtree pull --prefix=`
@@ -391,6 +429,7 @@ _mk_subtree_repo() {
   (( _id_line < _pull_line ))
 }
 
+# why: Post-flight ordering + R1+ caller integration
 @test "upgrade.sh calls _verify_subtree_intact after subtree pull with target version (#477)" {
   local _pull_line _verify_line
   _pull_line="$(grep -nE '^[[:space:]]*git subtree pull --prefix=' "${UPGRADE}" | head -1 | cut -d: -f1)"
@@ -402,6 +441,7 @@ _mk_subtree_repo() {
   (( _verify_line > _pull_line ))
 }
 
+# why: Rollback anchor
 @test "upgrade.sh snapshots pre-pull HEAD for rollback" {
   run grep -F 'git rev-parse HEAD' "${UPGRADE}"
   assert_success
@@ -447,54 +487,63 @@ _mk_subtree_repo() {
 #
 # Returns: 0 = equal, 1 = a < b, 2 = a > b.
 
+# why: Equality
 @test "_semver_cmp: equal versions return 0" {
   run bash -c "source '${HARNESS}'; _semver_cmp v0.11.0 v0.11.0; echo \$?"
   assert_success
   assert_output "0"
 }
 
+# why: Behind core
 @test "_semver_cmp: lower core returns 1" {
   run bash -c "source '${HARNESS}'; _semver_cmp v0.11.0 v0.12.0; echo \$?"
   assert_success
   assert_output "1"
 }
 
+# why: Ahead core
 @test "_semver_cmp: higher core returns 2" {
   run bash -c "source '${HARNESS}'; _semver_cmp v0.12.0 v0.11.0; echo \$?"
   assert_success
   assert_output "2"
 }
 
+# why: SemVer §11 a
 @test "_semver_cmp: pre-release < final at same core (rc1 < 0.12.0)" {
   run bash -c "source '${HARNESS}'; _semver_cmp v0.12.0-rc1 v0.12.0; echo \$?"
   assert_success
   assert_output "1"
 }
 
+# why: SemVer §11 b
 @test "_semver_cmp: final > pre-release at same core (0.12.0 > rc1)" {
   run bash -c "source '${HARNESS}'; _semver_cmp v0.12.0 v0.12.0-rc1; echo \$?"
   assert_success
   assert_output "2"
 }
 
+# why: Pre-release order
 @test "_semver_cmp: rc1 < rc2 (lex pre-release ordering)" {
   run bash -c "source '${HARNESS}'; _semver_cmp v0.12.0-rc1 v0.12.0-rc2; echo \$?"
   assert_success
   assert_output "1"
 }
 
+# why: Pre-release order
 @test "_semver_cmp: rc2 > rc1" {
   run bash -c "source '${HARNESS}'; _semver_cmp v0.12.0-rc2 v0.12.0-rc1; echo \$?"
   assert_success
   assert_output "2"
 }
 
+# why: Cross-core
 @test "_semver_cmp: pre-release of newer beats older final (0.12.0-rc1 > 0.11.0)" {
   run bash -c "source '${HARNESS}'; _semver_cmp v0.12.0-rc1 v0.11.0; echo \$?"
   assert_success
   assert_output "2"
 }
 
+# why: Cross-core
 @test "_semver_cmp: older final < pre-release of newer (0.11.0 < 0.12.0-rc1)" {
   run bash -c "source '${HARNESS}'; _semver_cmp v0.11.0 v0.12.0-rc1; echo \$?"
   assert_success
@@ -510,6 +559,7 @@ _mk_subtree_repo() {
 # mismatch (including "running rc1, latest stable is older v0.11.0")
 # as "needing downgrade" with exit 1.
 
+# why: Happy equal
 @test "_check: equal versions report up-to-date and exit 0" {
   run bash -c "
     source '${HARNESS}'
@@ -523,6 +573,7 @@ _mk_subtree_repo() {
   assert_output --partial "Already up to date"
 }
 
+# why: Behind
 @test "_check: behind latest reports update available and exits 1" {
   run bash -c "
     source '${HARNESS}'
@@ -534,6 +585,7 @@ _mk_subtree_repo() {
   assert_output --partial "Update available: v0.11.0 →v0.12.0"
 }
 
+# why: Regression #156
 @test "_check: prerelease ahead of latest stable exits 0 (issue #156 case)" {
   # Scenario fromuser's downstream pinned to v0.12.0-rc1
   # while the org's latest stable tag is still v0.11.0. _check should
@@ -551,6 +603,7 @@ _mk_subtree_repo() {
   refute_output --partial "Update available"
 }
 
+# why: Local-only tag
 @test "_check: stable later than latest stable exits 0 (defensive)" {
   # If local was hand-tagged to a future version not yet on the remote
   # (e.g. local-only release, or stale ls-remote), don't propose a
@@ -565,6 +618,7 @@ _mk_subtree_repo() {
   assert_output --partial "ahead"
 }
 
+# why: Leave prerelease
 @test "_check: prerelease behind latest stable proposes upgrade (rc1 →0.12.0)" {
   # Once v0.12.0 is published, a downstream still on v0.12.0-rc1
   # should be told to leave the prerelease and move to stable.
@@ -662,6 +716,7 @@ EOS
   assert_output "latest=v0.7.2"
 }
 
+# why: Empty result still surfaces real fetch failures
 @test "_get_latest_version: empty result feeds _check's 'Could not fetch' guard" {
   # Sanity: when the function returns nothing, _check still surfaces
   # the genuine failure mode via the existing emptiness guard. Without
@@ -686,6 +741,7 @@ EOS
 # tree. The user can still recover deliberately (e.g., set the version
 # file by hand or rerun with a clear --force flag if we ever add one).
 
+# why: Implicit-downgrade guard
 @test "_upgrade refuses to downgrade from a newer local version" {
   # Extract a minimal _upgrade by hand (the full body sources too many
   # external deps); we only need the entry-point downgrade guard. The

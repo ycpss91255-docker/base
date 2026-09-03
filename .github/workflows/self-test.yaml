@@ -297,6 +297,15 @@ jobs:
     #                     block, the pair a serial append-vs-append merge
     #                     lands with nothing to review; released sections
     #                     are never checked
+    #   catalog-description
+    #                     every `@test` in the spec trees carries a
+    #                     `# why:` block on the lines above it, every
+    #                     block is attached to a test, and the count of
+    #                     tests that still have none stays under the
+    #                     transition ceiling the driver declares. The
+    #                     catalogue under doc/test/ is rendered from those
+    #                     blocks, so this is the rule at its source rather
+    #                     than over the rendered table
     #   just-provenance   every site that OBTAINS the `just` runner names
     #                     the one pinned version -- the image's fetch, the
     #                     setup-just input, the just.systems installer's
@@ -356,6 +365,7 @@ jobs:
           - action-ref-agreement
           - generated-workflow-actions
           - just-provenance
+          - catalog-description
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -1647,8 +1657,12 @@ jobs:
         # (they own whatever the suite writes into the mounted checkout).
         # TEST_TOOLS_IMAGE is NOT set here: it is workflow-level and
         # run-keyed, and a spec asserts the old literal appears nowhere.
+        # BASE_CHECKOUT_PATH is the provenance compose.yaml stamps onto the
+        # network (`base.checkout.path`), also with no default: an artifact
+        # created without it can never be attributed by the scoped reclaim.
         run: |
           HOST_UID="$(id -u)" HOST_GID="$(id -g)" \
+            BASE_CHECKOUT_PATH="$(pwd -P)" \
             docker compose run --rm ci-system
 
       - name: Reclaim this run's docker artifacts

@@ -9,6 +9,14 @@
 # script), so the spec drives it against synthesized fixture trees laid out
 # exactly like the real repo: sources live under dist/script/docker/**
 # and script/test/**. Exit contract: 0 = clean, 1 = violations found.
+#
+# why: Unit tests for `script/test/lint_bare_stderr.sh` (#692), the "all
+# stderr goes through lib/log.sh helpers" lint. The lint takes the repo root
+# as `$1`, so the spec drives it against synthesized fixture trees laid out
+# like the real repo (sources under `dist/script/docker/**`, tests under
+# `script/test/**`). A real-repo-root clean-tree case guards against the
+# path-drift bug (an empty find root passing vacuously) by proving the scan
+# actually walks the populated `dist/script/docker` tree.
 
 bats_require_minimum_version 1.5.0
 
@@ -25,6 +33,7 @@ teardown() {
   rm -rf "${FIXTURE}"
 }
 
+# why: exit 1 + violation line on the correct tree
 @test "flags a bare 'printf ... >&2' under dist/script/docker (#692)" {
   cat > "${FIXTURE}/dist/script/docker/lib/foo.sh" <<'EOF'
 #!/usr/bin/env bash
@@ -39,6 +48,7 @@ EOF
   assert_output --partial "bare stderr output"
 }
 
+# why: clean fixture passes silently
 @test "exits 0 on a clean tree (no bare stderr) (#692)" {
   cat > "${FIXTURE}/dist/script/docker/lib/foo.sh" <<'EOF'
 #!/usr/bin/env bash
@@ -51,6 +61,7 @@ EOF
   assert_output ""
 }
 
+# why: `_log_*` line exempt
 @test "does NOT flag an allowlisted _log_* line (#692)" {
   cat > "${FIXTURE}/dist/script/docker/lib/foo.sh" <<'EOF'
 #!/usr/bin/env bash
@@ -62,6 +73,7 @@ EOF
   assert_success
 }
 
+# why: getopts / prompt lines exempt
 @test "does NOT flag an allowlisted getopts / [y/N] prompt line (#692)" {
   cat > "${FIXTURE}/dist/script/docker/lib/foo.sh" <<'EOF'
 #!/usr/bin/env bash
@@ -74,6 +86,7 @@ EOF
   assert_success
 }
 
+# why: standalone log.sh-free CI tool excluded
 @test "does NOT flag bare stderr in the standalone coverage_gate.sh CI tool (#710)" {
   # coverage_gate.sh is a deliberately log.sh-free standalone CI tool (it
   # runs as bare `bash coverage_gate.sh ...` under GitHub Actions / GitLab
@@ -92,6 +105,7 @@ EOF
   assert_output ""
 }
 
+# why: live-tree guard against path drift
 @test "the real repo tree (default root) is clean (#692)" {
   # No $1: the lint defaults its root to two levels up from the script,
   # i.e. the real /source tree. This guards the live wrapper/lib + test

@@ -16,6 +16,15 @@
 # generator's file-writing + install path runs for real. The heavier
 # build->load->compose-up->override lifecycle is the System-level sibling
 # (test/bats/system/deploy_bundle_e2e_spec.bats), which needs host docker.
+#
+# why: The field-deploy generator end-to-end across components
+# (ADR-00000023): a fixture repo (repo-root `.setup.conf`, a Dockerfile with
+# a `runtime` stage, a `config/<component>/deploy.manifest` declaring one
+# tunable path) drives the real `_setup_deploy` -> `_generate_deploy_bundle`
+# flow with a docker + xz PATH-shim (no real daemon), and asserts the
+# produced output folder `deploy/<repo>-<stage>-<version>/` is correct.
+# Distinct from the isolated-function unit specs: this exercises the
+# manifest -> resolve -> resolved-compose -> bundle-files wiring as a flow.
 
 setup() {
   export LOG_FORMAT=text
@@ -104,6 +113,7 @@ teardown() {
   [[ -n "${SHIM:-}" ]] && rm -rf "${SHIM}"
 }
 
+# why: folder + files
 @test "deploy flow: produces the version-named output folder with all bundle files (field-deploy)" {
   [ "${DEPLOY_RUN_STATUS}" -eq 0 ]
   [ -d "${BUNDLE}" ]
@@ -114,6 +124,7 @@ teardown() {
   [ -d "${BUNDLE}/config" ]
 }
 
+# why: self-contained compose
 @test "deploy flow: the resolved compose is self-contained and pins the versioned image (field-deploy)" {
   run cat "${BUNDLE}/compose.yaml"
   assert_success
@@ -124,6 +135,7 @@ teardown() {
   assert_output --partial "restart: unless-stopped"
 }
 
+# why: tunable delivery
 @test "deploy flow: the manifest path is delivered as an editable copy + a mount-wins bind (field-deploy)" {
   # The compose binds the tunable file over its baked default.
   run cat "${BUNDLE}/compose.yaml"
@@ -134,6 +146,7 @@ teardown() {
   assert_output --partial "baked-default"
 }
 
+# why: launcher shape
 @test "deploy flow: the thin launcher drives docker load + compose up/down (field-deploy)" {
   run cat "${BUNDLE}/deploy.sh"
   assert_success
@@ -231,6 +244,7 @@ DOCK
   assert_output --partial 'COPY config/camera /opt/app/config/camera'
 }
 
+# why: README template
 @test "deploy flow: the README names the versioned image + the tunable config workflow (field-deploy)" {
   run cat "${BUNDLE}/README"
   assert_success

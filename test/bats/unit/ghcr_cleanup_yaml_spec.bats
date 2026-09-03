@@ -36,6 +36,38 @@
 # 4. **Scope and pinning.** One package (`test-tools`), one owner, no
 #    wildcard expansion; the action pinned to an immutable commit SHA
 #    rather than a floating tag it does not control.
+#
+# why: Structural assertions for `.github/workflows/ghcr-cleanup.yaml`, the
+# weekly job that prunes untagged orphan digests from the base-owned
+# `test-tools` package on GHCR.
+#
+# A scheduled job against a real registry cannot be exercised from here —
+# there is no local GHCR, and a real run's only honest test is a real run.
+# So the spec pins the workflow's SHAPE instead, on the theory that the ways
+# this goes catastrophically wrong are all edits to the file:
+#
+# - **The footgun.** `actions/delete-package-versions` with
+# `delete-only-untagged-versions` calls anything the packages API reports as
+# untagged a candidate without opening a manifest, so it deletes the
+# per-arch children of a LIVE tag and `docker pull` starts 404ing. The spec
+# asserts neither the action nor that input appears in the file's code (the
+# header comment names both on purpose, to say why they are absent, so the
+# assertions run over comment-stripped lines).
+#
+# - **The safety inputs.** `delete-untagged` is the only delete rule
+# enabled, `older-than` keeps a retention window, `exclude-tags` preserves
+# the tags downstream Dockerfiles pin, `validate` surfaces a lost platform
+# child in the log, and the tagged / partial-image rules stay off.
+#
+# - **Dry-run defaults.** Enforcement is opt-in through the
+# `GHCR_CLEANUP_ENFORCE` repository variable, so a scheduled run deletes
+# nothing until a human has read a dry run. `dry-run` is resolved in a step
+# rather than an `a && b || c` expression, because that idiom collapses to
+# `c` exactly on the dispatch-with-dry-run-false branch.
+#
+# - **Scope and pinning.** One owner, one package, no wildcard expansion;
+# the action pinned to an immutable commit SHA rather than a floating tag a
+# third party can move under a job holding `packages: write`.
 
 bats_require_minimum_version 1.5.0
 
@@ -86,6 +118,8 @@ _exclude_tags() {
 
 # ── The footgun: the unsafe action must never appear ─────────────────
 
+# why: The unsafe action never returns: its untagged filter never opens a
+# manifest
 @test "ghcr-cleanup.yaml: never uses actions/delete-package-versions" {
   # That action's untagged filter reads the packages API and never opens
   # a manifest, so it collects the per-arch children a live tag
@@ -95,6 +129,8 @@ _exclude_tags() {
   refute_output --partial 'delete-package-versions'
 }
 
+# why: The specific input that breaks live tags, named separately from the
+# action
 @test "ghcr-cleanup.yaml: never sets delete-only-untagged-versions" {
   # The specific input that makes the unsafe action destructive. Named
   # separately so a swap back is caught even if the action moves.
@@ -103,6 +139,7 @@ _exclude_tags() {
   refute_output --partial 'delete-only-untagged-versions'
 }
 
+# why: The action that resolves manifest references is the one in use
 @test "ghcr-cleanup.yaml: uses the manifest-aware dataaxiom/ghcr-cleanup-action" {
   run code_grep -F 'uses: dataaxiom/ghcr-cleanup-action@' "${WF}"
   assert_success
@@ -110,6 +147,8 @@ _exclude_tags() {
 
 # ── Action pinning ───────────────────────────────────────────────────
 
+# why: A moved tag would hand deletion rights over our package to unreviewed
+# code
 @test "ghcr-cleanup.yaml: pins the cleanup action to an immutable commit SHA" {
   # A floating tag on the one third-party action holding packages: write
   # over a package we publish means a moved tag hands deletion rights to
@@ -118,6 +157,7 @@ _exclude_tags() {
   assert_success
 }
 
+# why: Keeps the SHA readable; the form Dependabot rewrites on bump
 @test "ghcr-cleanup.yaml: records the pinned action's version in a trailing comment" {
   # Keeps the SHA readable and is the form Dependabot rewrites on bump.
   run code_grep -E 'uses: dataaxiom/ghcr-cleanup-action@[0-9a-f]{40} # v[0-9]+\.[0-9]+\.[0-9]+' "${WF}"
@@ -126,12 +166,15 @@ _exclude_tags() {
 
 # ── Safety inputs ────────────────────────────────────────────────────
 
+# why: Untagged orphans are the only thing this job collects
 @test "ghcr-cleanup.yaml: enables delete-untagged as the delete rule" {
   run _with_block
   assert_success
   assert_output --partial 'delete-untagged: true'
 }
 
+# why: `delete-tags` / ghost / partial / orphaned can remove TAGGED
+# versions: absent
 @test "ghcr-cleanup.yaml: leaves the tagged-image delete rules off" {
   # delete-tags / delete-ghost-images / delete-partial-images /
   # delete-orphaned-images can all remove TAGGED versions. Absent means
@@ -144,6 +187,8 @@ _exclude_tags() {
   refute_output --partial 'delete-orphaned-images:'
 }
 
+# why: Without it, a run overlapping a release eats the by-digest pushes
+# pre-merge
 @test "ghcr-cleanup.yaml: keeps a retention window via older-than" {
   # Without it, a cleanup overlapping a release deletes the by-digest
   # single-arch pushes before the merge job tags them.
@@ -152,6 +197,7 @@ _exclude_tags() {
   assert_output --regexp 'older-than: [0-9]+ (day|days|week|weeks|month|months)'
 }
 
+# why: `latest`, `main` and the `v*` series are a strict preserve list
 @test "ghcr-cleanup.yaml: preserves the tags downstream consumers pin" {
   # The three tag shapes release-test-tools.yaml publishes: the two
   # moving tags and the immutable release series.
@@ -162,6 +208,8 @@ _exclude_tags() {
   assert_output --regexp '(^|,)v\*(,|$)'
 }
 
+# why: A lost platform child shows in the log, not at someone's `docker
+# pull`
 @test "ghcr-cleanup.yaml: enables the post-run multi-arch validate scan" {
   run _with_block
   assert_success
@@ -170,6 +218,7 @@ _exclude_tags() {
 
 # ── Dry-run defaults ─────────────────────────────────────────────────
 
+# why: The rollout safety net cannot be removed by flipping one literal
 @test "ghcr-cleanup.yaml: dry-run is computed, never hardcoded false" {
   run _with_block
   assert_success
@@ -177,6 +226,7 @@ _exclude_tags() {
   assert_output --partial 'dry-run: ${{ steps.mode.outputs.dry-run }}'
 }
 
+# why: A manual run previews unless the operator asks otherwise
 @test "ghcr-cleanup.yaml: workflow_dispatch dry-run input defaults to true" {
   run _block on
   assert_success
@@ -184,6 +234,7 @@ _exclude_tags() {
   assert_output --partial 'default: true'
 }
 
+# why: An unfinished rollout costs sprawl, never a broken tag
 @test "ghcr-cleanup.yaml: scheduled runs stay dry until GHCR_CLEANUP_ENFORCE opts in" {
   # Enforcement is opt-in, so forgetting the rollout review costs
   # continued sprawl rather than a broken tag.
@@ -193,6 +244,8 @@ _exclude_tags() {
   assert_success
 }
 
+# why: Fail-safe, not fail-open: an unexpected input value resolves to
+# dry-run
 @test "ghcr-cleanup.yaml: a dispatch deletes only on a literal false, not on anything-but-true" {
   # Fail-safe rather than fail-open: the dispatch branch opts INTO
   # deleting on an exact `false` and treats every other value -- empty
@@ -204,6 +257,7 @@ _exclude_tags() {
   refute_output --partial 'INPUT_DRY_RUN}" == "true"'
 }
 
+# why: `a && b || c` collapses to `c` on the one branch that deletes
 @test "ghcr-cleanup.yaml: resolves dry-run in a step, not an && || expression" {
   # `a && b || c` collapses to `c` when b is false -- which here is the
   # dispatch-with-dry-run-false branch, the one case where getting it
@@ -217,6 +271,7 @@ _exclude_tags() {
 
 # ── Scope ────────────────────────────────────────────────────────────
 
+# why: One owner, one package: the one base publishes and owns
 @test "ghcr-cleanup.yaml: targets exactly the test-tools package" {
   run _with_block
   assert_success
@@ -224,6 +279,7 @@ _exclude_tags() {
   assert_output --partial 'owner: ycpss91255-docker'
 }
 
+# why: `expand-packages` would widen this to every package in the org
 @test "ghcr-cleanup.yaml: does not enable wildcard package expansion" {
   # expand-packages would let one edit widen this from base's own
   # package to every package in the org.
@@ -234,6 +290,7 @@ _exclude_tags() {
 
 # ── Trigger surface and permissions ──────────────────────────────────
 
+# why: The job is scheduled, not merely dispatchable
 @test "ghcr-cleanup.yaml: runs on a cron schedule" {
   run _block on
   assert_success
@@ -241,6 +298,7 @@ _exclude_tags() {
   assert_output --regexp "cron: '[0-9*]"
 }
 
+# why: GitHub delays scheduled runs that pile onto `:00`
 @test "ghcr-cleanup.yaml: cron avoids the top of the hour" {
   # GitHub delays scheduled runs that pile onto :00.
   run _code_lines
@@ -248,12 +306,14 @@ _exclude_tags() {
   refute_output --regexp "cron: '0 "
 }
 
+# why: The dry-run review and one-off cleans need a manual entry point
 @test "ghcr-cleanup.yaml: supports manual workflow_dispatch" {
   run _block on
   assert_success
   assert_output --partial 'workflow_dispatch:'
 }
 
+# why: Enough to delete package versions, no more
 @test "ghcr-cleanup.yaml: declares packages: write and no broader write scope" {
   run _block permissions
   assert_success
@@ -262,6 +322,8 @@ _exclude_tags() {
   refute_output --partial 'contents: write'
 }
 
+# why: Two actors mutating the package concurrently, or a killed delete, is
+# not a state to design for
 @test "ghcr-cleanup.yaml: serialises runs and never cancels one mid-delete" {
   run _block concurrency
   assert_success

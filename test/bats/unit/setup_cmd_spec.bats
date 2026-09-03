@@ -1,4 +1,18 @@
 #!/usr/bin/env bats
+#
+# why: Mirrors `lib/setup_cmd.sh`. The git-style subcommand dispatcher and
+# its mutating verbs (#49): dispatch (Phase B-1), `set` / `show` / `list`
+# (Phase B-2), `add` / `remove` (Phase B-3), and `reset` + BREAKING no-arg →
+# help (Phase B-4) — round-trips, validators, no-`.env`-regen, comment
+# preservation, and end-to-end subprocess cases. Also the per-section
+# setup.conf parameter end-to-end coverage (#202, merged from the former
+# `setup_section_validate_spec.bats`) exercising `_setup_validate_kv` /
+# `_setup_known_section`: one key per test asserted through to
+# `compose.yaml` / `.env`, across `[deploy]`, `[gui]`, `[network]`,
+# `[resources]`, `[environment]`, `[tmpfs]`, `[devices]`, `[volumes]
+# mount_2..N`, and `[security]` privileged, with companion negatives for
+# cleared keys, plus the isolated `_setup_known_section` / `SCHEMA_SECTIONS`
+# (#561) unit checks.
 
 bats_require_minimum_version 1.5.0
 

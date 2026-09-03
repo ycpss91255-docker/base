@@ -4,6 +4,54 @@
 # Focuses on validators, INI round-trip, and mount-string parsing. No
 # interactive dialog/whiptail calls are exercised here (see
 # tui_backend_spec.bats and tui_flow_spec.bats for those).
+#
+# why: Pure-logic unit tests for the TUI support libraries (`_tui_conf.sh`).
+# No dialog/whiptail invocations here — strictly validators, mount-string
+# parsers, and setup.conf round-trip.
+#
+# Grouped by concern:
+#
+# - `_validate_mount` (valid forms, env-var expansion, reject missing/extra
+# colons, invalid mode)
+#
+# - `_validate_gpu_count` ('all', positive int, reject
+# 0/negative/non-numeric/empty)
+#
+# - `_validate_enum` (match, non-match, empty)
+#
+# - `_mount_host_path` (plain, with mode, with env-var host)
+#
+# - `_load_setup_conf_full` + `_write_setup_conf` (section order, kv,
+# comment preservation, untouched keys, round-trip, dst==tpl regression
+# #187)
+#
+# - `_upsert_conf_value` (updates existing, leaves other sections untouched)
+#
+# - `_edit_image_rule __remove` index compaction (#177) — first / middle /
+# last / sole rule
+#
+# - `_validate_additional_context` (#199: relative paths, BuildKit schemes,
+# name punctuation, reject empty / missing pieces, reject invalid name
+# shapes)
+#
+# - Per-stage `[stage:NAME]` round-trip (#220: namespaced load, append new
+# section, multi-section append, round-trip, in-place update of existing
+# section)
+#
+# - `_validate_log_*` (#328: driver name shape, max_size num+unit, max_file
+# positive int, compress boolean; covers happy paths + rejection of empty /
+# whitespace / wrong unit / decimals / case mismatches)
+#
+# - `_edit_section_lifecycle` (#514: restart radiolist writes simple policy
+# + default no; on-failure:N assembly; empty-N -> bare on-failure; invalid-N
+# re-prompt then accept)
+#
+# - `_edit_section_deploy` legacy runtime->gpu_runtime migration (#517:
+# suggest msgbox when legacy [deploy] runtime present; silent when
+# gpu_runtime already used; writes canonical gpu_runtime key)
+#
+# - `_show_runtime_env_info` (#497: info-only msgbox points at the .env
+# overlay; writes no override)
 
 bats_require_minimum_version 1.5.0
 

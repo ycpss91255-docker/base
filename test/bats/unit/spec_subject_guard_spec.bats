@@ -19,6 +19,17 @@
 # whitespace, and the doc-count sync counts `^@test` per file, so a
 # column-0 heredoc line would be counted as a test of this file and would
 # earn a phantom catalogue row in doc/test/unit.md.
+#
+# why: `assert_spec_subject` (test/bats/unit/test_helper.bash), the
+# fail-closed opening 54 guards across this suite now share, plus the
+# repo-wide invariant that no spec goes back to the fail-open form. Those
+# guards used to read `[[ -f "${SUBJECT}" ]] || skip`, which cannot tell
+# "absent by design" from "renamed and nobody noticed" and answered the
+# second with a green run: renaming one workflow turned 52 assertions into
+# `ok ... # skip` and the suite still exited 0. Since a bats outcome cannot
+# be observed from inside the test that produces it, each case writes a
+# one-test spec into `BATS_TEST_TMPDIR` and asserts on the TAP the inner
+# `bats` run emits.
 
 bats_require_minimum_version 1.5.0
 
@@ -129,6 +140,7 @@ setup() {
 INNER_EOF
 }
 
+# why: The normal path costs the caller nothing and skips nothing
 @test "assert_spec_subject: a present subject lets the test run to completion" {
   local _subject="${BATS_TEST_TMPDIR}/present.yaml"
   printf 'name: anything\n' > "${_subject}"
@@ -140,6 +152,8 @@ INNER_EOF
   refute_output --partial "# skip"
 }
 
+# why: The whole point: a skip here reports green for a spec that asserted
+# nothing
 @test "assert_spec_subject: a missing subject FAILS the test, it does not skip it" {
   # The whole point. A skip here is the defect: it reports a green run for a
   # spec that asserted nothing, which is indistinguishable from the artifact
@@ -152,6 +166,7 @@ INNER_EOF
   refute_output --partial "# skip"
 }
 
+# why: The message has to be actionable without opening the spec
 @test "assert_spec_subject: the failure names the missing path and what it was" {
   _write_inner "\"${BATS_TEST_TMPDIR}/absent.yaml\""
 
@@ -161,6 +176,7 @@ INNER_EOF
   assert_output --partial "the artifact the inner spec asserts on"
 }
 
+# why: An unset caller variable is a loud bug, not a silent pass
 @test "assert_spec_subject: refuses an empty path rather than passing vacuously" {
   # A guard called with an unset variable must be a loud bug, not a silent
   # pass -- `[[ -f "" ]]` is false, so an unguarded version would have
@@ -172,6 +188,7 @@ INNER_EOF
   assert_output --partial "BUG: assert_spec_subject expects a path"
 }
 
+# why: The directory form must not fail a subject that is there
 @test "assert_spec_subject_dir: a present directory lets the test run to completion" {
   local _subject="${BATS_TEST_TMPDIR}/present_tree"
   mkdir -p "${_subject}"
@@ -183,6 +200,7 @@ INNER_EOF
   refute_output --partial "# skip"
 }
 
+# why: A tracked tree that vanished is a defect, never a context
 @test "assert_spec_subject_dir: a missing directory FAILS the test, it does not skip it" {
   # Same contract as the file guard, and the same reason: a tracked tree
   # (`.github/workflows/`) is present in every mode this suite has, so its
@@ -197,6 +215,7 @@ INNER_EOF
   refute_output --partial "# skip"
 }
 
+# why: Why the guard is -d and not a widened -e
 @test "assert_spec_subject_dir: a FILE at the path is not the directory it asked for" {
   # Why the guard is `-d` and not a widened `-e`: a path that turned from a
   # directory into a file is itself one of the moves these guards exist to
@@ -210,6 +229,7 @@ INNER_EOF
   assert_output --partial "${_subject}"
 }
 
+# why: The repo-wide invariant, so the idiom cannot creep back in
 @test "no spec opens with a fail-open '|| skip' existence guard" {
   # The repo-wide invariant this helper exists to hold. An existence check
   # answered with `skip` cannot tell "absent by design" from "renamed and
@@ -233,6 +253,8 @@ INNER_EOF
   assert_equal "${status}" 1
 }
 
+# why: Pinning "scanned, matched nothing" means something only while "could
+# not scan" is reachable
 @test "a scan that examined nothing answers 2, not 1" {
   # What keeps the invariant above from passing vacuously, reached rather
   # than argued. Both shapes below produce the same empty output as a clean
@@ -304,6 +326,8 @@ _guard_spelling() {
     "${_close}" "${_joiner}" "${_skip}"
 }
 
+# why: The invariant must be green because no guard exists, not because its
+# pattern is blind
 @test "the fail-open guard scan sees each spelling of the check it claims to cover" {
   # The other way the invariant above goes quietly blind: it holds because
   # its PATTERN misses the guard, not because no guard exists. Reintroducing
@@ -366,6 +390,8 @@ _guard_spelling() {
 ${_missed}"
 }
 
+# why: A sample of what it misses, so the disclosure is never wider than the
+# pattern
 @test "the fail-open guard scan is an over-approximation, not a closed set" {
   # The disclosure, made executable, because a comment saying "not a closed
   # set" is exactly what the `-[defs]` pattern carried while a reviewer read

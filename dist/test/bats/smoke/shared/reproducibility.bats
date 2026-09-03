@@ -31,6 +31,23 @@
 # skip is narrow: it fires only when NEITHER file is present. A repo that
 # writes one and not the other, or writes an empty record, has adopted
 # the manifest and broken it, and that fails.
+#
+# why: The reproducibility manifest the template's `sys` stage (and
+# `runtime-base`, when the runtime split is enabled) writes:
+# `base-image.env` and `packages.txt` under `/usr/local/share/base/`. Base's
+# own unit specs read the template as TEXT, which cannot see the failure
+# this file exists for — a manifest written from a stage where
+# `${BASE_IMAGE}` expanded to the empty string, so the file lands with an
+# empty record and every static grep stays green. Skips (rather than fails)
+# when NEITHER file is present: this spec reaches a consumer through
+# `.base/dist/`, which `just upgrade` refreshes, while the Dockerfile that
+# writes the manifest is the consumer's own and hand-edited. The upgrade can
+# rewrite that file — `init.sh` and `upgrade.sh` both run `apply_migrations`
+# — but no migration was written for this record, because it splices into
+# the middle of the sys stage's continued `RUN` chain rather than onto an
+# anchorable whole line, so the port is by hand. A repo that writes one file
+# and not the other, or writes an empty record, has adopted the manifest and
+# broken it, and fails.
 
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
@@ -46,12 +63,15 @@ _skip_unless_manifest_adopted() {
   fi
 }
 
+# why: Both manifest files land in every `-test` stage
 @test "the reproducibility manifest is complete" {
   _skip_unless_manifest_adopted
   assert_file_exists "${REPRO_ENV}"
   assert_file_exists "${REPRO_PKGS}"
 }
 
+# why: Non-empty `base_image_ref` value plus a `base_image_pin` verdict —
+# the empty-expansion failure
 @test "the manifest names the base image this stage was built from" {
   _skip_unless_manifest_adopted
   # Non-empty VALUE, not merely a present key: `base_image_ref=` with
@@ -83,6 +103,9 @@ _skip_unless_manifest_adopted() {
   assert_success
 }
 
+# why: Where the record states the digest twice -- inside `base_image_ref`
+# and in `base_image_digest` -- the two must agree; stating only the
+# reference half is a blank field, not a contradiction, and passes
 @test "the manifest's digest field does not contradict the reference" {
   _skip_unless_manifest_adopted
   # The record can state the digest TWICE: once inside `base_image_ref`
@@ -109,6 +132,7 @@ _skip_unless_manifest_adopted() {
   fi
 }
 
+# why: `dpkg-query -W` name/version pairs, not a bare name list
 @test "the manifest records package versions, not just package names" {
   _skip_unless_manifest_adopted
   # `dpkg-query -W` prints "<name><TAB><version>". A file of bare names --

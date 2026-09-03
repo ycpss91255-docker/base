@@ -118,6 +118,50 @@ and keeping it would reintroduce the sync step this removes.
 What remains in `doc/test/*.md` is the authored prose -- one section per
 spec file, saying what it covers and why -- with no number in it.
 
+**Amendment (#999, 2026-09-03): the per-test table is KEPT and GENERATED;
+the removal of the five grand-total lines stands.**
+
+The decision this section records is that a listing a machine can produce
+must not be stored where a person has to keep it true. Deleting the table
+was one way to satisfy that. Generating it from the code is another, and
+it is the one taken: the per-test descriptions moved into the `.bats`
+files as `# why:` marker blocks on the lines above each `@test`, and
+`sync-doc-counts.sh` renders `doc/test/*.md` from them into an explicitly
+fenced region that is replaced wholesale on every run. Nothing reads a
+description back out of the catalogue.
+
+What that changes about this record, precisely:
+
+- The **five grand-total lines** and the per-spec `### <path> (N)` count
+  are untouched by this amendment. They are still a figure about a moving
+  tree with no referent, they still cost 61 conflicts in 65 merges, and
+  §1's decision to remove them stands.
+- The **per-test table** is not that. Its rows are no longer stored beside
+  the code they describe -- they are derived from it, on every run, and a
+  row deleted from the document is restored byte-for-byte by the next one.
+  It costs nobody a sync step, so the reason to delete it is gone.
+
+Why the reasoning under "Alternatives" flipped. The last alternative below
+already named this end state and called it "a reasonable end state",
+declining it on one ground: that the table adds nothing over the test
+names it copies, evidenced by the 46% of rows nobody filled and the
+near-synonyms among the rest. That evidence measured the wrong thing. Both
+symptoms were caused by WHERE the description lived: a row in a
+4000-line document, reachable only after running a generator, which a
+rename silently emptied (the catalogue documented that loss as a rule).
+With the sentence authored on the line above the test the author is
+already writing, the cost of filling one falls to nothing and a rename
+carries it. Deleting was cheaper than relocating only while relocating
+meant hand-relocating; #999 relocated 1209 descriptions and 106 section
+blurbs with a script, and proved by set comparison that none was lost or
+invented.
+
+The consequence recorded below -- "**#922 is answered by removal**" -- is
+therefore answered by RELOCATION instead. The Description column is
+required, at its new site, under a transition ceiling that is one number
+in `script/test/drivers/catalog_description.sh` and no roster.
+
+
 `check_test_md_drift.sh` and the count half of `sync-doc-counts.sh` are
 removed with the figures they served. Nothing in a branch's normal work
 touches `doc/test/` any more, so the file stops being a merge surface.
@@ -293,3 +337,7 @@ copies -- the evidence is the 46% that nobody filled and the near-synonyms
 among those that were. Deleting is cheaper than relocating, and if a
 per-test description turns out to be wanted later it belongs beside the
 test, not in a document.
+
+> **Amendment (#999, 2026-09-03):** this alternative was TAKEN. See the
+> amendment in sec. 1 for why the evidence above measured the storage
+> site rather than the table, and what the relocation cost in practice.

@@ -68,6 +68,7 @@ _build_runtime_test() {
 # Positive cases: runtime-test should succeed (build returns 0).
 # ────────────────────────────────────────────────────────────────────
 
+# why: Baseline `whoami && bash --version` ARG default works
 @test "runtime-test build succeeds with default smoke command" {
   # Default ARG value -- the baseline install-check every repo gets
   # before any override. Proves the gate's happy path works.
@@ -75,6 +76,7 @@ _build_runtime_test() {
   [ "${status}" -eq 0 ]
 }
 
+# why: Wrapper preserves shell operators
 @test "runtime-test build succeeds with && chain override (#243 word-split regression)" {
   # v0.21.0 shipped `RUN ${RUNTIME_SMOKE_CMD}` (no wrapper) which
   # word-split this exact shape -- bash tokenized `&&` as a literal
@@ -86,6 +88,7 @@ _build_runtime_test() {
   echo "${output}" | grep -q 'second'
 }
 
+# why: `${var:offset:length}` works (would fail under `sh -c`)
 @test "runtime-test build succeeds with bash parameter expansion override (#249 dash-source regression)" {
   # v0.21.1's `sh -c` wrapper (kept through v0.23.0) routed the
   # command through dash, which CANNOT parse bash parameter
@@ -98,6 +101,7 @@ _build_runtime_test() {
   [ "${status}" -eq 0 ]
 }
 
+# why: `[[` works (sister bash-only regression guard)
 @test "runtime-test build succeeds with bash [[ test operator override (#249)" {
   # `[[` is bash-only; dash only has `[`. Complements the parameter
   # expansion case -- different bash feature, same dash-incompat
@@ -115,6 +119,7 @@ _build_runtime_test() {
 # silently degrade every downstream's smoke and nobody would notice.
 # ────────────────────────────────────────────────────────────────────
 
+# why: Negative case: the gate actually gates
 @test "runtime-test build FAILS when smoke command exits non-zero (gate-fires assertion)" {
   run _build_runtime_test 'echo failing-on-purpose && exit 1'
   [ "${status}" -ne 0 ]

@@ -11,6 +11,10 @@
 #   3. `git rm --cached` any canonical entry that's still tracked in the
 #      repo (so 15 downstream repos that mis-track compose.yaml get
 #      healed by the next batch-upgrade).
+#
+# why: Unit tests for `template/script/docker/lib/gitignore.sh` — the
+# canonical `.gitignore` set + sync/untrack helpers introduced for issue
+# #172.
 
 bats_require_minimum_version 1.5.0
 
@@ -209,6 +213,7 @@ EOF
   assert_equal "${_second}" "${_first}"
 }
 
+# why: Deterministic output
 @test "_canonical_gitignore_entries: list is stable order" {
   # Two calls must produce byte-identical output (consumers may diff).
   local _a _b
@@ -221,6 +226,7 @@ EOF
 # _sync_gitignore
 # ════════════════════════════════════════════════════════════════════
 
+# why: Greenfield
 @test "_sync_gitignore: creates the file when missing, with marker block + all entries" {
   local _f="${TMP_DIR}/.gitignore"
   run _sync_gitignore "${_f}"
@@ -237,6 +243,7 @@ EOF
   assert_line ".Dockerfile.generated"
 }
 
+# why: Empty file
 @test "_sync_gitignore: empty file gets marker block + all entries appended" {
   local _f="${TMP_DIR}/.gitignore"
   : > "${_f}"
@@ -248,6 +255,7 @@ EOF
   assert_line "compose.yaml"
 }
 
+# why: Already-synced
 @test "_sync_gitignore: file with all entries already present is a no-op" {
   local _f="${TMP_DIR}/.gitignore"
   cat > "${_f}" <<'EOF'
@@ -273,6 +281,7 @@ EOF
   assert_equal "${_after}" "${_before}"
 }
 
+# why: Drift fill-in
 @test "_sync_gitignore: appends only missing entries when subset already present" {
   local _f="${TMP_DIR}/.gitignore"
   # Pre-existing partial set (the 15-repo state at the time was filed)
@@ -297,6 +306,7 @@ EOF
   assert_output "1"
 }
 
+# why: User-line preservation
 @test "_sync_gitignore: preserves user-defined lines (bridge.yaml, .env.gpg, .claude/)" {
   local _f="${TMP_DIR}/.gitignore"
   cat > "${_f}" <<'EOF'
@@ -315,6 +325,7 @@ EOF
   assert_line ".claude/"
 }
 
+# why: Idempotency
 @test "_sync_gitignore: idempotent — second invocation produces no further changes" {
   local _f="${TMP_DIR}/.gitignore"
   cat > "${_f}" <<'EOF'
@@ -329,6 +340,7 @@ EOF
   assert_equal "${_after_second}" "${_after_first}"
 }
 
+# why: No-dup invariant
 @test "_sync_gitignore: no duplicate canonical lines after re-run" {
   local _f="${TMP_DIR}/.gitignore"
   cat > "${_f}" <<'EOF'
@@ -340,6 +352,7 @@ EOF
   assert_output "1"
 }
 
+# why: #692 LF-only presence-match constraint
 @test "_sync_gitignore: documented constraint -- CRLF entries are not matched (LF-only) (#692)" {
   # _sync_managed_entries decides presence with `grep -qxF` (exact whole-LF-line
   # match). A .gitignore saved with CRLF stores `.env\r`, which is NOT equal to
@@ -356,6 +369,7 @@ EOF
   assert [ "$(grep -c $'\.env\r$' "${_f}")" -eq 1 ]
 }
 
+# why: Trailing-newline guarantee
 @test "_sync_gitignore: ends with newline so future appends start on their own line" {
   local _f="${TMP_DIR}/.gitignore"
   printf 'something' > "${_f}"   # NO trailing newline
@@ -386,6 +400,7 @@ _init_repo_with_tracked() {
   git -C "${_repo}" commit -q -m "init" || true
 }
 
+# why: 15-repo drift fix
 @test "_untrack_canonical_in_repo: git rm --cached for tracked compose.yaml" {
   _init_repo_with_tracked "${TMP_DIR}" compose.yaml
   run _untrack_canonical_in_repo "${TMP_DIR}"
@@ -397,6 +412,7 @@ _init_repo_with_tracked() {
   assert_output ""
 }
 
+# why: Scope guard
 @test "_untrack_canonical_in_repo: leaves untracked files alone" {
   git -C "${TMP_DIR}" init -q -b main
   git -C "${TMP_DIR}" config user.email t@t
@@ -410,6 +426,7 @@ _init_repo_with_tracked() {
   [[ -f "${TMP_DIR}/compose.yaml" ]]
 }
 
+# why: Healthy-repo no-op
 @test "_untrack_canonical_in_repo: no-op when no canonical files tracked" {
   _init_repo_with_tracked "${TMP_DIR}" README.md
   run _untrack_canonical_in_repo "${TMP_DIR}"
@@ -419,6 +436,7 @@ _init_repo_with_tracked() {
   assert_output "README.md"
 }
 
+# why: Directory entry
 @test "_untrack_canonical_in_repo: handles tracked coverage/ directory" {
   _init_repo_with_tracked "${TMP_DIR}" coverage/
   run _untrack_canonical_in_repo "${TMP_DIR}"
@@ -428,6 +446,7 @@ _init_repo_with_tracked() {
   assert_output ""
 }
 
+# why: Re-run safety
 @test "_untrack_canonical_in_repo: idempotent — second run succeeds without error" {
   _init_repo_with_tracked "${TMP_DIR}" compose.yaml .env
   _untrack_canonical_in_repo "${TMP_DIR}"
@@ -435,6 +454,7 @@ _init_repo_with_tracked() {
   assert_success
 }
 
+# why: Multi-entry sweep
 @test "_untrack_canonical_in_repo: untracks all canonical entries that match" {
   _init_repo_with_tracked "${TMP_DIR}" compose.yaml .env .env.bak .setup.conf.bak
   run _untrack_canonical_in_repo "${TMP_DIR}"
@@ -526,6 +546,7 @@ CONF
   [[ "$(cat "${TMP_DIR}/.gitignore")" == "${_first}" ]]
 }
 
+# why: #692 `..` path wrapped as-is
 @test "_sync_logging_gitignore: documented constraint -- a '..' traversal is wrapped verbatim (#692)" {
   # The filter strips only absolute (/*) and ~ paths; any other relative
   # value is wrapped as /<value>/. A `..`-escaping value therefore produces
@@ -541,6 +562,7 @@ CONF
   assert_success
 }
 
+# why: #692 space path wrapped as-is
 @test "_sync_logging_gitignore: documented constraint -- a space-bearing path is wrapped verbatim (#692)" {
   # A value with a space is wrapped as /my logs/ (a literal-space pattern).
   # Pins the current behaviour; a future sanitiser would reject or quote it.
