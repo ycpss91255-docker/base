@@ -335,5 +335,5 @@ vacuity is why the same defect shipped twice.
 | `a repo carrying none of the published signals is scaffolded as new (#928)` | main.yaml, the changelog and the smoke tree arrive |
 | `each published signal, on its own, sends init down the existing-repo path (#928)` | Published list and branch condition cannot disagree |
 | `a repo carrying a file the list does NOT publish is still scaffolded as new (#928)` | Presence of any file does not decide; the list does |
-| `no root file the scaffold itself leaves behind can quietly become a signal (#928)` | The class, over the root files a scaffold really writes |
+| `no file the scaffold itself leaves behind can quietly become a signal (#928)` | The class, over every file a scaffold really writes, root and below |
 | `the new-repo scaffold creates every published signal (#928)` | A signal init never installs could only come from elsewhere |

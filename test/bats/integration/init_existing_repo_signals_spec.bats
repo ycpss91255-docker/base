@@ -130,19 +130,27 @@ EOF
   done < <(_new_repo_only_paths)
 }
 
-@test "no root file the scaffold itself leaves behind can quietly become a signal (#928)" {
+@test "no file the scaffold itself leaves behind can quietly become a signal (#928)" {
   # The generalisation of the case above, over the population that actually
-  # collides. A template repo IS a scaffolded repo -- base wrote its root
-  # files -- so every root file a scaffold leaves behind is a file a template
-  # snapshot ships into the next new repo. Any one of them silently joining
-  # the branch condition without joining the published list reproduces the
-  # inversion exactly; the hardcoded README.md above catches one such file,
-  # this catches the class.
+  # collides. A template repo IS a scaffolded repo -- base wrote its files --
+  # so every file a scaffold leaves behind is a file a template snapshot ships
+  # into the next new repo. Any one of them silently joining the branch
+  # condition without joining the published list reproduces the inversion
+  # exactly; the hardcoded README.md above catches one such file, this catches
+  # the class.
   #
-  # Derived from a real scaffold, not listed: the population is whatever
-  # today's new-repo path writes at the root, minus what the repo's own
-  # .gitignore claims (a derived artifact is not in a template snapshot) and
-  # minus the published signals (which are supposed to decide).
+  # The population is the WHOLE tree, not its root. The three artifacts
+  # base#928 measured as missing -- `.github/workflows/main.yaml`,
+  # `doc/changelog/CHANGELOG.md`, the smoke tree -- all live below the root,
+  # and a snapshot ships them for exactly the reason it ships `Dockerfile`.
+  # A root-only population would leave the shapes this issue is about outside
+  # the case that claims to cover them.
+  #
+  # Derived from a real scaffold, not listed: whatever today's new-repo path
+  # writes, minus the vendored subtree and git's own internals (neither is
+  # scaffold output), minus what the repo's own .gitignore claims (a derived
+  # artifact is not in a template snapshot), and minus the published signals
+  # (which are supposed to decide).
   _seed_consumer
   cd "${CONSUMER}"
   run bash "${INIT}"
@@ -168,13 +176,19 @@ EOF
     fi
     printf '%s\n' "${_name}" >> "${_candidates}"
   done < <(cd "${_scaffolded}" \
-    && find . -maxdepth 1 \( -type f -o -type l \) | LC_ALL=C sort)
+    && find . -mindepth 1 \( -path ./.git -o -path ./.base \) -prune -o \
+      \( -type f -o -type l \) -print | LC_ALL=C sort)
 
   assert [ -s "${_candidates}" ]
+  # And the population really does reach below the root -- otherwise this
+  # case would pass while covering none of the paths base#928 measured.
+  grep -q '/' "${_candidates}" \
+    || fail "candidate population is root-only: the artifacts base#928 is about all live below the root"
 
   local _p
   while IFS= read -r _name; do
     _seed_consumer
+    mkdir -p "${CONSUMER}/$(dirname -- "${_name}")"
     cp -a "${_scaffolded}/${_name}" "${CONSUMER}/${_name}"
     cd "${CONSUMER}"
     run bash "${INIT}"
