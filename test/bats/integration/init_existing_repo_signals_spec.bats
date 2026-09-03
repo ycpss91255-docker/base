@@ -218,12 +218,19 @@ EOF
   # pointing at a path the container cannot see). The two guards below are
   # what keep the naming honest.
   local _hand="${BATS_TEST_TMPDIR}/hand-maintained"
-  _hand_maintained_paths > "${_hand}"
-  assert [ -s "${_hand}" ]
+  : > "${_hand}"
   while IFS= read -r _name; do
     [[ -n "${_name}" ]] || continue
     # It is a path a real repo of this family carries, not a hypothetical.
     assert [ -e "/source/${_name}" ]
+    # A named path that has since JOINED the published list is not an
+    # unpublished candidate any more, so it is filtered out here exactly as
+    # half one filters scaffold output. Without this the probe below reports
+    # a legitimately published signal as one that quietly became a signal --
+    # a failure whose message states the opposite of the truth.
+    if grep -qxF "${_name}" "${_signal_list}"; then
+      continue
+    fi
     # And it is genuinely outside scaffold output, so the population is a
     # strict superset of it. If the scaffold starts emitting one of these,
     # this fails and the entry moves rather than quietly narrowing the case
@@ -231,7 +238,12 @@ EOF
     if grep -qxF "${_name}" "${_scaffold_out}"; then
       fail "'${_name}' is scaffold output now, so it no longer widens the population past it: name a file the scaffold does not write"
     fi
-  done < "${_hand}"
+    printf '%s\n' "${_name}" >> "${_hand}"
+  done < <(_hand_maintained_paths)
+  # Every named path having become a published signal narrows the population
+  # back to scaffold output alone -- the wrong half, the one that could not
+  # see `Dockerfile` coming. Name a replacement rather than pass on a subset.
+  assert [ -s "${_hand}" ]
 
   local _candidates="${BATS_TEST_TMPDIR}/candidates"
   cat "${_scaffold_out}" "${_hand}" | LC_ALL=C sort -u > "${_candidates}"
@@ -243,6 +255,14 @@ EOF
     _init="$1" _cands="$2" _probe="$3"
     # shellcheck disable=SC1090
     source "${_init}"
+    # The predicate is called BY NAME below. Renamed, that call is a
+    # command-not-found (127), which the if reads as "not existing" for
+    # EVERY candidate -- zero offenders reported, case green, nothing
+    # tested. Exit 2 says the probe never reached the branch at all.
+    if ! declare -F _init_repo_is_existing >/dev/null; then
+      printf "  %s defines no _init_repo_is_existing\n" "${_init}"
+      exit 2
+    fi
     _rc=0
     while IFS= read -r _name; do
       [[ -n "${_name}" ]] || continue
@@ -257,6 +277,8 @@ EOF
     exit "${_rc}"
   ' _ "${CONSUMER}/.base/dist/script/base/init.sh" "${_candidates}" \
     "${BATS_TEST_TMPDIR}/probe"
+  [[ "${status}" -ne 2 ]] || fail "the probe never reached the branch predicate, so this case exercised nothing:
+${output}"
   [[ "${status}" -eq 0 ]] || fail "these are not published signals, yet a repo carrying one is classified as already set up:
 ${output}"
 
