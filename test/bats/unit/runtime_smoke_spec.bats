@@ -1,13 +1,13 @@
 #!/usr/bin/env bats
 #
-# Unit tests for dist/script/docker/runtime/smoke.sh -- the runtime-test
+# Unit tests for dist/test/bats/smoke/smoke.sh -- the runtime-test
 # smoke check that catches missing shared library dependencies.
 
 bats_require_minimum_version 1.5.0
 
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
-  SMOKE_SH="/source/dist/script/docker/runtime/smoke.sh"
+  SMOKE_SH="/source/dist/test/bats/smoke/smoke.sh"
   SCAN_ROOT="$(mktemp -d)"
   export SCAN_ROOT
 }
@@ -57,8 +57,8 @@ EOS
 
 @test "Dockerfile.example commented runtime-test COPY brings smoke.sh into image (#430)" {
   run grep -F 'COPY' /source/dist/dockerfile/Dockerfile
-  # Find the runtime/smoke.sh COPY (commented in template; downstream uncomments)
-  run grep -F '.base/dist/script/docker/runtime/smoke.sh' /source/dist/dockerfile/Dockerfile
+  # Find the smoke.sh COPY (commented in template; downstream uncomments)
+  run grep -F '.base/dist/test/bats/smoke/smoke.sh' /source/dist/dockerfile/Dockerfile
   assert_success
 }
 

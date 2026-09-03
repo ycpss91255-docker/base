@@ -1018,9 +1018,9 @@ _migrate_smoke_copy_apply() {
 #
 # Order is load-bearing. It runs AFTER the migrations whose detect anchors on
 # the flat spelling (wrapper_copy, explicit_copy) so those still recognise it,
-# and BEFORE logrotate_copy / watchdog_copy, which clone the logging.sh COPY
-# line -- from the flat path they would append two MORE COPYs of files that
-# no longer exist. Idempotent: `.base/dist/...` does not match.
+# and BEFORE runtime_moved_files / runtime_dir_copy, which rewrite the runtime
+# helper COPYs -- from the flat path they would emit a source that no longer
+# exists. Idempotent: `.base/dist/...` does not match.
 _migrate_flat_to_dist_detect() {
   local _file="$1"
   grep -qE '\.base/(config|script)' "${_file}"
@@ -1033,81 +1033,139 @@ _migrate_flat_to_dist_apply() {
   _log_info upgrade upgrade_started "display=  Dockerfile patched: flat .base/{config,script} -> .base/dist/ (#915)"
 }
 
-# ── Migration (logrotate-copy): logging.sh's logrotate.sh sibling ────────────
+# ── Migration (runtime-moved-files): the two non-helpers leaving runtime/ ───
 #
-# runtime/logging.sh now sources a sibling logrotate.sh from the in-image
-# helper dir (the shared per-start-file + symlink + retention primitives).
-# A downstream Dockerfile that COPYs logging.sh into /usr/local/lib/base/
-# but predates the split lacks the logrotate.sh COPY, so the container tee
-# degrades to no rotation/prune. Insert the sibling COPY right after the
-# logging.sh COPY, reusing that line's own flag/src shape. Runs after
-# logging_rename so the logging COPY is already in its canonical
-# runtime/logging.sh -> /usr/local/lib/base/logging.sh form.
-_migrate_logrotate_copy_detect() {
+# dist/script/docker/runtime/ used to hold three kinds of file: helpers
+# baked into the image, one template init.sh seeds into a consumer repo,
+# and one runtime-test install-check helper. The directory is now COPY'd
+# whole (see runtime_dir_copy below), so the two that are not helpers moved
+# to the trees that match their destiny:
+#
+#   runtime/entrypoint.sh -> dist/dockerfile/entrypoint.sh
+#   runtime/smoke.sh      -> dist/test/bats/smoke/smoke.sh
+#
+# A consumer Dockerfile that names either source stops resolving. smoke.sh
+# is the one that reaches every repo: init.sh seeded the commented
+# runtime-test scaffold naming it, so the break is invisible until someone
+# uncomments the runtime split and gets "COPY source not found".
+#
+# Rewrites wherever they appear, comments included, for exactly that
+# reason. Runs after flat_to_dist so the pre-dist spelling is already
+# normalised; the optional prefixes are still matched so the migration does
+# not depend on that order holding. Idempotent: the new paths do not match.
+_migrate_runtime_moved_files_detect() {
   local _file="$1"
-  # Fire only on an ACTIVE (non-commented) COPY of the logging helper into
-  # its baked dest, with the logrotate sibling not yet COPY'd. Anchoring on
-  # the stable dest path (not the src) heals a hand-relocated src too.
-  grep -Eq '^[[:space:]]*COPY[^#]*/usr/local/lib/base/logging\.sh([[:space:]]|$)' "${_file}" || return 1
-  grep -Eq '^[[:space:]]*COPY[^#]*/usr/local/lib/base/logrotate\.sh([[:space:]]|$)' "${_file}" && return 1
-  return 0
+  grep -qE '\.base/(downstream/|dist/)?script/docker/runtime/(entrypoint|smoke)\.sh' \
+    "${_file}"
 }
 
-_migrate_logrotate_copy_apply() {
+_migrate_runtime_moved_files_apply() {
   local _file="$1"
-  # Emit each active logging.sh COPY line, then a logrotate.sh twin with
-  # both the src basename and the baked dest rewritten logging -> logrotate.
+  sed -i -E \
+    -e 's#\.base/(downstream/|dist/)?script/docker/runtime/entrypoint\.sh#.base/dist/dockerfile/entrypoint.sh#g' \
+    -e 's#\.base/(downstream/|dist/)?script/docker/runtime/smoke\.sh#.base/dist/test/bats/smoke/smoke.sh#g' \
+    "${_file}"
+  _log_info upgrade upgrade_started "display=  Dockerfile patched: runtime/{entrypoint,smoke}.sh moved out of the helper dir (#971)"
+}
+
+# ── Migration (runtime-dir-copy): per-file helper COPYs -> one dir COPY ──────
+#
+# Every consumer Dockerfile listed base's runtime helpers one COPY per file:
+#
+#   COPY --chmod=0755 .base/dist/script/docker/runtime/logging.sh   /usr/local/lib/base/logging.sh
+#   COPY --chmod=0755 .base/dist/script/docker/runtime/logrotate.sh /usr/local/lib/base/logrotate.sh
+#   COPY --chmod=0755 .base/dist/script/docker/runtime/watchdog.sh  /usr/local/lib/base/watchdog.sh
+#
+# so base adding a helper was not a change to base, it was a change to every
+# consumer repo -- and the two migrations this one replaces (logrotate_copy,
+# watchdog_copy) existed for no other reason. Collapsing to the directory
+# retires the whole class: the directory is the list, and it cannot fall out
+# of agreement with itself.
+#
+# Anchors on the SOURCE naming a helper, so any subset in any order
+# collapses and a consumer that bakes the helpers somewhere other than
+# /usr/local/lib/base/ collapses into its own destination. The consumer's
+# flags, comment prefix and spacing are preserved by rewriting the two
+# tokens in place rather than emitting a canonical line.
+#
+# Deliberately NOT deleted: the comment lines a consumer wrote above the
+# COPYs it loses. A stale comment is cosmetic; deleting text the consumer
+# may have edited is not reversible by the next upgrade.
+_DFM_RUNTIME_HELPER_SRC_RE='\.base/(downstream/|dist/)?script/docker/runtime/(logging|logrotate|watchdog)\.sh([[:space:]]|$)'
+
+_migrate_runtime_dir_copy_detect() {
+  local _file="$1"
+  # Commented COPYs count: init.sh seeded the runtime-stage scaffold into
+  # every repo, and left per-file it teaches the retired shape to whoever
+  # uncomments it later.
+  grep -qE "^[[:space:]]*#?[[:space:]]*COPY[[:space:]].*${_DFM_RUNTIME_HELPER_SRC_RE}" \
+    "${_file}"
+}
+
+_migrate_runtime_dir_copy_apply() {
+  local _file="$1"
   local _tmp
   _tmp="$(mktemp)"
+  # One statement per physical line is the shape every measured consumer
+  # carries. A backslash-continued one is passed through untouched rather
+  # than half-rewritten -- its per-file COPYs still resolve (base still
+  # ships all three helpers), so leaving it is safe, and the warning below
+  # says it is there.
   awk '
-    { print }
-    /^[[:space:]]*COPY[^#]*\/usr\/local\/lib\/base\/logging\.sh([[:space:]]|$)/ {
-      twin=$0
-      gsub(/logging\.sh/, "logrotate.sh", twin)
-      print twin
+    # Trailing path component removed, keeping the separator: the
+    # destination named a file, the collapsed COPY names its directory.
+    function _dirpart(_p,   _i) {
+      _i = length(_p)
+      while (_i > 0 && substr(_p, _i, 1) != "/") { _i-- }
+      return (_i > 0) ? substr(_p, 1, _i) : _p
+    }
+    BEGIN { _stage = 0 }
+    {
+      _line = $0
+      sub(/[ \t]+$/, "", _line)
+      # Stage tracking decides the scope of the de-duplication: two stages
+      # that each COPY the helpers must each keep a COPY. A COMMENTED FROM
+      # is a boundary too -- the commented runtime scaffold is a stage.
+      if (_line ~ /^[ \t]*#?[ \t]*FROM[ \t]/) { _stage++ }
+      if (_line ~ /^[ \t]*#?[ \t]*COPY[ \t]/ &&
+          _line ~ /\.base\/(downstream\/|dist\/)?script\/docker\/runtime\/(logging|logrotate|watchdog)\.sh([ \t]|$)/ &&
+          _line !~ /\\$/ && NF >= 3) {
+        _dest = $NF
+        _quote = ""
+        if (_dest ~ /^".*"$/) {
+          _quote = "\""
+          _dest = substr(_dest, 2, length(_dest) - 2)
+        }
+        _dest = _quote _dirpart(_dest) _quote
+        # gsub, not sub: a COPY may hand-list two or three helpers as
+        # sources of one statement, and each has to become the directory.
+        gsub(/\.base\/(downstream\/|dist\/)?script\/docker\/runtime\/(logging|logrotate|watchdog)\.sh/,
+             ".base/dist/script/docker/runtime/", _line)
+        # Which leaves the directory named two or three times in a row.
+        # Squeeze the repeats; docker accepts them, a reader should not
+        # have to wonder whether they mean something.
+        while (_line ~ /\.base\/dist\/script\/docker\/runtime\/[ \t]+\.base\/dist\/script\/docker\/runtime\//) {
+          sub(/\.base\/dist\/script\/docker\/runtime\/[ \t]+\.base\/dist\/script\/docker\/runtime\//,
+              ".base/dist/script/docker/runtime/", _line)
+        }
+        _line = substr(_line, 1, length(_line) - length($NF)) _dest
+        _key = _stage SUBSEP _line
+        if (_key in _seen) { next }
+        _seen[_key] = 1
+      }
+      print _line
     }
   ' "${_file}" > "${_tmp}"
   mv "${_tmp}" "${_file}"
-  _log_info upgrade upgrade_started "display=  Dockerfile patched: added runtime/logrotate.sh COPY sibling (#805)"
-}
+  _log_info upgrade upgrade_started "display=  Dockerfile patched: runtime helper COPYs collapsed into one directory COPY (#971)"
 
-# ── Migration (watchdog-copy): watchdog.sh runtime helper sibling ────────────
-#
-# The generic single-service watchdog ships a new runtime helper
-# watchdog.sh, COPY'd next to logging.sh / logrotate.sh at
-# /usr/local/lib/base/. A downstream Dockerfile that COPYs logging.sh but
-# predates the watchdog lacks the watchdog.sh COPY, so a repo that adds
-# `. /usr/local/lib/base/watchdog.sh` to its entrypoint would source a
-# missing file. Insert the sibling COPY right after the logging.sh COPY,
-# reusing that line's own flag/src shape. Mirrors the logrotate-copy
-# migration; runs after logging_rename / logrotate_copy so the logging
-# COPY is already canonical. Idempotent: skipped once watchdog.sh is COPY'd.
-_migrate_watchdog_copy_detect() {
-  local _file="$1"
-  # Fire only on an ACTIVE (non-commented) COPY of the logging helper into
-  # its baked dest, with the watchdog sibling not yet COPY'd. Anchoring on
-  # the stable dest path heals a hand-relocated src too.
-  grep -Eq '^[[:space:]]*COPY[^#]*/usr/local/lib/base/logging\.sh([[:space:]]|$)' "${_file}" || return 1
-  grep -Eq '^[[:space:]]*COPY[^#]*/usr/local/lib/base/watchdog\.sh([[:space:]]|$)' "${_file}" && return 1
-  return 0
-}
-
-_migrate_watchdog_copy_apply() {
-  local _file="$1"
-  # Emit each active logging.sh COPY line, then a watchdog.sh twin with both
-  # the src basename and the baked dest rewritten logging -> watchdog.
-  local _tmp
-  _tmp="$(mktemp)"
-  awk '
-    { print }
-    /^[[:space:]]*COPY[^#]*\/usr\/local\/lib\/base\/logging\.sh([[:space:]]|$)/ {
-      twin=$0
-      gsub(/logging\.sh/, "watchdog.sh", twin)
-      print twin
-    }
-  ' "${_file}" > "${_tmp}"
-  mv "${_tmp}" "${_file}"
-  _log_info upgrade upgrade_started "display=  Dockerfile patched: added runtime/watchdog.sh COPY sibling (#797)"
+  # Anything still naming a helper file is a shape the rewrite declined --
+  # a backslash-continued statement. It still builds; say so rather than
+  # reporting a collapse that did not happen to that line.
+  if grep -qE "^[[:space:]]*#?[[:space:]]*COPY[[:space:]].*${_DFM_RUNTIME_HELPER_SRC_RE}" \
+      "${_file}"; then
+    _log_warn upgrade upgrade_started "display=  Dockerfile still COPYs a runtime helper per file on a continued statement — collapse it by hand into the directory COPY (#971)"
+  fi
 }
 
 # Ordered migration list. Append new {detect, transform} pairs here; the
@@ -1120,8 +1178,8 @@ _MIGRATIONS=(
   logging_rename
   smoke_copy
   flat_to_dist
-  logrotate_copy
-  watchdog_copy
+  runtime_moved_files
+  runtime_dir_copy
   hadolint
   sc1090
   arg_user

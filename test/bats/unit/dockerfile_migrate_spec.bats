@@ -1054,10 +1054,10 @@ EOF
 # ── dispatcher over the whole v0.41.0 shape ─────────────────────────────────
 # The unit tests above drive one {detect, transform} pair each. This one
 # drives the dispatcher over the shape a real v0.41.0 consumer carries,
-# because ORDER is what decides whether the logrotate / watchdog twins are
-# generated from an already-dist-rooted logging COPY or from the flat one --
-# and appending two more COPYs of paths that no longer exist is a strictly
-# worse outcome than leaving the Dockerfile alone.
+# because ORDER is what decides whether the helper COPY is collapsed from an
+# already-dist-rooted source or from the flat one -- and emitting a directory
+# COPY of a path that no longer exists is a strictly worse outcome than
+# leaving the Dockerfile alone.
 
 @test "apply_migrations leaves no .base COPY source behind on the v0.41.0 shape (#915)" {
   mkdir -p "${TEMP_DIR}/.base/dist/test/bats/smoke/shared" \
@@ -1083,8 +1083,7 @@ EOF
   # exit 2 (unreadable file), which would pass this with nothing read.
   run grep -nE '\.base/(config|script|test)/' "${DF}"
   [ "${status}" -eq 1 ]
-  grep -Fq "COPY --chmod=0755 .base/dist/script/docker/runtime/logrotate.sh /usr/local/lib/base/logrotate.sh" "${DF}"
-  grep -Fq "COPY --chmod=0755 .base/dist/script/docker/runtime/watchdog.sh /usr/local/lib/base/watchdog.sh" "${DF}"
+  grep -Fq "COPY --chmod=0755 .base/dist/script/docker/runtime/ /usr/local/lib/base/" "${DF}"
 }
 
 # ── every COPY source the dispatcher leaves behind must RESOLVE ────────────
@@ -1098,8 +1097,8 @@ EOF
 #     "resolves" means the file base actually ships is there;
 #   * the population of paths checked is DERIVED from the migrated
 #     Dockerfile -- every `.base/...` token in a COPY source position,
-#     including the logrotate / watchdog COPYs the dispatcher itself
-#     appends -- never a list written out here. A migration that starts
+#     the collapsed helper directory the dispatcher itself writes included
+#     -- never a list written out here. A migration that starts
 #     emitting a new path is checked the moment it emits it, and a shipped
 #     directory that moves fails this test without being named in it;
 #   * the derived population is asserted NON-EMPTY before it is walked, so
@@ -1139,11 +1138,11 @@ EOF
     | grep -oE '\.base/[A-Za-z0-9_.*/-]+')"
   local _n
   _n="$(printf '%s\n' "${_tokens}" | grep -c .)"
-  # Population assertion: eight COPY sources are reachable from this
-  # fixture (five written above plus the wrapper glob's rewrite and the two
-  # runtime siblings the dispatcher appends). Fewer means the extraction
-  # stopped matching, not that the Dockerfile got cleaner.
-  [ "${_n}" -ge 8 ]
+  # Population assertion: the COPY sources reachable from this fixture, a
+  # figure that drops when the extraction stops matching rather than when
+  # the Dockerfile gets cleaner. It fell by two when the per-file helper
+  # COPYs collapsed into one directory COPY.
+  [ "${_n}" -ge 6 ]
 
   local _tok
   while IFS= read -r _tok; do
@@ -1163,102 +1162,238 @@ EOF
   [ "${status}" -eq 1 ]
 }
 
-# ── migration (logrotate-copy): logging.sh's logrotate.sh sibling ────────────
-# runtime/logging.sh now sources a sibling logrotate.sh from the in-image
-# helper dir. A downstream Dockerfile that COPYs logging.sh but predates the
-# split lacks the logrotate.sh COPY, so the container tee degrades. This
-# migration inserts the sibling COPY after the logging.sh COPY.
+# ── migration (runtime-moved-files): the two non-helpers leaving runtime/ ────
+# entrypoint.sh (a seeded template) and smoke.sh (a runtime-test helper) left
+# dist/script/docker/runtime/ so the directory could be COPY'd whole. A
+# consumer Dockerfile that names either source -- the commented runtime-test
+# scaffold names smoke.sh in every repo init.sh ever seeded -- resolves to
+# nothing the moment it is uncommented.
 
-@test "migration (logrotate-copy): inserts logrotate.sh COPY after the logging.sh COPY (#805)" {
+@test "migration (runtime-moved-files): rewrites the smoke.sh source to the shipped test tree (#971)" {
   cat > "${DF}" <<'EOF'
-FROM busybox AS devel
-COPY --chmod=0755 .base/dist/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
+FROM busybox AS runtime-test
+# COPY .base/dist/script/docker/runtime/smoke.sh /usr/local/lib/base/smoke.sh
 EOF
-  run bash -c "$(_src); _migrate_logrotate_copy_detect '${DF}' && _migrate_logrotate_copy_apply '${DF}'"
+  run bash -c "$(_src); _migrate_runtime_moved_files_detect '${DF}' && _migrate_runtime_moved_files_apply '${DF}'"
   assert_success
-  grep -Fq "COPY --chmod=0755 .base/dist/script/docker/runtime/logrotate.sh /usr/local/lib/base/logrotate.sh" "${DF}"
-  # The original logging.sh COPY is preserved.
-  grep -Fq "COPY --chmod=0755 .base/dist/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh" "${DF}"
+  grep -Fq ".base/dist/test/bats/smoke/smoke.sh /usr/local/lib/base/smoke.sh" "${DF}"
+  run grep -F 'script/docker/runtime/smoke.sh' "${DF}"
+  assert_failure
 }
 
-@test "migration (logrotate-copy): detect false when logrotate COPY already present (idempotent) (#805)" {
+@test "migration (runtime-moved-files): rewrites the entrypoint.sh source at the pre-dist path (#971)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS devel
+COPY --chmod=0755 .base/script/docker/runtime/entrypoint.sh /entrypoint.sh
+EOF
+  run bash -c "$(_src); apply_migrations '${DF}'"
+  assert_success
+  grep -Fq "COPY --chmod=0755 .base/dist/dockerfile/entrypoint.sh /entrypoint.sh" "${DF}"
+}
+
+@test "migration (runtime-moved-files): detect false once nothing names the old paths (#971)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS devel
+COPY --chmod=0755 .base/dist/script/docker/runtime/ /usr/local/lib/base/
+EOF
+  run bash -c "$(_src); _migrate_runtime_moved_files_detect '${DF}'"
+  assert_failure
+}
+
+# ── migration (runtime-dir-copy): per-file helper COPYs -> one dir COPY ──────
+# Every consumer Dockerfile listed base's runtime helpers one COPY per file,
+# so base adding a helper was a change to every consumer repo -- and the two
+# migrations that existed only to close that gap (logrotate_copy,
+# watchdog_copy) are what this replaces. Collapse any subset of the helper
+# COPYs, in any order, at either the pre-dist or the dist path, into the one
+# directory COPY that cannot fall out of agreement with what base ships.
+
+@test "migration (runtime-dir-copy): collapses the three per-file COPYs into one dir COPY (#971)" {
   cat > "${DF}" <<'EOF'
 FROM busybox AS devel
 COPY --chmod=0755 .base/dist/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
 COPY --chmod=0755 .base/dist/script/docker/runtime/logrotate.sh /usr/local/lib/base/logrotate.sh
+COPY --chmod=0755 .base/dist/script/docker/runtime/watchdog.sh /usr/local/lib/base/watchdog.sh
 EOF
-  run bash -c "$(_src); _migrate_logrotate_copy_detect '${DF}'"
-  assert_failure
-}
-
-@test "migration (logrotate-copy): detect false when no logging.sh COPY present (#805)" {
-  cat > "${DF}" <<'EOF'
-FROM busybox AS devel
-RUN echo hi
-EOF
-  run bash -c "$(_src); _migrate_logrotate_copy_detect '${DF}'"
-  assert_failure
-}
-
-@test "migration (logrotate-copy): dispatcher run twice inserts the COPY exactly once (#805)" {
-  cat > "${DF}" <<'EOF'
-FROM busybox AS devel
-COPY --chmod=0755 .base/dist/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
-EOF
-  run bash -c "$(_src); apply_migrations '${DF}'; apply_migrations '${DF}'"
+  run bash -c "$(_src); _migrate_runtime_dir_copy_detect '${DF}' && _migrate_runtime_dir_copy_apply '${DF}'"
   assert_success
   local _n
-  _n="$(grep -cF '/usr/local/lib/base/logrotate.sh' "${DF}")"
+  _n="$(grep -cF 'COPY --chmod=0755 .base/dist/script/docker/runtime/ /usr/local/lib/base/' "${DF}")"
+  [ "${_n}" -eq 1 ]
+  # No per-file helper COPY survives.
+  run grep -E 'runtime/(logging|logrotate|watchdog)\.sh' "${DF}"
+  assert_failure
+}
+
+@test "migration (runtime-dir-copy): collapses a subset in any order at the pre-dist path (#971)" {
+  # The shape a consumer that took the watchdog fanout but not the logrotate
+  # one carries, written in the order the two migrations appended it.
+  cat > "${DF}" <<'EOF'
+FROM busybox AS devel
+COPY --chmod=0755 .base/script/docker/runtime/watchdog.sh /usr/local/lib/base/watchdog.sh
+COPY --chmod=0755 .base/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
+EOF
+  run bash -c "$(_src); apply_migrations '${DF}'"
+  assert_success
+  local _n
+  _n="$(grep -cF 'COPY --chmod=0755 .base/dist/script/docker/runtime/ /usr/local/lib/base/' "${DF}")"
   [ "${_n}" -eq 1 ]
 }
 
-# ── migration (watchdog-copy): watchdog.sh runtime helper sibling ────────────
-# The generic watchdog ships runtime/watchdog.sh, COPY'd next to
-# logging.sh at /usr/local/lib/base/. A downstream Dockerfile that COPYs
-# logging.sh but predates the watchdog lacks the watchdog.sh COPY; this
-# migration inserts the sibling COPY after the logging.sh COPY.
-
-@test "migration (watchdog-copy): inserts watchdog.sh COPY after the logging.sh COPY (#797)" {
+@test "migration (runtime-dir-copy): one dir COPY per stage, not one for the file (#971)" {
+  # omniverse_web_viewer carries the helper COPY in three stages
+  # (runtime / devel / example) and ros1_bridge in two: a stage that does not
+  # COPY the helpers must not acquire them, and a stage that does must keep
+  # exactly one.
   cat > "${DF}" <<'EOF'
-FROM busybox AS devel
+FROM busybox AS runtime
 COPY --chmod=0755 .base/dist/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
-EOF
-  run bash -c "$(_src); _migrate_watchdog_copy_detect '${DF}' && _migrate_watchdog_copy_apply '${DF}'"
-  assert_success
-  grep -Fq "COPY --chmod=0755 .base/dist/script/docker/runtime/watchdog.sh /usr/local/lib/base/watchdog.sh" "${DF}"
-  # The original logging.sh COPY is preserved.
-  grep -Fq "COPY --chmod=0755 .base/dist/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh" "${DF}"
-}
 
-@test "migration (watchdog-copy): detect false when watchdog COPY already present (idempotent) (#797)" {
-  cat > "${DF}" <<'EOF'
 FROM busybox AS devel
 COPY --chmod=0755 .base/dist/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
 COPY --chmod=0755 .base/dist/script/docker/runtime/watchdog.sh /usr/local/lib/base/watchdog.sh
+
+FROM devel AS devel-test
+RUN echo hi
 EOF
-  run bash -c "$(_src); _migrate_watchdog_copy_detect '${DF}'"
-  assert_failure
+  run bash -c "$(_src); apply_migrations '${DF}'"
+  assert_success
+  local _n
+  _n="$(grep -cF 'COPY --chmod=0755 .base/dist/script/docker/runtime/ /usr/local/lib/base/' "${DF}")"
+  [ "${_n}" -eq 2 ]
 }
 
-@test "migration (watchdog-copy): detect false when no logging.sh COPY present (#797)" {
+@test "migration (runtime-dir-copy): a statement hand-listing two helpers collapses to one source (#971)" {
+  # ros1_bridge and urg_node_humble already hand-list two sources on one
+  # COPY for their smoke specs, so the shape is one a consumer writes.
+  cat > "${DF}" <<'EOF'
+FROM busybox AS devel
+COPY --chmod=0755 .base/dist/script/docker/runtime/logging.sh .base/dist/script/docker/runtime/watchdog.sh /usr/local/lib/base/
+EOF
+  run bash -c "$(_src); apply_migrations '${DF}'"
+  assert_success
+  grep -Fxq "COPY --chmod=0755 .base/dist/script/docker/runtime/ /usr/local/lib/base/" "${DF}"
+}
+
+@test "migration (runtime-dir-copy): a hand-relocated destination is preserved (#971)" {
+  # detect anchors on the SOURCE, so a consumer that bakes the helpers
+  # somewhere other than /usr/local/lib/base/ still collapses -- into its own
+  # destination, not into base's.
+  cat > "${DF}" <<'EOF'
+FROM busybox AS devel
+COPY --chmod=0755 .base/dist/script/docker/runtime/logging.sh /opt/base/logging.sh
+EOF
+  run bash -c "$(_src); apply_migrations '${DF}'"
+  assert_success
+  grep -Fq "COPY --chmod=0755 .base/dist/script/docker/runtime/ /opt/base/" "${DF}"
+}
+
+@test "migration (runtime-dir-copy): rewrites the commented runtime-stage example too (#971)" {
+  # init.sh seeds the commented runtime-stage scaffold into every repo. Left
+  # per-file it teaches the shape this change exists to remove, to a reader
+  # who will uncomment it later.
   cat > "${DF}" <<'EOF'
 FROM busybox AS devel
 RUN echo hi
+# COPY --chmod=0755 .base/dist/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
+# COPY --chmod=0755 .base/dist/script/docker/runtime/logrotate.sh /usr/local/lib/base/logrotate.sh
 EOF
-  run bash -c "$(_src); _migrate_watchdog_copy_detect '${DF}'"
+  run bash -c "$(_src); apply_migrations '${DF}'"
+  assert_success
+  local _n
+  _n="$(grep -cE '^# COPY --chmod=0755 \.base/dist/script/docker/runtime/ /usr/local/lib/base/$' "${DF}")"
+  [ "${_n}" -eq 1 ]
+}
+
+@test "migration (runtime-dir-copy): an already-collapsed dir COPY is left alone (#971)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS devel
+COPY --chmod=0755 .base/dist/script/docker/runtime/ /usr/local/lib/base/
+EOF
+  run bash -c "$(_src); _migrate_runtime_dir_copy_detect '${DF}'"
   assert_failure
 }
 
-@test "migration (watchdog-copy): dispatcher run twice inserts the COPY exactly once (#797)" {
+@test "migration (runtime-dir-copy): dispatcher run twice collapses exactly once (#971)" {
   cat > "${DF}" <<'EOF'
 FROM busybox AS devel
-COPY --chmod=0755 .base/dist/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
+COPY --chmod=0755 .base/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
 EOF
   run bash -c "$(_src); apply_migrations '${DF}'; apply_migrations '${DF}'"
   assert_success
   local _n
-  _n="$(grep -cF '/usr/local/lib/base/watchdog.sh' "${DF}")"
+  _n="$(grep -cF 'COPY --chmod=0755 .base/dist/script/docker/runtime/ /usr/local/lib/base/' "${DF}")"
   [ "${_n}" -eq 1 ]
+}
+
+@test "migration (runtime-dir-copy): detect false when no helper COPY is present (#971)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS devel
+RUN echo hi
+EOF
+  run bash -c "$(_src); _migrate_runtime_dir_copy_detect '${DF}'"
+  assert_failure
+}
+
+# ── the shape the REAL consumers carry ──────────────────────────────────────
+#
+# Not a synthesised fixture: base's own new-repo fixture is written by
+# _create_new_repo, a shape base#928 showed no real consumer has. Every repo
+# under the org whose Dockerfile names a runtime helper was read, and this
+# is what they carry -- the FLAT pre-dist path, `logging.sh` alone (no repo
+# took the logrotate / watchdog fanout), repeated once per stage that wants
+# it, plus the commented runtime-test smoke.sh scaffold init.sh seeded:
+#
+#   jetson_sdk_manager   1 COPY  (devel)
+#   omniverse_web_viewer 3 COPYs (runtime, devel, example)
+#   ros1_bridge          2 COPYs (devel, runtime)
+#
+# The property asserted is the one an upgrade owes them: after the
+# dispatcher, no COPY source names a path base no longer ships.
+
+@test "apply_migrations heals the runtime COPYs every real consumer actually carries (#971)" {
+  assert_spec_subject "/source/dist/script/docker/lib/dockerfile_migrate.sh" \
+    "the migration list this spec drives"
+  mkdir -p "${TEMP_DIR}/.base"
+  ln -s /source/dist "${TEMP_DIR}/.base/dist"
+
+  cat > "${DF}" <<'EOF'
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE} AS runtime
+COPY --chmod=0755 .base/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
+
+FROM ${BASE_IMAGE} AS devel
+COPY --chmod=0755 .base/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
+
+FROM runtime AS runtime-test
+# COPY .base/script/docker/runtime/smoke.sh /usr/local/lib/base/smoke.sh
+# ARG RUNTIME_SMOKE_CMD='whoami && bash --version && bash /usr/local/lib/base/smoke.sh'
+
+FROM devel-base AS example
+COPY --chmod=0755 .base/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
+EOF
+  run bash -c "$(_src); apply_migrations '${DF}'"
+  assert_success
+
+  # One dir COPY per stage that had a helper COPY -- three, not four.
+  local _n
+  _n="$(grep -cF 'COPY --chmod=0755 .base/dist/script/docker/runtime/ /usr/local/lib/base/' "${DF}")"
+  [ "${_n}" -eq 3 ]
+
+  # Every `.base/...` COPY source left behind resolves in the shipped tree,
+  # the commented smoke.sh scaffold included: it is inert today and a
+  # "COPY source not found" the day a consumer uncomments it.
+  local _tokens
+  _tokens="$(grep -E '^[[:space:]]*#?[[:space:]]*COPY[[:space:]]' "${DF}" \
+    | grep -oE '\.base/[A-Za-z0-9_.*/-]+')"
+  local _count
+  _count="$(printf '%s\n' "${_tokens}" | grep -c .)"
+  [ "${_count}" -ge 4 ]
+  local _tok
+  while IFS= read -r _tok; do
+    [[ -e "${TEMP_DIR}/${_tok}" ]] \
+      || fail "COPY source does not resolve in the shipped tree: ${_tok}"
+  done <<< "${_tokens}"
 }
 
 # ── migration 5: hadolint rules surfaced by the slimmed .hadolint.yaml ───────

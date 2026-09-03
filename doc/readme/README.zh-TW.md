@@ -137,7 +137,7 @@ flowchart LR
     release_worker -->|"tar.gz + zip"| release["GitHub Release"]
 ```
 
-<!-- sync: whats-included c1ac0bade5d6 144b2b0e789f -->
+<!-- sync: whats-included 26ac98cd01c1 045496e721b2 -->
 ### 包含內容
 
 | 檔案 | 說明 |
@@ -164,8 +164,9 @@ flowchart LR
 | `dist/script/docker/lib/_tui_conf.sh` | TUI 的 INI validator + 讀寫 |
 | `dist/script/docker/runtime/logging.sh` | host 端 log tee helper（per-start 檔案 + 穩定 symlink） |
 | `dist/script/docker/runtime/logrotate.sh` | 共用 rotate/symlink/prune primitives（tee + transcript 共用） |
-| `dist/script/docker/runtime/smoke.sh` | runtime install-check smoke |
-| `dist/script/docker/runtime/entrypoint.sh` | template entrypoint helper |
+| `dist/script/docker/runtime/watchdog.sh` | 通用單服務 watchdog（重啟 + 可插拔健康檢查） |
+| `dist/dockerfile/entrypoint.sh` | template entrypoint，建立新 repo 時 seed 成 `script/entrypoint.sh` |
+| `dist/test/bats/smoke/smoke.sh` | runtime install-check smoke（ldd 缺依賴掃描） |
 | `script/test/test.sh` | base 自身測試 dispatcher（本地 + 容器內） |
 | `script/test/drivers/` | 每個工具一支 driver — `bats.sh` / `shellcheck.sh` / `hadolint.sh` |
 | `script/test/lint_bare_stderr.sh` | Bare stderr lint 檢查 |

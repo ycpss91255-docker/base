@@ -22,9 +22,9 @@ setup() {
   TMP_REPO="$(mktemp -d)"
   mkdir -p "${TMP_REPO}/.base/dockerfile" \
            "${TMP_REPO}/.base/dist/config" \
+           "${TMP_REPO}/.base/dist/dockerfile" \
            "${TMP_REPO}/.base/dist/script/base" \
-           "${TMP_REPO}/.base/dist/script/docker/lib" \
-           "${TMP_REPO}/.base/dist/script/docker/runtime"
+           "${TMP_REPO}/.base/dist/script/docker/lib"
   echo "v0.0.0-test" > "${TMP_REPO}/.base/.version"
   ln -s /source/dist/script/base/init.sh \
         "${TMP_REPO}/.base/dist/script/base/init.sh"
@@ -66,11 +66,10 @@ setup() {
   unset _sl
   ln -s /source/dist/script/docker/lib/log-events.txt \
         "${TMP_REPO}/.base/dist/script/docker/lib/log-events.txt"
-  cp /source/dist/script/docker/runtime/entrypoint.sh \
-     "${TMP_REPO}/.base/dist/script/docker/runtime/entrypoint.sh"
+  cp /source/dist/dockerfile/entrypoint.sh \
+     "${TMP_REPO}/.base/dist/dockerfile/entrypoint.sh"
 
   # Minimal Dockerfile.example stub for _create_new_repo's `cp` step.
-  mkdir -p "${TMP_REPO}/.base/dist/dockerfile"
   cat > "${TMP_REPO}/.base/dist/dockerfile/Dockerfile" <<'EOF'
 FROM alpine
 EOF
