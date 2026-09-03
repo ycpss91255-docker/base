@@ -95,6 +95,7 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   type at 1.7.12.
 
 ### Added
+- **`just test metrics`: one shell reader, three implementation-standard thresholds (refs #994)** -- nesting depth <= 3, function length <= 50 body code lines, positional parameters <= 5, measured in one pass over every tracked shell file. Not in `just test` or `just test lint`: today's tree reports 26 / 69 / 7, which phase 3 flattens and phase 4 then gates. The figures replace an ad-hoc count whose parser bugs are now fixtures, and every counting rule the reader states has its worked example as a fixture too -- three defects were found by running them, one of them fail-open. A file the reader cannot parse is a finding, never a skip. Host-direct: the population is the git index.
 - **`just docker prune --reclaim`: base collects its own compose litter
   (closes #995)** -- compose stamps the checkout's absolute path on its
   network (`base.checkout.path`); the sweep reads it back and removes the

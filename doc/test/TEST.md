@@ -1,10 +1,10 @@
 # TEST.md
 
-Template self-tests: **3759 tests** total (3602 unit + 157 integration).
+Template self-tests: **3811 tests** total (3654 unit + 157 integration).
 
 > "Self-test total" is the `just test` suite -- what runs in the
 > `Self Test` CI job. System (19) and smoke (38) tests are tracked here
-> too but are **not** in the 3759 figure: System specs need host docker
+> too but are **not** in the 3811 figure: System specs need host docker
 > access and are opt-in, and smoke specs are Dockerfile `test`-stage
 > build-time assertions, not self-tests. Acceptance is a CI-only level (0
 > bats specs by design): it drives a real scaffolded consumer + built
@@ -20,13 +20,13 @@ carrying its own test count) live in the sibling docs below.
 
 | Doc | Scope | Count |
 |-----|-------|-------|
-| [unit.md](unit.md) | `test/bats/unit/` -- library, wrappers, generators, templates (Unit level) | 3602 |
+| [unit.md](unit.md) | `test/bats/unit/` -- library, wrappers, generators, templates (Unit level) | 3654 |
 | [integration.md](integration.md) | `test/bats/integration/` -- init / upgrade / dispatch across components (Integration level) | 157 |
 | [system.md](system.md) | `test/bats/system/` -- opt-in `runtime-test` buildx specs, gate-fires Regression (System level, host docker) | 19 |
 | [acceptance.md](acceptance.md) | `test/bats/acceptance/` -- consumer framework + UX, UAT/OAT (Acceptance level; CI-only via the `acceptance` job, #785) | 0 |
 | [smoke.md](smoke.md) | `dist/test/bats/smoke/` -- shipped per-stage build-time smoke templates (Smoke type) | 38 |
 
-Self-test grand total (unit + integration): **3759**.
+Self-test grand total (unit + integration): **3811**.
 
 ## Running one spec under kcov: `just test coverage-path`
 
@@ -109,6 +109,42 @@ not this table, is what keeps the list honest -- four lints shipped local-only
 before it existed, and `home-literal` / `bash-source-guard` /
 `early-close-reader` each joined the matrix in the same change that introduced
 them.
+
+### The three metric lints, deliberately outside that table
+
+`nesting-depth`, `function-length` and `positional-params` (base#994 phase 2)
+are three thresholds over one record produced by one reader,
+`script/test/drivers/shell_metrics.sh`. They are runnable and they are
+**not** in `_LINT_TOOLS`, so neither `just test` nor `just test lint` runs
+them and no CI job is demanded of them yet:
+
+```bash
+just test metrics                     # all three, one report
+just test metrics nesting-depth       # or function-length / positional-params
+```
+
+On today's tree that report is 26 functions over nesting depth 3, 69 over 50
+body code lines and 7 over 5 positional parameters. Four of the reader's OWN
+functions are in that report: it is in the population it derives, like every
+other tracked shell file, and there is no exemption for it.
+Phase 3 flattens the tree
+in slices and works from exactly this output; phase 4 adds the three names to
+`_LINT_TOOLS` and to the `lint-static` matrix, on a clean tree, which is when
+the completeness guard starts demanding their CI jobs.
+
+Two things about them differ from every lint above. The **population** is
+derived from the git index -- tracked `*.sh` plus tracked extensionless files
+starting `#!`, minus symlinks -- so they run HOST-DIRECT
+(`test.sh --shell-metrics-only` and the three `--<metric>-only` siblings) and
+have no `--lint --<tool>` in-container form: a `git worktree` checkout's
+`.git` is a file naming a path outside the container's bind mount, where the
+lint would refuse rather than measure. And the **counting rules are decisions**
+-- whether a `case` arm is a level, whether a comment is a line, whether an
+array literal's elements are commands, what `$@` and `shift` do to an arity --
+each stated with its reason in the driver's header, which is the file to read
+before arguing with a number it reports. Each rule's worked example is a
+fixture in `test/bats/unit/shell_metrics_spec.bats`, so a rule the reader does
+not follow fails rather than reads well.
 
 ## Maintaining these docs
 
