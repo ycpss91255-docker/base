@@ -149,9 +149,11 @@ consistent reading of it.
 
 `<name>.example.<ext>`, sitting at the top of the component directory where
 it is seen. The real extension stays **last**, so tooling that selects by
-extension still finds it: `realsense_ros1` lint-`COPY`s
-`config/realsense/filters/` into the image and validates the yaml there, and
-a `*.yaml.example` is invisible to a `*.yaml` glob. `example/` as a
+extension still finds it. The live case: `realsense_ros1` copies
+`config/realsense/filters/` into its test stage at `/lint/filters/` and its
+smoke suite iterates `"${SHIPPED_FILTERS_DIR}"/*.yaml`, parsing each shipped
+profile -- which reaches `sensor_options.example.yaml` and would not reach
+the same file spelled `sensor_options.yaml.example`. `example/` as a
 directory is refused for the reason in sec. 6.
 
 ### 5. A file kept only to be diffed against upstream is not config
