@@ -1494,9 +1494,11 @@ _stage_line_verdicts() {
     _slv_out+=("envbake=nomatch")
   fi
 
-  # 5. _bake_config_copy -- the COPY config/app splice.
-  _bake_config_copy "${_df}" "${_stage}" "${_d}/baked"
-  if grep -q '^COPY config/app ' "${_d}/baked"; then
+  # 5. _bake_config_copy -- the COPY config/<component> splice; the
+  # population is derived from config/*/, so the fixture ships one.
+  mkdir -p "${_d}/with/config/realsense"
+  _bake_config_copy "${_df}" "${_stage}" "${_d}/baked" "${_d}/with"
+  if grep -q '^COPY config/realsense ' "${_d}/baked"; then
     _slv_out+=("configcopy=match")
   else
     _slv_out+=("configcopy=nomatch")
@@ -1515,7 +1517,7 @@ _stage_line_verdicts() {
 @test "all FROM-line call sites agree a --platform flagged line declares the stage (#875)" {
   # The cross-build form this repo invites (TARGETARCH, the arm64
   # matrix). Three sites used to see nothing here while _bake_config_copy
-  # matched, so the field image got the baked config/app and none of the
+  # matched, so the field image got the baked config/<component> and none of the
   # [environment] defaults.
   local -a _v=()
   _stage_line_verdicts 'FROM --platform=$BUILDPLATFORM ubuntu:24.04 AS runtime' runtime _v
@@ -1546,7 +1548,7 @@ _stage_line_verdicts() {
 
 @test "all FROM-line call sites agree a stray bare token declares nothing (#875)" {
   # `FROM <image> <junk> AS <stage>` is not a directive docker accepts.
-  # The greedy `.*` matcher used to splice COPY config/app into it while
+  # The greedy `.*` matcher used to splice COPY config/<component> into it while
   # the other three skipped it; widening for flags must not inherit that.
   local -a _v=()
   _stage_line_verdicts 'FROM ubuntu:24.04 junk AS runtime' runtime _v

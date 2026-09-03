@@ -234,6 +234,21 @@ travel. The dev binds do not.
 _Avoid_: release bundle, tarball, image bundle (it is more than the
 image), `deploy.sh` bundle.
 
+**Config component**:
+One directory directly under a repo's `config/` — the unit the structured
+app-config channel provisions. The population is derived, never listed:
+every `config/*/` qualifies, `config/shell/` and `config/pip/` included
+(they are consumed by a *different* channel — the Dockerfile's layered
+`COPY config /tmp/config`, deleted in the same `RUN` — so a bind or bake
+at `/opt/app/config/<component>` shares neither its path nor its moment).
+Both halves of **PRD invariant 8** read the one derivation
+(`_collect_config_components`, `lib/deploy.sh`): dev bind-mounts each at
+`/opt/app/config/<component>`, deploy `COPY`-bakes each at the same path.
+A regular file sitting directly under `config/` is provisioned by neither
+half and is WARNed about by name (#1000).
+_Avoid_: `config/app`, app config dir, component config (ambiguous with
+**`deploy.manifest`**'s per-file tunables).
+
 **`deploy.manifest`**:
 A committed `config/<component>/deploy.manifest` (INI-lite, one section
 per **deployable stage**) naming the absolute container paths a field
