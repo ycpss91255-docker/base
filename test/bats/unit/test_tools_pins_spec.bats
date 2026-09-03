@@ -123,6 +123,33 @@ ARG CURL_VERSION=8.9.0')"
   assert_output --partial 'CURL_VERSION'
 }
 
+@test "test-tools pins: a pin the Dockerfile spells differently is on the roster, not dropped (#1012)" {
+  # The refusal above is the whole claim -- "a tool cannot be pinned in
+  # that Dockerfile and go unasserted" -- and it is only as wide as the
+  # reader that finds the pins. A Dockerfile instruction may be indented
+  # and its keyword is case-insensitive, and an ARG name is an ordinary
+  # identifier, so all three lines below are legal declarations of a pin
+  # with no probe. A reader anchored on `^ARG` and `[A-Z0-9_]` matches
+  # none of them, and the roster then answers SUCCESSFULLY with the four
+  # pins it did match: the guard does not refuse, it just gets shorter,
+  # which is the fail-open direction for a guard whose whole assertion is
+  # that something was checked.
+  local _spelling _root
+  for _spelling in '  ARG CURL_VERSION=8.9.0' \
+      'arg CURL_VERSION=8.9.0' \
+      'ARG curl_VERSION=8.9.0'; do
+    _root="$(_seed_tree "ARG BATS_VERSION=1.13.0
+ARG ALPINE_VERSION=3.21
+ARG KCOV_VERSION=v43
+ARG JUST_VERSION=1.58.0
+${_spelling}")"
+    run bash "${_root}/script/ci/test-tools-pins.sh" roster
+    [[ "${status}" -ne 0 ]] || fail \
+      "'${_spelling}' declares a pin with no probe, but the roster answered instead of refusing:
+${output}"
+  done
+}
+
 @test "test-tools pins: a Dockerfile declaring no pin at all is refused, not answered empty (#1012)" {
   # An empty roster satisfies every "iterate the roster" consumer in
   # silence, which is the fail-open direction for a guard whose whole

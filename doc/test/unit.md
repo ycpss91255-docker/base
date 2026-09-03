@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3569 tests**.
+Unit specs under `test/bats/unit/`: **3570 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -4300,7 +4300,7 @@ rather than an assurance.
 | `release-test-tools.yaml: the just smoke check asserts the version, not exit 0 (#948)` | - |
 
 
-### test/bats/unit/test_tools_pins_spec.bats (12)
+### test/bats/unit/test_tools_pins_spec.bats (13)
 
 The release smoke step ran fifteen probes against the image it had just
 published, and fourteen of them asserted an exit status and nothing else
@@ -4324,6 +4324,7 @@ half is the smoke step, which iterates this same roster.
 | `test-tools pins: the roster names every ARG *_VERSION the Dockerfile declares (#1012)` | Population compared against a reader that is not the accessor's, so this is not the accessor agreeing with itself. |
 | `test-tools pins: every roster row carries a pin and a probe (#1012)` | A row with no probe is a pin nobody can ask about. |
 | `test-tools pins: a declared pin with no probe is refused, naming it (#1012)` | The anti-recurrence property: a tool cannot be pinned in that Dockerfile and go unasserted. |
+| `test-tools pins: a pin the Dockerfile spells differently is on the roster, not dropped (#1012)` | The refusal is only as wide as the reader that finds the pins: an indented, lower-case-keyword or lower-case-named ARG is a legal declaration the anchor missed. |
 | `test-tools pins: a Dockerfile declaring no pin at all is refused, not answered empty (#1012)` | An empty roster satisfies every consumer that iterates it, in silence. |
 | `test-tools pins: check accepts the exact declared version (#1012)` | `Bats 1.13.0`, `just 1.58.0`, `kcov v43`. |
 | `test-tools pins: check accepts a longer version under a series pin (#1012)` | `ALPINE_VERSION=3.21` against `/etc/alpine-release`'s `3.21.7`; equality would fail every image the Dockerfile can build. |
