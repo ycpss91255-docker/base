@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3499 tests**.
+Unit specs under `test/bats/unit/`: **3501 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3780,7 +3780,7 @@ inside the test that produces it, each case writes a one-test spec into
 | `the fail-open guard scan sees each spelling of the check it claims to cover` | The invariant must be green because no guard exists, not because its pattern is blind |
 | `the fail-open guard scan is an over-approximation, not a closed set` | A sample of what it misses, so the disclosure is never wider than the pattern |
 
-### test/bats/unit/errexit_bang_lint_spec.bats (94)
+### test/bats/unit/errexit_bang_lint_spec.bats (96)
 
 | Test | Description |
 |------|-------------|
@@ -3804,7 +3804,7 @@ inside the test that produces it, each case writes a one-test spec into
 | `bash: '! A \|\| return 1' DOES fail its test in the failing direction (#956)` | - |
 | `_run_errexit_bang: PASSES on '\|\| return 1' / '\|\| fail', which CAN fail the test (#956)` | - |
 | `_run_errexit_bang: still FAILS on '\|\| true' / '\|\| :', the operands that cannot fail (#956)` | - |
-| `_run_errexit_bang: PASSES on an '\|\|' whose operand is a GROUP (#956)` | - |
+| `_run_errexit_bang: names a GROUP operand as unreadable, not as unfinished (#956)` | - |
 | `_run_errexit_bang: PASSES on a ';' that sits in a trailing comment (#956)` | - |
 | `_run_errexit_bang: PASSES on a ';' inside a quoted argument (#956)` | - |
 | `_run_errexit_bang: FAILS on an '\|\|' that belongs to a command substitution (#956)` | A separator inside `( ... )` is the argument's, so the exemption for `! A || B` does not reach it |
@@ -3865,6 +3865,8 @@ inside the test that produces it, each case writes a one-test spec into
 | `_run_errexit_bang: FAILS on a bang list whose final operand is an 'echo' (base#992) (#956)` | - |
 | `_run_errexit_bang: FAILS on a bang list whose final operand is an unreadable group (base#992) (#956)` | - |
 | `_run_errexit_bang: the widened always-zero set does not reach past the command word (base#992) (#956)` | - |
+| `_run_errexit_bang: KNOWN MISS -- a ONE-LINE '{ ! A; }' brace group (base#991) (#956)` | - |
+| `_run_errexit_bang: KNOWN OVER-REPORT -- a ';' behind an operand that transfers control (base#992) (#956)` | - |
 | `_run_errexit_bang: FAILS when the repo holds no *.bats at all (#956)` | - |
 | `_run_errexit_bang: FAILS when the spec directories are all empty (#956)` | - |
 | `_run_errexit_bang: does NOT scan the released-tree archives (#956)` | - |

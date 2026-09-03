@@ -364,32 +364,39 @@ _write_crlf() {
   [[ "${output}" == *"x_spec.bats:2"* ]]
 }
 
-@test "_run_errexit_bang: PASSES on an '||' whose operand is a GROUP (#956)" {
-  # The narrowing the header states by name: `|| { true; }` and
-  # `|| ( true )` are as inert as `|| true` and go UNREPORTED, because
-  # "can this group fail" has no lexical answer in general.
+@test "_run_errexit_bang: names a GROUP operand as unreadable, not as unfinished (#956)" {
+  # Was "PASSES on an '||' whose operand is a GROUP", pinning the
+  # narrowing base#992 has since closed: `|| { true; }` and `|| ( true )`
+  # are inert and are now REPORTED, because an operand this scan cannot
+  # classify does not get the live-`||` exemption.
   #
-  # It is pinned by RUNNING it because of how the scan sees it. A
-  # `( ... )` operand is BLANKED by the paren rule, so the statement's
-  # CODE ends in a bare `||` with only spaces behind it -- and any rule
-  # that reads a trailing operator as an unfinished statement has to
-  # read it off something that remembers the operand was there, or it
-  # turns this disclosed silence into a false positive on a blocking
-  # gate.
+  # What this case still pins is WHICH row comes out, and that is not
+  # cosmetic. A `( ... )` operand is BLANKED by the paren rule, so the
+  # statement's CODE ends in a bare `||` with only spaces behind it --
+  # and a trailing-operator test that read the code rather than the
+  # shadow would call this statement UNFINISHED, a different claim about
+  # a different defect, and one whose message tells the reader to go
+  # looking for an unterminated quote that is not there.
   _write "test/bats/unit/x_spec.bats" \
     '@test "or a subshell" {' \
     '  ! grep -q A "${_f}" || ( true )' \
     '  assert_success' \
     '}'
   run _run_errexit_bang
-  [ "${status}" -eq 0 ]
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"x_spec.bats:2"* ]]
+  [[ "${output}" == *"group"* ]]
+  [[ "${output}" != *"unfinished"* ]]
+
   _write "test/bats/unit/x_spec.bats" \
     '@test "or a brace group" {' \
     '  ! grep -q A "${_f}" || { true; }' \
     '  assert_success' \
     '}'
   run _run_errexit_bang
-  [ "${status}" -eq 0 ]
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"x_spec.bats:2"* ]]
+  [[ "${output}" == *"group"* ]]
 }
 
 @test "_run_errexit_bang: PASSES on a ';' that sits in a trailing comment (#956)" {
@@ -1570,6 +1577,66 @@ _write_crlf() {
     '}'
   run _run_errexit_bang
   [ "${status}" -eq 0 ]
+}
+
+# ════════════════════════════════════════════════════════════════════
+# Known residuals, pinned rather than left to be rediscovered
+# ════════════════════════════════════════════════════════════════════
+
+@test "_run_errexit_bang: KNOWN MISS -- a ONE-LINE '{ ! A; }' brace group (base#991) (#956)" {
+  # PINS CURRENT BEHAVIOUR, NOT WANTED BEHAVIOUR. base#991's other half.
+  # A brace group carries the `!` exemption OUT of itself, so a one-line
+  # `{ ! grep -q A f; }` away from its block's last statement is an inert
+  # assertion and nothing reports it: `_ERREXIT_BANG_STMT_RE` needs `!`
+  # as the statement's first token and here that token is `{`.
+  #
+  # First: it really is inert, and a SUBSHELL really is not -- so the
+  # silence on `( ! A )` is right and only the brace form hides anything.
+  run bash -c 'set -e; b() { { ! true; }; echo REACHED; }; b'
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == "REACHED" ]]
+  run bash -c 'set -e; b() { ( ! true ); echo REACHED; }; b'
+  [ "${status}" -ne 0 ]
+
+  # Then: the lint says nothing about the one-line spelling. The
+  # MULTI-LINE one is covered -- the block count opens a level for the
+  # `{` and the `!` is judged against it -- and that case is pinned
+  # above. Matching `{ !` as a statement opener would close this by
+  # trading it for a false positive where the group IS the verdict (the
+  # group's own internal `;` fires the separator rule), so closing it
+  # needs the group's CONTENTS modelled, not its opener matched.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "one-line brace group" {' \
+    '  { ! grep -q A f; }' \
+    '  assert_success' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -eq 0 ]
+}
+
+@test "_run_errexit_bang: KNOWN OVER-REPORT -- a ';' behind an operand that transfers control (base#992) (#956)" {
+  # PINS CURRENT BEHAVIOUR, and it is a stated cost rather than a defect:
+  # the separator rule now outranks the live-`||` exemption, and
+  # `! A || return 1; true` CAN fail its test -- the `return` runs in
+  # precisely the branch that matters and the `; true` behind it is never
+  # reached. Telling that `;` from a reachable one needs the operand's
+  # argument evaluated, not read, so it is reported and costs one allow
+  # region. The same rule is what catches `! A || return 0; true`, which
+  # is inert, so the pair is judged together on purpose.
+  printf '%s\n' A > "${SCRATCH}/f"
+  run bash -c 'set -e; d="$1"; body() { ! grep -q A "${d}/f" || return 1; true; }; body' _ "${SCRATCH}"
+  [ "${status}" -ne 0 ]
+  run bash -c 'set -e; d="$1"; body() { ! grep -q A "${d}/f" || return 0; true; }; body' _ "${SCRATCH}"
+  [ "${status}" -eq 0 ]
+
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "control transfer before the separator" {' \
+    '  ! grep -q A f || return 1; true' \
+    '  assert_success' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"x_spec.bats:2"* ]]
 }
 
 # ════════════════════════════════════════════════════════════════════

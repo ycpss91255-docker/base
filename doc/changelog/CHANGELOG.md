@@ -178,6 +178,15 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 - **the changelog lint now catches an entry that was edited and not re-wrapped (refs #927)** -- a single word left alone on a continuation line with more of its paragraph on the next line. The length measure collapses whitespace on purpose and markdown collapses it again at render time, so nothing else could see it. A short final line, a table row, a fenced line and an HTML comment are left alone. Affects anyone writing an `[Unreleased]` entry.
 
 ### Fixed
+- **the errexit-bang lint's three named misses (closes #990, #991, #992)** --
+  a CRLF `*.bats` is REFUSED by name (a `\r` disarmed the line continuation,
+  so a spliced `; true` went unreported); a `!` ending an `if` / `while` /
+  `for` / `case` / `{ }` block is judged against its BLOCK, not the body; and
+  a `;` now outranks the live-`||` exemption, with the always-zero operand
+  set widened to `echo` and `return 0` and an unreadable group operand
+  refused. A spec holding `! A || echo x`, `! A || { ... }` or
+  `! A || return "${_rc}"` now fails the gate and needs a real assertion or
+  an allow region.
 - **`just upgrade` no longer deletes a working pip install from a consumer
   Dockerfile (refs #956)** -- the migration dropped every `pip install -r
   ${CONFIG_DIR}/pip/requirements.txt` line as base's empty placeholder, but
