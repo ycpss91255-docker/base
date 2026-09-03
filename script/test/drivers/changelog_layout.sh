@@ -12,10 +12,10 @@
 # ${REPO_ROOT}, _log_* / _die, no main).
 #
 # WHY. doc/changelog/ is one file per 0.Y series behind an index. The single
-# file it replaces was 641 KB and 109 version sections; nobody opened it, so
-# it did not matter what was in it. Splitting it makes it readable and, at
-# the same time, turns four things that used to be true by construction into
-# claims a commit can break with nothing to notice:
+# file it replaces was 669 KiB and 108 released version sections; nobody
+# opened it, so it did not matter what was in it. Splitting it makes it
+# readable and, at the same time, turns four things that used to be true by
+# construction into claims a commit can break with nothing to notice:
 #
 #   - A version's section lives in the file its version names. Nothing about
 #     a section in the wrong file renders differently; it is simply not

@@ -15,7 +15,7 @@
 # rejected: they answer "what kind of work was this", the author's view,
 # where a changelog answers "what changed for me", the reader's. Filing by
 # commit type institutionalises putting `test:` / `chore:` / `refactor:`
-# work into the changelog, which is part of how this file reached 641 KB. A
+# work into the changelog, which is part of how this file reached 669 KiB. A
 # refactor a reader must know about -- a new lint that can fail their CI --
 # is `Added`; one they need not know about is not an entry at all.
 #

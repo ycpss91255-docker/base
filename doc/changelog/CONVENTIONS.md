@@ -41,9 +41,9 @@ were considered and rejected as the axis. They answer *what kind of work was
 this* -- the author's view -- where a changelog answers *what changed for me*
 -- the reader's. Filing by commit type institutionalises putting `test:` /
 `chore:` / `refactor:` work into the changelog, which is part of how this
-file reached 641 KB. A refactor a reader must know about, such as a new lint
-that can fail their CI, is `Added`; one they need not know about is not an
-entry at all.
+file reached 669 KiB. A refactor a reader must know about, such as a new
+lint that can fail their CI, is `Added`; one they need not know about is
+not an entry at all.
 
 The roster is defined once, in `script/release/changelog_categories.sh`. The
 lint and the release-notes assembler source it; the list above is a
