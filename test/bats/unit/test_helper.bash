@@ -430,6 +430,41 @@ yaml_job_names() {
     _yaml_eval "${_file}" '.jobs | keys | .[]'
 }
 
+# yaml_job_needs <file> <job>
+#   The job ids one job declares in `needs:`, one per line, in document
+#   order. A job that declares no `needs:` yields nothing; a job that is
+#   not in the file yields a `BUG:` line and a non-zero status, because a
+#   caller naming a renamed job is a defect and not an absence.
+#
+#   Both legal spellings are one case: the scalar (`needs: actionlint`)
+#   and the sequence (`needs: [a, b]`, or a block list). They are folded
+#   by the parser rather than by the caller, so a guard that walks the job
+#   graph cannot see a dependency under one spelling and miss it under the
+#   other -- and `needs: actionlint` is exactly how the job at the root of
+#   this workflow's coverage chain is written.
+yaml_job_needs() {
+    local _file="${1}" _job="${2}" _kind _status=0
+    _kind="$(YAML_JOB="${_job}" yq '.jobs[strenv(YAML_JOB)] | tag' \
+        "${_file}" 2>&1)" || _status=$?
+    if [[ "${_status}" -ne 0 ]]; then
+        printf 'BUG: yq exited %s reading job %s of %s: %s\n' \
+            "${_status}" "${_job}" "${_file}" \
+            "$(printf '%s' "${_kind}" | tr '\n' ' ')"
+        return 1
+    fi
+    if [[ "${_kind}" != '!!map' ]]; then
+        printf 'BUG: %s declares no job %s (that key reads as %s)\n' \
+            "${_file}" "${_job}" "${_kind}"
+        return 1
+    fi
+    YAML_JOB="${_job}" _yaml_eval "${_file}" \
+        '[.jobs[strenv(YAML_JOB)].needs]
+           | flatten
+           | .[]
+           | select(. != null)
+           | tostring'
+}
+
 # yaml_job_permission_entries <file> <job>
 #   The `<scope>: <level>` entries of one job's own `permissions:` mapping,
 #   in document order. A job that declares no block, or an inline one

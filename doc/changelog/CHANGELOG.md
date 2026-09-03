@@ -206,6 +206,15 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 - **the changelog lint now catches an entry that was edited and not re-wrapped (refs #927)** -- a single word left alone on a continuation line with more of its paragraph on the next line. The length measure collapses whitespace on purpose and markdown collapses it again at render time, so nothing else could see it. A short final line, a table row, a fenced line and an HTML comment are left alone. Affects anyone writing an `[Unreleased]` entry.
 
 ### Fixed
+- **`compute-shards` and `coverage-gate` now gate something (closes #1009)**
+  -- neither was named by a gate's `needs:`. A failed `compute-shards`
+  skipped `coverage` and `coverage-gate`, both skip-tolerated, so the
+  required check went green with the whole unit suite and the coverage floor
+  never run; and `release` did not require `coverage-gate`, so a tag could
+  publish below `COVERAGE_MIN`. `ci-rollup` now requires `compute-shards`
+  hard-mandatorily, and `release` requires `coverage-gate`. Three specs
+  DERIVE both rosters from the job graph, so a job added to the workflow
+  fails until a gate names it.
 - **`just upgrade` no longer deletes a working pip install from a consumer
   Dockerfile (refs #956)** -- the migration dropped every `pip install -r
   ${CONFIG_DIR}/pip/requirements.txt` line as base's empty placeholder, but

@@ -777,6 +777,184 @@ _job_comments() {
   refute_output --partial 'COMPUTE_SHARDS_RESULT'
 }
 
+# ── The gate roster is DERIVED, not hand-kept ──────────────────
+#
+# Every assertion above this line names the roster it checks, which means
+# the roster is written twice -- once in the workflow, once here -- and
+# adding a job to the workflow updates neither. That is not a hypothetical:
+# `compute-shards` shipped outside ci-rollup's `needs:` and `coverage-gate`
+# outside release's, and each assertion above passed the whole time,
+# because each one asserted the text that was there.
+#
+# So the three guards below take the roster from the FILE. The set of jobs
+# comes from the `jobs:` mapping, the dependencies come from each job's
+# `needs:`, and the two gates are compared against those rather than
+# against a list a human maintains. A job added tomorrow is covered the day
+# it lands.
+
+# _result_var <job> -- the env var ci-rollup binds a job's result to.
+# Derived from the job id (upper-case, dashes to underscores) rather than
+# looked up in a table, so the mapping cannot drift from the naming the
+# workflow already uses.
+_result_var() {
+  printf '%s_RESULT\n' "${1}" | tr 'a-z-' 'A-Z_'
+}
+
+# _rollup_loops -- ci-rollup's verify loops, one per line, as
+# `<kind> <VAR>...`. The KIND is decided by the loop BODY's comparison --
+# a body that also accepts "skipped" is the tolerant bucket, one that
+# accepts "success" alone is the strict one -- not by which variable
+# happens to be written first, so a loop reordered or renamed is still
+# classified by what it actually does.
+_rollup_loops() {
+  yaml_job_lines "${WF}" ci-rollup | awk '
+    /for r in / { collecting = 1; header = "" }
+    collecting {
+      header = header " " $0
+      if ($0 ~ /; do[[:space:]]*$/) { collecting = 0; pending = header }
+      next
+    }
+    pending != "" && /== "success"/ {
+      kind = ($0 ~ /"skipped"/) ? "tolerant" : "strict"
+      n = split(pending, parts, /[^A-Z_]+/)
+      out = kind
+      for (i = 1; i <= n; i++) {
+        if (parts[i] ~ /_RESULT$/) { out = out " " parts[i] }
+      }
+      print out
+      pending = ""
+    }
+  '
+}
+
+# _needs_closure <job> -- every job <job> transitively depends on, sorted,
+# excluding <job> itself. This is what makes the tag path answerable: a
+# release gate inherits a dependency through the job it names, so the
+# comparable quantity is the closure and not the literal list.
+_needs_closure() {
+  local -a _queue=("${1}")
+  local -A _seen=()
+  local _job _dep
+  while [ "${#_queue[@]}" -gt 0 ]; do
+    _job="${_queue[0]}"
+    _queue=("${_queue[@]:1}")
+    [[ -z "${_seen[${_job}]:-}" ]] || continue
+    _seen["${_job}"]=1
+    while IFS= read -r _dep; do
+      [[ -n "${_dep}" ]] || continue
+      _queue+=("${_dep}")
+    done < <(yaml_job_needs "${WF}" "${_job}")
+  done
+  unset '_seen[${1}]'
+  [ "${#_seen[@]}" -gt 0 ] || return 0
+  printf '%s\n' "${!_seen[@]}" | sort
+}
+
+# _job_names -- the workflow's jobs, failing the test (rather than
+# returning a short list) when the parse did not work.
+_job_names() {
+  local _names _status=0
+  _names="$(yaml_job_names "${WF}")" || _status=$?
+  [ "${_status}" -eq 0 ] || fail "${_names}"
+  printf '%s\n' "${_names}"
+}
+
+@test "self-test.yaml: every job the workflow declares is named directly in ci-rollup's needs (#1009)" {
+  # Directly, not transitively. ci-rollup runs under `if: always()` and
+  # reads each upstream's `.result`, so what it can SEE is its own `needs:`
+  # -- and a dependency reached only through another job is invisible to
+  # it in the worst case: GitHub reports a job whose need failed as
+  # SKIPPED, and SKIPPED is pass-equivalent in the tolerant bucket. That is
+  # how a compute-shards failure used to travel: coverage skipped,
+  # coverage-gate skipped, required check green, unit suite and coverage
+  # floor never run.
+  #
+  # ci-rollup and release are the two SINKS and so are exempt: nothing
+  # aggregates the aggregator, and the tag path is checked separately
+  # below.
+  local -a _jobs=()
+  mapfile -t _jobs < <(_job_names)
+  [ "${#_jobs[@]}" -ge 14 ] \
+    || fail "parsed ${#_jobs[@]} jobs out of the workflow; the jobs mapping did not read"
+
+  local _needs _status=0
+  _needs="$(yaml_job_needs "${WF}" ci-rollup)" || _status=$?
+  [ "${_status}" -eq 0 ] || fail "${_needs}"
+
+  local _job
+  for _job in "${_jobs[@]}"; do
+    case "${_job}" in
+      ci-rollup | release) continue ;;
+    esac
+    grep -qxF -- "${_job}" <<<"${_needs}" \
+      || fail "job '${_job}' is declared in self-test.yaml but ci-rollup does not name it in needs: -- its failure cannot reach the required check"
+  done
+}
+
+@test "self-test.yaml: ci-rollup inspects every job it needs, in exactly one result bucket (#1009)" {
+  # Joining `needs:` is half a gate. The rollup's verdict is the two loops
+  # over the *_RESULT variables, so a job that is needed but named in
+  # neither loop is waited for and then ignored -- the same green as not
+  # being needed at all, with the needs list looking correct.
+  local -a _loops=()
+  mapfile -t _loops < <(_rollup_loops)
+  [ "${#_loops[@]}" -eq 2 ] \
+    || fail "expected a strict and a tolerant result loop in ci-rollup, parsed ${#_loops[@]}"
+
+  local _rollup
+  _rollup="$(yaml_job_lines "${WF}" ci-rollup)"
+
+  local _needs _status=0
+  _needs="$(yaml_job_needs "${WF}" ci-rollup)" || _status=$?
+  [ "${_status}" -eq 0 ] || fail "${_needs}"
+
+  local _job _var _line _hits
+  while IFS= read -r _job; do
+    [[ -n "${_job}" ]] || continue
+    _var="$(_result_var "${_job}")"
+    grep -qF -- "${_var}: \${{ needs.${_job}.result }}" <<<"${_rollup}" \
+      || fail "ci-rollup needs '${_job}' but binds no ${_var} from needs.${_job}.result"
+    _hits=0
+    for _line in "${_loops[@]}"; do
+      case " ${_line} " in
+        *" ${_var} "*) _hits=$(( _hits + 1 )) ;;
+      esac
+    done
+    [ "${_hits}" -eq 1 ] \
+      || fail "ci-rollup needs '${_job}' but ${_var} appears in ${_hits} result loops (expected exactly 1) -- a needed job nothing compares is a job that gates nothing"
+  done <<<"${_needs}"
+}
+
+@test "self-test.yaml: the tag path requires exactly what the merge gate requires (#1009)" {
+  # release does NOT go through ci-rollup -- ci-rollup is not in its
+  # `needs:` -- so the two rosters are independent lists of the same thing,
+  # and nothing made them agree. coverage-gate was in one and not the
+  # other, which left the coverage floor enforced on PRs and unenforced on
+  # the one path that publishes an artifact.
+  #
+  # Compared as SETS derived from the file: release's transitive closure
+  # against the jobs ci-rollup names. Transitive on the release side
+  # because a skipped or failed need there skips release itself, so a
+  # dependency inherited through another job really is a gate; ci-rollup
+  # needs the direct list for the reason the guard above states.
+  local _merge _tag _status=0
+  _merge="$(yaml_job_needs "${WF}" ci-rollup | sort)" || _status=$?
+  [ "${_status}" -eq 0 ] || fail "${_merge}"
+  _tag="$(_needs_closure release)"
+
+  # Non-vacuity: two empty sets are equal.
+  grep -qxF -- 'coverage-gate' <<<"${_merge}" \
+    || fail "the merge-gate roster did not parse: ${_merge}"
+  grep -qxF -- 'coverage-gate' <<<"${_tag}" \
+    || fail "the tag-path closure did not parse: ${_tag}"
+
+  [ "${_merge}" == "${_tag}" ] || fail "the tag path and the merge gate require different jobs.
+ci-rollup requires:
+${_merge}
+release transitively requires:
+${_tag}"
+}
+
 # ── Fork PRs cannot make the rollup vacuously green ────────────
 
 @test "self-test.yaml: ci-rollup fails a fork PR instead of reporting a partial run as green (#766)" {
