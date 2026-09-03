@@ -332,11 +332,17 @@ yaml_step_id_for() {
 #   edited to be tested is no longer quite the step that runs.
 #
 #   A job, step or `run:` that does not exist yields NOTHING, so a caller's
-#   `[ -n ... ]` guard fails the assertion loudly rather than executing an
-#   empty script and reading its success as the step's.
+#   `[ -s ... ]` guard fails the assertion loudly rather than executing an
+#   empty script and reading its success as the step's. The `run:` half of
+#   that needs the `select` below and does not come free: asked for a key a
+#   step does not carry -- and a `uses:` step carries no `run:` -- yq prints
+#   the literal string `null` at status 0, which passes a `[ -s ... ]` guard
+#   and runs under `bash` as a one-line script whose 127 the caller reads as
+#   the step's own failure.
 yaml_step_run() {
     _yaml_eval "${1}" \
-        ".jobs.\"${2}\".steps[] | select(.id == \"${3}\" or .name == \"${3}\") | .run"
+        ".jobs.\"${2}\".steps[] | select(.id == \"${3}\" or .name == \"${3}\")\
+         | select(.run != null) | .run"
 }
 
 # yaml_run_blocks <file>

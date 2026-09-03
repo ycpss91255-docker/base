@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3554 tests**.
+Unit specs under `test/bats/unit/`: **3558 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3700,7 +3700,7 @@ three tests assert the repo's own published figure, not the generator.
 | `action-ref-agreement: is a member of the lint phase's tool table (#949)` | A lint nobody runs is a comment |
 | `action-ref-agreement: has a lint-static CI join (#949)` | Named plain-runner matrix entry, no docker |
 | `action-ref-agreement: its failure event id is registered (#949)` | An unregistered id is an anonymous exit |
-### test/bats/unit/code_lines_spec.bats (42)
+### test/bats/unit/code_lines_spec.bats (46)
 
 The comment-stripped file views in `test/bats/unit/test_helper.bash`
 (`strip_comments` / `only_comments` / `code_lines` / `code_grep` /
@@ -3774,6 +3774,10 @@ must still arrive as 1.
 | `yaml_step_id_for: an action input named id does not become the step name (#993)` | `id` is an ordinary action input; read as the step's own key it renames the step to a string no `steps.<id>.outputs` reference resolves. A step's own keys sit at the indent its dash set, a `with:` input deeper |
 | `yaml_step_id_for: a match above the job's first step names no step (#993)` | The job keys above `steps:` are outside the region the helper can attribute, so nothing there is answered with an id |
 | `yaml_step_id_for: a match below the steps list names no step (#993)` | The other end of that region: a job key after the steps list ends attribution, so the id of the last step does not follow the scan out |
+| `yaml_step_run: returns the named step's run: script` | The lifted script is the step's own body, folded, so a spec can run what the step runs |
+| `yaml_step_run: names a step by its name: when it has no id:` | A step is only obliged to carry a `name:`; requiring an `id:` would mean editing the workflow to make it testable |
+| `yaml_step_run: a step that carries no run: yields NOTHING, not 'null' (#1013)` | yq answers a missing key with the literal `null` at status 0; passed on, it satisfies the caller's `[ -s ... ]` guard and runs under bash as a one-line script |
+| `yaml_step_run: a step name that matches nothing yields nothing (#1013)` | The other end of the same contract: an unresolvable step name is empty output, which the caller's guard turns into a loud failure |
 ### test/bats/unit/spec_subject_guard_spec.bats (11)
 
 `assert_spec_subject` (test/bats/unit/test_helper.bash), the fail-closed
