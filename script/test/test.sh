@@ -1442,6 +1442,168 @@ _residue_check() {
   return 1
 }
 
+# ── The previous run's residue ───────────────────────────────────────────
+#
+# A compose network that cannot be recreated because a container is still
+# attached to it is a WAIT, not a failure. Left to compose, that condition
+# reaches the operator as the daemon's raw text plus `recipe failed`, with
+# `not_ok=0` the only hint that no test was involved -- so the first thing
+# they do is go looking for a code defect. It cleared on its own about a
+# minute after it was first seen, which is what makes it worth handling:
+# the run knows how to wait, and the operator cannot tell that waiting is
+# all that was needed.
+#
+# So the dispatch asks first. It is one `network ls` and one `inspect` on
+# the happy path, and it turns the whole class into either a wait that
+# says what it waits for or a refusal that names the container and the
+# verb that clears it.
+#
+# OWNERSHIP IS EXACT AND CARRIED BY THE ARTIFACT. The listing filters on
+# BOTH labels: `com.docker.compose.project` must equal the name this run
+# is about to hand compose, and `base.checkout.path` must equal this
+# checkout. Neither is a prefix and neither is an enumeration of what else
+# is on the host -- a network that does not carry both is somebody else's
+# and is never inspected, let alone waited for. A network created before
+# the path label existed carries no proof and is skipped, which costs this
+# run the nicer message and nothing else.
+#
+# A RUNNING CONTAINER IS NOT A WEDGE. Two runs sharing a project's network
+# is the ordinary concurrent case and compose reuses the network happily.
+# Waiting there would be waiting for something that is not leaving, so a
+# running endpoint is reported and stepped over.
+#
+# NOTHING HERE REMOVES ANYTHING. The wait's whole job is to make the
+# condition legible; deleting a container to get past it would be acting
+# on an artifact whose run may still be finishing with it. Removal is the
+# operator's `just test stop`, which is what the refusal names.
+
+# How long to wait for the previous run's container to let go. Not a tuned
+# number: the one observation available says a minute, and the cost of
+# waiting too long is a slow start while the cost of waiting too little is
+# the confusing red this exists to remove. BASE_PROJECT_WAIT overrides it.
+readonly _PROJECT_WAIT_DEFAULT='2m'
+readonly _PROJECT_WAIT_POLL_SECONDS=2
+
+# _await_docker_project_networks <project> <checkout>
+#
+# The ids of the networks that carry BOTH proofs. Ids only: they are hex,
+# so this listing cannot be corrupted by the content of a label.
+_await_docker_project_networks() {
+  local _project="${1:?_await_docker_project_networks requires <project>}"
+  local _checkout="${2:?_await_docker_project_networks requires <checkout>}"
+  docker network ls \
+    --filter "label=${_RECLAIM_PROJECT_LABEL}=${_project}" \
+    --filter "label=${_RECLAIM_CHECKOUT_LABEL}=${_checkout}" \
+    --format '{{.ID}}' 2>/dev/null
+}
+
+# _await_docker_network_endpoints <id>
+#
+# The name of every container attached to that network -- the daemon's own
+# answer to the question that blocks the removal, rather than a model of
+# which container states hold an endpoint. Compose's grammar for a
+# container name excludes a newline, so one name per line is unambiguous.
+_await_docker_network_endpoints() {
+  local _id="${1:?_await_docker_network_endpoints requires <id>}"
+  docker network inspect \
+    --format '{{range $id, $c := .Containers}}{{$c.Name}}{{"\n"}}{{end}}' \
+    "${_id}" 2>/dev/null
+}
+
+# _await_docker_container_state <name> -- `running` / `exited` /
+# `removing` / ..., empty when the container has already gone.
+_await_docker_container_state() {
+  local _name="${1:?_await_docker_container_state requires <name>}"
+  docker inspect --format '{{.State.Status}}' "${_name}" 2>/dev/null
+}
+
+# _await_project_blockers <project> <checkout> <outvar-array>
+#
+# Fills the outvar with `<name> (<state>)` for every attached container
+# that is NOT running -- the previous run's residue, the thing that is on
+# its way out. Returns non-zero when the networks could not be listed at
+# all, which the caller reports and steps over: a failed listing is not
+# evidence that something is attached.
+_await_project_blockers() {
+  local _project="${1:?_await_project_blockers requires <project>}"
+  local _checkout="${2:?_await_project_blockers requires <checkout>}"
+  local -n _apb_out="${3:?_await_project_blockers requires <outvar>}"
+  _apb_out=()
+  local _ids
+  _ids="$(_await_docker_project_networks "${_project}" "${_checkout}")" || return 1
+  local _id _name _state
+  while IFS= read -r _id; do
+    [[ -n "${_id}" ]] || continue
+    while IFS= read -r _name; do
+      [[ -n "${_name}" ]] || continue
+      _state="$(_await_docker_container_state "${_name}")"
+      # An empty state is a container that vanished between the two reads:
+      # gone is exactly what we were waiting for.
+      [[ -n "${_state}" ]] || continue
+      [[ "${_state}" == running ]] && continue
+      _apb_out+=("${_name} (${_state})")
+    done < <(_await_docker_network_endpoints "${_id}")
+  done <<< "${_ids}"
+  return 0
+}
+
+# _await_project_quiescent <project> <checkout> [window]
+#
+# 0 when nothing of this checkout's project is holding its network, or
+# when what was holding it let go inside the window. Non-zero -- naming
+# every container still attached, its state, and `just test stop` -- when
+# it did not.
+_await_project_quiescent() {
+  local _project="${1:?_await_project_quiescent requires <project>}"
+  local _checkout="${2:?_await_project_quiescent requires <checkout>}"
+  local _window="${3:-${BASE_PROJECT_WAIT:-${_PROJECT_WAIT_DEFAULT}}}"
+
+  # A malformed window is named and replaced by the default rather than
+  # refused. This function exists to turn one confusing red into a legible
+  # one; declining to start the suite over a typo in a duration string
+  # would just be a different confusing red.
+  local _window_s
+  if ! _window_s="$(_reclaim_duration_seconds "${_window}")"; then
+    _log_warn ci ci_project_bad_wait \
+      "display=not a duration: ${_window} (expected <N>s / <N>m / <N>h / <N>d); waiting the default ${_PROJECT_WAIT_DEFAULT} instead." \
+      "window=${_window}"
+    _window_s="$(_reclaim_duration_seconds "${_PROJECT_WAIT_DEFAULT}")"
+  fi
+
+  local -a _blockers=()
+  if ! _await_project_blockers "${_project}" "${_checkout}" _blockers; then
+    _log_warn ci ci_project_wait_unreadable \
+      "display=could not list the networks of project ${_project}; starting anyway (a failed listing is not evidence that a container is still attached)." \
+      "project=${_project}"
+    return 0
+  fi
+  if (( ${#_blockers[@]} == 0 )); then
+    return 0
+  fi
+
+  local _deadline=$(( $(date +%s) + _window_s ))
+  _log_info ci ci_project_wait \
+    "display=waiting up to ${_window} for the previous run to let go of project ${_project}: ${_blockers[*]}. Nothing is being removed -- these are containers on their way out, and the network cannot be recreated until they are." \
+    "project=${_project}" "window=${_window}" "blocked_by=${_blockers[*]}"
+
+  while (( $(date +%s) < _deadline )); do
+    sleep "${_PROJECT_WAIT_POLL_SECONDS}"
+    _blockers=()
+    _await_project_blockers "${_project}" "${_checkout}" _blockers || return 0
+    if (( ${#_blockers[@]} == 0 )); then
+      _log_info ci ci_project_ready \
+        "display=project ${_project} is clear; starting the suite." \
+        "project=${_project}"
+      return 0
+    fi
+  done
+
+  _log_err ci ci_project_wedged \
+    "display=project ${_project} is still held after ${_window} by: ${_blockers[*]}. The suite never started, so no test ran and none failed: this is the previous run's container, not a defect in this one. Clear it with 'just test stop', then run again." \
+    "project=${_project}" "window=${_window}" "blocked_by=${_blockers[*]}"
+  return 1
+}
+
 # ── Docker compose wrapper ───────────────────────────────────────────────────
 
 _run_via_compose() {
@@ -1519,6 +1681,11 @@ _run_via_compose() {
   # substitution inline in an argument would not abort the command).
   local _image
   _image="$(_resolve_test_tools_image)"
+  # Ask whether the previous run has let go of this project's network
+  # before asking compose to use it. ABOVE the arm, because a refusal here
+  # mints nothing: the project it names already exists, and a sweep for
+  # dead checkouts has nothing to say about a checkout that is right here.
+  _await_project_quiescent "${_project}" "${REPO_ROOT}" || return 1
   # Arm the end-of-run reclaim. BELOW everything that can still refuse the
   # dispatch and ABOVE the first compose call, because those are the two
   # things arming has to separate. A run that dies mid-compose is exactly

@@ -135,6 +135,13 @@ reclaim_tool_tag_rm_failed
 stop_reclaim_failed
 ci_reclaim_failed
 
+# script/test/test.sh - the previous run's residue on this project
+ci_project_bad_wait
+ci_project_wait_unreadable
+ci_project_wait
+ci_project_ready
+ci_project_wedged
+
 # hook.sh
 hook_not_executable
 
