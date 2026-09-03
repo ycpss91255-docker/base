@@ -993,20 +993,24 @@ _stage_lint_layout() {
   assert_success
 }
 
-@test "Dockerfile.example copies logging.sh to /usr/local/lib/base/ in devel stage (#368)" {
-  # PR documented the source-line example as
+@test "Dockerfile.example copies the runtime helper dir into /usr/local/lib/base/ in devel stage (#971)" {
+  # PR#368 documented the source-line example as
   # `. /home/${USER}/work/.base/dist/script/docker/runtime/logging.sh`,
   # which has two failure modes that broke every v0.30.0 adopter:
   # (1) $USER is unset/empty in the Dockerfile test stage, crashing
   # `set -u` entrypoints; (2) on multi-repo workspaces WS_PATH is the
   # workspace parent, not the repo root, so .base/ is never at the
-  # documented path. Path A: COPY the helper into a stable in-image
-  # location so downstream entrypoints can source it unconditionally
+  # documented path. Path A: COPY the helpers into a stable in-image
+  # location so downstream entrypoints can source them unconditionally
   # without $USER deref or path arithmetic.
+  #
+  # ONE directory COPY, not one per helper: the per-file list could fall
+  # out of agreement with what base ships, and closing that gap meant a
+  # migration per added helper. The directory IS the list.
   local _df="/source/dist/dockerfile/Dockerfile"
   assert_spec_subject "${_df}" \
       "the shipped template Dockerfile this spec pins"
-  run grep -F 'COPY --chmod=0755 .base/dist/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh' "${_df}"
+  run grep -F 'COPY --chmod=0755 .base/dist/script/docker/runtime/ /usr/local/lib/base/' "${_df}"
   assert_success
   # COPY must sit in devel stage (between `FROM ... AS devel` and the
   # devel-test FROM line); a placement inside the commented runtime
@@ -1014,15 +1018,61 @@ _stage_lint_layout() {
   local _devel_line _test_line _copy_line
   _devel_line="$(grep -nE '^FROM devel-base AS devel$' "${_df}" | head -1 | cut -d: -f1)"
   _test_line="$(grep -nE '^FROM \$\{TEST_TOOLS_IMAGE\} AS test-tools-stage' "${_df}" | head -1 | cut -d: -f1)"
-  _copy_line="$(grep -nF 'COPY --chmod=0755 .base/dist/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh' "${_df}" | head -1 | cut -d: -f1)"
+  _copy_line="$(grep -nF 'COPY --chmod=0755 .base/dist/script/docker/runtime/ /usr/local/lib/base/' "${_df}" | head -1 | cut -d: -f1)"
   [[ -n "${_devel_line}" && -n "${_test_line}" && -n "${_copy_line}" ]]
   (( _devel_line < _copy_line ))
   (( _copy_line < _test_line ))
 }
 
-@test "Dockerfile.example commented runtime stage shows logging.sh COPY example (#368)" {
+@test "nothing in dist/script/docker/runtime/ has a destiny other than the helper dir (#971)" {
+  # The acceptance property behind the single directory COPY: the COPY is
+  # correct only while every file in that directory belongs in
+  # /usr/local/lib/base/. A file with a SECOND destiny -- seeded into a
+  # consumer by init.sh, or installed somewhere else by a Dockerfile -- is
+  # carried into every image by the sweep, which is what put entrypoint.sh
+  # and smoke.sh outside the directory.
+  #
+  # The population is DERIVED from the directory, never a list written
+  # here: a helper added tomorrow is checked the moment it lands, with no
+  # edit to this spec. Non-emptiness is asserted first so a directory that
+  # moves fails loudly instead of passing with nothing to walk.
+  local _rt="/source/dist/script/docker/runtime"
+  assert_spec_subject_dir "${_rt}" \
+      "the shipped runtime helper directory this spec pins"
+  local _df="/source/dist/dockerfile/Dockerfile"
+  local _smoke="/source/dockerfile/Dockerfile.smoke"
+  local _init="/source/dist/script/base/init.sh"
+  assert_spec_subject "${_df}" "the shipped template Dockerfile"
+  assert_spec_subject "${_smoke}" "base's own smoke harness Dockerfile"
+  assert_spec_subject "${_init}" "the new-repo seeding script"
+
+  local -a _files=()
+  local _f
+  while IFS= read -r _f; do
+    _files+=("$(basename -- "${_f}")")
+  done < <(find "${_rt}" -maxdepth 1 -type f | sort)
+  (( ${#_files[@]} >= 3 )) \
+    || fail "expected the runtime helper dir to ship helpers; found ${#_files[@]}"
+
+  local _name
+  for _name in "${_files[@]}"; do
+    # No per-file COPY, active or commented: the directory is the list.
+    if grep -qE "^[[:space:]]*#?[[:space:]]*COPY[^#]*script/docker/runtime/${_name}([[:space:]]|$)" \
+        "${_df}" "${_smoke}"; then
+      fail "a shipped Dockerfile still COPYs runtime/${_name} individually -- the directory COPY already delivers it (#971)"
+    fi
+    # No second destiny outside an image: init.sh seeds template
+    # artifacts into a consumer repo, and a helper it seeds is not a
+    # helper, it is a template.
+    if grep -q "script/docker/runtime/${_name}" "${_init}"; then
+      fail "init.sh seeds runtime/${_name} into a consumer -- it belongs next to the other seeded templates, not in the helper dir (#971)"
+    fi
+  done
+}
+
+@test "Dockerfile.example commented runtime stage shows the helper-dir COPY example (#971)" {
   # The optional runtime stage starts from a fresh BASE_IMAGE, not
-  # FROM devel, so the helper is NOT inherited. Repos that ship a
+  # FROM devel, so the helpers are NOT inherited. Repos that ship a
   # runtime image and want host-side log tee must opt in via a
   # second COPY in the runtime stage. The commented-out scaffold
   # documents it so downstream maintainers see the requirement at
@@ -1034,7 +1084,7 @@ _stage_lint_layout() {
   # accidentally activate in repos that haven't enabled the runtime
   # stage. Either inside the runtime-base/runtime block or the
   # documentation block above it.
-  run grep -E '^# COPY --chmod=0755 \.base/dist/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh' "${_df}"
+  run grep -E '^# COPY --chmod=0755 \.base/dist/script/docker/runtime/ /usr/local/lib/base/$' "${_df}"
   assert_success
 }
 
@@ -1059,57 +1109,11 @@ _stage_lint_layout() {
   assert_failure
 }
 
-@test "Dockerfile.example copies logrotate.sh to /usr/local/lib/base/ in devel stage (#805)" {
-  # runtime/logging.sh sources its sibling logrotate.sh from the same
-  # in-image dir, so the shared rotate/symlink/prune helper must be COPY'd
-  # alongside logging.sh (same devel-stage window) or the container tee
-  # degrades to no rotation/prune.
-  local _df="/source/dist/dockerfile/Dockerfile"
-  assert_spec_subject "${_df}" \
-      "the shipped template Dockerfile this spec pins"
-  run grep -F 'COPY --chmod=0755 .base/dist/script/docker/runtime/logrotate.sh /usr/local/lib/base/logrotate.sh' "${_df}"
-  assert_success
-  local _devel_line _test_line _copy_line
-  _devel_line="$(grep -nE '^FROM devel-base AS devel$' "${_df}" | head -1 | cut -d: -f1)"
-  _test_line="$(grep -nE '^FROM \$\{TEST_TOOLS_IMAGE\} AS test-tools-stage' "${_df}" | head -1 | cut -d: -f1)"
-  _copy_line="$(grep -nF 'COPY --chmod=0755 .base/dist/script/docker/runtime/logrotate.sh /usr/local/lib/base/logrotate.sh' "${_df}" | head -1 | cut -d: -f1)"
-  [[ -n "${_devel_line}" && -n "${_test_line}" && -n "${_copy_line}" ]]
-  (( _devel_line < _copy_line ))
-  (( _copy_line < _test_line ))
-}
-
-@test "Dockerfile.example copies watchdog.sh to /usr/local/lib/base/ in devel stage (#797)" {
-  # The generic watchdog ships runtime/watchdog.sh, sourced from the
-  # repo entrypoint alongside logging.sh. It must be COPY'd into the same
-  # in-image dir (devel stage, before devel-test) so the source line
-  # resolves at build + run time.
-  local _df="/source/dist/dockerfile/Dockerfile"
-  assert_spec_subject "${_df}" \
-      "the shipped template Dockerfile this spec pins"
-  run grep -F 'COPY --chmod=0755 .base/dist/script/docker/runtime/watchdog.sh /usr/local/lib/base/watchdog.sh' "${_df}"
-  assert_success
-  local _devel_line _test_line _copy_line
-  _devel_line="$(grep -nE '^FROM devel-base AS devel$' "${_df}" | head -1 | cut -d: -f1)"
-  _test_line="$(grep -nE '^FROM \$\{TEST_TOOLS_IMAGE\} AS test-tools-stage' "${_df}" | head -1 | cut -d: -f1)"
-  _copy_line="$(grep -nF 'COPY --chmod=0755 .base/dist/script/docker/runtime/watchdog.sh /usr/local/lib/base/watchdog.sh' "${_df}" | head -1 | cut -d: -f1)"
-  [[ -n "${_devel_line}" && -n "${_test_line}" && -n "${_copy_line}" ]]
-  (( _devel_line < _copy_line ))
-  (( _copy_line < _test_line ))
-}
-
-@test "Dockerfile.example commented runtime stage shows watchdog.sh COPY example (#797)" {
-  local _df="/source/dist/dockerfile/Dockerfile"
-  assert_spec_subject "${_df}" \
-      "the shipped template Dockerfile this spec pins"
-  run grep -E '^# COPY --chmod=0755 \.base/dist/script/docker/runtime/watchdog.sh /usr/local/lib/base/watchdog.sh' "${_df}"
-  assert_success
-}
-
-@test "runtime/entrypoint.sh sources the watchdog helper after logging (#797)" {
+@test "dockerfile/entrypoint.sh sources the watchdog helper after logging (#797)" {
   # The template entrypoint sources logging.sh then watchdog.sh; both are
   # no-ops when their feature is off, so the source lines are safe. Order
   # matters: watchdog logs should ride the logging tee.
-  local _ep="/source/dist/script/docker/runtime/entrypoint.sh"
+  local _ep="/source/dist/dockerfile/entrypoint.sh"
   run grep -F '. /usr/local/lib/base/watchdog.sh' "${_ep}"
   assert_success
   local _log_line _wd_line
@@ -1119,23 +1123,23 @@ _stage_lint_layout() {
   (( _log_line < _wd_line ))
 }
 
-@test "runtime/entrypoint.sh guards both lib sources with a readability test (#842)" {
+@test "dockerfile/entrypoint.sh guards both lib sources with a readability test (#842)" {
   # The runtime stage's logging/watchdog COPYs are opt-in and init.sh seeds
   # this entrypoint verbatim into every repo, so an image that skipped them
   # must not source a missing file on every start. Same `[[ -r ]]` shape the
   # libs already use for their own sibling logrotate.sh source.
-  local _ep="/source/dist/script/docker/runtime/entrypoint.sh"
+  local _ep="/source/dist/dockerfile/entrypoint.sh"
   run grep -F 'if [[ -r /usr/local/lib/base/logging.sh ]]; then' "${_ep}"
   assert_success
   run grep -F 'if [[ -r /usr/local/lib/base/watchdog.sh ]]; then' "${_ep}"
   assert_success
 }
 
-@test "runtime/entrypoint.sh execs cleanly under set -euo pipefail with the libs absent (#842)" {
+@test "dockerfile/entrypoint.sh execs cleanly under set -euo pipefail with the libs absent (#842)" {
   # The observable half of the guard: with neither helper installed the
   # entrypoint must still reach `exec` -- no missing-file stderr, and no
   # abort for a consumer running the documented strict-mode entrypoint.
-  local _ep="/source/dist/script/docker/runtime/entrypoint.sh"
+  local _ep="/source/dist/dockerfile/entrypoint.sh"
   if [[ -e /usr/local/lib/base/logging.sh || -e /usr/local/lib/base/watchdog.sh ]]; then
     skip "runtime libs installed in this image -- absent-lib path not observable"
   fi
@@ -1144,17 +1148,6 @@ _stage_lint_layout() {
   assert_success
   assert_output "ok"
   assert_equal "$(cat "${_err}")" ""
-}
-
-@test "Dockerfile.example commented runtime stage shows logrotate.sh COPY example (#805)" {
-  # The optional runtime stage is a fresh BASE_IMAGE (no devel inherit), so
-  # a repo enabling host-side log tee there must COPY BOTH logging.sh and
-  # its logrotate.sh sibling; the commented scaffold documents both.
-  local _df="/source/dist/dockerfile/Dockerfile"
-  assert_spec_subject "${_df}" \
-      "the shipped template Dockerfile this spec pins"
-  run grep -E '^# COPY --chmod=0755 \.base/dist/script/docker/runtime/logrotate.sh /usr/local/lib/base/logrotate.sh' "${_df}"
-  assert_success
 }
 
 @test "no inline _detect_lang fallbacks remain after dedupe (issue #104)" {

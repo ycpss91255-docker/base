@@ -83,6 +83,7 @@ tool therefore needs its own join to `.github/workflows/self-test.yaml`:
 | `hadolint` | Dockerfile static analysis | `hadolint` (`--lint --hadolint`, in the test-tools image) | `code_changed` |
 | `issueref` | no transient `#NNN` in code comments (ADR-00000013) | `lint-static (issueref)` | ungated |
 | `adr-numbering` | `doc/adr/` duplicate-free + well-formed | `lint-static (adr-numbering)` | ungated |
+| `adr-structure` | every ADR carries its `> Serves:` back-pointer, `## Context` / `## Decision` / `## Consequences` / `## Alternatives`, and a Status of exactly `Accepted`, `Rejected` or `Superseded by ADR-NNNNNNNN` -- each of them EXACTLY ONCE, at column 0, which is what lets the lint check an ADR without deciding which of its lines are code. A second occurrence is a file that does not say which one is the record and is reported; an illustrated line is indented out of column 0, an amendment's copy demoted to `###`. The one shape a count cannot catch -- a part BOTH omitted AND present at column 0 somewhere that is not the record (a fenced illustration, a commented-out draft) -- PASSES; that fail-open is wider than the fence parser it replaces, and it is named with its direction in the driver header and pinned by a spec. A scan that examined zero ADRs refuses rather than passes | `lint-static (adr-structure)` | ungated |
 | `stale-setup-conf` | no legacy `config/docker/setup.conf` under `dist/` | `lint-static (stale-setup-conf)` | ungated |
 | `readme-sync` | localized READMEs still match `README.md` | `lint-static (readme-sync)` | ungated |
 | `doc-counts` | the figures / catalog rows below | `doc-counts` (`--doc-counts-only`) | ungated |
@@ -96,8 +97,8 @@ tool therefore needs its own join to `.github/workflows/self-test.yaml`:
 | `changelog-entry` | no `[Unreleased]` changelog entry over 700 chars (measured whitespace-collapsed over the whole entry), no entry repeating another's lead bullet, no `### <category>` heading opening twice in one release block | `lint-static (changelog-entry)` | ungated |
 
 `lint-static` is a matrix so a red check names the lint that failed, and it is
-ungated because two of its entries (`adr-numbering`, `readme-sync`) are
-breakable by a change `classify` scores as doc-only -- a `code_changed` gate
+ungated because several of its entries (`adr-numbering`, `adr-structure`,
+`readme-sync`) are breakable by a change `classify` scores as doc-only -- a `code_changed` gate
 would skip them on exactly the PR they exist to catch. Every entry but
 `hadolint` runs host-direct on a plain runner via `test.sh --<tool>-only`; the
 hadolint binary exists only in the test-tools image, so it keeps its own job.

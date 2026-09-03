@@ -19,6 +19,13 @@ _run_shellcheck() {
   find "${REPO_ROOT}/dist/script/docker/wrapper" -name "*.sh" -print0 | xargs -0 shellcheck -x
   find "${REPO_ROOT}/dist/script/docker/lib" -name "*.sh" -print0 | xargs -0 shellcheck -x
   find "${REPO_ROOT}/dist/script/docker/runtime" -name "*.sh" -print0 | xargs -0 shellcheck -x
+  # The two shipped scripts that are NOT under script/: the seeded
+  # entrypoint template next to the Dockerfile it is seeded with, and the
+  # runtime-test install-check helper in the shipped smoke tree. Named
+  # explicitly because both directories otherwise hold no *.sh, so a find
+  # root would be a directory this pass walks for one file.
+  shellcheck -x "${REPO_ROOT}/dist/dockerfile/entrypoint.sh"
+  shellcheck -x "${REPO_ROOT}/dist/test/bats/smoke/smoke.sh"
   find "${REPO_ROOT}/dist/script/template" -name "*.sh" -print0 | xargs -0 shellcheck -x
   find "${REPO_ROOT}/dist/script/base" -name "*.sh" -print0 | xargs -0 shellcheck -x
 

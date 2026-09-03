@@ -250,7 +250,7 @@ _HARNESS_EXEMPT_SRCS=(
   # (COPY --chmod=0755 "./${ENTRYPOINT_FILE}" "/entrypoint.sh"), which the
   # harness does not inherit -- so it installs the same shipped script
   # itself, from the path init.sh seeds a consumer's copy from.
-  run grep -nE '^COPY --chmod=0755 dist/script/docker/runtime/entrypoint\.sh /entrypoint\.sh$' \
+  run grep -nE '^COPY --chmod=0755 dist/dockerfile/entrypoint\.sh /entrypoint\.sh$' \
     "${HARNESS_DOCKERFILE}"
   assert_success
 }

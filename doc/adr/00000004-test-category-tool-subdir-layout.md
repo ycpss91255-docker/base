@@ -4,9 +4,10 @@
 > by ADR-00000012 (tool-first).
 
 - **Date:** 2026-06-05
-- **Status:** Superseded by ADR-00000012 (2026-06-23)
+- **Status:** Superseded by ADR-00000012
 
-> **Superseded.** The category-first layout decided here was reversed to
+> **Superseded (2026-06-23, ADR-00000012).** The category-first layout
+> decided here was reversed to
 > **tool-first** (`test/<tool>/<category>/`) in ADR-00000012, to align the
 > test tree with the per-tool driver model introduced by ADR-00000011 §5.
 > The context and trade-offs below remain accurate; only the chosen

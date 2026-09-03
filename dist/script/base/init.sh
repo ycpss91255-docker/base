@@ -351,7 +351,7 @@ _create_new_repo() {
 
   # script/entrypoint.sh
   mkdir -p script
-  cp "${TEMPLATE_DIR}/dist/script/docker/runtime/entrypoint.sh" script/entrypoint.sh
+  cp "${TEMPLATE_DIR}/dist/dockerfile/entrypoint.sh" script/entrypoint.sh
   chmod +x script/entrypoint.sh
   _log "  Created script/entrypoint.sh"
 

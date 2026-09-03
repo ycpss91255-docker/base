@@ -546,7 +546,7 @@ call-release: contents: write'
   bash .base/dist/script/base/init.sh
   local _df="${REPO_DIR}/Dockerfile"
   assert [ -f "${_df}" ]
-  run code_grep -F 'COPY --chmod=0755 .base/dist/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh' "${_df}"
+  run code_grep -F 'COPY --chmod=0755 .base/dist/script/docker/runtime/ /usr/local/lib/base/' "${_df}"
   assert_success
 }
 

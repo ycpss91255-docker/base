@@ -147,6 +147,18 @@ umbrella needed qualifying.
      default), the watchdog's restart-service action (#797, restart the
      whole container is the default), and the restart policy (#478).
 
+     **Amendment (#994, 2026-09-03):** "OFF / the Docker-native no-op"
+     conflates two things that are usually the same and are not always.
+     What OFF means is the **no-op** — the behavior an unconfigured
+     container already had before the knob existed. That is Docker's own
+     behavior wherever `base` had not already intervened, which is why
+     the phrase held for the watchdog and the restart policy. It does not
+     hold for the network instance listed here: `host` is `base`'s
+     pre-existing default, where an unconfigured `docker run` gives
+     `bridge`, and ADR-00000019 kept `host` on PRD invariant 4 grounds.
+     The no-op is the rule; Docker-native is what it usually coincides
+     with. See PRD invariant 5.
+
   The double condition — *transparent to correct workloads* AND *absence
   is a footgun* — is what prevents an "everything defaults ON" slippery
   slope: an unset knob is a no-op only where the capability is genuinely
