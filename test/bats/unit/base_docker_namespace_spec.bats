@@ -187,6 +187,10 @@ _base_shaped_checkout() {
   assert [ ! -e "${_dir}/.env.generated" ]
 }
 
+# why: the load-bearing one: base never writes an interpolation cache, so a stop
+# that requires one is a flow `just docker build` can start and no verb can
+# end. Behavioural, because only running it shows the wrapper reaching
+# compose.
 @test "just docker stop ends the project in a checkout with no .env.generated (#1015)" {
   local _tmp
   _tmp="$(mktemp -d)"
@@ -197,6 +201,9 @@ _base_shaped_checkout() {
   assert_output --regexp '\[dry-run\] docker compose -p [a-zA-Z0-9._-]+ .* down'
 }
 
+# why: exec carried the same unconditional source as stop, so the whole
+# build -> run -> exec -> stop flow was dead in a self-managed checkout, not
+# just its last verb.
 @test "just docker exec reaches compose in a checkout with no .env.generated (#1015)" {
   local _tmp
   _tmp="$(mktemp -d)"
@@ -208,6 +215,8 @@ _base_shaped_checkout() {
   refute_output --partial "No such file or directory"
 }
 
+# why: the third wrapper with the same defect. Fixing only the verb named in the
+# report would have left the flow it belongs to still broken.
 @test "just docker run reaches compose in a checkout with no .env.generated (#1015)" {
   local _tmp
   _tmp="$(mktemp -d)"

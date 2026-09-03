@@ -118,6 +118,8 @@ _await() {
   " 2>&1
 }
 
+# why: the ordinary case, and the one the cost lands on: every run pays this
+# check, so it must not wait when there is nothing to wait for.
 @test "a project with nothing attached to its network is ready at once" {
   printf 'net1\n' > "${DOCKER_STUB_DIR}/net_ls"
   : > "${DOCKER_STUB_DIR}/endpoints.net1"
@@ -126,6 +128,8 @@ _await() {
   refute_output --partial "waiting"
 }
 
+# why: a first run on a fresh checkout has no artifacts, and must not be delayed
+# by a mechanism built for a second one.
 @test "a project with no network of its own at all is ready at once" {
   : > "${DOCKER_STUB_DIR}/net_ls"
   _await
@@ -133,6 +137,8 @@ _await() {
   refute_output --partial "waiting"
 }
 
+# why: ownership is exact and carried by the artifact. A prefix or a bare project
+# filter would let another checkout's run block this one.
 @test "the listing is filtered by both labels, so only this checkout's project is looked at" {
   printf 'net1\n' > "${DOCKER_STUB_DIR}/net_ls"
   : > "${DOCKER_STUB_DIR}/endpoints.net1"
@@ -143,6 +149,8 @@ _await() {
   assert_output --partial "base.checkout.path=${CHECKOUT}"
 }
 
+# why: the load-bearing one. The wait is worthless if it is silent: the reader
+# must be able to tell waiting from hanging.
 @test "a container still detaching is waited for, and the wait says what it waits for" {
   printf 'net1\n' > "${DOCKER_STUB_DIR}/net_ls"
   printf '%s-ci-run-7f94f773082d\n' "${PROJECT}" > "${DOCKER_STUB_DIR}/endpoints.net1"
@@ -154,6 +162,8 @@ _await() {
   assert_output --partial "removing"
 }
 
+# why: the bounded half. Waiting forever trades a confusing red for a hang, so
+# the timeout has to produce an answer the operator can act on.
 @test "a container that never detaches fails naming it and the verb that clears it" {
   printf 'net1\n' > "${DOCKER_STUB_DIR}/net_ls"
   printf '%s-ci-run-stuck\n' "${PROJECT}" > "${DOCKER_STUB_DIR}/endpoints.net1"
@@ -170,6 +180,9 @@ _await() {
   assert_output --partial "just test stop"
 }
 
+# why: the whole reason the issue was filed: the old failure reported rc=1 with
+# not_ok=0, and the reader's first move was to look for a code defect that
+# was not there.
 @test "the wedged run says no test failed, so the reader stops hunting for one" {
   printf 'net1\n' > "${DOCKER_STUB_DIR}/net_ls"
   printf '%s-ci-run-stuck\n' "${PROJECT}" > "${DOCKER_STUB_DIR}/endpoints.net1"
@@ -185,6 +198,8 @@ _await() {
   assert_output --partial "no test ran"
 }
 
+# why: compose reuses a live network happily. Waiting here would be waiting for
+# something that is not leaving.
 @test "a running container is a concurrent run, not a wedge" {
   printf 'net1\n' > "${DOCKER_STUB_DIR}/net_ls"
   printf '%s-ci-run-live\n' "${PROJECT}" > "${DOCKER_STUB_DIR}/endpoints.net1"
@@ -194,6 +209,8 @@ _await() {
   refute_output --partial "waiting"
 }
 
+# why: a failed listing cannot say a container is attached, and refusing to start
+# the suite over it would be a worse red than the one this replaces.
 @test "an unreadable docker is not evidence of a wedge" {
   : > "${DOCKER_STUB_DIR}/fail_net_ls"
   _await
@@ -201,6 +218,8 @@ _await() {
   assert_output --partial "could not"
 }
 
+# why: declining to run the suite over a typo in a duration string would just be
+# a different confusing red.
 @test "a malformed wait window is named and the default is used, not the run refused" {
   printf 'net1\n' > "${DOCKER_STUB_DIR}/net_ls"
   : > "${DOCKER_STUB_DIR}/endpoints.net1"
@@ -217,6 +236,8 @@ _await() {
 
 # ── the wiring: the question is asked before compose is asked ─────────────
 
+# why: reaching compose anyway would emit the daemon's raw text again, which is
+# the defect. Behaviour, not line order.
 @test "a wedged project stops the dispatch before compose is called" {
   # Behaviour, not line order: with the wait refusing, _run_via_compose
   # must return non-zero having driven no compose command at all. A run
@@ -240,6 +261,8 @@ _await() {
   refute_output --partial "compose"
 }
 
+# why: the pair to the case above: a guard that blocked the ordinary run would be
+# caught here rather than by every developer.
 @test "a quiescent project lets the dispatch through" {
   run bash -c "
     export PATH='${BIN_DIR}:'\"\${PATH}\"
@@ -273,6 +296,8 @@ _await() {
 # The flag is how they ask, so that the question has ONE implementation
 # rather than a copy of the poll loop in each recipe body.
 
+# why: it is a query, like --compose-project-name: the recipes that call it must
+# not have it mint anything.
 @test "test.sh --await-project answers for this checkout and exits" {
   printf 'net1\n' > "${DOCKER_STUB_DIR}/net_ls"
   : > "${DOCKER_STUB_DIR}/endpoints.net1"
@@ -280,6 +305,8 @@ _await() {
   assert_success
 }
 
+# why: the flag is only worth having if its verdict reaches the caller; a query
+# that always exits 0 would let system and smoke run into the wedge.
 @test "test.sh --await-project refuses when the project is still held" {
   printf 'net1\n' > "${DOCKER_STUB_DIR}/net_ls"
   printf 'someproject-ci-run-stuck\n' > "${DOCKER_STUB_DIR}/endpoints.net1"
@@ -291,6 +318,8 @@ _await() {
   assert_output --partial "just test stop"
 }
 
+# why: neither goes through the dispatcher, so neither inherits the question.
+# They are the flows most likely to leave a container behind.
 @test "system and smoke both ask before they build" {
   run grep -cF -- './script/test/test.sh --await-project' /source/script/test/justfile.test
   assert_output "2"

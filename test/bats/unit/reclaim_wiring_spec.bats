@@ -340,6 +340,8 @@ STUB
   chmod +x "${_dir}/script/test/test.sh"
 }
 
+# why: the verb the issue asked for. Run for real, because a recipe is a seam and
+# a grep cannot tell a working seam from a broken one.
 @test "just test stop ends this checkout's self-test project" {
   command -v just >/dev/null 2>&1 \
     || skip "this test-tools image has no just (older pinned TEST_TOOLS_IMAGE)"
@@ -354,6 +356,8 @@ STUB
   assert_output --partial "project=base-onlyproducer"
 }
 
+# why: two derivations that agree today drift tomorrow, and a stop pointed at the
+# wrong project silently tears down nothing.
 @test "just test stop asks the single producer for the name instead of deriving a second" {
   command -v just >/dev/null 2>&1 \
     || skip "this test-tools image has no just (older pinned TEST_TOOLS_IMAGE)"
@@ -370,6 +374,8 @@ STUB
   refute_output --regexp 'project=base-[0-9a-f]{12}( |$)'
 }
 
+# why: -v and --dry-run are how an operator inspects a teardown before trusting
+# it; a recipe that swallowed them would make the verb unusable for that.
 @test "just test stop forwards its arguments to the wrapper" {
   command -v just >/dev/null 2>&1 \
     || skip "this test-tools image has no just (older pinned TEST_TOOLS_IMAGE)"
@@ -384,6 +390,9 @@ STUB
   assert_output --partial "args=-v --dry-run"
 }
 
+# why: compose interpolates the whole file for `down` too, so a stop missing one
+# `${VAR:?}` dies naming four services and tears nothing down. --dry-run
+# cannot see it, which is how it shipped once.
 @test "just test stop hands compose every value compose.yaml demands" {
   # compose interpolates the WHOLE file for any command, `down` included,
   # and base's compose.yaml takes TEST_TOOLS_IMAGE with `:?` and no
@@ -415,6 +424,8 @@ STUB
 # `test-tools:<12hex>` by name. Stamping the same label the network carries
 # is what lets the same sweep collect it on the same proof.
 
+# why: the producer side of the image rule: a collector can only read back what
+# something recorded, so an unstamped image is uncollectable forever.
 @test "compose.yaml records the checkout path on the image it builds" {
   run grep -nE '^ +base\.checkout\.path: ' "${COMPOSE}"
   assert_success
@@ -424,11 +435,16 @@ STUB
   assert_output "2"
 }
 
+# why: a default would create artifacts nobody can attribute, and the failure has
+# to land on the invocation that would create them.
 @test "the image stamp is refused rather than defaulted, like every other" {
   run bash -c "grep -A4 -E '^ {6}labels:' '${COMPOSE}' | grep -E 'base\.checkout\.path: \\\$\\{BASE_CHECKOUT_PATH:\\?'"
   assert_success
 }
 
+# why: one image serves every checkout whose inputs hash alike, so a checkout
+# label there would name its builder and collecting on it would delete an
+# image live checkouts still resolve.
 @test "the tooling image is NOT stamped, because it is shared on purpose" {
   # test-tools is content-hash tagged so ONE image serves every checkout
   # whose tooling inputs hash alike. A checkout-path label there would name
@@ -534,6 +550,9 @@ _answers_for_it() {
   _recipe_part "${1}" "${2}" doc | grep -qE '^# lifecycle:'
 }
 
+# why: the anti-decay mechanism. Every other assertion in this file names verbs
+# by hand and so answers only for the recipes that existed when it was
+# written -- which is the failure the issue is about.
 @test "every recipe that reaches docker states its lifecycle" {
   local _f _name _missing=""
   while IFS= read -r _f; do
@@ -549,6 +568,8 @@ _answers_for_it() {
     || fail "these recipes reach docker and neither reclaim nor carry a '# lifecycle:' note saying why not: ${_missing}"
 }
 
+# why: a parser that quietly matched nothing would make the check above pass for
+# every tree, which is how a derived population fails.
 @test "the derived population is not empty, and reaches both namespaces" {
   # A parser that silently matched nothing would make the test above pass
   # for every tree, which is the failure mode of every derived population.

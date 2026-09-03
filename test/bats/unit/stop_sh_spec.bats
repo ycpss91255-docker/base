@@ -366,6 +366,8 @@ HOOK
 # PROJECT_NAME, _compute_project_name derives the same `local-<basename>`
 # the build used, so stop ends exactly the project build created.
 
+# why: the defect in its smallest form: the wrapper died on a missing file before
+# it reached compose at all.
 @test "stop.sh ends the project when the checkout has no .env.generated (#1015)" {
   rm -f "${SANDBOX}/.env.generated"
   run bash "${SANDBOX}/stop.sh" --dry-run
@@ -374,6 +376,8 @@ HOOK
   refute_output --partial "No such file or directory"
 }
 
+# why: the seam `just test stop` uses -- the caller that already knows the name
+# hands it over, so no second derivation exists to drift.
 @test "stop.sh honours an ambient PROJECT_NAME with no .env.generated to read (#1015)" {
   # The seam `just test stop` uses: base's self-test project name is
   # derived from the checkout PATH, not from a consumer's env cache, so the

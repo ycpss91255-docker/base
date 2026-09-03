@@ -647,6 +647,8 @@ _tag() {
 # artifact where nothing is shared, and the rule stays out of the tooling
 # image's way by only ever looking at what carries the label.
 
+# why: the case the whole image rule exists for: 275MB per dead checkout that ran
+# `just test smoke`, which no verb could reclaim before.
 @test "an image whose checkout is gone is retired" {
   _img "base-deadbeef1234-smoke:latest" "${TEMP_DIR}/gone" 86400 > "${DOCKER_STATE}"
   _reclaim
@@ -655,6 +657,8 @@ _tag() {
   assert_output --partial "image base-deadbeef1234-smoke:latest"
 }
 
+# why: the sparing side. A rule that collected a live checkout's image would cost
+# a 275MB rebuild in the middle of someone's work.
 @test "an image whose checkout still exists is kept" {
   _img "base-deadbeef1234-smoke:latest" "${ROOT}" 86400 > "${DOCKER_STATE}"
   _reclaim
@@ -663,6 +667,9 @@ _tag() {
   refute_output --partial "base-deadbeef1234-smoke"
 }
 
+# why: the window covers a path that is momentarily absent because something is
+# moving or recreating it while its run is in flight -- the one case the
+# existence test cannot see.
 @test "an image inside the grace window is kept" {
   _img "base-deadbeef1234-smoke:latest" "${TEMP_DIR}/gone" 60 > "${DOCKER_STATE}"
   _reclaim
@@ -671,6 +678,9 @@ _tag() {
   refute_output --partial "base-deadbeef1234-smoke"
 }
 
+# why: content-hash shared on purpose, so no artifact can name all its users.
+# This is what keeps the image rule off the one image class where deletion
+# would reach a live checkout.
 @test "the tooling image carries no checkout label and is never a candidate here" {
   # Content-hash shared on purpose: one image, many checkouts, and no
   # artifact can name all of its users. It is retired by --tool-tags or
@@ -682,6 +692,8 @@ _tag() {
   refute_output --partial "test-tools"
 }
 
+# why: a relative label names nothing testable, so it attributes nothing. On a
+# shared host the fail-open direction is deleting what cannot be placed.
 @test "an image whose path label is not absolute is left alone" {
   _img "base-deadbeef1234-smoke:latest" "relative/path" 86400 > "${DOCKER_STATE}"
   _reclaim
@@ -690,6 +702,9 @@ _tag() {
   refute_output --partial "base-deadbeef1234-smoke"
 }
 
+# why: `<none>:<none>` has no name that can be removed safely -- the id behind it
+# may carry other tags -- so acting on it would reach past what this rule
+# can prove.
 @test "a dangling labelled image is left alone rather than removed by id" {
   # `<none>:<none>` has no name that can be removed safely: the id behind
   # it may carry other tags, so `docker rmi <id>` would reach beyond the
@@ -701,6 +716,9 @@ _tag() {
   refute_output --partial "<none>"
 }
 
+# why: the shape that got a live worktree's network removed under the rule this
+# replaced: a truncated path is very plausibly absent, and absent is what
+# makes an artifact a candidate.
 @test "an image whose live checkout path contains a newline is NOT retired" {
   # The same failure shape the network rule was built around: a shorter,
   # non-existent path read out of a truncated field is very plausibly
@@ -716,6 +734,8 @@ _tag() {
   refute_output --partial "base-deadbeef1234-smoke"
 }
 
+# why: the pair to the case above. Read wrongly in either direction the rule is
+# broken, so both directions are pinned.
 @test "an image whose DEAD checkout path contains a newline IS retired" {
   # The pair to the case above: read wrongly in either direction the rule
   # is broken, so both directions are pinned.
@@ -727,6 +747,8 @@ _tag() {
   assert_output --partial "image base-deadbeef1234-smoke:latest"
 }
 
+# why: read as "nothing is labelled", a failed listing turns a broken daemon
+# connection into a reason to delete.
 @test "an unreadable image listing retires nothing" {
   _img "base-deadbeef1234-smoke:latest" "${TEMP_DIR}/gone" 86400 > "${DOCKER_STATE}"
   DOCKER_FAIL_IMAGES=1 run bash -c "source ${LIB}; _reclaim_orphan_projects 6h"
@@ -735,6 +757,8 @@ _tag() {
   refute_output --partial "base-deadbeef1234-smoke"
 }
 
+# why: the mode an operator uses to check the rule before trusting it with the
+# removal, so it must name the victim rather than only counting it.
 @test "a dry run names the image it would retire and removes nothing" {
   _img "base-deadbeef1234-smoke:latest" "${TEMP_DIR}/gone" 86400 > "${DOCKER_STATE}"
   DRY_RUN=true run bash -c "source ${LIB}; DRY_RUN=true _reclaim_orphan_projects 6h"

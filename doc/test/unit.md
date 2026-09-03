@@ -239,9 +239,9 @@ write one tag while the run read another.
 | `base root justfile exports the host identity every compose read needs (#895)` | - |
 | `just test system supplies the host identity its bare compose run needs (#895)` | - |
 | `just test system names the compose project instead of inheriting the basename (#891)` | - |
-| `just docker stop ends the project in a checkout with no .env.generated (#1015)` | - |
-| `just docker exec reaches compose in a checkout with no .env.generated (#1015)` | - |
-| `just docker run reaches compose in a checkout with no .env.generated (#1015)` | - |
+| `just docker stop ends the project in a checkout with no .env.generated (#1015)` | the load-bearing one: base never writes an interpolation cache, so a stop that requires one is a flow `just docker build` can start and no verb can end. Behavioural, because only running it shows the wrapper reaching compose. |
+| `just docker exec reaches compose in a checkout with no .env.generated (#1015)` | exec carried the same unconditional source as stop, so the whole build -> run -> exec -> stop flow was dead in a self-managed checkout, not just its last verb. |
+| `just docker run reaches compose in a checkout with no .env.generated (#1015)` | the third wrapper with the same defect. Fixing only the verb named in the report would have left the flow it belongs to still broken. |
 
 ### test/bats/unit/base_version_monitor_spec.bats (13)
 
@@ -3075,35 +3075,35 @@ builds nothing and pushes nothing)
 | `the retained-tag count is derived from the live checkouts, not a buried literal` | - |
 | `the retained-tag count is overridable by the environment` | - |
 | `the pinned tag set is the invoking tree plus every live checkout` | - |
-| `an image whose checkout is gone is retired` | - |
-| `an image whose checkout still exists is kept` | - |
-| `an image inside the grace window is kept` | - |
-| `the tooling image carries no checkout label and is never a candidate here` | - |
-| `an image whose path label is not absolute is left alone` | - |
-| `a dangling labelled image is left alone rather than removed by id` | - |
-| `an image whose live checkout path contains a newline is NOT retired` | - |
-| `an image whose DEAD checkout path contains a newline IS retired` | - |
-| `an unreadable image listing retires nothing` | - |
-| `a dry run names the image it would retire and removes nothing` | - |
+| `an image whose checkout is gone is retired` | the case the whole image rule exists for: 275MB per dead checkout that ran `just test smoke`, which no verb could reclaim before. |
+| `an image whose checkout still exists is kept` | the sparing side. A rule that collected a live checkout's image would cost a 275MB rebuild in the middle of someone's work. |
+| `an image inside the grace window is kept` | the window covers a path that is momentarily absent because something is moving or recreating it while its run is in flight -- the one case the existence test cannot see. |
+| `the tooling image carries no checkout label and is never a candidate here` | content-hash shared on purpose, so no artifact can name all its users. This is what keeps the image rule off the one image class where deletion would reach a live checkout. |
+| `an image whose path label is not absolute is left alone` | a relative label names nothing testable, so it attributes nothing. On a shared host the fail-open direction is deleting what cannot be placed. |
+| `a dangling labelled image is left alone rather than removed by id` | `<none>:<none>` has no name that can be removed safely -- the id behind it may carry other tags -- so acting on it would reach past what this rule can prove. |
+| `an image whose live checkout path contains a newline is NOT retired` | the shape that got a live worktree's network removed under the rule this replaced: a truncated path is very plausibly absent, and absent is what makes an artifact a candidate. |
+| `an image whose DEAD checkout path contains a newline IS retired` | the pair to the case above. Read wrongly in either direction the rule is broken, so both directions are pinned. |
+| `an unreadable image listing retires nothing` | read as "nothing is labelled", a failed listing turns a broken daemon connection into a reason to delete. |
+| `a dry run names the image it would retire and removes nothing` | the mode an operator uses to check the rule before trusting it with the removal, so it must name the victim rather than only counting it. |
 
 ### test/bats/unit/project_wait_spec.bats (14)
 
 | Test | Description |
 |------|-------------|
-| `a project with nothing attached to its network is ready at once` | - |
-| `a project with no network of its own at all is ready at once` | - |
-| `the listing is filtered by both labels, so only this checkout's project is looked at` | - |
-| `a container still detaching is waited for, and the wait says what it waits for` | - |
-| `a container that never detaches fails naming it and the verb that clears it` | - |
-| `the wedged run says no test failed, so the reader stops hunting for one` | - |
-| `a running container is a concurrent run, not a wedge` | - |
-| `an unreadable docker is not evidence of a wedge` | - |
-| `a malformed wait window is named and the default is used, not the run refused` | - |
-| `a wedged project stops the dispatch before compose is called` | - |
-| `a quiescent project lets the dispatch through` | - |
-| `test.sh --await-project answers for this checkout and exits` | - |
-| `test.sh --await-project refuses when the project is still held` | - |
-| `system and smoke both ask before they build` | - |
+| `a project with nothing attached to its network is ready at once` | the ordinary case, and the one the cost lands on: every run pays this check, so it must not wait when there is nothing to wait for. |
+| `a project with no network of its own at all is ready at once` | a first run on a fresh checkout has no artifacts, and must not be delayed by a mechanism built for a second one. |
+| `the listing is filtered by both labels, so only this checkout's project is looked at` | ownership is exact and carried by the artifact. A prefix or a bare project filter would let another checkout's run block this one. |
+| `a container still detaching is waited for, and the wait says what it waits for` | the load-bearing one. The wait is worthless if it is silent: the reader must be able to tell waiting from hanging. |
+| `a container that never detaches fails naming it and the verb that clears it` | the bounded half. Waiting forever trades a confusing red for a hang, so the timeout has to produce an answer the operator can act on. |
+| `the wedged run says no test failed, so the reader stops hunting for one` | the whole reason the issue was filed: the old failure reported rc=1 with not_ok=0, and the reader's first move was to look for a code defect that was not there. |
+| `a running container is a concurrent run, not a wedge` | compose reuses a live network happily. Waiting here would be waiting for something that is not leaving. |
+| `an unreadable docker is not evidence of a wedge` | a failed listing cannot say a container is attached, and refusing to start the suite over it would be a worse red than the one this replaces. |
+| `a malformed wait window is named and the default is used, not the run refused` | declining to run the suite over a typo in a duration string would just be a different confusing red. |
+| `a wedged project stops the dispatch before compose is called` | reaching compose anyway would emit the daemon's raw text again, which is the defect. Behaviour, not line order. |
+| `a quiescent project lets the dispatch through` | the pair to the case above: a guard that blocked the ordinary run would be caught here rather than by every developer. |
+| `test.sh --await-project answers for this checkout and exits` | it is a query, like --compose-project-name: the recipes that call it must not have it mint anything. |
+| `test.sh --await-project refuses when the project is still held` | the flag is only worth having if its verdict reaches the caller; a query that always exits 0 would let system and smoke run into the wedge. |
+| `system and smoke both ask before they build` | neither goes through the dispatcher, so neither inherits the question. They are the flows most likely to leave a container behind. |
 
 ### test/bats/unit/prune_sh_spec.bats (41)
 
@@ -3361,15 +3361,15 @@ the capture (#965).
 | `--all does not quietly acquire the scoped reclaim` | - |
 | `the daemon-wide prune targets are untouched` | - |
 | `the scoped reclaim is reachable through just, with no new namespace` | - |
-| `just test stop ends this checkout's self-test project` | - |
-| `just test stop asks the single producer for the name instead of deriving a second` | - |
-| `just test stop forwards its arguments to the wrapper` | - |
-| `just test stop hands compose every value compose.yaml demands` | - |
-| `compose.yaml records the checkout path on the image it builds` | - |
-| `the image stamp is refused rather than defaulted, like every other` | - |
-| `the tooling image is NOT stamped, because it is shared on purpose` | - |
-| `every recipe that reaches docker states its lifecycle` | - |
-| `the derived population is not empty, and reaches both namespaces` | - |
+| `just test stop ends this checkout's self-test project` | the verb the issue asked for. Run for real, because a recipe is a seam and a grep cannot tell a working seam from a broken one. |
+| `just test stop asks the single producer for the name instead of deriving a second` | two derivations that agree today drift tomorrow, and a stop pointed at the wrong project silently tears down nothing. |
+| `just test stop forwards its arguments to the wrapper` | -v and --dry-run are how an operator inspects a teardown before trusting it; a recipe that swallowed them would make the verb unusable for that. |
+| `just test stop hands compose every value compose.yaml demands` | compose interpolates the whole file for `down` too, so a stop missing one `${VAR:?}` dies naming four services and tears nothing down. --dry-run cannot see it, which is how it shipped once. |
+| `compose.yaml records the checkout path on the image it builds` | the producer side of the image rule: a collector can only read back what something recorded, so an unstamped image is uncollectable forever. |
+| `the image stamp is refused rather than defaulted, like every other` | a default would create artifacts nobody can attribute, and the failure has to land on the invocation that would create them. |
+| `the tooling image is NOT stamped, because it is shared on purpose` | one image serves every checkout whose inputs hash alike, so a checkout label there would name its builder and collecting on it would delete an image live checkouts still resolve. |
+| `every recipe that reaches docker states its lifecycle` | the anti-decay mechanism. Every other assertion in this file names verbs by hand and so answers only for the recipes that existed when it was written -- which is the failure the issue is about. |
+| `the derived population is not empty, and reaches both namespaces` | a parser that quietly matched nothing would make the check above pass for every tree, which is how a derived population fails. |
 
 ### test/bats/unit/release_archive_spec.bats (26)
 
@@ -5207,8 +5207,8 @@ runs).
 | `stop.sh without --prune does NOT emit prune commands (#319)` | - |
 | `stop.sh --prune --dry-run runs prune after compose down (#319)` | - |
 | `stop.sh aborts on a failing pre-stop hook and skips compose down (#690)` | - |
-| `stop.sh ends the project when the checkout has no .env.generated (#1015)` | - |
-| `stop.sh honours an ambient PROJECT_NAME with no .env.generated to read (#1015)` | - |
+| `stop.sh ends the project when the checkout has no .env.generated (#1015)` | the defect in its smallest form: the wrapper died on a missing file before it reached compose at all. |
+| `stop.sh honours an ambient PROJECT_NAME with no .env.generated to read (#1015)` | the seam `just test stop` uses -- the caller that already knows the name hands it over, so no second derivation exists to drift. |
 
 ### test/bats/unit/template_guard_spec.bats (2)
 
