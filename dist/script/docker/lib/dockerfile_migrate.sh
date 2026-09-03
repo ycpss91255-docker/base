@@ -276,16 +276,23 @@ _migrate_hadolint_detect() {
 
 # _dfm_needs_dl3046 <file>
 #   True when a `useradd` that sets a uid carries no `-l`, whatever order
-#   its flags are in. Same head/tail split as the transform, so detect and
-#   apply cannot disagree about which line is a candidate.
+#   its flags are in. Same head/tail split and same scan window as the
+#   transform, so detect and apply cannot disagree about which line is a
+#   candidate.
 _dfm_needs_dl3046() {
   local _file="$1"
   awk '
+    function _dfm_scan(_text) {
+      if (match(_text, /(&&|\|\||;|\|)/)) {
+        return substr(_text, 1, RSTART - 1)
+      }
+      return _text
+    }
     {
       if (match($0, /(^|[[:space:]])useradd[[:space:]]+/)) {
-        _tail = substr($0, RSTART + RLENGTH)
-        if (_tail ~ /(^|[[:space:]])(-[[:alnum:]]*u|--uid)([[:space:]]|=)/ &&
-            _tail !~ /(^|[[:space:]])(-[[:alnum:]]*l|--no-log-init)([[:space:]]|$)/) {
+        _scan = _dfm_scan(substr($0, RSTART + RLENGTH))
+        if (_scan ~ /(^|[[:space:]])(-[[:alnum:]]*u|--uid)([[:space:]]|=)/ &&
+            _scan !~ /(^|[[:space:]])(-[[:alnum:]]*l|--no-log-init)([[:space:]]|$)/) {
           found = 1
         }
       }
@@ -353,18 +360,30 @@ _migrate_hadolint_apply() {
   # `useradd -m -s /bin/bash -u ...` and the anchored form walks past it,
   # leaving DL3046 live in a Dockerfile the migration reported as patched.
   # Rewriting the head of the command instead makes the position of the
-  # flag being answered irrelevant. Scoped to the text AFTER the useradd
-  # token so a sibling `usermod -l` on the same line cannot be read as
-  # this command already carrying the flag.
+  # flag being answered irrelevant. The flags are read from the useradd's
+  # OWN command segment -- the text after the token, cut at the first
+  # `&&`, `||`, `;` or `|` -- because the conflict-handling branch every
+  # downstream Dockerfile carries writes `usermod -l` after an `&&`, and
+  # scanning to end of line reads that sibling flag as this command
+  # already answering DL3046. The heal would then never fire and the
+  # migration would report a patched Dockerfile with the finding still
+  # live in it.
   local _tmp3046
   _tmp3046="$(mktemp)"
   awk '
+    function _dfm_scan(_text) {
+      if (match(_text, /(&&|\|\||;|\|)/)) {
+        return substr(_text, 1, RSTART - 1)
+      }
+      return _text
+    }
     {
       if (match($0, /(^|[[:space:]])useradd[[:space:]]+/)) {
         _head = substr($0, 1, RSTART + RLENGTH - 1)
         _tail = substr($0, RSTART + RLENGTH)
-        if (_tail ~ /(^|[[:space:]])(-[[:alnum:]]*u|--uid)([[:space:]]|=)/ &&
-            _tail !~ /(^|[[:space:]])(-[[:alnum:]]*l|--no-log-init)([[:space:]]|$)/) {
+        _scan = _dfm_scan(_tail)
+        if (_scan ~ /(^|[[:space:]])(-[[:alnum:]]*u|--uid)([[:space:]]|=)/ &&
+            _scan !~ /(^|[[:space:]])(-[[:alnum:]]*l|--no-log-init)([[:space:]]|$)/) {
           $0 = _head "-l " _tail
         }
       }
