@@ -115,6 +115,20 @@ EOF
   [ -z "${_ctx[watchdog_env_str]}" ]
 }
 
+# _refute_env <token> <block>
+#   Fail when the emitted WATCHDOG_* block carries a knob the conf never
+#   set. Written as an `if`, not `! ... | grep -q`: bash exempts a `!`
+#   pipeline from errexit, so such a line asserts something only as the
+#   body's LAST statement -- which is how the INTERVAL half of the case
+#   below sat inert while the NOTIFY line under it did all the work.
+_refute_env() {
+  local _token="${1}" _block="${2}"
+  if grep -qF -- "${_token}" <<< "${_block}"; then
+    printf 'unexpected %s in the emitted block:\n%s\n' "${_token}" "${_block}" >&2
+    return 1
+  fi
+}
+
 @test "_resolve_deploy_context builds WATCHDOG_* only for the set knobs (#797)" {
   mkdir -p "${TEMP_DIR}"
   _write_conf <<'EOF'
@@ -132,6 +146,6 @@ EOF
   echo "${_s}" | grep -F 'WATCHDOG_FAILURES=5'
   echo "${_s}" | grep -F 'WATCHDOG_ON_FAIL=restart-service'
   # Unset knobs are NOT emitted (they fall back to watchdog.sh defaults).
-  ! echo "${_s}" | grep -qF 'WATCHDOG_INTERVAL'
-  ! echo "${_s}" | grep -qF 'WATCHDOG_NOTIFY'
+  _refute_env 'WATCHDOG_INTERVAL' "${_s}"
+  _refute_env 'WATCHDOG_NOTIFY' "${_s}"
 }

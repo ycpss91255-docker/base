@@ -31,9 +31,11 @@ default:
 # Narrow with
 # `just test lint --shellcheck` / `just test lint --hadolint`
 # / `just test lint --issueref` / `just test lint --adr-numbering`
+# / `just test lint --adr-structure`
 # / `just test lint --stale-setup-conf` / `just test lint --readme-sync`
 # / `just test lint --doc-counts` / `just test lint --home-literal`
 # / `just test lint --arch-literal`
+# / `just test lint --errexit-bang`
 # / `just test lint --derived-figures` / `just test lint --changelog-entry`
 # / `just test lint --action-ref-agreement`
 # / `just test lint --just-provenance`

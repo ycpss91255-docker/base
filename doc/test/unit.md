@@ -136,7 +136,7 @@ microsecond timestamps, `_log_plain` removed.
 | Event registry: registered/unregistered/comment detection | 3 |
 | lnav format file | 2 |
 
-### test/bats/unit/transcript_spec.bats (33)
+### test/bats/unit/transcript_spec.bats (34)
 
 Wrapper transcript capture (#606) + interactive orchestration capture
 (#608): tees a verb's combined output to `log/<verb>/<ts>-<traceid8>.log`
@@ -318,7 +318,7 @@ Mirrors `lib/setup_detect.sh`. Isolated host-detection units:
 + sanitization, `detect_ws_path`, and `_reconcile_workspace_path`
 (#569).
 
-#### test/bats/unit/setup_conf_spec.bats (30)
+#### test/bats/unit/setup_conf_spec.bats (33)
 
 Mirrors `lib/setup_conf.sh`. setup.conf merging (`_load_setup_conf`
 replace strategy) resolving the per-repo override from the repo-root
@@ -335,7 +335,7 @@ Mirrors `lib/env_emit.sh`. `write_env` (.env contents + SETUP_*
 metadata, SSH X11 `XAUTHORITY` override #321) and `_scaffold_env_overlay`
 idempotency.
 
-#### test/bats/unit/setup_cmd_spec.bats (132)
+#### test/bats/unit/setup_cmd_spec.bats (136)
 
 Mirrors `lib/setup_cmd.sh`. The git-style subcommand dispatcher and its
 mutating verbs (#49): dispatch (Phase B-1), `set` / `show` / `list`
@@ -990,7 +990,7 @@ forwarding for caller abort, and DRY_RUN skip.
 | `_run_pre_hook: DRY_RUN=true -> hook skipped silently (#440)` | DRY_RUN skip (pre) |
 | `_run_post_hook: DRY_RUN=true -> hook skipped silently (#440)` | DRY_RUN skip (post) |
 
-### test/bats/unit/dockerfile_migrate_spec.bats (63)
+### test/bats/unit/dockerfile_migrate_spec.bats (86)
 
 Unit tests for the declarative Dockerfile-migration list
 `lib/dockerfile_migrate.sh` (#567, folds #579 facet B). The lib exposes a
@@ -1018,6 +1018,23 @@ shape auto-applies idempotently, a missing/ambiguous shape is skipped
 | `migration 1 (wrapper-copy): detect is false when no legacy wrapper COPY present (#567)` | - |
 | `migration 2 (pip-helper): drops the retired CONFIG_DIR pip install line (#567)` | - |
 | `migration 2 (pip-helper): idempotent — no pip line means detect false (#567)` | - |
+| `migration 2 (pip-helper): keeps a pip line whose requirements file carries real requirements (#956)` | - |
+| `migration 2 (pip-helper): drops the line when the requirements file is comment/blank-only (#956)` | - |
+| `migration 2 (pip-helper): keeps the line when the requirements file cannot be READ (#956)` | - |
+| `migration 2 (pip-helper): an unreadable requirements file answers 2, not 1 (#956)` | - |
+| `migration 2 (pip-helper): keeps the line when the pip directory cannot be traversed (#956)` | - |
+| `migration 2 (pip-helper): an untraversable pip dir answers 2, an absent one 1 (#956)` | - |
+| `migration 2 (pip-helper): keeps the line when a conf layer cannot be read (#956)` | - |
+| `migration 2 (pip-helper): keeps the line when a conf layer's DIRECTORY cannot be read (#956)` | - |
+| `migration 2 (pip-helper): keeps a pip line that closes a continued RUN (#956)` | - |
+| `migration 2 (pip-helper): keeps a pip line that opens a continued RUN (#956)` | - |
+| `migration 2 (pip-helper): the standalone check refuses a Dockerfile it cannot READ (#956)` | - |
+| `migration 2 (pip-helper): keeps the line when the Dockerfile redirects CONFIG_SRC (#956)` | - |
+| `migration 2 (pip-helper): keeps the line when .setup.conf redirects CONFIG_SRC (#956)` | - |
+| `migration 2 (pip-helper): keeps the line when the TEMPLATE conf layer redirects CONFIG_SRC (#956)` | - |
+| `migration 2 (pip-helper): keeps the line when the conf chain comes back truncated (#956)` | - |
+| `migration 2 (pip-helper): keeps the line when a conf layer cannot be scanned (#956)` | - |
+| `migration 2 (pip-helper): keeps the line when no config source dir is next to the Dockerfile (#956)` | - |
 | `migration 3 (explicit-copy): drops single-line explicit top-level .sh COPY (#567)` | - |
 | `migration 3 (explicit-copy): drops multi-line backslash-continued COPY block (#567)` | - |
 | `migration 3 (explicit-copy): detect false when lint stage uses lib/wrapper dir COPYs only (#567)` | - |
@@ -1027,6 +1044,7 @@ shape auto-applies idempotently, a missing/ambiguous shape is skipped
 | `migration 4 (logging-rename): heals a stale entrypoint when the Dockerfile is already migrated (#692)` | - |
 | `migration (smoke-copy): rewrites the flat COPY into shared + the stage's own folder (#915)` | - |
 | `migration (smoke-copy): emits only the shared baseline when the stage ships no folder (#915)` | - |
+| `migration (smoke-copy): an unresolvable per-stage path costs the stage its own COPY (#956)` | - |
 | `migration (smoke-copy): idempotent — detect false once already on the dist tree (#915)` | - |
 | `migration (smoke-copy): rewrites a hand-listed spec to where the subtree ships it (#928)` | - |
 | `migration (smoke-copy): rewrites every source of a multi-source hand-listed COPY (#928)` | - |
@@ -1043,14 +1061,19 @@ shape auto-applies idempotently, a missing/ambiguous shape is skipped
 | `migration (flat-to-dist): dispatcher run twice rewrites exactly once (#915)` | - |
 | `apply_migrations leaves no .base COPY source behind on the v0.41.0 shape (#915)` | - |
 | `apply_migrations leaves every .base COPY source resolvable in the shipped tree (#969)` | - |
-| `migration (logrotate-copy): inserts logrotate.sh COPY after the logging.sh COPY (#805)` | - |
-| `migration (logrotate-copy): detect false when logrotate COPY already present (idempotent) (#805)` | - |
-| `migration (logrotate-copy): detect false when no logging.sh COPY present (#805)` | - |
-| `migration (logrotate-copy): dispatcher run twice inserts the COPY exactly once (#805)` | - |
-| `migration (watchdog-copy): inserts watchdog.sh COPY after the logging.sh COPY (#797)` | - |
-| `migration (watchdog-copy): detect false when watchdog COPY already present (idempotent) (#797)` | - |
-| `migration (watchdog-copy): detect false when no logging.sh COPY present (#797)` | - |
-| `migration (watchdog-copy): dispatcher run twice inserts the COPY exactly once (#797)` | - |
+| `migration (runtime-moved-files): rewrites the smoke.sh source to the shipped test tree (#971)` | - |
+| `migration (runtime-moved-files): rewrites the entrypoint.sh source at the pre-dist path (#971)` | - |
+| `migration (runtime-moved-files): detect false once nothing names the old paths (#971)` | - |
+| `migration (runtime-dir-copy): collapses the three per-file COPYs into one dir COPY (#971)` | - |
+| `migration (runtime-dir-copy): collapses a subset in any order at the pre-dist path (#971)` | - |
+| `migration (runtime-dir-copy): one dir COPY per stage, not one for the file (#971)` | - |
+| `migration (runtime-dir-copy): a statement hand-listing two helpers collapses to one source (#971)` | - |
+| `migration (runtime-dir-copy): a hand-relocated destination is preserved (#971)` | - |
+| `migration (runtime-dir-copy): rewrites the commented runtime-stage example too (#971)` | - |
+| `migration (runtime-dir-copy): an already-collapsed dir COPY is left alone (#971)` | - |
+| `migration (runtime-dir-copy): dispatcher run twice collapses exactly once (#971)` | - |
+| `migration (runtime-dir-copy): detect false when no helper COPY is present (#971)` | - |
+| `apply_migrations heals the runtime COPYs every real consumer actually carries (#971)` | - |
 | `migration 5 (hadolint): DL3007 pins bats/alpine :latest tags (#567)` | - |
 | `migration 5 (hadolint): DL3046 adds useradd -l (#567)` | - |
 | `migration 5 (hadolint): DL3003 cd /lint -> WORKDIR /lint + RUN (#567)` | - |
@@ -1187,7 +1210,7 @@ the build delegate / `compose up`; in the foreground path a failing
 exit with the hook's rc while `compose down --remove-orphans` still
 runs).
 
-### test/bats/unit/exec_sh_spec.bats (59)
+### test/bats/unit/exec_sh_spec.bats (61)
 
 Unit tests for `exec.sh` argument parsing, the container-running
 precheck, and i18n. Sandbox tree mirrors build_sh_spec.bats;
@@ -1910,7 +1933,7 @@ the master switch `watchdog_check` is set, so the default-off case leaves
 rides on devel and extends:devel stages inherit it; and the resolver
 builds the env block only for the knobs the conf sets.
 
-### test/bats/unit/template_spec.bats (174)
+### test/bats/unit/template_spec.bats (171)
 
 | Test | Description |
 |------|-------------|
@@ -2003,16 +2026,13 @@ builds the env block only for the knobs the conf sets.
 | `stop.sh -h works in /lint/ layout` | - |
 | `build.sh errors with a clear diagnostic when bootstrap/_lib.sh missing (issue #104, #408)` | - |
 | `Dockerfile.example copies lib/ and wrapper/ into /lint/ (#406)` | - |
-| `Dockerfile.example copies logging.sh to /usr/local/lib/base/ in devel stage (#368)` | - |
-| `Dockerfile.example commented runtime stage shows logging.sh COPY example (#368)` | - |
+| `Dockerfile.example copies the runtime helper dir into /usr/local/lib/base/ in devel stage (#971)` | - |
+| `nothing in dist/script/docker/runtime/ has a destiny other than the helper dir (#971)` | - |
+| `Dockerfile.example commented runtime stage shows the helper-dir COPY example (#971)` | - |
 | `runtime/logging.sh header documents in-image source-line (no $USER, no work/.base) (#368)` | - |
-| `Dockerfile.example copies logrotate.sh to /usr/local/lib/base/ in devel stage (#805)` | - |
-| `Dockerfile.example copies watchdog.sh to /usr/local/lib/base/ in devel stage (#797)` | - |
-| `Dockerfile.example commented runtime stage shows watchdog.sh COPY example (#797)` | - |
-| `runtime/entrypoint.sh sources the watchdog helper after logging (#797)` | - |
-| `runtime/entrypoint.sh guards both lib sources with a readability test (#842)` | Both source lines wrapped in `[[ -r ]]`, matching the logrotate.sh pattern |
-| `runtime/entrypoint.sh execs cleanly under set -euo pipefail with the libs absent (#842)` | Opt-out runtime image: reaches `exec`, no stderr, no strict-mode abort |
-| `Dockerfile.example commented runtime stage shows logrotate.sh COPY example (#805)` | - |
+| `dockerfile/entrypoint.sh sources the watchdog helper after logging (#797)` | - |
+| `dockerfile/entrypoint.sh guards both lib sources with a readability test (#842)` | - |
+| `dockerfile/entrypoint.sh execs cleanly under set -euo pipefail with the libs absent (#842)` | - |
 | `no inline _detect_lang fallbacks remain after dedupe (issue #104)` | - |
 | `setup.sh does not redefine _detect_lang` | No duplication |
 | `setup.sh defines _setup_msg, not _msg (closes #101)` | - |
@@ -2109,7 +2129,7 @@ builds the env block only for the knobs the conf sets.
 | `name_host_groups: a nameless gid triggers sudo groupadd hostgrp<gid>` | #589 behaviour (mocked) |
 | `name_host_groups: a named gid does not trigger groupadd` | #589 idempotent skip (mocked) |
 
-### test/bats/unit/ci_spec.bats (117)
+### test/bats/unit/ci_spec.bats (118)
 
 | Test | Description |
 |------|-------------|
@@ -2187,6 +2207,7 @@ builds the env block only for the knobs the conf sets.
 | `main --ci: LINT_TOOL=doc-counts runs the doc/test count drift gate (#864)` | #864 doc/test count drift gate reaches the CI gate |
 | `main --doc-counts-only: runs the drift gate on the host, no compose (#864)` | #864 host-direct primitive so a CI job can run the gate without compose |
 | `main --issueref-only: runs the issue-ref comment lint on the host, no compose (#866)` | - |
+| `main --adr-structure-only: runs the ADR-structure lint on the host, no compose (#994)` | - |
 | `main --adr-numbering-only: runs the ADR-numbering lint on the host, no compose (#866)` | - |
 | `main --stale-setup-conf-only: runs the stale setup.conf path lint on the host, no compose (#866)` | - |
 | `main --home-literal-only: runs the hardcoded home path lint on the host, no compose (#799)` | - |
@@ -3427,7 +3448,7 @@ ways this goes catastrophically wrong are all edits to the file:
 | `build.sh --target test-tools: the tooling image build is not a verification target` | The tooling image `just test` builds first runs no checks |
 | `build.sh smoke: base's own smoke harness IS a verification target` | base's `just test smoke` had the identical hole |
 | `build.sh --dry-run test: no build ran, so nothing is reported about one` | Nothing executed, so nothing is claimed about execution |
-### test/bats/unit/changelog_entry_lint_spec.bats (53)
+### test/bats/unit/changelog_entry_lint_spec.bats (54)
 
 | Test | Description |
 |------|-------------|
@@ -3484,6 +3505,7 @@ ways this goes catastrophically wrong are all edits to the file:
 | `_run_changelog_entry: the SAME category in a different release block is fine (#959)` | - |
 | `_run_changelog_entry: the clean line says how many category headings it compared (#959)` | - |
 | `_run_changelog_entry: the real repo tree's [Unreleased] section is clean (#917)` | - |
+| `TEST.md's changelog-entry row names all three rules this lint enforces (#956)` | - |
 
 ### test/bats/unit/prev_release_gating_spec.bats (8)
 
@@ -3760,6 +3782,94 @@ inside the test that produces it, each case writes a one-test spec into
 | `a scan that examined nothing answers 2, not 1` | Pinning "scanned, matched nothing" means something only while "could not scan" is reachable |
 | `the fail-open guard scan sees each spelling of the check it claims to cover` | The invariant must be green because no guard exists, not because its pattern is blind |
 | `the fail-open guard scan is an over-approximation, not a closed set` | A sample of what it misses, so the disclosure is never wider than the pattern |
+
+### test/bats/unit/errexit_bang_lint_spec.bats (83)
+
+| Test | Description |
+|------|-------------|
+| `_run_errexit_bang: FAILS on a non-final bang statement, naming file and line (#956)` | - |
+| `_run_errexit_bang: FAILS on a bang statement buried mid-body (#956)` | - |
+| `_run_errexit_bang: FAILS on a bang statement nested in a block (#956)` | - |
+| `_run_errexit_bang: FAILS on the FIRST line of a continued bang statement that is not last (#956)` | - |
+| `_run_errexit_bang: FAILS on a bang statement followed by another command via ';' (#956)` | - |
+| `_run_errexit_bang: FAILS on a bang statement whose '\|\|' hands off the verdict (#956)` | - |
+| `bash: a backgrounded '!' returns 0 whatever the command did (#956)` | Why `&` is a hand-off, run rather than asserted: an async list's status is the fork's |
+| `_run_errexit_bang: FAILS on a bang statement handed to the background (#956)` | Inert in the one position the rule declines to judge -- the body's last statement |
+| `_run_errexit_bang: FAILS when a '&' hands the statement to the next command (#956)` | The same discard as a `;`, spelled with the async operator |
+| `_run_errexit_bang: FAILS on such a line even when the body continues past it (#956)` | - |
+| `bash: a separator on the CONTINUATION line discards the negation too (#956)` | - |
+| `_run_errexit_bang: FAILS when the ';' sits on a continuation line (#956)` | - |
+| `_run_errexit_bang: FAILS when the '\|\| true' sits on a continuation line (#956)` | - |
+| `_run_errexit_bang: FAILS when a BLANK line ends a continued bang statement (#956)` | bash joins the backslash-newline; the blank line ENDS the statement, and a statement judged nowhere is exempt from both rules |
+| `_run_errexit_bang: FAILS when a COMMENT line ends a continued bang statement (#956)` | The same drop, spelled with a comment line |
+| `_run_errexit_bang: PASSES when the blank line that ends a continued bang ends the BODY too (#956)` | The other direction: judging it there must not move its end line off the body's last statement |
+| `bash: '! A && B' as the last statement still fails its test (#956)` | - |
+| `bash: '! A \|\| return 1' DOES fail its test in the failing direction (#956)` | - |
+| `_run_errexit_bang: PASSES on '\|\| return 1' / '\|\| fail', which CAN fail the test (#956)` | - |
+| `_run_errexit_bang: still FAILS on '\|\| true' / '\|\| :', the operands that cannot fail (#956)` | - |
+| `_run_errexit_bang: PASSES on an '\|\|' whose operand is a GROUP (#956)` | - |
+| `_run_errexit_bang: PASSES on a ';' that sits in a trailing comment (#956)` | - |
+| `_run_errexit_bang: PASSES on a ';' inside a quoted argument (#956)` | - |
+| `_run_errexit_bang: FAILS on an '\|\|' that belongs to a command substitution (#956)` | A separator inside `( ... )` is the argument's, so the exemption for `! A || B` does not reach it |
+| `_run_errexit_bang: PASSES on a ';' that belongs to a command substitution (#956)` | The same flat match run the other way: a false positive on a blocking gate |
+| `bash: '#' opens a comment only where a WORD opens (#956)` | The lexical rule the code scan implements, pinned by RUNNING the shell -- the `\|` spelling, the mid-word `#` that stays data, and the closing quote / backslash escape that continue a word |
+| `bash: a ')' ends a word only when it closes a SUBSHELL (#956)` | The context-dependent half of the rule, run rather than asserted: a subshell's `)` ends a word, a `$( )` / `$(( ))` / `<( )` close does not |
+| `bash: a backslash-newline SPLICES the text, so a '#' after it may be data (#956)` | - |
+| `bash: an unfinished '\|\|', '&&' or '\|' continues onto the next line (#956)` | - |
+| `_run_errexit_bang: PASSES on a bare trailing ';' followed by a comment (#956)` | `;#` is a terminator and prose, not a verdict handed to a second command |
+| `_run_errexit_bang: PASSES on a comment that opens right after a ')' (#956)` | The same rule one metacharacter along |
+| `_run_errexit_bang: FAILS on a ';' behind a '#' that follows a substitution's ')' (#956)` | That `)` leaves the word open, so the `#` is data and the separator behind it is real |
+| `_run_errexit_bang: FAILS on a ';' behind a '#' that follows a FOLDED substitution's ')' (#956)` | - |
+| `_run_errexit_bang: FAILS on a ';' behind a '#' inside a folded substitution (#956)` | - |
+| `_run_errexit_bang: FAILS on a ';' behind an '\|\|' inside a folded substitution (#956)` | - |
+| `_run_errexit_bang: PASSES on a ';' inside a folded substitution (#956)` | - |
+| `_run_errexit_bang: FAILS on a ';' behind a '#' that follows a substitution, before a path (#956)` | - |
+| `_run_errexit_bang: PASSES when a substitution spans lines with NO backslash (#956)` | - |
+| `_run_errexit_bang: FAILS on a bang statement still open where the body closes (#956)` | - |
+| `_run_errexit_bang: FAILS when an unreadable statement folds a '!' line into it (#956)` | - |
+| `_run_errexit_bang: PASSES when an unreadable statement folds no '!' line in (#956)` | - |
+| `_run_errexit_bang: FAILS on a ';' behind a '#' that follows a closing quote (#956)` | A closing quote does not end a word, so the `#` is data and the separator behind it is real |
+| `_run_errexit_bang: FAILS on a ';' behind a '#' that follows an escape (#956)` | The same word rule for the other spelling that continues a word |
+| `_run_errexit_bang: FAILS on a ';' behind a '#' spliced onto the word before it (#956)` | - |
+| `_run_errexit_bang: PASSES when the splice leaves the '#' opening a word (#956)` | - |
+| `_run_errexit_bang: FAILS on an '\|\| true' split across the operator (#956)` | - |
+| `_run_errexit_bang: PASSES on a live '&&' split across the operator (#956)` | - |
+| `_run_errexit_bang: PASSES on a pipeline split across its '\|' (#956)` | - |
+| `_run_errexit_bang: FAILS on a ';' behind a pipeline split across its '\|' (#956)` | - |
+| `_run_errexit_bang: FAILS on a ';' behind a '!' the operator fold pulled in (#956)` | The fold answers where a statement STARTS too: a `!` line read in as an operator's right operand is still judged, from the line it opens on |
+| `_run_errexit_bang: FAILS on a '!' the fold pulled in that is not the body's last (#956)` | The position rule over the same fold |
+| `_run_errexit_bang: FAILS on an async '&' behind a '!' the fold pulled in (#956)` | - |
+| `_run_errexit_bang: FAILS on a '!' the fold pulled in that never finishes (#956)` | Reported as unfinished from the line the `!` opens on, not dropped as unreadable |
+| `_run_errexit_bang: PASSES on a '!' the fold pulled in that IS the body's last (#956)` | Why a pulled-in `!` is judged rather than reported |
+| `_run_errexit_bang: PASSES on a second '!' that is the first's '\|\|' operand, LAST (#956)` | - |
+| `bash: a '!'-inverted RIGHT operand is exempt from errexit too (#956)` | - |
+| `_run_errexit_bang: FAILS on '! A \|\| ! B' with a statement after it (#956)` | - |
+| `_run_errexit_bang: FAILS on '! A \|\| ! B' written on ONE line (#956)` | - |
+| `_run_errexit_bang: FAILS on a ';' behind '! A \|\| ! B' (#956)` | - |
+| `_run_errexit_bang: FAILS on a '!' operand the '&&' arm short-circuits past (#956)` | - |
+| `_run_errexit_bang: REPORTS a '!' operand chain that CAN still fail (#956)` | - |
+| `_run_errexit_bang: PASSES on a bang statement with a bare trailing ';' (#956)` | - |
+| `_run_errexit_bang: PASSES on the '&' spellings that background nothing (#956)` | `&&`, `2>&1`, `&>` and `\|&` are other operators; `[[ a&b ]]` is a syntax error and needs no exemption |
+| `_run_errexit_bang: PASSES when the bang statement is the body's last (#956)` | - |
+| `_run_errexit_bang: PASSES when only comments and blanks follow the bang (#956)` | - |
+| `_run_errexit_bang: PASSES when the bang statement ends the body across a continuation (#956)` | - |
+| `_run_errexit_bang: does not flag a bang that continues the previous line (#956)` | - |
+| `_run_errexit_bang: does not flag a bang outside any test body (#956)` | - |
+| `_run_errexit_bang: does not flag a commented-out bang (#956)` | - |
+| `_run_errexit_bang: KNOWN MISS -- a bang list whose final operand is an echo, as the body's last statement (base#992) (#956)` | - |
+| `_run_errexit_bang: FAILS when the repo holds no *.bats at all (#956)` | - |
+| `_run_errexit_bang: FAILS when the spec directories are all empty (#956)` | - |
+| `_run_errexit_bang: does NOT scan the released-tree archives (#956)` | - |
+| `_run_errexit_bang: the clean line names every root it derived (#956)` | - |
+| `_run_errexit_bang: FAILS on a body the parser opened and never closed (#956)` | - |
+| `_run_errexit_bang: FAILS when a test header the parser never opened exists (#956)` | - |
+| `_run_errexit_bang: FAILS on a violation in a bats tree outside test/bats (#956)` | - |
+| `_run_errexit_bang: an allow region suppresses the finding (#956)` | - |
+| `_run_errexit_bang: an allow region suppresses the unreadable-fold finding too (#956)` | - |
+| `_run_errexit_bang: an allow region suppresses a folded-in '!' too (#956)` | - |
+| `_run_errexit_bang: an unterminated allow region fails (#956)` | - |
+| `_run_errexit_bang: an unmatched allow-end fails (#956)` | - |
+| `_run_errexit_bang: the real bats tree is clean (#956)` | - |
 
 ### test/bats/unit/reusable_worker_permissions_spec.bats (3)
 
@@ -4191,3 +4301,34 @@ rather than an assurance.
 | `--all does not quietly acquire the scoped reclaim` | - |
 | `the daemon-wide prune targets are untouched` | - |
 | `the scoped reclaim is reachable through just, with no new namespace` | - |
+### test/bats/unit/adr_structure_spec.bats (27)
+
+| Test | Description |
+|------|-------------|
+| `_run_adr_structure: FAILS on a missing '> Serves:' back-pointer, naming the file (#994)` | - |
+| `_run_adr_structure: a '> Serves:' that is not at line start does NOT count (#994)` | - |
+| `_run_adr_structure: FAILS on a missing '## Context' (#994)` | - |
+| `_run_adr_structure: FAILS on a missing '## Decision' (#994)` | - |
+| `_run_adr_structure: FAILS on a missing '## Consequences' (#994)` | - |
+| `_run_adr_structure: FAILS on a missing '## Alternatives' -- required, not advisory (#994)` | - |
+| `_run_adr_structure: ACCEPTS the house heading variants with trailing text (#994)` | - |
+| `_run_adr_structure: a required heading appearing TWICE at column 0 is refused (#994)` | - |
+| `_run_adr_structure: indenting the illustrated heading is the whole fix (#994)` | - |
+| `_run_adr_structure: a second '> Serves:' at column 0 is refused (#994)` | - |
+| `_run_adr_structure: a second '- **Status:**' at column 0 is refused (#994)` | - |
+| `_run_adr_structure: an illustrated ADR template is refused on the parts the file DOES carry (#994)` | - |
+| `_run_adr_structure: KNOWN FAIL-OPEN -- a part omitted AND illustrated at column 0 reads as compliant (#994)` | - |
+| `_run_adr_structure: FAILS on free text after Accepted (#994)` | - |
+| `_run_adr_structure: FAILS on free text after Rejected (#994)` | - |
+| `_run_adr_structure: FAILS on a Status line that is absent entirely (#994)` | - |
+| `_run_adr_structure: FAILS on 'Proposed', which is not one of the three values (#994)` | - |
+| `_run_adr_structure: FAILS on a supersession pointing at a non-8-digit number (#994)` | - |
+| `_run_adr_structure: FAILS on a supersession carrying a trailing date (#994)` | - |
+| `_run_adr_structure: ACCEPTS all three contract values (#994)` | - |
+| `_run_adr_structure: EXEMPTS doc/adr/README.md (the index) (#994)` | - |
+| `_run_adr_structure: names EVERY offending file, not just the first (#994)` | - |
+| `_run_adr_structure: reports how many ADRs it examined (#994)` | - |
+| `_run_adr_structure: REFUSES when doc/adr/ holds no ADR at all (#994)` | - |
+| `_run_adr_structure: REFUSES when doc/adr/ holds ONLY the exempt README (#994)` | - |
+| `_run_adr_structure: REFUSES when doc/adr/ does not exist (#994)` | - |
+| `_run_adr_structure: the REAL doc/adr/ passes today (#994)` | - |

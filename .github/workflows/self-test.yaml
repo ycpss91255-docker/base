@@ -236,6 +236,10 @@ jobs:
     #
     #   issueref          no transient #NNN in code comments (ADR-00000013)
     #   adr-numbering     doc/adr/ duplicate-free + well-formed
+    #   adr-structure     every ADR carries its `> Serves:` back-pointer,
+    #                     Context / Decision / Consequences / Alternatives
+    #                     and one of the three Status values; a scan that
+    #                     examined zero ADRs refuses rather than passes
     #   stale-setup-conf  no legacy config/docker/setup.conf under dist/
     #   readme-sync       localized READMEs still match README.md
     #   home-literal      no concrete username in a home path under dist/ or
@@ -257,6 +261,12 @@ jobs:
     #                     -- a reader that stops reading turns a SUCCESSFUL
     #                     match into the pipeline's failure under pipefail,
     #                     and the answer is inverted rather than lost
+    #   errexit-bang      no `! <cmd>` in a bats body that is not the
+    #                     body's last statement -- bash exempts a `!`
+    #                     pipeline from errexit, so anywhere else the
+    #                     command runs, the negation is computed and the
+    #                     answer is discarded: the case name claims a
+    #                     property the body never checks
     #   derived-figures   the baseline stage set and the setup.conf section
     #                     list, as documents repeat them, still match the
     #                     code that defines them
@@ -313,7 +323,7 @@ jobs:
     # binary lives only in the test-tools image, so it keeps its own job.
     #
     # Ungated on purpose (no `if: code_changed`), like doc-counts: the
-    # ADR-numbering lint reads doc/adr/ filenames and the README sync lint
+    # ADR-numbering and ADR-structure lints read doc/adr/ and the README sync lint
     # reads README.md + doc/readme/**, both of which classify scores as a
     # doc-only change, so a code_changed gate would skip them on exactly
     # the PR they exist to catch. A matrix shares one job-level `if:`, so
@@ -331,12 +341,14 @@ jobs:
         lint:
           - issueref
           - adr-numbering
+          - adr-structure
           - stale-setup-conf
           - readme-sync
           - home-literal
           - arch-literal
           - bash-source-guard
           - early-close-reader
+          - errexit-bang
           - derived-figures
           - i18n-orphan
           - self-hosted-guard
