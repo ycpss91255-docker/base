@@ -32,6 +32,21 @@ services:
     build:
       context: .
       dockerfile: dockerfile/Dockerfile.test-tools
+      # APK_MIRROR is passed in the BARE form on purpose: compose resolves
+      # a valueless arg from the environment and omits it entirely when
+      # the variable is unset, so the caller's override reaches the build
+      # and no override reaches it as nothing at all. A `:-` default here
+      # would spell the upstream CDN a second time -- in a file the
+      # Dockerfile cannot see -- and an unconditional pass would put an
+      # empty --build-arg in front of the image's own default on every
+      # machine that needs no override. The host is named in the
+      # Dockerfile and nowhere else, which is what
+      # test/bats/unit/apk_mirror_spec.bats holds this file to. Both
+      # local build paths (`just test` via
+      # script/test/test.sh, `just docker build --target test-tools`)
+      # build THIS service, so both inherit the forwarding.
+      args:
+        - APK_MIRROR
     image: ${TEST_TOOLS_IMAGE:?set by 'just test' / 'just docker build --target test-tools' -- run one of those instead of driving docker compose directly}
 
   # smoke: the local harness for the SHIPPED smoke specs

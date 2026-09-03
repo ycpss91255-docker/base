@@ -206,6 +206,14 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 - **the changelog lint now catches an entry that was edited and not re-wrapped (refs #927)** -- a single word left alone on a continuation line with more of its paragraph on the next line. The length measure collapses whitespace on purpose and markdown collapses it again at render time, so nothing else could see it. A short final line, a table row, a fenced line and an HTML comment are left alone. Affects anyone writing an `[Unreleased]` entry.
 
 ### Fixed
+- **the tooling image takes an `APK_MIRROR` build arg (closes #1008)** --
+  `dockerfile/Dockerfile.test-tools` had no mirror override, so a host that
+  cannot reach `dl-cdn.alpinelinux.org` could not build the image the whole
+  local gate runs inside. It does not read as a network failure: apk spends
+  ~480s and then reports every package as `no such package`, because an
+  unreachable index reads as an empty one. Pass
+  `APK_MIRROR=<host> just test`. The default is the upstream CDN and the
+  rewrite is skipped there, so a machine that can reach it sees no change.
 - **`just upgrade` no longer deletes a working pip install from a consumer
   Dockerfile (refs #956)** -- the migration dropped every `pip install -r
   ${CONFIG_DIR}/pip/requirements.txt` line as base's empty placeholder, but
