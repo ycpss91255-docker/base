@@ -79,6 +79,23 @@ doc/changelog/CHANGELOG.md
 EOF
 }
 
+# _hand_maintained_paths
+#   Paths a repo of this family carries that NO scaffold writes -- hand-added
+#   when the repo is created and maintained by its owner. They are the half
+#   of the colliding population that scaffold output cannot reach: a template
+#   snapshot ships everything a scaffold left behind PLUS these, and it was a
+#   file in the union -- not a file in the scaffold's output -- that inverted
+#   the `Dockerfile` proxy. Kept short and checked at use: each must exist in
+#   base's own tree, and each must be absent from the scaffold's output.
+_hand_maintained_paths() {
+  cat <<'EOF'
+LICENSE
+CONTEXT.md
+.gitattributes
+.github/workflows/self-test.yaml
+EOF
+}
+
 @test "a repo carrying none of the published signals is scaffolded as new (#928)" {
   _seed_consumer
 
@@ -130,40 +147,50 @@ EOF
   done < <(_new_repo_only_paths)
 }
 
-@test "no file the scaffold itself leaves behind can quietly become a signal (#928)" {
+@test "no file a repo can carry, scaffold output or not, can quietly become a signal (#928)" {
   # The generalisation of the case above, over the population that actually
-  # collides. A template repo IS a scaffolded repo -- base wrote its files --
-  # so every file a scaffold leaves behind is a file a template snapshot ships
-  # into the next new repo. Any one of them silently joining the branch
-  # condition without joining the published list reproduces the inversion
-  # exactly; the hardcoded README.md above catches one such file, this catches
-  # the class.
+  # collides. A template repo IS a repo of this family, so every file it
+  # ships is a file the next new repo arrives carrying; any one of them
+  # silently joining the branch condition without joining the published list
+  # reproduces the inversion exactly. The hardcoded README.md above catches
+  # one such file, this catches the class.
   #
-  # The population is the WHOLE tree, not its root. The three artifacts
+  # The population is scaffold output PLUS what no scaffold writes. Scaffold
+  # output alone is a strict SUBSET of what a template ships, and the subset
+  # is the wrong half: `Dockerfile` inverted the proxy precisely because a
+  # repo can carry a file its own scaffold never wrote. LICENSE is the
+  # cheapest witness -- no scaffold emits one, every template ships one --
+  # and a population defined as scaffold output cannot see it.
+  #
+  # The population reaches below the root as well. The three artifacts
   # base#928 measured as missing -- `.github/workflows/main.yaml`,
-  # `doc/changelog/CHANGELOG.md`, the smoke tree -- all live below the root,
-  # and a snapshot ships them for exactly the reason it ships `Dockerfile`.
-  # A root-only population would leave the shapes this issue is about outside
-  # the case that claims to cover them.
+  # `doc/changelog/CHANGELOG.md`, the smoke tree -- all live there.
   #
-  # Derived from a real scaffold, not listed: whatever today's new-repo path
-  # writes, minus the vendored subtree and git's own internals (neither is
-  # scaffold output), minus what the repo's own .gitignore claims (a derived
-  # artifact is not in a template snapshot), and minus the published signals
-  # (which are supposed to decide).
+  # Each candidate is put to `_init_repo_is_existing`, the predicate `main`
+  # branches on, rather than to a full init: the two are the same statement
+  # (`if _init_repo_is_existing; then _init_existing_repo; else
+  # _create_new_repo`), and the whole population is then read off the
+  # artifacts in ONE init below. A real init per candidate said nothing more
+  # and cost the suite a minute of wall clock for a single case.
   _seed_consumer
   cd "${CONSUMER}"
   run bash "${INIT}"
   assert_success
 
   local _scaffolded="${BATS_TEST_TMPDIR}/scaffolded"
+  rm -rf "${_scaffolded}"
   cp -a "${CONSUMER}" "${_scaffolded}"
 
   local _signal_list="${BATS_TEST_TMPDIR}/signals2"
   _signals > "${_signal_list}"
 
-  local _candidates="${BATS_TEST_TMPDIR}/candidates"
-  : > "${_candidates}"
+  # Half one, derived from a real scaffold rather than listed: whatever
+  # today's new-repo path writes, minus the vendored subtree and git's own
+  # internals (neither is scaffold output), minus what the repo's own
+  # .gitignore claims (a derived artifact is not in a template snapshot),
+  # and minus the published signals (which are supposed to decide).
+  local _scaffold_out="${BATS_TEST_TMPDIR}/scaffold-out"
+  : > "${_scaffold_out}"
   local _name
   while IFS= read -r _name; do
     _name="${_name#./}"
@@ -174,31 +201,97 @@ EOF
     if git -C "${_scaffolded}" check-ignore -q -- "${_name}"; then
       continue
     fi
-    printf '%s\n' "${_name}" >> "${_candidates}"
+    printf '%s\n' "${_name}" >> "${_scaffold_out}"
   done < <(cd "${_scaffolded}" \
     && find . -mindepth 1 \( -path ./.git -o -path ./.base \) -prune -o \
       \( -type f -o -type l \) -print | LC_ALL=C sort)
 
-  assert [ -s "${_candidates}" ]
-  # And the population really does reach below the root -- otherwise this
-  # case would pass while covering none of the paths base#928 measured.
-  grep -q '/' "${_candidates}" \
-    || fail "candidate population is root-only: the artifacts base#928 is about all live below the root"
+  assert [ -s "${_scaffold_out}" ]
+  # And it really does reach below the root -- otherwise this case would
+  # pass while covering none of the paths base#928 measured.
+  grep -q '/' "${_scaffold_out}" \
+    || fail "scaffold-output population is root-only: the artifacts base#928 is about all live below the root"
 
-  local _p
+  # Half two: paths a repo of this family carries that no scaffold writes.
+  # Named, not derived -- the template is a different repo, and git cannot
+  # enumerate the mounted /source worktree from in here (its .git is a file
+  # pointing at a path the container cannot see). The two guards below are
+  # what keep the naming honest.
+  local _hand="${BATS_TEST_TMPDIR}/hand-maintained"
+  _hand_maintained_paths > "${_hand}"
+  assert [ -s "${_hand}" ]
   while IFS= read -r _name; do
-    _seed_consumer
-    mkdir -p "${CONSUMER}/$(dirname -- "${_name}")"
-    cp -a "${_scaffolded}/${_name}" "${CONSUMER}/${_name}"
-    cd "${CONSUMER}"
-    run bash "${INIT}"
-    assert_success
+    [[ -n "${_name}" ]] || continue
+    # It is a path a real repo of this family carries, not a hypothetical.
+    assert [ -e "/source/${_name}" ]
+    # And it is genuinely outside scaffold output, so the population is a
+    # strict superset of it. If the scaffold starts emitting one of these,
+    # this fails and the entry moves rather than quietly narrowing the case
+    # back to the subset that could not see `Dockerfile` coming.
+    if grep -qxF "${_name}" "${_scaffold_out}"; then
+      fail "'${_name}' is scaffold output now, so it no longer widens the population past it: name a file the scaffold does not write"
+    fi
+  done < "${_hand}"
 
+  local _candidates="${BATS_TEST_TMPDIR}/candidates"
+  cat "${_scaffold_out}" "${_hand}" | LC_ALL=C sort -u > "${_candidates}"
+
+  # Every candidate, one at a time, put to the predicate. Cheap enough to be
+  # exhaustive, and it names the offender.
+  run bash -c '
+    set -uo pipefail
+    _init="$1" _cands="$2" _probe="$3"
+    # shellcheck disable=SC1090
+    source "${_init}"
+    _rc=0
+    while IFS= read -r _name; do
+      [[ -n "${_name}" ]] || continue
+      rm -rf "${_probe:?}/repo"
+      mkdir -p "${_probe}/repo/$(dirname -- "${_name}")"
+      : > "${_probe}/repo/${_name}"
+      if ( cd "${_probe}/repo" && _init_repo_is_existing ); then
+        printf "  %s\n" "${_name}"
+        _rc=1
+      fi
+    done < "${_cands}"
+    exit "${_rc}"
+  ' _ "${CONSUMER}/.base/dist/script/base/init.sh" "${_candidates}" \
+    "${BATS_TEST_TMPDIR}/probe"
+  [[ "${status}" -eq 0 ]] || fail "these are not published signals, yet a repo carrying one is classified as already set up:
+${output}"
+
+  # And the branch really is that predicate, read off the artifacts. The
+  # predicate is an OR over the published list, so a repo carrying EVERY
+  # candidate at once takes the new-repo path exactly when a repo carrying
+  # any single one does -- one init makes the whole population's statement
+  # in the currency base#928 was measured in. The two new-repo-only
+  # artifacts are held back from the seed: seeded, their presence afterwards
+  # would prove nothing.
+  _seed_consumer
+  local _p _hold
+  while IFS= read -r _name; do
+    [[ -n "${_name}" ]] || continue
+    _hold=0
     while IFS= read -r _p; do
-      [[ -f "${CONSUMER}/${_p}" ]] \
-        || fail "'${_name}' is not a published signal, yet a repo carrying it was treated as already set up: ${_p} was never scaffolded"
+      [[ "${_name}" != "${_p}" ]] || _hold=1
     done < <(_new_repo_only_paths)
+    (( _hold == 0 )) || continue
+    mkdir -p "${CONSUMER}/$(dirname -- "${_name}")"
+    if [[ -e "${_scaffolded}/${_name}" ]]; then
+      cp -a "${_scaffolded}/${_name}" "${CONSUMER}/${_name}"
+    else
+      cp -a "/source/${_name}" "${CONSUMER}/${_name}"
+    fi
   done < "${_candidates}"
+
+  cd "${CONSUMER}"
+  run bash "${INIT}"
+  assert_success
+
+  while IFS= read -r _p; do
+    [[ -f "${CONSUMER}/${_p}" ]] \
+      || fail "a repo carrying only unpublished files was treated as already set up: ${_p} was never scaffolded"
+  done < <(_new_repo_only_paths)
 }
 
 @test "the new-repo scaffold creates every published signal (#928)" {
