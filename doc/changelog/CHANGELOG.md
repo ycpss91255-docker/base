@@ -145,6 +145,15 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 - **the changelog lint now catches an entry that was edited and not re-wrapped (refs #927)** -- a single word left alone on a continuation line with more of its paragraph on the next line. The length measure collapses whitespace on purpose and markdown collapses it again at render time, so nothing else could see it. A short final line, a table row, a fenced line and an HTML comment are left alone. Affects anyone writing an `[Unreleased]` entry.
 
 ### Fixed
+- **the coverage instrument stopped recording lines that ran (refs #946)** --
+  kcov reads bash coverage out of the xtrace stream and tracks single-quote
+  parity across lines; while it believes it is mid-quote it discards every
+  line, markers included. The alpine 3.24 bump brought bash 5.3, whose xtrace
+  switched to ANSI-C quoting (`$'a\nb'`, an embedded quote written `\'`), and
+  each of those flipped the counter. 572 lines that had just run, across
+  sixteen untouched files, were reported as never run -- 84.97% -> 77.60% with
+  no source change. The tooling image now patches that counter, and a
+  behavioural spec fails loudly on an unpatched one.
 - **the least-privilege guards now query a YAML parser instead of matching
   indentation (refs #957)** -- four legal workflow shapes made a job or a
   grant INVISIBLE to them, which is the fail-open direction for a scan whose

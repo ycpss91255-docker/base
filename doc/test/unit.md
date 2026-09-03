@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3352 tests**.
+Unit specs under `test/bats/unit/`: **3356 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -4090,7 +4090,7 @@ rather than an assurance.
 | `tool pins reader: a version is matched whole, not as a prefix of a longer one` | 0.11.0 must not be satisfied by 0.11.01 or by 10.11.0 |
 | `tool pins reader: the dots in a version are literal, not any-character` | An unescaped regex dot would let 0x11x0 pass as 0.11.0 |
 
-### test/bats/unit/probe_test_tools_spec.bats (14)
+### test/bats/unit/probe_test_tools_spec.bats (16)
 
 Unit tests for `script/ci/probe_test_tools.sh`, the CI-side verdict on
 whether a pulled `test-tools:main` corresponds to the checkout that pulled
@@ -4116,4 +4116,26 @@ which is what lets the decision logic be driven here with no daemon.
 | `probe: an empty REQUIRED_TOOLS is refused rather than passing vacuously (#947)` | A probe over an empty list answers yes to every image |
 | `probe: a PINNED tool absent from REQUIRED_TOOLS is refused as a contradiction (#947)` | A tool whose version matters that the probe never looks for is drift, not narrowing |
 | `probe: main refuses an invocation that names no image (#947)` | A usage error is its own exit status, not a verdict about an image |
+| `probe: end to end, an image reporting the pinned versions is accepted (#947)` | Drives the script as a program over a PATH-shimmed docker, so the one function that touches the daemon is actually entered |
+| `probe: end to end, an image reporting a STALE version is refused (#947)` | The whole point of the probe, asserted end to end: present but out of date is a refusal, not a pass |
 | `probe: the Dockerfile defaults to this checkout's, not the caller's cwd (#947)` | A cwd change must not silently turn the comparison into an unreadable-pin refusal |
+
+### test/bats/unit/kcov_bash_instrumentation_spec.bats (2)
+
+Asserts about the MEASURING INSTRUMENT rather than about the code, because
+the instrument is the one input to the coverage gate that nothing was
+watching. kcov reads bash coverage out of the xtrace stream and tracks
+single-quote parity across lines; while it believes it is inside an
+unterminated quote it discards every line it reads, markers included. bash
+5.3 changed xtrace to ANSI-C quoting (`$'a\nb'`, embedded quotes written
+`\'`), each of which flipped that counter -- so a burst of lines that had
+just executed was reported as never run, silently, with the suite green.
+`dockerfile/Dockerfile.test-tools` patches the parity counter; these two
+tests are its acceptance, and they are behavioural (run the real kcov over
+a fixture and read the report) so an image built from an unpatched kcov
+fails them whatever the Dockerfile says.
+
+| Test | Description |
+|------|-------------|
+| `kcov: lines after an ANSI-C $'...' value are recorded as run (bash 5.3 xtrace quoting)` | The bug: an embedded `\'` must not flip the quote-parity counter and swallow the following lines |
+| `kcov: a backslash inside a plain '...' value stays literal, so the next line is recorded` | The over-correction: inside `'...'` a backslash is literal, so a value ending in one really does close its quote |

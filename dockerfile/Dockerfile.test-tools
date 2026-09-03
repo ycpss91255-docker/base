@@ -82,11 +82,56 @@ RUN apk add --no-cache curl xz && \
 # (codecov threshold is 1%) and were bit-stable across repeated runs.
 FROM alpine:${ALPINE_VERSION} AS kcov-builder
 ARG KCOV_VERSION
+# The sed block below is a LOCAL PATCH to kcov's bash engine, and it is the
+# reason this stage is more than a clone-and-make. Do not drop it without
+# re-running test/bats/unit/kcov_bash_instrumentation_spec.bats, which is
+# the fixture that fails when it is missing.
+#
+# kcov collects bash coverage by setting PS4 to `kcov@${BASH_SOURCE}@${LINENO}@`
+# and reading the xtrace stream. A traced command's text follows the marker on
+# the same line, so a value CONTAINING a newline used to arrive as several
+# physical lines -- and the continuation lines carry no marker. kcov therefore
+# tracks single-quote parity across lines (getInputType / INPUT_SINGLE_QUOTE):
+# while it believes it is inside an unterminated quote it DISCARDS every line
+# it reads, markers included.
+#
+# Its parity counter honours a backslash escape only while OUTSIDE a quote,
+# which was right for bash <= 5.2: those emit such a value as real multiple
+# lines quoted `'...'`, where `\'` cannot occur. bash 5.3 changed the xtrace
+# quoting to ANSI-C -- one line, `$'a\nb'`, with any embedded quote written
+# `\'`. Each of those flips the counter, so a command whose value holds an ODD
+# number of them leaves kcov convinced it is mid-quote, and it then throws away
+# every following trace line until the parity happens to flip back. Nothing
+# fails: the run is green and a contiguous BURST of executed lines is simply
+# reported as never run. Measured on this repo's suite, that silently moved the
+# project line rate by 7.4 points (84.97% -> 77.60%) with no source change --
+# the coverage gate cannot tell that from a real regression.
+#
+# So teach the counter about ANSI-C quoting: remember whether the quote was
+# opened as `$'` and, inside such a quote only, treat a backslash as escaping
+# the next character. Plain `'...'` keeps bash's rule that a backslash inside
+# it is literal. The greps are the acceptance: sed silently does nothing when
+# an anchor moves, so a future KCOV_VERSION that reshapes this function must
+# fail the BUILD rather than quietly resume under-reporting.
 RUN apk add --no-cache \
         cmake make g++ binutils-dev curl-dev elfutils-dev libdwarf-dev \
         zlib-dev python3 git && \
     git clone --depth 1 -b "${KCOV_VERSION}" \
         https://github.com/SimonKagstrom/kcov /tmp/kcov && \
+    sed -i \
+      -e 's|enum InputType out = m_inputType;|enum InputType out = m_inputType;\n\t\tbool ansiC = false;|' \
+      -e 's|\&\& out == INPUT_NORMAL)|\&\& (out == INPUT_NORMAL \|\| ansiC))|' \
+      -e 's|out = (out == INPUT_NORMAL ? INPUT_SINGLE_QUOTE : INPUT_NORMAL);|{ ansiC = (out == INPUT_NORMAL \&\& i > 0 \&\& str[i - 1] == 36 /* dollar: ANSI-C quoting */); out = (out == INPUT_NORMAL ? INPUT_SINGLE_QUOTE : INPUT_NORMAL); }|' \
+      /tmp/kcov/src/engines/bash-engine.cc && \
+    for _marker in \
+        'bool ansiC = false;' \
+        '(out == INPUT_NORMAL || ansiC))' \
+        'ansiC = (out == INPUT_NORMAL && i > 0 && str[i - 1] == 36'; do \
+      [ "$(grep -cF "${_marker}" /tmp/kcov/src/engines/bash-engine.cc)" = 1 ] || { \
+        echo "kcov ${KCOV_VERSION} bash-engine.cc no longer matches the ANSI-C xtrace-quoting patch (missing: ${_marker}). Re-derive the patch against this version before bumping it -- an unpatched kcov under bash >= 5.3 silently under-reports coverage." >&2; \
+        exit 1; \
+      }; \
+    done && \
     cmake -S /tmp/kcov -B /tmp/kcov/build && \
     make -C /tmp/kcov/build -j"$(nproc)" && \
     make -C /tmp/kcov/build install

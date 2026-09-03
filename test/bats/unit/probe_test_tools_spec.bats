@@ -185,6 +185,73 @@ _probe_image img '${_f}'"
   assert_output --partial 'usage'
 }
 
+# ── the whole script, over a fake docker ────────────────────────────────────
+#
+# Everything above overrides `_probe_run`, which is what makes the decision
+# logic testable without a daemon -- and it also means the one function in
+# this file that actually touches docker was never entered by anything, and
+# neither was main's delegation to the verdict. A typo in that `docker run`
+# line would have shipped: the probe's own failure path is "rebuild from
+# source", so a probe that cannot run at all still leaves CI green, just
+# slower and no longer checking anything.
+#
+# So these two drive the script as a PROGRAM -- `bash script/ci/...` -- with
+# a `docker` shim first on PATH, the idiom prune_sh_spec / run_sh_spec /
+# wrapper_lib_spec already use. The shim answers as the real image would,
+# and the versions it reports are READ from the Dockerfile like everywhere
+# else in this file, so a pin bump still touches one place.
+
+# _fake_docker <bin_dir> <shellcheck-version> <hadolint-version>
+#   A `docker` that answers the two questions _probe_run asks -- presence
+#   (`command -v <tool>`) and version -- for the versions given. It reads
+#   the LAST argument, which is the `sh -c` command string, so it also
+#   fails the test if _probe_run ever stops passing one.
+_fake_docker() {
+  local _dir="${1:?BUG: _fake_docker expects a bin dir}"
+  local _sc="${2:?BUG: _fake_docker expects a shellcheck version}"
+  local _hd="${3:?BUG: _fake_docker expects a hadolint version}"
+  mkdir -p "${_dir}"
+  cat > "${_dir}/docker" <<EOS
+#!/usr/bin/env bash
+_cmd="\${*: -1}"
+case "\${_cmd}" in
+  'command -v '*)        exit 0 ;;
+  'shellcheck --version') echo 'ShellCheck - shell script analysis tool'
+                          echo 'version: ${_sc}' ;;
+  'hadolint --version')   echo 'Haskell Dockerfile Linter ${_hd}' ;;
+  *) echo "fake docker: unexpected command: \${_cmd}" >&2; exit 127 ;;
+esac
+EOS
+  chmod +x "${_dir}/docker"
+}
+
+@test "probe: end to end, an image reporting the pinned versions is accepted (#947)" {
+  local _sc _hd
+  _sc="$(bash -c "$(_src); _probe_pinned_version '${DOCKERFILE}' shellcheck")"
+  _hd="$(bash -c "$(_src); _probe_pinned_version '${DOCKERFILE}' hadolint")"
+  _fake_docker "${TEMP_DIR}/bin" "${_sc}" "${_hd}"
+  # No dockerfile argument: this is CI's own invocation shape, so the
+  # default-resolution branch of main runs here too.
+  PATH="${TEMP_DIR}/bin:${PATH}" run bash "${PROBE}" some-image:tag
+  assert_success
+  assert_output --partial 'every required tool'
+}
+
+@test "probe: end to end, an image reporting a STALE version is refused (#947)" {
+  # The failure this whole file exists for: the tool is present, so a
+  # presence check passes, and the lint gate would run the previous rule
+  # set behind a green check.
+  local _sc _hd
+  _sc="$(bash -c "$(_src); _probe_pinned_version '${DOCKERFILE}' shellcheck")"
+  _hd="$(bash -c "$(_src); _probe_pinned_version '${DOCKERFILE}' hadolint")"
+  _fake_docker "${TEMP_DIR}/bin" '0.1.0' "${_hd}"
+  PATH="${TEMP_DIR}/bin:${PATH}" run bash "${PROBE}" some-image:tag "${DOCKERFILE}"
+  assert_failure 1
+  assert_output --partial 'shellcheck'
+  assert_output --partial '0.1.0'
+  assert_output --partial "${_sc}"
+}
+
 @test "probe: the Dockerfile defaults to this checkout's, not the caller's cwd (#947)" {
   # CI invokes it with the image alone from the repo root; the default must
   # resolve off the script's own location so a cwd change cannot silently
