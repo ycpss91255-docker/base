@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3345 tests**.
+Unit specs under `test/bats/unit/`: **3346 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3710,7 +3710,7 @@ inside the test that produces it, each case writes a one-test spec into
 | `no spec opens with a fail-open '\|\| skip' existence guard` | The repo-wide invariant, so the idiom cannot creep back in |
 | `the fail-open guard scan sees every spelling of the check, not just [[ -f ]]` | The invariant must be green because no guard exists, not because its pattern is blind |
 
-### test/bats/unit/errexit_bang_lint_spec.bats (82)
+### test/bats/unit/errexit_bang_lint_spec.bats (83)
 
 | Test | Description |
 |------|-------------|
@@ -3783,6 +3783,7 @@ inside the test that produces it, each case writes a one-test spec into
 | `_run_errexit_bang: does not flag a bang that continues the previous line (#956)` | - |
 | `_run_errexit_bang: does not flag a bang outside any test body (#956)` | - |
 | `_run_errexit_bang: does not flag a commented-out bang (#956)` | - |
+| `_run_errexit_bang: KNOWN MISS -- a bang list whose final operand is an echo, as the body's last statement (base#992) (#956)` | - |
 | `_run_errexit_bang: FAILS when the repo holds no *.bats at all (#956)` | - |
 | `_run_errexit_bang: FAILS when the spec directories are all empty (#956)` | - |
 | `_run_errexit_bang: does NOT scan the released-tree archives (#956)` | - |

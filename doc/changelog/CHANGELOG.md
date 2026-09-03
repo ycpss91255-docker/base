@@ -136,7 +136,7 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   errexit either", which bash contradicts when B is itself `!`-inverted:
   `set -e; f(){ ! true || ! true; echo REACHED; }; f` prints REACHED. So
   `! A || ! B` outside the body's last statement aborts nothing -- the one
-  inert shape the exemption covered. It is now declined whenever an operand
+  inert shape the exemption covered. It is now declined whenever a RIGHT operand
   opens with `!`, leaving the statement to the position and `;` rules, the
   single-line spelling included. `! A || ! B || return 1` can still fail and is
   reported anyway; that over-report costs one allow region.

@@ -101,8 +101,10 @@
 # inert assertion this lint is named for:
 #   set -e; f(){ ! true || ! true; echo REACHED; }; f  -> REACHED, 0
 #   set -e; f(){ ! true || false;  echo REACHED; }; f  -> aborts,  1
-# The exemption is therefore DECLINED as soon as any operand in the list
-# opens with `!`, and the statement falls through to the position and `;`
+# The exemption is therefore DECLINED as soon as any RIGHT operand in
+# the list -- an operand AFTER one of those operators, never the leading
+# `!` that made the statement a candidate in the first place -- opens
+# with `!`, and the statement falls through to the position and `;`
 # rules like every other one. As the body's LAST statement it still
 # passes, because there its own status is the verdict (B succeeding
 # returns 1) -- position, not the exemption, is what makes that case
@@ -302,12 +304,26 @@
 #     heredocs carry is the other shape in that note: a `}` at column 0
 #     inside one closes the body early.
 #   - Compound commands -- `if`, `while`, `for`, `case`, a `{ ... }`
-#     list. A block's STATUS is its last command's, but the scan reads
-#     each line inside one as its own statement and counts the closing
-#     `fi` / `done` / `esac` / `}` as the body's last. A `!` that ends
-#     such a block, where the block ends the test body, is therefore
-#     reported although it IS the verdict. OVER-reports; refusing
-#     direction; costs one allow region. base#991 tracks it.
+#     list. Wrong in BOTH directions, which this entry claimed until the
+#     shapes were run. A block's STATUS is its last command's, but the
+#     scan reads each line inside one as its own statement and counts
+#     the closing `fi` / `done` / `esac` / `}` as the body's last, so a
+#     `!` that ends such a block where the block ends the test body is
+#     reported although it IS the verdict: OVER-reports, refusing
+#     direction, one allow region. The `{ ... }` spelling also MISSES,
+#     the other way: a brace group carries the `!` exemption OUT of
+#     itself, so a one-line `{ ! grep -q A f; }` away from the body's
+#     last statement is an inert assertion and nothing reports it --
+#     `_ERREXIT_BANG_STMT_RE` needs `!` as the statement's first token
+#     and here that token is `{`. Verified rather than reasoned:
+#       set -e; b(){ { ! true; }; echo REACHED; }; b -> REACHED, 0
+#       set -e; b(){ { false; };  echo REACHED; }; b -> aborts,  1
+#       set -e; b(){ ( ! true );  echo REACHED; }; b -> aborts,  1
+#     -- a SUBSHELL does not carry it out, so silence on `( ! A )` is
+#     right and only the brace form hides anything. Every `{ !` this
+#     tree's specs hold sits inside a `run bash -c '...'` fixture
+#     string, where the statement opener is `run`, so no body has one as
+#     a statement today (grepped). base#991 tracks both halves.
 #   - CRLF line endings. `IFS= read -r` keeps the `\r`, so a trailing
 #     backslash escapes the CARRIAGE RETURN rather than the newline and
 #     the continuation is never seen. Mostly that over-reports (the
@@ -936,13 +952,23 @@ _errexit_bang_scan_file() {
           # so this statement can fail its test from any position: out of
           # both rules, not merely out of this one.
           #
-          # The second test is what keeps that true. An operand opening
-          # with `!` IS exempt from errexit, so a list holding one aborts
-          # nothing and is inert everywhere but the body's last statement
-          # -- the position rule's case, reached by declining the
-          # exemption here rather than by widening it. See the header for
-          # why the whole class is declined, including the chains that
-          # can still fail.
+          # The second test is what keeps that true. A right operand
+          # opening with `!` IS exempt from errexit, so a list whose
+          # FINAL operand is `!`-inverted aborts nothing and is inert
+          # everywhere but the body's last statement -- the position
+          # rule's case, reached by declining the exemption here rather
+          # than by widening it.
+          #
+          # It is the FINAL operand that decides, not the presence of
+          # one: `! true || ! true || return 1` also holds a `!` operand
+          # and DOES abort from a non-final position (verified, and
+          # pinned by a spec that runs it). This test cannot tell the
+          # two apart, because which operand ends up owning the verdict
+          # needs the chain EVALUATED rather than read -- so the
+          # exemption is declined for the whole class and the live
+          # chains are reported alongside the inert ones. That
+          # over-report costs one allow region, the refusing direction
+          # this file takes. See the header.
           :
         elif [[ "${_lbcode}" =~ ${_ERREXIT_BANG_SEQ_RE} ]]; then
           _ebsf_rows+=("${_rel}:${_lbstart}: ${_lbtext}  -- the '!' hands its status to another command in this statement (';')")

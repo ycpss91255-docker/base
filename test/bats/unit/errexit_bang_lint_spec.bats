@@ -1264,6 +1264,49 @@ _write() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# Known misses, pinned rather than left to be rediscovered
+# ════════════════════════════════════════════════════════════════════
+
+@test "_run_errexit_bang: KNOWN MISS -- a bang list whose final operand is an echo, as the body's last statement (base#992) (#956)" {
+  # PINS CURRENT BEHAVIOUR, NOT WANTED BEHAVIOUR. This body holds two
+  # assertions that both FAIL and still returns 0, so it is a real
+  # violation of this lint's rule, and the lint is silent on it. INVERT
+  # this spec when base#992 lands: the `-eq 0` below becomes `-ne 0`
+  # plus a row naming `x_spec.bats:2`.
+  #
+  # Why it is missed, traced rather than assumed. The live-`||`
+  # exemption is NOT what lets it through: `&& !` puts a `!` right
+  # operand in the list, so `_ERREXIT_BANG_BANG_OPERAND_RE` declines
+  # that exemption and the statement falls to the position and `;`
+  # rules, exactly as it should. There is no `;`, so position is all
+  # that is left -- and position is right only where the statement's
+  # OWN status is the body's verdict. Here the list's final operand is
+  # an `echo` that cannot fail, so the list is inert in EVERY position
+  # and being last saves nothing. What would catch it is reading
+  # `|| echo x` as the inert hand-off it is, the way `|| true` /
+  # `|| :` are read; that reading is held to the closed set of
+  # always-zero builtins on purpose, and base#992 tracks the narrowing.
+  #
+  # First: this really is inert. Both patterns are present, so BOTH
+  # `!` assertions fail; the `&&` arm is skipped and the `||` runs the
+  # echo, whose 0 becomes the body's verdict.
+  printf '%s\n' Z A > "${SCRATCH}/f"
+  run bash -c 'set -e; f="$1"; body() { ! grep -q Z "${f}" && ! grep -q A "${f}" || echo x; }; body' \
+    _ "${SCRATCH}/f"
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == "x" ]]
+
+  # Second: the lint says nothing about it today.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "two failing assertions, verdict handed to an echo" {' \
+    '  ! grep -q Z f &&' \
+    '  ! grep -q A f || echo x' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -eq 0 ]
+}
+
+# ════════════════════════════════════════════════════════════════════
 # Population: a scan that found nothing is not a pass
 # ════════════════════════════════════════════════════════════════════
 
