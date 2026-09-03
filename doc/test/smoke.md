@@ -137,13 +137,24 @@ off.
 ### dist/test/bats/smoke/shared/entrypoint.bats (3)
 
 The cross-stage baseline that runs inside every `-test` stage (devel-test
-and runtime-test). Asserts only the universal surface — the installed
-entrypoint and bash on PATH — so it never touches `/lint` (populated only
-in devel-test).
+and runtime-test). Asserts only the universal surface — both halves of the
+installed entry point (ADR-00000030) and bash on PATH — so it never touches
+`/lint` (populated only in devel-test).
+
+The orchestrator half skips (rather than fails) on an image whose
+`/entrypoint.sh` still execs, i.e. one running the pre-ADR-00000030
+single-file model. This file reaches a consumer through `.base/dist/`,
+which `just upgrade` refreshes, while the Dockerfile that installs the
+orchestrator is the consumer's own — and on the optional runtime stage that
+install is opt-in. Without the guard, a repo running the optional
+runtime-test bats smoke would go red on the upgrade that delivers this spec,
+over a model it has not adopted. The guard is narrow: once the bringup stops
+execing, the repo has adopted the model and a missing orchestrator is a
+container that will not start, so it fails.
 
 | Test | Description |
 |------|-------------|
-| `the base entrypoint orchestrator is installed and executable` | - |
+| `the base entrypoint orchestrator is installed and executable` | Orchestrator present on the two-file model; skipped on the single-file one |
 | `entrypoint.sh is installed and executable` | Entrypoint present |
 | `bash is available on PATH` | Core shell present |
 

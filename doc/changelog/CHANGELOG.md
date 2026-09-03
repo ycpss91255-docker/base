@@ -73,7 +73,12 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   unbound `AMENT_TRACE_SETUP_FILES` then kills the container before the
   workload starts; the existing nounset-source migration now reads the
   `ENTRYPOINT` as a second source of nounset, so it heals a repo that
-  flipped without it on the next upgrade.
+  flipped without it on the next upgrade. The shipped smoke baseline now
+  asserts BOTH halves of the entry point, so dropping the orchestrator's
+  COPY can no longer produce a container that will not start and a green
+  build -- guarded on the model, so an un-migrated repo running the
+  optional runtime-test bats smoke is not failed by a spec its Dockerfile
+  never opted into.
 - **the dev bind and the deploy bake now cover every `config/<component>/`, not the literal `config/app` (closes #1000)**
   -- both halves tested one hardcoded directory name **no repo in the org
   has**, so the `[[ -d ]]` was always false: nothing mounted, nothing baked,

@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3626 tests**.
+Unit specs under `test/bats/unit/`: **3635 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -990,7 +990,7 @@ forwarding for caller abort, and DRY_RUN skip.
 | `_run_pre_hook: DRY_RUN=true -> hook skipped silently (#440)` | DRY_RUN skip (pre) |
 | `_run_post_hook: DRY_RUN=true -> hook skipped silently (#440)` | DRY_RUN skip (post) |
 
-### test/bats/unit/dockerfile_migrate_spec.bats (98)
+### test/bats/unit/dockerfile_migrate_spec.bats (102)
 
 Unit tests for the declarative Dockerfile-migration list
 `lib/dockerfile_migrate.sh` (#567, folds #579 facet B). The lib exposes a
@@ -1091,6 +1091,10 @@ shape auto-applies idempotently, a missing/ambiguous shape is skipped
 | `migration 8 (nounset-source): brackets the ROS source with set +u/-u (#579)` | - |
 | `migration 8 (nounset-source): idempotent — already-guarded source untouched (#579)` | - |
 | `migration 8 (nounset-source): detect false when no set -u in entrypoint (#579)` | - |
+| `migration 8 (nounset-source): fires under the orchestrator when the bringup sets nothing (#945)` | ENTRYPOINT as the second source of nounset |
+| `migration 8 (nounset-source): brackets that bringup's source, directive and all (#945)` | Bracket restores the orchestrator's mode |
+| `migration 8 (nounset-source): silent under the orchestrator with no ROS source (#945)` | Trigger is the source, not the ENTRYPOINT |
+| `migration 8 (nounset-source): still silent pre-flip, where nothing imposes nounset (#945)` | No nounset to restore pre-flip |
 | `migration (entrypoint-orchestrator): notices a repo still running its own entrypoint (#945)` | - |
 | `migration (entrypoint-orchestrator): the notice changes nothing on disk (#945)` | - |
 | `migration (entrypoint-orchestrator): silent once the ENTRYPOINT is the orchestrator (#945)` | - |
@@ -2560,7 +2564,7 @@ are hard to trigger from a real `bash template/init.sh` invocation
 | `_init_restore_tree: refuses to delete when its snapshot copy is missing (#937)` | - |
 | `_init_existing_repo: hands back the caller's EXIT trap on success (#937)` | - |
 
-### test/bats/unit/smoke_helper_spec.bats (28)
+### test/bats/unit/smoke_helper_spec.bats (33)
 
 Exercises the runtime assertion helpers shipped in
 `dist/test/bats/smoke/shared/test_helper.bash` (used by downstream-repo
@@ -2596,6 +2600,11 @@ smoke specs via `load "${BATS_TEST_DIRNAME}/test_helper"`).
 | `run_wrapper_xhost: fails when the wrapper path does not exist` | - |
 | `run_wrapper_xhost: fails when the wrapper's lib/ cannot be located` | - |
 | `run_wrapper_xhost: errors when the wrapper path arg is missing` | - |
+| `entrypoint_is_single_file: true for a file that execs the workload` | Pre-ADR-30 model detected |
+| `entrypoint_is_single_file: false for a bringup that only sets env` | Two-file model detected |
+| `entrypoint_is_single_file: a commented exec is not an exec` | Commented exec is not the model |
+| `entrypoint_is_single_file: false when the path does not exist` | Missing file is not the old model |
+| `entrypoint_is_single_file: errors when the path arg is missing` | Usage error |
 
 ### test/bats/unit/runtime_smoke_spec.bats (8)
 

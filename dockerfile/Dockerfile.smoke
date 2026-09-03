@@ -142,6 +142,12 @@ COPY --chmod=0755 dist/dockerfile/entrypoint.sh /entrypoint.sh
 # (ADR-00000030). A consumer gets the whole runtime helper directory from
 # the devel stage's `COPY .base/dist/script/docker/runtime/`; here the same
 # directory is base's own dist/, since base carries no .base/ subtree.
+# That assertion is guarded on the entry-point MODEL (it skips where
+# /entrypoint.sh still execs, so an un-migrated consumer's runtime-test is
+# not failed by a spec its Dockerfile never opted into), and the guard
+# cannot weaken the gate here: the bringup COPYed above is the seeded
+# template, which carries no exec. Delete the COPY below and this stage
+# goes red, which is the point of pinning it.
 COPY --chmod=0755 dist/script/docker/runtime/ /usr/local/lib/base/
 
 # ── mirrors `devel-test` ────────────────────────────────────────────────
