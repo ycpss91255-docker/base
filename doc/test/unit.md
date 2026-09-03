@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3602 tests**.
+Unit specs under `test/bats/unit/`: **3609 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -4359,3 +4359,15 @@ rather than an assurance.
 | `_run_adr_structure: REFUSES when doc/adr/ holds ONLY the exempt README (#994)` | - |
 | `_run_adr_structure: REFUSES when doc/adr/ does not exist (#994)` | - |
 | `_run_adr_structure: the REAL doc/adr/ passes today (#994)` | - |
+
+### test/bats/unit/entrypoint_spec.bats (7)
+
+| Test | Description |
+|------|-------------|
+| `orchestrator runs logging, then the bringup, then the watchdog, then the workload (#945)` | - |
+| `the watchdog sees a knob the bringup set, because bringup is sourced first (#945)` | - |
+| `environment the bringup exports reaches the workload (#945)` | - |
+| `a non-executable bringup still runs, because it is sourced (#945)` | - |
+| `a missing bringup and missing helpers still start the workload cleanly (#945)` | - |
+| `the workload's argv survives verbatim, spaces included (#945)` | - |
+| `executed directly, the orchestrator drives the in-image paths (#945)` | - |
