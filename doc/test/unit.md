@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3566 tests**.
+Unit specs under `test/bats/unit/`: **3569 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -808,7 +808,7 @@ thirteen cumulative invariants:
 | `release` job needs `[shellcheck, hadolint, bats-fragile, bats-integration, coverage, integration-e2e, system]` before publishing a tag (#376 + #377 + #677) | 1 |
 | Probe-and-rebuild against a stale/racing `:main`: `bats-fragile` + `coverage` Obtain probe for kcov and rebuild on a miss + `REQUIRED_TOOLS` list is extensible + all five `build_local` obtain steps carry the guard (#697) | 4 |
 
-### test/bats/unit/release_test_tools_yaml_spec.bats (22)
+### test/bats/unit/release_test_tools_yaml_spec.bats (25)
 
 Structural assertions for `.github/workflows/release-test-tools.yaml`.
 Locks the publish surface that downstream Dockerfile.example's `FROM
@@ -832,7 +832,7 @@ Smoke step uses `steps.tags.outputs.smoke` so it always pulls the tag
 the current trigger produced (rather than statically pulling `:latest`,
 which would leave a freshly-pushed `:main` unverified).
 
-Five of the assertions RUN the resolver rather than reading it: the
+Four of the assertions RUN the resolver rather than reading it: the
 step's own `run:` body is extracted with yq and executed against each ref
 shape. The text-reading assertions above them stayed green through four
 RC tags that each moved `:latest`.
@@ -847,6 +847,9 @@ RC tags that each moved `:latest`.
 | Smoke step pulls trigger's tag via `steps.tags.outputs.smoke` (#317 P2) | 1 |
 | Resolver EXECUTED over the four ref shapes (#1012): a release tag moves `:latest`; an RC tag does not; a main push publishes `:main` only; an unrecognised ref exits non-zero and publishes nothing | 4 |
 | Header prose describes the rules the resolver applies, not a dispatch-only `:latest` branch the code cannot reach (#1012) | 1 |
+| Smoke step derives its version assertions from the pin roster, and refuses an empty roster (#1012) | 2 |
+| The merge job's checkout rationale names the roster the smoke step reads, not the file it stopped reading (#1012) | 1 |
+| This spec's own header, and its section of this file, describe the surface the cases pin -- the table sums to the spec's case count (#1012) | 2 |
 | Native-runner matrix (#587): drops `setup-qemu-action`; `compute-matrix` maps platforms to native runners; build shards run on `matrix.runner`; build per-platform + push by digest; `merge` job creates the manifest via `imagetools` | 5 |
 | Declares `packages: write` permission | 1 |
 | Build job carries the same-repository guard (#766) | 1 |

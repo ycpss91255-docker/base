@@ -170,10 +170,13 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      # The smoke step below asserts the published image's `just` against
-      # the declaration it was built from (ARG JUST_VERSION, read via
-      # dist/script/base/just-version.sh), so this job needs the tree --
-      # it previously needed none.
+      # The smoke step below asserts the published image against the
+      # declarations it was built from -- every `ARG <NAME>_VERSION=` in
+      # dockerfile/Dockerfile.test-tools, read through
+      # script/ci/test-tools-pins.sh -- and the tag resolver below asks
+      # script/ci/release-ref.sh whether the tag is a prerelease. Both
+      # live in the tree, so this job checks it out; it previously needed
+      # none.
       - name: Checkout
         uses: actions/checkout@v7
 

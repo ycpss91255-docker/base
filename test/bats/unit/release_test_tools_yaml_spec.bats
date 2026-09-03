@@ -8,9 +8,12 @@
 # test-tools-stage`). The workflow has three publish modes; the first
 # two ship behaviour that downstream CI depends on:
 #
-# 1. **Tag push (`v*`)** — multi-arch `:<version>` + `:latest`. Cuts
-#    the release that downstream consumers pin via
-#    `inputs.test_tools_version` on build-worker / publish-worker.
+# 1. **Tag push (`v*`)** — multi-arch `:<version>`, plus `:latest` only
+#    when the tag is NOT a prerelease. Cuts the release downstream
+#    consumers pin via `inputs.test_tools_version` on build-worker /
+#    publish-worker — whose default IS `latest`, which is why an RC tag
+#    must leave it alone. `v0.42.0-rc1` through `-rc4` each matched the
+#    `v*` trigger and each moved it.
 #
 # 2. **Main push** (P2) — multi-arch `:main` rolling tag. The
 #    template's own self-test.yaml pulls this in its Obtain step to
@@ -19,8 +22,10 @@
 #    Dockerfile.test-tools or this workflow, so most main-branch
 #    merges don't churn GHCR.
 #
-# 3. **workflow_dispatch** — manual `:latest` republish. Bootstrap
-#    path; kept un-filtered.
+# 3. **workflow_dispatch** — no tag set of its own: it resolves by the
+#    ref it was dispatched FROM (main takes the `:main` arm, a `v*` tag
+#    takes the tag rules above). Unrestricted by ref, so any other ref is
+#    REFUSED rather than resolved to the tag every downstream consumes.
 #
 # Smoke test step uses `steps.tags.outputs.smoke` so it always pulls
 # the tag the current trigger produced (rather than statically
