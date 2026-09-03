@@ -410,7 +410,7 @@ readonly _SM_MAX_PARAMS=5
 #     should be looking at.
 readonly _SM_DEPTH_CEILING=23
 readonly _SM_LENGTH_CEILING=77
-readonly _SM_PARAMS_CEILING=8
+readonly _SM_PARAMS_CEILING=5
 
 # ── Reader state ─────────────────────────────────────────────────────────────
 #
