@@ -159,7 +159,10 @@ report rather than a request for approval.
 - The worker now refuses a tag that is not `vX.Y.Z[-suffix]`. Any repo that
   released under a differently-shaped tag fails at the resolve step with the
   expected shape in the message, instead of publishing a release nothing can
-  pin (ADR-00000002).
+  pin (ADR-00000002). Measured before landing: the resolver accepts all 242
+  tags the org's 17 downstream repos and base carry today -- 130 of them
+  base's own, 157 distinct names across the set -- refusing none, so the
+  rule costs nothing already shipped and only constrains what is cut next.
 - An auto-released Z does not fan out, by ADR-00000027 section 4, so this
   cannot turn one dependency bump into seventeen upgrade PRs.
 
