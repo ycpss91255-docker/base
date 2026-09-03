@@ -8,7 +8,7 @@
 
 - **Date:** 2026-08-28
 - **Status:** Accepted
-- **Amended:** 2026-09-03 (ADR-00000030) -- sections 1 and 3 gain a
+- **Amended:** 2026-09-03 (ADR-00000031) -- sections 1 and 3 gain a
   third actor. A Z may also be cut by a GATE, with no person and no
   agent in the loop, in the one case a gate can decide: a downstream
   repo's ABI-safe dependency bump. See the amendment section at the
@@ -275,7 +275,7 @@ whatever tag reaches it and carries no cadence text to keep in sync.
   either way. It buys ceremony at the point of least risk and nothing at
   the point of most.
 
-## Amendment (ADR-00000030): a Z may be cut by a gate, and only a Z
+## Amendment (ADR-00000031): a Z may be cut by a gate, and only a Z
 
 - **Amendment status:** Accepted -- extends sections 1 and 3; reverses
   nothing. Section 2 (X and Y are the maintainer's) is untouched and is
@@ -286,7 +286,7 @@ Z on its own initiative, and a maintainer who cuts X and Y. Section 3 makes
 the agent's *classification* the last gate before a tag exists, and requires
 it to record the reasoning so a wrong call is reviewable afterwards.
 
-ADR-00000030 adds a third actor for one narrow case. A downstream repo that
+ADR-00000031 adds a third actor for one narrow case. A downstream repo that
 bumps a pinned dependency can auto-release the result **when a gate proves
 the bump ABI-safe**, with no agent and no person in the loop. Three things
 keep that inside this record rather than around it:

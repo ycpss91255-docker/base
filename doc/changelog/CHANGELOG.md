@@ -113,7 +113,7 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 
 ### Added
 - **a dependency bump auto-releases only when a gate proves it ABI-safe
-  (closes #829, ADR-00000030)** -- `script/ci/abi-gate.sh` asks one
+  (closes #829, ADR-00000031)** -- `script/ci/abi-gate.sh` asks one
   question, did this dependency's declared ABI component move, and refuses
   everything else: an unreadable version, an undeclared or unrecognised
   axis, a 0.x pin declared major-only, a downgrade, an unchanged pin, a pair
