@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3513 tests**.
+Unit specs under `test/bats/unit/`: **3517 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -4236,7 +4236,7 @@ rather than an assurance.
 | `release-test-tools.yaml: the just smoke check asserts the version, not exit 0 (#948)` | - |
 
 
-### test/bats/unit/adr_structure_spec.bats (24)
+### test/bats/unit/adr_structure_spec.bats (28)
 
 | Test | Description |
 |------|-------------|
@@ -4250,6 +4250,10 @@ rather than an assurance.
 | `_run_adr_structure: a heading inside a fenced code block does NOT satisfy the check (#994)` | - |
 | `_run_adr_structure: a heading in a backtick block nested in a longer backtick fence does NOT satisfy the check (#994)` | - |
 | `_run_adr_structure: a closing fence LONGER than its opener still closes it (#994)` | - |
+| `_run_adr_structure: an over-indented marker inside a block does NOT close it (#994)` | - |
+| `_run_adr_structure: a fence indented WITH its opener still closes (#994)` | - |
+| `_run_adr_structure: a backtick block nested in a TILDE fence does not satisfy the check (#994)` | - |
+| `_run_adr_structure: a fence left OPEN at EOF swallows the rest of the file (#994)` | - |
 | `_run_adr_structure: FAILS on free text after Accepted (#994)` | - |
 | `_run_adr_structure: FAILS on free text after Rejected (#994)` | - |
 | `_run_adr_structure: FAILS on a Status line that is absent entirely (#994)` | - |

@@ -213,6 +213,115 @@ _adr() {
   [[ "${output}" == *"clean"* ]]
 }
 
+@test "_run_adr_structure: an over-indented marker inside a block does NOT close it (#994)" {
+  # The other end of the same fail-open. CommonMark bounds a closing fence's
+  # indent; an over-indented ``` is block CONTENT, not a close. Reading any
+  # indent as a close ends the block early and emits the lines CommonMark
+  # keeps inside it -- here the illustration's `## Decision`, which would
+  # satisfy the section check for a file that has no Decision section.
+  {
+    echo "# A title"
+    echo
+    echo "${_SERVES}"
+    echo
+    echo "- **Status:** Accepted"
+    echo
+    echo "## Context"
+    echo
+    echo '```markdown'
+    echo '        ```'
+    echo "## Decision"
+    echo '        ```'
+    echo '```'
+    echo
+    echo "## Consequences"
+    echo "## Alternatives"
+  } > "${SCRATCH}/doc/adr/00000001-alpha.md"
+  run _run_adr_structure
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"Decision"* ]]
+}
+
+@test "_run_adr_structure: a fence indented WITH its opener still closes (#994)" {
+  # The bound is relative to the opener, not absolute: a fenced block nested
+  # in a list item is indented as a whole and must still close, or the rest
+  # of the file is swallowed and every later section is reported missing.
+  {
+    echo "# A title"
+    echo
+    echo "${_SERVES}"
+    echo
+    echo "- **Status:** Accepted"
+    echo
+    echo "## Context"
+    echo
+    echo "- an item:"
+    echo
+    echo '    ```'
+    echo "    an example"
+    echo '    ```'
+    echo
+    echo "## Decision"
+    echo "## Consequences"
+    echo "## Alternatives"
+  } > "${SCRATCH}/doc/adr/00000001-alpha.md"
+  run _run_adr_structure
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"clean"* ]]
+}
+
+@test "_run_adr_structure: a backtick block nested in a TILDE fence does not satisfy the check (#994)" {
+  # Pins the same-character half of the rule in its other direction. The
+  # inner ``` must not end the ~~~ block, so the heading it wraps stays an
+  # illustration. Passes today; pinned because the header claims both fence
+  # characters in both roles.
+  {
+    echo "# A title"
+    echo
+    echo "${_SERVES}"
+    echo
+    echo "- **Status:** Accepted"
+    echo
+    echo "## Context"
+    echo
+    echo '~~~'
+    echo '```'
+    echo "## Decision"
+    echo '```'
+    echo '~~~'
+    echo
+    echo "## Consequences"
+    echo "## Alternatives"
+  } > "${SCRATCH}/doc/adr/00000001-alpha.md"
+  run _run_adr_structure
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"Decision"* ]]
+}
+
+@test "_run_adr_structure: a fence left OPEN at EOF swallows the rest of the file (#994)" {
+  # The direction an unbalanced fence errs in, pinned because the header
+  # states it: the block is never reinterpreted, so every section after it is
+  # reported missing. Wrong defect named, right verdict -- a file nobody can
+  # parse is not a file that passes.
+  {
+    echo "# A title"
+    echo
+    echo "${_SERVES}"
+    echo
+    echo "- **Status:** Accepted"
+    echo
+    echo "## Context"
+    echo
+    echo '```'
+    echo "## Decision"
+    echo "## Consequences"
+    echo "## Alternatives"
+  } > "${SCRATCH}/doc/adr/00000001-alpha.md"
+  run _run_adr_structure
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"Decision"* ]]
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _run_adr_structure: the three-value Status contract
 # ════════════════════════════════════════════════════════════════════
