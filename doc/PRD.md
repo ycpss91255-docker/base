@@ -519,11 +519,18 @@ A rule is implemented once and every caller reaches that implementation.
 Two implementations that must agree are a drift with a delay on it, and
 the delay is however long it takes for one of them to be edited alone.
 
-*Where written:* ADR-00000011 (the CI job runs the same driver `just
-test` runs locally, so the local gate and the CI gate cannot drift);
-ADR-00000024 (the mechanical half of the rule is gated by one lint);
-invariant 8 (`_is_deployable_stage` is "the one predicate", and the
-invariant is stated in full precisely "so the two cannot disagree"); the
+*Where written:* ADR-00000011 sec.5 (one driver per tool, and the local
+lint phase and the CI lint job both run that driver -- the rule has a
+single implementation); the `_LINT_TOOLS` completeness guard in
+`test/bats/unit/self_test_yaml_spec.bats`, which is what makes the "many
+entry points" half hold rather than be hoped for: a lint can have one
+owner and still reach only one caller, and four did ship local-only
+before that guard failed a `_LINT_TOOLS` entry with no CI job (the
+`_LINT_TOOLS` table is explicitly not the CI gate -- see doc/test/TEST.md,
+"Static lints and where they are enforced"); ADR-00000024 (the
+mechanical half of the rule is gated by one lint); invariant 8
+(`_is_deployable_stage` is "the one predicate", and the invariant is
+stated in full precisely "so the two cannot disagree"); the
 `doc-counts` gate, described in `test.sh` as one rule with three entry
 points of which this is the blocking one.
 *Serves:* invariants 2 and 6.
