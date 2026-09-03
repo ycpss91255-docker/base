@@ -1264,18 +1264,29 @@ _setup_apply() {
   local -a extra_volumes=()
   _get_conf_list_sorted _vol_k _vol_v "mount_" extra_volumes
 
-  # S4: structured app-config channel. When the repo ships a
-  # config/app/ dir, dev-bind it into the container at a fixed path so
-  # structured runtime config (e.g. ros1_bridge bridge topics) is
-  # editable on the host with edit + restart, no rebuild. Convention over
-  # configuration: the directory's presence is the only switch (no
-  # setup.conf knob). The deploy flow (S6) COPY-bakes the same dir into
-  # the field image instead (immutable artifact, ADR-00000003).
+  # S4: structured app-config channel. Every config/<component>/ the repo
+  # ships is dev-bound into the container so structured runtime config
+  # (ros1_bridge bridge topics, realsense yaml/udev, isaac's fastdds.xml)
+  # is editable on the host with edit + restart, no rebuild. Convention
+  # over configuration: a directory's presence is the only switch (no
+  # setup.conf knob). The deploy flow (S6) COPY-bakes the SAME population
+  # into the field image instead (immutable artifact, ADR-00000003) --
+  # both halves read _collect_config_components (lib/deploy.sh), which is
+  # what makes PRD invariant 8's "opposite means" agree on WHICH config.
   # Emitted through the regular mount path so per-stage mount_inherit and
   # the top-level volumes: classifier (a ./ bind) apply uniformly.
-  if [[ -d "${_base_path}/config/app" ]]; then
-    extra_volumes+=("./config/app:/opt/app/config")
-  fi
+  #
+  # This used to test one literal directory, `config/app`, which no
+  # repo in the org has -- so the test was always false, nothing was
+  # mounted, and nothing said so. _report_config_components now states the
+  # outcome of every run, including the empty one.
+  local -a _cfg_components=()
+  local _cfg_component
+  _collect_config_components "${_base_path}" _cfg_components
+  for _cfg_component in ${_cfg_components[@]+"${_cfg_components[@]}"}; do
+    extra_volumes+=("./config/${_cfg_component}:$(_config_component_target "${_cfg_component}")")
+  done
+  _report_config_components "${_base_path}" ${_cfg_components[@]+"${_cfg_components[@]}"}
 
   # ── [devices] device_* + cgroup_rule_* (from the shared resolver) ──
   local _devices_str="${_dctx[devices_str]}"

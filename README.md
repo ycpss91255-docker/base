@@ -816,7 +816,7 @@ into a field deployment that ships just the image:
 |---|---|---|---|---|
 | machine-bound / set-once | GPU reservation, `privileged`, device/volume mounts, `IMAGE_NAME`, APT mirror | `setup.conf` (committed) | rendered into `compose.yaml` | resolved into the bundle's self-contained `compose.yaml` (literal values, no `${VAR}`) |
 | volatile workload **env vars** | `ROS_DOMAIN_ID`, `LOG_LEVEL`, API tokens, dataset selectors | `.env.local` (hand-authored, gitignored) | `env_file: [.env, .env.local]` -- the generated `.env` carries the `[environment]` defaults, yours override them (later file wins) | the bundle ships both: `.env` lists every default it runs with (incl. `WATCHDOG_*`), `.env.local` is where the operator retunes one without a rebuild |
-| structured app **config** | bridge topic lists, pipeline definitions | `config/app/` (#504) | bind-mounted at `/opt/app/config` (edit + restart, no rebuild) | `COPY`-baked default + optional mount-wins override via `config/<component>/deploy.manifest` (edit `config/` + `./deploy.sh up`, no rebuild) |
+| structured app **config** | bridge topic lists, pipeline definitions | `config/<component>/` (#504, #1000) | every component directory bind-mounted at `/opt/app/config/<component>` (edit + restart, no rebuild) | each `COPY`-baked at the same path + optional mount-wins override via `config/<component>/deploy.manifest` (edit `config/` + `./deploy.sh up`, no rebuild) |
 
 `setup.conf`'s `[environment]` section is the *first* kind -- stable,
 machine-bound env defaults. They are written into the generated `.env` and
@@ -870,8 +870,9 @@ several field versions on one host never collides). It contains:
 What it does, in order:
 
 1. bake the `[environment]` defaults into the image as real `ENV` (S3) and
-   `COPY` `config/app/` into it when present (S4) -- so the field image is
-   self-contained (no env file, no config bind travels);
+   `COPY` every `config/<component>/` into it at `/opt/app/config/<component>`
+   (S4) -- so the field image is self-contained (no env file, no config bind
+   travels);
 2. `docker build --target <stage>` the immutable image, tagged
    `<repo>:<stage>-<version>`;
 3. `docker save | xz` it into `image.tar.xz`;
