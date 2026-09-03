@@ -3,6 +3,55 @@
 # log_spec.bats - Tests for OTel-aligned log.sh.
 # Single-sink tty-detect dispatch: text on TTY, JSON on non-TTY.
 # LOG_FORMAT=auto|text|json override. Strict body enforcement.
+#
+# why: OTel-aligned logger (#423, #438). Single-sink tty-detect dispatch,
+# `LOG_FORMAT=auto|text|json` override, strict body enforcement
+# (unregistered body = fatal), `display=` attribute for i18n text in text
+# mode, UTC microsecond timestamps, `_log_plain` removed.
+#
+# Grouped by concern:
+#
+# - Text output format (`LOG_FORMAT=text`): timestamp + aligned level + tag,
+# multi-token join, attr=val skip, `display=` override
+#
+# - Timestamp: UTC with microsecond precision in both text and JSON
+#
+# - Stream routing: stdout for INFO/DEBUG, stderr for WARN/ERROR/FATAL
+#
+# - Single-sink tty-detect dispatch (#438): non-TTY auto JSON,
+# `LOG_FORMAT=text` force, `LOG_FORMAT=json` force, `LOG_FORMAT=auto` equiv
+#
+# - Startup TTY cache `_LOG_IS_TTY` (#605): helper defined +
+# cached-0/cached-nonzero/unset-fallback; auto-format honours cache +
+# unset-identity; explicit `LOG_FORMAT` bypasses cache; `_log_color_enabled`
+# cache read + NO_COLOR/FORCE_COLOR precedence over cache
+#
+# - JSON escaping (`_log_json_escape`, #691): quote / lone-backslash double
+# / newline+tab+CR / substitution order; live `_log_info` attr value with
+# quote+backslash+tab stays well-formed
+#
+# - JSON output: OTel fields, custom attributes, severity numbers, per-line
+# structure
+#
+# - TRACEPARENT in JSON: trace_id/span_id present/absent
+#
+# - Strict body enforcement (#438): unregistered fatal, registered OK, empty
+# OK, error names body + file
+#
+# - Missing service rejected, `_log_fatal` does not auto-exit
+#
+# - Scoped wrappers: `_log_with_trace` save/restore, `_log_with_span`
+# trace_id
+#
+# - `_log_plain` removed (#438)
+#
+# - `_log_color_enabled`: TTY detect, FORCE_COLOR, NO_COLOR precedence
+#
+# - FORCE_COLOR text: red bold ERROR, yellow WARN, NO_COLOR strips
+#
+# - Event registry: registered/unregistered/comment detection
+#
+# - lnav format file
 
 bats_require_minimum_version 1.5.0
 

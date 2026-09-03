@@ -4,9 +4,14 @@
 #
 # HOST_UID / HOST_GID decide the uid:gid the self-test containers run
 # things as while the checkout is bind-mounted at /source -- i.e. the
-# ownership of every file the suite writes into the working tree. What
-# decides them is compose's own interpolation, not the file's text, so
-# these assertions drive `docker compose config` and compare what compose
+# ownership of every file the suite writes into the working tree.
+# BASE_CHECKOUT_PATH decides which checkout the network compose creates is
+# stamped with, i.e. whether the scoped reclaim can ever attribute that
+# artifact to anything. All three are the same kind of variable: the file
+# carries no default for any of them, so an invocation that has left the
+# `just` entry point is refused rather than served a guess. What decides
+# them is compose's own interpolation, not the file's text, so these
+# assertions drive `docker compose config` and compare what compose
 # actually resolves.
 #
 # `docker compose config` is pure client-side interpolation: it needs the
@@ -14,9 +19,10 @@
 # daemon and no docker socket, so this spec belongs to the plain `ci`
 # service rather than the socket-mounted `ci-system` one.
 #
-# TEST_TOOLS_IMAGE is pinned to a throwaway value in every invocation
-# below: it is a separate required variable of the same file, and leaving
-# it to chance would make these assertions report on ITS resolution.
+# TEST_TOOLS_IMAGE and BASE_CHECKOUT_PATH are pinned to throwaway values in
+# every invocation below except the one that is about them: they are
+# separate required variables of the same file, and leaving either to
+# chance would make these assertions report on ITS resolution instead.
 
 bats_require_minimum_version 1.5.0
 
@@ -24,6 +30,7 @@ setup() {
   load "${BATS_TEST_DIRNAME}/../unit/test_helper"
   ROOT=/source
   PINNED_IMAGE="test-tools:host-identity-spec"
+  PINNED_CHECKOUT="/source"
   # The compose plugin is a package of the tooling image
   # (docker-cli-compose in dockerfile/Dockerfile.test-tools), and a run
   # against a PUBLISHED tag older than that package predates it. Nothing
@@ -56,6 +63,7 @@ setup() {
   # silently, because writing them succeeded. Refusing is the only outcome
   # that cannot be mistaken for a working run.
   run env -u HOST_UID TEST_TOOLS_IMAGE="${PINNED_IMAGE}" \
+    BASE_CHECKOUT_PATH="${PINNED_CHECKOUT}" \
     docker compose -f "${ROOT}/compose.yaml" config
   assert_failure
   assert_output --partial "HOST_UID"
@@ -64,6 +72,7 @@ setup() {
 
 @test "compose.yaml: an unset HOST_GID fails the same way (#895)" {
   run env -u HOST_GID TEST_TOOLS_IMAGE="${PINNED_IMAGE}" \
+    BASE_CHECKOUT_PATH="${PINNED_CHECKOUT}" \
     docker compose -f "${ROOT}/compose.yaml" config
   assert_failure
   assert_output --partial "HOST_GID"
@@ -80,10 +89,42 @@ setup() {
   local _service
   for _service in ci ci-system coverage; do
     run env HOST_UID=4242 HOST_GID=4243 TEST_TOOLS_IMAGE="${PINNED_IMAGE}" \
+      BASE_CHECKOUT_PATH="${PINNED_CHECKOUT}" \
       docker compose -f "${ROOT}/compose.yaml" config "${_service}"
     assert_success
     assert_output --partial "HOST_UID: \"4242\""
     assert_output --partial "HOST_GID: \"4243\""
     refute_output --partial "1000"
   done
+}
+
+# ════════════════════════════════════════════════════════════════════
+# The checkout the artifact will be stamped with
+# ════════════════════════════════════════════════════════════════════
+
+@test "compose.yaml: an unset BASE_CHECKOUT_PATH fails naming the entry point to use (#995)" {
+  # The network compose creates carries this path as `base.checkout.path`,
+  # and it is the ONLY thing the scoped reclaim can attribute that network
+  # by. An artifact created without it is unattributable forever -- the
+  # collector leaves it alone by design -- so the omission has to fail the
+  # invocation that would have created it, not the sweep that later cannot
+  # place it. A default would make that failure silent, which is the one
+  # shape it must not have.
+  run env -u BASE_CHECKOUT_PATH TEST_TOOLS_IMAGE="${PINNED_IMAGE}" \
+    HOST_UID=1 HOST_GID=1 \
+    docker compose -f "${ROOT}/compose.yaml" config
+  assert_failure
+  assert_output --partial "BASE_CHECKOUT_PATH"
+  assert_output --partial "just test"
+}
+
+@test "compose.yaml: the label it stamps is the path the caller supplied (#995)" {
+  # Not the file's text: compose interpolates, and a label that resolved to
+  # something else -- or to nothing -- would be an artifact the collector
+  # attributes to the wrong checkout.
+  run env HOST_UID=1 HOST_GID=1 TEST_TOOLS_IMAGE="${PINNED_IMAGE}" \
+    BASE_CHECKOUT_PATH=/some/where/else \
+    docker compose -f "${ROOT}/compose.yaml" config
+  assert_success
+  assert_output --partial "base.checkout.path: /some/where/else"
 }

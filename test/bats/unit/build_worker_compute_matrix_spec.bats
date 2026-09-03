@@ -18,6 +18,17 @@
 # pre-expansion convention, so the logic stays portable to a non-GitHub CI
 # host) and prints the matrix JSON to stdout; the GITHUB_OUTPUT plumbing
 # stays thin in the YAML.
+#
+# why: Unit tests for `script/ci/build_worker/compute_matrix.sh`, the
+# platform -> build matrix resolver extracted out of build-worker.yaml's
+# inline `compute-matrix` step (#802). Pushes the "a matrix condition that
+# produces no jobs" semantic break down the pyramid (System-level worker
+# logic -> Unit level, ADR-00000018): each supported platform maps to the
+# right native runner + HARDWARE (`linux/amd64` -> ubuntu-latest / x86_64,
+# `linux/arm64` -> ubuntu-24.04-arm / aarch64), whitespace + empty comma
+# segments are tolerated, an unsupported platform fails with a naming
+# plain-language error, and an empty / all-empty list fails the no-jobs
+# guard instead of fanning out to zero build jobs.
 
 bats_require_minimum_version 1.5.0
 

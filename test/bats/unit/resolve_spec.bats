@@ -1,4 +1,11 @@
 #!/usr/bin/env bats
+#
+# why: Mirrors `lib/resolve.sh`. The host-detection resolvers in isolation:
+# `_resolve_gpu` / `_resolve_gui` (auto / force / off), `_resolve_runtime`
+# and `_resolve_build_network` over `_detect_jetson`, the documented
+# `SETUP_DETECT_JETSON` / `SETUP_DETECT_DRI_GROUPS` operator-override
+# contract (#760) for `_detect_jetson` / `_detect_dri_groups`, and
+# `_compute_conf_hash`.
 
 bats_require_minimum_version 1.5.0
 

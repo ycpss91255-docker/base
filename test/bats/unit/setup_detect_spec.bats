@@ -1,4 +1,11 @@
 #!/usr/bin/env bats
+#
+# why: Mirrors `lib/setup_detect.sh`. Isolated host-detection units:
+# `detect_user_info`, `detect_hardware`, `detect_docker_hub_user`,
+# `detect_gpu` / `detect_gpu_count` (incl. the nameref regression),
+# `detect_gui`, `_is_ssh_x11` (#321), the SSH X11 cookie rewrite
+# (`_setup_ssh_x11_cookie`, #321/#688), the `detect_image_name` rule engine
+# + sanitization, `detect_ws_path`, and `_reconcile_workspace_path` (#569).
 
 bats_require_minimum_version 1.5.0
 

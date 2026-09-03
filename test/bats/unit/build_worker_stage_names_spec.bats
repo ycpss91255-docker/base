@@ -4,7 +4,7 @@
 # script/ci/build_worker/stage_names.sh, the reusable build worker's ONE
 # reader of "which build stages does this Dockerfile declare".
 #
-# Two worker steps need that answer: the extra_stages loop (is there a
+# why: Two worker steps need that answer: the extra_stages loop (is there a
 # <stage>-test companion to build?) and runtime_stages.sh (are runtime and
 # runtime-test declared?). Each used to carry a regex of its own, and each
 # carried a comment claiming it was the same regex the compose emitter's
@@ -46,6 +46,8 @@ _fixture() {
 
 # ── The roster ─────────────────────────────────────────────────
 
+# why: The roster the worker's two steps read, in the order the file
+# declares it -- the base case everything else here is a deviation from.
 @test "stage_names: lists every declared stage in file order" {
   _fixture <<'EOF'
 FROM alpine:3 AS sys
@@ -60,6 +62,10 @@ devel-base
 devel"
 }
 
+# why: runtime-test / devel-test are the very names the worker asks about,
+# and they are the ones the compose emitter's projection drops. Inheriting
+# that filter would answer "no runtime-test stage" about a Dockerfile that
+# declares one.
 @test "stage_names: keeps the stages the compose parser filters out" {
   # _parse_dockerfile_stages drops the baseline set on its way to compose
   # services. The worker asks about those very names, so this reader must
@@ -80,6 +86,10 @@ EOF
   assert_output --partial "sys"
 }
 
+# why: Draws the line between the two empty answers this reader can give.
+# "No extra stages" is legitimate and the caller decides what it means;
+# only an unreadable file is a failure. Collapsing the two is what the
+# refusal cases below defend.
 @test "stage_names: a Dockerfile declaring no stages is an empty roster, not an error" {
   # "No extra stages" is a legitimate answer and the caller decides what it
   # means; only an unreadable file is a failure.
@@ -92,6 +102,11 @@ EOF
   assert_output ""
 }
 
+# why: The blind spot a `while read` loop has and the grep this reader
+# replaced did not: a Dockerfile that ends without a newline silently loses
+# its last stage. That is the #1013 symptom from the other end -- no smoke
+# test built for a last-line `<stage>-test`, and a complete runtime pair
+# read as half-declared -- so it must be pinned at the reader itself.
 @test "stage_names: the last line declares a stage even with no trailing newline (#1013)" {
   # `while read` returns false on the final partial line, so a loop without
   # the `|| [[ -n ... ]]` continuation DROPS it. A Dockerfile ending without
@@ -111,6 +126,10 @@ foo-test"
 
 # ── What it refuses to guess ───────────────────────────────────
 
+# why: An unreadable Dockerfile is not "no stages", it is "we do not know".
+# Answering an empty roster there is how a worker skips a build and calls
+# it a pass, and the path has to be in the message or the operator cannot
+# tell which file it failed to find.
 @test "stage_names: a missing Dockerfile fails naming the path it looked for" {
   # An unreadable Dockerfile is not "no stages", it is "we do not know",
   # and answering an empty roster there is how a worker skips a build and
@@ -123,6 +142,10 @@ foo-test"
   }
 }
 
+# why: The unset-input case, which a workflow reaches by forgetting one
+# `env:` line. It has to fail at the reader naming the variable, because
+# the alternative -- an empty roster from an empty path -- is a build the
+# worker quietly declines to run.
 @test "stage_names: an empty DOCKERFILE path fails loudly" {
   DOCKERFILE= run --separate-stderr bash "${SCRIPT}"
   assert_failure

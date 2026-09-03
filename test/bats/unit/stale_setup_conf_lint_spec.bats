@@ -10,6 +10,17 @@
 # allow-end markers. Detection runs against a controlled temp REPO_ROOT so
 # the spec is independent of the live tree's contents; a final case drives
 # the REAL dist/ to prove it passes today.
+#
+# why: Unit tests for `script/test/drivers/stale_setup_conf.sh`
+# (`_run_stale_setup_conf`, refs #845), the "no stale
+# `config/docker/setup.conf` path in runtime shell code" lint. The per-repo
+# override and the template default now live at the repo-root `.setup.conf`
+# dotfile, so a hardcoded legacy path in `dist/**/*.sh` reads a location
+# that no longer exists and silently ignores the repo's knobs. The
+# legacy-migration block in `dist/script/base/upgrade.sh` is the one
+# legitimate consumer and opts out via explicit `allow-begin` / `allow-end`
+# markers. Driven over throwaway fixture `dist/` trees, plus a real-tree
+# guard that the live `dist/` passes today.
 
 setup() {
   export LOG_FORMAT=text
@@ -49,6 +60,7 @@ _write() {
 # _run_stale_setup_conf: violations
 # ════════════════════════════════════════════════════════════════════
 
+# why: Stale path fails, file:line named
 @test "_run_stale_setup_conf: FAILS on a stale path in a dist/ script, naming file and line (#845)" {
   _write "dist/script/docker/lib/sample.sh" \
     '#!/usr/bin/env bash' \
@@ -58,6 +70,7 @@ _write() {
   [[ "${output}" == *"dist/script/docker/lib/sample.sh:2"* ]]
 }
 
+# why: Message points at `.setup.conf`
 @test "_run_stale_setup_conf: names the replacement path in the failure message (#845)" {
   _write "dist/script/docker/lib/sample.sh" \
     "_conf=\"\${_root}/${STALE}\""
@@ -66,6 +79,7 @@ _write() {
   [[ "${output}" == *".setup.conf"* ]]
 }
 
+# why: Comments are in scope, not exempt
 @test "_run_stale_setup_conf: FAILS on a stale path inside a comment too (#845)" {
   _write "dist/script/docker/lib/sample.sh" \
     "# read the override from ${STALE}"
@@ -74,6 +88,7 @@ _write() {
   [[ "${output}" == *"sample.sh:1"* ]]
 }
 
+# why: Allow region ends at the end marker
 @test "_run_stale_setup_conf: FAILS on a stale path AFTER an allow-end (region does not leak) (#845)" {
   _write "dist/script/base/sample.sh" \
     "# ${_STALE_SETUP_CONF_ALLOW_BEGIN} legacy migration" \
@@ -86,6 +101,7 @@ _write() {
   [[ "${output}" != *"sample.sh:2"* ]]
 }
 
+# why: Unbalanced begin marker fails loudly
 @test "_run_stale_setup_conf: FAILS on an unterminated allow-begin region (#845)" {
   _write "dist/script/base/sample.sh" \
     "# ${_STALE_SETUP_CONF_ALLOW_BEGIN} legacy migration" \
@@ -95,6 +111,7 @@ _write() {
   [[ "${output}" == *"unterminated"* ]]
 }
 
+# why: Unmatched end marker fails loudly
 @test "_run_stale_setup_conf: FAILS on an allow-end with no matching allow-begin (#845)" {
   _write "dist/script/base/sample.sh" \
     '#!/usr/bin/env bash' \
@@ -108,6 +125,7 @@ _write() {
 # _run_stale_setup_conf: exemptions and clean trees
 # ════════════════════════════════════════════════════════════════════
 
+# why: Marked migration block exempt
 @test "_run_stale_setup_conf: EXEMPTS a stale path inside an allow-begin/allow-end region (#845)" {
   _write "dist/script/base/sample.sh" \
     "# ${_STALE_SETUP_CONF_ALLOW_BEGIN} legacy migration" \
@@ -118,6 +136,7 @@ _write() {
   [[ "${output}" == *"clean"* ]]
 }
 
+# why: `.setup.conf` tree clean
 @test "_run_stale_setup_conf: PASSES a dist/ tree that uses the repo-root dotfile (#845)" {
   _write "dist/script/docker/lib/sample.sh" \
     '#!/usr/bin/env bash' \
@@ -127,6 +146,7 @@ _write() {
   [[ "${output}" == *"clean"* ]]
 }
 
+# why: Docs out of the lint's scope
 @test "_run_stale_setup_conf: ignores non-.sh files under dist/ (#845)" {
   mkdir -p "${SCRATCH}/dist/doc"
   printf '%s\n' "the override used to live at ${STALE}" \
@@ -140,6 +160,7 @@ _write() {
 # _run_stale_setup_conf: scan-root guard
 # ════════════════════════════════════════════════════════════════════
 
+# why: Missing scan root fails, no vacuous pass
 @test "_run_stale_setup_conf: FAILS when the dist/ scan root is missing (no vacuous pass) (#845)" {
   # An empty find root passes vacuously, silently disabling the lint if
   # dist/ is ever relocated. Fail loudly on a missing scan root instead.
@@ -153,6 +174,7 @@ _write() {
 # _run_stale_setup_conf: real tree guard
 # ════════════════════════════════════════════════════════════════════
 
+# why: Live tree clean
 @test "_run_stale_setup_conf: the REAL dist/ passes today (migration block allowlisted) (#845)" {
   REPO_ROOT="/source"
   run _run_stale_setup_conf
