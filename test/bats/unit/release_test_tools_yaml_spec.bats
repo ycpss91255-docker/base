@@ -122,14 +122,36 @@ _merge_checkout_rationale() {
     | only_comments
 }
 
-# _spec_header -- THIS file's own header prose, above the bats preamble. A
-# spec's header is read far more often than its cases, so a header still
+# _resolve_tags_prose -- the "Resolve tags" step's OWN comment block, from
+# the step's name down to its `run:` body.
+#
+# Every other reader of that step in this file strips its comments on
+# purpose, so that the explanation cannot stand in for the branch that
+# implements it -- which leaves the block itself read by nothing. It is the
+# longest description of the tag rules anywhere in the tree, so a sentence
+# in it that survived the rules changing is the description a reader is
+# most likely to believe.
+_resolve_tags_prose() {
+  awk '/- name: Resolve tags/{flag=1} flag && /^ *run: \|/{exit} flag' \
+    "${WF}" | only_comments
+}
+
+# _spec_prose -- THIS file's own prose about the surface it pins: the header
+# above, the section dividers, and every `@test` NAME.
+#
+# A spec's header is read far more often than its cases, so a header still
 # describing the behaviour the cases refute misinforms every later reader
 # -- the same defect as a workflow header describing an unreachable branch,
-# one file over.
-_spec_header() {
-  awk '/^bats_require_minimum_version/{exit} {print}' \
-    "${BATS_TEST_DIRNAME}/release_test_tools_yaml_spec.bats" | only_comments
+# one file over. A case NAME is read more often still: it is what the TAP
+# output prints, so a name promising the old surface reports the new one
+# under the old description on every green run. They are one reader
+# because they are one property; splitting them is how half of it came to
+# be corrected and the other half left standing.
+_spec_prose() {
+  local _self="${BATS_TEST_DIRNAME}/release_test_tools_yaml_spec.bats"
+  awk '/^bats_require_minimum_version/{exit} {print}' "${_self}" \
+    | only_comments
+  grep -E '^(@test|# .*──)' "${_self}"
 }
 
 # _doc_section_sum -- the `| Category | Tests |` column total for this
@@ -242,7 +264,7 @@ _doc_section_sum() {
   refute_output --partial ':latest'
 }
 
-@test "release-test-tools.yaml: the header describes the tag rules the resolver applies (#1012)" {
+@test "release-test-tools.yaml: the header and the resolver step's own prose describe the tag rules it applies (#1012)" {
   # The header promised `workflow_dispatch -> pushes only :latest`. A
   # dispatch from main carries GITHUB_REF=refs/heads/main and so takes the
   # main arm; the sentence described a branch the code cannot reach.
@@ -250,9 +272,20 @@ _doc_section_sum() {
   assert_success
   refute_output --partial 'pushes only :latest'
   assert_output --partial 'prerelease'
+
+  # The step's own block is the second half of the same property. It
+  # opened on "Three publish modes, three tag sets" -- written when the
+  # third arm published `:latest` -- and the paragraphs beneath it were
+  # rewritten to say that arm now publishes nothing, which left the
+  # summary sentence contradicting the four paragraphs under it.
+  run _resolve_tags_prose
+  assert_success
+  refute_output --partial 'three tag sets'
+  assert_output --partial 'prerelease'
+  assert_output --partial 'publishes NOTHING'
 }
 
-@test "release-test-tools.yaml: this spec's own header describes the surface it pins (#1012)" {
+@test "release-test-tools.yaml: this spec's own prose -- header, dividers and case names -- describes the surface it pins (#1012)" {
   # The header above is the first thing a reader of this file meets, and it
   # documented the surface these cases now refute: `:<version>` + `:latest`
   # on every `v*` tag, and a `workflow_dispatch` that republishes
@@ -260,10 +293,18 @@ _doc_section_sum() {
   # unrecognised dispatch ref could still do. The workflow's header was
   # corrected and this one was not, which leaves the correction half made
   # -- and a reader who trusts the header reads the cases as the anomaly.
-  run _spec_header
+  #
+  # The case NAMES and the section dividers are the same prose at a site
+  # that is read more often, not less: a name is what the TAP line prints.
+  # `-> :<ver> + :latest` stayed on the case that reads the step's text
+  # while the case three lines below it proves an RC tag leaves `:latest`
+  # alone, so a green run printed both.
+  run _spec_prose
   assert_success
   refute_output --partial 'republish'
   refute_output --partial '+ `:latest`'
+  refute_output --partial '+ :latest'
+  refute_output --partial '3 publish modes'
   assert_output --partial 'prerelease'
 }
 
