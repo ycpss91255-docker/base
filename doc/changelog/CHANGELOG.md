@@ -131,6 +131,16 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   the `||` in front of it stays the `echo`'s, and the row names the line the
   `!` opens on. `! A ||` over `! B` is still one list.
 
+- **`errexit-bang`: a `!` RIGHT operand is exempt from errexit too (refs
+  #956)** -- the live-`||` exemption rested on "B's failure is not exempt from
+  errexit either", which bash contradicts when B is itself `!`-inverted:
+  `set -e; f(){ ! true || ! true; echo REACHED; }; f` prints REACHED. So
+  `! A || ! B` outside the body's last statement aborts nothing -- the one
+  inert shape the exemption covered. It is now declined whenever an operand
+  opens with `!`, leaving the statement to the position and `;` rules, the
+  single-line spelling included. `! A || ! B || return 1` can still fail and is
+  reported anyway; that over-report costs one allow region.
+
 - **a test that runs a RELEASED `upgrade.sh` against the current tree (refs #915)** -- `test/bats/integration/prev_release_upgrade_spec.bats` stands a real released tree up as a consumer's `.base/` and lets ITS scripts drive the upgrade against the working tree. It asserts the consumer is left working -- no dangling symlinks, `just --list` succeeds -- not merely version-bumped. This is the only shape that can catch a break in an out-of-tree caller, and the third instance of that class this cycle. Which releases are covered resolves from the repo's own tags every run; the trees are materialised host-side into a gitignored `.prev-release/`.
 
 - **`changelog-entry`: a duplicated entry and a repeated category heading now fail the lint (closes #959)** -- merging `origin/main` into a branch that appended to `[Unreleased]` keeps BOTH sides without conflicting, so a verbatim second copy of an entry, or a second `### Added`, arrives with nothing for a reviewer to resolve -- and both were sitting on main. A lead bullet repeating another, and a category opening twice in one release block, are now refused naming BOTH lines. Released sections stay exempt. Affects anyone adding an entry: fold the second copy into the first.

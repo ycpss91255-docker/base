@@ -89,13 +89,35 @@
 # NOT every `||` is that hand-off, and the two named above are the only
 # ones flagged. `! A || B` runs B exactly when A SUCCEEDED, so who owns
 # the verdict is decided by B: `! A || return 1` and `! A || fail "..."`
-# fail the test in that branch, correctly, and B's failure is not exempt
-# from errexit either, so they fail it from a non-final position too --
-# such a statement is out of BOTH rules. `true` and `:` are the only
-# SIMPLE COMMANDS that cannot fail; they are the language's two
-# always-zero builtins, a closed set fixed by bash rather than a roster
-# of this tree, which is why listing them is not the listed-population
-# defect this file otherwise refuses.
+# fail the test in that branch, correctly, and an ORDINARY B's failure is
+# not exempt from errexit either, so they fail it from a non-final
+# position too -- such a statement is out of BOTH rules.
+#
+# One B breaks that, and it is the one the exemption used to cover: a B
+# that is itself `!`-inverted. bash suppresses errexit for a command
+# whose return value is inverted with `!`, and the operand after the
+# final `||` is a command like any other -- so `! A || ! B` aborts
+# nothing, and away from the body's last statement it is exactly the
+# inert assertion this lint is named for:
+#   set -e; f(){ ! true || ! true; echo REACHED; }; f  -> REACHED, 0
+#   set -e; f(){ ! true || false;  echo REACHED; }; f  -> aborts,  1
+# The exemption is therefore DECLINED as soon as any operand in the list
+# opens with `!`, and the statement falls through to the position and `;`
+# rules like every other one. As the body's LAST statement it still
+# passes, because there its own status is the verdict (B succeeding
+# returns 1) -- position, not the exemption, is what makes that case
+# clean. Declining it for the whole class rather than only where the list
+# is provably inert is deliberate: `! A || ! B || return 1` DOES fail
+# from a non-final position, and telling it apart from `! A || ! B` needs
+# the chain EVALUATED rather than read, so it is reported too. That
+# over-report costs one allow region, which is the refusing direction
+# this file takes wherever the text stops answering the question.
+# errexit_bang_lint_spec pins both halves by RUNNING them.
+#
+# `true` and `:` are the only SIMPLE COMMANDS that cannot fail; they are
+# the language's two always-zero builtins, a closed set fixed by bash
+# rather than a roster of this tree, which is why listing them is not the
+# listed-population defect this file otherwise refuses.
 #
 # They are not, however, every always-zero OPERAND: a group is one too,
 # and `! A || { true; }` / `! A || ( true )` are as inert as `|| true`
@@ -242,10 +264,15 @@
 # An operator fold is therefore NOT part of the swallow row, and does not
 # need to be: it takes no `!` line out of reach. Where the logical line
 # already opens with `!`, the line folded in is that same statement's
-# text -- `! A ||` over `! B` is one `||` list with one verdict, and
-# reporting the second `!` would be a false positive. Where it does not,
-# the folded-in `!` opens the judged span and is put through the rules
-# exactly as it would have been on a line of its own, position rule
+# text -- `! A ||` over `! B` is one `||` list with one verdict, so it is
+# judged ONCE, from the line the first `!` opens on. A second row on the
+# second `!` would be a false positive; a clean verdict on the list is
+# not, and used to be what came out: the list is a live assertion only as
+# the body's last statement, and one statement earlier the `!` on B
+# exempts it from errexit and it cannot fail. That is the position rule's
+# case, which it now reaches. Where the logical line does NOT open with
+# `!`, the folded-in `!` opens the judged span and is put through the
+# rules exactly as it would have been on a line of its own, position rule
 # included: `echo a && ! grep -q A f` as the body's LAST statement is
 # still the body's verdict and stays clean.
 #
@@ -382,6 +409,13 @@ readonly _ERREXIT_BANG_INERT_OR_RE='\|\|[[:space:]]*(true|:)([[:space:]]*;|[[:sp
 # list before it. With any other right operand the verdict is that
 # operand's and the statement leaves this rule entirely (see the header).
 readonly _ERREXIT_BANG_LIVE_OR_RE='^[^;]*\|\|'
+# A list or pipe operator whose RIGHT OPERAND opens with `!`. bash exempts
+# a command whose return value is inverted with `!` from errexit, so such
+# an operand cannot abort the body -- which is the one thing the exemption
+# above assumes its operand does. The four operators are the same set the
+# fold reads on across (`|`, `||`, `&&`, `|&`), and the trailing space is
+# the one `_ERREXIT_BANG_STMT_RE` uses: `!=` and `!(` are not this.
+readonly _ERREXIT_BANG_BANG_OPERAND_RE='(\|\||&&|\|&|\|)[[:space:]]*![[:space:]]'
 
 # Region markers for the explicit opt-out (see the header note).
 readonly _ERREXIT_BANG_ALLOW_BEGIN='errexit-bang-lint: allow-begin'
@@ -895,11 +929,20 @@ _errexit_bang_scan_file() {
           # closes. It is deliberately not ALSO queued -- one statement,
           # one row.
           _ebsf_rows+=("${_rel}:${_lbstart}: ${_lbtext}  -- the '!' hands its status to an operand that cannot fail ('|| true' / '|| :')")
-        elif [[ "${_lbcode}" =~ ${_ERREXIT_BANG_LIVE_OR_RE} ]]; then
-          # `! A || B` with a B that can fail. The verdict is B's, and
-          # B's failure is not exempt from errexit, so this statement can
-          # fail its test from any position: out of both rules, not
-          # merely out of this one. See the header.
+        elif [[ "${_lbcode}" =~ ${_ERREXIT_BANG_LIVE_OR_RE} \
+             && ! "${_lbcode}" =~ ${_ERREXIT_BANG_BANG_OPERAND_RE} ]]; then
+          # `! A || B` with an ORDINARY B that can fail. The verdict is
+          # B's, and an ordinary B's failure is not exempt from errexit,
+          # so this statement can fail its test from any position: out of
+          # both rules, not merely out of this one.
+          #
+          # The second test is what keeps that true. An operand opening
+          # with `!` IS exempt from errexit, so a list holding one aborts
+          # nothing and is inert everywhere but the body's last statement
+          # -- the position rule's case, reached by declining the
+          # exemption here rather than by widening it. See the header for
+          # why the whole class is declined, including the chains that
+          # can still fail.
           :
         elif [[ "${_lbcode}" =~ ${_ERREXIT_BANG_SEQ_RE} ]]; then
           _ebsf_rows+=("${_rel}:${_lbstart}: ${_lbtext}  -- the '!' hands its status to another command in this statement (';')")
