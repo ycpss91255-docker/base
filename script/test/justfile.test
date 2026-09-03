@@ -219,6 +219,44 @@ smoke *args:
     just docker build --target test-tools
     just docker build {{args}} --target smoke
 
+# just test stop -> stop and remove the containers of THIS checkout's
+# self-test compose project.
+#
+# The gap it closes: base runs two compose projects out of one checkout.
+# `just docker build` / `run` mint `local-<dir>`, which the shipped
+# wrapper owns and `just docker stop` ends. `just test` mints
+# `base-<sha256(checkout path)[0:12]>` -- keyed to the PATH so two
+# worktrees cannot share one set of containers -- and nothing ended that
+# one. `just docker stop` resolves the other name, and `just docker prune`
+# says in its own help that it does not touch running containers, so the
+# only way to clear an interrupted run's container was raw `docker`. A
+# thing `just` cannot do is a gap in the control surface, not a licence to
+# reach past it.
+#
+# The name is not derived here. `test.sh --compose-project-name` is the
+# one producer (it delegates to lib/project_reclaim.sh's
+# _reclaim_project_for_path, which the collector shares), and handing its
+# answer over as PROJECT_NAME is what stops a second derivation existing
+# that agrees today and drifts tomorrow. stop.sh takes an ambient
+# PROJECT_NAME in preference to computing one, and needs no
+# `.env.generated` to do it -- that file is a configured consumer's
+# interpolation cache, and generating one just to stop a container would
+# write into the tree under test.
+#
+# HOST_UID / HOST_GID are exported for the reason `system` and `smoke`
+# export them: compose interpolates the WHOLE file whatever service a
+# command names, and this recipe is also reachable through a direct
+# `just -f`, which the root entry's exports do not cover.
+stop *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    PROJECT_NAME="$(./script/test/test.sh --compose-project-name)"
+    export PROJECT_NAME
+    HOST_UID="$(id -u)"
+    HOST_GID="$(id -g)"
+    export HOST_UID HOST_GID
+    ./script/stop.sh {{args}}
+
 # just test clean -> remove coverage reports
 clean:
     rm -rf coverage/
