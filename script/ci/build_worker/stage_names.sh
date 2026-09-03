@@ -64,8 +64,19 @@ main() {
   # _parse_dockerfile_stages does: under pipefail an empty match set turns
   # into exit 1, and a Dockerfile with no stage lines is a legitimate
   # answer here, not a failure.
+  #
+  # `|| [[ -n "${_line}" ]]` because `read` returns false on a final line
+  # that no newline terminates -- it assigns the line and THEN reports the
+  # EOF it hit. Without the continuation the loop drops that line, so a
+  # Dockerfile written without a trailing newline loses its last stage:
+  # the extra-stages loop stops seeing a `<stage>-test` companion and
+  # builds no smoke test for it, and runtime_stages.sh reads a complete
+  # runtime pair as a half-declared one and fails the build naming a stage
+  # the file declares. The grep this reader replaced had no such blind
+  # spot, and _generate_runtime_dockerfile -- reading the same files
+  # through the same matcher -- already carries the continuation.
   local _line _stage
-  while IFS= read -r _line; do
+  while IFS= read -r _line || [[ -n "${_line}" ]]; do
     _dockerfile_stage_from_line "${_line}" _stage || continue
     printf '%s\n' "${_stage}"
   done < "${dockerfile}"
