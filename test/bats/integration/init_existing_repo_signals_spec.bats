@@ -130,6 +130,63 @@ EOF
   done < <(_new_repo_only_paths)
 }
 
+@test "no root file the scaffold itself leaves behind can quietly become a signal (#928)" {
+  # The generalisation of the case above, over the population that actually
+  # collides. A template repo IS a scaffolded repo -- base wrote its root
+  # files -- so every root file a scaffold leaves behind is a file a template
+  # snapshot ships into the next new repo. Any one of them silently joining
+  # the branch condition without joining the published list reproduces the
+  # inversion exactly; the hardcoded README.md above catches one such file,
+  # this catches the class.
+  #
+  # Derived from a real scaffold, not listed: the population is whatever
+  # today's new-repo path writes at the root, minus what the repo's own
+  # .gitignore claims (a derived artifact is not in a template snapshot) and
+  # minus the published signals (which are supposed to decide).
+  _seed_consumer
+  cd "${CONSUMER}"
+  run bash "${INIT}"
+  assert_success
+
+  local _scaffolded="${BATS_TEST_TMPDIR}/scaffolded"
+  cp -a "${CONSUMER}" "${_scaffolded}"
+
+  local _signal_list="${BATS_TEST_TMPDIR}/signals2"
+  _signals > "${_signal_list}"
+
+  local _candidates="${BATS_TEST_TMPDIR}/candidates"
+  : > "${_candidates}"
+  local _name
+  while IFS= read -r _name; do
+    _name="${_name#./}"
+    [[ -n "${_name}" ]] || continue
+    if grep -qxF "${_name}" "${_signal_list}"; then
+      continue
+    fi
+    if git -C "${_scaffolded}" check-ignore -q -- "${_name}"; then
+      continue
+    fi
+    printf '%s\n' "${_name}" >> "${_candidates}"
+  done < <(cd "${_scaffolded}" \
+    && find . -maxdepth 1 \( -type f -o -type l \) | LC_ALL=C sort)
+
+  assert [ -s "${_candidates}" ]
+
+  local _p
+  while IFS= read -r _name; do
+    _seed_consumer
+    cp -a "${_scaffolded}/${_name}" "${CONSUMER}/${_name}"
+    cd "${CONSUMER}"
+    run bash "${INIT}"
+    assert_success
+
+    while IFS= read -r _p; do
+      [[ -f "${CONSUMER}/${_p}" ]] \
+        || fail "'${_name}' is not a published signal, yet a repo carrying it was treated as already set up: ${_p} was never scaffolded"
+    done < <(_new_repo_only_paths)
+  done < "${_candidates}"
+}
+
 @test "the new-repo scaffold creates every published signal (#928)" {
   # A signal init does not itself install can never flip a repo from new to
   # existing, so it would have to be supplied by someone else -- which is
