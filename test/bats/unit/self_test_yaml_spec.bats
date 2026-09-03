@@ -958,11 +958,17 @@ _job_names() {
   _tag="$(_needs_closure release)" || _status=$?
   [ "${_status}" -eq 0 ] || fail "${_tag}"
 
-  # Non-vacuity: two empty sets are equal.
-  grep -qxF -- 'coverage-gate' <<<"${_merge}" \
-    || fail "the merge-gate roster did not parse: ${_merge}"
-  grep -qxF -- 'coverage-gate' <<<"${_tag}" \
-    || fail "the tag-path closure did not parse: ${_tag}"
+  # Non-vacuity: two empty sets are equal. Checked as EMPTINESS and not
+  # by probing for a job by name -- the name to hand was `coverage-gate`,
+  # the very job whose absence from a roster this test exists to detect,
+  # so reintroducing that defect tripped the guard first and reported a
+  # MISSING GATE as "the tag-path closure did not parse". That statement
+  # is false (the closure parsed perfectly) and it points a maintainer at
+  # yq instead of at the gate. A roster that genuinely failed to parse
+  # already arrives as a non-zero status from the two calls above; what
+  # is left for this guard is a roster that parsed to nothing.
+  [ -n "${_merge}" ] || fail "ci-rollup declares no needs: at all"
+  [ -n "${_tag}" ] || fail "release transitively requires nothing at all"
 
   [ "${_merge}" == "${_tag}" ] || fail "the tag path and the merge gate require different jobs.
 ci-rollup requires:
