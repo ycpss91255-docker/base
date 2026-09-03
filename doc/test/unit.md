@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3690 tests**.
+Unit specs under `test/bats/unit/`: **3691 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -2334,7 +2334,7 @@ Unit tests for `template/script/docker/lib/gitignore.sh` — the canonical
 | `_sync_managed_entries: appends without a spurious blank line (#876)` | - |
 | `_sync_gitignore + _sync_logging_gitignore converge over repeated passes (#876)` | - |
 
-### test/bats/unit/help_lang_spec.bats (19)
+### test/bats/unit/help_lang_spec.bats (20)
 
 --help / --lang coverage across the recipe-backing scripts (#655,
 ADR-00000011 §6). Runs each script directly (no `just`): asserts the
@@ -2349,6 +2349,7 @@ live in justfile_user_spec.bats.
 |------|-------------|
 | `test.sh --help exits 0 and prints usage` | English baseline usage |
 | `test.sh -h exits 0 and prints usage` | short flag |
+| `test.sh --help: the metric lints' verdict is the ceiling they judge by, not per-violation failure (base#994)` | The usage block is the only place a user is told what the three metric lints DO with a violation, and it is the copy that answers `--help` rather than a comment somebody has to go find. It promised a failure the driver stopped delivering when base#994 phase 3 gave each lint an adoption ceiling: the run prints every function over an implementation standard and still exits 0 while the count is under the ceiling, so a reader of this text believes a green run could not have contained one. The assertion reads the COLLAPSED text because the block is line-wrapped, and the wrapping is not the property. |
 | `init.sh --help exits 0 and prints usage` | base ns usage |
 | `upgrade.sh --help exits 0 and prints usage` | base ns usage |
 | `completions.sh --help exits 0 and prints usage` | base ns usage |
