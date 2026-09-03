@@ -1109,45 +1109,62 @@ _stage_lint_layout() {
   assert_failure
 }
 
-@test "dockerfile/entrypoint.sh sources the watchdog helper after logging (#797)" {
-  # The template entrypoint sources logging.sh then watchdog.sh; both are
-  # no-ops when their feature is off, so the source lines are safe. Order
-  # matters: watchdog logs should ride the logging tee.
+@test "the seeded bringup template carries no base plumbing and no exec (#945)" {
+  # dist/dockerfile/entrypoint.sh is what init.sh seeds as a repo's
+  # script/entrypoint.sh, and from that moment the repo owns it -- no
+  # subtree pull ever rewrites it again. That is precisely why none of
+  # base's plumbing may be in it: the helper sources and the final exec
+  # belong to the orchestrator, which ships from .base/ and DOES update.
+  # A bringup that execs also pre-empts the watchdog, since it is sourced.
+  #
+  # code_grep reads the code lines only, so the header may name all three
+  # (it does, to say they are not this file's job) while carrying none.
   local _ep="/source/dist/dockerfile/entrypoint.sh"
-  run grep -F '. /usr/local/lib/base/watchdog.sh' "${_ep}"
-  assert_success
-  local _log_line _wd_line
-  _log_line="$(grep -nF '. /usr/local/lib/base/logging.sh' "${_ep}" | head -1 | cut -d: -f1)"
-  _wd_line="$(grep -nF '. /usr/local/lib/base/watchdog.sh' "${_ep}" | head -1 | cut -d: -f1)"
-  [[ -n "${_log_line}" && -n "${_wd_line}" ]]
-  (( _log_line < _wd_line ))
+  assert_spec_subject "${_ep}" "the shipped bringup template this spec pins"
+  run code_grep -F '/usr/local/lib/base/logging.sh' "${_ep}"
+  assert_failure
+  run code_grep -F '/usr/local/lib/base/watchdog.sh' "${_ep}"
+  assert_failure
+  run code_grep -E '(^|[[:space:];&|])exec[[:space:]]' "${_ep}"
+  assert_failure
 }
 
-@test "dockerfile/entrypoint.sh guards both lib sources with a readability test (#842)" {
-  # The runtime stage's logging/watchdog COPYs are opt-in and init.sh seeds
-  # this entrypoint verbatim into every repo, so an image that skipped them
-  # must not source a missing file on every start. Same `[[ -r ]]` shape the
-  # libs already use for their own sibling logrotate.sh source.
-  local _ep="/source/dist/dockerfile/entrypoint.sh"
-  run grep -F 'if [[ -r /usr/local/lib/base/logging.sh ]]; then' "${_ep}"
+@test "Dockerfile.example makes base's orchestrator the container ENTRYPOINT (#945)" {
+  # The two halves of the model, in the file that wires them: the
+  # ENTRYPOINT is base's orchestrator (which arrives through the runtime
+  # helper-directory COPY asserted above, so it updates with a subtree
+  # pull), and the repo's bringup keeps its image path at /entrypoint.sh
+  # -- COPY'd, never run, because the orchestrator sources it.
+  #
+  # The old model must be gone from the ACTIVE Dockerfile: pointing
+  # ENTRYPOINT at the repo's own file is what froze base's plumbing in
+  # every consumer. code_grep ignores the commented runtime-stage
+  # scaffold, which is asserted separately.
+  local _df="/source/dist/dockerfile/Dockerfile"
+  assert_spec_subject "${_df}" \
+      "the shipped template Dockerfile this spec pins"
+  run code_grep -Fx 'ENTRYPOINT ["/usr/local/lib/base/entrypoint.sh"]' "${_df}"
   assert_success
-  run grep -F 'if [[ -r /usr/local/lib/base/watchdog.sh ]]; then' "${_ep}"
+  run code_grep -F 'COPY --chmod=0755 "./${ENTRYPOINT_FILE}" "/entrypoint.sh"' "${_df}"
   assert_success
+  run code_grep -Fx 'ENTRYPOINT ["/entrypoint.sh"]' "${_df}"
+  assert_failure
 }
 
-@test "dockerfile/entrypoint.sh execs cleanly under set -euo pipefail with the libs absent (#842)" {
-  # The observable half of the guard: with neither helper installed the
-  # entrypoint must still reach `exec` -- no missing-file stderr, and no
-  # abort for a consumer running the documented strict-mode entrypoint.
-  local _ep="/source/dist/dockerfile/entrypoint.sh"
-  if [[ -e /usr/local/lib/base/logging.sh || -e /usr/local/lib/base/watchdog.sh ]]; then
-    skip "runtime libs installed in this image -- absent-lib path not observable"
-  fi
-  local _err="${BATS_TEST_TMPDIR}/entrypoint.err"
-  run bash -c 'bash -euo pipefail "$1" printf ok 2>"$2"' _ "${_ep}" "${_err}"
+@test "Dockerfile.example commented runtime stage runs the orchestrator too (#945)" {
+  # The runtime stage starts from a fresh BASE_IMAGE, so it inherits
+  # nothing from devel: a repo that uncomments it has to COPY the helper
+  # directory itself (asserted separately) AND point ENTRYPOINT at the
+  # orchestrator. A scaffold left on the old model teaches the retired
+  # shape to whoever uncomments it -- the same reason the commented
+  # per-file helper COPYs were migrated rather than ignored.
+  local _df="/source/dist/dockerfile/Dockerfile"
+  assert_spec_subject "${_df}" \
+      "the shipped template Dockerfile this spec pins"
+  run grep -Fx '# ENTRYPOINT ["/usr/local/lib/base/entrypoint.sh"]' "${_df}"
   assert_success
-  assert_output "ok"
-  assert_equal "$(cat "${_err}")" ""
+  run grep -Fx '# ENTRYPOINT ["/entrypoint.sh"]' "${_df}"
+  assert_failure
 }
 
 @test "no inline _detect_lang fallbacks remain after dedupe (issue #104)" {

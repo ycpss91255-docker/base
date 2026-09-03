@@ -122,6 +122,24 @@ _orchestrate() {
 
 # ── the frozen paths ─────────────────────────────────────────────────
 
+@test "executed directly with nothing installed, it still execs the workload (#945)" {
+  # The frozen literals, driven for real rather than grepped: run the
+  # shipped file as the container would, in an image that has neither
+  # /usr/local/lib/base/ nor /entrypoint.sh. It must reach the exec with
+  # nothing on stderr and without aborting under its own strict mode --
+  # the runtime stage's helper COPY is opt-in and a repo need not have a
+  # bringup, so this is a real image shape, not a hypothetical one.
+  if [[ -e /usr/local/lib/base/logging.sh || -e /usr/local/lib/base/watchdog.sh \
+     || -e /entrypoint.sh ]]; then
+    skip "this image installs part of the model -- the absent path is not observable here"
+  fi
+  local _err="${BATS_TEST_TMPDIR}/orchestrator.err"
+  run bash -c 'bash "$1" printf ok 2>"$2"' _ "${ORCH}" "${_err}"
+  assert_success
+  assert_output "ok"
+  assert_equal "$(cat "${_err}")" ""
+}
+
 @test "executed directly, the orchestrator drives the in-image paths (#945)" {
   # The Dockerfile contract, in the one place it is spelled: the helpers
   # come from /usr/local/lib/base/ (the directory COPY'd from

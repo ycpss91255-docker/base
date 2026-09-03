@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3609 tests**.
+Unit specs under `test/bats/unit/`: **3610 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -2036,9 +2036,9 @@ builds the env block only for the knobs the conf sets.
 | `nothing in dist/script/docker/runtime/ has a destiny other than the helper dir (#971)` | - |
 | `Dockerfile.example commented runtime stage shows the helper-dir COPY example (#971)` | - |
 | `runtime/logging.sh header documents in-image source-line (no $USER, no work/.base) (#368)` | - |
-| `dockerfile/entrypoint.sh sources the watchdog helper after logging (#797)` | - |
-| `dockerfile/entrypoint.sh guards both lib sources with a readability test (#842)` | - |
-| `dockerfile/entrypoint.sh execs cleanly under set -euo pipefail with the libs absent (#842)` | - |
+| `the seeded bringup template carries no base plumbing and no exec (#945)` | - |
+| `Dockerfile.example makes base's orchestrator the container ENTRYPOINT (#945)` | - |
+| `Dockerfile.example commented runtime stage runs the orchestrator too (#945)` | - |
 | `no inline _detect_lang fallbacks remain after dedupe (issue #104)` | - |
 | `setup.sh does not redefine _detect_lang` | No duplication |
 | `setup.sh defines _setup_msg, not _msg (closes #101)` | - |
@@ -4360,7 +4360,7 @@ rather than an assurance.
 | `_run_adr_structure: REFUSES when doc/adr/ does not exist (#994)` | - |
 | `_run_adr_structure: the REAL doc/adr/ passes today (#994)` | - |
 
-### test/bats/unit/entrypoint_spec.bats (7)
+### test/bats/unit/entrypoint_spec.bats (8)
 
 | Test | Description |
 |------|-------------|
@@ -4370,4 +4370,5 @@ rather than an assurance.
 | `a non-executable bringup still runs, because it is sourced (#945)` | - |
 | `a missing bringup and missing helpers still start the workload cleanly (#945)` | - |
 | `the workload's argv survives verbatim, spaces included (#945)` | - |
+| `executed directly with nothing installed, it still execs the workload (#945)` | - |
 | `executed directly, the orchestrator drives the in-image paths (#945)` | - |
