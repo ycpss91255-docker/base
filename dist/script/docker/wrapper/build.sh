@@ -464,9 +464,7 @@ main() {
   # Load .env for project name. Absent in a self-managed repo (base
   # self-use): nothing to load -- the hand-authored compose.yaml
   # carries its own config and _compute_project_name falls back to defaults.
-  if [[ -f "${FILE_PATH}/.env.generated" ]]; then
-    _load_env "${FILE_PATH}/.env.generated"
-  fi
+  _load_env_optional "${FILE_PATH}/.env.generated"
   _compute_project_name ""
 
   # Pre-build snapshot so first-time users see which files drove this

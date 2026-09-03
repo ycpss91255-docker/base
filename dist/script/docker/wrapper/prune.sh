@@ -397,9 +397,7 @@ _ensure_env_loaded() {
     return 0
   fi
   _PRUNE_ENV_LOADED=1
-  if [[ -f "${FILE_PATH}/.env.generated" ]]; then
-    _load_env "${FILE_PATH}/.env.generated"
-  fi
+  _load_env_optional "${FILE_PATH}/.env.generated"
 }
 
 # _resolve_workspace sets _RESOLVED_WORKSPACE from (in order):

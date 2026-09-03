@@ -26,6 +26,28 @@ _load_env() {
   set +o allexport
 }
 
+# _load_env_optional sources the given env file when it is there, and does
+# nothing at all when it is not.
+#
+# The distinction it draws is between a file that is MISSING and a file
+# that is BROKEN. `.env.generated` is a configured consumer's
+# interpolation cache: a self-managed checkout (base itself -- no
+# `.setup.conf`, no `.base/` subtree, a hand-authored compose.yaml) never
+# writes one and never will, so its absence is that checkout's normal
+# state and not an error to report. A file that EXISTS and fails to source
+# still aborts the caller, exactly as _load_env does.
+#
+# One rule, not five. Every wrapper faces the same question, and the
+# wrappers that answered it inline are the reason three of them answered
+# it differently: build.sh and prune.sh guarded the source, stop / run /
+# exec did not, so `just docker build` in a base checkout minted a project
+# that `just docker stop` could not end.
+_load_env_optional() {
+  local _env_file="${1:?_load_env_optional requires an env file path}"
+  [[ -f "${_env_file}" ]] || return 0
+  _load_env "${_env_file}"
+}
+
 # _env_file_value <env_file> <key> <outvar>
 #
 # The LAST `<key>=<value>` assignment in a generated env file, empty when
