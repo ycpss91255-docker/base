@@ -80,6 +80,13 @@ an un-migrated repo runs exactly as before.
   names its own file, which still execs. The orchestrator does land in its
   image on the next rebuild -- through the directory COPY -- where it sits
   inert until the repo flips the `ENTRYPOINT`.
+- "Unchanged" has to hold for the `-test` stages too, and it does not come
+  for free: the shipped smoke baseline runs inside every one of them and
+  asserts the orchestrator, while the runtime stage's helper-directory COPY
+  is opt-in. So that assertion is guarded on the model -- it skips where
+  /entrypoint.sh still execs, i.e. where that file is the entry point --
+  and only bites once a repo has adopted the split, where a missing
+  orchestrator is a container that will not start.
 - `docker inspect` now records the fact: the `ENTRYPOINT` visibly names a
   `/usr/local/lib/base/` path, so "the entry point is base's" is in the
   image rather than only in this file.
