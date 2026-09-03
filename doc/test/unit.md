@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3540 tests**.
+Unit specs under `test/bats/unit/`: **3552 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -4295,3 +4295,20 @@ rather than an assurance.
 | `_run_adr_structure: REFUSES when doc/adr/ holds ONLY the exempt README (#994)` | - |
 | `_run_adr_structure: REFUSES when doc/adr/ does not exist (#994)` | - |
 | `_run_adr_structure: the REAL doc/adr/ passes today (#994)` | - |
+
+### test/bats/unit/release_ref_spec.bats (12)
+
+| Test | Description |
+|------|-------------|
+| `release-ref: a finished release tag is not a prerelease (#1012)` | - |
+| `release-ref: an RC tag is a prerelease (#1012)` | - |
+| `release-ref: a full refs/tags/ ref answers the same as its bare tag (#1012)` | - |
+| `release-ref: the leading v is optional (#1012)` | - |
+| `release-ref: build metadata is not a prerelease, a dotted prerelease id is (#1012)` | - |
+| `release-ref: a branch whose name merely contains a dash is refused, not answered (#1012)` | - |
+| `release-ref: a ref that is not a version tag at all is refused (#1012)` | - |
+| `release-ref: a missing ref is refused rather than defaulted (#1012)` | - |
+| `release-ref: an unrecognised subcommand is refused and names what it does answer (#1012)` | - |
+| `release-ref: every prerelease: input in the workflow tree is fed by a step output (#1012)` | - |
+| `release-ref: no workflow restates the prerelease test itself (#1012)` | - |
+| `release-ref: every workflow that declares a prerelease: input calls the classifier (#1012)` | - |
