@@ -307,16 +307,24 @@ Options:
                           metrics -- nesting depth <= 3, function length
                           <= 50 body code lines, positional parameters
                           <= 5 -- over every tracked shell file, and fail
-                          if any is over. Also --nesting-depth-only /
-                          --function-length-only /
+                          only ABOVE each metric's adoption ceiling: the
+                          number of functions base#994 phase 3 has not
+                          flattened yet, one readonly integer in
+                          script/test/drivers/shell_metrics.sh that may
+                          only ever go down. Every run prints count /
+                          limit / ceiling / slack, clean or not. Also
+                          --nesting-depth-only / --function-length-only /
                           --positional-params-only for one metric at a
                           time. NOT part of the default gate or of --lint
-                          (base#994 phase 4 wires them once phase 3 has
-                          flattened the tree), and host-direct only: the
+                          -- no longer because the tree is unflattened,
+                          which the ceiling settled, but because the lint
+                          phase runs INSIDE the ci container while this
                           population is derived from the git index, which
                           a container bind-mounting a `git worktree`
-                          checkout cannot read. `just test metrics` is
-                          the wrapper.
+                          checkout cannot read. Giving the phase a
+                          host-direct leg is base#994 phase 4's, and it
+                          is why this entry is host-direct only.
+                          `just test metrics` is the wrapper.
   --adr-numbering         With --lint: run only the ADR-numbering lint
                           (doc/adr/ duplicate-free + well-formed; gaps
                           warned, not failed)
