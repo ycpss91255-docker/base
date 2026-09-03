@@ -382,6 +382,56 @@ and they are what make the rule mechanical rather than rhetorical:
   such as `container_log_keep` has no "off", so neither question applies
   to it; how large a default number should be is invariant 4's direction
   question, answered by which way the harm falls.
+
+  **Amendment (#994, 2026-09-03): a magnitude that is a THRESHOLD is
+  decided by two questions of the same shape.** The exclusion above
+  still holds for a retention count, and for the same reason: nothing
+  about `container_log_keep = 5` can be called correct or incorrect on
+  its own. A threshold is the magnitude where that stops being true.
+  It is a *classifier* over a population base can measure -- every
+  function in the tree is either past it or not -- so "does this value
+  get the answer right" is a question with a fact behind it, which is
+  the property the two questions have always been testing for. Where a
+  magnitude has that property, it gets the questions; where it does not,
+  the paragraph above stands.
+
+  1. **Does this value fail something that is already correct?** Yes ->
+     the value is too low. This is question 1 with the same subject: a
+     thing that *works*, not a thing that *passes*. A function that is
+     hard to split is not an answer to it (ADR-00000029 -- the
+     difficulty is a finding about the function), and neither is the
+     size of today's violation population: how much code fails a
+     threshold says nothing about whether any of it was correct.
+  2. **Does this value pass something that is already defective?** Yes
+     -> the value is too high. A threshold set at the tree's current
+     worst case answers yes to this by construction, which is why "raise
+     it until the tree is green" is not available.
+
+  Where a range of values answers no to both, the **lowest** one is
+  taken. That is invariant 4's direction applied to the residue: a
+  too-high threshold fails silently -- it reports a clean tree it never
+  bounded -- while a too-low one fails loudly, on a named function, in
+  front of a reviewer who can dispute it. The harm falls on the side of
+  the high value, so the low end of the range is the safe one.
+
+  Applied to the three implementation standards ADR-00000029 adopts,
+  against the distribution `just test metrics` measured at the start of
+  #994 phase 3 (2026-09-03, 803 functions in 93 files; a count is a fact
+  about a tree at a date, so what is written here is the evidence the
+  decision rested on and not a figure this document keeps true):
+
+  | Threshold | Q1: does it fail correct code? | Q2: does it pass defective code? | Yields |
+  |---|---|---|---|
+  | nesting depth | at 2, yes -- a scan over files, over lines, that then decides is three enclosing constructs with nothing to remove, and 65 functions sit exactly there. At 3, no function past it has yet been found irreducible; that answer is provisional and each phase-3 slice tests it | at 4, yes -- it admits the 16 functions this tree measures at exactly 4, and the ones inspected so far are unwritten guard clauses rather than irreducible nesting | **3**, the lowest value that clears Q1 |
+  | function length | at 50, no -- the count is body CODE lines, so this repo's rationale comments and its heredoc bodies are already excluded, and what is left is 50 statements under one name; the same provisional answer as depth, tested by each slice | at 60, yes -- the distribution has no cliff anywhere above 50 (22 functions in 41-50, 21 in 51-60, 25 in 61-80), so every step up admits a further band of ordinary long functions and reports nothing new | **50**; with no natural cliff the two questions decide it, and Q2 is what stops the number drifting up |
+  | positional parameters | at 4, yes -- bash cannot pass an array by value, so a paired in / out API (two arrays in, one out, two scalars) is five positions at its honest minimum, and 15 functions sit exactly at 5. At 5, no: the first slice took three of the eight functions above it to five or fewer, and in each the extra slots turned out to carry nothing a caller decided | at 6, yes -- the population above 5 is 8 functions and their shapes are the argument-shuffling ones the metric exists to find; one of them had four call sites passing the wrong thing in its eighth slot | **5**, the lowest value that clears Q1 |
+
+  The three yields are the numbers the config-manager design document's
+  chapter 0 named, which is worth stating plainly: the questions did not
+  discover them, they RATIFIED them. That is the outcome the rule is
+  for. A borrowed number nobody can re-derive is a preference with a
+  citation, and the first person to find it inconvenient has nothing to
+  argue with except taste.
 - **It is a correctness test, not a risk analysis.** A permissive
   setting breaks nothing that works, so question 1 does not catch it;
   `[security] privileged` reaches `false` through the neither-yes branch,

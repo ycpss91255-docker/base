@@ -48,6 +48,26 @@ setup() {
   assert_output --partial "Usage:"
 }
 
+# why: The usage block is the only place a user is told what the three
+# metric lints DO with a violation, and it is the copy that answers
+# `--help` rather than a comment somebody has to go find. It promised a
+# failure the driver stopped delivering when base#994 phase 3 gave each
+# lint an adoption ceiling: the run prints every function over an
+# implementation standard and still exits 0 while the count is under the
+# ceiling, so a reader of this text believes a green run could not have
+# contained one. The assertion reads the COLLAPSED text because the block
+# is line-wrapped, and the wrapping is not the property.
+@test "test.sh --help: the metric lints' verdict is the ceiling they judge by, not per-violation failure (base#994)" {
+  run bash "${TEST_SH}" --help
+  assert_success
+  local _flat
+  _flat="$(printf '%s' "${output}" | tr -s '[:space:]' ' ')"
+  [[ "${_flat}" == *"adoption ceiling"* ]] \
+    || fail "--help never names the adoption ceiling the metric lints judge by"
+  [[ "${_flat}" != *"and fail if any is over"* ]] \
+    || fail "--help still promises a failure on any violation; the ceiling replaced that verdict"
+}
+
 # why: base ns usage
 @test "init.sh --help exits 0 and prints usage" {
   run bash "${INIT_SH}" --help
