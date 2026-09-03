@@ -22,6 +22,9 @@ conf_unknown_arg
 conf_upsert_file_missing
 conf_local_created
 conf_write_shadowed
+config_components_provisioned
+config_components_absent
+config_files_unprovisioned
 deploy_local_override_refused
 deploy_local_override_accepted
 conf_upsert_newline_rejected
@@ -114,6 +117,23 @@ prune_aborted
 prune_volume_aborted
 prune_no_workspace
 prune_unknown_flag
+prune_reclaim_failed
+
+# lib/project_reclaim.sh - the scoped reclaim
+reclaim_artifacts_unreadable
+reclaim_containers_unreadable
+reclaim_bad_grace
+reclaim_bad_keep
+reclaim_scan
+reclaim_orphan_dry_run
+reclaim_orphan_removed
+reclaim_network_rm_failed
+reclaim_tool_tags_scan
+reclaim_tool_tags_dry_run
+reclaim_tool_tag_retired
+reclaim_tool_tag_rm_failed
+stop_reclaim_failed
+ci_reclaim_failed
 
 # hook.sh
 hook_not_executable
@@ -164,6 +184,7 @@ ci_coverage_evidence_not_erased
 ci_mixed_test_layout
 ci_issueref_in_comment
 ci_adr_numbering
+ci_adr_structure
 ci_stale_setup_conf_path
 ci_readme_sync
 ci_doc_counts
@@ -180,6 +201,10 @@ ci_changelog_entry
 ci_action_ref_agreement
 ci_generated_workflow_actions
 ci_just_provenance
+ci_shell_metrics
+ci_nesting_depth
+ci_function_length
+ci_positional_params
 ci_lint_bad_root
 ci_no_hadolint
 ci_lint_tool_without_lint

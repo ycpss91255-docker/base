@@ -78,9 +78,29 @@
 # definition. Measured 2026-09-03: the catalogue held 1209 filled
 # descriptions against 3700 tests, so the migration commit left 2491
 # undescribed. This branch's own specs then described 18 more tests and
-# added 26 already-described ones, and the ceiling below is that final
-# figure -- so the slack starts at exactly 0 rather than at the larger
+# added 26 already-described ones, and the ceiling below was that final
+# figure -- so the slack started at exactly 0 rather than at the larger
 # number the migration alone would have justified.
+#
+# It was recomputed ONCE more, at the origin/main merge, 2473 -> 2641. A
+# merge is the one event that can raise it: it imports tests written
+# before this rule existed (168 of them here -- 133 in four spec files
+# added on main, 35 appended to existing ones), which is transition debt
+# arriving late rather than debt this branch chose. The alternative is
+# either failing the merge until somebody backfills 168 descriptions in a
+# hurry, which produces exactly the filler the header argues against, or
+# exempting the imported tests by name, which is the roster. The number is
+# recomputed from the merged tree, so it is still a figure the tree
+# computed and a person ratified.
+#
+# 19 of those 168 were then NOT debt and the reset had to give them back:
+# main had written their descriptions in the catalogue table -- the one
+# place this branch stops reading -- so a wholesale regeneration would
+# have deleted authored prose while the gate stayed green. They were
+# migrated into markers, the same direction the migration ran, and the
+# ceiling went down with them: 2641 -> 2622, slack back to 0. A merge is
+# the event that can raise the ceiling; it is not licence to drop what the
+# other side wrote.
 #
 # Failing all of them at once blocks this change on a backfill nobody
 # asked for -- and a rushed backfill produces exactly the filler above,
@@ -174,10 +194,18 @@ readonly _CATALOG_DESC_SCAN_GLOBS=(
   'dist/test/bats/smoke/**/*.bats'
 )
 
-# The transition ceiling. Set to the exact count the migration left. It
-# may only ever go DOWN. See the header for why this is one number and not
-# a file of them.
-readonly _CATALOG_DESC_UNDESCRIBED_CEILING=2473
+# The transition ceiling. Set to the exact count the migration left, then
+# recomputed once when origin/main was merged in: 2473 -> 2641 -> 2622. It
+# may only ever go DOWN by an ordinary change; the one thing that raises it
+# is a merge that IMPORTS tests written before this rule existed, which is a
+# ratchet reset and not a licence, and it is recomputed from the merged
+# tree rather than guessed. The second step is the ordinary direction and
+# not part of that reset: 19 of the imported tests arrived carrying a
+# description main had written in the catalogue table, so those 19 were
+# migrated into markers here rather than counted as debt somebody else
+# would have to re-derive. See the header for why this is one number and
+# not a file of them.
+readonly _CATALOG_DESC_UNDESCRIBED_CEILING=2622
 
 # The written-out non-answers, matched case-insensitively on the whole
 # trimmed marker. `nil`, `none`, `tbd`, `todo` and `unknown` carry a

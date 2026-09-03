@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **155 tests**.
+Integration specs under `test/bats/integration/`: **157 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -39,13 +39,15 @@ registry-conditional.
 | `release manifest: a complete caller passes preflight` | - |
 | `release manifest: a caller that forgot archive_name_prefix fails early, naming the fix` | - |
 
-### test/bats/integration/compose_host_identity_spec.bats (3)
+### test/bats/integration/compose_host_identity_spec.bats (5)
 
 | Test | Description |
 |------|-------------|
 | `compose.yaml: an unset HOST_UID fails naming the entry point to use (#895)` | - |
 | `compose.yaml: an unset HOST_GID fails the same way (#895)` | - |
 | `compose.yaml: every checkout-mounting service takes the supplied ids verbatim (#895)` | - |
+| `compose.yaml: an unset BASE_CHECKOUT_PATH fails naming the entry point to use (#995)` | - |
+| `compose.yaml: the label it stamps is the path the caller supplied (#995)` | - |
 
 ### test/bats/integration/compose_test_tools_image_spec.bats (3)
 

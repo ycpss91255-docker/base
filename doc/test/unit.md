@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3515 tests**.
+Unit specs under `test/bats/unit/`: **3681 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -152,6 +152,38 @@ warned.
 | `_run_adr_numbering: an early-closing reader cannot abort the min/max scan (#898)` | No pipeline status owned by a departing reader |
 | `_run_adr_numbering: min/max stay correct with sort/head unusable (#898)` | In-shell range still bounds the gap scan |
 | `_run_adr_numbering: the REAL doc/adr/ passes today (00000009 gap warned) (#808)` | Live tree clean, 00000009 gap warned |
+
+### test/bats/unit/adr_structure_spec.bats (27)
+
+| Test | Description |
+|------|-------------|
+| `_run_adr_structure: FAILS on a missing '> Serves:' back-pointer, naming the file (#994)` | - |
+| `_run_adr_structure: a '> Serves:' that is not at line start does NOT count (#994)` | - |
+| `_run_adr_structure: FAILS on a missing '## Context' (#994)` | - |
+| `_run_adr_structure: FAILS on a missing '## Decision' (#994)` | - |
+| `_run_adr_structure: FAILS on a missing '## Consequences' (#994)` | - |
+| `_run_adr_structure: FAILS on a missing '## Alternatives' -- required, not advisory (#994)` | - |
+| `_run_adr_structure: ACCEPTS the house heading variants with trailing text (#994)` | - |
+| `_run_adr_structure: a required heading appearing TWICE at column 0 is refused (#994)` | - |
+| `_run_adr_structure: indenting the illustrated heading is the whole fix (#994)` | - |
+| `_run_adr_structure: a second '> Serves:' at column 0 is refused (#994)` | - |
+| `_run_adr_structure: a second '- **Status:**' at column 0 is refused (#994)` | - |
+| `_run_adr_structure: an illustrated ADR template is refused on the parts the file DOES carry (#994)` | - |
+| `_run_adr_structure: KNOWN FAIL-OPEN -- a part omitted AND illustrated at column 0 reads as compliant (#994)` | - |
+| `_run_adr_structure: FAILS on free text after Accepted (#994)` | - |
+| `_run_adr_structure: FAILS on free text after Rejected (#994)` | - |
+| `_run_adr_structure: FAILS on a Status line that is absent entirely (#994)` | - |
+| `_run_adr_structure: FAILS on 'Proposed', which is not one of the three values (#994)` | - |
+| `_run_adr_structure: FAILS on a supersession pointing at a non-8-digit number (#994)` | - |
+| `_run_adr_structure: FAILS on a supersession carrying a trailing date (#994)` | - |
+| `_run_adr_structure: ACCEPTS all three contract values (#994)` | - |
+| `_run_adr_structure: EXEMPTS doc/adr/README.md (the index) (#994)` | - |
+| `_run_adr_structure: names EVERY offending file, not just the first (#994)` | - |
+| `_run_adr_structure: reports how many ADRs it examined (#994)` | - |
+| `_run_adr_structure: REFUSES when doc/adr/ holds no ADR at all (#994)` | - |
+| `_run_adr_structure: REFUSES when doc/adr/ holds ONLY the exempt README (#994)` | - |
+| `_run_adr_structure: REFUSES when doc/adr/ does not exist (#994)` | - |
+| `_run_adr_structure: the REAL doc/adr/ passes today (#994)` | - |
 
 ### test/bats/unit/arch_literal_lint_spec.bats (20)
 
@@ -896,7 +928,7 @@ between them can be asserted at all.
 | `reclaim.sh --stale delegates the unowned classes to prune.sh with the same window` | - |
 | `reclaim.sh --stale never touches volumes` | - |
 
-### test/bats/unit/ci_spec.bats (117)
+### test/bats/unit/ci_spec.bats (118)
 
 | Test | Description |
 |------|-------------|
@@ -974,6 +1006,7 @@ between them can be asserted at all.
 | `main --ci: LINT_TOOL=doc-counts runs the doc/test count drift gate (#864)` | #864 doc/test count drift gate reaches the CI gate |
 | `main --doc-counts-only: runs the drift gate on the host, no compose (#864)` | #864 host-direct primitive so a CI job can run the gate without compose |
 | `main --issueref-only: runs the issue-ref comment lint on the host, no compose (#866)` | - |
+| `main --adr-structure-only: runs the ADR-structure lint on the host, no compose (#994)` | - |
 | `main --adr-numbering-only: runs the ADR-numbering lint on the host, no compose (#866)` | - |
 | `main --stale-setup-conf-only: runs the stale setup.conf path lint on the host, no compose (#866)` | - |
 | `main --home-literal-only: runs the hardcoded home path lint on the host, no compose (#799)` | - |
@@ -1018,12 +1051,13 @@ between them can be asserted at all.
 | `_run_via_compose: the real ids are in the environment compose interpolates (#895)` | - |
 | `_fix_permissions: refuses a non-numeric id instead of handing it to chown (#895)` | - |
 
-### test/bats/unit/code_lines_spec.bats (35)
+### test/bats/unit/code_lines_spec.bats (42)
 
 The comment-stripped file views in `test/bats/unit/test_helper.bash`
 (`strip_comments` / `only_comments` / `code_lines` / `code_grep` /
-`yaml_job_{text,lines}` / `yaml_top_{text,lines}`), which the workflow and
-template structural specs assert against instead of the raw file.
+`yaml_job_{text,lines}` / `yaml_top_{text,lines}` / `yaml_step_id_for`),
+which the workflow and template structural specs assert against instead of
+the raw file.
 
 They exist because a spec that greps a WHOLE file lets a string appearing
 only in a COMMENT satisfy an assertion about CODE, and this repo's comments
@@ -1078,12 +1112,19 @@ still arrive as 1.
 | `yaml_top_lines: returns a top-level block's code without the prose between keys` | `on` / `env` / `permissions` / `concurrency`; a comment paragraph between two top-level keys is not indented out by the terminator |
 | `yaml_top_lines: stops at the next top-level key` | Block scoping for the top-level mappings |
 | `yaml_top_text: keeps the block's comments` | The verbatim counterpart, for symmetry with `yaml_job_text` |
-| `yaml_step_id_for: names the step whose own body matches` | - |
-| `yaml_step_id_for: an id-less matching step yields nothing, it does not borrow the id of an earlier step` | - |
-| `yaml_step_id_for: a nested list inside a step is not a step boundary` | - |
-| `yaml_step_id_for: a match in a comment cannot name a step` | - |
-| `yaml_step_id_for: a pattern that matches nowhere in the job yields nothing` | - |
-| `yaml_step_id_for: does not reach into another job for its match` | - |
+| `yaml_step_id_for: names the step whose own body matches` | The step id an assertion needs to say "the consumer reads THE STEP THAT DID THE WORK", derived from the file so a rename moves the assertion with it |
+| `yaml_step_id_for: an id-less matching step yields nothing, it does not borrow the id of an earlier step` | The regression it was extracted for: the inline awk carried the last id forward across step boundaries, so a match in a later id-less step wore an earlier step's id and the assertion vouched for a step that no longer contained its subject |
+| `yaml_step_id_for: a nested list inside a step is not a step boundary` | The inverse mistake: resetting on every sequence dash loses the id of a step whose match sits in a `with:` list. Only a dash at the step indent is a boundary |
+| `yaml_step_id_for: a match in a comment cannot name a step` | It reads the job's code lines, so the same prose hazard the rest of this file exists for cannot name a step either |
+| `yaml_step_id_for: a pattern that matches nowhere in the job yields nothing` | An unattributable match is answered with an empty id, never a guessed one; the caller's `[ -n ... ]` turns that into a loud failure |
+| `yaml_step_id_for: does not reach into another job for its match` | Job scoping, inherited from `yaml_job_lines`: a step in a neighbouring job cannot supply this job's id |
+| `yaml_step_id_for: a block-style needs: above the steps is not the step indent (#993)` | The escape the #948 fix left open: taking the boundary from the shallowest dash the job had shown read it off the block-style `needs:` at indent 4, so no step dash at 6 was ever a boundary and one id ran the length of the job |
+| `yaml_step_id_for: the matching step is still named when a block-style needs: precedes it (#993)` | Non-vacuity for the row above -- a helper that answered nothing to everything would satisfy it, and refusing every shape is the same guard deleted |
+| `yaml_step_id_for: a shallower list above a deeper steps list is not the step indent (#993)` | The same escape without `needs:`: a `strategy.matrix` sequence written at its parent's indent, above a steps list indented one level deeper. The anchor is the `steps:` key, not any one spelling |
+| `yaml_step_id_for: the matching step is still named when a shallower list precedes a deeper steps list (#993)` | Non-vacuity for the row above, on the second shape |
+| `yaml_step_id_for: an action input named id does not become the step name (#993)` | `id` is an ordinary action input; read as the step's own key it renames the step to a string no `steps.<id>.outputs` reference resolves. A step's own keys sit at the indent its dash set, a `with:` input deeper |
+| `yaml_step_id_for: a match above the job's first step names no step (#993)` | The job keys above `steps:` are outside the region the helper can attribute, so nothing there is answered with an id |
+| `yaml_step_id_for: a match below the steps list names no step (#993)` | The other end of that region: a job key after the steps list ends attribution, so the id of the last step does not follow the scan out |
 
 ### test/bats/unit/completions_spec.bats (15)
 
@@ -1553,7 +1594,7 @@ downgraded in silence.
 | `_collect_deploy_binds: duplicate basename across components fails loud (tunable-manifest)` | basename collision |
 | `_collect_deploy_binds: propagates a malformed manifest failure (tunable-manifest)` | fail propagation |
 
-### test/bats/unit/deploy_spec.bats (53)
+### test/bats/unit/deploy_spec.bats (59)
 
 Covers the self-contained field-deploy generator (#832; ADR-3 amended by
 ADR-00000023). Deploy produces an output FOLDER run via a fully-resolved,
@@ -1602,8 +1643,14 @@ refused before any build or bundle step.
 | `_generate_deploy_launcher: writes an executable up/down/logs launcher (#832)` | launcher shape |
 | `_generate_deploy_launcher: a no-arg invocation defaults to up without a set -e early exit (#832)` | no-arg default up |
 | `_generate_deploy_launcher: generated launcher is ShellCheck-clean (#832)` | shellcheck-clean output |
-| `_bake_config_copy: splices COPY config/app into the target stage (#506/#504)` | config COPY bake |
-| `_bake_config_copy: handles src == out in place (#506/#504)` | in-place bake |
+| `_collect_config_components: names every config/*/ dir, sorted` | component population |
+| `_collect_config_components: skips files and hidden entries` | dir-only discriminator |
+| `_collect_config_components: empty result on a repo with no config/` | empty population |
+| `_bake_config_copy: splices COPY config/<component> into the target stage (#506/#504/#1000)` | config COPY bake |
+| `_bake_config_copy: handles src == out in place (#506/#504/#1000)` | in-place bake |
+| `_bake_config_copy: bakes every component to its own destination (#1000)` | per-component target |
+| `_bake_config_copy: bakes config/shell and config/pip too (#1000)` | no name list |
+| `_bake_config_copy: returns 1 and writes nothing when no component dir exists (#1000)` | nothing-to-bake |
 | `_generate_deploy_bundle: dry-run plans build (versioned image) + save + xz + install (#832)` | bundle plan |
 | `_generate_deploy_bundle: dry-run builds from the baked Dockerfile when [environment] is set (#832/#503)` | env-bake build |
 | `_generate_deploy_bundle: dry-run plans a docker cp per tunable-manifest path (#833)` | tunable extract |
@@ -1710,7 +1757,7 @@ the author did not have to escape.
 | `_sync_doc_counts: a second run over a generated catalogue changes nothing` | "Regenerating from scratch reproduces what is committed" is the gate check_test_md_drift.sh applies to the real tree, so a second run that moved a byte would make every branch red for a reason no diff explains. |
 | `_sync_doc_counts: a shipped smoke spec lands in smoke.md` | A shipped smoke spec is the one level whose glob leaves test/ for dist/, and it was the case that caught the doc-to-glob map going stale before. It stays because the map is still hand-written. |
 
-### test/bats/unit/dockerfile_migrate_spec.bats (81)
+### test/bats/unit/dockerfile_migrate_spec.bats (86)
 
 Unit tests for the declarative Dockerfile-migration list
 `lib/dockerfile_migrate.sh` (#567, folds #579 facet B). The lib exposes a
@@ -1781,14 +1828,19 @@ force-rewrite).
 | `migration (flat-to-dist): dispatcher run twice rewrites exactly once (#915)` | - |
 | `apply_migrations leaves no .base COPY source behind on the v0.41.0 shape (#915)` | - |
 | `apply_migrations leaves every .base COPY source resolvable in the shipped tree (#969)` | - |
-| `migration (logrotate-copy): inserts logrotate.sh COPY after the logging.sh COPY (#805)` | - |
-| `migration (logrotate-copy): detect false when logrotate COPY already present (idempotent) (#805)` | - |
-| `migration (logrotate-copy): detect false when no logging.sh COPY present (#805)` | - |
-| `migration (logrotate-copy): dispatcher run twice inserts the COPY exactly once (#805)` | - |
-| `migration (watchdog-copy): inserts watchdog.sh COPY after the logging.sh COPY (#797)` | - |
-| `migration (watchdog-copy): detect false when watchdog COPY already present (idempotent) (#797)` | - |
-| `migration (watchdog-copy): detect false when no logging.sh COPY present (#797)` | - |
-| `migration (watchdog-copy): dispatcher run twice inserts the COPY exactly once (#797)` | - |
+| `migration (runtime-moved-files): rewrites the smoke.sh source to the shipped test tree (#971)` | - |
+| `migration (runtime-moved-files): rewrites the entrypoint.sh source at the pre-dist path (#971)` | - |
+| `migration (runtime-moved-files): detect false once nothing names the old paths (#971)` | - |
+| `migration (runtime-dir-copy): collapses the three per-file COPYs into one dir COPY (#971)` | - |
+| `migration (runtime-dir-copy): collapses a subset in any order at the pre-dist path (#971)` | - |
+| `migration (runtime-dir-copy): one dir COPY per stage, not one for the file (#971)` | - |
+| `migration (runtime-dir-copy): a statement hand-listing two helpers collapses to one source (#971)` | - |
+| `migration (runtime-dir-copy): a hand-relocated destination is preserved (#971)` | - |
+| `migration (runtime-dir-copy): rewrites the commented runtime-stage example too (#971)` | - |
+| `migration (runtime-dir-copy): an already-collapsed dir COPY is left alone (#971)` | - |
+| `migration (runtime-dir-copy): dispatcher run twice collapses exactly once (#971)` | - |
+| `migration (runtime-dir-copy): detect false when no helper COPY is present (#971)` | - |
+| `apply_migrations heals the runtime COPYs every real consumer actually carries (#971)` | - |
 | `migration 5 (hadolint): DL3007 pins bats/alpine :latest tags (#567)` | - |
 | `migration 5 (hadolint): DL3046 adds useradd -l (#567)` | - |
 | `migration 5 (hadolint): DL3003 cd /lint -> WORKDIR /lint + RUN (#567)` | - |
@@ -1943,7 +1995,7 @@ SSH X11 `XAUTHORITY` override #321) and `_scaffold_env_overlay` idempotency.
 | `no shipped surface calls a bare .env hand-authored or a workload overlay (#868)` | - |
 | `the shipped surfaces name .env.local as the override channel (#868)` | - |
 
-### test/bats/unit/errexit_bang_lint_spec.bats (83)
+### test/bats/unit/errexit_bang_lint_spec.bats (96)
 
 | Test | Description |
 |------|-------------|
@@ -1967,7 +2019,7 @@ SSH X11 `XAUTHORITY` override #321) and `_scaffold_env_overlay` idempotency.
 | `bash: '! A \|\| return 1' DOES fail its test in the failing direction (#956)` | - |
 | `_run_errexit_bang: PASSES on '\|\| return 1' / '\|\| fail', which CAN fail the test (#956)` | - |
 | `_run_errexit_bang: still FAILS on '\|\| true' / '\|\| :', the operands that cannot fail (#956)` | - |
-| `_run_errexit_bang: PASSES on an '\|\|' whose operand is a GROUP (#956)` | - |
+| `_run_errexit_bang: names a GROUP operand as unreadable, not as unfinished (#956)` | - |
 | `_run_errexit_bang: PASSES on a ';' that sits in a trailing comment (#956)` | - |
 | `_run_errexit_bang: PASSES on a ';' inside a quoted argument (#956)` | - |
 | `_run_errexit_bang: FAILS on an '\|\|' that belongs to a command substitution (#956)` | A separator inside `( ... )` is the argument's, so the exemption for `! A \|\| B` does not reach it |
@@ -2016,7 +2068,20 @@ SSH X11 `XAUTHORITY` override #321) and `_scaffold_env_overlay` idempotency.
 | `_run_errexit_bang: does not flag a bang that continues the previous line (#956)` | - |
 | `_run_errexit_bang: does not flag a bang outside any test body (#956)` | - |
 | `_run_errexit_bang: does not flag a commented-out bang (#956)` | - |
-| `_run_errexit_bang: KNOWN MISS -- a bang list whose final operand is an echo, as the body's last statement (base#992) (#956)` | - |
+| `bash: a '!' that ends an 'if' body which ends the test body IS the verdict (base#991) (#956)` | - |
+| `_run_errexit_bang: does not flag a '!' that ends a block which ends the body (base#991) (#956)` | - |
+| `_run_errexit_bang: does not flag a '!' that ends a BRANCH of a block which ends the body (base#991) (#956)` | - |
+| `_run_errexit_bang: still FLAGS a '!' buried earlier inside a block (base#991) (#956)` | - |
+| `_run_errexit_bang: still FLAGS a '!' whose block is not the body's last statement (base#991) (#956)` | - |
+| `_run_errexit_bang: a block the scan cannot balance reports every pending '!' (base#991) (#956)` | - |
+| `_run_errexit_bang: REFUSES a *.bats with CRLF line endings, naming them (base#990) (#956)` | - |
+| `_run_errexit_bang: the CRLF row is not silenced by an allow region (base#990) (#956)` | - |
+| `_run_errexit_bang: FAILS on a ';' hand-off behind a live '\|\|' (base#992) (#956)` | - |
+| `_run_errexit_bang: FAILS on a bang list whose final operand is an 'echo' (base#992) (#956)` | - |
+| `_run_errexit_bang: FAILS on a bang list whose final operand is an unreadable group (base#992) (#956)` | - |
+| `_run_errexit_bang: the widened always-zero set does not reach past the command word (base#992) (#956)` | - |
+| `_run_errexit_bang: KNOWN MISS -- a ONE-LINE '{ ! A; }' brace group (base#991) (#956)` | - |
+| `_run_errexit_bang: KNOWN OVER-REPORT -- a ';' behind an operand that transfers control (base#992) (#956)` | - |
 | `_run_errexit_bang: FAILS when the repo holds no *.bats at all (#956)` | - |
 | `_run_errexit_bang: FAILS when the spec directories are all empty (#956)` | - |
 | `_run_errexit_bang: does NOT scan the released-tree archives (#956)` | - |
@@ -2971,6 +3036,43 @@ builds nothing and pushes nothing)
 | `prev-release gate: under kcov the shard out-ranks a leftover BATS_FILE` | - |
 | `prev-release gate: --bats-path over the spec itself refuses to start when the tags cannot be resolved` | - |
 
+### test/bats/unit/project_reclaim_spec.bats (32)
+
+| Test | Description |
+|------|-------------|
+| `_reclaim_project_for_path derives the same base-<12hex> name test.sh does` | - |
+| `script/test/test.sh derives its compose project name through the shared producer` | - |
+| `script/test/test.sh derives its test-tools tag through the shared producer` | - |
+| `a network whose recorded checkout is gone is collected` | - |
+| `a sweep launched from an unrelated repository spares every live checkout` | - |
+| `a live checkout whose path contains a newline is NOT collected` | - |
+| `an orphan whose path contains a newline IS collected` | - |
+| `the sweep consults no git at all` | - |
+| `a network whose recorded checkout still exists is NOT collected` | - |
+| `a path that exists but is no longer a checkout is spared` | - |
+| `a network with NO checkout-path label is left alone` | - |
+| `a checkout label that is not an absolute path is left alone` | - |
+| `another tenant's network is left alone` | - |
+| `a project with a container attached is NOT collected` | - |
+| `an orphan created inside the grace window is NOT collected` | - |
+| `a network whose facts cannot be read is left alone` | - |
+| `an unreadable network listing ABORTS rather than collecting everything` | - |
+| `an unreadable network listing issues no removal command at all` | - |
+| `an unreadable container listing ABORTS -- it cannot say nothing is attached` | - |
+| `an unparseable grace aborts before any docker call` | - |
+| `images are never collected by the project rule (the tooling tag is shared)` | - |
+| `the fact read asks for the JSON creation time and both labels` | - |
+| `the live-checkout set comes from the artifacts, not from any worktree list` | - |
+| `tag retention keeps the current tree's tag and the last N and retires the rest` | - |
+| `tag retention keeps a tag a live checkout still resolves to` | - |
+| `tag retention drops a checkout whose path is gone` | - |
+| `tag retention leaves a tag it cannot place alone` | - |
+| `tag retention ABORTS when the artifacts cannot be listed` | - |
+| `tag retention ABORTS when the image listing fails` | - |
+| `the retained-tag count is derived from the live checkouts, not a buried literal` | - |
+| `the retained-tag count is overridable by the environment` | - |
+| `the pinned tag set is the invoking tree plus every live checkout` | - |
+
 ### test/bats/unit/prune_sh_spec.bats (41)
 
 Unit tests for the new `script/docker/prune.sh` wrapper (#319) — atomic
@@ -3200,6 +3302,33 @@ the capture (#965).
 | `_sync_readme_hashes: is a no-op on the REAL tree (already stamped) (#846)` | Live tree already generator-exact |
 | `_capture_readme_baseline: a capture the source changed under is DISCARDED, not used (#965)` | A torn read must never become the baseline a verdict rests on |
 | `_capture_readme_baseline: a source that never settles FAILS loudly, it does not hand back a torn set (#965)` | No snapshot means nothing to assert on; say so rather than pick a read |
+
+### test/bats/unit/reclaim_wiring_spec.bats (22)
+
+| Test | Description |
+|------|-------------|
+| `compose.yaml records the checkout path on the network it creates` | - |
+| `the label compose writes is the label the collector reads` | - |
+| `a compose invocation that cannot say which checkout it is, is refused` | - |
+| `every entry point that drives compose supplies the checkout path` | - |
+| `no caller hands the project sweep a repo root` | - |
+| `test.sh installs the reclaim as an EXIT handler on the direct-run path only` | - |
+| `test.sh arms the reclaim where a compose project is actually minted` | - |
+| `a dispatch that refuses to start reclaims nothing` | - |
+| `a reclaim failure does not change the suite's verdict` | - |
+| `a reclaim failure does not turn a green run red` | - |
+| `a reclaim failure is reported rather than swallowed` | - |
+| `the reclaim still runs when the suite FAILED -- litter from a red run is litter` | - |
+| `retiring a tooling image is never automatic` | - |
+| `a run that minted no compose project reclaims nothing` | - |
+| `just test system reclaims when it is done, pass or fail` | - |
+| `stop.sh reclaims after the project comes down` | - |
+| `stop.sh's reclaim cannot fail the stop` | - |
+| `the verbs that BEGIN a flow do not reclaim` | - |
+| `prune.sh exposes the scoped reclaim as its own mode` | - |
+| `--all does not quietly acquire the scoped reclaim` | - |
+| `the daemon-wide prune targets are untouched` | - |
+| `the scoped reclaim is reachable through just, with no new namespace` | - |
 
 ### test/bats/unit/release_archive_spec.bats (26)
 
@@ -4445,7 +4574,7 @@ sanitization, `detect_ws_path`, and `_reconcile_workspace_path` (#569).
 | `_setup_ssh_x11_cookie returns 1 with warning when nmerge pipe exits non-zero (#688)` | - |
 | `_setup_ssh_x11_cookie returns 1 with warning when xauth is not installed (#321)` | - |
 
-### test/bats/unit/setup_spec.bats (117)
+### test/bats/unit/setup_spec.bats (121)
 
 The `setup.sh` orchestrator spec. `main` subcommand dispatch (`set` / `show`
 / `remove` for `[logging]` #328 and `[lifecycle]` #478, `reset`, `--lang` /
@@ -4454,11 +4583,11 @@ integration tests that drive detect → resolve → write_env → compose emit
 end-to-end: template-shipped defaults and emitted blocks for `[lifecycle]`
 restart (#478), `[deploy]` `dri_groups` (#496) and `gpu_runtime` alias
 (#481), `[additional_contexts]` (#199), `[build]` `arg_N` / `target_arch` /
-`network`, `[security]` opt-in (#466), `config/app/` bind (#504),
-`.env.generated` cache + `.env` overlay (#502), workspace writeback
-(#174/#201), `--gui` / `--no-x11-cookie` / `--print-resolved` flags (#338),
-`--quiet` confirmation lines (#285), #450 propagation + duplicate-target
-guards, and S7 `runtime.env` retirement (#507).
+`network`, `[security]` opt-in (#466), `config/<component>/` bind
+(#504/#1000), `.env.generated` cache + `.env` overlay (#502), workspace
+writeback (#174/#201), `--gui` / `--no-x11-cookie` / `--print-resolved`
+flags (#338), `--quiet` confirmation lines (#285), #450 propagation +
+duplicate-target guards, and S7 `runtime.env` retirement (#507).
 
 | Test | Description |
 |------|-------------|
@@ -4528,8 +4657,12 @@ guards, and S7 `runtime.env` retirement (#507).
 | `apply generates .env and scaffolds .env.local (#868)` | - |
 | `apply rewrites .env but never rewrites .env.local (#868)` | - |
 | `apply routes [environment] env_N into .env, not the compose environment: block (#868)` | - |
-| `apply dev-binds config/app/ into the devel service when present (#504)` | - |
-| `apply omits the config/app bind when the directory is absent (#504)` | - |
+| `apply dev-binds each config/<component>/ into the devel service (#504/#1000)` | - |
+| `apply dev-binds two component dirs to two distinct destinations (#1000)` | - |
+| `apply dev-binds config/shell and config/pip too, and says which (#1000)` | - |
+| `apply omits the config bind when no component dir exists, and SAYS so (#504/#1000)` | - |
+| `apply WARNs about config files sitting directly under config/ (#1000)` | - |
+| `apply stays quiet about the config/.gitkeep placeholder (#1000)` | - |
 | `main reset --yes works on first-time bootstrap (no prior .local or setup.conf) (#174)` | - |
 | `_setup_msg returns English messages by default` | - |
 | `_setup_msg returns Traditional Chinese messages when _LANG=zh-TW` | - |
@@ -4579,6 +4712,63 @@ guards, and S7 `runtime.env` retirement (#507).
 | `apply does NOT warn duplicate when device and volume targets differ (#450 P4)` | - |
 | `apply no longer emits runtime.env; [environment] still reaches the container (#868)` | - |
 | `_write_runtime_env is removed (#507)` | - |
+
+### test/bats/unit/shell_metrics_spec.bats (52)
+
+| Test | Description |
+|------|-------------|
+| `population: a tracked .sh file is read (#994)` | - |
+| `population: a tracked EXTENSIONLESS file whose first two bytes are '#!' is read (#994)` | - |
+| `population: a tracked extensionless file WITHOUT a shebang is not read (#994)` | - |
+| `population: a tracked SYMLINK ending .sh is not read (#994)` | - |
+| `population: an UNTRACKED .sh file is not read (#994)` | - |
+| `population: an EMPTY population is refused, never reported clean (#994)` | - |
+| `parser: a shell KEYWORD USED AS AN ARGUMENT closes nothing (#994)` | - |
+| `parser: double-quote scanning RECURSES into command substitution (#994)` | - |
+| `parser: a dollar-single-quote holding an escaped quote does not swallow the file (#994)` | - |
+| `parser: a heredoc body containing 'if' and 'done' is data, not syntax (#994)` | - |
+| `parser: a heredoc body does not count toward function length (#994)` | - |
+| `parser: a case pattern containing ')' does not end the pattern early (#994)` | - |
+| `parser: a double-semicolon inside a string does not end a case arm (#994)` | - |
+| `parser: a comment containing 'fi' closes nothing (#994)` | - |
+| `parser: a comment-only line does not count toward length (#994)` | - |
+| `parser: a function defined INSIDE a function yields two records (#994)` | - |
+| `parser: an inner function definition adds a level to the OUTER depth (#994)` | - |
+| `parser: 'function name {' with no parens is a function definition (#994)` | - |
+| `parser: 'function name() {' is a function definition (#994)` | - |
+| `parser: a one-line function body is measured as one line (#994)` | - |
+| `parser: an array assignment is not read as a function definition (#994)` | - |
+| `parser: an array literal's elements are DATA, not commands (#994)` | - |
+| `parser: a SINGLE-LINE array literal's elements are data too (#994)` | - |
+| `parser: an UNBALANCED keyword in an array literal is data too, not a finding (#994)` | - |
+| `parser: a command substitution INSIDE an array literal is still a command context (#994)` | - |
+| `parser: CRLF line endings are read like LF (#994)` | - |
+| `parser: a construct opened and CLOSED inside a command substitution (#994)` | - |
+| `parser: every closing keyword written against a ')' closes its own construct (#994)` | - |
+| `counting: a case arm adds NO level, so case matches the if/elif chain it replaces (#994)` | - |
+| `counting: a brace group and a subshell add no level; the construct inside them does (#994)` | - |
+| `counting: length is body CODE lines, excluding the header and closing brace (#994)` | - |
+| `counting: positional parameters are the HIGHEST index reached, not the count of distinct ones (#994)` | - |
+| `counting: an unbraced positional takes ONE digit, the way bash reads it (#994)` | - |
+| `counting: a forwarded argument list does not raise the count but marks the function variadic (#994)` | - |
+| `counting: a 'shift' raises the index a later positional reaches (#994)` | - |
+| `counting: a 'shift' inside a loop is unbounded, so the function is variadic (#994)` | - |
+| `counting: a shift with a QUOTED non-literal count marks the function variadic (#994)` | - |
+| `counting: a bare shift is still one position, not a non-literal count (#994)` | - |
+| `counting: a nested function has its OWN positional parameters (#994)` | - |
+| `refusal: an unbalanced construct is reported, and the file's records are dropped (#994)` | - |
+| `refusal: an unterminated quote is reported (#994)` | - |
+| `refusal: a legacy backtick substitution is reported rather than guessed at (#994)` | - |
+| `limitation: a function body that is not a brace group is a finding, not a record (base#994)` | - |
+| `limitation: an arithmetic left shift is misread as a heredoc, and errs toward a finding (base#994)` | - |
+| `_run_nesting_depth: FAILS at depth 4, naming file and function (#994)` | - |
+| `_run_nesting_depth: passes at depth 3 (#994)` | - |
+| `_run_function_length: FAILS at 51 body code lines (#994)` | - |
+| `_run_function_length: passes at exactly 50 body code lines (#994)` | - |
+| `_run_positional_params: FAILS at 6 positional parameters (#994)` | - |
+| `_run_positional_params: passes at exactly 5 (#994)` | - |
+| `the three lints share ONE reader pass (#994)` | - |
+| `_run_shell_metrics: reports all three metrics in one run (#994)` | - |
 
 ### test/bats/unit/smoke_harness_spec.bats (14)
 
@@ -5009,7 +5199,7 @@ Unit tests for the repo-local command-group scaffolder
 | `new.sh registers a real mod? line even when the seed registry only COMMENTS that name (#785)` | - |
 | `new.sh source ships with the executable bit set (recipe invokes it directly) (#785)` | - |
 
-### test/bats/unit/template_spec.bats (174)
+### test/bats/unit/template_spec.bats (171)
 
 | Test | Description |
 |------|-------------|
@@ -5102,16 +5292,13 @@ Unit tests for the repo-local command-group scaffolder
 | `stop.sh -h works in /lint/ layout` | - |
 | `build.sh errors with a clear diagnostic when bootstrap/_lib.sh missing (issue #104, #408)` | - |
 | `Dockerfile.example copies lib/ and wrapper/ into /lint/ (#406)` | - |
-| `Dockerfile.example copies logging.sh to /usr/local/lib/base/ in devel stage (#368)` | - |
-| `Dockerfile.example commented runtime stage shows logging.sh COPY example (#368)` | - |
+| `Dockerfile.example copies the runtime helper dir into /usr/local/lib/base/ in devel stage (#971)` | - |
+| `nothing in dist/script/docker/runtime/ has a destiny other than the helper dir (#971)` | - |
+| `Dockerfile.example commented runtime stage shows the helper-dir COPY example (#971)` | - |
 | `runtime/logging.sh header documents in-image source-line (no $USER, no work/.base) (#368)` | - |
-| `Dockerfile.example copies logrotate.sh to /usr/local/lib/base/ in devel stage (#805)` | - |
-| `Dockerfile.example copies watchdog.sh to /usr/local/lib/base/ in devel stage (#797)` | - |
-| `Dockerfile.example commented runtime stage shows watchdog.sh COPY example (#797)` | - |
-| `runtime/entrypoint.sh sources the watchdog helper after logging (#797)` | - |
-| `runtime/entrypoint.sh guards both lib sources with a readability test (#842)` | Both source lines wrapped in `[[ -r ]]`, matching the logrotate.sh pattern |
-| `runtime/entrypoint.sh execs cleanly under set -euo pipefail with the libs absent (#842)` | Opt-out runtime image: reaches `exec`, no stderr, no strict-mode abort |
-| `Dockerfile.example commented runtime stage shows logrotate.sh COPY example (#805)` | - |
+| `dockerfile/entrypoint.sh sources the watchdog helper after logging (#797)` | - |
+| `dockerfile/entrypoint.sh guards both lib sources with a readability test (#842)` | Both source lines wrapped in `[[ -r ]]`, matching the logrotate.sh pattern |
+| `dockerfile/entrypoint.sh execs cleanly under set -euo pipefail with the libs absent (#842)` | Opt-out runtime image: reaches `exec`, no stderr, no strict-mode abort |
 | `no inline _detect_lang fallbacks remain after dedupe (issue #104)` | - |
 | `setup.sh does not redefine _detect_lang` | No duplication |
 | `setup.sh defines _setup_msg, not _msg (closes #101)` | - |

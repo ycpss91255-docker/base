@@ -75,9 +75,11 @@ _make_context() {
   local -n _mc_out="${1}"
   _mc_out="$(mktemp -d -t smoke-harness-XXXXXX)"
   mkdir -p "${_mc_out}/script" \
+    "${_mc_out}/dist/dockerfile" \
     "${_mc_out}/dist/script/docker" \
     "${_mc_out}/dist/test/bats"
   cp -L /source/script/*.sh "${_mc_out}/script/"
+  cp /source/dist/dockerfile/entrypoint.sh "${_mc_out}/dist/dockerfile/"
   cp -a /source/dist/script/docker/lib "${_mc_out}/dist/script/docker/"
   cp -a /source/dist/script/docker/wrapper "${_mc_out}/dist/script/docker/"
   cp -a /source/dist/script/docker/runtime "${_mc_out}/dist/script/docker/"

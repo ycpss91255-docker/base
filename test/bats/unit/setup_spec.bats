@@ -8,7 +8,8 @@
 # for `[lifecycle]` restart (#478), `[deploy]` `dri_groups` (#496) and
 # `gpu_runtime` alias (#481), `[additional_contexts]` (#199), `[build]`
 # `arg_N` / `target_arch` / `network`, `[security]` opt-in (#466),
-# `config/app/` bind (#504), `.env.generated` cache + `.env` overlay (#502),
+# `config/<component>/` bind (#504/#1000), `.env.generated` cache + `.env`
+# overlay (#502),
 # workspace writeback (#174/#201), `--gui` / `--no-x11-cookie` /
 # `--print-resolved` flags (#338), `--quiet` confirmation lines (#285), #450
 # propagation + duplicate-target guards, and S7 `runtime.env` retirement
@@ -906,23 +907,114 @@ EOF
 }
 
 # ════════════════════════════════════════════════════════════════════
-# config/app/ structured app-config dev bind-mount (S4,)
+# config/<component>/ structured app-config dev bind-mount (S4),
+# generalised over the component name.
+#
+# The population is the glob `config/*/` -- every directory that is an
+# immediate child of the repo's config/ -- the SAME population
+# _collect_deploy_binds already globs for deploy.manifest. There is no
+# name list: `app` was never a real shape (no repo in the org has one)
+# and a hand-kept list of component names would decay the moment a repo
+# invented a new one. Each component derives its own destination,
+# /opt/app/config/<name>, so N components no longer contend for one path.
 # ════════════════════════════════════════════════════════════════════
-@test "apply dev-binds config/app/ into the devel service when present (#504)" {
+@test "apply dev-binds each config/<component>/ into the devel service (#504/#1000)" {
   cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
-  mkdir -p "${TEMP_DIR}/config/app"
+  mkdir -p "${TEMP_DIR}/config/realsense"
   run main apply --base-path "${TEMP_DIR}"
   assert_success
-  run grep -F './config/app:/opt/app/config' "${TEMP_DIR}/compose.yaml"
+  run grep -F './config/realsense:/opt/app/config/realsense' "${TEMP_DIR}/compose.yaml"
   assert_success
 }
 
-@test "apply omits the config/app bind when the directory is absent (#504)" {
+@test "apply dev-binds two component dirs to two distinct destinations (#1000)" {
+  # The destination derivation is <root>/<dirname>, and the sources are
+  # siblings of ONE directory -- the filesystem already guarantees their
+  # names are unique, so two components can never derive the same target.
+  # That is why there is no tie-break rule here, unlike
+  # _collect_deploy_binds (which keys by basename ACROSS parents and
+  # therefore does need a duplicate-basename error).
   cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  mkdir -p "${TEMP_DIR}/config/realsense" "${TEMP_DIR}/config/ros1_bridge"
   run main apply --base-path "${TEMP_DIR}"
   assert_success
+  run grep -F './config/realsense:/opt/app/config/realsense' "${TEMP_DIR}/compose.yaml"
+  assert_success
+  run grep -F './config/ros1_bridge:/opt/app/config/ros1_bridge' "${TEMP_DIR}/compose.yaml"
+  assert_success
+}
+
+@test "apply dev-binds config/shell and config/pip too, and says which (#1000)" {
+  # The decision, pinned: EVERY config/<x>/ qualifies, including the two
+  # build-time ones. config/shell (bashrc / bashrc.d / terminator / tmux)
+  # and config/pip (requirements.txt) are consumed by a DIFFERENT channel
+  # with a disjoint destination and a disjoint lifetime -- the Dockerfile's
+  # layered `COPY config "${CONFIG_DIR}"` into /tmp/config, read by
+  # build-time RUNs and then `sudo rm -rf`'d in the same RUN. /tmp/config
+  # does not exist when the container starts, so a bind at
+  # /opt/app/config/<x> cannot shadow it: not at a path, not at a moment.
+  # Including them costs two inert mounts; excluding them would cost a
+  # name list in the code, which decays.
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  mkdir -p "${TEMP_DIR}/config/shell" "${TEMP_DIR}/config/pip"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  assert_output --partial "config components provisioned"
+  assert_output --partial "pip"
+  assert_output --partial "shell"
+  run grep -F './config/shell:/opt/app/config/shell' "${TEMP_DIR}/compose.yaml"
+  assert_success
+  run grep -F './config/pip:/opt/app/config/pip' "${TEMP_DIR}/compose.yaml"
+  assert_success
+}
+
+@test "apply omits the config bind when no component dir exists, and SAYS so (#504/#1000)" {
+  # The defect closed here was not only the wrong directory name -- it
+  # was that the miss was silent. Mounting nothing stays the behaviour
+  # (there is nothing to mount); being quiet about it does not.
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  assert_output --partial "no config/<component>/ directory"
   run grep -F '/opt/app/config' "${TEMP_DIR}/compose.yaml"
   assert_failure
+}
+
+@test "apply WARNs about config files sitting directly under config/ (#1000)" {
+  # urg_node_humble (config/params_*.yaml) and seggpt
+  # (config/phase0_driver.yaml) are live examples: real config that
+  # NEITHER half provisions, because provisioning is per-component-DIR.
+  # The discriminator for "content" vs "placeholder" is the leading dot,
+  # a property of the entry -- config/.gitkeep, which init.sh seeds into
+  # every new repo, must not trip this.
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  mkdir -p "${TEMP_DIR}/config"
+  : > "${TEMP_DIR}/config/params_ether.yaml"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  assert_output --partial "[setup] WARN :"
+  assert_output --partial "params_ether.yaml"
+}
+
+@test "apply stays quiet about the config/.gitkeep placeholder (#1000)" {
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  mkdir -p "${TEMP_DIR}/config"
+  : > "${TEMP_DIR}/config/.gitkeep"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  refute_output --partial ".gitkeep"
 }
 
 @test "main reset --yes works on first-time bootstrap (no prior .local or setup.conf) (#174)" {

@@ -1244,6 +1244,7 @@ _job_comments() {
   assert_output --partial 'fail-fast: false'
   assert_output --partial '- issueref'
   assert_output --partial '- adr-numbering'
+  assert_output --partial '- adr-structure'
   assert_output --partial '- stale-setup-conf'
   assert_output --partial '- readme-sync'
   # The hardcoded-home-path lint joined the same matrix: it reads the
@@ -1329,8 +1330,9 @@ _job_comments() {
   [ "${#_tools[@]}" -ge 13 ] \
     || fail "_LINT_TOOLS yielded ${#_tools[@]} entries; the table did not parse"
   local _t
-  for _t in issueref adr-numbering stale-setup-conf readme-sync home-literal \
-    bash-source-guard i18n-orphan early-close-reader changelog-entry; do
+  for _t in issueref adr-numbering adr-structure stale-setup-conf readme-sync \
+    home-literal bash-source-guard i18n-orphan early-close-reader \
+    changelog-entry; do
     printf '%s\n' "${_tools[@]}" | grep -qx -- "${_t}" \
       || fail "_LINT_TOOLS does not list '${_t}'"
   done

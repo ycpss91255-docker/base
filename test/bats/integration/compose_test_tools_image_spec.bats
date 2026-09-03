@@ -38,7 +38,10 @@ setup() {
 _resolution() {
   local _service="${1:?_resolution requires <service>}"
   local _out _rc
-  _out="$(env -u TEST_TOOLS_IMAGE docker compose \
+  # BASE_CHECKOUT_PATH is supplied for the same reason stderr is dropped:
+  # it is another required variable of the same file, and leaving it unset
+  # would make this describe ITS resolution rather than the tag's.
+  _out="$(env -u TEST_TOOLS_IMAGE BASE_CHECKOUT_PATH=/source docker compose \
     -f "${ROOT}/compose.yaml" config --images "${_service}" 2>/dev/null)" \
     && _rc=0 || _rc=$?
   printf '%s|%s\n' "${_rc}" "${_out}"
@@ -93,7 +96,7 @@ _resolution() {
   # names a just recipe and says not to drive compose directly, so those
   # are what this asserts; pinning one recipe pinned map iteration order
   # instead, and went red whenever the other service won the race.
-  run env -u TEST_TOOLS_IMAGE docker compose \
+  run env -u TEST_TOOLS_IMAGE BASE_CHECKOUT_PATH=/source docker compose \
     -f "${ROOT}/compose.yaml" config --images
   assert_failure
   assert_output --partial "required variable TEST_TOOLS_IMAGE is missing a value"

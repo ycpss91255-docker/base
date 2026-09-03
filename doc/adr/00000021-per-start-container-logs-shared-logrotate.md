@@ -101,3 +101,52 @@ This issue changes only HOW container logs are stored (per-start + symlink
 + retention). Whether `local_path` should default ON is a SEPARATE decision
 and stays out of scope here: the default remains opt-in (empty). With the
 unbounded-growth footgun removed, that default can be revisited later.
+
+## Alternatives
+
+**Amendment (#994, 2026-09-03):** this section was added when
+`adr_structure.sh` made Alternatives a required part of the format. It is
+reconstructed from the options this decision's own Context, Decision and
+Scope note already weigh -- it is not a later re-deliberation, and nothing
+below changes what was decided.
+
+**Keep truncate-on-restart and cap growth with `logrotate(8)`.** Rejected:
+it needs a second long-running process inside a container that runs
+exactly one service (invariant 1), and the host-side variant cannot see a
+container start at all -- it rotates on a byte or time boundary, which is
+not the boundary a reader is looking for. "Show me the previous run" is
+the question being answered, and only the start boundary answers it.
+
+**Rely on the daemon's `json-file` driver with `max-size` / `max-file`.**
+Rejected: same boundary mismatch, plus the rotated files sit at
+daemon-owned paths a downstream cannot bind-mount or `tail`. `docker logs`
+parity is preserved by the tee regardless (Decision 1), so this would
+replace nothing that is missing.
+
+**A second implementation of repoint-and-prune, local to the container
+tee.** Rejected by Decision 3. `lib/transcript.sh` had already solved this
+shape; two implementations of one rule drift as soon as either is edited
+alone, and the extraction into `runtime/logrotate.sh` is what makes the
+transcript's and the tee's retention behaviour the same behaviour rather
+than two that happen to agree today.
+
+**Refuse a non-positive retention value at runtime rather than clamp it.**
+Rejected. The schema registry already refuses it loudly at `just setup`,
+where a human is present; the runtime read is a second arrival of the same
+values through a hand-editable `compose.yaml`, at PID 1, where a refusal
+means the container does not start. Clamping back to 20 / 14 keeps the
+service correct, which is the trade the PRD's conflict priority makes
+(property 1 over property 2) and the reason the clamp is not a violation
+of invariant 2.
+
+**Per-service `keep` / `days` instead of a pooled per-directory cap.**
+Not rejected -- deferred, and recorded as a known limitation in
+Consequences. Both prune passes glob every `*.log` real file in the
+directory, so the caps pool across services that share one log dir. Under
+the one-service-per-repo model that case is rare; it is revisited if a
+repo runs several services into the same directory.
+
+**Default `local_path` ON as part of this change.** Explicitly out of
+scope (see the Scope note). This decision changes only how container logs
+are stored; whether the tee is on by default is a separate question, now
+answered by the two-question test in PRD invariant 11.
