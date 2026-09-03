@@ -393,6 +393,22 @@ jobs:
             echo "code_changed=true" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
+          # The diff is CAPTURED and its status CHECKED before a single
+          # path is classified. Read as `done < <(git diff ...)` the loop's
+          # exit status is the LOOP's -- never the producer's -- and
+          # `pipefail` would not have reached it either, a process
+          # substitution being no pipeline. So a diff that FAILED (base
+          # force-pushed, a partial fetch, a shallow clone without the base
+          # commit) delivered zero lines, classified as doc-only, and took
+          # the REQUIRED docker-build check green having built nothing --
+          # and the reason it built nothing was a failure nobody was told
+          # about (#1013). An unreadable diff is not "no code changed", it
+          # is "we do not know", and this step is the last place that can
+          # still say so.
+          if ! changed="$(git diff --name-only "${BASE_SHA}...${HEAD_SHA}")"; then
+            echo "::error::classify: git diff --name-only ${BASE_SHA}...${HEAD_SHA} failed, so the changed-path set is unknown and the doc-only fast-pass cannot be taken. Both commits have to be reachable in this checkout (fetch-depth: 0), and the base branch must not have been force-pushed mid-run."
+            exit 1
+          fi
           has_code=0
           # Bash `case` globs treat `*` as matching `/` too, so `*.md`
           # covers nested-path markdown files and `doc/*` covers any
@@ -411,7 +427,7 @@ jobs:
                 break
                 ;;
             esac
-          done < <(git diff --name-only "${BASE_SHA}...${HEAD_SHA}")
+          done <<< "${changed}"
           if [ "${has_code}" -eq 1 ]; then
             echo "code_changed=true" >> "${GITHUB_OUTPUT}"
           else
