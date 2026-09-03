@@ -1757,8 +1757,10 @@ See [TEST.md](doc/test/TEST.md) for the test index (per-category catalogs:
 │   │   ├── system.md                  # System / Regression spec catalog
 │   │   ├── acceptance.md              # Acceptance spec catalog (reserved, S5 #785)
 │   │   └── smoke.md                   # Smoke spec catalog
-│   ├── changelog/
-│   │   └── CHANGELOG.md
+│   ├── changelog/                     # One file per 0.Y series behind a generated index
+│   │   ├── CHANGELOG.md                # Index: every series, its dates, its BREAKING entries (generated)
+│   │   ├── CONVENTIONS.md              # How to write an entry
+│   │   └── v0.NN.md                    # One per 0.Y series; the newest carries [Unreleased]
 │   └── deprecations.md
 ├── CONTEXT.md
 ├── .gitignore

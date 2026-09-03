@@ -1248,7 +1248,7 @@ just --list  # CI ターゲット表示
 [system](../test/system.md) / [acceptance](../test/acceptance.md) /
 [smoke](../test/smoke.md)）。
 
-<!-- sync: directory-structure 57d0265174f4 0977c0fc7c64 -->
+<!-- sync: directory-structure 8c0bbba9a0c3 ce4e036c2782 -->
 ## ディレクトリ構造
 
 ```
@@ -1336,7 +1336,9 @@ just --list  # CI ターゲット表示
 │   │   ├── acceptance.md         # Acceptance テスト一覧（予約、S5 #785）
 │   │   └── smoke.md                   # smoke テスト一覧
 │   ├── changelog/
-│   │   └── CHANGELOG.md
+│   │   ├── CHANGELOG.md
+│   │   ├── CONVENTIONS.md
+│   │   └── v0.NN.md
 │   └── deprecations.md
 ├── CONTEXT.md
 ├── .gitignore

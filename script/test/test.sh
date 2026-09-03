@@ -125,6 +125,8 @@ source "${SCRIPT_DIR}/drivers/i18n_orphan.sh"
 source "${SCRIPT_DIR}/drivers/self_hosted_guard.sh"
 # shellcheck source=script/test/drivers/changelog_entry.sh
 source "${SCRIPT_DIR}/drivers/changelog_entry.sh"
+# shellcheck source=script/test/drivers/changelog_layout.sh
+source "${SCRIPT_DIR}/drivers/changelog_layout.sh"
 # shellcheck source=script/test/drivers/action_ref_agreement.sh
 source "${SCRIPT_DIR}/drivers/action_ref_agreement.sh"
 # shellcheck source=script/test/drivers/generated_workflow_actions.sh
@@ -164,6 +166,7 @@ readonly _LINT_TOOLS=(
   i18n-orphan
   self-hosted-guard
   changelog-entry
+  changelog-layout
   action-ref-agreement
   generated-workflow-actions
   just-provenance
@@ -238,6 +241,7 @@ _run_lint_tool() {
     i18n-orphan)      _run_i18n_orphan ;;
     self-hosted-guard) _run_self_hosted_guard ;;
     changelog-entry)  _run_changelog_entry ;;
+    changelog-layout) _run_changelog_layout ;;
     action-ref-agreement) _run_action_ref_agreement ;;
     generated-workflow-actions) _run_generated_workflow_actions ;;
     just-provenance)  _run_just_provenance ;;
@@ -372,6 +376,15 @@ Options:
                           both reported with BOTH line numbers. Released
                           sections are never checked -- rewriting a shipped
                           entry falsifies it)
+  --changelog-layout      With --lint: run only the changelog layout lint
+                          (the changelog is one file per 0.Y series behind
+                          a generated index: a vX.Y.Z section lives in
+                          vX.Y.md, its compare-link definition lives in the
+                          SAME file because markdown link definitions are
+                          file-scoped, exactly one series file carries
+                          '## [Unreleased]', and the index block is
+                          re-derived by script/release/changelog_index.sh
+                          and must match what is committed)
   --action-ref-agreement  With --lint: run only the action ref agreement
                           lint (every call site of one action's REPOSITORY
                           across .github/workflows/ must name the same ref;
@@ -424,6 +437,7 @@ Options:
                             --i18n-orphan-only       pure bash
                             --self-hosted-guard-only pure bash
                             --changelog-entry-only   pure bash
+                            --changelog-layout-only  pure bash
                             --action-ref-agreement-only pure bash
                             --generated-workflow-actions-only pure bash
                           (no --hadolint-only equivalent: hadolint exists
@@ -1633,6 +1647,7 @@ main() {
       --i18n-orphan) lint_tool="i18n-orphan"; shift ;;
       --self-hosted-guard) lint_tool="self-hosted-guard"; shift ;;
       --changelog-entry) lint_tool="changelog-entry"; shift ;;
+      --changelog-layout) lint_tool="changelog-layout"; shift ;;
       --action-ref-agreement) lint_tool="action-ref-agreement"; shift ;;
       --generated-workflow-actions) lint_tool="generated-workflow-actions"; shift ;;
       --just-provenance) lint_tool="just-provenance"; shift ;;
@@ -1652,6 +1667,7 @@ main() {
       --i18n-orphan-only) host_lint="i18n-orphan"; shift ;;
       --self-hosted-guard-only) host_lint="self-hosted-guard"; shift ;;
       --changelog-entry-only) host_lint="changelog-entry"; shift ;;
+      --changelog-layout-only) host_lint="changelog-layout"; shift ;;
       --action-ref-agreement-only) host_lint="action-ref-agreement"; shift ;;
       --generated-workflow-actions-only) host_lint="generated-workflow-actions"; shift ;;
       --just-provenance-only) host_lint="just-provenance"; shift ;;

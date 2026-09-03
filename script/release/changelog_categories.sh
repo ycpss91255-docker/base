@@ -29,7 +29,7 @@
 # where seven will do. Migration instructions belong INSIDE the BREAKING
 # entry they serve, not in a parallel section a reader can miss.
 #
-# Scope: [Unreleased] only, per #917. A released section is a historical
+# Scope: [Unreleased] only. A released section is a historical
 # record and rewriting a shipped heading falsifies it, so the roster is
 # forward-looking and the assembler tolerates a historical heading it does
 # not know (emitting it after the roster ones, in first-seen order).

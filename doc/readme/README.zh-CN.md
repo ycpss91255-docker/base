@@ -1162,7 +1162,7 @@ just --list        # 显示 CI 命令
 [system](../test/system.md) / [acceptance](../test/acceptance.md) /
 [smoke](../test/smoke.md)）。
 
-<!-- sync: directory-structure 57d0265174f4 c799ace4be65 -->
+<!-- sync: directory-structure 8c0bbba9a0c3 314e26ddb0d3 -->
 ## 目录结构
 
 ```
@@ -1250,7 +1250,9 @@ just --list        # 显示 CI 命令
 │   │   ├── acceptance.md         # Acceptance 测试清单（保留，S5 #785）
 │   │   └── smoke.md                   # smoke 测试清单
 │   ├── changelog/
-│   │   └── CHANGELOG.md
+│   │   ├── CHANGELOG.md
+│   │   ├── CONVENTIONS.md
+│   │   └── v0.NN.md
 │   └── deprecations.md
 ├── CONTEXT.md
 ├── .gitignore

@@ -650,11 +650,72 @@ _long_prose() {
 # Non-vacuity
 # ════════════════════════════════════════════════════════════════════
 
-@test "_run_changelog_entry: DIES when the CHANGELOG is missing rather than passing vacuously (#917)" {
-  rm -f "${CHANGELOG}"
+@test "_run_changelog_entry: DIES when the changelog tree is missing rather than passing vacuously (#917)" {
+  rm -rf "${SCRATCH}/doc/changelog"
   run _run_changelog_entry
   assert_failure
-  assert_output --partial 'not found'
+  assert_output --partial 'doc/changelog'
+}
+
+@test "_run_changelog_entry: measures [Unreleased] in the series file that carries it (#926)" {
+  # The changelog is one file per 0.Y series, so [Unreleased] lives in the
+  # series being written -- not at a fixed path. A lint pinned to
+  # doc/changelog/CHANGELOG.md stopped finding it the day the split landed,
+  # and the constant it was pinned to is now the INDEX, which carries no
+  # entries at all: pointing at it would report clean over a file that
+  # never holds an entry, which is the vacuous pass wearing a green line.
+  rm -f "${CHANGELOG}"
+  printf '# Changelog\n\n- **[v0.43](v0.43.md)** -- in progress\n' \
+    > "${CHANGELOG}"
+  {
+    printf '# base changelog -- v0.43\n\n'
+    printf '## [Unreleased]\n\n'
+    printf '### Added\n'
+    printf -- '- %s\n' "$(_long_prose)"
+  } > "${SCRATCH}/doc/changelog/v0.43.md"
+
+  run _run_changelog_entry
+  assert_failure
+  assert_output --partial 'doc/changelog/v0.43.md:'
+}
+
+@test "_run_changelog_entry: the compare-link block is not part of the section (#926)" {
+  # In a series file the [Unreleased] section is the LAST thing before the
+  # compare-link definitions, so a section that ends only at the next
+  # `## [` swallows them -- and every one of them is then a line no entry
+  # measures, i.e. reported as unrecognised content. Link definitions are
+  # reference data, not entries.
+  {
+    printf '# base changelog -- v0.43\n\n## [Unreleased]\n\n'
+    printf '### Added\n'
+    printf -- '- one (#1, PR #2)\n\n'
+    printf '[Unreleased]: https://example.invalid/compare/v0.42.0...HEAD\n'
+  } > "${SCRATCH}/doc/changelog/v0.43.md"
+  rm -f "${CHANGELOG}"
+
+  run _run_changelog_entry
+  assert_success
+  refute_output --partial 'unrecognised content'
+}
+
+@test "_run_changelog_entry: DIES when two files carry [Unreleased] (#926)" {
+  # Two live series is two places to write the next entry and two places a
+  # merge can keep. Measuring whichever one the glob reaches first would
+  # report clean over the other, so the ambiguity is refused by name.
+  {
+    printf '# Changelog\n\n## [Unreleased]\n\n'
+    printf '### Added\n'
+    printf -- '- one (#1, PR #2)\n'
+  } > "${CHANGELOG}"
+  {
+    printf '# base changelog -- v0.43\n\n## [Unreleased]\n\n'
+    printf '### Added\n'
+    printf -- '- another (#3, PR #4)\n'
+  } > "${SCRATCH}/doc/changelog/v0.43.md"
+
+  run _run_changelog_entry
+  assert_failure
+  assert_output --partial 'Unreleased'
 }
 
 @test "_run_changelog_entry: DIES when the [Unreleased] heading is missing rather than passing vacuously (#917)" {

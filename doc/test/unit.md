@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3614 tests**.
+Unit specs under `test/bats/unit/`: **3626 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3454,7 +3454,7 @@ ways this goes catastrophically wrong are all edits to the file:
 | `build.sh --target test-tools: the tooling image build is not a verification target` | The tooling image `just test` builds first runs no checks |
 | `build.sh smoke: base's own smoke harness IS a verification target` | base's `just test smoke` had the identical hole |
 | `build.sh --dry-run test: no build ran, so nothing is reported about one` | Nothing executed, so nothing is claimed about execution |
-### test/bats/unit/changelog_entry_lint_spec.bats (54)
+### test/bats/unit/changelog_entry_lint_spec.bats (57)
 
 | Test | Description |
 |------|-------------|
@@ -3498,7 +3498,10 @@ ways this goes catastrophically wrong are all edits to the file:
 | `_run_changelog_entry: reports EVERY orphan in the section, not just the first (#927)` | - |
 | `_changelog_entry_measure: counts characters, not bytes, whatever the locale (#917)` | - |
 | `_run_changelog_entry: a non-ASCII entry under the cap PASSES under a C locale too (#917)` | - |
-| `_run_changelog_entry: DIES when the CHANGELOG is missing rather than passing vacuously (#917)` | - |
+| `_run_changelog_entry: DIES when the changelog tree is missing rather than passing vacuously (#917)` | - |
+| `_run_changelog_entry: measures [Unreleased] in the series file that carries it (#926)` | - |
+| `_run_changelog_entry: the compare-link block is not part of the section (#926)` | - |
+| `_run_changelog_entry: DIES when two files carry [Unreleased] (#926)` | - |
 | `_run_changelog_entry: DIES when the [Unreleased] heading is missing rather than passing vacuously (#917)` | - |
 | `_run_changelog_entry: FAILS on two entries with an identical lead bullet (#959)` | - |
 | `_run_changelog_entry: names BOTH lines of a duplicate, and both are findable (#959)` | - |
@@ -4374,3 +4377,17 @@ rather than an assurance.
 | `release_notes.sh: the compare-link block is not part of the notes` | - |
 | `release_notes.sh: a tag present in two series files is refused` | - |
 | `release_notes.sh: the live changelog tree answers for the current release` | - |
+
+### test/bats/unit/changelog_layout_lint_spec.bats (9)
+
+| Test | Description |
+|------|-------------|
+| `changelog layout: a split whose index matches its series files is clean` | - |
+| `changelog layout: a section in the wrong series file is named` | - |
+| `changelog layout: a version section with no compare link is named` | - |
+| `changelog layout: a compare link whose section is elsewhere is named` | - |
+| `changelog layout: an index that has drifted from the series files is refused` | - |
+| `changelog layout: [Unreleased] in two files is refused` | - |
+| `changelog layout: no [Unreleased] anywhere is refused, not passed` | - |
+| `changelog layout: a changelog directory with no series files DIES` | - |
+| `changelog layout: the live changelog tree is clean` | - |

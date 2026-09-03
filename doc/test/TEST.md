@@ -1,10 +1,10 @@
 # TEST.md
 
-Template self-tests: **3771 tests** total (3614 unit + 157 integration).
+Template self-tests: **3783 tests** total (3626 unit + 157 integration).
 
 > "Self-test total" is the `just test` suite -- what runs in the
 > `Self Test` CI job. System (19) and smoke (38) tests are tracked here
-> too but are **not** in the 3771 figure: System specs need host docker
+> too but are **not** in the 3783 figure: System specs need host docker
 > access and are opt-in, and smoke specs are Dockerfile `test`-stage
 > build-time assertions, not self-tests. Acceptance is a CI-only level (0
 > bats specs by design): it drives a real scaffolded consumer + built
@@ -20,13 +20,13 @@ carrying its own test count) live in the sibling docs below.
 
 | Doc | Scope | Count |
 |-----|-------|-------|
-| [unit.md](unit.md) | `test/bats/unit/` -- library, wrappers, generators, templates (Unit level) | 3614 |
+| [unit.md](unit.md) | `test/bats/unit/` -- library, wrappers, generators, templates (Unit level) | 3626 |
 | [integration.md](integration.md) | `test/bats/integration/` -- init / upgrade / dispatch across components (Integration level) | 157 |
 | [system.md](system.md) | `test/bats/system/` -- opt-in `runtime-test` buildx specs, gate-fires Regression (System level, host docker) | 19 |
 | [acceptance.md](acceptance.md) | `test/bats/acceptance/` -- consumer framework + UX, UAT/OAT (Acceptance level; CI-only via the `acceptance` job, #785) | 0 |
 | [smoke.md](smoke.md) | `dist/test/bats/smoke/` -- shipped per-stage build-time smoke templates (Smoke type) | 38 |
 
-Self-test grand total (unit + integration): **3771**.
+Self-test grand total (unit + integration): **3783**.
 
 ## Running one spec under kcov: `just test coverage-path`
 
@@ -95,6 +95,7 @@ tool therefore needs its own join to `.github/workflows/self-test.yaml`:
 | `derived-figures` | a figure a document repeats matches the code that defines it | `lint-static (derived-figures)` | ungated |
 | `i18n-orphan` | no identifier-shaped token in a translation's code spans that `README.md` never names | `lint-static (i18n-orphan)` | ungated |
 | `changelog-entry` | no `[Unreleased]` changelog entry over 700 chars (measured whitespace-collapsed over the whole entry), no entry repeating another's lead bullet, no `### <category>` heading opening twice in one release block | `lint-static (changelog-entry)` | ungated |
+| `changelog-layout` | the changelog is one file per 0.Y series behind a GENERATED index: a `vX.Y.Z` section lives in `vX.Y.md`, its compare-link definition lives in the same file, exactly one series file carries `## [Unreleased]`, and the index block re-derived by `script/release/changelog_index.sh` matches what is committed | `lint-static (changelog-layout)` | ungated |
 
 `lint-static` is a matrix so a red check names the lint that failed, and it is
 ungated because several of its entries (`adr-numbering`, `adr-structure`,

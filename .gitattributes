@@ -1,1 +1,6 @@
-doc/changelog/CHANGELOG.md merge=union
+# The changelog is one file per 0.Y series (doc/changelog/vX.Y.md) behind an
+# index (doc/changelog/CHANGELOG.md). The pattern covers the whole tree, not
+# the index alone: [Unreleased] moved into the series file being written, so
+# a pattern naming only CHANGELOG.md would leave the one file branches
+# actually append to on the default three-way merge.
+doc/changelog/*.md merge=union

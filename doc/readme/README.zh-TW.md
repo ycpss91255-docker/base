@@ -1162,7 +1162,7 @@ just --list  # 顯示 CI 指令
 [system](../test/system.md) / [acceptance](../test/acceptance.md) /
 [smoke](../test/smoke.md)）。
 
-<!-- sync: directory-structure 57d0265174f4 9abcfe808206 -->
+<!-- sync: directory-structure 8c0bbba9a0c3 fe84ec4f23fc -->
 ## 目錄結構
 
 ```
@@ -1250,7 +1250,9 @@ just --list  # 顯示 CI 指令
 │   │   ├── acceptance.md         # Acceptance 測試清單（保留，S5 #785）
 │   │   └── smoke.md                   # smoke 測試清單
 │   ├── changelog/
-│   │   └── CHANGELOG.md
+│   │   ├── CHANGELOG.md
+│   │   ├── CONVENTIONS.md
+│   │   └── v0.NN.md
 │   └── deprecations.md
 ├── CONTEXT.md
 ├── .gitignore

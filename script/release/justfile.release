@@ -53,3 +53,20 @@ default:
 # the bump must never pass it.
 coverage-badge *args:
     ./script/release/coverage_badge.sh {{args}}
+
+# just release changelog-index -> re-render the generated series index in
+# doc/changelog/CHANGELOG.md from the series files themselves.
+#
+# The changelog is one file per 0.Y series and CHANGELOG.md is the index.
+# An index is a roster, and a roster nothing re-derives goes stale on the
+# first series nobody remembers to add -- with the worst possible failure
+# mode, because a missing row reads exactly like a series that does not
+# exist. So the block between the `changelog-index` markers is DERIVED, this
+# recipe derives it, and `just test lint --changelog-layout` re-derives it
+# and fails on any difference. Run this after cutting a new 0.Y series file
+# or after a section's dates change; there is nothing to hand-edit.
+#
+# Print-only (no --write) with a directory argument, which is what the lint
+# runs:  ./script/release/changelog_index.sh doc/changelog
+changelog-index *args:
+    ./script/release/changelog_index.sh --write {{args}}

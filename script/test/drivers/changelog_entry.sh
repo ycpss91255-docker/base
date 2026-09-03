@@ -173,10 +173,19 @@
 
 # ── Changelog entry length lint ──────────────────────────────────────────────
 
-# The scanned file and the section, repo-root-relative. Both must exist: a
-# missing file or heading would make the scan pass vacuously.
-readonly _CHANGELOG_ENTRY_FILE='doc/changelog/CHANGELOG.md'
+# The scanned tree and the section, repo-root-relative. The FILE is
+# resolved, not fixed: the changelog is one file per 0.Y series
+# (drivers/changelog_layout.sh owns that layout), so `[Unreleased]` lives in
+# whichever series is currently being written, and doc/changelog/CHANGELOG.md
+# is now the generated index -- a file that carries no entries at all, so a
+# lint still pinned to it would report clean over a file that can never hold
+# an entry. The heading is the address; the filename is not.
+readonly _CHANGELOG_ENTRY_DIR='doc/changelog'
 readonly _CHANGELOG_ENTRY_HEADING='## [Unreleased]'
+
+# Resolved by _changelog_entry_locate at the top of every run, so every
+# message below can still name a real file and line.
+_CHANGELOG_ENTRY_FILE=''
 
 # The cap, in characters of the whitespace-collapsed entry. See the header
 # for how this number was arrived at; it is a constant, not an env
@@ -326,15 +335,46 @@ _changelog_entry_fences() {
   done
 }
 
-_run_changelog_entry() {
-  echo "--- Running changelog entry lint (length / duplicates) ---"
-  local _abs="${REPO_ROOT}/${_CHANGELOG_ENTRY_FILE}"
-
-  if [[ ! -f "${_abs}" ]]; then
+# _changelog_entry_locate -- set _CHANGELOG_ENTRY_FILE to the repo-relative
+# path of the ONE file under doc/changelog/ carrying the heading, or fail
+# saying which way it went wrong.
+#
+# Zero and two are different defects and get different sentences. Zero means
+# nothing is being written and every future entry goes unmeasured; two means
+# there are two places to write the next entry and two places a serial merge
+# can keep, and measuring whichever the glob reaches first would report
+# clean over the other. Neither may be resolved by picking one.
+_changelog_entry_locate() {
+  local _dir="${REPO_ROOT}/${_CHANGELOG_ENTRY_DIR}" _file _found=''
+  local _count=0
+  if [[ ! -d "${_dir}" ]]; then
     _die ci_changelog_entry \
-      "'${_CHANGELOG_ENTRY_FILE}' not found under ${REPO_ROOT} -- the lint would pass vacuously. Point it at the changelog."
+      "'${_CHANGELOG_ENTRY_DIR}' not found under ${REPO_ROOT} -- the lint would pass vacuously. Point it at the changelog tree."
     return 1
   fi
+  for _file in "${_dir}"/*.md; do
+    [[ -f "${_file}" ]] || continue
+    grep -qxF -- "${_CHANGELOG_ENTRY_HEADING}" "${_file}" || continue
+    _count=$(( _count + 1 ))
+    _found+="${_CHANGELOG_ENTRY_DIR}/$(basename "${_file}") "
+  done
+  if [[ "${_count}" -eq 0 ]]; then
+    _die ci_changelog_entry \
+      "no file under '${_CHANGELOG_ENTRY_DIR}' carries a '${_CHANGELOG_ENTRY_HEADING}' heading -- the lint would pass vacuously. The changelog is one file per 0.Y series and the heading lives in the series being written; restore it or fix the lint."
+    return 1
+  fi
+  if [[ "${_count}" -gt 1 ]]; then
+    _die ci_changelog_entry \
+      "'${_CHANGELOG_ENTRY_HEADING}' is carried by ${_count} files (${_found% }) -- there is one live series, so there is one place the next entry goes. Measuring whichever file the glob reaches first would report clean over the other."
+    return 1
+  fi
+  _CHANGELOG_ENTRY_FILE="${_found% }"
+}
+
+_run_changelog_entry() {
+  echo "--- Running changelog entry lint (length / duplicates) ---"
+  _changelog_entry_locate || return 1
+  local _abs="${REPO_ROOT}/${_CHANGELOG_ENTRY_FILE}"
 
   # Read the whole file so an entry can be reported by its real line
   # number, not its offset within the section.
@@ -372,6 +412,16 @@ _run_changelog_entry() {
       continue
     fi
     if [[ "${_lines[_i]}" == '## ['* ]]; then
+      _end="${_i}"
+      break
+    fi
+    # The compare-link block ends the section too. In a series file
+    # [Unreleased] is the LAST section, so a boundary that only knows about
+    # the next '## [' runs to end of file and swallows the link
+    # definitions -- every one of which is then a line no entry measures,
+    # reported as unrecognised content. A link definition is reference
+    # data, not an entry.
+    if [[ "${_lines[_i]}" =~ ^\[[^]]+\]:[[:space:]] ]]; then
       _end="${_i}"
       break
     fi

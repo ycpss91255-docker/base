@@ -297,6 +297,17 @@ jobs:
     #                     block, the pair a serial append-vs-append merge
     #                     lands with nothing to review; released sections
     #                     are never checked
+    #   changelog-layout  the changelog is one file per 0.Y series behind a
+    #                     GENERATED index: a vX.Y.Z section lives in
+    #                     vX.Y.md, its compare-link definition lives in the
+    #                     same file (markdown link definitions are
+    #                     file-scoped, so a definition left behind in the
+    #                     index resolves to nothing), exactly one series
+    #                     file carries `## [Unreleased]`, and the index
+    #                     block is re-derived from the series files and
+    #                     diffed. A missing index row reads exactly like a
+    #                     series that does not exist, which is why the row
+    #                     is derived and not written
     #   just-provenance   every site that OBTAINS the `just` runner names
     #                     the one pinned version -- the image's fetch, the
     #                     setup-just input, the just.systems installer's
@@ -353,6 +364,7 @@ jobs:
           - i18n-orphan
           - self-hosted-guard
           - changelog-entry
+          - changelog-layout
           - action-ref-agreement
           - generated-workflow-actions
           - just-provenance
