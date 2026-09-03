@@ -1772,16 +1772,33 @@ EOF
   assert_failure
 }
 
-@test "apply_migrations: an un-migrated repo comes out of the dispatcher untouched (#945)" {
-  # Through the real dispatcher rather than the pair directly: the claim a
-  # consumer cares about is that `just upgrade` leaves the file it has been
-  # running for a year alone, whatever else is in the migration list.
+@test "apply_migrations: an un-migrated repo keeps the entrypoint model it runs (#945)" {
+  # Through the real dispatcher rather than the pair directly, because the
+  # claim a consumer cares about is about `just upgrade` as a whole: the
+  # repo it has been running for a year still runs the same way afterwards.
+  #
+  # Stated as "what the two files DO", not "the bytes", and the difference
+  # is measured rather than assumed: the sc1090 migration normalises the
+  # shellcheck DIRECTIVE on this same sibling file (SC1091 ->
+  # SC1090,SC1091), so a byte comparison of the entrypoint is false today
+  # for a reason that has nothing to do with the entrypoint model. The
+  # Dockerfile is still compared byte-for-byte -- nothing in the list may
+  # touch it here -- and the entrypoint is compared over its code lines,
+  # which is where the model lives.
   _write_old_model_repo
   cp "${DF}" "${TEMP_DIR}/Dockerfile.orig"
-  cp "${TEMP_DIR}/script/entrypoint.sh" "${TEMP_DIR}/ep.orig"
+  grep -vE '^[[:space:]]*#' "${TEMP_DIR}/script/entrypoint.sh" \
+    > "${TEMP_DIR}/ep.code.orig"
   run bash -c "$(_src); apply_migrations '${DF}'"
   assert_success
   assert_output --partial "orchestrator"
   diff "${DF}" "${TEMP_DIR}/Dockerfile.orig"
-  diff "${TEMP_DIR}/script/entrypoint.sh" "${TEMP_DIR}/ep.orig"
+  grep -vE '^[[:space:]]*#' "${TEMP_DIR}/script/entrypoint.sh" \
+    > "${TEMP_DIR}/ep.code.new"
+  diff "${TEMP_DIR}/ep.code.new" "${TEMP_DIR}/ep.code.orig"
+  # Named individually so a future rewrite that empties the file cannot
+  # pass by making both sides equally empty.
+  grep -Fq 'exec "${@}"' "${TEMP_DIR}/script/entrypoint.sh"
+  grep -Fq '. /usr/local/lib/base/logging.sh' "${TEMP_DIR}/script/entrypoint.sh"
+  grep -Fq 'export MY_APP_HOME=/opt/app' "${TEMP_DIR}/script/entrypoint.sh"
 }

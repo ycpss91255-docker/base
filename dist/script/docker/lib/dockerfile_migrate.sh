@@ -1168,6 +1168,97 @@ _migrate_runtime_dir_copy_apply() {
   fi
 }
 
+# ── Migration (entrypoint-orchestrator): a notice, never a rewrite ──────────
+#
+# base's plumbing -- the logging / watchdog source lines and the final exec
+# -- moved out of the seeded entrypoint into a base-owned ORCHESTRATOR that
+# ships inside the runtime helper directory, so it arrives with a subtree
+# pull and updates with the next one. A repo adopts it with two edits that
+# must land TOGETHER:
+#
+#   Dockerfile           ENTRYPOINT ["/usr/local/lib/base/entrypoint.sh"]
+#   script/entrypoint.sh drop base's plumbing and the exec, keep the repo's
+#                        own bringup -- the orchestrator sources this file
+#
+# Flipping the ENTRYPOINT first breaks the container: the orchestrator
+# SOURCES the bringup, so an un-removed `exec "$@"` fires mid-source and the
+# watchdog never arms. Cleaning the bringup first is merely inert. Doing
+# neither is also fine -- the repo keeps its own ENTRYPOINT and runs exactly
+# as before; it just does not get the drift fix.
+#
+# base does NOT make the edit. Only the repo owner can tell a bringup line
+# from base plumbing in a file that has been hand-edited for years, and a
+# parser guessing at that is the fragility this whole split exists to leave
+# behind. So this migration detects and WARNS and writes nothing -- the
+# apply-nothing end of the policy this file's header states for a shape it
+# recognises but must not rewrite.
+#
+# It reaches an existing repo for the same reason every other migration
+# does: init.sh calls apply_migrations from the FRESHLY PULLED subtree as
+# the upgrade's resync step, so the notice runs even under a consumer's own
+# vendored upgrade.sh from a release that predates it.
+_migrate_entrypoint_orchestrator_detect() {
+  local _file="$1"
+  grep -qE '^[[:space:]]*ENTRYPOINT[[:space:]]*\[[[:space:]]*"?/entrypoint\.sh"?' \
+    "${_file}"
+}
+
+_migrate_entrypoint_orchestrator_apply() {
+  local _file="$1"
+  _log_warn upgrade upgrade_started "display=  Dockerfile still runs the repo's own /entrypoint.sh as the container ENTRYPOINT. base now ships an orchestrator at /usr/local/lib/base/entrypoint.sh that sources it; migrating means flipping ENTRYPOINT and cleaning script/entrypoint.sh in the SAME commit (README: Container entrypoint). Nothing was changed here."
+}
+
+# ── Migration (bringup-residue): the other half of that same notice ─────────
+#
+# Once the ENTRYPOINT is the orchestrator, the repo's file is a BRINGUP that
+# gets sourced, and two leftovers stop being harmless:
+#
+#   exec              fires mid-source and pre-empts the watchdog and the
+#                     orchestrator's own exec
+#   a helper source   sources logging.sh / watchdog.sh a SECOND time, which
+#                     opens a second per-start log file and re-tees, or arms
+#                     the watchdog twice
+#
+# Deliberately silent while the ENTRYPOINT is still the repo's own file:
+# there the exec is correct and the helper sources are the documented
+# pre-migration wiring, so warning about them would be noise on every
+# upgrade of every repo that has not migrated yet -- which is what the
+# migration above already says once.
+_DFM_BRINGUP_EXEC_RE='^[[:space:]]*exec[[:space:]]'
+_DFM_BRINGUP_PLUMBING_RE='^[[:space:]]*(\.|source)[[:space:]]+/usr/local/lib/base/(logging|watchdog)\.sh'
+
+# _dfm_bringup_on_orchestrator <dockerfile>
+#   Echo the sibling bringup path when this Dockerfile has already flipped
+#   its ENTRYPOINT to the orchestrator and that sibling exists; else fail.
+_dfm_bringup_on_orchestrator() {
+  local _file="$1"
+  grep -qE '^[[:space:]]*ENTRYPOINT[[:space:]]*\[[[:space:]]*"?/usr/local/lib/base/entrypoint\.sh"?' \
+    "${_file}" || return 1
+  local _bringup
+  _bringup="$(_dfm_entrypoint_path "${_file}")"
+  [[ -f "${_bringup}" ]] || return 1
+  printf '%s' "${_bringup}"
+}
+
+_migrate_bringup_residue_detect() {
+  local _file="$1"
+  local _bringup
+  _bringup="$(_dfm_bringup_on_orchestrator "${_file}")" || return 1
+  grep -qE "${_DFM_BRINGUP_EXEC_RE}|${_DFM_BRINGUP_PLUMBING_RE}" "${_bringup}"
+}
+
+_migrate_bringup_residue_apply() {
+  local _file="$1"
+  local _bringup
+  _bringup="$(_dfm_bringup_on_orchestrator "${_file}")" || return 0
+  if grep -qE "${_DFM_BRINGUP_EXEC_RE}" "${_bringup}"; then
+    _log_warn upgrade upgrade_started "display=  script/entrypoint.sh still execs, but the ENTRYPOINT is base's orchestrator, which SOURCES it -- the exec fires mid-source and the watchdog never arms. Drop it; the orchestrator owns the final exec. Nothing was changed here."
+  fi
+  if grep -qE "${_DFM_BRINGUP_PLUMBING_RE}" "${_bringup}"; then
+    _log_warn upgrade upgrade_started "display=  script/entrypoint.sh still sources a /usr/local/lib/base/ helper the orchestrator already sources, so it runs twice (a second per-start log, or a second watchdog). Drop the source line. Nothing was changed here."
+  fi
+}
+
 # Ordered migration list. Append new {detect, transform} pairs here; the
 # order is load-bearing (earlier normalisations feed later ones).
 _MIGRATIONS=(
@@ -1184,4 +1275,6 @@ _MIGRATIONS=(
   sc1090
   arg_user
   nounset_source
+  entrypoint_orchestrator
+  bringup_residue
 )

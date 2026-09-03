@@ -1102,7 +1102,7 @@ shape auto-applies idempotently, a missing/ambiguous shape is skipped
 | `migration (bringup-residue): silent while the repo still owns the ENTRYPOINT (#945)` | - |
 | `migration (bringup-residue): silent for a clean bringup (#945)` | - |
 | `migration (bringup-residue): silent when the repo has no bringup at all (#945)` | - |
-| `apply_migrations: an un-migrated repo comes out of the dispatcher untouched (#945)` | - |
+| `apply_migrations: an un-migrated repo keeps the entrypoint model it runs (#945)` | - |
 
 ### test/bats/unit/build_sh_spec.bats (58)
 
