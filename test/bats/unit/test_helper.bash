@@ -243,27 +243,77 @@ yaml_job_lines() {
 #   Reads the job's CODE lines, so a mention of <ere> in a comment paragraph
 #   cannot name a step.
 #
-#   Prints NOTHING for every input whose shape it does not recognise -- the
-#   matching step carries no `id:`, the step declares its `id:` only AFTER
-#   the matching line, the pattern matches nowhere in the job, the job does
-#   not exist, the match sits ahead of the job's first step. Empty is the
-#   only answer it gives when it cannot attribute the match, and callers
-#   guard with `[ -n ... ]`, so an unrecognised shape fails the assertion
+#   It answers with an id only where it can PLACE one: the match sits inside
+#   the job's `steps:` list, in a step that declared its own `id:` on a line
+#   of its own ahead of the matching line. Nothing else assigns the id, and
+#   every step boundary and every exit from the list clears it, so the
+#   remaining shapes -- the matching step carries no `id:`; the `id:` is an
+#   action input under `with:` rather than the step's own key; the `id:`
+#   comes only AFTER the matching line; the match sits above the first step
+#   or below the last one; the pattern matches nowhere; the job has no
+#   `steps:` key; the job does not exist -- print an empty line. Callers
+#   guard with `[ -n ... ]`, so a match it cannot place fails the assertion
 #   loud rather than passing it an id this function guessed.
+#
+#   One legal shape is refused rather than read: a step whose `id:` shares
+#   the dash line (`- id: foo`), or that opens with a bare `-`. Neither is
+#   attributed, because neither can be told from a nested key by indent
+#   alone -- and refusing is the direction that fails an assertion loudly.
 yaml_step_id_for() {
     yaml_job_lines "${1}" "${2}" \
-        | _pat="${3}" awk -v _depth=-1 '
-            # A step BOUNDARY: a sequence dash at the shallowest indent the
-            # job has shown. Anything deeper is inside the current step -- a
-            # `with:` list, a `- ` in a block scalar -- and must not clear
-            # the id that step declared. Crossing a boundary forgets the id,
-            # so an id never travels into the step that follows it.
-            /^[[:space:]]*-[[:space:]]/ {
-                _ind = index($0, "-") - 1
-                if (_depth < 0 || _ind <= _depth) { _depth = _ind; _id = "" }
+        | _pat="${3}" awk '
+            function _indent(_s) {
+                if (match(_s, /[^[:space:]]/)) { return RSTART - 1 }
+                return -1
             }
-            /^[[:space:]]*id:[[:space:]]/ { _id = $2 }
-            $0 ~ ENVIRON["_pat"] { print _id; exit }
+            BEGIN { _skey = -1; _ref = -1; _key = -1; _left = 0; _id = "" }
+            /^[[:space:]]*$/ { next }
+            {
+                _ind = _indent($0)
+
+                # The steps LIST is the anchor. Reading the boundary off
+                # "the shallowest dash the job has shown" instead took it
+                # from whichever list the job wrote first -- a block-style
+                # `needs:`, a `strategy.matrix` sequence -- and when that
+                # dash sat shallower than the step dashes, no step dash
+                # ever counted as a boundary and one id was carried across
+                # the whole job. So: skip everything above `steps:`,
+                # where there is no step to name yet.
+                if (_skey < 0) {
+                    if ($0 ~ /^[[:space:]]*steps:[[:space:]]*$/) { _skey = _ind }
+                    next
+                }
+
+                # The list ends at the next key of the job -- a
+                # non-dash line no deeper than the `steps:` key.
+                # Attribution ends with it, so the id of the last step
+                # cannot follow the scan out.
+                if (_ind <= _skey && $1 != "-") { _left = 1; _id = "" }
+
+                if (!_left) {
+                    if ($1 == "-") {
+                        # The reference indent is the FIRST dash after
+                        # `steps:`. A dash at exactly it starts the next
+                        # step; a deeper one is inside the current step (a
+                        # `with:` list, a `- ` in a block scalar) and must
+                        # leave its id alone; a shallower one means the
+                        # scan has left the list for good.
+                        if (_ref < 0) { _ref = _ind }
+                        if (_ind < _ref) { _left = 1; _id = "" }
+                        else if (_ind == _ref) {
+                            _id = ""
+                            _key = (match($0, /-[[:space:]]+/) ? _ind + RLENGTH : -1)
+                        }
+                    } else if (_key >= 0 && _ind == _key && $1 == "id:") {
+                        # The OWN key of the step, at the indent its
+                        # boundary dash set. `id` is an ordinary action
+                        # input name too, and a `with:` one sits deeper.
+                        _id = $2
+                    }
+                }
+
+                if ($0 ~ ENVIRON["_pat"]) { print _id; exit }
+            }
         '
 }
 
