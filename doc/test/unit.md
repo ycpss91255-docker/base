@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3339 tests**.
+Unit specs under `test/bats/unit/`: **3345 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3710,7 +3710,7 @@ inside the test that produces it, each case writes a one-test spec into
 | `no spec opens with a fail-open '\|\| skip' existence guard` | The repo-wide invariant, so the idiom cannot creep back in |
 | `the fail-open guard scan sees every spelling of the check, not just [[ -f ]]` | The invariant must be green because no guard exists, not because its pattern is blind |
 
-### test/bats/unit/errexit_bang_lint_spec.bats (76)
+### test/bats/unit/errexit_bang_lint_spec.bats (82)
 
 | Test | Description |
 |------|-------------|
@@ -3768,7 +3768,13 @@ inside the test that produces it, each case writes a one-test spec into
 | `_run_errexit_bang: FAILS on an async '&' behind a '!' the fold pulled in (#956)` | - |
 | `_run_errexit_bang: FAILS on a '!' the fold pulled in that never finishes (#956)` | Reported as unfinished from the line the `!` opens on, not dropped as unreadable |
 | `_run_errexit_bang: PASSES on a '!' the fold pulled in that IS the body's last (#956)` | Why a pulled-in `!` is judged rather than reported |
-| `_run_errexit_bang: PASSES on a second '!' that is the first's '\|\|' operand (#956)` | `! A \|\| ! B` is one list with one verdict; pinned so judging a pulled-in `!` cannot widen into reporting one |
+| `_run_errexit_bang: PASSES on a second '!' that is the first's '\|\|' operand, LAST (#956)` | - |
+| `bash: a '!'-inverted RIGHT operand is exempt from errexit too (#956)` | - |
+| `_run_errexit_bang: FAILS on '! A \|\| ! B' with a statement after it (#956)` | - |
+| `_run_errexit_bang: FAILS on '! A \|\| ! B' written on ONE line (#956)` | - |
+| `_run_errexit_bang: FAILS on a ';' behind '! A \|\| ! B' (#956)` | - |
+| `_run_errexit_bang: FAILS on a '!' operand the '&&' arm short-circuits past (#956)` | - |
+| `_run_errexit_bang: REPORTS a '!' operand chain that CAN still fail (#956)` | - |
 | `_run_errexit_bang: PASSES on a bang statement with a bare trailing ';' (#956)` | - |
 | `_run_errexit_bang: PASSES on the '&' spellings that background nothing (#956)` | `&&`, `2>&1`, `&>` and `\|&` are other operators; `[[ a&b ]]` is a syntax error and needs no exemption |
 | `_run_errexit_bang: PASSES when the bang statement is the body's last (#956)` | - |

@@ -1016,11 +1016,15 @@ _write() {
   [ "${status}" -eq 0 ]
 }
 
-@test "_run_errexit_bang: PASSES on a second '!' that is the first's '||' operand (#956)" {
+@test "_run_errexit_bang: PASSES on a second '!' that is the first's '||' operand, LAST (#956)" {
   # The case the fold exists to get right, pinned so that judging a
   # pulled-in `!` cannot widen into reporting one. Here the logical line
-  # ALREADY opens with `!`, so `! A || ! B` is one `||` list whose
-  # verdict is B's negation -- one statement, and a live one.
+  # ALREADY opens with `!`, so `! A || ! B` is one `||` list with one
+  # verdict -- and in THIS position, the body's last statement, that
+  # verdict is the body's: B succeeding makes `! B` return 1 and the test
+  # fails. The position is the whole of why it passes, which is why it is
+  # now in the title; the same list one line earlier cannot fail (the
+  # cases below).
   _write "test/bats/unit/x_spec.bats" \
     '@test "two bangs, one list" {' \
     '  ! grep -q A f ||' \
@@ -1028,6 +1032,123 @@ _write() {
     '}'
   run _run_errexit_bang
   [ "${status}" -eq 0 ]
+  # The same list written on one line is the same statement and passes
+  # for the same reason.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "two bangs, one line" {' \
+    '  ! grep -q A f || ! grep -q B g' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -eq 0 ]
+}
+
+@test "bash: a '!'-inverted RIGHT operand is exempt from errexit too (#956)" {
+  # The bash fact the live-`||` exemption was wrong about. errexit is
+  # suppressed for a command whose return value is inverted with `!`, and
+  # that applies to the operand following the final `||` exactly as it
+  # applies to the `!` that opens the list. So `! A || B` aborts the body
+  # from a non-final position when B is an ordinary command -- and does
+  # NOT when B is itself `!`-inverted.
+  run bash -c 'set -e; body() { ! true || false; echo REACHED; }; body'
+  [ "${status}" -eq 1 ]
+  [[ "${output}" != *REACHED* ]]
+  run bash -c 'set -e; body() { ! true || ! true; echo REACHED; }; body'
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *REACHED* ]]
+  # The `&&` spelling reaches the same place by short-circuit: `! A` is
+  # false, so the `&&` arm is skipped and the `||` operand runs.
+  run bash -c 'set -e; body() { ! true && ! true || echo z; echo REACHED; }; body'
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *REACHED* ]]
+  # ... and the same list IS the verdict where its own status is the
+  # body's, which is the pin above.
+  run bash -c 'set -e; body() { ! true || ! true; }; body'
+  [ "${status}" -eq 1 ]
+}
+
+@test "_run_errexit_bang: FAILS on '! A || ! B' with a statement after it (#956)" {
+  # The exemption's justification -- "B's failure is not exempt from
+  # errexit either" -- is false for exactly one B: a `!`-inverted one.
+  # The list then aborts nothing, so away from the body's last statement
+  # it cannot fail its test. Reported from the line the statement opens
+  # on, which is the first `!`: one statement, one row.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "two bangs, then a statement" {' \
+    '  ! grep -q Z f ||' \
+    '  ! grep -q A f' \
+    '  echo z' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"x_spec.bats:2"* ]]
+  [[ "${output}" != *"x_spec.bats:3"* ]]
+}
+
+@test "_run_errexit_bang: FAILS on '! A || ! B' written on ONE line (#956)" {
+  # The same statement, the same violation, with no fold involved -- the
+  # spelling every driver before this one also missed.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "two bangs on one line, then a statement" {' \
+    '  ! grep -q Z f || ! grep -q A f' \
+    '  echo z' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"x_spec.bats:2"* ]]
+}
+
+@test "_run_errexit_bang: FAILS on a ';' behind '! A || ! B' (#956)" {
+  # With the exemption declined the statement reaches the `;` rule, which
+  # is what it should have been judged by all along: the verdict is the
+  # lone `true`'s in every branch.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "two bangs, verdict handed on" {' \
+    '  ! grep -q Z f ||' \
+    '  ! grep -q A f; true' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"x_spec.bats:2"* ]]
+  [[ "${output}" == *"(';')"* ]]
+}
+
+@test "_run_errexit_bang: FAILS on a '!' operand the '&&' arm short-circuits past (#956)" {
+  # `! Z && ! A || echo z`: when Z is present the `&&` arm is skipped and
+  # the list returns the echo's 0, so neither `!` can fail the test. The
+  # `!` sitting in the `&&`'s right operand is enough to decline the
+  # exemption -- the scan cannot say which command owns the verdict once
+  # any operand in the chain is `!`-inverted.
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "a skipped bang, then an echo" {' \
+    '  ! grep -q Z f &&' \
+    '  ! grep -q A f ||' \
+    '  echo z' \
+    '  assert_success' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"x_spec.bats:2"* ]]
+}
+
+@test "_run_errexit_bang: REPORTS a '!' operand chain that CAN still fail (#956)" {
+  # The cost of declining the exemption for the whole class, pinned
+  # rather than left to be discovered. `! Z || ! A || return 1` DOES
+  # fail its test from a non-final position -- the `return 1` following
+  # the final `||` is not `!`-inverted, so errexit applies to it -- and
+  # it is reported all the same, because telling it apart from the
+  # shapes above needs the chain evaluated, not read. Refusing
+  # direction: the price is one allow region on a shape this tree does
+  # not have.
+  run bash -c 'set -e; body() { ! true || ! true || return 1; true; }; body'
+  [ "${status}" -eq 1 ]
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "a live bang chain" {' \
+    '  ! grep -q Z f || ! grep -q A f || return 1' \
+    '  true' \
+    '}'
+  run _run_errexit_bang
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"x_spec.bats:2"* ]]
 }
 
 @test "_run_errexit_bang: PASSES on a bang statement with a bare trailing ';' (#956)" {
