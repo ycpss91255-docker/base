@@ -1621,6 +1621,82 @@ EOF
   assert_failure
 }
 
+# The nounset the ROS source runs under is not always written in the file
+# that runs it. base's orchestrator (ADR-00000030) SOURCES the bringup under
+# its own `set -euo pipefail`, so a repo that flipped its ENTRYPOINT while
+# carrying the bringup init.sh seeded BEFORE that release -- which has no
+# `set` line at all -- runs its ROS source under nounset for the first time
+# and the container dies on the unbound AMENT_TRACE_SETUP_FILES before the
+# workload ever starts. Keying the guard on an in-file `set -u` alone leaves
+# exactly the migration path README documents uncovered, and silently: the
+# orchestrator notice does not fire on an already-flipped Dockerfile, and
+# the bringup-residue notice does not fire on a correctly cleaned bringup.
+
+@test "migration 8 (nounset-source): fires under the orchestrator when the bringup sets nothing (#945)" {
+  mkdir -p "${TEMP_DIR}/script"
+  printf 'ENTRYPOINT ["/usr/local/lib/base/entrypoint.sh"]\n' > "${DF}"
+  cat > "${TEMP_DIR}/script/entrypoint.sh" <<'EOF'
+#!/usr/bin/env bash
+# shellcheck disable=SC1090,SC1091
+source "/opt/ros/${ROS_DISTRO}/setup.bash"
+export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}"
+EOF
+  run bash -c "$(_src); _migrate_nounset_source_detect '${DF}'"
+  assert_success
+}
+
+@test "migration 8 (nounset-source): brackets that bringup's source, directive and all (#945)" {
+  mkdir -p "${TEMP_DIR}/script"
+  printf 'ENTRYPOINT ["/usr/local/lib/base/entrypoint.sh"]\n' > "${DF}"
+  cat > "${TEMP_DIR}/script/entrypoint.sh" <<'EOF'
+#!/usr/bin/env bash
+# shellcheck disable=SC1090,SC1091
+source "/opt/ros/${ROS_DISTRO}/setup.bash"
+export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}"
+EOF
+  run bash -c "$(_src); apply_migrations '${DF}'"
+  assert_success
+  local plus src minus
+  plus="$(grep -n '^set +u' "${TEMP_DIR}/script/entrypoint.sh" | head -1 | cut -d: -f1)"
+  src="$(grep -n 'setup.bash' "${TEMP_DIR}/script/entrypoint.sh" | head -1 | cut -d: -f1)"
+  minus="$(grep -n '^set -u' "${TEMP_DIR}/script/entrypoint.sh" | tail -1 | cut -d: -f1)"
+  [ "${plus}" -lt "${src}" ]
+  [ "${minus}" -gt "${src}" ]
+  # The trailing `set -u` RESTORES the orchestrator's nounset rather than
+  # introducing one: everything after the bracket runs exactly as the
+  # orchestrator would have run it.
+  run bash -c "$(_src); _migrate_nounset_source_detect '${DF}'"
+  assert_failure
+}
+
+@test "migration 8 (nounset-source): silent under the orchestrator with no ROS source (#945)" {
+  # The trigger is the unguarded source, never the ENTRYPOINT on its own:
+  # a bringup that sources nothing has nothing to bracket.
+  mkdir -p "${TEMP_DIR}/script"
+  printf 'ENTRYPOINT ["/usr/local/lib/base/entrypoint.sh"]\n' > "${DF}"
+  cat > "${TEMP_DIR}/script/entrypoint.sh" <<'EOF'
+#!/usr/bin/env bash
+export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}"
+EOF
+  run bash -c "$(_src); _migrate_nounset_source_detect '${DF}'"
+  assert_failure
+}
+
+@test "migration 8 (nounset-source): still silent pre-flip, where nothing imposes nounset (#945)" {
+  # An un-migrated repo runs its own file as the ENTRYPOINT, under whatever
+  # options that file sets -- none here. Inserting a trailing `set -u` would
+  # turn nounset ON for the rest of a file that never asked for it.
+  mkdir -p "${TEMP_DIR}/script"
+  printf 'ENTRYPOINT ["/entrypoint.sh"]\n' > "${DF}"
+  cat > "${TEMP_DIR}/script/entrypoint.sh" <<'EOF'
+#!/usr/bin/env bash
+source "/opt/ros/${ROS_DISTRO}/setup.bash"
+exec "${@}"
+EOF
+  run bash -c "$(_src); _migrate_nounset_source_detect '${DF}'"
+  assert_failure
+}
+
 # ── migration (entrypoint-orchestrator / bringup-residue): notice, no rewrite ─
 #
 # base's plumbing moved into an orchestrator that ships from .base/. The two
