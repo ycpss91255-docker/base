@@ -19,10 +19,24 @@
 # (script/test), i.e. the repo root.
 set working-directory := '../..'
 
+# lifecycle: RECLAIMED BY THE RUNNER. script/test/test.sh installs an EXIT
+# trap that sweeps orphaned compose projects on every dispatch it arms,
+# pass or fail, and asks whether the previous run has let go of this
+# project before it starts. The recipe does not repeat either, because the
+# runner is also what CI invokes directly -- a copy here would cover the
+# `just` path only.
+#
 # just test -> run the whole self-test (ShellCheck + Bats, no kcov: fast)
 default:
     ./script/test/test.sh
 
+# lifecycle: RECLAIMED BY THE RUNNER. script/test/test.sh installs an EXIT
+# trap that sweeps orphaned compose projects on every dispatch it arms,
+# pass or fail, and asks whether the previous run has let go of this
+# project before it starts. The recipe does not repeat either, because the
+# runner is also what CI invokes directly -- a copy here would cover the
+# `just` path only.
+#
 # just test lint -> all linters (ShellCheck + Hadolint + issue-ref comment
 # lint + ADR-numbering lint + stale setup.conf path lint + localized README
 # sync lint + doc/test count drift gate + hardcoded home path lint +
@@ -48,6 +62,13 @@ default:
 lint *args:
     ./script/test/test.sh --lint {{args}}
 
+# lifecycle: RECLAIMED BY THE RUNNER. script/test/test.sh installs an EXIT
+# trap that sweeps orphaned compose projects on every dispatch it arms,
+# pass or fail, and asks whether the previous run has let go of this
+# project before it starts. The recipe does not repeat either, because the
+# runner is also what CI invokes directly -- a copy here would cover the
+# `just` path only.
+#
 # just test coverage -> full Kcov coverage (slow; local / release check).
 # just test coverage 1/4 -> kcov one matrix shard only, the same
 # slice the CI coverage matrix runs; handy to prove the sharded path
@@ -72,6 +93,13 @@ coverage shard='':
       ./script/test/test.sh --coverage
     fi
 
+# lifecycle: RECLAIMED BY THE RUNNER. script/test/test.sh installs an EXIT
+# trap that sweeps orphaned compose projects on every dispatch it arms,
+# pass or fail, and asks whether the previous run has let go of this
+# project before it starts. The recipe does not repeat either, because the
+# runner is also what CI invokes directly -- a copy here would cover the
+# `just` path only.
+#
 # just test coverage-path <spec> -> run ONE spec under kcov instrumentation.
 #
 # The inner loop for the failure class whose entire evidence is "this spec is
@@ -229,9 +257,6 @@ smoke *args:
     just docker build --target test-tools
     just docker build {{args}} --target smoke
 
-# just test stop -> stop and remove the containers of THIS checkout's
-# self-test compose project.
-#
 # The gap it closes: base runs two compose projects out of one checkout.
 # `just docker build` / `run` mint `local-<dir>`, which the shipped
 # wrapper owns and `just docker stop` ends. `just test` mints
@@ -261,6 +286,8 @@ smoke *args:
 # naming four services and tore nothing down, and `--dry-run` could not
 # show it because dry-run never calls compose. The ids are also what a
 # direct `just -f` needs, which the root entry's exports do not reach.
+#
+# just test stop -> stop and remove the containers of THIS checkout's self-test project
 stop *args:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -288,6 +315,13 @@ clean:
 sync-docs:
     ./script/test/sync-doc-counts.sh
 
+# lifecycle: RECLAIMED BY THE RUNNER. script/test/test.sh installs an EXIT
+# trap that sweeps orphaned compose projects on every dispatch it arms,
+# pass or fail, and asks whether the previous run has let go of this
+# project before it starts. The recipe does not repeat either, because the
+# runner is also what CI invokes directly -- a copy here would cover the
+# `just` path only.
+#
 # just test sync-docs-check -> validate doc/test/*.md counts WITHOUT writing
 # (the read-only twin of sync-docs, and the same gate the default `just test`
 # lint phase runs). Non-zero exit on drift, printing the unified diff of what
@@ -322,6 +356,13 @@ resolve-docs:
 sync-readme *args:
     ./script/test/sync-readme-hashes.sh {{args}}
 
+# lifecycle: RECLAIMED BY THE RUNNER. script/test/test.sh installs an EXIT
+# trap that sweeps orphaned compose projects on every dispatch it arms,
+# pass or fail, and asks whether the previous run has let go of this
+# project before it starts. The recipe does not repeat either, because the
+# runner is also what CI invokes directly -- a copy here would cover the
+# `just` path only.
+#
 # just test sync-readme-check -> validate the translation markers WITHOUT
 # writing (the read-only twin of sync-readme, and the same lint the default
 # `just test` lint phase runs). Non-zero exit naming the FILE and the SECTION
