@@ -872,6 +872,39 @@ behaviour is covered by `release_archive_spec.bats` and
 | Caller input reaches the step via `env:`, never run-block interpolation | 2 |
 | Every job's grant pinned as an exact per-job entry set, over the job list derived from the file (`preflight: contents: read`, `release: contents: write`) | 1 |
 
+### test/bats/unit/release_ref_spec.bats (12)
+
+"Is this tag a prerelease?" decides whether a GitHub Release is marked
+prerelease (`release-worker.yaml` for downstream repos, `self-test.yaml`
+for base) and whether `release-test-tools.yaml` moves
+`test-tools:latest` -- the image every repo that has not pinned
+`test_tools_version` builds its lint stage from, that input's default
+being `latest`. Two sites spelled the test themselves and the third did
+not ask, which is how `v0.42.0-rc1` through `-rc4` each moved `:latest`
+(#1012).
+
+`script/ci/release-ref.sh` is the one home for the rule. The first nine
+tests pin what it answers -- including that it REFUSES a ref it cannot
+read as a version tag, because the alternative answer (`false`) is the
+branch that publishes. The last three derive the population of asking
+sites from `.github/workflows/` rather than listing it: a guard for
+"every site" that consulted a remembered list of three would pass on
+exactly the fourth.
+
+| Test | Description |
+|------|-------------|
+| `release-ref: a finished release tag is not a prerelease (#1012)` | `v0.42.0` -> `false`. |
+| `release-ref: an RC tag is a prerelease (#1012)` | `v0.42.0-rc4` -> `true`. The four tags that moved `:latest`. |
+| `release-ref: a full refs/tags/ ref answers the same as its bare tag (#1012)` | `GITHUB_REF` and `github.ref_name` are both accepted, so a caller passes whichever it holds. |
+| `release-ref: the leading v is optional (#1012)` | The `v` this project's tags carry is stripped, not required. |
+| `release-ref: build metadata is not a prerelease, a dotted prerelease id is (#1012)` | SemVer 10 (`+build.5`) says nothing about precedence; SemVer 9 (`-rc.1`) does. |
+| `release-ref: a branch whose name merely contains a dash is refused, not answered (#1012)` | The defect the inline `contains(ref_name, '-')` carries: it is true of `feature/add-thing`. |
+| `release-ref: a ref that is not a version tag at all is refused (#1012)` | `main`, `v1.0` -- refusing is the only safe answer, because the other one (`false`) publishes. |
+| `release-ref: a missing ref is refused rather than defaulted (#1012)` | No default: an absent ref would otherwise read as a finished release. |
+| `release-ref: an unrecognised subcommand is refused and names what it does answer (#1012)` | A caller that asked for something else asked for a reason; it does not fall through to the one question that exists. |
+| `release-ref: every prerelease: input in the workflow tree is fed by a step output (#1012)` | Population derived from `.github/workflows/`; each value must come from the step that ran the classifier. |
+| `release-ref: no workflow restates the prerelease test itself (#1012)` | Neither spelling this tree has used -- the GitHub expression nor the shell glob -- survives anywhere. |
+| `release-ref: every workflow that declares a prerelease: input calls the classifier (#1012)` | The asking population and the calling population are the same set, both derived from the tree. |
 ### test/bats/unit/publish_worker_yaml_spec.bats (12)
 
 Structural assertions for the `.github/workflows/publish-worker.yaml`
@@ -4296,19 +4329,3 @@ rather than an assurance.
 | `_run_adr_structure: REFUSES when doc/adr/ does not exist (#994)` | - |
 | `_run_adr_structure: the REAL doc/adr/ passes today (#994)` | - |
 
-### test/bats/unit/release_ref_spec.bats (12)
-
-| Test | Description |
-|------|-------------|
-| `release-ref: a finished release tag is not a prerelease (#1012)` | - |
-| `release-ref: an RC tag is a prerelease (#1012)` | - |
-| `release-ref: a full refs/tags/ ref answers the same as its bare tag (#1012)` | - |
-| `release-ref: the leading v is optional (#1012)` | - |
-| `release-ref: build metadata is not a prerelease, a dotted prerelease id is (#1012)` | - |
-| `release-ref: a branch whose name merely contains a dash is refused, not answered (#1012)` | - |
-| `release-ref: a ref that is not a version tag at all is refused (#1012)` | - |
-| `release-ref: a missing ref is refused rather than defaulted (#1012)` | - |
-| `release-ref: an unrecognised subcommand is refused and names what it does answer (#1012)` | - |
-| `release-ref: every prerelease: input in the workflow tree is fed by a step output (#1012)` | - |
-| `release-ref: no workflow restates the prerelease test itself (#1012)` | - |
-| `release-ref: every workflow that declares a prerelease: input calls the classifier (#1012)` | - |

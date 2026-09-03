@@ -82,12 +82,32 @@ jobs:
           tar czf "${ARCHIVE_NAME}.tar.gz" "${ARCHIVE_NAME}"
           zip -r  "${ARCHIVE_NAME}.zip"    "${ARCHIVE_NAME}"
 
+      # Whether this tag is a prerelease is asked of the one classifier
+      # that owns the rule, checked out with the rest of the worker source
+      # at the SAME ref as this workflow. It used to be an inline
+      # `contains(github.ref_name, '-')` here and a second copy of the
+      # same expression in self-test.yaml, with a third site
+      # (release-test-tools.yaml) deciding the org's `test-tools:latest`
+      # without asking at all. The classifier also REFUSES a tag it cannot
+      # read as a version instead of calling it final, so a malformed tag
+      # fails the release rather than publishing a mislabelled one.
+      - name: Classify the release ref
+        id: ref
+        env:
+          REF: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          prerelease="$(bash .release-base/script/ci/release-ref.sh \
+              prerelease "${REF}")"
+          printf 'prerelease=%s\n' "${prerelease}" >> "${GITHUB_OUTPUT}"
+          echo "prerelease=${prerelease} (ref=${REF})"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
           body_path: doc/changelog/CHANGELOG.md
           generate_release_notes: true
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          prerelease: ${{ steps.ref.outputs.prerelease }}
           files: |
             ${{ inputs.archive_name_prefix }}-*.tar.gz
             ${{ inputs.archive_name_prefix }}-*.zip

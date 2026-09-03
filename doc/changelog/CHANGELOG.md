@@ -206,6 +206,14 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 - **the changelog lint now catches an entry that was edited and not re-wrapped (refs #927)** -- a single word left alone on a continuation line with more of its paragraph on the next line. The length measure collapses whitespace on purpose and markdown collapses it again at render time, so nothing else could see it. A short final line, a table row, a fenced line and an HTML comment are left alone. Affects anyone writing an `[Unreleased]` entry.
 
 ### Fixed
+- **one classifier decides whether a tag is a prerelease (refs #1012)** --
+  the question decided three things across the org and was spelled twice as
+  an inline `contains(github.ref_name, '-')`, which is also true of
+  `feature/add-thing`. `script/ci/release-ref.sh` now owns the rule, and
+  `release-worker.yaml`, `self-test.yaml` and `release-test-tools.yaml` ask
+  it. **It refuses a tag it cannot read as SemVer rather than calling it
+  final**, so a downstream repo tagging outside `vX.Y.Z` now fails its
+  release job instead of publishing a mislabelled release.
 - **a release-candidate tag no longer moves `test-tools:latest` (refs #1012)**
   -- the `v*` trigger matched `v0.42.0-rc1` through `-rc4`, and each moved
   `:latest`, so every repo leaving `test_tools_version` at its default built

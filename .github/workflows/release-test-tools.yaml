@@ -11,9 +11,9 @@ name: Release test-tools image to GHCR
 #
 # Triggers:
 #   push of a vX.Y.Z tag -> pushes :<tag>, plus :latest when the tag is
-#                           NOT a prerelease -- the same question
-#                           release-worker.yaml asks before it marks a
-#                           GitHub Release prerelease.
+#                           NOT a prerelease. That question has one
+#                           answer in this repo -- script/ci/release-ref.sh
+#                           -- and release-worker.yaml asks the same one.
 #   push to main (Dockerfile.test-tools or this workflow changed)
 #                        -> pushes :main rolling tag (#317 P2)
 #   workflow_dispatch    -> resolves by the ref it was dispatched FROM:
@@ -212,6 +212,14 @@ jobs:
         # through rc4 each moved `:latest` -- so for the length of an RC
         # window the org was building against a release candidate.
         #
+        # Prerelease is the same question release-worker.yaml asks before
+        # it marks a GitHub Release, so it is ASKED rather than restated:
+        # script/ci/release-ref.sh owns the rule. Its answer is captured
+        # into a variable rather than tested inline as `[[ "$(...)" == ]]`,
+        # because a command substitution that FAILS inside `[[ ]]` does
+        # not trip errexit -- the refusal would read as "not a
+        # prerelease", which is the arm that moves `:latest`.
+        #
         # A ref this resolver does not recognise publishes NOTHING.
         # `workflow_dispatch` is unrestricted by ref, so that arm is
         # reachable from any feature branch; resolving it to `:latest`
@@ -224,7 +232,8 @@ jobs:
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
             ver="${GITHUB_REF##refs/tags/}"
             tags="${IMAGE}:${ver}"
-            if [[ "${ver}" == *-* ]]; then
+            pre="$(./script/ci/release-ref.sh prerelease "${ver}")"
+            if [[ "${pre}" == 'true' ]]; then
               echo "::notice::${ver} is a prerelease tag: publishing" \
                 "${IMAGE}:${ver} only and leaving :latest where it is."
             else
