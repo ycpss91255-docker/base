@@ -57,11 +57,19 @@ setup() {
         "${TMP_REPO}/.base/dist/script/docker/lib/_lib.sh"
   ln -s /source/dist/script/docker/lib/i18n.sh \
         "${TMP_REPO}/.base/dist/script/docker/lib/i18n.sh"
-  # schema.sh joined the _lib.sh chain in; it sources _tui_conf.sh
-  # for the validator bodies, so symlink both alongside the rest.
-  for _sl in log transcript env conf setup_conf conf_logging _tui_conf schema stage resolve compose deploy compose_emit env_emit config_summary setup_cmd setup_detect drift hook dockerfile_migrate; do
-    ln -s "/source/dist/script/docker/lib/${_sl}.sh" \
-          "${TMP_REPO}/.base/dist/script/docker/lib/${_sl}.sh"
+  # Every sub-lib in lib/, by GLOB and not by roster. A hand-written list
+  # sat here and had to be edited in lockstep with _lib.sh's own source
+  # list; the first lib added after it was written took 65 specs in this
+  # file down with `project_reclaim.sh: No such file or directory`, in a
+  # sandbox that had nothing to do with the change. The glob says what the
+  # comment above always meant -- _lib.sh sources lib/*.sh, so the sandbox
+  # carries lib/*.sh -- and cannot drift from it. `-f` because a few
+  # surfaces above are symlinked individually for their own reasons and
+  # this pass reaches them too.
+  local _sl
+  for _sl in /source/dist/script/docker/lib/*.sh; do
+    ln -sf "${_sl}" \
+           "${TMP_REPO}/.base/dist/script/docker/lib/$(basename -- "${_sl}")"
   done
   unset _sl
   ln -s /source/dist/script/docker/lib/log-events.txt \

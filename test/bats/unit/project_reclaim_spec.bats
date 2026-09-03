@@ -63,7 +63,13 @@ set -u
 printf '%s\n' "$*" >> "${DOCKER_CALLS}"
 _now="$(date +%s)"
 
-_created() { date -u -d "@${1}" +%Y-%m-%dT%H:%M:%SZ; }
+# What `docker <kind> inspect --format '{{json .Created}}'` emits: a QUOTED
+# RFC3339 string. The unquoted `{{.Created}}` is not interchangeable -- on a
+# network it renders a Go time value (`2026-09-03 11:07:45.1237 +0800 CST`)
+# that `date -d` refuses outright, which is how a real network's age became
+# unreadable and the orphan was spared instead of collected. The shim emits
+# the real shape so every age-dependent case below is a guard on that.
+_created() { printf '"%s"\n' "$(date -u -d "@${1}" +%Y-%m-%dT%H:%M:%SZ)"; }
 
 case "${1-} ${2-}" in
   "network ls")
@@ -73,8 +79,9 @@ case "${1-} ${2-}" in
     done < "${DOCKER_STATE}"
     ;;
   "network inspect")
+    _target="${!#}"
     while IFS='|' read -r _k _id _name _proj _age; do
-      [[ "${_k}" == network && "${_id}" == "${3-}" ]] || continue
+      [[ "${_k}" == network && "${_id}" == "${_target}" ]] || continue
       _created "$(( _now - _age ))"
     done < "${DOCKER_STATE}"
     ;;
@@ -83,8 +90,9 @@ case "${1-} ${2-}" in
     for _t in "$@"; do printf 'network %s\n' "${_t}" >> "${DOCKER_REMOVED}"; done
     ;;
   "image inspect")
+    _target="${!#}"
     while IFS='|' read -r _k _id _name _proj _age; do
-      [[ "${_k}" == image && "${_name}" == "${3-}" ]] || continue
+      [[ "${_k}" == image && "${_name}" == "${_target}" ]] || continue
       _created "$(( _now - _age ))"
     done < "${DOCKER_STATE}"
     ;;
@@ -340,7 +348,10 @@ _tag() {
     printf 'image|i1|%s||9999\n' "${_live}"
     printf 'image|i2|test-tools:222222222222||8888\n'
   } > "${DOCKER_STATE}"
-  run bash -c "source ${LIB}; _reclaim_tool_tags '${ROOT}' 1"
+  # keep=0 empties the recency window, so the ONLY thing that can spare
+  # ${_live} here -- the oldest of the three -- is a live checkout still
+  # resolving it.
+  run bash -c "source ${LIB}; _reclaim_tool_tags '${ROOT}' 0"
   assert_success
   run cat "${DOCKER_REMOVED}"
   refute_output --partial "${_live}"

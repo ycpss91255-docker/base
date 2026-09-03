@@ -100,6 +100,14 @@ coverage shard='':
 coverage-path spec *args:
     ./script/test/test.sh --coverage-path '{{spec}}' {{args}}
 
+# Both `system` and `smoke` drive compose directly rather than through
+# test.sh's dispatcher, so neither is covered by test.sh's own end-of-run
+# reclaim -- each carries its own line. It is an EXIT trap, not a trailing
+# command, because `set -e` means a failed run never reaches a trailing
+# command, and litter from a failed run is still litter. `|| true` keeps a
+# refused reclaim from changing the recipe's verdict; bash preserves the
+# pending exit status across an EXIT trap that does not itself exit.
+
 # just test system -> system runtime-test specs (opt-in; host docker.sock)
 # Builds the test-tools image through the docker namespace base self-uses
 # (ADR-00000011 sec.5) rather than a raw `docker build -f` one-liner.
@@ -128,6 +136,7 @@ coverage-path spec *args:
 system:
     #!/usr/bin/env bash
     set -euo pipefail
+    trap './script/prune.sh --reclaim || true' EXIT
     TEST_TOOLS_IMAGE="${TEST_TOOLS_IMAGE:-$(./script/test/test.sh --test-tools-image)}"
     export TEST_TOOLS_IMAGE
     COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-$(./script/test/test.sh --compose-project-name)}"
@@ -188,6 +197,7 @@ system:
 smoke *args:
     #!/usr/bin/env bash
     set -euo pipefail
+    trap './script/prune.sh --reclaim || true' EXIT
     TEST_TOOLS_IMAGE="${TEST_TOOLS_IMAGE:-$(./script/test/test.sh --test-tools-image)}"
     export TEST_TOOLS_IMAGE
     COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-$(./script/test/test.sh --compose-project-name)}"

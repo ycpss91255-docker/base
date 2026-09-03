@@ -962,13 +962,13 @@ readonly _TEST_TOOLS_DOCKERFILE_REL="dockerfile/Dockerfile.test-tools"
 _compute_test_tools_hash() {
   local _dockerfile="${1:?_compute_test_tools_hash requires <dockerfile>}"
   local -n _ctth_out="${2:?_compute_test_tools_hash requires <outvar>}"
-  if [[ ! -f "${_dockerfile}" ]]; then
-    _ctth_out=""
-    return 0
-  fi
-  # Redirected stdin (not `sha256sum <file>`) so the PATH never enters the
-  # digest: the same content in two checkouts must produce one tag.
-  _ctth_out="$(sha256sum < "${_dockerfile}" | cut -d' ' -f1)"
+  # Delegated to lib/project_reclaim.sh, which owns the derivation for the
+  # same reason it owns the compose project name: the retention policy that
+  # decides which of these tags to retire has to compute exactly what this
+  # computes, and two implementations of one rule is how they come to
+  # disagree. Absent Dockerfile still yields the empty string here (the
+  # caller decides what to do about it).
+  _ctth_out="$(_reclaim_tool_dockerfile_hash "${_dockerfile}")"
   return 0
 }
 
@@ -1051,19 +1051,32 @@ _ensure_test_tools_image() {
 # concurrent case this exists to separate. The path is also stable across
 # commits, so a checkout keeps one project (and one network) instead of
 # churning a fresh one per commit.
+#
+# Delegated to lib/project_reclaim.sh's _reclaim_project_for_path, which is
+# THE producer. The scoped reclaim decides whether an artifact belongs to a
+# checkout that still exists by recomputing this name for every live
+# worktree, so a second implementation here would not be a duplicate that
+# merely costs lines -- it would be a second rule, and the day the two
+# disagree the collector either spares a dead project forever or deletes a
+# live one.
 _compute_compose_project_name() {
   local _root="${1:?_compute_compose_project_name requires <repo_root>}"
   local -n _ccpn_out="${2:?_compute_compose_project_name requires <outvar>}"
-  local _hash
-  _hash="$(printf '%s' "${_root}" | sha256sum | cut -d' ' -f1)"
+  # `_ccpn_name`, not `_name`: the caller passes a variable of its own to be
+  # filled, and a local here that happens to share that variable's NAME
+  # captures the nameref -- the assignment below then lands on the local and
+  # the caller sees an empty project name. The prefix is what keeps the
+  # collision out of reach of any caller's choice of variable.
+  local _ccpn_name
   # A short/empty digest (sha256sum or cut missing) would degrade to the
   # bare prefix -- a name EVERY checkout resolves, i.e. the collision this
-  # exists to prevent, reintroduced silently. Fail loud instead.
-  if [[ ! "${_hash}" =~ ^[0-9a-f]{12} ]]; then
+  # exists to prevent, reintroduced silently. The producer refuses it; this
+  # turns the refusal into a loud death.
+  if ! _ccpn_name="$(_reclaim_project_for_path "${_root}")"; then
     _die ci_project_name_digest_failed \
       "cannot derive a compose project name for '${_root}': sha256sum produced no usable digest."
   fi
-  _ccpn_out="base-${_hash:0:12}"
+  _ccpn_out="${_ccpn_name}"
   return 0
 }
 
@@ -1430,6 +1443,13 @@ _run_via_compose() {
   # Worktrees stayed isolated only by the accident of being named apart.
   local _service="${1:-ci}"
   local _coverage="${2:-0}"
+  # Arm the end-of-run reclaim. Set HERE, before the first compose call
+  # rather than after the last one, because a run that DIES mid-compose is
+  # exactly the run whose litter nobody comes back for. Arming is what
+  # separates a run that minted a project from `test.sh --test-tools-image`,
+  # a pure query the system / smoke recipes make before they build: that one
+  # must not open a daemon connection at all.
+  _RECLAIM_ARMED=1
   # Fixture the released-caller spec reads. Prepared here because this is
   # the last point that still runs on the host, where git works -- and only
   # for the dispatches that reach that spec, which is why the COVERAGE flag
@@ -1887,7 +1907,47 @@ main() {
   esac
 }
 
+# ── End-of-run reclaim ───────────────────────────────────────────────────────
+#
+# `just test` is where the litter is made. Every throwaway copy of this tree
+# an agent takes to mutation-test a guard is a fresh absolute path, and a
+# fresh path is a fresh compose project with a network of its own; the copy
+# is then deleted and the network is not. Nobody runs `just docker prune` in
+# a directory they are about to remove, and the measurement that opened this
+# was 468 such networks, 417 of them belonging to paths that no longer
+# existed. A chore that requires a human to remember it is not a handled
+# chore, so the suite collects after itself.
+#
+# It runs on the FAILING path too: litter from a red run is still litter,
+# and a red run is the one a developer walks away from.
+#
+# _test_exit_reclaim
+#   Captures the status the shell was about to exit with, reclaims, and
+#   exits with that same status. THE STATUS IS NEVER THE RECLAIM'S. A
+#   collector that could turn a green suite red would be switched off within
+#   the week, and it would deserve to be: nothing about the verdict on the
+#   code under test depends on whether a network could be removed. A failure
+#   is reported and the sweep is left to the next run.
+_test_exit_reclaim() {
+  local _rc=$?
+  if [[ "${_RECLAIM_ARMED:-0}" == "1" ]]; then
+    _reclaim_orphan_projects "${REPO_ROOT}" \
+      || _log_warn ci ci_reclaim_failed \
+        "display=scoped reclaim of orphaned compose projects failed; litter left for the next run (the suite's verdict is unchanged)."
+    _reclaim_tool_tags "${REPO_ROOT}" \
+      || _log_warn ci ci_reclaim_failed \
+        "display=tooling-tag retention failed; tags left for the next run (the suite's verdict is unchanged)."
+  fi
+  exit "${_rc}"
+}
+
 # Guard: only run main when executed directly, not when sourced (for testing)
+#
+# The trap is installed INSIDE this guard, not at file scope: the specs
+# source this file, and a file-scope EXIT trap would fire when the spec's
+# own shell exits -- reclaiming from a bats worker, in the middle of the
+# 32-way parallel run, against the daemon the suite itself is using.
 if [[ "${BASH_SOURCE[0]:-}" == "${0:-}" ]]; then
+  trap _test_exit_reclaim EXIT
   main "$@"
 fi

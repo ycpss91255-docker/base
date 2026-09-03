@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3376 tests**.
+Unit specs under `test/bats/unit/`: **3411 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -4127,3 +4127,48 @@ rather than an assurance.
 | `self-test.yaml: setup-just is pinned from the accessor, not left to install latest (#948)` | - |
 | `release-test-tools.yaml: the just smoke check asserts the version, not exit 0 (#948)` | - |
 
+
+### test/bats/unit/project_reclaim_spec.bats (20)
+
+| Test | Description |
+|------|-------------|
+| `_reclaim_project_for_path derives the same base-<12hex> name test.sh does` | - |
+| `script/test/test.sh derives its compose project name through the shared producer` | - |
+| `script/test/test.sh derives its test-tools tag through the shared producer` | - |
+| `an orphan project's network is collected` | - |
+| `a live worktree's project is NOT collected` | - |
+| `the checkout the reclaim runs in is never collected, worktree list or not` | - |
+| `a project with a container attached is NOT collected` | - |
+| `an artifact with no com.docker.compose.project label is NOT collected` | - |
+| `an artifact whose project label is not base- prefixed is NOT collected` | - |
+| `a base- label whose suffix is not 12 hex digits is NOT collected` | - |
+| `an orphan created inside the grace window is NOT collected` | - |
+| `an unreadable worktree list ABORTS rather than collecting everything` | - |
+| `an unreadable worktree list issues no removal command at all` | - |
+| `images are never collected by the project rule (the tooling tag is shared)` | - |
+| `tag retention keeps the current tree's tag and the last N and retires the rest` | - |
+| `tag retention keeps a tag a live worktree still resolves to` | - |
+| `tag retention leaves a tag it cannot place alone` | - |
+| `tag retention ABORTS on an unreadable worktree list` | - |
+| `the retained-tag count is derived from the live checkouts, not a buried literal` | - |
+| `the retained-tag count is overridable by the environment` | - |
+
+### test/bats/unit/reclaim_wiring_spec.bats (15)
+
+| Test | Description |
+|------|-------------|
+| `test.sh installs the reclaim as an EXIT handler on the direct-run path only` | - |
+| `test.sh arms the reclaim where a compose project is actually minted` | - |
+| `a reclaim failure does not change the suite's verdict` | - |
+| `a reclaim failure does not turn a green run red` | - |
+| `a reclaim failure is reported rather than swallowed` | - |
+| `the reclaim still runs when the suite FAILED -- litter from a red run is litter` | - |
+| `a run that minted no compose project reclaims nothing` | - |
+| `just test system reclaims when it is done, pass or fail` | - |
+| `stop.sh reclaims after the project comes down` | - |
+| `stop.sh's reclaim cannot fail the stop` | - |
+| `the verbs that BEGIN a flow do not reclaim` | - |
+| `prune.sh exposes the scoped reclaim as its own mode` | - |
+| `--all does not quietly acquire the scoped reclaim` | - |
+| `the daemon-wide prune targets are untouched` | - |
+| `the scoped reclaim is reachable through just, with no new namespace` | - |

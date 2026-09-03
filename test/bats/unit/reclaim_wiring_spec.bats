@@ -155,6 +155,7 @@ setup() {
   run code_grep -F -- '--orphan-projects' "${PRUNESH}"
   assert_success
   run code_grep -F -- '--tool-tags' "${PRUNESH}"
+  assert_success
 }
 
 @test "--all does not quietly acquire the scoped reclaim" {
