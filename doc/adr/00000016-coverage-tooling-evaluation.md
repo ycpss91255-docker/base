@@ -5,10 +5,16 @@
 
 - **Date:** 2026-06-27
 - **Decided:** 2026-06-29
-- **Status:** Rejected (spike below disproved the premise)
+- **Status:** Rejected
 - **Relates to:** ADR-00000008 (sharded coverage PR gate, built on kcov),
   ADR-00000015 (test files mirror source -- the symptom-level lever),
   issue #758 (lower the coverage critical path)
+
+> **Rejected (2026-06-29).** The time-boxed spike below disproved this
+> ADR's central premise -- kcov's cost is not the ptrace tax the proposal
+> assumed -- so no tool change is adopted and kcov stays. The Context and
+> Decision below are the proposal as written; the Spike result section is
+> what actually happened.
 
 ## Context
 

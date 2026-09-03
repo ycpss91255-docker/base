@@ -86,6 +86,17 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   type at 1.7.12.
 
 ### Added
+- **`adr-structure`: an ADR must carry the parts an ADR is read for (refs
+  #994)** -- `adr_numbering` guarded what an ADR file is called; nothing
+  guarded what is in it, and 20 of 27 ADRs met this contract by convention
+  alone. The lint requires EXACTLY ONE of each, at column 0: a
+  `> Serves:` back-pointer, `## Context` / `## Decision` / `## Consequences`
+  / `## Alternatives`, and a Status of exactly `Accepted`, `Rejected` or
+  `Superseded by ADR-NNNNNNNN`; zero ADRs examined refuses. An illustrated
+  line is indented out of column 0. Four Status values lost their free text,
+  two ADRs gained an Alternatives section, and ADR-00000008's amendment
+  Status lines became `- **Amendment status:**`.
+
 - **`init.sh --list-installed-paths`: the installer now states which files it puts into a consumer (refs #927)** -- `.base` files reach a repo only through an upgrade's resync, so "which release is this repo on" was answerable while "did that release's files actually arrive" was not; the base-version monitor sat at zero adoption, unreported, for months. The manifest is read from init.sh instead of copied, and an integration spec diffs it against a real resync in both directions -- which immediately caught `.setup.conf` missing from the first draft. Affects anyone auditing `.base` delivery across repos.
 
 - **a multi-arch-aware GHCR cleanup for the `test-tools` package, defaulting to dry-run (refs #813)** -- every multi-arch publish strands the previous index and its per-arch children as untagged orphans, which accumulate release after release. The obvious tool is the dangerous one: `delete-only-untagged-versions` reads "untagged" off the packages API without opening a manifest, so it collects children a **live** tag still references and `docker pull` starts 404ing. This uses a manifest-aware action, SHA-pinned, scoped to `test-tools`, deleting untagged versions older than 14 days -- and it deletes nothing until `GHCR_CLEANUP_ENFORCE` is set.

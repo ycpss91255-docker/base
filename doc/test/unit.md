@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3490 tests**.
+Unit specs under `test/bats/unit/`: **3518 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -2129,7 +2129,7 @@ builds the env block only for the knobs the conf sets.
 | `name_host_groups: a nameless gid triggers sudo groupadd hostgrp<gid>` | #589 behaviour (mocked) |
 | `name_host_groups: a named gid does not trigger groupadd` | #589 idempotent skip (mocked) |
 
-### test/bats/unit/ci_spec.bats (117)
+### test/bats/unit/ci_spec.bats (118)
 
 | Test | Description |
 |------|-------------|
@@ -2207,6 +2207,7 @@ builds the env block only for the knobs the conf sets.
 | `main --ci: LINT_TOOL=doc-counts runs the doc/test count drift gate (#864)` | #864 doc/test count drift gate reaches the CI gate |
 | `main --doc-counts-only: runs the drift gate on the host, no compose (#864)` | #864 host-direct primitive so a CI job can run the gate without compose |
 | `main --issueref-only: runs the issue-ref comment lint on the host, no compose (#866)` | - |
+| `main --adr-structure-only: runs the ADR-structure lint on the host, no compose (#994)` | - |
 | `main --adr-numbering-only: runs the ADR-numbering lint on the host, no compose (#866)` | - |
 | `main --stale-setup-conf-only: runs the stale setup.conf path lint on the host, no compose (#866)` | - |
 | `main --home-literal-only: runs the hardcoded home path lint on the host, no compose (#799)` | - |
@@ -4236,3 +4237,35 @@ rather than an assurance.
 | `self-test.yaml: setup-just is pinned from the accessor, not left to install latest (#948)` | - |
 | `release-test-tools.yaml: the just smoke check asserts the version, not exit 0 (#948)` | - |
 
+
+### test/bats/unit/adr_structure_spec.bats (27)
+
+| Test | Description |
+|------|-------------|
+| `_run_adr_structure: FAILS on a missing '> Serves:' back-pointer, naming the file (#994)` | - |
+| `_run_adr_structure: a '> Serves:' that is not at line start does NOT count (#994)` | - |
+| `_run_adr_structure: FAILS on a missing '## Context' (#994)` | - |
+| `_run_adr_structure: FAILS on a missing '## Decision' (#994)` | - |
+| `_run_adr_structure: FAILS on a missing '## Consequences' (#994)` | - |
+| `_run_adr_structure: FAILS on a missing '## Alternatives' -- required, not advisory (#994)` | - |
+| `_run_adr_structure: ACCEPTS the house heading variants with trailing text (#994)` | - |
+| `_run_adr_structure: a required heading appearing TWICE at column 0 is refused (#994)` | - |
+| `_run_adr_structure: indenting the illustrated heading is the whole fix (#994)` | - |
+| `_run_adr_structure: a second '> Serves:' at column 0 is refused (#994)` | - |
+| `_run_adr_structure: a second '- **Status:**' at column 0 is refused (#994)` | - |
+| `_run_adr_structure: an illustrated ADR template is refused on the parts the file DOES carry (#994)` | - |
+| `_run_adr_structure: KNOWN FAIL-OPEN -- a part omitted AND illustrated at column 0 reads as compliant (#994)` | - |
+| `_run_adr_structure: FAILS on free text after Accepted (#994)` | - |
+| `_run_adr_structure: FAILS on free text after Rejected (#994)` | - |
+| `_run_adr_structure: FAILS on a Status line that is absent entirely (#994)` | - |
+| `_run_adr_structure: FAILS on 'Proposed', which is not one of the three values (#994)` | - |
+| `_run_adr_structure: FAILS on a supersession pointing at a non-8-digit number (#994)` | - |
+| `_run_adr_structure: FAILS on a supersession carrying a trailing date (#994)` | - |
+| `_run_adr_structure: ACCEPTS all three contract values (#994)` | - |
+| `_run_adr_structure: EXEMPTS doc/adr/README.md (the index) (#994)` | - |
+| `_run_adr_structure: names EVERY offending file, not just the first (#994)` | - |
+| `_run_adr_structure: reports how many ADRs it examined (#994)` | - |
+| `_run_adr_structure: REFUSES when doc/adr/ holds no ADR at all (#994)` | - |
+| `_run_adr_structure: REFUSES when doc/adr/ holds ONLY the exempt README (#994)` | - |
+| `_run_adr_structure: REFUSES when doc/adr/ does not exist (#994)` | - |
+| `_run_adr_structure: the REAL doc/adr/ passes today (#994)` | - |

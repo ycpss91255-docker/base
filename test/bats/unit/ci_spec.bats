@@ -2042,6 +2042,24 @@ AWK
   refute_output --partial "docker should not be called"
 }
 
+@test "main --adr-structure-only: runs the ADR-structure lint on the host, no compose (#994)" {
+  # Ungated in CI for the same reason its sibling is: an ADR body is a
+  # doc-only change, so a code_changed gate would skip the lint on exactly
+  # the PR that lands a malformed ADR. That only works host-direct.
+  mock_cmd "docker" 'echo "docker should not be called"; exit 1'
+  mock_cmd "id" 'echo 1000'
+
+  run bash -c '
+    source /source/script/test/test.sh
+    export PATH="'"${MOCK_DIR}"':${PATH}"
+    main --adr-structure-only
+  '
+  assert_success
+  assert_output --partial "ADR-structure lint:"
+  assert_output --partial "clean"
+  refute_output --partial "docker should not be called"
+}
+
 @test "main --adr-numbering-only: runs the ADR-numbering lint on the host, no compose (#866)" {
   # Ungated in CI on purpose: doc/adr/ filenames are a doc-only change, so a
   # code_changed gate would skip the lint on exactly the PR that duplicates
@@ -2156,6 +2174,7 @@ AWK
   assert_line "hadolint"
   assert_line "issueref"
   assert_line "adr-numbering"
+  assert_line "adr-structure"
   assert_line "stale-setup-conf"
   assert_line "readme-sync"
   assert_line "doc-counts"
