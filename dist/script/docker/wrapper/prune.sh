@@ -160,7 +160,7 @@ EOF
   --orphan-projects 删除「所记录的 checkout 已不存在」的 compose project network
                     与该 checkout 专属的 build image（`<project>-smoke`；共用的
                     tooling image 没有这个 label，永远不会被这里碰到）。
-                    base 的 compose.yaml 会把 checkout 的绝对路径写进 network 的
+                    base 的 compose.yaml 会把 checkout 的绝对路径写进两者的
                     `base.checkout.path` label；本模式把该路径读回来，只有在该路径
                     已不存在、没有 container 附着、且超过保护窗时才删。任何无法判定
                     的输入（没有这个 label——本机制之前创建的 network 全都如此、label
