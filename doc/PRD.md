@@ -331,8 +331,8 @@ Every other combination defaults off, including the common one where
 neither question has a "yes": a setting nobody is hurt by forgetting is
 not worth the blast radius of shipping it enabled to every downstream.
 
-Four things decide what the two questions are asked *about*, and they
-are what make the rule mechanical rather than rhetorical:
+The qualifiers below decide what the two questions are asked *about*,
+and they are what make the rule mechanical rather than rhetorical:
 
 - **The unit is a (setting, scope) pair, not a setting.** The same
   setting can be correct on in one scope and correct off in another, and
@@ -363,14 +363,18 @@ are what make the rule mechanical rather than rhetorical:
   = 20` has no "off", so neither question applies to it; how large a
   default number should be is invariant 4's direction question, answered
   by which way the harm falls.
-- **It is a correctness test, not a security analysis.** A permissive
+- **It is a correctness test, not a risk analysis.** A permissive
   setting breaks nothing that works, so question 1 does not catch it;
   `[security] privileged` reaches `false` through the neither-yes branch,
-  which is the right landing but not for the reason that matters. What
-  makes it the right landing is invariant 4 -- the tension there is
-  safe-versus-convenient, and the direction is safe. Where the two
-  disagree the answer is still off, because both branches only ever
-  license an ON.
+  which is the right landing but not for the reason that matters. A
+  destructive setting slips through the same gap: GHCR cleanup, once the
+  manifest-aware action removed the way it could break a live tag, breaks
+  nothing that works either, and it too lands off through the neither-yes
+  branch. What makes both the right landing is invariant 4 -- the tension
+  there is safe-versus-convenient, and the direction is safe: a
+  destructive scheduled job nobody has watched run stays dry until
+  somebody has. Where the two disagree the answer is still off, because
+  both branches only ever license an ON.
 
 Applied to seven of the defaults base ships today -- those chosen for
 having a recorded rationale to check the rule against, not by a sweep of
@@ -383,7 +387,7 @@ every default in the tree -- it reproduces each:
 | `[network]` bridge (vs `host`) | yes -- a `172.17.x` address is not routable off-box, so cross-machine ROS goes silently unreachable | -- | off | `mode = host` |
 | `[security] privileged` | no -- it is permissive, so nothing that works stops working | no -- a container that does not need it is not hurt by its absence | off (the neither-yes branch) | `false` |
 | `[logging] wrapper_transcript` | no, once ADR-00000007 removed the re-flip | yes -- the debugging record is missing exactly when it is wanted | on | `true` |
-| GHCR untagged-image cleanup | yes -- an untagged child a live tag still references would 404 a `docker pull` | -- | off | dry-run until `GHCR_CLEANUP_ENFORCE` |
+| GHCR untagged-image cleanup | no -- the shipped action is manifest-aware, so a child of a live tag is never a delete candidate; the `docker pull` 404 is the other tool's footgun | no -- orphan digests accumulate, but nothing that works stops working | off (the neither-yes branch) | dry-run until `GHCR_CLEANUP_ENFORCE` |
 | config mount-override writable | yes -- the container could rewrite the operator's file | -- | off | read-only, `rw` opt-in |
 
 *Why it is fixed:* base's defaults are the configuration every downstream
@@ -532,7 +536,7 @@ ADR-00000025 (`setup deploy` refuses while an untracked config layer
 exists, and the explicit override records in the bundle which sections
 came from it -- "because the person holding the bundle in the field is
 not the person who chose to bypass the gate"); ADR-00000023 as amended by
-#874 (a config mount-override is read-only with an explicit `rw` opt-in);
+#870 (a config mount-override is read-only with an explicit `rw` opt-in);
 the `changelog-entry` opt-out, which is a comment pair carrying `<why>`;
 the `arch-literal` lint, whose mapping exception "opts out with a stated
 reason".
