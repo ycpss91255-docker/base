@@ -70,14 +70,28 @@
 # Deliberately NOT a pin, each excluded BY NAME in _gwa_classify rather
 # than by failing to match:
 #
-#   - an interpolated ref, e.g. this repo calling its own reusable
-#     workflow at the pinned subtree version. Both halves are shell
-#     variables, there is no literal to compare, and upgrade.sh already
-#     rewrites that ref on every upgrade;
 #   - a local `./` callee, which carries no ref: it is this tree, at this
 #     commit;
 #   - a `docker://` container action, an image reference rather than a
-#     repository tag, with no `<owner>/<repo>` reading to compare.
+#     repository tag, with no `<owner>/<repo>` reading to compare;
+#   - a call to a reusable workflow THIS repo ships, e.g. a generated
+#     `main.yaml` calling build-worker.yaml at the pinned subtree version.
+#     That ref has an owner -- upgrade.sh rewrites `<worker>.yaml@vX.Y.Z`
+#     in every downstream main.yaml on every upgrade -- and it is not a
+#     marketplace action, so `.github/workflows/` holds no comparable ref
+#     for it: this repo calls the same worker LOCALLY, as `./`. The
+#     exclusion is keyed on the callee being a workflow file this repo
+#     ships, read off the tree, so somebody else's reusable workflow gets
+#     no exemption from it.
+#
+# "Interpolated from a shell variable" is NOT on that list, and was: it is
+# a different property from "cannot be known". A generator that hoists its
+# ref into `readonly NAME='<owner>/<repo>@<ref>'` above the heredoc -- which
+# is what init.sh does, so the generated line has a declaration site a
+# `tool-pin:` marker can attach to -- writes the same string it would have
+# written inline. Excluding it took a real pin out of the population, and
+# took out the only one this lint had. _gwa_classify resolves that one
+# indirection and refuses every other, case by case, at the function.
 #
 # Nor is a ref quoted inside a shell or YAML COMMENT: prose explaining
 # what a step looks like is not a step, and a lint that fails on its own
@@ -152,7 +166,123 @@ _gwa_value() {
   printf '%s' "${_v}"
 }
 
-# _gwa_classify <value> -- decide what one `uses:` value is.
+# One shell VARIABLE REFERENCE inside a `uses:` value: `${NAME}` or
+# `$NAME`. Deliberately only the two plain spellings. `${NAME:-default}`,
+# `${NAME#prefix}`, `$(command)` and GitHub's own `${{ expr }}` all fail to
+# match, and a value still carrying a `$` after resolution is refused --
+# so a spelling this matcher does not read becomes a finding rather than a
+# value it guessed at.
+# shellcheck disable=SC2016 # an ERE matching a `$`; nothing here expands.
+readonly _GWA_VAR_RE='\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)'
+
+# _gwa_assign_re <name> -- an ERE matching an assignment to <name>.
+#
+# The declaration keywords are optional and repeatable (`readonly`,
+# `export`, `local`, `declare -r`, `typeset`), because which of them is
+# present is a hardening detail of the declaration, not what makes the
+# value static -- one assignment of a single-quoted literal is. The
+# `(\+?)` before the `=` is what makes `NAME+=` MATCH rather than slip
+# past: an append builds a value instead of declaring one, and a matcher
+# that only saw `NAME=` would resolve to a PREFIX of what the generator
+# writes and compare a ref that never existed. Capture 4 is that `+`,
+# capture 5 the right-hand side.
+_gwa_assign_re() {
+  printf '%s' \
+    "^[[:space:]]*((readonly|export|local|declare|typeset)([[:space:]]+-[A-Za-z-]+)*[[:space:]]+)*${1}(\+?)=(.*)$"
+}
+
+# _gwa_var_literal <name> <file> -- print the one static literal <file>
+# assigns to <name>; return non-zero when there is not exactly one.
+#
+# "Static" is deliberately the narrowest reading that still covers the
+# shape a generator uses: exactly ONE assignment, in THIS file, of a
+# SINGLE-QUOTED literal containing no `$`. Every other shape returns
+# non-zero and ends up a finding upstream, and each is refused for a
+# reason of its own:
+#
+#   - assigned more than once: which assignment is live at the heredoc
+#     depends on control flow this reader does not evaluate;
+#   - assigned with `+=`: the value is built, so any one line is a
+#     fragment of it;
+#   - a double-quoted right-hand side, a command substitution, or another
+#     variable: the value is not visible in one place, and following the
+#     hop would mean re-deciding scope at every step;
+#   - not assigned in this file at all: it comes from a sourced file, the
+#     environment, or a caller, and which one is a guess about what is in
+#     scope at generation time;
+#   - a literal that itself contains `$`: it would re-enter resolution,
+#     and a single-quoted `$FOO` is a literal dollar sign rather than a
+#     reference.
+#
+# Refusing is the safe direction in all of them: an unresolved value is
+# REPORTED with its raw text, so the hole stays visible and a reader
+# decides. Guessing removes the ref from the lint silently, which is the
+# defect this function exists to close.
+_gwa_var_literal() {
+  local _name="${1}" _file="${2}" _line _re _lit
+  [[ -f "${_file}" ]] || return 1
+  _re="$(_gwa_assign_re "${_name}")"
+  local -a _rhs=()
+  while IFS= read -r _line; do
+    _gwa_is_comment "${_line}" && continue
+    [[ "${_line}" =~ ${_re} ]] || continue
+    # An append is an assignment for counting purposes AND unusable as a
+    # declaration, so it is recorded and then refused by the count.
+    [[ -n "${BASH_REMATCH[4]}" ]] && return 1
+    _rhs+=("${BASH_REMATCH[5]}")
+  done < "${_file}"
+  (( ${#_rhs[@]} == 1 )) || return 1
+  local _v="${_rhs[0]}"
+  _v="${_v%"${_v##*[![:space:]]}"}"
+  [[ "${_v}" =~ ^\'([^\']*)\'$ ]] || return 1
+  _lit="${BASH_REMATCH[1]}"
+  [[ "${_lit}" == *'$'* ]] && return 1
+  printf '%s' "${_lit}"
+}
+
+# _gwa_resolve <value> <file> -- <value> with every variable reference
+# replaced by the static literal <file> assigns it; non-zero if any one of
+# them is not resolvable that way.
+#
+# Termination is not an assumption: a resolved literal can never contain
+# `$` (_gwa_var_literal refuses one that does), so each pass strictly
+# reduces the number of `$` in the value.
+_gwa_resolve() {
+  local _v="${1}" _file="${2}" _ref _name _lit
+  while [[ "${_v}" =~ ${_GWA_VAR_RE} ]]; do
+    # Both halves of the match are read BEFORE anything else runs. The
+    # braced spelling fills capture 1 and the bare one capture 2, so the
+    # name is whichever is non-empty; and the next statement re-matches
+    # inside its own regex, which is exactly what would overwrite these.
+    _ref="${BASH_REMATCH[0]}"
+    _name="${BASH_REMATCH[1]:-${BASH_REMATCH[2]}}"
+    _lit="$(_gwa_var_literal "${_name}" "${_file}")" || return 1
+    _v="${_v//"${_ref}"/${_lit}}"
+  done
+  # A `$` the reference matcher could not read at all -- `${{ }}`,
+  # `${NAME:-x}`, `$(cmd)` -- survives the loop. Refuse it rather than
+  # comparing a value still carrying an unexpanded fragment.
+  [[ "${_v}" == *'$'* ]] && return 1
+  printf '%s' "${_v}"
+}
+
+# _gwa_ships_workflow <value> -- true when <value> calls a reusable
+# workflow THIS repo ships, whatever its ref looks like.
+#
+# Derived from the tree, not from a roster: the callee has to name a file
+# that exists under `.github/workflows/` here. A generated repo calling
+# home to build-worker.yaml is excluded; the same shape pointing at
+# somebody else's reusable workflow is not, and stays subject to the
+# ordinary reading.
+_gwa_ships_workflow() {
+  local _callee="${1%%@*}" _base
+  [[ "${_callee}" == */.github/workflows/* ]] || return 1
+  _base="${_callee##*/}"
+  [[ "${_base}" == *.yaml || "${_base}" == *.yml ]] || return 1
+  [[ -f "${REPO_ROOT}/${_GWA_WORKFLOW_DIR_REL}/${_base}" ]]
+}
+
+# _gwa_classify <value> [<file>] -- decide what one `uses:` value is.
 #
 # Prints `<action>\t<ref>` and returns 0 for a versioned action this lint
 # can compare; returns 1 for a value EXCLUDED BY NAME; returns 2 for one
@@ -164,12 +294,7 @@ _gwa_value() {
 # has to pick one default for both, and picking "pass" is how a lint
 # quietly stops covering whatever its author did not foresee.
 _gwa_classify() {
-  local _v="${1}"
-  # An interpolated ref -- this repo calling its OWN reusable workflow at
-  # the pinned subtree version. Both halves are shell variables, there is
-  # no literal to compare, and upgrade.sh rewrites that ref on every
-  # upgrade.
-  [[ "${_v}" == *'$'* ]] && return 1
+  local _v="${1}" _file="${2:-}"
   case "${_v}" in
     # A local callee carries no ref: it is this tree, at this commit.
     ./*|/*) return 1 ;;
@@ -177,6 +302,16 @@ _gwa_classify() {
     # has no `<owner>/<repo>` reading for a workflow ref to agree with.
     docker://*) return 1 ;;
   esac
+  # A call home to one of this repo's own worker workflows: pinned to the
+  # subtree version, rewritten by upgrade.sh on every upgrade, and not a
+  # marketplace action this repo also calls by ref.
+  _gwa_ships_workflow "${_v}" && return 1
+  # One static indirection is read, not excluded. Everything the resolver
+  # declines is a finding -- see _gwa_var_literal for what each shape is
+  # and why refusing is the direction that keeps the hole visible.
+  if [[ "${_v}" == *'$'* ]]; then
+    _v="$(_gwa_resolve "${_v}" "${_file}")" || return 2
+  fi
   [[ "${_v}" =~ ${_GWA_ACTION_RE} ]] || return 2
   printf '%s\t%s' "${BASH_REMATCH[1]}" "${BASH_REMATCH[3]}"
 }
@@ -241,7 +376,7 @@ _gwa_workflow_refs() {
     # never turn one into a pass. `.github/workflows/` is the
     # action-ref-agreement lint's population, and this lint does not
     # re-judge what that one already owns.
-    _pair="$(_gwa_classify "${_value}")" || continue
+    _pair="$(_gwa_classify "${_value}" "${REPO_ROOT}/${_GWA_FILE}")" || continue
     printf '%s\n' "${_pair}"
   done < <(_gwa_hits '*.yaml' "${REPO_ROOT}/${_GWA_WORKFLOW_DIR_REL}"
            _gwa_hits '*.yml' "${REPO_ROOT}/${_GWA_WORKFLOW_DIR_REL}")
@@ -264,7 +399,7 @@ _gwa_generated_refs() {
     _gwa_is_comment "${_GWA_TEXT}" && continue
     _value="$(_gwa_value "${_GWA_TEXT}")" || continue
     _status=0
-    _pair="$(_gwa_classify "${_value}")" || _status=$?
+    _pair="$(_gwa_classify "${_value}" "${REPO_ROOT}/${_GWA_FILE}")" || _status=$?
     if (( _status == 0 )); then
       printf '%s\t%s\t%s\n' "${_GWA_FILE}" "${_GWA_LINENO}" "${_pair}"
     elif (( _status > 1 )); then
@@ -316,7 +451,7 @@ _run_generated_workflow_actions() {
       # a `*.sh` under REPO_ROOT and so is scanned by its own walk: a
       # literal `uses: ` in an emitted message is read as a generated ref
       # on the next run, and the lint fails on its own error text.
-      printf '%s:%s: %s -- not a versioned action reference, and not one of the documented exclusions (a ref interpolated from a shell variable, a local ./ callee, a docker:// image). This lint cannot say whether that is in lockstep, so it refuses rather than skipping it: spell it <owner>/<repo>[/<path>]@<ref>, or add the exclusion to _gwa_classify with the reason it is not a pin.\n' \
+      printf '%s:%s: %s -- not a versioned action reference, and not one of the documented exclusions (a local ./ callee, a docker:// image, a call to a reusable workflow this repo ships). A variable is read only where the same file assigns it exactly once as a single-quoted literal; assigned twice, appended to, double-quoted, taken from a command substitution or another variable, or declared in another file, it is not static and lands here. This lint cannot say whether that is in lockstep, so it refuses rather than skipping it: spell it <owner>/<repo>[/<path>]@<ref>, hoist it into one single-quoted assignment in the same file, or add the exclusion to _gwa_classify with the reason it is not a pin.\n' \
         "${_file}" "${_lineno}" "${_ref}"
       _violations=$(( _violations + 1 ))
       continue
