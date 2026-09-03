@@ -197,12 +197,21 @@ _carry_project_name() {
 # recomputing over it is exactly how a resolved project name used to be
 # discarded.
 #
-# Fallback path: no `.env.generated` at all (base self-use / pre-bootstrap).
-# Then, and only then, _resolve_project_name derives one from whatever is in
-# scope. A `.env.generated` that exists but omits PROJECT_NAME is a cache
-# written before the key existed: that is not the fallback case, it is a
-# stale cache, and it says so instead of quietly deriving a name whose
-# source the user cannot find.
+# Fallback path: no `.env.generated` at all, in a SELF-MANAGED checkout
+# (base self-use / pre-bootstrap). Then, and only then, _resolve_project_name
+# derives one from whatever is in scope. A `.env.generated` that exists but
+# omits PROJECT_NAME is a cache written before the key existed: that is not
+# the fallback case, it is a stale cache, and it says so instead of quietly
+# deriving a name whose source the user cannot find.
+#
+# Refused path: no `.env.generated` in a CONFIGURED checkout. That checkout
+# RECORDS its project name, so deriving one over the gap invents a name it
+# never ran under -- and `local-<basename>` is a name a DIFFERENT checkout
+# on a shared host may be running under right now, which makes a `down
+# --remove-orphans` against it a teardown of someone else's stack that
+# reports success. exec / stop do not run the setup lifecycle (they expect
+# the derived artifacts to already exist), so this is the only place the
+# gap can be caught, and a gap it cannot decide is not one to guess at.
 _compute_project_name() {
   [[ -n "${PROJECT_NAME:-}" ]] && return 0
 
@@ -211,6 +220,11 @@ _compute_project_name() {
     _log_warn compose project_name_missing_from_env \
       "display=${_generated} carries no PROJECT_NAME: it was generated before the project name became a resolved value. Deriving one for this run; re-run './setup.sh apply' (or any wrapper, which regenerates on drift) to record it." \
       "file=${_generated}"
+  elif [[ -n "${FILE_PATH:-}" ]] && ! _is_self_managed_repo "${FILE_PATH}"; then
+    _log_err compose project_name_unrecorded \
+      "display=${_generated} is missing, and this checkout is configured (it carries a .base/ subtree or a .setup.conf), so it has a recorded project name that this run cannot read. Refusing to derive one: the derived name is not the name this checkout ran under, and on a shared host it can be another checkout's. Run 'just setup' (or any build / run, which regenerates on drift) to restore it, or pass PROJECT_NAME to name the project explicitly." \
+      "file=${_generated}"
+    exit 1
   fi
 
   # shellcheck disable=SC2034  # PROJECT_NAME is consumed by callers, not _lib.sh

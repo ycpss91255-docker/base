@@ -42,6 +42,15 @@ _load_env() {
 # it differently: build.sh and prune.sh guarded the source, stop / run /
 # exec did not, so `just docker build` in a base checkout minted a project
 # that `just docker stop` could not end.
+#
+# Tolerating the absence here is not deciding that the absence is fine.
+# This function loads a file or does not; whether a checkout was entitled
+# to that file is a question about the checkout, and it is asked where the
+# missing values are actually consumed -- `_compute_project_name`
+# (compose.sh) refuses to derive a project name for a CONFIGURED checkout
+# whose cache is gone. Answering it here instead would refuse the
+# best-effort readers too: prune.sh loads the cache for a WS_PATH it
+# already has a fallback for.
 _load_env_optional() {
   local _env_file="${1:?_load_env_optional requires an env file path}"
   [[ -f "${_env_file}" ]] || return 0

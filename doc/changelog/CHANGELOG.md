@@ -232,7 +232,9 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   checkout's hand-authored compose.yaml interpolates for `down` and `ps` as
   much as for `build`, so `just docker stop` and `just docker exec` work
   there instead of dying twice over -- first sourcing the file, then at
-  interpolation.
+  interpolation. A checkout that SHOULD carry that file and does not is
+  refused by name instead of tearing down a project name derived from its
+  directory, which on a shared host can be another checkout's.
   A run whose predecessor still holds the project network waits
   (`BASE_PROJECT_WAIT`, default 2m) saying what for, or fails naming the
   container and the verb that clears it, rather than the daemon's raw text at
