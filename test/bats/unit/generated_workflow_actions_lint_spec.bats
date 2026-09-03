@@ -906,6 +906,220 @@ _write_generator_raw() {
   assert_output --partial 'no generated'
 }
 
+# ── The reader decides which assignment is live, and gets it wrong ──────
+#
+# The driver resolves a variable by SCANNING the generator for the one
+# assignment it judges live at the use: file scope, unconditional, column
+# 0, no `local`. That judgement is three heuristics over text, and each
+# case below is a shape they read as file-scope-and-unconditional when it
+# is not. The failure direction is the bad one -- the lint reports a ref it
+# never actually resolved as being in lockstep.
+#
+# All four are green today. They are the reason the resolution question is
+# handed to the pin registry, which answers it once, at the site, from an
+# author's declaration, under a lint that fails when the declaration is
+# missing.
+
+@test "generated-workflow-actions: a brace group at column 0 does not end a function (#987)" {
+  # `}` at column 0 is read as the close of the enclosing function, so a
+  # bare brace group written unindented inside one drops the reader back to
+  # "file scope" for the REST of the body -- and every assignment after it
+  # is then judged live at the heredoc.
+  _load_driver
+  _write_workflow 'actions/checkout@v8'
+  _write_generator_raw \
+    '#!/usr/bin/env bash' \
+    '_gen() {' \
+    '{' \
+    '  :' \
+    '}' \
+    "readonly _MONITOR_REF='actions/checkout@v8'" \
+    '  cat > "${_wf}" <<YAML' \
+    '      - uses: ${_MONITOR_REF}' \
+    'YAML' \
+    '}'
+
+  run _run_generated_workflow_actions
+  [ "${status}" -ne 0 ]
+  assert_output --partial '_MONITOR_REF'
+}
+
+@test "generated-workflow-actions: a C-style for loop is a conditional block (#987)" {
+  # The open-block counter matches `for ` with a space. `for((i=0;...))`
+  # has none, so the loop is never counted as opened -- and an assignment
+  # that runs only if the loop body runs is read as unconditional.
+  _load_driver
+  _write_workflow 'actions/checkout@v8'
+  _write_generator_raw \
+    '#!/usr/bin/env bash' \
+    'for((i=0;i<1;i++)); do' \
+    "readonly _MONITOR_REF='actions/checkout@v8'" \
+    'done' \
+    '_gen() {' \
+    '  cat > "${_wf}" <<YAML' \
+    '      - uses: ${_MONITOR_REF}' \
+    'YAML' \
+    '}'
+
+  run _run_generated_workflow_actions
+  [ "${status}" -ne 0 ]
+  assert_output --partial '_MONITOR_REF'
+}
+
+@test "generated-workflow-actions: a tab after if still opens a block (#987)" {
+  # Same counter, same defect one character over: `if<TAB>` is legal bash
+  # and does not match `if `, so the block never opens and the guarded
+  # assignment below it is read as unconditional.
+  _load_driver
+  _write_workflow 'actions/checkout@v8'
+  _write_generator_raw \
+    '#!/usr/bin/env bash' \
+    "$(printf 'if\t[[ -n "${CI:-}" ]]; then')" \
+    "readonly _MONITOR_REF='actions/checkout@v8'" \
+    'fi' \
+    '_gen() {' \
+    '  cat > "${_wf}" <<YAML' \
+    '      - uses: ${_MONITOR_REF}' \
+    'YAML' \
+    '}'
+
+  run _run_generated_workflow_actions
+  [ "${status}" -ne 0 ]
+  assert_output --partial '_MONITOR_REF'
+}
+
+@test "generated-workflow-actions: a ref in a QUOTED heredoc is written verbatim (#987)" {
+  # A quoted delimiter turns off expansion, so `${_MONITOR_REF}` reaches
+  # the generated workflow as those seventeen characters -- not a ref at
+  # all, and certainly not one in lockstep. The reader resolves it anyway
+  # and calls the tree clean, which is the worst of the four: the value it
+  # compared is one the generator provably never writes.
+  _load_driver
+  _write_workflow 'actions/checkout@v8'
+  _write_generator_raw \
+    '#!/usr/bin/env bash' \
+    "readonly _MONITOR_REF='actions/checkout@v8'" \
+    '_gen() {' \
+    "  cat > \"\${_wf}\" <<'YAML'" \
+    '      - uses: ${_MONITOR_REF}' \
+    'YAML' \
+    '}'
+
+  run _run_generated_workflow_actions
+  [ "${status}" -ne 0 ]
+  assert_output --partial '_MONITOR_REF'
+}
+
+# ── A variable is what the pin registry says it is ──────────────────────
+#
+# The replacement contract, in one sentence: a `uses:` ref a shell script
+# writes must be either a literal `<owner>/<repo>@<ref>`, or a variable
+# whose value the PIN REGISTRY declares. The registry already returns a
+# record naming the file and line of every declaration site, and already
+# extracts the value on that line, because a human wrote a `tool-pin:`
+# marker there under a lint that fails when it is missing.
+
+@test "generated-workflow-actions: a variable the registry declares is resolved (#987)" {
+  _load_driver
+  _write_workflow 'actions/checkout@v8'
+  _write_generator_var \
+    '# tool-pin: unpinned monitor-checkout -- a major ref on purpose' \
+    "readonly _MONITOR_REF='actions/checkout@v7'" \
+    -- '      - uses: ${_MONITOR_REF}'
+
+  run _run_generated_workflow_actions
+  [ "${status}" -ne 0 ]
+  assert_output --partial 'v7'
+  assert_output --partial 'v8'
+}
+
+@test "generated-workflow-actions: an assignment no marker claims is a finding (#987)" {
+  # The whole trade in one case. The assignment below is file-scope,
+  # unconditional, at column 0 and above the use -- everything the deleted
+  # scanner asked for -- and it is still refused, because nothing declares
+  # it to the watch. A ref resolved from an undeclared line is a ref this
+  # repo cannot bump and nothing reports: exactly what the lint exists for.
+  _load_driver
+  _write_workflow 'actions/checkout@v8'
+  _write_generator_var \
+    "readonly _MONITOR_REF='actions/checkout@v8'" \
+    -- '      - uses: ${_MONITOR_REF}'
+
+  run _run_generated_workflow_actions
+  [ "${status}" -ne 0 ]
+  assert_output --partial '_MONITOR_REF'
+}
+
+@test "generated-workflow-actions: one reader -- a declared local resolves too (#987)" {
+  # The two lints used to disagree about what an assignment IS. The pin
+  # registry's regex accepts `local`; this driver's scanner marked it
+  # unusable on sight. So a `tool-pin:` marker on a `local` produced a
+  # record the watch reads and this lint refused -- one line, two verdicts.
+  # There is one reader now, and this is what it says.
+  _load_driver
+  _write_workflow 'actions/checkout@v8'
+  _write_generator_raw \
+    '#!/usr/bin/env bash' \
+    '_helper() {' \
+    '  # tool-pin: unpinned monitor-checkout -- a major ref on purpose' \
+    "  local _MONITOR_REF='actions/checkout@v7'" \
+    '  echo "${_MONITOR_REF}"' \
+    '}' \
+    '_gen() {' \
+    '  cat > "${_wf}" <<YAML' \
+    '      - uses: ${_MONITOR_REF}' \
+    'YAML' \
+    '}'
+
+  run _run_generated_workflow_actions
+  [ "${status}" -ne 0 ]
+  assert_output --partial 'v7'
+  assert_output --partial 'v8'
+}
+
+# ── The population is derived, not a glob ───────────────────────────────
+
+@test "generated-workflow-actions: a generator that is not named *.sh is scanned (#987)" {
+  # `*.sh` is a roster of the file shapes a generator may take, and this
+  # repo has retired that roster twice already for the same reason: an
+  # extensionless script, a `.bash`, a justfile recipe writing a workflow
+  # -- each is invisible, and the non-vacuity backstop cannot notice
+  # because the one known generator keeps the count at 1.
+  _load_driver
+  _write_workflow 'actions/checkout@v8'
+  _write_generator '      - uses: actions/checkout@v8'
+  printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    '_gen() {' \
+    '  cat > "${_wf}" <<YAML' \
+    '      - uses: actions/checkout@v3' \
+    'YAML' \
+    '}' \
+    > "${SCRATCH}/dist/gen-workflow"
+
+  run _run_generated_workflow_actions
+  [ "${status}" -ne 0 ]
+  assert_output --partial 'v3'
+}
+
+@test "generated-workflow-actions: ignores a generator under .claude/ (#987)" {
+  # `.claude/` is the agent harness a checkout may or may not carry, and
+  # the pin registry prunes it for a stated reason: scanning it makes the
+  # verdict depend on whose machine the lint ran on, which is the one thing
+  # a gate must not do. Two walks over one tree with two prune lists is how
+  # that reason stops applying to half of them.
+  _load_driver
+  _write_workflow 'actions/checkout@v8'
+  _write_generator '      - uses: actions/checkout@v8'
+  mkdir -p "${SCRATCH}/.claude/scripts"
+  printf '      - uses: actions/checkout@v6\n' \
+    > "${SCRATCH}/.claude/scripts/gen.sh"
+
+  run _run_generated_workflow_actions
+  [ "${status}" -eq 0 ]
+  assert_output --partial '1 generated ref'
+}
+
 # ── The real tree ───────────────────────────────────────────────────────
 
 @test "generated-workflow-actions: the real repo is in lockstep (#950)" {

@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3492 tests**.
+Unit specs under `test/bats/unit/`: **3501 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -4202,7 +4202,7 @@ rather than an assurance.
 | `watch: --drift-tsv emits no machine answer when the table is unreadable` | The workflow builds its bump matrix from this stdout; an empty list with status 0 is the silent clean week. |
 | `watch: --drift-tsv puts the drifted pins on stdout, the report on stderr` | One invocation serves both the machine and the human: two walks of the upstream APIs can disagree. |
 | `watch: an unknown option is a usage error, distinct from both` | Exit 2 cannot be mistaken for "drifted" or for "could not resolve". |
-### test/bats/unit/generated_workflow_actions_lint_spec.bats (45)
+### test/bats/unit/generated_workflow_actions_lint_spec.bats (54)
 
 | Test | Description |
 |------|-------------|
@@ -4250,4 +4250,13 @@ rather than an assurance.
 | `generated-workflow-actions: fails when this repo pins the action at two refs (#950)` | No answer to which ref the generated copy should carry, so it says so rather than guessing |
 | `generated-workflow-actions: fails when this repo never uses the generated action (#950)` | No dependabot PR for the generated ref to inherit -- the bare form of the defect |
 | `generated-workflow-actions: refuses a tree it found no generated ref in (#950)` | A renamed generator or a dead matcher must not read as lockstep |
+| `generated-workflow-actions: a brace group at column 0 does not end a function (#987)` | - |
+| `generated-workflow-actions: a C-style for loop is a conditional block (#987)` | - |
+| `generated-workflow-actions: a tab after if still opens a block (#987)` | - |
+| `generated-workflow-actions: a ref in a QUOTED heredoc is written verbatim (#987)` | - |
+| `generated-workflow-actions: a variable the registry declares is resolved (#987)` | - |
+| `generated-workflow-actions: an assignment no marker claims is a finding (#987)` | - |
+| `generated-workflow-actions: one reader -- a declared local resolves too (#987)` | - |
+| `generated-workflow-actions: a generator that is not named *.sh is scanned (#987)` | - |
+| `generated-workflow-actions: ignores a generator under .claude/ (#987)` | - |
 | `generated-workflow-actions: the real repo is in lockstep (#950)` | Drives the live tree, so the fixtures cannot drift away from what ships |
