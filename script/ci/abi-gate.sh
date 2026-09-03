@@ -104,20 +104,19 @@ _axis_equal() {
   return 0
 }
 
-# _axis_width <axis> -- how many leading components the declared axis covers.
-# Refuses an axis this does not recognise rather than falling back to either
-# known one: an unrecognised input resolving to the permissive branch is the
-# defect, not the input.
+# _axis_width <axis> -- how many leading components the declared axis covers,
+# or non-zero for an axis this does not recognise.
+#
+# It reports rather than refuses, and the caller states the refusal. A `_refuse`
+# here would run inside the caller's command substitution, where `exit` leaves
+# only the SUBSHELL -- the script would carry on with an empty width, and an
+# empty width compares nothing, which is the fail-open this gate exists to
+# prevent. An unrecognised axis never resolves to either known one.
 _axis_width() {
   case "${1}" in
     major) printf '1' ;;
     major.minor) printf '2' ;;
-    "")
-      _refuse "ABI_AXIS is not set. Declare which component of this dependency's version is its ABI -- ABI_AXIS=major or ABI_AXIS=major.minor. There is no default: the answer is a fact about the dependency, and guessing it would let a breaking bump release itself."
-      ;;
-    *)
-      _refuse "ABI_AXIS is '${1}', which this does not recognise. Expected major or major.minor."
-      ;;
+    *) return 1 ;;
   esac
 }
 
@@ -138,8 +137,11 @@ main() {
   [[ -n "${old}" && -n "${new}" ]] \
     || _refuse "OLD_VERSION and NEW_VERSION must both be set; there is no bump to judge without both ends of it."
 
+  [[ -n "${axis}" ]] \
+    || _refuse "ABI_AXIS is not set. Declare which component of this dependency's version is its ABI -- ABI_AXIS=major or ABI_AXIS=major.minor. There is no default: the answer is a fact about the dependency, and guessing it would let a breaking bump release itself."
   local width
-  width="$(_axis_width "${axis}")"
+  width="$(_axis_width "${axis}")" \
+    || _refuse "ABI_AXIS is '${axis}', which this does not recognise. Expected major or major.minor."
 
   _is_version "${old}" \
     || _refuse "the old pin is '${old}', which this cannot read as a version. A pin that cannot be compared cannot be shown to be ABI-safe."
