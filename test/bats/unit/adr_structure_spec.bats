@@ -5,7 +5,7 @@
 # it CONTAINS: a `> Serves:` back-pointer, the four required sections
 # (Context / Decision / Consequences / Alternatives), and a Status that is
 # exactly one of the three contract values -- each of them EXACTLY ONCE, at
-# column 0. The count is what LOCATES every part, and it is what lets the
+# column 0. The count is what decides a part is PRESENT, and it is what lets the
 # driver check an ADR without deciding which of its lines are code; the
 # three-value Status check is a second contract that runs on top of it, on
 # the one Status line the count proved unique.
@@ -229,7 +229,8 @@ _adr() {
   # What reading only the FIRST match hid: an amendment section restating
   # Status in free text -- the very shape the three-value contract exists
   # to reject -- invisible because the record's own Status came first.
-  # ADR-00000008 carried three such lines while the lint reported it clean.
+  # ADR-00000008 carried three column-0 Status lines, two of them that free-text
+  # shape, while the lint reported it clean.
   {
     echo "# A title"
     echo

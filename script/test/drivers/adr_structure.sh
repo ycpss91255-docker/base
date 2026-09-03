@@ -72,8 +72,8 @@
 # CommonMark parser can answer, and this driver carried a hand-written one.
 # It was narrowed twice and a hole survived both rounds, each hole passing
 # an ADR whose only Decision heading was an illustration: the first ignored
-# the fence marker's run LENGTH, so an equal-length inner ``` ended the
-# outer block; the second bounded the closing marker's INDENT against the
+# the fence marker's run LENGTH, so a SHORTER inner ``` ended a longer outer
+# block; the second bounded the closing marker's INDENT against the
 # OPENER instead of against column 0, so an opener indented one column
 # still accepted a closer at four, which CommonMark keeps as block content.
 # Both were reproduced against the shipped drivers before this rewrite. A
