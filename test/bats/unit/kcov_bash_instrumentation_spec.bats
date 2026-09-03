@@ -29,18 +29,22 @@
 # tell that from a real regression, which is the whole reason it is worth a
 # spec: the failure mode of a broken instrument is a plausible number.
 #
-# dockerfile/Dockerfile.test-tools patches kcov's parity counter to
-# understand `$'...'`. These two tests are that patch's acceptance, and
-# they are deliberately BEHAVIOURAL: they run the real kcov over a fixture
-# and read the report it writes, so they answer "does the image measure
-# correctly", not "does the Dockerfile contain the sed I wrote". An image
-# built from an unpatched kcov fails them whatever the Dockerfile says.
+# What this repo does about it is choose the series: the ALPINE_VERSION
+# pinned in dockerfile/Dockerfile.test-tools stays on the bash 5.2 side of
+# the boundary, which is at alpine 3.23 (3.21 and 3.22 ship bash 5.2.37;
+# 3.23 ships 5.3.3, 3.24 ships 5.3.9 -- all read out of the built images).
+# These two tests are that choice's acceptance, and they are deliberately
+# BEHAVIOURAL: they run the real kcov over a fixture and read the report it
+# writes, so they answer "does this image measure correctly", not "does the
+# Dockerfile pin the series I expect". A bump onto a bash whose xtrace kcov
+# misreads fails them at the moment of the bump, loudly, instead of moving
+# the coverage number by a plausible-looking margin.
 #
-# The two cases are the two directions the patch can be wrong in. The first
-# is the bug: ANSI-C `\'` must NOT flip the parity. The second is the
-# over-correction: inside a plain `'...'` a backslash is literal to the
-# shell, so a value ENDING in one closes its quote, and a patch that
-# treated it as an escape would swallow the next line instead.
+# The two cases are the two directions the reading can be wrong in. The
+# first is the bug: an ANSI-C `\'` must not flip the parity. The second is
+# its mirror -- inside a plain `'...'` a backslash is literal to the shell,
+# so a value ENDING in one really does close its quote, and an instrument
+# that read it as an escape would swallow the next line instead.
 
 setup() {
   export LOG_FORMAT=text
@@ -48,7 +52,7 @@ setup() {
 
   DOCKERFILE=/source/dockerfile/Dockerfile.test-tools
   assert_spec_subject "${DOCKERFILE}" \
-    "the test-tools Dockerfile whose kcov patch these tests are the acceptance for"
+    "the test-tools Dockerfile whose alpine series pin decides which bash kcov has to read"
   command -v kcov >/dev/null || \
     fail "no kcov in this image -- the coverage instrument these tests measure is the thing that is missing."
 
@@ -94,9 +98,10 @@ _hits() {
 }
 
 @test "kcov: lines after an ANSI-C \$'...' value are recorded as run (bash 5.3 xtrace quoting)" {
-  # Lines 5-7 all execute unconditionally. Under an unpatched kcov every
-  # one of them reports 0: line 4's trace carries two `\'` sequences, which
-  # leave the parity counter inside a quote it never left.
+  # Lines 5-7 all execute unconditionally. Under a bash whose xtrace uses
+  # ANSI-C quoting every one of them reports 0: line 4's trace carries two
+  # `\'` sequences, which leave kcov's parity counter inside a quote it
+  # never left.
   _measure "#!/usr/bin/env bash
 declare -A _msg
 _msg[a]=\"plain\"
@@ -110,14 +115,14 @@ printf '%s\\n' \"\${_msg[c]}\" >/dev/null"
   local _l
   for _l in 5 6 7; do
     [[ "$(_hits "${_l}")" -ge 1 ]] || fail \
-      "line ${_l} ran but kcov recorded $(_hits "${_l}") hits. The bash-engine quote-parity patch in ${DOCKERFILE} is missing from this image (rebuild it) or no longer applies to this KCOV_VERSION. Until it does, every coverage figure this image produces under-reports by a silent, data-dependent margin."
+      "line ${_l} ran but kcov recorded $(_hits "${_l}") hits. This image's bash emits xtrace in a form kcov's bash engine misreads -- the ANSI-C quoting bash 5.3 introduced, which alpine picks up at 3.23. Check ARG ALPINE_VERSION in ${DOCKERFILE} against \`bash --version\` inside the image. Until they agree, every coverage figure this image produces under-reports by a silent, data-dependent margin."
   done
 }
 
 @test "kcov: a backslash inside a plain '...' value stays literal, so the next line is recorded" {
-  # The over-correction guard. `_v` ends in a backslash, which the shell
-  # keeps literal inside single quotes, so xtrace emits `_v='...\'` and the
-  # quote genuinely closes there. A patch that read that backslash as an
+  # The mirror-image guard. `_v` ends in a backslash, which the shell keeps
+  # literal inside single quotes, so xtrace emits `_v='...\'` and the quote
+  # genuinely closes there. An instrument that read that backslash as an
   # escape would consume the closing quote and swallow lines 3-4.
   _measure "#!/usr/bin/env bash
 _v='ends with a literal backslash \\'
@@ -127,6 +132,6 @@ printf '%s\\n' \"\${_v}\${_w}\" >/dev/null"
   local _l
   for _l in 3 4; do
     [[ "$(_hits "${_l}")" -ge 1 ]] || fail \
-      "line ${_l} ran but kcov recorded $(_hits "${_l}") hits. The quote-parity patch over-corrected: a backslash inside a plain single-quoted word is literal to the shell, so treating it as an escape eats the closing quote and discards everything after it."
+      "line ${_l} ran but kcov recorded $(_hits "${_l}") hits. kcov read a backslash inside a plain single-quoted word as an escape. It is literal to the shell, so reading it as an escape eats the closing quote and discards everything after it."
   done
 }

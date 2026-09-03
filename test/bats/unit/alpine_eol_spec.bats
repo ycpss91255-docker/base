@@ -37,7 +37,7 @@
 # enough not to be noise.
 #
 # Every rule is DERIVED from the file rather than restated from it: no test
-# below names 3.24 or 2028-06-01, so a future bump changes the Dockerfile
+# below names 3.22 or 2027-05-01, so a future bump changes the Dockerfile
 # and nothing here.
 #
 # The four tests over the real Dockerfile assert the invariant. The five

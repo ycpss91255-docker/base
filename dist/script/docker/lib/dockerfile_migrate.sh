@@ -344,7 +344,7 @@ _migrate_hadolint_apply() {
   # quietly become the older of two dates: it wrote an end-of-life series
   # into every consumer Dockerfile it healed, during an upgrade, which is
   # the moment nobody reads the diff.
-  sed -i -E 's|^FROM bats/bats:latest|FROM bats/bats:1.11.0|; s|^FROM alpine:latest|FROM alpine:3.24|' "${_file}"
+  sed -i -E 's|^FROM bats/bats:latest|FROM bats/bats:1.11.0|; s|^FROM alpine:latest|FROM alpine:3.22|' "${_file}"
   # DL3046: useradd -l (idempotent — only adds when not already present).
   #
   # `-l` goes directly after the `useradd` token, not in front of `-u`.
