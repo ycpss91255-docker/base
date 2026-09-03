@@ -135,21 +135,40 @@ footgun". Both must hold to default ON.
 
 What this invariant adds to invariant 11 is the **landing**: a lifecycle
 knob that does not default ON does not default to some third base-chosen
-setting, it defaults **OFF / Docker-native** -- the behaviour a plain
-`docker run` would have given. base owning the lifecycle (invariant 1) is
-not a licence to change what an unconfigured container does; the knob
-exists so a downstream can ask for more than Docker's behaviour, never so
-base can quietly substitute its own.
+setting, it defaults **OFF -- the no-op**, which is the behaviour an
+unconfigured container already had before the knob existed. base owning
+the lifecycle (invariant 1) is not a licence to move what an unconfigured
+container does; the knob exists so a downstream can ask for more than it
+was already getting, never so base can substitute a new behaviour behind
+a setting nobody has touched.
+
+Where base had not intervened before, that no-op *is* Docker's own
+behaviour, and most of the OFF landings are Docker-native for that
+reason: the watchdog's OFF is no supervision at all, and its failure
+action's OFF is `restart-container`, which is Docker's restart policy
+doing the recovering. The two part in exactly one recorded place, and the
+no-op is what wins there. `[network] mode` stays on `host` by decision,
+where an unconfigured `docker run` gives `bridge`: `host` is what base
+had always run, and ADR-00000019 declined the proposed flip because a
+`172.17.x` address is not routable off-box, so cross-machine ROS goes
+silently unreachable. That is invariant 4 choosing the safe side of a
+safe-versus-clean tension, and it is a divergence this invariant permits
+only because it was already the pre-existing behaviour and is recorded in
+an ADR -- not a third landing a new knob may reach for.
 
 *Why it is fixed:* invariant 1 makes base the owner of every downstream's
 lifecycle, which means a base-chosen default is not one of several
 settings a reader might find -- it is the only behaviour that repo has
-ever seen. Docker-native is the one landing a downstream maintainer can
-predict without reading base, so it is what an OFF has to mean.
+ever seen. A knob whose OFF is the no-op cannot change any of those repos
+on the upgrade that delivers it; a knob whose OFF is a fresh base
+preference changes all of them at once, unattended, from a maintainer who
+is not in the room.
 
 *Serves / established by:* ADR-00000020 (init defaults ON as the
-transparent-and-footgun case; watchdog restart-service and network
-default OFF/Docker-native as workload-semantics-changing cases);
+transparent-and-footgun case; the watchdog's restart-service action as
+the workload-semantics-changing case that lands off, and the restart
+policy as the case whose answer is scoped per stage); ADR-00000019 for
+the network default, which is the one OFF that is not Docker-native;
 generalised by invariant 11.
 
 ### 6. base is a subtree; downstream is a thin caller
@@ -358,11 +377,11 @@ and they are what make the rule mechanical rather than rhetorical:
   single-sink dispatch and change a terminal's output format, which is a
   question-1 yes. Base did not default it off -- it cached TTY-ness at
   startup so the tee cannot re-flip anything, turning the yes into a no
-  (ADR-00000007), and `wrapper_transcript` ships `true`.
-- **The rule adjudicates a toggle, not a magnitude.** `container_log_keep
-  = 20` has no "off", so neither question applies to it; how large a
-  default number should be is invariant 4's direction question, answered
-  by which way the harm falls.
+  (ADR-00000007), and `wrapper_transcript` defaults on.
+- **The rule adjudicates a toggle, not a magnitude.** A retention count
+  such as `container_log_keep` has no "off", so neither question applies
+  to it; how large a default number should be is invariant 4's direction
+  question, answered by which way the harm falls.
 - **It is a correctness test, not a risk analysis.** A permissive
   setting breaks nothing that works, so question 1 does not catch it;
   `[security] privileged` reaches `false` through the neither-yes branch,
@@ -378,17 +397,22 @@ and they are what make the rule mechanical rather than rhetorical:
 
 Applied to seven of the defaults base ships today -- those chosen for
 having a recorded rationale to check the rule against, not by a sweep of
-every default in the tree -- it reproduces each:
+every default in the tree -- it reproduces each. The questions and the
+yield are the argument and are authored here; what base actually ships is
+a moving fact about the tree, so the last column is where to read it and
+not a copy of it. Invariant 10 is why: a literal in this column would be
+a tracked duplicate of a settable value, with nothing to notice when the
+two stop agreeing.
 
-| Default | Q1: can on break a working setup? | Q2: does forgetting hurt? | Yields | Ships |
+| Default | Q1: can on break a working setup? | Q2: does forgetting hurt? | Yields | Shipped value is read at |
 |---|---|---|---|---|
-| `[lifecycle] init` | no -- PID1 reaping is transparent to a correct single-service workload | yes -- zombies accrue and signals are not forwarded | on | `true` |
-| watchdog `restart-service` | yes -- it relaunches a service the workload meant to stop | -- | off | commented out |
-| `[network]` bridge (vs `host`) | yes -- a `172.17.x` address is not routable off-box, so cross-machine ROS goes silently unreachable | -- | off | `mode = host` |
-| `[security] privileged` | no -- it is permissive, so nothing that works stops working | no -- a container that does not need it is not hurt by its absence | off (the neither-yes branch) | `false` |
-| `[logging] wrapper_transcript` | no, once ADR-00000007 removed the re-flip | yes -- the debugging record is missing exactly when it is wanted | on | `true` |
-| GHCR untagged-image cleanup | no -- the shipped action is manifest-aware, so a child of a live tag is never a delete candidate; the `docker pull` 404 is the other tool's footgun | no -- orphan digests accumulate, but nothing that works stops working | off (the neither-yes branch) | dry-run until `GHCR_CLEANUP_ENFORCE` |
-| config mount-override writable | yes -- the container could rewrite the operator's file | -- | off | read-only, `rw` opt-in |
+| `[lifecycle] init` | no -- PID1 reaping is transparent to a correct single-service workload | yes -- zombies accrue and signals are not forwarded | on | `dist/.setup.conf`, `[lifecycle] init` |
+| watchdog `restart-service` | yes -- it relaunches a service the workload meant to stop | -- | off | `dist/.setup.conf`, `[lifecycle] watchdog_on_fail` |
+| `[network]` bridge (vs `host`) | yes -- a `172.17.x` address is not routable off-box, so cross-machine ROS goes silently unreachable | -- | off | `dist/.setup.conf`, `[network] mode` |
+| `[security] privileged` | no -- it is permissive, so nothing that works stops working | no -- a container that does not need it is not hurt by its absence | off (the neither-yes branch) | `dist/.setup.conf`, `[security] privileged` |
+| `[logging] wrapper_transcript` | no, once ADR-00000007 removed the re-flip | yes -- the debugging record is missing exactly when it is wanted | on | `dist/.setup.conf`, `[logging] wrapper_transcript` |
+| GHCR untagged-image cleanup | no -- the shipped action is manifest-aware, so a child of a live tag is never a delete candidate; the `docker pull` 404 is the other tool's footgun | no -- orphan digests accumulate, but nothing that works stops working | off (the neither-yes branch) | `.github/workflows/ghcr-cleanup.yaml`, the `GHCR_CLEANUP_ENFORCE` gate |
+| config mount-override writable | yes -- the container could rewrite the operator's file | -- | off | ADR-00000023, amendment #870 (a decision recorded, not yet a shipped setting) |
 
 *Why it is fixed:* base's defaults are the configuration every downstream
 runs before anybody edits anything, and they arrive by subtree upgrade
@@ -426,12 +450,18 @@ options are both available. They are weaker than invariants on purpose: a
 principle can be departed from in a decision that says why, and the ADR
 recording that departure is the artifact. An invariant cannot.
 
-Every principle below was **derived from decisions base has already
-taken**, not imported from a list, and each one cites where it is
-currently written. Where a principle is already fully stated somewhere,
-this section points at it and does not restate it -- duplicating a
-decision into a second document is what ADR-00000028 and invariant 10
-forbid, and a governance document is not exempt from its own rule.
+P2 through P9 were **derived from decisions base has already taken**, and
+each cites where it is currently written. P1 is the exception and is
+labelled as one: it is the principle #994 imports from the config-manager
+design document's chapter 0, and ADR-00000029 -- written for this change
+-- is base taking that decision rather than a record of one base had
+already taken. So this section records eight principles and establishes a
+ninth.
+
+Where a principle is already fully stated somewhere, this section points
+at it and does not restate it -- duplicating a decision into a second
+document is what ADR-00000028 and invariant 10 forbid, and a governance
+document is not exempt from its own rule.
 
 ### P1. Early return is the default shape of every function
 
@@ -441,9 +471,11 @@ threshold is breached. Thresholds are a net, not a target: depth 4 is
 what happens when the guard was not written, and the number is how base
 finds out, not what base is aiming at.
 
-*Where written:* ADR-00000029 (this principle's record; the earlier
-framing it corrects treated depth as a ranked list of violations to fix,
-which produces the fixes and not the shape).
+*Where written:* ADR-00000029, written for this change -- this is the one
+principle here that base is adopting rather than restating, so the ADR is
+the decision itself and not a citation of an older one. The framing it
+corrects treated depth as a ranked list of violations to fix, which
+produces the fixes and not the shape.
 *Serves:* no invariant directly. It is the source shape ADR-00000014's
 decomposition already assumes -- a lib is only a seam if its functions
 can be read one branch at a time -- and so it stands behind invariant 7's
