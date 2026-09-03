@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3540 tests**.
+Unit specs under `test/bats/unit/`: **3548 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -463,7 +463,7 @@ target areas the issue body called out.
 | #328 logging menu dispatch (Runtime menu's `logging` entry calls `_edit_section_logging`; `_edit_section_logging`'s top-level menu routes `global` to `_edit_logging_keys logging` and `devel` / `test` / `runtime` to `_edit_logging_keys logging.<svc>`) | 5 |
 | #561 `_tui_known_subcommand` derives CLI direct-jump subcommands from `SCHEMA_SECTIONS` (accepts every section + `ports` pseudo-section, rejects unknown args, tracks `SCHEMA_SECTIONS` additions) | 4 |
 
-### test/bats/unit/build_worker_yaml_spec.bats (66)
+### test/bats/unit/build_worker_yaml_spec.bats (67)
 
 Structural assertions for `.github/workflows/build-worker.yaml` (#195
 + #243 + #272 + #273 + #378 b1). Reusable workflows are not exec'd by
@@ -502,6 +502,7 @@ on doc-only PRs).
 | #470 opt-in `free_disk_space` for large BASE_IMAGE repos: input declared `type: boolean` default `false`, step gated on `inputs.free_disk_space`, uses `jlumbroso/free-disk-space@...`, positioned before `Set up Docker Buildx` so the overlayfs snapshot dir has room | 4 |
 | #925 runtime gate read from the Dockerfile: a `Resolve runtime stages` step delegates to `runtime_stages.sh`, exports `build_runtime` to `GITHUB_OUTPUT`, both runtime build steps gate on `steps.runtime.outputs.build_runtime`, and no build step gates on `inputs.build_runtime` directly | 4 |
 | #802 push worker logic down: `compute-matrix` delegates to `compute_matrix.sh` (no inline platform fan-out) and version-matches it via `job_workflow_sha` into `.worker-base`, `Compute cache scope` delegates to `cache_scope.sh` (feeds IMAGE_NAME / CACHE_VARIANT / HARDWARE, no inline derivation), build job checks out base worker source into `.worker-base` | 4 |
+| #1013 the worker reads what it cannot re-derive: the classifier's `git diff` is captured and its status checked, so a failed diff fails the step instead of classifying doc-only (3 cases driving the step's own script with `git` stubbed -- failed diff, doc-only diff, code diff), and the extra-stages roster comes from `stage_names.sh` with no `FROM ... AS` pattern left in the file (2 cases reading the `--target` flags off a stubbed `docker`, 1 structural) | 6 |
 | #957 per-job least privilege, over a job list DERIVED from the workflow (never a roster in the spec -- the five-name loop this replaced stayed green when a sixth job asking `contents: write` was appended): every job declares its own `permissions:` block (a bare job inherits the CALLER's grant), no job names `packages: write` (a called job that asks for a scope its caller did not grant fails the run instead of intersecting down), no job's entry set is anything but `contents: read` (comments stripped so a rationale quoting a grant cannot stand in for one; a job with no block surfaces as `<no entries>` and fails the same way), and the `build` job's rationale never cites the preflight probe as proof of a caller's package grant (the preflight is capped at `contents: read` itself). Each of the four asserts its own population first -- a floor on the derived job count, cross-checked against a second reading of the file -- so an extractor that stopped matching fails instead of reporting a clean scan | 5 |
 
 ### test/bats/unit/build_worker_compute_matrix_spec.bats (8)
@@ -3560,7 +3561,7 @@ ways this goes catastrophically wrong are all edits to the file:
 | `_run_arch_literal: FAILS when a scan root is missing (#939)` | - |
 | `_run_arch_literal: FAILS when a scan root holds no Dockerfile (#939)` | - |
 | `_run_arch_literal: the REAL shipped Dockerfiles pass today (#939)` | - |
-### test/bats/unit/build_worker_runtime_stages_spec.bats (13)
+### test/bats/unit/build_worker_runtime_stages_spec.bats (15)
 
 `script/ci/build_worker/runtime_stages.sh`, the resolver that decides
 whether build-worker.yaml runs its `runtime-test` / `runtime` targets
@@ -3578,7 +3579,9 @@ untested) and uncommented.
 | `runtime_stages: a Dockerfile with no runtime stages resolves to false` | The four-stage default shape skips the runtime build steps |
 | `runtime_stages: a Dockerfile declaring runtime + runtime-test resolves to true` | A declared pair enables the runtime build with no second edit |
 | `runtime_stages: commented-out runtime stages do not count as declared` | A `#`-prefixed `FROM ... AS runtime` is documentation, not a stage |
-| `runtime_stages: stage detection is case-insensitive (Dockerfile keywords are)` | `from ... as runtime-test` is the same declaration to buildx |
+| `runtime_stages: a lowercase 'from ... as' line declares nothing, here as everywhere (#1013)` | The resolver stops being the one reader in the tree that sees a stage there |
+| `runtime_stages: the cross-build --platform FROM form declares the pair (#1013)` | The shape the arm64 matrix invites, and the one the sibling loop missed |
+| `runtime_stages: a stray bare token before AS declares nothing (#1013)` | A target no Dockerfile can produce is not a runtime split |
 | `runtime_stages: the shipped dist Dockerfile (runtime blocks commented out) resolves to false` | The real default artifact, the shape that shipped red |
 | `runtime_stages: the shipped dist Dockerfile with its runtime blocks uncommented resolves to true` | Uncommenting is sufficient to get a runtime build |
 | `runtime_stages: build_runtime=false opts out even when both stages exist` | The surviving flag is an opt-out and is honoured |
@@ -4283,3 +4286,23 @@ rather than an assurance.
 | `_run_adr_structure: REFUSES when doc/adr/ holds ONLY the exempt README (#994)` | - |
 | `_run_adr_structure: REFUSES when doc/adr/ does not exist (#994)` | - |
 | `_run_adr_structure: the REAL doc/adr/ passes today (#994)` | - |
+
+### test/bats/unit/build_worker_stage_names_spec.bats (5)
+
+Unit tests for `script/ci/build_worker/stage_names.sh`, the build worker's
+one reader of which stages a Dockerfile declares. The extra-stages loop and
+`runtime_stages.sh` each used to carry a `FROM ... AS` regex of its own,
+each with a comment claiming it matched the compose emitter's stage parser;
+neither did (#1013). This script calls that parser's matcher instead, so
+the agreement is asserted over one corpus in `stage_spec.bats` rather than
+restated in prose. What is covered here is this script's own contract:
+which stages it emits, in what order, and what it does when the file cannot
+be read.
+
+| Test | Description |
+|------|-------------|
+| `stage_names: lists every declared stage in file order` | The roster the worker's two steps read, in the order the file declares it |
+| `stage_names: keeps the stages the compose parser filters out` | runtime-test / devel-test are the names the worker asks about |
+| `stage_names: a Dockerfile declaring no stages is an empty roster, not an error` | "No extra stages" is an answer; the caller decides what it means |
+| `stage_names: a missing Dockerfile fails naming the path it looked for` | An unreadable Dockerfile is not "no stages", it is "we do not know" |
+| `stage_names: an empty DOCKERFILE path fails loudly` | The unset input fails at the reader, not as a skipped build |

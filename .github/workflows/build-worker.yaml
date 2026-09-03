@@ -787,8 +787,15 @@ jobs:
       # already configured the builder with the cache backend.
       #
       # Blocklist prevents re-building stages owned by the standard
-      # pipeline. Test-stage detection reuses the same `FROM ... AS`
-      # regex pattern as setup.sh's _parse_dockerfile_stages().
+      # pipeline. Which stages the Dockerfile declares is READ, not
+      # re-derived here: stage_names.sh calls the tree's one FROM-line
+      # matcher, the same one runtime_stages.sh reads the runtime pair
+      # through. This step used to carry a regex of its own with a comment
+      # claiming it was that matcher's; it allowed one token between FROM
+      # and AS, so `FROM --platform=$BUILDPLATFORM <image> AS <stage>-test`
+      # declared nothing to it and the stage's smoke test was silently not
+      # built (#1013). Reached through the same version-matched
+      # `.worker-base` checkout as the cache-scope and runtime resolvers.
       # ────────────────────────────────────────────────────────────
       - name: Build extra stages
         if: ${{ inputs.extra_stages != '' }}
@@ -834,15 +841,7 @@ jobs:
 
           blocklist="sys devel-base devel devel-test runtime-test runtime"
 
-          # `.*` between FROM and AS, not a single token: `FROM --platform=
-          # $BUILDPLATFORM debian:bookworm AS foo-test` is the standard
-          # cross-build form the arm64 matrix invites, and the one-token
-          # pattern this replaces declared nothing on it -- so the stage's
-          # smoke test was silently not built (#1013). Same shape the
-          # sibling resolver (runtime_stages.sh) already reads.
-          available_stages=$(grep -iE '^FROM[[:space:]]+.*[[:space:]]+AS[[:space:]]+' \
-            "${DOCKERFILE}" | \
-            sed -E 's/^FROM[[:space:]]+.*[[:space:]]+AS[[:space:]]+([^[:space:]#]+).*/\1/i')
+          available_stages="$(bash .worker-base/script/ci/build_worker/stage_names.sh)"
 
           build_arg_flags=(
             --build-arg "USER_NAME=ci"

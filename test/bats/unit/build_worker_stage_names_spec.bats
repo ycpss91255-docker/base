@@ -11,7 +11,7 @@
 # stage parser uses. Neither was. The loop matched ONE token between FROM
 # and AS, so the cross-build `FROM --platform=... AS x-test` form declared
 # nothing to it and a stage's smoke test was silently not built; the
-# resolver's was looser than the emitter's in the other direction (#1013).
+# resolver's was looser than the emitter's in the other direction.
 #
 # This script ends that by CALLING the shared matcher
 # (dist/script/docker/lib/stage.sh's _dockerfile_stage_from_line) rather

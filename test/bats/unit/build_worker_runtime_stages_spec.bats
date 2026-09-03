@@ -101,7 +101,7 @@ EOF
   # The resolver used to carry its own case-insensitive regex, which made
   # it the ONE reader in the tree that saw a stage on this line: the
   # compose emitter, the [environment] ENV bake and the config COPY bake
-  # all agree a lowercase keyword declares nothing (stage_spec.bats, #875,
+  # all agree a lowercase keyword declares nothing (stage_spec.bats,
   # where the rule is argued). Reading the roster through that same matcher
   # ends the disagreement -- a Dockerfile written this way now gets one
   # answer everywhere, instead of a runtime image CI builds and compose has

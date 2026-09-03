@@ -1444,7 +1444,7 @@ EOF
 # because it repeated the same history one level up: two more regexes,
 # one in build-worker.yaml's extra_stages loop and one in
 # runtime_stages.sh, with a comment beside each asserting they agreed
-# with this matcher when they did not (#1013).
+# with this matcher when they did not.
 # ════════════════════════════════════════════════════════════════════
 
 # _stage_line_verdicts <from_line> <stage> <out_array_var>
@@ -1515,7 +1515,7 @@ _stage_line_verdicts() {
   #    outside this library. build-worker.yaml's extra_stages loop and
   #    runtime_stages.sh both ask it which stages a Dockerfile declares, and
   #    each used to answer with a regex of its own while a comment beside it
-  #    claimed agreement with this matcher. Neither agreed (#1013), so the
+  #    claimed agreement with this matcher. Neither agreed, so the
   #    claim is a verdict here instead of a sentence there.
   if DOCKERFILE="${_df}" bash /source/script/ci/build_worker/stage_names.sh \
      | grep -Fx -- "${_stage}" > /dev/null; then
