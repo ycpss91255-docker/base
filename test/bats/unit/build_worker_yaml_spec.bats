@@ -383,6 +383,50 @@ FROM --platform=$BUILDPLATFORM debian:bookworm AS foo-test' foo
   [ "${status}" -ne 0 ] || [ -z "${output}" ]
 }
 
+@test "build-worker.yaml: an extra stage's name is matched literally, not as a regex (#1013)" {
+  # The membership test read the stage name as a BASIC REGULAR EXPRESSION,
+  # so a metacharacter in it matched a DIFFERENT stage. Docker allows `.`
+  # in a target name, so `foo.bar` found `fooxbar-test` in the roster and
+  # the step asked buildx for `foo.bar-test` -- a target the Dockerfile
+  # does not declare, which fails the build for a companion that was never
+  # there. The sibling resolver already compares literally (`grep -Fx`).
+  run _extra_stages 'FROM debian:bookworm AS foo.bar
+FROM debian:bookworm AS fooxbar-test' foo.bar
+  assert_success
+  assert_output --partial '--target foo.bar'
+  refute_output --partial '--target foo.bar-test'
+}
+
+@test "build-worker.yaml: the extra-stages step does not pipe its roster into an early-closing reader (#1013)" {
+  # The same shape the early-close-reader lint exists for, one file over
+  # from where the branch removed it: a quiet reader leaves at the first
+  # match, the writer upstream takes SIGPIPE, and under this step's
+  # `pipefail` its 141 becomes the pipeline's status -- so a stage that WAS
+  # found reads as absent and its smoke test is silently not built. That
+  # lint cannot see this: it scans *.sh under dist/ and script/, and a
+  # workflow `run:` block is not a shell file. The roster is a variable
+  # already in hand here, so no pipe is needed to read it.
+  local _step _line _code _bad=""
+  _step="$(yaml_step_run "${WF}" build 'Build extra stages')"
+  [ -n "${_step}" ] || {
+    echo "no run: block for the 'Build extra stages' step"
+    return 1
+  }
+  # Whole-line comments are dropped before the match, as the early-close
+  # lint drops them: the prose explaining the rule must not violate it.
+  _code="$(printf '%s\n' "${_step}" | grep -v '^[[:space:]]*#')" || :
+  while IFS= read -r _line; do
+    if [[ "${_line}" =~ \|[[:space:]]*(head|grep[[:space:]]+[^|]*-[A-Za-z]*q) ]]; then
+      _bad+="${_line}"$'\n'
+    fi
+  done <<< "${_code}"
+  [ -z "${_bad}" ] || {
+    echo "the extra-stages step pipes into a reader that stops reading:"
+    echo "${_bad}"
+    return 1
+  }
+}
+
 @test "build-worker.yaml: cache lines select the backend on inputs.cache_backend (#801)" {
   # Both cache-from and cache-to (8 lines total) gate on the input so the
   # backend is chosen per call, defaulting to gha.
