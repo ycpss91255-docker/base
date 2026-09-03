@@ -206,6 +206,13 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 - **the changelog lint now catches an entry that was edited and not re-wrapped (refs #927)** -- a single word left alone on a continuation line with more of its paragraph on the next line. The length measure collapses whitespace on purpose and markdown collapses it again at render time, so nothing else could see it. A short final line, a table row, a fenced line and an HTML comment are left alone. Affects anyone writing an `[Unreleased]` entry.
 
 ### Fixed
+- **a release-candidate tag no longer moves `test-tools:latest` (refs #1012)**
+  -- the `v*` trigger matched `v0.42.0-rc1` through `-rc4`, and each moved
+  `:latest`, so every repo leaving `test_tools_version` at its default built
+  its lint stage from a release candidate for the whole RC window. `:latest`
+  now moves only for a finished release. A ref the tag resolver does not
+  recognise -- a `workflow_dispatch` from a feature branch, say -- is refused
+  instead of resolving to `:latest`.
 - **`just upgrade` no longer deletes a working pip install from a consumer
   Dockerfile (refs #956)** -- the migration dropped every `pip install -r
   ${CONFIG_DIR}/pip/requirements.txt` line as base's empty placeholder, but

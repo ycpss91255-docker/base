@@ -815,18 +815,27 @@ Locks the publish surface that downstream Dockerfile.example's `FROM
 ${TEST_TOOLS_IMAGE} AS test-tools-stage` depends on. The workflow has
 three publish modes:
 
-1. **Tag push (`v*`)** — multi-arch `:<version>` + `:latest`. Cuts the
-   release downstream consumers pin via `inputs.test_tools_version`.
+1. **Tag push (`v*`)** — multi-arch `:<version>`, plus `:latest` when the
+   tag is not a prerelease. Cuts the release downstream consumers pin via
+   `inputs.test_tools_version` — whose default IS `latest`, which is why a
+   prerelease tag must not move it (#1012).
 2. **Main push** (#317 P2) — multi-arch `:main` rolling tag. Used by
    self-test.yaml's Obtain step to skip from-source rebuilds. Paths
    filter (gotcha 3) restricts to commits that touched
    `dockerfile/Dockerfile.test-tools` or this workflow.
-3. **workflow_dispatch** — manual `:latest` republish, kept unfiltered
-   for bootstrap.
+3. **workflow_dispatch** — no tag set of its own: it resolves by the ref
+   it was dispatched from (main → `:main`, a `v*` tag → the tag rules).
+   Any other ref is refused, so an unrecognised input publishes nothing
+   rather than overwriting `:latest` (#1012).
 
 Smoke step uses `steps.tags.outputs.smoke` so it always pulls the tag
 the current trigger produced (rather than statically pulling `:latest`,
 which would leave a freshly-pushed `:main` unverified).
+
+Five of the assertions RUN the resolver rather than reading it: the
+step's own `run:` body is extracted with yq and executed against each ref
+shape. The text-reading assertions above them stayed green through four
+RC tags that each moved `:latest`.
 
 | Category | Tests |
 |----------|-------|
@@ -836,8 +845,11 @@ which would leave a freshly-pushed `:main` unverified).
 | Triggers on `workflow_dispatch` (existing) | 1 |
 | Resolve tags step: 3 publish modes (`v*` + `main` + dispatch) emit correct tag sets and `smoke` output | 3 |
 | Smoke step pulls trigger's tag via `steps.tags.outputs.smoke` (#317 P2) | 1 |
+| Resolver EXECUTED over the four ref shapes (#1012): a release tag moves `:latest`; an RC tag does not; a main push publishes `:main` only; an unrecognised ref exits non-zero and publishes nothing | 4 |
+| Header prose describes the rules the resolver applies, not a dispatch-only `:latest` branch the code cannot reach (#1012) | 1 |
 | Native-runner matrix (#587): drops `setup-qemu-action`; `compute-matrix` maps platforms to native runners; build shards run on `matrix.runner`; build per-platform + push by digest; `merge` job creates the manifest via `imagetools` | 5 |
 | Declares `packages: write` permission | 1 |
+| Build job carries the same-repository guard (#766) | 1 |
 
 ### test/bats/unit/release_worker_yaml_spec.bats (8)
 

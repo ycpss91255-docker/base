@@ -3,16 +3,24 @@ name: Release test-tools image to GHCR
 # Multi-arch (linux/amd64 + linux/arm64) build of
 # dockerfile/Dockerfile.test-tools, pushed to
 # ghcr.io/ycpss91255-docker/test-tools tagged with the release version
-# and :latest. Downstream repo Dockerfiles consume this via
+# (and :latest, for a finished release). Downstream repo Dockerfiles
+# consume this via
 # `ARG TEST_TOOLS_IMAGE=ghcr.io/ycpss91255-docker/test-tools:<ver>`,
 # avoiding the cross-step image-store isolation that sank the previous
 # `test-tools:local` approach (v0.9.11 pre-D migration).
 #
 # Triggers:
-#   push of a vX.Y.Z tag -> pushes :<tag> and :latest
+#   push of a vX.Y.Z tag -> pushes :<tag>, plus :latest when the tag is
+#                           NOT a prerelease -- the same question
+#                           release-worker.yaml asks before it marks a
+#                           GitHub Release prerelease.
 #   push to main (Dockerfile.test-tools or this workflow changed)
 #                        -> pushes :main rolling tag (#317 P2)
-#   workflow_dispatch    -> manual bootstrap; pushes only :latest
+#   workflow_dispatch    -> resolves by the ref it was dispatched FROM:
+#                           main takes the :main arm, a v* tag takes the
+#                           tag arm. Any other ref is refused rather
+#                           than published -- see the tag resolver step
+#                           in the merge job.
 #
 # Why the paths filter on main push: every non-doc PR merge triggers
 # a push to main, but most don't touch Dockerfile.test-tools. Without
@@ -193,18 +201,44 @@ jobs:
         # the post-publish smoke step pulls so we always exercise the
         # image we just pushed (rather than statically pulling :latest
         # and missing :main bootstrapping bugs).
+        #
+        # `:latest` is the tag the whole org consumes: publish-worker.yaml
+        # DEFAULTS `test_tools_version` to it, so every downstream repo
+        # that has not pinned builds its lint stage from whatever :latest
+        # currently is. Both rules below are about protecting it.
+        #
+        # A PRERELEASE tag publishes `:<ver>` and stops there. The `v*`
+        # trigger matches `v0.42.0-rc4` as readily as `v0.42.0`, and rc1
+        # through rc4 each moved `:latest` -- so for the length of an RC
+        # window the org was building against a release candidate.
+        #
+        # A ref this resolver does not recognise publishes NOTHING.
+        # `workflow_dispatch` is unrestricted by ref, so that arm is
+        # reachable from any feature branch; resolving it to `:latest`
+        # made the unrecognised input the most destructive one. Same
+        # direction as ghcr-cleanup.yaml's dry-run resolver, which routes
+        # an input it cannot parse to the safe branch rather than the
+        # default one.
         run: |
           set -euo pipefail
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
             ver="${GITHUB_REF##refs/tags/}"
-            tags="${IMAGE}:${ver},${IMAGE}:latest"
+            tags="${IMAGE}:${ver}"
+            if [[ "${ver}" == *-* ]]; then
+              echo "::notice::${ver} is a prerelease tag: publishing" \
+                "${IMAGE}:${ver} only and leaving :latest where it is."
+            else
+              tags="${tags},${IMAGE}:latest"
+            fi
             smoke="${IMAGE}:${ver}"
           elif [[ "${GITHUB_REF}" == refs/heads/main ]]; then
             tags="${IMAGE}:main"
             smoke="${IMAGE}:main"
           else
-            tags="${IMAGE}:latest"
-            smoke="${IMAGE}:latest"
+            echo "::error::${GITHUB_REF} is neither a v* tag nor main," \
+              "so this workflow has no tag to publish for it. Dispatch" \
+              "from main, or push a v* tag." >&2
+            exit 1
           fi
           printf 'tags=%s\n' "${tags}" >> "${GITHUB_OUTPUT}"
           printf 'smoke=%s\n' "${smoke}" >> "${GITHUB_OUTPUT}"
