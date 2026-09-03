@@ -16,14 +16,21 @@
 # a packaging mistake that does not exist.
 #
 # Three properties are pinned here, and the first two are executed rather
-# than grepped: the rewrite is a shell rule, so the way to assert that it
-# does nothing at the default is to RUN it over a repositories file and
-# compare bytes.
+# than grepped: the rewrite is a shell rule, so the way to assert what it
+# does at the default is to RUN it over a repositories file.
 #
 #   - The default is the upstream CDN, declared once. A machine that can
 #     reach dl-cdn sees no change.
 #   - At the default the rewrite is SKIPPED, rather than running a sed
-#     that replaces the host with itself.
+#     that replaces the host with itself. Comparing BYTES cannot tell
+#     those two apart -- a sed rewriting the host to itself emits the
+#     same bytes, so an unguarded rule passes a byte comparison. What is
+#     compared instead is the file's IDENTITY: inode and mtime. `sed -i`
+#     renames a fresh file over the target, so the inode moves; any
+#     writer that edits in place moves the mtime. Unchanged identity is
+#     the executable form of "the stage touched nothing at all", which is
+#     the property the image leans on -- an empty layer, so BuildKit
+#     carries every downstream apk layer through unrebuilt.
 #   - Every stage that installs packages inherits that choice. The file
 #     has four such stages; a knob wired into one of them leaves the
 #     other three unbuildable, which is the failure this file's stage
@@ -120,15 +127,27 @@ _stages_off_the_mirror() {
 # The rewrite, executed
 # ════════════════════════════════════════════════════════════════════
 
-@test "APK_MIRROR: at the default the repositories file is left byte-identical (#1008)" {
-  local _repos _rule _before
+@test "APK_MIRROR: at the default the repositories file is not touched at all (#1008)" {
+  # Identity, not bytes. Dropping the `!= dl-cdn.alpinelinux.org` guard
+  # leaves a sed that replaces the host with ITSELF, whose output is
+  # byte-identical -- so a byte comparison green-lights exactly the rule
+  # the guard exists to prevent. An in-place sed renames a new file over
+  # the target (the inode moves) and any other in-place writer moves the
+  # mtime, so an unchanged (inode, mtime) pair is what actually says the
+  # rewrite did not run, and with it that the stage adds nothing to the
+  # image layer.
+  local _repos _rule _before _ident _ident_after
   _repos="$(_seed_repositories)"
   _before="$(cat "${_repos}")"
+  _ident="$(stat -c '%i %y' "${_repos}")"
   _rule="$(_mirror_rule "${_repos}")"
   [ -n "${_rule}" ] \
     || fail "no guarded APK_MIRROR rule in ${DOCKERFILE} -- nothing was executed, so this test asserted nothing"
   APK_MIRROR="$(_declared_default)" sh -c "${_rule}"
   assert_equal "$(cat "${_repos}")" "${_before}"
+  _ident_after="$(stat -c '%i %y' "${_repos}")"
+  [ "${_ident_after}" = "${_ident}" ] \
+    || fail "the default REWROTE the repositories file (inode/mtime ${_ident} -> ${_ident_after}); byte-identical output is not a skip, and a stage that rewrites the file busts every downstream apk layer's cache"
 }
 
 @test "APK_MIRROR: an override repoints every repository line (#1008)" {

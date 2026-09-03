@@ -4290,7 +4290,7 @@ rather than an assurance.
 |------|-------------|
 | `APK_MIRROR: declared exactly once, defaulting to the upstream CDN (#1008)` | - |
 | `APK_MIRROR: the build path names no alpine mirror of its own (#1008)` | - |
-| `APK_MIRROR: at the default the repositories file is left byte-identical (#1008)` | - |
+| `APK_MIRROR: at the default the repositories file is not touched at all (#1008)` | - |
 | `APK_MIRROR: an override repoints every repository line (#1008)` | - |
 | `APK_MIRROR: an empty override is refused by name, not turned into an empty host (#1008)` | - |
 | `APK_MIRROR: every stage that installs packages inherits the mirror choice (#1008)` | - |
