@@ -42,6 +42,22 @@
 # publishes, and an unparseable input must never reach the destructive
 # side of a decision (the same direction ghcr-cleanup.yaml's dry-run
 # resolver takes an input it cannot read).
+#
+# why: "Is this tag a prerelease?" decides whether a GitHub Release is
+# marked prerelease (`release-worker.yaml` for downstream repos,
+# `self-test.yaml` for base) and whether `release-test-tools.yaml` moves
+# `test-tools:latest` -- the image every repo that has not pinned
+# `test_tools_version` builds its lint stage from, that input's default
+# being `latest`. Two sites spelled the test themselves and the third did
+# not ask, which is how `v0.42.0-rc1` through `-rc4` each moved `:latest`.
+#
+# `script/ci/release-ref.sh` is the one home for the rule. The first nine
+# cases pin what it answers -- including that it REFUSES a ref it cannot
+# read as a version tag, because the alternative answer (`false`) is the
+# branch that publishes. The last three derive the population of asking
+# sites from `.github/workflows/` rather than listing it: a guard for "every
+# site" that consulted a remembered list of three would pass on exactly the
+# fourth.
 
 bats_require_minimum_version 1.5.0
 
@@ -107,18 +123,25 @@ _restated_predicates() {
 
 # ── The classifier's answers ─────────────────────────────────────────
 
+# why: `v0.42.0` -> `false`. The one answer that lets `:latest` move, so it
+# is the case a wrong rule fails open on.
 @test "release-ref: a finished release tag is not a prerelease (#1012)" {
   run bash "${RESOLVER}" prerelease v0.42.0
   assert_success
   assert_output 'false'
 }
 
+# why: `v0.42.0-rc4` -> `true`. The four tags that each moved `:latest`, for
+# the length of an RC window.
 @test "release-ref: an RC tag is a prerelease (#1012)" {
   run bash "${RESOLVER}" prerelease v0.42.0-rc4
   assert_success
   assert_output 'true'
 }
 
+# why: `GITHUB_REF` and `github.ref_name` are both accepted, so a caller
+# passes whichever it holds instead of trimming one into the other and
+# getting it wrong.
 @test "release-ref: a full refs/tags/ ref answers the same as its bare tag (#1012)" {
   # GITHUB_REF carries the first spelling, github.ref_name the second, and
   # a caller passes whichever it happens to hold.
@@ -130,6 +153,8 @@ _restated_predicates() {
   assert_output 'false'
 }
 
+# why: The `v` this project's tags carry is stripped, not required: the rule
+# is SemVer's, not this repo's tag style.
 @test "release-ref: the leading v is optional (#1012)" {
   run bash "${RESOLVER}" prerelease 0.42.0-rc4
   assert_success
@@ -139,6 +164,8 @@ _restated_predicates() {
   assert_output 'false'
 }
 
+# why: SemVer 10 (`+build.5`) says nothing about precedence; SemVer 9
+# (`-rc.1`) does. The pair is what separates the rule from a dash test.
 @test "release-ref: build metadata is not a prerelease, a dotted prerelease id is (#1012)" {
   # SemVer 9 vs 10: `+build` says nothing about precedence, `-rc.1` does.
   run bash "${RESOLVER}" prerelease v1.0.0+build.5
@@ -149,6 +176,8 @@ _restated_predicates() {
   assert_output 'true'
 }
 
+# why: The defect the inline `contains(ref_name, '-')` carries: it is true
+# of `feature/add-thing`, and it is the reason the rule has one home.
 @test "release-ref: a branch whose name merely contains a dash is refused, not answered (#1012)" {
   # The defect the one-line `contains(ref_name, '-')` carries: it is TRUE
   # of every such branch. Refusing is the only safe answer, because the
@@ -159,6 +188,8 @@ _restated_predicates() {
   assert_output --partial 'refs/heads/feature/add-thing'
 }
 
+# why: `main`, `v1.0`. Refusing is the only safe answer, because the other
+# one (`false`) is the arm that moves `:latest`.
 @test "release-ref: a ref that is not a version tag at all is refused (#1012)" {
   run bash "${RESOLVER}" prerelease main
   assert_failure
@@ -168,12 +199,16 @@ _restated_predicates() {
   refute_output 'false'
 }
 
+# why: No default: an absent ref would otherwise read as a finished release,
+# which is the fail-open direction.
 @test "release-ref: a missing ref is refused rather than defaulted (#1012)" {
   run bash "${RESOLVER}" prerelease
   assert_failure
   refute_output 'false'
 }
 
+# why: A caller that asked for something else asked for a reason; it must
+# not fall through to the one question that exists.
 @test "release-ref: an unrecognised subcommand is refused and names what it does answer (#1012)" {
   run bash "${RESOLVER}" is-it-a-prerelease-maybe v0.42.0
   assert_failure
@@ -182,6 +217,8 @@ _restated_predicates() {
 
 # ── The population of sites, derived from the workflow tree ──────────
 
+# why: The population is derived from `.github/workflows/` rather than
+# remembered, so a fourth asking site added tomorrow is covered tomorrow.
 @test "release-ref: every prerelease: input in the workflow tree is fed by a step output (#1012)" {
   local _line _sites=0 _scanned=0
   while IFS= read -r _line; do
@@ -199,6 +236,8 @@ _restated_predicates() {
     "only ${_sites} prerelease: input(s) found across ${_scanned} workflow(s); base cuts its own release and downstream releases, so at least two are expected. A scan that stopped matching reports agreement forever."
 }
 
+# why: Neither spelling this tree has used -- the GitHub expression nor the
+# shell glob -- may survive anywhere, or there are two rules again.
 @test "release-ref: no workflow restates the prerelease test itself (#1012)" {
   run _restated_predicates
   assert_success
@@ -206,6 +245,8 @@ _restated_predicates() {
   refute_output --partial 'scanned=0'
 }
 
+# why: The load-bearing half of "one rule, one home": the asking population
+# and the calling population are the same set, both derived from the tree.
 @test "release-ref: every workflow that declares a prerelease: input calls the classifier (#1012)" {
   local _f _sites=0
   # No `grep -q`: an early-closing reader on the far side of a pipe is the

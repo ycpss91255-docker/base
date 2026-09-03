@@ -38,6 +38,23 @@
 # test/bats/integration/test_tools_pins_spec.bats; the published-image
 # half is the smoke step of release-test-tools.yaml, which iterates this
 # same roster.
+#
+# why: The release smoke step ran fifteen probes against the image it had
+# just published, and fourteen of them asserted an exit status and nothing
+# else -- which catches a tool's removal and never its staleness. Three
+# tools besides `just` are pinned by an `ARG` in
+# `dockerfile/Dockerfile.test-tools` (`BATS_VERSION`, `KCOV_VERSION`,
+# `ALPINE_VERSION`) and none was compared to anything; the last was not
+# probed at all.
+#
+# Three more comparisons would leave the same defect one `ARG` away, so
+# `script/ci/test-tools-pins.sh` derives the POPULATION from the declaration
+# and refuses to produce a roster while a declared pin has no probe. What
+# stays a fixed table is the vocabulary -- how to ask a given tool its
+# version -- the same detector/population split
+# `script/test/drivers/just_provenance.sh` draws. The behavioural half is
+# `test/bats/integration/test_tools_pins_spec.bats`; the published-image
+# half is the smoke step, which iterates this same roster.
 
 bats_require_minimum_version 1.5.0
 
@@ -105,6 +122,9 @@ _seed_tree() {
 
 # ── The roster covers the declarations, exactly ──────────────────────
 
+# why: The population is compared against a reader that is not the
+# accessor's, so this is a real comparison rather than the accessor agreeing
+# with itself.
 @test "test-tools pins: the roster names every ARG *_VERSION the Dockerfile declares (#1012)" {
   local _declared _roster
   _declared="$(_declared_args)"
@@ -118,6 +138,8 @@ but the Dockerfile declares
 ${_declared}"
 }
 
+# why: A row with no probe is a pin nobody can ask about, which is the
+# silence this roster exists to end.
 @test "test-tools pins: every roster row carries a pin and a probe (#1012)" {
   local _rows=0 _arg _pin _probe
   while IFS=$'\t' read -r _arg _pin _probe; do
@@ -129,6 +151,8 @@ ${_declared}"
     "the roster has ${_rows} row(s); the tooling image pins bats, alpine, kcov and just, so a shorter roster means the reader stopped matching."
 }
 
+# why: The load-bearing case, and the anti-recurrence property: a tool
+# cannot be pinned in that Dockerfile and go unasserted.
 @test "test-tools pins: a declared pin with no probe is refused, naming it (#1012)" {
   # The whole point: a tool cannot be pinned in that Dockerfile and go
   # unasserted, because the roster its consumers iterate cannot be
@@ -144,6 +168,9 @@ ARG CURL_VERSION=8.9.0')"
   assert_output --partial 'CURL_VERSION'
 }
 
+# why: That refusal is only as wide as the reader that finds the pins, and
+# an indented instruction, a lower-case keyword and a lower-case name prefix
+# are all legal declarations the first anchor walked past.
 @test "test-tools pins: a pin the Dockerfile spells differently is on the roster, not dropped (#1012)" {
   # The refusal above is the whole claim -- "a tool cannot be pinned in
   # that Dockerfile and go unasserted" -- and it is only as wide as the
@@ -171,6 +198,8 @@ ${output}"
   done
 }
 
+# why: An empty roster satisfies every consumer that iterates it, in
+# silence.
 @test "test-tools pins: a Dockerfile declaring no pin at all is refused, not answered empty (#1012)" {
   # An empty roster satisfies every "iterate the roster" consumer in
   # silence, which is the fail-open direction for a guard whose whole
@@ -183,6 +212,8 @@ ${output}"
 
 # ── check: does an observed version carry the pin ────────────────────
 
+# why: The ordinary agreement, without which every refusal below could be a
+# rule that refuses everything.
 @test "test-tools pins: check accepts the exact declared version (#1012)" {
   run bash "${ACCESSOR}" check BATS_VERSION 'Bats 1.13.0'
   assert_success
@@ -192,6 +223,8 @@ ${output}"
   assert_success
 }
 
+# why: `ALPINE_VERSION=3.21` against `/etc/alpine-release`'s `3.21.7`: an
+# equality rule would fail every image this Dockerfile can build.
 @test "test-tools pins: check accepts a longer version under a series pin (#1012)" {
   # ALPINE_VERSION pins a SERIES (3.21); /etc/alpine-release answers
   # 3.21.7. A rule that demanded equality would fail every alpine image
@@ -200,6 +233,8 @@ ${output}"
   assert_success
 }
 
+# why: Staleness, which is the whole reason the exit-0 probes were not
+# enough.
 @test "test-tools pins: check refuses a downlevel version (#1012)" {
   run bash "${ACCESSOR}" check BATS_VERSION 'Bats 1.12.0'
   assert_failure
@@ -207,6 +242,8 @@ ${output}"
   assert_failure
 }
 
+# why: `v43` is not satisfied by `v431`: the false green a substring test
+# wearing a boundary check's clothes would give.
 @test "test-tools pins: check refuses a version the pin is merely a digit prefix of (#1012)" {
   # `v43` must not be satisfied by `v431`, and `1.13.0` must not be
   # satisfied by `1.13.01`. Both are the failure a substring test makes.
@@ -216,6 +253,7 @@ ${output}"
   assert_failure
 }
 
+# why: A probe that did not run is not agreement.
 @test "test-tools pins: check refuses empty observed output (#1012)" {
   # A probe whose command was not found prints nothing and the caller
   # must not read that as agreement.
@@ -223,18 +261,25 @@ ${output}"
   assert_failure
 }
 
+# why: There is nothing to compare against, so it refuses rather than
+# passing over it.
 @test "test-tools pins: check refuses an ARG that is not on the roster (#1012)" {
   run bash "${ACCESSOR}" check CURL_VERSION 'curl 8.9.0'
   assert_failure
   assert_output --partial 'CURL_VERSION'
 }
 
+# why: It must not fall through to the roster, because a roster is an answer
+# the caller would then act on.
 @test "test-tools pins: an unrecognised subcommand is refused and names what it does answer (#1012)" {
   run bash "${ACCESSOR}" versions
   assert_failure
   assert_output --partial 'roster'
 }
 
+# why: Quoting a build arg's default is legal, and the two halves of one
+# accessor disagreeing about it fails a CORRECT image while naming a pin
+# nobody could satisfy.
 @test "test-tools pins: roster and check read a quoted declaration the same way (#1012)" {
   # `ARG BATS_VERSION="1.13.0"` is a legal declaration, and the two halves
   # of one accessor have to agree about what it says. `roster` strips the

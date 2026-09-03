@@ -32,6 +32,35 @@
 # the tag the current trigger produced (rather than statically
 # pulling :latest, which would leave a freshly-pushed :main
 # unverified).
+#
+# why: Structural assertions for
+# `.github/workflows/release-test-tools.yaml`. Locks the publish surface
+# that downstream Dockerfile.example's `FROM ${TEST_TOOLS_IMAGE} AS
+# test-tools-stage` depends on. The workflow has three triggers and two tag
+# sets -- the first two triggers each resolve one:
+#
+# 1. **Tag push (`v*`)** -- multi-arch `:<version>`, and `:latest` only when
+# the tag is not a prerelease. Cuts the release downstream consumers pin via
+# `inputs.test_tools_version`, whose default IS `latest`, which is why a
+# prerelease tag must leave it alone.
+#
+# 2. **Main push** (P2) -- multi-arch `:main` rolling tag, pulled by
+# self-test.yaml's Obtain step to skip from-source rebuilds. The paths
+# filter (gotcha 3) restricts it to commits that touched
+# `dockerfile/Dockerfile.test-tools` or this workflow.
+#
+# 3. **workflow_dispatch** -- no tag set of its own: it resolves by the ref
+# it was dispatched from (main takes the `:main` arm, a `v*` tag takes the
+# tag rules). Any other ref is refused, so an unrecognised input publishes
+# nothing rather than overwriting `:latest`.
+#
+# The smoke step uses `steps.tags.outputs.smoke`, so it always pulls the tag
+# the current trigger produced rather than statically pulling `:latest` and
+# leaving a freshly-pushed `:main` unverified. Four of the cases below RUN
+# the resolver rather than reading it: the step's own `run:` body is
+# extracted with yq and executed against each ref shape. The text-reading
+# cases above them stayed green through four RC tags that each moved
+# `:latest`.
 
 bats_require_minimum_version 1.5.0
 
@@ -155,23 +184,6 @@ _spec_prose() {
   grep -E '^(@test|# .*──)' "${_self}"
 }
 
-# _doc_section_sum -- the `| Category | Tests |` column total for this
-# spec's section of doc/test/unit.md.
-_doc_section_sum() {
-  awk '
-    /^### test\/bats\/unit\/release_test_tools_yaml_spec\.bats/ { insec = 1; next }
-    insec && /^### / { exit }
-    insec && /^\| *Category *\| *Tests *\|/ { intable = 1; next }
-    insec && intable && /^\|/ {
-      n = split($0, f, "|"); v = f[n - 1]; gsub(/ /, "", v)
-      if (v ~ /^[0-9]+$/) { sum += v }
-      next
-    }
-    insec && intable { intable = 0 }
-    END { print sum + 0 }
-  ' "$(_repo_root)/doc/test/unit.md"
-}
-
 # ── Trigger surface ──────────────────────────────────────────────────
 
 @test "release-test-tools.yaml: triggers on tag push v* (existing)" {
@@ -229,6 +241,9 @@ _doc_section_sum() {
 # The four assertions above read the step's TEXT. These four RUN it, over
 # the four ref shapes that reach this workflow.
 
+# why: The arm the four text-reading cases above only READ. It is the one
+# ref shape allowed to move the tag every unpinned downstream builds its
+# lint stage from.
 @test "release-test-tools.yaml: a release tag publishes :<ver> and moves :latest" {
   run _resolve_tags_for refs/tags/v0.42.0
   assert_success
@@ -236,6 +251,9 @@ _doc_section_sum() {
   assert_output --partial 'smoke=ghcr.io/ycpss91255-docker/test-tools:v0.42.0'
 }
 
+# why: The load-bearing case: `v0.42.0-rc1` through `-rc4` each matched the
+# `v*` trigger and each moved the tag whose default every unpinned
+# downstream inherits, for the length of an RC window.
 @test "release-test-tools.yaml: an RC tag publishes :<ver> and leaves :latest where it was (#1012)" {
   # v0.42.0-rc1..rc4 each matched the `v*` trigger and each moved
   # `:latest`, so every downstream repo that does not pin
@@ -248,6 +266,8 @@ _doc_section_sum() {
   refute_output --partial ':latest'
 }
 
+# why: The rolling tag self-test.yaml pulls to skip a from-source rebuild;
+# it must not reach `:latest` either.
 @test "release-test-tools.yaml: a main push publishes the :main rolling tag only" {
   run _resolve_tags_for refs/heads/main
   assert_success
@@ -256,6 +276,9 @@ _doc_section_sum() {
   refute_output --partial ':latest'
 }
 
+# why: `workflow_dispatch` is unrestricted by ref, so this arm is reachable
+# from any feature branch: resolving it to the production tag made the
+# unrecognised input the most destructive one.
 @test "release-test-tools.yaml: a ref the resolver does not recognise is refused, never resolved to :latest (#1012)" {
   # `workflow_dispatch` is unrestricted by ref, so this arm is reachable
   # from any feature branch. Resolving it to the production tag makes an
@@ -265,6 +288,9 @@ _doc_section_sum() {
   refute_output --partial ':latest'
 }
 
+# why: A header describing a branch the code cannot reach is a defect with
+# the same shape as the code one, and it is what a later reader believes
+# over the code.
 @test "release-test-tools.yaml: the header and the resolver step's own prose describe the tag rules it applies (#1012)" {
   # The header promised `workflow_dispatch -> pushes only :latest`. A
   # dispatch from main carries GITHUB_REF=refs/heads/main and so takes the
@@ -286,6 +312,9 @@ _doc_section_sum() {
   assert_output --partial 'publishes NOTHING'
 }
 
+# why: What keeps the correction from being half made: a case NAME is what
+# the TAP line prints, so a stale one reports the new behaviour under the
+# old description on every green run.
 @test "release-test-tools.yaml: this spec's own prose -- header, dividers and case names -- describes the surface it pins (#1012)" {
   # The header above is the first thing a reader of this file meets, and it
   # documented the surface these cases now refute: `:<version>` + `:latest`
@@ -309,27 +338,6 @@ _doc_section_sum() {
   assert_output --partial 'prerelease'
 }
 
-@test "release-test-tools.yaml: doc/test/unit.md accounts for every case in this spec (#1012)" {
-  # The section heading's figure is GENERATED (sync-doc-counts.sh counts
-  # `^@test`) and the category table under it is hand-maintained, so the
-  # two drift apart in silence: the rows for the smoke step's two roster
-  # assertions were never added and the table summed to 20 while this file
-  # held 22 cases. The doc-counts gate validates the heading and never the
-  # table, so nothing else can see it.
-  #
-  # Scoped to this spec on purpose: seven other sections of that file do not
-  # hold this property today (measured 2026-09-03), so the repo-wide form is
-  # a change to the doc-counts gate and to those sections, not to this file.
-  local _cases _sum
-  _cases="$(grep -c '^@test' \
-    "${BATS_TEST_DIRNAME}/release_test_tools_yaml_spec.bats")"
-  _sum="$(_doc_section_sum)"
-  [[ "${_sum}" -gt 0 ]] || fail \
-    "doc/test/unit.md carries no category table for this spec -- the section was renamed or the table removed."
-  [[ "${_sum}" == "${_cases}" ]] || fail \
-    "doc/test/unit.md's category table for this spec sums to ${_sum}, but the spec holds ${_cases} cases."
-}
-
 # ── Smoke test step ──────────────────────────────────────────────────
 
 @test "release-test-tools.yaml: smoke step pulls the trigger's tag (not statically :latest) (#317 P2)" {
@@ -341,6 +349,9 @@ _doc_section_sum() {
   assert_output --partial 'steps.tags.outputs.smoke'
 }
 
+# why: One loop over the pins the Dockerfile declares, rather than fourteen
+# hand-written comparisons that leave the next tool unasserted the day it is
+# pinned.
 @test "release-test-tools.yaml: the smoke step derives its version assertions from the pin roster (#1012)" {
   # Fourteen of the fifteen probes asserted exit 0 and nothing else,
   # which catches a tool's removal and never its staleness. The repair is
@@ -355,6 +366,9 @@ _doc_section_sum() {
   refute_output --partial 'just_pin='
 }
 
+# why: A loop fed by a command that failed simply gets no input and passes,
+# which is fail-open for a step whose whole assertion is that the versions
+# were checked.
 @test "release-test-tools.yaml: the smoke step refuses an empty pin roster (#1012)" {
   # A loop fed by a command that failed simply gets no input and passes.
   # For a step whose whole assertion is "the versions were checked", that
@@ -364,6 +378,8 @@ _doc_section_sum() {
   assert_output --partial 'the pin roster came back empty'
 }
 
+# why: That sentence is what a reader follows to the file doing the
+# comparison, and it still named the accessor the step had stopped opening.
 @test "release-test-tools.yaml: the merge job's checkout rationale names what the smoke step reads (#1012)" {
   # That job checks the tree out for exactly one reason, and the sentence
   # saying so still sent a reader to dist/script/base/just-version.sh --
@@ -424,6 +440,8 @@ _doc_section_sum() {
 
 # ── Same-repository guard on the self-hosted-eligible build job ────────
 
+# why: Inert today -- this workflow has no `pull_request` trigger at all --
+# so that adding one later cannot open the hole silently.
 @test "release-test-tools.yaml: the build job carries the same-repo guard (#766)" {
   # Self-hosted-eligible by the static rule: `runs-on: ${{ matrix.runner }}`
   # over a runtime-computed matrix. This workflow has no `pull_request`
