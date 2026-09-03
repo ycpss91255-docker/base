@@ -664,9 +664,14 @@ _job_comments() {
   # adds `coverage` to the list — it is now the primary unit gate (a
   # sharded kcov PR gate), so a kcov failure must block PR merge; the
   # bats-unit matrix is replaced with a single bats-fragile job.
+  #
+  # `compute-shards` joins the list too: it is the producer the coverage
+  # matrix reads its shard list from, so its failure skips BOTH coverage
+  # and coverage-gate, and a rollup that does not name it collapses that
+  # double skip into a green required check.
   run yaml_job_lines "${WF}" ci-rollup
   assert_success
-  assert_output --partial 'needs: [actionlint, classify, shellcheck, doc-counts, lint-static, hadolint, bats-fragile, bats-integration, coverage, coverage-gate, acceptance, system, worker-selftest]'
+  assert_output --partial 'needs: [actionlint, classify, shellcheck, doc-counts, lint-static, hadolint, bats-fragile, bats-integration, compute-shards, coverage, coverage-gate, acceptance, system, worker-selftest]'
 }
 
 @test "self-test.yaml: ci-rollup DOES need coverage now (#615 amends #377)" {
@@ -700,6 +705,7 @@ _job_comments() {
   assert_output --partial 'needs.hadolint.result'
   assert_output --partial 'needs.bats-fragile.result'
   assert_output --partial 'needs.bats-integration.result'
+  assert_output --partial 'needs.compute-shards.result'
   assert_output --partial 'needs.coverage.result'
   assert_output --partial 'needs.coverage-gate.result'
   assert_output --partial 'needs.acceptance.result'
@@ -741,8 +747,34 @@ _job_comments() {
   run yaml_job_lines "${WF}" ci-rollup
   assert_success
   assert_output --partial 'for r in "${ACTIONLINT_RESULT}" "${CLASSIFY_RESULT}" \'
-  assert_output --partial '"${DOC_COUNTS_RESULT}" "${LINT_STATIC_RESULT}"; do'
+  assert_output --partial '"${DOC_COUNTS_RESULT}" "${LINT_STATIC_RESULT}" \'
+  assert_output --partial '"${COMPUTE_SHARDS_RESULT}"; do'
   assert_output --partial '[[ "${r}" == "success" ]] || fail=1'
+}
+
+@test "self-test.yaml: ci-rollup treats compute-shards as hard-mandatory, not SKIPPED-tolerant (#1009)" {
+  # compute-shards emits the shard list the coverage matrix expands, and it
+  # carries no `if:` gate -- so a SKIPPED there is a workflow bug, exactly
+  # like doc-counts / lint-static. It is also the one job whose FAILURE is
+  # otherwise invisible: coverage needs it, coverage-gate needs coverage,
+  # and both sit in the rollup's skipped-tolerant bucket, so a
+  # compute-shards failure used to leave the required check green with the
+  # whole unit suite and the coverage floor unrun.
+  run yaml_job_lines "${WF}" ci-rollup
+  assert_success
+  assert_output --partial 'needs.compute-shards.result'
+
+  # In the strict loop ...
+  run code_grep -A2 'for r in "${ACTIONLINT_RESULT}"' "${WF}"
+  assert_success
+  assert_output --partial 'COMPUTE_SHARDS_RESULT'
+
+  # ... and NOT in the skipped-tolerant one. Read the tolerant loop alone:
+  # asserting over the whole job would find the name in the strict loop and
+  # pass whichever bucket it really sits in.
+  run code_grep -A4 'for r in "${SHELLCHECK_RESULT}"' "${WF}"
+  assert_success
+  refute_output --partial 'COMPUTE_SHARDS_RESULT'
 }
 
 # ── Fork PRs cannot make the rollup vacuously green ────────────
@@ -1089,9 +1121,14 @@ _job_comments() {
   # tag should NOT produce a Release. The bats-unit matrix is replaced
   # with `bats-fragile` and `coverage` (now the primary unit gate) joins
   # the release chain.
+  #
+  # `coverage-gate` joins it too: it is the coverage FLOOR
+  # (ADR-00000008), it was in ci-rollup but not here, and ci-rollup is not
+  # a `needs:` of release -- so the one path that produces an artifact
+  # users consume was the one path the floor did not gate.
   run yaml_job_lines "${WF}" release
   assert_success
-  assert_output --partial 'needs: [shellcheck, doc-counts, lint-static, hadolint, bats-fragile, bats-integration, coverage, acceptance, system, worker-selftest]'
+  assert_output --partial 'needs: [shellcheck, doc-counts, lint-static, hadolint, bats-fragile, bats-integration, coverage, coverage-gate, acceptance, system, worker-selftest]'
 }
 
 @test "self-test.yaml: the release job assembles no source archive of its own (#924)" {
