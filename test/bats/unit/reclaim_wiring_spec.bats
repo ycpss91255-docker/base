@@ -20,6 +20,14 @@
 # point of the list: each of them BEGINS or CONTINUES a flow -- a build is
 # followed by a run, an exec needs the container it attaches to -- so a
 # reclaim there would be collecting a project that is about to be used.
+#
+# The other half of the wiring is the PRODUCER side. The collector proves
+# ownership by reading the checkout path off the artifact, which only works
+# if every path that creates one records it -- so the assertions below also
+# pin that compose.yaml stamps the label, that the key it stamps is the key
+# the collector reads, and that a compose invocation which cannot say which
+# checkout it is gets refused rather than creating an artifact nobody can
+# ever attribute.
 
 bats_require_minimum_version 1.5.0
 
@@ -31,6 +39,63 @@ setup() {
   PRUNESH=/source/dist/script/docker/wrapper/prune.sh
   JUSTTEST=/source/script/test/justfile.test
   JUSTDOCKER=/source/dist/script/docker/justfile.docker
+  JUSTROOT=/source/justfile
+  COMPOSE=/source/compose.yaml
+  LIB=/source/dist/script/docker/lib/project_reclaim.sh
+  SELFTEST=/source/.github/workflows/self-test.yaml
+}
+
+# ── the producer side: the artifact carries its own provenance ────────────
+
+@test "compose.yaml records the checkout path on the network it creates" {
+  run grep -nE '^ +base\.checkout\.path: ' "${COMPOSE}"
+  assert_success
+}
+
+@test "the label compose writes is the label the collector reads" {
+  # One key, two files. The day they drift, every artifact becomes
+  # unattributable and the collector silently stops collecting -- which is
+  # the safe direction, and therefore the direction nobody notices.
+  local _key
+  _key="$(bash -c "source ${LIB}; printf '%s' \"\${_RECLAIM_CHECKOUT_LABEL}\"")"
+  [ -n "${_key}" ]
+  run grep -F "${_key}:" "${COMPOSE}"
+  assert_success
+}
+
+@test "a compose invocation that cannot say which checkout it is, is refused" {
+  # `:?`, not a default. An artifact created without the label can never be
+  # attributed to anything, so the failure has to land on the invocation
+  # that would have created it -- the same rule HOST_UID and
+  # TEST_TOOLS_IMAGE already follow in this file.
+  run grep -E 'base\.checkout\.path: \$\{BASE_CHECKOUT_PATH:\?' "${COMPOSE}"
+  assert_success
+}
+
+@test "every entry point that drives compose supplies the checkout path" {
+  # The root justfile covers the whole `just` surface (a root export
+  # reaches module recipes); test.sh covers the direct `./script/test`
+  # invocations CI makes; self-test.yaml covers the one CI job that drives
+  # compose itself.
+  run grep -F 'export BASE_CHECKOUT_PATH' "${JUSTROOT}"
+  assert_success
+  run code_grep -F 'BASE_CHECKOUT_PATH' "${TESTSH}"
+  assert_success
+  run grep -F 'BASE_CHECKOUT_PATH' "${SELFTEST}"
+  assert_success
+}
+
+@test "no caller hands the project sweep a repo root" {
+  # The blocker this design closed: the sweep used to take the caller's
+  # repo root, enumerate THAT repository's worktrees and delete everything
+  # outside them, so the same call meant something destructive in a
+  # downstream consumer. It now takes only a grace window, and a root
+  # creeping back into any call site is the regression.
+  local _f
+  for _f in "${TESTSH}" "${STOPSH}" "${PRUNESH}"; do
+    run code_grep -E '_reclaim_orphan_projects .*(FILE_PATH|REPO_ROOT)' "${_f}"
+    assert_failure
+  done
 }
 
 # ── `just test`: the verb that mints the litter ─────────────────────────────
