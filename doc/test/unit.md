@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3623 tests**.
+Unit specs under `test/bats/unit/`: **3624 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -4301,7 +4301,7 @@ rather than an assurance.
 | `the retained-tag count is overridable by the environment` | - |
 | `the pinned tag set is the invoking tree plus every live checkout` | - |
 
-### test/bats/unit/reclaim_wiring_spec.bats (25)
+### test/bats/unit/reclaim_wiring_spec.bats (26)
 
 | Test | Description |
 |------|-------------|
@@ -4330,6 +4330,7 @@ rather than an assurance.
 | `just test stop ends this checkout's self-test project` | - |
 | `just test stop asks the single producer for the name instead of deriving a second` | - |
 | `just test stop forwards its arguments to the wrapper` | - |
+| `just test stop hands compose every value compose.yaml demands` | - |
 ### test/bats/unit/adr_structure_spec.bats (27)
 
 | Test | Description |

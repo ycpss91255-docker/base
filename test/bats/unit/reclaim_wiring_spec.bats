@@ -322,7 +322,8 @@ _just_test_sandbox() {
   cp /source/script/test/justfile.test "${_dir}/script/test/justfile.test"
   cat > "${_dir}/script/stop.sh" <<'STUB'
 #!/usr/bin/env bash
-printf 'stop project=%s args=%s\n' "${PROJECT_NAME:-<unset>}" "$*"
+printf 'stop project=%s image=%s args=%s\n' \
+  "${PROJECT_NAME:-<unset>}" "${TEST_TOOLS_IMAGE:-<unset>}" "$*"
 STUB
   chmod +x "${_dir}/script/stop.sh"
   # The one producer of the self-test project name, stubbed to print a
@@ -332,6 +333,7 @@ STUB
 #!/usr/bin/env bash
 case "${1:-}" in
   --compose-project-name) printf 'base-onlyproducer\n' ;;
+  --test-tools-image) printf 'test-tools:onlyproducer\n' ;;
   *) printf 'test.sh stub: unexpected %s\n' "$*" >&2; exit 9 ;;
 esac
 STUB
@@ -380,4 +382,26 @@ STUB
   status="${_s}"; output="${_o}"
   assert_success
   assert_output --partial "args=-v --dry-run"
+}
+
+@test "just test stop hands compose every value compose.yaml demands" {
+  # compose interpolates the WHOLE file for any command, `down` included,
+  # and base's compose.yaml takes TEST_TOOLS_IMAGE with `:?` and no
+  # default on four services. A stop that supplies only the project name
+  # never reaches the teardown: compose refuses to read the file and the
+  # recipe dies naming four services, which is the failure this verb
+  # exists to end rather than reproduce. `--dry-run` cannot see it -- it
+  # never calls compose -- so the assertion is on what the recipe hands
+  # the wrapper.
+  command -v just >/dev/null 2>&1 \
+    || skip "this test-tools image has no just (older pinned TEST_TOOLS_IMAGE)"
+  local _tmp
+  _tmp="$(mktemp -d)"
+  _just_test_sandbox "${_tmp}"
+  run just --justfile "${_tmp}/justfile" --working-directory "${_tmp}" test stop
+  local _s="${status}" _o="${output}"
+  rm -rf "${_tmp}"
+  status="${_s}"; output="${_o}"
+  assert_success
+  assert_output --partial "image=test-tools:onlyproducer"
 }
