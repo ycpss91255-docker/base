@@ -951,9 +951,15 @@ _job_names() {
   # because a skipped or failed need there skips release itself, so a
   # dependency inherited through another job really is a gate; ci-rollup
   # needs the direct list for the reason the guard above states.
+  #
+  # Neither roster is read through a PIPELINE: bats leaves `pipefail` off
+  # (`set +o pipefail`, probed in the harness), so `yaml_job_needs ... |
+  # sort` reports SORT's status and the parser's `BUG:` line arrives as
+  # data with a status of 0. The sort happens after the status is read.
   local _merge _tag _status=0
-  _merge="$(yaml_job_needs "${WF}" ci-rollup | sort)" || _status=$?
+  _merge="$(yaml_job_needs "${WF}" ci-rollup)" || _status=$?
   [ "${_status}" -eq 0 ] || fail "${_merge}"
+  _merge="$(sort <<<"${_merge}")"
   _status=0
   _tag="$(_needs_closure release)" || _status=$?
   [ "${_status}" -eq 0 ] || fail "${_tag}"
