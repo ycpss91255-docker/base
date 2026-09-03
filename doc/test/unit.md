@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3535 tests**.
+Unit specs under `test/bats/unit/`: **3540 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -808,7 +808,7 @@ thirteen cumulative invariants:
 | `release` job needs `[shellcheck, hadolint, bats-fragile, bats-integration, coverage, integration-e2e, system]` before publishing a tag (#376 + #377 + #677) | 1 |
 | Probe-and-rebuild against a stale/racing `:main`: `bats-fragile` + `coverage` Obtain probe for kcov and rebuild on a miss + `REQUIRED_TOOLS` list is extensible + all five `build_local` obtain steps carry the guard (#697) | 4 |
 
-### test/bats/unit/release_test_tools_yaml_spec.bats (15)
+### test/bats/unit/release_test_tools_yaml_spec.bats (20)
 
 Structural assertions for `.github/workflows/release-test-tools.yaml`.
 Locks the publish surface that downstream Dockerfile.example's `FROM

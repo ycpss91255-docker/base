@@ -50,6 +50,63 @@ _smoke_step() {
   awk '/Smoke test pushed image/{flag=1} flag' "${WF}" | strip_comments
 }
 
+# _repo_root -- the checkout this spec reads, derived from the spec's own
+# location rather than restated, so the helpers below and ${WF} above cannot
+# disagree about which tree is under test.
+_repo_root() {
+  (cd -- "${BATS_TEST_DIRNAME}/../../.." && pwd)
+}
+
+# _resolve_tags_for <ref> -- RUN the workflow's own "Resolve tags" step
+# against <ref>, and print the `key=value` lines it wrote to GITHUB_OUTPUT.
+#
+# The body is read OUT OF THE WORKFLOW (yq over that step's `run:`) instead
+# of being restated here: a spec that carried its own copy of the resolver
+# would keep agreeing with itself while the workflow drifted, which is how
+# a tag arm came to move `:latest` on four consecutive RC tags with the
+# structural assertions above all green.
+#
+# The status is the step's OWN. A ref the resolver refuses must be
+# observable as a FAILURE and not merely as an absence of output -- the
+# defect being pinned here is precisely a branch that resolved silently
+# and successfully to the most-consumed tag in the registry.
+_resolve_tags_for() {
+  local _ref="${1}" _dir _body _status=0
+  _body="$(RTT_STEP='Resolve tags' yq -r \
+      '.jobs.merge.steps[] | select(.name == strenv(RTT_STEP)) | .run' \
+      "${WF}" 2>&1)" || {
+    printf 'BUG: yq could not read the Resolve tags step of %s: %s\n' \
+        "${WF}" "$(printf '%s' "${_body}" | tr '\n' ' ')"
+    return 2
+  }
+  if [[ -z "${_body}" || "${_body}" == 'null' ]]; then
+    printf 'BUG: %s declares no "Resolve tags" step in its merge job\n' "${WF}"
+    return 2
+  fi
+  _dir="$(mktemp -d)"
+  printf '%s\n' "${_body}" > "${_dir}/step.sh"
+  (
+    cd -- "$(_repo_root)" || exit 2
+    GITHUB_REF="${_ref}" \
+    IMAGE='ghcr.io/ycpss91255-docker/test-tools' \
+    GITHUB_OUTPUT="${_dir}/out" \
+      bash "${_dir}/step.sh" > /dev/null
+  ) || _status=$?
+  if [[ -f "${_dir}/out" ]]; then
+    cat "${_dir}/out"
+  fi
+  rm -rf "${_dir}"
+  return "${_status}"
+}
+
+# _header_comments -- the file's header prose: every line above the `on:`
+# key, comments only. What the header CLAIMS is checked against what the
+# resolver above actually DOES; a header describing a branch the code
+# cannot reach is a defect with the same shape as the code one.
+_header_comments() {
+  awk '/^on:/{exit} {print}' "${WF}" | only_comments
+}
+
 # ── Trigger surface ──────────────────────────────────────────────────
 
 @test "release-test-tools.yaml: triggers on tag push v* (existing)" {
@@ -100,6 +157,57 @@ _smoke_step() {
   run _resolve_tags_step
   assert_success
   assert_output --partial 'smoke='
+}
+
+# ── Resolve tags: the decision, exercised ────────────────────────────
+#
+# The four assertions above read the step's TEXT. These four RUN it, over
+# the four ref shapes that reach this workflow.
+
+@test "release-test-tools.yaml: a release tag publishes :<ver> and moves :latest" {
+  run _resolve_tags_for refs/tags/v0.42.0
+  assert_success
+  assert_output --partial 'tags=ghcr.io/ycpss91255-docker/test-tools:v0.42.0,ghcr.io/ycpss91255-docker/test-tools:latest'
+  assert_output --partial 'smoke=ghcr.io/ycpss91255-docker/test-tools:v0.42.0'
+}
+
+@test "release-test-tools.yaml: an RC tag publishes :<ver> and leaves :latest where it was (#1012)" {
+  # v0.42.0-rc1..rc4 each matched the `v*` trigger and each moved
+  # `:latest`, so every downstream repo that does not pin
+  # `test_tools_version` (its default IS "latest") built its lint stage
+  # from an RC image for the whole RC window.
+  run _resolve_tags_for refs/tags/v0.42.0-rc4
+  assert_success
+  assert_output --partial 'tags=ghcr.io/ycpss91255-docker/test-tools:v0.42.0-rc4'
+  assert_output --partial 'smoke=ghcr.io/ycpss91255-docker/test-tools:v0.42.0-rc4'
+  refute_output --partial ':latest'
+}
+
+@test "release-test-tools.yaml: a main push publishes the :main rolling tag only" {
+  run _resolve_tags_for refs/heads/main
+  assert_success
+  assert_output --partial 'tags=ghcr.io/ycpss91255-docker/test-tools:main'
+  assert_output --partial 'smoke=ghcr.io/ycpss91255-docker/test-tools:main'
+  refute_output --partial ':latest'
+}
+
+@test "release-test-tools.yaml: a ref the resolver does not recognise is refused, never resolved to :latest (#1012)" {
+  # `workflow_dispatch` is unrestricted by ref, so this arm is reachable
+  # from any feature branch. Resolving it to the production tag makes an
+  # unrecognised input the most destructive one.
+  run _resolve_tags_for refs/heads/feature/whatever
+  assert_failure
+  refute_output --partial ':latest'
+}
+
+@test "release-test-tools.yaml: the header describes the tag rules the resolver applies (#1012)" {
+  # The header promised `workflow_dispatch -> pushes only :latest`. A
+  # dispatch from main carries GITHUB_REF=refs/heads/main and so takes the
+  # main arm; the sentence described a branch the code cannot reach.
+  run _header_comments
+  assert_success
+  refute_output --partial 'pushes only :latest'
+  assert_output --partial 'prerelease'
 }
 
 # ── Smoke test step ──────────────────────────────────────────────────
