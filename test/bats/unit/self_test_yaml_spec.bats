@@ -966,6 +966,8 @@ _job_comments() {
   assert_output --partial '- bash-source-guard'
   # And for the early-closing-reader pipeline lint, same trees, same shape.
   assert_output --partial '- early-close-reader'
+  # And for the non-final bang-statement lint, over the bats tree.
+  assert_output --partial '- errexit-bang'
   assert_output --partial './script/test/test.sh'
   refute_output --partial 'docker/setup-buildx-action'
   refute_output --partial 'docker pull'
