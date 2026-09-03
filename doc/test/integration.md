@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **155 tests**.
+Integration specs under `test/bats/integration/`: **157 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -327,3 +327,10 @@ vacuity is why the same defect shipped twice.
 | Test | Description |
 |------|-------------|
 | `test-tools image: just --version equals the declared pin (#948)` | - |
+
+### test/bats/integration/apk_mirror_spec.bats (2)
+
+| Test | Description |
+|------|-------------|
+| `compose.yaml: with APK_MIRROR unset the tooling build receives no mirror arg (#1008)` | - |
+| `compose.yaml: the caller's APK_MIRROR reaches the tooling build (#1008)` | - |
