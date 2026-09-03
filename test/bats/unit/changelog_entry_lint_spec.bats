@@ -53,7 +53,13 @@ setup() {
   source /source/script/test/drivers/changelog_entry.sh
 
   SCRATCH="$(mktemp -d)"
-  mkdir -p "${SCRATCH}/doc/changelog"
+  mkdir -p "${SCRATCH}/doc/changelog" "${SCRATCH}/script/release"
+  # The locked category roster and the doc that prints it. The driver
+  # SOURCES the first and compares the second against it, so a scratch tree
+  # without them is a tree where the category rule has no list to enforce --
+  # the copies are what keep every other case here about the rule it names.
+  cp /source/script/release/changelog_categories.sh "${SCRATCH}/script/release/"
+  cp /source/doc/changelog/CONVENTIONS.md "${SCRATCH}/doc/changelog/"
   REPO_ROOT="${SCRATCH}"
   CHANGELOG="${SCRATCH}/doc/changelog/CHANGELOG.md"
 }
@@ -471,7 +477,7 @@ _long_prose() {
 # ════════════════════════════════════════════════════════════════════
 
 @test "_run_changelog_entry: FAILS on a single word orphaned above the rest of its paragraph (#927)" {
-  _write_changelog '### Documentation' \
+  _write_changelog '### Changed' \
     '- **an entry that was edited and not re-wrapped** -- the prose runs on' \
     '  for a while and then the tail was rewritten in place, leaving one' \
     '  word behind.' \
@@ -486,20 +492,20 @@ _long_prose() {
 @test "_run_changelog_entry: names the orphan's real line number in the file (#927)" {
   # Reported against the CHANGELOG's own numbering, not an offset within
   # the section -- the author has to be able to jump straight to it.
-  _write_changelog '### Documentation' \
+  _write_changelog '### Changed' \
     '- **an entry** -- prose.' \
     '  Affects' \
     '  anyone reading the source.'
   run _run_changelog_entry
   assert_failure
-  # preamble (4 lines) + heading + blank + '### Documentation' + bullet = 8.
+  # preamble (4 lines) + heading + blank + '### Changed' + bullet = 8.
   assert_output --partial 'CHANGELOG.md:9:'
 }
 
 @test "_run_changelog_entry: a one-word FINAL line of an entry is not an orphan (#927)" {
   # A paragraph is allowed to end on a short line; nothing follows it to
   # re-flow into, so there is nothing to fix.
-  _write_changelog '### Documentation' \
+  _write_changelog '### Changed' \
     '- **an entry** -- the prose runs on for a while and then ends on a' \
     '  word.'
   run _run_changelog_entry
@@ -509,7 +515,7 @@ _long_prose() {
 @test "_run_changelog_entry: a one-word line above a BLANK line is not an orphan (#927)" {
   # The next source line is not more of the same paragraph, so the two
   # were never one wrapped run. Contiguity is the whole test.
-  _write_changelog '### Documentation' \
+  _write_changelog '### Changed' \
     '- **an entry** -- prose that ends on a' \
     '  word.' \
     '' \
@@ -524,7 +530,7 @@ _long_prose() {
   # re-indentation case, which builds its fixture out of 60-character
   # spaceless chunks and would otherwise report four orphans in an entry
   # the lint is asserting PASSES.
-  _write_changelog '### Documentation' \
+  _write_changelog '### Changed' \
     '- **an entry with a long span** -- see' \
     "  \`$(_chars 60)\`" \
     '  for the details.'
@@ -535,7 +541,7 @@ _long_prose() {
 @test "_run_changelog_entry: an orphan is one that could have joined the line below (#927)" {
   # The pair has to FIT: 79 columns is the file's wrap, and a word that
   # cannot go anywhere is not a word left behind.
-  _write_changelog '### Documentation' \
+  _write_changelog '### Changed' \
     '- **an entry** -- prose.' \
     '  Affects' \
     "  $(_chars 74)"
@@ -546,7 +552,7 @@ _long_prose() {
 @test "_run_changelog_entry: a table separator row is not an orphaned word (#927)" {
   # '|---|---|' is one whitespace-delimited word and always will be; a
   # table is not a paragraph that failed to re-flow.
-  _write_changelog '### Documentation' \
+  _write_changelog '### Changed' \
     '- **an entry with a table** -- the shapes:' \
     '' \
     '  | Tag | Bump |' \
@@ -559,7 +565,7 @@ _long_prose() {
 @test "_run_changelog_entry: a single-word line inside a fenced block is not an orphan (#927)" {
   # Inside a fence the line is code, and code is not wrapped prose. The
   # fence delimiters are single "words" of their own, too.
-  _write_changelog '### Documentation' \
+  _write_changelog '### Changed' \
     '- **an entry with a snippet** -- like so:' \
     '' \
     '  ```bash' \
@@ -597,7 +603,7 @@ _long_prose() {
 }
 
 @test "_run_changelog_entry: reports EVERY orphan in the section, not just the first (#927)" {
-  _write_changelog '### Documentation' \
+  _write_changelog '### Changed' \
     '- **first** -- prose.' \
     '  Affects' \
     '  one reader.' \
@@ -903,7 +909,7 @@ _long_prose() {
     '- **the second thing** -- fine.'
   run _run_changelog_entry
   assert_success
-  assert_output --partial '2 category headings compared'
+  assert_output --partial '2 category headings checked against the 7-name roster'
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -1006,7 +1012,7 @@ _long_prose() {
 # three rules that row must name -- not the whole table, and not "the docs
 # match the drivers": what a driver refuses cannot be derived from its
 # source, so a wider name here would be a claim the body cannot keep.
-@test "TEST.md's changelog-entry row names all three rules this lint enforces (#956)" {
+@test "TEST.md's changelog-entry row names all four rules this lint enforces (#956)" {
   local _doc=/source/doc/test/TEST.md
   local _row _st=0
   _row="$(grep -F '| `changelog-entry` |' "${_doc}")" || _st=$?
@@ -1017,9 +1023,13 @@ _long_prose() {
     fail "no readable '| \`changelog-entry\` |' row in ${_doc} (grep exit ${_st})"
   fi
   assert_equal "$(printf '%s\n' "${_row}" | wc -l)" 1
-  # The over-length rule, the duplicate-entry rule and the
-  # repeated-category-heading rule -- one clause each.
+  # The over-length rule, the duplicate-entry rule, the
+  # repeated-category-heading rule and the locked roster -- one clause each.
+  # The roster clause has to name where the roster IS: a row that says a
+  # heading must be "one of the allowed set" and does not say which set
+  # sends the reader hunting, which is the doc doing nothing.
   [[ "${_row}" == *"700 chars"* ]]
   [[ "${_row}" == *"lead bullet"* ]]
   [[ "${_row}" == *"heading opening twice"* ]]
+  [[ "${_row}" == *"changelog_categories.sh"* ]]
 }

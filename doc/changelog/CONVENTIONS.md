@@ -13,6 +13,42 @@ unreadable one.
   breaks anything.
 ```
 
+## Categories
+
+An entry goes under exactly one of these headings, and no other. The lint
+refuses anything else in `[Unreleased]`; released sections keep whatever
+they shipped with, because rewriting a shipped heading falsifies the record.
+
+<!-- changelog-categories: begin -- generated-by-hand mirror of script/release/changelog_categories.sh; the changelog-entry lint compares the two -->
+
+- `BREAKING`
+- `Added`
+- `Changed`
+- `Deprecated`
+- `Removed`
+- `Fixed`
+- `Security`
+
+<!-- changelog-categories: end -->
+
+`BREAKING` sorts first and is first-class because this project's dominant
+risk is breaking the downstream repos that carry `.base/`. **Migration
+instructions belong inside the BREAKING entry they serve**, not in a
+parallel `Migration` section a reader can miss.
+
+Conventional-commit types (`feat` / `fix` / `test` / `chore` / `refactor`)
+were considered and rejected as the axis. They answer *what kind of work was
+this* -- the author's view -- where a changelog answers *what changed for me*
+-- the reader's. Filing by commit type institutionalises putting `test:` /
+`chore:` / `refactor:` work into the changelog, which is part of how this
+file reached 641 KB. A refactor a reader must know about, such as a new lint
+that can fail their CI, is `Added`; one they need not know about is not an
+entry at all.
+
+The roster is defined once, in `script/release/changelog_categories.sh`. The
+lint and the release-notes assembler source it; the list above is a
+rendering of it, and the lint fails if the two stop agreeing.
+
 **An `[Unreleased]` entry is capped at 700 characters**, enforced by the
 `changelog-entry` lint (`just test lint --changelog-entry`). Two things about
 how it measures, because they decide what you can and cannot do about a

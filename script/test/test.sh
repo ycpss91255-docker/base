@@ -367,7 +367,11 @@ Options:
                           code can never execute on the org's self-hosted
                           machine)
   --changelog-entry       With --lint: run only the changelog entry lint
-                          ([Unreleased] entries only: a length cap measured
+                          ([Unreleased] entries only: a category heading
+                          drawn from the locked roster in
+                          script/release/changelog_categories.sh, which
+                          doc/changelog/CONVENTIONS.md must print
+                          unchanged; a length cap measured
                           over the whole entry with whitespace collapsed,
                           so rewrapping the same prose or splitting it into
                           sub-bullets buys no budget; plus an entry that

@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3626 tests**.
+Unit specs under `test/bats/unit/`: **3632 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3454,7 +3454,7 @@ ways this goes catastrophically wrong are all edits to the file:
 | `build.sh --target test-tools: the tooling image build is not a verification target` | The tooling image `just test` builds first runs no checks |
 | `build.sh smoke: base's own smoke harness IS a verification target` | base's `just test smoke` had the identical hole |
 | `build.sh --dry-run test: no build ran, so nothing is reported about one` | Nothing executed, so nothing is claimed about execution |
-### test/bats/unit/changelog_entry_lint_spec.bats (57)
+### test/bats/unit/changelog_entry_lint_spec.bats (61)
 
 | Test | Description |
 |------|-------------|
@@ -3513,8 +3513,12 @@ ways this goes catastrophically wrong are all edits to the file:
 | `_run_changelog_entry: FAILS when a category opens twice, naming both lines (#959)` | - |
 | `_run_changelog_entry: the SAME category in a different release block is fine (#959)` | - |
 | `_run_changelog_entry: the clean line says how many category headings it compared (#959)` | - |
+| `_run_changelog_entry: FAILS on an [Unreleased] heading outside the locked roster (#926)` | - |
+| `_run_changelog_entry: PASSES every heading in the locked roster (#926)` | - |
+| `_run_changelog_entry: a released section's off-roster heading is never checked (#926)` | - |
+| `_run_changelog_entry: FAILS when the documented roster disagrees with the code (#926)` | - |
 | `_run_changelog_entry: the real repo tree's [Unreleased] section is clean (#917)` | - |
-| `TEST.md's changelog-entry row names all three rules this lint enforces (#956)` | - |
+| `TEST.md's changelog-entry row names all four rules this lint enforces (#956)` | - |
 
 ### test/bats/unit/prev_release_gating_spec.bats (8)
 
@@ -4363,7 +4367,7 @@ rather than an assurance.
 | `_run_adr_structure: REFUSES when doc/adr/ does not exist (#994)` | - |
 | `_run_adr_structure: the REAL doc/adr/ passes today (#994)` | - |
 
-### test/bats/unit/release_notes_spec.bats (10)
+### test/bats/unit/release_notes_spec.bats (12)
 
 | Test | Description |
 |------|-------------|
@@ -4376,7 +4380,9 @@ rather than an assurance.
 | `release_notes.sh: a '## [' inside a fenced block does not end the section` | - |
 | `release_notes.sh: the compare-link block is not part of the notes` | - |
 | `release_notes.sh: a tag present in two series files is refused` | - |
-| `release_notes.sh: the live changelog tree answers for the current release` | - |
+| `release_notes.sh: a body over GitHub's release-body limit is refused, naming both numbers` | - |
+| `release_notes.sh: the version being released has exactly one section in the live tree` | - |
+| `release_notes.sh: a real released tag assembles from the live tree` | - |
 
 ### test/bats/unit/changelog_layout_lint_spec.bats (9)
 

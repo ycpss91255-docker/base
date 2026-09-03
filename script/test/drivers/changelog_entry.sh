@@ -183,6 +183,21 @@
 readonly _CHANGELOG_ENTRY_DIR='doc/changelog'
 readonly _CHANGELOG_ENTRY_HEADING='## [Unreleased]'
 
+# The locked category roster and the two places it has to agree with.
+#
+# The roster itself lives in ONE file, script/release/changelog_categories.sh,
+# because a list written in each consumer drifts one consumer at a time. Its
+# three readers are this lint, script/release/release_notes.sh (which orders
+# a release page's merged sections by it) and doc/changelog/CONVENTIONS.md
+# (which prints it for contributors). The first two SOURCE it, so they cannot
+# disagree; the third is prose and can, which is why this lint also compares
+# the printed roster against the sourced one. A roster nothing checks is the
+# defect the twenty headings came from.
+readonly _CHANGELOG_ENTRY_ROSTER='script/release/changelog_categories.sh'
+readonly _CHANGELOG_ENTRY_CONVENTIONS='doc/changelog/CONVENTIONS.md'
+readonly _CHANGELOG_ENTRY_ROSTER_BEGIN='changelog-categories: begin'
+readonly _CHANGELOG_ENTRY_ROSTER_END='changelog-categories: end'
+
 # Resolved by _changelog_entry_locate at the top of every run, so every
 # message below can still name a real file and line.
 _CHANGELOG_ENTRY_FILE=''
@@ -371,8 +386,51 @@ _changelog_entry_locate() {
   _CHANGELOG_ENTRY_FILE="${_found% }"
 }
 
+# _changelog_entry_documented_roster -- the category names
+# doc/changelog/CONVENTIONS.md prints between its roster markers, one per
+# line. A name is a backticked item in a top-level list there; anything else
+# between the markers is prose about the roster, not part of it.
+_changelog_entry_documented_roster() {
+  local _file="${1}" _line _in=0
+  while IFS= read -r _line; do
+    if [[ "${_line}" == *"${_CHANGELOG_ENTRY_ROSTER_BEGIN}"* ]]; then
+      _in=1
+      continue
+    fi
+    if [[ "${_line}" == *"${_CHANGELOG_ENTRY_ROSTER_END}"* ]]; then
+      _in=0
+      continue
+    fi
+    [[ "${_in}" -eq 1 ]] || continue
+    [[ "${_line}" =~ ^-\ \`([A-Za-z]+)\` ]] || continue
+    printf '%s\n' "${BASH_REMATCH[1]}"
+  done < "${_file}"
+}
+
+# _changelog_entry_in_roster <category> -- is the heading one of the seven?
+_changelog_entry_in_roster() {
+  local _want="${1}" _cat
+  for _cat in "${CHANGELOG_CATEGORIES[@]}"; do
+    [[ "${_cat}" == "${_want}" ]] && return 0
+  done
+  return 1
+}
+
 _run_changelog_entry() {
-  echo "--- Running changelog entry lint (length / duplicates) ---"
+  echo "--- Running changelog entry lint (length / duplicates / categories) ---"
+
+  # The roster, sourced rather than repeated. Missing is fatal: with no
+  # roster every heading is off-roster or none is, and either way the
+  # category rule below would be deciding on a list nobody wrote.
+  local _roster_abs="${REPO_ROOT}/${_CHANGELOG_ENTRY_ROSTER}"
+  if [[ ! -f "${_roster_abs}" ]]; then
+    _die ci_changelog_entry \
+      "'${_CHANGELOG_ENTRY_ROSTER}' not found under ${REPO_ROOT} -- the locked category set is defined there and this lint enforces it, so without it the category rule would pass over any heading at all."
+    return 1
+  fi
+  # shellcheck source=script/release/changelog_categories.sh
+  source "${_roster_abs}"
+
   _changelog_entry_locate || return 1
   local _abs="${REPO_ROOT}/${_CHANGELOG_ENTRY_FILE}"
 
@@ -637,13 +695,26 @@ _run_changelog_entry() {
   # inside a fenced example are inert here as everywhere else, and a
   # heading inside an allow region is suppressed like the entries are.
   local -A _heading_first=()
-  local _headings=0 _heading
+  local _headings=0 _heading _category
   for (( _i = _start; _i < _end; _i++ )); do
     [[ -n "${_fenced[${_i}]:-}" ]] && continue
     [[ -n "${_skip[${_i}]:-}" ]] && continue
     [[ "${_lines[_i]}" == '### '* ]] || continue
     _heading="$(_changelog_entry_collapse "${_lines[_i]}")"
     _headings=$(( _headings + 1 ))
+    # The locked roster. Twenty heading variants is what an unlocked axis
+    # produced, and each of them was one person's reasonable local choice:
+    # nothing was wrong at the point of writing, and the result is that a
+    # reader scanning for what broke has no heading to scan for. Scoped to
+    # [Unreleased] with everything else here -- a shipped `### Tests` is a
+    # fact about what shipped.
+    _category="${_heading#\#\#\# }"
+    if ! _changelog_entry_in_roster "${_category}"; then
+      printf '%s:%d: category heading outside the locked set -- %s (allowed: %s)\n' \
+        "${_CHANGELOG_ENTRY_FILE}" "$(( _i + 1 ))" "${_category}" \
+        "${CHANGELOG_CATEGORIES[*]}"
+      _violations=$(( _violations + 1 ))
+    fi
     if [[ -n "${_heading_first["${_heading}"]:-}" ]]; then
       printf '%s:%d: repeated category heading -- %s already opened at %s:%s\n' \
         "${_CHANGELOG_ENTRY_FILE}" "$(( _i + 1 ))" "${_heading}" \
@@ -654,12 +725,33 @@ _run_changelog_entry() {
     fi
   done
 
+  # Pass 5: the printed roster agrees with the enforced one. CONVENTIONS.md
+  # is what a contributor reads before writing an entry, so a rendering that
+  # has stopped agreeing with the code is not a stale doc -- it is a wrong
+  # answer delivered confidently to the one person asking the question.
+  local _conv_abs="${REPO_ROOT}/${_CHANGELOG_ENTRY_CONVENTIONS}"
+  if [[ ! -f "${_conv_abs}" ]]; then
+    printf '%s: missing -- the locked category set has to be written down where a contributor looks for it, or the roster exists only in the lint that refuses them\n' \
+      "${_CHANGELOG_ENTRY_CONVENTIONS}"
+    _violations=$(( _violations + 1 ))
+  else
+    local _documented _enforced
+    _documented="$(_changelog_entry_documented_roster "${_conv_abs}")"
+    _enforced="$(printf '%s\n' "${CHANGELOG_CATEGORIES[@]}")"
+    if [[ "${_documented}" != "${_enforced}" ]]; then
+      printf '%s: the roster it prints disagrees with %s. Documented: %s. Enforced: %s.\n' \
+        "${_CHANGELOG_ENTRY_CONVENTIONS}" "${_CHANGELOG_ENTRY_ROSTER}" \
+        "${_documented//$'\n'/ }" "${CHANGELOG_CATEGORIES[*]}"
+      _violations=$(( _violations + 1 ))
+    fi
+  fi
+
   if [[ "${_violations}" -gt 0 ]]; then
     # _die exits in the dispatcher; the explicit return keeps the
     # not-reached "clean" echo unreachable even where a caller stubs _die
     # to return instead of exit (e.g. the unit harness).
     _die ci_changelog_entry \
-      "${_violations} over-long entry / duplicate entry / repeated category heading / orphaned wrap line / unbalanced allow marker / unrecognised line in '${_CHANGELOG_ENTRY_HEADING}'. An entry is a top-level '- ' bullet at column 0 plus everything under it -- a '*' or '+' bullet, or an indented one, is content no entry measures and is refused rather than skipped. An entry answers what changed and whether it affects the reader, in at most ${_CHANGELOG_ENTRY_MAX} characters measured over the whole entry with whitespace collapsed -- so rewrapping it or splitting it into sub-bullets does not help. The reasoning, the alternatives and the measurements belong in the PR the entry already links to. A lead bullet repeating another word for word, and a '### <category>' heading opening twice in one release block, are refused naming BOTH lines: merging origin/main into a branch that appended to '${_CHANGELOG_ENTRY_HEADING}' keeps both sides without conflicting, so a duplicate lands with nothing to review -- fold the second copy into the first. A single word left alone on a continuation line above the rest of its paragraph is an entry that was edited and not re-wrapped -- re-flow it. A genuinely exceptional entry opts out by bracketing it with '<!-- ${_CHANGELOG_ENTRY_ALLOW_BEGIN} -- <why> -->' / '<!-- ${_CHANGELOG_ENTRY_ALLOW_END} -->'."
+      "${_violations} over-long entry / duplicate entry / repeated category heading / orphaned wrap line / unbalanced allow marker / unrecognised line in '${_CHANGELOG_ENTRY_HEADING}'. An entry is a top-level '- ' bullet at column 0 plus everything under it -- a '*' or '+' bullet, or an indented one, is content no entry measures and is refused rather than skipped. An entry answers what changed and whether it affects the reader, in at most ${_CHANGELOG_ENTRY_MAX} characters measured over the whole entry with whitespace collapsed -- so rewrapping it or splitting it into sub-bullets does not help. The reasoning, the alternatives and the measurements belong in the PR the entry already links to. A lead bullet repeating another word for word, and a '### <category>' heading opening twice in one release block, are refused naming BOTH lines: merging origin/main into a branch that appended to '${_CHANGELOG_ENTRY_HEADING}' keeps both sides without conflicting, so a duplicate lands with nothing to review -- fold the second copy into the first. A single word left alone on a continuation line above the rest of its paragraph is an entry that was edited and not re-wrapped -- re-flow it. A '### <category>' heading names one of ${CHANGELOG_CATEGORIES[*]} and nothing else -- twenty variants is what an unlocked axis produced, and migration instructions belong INSIDE the BREAKING entry they serve rather than in a parallel section a reader can miss; the roster is defined once in '${_CHANGELOG_ENTRY_ROSTER}' and printed for contributors in '${_CHANGELOG_ENTRY_CONVENTIONS}', and the two must agree. A genuinely exceptional entry opts out by bracketing it with '<!-- ${_CHANGELOG_ENTRY_ALLOW_BEGIN} -- <why> -->' / '<!-- ${_CHANGELOG_ENTRY_ALLOW_END} -->'."
     return 1
   fi
 
@@ -675,5 +767,5 @@ _run_changelog_entry() {
     fi
     return 0
   fi
-  echo "changelog entry lint: clean (${_entries} entries checked for length and for duplication, ${_headings} category headings compared, ${_suppressed} suppressed by an allow region, max ${_CHANGELOG_ENTRY_MAX} chars)"
+  echo "changelog entry lint: clean (${_entries} entries checked for length and for duplication, ${_headings} category headings checked against the ${#CHANGELOG_CATEGORIES[@]}-name roster, ${_suppressed} suppressed by an allow region, max ${_CHANGELOG_ENTRY_MAX} chars)"
 }
