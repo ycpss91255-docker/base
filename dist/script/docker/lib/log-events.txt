@@ -22,6 +22,9 @@ conf_unknown_arg
 conf_upsert_file_missing
 conf_local_created
 conf_write_shadowed
+config_components_provisioned
+config_components_absent
+config_files_unprovisioned
 deploy_local_override_refused
 deploy_local_override_accepted
 conf_upsert_newline_rejected
