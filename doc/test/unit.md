@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3624 tests**.
+Unit specs under `test/bats/unit/`: **3636 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -4264,7 +4264,7 @@ rather than an assurance.
 | `release-test-tools.yaml: the just smoke check asserts the version, not exit 0 (#948)` | - |
 
 
-### test/bats/unit/project_reclaim_spec.bats (32)
+### test/bats/unit/project_reclaim_spec.bats (41)
 
 | Test | Description |
 |------|-------------|
@@ -4300,8 +4300,17 @@ rather than an assurance.
 | `the retained-tag count is derived from the live checkouts, not a buried literal` | - |
 | `the retained-tag count is overridable by the environment` | - |
 | `the pinned tag set is the invoking tree plus every live checkout` | - |
+| `an image whose checkout is gone is retired` | - |
+| `an image whose checkout still exists is kept` | - |
+| `an image inside the grace window is kept` | - |
+| `the tooling image carries no checkout label and is never a candidate here` | - |
+| `an image whose path label is not absolute is left alone` | - |
+| `a dangling labelled image is left alone rather than removed by id` | - |
+| `an image whose checkout path contains a newline is read whole` | - |
+| `an unreadable image listing retires nothing` | - |
+| `a dry run names the image it would retire and removes nothing` | - |
 
-### test/bats/unit/reclaim_wiring_spec.bats (26)
+### test/bats/unit/reclaim_wiring_spec.bats (29)
 
 | Test | Description |
 |------|-------------|
@@ -4331,6 +4340,9 @@ rather than an assurance.
 | `just test stop asks the single producer for the name instead of deriving a second` | - |
 | `just test stop forwards its arguments to the wrapper` | - |
 | `just test stop hands compose every value compose.yaml demands` | - |
+| `compose.yaml records the checkout path on the image it builds` | - |
+| `the image stamp is refused rather than defaulted, like every other` | - |
+| `the tooling image is NOT stamped, because it is shared on purpose` | - |
 ### test/bats/unit/adr_structure_spec.bats (27)
 
 | Test | Description |

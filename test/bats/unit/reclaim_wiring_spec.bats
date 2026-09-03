@@ -405,3 +405,35 @@ STUB
   assert_success
   assert_output --partial "image=test-tools:onlyproducer"
 }
+
+# ── the per-checkout build image records its provenance too ───────────────
+#
+# `just test smoke` is the one verb whose product is an IMAGE rather than a
+# container: compose tags the harness build `<project>-smoke`, one per
+# checkout. Nothing reclaimed it -- not the orphan sweep, which removes
+# networks, and not the tooling-tag retention, which matches
+# `test-tools:<12hex>` by name. Stamping the same label the network carries
+# is what lets the same sweep collect it on the same proof.
+
+@test "compose.yaml records the checkout path on the image it builds" {
+  run grep -nE '^ +base\.checkout\.path: ' "${COMPOSE}"
+  assert_success
+  # Two stamps now, not one: the network compose creates and the image the
+  # smoke harness builds.
+  run grep -cE '^ +base\.checkout\.path: ' "${COMPOSE}"
+  assert_output "2"
+}
+
+@test "the image stamp is refused rather than defaulted, like every other" {
+  run bash -c "grep -A4 -E '^ {6}labels:' '${COMPOSE}' | grep -E 'base\.checkout\.path: \\\$\\{BASE_CHECKOUT_PATH:\\?'"
+  assert_success
+}
+
+@test "the tooling image is NOT stamped, because it is shared on purpose" {
+  # test-tools is content-hash tagged so ONE image serves every checkout
+  # whose tooling inputs hash alike. A checkout-path label there would name
+  # whichever invocation happened to build it, and collecting on that would
+  # delete an image live checkouts still resolve.
+  run bash -c "sed -n '/^  test-tools:/,/^  [a-z]/p' '${COMPOSE}' | grep -F 'base.checkout.path'"
+  assert_failure
+}
