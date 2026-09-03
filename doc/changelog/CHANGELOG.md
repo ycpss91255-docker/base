@@ -59,26 +59,14 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 
 ### Changed
 - **the container ENTRYPOINT is base's orchestrator; `script/entrypoint.sh` is a bringup it sources (closes #945)**
-  -- base's plumbing (the `logging.sh` / `watchdog.sh` sources and the final
-  `exec`) sat in a file `init.sh` seeds and the repo then OWNS, so no subtree
-  pull ever updated it. It now ships in the runtime helper directory as
-  `/usr/local/lib/base/entrypoint.sh` and arrives with every pull. **An
-  existing repo is unchanged**: it adopts the model by flipping `ENTRYPOINT`
-  and dropping the plumbing + `exec` from its bringup **in one commit** --
-  flipping first breaks it, because the orchestrator SOURCES the bringup.
-  `just upgrade` notices until then and rewrites neither file. A bringup
-  that sources a ROS overlay needs a third edit in that same commit --
-  `set +u` around the source -- because the orchestrator sources it under
-  `set -euo pipefail` while the pre-#945 seeded file set nothing, and the
-  unbound `AMENT_TRACE_SETUP_FILES` then kills the container before the
-  workload starts; the existing nounset-source migration now reads the
-  `ENTRYPOINT` as a second source of nounset, so it heals a repo that
-  flipped without it on the next upgrade. The shipped smoke baseline now
-  asserts BOTH halves of the entry point, so dropping the orchestrator's
-  COPY can no longer produce a container that will not start and a green
-  build -- guarded on the model, so an un-migrated repo running the
-  optional runtime-test bats smoke is not failed by a spec its Dockerfile
-  never opted into.
+  -- base's plumbing (the helper sources and the final `exec`) sat in a file
+  `init.sh` seeds and the repo then OWNS, so no pull ever updated it. It now
+  ships as `/usr/local/lib/base/entrypoint.sh` in the helper directory,
+  arriving with every pull. **An existing repo is unchanged**, `-test` stages
+  included. Adopting it is ONE commit: flip `ENTRYPOINT`, drop the plumbing
+  and `exec`, bracket any ROS source with `set +u` -- the orchestrator
+  sources the bringup under `set -euo pipefail`, which the seeded file never
+  set. Flipping alone breaks it; `just upgrade` notices until then.
 - **the dev bind and the deploy bake now cover every `config/<component>/`, not the literal `config/app` (closes #1000)**
   -- both halves tested one hardcoded directory name **no repo in the org
   has**, so the `[[ -d ]]` was always false: nothing mounted, nothing baked,
