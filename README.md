@@ -54,21 +54,25 @@ command runner) layered on Docker. Install both on the host before using the
 `just <verb>` entry point:
 
 - **Docker** + Docker Compose v2 (`docker compose`).
-- **just** -- any recent release works (the recipes use only variadic
-  parameters, supported since early versions). Install via a package manager
-  or the official installer:
+- **just** -- this repo PINS one version. The test-tools image, CI and the
+  `--bootstrap-just` installer all run that exact version, so a recipe behaves
+  the same in all three places; print it with
+  `./.base/dist/script/base/just-version.sh` (in this repo,
+  `./dist/script/base/just-version.sh`). Install exactly that version with the
+  official prebuilt-binary installer, which takes a version:
 
   ```bash
-  apt install just         # Debian 13+ / Ubuntu 24.04+
-  brew install just        # macOS / Linuxbrew
-  cargo install just       # from crates.io
-  # or the official prebuilt-binary installer:
+  pin="$(./.base/dist/script/base/just-version.sh)"
   curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh \
-      | bash -s -- --to ~/.local/bin
+      | bash -s -- --to ~/.local/bin --tag "${pin}"
   ```
 
-  See the [official install guide](https://github.com/casey/just#installation)
-  for every method. If `just` is unavailable each recipe has a raw fallback
+  A host package manager (`apt install just`, `brew install just`,
+  `cargo install just`) is a **fallback, not an equivalent**: it installs
+  whatever version its own registry carries, which may be many minors behind
+  the pin. See the [official install
+  guide](https://github.com/casey/just#installation) for every method. If
+  `just` is unavailable each recipe has a raw fallback
   (`./script/<verb>.sh`, `./.base/dist/script/base/upgrade.sh`) -- see
   [Quick Start](#quick-start).
 
@@ -163,7 +167,7 @@ flowchart LR
 | `script/test/drivers/` | One driver per tool — `bats.sh` / `shellcheck.sh` / `hadolint.sh` |
 | `script/test/lint_bare_stderr.sh` | Bare stderr lint checker |
 | `config/` | Container-internal shell configs (bashrc, tmux, terminator) |
-| `setup.conf` | Single per-repo runtime configuration (image / build / deploy / gui / network / volumes) |
+| `.setup.conf` | Single per-repo runtime configuration (image / build / deploy / gui / network / volumes) |
 | `dist/test/bats/smoke/` | Shared smoke tests + runtime assertion helpers (see below) |
 | `test/bats/unit/` | base self-tests, Unit level (bats + kcov) |
 | `test/bats/integration/` | base self-tests, Integration level (init/upgrade end-to-end) |
@@ -238,7 +242,7 @@ parameterized by `ARG BASE_IMAGE`.
 
 | Stage | Parent | Purpose | Shipped? |
 |-------|--------|---------|----------|
-| `sys` | `${BASE_IMAGE}` | User/group, sudo, timezone, locale, APT mirror | intermediate |
+| `sys` | `${BASE_IMAGE}` | User/group, sudo, timezone, locale, APT mirror, reproducibility manifest | intermediate |
 | `base` | `sys` | Development tools and language packages | intermediate |
 | `devel` | `base` | App-specific tools + `entrypoint.sh` + PlotJuggler (env repos) | **yes** (primary artifact) |
 | `test` | `devel` | Ephemeral: ShellCheck + Hadolint + Bats smoke (all from `test-tools:local`) | no (discarded) |
@@ -246,6 +250,32 @@ parameterized by `ARG BASE_IMAGE`.
 | `runtime` (optional) | `runtime-base` | Slim runtime image (application repos only) | yes, when enabled |
 
 Notes:
+- `BASE_IMAGE` defaults to the moving tag `ubuntu:24.04` and the apt layers on
+  top of it are unversioned, so the same template version does not reproduce
+  the same image over time. The drift is deliberate (consumers override
+  `BASE_IMAGE`, and a dev image must be able to take a security update without
+  a template release) but it is RECORDED: `sys` writes
+  `/usr/local/share/base/base-image.env` (the base reference, whether that
+  reference is digest-pinned, the digest the build was told to record, the
+  base OS) and
+  `/usr/local/share/base/packages.txt` (every package and its exact version,
+  rewritten after each apt layer), and labels the image
+  `org.opencontainers.image.base.name` / `.base.digest`. `runtime-base`
+  re-emits both, since it starts from a fresh `${BASE_IMAGE}` and inherits
+  nothing.
+- What the shipped default does **not** record: built as shipped, the manifest
+  says `base_image_pin=none` and leaves `base_image_digest` empty — nothing
+  inside a build can ask the daemon which image a tag resolved to. Pass
+  `BASE_IMAGE_DIGEST` (a record, not a pin) alongside `BASE_IMAGE` to fill it
+  in. Pinning `BASE_IMAGE` to a digest builds on its own and records
+  `base_image_pin=digest`, but still leaves that field empty: the annotation
+  is written by a `LABEL`, and a `LABEL` cannot branch on whether the
+  reference carries a digest — the expression that strips one returns the
+  whole reference when there is none — so it carries the build arg and
+  nothing else. Empty in both sinks is a truthful "not recorded", so the
+  build does not refuse it; what fails is a `BASE_IMAGE_DIGEST` naming a
+  different digest than the reference, caught by the shipped smoke spec in
+  the `-test` stage.
 - Repos that only ship a developer image (`env/*`) skip `runtime-base` /
   `runtime` — the section stays commented in `Dockerfile`.
 - `test` is always built from `devel`, so runtime assertions inside

@@ -1079,10 +1079,88 @@ EOF
   assert_success
   # Nothing may still name the deleted flat layout -- including the
   # logrotate / watchdog COPYs the dispatcher itself appends.
+  # Status pinned to grep's own no-match: assert_failure also accepts an
+  # exit 2 (unreadable file), which would pass this with nothing read.
   run grep -nE '\.base/(config|script|test)/' "${DF}"
-  assert_failure
+  [ "${status}" -eq 1 ]
   grep -Fq "COPY --chmod=0755 .base/dist/script/docker/runtime/logrotate.sh /usr/local/lib/base/logrotate.sh" "${DF}"
   grep -Fq "COPY --chmod=0755 .base/dist/script/docker/runtime/watchdog.sh /usr/local/lib/base/watchdog.sh" "${DF}"
+}
+
+# ── every COPY source the dispatcher leaves behind must RESOLVE ────────────
+#
+# The tests above each pin one rewrite by name. This one pins the property
+# those rewrites exist to deliver, and it is deliberately written so that a
+# path added or moved LATER is covered without anyone editing it:
+#
+#   * the subtree under test is the real shipped tree (`.base/dist` is a
+#     symlink to /source/dist), not a set of empty mkdir'd stand-ins, so
+#     "resolves" means the file base actually ships is there;
+#   * the population of paths checked is DERIVED from the migrated
+#     Dockerfile -- every `.base/...` token in a COPY source position,
+#     including the logrotate / watchdog COPYs the dispatcher itself
+#     appends -- never a list written out here. A migration that starts
+#     emitting a new path is checked the moment it emits it, and a shipped
+#     directory that moves fails this test without being named in it;
+#   * the derived population is asserted NON-EMPTY before it is walked, so
+#     a regex that stops matching fails loudly instead of passing with
+#     nothing to check.
+#
+# The fixture is the shape the six hand-listing consumers carry
+# (ai_agent / claude_code / codex_cli / gemini_cli, one spec per line;
+# ros1_bridge / urg_node_humble, two sources on one line) folded together
+# with the flat lint/config/logging COPYs every v0.41.0 consumer has.
+
+@test "apply_migrations leaves every .base COPY source resolvable in the shipped tree (#969)" {
+  assert_spec_subject "/source/dist/script/docker/lib/dockerfile_migrate.sh" \
+    "the migration list this spec drives"
+  # The subtree the upgrade just pulled, exactly as shipped.
+  mkdir -p "${TEMP_DIR}/.base"
+  ln -s /source/dist "${TEMP_DIR}/.base/dist"
+
+  cat > "${DF}" <<'EOF'
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE} AS devel
+COPY --chmod=0755 .base/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
+COPY --chown="${USER}":"${GROUP}" --chmod=0755 .base/config "${CONFIG_DIR}"
+
+FROM devel AS devel-test
+COPY .base/script/docker/*.sh /lint/
+COPY .base/script/docker/lib /lint/lib
+COPY .base/test/smoke/test_helper.bash /smoke_test/test_helper.bash
+COPY .base/test/smoke/script_help.bats /smoke_test/script_help.bats
+COPY test/smoke/ /smoke_test/
+EOF
+  run bash -c "$(_src); apply_migrations '${DF}'"
+  assert_success
+
+  local _tokens
+  _tokens="$(grep -E '^[[:space:]]*COPY[[:space:]]' "${DF}" \
+    | grep -oE '\.base/[A-Za-z0-9_.*/-]+')"
+  local _n
+  _n="$(printf '%s\n' "${_tokens}" | grep -c .)"
+  # Population assertion: eight COPY sources are reachable from this
+  # fixture (five written above plus the wrapper glob's rewrite and the two
+  # runtime siblings the dispatcher appends). Fewer means the extraction
+  # stopped matching, not that the Dockerfile got cleaner.
+  [ "${_n}" -ge 8 ]
+
+  local _tok
+  while IFS= read -r _tok; do
+    if [[ "${_tok}" == *'*'* ]]; then
+      compgen -G "${TEMP_DIR}/${_tok}" > /dev/null \
+        || fail "COPY source does not resolve in the shipped tree: ${_tok}"
+    else
+      [[ -e "${TEMP_DIR}/${_tok}" ]] \
+        || fail "COPY source does not resolve in the shipped tree: ${_tok}"
+    fi
+  done <<< "${_tokens}"
+
+  # And nothing may still name the pre-dist layout. Status pinned to grep's
+  # own no-match: an exit 2 (unreadable file) is a broken assertion, not a
+  # pass.
+  run grep -nE '\.base/(config|script|test)/' "${DF}"
+  [ "${status}" -eq 1 ]
 }
 
 # ── migration (logrotate-copy): logging.sh's logrotate.sh sibling ────────────

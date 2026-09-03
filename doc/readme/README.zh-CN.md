@@ -50,26 +50,28 @@ just test   # ShellCheck + Bats + Kcov
 just                       # 列出所有 recipe
 ```
 
-<!-- sync: prerequisites 71356c1216b6 f87cc1db3c62 -->
+<!-- sync: prerequisites 6af9b726b732 c7a487d342cb -->
 ## 必要条件
 
 容器操作透过 [`just`](https://github.com/casey/just)（command runner）搭配
 Docker 执行。使用 `just <verb>` 入口前，请先在 host 安装两者：
 
 - **Docker** + Docker Compose v2（`docker compose`）。
-- **just** -- 任何近期版本皆可（recipe 仅用到 variadic 参数，早期版本即支持）。
-  通过包管理器或官方安装程序安装：
+- **just** -- 本 repo 只钉住一个版本。test-tools image、CI 与
+  `--bootstrap-just` 安装程序都使用该版本，因此同一个 recipe 在三处行为一致；
+  用 `./.base/dist/script/base/just-version.sh` 打印版本（在本 repo 内为
+  `./dist/script/base/just-version.sh`）。请用可指定版本的官方预编译 binary
+  安装程序安装该版本：
 
   ```bash
-  apt install just         # Debian 13+ / Ubuntu 24.04+
-  brew install just        # macOS / Linuxbrew
-  cargo install just       # 从 crates.io
-  # 或官方预编译 binary 安装程序：
+  pin="$(./.base/dist/script/base/just-version.sh)"
   curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh \
-      | bash -s -- --to ~/.local/bin
+      | bash -s -- --to ~/.local/bin --tag "${pin}"
   ```
 
-  完整方式见[官方安装指南](https://github.com/casey/just#installation)。若
+  host 包管理器（`apt install just`、`brew install just`、
+  `cargo install just`）是 **fallback 而非等价选项**：它安装的是各自 registry
+  收录的版本，可能落后钉住的版本许多个 minor。完整方式见[官方安装指南](https://github.com/casey/just#installation)。若
   `just` 不可用，每个 recipe 都有 raw fallback（`./script/<verb>.sh`、
   `./.base/dist/script/base/upgrade.sh`）-- 见[快速开始](#快速开始)。
 
@@ -135,7 +137,7 @@ flowchart LR
     release_worker -->|"tar.gz + zip"| release["GitHub Release"]
 ```
 
-<!-- sync: whats-included 0ce60532434f 1551385f0eef -->
+<!-- sync: whats-included c1ac0bade5d6 a8d85c789c8d -->
 ### 包含内容
 
 | 文件 | 说明 |
@@ -168,7 +170,7 @@ flowchart LR
 | `script/test/drivers/` | 每个工具一个 driver — `bats.sh` / `shellcheck.sh` / `hadolint.sh` |
 | `script/test/lint_bare_stderr.sh` | Bare stderr lint 检查器 |
 | `config/` | Container 内部 shell 配置文件（bashrc、tmux、terminator） |
-| `setup.conf` | 单一 per-repo runtime 配置（image / build / deploy / gui / network / volumes） |
+| `.setup.conf` | 单一 per-repo runtime 配置（image / build / deploy / gui / network / volumes） |
 | `dist/test/bats/smoke/` | 共用 smoke 测试 + runtime assertion helpers（见下方） |
 | `test/bats/unit/` | base 自测，unit（bats + kcov） |
 | `test/bats/integration/` | base 自测，init/upgrade 端到端 |
@@ -194,7 +196,7 @@ flowchart LR
 | `dockerfile/Dockerfile.test-tools` | 预构建 lint/test 工具 image（shellcheck、hadolint、bats、bats-mock） |
 | `.github/workflows/` | 可重用 CI workflows（build + release） |
 
-<!-- sync: dockerfile-stages-convention cfa1ef92737a 5d296bbd0e54 -->
+<!-- sync: dockerfile-stages-convention e8e20b69013a 66b69b96c536 -->
 ### Dockerfile 分层（约定）
 
 下游 repo 遵循标准多阶段配置，定义于 `dist/dockerfile/Dockerfile`。
@@ -202,7 +204,7 @@ flowchart LR
 
 | 阶段 | 父阶段 | 用途 | 是否出货 |
 |------|--------|------|---------|
-| `sys` | `${BASE_IMAGE}` | 用户/用户组、locale、时区、APT mirror | 中间 |
+| `sys` | `${BASE_IMAGE}` | 用户/用户组、locale、时区、APT mirror、可复现性 manifest | 中间 |
 | `devel-base` | `sys` | 开发工具与语言套件 | 中间 |
 | `devel` | `devel-base` | 应用专属工具、entrypoint、config 分层 | **是**（主要产物） |
 | `devel-test` | `devel` | ShellCheck + Hadolint + Bats smoke（短暂：测试后丢弃） | 否（build 完即丢） |
@@ -211,6 +213,25 @@ flowchart LR
 | `runtime-test`（可选） | `runtime` | runtime 安装检查 smoke（短暂） | 否 |
 
 说明：
+- `BASE_IMAGE` 默认是会移动的 tag `ubuntu:24.04`，其上安装的 apt 套件也没有版本，
+  所以同一个 template 版本在不同时间并不会重现同一个 image。这个漂移是刻意的
+  （consumer 本来就会覆写 `BASE_IMAGE`，而 dev image 必须能在不发 template
+  release 的情况下拿到安全性更新），但它会被「记录」下来：`sys` 会写出
+  `/usr/local/share/base/base-image.env`（base reference、该 reference 是否
+  digest-pinned、build 被告知要记录的 digest、base OS）与 `/usr/local/share/base/packages.txt`
+  （每个套件与其确切版本，每个 apt layer 之后重写一次），并标上
+  `org.opencontainers.image.base.name` / `.base.digest` label。`runtime-base`
+  因为是全新的 `${BASE_IMAGE}`、什么都不继承，所以会再写一次。
+- 出货默认「没有」记录到的部分：照默认 build 出来的 manifest 会是
+  `base_image_pin=none`、`base_image_digest` 留空——build 内部无法向 daemon
+  询问某个 tag 解析到哪个 image。要补上就在 `BASE_IMAGE` 之外再传
+  `BASE_IMAGE_DIGEST`（那是「记录」不是 pin）。把 `BASE_IMAGE` pin 成 digest
+  本身就 build 得起来，也会记成 `base_image_pin=digest`，但那个字段仍会留空：
+  annotation 是由 `LABEL` 写的，而 `LABEL` 无法依「reference 有没有带 digest」
+  分支——同一个去头表达式在没有 digest 时会返回整个 reference——所以它只带
+  build arg。两个 sink 同时留空是诚实的「未另外记录」，build 不会因此拒绝；
+  真正会失败的是 `BASE_IMAGE_DIGEST` 指到与 reference 不同的 digest，由出货的
+  smoke spec 在 `-test` stage 挡下。
 - 只出货 developer image 的 repo（`env/*`）会跳过 `runtime-base` /
   `runtime`——该 section 在 `Dockerfile` 保持注释状态。
 - `devel-test` 总是从 `devel` 继承，所以 `test/bats/smoke/<repo>_env.bats` 中的

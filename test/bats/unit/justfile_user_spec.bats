@@ -10,8 +10,10 @@
 # They skip when the pinned TEST_TOOLS_IMAGE predates `just` being baked
 # into the tooling image -- a capability of the image, not of this repo.
 # The repo-side half is pinned fail-closed in template_spec (the
-# `apk add ... just` line) plus the release-test-tools smoke check, so a
-# removal fails there instead of silently emptying this file. Static
+# pinned fetch of `just`) plus the release-test-tools smoke check, which
+# now compares the image's version string rather than its exit status, so
+# a removal OR a stale version fails there instead of silently emptying
+# this file. Static
 # content lives in justfile_spec.bats.
 #
 # Strategy mirrors the old makefile_user_spec: sandbox a repo with the
@@ -26,10 +28,12 @@ setup() {
   # not an artifact of this repo, and TEST_TOOLS_IMAGE can be pinned to
   # a published test-tools tag older than the one that first shipped it.
   # Dropping it from the image is NOT what this skip covers -- the
-  # `apk add ... just` line is asserted unconditionally by template_spec,
-  # so a removal fails there rather than going quiet here.
+  # pinned fetch of `just` is asserted unconditionally by template_spec,
+  # so a removal fails there rather than going quiet here. Staleness is a
+  # different question and is NOT skipped: just_runner_version_spec
+  # compares the image's version against the declaration, fail-closed.
   command -v just >/dev/null 2>&1 \
-    || skip "this test-tools image has no just (older pinned TEST_TOOLS_IMAGE); the apk-add line itself is pinned in template_spec"
+    || skip "this test-tools image has no just (older pinned TEST_TOOLS_IMAGE); the pinned fetch itself is asserted in template_spec"
 
   # shellcheck disable=SC2154
   TMP_REPO="$(mktemp -d)"

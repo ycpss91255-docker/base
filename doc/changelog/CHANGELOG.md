@@ -69,6 +69,13 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   project is empty. `docker exec <fixed-name>` is gone; ask `just exec`.
   The field-deploy bundle (`just docker setup deploy`) still bakes one;
   the shipped Dockerfile no longer lists the field.
+- **the actionlint gate moves 1.7.7 -> 1.7.12 (refs #950)** -- five patches
+  and fourteen months behind, on the linter that gates every workflow change
+  here, because dependabot parses `uses:` refs and this is an image named
+  inside a `run:` step. Measured before landing: no new findings against the
+  whole workflows tree. The `-ignore` workaround stays --
+  `github.job_workflow_sha` is still missing from actionlint's github-context
+  type at 1.7.12.
 
 ### Added
 - **`init.sh --list-installed-paths`: the installer now states which files it puts into a consumer (refs #927)** -- `.base` files reach a repo only through an upgrade's resync, so "which release is this repo on" was answerable while "did that release's files actually arrive" was not; the base-version monitor sat at zero adoption, unreported, for months. The manifest is read from init.sh instead of copied, and an integration spec diffs it against a real resync in both directions -- which immediately caught `.setup.conf` missing from the first draft. Affects anyone auditing `.base` delivery across repos.
@@ -88,6 +95,18 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   per-line allow opts out, and either must state a reason.
 
 - **`changelog-entry`: an `[Unreleased]` entry over 700 characters fails the lint (closes #917)** -- entries had grown into pasted PR bodies, up to 6342 characters in one unbroken bullet. The measure is the whole entry with whitespace collapsed, so rewrapping the prose or splitting it into sub-bullets buys no budget; released sections are never scanned. The convention now sits at the top of this file, above `[Unreleased]`. Affects anyone adding an entry: `just test` and `lint-static (changelog-entry)` both fail on an over-long one, and a genuinely exceptional entry opts out with an allow region.
+
+- **a generated workflow's action refs are held in lockstep with this repo's
+  own (refs #950)** -- `init.sh` writes a workflow into every downstream repo
+  from a heredoc, and dependabot reads workflow FILES, so its
+  `uses: actions/checkout@v7` was watched by nothing: `action-ref-agreement`
+  compares call sites within `.github/workflows/` only, and no dependabot
+  config is generated downstream. It reads v7 only because it was authored the
+  day after that bump. A new `generated-workflow-actions` lint fails when the
+  generated ref disagrees with `.github/workflows/`, so the next bump reaches
+  both or fails the PR. The `docker` ecosystem is NOT added here: it stays
+  open under #946.
+
 - **the README's static `Coverage-Kcov` badge is replaced by a committed SVG carrying the release's measured line rate (closes #952)** -- the gate computed the figure on every run and threw it away, so the badge read the same string whatever coverage did. `just release coverage-badge` renders `doc/badge/coverage.svg` from the local kcov reports, stamped `coverage vX.Y.Z`, and refuses unless `coverage/.head-sha` says the WHOLE suite measured HEAD. That scope is DERIVED from what ran: `coverage/timings.tsv` against ONE spec roster, which the run, the shard partition and the certificate all read, so a run narrowed by anything cannot call itself whole. Hand-run; wiring is docker_harness#289.
 
 - **`errexit-bang`: a bats assertion that cannot fail its test now fails the
@@ -222,6 +241,51 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 - **the post-exec / post-setup hook now fires when the wrapped command fails (refs #956)** -- under `set -euo pipefail` the unguarded `compose exec` in `exec.sh` and the unguarded subcommand dispatch in `setup.sh` aborted `main` before the hook line, so a repo defining a hook for final reporting got it on every run except the one worth reporting on. `exec.sh` captures with `|| _rc=$?`, as `run.sh` already does around a compose passthrough; `setup.sh` registers the hook on the transcript `_atexit` trap, because the same guard there would disable errexit inside every handler. A failing hook still overrides the rc.
 - **a conflicting `git subtree pull` no longer leaves the repo mid-merge (refs #956)** -- the rollback trap is armed only once the pull has committed and cannot be armed earlier, so a pull that clashed with local edits inside `.base/` aborted leaving `MERGE_HEAD`, a staged `.base/.version` and conflict markers -- met one run later as the next upgrade's refusal to start, on a state nobody chose. `upgrade.sh` now captures the pull's status, aborts the merge it left, and fails naming the clash.
 - **a failing post-setup hook no longer costs the run its transcript (refs #956)** -- moving the hook onto the EXIT trap put its `exit` inside that trap, which ends the shell before the transcript is finalized: the run left an unstripped `log/setup/<ts>-<id>.log.raw`, no `transcript_complete` line, `latest.log` still naming the previous run and no retention prune -- on exactly the failing run worth reading (ADR-00000007). Callbacks now record their exit code with `_atexit_set_exit_code` and the handler exits with it after finalize, so the hook's rc still wins and the transcript survives.
+- **`just` had four provenance paths and no shared version (closes #948)** --
+  the tooling image `apk add`ed alpine's package, CI's `setup-just` took
+  whatever released that day, `--bootstrap-just` fetched the latest and the
+  install hint offered apt as an equal: 37 minors across the only control
+  surface this repo has. `ARG JUST_VERSION` in
+  `dockerfile/Dockerfile.test-tools` is the one declaration; CI, the bootstrap,
+  the hint and the release smoke check READ it. A `just-provenance` lint
+  derives its sites from the tree, so a fifth path cannot land unpinned, and a
+  CI job pulling `test-tools:main` rebuilds when that image's `just` disagrees
+  with the pin rather than reddening an unrelated PR.
+
+- **the least-privilege guards now query a YAML parser instead of matching
+  indentation (refs #957)** -- four legal workflow shapes made a job or a
+  grant INVISIBLE to them, which is the fail-open direction for a scan whose
+  whole assertion is that it came back empty: a trailing comment on a job
+  key, a trailing comment or a quoted level on a permission entry, a job id
+  not starting lowercase, and `"on":` or flow style. Each kept the guards
+  green over a live `packages: write`. `yq` (Alpine's `yq-go`) joins the
+  tooling image and an unparsable file now fails closed. The publish,
+  release and multi-distro workers gained the exact-set pin their prose
+  already promised.
+- **no job of any reusable worker inherits the caller's whole token grant
+  (closes #957)** -- eight jobs across four `workflow_call` workflows
+  declared no `permissions:`, so each ran with the CALLING repo's grant.
+  Every job now declares its own, asserted as an exact entry set over a job
+  list DERIVED from each file, so a job added later is scanned rather than
+  exempted. No build-worker job names `packages: write` -- a called job
+  asking for a scope its caller did not grant fails the run outright -- so
+  `cache_backend: registry` is unreachable, and the preflight hint says so.
+  The seeded `main.yaml` moves `contents: write` onto `call-release`, which
+  reaches newly created repos only.
+- **a worker's grants pin must be applied to that worker, and be a CALL
+  (refs #957)** -- which scopes a worker's jobs may name is delegated to
+  that worker's own spec. That delegation was first an enumeration of four
+  specs; then two substring questions of one file; then any occurrence of
+  `yaml_permission_surface` followed by a token, which a path inside a
+  message string or a heredoc fixture also answers -- certifying a worker
+  no spec reads. Call sites are now lexed with the shell's quoting,
+  heredoc and comment rules, and the guard is named for READING a surface,
+  which is what a call-site scan can check. `code_grep` reports an
+  unreadable subject on stderr, keeping its stdout grep-shaped.
+- **the README file table named `setup.conf`, a file that has not existed since
+  the rename to `.setup.conf` (refs #957)** -- one row of "What's included" in
+  all four READMEs; the prose around it was already dotted. Every row of that
+  table is now pinned to a path that exists.
 - **the smoke-spec COPY heal now covers the hand-listed spelling (refs
   #928)** -- the dist relocation moved base's smoke specs out of
   `.base/test/smoke/`, and the migration recognised only the wholesale
@@ -335,8 +399,40 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   logging.<typo>` is pinned to the KEY error KIND, and the dump specs pin the
   section header. Test-only.
 - **a failed `init.sh` resync no longer leaves the consumer's files half-rewritten (closes #937)** -- the resync rewrites the `Dockerfile`, `.gitignore` and the wrapper symlinks inside an upgrade that has already committed the pull, and whether a partial rewrite was undone depended on the caller: the current `upgrade.sh` has a trap, the vendored `v0.41.0` copy every deployed repo runs has none. `init.sh` now snapshots the roots it writes into -- a hand-written `.env` included, which no `git reset` could return -- and restores them itself, staged index removals and all, without touching history. A restore that does not fully work exits 1 naming the tree as NOT restored.
-- **260 tests no longer pass when the artifact they assert on is deleted (closes #953)** -- 54 guards across 14 spec files opened with `[[ -f "${SUBJECT}" ]] || skip`, which cannot tell "absent by design" from "renamed and nobody noticed" and answers the second with a green run: renaming `build-worker.yaml` turned 52 assertions into `ok ... # skip` and the suite still exited 0. All 54 guards now fail through `assert_spec_subject`, naming the path. Every surviving `|| skip` guards a capability and now has a fail-closed counterpart -- the last was the tooling image's compose plugin, now pinned statically. The invariant itself proves it scanned, and knows the `[ -f ]` / `test -f` spellings.
+
+- **the shipped Dockerfile now records what it was built from (closes #951)** --
+  `BASE_IMAGE` defaults to the moving `ubuntu:24.04` and the apt layers carry
+  no versions, so two builds of one template version differed silently. The
+  default stays moving; every image now writes
+  `/usr/local/share/base/base-image.env` and `packages.txt` after each apt
+  layer and carries the OCI `base.name` / `base.digest` labels. A `LABEL`
+  cannot branch, so the annotation passes `BASE_IMAGE_DIGEST` through instead
+  of deriving one. A digest-pinned `BASE_IMAGE` alone builds -- no stage
+  refuses it, `runtime-base` included -- leaving that field empty in both
+  sinks; only a contradicting digest arg fails, in `-test`.
+
+- **a spec no longer passes when the artifact it asserts on is deleted (closes #953)** -- 54 guards across 14 spec files opened with `[[ -f "${SUBJECT}" ]] || skip`, which cannot tell "absent by design" from "renamed and nobody noticed" and answers the second with a green run: renaming `build-worker.yaml` turned 52 assertions into `ok ... # skip` and the suite still exited 0. All 54 guards now fail through `assert_spec_subject`, naming the path. Every surviving `|| skip` guards a capability and now has a fail-closed counterpart -- the last was the tooling image's compose plugin, now pinned statically. The invariant itself proves it scanned, and knows the `[ -f ]` / `test -f` spellings.
 - **the shard-balance guard failed CI on a partition that was fine, and could never fail locally (closes #940)** -- its total was summed over `test/bats/unit/` while `_shard_unit_files` partitions unit **+** integration, so the average was short by every integration spec, condemning a healthy partition. A latent second defect: it counted `@test` lines while the partitioner weighs recorded seconds, which collapse to one number locally. The probe now measures through `_spec_weight` against the bound no partition can beat, over the eight shards CI runs rather than four; synthesised weights drive skewed distributions locally, and a case asserts the probe's total still spans the whole pool.
+- **three test guards now cover the property they are named for (refs #962)** --
+  the fail-open `|| skip` invariant knew `[[ -f ]]`, `[ -f ]` and `test -f`
+  only, so a negated check, an `-e` / `-s` / `-d`, a `-L` on a wrapper symlink,
+  or the two-line form every surviving skip in this suite uses all stayed
+  green. Any one-letter unary test now matches, and the scan rejoins a
+  continuation before matching; widening it found two live
+  `[[ -d "${WF_DIR}" ]] || skip` guards, now fail-closed.
+  `self_test_yaml_spec`'s block extractors read the shared comment-stripped
+  view, so a comment in `ci-rollup` no longer satisfies an assertion about
+  what the job runs.
+- **three template guards passed while the property they name was broken
+  (refs #951)** -- the apt-layer scanner read a `<<<` here-string as a heredoc
+  (awk matches leftmost, so it found a `<<` at the second `<`) and swallowed
+  every layer below it into one block, hiding an out-of-order manifest refresh;
+  the case above it asserted a block count, which is the same number either
+  way. The disproven-claim sweep derived its directory roots but named its only
+  top-level file, exempting `init.sh`, `justfile`, `compose.yaml` and
+  `CONTEXT.md`. Its marker guard counted `begin` against `end`, calling an
+  inverted pair balanced while the file tail is excised anyway.
+
 ### Documentation
 - **ADR-00000027: a Z release is cut automatically and one per bug, X/Y stay
   the maintainer's, and only X/Y fans out** -- policy behind `semver-bump` /

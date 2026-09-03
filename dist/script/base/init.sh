@@ -50,6 +50,11 @@ readonly TEMPLATE_REL
 
 # shellcheck source=dist/script/base/upstream.sh
 source "${SCRIPT_DIR}/upstream.sh"
+# The one definition of the pinned `just` runner version, shared with the
+# tooling image and the CI e2e job. Sourced (not executed) so the hint and
+# the bootstrap below read the same value from one place.
+# shellcheck source=dist/script/base/just-version.sh
+source "${SCRIPT_DIR}/just-version.sh"
 # shellcheck disable=SC1091
 source "${TEMPLATE_DIR}/dist/script/docker/lib/gitignore.sh"
 # shellcheck disable=SC1091
@@ -401,6 +406,19 @@ KEEP
   _log "  Created test/bats/smoke/shared/${name}_env.bats"
 
   # .github/workflows/main.yaml
+  #
+  # Emitted HERE and nowhere else, so the job-scoped grant below reaches
+  # newly created repos only, and that was checked rather than assumed.
+  # An existing repo's main.yaml is its own hand-maintained file (extra
+  # jobs, a pinned tag), so init deliberately never rewrites it -- and the
+  # never-overwrite shape used for base-version-monitor.yaml would be a
+  # no-op on a repo that already has the file, which every already-seeded
+  # downstream does. This function is also unreachable through
+  # bootstrap.sh today: the template ships a Dockerfile, so init takes the
+  # existing-repo branch instead. Re-granting an already-seeded downstream
+  # is delivery work tracked on its own, not this seed's; both halves of
+  # the boundary are pinned in
+  # test/bats/integration/init_new_repo_spec.bats.
   mkdir -p .github/workflows
   cat > .github/workflows/main.yaml <<YAML
 name: Main CI/CD
@@ -413,16 +431,13 @@ on:
   pull_request:
   workflow_dispatch:
 
-# call-release uses softprops/action-gh-release@v2 which needs
-# contents: write to create a GitHub Release. Reusable workflow
-# permissions intersect with the caller's, and GitHub Actions'
-# default GITHUB_TOKEN is read-only, so this grant must live here
-# (release-worker.yaml declaring it upstream is not enough).
-permissions:
-  contents: write
-
 jobs:
   call-docker-build:
+    # The build worker checks out and builds; it pushes no image and
+    # touches no package, so the build call stays read-only. A called
+    # workflow can only narrow this grant, never widen it.
+    permissions:
+      contents: read
     uses: ${BASE_UPSTREAM_SLUG}/.github/workflows/build-worker.yaml@${ref}
     with:
       image_name: ${name}
@@ -430,6 +445,15 @@ jobs:
   call-release:
     needs: call-docker-build
     if: startsWith(github.ref, 'refs/tags/')
+    # call-release uses softprops/action-gh-release@v2, which needs
+    # contents: write to create a GitHub Release. A called workflow can
+    # only narrow the grant it is handed, and GitHub Actions' default
+    # GITHUB_TOKEN is read-only, so this grant must live here
+    # (release-worker.yaml declaring it upstream is not enough). It sits on
+    # this job rather than at the workflow scope so call-docker-build does
+    # not inherit a write it never uses.
+    permissions:
+      contents: write
     uses: ${BASE_UPSTREAM_SLUG}/.github/workflows/release-worker.yaml@${ref}
     with:
       archive_name_prefix: ${name}
@@ -1115,16 +1139,40 @@ _just_install_hint() {
   # Single source of truth for the install pointer, mirroring README
   # "Prerequisites". Terse on purpose: the README carries the full method
   # list, this is just enough to unblock the user at the moment it matters.
+  #
+  # It used to print apt / brew / cargo / the installer as a flat menu of
+  # equivalent options. They are not equivalent: measured 2026-08-28,
+  # `apt install just` on Ubuntu 24.04 gave 1.21.0 while the installer
+  # fetched 1.52.0 and CI ran 1.58.0. So the hint now names the version
+  # this repo PINS and points first at the one method that can install
+  # exactly it.
+  #
+  # A hint must never abort init, so an unresolvable pin degrades to a
+  # placeholder rather than propagating a failure out of a warning path.
+  local _pin
+  _pin="$(_just_pinned_version 2>/dev/null)" || _pin="<unresolved>"
+  cat <<EOF
+  just is NOT auto-installed by init.sh. This repo PINS just ${_pin} --
+  the test-tools image, CI and the bootstrap below all run that exact
+  version, so a recipe behaves the same everywhere. Install it with the
+  official prebuilt-binary installer, which takes the version:
+    curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to ~/.local/bin --tag ${_pin}
+    # or let init bootstrap it for you (opt-in): just base init --bootstrap-just
+EOF
+  # just-provenance: advisory-begin -- a host package manager installs
+  #   whatever version its own registry carries and cannot be pointed at
+  #   the pin, so these three are printed as a fallback and the text says
+  #   so. Listing them as pinnable sites would be a lie; muting them
+  #   silently is how they came to read as equivalents in the first place.
   cat <<'EOF'
-  just is NOT auto-installed by init.sh. Install it on the host, e.g.:
+  A host package manager is a FALLBACK, not an equivalent -- it installs
+  whatever version it carries, which may be many minors behind the pin:
     apt install just      # Debian 13+ / Ubuntu 24.04+
     brew install just     # macOS / Linuxbrew
     cargo install just    # from crates.io
-    # or the official prebuilt-binary installer:
-    curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to ~/.local/bin
-    # or let init bootstrap it for you (opt-in): just base init --bootstrap-just
   See README "Prerequisites" or https://github.com/casey/just#installation.
 EOF
+  # just-provenance: advisory-end
 }
 
 _preflight_just() {
@@ -1150,12 +1198,21 @@ _bootstrap_just() {
     _log "just is already installed ($(command -v just)); nothing to bootstrap"
     return 0
   fi
+  # --tag, not "whatever is latest". Without it the installer fetches the
+  # newest release of the day, which is how this path came to disagree
+  # with the tooling image and with CI; and unlike the hint above, this
+  # one INSTALLS, so an unresolvable pin is a hard error rather than a
+  # placeholder.
+  local _pin
+  if ! _pin="$(_just_pinned_version)"; then
+    _error "cannot resolve the pinned just version from ${TEMPLATE_DIR}/${_JUST_VERSION_DECL_REL} -- refusing to install an unpinned runner"
+  fi
   local _bindir="${HOME}/.local/bin"
   _log_warn init init_bootstrap_just \
-    "display=Bootstrapping just via the official installer into ${_bindir} (opt-in)."
+    "display=Bootstrapping just ${_pin} via the official installer into ${_bindir} (opt-in)."
   mkdir -p "${_bindir}"
   if ! curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh \
-      | bash -s -- --to "${_bindir}"; then
+      | bash -s -- --to "${_bindir}" --tag "${_pin}"; then
     _error "just bootstrap failed -- install manually (see README Prerequisites)"
   fi
   _log "Installed just to ${_bindir}"
@@ -1229,9 +1286,11 @@ Options:
                      audit reads this instead of keeping its own copy.
   --bootstrap-just   Opt-in: install the `just` runner via the official
                      prebuilt-binary installer into ~/.local/bin before
-                     init proceeds. Without this flag, a missing `just`
-                     only triggers a non-fatal warning (never auto-
-                     installed). No-op when `just` is already on PATH.
+                     init proceeds, at the version this repo pins (the
+                     same one the test-tools image and CI run). Without
+                     this flag, a missing `just` only triggers a non-fatal
+                     warning (never auto-installed). No-op when `just` is
+                     already on PATH.
 
 By default init prints a one-line warning when `just` is not on PATH
 (`just` is the user-facing entry point, ADR-00000005); init still

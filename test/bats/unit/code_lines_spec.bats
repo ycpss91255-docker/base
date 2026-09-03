@@ -2,7 +2,8 @@
 #
 # code_lines_spec.bats -- unit tests for the comment-stripped file views in
 # test/bats/unit/test_helper.bash (strip_comments / only_comments /
-# code_lines / code_grep / yaml_job_{text,lines} / yaml_top_{text,lines}).
+# code_lines / code_grep / yaml_job_{text,lines} / yaml_top_{text,lines}),
+# and for yaml_step_id_for, the step-scoped reader built on top of them.
 #
 # These helpers exist because a structural spec that greps a WHOLE file lets
 # a string appearing only in a COMMENT satisfy an assertion about CODE, and
@@ -66,6 +67,41 @@ jobs:
 
   other:
     runs-on: ubuntu-latest
+YAML
+
+  STEPS="${SCRATCH}/steps.yaml"
+  cat > "${STEPS}" << 'YAML'
+jobs:
+  acceptance:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve the pin
+        id: resolver
+        run: |
+          printf 'version=%s\n' "$(./accessor.sh)"
+      - name: Consume it
+        uses: some/setup-action@v4
+        with:
+          version: ${{ steps.resolver.outputs.version }}
+      # A comment paragraph that names ./commented-only.sh, which no step
+      # in this job runs.
+      - name: A later step that carries no id
+        run: |
+          echo "a later mention of ./accessor.sh"
+      - name: Nested lists live INSIDE a step
+        id: nested_owner
+        uses: other/action@v4
+        with:
+          args:
+            - --marker
+            - ./nested-only.sh
+
+  other:
+    runs-on: ubuntu-latest
+    steps:
+      - name: A step in a different job
+        id: elsewhere
+        run: ./other-job-only.sh
 YAML
 }
 
@@ -172,6 +208,92 @@ DOCKERFILE
   assert_output '2'
 }
 
+@test "code_grep: a subject it cannot read exits 2, not grep's no-match status" {
+  # The two readings a caller must never confuse. `grep` prints the same
+  # nothing for "this file does not contain the string" and for "there was
+  # no file", and the whole pipeline's status is grep's -- so a subject that
+  # was renamed away arrives at the caller as status 1 and is counted as a
+  # file that simply lacks the string. Every least-privilege guard in this
+  # tree branches on exactly that status, so the split has to be real:
+  # 1 is a readable subject with no match, 2 is a subject that was not read.
+  run code_grep -F 'MARKER: keep-me' "${SCRATCH}/no-such-file.yaml"
+  [ "${status}" -eq 2 ] \
+    || fail "code_grep exited ${status} for a missing file; expected 2, and 1 would be read as 'no match'"
+}
+
+@test "code_grep: a directory named as the subject exits 2, not 1" {
+  # The sibling shape of the same mistake: the redirection fails rather than
+  # the file being absent, and bash's status for that is 1 as well.
+  run code_grep -F 'MARKER: keep-me' "${SCRATCH}"
+  [ "${status}" -eq 2 ] \
+    || fail "code_grep exited ${status} for a directory; expected 2, and 1 would be read as 'no match'"
+}
+
+@test "code_grep: an unreadable subject reports on stderr, leaving the grep-shaped output empty" {
+  # code_grep's stdout is DATA -- lines, or a count under `-c` -- and every
+  # call site reads it as such: `assert_output '2'`, an arithmetic
+  # comparison, a `| head -1`. A `BUG:` line printed there arrives as a
+  # match that is not a match and as a count that is not a number. The
+  # status (2) is what says the subject was not read, and the reason
+  # belongs on stderr next to it.
+  #
+  # code_lines is deliberately the other way round: its stdout IS its
+  # report, and its callers print what they captured. So the split is
+  # written here in both directions rather than left to whoever reads one
+  # of them next.
+  run --separate-stderr code_grep -c 'MARKER: keep-me' "${SCRATCH}/no-such-file.yaml"
+  [ "${status}" -eq 2 ] \
+    || fail "code_grep exited ${status} for a missing file; expected 2"
+  assert_output ''
+  [[ "${stderr}" == *'BUG:'* ]] \
+    || fail "expected a BUG: line on stderr, got: ${stderr}"
+}
+
+@test "code_grep: a directory subject reports the same way, on stderr" {
+  # The sibling shape of the same statement: the redirection fails rather
+  # than the file being absent, and a caller counting matches must not
+  # receive prose either way.
+  run --separate-stderr code_grep -c 'MARKER: keep-me' "${SCRATCH}"
+  [ "${status}" -eq 2 ] \
+    || fail "code_grep exited ${status} for a directory; expected 2"
+  assert_output ''
+  [[ "${stderr}" == *'BUG:'* ]] \
+    || fail "expected a BUG: line on stderr, got: ${stderr}"
+}
+
+@test "code_lines: an unreadable subject keeps its BUG line on stdout" {
+  # The complement, pinned so the change above cannot spread by symmetry.
+  # code_lines is the reporting view: `spec_permission_surface_subjects`
+  # captures it and PRINTS what it captured when the status says the file
+  # was not read, which is how the reason reaches a caller reading a
+  # pipeline where the status is already gone.
+  run --separate-stderr code_lines "${SCRATCH}/no-such-file.yaml"
+  [ "${status}" -eq 2 ] \
+    || fail "code_lines exited ${status} for a missing file; expected 2"
+  assert_output --partial 'BUG:'
+}
+
+@test "code_lines: a subject it cannot read exits 2, not 1" {
+  # The other emitter of the same status. code_grep reads code_lines', so
+  # both have to draw the line in the same place or the pipeline re-merges
+  # the two readings one level down.
+  run code_lines "${SCRATCH}/no-such-file.yaml"
+  [ "${status}" -eq 2 ] \
+    || fail "code_lines exited ${status} for a missing file; expected 2"
+}
+
+@test "code_lines: a readable file with no code line exits 1, not 2" {
+  # The complement, so the fix cannot be "return 2 whenever nothing came
+  # back". A file that is all comments HAS been read, and its emptiness is
+  # a fact about the file rather than a failed scan.
+  local _all_comments="${SCRATCH}/comments-only.yaml"
+  printf '# only prose\n\n# and more prose\n' > "${_all_comments}"
+  run code_lines "${_all_comments}"
+  [ "${status}" -eq 1 ] \
+    || fail "code_lines exited ${status} for an all-comment file; expected 1"
+  assert_output ''
+}
+
 # ── only_comments: the mirror ────────────────────────────────────────
 
 @test "only_comments: keeps the comment-only lines and nothing else" {
@@ -247,4 +369,59 @@ DOCKERFILE
   run yaml_top_text "${FIXTURE}" on
   assert_success
   assert_output --partial 'An indented comment'
+}
+
+# ── step-id derivation ───────────────────────────────────────────────
+#
+# `yaml_step_id_for` exists so an assertion can say "the consumer reads THE
+# STEP THAT DID THE WORK" rather than the weaker "some step output reaches
+# the consumer". Its predecessor was an inline awk that carried the last
+# `id:` it had seen forward across step boundaries, so a match in a LATER,
+# id-less step came back wearing an EARLIER step's id, and the assertion
+# built on it vouched for a step that no longer contained its subject. Every
+# case below that expects no output is that same fail-open direction closed:
+# an unrecognised shape yields an empty id, and the caller's `[ -n ... ]`
+# guard turns that into a loud failure.
+
+@test "yaml_step_id_for: names the step whose own body matches" {
+  run yaml_step_id_for "${STEPS}" acceptance './accessor[.]sh'
+  assert_success
+  assert_output 'resolver'
+}
+
+@test "yaml_step_id_for: an id-less matching step yields nothing, it does not borrow the id of an earlier step" {
+  # The regression this helper was extracted for: the mention lives in the
+  # third step, which has no id at all. Answering `resolver` here is what
+  # let the acceptance job restate the pinned version as a literal while
+  # the guard still reported that the consumer read the resolve step.
+  run yaml_step_id_for "${STEPS}" acceptance 'a later mention'
+  assert_success
+  assert_output ''
+}
+
+@test "yaml_step_id_for: a nested list inside a step is not a step boundary" {
+  # The inverse mistake: resetting on EVERY sequence dash would lose the id
+  # of a step whose match sits in a `with:` list. That direction fails
+  # closed, but it fails on shapes that are perfectly ordinary.
+  run yaml_step_id_for "${STEPS}" acceptance './nested-only[.]sh'
+  assert_success
+  assert_output 'nested_owner'
+}
+
+@test "yaml_step_id_for: a match in a comment cannot name a step" {
+  run yaml_step_id_for "${STEPS}" acceptance './commented-only[.]sh'
+  assert_success
+  assert_output ''
+}
+
+@test "yaml_step_id_for: a pattern that matches nowhere in the job yields nothing" {
+  run yaml_step_id_for "${STEPS}" acceptance './absent[.]sh'
+  assert_success
+  assert_output ''
+}
+
+@test "yaml_step_id_for: does not reach into another job for its match" {
+  run yaml_step_id_for "${STEPS}" acceptance './other-job-only[.]sh'
+  assert_success
+  assert_output ''
 }

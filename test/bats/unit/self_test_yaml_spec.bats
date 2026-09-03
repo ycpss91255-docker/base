@@ -537,10 +537,55 @@ _job_comments() {
   for _job in hadolint bats-fragile bats-integration coverage system; do
     run yaml_job_lines "${WF}" "${_job}"
     assert_success
-    assert_output --partial 'REQUIRED_TOOLS="kcov bats shellcheck hadolint"'
+    assert_output --partial 'REQUIRED_TOOLS="kcov bats shellcheck hadolint just"'
     assert_output --partial 'command -v ${_tool}'
     assert_output --partial 'build_local=true'
   done
+}
+
+@test "self-test.yaml: every job that probes :main compares the runner VERSION, not just presence (#948)" {
+  # The population is DERIVED: every top-level job of this workflow whose
+  # body carries a REQUIRED_TOOLS probe. A roster typed here would be
+  # green on exactly the sixth probing job somebody adds tomorrow.
+  #
+  # Why presence is not enough. The probe exists so a stale / racing
+  # :main self-corrects to a local rebuild, and it answers "is the tool
+  # there?". test/bats/integration/just_runner_version_spec.bats is
+  # deliberately fail-closed on a MISMATCH between the image's `just` and
+  # ARG JUST_VERSION -- so a :main published before a version bump has
+  # every required tool AND the wrong runner, passes a presence-only
+  # probe, and reddens any PR that touched nothing related, for as long as
+  # the republish takes. The probe has to see the version too.
+  local -a _jobs=() _probing=()
+  mapfile -t _jobs < <(yaml_job_names "${WF}")
+  [ "${#_jobs[@]}" -ge 10 ] \
+    || fail "derived only ${#_jobs[@]} job(s) from ${WF} -- the roster reader is broken, so this test checked nothing"
+  local _job _body
+  for _job in "${_jobs[@]}"; do
+    _body="$(yaml_job_lines "${WF}" "${_job}")"
+    [[ "${_body}" == *'REQUIRED_TOOLS='* ]] || continue
+    _probing+=("${_job}")
+    [[ "${_body}" == *'dist/script/base/just-version.sh'* ]] \
+      || fail "job '${_job}' probes the pulled :main for tool presence but never reads the declared pin"
+    [[ "${_body}" == *'just --version'* ]] \
+      || fail "job '${_job}' reads the declared pin but never asks the image which version it ships"
+    # Holding both numbers is not comparing them. With only the two
+    # ingredients asserted, `if false; then` over the comparison keeps
+    # this test green while the probe stops self-correcting -- so the
+    # compare itself, and the verdict it has to flip, are what is
+    # asserted. The verdict is looked for in the compare's OWN branch
+    # (the following few lines), not anywhere in the job: `probe_ok=false`
+    # also sits in the presence loop above, which would vouch for a
+    # version check whose branch body was emptied.
+    [[ "${_body}" == *'!= "just ${just_pin}"'* ]] \
+      || fail "job '${_job}' reads both versions but never compares them"
+    printf '%s\n' "${_body}" \
+      | grep -A8 -F '!= "just ${just_pin}"' \
+      | grep -qF 'probe_ok=false' \
+      || fail "job '${_job}' compares the versions but the mismatch branch does not flip the probe verdict, so a stale :main is used anyway"
+  done
+  [ "${#_probing[@]}" -ge 5 ] \
+    || fail "found ${#_probing[@]} probing job(s) among ${#_jobs[@]}; expected at least the five that run the baked tools -- the scan matched nothing, which is not a pass"
 }
 
 @test "self-test.yaml: only classify fetches the base ref; image jobs read its testtools_changed output (#734)" {
@@ -722,12 +767,17 @@ _job_comments() {
 @test "self-test.yaml: the fork-PR branch is a hard failure, not an advisory note (#766)" {
   # An advisory warning next to a green required check is the vacuous
   # rollup with extra steps.
-  run bash -c "awk '/^  ci-rollup:/{flag=1; next} /^  [a-z]/{flag=0} flag' '${WF}' \
-    | grep -A3 -F 'if [[ \"\${IS_FORK_PR}\" == \"true\" ]]; then' \
-    | grep -c -F 'fail=1'"
+  #
+  # Read through the shared comment-stripped view, like every sibling: the
+  # claim is about what the branch RUNS, and the job's own paragraph
+  # explains the hard failure in prose. Sliced by its own awk, this
+  # assertion was satisfied by demoting `fail=1` to a comment inside the
+  # branch -- which is exactly the advisory-note defect it refuses.
+  local _rollup
+  _rollup="$(yaml_job_lines "${WF}" ci-rollup)"
+  run grep -A3 -F 'if [[ "${IS_FORK_PR}" == "true" ]]; then' <<<"${_rollup}"
   assert_success
-  [ "${output}" -ge 1 ] \
-    || fail "the fork-PR branch does not set fail=1; the rollup would still report green"
+  assert_output --partial 'fail=1'
 }
 
 @test "self-test.yaml: the self-hosted guard lint has a lint-static CI join (#766)" {
@@ -1053,11 +1103,10 @@ _job_comments() {
   # `bash -e` one absent operand fails the whole `cp`, and no Release is cut
   # at all.
   #
-  # Comment lines are stripped first: the prohibition is on what the job
-  # RUNS, and the note that keeps the next person from re-adding the step
-  # necessarily names the very construct it rules out.
-  run bash -c "awk '/^  release:/{flag=1; next} /^  [a-z]/{flag=0} flag' \
-    '${WF}' | grep -vE '^[[:space:]]*#'"
+  # Read through the shared comment-stripped view: the prohibition is on
+  # what the job RUNS, and the note that keeps the next person from
+  # re-adding the step necessarily names the very construct it rules out.
+  run yaml_job_lines "${WF}" release
   assert_success
   refute_output --partial 'Create release archive'
   refute_output --partial 'cp -r'
@@ -1071,8 +1120,7 @@ _job_comments() {
   # unmatched pattern into a failed release. Asserted separately from the
   # assembly step so a half-done removal names WHICH half is left. Comments
   # are stripped for the same reason as above.
-  run bash -c "awk '/^  release:/{flag=1; next} /^  [a-z]/{flag=0} flag' \
-    '${WF}' | grep -vE '^[[:space:]]*#'"
+  run yaml_job_lines "${WF}" release
   assert_success
   refute_output --partial 'files:'
   refute_output --partial 'template-'

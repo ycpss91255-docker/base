@@ -61,14 +61,15 @@ jobs:
           # is a valid GitHub Actions context property (the commit SHA of a
           # reusable-workflow file), used by build-worker.yaml / release-worker.yaml
           # to pin the preflight checkout to the worker's own version. actionlint
-          # 1.7.7 is missing this property from its github-context type and wrongly
+          # is missing this property from its github-context type and wrongly
           # reports `property "job_workflow_sha" is not defined`. `-ignore` takes a
-          # regex matched against the error message. Remove this once actionlint
-          # ships the property in its type.
+          # regex matched against the error message. Still absent as of 1.7.12
+          # (measured: the run without `-ignore` reports it at five call sites),
+          # so remove this only once actionlint ships the property in its type.
           docker run --rm \
             -v "${GITHUB_WORKSPACE}:/repo:ro" \
             -w /repo \
-            rhysd/actionlint:1.7.7 \
+            rhysd/actionlint:1.7.12 \
             -color \
             -ignore 'property "job_workflow_sha" is not defined'
 
@@ -275,6 +276,14 @@ jobs:
     #                     org registers an org-level self-hosted runner that
     #                     public repos may use, so an unguarded eligible job
     #                     is fork-PR code executing on that machine
+    #   generated-workflow-actions
+    #                     a `uses:` ref a shell script writes into a
+    #                     generated downstream workflow names the same ref
+    #                     .github/workflows/ uses -- dependabot reads
+    #                     workflow FILES, so a ref inside a heredoc is
+    #                     outside it, and action-ref-agreement compares
+    #                     call sites within .github/workflows/ only, so
+    #                     without this the ref is watched by nothing
     #   changelog-entry   no [Unreleased] changelog entry has grown into a
     #                     pasted PR body -- measured over the whole entry
     #                     with whitespace collapsed, so rewrapping it or
@@ -284,6 +293,13 @@ jobs:
     #                     block, the pair a serial append-vs-append merge
     #                     lands with nothing to review; released sections
     #                     are never checked
+    #   just-provenance   every site that OBTAINS the `just` runner names
+    #                     the one pinned version -- the image's fetch, the
+    #                     setup-just input, the just.systems installer's
+    #                     --tag -- or carries a justified advisory marker
+    #                     saying it cannot be pinned. `just` is the only
+    #                     control surface, so a version spread across the
+    #                     paths is a spread across the whole interface
     #   action-ref-agreement
     #                     every call site of one action's REPOSITORY across
     #                     this directory names the same ref. actionlint
@@ -333,6 +349,8 @@ jobs:
           - self-hosted-guard
           - changelog-entry
           - action-ref-agreement
+          - generated-workflow-actions
+          - just-provenance
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -398,7 +416,7 @@ jobs:
             # layer-1 / layer-3 path uses) -> self-correcting against a
             # stale / racing / old :main regardless of cause. Extend
             # REQUIRED_TOOLS as the image gains new required tools.
-            REQUIRED_TOOLS="kcov bats shellcheck hadolint"
+            REQUIRED_TOOLS="kcov bats shellcheck hadolint just"
             read -ra _required <<< "${REQUIRED_TOOLS}"
             probe_ok=true
             for _tool in "${_required[@]}"; do
@@ -410,6 +428,27 @@ jobs:
                 break
               fi
             done
+            # Presence is not enough for the RUNNER. `just` is the only
+            # control surface, and test/bats/integration/
+            # just_runner_version_spec.bats is deliberately fail-closed on
+            # a mismatch between the image's `just` and ARG JUST_VERSION.
+            # A :main published before a version bump carries every tool in
+            # REQUIRED_TOOLS and the WRONG runner, so a presence-only probe
+            # would hand it to a PR that touched nothing related and redden
+            # it for as long as the republish takes -- and forever if the
+            # republish failed. The version is the dimension the roster
+            # cannot express, so it is asked separately.
+            if [[ "${probe_ok}" == "true" ]]; then
+              just_pin="$(./dist/script/base/just-version.sh)"
+              just_actual="$(docker run --rm "${TEST_TOOLS_IMAGE}" \
+                               just --version 2>/dev/null)"
+              if [[ "${just_actual}" != "just ${just_pin}" ]]; then
+                echo "::warning::test-tools:main ships '${just_actual}'," \
+                     "not 'just ${just_pin}' (stale / racing republish);" \
+                     "rebuilding from source"
+                probe_ok=false
+              fi
+            fi
             if [[ "${probe_ok}" == "true" ]]; then
               echo "build_local=false" >> "${GITHUB_OUTPUT}"
               exit 0
@@ -537,7 +576,7 @@ jobs:
             # layer-1 / layer-3 path uses) -> self-correcting against a
             # stale / racing / old :main regardless of cause. Extend
             # REQUIRED_TOOLS as the image gains new required tools.
-            REQUIRED_TOOLS="kcov bats shellcheck hadolint"
+            REQUIRED_TOOLS="kcov bats shellcheck hadolint just"
             read -ra _required <<< "${REQUIRED_TOOLS}"
             probe_ok=true
             for _tool in "${_required[@]}"; do
@@ -549,6 +588,27 @@ jobs:
                 break
               fi
             done
+            # Presence is not enough for the RUNNER. `just` is the only
+            # control surface, and test/bats/integration/
+            # just_runner_version_spec.bats is deliberately fail-closed on
+            # a mismatch between the image's `just` and ARG JUST_VERSION.
+            # A :main published before a version bump carries every tool in
+            # REQUIRED_TOOLS and the WRONG runner, so a presence-only probe
+            # would hand it to a PR that touched nothing related and redden
+            # it for as long as the republish takes -- and forever if the
+            # republish failed. The version is the dimension the roster
+            # cannot express, so it is asked separately.
+            if [[ "${probe_ok}" == "true" ]]; then
+              just_pin="$(./dist/script/base/just-version.sh)"
+              just_actual="$(docker run --rm "${TEST_TOOLS_IMAGE}" \
+                               just --version 2>/dev/null)"
+              if [[ "${just_actual}" != "just ${just_pin}" ]]; then
+                echo "::warning::test-tools:main ships '${just_actual}'," \
+                     "not 'just ${just_pin}' (stale / racing republish);" \
+                     "rebuilding from source"
+                probe_ok=false
+              fi
+            fi
             if [[ "${probe_ok}" == "true" ]]; then
               echo "build_local=false" >> "${GITHUB_OUTPUT}"
               exit 0
@@ -632,7 +692,7 @@ jobs:
             # layer-1 / layer-3 path uses) -> self-correcting against a
             # stale / racing / old :main regardless of cause. Extend
             # REQUIRED_TOOLS as the image gains new required tools.
-            REQUIRED_TOOLS="kcov bats shellcheck hadolint"
+            REQUIRED_TOOLS="kcov bats shellcheck hadolint just"
             read -ra _required <<< "${REQUIRED_TOOLS}"
             probe_ok=true
             for _tool in "${_required[@]}"; do
@@ -644,6 +704,27 @@ jobs:
                 break
               fi
             done
+            # Presence is not enough for the RUNNER. `just` is the only
+            # control surface, and test/bats/integration/
+            # just_runner_version_spec.bats is deliberately fail-closed on
+            # a mismatch between the image's `just` and ARG JUST_VERSION.
+            # A :main published before a version bump carries every tool in
+            # REQUIRED_TOOLS and the WRONG runner, so a presence-only probe
+            # would hand it to a PR that touched nothing related and redden
+            # it for as long as the republish takes -- and forever if the
+            # republish failed. The version is the dimension the roster
+            # cannot express, so it is asked separately.
+            if [[ "${probe_ok}" == "true" ]]; then
+              just_pin="$(./dist/script/base/just-version.sh)"
+              just_actual="$(docker run --rm "${TEST_TOOLS_IMAGE}" \
+                               just --version 2>/dev/null)"
+              if [[ "${just_actual}" != "just ${just_pin}" ]]; then
+                echo "::warning::test-tools:main ships '${just_actual}'," \
+                     "not 'just ${just_pin}' (stale / racing republish);" \
+                     "rebuilding from source"
+                probe_ok=false
+              fi
+            fi
             if [[ "${probe_ok}" == "true" ]]; then
               echo "build_local=false" >> "${GITHUB_OUTPUT}"
               exit 0
@@ -789,7 +870,7 @@ jobs:
             # layer-1 / layer-3 path uses) -> self-correcting against a
             # stale / racing / old :main regardless of cause. Extend
             # REQUIRED_TOOLS as the image gains new required tools.
-            REQUIRED_TOOLS="kcov bats shellcheck hadolint"
+            REQUIRED_TOOLS="kcov bats shellcheck hadolint just"
             read -ra _required <<< "${REQUIRED_TOOLS}"
             probe_ok=true
             for _tool in "${_required[@]}"; do
@@ -801,6 +882,27 @@ jobs:
                 break
               fi
             done
+            # Presence is not enough for the RUNNER. `just` is the only
+            # control surface, and test/bats/integration/
+            # just_runner_version_spec.bats is deliberately fail-closed on
+            # a mismatch between the image's `just` and ARG JUST_VERSION.
+            # A :main published before a version bump carries every tool in
+            # REQUIRED_TOOLS and the WRONG runner, so a presence-only probe
+            # would hand it to a PR that touched nothing related and redden
+            # it for as long as the republish takes -- and forever if the
+            # republish failed. The version is the dimension the roster
+            # cannot express, so it is asked separately.
+            if [[ "${probe_ok}" == "true" ]]; then
+              just_pin="$(./dist/script/base/just-version.sh)"
+              just_actual="$(docker run --rm "${TEST_TOOLS_IMAGE}" \
+                               just --version 2>/dev/null)"
+              if [[ "${just_actual}" != "just ${just_pin}" ]]; then
+                echo "::warning::test-tools:main ships '${just_actual}'," \
+                     "not 'just ${just_pin}' (stale / racing republish);" \
+                     "rebuilding from source"
+                probe_ok=false
+              fi
+            fi
             if [[ "${probe_ok}" == "true" ]]; then
               echo "build_local=false" >> "${GITHUB_OUTPUT}"
               exit 0
@@ -1069,6 +1171,19 @@ jobs:
           echo "REPO_DIR=${REPO_DIR}" >> "${GITHUB_ENV}"
           echo "REPO_NAME=${REPO_NAME}" >> "${GITHUB_ENV}"
 
+      - name: Resolve the pinned just version
+        id: just_pin
+        # ONE declaration, read rather than restated: ARG JUST_VERSION in
+        # dockerfile/Dockerfile.test-tools, via the shipped accessor. The
+        # `just-version` input below used to be omitted, which installed
+        # whatever `just` released most recently -- so a parsing change
+        # upstream turned this job red on a day nobody touched the repo,
+        # and the e2e job ran a different `just` from the one baked into
+        # the image the rest of the suite uses.
+        run: |
+          printf 'version=%s\n' "$(./dist/script/base/just-version.sh)" \
+            >> "${GITHUB_OUTPUT}"
+
       - name: Install just (container-ops entry point)
         # The e2e job drives the runnability contract through the SAME
         # `just` verbs downstream users invoke (post-#573 the documented
@@ -1078,6 +1193,8 @@ jobs:
         # `just.systems/install.sh` returns 403 from GHA runners, so use
         # the maintained setup action instead.)
         uses: extractions/setup-just@v4
+        with:
+          just-version: ${{ steps.just_pin.outputs.version }}
 
       - name: Build test stage (just docker build test)
         working-directory: ${{ env.REPO_DIR }}
@@ -1458,7 +1575,7 @@ jobs:
             # layer-1 / layer-3 path uses) -> self-correcting against a
             # stale / racing / old :main regardless of cause. Extend
             # REQUIRED_TOOLS as the image gains new required tools.
-            REQUIRED_TOOLS="kcov bats shellcheck hadolint"
+            REQUIRED_TOOLS="kcov bats shellcheck hadolint just"
             read -ra _required <<< "${REQUIRED_TOOLS}"
             probe_ok=true
             for _tool in "${_required[@]}"; do
@@ -1470,6 +1587,27 @@ jobs:
                 break
               fi
             done
+            # Presence is not enough for the RUNNER. `just` is the only
+            # control surface, and test/bats/integration/
+            # just_runner_version_spec.bats is deliberately fail-closed on
+            # a mismatch between the image's `just` and ARG JUST_VERSION.
+            # A :main published before a version bump carries every tool in
+            # REQUIRED_TOOLS and the WRONG runner, so a presence-only probe
+            # would hand it to a PR that touched nothing related and redden
+            # it for as long as the republish takes -- and forever if the
+            # republish failed. The version is the dimension the roster
+            # cannot express, so it is asked separately.
+            if [[ "${probe_ok}" == "true" ]]; then
+              just_pin="$(./dist/script/base/just-version.sh)"
+              just_actual="$(docker run --rm "${TEST_TOOLS_IMAGE}" \
+                               just --version 2>/dev/null)"
+              if [[ "${just_actual}" != "just ${just_pin}" ]]; then
+                echo "::warning::test-tools:main ships '${just_actual}'," \
+                     "not 'just ${just_pin}' (stale / racing republish);" \
+                     "rebuilding from source"
+                probe_ok=false
+              fi
+            fi
             if [[ "${probe_ok}" == "true" ]]; then
               echo "build_local=false" >> "${GITHUB_OUTPUT}"
               exit 0

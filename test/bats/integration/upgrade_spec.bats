@@ -277,10 +277,12 @@ _seed_entry() {
   # not an artifact of this repo, and TEST_TOOLS_IMAGE can be pinned to
   # a published test-tools tag older than the one that first shipped it.
   # Dropping it from the image is NOT what this skip covers -- the
-  # `apk add ... just` line is asserted unconditionally by template_spec,
-  # so a removal fails there rather than going quiet here.
+  # pinned fetch of `just` is asserted unconditionally by template_spec,
+  # so a removal fails there rather than going quiet here. Staleness is a
+  # different question and is NOT skipped: just_runner_version_spec
+  # compares the image's version against the declaration, fail-closed.
   command -v just >/dev/null 2>&1 \
-    || skip "this test-tools image has no just (older pinned TEST_TOOLS_IMAGE); the apk-add line itself is pinned in template_spec"
+    || skip "this test-tools image has no just (older pinned TEST_TOOLS_IMAGE); the pinned fetch itself is asserted in template_spec"
   cd "${DOWN_DIR}"
   _seed_entry
 
@@ -296,10 +298,12 @@ _seed_entry() {
   # not an artifact of this repo, and TEST_TOOLS_IMAGE can be pinned to
   # a published test-tools tag older than the one that first shipped it.
   # Dropping it from the image is NOT what this skip covers -- the
-  # `apk add ... just` line is asserted unconditionally by template_spec,
-  # so a removal fails there rather than going quiet here.
+  # pinned fetch of `just` is asserted unconditionally by template_spec,
+  # so a removal fails there rather than going quiet here. Staleness is a
+  # different question and is NOT skipped: just_runner_version_spec
+  # compares the image's version against the declaration, fail-closed.
   command -v just >/dev/null 2>&1 \
-    || skip "this test-tools image has no just (older pinned TEST_TOOLS_IMAGE); the apk-add line itself is pinned in template_spec"
+    || skip "this test-tools image has no just (older pinned TEST_TOOLS_IMAGE); the pinned fetch itself is asserted in template_spec"
   cd "${DOWN_DIR}"
   _seed_entry
 
