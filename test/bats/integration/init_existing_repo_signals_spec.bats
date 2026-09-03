@@ -96,6 +96,9 @@ CONTEXT.md
 EOF
 }
 
+# why: The baseline base#928 broke: with no signal present the new-repo
+# path must actually run, and the three artifacts it alone installs are
+# the currency the outage was measured in.
 @test "a repo carrying none of the published signals is scaffolded as new (#928)" {
   _seed_consumer
 
@@ -112,6 +115,9 @@ EOF
   assert [ -d "${CONSUMER}/test/bats/smoke/runtime-test" ]
 }
 
+# why: The anti-decay half. A published list nothing exercises is a second
+# statement of the branch condition, and a second statement is what goes
+# stale -- so every entry is run through a real init rather than trusted.
 @test "each published signal, on its own, sends init down the existing-repo path (#928)" {
   local _sig _p _signal_list="${BATS_TEST_TMPDIR}/signals"
   _signals > "${_signal_list}"
@@ -132,6 +138,8 @@ EOF
   done < "${_signal_list}"
 }
 
+# why: The converse, without which the case above passes on a branch that
+# treats ANY file as a signal: presence must not decide, the list must.
 @test "a repo carrying a file the list does NOT publish is still scaffolded as new (#928)" {
   # The complement of the case above: presence alone must not decide, or the
   # published list would describe one file rather than state the rule.
@@ -147,6 +155,10 @@ EOF
   done < <(_new_repo_only_paths)
 }
 
+# why: The case that closes the class rather than one file. base#928 was a
+# file joining the branch condition without joining the list, and the
+# population has to include what no scaffold writes -- `Dockerfile` came
+# from exactly that half.
 @test "no file a repo can carry, scaffold output or not, can quietly become a signal (#928)" {
   # The generalisation of the case above, over the population that actually
   # collides. A template repo IS a repo of this family, so every file it
@@ -316,6 +328,9 @@ ${output}"
   done < <(_new_repo_only_paths)
 }
 
+# why: The other direction of the same proxy. A signal init never installs
+# can only ever be supplied by somebody else, which is precisely how the
+# template's shipped Dockerfile inverted it.
 @test "the new-repo scaffold creates every published signal (#928)" {
   # A signal init does not itself install can never flip a repo from new to
   # existing, so it would have to be supplied by someone else -- which is

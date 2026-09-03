@@ -34,6 +34,18 @@
 export HOST_UID := `id -u`
 export HOST_GID := `id -g`
 
+# The absolute path of THIS checkout, stamped by compose.yaml onto the
+# network it creates (`base.checkout.path`). It is the provenance the
+# scoped reclaim reads back off an artifact to decide whether the checkout
+# that made it still exists, so an artifact created without it can never be
+# attributed and is left alone forever -- which is why compose.yaml takes
+# it with `:?` and no default, and why it is exported here rather than in
+# the recipes that happen to reach compose today. Same propagation as the
+# ids above: a root export reaches every module recipe, so `just test`,
+# `just test system` and `just docker build` are all covered at once, and
+# script/test/test.sh sets it again for the direct invocations CI makes.
+export BASE_CHECKOUT_PATH := justfile_directory()
+
 # Container-ops (self-use): build / run / exec / stop / prune / setup / setup-tui
 mod? docker 'script/docker/justfile.docker'
 # Self-test: bats + shellcheck + hadolint + kcov (just test [lint|coverage|...])

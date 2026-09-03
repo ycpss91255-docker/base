@@ -3,6 +3,13 @@
 # Tests for [logging] / [logging.<svc>] support in generate_compose_yaml
 # and the supporting _collect_logging / _parse_logging_svc_sections
 # parsers in dist/script/docker/wrapper/setup.sh.
+#
+# why: Covers `[logging]` + `[logging.<svc>]` support in
+# `generate_compose_yaml` (#310). Tests the global emission on every service
+# (devel / test / auto-emitted stage), back-compat for repos not yet
+# declaring `[logging]`, per-service override key-level merge behaviour, and
+# the two new setup.sh helpers `_parse_logging_svc_sections` +
+# `_collect_logging`.
 
 bats_require_minimum_version 1.5.0
 
@@ -35,6 +42,7 @@ teardown() {
 # generate_compose_yaml: logging block emission
 # ════════════════════════════════════════════════════════════════════
 
+# why: Empty inputs no-op
 @test "generate_compose_yaml omits logging: block when both inputs empty (back-compat)" {
   local _extras=()
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
@@ -44,6 +52,7 @@ teardown() {
   assert_failure
 }
 
+# why: Global → devel
 @test "generate_compose_yaml emits logging: block on devel from global [logging]" {
   local _extras=()
   local _global
@@ -64,6 +73,7 @@ teardown() {
   assert_success
 }
 
+# why: Global logging emitted once on devel; test inherits via extends
 @test "generate_compose_yaml test service inherits global logging via extends:devel (#493)" {
   local _extras=()
   local _global="driver=local"
@@ -84,6 +94,7 @@ teardown() {
   assert_output --partial "service: devel"
 }
 
+# why: No rotation keys
 @test "generate_compose_yaml driver-only [logging] omits options: block" {
   local _extras=()
   local _global="driver=syslog"
@@ -96,6 +107,7 @@ teardown() {
   assert_failure
 }
 
+# why: Sparse override
 @test "generate_compose_yaml partial options emits only set keys" {
   local _extras=()
   local _global
@@ -113,6 +125,7 @@ teardown() {
   assert_failure
 }
 
+# why: Override semantics
 @test "generate_compose_yaml per-svc [logging.<svc>] overrides global key on that svc" {
   local _extras=()
   local _global
@@ -128,6 +141,7 @@ teardown() {
   assert_success
 }
 
+# why: Key-level merge
 @test "generate_compose_yaml per-svc [logging.<svc>] inherits keys absent in override" {
   local _extras=()
   local _global
@@ -151,6 +165,7 @@ teardown() {
 # generate_compose_yaml: [logging] local_path bind mount + LOG_FILE_PATH
 # ════════════════════════════════════════════════════════════════════
 
+# why: Mount + env on devel
 @test "local_path on global emits volumes mount + LOG_FILE_PATH env for devel (#328)" {
   local _extras=()
   local _global
@@ -166,6 +181,7 @@ teardown() {
   assert_success
 }
 
+# why: Empty fallback
 @test "local_path empty omits mount + env (back-compat) (#328)" {
   local _extras=()
   local _global="driver=json-file"
@@ -211,6 +227,7 @@ teardown() {
   assert_success
 }
 
+# why: Per-service emit
 @test "local_path on per-svc [logging.<svc>] emits LOG_FILE_PATH for that svc only (#328)" {
   local _extras=()
   local _global="driver=json-file"
@@ -227,6 +244,7 @@ teardown() {
   assert_failure
 }
 
+# why: Absolute path
 @test "local_path absolute path is passed through verbatim (#328)" {
   local _extras=()
   local _global
@@ -238,6 +256,7 @@ teardown() {
   assert_success
 }
 
+# why: local_path NOT a docker option
 @test "local_path is NOT emitted as a logging.options key (driver-only options) (#328)" {
   local _extras=()
   # local_path with no other [logging] keys should not produce an
@@ -256,6 +275,7 @@ teardown() {
   assert_failure
 }
 
+# why: test service
 @test "local_path on test service emits standalone volumes block + env (#328)" {
   local _extras=()
   local _global="driver=json-file"
@@ -293,6 +313,7 @@ teardown() {
 # setup.conf [logging] section: in-image helper path reference
 # ════════════════════════════════════════════════════════════════════
 
+# why: Documented adoption path matches in-image COPY
 @test "setup.conf [logging] comment block references in-image helper path (/usr/local/lib/base/, #368)" {
   # The [logging] section in the template default setup.conf is the
   # primary surface where downstream maintainers learn about the
@@ -319,6 +340,7 @@ teardown() {
 # stages
 # ════════════════════════════════════════════════════════════════════
 
+# why: Per-svc LOG_FILE_PATH on auto-emitted extends-only stage
 @test "generate_compose_yaml emits per-stage LOG_FILE_PATH on extends:devel stage when [logging] local_path is set (#367)" {
   # Without this fix, the zero-diff `extends: service: devel` branch
   # (the minimal-shape emit for stages with no [stage:<name>] override,
@@ -349,6 +371,7 @@ EOF
   assert_success
 }
 
+# why: Per-svc volume mount on auto-emitted extends-only stage
 @test "generate_compose_yaml emits per-stage volume mount on extends:devel stage when [logging] local_path is set (#367)" {
   # The host bind mount `<resolved>:/var/log/<repo>` must appear in
   # the runtime block too so the per-service LOG_FILE_PATH path is
@@ -385,6 +408,7 @@ EOF
   }
 }
 
+# why: Zero-diff back-compat when feature unset
 @test "generate_compose_yaml does NOT emit LOG_FILE_PATH on extends:devel stage when [logging] local_path is unset (#367 back-compat)" {
   # Back-compat: stages with no overrides AND no local_path stay on
   # the byte-for-byte minimal-shape emit. Specifically the

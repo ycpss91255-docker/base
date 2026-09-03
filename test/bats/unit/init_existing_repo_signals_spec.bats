@@ -27,18 +27,27 @@ setup() {
   INIT="/source/dist/script/base/init.sh"
 }
 
+# why: The floor the rest of the mechanism stands on -- a discriminator
+# that cannot be asked at all leaves the branch condition in the middle of
+# `main` as its only statement, which is the state base#928 shipped in.
 @test "init.sh --list-existing-repo-signals prints a non-empty list and exits 0" {
   run bash "${INIT}" --list-existing-repo-signals
   assert_success
   assert [ "${#lines[@]}" -gt 0 ]
 }
 
+# why: The one signal that has already inverted is stated by name, so the
+# template's shipped-file guard has something concrete to collide with
+# rather than an empty list it can satisfy vacuously.
 @test "init.sh --list-existing-repo-signals names the Dockerfile proxy (#928)" {
   run bash "${INIT}" --list-existing-repo-signals
   assert_success
   assert_line "Dockerfile"
 }
 
+# why: A consumer joins each entry onto its own repo root, so an absolute
+# path, a trailing slash or a `.base/`-internal path names something the
+# downstream checker cannot test and the guard silently covers nothing.
 @test "init.sh --list-existing-repo-signals emits repo-relative paths only" {
   run bash "${INIT}" --list-existing-repo-signals
   assert_success
@@ -51,6 +60,9 @@ setup() {
   done
 }
 
+# why: A stable, duplicate-free order is what lets a consumer compare the
+# list with a plain `diff` across two base versions; without it every
+# reader has to normalise first, and each reader normalises differently.
 @test "init.sh --list-existing-repo-signals output is sorted and free of duplicates" {
   run bash "${INIT}" --list-existing-repo-signals
   assert_success
@@ -62,6 +74,9 @@ setup() {
   assert_success
 }
 
+# why: The load-bearing one for asking base about itself: the answer has
+# to come before the template self-run guard and before `cd "${REPO_ROOT}"`,
+# or querying the discriminator would scaffold the checkout being queried.
 @test "init.sh --list-existing-repo-signals mutates nothing and never leaves its cwd" {
   local _cwd="${BATS_TEST_TMPDIR}/cwd"
   mkdir -p "${_cwd}"
@@ -75,6 +90,9 @@ setup() {
   assert_output ""
 }
 
+# why: A query nobody can find is one nobody derives from, and a checker
+# that restates the discriminator instead of reading it is the second
+# statement this flag exists to remove.
 @test "init.sh --help names --list-existing-repo-signals" {
   run bash "${INIT}" --help
   assert_success

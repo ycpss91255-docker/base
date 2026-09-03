@@ -12,6 +12,14 @@
 # installed in the test-tools image, so the files are verified statically
 # here; downstream installs `just` to run them. Execution parity lives in
 # justfile_user_spec.bats.
+#
+# why: Static content checks for the layered just entry (ADR-00000005 /
+# #545, ADR-00000010; ADR-00000011: docker + base are `mod?` namespaces, not
+# a top-level import). The entry `dist/script/justfile` mods the docker +
+# base modules; docker verbs forward 1:1 to `./script/<name>.sh` via
+# `{{args}}`, base verbs to `./.base/upgrade.sh`. Asserted by grep, not
+# execution -- `just` is not in the test-tools image; downstream installs
+# it.
 
 bats_require_minimum_version 1.5.0
 
@@ -23,11 +31,13 @@ setup() {
   ENTRY=/source/dist/script/justfile
 }
 
+# why: both files present
 @test "layered entry + docker module exist" {
   [ -f "${ENTRY}" ]
   [ -f "${DOCKER_JUSTFILE}" ]
 }
 
+# why: build/run/exec/stop/prune/setup/setup-tui `*args`
 @test "docker module declares args-passthrough recipes for every wrapper verb (#545)" {
   local _v
   for _v in build run exec stop prune setup; do
@@ -38,6 +48,7 @@ setup() {
   assert_success
 }
 
+# why: #652 -- upgrade is a .base op
 @test "docker module no longer carries upgrade/upgrade-check (moved to base ns, #652)" {
   # upgrade is a .base-management op, not a docker op -- it lives in the
   # `base` namespace (just base upgrade / just base update), ADR-00000011.
@@ -45,6 +56,7 @@ setup() {
   assert_failure
 }
 
+# why: forwarding bodies
 @test "docker module recipes forward to ./script/<wrapper>.sh with {{args}} (#545)" {
   run grep -F './script/build.sh {{args}}' "${DOCKER_JUSTFILE}"
   assert_success
@@ -96,6 +108,8 @@ setup() {
   done
 }
 
+# why: #653 -- init -> .base/init.sh, completions ->
+# script/base/completions.sh
 @test "base module declares init + completions recipes (#653, ADR-00000011)" {
   local _base=/source/dist/script/base/justfile.base
   run grep -E '^init ' "${_base}"
@@ -108,11 +122,13 @@ setup() {
   assert_success
 }
 
+# why: #652 -- `mod? base`
 @test "entry mods the base namespace (#652, ADR-00000011)" {
   run grep -F "mod? base 'script/base/justfile.base'" "${ENTRY}"
   assert_success
 }
 
+# why: #652 -- mod default + `set working-directory := '../..'`
 @test "docker module owns a default recipe + pins cwd to repo root (#652, ADR-00000011)" {
   # As a mod? module (not a top-level import) it owns its own default
   # (`just docker` lists the verbs); module recipes default cwd to the
@@ -124,6 +140,7 @@ setup() {
   assert_success
 }
 
+# why: #652 -- `mod? docker` + `default: @just --list`
 @test "entry mods the docker namespace + default recipe lists recipes (#652, ADR-00000011)" {
   # docker is a namespace (zero special case): `just docker build`, not a
   # top-level `just build`. bare `just` still lists via the entry default.
@@ -135,6 +152,7 @@ setup() {
   assert_success
 }
 
+# why: #655 -- bare `just test` / `just release`
 @test "test / release namespaces own a default recipe (bare-namespace help, #655)" {
   # Every namespace must respond to a bare invocation (`just test` /
   # `just release`) with its English-baseline help -- the `default` recipe.
@@ -144,6 +162,8 @@ setup() {
   assert_success
 }
 
+# why: Required spec argument (a defaulted one would kcov the whole suite on
+# a typo)
 @test "test namespace: coverage-path demands its spec, coverage keeps its optional shard (#887)" {
   # `just test coverage-path <spec>` is the one-spec-under-kcov entry. Its
   # argument is REQUIRED: an optional one (`spec=''`, the shape the sibling
@@ -162,6 +182,7 @@ setup() {
   assert_success
 }
 
+# why: #655 -- ADR-00000011 i18n scope (machine/CI namespaces)
 @test "test / release namespaces are English-only -- no --lang plumbing (#655)" {
   # ADR-00000011 i18n scope: test / release are machine/CI namespaces, so
   # they ship no --lang flag (only docker / base / template are localised).
@@ -188,11 +209,14 @@ _assert_mod_doc_comments() {
   ' "$1"
 }
 
+# why: #720 -- guards `just --list` descriptions (no blank-gap empty, no
+# multi-line fragment)
 @test "consumer entry: every top-level mod? has one adjacent one-line doc comment (#720)" {
   run _assert_mod_doc_comments "${ENTRY}"
   assert_success
 }
 
+# why: #720 -- same invariant for base's self-dev entry
 @test "base root justfile: every top-level mod? has one adjacent one-line doc comment (#720)" {
   run _assert_mod_doc_comments /source/justfile
   assert_success

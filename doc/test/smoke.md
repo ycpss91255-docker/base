@@ -134,52 +134,36 @@ no-duplicate-service-key property) is asserted instead in
 `generate_compose_yaml` can be driven with the GUI resolved both on and
 off.
 
-### dist/test/bats/smoke/shared/entrypoint.bats (2)
+## Test Files
 
-The cross-stage baseline that runs inside every `-test` stage (devel-test
-and runtime-test). Asserts only the universal surface — the installed
-entrypoint and bash on PATH — so it never touches `/lint` (populated only
-in devel-test).
+<!-- generated: catalogue sections -->
 
-| Test | Description |
-|------|-------------|
-| `entrypoint.sh is installed and executable` | Entrypoint present |
-| `bash is available on PATH` | Core shell present |
+### dist/test/bats/smoke/devel-test/display_env.bats (5)
 
-### dist/test/bats/smoke/shared/reproducibility.bats (4)
-
-The reproducibility manifest the template's `sys` stage (and `runtime-base`,
-when the runtime split is enabled) writes: `base-image.env` and
-`packages.txt` under `/usr/local/share/base/`. Base's own unit specs read
-the template as TEXT, which cannot see the failure this file exists for —
-a manifest written from a stage where `${BASE_IMAGE}` expanded to the empty
-string, so the file lands with an empty record and every static grep stays
-green. Skips (rather than fails) when NEITHER file is present: this spec
-reaches a consumer through `.base/dist/`, which `just upgrade` refreshes,
-while the Dockerfile that writes the manifest is the consumer's own and
-hand-edited. The upgrade can rewrite that file — `init.sh` and
-`upgrade.sh` both run `apply_migrations` — but no migration was written
-for this record, because it splices into the middle of the sys stage's
-continued `RUN` chain rather than onto an anchorable whole line, so the
-port is by hand. A repo that writes one file and not the other, or writes
-an empty record, has adopted the manifest and broken it, and fails.
+Asserts the `xhost` host-ACL branch of the `run.sh` the stage installs at
+`/lint/run.sh`, by **executing** it: `run_wrapper_xhost` (shared
+`test_helper`) drives the real wrapper through `--dry-run` with a logging
+`xhost` shim first on PATH and reports what it actually called. Every
+assertion is two-sided (names what must appear AND what must not), so a
+swapped branch fails on both arms; a deleted branch fails because the driver
+refuses to report an empty capture. Never skips.
 
 | Test | Description |
 |------|-------------|
-| `the reproducibility manifest is complete` | Both manifest files land in every `-test` stage |
-| `the manifest names the base image this stage was built from` | Non-empty `base_image_ref` value plus a `base_image_pin` verdict — the empty-expansion failure |
-| `the manifest's digest field does not contradict the reference` | Where the record states the digest twice -- inside `base_image_ref` and in `base_image_digest` -- the two must agree; stating only the reference half is a blank field, not a contradiction, and passes |
-| `the manifest records package versions, not just package names` | `dpkg-query -W` name/version pairs, not a bare name list |
+| `run.sh grants the Wayland host ACL to the configured user` | Wayland session grants `+SI:localuser:<USER_NAME>` and not `+local:` |
+| `run.sh grants the X11 host ACL under an X11 session` | X11 session grants `+local:` and not `+SI:localuser` |
+| `run.sh defaults to the X11 host ACL when XDG_SESSION_TYPE is unset` | Unset session type falls back to the X11 grant |
+| `run.sh grants exactly one host ACL per invocation` | Either/or branch: emitting both would leave the X11 ACL open on Wayland |
+| `run.sh interpolates USER_NAME into the Wayland ACL, not a fixed name` | The grant names the configured host user, not a baked-in one |
 
 ### dist/test/bats/smoke/devel-test/script_help.bats (27)
 
-Locks the `-h` / `--help` invariants on the four wrapper scripts
-(`build.sh` / `run.sh` / `exec.sh` / `stop.sh`) plus the `_LANG`
-auto-detection rules in `build.sh` (`LANG=zh_TW.UTF-8` → zh, `ja_JP`
-→ ja, `en_US` → en, `SETUP_LANG` overrides `LANG`) plus #222
-`--help` / `--lang` order independence (pre-pass scans for `--lang`
-before main parse so `<script> --help --lang zh-TW` produces zh-TW
-usage, not English).
+Locks the `-h` / `--help` invariants on the four wrapper scripts (`build.sh`
+/ `run.sh` / `exec.sh` / `stop.sh`) plus the `_LANG` auto-detection rules in
+`build.sh` (`LANG=zh_TW.UTF-8` → zh, `ja_JP` → ja, `en_US` → en,
+`SETUP_LANG` overrides `LANG`) plus #222 `--help` / `--lang` order
+independence (pre-pass scans for `--lang` before main parse so `<script>
+--help --lang zh-TW` produces zh-TW usage, not English).
 
 | Test | Description |
 |------|-------------|
@@ -211,23 +195,46 @@ usage, not English).
 | `stop.sh --help --lang zh-TW prints zh-TW usage (#222)` | - |
 | `stop.sh --help --lang ja prints ja usage (#222)` | - |
 
-### dist/test/bats/smoke/devel-test/display_env.bats (5)
+### dist/test/bats/smoke/shared/entrypoint.bats (2)
 
-Asserts the `xhost` host-ACL branch of the `run.sh` the stage installs at
-`/lint/run.sh`, by **executing** it: `run_wrapper_xhost` (shared
-`test_helper`) drives the real wrapper through `--dry-run` with a logging
-`xhost` shim first on PATH and reports what it actually called. Every
-assertion is two-sided (names what must appear AND what must not), so a
-swapped branch fails on both arms; a deleted branch fails because the
-driver refuses to report an empty capture. Never skips.
+The cross-stage baseline that runs inside every `-test` stage (devel-test
+and runtime-test). Asserts only the universal surface — the installed
+entrypoint and bash on PATH — so it never touches `/lint` (populated only in
+devel-test).
 
 | Test | Description |
 |------|-------------|
-| `run.sh grants the Wayland host ACL to the configured user` | Wayland session grants `+SI:localuser:<USER_NAME>` and not `+local:` |
-| `run.sh grants the X11 host ACL under an X11 session` | X11 session grants `+local:` and not `+SI:localuser` |
-| `run.sh defaults to the X11 host ACL when XDG_SESSION_TYPE is unset` | Unset session type falls back to the X11 grant |
-| `run.sh grants exactly one host ACL per invocation` | Either/or branch: emitting both would leave the X11 ACL open on Wayland |
-| `run.sh interpolates USER_NAME into the Wayland ACL, not a fixed name` | The grant names the configured host user, not a baked-in one |
+| `entrypoint.sh is installed and executable` | Entrypoint present |
+| `bash is available on PATH` | Core shell present |
+
+### dist/test/bats/smoke/shared/reproducibility.bats (4)
+
+The reproducibility manifest the template's `sys` stage (and `runtime-base`,
+when the runtime split is enabled) writes: `base-image.env` and
+`packages.txt` under `/usr/local/share/base/`. Base's own unit specs read
+the template as TEXT, which cannot see the failure this file exists for — a
+manifest written from a stage where `${BASE_IMAGE}` expanded to the empty
+string, so the file lands with an empty record and every static grep stays
+green. Skips (rather than fails) when NEITHER file is present: this spec
+reaches a consumer through `.base/dist/`, which `just upgrade` refreshes,
+while the Dockerfile that writes the manifest is the consumer's own and
+hand-edited. The upgrade can rewrite that file — `init.sh` and `upgrade.sh`
+both run `apply_migrations` — but no migration was written for this record,
+because it splices into the middle of the sys stage's continued `RUN` chain
+rather than onto an anchorable whole line, so the port is by hand. A repo
+that writes one file and not the other, or writes an empty record, has
+adopted the manifest and broken it, and fails.
+
+| Test | Description |
+|------|-------------|
+| `the reproducibility manifest is complete` | Both manifest files land in every `-test` stage |
+| `the manifest names the base image this stage was built from` | Non-empty `base_image_ref` value plus a `base_image_pin` verdict — the empty-expansion failure |
+| `the manifest's digest field does not contradict the reference` | Where the record states the digest twice -- inside `base_image_ref` and in `base_image_digest` -- the two must agree; stating only the reference half is a blank field, not a contradiction, and passes |
+| `the manifest records package versions, not just package names` | `dpkg-query -W` name/version pairs, not a bare name list |
+
+<!-- /generated -->
+
+## The shared test helper
 
 ### dist/test/bats/smoke/shared/test_helper.bash
 
