@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3535 tests**.
+Unit specs under `test/bats/unit/`: **3541 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -4283,3 +4283,14 @@ rather than an assurance.
 | `_run_adr_structure: REFUSES when doc/adr/ holds ONLY the exempt README (#994)` | - |
 | `_run_adr_structure: REFUSES when doc/adr/ does not exist (#994)` | - |
 | `_run_adr_structure: the REAL doc/adr/ passes today (#994)` | - |
+
+### test/bats/unit/init_existing_repo_signals_spec.bats (6)
+
+| Test | Description |
+|------|-------------|
+| `init.sh --list-existing-repo-signals prints a non-empty list and exits 0` | The discriminator is answerable at all |
+| `init.sh --list-existing-repo-signals names the Dockerfile proxy (#928)` | Today's signal is stated by name |
+| `init.sh --list-existing-repo-signals emits repo-relative paths only` | No absolute, trailing-slash or subtree-internal path |
+| `init.sh --list-existing-repo-signals output is sorted and free of duplicates` | Comparable by a plain diff |
+| `init.sh --list-existing-repo-signals mutates nothing and never leaves its cwd` | A query, answered before the self-run guard and before cd |
+| `init.sh --help names --list-existing-repo-signals` | Discoverable from the script's own usage |

@@ -16,8 +16,9 @@
 # one-time bootstrap before `just` is wired up.
 #
 # Auto-detects:
-#   - Has Dockerfile → existing repo: create symlinks
-#   - No Dockerfile → new repo: generate full project structure
+#   - Carries a published signal (`--list-existing-repo-signals`; today
+#     `Dockerfile`) → existing repo: create symlinks
+#   - Carries none of them → new repo: generate full project structure
 
 # Only set strict mode when running directly; when sourced, respect caller's settings
 if [[ "${BASH_SOURCE[0]:-}" == "${0:-}" ]]; then
@@ -309,6 +310,53 @@ _detect_template_version() {
 }
 
 # ── New repo scaffolding ────────────────────────────────────────────────────
+
+# _init_existing_repo_signals
+#   Every repo-relative path whose presence means "this repo has been set up
+#   before", one per line, sorted (LC_ALL=C) and duplicate-free. It is the
+#   whole of the new-vs-existing decision: `_init_repo_is_existing` below
+#   reads nothing else, so the list and the branch cannot disagree.
+#
+#   WHY IT IS PUBLISHED. The decision is a PROXY. A file only an initialized
+#   repo was supposed to carry stands in for "initialized", and that holds
+#   only while nothing ELSE ships the file. It inverted once: the template
+#   began shipping a `Dockerfile`, so every repo bootstrapped from it arrived
+#   carrying the proxy, took the existing-repo branch, and never got the
+#   new-repo scaffold -- no CI workflow, no changelog, no smoke tree. Months
+#   passed and no test failed, because the proxy existed only as a condition
+#   inside `main`: nothing outside this file could name what it depended on.
+#
+#   Printing it (`--list-existing-repo-signals`) is what makes the assumption
+#   checkable from where the collision actually happens. The template repo is
+#   the one place the shipped file set and the vendored installer are both on
+#   disk, and its guard derives the discriminator from this list rather than
+#   restating the condition -- a restatement being the thing that goes stale.
+#
+#   A signal must be a file the new-repo path itself creates. One that is not
+#   can never flip a repo from new to existing on its own, so it can only
+#   arrive from somewhere else, which is precisely the inversion above.
+#   test/bats/integration/init_existing_repo_signals_spec.bats runs a real
+#   init per published path and reads the branch off the artifacts.
+_init_existing_repo_signals() {
+  cat <<'EOF'
+Dockerfile
+EOF
+}
+
+# _init_repo_is_existing
+#   True when the repo at cwd carries any published signal. Same test the
+#   branch has always made (`[[ -f Dockerfile ]]`), asked of the list instead
+#   of a literal.
+_init_repo_is_existing() {
+  local _signal
+  while IFS= read -r _signal; do
+    [[ -n "${_signal}" ]] || continue
+    if [[ -f "${_signal}" ]]; then
+      return 0
+    fi
+  done < <(_init_existing_repo_signals)
+  return 1
+}
 
 _detect_repo_name() {
   basename "${REPO_ROOT}"
@@ -1256,11 +1304,14 @@ main() {
   if [[ "${1:-}" =~ ^(-h|--help)$ ]]; then
     cat >&2 <<'EOF'
 Usage: ./<subtree-prefix>/init.sh [--gen-conf [--force]] [--bootstrap-just]
-       [--list-installed-paths] [--lang <en|zh-TW|zh-CN|ja>]
+       [--list-installed-paths] [--list-existing-repo-signals]
+       [--lang <en|zh-TW|zh-CN|ja>]
 
 Initialize a repo with the template subtree. Auto-detects:
-  - Has Dockerfile → create symlinks, then run setup.sh
-  - No Dockerfile  → generate full project structure, then run setup.sh
+  - Carries a signal (--list-existing-repo-signals) → create symlinks,
+    then run setup.sh
+  - Carries none of them → generate full project structure, then run
+    setup.sh
 
 The subtree prefix is taken from init.sh's own directory; the standard
 prefix is `.base/` but the script handles any prefix without code
@@ -1284,6 +1335,14 @@ Options:
                      existing-repo resync guarantees a consumer carries,
                      then exit without touching anything. The delivery
                      audit reads this instead of keeping its own copy.
+  --list-existing-repo-signals
+                     Print, one per line, every repo-relative path whose
+                     presence makes init treat this repo as ALREADY set
+                     up (the new-vs-existing discriminator), then exit
+                     without touching anything. A checker that must know
+                     the discriminator -- the template's guard against
+                     shipping a file that collides with it -- reads this
+                     instead of restating the condition.
   --bootstrap-just   Opt-in: install the `just` runner via the official
                      prebuilt-binary installer into ~/.local/bin before
                      init proceeds, at the version this repo pins (the
@@ -1315,6 +1374,17 @@ EOF
     return 0
   fi
 
+  # `--list-existing-repo-signals` is a QUERY too, answered here for the
+  # same reasons: the caller is asking what init.sh READS to classify a
+  # repo, not asking it to initialize one, and the answer has to be
+  # obtainable from a base checkout the self-run guard would (correctly)
+  # refuse to scaffold in. Nothing below this point runs, so the query
+  # mutates nothing.
+  if [[ "${1:-}" == "--list-existing-repo-signals" ]]; then
+    _init_existing_repo_signals
+    return 0
+  fi
+
   # Refuse to run inside the base template source itself (ADR-00000011 sec.8).
   # A vendored `.base/` subtree never carries `.git`; the base checkout/
   # worktree does, so `.git` at the resolved subtree root means "this is the
@@ -1340,7 +1410,7 @@ EOF
   local template_version=""
   template_version="$(_detect_template_version)"
 
-  if [[ -f Dockerfile ]]; then
+  if _init_repo_is_existing; then
     _init_existing_repo
   else
     _create_new_repo "${template_version:-main}"

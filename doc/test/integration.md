@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **155 tests**.
+Integration specs under `test/bats/integration/`: **159 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -327,3 +327,12 @@ vacuity is why the same defect shipped twice.
 | Test | Description |
 |------|-------------|
 | `test-tools image: just --version equals the declared pin (#948)` | - |
+
+### test/bats/integration/init_existing_repo_signals_spec.bats (4)
+
+| Test | Description |
+|------|-------------|
+| `a repo carrying none of the published signals is scaffolded as new (#928)` | main.yaml, the changelog and the smoke tree arrive |
+| `each published signal, on its own, sends init down the existing-repo path (#928)` | Published list and branch condition cannot disagree |
+| `a repo carrying a file the list does NOT publish is still scaffolded as new (#928)` | Presence of any file does not decide; the list does |
+| `the new-repo scaffold creates every published signal (#928)` | A signal init never installs could only come from elsewhere |

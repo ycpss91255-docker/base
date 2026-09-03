@@ -70,8 +70,8 @@ _signals() {
 
 # _new_repo_only_paths
 #   Files the NEW-repo path installs and the existing-repo path never
-#   writes. Two of the three things #928 measured as missing; the third is
-#   the smoke tree, checked as a directory below.
+#   writes. Two of the three things base#928 measured as missing; the third
+#   is the smoke tree, checked as a directory below.
 _new_repo_only_paths() {
   cat <<'EOF'
 .github/workflows/main.yaml
