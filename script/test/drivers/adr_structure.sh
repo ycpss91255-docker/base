@@ -43,7 +43,7 @@
 #     is a warning, and the measurement that prompted this lint (25 of 27
 #     carried the section by convention alone) is exactly the shape that
 #     decays -- the 26th is written by whoever is in a hurry. The two
-#     files that were missing it were written, not waived (#994).
+#     files that were missing it were written, not waived.
 #     A heading may carry trailing text -- `## Alternatives considered`,
 #     `## Consequences / trade-offs`, `## Decision (pending ...)` are all
 #     in the live tree -- so the match is the heading plus an optional

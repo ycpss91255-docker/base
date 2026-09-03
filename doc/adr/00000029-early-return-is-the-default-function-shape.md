@@ -111,10 +111,14 @@ Three consequences of stating it that way rather than as a limit:
   writing one is more work than it adds while depth and length are
   unbounded; it is revisited once the flattening lands.
 - Some functions will get more, smaller functions with names, and the
-  file-level line count will rise in places. That is accepted: the
-  measured problem is per-function, not per-file, and a 2862-line file of
-  short named functions is healthier than a 652-line file with five bare
-  ones in it.
+  file-level line count will rise in places. That is accepted, and the
+  unit is the point: every threshold here is per-function, because file
+  size points at the wrong target. base's largest shipped file
+  (`setup_tui.sh`, 2862 lines) averages 53 lines across 54 named
+  functions; `wrapper/run.sh`, a quarter its size, averages 73 across 9.
+  The bigger file is the better-shaped one, and a per-file limit would
+  have ranked them the other way round. Nothing here is a limit on a
+  file.
 
 ## Alternatives
 
