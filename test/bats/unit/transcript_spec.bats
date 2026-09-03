@@ -8,6 +8,57 @@
 # an atexit registry that owns the single EXIT trap. Pure helpers are
 # tested directly; the tee + EXIT-finalize is exercised end-to-end by
 # running a tiny harness in a subshell.
+#
+# why: Wrapper transcript capture (#606) + interactive orchestration capture
+# (#608): tees a verb's combined output to `log/<verb>/<ts>-<traceid8>.log`
+# (ANSI stripped) with a per-verb `latest.log` symlink, an
+# exit-code+duration closing line, retention, and an `_atexit` registry that
+# owns the single EXIT trap. Interactive verbs (run / exec / setup_tui)
+# capture the orchestration phase then `_transcript_detach` before the
+# session. Pure helpers are unit-tested; the tee + EXIT-finalize + detach
+# are exercised end-to-end by running a tiny harness in a subshell.
+# Activation is execution-only (`_transcript_begin` in each verb's
+# `main()`), never at source time.
+#
+# Grouped by concern:
+#
+# - `_transcript_is_full_verb`: 5 captured verbs / interactive + unknown not
+#
+# - `_transcript_is_interactive_verb` + `_transcript_is_capture_verb`
+# classification (#608)
+#
+# - `_transcript_filename` path shape; `_transcript_meta_line`
+# lnav-parseable format
+#
+# - `_transcript_resolve_traceid`: inherits TRACEPARENT trace_id / generates
+# 32-hex
+#
+# - `_transcript_enabled`: default true / `wrapper_transcript=false` kill
+# switch; `WRAPPER_TRANSCRIPT` env override wins over conf both ways (#622)
+#
+# - `_atexit`: registered callbacks run LIFO on exit
+#
+# - `_transcript_prune`: keep-N-most-recent + drop-older-than-D-days
+#
+# - `_transcript_prune` keep=0 wipes all + read-side guard rejects
+# hand-edited `wrapper_transcript_keep=0` (falls back to 20) (#691)
+#
+# - Degrade-to-no-op failure branches (#691): mkdir-fail /
+# raw-file-unwritable / tee-missing each WARN + return 0, wrapper continues
+#
+# - Non-zero wrapper exit recorded (`transcript_complete exit_code=7`) AND
+# propagated to caller (#691)
+#
+# - End-to-end: file produced with combined content; ANSI stripped in file
+# (colour on terminal); exit-code+duration line; `latest.log` symlink;
+# `wrapper_transcript=false` no-op
+#
+# - `_transcript_detach` (#608): no-detach full-captures (run -d path);
+# detach captures orchestration only (`transcript_detached`, not the
+# session); no-op when never begun
+#
+# - Wiring guards: 5 full verbs call `_transcript_begin`; run/exec/setup_tui
+# call begin + detach
 
 bats_require_minimum_version 1.5.0
 
@@ -292,6 +343,43 @@ _run_transcript_harness() {  # <verb> <extra-env...>
   assert [ -n "${_f}" ]
   run grep -F "transcript_complete exit_code=7" "${_f}"
   assert_success
+}
+
+@test "_atexit_set_exit_code: a callback's rc wins WITHOUT skipping finalize (#956)" {
+  # A callback whose rc must beat the command's own (a failing post-hook)
+  # cannot get there by calling `exit` from inside the trap: that
+  # terminates the shell in the middle of the atexit loop, before
+  # _transcript_exit_handler ever reaches _transcript_finalize. The run
+  # then leaves an unstripped .raw behind, with no transcript_complete
+  # line and latest.log still naming the PREVIOUS run -- on precisely the
+  # failing run the transcript exists to record (ADR-00000007). A callback
+  # records the code instead; the handler finalizes, then exits with it.
+  run -9 bash -c "
+    export _WRAPPER_VERB=setup FILE_PATH='${TMP_DIR}'
+    source ${LOG_SH}; source ${TRANSCRIPT_SH}
+    _transcript_begin
+    _failing_hook() { printf 'hook ran\n'; _atexit_set_exit_code 9; }
+    _atexit _failing_hook
+    printf 'work then fail\n'
+    exit 2
+  "
+  # (a) the callback's code is the process's code, not the command's 2.
+  assert_equal "${status}" 9
+  # (b) the transcript is complete: stripped file, no raw capture left.
+  local _f
+  _f="$(ls "${TMP_DIR}/log/setup/"*.log 2>/dev/null | head -n1)"
+  assert [ -n "${_f}" ]
+  assert_equal "$(find "${TMP_DIR}/log/setup" -name '*.raw' | wc -l)" 0
+  # (c) the closing line carries the code the caller actually saw...
+  run grep -F "transcript_complete exit_code=9" "${_f}"
+  assert_success
+  # ...and the callback's own output is captured, not lost with the tee.
+  run grep -F "hook ran" "${_f}"
+  assert_success
+  # (d) latest.log points at THIS run, not the one before it.
+  assert [ -L "${TMP_DIR}/log/setup/latest.log" ]
+  run cat "${TMP_DIR}/log/setup/latest.log"
+  assert_output --partial "work then fail"
 }
 
 @test "transcript: latest.log symlink points at the run's file (#606)" {

@@ -1,10 +1,10 @@
 # TEST.md
 
-Template self-tests: **3521 tests** total (3369 unit + 152 integration).
+Template self-tests: **3904 tests** total (3747 unit + 157 integration).
 
 > "Self-test total" is the `just test` suite -- what runs in the
 > `Self Test` CI job. System (19) and smoke (38) tests are tracked here
-> too but are **not** in the 3521 figure: System specs need host docker
+> too but are **not** in the 3904 figure: System specs need host docker
 > access and are opt-in, and smoke specs are Dockerfile `test`-stage
 > build-time assertions, not self-tests. Acceptance is a CI-only level (0
 > bats specs by design): it drives a real scaffolded consumer + built
@@ -20,13 +20,13 @@ carrying its own test count) live in the sibling docs below.
 
 | Doc | Scope | Count |
 |-----|-------|-------|
-| [unit.md](unit.md) | `test/bats/unit/` -- library, wrappers, generators, templates (Unit level) | 3369 |
-| [integration.md](integration.md) | `test/bats/integration/` -- init / upgrade / dispatch across components (Integration level) | 152 |
+| [unit.md](unit.md) | `test/bats/unit/` -- library, wrappers, generators, templates (Unit level) | 3747 |
+| [integration.md](integration.md) | `test/bats/integration/` -- init / upgrade / dispatch across components (Integration level) | 157 |
 | [system.md](system.md) | `test/bats/system/` -- opt-in `runtime-test` buildx specs, gate-fires Regression (System level, host docker) | 19 |
 | [acceptance.md](acceptance.md) | `test/bats/acceptance/` -- consumer framework + UX, UAT/OAT (Acceptance level; CI-only via the `acceptance` job, #785) | 0 |
 | [smoke.md](smoke.md) | `dist/test/bats/smoke/` -- shipped per-stage build-time smoke templates (Smoke type) | 38 |
 
-Self-test grand total (unit + integration): **3521**.
+Self-test grand total (unit + integration): **3904**.
 
 ## Running one spec under kcov: `just test coverage-path`
 
@@ -90,9 +90,10 @@ tool therefore needs its own join to `.github/workflows/self-test.yaml`:
 | `arch-literal` | no bare architecture literal in a shipped Dockerfile under `dist/` or `dockerfile/`; architecture comes from `ARG TARGETARCH`, and a mapping onto an upstream asset spelling opts out with a stated reason | `lint-static (arch-literal)` | ungated |
 | `bash-source-guard` | no undefaulted `BASH_SOURCE` self-location read under `dist/` or `script/` | `lint-static (bash-source-guard)` | ungated |
 | `early-close-reader` | no `\| head` / `\| grep -q` under `dist/` or `script/`, where an early-closing reader strands its writer and `pipefail` inverts the answer | `lint-static (early-close-reader)` | ungated |
+| `errexit-bang` | no `!` statement outside the LAST statement of any `*.bats` body in the repo, and none handing its verdict on via a `;`, an async `&` or an `\|\| true` anywhere in it, continuation lines included. An `\|\|` with a live right operand still exempts the statement -- `! A \|\| return 1` fails its test from any position -- unless a RIGHT operand -- one after such an operator, never the leading `!` that made the statement a candidate -- is itself `!`-inverted: bash exempts THAT from errexit too, so `! A \|\| ! B` aborts nothing and is judged by position and by `;` like any other statement. It is the list's FINAL operand that decides whether it can abort, and the whole class is declined rather than only the inert half, so a live chain (`! A \|\| ! B \|\| return 1`, which DOES abort from a non-final position) is reported alongside it: telling them apart needs the chain evaluated, not read, and that over-report costs one allow region. The judgement is made on the FOLDED statement: physical lines are joined while the text is INCOMPLETE -- a `\` continuation, a quote or a `(` still open, or a `\|` / `\|\|` / `&&` / `\|&` still waiting for its right operand -- and the scan then runs once from the first character, so a separator inside a `( ... )` is the argument's wherever the `(` and its `)` sit. The `\` join is a SPLICE, matching bash: `! grep -q A\` over `#b f; true` is the one word `A#b` and a live `; true`, while `! grep -q A \` over the same text is a comment. The fold answers where a statement STARTS as well as where it ends: a `!` line read in as an operator's right operand -- `echo a \|\|` over `! grep -q A f; true` -- is judged from the line the `!` opens on, over the span that begins there, so the `\|\|` in front of it stays the `echo`'s rather than being read as the `!`'s own hand-off. A statement still unfinished where its body closes is REPORTED when that span is a `!` one, or when an unterminated quote or `(` folded a line opening with `!` into it; otherwise it is unreadable but provably hid nothing this rule judges, which is stated in the driver rather than claimed away. Every row that judges a `!` line is silenced by the allow region; the two that report the FILE instead -- a body left open at EOF, an unbalanced allow marker -- are deliberately not, because the mechanism they are about must not be able to silence them. What is NOT modelled is listed in the driver header with the direction each errs in: `$'...'`, backticks, a heredoc's fixture text and a `!` that ends a compound command ending the body (#991) all OVER-report, which is the refusing direction. The ones that MISS are a `}` at column 0 inside a heredoc, a CRLF file (#990), and the `{ }` half of that same compound-command entry (#991): a brace group carries the `!` exemption out of itself, so a one-line `{ ! cmd; }` away from the body's last statement is inert in bash and unreported, because the scan needs `!` as the statement's first token and there it is `{`. Those two are not every miss the lint has, and the list does not claim to be: the `\|\|` narrowings the driver states separately miss as well -- an always-zero GROUP (`\|\| { true; }`, `\|\| ( true )`) and an operand outside the closed set of always-zero builtins that cannot fail in practice (`\|\| echo x`) are inert and go unreported, and a `;` behind either is swallowed with them (#992). A list whose FINAL operand cannot fail is inert in EVERY position, so position cannot catch it either -- `! A && ! B \|\| echo x` as a body's last statement is such a case, and a spec PINS it as a known miss so it cannot change shape unnoticed; that spec is inverted when #992 lands. The population is derived by walking the tree, not listed: `test/bats/` and the shipped `dist/test/bats/smoke/` both count | `lint-static (errexit-bang)` | ungated |
 | `derived-figures` | a figure a document repeats matches the code that defines it | `lint-static (derived-figures)` | ungated |
 | `i18n-orphan` | no identifier-shaped token in a translation's code spans that `README.md` never names | `lint-static (i18n-orphan)` | ungated |
-| `changelog-entry` | no `[Unreleased]` changelog entry over 700 chars, measured whitespace-collapsed over the whole entry | `lint-static (changelog-entry)` | ungated |
+| `changelog-entry` | no `[Unreleased]` changelog entry over 700 chars (measured whitespace-collapsed over the whole entry), no entry repeating another's lead bullet, no `### <category>` heading opening twice in one release block | `lint-static (changelog-entry)` | ungated |
 
 `lint-static` is a matrix so a red check names the lint that failed, and it is
 ungated because two of its entries (`adr-numbering`, `readme-sync`) are
@@ -110,10 +111,22 @@ them.
 
 ## Maintaining these docs
 
-Every figure and every catalog row in this directory is derived from the specs
-themselves. Regenerate with `just test sync-docs`; validate without writing
-with `just test sync-docs-check`. Never hand-edit a count or hand-add a row --
-see [unit.md](unit.md) for the full contract.
+Every figure and every catalogue section in this directory is derived from the
+specs themselves. Regenerate with `just test sync-docs`; validate without
+writing with `just test sync-docs-check`. See [unit.md](unit.md) for the full
+contract.
+
+**Where a description is written.** Not here. A test's description is a
+`# why:` comment block on the lines immediately above its `@test` in the spec
+file, and a spec file's blurb is a `# why:` block in its opening comment run;
+`sync-doc-counts.sh` renders both into the fenced region of each catalogue.
+Editing that region does nothing -- it is replaced wholesale on every run, so
+a row deleted here comes back byte-for-byte and a description reworded here is
+overwritten. Deleting the block in the spec is the one edit that changes the
+catalogue, and the drift gate fails on it. Renaming a test carries its
+description, because the description moved with the lines above it.
+`just test lint --catalog-description` is the rule at its source: it reads
+`^@test` over the spec trees, so no section shape can take a test out of it.
 
 **Where the check is enforced (one rule, three entry points).** All three run
 the same `script/test/check_test_md_drift.sh`; they differ only in when they
@@ -141,9 +154,11 @@ just test resolve-docs
 ```
 
 which collapses the markers, regenerates from the merged spec tree, verifies,
-and stages -- and refuses loudly, staging nothing, when the two sides disagree
-about something regeneration cannot settle (a catalog row each side describes
-differently, or any hand-written prose that differs). A mechanical collapse
-adopts whichever side it kept for exactly that content, which is how the
+and stages -- and refuses loudly, staging nothing, when the two collapses
+still differ after regeneration. That can now only be hand-written prose
+OUTSIDE the generated region: everything inside it is derived from the specs
+both sides already merged, so a description one branch wrote can no longer be
+dropped by the side the collapse kept. A mechanical collapse adopts whichever
+side it kept for content the generator does not own, which is how the
 "System (N) and smoke (N)" line above shipped stale three times before the
 generator learned to derive it.

@@ -1,4 +1,25 @@
 #!/usr/bin/env bats
+#
+# why: Mirrors `lib/stage.sh`. The per-stage engine: `_validate_stage_name`
+# (#215), `_parse_dockerfile_stages`, `_compute_dockerfile_hash`, `main
+# apply` auto-emit of non-baseline stages (#215), per-stage overrides #220
+# (`_parse_stage_sections` / `_load_stage_overrides` /
+# `_validate_stage_override_key` / `_resolve_stage_scalar` /
+# `_resolve_stage_list` + compose-emit integration, incl. #493 `devel-test`
+# override surface), the `_resolve_docker_flags` single per-stage
+# flag-resolution layer (#505/#526, relocated from the compose spec in P1a),
+# `_generate_runtime_dockerfile` ENV-bake (#503/#688, relocated from
+# setup_emit in P1a), and `_is_deployable_stage`, the ADR-00000023 sec.4
+# stage-eligibility predicate (`deployable = not devel and not *-test`,
+# widened in #841 to the whole template-managed baseline incl. the `sys` /
+# `devel-base` build intermediates) that both the deploy-scoped `[lifecycle]
+# restart` emission and the `setup deploy` stage guard gate on. Also carries
+# the #875 AGREEMENT spec for `_dockerfile_stage_from_line`, the one shared
+# "which line declares stage `<S>`" matcher: instead of testing each reader
+# against its own regex — the shape that let three regexes drift apart until
+# a `FROM --platform=... AS <stage>` line was a stage to one call site and
+# invisible to the others — it drives every call site off a single FROM line
+# and asserts one verdict per site.
 
 bats_require_minimum_version 1.5.0
 
@@ -1494,9 +1515,11 @@ _stage_line_verdicts() {
     _slv_out+=("envbake=nomatch")
   fi
 
-  # 5. _bake_config_copy -- the COPY config/app splice.
-  _bake_config_copy "${_df}" "${_stage}" "${_d}/baked"
-  if grep -q '^COPY config/app ' "${_d}/baked"; then
+  # 5. _bake_config_copy -- the COPY config/<component> splice; the
+  # population is derived from config/*/, so the fixture ships one.
+  mkdir -p "${_d}/with/config/realsense"
+  _bake_config_copy "${_df}" "${_stage}" "${_d}/baked" "${_d}/with"
+  if grep -q '^COPY config/realsense ' "${_d}/baked"; then
     _slv_out+=("configcopy=match")
   else
     _slv_out+=("configcopy=nomatch")
@@ -1515,7 +1538,7 @@ _stage_line_verdicts() {
 @test "all FROM-line call sites agree a --platform flagged line declares the stage (#875)" {
   # The cross-build form this repo invites (TARGETARCH, the arm64
   # matrix). Three sites used to see nothing here while _bake_config_copy
-  # matched, so the field image got the baked config/app and none of the
+  # matched, so the field image got the baked config/<component> and none of the
   # [environment] defaults.
   local -a _v=()
   _stage_line_verdicts 'FROM --platform=$BUILDPLATFORM ubuntu:24.04 AS runtime' runtime _v
@@ -1546,7 +1569,7 @@ _stage_line_verdicts() {
 
 @test "all FROM-line call sites agree a stray bare token declares nothing (#875)" {
   # `FROM <image> <junk> AS <stage>` is not a directive docker accepts.
-  # The greedy `.*` matcher used to splice COPY config/app into it while
+  # The greedy `.*` matcher used to splice COPY config/<component> into it while
   # the other three skipped it; widening for flags must not inherit that.
   local -a _v=()
   _stage_line_verdicts 'FROM ubuntu:24.04 junk AS runtime' runtime _v

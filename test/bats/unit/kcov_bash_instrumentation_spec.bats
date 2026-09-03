@@ -51,6 +51,21 @@
 # its mirror -- inside a plain `'...'` a backslash is literal to the shell,
 # so a value ENDING in one really does close its quote, and an instrument
 # that read it as an escape would swallow the next line instead.
+#
+# why: Asserts about the MEASURING INSTRUMENT rather than about the code,
+# because the instrument is the one input to the coverage gate that nothing
+# was watching. kcov reads bash coverage out of the xtrace stream and tracks
+# single-quote parity across lines; while it believes it is inside an
+# unterminated quote it discards every line it reads, markers included. bash
+# 5.3 changed xtrace to ANSI-C quoting (`$'a\nb'`, embedded quotes written
+# `\'`), each of which flipped that counter -- so a burst of lines that had
+# just executed was reported as never run, silently, with the suite green.
+# `dockerfile/Dockerfile.test-tools` answers that by pinning an alpine
+# series on the bash 5.2 side of the boundary, which is at 3.23 (3.21 and
+# 3.22 ship 5.2.37; 3.23 ships 5.3.3, 3.24 ships 5.3.9). These two tests are
+# that choice's acceptance, and they are behavioural (run the real kcov over
+# a fixture and read the report), so a bump onto a bash kcov misreads fails
+# at the bump rather than moving the coverage number by a plausible margin.
 
 setup() {
   export LOG_FORMAT=text
@@ -103,6 +118,8 @@ _hits() {
   yq -p=json ".coverage[] | .[\"${_line}\"]" "${REPORT}"
 }
 
+# why: The bug: an embedded `\'` must not flip the quote-parity counter and
+# swallow the following lines
 @test "kcov: lines after an ANSI-C \$'...' value are recorded as run (bash 5.3 xtrace quoting)" {
   # Lines 5-7 all execute unconditionally. Under a bash whose xtrace uses
   # ANSI-C quoting every one of them reports 0: line 4's trace carries two
@@ -125,6 +142,8 @@ printf '%s\\n' \"\${_msg[c]}\" >/dev/null"
   done
 }
 
+# why: The mirror case: inside `'...'` a backslash is literal, so a value
+# ending in one really does close its quote
 @test "kcov: a backslash inside a plain '...' value stays literal, so the next line is recorded" {
   # The mirror-image guard. `_v` ends in a backslash, which the shell keeps
   # literal inside single quotes, so xtrace emits `_v='...\'` and the quote

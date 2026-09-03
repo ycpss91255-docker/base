@@ -413,6 +413,39 @@ _was_untracked_before_upgrade() {
   return 1
 }
 
+# _abort_failed_subtree_pull <rc> <target_ver>
+#   Clean up after a `git subtree pull` that did not complete, then abort.
+#
+#   This is the pre-trap sibling of _restore_pre_upgrade_state, and it is
+#   deliberately narrower. The trap undoes a pull that COMMITTED; there is
+#   no commit to undo here, so the only state to clear is an in-progress
+#   merge -- which `git merge --abort` restores exactly, HEAD, index and
+#   working tree together.
+#
+#   Aborting is safe for the same reason the trap's rollback is: git-subtree
+#   refuses to run against a dirty tree, so every change the merge left is
+#   one this run made. A failure with no merge in progress (a bad tag, an
+#   unreachable remote) has nothing to clean and falls straight through.
+#
+#   A rescue that itself fails is reported, never swallowed: the user is
+#   holding a mid-merge tree either way, and must hear which one it is.
+_abort_failed_subtree_pull() {
+  local _rc="${1:?"${FUNCNAME[0]}: missing rc"}"
+  local _target="${2:?"${FUNCNAME[0]}: missing target_ver"}"
+  local _git_dir
+  _git_dir="$(git rev-parse --git-dir)"
+
+  if [[ -e "${_git_dir}/MERGE_HEAD" ]]; then
+    _log_err upgrade upgrade_rollback "display=subtree pull left a conflicted merge in progress; aborting it so the repo is not left mid-merge." "status=${_rc}"
+    if ! git merge --abort >/dev/null 2>&1; then
+      _log_err upgrade upgrade_rollback_failed "display=could not abort the merge; the tree is still mid-merge — resolve it or run 'git merge --abort' by hand before retrying."
+      exit 1
+    fi
+  fi
+
+  _error "git subtree pull failed (exit ${_rc}); nothing was committed and the repo is unchanged. A conflict here means ${TEMPLATE_REL}/ carries local edits that clash with ${_target} — the subtree is upstream-managed, so move those edits out of it and retry."
+}
+
 # _upgrade_exit_trap
 #   Armed the moment the subtree pull has COMMITTED, disarmed once the
 #   upgrade has finished everything that can fail. In between, the repo is
@@ -649,9 +682,19 @@ _upgrade() {
 
   # Step 1: subtree pull
   _log "Step 1/5: git subtree pull"
+  # Guarded rather than left to `set -e`: the pull is the ONE step that can
+  # fail while the exit trap below is still unarmed, and its characteristic
+  # failure (a conflict against a hand-edited .base/) leaves a merge in
+  # progress. Aborting under `set -e` there would hand the user a tree
+  # mid-merge that nothing in this run put back -- discovered one run later
+  # by _require_clean_merge_state, on a state they never chose.
+  local _pull_rc=0
   git subtree pull --prefix="${TEMPLATE_REL}" \
     "${TEMPLATE_REMOTE}" "${target_ver}" --squash \
-    -m "chore: upgrade ${TEMPLATE_REL} subtree to ${target_ver}"
+    -m "chore: upgrade ${TEMPLATE_REL} subtree to ${target_ver}" || _pull_rc=$?
+  if (( _pull_rc != 0 )); then
+    _abort_failed_subtree_pull "${_pull_rc}" "${target_ver}"
+  fi
 
   # The pull has landed a COMMIT. Everything from here is recoverable only
   # by undoing it, so arm the rollback now -- see _upgrade_exit_trap for

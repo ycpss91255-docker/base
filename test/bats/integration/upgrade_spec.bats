@@ -6,6 +6,21 @@
 # "downstream" consumer repo that has template added as a subtree at v0.9.5.
 # Tests drive the real upgrade.sh against this fake remote and assert on
 # the resulting working tree + git state.
+#
+# why: End-to-end verification for `upgrade.sh` driving a real subtree
+# update against a fake template remote (bare repo with `v0.9.5` / `v0.9.7`
+# tags on a minimal subtree layout) attached to a sandbox downstream repo.
+# **Level 1** (no Docker). Exercises the happy path, the pre-flight guards,
+# the destructive-FF rollback path added after the Jetson v0.9.7 incident
+# (stubs `git-subtree pull` via `GIT_EXEC_PATH` to simulate the bug and
+# asserts the repo is restored), and Step 5's declarative
+# Dockerfile/entrypoint migration pass (#567 / #579) — sourcing
+# `lib/dockerfile_migrate.sh` and running `apply_migrations` over the
+# repo-root Dockerfile + sibling `script/entrypoint.sh` (the per-migration
+# {detect, transform} units are unit-tested in
+# `dockerfile_migrate_spec.bats`), plus the pre-pull `.setup.conf`
+# migrations (legacy override relocation and the `[lifecycle] restart`
+# default retirement) observed through a real upgrade run.
 
 bats_require_minimum_version 1.5.0
 
@@ -133,6 +148,7 @@ YAML
 # the fake remote, confirming the migrations run, stage their changes, and
 # stay idempotent.
 
+# why: Step 5 runs the declarative migration dispatcher
 @test "upgrade.sh Step 5 announces the migration pass (#567)" {
   cd "${DOWN_DIR}"
   run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/dist/script/base/upgrade.sh v0.9.7
@@ -140,6 +156,7 @@ YAML
   assert_output --partial "Step 5/5: apply Dockerfile/entrypoint migrations (#567 / #579)"
 }
 
+# why: End-to-end wrapper-copy heal + staged into the upgrade commit
 @test "upgrade.sh heals a legacy wrapper-COPY Dockerfile via the migration list (#567 m1)" {
   cd "${DOWN_DIR}"
   cat > Dockerfile <<'EOF'
@@ -155,11 +172,12 @@ EOF
   # wrapper_copy writes the flat path and flat_to_dist, later in the list,
   # carries it to the shipped tree; the settled result is the dist one.
   grep -Fq "COPY .base/dist/script/docker/wrapper/*.sh /lint/" Dockerfile
-  ! grep -Eq '^[[:space:]]*COPY[[:space:]]+\*\.sh[[:space:]]+/lint/' Dockerfile
+  refute grep -Eq '^[[:space:]]*COPY[[:space:]]+\*\.sh[[:space:]]+/lint/' Dockerfile
   # The rewritten Dockerfile is staged into the upgrade's commit.
   git diff --cached --quiet
 }
 
+# why: End-to-end entrypoint nounset guard around the ROS setup.bash source
 @test "upgrade.sh nounset-guards a sibling entrypoint ROS source (#567 m8 / #579)" {
   cd "${DOWN_DIR}"
   : > Dockerfile  # presence-only; the dispatcher runs against the entrypoint
@@ -180,6 +198,7 @@ EOF
   grep -Fxq "set -u" script/entrypoint.sh
 }
 
+# why: Subtree-only repos (no consumer Dockerfile) skip silently
 @test "upgrade.sh Step 5 continues cleanly when no Dockerfile at repo root (#567)" {
   cd "${DOWN_DIR}"
   # Default _seed_downstream_repo fixture leaves no Dockerfile at root —
@@ -191,6 +210,7 @@ EOF
   assert_output --partial "no Dockerfile"
 }
 
+# why: A second upgrade is a no-op on an already-migrated Dockerfile
 @test "upgrade.sh migrations are idempotent — already-migrated Dockerfile unchanged (#567)" {
   cd "${DOWN_DIR}"
   # "Already migrated" is the DIST spelling: the flat wrapper path this
@@ -211,6 +231,32 @@ EOF
   diff Dockerfile "${BATS_TEST_TMPDIR}/Dockerfile.orig"
 }
 
+# The fanout case the pip-helper migration must not get wrong: a mechanical
+# `just upgrade` reaches every consumer repo, and the retired-helper line is
+# byte-identical whether the repo's own config/pip/requirements.txt is the
+# shipped placeholder or a real dependency list. Deleting it in the second
+# case leaves a build that still goes green with the packages missing.
+# why: Fanout guard: Step 5 must not delete a working dependency install
+@test "upgrade.sh keeps the pip install when the repo ships real requirements (#956)" {
+  cd "${DOWN_DIR}"
+  mkdir -p config/pip
+  echo "numpy==1.26.4" > config/pip/requirements.txt
+  cat > Dockerfile <<'EOF'
+FROM busybox AS sys
+# Setup pip packages
+RUN PIP_BREAK_SYSTEM_PACKAGES=1 pip install --no-cache-dir -r "${CONFIG_DIR}"/pip/requirements.txt
+EOF
+  git add Dockerfile config
+  git commit -q -m "add Dockerfile + a populated config/pip/requirements.txt"
+  cp Dockerfile "${BATS_TEST_TMPDIR}/Dockerfile.pip-orig"
+
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/dist/script/base/upgrade.sh v0.9.7
+  assert_success
+  assert_output --partial "kept"
+  diff Dockerfile "${BATS_TEST_TMPDIR}/Dockerfile.pip-orig"
+}
+
+# why: Re-run is no-op
 @test "upgrade.sh v0.9.7 is idempotent on a second run" {
   cd "${DOWN_DIR}"
 
@@ -222,6 +268,7 @@ EOF
   [ "$(cat .base/.version)" = "v0.9.7" ]
 }
 
+# why: --check flag
 @test "upgrade.sh --check reports update available from v0.9.5 → v0.9.7" {
   cd "${DOWN_DIR}"
 
@@ -246,6 +293,7 @@ _seed_entry() {
   cp /source/dist/script/base/justfile.base script/base/justfile.base
 }
 
+# why: Regression #175: recipe wraps exit 1 (skips w/o just)
 @test "just base update (downstream entry): exit 0 when update available (#175, #546, #652)" {
   # Regression: the upgrade-check recipe wraps upgrade.sh so the
   # runner does not mistake exit 1 (update available) for a build failure.
@@ -253,10 +301,12 @@ _seed_entry() {
   # not an artifact of this repo, and TEST_TOOLS_IMAGE can be pinned to
   # a published test-tools tag older than the one that first shipped it.
   # Dropping it from the image is NOT what this skip covers -- the
-  # `apk add ... just` line is asserted unconditionally by template_spec,
-  # so a removal fails there rather than going quiet here.
+  # pinned fetch of `just` is asserted unconditionally by template_spec,
+  # so a removal fails there rather than going quiet here. Staleness is a
+  # different question and is NOT skipped: just_runner_version_spec
+  # compares the image's version against the declaration, fail-closed.
   command -v just >/dev/null 2>&1 \
-    || skip "this test-tools image has no just (older pinned TEST_TOOLS_IMAGE); the apk-add line itself is pinned in template_spec"
+    || skip "this test-tools image has no just (older pinned TEST_TOOLS_IMAGE); the pinned fetch itself is asserted in template_spec"
   cd "${DOWN_DIR}"
   _seed_entry
 
@@ -267,15 +317,18 @@ _seed_entry() {
   assert_output --partial "Update available"
 }
 
+# why: Up-to-date path stays green (skips w/o just)
 @test "just base update (downstream entry): exit 0 when up-to-date (#546)" {
   # Optional on purpose: `just` is a capability of the TOOLING IMAGE,
   # not an artifact of this repo, and TEST_TOOLS_IMAGE can be pinned to
   # a published test-tools tag older than the one that first shipped it.
   # Dropping it from the image is NOT what this skip covers -- the
-  # `apk add ... just` line is asserted unconditionally by template_spec,
-  # so a removal fails there rather than going quiet here.
+  # pinned fetch of `just` is asserted unconditionally by template_spec,
+  # so a removal fails there rather than going quiet here. Staleness is a
+  # different question and is NOT skipped: just_runner_version_spec
+  # compares the image's version against the declaration, fail-closed.
   command -v just >/dev/null 2>&1 \
-    || skip "this test-tools image has no just (older pinned TEST_TOOLS_IMAGE); the apk-add line itself is pinned in template_spec"
+    || skip "this test-tools image has no just (older pinned TEST_TOOLS_IMAGE); the pinned fetch itself is asserted in template_spec"
   cd "${DOWN_DIR}"
   _seed_entry
 
@@ -293,6 +346,8 @@ _seed_entry() {
 # dropped (fail-loud), and must leave a repo already at the new location
 # untouched.
 
+# why: Legacy override auto-migrated (git mv + loud warning) so it is never
+# silently dropped
 @test "upgrade.sh relocates a legacy config/docker/setup.conf override to repo-root .setup.conf, loudly" {
   cd "${DOWN_DIR}"
   mkdir -p config/docker
@@ -316,6 +371,7 @@ _seed_entry() {
   refute_output --partial "config/docker/setup.conf still present"
 }
 
+# why: Already-migrated repo: no move, no spurious announcement
 @test "upgrade.sh leaves a repo already at root .setup.conf untouched (no spurious migration)" {
   cd "${DOWN_DIR}"
   printf '[gpu]\nmode = force\n' > .setup.conf
@@ -330,6 +386,8 @@ _seed_entry() {
   grep -Fq "mode = force" .setup.conf
 }
 
+# why: Conflict: root file wins, legacy kept, warned for manual
+# reconciliation
 @test "upgrade.sh warns but does not clobber when BOTH legacy and root setup.conf exist" {
   cd "${DOWN_DIR}"
   mkdir -p config/docker
@@ -347,6 +405,8 @@ _seed_entry() {
   grep -Fq "mode = root_wins" .setup.conf
 }
 
+# why: Migration commit is pathspec-scoped; pre-staged user work stays
+# staged
 @test "upgrade.sh relocation commit carries only the moved paths, not unrelated staged work" {
   cd "${DOWN_DIR}"
   mkdir -p config/docker
@@ -410,6 +470,7 @@ _seed_entry() {
 
 # ── Pre-flight guards ───────────────────────────────────────────────────────
 
+# why: Pre-flight identity guard
 @test "upgrade.sh fails fast when git identity is missing" {
   cd "${DOWN_DIR}"
 
@@ -428,6 +489,7 @@ _seed_entry() {
   [ "$(cat .base/.version)" = "v0.9.5" ]
 }
 
+# why: Pre-flight merge-state guard
 @test "upgrade.sh fails fast when MERGE_HEAD is present" {
   cd "${DOWN_DIR}"
   touch .git/MERGE_HEAD
@@ -438,8 +500,49 @@ _seed_entry() {
   [ "$(cat .base/.version)" = "v0.9.5" ]
 }
 
+# why: A conflicting pull aborts its own merge instead of leaving a
+# mid-merge tree
+@test "upgrade.sh leaves no merge in progress when the subtree pull conflicts (#956)" {
+  cd "${DOWN_DIR}"
+
+  # The EXIT rollback trap is armed only AFTER the pull has committed, and
+  # it genuinely cannot be armed before -- so a pull that conflicts aborts
+  # under `set -e` with no rollback at all, leaving MERGE_HEAD, a staged
+  # .base/.version and conflict markers inside the vendored subtree. The
+  # user then meets it as the NEXT run's clean-merge-state refusal, on a
+  # tree they never chose to leave mid-merge.
+  #
+  # Fixture: a template version that CHANGES a file the downstream also
+  # changed, which is what git-subtree's merge cannot resolve.
+  printf '#!/usr/bin/env bash\nexit 0\n# upstream edit\n' \
+    > "${TMPL_WORK}/dist/script/docker/wrapper/setup.sh"
+  echo "v0.9.8" > "${TMPL_WORK}/.version"
+  git -C "${TMPL_WORK}" commit -qam "v0.9.8"
+  git -C "${TMPL_WORK}" tag v0.9.8
+  git -C "${TMPL_WORK}" push -q "${TMPL_BARE}" v0.9.8
+
+  printf '#!/usr/bin/env bash\nexit 0\n# downstream edit\n' \
+    > .base/dist/script/docker/wrapper/setup.sh
+  git commit -qam "local edit inside .base"
+  local _pre_head
+  _pre_head="$(git rev-parse HEAD)"
+
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/dist/script/base/upgrade.sh v0.9.8
+  assert_failure
+  assert_output --partial "conflicted merge"
+
+  # Nothing mid-flight: no merge in progress, HEAD where it was, working
+  # tree clean, and the vendored file free of conflict markers.
+  assert [ ! -e "$(git rev-parse --git-dir)/MERGE_HEAD" ]
+  [ "$(git rev-parse HEAD)" = "${_pre_head}" ]
+  [ -z "$(git status --porcelain)" ]
+  refute grep -q '^<<<<<<<' .base/dist/script/docker/wrapper/setup.sh
+  [ "$(cat .base/.version)" = "v0.9.5" ]
+}
+
 # ── Rollback on destructive subtree pull ────────────────────────────────────
 
+# why: Destructive-FF rollback
 @test "upgrade.sh rolls back when git-subtree does a destructive fast-forward" {
   cd "${DOWN_DIR}"
 
@@ -560,6 +663,8 @@ INIT
 # relocated script passes and assert it is the subtree basename `.base`,
 # then let the real git-subtree run so we also confirm a clean upgrade
 # (no stray base/ dir at repo root).
+# why: Walk-up self-location resolves the subtree prefix to `.base` after
+# the deep relocation; real subtree pull lands with no stray `base/` dir
 @test "upgrade.sh (#654 relocated): git subtree pull uses --prefix=.base, not --prefix=base" {
   cd "${DOWN_DIR}"
 

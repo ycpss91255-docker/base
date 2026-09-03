@@ -11,6 +11,7 @@
 #   _generate_resolved_compose: write the self-contained, fully-resolved compose
 #   _generate_deploy_launcher : write the thin up/down/logs deploy.sh
 #   _render_deploy_readme     : write the generic bundle README
+#   _collect_config_components: the config/<component>/ population (both halves)
 #   _bake_config_copy         : COPY structured config into the runtime stage
 #   _generate_deploy_bundle   : build -> save|xz -> resolved compose folder
 #   _expand_env_cross_refs    : expand ${VAR} cross-refs in env values
@@ -856,14 +857,143 @@ EOF
 }
 
 # ════════════════════════════════════════════════════════════════════
-# _bake_config_copy <src_dockerfile> <stage> <out>
+# The config/<component>/ channel -- PRD invariant 8's "provisioned by
+# opposite means", dev bind (setup_cmd.sh) vs deploy bake (here).
 #
-# S4 deploy half: splice `COPY config/app /opt/app/config`
-# into the <stage> stage of <src_dockerfile>, writing the result to <out>.
-# The dev side bind-mounts config/app (apply); the field image bakes it in
+# ONE derivation feeds both halves, and it lives here next to
+# _collect_deploy_binds so the three globs over `config/` cannot drift
+# apart. The two halves used to hardcode the literal directory
+# `config/app` -- a shape only a test fixture ever had, so for every real
+# repo in the org the `[[ -d ]]` test was false, nothing was provisioned,
+# and nothing said so.
+#
+# QUALIFIES: every directory that is an immediate child of <base>/config.
+# Not a name list -- a name list decays the moment a repo invents a
+# component -- and deliberately the SAME population `config/*/` that
+# _collect_deploy_binds already globs for deploy.manifest.
+#
+# That includes config/shell/ and config/pip/, which are consumed by a
+# different channel: the Dockerfile's layered `COPY config "${CONFIG_DIR}"`
+# into /tmp/config, read by build-time RUNs (`cat shell/bashrc`,
+# `shell/{terminator,tmux}/setup.sh`, `pip install -r pip/requirements.txt`)
+# and then `sudo rm -rf`'d in that same RUN. Its destination and its
+# lifetime are both disjoint from this channel's: /tmp/config no longer
+# exists when the container starts, so a bind or a bake at
+# /opt/app/config/<x> cannot shadow it -- not at a path, not at a moment.
+# The cost of including them is two inert mounts; the cost of excluding
+# them would be a list of names in the code, and no property of the
+# directories themselves separates config/pip from config/ros2.
+# ════════════════════════════════════════════════════════════════════
+
+# ════════════════════════════════════════════════════════════════════
+# _config_component_target <component_name>
+#
+# The container-side destination for one component. Derived, not
+# declared: /opt/app/config was the one path base ever used for this
+# channel (and nothing in any image reads it -- no entrypoint, no
+# Dockerfile, no runtime lib, downstream included), so it is kept as the
+# ROOT and the component's own directory name is appended.
+#
+# The mapping is `basename`, and every source is a sibling inside one
+# `config/` directory, so two components can NEVER derive the same
+# destination: the filesystem already forbids two entries with one name.
+# There is therefore no tie-break rule to define here. Contrast
+# _collect_deploy_binds, which keys by basename ACROSS different parents
+# (config/a/x.yaml and config/b/x.yaml both want config/x.yaml) and so
+# genuinely needs its loud duplicate-basename error.
+# ════════════════════════════════════════════════════════════════════
+_config_component_target() {
+  printf '/opt/app/config/%s' "${1:?"${FUNCNAME[0]}: missing component"}"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _collect_config_components <base_path> <out_array>
+#
+# Fill <out_array> with the NAMES of <base_path>/config/*/ , shell-glob
+# order (stable, so the emitted binds and COPY lines are deterministic).
+# Regular files directly under config/ and dot-entries are not components
+# and are skipped; _report_config_components names the former out loud.
+#
+# An empty result is a legitimate repo shape, not an error, so this always
+# returns 0. Reporting the empty case is the caller's job -- the defect
+# this fixed was silence, and the cure for silence is a message, never a
+# widened guard.
+# ════════════════════════════════════════════════════════════════════
+_collect_config_components() {
+  local _base="${1:?"${FUNCNAME[0]}: missing base_path"}"
+  local -n _ccc_out="${2:?"${FUNCNAME[0]}: missing out array"}"
+  _ccc_out=()
+  local _dir
+  for _dir in "${_base}"/config/*/; do
+    # Unmatched glob yields the literal pattern; the -d guard skips it.
+    [[ -d "${_dir}" ]] || continue
+    _dir="${_dir%/}"
+    _ccc_out+=("${_dir##*/}")
+  done
+  return 0
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _report_config_components <base_path> <component...>
+#
+# Say what this channel provisioned, every run. Both halves call it with
+# the same population, so dev and deploy can never disagree in the log
+# either. Three things get said:
+#
+#   * components found  -> INFO naming them (the run states its own
+#     outcome instead of leaving the operator to diff compose.yaml).
+#   * none found        -> INFO saying so. NOT an error: a repo with no
+#     structured app config is a normal shape (github_runner, multi_run).
+#   * regular files sitting directly under config/ -> WARN naming them.
+#     That is config which NEITHER half provisions, because provisioning
+#     is per-component-DIRECTORY (live examples: urg_node_humble's
+#     config/params_*.yaml, seggpt's config/phase0_driver.yaml, isaac's
+#     config/host.yaml.example). Dot-entries are excluded by the glob, so
+#     the config/.gitkeep placeholder init.sh seeds into every new repo
+#     does not raise a false alarm -- the discriminator is the leading
+#     dot, a property of the entry, not a filename in a list.
+# ════════════════════════════════════════════════════════════════════
+_report_config_components() {
+  local _base="${1:?"${FUNCNAME[0]}: missing base_path"}"
+  shift
+  if (( $# > 0 )); then
+    _log_info setup config_components_provisioned \
+      "display=[setup] config components provisioned (dev bind-mount / deploy bake): $*" \
+      "count=$#"
+  else
+    _log_info setup config_components_absent \
+      "display=[setup] no config/<component>/ directory under ${_base}/config; nothing is bind-mounted in development or baked at deploy."
+  fi
+
+  local -a _stray=()
+  local _f
+  for _f in "${_base}"/config/*; do
+    [[ -f "${_f}" ]] || continue
+    _stray+=("${_f##*/}")
+  done
+  if (( ${#_stray[@]} > 0 )); then
+    _log_warn setup config_files_unprovisioned \
+      "display=[setup] these files sit directly under ${_base}/config/ and are provisioned by NEITHER half of the config channel (it works per component directory): ${_stray[*]}. Move them under config/<component>/ to have them bind-mounted in development and baked at deploy." \
+      "count=${#_stray[@]}"
+  fi
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _bake_config_copy <src_dockerfile> <stage> <out> <base_path>
+#
+# S4 deploy half: splice one `COPY config/<component> /opt/app/config/<component>`
+# per component directory (see the channel note above) into the <stage>
+# stage of <src_dockerfile>, writing the result to <out>. The dev side
+# bind-mounts the same directories (apply); the field image bakes them in
 # as an immutable layer so the deploy bundle is self-contained. Insert is
 # right after the `FROM ... AS <stage>` line (handles src == out via a
-# temp file). Caller only invokes this when <base>/config/app exists.
+# temp file).
+#
+# Returns 1 WITHOUT writing <out> when the repo ships no component
+# directory -- the same "nothing to bake" non-result its sibling
+# _generate_runtime_dockerfile uses, so the caller keeps building from the
+# plain Dockerfile. The population is derived here rather than tested by
+# the caller, which is what keeps this half and the dev half from drifting.
 #
 # Which line counts as `FROM ... AS <stage>` is _dockerfile_stage_from_line's
 # call (lib/stage.sh), shared with the [environment] ENV bake so the two
@@ -873,14 +1003,20 @@ _bake_config_copy() {
   local _src="${1:?"${FUNCNAME[0]}: missing src dockerfile"}"
   local _stage="${2:?"${FUNCNAME[0]}: missing stage"}"
   local _out="${3:?"${FUNCNAME[0]}: missing out"}"
-  local _tmp _line _found
+  local _base="${4:?"${FUNCNAME[0]}: missing base_path"}"
+  local -a _components=()
+  _collect_config_components "${_base}" _components
+  (( ${#_components[@]} > 0 )) || return 1
+  local _tmp _line _found _comp
   _tmp="$(mktemp)"
   while IFS= read -r _line || [[ -n "${_line}" ]]; do
     printf '%s\n' "${_line}" >> "${_tmp}"
     if _dockerfile_stage_from_line "${_line}" _found \
        && [[ "${_found}" == "${_stage}" ]]; then
-      printf '# >>> config/app baked (generated by setup.sh, #504/#506) <<<\n' >> "${_tmp}"
-      printf 'COPY config/app /opt/app/config\n' >> "${_tmp}"
+      printf '# >>> config/<component> baked (generated by setup.sh, #504/#506/#1000) <<<\n' >> "${_tmp}"
+      for _comp in "${_components[@]}"; do
+        printf 'COPY config/%s %s\n' "${_comp}" "$(_config_component_target "${_comp}")" >> "${_tmp}"
+      done
     fi
   done < "${_src}"
   mv -- "${_tmp}" "${_out}"
@@ -902,7 +1038,7 @@ _bake_config_copy() {
 #
 # Steps: resolve name/version/image -> collect tunable binds (fail loud on a
 # malformed / duplicate-basename manifest) -> bake [environment] ENV (S3) +
-# COPY config/app (S4) into a temp Dockerfile -> docker build --target ->
+# COPY each config/<component> (S4) into a temp Dockerfile -> docker build --target ->
 # docker save | xz -> extract each tunable's baked default into config/ ->
 # generate compose.yaml + deploy.sh + README -> install into <out_dir>.
 #
@@ -944,9 +1080,15 @@ _generate_deploy_bundle() {
   if _generate_runtime_dockerfile "${_base}/Dockerfile" "${_ctx["env_str"]}" "${_gen}" "${_stage}"; then
     _build_dockerfile="${_gen}"
   fi
-  # Bake config/app into the image (S4 deploy half) when the repo ships it.
-  if [[ -d "${_base}/config/app" ]]; then
-    _bake_config_copy "${_build_dockerfile}" "${_stage}" "${_gen}"
+  # Bake every config/<component>/ into the image (S4 deploy half). The
+  # population is derived inside _bake_config_copy from the same glob the
+  # dev bind uses, so a repo cannot be mounted in development and left
+  # unbaked here; the "nothing to bake" case returns 1 and is reported by
+  # name rather than passing silently.
+  local -a _cfg_components=()
+  _collect_config_components "${_base}" _cfg_components
+  _report_config_components "${_base}" ${_cfg_components[@]+"${_cfg_components[@]}"}
+  if _bake_config_copy "${_build_dockerfile}" "${_stage}" "${_gen}" "${_base}"; then
     _build_dockerfile="${_gen}"
   fi
 

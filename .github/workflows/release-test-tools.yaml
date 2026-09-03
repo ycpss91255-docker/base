@@ -162,12 +162,15 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      # The smoke step below compares the shipped shellcheck / hadolint
-      # against the versions dockerfile/Dockerfile.test-tools pins, so this
-      # job needs the file. Deriving the expectation from the pin is the
-      # whole point: a version literal in this workflow would be a second
-      # place to forget, and two literals that agree with each other prove
-      # only that someone edited both.
+      # The smoke step below compares three of the image's tools against
+      # the checkout that built it, so this job needs the tree -- it
+      # previously needed none. shellcheck and hadolint are read out of the
+      # release URLs dockerfile/Dockerfile.test-tools pins; `just` is read
+      # out of ARG JUST_VERSION through dist/script/base/just-version.sh.
+      # Deriving all three from the declaration is the whole point: a
+      # version literal in this workflow would be a second place to forget,
+      # and two literals that agree with each other prove only that someone
+      # edited both.
       - name: Checkout
         uses: actions/checkout@v7
 
@@ -294,10 +297,22 @@ jobs:
           echo "hadolint: pinned v${expected_hd}, image agrees"
           docker run --rm "${image}" parallel --version
           docker run --rm "${image}" git --version
-          # just (#546): the justfile entry point replaces the Makefile;
-          # downstream + CI run `just <verb>` (the single runner, make is
-          # retired), so the image must carry it.
-          docker run --rm "${image}" just --version
+          # just (#546, #948): the justfile entry point replaces the
+          # Makefile; downstream + CI run `just <verb>` (the single
+          # runner, make is retired), so the image must carry it -- at the
+          # PINNED version. Every other check in this step asserts exit 0,
+          # which catches a tool's removal and never its staleness; that
+          # is precisely how this image sat 37 minors behind the `just`
+          # CI and developer hosts ran, green throughout. So compare the
+          # version string against the declaration the image was built
+          # from.
+          just_pin="$(./dist/script/base/just-version.sh)"
+          just_actual="$(docker run --rm "${image}" just --version)"
+          if [ "${just_actual}" != "just ${just_pin}" ]; then
+            echo "::error::${image} ships '${just_actual}' but dockerfile/Dockerfile.test-tools declares ARG JUST_VERSION=${just_pin}" >&2
+            exit 1
+          fi
+          echo "just ${just_pin} confirmed in ${image}"
           # `git subtree --help` would invoke `man git-subtree`, but alpine
           # ships no man viewer in the test-tools image (and we don't want
           # to install one just for this smoke check). Confirm the binary

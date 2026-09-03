@@ -120,6 +120,8 @@ _table_bash() {
   printf '%s\n' "${_row##* }"
 }
 
+# why: Exit 0 says a binary exists; this says it is the one the pin asked
+# for
 @test "tool pins: the shipped shellcheck is the version the Dockerfile pins" {
   local _pinned _actual
   _pinned="$(_pinned_version "${DOCKERFILE}" shellcheck)"
@@ -128,6 +130,8 @@ _table_bash() {
     "the Dockerfile pins shellcheck v${_pinned} but the image reports: ${_actual}. Either the image predates the pin (rebuild: the content-hash tag changes with the Dockerfile, so a stale tag is a stale image) or the pin was edited without one. Until they agree, every lint result in this image is being attributed to a rule set it did not run."
 }
 
+# why: The drift that let a 2022 rule set stay behind a green gate, now
+# asserted every run
 @test "tool pins: the shipped hadolint is the version the Dockerfile pins" {
   local _pinned _actual
   _pinned="$(_pinned_version "${DOCKERFILE}" hadolint)"
@@ -136,6 +140,8 @@ _table_bash() {
     "the Dockerfile pins hadolint v${_pinned} but the image reports: ${_actual}. Either the image predates the pin (rebuild) or the pin was edited without one. This is the exact drift that let a 2022 rule set stay behind a green gate."
 }
 
+# why: A reader returning nothing would reduce both checks to empty-vs-empty
+# agreement
 @test "tool pins reader: a Dockerfile with no pinned URL FAILS rather than returning nothing" {
   local _f="${BATS_TEST_TMPDIR}/no-pin"
   printf 'FROM alpine\nRUN apk add shellcheck\n' > "${_f}"
@@ -143,16 +149,20 @@ _table_bash() {
   assert_failure
 }
 
+# why: 0.11.0 must not be satisfied by 0.11.01 or by 10.11.0
 @test "tool pins reader: a version is matched whole, not as a prefix of a longer one" {
   _reports_version 'version: 0.11.0' '0.11.0'
   ! _reports_version 'version: 0.11.01' '0.11.0'
   ! _reports_version 'version: 10.11.0' '0.11.0'
 }
 
+# why: An unescaped regex dot would let 0x11x0 pass as 0.11.0
 @test "tool pins reader: the dots in a version are literal, not any-character" {
   ! _reports_version 'version: 0x11x0' '0.11.0'
 }
 
+# why: The base every stage is built on, compared with the image the suite
+# is actually running in
 @test "tool pins: the alpine this image runs on is the series the Dockerfile pins" {
   local _series _release
   _series="$(_pinned_series "${DOCKERFILE}")"
@@ -163,6 +173,8 @@ _table_bash() {
   esac
 }
 
+# why: The bash-per-series table the series was chosen on, asserted rather
+# than left as a comment
 @test "tool pins: the bash this image ships is the series the pin's table records" {
   local _series _expected _actual
   _series="$(_pinned_series "${DOCKERFILE}")"
@@ -178,6 +190,7 @@ _table_bash() {
     "the Dockerfile records bash ${_expected} for alpine ${_series} but this image ships ${_actual}. Either the image is not built on the pinned series, or the measured table is no longer a measurement -- and the table is what says whether kcov reads this suite's coverage or silently under-reports it."
 }
 
+# why: A pin the table has no row for is a choice nothing supports
 @test "tool pins reader: a series the table does not cover FAILS rather than returning nothing" {
   local _f="${BATS_TEST_TMPDIR}/no-row"
   printf '# 3.21 -> bash 5.2.37\nARG ALPINE_VERSION=3.99\n' > "${_f}"
@@ -185,6 +198,7 @@ _table_bash() {
   assert_failure
 }
 
+# why: A row for 3.2 must not answer for 3.22, nor one for 13.22
 @test "tool pins reader: a table row is matched whole, not as a prefix of a longer series" {
   # A row for 3.2 must not answer for 3.22, and a row for 13.22 must not
   # answer for 3.22 either.
@@ -194,6 +208,7 @@ _table_bash() {
   assert_failure
 }
 
+# why: With two pins there is no single series for the image to agree with
 @test "tool pins reader: an ALPINE_VERSION declared twice FAILS rather than picking one" {
   local _f="${BATS_TEST_TMPDIR}/two-pins"
   printf 'ARG ALPINE_VERSION=3.22\nARG ALPINE_VERSION=3.24\n' > "${_f}"

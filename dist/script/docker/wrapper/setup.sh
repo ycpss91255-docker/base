@@ -363,6 +363,68 @@ EOF
 
 
 # ════════════════════════════════════════════════════════════════════
+# _setup_dispatch <subcommand> [args...]
+#
+# Route an already-validated subcommand to its handler and return the
+# handler's exit status. Called UNGUARDED from main -- see the comment at
+# the call site for why no `|| _rc=$?` may be put on it.
+# ════════════════════════════════════════════════════════════════════
+_setup_dispatch() {
+  local _subcmd="${1:?"${FUNCNAME[0]}: missing subcommand"}"
+  shift
+  case "${_subcmd}" in
+    apply)        _setup_apply       "$@" ;;
+    check-drift)  _setup_check_drift "$@" ;;
+    set)          _setup_set         "$@" ;;
+    show)         _setup_show        "$@" ;;
+    list)         _setup_list        "$@" ;;
+    add)          _setup_add         "$@" ;;
+    remove)       _setup_remove      "$@" ;;
+    reset)        _setup_reset       "$@" ;;
+    deploy)       _setup_deploy      "$@" ;;
+  esac
+}
+
+# The argv the post-setup hook is handed: main's args with the subcommand
+# already shifted off, exactly as the inline call used to pass them. A
+# global because the EXIT-trap callback below runs outside main's scope.
+_SETUP_POST_HOOK_ARGV=()
+
+# ════════════════════════════════════════════════════════════════════
+# _setup_post_hook_atexit
+#
+# The post-setup hook, run from the process EXIT trap. Registered by main
+# once the pre-hook has passed, so the pre/post pairing is unchanged and
+# the hook still fires on the success and the failure path alike.
+#
+# Why the EXIT trap and not a line after the dispatch: setup.sh runs under
+# `set -euo pipefail` whenever it is the entry point, so a subcommand that
+# returns non-zero aborts main there and then -- an inline call after it is
+# unreachable on exactly the runs a reporting hook exists for. Guarding the
+# dispatch instead (`_setup_dispatch ... || _rc=$?`) would reach the inline
+# call, but bash suppresses errexit for the ENTIRE call tree of a `||` left
+# operand: every handler would then run with `set -e` off, and an unguarded
+# mid-apply failure (an unwritable .env, ENOSPC) would stop aborting and
+# instead print the done message and exit 0 over a half-written config set.
+# transcript.sh owns the single EXIT trap and _atexit fires on an errexit
+# abort too, so the hook is reached without opening that hole.
+#
+# A failing hook still wins over the subcommand's own rc -- recorded with
+# _atexit_set_exit_code, NOT with a bare `exit`. `exit` from inside a
+# callback terminates the shell mid atexit loop, before
+# _transcript_exit_handler reaches _transcript_finalize: the run would end
+# with an unstripped log/setup/<ts>-<id>.log.raw, no transcript_complete
+# line and latest.log still naming the previous run, on exactly the
+# failing run worth reading (ADR-00000007).
+# ════════════════════════════════════════════════════════════════════
+_setup_post_hook_atexit() {
+  local _hook_rc=0
+  _run_post_hook setup \
+    "${_SETUP_POST_HOOK_ARGV[@]+"${_SETUP_POST_HOOK_ARGV[@]}"}" || _hook_rc=$?
+  (( _hook_rc == 0 )) || _atexit_set_exit_code "${_hook_rc}"
+}
+
+# ════════════════════════════════════════════════════════════════════
 # main
 #
 # Top-level entry. Routes to subcommand handlers; preserves the legacy
@@ -407,22 +469,15 @@ main() {
   # subcommands get uniform pre/post coverage.
   _run_pre_hook setup "$@" || exit $?
 
-  case "${_subcmd}" in
-    apply)        _setup_apply       "$@" ;;
-    check-drift)  _setup_check_drift "$@" ;;
-    set)          _setup_set         "$@" ;;
-    show)         _setup_show        "$@" ;;
-    list)         _setup_list        "$@" ;;
-    add)          _setup_add         "$@" ;;
-    remove)       _setup_remove      "$@" ;;
-    reset)        _setup_reset       "$@" ;;
-    deploy)       _setup_deploy      "$@" ;;
-  esac
-  local _rc=$?
+  # post-setup hook: registered on the EXIT trap rather than called after
+  # the dispatch, so it fires on the failure path too WITHOUT a `||` guard
+  # on the dispatch -- which would disable errexit inside every handler.
+  # See _setup_post_hook_atexit.
+  _SETUP_POST_HOOK_ARGV=("$@")
+  _atexit _setup_post_hook_atexit
 
-  # post-setup hook fires after the subcommand returns.
-  _run_post_hook setup "$@" || exit $?
-  return "${_rc}"
+  # Deliberately unguarded: errexit must stay in force inside the handlers.
+  _setup_dispatch "${_subcmd}" "$@"
 }
 
 # Guard: only run main when executed directly, not when sourced (for testing)

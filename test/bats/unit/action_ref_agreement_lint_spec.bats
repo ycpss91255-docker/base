@@ -88,8 +88,10 @@ _action_ref_pairs() {
     | sort -u
 }
 
+# why: The real tree, read independently of the lint
 @test "workflows: every action is used at exactly one ref (#949)" {
-  [[ -d "${WF_DIR}" ]] || skip "workflow directory not at expected path"
+  assert_spec_subject_dir "${WF_DIR}" \
+      "the workflow tree every uses: ref in this spec is read from"
   local -a _pairs=()
   mapfile -t _pairs < <(_action_ref_pairs)
 
@@ -116,6 +118,7 @@ ${_report}A ref is a tag on the action's repository, so two refs in one tree mea
 
 # ── The lint: detection ────────────────────────────────────────────
 
+# why: The v6/v7 split, as a fixture
 @test "_run_action_ref_agreement: FAILS when two workflows disagree on an action's ref (#949)" {
   _require_driver
   _workflow a.yaml 'jobs:' '  a:' '    steps:' '      - uses: docker/build-push-action@v6'
@@ -125,6 +128,7 @@ ${_report}A ref is a tag on the action's repository, so two refs in one tree mea
   assert_failure
 }
 
+# why: A finding you can act on without grepping
 @test "_run_action_ref_agreement: names the action, both refs and every call site (#949)" {
   _require_driver
   _workflow a.yaml 'jobs:' '  a:' '    steps:' '      - uses: docker/build-push-action@v6'
@@ -139,6 +143,7 @@ ${_report}A ref is a tag on the action's repository, so two refs in one tree mea
   assert_output --partial '.github/workflows/b.yaml:4'
 }
 
+# why: The fixed state is green
 @test "_run_action_ref_agreement: PASSES when every call site agrees (#949)" {
   _require_driver
   _workflow a.yaml 'jobs:' '  a:' '    steps:' '      - uses: docker/build-push-action@v7'
@@ -149,6 +154,7 @@ ${_report}A ref is a tag on the action's repository, so two refs in one tree mea
   assert_output --partial 'action ref agreement lint: clean'
 }
 
+# why: A ref is a tag on the repo, so the sub-path is dropped
 @test "_run_action_ref_agreement: FAILS when two entry points of ONE action repo disagree (#949)" {
   # `actions/cache/save` and `actions/cache/restore` are two paths inside
   # one repository, and a ref is a tag on that repository -- so they are
@@ -165,6 +171,7 @@ ${_report}A ref is a tag on the action's repository, so two refs in one tree mea
   assert_output --partial 'actions/cache'
 }
 
+# why: Both step spellings are call sites
 @test "_run_action_ref_agreement: reads the block uses: form, not only the compact one (#949)" {
   _require_driver
   _workflow a.yaml 'jobs:' '  a:' '    steps:' \
@@ -177,6 +184,7 @@ ${_report}A ref is a tag on the action's repository, so two refs in one tree mea
   assert_output --partial 'docker/build-push-action'
 }
 
+# why: The callee is this tree, at this commit
 @test "_run_action_ref_agreement: ignores a local ./ call, which carries no ref (#949)" {
   _require_driver
   _workflow a.yaml 'jobs:' '  a:' '    uses: ./.github/workflows/build-worker.yaml'
@@ -186,6 +194,7 @@ ${_report}A ref is a tag on the action's repository, so two refs in one tree mea
   assert_success
 }
 
+# why: A comment is not a call site
 @test "_run_action_ref_agreement: ignores a commented-out uses line (#949)" {
   _require_driver
   _workflow a.yaml 'jobs:' '  a:' '    steps:' \
@@ -196,6 +205,7 @@ ${_report}A ref is a tag on the action's repository, so two refs in one tree mea
   assert_success
 }
 
+# why: Otherwise every annotated pin is its own version
 @test "_run_action_ref_agreement: strips a trailing comment, so an annotated sha pin still compares (#949)" {
   # The repo's one sha-pinned action carries its human-readable tag as a
   # trailing comment. Left unstripped, the comment becomes part of the
@@ -210,6 +220,7 @@ ${_report}A ref is a tag on the action's repository, so two refs in one tree mea
   assert_success
 }
 
+# why: Two ways of saying which code runs still disagree
 @test "_run_action_ref_agreement: FAILS when a sha pin and a tag name the same action (#949)" {
   _require_driver
   _workflow a.yaml 'jobs:' '  a:' '    steps:' \
@@ -224,6 +235,7 @@ ${_report}A ref is a tag on the action's repository, so two refs in one tree mea
 
 # ── The lint: the recorded exception ───────────────────────────────
 
+# why: A hold-back is recorded where it happens
 @test "_run_action_ref_agreement: an allow marker carrying a reason excludes that call site (#949)" {
   # The escape hatch is deliberately a comment AT the call site, not a
   # config entry: the whole hazard is a divergence with no written
@@ -241,6 +253,7 @@ ${_report}A ref is a tag on the action's repository, so two refs in one tree mea
   assert_output --partial '1 allowed'
 }
 
+# why: A bare mute rebuilds the hazard inside the repo
 @test "_run_action_ref_agreement: an allow marker with NO reason is itself a failure (#949)" {
   # A marker that only mutes is the closed-pull-request hazard rebuilt
   # inside the repo. The reason is the entire point of the mechanism.
@@ -255,6 +268,7 @@ ${_report}A ref is a tag on the action's repository, so two refs in one tree mea
   assert_output --partial 'reason'
 }
 
+# why: The whole comment block carries the exception
 @test "_run_action_ref_agreement: an allow marker two comment lines above still applies (#949)" {
   _require_driver
   _workflow a.yaml 'jobs:' '  a:' '    steps:' \
@@ -267,6 +281,7 @@ ${_report}A ref is a tag on the action's repository, so two refs in one tree mea
   assert_success
 }
 
+# why: One recorded divergence licenses no others
 @test "_run_action_ref_agreement: an allow marker does NOT leak to the next call site (#949)" {
   # An exception scoped to a comment block must end with that block, or
   # one recorded divergence quietly licenses every later one.
@@ -284,6 +299,7 @@ ${_report}A ref is a tag on the action's repository, so two refs in one tree mea
 
 # ── The lint: non-vacuity ──────────────────────────────────────────
 
+# why: Nothing scanned is an error, not a pass
 @test "_run_action_ref_agreement: dies when .github/workflows/ is missing (#949)" {
   _require_driver
   rm -rf "${SCRATCH}/.github"
@@ -293,6 +309,7 @@ ${_report}A ref is a tag on the action's repository, so two refs in one tree mea
   assert_output --partial 'vacuous'
 }
 
+# why: Same, one level in
 @test "_run_action_ref_agreement: dies when the workflow directory holds no workflow (#949)" {
   _require_driver
 
@@ -301,6 +318,7 @@ ${_report}A ref is a tag on the action's repository, so two refs in one tree mea
   assert_output --partial 'vacuous'
 }
 
+# why: A reader regression cannot report silence forever
 @test "_run_action_ref_agreement: dies when no workflow names a versioned action (#949)" {
   # A reader regression that stopped recognising `uses:` would report no
   # disagreement forever, in silence -- which is the failure this lint
@@ -315,9 +333,11 @@ ${_report}A ref is a tag on the action's repository, so two refs in one tree mea
 
 # ── The lint: the real tree ────────────────────────────────────────
 
+# why: The lint agrees with the tree it ships with
 @test "_run_action_ref_agreement: reports the real workflow tree clean (#949)" {
   _require_driver
-  [[ -d "${WF_DIR}" ]] || skip "workflow directory not at expected path"
+  assert_spec_subject_dir "${WF_DIR}" \
+      "the workflow tree every uses: ref in this spec is read from"
   REPO_ROOT="/source"
 
   run _run_action_ref_agreement
@@ -327,6 +347,7 @@ ${_report}A ref is a tag on the action's repository, so two refs in one tree mea
 
 # ── The lint: wiring ───────────────────────────────────────────────
 
+# why: A lint nobody runs is a comment
 @test "action-ref-agreement: is a member of the lint phase's tool table (#949)" {
   # A lint nobody runs is a comment. _LINT_TOOLS is the one table every
   # lint-phase caller dispatches through, and it is also what the
@@ -351,6 +372,7 @@ ${_report}A ref is a tag on the action's repository, so two refs in one tree mea
   assert_line "action-ref-agreement"
 }
 
+# why: Named plain-runner matrix entry, no docker
 @test "action-ref-agreement: has a lint-static CI join (#949)" {
   # Belt to the completeness guard's braces: that check proves EVERY
   # table entry has some join, this one names the join this lint needs --
@@ -363,6 +385,7 @@ ${_report}A ref is a tag on the action's repository, so two refs in one tree mea
   assert_output --partial '- action-ref-agreement'
 }
 
+# why: An unregistered id is an anonymous exit
 @test "action-ref-agreement: its failure event id is registered (#949)" {
   # An unregistered event id is an anonymous exit: the log line carries
   # no name a reader can look up.

@@ -151,6 +151,7 @@ narrow_to_report() {
 
 # ── the load-bearing spec: CACHED must not read as a pass ────────────
 
+# why: The load-bearing case: every check CACHED reports that nothing ran
 @test "build.sh test: a fully CACHED verification stage is not reported as a pass" {
   export DOCKER_BUILD_OUTPUT="${ALL_CACHED}"
   run bash "${SANDBOX}/build.sh" test
@@ -170,6 +171,7 @@ narrow_to_report() {
   assert_output --partial "WARN"
 }
 
+# why: A real run says so, and says nothing about caching
 @test "build.sh test: an executed verification stage reports every check as executed" {
   export DOCKER_BUILD_OUTPUT="${ALL_RAN}"
   run bash "${SANDBOX}/build.sh" test
@@ -178,6 +180,7 @@ narrow_to_report() {
   refute_output --partial "nothing ran in this invocation"
 }
 
+# why: Per-step truth: a re-run bats over cached linters names both
 @test "build.sh test: a partially cached stage names which checks were CACHED" {
   # bats re-ran (a smoke spec changed) while the two linters ahead of it
   # stayed cached -- the case a whole-image comparison cannot see.
@@ -208,6 +211,7 @@ EOF
 # heredoc script. The report may not require it to be one of three
 # binaries base happens to know.
 
+# why: The shipped `-test` idiom names none of the three known tools
 @test "build.sh field-test: the template's own RUNTIME_SMOKE_CMD style is a check" {
   # dist/dockerfile/Dockerfile documents this as style (a), "the bare,
   # dependency-free default" for a `-test` stage: an ldd-based
@@ -226,6 +230,7 @@ EOF
   refute_output --partial "ERROR"
 }
 
+# why: A live consumer stage base has never seen, reported not failed
 @test "build.sh e2e-test: a Playwright gate's own steps are what is reported" {
   # omniverse_web_viewer's shipped stage, verbatim. Its first step was
   # cached and its second ran, which is the report that has to come out.
@@ -246,6 +251,7 @@ EOF
   assert_output --partial "cached: npm"
 }
 
+# why: BuildKit shows only the header, so no rule may read the command
 @test "build.sh cli-test: a heredoc RUN step is reported like any other" {
   # BuildKit's vertex name for a heredoc RUN is the header line alone --
   # the body never appears as a step at all -- so any rule that reads the
@@ -268,6 +274,7 @@ EOF
   assert_output --partial "cli-test x2"
 }
 
+# why: base can say nothing was checked, not that the stage is worthless
 @test "build.sh custom-test: a verification stage with no RUN step warns, it does not fail" {
   # The build was read fine; the stage simply has no RUN of its own. base
   # has no authority to call a consumer's stage meaningless, so this says
@@ -288,6 +295,7 @@ EOF
 
 # ── installing a check binary is not running one ─────────────────────
 
+# why: A re-run toolchain stage may not read as a check over cached ones
 @test "build.sh test: an install step in a side stage is not a check that ran" {
   # A `COPY --from` toolchain stage can re-run while the -test stage it
   # feeds stays fully cached, so this is the one shape that can produce
@@ -314,6 +322,7 @@ EOF
   refute_output --partial "executed 1 of"
 }
 
+# why: Installing shellcheck is not shellcheck running
 @test "build.sh test: a -test stage that only INSTALLS a tool is not reported as running it" {
   # The step executed, so the build is not silent about it -- but the
   # report may not put shellcheck in the ran list, because shellcheck did
@@ -331,6 +340,7 @@ EOF
   refute_output --partial "(shellcheck)"
 }
 
+# why: Command position, not word presence, is what names an invocation
 @test "build.sh test: a tool named only as an argument is not a step of the check" {
   # `ln -sf /opt/bats/bin/bats /usr/local/bin/bats` is the example the
   # matcher's comment always cited; `pip install bats` is the one it never
@@ -354,6 +364,7 @@ EOF
 
 # ── the report can fail, and failing is never a pass ─────────────────
 
+# why: The mechanism failing is the one thing still worth a non-zero exit
 @test "build.sh test: build output with no BuildKit progress lines fails the build" {
   # Not "the stage ran no checks" -- the captured output carries no
   # progress steps AT ALL, which means the format the report is read from
@@ -366,6 +377,7 @@ EOF
   assert_output --partial "ERROR"
 }
 
+# why: An unresolved step proves neither branch, so neither is claimed
 @test "build.sh test: a step with no CACHED/DONE state fails the build" {
   # The step was announced and then never resolved (truncated output, a
   # progress printer that changed shape). Neither branch is provable, so
@@ -384,6 +396,7 @@ EOF
 
 # ── the progress mode the parse depends on is pinned, not inherited ──
 
+# why: The parsed progress mode is pinned, not inherited from the caller
 @test "build.sh test: pins BUILDKIT_PROGRESS=plain for a verification target" {
   # The parse reads one documented output shape. Leaving the mode to the
   # caller's environment is what would make it fragile, so the wrapper
@@ -398,6 +411,7 @@ EOF
 
 # ── scope: only verification targets are reported on ─────────────────
 
+# why: Scope: a plain devel build is unchanged
 @test "build.sh devel: a non-verification target gets no verification report" {
   export DOCKER_BUILD_OUTPUT="${ALL_CACHED}"
   run bash "${SANDBOX}/build.sh" devel
@@ -405,6 +419,7 @@ EOF
   refute_output --partial "verification:"
 }
 
+# why: The tooling image `just test` builds first runs no checks
 @test "build.sh --target test-tools: the tooling image build is not a verification target" {
   # `just test` and `just test smoke` both build this target first. It
   # runs no checks, so classifying it as a verification target would fail
@@ -416,6 +431,7 @@ EOF
   refute_output --partial "verification:"
 }
 
+# why: base's `just test smoke` had the identical hole
 @test "build.sh smoke: base's own smoke harness IS a verification target" {
   # base has no consumer Dockerfile; dockerfile/Dockerfile.smoke is the
   # stage stand-in `just test smoke` builds, and its `RUN bats` is the
@@ -427,6 +443,7 @@ EOF
   assert_output --partial "nothing ran in this invocation"
 }
 
+# why: Nothing executed, so nothing is claimed about execution
 @test "build.sh --dry-run test: no build ran, so nothing is reported about one" {
   run bash "${SANDBOX}/build.sh" --dry-run test
   assert_success

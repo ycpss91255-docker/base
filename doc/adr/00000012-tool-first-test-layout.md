@@ -4,12 +4,12 @@
 > supersedes ADR-00000004.
 
 - **Date:** 2026-06-23
-- **Status:** Accepted (category vocabulary amended -- see below)
+- **Status:** Accepted
 - **Supersedes:** ADR-00000004 (category-first `test/<category>/<tool>/`)
 - **Relates to:** ADR-00000011 §5 (the generic test runner that consumes
   this layout)
 
-> **Amendment (2026-06-30):** The *category vocabulary* used below
+> **Amendment (#781, 2026-06-30):** The *category vocabulary* used below
 > (`{smoke, unit, integration, behavioural}`) is superseded by
 > ADR-00000018 (ISTQB-aligned taxonomy): `behavioural` -> `system`, a new
 > `acceptance` level is added, and `smoke` is reclassified as a build-time

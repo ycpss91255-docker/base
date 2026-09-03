@@ -6,6 +6,13 @@
 # each container start writes a per-start real file <svc>_<ts>.log and
 # repoints the stable <svc>.log symlink (= LOG_FILE_PATH) at it, then
 # prunes old per-start files by CONTAINER_LOG_KEEP / CONTAINER_LOG_DAYS.
+#
+# why: Behaviour of `script/docker/_entrypoint_logging.sh` — the helper
+# downstream repos source from their `script/entrypoint.sh` so container
+# stdout/stderr is tee'd to the host bind-mounted log file when `[logging]
+# local_path` is set (#328). Tests source the helper under controlled
+# `LOG_FILE_PATH` env in subshells and assert both the host file content and
+# the inherited stdout (preserving `docker logs` parity).
 
 bats_require_minimum_version 1.5.0
 
@@ -43,6 +50,7 @@ EOF
 # logging.sh helper
 # ════════════════════════════════════════════════════════════════════
 
+# why: Back-compat: do nothing
 @test "entrypoint_logging is no-op when LOG_FILE_PATH unset (#328)" {
   run bash -c '
     unset LOG_FILE_PATH
@@ -142,6 +150,7 @@ EOF
   assert_output "devel_${_ts}-1.log"
 }
 
+# why: 2>&1 redirect
 @test "entrypoint_logging captures stderr along with stdout in the per-start file (#328)" {
   local _ts="20260101T000000Z"
   run bash -c "
@@ -159,6 +168,7 @@ EOF
   assert_success
 }
 
+# why: mkdir -p safety net
 @test "entrypoint_logging creates parent dir if missing (#328)" {
   local _ts="20260101T000000Z"
   local _dir="${TEMP_DIR}/nested/dir"
@@ -268,6 +278,7 @@ EOF
   assert_output "devel_${_ts}-1.log"
 }
 
+# why: mkdir-fail branch (parent is a regular file)
 @test "entrypoint_logging warns 'cannot create' + continues when parent dir is unmakeable (#691)" {
   printf 'i am a file\n' > "${TEMP_DIR}/blocker"
   local _log="${TEMP_DIR}/blocker/devel.log"
@@ -281,6 +292,7 @@ EOF
   assert_output --partial "should still print"
 }
 
+# why: tee-missing branch (stub PATH)
 @test "entrypoint_logging warns 'tee binary missing' + continues when tee absent (#691)" {
   [ "${COVERAGE:-0}" = 1 ] && skip "tee-less PATH stub perturbs the kcov wrapper (#613)"
   local _bin="${TEMP_DIR}/stubbin"

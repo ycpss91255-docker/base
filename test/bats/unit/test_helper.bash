@@ -232,6 +232,105 @@ yaml_job_lines() {
     yaml_job_text "${1}" "${2}" | strip_comments
 }
 
+# yaml_step_id_for <file> <job> <ere>
+#   The `id:` of the FIRST step inside <job> whose OWN body matches <ere> --
+#   the value an assertion needs when it wants to say "the consumer reads
+#   THAT step", rather than the weaker "some step output reaches the
+#   consumer". The id is derived from the file, so renaming the step in the
+#   workflow moves the assertion with it instead of leaving it pinned to a
+#   remembered string.
+#
+#   Reads the job's CODE lines, so a mention of <ere> in a comment paragraph
+#   cannot name a step.
+#
+#   It answers with an id only where it can PLACE one: the match sits inside
+#   the job's `steps:` list, in a step that declared its own `id:` on a line
+#   of its own ahead of the matching line. Nothing else assigns the id, and
+#   every step boundary and every exit from the list clears it, so the
+#   remaining shapes -- the matching step carries no `id:`; the `id:` is an
+#   action input under `with:` rather than the step's own key; the `id:`
+#   comes only AFTER the matching line; the match sits above the first step
+#   or below the last one; the pattern matches nowhere; the job has no
+#   `steps:` key; the job does not exist -- print an empty line. Callers
+#   guard with `[ -n ... ]`, so a match it cannot place fails the assertion
+#   loud rather than passing it an id this function guessed.
+#
+#   One legal shape is refused rather than read: a step whose `id:` shares
+#   the dash line (`- id: foo`), or that opens with a bare `-`. Neither is
+#   attributed, because neither can be told from a nested key by indent
+#   alone -- and refusing is the direction that fails an assertion loudly.
+yaml_step_id_for() {
+    yaml_job_lines "${1}" "${2}" \
+        | _pat="${3}" awk '
+            function _indent(_s) {
+                if (match(_s, /[^[:space:]]/)) { return RSTART - 1 }
+                return -1
+            }
+            BEGIN { _skey = -1; _ref = -1; _key = -1; _left = 0; _id = "" }
+            /^[[:space:]]*$/ { next }
+            {
+                _ind = _indent($0)
+
+                # The steps LIST is the anchor. Reading the boundary off
+                # "the shallowest dash the job has shown" instead took it
+                # from whichever list the job wrote first -- a block-style
+                # `needs:`, a `strategy.matrix` sequence -- and when that
+                # dash sat shallower than the step dashes, no step dash
+                # ever counted as a boundary and one id was carried across
+                # the whole job. So: skip everything above `steps:`,
+                # where there is no step to name yet.
+                if (_skey < 0) {
+                    if ($0 ~ /^[[:space:]]*steps:[[:space:]]*$/) { _skey = _ind }
+                    next
+                }
+
+                # The list ends at the next key of the job -- a
+                # non-dash line no deeper than the `steps:` key.
+                # Attribution ends with it, so the id of the last step
+                # cannot follow the scan out.
+                if (_ind <= _skey && $1 != "-") { _left = 1; _id = "" }
+
+                if (!_left) {
+                    if ($1 == "-") {
+                        # The reference indent is the FIRST dash after
+                        # `steps:`. A dash at exactly it starts the next
+                        # step; a deeper one is inside the current step (a
+                        # `with:` list, a `- ` in a block scalar) and must
+                        # leave its id alone; a shallower one means the
+                        # scan has left the list for good.
+                        if (_ref < 0) { _ref = _ind }
+                        if (_ind < _ref) { _left = 1; _id = "" }
+                        else if (_ind == _ref) {
+                            _id = ""
+                            _key = (match($0, /-[[:space:]]+/) ? _ind + RLENGTH : -1)
+                        }
+                    } else if (_key >= 0 && _ind == _key && $1 == "id:") {
+                        # The OWN key of the step, at the indent its
+                        # boundary dash set. `id` is an ordinary action
+                        # input name too, and a `with:` one sits deeper.
+                        _id = $2
+                    }
+                }
+
+                if ($0 ~ ENVIRON["_pat"]) { print _id; exit }
+            }
+        '
+}
+
+# yaml_job_names <file>
+#   The top-level `jobs:` keys of <file>, one per line -- the workflow's own
+#   job roster, DERIVED from the file rather than remembered by the spec. A
+#   test whose subject is "every job that ..." has to compute its population
+#   here: a roster typed into the spec is green on exactly the job somebody
+#   adds tomorrow, which is the event the test exists to notice.
+yaml_job_names() {
+    awk '/^jobs:/{f=1; next}
+         f && /^[^[:space:]]/{f=0}
+         f && /^  [A-Za-z][A-Za-z0-9_.-]*:[[:space:]]*$/{
+             sub(/:[[:space:]]*$/, ""); sub(/^  /, ""); print
+         }' "${1}"
+}
+
 # yaml_top_text <file> <key>
 #   One TOP-level mapping of <file> (`on`, `env`, `permissions`,
 #   `concurrency`), VERBATIM -- from `<key>:` up to the next unindented key.
@@ -793,5 +892,22 @@ assert_spec_subject() {
     local _path="${1:?BUG: assert_spec_subject expects a path}"
     local _what="${2:-the artifact this spec asserts on}"
     [[ -f "${_path}" ]] || fail \
+        "missing ${_path} -- ${_what}. It is tracked, so it was deleted, renamed or moved: restore it or update the path here. Failing rather than skipping is deliberate; a spec that quietly shrinks to zero cases is the defect this guard exists to catch."
+}
+
+# assert_spec_subject_dir <path> [what_it_is]
+#   The directory form, for a spec whose subject is a tracked TREE
+#   (`.github/workflows/`, `doc/adr/`) rather than one file. Same contract,
+#   same reasoning: the tree is present in every mode this suite has, so its
+#   absence is a rename nobody noticed and has to fail.
+#
+#   Deliberately `-d` and not a widened `-e` shared with the file form: a
+#   path that turned from a directory into a file, or back, is itself one of
+#   the moves these guards exist to catch, and `-e` would answer it with a
+#   pass.
+assert_spec_subject_dir() {
+    local _path="${1:?BUG: assert_spec_subject_dir expects a path}"
+    local _what="${2:-the directory this spec asserts on}"
+    [[ -d "${_path}" ]] || fail \
         "missing ${_path} -- ${_what}. It is tracked, so it was deleted, renamed or moved: restore it or update the path here. Failing rather than skipping is deliberate; a spec that quietly shrinks to zero cases is the defect this guard exists to catch."
 }

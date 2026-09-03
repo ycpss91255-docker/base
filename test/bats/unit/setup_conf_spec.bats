@@ -1,8 +1,60 @@
 #!/usr/bin/env bats
+#
+# why: Mirrors `lib/setup_conf.sh`. setup.conf merging (`_load_setup_conf`
+# replace strategy) resolving the per-repo override from the repo-root
+# `.setup.conf` dotfile (a legacy `config/docker/setup.conf` is no longer
+# read), `_get_conf_value` / `_get_conf_list_sorted` (incl. empty-skip), and
+# the `_rule_basename` image-rule helper. Also guards the shipped `dist/`
+# prose against pre-relocation path names: the four `setup_tui.sh` usage
+# heredocs must advertise `.setup.conf`, and no shipped text may still say
+# `<repo>/setup.conf` or `.base/setup.conf` (#842).
 
 bats_require_minimum_version 1.5.0
 
 load "${BATS_TEST_DIRNAME}/setup_spec_helper"
+
+# ════════════════════════════════════════════════════════════════════
+# _setup_conf_layers -- the chain every reader derives its population from
+#
+# The chain is three files, and it is defined HERE so no caller ever
+# re-lists it. Its lowest layer is located from _SETUP_SCRIPT_DIR, which
+# only setup.sh sets: a caller that reaches the readers without setup.sh
+# (init.sh / upgrade.sh, and the Dockerfile-migration list they source)
+# would otherwise be handed a silently truncated chain and would scan two
+# of the three layers. The optional third argument is how such a caller
+# names the template's dist/ dir instead -- the MEMBERSHIP and ORDER of
+# the chain stay in this one function either way.
+# ════════════════════════════════════════════════════════════════════
+@test "_setup_conf_layers: an explicit dist dir places the template layer (#956)" {
+  local -a _l=()
+  _setup_conf_layers "${TEMP_DIR}" _l "${TEMP_DIR}/.base/dist"
+  assert_equal "${#_l[@]}" "3"
+  assert_equal "${_l[0]}" "${TEMP_DIR}/.base/dist/.setup.conf"
+  assert_equal "${_l[1]}" "${TEMP_DIR}/.setup.conf"
+  assert_equal "${_l[2]}" "${TEMP_DIR}/.setup.conf.local"
+}
+
+@test "_setup_conf_layers: _SETUP_SCRIPT_DIR still places the template layer when no dist dir is given (#956)" {
+  local -a _l=()
+  _setup_conf_layers "${TEMP_DIR}" _l
+  assert_equal "${#_l[@]}" "3"
+  # setup_spec_helper sources wrapper/setup.sh, so _SETUP_SCRIPT_DIR is
+  # the shipped wrapper dir and the template layer is dist/.setup.conf.
+  [[ "${_l[0]}" == *"/.setup.conf" ]]
+  [[ "${_l[0]}" != "${_l[1]}" ]]
+  assert_equal "${_l[1]}" "${TEMP_DIR}/.setup.conf"
+}
+
+@test "_setup_conf_layers: no _SETUP_SCRIPT_DIR and no dist dir omits the template layer (#956)" {
+  # The documented degenerate case. It is a truncated chain, and every
+  # caller that cannot tolerate one has to notice: the count is the only
+  # signal available, so it is pinned here.
+  local -a _l=()
+  local _SETUP_SCRIPT_DIR=""
+  _setup_conf_layers "${TEMP_DIR}" _l
+  assert_equal "${#_l[@]}" "2"
+  assert_equal "${_l[0]}" "${TEMP_DIR}/.setup.conf"
+}
 
 # ════════════════════════════════════════════════════════════════════
 # _load_setup_conf (per-repo replace / template fallback)

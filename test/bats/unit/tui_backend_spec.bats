@@ -3,6 +3,33 @@
 # tui_backend_spec.bats — backend detection + stub-driven wrapper tests.
 # Uses a fake "dialog" / "whiptail" binary prepended to PATH so we can
 # assert exactly which args and positional params reach the backend.
+#
+# why: Backend detection and wrapper-level arg forwarding. Uses a stub
+# `dialog` / `whiptail` binary installed on PATH that logs argv and echoes a
+# canned response; exercised with `TUI_STUB_RESPONSE` / `TUI_STUB_EXIT`.
+#
+# Grouped by concern:
+#
+# - `_backend_detect` (prefers dialog, falls back to whiptail, prints
+# install hint when neither)
+#
+# - `_tui_guard` (rejects empty backend)
+#
+# - `_tui_inputbox` (forwards title/prompt/initial, returns canned response,
+# propagates non-zero on cancel)
+#
+# - `_tui_menu` (computes item count, forwards tag/label pairs;
+# `TUI_EXTRA_LABEL` no-op after #178; `--no-tags`, `--ok-label`)
+#
+# - `_tui_radiolist` (forwards tag/label/state triples)
+#
+# - `_tui_checklist` (passes `--separate-output`)
+#
+# - `_tui_msgbox` / `_tui_yesno` (correct flags, propagates exit code)
+#
+# - whiptail flag-spelling translation (#136: `--ok-button` /
+# `--cancel-button` instead of `--*-label`, no `--extra-button`) +
+# Save-button unification (#178: dialog also drops `--extra-button`)
 
 bats_require_minimum_version 1.5.0
 

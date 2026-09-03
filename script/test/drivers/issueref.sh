@@ -21,7 +21,13 @@
 # What it deliberately does NOT flag (per ADR-00000013):
 #   - ADR-0000xxxx references (no `#`, durable curated rationale).
 #   - `@test "..."` description strings -- test identities mirrored in
-#     TEST.md, not comments; the whole `@test` line is skipped.
+#     doc/test/*.md, not comments; the whole `@test` line is skipped.
+#   - a `# why:` block in a `.bats` spec -- the CATALOGUE PROSE that
+#     sync-doc-counts.sh renders into doc/test/*.md. Same artifact class
+#     as the `@test` name above it, and it used to live in a document
+#     this lint does not scan: moving where a sentence is STORED must not
+#     change whether it may name the issue it came from, or the migration
+#     would have had to reword 147 authored sentences to land.
 #   - Word-prefixed cross-repo / upstream refs that name their tracker
 #     (`base#321`, `docker_harness#53`, `moby/buildkit#3403`) -- only a
 #     BARE `#NNN` (preceded by start-of-comment / whitespace / `(` / `/`)
@@ -50,14 +56,24 @@ readonly _ISSUEREF_TOPLEVEL=(
 # The awk comment-state machine that does the detection. Sourced as a
 # single-quoted heredoc-free string so the same program backs both the
 # driver run and the unit-test harness. A `#` inside a quoted string is
-# never treated as a comment; @test lines are skipped wholesale; only a
-# bare `#NNN` (not word-prefixed) in the comment portion is flagged.
+# never treated as a comment; @test lines and `# why:` marker blocks in
+# .bats specs are skipped wholesale; only a bare `#NNN` (not
+# word-prefixed) in the comment portion is flagged.
 # FILENAME is rewritten repo-root-relative via the `relbase` var.
 # shellcheck disable=SC2016 # awk program; $-vars are awk's, not the shell's.
 readonly _ISSUEREF_AWK='
   function is_ws(c) { return (c == " " || c == "\t") }
+  FNR == 1 { inwhy = 0 }
   {
     line = $0
+    # The `# why:` block is the contiguous comment run from its opening
+    # line to the first non-comment line, exactly as spec-markers.sh reads
+    # it. Only in .bats files: a `# why:` in a shell script is a comment
+    # like any other.
+    if (FILENAME ~ /\.bats$/) {
+      if (line ~ /^#[[:space:]]*why:/) { inwhy = 1; next }
+      if (inwhy) { if (line ~ /^#/) next; inwhy = 0 }
+    }
     if (line ~ /^[[:space:]]*@test[[:space:]]/) next
     in_s = 0; in_d = 0; cstart = -1; prev = ""
     n = length(line)

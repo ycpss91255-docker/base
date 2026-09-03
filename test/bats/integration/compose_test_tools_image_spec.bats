@@ -12,6 +12,13 @@
 # compose CLI (baked into the test-tools image this suite runs in) but no
 # daemon and no docker socket, so this spec belongs to the plain `ci`
 # service rather than the socket-mounted `ci-system` one.
+#
+# why: How the repo-root `compose.yaml` resolves `TEST_TOOLS_IMAGE` -- the
+# one variable naming both the image the build-only `test-tools` service
+# writes and the image the `ci` / `coverage` / `ci-system` services run. The
+# assertions drive `docker compose config` (pure client-side interpolation:
+# compose CLI, no daemon, no socket) rather than reading the file's text,
+# because the text is not what decides which image a run pulls.
 
 bats_require_minimum_version 1.5.0
 
@@ -31,7 +38,10 @@ setup() {
 _resolution() {
   local _service="${1:?_resolution requires <service>}"
   local _out _rc
-  _out="$(env -u TEST_TOOLS_IMAGE docker compose \
+  # BASE_CHECKOUT_PATH is supplied for the same reason stderr is dropped:
+  # it is another required variable of the same file, and leaving it unset
+  # would make this describe ITS resolution rather than the tag's.
+  _out="$(env -u TEST_TOOLS_IMAGE BASE_CHECKOUT_PATH=/source docker compose \
     -f "${ROOT}/compose.yaml" config --images "${_service}" 2>/dev/null)" \
     && _rc=0 || _rc=$?
   printf '%s|%s\n' "${_rc}" "${_out}"
@@ -41,6 +51,7 @@ _resolution() {
 # The tag the build writes is the tag the run reads
 # ════════════════════════════════════════════════════════════════════
 
+# why: #896 build side vs run side
 @test "compose.yaml: with TEST_TOOLS_IMAGE unset the tag the test-tools build writes is the tag the ci run reads (#896)" {
   # Two different fallbacks on one variable meant a bare
   # `docker compose build test-tools` tagged one image while a bare
@@ -54,6 +65,7 @@ _resolution() {
   assert_equal "${_build}" "${_run}"
 }
 
+# why: #896 coverage / ci-system too
 @test "compose.yaml: with TEST_TOOLS_IMAGE unset every consumer service reaches the same outcome as the build (#896)" {
   # `ci` is not the only consumer -- `coverage` and `ci-system` read the
   # same variable, and a fallback that diverges on any one of them is the
@@ -69,6 +81,7 @@ _resolution() {
 # An unset value says so, and says what to run instead
 # ════════════════════════════════════════════════════════════════════
 
+# why: #896 loud, and actionable
 @test "compose.yaml: an unset TEST_TOOLS_IMAGE fails naming the just recipe to run (#896)" {
   # Reaching an unset value means the invocation left the single entry
   # point, and that is the thing worth reporting. compose's own
@@ -83,7 +96,7 @@ _resolution() {
   # names a just recipe and says not to drive compose directly, so those
   # are what this asserts; pinning one recipe pinned map iteration order
   # instead, and went red whenever the other service won the race.
-  run env -u TEST_TOOLS_IMAGE docker compose \
+  run env -u TEST_TOOLS_IMAGE BASE_CHECKOUT_PATH=/source docker compose \
     -f "${ROOT}/compose.yaml" config --images
   assert_failure
   assert_output --partial "required variable TEST_TOOLS_IMAGE is missing a value"

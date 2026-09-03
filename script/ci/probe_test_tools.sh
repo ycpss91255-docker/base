@@ -22,12 +22,19 @@
 #            and the green check is reporting on something other than what
 #            the checkout asked for.
 #
-# So presence is necessary and not sufficient. For a tool whose version is
-# pinned by literal release URL in the Dockerfile, the probe reads the pin
-# out of the checkout and compares it with what the image actually reports.
-# The expectation is never written here: a literal in this file would be a
-# second place to bump, and two literals that agree with each other prove
-# only that someone edited both.
+# So presence is necessary and not sufficient. For a tool whose version the
+# checkout pins, the probe reads the pin out of that checkout and compares
+# it with what the image actually reports. The expectation is never written
+# here: a literal in this file would be a second place to bump, and two
+# literals that agree with each other prove only that someone edited both.
+#
+# The runner is the third such tool and the one that is not a lint gate.
+# `just` is this project's only control surface, and
+# test/bats/integration/just_runner_version_spec.bats is fail-closed on a
+# mismatch between the image's runner and ARG JUST_VERSION -- so a :main
+# published before a version bump carries every required tool AND the wrong
+# runner, and a presence-only probe would hand it to a PR that touched
+# nothing related (#948).
 #
 # The same argument reaches one pin further. Every stage of that Dockerfile
 # is built `FROM alpine:${ALPINE_VERSION}`, and the series decides which
@@ -59,12 +66,12 @@
 #
 # Env:
 #   REQUIRED_TOOLS  tools the run EXECUTES and must therefore be present
-#                   (default: kcov bats shellcheck hadolint). A job that
-#                   only uses the image as a `FROM` base needs no probe at
-#                   all -- see the acceptance job.
-#   PINNED_TOOLS    subset whose VERSION is pinned by release URL and is
+#                   (default: kcov bats shellcheck hadolint just). A job
+#                   that only uses the image as a `FROM` base needs no
+#                   probe at all -- see the acceptance job.
+#   PINNED_TOOLS    subset whose VERSION is pinned by the checkout and is
 #                   therefore compared, not merely found
-#                   (default: shellcheck hadolint).
+#                   (default: shellcheck hadolint just).
 #
 # Style: Google Shell Style Guide.
 
@@ -77,8 +84,8 @@ _PROBE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
 # The tools a run executes, and the subset whose version is load-bearing.
 # Overridable so a caller can narrow, never silently: an override that
 # drops a PINNED tool is refused below rather than honoured.
-: "${REQUIRED_TOOLS:=kcov bats shellcheck hadolint}"
-: "${PINNED_TOOLS:=shellcheck hadolint}"
+: "${REQUIRED_TOOLS:=kcov bats shellcheck hadolint just}"
+: "${PINNED_TOOLS:=shellcheck hadolint just}"
 
 # _probe_default_dockerfile
 #   The checkout's test-tools Dockerfile, resolved from THIS script's own
@@ -125,6 +132,43 @@ _probe_pinned_version() {
   _v="${_all%%$'\n'*}"
   [[ -n "${_v}" ]] || return 1
   printf '%s\n' "${_v}"
+}
+
+# _probe_just_pin
+#   The pinned `just` version, read through dist/script/base/just-version.sh.
+#
+#   Why this one tool is not read the way the other two are. Its release
+#   URL names `${JUST_VERSION}` rather than a literal, so there is no
+#   version in the URL to grep; the version is `ARG JUST_VERSION` in the
+#   same Dockerfile, and that declaration already has exactly ONE reader in
+#   the tree. A second sed here would be a fifth provenance path for the
+#   runner -- the drift the accessor exists to end (#948) -- so the probe
+#   calls the accessor instead of re-deriving what it reads.
+#
+#   The consequence, stated because it is asymmetric: the optional
+#   <dockerfile> override moves the shellcheck / hadolint / alpine
+#   expectations and does NOT move this one, because the accessor resolves
+#   the declaration from its own location in the checkout.
+_probe_just_pin() {
+  local _accessor="${_PROBE_DIR}/../../dist/script/base/just-version.sh"
+  [[ -x "${_accessor}" ]] || return 1
+  local _v
+  _v="$("${_accessor}")" || return 1
+  [[ -n "${_v}" ]] || return 1
+  printf '%s\n' "${_v}"
+}
+
+# _probe_tool_pin <dockerfile> <tool>
+#   The version this checkout pins for <tool>, whichever way that tool's
+#   pin is written. One seam so the verdict loop asks the same question of
+#   every PINNED tool and the per-tool spelling stays here.
+_probe_tool_pin() {
+  local _file="${1:?BUG: _probe_tool_pin expects a file}"
+  local _tool="${2:?BUG: _probe_tool_pin expects a tool}"
+  case "${_tool}" in
+    just) _probe_just_pin ;;
+    *) _probe_pinned_version "${_file}" "${_tool}" ;;
+  esac
 }
 
 # _probe_pinned_series <dockerfile>
@@ -225,8 +269,8 @@ _probe_image() {
     done
     [[ "${_found}" == "true" ]] || continue
 
-    if ! _pin="$(_probe_pinned_version "${_file}" "${_tool}")"; then
-      printf 'probe: could not read the %s pin from %s. The release URL moved, or the file did. Refusing to report agreement between two empty strings.\n' \
+    if ! _pin="$(_probe_tool_pin "${_file}" "${_tool}")"; then
+      printf 'probe: could not read the %s pin from %s (or, for the runner, through dist/script/base/just-version.sh). The release URL moved, or the file did. Refusing to report agreement between two empty strings.\n' \
         "${_tool}" "${_file}" >&2
       return 2
     fi

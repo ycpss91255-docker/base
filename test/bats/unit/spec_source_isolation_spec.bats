@@ -115,6 +115,59 @@
 # (could not scan), which `assert_failure` would have accepted. A separate
 # case proves a scan of nothing answers 2, and another proves each spelling
 # the pattern claims to see is actually seen.
+#
+# why: One repo-wide invariant over `test/bats/`: a spec may READ the live
+# checkout -- that is where its subject lives -- but may not settle an
+# assertion by COMPARING against it. "Every spec that touches `/source`" is
+# not the population: 125 of the 129 spec files reference it (measured
+# 2026-08-31; the same figures are stated in the spec's own header, and a
+# drift between them is drift, not a rounding). What separates the defect is
+# who owns the answer, and by that measure a live path as a comparison
+# operand had exactly one instance -- the `readme_sync` case that failed
+# five gate runs.
+#
+# This file used to carry a second invariant, a scan for WRITES into the
+# live tree, and it is gone. That one was a roster of the commands a write
+# can be spelled with, and three consecutive reviews each found another
+# spelling it CLAIMED and could not see (a third operand of `mv` or
+# `install`, `dd`'s `of=PATH`, `rsync` in no pattern at all) plus one it
+# flagged for merely READING. Its property now has an executed form with no
+# roster and no false positives: `script/test/test.sh` snapshots the
+# checkout either side of the bats phase and fails naming any path that
+# differs -- see `residue_guard_spec.bats`. The one spelling the snapshot
+# cannot see is a spec that writes and then removes its own traces, and the
+# scan could not see that reliably either.
+#
+# The comparison scan stays because the snapshot cannot subsume it: a
+# comparison against the live tree leaves NOTHING behind, so there is no
+# residue to find. What it is NOT is a closed set, and two rounds of this
+# file's header said it was. That argument -- the write roster enumerated
+# the commands that can write, which is every binary that exists, while this
+# enumerates the places a shell can begin a command, which is the shell's
+# finite grammar -- holds for the POSITION axis alone. The scan has two more
+# axes and both are rosters: it matches two command NAMES, and the live path
+# as the first or second WORD after a run of flags -- not the first or
+# second OPERAND, which is a spelling it misses. A review planted 18
+# comparison spellings and 16 went unseen -- a checksum pair, a comparison
+# driven through git, an equality test over two command substitutions, a
+# live path that is the second operand of a comparison and its third word
+# because an option ahead of it took an argument of its own. One derivable
+# position is unscanned by choice as well: a backtick, because every line
+# the one-character widening that sees it matched was this repo's own
+# comment prose and no command at all (three of them when re-measured
+# 2026-09-01).
+#
+# So the claim is the narrow one the body can carry: an over-approximation
+# that catches the COMMON spellings at the moment the line is written, and
+# names the line. Nothing executed stands behind it -- the residue guard
+# holds the WRITE property with no roster at all, and the comparison
+# property has no such backstop -- which is the reason not to overstate the
+# scan rather than a reason to widen it. What it misses is sampled, one per
+# axis, in a case of its own, so a later widening is a decision stated there
+# and not a silent edit to a regex. Like its sibling
+# `spec_subject_guard_spec.bats`, it pins the scan as well as the result: a
+# population floor, `find` under `pipefail`, and grep status exactly 1
+# (scanned, no match) rather than 2 (could not scan).
 
 bats_require_minimum_version 1.5.0
 
@@ -198,6 +251,8 @@ _assert_clean_scan() {
   assert_output ""
 }
 
+# why: The defect this file was written for: a concurrent writer supplied
+# half the verdict
 @test "no spec settles an assertion by comparing against the live checkout (#965)" {
   # The defect this file was written for: a spec generated an artifact in
   # its own scratch dir and then diffed it against the live tree, so a
@@ -207,6 +262,8 @@ _assert_clean_scan() {
   _assert_clean_scan "${COMPARE_RE}"
 }
 
+# why: Pinning status 1 only means something while "could not scan" is
+# reachable
 @test "a scan of a tree that is not there answers 2, not 1 (#965)" {
   # What keeps the invariant above from passing vacuously. `grep -rnE`
   # over a missing path is the exact shape of a check that found no files,
@@ -216,6 +273,8 @@ _assert_clean_scan() {
   assert_equal "${status}" 2
 }
 
+# why: The positions come from the grammar, which makes that axis narrow
+# rather than complete
 @test "the comparison scan sees a live operand in each command position it names (#965)" {
   # The other way an invariant goes quietly blind: it holds because its
   # PATTERN misses the line, not because no such line exists. A review
@@ -279,6 +338,8 @@ time_keyword|  time diff %s/a "${SCRATCH}/a"
 SPELLINGS
 }
 
+# why: A sample of what it misses, one per axis: the command name, the word
+# position, line-wise literal matching, and the position omitted by choice
 @test "the comparison scan is an over-approximation, not a closed set (#965)" {
   # The disclosure, made executable -- and the disclosure is that this scan
   # is NOT a closed set. An earlier version of this case claimed the

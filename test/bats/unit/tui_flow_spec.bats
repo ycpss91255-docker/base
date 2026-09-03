@@ -15,6 +15,72 @@
 # pre-loads the queue with the user's intended click path, calls the
 # target function, and asserts on the resulting in-memory override
 # state — no real dialog / whiptail process ever launches.
+#
+# why: Interactive-flow tests for `setup_tui.sh` (#189). Sources
+# `setup_tui.sh` directly and overrides `_tui_menu` / `_tui_select` /
+# `_tui_inputbox` / `_tui_yesno` / `_tui_msgbox` / `_tui_radiolist` /
+# `_tui_checklist` with file-backed stubs (queue lines popped via `head -n
+# 1` + `sed -i 1d` so state survives the `$(...)` subshell calls). Each case
+# scripts the user's click path, calls one section editor, and asserts on
+# the resulting `_TUI_OVR_*` / `_TUI_REMOVED` / `_TUI_CURRENT` arrays — no
+# real `dialog` / `whiptail` ever launches. Lifts `setup_tui.sh` per-file
+# coverage from 18% to 83% by exercising the 5 high-value target areas the
+# issue body called out.
+#
+# Grouped by concern:
+#
+# - `_load_current` (repo-conf wins; falls back to template; both missing →
+# silent return 0)
+#
+# - `_render_main_menu` / `_render_advanced_menu` (#178 Save & Exit
+# unification, Cancel/Esc returns 1, navigation into section editor)
+#
+# - `_edit_image_rule` (#177 site: add
+# string/prefix/suffix/basename/default, Cancel from radiolist or inputbox,
+# `__remove`/`__move_up`/`__move_down`, dedupe drops duplicate slot)
+#
+# - `_compact_image_rules_after_remove` (mid-list shift down, last drop,
+# empty no-op, sparse-slot collapse)
+#
+# - `_swap_image_rule` (both occupied / target empty / source empty / both
+# empty / m<1)
+#
+# - `_edit_list_section` via `_edit_section_environment` (env_
+# add/edit/remove, invalid → msgbox+retry, max+1 indexing, Cancel/Esc)
+#
+# - `_edit_section_image` top-level dispatch (add max+1, click rule_N, Back)
+#
+# - `_edit_section_network` (host+host+pid no shm prompt, bridge prompts
+# name+ports, ipc=private prompts shm, empty network_name allowed)
+#
+# - `_edit_section_deploy` (off short-circuits — only writes gpu_mode)
+#
+# - Multi-section dispatch from main menu (network → host → save)
+#
+# - Per-stage UI #220 (`_list_dockerfile_stages_available` from-Dockerfile +
+# baseline filter, `_count_stage_overrides` OVR+CURRENT dedup + empty skip,
+# `_edit_stage_gui` mode + __inherit, `_edit_stage_scalar` write +
+# empty-clears, `_edit_stage_list` inherit toggle + add)
+#
+# - Menu restructure #221 (i18n keys for main.runtime/mounts/features × 4
+# langs; `_render_runtime_menu` / `_render_mounts_menu` /
+# `_render_features_menu` function existence; main-menu dispatch for
+# image/build/runtime/mounts/features + bare
+# network/deploy/gui/volumes/environment no longer dispatch from main;
+# Runtime sub-menu dispatch for network/deploy/gui/environment +
+# __back/Cancel; Mounts sub-menu dispatch for volumes/devices/tmpfs +
+# __back/Cancel; Features sub-menu __back, per_stage enabled enters editor,
+# per_stage hidden shows msgbox without entering editor; Advanced sub-menu
+# image/build/devices/tmpfs entries removed, security still dispatches)
+#
+# - #328 logging menu dispatch (Runtime menu's `logging` entry calls
+# `_edit_section_logging`; `_edit_section_logging`'s top-level menu routes
+# `global` to `_edit_logging_keys logging` and `devel` / `test` / `runtime`
+# to `_edit_logging_keys logging.<svc>`)
+#
+# - #561 `_tui_known_subcommand` derives CLI direct-jump subcommands from
+# `SCHEMA_SECTIONS` (accepts every section + `ports` pseudo-section, rejects
+# unknown args, tracks `SCHEMA_SECTIONS` additions)
 
 bats_require_minimum_version 1.5.0
 
@@ -707,8 +773,10 @@ EOF
   _TUI_OVR_VALUES=("force")
   queue "0|__inherit"
   _edit_stage_gui headless
-  ! ovr_get stage:headless.gui.mode
+  # is_removed first: a `!` statement is exempt from errexit anywhere but
+  # the body's last line, so the order is what makes both assert.
   is_removed stage:headless.gui.mode
+  ! ovr_get stage:headless.gui.mode
 }
 
 @test "_edit_stage_scalar: writes the dotted key under stage namespace" {

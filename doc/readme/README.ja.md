@@ -50,7 +50,7 @@ just test   # ShellCheck + Bats + Kcov
 just                       # 全 recipe 表示
 ```
 
-<!-- sync: prerequisites 71356c1216b6 570879685262 -->
+<!-- sync: prerequisites 6af9b726b732 5ee5a4c4949c -->
 ## 前提条件
 
 コンテナ操作は Docker 上で [`just`](https://github.com/casey/just)（command
@@ -58,20 +58,23 @@ runner）を介して実行します。`just <verb>` エントリポイントを
 両方をインストールしてください:
 
 - **Docker** + Docker Compose v2（`docker compose`）。
-- **just** -- 近年のどのリリースでも動作します（recipe は variadic
-  パラメータのみ使用、初期バージョンから対応）。パッケージマネージャまたは
-  公式インストーラで導入します:
+- **just** -- 本 repo はバージョンを 1 つに固定しています。test-tools
+  イメージ、CI、`--bootstrap-just` インストーラはすべてその版を使うため、同じ
+  recipe が 3 箇所で同じ挙動になります。版は
+  `./.base/dist/script/base/just-version.sh` で表示できます（本 repo 内では
+  `./dist/script/base/just-version.sh`）。版を指定できる公式のビルド済み
+  バイナリインストーラでその版を導入してください:
 
   ```bash
-  apt install just         # Debian 13+ / Ubuntu 24.04+
-  brew install just        # macOS / Linuxbrew
-  cargo install just       # crates.io から
-  # または公式のビルド済みバイナリインストーラ:
+  pin="$(./.base/dist/script/base/just-version.sh)"
   curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh \
-      | bash -s -- --to ~/.local/bin
+      | bash -s -- --to ~/.local/bin --tag "${pin}"
   ```
 
-  全方式は[公式インストールガイド](https://github.com/casey/just#installation)を
+  host のパッケージマネージャ（`apt install just`、`brew install just`、
+  `cargo install just`）は**等価な選択肢ではなくフォールバック**です:
+  それぞれの registry が持つ版が入るため、固定版より何マイナーも古い場合が
+  あります。全方式は[公式インストールガイド](https://github.com/casey/just#installation)を
   参照。`just` が使えない場合、各 recipe には raw fallback
   （`./script/<verb>.sh`、`./.base/dist/script/base/upgrade.sh`）があります
   -- [クイックスタート](#クイックスタート)参照。
@@ -138,7 +141,7 @@ flowchart LR
     release_worker -->|"tar.gz + zip"| release["GitHub Release"]
 ```
 
-<!-- sync: whats-included c1ac0bade5d6 84277f1bc8c7 -->
+<!-- sync: whats-included 26ac98cd01c1 77aba870a522 -->
 ### 含まれるもの
 
 | ファイル | 説明 |
@@ -165,8 +168,9 @@ flowchart LR
 | `dist/script/docker/lib/_tui_conf.sh` | INI バリデータ + 読み書き（`setup_tui.sh` と `setup.sh` の書き戻し用） |
 | `dist/script/docker/runtime/logging.sh` | host 側ログ tee helper（per-start ファイル + 安定 symlink） |
 | `dist/script/docker/runtime/logrotate.sh` | 共有 rotate/symlink/prune primitives（tee + transcript 共有） |
-| `dist/script/docker/runtime/smoke.sh` | runtime install-check smoke |
-| `dist/script/docker/runtime/entrypoint.sh` | テンプレート entrypoint helper |
+| `dist/script/docker/runtime/watchdog.sh` | 汎用シングルサービス watchdog（再起動 + プラガブルなヘルスチェック） |
+| `dist/dockerfile/entrypoint.sh` | テンプレート entrypoint、新規 repo 作成時に `script/entrypoint.sh` として seed |
+| `dist/test/bats/smoke/smoke.sh` | runtime install-check smoke（ldd 依存欠落スキャン） |
 | `config/` | コンテナ内部のシェル設定ファイル（bashrc、tmux、terminator、pip） |
 | `.setup.conf` | 単一の repo ランタイム設定（image / build / deploy / gui / network / volumes） |
 | `dist/test/bats/smoke/` | 共有 smoke テスト + runtime assertion helpers（下記参照） |
@@ -716,7 +720,7 @@ apt mirror はアップグレードで上書きされません。
 
 `--setup` を付けて再実行すれば `.env.generated` + `compose.yaml` を再生成できます。
 
-<!-- sync: field-deployment-just-docker-setup-deploy 66110bfc975b eba624dfb163 -->
+<!-- sync: field-deployment-just-docker-setup-deploy 9112a5c7eaaa 93fb0bfe1ba5 -->
 ### フィールド配備（`just docker setup deploy`）
 
 `just docker setup deploy`（または直接 `./setup.sh deploy`）は同じ `setup.conf` から自己完結型のフィールド配備**ディレクトリ**を生成します —— 上記ルーティングモデルの deploy 側です（[ADR-00000023](../adr/00000023-config-field-override-and-field-deploy-contract.md)、[ADR-00000003](../adr/00000003-env-vs-workload-param-boundary.md) を改訂；[PRD invariant 8](../PRD.md)）。対象は *フィールド向け* ステージ（既定 `runtime`；`devel` や `*-test` ステージは**決して**対象になりません）で、生成されるディレクトリは配備先ホストが必要とするものをすべて含みます —— フィールドホストが base のツールチェーン・ソースツリー・`setup.conf` を見ることはありません。
@@ -741,7 +745,7 @@ just docker setup deploy -o /tmp/robot-bundle # 出力ディレクトリを指�
 
 処理は順に:
 
-1. `[environment]` の既定値をイメージの実 `ENV` として焼き込み（S3）、`config/app/` があればイメージへ `COPY`（S4）—— フィールドイメージを自己完結化（env ファイルも config bind も持ち運ばない）;
+1. `[environment]` の既定値をイメージの実 `ENV` として焼き込み（S3）、各 `config/<component>/` をイメージの `/opt/app/config/<component>` へ `COPY`（S4）—— フィールドイメージを自己完結化（env ファイルも config bind も持ち運ばない）;
 2. `docker build --target <stage>` で不変イメージを build し、`<repo>:<stage>-<version>` を tag;
 3. `docker save | xz` で `image.tar.xz` を作成;
 4. 完全に解決済みの `compose.yaml`（`apply` と同じ resolver を共用するため、フィールドが dev からドリフトしない）、`deploy.sh` ランチャ、`README` を書き出し、調整可能な各ファイルの焼き込み済みデフォルトを `config/` へ取り出す。

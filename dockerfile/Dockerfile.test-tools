@@ -65,6 +65,15 @@ ARG ALPINE_VERSION=3.22
 # for the analysis and `--bash-method=DEBUG` as the first lead to cost).
 # 3.22 stays on bash 5.2 and needs nothing.
 ARG KCOV_VERSION=v43
+# THE declaration of the `just` runner version, for this image and for
+# every other path that installs it: the CI e2e job's setup-just input,
+# init.sh's install hint and its --bootstrap-just installer, all read this
+# value through dist/script/base/just-version.sh. It lives HERE, and not
+# in a data file of its own, because script/test/test.sh derives the local
+# test-tools tag from the sha256 of this Dockerfile alone -- a version
+# declared elsewhere would be invisible to that digest, so a bump would
+# leave the tag unchanged and silently reuse the previous image.
+ARG JUST_VERSION=1.58.0
 
 FROM bats/bats:${BATS_VERSION} AS bats-src
 
@@ -105,6 +114,55 @@ RUN apk add --no-cache curl xz && \
     curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /usr/local/bin/hadolint \
         "https://github.com/hadolint/hadolint/releases/download/v2.15.1/hadolint-linux-${hd_arch}" && \
     chmod +x /usr/local/bin/hadolint
+# arch-literal-lint: allow-end
+
+# `just` is this project's only control surface (ADR-00000005 /
+# ADR-00000010 / ADR-00000011): every container operation is a recipe. It
+# used to be an unpinned package install on the final stage, i.e.
+# whatever the pinned alpine series happens to carry -- measured 1.37.0 on 3.21
+# while the CI e2e job installed a floating latest (1.58.0) and a
+# developer host had whatever the just.systems installer last fetched.
+# Bumping alpine does not fix that (3.24 packages 1.48.1 and the line is
+# still unpinned); a spread across those paths is a spread across the
+# whole interface, because a recipe that works on one and fails on
+# another is indistinguishable from a broken recipe.
+#
+# So `just` is fetched from a PINNED upstream release, in its own builder
+# stage, exactly as shellcheck / hadolint are above. The musl asset is the
+# right one for alpine and needs no libc shim.
+FROM alpine:${ALPINE_VERSION} AS just-runner
+ARG JUST_VERSION
+# arch-literal-lint: allow-begin -- the same TARGETARCH-to-upstream-asset
+# mapping the lint-tools stage above documents: TARGETARCH speaks
+# amd64 / arm64, the just project publishes x86_64-unknown-linux-musl /
+# aarch64-unknown-linux-musl. Everything outside this block builds its
+# architecture from ${TARGETARCH}.
+# TARGETARCH is auto-populated by BuildKit; do NOT give it a default (a
+# default shadows BuildKit's auto-inject, moby/buildkit#3403, which ships
+# the wrong binary inside every other platform's image).
+ARG TARGETARCH
+# busybox wget, not curl: alpine ships wget in the base image, so this
+# stage needs no `apk add` and therefore no package index at all -- one
+# fewer network dependency than the lint-tools stage above, which has to
+# reach the alpine CDN before it can reach GitHub. The retry loop is the
+# equivalent of curl's --retry there; the extract and the --version call
+# after it are what actually prove the download, so a loop that exhausted
+# its attempts cannot pass as success.
+RUN case "${TARGETARCH}" in \
+      amd64)  j_arch="x86_64"  ;; \
+      arm64)  j_arch="aarch64" ;; \
+      *) echo "Unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac && \
+    url="https://github.com/casey/just/releases/download/${JUST_VERSION}/just-${JUST_VERSION}-${j_arch}-unknown-linux-musl.tar.gz" && \
+    for attempt in 1 2 3 4 5; do \
+      wget -q -T 30 -O /tmp/just.tar.gz "${url}" && break; \
+      echo "just download attempt ${attempt} failed; retrying" >&2; \
+      sleep 3; \
+    done && \
+    tar -xzf /tmp/just.tar.gz -C /usr/local/bin just && \
+    rm -f /tmp/just.tar.gz && \
+    chmod +x /usr/local/bin/just && \
+    /usr/local/bin/just --version
 # arch-literal-lint: allow-end
 
 # kcov is not packaged in any Alpine repository (main / community /
@@ -152,10 +210,12 @@ RUN apk add --no-cache \
 # overrides busybox's symlinks so init.sh / setup.sh / setup_drift
 # helpers behave the same on alpine as on the previous kcov/kcov
 # (debian) runner.
-# just (#175): integration tests exercise `just upgrade-check` end-to-end
-# to verify the downstream justfile recipe wraps upgrade.sh exit 1 (update
-# available) as success. `just` is the single runner (the Makefile / make
-# are retired), so install it explicitly — alpine provides no `just`.
+# just: integration tests exercise `just base update` end-to-end to verify
+# the downstream justfile recipe wraps upgrade.sh exit 1 (update
+# available) as success, and `just` is the single runner (the Makefile /
+# make are retired). It is NOT on the apk line below: it is COPYed from
+# the just-runner stage above at the version ARG JUST_VERSION declares, so
+# this image, CI and a developer host all run one version.
 # docker-cli + docker-cli-buildx (#249): the system test suite
 # (test/bats/system/*.bats) drives `docker buildx build --target
 # runtime-test ...` against synthesized fixtures to assert the runtime
@@ -189,7 +249,7 @@ FROM alpine:${ALPINE_VERSION}
 # (test/bats/system/deploy_bundle_e2e_spec.bats) runs the generated
 # deploy.sh up (real `docker compose up -d`) and unxz's the bundled
 # image.tar.xz; the generator itself xz-compresses the saved image.
-RUN apk add --no-cache bash parallel git git-subtree ca-certificates grep coreutils just yq-go docker-cli docker-cli-buildx docker-cli-compose xz mawk gawk \
+RUN apk add --no-cache bash parallel git git-subtree ca-certificates grep coreutils yq-go docker-cli docker-cli-buildx docker-cli-compose xz mawk gawk \
         libstdc++ libcurl libdw libelf zlib libgcc
 COPY --from=bats-src /opt/bats /opt/bats
 COPY --from=bats-src /usr/lib/bats /usr/lib/bats
@@ -197,4 +257,5 @@ COPY --from=bats-extensions /bats /usr/lib/bats
 COPY --from=lint-tools /usr/local/bin/shellcheck /usr/local/bin/
 COPY --from=lint-tools /usr/local/bin/hadolint /usr/local/bin/
 COPY --from=kcov-builder /usr/local/bin/kcov /usr/local/bin/kcov
+COPY --from=just-runner /usr/local/bin/just /usr/local/bin/just
 RUN ln -s /opt/bats/bin/bats /usr/local/bin/bats

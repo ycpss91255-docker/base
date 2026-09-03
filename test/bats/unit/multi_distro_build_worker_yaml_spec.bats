@@ -31,6 +31,82 @@
 # `tag_distros` / `distro_input_name` / `extra_build_args` are removed;
 # callers must use `pr_matrix` / `tag_matrix` (full JSON include-shape)
 # instead.
+#
+# why: Structural assertions for
+# `.github/workflows/multi-distro-build-worker.yaml` (#325 B-1 dispatcher,
+# extended to N-D matrix-mode via #344 in v0.32.0). The dispatcher fans a
+# per-event `include`-shape matrix across `build-worker.yaml` matrix shards
+# so multi-distro / multi-variant caller `main.yaml`s (`env/ros_distro`,
+# `env/ros2_distro`, `app/ros1_bridge`) stop copy-pasting a `${{
+# github.event_name == 'pull_request' && ... || ... }}` expression. Three
+# jobs:
+#
+# 1. **`resolve-matrix`** — pure-shell selector emitting a `matrix`
+# JSON-array output (`include`-shape, each entry has `name` + `build_args`
+# plus arbitrary additional fields). `pull_request` -> `pr_matrix` (subset);
+# anything else (tag push, main push, `workflow_dispatch`) -> `tag_matrix`
+# (release validation matrix).
+#
+# 2. **`call-build`** — strategy.matrix job invoking the local
+# `build-worker.yaml` per matrix cell. Derives per-shard `image_name` as
+# `<image_name>-<matrix.name>`, forwards `matrix.build_args` verbatim as
+# `build_args`, and shards buildx GHA cache by name via `cache_variant: ${{
+# matrix.name }}` (reuses #272's per-variant scope contract). `fail-fast:
+# false` so one shard's failure doesn't cancel siblings.
+#
+# 3. **`ci-passed`** — rollup gate for branch protection. Matches the
+# existing `ci-passed` rollup naming used by env/ros_distro /
+# env/ros2_distro per CLAUDE.md's status-check table, so downstream
+# branch-protection contexts don't change on adoption.
+#
+# **BREAKING since v0.32.0 (#344)**: legacy 1D inputs `pr_distros` /
+# `tag_distros` / `distro_input_name` / `extra_build_args` were removed; the
+# 14 v0.29-era tests covering those inputs are replaced by 16 tests covering
+# the new matrix-mode shape (incl. a negative assertion that the 1D inputs
+# are gone).
+#
+# Grouped by concern:
+#
+# - Declares `workflow_call`
+#
+# - Required inputs: `pr_matrix`, `tag_matrix`, `image_name`
+#
+# - Legacy 1D inputs gone (no `pr_distros` / `tag_distros` /
+# `distro_input_name` / `extra_build_args`)
+#
+# - `pr_matrix` description documents required `name` + `build_args` fields
+#
+# - `tag_matrix` description documents required `name` + `build_args` fields
+#
+# - Passthrough inputs mirror build-worker (build_runtime /
+# test_tools_version / platforms / context_path / dockerfile_path /
+# build_contexts)
+#
+# - `resolve-matrix` emits `matrix` output (include-shape)
+#
+# - `resolve-matrix` branches on `github.event_name == 'pull_request'`
+#
+# - `call-build` `uses: ./.github/workflows/build-worker.yaml`
+#
+# - `call-build` matrix `include:
+# fromJSON(needs.resolve-matrix.outputs.matrix)`
+#
+# - `call-build` per-shard `image_name: <image_name>-<matrix.name>` (hyphen)
+#
+# - `call-build` forwards `build_args: ${{ matrix.build_args }}` verbatim
+#
+# - `call-build` `cache_variant: ${{ matrix.name }}` (per-cell cache scope)
+#
+# - `call-build` `fail-fast: false`
+#
+# - `ci-passed` rollup depends on `call-build`, runs with `if: always()`
+#
+# - `ci-passed` declares `name: ci-passed` to satisfy branch protection
+# contract
+#
+# - Every job's grant pinned as an exact per-job entry set, over the job
+# list derived from the file (all three jobs `contents: read` -- the
+# dispatcher builds nothing and pushes nothing)
 
 bats_require_minimum_version 1.5.0
 

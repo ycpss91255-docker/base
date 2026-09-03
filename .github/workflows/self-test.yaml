@@ -61,14 +61,15 @@ jobs:
           # is a valid GitHub Actions context property (the commit SHA of a
           # reusable-workflow file), used by build-worker.yaml / release-worker.yaml
           # to pin the preflight checkout to the worker's own version. actionlint
-          # 1.7.7 is missing this property from its github-context type and wrongly
+          # is missing this property from its github-context type and wrongly
           # reports `property "job_workflow_sha" is not defined`. `-ignore` takes a
-          # regex matched against the error message. Remove this once actionlint
-          # ships the property in its type.
+          # regex matched against the error message. Still absent as of 1.7.12
+          # (measured: the run without `-ignore` reports it at five call sites),
+          # so remove this only once actionlint ships the property in its type.
           docker run --rm \
             -v "${GITHUB_WORKSPACE}:/repo:ro" \
             -w /repo \
-            rhysd/actionlint:1.7.7 \
+            rhysd/actionlint:1.7.12 \
             -color \
             -ignore 'property "job_workflow_sha" is not defined'
 
@@ -239,6 +240,10 @@ jobs:
     #
     #   issueref          no transient #NNN in code comments (ADR-00000013)
     #   adr-numbering     doc/adr/ duplicate-free + well-formed
+    #   adr-structure     every ADR carries its `> Serves:` back-pointer,
+    #                     Context / Decision / Consequences / Alternatives
+    #                     and one of the three Status values; a scan that
+    #                     examined zero ADRs refuses rather than passes
     #   stale-setup-conf  no legacy config/docker/setup.conf under dist/
     #   readme-sync       localized READMEs still match README.md
     #   home-literal      no concrete username in a home path under dist/ or
@@ -260,6 +265,12 @@ jobs:
     #                     -- a reader that stops reading turns a SUCCESSFUL
     #                     match into the pipeline's failure under pipefail,
     #                     and the answer is inverted rather than lost
+    #   errexit-bang      no `! <cmd>` in a bats body that is not the
+    #                     body's last statement -- bash exempts a `!`
+    #                     pipeline from errexit, so anywhere else the
+    #                     command runs, the negation is computed and the
+    #                     answer is discarded: the case name claims a
+    #                     property the body never checks
     #   derived-figures   the baseline stage set and the setup.conf section
     #                     list, as documents repeat them, still match the
     #                     code that defines them
@@ -273,6 +284,14 @@ jobs:
     #                     org registers an org-level self-hosted runner that
     #                     public repos may use, so an unguarded eligible job
     #                     is fork-PR code executing on that machine
+    #   generated-workflow-actions
+    #                     a `uses:` ref a shell script writes into a
+    #                     generated downstream workflow names the same ref
+    #                     .github/workflows/ uses -- dependabot reads
+    #                     workflow FILES, so a ref inside a heredoc is
+    #                     outside it, and action-ref-agreement compares
+    #                     call sites within .github/workflows/ only, so
+    #                     without this the ref is watched by nothing
     #   changelog-entry   no [Unreleased] changelog entry has grown into a
     #                     pasted PR body -- measured over the whole entry
     #                     with whitespace collapsed, so rewrapping it or
@@ -282,6 +301,22 @@ jobs:
     #                     block, the pair a serial append-vs-append merge
     #                     lands with nothing to review; released sections
     #                     are never checked
+    #   catalog-description
+    #                     every `@test` in the spec trees carries a
+    #                     `# why:` block on the lines above it, every
+    #                     block is attached to a test, and the count of
+    #                     tests that still have none stays under the
+    #                     transition ceiling the driver declares. The
+    #                     catalogue under doc/test/ is rendered from those
+    #                     blocks, so this is the rule at its source rather
+    #                     than over the rendered table
+    #   just-provenance   every site that OBTAINS the `just` runner names
+    #                     the one pinned version -- the image's fetch, the
+    #                     setup-just input, the just.systems installer's
+    #                     --tag -- or carries a justified advisory marker
+    #                     saying it cannot be pinned. `just` is the only
+    #                     control surface, so a version spread across the
+    #                     paths is a spread across the whole interface
     #   action-ref-agreement
     #                     every call site of one action's REPOSITORY across
     #                     this directory names the same ref. actionlint
@@ -301,7 +336,7 @@ jobs:
     # binary lives only in the test-tools image, so it keeps its own job.
     #
     # Ungated on purpose (no `if: code_changed`), like doc-counts: the
-    # ADR-numbering lint reads doc/adr/ filenames and the README sync lint
+    # ADR-numbering and ADR-structure lints read doc/adr/ and the README sync lint
     # reads README.md + doc/readme/**, both of which classify scores as a
     # doc-only change, so a code_changed gate would skip them on exactly
     # the PR they exist to catch. A matrix shares one job-level `if:`, so
@@ -319,17 +354,22 @@ jobs:
         lint:
           - issueref
           - adr-numbering
+          - adr-structure
           - stale-setup-conf
           - readme-sync
           - home-literal
           - arch-literal
           - bash-source-guard
           - early-close-reader
+          - errexit-bang
           - derived-figures
           - i18n-orphan
           - self-hosted-guard
           - changelog-entry
           - action-ref-agreement
+          - generated-workflow-actions
+          - just-provenance
+          - catalog-description
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -395,7 +435,13 @@ jobs:
             # gates, and a gate running the previous rule set does not
             # fail, it under-reports, so the check goes green having
             # examined something other than what this checkout asked for.
-            # The probe therefore compares versions, not just PATH.
+            # `just` is the third: it is the only control surface, and
+            # test/bats/integration/just_runner_version_spec.bats is
+            # fail-closed on a mismatch between the image's runner and ARG
+            # JUST_VERSION, so a :main published before a version bump
+            # carries every required tool AND the wrong runner and would
+            # redden a PR that touched nothing related. The probe therefore
+            # compares versions, not just PATH.
             #
             # It is one script rather than a loop pasted into each of these
             # obtain steps: five copies is how the version blind spot
@@ -533,7 +579,13 @@ jobs:
             # gates, and a gate running the previous rule set does not
             # fail, it under-reports, so the check goes green having
             # examined something other than what this checkout asked for.
-            # The probe therefore compares versions, not just PATH.
+            # `just` is the third: it is the only control surface, and
+            # test/bats/integration/just_runner_version_spec.bats is
+            # fail-closed on a mismatch between the image's runner and ARG
+            # JUST_VERSION, so a :main published before a version bump
+            # carries every required tool AND the wrong runner and would
+            # redden a PR that touched nothing related. The probe therefore
+            # compares versions, not just PATH.
             #
             # It is one script rather than a loop pasted into each of these
             # obtain steps: five copies is how the version blind spot
@@ -627,7 +679,13 @@ jobs:
             # gates, and a gate running the previous rule set does not
             # fail, it under-reports, so the check goes green having
             # examined something other than what this checkout asked for.
-            # The probe therefore compares versions, not just PATH.
+            # `just` is the third: it is the only control surface, and
+            # test/bats/integration/just_runner_version_spec.bats is
+            # fail-closed on a mismatch between the image's runner and ARG
+            # JUST_VERSION, so a :main published before a version bump
+            # carries every required tool AND the wrong runner and would
+            # redden a PR that touched nothing related. The probe therefore
+            # compares versions, not just PATH.
             #
             # It is one script rather than a loop pasted into each of these
             # obtain steps: five copies is how the version blind spot
@@ -783,7 +841,13 @@ jobs:
             # gates, and a gate running the previous rule set does not
             # fail, it under-reports, so the check goes green having
             # examined something other than what this checkout asked for.
-            # The probe therefore compares versions, not just PATH.
+            # `just` is the third: it is the only control surface, and
+            # test/bats/integration/just_runner_version_spec.bats is
+            # fail-closed on a mismatch between the image's runner and ARG
+            # JUST_VERSION, so a :main published before a version bump
+            # carries every required tool AND the wrong runner and would
+            # redden a PR that touched nothing related. The probe therefore
+            # compares versions, not just PATH.
             #
             # It is one script rather than a loop pasted into each of these
             # obtain steps: five copies is how the version blind spot
@@ -1062,6 +1126,19 @@ jobs:
           echo "REPO_DIR=${REPO_DIR}" >> "${GITHUB_ENV}"
           echo "REPO_NAME=${REPO_NAME}" >> "${GITHUB_ENV}"
 
+      - name: Resolve the pinned just version
+        id: just_pin
+        # ONE declaration, read rather than restated: ARG JUST_VERSION in
+        # dockerfile/Dockerfile.test-tools, via the shipped accessor. The
+        # `just-version` input below used to be omitted, which installed
+        # whatever `just` released most recently -- so a parsing change
+        # upstream turned this job red on a day nobody touched the repo,
+        # and the e2e job ran a different `just` from the one baked into
+        # the image the rest of the suite uses.
+        run: |
+          printf 'version=%s\n' "$(./dist/script/base/just-version.sh)" \
+            >> "${GITHUB_OUTPUT}"
+
       - name: Install just (container-ops entry point)
         # The e2e job drives the runnability contract through the SAME
         # `just` verbs downstream users invoke (post-#573 the documented
@@ -1071,6 +1148,8 @@ jobs:
         # `just.systems/install.sh` returns 403 from GHA runners, so use
         # the maintained setup action instead.)
         uses: extractions/setup-just@v4
+        with:
+          just-version: ${{ steps.just_pin.outputs.version }}
 
       - name: Build test stage (just docker build test)
         working-directory: ${{ env.REPO_DIR }}
@@ -1451,7 +1530,13 @@ jobs:
             # gates, and a gate running the previous rule set does not
             # fail, it under-reports, so the check goes green having
             # examined something other than what this checkout asked for.
-            # The probe therefore compares versions, not just PATH.
+            # `just` is the third: it is the only control surface, and
+            # test/bats/integration/just_runner_version_spec.bats is
+            # fail-closed on a mismatch between the image's runner and ARG
+            # JUST_VERSION, so a :main published before a version bump
+            # carries every required tool AND the wrong runner and would
+            # redden a PR that touched nothing related. The probe therefore
+            # compares versions, not just PATH.
             #
             # It is one script rather than a loop pasted into each of these
             # obtain steps: five copies is how the version blind spot
@@ -1496,8 +1581,12 @@ jobs:
         # (they own whatever the suite writes into the mounted checkout).
         # TEST_TOOLS_IMAGE is NOT set here: it is workflow-level and
         # run-keyed, and a spec asserts the old literal appears nowhere.
+        # BASE_CHECKOUT_PATH is the provenance compose.yaml stamps onto the
+        # network (`base.checkout.path`), also with no default: an artifact
+        # created without it can never be attributed by the scoped reclaim.
         run: |
           HOST_UID="$(id -u)" HOST_GID="$(id -g)" \
+            BASE_CHECKOUT_PATH="$(pwd -P)" \
             docker compose run --rm ci-system
 
       - name: Reclaim this run's docker artifacts

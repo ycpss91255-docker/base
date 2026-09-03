@@ -54,21 +54,25 @@ command runner) layered on Docker. Install both on the host before using the
 `just <verb>` entry point:
 
 - **Docker** + Docker Compose v2 (`docker compose`).
-- **just** -- any recent release works (the recipes use only variadic
-  parameters, supported since early versions). Install via a package manager
-  or the official installer:
+- **just** -- this repo PINS one version. The test-tools image, CI and the
+  `--bootstrap-just` installer all run that exact version, so a recipe behaves
+  the same in all three places; print it with
+  `./.base/dist/script/base/just-version.sh` (in this repo,
+  `./dist/script/base/just-version.sh`). Install exactly that version with the
+  official prebuilt-binary installer, which takes a version:
 
   ```bash
-  apt install just         # Debian 13+ / Ubuntu 24.04+
-  brew install just        # macOS / Linuxbrew
-  cargo install just       # from crates.io
-  # or the official prebuilt-binary installer:
+  pin="$(./.base/dist/script/base/just-version.sh)"
   curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh \
-      | bash -s -- --to ~/.local/bin
+      | bash -s -- --to ~/.local/bin --tag "${pin}"
   ```
 
-  See the [official install guide](https://github.com/casey/just#installation)
-  for every method. If `just` is unavailable each recipe has a raw fallback
+  A host package manager (`apt install just`, `brew install just`,
+  `cargo install just`) is a **fallback, not an equivalent**: it installs
+  whatever version its own registry carries, which may be many minors behind
+  the pin. See the [official install
+  guide](https://github.com/casey/just#installation) for every method. If
+  `just` is unavailable each recipe has a raw fallback
   (`./script/<verb>.sh`, `./.base/dist/script/base/upgrade.sh`) -- see
   [Quick Start](#quick-start).
 
@@ -157,8 +161,9 @@ flowchart LR
 | `dist/script/docker/lib/_tui_conf.sh` | INI validators + read/write for `setup_tui.sh` and `setup.sh` writeback |
 | `dist/script/docker/runtime/logging.sh` | Host-side log tee helper (per-start file + stable symlink) |
 | `dist/script/docker/runtime/logrotate.sh` | Shared rotate/symlink/prune primitives (tee + transcript) |
-| `dist/script/docker/runtime/smoke.sh` | Runtime install-check smoke |
-| `dist/script/docker/runtime/entrypoint.sh` | Template entrypoint helper |
+| `dist/script/docker/runtime/watchdog.sh` | Generic single-service watchdog (restart + pluggable health check) |
+| `dist/dockerfile/entrypoint.sh` | Template entrypoint, seeded into a new repo as `script/entrypoint.sh` |
+| `dist/test/bats/smoke/smoke.sh` | Runtime install-check smoke (ldd missing-dep scan) |
 | `script/test/test.sh` | base self-test dispatcher (local + in-container) |
 | `script/test/drivers/` | One driver per tool — `bats.sh` / `shellcheck.sh` / `hadolint.sh` |
 | `script/test/lint_bare_stderr.sh` | Bare stderr lint checker |
@@ -812,7 +817,7 @@ into a field deployment that ships just the image:
 |---|---|---|---|---|
 | machine-bound / set-once | GPU reservation, `privileged`, device/volume mounts, `IMAGE_NAME`, APT mirror | `setup.conf` (committed) | rendered into `compose.yaml` | resolved into the bundle's self-contained `compose.yaml` (literal values, no `${VAR}`) |
 | volatile workload **env vars** | `ROS_DOMAIN_ID`, `LOG_LEVEL`, API tokens, dataset selectors | `.env.local` (hand-authored, gitignored) | `env_file: [.env, .env.local]` -- the generated `.env` carries the `[environment]` defaults, yours override them (later file wins) | the bundle ships both: `.env` lists every default it runs with (incl. `WATCHDOG_*`), `.env.local` is where the operator retunes one without a rebuild |
-| structured app **config** | bridge topic lists, pipeline definitions | `config/app/` (#504) | bind-mounted at `/opt/app/config` (edit + restart, no rebuild) | `COPY`-baked default + optional mount-wins override via `config/<component>/deploy.manifest` (edit `config/` + `./deploy.sh up`, no rebuild) |
+| structured app **config** | bridge topic lists, pipeline definitions | `config/<component>/` (#504, #1000) | every component directory bind-mounted at `/opt/app/config/<component>` (edit + restart, no rebuild) | each `COPY`-baked at the same path + optional mount-wins override via `config/<component>/deploy.manifest` (edit `config/` + `./deploy.sh up`, no rebuild) |
 
 `setup.conf`'s `[environment]` section is the *first* kind -- stable,
 machine-bound env defaults. They are written into the generated `.env` and
@@ -866,8 +871,9 @@ several field versions on one host never collides). It contains:
 What it does, in order:
 
 1. bake the `[environment]` defaults into the image as real `ENV` (S3) and
-   `COPY` `config/app/` into it when present (S4) -- so the field image is
-   self-contained (no env file, no config bind travels);
+   `COPY` every `config/<component>/` into it at `/opt/app/config/<component>`
+   (S4) -- so the field image is self-contained (no env file, no config bind
+   travels);
 2. `docker build --target <stage>` the immutable image, tagged
    `<repo>:<stage>-<version>`;
 3. `docker save | xz` it into `image.tar.xz`;

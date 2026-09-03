@@ -250,11 +250,14 @@ _HARNESS_EXEMPT_SRCS=(
   # (COPY --chmod=0755 "./${ENTRYPOINT_FILE}" "/entrypoint.sh"), which the
   # harness does not inherit -- so it installs the same shipped script
   # itself, from the path init.sh seeds a consumer's copy from.
-  run grep -nE '^COPY --chmod=0755 dist/script/docker/runtime/entrypoint\.sh /entrypoint\.sh$' \
+  run grep -nE '^COPY --chmod=0755 dist/dockerfile/entrypoint\.sh /entrypoint\.sh$' \
     "${HARNESS_DOCKERFILE}"
   assert_success
 }
 
+# why: The manifest and the OCI annotation the sys stage writes are mirrored
+# here, and written before `RUN bats`; whether the specs then run rather
+# than skip is asserted at system level, which builds this file
 @test "the harness Dockerfile writes the manifest before the specs read it (#951)" {
   # Named for what a grep of a Dockerfile can establish: the instructions
   # are there, in that order. Whether the specs then RUN rather than skip

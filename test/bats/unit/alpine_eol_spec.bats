@@ -128,12 +128,16 @@ _fixture() {
 
 # ── The invariant, over the real Dockerfile ─────────────────────────────────
 
+# why: The expiry is written next to the pin as a marker, not left in a
+# commit message
 @test "alpine eol: the test-tools Dockerfile records its series' end-of-life (#946)" {
   run _marker_field "${DOCKERFILE}" 2
   assert_success
   assert_output --regexp '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
 }
 
+# why: A date attached to a series this image is not built on would arm the
+# alarm for the wrong pin
 @test "alpine eol: the recorded series is the series actually pinned (#946)" {
   local _pinned _recorded
   _pinned="$(_pinned_series "${DOCKERFILE}")"
@@ -142,6 +146,7 @@ _fixture() {
     "the alpine-eol marker names ${_recorded} but ARG ALPINE_VERSION pins ${_pinned}. A date attached to the wrong series is worse than no date: the alarm would ring for a series this image is not built on. Bump the marker and the pin together."
 }
 
+# why: Present-but-unreadable is the state a presence check would pass
 @test "alpine eol: the recorded date is parseable, not merely present (#946)" {
   local _recorded
   _recorded="$(_marker_field "${DOCKERFILE}" 2)"
@@ -149,6 +154,8 @@ _fixture() {
   assert_success
 }
 
+# why: The scheduled alarm itself: red 180 days out, so the bump is planned
+# work rather than an incident
 @test "alpine eol: the pinned series is more than the lead time from expiry (#946)" {
   local _series _recorded _left
   _series="$(_marker_field "${DOCKERFILE}" 1)"
@@ -160,6 +167,7 @@ _fixture() {
 
 # ── The reader, over synthetic fixtures ─────────────────────────────────────
 
+# why: Fail-closed: a missing marker is a defect, never an absent constraint
 @test "alpine eol reader: a Dockerfile with NO marker fails, it does not pass (#946)" {
   local _f
   _f="$(_fixture '# nothing to see here' 'ARG ALPINE_VERSION=3.24')"
@@ -167,6 +175,8 @@ _fixture() {
   assert_failure
 }
 
+# why: Two dates for one pin is ambiguity the reader must refuse, not
+# resolve
 @test "alpine eol reader: TWO disagreeing markers fail rather than a side being picked (#946)" {
   local _f="${BATS_TEST_TMPDIR}/two.fixture"
   printf '# alpine-eol: 3.24 2028-06-01\n# alpine-eol: 3.24 2099-01-01\nARG ALPINE_VERSION=3.24\n' \
@@ -175,18 +185,21 @@ _fixture() {
   assert_failure
 }
 
+# why: Proves the agreement check can actually see a disagreement
 @test "alpine eol reader: a marker naming a series the ARG does not pin is visible (#946)" {
   local _f
   _f="$(_fixture '# alpine-eol: 3.21 2026-11-01' 'ARG ALPINE_VERSION=3.24')"
   [[ "$(_marker_field "${_f}" 1)" != "$(_pinned_series "${_f}")" ]]
 }
 
+# why: The past side of the window, exercised rather than assumed
 @test "alpine eol reader: an already-expired date reads as negative days (#946)" {
   run _days_until 2000-01-01
   assert_success
   [[ "${output}" -lt 0 ]]
 }
 
+# why: A typo must not disarm the alarm by parsing as a distant future
 @test "alpine eol reader: a malformed date FAILS, it does not read as far away (#946)" {
   run _days_until 'someday'
   assert_failure
