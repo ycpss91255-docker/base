@@ -261,6 +261,12 @@ jobs:
     #                     -- a reader that stops reading turns a SUCCESSFUL
     #                     match into the pipeline's failure under pipefail,
     #                     and the answer is inverted rather than lost
+    #   errexit-bang      no `! <cmd>` in a bats body that is not the
+    #                     body's last statement -- bash exempts a `!`
+    #                     pipeline from errexit, so anywhere else the
+    #                     command runs, the negation is computed and the
+    #                     answer is discarded: the case name claims a
+    #                     property the body never checks
     #   derived-figures   the baseline stage set and the setup.conf section
     #                     list, as documents repeat them, still match the
     #                     code that defines them
@@ -342,6 +348,7 @@ jobs:
           - arch-literal
           - bash-source-guard
           - early-close-reader
+          - errexit-bang
           - derived-figures
           - i18n-orphan
           - self-hosted-guard

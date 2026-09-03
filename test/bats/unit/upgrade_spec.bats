@@ -379,9 +379,13 @@ _mk_subtree_repo() {
 
 @test "upgrade.sh calls _require_git_identity before subtree pull" {
   # Confirm both that the helper is called AND the ordering is correct.
+  # The anchor is the INVOCATION -- an indented `git subtree pull --prefix=`
+  # -- not the bare phrase: prose above the call site (a comment, an error
+  # message naming the step) would otherwise be read as the call and make
+  # this ordering check pass or fail on documentation.
   local _id_line _pull_line
   _id_line="$(grep -n '_require_git_identity$' "${UPGRADE}" | tail -1 | cut -d: -f1)"
-  _pull_line="$(grep -n 'git subtree pull' "${UPGRADE}" | head -1 | cut -d: -f1)"
+  _pull_line="$(grep -nE '^[[:space:]]*git subtree pull --prefix=' "${UPGRADE}" | head -1 | cut -d: -f1)"
   [ -n "${_id_line}" ]
   [ -n "${_pull_line}" ]
   (( _id_line < _pull_line ))
@@ -389,7 +393,7 @@ _mk_subtree_repo() {
 
 @test "upgrade.sh calls _verify_subtree_intact after subtree pull with target version (#477)" {
   local _pull_line _verify_line
-  _pull_line="$(grep -n 'git subtree pull' "${UPGRADE}" | head -1 | cut -d: -f1)"
+  _pull_line="$(grep -nE '^[[:space:]]*git subtree pull --prefix=' "${UPGRADE}" | head -1 | cut -d: -f1)"
   # Caller must pass both _pre_head AND target_ver so the wrong-tag
   # detector (R1+) is armed in production, not just in tests.
   _verify_line="$(grep -n '_verify_subtree_intact "\${_pre_head}" "\${target_ver}"' "${UPGRADE}" | head -1 | cut -d: -f1)"

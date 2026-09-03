@@ -111,6 +111,57 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 
 - **the README's static `Coverage-Kcov` badge is replaced by a committed SVG carrying the release's measured line rate (closes #952)** -- the gate computed the figure on every run and threw it away, so the badge read the same string whatever coverage did. `just release coverage-badge` renders `doc/badge/coverage.svg` from the local kcov reports, stamped `coverage vX.Y.Z`, and refuses unless `coverage/.head-sha` says the WHOLE suite measured HEAD. That scope is DERIVED from what ran: `coverage/timings.tsv` against ONE spec roster, which the run, the shard partition and the certificate all read, so a run narrowed by anything cannot call itself whole. Hand-run; wiring is docker_harness#289.
 
+- **`errexit-bang`: a bats assertion that cannot fail its test now fails the
+  lint (refs #956)** -- bash exempts a `!` pipeline from errexit, so in a test
+  body `! <cmd>` asserts only as the LAST COMMAND of the body's last
+  statement; anywhere else -- including after a `;` or an `|| true` ANYWHERE
+  in it, continuation lines included -- the negation is computed and discarded
+  while the case name still claims the property. `&&`, and any `||` whose
+  operand CAN fail, are exempt; the spec pins both by running them. Quoted
+  text and trailing comments are not separators. The population is WALKED (the
+  shipped `dist/test/bats/smoke/` tree counts), and an unopened header or an
+  unclosed body fails the lint.
+
+- **`errexit-bang` judges the FOLDED statement, so a substitution spanning
+  lines is read as one (refs #956)** -- a `$(` opened on one line and closed on
+  the next was scanned at depth 0 on the continuation, where a `#` opens a
+  comment and everything behind it -- separator included -- was dropped.
+  Physical lines are now folded while a `\` continuation, a quote or a `(` is
+  still open, and the scan runs once over the whole statement. A statement
+  still open where its body closes is reported when it is a `!` one or when it
+  folded a line opening with `!` into itself; otherwise it is unreadable but
+  hid nothing this rule judges.
+
+- **`errexit-bang`: a statement ends where bash says, not where the line ends
+  (refs #956)** -- a `\` glued to a WORD splices: `! grep -q A\` over
+  `#b f; true` is the one word `A#b` and a live `; true`, not the comment the
+  old per-line test read. A line ending in `|`, `||`, `&&` or `|&` is
+  INCOMPLETE, so `! cmd ||` over `true` is the one `|| true` the lint names in
+  its own message -- and the same split over `&&` or `|` no longer reports the
+  body's own last statement. The unreadable-fold row is now silenced by the
+  allow region, like every row that judges a `!` line. What stays unmodelled is
+  listed in the driver with the direction each errs in; #990 and #991 track it.
+
+- **`errexit-bang`: a `!` an operator fold pulled in is still judged (refs
+  #956, closes #989)** -- the fold above reads a line ending in `|`, `||`,
+  `&&` or `|&` as incomplete, but whether the logical line was a `!` statement
+  was still read off the line that OPENED it. So `echo a ||` over
+  `! grep -q A f; true` was judged by no rule at all: 30 real violations that
+  were reported before that fold and silent after it, plus the heredoc
+  silence #989 filed. The rules now read the span that begins at the `!`, so
+  the `||` in front of it stays the `echo`'s, and the row names the line the
+  `!` opens on. `! A ||` over `! B` is still one list.
+
+- **`errexit-bang`: a `!` RIGHT operand is exempt from errexit too (refs
+  #956)** -- the live-`||` exemption rested on "B's failure is not exempt from
+  errexit either", which bash contradicts when B is itself `!`-inverted:
+  `set -e; f(){ ! true || ! true; echo REACHED; }; f` prints REACHED. So
+  `! A || ! B` outside the body's last statement aborts nothing -- the one
+  inert shape the exemption covered. It is now declined whenever a RIGHT operand
+  opens with `!`, leaving the statement to the position and `;` rules, the
+  single-line spelling included. `! A || ! B || return 1` can still fail and is
+  reported anyway; that over-report costs one allow region.
+
 - **a test that runs a RELEASED `upgrade.sh` against the current tree (refs #915)** -- `test/bats/integration/prev_release_upgrade_spec.bats` stands a real released tree up as a consumer's `.base/` and lets ITS scripts drive the upgrade against the working tree. It asserts the consumer is left working -- no dangling symlinks, `just --list` succeeds -- not merely version-bumped. This is the only shape that can catch a break in an out-of-tree caller, and the third instance of that class this cycle. Which releases are covered resolves from the repo's own tags every run; the trees are materialised host-side into a gitignored `.prev-release/`.
 
 - **`changelog-entry`: a duplicated entry and a repeated category heading now fail the lint (closes #959)** -- merging `origin/main` into a branch that appended to `[Unreleased]` keeps BOTH sides without conflicting, so a verbatim second copy of an entry, or a second `### Added`, arrives with nothing for a reviewer to resolve -- and both were sitting on main. A lead bullet repeating another, and a category opening twice in one release block, are now refused naming BOTH lines. Released sections stay exempt. Affects anyone adding an entry: fold the second copy into the first.
@@ -129,6 +180,69 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 - **the changelog lint now catches an entry that was edited and not re-wrapped (refs #927)** -- a single word left alone on a continuation line with more of its paragraph on the next line. The length measure collapses whitespace on purpose and markdown collapses it again at render time, so nothing else could see it. A short final line, a table row, a fenced line and an HTML comment are left alone. Affects anyone writing an `[Unreleased]` entry.
 
 ### Fixed
+- **`just upgrade` no longer deletes a working pip install from a consumer
+  Dockerfile (refs #956)** -- the migration dropped every `pip install -r
+  ${CONFIG_DIR}/pip/requirements.txt` line as base's empty placeholder, but
+  that line is byte-identical whether the overlay holds the placeholder or a
+  real list. It resolves the config source first -- a `CONFIG_SRC` redirected
+  by the Dockerfile or by ANY `.setup.conf` layer points the install elsewhere
+  -- and deletes only where the file is PROVED inert: OBSERVED absent, or read
+  end to end and nothing but blanks and comments. A file, a directory or a
+  conf layer the check could not read answers "unknown", never "empty", and
+  the line is kept.
+- **the bang lint dropped the statements it had opened, and flagged two shapes
+  that were never violations (refs #956)** -- a `!` statement whose
+  continuation line was followed by a BLANK or a comment line was judged by
+  neither rule: the skip for those lines sat above the point where a statement
+  is judged, so the open statement was discarded by the next real line and
+  nothing reported it. They now END the statement they follow. Two false
+  positives go with it: a separator inside `( ... )` is the argument's, not the
+  statement's, and a `#` opens a comment wherever the shell opens one -- after
+  `;`, `&`, `\|`, `(` and a subshell's `)`, as well as after a blank.
+- **the bang lint now refuses a backgrounded assertion, and stops cutting a
+  line at a `#` that follows a quote (refs #956)** -- `! cmd &` is an async
+  list: the fork's status is 0 whatever the command did, so the assertion
+  cannot fail its test even as the body's LAST statement, the one position the
+  rule declines to judge. It is reported now, with `&&`, `\|&`, `>&` and `&>`
+  excluded by the operator they belong to rather than by a roster. Separately,
+  a closing quote and a backslash escape do not end a WORD, so the `#` in
+  `! grep -q 'a'#b f; true` is data and the `;` behind it is real: the scan
+  stopped reading such a line as a comment and dropping the separator.
+- **the bang lint no longer cuts a line at a `#` behind an expansion's `)`
+  (refs #956)** -- a `)` ends a WORD only where it closes a SUBSHELL:
+  `printf '[%s]\n' $(echo A)#b` prints the one argument `[A#b]`. Reading every
+  `)` as a word end made the `#` in `! grep -q A $(echo z)#b f; true` a comment
+  and blanked the `; true` behind it -- a dropped violation. The `(` at depth 0
+  now records whether it opened a subshell or an expansion (`$(`, `$((`, `<(`,
+  `>(`) and its `)` reads that back. A `)` whose `(` this per-line scan never
+  saw ends no word either, so a shape it cannot account for can only make the
+  lint over-report, never discard a line.
+- **the standalone check still authorised a delete for a DIRECTORY it never
+  read (refs #956)** -- open(2) on a directory succeeds, so the redirect probe
+  `_dfm_pip_line_is_standalone` relies on returned 0 for a path whose every
+  `read` failed. It tests `[[ -f ]]` first now, and the header sentence says
+  which probe answers for what instead of claiming one covers all of it.
+- **the last read that could authorise that delete now refuses a file it could
+  not open (refs #956)** -- `_dfm_pip_line_is_standalone` decides whether the
+  helper line is one a line-delete can remove safely. It read the Dockerfile
+  through a `while ... done < "${_file}"` redirect and ended in an
+  unconditional `return 0`, so a path it could not open -- missing, unreadable,
+  a broken symlink -- answered "standalone, delete it", the one answer the
+  lib's own header promises that guard never gives. It captures the redirect's
+  status and keeps the line instead. Unreachable in production today, but it
+  was the documented safety leg for everything below it.
+- **the migration lib's safety claim now names the one migration it does NOT
+  cover (refs #956)** -- the same block said every migration other than the
+  pip-helper leaves the file alone when a question goes unanswered.
+  `_migrate_smoke_copy` does not: its APPLY globs the freshly pulled
+  `.base/dist/test/bats/smoke/*/` for the per-stage folders, and
+  `[[ -d ]] || continue` reads a path it could not traverse as a stage that
+  ships none -- rewriting the Dockerfile without that stage's smoke COPY. The
+  claim is corrected and the behaviour pinned by a spec; the fix is a
+  follow-up, so the block does not claim it is closed.
+- **the post-exec / post-setup hook now fires when the wrapped command fails (refs #956)** -- under `set -euo pipefail` the unguarded `compose exec` in `exec.sh` and the unguarded subcommand dispatch in `setup.sh` aborted `main` before the hook line, so a repo defining a hook for final reporting got it on every run except the one worth reporting on. `exec.sh` captures with `|| _rc=$?`, as `run.sh` already does around a compose passthrough; `setup.sh` registers the hook on the transcript `_atexit` trap, because the same guard there would disable errexit inside every handler. A failing hook still overrides the rc.
+- **a conflicting `git subtree pull` no longer leaves the repo mid-merge (refs #956)** -- the rollback trap is armed only once the pull has committed and cannot be armed earlier, so a pull that clashed with local edits inside `.base/` aborted leaving `MERGE_HEAD`, a staged `.base/.version` and conflict markers -- met one run later as the next upgrade's refusal to start, on a state nobody chose. `upgrade.sh` now captures the pull's status, aborts the merge it left, and fails naming the clash.
+- **a failing post-setup hook no longer costs the run its transcript (refs #956)** -- moving the hook onto the EXIT trap put its `exit` inside that trap, which ends the shell before the transcript is finalized: the run left an unstripped `log/setup/<ts>-<id>.log.raw`, no `transcript_complete` line, `latest.log` still naming the previous run and no retention prune -- on exactly the failing run worth reading (ADR-00000007). Callbacks now record their exit code with `_atexit_set_exit_code` and the handler exits with it after finalize, so the hook's rc still wins and the transcript survives.
 - **`just` had four provenance paths and no shared version (closes #948)** --
   the tooling image `apk add`ed alpine's package, CI's `setup-just` took
   whatever released that day, `--bootstrap-just` fetched the latest and the
