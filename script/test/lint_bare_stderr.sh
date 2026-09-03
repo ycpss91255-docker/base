@@ -3,9 +3,13 @@
 # lint_bare_stderr.sh - Flag bare printf/echo >&2 outside _log_* helpers.
 #
 # Enforce that all stderr output goes through lib/log.sh
-# helpers. Scans dist/script/docker/**/*.sh and script/test/**/*.sh
-# for lines that write to fd 2 without using _log_err / _log_warn /
-# _log_fatal / _log_info / _log_debug / _die.
+# helpers. Scans dist/script/docker/**/*.sh, dist/dockerfile/**/*.sh,
+# dist/test/**/*.sh and script/test/**/*.sh for lines that write to fd 2
+# without using _log_err / _log_warn / _log_fatal / _log_info /
+# _log_debug / _die. The two dist/ roots beyond script/docker are the
+# shipped scripts that live next to what consumes them rather than under
+# script/ -- the seeded entrypoint template and the runtime-test
+# install-check helper.
 #
 # Exit: 0 = clean, 1 = violations found, 2 = usage error.
 
@@ -23,7 +27,10 @@ _is_excluded_file() {
     # lib/log.sh sourced, so its loud stderr events go straight to fd 2
     # (captured by `docker logs`) -- same rationale as logging.sh.
     dist/script/docker/runtime/watchdog.sh) return 0 ;;
-    dist/script/docker/runtime/smoke.sh) return 0 ;;
+    # Runtime-test install-check helper: runs inside the minimal runtime
+    # image with no lib/log.sh, so its MISSING-DEP report goes straight to
+    # fd 2 -- same rationale as logging.sh / watchdog.sh above.
+    dist/test/bats/smoke/smoke.sh) return 0 ;;
     dist/script/docker/lib/_tui_backend.sh) return 0 ;;
     dist/script/docker/lib/_tui_conf.sh) return 0 ;;
     dist/script/docker/wrapper/setup_tui.sh) return 0 ;;
@@ -114,7 +121,8 @@ while IFS= read -r file; do
       violations=$((violations + 1))
     fi
   done < "${file}"
-done < <(find "${repo_root}/dist/script/docker" "${repo_root}/script/test" \
+done < <(find "${repo_root}/dist/script/docker" "${repo_root}/dist/dockerfile" \
+  "${repo_root}/dist/test" "${repo_root}/script/test" \
   -name '*.sh' -type f 2>/dev/null | sort)
 
 if [[ "${violations}" -gt 0 ]]; then
