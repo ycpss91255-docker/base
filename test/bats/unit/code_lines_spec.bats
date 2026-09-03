@@ -115,7 +115,7 @@ YAML
 
   # The job's FIRST sequence dash is SHALLOWER than its step dashes. Both
   # spellings below are valid YAML and valid GitHub Actions; each is the
-  # ordinary way somebody writes the key it uses (#993).
+  # ordinary way somebody writes the key it uses.
   #
   #   SHALLOW -- a block-style `needs:` sits at the job-key indent (4),
   #              two levels above the step dashes (6).
@@ -486,7 +486,7 @@ DOCKERFILE
 # indent. No step dash then counted as a boundary, so one id was carried
 # across every step in the job -- byte for byte the fail-open the helper was
 # extracted to close, and invisible because both spellings are ordinary
-# YAML that actionlint accepts (#993).
+# YAML that actionlint accepts.
 #
 # The boundary is therefore taken from the first dash AFTER the `steps:`
 # key. Each shape below is pinned in both directions: the id-less step must
