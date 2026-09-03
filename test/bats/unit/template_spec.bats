@@ -770,10 +770,10 @@ EOF
   #
   # What the stage is FROM is not pinned here: every package-installing
   # stage in that file now derives from the one stage that declares
-  # APK_MIRROR, and which alpine expression sits behind that is
-  # apk_mirror_spec's subject, not this one's. This assertion is about
-  # kcov being COMPILED in a stage of its own rather than pulled into the
-  # final image.
+  # APK_MIRROR, and which alpine expression sits behind that is pinned by
+  # apk_mirror_spec ("the mirror stage's alpine is the pinned ARG"), for
+  # every stage at once. This assertion is about kcov being COMPILED in a
+  # stage of its own rather than pulled into the final image.
   run grep -E '^FROM [^[:space:]]+ AS kcov-builder' \
     /source/dockerfile/Dockerfile.test-tools
   assert_success

@@ -15,12 +15,17 @@
 # that appears not to contain `bash`, which sends the reader looking for
 # a packaging mistake that does not exist.
 #
-# Three properties are pinned here, and the first two are executed rather
-# than grepped: the rewrite is a shell rule, so the way to assert what it
-# does at the default is to RUN it over a repositories file.
+# Four properties are pinned here, and the rewrite ones are executed
+# rather than grepped: the rewrite is a shell rule, so the way to assert
+# what it does at the default is to RUN it over a repositories file.
 #
 #   - The default is the upstream CDN, declared once. A machine that can
 #     reach dl-cdn sees no change.
+#   - The alpine that stage is FROM is the pinned ARG, and no other stage
+#     names an alpine of its own. Every apk stage derives from this one,
+#     so this is the tree's only tie between the tooling image's alpine
+#     and ARG ALPINE_VERSION -- template_spec's kcov-builder assertion
+#     used to carry it and cannot any more.
 #   - At the default the rewrite is SKIPPED, rather than running a sed
 #     that replaces the host with itself. Comparing BYTES cannot tell
 #     those two apart -- a sed rewriting the host to itself emits the
@@ -91,6 +96,27 @@ _seed_repositories() {
   printf '%s\n' "${SCRATCH}/repositories"
 }
 
+# _mirror_stage -- the name of the stage that declares APK_MIRROR, read
+# out of the file rather than spelled here: the mirror stage IS the stage
+# that declares the arg, so renaming it moves every assertion with it.
+_mirror_stage() {
+  awk '
+    tolower($1) == "from" { name = (tolower($3) == "as") ? $4 : ""; next }
+    /^ARG[[:space:]]+APK_MIRROR=/ { print name; exit }
+  ' "${DOCKERFILE}"
+}
+
+# _alpine_bases_off_the_arg -- every `FROM alpine:<tag>` whose tag is not
+# the ARG. Comment lines are skipped, as in _stages_off_the_mirror.
+_alpine_bases_off_the_arg() {
+  awk '
+    /^[[:space:]]*#/ { next }
+    tolower($1) == "from" && $2 ~ /^alpine:/ && $2 != "alpine:${ALPINE_VERSION}" {
+      print $2 " (" ((tolower($3) == "as") ? $4 : "<final stage>") ")"
+    }
+  ' "${DOCKERFILE}"
+}
+
 # _stages_off_the_mirror <stage> -- every stage that runs `apk add`
 # without being FROM <stage>. Comment lines are skipped: this file
 # discusses `apk add` in prose more often than it runs it, and prose is
@@ -116,6 +142,33 @@ _stages_off_the_mirror() {
   assert_success
   assert_output "1"
   assert_equal "$(_declared_default)" "${UPSTREAM_CDN}"
+}
+
+@test "APK_MIRROR: the mirror stage's alpine is the pinned ARG, and so is every other (#1008)" {
+  # The tree's only assertion tying a tooling stage's alpine to
+  # ARG ALPINE_VERSION. template_spec carried it on kcov-builder, which is
+  # `FROM alpine-apk` now and can no longer say anything about alpine at
+  # all; the pin belongs on the stage every apk stage derives from, which
+  # is this file's subject. Nothing else in the gate catches a divergent
+  # one: hadolint refuses `:latest` (DL3007) but not a `FROM alpine:3.20`
+  # sitting next to `ARG ALPINE_VERSION=3.21`, which builds green on a
+  # release the file does not declare and ships tooling nobody chose.
+  local _stage _base
+  _stage="$(_mirror_stage)"
+  [ -n "${_stage}" ] \
+    || fail "no shared mirror stage in ${DOCKERFILE}: nothing declares the repositories rewrite once for every apk stage to derive from"
+  _base="$(awk -v want="${_stage}" '
+    tolower($1) == "from" && tolower($3) == "as" && $4 == want { print $2; exit }
+  ' "${DOCKERFILE}")"
+  assert_equal "${_base}" 'alpine:${ALPINE_VERSION}'
+  # The arg it reads is a pinned release, not a floating tag.
+  run grep -cE '^ARG[[:space:]]+ALPINE_VERSION=[0-9]+\.[0-9]+$' "${DOCKERFILE}"
+  assert_success
+  assert_output "1"
+  # And no stage reaches an alpine of its own behind that pin's back.
+  run _alpine_bases_off_the_arg
+  assert_success
+  assert_output ""
 }
 
 @test "APK_MIRROR: the build path names no alpine mirror of its own (#1008)" {
@@ -199,12 +252,7 @@ _stages_off_the_mirror() {
   # `apk add`s without deriving from it is named here rather than
   # discovered on the host that cannot reach dl-cdn.
   local _stage
-  # Derived from the file, not spelled here: the mirror stage IS the stage
-  # that declares the arg, so renaming it moves this assertion with it.
-  _stage="$(awk '
-    tolower($1) == "from" { name = (tolower($3) == "as") ? $4 : ""; next }
-    /^ARG[[:space:]]+APK_MIRROR=/ { print name; exit }
-  ' "${DOCKERFILE}")"
+  _stage="$(_mirror_stage)"
   [ -n "${_stage}" ] \
     || fail "no shared mirror stage in ${DOCKERFILE}: nothing declares the repositories rewrite once for every apk stage to derive from"
   run _stages_off_the_mirror "${_stage}"

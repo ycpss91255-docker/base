@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3541 tests**.
+Unit specs under `test/bats/unit/`: **3542 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -4284,11 +4284,12 @@ rather than an assurance.
 | `_run_adr_structure: REFUSES when doc/adr/ does not exist (#994)` | - |
 | `_run_adr_structure: the REAL doc/adr/ passes today (#994)` | - |
 
-### test/bats/unit/apk_mirror_spec.bats (6)
+### test/bats/unit/apk_mirror_spec.bats (7)
 
 | Test | Description |
 |------|-------------|
 | `APK_MIRROR: declared exactly once, defaulting to the upstream CDN (#1008)` | - |
+| `APK_MIRROR: the mirror stage's alpine is the pinned ARG, and so is every other (#1008)` | - |
 | `APK_MIRROR: the build path names no alpine mirror of its own (#1008)` | - |
 | `APK_MIRROR: at the default the repositories file is not touched at all (#1008)` | - |
 | `APK_MIRROR: an override repoints every repository line (#1008)` | - |
