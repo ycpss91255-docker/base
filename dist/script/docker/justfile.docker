@@ -49,14 +49,28 @@ alias h := help
 help *args:
     @"$(dirname "$(readlink -f '{{source_file()}}')")/lib/help.sh" docker {{args}}
 
+# lifecycle: BEGINS a flow. The image is what `run` / `start` / the test
+# namespace are about to use, so a reclaim here would collect a project
+# that is about to be used. What the build leaves behind is ended by
+# `stop`, and the per-checkout artifacts by the scoped reclaim `stop` and
+# `just test` already run unasked.
+#
 # Build devel image (e.g. just docker build test  |  just docker build --no-cache)
 build *args:
     ./script/build.sh {{args}}
 
+# lifecycle: BEGINS a flow. The container it starts is the point of
+# pressing it. A foreground run installs its own EXIT teardown (it downs
+# the project with --remove-orphans); a detached one is ended by
+# `just docker stop`, which is also where the scoped reclaim runs.
+#
 # Run container interactively (e.g. just run  |  just run -d)
 run *args:
     ./script/run.sh {{args}}
 
+# lifecycle: BEGINS a flow, being exactly the two verbs it composes. Ended
+# by `just docker stop`.
+#
 # Build + run in one step (e.g. just start  |  just start --no-cache).
 # `-h|--help` short-circuits with the composite-verb usage and exits
 # WITHOUT building or running -- otherwise --help would forward to
@@ -86,6 +100,10 @@ start *args:
     ./script/build.sh {{args}}
     ./script/run.sh
 
+# lifecycle: CONTINUES a flow. It attaches to a container someone else
+# started and creates nothing, so it has nothing to reclaim -- and no
+# standing to end what it did not begin.
+#
 # Exec into a running container (e.g. just exec -t bats-src bash)
 exec *args:
     ./script/exec.sh {{args}}
