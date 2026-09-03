@@ -124,6 +124,28 @@ _ttp_declarations() {
   )
 }
 
+# _ttp_pin_of <ARG=value> -- the VALUE half of one declaration, normalised.
+#
+# One function because both halves of this accessor ask the same question
+# of the same file: `roster` reports what is pinned and `check` compares
+# an image against it. A normalisation applied on one side only makes the
+# two disagree about a declaration neither of them wrote -- `roster` read
+# `ARG BATS_VERSION="1.13.0"` as 1.13.0 while `check` refused an image
+# answering `Bats 1.13.0`, which is the release smoke step failing a
+# CORRECT image and naming a pin nothing could satisfy.
+#
+# Quoting a build arg's default is legal and changes nothing about the
+# version, so the quotes are not part of it. Whitespace is removed before
+# the quotes rather than after: a trailing space outside the closing quote
+# would otherwise leave the quote at the end of the string, unstripped.
+_ttp_pin_of() {
+  local _pin="${1#*=}"
+  _pin="${_pin//[[:space:]]/}"
+  _pin="${_pin%\"}"; _pin="${_pin#\"}"
+  _pin="${_pin%\'}"; _pin="${_pin#\'}"
+  printf '%s\n' "${_pin}"
+}
+
 # _ttp_roster -- print the roster, or refuse.
 _ttp_roster() {
   local _root _file
@@ -148,10 +170,7 @@ _ttp_roster() {
   local -a _rows=()
   for _d in "${_decls[@]}"; do
     _arg="${_d%%=*}"
-    _pin="${_d#*=}"
-    _pin="${_pin%\"}"; _pin="${_pin#\"}"
-    _pin="${_pin%\'}"; _pin="${_pin#\'}"
-    _pin="${_pin//[[:space:]]/}"
+    _pin="$(_ttp_pin_of "${_d}")"
     if [[ -z "${_pin}" ]]; then
       echo "test-tools-pins: 'ARG ${_arg}=' in ${_file} declares an empty version" >&2
       return 2
@@ -200,8 +219,7 @@ _ttp_check() {
   local _d _pin=""
   for _d in "${_decls[@]}"; do
     if [[ "${_d%%=*}" == "${_arg}" ]]; then
-      _pin="${_d#*=}"
-      _pin="${_pin//[[:space:]]/}"
+      _pin="$(_ttp_pin_of "${_d}")"
     fi
   done
   if [[ -z "${_pin}" ]]; then

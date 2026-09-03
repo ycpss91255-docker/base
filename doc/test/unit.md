@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3565 tests**.
+Unit specs under `test/bats/unit/`: **3566 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -4297,7 +4297,7 @@ rather than an assurance.
 | `release-test-tools.yaml: the just smoke check asserts the version, not exit 0 (#948)` | - |
 
 
-### test/bats/unit/test_tools_pins_spec.bats (11)
+### test/bats/unit/test_tools_pins_spec.bats (12)
 
 The release smoke step ran fifteen probes against the image it had just
 published, and fourteen of them asserted an exit status and nothing else
@@ -4329,6 +4329,7 @@ half is the smoke step, which iterates this same roster.
 | `test-tools pins: check refuses empty observed output (#1012)` | A probe that did not run is not agreement. |
 | `test-tools pins: check refuses an ARG that is not on the roster (#1012)` | There is nothing to compare against, so it refuses rather than passing. |
 | `test-tools pins: an unrecognised subcommand is refused and names what it does answer (#1012)` | It does not fall through to the roster. |
+| `test-tools pins: roster and check read a quoted declaration the same way (#1012)` | Quoting a build arg default is legal; the two halves of one accessor must not disagree about what the declaration says. |
 ### test/bats/unit/adr_structure_spec.bats (27)
 
 | Test | Description |
