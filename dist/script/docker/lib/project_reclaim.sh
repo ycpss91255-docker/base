@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 #
 # project_reclaim.sh - collect the compose artifacts a base checkout that
-# no longer exists left behind, and nothing else.
+# no longer exists left behind, and nothing else. Two kinds today: the
+# network compose creates, and the per-checkout image compose builds for
+# the smoke harness. Both carry the same proof and are judged by the same
+# rules; everything else is left alone (see WHAT IT DOES NOT COLLECT).
 #
 # The development host is shared. It carries a self-hosted runner tree for
 # a sibling org, a GitLab runner container, ollama, buildx builder state
@@ -65,17 +68,25 @@
 #     concurrent run's. A stopped container therefore pins its project's
 #     network here forever, which is a residue the daemon-wide prune exists
 #     to clear.
-#   - Images. The tooling image is content-hash tagged on purpose, so ONE
-#     image is shared by every checkout whose Dockerfile.test-tools hashes
-#     alike, and its project label names whichever invocation happened to
-#     build it first. Measured on the host: the tag this tree resolves,
-#     `test-tools:b866113e322c`, carries `com.docker.compose.project=
-#     local-base-995` -- the project `just docker build` mints -- while
-#     this tree's own compose project is `base-0107d2de5abf`, and 13 live
-#     worktrees resolve that same tag. A project label on an image
-#     therefore names its builder and not its users, and collecting on it
-#     would delete an image live checkouts still resolve. Images are
-#     retired by content instead, in _reclaim_tool_tags.
+#   - Images collected BY PROJECT LABEL. The tooling image is content-hash
+#     tagged on purpose, so ONE image is shared by every checkout whose
+#     Dockerfile.test-tools hashes alike, and its project label names
+#     whichever invocation happened to build it first. Measured on the
+#     host: the tag this tree resolves, `test-tools:b866113e322c`, carries
+#     `com.docker.compose.project=local-base-995` -- the project
+#     `just docker build` mints -- while this tree's own compose project is
+#     `base-0107d2de5abf`, and 13 live worktrees resolve that same tag. A
+#     project label on an image therefore names its builder and not its
+#     users, and collecting on it would delete an image live checkouts
+#     still resolve. That image is retired by content instead, in
+#     _reclaim_tool_tags.
+#
+#     An image carrying the CHECKOUT PATH label is a different artifact and
+#     IS collected, in _reclaim_orphan_images below. The distinction is not
+#     the artifact kind but whether anything is shared: `<project>-smoke`
+#     is tagged after one checkout's project, stamped with that checkout's
+#     path at build time, and consumed by nothing after the build that
+#     produced it. Same proof, same rules, no sharing to be wrong about.
 #   - Volumes. A volume holds state, and neither its age nor the
 #     disappearance of the path that created it is evidence that the state
 #     is disposable -- the same rule script/ci/reclaim.sh applies to its
@@ -483,15 +494,23 @@ _reclaim_orphan_projects() {
     "young=${_kept_young}" "unattributable=${_refused_unattributable}" \
     "age_unreadable=${_refused_age}"
 
+  # The build images the same proof condemns, swept in the same pass and
+  # for the same callers. Its status is carried rather than returned here:
+  # the network half still has victims to remove, and a caller that heard
+  # "the sweep refused" while networks were being collected could not tell
+  # which half it was about.
+  local _image_rc=0
+  _reclaim_orphan_images "${_grace_s}" || _image_rc=$?
+
   if (( ${#_victims[@]} == 0 )); then
-    return 0
+    return "${_image_rc}"
   fi
 
   if [[ "${DRY_RUN:-false}" == true ]]; then
     _log_info reclaim reclaim_orphan_dry_run \
       "display=would remove ${#_victims[@]} orphaned network(s): ${_victims[*]}" \
       "count=${#_victims[@]}"
-    return 0
+    return "${_image_rc}"
   fi
 
   _log_info reclaim reclaim_orphan_removed \
@@ -501,6 +520,165 @@ _reclaim_orphan_projects() {
   for _v in "${_victims[@]}"; do
     docker network rm "${_v}" >/dev/null 2>&1 || _log_warn reclaim reclaim_network_rm_failed \
       "display=could not remove network ${_v}; leaving it for the next sweep." "network=${_v}"
+  done
+  return "${_image_rc}"
+}
+
+# ── orphaned per-checkout build images ───────────────────────────────────
+#
+# The one image class this file DOES collect, and the reason the paragraph
+# above refuses the other one.
+#
+# base's compose.yaml builds `<project>-smoke` for `just test smoke`. The
+# project name is a hash of the checkout's absolute path, so the tag names
+# exactly one checkout; the build stamps that checkout's path onto the
+# image as `base.checkout.path`, the same provenance the network carries;
+# and nothing consumes the image after the build, whose whole result is
+# pass or fail. So the proof, the artifact and the argument are the ones
+# the network rule already rests on, and the measurement that opened this
+# was 275MB of such images that no verb could reclaim -- not the orphan
+# sweep, which removes networks, and not _reclaim_tool_tags, which matches
+# `test-tools:<12hex>` by name.
+#
+# WHAT KEEPS IT OFF THE TOOLING IMAGE is not a name check but the label.
+# test-tools is content-hash tagged ON PURPOSE so one image serves every
+# checkout whose tooling inputs hash alike, and it carries no
+# checkout-path label -- so it is never listed here, and the retention
+# policy in _reclaim_tool_tags stays the only thing that touches it.
+#
+# A DANGLING LABELLED IMAGE IS LEFT ALONE. `<none>:<none>` has no name that
+# can be removed safely: the id behind it may carry other tags, so a
+# removal by id would reach past the artifact this rule can prove. The
+# daemon-wide `docker image prune` is what clears those.
+
+# The last line of an image's fact read. An image's labels live under
+# .Config.Labels, and the path is read LAST with a terminator after it for
+# the same reason it is on a network: it is the one field whose content
+# this script does not control, and a newline inside it would otherwise
+# read back as a different, shorter path -- which is very plausibly absent,
+# and absent is what makes an artifact a candidate.
+readonly _RECLAIM_IMAGE_FACTS_END='--- end of image facts ---'
+
+# _reclaim_docker_labelled_images -- every image ref carrying our
+# provenance label. The daemon does the narrowing, so an unlabelled image
+# is never even named here.
+_reclaim_docker_labelled_images() {
+  docker images --filter "label=${_RECLAIM_CHECKOUT_LABEL}" \
+    --format '{{.Repository}}:{{.Tag}}' 2>/dev/null
+}
+
+# _reclaim_image_facts <ref> -- creation time, checkout path, terminator.
+_reclaim_image_facts() {
+  local _ref="${1:?_reclaim_image_facts requires <ref>}"
+  docker image inspect --format \
+    "{{json .Created}}{{\"\\n\"}}{{index .Config.Labels \"${_RECLAIM_CHECKOUT_LABEL}\"}}{{\"\\n${_RECLAIM_IMAGE_FACTS_END}\"}}" \
+    "${_ref}" 2>/dev/null
+}
+
+# _reclaim_parse_image_facts <blob> <created-var> <path-var>
+#
+# Returns non-zero -- filling nothing -- when the terminator is absent: a
+# truncated read, an inspect that failed, an artifact that vanished
+# mid-sweep. Every local is __rpif_-prefixed so a caller's outvar name can
+# never capture the nameref.
+_reclaim_parse_image_facts() {
+  local _blob="${1-}"
+  local -n _rpif_created="${2:?_reclaim_parse_image_facts requires <created-var>}"
+  local -n _rpif_path="${3:?_reclaim_parse_image_facts requires <path-var>}"
+  local __rpif_tail=$'\n'"${_RECLAIM_IMAGE_FACTS_END}"
+  [[ "${_blob}" == *"${__rpif_tail}" ]] || return 1
+  local __rpif_body="${_blob%"${__rpif_tail}"}"
+  [[ "${__rpif_body}" == *$'\n'* ]] || return 1
+  local __rpif_created="${__rpif_body%%$'\n'*}"
+  local __rpif_path="${__rpif_body#*$'\n'}"
+  __rpif_created="${__rpif_created%\"}"
+  _rpif_created="${__rpif_created#\"}"
+  _rpif_path="${__rpif_path}"
+  return 0
+}
+
+# _reclaim_orphan_images <grace-seconds>
+#
+# Retires every labelled image whose recorded checkout is gone and which is
+# older than the grace window. Returns non-zero only when it refused to act
+# at all (a docker read that failed) -- an image that could not be removed
+# is reported and the next sweep tries again.
+#
+# Every input it cannot place is left alone, exactly as in the network
+# rule: no readable facts, a label that is not an absolute path, an
+# unreadable creation time, a dangling ref. There is no branch here in
+# which failing to recognise something leads to removing it.
+_reclaim_orphan_images() {
+  local _grace_s="${1:?_reclaim_orphan_images requires <grace-seconds>}"
+
+  local _refs
+  if ! _refs="$(_reclaim_docker_labelled_images)"; then
+    _log_err reclaim reclaim_artifacts_unreadable \
+      "display=cannot list the images carrying a ${_RECLAIM_CHECKOUT_LABEL} label; retiring nothing (a failed listing is not evidence that nothing is labelled)."
+    return 1
+  fi
+
+  local _now _cutoff
+  _now="$(date +%s)"
+  _cutoff=$(( _now - _grace_s ))
+
+  local _scanned=0 _kept_live=0 _kept_young=0 _refused=0
+  local -a _victims=()
+  local _ref _facts _created _path _epoch
+  while IFS= read -r _ref; do
+    [[ -n "${_ref}" ]] || continue
+    # A dangling ref names no image that can be removed safely.
+    [[ "${_ref}" == *'<none>'* ]] && { _refused=$(( _refused + 1 )); continue; }
+    _scanned=$(( _scanned + 1 ))
+    _facts="$(_reclaim_image_facts "${_ref}")" || _facts=""
+    _created=""; _path=""
+    if ! _reclaim_parse_image_facts "${_facts}" _created _path; then
+      _refused=$(( _refused + 1 ))
+      continue
+    fi
+    if [[ "${_path}" != /* ]]; then
+      _refused=$(( _refused + 1 ))
+      continue
+    fi
+    if [[ -e "${_path}" ]]; then
+      _kept_live=$(( _kept_live + 1 ))
+      continue
+    fi
+    _epoch="$(_reclaim_epoch "${_created}")"
+    if [[ -z "${_epoch}" ]]; then
+      _refused=$(( _refused + 1 ))
+      continue
+    fi
+    if (( _epoch >= _cutoff )); then
+      _kept_young=$(( _kept_young + 1 ))
+      continue
+    fi
+    _victims+=("${_ref}")
+  done <<< "${_refs}"
+
+  _log_info reclaim reclaim_image_scan \
+    "display=scoped reclaim: ${_scanned} labelled build image(s); keeping ${_kept_live} whose checkout still exists and ${_kept_young} inside the grace window; left alone ${_refused} that record no readable checkout path." \
+    "scanned=${_scanned}" "live=${_kept_live}" "young=${_kept_young}" \
+    "unattributable=${_refused}"
+
+  if (( ${#_victims[@]} == 0 )); then
+    return 0
+  fi
+
+  if [[ "${DRY_RUN:-false}" == true ]]; then
+    _log_info reclaim reclaim_image_dry_run \
+      "display=would retire ${#_victims[@]} orphaned build image(s): ${_victims[*]}" \
+      "count=${#_victims[@]}"
+    return 0
+  fi
+
+  _log_info reclaim reclaim_image_removed \
+    "display=retiring ${#_victims[@]} orphaned build image(s) whose checkout no longer exists." \
+    "count=${#_victims[@]}"
+  local _v
+  for _v in "${_victims[@]}"; do
+    docker rmi "${_v}" >/dev/null 2>&1 || _log_warn reclaim reclaim_image_rm_failed \
+      "display=could not retire ${_v} (in use, or already gone); leaving it for the next sweep." "image=${_v}"
   done
   return 0
 }

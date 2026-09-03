@@ -225,6 +225,16 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 - **the changelog lint now catches an entry that was edited and not re-wrapped (refs #927)** -- a single word left alone on a continuation line with more of its paragraph on the next line. The length measure collapses whitespace on purpose and markdown collapses it again at render time, so nothing else could see it. A short final line, a table row, a fenced line and an HTML comment are left alone. Affects anyone writing an `[Unreleased]` entry.
 
 ### Fixed
+- **`just` owns the lifecycle of what `just` creates (closes #1015, #997)** --
+  `just test stop` ends this checkout's self-test project. `just docker stop`
+  and `just docker exec` work in a self-managed checkout: `.env.generated` is
+  optional, and every compose call carries the tooling tag its compose.yaml
+  interpolates for `down` as much as for `build`. A checkout that SHOULD carry
+  that file and does not is refused, not ended under a name derived from its
+  directory. A run whose predecessor holds the project network waits
+  (`BASE_PROJECT_WAIT`, default 2m), saying why. `just test smoke`'s
+  per-checkout image is reclaimed like the network, and every docker-reaching
+  recipe states its lifecycle.
 - **the errexit-bang lint's three named misses (closes #990, #991, #992)** --
   a CRLF `*.bats` is REFUSED by name (a `\r` disarmed the line continuation,
   so a spliced `; true` went unreported); a `!` ending an `if` / `while` /

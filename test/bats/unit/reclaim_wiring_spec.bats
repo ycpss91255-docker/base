@@ -273,6 +273,26 @@ setup() {
   assert_success
 }
 
+# why: the help is four translations of one promise, and a half-updated one is
+# worse than an untouched one: it tells a reader the mode collects an image
+# and then tells them only the network carries the proof of ownership,
+# which is the sentence someone reaches for when deciding whether the mode
+# can be trusted with an image.
+@test "every language's --orphan-projects help stamps the path on both artifacts (#997)" {
+  local _p
+  # The phrase each translation uses for "onto both", one per language:
+  # zh-TW, zh-CN, ja, en.
+  for _p in '寫進兩者的' '写进两者的' '両方の' 'onto both'; do
+    run grep -F -- "${_p}" "${PRUNESH}"
+    assert_success
+  done
+  # and none of them still promises that the network alone carries it.
+  for _p in '寫進 network 的' '写进 network 的'; do
+    run grep -F -- "${_p}" "${PRUNESH}"
+    assert_failure
+  done
+}
+
 @test "--all does not quietly acquire the scoped reclaim" {
   # --all is the daemon-wide hammer and stays exactly what it was:
   # networks + images + builder. Widening it here would make every
@@ -296,4 +316,295 @@ setup() {
   # completion entry to be a first-class control surface.
   run grep -F './script/prune.sh {{args}}' "${JUSTDOCKER}"
   assert_success
+}
+
+# ── `just test stop`: the verb that ends what `just test` started ──────────
+#
+# base runs TWO compose projects out of one checkout, and only one of them
+# had a stop. `just docker build` / `run` mint the `local-<dir>` project
+# the shipped wrapper owns; `just test` mints `base-<sha256(path)[0:12]>`,
+# a name derived from the checkout PATH so two worktrees cannot share one
+# set of containers. Nothing in `just` ended the second: `just docker stop`
+# resolves the FIRST name, and `just docker prune` says in its own help
+# that it does not touch running containers. The only way to clear an
+# interrupted run's container was raw `docker`, which is a gap in the
+# control surface rather than a licence to reach past it.
+#
+# These run `just` for real. The recipe is a seam, and a seam is exactly
+# what a grep cannot check: what matters is that the name reaching stop is
+# the one the SINGLE producer printed, not a second derivation that agrees
+# today.
+
+_just_test_sandbox() {
+  local _dir="${1:?_just_test_sandbox requires a dir}"
+  mkdir -p "${_dir}/script/test"
+  cp /source/justfile "${_dir}/justfile"
+  cp /source/script/test/justfile.test "${_dir}/script/test/justfile.test"
+  cat > "${_dir}/script/stop.sh" <<'STUB'
+#!/usr/bin/env bash
+printf 'stop project=%s image=%s args=%s\n' \
+  "${PROJECT_NAME:-<unset>}" "${TEST_TOOLS_IMAGE:-<unset>}" "$*"
+STUB
+  chmod +x "${_dir}/script/stop.sh"
+  # The one producer of the self-test project name, stubbed to print a
+  # value nothing else could derive: a recipe that hashed the path itself
+  # would print something else and the assertion would name it.
+  cat > "${_dir}/script/test/test.sh" <<'STUB'
+#!/usr/bin/env bash
+case "${1:-}" in
+  --compose-project-name) printf 'base-onlyproducer\n' ;;
+  --test-tools-image) printf 'test-tools:onlyproducer\n' ;;
+  *) printf 'test.sh stub: unexpected %s\n' "$*" >&2; exit 9 ;;
+esac
+STUB
+  chmod +x "${_dir}/script/test/test.sh"
+}
+
+# why: the verb the issue asked for. Run for real, because a recipe is a seam and
+# a grep cannot tell a working seam from a broken one.
+@test "just test stop ends this checkout's self-test project" {
+  command -v just >/dev/null 2>&1 \
+    || skip "this test-tools image has no just (older pinned TEST_TOOLS_IMAGE)"
+  local _tmp
+  _tmp="$(mktemp -d)"
+  _just_test_sandbox "${_tmp}"
+  run just --justfile "${_tmp}/justfile" --working-directory "${_tmp}" test stop
+  local _s="${status}" _o="${output}"
+  rm -rf "${_tmp}"
+  status="${_s}"; output="${_o}"
+  assert_success
+  assert_output --partial "project=base-onlyproducer"
+}
+
+# why: two derivations that agree today drift tomorrow, and a stop pointed at the
+# wrong project silently tears down nothing.
+@test "just test stop asks the single producer for the name instead of deriving a second" {
+  command -v just >/dev/null 2>&1 \
+    || skip "this test-tools image has no just (older pinned TEST_TOOLS_IMAGE)"
+  local _tmp
+  _tmp="$(mktemp -d)"
+  _just_test_sandbox "${_tmp}"
+  run just --justfile "${_tmp}/justfile" --working-directory "${_tmp}" test stop
+  local _s="${status}" _o="${output}"
+  rm -rf "${_tmp}"
+  status="${_s}"; output="${_o}"
+  assert_success
+  # `base-<12 hex>` is what the real derivation prints. Seeing it here
+  # would mean the recipe hashed the sandbox path itself.
+  refute_output --regexp 'project=base-[0-9a-f]{12}( |$)'
+}
+
+# why: -v and --dry-run are how an operator inspects a teardown before trusting
+# it; a recipe that swallowed them would make the verb unusable for that.
+@test "just test stop forwards its arguments to the wrapper" {
+  command -v just >/dev/null 2>&1 \
+    || skip "this test-tools image has no just (older pinned TEST_TOOLS_IMAGE)"
+  local _tmp
+  _tmp="$(mktemp -d)"
+  _just_test_sandbox "${_tmp}"
+  run just --justfile "${_tmp}/justfile" --working-directory "${_tmp}" test stop -v --dry-run
+  local _s="${status}" _o="${output}"
+  rm -rf "${_tmp}"
+  status="${_s}"; output="${_o}"
+  assert_success
+  assert_output --partial "args=-v --dry-run"
+}
+
+# why: compose interpolates the whole file for `down` too, so a stop missing one
+# `${VAR:?}` dies naming four services and tears nothing down. --dry-run
+# cannot see it, which is how it shipped once.
+@test "just test stop hands compose every value compose.yaml demands" {
+  # compose interpolates the WHOLE file for any command, `down` included,
+  # and base's compose.yaml takes TEST_TOOLS_IMAGE with `:?` and no
+  # default on four services. A stop that supplies only the project name
+  # never reaches the teardown: compose refuses to read the file and the
+  # recipe dies naming four services, which is the failure this verb
+  # exists to end rather than reproduce. `--dry-run` cannot see it -- it
+  # never calls compose -- so the assertion is on what the recipe hands
+  # the wrapper.
+  command -v just >/dev/null 2>&1 \
+    || skip "this test-tools image has no just (older pinned TEST_TOOLS_IMAGE)"
+  local _tmp
+  _tmp="$(mktemp -d)"
+  _just_test_sandbox "${_tmp}"
+  run just --justfile "${_tmp}/justfile" --working-directory "${_tmp}" test stop
+  local _s="${status}" _o="${output}"
+  rm -rf "${_tmp}"
+  status="${_s}"; output="${_o}"
+  assert_success
+  assert_output --partial "image=test-tools:onlyproducer"
+}
+
+# ── the per-checkout build image records its provenance too ───────────────
+#
+# `just test smoke` is the one verb whose product is an IMAGE rather than a
+# container: compose tags the harness build `<project>-smoke`, one per
+# checkout. Nothing reclaimed it -- not the orphan sweep, which removes
+# networks, and not the tooling-tag retention, which matches
+# `test-tools:<12hex>` by name. Stamping the same label the network carries
+# is what lets the same sweep collect it on the same proof.
+
+# why: the producer side of the image rule: a collector can only read back what
+# something recorded, so an unstamped image is uncollectable forever.
+@test "compose.yaml records the checkout path on the image it builds" {
+  run grep -nE '^ +base\.checkout\.path: ' "${COMPOSE}"
+  assert_success
+  # Two stamps now, not one: the network compose creates and the image the
+  # smoke harness builds.
+  run grep -cE '^ +base\.checkout\.path: ' "${COMPOSE}"
+  assert_output "2"
+}
+
+# why: a default would create artifacts nobody can attribute, and the failure has
+# to land on the invocation that would create them.
+@test "the image stamp is refused rather than defaulted, like every other" {
+  run bash -c "grep -A4 -E '^ {6}labels:' '${COMPOSE}' | grep -E 'base\.checkout\.path: \\\$\\{BASE_CHECKOUT_PATH:\\?'"
+  assert_success
+}
+
+# why: one image serves every checkout whose inputs hash alike, so a checkout
+# label there would name its builder and collecting on it would delete an
+# image live checkouts still resolve.
+@test "the tooling image is NOT stamped, because it is shared on purpose" {
+  # test-tools is content-hash tagged so ONE image serves every checkout
+  # whose tooling inputs hash alike. A checkout-path label there would name
+  # whichever invocation happened to build it, and collecting on that would
+  # delete an image live checkouts still resolve.
+  run bash -c "sed -n '/^  test-tools:/,/^  [a-z]/p' '${COMPOSE}' | grep -F 'base.checkout.path'"
+  assert_failure
+}
+
+# ── the rule outlives this instance ───────────────────────────────────────
+#
+# Everything above this line is a hand-kept list: it names build, run and
+# exec as the verbs that deliberately do not reclaim, and it names stop,
+# test, system and smoke as the ones that do. A hand-kept list answers for
+# the recipes that existed when it was written and for no others, which is
+# the exact failure the whole issue is about -- `just docker prune` existed
+# and collected the right things, and was never invoked.
+#
+# So the population below is DERIVED. Every justfile base owns is parsed,
+# every recipe whose body reaches docker is found, and each one must either
+# carry a reclaim or carry a `# lifecycle:` line in its doc comment saying
+# why not. A new recipe that drives docker fails this test until its author
+# has written that sentence -- which is the whole mechanism: not a rule
+# someone has to remember, but a question they cannot avoid being asked.
+#
+# WHY MECHANICAL AND NOT A WRITTEN CONVENTION ALONE. Both, in fact -- the
+# sentence the lint demands lands in the justfile, next to the recipe,
+# which is where the next author reads it. What a written convention alone
+# could not do is notice the recipe that skipped it; this repo already had
+# the convention (ADR-00000005: `just` is the control surface) and 468
+# orphaned networks.
+#
+# WHY A SPEC AND NOT A LINT DRIVER. A `--<tool>-only` primitive costs a
+# driver, a flag, a CI job (self_test_yaml_spec requires one per lint
+# tool), a README row and a doc/test row -- for a rule whose entire subject
+# is a handful of files already inside this suite's reach. The suite is the
+# gate; a second gate for the same population would be a second thing to
+# keep in sync.
+
+# The justfiles base owns. -type f drops the consumer-shaped symlinks
+# (script/docker/justfile.docker -> dist/...) so each file is read once,
+# and .prev-release/ holds published tarballs of OLDER releases, which are
+# not this tree's to hold to this tree's rules.
+_owned_justfiles() {
+  find /source -type f \
+    \( -name 'justfile' -o -name 'justfile.*' \) \
+    -not -path '*/.prev-release/*' | sort
+}
+
+# _recipe_names <justfile> -- every recipe header's name. A line carrying
+# `:=` is an assignment (`set working-directory :=`, `export HOST_UID :=`,
+# `alias h := help`), not a recipe.
+_recipe_names() {
+  awk '
+    /^[[:space:]]/ { next }
+    /^#/ { next }
+    /:=/ { next }
+    /^[a-z][a-zA-Z0-9_-]*([ ][^:]*)?:/ {
+      split($0, _a, /[ :]/); print _a[1]
+    }
+  ' "${1}"
+}
+
+# _recipe_part <justfile> <name> <doc|body>
+#
+# The recipe's doc comment block, or its body. They are read apart on
+# purpose: what a recipe DOES is its body, and a doc comment that mentions
+# `just docker build` while the recipe lists verbs is not a recipe that
+# drives docker. The `# lifecycle:` note, conversely, lives in the doc.
+_recipe_part() {
+  awk -v want="${2}" -v part="${3}" '
+    /^[[:space:]]*$/ { inbody = 0; doc = ""; next }
+    /^#/ { doc = doc $0 "\n"; next }
+    /^[[:space:]]/ { if (inbody && part == "body") print; next }
+    {
+      inbody = 0
+      if ($0 ~ /:=/) { doc = ""; next }
+      if ($0 ~ /^[a-z][a-zA-Z0-9_-]*([ ][^:]*)?:/) {
+        split($0, _a, /[ :]/)
+        if (_a[1] == want) {
+          if (part == "doc") { printf "%s", doc } else { print }
+          inbody = 1
+        }
+      }
+      doc = ""
+    }
+  ' "${1}"
+}
+
+# _reaches_docker <justfile> <name> -- whether the recipe BODY drives
+# compose itself, forwards to a wrapper that does, or hands the work to the
+# self-test runner that does.
+_reaches_docker() {
+  _recipe_part "${1}" "${2}" body \
+    | grep -qE 'docker compose|\./script/(build|run|exec|stop|prune)\.sh|just docker |\./script/test/test\.sh'
+}
+
+# _answers_for_it <justfile> <name> -- whether the recipe reclaims in its
+# body, or says in its doc comment why the verb it is does not.
+_answers_for_it() {
+  _recipe_part "${1}" "${2}" body \
+    | grep -qE -- '--orphan-projects|--reclaim|_reclaim|\./script/(stop|prune)\.sh' && return 0
+  _recipe_part "${1}" "${2}" doc | grep -qE '^# lifecycle:'
+}
+
+# why: the anti-decay mechanism. Every other assertion in this file names verbs
+# by hand and so answers only for the recipes that existed when it was
+# written -- which is the failure the issue is about.
+@test "every recipe that reaches docker states its lifecycle" {
+  local _f _name _missing=""
+  while IFS= read -r _f; do
+    [[ -n "${_f}" ]] || continue
+    while IFS= read -r _name; do
+      [[ -n "${_name}" ]] || continue
+      _reaches_docker "${_f}" "${_name}" || continue
+      _answers_for_it "${_f}" "${_name}" && continue
+      _missing+="${_f}:${_name} "
+    done < <(_recipe_names "${_f}")
+  done < <(_owned_justfiles)
+  [[ -z "${_missing}" ]] \
+    || fail "these recipes reach docker and neither reclaim nor carry a '# lifecycle:' note saying why not: ${_missing}"
+}
+
+# why: a parser that quietly matched nothing would make the check above pass for
+# every tree, which is how a derived population fails.
+@test "the derived population is not empty, and reaches both namespaces" {
+  # A parser that silently matched nothing would make the test above pass
+  # for every tree, which is the failure mode of every derived population.
+  local _n=0 _f _name
+  local _saw_docker=0 _saw_test=0
+  while IFS= read -r _f; do
+    while IFS= read -r _name; do
+      [[ -n "${_name}" ]] || continue
+      _reaches_docker "${_f}" "${_name}" || continue
+      _n=$(( _n + 1 ))
+      [[ "${_f}" == *justfile.docker ]] && _saw_docker=1
+      [[ "${_f}" == *justfile.test ]] && _saw_test=1
+    done < <(_recipe_names "${_f}")
+  done < <(_owned_justfiles)
+  (( _n >= 10 )) || fail "the recipe parser found only ${_n} docker-reaching recipes; it has stopped parsing"
+  (( _saw_docker == 1 )) || fail "no docker-namespace recipe was found"
+  (( _saw_test == 1 )) || fail "no test-namespace recipe was found"
 }

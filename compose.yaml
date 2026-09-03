@@ -56,10 +56,26 @@ services:
   # `FROM ${TEST_TOOLS_IMAGE}`) with no default, for the same reason the
   # image references above carry none: `just` is the entry point and the
   # script behind it resolves the tag.
+  # The `labels:` block is the same provenance the network below carries,
+  # on the one artifact of this file that is an IMAGE rather than a
+  # container. `<project>-smoke` is minted per checkout (the project name
+  # is a hash of the checkout's path), it is the product of a build whose
+  # whole result is pass or fail, and nothing consumes it afterwards -- so
+  # it is litter the moment its checkout is gone, and 275MB of it was
+  # measured on the development host with no verb that could reclaim it.
+  #
+  # This is NOT the argument the tooling image refuses. test-tools is
+  # content-hash tagged so ONE image serves every checkout whose inputs
+  # hash alike, which is why a label there would name its builder rather
+  # than its users and collecting on it would delete an image live
+  # checkouts still resolve. Here the tag itself is derived from one
+  # checkout, so the label names the only checkout that can ask for it.
   smoke:
     build:
       context: .
       dockerfile: dockerfile/Dockerfile.smoke
+      labels:
+        base.checkout.path: ${BASE_CHECKOUT_PATH:?set by 'just' / 'just test smoke' -- run one of those instead of driving docker compose directly}
       args:
         TEST_TOOLS_IMAGE: ${TEST_TOOLS_IMAGE:?set by 'just test smoke' -- run that instead of driving docker compose directly}
 
