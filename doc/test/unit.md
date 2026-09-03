@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3463 tests**.
+Unit specs under `test/bats/unit/`: **3477 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -4197,7 +4197,7 @@ rather than an assurance.
 | `watch: --drift-tsv emits no machine answer when the table is unreadable` | The workflow builds its bump matrix from this stdout; an empty list with status 0 is the silent clean week. |
 | `watch: --drift-tsv puts the drifted pins on stdout, the report on stderr` | One invocation serves both the machine and the human: two walks of the upstream APIs can disagree. |
 | `watch: an unknown option is a usage error, distinct from both` | Exit 2 cannot be mistaken for "drifted" or for "could not resolve". |
-### test/bats/unit/generated_workflow_actions_lint_spec.bats (21)
+### test/bats/unit/generated_workflow_actions_lint_spec.bats (35)
 
 | Test | Description |
 |------|-------------|
@@ -4205,7 +4205,8 @@ rather than an assurance.
 | `generated-workflow-actions: names the generated ref's file and line (#950)` | A bump proposal is actionable only if it says which line to edit |
 | `generated-workflow-actions: passes when the two copies agree (#950)` | Lockstep is the whole assertion; the lint owns no opinion on which version is right |
 | `generated-workflow-actions: a ref ahead of this repo's own fails too (#950)` | Direction-agnostic: a hand-edit past the workflows is the same defect, other sign |
-| `generated-workflow-actions: ignores an interpolated ref (#950)` | This repo calling its OWN reusable workflow -- no literal to compare, upgrade.sh rewrites it |
+| `generated-workflow-actions: ignores a call to a reusable workflow this repo ships (#950)` | - |
+| `generated-workflow-actions: a reusable workflow this repo does NOT ship is not excluded (#950)` | - |
 | `generated-workflow-actions: ignores a uses: ref inside a shell comment (#950)` | Prose quoting a step is not a step; a lint that fails on its own docs gets muted |
 | `generated-workflow-actions: a double-quoted generated ref is compared, not skipped (#950)` | - |
 | `generated-workflow-actions: a single-quoted generated ref is compared, not skipped (#950)` | - |
@@ -4218,6 +4219,19 @@ rather than an assurance.
 | `generated-workflow-actions: a docker:// container action is skipped by name (#950)` | - |
 | `generated-workflow-actions: a quoted ref in this repo's own workflow is read too (#950)` | - |
 | `generated-workflow-actions: ignores a generator under .prev-release/ (#950)` | A shipped release cannot be re-pinned, so scanning it fails a lint no edit can satisfy |
+| `generated-workflow-actions: resolves a same-file readonly literal and compares it (#950)` | - |
+| `generated-workflow-actions: a resolved ref that agrees enters the population (#950)` | - |
+| `generated-workflow-actions: resolves a plain single-quoted assignment, not only readonly (#950)` | - |
+| `generated-workflow-actions: resolves an unbraced $NAME reference (#950)` | - |
+| `generated-workflow-actions: resolves the ref half alone (#950)` | - |
+| `generated-workflow-actions: a resolved ref to an action this repo never uses still fails (#950)` | - |
+| `generated-workflow-actions: a variable assigned twice is a finding, not an exclusion (#950)` | - |
+| `generated-workflow-actions: a variable assigned from a command substitution is a finding (#950)` | - |
+| `generated-workflow-actions: a variable assigned from another variable is a finding (#950)` | - |
+| `generated-workflow-actions: a double-quoted assignment with an interpolation is a finding (#950)` | - |
+| `generated-workflow-actions: a variable the file never assigns is a finding (#950)` | - |
+| `generated-workflow-actions: resolution is same-file only (#950)` | - |
+| `generated-workflow-actions: an appended variable is a finding (#950)` | - |
 | `generated-workflow-actions: fails when this repo pins the action at two refs (#950)` | No answer to which ref the generated copy should carry, so it says so rather than guessing |
 | `generated-workflow-actions: fails when this repo never uses the generated action (#950)` | No dependabot PR for the generated ref to inherit -- the bare form of the defect |
 | `generated-workflow-actions: refuses a tree it found no generated ref in (#950)` | A renamed generator or a dead matcher must not read as lockstep |

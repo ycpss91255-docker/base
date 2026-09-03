@@ -102,6 +102,49 @@ _write_generator() {
   } > "${SCRATCH}/dist/init.sh"
 }
 
+# _write_generator_var <decl>... -- <uses line>... -- a generator that
+# hoists its ref into a shell variable ABOVE an INTERPOLATING heredoc,
+# which is the shape init.sh uses for the base-version-monitor workflow:
+# the `uses:` line needs a declaration site of its own for a `tool-pin:`
+# marker to attach to, so the ref moves one indirection away from the
+# heredoc. The heredoc is unquoted here (`<<YAML`, not `<<'YAML'`)
+# because that is what makes the variable expand into the generated file.
+_write_generator_var() {
+  local -a _decls=() _uses=()
+  local _seen_sep=0 _a
+  for _a in "$@"; do
+    if [[ "${_a}" == '--' && "${_seen_sep}" -eq 0 ]]; then
+      _seen_sep=1
+      continue
+    fi
+    if [[ "${_seen_sep}" -eq 0 ]]; then
+      _decls+=("${_a}")
+    else
+      _uses+=("${_a}")
+    fi
+  done
+  {
+    printf '#!/usr/bin/env bash\n'
+    [[ ${#_decls[@]} -gt 0 ]] && printf '%s\n' "${_decls[@]}"
+    printf '_gen() {\n'
+    printf '  cat > "${_wf}" <<YAML\n'
+    printf 'jobs:\n'
+    printf '  check:\n'
+    printf '    steps:\n'
+    [[ ${#_uses[@]} -gt 0 ]] && printf '%s\n' "${_uses[@]}"
+    printf 'YAML\n'
+    printf '}\n'
+  } > "${SCRATCH}/dist/init.sh"
+}
+
+# _write_own_reusable_workflow <basename> -- a worker workflow this repo
+# ships itself, so a generated call to it is a call home rather than a
+# marketplace action.
+_write_own_reusable_workflow() {
+  printf 'name: Worker\non: workflow_call\njobs:\n  w:\n    runs-on: ubuntu-latest\n' \
+    > "${SCRATCH}/.github/workflows/${1}"
+}
+
 # ── The drift the lint exists to catch ──────────────────────────────────
 
 @test "generated-workflow-actions: fails when a generated ref is behind this repo's own (#950)" {
@@ -152,19 +195,40 @@ _write_generator() {
 
 # ── What is deliberately not a generated pin ────────────────────────────
 
-@test "generated-workflow-actions: ignores an interpolated ref (#950)" {
-  # `uses: ${SLUG}/.github/workflows/w.yaml@${ref}` is this repo calling
-  # its OWN reusable workflow at the pinned subtree version. Both halves
-  # are shell variables, there is no literal to compare, and upgrade.sh
-  # already rewrites that ref on every subtree upgrade.
+@test "generated-workflow-actions: ignores a call to a reusable workflow this repo ships (#950)" {
+  # `${SLUG}/.github/workflows/build-worker.yaml@${ref}` is this repo
+  # calling its OWN worker at the pinned subtree version. The exclusion is
+  # keyed on the callee being a workflow FILE this repo ships, not on the
+  # ref being interpolated: upgrade.sh rewrites `build-worker.yaml@vX.Y.Z`
+  # in every downstream main.yaml on every upgrade, so that ref has an
+  # owner. It is also not a marketplace action, so `.github/workflows/`
+  # holds no ref for it to be in lockstep with -- this repo calls the same
+  # worker locally, as `./`.
   _load_driver
   _write_workflow 'actions/checkout@v8'
+  _write_own_reusable_workflow 'build-worker.yaml'
   _write_generator \
     '      - uses: ${BASE_UPSTREAM_SLUG}/.github/workflows/build-worker.yaml@${ref}' \
     '      - uses: actions/checkout@v8'
 
   run _run_generated_workflow_actions
   [ "${status}" -eq 0 ]
+}
+
+@test "generated-workflow-actions: a reusable workflow this repo does NOT ship is not excluded (#950)" {
+  # The exclusion above is derived from the tree -- the callee has to be a
+  # workflow this repo actually ships. A call to somebody else's reusable
+  # workflow has no upgrade.sh rewrite behind it, so it stays in the
+  # population and is refused when nothing can read it.
+  _load_driver
+  _write_workflow 'actions/checkout@v8'
+  _write_generator \
+    '      - uses: ${OTHER_SLUG}/.github/workflows/not-ours.yaml@${ref}' \
+    '      - uses: actions/checkout@v8'
+
+  run _run_generated_workflow_actions
+  [ "${status}" -ne 0 ]
+  assert_output --partial 'not-ours.yaml'
 }
 
 @test "generated-workflow-actions: ignores a uses: ref inside a shell comment (#950)" {
@@ -355,6 +419,207 @@ _write_generator() {
   run _run_generated_workflow_actions
   [ "${status}" -eq 0 ]
   assert_output --partial '1 generated ref'
+}
+
+# ── A ref one static indirection away ───────────────────────────────────
+#
+# "Interpolated from a shell variable" is not the same property as "cannot
+# be known". A generator that hoists its ref into `readonly NAME='lit'`
+# thirty lines above the heredoc -- which is what init.sh does, so the
+# `uses:` line has a declaration site a `tool-pin:` marker can sit on --
+# writes exactly the same ref into the generated workflow as if it had been
+# spelled inline. Excluding it removes a ref from the population instead of
+# checking it, which is the fail-open direction: the one ref this lint was
+# built for stops being covered by the edit that documents it.
+#
+# So the reader resolves what is genuinely static, and refuses the rest.
+
+@test "generated-workflow-actions: resolves a same-file readonly literal and compares it (#950)" {
+  _load_driver
+  _write_workflow 'actions/checkout@v8'
+  _write_generator_var \
+    "readonly _MONITOR_REF='actions/checkout@v7'" \
+    -- '      - uses: ${_MONITOR_REF}'
+
+  run _run_generated_workflow_actions
+  [ "${status}" -ne 0 ]
+  assert_output --partial 'actions/checkout'
+  assert_output --partial 'v7'
+  assert_output --partial 'v8'
+}
+
+@test "generated-workflow-actions: a resolved ref that agrees enters the population (#950)" {
+  # Not just "does not fail": the ref has to be COUNTED. A resolved ref
+  # that is silently dropped also passes, and the count is what separates
+  # the two.
+  _load_driver
+  _write_workflow 'actions/checkout@v8'
+  _write_generator_var \
+    "readonly _MONITOR_REF='actions/checkout@v8'" \
+    -- '      - uses: ${_MONITOR_REF}'
+
+  run _run_generated_workflow_actions
+  [ "${status}" -eq 0 ]
+  assert_output --partial '1 generated ref'
+}
+
+@test "generated-workflow-actions: resolves a plain single-quoted assignment, not only readonly (#950)" {
+  # `readonly` is a hardening detail of the declaration, not what makes the
+  # value static. One assignment of a single-quoted literal is.
+  _load_driver
+  _write_workflow 'actions/checkout@v8'
+  _write_generator_var \
+    "_MONITOR_REF='actions/checkout@v7'" \
+    -- '      - uses: ${_MONITOR_REF}'
+
+  run _run_generated_workflow_actions
+  [ "${status}" -ne 0 ]
+  assert_output --partial 'v7'
+}
+
+@test "generated-workflow-actions: resolves an unbraced \$NAME reference (#950)" {
+  _load_driver
+  _write_workflow 'actions/checkout@v8'
+  _write_generator_var \
+    "readonly _MONITOR_REF='actions/checkout@v7'" \
+    -- '      - uses: $_MONITOR_REF'
+
+  run _run_generated_workflow_actions
+  [ "${status}" -ne 0 ]
+  assert_output --partial 'v7'
+}
+
+@test "generated-workflow-actions: resolves the ref half alone (#950)" {
+  # The variable need not be the whole value. `actions/checkout@${V}` is
+  # the same static ref written differently.
+  _load_driver
+  _write_workflow 'actions/checkout@v8'
+  _write_generator_var \
+    "readonly _V='v7'" \
+    -- '      - uses: actions/checkout@${_V}'
+
+  run _run_generated_workflow_actions
+  [ "${status}" -ne 0 ]
+  assert_output --partial 'v7'
+}
+
+@test "generated-workflow-actions: a resolved ref to an action this repo never uses still fails (#950)" {
+  # Resolution feeds the ordinary comparison; it is not a bypass around it.
+  _load_driver
+  _write_workflow 'actions/checkout@v8'
+  _write_generator_var \
+    "readonly _MONITOR_REF='actions/setup-node@v3'" \
+    -- '      - uses: ${_MONITOR_REF}'
+
+  run _run_generated_workflow_actions
+  [ "${status}" -ne 0 ]
+  assert_output --partial 'never uses'
+  assert_output --partial 'actions/setup-node'
+}
+
+# ── Everything that is not genuinely static stays a FINDING ─────────────
+#
+# Each of these could be waved through as "interpolated, cannot know", and
+# each would take a real pin out of the population. The safe default on an
+# unrecognised shape is to refuse it, so it is reported with the raw value
+# and the reader decides.
+
+@test "generated-workflow-actions: a variable assigned twice is a finding, not an exclusion (#950)" {
+  _load_driver
+  _write_workflow 'actions/checkout@v8'
+  _write_generator_var \
+    "_MONITOR_REF='actions/checkout@v7'" \
+    "_MONITOR_REF='actions/checkout@v6'" \
+    -- '      - uses: ${_MONITOR_REF}'
+
+  run _run_generated_workflow_actions
+  [ "${status}" -ne 0 ]
+  assert_output --partial 'not a versioned action reference'
+  assert_output --partial '_MONITOR_REF'
+}
+
+@test "generated-workflow-actions: a variable assigned from a command substitution is a finding (#950)" {
+  _load_driver
+  _write_workflow 'actions/checkout@v8'
+  _write_generator_var \
+    '_MONITOR_REF="$(cat .checkout-ref)"' \
+    -- '      - uses: ${_MONITOR_REF}'
+
+  run _run_generated_workflow_actions
+  [ "${status}" -ne 0 ]
+  assert_output --partial 'not a versioned action reference'
+  assert_output --partial '_MONITOR_REF'
+}
+
+@test "generated-workflow-actions: a variable assigned from another variable is a finding (#950)" {
+  # `_A='actions/checkout@v7'` is static; `_B="${_A}"` is a second hop the
+  # reader does not follow. Following one hop and refusing the next is the
+  # line, and it is drawn where the value stops being visible in one place.
+  _load_driver
+  _write_workflow 'actions/checkout@v8'
+  _write_generator_var \
+    "_A='actions/checkout@v7'" \
+    '_MONITOR_REF="${_A}"' \
+    -- '      - uses: ${_MONITOR_REF}'
+
+  run _run_generated_workflow_actions
+  [ "${status}" -ne 0 ]
+  assert_output --partial 'not a versioned action reference'
+}
+
+@test "generated-workflow-actions: a double-quoted assignment with an interpolation is a finding (#950)" {
+  _load_driver
+  _write_workflow 'actions/checkout@v8'
+  _write_generator_var \
+    '_MONITOR_REF="actions/checkout@${CHECKOUT_MAJOR}"' \
+    -- '      - uses: ${_MONITOR_REF}'
+
+  run _run_generated_workflow_actions
+  [ "${status}" -ne 0 ]
+  assert_output --partial 'not a versioned action reference'
+}
+
+@test "generated-workflow-actions: a variable the file never assigns is a finding (#950)" {
+  _load_driver
+  _write_workflow 'actions/checkout@v8'
+  _write_generator_var -- '      - uses: ${_MONITOR_REF}'
+
+  run _run_generated_workflow_actions
+  [ "${status}" -ne 0 ]
+  assert_output --partial 'not a versioned action reference'
+  assert_output --partial '_MONITOR_REF'
+}
+
+@test "generated-workflow-actions: resolution is same-file only (#950)" {
+  # A value assigned in ANOTHER file is not visible at the use site. The
+  # reader would have to guess which of the tree's scripts is in scope at
+  # generation time, and guessing wrong is how a lint reports a ref it
+  # never actually read.
+  _load_driver
+  _write_workflow 'actions/checkout@v8'
+  printf "#!/usr/bin/env bash\nreadonly _MONITOR_REF='actions/checkout@v7'\n" \
+    > "${SCRATCH}/dist/upstream.sh"
+  _write_generator_var -- '      - uses: ${_MONITOR_REF}'
+
+  run _run_generated_workflow_actions
+  [ "${status}" -ne 0 ]
+  assert_output --partial 'not a versioned action reference'
+}
+
+@test "generated-workflow-actions: an appended variable is a finding (#950)" {
+  # `NAME+=` builds a value rather than declaring one, and reading only the
+  # `NAME=` line would resolve to a prefix of what the generator writes --
+  # a ref this lint never saw, compared as though it had.
+  _load_driver
+  _write_workflow 'actions/checkout@v8'
+  _write_generator_var \
+    "_MONITOR_REF='actions/checkout'" \
+    "_MONITOR_REF+='@v7'" \
+    -- '      - uses: ${_MONITOR_REF}'
+
+  run _run_generated_workflow_actions
+  [ "${status}" -ne 0 ]
+  assert_output --partial 'not a versioned action reference'
 }
 
 # ── The cases where there is no single ref to follow ────────────────────
