@@ -80,12 +80,12 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   indirection instead of dropping it (refs #950)** -- the lint excluded any
   `uses:` value carrying a `$`, so hoisting init.sh's `actions/checkout` ref
   into a `readonly` literal emptied its population and it refused. A variable
-  is now resolved where the same file assigns it exactly once as a
-  single-quoted literal; assigned twice, appended, double-quoted, from a
-  command substitution or another variable, or declared elsewhere, it is a
+  is now resolved where the same file assigns it exactly once, above the use
+  and at file scope, as a single-quoted literal; every other shape is a
   FINDING with its raw value, never an exclusion. The blanket interpolation
   exclusion is replaced by a narrower one read off the tree: a call to a
-  reusable workflow this repo ships.
+  reusable workflow this repo ships, whose `<owner>/<repo>` half is this
+  repo's own slug.
 
 ### Added
 - **`init.sh --list-installed-paths`: the installer now states which files it puts into a consumer (refs #927)** -- `.base` files reach a repo only through an upgrade's resync, so "which release is this repo on" was answerable while "did that release's files actually arrive" was not; the base-version monitor sat at zero adoption, unreported, for months. The manifest is read from init.sh instead of copied, and an integration spec diffs it against a real resync in both directions -- which immediately caught `.setup.conf` missing from the first draft. Affects anyone auditing `.base` delivery across repos.
