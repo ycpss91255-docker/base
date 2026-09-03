@@ -674,12 +674,13 @@ _write_generator_raw() {
   assert_output --partial 'actions/setup-node'
 }
 
-@test "generated-workflow-actions: a declaration in ANOTHER file resolves (#987)" {
-  # The registry is tree-wide, and so is this: the record names the file
-  # and line, so there is no "which file is in scope here" left to guess.
-  # A generator that sources its constants from a sibling -- which is what
-  # init.sh does for the upstream slug -- gets its ref checked rather than
-  # dropped.
+@test "generated-workflow-actions: a declaration in ANOTHER file does not resolve (#987)" {
+  # The record names a FILE and a line, and resolution uses both. A marker
+  # in dist/constants.sh says what THAT file's `_MONITOR_REF` holds; it
+  # says nothing about a `${_MONITOR_REF}` written in dist/init.sh, which
+  # is a different variable that happens to be spelled the same. Matching
+  # on the name alone throws away the half of the record that makes the
+  # lookup better than the scanner it replaced.
   _load_driver
   _write_workflow 'actions/checkout@v8'
   printf '%s\n' \
@@ -691,8 +692,39 @@ _write_generator_raw() {
 
   run _run_generated_workflow_actions
   [ "${status}" -ne 0 ]
-  assert_output --partial 'v7'
-  assert_output --partial 'v8'
+  assert_output --partial 'not a versioned action reference'
+  assert_output --partial '_MONITOR_REF'
+}
+
+@test "generated-workflow-actions: a marked name elsewhere does not vouch for a runtime value here (#987)" {
+  # What name-keyed resolution costs, in the shape it actually arrives in.
+  # dist/init.sh computes its own `_MONITOR_REF` at run time and carries
+  # no marker -- `$(...)` is neither a version nor an action ref, so
+  # nothing else asks it for one. Keyed on the name, the marked constant
+  # in the sibling file answers for it and the lint reports lockstep over
+  # a value this generator may never write. The competing assignment is
+  # invisible to the ambiguity test, which only ever sees MARKED sites.
+  _load_driver
+  _write_workflow 'actions/checkout@v8'
+  printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    '# tool-pin: unpinned monitor-checkout -- a major ref on purpose' \
+    "readonly _MONITOR_REF='actions/checkout@v8'" \
+    > "${SCRATCH}/dist/constants.sh"
+  _write_generator_raw \
+    '#!/usr/bin/env bash' \
+    '_gen() {' \
+    '  local _MONITOR_REF' \
+    '  _MONITOR_REF="$(_pick_checkout_ref)"' \
+    '  cat > "${_wf}" <<YAML' \
+    '      - uses: ${_MONITOR_REF}' \
+    'YAML' \
+    '}'
+
+  run _run_generated_workflow_actions
+  [ "${status}" -ne 0 ]
+  assert_output --partial 'not a versioned action reference'
+  assert_output --partial '_MONITOR_REF'
 }
 
 # ── The trade, made checkable ───────────────────────────────────────────
@@ -977,6 +1009,104 @@ _write_generator_raw() {
     '#!/usr/bin/env bash' \
     "readonly _MONITOR_REF='actions/checkout@v8'" \
     '_gen() {' \
+    "  cat > \"\${_wf}\" <<'YAML'" \
+    '      - uses: ${_MONITOR_REF}' \
+    'YAML' \
+    '}'
+
+  run _run_generated_workflow_actions
+  [ "${status}" -ne 0 ]
+  assert_output --partial '_MONITOR_REF'
+}
+
+@test "generated-workflow-actions: a backslash-quoted heredoc delimiter expands nothing (#987)" {
+  # `<<\YAML` is the third spelling of a quoted delimiter and bash treats
+  # it exactly like `<<'YAML'`: the body is written out verbatim. A reader
+  # that only knows `'D'` and `"D"` does not recognise the opener at all,
+  # walks the body as ordinary lines, and resolves a `${_MONITOR_REF}` the
+  # generator writes as those characters. The declaration AGREES with the
+  # workflows here, so nothing else would notice.
+  _load_driver
+  _write_workflow 'actions/checkout@v8'
+  _write_generator_raw \
+    '#!/usr/bin/env bash' \
+    '# tool-pin: unpinned monitor-checkout -- a major ref on purpose' \
+    "readonly _MONITOR_REF='actions/checkout@v8'" \
+    '_gen() {' \
+    '  cat > "${_wf}" <<\YAML' \
+    '      - uses: ${_MONITOR_REF}' \
+    'YAML' \
+    '}'
+
+  run _run_generated_workflow_actions
+  [ "${status}" -ne 0 ]
+  assert_output --partial '_MONITOR_REF'
+}
+
+@test "generated-workflow-actions: an indented terminator does not close a quoted heredoc (#987)" {
+  # Without `<<-`, bash ends a heredoc only on a line that is the
+  # delimiter and nothing else, at column 0. An INDENTED `YAML` is body
+  # text -- and it is ordinary body text here, because the generated YAML
+  # has a key of its own spelled that way. A close test that tolerates
+  # leading space ends the heredoc early, so every line after it is
+  # modelled as outside a heredoc that bash has not left.
+  _load_driver
+  _write_workflow 'actions/checkout@v8'
+  _write_generator_raw \
+    '#!/usr/bin/env bash' \
+    '# tool-pin: unpinned monitor-checkout -- a major ref on purpose' \
+    "readonly _MONITOR_REF='actions/checkout@v8'" \
+    '_gen() {' \
+    "  cat > \"\${_wf}\" <<'YAML'" \
+    'on:' \
+    '  YAML' \
+    '      - uses: ${_MONITOR_REF}' \
+    'YAML' \
+    '}'
+
+  run _run_generated_workflow_actions
+  [ "${status}" -ne 0 ]
+  assert_output --partial '_MONITOR_REF'
+}
+
+@test "generated-workflow-actions: a heredoc operator the reader cannot name refuses the file (#987)" {
+  # The class the four deleted heuristics belonged to: a spelling the
+  # model does not cover is walked as though it were not there. A
+  # delimiter held in a variable is one bash reads and this reader cannot,
+  # so the safe answer is that it cannot say this line expands -- not that
+  # it does.
+  _load_driver
+  _write_workflow 'actions/checkout@v8'
+  _write_generator_raw \
+    '#!/usr/bin/env bash' \
+    '# tool-pin: unpinned monitor-checkout -- a major ref on purpose' \
+    "readonly _MONITOR_REF='actions/checkout@v8'" \
+    '_gen() {' \
+    '  cat > "${_wf}" <<"${_D}"' \
+    '      - uses: ${_MONITOR_REF}' \
+    '${_D}' \
+    '}'
+
+  run _run_generated_workflow_actions
+  [ "${status}" -ne 0 ]
+  assert_output --partial '_MONITOR_REF'
+}
+
+@test "generated-workflow-actions: a heredoc still open at end of file refuses the file (#987)" {
+  # An opener the reader read where bash reads none -- a `<<` inside a
+  # quoted string, say -- swallows the rest of the file into a body that
+  # never terminates, and an UNQUOTED body is modelled as expanding. So
+  # the real `<<'YAML'` below is never seen, and the ref inside it resolves.
+  # A delimiter still open at EOF is proof the model is wrong about this
+  # file, so no use in it resolves.
+  _load_driver
+  _write_workflow 'actions/checkout@v8'
+  _write_generator_raw \
+    '#!/usr/bin/env bash' \
+    '# tool-pin: unpinned monitor-checkout -- a major ref on purpose' \
+    "readonly _MONITOR_REF='actions/checkout@v8'" \
+    '_gen() {' \
+    '  printf %s "usage: gen << NEVERCLOSED"' \
     "  cat > \"\${_wf}\" <<'YAML'" \
     '      - uses: ${_MONITOR_REF}' \
     'YAML' \
