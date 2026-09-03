@@ -5,8 +5,10 @@
 # it CONTAINS: a `> Serves:` back-pointer, the four required sections
 # (Context / Decision / Consequences / Alternatives), and a Status that is
 # exactly one of the three contract values -- each of them EXACTLY ONCE, at
-# column 0. That count is the whole contract, and it is what lets the driver
-# check an ADR without deciding which of its lines are code.
+# column 0. The count is what LOCATES every part, and it is what lets the
+# driver check an ADR without deciding which of its lines are code; the
+# three-value Status check is a second contract that runs on top of it, on
+# the one Status line the count proved unique.
 #
 # Every check has a failing fixture here -- a check nobody has watched fail
 # is a check nobody knows works. The detection runs against a controlled temp
@@ -283,10 +285,17 @@ _adr() {
   # The one shape a count cannot catch, pinned so it stays visible instead
   # of being a property nobody has watched. The illustration is the only
   # `## Decision` in the file, so the count is one and the file passes with
-  # no Decision section of its own. Closing it needs the driver to decide
-  # which lines are code -- the CommonMark parser it deliberately no longer
-  # carries, whose own holes passed well-formed ADRs twice. Stated as a
-  # known departure in the driver header, with its direction.
+  # no Decision section of its own. Nothing here is specific to a fence: a
+  # commented-out draft carrying the same line at column 0 passes the same
+  # way, because the count does not look at context.
+  #
+  # This assertion pins a WIDENING, which is why it asserts a PASS. This
+  # exact fixture was REFUSED by the fence parser this driver replaces, as
+  # was the nested-fence variant; only the over-indented-marker variant
+  # leaked through both. Closing it needs the driver to decide which lines
+  # are code -- the CommonMark parser it deliberately no longer carries,
+  # whose own holes passed well-formed ADRs twice. The trade is argued, with
+  # its direction and this cost, in the driver header.
   {
     echo "# A title"
     echo

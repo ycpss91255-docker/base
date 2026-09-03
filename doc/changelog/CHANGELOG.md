@@ -80,8 +80,8 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 ### Added
 - **`adr-structure`: an ADR must carry the parts an ADR is read for (refs
   #994)** -- `adr_numbering` guarded what an ADR file is called; nothing
-  guarded what is in it, and 21 of 27 ADRs conformed by convention, not by
-  property. The lint requires EXACTLY ONE of each, at column 0: a
+  guarded what is in it, and 20 of 27 ADRs met this contract by convention
+  alone. The lint requires EXACTLY ONE of each, at column 0: a
   `> Serves:` back-pointer, `## Context` / `## Decision` / `## Consequences`
   / `## Alternatives`, and a Status of exactly `Accepted`, `Rejected` or
   `Superseded by ADR-NNNNNNNN`; zero ADRs examined refuses. An illustrated

@@ -21,7 +21,10 @@ each required part -- `> Serves:`, `## Context`, `## Decision`,
 `## Consequences`, `## Alternatives`, `- **Status:**` -- at column 0, so an
 ADR that illustrates one of those lines indents the illustration out of
 column 0, and an amendment that restates a section or a status uses a `###`
-heading or a different key (`- **Amendment status:**`).
+heading or a different key (`- **Amendment status:**`). The rule is about
+column 0 and nothing else -- the lint does not know what a fence is -- so a
+parked or commented-out copy of one of those lines counts exactly like a
+live one and is indented too.
 
 ## Anomalies (resolved)
 

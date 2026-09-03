@@ -62,8 +62,11 @@
 # Every part above is found by COUNTING the lines that match it at column
 # 0, and the only passing count is one. That count replaces the question
 # this driver used to ask -- "is this heading inside a fenced code block?"
-# -- and it is the only way a part is located: the Status value check runs
-# on the single line the count found.
+# -- and it is the only thing that decides a part is present. The Status
+# VALUE check is a second contract layered on top of the count, not a
+# by-product of it: it runs only where the count came back one, and it
+# re-reads the file with the same pattern to fetch the value, because a
+# count returns a number and not a line.
 #
 # WHY COUNTING RATHER THAN PARSING. "Inside a fence" is a question only a
 # CommonMark parser can answer, and this driver carried a hand-written one.
@@ -74,9 +77,13 @@
 # OPENER instead of against column 0, so an opener indented one column
 # still accepted a closer at four, which CommonMark keeps as block content.
 # Both were reproduced against the shipped drivers before this rewrite. A
-# count has no comparable surface: one grep per part, one number, arrived
-# at the same way for every file. Three properties follow, and they are the
-# reason to prefer it:
+# count has no comparable surface: one counting grep per part, one number,
+# arrived at the same way for every file. (Status runs a second grep, the
+# same pattern again, to read the value back off the line the count has
+# already proved unique. It cannot disagree with the count -- same pattern,
+# same file, count of one -- but it is a second read and not the first
+# one's return value.) Three properties follow, and they are the reason to
+# prefer it:
 #
 #   - It needs no notion of "inside", so no markdown construct changes what
 #     it does. An illustrated heading is counted like any other line.
@@ -93,28 +100,53 @@
 # indents the illustration so it is not at column 0 -- inside a fenced block
 # the leading space is part of the sample text and costs nothing -- and an
 # amendment that restates a section or a status uses a `###` heading or a
-# different key. The amendment half is what the live tree already does:
-# ADR-00000008's amendment sections carry `### Context` / `### Decision`,
-# and their status is recorded as `- **Amendment status:**`. What the rule
-# cost the tree when it landed, measured: no ADR illustrates one of these
-# lines at column 0, so none needed the indent; ADR-00000008 needed the
-# amendment half, and two of its lines changed key.
+# different key. Half of the amendment rule codifies what the tree already
+# did and half of it does not, and the difference is worth stating exactly:
+# ADR-00000008's amendment sections ALREADY carried `### Context` /
+# `### Decision`, so the heading half writes down existing practice, but
+# `- **Amendment status:**` is a key this change INVENTED. It appeared
+# nowhere under doc/ beforehand; it was created here to give that file's two
+# free-text amendment Status lines a home that is not a second Status. What
+# the rule cost the tree when it landed, measured: no ADR illustrates one of
+# these lines at column 0 -- in a fence, in a comment or anywhere else; every
+# one of the 28 counts exactly one of every part -- so none needed the
+# indent. ADR-00000008 needed the amendment half, and two of its lines
+# changed key.
 #
 # WHAT THIS DOES NOT HANDLE. One fail-open, and two limits that were never
 # in scope:
 #
-#   - THE FAIL-OPEN: an ADR that OMITS a required part and illustrates that
-#     same line at column 0 reads as compliant, because the illustration is
-#     then the only occurrence and the count is one. Note what this means
-#     for the leak that prompted the rewrite -- an over-indented marker
-#     ending a fence early -- it is not closed here, it is reclassified: the
-#     file was always a file whose only Decision heading was illustrated,
-#     and that shape is now named and pinned by a spec rather than resting
-#     on a parser being right. Closing it means deciding which lines are
-#     code again. What bounds it: the author has to have dropped the part
-#     already, and an illustration showing more of the template than the
-#     dropped part makes every other line it shows a second occurrence, on
-#     which the file IS refused.
+#   - THE FAIL-OPEN. An ADR reads as compliant when it BOTH omits a required
+#     part AND carries that same line at column 0 somewhere that is not the
+#     record: a fenced illustration, a commented-out draft, any context at
+#     all, since the count does not look at context. DIRECTION: it PASSES a
+#     file that should FAIL. So a clean result from this lint is not a proof
+#     that every ADR examined carries its parts.
+#     The conjunction is the whole of the shape, and neither half leaks on
+#     its own: omit the part and show it nowhere, and the count is zero, a
+#     refusal; carry the part AND show it, and the count is two, also a
+#     refusal. Only the two together produce a count of one.
+#     It is WIDER than what it replaces, and saying so is the point of
+#     naming it. Three shapes in this class were run against both the
+#     shipped fence parser and this count. The parser REFUSED two of them --
+#     a `## Decision` illustrated in a plain ``` fence, and the same heading
+#     inside an outer ```` fence between two inner ``` markers (the round-one
+#     run-length hole) -- and both now PASS. The third
+#     (opener at indent 1, inner marker at indent 4) passed the parser too,
+#     so for that one shape this is a reclassification and not a regression:
+#     an unnamed parser bug becomes a named, spec-pinned one. For the other
+#     two it is a real loss of detection, accepted deliberately.
+#     Why accepted: closing it means deciding which lines are code again,
+#     which is the parser this rewrite exists to delete; that parser bought
+#     nothing on real input (no ADR in the tree carries any of the six
+#     markers at column 0 inside a fence at all); and it was hiding a REAL
+#     defect the count found -- ADR-00000008's three column-0 Status lines,
+#     two of them the free-text shape the three-value contract exists to
+#     reject, invisible only because `grep -m1` stopped at the first.
+#     What bounds it: the author has to have dropped the part already, and
+#     an illustration showing more of the template than the dropped part
+#     makes every other line it shows a second occurrence, on which the file
+#     IS refused.
 #   - ORDER, NESTING and BODY are not checked: a `## Decision` sitting under
 #     `## Alternatives`, or with nothing beneath it, passes. A scope limit,
 #     not a consequence of counting -- the fence rule did not check them
@@ -138,8 +170,10 @@
 
 # ── ADR-structure lint ───────────────────────────────────────────────────────
 
-# The three Status values that are the whole contract. Anchored at both
-# ends: a trailing parenthetical is precisely what this rejects.
+# The three values that are the whole of the Status-VALUE contract (the
+# exactly-once count above is the other half of what an ADR must satisfy).
+# Anchored at both ends: a trailing parenthetical is precisely what this
+# rejects.
 readonly _ADR_STATUS_RE='^(Accepted|Rejected|Superseded by ADR-[0-9]{8})$'
 
 # Well-formed ADR basename (mirrors adr_numbering.sh). A file that is not
