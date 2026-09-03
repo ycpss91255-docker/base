@@ -831,19 +831,33 @@ _rollup_loops() {
 # excluding <job> itself. This is what makes the tag path answerable: a
 # release gate inherits a dependency through the job it names, so the
 # comparable quantity is the closure and not the literal list.
+#
+# On a `needs:` entry naming a job the workflow does not declare, the
+# parser's `BUG:` line is PROPAGATED and the walk stops with a non-zero
+# status -- it is not queued as another job id. That entry is the
+# rename/typo drift this spec exists to catch, and a `BUG:` line walked
+# as an id yields a new, longer `BUG:` line every round, which the
+# seen-set can never dedupe: the walk would run forever and hang the
+# suite instead of failing it.
 _needs_closure() {
   local -a _queue=("${1}")
   local -A _seen=()
-  local _job _dep
+  local _job _dep _deps _status
   while [ "${#_queue[@]}" -gt 0 ]; do
     _job="${_queue[0]}"
     _queue=("${_queue[@]:1}")
     [[ -z "${_seen[${_job}]:-}" ]] || continue
     _seen["${_job}"]=1
+    _status=0
+    _deps="$(yaml_job_needs "${WF}" "${_job}")" || _status=$?
+    if [ "${_status}" -ne 0 ]; then
+      printf '%s\n' "${_deps}"
+      return 1
+    fi
     while IFS= read -r _dep; do
       [[ -n "${_dep}" ]] || continue
       _queue+=("${_dep}")
-    done < <(yaml_job_needs "${WF}" "${_job}")
+    done <<<"${_deps}"
   done
   unset '_seen[${1}]'
   [ "${#_seen[@]}" -gt 0 ] || return 0
@@ -940,7 +954,9 @@ _job_names() {
   local _merge _tag _status=0
   _merge="$(yaml_job_needs "${WF}" ci-rollup | sort)" || _status=$?
   [ "${_status}" -eq 0 ] || fail "${_merge}"
-  _tag="$(_needs_closure release)"
+  _status=0
+  _tag="$(_needs_closure release)" || _status=$?
+  [ "${_status}" -eq 0 ] || fail "${_tag}"
 
   # Non-vacuity: two empty sets are equal.
   grep -qxF -- 'coverage-gate' <<<"${_merge}" \
