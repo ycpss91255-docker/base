@@ -1570,6 +1570,7 @@ jobs:
 |-------|------|----------|---------|-------------|
 | `archive_name_prefix` | string | yes | - | Archive name prefix |
 | `extra_files` | string | no | `""` | Space-separated extra files |
+| `version` | string | no | `""` | Release version to cut (`vX.Y.Z`). Leave unset on the tag path -- the version is then read off the pushed tag. Pass it to call this worker directly from a non-tag run: an event created with the default `GITHUB_TOKEN` starts no workflow run, so a repo auto-releasing a merged change cannot get there by pushing a tag. A value that is not `vX.Y.Z[-suffix]` is refused, never released under |
 
 ### publish-worker.yaml inputs (opt-in, foundational image repos)
 

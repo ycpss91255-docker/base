@@ -8,6 +8,11 @@
 
 - **Date:** 2026-08-28
 - **Status:** Accepted
+- **Amended:** 2026-09-03 (ADR-00000030) -- sections 1 and 3 gain a
+  third actor. A Z may also be cut by a GATE, with no person and no
+  agent in the loop, in the one case a gate can decide: a downstream
+  repo's ABI-safe dependency bump. See the amendment section at the
+  end of this record.
 - **Relates to:** the `semver-bump` skill and `/release`
   (`.claude/commands/release.md`) -- the operational procedure this is the
   policy behind; issue **#927** (the fanout mechanism whose *trigger* this
@@ -269,3 +274,35 @@ whatever tag reaches it and carries no cadence text to keep in sync.
   actually matters (is this really a Z?) is one the agent has to make
   either way. It buys ceremony at the point of least risk and nothing at
   the point of most.
+
+## Amendment (ADR-00000030): a Z may be cut by a gate, and only a Z
+
+- **Amendment status:** Accepted -- extends sections 1 and 3; reverses
+  nothing. Section 2 (X and Y are the maintainer's) is untouched and is
+  what the extension is bounded by.
+
+Sections 1 and 3 were written with two actors in mind: an agent that cuts a
+Z on its own initiative, and a maintainer who cuts X and Y. Section 3 makes
+the agent's *classification* the last gate before a tag exists, and requires
+it to record the reasoning so a wrong call is reviewable afterwards.
+
+ADR-00000030 adds a third actor for one narrow case. A downstream repo that
+bumps a pinned dependency can auto-release the result **when a gate proves
+the bump ABI-safe**, with no agent and no person in the loop. Three things
+keep that inside this record rather than around it:
+
+- **The classification is still the gate before the tag** -- it is simply
+  performed mechanically rather than by judgement, over a question narrow
+  enough to have a mechanical answer (did the dependency's declared ABI
+  component move). Everything the gate cannot decide is refused and returns
+  to a person, who classifies it under section 3 as before.
+- **A gate may cut a Z and nothing else.** A bump that moves a dependency's
+  interface is very often a Y, and section 2 keeps every Y human. The gate
+  has no path that produces one.
+- **The reasoning is recorded the same way.** The gate prints the rule that
+  approved the bump, and names the rule that refused it. Section 3's "the
+  reasoning is stated, not asked" holds unchanged; the author of the
+  sentence is a script.
+
+Section 4 is untouched and does real work here: an auto-released Z does not
+fan out, so this cannot turn one dependency bump into seventeen upgrade PRs.
