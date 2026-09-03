@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3734 tests**.
+Unit specs under `test/bats/unit/`: **3746 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1599,7 +1599,7 @@ downgraded in silence.
 | `_collect_deploy_binds: duplicate basename across components fails loud (tunable-manifest)` | basename collision |
 | `_collect_deploy_binds: propagates a malformed manifest failure (tunable-manifest)` | fail propagation |
 
-### test/bats/unit/deploy_spec.bats (59)
+### test/bats/unit/deploy_spec.bats (66)
 
 Covers the self-contained field-deploy generator (#832; ADR-3 amended by
 ADR-00000023). Deploy produces an output FOLDER run via a fully-resolved,
@@ -1656,6 +1656,13 @@ refused before any build or bundle step.
 | `_bake_config_copy: bakes every component to its own destination (#1000)` | per-component target |
 | `_bake_config_copy: bakes config/shell and config/pip too (#1000)` | no name list |
 | `_bake_config_copy: returns 1 and writes nothing when no component dir exists (#1000)` | nothing-to-bake |
+| `_collect_preset_selectors: a root symlink into config/ is a selector, other root symlinks are not (#826)` | selector derivation |
+| `_collect_preset_selectors: collects a selector whose target does not exist (#826)` | dangling is collected, not hidden |
+| `_collect_preset_selectors: a ./-prefixed link text is the same selector (#826)` | link-text normalisation |
+| `_collect_preset_selectors: a repo with no selector yields nothing (#826)` | empty population |
+| `_report_config_components: states which preset each selector currently selects (#826)` | which preset is live |
+| `_report_config_components: WARNs a selector whose preset is missing (#826)` | dangling selector named |
+| `_report_config_components: says nothing about presets when the repo has no selector (#826)` | silence when there is no selector |
 | `_generate_deploy_bundle: dry-run plans build (versioned image) + save + xz + install (#832)` | bundle plan |
 | `_generate_deploy_bundle: dry-run builds from the baked Dockerfile when [environment] is set (#832/#503)` | env-bake build |
 | `_generate_deploy_bundle: dry-run plans a docker cp per tunable-manifest path (#833)` | tunable extract |
@@ -2462,7 +2469,7 @@ forwarding for caller abort, and DRY_RUN skip.
 | `init.sh --list-installed-paths output is sorted and free of duplicates` | - |
 | `init.sh --list-installed-paths mutates nothing and never leaves its cwd` | - |
 
-### test/bats/unit/init_spec.bats (66)
+### test/bats/unit/init_spec.bats (69)
 
 Unit coverage for `init.sh` helpers that previous rounds exercised only
 through the Level-1 integration test. Complements
@@ -2539,6 +2546,9 @@ are hard to trigger from a real `bash template/init.sh` invocation
 | `_init_restore_tree: restores a rewritten file byte for byte (#937)` | - |
 | `_init_restore_tree: refuses to delete when its snapshot copy is missing (#937)` | - |
 | `_init_existing_repo: hands back the caller's EXIT trap on success (#937)` | - |
+| `_populate_config: the seeded placeholder names the config/<component>/ channel` | the seeded text names the structured channel |
+| `_populate_config: the seeded placeholder still names the build-time overlay` | the seeded text keeps the build-time channel |
+| `_populate_config: the seeded placeholder and ADR-00000030 name the convention identically` | seeded text and the record use one vocabulary |
 
 ### test/bats/unit/issueref_lint_spec.bats (20)
 
@@ -4621,7 +4631,7 @@ sanitization, `detect_ws_path`, and `_reconcile_workspace_path` (#569).
 | `_setup_ssh_x11_cookie returns 1 with warning when nmerge pipe exits non-zero (#688)` | - |
 | `_setup_ssh_x11_cookie returns 1 with warning when xauth is not installed (#321)` | - |
 
-### test/bats/unit/setup_spec.bats (121)
+### test/bats/unit/setup_spec.bats (123)
 
 The `setup.sh` orchestrator spec. `main` subcommand dispatch (`set` / `show`
 / `remove` for `[logging]` #328 and `[lifecycle]` #478, `reset`, `--lang` /
@@ -4710,6 +4720,8 @@ duplicate-target guards, and S7 `runtime.env` retirement (#507).
 | `apply omits the config bind when no component dir exists, and SAYS so (#504/#1000)` | - |
 | `apply WARNs about config files sitting directly under config/ (#1000)` | - |
 | `apply stays quiet about the config/.gitkeep placeholder (#1000)` | - |
+| `apply names the preset selector and the file it resolves to (#826)` | the selector reaches the real apply path |
+| `apply WARNs when the preset selector resolves to nothing (#826)` | a broken selector reaches the real apply path |
 | `main reset --yes works on first-time bootstrap (no prior .local or setup.conf) (#174)` | - |
 | `_setup_msg returns English messages by default` | - |
 | `_setup_msg returns Traditional Chinese messages when _LANG=zh-TW` | - |
