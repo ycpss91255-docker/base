@@ -254,6 +254,11 @@ project_rename_deferred
 project_rename_deferred_volumes
 project_rename_probe_failed
 
+# setup_tui.sh (the interactive editor). The list editors' screen labels
+# are a table keyed by (section, prefix); a list with no complete row is
+# a defect, not a default.
+tui_list_labels_missing
+
 # general
 dry_run_cmd
 summary_line

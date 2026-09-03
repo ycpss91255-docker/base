@@ -68,14 +68,22 @@ lint *args:
 # so there is no project to reclaim and no previous run to wait for.
 #
 # just test metrics -> the three implementation-standard shell metrics
-# (base#994 phase 2): nesting depth <= 3, function length <= 50 body code
-# lines, positional parameters <= 5, measured over every tracked shell
-# file by ONE reader in ONE pass (script/test/drivers/shell_metrics.sh).
+# (base#994): nesting depth <= 3, function length <= 50 body code lines,
+# positional parameters <= 5, measured over every tracked shell file by
+# ONE reader in ONE pass (script/test/drivers/shell_metrics.sh).
 #
-# It is NOT part of the default `just test` gate and not part of
-# `just test lint`: on today's tree it reports 102 violations (26 over
-# nesting depth, 69 over function length, 7 over positional parameters),
-# which phase 3 flattens in slices and phase 4 then gates.
+# Each metric FAILS only above its adoption ceiling -- the count of
+# functions phase 3 has not flattened yet -- so the census figures are
+# printed by the run and are deliberately not written down here; a
+# number in this comment would be a second place to keep them true
+# (ADR-00000028). The ceilings, and the argument that a ceiling is not
+# the baseline ADR-00000029 rejected, live in the driver's header.
+#
+# It is still NOT part of the default `just test` gate and not part of
+# `just test lint`, and the reason is no longer the unflattened tree:
+# that phase runs INSIDE the ci container, and this population comes
+# from the git index (see the host-direct note below). Joining it is
+# base#994 phase 4's.
 # This recipe exists because phase 3 works from its output -- every
 # violation is printed, one per line, `file:line: name -- metric N`.
 #
