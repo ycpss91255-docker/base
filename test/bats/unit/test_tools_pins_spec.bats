@@ -186,3 +186,28 @@ ARG CURL_VERSION=8.9.0')"
   assert_failure
   assert_output --partial 'roster'
 }
+
+@test "test-tools pins: roster and check read a quoted declaration the same way (#1012)" {
+  # `ARG BATS_VERSION="1.13.0"` is a legal declaration, and the two halves
+  # of one accessor have to agree about what it says. `roster` strips the
+  # surrounding quotes and `check` did not, so the release smoke step --
+  # which asks `roster` what is pinned and then asks `check` whether the
+  # image carries it -- would refuse a CORRECT image, naming a pin nobody
+  # could satisfy. Both quote spellings, because both are stripped on the
+  # roster side.
+  local _root _acc _pin
+  _root="$(_seed_tree 'ARG BATS_VERSION="1.13.0"
+ARG ALPINE_VERSION='"'"'3.21'"'"'
+ARG KCOV_VERSION=v43
+ARG JUST_VERSION=1.58.0')"
+  _acc="${_root}/script/ci/test-tools-pins.sh"
+
+  _pin="$(bash "${_acc}" roster | awk -F'\t' '$1 == "BATS_VERSION" { print $2 }')"
+  [[ "${_pin}" == '1.13.0' ]] || fail \
+    "the roster reports BATS_VERSION as '${_pin}', so the quoted declaration is not being read at all."
+
+  run bash "${_acc}" check BATS_VERSION 'Bats 1.13.0'
+  assert_success
+  run bash "${_acc}" check ALPINE_VERSION '3.21.7'
+  assert_success
+}
