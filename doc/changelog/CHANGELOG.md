@@ -58,6 +58,15 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 ## [Unreleased]
 
 ### Changed
+- **the container ENTRYPOINT is base's orchestrator; `script/entrypoint.sh` is a bringup it sources (closes #945)**
+  -- base's plumbing (the `logging.sh` / `watchdog.sh` sources and the final
+  `exec`) sat in a file `init.sh` seeds and the repo then OWNS, so no subtree
+  pull ever updated it. It now ships in the runtime helper directory as
+  `/usr/local/lib/base/entrypoint.sh` and arrives with every pull. **An
+  existing repo is unchanged**: it adopts the model by flipping `ENTRYPOINT`
+  and dropping the plumbing + `exec` from its bringup **in one commit** --
+  flipping first breaks it, because the orchestrator SOURCES the bringup.
+  `just upgrade` notices until then and rewrites neither file.
 - **the dev bind and the deploy bake now cover every `config/<component>/`, not the literal `config/app` (closes #1000)**
   -- both halves tested one hardcoded directory name **no repo in the org
   has**, so the `[[ -d ]]` was always false: nothing mounted, nothing baked,

@@ -323,6 +323,23 @@ from a resolved-stage value, isolating per-service YAML shape from the
 generator (#566).
 _Avoid_: compose generator (that is the whole `generate_compose_yaml`).
 
+**ENTRYPOINT orchestrator**:
+`dist/script/docker/runtime/entrypoint.sh` -- base-owned, shipped in the
+runtime helper directory, installed at `/usr/local/lib/base/entrypoint.sh`
+and named as the image's `ENTRYPOINT`. Opens the log tee, sources the
+**container bringup**, arms the watchdog, execs the workload (#945,
+ADR-00000030).
+_Avoid_: the entrypoint (ambiguous with the repo's file), entrypoint
+wrapper.
+
+**Container bringup**:
+A repo's own `script/entrypoint.sh`, installed at `/entrypoint.sh` and
+SOURCED by the **ENTRYPOINT orchestrator**. Holds only the repo's own
+start-up (an overlay to source, env to export); no `exec`, no base
+plumbing. Repo-owned: seeded once by `init.sh` and never rewritten by a
+subtree pull, which is why base's plumbing may not live in it.
+_Avoid_: the entrypoint, repo entrypoint (both read as "the ENTRYPOINT").
+
 **Dockerfile-migration list**:
 The declarative ordered `{detect, transform}` migration table in
 `lib/dockerfile_migrate.sh` that `upgrade.sh` Step 5 iterates (via the
@@ -394,3 +411,8 @@ _Avoid_: upgrade seds, Dockerfile patcher.
 - "entrypoint" was used for both the **wrapper** scripts and the container
   `ENTRYPOINT` — resolved: "wrapper" for the former, "ENTRYPOINT" for the
   latter.
+- "entrypoint" then split again, between the file that IS the container
+  `ENTRYPOINT` and the repo file it runs — resolved: **ENTRYPOINT
+  orchestrator** for base's, **container bringup** for the repo's. The
+  repo's file keeps the on-disk name `script/entrypoint.sh`; the
+  distinction is in the word, not the path (#945).

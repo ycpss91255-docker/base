@@ -137,7 +137,7 @@ flowchart LR
     release_worker -->|"tar.gz + zip"| release["GitHub Release"]
 ```
 
-<!-- sync: whats-included 26ac98cd01c1 af5052d5456f -->
+<!-- sync: whats-included e2bee7b5023c e1c8819c0fec -->
 ### 包含内容
 
 | 文件 | 说明 |
@@ -165,7 +165,8 @@ flowchart LR
 | `dist/script/docker/runtime/logging.sh` | host 端 log tee helper（per-start 文件 + 稳定 symlink） |
 | `dist/script/docker/runtime/logrotate.sh` | 共用 rotate/symlink/prune primitives（tee + transcript 共用） |
 | `dist/script/docker/runtime/watchdog.sh` | 通用单服务 watchdog（重启 + 可插拔健康检查） |
-| `dist/dockerfile/entrypoint.sh` | 模板 entrypoint，创建新 repo 时 seed 成 `script/entrypoint.sh` |
+| `dist/script/docker/runtime/entrypoint.sh` | base 的 ENTRYPOINT orchestrator：开 log tee、source repo bringup、arm watchdog、exec workload |
+| `dist/dockerfile/entrypoint.sh` | bringup 模板，创建新 repo 时 seed 成 `script/entrypoint.sh`（repo 那一半，由 orchestrator source） |
 | `dist/test/bats/smoke/smoke.sh` | runtime 安装检查 smoke（ldd 缺依赖扫描） |
 | `script/test/test.sh` | base 自测调度器（本地 + container 内） |
 | `script/test/drivers/` | 每个工具一个 driver — `bats.sh` / `shellcheck.sh` / `hadolint.sh` |
@@ -401,13 +402,13 @@ assertion helpers。下游 repo 应优先使用这些 helper 而非原生的
 | `assert_file_owned_by <user> <path>` | `<path>` 所有者不是 `<user>` 时失败 |
 | `assert_pip_pkg <pkg>` | `pip show <pkg>` 非 0 时失败 |
 
-<!-- sync: what-stays-in-each-repo-not-shared 5cff28619497 6e52231828ca -->
+<!-- sync: what-stays-in-each-repo-not-shared 64249bb1afa8 1401030385e9 -->
 ### 各 repo 自行维护的文件（不共用）
 
 - `Dockerfile`
 - `compose.yaml`
 - `script/` — repo 本地的 **runtime helpers**（在 container 内被 `ENTRYPOINT` / `CMD` 或人工调用）
-  - `script/entrypoint.sh`（canonical）
+  - `script/entrypoint.sh` — 这个 repo 的 **bringup**，由 base 的 orchestrator source；它本身不是 `ENTRYPOINT`（见英文版 README 的 Container entrypoint 一节）
   - 任何 ros / app 启动 helper 等
 - `script/docker/` — repo 本地的 **Dockerfile-internal build helpers**（在 Dockerfile `RUN` 阶段调用，container 启动后不会用到；范例与 lint COPY 见 `dist/dockerfile/Dockerfile`，#275）
 - `doc/` 和 `README.md`
@@ -552,7 +553,7 @@ wrapper 的 `docker compose -p`，以及生成出来的 `compose.yaml` 里的
 ./.base/dist/script/base/init.sh --gen-conf # 单纯复制 .base/dist/.setup.conf 到 <repo>/.setup.conf
 ```
 
-<!-- sync: logging-output-to-host df27d24459b2 6cba8f1add7d -->
+<!-- sync: logging-output-to-host 81a10abacbca c618de1095ce -->
 ### 输出 log 到 host
 
 设 `[logging] local_path`，容器 stdout/stderr 会 tee 一份到 host 上的
@@ -573,10 +574,11 @@ per-start 文件 `<local_path>/<svc>_<ts>.log`，并把稳定的 symlink
 （保留几天）两者取严清掉，symlink 本身不会被清。`docker logs <ct>`
 行为不变（json-file 维持 rolling 历史）。
 
-**新 repo**：用本版本之后的 `init.sh` 生成时，`script/entrypoint.sh`
-已内建 helper source，设 `[logging] local_path` 是唯一一步。
-**已有 repo**：在 `script/entrypoint.sh` 的最终 `exec` 之前加一行做
-一次性迁移：
+跑 base ENTRYPOINT orchestrator 的 repo，设 `[logging] local_path`
+就是唯一一步：helper 由 orchestrator source，bringup 什么都不用加，
+base 之后改了也会随 subtree 一起到。**还在用自己 `/entrypoint.sh`
+当 `ENTRYPOINT` 的 repo**：在最终 `exec` 之前加下面这一行，或直接做
+英文版 README「Container entrypoint」那一节的一次性迁移：
 
 ```bash
 . /usr/local/lib/base/logging.sh
@@ -588,8 +590,9 @@ Helper 由 `Dockerfile` 的 devel stage COPY 到 image 内稳定路径
 各种 workspace 结构下都能 work — 不需要 `$USER`，也不依赖 workspace
 bind mount。
 
-疑难排查：`local_path` 设了但 host 文件没东西 → 确认
-`script/entrypoint.sh` 真的有那行 source
+疑难排查：`local_path` 设了但 host 文件没东西 → 先看这个 repo 是哪一种
+模型（`grep ENTRYPOINT Dockerfile`）。跑 orchestrator 的不用再做任何事；
+还在跑自己 `/entrypoint.sh` 的，确认那个文件真的有那行 source
 （`grep logging.sh script/entrypoint.sh`）。
 
 <!-- sync: interactive-tui 23df6f6f09ab 7cbfc4b1f489 -->
@@ -1267,6 +1270,7 @@ just --list        # 显示 CI 命令
      translated heading. -->
 <!-- sync-skip: getting-help-namespace-vs-recipe -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
 <!-- sync-skip: wrapper-ux-cheat-sheet-291 -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
+<!-- sync-skip: container-entrypoint-the-orchestrator-and-your-bringup -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
 <!-- sync-skip: network-mode-host-default-bridge-opt-in-794 -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
 <!-- sync-skip: restart-policy-is-deploy-scoped-841 -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
 <!-- sync-skip: container-init-pid1-reaper-792 -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
