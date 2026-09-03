@@ -1222,7 +1222,7 @@ jobs:
 | `archive_name_prefix` | string | はい | - | アーカイブ名プレフィックス |
 | `extra_files` | string | いいえ | `""` | 追加ファイル（スペース区切り） |
 
-<!-- sync: running-template-tests 961bde4ce2e8 8ec510a4fc2f -->
+<!-- sync: running-template-tests 4e411d749017 2fa910a54d4b -->
 ## ローカルテスト実行
 
 `script/test/justfile.test`（template ルートから）を使用：
@@ -1230,6 +1230,7 @@ jobs:
 just test        # フル CI（ShellCheck + Bats + Kcov）docker compose 経由
 just test lint        # ShellCheck のみ
 just test clean       # カバレッジレポート削除
+just test stop        # この checkout の自己テストコンテナを停止
 just             # repo recipe 一覧表示
 just --list  # CI ターゲット表示
 ```
