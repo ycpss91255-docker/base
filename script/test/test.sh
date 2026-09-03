@@ -17,6 +17,7 @@
 #   ./test.sh --<tool>-only     # Run ONE lint of the phase on the host, no
 #                             # compose: --shellcheck-only / --issueref-only
 #                             # / --adr-numbering-only /
+#                             # --adr-structure-only /
 #                             # --stale-setup-conf-only / --readme-sync-only
 #                             # / --doc-counts-only / --home-literal-only /
 #                             # --arch-literal-only /
@@ -97,6 +98,8 @@ source "${SCRIPT_DIR}/drivers/bats.sh"
 source "${SCRIPT_DIR}/drivers/issueref.sh"
 # shellcheck source=script/test/drivers/adr_numbering.sh
 source "${SCRIPT_DIR}/drivers/adr_numbering.sh"
+# shellcheck source=script/test/drivers/adr_structure.sh
+source "${SCRIPT_DIR}/drivers/adr_structure.sh"
 # shellcheck source=script/test/drivers/stale_setup_conf.sh
 source "${SCRIPT_DIR}/drivers/stale_setup_conf.sh"
 # shellcheck source=script/test/drivers/readme_sync.sh
@@ -145,6 +148,7 @@ readonly _LINT_TOOLS=(
   hadolint
   issueref
   adr-numbering
+  adr-structure
   stale-setup-conf
   readme-sync
   doc-counts
@@ -217,6 +221,7 @@ _run_lint_tool() {
     hadolint)         _run_hadolint ;;
     issueref)         _run_issueref ;;
     adr-numbering)    _run_adr_numbering ;;
+    adr-structure)    _run_adr_structure ;;
     stale-setup-conf) _run_stale_setup_conf ;;
     readme-sync)      _run_readme_sync ;;
     doc-counts)       _run_doc_counts ;;
@@ -275,6 +280,13 @@ Options:
   --adr-numbering         With --lint: run only the ADR-numbering lint
                           (doc/adr/ duplicate-free + well-formed; gaps
                           warned, not failed)
+  --adr-structure         With --lint: run only the ADR-structure lint
+                          (every ADR carries a '> Serves:' back-pointer,
+                          ## Context / ## Decision / ## Consequences /
+                          ## Alternatives, and a Status of exactly
+                          Accepted | Rejected | Superseded by
+                          ADR-NNNNNNNN; zero ADRs examined is a refusal,
+                          not a pass)
   --stale-setup-conf      With --lint: run only the stale setup.conf path
                           lint (no legacy config/docker/setup.conf in
                           dist/**/*.sh; the override lives at the repo-root
@@ -387,6 +399,7 @@ Options:
                                                      ships it)
                             --issueref-only          pure bash
                             --adr-numbering-only     pure bash
+                            --adr-structure-only     pure bash
                             --stale-setup-conf-only  pure bash
                             --readme-sync-only       pure bash
                             --doc-counts-only        pure bash + diff
@@ -1553,6 +1566,7 @@ main() {
       --hadolint) lint_tool="hadolint"; shift ;;
       --issueref) lint_tool="issueref"; shift ;;
       --adr-numbering) lint_tool="adr-numbering"; shift ;;
+      --adr-structure) lint_tool="adr-structure"; shift ;;
       --stale-setup-conf) lint_tool="stale-setup-conf"; shift ;;
       --readme-sync) lint_tool="readme-sync"; shift ;;
       --doc-counts) lint_tool="doc-counts"; shift ;;
@@ -1570,6 +1584,7 @@ main() {
       --shellcheck-only) host_lint="shellcheck"; shift ;;
       --issueref-only) host_lint="issueref"; shift ;;
       --adr-numbering-only) host_lint="adr-numbering"; shift ;;
+      --adr-structure-only) host_lint="adr-structure"; shift ;;
       --stale-setup-conf-only) host_lint="stale-setup-conf"; shift ;;
       --readme-sync-only) host_lint="readme-sync"; shift ;;
       --doc-counts-only) host_lint="doc-counts"; shift ;;
@@ -1615,7 +1630,7 @@ main() {
   fi
 
   # The host-direct lint primitives (`--shellcheck-only`,
-  # `--issueref-only`, `--adr-numbering-only`,
+  # `--issueref-only`, `--adr-numbering-only`, `--adr-structure-only`,
   # `--stale-setup-conf-only`, `--readme-sync-only`,
   # `--doc-counts-only`, `--home-literal-only`, `--arch-literal-only`,
   # `--bash-source-guard-only`, `--derived-figures-only`,
