@@ -955,6 +955,38 @@ release transitively requires:
 ${_tag}"
 }
 
+@test "self-test.yaml: the closure walk reports a dangling needs: entry instead of walking forever (#1009)" {
+  # The guard above compares a CLOSURE, so it is only as good as the walk
+  # that computes it. `yaml_job_needs` answers a job id the file does not
+  # declare with a `BUG:` line AND a non-zero status, because a `needs:`
+  # entry naming a renamed job is a defect and not an absence. A walk that
+  # reads the line and drops the status queues the diagnostic as if it were
+  # a job id -- and each bogus id yields a NEW, longer `BUG:` line, so the
+  # seen-set never dedupes it and the walk never ends. That turns exactly
+  # the roster drift this spec exists to catch -- a rename or a typo in a
+  # `needs:` entry -- into `just test` HANGING: no TAP output, no
+  # diagnostic, and a container left spinning.
+  #
+  # Run against a fixture rather than the real workflow: the property is
+  # about what the walk does with a dangling edge, and the workflow under
+  # test must not have one. A status of 124 below is the timeout firing,
+  # i.e. the walk is still unbounded.
+  local _fixture="${BATS_TEST_TMPDIR}/dangling-needs.yaml"
+  cat >"${_fixture}" <<'YAML'
+jobs:
+  root:
+    needs: [present, renamed-away]
+  present:
+    runs-on: ubuntu-latest
+YAML
+  export -f _needs_closure yaml_job_needs _yaml_eval
+  run env WF="${_fixture}" timeout 20 bash -c '_needs_closure root'
+  [ "${status}" -ne 124 ] \
+    || fail "the closure walk never terminated on a needs: entry naming a job the workflow does not declare"
+  assert_failure
+  assert_output --partial 'declares no job renamed-away'
+}
+
 # ── Fork PRs cannot make the rollup vacuously green ────────────
 
 @test "self-test.yaml: ci-rollup fails a fork PR instead of reporting a partial run as green (#766)" {
