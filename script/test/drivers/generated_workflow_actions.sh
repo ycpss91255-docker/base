@@ -9,7 +9,7 @@
 #
 # Contract: pure bash over the checkout, so it runs host-direct as well as
 # inside the ci (test-tools) container. References ${REPO_ROOT} (a global
-# exported by test.sh).
+# exported by test.sh) and the pin registry at script/watch/lib.sh.
 #
 # ── The gap ─────────────────────────────────────────────────────────────
 #
@@ -18,7 +18,7 @@
 # a workflow file, so dependabot cannot see it. Three other candidate
 # owners do not have it either:
 #
-#   - no other mechanism in this tree reads a `uses:` version ref.
+#   - no other mechanism in this tree compares a `uses:` version ref.
 #     `action-ref-agreement` compares call sites WITHIN
 #     `.github/workflows/`, so a ref in a shell script is outside its
 #     population by construction;
@@ -43,6 +43,55 @@
 # into dependabot's reach: its own bump PR turns this lint red until the
 # heredoc moves with it.
 #
+# ── The contract, in one sentence ───────────────────────────────────────
+#
+#   A `uses:` ref a shell script writes must be either a literal
+#   <owner>/<repo>@<ref>, or a variable whose value the PIN REGISTRY
+#   declares -- anything else is a finding.
+#
+# The second half is where this driver used to keep 360 lines of its own.
+# A generator that hoists its ref into `readonly NAME='<owner>/<repo>@<ref>'`
+# above the heredoc writes exactly the string it would have written
+# inline, so excluding it would take a real pin out of the population --
+# and it is the only one this lint has. But resolving it means answering
+# "which assignment of NAME is live at this line", and that question was
+# answered here by a scanner: function bodies tracked by brace
+# indentation, compound commands counted by keyword at column 0, `local`
+# refused by keyword, heredoc bodies skipped by delimiter. Four ways to be
+# wrong were found in it and every one failed OPEN -- a bare `{` at column
+# 0 inside a function, `for((i=0;...))` (the counter matched `for ` with a
+# space), `if<TAB>`, and a `uses:` line inside `<<'QUOTED'` whose
+# `${NAME}` the generator writes out verbatim. In each the lint reported
+# lockstep over a value the generator never writes.
+#
+# The registry answers that question without deriving anything. Every
+# version this repo names carries a `tool-pin:` marker on its declaration
+# line, `_pin_read` returns a record naming that file and line, and
+# `_pin_extract_value` reads the value off it. The answer was written once,
+# at the site, by a human, under a lint (`pin-coverage`) that fails when it
+# is missing. This driver looks it up.
+#
+# ── The trade, stated rather than hidden ────────────────────────────────
+#
+# The registry proves a DECLARATION EXISTS AT A LINE. It does not prove
+# that assignment is live at the use. A marker on a `local` inside a
+# function nothing ever calls still yields a record, and this driver will
+# resolve a `uses:` ref against it. That is a real loss of precision
+# against the scanner's intent -- and the scanner did not deliver that
+# intent either, in four ways, silently. What is gained is that the
+# property is now DECLARED instead of inferred, by the person who wrote
+# the line, and that a missing declaration is a lint failure rather than a
+# resolution this driver quietly performs. It is the direction this tree
+# has already taken twice: the downstream repo roster and the lint-tool
+# table both stopped being derived-by-inspection for the same reason.
+#
+# One reader. `_PIN_ASSIGN_RE` in script/watch/lib.sh is now the only
+# definition of "an assignment" either lint has, and `_PIN_ACTION_REF_RE`
+# the only definition of "an action ref". They disagreed before: the
+# registry's regex accepts `local`, the scanner here marked it unusable on
+# sight, so one line could be a pin the watch reads and a finding this
+# lint reports.
+#
 # ── What is asserted, and what is not ───────────────────────────────────
 #
 # Agreement, not currency. This driver holds no opinion about which
@@ -53,7 +102,7 @@
 # workflows is the same defect with the opposite sign, and it is the shape
 # a well-meant hand-edit takes.
 #
-# Three cases have no single ref to inherit, and each fails with its own
+# Four cases have no single ref to inherit, and each fails with its own
 # sentence rather than being guessed at:
 #
 #   - this repo pins the action at two different refs (it does today, for
@@ -80,48 +129,38 @@
 #     `<worker>.yaml@vX.Y.Z` in every downstream main.yaml on every upgrade
 #     -- and it is not a marketplace action, so `.github/workflows/` holds
 #     no comparable ref for it: this repo calls the same worker LOCALLY, as
-#     `./`. BOTH halves of the callee are read, and both are derived from
-#     the tree: the file has to be one this repo ships, and the
-#     `<owner>/<repo>` half has to be this repo's own slug, which is read
-#     off the tree rather than written down here. Keyed on the file alone
-#     the exclusion was as wide as the basenames this repo happens to ship
-#     -- nine of them, several generic -- and somebody else's
-#     `build-worker.yaml` was exempted for being spelled like one of ours.
-#     The reason above only holds when the owner is us, so the check now
-#     says that.
+#     `./`. BOTH halves of the callee are read: the file has to be one this
+#     repo ships, and the `<owner>/<repo>` half has to be this repo's own
+#     slug. Keyed on the file alone the exclusion was as wide as the
+#     basenames this repo happens to ship -- nine of them, several generic
+#     -- and somebody else's `build-worker.yaml` was exempted for being
+#     spelled like one of ours.
 #
-# "Interpolated from a shell variable" is NOT on that list, and was: it is
-# a different property from "cannot be known". A generator that hoists its
-# ref into `readonly NAME='<owner>/<repo>@<ref>'` above the heredoc -- which
-# is what init.sh does, so the generated line has a declaration site a
-# `tool-pin:` marker can attach to -- writes the same string it would have
-# written inline. Excluding it took a real pin out of the population, and
-# took out the only one this lint had. _gwa_classify resolves that one
-# indirection and refuses every other, case by case, at the function.
+# One case IS modelled here rather than in the registry, because it is a
+# property of the USE site and not of the declaration: heredoc QUOTING. A
+# `uses:` line inside `<<'QUOTED'` is written out with its `${NAME}`
+# intact, so the generated workflow carries those characters and not a ref
+# at all. Resolving it would compare a value the generator provably never
+# writes, so it is refused. The reverse -- proving a site DOES expand --
+# is not attempted: what is refused is what can be shown not to expand.
 #
-# "Above the heredoc" is load-bearing, and it is checked rather than
-# assumed: the assignment has to PRECEDE the use and sit at file scope.
-# Reading "assigned somewhere in this file" as "assigned before the use, in
-# scope" is how a value that really arrives from the environment or from a
-# caller gets resolved against a line that is not live at that point, and
-# that direction ends in a green report on a ref the generator never
-# writes.
-#
-# One thing the reader does not model, stated as a limit rather than left
-# to be discovered: heredoc QUOTING at the USE site. A `uses:` line inside
-# `<<'QUOTED'` is written out with its `${NAME}` intact, and this reader
-# resolves it anyway. That errs toward checking rather than toward
-# dropping -- the ref stays in the population and is compared -- and every
-# `uses:` line this tree generates today sits in an UNQUOTED heredoc
-# (init.sh:418), so no line is read that way here.
-#
-# Nor is a ref quoted inside a shell or YAML COMMENT: prose explaining
-# what a step looks like is not a step, and a lint that fails on its own
-# documentation gets muted. A ref in QUOTES is not an exclusion -- quoting
-# is a YAML spelling of the same reference, and it is compared like any
-# other.
+# Nor is a ref quoted inside a shell or YAML COMMENT read: prose
+# explaining what a step looks like is not a step, and a lint that fails
+# on its own documentation gets muted. A ref in QUOTES is not an exclusion
+# -- quoting is a YAML spelling of the same reference, and it is compared
+# like any other.
 #
 # Style: Google Shell Style Guide.
+
+_GWA_DRIVER_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
+readonly _GWA_DRIVER_DIR
+
+# The pin registry: the walk, the marker grammar, the reader, and the two
+# regexes this driver shares with the pin-coverage lint. Sourced rather
+# than re-implemented so the two cannot drift apart about what an
+# assignment is, what an action ref is, or which files are scanned.
+# shellcheck source=script/watch/lib.sh
+source "${_GWA_DRIVER_DIR}/../../watch/lib.sh"
 
 # Where this repo's own workflows live. A directory, not a file list, so a
 # workflow added tomorrow is read without touching this driver.
@@ -134,30 +173,50 @@ readonly _GWA_WORKFLOW_DIR_REL='.github/workflows'
 # line and vets the value also decides, silently, what this lint stops
 # covering: every value it declines leaves the population with no
 # diagnostic. That is not hypothetical -- the first version of this file
-# anchored the action at `[A-Za-z0-9]`, so `uses: "actions/checkout@v3"`
-# and `uses: 'actions/setup-node@v1'` -- legal YAML, legal Actions syntax,
-# and neither an exclusion nor an error -- were dropped, and a generated
-# ref disagreeing with the workflows passed green.
+# anchored the action at `[A-Za-z0-9]`, so `uses:` values written
+# `"actions/checkout@v3"` and `'actions/setup-node@v1'` -- legal YAML,
+# legal Actions syntax, and neither an exclusion nor an error -- were
+# dropped, and a generated ref disagreeing with the workflows passed green.
 readonly _GWA_USES_LINE_RE='uses:[[:space:]]+(.+)$'
 
-# A value that names a versioned action: `<owner>/<repo>[/<sub>...]@<ref>`.
-# Capture 1 is the action, capture 3 the ref. The required `/` keeps a
-# bare word ahead of an `@` from being read as an action.
-readonly _GWA_ACTION_RE='^([A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9._-]+)+)@([A-Za-z0-9._-]+)$'
+# One shell VARIABLE REFERENCE inside a `uses:` value: `${NAME}` or
+# `$NAME`. Deliberately only the two plain spellings. `${NAME:-default}`,
+# `${NAME#prefix}`, `$(command)` and GitHub's own `${{ expr }}` all fail to
+# match, and a value still carrying a `$` after resolution is refused --
+# so a spelling this matcher does not read becomes a finding rather than a
+# value it guessed at.
+# shellcheck disable=SC2016 # an ERE matching a `$`; nothing here expands.
+readonly _GWA_VAR_RE='\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)'
 
-# Generated trees the walk must not descend into, by directory basename.
+# Where this repo declares the `<owner>/<repo>` it is served from, and the
+# name it declares it under. base is its own upstream, so that slug is this
+# repo's own name; upgrade.sh, init.sh and check-base-version.sh all source
+# this file and read this name rather than repeating the literal, which
+# makes the pair the file's published interface rather than a guess about
+# its contents. Renaming the REPO moves the value and this follows it.
+readonly _GWA_UPSTREAM_REL='dist/script/base/upstream.sh'
+readonly _GWA_SLUG_VAR='BASE_UPSTREAM_SLUG'
+
+# A bare GitHub `<owner>/<repo>`, which is what a slug looks like and what
+# a clone URL, a path or a ref does not.
+readonly _GWA_SLUG_RE='^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9._-]+$'
+
+# ── Per-run state ───────────────────────────────────────────────────────
 #
-# The walk is the whole repository, so this is a PRUNE list rather than a
-# roster of scanned directories: a generator added tomorrow at any depth
-# is covered without editing this file, and forgetting to prune a new
-# generated tree makes the lint fire rather than quietly exempting
-# something. Every entry is gitignored.
-#
-# `.prev-release/` is the one that matters. The self-test materialises
-# PAST releases into it, and their refs are stale BY DEFINITION -- a
-# release cannot be re-pinned. Scanning it means the first dependabot bump
-# after a release fails a lint no edit can satisfy.
-readonly _GWA_SCAN_PRUNE=('.git' 'log' '.prev-release')
+# Both are rebuilt at the top of every _run_generated_workflow_actions
+# rather than memoised across calls: REPO_ROOT is a global a caller can
+# move between runs (the specs do), and a cache keyed on nothing would
+# then answer for the previous tree.
+
+# The scanned files, repo-root-relative, one per line -- the pin registry's
+# own walk. See _gwa_load_files.
+_GWA_FILES=''
+
+# `<variable name> -> <value>` for every declaration the registry holds
+# whose target line is an assignment, and the names two sites declare
+# differently. See _gwa_load_registry.
+declare -gA _GWA_PIN_VALUE=()
+declare -gA _GWA_PIN_AMBIGUOUS=()
 
 # _gwa_is_comment <line> -- true when the line's first non-blank
 # character opens a comment. The same test serves shell and YAML.
@@ -188,240 +247,149 @@ _gwa_value() {
   printf '%s' "${_v}"
 }
 
-# One shell VARIABLE REFERENCE inside a `uses:` value: `${NAME}` or
-# `$NAME`. Deliberately only the two plain spellings. `${NAME:-default}`,
-# `${NAME#prefix}`, `$(command)` and GitHub's own `${{ expr }}` all fail to
-# match, and a value still carrying a `$` after resolution is refused --
-# so a spelling this matcher does not read becomes a finding rather than a
-# value it guessed at.
-# shellcheck disable=SC2016 # an ERE matching a `$`; nothing here expands.
-readonly _GWA_VAR_RE='\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)'
+# ── The population: the registry's walk, split at dependabot's border ───
 
-# _gwa_assign_re <name-ere> -- an ERE matching an assignment to a variable
-# whose name matches <name-ere>.
+# _gwa_load_files -- fill _GWA_FILES; non-zero when the walk yields nothing.
 #
-# The declaration keywords are optional and repeatable (`readonly`,
-# `export`, `local`, `declare -r`, `typeset`). Which one is present is not
-# what makes a value static -- but WHICH one it is still matters
-# afterwards: `local`, `declare` and `typeset` declare a name whose life is
-# one function call, so a line carrying one is RECORDED here and refused
-# later, rather than never matching. The `(\+?)` before the `=` does the
-# same job for an append: `NAME+=` builds a value instead of declaring one,
-# and a matcher that only saw `NAME=` would resolve to a PREFIX of what the
-# generator writes and compare a ref that never existed.
+# The roster this replaced was `*.sh`, which is a list of the file shapes a
+# generator may take -- and this repo has retired that exact list twice
+# already, once in the pin registry's scan roots and once in its file
+# shapes, both times because the thing it stopped covering went SILENT
+# rather than red. An extensionless script, a `.bash`, a justfile recipe
+# writing a workflow: each was invisible here, and the non-vacuity backstop
+# below could not notice, because the one generator that does end in `.sh`
+# kept the count at 1.
 #
-# Captures: 1 the indentation, 2 the declaration-keyword run, 5 the name,
-# 6 the `+` of an append, 7 the right-hand side.
-_gwa_assign_re() {
-  printf '%s' \
-    "^([[:space:]]*)((readonly|export|local|declare|typeset)([[:space:]]+-[A-Za-z-]+)*[[:space:]]+)*(${1})(\+?)=(.*)$"
+# So there is no roster. The walk is the pin registry's: the whole
+# repository, minus the machine-local trees it prunes and the prose and
+# specs it exempts, both of which it CHECKS rather than trusts (a pruned
+# tree must be gitignored and untracked; a marker in an exempt file is a
+# failure). `.claude/` comes with it, for the reason the registry states:
+# scanning it makes the verdict depend on whose machine the lint ran on.
+_gwa_load_files() {
+  _GWA_FILES="$(_pin_files "${REPO_ROOT}")"
 }
 
-# A function definition's opening line, in the two spellings bash accepts,
-# with the brace on the same line: `name() {`, `function name {`,
-# `function name() {`. Capture 1 is the indentation, which is where the
-# matching close brace is looked for.
-readonly _GWA_FN_OPEN_RE='^([[:space:]]*)(function[[:space:]]+[A-Za-z_][A-Za-z0-9_:.-]*([[:space:]]*\(\))?|[A-Za-z_][A-Za-z0-9_:.-]*[[:space:]]*\(\))[[:space:]]*\{[[:space:]]*$'
-
-# The same header with the brace on the NEXT line. Tracked separately so
-# that spelling opens a function body too: missing it would read a function
-# body as file scope, which is the fail-open direction.
-readonly _GWA_FN_HEADER_RE='^([[:space:]]*)(function[[:space:]]+[A-Za-z_][A-Za-z0-9_:.-]*([[:space:]]*\(\))?|[A-Za-z_][A-Za-z0-9_:.-]*[[:space:]]*\(\))[[:space:]]*$'
-readonly _GWA_FN_BRACE_RE='^([[:space:]]*)\{[[:space:]]*$'
-
-# _gwa_heredoc_delim <line> -- the delimiter word <line> opens a heredoc
-# with, or non-zero when it opens none.
+# _gwa_hits <scope> -- every candidate line in one half of the walk, as
+# `<relative-path>:<lineno>:<content>`.
 #
-# Herestrings are deleted first: `<<<'word'` otherwise reads as a heredoc
-# opened on `word`, and the scan would then swallow the rest of the file
-# looking for a terminator that never comes.
-_gwa_heredoc_delim() {
-  local _l="${1//<<</ }" _d
-  [[ "${_l}" =~ \<\<-?[[:space:]]*(\'[A-Za-z_][A-Za-z0-9_]*\'|\"[A-Za-z_][A-Za-z0-9_]*\"|[A-Za-z_][A-Za-z0-9_]*) ]] || return 1
-  _d="${BASH_REMATCH[1]}"
-  _d="${_d//\'/}"
-  _d="${_d//\"/}"
-  printf '%s' "${_d}"
+# `dependabot` is `.github/workflows/*.ya?ml`, the files dependabot reads;
+# `generated` is everything else, i.e. every file whose `uses:` refs are
+# nobody's job but this lint's. The border is _PIN_DEPENDABOT_SCOPE_RE,
+# the registry's own statement of where the division of labour sits, so
+# the two mechanisms cannot disagree about which file is whose.
+#
+# grep pre-filters so only files that mention `uses:` are read at all. A
+# scope with no match is not an error here -- the callers decide what an
+# empty result means, and they mean different things.
+_gwa_hits() {
+  local _scope="${1}" _f
+  local -a _abs=()
+  while IFS= read -r _f; do
+    [[ -n "${_f}" ]] || continue
+    if [[ "${_f}" =~ ${_PIN_DEPENDABOT_SCOPE_RE} ]]; then
+      [[ "${_scope}" == 'dependabot' ]] || continue
+    else
+      [[ "${_scope}" == 'generated' ]] || continue
+    fi
+    _abs+=("${REPO_ROOT}/${_f}")
+  done <<< "${_GWA_FILES}"
+  [[ "${#_abs[@]}" -eq 0 ]] && return 0
+  # grep exits 1 for "matched nothing", which is an ordinary answer here.
+  # Under the dispatcher's `pipefail` + ERR trap that ordinary answer was
+  # logged as `ci_lint_driver_failed ... stopped at sed, status 1` on every
+  # run, INCLUDING a green one: an ERROR line in a passing log, naming this
+  # driver as having stopped when it had not. Exit 2 and above is a real
+  # grep failure and still propagates, so tolerating no-match does not
+  # turn a broken scan into a silent pass.
+  local _out _status=0
+  _out="$(grep -nHI -E 'uses:[[:space:]]' -- "${_abs[@]}")" || _status=$?
+  if (( _status > 1 )); then
+    return "${_status}"
+  fi
+  [[ -n "${_out}" ]] || return 0
+  printf '%s\n' "${_out}" | sed "s|^${REPO_ROOT}/||"
 }
 
-# _gwa_scan_assignments <file> <name-ere> -- one record per assignment in
-# <file> to a variable matching <name-ere>:
+# _gwa_split <hit> -- set _GWA_FILE / _GWA_LINENO / _GWA_TEXT from one
+# `<path>:<lineno>:<content>` record. Split by hand rather than by IFS
+# because the content half routinely contains colons of its own.
+_gwa_split() {
+  local _hit="${1}" _rest
+  _GWA_FILE="${_hit%%:*}"
+  _rest="${_hit#*:}"
+  _GWA_LINENO="${_rest%%:*}"
+  _GWA_TEXT="${_rest#*:}"
+}
+
+# ── Resolution: what the registry declares, and nothing else ────────────
+
+# _gwa_load_registry -- fill _GWA_PIN_VALUE / _GWA_PIN_AMBIGUOUS from the
+# pin registry; non-zero when the markers do not parse.
 #
-#   <lineno>\t<name>\t<usable>\t<right-hand side>
+# One entry per declaration site whose TARGET LINE is an assignment: the
+# variable it assigns, mapped to the value the registry read off it. The
+# registry supplies the LINE, so nothing here decides which assignment is
+# live -- that is the whole job the deleted scanner was doing.
 #
-# EVERY matching assignment is emitted, usable or not. The caller counts
-# them all and then looks at the single survivor, so a second assignment
-# the reader would not use cannot quietly leave the count at one.
+# `ignore` records contribute nothing, and that is deliberate rather than
+# incidental: `tool-pin: ignore` asserts the line names no third-party
+# version, so a `uses:` ref resolved from one would be a ref nobody
+# watches -- the defect this lint exists to report. It carries no value
+# either, so it is dropped by the empty-value test below.
 #
-# <usable> is 1 only for an assignment this reader can claim is live at a
-# later point in the same file, and that means three things at once:
-#
-#   - FILE SCOPE. An assignment inside a function body runs when the
-#     function is CALLED, which is control flow this reader does not
-#     evaluate; the body may never run, or may run after the generation it
-#     is supposed to feed. Function bodies are tracked by their opening
-#     line and the close brace at the same indentation.
-#   - UNCONDITIONAL. A `if` / `while` / `until` / `for` / `case` opened at
-#     column 0 and not yet closed means the assignment below it runs only
-#     when that test passes, which is control flow again. Counted rather
-#     than inferred from indentation, so an unindented body is caught too.
-#   - COLUMN 0. Indentation is a second, independent statement of the same
-#     property: a file-scope declaration in this repo's style starts at
-#     column 0, while anything nested is indented. Requiring it as well
-#     means a mis-tracked brace cannot on its own promote a function-local
-#     assignment to file scope.
-#   - NOT `local` / `declare` / `typeset`. `local` is only legal inside a
-#     function, so the keyword itself proves function scope no matter what
-#     the brace tracking concluded.
-#
-# Three overlapping tests rather than one because each is a heuristic over
-# text: what is claimed is that all four hold, not that a bash parser ran.
-#
-# Appends are marked unusable for the reason at _gwa_assign_re. Heredoc
-# BODIES are skipped entirely: a `NAME='...'` inside a heredoc is text a
-# generator writes into another file, not an assignment this one performs,
-# and a `}` in one would otherwise close a function that is still open.
-_gwa_scan_assignments() {
-  local _file="${1}" _name_re="${2}"
-  [[ -f "${_file}" ]] || return 0
-  local _re _line _lineno=0 _delim='' _in_fn=0 _fn_indent='' _pending=''
-  local _block=0
-  local _usable _kw _indent _vname _plus _rhs
-  _re="$(_gwa_assign_re "${_name_re}")"
-  while IFS= read -r _line || [[ -n "${_line}" ]]; do
-    _lineno=$(( _lineno + 1 ))
-    if [[ -n "${_delim}" ]]; then
-      [[ "${_line}" =~ ^[[:space:]]*"${_delim}"[[:space:]]*$ ]] && _delim=''
+# Two sites declaring one name DIFFERENTLY is refused rather than
+# resolved: which one reaches a given use is exactly the question this
+# driver no longer answers.
+_gwa_load_registry() {
+  _GWA_PIN_VALUE=()
+  _GWA_PIN_AMBIGUOUS=()
+  local _table _decl _var
+  local _state _name _resolver _coord _pattern _skip _current _file _line
+  # Command substitution, not a process substitution feeding the loop: a
+  # `< <(...)` redirection discards the producer's exit status, and a
+  # registry that could not be read would then look like a registry that
+  # declares nothing -- which resolves nothing and reports every ref as a
+  # finding, in a sentence about the wrong defect.
+  _table="$(_pin_read "${REPO_ROOT}")" || return 1
+  while IFS=$'\t' read -r _state _name _resolver _coord _pattern _skip \
+      _current _file _line; do
+    [[ -z "${_state}" ]] && continue
+    [[ -z "${_current}" || "${_current}" == '-' ]] && continue
+    _decl="$(awk -v n="${_line}" 'NR == n' "${REPO_ROOT}/${_file}")" || continue
+    _var="$(_pin_assign_name "${_decl}")" || continue
+    if [[ -n "${_GWA_PIN_VALUE[${_var}]:-}" \
+          && "${_GWA_PIN_VALUE[${_var}]}" != "${_current}" ]]; then
+      _GWA_PIN_AMBIGUOUS["${_var}"]=1
       continue
     fi
-    _gwa_is_comment "${_line}" && continue
-    if (( _in_fn )); then
-      if [[ "${_line}" =~ ^"${_fn_indent}"\}[[:space:]]*$ ]]; then
-        _in_fn=0
-        _fn_indent=''
-      fi
-    elif [[ "${_line}" =~ ${_GWA_FN_OPEN_RE} ]]; then
-      _in_fn=1
-      _fn_indent="${BASH_REMATCH[1]}"
-      _pending=''
-    elif [[ -n "${_pending}" && "${_line}" =~ ${_GWA_FN_BRACE_RE} ]]; then
-      _in_fn=1
-      _fn_indent="${_pending}"
-      _pending=''
-    elif [[ "${_line}" =~ ${_GWA_FN_HEADER_RE} ]]; then
-      _pending="${BASH_REMATCH[1]}"
-    else
-      _pending=''
-    fi
-    if (( _in_fn == 0 )); then
-      # Compound commands opened at column 0, closed by their own keyword
-      # at column 0. A nested one lives in an indented body, so neither its
-      # opener nor its closer is counted and the pairing stays balanced.
-      case "${_line}" in
-        'if '*|'while '*|'until '*|'for '*|'case '*)
-          _block=$(( _block + 1 )) ;;
-        'fi'|'fi '*|'fi;'*|'done'|'done '*|'done;'*|'esac'|'esac '*|'esac;'*)
-          (( _block > 0 )) && _block=$(( _block - 1 )) ;;
-      esac
-    fi
-    if [[ "${_line}" =~ ${_re} ]]; then
-      # Every capture is read out BEFORE the next regex runs: the keyword
-      # test below matches inside its own pattern, and that is exactly what
-      # would overwrite BASH_REMATCH under the printf's feet.
-      _indent="${BASH_REMATCH[1]}"
-      _kw=" ${BASH_REMATCH[2]}"
-      _vname="${BASH_REMATCH[5]}"
-      _plus="${BASH_REMATCH[6]}"
-      _rhs="${BASH_REMATCH[7]}"
-      _usable=1
-      [[ -n "${_indent}" ]] && _usable=0
-      (( _in_fn )) && _usable=0
-      (( _block > 0 )) && _usable=0
-      [[ -n "${_plus}" ]] && _usable=0
-      [[ "${_kw}" =~ (^|[[:space:]])(local|declare|typeset)([[:space:]]|$) ]] && _usable=0
-      printf '%s\t%s\t%s\t%s\n' \
-        "${_lineno}" "${_vname}" "${_usable}" "${_rhs}"
-    fi
-    _delim="$(_gwa_heredoc_delim "${_line}")" || _delim=''
-  done < "${_file}"
+    _GWA_PIN_VALUE["${_var}"]="${_current}"
+  done <<< "${_table}"
 }
 
-# _gwa_static_literal <rhs> -- the literal <rhs> declares, or non-zero when
-# it declares none.
-#
-# A single-quoted string with no `$` in it, and nothing else. A
-# double-quoted right-hand side, a command substitution or another variable
-# is a value that is not visible in one place, and following the hop would
-# mean re-deciding what is in scope at every step. A literal that itself
-# contains `$` would re-enter resolution, and a single-quoted `$FOO` is a
-# literal dollar sign rather than a reference.
-_gwa_static_literal() {
-  local _v="${1}" _lit
-  _v="${_v%"${_v##*[![:space:]]}"}"
-  [[ "${_v}" =~ ^\'([^\']*)\'$ ]] || return 1
-  _lit="${BASH_REMATCH[1]}"
-  [[ "${_lit}" == *'$'* ]] && return 1
-  printf '%s' "${_lit}"
+# _gwa_registry_literal <name> -- the value the registry declares for
+# <name>; non-zero when it declares none, or more than one.
+_gwa_registry_literal() {
+  local _name="${1}" _v
+  [[ -n "${_GWA_PIN_AMBIGUOUS[${_name}]:-}" ]] && return 1
+  _v="${_GWA_PIN_VALUE[${_name}]:-}"
+  [[ -n "${_v}" ]] || return 1
+  # A declared value that itself carries a `$` would re-enter resolution
+  # and could substitute itself; refusing it here is what keeps
+  # _gwa_resolve's termination an argument rather than a hope.
+  [[ "${_v}" == *'$'* ]] && return 1
+  printf '%s' "${_v}"
 }
 
-# _gwa_var_literal <name> <file> <use-lineno> -- print the static literal
-# <name> holds at line <use-lineno> of <file>; return non-zero when this
-# reader cannot say that it holds one.
-#
-# "Static" is the narrowest reading that still covers the shape a generator
-# uses: exactly ONE assignment in this file, of a single-quoted literal,
-# at FILE SCOPE, on a line BEFORE the use. Order and scope are not
-# decoration -- without them "assigned somewhere in the file" gets read as
-# "assigned before the use, in scope", and a ref whose value at generation
-# time comes from the environment or from a caller is compared against an
-# assignment that is not live at that point. Every other shape returns
-# non-zero and ends up a finding upstream:
-#
-#   - assigned more than once: which assignment is live at the heredoc
-#     depends on control flow this reader does not evaluate;
-#   - assigned only AFTER the use: at the use the name still holds whatever
-#     the environment or the caller put there, which is not in this file;
-#   - assigned inside a function body, or with `local` / `declare` /
-#     `typeset`: it is live for one call this reader cannot place, not for
-#     the file;
-#   - assigned indented: nested in a function, an `if` or a loop, so it is
-#     conditional rather than static;
-#   - assigned with `+=`: the value is built, so any one line is a fragment;
-#   - a double-quoted right-hand side, a command substitution, or another
-#     variable: see _gwa_static_literal;
-#   - not assigned in this file at all: it comes from a sourced file, the
-#     environment, or a caller, and which one is a guess about what is in
-#     scope at generation time.
-#
-# Refusing is the safe direction in all of them: an unresolved value is
-# REPORTED with its raw text, so the hole stays visible and a reader
-# decides. Guessing removes the ref from the lint silently, which is the
-# defect this function exists to close.
-_gwa_var_literal() {
-  local _name="${1}" _file="${2}" _use_lineno="${3}"
-  local _lineno _nm _usable _rhs _count=0
-  local _hit_lineno='' _hit_usable='' _hit_rhs=''
-  while IFS=$'\t' read -r _lineno _nm _usable _rhs; do
-    _count=$(( _count + 1 ))
-    _hit_lineno="${_lineno}"
-    _hit_usable="${_usable}"
-    _hit_rhs="${_rhs}"
-  done < <(_gwa_scan_assignments "${_file}" "${_name}")
-  (( _count == 1 )) || return 1
-  (( _hit_usable == 1 )) || return 1
-  (( _hit_lineno < _use_lineno )) || return 1
-  _gwa_static_literal "${_hit_rhs}"
-}
-
-# _gwa_resolve <value> <file> <lineno> -- <value> with every variable
-# reference replaced by the static literal <file> holds for it at <lineno>;
-# non-zero if any one of them is not resolvable that way.
+# _gwa_resolve <value> -- <value> with every variable reference replaced by
+# the literal the pin registry declares for it; non-zero if any one of them
+# is not declared.
 #
 # Termination is not an assumption: a resolved literal can never contain
-# `$` (_gwa_static_literal refuses one that does), so each pass strictly
+# `$` (_gwa_registry_literal refuses one that does), so each pass strictly
 # reduces the number of `$` in the value.
 _gwa_resolve() {
-  local _v="${1}" _file="${2}" _lineno="${3}" _ref _name _lit
+  local _v="${1}" _ref _name _lit
   while [[ "${_v}" =~ ${_GWA_VAR_RE} ]]; do
     # Both halves of the match are read BEFORE anything else runs. The
     # braced spelling fills capture 1 and the bare one capture 2, so the
@@ -429,7 +397,7 @@ _gwa_resolve() {
     # inside its own regex, which is exactly what would overwrite these.
     _ref="${BASH_REMATCH[0]}"
     _name="${BASH_REMATCH[1]:-${BASH_REMATCH[2]}}"
-    _lit="$(_gwa_var_literal "${_name}" "${_file}" "${_lineno}")" || return 1
+    _lit="$(_gwa_registry_literal "${_name}")" || return 1
     _v="${_v//"${_ref}"/${_lit}}"
   done
   # A `$` the reference matcher could not read at all -- `${{ }}`,
@@ -439,127 +407,129 @@ _gwa_resolve() {
   printf '%s' "${_v}"
 }
 
-# Where this repo declares the `<owner>/<repo>` it is served from. base is
-# its own upstream, so the slug this file names is this repo's own, and it
-# is the tree's single definition of it -- upgrade.sh, init.sh and
-# check-base-version.sh all read it rather than repeating the literal.
-readonly _GWA_UPSTREAM_REL='dist/script/base/upstream.sh'
+# ── The one thing the registry cannot answer: the USE site ──────────────
 
-# A bare GitHub `<owner>/<repo>`, which is what a slug looks like and what
-# a clone URL, a path or a ref does not.
-readonly _GWA_SLUG_RE='^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9._-]+$'
-
-# _gwa_repo_slug -- `<variable name>\t<slug>` for this repo's own
-# `<owner>/<repo>`, read off the tree; non-zero when the tree does not say
-# it exactly once.
+# _gwa_heredoc_open <line> -- `<quoted>\t<delimiter>` when <line> opens a
+# heredoc, non-zero when it opens none. <quoted> is 1 when the delimiter
+# was quoted, i.e. when the body is written out with no expansion.
 #
-# Derived, not hardcoded: the one file-scope static assignment in
-# _GWA_UPSTREAM_REL whose literal is slug-shaped. A rename of the repo
-# moves this with it, and an upstream file that declares two slugs (or
-# none, or one built at runtime) yields nothing -- which switches the
-# exclusion that depends on it OFF, so every call becomes a finding rather
-# than every call being exempt.
-_gwa_repo_slug() {
-  local _lineno _nm _usable _rhs _lit _n=0 _name='' _slug=''
-  while IFS=$'\t' read -r _lineno _nm _usable _rhs; do
-    (( _usable == 1 )) || continue
-    _lit="$(_gwa_static_literal "${_rhs}")" || continue
-    [[ "${_lit}" =~ ${_GWA_SLUG_RE} ]] || continue
-    _n=$(( _n + 1 ))
-    _name="${_nm}"
-    _slug="${_lit}"
-  done < <(_gwa_scan_assignments \
-    "${REPO_ROOT}/${_GWA_UPSTREAM_REL}" '[A-Za-z_][A-Za-z0-9_]*')
-  (( _n == 1 )) || return 1
-  printf '%s\t%s' "${_name}" "${_slug}"
+# Herestrings are deleted first: `<<<'word'` otherwise reads as a heredoc
+# opened on `word`, and the walk would then swallow the rest of the file
+# looking for a terminator that never comes.
+_gwa_heredoc_open() {
+  local _l="${1//<<</ }" _d _q=0
+  [[ "${_l}" =~ \<\<-?[[:space:]]*(\'[A-Za-z_][A-Za-z0-9_]*\'|\"[A-Za-z_][A-Za-z0-9_]*\"|[A-Za-z_][A-Za-z0-9_]*) ]] || return 1
+  _d="${BASH_REMATCH[1]}"
+  case "${_d}" in
+    \'*\'|\"*\") _q=1 ;;
+  esac
+  _d="${_d//\'/}"
+  _d="${_d//\"/}"
+  printf '%s\t%s' "${_q}" "${_d}"
 }
 
-# _gwa_assign_files <name> -- every `*.sh` under REPO_ROOT that assigns
-# <name>, as repo-relative paths. A pre-filter for _gwa_tree_literal so the
-# scan reads only files that mention the name at all.
-_gwa_assign_files() {
-  local _name="${1}" _p
-  local -a _prune=()
-  for _p in "${_GWA_SCAN_PRUNE[@]}"; do
-    _prune+=("--exclude-dir=${_p}")
-  done
-  local _out _status=0
-  _out="$(grep -rlE --include='*.sh' "${_prune[@]}" \
-    "(^|[[:space:]])${_name}[+]?=" "${REPO_ROOT}")" || _status=$?
-  if (( _status > 1 )); then
-    return "${_status}"
-  fi
-  [[ -n "${_out}" ]] || return 0
-  printf '%s\n' "${_out}" | sed "s|^${REPO_ROOT}/||"
-}
-
-# _gwa_tree_literal <name> -- the one literal every assignment of <name>
-# anywhere in this tree agrees on; non-zero when they do not agree, when
-# one of them is not static, or when none of them is at file scope.
+# _gwa_use_expands <file> <lineno> -- false when line <lineno> of <file>
+# sits inside a heredoc opened with a QUOTED delimiter, true otherwise.
 #
-# This is a different question from _gwa_var_literal's, and the difference
-# is why crossing files is sound here and not there. _gwa_var_literal asks
-# "what does this name hold at THIS line", which a value assigned in
-# another file cannot answer without guessing what is in scope. This asks
-# "is there ANY assignment in the tree under which this name is not the
-# constant it claims to be" -- a question every assignment contributes to,
-# and one that a disagreement, a runtime value, or a name only ever
-# declared inside some function all answer with "yes, refuse".
-_gwa_tree_literal() {
-  local _name="${1}" _file _lineno _nm _usable _rhs _lit
-  local _n=0 _usable_seen=0 _found=''
-  while IFS= read -r _file; do
-    while IFS=$'\t' read -r _lineno _nm _usable _rhs; do
-      _n=$(( _n + 1 ))
-      _lit="$(_gwa_static_literal "${_rhs}")" || return 1
-      if (( _n == 1 )); then
-        _found="${_lit}"
-      elif [[ "${_found}" != "${_lit}" ]]; then
-        return 1
+# The registry says what a variable holds. It cannot say whether the
+# generator interpolates it HERE, and that is a property of the use site:
+# `<<'YAML'` turns expansion off, so `${NAME}` reaches the generated
+# workflow as those characters. Resolving such a line compares a value the
+# generator provably never writes -- and reports lockstep.
+#
+# The test is one-sided on purpose. What is refused is what can be SHOWN
+# not to expand; a line in no heredoc at all is treated as expanding,
+# because proving the converse would mean modelling every quoting context
+# a `uses:` value can be written in, and being wrong there fails a lint on
+# a ref that is genuinely in lockstep.
+_gwa_use_expands() {
+  local _file="${1}" _want="${2}"
+  [[ -f "${_file}" ]] || return 0
+  local _lineno=0 _delim='' _quoted=0 _line _open
+  while IFS= read -r _line || [[ -n "${_line}" ]]; do
+    _lineno=$(( _lineno + 1 ))
+    if (( _lineno == _want )); then
+      [[ -n "${_delim}" ]] && (( _quoted )) && return 1
+      return 0
+    fi
+    if [[ -n "${_delim}" ]]; then
+      if [[ "${_line}" =~ ^[[:space:]]*"${_delim}"[[:space:]]*$ ]]; then
+        _delim=''
+        _quoted=0
       fi
-      (( _usable == 1 )) && _usable_seen=1
-    done < <(_gwa_scan_assignments "${REPO_ROOT}/${_file}" "${_name}")
-  done < <(_gwa_assign_files "${_name}")
-  (( _n > 0 && _usable_seen == 1 )) || return 1
-  printf '%s' "${_found}"
+      continue
+    fi
+    _gwa_is_comment "${_line}" && continue
+    if _open="$(_gwa_heredoc_open "${_line}")"; then
+      _quoted="${_open%%$'\t'*}"
+      _delim="${_open#*$'\t'}"
+    fi
+  done < "${_file}"
+  return 0
+}
+
+# ── This repo's own name, and the calls home it excludes ────────────────
+
+# _gwa_repo_slug -- this repo's own `<owner>/<repo>`, read by SOURCING the
+# one file that declares it; non-zero when that file does not yield a
+# slug-shaped value.
+#
+# Sourced rather than pattern-matched. The file is a two-assignment
+# constants file that upgrade.sh, init.sh and check-base-version.sh all
+# source and read `BASE_UPSTREAM_SLUG` out of, so asking it the same way
+# they do is exact where a text scan was a heuristic -- and it is the
+# heuristic, not the value, that this change is retiring. A repo RENAME
+# moves the value and this follows it; a file that stops defining the name
+# yields nothing, which switches the exclusion that depends on it OFF, so
+# every call home becomes a finding rather than every call being exempt.
+#
+# In a subshell, with the guard variable cleared, so a caller that has
+# already sourced it still gets this file's answer and not a stale one --
+# and so sourcing has no effect on the lint's own shell.
+_gwa_repo_slug() {
+  local _upstream="${REPO_ROOT}/${_GWA_UPSTREAM_REL}" _slug
+  [[ -f "${_upstream}" ]] || return 1
+  _slug="$(
+    unset _BASE_UPSTREAM_SOURCED "${_GWA_SLUG_VAR}"
+    # shellcheck source=dist/script/base/upstream.sh
+    source "${_upstream}" >/dev/null 2>&1 || exit 1
+    printf '%s' "${!_GWA_SLUG_VAR:-}"
+  )" || return 1
+  [[ "${_slug}" =~ ${_GWA_SLUG_RE} ]] || return 1
+  printf '%s' "${_slug}"
 }
 
 # _gwa_owner_is_self <owner> -- true when the `<owner>/<repo>` half of a
 # reusable-workflow callee names THIS repo.
 #
-# Two spellings, and no third. The slug written out, which is compared
-# against the one derived from the tree; or the very variable the tree
-# declares that slug in, which init.sh has to use because the value it
-# needs lives in a file it sources at runtime and cannot be spelled inline.
-# The variable is accepted only after _gwa_tree_literal confirms that no
-# assignment anywhere in the tree gives that name a different value, so
-# `${SOMEBODY_ELSE}` -- a name the tree never assigns -- is not a stand-in
-# for us, and neither is our own name if some other file reassigns it.
+# Two spellings, and no third. The slug written out, compared against the
+# one the upstream file yields; or the very variable that file declares it
+# in, which init.sh has to use because the value it needs lives in a file
+# it sources at runtime and cannot be spelled inline. `${SOMEBODY_ELSE}`
+# is not a stand-in for us: an unresolved variable that is not that name
+# is not this repo, and the tree never says it is.
 _gwa_owner_is_self() {
-  local _owner="${1}" _pair _name _slug _tree
-  _pair="$(_gwa_repo_slug)" || return 1
-  _name="${_pair%%$'\t'*}"
-  _slug="${_pair#*$'\t'}"
+  local _owner="${1}" _slug
+  _slug="$(_gwa_repo_slug)" || return 1
   [[ "${_owner}" == "${_slug}" ]] && return 0
-  [[ "${_owner}" == "\${${_name}}" || "${_owner}" == "\$${_name}" ]] || return 1
-  _tree="$(_gwa_tree_literal "${_name}")" || return 1
-  [[ "${_tree}" == "${_slug}" ]]
+  [[ "${_owner}" == "\${${_GWA_SLUG_VAR}}" \
+     || "${_owner}" == "\$${_GWA_SLUG_VAR}" ]]
 }
 
 # _gwa_ships_workflow <value> -- true when <value> calls a reusable
 # workflow THIS repo ships, whatever its ref looks like.
 #
-# Both halves of the callee are read, and both are derived from the tree.
-# The FILE half has to name a workflow present under `.github/workflows/`
-# here, as one path segment -- `<owner>/<repo>/.github/workflows/<file>` is
-# the only shape GitHub accepts, so a deeper path is not this call at all.
-# The OWNER half has to name this repo. Keying on the file alone was a hole
-# exactly the width of the basenames this repo happens to ship: nine
-# generic names, several of them ones anybody would pick, and a call to
-# somebody else's `build-worker.yaml` was exempted because ours is spelled
-# the same. The reason for the exclusion -- upgrade.sh rewrites
-# `<worker>.yaml@vX.Y.Z` in every downstream main.yaml on every upgrade, so
-# the ref has an owner -- only holds when that owner is us.
+# Both halves of the callee are read. The FILE half has to name a workflow
+# present under `.github/workflows/` here, as one path segment --
+# `<owner>/<repo>/.github/workflows/<file>` is the only shape GitHub
+# accepts, so a deeper path is not this call at all. The OWNER half has to
+# name this repo. Keying on the file alone was a hole exactly the width of
+# the basenames this repo happens to ship: nine generic names, several of
+# them ones anybody would pick, and a call to somebody else's
+# `build-worker.yaml` was exempted because ours is spelled the same. The
+# reason for the exclusion -- upgrade.sh rewrites `<worker>.yaml@vX.Y.Z`
+# in every downstream main.yaml on every upgrade, so the ref has an owner
+# -- only holds when that owner is us.
 _gwa_ships_workflow() {
   local _callee="${1%%@*}" _owner _base
   [[ "${_callee}" == */.github/workflows/* ]] || return 1
@@ -595,57 +565,16 @@ _gwa_classify() {
   # subtree version, rewritten by upgrade.sh on every upgrade, and not a
   # marketplace action this repo also calls by ref.
   _gwa_ships_workflow "${_v}" && return 1
-  # One static indirection is read, not excluded. Everything the resolver
-  # declines is a finding -- see _gwa_var_literal for what each shape is
-  # and why refusing is the direction that keeps the hole visible.
   if [[ "${_v}" == *'$'* ]]; then
-    _v="$(_gwa_resolve "${_v}" "${_file}" "${_lineno}")" || return 2
+    # A quoted heredoc writes the reference out verbatim, so there is no
+    # ref here to be in lockstep with anything.
+    if [[ -n "${_file}" ]] && ! _gwa_use_expands "${_file}" "${_lineno}"; then
+      return 2
+    fi
+    _v="$(_gwa_resolve "${_v}")" || return 2
   fi
-  [[ "${_v}" =~ ${_GWA_ACTION_RE} ]] || return 2
+  [[ "${_v}" =~ ${_PIN_ACTION_REF_RE} ]] || return 2
   printf '%s\t%s' "${BASH_REMATCH[1]}" "${BASH_REMATCH[3]}"
-}
-
-# _gwa_hits <glob> -- every candidate line under REPO_ROOT in files
-# matching <glob>, as `<relative-path>:<lineno>:<content>`.
-#
-# grep pre-filters so only files that mention `uses:` are read at all;
-# without it this walks every line of every script in the tree on each
-# lint run. A tree with no match is not an error here -- the callers
-# decide what an empty result means, and they mean different things.
-_gwa_hits() {
-  local _glob="${1}" _dir="${2}" _p
-  [[ -d "${_dir}" ]] || return 0
-  local -a _prune=()
-  for _p in "${_GWA_SCAN_PRUNE[@]}"; do
-    _prune+=("--exclude-dir=${_p}")
-  done
-  # grep exits 1 for "matched nothing", which is an ordinary answer here --
-  # this repo has no `.yml` workflow, so the `.yml` pass always takes it.
-  # Under the dispatcher's `pipefail` + ERR trap that ordinary answer was
-  # logged as `ci_lint_driver_failed ... stopped at sed, status 1` on every
-  # run, INCLUDING a green one: an ERROR line in a passing log, naming this
-  # driver as having stopped when it had not. Exit 2 and above is a real
-  # grep failure and still propagates, so tolerating no-match does not
-  # turn a broken scan into a silent pass.
-  local _out _status=0
-  _out="$(grep -rn --include="${_glob}" "${_prune[@]}" \
-    -E 'uses:[[:space:]]' "${_dir}")" || _status=$?
-  if (( _status > 1 )); then
-    return "${_status}"
-  fi
-  [[ -n "${_out}" ]] || return 0
-  printf '%s\n' "${_out}" | sed "s|^${REPO_ROOT}/||"
-}
-
-# _gwa_split <hit> -- set _GWA_FILE / _GWA_LINENO / _GWA_TEXT from one
-# `<path>:<lineno>:<content>` record. Split by hand rather than by IFS
-# because the content half routinely contains colons of its own.
-_gwa_split() {
-  local _hit="${1}" _rest
-  _GWA_FILE="${_hit%%:*}"
-  _rest="${_hit#*:}"
-  _GWA_LINENO="${_rest%%:*}"
-  _GWA_TEXT="${_rest#*:}"
 }
 
 # _gwa_workflow_refs -- `<action>\t<ref>` for every literal `uses:` this
@@ -668,13 +597,12 @@ _gwa_workflow_refs() {
     _pair="$(_gwa_classify "${_value}" "${REPO_ROOT}/${_GWA_FILE}" \
       "${_GWA_LINENO}")" || continue
     printf '%s\n' "${_pair}"
-  done < <(_gwa_hits '*.yaml' "${REPO_ROOT}/${_GWA_WORKFLOW_DIR_REL}"
-           _gwa_hits '*.yml' "${REPO_ROOT}/${_GWA_WORKFLOW_DIR_REL}")
+  done < <(_gwa_hits 'dependabot')
 }
 
-# _gwa_generated_refs -- one record per `uses:` written by a shell script,
-# i.e. every ref that ends up in a workflow dependabot will never read
-# here. Two record shapes:
+# _gwa_generated_refs -- one record per `uses:` written outside
+# dependabot's scope, i.e. every ref that ends up in a workflow dependabot
+# will never read here. Two record shapes:
 #
 #   <file>\t<lineno>\t<action>\t<ref>   a ref to compare
 #   <file>\t<lineno>\t\t<value>         a value nothing could read
@@ -696,12 +624,23 @@ _gwa_generated_refs() {
     elif (( _status > 1 )); then
       printf '%s\t%s\t\t%s\n' "${_GWA_FILE}" "${_GWA_LINENO}" "${_value}"
     fi
-  done < <(_gwa_hits '*.sh' "${REPO_ROOT}")
+  done < <(_gwa_hits 'generated')
 }
 
 # _run_generated_workflow_actions -- the lint.
 _run_generated_workflow_actions() {
   echo "--- Running generated-workflow action ref lockstep lint ---"
+
+  if ! _gwa_load_files; then
+    _die ci_generated_workflow_actions \
+      "the walk yielded no scannable file at all under ${REPO_ROOT} -- nothing was read, so this lint would pass vacuously. script/watch/lib.sh's prune list and exempt shapes, not the tree, are what to look at."
+    return 1
+  fi
+  if ! _gwa_load_registry; then
+    _die ci_generated_workflow_actions \
+      "the tool-pin markers did not parse (the registry's complaint is above), so no generated ref could be resolved against a declared value. Every interpolated ref would be reported as unreadable, which is a sentence about the wrong defect -- so this stops here instead. The pin-coverage lint owns the marker grammar."
+    return 1
+  fi
 
   local -A _own=()
   local _action _ref
@@ -720,11 +659,11 @@ _run_generated_workflow_actions() {
   # is defined by an EMPTY action field. Under that reader the raw value
   # slid into the action column, the `[[ -z "${_action}" ]]` branch below
   # never ran, and the finding came out as a sentence about a different
-  # defect: `uses: actions/checkout` (no ref) was reported as
-  # `actions/checkout@` disagreeing with the workflows, which is false
-  # about a tree that does use that action. Splitting by hand also makes
-  # the last field the whole remainder, so a tab inside a raw value
-  # shifts nothing -- what the record shape already promised.
+  # defect: an action named with no ref was reported as `actions/checkout@`
+  # disagreeing with the workflows, which is false about a tree that does
+  # use that action. Splitting by hand also makes the last field the whole
+  # remainder, so a tab inside a raw value shifts nothing -- what the
+  # record shape already promised.
   while IFS= read -r _record; do
     _file="${_record%%$'\t'*}"
     _rest="${_record#*$'\t'}"
@@ -739,10 +678,10 @@ _run_generated_workflow_actions() {
     if [[ -z "${_action}" ]]; then
       [[ -n "${_ref}" ]] || continue
       # The value is printed bare, with no `uses:` prefix. This driver is
-      # a `*.sh` under REPO_ROOT and so is scanned by its own walk: a
-      # literal `uses: ` in an emitted message is read as a generated ref
-      # on the next run, and the lint fails on its own error text.
-      printf '%s:%s: %s -- not a versioned action reference, and not one of the documented exclusions (a local ./ callee, a docker:// image, a call to a reusable workflow this repo ships, from this repo, by its own name). A variable is read only where the same file assigns it exactly once, above the use, at file scope, as a single-quoted literal; assigned twice, assigned below the use, assigned inside a function body or with local/declare/typeset, indented, appended to, double-quoted, taken from a command substitution or another variable, or declared in another file, it is not static and lands here. This lint cannot say whether that is in lockstep, so it refuses rather than skipping it: spell it <owner>/<repo>[/<path>]@<ref>, hoist it into one single-quoted assignment in the same file, or add the exclusion to _gwa_classify with the reason it is not a pin.\n' \
+      # itself one of the files the walk reads: a `uses:` followed by a
+      # space in an emitted message is read as a generated ref on the next
+      # run, and the lint fails on its own error text.
+      printf '%s:%s: %s -- not a versioned action reference, and not one of the documented exclusions (a local ./ callee, a docker:// image, a call to a reusable workflow this repo ships, from this repo, by its own name). A variable is read only where the pin registry DECLARES its value: a tool-pin: marker on the assignment that gives it that value. Undeclared, declared at two sites that disagree, holding a value that is itself interpolated, or written into a quoted heredoc that expands nothing, it lands here. This lint cannot say whether that is in lockstep, so it refuses rather than skipping it: spell it <owner>/<repo>[/<path>]@<ref>, or hoist it into an assignment and put a tool-pin: marker on that line -- which is what makes the ref watched as well as checked.\n' \
         "${_file}" "${_lineno}" "${_ref}"
       _violations=$(( _violations + 1 ))
       continue

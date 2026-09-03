@@ -76,16 +76,15 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   whole workflows tree. The `-ignore` workaround stays --
   `github.job_workflow_sha` is still missing from actionlint's github-context
   type at 1.7.12.
-- **`generated-workflow-actions` reads a generated ref through one static
-  indirection instead of dropping it (refs #950)** -- the lint excluded any
-  `uses:` value carrying a `$`, so hoisting init.sh's `actions/checkout` ref
-  into a `readonly` literal emptied its population and it refused. A variable
-  is now resolved where the same file assigns it exactly once, above the use
-  and at file scope, as a single-quoted literal; every other shape is a
-  FINDING with its raw value, never an exclusion. The blanket interpolation
-  exclusion is replaced by a narrower one read off the tree: a call to a
-  reusable workflow this repo ships, whose `<owner>/<repo>` half is this
-  repo's own slug.
+- **`generated-workflow-actions` resolves a generated ref from the pin
+  registry instead of scanning for it (refs #950, #987)** -- the lint decided
+  which assignment was live: file scope, unconditional, column 0, not
+  `local`. Four shapes fooled that and every one failed OPEN -- a `{` at
+  column 0, `for((i=0;...))`, `if<TAB>`, and a quoted heredoc, which expands
+  nothing, so the lint compared a value the generator never writes. A
+  variable is now read only where a `tool-pin:` marker DECLARES its value,
+  and the population is the pin registry's walk rather than `*.sh`. Hoisting
+  a ref out of a heredoc needs a marker, which is what watches it.
 
 ### Added
 - **`init.sh --list-installed-paths`: the installer now states which files it puts into a consumer (refs #927)** -- `.base` files reach a repo only through an upgrade's resync, so "which release is this repo on" was answerable while "did that release's files actually arrive" was not; the base-version monitor sat at zero adoption, unreported, for months. The manifest is read from init.sh instead of copied, and an integration spec diffs it against a real resync in both directions -- which immediately caught `.setup.conf` missing from the first draft. Affects anyone auditing `.base` delivery across repos.
@@ -96,7 +95,7 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 
 - **an upstream-release watch: it proposes a bump, CI proves it, and it stops there (refs #946, #947, #950)** -- every third-party version this repo names that dependabot cannot see now carries a `tool-pin:` marker naming its upstream, and a weekly workflow compares each one and opens ONE proposal per drifted tool. It never merges and never arms auto-merge. The proposal is opened with a credential that is NOT `GITHUB_TOKEN`: GitHub starts no CI run for an event that token raised, and a proposal with no checks reads as nothing-is-wrong. An unreachable upstream -- or a pin table that will not parse, or that names no pin at all -- FAILS the run rather than reading as a clean week.
 
-- **`pin-coverage`: a version added with nothing watching it fails the lint (refs #950)** -- the watch's table is derived from the declaration sites rather than a roster, which opens the mirror failure: a pin with no marker is absent from it. The lint walks the whole repository minus prose and `.bats` fixtures, and recognises an image reference at a version tag wherever it is written, an assignment whose value is a version whatever its keyword, and a dotless tag such as `v43`. Its prune list is checked at every depth the prune matches, and where git cannot answer the verdict is carried in rather than skipped. Affects anyone adding a pinned tool: `just test` fails until it is declared.
+- **`pin-coverage`: a version added with nothing watching it fails the lint (refs #950)** -- the watch's table is derived from the declaration sites, which opens the mirror failure: a pin with no marker is absent from it. It walks the whole repository minus prose and `.bats` fixtures, and recognises an image reference at a version tag wherever it is written, and an assignment whose value is a version whatever its keyword -- or an action ref (`actions/checkout@v7`), the shape its own hoist advice produces. Its prune list is checked at every depth it matches, and where git cannot answer the verdict is carried in. Affects anyone adding a pinned tool: `just test` fails until it is declared.
 
 - **`just` is installed from a pinned upstream release, and CI installs the same number (refs #948)** -- the test-tools image `apk add`ed it unversioned (1.37.0), the e2e job's `setup-just` carried no `just-version` and installed whatever released that day, and the README's apt hint points at 1.21.0: four paths presented as interchangeable, 37 minors apart, with nothing comparing any pair. The image now downloads the pinned release the way shellcheck and hadolint already are, and the workflow READS that pin (`pins.sh --value just`) instead of repeating it, so one number moves both.
 - **`arch-literal`: a shipped Dockerfile may not write an architecture into a
