@@ -137,7 +137,7 @@ flowchart LR
     release_worker -->|"tar.gz + zip"| release["GitHub Release"]
 ```
 
-<!-- sync: whats-included c1ac0bade5d6 a8d85c789c8d -->
+<!-- sync: whats-included 26ac98cd01c1 af5052d5456f -->
 ### 包含内容
 
 | 文件 | 说明 |
@@ -162,10 +162,11 @@ flowchart LR
 | `dist/script/docker/lib/config_summary.sh` | runtime 配置摘要 |
 | `dist/script/docker/lib/_tui_backend.sh` | TUI 用的 dialog / whiptail 包装函数 |
 | `dist/script/docker/lib/_tui_conf.sh` | TUI 的 INI validator + 读写逻辑 |
-| `dist/script/docker/runtime/entrypoint.sh` | 模板 entrypoint helper |
 | `dist/script/docker/runtime/logging.sh` | host 端 log tee helper（per-start 文件 + 稳定 symlink） |
 | `dist/script/docker/runtime/logrotate.sh` | 共用 rotate/symlink/prune primitives（tee + transcript 共用） |
-| `dist/script/docker/runtime/smoke.sh` | runtime 安装检查 smoke |
+| `dist/script/docker/runtime/watchdog.sh` | 通用单服务 watchdog（重启 + 可插拔健康检查） |
+| `dist/dockerfile/entrypoint.sh` | 模板 entrypoint，创建新 repo 时 seed 成 `script/entrypoint.sh` |
+| `dist/test/bats/smoke/smoke.sh` | runtime 安装检查 smoke（ldd 缺依赖扫描） |
 | `script/test/test.sh` | base 自测调度器（本地 + container 内） |
 | `script/test/drivers/` | 每个工具一个 driver — `bats.sh` / `shellcheck.sh` / `hadolint.sh` |
 | `script/test/lint_bare_stderr.sh` | Bare stderr lint 检查器 |

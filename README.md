@@ -161,8 +161,9 @@ flowchart LR
 | `dist/script/docker/lib/_tui_conf.sh` | INI validators + read/write for `setup_tui.sh` and `setup.sh` writeback |
 | `dist/script/docker/runtime/logging.sh` | Host-side log tee helper (per-start file + stable symlink) |
 | `dist/script/docker/runtime/logrotate.sh` | Shared rotate/symlink/prune primitives (tee + transcript) |
-| `dist/script/docker/runtime/smoke.sh` | Runtime install-check smoke |
-| `dist/script/docker/runtime/entrypoint.sh` | Template entrypoint helper |
+| `dist/script/docker/runtime/watchdog.sh` | Generic single-service watchdog (restart + pluggable health check) |
+| `dist/dockerfile/entrypoint.sh` | Template entrypoint, seeded into a new repo as `script/entrypoint.sh` |
+| `dist/test/bats/smoke/smoke.sh` | Runtime install-check smoke (ldd missing-dep scan) |
 | `script/test/test.sh` | base self-test dispatcher (local + in-container) |
 | `script/test/drivers/` | One driver per tool — `bats.sh` / `shellcheck.sh` / `hadolint.sh` |
 | `script/test/lint_bare_stderr.sh` | Bare stderr lint checker |

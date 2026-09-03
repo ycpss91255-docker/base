@@ -141,7 +141,7 @@ flowchart LR
     release_worker -->|"tar.gz + zip"| release["GitHub Release"]
 ```
 
-<!-- sync: whats-included c1ac0bade5d6 84277f1bc8c7 -->
+<!-- sync: whats-included 26ac98cd01c1 77aba870a522 -->
 ### 含まれるもの
 
 | ファイル | 説明 |
@@ -168,8 +168,9 @@ flowchart LR
 | `dist/script/docker/lib/_tui_conf.sh` | INI バリデータ + 読み書き（`setup_tui.sh` と `setup.sh` の書き戻し用） |
 | `dist/script/docker/runtime/logging.sh` | host 側ログ tee helper（per-start ファイル + 安定 symlink） |
 | `dist/script/docker/runtime/logrotate.sh` | 共有 rotate/symlink/prune primitives（tee + transcript 共有） |
-| `dist/script/docker/runtime/smoke.sh` | runtime install-check smoke |
-| `dist/script/docker/runtime/entrypoint.sh` | テンプレート entrypoint helper |
+| `dist/script/docker/runtime/watchdog.sh` | 汎用シングルサービス watchdog（再起動 + プラガブルなヘルスチェック） |
+| `dist/dockerfile/entrypoint.sh` | テンプレート entrypoint、新規 repo 作成時に `script/entrypoint.sh` として seed |
+| `dist/test/bats/smoke/smoke.sh` | runtime install-check smoke（ldd 依存欠落スキャン） |
 | `config/` | コンテナ内部のシェル設定ファイル（bashrc、tmux、terminator、pip） |
 | `.setup.conf` | 単一の repo ランタイム設定（image / build / deploy / gui / network / volumes） |
 | `dist/test/bats/smoke/` | 共有 smoke テスト + runtime assertion helpers（下記参照） |
