@@ -18,6 +18,18 @@
 # satisfied if it resolves at the repo root, under `dist/` (the shipped
 # consumer payload) or under `script/` (base's own wrapper copies), and a
 # row that resolves nowhere is a stale path.
+#
+# why: The "What's included" table in `README.md` is a file INDEX, so every
+# row names a real path -- and nothing checked that (#957). Item 3 of that
+# issue was one such row: it still called the per-repo runtime config
+# `setup.conf` long after the rename to `.setup.conf`, and the stale-path
+# lint that would normally catch it
+# (`script/test/drivers/stale_setup_conf.sh`) scans `dist/**/*.sh` only, so
+# the row could be edited back to the old name with the suite green. Rows
+# mix two vantage points on purpose -- base-relative paths and
+# CONSUMER-relative ones (`build.sh`, `.setup.conf`, `config/`, what a
+# downstream repo sees once init.sh has run) -- so a row counts as resolved
+# under the repo root, `dist/` or `script/`.
 
 bats_require_minimum_version 1.5.0
 
@@ -56,12 +68,16 @@ _unresolvable_file_table_paths() {
   done < <(_file_table_paths)
 }
 
+# why: Every row resolves under one of the three roots; a stale path is
+# reported by name
 @test "README file table: every row names a path that exists (#957)" {
   run _unresolvable_file_table_paths
   assert_success
   assert_output ''
 }
 
+# why: Floor on the row count, so a renamed heading cannot silence the check
+# above
 @test "README file table: the scan actually finds the rows (#957)" {
   # The guard above is vacuous the moment the extractor matches nothing --
   # a renamed heading or a reformatted table would silence it while

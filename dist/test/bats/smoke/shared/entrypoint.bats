@@ -34,6 +34,22 @@
 #
 # Loaded together with the shared test_helper.bash (both live under
 # smoke/shared/ and are COPYed into /smoke_test/ by each `-test` stage).
+#
+# why: The cross-stage baseline that runs inside every `-test` stage
+# (devel-test and runtime-test). Asserts only the universal surface — both
+# halves of the installed entry point (ADR-00000030) and bash on PATH — so
+# it never touches `/lint` (populated only in devel-test).
+#
+# The orchestrator half skips (rather than fails) on an image whose
+# `/entrypoint.sh` still execs, i.e. one running the pre-ADR-00000030
+# single-file model. This file reaches a consumer through `.base/dist/`,
+# which `just upgrade` refreshes, while the Dockerfile that installs the
+# orchestrator is the consumer's own — and on the optional runtime stage
+# that install is opt-in. Without the guard, a repo running the optional
+# runtime-test bats smoke would go red on the upgrade that delivers this
+# spec, over a model it has not adopted. The guard is narrow: once the
+# bringup stops execing, the repo has adopted the model and a missing
+# orchestrator is a container that will not start, so it fails.
 
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
@@ -42,6 +58,12 @@ setup() {
 BRINGUP="/entrypoint.sh"
 ORCHESTRATOR="/usr/local/lib/base/entrypoint.sh"
 
+# why: The half the container actually starts (ADR-00000030). Without this
+# the runtime-directory COPY that installs the orchestrator is pinned by
+# nothing, so dropping it gives a green build and a container that will not
+# start. Guarded, not unconditional: an image whose bringup still execs is
+# its own ENTRYPOINT and has adopted nothing, and failing it there would
+# break the promise that this release leaves an existing repo unchanged.
 @test "the base entrypoint orchestrator is installed and executable" {
   if entrypoint_is_single_file "${BRINGUP}"; then
     skip "image predates ADR-00000030: ${BRINGUP} still execs, so it is the ENTRYPOINT (migrate: README, Container entrypoint)"
@@ -50,11 +72,14 @@ ORCHESTRATOR="/usr/local/lib/base/entrypoint.sh"
   assert [ -x "${ORCHESTRATOR}" ]
 }
 
+# why: Entrypoint present -- the repo-owned bringup half, which every image
+# carries whichever entry-point model it is on.
 @test "entrypoint.sh is installed and executable" {
   assert_file_exists "${BRINGUP}"
   assert [ -x "${BRINGUP}" ]
 }
 
+# why: Core shell present
 @test "bash is available on PATH" {
   assert_cmd_installed bash
 }

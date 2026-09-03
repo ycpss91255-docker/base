@@ -9,11 +9,13 @@ setup() {
 # Function definitions
 # ════════════════════════════════════════════════════════════════════
 
+# why: Function definition
 @test "defines alias_func" {
   run grep -q "^alias_func()" "${RC}"
   assert_success
 }
 
+# why: Function definition
 @test "defines color_git_branch" {
   run grep -q "^color_git_branch()" "${RC}"
   assert_success
@@ -23,11 +25,13 @@ setup() {
 # Aliases
 # ════════════════════════════════════════════════════════════════════
 
+# why: Alias definition
 @test "defines ebc alias" {
   run grep -q "alias ebc=" "${RC}"
   assert_success
 }
 
+# why: Alias definition
 @test "defines sbc alias" {
   run grep -q "alias sbc=" "${RC}"
   assert_success
@@ -37,11 +41,13 @@ setup() {
 # Functions are called at the bottom
 # ════════════════════════════════════════════════════════════════════
 
+# why: Function call
 @test "alias_func is called" {
   run grep -qE "^alias_func[[:space:]]*$" "${RC}"
   assert_success
 }
 
+# why: Function call
 @test "color_git_branch is called" {
   run grep -qE "^color_git_branch[[:space:]]*$" "${RC}"
   assert_success
@@ -51,6 +57,7 @@ setup() {
 # Key content
 # ════════════════════════════════════════════════════════════════════
 
+# why: PS1 setting
 @test "color_git_branch sets PS1" {
   run grep -q "PS1=" "${RC}"
   assert_success
@@ -96,10 +103,12 @@ setup() {
 
 HG="/source/dist/config/shell/bashrc.d/30-name-host-groups.sh"
 
+# why: #589 drop-in shipped
 @test "host-group drop-in exists" {
   assert [ -f "${HG}" ]
 }
 
+# why: #589 structure
 @test "host-group drop-in defines name_host_groups and invokes it only when interactive" {
   run grep -qE '^name_host_groups\(\)' "${HG}"
   assert_success
@@ -110,6 +119,7 @@ HG="/source/dist/config/shell/bashrc.d/30-name-host-groups.sh"
   assert_success
 }
 
+# why: #589 mechanism
 @test "host-group drop-in uses getent + sudo groupadd" {
   run grep -qF 'getent group' "${HG}"
   assert_success
@@ -117,6 +127,7 @@ HG="/source/dist/config/shell/bashrc.d/30-name-host-groups.sh"
   assert_success
 }
 
+# why: #589 behaviour (mocked)
 @test "name_host_groups: a nameless gid triggers sudo groupadd hostgrp<gid>" {
   create_mock_dir
   mock_cmd "id" 'echo 44'
@@ -133,6 +144,7 @@ HG="/source/dist/config/shell/bashrc.d/30-name-host-groups.sh"
   cleanup_mock_dir
 }
 
+# why: #589 idempotent skip (mocked)
 @test "name_host_groups: a named gid does not trigger groupadd" {
   create_mock_dir
   mock_cmd "id" 'echo 1000'

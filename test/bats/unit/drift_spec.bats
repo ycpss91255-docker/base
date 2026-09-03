@@ -1,4 +1,8 @@
 #!/usr/bin/env bats
+#
+# why: Mirrors `lib/drift.sh`. `_check_setup_drift` no-op / silent /
+# non-zero paths when the conf hash or GPU detection changes against a
+# cached `.env`.
 
 bats_require_minimum_version 1.5.0
 

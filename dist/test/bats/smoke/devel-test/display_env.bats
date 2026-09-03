@@ -18,6 +18,14 @@
 # What remains is what this stage can genuinely execute: the wrapper's
 # xhost host-ACL branch, driven for real via run_wrapper_xhost (shared
 # test_helper) rather than re-stated inline and asserted against itself.
+#
+# why: Asserts the `xhost` host-ACL branch of the `run.sh` the stage
+# installs at `/lint/run.sh`, by **executing** it: `run_wrapper_xhost`
+# (shared `test_helper`) drives the real wrapper through `--dry-run` with a
+# logging `xhost` shim first on PATH and reports what it actually called.
+# Every assertion is two-sided (names what must appear AND what must not),
+# so a swapped branch fails on both arms; a deleted branch fails because the
+# driver refuses to report an empty capture. Never skips.
 
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
@@ -27,6 +35,7 @@ setup() {
 
 # -------------------- run.sh: xhost host-ACL branch --------------------
 
+# why: Wayland session grants `+SI:localuser:<USER_NAME>` and not `+local:`
 @test "run.sh grants the Wayland host ACL to the configured user" {
   run run_wrapper_xhost "${WRAPPER}" XDG_SESSION_TYPE=wayland
   assert_success
@@ -36,6 +45,7 @@ setup() {
   refute_output --partial "+local:"
 }
 
+# why: X11 session grants `+local:` and not `+SI:localuser`
 @test "run.sh grants the X11 host ACL under an X11 session" {
   run run_wrapper_xhost "${WRAPPER}" XDG_SESSION_TYPE=x11
   assert_success
@@ -43,6 +53,7 @@ setup() {
   refute_output --partial "+SI:localuser"
 }
 
+# why: Unset session type falls back to the X11 grant
 @test "run.sh defaults to the X11 host ACL when XDG_SESSION_TYPE is unset" {
   run run_wrapper_xhost "${WRAPPER}"
   assert_success
@@ -50,6 +61,8 @@ setup() {
   refute_output --partial "+SI:localuser"
 }
 
+# why: Either/or branch: emitting both would leave the X11 ACL open on
+# Wayland
 @test "run.sh grants exactly one host ACL per invocation" {
   # The branch is an either/or. Emitting both grants would leave the X11
   # ACL wide open on a Wayland session while every per-branch assertion
@@ -59,6 +72,7 @@ setup() {
   assert_equal "${#lines[@]}" 1
 }
 
+# why: The grant names the configured host user, not a baked-in one
 @test "run.sh interpolates USER_NAME into the Wayland ACL, not a fixed name" {
   # `+SI:localuser:` names the host user the container is allowed to
   # impersonate. A hard-coded name would grant the wrong account.

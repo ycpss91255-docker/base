@@ -21,6 +21,14 @@
 # build.sh + setup.sh — unit tests cover each layer individually.
 #
 # Level-1 (file generation only) — docker is not invoked.
+#
+# why: End-to-end verification for the fresh-clone-on-a-different-machine
+# scenario: the consumer repo's `setup.conf` has already been committed by
+# another contributor and carries either a stale absolute `mount_1` path
+# (the Jetson bug) or the portable `${WS_PATH}` form. Runs the real
+# `build.sh` + `setup.sh` (no mocks) and asserts the auto-migration /
+# per-machine detection pipeline lands a valid `.env` + `compose.yaml`.
+# **Level 1** (no Docker invocation — `build.sh --dry-run`).
 
 setup() {
   export LOG_FORMAT=text
@@ -99,6 +107,7 @@ _seed_stale_setup_conf() {
   assert [ -f "${REPO_DIR}/compose.yaml" ]
 }
 
+# why: Happy path round-trip
 @test "fresh clone with portable \${WS_PATH} mount_1: no warning, .env gets local path" {
   # Same shape as above but with a repo whose committed setup.conf
   # already uses the portable form (the happy case after v0.9.4+).

@@ -6,6 +6,12 @@
 # this spec wires them through the user-facing entry points and proves
 # the v0.12.x → v0.12.4 batch upgrade will heal the 15-repo
 # tracked-compose.yaml drift in one shot, no separate sweep required.
+#
+# why: End-to-end coverage that wires `lib/gitignore.sh` through `init.sh`'s
+# new-repo + existing-repo paths and `upgrade.sh`'s commit step. Standalone
+# fixture (independent of `upgrade_spec.bats`'s stub-init fixture) because
+# gitignore sync requires the **real** `init.sh` to run during Step 3 of
+# `upgrade.sh`. Issue #172.
 
 bats_require_minimum_version 1.5.0
 
@@ -42,6 +48,7 @@ teardown() {
   done
 }
 
+# why: Marker comment present
 @test "init.sh new-repo: .gitignore has the 'managed by template' marker" {
   bash .base/dist/script/base/init.sh
   run grep -F 'managed by template' "${REPO_DIR}/.gitignore"
@@ -93,6 +100,7 @@ EOF
   git -C "${REPO_DIR}" commit -q -m "init"
 }
 
+# why: Drift fill-in
 @test "init.sh existing-repo: appends missing canonical entries to user .gitignore" {
   _seed_existing_repo
   bash .base/dist/script/base/init.sh
@@ -116,6 +124,7 @@ EOF
   assert_success
 }
 
+# why: 15-repo drift heal
 @test "init.sh existing-repo: untracks compose.yaml that was committed" {
   _seed_existing_repo
   # Sanity: compose.yaml is tracked before init.sh runs
@@ -131,6 +140,7 @@ EOF
   [[ -f "${REPO_DIR}/compose.yaml" ]]
 }
 
+# why: 2-file model: setup.conf is user override
 @test "init.sh existing-repo: setup.conf stays committed across init runs (#201)" {
   # <repo>/.setup.conf is the user's committed override.
   # init.sh must NOT untrack it on existing-repo init; .gitignore sync
@@ -159,6 +169,7 @@ EOF
   assert_failure
 }
 
+# why: Re-run no-op
 @test "init.sh existing-repo: idempotent — second run produces no .gitignore changes" {
   _seed_existing_repo
   bash .base/dist/script/base/init.sh
@@ -300,6 +311,7 @@ YAML
     "file://${TMPL_BARE}" v9.0.0 --squash
 }
 
+# why: One-shot upgrade
 @test "upgrade.sh end-to-end: synced .gitignore + untracked compose.yaml in single commit" {
   _seed_upgrade_fixture
   cd "${DOWN_DIR}"
@@ -333,6 +345,7 @@ YAML
   assert_success
 }
 
+# why: Re-upgrade clean
 @test "upgrade.sh end-to-end: idempotent on a second run — no extra commits" {
   _seed_upgrade_fixture
   cd "${DOWN_DIR}"

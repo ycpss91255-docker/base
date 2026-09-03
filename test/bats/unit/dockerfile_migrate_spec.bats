@@ -13,6 +13,17 @@
 # Apply policy (inherited from upgrade.sh's Step-5 convention):
 #   - detect matches a known shape  -> transform auto-applies, idempotent
 #   - structure absent / ambiguous  -> _log_warn + SKIP (never force-rewrite)
+#
+# why: Unit tests for the declarative Dockerfile-migration list
+# `lib/dockerfile_migrate.sh` (#567, folds #579 facet B). The lib exposes a
+# small interface — `apply_migrations <dockerfile>` — over an ordered,
+# data-driven `_MIGRATIONS` table of `{detect, transform}` units, each
+# healing one v0.41.0-fanout Dockerfile/entrypoint breakage. upgrade.sh Step
+# 5 sources the lib and calls the dispatcher (replacing the old one-off
+# seds). Each migration is driven in isolation via before/after fixtures
+# plus the dispatcher's apply / skip / idempotency contract: a detected
+# shape auto-applies idempotently, a missing/ambiguous shape is skipped
+# (warn, never force-rewrite).
 
 bats_require_minimum_version 1.5.0
 
@@ -63,17 +74,20 @@ _stage_template_tree() {
 
 # ── dispatcher contract: apply_migrations ───────────────────────────────────
 
+# why: Small interface exists
 @test "apply_migrations is the public dispatcher entry (#567)" {
   run bash -c "$(_src); declare -F apply_migrations"
   assert_success
 }
 
+# why: No-Dockerfile skip
 @test "apply_migrations skips cleanly when path does not exist (#567)" {
   run bash -c "$(_src); apply_migrations '${TEMP_DIR}/nope'"
   assert_success
   assert_output --partial "no Dockerfile"
 }
 
+# why: Data-driven table is seeded
 @test "_MIGRATIONS is a non-empty ordered list (#567)" {
   run bash -c "$(_src); printf '%s\n' \"\${_MIGRATIONS[@]}\""
   assert_success
@@ -1632,6 +1646,11 @@ EOF
 # orchestrator notice does not fire on an already-flipped Dockerfile, and
 # the bringup-residue notice does not fire on a correctly cleaned bringup.
 
+# why: The gap the branch's own README migration opens. Keying the guard
+# on an in-file `set -u` covers nothing here -- the bringup seeded before
+# this release has no `set` line at all, and the orchestrator imposes
+# nounset from outside it. This is the FAILS-at-HEAD case; without it the
+# migration stays silent on exactly the path base tells people to take
 @test "migration 8 (nounset-source): fires under the orchestrator when the bringup sets nothing (#945)" {
   mkdir -p "${TEMP_DIR}/script"
   printf 'ENTRYPOINT ["/usr/local/lib/base/entrypoint.sh"]\n' > "${DF}"
@@ -1645,6 +1664,10 @@ EOF
   assert_success
 }
 
+# why: Detecting is half of it; the write has to be correct for a file
+# that never set nounset itself. The trailing `set -u` must RESTORE the
+# mode the orchestrator was already in, which is checked by re-running
+# detect on the rewritten file rather than by eyeballing the diff
 @test "migration 8 (nounset-source): brackets that bringup's source, directive and all (#945)" {
   mkdir -p "${TEMP_DIR}/script"
   printf 'ENTRYPOINT ["/usr/local/lib/base/entrypoint.sh"]\n' > "${DF}"
@@ -1669,6 +1692,9 @@ EOF
   assert_failure
 }
 
+# why: Bounds the widened trigger. Now that an ENTRYPOINT can turn the
+# migration on, the obvious over-reach is firing on the ENTRYPOINT alone --
+# which would bracket nothing and warn on every orchestrator repo for ever
 @test "migration 8 (nounset-source): silent under the orchestrator with no ROS source (#945)" {
   # The trigger is the unguarded source, never the ENTRYPOINT on its own:
   # a bringup that sources nothing has nothing to bracket.
@@ -1682,6 +1708,10 @@ EOF
   assert_failure
 }
 
+# why: The direction that would do harm rather than nothing. Pre-flip the
+# repo's own file is the ENTRYPOINT and no nounset is in force, so writing
+# a trailing `set -u` would TURN IT ON for the rest of a file that never
+# asked -- a migration breaking the repo it was meant to protect
 @test "migration 8 (nounset-source): still silent pre-flip, where nothing imposes nounset (#945)" {
   # An un-migrated repo runs its own file as the ENTRYPOINT, under whatever
   # options that file sets -- none here. Inserting a trailing `set -u` would
@@ -1748,12 +1778,20 @@ EOF
   printf '#!/usr/bin/env bash\n%s\n' "$1" > "${TEMP_DIR}/script/entrypoint.sh"
 }
 
+# why: The positive case, on the shape every consumer repo is in today. A
+# detect that never fires is a migration nobody is told about, and the
+# adoption edits are the owner's to make
 @test "migration (entrypoint-orchestrator): notices a repo still running its own entrypoint (#945)" {
   _write_old_model_repo
   run bash -c "$(_src); _migrate_entrypoint_orchestrator_detect '${DF}'"
   assert_success
 }
 
+# why: The load-bearing claim of the whole release -- an existing repo
+# comes out of `just upgrade` byte-identical and goes on working. Only the
+# owner can tell a bringup line from base plumbing in a file hand-edited
+# for a year, so an apply that rewrote anything here would break repos base
+# cannot see. Both files are diffed, not just the Dockerfile
 @test "migration (entrypoint-orchestrator): the notice changes nothing on disk (#945)" {
   # The whole contract. A repo that has not migrated must come out of an
   # upgrade byte-identical -- Dockerfile AND bringup -- and go on working.
@@ -1767,12 +1805,19 @@ EOF
   diff "${TEMP_DIR}/script/entrypoint.sh" "${TEMP_DIR}/ep.orig"
 }
 
+# why: The notice has to stop. It runs on every `just upgrade` of every
+# repo, so one that kept firing after the migration is one readers learn to
+# ignore -- which costs the next migration its only channel
 @test "migration (entrypoint-orchestrator): silent once the ENTRYPOINT is the orchestrator (#945)" {
   _write_migrated_repo 'export MY_APP_HOME=/opt/app'
   run bash -c "$(_src); _migrate_entrypoint_orchestrator_detect '${DF}'"
   assert_failure
 }
 
+# why: Every repo generated from the shipped template carries a commented
+# runtime-stage ENTRYPOINT, so a detect that read comments would fire on
+# fully migrated repos for ever. The most likely wrong implementation is a
+# plain grep, and this is the case that separates it from a correct one
 @test "migration (entrypoint-orchestrator): a commented ENTRYPOINT is not the live model (#945)" {
   # The shipped Dockerfile carries a commented runtime-stage scaffold, and
   # so does every repo generated from it. A notice that read those would
@@ -1783,6 +1828,10 @@ EOF
   assert_failure
 }
 
+# why: A real repo in the org does this -- ros1_bridge's runtime stage runs
+# the upstream image's /ros_entrypoint.sh. Detecting "an ENTRYPOINT that is
+# not the orchestrator" instead of "the repo's own bringup" would nag that
+# repo on every upgrade about a migration it has already made
 @test "migration (entrypoint-orchestrator): an unrelated ENTRYPOINT is not this model (#945)" {
   # ros1_bridge's runtime stage runs the upstream image's
   # /ros_entrypoint.sh. Naming a different file is not being un-migrated.
@@ -1792,6 +1841,10 @@ EOF
   assert_failure
 }
 
+# why: The coupling between the two adoption edits, and the failure that
+# hides. The orchestrator SOURCES the bringup, so a surviving exec fires
+# mid-source: the watchdog never arms and the container looks healthy until
+# the day it needed restarting
 @test "migration (bringup-residue): notices an exec left in a migrated repo's bringup (#945)" {
   # The coupling the two edits have: the orchestrator SOURCES the bringup,
   # so a surviving exec fires mid-source, the watchdog never arms, and the
@@ -1804,6 +1857,10 @@ EOF
   assert_output --partial "exec"
 }
 
+# why: The quieter half of the same residue. Sourced twice, logging.sh
+# opens a SECOND per-start file and re-tees and watchdog.sh arms a second
+# supervisor -- neither of which fails a build or a start, so nothing but
+# this notice would ever surface it
 @test "migration (bringup-residue): notices a helper the orchestrator already sources (#945)" {
   # Sourced twice, logging.sh opens a SECOND per-start file and re-tees;
   # watchdog.sh arms a second supervisor.
@@ -1815,6 +1872,9 @@ EOF
   assert_output --partial "twice"
 }
 
+# why: The warn-only claim for the residue pair specifically. This one is
+# the more tempting to auto-fix -- deleting an exec line looks safe -- and
+# it is not: the line may be the repo's own workload launch
 @test "migration (bringup-residue): changes nothing on disk (#945)" {
   _write_migrated_repo 'exec "${@}"'
   cp "${DF}" "${TEMP_DIR}/Dockerfile.orig"
@@ -1825,6 +1885,10 @@ EOF
   diff "${TEMP_DIR}/script/entrypoint.sh" "${TEMP_DIR}/ep.orig"
 }
 
+# why: Pre-flip the exec is CORRECT and the helper sources are the
+# documented wiring, so this notice must be gated on the OTHER migration
+# having happened. Ungated it would add a second warning to every upgrade
+# of every un-migrated repo, about a file doing exactly what it should
 @test "migration (bringup-residue): silent while the repo still owns the ENTRYPOINT (#945)" {
   # Before the flip the exec is CORRECT and the helper sources are the
   # documented pre-migration wiring. Warning there would put a second
@@ -1835,12 +1899,19 @@ EOF
   assert_failure
 }
 
+# why: The steady state after both edits. This is the shape every migrated
+# repo upgrades in from then on, so a false positive here is a permanent
+# notice on the correct outcome
 @test "migration (bringup-residue): silent for a clean bringup (#945)" {
   _write_migrated_repo 'export MY_APP_HOME=/opt/app'
   run bash -c "$(_src); _migrate_bringup_residue_detect '${DF}'"
   assert_failure
 }
 
+# why: A bringup is optional under the orchestrator, so the absent file is
+# a supported shape and not an error. It is also the case a naive
+# implementation turns into a stray grep diagnostic on stderr during an
+# otherwise clean upgrade
 @test "migration (bringup-residue): silent when the repo has no bringup at all (#945)" {
   _write_migrated_repo 'export MY_APP_HOME=/opt/app'
   rm -f "${TEMP_DIR}/script/entrypoint.sh"
@@ -1848,6 +1919,12 @@ EOF
   assert_failure
 }
 
+# why: The claim a consumer actually cares about, asserted through the real
+# dispatcher rather than the detect/apply pair: `just upgrade` as a whole
+# leaves a repo running the model it was running. The pair-level tests
+# cannot see a SIBLING migration rewriting the same files -- the sc1090 one
+# does, which is why the entrypoint is compared over its code lines and the
+# three surviving lines are named individually so an emptied file cannot pass
 @test "apply_migrations: an un-migrated repo keeps the entrypoint model it runs (#945)" {
   # Through the real dispatcher rather than the pair directly, because the
   # claim a consumer cares about is about `just upgrade` as a whole: the

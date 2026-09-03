@@ -24,6 +24,18 @@
 #
 # (Sibling naming: runtime/logging.sh's spec is entrypoint_logging_spec.bats,
 # named after the helper's former _entrypoint_logging.sh spelling.)
+#
+# why: base's container ENTRYPOINT orchestrator, the base-owned half of the
+# two-file entrypoint model (ADR-00000030). It ships from `.base/dist/`,
+# lands at `/usr/local/lib/base/entrypoint.sh`, and SOURCES the repo-owned
+# bringup at `/entrypoint.sh` rather than executing it.
+#
+# The subject is the ORDER, because each of the four steps depends on the
+# one before it: logging rebinds stdout/stderr, the bringup sets the env
+# the workload reads, the watchdog may take over the process, and the
+# workload execs last. The dispatcher takes its three paths as arguments so
+# the REAL function runs against a scratch tree; the frozen in-image
+# literals live in the file's bottom guard and are pinned separately.
 
 bats_require_minimum_version 1.5.0
 
@@ -51,6 +63,11 @@ _orchestrate() {
 
 # ── the ordering ─────────────────────────────────────────────────────
 
+# why: The load-bearing one. Every other ordering assertion is a
+# consequence of this sequence, and a reordering that broke it would leave
+# each step still working in isolation -- logging after the bringup loses
+# the bringup's output, the watchdog before the bringup arms on stale
+# knobs, and both stay green under a per-step test
 @test "orchestrator runs logging, then the bringup, then the watchdog, then the workload (#945)" {
   printf 'printf "LOGGING\\n"\n'  > "${LIB_DIR}/logging.sh"
   printf 'printf "WATCHDOG\\n"\n' > "${LIB_DIR}/watchdog.sh"
@@ -64,6 +81,10 @@ _orchestrate() {
   assert_line --index 3 "WORKLOAD"
 }
 
+# why: The behavioural statement of the order rather than the positional
+# one: a repo whose bringup decides WATCHDOG_CHECK is armed with that
+# value. Arming the watchdog first disarms it silently, which no ordering
+# assertion on printed lines would call wrong
 @test "the watchdog sees a knob the bringup set, because bringup is sourced first (#945)" {
   # The behavioural statement of the order: a repo whose bringup decides
   # WATCHDOG_CHECK (from its own config, its ROS overlay, ...) is armed
@@ -79,6 +100,10 @@ _orchestrate() {
 
 # ── the bringup is sourced, not executed ─────────────────────────────
 
+# why: The whole point of sourcing rather than executing the bringup. Run
+# as a child it would still print, still exit 0, and still lose every
+# export -- the failure a repo only sees when its ROS overlay is missing
+# from the running workload
 @test "environment the bringup exports reaches the workload (#945)" {
   printf 'export BRINGUP_VAR=set-by-bringup\n' > "${BRINGUP}"
 
@@ -87,6 +112,10 @@ _orchestrate() {
   assert_output "set-by-bringup"
 }
 
+# why: Nothing in the contract depends on the mode bit, and pinning that
+# is what stops a later "just exec it" simplification from passing its own
+# tests -- the shipped file happens to be COPY'd 0755, so the exec variant
+# would look correct everywhere except a repo that ships its bringup 0644
 @test "a non-executable bringup still runs, because it is sourced (#945)" {
   # The repo-owned file is COPY'd --chmod=0755 today, but nothing about
   # the contract depends on that: `.` reads it. Pinning this is what keeps
@@ -101,6 +130,11 @@ _orchestrate() {
 
 # ── every source is optional ─────────────────────────────────────────
 
+# why: The shape most existing repos are actually in -- the runtime helper
+# COPY is opt-in and a repo need not carry a bringup at all. Asserted with
+# stderr separated and under the orchestrator's own strict mode, because
+# the interesting failures here are a stray diagnostic and a nounset abort,
+# neither of which changes the workload's exit status
 @test "a missing bringup and missing helpers still start the workload cleanly (#945)" {
   # The runtime stage's helper COPY is opt-in and a repo need not have a
   # bringup at all, so an image carrying none of the three must still come
@@ -114,6 +148,10 @@ _orchestrate() {
   [ -z "${stderr}" ] || fail "orchestrator wrote to stderr: ${stderr}"
 }
 
+# why: The orchestrator sits between docker and CMD, so an unquoted `$@`
+# anywhere in it re-splits the command a user typed. The embedded space is
+# the only argument shape that catches that; a single-word workload passes
+# through every wrong spelling
 @test "the workload's argv survives verbatim, spaces included (#945)" {
   run _orchestrate printf '[%s]' a 'b c'
   assert_success
@@ -122,6 +160,11 @@ _orchestrate() {
 
 # ── the frozen paths ─────────────────────────────────────────────────
 
+# why: The bottom guard driven for real instead of grepped. Every other
+# test here calls the dispatcher with scratch paths, so nothing else
+# exercises the frozen literals or the strict mode the shipped file turns
+# on for itself -- and an image with none of the three installed is the
+# ordinary pre-adoption shape, not a hypothetical
 @test "executed directly with nothing installed, it still execs the workload (#945)" {
   # The frozen literals, driven for real rather than grepped: run the
   # shipped file as the container would, in an image that has neither
@@ -140,6 +183,10 @@ _orchestrate() {
   assert_equal "$(cat "${_err}")" ""
 }
 
+# why: The Dockerfile contract in the one place it is spelled. The test
+# above proves the guard RUNS but passes just as happily on a helper
+# directory the Dockerfile never populates, so the two literals need
+# pinning on their own: change one and the Dockerfile has to change with it
 @test "executed directly, the orchestrator drives the in-image paths (#945)" {
   # The Dockerfile contract, in the one place it is spelled: the helpers
   # come from /usr/local/lib/base/ (the directory COPY'd from
@@ -153,6 +200,11 @@ _orchestrate() {
 
 # ── what ships, and how ──────────────────────────────────────────────
 
+# why: Its four runtime siblings are 644 because they are sourced; this
+# one is executed. The Dockerfile's `COPY --chmod=0755` hides a committed
+# 644, so nothing in a normal build goes red -- the file is simply not
+# runnable from the subtree, and any consumer path that stops going through
+# that COPY inherits an exit 126
 @test "the orchestrator ships with the executable bit set (#945)" {
   # It is EXECUTED, not sourced: the Dockerfile names it as ENTRYPOINT and
   # this spec drives it with `bash <file>`. Its four runtime siblings are
@@ -164,6 +216,11 @@ _orchestrate() {
   assert [ -x "${ORCH}" ]
 }
 
+# why: Joins the two files nothing else joins -- it reads the ENTRYPOINT
+# out of the shipped Dockerfile and requires the shared build-time baseline
+# to name that same path. Without it the half the container actually starts
+# is asserted by nothing, and a dropped runtime-directory COPY stays
+# invisible until a real container fails to come up
 @test "the shared smoke baseline asserts the orchestrator's in-image path (#945)" {
   # The build-time baseline exists to prove the installed entry point is
   # there. Pinning only the repo-owned bringup at /entrypoint.sh leaves the

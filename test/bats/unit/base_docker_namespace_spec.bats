@@ -7,6 +7,21 @@
 # prefix), mirroring what init.sh produces for a consumer. `just` is not
 # installed in the test-tools image, so these are content / symlink
 # assertions, not execution (execution parity is a consumer/local concern).
+#
+# why: base's self-use of the `docker` namespace (#713, ADR-00000011
+# sec.2/4/5): root justfile `mod? docker`, the committed
+# `script/docker/justfile.docker` + flat `script/<verb>.sh` symlinks
+# resolving into `dist/` (no `.base/` hop), the `test-tools` compose service
+# building `Dockerfile.test-tools`, and `just test system` building it via
+# the docker namespace. Also pins the naming-isolation shape (#891): the
+# build-only `test-tools` service reads the same `TEST_TOOLS_IMAGE` its
+# consumers read instead of a fixed `test-tools:local` literal, and the
+# `system` recipe derives that tag from the tooling Dockerfile's content
+# instead of hardcoding it, and names the compose project instead of
+# inheriting the checkout directory's basename. Tightened by #896: EVERY
+# `image:` line must name that variable and NONE may carry a `:-` default,
+# since two different defaults are what let the build write one tag while
+# the run read another.
 
 bats_require_minimum_version 1.5.0
 

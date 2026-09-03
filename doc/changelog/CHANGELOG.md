@@ -67,6 +67,15 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   and `exec`, bracket any ROS source with `set +u` -- the orchestrator
   sources the bringup under `set -euo pipefail`, which the seeded file never
   set. Flipping alone breaks it; `just upgrade` notices until then.
+- **a test's description is written above the `@test`, and `doc/test/` is
+  generated from it (closes #922, amends ADR-00000028)** -- write
+  `# why: <prose>` above a test; `just test sync-docs` renders the catalogue
+  from those markers into a fenced region it replaces wholesale, so editing
+  that region does nothing. A rename now carries its description, a deleted
+  row is restored byte-for-byte, and deleting the marker fails the drift
+  gate. The new `catalog-description` lint reads `^@test` over the spec
+  trees, so no section shape exempts a test. 1209 descriptions and 106
+  blurbs were relocated by script.
 - **the dev bind and the deploy bake now cover every `config/<component>/`, not the literal `config/app` (closes #1000)**
   -- both halves tested one hardcoded directory name **no repo in the org
   has**, so the `[[ -d ]]` was always false: nothing mounted, nothing baked,
@@ -104,6 +113,7 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   type at 1.7.12.
 
 ### Added
+- **`just test metrics`: one shell reader, three implementation-standard thresholds (refs #994)** -- nesting depth <= 3, function length <= 50 body code lines, positional parameters <= 5, measured in one pass over every tracked shell file. Not in `just test` or `just test lint`: today's tree reports 26 / 69 / 7, which phase 3 flattens and phase 4 then gates. The figures replace an ad-hoc count whose parser bugs are now fixtures, and every counting rule the reader states has its worked example as a fixture too -- three defects were found by running them, one of them fail-open. A file the reader cannot parse is a finding, never a skip. Host-direct: the population is the git index.
 - **`just docker prune --reclaim`: base collects its own compose litter
   (closes #995)** -- compose stamps the checkout's absolute path on its
   network (`base.checkout.path`); the sweep reads it back and removes the

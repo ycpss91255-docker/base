@@ -9,6 +9,19 @@
 # This is a Level-1 (file generation) integration test — it does NOT run
 # Docker. The Level-2 (real build/run/exec/stop) test lives in CI as a
 # separate self-test.yaml job that has access to the host Docker daemon.
+#
+# why: End-to-end verification that `init.sh` produces a complete repo
+# skeleton in an empty directory. **Level 1** (file generation only, no
+# Docker). The **Level 2** equivalent runs as the `acceptance` job in
+# `.github/workflows/self-test.yaml` (the host-driven consumer/UX checks;
+# see [acceptance.md](acceptance.md)), which has access to a Docker daemon
+# on the host runner. It drives the documented `just` verbs with REAL
+# execution on native amd64 + arm64: the build / run -d / exec / stop
+# runnability core (#579/#603) plus (#769) the foreground `run` command
+# variant, `start` (build + run), a real `prune`, an explicit `setup apply`,
+# the `base update` check, and the `base completions` installer. `setup-tui`
+# (interactive) is intentionally out of the e2e -- it needs a pseudo-TTY and
+# stays covered by the unit `tui_spec`.
 
 setup() {
   export LOG_FORMAT=text
@@ -42,17 +55,20 @@ teardown() {
 # init.sh: new repo full-skeleton generation
 # ════════════════════════════════════════════════════════════════════
 
+# why: Smoke
 @test "init.sh detects empty dir and creates new repo skeleton" {
   run bash .base/dist/script/base/init.sh
   assert_success
   assert_output --partial "Done"
 }
 
+# why: Dockerfile gen
 @test "new repo: Dockerfile is copied from template" {
   bash .base/dist/script/base/init.sh
   assert [ -f "${REPO_DIR}/Dockerfile" ]
 }
 
+# why: compose gen
 @test "new repo: compose.yaml exists and references the repo name" {
   bash .base/dist/script/base/init.sh
   assert [ -f "${REPO_DIR}/compose.yaml" ]
@@ -60,16 +76,23 @@ teardown() {
   assert_success
 }
 
+# why: setup.conf rules drive IMAGE_NAME
 @test "new repo: .env.example is NOT generated (image name via setup.conf rules)" {
   bash .base/dist/script/base/init.sh
   [[ ! -f "${REPO_DIR}/.env.example" ]]
 }
 
+# why: entrypoint gen
 @test "new repo: script/entrypoint.sh exists and is executable" {
   bash .base/dist/script/base/init.sh
   assert [ -f "${REPO_DIR}/script/entrypoint.sh" ]
 }
 
+# why: the seeded entrypoint carries no base plumbing and no exec, the
+# Dockerfile names the orchestrator, and the orchestrator is vendored --
+# the [logging] UX guarantee of #364 now held by base's half instead of by
+# a repo-owned copy that a subtree pull could never reach. Also keeps the
+# v0.30.0 regression guards: no ${USER}, no /home/ in the seeded file.
 @test "new repo: the seeded entrypoint is a clean bringup under base's orchestrator (refs #364)" {
   # The [logging] UX guarantee is unchanged and it is what this test has
   # always been about: setting `[logging] local_path` alone materialises
@@ -102,6 +125,7 @@ teardown() {
   assert_failure
 }
 
+# why: smoke skeleton
 @test "new repo: smoke test skeleton exists for the repo" {
   bash .base/dist/script/base/init.sh
   assert [ -f "${REPO_DIR}/test/bats/smoke/shared/${REPO_NAME}_env.bats" ]
@@ -133,6 +157,7 @@ teardown() {
   assert [ -f "${REPO_DIR}/.base/dist/test/bats/smoke/shared/test_helper.bash" ]
 }
 
+# why: CI gen
 @test "new repo: .github/workflows/main.yaml exists with reusable workflow ref" {
   bash .base/dist/script/base/init.sh
   assert [ -f "${REPO_DIR}/.github/workflows/main.yaml" ]
@@ -172,6 +197,10 @@ _assert_seed_job_population() {
   done
 }
 
+# why: "only" asserted over the emitted file's OWN job list as an exact
+# per-job entry set, plus a pinned grep status for the absent workflow-scope
+# block. Inspecting the two known job blocks left the word unbacked: a third
+# seeded job carrying two write grants kept all 62 specs green
 @test "new repo: main.yaml grants contents: write on the release job only (#957)" {
   # softprops/action-gh-release@v2 (used by release-worker.yaml) needs
   # `contents: write` to create a Release. A called workflow can only
@@ -208,6 +237,9 @@ _assert_seed_job_population() {
 call-release: contents: write'
 }
 
+# why: The build call's entry set is exactly `contents: read`, so an added
+# scope fails as loudly as a widened one; both tests assert the derived job
+# population first
 @test "new repo: main.yaml leaves the build call at contents: read (#957)" {
   # The build worker checks out and builds; it pushes no image and touches
   # no package. A write grant here would raise the ceiling every job of
@@ -221,6 +253,7 @@ call-release: contents: write'
   assert_output 'contents: read'
 }
 
+# why: gitignore
 @test "new repo: .gitignore exists" {
   bash .base/dist/script/base/init.sh
   assert [ -f "${REPO_DIR}/.gitignore" ]
@@ -237,6 +270,7 @@ call-release: contents: write'
   assert_success
 }
 
+# why: i18n docs
 @test "new repo: doc/ tree exists with README translations" {
   bash .base/dist/script/base/init.sh
   assert [ -f "${REPO_DIR}/README.md" ]
@@ -245,6 +279,7 @@ call-release: contents: write'
   assert [ -f "${REPO_DIR}/doc/README.ja.md" ]
 }
 
+# why: TEST.md gen
 @test "new repo: doc/test/TEST.md exists" {
   bash .base/dist/script/base/init.sh
   assert [ -f "${REPO_DIR}/doc/test/TEST.md" ]
@@ -293,11 +328,13 @@ call-release: contents: write'
   assert_success
 }
 
+# why: CHANGELOG gen
 @test "new repo: doc/changelog/CHANGELOG.md exists" {
   bash .base/dist/script/base/init.sh
   assert [ -f "${REPO_DIR}/doc/changelog/CHANGELOG.md" ]
 }
 
+# why: symlink target moved to script/build.sh
 @test "new repo: build.sh symlink lives under script/, not root (#330)" {
   bash .base/dist/script/base/init.sh
   assert [ -L "${REPO_DIR}/script/build.sh" ]
@@ -307,6 +344,7 @@ call-release: contents: write'
   assert [ ! -e "${REPO_DIR}/build.sh" ]
 }
 
+# why: symlink set: 7 wrappers + justfile root, no Makefile
 @test "new repo: 7 wrapper symlinks under script/, justfile at root (#330, #546)" {
   bash .base/dist/script/base/init.sh
   # 7 wrappers under script/, each pointing to ../.base/dist/script/docker/wrapper/<name>.sh
@@ -324,6 +362,7 @@ call-release: contents: write'
   assert [ ! -e "${REPO_DIR}/Makefile" ]
 }
 
+# why: config placeholder
 @test "new repo: config/ is an empty placeholder (template#254 layered override)" {
   bash .base/dist/script/base/init.sh
   # Must NOT be a symlink — edits should stay in the user's own
@@ -350,6 +389,7 @@ call-release: contents: write'
   assert [ -f "${REPO_DIR}/.setup.conf" ]
 }
 
+# why: config preservation
 @test "new repo: init.sh preserves pre-existing config/ directory (no clobber)" {
   # Simulate a repo with a real config/ directory (user's edits).
   # init.sh must not overwrite it.
@@ -361,6 +401,7 @@ call-release: contents: write'
   assert [ -f "${REPO_DIR}/config/custom/marker" ]
 }
 
+# why: #632 — repo-owned registry seeded
 @test "new repo: script/local/justfile.local seeded (repo-local command-group registry, #632)" {
   bash .base/dist/script/base/init.sh
   # Repo-owned (a real file, not a symlink into the subtree) so the repo
@@ -372,6 +413,7 @@ call-release: contents: write'
   assert_success
 }
 
+# why: #632 — never clobbers repo registrations
 @test "new repo: init.sh preserves a pre-existing script/local/justfile.local (no clobber, #632)" {
   mkdir -p "${REPO_DIR}/script/local"
   printf "mod? deploy 'deploy/justfile.deploy'\n" > "${REPO_DIR}/script/local/justfile.local"
@@ -419,6 +461,7 @@ call-release: contents: write'
   assert_output --partial "mod? deploy 'deploy/justfile.deploy'"
 }
 
+# why: #633 — justfile.template + new.sh + skel symlinked
 @test "new repo: script/template/ symlinks wired for the template namespace (#633)" {
   bash .base/dist/script/base/init.sh
   # base-owned (symlinks into the subtree, flow on upgrade): justfile.template
@@ -432,6 +475,8 @@ call-release: contents: write'
   assert_success
 }
 
+# why: #652, #653 — justfile.base + completions.sh symlinked; entry mods
+# base
 @test "new repo: script/base/ symlink wired for the base namespace (#652, #653)" {
   bash .base/dist/script/base/init.sh
   # base-owned (symlinks into the subtree, flow on upgrade): justfile.base +
@@ -447,6 +492,7 @@ call-release: contents: write'
   assert_success
 }
 
+# why: config-symlink drop
 @test "new repo: init.sh drops stale config symlink before creating placeholder" {
   # An older init.sh created config → .base/dist/config as a symlink.
   # Re-running the init.sh on such a repo must replace the
@@ -467,6 +513,7 @@ call-release: contents: write'
   assert_failure
 }
 
+# why: layered COPY order
 @test "Dockerfile.example has layered config COPY chain (template#254): .base/dist/config first, then config" {
   # Layered file-level override: layer 1 brings .base/dist/config/
   # defaults, layer 2 overlays <repo>/config/. Files in layer 2
@@ -493,6 +540,7 @@ call-release: contents: write'
   }
 }
 
+# why: HOME env directive
 @test "Dockerfile.example declares ENV HOME before WORKDIR \${HOME}/work (#334)" {
   local _df="/source/dist/dockerfile/Dockerfile"
   assert_spec_subject "${_df}" \
@@ -519,6 +567,7 @@ call-release: contents: write'
   (( _env_line < _workdir_line ))
 }
 
+# why: bashrc.d setup
 @test "Dockerfile.example sets up bashrc.d drop-in directory (template#254)" {
   local _df="/source/dist/dockerfile/Dockerfile"
   assert_spec_subject "${_df}" \
@@ -554,6 +603,7 @@ call-release: contents: write'
   assert_success
 }
 
+# why: version file
 @test "new repo: .base/.version exists (no legacy VERSION / .template_version)" {
   bash .base/dist/script/base/init.sh
   assert [ -f "${REPO_DIR}/.base/.version" ]
@@ -564,6 +614,7 @@ call-release: contents: write'
   assert_output --regexp '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
 }
 
+# why: idempotent
 @test "new repo: re-running init.sh on the result is idempotent" {
   bash .base/dist/script/base/init.sh
   # Second run should hit _init_existing_repo (Dockerfile exists)
@@ -571,6 +622,7 @@ call-release: contents: write'
   assert_success
 }
 
+# why: setup_tui under script/
 @test "new repo: init.sh creates setup_tui.sh symlink under script/ (not legacy tui.sh)" {
   bash .base/dist/script/base/init.sh
   assert [ -L "${REPO_DIR}/script/setup_tui.sh" ]
@@ -581,6 +633,7 @@ call-release: contents: write'
   assert [ ! -e "${REPO_DIR}/setup_tui.sh" ]
 }
 
+# why: upgrade cleanup
 @test "new repo: init.sh removes stale tui.sh symlink from earlier versions (#330 stale-removal loop)" {
   bash .base/dist/script/base/init.sh
   # Simulate a very old upgrade path: legacy tui.sh symlink at root.
@@ -591,6 +644,7 @@ call-release: contents: write'
   assert [ -L "${REPO_DIR}/script/setup_tui.sh" ]
 }
 
+# why: migrate 7 root symlinks to script/
 @test "new repo: init.sh removes stale root *.sh symlinks (#330 migration)" {
   bash .base/dist/script/base/init.sh
   # Simulate a layout by planting the seven root-level symlinks
@@ -607,6 +661,7 @@ call-release: contents: write'
   done
 }
 
+# why: smoke script/build.sh
 @test "new repo: build.sh -h works against the generated symlink" {
   bash .base/dist/script/base/init.sh
   run bash "${REPO_DIR}/script/build.sh" -h
@@ -614,18 +669,21 @@ call-release: contents: write'
   assert_output --partial "Usage"
 }
 
+# why: smoke script/run.sh
 @test "new repo: run.sh -h works against the generated symlink" {
   bash .base/dist/script/base/init.sh
   run bash "${REPO_DIR}/script/run.sh" -h
   assert_success
 }
 
+# why: smoke script/exec.sh
 @test "new repo: exec.sh -h works against the generated symlink" {
   bash .base/dist/script/base/init.sh
   run bash "${REPO_DIR}/script/exec.sh" -h
   assert_success
 }
 
+# why: smoke script/stop.sh
 @test "new repo: stop.sh -h works against the generated symlink" {
   bash .base/dist/script/base/init.sh
   run bash "${REPO_DIR}/script/stop.sh" -h
@@ -639,6 +697,7 @@ call-release: contents: write'
   assert_output "../.base/dist/script/docker/wrapper/setup.sh"
 }
 
+# why: smoke script/setup.sh
 @test "new repo: setup.sh -h works against the generated symlink" {
   bash .base/dist/script/base/init.sh
   run bash "${REPO_DIR}/script/setup.sh" -h
@@ -650,6 +709,7 @@ call-release: contents: write'
 # init.sh --gen-conf
 # ════════════════════════════════════════════════════════════════════
 
+# why: setup.conf gen
 @test "init.sh --gen-conf copies setup.conf to repo root" {
   # init.sh auto-creates setup.conf via workspace writeback; remove it first
   # to exercise the --gen-conf copy path directly.
@@ -662,6 +722,7 @@ call-release: contents: write'
   assert_success
 }
 
+# why: overwrite safety
 @test "init.sh --gen-conf refuses to overwrite existing setup.conf" {
   # init.sh auto-creates <repo>/.setup.conf via setup.sh workspace writeback,
   # so --gen-conf on a freshly-initialized repo already hits the "exists" guard.
@@ -675,18 +736,21 @@ call-release: contents: write'
 # Derived artifacts: compose.yaml + .env are setup.sh-generated, gitignored
 # ════════════════════════════════════════════════════════════════════
 
+# why: gitignore compose.yaml
 @test "new repo: .gitignore contains compose.yaml (derived artifact)" {
   bash .base/dist/script/base/init.sh
   run grep -x 'compose.yaml' "${REPO_DIR}/.gitignore"
   assert_success
 }
 
+# why: gitignore .env
 @test "new repo: .gitignore contains .env (derived artifact)" {
   bash .base/dist/script/base/init.sh
   run grep -x '.env' "${REPO_DIR}/.gitignore"
   assert_success
 }
 
+# why: setup.sh generated compose.yaml
 @test "new repo: compose.yaml has AUTO-GENERATED header (produced by setup.sh)" {
   bash .base/dist/script/base/init.sh
   assert [ -f "${REPO_DIR}/compose.yaml" ]
@@ -706,6 +770,7 @@ call-release: contents: write'
   assert_failure
 }
 
+# why: workspace writeback non-empty
 @test "new repo: setup.conf mount_1 is NOT empty after first init (workspace detected + written)" {
   # Regression: fresh repo previously produced an empty [volumes] mount_1
   # which made the TUI volumes menu appear blank on first open. First-init
@@ -718,6 +783,7 @@ call-release: contents: write'
   assert_failure
 }
 
+# why: #201 — bootstrap writes WS_PATH back
 @test "new repo: per-repo setup.conf auto-created on first init (workspace writeback)" {
   # setup.sh on first run (no <repo>/.setup.conf) copies template + fills
   # [volumes] mount_1 with the detected workspace. Expected behaviour since
@@ -732,6 +798,7 @@ call-release: contents: write'
 # just runner host preflight
 # ════════════════════════════════════════════════════════════════════
 
+# why: Missing runner -> non-fatal WARN, symlinks still laid down
 @test "new repo: init warns + exits 0 + still creates symlinks when just is absent (#607)" {
   # Shadow PATH so `command -v just` misses but coreutils (needed by
   # setup.sh) stay reachable. A stub bin dir is prepended but holds no
@@ -759,6 +826,7 @@ call-release: contents: write'
   assert [ -L "${REPO_DIR}/script/build.sh" ]
 }
 
+# why: Runner present -> no warning
 @test "new repo: init is silent about just when the runner is present (#607)" {
   # Provide a `just` stub on PATH; the preflight must not warn.
   local _stub="${TMP_ROOT}/withjust_bin"
@@ -775,6 +843,8 @@ call-release: contents: write'
 # init.sh self-run guard (ADR-00000011 sec.8)
 # ════════════════════════════════════════════════════════════════════
 
+# why: Self-run guard (ADR-00000011 sec.8): .git at subtree root -> refuse,
+# no scaffold
 @test "init.sh refuses to run when the subtree root carries .git (base template source)" {
   # The base template SOURCE is itself a git checkout/worktree, so its
   # subtree root carries `.git`; a vendored `.base/` subtree never does
@@ -794,6 +864,8 @@ call-release: contents: write'
 # init.sh on an EXISTING repo: main.yaml is never rewritten
 # ════════════════════════════════════════════════════════════════════
 
+# why: Delivery boundary: an existing repo's hand-maintained CI survives
+# init byte-for-byte
 @test "existing repo: init never rewrites a main.yaml it did not create (#957)" {
   # The seeded main.yaml's `contents: write` moved off the workflow scope
   # and onto the release job. The seed is emitted ONLY by
@@ -835,6 +907,8 @@ YAML
   assert_success
 }
 
+# why: The same boundary stated positively: the monitor converges, main.yaml
+# is new-repo-only (#927 / #928)
 @test "existing repo: init syncs the monitor workflow but seeds no main.yaml (#957)" {
   # The delivery boundary itself, stated as a contrast: init DOES converge
   # an existing repo on base-version-monitor.yaml (never-overwrite sync),

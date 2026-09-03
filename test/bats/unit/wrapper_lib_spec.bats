@@ -11,6 +11,16 @@
 # attribute coverage -- AND assert the "called from each of the 5
 # wrappers" parameterisation (verb-derived log tags, per-verb message
 # tables).
+#
+# why: Unit tests for the wrapper-runtime module `lib/wrapper.sh` (#565),
+# which hoists the cross-cutting surfaces the 5 docker wrappers (build / run
+# / exec / stop / prune) used to duplicate: the `_msg` dispatcher, the
+# `--lang` pre-pass, and the build/run setup/drift orchestration. Each
+# helper is sourced directly (not through a wrapper) so the branches run in
+# isolation; a minimal sandbox with a mock `setup.sh` drives the
+# orchestration end-to-end without docker.
+#
+# Covers (with the "called from each of the 5 wrappers" parameterisation):
 
 bats_require_minimum_version 1.5.0
 

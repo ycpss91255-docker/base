@@ -5,6 +5,10 @@
 # These helpers are intended to be load-ed by per-repo smoke specs inside
 # the Docker `test` stage; here we exercise them in isolation under the
 # template's own CI.
+#
+# why: Exercises the runtime assertion helpers shipped in
+# `dist/test/bats/smoke/shared/test_helper.bash` (used by downstream-repo
+# smoke specs via `load "${BATS_TEST_DIRNAME}/test_helper"`).
 
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
@@ -23,12 +27,14 @@ teardown() {
 # assert_cmd_installed
 # ════════════════════════════════════════════════════════════════════
 
+# why: Happy path
 @test "assert_cmd_installed passes when cmd is on PATH" {
   mock_cmd "fakecmd" 'exit 0'
   run assert_cmd_installed fakecmd
   assert_success
 }
 
+# why: Missing cmd
 @test "assert_cmd_installed fails with descriptive message when cmd missing" {
   run assert_cmd_installed no_such_cmd_xyzzy
   assert_failure
@@ -36,6 +42,7 @@ teardown() {
   assert_output --partial "no_such_cmd_xyzzy"
 }
 
+# why: Required arg check
 @test "assert_cmd_installed errors when cmd arg missing" {
   run assert_cmd_installed
   assert_failure
@@ -46,12 +53,14 @@ teardown() {
 # assert_cmd_runs
 # ════════════════════════════════════════════════════════════════════
 
+# why: Happy path
 @test "assert_cmd_runs passes when cmd exits 0" {
   mock_cmd "fakecmd" 'echo "v1.2.3"; exit 0'
   run assert_cmd_runs fakecmd
   assert_success
 }
 
+# why: Custom flag
 @test "assert_cmd_runs uses custom version flag when given" {
   mock_cmd "fakecmd" '
     if [[ "$1" == "-V" ]]; then exit 0; fi
@@ -60,6 +69,7 @@ teardown() {
   assert_success
 }
 
+# why: Broken binary
 @test "assert_cmd_runs fails when cmd exits non-zero" {
   mock_cmd "fakecmd" 'echo "boom" >&2; exit 7'
   run assert_cmd_runs fakecmd
@@ -68,6 +78,7 @@ teardown() {
   assert_output --partial "status"
 }
 
+# why: Missing cmd
 @test "assert_cmd_runs fails when cmd is not installed" {
   run assert_cmd_runs no_such_cmd_xyzzy
   assert_failure
@@ -78,6 +89,7 @@ teardown() {
 # assert_file_exists
 # ════════════════════════════════════════════════════════════════════
 
+# why: Happy path
 @test "assert_file_exists passes when file is a regular file" {
   local _file="${TEMP_DIR}/present.txt"
   : > "${_file}"
@@ -85,12 +97,14 @@ teardown() {
   assert_success
 }
 
+# why: Missing path
 @test "assert_file_exists fails when path is missing" {
   run assert_file_exists "${TEMP_DIR}/missing.txt"
   assert_failure
   assert_output --partial "file does not exist"
 }
 
+# why: Type check
 @test "assert_file_exists fails when path is a directory" {
   run assert_file_exists "${TEMP_DIR}"
   assert_failure
@@ -101,17 +115,20 @@ teardown() {
 # assert_dir_exists
 # ════════════════════════════════════════════════════════════════════
 
+# why: Happy path
 @test "assert_dir_exists passes when path is a directory" {
   run assert_dir_exists "${TEMP_DIR}"
   assert_success
 }
 
+# why: Missing path
 @test "assert_dir_exists fails when path is missing" {
   run assert_dir_exists "${TEMP_DIR}/nodir"
   assert_failure
   assert_output --partial "directory does not exist"
 }
 
+# why: Type check
 @test "assert_dir_exists fails when path is a file" {
   local _file="${TEMP_DIR}/a_file"
   : > "${_file}"
@@ -124,6 +141,7 @@ teardown() {
 # assert_file_owned_by
 # ════════════════════════════════════════════════════════════════════
 
+# why: Happy path
 @test "assert_file_owned_by passes when owner matches" {
   local _file="${TEMP_DIR}/owned.txt"
   : > "${_file}"
@@ -133,6 +151,7 @@ teardown() {
   assert_success
 }
 
+# why: Owner mismatch
 @test "assert_file_owned_by fails with owner diff when user mismatches" {
   local _file="${TEMP_DIR}/owned.txt"
   : > "${_file}"
@@ -143,6 +162,7 @@ teardown() {
   assert_output --partial "actual"
 }
 
+# why: Missing path
 @test "assert_file_owned_by fails when path missing" {
   run assert_file_owned_by root "${TEMP_DIR}/missing"
   assert_failure
@@ -153,6 +173,7 @@ teardown() {
 # assert_pip_pkg
 # ════════════════════════════════════════════════════════════════════
 
+# why: Package installed
 @test "assert_pip_pkg passes when pip show returns 0" {
   mock_cmd "pip" '
     if [[ "$1" == "show" ]]; then exit 0; fi
@@ -161,6 +182,7 @@ teardown() {
   assert_success
 }
 
+# why: Package missing
 @test "assert_pip_pkg fails when pip show returns non-zero" {
   mock_cmd "pip" '
     if [[ "$1" == "show" ]]; then exit 1; fi
@@ -171,6 +193,7 @@ teardown() {
   assert_output --partial "missingpkg"
 }
 
+# why: pip itself missing
 @test "assert_pip_pkg fails when pip is not installed" {
   run assert_pip_pkg any
   assert_failure
@@ -274,6 +297,10 @@ _WRAPPER_UNDER_TEST=/source/dist/script/docker/wrapper/run.sh
 # turns that repo's next `just upgrade` into a red build over a model it
 # never adopted.
 
+# why: The pre-ADR-00000030 model, which is what the guard exists for. A
+# false answer here makes the shared baseline assert the orchestrator on a
+# repo that never installed one, turning its next `just upgrade` into a red
+# build over a model it did not adopt
 @test "entrypoint_is_single_file: true for a file that execs the workload" {
   printf '#!/usr/bin/env bash\n. /usr/local/lib/base/logging.sh\nexec "${@}"\n' \
     > "${TEMP_DIR}/entrypoint.sh"
@@ -281,6 +308,9 @@ _WRAPPER_UNDER_TEST=/source/dist/script/docker/wrapper/run.sh
   assert_success
 }
 
+# why: The other direction, and the one that keeps the guard non-vacuous:
+# a probe that answered true for everything would skip the orchestrator
+# assertion everywhere and report green over an unchecked suite
 @test "entrypoint_is_single_file: false for a bringup that only sets env" {
   printf '#!/usr/bin/env bash\nexport ROS_DOMAIN_ID=0\n' \
     > "${TEMP_DIR}/entrypoint.sh"
@@ -288,6 +318,11 @@ _WRAPPER_UNDER_TEST=/source/dist/script/docker/wrapper/run.sh
   assert_failure
 }
 
+# why: The seeded bringup template TALKS about the exec it must not have,
+# and a repo that migrated by commenting the line out has migrated. A
+# substring match on `exec` reads both as the old model and would skip the
+# assertion on every correctly migrated repo -- the same code-versus-comment
+# distinction dockerfile_migrate.sh's notice makes
 @test "entrypoint_is_single_file: a commented exec is not an exec" {
   # The seeded bringup template TALKS about the exec it must not have, and
   # a repo that migrated by commenting the line out has migrated.
@@ -297,11 +332,18 @@ _WRAPPER_UNDER_TEST=/source/dist/script/docker/wrapper/run.sh
   assert_failure
 }
 
+# why: An image with no bringup at all is not on the old model, so the
+# orchestrator assertion must still run there. Answering true on a missing
+# path would silently exempt exactly the image most likely to be missing
+# the orchestrator too
 @test "entrypoint_is_single_file: false when the path does not exist" {
   run entrypoint_is_single_file "${TEMP_DIR}/no_such_entrypoint.sh"
   assert_failure
 }
 
+# why: The caller-error case, separated from the honest false above: a
+# no-argument call must say so rather than answer "not the old model",
+# which is the answer that turns a typo in a spec into a silent skip
 @test "entrypoint_is_single_file: errors when the path arg is missing" {
   run entrypoint_is_single_file
   assert_failure

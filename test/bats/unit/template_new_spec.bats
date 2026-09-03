@@ -5,6 +5,12 @@
 # directly (no `just` needed): it creates script/local/<name>/justfile.<name>
 # + <name>.sh from skel/ and registers the group in
 # script/local/justfile.local.
+#
+# why: Unit tests for the repo-local command-group scaffolder
+# `dist/script/template/new.sh` (#633, closes #594). Runs `new.sh` directly
+# (no `just` needed): it creates `script/local/<name>/justfile.<name>` +
+# `<name>.sh` from `skel/` and registers the group in
+# `script/local/justfile.local`.
 
 bats_require_minimum_version 1.5.0
 
@@ -32,6 +38,7 @@ teardown() {
   fi
 }
 
+# why: files created + executable
 @test "new.sh scaffolds script/local/<name>/{justfile.<name>,<name>.sh} from skel" {
   run bash -c "cd '${SANDBOX}' && ./script/template/new.sh deploy"
   assert_success
@@ -40,6 +47,7 @@ teardown() {
   assert [ -x "${SANDBOX}/script/local/deploy/deploy.sh" ]
 }
 
+# why: placeholder replaced
 @test "new.sh substitutes __NAME__ in the scaffolded files" {
   run bash -c "cd '${SANDBOX}' && ./script/template/new.sh deploy"
   assert_success
@@ -49,6 +57,7 @@ teardown() {
   assert_success
 }
 
+# why: registry append
 @test "new.sh registers the group in script/local/justfile.local (mod? line)" {
   run bash -c "cd '${SANDBOX}' && ./script/template/new.sh deploy"
   assert_success
@@ -56,6 +65,7 @@ teardown() {
   assert_success
 }
 
+# why: safe no-overwrite
 @test "new.sh refuses to clobber an existing group" {
   bash -c "cd '${SANDBOX}' && ./script/template/new.sh deploy"
   run bash -c "cd '${SANDBOX}' && ./script/template/new.sh deploy"
@@ -63,6 +73,7 @@ teardown() {
   assert_output --partial "already exists"
 }
 
+# why: one mod? per group
 @test "new.sh does not duplicate the registry line on a second distinct group" {
   bash -c "cd '${SANDBOX}' && ./script/template/new.sh deploy"
   run bash -c "cd '${SANDBOX}' && ./script/template/new.sh backup"
@@ -71,12 +82,14 @@ teardown() {
   assert_output "2"
 }
 
+# why: name validation
 @test "new.sh rejects an invalid group name" {
   run bash -c "cd '${SANDBOX}' && ./script/template/new.sh 'Bad Name'"
   assert_failure
   assert_output --partial "invalid group name"
 }
 
+# why: arg guard
 @test "new.sh errors with usage when no name given" {
   run bash -c "cd '${SANDBOX}' && ./script/template/new.sh"
   assert_failure
