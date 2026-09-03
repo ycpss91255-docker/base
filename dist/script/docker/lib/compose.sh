@@ -3,6 +3,7 @@
 # compose.sh - docker compose wrappers + project naming.
 #
 # Provides:
+#   _is_self_managed_repo             : does this checkout own its compose.yaml?
 #   _compute_project_name             : derive PROJECT_NAME
 #   _compose                          : `docker compose` wrapper honoring DRY_RUN
 #   _compose_project                  : _compose with -p / -f / --env-file pre-filled
@@ -217,6 +218,60 @@ _compute_project_name() {
     "${FILE_PATH:-${PWD}}" PROJECT_NAME
 }
 
+# _is_self_managed_repo <path>
+#
+# True when <path> is a checkout that manages its own compose.yaml: no
+# `.base/` subtree and no `.setup.conf` (ADR-00000011 sec.4). base itself
+# is the shape -- it is the template SOURCE -- and so is any repo that
+# opted out of generated config. A consumer always carries both, so this
+# is false for every one of them.
+#
+# The ONE producer of that answer. It is asked in three places that must
+# not drift apart: whether a missing `.env.generated` is normal
+# (_compute_project_name), whether compose.yaml carries variables only
+# this checkout can resolve (_export_self_managed_test_tools_image), and
+# whether to run the setup lifecycle at all (_wrapper_setup_sync).
+_is_self_managed_repo() {
+  local _path="${1-}"
+  [[ -n "${_path}" ]] || return 1
+  [[ ! -d "${_path}/.base" && ! -f "${_path}/.setup.conf" ]]
+}
+
+# _export_self_managed_test_tools_image
+#
+# Put TEST_TOOLS_IMAGE in the environment of a self-managed checkout's
+# compose calls, when the checkout can say what it is.
+#
+# A self-managed compose.yaml is hand-authored, and base's names every
+# image `${TEST_TOOLS_IMAGE:?...}` with no default on purpose: two
+# defaults are how a build writes one tag while a run reads another.
+# compose interpolates the WHOLE file whatever verb it is handed, so
+# `down`, `ps` and `exec` need that value exactly as much as `build`
+# does -- without it compose refuses to read the file at all and the verb
+# dies before it runs, tearing down and inspecting nothing.
+#
+# One producer, again: the checkout's own `script/test/test.sh
+# --test-tools-image`, which is what build.sh delegates to for the same
+# tag. A caller-pinned TEST_TOOLS_IMAGE (CI, `just test`, `just test
+# stop`) is left verbatim.
+#
+# Silent no-op when the checkout offers no resolver, or the resolver
+# fails: there is then nothing truthful to supply, and compose's own
+# interpolation error names the value and the command that sets it, which
+# is a better report than a guess.
+_export_self_managed_test_tools_image() {
+  [[ -z "${TEST_TOOLS_IMAGE:-}" ]] || return 0
+  _is_self_managed_repo "${FILE_PATH:-}" || return 0
+
+  local _resolver="${FILE_PATH}/script/test/test.sh"
+  [[ -x "${_resolver}" ]] || return 0
+
+  local _image=""
+  _image="$("${_resolver}" --test-tools-image 2>/dev/null)" || return 0
+  [[ -n "${_image}" ]] || return 0
+  export TEST_TOOLS_IMAGE="${_image}"
+}
+
 # _compose runs `docker compose` with the given args, or prints what it would
 # run if DRY_RUN=true. Use this instead of calling docker compose directly so
 # every script honors --dry-run uniformly. Delegates the DRY_RUN echo/exec
@@ -238,6 +293,12 @@ _compose() {
 # `.env.local` -- reaches it through each service's `env_file:` list, not
 # through this CLI flag.
 _compose_project() {
+  # A self-managed checkout's compose.yaml may name variables only that
+  # checkout can resolve. compose interpolates the whole file for every
+  # verb, so this belongs here -- at the one point where a wrapper hands
+  # compose.yaml over -- rather than in each verb that remembers to.
+  _export_self_managed_test_tools_image
+
   # .env.generated is absent in a self-managed repo (base self-use);
   # only pass --env-file when it exists so docker compose does not error on
   # a missing interpolation cache. Consumers always have it post-setup.

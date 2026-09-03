@@ -227,8 +227,12 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 ### Fixed
 - **`just` owns the lifecycle of what `just` creates (closes #1015, #997)** --
   `just test stop` ends this checkout's self-test project, needing no
-  `.env.generated`; the five wrappers now treat that file as optional, so
-  `just docker stop` works in a self-managed checkout instead of dying on it.
+  `.env.generated`; the five wrappers now treat that file as optional, and
+  every compose call in a self-managed checkout carries the tooling tag that
+  checkout's hand-authored compose.yaml interpolates for `down` and `ps` as
+  much as for `build`, so `just docker stop` and `just docker exec` work
+  there instead of dying twice over -- first sourcing the file, then at
+  interpolation.
   A run whose predecessor still holds the project network waits
   (`BASE_PROJECT_WAIT`, default 2m) saying what for, or fails naming the
   container and the verb that clears it, rather than the daemon's raw text at
