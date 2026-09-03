@@ -15,6 +15,14 @@ a malformed filename **fails** CI, while a numbering **gap** is warned,
 not failed. This `README.md` is deliberately *not* an ADR file (its name
 does not match `NNNNNNNN-<slug>.md`), so it does not perturb that lint.
 
+**Authoring rule.** The ADR-structure lint
+(`script/test/drivers/adr_structure.sh`) requires exactly one occurrence of
+each required part -- `> Serves:`, `## Context`, `## Decision`,
+`## Consequences`, `## Alternatives`, `- **Status:**` -- at column 0, so an
+ADR that illustrates one of those lines indents the illustration out of
+column 0, and an amendment that restates a section or a status uses a `###`
+heading or a different key (`- **Amendment status:**`).
+
 ## Anomalies (resolved)
 
 - **`00000009` is an intentional gap.** There is no ADR-9 and none will

@@ -1,10 +1,10 @@
 # TEST.md
 
-Template self-tests: **3678 tests** total (3523 unit + 155 integration).
+Template self-tests: **3671 tests** total (3516 unit + 155 integration).
 
 > "Self-test total" is the `just test` suite -- what runs in the
 > `Self Test` CI job. System (19) and smoke (38) tests are tracked here
-> too but are **not** in the 3678 figure: System specs need host docker
+> too but are **not** in the 3671 figure: System specs need host docker
 > access and are opt-in, and smoke specs are Dockerfile `test`-stage
 > build-time assertions, not self-tests. Acceptance is a CI-only level (0
 > bats specs by design): it drives a real scaffolded consumer + built
@@ -20,13 +20,13 @@ carrying its own test count) live in the sibling docs below.
 
 | Doc | Scope | Count |
 |-----|-------|-------|
-| [unit.md](unit.md) | `test/bats/unit/` -- library, wrappers, generators, templates (Unit level) | 3523 |
+| [unit.md](unit.md) | `test/bats/unit/` -- library, wrappers, generators, templates (Unit level) | 3516 |
 | [integration.md](integration.md) | `test/bats/integration/` -- init / upgrade / dispatch across components (Integration level) | 155 |
 | [system.md](system.md) | `test/bats/system/` -- opt-in `runtime-test` buildx specs, gate-fires Regression (System level, host docker) | 19 |
 | [acceptance.md](acceptance.md) | `test/bats/acceptance/` -- consumer framework + UX, UAT/OAT (Acceptance level; CI-only via the `acceptance` job, #785) | 0 |
 | [smoke.md](smoke.md) | `dist/test/bats/smoke/` -- shipped per-stage build-time smoke templates (Smoke type) | 38 |
 
-Self-test grand total (unit + integration): **3678**.
+Self-test grand total (unit + integration): **3671**.
 
 ## Running one spec under kcov: `just test coverage-path`
 
@@ -83,7 +83,7 @@ tool therefore needs its own join to `.github/workflows/self-test.yaml`:
 | `hadolint` | Dockerfile static analysis | `hadolint` (`--lint --hadolint`, in the test-tools image) | `code_changed` |
 | `issueref` | no transient `#NNN` in code comments (ADR-00000013) | `lint-static (issueref)` | ungated |
 | `adr-numbering` | `doc/adr/` duplicate-free + well-formed | `lint-static (adr-numbering)` | ungated |
-| `adr-structure` | every ADR carries its `> Serves:` back-pointer, `## Context` / `## Decision` / `## Consequences` / `## Alternatives`, and a Status of exactly `Accepted`, `Rejected` or `Superseded by ADR-NNNNNNNN`; a scan that examined zero ADRs refuses rather than passes | `lint-static (adr-structure)` | ungated |
+| `adr-structure` | every ADR carries its `> Serves:` back-pointer, `## Context` / `## Decision` / `## Consequences` / `## Alternatives`, and a Status of exactly `Accepted`, `Rejected` or `Superseded by ADR-NNNNNNNN` -- each of them EXACTLY ONCE, at column 0, which is what lets the lint check an ADR without deciding which of its lines are code. A second occurrence is a file that does not say which one is the record and is reported; an illustrated line is indented out of column 0, an amendment's copy demoted to `###`. The one shape a count cannot catch (a part omitted AND illustrated at column 0) is named in the driver header and pinned by a spec. A scan that examined zero ADRs refuses rather than passes | `lint-static (adr-structure)` | ungated |
 | `stale-setup-conf` | no legacy `config/docker/setup.conf` under `dist/` | `lint-static (stale-setup-conf)` | ungated |
 | `readme-sync` | localized READMEs still match `README.md` | `lint-static (readme-sync)` | ungated |
 | `doc-counts` | the figures / catalog rows below | `doc-counts` (`--doc-counts-only`) | ungated |

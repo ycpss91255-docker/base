@@ -57,13 +57,78 @@
 #     the body as `**Amendment (#issue, YYYY-MM-DD):**`, where the prose
 #     it qualifies is.
 #
-# Headings inside a fenced code block do NOT count. An ADR that shows a
-# markdown example -- and several do -- would otherwise satisfy the
-# section check with an illustration, which is a fail-open: the check
-# would pass a file that has no Decision section at all. `_adr_outline`
-# below is where that stripping lives; it states the fence rule it
-# implements and the three places it deliberately strips more than
-# CommonMark would.
+# ── The contract: each part occurs EXACTLY ONCE, at column 0 ────────────
+#
+# Every part above is found by COUNTING the lines that match it at column
+# 0, and the only passing count is one. That count replaces the question
+# this driver used to ask -- "is this heading inside a fenced code block?"
+# -- and it is the only way a part is located: the Status value check runs
+# on the single line the count found.
+#
+# WHY COUNTING RATHER THAN PARSING. "Inside a fence" is a question only a
+# CommonMark parser can answer, and this driver carried a hand-written one.
+# It was narrowed twice and a hole survived both rounds, each hole passing
+# an ADR whose only Decision heading was an illustration: the first ignored
+# the fence marker's run LENGTH, so an equal-length inner ``` ended the
+# outer block; the second bounded the closing marker's INDENT against the
+# OPENER instead of against column 0, so an opener indented one column
+# still accepted a closer at four, which CommonMark keeps as block content.
+# Both were reproduced against the shipped drivers before this rewrite. A
+# count has no comparable surface: one grep per part, one number, arrived
+# at the same way for every file. Three properties follow, and they are the
+# reason to prefer it:
+#
+#   - It needs no notion of "inside", so no markdown construct changes what
+#     it does. An illustrated heading is counted like any other line.
+#   - It is TOTAL. Every file yields a number for every part; there is no
+#     input shape for which the check has no answer.
+#   - It refuses in BOTH directions. Zero is a missing part. Two or more is
+#     a file that does not say which occurrence is the record, and that is
+#     reported rather than resolved by picking one. Picking one is what
+#     `grep -m1` did for Status, and it is how the two free-text Status
+#     lines in ADR-00000008's amendment sections stayed invisible to a
+#     check written to reject exactly that shape.
+#
+# THE AUTHORING RULE, in full: an ADR that illustrates one of these lines
+# indents the illustration so it is not at column 0 -- inside a fenced block
+# the leading space is part of the sample text and costs nothing -- and an
+# amendment that restates a section or a status uses a `###` heading or a
+# different key. The amendment half is what the live tree already does:
+# ADR-00000008's amendment sections carry `### Context` / `### Decision`,
+# and their status is recorded as `- **Amendment status:**`. What the rule
+# cost the tree when it landed, measured: no ADR illustrates one of these
+# lines at column 0, so none needed the indent; ADR-00000008 needed the
+# amendment half, and two of its lines changed key.
+#
+# WHAT THIS DOES NOT HANDLE. One fail-open, and two limits that were never
+# in scope:
+#
+#   - THE FAIL-OPEN: an ADR that OMITS a required part and illustrates that
+#     same line at column 0 reads as compliant, because the illustration is
+#     then the only occurrence and the count is one. Note what this means
+#     for the leak that prompted the rewrite -- an over-indented marker
+#     ending a fence early -- it is not closed here, it is reclassified: the
+#     file was always a file whose only Decision heading was illustrated,
+#     and that shape is now named and pinned by a spec rather than resting
+#     on a parser being right. Closing it means deciding which lines are
+#     code again. What bounds it: the author has to have dropped the part
+#     already, and an illustration showing more of the template than the
+#     dropped part makes every other line it shows a second occurrence, on
+#     which the file IS refused.
+#   - ORDER, NESTING and BODY are not checked: a `## Decision` sitting under
+#     `## Alternatives`, or with nothing beneath it, passes. A scope limit,
+#     not a consequence of counting -- the fence rule did not check them
+#     either. This lint is about presence.
+#   - A file that legitimately wants a part twice is REFUSED. That is the
+#     refusing direction, and the fix is one edit: demote the second
+#     occurrence to `###`, or give it a different key.
+#
+# The sibling `changelog_entry.sh` does carry a fence parser, and that is
+# not an inconsistency left standing. Its subject is a repeated structure --
+# every changelog entry is one of many -- so no occurrence count says
+# anything there, and it has to know what a fence is. An ADR carries exactly
+# one of each part, which is what makes counting a contract here rather than
+# a heuristic.
 #
 # An empty population is a REFUSAL. A lint that examined zero ADRs and
 # printed "clean" cannot distinguish a tree with no ADRs from a scan whose
@@ -85,92 +150,23 @@ readonly _ADR_STRUCT_NAME_RE='^[0-9]{8}-.+\.md$'
 # The section headings every ADR must carry.
 readonly _ADR_REQUIRED_SECTIONS=(Context Decision Consequences Alternatives)
 
-# _adr_outline <file>
+# _adr_count <extended-regex> <file>
 #
-# Print the file's structural lines -- the ones a check may read -- with
-# every line inside a fenced code block dropped. Both fence characters are
-# handled, in both roles, and three properties of the opening marker are
-# carried, per CommonMark: a block closes only on a marker of the same
-# CHARACTER, at least as LONG as the one that opened it, INDENTED no more
-# than three columns past it, and followed by nothing but whitespace.
-#
-# Each of the three closes one way an illustration leaks out as real
-# content. LENGTH: a fenced block shown inside a fenced block is legal only
-# with a longer outer fence, so closing on any ``` at all lets the inner
-# ``` end the outer block. CHARACTER: a ``` example nested in a ~~~ block
-# does not end it either. INDENT: CommonMark bounds a closing fence's
-# indent, so a ``` indented eight columns inside a block is block CONTENT,
-# and reading it as a close ends the block early. That bound is measured
-# from the OPENER rather than from column 0, so a block indented as a whole
-# -- the way one nested in a list item is -- still closes.
-#
-# Where this departs from CommonMark it departs by treating MORE text as
-# fenced, never less, and that is the direction that refuses here: every
-# check below asks whether a line is PRESENT, so a line wrongly dropped can
-# only add a violation and can never invent a section. The known
-# departures:
-#
-#   - An OPENING marker is read at any indent. CommonMark reads one
-#     indented four columns or more as an indented code block instead;
-#     here it opens a fence, so what follows is dropped rather than read.
-#   - An opening backtick fence's info string is not checked for the
-#     backtick CommonMark forbids in it, so such a line opens a block
-#     rather than staying prose.
-#   - A fence left OPEN at end of file is not reinterpreted: it swallows
-#     the rest of the file, so the sections after it are reported missing.
-#     That names the wrong defect, and it is still a refusal.
-_adr_outline() {
-  local _file="${1}"
-  awk '
-    # Length of the leading run of <ch> in <s>.
-    function _run(s, ch,   n) {
-      n = 0
-      while (substr(s, n + 1, 1) == ch) { n++ }
-      return n
-    }
-    # Indent of <s> in columns, a tab advancing to the next multiple of 4
-    # (CommonMark tab stops).
-    function _indent(s,   i, c, col) {
-      col = 0
-      for (i = 1; i <= length(s); i++) {
-        c = substr(s, i, 1)
-        if (c == " ") { col++ }
-        else if (c == "\t") { col += 4 - (col % 4) }
-        else { break }
-      }
-      return col
-    }
-    {
-      line = $0
-      ind = _indent(line)
-      sub(/^[ \t]+/, "", line)
-      if (fence == "") {
-        n = _run(line, "`")
-        if (n >= 3) { fence = "`"; flen = n; find = ind; next }
-        n = _run(line, "~")
-        if (n >= 3) { fence = "~"; flen = n; find = ind; next }
-        print $0
-        next
-      }
-      # Inside a block: same marker, at least as long, no deeper than three
-      # columns past the opener, nothing trailing.
-      if (ind <= find + 3) {
-        n = _run(line, fence)
-        if (n >= flen) {
-          rest = substr(line, n + 1)
-          sub(/[ \t]+$/, "", rest)
-          if (rest == "") { fence = ""; flen = 0; find = 0 }
-        }
-      }
-      next
-    }
-  ' "${_file}"
+# How many lines of <file> match <regex>. grep exits 1 when the count is
+# zero, which is an answer here and not an error, so the status is
+# discarded and the number is what is read. A grep that fails outright --
+# an unreadable file -- prints no number, which reads as zero and reports
+# every part of that file missing: the wrong defect named, and a refusal.
+_adr_count() {
+  local _n
+  _n="$(grep -cE -- "${1}" "${2}")" || true
+  printf '%s\n' "${_n:-0}"
 }
 
 _run_adr_structure() {
   echo "--- Running ADR-structure lint ---"
   local _adr_dir="${REPO_ROOT}/doc/adr"
-  local _file _base _outline _status_line _status _section _examined=0
+  local _file _base _n _status_line _status _section _examined=0
   local -a _violations=()
 
   local -a _files=()
@@ -195,25 +191,32 @@ _run_adr_structure() {
     fi
     _examined=$(( _examined + 1 ))
 
-    _outline="$(_adr_outline "${_file}")"
-
-    # The back-pointer, at line start.
-    if ! grep -qE '^> Serves:' <<< "${_outline}"; then
-      _violations+=("${_base}: no '> Serves:' back-pointer (which PRD invariant or design principle does this decision uphold?)")
+    # The back-pointer, at line start, exactly once.
+    _n="$(_adr_count '^> Serves:' "${_file}")"
+    if [[ "${_n}" -eq 0 ]]; then
+      _violations+=("${_base}: no '> Serves:' back-pointer at column 0 (which PRD invariant or design principle does this decision uphold?)")
+    elif [[ "${_n}" -gt 1 ]]; then
+      _violations+=("${_base}: '> Serves:' appears ${_n} times at column 0 -- an ADR carries exactly one back-pointer, so fold them into one line, or indent an illustrated one so it is not at column 0")
     fi
 
     # The required sections. A trailing tail is allowed; a substring is not.
     for _section in "${_ADR_REQUIRED_SECTIONS[@]}"; do
-      if ! grep -qE "^## ${_section}([[:space:]].*)?$" <<< "${_outline}"; then
-        _violations+=("${_base}: no '## ${_section}' section (a heading inside a fenced code block does not count)")
+      _n="$(_adr_count "^## ${_section}([[:space:]].*)?\$" "${_file}")"
+      if [[ "${_n}" -eq 0 ]]; then
+        _violations+=("${_base}: no '## ${_section}' section at column 0")
+      elif [[ "${_n}" -gt 1 ]]; then
+        _violations+=("${_base}: '## ${_section}' appears ${_n} times at column 0 -- exactly one of them is the section and the file does not say which. Demote an amendment's copy to '### ${_section}', or indent an illustrated heading so it is not at column 0")
       fi
     done
 
     # The Status line, and the three-value contract.
-    _status_line="$(grep -m1 -E '^- \*\*Status:\*\*' <<< "${_outline}" || true)"
-    if [[ -z "${_status_line}" ]]; then
-      _violations+=("${_base}: no '- **Status:**' line (expected one of: Accepted | Rejected | Superseded by ADR-NNNNNNNN)")
+    _n="$(_adr_count '^- \*\*Status:\*\*' "${_file}")"
+    if [[ "${_n}" -eq 0 ]]; then
+      _violations+=("${_base}: no '- **Status:**' line at column 0 (expected one of: Accepted | Rejected | Superseded by ADR-NNNNNNNN)")
+    elif [[ "${_n}" -gt 1 ]]; then
+      _violations+=("${_base}: '- **Status:**' appears ${_n} times at column 0 -- an ADR has one Status. An amendment records its own under a different key ('- **Amendment status:**'), never a second Status line")
     else
+      _status_line="$(grep -E '^- \*\*Status:\*\*' "${_file}")"
       _status="${_status_line#- \*\*Status:\*\* }"
       if [[ ! "${_status}" =~ ${_ADR_STATUS_RE} ]]; then
         _violations+=("${_base}: Status '${_status}' is not one of the three contract values (Accepted | Rejected | Superseded by ADR-NNNNNNNN). Free text belongs in the body as '**Amendment (#issue, YYYY-MM-DD):**'.")
@@ -240,7 +243,7 @@ _run_adr_structure() {
     # not-reached "clean" echo unreachable even where a caller stubs _die
     # to return instead of exit (e.g. the unit harness).
     _die ci_adr_structure \
-      "${#_violations[@]} ADR-structure defect(s) across ${_examined} ADR(s) under doc/adr/. Fix the named file(s): every ADR carries a '> Serves:' back-pointer, ## Context / ## Decision / ## Consequences / ## Alternatives, and a Status of exactly Accepted | Rejected | Superseded by ADR-NNNNNNNN."
+      "${#_violations[@]} ADR-structure defect(s) across ${_examined} ADR(s) under doc/adr/. Fix the named file(s): every ADR carries EXACTLY ONE of each part, at column 0 -- a '> Serves:' back-pointer, ## Context / ## Decision / ## Consequences / ## Alternatives, and a '- **Status:**' line whose value is exactly Accepted | Rejected | Superseded by ADR-NNNNNNNN."
     return 1
   fi
   printf 'ADR-structure lint: %d ADR(s) examined, clean\n' "${_examined}"
