@@ -315,6 +315,61 @@ setup() {
   assert_output "2"
 }
 
+# _extra_stages <dockerfile-body> <extra_stages>
+#   Runs the workflow's OWN "Build extra stages" step -- lifted out of the
+#   YAML, not a copy of it -- against a Dockerfile written from
+#   <dockerfile-body>, with `docker` replaced by a stub that prints its
+#   argv. What the step decided to build is therefore READ OFF the run
+#   (`--target <stage>` in the output) rather than re-derived by the spec.
+#
+#   `.worker-base` is symlinked to this checkout because that is the path
+#   the build job checks base's own worker source out to; a resolver the
+#   step calls from there runs here as the same file.
+_extra_stages() {
+  local _dir="${BATS_TEST_TMPDIR}/extra"
+  rm -rf "${_dir}"
+  mkdir -p "${_dir}/bin"
+  ln -s /source "${_dir}/.worker-base"
+  printf '%s\n' "${1}" > "${_dir}/Dockerfile"
+  printf '%s\n' '#!/usr/bin/env bash' 'printf "docker %s\n" "$*"' \
+      > "${_dir}/bin/docker"
+  chmod +x "${_dir}/bin/docker"
+  yaml_step_run "${WF}" build 'Build extra stages' > "${_dir}/step.sh"
+  [ -s "${_dir}/step.sh" ] || return 2
+  (
+    cd "${_dir}" || return 2
+    env "PATH=${_dir}/bin:${PATH}" \
+        EXTRA_STAGES="${2}" CACHE_KEY=key CACHE_BACKEND=gha \
+        REPO=org/repo CONTEXT_PATH=. DOCKERFILE=Dockerfile \
+        BUILD_CONTEXTS_INPUT= BUILD_ARGS_INPUT= \
+        PLATFORM=linux/amd64 HARDWARE=x86_64 TEST_TOOLS_IMAGE=tools:1 \
+        bash step.sh
+  )
+}
+
+@test "build-worker.yaml: an extra stage's -test companion is found on a --platform FROM line (#1013)" {
+  # The detector matched ONE token between FROM and AS, so the standard
+  # cross-build form -- the one the arm64 matrix invites -- declared a
+  # stage the step could not see, and the stage's smoke test was silently
+  # not built. The sibling resolver (runtime_stages.sh) reads the same
+  # shape correctly; the comment above this step claimed the two agree.
+  run _extra_stages 'FROM debian:bookworm AS foo
+FROM --platform=$BUILDPLATFORM debian:bookworm AS foo-test' foo
+  assert_success
+  assert_output --partial '--target foo-test'
+  assert_output --partial '--target foo'
+}
+
+@test "build-worker.yaml: an extra stage with no -test companion builds only itself (#1013)" {
+  # The other direction: widening the detector must not invent a test
+  # stage that the Dockerfile does not declare -- buildx would fail the
+  # build on a target that is not there.
+  run _extra_stages 'FROM debian:bookworm AS foo' foo
+  assert_success
+  assert_output --partial '--target foo'
+  refute_output --partial '--target foo-test'
+}
+
 @test "build-worker.yaml: cache lines select the backend on inputs.cache_backend (#801)" {
   # Both cache-from and cache-to (8 lines total) gate on the input so the
   # backend is chosen per call, defaulting to gha.
