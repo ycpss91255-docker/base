@@ -128,12 +128,23 @@ reclaim_scan
 reclaim_orphan_dry_run
 reclaim_orphan_removed
 reclaim_network_rm_failed
+reclaim_image_scan
+reclaim_image_dry_run
+reclaim_image_removed
+reclaim_image_rm_failed
 reclaim_tool_tags_scan
 reclaim_tool_tags_dry_run
 reclaim_tool_tag_retired
 reclaim_tool_tag_rm_failed
 stop_reclaim_failed
 ci_reclaim_failed
+
+# script/test/test.sh - the previous run's residue on this project
+ci_project_bad_wait
+ci_project_wait_unreadable
+ci_project_wait
+ci_project_ready
+ci_project_wedged
 
 # hook.sh
 hook_not_executable
@@ -229,6 +240,7 @@ transcript_env_invalid
 
 # compose.sh (project-name resolution)
 project_name_missing_from_env
+project_name_unrecorded
 project_name_reconfigured
 
 # wrapper.sh (shared wrapper runtime). Emitted under the CALLING verb's

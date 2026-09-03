@@ -1137,7 +1137,7 @@ jobs:
 | `extra_files` | string | 否 | `""` | 额外文件（空格分隔） |
 | `version` | string | 否 | `""` | 要发布的版本（`vX.Y.Z`）。走 tag 触发路径时留空，版本会从所推的 tag 读出。若要从非 tag 的 run 直接调用这个 worker 就传入它：用默认 `GITHUB_TOKEN` 产生的事件不会启动新的 workflow run，所以要自动发布已合并变更的 repo，靠推 tag 到不了这里。不是 `vX.Y.Z[-suffix]` 的值会被拒绝，而不是照样拿来发布 |
 
-<!-- sync: running-template-tests 961bde4ce2e8 5ffd1af67fe7 -->
+<!-- sync: running-template-tests 4e411d749017 9e717f2fcbfe -->
 ## 本地运行测试
 
 base 自测入口 `just test`：
@@ -1145,6 +1145,7 @@ base 自测入口 `just test`：
 just test        # 完整 CI（ShellCheck + Bats + Kcov）通过 docker compose
 just test lint        # 只运行 ShellCheck
 just test clean       # 清除覆盖率报告
+just test stop        # 停掉本 checkout 自测的容器
 just                            # 显示 repo 命令
 just --list        # 显示 CI 命令
 ```

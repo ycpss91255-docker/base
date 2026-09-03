@@ -1655,6 +1655,7 @@ Using `script/test/justfile.test` (from template root):
 just test        # Full CI (ShellCheck + Bats + Kcov) via docker compose
 just test lint        # ShellCheck only
 just test clean       # Remove coverage reports
+just test stop        # Stop this checkout's self-test containers
 just                      # Show repo recipes
 just --list  # List CI recipes
 ```

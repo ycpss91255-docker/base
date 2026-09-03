@@ -299,16 +299,29 @@ setup() {
 # they broke on every internal rename (shim, rename) and could
 # not catch a bypass.
 
-# why: Uses shared lib
-@test "exec.sh loads .env via _load_env helper" {
-  run grep -E '_load_env .*\.env' /source/dist/script/docker/wrapper/exec.sh
-  assert_success
-}
-
-# why: Uses shared lib
-@test "stop.sh loads .env via _load_env helper" {
-  run grep -E '_load_env .*\.env' /source/dist/script/docker/wrapper/stop.sh
-  assert_success
+# Every wrapper reads the interpolation cache the same way, and the way is
+# the OPTIONAL one. This replaces a per-wrapper grep for `_load_env` that
+# asked only whether the shared helper was used at all: exec.sh and
+# stop.sh passed it while sourcing the file UNCONDITIONALLY, which is the
+# defect -- a self-managed checkout has no `.env.generated` and dying on
+# its absence made `stop` the one verb in the flow that could not run
+# there. The population is the loop, so a sixth wrapper is covered
+# the day it appears rather than the day someone remembers to add a case.
+# why: every wrapper loads the interpolation cache optionally, and none
+# carries a bare `_load_env "` -- the shape that made `stop` die in a
+# self-managed checkout.
+@test "every wrapper loads .env.generated through the shared optional loader (#1015)" {
+  local _w _f
+  for _w in build run exec stop prune; do
+    _f="/source/dist/script/docker/wrapper/${_w}.sh"
+    run grep -F '_load_env_optional "${FILE_PATH}/.env.generated"' "${_f}"
+    assert_success
+    # A bare `_load_env "<path>"` is the unconditional source. The
+    # optional loader's own name survives this pattern (it is followed by
+    # `_optional`, not by a quote), so the two are told apart by shape.
+    run grep -E '_load_env "' "${_f}"
+    assert_failure
+  done
 }
 
 @test "lib/env.sh defines _load_env helper" {
