@@ -1,10 +1,10 @@
 # TEST.md
 
-Template self-tests: **3687 tests** total (3532 unit + 155 integration).
+Template self-tests: **3695 tests** total (3540 unit + 155 integration).
 
 > "Self-test total" is the `just test` suite -- what runs in the
 > `Self Test` CI job. System (19) and smoke (38) tests are tracked here
-> too but are **not** in the 3687 figure: System specs need host docker
+> too but are **not** in the 3695 figure: System specs need host docker
 > access and are opt-in, and smoke specs are Dockerfile `test`-stage
 > build-time assertions, not self-tests. Acceptance is a CI-only level (0
 > bats specs by design): it drives a real scaffolded consumer + built
@@ -20,13 +20,13 @@ carrying its own test count) live in the sibling docs below.
 
 | Doc | Scope | Count |
 |-----|-------|-------|
-| [unit.md](unit.md) | `test/bats/unit/` -- library, wrappers, generators, templates (Unit level) | 3532 |
+| [unit.md](unit.md) | `test/bats/unit/` -- library, wrappers, generators, templates (Unit level) | 3540 |
 | [integration.md](integration.md) | `test/bats/integration/` -- init / upgrade / dispatch across components (Integration level) | 155 |
 | [system.md](system.md) | `test/bats/system/` -- opt-in `runtime-test` buildx specs, gate-fires Regression (System level, host docker) | 19 |
 | [acceptance.md](acceptance.md) | `test/bats/acceptance/` -- consumer framework + UX, UAT/OAT (Acceptance level; CI-only via the `acceptance` job, #785) | 0 |
 | [smoke.md](smoke.md) | `dist/test/bats/smoke/` -- shipped per-stage build-time smoke templates (Smoke type) | 38 |
 
-Self-test grand total (unit + integration): **3687**.
+Self-test grand total (unit + integration): **3695**.
 
 ## Running one spec under kcov: `just test coverage-path`
 
@@ -138,9 +138,12 @@ starting `#!`, minus symlinks -- so they run HOST-DIRECT
 have no `--lint --<tool>` in-container form: a `git worktree` checkout's
 `.git` is a file naming a path outside the container's bind mount, where the
 lint would refuse rather than measure. And the **counting rules are decisions**
--- whether a `case` arm is a level, whether a comment is a line, what `$@` and
-`shift` do to an arity -- each stated with its reason in the driver's header,
-which is the file to read before arguing with a number it reports.
+-- whether a `case` arm is a level, whether a comment is a line, whether an
+array literal's elements are commands, what `$@` and `shift` do to an arity --
+each stated with its reason in the driver's header, which is the file to read
+before arguing with a number it reports. Each rule's worked example is a
+fixture in `test/bats/unit/shell_metrics_spec.bats`, so a rule the reader does
+not follow fails rather than reads well.
 
 ## Maintaining these docs
 

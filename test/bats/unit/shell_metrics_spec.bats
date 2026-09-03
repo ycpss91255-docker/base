@@ -356,11 +356,116 @@ _field() {
   refute_line "_seen"
 }
 
+@test "parser: an array literal's elements are DATA, not commands (#994)" {
+  # `w=( ... )` is a word list. The reader used to enter it as a
+  # subshell, and `_sm_scan_line` puts every physical line back in
+  # command position, so the first element on each line of a multi-line
+  # literal was read as a command word -- and a keyword there pushed a
+  # construct. An unbalanced set is a loud finding; a BALANCED pair like
+  # `if` / `fi` inflated the depth with nothing printed, which is the one
+  # way this reader was found to produce a wrong NUMBER in silence.
+  _write "a.sh" \
+    'kw_balanced() {' \
+    '  local -a w=(' \
+    '    if' \
+    '    fi' \
+    '    )' \
+    '  echo "${w[@]}"' \
+    '}'
+  run _field kw_balanced depth
+  assert_success
+  assert_output "0"
+}
+
+@test "parser: a SINGLE-LINE array literal's elements are data too (#994)" {
+  # The mechanism is command POSITION, and it has two halves: entering
+  # the literal leaves command position, and no physical line inside one
+  # restores it. This case is the only one that fails if the ENTRY stops
+  # leaving it -- the multi-line cases around it are the only ones that
+  # fail if the line-start reset stops respecting it.
+  _write "a.sh" \
+    'inline() { local -a w=( if fi ); echo "${w[@]}"; }'
+  run _field inline depth
+  assert_success
+  assert_output "0"
+}
+
+@test "parser: an UNBALANCED keyword in an array literal is data too, not a finding (#994)" {
+  # The same rule from the loud side: `done` and `esac` as array elements
+  # used to close constructs that were never opened, six findings and the
+  # whole file dropped. As data they close nothing.
+  _write "a.sh" \
+    'kw_unbalanced() {' \
+    '  local -a w=(' \
+    '    if' \
+    '    done' \
+    '    esac' \
+    '    )' \
+    '  echo "${w[@]}"' \
+    '}'
+  run _field kw_unbalanced depth
+  assert_success
+  assert_output "0"
+}
+
+@test "parser: a command substitution INSIDE an array literal is still a command context (#994)" {
+  # The guard against reading the whole literal as inert text: an element
+  # can be a substitution, and what is written in that substitution
+  # counts where it is written.
+  _write "a.sh" \
+    'arr_sub() {' \
+    '  local -a w=(' \
+    '    "$(if x; then echo a; fi)"' \
+    '    b' \
+    '    )' \
+    '  echo "${w[@]}"' \
+    '}'
+  run _field arr_sub depth
+  assert_success
+  assert_output "1"
+}
+
 @test "parser: CRLF line endings are read like LF (#994)" {
   printf 'crlf() {\r\n  if true; then\r\n    echo x\r\n  fi\r\n}\r\n' \
     > "${SCRATCH}/a.sh"
   git -C "${SCRATCH}" add -- a.sh
   run _field crlf depth
+  assert_success
+  assert_output "1"
+}
+
+@test "parser: a construct opened and CLOSED inside a command substitution (#994)" {
+  # The driver header's own worked example for the command-substitution
+  # rule. The closing keyword sits immediately against the `)`, so the
+  # `)` handler read the construct stack while `done` was still in the
+  # word buffer: it saw the LOOP the keyword was about to close instead
+  # of the CMDSUB the paren closes, called the paren unopened, and then
+  # `fi` and `}` closed the wrong things. The file was DROPPED, so the
+  # rule the header states could not be measured at all.
+  _write "a.sh" \
+    'hdr() {' \
+    '  if x; then y=$(for i in a; do echo "$i"; done); fi' \
+    '}'
+  run _field hdr depth
+  assert_success
+  assert_output "2"
+}
+
+@test "parser: every closing keyword written against a ')' closes its own construct (#994)" {
+  # The same ordering defect reached by each spelling. One space before
+  # the `)` made all of them work already, which is what proved this a
+  # flush-ORDER defect rather than a limit on what the reader models.
+  _write "a.sh" \
+    'shapes() {' \
+    '  a=$(if x; then echo a; fi)' \
+    '  b=$(while x; do echo z; done)' \
+    '  c=$(for i in a; do echo z; done)' \
+    '  d=$(case x in a) echo b;; esac)' \
+    '  e=$({ echo a; })' \
+    '  ( for i in a; do echo z; done)' \
+    '  echo "${a}${b}${c}${d}${e}"' \
+    '}'
+  run _field shapes depth
   assert_success
   assert_output "1"
 }
@@ -466,6 +571,53 @@ _field() {
     '}'
   run _field argparse variadic
   assert_output "1"
+}
+
+@test "counting: a shift with a QUOTED non-literal count marks the function variadic (#994)" {
+  # The header says a function is variadic by "a `shift` with a
+  # non-literal count". A fully-quoted count leaves the word buffer
+  # empty, so the pending shift used to survive the flush and resolve at
+  # the next separator as a BARE `shift` -- one position, and the
+  # function measured NARROWER than it is. Under-counting is the
+  # fail-open direction for a threshold, which is why the two quoted
+  # spellings are pinned next to the two that already worked.
+  _write "a.sh" \
+    's_quoted() {' \
+    '  shift "$n"' \
+    '  echo "$1"' \
+    '}' \
+    's_braced() {' \
+    '  shift "${n}"' \
+    '  echo "$1"' \
+    '}' \
+    's_unquoted() {' \
+    '  shift $n' \
+    '  echo "$1"' \
+    '}'
+  run _field s_quoted variadic
+  assert_output "1"
+  run _field s_quoted params
+  assert_output "1"
+  run _field s_braced variadic
+  assert_output "1"
+  run _field s_braced params
+  assert_output "1"
+  run _field s_unquoted variadic
+  assert_output "1"
+}
+
+@test "counting: a bare shift is still one position, not a non-literal count (#994)" {
+  # The guard against fixing the case above by making every shift
+  # variadic: `shift` with no argument at all consumes exactly one.
+  _write "a.sh" \
+    'bare() {' \
+    '  shift' \
+    '  echo "$1"' \
+    '}'
+  run _field bare variadic
+  assert_output "0"
+  run _field bare params
+  assert_output "2"
 }
 
 @test "counting: a nested function has its OWN positional parameters (#994)" {

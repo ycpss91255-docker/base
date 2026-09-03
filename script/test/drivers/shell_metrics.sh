@@ -113,7 +113,7 @@
 # and a roster would be short from the first file added anywhere else.
 #
 # THIS FILE is one of the 89, and four of its own functions are in the
-# report it prints: `_sm_scan_line` at depth 4 and 271 body code lines,
+# report it prints: `_sm_scan_line` at depth 4 and 279 body code lines,
 # `_sm_flush_word` at 98, `_sm_read_dollar` at depth 4 and 82,
 # `_sm_scan_file` at 65. There is no exemption for it and none is wanted:
 # a reader outside its own population is a rule with one case in it, and
@@ -157,7 +157,7 @@
 # ── NOT in the default gate ──────────────────────────────────────────────────
 #
 # These three names are deliberately NOT in test.sh's `_LINT_TOOLS`. On
-# today's tree they report 102 violations across 89 files and 774
+# today's tree they report 102 violations across 89 files and 775
 # functions -- 26 over nesting depth, 69 over function length, 7 over
 # positional parameters; phase 3 flattens the tree in slices and phase 4
 # wires them in, on a clean tree, with the CI jobs the `_LINT_TOOLS`
@@ -199,7 +199,24 @@
 #   y=$(for i in a; do ...; done); fi` really is two constructs deep for a
 #   reader. What it is NOT is a place where the enclosing function's
 #   blocks can be closed: bug 2 above is what happens when the two are
-#   confused.
+#   confused. That line is a fixture in the spec, not only a sentence
+#   here: it was written as the rule's worked example before it could be
+#   MEASURED, and the reader dropped the whole file over the `done)`
+#   until the `)` handler was made to flush its word before reading the
+#   construct stack.
+#
+#   An ARRAY LITERAL -- a `(` written against a word that ends in `=`,
+#   which is `w=( ... )`, `w+=( ... )` and `declare -A m=( [k]=v )` -- is
+#   a WORD LIST, not a command context, so nothing written in one counts
+#   and nothing written in one can close anything: `w=( if fi )` is a
+#   two-element list of the strings "if" and "fi". A `$( )` written as an
+#   element is still a command substitution and still counts by the rule
+#   above. Reading the literal as a subshell instead put the first
+#   element of each of its physical lines in command position, where a
+#   keyword pushed a construct -- and while an unbalanced set was a loud
+#   finding, a balanced `if` / `fi` pair silently INFLATED the enclosing
+#   function's depth. That was the one shape found where this reader
+#   produced a wrong NUMBER rather than a finding.
 #
 # FUNCTION LENGTH is the count of body lines that carry CODE: blank lines,
 # comment-only lines and heredoc BODY lines do not count, and neither does
@@ -266,6 +283,16 @@
 #   `${7}` is still reported at 7. It is the metric saying which functions
 #   it could not bound, which is the difference between a blind spot and a
 #   pass.
+#
+#   The non-literal count is recognised in every spelling it is written
+#   in -- `shift $n`, `shift "$n"`, `shift "${n}"`, `shift $(( k ))`. The
+#   two QUOTED spellings resolved as a bare `shift` (one position) until
+#   the pending count was decided on whether a word was opened rather
+#   than on whether it left characters in the buffer, because a
+#   fully-quoted word is read entirely by the double-quote scanner and
+#   leaves the buffer empty. That direction was UNDER-counting -- a wide
+#   argument-shuffling function measured narrow -- which is the one
+#   direction a threshold must never err in.
 
 # ── What this reader does NOT model, and which way each errs ─────────────────
 #
@@ -443,10 +470,10 @@ _sm_finding() {
 
 # ── The construct stack ──────────────────────────────────────────────────────
 #
-# Kinds: IF LOOP CASE FUNC (counting) / BRACE SUBSHELL CMDSUB PATPAREN
-# (structural only). `_sm_count` is the number of counting entries, which
-# is the absolute depth; a function's depth is that minus the count at its
-# own opening brace.
+# Kinds: IF LOOP CASE FUNC (counting) / BRACE SUBSHELL CMDSUB ARRAY
+# PATPAREN (structural only). `_sm_count` is the number of counting
+# entries, which is the absolute depth; a function's depth is that minus
+# the count at its own opening brace.
 
 _sm_push() {
   local _k="${1}" _f _rel
@@ -608,14 +635,22 @@ _sm_shift_in_loop() {
 # where a token becomes a keyword, a function name, a `shift` or a case
 # pattern, and it is the ONLY place that decides any of those.
 _sm_flush_word() {
-  local _w="${_sm_word}" _plain="${_sm_wplain}"
+  local _w="${_sm_word}" _plain="${_sm_wplain}" _open="${_sm_wopen}"
   _sm_word=""
   _sm_wplain=1
   _sm_wopen=0
-  [[ -z "${_w}" ]] && return 0
 
-  # A pending `shift` takes this word as its count.
-  if (( _sm_shiftpend != 0 )); then
+  # A pending `shift` takes this word as its count. Decided on whether a
+  # word was OPENED, not on whether it left characters in the buffer:
+  # `shift "$n"` and `shift "${n}"` are read entirely by the
+  # double-quote scanner, which appends nothing, so an empty-word return
+  # here would let the pending shift survive to `_sm_separator` and
+  # resolve as a BARE `shift` -- one position, and a function that
+  # reshuffles an unbounded argument list measured as narrow. That is the
+  # UNDER-counting direction, which is the direction a threshold must not
+  # err in. A shift with no word after it at all still resolves as bare,
+  # because nothing opened a word.
+  if (( _sm_shiftpend != 0 )) && (( _open == 1 )); then
     if [[ "${_plain}" -eq 1 ]]; then
       _sm_shift_resolve "${_w}"
     else
@@ -623,6 +658,8 @@ _sm_flush_word() {
     fi
     return 0
   fi
+
+  [[ -z "${_w}" ]] && return 0
 
   # `function <name>` -- the name is a word, not a keyword.
   if (( _sm_expectname == 1 )); then
@@ -751,7 +788,8 @@ _sm_separator() {
 # that reads the rest of the file inverted.
 
 _sm_enter_paren() {
-  _sm_push "${1}"
+  local _kind="${1}"
+  _sm_push "${_kind}"
   _sm_sv_word+=("${_sm_word}")
   _sm_sv_wplain+=("${_sm_wplain}")
   _sm_sv_wopen+=("${_sm_wopen}")
@@ -761,9 +799,36 @@ _sm_enter_paren() {
   _sm_word=""
   _sm_wplain=1
   _sm_wopen=0
-  _sm_cmdpos=1
+  # An ARRAY literal is a word list, so its contents are never in
+  # command position; `$( )` and `( )` are command contexts and are.
+  if [[ "${_kind}" == "ARRAY" ]]; then
+    _sm_cmdpos=0
+  else
+    _sm_cmdpos=1
+  fi
   _sm_intest=0
   _sm_q=""
+}
+
+# _sm_in_array -- is the reader inside an array literal `w=( ... )`?
+# What is written there is DATA: `w=( if fi )` is a two-element list of
+# the strings "if" and "fi", not a construct. A `$( )` written as an
+# element opens a command context of its own and sits above this one, so
+# this asks about the INNERMOST construct only.
+#
+# It is asked in exactly ONE place -- the start-of-line reset in
+# `_sm_scan_line`; `_sm_enter_paren` above reads the kind it was handed
+# instead. Command POSITION is the single mechanism, and those two are
+# its two halves: a reader that is never in command position inside a
+# literal cannot read an element as a keyword and cannot read one as a
+# function header either. A second guard at the keyword table would be
+# unfalsifiable, because every way to reach it (`w=( a; b )`,
+# `w=( a|b )`, `w=( f() )`) is a bash SYNTAX ERROR and so cannot be
+# written as a fixture.
+_sm_in_array() {
+  local _idx=$(( ${#_sm_kind[@]} - 1 ))
+  (( _idx < 0 )) && return 1
+  [[ "${_sm_kind[_idx]}" == "ARRAY" ]]
 }
 
 _sm_leave_paren() {
@@ -963,8 +1028,16 @@ _sm_scan_line() {
   _sm_i=0
   _sm_first_code=-1
 
+  # A new physical line starts a new command -- unless the reader is
+  # mid-continuation, mid-quote, mid case-pattern, or inside an ARRAY
+  # literal, whose every line carries elements rather than commands.
+  # Resetting inside one is what let `w=(` / newline / `if` read the
+  # first element of each line as a keyword: an unbalanced set was a loud
+  # finding, but a balanced `if` / `fi` pair silently INFLATED the
+  # function's depth, which is the one way this reader was found to
+  # produce a wrong number with nothing printed.
   if (( _sm_cont == 0 )) && [[ -z "${_sm_q}" ]]; then
-    if ! _sm_in_pattern; then
+    if ! _sm_in_pattern && ! _sm_in_array; then
       _sm_cmdpos=1
     fi
   fi
@@ -1195,17 +1268,57 @@ _sm_scan_line() {
           _sm_prev='('
           continue
         fi
-        _sm_flush_word
-        _sm_enter_paren SUBSHELL
+        # A `(` against a word that ends in `=` opens an ARRAY literal
+        # (`w=(`, `w+=(`, `declare -A m=(`), not a subshell. It is the
+        # same `=` that keeps `_seen=()` from being read as a function
+        # definition below; a subshell never has one, because a word and
+        # a `(` with nothing between them is an assignment or a header.
+        if (( _sm_wopen == 1 )) && [[ "${_sm_word}" == *= ]]; then
+          _sm_flush_word
+          _sm_enter_paren ARRAY
+        else
+          _sm_flush_word
+          _sm_enter_paren SUBSHELL
+        fi
         _sm_i=$(( _sm_i + 1 ))
         _sm_prev='('
         continue
         ;;
       ')')
+        # Inside `[[ ... ]]` a paren is grouping and the stack knows
+        # nothing about it, so that is decided before anything else.
+        if (( _sm_intest == 1 )); then
+          _sm_i=$(( _sm_i + 1 ))
+          _sm_prev=')'
+          continue
+        fi
         local _ti=$(( ${#_sm_kind[@]} - 1 )) _t=""
         (( _ti >= 0 )) && _t="${_sm_kind[_ti]}"
-        if [[ "${_t}" == "CMDSUB" || "${_t}" == "SUBSHELL" ]]; then
-          _sm_flush_word
+        # An extglob group inside a case pattern is closed by its own
+        # `)` and carries no word to flush: the pattern text around it
+        # is one word that continues past this character.
+        if [[ "${_t}" == "PATPAREN" ]]; then
+          _sm_pop PATPAREN ')' || true
+          _sm_i=$(( _sm_i + 1 ))
+          _sm_prev=')'
+          continue
+        fi
+        # THE WORD IS FLUSHED BEFORE THE STACK TOP IS READ, and the top
+        # re-read after. A keyword that closes a construct opened inside
+        # this substitution sits immediately against the paren --
+        # `$(for i in a; do ...; done)`, the header's own worked example
+        # for the command-substitution rule -- and reading the top first
+        # reads the LOOP the keyword is about to close rather than the
+        # CMDSUB the paren closes. That made the paren close nothing and
+        # took the rest of the file's construct balance with it, so the
+        # stated rule could not be measured at all. One space before the
+        # `)` always worked, which is what makes this an ordering defect
+        # and not a limit on what the reader models.
+        _sm_flush_word
+        _ti=$(( ${#_sm_kind[@]} - 1 ))
+        _t=""
+        (( _ti >= 0 )) && _t="${_sm_kind[_ti]}"
+        if [[ "${_t}" == "CMDSUB" || "${_t}" == "SUBSHELL" || "${_t}" == "ARRAY" ]]; then
           _sm_separator
           _sm_pop "${_t}" ')' || true
           _sm_leave_paren
@@ -1213,14 +1326,7 @@ _sm_scan_line() {
           _sm_prev=')'
           continue
         fi
-        if [[ "${_t}" == "PATPAREN" ]]; then
-          _sm_pop PATPAREN ')' || true
-          _sm_i=$(( _sm_i + 1 ))
-          _sm_prev=')'
-          continue
-        fi
         if _sm_in_pattern; then
-          _sm_flush_word
           local _idx=$(( ${#_sm_kind[@]} - 1 ))
           _sm_cmode[_idx]=2
           _sm_cmdpos=1
@@ -1228,11 +1334,7 @@ _sm_scan_line() {
           _sm_prev=')'
           continue
         fi
-        if (( _sm_intest == 1 )); then
-          _sm_i=$(( _sm_i + 1 ))
-          _sm_prev=')'
-          continue
-        fi
+        _sm_separator
         _sm_finding "a ')' that closes nothing this reader opened"
         _sm_i=$(( _sm_i + 1 ))
         _sm_prev=')'

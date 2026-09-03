@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3532 tests**.
+Unit specs under `test/bats/unit/`: **3540 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -4235,7 +4235,7 @@ rather than an assurance.
 | `release-test-tools.yaml: the just smoke check asserts the version, not exit 0 (#948)` | - |
 
 
-### test/bats/unit/shell_metrics_spec.bats (44)
+### test/bats/unit/shell_metrics_spec.bats (52)
 
 | Test | Description |
 |------|-------------|
@@ -4260,7 +4260,13 @@ rather than an assurance.
 | `parser: 'function name() {' is a function definition (#994)` | - |
 | `parser: a one-line function body is measured as one line (#994)` | - |
 | `parser: an array assignment is not read as a function definition (#994)` | - |
+| `parser: an array literal's elements are DATA, not commands (#994)` | - |
+| `parser: a SINGLE-LINE array literal's elements are data too (#994)` | - |
+| `parser: an UNBALANCED keyword in an array literal is data too, not a finding (#994)` | - |
+| `parser: a command substitution INSIDE an array literal is still a command context (#994)` | - |
 | `parser: CRLF line endings are read like LF (#994)` | - |
+| `parser: a construct opened and CLOSED inside a command substitution (#994)` | - |
+| `parser: every closing keyword written against a ')' closes its own construct (#994)` | - |
 | `counting: a case arm adds NO level, so case matches the if/elif chain it replaces (#994)` | - |
 | `counting: a brace group and a subshell add no level; the construct inside them does (#994)` | - |
 | `counting: length is body CODE lines, excluding the header and closing brace (#994)` | - |
@@ -4269,6 +4275,8 @@ rather than an assurance.
 | `counting: a forwarded argument list does not raise the count but marks the function variadic (#994)` | - |
 | `counting: a 'shift' raises the index a later positional reaches (#994)` | - |
 | `counting: a 'shift' inside a loop is unbounded, so the function is variadic (#994)` | - |
+| `counting: a shift with a QUOTED non-literal count marks the function variadic (#994)` | - |
+| `counting: a bare shift is still one position, not a non-literal count (#994)` | - |
 | `counting: a nested function has its OWN positional parameters (#994)` | - |
 | `refusal: an unbalanced construct is reported, and the file's records are dropped (#994)` | - |
 | `refusal: an unterminated quote is reported (#994)` | - |
