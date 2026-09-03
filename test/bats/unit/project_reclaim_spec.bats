@@ -393,7 +393,9 @@ _reclaim() {
   _net n1 "${TEMP_DIR}/gone" 86400 > "${DOCKER_STATE}"
   DOCKER_FAIL_NETWORK_LS=1 _reclaim
   assert_failure
-  run grep -c 'rm' "${DOCKER_CALLS}"
+  # Word-anchored: the listing argv this abort DOES record contains
+  # `--format`, and a substring match on `rm` would call that a removal.
+  run grep -cE '\b(rm|rmi)\b' "${DOCKER_CALLS}"
   assert_output "0"
 }
 

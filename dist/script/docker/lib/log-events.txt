@@ -117,7 +117,8 @@ prune_unknown_flag
 prune_reclaim_failed
 
 # lib/project_reclaim.sh - the scoped reclaim
-reclaim_worktrees_unreadable
+reclaim_artifacts_unreadable
+reclaim_containers_unreadable
 reclaim_bad_grace
 reclaim_bad_keep
 reclaim_scan

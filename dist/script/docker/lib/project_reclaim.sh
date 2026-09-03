@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
-# project_reclaim.sh - collect the compose artifacts THIS project left
-# behind, and nothing else.
+# project_reclaim.sh - collect the compose artifacts a base checkout that
+# no longer exists left behind, and nothing else.
 #
 # The development host is shared. It carries a self-hosted runner tree for
 # a sibling org, a GitLab runner container, ollama, buildx builder state
@@ -10,22 +10,52 @@
 # on a proof of ownership rather than on an artifact looking unused, and
 # the default on anything the rules cannot place is to LEAVE IT ALONE.
 #
-# The proof. base's self-test names its compose project after the ABSOLUTE
-# PATH of the checkout it runs in -- `base-<sha256(path)[0:12]>`, see
-# _reclaim_project_for_path -- and compose stamps that name onto every
-# artifact it creates as `com.docker.compose.project`. So an artifact
-# carrying `base-<12hex>` where that hash matches NO path in the live
-# worktree list belongs to a checkout that no longer exists. Nothing
-# another tenant runs mints a name of that shape, which is what bounds the
-# blast radius: this cannot reach a GitLab runner network, an ollama
-# volume, or a buildx cache mount, because none of them carry a project
-# label of this form.
+# THE PROOF IS RECORDED AT CREATION, NOT RECONSTRUCTED AT COLLECTION.
+# base's compose.yaml stamps the ABSOLUTE PATH of the checkout that ran it
+# onto the network compose creates, as the label `base.checkout.path`,
+# beside the `com.docker.compose.project` label docker sets itself. The
+# collector reads that path back OFF THE ARTIFACT and asks the filesystem
+# one question: is anything still there? Nothing there means the checkout
+# that minted this network is gone, and the network is its litter.
 #
-# The daemon-wide `docker {network,image,builder} prune` in the sibling
-# prune.sh is deliberately untouched by all of this. It remains the
-# explicit bigger hammer for an operator who has judged the machine; this
-# file is the collector that needs no such judgement to run, which is why
-# it can be wired to fire by itself.
+# WHY RECORDED AND NOT RECOMPUTED. The rule this replaced derived
+# `base-<sha256(path)[0:12]>` for every worktree `git worktree list`
+# reported, and treated every artifact outside that set as an orphan. That
+# makes the answer depend on WHERE THE COLLECTOR RAN: the same sweep
+# launched from a downstream consumer's checkout -- which is exactly where
+# the shipped stop.sh runs it -- enumerates THAT repo's worktrees, finds
+# base's live checkouts in none of them, and deletes the network of every
+# live base project on the host. Measured, not argued: from a synthetic
+# consumer the sweep named 12 victims including this worktree and the main
+# checkout, and at the DEFAULT grace it issued `docker network rm` for the
+# live main checkout's network (with a fake daemon on PATH, so nothing live
+# was destroyed). The same rule also had to
+# PARSE the enumeration, and `git worktree list --porcelain` does not
+# escape a newline in a path, so a live worktree whose path contained one
+# was read as a different, non-existent path and collected. Both defects
+# are one defect: a collector that INFERS ownership from something it
+# enumerates is correct only when the enumeration happens to be the right
+# one, and nothing in it can notice when it is not. Reading the path off
+# the artifact has no such precondition -- it is correct from any cwd, in
+# any repository, with or without git, with or without worktrees.
+#
+# WHAT THAT COSTS, stated here rather than discovered later. An artifact
+# with NO path label cannot be attributed to anything, so it is LEFT ALONE
+# -- permanently, by this collector. That includes every network created
+# before this change: the litter already on the host is NOT collected by
+# this mechanism, and the daemon-wide `docker network prune` in the sibling
+# prune.sh remains what clears it. That is the safe direction and not a gap
+# to apologise for; the alternative is a rule for artifacts whose owner
+# cannot be established, and that is the rule that deletes a GitLab
+# runner's network.
+#
+# A PATH THAT STILL EXISTS SPARES THE ARTIFACT, whether or not it is still
+# a checkout. An empty directory where a checkout used to be is
+# indistinguishable from here from a checkout mid-clone, mid-`git worktree
+# add`, or mid-`git checkout` of a large tree -- and the run that owns it
+# may be about to fill it. So the test is existence, never checkout-ness:
+# the cost of sparing is one network that a later `rm -rf` of the directory
+# makes collectable, and the cost of collecting is a live run's network.
 #
 # WHAT IT DOES NOT COLLECT, and why each is deliberate.
 #
@@ -37,12 +67,15 @@
 #     to clear.
 #   - Images. The tooling image is content-hash tagged on purpose, so ONE
 #     image is shared by every checkout whose Dockerfile.test-tools hashes
-#     alike -- measured on the host: the tag the current tree resolves to
-#     carries the project label of a DIFFERENT live worktree, the one that
-#     happened to build it first. A project label on an image therefore
-#     names its builder and not its users, and collecting on it would
-#     delete an image live checkouts still resolve. Images are retired by
-#     content instead, in _reclaim_tool_tags.
+#     alike, and its project label names whichever invocation happened to
+#     build it first. Measured on the host: the tag this tree resolves,
+#     `test-tools:b866113e322c`, carries `com.docker.compose.project=
+#     local-base-995` -- the project `just docker build` mints -- while
+#     this tree's own compose project is `base-0107d2de5abf`, and 13 live
+#     worktrees resolve that same tag. A project label on an image
+#     therefore names its builder and not its users, and collecting on it
+#     would delete an image live checkouts still resolve. Images are
+#     retired by content instead, in _reclaim_tool_tags.
 #   - Volumes. A volume holds state, and neither its age nor the
 #     disappearance of the path that created it is evidence that the state
 #     is disposable -- the same rule script/ci/reclaim.sh applies to its
@@ -50,25 +83,17 @@
 #     so there is nothing here to leave behind today; the day it does, this
 #     comment is the decision to revisit rather than a gap to discover.
 #
-# WHAT IT CANNOT PROVE, stated because a guard whose limits are implied
-# gets believed past them. sha256 is one-way, so an artifact's hash cannot
-# be turned back into a path and asked whether it exists; liveness can only
-# be decided by MEMBERSHIP in a set of paths this process enumerated. Two
-# kinds of live checkout are therefore outside that set:
-#
-#   - a throwaway copy of the tree (an agent mutation-testing a guard),
-#     which is a real directory in nobody's worktree list;
-#   - a separate CLONE of base elsewhere on the host, whose worktrees this
-#     repo's git knows nothing about.
-#
-# Both are covered by the two guards that do not depend on enumeration: the
-# checkout this invocation is running in is ALWAYS live (a copy collecting
-# its own project mid-run is the one case enumeration would get wrong every
-# time), and nothing created inside the grace window is a candidate at all.
-# The grace window has to exceed the longest run that can be in flight; the
-# longest phase this repo documents is the 8-12 minute kcov pass, so the
-# 6h default clears it by roughly thirty times and still collects the same
-# day's litter. Raising it only ever removes less.
+# THE GRACE WINDOW, and what it is still for. With liveness read off the
+# artifact, the checkout running right now spares its own network by
+# existing -- no self-protection special case, and no dependence on the
+# invocation knowing which checkout it is. The window covers the narrower
+# case the path test cannot see: a directory that is momentarily absent
+# because something is moving or re-creating it while its run is in flight.
+# That is a window of seconds, so the 6h default is not a tuned number: it
+# is a wide margin that still collects the same day's litter, and the
+# reason it is 6h rather than 6m is that the cost of waiting is a network
+# nobody sees while the cost of being early is a live run's network.
+# Raising it only ever removes less.
 
 # Guard against double-sourcing.
 if [[ -n "${_DOCKER_LIB_PROJECT_RECLAIM_SOURCED:-}" ]]; then
@@ -84,10 +109,20 @@ _project_reclaim_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)
 source "${_project_reclaim_dir}/log.sh"
 unset _project_reclaim_dir
 
-# The compose project name base's self-test mints, split into its two
-# halves so the producer and the collector cannot drift apart.
-readonly _RECLAIM_PROJECT_PREFIX='base'
+# The two labels the collector reads off a network.
+#
+# _RECLAIM_CHECKOUT_LABEL is the provenance base's compose.yaml records and
+# this file is the only reader of; it is what makes an artifact
+# attributable. `base.ci.run`, the ownership stamp script/ci/reclaim.sh
+# already uses on the artifacts CI builds, is the naming this follows.
+#
+# _RECLAIM_PROJECT_LABEL is docker's own, and is used for exactly one
+# thing here: asking whether a container is attached to the same project.
+readonly _RECLAIM_CHECKOUT_LABEL='base.checkout.path'
 readonly _RECLAIM_PROJECT_LABEL='com.docker.compose.project'
+
+# The compose project name base's self-test mints.
+readonly _RECLAIM_PROJECT_PREFIX='base'
 
 # The tooling image. Repository name and the Dockerfile whose CONTENT
 # (never its path) the tag is derived from.
@@ -99,18 +134,23 @@ readonly _RECLAIM_TOOL_DOCKERFILE_REL='dockerfile/Dockerfile.test-tools'
 readonly _RECLAIM_DEFAULT_GRACE='6h'
 readonly _RECLAIM_TOOL_KEEP_FLOOR=3
 
-# ── the two derivations, each with exactly one producer ──────────────────
+# The last line of a network's fact read (see _reclaim_network_facts). A
+# terminator and not a field count, because the field that may contain a
+# newline is deliberately last and must be read to its end.
+readonly _RECLAIM_FACTS_END='--- end of network facts ---'
+
+# ── the derivations base's self-test mints artifacts by ─────────────────
 
 # _reclaim_project_for_path <path>
 #
 # Prints `base-<sha256(path)[0:12]>`; exits non-zero, printing nothing,
 # when no usable digest can be produced.
 #
-# THE producer of the compose project name. script/test/test.sh's
-# _compute_compose_project_name delegates here rather than hashing again:
-# the collector's whole proof is that it computes the same name the
-# producer did, and two implementations of one rule is how they come to
-# disagree.
+# THE producer of the compose project name -- script/test/test.sh's
+# _compute_compose_project_name delegates here rather than hashing again,
+# so the rule has one implementation. Note what it is NOT: the collector
+# below does not recompute this name for anything, and no removal depends
+# on it. Its whole job is to keep two checkouts' compose projects apart.
 #
 # Keyed to the PATH, not the commit: two worktrees are routinely branched
 # from one commit, so a commit-keyed name would collide in exactly the
@@ -120,9 +160,7 @@ readonly _RECLAIM_TOOL_KEEP_FLOOR=3
 #
 # A short digest -- sha256sum or cut missing from PATH -- would degrade to
 # the bare prefix, a name EVERY checkout resolves. That is refused rather
-# than returned, in both directions: the producer must not hand compose a
-# colliding name, and the collector must not be handed a pattern that
-# matches everything.
+# than returned: the producer must not hand compose a colliding name.
 _reclaim_project_for_path() {
   local _root="${1:?_reclaim_project_for_path requires <path>}"
   local _hash
@@ -131,15 +169,16 @@ _reclaim_project_for_path() {
   printf '%s-%s\n' "${_RECLAIM_PROJECT_PREFIX}" "${_hash:0:12}"
 }
 
-# _reclaim_is_project_name <name>
+# _reclaim_is_compose_project_name <name>
 #
-# Whether <name> is a name THIS derivation could have produced. Everything
-# else -- an empty label, `gitlab_runner`, a hand-set COMPOSE_PROJECT_NAME
-# like `base-release`, a CI run key -- fails here and is thereby refused,
-# because a collector that cannot say which rule minted a name has no
-# proof of ownership to act on.
-_reclaim_is_project_name() {
-  [[ "${1-}" =~ ^base-[0-9a-f]{12}$ ]]
+# Whether <name> is well-formed as a compose project name at all. This is
+# NOT an ownership claim -- ownership is the path label and nothing else.
+# It is the well-formedness check that makes the fact read below
+# unambiguous: the project field is parsed as one line, and compose's own
+# grammar is what guarantees it cannot contain the newline that would make
+# that parse wrong.
+_reclaim_is_compose_project_name() {
+  [[ "${1-}" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]]
 }
 
 # _reclaim_tool_dockerfile_hash <dockerfile>
@@ -159,9 +198,11 @@ _reclaim_tool_dockerfile_hash() {
 #
 # Prints `test-tools:<12hex>` for the checkout at <repo_root>; exits
 # non-zero, printing nothing, when that checkout has no tooling Dockerfile
-# or no usable digest. THE producer of the tooling tag, for the same
-# reason as above -- script/test/test.sh's _resolve_test_tools_image
-# delegates here.
+# or no usable digest. THE producer of the tooling tag -- test.sh's
+# _resolve_test_tools_image delegates here -- and, unlike the project name,
+# it IS consumed below: the retention rule keeps every tag a checkout that
+# still exists resolves to, which means computing exactly what the producer
+# computed.
 _reclaim_tool_tag_for_path() {
   local _root="${1:?_reclaim_tool_tag_for_path requires <repo_root>}"
   local _hash
@@ -180,93 +221,54 @@ _reclaim_is_tool_tag() {
   [[ "${1-}" =~ ^test-tools:[0-9a-f]{12}$ ]]
 }
 
-# ── the live set ─────────────────────────────────────────────────────────
-
-# _reclaim_live_paths <repo_root> <outvar-array>
-#
-# Fills <outvar-array> with every checkout that must be treated as alive,
-# and returns non-zero when it cannot enumerate them.
-#
-# The set is <repo_root> itself plus `git worktree list --porcelain`, whose
-# first record IS the main checkout -- so the main checkout needs no
-# separate lookup and cannot be forgotten. <repo_root> is included
-# unconditionally and first, before git is consulted at all: a throwaway
-# copy of the tree is a live path in nobody's list, and the one checkout an
-# invocation can prove is in use is the one it is running in.
-#
-# THE FAILURE DIRECTION IS THE WHOLE POINT. git missing, git failing, a
-# broken gitdir, an empty listing -- each returns non-zero, and every
-# caller turns that into an abort. Read the other way ("no live worktrees
-# came back, so every project is an orphan") the same condition deletes the
-# entire host's worth of artifacts, which is precisely the fail-open this
-# collector must never have.
-_reclaim_live_paths() {
-  local _root="${1:?_reclaim_live_paths requires <repo_root>}"
-  local -n _rlp_out="${2:?_reclaim_live_paths requires <outvar>}"
-  _rlp_out=("${_root}")
-
-  command -v git >/dev/null 2>&1 || return 1
-  local _listing
-  _listing="$(git -C "${_root}" worktree list --porcelain 2>/dev/null)" || return 1
-  [[ -n "${_listing}" ]] || return 1
-
-  local _line _path _seen=0
-  while IFS= read -r _line; do
-    [[ "${_line}" == "worktree "* ]] || continue
-    _path="${_line#worktree }"
-    [[ -n "${_path}" ]] || continue
-    _rlp_out+=("${_path}")
-    _seen=1
-  done <<< "${_listing}"
-  (( _seen == 1 )) || return 1
-  return 0
-}
-
-# _reclaim_live_projects <repo_root> <outvar-array>
-#
-# The live paths mapped through the SAME producer compose was named by. A
-# path whose digest cannot be computed aborts the whole enumeration rather
-# than being dropped: a live checkout silently missing from this set is a
-# live project silently eligible for deletion.
-_reclaim_live_projects() {
-  local _root="${1:?_reclaim_live_projects requires <repo_root>}"
-  local -n _rlj_out="${2:?_reclaim_live_projects requires <outvar>}"
-  local -a _paths=()
-  _reclaim_live_paths "${_root}" _paths || return 1
-  _rlj_out=()
-  local _p _name
-  for _p in "${_paths[@]}"; do
-    _name="$(_reclaim_project_for_path "${_p}")" || return 1
-    _rlj_out+=("${_name}")
-  done
-  return 0
-}
-
 # ── the docker surface, one place ────────────────────────────────────────
 #
-# Four reads and one removal per kind, so the whole daemon interaction is
-# auditable at a glance. Every one of them tolerates a failure by yielding
-# nothing: an artifact that vanished between listing and inspection is a
-# concurrent teardown racing ours, which is normal, and an empty read makes
-# the caller collect LESS rather than more.
+# Every read below reports its own failure instead of yielding an empty
+# result, and every caller turns a failure into an abort. The distinction
+# is load-bearing in both directions: read as "no networks came back", a
+# failed listing collects nothing (harmless), while a failed CONTAINER
+# listing would say no container is attached to anything and a failed
+# checkout-label listing would say no checkout is live -- each of which
+# turns a broken daemon connection into a reason to delete.
 
-_reclaim_docker_networks() {
-  docker network ls --filter "label=${_RECLAIM_PROJECT_LABEL}" \
-    --format "{{.ID}}|{{.Name}}|{{.Label \"${_RECLAIM_PROJECT_LABEL}\"}}" 2>/dev/null || true
+# _reclaim_docker_network_ids -- the ids of every network carrying our
+# provenance label. Ids only: they are hex, so this listing is the one
+# read that cannot be corrupted by the content of a label.
+_reclaim_docker_network_ids() {
+  docker network ls --filter "label=${_RECLAIM_CHECKOUT_LABEL}" \
+    --format '{{.ID}}' 2>/dev/null
 }
 
+# _reclaim_docker_container_projects -- the compose project of every
+# container, running or stopped.
 _reclaim_docker_container_projects() {
-  docker ps -a --format "{{.Label \"${_RECLAIM_PROJECT_LABEL}\"}}" 2>/dev/null || true
+  docker ps -a --format "{{.Label \"${_RECLAIM_PROJECT_LABEL}\"}}" 2>/dev/null
 }
 
 _reclaim_docker_images() {
-  docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null || true
+  docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null
 }
 
-# _reclaim_created_epoch <kind> <id> -- creation time as a unix timestamp,
-# empty when it cannot be read.
+# _reclaim_network_facts <id>
 #
-# `{{json .Created}}`, never the bare `{{.Created}}`, and the two are not
+# Prints the three facts a removal decision needs, one per line, then a
+# terminator line:
+#
+#   1  creation time, `{{json .Created}}` -- an RFC3339 string in quotes
+#   2  the compose project label
+#   3  the checkout path label, WHICH MAY ITSELF CONTAIN NEWLINES
+#   4  _RECLAIM_FACTS_END
+#
+# The order is the point. A path is the one field whose content this script
+# does not control, and `docker network ls --format` would emit it inline
+# in a per-network line: a path containing a newline then reads back as a
+# DIFFERENT, shorter path, which very plausibly does not exist -- the exact
+# shape that got a live worktree's network removed under the rule this
+# replaced. Read per id, with the free-form field last and a terminator
+# after it, every byte of the path survives and no field can be confused
+# for another.
+#
+# `{{json .Created}}` and not the bare `{{.Created}}`, and the two are not
 # interchangeable. On an IMAGE the field is already an RFC3339 string and
 # both spellings work; on a NETWORK it is a Go time value, which the bare
 # template renders as `2026-09-03 11:07:45.1237 +0800 CST` -- a form
@@ -275,14 +277,64 @@ _reclaim_docker_images() {
 # read every network's age as unreadable; it failed in the safe direction
 # (the orphan was spared rather than collected) which is exactly why it
 # could go unnoticed, and why the specs pin the quoted shape.
+_reclaim_network_facts() {
+  local _id="${1:?_reclaim_network_facts requires <id>}"
+  docker network inspect --format \
+    "{{json .Created}}{{\"\\n\"}}{{index .Labels \"${_RECLAIM_PROJECT_LABEL}\"}}{{\"\\n\"}}{{index .Labels \"${_RECLAIM_CHECKOUT_LABEL}\"}}{{\"\\n${_RECLAIM_FACTS_END}\"}}" \
+    "${_id}" 2>/dev/null
+}
+
+# _reclaim_parse_facts <blob> <created-var> <project-var> <path-var>
+#
+# Splits what _reclaim_network_facts printed. Returns non-zero -- filling
+# nothing -- when the terminator is absent (a truncated read, an inspect
+# that failed, an artifact that vanished mid-sweep) or when the project
+# field is not a well-formed compose project name, which is what
+# guarantees the split found the real field boundaries.
+_reclaim_parse_facts() {
+  local _blob="${1-}"
+  local -n _rpf_created="${2:?_reclaim_parse_facts requires <created-var>}"
+  local -n _rpf_project="${3:?_reclaim_parse_facts requires <project-var>}"
+  local -n _rpf_path="${4:?_reclaim_parse_facts requires <path-var>}"
+  # Every local here is __rpf_-prefixed. A local whose NAME matches the
+  # variable a caller asked to be filled captures the nameref: the
+  # assignment then lands on this function's local and the caller sees an
+  # empty field. The callers pass _created / _project / _path, which is
+  # exactly the collision the prefix keeps out of reach.
+  local __rpf_tail=$'\n'"${_RECLAIM_FACTS_END}"
+  [[ "${_blob}" == *"${__rpf_tail}" ]] || return 1
+  local __rpf_body="${_blob%"${__rpf_tail}"}"
+  [[ "${__rpf_body}" == *$'\n'*$'\n'* ]] || return 1
+  local __rpf_created="${__rpf_body%%$'\n'*}"
+  local __rpf_rest="${__rpf_body#*$'\n'}"
+  local __rpf_project="${__rpf_rest%%$'\n'*}"
+  local __rpf_path="${__rpf_rest#*$'\n'}"
+  _reclaim_is_compose_project_name "${__rpf_project}" || return 1
+  __rpf_created="${__rpf_created%\"}"
+  _rpf_created="${__rpf_created#\"}"
+  _rpf_project="${__rpf_project}"
+  _rpf_path="${__rpf_path}"
+  return 0
+}
+
+# _reclaim_epoch <rfc3339> -- a unix timestamp, empty when unreadable.
+_reclaim_epoch() {
+  local _created="${1-}"
+  [[ -n "${_created}" ]] || return 0
+  date -d "${_created}" +%s 2>/dev/null || true
+}
+
+# _reclaim_created_epoch <kind> <ref> -- an IMAGE's creation time as a unix
+# timestamp, empty when it cannot be read. Networks go through
+# _reclaim_network_facts instead, which reads their age in the same round
+# trip as their labels.
 _reclaim_created_epoch() {
   local _kind="${1:?}" _id="${2:?}" _created=""
   _created="$(docker "${_kind}" inspect --format '{{json .Created}}' "${_id}" 2>/dev/null)" \
     || return 0
   _created="${_created%\"}"
   _created="${_created#\"}"
-  [[ -n "${_created}" ]] || return 0
-  date -d "${_created}" +%s 2>/dev/null || true
+  _reclaim_epoch "${_created}"
 }
 
 # _reclaim_duration_seconds <duration> -- `6h` -> 21600; non-zero on
@@ -311,35 +363,34 @@ _reclaim_in_list() {
 
 # ── the collector ────────────────────────────────────────────────────────
 
-# _reclaim_orphan_projects <repo_root> [grace]
+# _reclaim_orphan_projects [grace]
 #
 # Removes the network of every compose project that is provably dead:
-# labelled `base-<12hex>`, matching no live checkout, carrying no
-# container, and older than the grace window. Returns non-zero only when it
-# refused to act at all (an unreadable worktree list, an unparseable grace)
-# -- a network that could not be removed is reported and does not fail the
-# sweep, since the next sweep collects it.
+# carrying a checkout-path label, nothing at that path, no container on the
+# same project, and older than the grace window. Returns non-zero only when
+# it refused to act at all (a docker read that failed, an unparseable
+# grace) -- a network that could not be removed is reported and does not
+# fail the sweep, since the next sweep collects it.
 #
-# EVERY INPUT IT CANNOT PLACE IS LEFT ALONE. An artifact with no project
-# label, a label that is not `base-`-prefixed, a `base-` label whose suffix
-# is not 12 hex digits, an artifact whose creation time cannot be read, a
-# hash that cannot be computed, a worktree list that could not be read --
-# none of them is a candidate. There is no branch below in which failing to
-# recognise something leads to removing it, and there must never be one:
-# the fail-open direction here is deleting an artifact whose owner cannot
+# IT TAKES NO ROOT, and that is the fix rather than an economy. The rule it
+# replaced took the caller's repo root, enumerated that repository's
+# worktrees and deleted everything outside them, so the same call meant
+# different things in different checkouts and meant something destructive
+# in a downstream consumer. This one asks the artifact who made it, so
+# there is no cwd, no repository and no git for the answer to depend on.
+#
+# EVERY INPUT IT CANNOT PLACE IS LEFT ALONE. No path label; a label that is
+# not an absolute path; facts that could not be read or parsed; a project
+# label that is not well-formed; an unreadable creation time -- none of
+# them is a candidate. There is no branch below in which failing to
+# recognise something leads to removing it: the single fact that can
+# produce a removal is a path label that WAS read and whose path is not
+# there, and everything else in the function only ever subtracts from that.
+# The fail-open direction here is deleting an artifact whose owner cannot
 # be established, and on a host shared with other tenants that is the worst
 # outcome available.
 _reclaim_orphan_projects() {
-  local _root="${1:?_reclaim_orphan_projects requires <repo_root>}"
-  local _grace="${2:-${BASE_RECLAIM_GRACE:-${_RECLAIM_DEFAULT_GRACE}}}"
-
-  local -a _live=()
-  if ! _reclaim_live_projects "${_root}" _live; then
-    _log_err reclaim reclaim_worktrees_unreadable \
-      "display=cannot enumerate the live worktrees of ${_root}; removing nothing (an unreadable list is not evidence that every project is dead)." \
-      "root=${_root}"
-    return 1
-  fi
+  local _grace="${1:-${BASE_RECLAIM_GRACE:-${_RECLAIM_DEFAULT_GRACE}}}"
 
   local _grace_s
   if ! _grace_s="$(_reclaim_duration_seconds "${_grace}")"; then
@@ -349,40 +400,62 @@ _reclaim_orphan_projects() {
     return 1
   fi
 
+  local _ids
+  if ! _ids="$(_reclaim_docker_network_ids)"; then
+    _log_err reclaim reclaim_artifacts_unreadable \
+      "display=cannot list the networks carrying a ${_RECLAIM_CHECKOUT_LABEL} label; removing nothing (a failed listing is not evidence that nothing is labelled)."
+    return 1
+  fi
+
+  # Read BEFORE the scan, and aborted on rather than defaulted to empty: an
+  # empty attached-set read as success says no container is attached to
+  # anything, which turns a broken daemon connection into a reason to
+  # delete a running project's network.
+  local _containers
+  if ! _containers="$(_reclaim_docker_container_projects)"; then
+    _log_err reclaim reclaim_containers_unreadable \
+      "display=cannot list containers; removing nothing (an unreadable container list cannot say that no container is attached)."
+    return 1
+  fi
   local -a _attached=()
   local _p
   while IFS= read -r _p; do
-    if [[ -n "${_p}" ]]; then
-      _attached+=("${_p}")
-    fi
-  done < <(_reclaim_docker_container_projects)
+    [[ -n "${_p}" ]] && _attached+=("${_p}")
+  done <<< "${_containers}"
 
   local _now _cutoff
   _now="$(date +%s)"
   _cutoff=$(( _now - _grace_s ))
 
-  # Two refusal counters, not one. "I do not recognise this label" and "I
-  # could not read this artifact's age" are both refusals to delete, but
-  # they say different things about the machine: the first is another
-  # tenant's artifact and is expected every run, the second is an artifact
-  # that vanished between the listing and the inspection -- a concurrent
-  # run's teardown racing ours, which is normal, but is also the shape a
-  # daemon problem would take. Reported as one number they cannot be told
-  # apart.
+  # Three refusal counters, not one. "I could not read this artifact" and
+  # "this artifact does not say who made it" and "I could not read its age"
+  # are all refusals to delete, but they say different things about the
+  # machine: the first and third are an artifact that vanished between the
+  # listing and the inspection -- a concurrent teardown racing ours, which
+  # is normal, but also the shape a daemon problem takes -- and the second
+  # is the pre-existing litter this mechanism deliberately never collects.
+  # Reported as one number they cannot be told apart.
   local _scanned=0 _kept_live=0 _kept_attached=0 _kept_young=0
-  local _refused_label=0 _refused_age=0
+  local _refused_unattributable=0 _refused_age=0
   local -a _victims=()
-  local _id _name _project _created
-  while IFS='|' read -r _id _name _project; do
+  local _id _facts _created _project _path _epoch
+  while IFS= read -r _id; do
     [[ -n "${_id}" ]] || continue
     _scanned=$(( _scanned + 1 ))
-    # Unrecognised name shape: no label, another tenant's project, a
-    # hand-set project name. Not ours to reason about.
-    if ! _reclaim_is_project_name "${_project}"; then
-      _refused_label=$(( _refused_label + 1 ))
+    _facts="$(_reclaim_network_facts "${_id}")" || _facts=""
+    _created=""; _project=""; _path=""
+    if ! _reclaim_parse_facts "${_facts}" _created _project _path; then
+      _refused_unattributable=$(( _refused_unattributable + 1 ))
       continue
     fi
-    if _reclaim_in_list "${_project}" "${_live[@]}"; then
+    # The provenance, and the only thing that can make an artifact a
+    # candidate. A relative path, or an empty label, names nothing this can
+    # test, so it attributes nothing.
+    if [[ "${_path}" != /* ]]; then
+      _refused_unattributable=$(( _refused_unattributable + 1 ))
+      continue
+    fi
+    if [[ -e "${_path}" ]]; then
       _kept_live=$(( _kept_live + 1 ))
       continue
     fi
@@ -390,24 +463,25 @@ _reclaim_orphan_projects() {
       _kept_attached=$(( _kept_attached + 1 ))
       continue
     fi
-    _created="$(_reclaim_created_epoch network "${_id}")"
+    _epoch="$(_reclaim_epoch "${_created}")"
     # An unreadable creation time is not a young artifact and not an old
     # one; it is one more thing that cannot be placed.
-    if [[ -z "${_created}" ]]; then
+    if [[ -z "${_epoch}" ]]; then
       _refused_age=$(( _refused_age + 1 ))
       continue
     fi
-    if (( _created >= _cutoff )); then
+    if (( _epoch >= _cutoff )); then
       _kept_young=$(( _kept_young + 1 ))
       continue
     fi
     _victims+=("${_id}")
-  done < <(_reclaim_docker_networks)
+  done <<< "${_ids}"
 
   _log_info reclaim reclaim_scan \
-    "display=scoped reclaim: ${_scanned} labelled network(s); keeping ${_kept_live} live, ${_kept_attached} with a container attached, ${_kept_young} inside the ${_grace} grace window; left alone ${_refused_label} not mine and ${_refused_age} whose age could not be read." \
+    "display=scoped reclaim: ${_scanned} labelled network(s); keeping ${_kept_live} whose checkout still exists, ${_kept_attached} with a container attached, ${_kept_young} inside the ${_grace} grace window; left alone ${_refused_unattributable} that record no readable checkout path and ${_refused_age} whose age could not be read." \
     "scanned=${_scanned}" "live=${_kept_live}" "attached=${_kept_attached}" \
-    "young=${_kept_young}" "not_mine=${_refused_label}" "age_unreadable=${_refused_age}"
+    "young=${_kept_young}" "unattributable=${_refused_unattributable}" \
+    "age_unreadable=${_refused_age}"
 
   if (( ${#_victims[@]} == 0 )); then
     return 0
@@ -433,44 +507,87 @@ _reclaim_orphan_projects() {
 
 # ── tooling-tag retention ────────────────────────────────────────────────
 
-# _reclaim_tool_tags_default_keep <repo_root>
+# _reclaim_live_checkouts <outvar-array>
 #
-# Prints N, the size of the recency window _reclaim_tool_tags keeps on top
-# of the tags live checkouts resolve to.
+# Every checkout path recorded on a labelled network that STILL EXISTS.
+# Returns non-zero when the artifacts cannot be listed, which every caller
+# turns into an abort: read as "no live checkouts", the same condition
+# retires every tooling image on the host.
+#
+# This is the same evidence the project rule acts on, used the other way
+# round -- the paths that are there rather than the ones that are not --
+# so the two rules cannot come to disagree about which checkouts are alive.
+# It enumerates ARTIFACTS, never worktrees: a checkout that has run the
+# suite has a network naming it, wherever it lives and whatever repository
+# the sweep was launched from.
+_reclaim_live_checkouts() {
+  local -n _rlc_out="${1:?_reclaim_live_checkouts requires <outvar>}"
+  _rlc_out=()
+  local _ids
+  _ids="$(_reclaim_docker_network_ids)" || return 1
+  local _id _facts _created _project _path
+  while IFS= read -r _id; do
+    [[ -n "${_id}" ]] || continue
+    _facts="$(_reclaim_network_facts "${_id}")" || continue
+    _created=""; _project=""; _path=""
+    _reclaim_parse_facts "${_facts}" _created _project _path || continue
+    [[ "${_path}" == /* ]] || continue
+    [[ -e "${_path}" ]] || continue
+    _reclaim_in_list "${_path}" "${_rlc_out[@]+"${_rlc_out[@]}"}" || _rlc_out+=("${_path}")
+  done <<< "${_ids}"
+  return 0
+}
+
+# _reclaim_pinned_tool_tags <repo_root> <outvar-array>
+#
+# The tags no rebuild should ever be paid for: the one <repo_root> resolves
+# to, plus the one every live checkout resolves to. A live checkout needing
+# an image is a proof of use, where "it looks unused" is not.
+_reclaim_pinned_tool_tags() {
+  local _root="${1:?_reclaim_pinned_tool_tags requires <repo_root>}"
+  local -n _rptt_out="${2:?_reclaim_pinned_tool_tags requires <outvar>}"
+  _rptt_out=()
+  local -a _paths=()
+  _reclaim_live_checkouts _paths || return 1
+  # The invoking tree first and unconditionally. It is the one checkout an
+  # invocation can prove is in use without asking anything, and on a first
+  # run it has no network yet to be found by.
+  _paths=("${_root}" "${_paths[@]+"${_paths[@]}"}")
+  local _p _tag
+  for _p in "${_paths[@]}"; do
+    _tag="$(_reclaim_tool_tag_for_path "${_p}")" || continue
+    _reclaim_in_list "${_tag}" "${_rptt_out[@]+"${_rptt_out[@]}"}" || _rptt_out+=("${_tag}")
+  done
+  return 0
+}
+
+# _reclaim_keep_window <pinned-count>
+#
+# Prints N, the size of the recency window _reclaim_tool_tags keeps ON TOP
+# of the tags live checkouts resolve.
 #
 # DERIVED, not chosen. Content-hash tagging guarantees unbounded growth, so
 # something has to bound it, and the number that bounds it honestly is how
-# many DISTINCT tooling images the checkouts on this host currently need --
-# one per distinct Dockerfile.test-tools across the live worktrees. That is
-# a measurement of the machine, not a constant, and it grows when the work
-# on the machine grows.
+# many DISTINCT tooling images the checkouts on this host currently need.
+# That is a measurement of the machine, not a constant, and it grows when
+# the work on the machine grows.
 #
 # The floor of 3 covers the case the measurement cannot see: a single
 # checkout resolves one tag, and a developer who switches to a branch and
-# back would then pay a full tooling-image rebuild for the round trip. Three
-# lets a branch, the branch before it and the trunk coexist.
+# back would then pay a full tooling-image rebuild for the round trip.
+# Three lets a branch, the branch before it and the trunk coexist.
 #
 # BASE_TOOL_TAGS_KEEP overrides both, so the number is never something a
 # reader has to go dig out of a script.
-_reclaim_tool_tags_default_keep() {
-  local _root="${1:?_reclaim_tool_tags_default_keep requires <repo_root>}"
+_reclaim_keep_window() {
+  local _pinned="${1:-0}"
   if [[ -n "${BASE_TOOL_TAGS_KEEP:-}" ]]; then
     printf '%s\n' "${BASE_TOOL_TAGS_KEEP}"
     return 0
   fi
-  local -a _paths=()
-  if ! _reclaim_live_paths "${_root}" _paths; then
-    printf '%s\n' "${_RECLAIM_TOOL_KEEP_FLOOR}"
-    return 0
-  fi
-  local -a _tags=()
-  local _p _tag
-  for _p in "${_paths[@]}"; do
-    _tag="$(_reclaim_tool_tag_for_path "${_p}")" || continue
-    _reclaim_in_list "${_tag}" "${_tags[@]+"${_tags[@]}"}" || _tags+=("${_tag}")
-  done
-  if (( ${#_tags[@]} > _RECLAIM_TOOL_KEEP_FLOOR )); then
-    printf '%s\n' "${#_tags[@]}"
+  [[ "${_pinned}" =~ ^[0-9]+$ ]] || _pinned=0
+  if (( _pinned > _RECLAIM_TOOL_KEEP_FLOOR )); then
+    printf '%s\n' "${_pinned}"
   else
     printf '%s\n' "${_RECLAIM_TOOL_KEEP_FLOOR}"
   fi
@@ -478,37 +595,56 @@ _reclaim_tool_tags_default_keep() {
 
 # _reclaim_tool_tags <repo_root> [keep]
 #
-# Retires local `test-tools:<12hex>` images down to a bounded set: the tag
-# the current tree resolves to, every tag a LIVE checkout resolves to, and
-# the <keep> most recently created besides. Everything else is content the
-# machine can rebuild and no checkout on it asks for.
+# Retires local `test-tools:<12hex>` images down to a bounded set: every
+# tag a live checkout resolves (this tree's included) and the <keep> most
+# recently created besides. Everything else is content the machine can
+# rebuild and no checkout on it asks for.
 #
-# Keeping the live-resolved tags is the same ownership standard as the
-# project rule -- a live checkout needing an image is a proof, where "it
-# looks unused" is not -- and it is why deleting one of these is never
-# merely a slow rebuild for somebody. The recency window on top of it is
-# the hedge for the tag whose checkout has moved on but which a branch
-# switch would ask for again in a minute.
+# The recency window on top of the pinned set is the hedge for the tag
+# whose checkout has moved on but which a branch switch would ask for again
+# in a minute.
+#
+# THIS ONE IS NEVER AUTOMATIC, and the reason is the difference between the
+# two halves of `--reclaim`. The project rule acts on a proof carried by
+# the artifact: this network says which checkout made it, and that checkout
+# is gone. No such proof exists for an image. The tooling tag is
+# content-hash shared ON PURPOSE, so an artifact can name the checkout that
+# BUILT a tag but never the checkouts that use it, and the pinned set below
+# is therefore a measurement of what this collector can currently see --
+# every checkout that has run the suite since the label existed -- rather
+# than evidence that nothing else wants the rest. Two things were measured
+# on the shared host rather than argued: wired into the end of `just test`,
+# the first automatic run retired one tooling image nobody had asked it to;
+# and with the recency window taken out of the way
+# (`--tool-tags --keep 0 --dry-run`) the retention names
+# `test-tools:d717a7bbd9bc` a victim -- the tag the live worktree
+# base-946 resolves, which is not pinned only because that checkout has not
+# run under this label yet. The window is what happens to cover that gap
+# today; it is a hedge, not a proof, and it covers less as tags accumulate.
+# The cost is a rebuild rather than data, which is exactly the point: a
+# removal resting on a measurement is a cost imposed on someone else, so it
+# stays behind an explicit `just docker prune --tool-tags` / `--reclaim`,
+# beside --volumes and --worktree-orphans, and out of anything that runs
+# unasked.
 #
 # ANYTHING ELSE IS LEFT ALONE, by name: an image in another repository, a
 # registry-qualified tag, `test-tools:local`, a tag whose suffix is not 12
-# hex digits, and an image whose creation time cannot be read. An
-# unreadable worktree list aborts before a single removal, for the same
-# reason it does in the project rule.
+# hex digits, and an image whose creation time cannot be read. A docker
+# read that FAILED aborts before a single removal, for the same reason it
+# does in the project rule.
 _reclaim_tool_tags() {
   local _root="${1:?_reclaim_tool_tags requires <repo_root>}"
 
-  local -a _paths=()
-  if ! _reclaim_live_paths "${_root}" _paths; then
-    _log_err reclaim reclaim_worktrees_unreadable \
-      "display=cannot enumerate the live worktrees of ${_root}; retiring no tooling tags." \
-      "root=${_root}"
+  local -a _pinned=()
+  if ! _reclaim_pinned_tool_tags "${_root}" _pinned; then
+    _log_err reclaim reclaim_artifacts_unreadable \
+      "display=cannot list the networks that record which checkouts are live; retiring no tooling tags."
     return 1
   fi
 
   local _keep="${2-}"
   if [[ -z "${_keep}" ]]; then
-    _keep="$(_reclaim_tool_tags_default_keep "${_root}")"
+    _keep="$(_reclaim_keep_window "${#_pinned[@]}")"
   fi
   if [[ ! "${_keep}" =~ ^[0-9]+$ ]]; then
     _log_err reclaim reclaim_bad_keep \
@@ -516,14 +652,12 @@ _reclaim_tool_tags() {
     return 1
   fi
 
-  # The tags no rebuild should ever be paid for: this tree's, and every
-  # live checkout's.
-  local -a _pinned=()
-  local _p _tag
-  for _p in "${_paths[@]}"; do
-    _tag="$(_reclaim_tool_tag_for_path "${_p}")" || continue
-    _reclaim_in_list "${_tag}" "${_pinned[@]+"${_pinned[@]}"}" || _pinned+=("${_tag}")
-  done
+  local _images
+  if ! _images="$(_reclaim_docker_images)"; then
+    _log_err reclaim reclaim_artifacts_unreadable \
+      "display=cannot list images; retiring no tooling tags."
+    return 1
+  fi
 
   # Candidates, newest first. An image whose creation time cannot be read
   # is dropped from the ordering entirely rather than sorted as if it were
@@ -541,7 +675,7 @@ _reclaim_tool_tags() {
       _created="$(_reclaim_created_epoch image "${_ref}")"
       [[ -n "${_created}" ]] || continue
       printf '%s\t%s\n' "${_created}" "${_ref}"
-    done < <(_reclaim_docker_images) | sort -rn
+    done <<< "${_images}" | sort -rn
   )
 
   local -a _victims=()

@@ -78,7 +78,15 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   type at 1.7.12.
 
 ### Added
-- **`just docker prune --reclaim`: base collects its own compose litter, and now does it by itself (closes #995)** -- removes only a network labelled `com.docker.compose.project=base-<12hex>` matching no live worktree, with no container attached, outside a 6h grace (`--grace`, `BASE_RECLAIM_GRACE`); anything else is left alone and an unreadable worktree list aborts. It also retires local `test-tools:<12hex>` images no live checkout resolves, keeping the `--keep` / `BASE_TOOL_TAGS_KEEP` most recent. Runs automatically after `just stop`, `just test`, `just test system` and `just test smoke`, pass or fail, without changing their exit status. Daemon-wide `--all` is unchanged.
+- **`just docker prune --reclaim`: base collects its own compose litter
+  (closes #995)** -- compose stamps the checkout's absolute path on its
+  network (`base.checkout.path`); the sweep reads it back and removes the
+  network only when nothing is there, no container is attached, and a 6h
+  grace (`--grace`, `BASE_RECLAIM_GRACE`) has passed -- correct from any
+  directory, in any repository. A network without that label (every one made
+  before this) is left to the daemon-wide prune. It runs after `just stop` /
+  `just test` without changing their status. `--tool-tags` retires unresolved
+  `test-tools:<12hex>` images, but only when asked.
 
 - **`init.sh --list-installed-paths`: the installer now states which files it puts into a consumer (refs #927)** -- `.base` files reach a repo only through an upgrade's resync, so "which release is this repo on" was answerable while "did that release's files actually arrive" was not; the base-version monitor sat at zero adoption, unreported, for months. The manifest is read from init.sh instead of copied, and an integration spec diffs it against a real resync in both directions -- which immediately caught `.setup.conf` missing from the first draft. Affects anyone auditing `.base` delivery across repos.
 

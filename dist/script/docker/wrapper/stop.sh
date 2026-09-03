@@ -280,12 +280,19 @@ _maybe_prune() {
 # stop people stop trusting. The reclaim logs its own refusal, and the next
 # stop or test sweeps again.
 #
-# In a downstream consumer this is a no-op with a daemon round trip and
-# nothing else: the `base-<12hex>` project name is minted by base's own
-# self-test, so a consumer has no artifact that matches and the collector
-# removes nothing.
+# It is handed no root, and that is what makes it safe to ship. This file
+# is vendored into every downstream repo as `.base/`, so the sweep it calls
+# runs from a consumer's checkout far more often than from base's. The rule
+# that came first took a root, enumerated THAT repository's worktrees and
+# deleted every base project outside them -- so in a consumer, where none
+# of base's checkouts is in the list, it removed the network of every live
+# base project on the host. The sweep now reads the checkout path off each
+# artifact, which is the same answer in a consumer as it is in base: it
+# collects base's dead-checkout networks wherever it is run, and touches
+# nothing that a consumer's own compose created, because a consumer's
+# compose stamps no such label.
 _reclaim_after_stop() {
-  _reclaim_orphan_projects "${FILE_PATH}" \
+  _reclaim_orphan_projects \
     || _log_warn stop stop_reclaim_failed \
       "display=scoped reclaim after stop failed; leaving it for the next run (the stop itself succeeded)."
 }

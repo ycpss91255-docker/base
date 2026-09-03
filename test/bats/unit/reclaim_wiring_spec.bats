@@ -112,6 +112,29 @@ setup() {
   assert_success
 }
 
+@test "a dispatch that refuses to start reclaims nothing" {
+  # `--bats-integration` with no resolvable release tags dies in
+  # _prepare_prev_release, before the first compose call and therefore
+  # before any project exists. Arming above that line makes the refusal
+  # open a daemon connection to sweep for litter the run never made -- and
+  # the sweep no longer aborts on its own, since it needs no git. The arm
+  # belongs below every step that can refuse.
+  # Comments stripped first: the arm's own comment NAMES the step it must
+  # sit below, and a line-number comparison that counts prose finds the
+  # call twice and compares against nonsense.
+  run bash -c "
+    sed -n '/^_run_via_compose()/,/^}/p' '${TESTSH}' \
+      | grep -vE '^[[:space:]]*#' \
+      | grep -n -e '_RECLAIM_ARMED=1' -e '_prepare_prev_release'
+  "
+  assert_success
+  local _prep _arm
+  _prep="$(printf '%s\n' "${output}" | grep '_prepare_prev_release' | cut -d: -f1)"
+  _arm="$(printf '%s\n' "${output}" | grep '_RECLAIM_ARMED=1' | cut -d: -f1)"
+  [ -n "${_prep}" ] && [ -n "${_arm}" ]
+  (( _arm > _prep )) || fail "the reclaim is armed at line ${_arm}, above _prepare_prev_release at ${_prep}"
+}
+
 @test "a reclaim failure does not change the suite's verdict" {
   run bash -c '
     source /source/script/test/test.sh
@@ -163,7 +186,31 @@ setup() {
   '
   [ "${status}" -eq 3 ]
   assert_output --partial "ran-orphans"
-  assert_output --partial "ran-tags"
+}
+
+@test "retiring a tooling image is never automatic" {
+  # The project sweep acts on a PROOF: the artifact records the checkout
+  # that made it and that checkout is gone. Tag retention has no such
+  # proof available -- the tooling tag is content-hash shared on purpose,
+  # so no artifact can name all of a tag's users, and "no live checkout I
+  # can see resolves it" is a measurement, not evidence that nothing needs
+  # it. Measured on the shared host: the first automatic run retired one
+  # tooling image nobody asked it to, and with the recency window out of
+  # the way the same rule names the tag a live sibling worktree still
+  # resolves. The cost is a rebuild rather than data, but an unprovable
+  # removal must not run unasked -- the same rule --volumes and
+  # --worktree-orphans already follow in prune.sh.
+  run bash -c '
+    source /source/script/test/test.sh
+    declare -F _test_exit_reclaim >/dev/null || exit 99
+    _RECLAIM_ARMED=1
+    _reclaim_orphan_projects() { printf "ran-orphans\n"; }
+    _reclaim_tool_tags() { printf "ran-tags\n"; }
+    trap _test_exit_reclaim EXIT
+    exit 0
+  '
+  assert_output --partial "ran-orphans"
+  refute_output --partial "ran-tags"
 }
 
 @test "a run that minted no compose project reclaims nothing" {
@@ -184,10 +231,13 @@ setup() {
 # ── the other two litter-minting test flows ────────────────────────────────
 
 @test "just test system reclaims when it is done, pass or fail" {
-  run grep -F 'script/prune.sh --reclaim' "${JUSTTEST}"
-  assert_success
-  run grep -cF 'script/prune.sh --reclaim' "${JUSTTEST}"
+  # --orphan-projects, not --reclaim: these recipes reclaim by themselves,
+  # and the tag half is the half nothing may do unasked (see "retiring a
+  # tooling image is never automatic" above).
+  run grep -cF 'script/prune.sh --orphan-projects' "${JUSTTEST}"
   assert_output "2"
+  run grep -F 'script/prune.sh --reclaim' "${JUSTTEST}"
+  assert_failure
 }
 
 # ── `just stop`: what a user reaches for when they are done ────────────────

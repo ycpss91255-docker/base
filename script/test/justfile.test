@@ -107,6 +107,12 @@ coverage-path spec *args:
 # command, and litter from a failed run is still litter. `|| true` keeps a
 # refused reclaim from changing the recipe's verdict; bash preserves the
 # pending exit status across an EXIT trap that does not itself exit.
+#
+# `--orphan-projects`, not `--reclaim`: the project half removes only what
+# the artifact itself proves is dead, while the tooling-tag half is a cache
+# policy no artifact can justify (see script/test/test.sh's
+# _test_exit_reclaim). A recipe may collect its own litter unasked; it may
+# not retire an image a sibling checkout might still want.
 
 # just test system -> system runtime-test specs (opt-in; host docker.sock)
 # Builds the test-tools image through the docker namespace base self-uses
@@ -136,7 +142,7 @@ coverage-path spec *args:
 system:
     #!/usr/bin/env bash
     set -euo pipefail
-    trap './script/prune.sh --reclaim || true' EXIT
+    trap './script/prune.sh --orphan-projects || true' EXIT
     TEST_TOOLS_IMAGE="${TEST_TOOLS_IMAGE:-$(./script/test/test.sh --test-tools-image)}"
     export TEST_TOOLS_IMAGE
     COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-$(./script/test/test.sh --compose-project-name)}"
@@ -197,7 +203,7 @@ system:
 smoke *args:
     #!/usr/bin/env bash
     set -euo pipefail
-    trap './script/prune.sh --reclaim || true' EXIT
+    trap './script/prune.sh --orphan-projects || true' EXIT
     TEST_TOOLS_IMAGE="${TEST_TOOLS_IMAGE:-$(./script/test/test.sh --test-tools-image)}"
     export TEST_TOOLS_IMAGE
     COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-$(./script/test/test.sh --compose-project-name)}"

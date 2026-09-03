@@ -1053,12 +1053,15 @@ _ensure_test_tools_image() {
 # churning a fresh one per commit.
 #
 # Delegated to lib/project_reclaim.sh's _reclaim_project_for_path, which is
-# THE producer. The scoped reclaim decides whether an artifact belongs to a
-# checkout that still exists by recomputing this name for every live
-# worktree, so a second implementation here would not be a duplicate that
-# merely costs lines -- it would be a second rule, and the day the two
-# disagree the collector either spares a dead project forever or deletes a
-# live one.
+# THE producer, so the rule has one implementation and cannot drift into
+# two. Note what the name is NOT used for: the scoped reclaim in that same
+# file decides whether an artifact belongs to a checkout that still exists
+# by reading the checkout's PATH off the artifact's `base.checkout.path`
+# label, never by recomputing this hash for anything. It used to recompute
+# it for every worktree `git worktree list` reported, which made its answer
+# depend on which repository the sweep was standing in -- and from a
+# downstream consumer's checkout that answer was "every live base project
+# is an orphan".
 _compute_compose_project_name() {
   local _root="${1:?_compute_compose_project_name requires <repo_root>}"
   local -n _ccpn_out="${2:?_compute_compose_project_name requires <outvar>}"
@@ -1443,13 +1446,6 @@ _run_via_compose() {
   # Worktrees stayed isolated only by the accident of being named apart.
   local _service="${1:-ci}"
   local _coverage="${2:-0}"
-  # Arm the end-of-run reclaim. Set HERE, before the first compose call
-  # rather than after the last one, because a run that DIES mid-compose is
-  # exactly the run whose litter nobody comes back for. Arming is what
-  # separates a run that minted a project from `test.sh --test-tools-image`,
-  # a pure query the system / smoke recipes make before they build: that one
-  # must not open a daemon connection at all.
-  _RECLAIM_ARMED=1
   # Fixture the released-caller spec reads. Prepared here because this is
   # the last point that still runs on the host, where git works -- and only
   # for the dispatches that reach that spec, which is why the COVERAGE flag
@@ -1475,6 +1471,17 @@ _run_via_compose() {
   export HOST_UID HOST_GID
   HOST_UID="$(id -u)"
   HOST_GID="$(id -g)"
+  # The provenance compose.yaml stamps onto the network it is about to
+  # create (`base.checkout.path`). The scoped reclaim reads that path back
+  # off the artifact to decide whether the checkout that made it still
+  # exists, so an artifact created without it can never be attributed;
+  # compose.yaml therefore takes it with `:?` and no default, and this is
+  # the assignment that satisfies it on every path that does not come
+  # through `just` (each CI shard, the fragile set, a single --bats-path
+  # run). Set beside the ids and for the same reason they are: compose
+  # interpolates the WHOLE file whatever service a command names, so the
+  # `docker compose build` inside _ensure_test_tools_image needs it too.
+  export BASE_CHECKOUT_PATH="${REPO_ROOT}"
   # compose.yaml names every service's image `${TEST_TOOLS_IMAGE}` with NO
   # default, so resolving it is this runner's job -- it is the script `just
   # test` puts behind that entry point. Exported rather than passed with
@@ -1484,6 +1491,18 @@ _run_via_compose() {
   # substitution inline in an argument would not abort the command).
   local _image
   _image="$(_resolve_test_tools_image)"
+  # Arm the end-of-run reclaim. BELOW everything that can still refuse the
+  # dispatch and ABOVE the first compose call, because those are the two
+  # things arming has to separate. A run that dies mid-compose is exactly
+  # the run whose litter nobody comes back for, so it must be armed before
+  # the build; a dispatch that refuses to start -- `_prepare_prev_release`
+  # with no resolvable release tags, a missing tooling Dockerfile -- has
+  # minted no project, so sweeping for its litter is a daemon round trip
+  # spent on nothing. Arming is also what separates a run that minted a
+  # project from `test.sh --test-tools-image`, a pure query the system /
+  # smoke recipes make before they build: that one must not open a daemon
+  # connection at all.
+  _RECLAIM_ARMED=1
   _ensure_test_tools_image "${_image}" "${_project}"
   export TEST_TOOLS_IMAGE="${_image}"
   # The BEFORE half of the residue guard, taken here and not in main: this
@@ -1928,15 +1947,25 @@ main() {
 #   the week, and it would deserve to be: nothing about the verdict on the
 #   code under test depends on whether a network could be removed. A failure
 #   is reported and the sweep is left to the next run.
+#
+#   The PROJECT sweep only. Tooling-tag retention is deliberately not here:
+#   it is the half of `just docker prune --reclaim` that has no proof to
+#   act on -- the tooling tag is content-hash shared on purpose, so no
+#   artifact names all of a tag's users and "nothing I can see resolves it"
+#   is a measurement rather than evidence. Measured on the shared host: the
+#   first automatic run retired one tooling image nobody asked it to, and
+#   with the recency window out of the way the same rule names the tag a
+#   live sibling worktree still resolves. That costs a rebuild rather than
+#   data, which is exactly why it stays an explicit
+#   `just docker prune --tool-tags` alongside --volumes and
+#   --worktree-orphans instead of something the suite does to the machine on
+#   its way out.
 _test_exit_reclaim() {
   local _rc=$?
   if [[ "${_RECLAIM_ARMED:-0}" == "1" ]]; then
-    _reclaim_orphan_projects "${REPO_ROOT}" \
+    _reclaim_orphan_projects \
       || _log_warn ci ci_reclaim_failed \
         "display=scoped reclaim of orphaned compose projects failed; litter left for the next run (the suite's verdict is unchanged)."
-    _reclaim_tool_tags "${REPO_ROOT}" \
-      || _log_warn ci ci_reclaim_failed \
-        "display=tooling-tag retention failed; tags left for the next run (the suite's verdict is unchanged)."
   fi
   exit "${_rc}"
 }

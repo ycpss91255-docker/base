@@ -89,16 +89,22 @@ usage() {
                     以下的 scoped reclaim）。--all 是 daemon 全域的大槌，維持原樣。
   --reclaim         = --orphan-projects --tool-tags。scoped 回收器：只刪能「證明」
                     屬於已不存在的 base checkout 的東西，因此不需要先判斷這台機器
-                    上還有什麼在跑。`just stop` / `just test` 結束後自動執行。
-  --orphan-projects 刪除 label 為 `base-<12hex>`、其 hash 對不到任何 live worktree
-                    且沒有 container 附著的 compose project network。任何無法判定
-                    的輸入（無 label、非 `base-` 開頭、後綴非 12 位 hex、讀不到建立
-                    時間）一律「不動」；worktree 清單讀不到則直接中止、不刪任何東西。
-  --tool-tags       將本機 `test-tools:<12hex>` image 收斂到「live checkout 仍會解析
+                    上還有什麼在跑。注意只有 --orphan-projects 會在 `just stop` /
+                    `just test` 結束後自動執行；--tool-tags 一律要明確指定。
+  --orphan-projects 刪除「所記錄的 checkout 已不存在」的 compose project network。
+                    base 的 compose.yaml 會把 checkout 的絕對路徑寫進 network 的
+                    `base.checkout.path` label；本模式把該路徑讀回來，只有在該路徑
+                    已不存在、沒有 container 附著、且超過保護窗時才刪。任何無法判定
+                    的輸入（沒有這個 label——本機制之前建立的 network 全都如此、label
+                    不是絕對路徑、讀不到建立時間）一律「不動」；docker 讀取失敗則直接
+                    中止、不刪任何東西。
+  --tool-tags       將本機 `test-tools:<12hex>` image 收斂到「仍存在的 checkout 會解析
                     到的 tag」加上最近 --keep 個。已發布 / 被指定的 tag 永遠不碰。
   --grace DURATION  --orphan-projects 的保護窗（預設 6h，或 BASE_RECLAIM_GRACE）。
-  --keep N          --tool-tags 額外保留的最近 tag 數（預設由 live worktree 推導，
-                    下限 3，或 BASE_TOOL_TAGS_KEEP）。
+                    路徑還在本身已經保住正在跑的 checkout；這個窗是留給「路徑因搬移
+                    或重建而短暫不存在」的情況。調大只會刪更少。
+  --keep N          --tool-tags 額外保留的最近 tag 數（預設＝仍存在的 checkout 解析出
+                    的相異 tag 數，下限 3，或 BASE_TOOL_TAGS_KEEP）。
   --worktree-orphans
                     清理由已移除 worktree 所遺留的 tagged image (#388)。對每個
                     `<owner>/<name>-<suffix>:<tag>` image 檢查
@@ -147,16 +153,22 @@ EOF
                     以下的 scoped reclaim）。--all 是 daemon 全局的大锤，保持原样。
   --reclaim         = --orphan-projects --tool-tags。scoped 回收器：只删能「证明」
                     属于已不存在的 base checkout 的东西，因此不需要先判断这台机器
-                    上还有什么在跑。`just stop` / `just test` 结束后自动执行。
-  --orphan-projects 删除 label 为 `base-<12hex>`、其 hash 对不到任何 live worktree
-                    且没有 container 附着的 compose project network。任何无法判定
-                    的输入（无 label、非 `base-` 开头、后缀非 12 位 hex、读不到创建
-                    时间）一律「不动」；worktree 列表读不到则直接中止、不删任何东西。
-  --tool-tags       将本机 `test-tools:<12hex>` image 收敛到「live checkout 仍会解析
+                    上还有什么在跑。注意只有 --orphan-projects 会在 `just stop` /
+                    `just test` 结束后自动执行；--tool-tags 一律要明确指定。
+  --orphan-projects 删除「所记录的 checkout 已不存在」的 compose project network。
+                    base 的 compose.yaml 会把 checkout 的绝对路径写进 network 的
+                    `base.checkout.path` label；本模式把该路径读回来，只有在该路径
+                    已不存在、没有 container 附着、且超过保护窗时才删。任何无法判定
+                    的输入（没有这个 label——本机制之前创建的 network 全都如此、label
+                    不是绝对路径、读不到创建时间）一律「不动」；docker 读取失败则直接
+                    中止、不删任何东西。
+  --tool-tags       将本机 `test-tools:<12hex>` image 收敛到「仍存在的 checkout 会解析
                     到的 tag」加上最近 --keep 个。已发布 / 被指定的 tag 永远不碰。
   --grace DURATION  --orphan-projects 的保护窗（默认 6h，或 BASE_RECLAIM_GRACE）。
-  --keep N          --tool-tags 额外保留的最近 tag 数（默认由 live worktree 推导，
-                    下限 3，或 BASE_TOOL_TAGS_KEEP）。
+                    路径还在本身已经保住正在跑的 checkout；这个窗是留给「路径因搬移
+                    或重建而短暂不存在」的情况。调大只会删更少。
+  --keep N          --tool-tags 额外保留的最近 tag 数（默认＝仍存在的 checkout 解析出
+                    的相异 tag 数，下限 3，或 BASE_TOOL_TAGS_KEEP）。
   --worktree-orphans
                     清理由已移除 worktree 遗留的 tagged image (#388)。对每个
                     `<owner>/<name>-<suffix>:<tag>` image 检查
@@ -207,19 +219,27 @@ EOF
   --reclaim         = --orphan-projects --tool-tags。scoped コレクタ: 既に存在しない
                     base checkout のものだと「証明」できるものだけを削除するため、
                     ホスト上で他に何が動いているかを判断する必要がありません。
-                    `just stop` / `just test` の終了時に自動実行されます。
-  --orphan-projects label が `base-<12hex>` で、その hash がどの live worktree にも
-                    一致せず、container も付いていない compose project の network を
-                    削除。判定できない入力（label なし、`base-` 以外、12 桁 hex 以外、
-                    作成時刻が読めない）はすべて「触れない」。worktree 一覧が読めない
-                    場合は何も削除せず中止します。
-  --tool-tags       ローカルの `test-tools:<12hex>` image を、live checkout が解決する
-                    tag ＋ 直近 --keep 個に収束させます。公開済み / 指定済みの tag は
-                    決して触れません。
+                    自動実行されるのは --orphan-projects だけです（`just stop` /
+                    `just test` の終了時）。--tool-tags は常に明示指定が必要です。
+  --orphan-projects 「記録された checkout がもう存在しない」compose project の
+                    network を削除します。base の compose.yaml が checkout の絶対
+                    パスを network の `base.checkout.path` label に刻むので、本
+                    モードはそのパスを読み戻し、そこに何も無く、container も付いて
+                    おらず、保護ウィンドウを過ぎている場合にだけ削除します。判定
+                    できない入力（この label が無い——この仕組み以前に作られた
+                    network はすべてそう、label が絶対パスでない、作成時刻が読めない）
+                    はすべて「触れない」。docker の読み取りが失敗した場合は何も削除
+                    せず中止します。
+  --tool-tags       ローカルの `test-tools:<12hex>` image を、まだ存在する checkout が
+                    解決する tag ＋ 直近 --keep 個に収束させます。公開済み / 指定済みの
+                    tag は決して触れません。
   --grace DURATION  --orphan-projects の保護ウィンドウ（既定 6h、または
-                    BASE_RECLAIM_GRACE）。
-  --keep N          --tool-tags が追加で保持する直近 tag 数（既定は live worktree から
-                    導出、下限 3、または BASE_TOOL_TAGS_KEEP）。
+                    BASE_RECLAIM_GRACE）。パスが在ること自体が実行中の checkout を
+                    既に守るので、このウィンドウは「移動や再作成でパスが一時的に
+                    消えている」場合のためのものです。大きくすると削除は減るだけです。
+  --keep N          --tool-tags が追加で保持する直近 tag 数（既定＝まだ存在する
+                    checkout が解決する相異なる tag の数、下限 3、または
+                    BASE_TOOL_TAGS_KEEP）。
   --worktree-orphans
                     削除済み worktree が残した tagged image を整理 (#388)。各
                     `<owner>/<name>-<suffix>:<tag>` image について
@@ -281,28 +301,39 @@ Options:
                     it removes only what it can PROVE belongs to a base
                     checkout that no longer exists, so unlike --all it needs
                     no judgement about what else on this host is in flight.
-                    Runs automatically after `just stop` and `just test`.
-  --orphan-projects Remove the network of every compose project labelled
-                    `base-<12hex>` whose hash matches NO live worktree AND
-                    which has no container attached. Anything it cannot
-                    place -- no label, a label that is not `base-`-prefixed,
-                    a suffix that is not 12 hex digits, an unreadable
-                    creation time -- is LEFT ALONE, and an unreadable
-                    worktree list aborts without removing anything.
+                    Only --orphan-projects runs automatically (after
+                    `just stop` and `just test`) -- it acts on that proof.
+                    --tool-tags is always explicit: no artifact can name all
+                    of a content-shared tag's users, so retiring one rests on
+                    a measurement rather than a proof.
+  --orphan-projects Remove the network of every compose project whose
+                    RECORDED CHECKOUT IS GONE. base's compose.yaml stamps
+                    the checkout's absolute path onto the network it creates
+                    as `base.checkout.path`; this mode reads that path back
+                    off the artifact and removes the network only when
+                    nothing is there, no container is attached to the
+                    project, and the grace window has passed. Anything it
+                    cannot place -- no such label (which every network made
+                    before this existed lacks, and which is therefore left
+                    to the daemon-wide prune), a label that is not an
+                    absolute path, an unreadable creation time -- is LEFT
+                    ALONE, and a docker read that FAILS aborts without
+                    removing anything.
   --tool-tags       Retire local `test-tools:<12hex>` images down to the tags
-                    a live checkout still resolves plus the --keep most
-                    recent. Published / pinned tags (`test-tools:local`, a
-                    registry-qualified tag, any other repository) are never
+                    a checkout that still exists resolves, plus the --keep
+                    most recent. Published / pinned tags (`test-tools:local`,
+                    a registry-qualified tag, any other repository) are never
                     touched.
   --grace DURATION  How recent an artifact must be for --orphan-projects to
                     leave it alone regardless (default 6h, or
-                    BASE_RECLAIM_GRACE). It has to exceed the longest run
-                    that can be in flight, because a concurrently running
-                    throwaway copy of the tree is a live path that appears in
-                    no worktree list.
+                    BASE_RECLAIM_GRACE). A checkout that is there already
+                    spares its own network by existing; this window covers a
+                    path that is momentarily absent because something is
+                    moving or re-creating it. Raising it only ever removes
+                    less.
   --keep N          How many recent tooling tags --tool-tags keeps on top of
                     the ones live checkouts resolve (default: the number of
-                    distinct tags the live worktrees resolve, floor 3, or
+                    distinct tags those checkouts resolve, floor 3, or
                     BASE_TOOL_TAGS_KEEP).
   --worktree-orphans
                     Remove tagged images left behind by removed worktrees (#388).
@@ -741,7 +772,9 @@ main() {
   # somebody has to remember.
   local _reclaim_rc=0
   if [[ "${DO_ORPHAN_PROJECTS}" == true ]]; then
-    _reclaim_orphan_projects "${FILE_PATH}" "${GRACE_OVERRIDE}" || _reclaim_rc=$?
+    # No root: the sweep reads each artifact's own checkout-path label, so
+    # its answer does not depend on which repository prune.sh was run in.
+    _reclaim_orphan_projects "${GRACE_OVERRIDE}" || _reclaim_rc=$?
   fi
   if [[ "${DO_TOOL_TAGS}" == true ]]; then
     _reclaim_tool_tags "${FILE_PATH}" "${KEEP_OVERRIDE}" || _reclaim_rc=$?
