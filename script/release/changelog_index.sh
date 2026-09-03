@@ -82,14 +82,6 @@ _ci_quote() {
   printf '%s' "${_text}"
 }
 
-# _ci_series_of <tag> -- the 0.Y series a tag belongs to, i.e. the basename
-# of the file its section must live in. Derived, never curated: at 0.x the
-# minor is the breaking axis, so the series is the natural unit and the
-# filename is a function of the tag rather than a mapping to maintain.
-_ci_series_of() {
-  [[ "${1}" =~ ^(v[0-9]+\.[0-9]+) ]] && printf '%s' "${BASH_REMATCH[1]}"
-}
-
 # _ci_sort_series -- series names on stdin, newest first.
 _ci_sort_series() { sort -t. -k1.2,1nr -k2,2nr; }
 
