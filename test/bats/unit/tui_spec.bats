@@ -1197,14 +1197,26 @@ _b5_setup_tui() {
 # why: The complement, and the reason the guard is not vacuous: every
 # list the TUI actually ships has a complete row, so the failure above
 # can only ever be a typo or an editor somebody added without a screen.
+# The population is DERIVED from setup_tui.sh's own `_edit_list_section`
+# call sites, because the editor this case exists to catch is the
+# twelfth one -- added with no `_TUI_LIST_LABELS` row, which a
+# hand-written list of eleven pairs would not know to ask about. The
+# floor below is the only remembered number, and it is there so a
+# derivation that silently matched nothing cannot pass over an empty
+# set.
 @test "_edit_list_section: every list editor the TUI ships has a complete label row (base#994)" {
   _b5_setup_tui
+  local -a _pairs=()
+  mapfile -t _pairs < <(
+    grep -E '^[[:space:]]*_edit_list_section [a-z_]+ [a-z_]+_$' \
+      /source/dist/script/docker/wrapper/setup_tui.sh \
+      | awk '{ print $2, $3 }' | sort -u
+  )
+  (( ${#_pairs[@]} >= 11 )) \
+    || fail "derived ${#_pairs[@]} list editors from setup_tui.sh; the TUI ships at least 11"
   local -A _labels=()
   local _pair
-  for _pair in "build arg_" "security cap_add_" "security cap_drop_" \
-    "security security_opt_" "volumes mount_" "environment env_" \
-    "tmpfs tmpfs_" "network port_" "devices device_" \
-    "devices cgroup_rule_" "additional_contexts context_"; do
+  for _pair in "${_pairs[@]}"; do
     # shellcheck disable=SC2086
     _tui_list_labels ${_pair} _labels \
       || fail "no complete label row for '${_pair}'"
