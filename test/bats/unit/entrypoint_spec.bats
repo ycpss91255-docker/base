@@ -150,3 +150,30 @@ _orchestrate() {
     "${ORCH}"
   assert_success
 }
+
+# ── what ships, and how ──────────────────────────────────────────────
+
+@test "the orchestrator ships with the executable bit set (#945)" {
+  # It is EXECUTED, not sourced: the Dockerfile names it as ENTRYPOINT and
+  # this spec drives it with `bash <file>`. Its four runtime siblings are
+  # 644 because they are sourced; every shipped script that is run rather
+  # than sourced is 755, and only the Dockerfile's `COPY --chmod=0755`
+  # hides a 644 here -- so the file as committed would not be runnable from
+  # the subtree, and any consumer path that stops going through that COPY
+  # inherits an exit 126.
+  assert [ -x "${ORCH}" ]
+}
+
+@test "the shared smoke baseline asserts the orchestrator's in-image path (#945)" {
+  # The build-time baseline exists to prove the installed entry point is
+  # there. Pinning only the repo-owned bringup at /entrypoint.sh leaves the
+  # base-owned half -- the file the ENTRYPOINT actually names -- asserted by
+  # nothing in the tree, so a dropped runtime-dir COPY is invisible until a
+  # container fails to start.
+  local _wired
+  _wired="$(sed -nE 's/^ENTRYPOINT \["([^"]+)".*/\1/p' \
+    /source/dist/dockerfile/Dockerfile | head -n1)"
+  [[ -n "${_wired}" ]] || fail "no uncommented ENTRYPOINT in the shipped Dockerfile"
+  run grep -F "${_wired}" /source/dist/test/bats/smoke/shared/entrypoint.bats
+  assert_success
+}

@@ -214,6 +214,21 @@ _job_comments() {
   assert_output --partial '_default'
 }
 
+@test "self-test.yaml: acceptance pins the entry point the shipped Dockerfile wires (#945)" {
+  # The `.Path` check is only a runnability assertion while the literal it
+  # compares against is the literal the template's ENTRYPOINT names. Both
+  # halves are read here rather than one of them remembered: base owns the
+  # entry point (ADR-00000030), so moving it has to fail in the local gate
+  # instead of on the acceptance matrix, which `just test` cannot see.
+  local _wired
+  _wired="$(sed -nE 's/^ENTRYPOINT \["([^"]+)".*/\1/p' \
+    /source/dist/dockerfile/Dockerfile | head -n1)"
+  [[ -n "${_wired}" ]] || fail "no uncommented ENTRYPOINT in the shipped Dockerfile"
+  run yaml_job_lines "${WF}" acceptance
+  assert_success
+  assert_output --partial "\"\${path}\" != \"${_wired}\""
+}
+
 @test "self-test.yaml: acceptance exercises the remaining downstream just commands for real (#769)" {
   # Beyond the build/run -d/exec/stop core, the e2e must run each remaining
   # downstream verb with REAL execution (not --dry-run): the foreground run

@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3622 tests**.
+Unit specs under `test/bats/unit/`: **3626 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -563,7 +563,7 @@ the build side). #801 adds the build side's `cache_backend` export into
 the manifest guard env and a REAL packages: write probe (a GHCR
 blob-upload scope check, not a bare login) for the registry backend.
 
-### test/bats/unit/self_test_yaml_spec.bats (107)
+### test/bats/unit/self_test_yaml_spec.bats (108)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks
 thirteen cumulative invariants:
@@ -3277,7 +3277,7 @@ host so the boundary between them can be asserted at all.
 | `a caller's TEMPLATE_REMOTE still wins over the shared default (#895)` | - |
 
 
-### test/bats/unit/smoke_harness_spec.bats (14)
+### test/bats/unit/smoke_harness_spec.bats (15)
 
 | Test | Description |
 |------|-------------|
@@ -3289,6 +3289,7 @@ host so the boundary between them can be asserted at all.
 | `the harness reproduces every devel-test COPY into /lint and /smoke_test` | - |
 | `every harness COPY exemption is still a real devel-test COPY` | - |
 | `the harness installs the entrypoint the shared smoke baseline asserts` | - |
+| `the harness installs the orchestrator the shared smoke baseline asserts (#945)` | - |
 | `the harness Dockerfile writes the manifest before the specs read it (#951)` | The manifest and the OCI annotation the sys stage writes are mirrored here, and written before `RUN bats`; whether the specs then run rather than skip is asserted at system level, which builds this file |
 | `the harness exports BATS_LIB_PATH like the devel-test stage does` | - |
 | `the harness runs the specs as a non-root user, after the COPYs` | - |
@@ -4372,7 +4373,7 @@ rather than an assurance.
 | `_run_adr_structure: REFUSES when doc/adr/ does not exist (#994)` | - |
 | `_run_adr_structure: the REAL doc/adr/ passes today (#994)` | - |
 
-### test/bats/unit/entrypoint_spec.bats (8)
+### test/bats/unit/entrypoint_spec.bats (10)
 
 | Test | Description |
 |------|-------------|
@@ -4384,3 +4385,5 @@ rather than an assurance.
 | `the workload's argv survives verbatim, spaces included (#945)` | - |
 | `executed directly with nothing installed, it still execs the workload (#945)` | - |
 | `executed directly, the orchestrator drives the in-image paths (#945)` | - |
+| `the orchestrator ships with the executable bit set (#945)` | - |
+| `the shared smoke baseline asserts the orchestrator's in-image path (#945)` | - |

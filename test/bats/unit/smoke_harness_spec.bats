@@ -255,6 +255,19 @@ _HARNESS_EXEMPT_SRCS=(
   assert_success
 }
 
+@test "the harness installs the orchestrator the shared smoke baseline asserts (#945)" {
+  # The sibling of the /entrypoint.sh COPY above, for the OTHER half of the
+  # two-file entrypoint model (ADR-00000030). In a consumer the base-owned
+  # orchestrator arrives with the devel stage's
+  # `COPY --chmod=0755 .base/dist/script/docker/runtime/ /usr/local/lib/base/`,
+  # which lands outside /lint and /smoke_test and so is invisible to the
+  # parity loop above -- the harness has to reproduce it explicitly or the
+  # baseline's orchestrator assertion is red here and green nowhere.
+  run grep -nE '^COPY --chmod=0755 dist/script/docker/runtime/ /usr/local/lib/base/$' \
+    "${HARNESS_DOCKERFILE}"
+  assert_success
+}
+
 @test "the harness Dockerfile writes the manifest before the specs read it (#951)" {
   # Named for what a grep of a Dockerfile can establish: the instructions
   # are there, in that order. Whether the specs then RUN rather than skip
