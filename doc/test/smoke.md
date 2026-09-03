@@ -1,6 +1,6 @@
 # Smoke Tests
 
-Shared smoke specs that ship under `dist/test/bats/smoke/`: **38 tests**.
+Shared smoke specs that ship under `dist/test/bats/smoke/`: **39 tests**.
 
 > **Not** part of the `just test` self-test grand total — these are
 > Dockerfile `-test`-stage build-time assertions, not self-tests. See
@@ -134,7 +134,7 @@ no-duplicate-service-key property) is asserted instead in
 `generate_compose_yaml` can be driven with the GUI resolved both on and
 off.
 
-### dist/test/bats/smoke/shared/entrypoint.bats (2)
+### dist/test/bats/smoke/shared/entrypoint.bats (3)
 
 The cross-stage baseline that runs inside every `-test` stage (devel-test
 and runtime-test). Asserts only the universal surface — the installed
@@ -143,6 +143,7 @@ in devel-test).
 
 | Test | Description |
 |------|-------------|
+| `the base entrypoint orchestrator is installed and executable` | - |
 | `entrypoint.sh is installed and executable` | Entrypoint present |
 | `bash is available on PATH` | Core shell present |
 

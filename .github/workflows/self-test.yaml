@@ -1259,12 +1259,18 @@ jobs:
             exit 1
           fi
 
-          # (3) the ENTRYPOINT actually ran -- the wired entrypoint is
-          # /entrypoint.sh (Dockerfile ENTRYPOINT ["/entrypoint.sh"]).
+          # (3) the ENTRYPOINT actually ran -- the wired entry point is
+          # base's orchestrator at /usr/local/lib/base/entrypoint.sh
+          # (Dockerfile ENTRYPOINT
+          # ["/usr/local/lib/base/entrypoint.sh"]), which SOURCES the
+          # repo-owned bringup at /entrypoint.sh before it execs the
+          # workload (ADR-00000030). `.Path` therefore names the
+          # base-owned half; the bringup is not an entry point and never
+          # appears here.
           path="$(docker inspect -f '{{.Path}}' "${cname}")"
           echo "container Path: ${path}"
-          if [[ "${path}" != "/entrypoint.sh" ]]; then
-            echo "ERROR: container entrypoint '${path}' != /entrypoint.sh"
+          if [[ "${path}" != "/usr/local/lib/base/entrypoint.sh" ]]; then
+            echo "ERROR: container entrypoint '${path}' != /usr/local/lib/base/entrypoint.sh"
             exit 1
           fi
 
