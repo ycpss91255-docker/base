@@ -427,6 +427,60 @@ setup() {
   assert_success
 }
 
+# _classify <git-stub-body>
+#   Runs the workflow's OWN `classify` step -- the script lifted out of the
+#   YAML, not a copy of it -- with `git` replaced by a stub whose body is
+#   <git-stub-body>. The step's GITHUB_OUTPUT lands in
+#   ${BATS_TEST_TMPDIR}/classify/out for the caller to read; the caller wraps
+#   the call in `run` and asserts on the STATUS, which is the whole point:
+#   the failure this covers is a step that exits 0 having learnt nothing.
+_classify() {
+  local _dir="${BATS_TEST_TMPDIR}/classify"
+  rm -rf "${_dir}"
+  mkdir -p "${_dir}/bin"
+  printf '%s\n' '#!/usr/bin/env bash' "${1}" > "${_dir}/bin/git"
+  chmod +x "${_dir}/bin/git"
+  yaml_step_run "${WF}" path-filter classify > "${_dir}/step.sh"
+  [ -s "${_dir}/step.sh" ] || return 2
+  : > "${_dir}/out"
+  env "PATH=${_dir}/bin:${PATH}" \
+      EVENT_NAME=pull_request BASE_SHA=1111111 HEAD_SHA=2222222 \
+      GITHUB_OUTPUT="${_dir}/out" \
+      bash "${_dir}/step.sh"
+}
+
+@test "build-worker.yaml: a git diff that FAILS fails the classifier, it does not read as doc-only (#1013)" {
+  # The producer used to be a process substitution, `done < <(git diff ...)`,
+  # and a `while` loop's exit status is the LOOP's -- never the producer's.
+  # `set -eu` does not see it and `pipefail` would not either, a process
+  # substitution being no pipeline. So a diff that failed (base
+  # force-pushed, a partial fetch, a shallow clone without the base commit)
+  # delivered zero lines, classified as doc-only, and turned the REQUIRED
+  # docker-build check green having built nothing -- and the reason it built
+  # nothing was a failure nobody was told about.
+  run _classify 'exit 128'
+  assert_failure
+  run cat "${BATS_TEST_TMPDIR}/classify/out"
+  assert_success
+  refute_output --partial 'code_changed=false'
+}
+
+@test "build-worker.yaml: a diff of only allowlisted paths classifies doc-only (#1013)" {
+  # The fast-pass still has to happen -- the guard above must not buy its
+  # safety by classifying everything as code.
+  run _classify 'printf "%s\n" doc/adr/00000001-x.md README.md LICENSE'
+  assert_success
+  run cat "${BATS_TEST_TMPDIR}/classify/out"
+  assert_output --partial 'code_changed=false'
+}
+
+@test "build-worker.yaml: a diff carrying one non-allowlisted path classifies as code (#1013)" {
+  run _classify 'printf "%s\n" README.md script/setup.sh'
+  assert_success
+  run cat "${BATS_TEST_TMPDIR}/classify/out"
+  assert_output --partial 'code_changed=true'
+}
+
 @test "build-worker.yaml: doc-only allowlist case-glob covers all 6 documented paths (#273)" {
   # **/*.md, doc/**, LICENSE, .gitignore, .github/CODEOWNERS,
   # .github/dependabot.yml — match the issue body / design comment.

@@ -317,6 +317,23 @@ yaml_step_id_for() {
         '
 }
 
+# yaml_step_run <file> <job> <step-id>
+#   The `run:` script of ONE step of <job>, as the shell that step actually
+#   executes: the block scalar already folded, `${{ }}` template tokens left
+#   as the literal text they are in the file. A spec whose subject is what an
+#   inline step DOES -- not what its text looks like -- feeds this to `bash`
+#   with the step's `env:` supplied and reads the exit status, so the
+#   assertion survives a rewrite of the same behaviour and fails on a rewrite
+#   of the behaviour itself.
+#
+#   A job, step or `run:` that does not exist yields NOTHING, so a caller's
+#   `[ -n ... ]` guard fails the assertion loudly rather than executing an
+#   empty script and reading its success as the step's.
+yaml_step_run() {
+    _yaml_eval "${1}" \
+        ".jobs.\"${2}\".steps[] | select(.id == \"${3}\") | .run"
+}
+
 # yaml_job_names <file>
 #   The top-level `jobs:` keys of <file>, one per line -- the workflow's own
 #   job roster, DERIVED from the file rather than remembered by the spec. A
