@@ -57,6 +57,8 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 
 ## [Unreleased]
 
+## [v0.43.0-rc1] - 2026-09-04
+
 ### Changed
 - **the container ENTRYPOINT is base's orchestrator; `script/entrypoint.sh` is a bringup it sources (closes #945)**
   -- base's plumbing (the helper sources and the final `exec`) sat in a file
@@ -3613,7 +3615,8 @@ GUI-using env repo before promoting to v0.10.0.
 - Dockerfile `CONFIG_SRC` path: `docker_setup_helper/src/config` → `template/config`
 - Shared smoke tests loaded via `COPY template/smoke_test/` in Dockerfile (not symlinks)
 
-[Unreleased]: https://github.com/ycpss91255-docker/base/compare/v0.42.0...HEAD
+[Unreleased]: https://github.com/ycpss91255-docker/base/compare/v0.43.0-rc1...HEAD
+[v0.43.0-rc1]: https://github.com/ycpss91255-docker/base/compare/v0.42.0...v0.43.0-rc1
 [v0.42.0]: https://github.com/ycpss91255-docker/base/compare/v0.42.0-rc4...v0.42.0
 [v0.42.0-rc4]: https://github.com/ycpss91255-docker/base/compare/v0.42.0-rc3...v0.42.0-rc4
 [v0.42.0-rc3]: https://github.com/ycpss91255-docker/base/compare/v0.42.0-rc2...v0.42.0-rc3
