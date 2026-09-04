@@ -69,6 +69,15 @@
 # to [Unreleased]. This one is about WHERE things are, which is the property
 # the split created and the only one that needs a second pair of eyes.
 #
+# In a file that is not a series file it checks HEADINGS only, not link
+# definitions, and that is not the section rule half-applied. A markdown
+# link definition is file-scoped, so one in CONVENTIONS.md can only be
+# reached by a reference in CONVENTIONS.md -- there is no second answer for
+# it to become and nothing downstream reads it, while a reference-style link
+# in prose is an ordinary thing to write. A section is the opposite on both
+# counts: it is a copy of something that lives elsewhere, and the release
+# assembler reads it.
+#
 # Fenced code blocks are structurally inert, as everywhere else in this
 # repo's markdown scanning: inside ``` / ~~~ a `## [` is an example of a
 # heading, and the convention note shows exactly that.
