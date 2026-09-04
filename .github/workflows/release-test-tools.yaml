@@ -328,34 +328,44 @@ jobs:
           # so the roster loop below asserts them by version, which is
           # strictly more than the exit status a probe here would read.
           #
-          # The static-analysis pair cannot go through that roster: both are
-          # pinned by literal release URL, not by an ARG, so they are
-          # compared against the pin read out of the Dockerfile, below. The
-          # two mechanisms cover disjoint sets; neither is redundant.
+          # The static-analysis pair IS on that roster now -- the pins moved
+          # onto ARG lines so a `tool-pin:` marker had a line to attach to,
+          # and the roster reads every ARG. The explicit comparison below
+          # therefore re-asserts what the roster loop already asserts. It is
+          # kept rather than deleted because it is the check that caught a
+          # 3.8-year-stale hadolint pin and it names the two tools every PR
+          # in this repo is gated by; the cost is one duplicated assertion,
+          # not a gap.
           #
           # (This line does not open with the tool's name on purpose: a
           # comment beginning `# shellcheck ...` inside a run: block is
           # parsed as a shellcheck DIRECTIVE, and actionlint fails the
           # workflow with SC1072/SC1073 rather than reading prose.)
           # The two lint gates every PR in this repo must pass are the
-          # static-analysis pair pinned by literal release URL in
-          # dockerfile/Dockerfile.test-tools -- a shape dependabot cannot
-          # see. `<tool> --version` asserting exit 0, which is what stood
-          # here, catches a tool that vanished from the image and nothing
-          # else: a hadolint pin went 3.8 years stale behind this very
-          # check. So read the pin and compare it with what the image
-          # actually shipped.
+          # static-analysis pair pinned in dockerfile/Dockerfile.test-tools
+          # -- a shape dependabot cannot see. `<tool> --version` asserting
+          # exit 0, which is what stood here, catches a tool that vanished
+          # from the image and nothing else: a hadolint pin went 3.8 years
+          # stale behind this very check. So read the pin and compare it
+          # with what the image actually shipped.
           #
           # The expectations are GREPPED from the Dockerfile rather than
           # written here. An empty grep result is a hard failure, never an
           # empty-string comparison that agrees with itself: that is the
-          # state a moved URL or a renamed file produces, and it is exactly
-          # when a silent pass is worst.
+          # state a renamed ARG or a renamed file produces, and it is
+          # exactly when a silent pass is worst.
+          #
+          # The read is of the `ARG <TOOL>_VERSION=` declaration, not of
+          # the release URL below it. Both versions live on ARG lines now
+          # because a version inside a line-continued RUN has no line of
+          # its own for a `tool-pin:` marker to attach to; the URLs
+          # interpolate them, so there is no literal there left to grep.
+          # The leading v is stripped by the substitution, as before.
           df="dockerfile/Dockerfile.test-tools"
-          expected_sc="$(sed -n 's|.*shellcheck/releases/download/v\([0-9][0-9.]*\)/.*|\1|p' "${df}" | head -n1)"
-          expected_hd="$(sed -n 's|.*hadolint/releases/download/v\([0-9][0-9.]*\)/.*|\1|p' "${df}" | head -n1)"
+          expected_sc="$(sed -n 's|^ARG[[:space:]]\{1,\}SHELLCHECK_VERSION=v\{0,1\}\([0-9][0-9.]*\)[[:space:]]*$|\1|p' "${df}" | head -n1)"
+          expected_hd="$(sed -n 's|^ARG[[:space:]]\{1,\}HADOLINT_VERSION=v\{0,1\}\([0-9][0-9.]*\)[[:space:]]*$|\1|p' "${df}" | head -n1)"
           if [[ -z "${expected_sc}" || -z "${expected_hd}" ]]; then
-            echo "could not read the shellcheck / hadolint pins from ${df} (shellcheck='${expected_sc}' hadolint='${expected_hd}'). The release URL moved, or the file did. Refusing to report agreement between two empty strings." >&2
+            echo "could not read the shellcheck / hadolint pins from ${df} (shellcheck='${expected_sc}' hadolint='${expected_hd}'). The ARG declaration moved, or the file did. Refusing to report agreement between two empty strings." >&2
             exit 1
           fi
 

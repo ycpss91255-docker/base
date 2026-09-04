@@ -1423,6 +1423,35 @@ YAML
   assert_output --partial '- self-hosted-guard'
 }
 
+# why: The CI run on a watch/ branch IS the proposal's whole answer; a
+# branches: filter here would leave every proposal green with zero checks
+@test "self-test.yaml: pull_request is unfiltered, so a watch/ proposal gets the gate" {
+  # The upstream-release watch opens its proposals on `watch/<tool>-<ver>`
+  # branches, and the CI run this trigger starts on them IS the answer to
+  # "does this version break us" -- the workflow's entire output. A
+  # `branches:` list added here would leave every proposal with zero
+  # checks, which reads as nothing-is-wrong.
+  run awk '/^on:/{flag=1; next} /^[a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial 'pull_request:'
+  run awk '/^  pull_request:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  refute_output --partial 'branches:'
+  refute_output --partial 'branches-ignore:'
+}
+
+# why: A PR is the only moment pin-coverage can fire; with no CI join it
+# would gate a local just test and nothing a reviewer ever sees
+@test "self-test.yaml: the pin-coverage lint has a lint-static CI join" {
+  # Same belt-and-braces as the self-hosted guard above. This one carries
+  # more than usual: pin-coverage is what stops a third-party version from
+  # being added with nothing watching it, so a PR is the only moment it can
+  # fire. Without a CI job it would gate only a local `just test`.
+  run awk '/^  lint-static:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
+  assert_success
+  assert_output --partial '- pin-coverage'
+}
+
 # ── System-level build-worker self-test ────────────────────────
 
 @test "self-test.yaml: declares worker-selftest job that really invokes the shared build worker (#802)" {

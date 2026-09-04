@@ -306,6 +306,9 @@ _watchdog_pgid_of() {
 # depends on the answer, and the wait ends the moment the group appears, so
 # a healthy start pays one read.
 _WATCHDOG_GROUP_TRIES=20
+# tool-pin: ignore -- a poll interval in seconds, not a release. Two
+# dot-separated numbers is the shape of a version and nothing on the
+# line distinguishes this one, so the detector asks rather than guesses.
 _WATCHDOG_GROUP_POLL=0.1
 
 # _watchdog_await_child_group <pid> -- the child's process-group id, once it

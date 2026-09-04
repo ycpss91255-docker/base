@@ -192,6 +192,11 @@
 # Pinning is a per-repo call because the bump maintenance it costs is the
 # repo's to carry -- and one repo pinning does not conscript every other
 # repo under the org.
+#
+# tool-pin: unpinned base-image -- a MOVING tag, and what to do about it
+# is the consumer-facing decision the block above states in full. Declared
+# so the watch NAMES it on every run rather than letting two builds of one
+# template tag differ in silence; there is no version here to compare.
 ARG BASE_IMAGE="ubuntu:24.04"
 # No bare-tag default (was `test-tools:local`): build.sh (local) passes a
 # version-scoped `test-tools:<base-version>` and CI passes
@@ -228,6 +233,9 @@ ARG BASE_IMAGE_DIGEST=""
 
 SHELL ["/bin/bash", "-x", "-euo", "pipefail", "-c"]
 
+# tool-pin: unpinned sys-apt-packages -- an apt package names no version
+# here, and the base image it resolves against is itself a moving tag, so
+# there is no bound at all. Recorded so the watch says so every run.
 RUN sed -i "s@archive.ubuntu.com@${APT_MIRROR_UBUNTU}@g" /etc/apt/sources.list || true; \
     apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -294,6 +302,8 @@ FROM sys AS devel-base
 
 ARG DEBIAN_FRONTEND=noninteractive
 
+# tool-pin: unpinned devel-apt-packages -- same as the sys stage above:
+# unversioned apt packages on a moving base image.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         -o Dpkg::Options::="--force-confdef" \

@@ -242,28 +242,49 @@ _probe_missing_binaries() {
 }
 
 # _probe_pinned_version <dockerfile> <tool>
-#   The version in the tool's pinned release URL, leading v stripped.
-#   Prints nothing and returns 1 when no such URL is present -- an
-#   unreadable pin is a defect for the caller to report, never an absent
-#   constraint the caller may skip.
+#   The version this checkout pins for <tool>, read from its
+#   `ARG <TOOL>_VERSION=` declaration, leading v stripped. Prints nothing
+#   and returns 1 when no such declaration is present, or when more than
+#   one is -- an unreadable pin is a defect for the caller to report, never
+#   an absent constraint the caller may skip, and two declarations name no
+#   single version for an image to agree with.
+#
+#   This used to read the version out of the literal release URL, because
+#   that is where it was written. It no longer is: a version inside a
+#   line-continued RUN has no line of its own for a `tool-pin:` marker to
+#   attach to, so both linters were hoisted onto `ARG` lines and the URLs
+#   now interpolate them -- the shape `just` was already in, and the reason
+#   _probe_just_pin below is spelled differently from this. Reading the ARG
+#   is therefore not a second provenance path; it is the same one, reached
+#   at its declaration rather than at its use.
 _probe_pinned_version() {
   local _file="${1:?BUG: _probe_pinned_version expects a file}"
   local _tool="${2:?BUG: _probe_pinned_version expects a tool}"
   [[ -f "${_file}" ]] || return 1
-  local _script _all _v
+  local _arg _script _v
+  _arg="${_tool^^}_VERSION"
   # The sed program is named rather than inlined for two reasons. It keeps
   # the extraction under one screen width, and it keeps the substitution on
   # a line of its own: a `\`-continued command substitution is one bash
   # statement spread over two source lines, and kcov credits its execution
   # to neither of them, so the read below was permanently unmeasurable
   # while plainly running.
-  _script="s|.*${_tool}/releases/download/v\([0-9][0-9.]*\)/.*|\1|p"
-  # No `| head -n1`: the writer would take SIGPIPE and pipefail would turn
-  # a successful match into a failed pipeline. Read them all, keep the
-  # first.
-  _all="$(sed -n "${_script}" "${_file}")"
-  _v="${_all%%$'\n'*}"
-  [[ -n "${_v}" ]] || return 1
+  #
+  # The stage-level `ARG <TOOL>_VERSION` that re-declares a build arg
+  # without a default carries no `=`, so it is not a match and does not
+  # read as a second declaration.
+  _script="s|^ARG[[:space:]]\{1,\}${_arg}=[[:space:]]*||p"
+  local -a _hits=()
+  while IFS= read -r _v; do
+    _hits+=("${_v}")
+  done < <(sed -n "${_script}" "${_file}")
+  [[ "${#_hits[@]}" -eq 1 ]] || return 1
+  _v="${_hits[0]}"
+  _v="${_v%\"}"; _v="${_v#\"}"
+  _v="${_v%\'}"; _v="${_v#\'}"
+  _v="${_v//[[:space:]]/}"
+  _v="${_v#v}"
+  [[ "${_v}" =~ ^[0-9][0-9.]*$ ]] || return 1
   printf '%s\n' "${_v}"
 }
 

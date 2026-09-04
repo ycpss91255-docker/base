@@ -15,6 +15,11 @@
 # USER_* / HARDWARE build-args the worker always passes, and the two -test
 # stages declare TEST_TOOLS_IMAGE (passed to them), so no build-arg the
 # worker forwards is left unconsumed.
+# tool-pin: unpinned worker-fixture-base -- `alpine:3` is a MOVING series
+# tag, and deliberately so: this fixture exists to exercise the build
+# worker's ORCHESTRATION, and every stage is a no-op, so pinning it would
+# add a version to maintain in exchange for nothing. Declaring it is what
+# keeps it in the floating list the watch prints on every run.
 FROM alpine:3 AS sys
 ARG USER_NAME=ci
 ARG USER_GROUP=ci

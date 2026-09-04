@@ -1,5 +1,12 @@
 name: CI
 
+# `pull_request:` carries no branch filter, and that is load-bearing
+# rather than incidental: the upstream-release watch opens its proposals
+# on `watch/<tool>-<version>` branches, and the CI run this trigger starts
+# on them is the entire answer to "does this version break us". Adding a
+# `branches:` list here would leave every one of those proposals with zero
+# checks -- which reads as nothing-is-wrong, the exact silence the watch
+# exists to end. self_test_yaml_spec.bats asserts the absence.
 on:
   push:
     branches: [main, master]
@@ -88,6 +95,15 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Run actionlint via Docker
+        env:
+          # The image tag lives in `env:` rather than inline in the
+          # `docker run` below so it has a LINE OF ITS OWN for the
+          # `tool-pin:` marker to attach to -- a version inside a
+          # line-continued command has nowhere to carry one. actionlint is
+          # dependabot's blind spot by construction: it parses `uses:`
+          # refs, and this is an image named inside a `run:` step.
+          # tool-pin: actionlint dockerhub rhysd/actionlint pattern=^[0-9]+\.[0-9]+\.[0-9]+$
+          ACTIONLINT_IMAGE: rhysd/actionlint:1.7.12
         run: |
           set -euo pipefail
           # `-ignore` suppresses a known false positive: `github.job_workflow_sha`
@@ -102,7 +118,7 @@ jobs:
           docker run --rm \
             -v "${GITHUB_WORKSPACE}:/repo:ro" \
             -w /repo \
-            rhysd/actionlint:1.7.12 \
+            "${ACTIONLINT_IMAGE}" \
             -color \
             -ignore 'property "job_workflow_sha" is not defined'
 
@@ -351,6 +367,13 @@ jobs:
     #                     outside it, and action-ref-agreement compares
     #                     call sites within .github/workflows/ only, so
     #                     without this the ref is watched by nothing
+    #   pin-coverage      every third-party version this repo names in a
+    #                     Dockerfile or a workflow -- the versions
+    #                     dependabot cannot see -- carries a `tool-pin:`
+    #                     marker saying where its upstream lives, so the
+    #                     release watch's table is derived from the
+    #                     declaration sites rather than from a roster that
+    #                     falls behind them
     #   changelog-entry   no [Unreleased] changelog entry has grown into a
     #                     pasted PR body -- measured over the whole entry
     #                     with whitespace collapsed, so rewrapping it or
@@ -426,6 +449,7 @@ jobs:
           - i18n-orphan
           - self-hosted-guard
           - changelog-entry
+          - pin-coverage
           - action-ref-agreement
           - generated-workflow-actions
           - just-provenance
@@ -1018,17 +1042,27 @@ jobs:
           echo "REPO_NAME=${REPO_NAME}" >> "${GITHUB_ENV}"
 
       - name: Resolve the pinned just version
-        id: just_pin
+        id: just-pin
         # ONE declaration, read rather than restated: ARG JUST_VERSION in
         # dockerfile/Dockerfile.test-tools, via the shipped accessor. The
         # `just-version` input below used to be omitted, which installed
         # whatever `just` released most recently -- so a parsing change
         # upstream turned this job red on a day nobody touched the repo,
-        # and the e2e job ran a different `just` from the one baked into
-        # the image the rest of the suite uses.
+        # blamed on an unrelated diff, and the e2e job ran a different
+        # `just` from the one baked into the image the rest of the suite
+        # uses. Reading the declaration makes the image, this job and the
+        # number the watch bumps ONE number.
+        #
+        # The resolve is its own statement, under `set -euo pipefail`,
+        # rather than a command substitution inside the line that writes
+        # the output: an accessor that fails would otherwise still write
+        # an empty `version=` and leave the step green, which hands
+        # setup-just a blank input and puts the job back on whatever
+        # released most recently.
         run: |
-          printf 'version=%s\n' "$(./dist/script/base/just-version.sh)" \
-            >> "${GITHUB_OUTPUT}"
+          set -euo pipefail
+          version="$(./dist/script/base/just-version.sh)"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
 
       - name: Install just (container-ops entry point)
         # The e2e job drives the runnability contract through the SAME
@@ -1040,7 +1074,7 @@ jobs:
         # the maintained setup action instead.)
         uses: extractions/setup-just@v4
         with:
-          just-version: ${{ steps.just_pin.outputs.version }}
+          just-version: ${{ steps.just-pin.outputs.version }}
 
       - name: Build test stage (just docker build test)
         working-directory: ${{ env.REPO_DIR }}

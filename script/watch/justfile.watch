@@ -1,0 +1,55 @@
+# Upstream-release watch (just). Invoked as `just watch` (bare = compare
+# every declared pin against its upstream) and `just watch <recipe>` for
+# the offline halves, via base's own root `justfile`, which `mod?`s this
+# file as the `watch` namespace.
+#
+# The mechanism mirrors the downstream/base relationship: detect a new
+# upstream release -> open a PR that bumps it -> let CI prove it -> STOP.
+# Nothing here merges anything, and the scheduled workflow that calls it
+# arms no auto-merge. A red PR is not a failure of the watch; it IS the
+# watch's output -- the answer to "does this version break us", with the
+# CI log attached, for a human to read.
+#
+# ADR-00000005: `just` is the single runner, so the thing CI runs on a
+# schedule is the thing a maintainer runs by hand. Per the min->max
+# principle (ADR-00000011 sec.3) bare `just watch` does the whole job
+# (network included); the sub-recipes narrow to the offline parts.
+
+# Recipes run from the repo root, whether reached via the `watch` module
+# or a direct `just -f`. `../..` is relative to this file's location
+# (script/watch), i.e. the repo root.
+set working-directory := '../..'
+
+# just watch -> compare every declared pin against its upstream and print
+# the report. Exit 0 = everything current, 10 = at least one pin drifted,
+# 1 = a source could not be reached (which is a FAILURE, never a clean
+# run: an unreachable upstream must not read as up to date).
+default:
+    ./script/watch/check.sh
+
+# just watch pins -> the derived pin table, TSV, no network. One record
+# per `tool-pin:` marker in the scanned trees. There is no roster: this IS
+# the list, read back out of the files that declare each version.
+pins:
+    ./script/watch/pins.sh --list
+
+# just watch value <name> -> one pin's current version. The join that
+# keeps the test-tools image and the CI `just` install on ONE number:
+# self-test.yaml reads `just` out of the Dockerfile rather than repeating
+# it, so bumping the pin moves both.
+value name:
+    ./script/watch/pins.sh --value '{{name}}'
+
+# just watch bump <name> <version> -> rewrite that pin at its declaration
+# site, verifying the file reads back as the new version. This is the ONE
+# edit the scheduled workflow makes before it opens a PR; running it by
+# hand produces the identical diff.
+bump name version:
+    ./script/watch/pins.sh --set '{{name}}' '{{version}}'
+
+# just watch uncovered -> every version declaration in the scanned trees
+# that no marker claims. The read-only twin of the `pin-coverage` lint
+# (`just test lint --pin-coverage`), which fails the build on a non-empty
+# answer.
+uncovered:
+    ./script/watch/pins.sh --uncovered

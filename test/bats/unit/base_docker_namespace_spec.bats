@@ -174,6 +174,13 @@ setup() {
 #   tooling tag its hand-authored compose.yaml interpolates) and the
 #   tooling Dockerfile that tag is a content hash of; no .base/, no
 #   .setup.conf, no .env.generated.
+#
+#   script/watch/ comes along because script/test/ reaches into it:
+#   drivers/pin_coverage.sh sources ../watch/lib.sh, and test.sh sources
+#   every driver before it will answer anything -- `--test-tools-image`
+#   included. Copying script/test/ alone produced a checkout where the one
+#   producer of the tooling tag died on a missing file, which is a fixture
+#   defect wearing the costume of the bug these tests are about.
 _base_shaped_checkout() {
   local _dir="${1:?_base_shaped_checkout requires a dir}"
   mkdir -p "${_dir}/dist/script/docker/lib" "${_dir}/dist/script/docker/wrapper" \
@@ -183,6 +190,7 @@ _base_shaped_checkout() {
   cp /source/compose.yaml "${_dir}/compose.yaml"
   cp /source/dockerfile/Dockerfile.test-tools "${_dir}/dockerfile/"
   cp -r /source/script/test "${_dir}/script/test"
+  cp -r /source/script/watch "${_dir}/script/watch"
   local _w
   for _w in build run exec stop prune; do
     ln -s "../dist/script/docker/wrapper/${_w}.sh" "${_dir}/script/${_w}.sh"

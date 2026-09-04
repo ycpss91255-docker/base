@@ -214,7 +214,27 @@ readonly _CATALOG_DESC_SCAN_GLOBS=(
 # branch that writes descriptions; that is the slack this design accepts.
 # But the slack was its own, so it closed it, which is the ordinary
 # direction.
-readonly _CATALOG_DESC_UNDESCRIBED_CEILING=2607
+#
+# 2609 -> 2598 (the tool-version-watch merge, base#987). This is NOT a
+# reset: the merge went the other way. The branch predates the `# why:`
+# rule and arrived with 165 undescribed tests across its five watch specs,
+# which would have put the count 164 over. Raising the number to fit them
+# is the one move the header forbids, so all 165 were described, plus 8
+# already-undescribed cases in generated_workflow_actions_lint_spec.bats
+# that the same branch was editing anyway. That left 11 of slack against a
+# ceiling this branch had not earned, so it goes down to the recomputed
+# figure -- the ordinary direction, and it restores the ratchet to the one
+# notch of slack it stood at before.
+#
+# 2598 -> 2597 (merging origin/main a second time, base#1029). Both sides
+# lowered the number from 2609 -- this branch by 11, main by 2 -- and
+# neither reduction is the other's, so the merged tree carries both. 2597
+# is what the driver counts over the MERGED spec tree, not the lower of
+# the two sides and not a value above either of them: a number above both
+# is a raise, and only an import of tests written before this rule existed
+# may do that. It leaves zero slack, which is the ratchet at its tightest
+# and the state the next branch should expect to inherit.
+readonly _CATALOG_DESC_UNDESCRIBED_CEILING=2597
 
 # The written-out non-answers, matched case-insensitively on the whole
 # trimmed marker. `nil`, `none`, `tbd`, `todo` and `unknown` carry a

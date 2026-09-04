@@ -1,0 +1,277 @@
+name: Upstream release watch
+
+# Detect a new upstream release -> open a PR that bumps it -> let CI prove
+# it -> STOP THERE.
+#
+# The automation ends at verification. A human audits and merges. That is
+# the same rule this repo settled for the downstream base-tag fanout, and
+# having ONE rule for both is deliberate: the two mechanisms differ only in
+# which direction the version travels.
+#
+# A red PR from this workflow is not a malfunction. It is the OUTPUT: the
+# answer to "does this version break us", with the CI log attached.
+#
+# -- Why this exists at all ---------------------------------------------
+#
+# An audit of every third-party version this repo names found two defects
+# with opposite fixes. `just` had drifted because NOTHING named a version;
+# hadolint was three years stale because something named one and nobody
+# re-read it. The first is fixed by a pin -- done in
+# dockerfile/Dockerfile.test-tools. The second is fixed by this: something
+# that re-reads every pin on a schedule and turns the difference into work
+# a human cannot fail to see.
+#
+# The stale linter is the sharpest case, and worth stating plainly: a stale
+# linter does not fail. It UNDER-REPORTS. Every rule added upstream since
+# the pin was written has never run here, and no signal distinguishes
+# "clean" from "checked against a rule set from 2022". Nothing red ever
+# appears. That is why the watch has to be a scheduled actor rather than a
+# gate on a PR -- there is no PR on the day the drift starts.
+#
+# -- What it will not do ------------------------------------------------
+#
+# It never merges, and it never arms auto-merge. `permissions:` grants the
+# scan job read only, and the bump job exactly `contents: write` +
+# `pull-requests: write` -- enough to push a branch and propose a change,
+# and nothing that can land one.
+#
+# One honest caveat on that last sentence. The proposal has to be opened
+# with a credential that is NOT GITHUB_TOKEN, because GitHub starts no
+# workflow run for an event GITHUB_TOKEN triggered -- and a proposal with
+# no CI attached is worth nothing here, since the CI run IS the output.
+# That credential is not bounded by the `permissions:` block above, so
+# "it cannot merge" stops being a grant and becomes a property of the
+# code: no merge subcommand, no auto-merge flag and no auto-merge API call
+# appears anywhere in this file, and a unit spec fails the build the day
+# one does. (Spelled around rather than quoted, because that spec greps
+# this file for those very strings.)
+# The token needs exactly `contents: write` + `pull-requests: write` on
+# this repository; anything more is scope this workflow does not use.
+
+on:
+  schedule:
+    # Weekly, Monday ~04:41 UTC. Offset from the top of the hour because
+    # GitHub delays scheduled runs that pile onto :00, and offset from
+    # ghcr-cleanup's 03:23 so the two do not contend for runner minutes.
+    - cron: '41 4 * * 1'
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: 'Report drift without proposing any change'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# Serialised, never cancelled. A cancelled run can leave a pushed branch
+# with no proposal pointing at it, which is the one state a reader of the
+# pull-request list cannot see.
+concurrency:
+  group: tool-version-watch
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    # Compare every declared pin against its upstream and emit the drifted
+    # ones as a matrix. The table it reads is DERIVED from the files that
+    # declare each version (script/watch/lib.sh), not from a list kept
+    # here: a workflow-local roster would be one more thing to fall behind
+    # the Dockerfile, which is the failure this mechanism is about.
+    runs-on: ubuntu-latest
+    outputs:
+      drift: ${{ steps.scan.outputs.drift }}
+      count: ${{ steps.scan.outputs.count }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Compare every pin against its upstream
+        id: scan
+        env:
+          # The anonymous api.github.com limit is 60 requests an hour and
+          # this walks every github-release pin on every scheduled run.
+          GITHUB_TOKEN: ${{ github.token }}
+        # ONE invocation: each one walks every upstream API, and two walks
+        # can disagree. `--drift-tsv` puts the machine answer on stdout and
+        # the whole report -- unresolved and floating sections included --
+        # on stderr.
+        #
+        # Exit 10 is "drift found" and exit 1 is "a source could not be
+        # reached". They are kept apart on purpose: an unreachable upstream
+        # must never be reported as up to date, so it FAILS the job rather
+        # than yielding an empty matrix, which would look exactly like a
+        # clean week.
+        run: |
+          set -uo pipefail
+          drift="$(./script/watch/check.sh --drift-tsv 2>/tmp/watch-report.txt)"
+          status=$?
+          cat /tmp/watch-report.txt
+          if [[ "${status}" -eq 1 ]]; then
+            echo "::error::a pin's upstream could not be resolved (see UNRESOLVED above). Nothing was compared for it, so this run proves nothing about that pin."
+            exit 1
+          fi
+          if [[ "${status}" -ne 0 && "${status}" -ne 10 ]]; then
+            echo "::error::the watch exited ${status}"
+            exit "${status}"
+          fi
+          json="$(printf '%s' "${drift}" | awk -F'\t' '
+            BEGIN { printf "["; sep = "" }
+            NF >= 5 {
+              printf "%s{\"name\":\"%s\",\"from\":\"%s\",\"to\":\"%s\",\"file\":\"%s\",\"line\":\"%s\"}",
+                     sep, $1, $2, $3, $4, $5
+              sep = ","
+            }
+            END { printf "]" }')"
+          count="$(printf '%s' "${drift}" | grep -c . || true)"
+          echo "drift=${json}" >> "${GITHUB_OUTPUT}"
+          echo "count=${count}" >> "${GITHUB_OUTPUT}"
+          {
+            echo '## Upstream release watch'
+            echo
+            echo '```'
+            cat /tmp/watch-report.txt
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  bump:
+    # ONE PROPOSAL PER TOOL, not one for all of them.
+    #
+    # Each one is the answer to a question -- "does this version break us"
+    # -- and a shared branch conflates N questions into one red/green that
+    # cannot be acted on: the three safe bumps cannot land while the fourth
+    # is held, and the CI log no longer says which version did it. Separate
+    # branches also stop one conflict-prone file from making every bump
+    # depend on every other. The cost is N CI runs on a weekly cadence over
+    # a bounded set of pins, which is the cheaper half of the trade.
+    needs: scan
+    if: needs.scan.outputs.count != '0' && !inputs.dry-run
+    runs-on: ubuntu-latest
+    permissions:
+      # Exactly enough to push a branch and propose the change.
+      # Deliberately not `checks: write` or anything else that could
+      # influence a merge: this workflow stops at verification.
+      contents: write
+      pull-requests: write
+    strategy:
+      fail-fast: false
+      # Serial: each iteration pushes a branch off the same base and calls
+      # the same API. Nothing here is faster in parallel, and a serial run
+      # keeps the log readable when one bump fails.
+      max-parallel: 1
+      matrix:
+        pin: ${{ fromJSON(needs.scan.outputs.drift) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Bump ${{ matrix.pin.name }} and propose it
+        env:
+          # NOT `github.token`. GitHub does not create a workflow run from
+          # an event triggered by GITHUB_TOKEN -- `workflow_dispatch` and
+          # `repository_dispatch` are the only exceptions -- so a proposal
+          # opened with it raises a `pull_request` event that starts NO
+          # CI. Every PR this job opens would arrive with zero checks,
+          # and a PR with no checks reads as nothing-is-wrong: the same
+          # silence-as-green this whole mechanism was built to end. (With
+          # required checks on main it is worse: the PR waits for a status
+          # that will never arrive and no bump can ever land.)
+          #
+          # Pushing the branch under a `watch/**` push trigger does NOT
+          # fix it either -- the restriction is on the EVENT's actor, not
+          # on the trigger, so a GITHUB_TOKEN push creates no run for any
+          # trigger that would match it.
+          #
+          # So the PR is opened by a real credential. `pull_request` in
+          # self-test.yaml is unfiltered, so the resulting proposal picks
+          # up the full gate; tool_version_watch_yaml_spec.bats and
+          # self_test_yaml_spec.bats assert both halves of that, because
+          # this is a property no local test can observe.
+          GH_TOKEN: ${{ secrets.ORG_FANOUT_TOKEN }}
+          PIN_NAME: ${{ matrix.pin.name }}
+          PIN_FROM: ${{ matrix.pin.from }}
+          PIN_TO: ${{ matrix.pin.to }}
+          PIN_FILE: ${{ matrix.pin.file }}
+          PIN_LINE: ${{ matrix.pin.line }}
+        run: |
+          set -euo pipefail
+          branch="watch/${PIN_NAME}-${PIN_TO}"
+
+          # Checked BEFORE anything is pushed. Without the credential the
+          # PR cannot be opened, and a run that discovers that after the
+          # push leaves a branch behind with no proposal pointing at it --
+          # the one state a reader of the pull-request list cannot see.
+          if [[ -z "${GH_TOKEN}" ]]; then
+            echo "::error::the upstream-release watch needs a credential that is not GITHUB_TOKEN to open a proposal that CI will actually run (see the comment on this step). Set the ORG_FANOUT_TOKEN repository secret."
+            exit 1
+          fi
+
+          # An OPEN proposal for this exact version pair already exists:
+          # nothing to add. A CLOSED one is deliberately NOT treated that
+          # way -- see the body below for why re-raising is the point.
+          existing="$(gh pr list --state open --head "${branch}" \
+                        --json number --jq '.[0].number // ""')"
+          if [[ -n "${existing}" ]]; then
+            echo "#${existing} already proposes ${PIN_NAME} ${PIN_TO}; nothing to do."
+            exit 0
+          fi
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          # The branch exists on the remote and no OPEN proposal points at
+          # it (checked above), so an earlier run pushed it and did not get
+          # as far as opening one. Left alone it wedges this pin FOREVER:
+          # every later run rebuilds the commit from a fresh checkout, gets
+          # a different SHA, and its push is rejected as a non-fast-forward
+          # against the abandoned branch. Clearing it is not discarding
+          # anyone's work -- nothing has ever pointed at it.
+          if git ls-remote --exit-code --heads origin "${branch}" >/dev/null 2>&1; then
+            echo "::warning::${branch} exists on the remote with no open proposal; an earlier run pushed it and stopped before creating one. Replacing it."
+            git push --delete origin "${branch}"
+          fi
+
+          git switch -c "${branch}"
+          ./script/watch/pins.sh --set "${PIN_NAME}" "${PIN_TO}"
+          git add -A
+          git commit -m "chore(deps): bump ${PIN_NAME} ${PIN_FROM} -> ${PIN_TO}"
+          git push --set-upstream origin "${branch}"
+
+          cat > /tmp/pr-body.md <<BODY
+          Upstream released \`${PIN_NAME}\` **${PIN_TO}**; this repo pins
+          **${PIN_FROM}** at \`${PIN_FILE}:${PIN_LINE}\`.
+
+          Opened by the scheduled upstream-release watch. **It does not merge, and
+          auto-merge is not armed.** The point of this branch is the CI run
+          attached to it: that run is the answer to "does ${PIN_TO} break us", and
+          a red result is a finding, not a malfunction.
+
+          Before merging:
+
+          - Read the CI result. Green means the gates still pass, which for a
+            LINTER bump is the weaker half of the question: a linter that got
+            stricter surfaces new findings rather than failing. List any new
+            findings here.
+          - Add the \`[Unreleased]\` changelog entry. The watch deliberately writes
+            none: every open bump would edit the same lines and they would all
+            conflict with each other.
+
+          To refuse this version rather than take it, record the refusal on the
+          marker where the pin is declared -- append \`skip=${PIN_TO}\` to it, so it
+          reads \`tool-pin: ${PIN_NAME} <resolver> <coordinate> skip=${PIN_TO}\`.
+          (Written inline here rather than as a code block on purpose: this
+          workflow is itself one of the files the pin reader scans, and a
+          line-leading marker in it would be read as a real pin.)
+
+          Closing this without a \`skip=\` is not a refusal the watch can see, and
+          it will propose ${PIN_TO} again next week. That is on purpose: a closed
+          proposal is how this repo silently opted out of a major version bump at
+          five call sites for months, with nothing in any config file recording the
+          decision. A \`skip=\` is a line in the file that declares the pin, next to
+          the version it refuses.
+          BODY
+
+          gh pr create \
+            --base main \
+            --head "${branch}" \
+            --title "chore(deps): bump ${PIN_NAME} ${PIN_FROM} -> ${PIN_TO}" \
+            --body-file /tmp/pr-body.md
