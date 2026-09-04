@@ -689,6 +689,74 @@ EOF
   refute_output --partial "NOTES.md"
 }
 
+# The Dockerfile is not the only thing the resync writes. It re-points the
+# wrapper symlinks, lands the justfile layering and the monitor workflow,
+# and drops the retired root wrappers -- all of it mechanical output of
+# the same run, none of it the user's work to review. Leaving that half
+# unstaged leaves the branch's own defect standing: the commit still says
+# "template references to <ver>" while the tree it describes is on a
+# different layout, and the run still ends with "git push".
+
+# why: The wrappers are output of the same mechanical run as the
+# Dockerfile, so leaving them out of the commit leaves the tree
+# disagreeing with the release the commit claims
+@test "_init_existing_repo: stages the wrappers the resync installed (#1036)" {
+  _source_init
+  cat > "${TMP_REPO}/Dockerfile" <<'EOF'
+FROM busybox AS lint
+COPY .base/dist/script/docker/lib /lint/lib
+EOF
+  _git_seed_consumer
+  _init_existing_repo
+  run git -C "${TMP_REPO}" diff --cached --name-only
+  assert_line "justfile"
+  assert_line "script/build.sh"
+  assert_line ".hadolint.yaml"
+}
+
+# why: The resync DELETES the pre-relocation root wrappers, and a deletion
+# left out of the commit is the same tree/commit disagreement one
+# direction over
+@test "_init_existing_repo: stages the retired root wrapper it removed (#1036)" {
+  _source_init
+  cat > "${TMP_REPO}/Dockerfile" <<'EOF'
+FROM busybox AS lint
+COPY .base/dist/script/docker/lib /lint/lib
+EOF
+  # The pre-relocation layout: a root symlink the resync drops on sight.
+  ln -s ".base/dist/script/docker/wrapper/build.sh" "${TMP_REPO}/build.sh"
+  _git_seed_consumer
+  _init_existing_repo
+  run git -C "${TMP_REPO}" diff --cached --name-only --diff-filter=D
+  assert_line "build.sh"
+}
+
+# why: "git cannot answer" is not "there is nothing to stage" -- resolving
+# it to silent success is how an unstaged rewrite gets pushed
+@test "_stage_resync_output: warns when git cannot read the repo (#1036)" {
+  _source_init
+  : > "${TMP_REPO}/Dockerfile"
+  _init_existing_repo
+  # A worktree checkout whose gitdir has gone -- the shape this repo's own
+  # integration specs run in. `rev-parse` exits 128, not 0.
+  printf 'gitdir: %s/gone\n' "${TMP_REPO}" > "${TMP_REPO}/.git"
+  run _stage_resync_output
+  assert_success
+  assert_output --partial "could not stage"
+}
+
+# why: `just base init` is also a repair command for a hand-bootstrapped
+# tree, and a directory that is genuinely not a repo is not a problem to
+# report
+@test "_stage_resync_output: is silent when the tree is no git repo at all (#1036)" {
+  _source_init
+  : > "${TMP_REPO}/Dockerfile"
+  _init_existing_repo
+  run _stage_resync_output
+  assert_success
+  refute_output --partial "could not stage"
+}
+
 # why: Nothing rewritten is nothing to stage -- and not an error
 @test "_init_existing_repo: stages no Dockerfile when no migration applies (#1036)" {
   _source_init

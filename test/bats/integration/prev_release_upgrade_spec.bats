@@ -505,8 +505,13 @@ _assert_release_stages_migrated_files() {
   # ... and the working tree no longer disagrees with it.
   run git -C "${CONSUMER}" status --porcelain -- Dockerfile
   assert_output ""
-  # The user's own file is still the user's to commit.
-  run git -C "${CONSUMER}" status --porcelain -- NOTES.md
+  # The user's own file is still the user's to commit -- and it is the ONLY
+  # thing the upgrade left behind. Everything else in that listing would be
+  # the resync's own output: re-pointed wrappers, the justfile layering,
+  # the monitor workflow. Mechanical output of the run the commit claims to
+  # be, so a commit that says "template references to <ver>" while they sit
+  # unstaged describes a tree that does not exist.
+  run git -C "${CONSUMER}" status --porcelain
   assert_output "?? NOTES.md"
 }
 
