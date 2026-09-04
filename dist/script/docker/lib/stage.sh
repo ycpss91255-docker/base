@@ -441,8 +441,8 @@ _resolve_stage_scalar() {
   _rss_out="${_fallback}"
 }
 
-# _resolve_stage_list <keys_var> <values_var> <prefix> <inherit_key> \
-#                     <top_level_str> <out_var>
+# _resolve_stage_list <keys_var> <values_var> <prefix> <top_level_str> \
+#                     <out_var>
 #
 # Computes the effective list for a list field (volumes.mount_*,
 # network.port_*, environment.env_*) on a per-stage basis.
@@ -451,8 +451,11 @@ _resolve_stage_scalar() {
 #   keys_var / values_var  Stage's parallel override arrays
 #   prefix                 Full dotted prefix e.g. "volumes.mount_"
 #                          — keys matching `<prefix>[0-9]+` are list items
-#   inherit_key            Meta-key e.g. "volumes.mount_inherit"
-#                          — value "false" switches to replace mode
+#   (the inherit meta-key is `<prefix>inherit`, e.g.
+#    "volumes.mount_inherit" — value "false" switches to replace mode.
+#    It was a sixth parameter until base#994; every one of the six call
+#    sites spelled out exactly that concatenation, so the slot carried no
+#    information and could only ever be wrong)
 #   top_level_str          Newline-separated top-level list (the same
 #                          aggregate format setup.sh uses elsewhere)
 #   out_var                Newline-separated effective list (no
@@ -468,9 +471,9 @@ _resolve_stage_list() {
   local -n _rsl_keys="${1:?"${FUNCNAME[0]}: missing keys array"}"
   local -n _rsl_values="${2:?"${FUNCNAME[0]}: missing values array"}"
   local _prefix="${3:?"${FUNCNAME[0]}: missing prefix"}"
-  local _inherit_key="${4:?"${FUNCNAME[0]}: missing inherit_key"}"
-  local _top="${5-}"
-  local -n _rsl_out="${6:?"${FUNCNAME[0]}: missing out var"}"
+  local _top="${4-}"
+  local -n _rsl_out="${5:?"${FUNCNAME[0]}: missing out var"}"
+  local _inherit_key="${_prefix}inherit"
 
   # Default to inheriting top-level. Only the literal "false" toggles
   # replace mode — anything else (including "true", empty, malformed)
@@ -607,11 +610,11 @@ _resolve_docker_flags() {
   _resolve_stage_scalar _rdf_keys _rdf_values "security.privileged" "" _tmp
   _rdf_out["privileged"]="${_tmp}"
 
-  _resolve_stage_list _rdf_keys _rdf_values "volumes.mount_" "volumes.mount_inherit" "${_rdf_parent["volumes_top"]}" _tmp
+  _resolve_stage_list _rdf_keys _rdf_values "volumes.mount_" "${_rdf_parent["volumes_top"]}" _tmp
   _rdf_out["volumes"]="${_tmp}"
-  _resolve_stage_list _rdf_keys _rdf_values "environment.env_" "environment.env_inherit" "${_rdf_parent["env_top"]}" _tmp
+  _resolve_stage_list _rdf_keys _rdf_values "environment.env_" "${_rdf_parent["env_top"]}" _tmp
   _rdf_out["environment"]="${_tmp}"
-  _resolve_stage_list _rdf_keys _rdf_values "network.port_" "network.port_inherit" "${_rdf_parent["ports_top"]}" _tmp
+  _resolve_stage_list _rdf_keys _rdf_values "network.port_" "${_rdf_parent["ports_top"]}" _tmp
   _rdf_out["ports"]="${_tmp}"
 
   # per-stage [security] cap_add / cap_drop / security_opt as list
@@ -619,10 +622,10 @@ _resolve_docker_flags() {
   # volumes / env / ports above. A stage sets `cap_add_inherit = false`
   # (and lists no entries) to drop all inherited caps — e.g. a read-only
   # probe stage that should not inherit the flash stage's SYS_ADMIN.
-  _resolve_stage_list _rdf_keys _rdf_values "security.cap_add_" "security.cap_add_inherit" "${_rdf_parent["cap_add_top"]}" _tmp
+  _resolve_stage_list _rdf_keys _rdf_values "security.cap_add_" "${_rdf_parent["cap_add_top"]}" _tmp
   _rdf_out["cap_add"]="${_tmp}"
-  _resolve_stage_list _rdf_keys _rdf_values "security.cap_drop_" "security.cap_drop_inherit" "${_rdf_parent["cap_drop_top"]}" _tmp
+  _resolve_stage_list _rdf_keys _rdf_values "security.cap_drop_" "${_rdf_parent["cap_drop_top"]}" _tmp
   _rdf_out["cap_drop"]="${_tmp}"
-  _resolve_stage_list _rdf_keys _rdf_values "security.security_opt_" "security.security_opt_inherit" "${_rdf_parent["sec_opt_top"]}" _tmp
+  _resolve_stage_list _rdf_keys _rdf_values "security.security_opt_" "${_rdf_parent["sec_opt_top"]}" _tmp
   _rdf_out["security_opt"]="${_tmp}"
 }

@@ -815,10 +815,10 @@ rules = @default:orig
 [build]
 apt_mirror_ubuntu =
 EOF
-  local -a _sections=(image build) _keys=(image.rules build.apt_mirror_ubuntu) \
+  local -a _keys=(image.rules build.apt_mirror_ubuntu) \
     _values=("@default:newval" "tw.archive.example.com")
   _write_setup_conf "${TEMP_DIR}/out.conf" "${TEMP_DIR}/template.conf" \
-    _sections _keys _values
+    _keys _values
 
   run cat "${TEMP_DIR}/out.conf"
   [ "${status}" -eq 0 ]
@@ -838,9 +838,9 @@ mode = host
 ipc = host
 privileged = true
 EOF
-  local -a _sections=(network) _keys=(network.mode) _values=(bridge)
+  local -a _keys=(network.mode) _values=(bridge)
   _write_setup_conf "${TEMP_DIR}/out.conf" "${TEMP_DIR}/template.conf" \
-    _sections _keys _values
+    _keys _values
 
   run cat "${TEMP_DIR}/out.conf"
   [[ "${output}" == *"mode = bridge"* ]]
@@ -873,11 +873,11 @@ EOF
   [[ "${_before}" -gt 0 ]] \
     || fail "fixture seed is empty -- the heredoc above wrote nothing, so the 0-byte-truncation assertion below would pass vacuously"
 
-  local -a _sections=(image) _keys=(image.rules) \
+  local -a _keys=(image.rules) \
     _values=("string:my_unique_image")
   # dst and tpl point at the same path — the bug's exact trigger.
   _write_setup_conf "${TEMP_DIR}/conf" "${TEMP_DIR}/conf" \
-    _sections _keys _values
+    _keys _values
 
   # The override must land + the rest of the template content must be
   # preserved. Pre-fix this test produces a 0-byte file.
@@ -903,11 +903,10 @@ gpu_mode = auto
 gpu_count = all
 gpu_capabilities = gpu
 EOF
-  local -a _sections=(image deploy) \
-    _keys=(image.rules deploy.gpu_mode deploy.gpu_count) \
+  local -a _keys=(image.rules deploy.gpu_mode deploy.gpu_count) \
     _values=("prefix:docker_, @default:foo" "force" "2")
   _write_setup_conf "${TEMP_DIR}/out.conf" "${TEMP_DIR}/template.conf" \
-    _sections _keys _values
+    _keys _values
 
   local -a _sect2=() _keys2=() _vals2=()
   _load_setup_conf_full "${TEMP_DIR}/out.conf" _sect2 _keys2 _vals2
@@ -944,9 +943,9 @@ mount_1 = /a:/a
 mount_2 = /b:/b
 mount_3 = /c:/c
 EOF
-  local -a _sections=(volumes) _keys=() _values=()
+  local -a _keys=() _values=()
   _write_setup_conf "${TEMP_DIR}/out.conf" "${TEMP_DIR}/template.conf" \
-    _sections _keys _values "volumes.mount_2"
+    _keys _values "volumes.mount_2"
 
   run cat "${TEMP_DIR}/out.conf"
   [[ "${output}" == *"mount_1 = /a:/a"* ]]
@@ -962,11 +961,10 @@ rule_1 = prefix:docker_
 [network]
 mode = host
 EOF
-  local -a _sections=(image) \
-    _keys=(image.rule_1 image.rule_2) \
+  local -a _keys=(image.rule_1 image.rule_2) \
     _values=("prefix:docker_" "@default:fallback")
   _write_setup_conf "${TEMP_DIR}/out.conf" "${TEMP_DIR}/template.conf" \
-    _sections _keys _values
+    _keys _values
 
   run cat "${TEMP_DIR}/out.conf"
   # Added rule_2 should appear under [image]
@@ -1035,11 +1033,10 @@ rule_1 = prefix:docker_
 mount_1 = /a:/a
 EOF
   # volumes is the last section; mount_9 is a new key not in template.
-  local -a _sections=(volumes) \
-    _keys=(volumes.mount_9) \
+  local -a _keys=(volumes.mount_9) \
     _values=("/extra:/extra")
   _write_setup_conf "${TEMP_DIR}/out.conf" "${TEMP_DIR}/template.conf" \
-    _sections _keys _values
+    _keys _values
 
   run cat "${TEMP_DIR}/out.conf"
   assert_output --partial "mount_1 = /a:/a"
@@ -1056,11 +1053,10 @@ rule_1 = prefix:docker_
 [volumes]
 mount_1 = /a:/a
 EOF
-  local -a _sections=(volumes) \
-    _keys=(volumes.mount_9) \
+  local -a _keys=(volumes.mount_9) \
     _values=("/extra:/extra")
   _write_setup_conf "${TEMP_DIR}/out.conf" "${TEMP_DIR}/template.conf" \
-    _sections _keys _values "volumes.mount_9"
+    _keys _values "volumes.mount_9"
 
   run cat "${TEMP_DIR}/out.conf"
   refute_output --partial "mount_9"
@@ -1110,7 +1106,7 @@ EOF
   local -a _sections=() _keys=() _values=()
   _load_setup_conf_full "${TEMP_DIR}/template.conf" _sections _keys _values
   _write_setup_conf "${TEMP_DIR}/out.conf" "${TEMP_DIR}/template.conf" \
-    _sections _keys _values
+    _keys _values
 
   run cat "${TEMP_DIR}/out.conf"
   refute_output --partial "web.driver"
@@ -1130,11 +1126,10 @@ EOF
 [logging]
 driver = json-file
 EOF
-  local -a _sections=(logging.devel) \
-    _keys=(logging.devel.driver) \
+  local -a _keys=(logging.devel.driver) \
     _values=("local")
   _write_setup_conf "${TEMP_DIR}/out.conf" "${TEMP_DIR}/template.conf" \
-    _sections _keys _values
+    _keys _values
 
   run cat "${TEMP_DIR}/out.conf"
   assert_output --partial "[logging.devel]"
@@ -1178,6 +1173,51 @@ _b5_setup_tui() {
   : > "${_B5_MENU_ARGS_FILE}"
 }
 
+# why: The labels stopped being call-site arguments and became a table,
+# and the failure mode moved with them: a missing row can no longer be a
+# wrong argument, it is a screen with no words on it. This is the case
+# that keeps that from rendering -- an unknown (section, prefix) pair
+# fails loudly instead of drawing a menu whose title, Add and Back rows
+# are empty strings, which is the silent-failure shape invariant 2 exists
+# to refuse.
+@test "_edit_list_section: an unknown list has no label row, and fails rather than drawing a blank screen (base#994)" {
+  _b5_setup_tui
+  _tui_menu() { printf 'back'; return 0; }
+
+  run _edit_list_section volumes not_a_list_
+  assert_failure
+  assert_output --partial "volumes.not_a_list_"
+}
+
+# why: The complement, and the reason the guard is not vacuous: every
+# list the TUI actually ships has a complete row, so the failure above
+# can only ever be a typo or an editor somebody added without a screen.
+# The population is DERIVED from setup_tui.sh's own `_edit_list_section`
+# call sites, because the editor this case exists to catch is the
+# twelfth one -- added with no `_TUI_LIST_LABELS` row, which a
+# hand-written list of eleven pairs would not know to ask about. The
+# floor below is the only remembered number, and it is there so a
+# derivation that silently matched nothing cannot pass over an empty
+# set.
+@test "_edit_list_section: every list editor the TUI ships has a complete label row (base#994)" {
+  _b5_setup_tui
+  local -a _pairs=()
+  mapfile -t _pairs < <(
+    grep -E '^[[:space:]]*_edit_list_section [a-z_]+ [a-z_]+_$' \
+      /source/dist/script/docker/wrapper/setup_tui.sh \
+      | awk '{ print $2, $3 }' | sort -u
+  )
+  (( ${#_pairs[@]} >= 11 )) \
+    || fail "derived ${#_pairs[@]} list editors from setup_tui.sh; the TUI ships at least 11"
+  local -A _labels=()
+  local _pair
+  for _pair in "${_pairs[@]}"; do
+    # shellcheck disable=SC2086
+    _tui_list_labels ${_pair} _labels \
+      || fail "no complete label row for '${_pair}'"
+  done
+}
+
 @test "_edit_list_section shows mount_1 when value is non-empty" {
   _b5_setup_tui
   _TUI_CURRENT[volumes.mount_1]="/foo:/bar"
@@ -1189,9 +1229,7 @@ _b5_setup_tui() {
     return 0
   }
 
-  _edit_list_section volumes mount_ \
-    volumes.title volumes.menu volumes.add volumes.back volumes.edit.prompt \
-    _validate_mount err.invalid_mount
+  _edit_list_section volumes mount_
 
   run cat "${_B5_MENU_ARGS_FILE}"
   # The menu tag/label stream must include mount_1 with its value.
@@ -1228,9 +1266,7 @@ _b5_setup_tui() {
     return 0
   }
 
-  _edit_list_section volumes mount_ \
-    volumes.title volumes.menu volumes.add volumes.back volumes.edit.prompt \
-    _validate_mount err.invalid_mount
+  _edit_list_section volumes mount_
 
   # Expect the new mount to land in mount_1 (the empty slot), not mount_3.
   run _override_get "volumes.mount_1" ""
@@ -1262,9 +1298,7 @@ _b5_setup_tui() {
     return 0
   }
 
-  _edit_list_section volumes mount_ \
-    volumes.title volumes.menu volumes.add volumes.back volumes.edit.prompt \
-    _validate_mount err.invalid_mount
+  _edit_list_section volumes mount_
 
   run _override_get "volumes.mount_3" ""
   assert_output "/c:/c"
@@ -1281,9 +1315,7 @@ _b5_setup_tui() {
     return 0
   }
 
-  _edit_list_section volumes mount_ \
-    volumes.title volumes.menu volumes.add volumes.back volumes.edit.prompt \
-    _validate_mount err.invalid_mount
+  _edit_list_section volumes mount_
 
   run cat "${_B5_MENU_ARGS_FILE}"
   # Empty mount_1 must not appear as an entry row.
@@ -1778,11 +1810,10 @@ mode = auto
 [network]
 mode = host
 EOF
-  local -a _sections=("stage:headless") \
-    _keys=("stage:headless.gui.mode" "stage:headless.network.mode") \
+  local -a _keys=("stage:headless.gui.mode" "stage:headless.network.mode") \
     _values=("off" "bridge")
   _write_setup_conf "${TEMP_DIR}/out.conf" "${TEMP_DIR}/template.conf" \
-    _sections _keys _values
+    _keys _values
 
   run cat "${TEMP_DIR}/out.conf"
   assert_success
@@ -1802,11 +1833,10 @@ EOF
 [gui]
 mode = auto
 EOF
-  local -a _sections=("stage:headless" "stage:gui") \
-    _keys=("stage:headless.gui.mode" "stage:gui.gui.mode") \
+  local -a _keys=("stage:headless.gui.mode" "stage:gui.gui.mode") \
     _values=("off" "force")
   _write_setup_conf "${TEMP_DIR}/out.conf" "${TEMP_DIR}/template.conf" \
-    _sections _keys _values
+    _keys _values
 
   run cat "${TEMP_DIR}/out.conf"
   assert_success
@@ -1819,11 +1849,10 @@ EOF
 [gui]
 mode = auto
 EOF
-  local -a _sections=("gui" "stage:headless") \
-    _keys=("gui.mode" "stage:headless.gui.mode" "stage:headless.network.port_1") \
+  local -a _keys=("gui.mode" "stage:headless.gui.mode" "stage:headless.network.port_1") \
     _values=("auto" "off" "8080:80")
   _write_setup_conf "${TEMP_DIR}/out.conf" "${TEMP_DIR}/template.conf" \
-    _sections _keys _values
+    _keys _values
 
   local -a _sect2=() _keys2=() _values2=()
   _load_setup_conf_full "${TEMP_DIR}/out.conf" _sect2 _keys2 _values2
@@ -1861,11 +1890,10 @@ mode = auto
 [stage:headless]
 gui.mode = off
 EOF
-  local -a _sections=("stage:headless") \
-    _keys=("stage:headless.gui.mode") \
+  local -a _keys=("stage:headless.gui.mode") \
     _values=("force")
   _write_setup_conf "${TEMP_DIR}/out.conf" "${TEMP_DIR}/template.conf" \
-    _sections _keys _values
+    _keys _values
 
   run cat "${TEMP_DIR}/out.conf"
   assert_success
