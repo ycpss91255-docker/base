@@ -145,13 +145,29 @@ setup() {
 # total; the rest are the four prose and table sites verbatim.
 _AGGREGATE_FIGURE_RE='\*\*[0-9]+ tests?\*\*|\*\*[0-9]+\*\*|\| Count \||in the [0-9]+ figure|System \([0-9]+\) and smoke \([0-9]+\)'
 
+# _authored_lines <doc> -- `<line>: <text>` for every AUTHORED line of <doc>:
+# everything OUTSIDE the generated catalogue region. Inside it the document is
+# the catalogue, whose per-spec headings and rows are derived on every run and
+# are not any of these rules' business.
+#
+# Both fences are matched as WHOLE LINES, and that is the whole of it: a
+# catalogue's own prose quotes the marker inline while explaining that the
+# region is replaced wholesale, so a substring match hands a document's
+# authored tail to the generated half and stops reading it. The region is
+# skipped rather than the scan ended, so the prose BELOW `<!-- /generated -->`
+# is read too -- smoke.md carries 120 lines of it.
+_authored_lines() {
+  awk '
+    /^<!-- generated: catalogue sections -->$/ { _in = 1; next }
+    /^<!-- \/generated -->$/                   { _in = 0; next }
+    _in == 0                                   { print FNR ": " $0 }
+  ' "$1"
+}
+
 # _aggregate_figure_hits <doc> -- `<line>: <text>` for every authored line of
-# <doc> carrying an aggregate figure. Scanning STOPS at the generated fence:
-# past it the document is the catalogue, whose per-spec headings and rows are
-# derived on every run and are not this rule's business.
+# <doc> carrying an aggregate figure.
 _aggregate_figure_hits() {
-  awk '/<!-- generated: catalogue sections -->/ { exit } { print FNR ": " $0 }' "$1" \
-    | grep -E "${_AGGREGATE_FIGURE_RE}" || true
+  _authored_lines "$1" | grep -E "${_AGGREGATE_FIGURE_RE}" || true
 }
 
 # why: A guard is only as wide as the span it reads, and the span here is
