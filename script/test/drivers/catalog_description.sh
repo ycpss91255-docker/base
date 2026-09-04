@@ -128,24 +128,39 @@
 # on every run; and it cannot decay, because it has no entries to decay.
 # The person ratifies a number the tree computed.
 #
-# Why a CEILING and not exact equality. Exact equality is the stronger
-# ratchet and it was rejected on this repo's own evidence: five
-# self-declared grand-total lines that every branch edits caused 61
-# conflicts in 65 merges (ADR-00000028, measured 2026-09-02). An
-# exact-equality counter is that shape again -- every backfill PR and
-# every new-test PR would edit the same line. A ceiling is edited only by
-# a branch that ADDS an undescribed test, which is precisely the branch a
-# reviewer should be looking at, and never by a branch that writes a
-# description.
+# Why a CEILING and not exact equality. The original answer was about who
+# EDITS the line -- exact equality would put every backfill PR and every
+# new-test PR on the same line, which is the five self-declared grand-total
+# lines that caused 61 conflicts in 65 merges (ADR-00000028, measured
+# 2026-09-02). That answer no longer holds and is corrected here rather
+# than left standing: since base#1024 the GENERATOR writes this line, so a
+# describing branch edits it too, and the drift gate reds a tree where it
+# differs from what the tree measures. What makes that survivable is not
+# the ceiling, it is that a conflict on the line is settled by recomputing
+# from the merged spec tree (script/test/resolve-doc-counts.sh) instead of
+# by a person picking a side.
 #
-# THE COST, stated rather than papered over. Slack = ceiling - actual. It
-# starts at 0 and grows by one each time somebody backfills a description
-# without lowering the ceiling, and within that slack a new undescribed
-# test can land green. That is a real weakening compared to a per-row
-# baseline. What bounds it: the run PRINTS `tests=.. described=..
-# undescribed=.. ceiling=.. slack=..` on every invocation, clean or not,
-# so the slack is a visible number on every CI log rather than an
-# invisible category. Closing it is a one-line PR anybody can open.
+# What the ceiling still buys, and it is why exact equality is still the
+# wrong shape: a bound can sit ABOVE the measurement without lying. That is
+# the only state in which a merge importing 168 tests written before this
+# rule existed has an answer other than "fail until somebody backfills them
+# in a hurry" -- the ratchet reset the transition above argues for. It also
+# splits two questions that deserve different failures: this LINT asks
+# whether the tree is worse than what was ratified, and the drift gate asks
+# whether what was ratified is what the tree measures. Exact equality here
+# would collapse them into one message that cannot say which happened.
+#
+# THE COST, restated, because base#1024 moved it. Slack = ceiling - actual
+# used to start at 0 and grow by one per un-lowered backfill, with a new
+# undescribed test able to land green inside it. It cannot accumulate now:
+# the generator lowers the number in the same run that writes the
+# catalogues, and the drift gate refuses a tree whose committed number is
+# not what regeneration produces, so slack is 0 in any green tree and the
+# printed `tests=.. described=.. undescribed=.. ceiling=.. slack=..` line
+# is evidence of that rather than the only thing bounding it. The cost is
+# now elsewhere and smaller: a branch that writes a description has to run
+# `just test sync-docs`, because a backfill is no longer a change to one
+# file.
 #
 # Raising the ceiling is one reviewable line. WHERE down-only is enforced
 # moved with base#1024 and the earlier text here has to be corrected, not
@@ -240,8 +255,11 @@ source "${_CATALOG_DESC_DRIVER_DIR}/../spec-scan.sh"
 # "The transition" argues why that is not a licence).
 #
 # See the header for why this is ONE number rather than a file of them,
-# and why lowering it is not required of a branch that merely writes
-# descriptions.
+# and why a bound rather than exact equality. Lowering it IS required of a
+# branch that writes descriptions -- not by this lint, which still only
+# refuses a tree worse than the number, but by the drift gate, which
+# refuses a tree whose number is not the one regeneration produces. `just
+# test sync-docs` is the whole of that obligation.
 readonly _CATALOG_DESC_UNDESCRIBED_CEILING=2608
 
 # The written-out non-answers, matched case-insensitively on the whole
