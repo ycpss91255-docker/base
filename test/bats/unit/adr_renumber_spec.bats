@@ -161,6 +161,24 @@ _file() {
   refute_output --partial '**99 tests**'
 }
 
+# why: The population, and the property that keeps this verb and the ADR
+# lint from disagreeing about what a reference is -- they read one. A
+# tree the checkout declares derived is not swept: a materialised old
+# release and a wrapper transcript are records of what WAS said, so
+# rewriting one falsifies it, and a finding the verb cannot reach is a
+# red gate with no repair path through the verb.
+@test "adr renumber: leaves a tree the checkout declares derived alone (#1021)" {
+  _file '.gitignore' 'log/'
+  _file 'log/test/2026-09-04-abcdef12.log' 'the transcript said ADR-00000030'
+  _file 'CONTEXT.md' 'ADR-00000030 is the record.'
+  run bash "${RENUMBER}" 30 32 "${ROOT}"
+  assert_success
+  run cat "${ROOT}/CONTEXT.md"
+  assert_output --partial 'ADR-00000032'
+  run cat "${ROOT}/log/test/2026-09-04-abcdef12.log"
+  assert_output --partial 'ADR-00000030'
+}
+
 # why: A target somebody else already claims is the collision again, one
 # move later. Refusing BEFORE the first write is what keeps a refusal from
 # leaving a half-renumbered tree somebody has to unpick by hand.

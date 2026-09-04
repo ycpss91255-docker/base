@@ -366,6 +366,55 @@ _index() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# _run_adr_numbering: the population (base#1021)
+#
+# The verb and the lint have to agree about which files can carry a
+# reference. They did not: `just adr renumber` swept the files the
+# checkout keeps true and reported a complete sweep, and this lint then
+# read the whole filesystem -- so a materialised old release under
+# .prev-release/ or a wrapper transcript under log/ turned a finished
+# repair into a red gate with no repair path through the verb.
+# ════════════════════════════════════════════════════════════════════
+
+# why: The tier the local run actually takes -- a checkout whose git the
+# reader cannot query (a worktree inside the test container). What the
+# tree DECLARES derived is still not source: an old release and a
+# transcript are records of what was said once, and the verb cannot reach
+# either, so a finding in one is a red gate with no way to clear it.
+@test "_run_adr_numbering: a tree the checkout declares derived carries no reference (#1021)" {
+  _touch_adr "00000001-alpha.md"
+  _index '| 00000001 -- alpha | keep | mechanism | note |'
+  # Assembled from a variable, for the reason the mispaired case above
+  # states: a literal dangling `ADR-NNNNNNNN` in THIS file is a dangling
+  # reference in the real tree, which the real-tree case below reads.
+  local _ghost='00000099'
+  _write '.gitignore' '.prev-release/' 'log/'
+  _write '.prev-release/v0.1.0/CONTEXT.md' "The old release cited ADR-${_ghost}."
+  _write 'log/test/2026-09-04-abcdef12.log' "a transcript naming ADR-${_ghost}"
+  run _run_adr_numbering
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"clean"* ]]
+}
+
+# why: The tier CI takes, where git can answer. An untracked scratch file
+# is not a reference this repo keeps true and the verb never rewrites
+# one, so the lint must not fail on it either -- the same disagreement as
+# the case above, arriving through the other branch of the population.
+@test "_run_adr_numbering: an untracked file in a checkout is not a reference (#1021)" {
+  _touch_adr "00000001-alpha.md"
+  _index '| 00000001 -- alpha | keep | mechanism | note |'
+  # Assembled, for the reason the case above states.
+  local _ghost='00000099'
+  _write 'CONTEXT.md' 'ADR-00000001 resolves.'
+  _write 'scratch.md' "A scratch note citing ADR-${_ghost}."
+  git -C "${SCRATCH}" init -q
+  git -C "${SCRATCH}" add doc CONTEXT.md
+  run _run_adr_numbering
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"clean"* ]]
+}
+
+# ════════════════════════════════════════════════════════════════════
 # _run_adr_numbering: real tree guard
 # ════════════════════════════════════════════════════════════════════
 
