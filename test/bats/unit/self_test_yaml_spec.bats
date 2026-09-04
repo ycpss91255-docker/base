@@ -878,7 +878,7 @@ _job_comments() {
   #
   # WHERE that comparison lives moved, and this test moved with it. It was
   # twelve lines inlined into each of the five obtain steps; it is now one
-  # script (#947), so the version dimension is asserted where the script
+  # script (base#947), so the version dimension is asserted where the script
   # declares it -- `just` among the tools whose version is compared, not
   # merely found -- rather than five times over copies of one loop. The
   # compare itself, and the verdict it flips, are covered case by case in

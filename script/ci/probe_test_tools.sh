@@ -34,7 +34,7 @@
 # mismatch between the image's runner and ARG JUST_VERSION -- so a :main
 # published before a version bump carries every required tool AND the wrong
 # runner, and a presence-only probe would hand it to a PR that touched
-# nothing related (#948).
+# nothing related (base#948).
 #
 # The same argument reaches one pin further. Every stage of that Dockerfile
 # is built `FROM alpine:${ALPINE_VERSION}`, and the series decides which
@@ -142,7 +142,7 @@ _probe_pinned_version() {
 #   version in the URL to grep; the version is `ARG JUST_VERSION` in the
 #   same Dockerfile, and that declaration already has exactly ONE reader in
 #   the tree. A second sed here would be a fifth provenance path for the
-#   runner -- the drift the accessor exists to end (#948) -- so the probe
+#   runner -- the drift the accessor exists to end (base#948) -- so the probe
 #   calls the accessor instead of re-deriving what it reads.
 #
 #   The consequence, stated because it is asymmetric: the optional
