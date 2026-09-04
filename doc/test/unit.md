@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3987 tests**.
+Unit specs under `test/bats/unit/`: **3989 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1182,7 +1182,7 @@ between them can be asserted at all.
 | `_run_via_compose: the real ids are in the environment compose interpolates (#895)` | - |
 | `_fix_permissions: refuses a non-numeric id instead of handing it to chown (#895)` | - |
 
-### test/bats/unit/classify_testtools_spec.bats (3)
+### test/bats/unit/classify_testtools_spec.bats (5)
 
 `testtools_changed` tells every image-consuming job whether to rebuild the
 tooling image from source instead of pulling the rolling `:main`. On a pull
@@ -1202,6 +1202,8 @@ reads the output the step writes.
 | `classify: a push that changes the test-tools Dockerfile rebuilds it (#1010)` | The reported case. A push to main that changes the test-tools Dockerfile is exactly the push for which the rolling tag is stale -- the republish that would refresh it is racing this very run -- and it was the push that reported the image unchanged. |
 | `classify: a push that leaves it alone still pulls (#1010)` | The guard against answering true to every push, which would put a full multi-arch tooling build in front of every merge. A push that leaves the Dockerfile alone takes the pull path, where the probe is now the thing that catches a stale image. |
 | `classify: a push is still code-changed and system-relevant (#1010)` | A non-PR event still runs the full suite. The flag being computable now must not narrow what a push runs. |
+| `classify: an event that cannot be diffed still rebuilds (#1010)` | The fail-safe direction the step's own comment promises and did not take. `workflow_dispatch` has no previous commit to diff against, so the classifier cannot know whether the rolling tag corresponds to this ref -- and it answered `false`, which is the side that USES an image it could not check. The path here is deliberately not the Dockerfile, so a `true` can only come from the default and never from a diff. |
+| `classify: a push with no parent to diff still rebuilds (#1010)` | The other half of the same promise, and the half that already held: a push whose `HEAD^` does not resolve is a diff that cannot be taken, not an answer of "unchanged". Pinned because the fix above rewrites the branch that decides it, and a rewrite that inverted this one would look green against the dispatch case alone. |
 
 ### test/bats/unit/code_lines_spec.bats (46)
 
