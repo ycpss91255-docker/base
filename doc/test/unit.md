@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3926 tests**.
+Unit specs under `test/bats/unit/`: **3933 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1862,7 +1862,7 @@ refused before any build or bundle step.
 | `_run_derived_figures: FAILS when the dist/ scan root is missing (no vacuous pass) (#874)` | - |
 | `_run_derived_figures: the REAL tree passes today (#874)` | - |
 
-### test/bats/unit/doc_counts_spec.bats (22)
+### test/bats/unit/doc_counts_spec.bats (29)
 
 Unit coverage for the generator that derives ALL of doc/test/*.md from the
 specs: the count figures (`grep -c '^@test'`) and the catalogue sections,
@@ -1901,6 +1901,13 @@ the author did not have to escape.
 | `_sync_doc_counts: FAILS naming the document when the generated fence is missing` | A catalogue that lost its fence must be an ERROR. Generating nothing into a document with no region is how a level silently stops being covered while the drift gate keeps reporting "in sync" -- the exact failure this whole mechanism exists to remove, one layer up. |
 | `_sync_doc_counts: a second run over a generated catalogue changes nothing` | "Regenerating from scratch reproduces what is committed" is the gate check_test_md_drift.sh applies to the real tree, so a second run that moved a byte would make every branch red for a reason no diff explains. |
 | `_sync_doc_counts: a shipped smoke spec lands in smoke.md` | A shipped smoke spec is the one level whose glob leaves test/ for dist/, and it was the case that caught the doc-to-glob map going stale before. It stays because the map is still hand-written. |
+| `_sync_doc_counts: lowers the undescribed ceiling to what the tree measures` | The ordinary direction. A branch that describes tests should not also have to compute and hand-edit a number about the tree it just changed -- that hand-edit is the conflict this removes. |
+| `_sync_doc_counts: REFUSES to raise the ceiling for a tree that breached it` | The load-bearing case. A generator that wrote whatever it measured would turn the ratchet into a mirror and the lint would stop bounding anything -- so a tree with MORE undescribed tests than the record leaves the record alone, and the breach reaches the lint. |
+| `_sync_doc_counts: a regenerated tree that breached the ceiling still FAILS the lint` | The refusal proven where it matters -- through the lint, not just by reading the number back. A regeneration must not be a way to launder a breach into a green run, which is exactly what "the generator owns the ceiling" would mean if it wrote what it measured. |
+| `_sync_doc_counts: a second run leaves an already-lowered ceiling alone` | Idempotence for the third figure. The drift gate is "regenerating reproduces what is committed", so a second run that moved this number would make every branch red for a reason no diff explains. |
+| `_sync_doc_counts: FAILS naming the file when the ceiling cannot be read` | The number is a bound, so a value the reader cannot find is not a missing figure to fill in with a guess -- guessing high is a fail-open that silently unbounds the lint. A conflicted or hand-mangled record stops the generator instead. |
+| `_sync_doc_counts: a root with no driver in it syncs the documents and skips the ceiling` | The generator runs against scratch trees that hold doc/test and the spec trees and nothing else -- the drift gate's copy and the resolver's two collapses. A root with no driver in it is those callers, not a broken checkout, so it is a skip and not a failure. |
+| `_sync_doc_counts_outputs: names every file the generator writes, ceiling included` | What the resolver and the drift gate have to agree with the generator about is the OUTPUT SET, and a hand-kept second copy of it is the same defect one level up. The ceiling file is an output now, so it has to be in the answer. |
 
 ### test/bats/unit/dockerfile_migrate_spec.bats (116)
 

@@ -502,3 +502,179 @@ _fixture_doc() {
   assert_success
   assert_output --partial '### dist/test/bats/smoke/shared/k.bats (1)'
 }
+
+# ════════════════════════════════════════════════════════════════════
+# The undescribed ceiling (base#1024)
+#
+# The ceiling is the third derived figure, and it arrived as a hand-kept
+# one: a `readonly` in drivers/catalog_description.sh that every branch
+# describing a test had a correct reason to lower, so every branch edited
+# the same line and every merge conflicted on it -- with the merged tree's
+# right value NEITHER side's, because descriptions compose. It is now
+# written by this generator, in the run that writes the catalogue.
+#
+# The ratchet is the whole point and these cases exist to keep it: a
+# generator that writes whatever it measures turns a bound into a mirror,
+# and a lint that mirrors bounds nothing. So the value moves DOWN only.
+# ════════════════════════════════════════════════════════════════════
+
+# why: The ordinary direction. A branch that describes tests should not
+# also have to compute and hand-edit a number about the tree it just
+# changed -- that hand-edit is the conflict this removes.
+@test "_sync_doc_counts: lowers the undescribed ceiling to what the tree measures" {
+  run bash -c '
+    source "'"${GEN}"'"
+    root="${BATS_TEST_TMPDIR}/r"
+    mkdir -p "${root}/test/bats/unit" "${root}/doc/test" "${root}/script/test/drivers"
+    printf "%s\n" "#!/usr/bin/env bats" "" "@test \"a\" {" "}" "@test \"b\" {" "}" \
+      > "${root}/test/bats/unit/x_spec.bats"
+    printf "%s\n" "readonly _CATALOG_DESC_UNDESCRIBED_CEILING=9" \
+      > "${root}/script/test/drivers/catalog_description.sh"
+    printf "%s\n" "<!-- generated: catalogue sections -->" "<!-- /generated -->" \
+      > "${root}/doc/test/unit.md"
+    _sync_doc_counts "${root}"
+    grep _CATALOG_DESC_UNDESCRIBED_CEILING "${root}/script/test/drivers/catalog_description.sh"
+  '
+  assert_success
+  assert_output 'readonly _CATALOG_DESC_UNDESCRIBED_CEILING=2'
+}
+
+# why: The load-bearing case. A generator that wrote whatever it measured
+# would turn the ratchet into a mirror and the lint would stop bounding
+# anything -- so a tree with MORE undescribed tests than the record leaves
+# the record alone, and the breach reaches the lint.
+@test "_sync_doc_counts: REFUSES to raise the ceiling for a tree that breached it" {
+  run bash -c '
+    source "'"${GEN}"'"
+    root="${BATS_TEST_TMPDIR}/r"
+    mkdir -p "${root}/test/bats/unit" "${root}/doc/test" "${root}/script/test/drivers"
+    printf "%s\n" "#!/usr/bin/env bats" "" "@test \"a\" {" "}" "@test \"b\" {" "}" \
+      "@test \"c\" {" "}" > "${root}/test/bats/unit/x_spec.bats"
+    printf "%s\n" "readonly _CATALOG_DESC_UNDESCRIBED_CEILING=1" \
+      > "${root}/script/test/drivers/catalog_description.sh"
+    printf "%s\n" "<!-- generated: catalogue sections -->" "<!-- /generated -->" \
+      > "${root}/doc/test/unit.md"
+    _sync_doc_counts "${root}"
+    grep _CATALOG_DESC_UNDESCRIBED_CEILING "${root}/script/test/drivers/catalog_description.sh"
+  '
+  assert_success
+  assert_output 'readonly _CATALOG_DESC_UNDESCRIBED_CEILING=1'
+}
+
+# why: The refusal proven where it matters -- through the lint, not just
+# by reading the number back. A regeneration must not be a way to launder
+# a breach into a green run, which is exactly what "the generator owns the
+# ceiling" would mean if it wrote what it measured.
+@test "_sync_doc_counts: a regenerated tree that breached the ceiling still FAILS the lint" {
+  run bash -c '
+    set -uo pipefail
+    root="${BATS_TEST_TMPDIR}/r"
+    mkdir -p "${root}/test/bats/unit" "${root}/doc/test" "${root}/script/test/drivers"
+    cp /source/script/test/*.sh "${root}/script/test/"
+    sed -E "s/^readonly _CATALOG_DESC_UNDESCRIBED_CEILING=[0-9]+$/readonly _CATALOG_DESC_UNDESCRIBED_CEILING=1/" \
+      /source/script/test/drivers/catalog_description.sh \
+      > "${root}/script/test/drivers/catalog_description.sh"
+    printf "%s\n" "#!/usr/bin/env bats" "" "@test \"a\" {" "}" "@test \"b\" {" "}" \
+      "@test \"c\" {" "}" > "${root}/test/bats/unit/x_spec.bats"
+    printf "%s\n" "<!-- generated: catalogue sections -->" "<!-- /generated -->" \
+      > "${root}/doc/test/unit.md"
+    source "${root}/script/test/sync-doc-counts.sh"
+    _sync_doc_counts "${root}"
+    source /source/dist/script/docker/lib/_lib.sh
+    _die() { local _ev="${1}"; shift; printf "die %s: %s\n" "${_ev}" "$*"; return 1; }
+    source "${root}/script/test/drivers/catalog_description.sh"
+    REPO_ROOT="${root}"
+    _run_catalog_description
+  '
+  assert_failure
+  assert_output --partial 'undescribed=3'
+  assert_output --partial 'ceiling=1'
+}
+
+# why: Idempotence for the third figure. The drift gate is "regenerating
+# reproduces what is committed", so a second run that moved this number
+# would make every branch red for a reason no diff explains.
+@test "_sync_doc_counts: a second run leaves an already-lowered ceiling alone" {
+  run bash -c '
+    source "'"${GEN}"'"
+    root="${BATS_TEST_TMPDIR}/r"
+    mkdir -p "${root}/test/bats/unit" "${root}/doc/test" "${root}/script/test/drivers"
+    printf "%s\n" "#!/usr/bin/env bats" "" "@test \"a\" {" "}" \
+      > "${root}/test/bats/unit/x_spec.bats"
+    printf "%s\n" "readonly _CATALOG_DESC_UNDESCRIBED_CEILING=4" \
+      > "${root}/script/test/drivers/catalog_description.sh"
+    printf "%s\n" "<!-- generated: catalogue sections -->" "<!-- /generated -->" \
+      > "${root}/doc/test/unit.md"
+    _sync_doc_counts "${root}"
+    cp "${root}/script/test/drivers/catalog_description.sh" "${BATS_TEST_TMPDIR}/first"
+    _sync_doc_counts "${root}"
+    diff "${BATS_TEST_TMPDIR}/first" "${root}/script/test/drivers/catalog_description.sh" \
+      && echo IDEMPOTENT
+  '
+  assert_success
+  assert_output --partial 'IDEMPOTENT'
+}
+
+# why: The number is a bound, so a value the reader cannot find is not a
+# missing figure to fill in with a guess -- guessing high is a fail-open
+# that silently unbounds the lint. A conflicted or hand-mangled record
+# stops the generator instead.
+@test "_sync_doc_counts: FAILS naming the file when the ceiling cannot be read" {
+  run bash -c '
+    source "'"${GEN}"'"
+    root="${BATS_TEST_TMPDIR}/r"
+    mkdir -p "${root}/test/bats/unit" "${root}/doc/test" "${root}/script/test/drivers"
+    printf "%s\n" "#!/usr/bin/env bats" "" "@test \"a\" {" "}" \
+      > "${root}/test/bats/unit/x_spec.bats"
+    printf "%s\n" "<<<<<<< HEAD" "readonly _CATALOG_DESC_UNDESCRIBED_CEILING=7" \
+      "=======" "readonly _CATALOG_DESC_UNDESCRIBED_CEILING=8" ">>>>>>> other" \
+      > "${root}/script/test/drivers/catalog_description.sh"
+    printf "%s\n" "<!-- generated: catalogue sections -->" "<!-- /generated -->" \
+      > "${root}/doc/test/unit.md"
+    _sync_doc_counts "${root}"
+  '
+  assert_failure
+  assert_output --partial 'catalog_description.sh'
+  assert_output --partial '_CATALOG_DESC_UNDESCRIBED_CEILING'
+}
+
+# why: The generator runs against scratch trees that hold doc/test and the
+# spec trees and nothing else -- the drift gate's copy and the resolver's
+# two collapses. A root with no driver in it is those callers, not a
+# broken checkout, so it is a skip and not a failure.
+@test "_sync_doc_counts: a root with no driver in it syncs the documents and skips the ceiling" {
+  run bash -c '
+    source "'"${GEN}"'"
+    root="${BATS_TEST_TMPDIR}/r"
+    mkdir -p "${root}/test/bats/unit" "${root}/doc/test"
+    printf "%s\n" "#!/usr/bin/env bats" "" "@test \"a\" {" "}" \
+      > "${root}/test/bats/unit/x_spec.bats"
+    printf "%s\n" "<!-- generated: catalogue sections -->" "<!-- /generated -->" \
+      > "${root}/doc/test/unit.md"
+    _sync_doc_counts "${root}"
+    grep -c "x_spec.bats (1)" "${root}/doc/test/unit.md"
+  '
+  assert_success
+  assert_output '1'
+}
+
+# why: What the resolver and the drift gate have to agree with the
+# generator about is the OUTPUT SET, and a hand-kept second copy of it is
+# the same defect one level up. The ceiling file is an output now, so it
+# has to be in the answer.
+@test "_sync_doc_counts_outputs: names every file the generator writes, ceiling included" {
+  run bash -c '
+    source "'"${GEN}"'"
+    root="${BATS_TEST_TMPDIR}/r"
+    mkdir -p "${root}/doc/test" "${root}/script/test/drivers"
+    : > "${root}/doc/test/unit.md"
+    : > "${root}/doc/test/TEST.md"
+    printf "%s\n" "readonly _CATALOG_DESC_UNDESCRIBED_CEILING=1" \
+      > "${root}/script/test/drivers/catalog_description.sh"
+    _sync_doc_counts_outputs "${root}" | sed "s|^${root}/||"
+  '
+  assert_success
+  assert_line 'doc/test/TEST.md'
+  assert_line 'doc/test/unit.md'
+  assert_line 'script/test/drivers/catalog_description.sh'
+}
