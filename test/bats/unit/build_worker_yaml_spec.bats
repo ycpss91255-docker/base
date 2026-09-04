@@ -725,7 +725,12 @@ _classify() {
 @test "build-worker.yaml: a diff of only allowlisted paths classifies doc-only (#1013)" {
   # The fast-pass still has to happen -- the guard above must not buy its
   # safety by classifying everything as code.
-  run _classify 'printf "%s\n" doc/adr/00000001-x.md README.md LICENSE'
+  # A REAL record path, not an invented one: an invented
+  # `doc/adr/NNNNNNNN-<slug>.md` in a tracked file is a reference to a
+  # record this tree does not have, which the ADR-reference lint reports
+  # (base#1021). The classifier cares that the path is under an
+  # allowlisted directory, not which record it names.
+  run _classify 'printf "%s\n" doc/adr/00000001-setup-conf-vs-compose.md README.md LICENSE'
   assert_success
   run cat "${BATS_TEST_TMPDIR}/classify/out"
   assert_output --partial 'code_changed=false'

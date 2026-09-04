@@ -285,7 +285,13 @@ _index() {
   _touch_adr "00000002-beta.md"
   _index '| 00000001 -- alpha | keep | mechanism | note |' \
     '| 00000002 -- beta | keep | mechanism | note |'
-  _write 'CONTEXT.md' 'See doc/adr/00000002-alpha.md for the argument.'
+  # Assembled from a variable rather than typed out, and this is the same
+  # hazard the case is about: a literal `doc/adr/NNNNNNNN-<slug>.md` in
+  # THIS file is a reference in the real tree, where that slug names no
+  # record -- so a fixture spelled the obvious way would fail the
+  # real-tree case below.
+  local _num='00000002'
+  _write 'CONTEXT.md' "See doc/adr/${_num}-alpha.md for the argument."
   run _run_adr_numbering
   [ "${status}" -ne 0 ]
   [[ "${output}" == *"00000002-alpha.md"* ]]
@@ -351,7 +357,9 @@ _index() {
   _touch_adr "00000002-beta.md"
   _index '| 00000001 -- alpha | keep | mechanism | note |' \
     '| 00000002 -- beta | keep | mechanism | note |'
-  _write 'CONTEXT.md' 'ADR-00000002 and doc/adr/00000001-alpha.md both resolve.'
+  # Assembled, for the reason the mispaired case above states.
+  local _num='00000001'
+  _write 'CONTEXT.md' "ADR-00000002 and doc/adr/${_num}-alpha.md both resolve."
   run _run_adr_numbering
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"clean"* ]]
