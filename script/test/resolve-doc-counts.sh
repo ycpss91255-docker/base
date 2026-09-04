@@ -95,24 +95,31 @@ _resolve_doc_counts_root() {
   printf '%s\n' "${_root}"
 }
 
-# _resolve_conflicted_docs <root> -- the doc/test/*.md files that still carry
+# _resolve_conflicted_docs <root> -- the GENERATED files that still carry
 # conflict markers, one per line.
+#
+# The file set is the generator's own answer (`_sync_doc_counts_outputs`)
+# and not a `doc/test/*.md` glob written down here. That glob was right
+# until the generator grew a fourth output outside doc/test -- the
+# description lint's ceiling, base#1024 -- and a resolver carrying its own
+# copy of "what is generated" would have gone on refusing the one file
+# whose conflicts it was best placed to settle.
 _resolve_conflicted_docs() {
   local _root="$1" _doc
-  for _doc in "${_root}"/doc/test/*.md; do
+  while IFS= read -r _doc; do
     [[ -f "${_doc}" ]] || continue
     if grep -qE -e "${_RESOLVE_MARKER_RE}" -e "${_RESOLVE_SEP_RE}" "${_doc}"; then
       printf '%s\n' "${_doc}"
     fi
-  done
+  done < <(_sync_doc_counts_outputs "${_root}")
 }
 
 # _resolve_assert_no_markers <root> -- fail, naming file and line, if any
-# doc/test/*.md still carries a conflict marker. Post-condition check: the
+# generated file still carries a conflict marker. Post-condition check: the
 # collapse is meant to be total, and a survivor means it was not.
 _resolve_assert_no_markers() {
   local _root="$1" _doc _hits _rel _hit _rc=0
-  for _doc in "${_root}"/doc/test/*.md; do
+  while IFS= read -r _doc; do
     [[ -f "${_doc}" ]] || continue
     _hits="$(grep -nE -e "${_RESOLVE_MARKER_RE}" -e "${_RESOLVE_SEP_RE}" \
       "${_doc}" || true)"
@@ -122,7 +129,7 @@ _resolve_assert_no_markers() {
       _resolve_err "conflict marker survived at ${_rel}:${_hit%%:*}"
     done <<< "${_hits}"
     _rc=1
-  done
+  done < <(_sync_doc_counts_outputs "${_root}")
   return "${_rc}"
 }
 
@@ -146,9 +153,14 @@ _resolve_collapse() {
   ' "${_file}"
 }
 
-# _resolve_build_side <root> <dest> <side> <conflicted-doc>... -- a scratch
-# tree holding <root>/doc/test with the conflicted docs collapsed to <side>,
+# _resolve_build_side <root> <dest> <side> <conflicted>... -- a scratch tree
+# holding every generated file with the conflicted ones collapsed to <side>,
 # and the spec trees symlinked in so the generator's globs resolve.
+#
+# Every output is copied at its ROOT-RELATIVE path rather than into one flat
+# directory: the set is no longer doc/test-shaped, and a file placed
+# anywhere but where the generator expects it is a file the regeneration
+# below silently declines to write.
 _resolve_build_side() {
   local _root="$1" _dest="$2" _side="$3"
   shift 3
@@ -156,10 +168,20 @@ _resolve_build_side() {
   cp -R "${_root}/doc/test" "${_dest}/doc/test"
   ln -s "${_root}/test" "${_dest}/test"
   [[ -d "${_root}/dist" ]] && ln -s "${_root}/dist" "${_dest}/dist"
-  local _doc _base
+  local _out _rel
+  while IFS= read -r _out; do
+    case "${_out}" in
+      "${_root}/doc/test/"*) continue ;;
+    esac
+    _rel="${_out#"${_root}"/}"
+    mkdir -p "${_dest}/$(dirname -- "${_rel}")"
+    cp -- "${_out}" "${_dest}/${_rel}"
+  done < <(_sync_doc_counts_outputs "${_root}")
+  local _doc
   for _doc in "$@"; do
-    _base="$(basename -- "${_doc}")"
-    _resolve_collapse "${_doc}" "${_side}" > "${_dest}/doc/test/${_base}"
+    _rel="${_doc#"${_root}"/}"
+    mkdir -p "${_dest}/$(dirname -- "${_rel}")"
+    _resolve_collapse "${_doc}" "${_side}" > "${_dest}/${_rel}"
   done
   return 0
 }
@@ -179,7 +201,7 @@ _resolve_doc_counts() {
   mapfile -t _conflicted < <(_resolve_conflicted_docs "${_root}")
 
   if (( ${#_conflicted[@]} == 0 )); then
-    printf 'resolve-doc-counts: no conflicted doc/test/*.md under %s -- verifying the tree anyway.\n' \
+    printf 'resolve-doc-counts: no conflicted generated file under %s -- verifying the tree anyway.\n' \
       "${_root}"
     _check_test_md_drift "${_root}" || return 1
     printf 'resolve-doc-counts: doc/test counts are in sync under %s\n' \
@@ -212,7 +234,7 @@ _resolve_doc_counts() {
   fi
 
   _resolve_stage "${_root}" "${_conflicted[@]}" || return 1
-  printf 'resolve-doc-counts: resolved %s doc/test file(s) under %s\n' \
+  printf 'resolve-doc-counts: resolved %s generated file(s) under %s\n' \
     "${#_conflicted[@]}" "${_root}"
 }
 
@@ -231,7 +253,7 @@ _resolve_reconcile() {
   _sync_doc_counts "${_ours}" >/dev/null || return 1
   _sync_doc_counts "${_theirs}" >/dev/null || return 1
 
-  local _doc _base _diff
+  local _out _rel _diff _extra
   if ! _diff="$(diff -ru "${_ours}/doc/test" "${_theirs}/doc/test" 2>/dev/null)"; then
     {
       printf 'resolve-doc-counts: the two sides do not agree on content the generator does not derive, so no collapse can be justified by regeneration. Resolve these by hand:\n'
@@ -239,12 +261,29 @@ _resolve_reconcile() {
     } >&2
     return 1
   fi
+  # The outputs outside doc/test, compared one by one. `diff -ru` over the
+  # scratch ROOTS is not an option: the spec trees are symlinked in, so it
+  # would walk the whole suite twice to prove two symlinks point at one
+  # directory.
+  while IFS= read -r _out; do
+    case "${_out}" in
+      "${_root}/doc/test/"*) continue ;;
+    esac
+    _rel="${_out#"${_root}"/}"
+    if ! _extra="$(diff -u "${_ours}/${_rel}" "${_theirs}/${_rel}" 2>/dev/null)"; then
+      {
+        printf 'resolve-doc-counts: the two sides of %s do not agree on content the generator does not derive, so no collapse can be justified by regeneration. Resolve it by hand:\n' \
+          "${_rel}"
+        printf '%s\n' "${_extra}"
+      } >&2
+      return 1
+    fi
+  done < <(_sync_doc_counts_outputs "${_root}")
 
-  for _doc in "${_theirs}"/doc/test/*.md; do
-    [[ -f "${_doc}" ]] || continue
-    _base="$(basename -- "${_doc}")"
-    cp -- "${_doc}" "${_root}/doc/test/${_base}"
-  done
+  while IFS= read -r _out; do
+    _rel="${_out#"${_root}"/}"
+    cp -- "${_theirs}/${_rel}" "${_root}/${_rel}"
+  done < <(_sync_doc_counts_outputs "${_root}")
 }
 
 # _resolve_stage <root> <file>... -- mark the resolved files merged, so the
