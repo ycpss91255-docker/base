@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **4012 tests**.
+Unit specs under `test/bats/unit/`: **4014 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -971,7 +971,7 @@ Pure git + filesystem, no docker.
 | `_run_changelog_entry: the real repo tree's [Unreleased] section is clean (#917)` | - |
 | `TEST.md's changelog-entry row names all four rules this lint enforces (#956)` | The row is where a reader learns what this lint refuses, and it has already drifted once -- a merge resolved it wholly to the older side and dropped two rules with nothing to notice. Narrow by design: it guards one row and the rules that row must name, not the whole table. |
 
-### test/bats/unit/changelog_index_spec.bats (4)
+### test/bats/unit/changelog_index_spec.bats (6)
 
 | Test | Description |
 |------|-------------|
@@ -979,6 +979,8 @@ Pure git + filesystem, no docker.
 | `changelog_index.sh --write: a backslash escape in a quoted BREAKING entry is written verbatim (#926)` | The concrete corruption behind the case above, asserted alone so a failure names the character that was eaten instead of dumping two blocks. awk expands escape sequences in a `-v` value, and this tree's entries routinely quote a `\n` or a `\r` when the change is about one. |
 | `changelog_index.sh --write: the index keeps its own file mode (#926)` | The rewrite goes through mktemp, which creates 0600. Git does not track the bit, so the documented refresh would leave the changelog owner-only-readable in a state no gate reports and no later reader can explain. |
 | `changelog_index.sh --write: an index with no markers is REFUSED, not appended to (#926)` | Non-vacuity for the three cases above, which all assert on what lands BETWEEN the markers: a --write that silently wrote nowhere when it could not find them would satisfy each of them and be caught by nothing else here. |
+| `changelog_index.sh: an empty series is not the row marked in progress (#926)` | doc/changelog/CHANGELOG.md tells the reader that a new entry goes into "the row below marked *in progress*", so the marker is a navigation instruction and its only evidence is `## [Unreleased]`. _ci_row returned on a zero version count before consulting the flag it was passed, so a stub cut for a series nobody has written into yet -- which is the state a series file is in for exactly as long as it takes to write the first entry, when the index is what a writer consults -- claimed the marker. |
+| `changelog_index.sh: the series carrying [Unreleased] is the row marked in progress (#926)` | The other half of the same marker, and the half that leaves the reader with no row to follow at all: a live series that has already cut a version rendered its date span and "(plus [Unreleased])", so nothing in the block said "in progress" -- the words the index's own prose sends the reader to look for. One property, both directions: the row marked in progress is the series carrying [Unreleased], whatever it has released. |
 
 ### test/bats/unit/changelog_layout_lint_spec.bats (17)
 

@@ -1,11 +1,15 @@
 #!/usr/bin/env bats
 #
-# Unit tests for script/release/changelog_index.sh --write -- the half of
-# the index generator nothing drove.
+# Unit tests for script/release/changelog_index.sh -- the --write half, which
+# nothing drove, and the one claim of the print half that a diff cannot see.
 #
-# The PRINT half is already exercised, by changelog_layout_lint_spec.bats:
+# The PRINT half is otherwise exercised by changelog_layout_lint_spec.bats:
 # the layout lint runs the generator and diffs its output against the block
-# committed in doc/changelog/CHANGELOG.md. Nothing ran --write, and --write
+# committed in doc/changelog/CHANGELOG.md. That diff pins the block against
+# the generator and nothing else, so a row that says the wrong thing is
+# rendered identically on both sides of it and agrees with itself forever --
+# which is why the "in progress" marker is asserted here, against the state
+# it is supposed to name, rather than there. Nothing ran --write, and --write
 # is the half a human runs. It is what `just release changelog-index` calls,
 # and it is the fix named in the layout lint's own die message and in the
 # marker comment inside the index. So a --write that does not reproduce what
@@ -63,6 +67,37 @@ _breaking_series() {
     '- **the emitter now escapes a `\n` in a value** -- affects downstream repos.' \
     '' \
     '[v0.9.0]: https://example.invalid/compare/v0.8.0...v0.9.0'
+}
+
+# _live_and_stub -- the two states the "in progress" marker has to tell
+# apart. v0.1 is the LIVE series: it carries `## [Unreleased]`, and it has a
+# released version of its own, which is the ordinary shape of a series being
+# written into. v0.3 is a stub someone has just cut and not yet written into.
+_live_and_stub() {
+  _series v0.1 \
+    '# base changelog -- v0.1' \
+    '' \
+    '## [Unreleased]' \
+    '' \
+    '### Fixed' \
+    '- the pending thing (#4, PR #5)' \
+    '' \
+    '## [v0.1.0] - 2026-04-01' \
+    '' \
+    '### Added' \
+    '- the first thing (#1, PR #2)' \
+    '' \
+    '[Unreleased]: https://example.invalid/compare/v0.1.0...HEAD' \
+    '[v0.1.0]: https://example.invalid/releases/tag/v0.1.0'
+  _series v0.3 '# base changelog -- v0.3'
+}
+
+# _row <series> -- the rendered index row for one series, or the empty
+# string. Not a `run` + assert_output: both cases below are about which of
+# two rows carries a marker, and a partial match over the whole block cannot
+# say which row it matched.
+_row() {
+  bash "${GEN}" "${CL}" | grep -F "**[${1}]" || true
 }
 
 # _index_with_markers -- an index carrying the generated block as PRINT
@@ -155,4 +190,35 @@ _committed_block() {
     || fail "the refusal did not say what was missing: ${output}"
   run grep -cF -- 'no markers here' "${CL}/CHANGELOG.md"
   [ "${output}" = '1' ]
+}
+
+# why: doc/changelog/CHANGELOG.md tells the reader that a new entry goes into
+# "the row below marked *in progress*", so the marker is a navigation
+# instruction and its only evidence is `## [Unreleased]`. _ci_row returned on
+# a zero version count before consulting the flag it was passed, so a stub
+# cut for a series nobody has written into yet -- which is the state a series
+# file is in for exactly as long as it takes to write the first entry, when
+# the index is what a writer consults -- claimed the marker.
+@test "changelog_index.sh: an empty series is not the row marked in progress (#926)" {
+  _live_and_stub
+  local _stub
+  _stub="$(_row v0.3)"
+  [[ -n "${_stub}" ]] || fail "the fixture rendered no v0.3 row"
+  [[ "${_stub}" != *'in progress'* ]] \
+    || fail "an empty stub claims the live-series marker: ${_stub}"
+}
+
+# why: The other half of the same marker, and the half that leaves the reader
+# with no row to follow at all: a live series that has already cut a version
+# rendered its date span and "(plus [Unreleased])", so nothing in the block
+# said "in progress" -- the words the index's own prose sends the reader to
+# look for. One property, both directions: the row marked in progress is the
+# series carrying [Unreleased], whatever it has released.
+@test "changelog_index.sh: the series carrying [Unreleased] is the row marked in progress (#926)" {
+  _live_and_stub
+  local _live
+  _live="$(_row v0.1)"
+  [[ -n "${_live}" ]] || fail "the fixture rendered no v0.1 row"
+  [[ "${_live}" == *'in progress'* ]] \
+    || fail "the live series is not marked in progress: ${_live}"
 }
