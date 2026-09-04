@@ -238,6 +238,24 @@ _file() {
   assert_output --partial 'ADR-00000030'
 }
 
+# why: The verb's half of the population the lint reads. A file that is in
+# the working tree and not yet in the index is not derived -- nothing
+# declares it so -- and the walk tier, which is the tier `just test` takes
+# from inside the container, cannot tell it from a tracked one anyway. So
+# the verb has to sweep it here, where git CAN answer, or the local gate
+# reddens on a finding no documented command repairs.
+@test "adr renumber: sweeps an untracked file in a checkout (#1021)" {
+  _file 'CONTEXT.md' 'ADR-00000030 is the record.'
+  _file 'scratch.md' 'A note citing ADR-00000030.'
+  git -C "${ROOT}" init -q
+  git -C "${ROOT}" add doc CONTEXT.md
+  run bash "${RENUMBER}" 30 32 "${ROOT}"
+  assert_success
+  run cat "${ROOT}/scratch.md"
+  assert_output --partial 'ADR-00000032'
+  refute_output --partial 'ADR-00000030'
+}
+
 # why: What `sed -i` does to a symlink, which is replace it with a regular
 # copy of its target and report success. A symlink has no content of its
 # own, so there is nothing here to rewrite: the bytes belong to the target,

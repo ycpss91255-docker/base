@@ -518,11 +518,17 @@ _index() {
   [[ "${output}" == *"clean"* ]]
 }
 
-# why: The tier CI takes, where git can answer. An untracked scratch file
-# is not a reference this repo keeps true and the verb never rewrites
-# one, so the lint must not fail on it either -- the same disagreement as
-# the case above, arriving through the other branch of the population.
-@test "_run_adr_numbering: an untracked file in a checkout is not a reference (#1021)" {
+# why: The two tiers have to name ONE population, and only one of them can
+# ask git. `just test` reads this checkout from inside the container, where
+# a worktree's `.git` is a file naming a gitdir that was never mounted, so
+# the WALK is the tier the local gate takes -- and a walk cannot tell a
+# tracked file from an untracked one. Dropping the untracked ones where git
+# DOES answer therefore made the host verb sweep less than the container
+# lint reads: a scratch file citing a dangling number reddens the local
+# gate and `just adr renumber` never touches it, which is the red-with-no-
+# repair-path the shared population exists to prevent. Not yet tracked is
+# not derived.
+@test "_run_adr_numbering: an untracked file in a checkout is read like any other (#1021)" {
   _touch_adr "00000001-alpha.md"
   _index '| 00000001 -- alpha | keep | mechanism | note |'
   # Assembled, for the reason the case above states.
@@ -531,6 +537,27 @@ _index() {
   _write 'scratch.md' "A scratch note citing ADR-${_ghost}."
   git -C "${SCRATCH}" init -q
   git -C "${SCRATCH}" add doc CONTEXT.md
+  run _run_adr_numbering
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"scratch.md"* ]]
+}
+
+# why: The other half of the same rule, and the half that keeps it from
+# collapsing into "grep everything". Untracked is read; DECLARED DERIVED is
+# still not, and in the git tier it is git's own exclude machinery that
+# says so rather than this file's reader. A materialised old release and a
+# wrapper transcript are records of what WAS said, so a verb that rewrote
+# them would falsify them -- the reason the population is pruned at all.
+@test "_run_adr_numbering: an untracked but ignored path is still not read (#1021)" {
+  _touch_adr "00000001-alpha.md"
+  _index '| 00000001 -- alpha | keep | mechanism | note |'
+  # Assembled, for the reason the case above states.
+  local _ghost='00000099'
+  _write '.gitignore' 'log/'
+  _write 'CONTEXT.md' 'ADR-00000001 resolves.'
+  _write 'log/test/2026-09-04-abcdef12.log' "the transcript said ADR-${_ghost}"
+  git -C "${SCRATCH}" init -q
+  git -C "${SCRATCH}" add doc CONTEXT.md .gitignore
   run _run_adr_numbering
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"clean"* ]]
