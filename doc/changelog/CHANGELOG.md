@@ -9,7 +9,7 @@ between their version and the target and what will break them.
 
 At 0.x the minor is the breaking axis, so the 0.Y series is the natural
 unit: a reader opens exactly the one file that spans their upgrade instead
-of the 669 KiB, 108-section single file this replaces.
+of the single file this replaces -- over 680 KiB across 108 sections.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).

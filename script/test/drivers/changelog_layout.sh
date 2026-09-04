@@ -12,7 +12,8 @@
 # ${REPO_ROOT}, _log_* / _die, no main).
 #
 # WHY. doc/changelog/ is one file per 0.Y series behind an index. The single
-# file it replaces was 669 KiB and 108 released version sections; nobody
+# file it replaces had passed 680 KiB across 108 released version sections;
+# nobody
 # opened it, so it did not matter what was in it. Splitting it makes it
 # readable and, at the same time, turns four things that used to be true by
 # construction into claims a commit can break with nothing to notice:
