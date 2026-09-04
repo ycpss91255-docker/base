@@ -58,10 +58,10 @@
 #             the file, which this tool did first, leaves a reference
 #             standing there under a green run. Both, in order.
 #
-# The population is the tracked files where the root is a checkout, and
-# every regular file otherwise. Not a list: a list of the 14 places is the
-# same defect one level up, and it would have been written on the day the
-# fifteenth site was added.
+# The population is references.sh's, which is also the ADR-numbering
+# lint's -- see that file for why one definition and not two. Not a list:
+# a list of the 14 places is the same defect one level up, and it would
+# have been written on the day the fifteenth site was added.
 #
 # ── What it refuses, and why that is not a gap ──────────────────────────
 #
@@ -99,6 +99,11 @@ _ADR_RENUMBER_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
 # after the source, so the entry point below is the one that runs.
 # shellcheck source=script/test/sync-doc-counts.sh
 source "${_ADR_RENUMBER_DIR}/../test/sync-doc-counts.sh"
+
+# Which files can carry a reference at all. Shared with the ADR-numbering
+# lint so the verb and the gate cannot disagree about what it swept.
+# shellcheck source=script/adr/references.sh
+source "${_ADR_RENUMBER_DIR}/references.sh"
 
 # An ADR record's basename: the contract drivers/adr_numbering.sh enforces.
 _ADR_RECORD_RE='^[0-9]{8}-.+\.md$'
@@ -177,23 +182,9 @@ _renumber_resolve() {
   printf '%s\n' "${_base}"
 }
 
-# _renumber_tracked <root> -- every file the rewrite may read, one
-# root-relative path per line.
-#
-# Tracked files where the root is a checkout: an untracked scratch file is
-# not a reference this repo keeps true, and a build directory would make
-# the sweep enormous. A plain find otherwise, which is what a fixture tree
-# gets.
-_renumber_tracked() {
-  local _root="$1"
-  if git -C "${_root}" rev-parse --git-dir >/dev/null 2>&1; then
-    git -C "${_root}" ls-files
-    return 0
-  fi
-  ( cd "${_root}" && find . -type f -not -path './.git/*' ) | sed 's|^\./||'
-}
-
-# _renumber_population <root> -- the tracked files, all of them.
+# The population is `_adr_ref_files` (script/adr/references.sh), and the
+# whole of it. It is shared with the ADR-numbering lint, so a sweep this
+# tool reports complete cannot be one the gate then fails on.
 #
 # A GENERATED file is not excluded, and the first version of this tool
 # excluded it. Running the verb over a copy of the real tree is what
@@ -210,13 +201,6 @@ _renumber_tracked() {
 # thing that carries a renamed `@test` into its catalogue row, which a
 # substitution on the row would appear to do and the next regeneration
 # would revert.
-_renumber_population() {
-  local _root="$1" _f
-  while IFS= read -r _f; do
-    [[ -f "${_root}/${_f}" ]] || continue
-    printf '%s\n' "${_f}"
-  done < <(_renumber_tracked "${_root}")
-}
 
 # _renumber_patterns <from> <rel> -- the grep -E alternation that finds a
 # reference to <from> in <rel>. The bare-number class is only ever offered
@@ -268,7 +252,7 @@ _renumber_survivors() {
     _re="$(_renumber_patterns "${_from}" "${_rel}")"
     grep -qIE -e "${_re}" "${_root}/${_rel}" || continue
     printf '%s\n' "${_rel}"
-  done < <(_renumber_population "${_root}")
+  done < <(_adr_ref_files "${_root}")
 }
 
 # _renumber_move <root> <old-base> <new-base> -- rename the record.
@@ -321,7 +305,7 @@ _adr_renumber() {
   done < <(
     while IFS= read -r _rel; do
       _renumber_rewrite_file "${_root}" "${_from}" "${_to}" "${_rel}"
-    done < <(_renumber_population "${_root}")
+    done < <(_adr_ref_files "${_root}")
   )
 
   _renumber_move "${_root}" "${_base}" "${_new}" || return 1

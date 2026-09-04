@@ -75,6 +75,14 @@
 
 # ── ADR-numbering lint ───────────────────────────────────────────────────────
 
+# Which files can carry a reference. Shared with script/adr/renumber.sh,
+# the verb that rewrites them, because a lint whose population is wider
+# than the verb's fails on files no documented command can repair -- see
+# that file's header for the two the disagreement actually produced.
+_ADR_NUMBERING_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
+# shellcheck source=script/adr/references.sh
+source "${_ADR_NUMBERING_DIR}/../../adr/references.sh"
+
 # Well-formed ADR basename: 8-digit zero-padded number, a dash, a non-empty
 # slug, and the .md extension. Anything else is a malformed filename.
 readonly _ADR_NAME_RE='^[0-9]{8}-.+\.md$'
@@ -103,15 +111,20 @@ readonly _ADR_INDEX_ROW_RE='^\| ([0-9]{8}) '
 # _adr_scan <root> <regexp> -- `<relpath>:<line>:<match>` for every match
 # under <root>, one per line.
 #
-# The population is the filesystem, not `git ls-files`: this driver runs
-# inside the test-tools container against a mounted checkout, where the
-# work tree is present and git is not something to depend on.
+# The population is `_adr_ref_files` and not a recursive grep: the verb
+# that repairs these findings sweeps exactly that set, and a lint that
+# read more would fail on files the verb cannot reach.
 _adr_scan() {
-  local _root="$1" _re="$2" _hit
-  while IFS= read -r _hit; do
-    printf '%s\n' "${_hit#"${_root}"/}"
-  done < <(grep -rIn -o -E --exclude-dir=.git -e "${_re}" "${_root}" 2>/dev/null \
-    || true)
+  local _root="$1" _re="$2" _rel
+  local -a _files=()
+  while IFS= read -r _rel; do
+    _files+=( "${_rel}" )
+  done < <(_adr_ref_files "${_root}")
+  (( ${#_files[@]} > 0 )) || return 0
+  (
+    cd -- "${_root}" || exit 0
+    grep -HnIo -E -e "${_re}" -- "${_files[@]}" 2>/dev/null || true
+  )
 }
 
 # _adr_ref_findings <root> <claimed-number>... -- one line per reference
