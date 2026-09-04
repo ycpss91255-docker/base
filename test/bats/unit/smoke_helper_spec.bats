@@ -285,3 +285,67 @@ _WRAPPER_UNDER_TEST=/source/dist/script/docker/wrapper/run.sh
   assert_failure
   assert_output --partial "missing wrapper path"
 }
+
+# ════════════════════════════════════════════════════════════════════
+# entrypoint_is_single_file
+# ════════════════════════════════════════════════════════════════════
+#
+# The probe the shared smoke baseline uses to tell the two entry-point
+# models apart from INSIDE an image, where the Dockerfile's ENTRYPOINT line
+# is not readable. A pre-ADR-00000032 repo runs its own /entrypoint.sh and
+# never installs the orchestrator; asserting the orchestrator unconditionally
+# turns that repo's next `just upgrade` into a red build over a model it
+# never adopted.
+
+# why: The pre-ADR-00000032 model, which is what the guard exists for. A
+# false answer here makes the shared baseline assert the orchestrator on a
+# repo that never installed one, turning its next `just upgrade` into a red
+# build over a model it did not adopt
+@test "entrypoint_is_single_file: true for a file that execs the workload" {
+  printf '#!/usr/bin/env bash\n. /usr/local/lib/base/logging.sh\nexec "${@}"\n' \
+    > "${TEMP_DIR}/entrypoint.sh"
+  run entrypoint_is_single_file "${TEMP_DIR}/entrypoint.sh"
+  assert_success
+}
+
+# why: The other direction, and the one that keeps the guard non-vacuous:
+# a probe that answered true for everything would skip the orchestrator
+# assertion everywhere and report green over an unchecked suite
+@test "entrypoint_is_single_file: false for a bringup that only sets env" {
+  printf '#!/usr/bin/env bash\nexport ROS_DOMAIN_ID=0\n' \
+    > "${TEMP_DIR}/entrypoint.sh"
+  run entrypoint_is_single_file "${TEMP_DIR}/entrypoint.sh"
+  assert_failure
+}
+
+# why: The seeded bringup template TALKS about the exec it must not have,
+# and a repo that migrated by commenting the line out has migrated. A
+# substring match on `exec` reads both as the old model and would skip the
+# assertion on every correctly migrated repo -- the same code-versus-comment
+# distinction dockerfile_migrate.sh's notice makes
+@test "entrypoint_is_single_file: a commented exec is not an exec" {
+  # The seeded bringup template TALKS about the exec it must not have, and
+  # a repo that migrated by commenting the line out has migrated.
+  printf '#!/usr/bin/env bash\n# NO exec -- the orchestrator owns it.\n#exec "${@}"\n' \
+    > "${TEMP_DIR}/entrypoint.sh"
+  run entrypoint_is_single_file "${TEMP_DIR}/entrypoint.sh"
+  assert_failure
+}
+
+# why: An image with no bringup at all is not on the old model, so the
+# orchestrator assertion must still run there. Answering true on a missing
+# path would silently exempt exactly the image most likely to be missing
+# the orchestrator too
+@test "entrypoint_is_single_file: false when the path does not exist" {
+  run entrypoint_is_single_file "${TEMP_DIR}/no_such_entrypoint.sh"
+  assert_failure
+}
+
+# why: The caller-error case, separated from the honest false above: a
+# no-argument call must say so rather than answer "not the old model",
+# which is the answer that turns a typo in a spec into a silent skip
+@test "entrypoint_is_single_file: errors when the path arg is missing" {
+  run entrypoint_is_single_file
+  assert_failure
+  assert_output --partial "missing path"
+}

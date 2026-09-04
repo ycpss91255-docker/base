@@ -58,6 +58,15 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 ## [Unreleased]
 
 ### Changed
+- **the container ENTRYPOINT is base's orchestrator; `script/entrypoint.sh` is a bringup it sources (closes #945)**
+  -- base's plumbing (the helper sources and the final `exec`) sat in a file
+  `init.sh` seeds and the repo then OWNS, so no pull ever updated it. It now
+  ships as `/usr/local/lib/base/entrypoint.sh` in the helper directory,
+  arriving with every pull. **An existing repo is unchanged**, `-test` stages
+  included. Adopting it is ONE commit: flip `ENTRYPOINT`, drop the plumbing
+  and `exec`, bracket any ROS source with `set +u` -- the orchestrator
+  sources the bringup under `set -euo pipefail`, which the seeded file never
+  set. Flipping alone breaks it; `just upgrade` notices until then.
 - **the test-tools image moved to alpine 3.22, and the next series expiry is
   now a scheduled red build (refs #946)** -- 3.21 goes end-of-life 2026-11-01,
   and a series tag cannot show that: it keeps resolving, the image keeps

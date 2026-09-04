@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3893 tests**.
+Unit specs under `test/bats/unit/`: **3926 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1902,7 +1902,7 @@ the author did not have to escape.
 | `_sync_doc_counts: a second run over a generated catalogue changes nothing` | "Regenerating from scratch reproduces what is committed" is the gate check_test_md_drift.sh applies to the real tree, so a second run that moved a byte would make every branch red for a reason no diff explains. |
 | `_sync_doc_counts: a shipped smoke spec lands in smoke.md` | A shipped smoke spec is the one level whose glob leaves test/ for dist/, and it was the case that caught the doc-to-glob map going stale before. It stays because the map is still hand-written. |
 
-### test/bats/unit/dockerfile_migrate_spec.bats (100)
+### test/bats/unit/dockerfile_migrate_spec.bats (116)
 
 Unit tests for the declarative Dockerfile-migration list
 `lib/dockerfile_migrate.sh` (#567, folds #579 facet B). The lib exposes a
@@ -2003,6 +2003,22 @@ force-rewrite).
 | `migration 8 (nounset-source): brackets the ROS source with set +u/-u (#579)` | - |
 | `migration 8 (nounset-source): idempotent — already-guarded source untouched (#579)` | - |
 | `migration 8 (nounset-source): detect false when no set -u in entrypoint (#579)` | - |
+| `migration 8 (nounset-source): fires under the orchestrator when the bringup sets nothing (#945)` | The gap the branch's own README migration opens. Keying the guard on an in-file `set -u` covers nothing here -- the bringup seeded before this release has no `set` line at all, and the orchestrator imposes nounset from outside it. This is the FAILS-at-HEAD case; without it the migration stays silent on exactly the path base tells people to take |
+| `migration 8 (nounset-source): brackets that bringup's source, directive and all (#945)` | Detecting is half of it; the write has to be correct for a file that never set nounset itself. The trailing `set -u` must RESTORE the mode the orchestrator was already in, which is checked by re-running detect on the rewritten file rather than by eyeballing the diff |
+| `migration 8 (nounset-source): silent under the orchestrator with no ROS source (#945)` | Bounds the widened trigger. Now that an ENTRYPOINT can turn the migration on, the obvious over-reach is firing on the ENTRYPOINT alone -- which would bracket nothing and warn on every orchestrator repo for ever |
+| `migration 8 (nounset-source): still silent pre-flip, where nothing imposes nounset (#945)` | The direction that would do harm rather than nothing. Pre-flip the repo's own file is the ENTRYPOINT and no nounset is in force, so writing a trailing `set -u` would TURN IT ON for the rest of a file that never asked -- a migration breaking the repo it was meant to protect |
+| `migration (entrypoint-orchestrator): notices a repo still running its own entrypoint (#945)` | The positive case, on the shape every consumer repo is in today. A detect that never fires is a migration nobody is told about, and the adoption edits are the owner's to make |
+| `migration (entrypoint-orchestrator): the notice changes nothing on disk (#945)` | The load-bearing claim of the whole release -- an existing repo comes out of `just upgrade` byte-identical and goes on working. Only the owner can tell a bringup line from base plumbing in a file hand-edited for a year, so an apply that rewrote anything here would break repos base cannot see. Both files are diffed, not just the Dockerfile |
+| `migration (entrypoint-orchestrator): silent once the ENTRYPOINT is the orchestrator (#945)` | The notice has to stop. It runs on every `just upgrade` of every repo, so one that kept firing after the migration is one readers learn to ignore -- which costs the next migration its only channel |
+| `migration (entrypoint-orchestrator): a commented ENTRYPOINT is not the live model (#945)` | Every repo generated from the shipped template carries a commented runtime-stage ENTRYPOINT, so a detect that read comments would fire on fully migrated repos for ever. The most likely wrong implementation is a plain grep, and this is the case that separates it from a correct one |
+| `migration (entrypoint-orchestrator): an unrelated ENTRYPOINT is not this model (#945)` | A real repo in the org does this -- ros1_bridge's runtime stage runs the upstream image's /ros_entrypoint.sh. Detecting "an ENTRYPOINT that is not the orchestrator" instead of "the repo's own bringup" would nag that repo on every upgrade about a migration it has already made |
+| `migration (bringup-residue): notices an exec left in a migrated repo's bringup (#945)` | The coupling between the two adoption edits, and the failure that hides. The orchestrator SOURCES the bringup, so a surviving exec fires mid-source: the watchdog never arms and the container looks healthy until the day it needed restarting |
+| `migration (bringup-residue): notices a helper the orchestrator already sources (#945)` | The quieter half of the same residue. Sourced twice, logging.sh opens a SECOND per-start file and re-tees and watchdog.sh arms a second supervisor -- neither of which fails a build or a start, so nothing but this notice would ever surface it |
+| `migration (bringup-residue): changes nothing on disk (#945)` | The warn-only claim for the residue pair specifically. This one is the more tempting to auto-fix -- deleting an exec line looks safe -- and it is not: the line may be the repo's own workload launch |
+| `migration (bringup-residue): silent while the repo still owns the ENTRYPOINT (#945)` | Pre-flip the exec is CORRECT and the helper sources are the documented wiring, so this notice must be gated on the OTHER migration having happened. Ungated it would add a second warning to every upgrade of every un-migrated repo, about a file doing exactly what it should |
+| `migration (bringup-residue): silent for a clean bringup (#945)` | The steady state after both edits. This is the shape every migrated repo upgrades in from then on, so a false positive here is a permanent notice on the correct outcome |
+| `migration (bringup-residue): silent when the repo has no bringup at all (#945)` | A bringup is optional under the orchestrator, so the absent file is a supported shape and not an error. It is also the case a naive implementation turns into a stray grep diagnostic on stderr during an otherwise clean upgrade |
+| `apply_migrations: an un-migrated repo keeps the entrypoint model it runs (#945)` | The claim a consumer actually cares about, asserted through the real dispatcher rather than the detect/apply pair: `just upgrade` as a whole leaves a repo running the model it was running. The pair-level tests cannot see a SIBLING migration rewriting the same files -- the sc1090 one does, which is why the entrypoint is compared over its code lines and the three surviving lines are named individually so an emptied file cannot pass |
 | `migration 5 (hadolint): DL3007 pins alpine to the series this repo pins (#567)` | The series written into a consumer's Dockerfile is the one this repo builds, tests and dates |
 | `migration 5 (hadolint): DL3007 leaves an already-pinned alpine alone (#567)` | Healing `:latest` is a lint fix; retagging a deliberate pin is not |
 | `migration 5 (hadolint): DL3066 inline ignore before a literal USER root (#946)` | hadolint binds an ignore to the next LINE, so the pragma must sit directly above the instruction |
@@ -2101,6 +2117,33 @@ subshells and assert both the host file content and the inherited stdout
 | `entrypoint_logging bumps past an occupied base per-start name, still tees (#805)` | - |
 | `entrypoint_logging warns 'cannot create' + continues when parent dir is unmakeable (#691)` | mkdir-fail branch (parent is a regular file) |
 | `entrypoint_logging warns 'tee binary missing' + continues when tee absent (#691)` | tee-missing branch (stub PATH) |
+
+### test/bats/unit/entrypoint_spec.bats (10)
+
+base's container ENTRYPOINT orchestrator, the base-owned half of the
+two-file entrypoint model (ADR-00000032). It ships from `.base/dist/`, lands
+at `/usr/local/lib/base/entrypoint.sh`, and SOURCES the repo-owned bringup
+at `/entrypoint.sh` rather than executing it.
+
+The subject is the ORDER, because each of the four steps depends on the one
+before it: logging rebinds stdout/stderr, the bringup sets the env the
+workload reads, the watchdog may take over the process, and the workload
+execs last. The dispatcher takes its three paths as arguments so the REAL
+function runs against a scratch tree; the frozen in-image literals live in
+the file's bottom guard and are pinned separately.
+
+| Test | Description |
+|------|-------------|
+| `orchestrator runs logging, then the bringup, then the watchdog, then the workload (#945)` | The load-bearing one. Every other ordering assertion is a consequence of this sequence, and a reordering that broke it would leave each step still working in isolation -- logging after the bringup loses the bringup's output, the watchdog before the bringup arms on stale knobs, and both stay green under a per-step test |
+| `the watchdog sees a knob the bringup set, because bringup is sourced first (#945)` | The behavioural statement of the order rather than the positional one: a repo whose bringup decides WATCHDOG_CHECK is armed with that value. Arming the watchdog first disarms it silently, which no ordering assertion on printed lines would call wrong |
+| `environment the bringup exports reaches the workload (#945)` | The whole point of sourcing rather than executing the bringup. Run as a child it would still print, still exit 0, and still lose every export -- the failure a repo only sees when its ROS overlay is missing from the running workload |
+| `a non-executable bringup still runs, because it is sourced (#945)` | Nothing in the contract depends on the mode bit, and pinning that is what stops a later "just exec it" simplification from passing its own tests -- the shipped file happens to be COPY'd 0755, so the exec variant would look correct everywhere except a repo that ships its bringup 0644 |
+| `a missing bringup and missing helpers still start the workload cleanly (#945)` | The shape most existing repos are actually in -- the runtime helper COPY is opt-in and a repo need not carry a bringup at all. Asserted with stderr separated and under the orchestrator's own strict mode, because the interesting failures here are a stray diagnostic and a nounset abort, neither of which changes the workload's exit status |
+| `the workload's argv survives verbatim, spaces included (#945)` | The orchestrator sits between docker and CMD, so an unquoted `$@` anywhere in it re-splits the command a user typed. The embedded space is the only argument shape that catches that; a single-word workload passes through every wrong spelling |
+| `executed directly with nothing installed, it still execs the workload (#945)` | The bottom guard driven for real instead of grepped. Every other test here calls the dispatcher with scratch paths, so nothing else exercises the frozen literals or the strict mode the shipped file turns on for itself -- and an image with none of the three installed is the ordinary pre-adoption shape, not a hypothetical |
+| `executed directly, the orchestrator drives the in-image paths (#945)` | The Dockerfile contract in the one place it is spelled. The test above proves the guard RUNS but passes just as happily on a helper directory the Dockerfile never populates, so the two literals need pinning on their own: change one and the Dockerfile has to change with it |
+| `the orchestrator ships with the executable bit set (#945)` | Its four runtime siblings are 644 because they are sourced; this one is executed. The Dockerfile's `COPY --chmod=0755` hides a committed 644, so nothing in a normal build goes red -- the file is simply not runnable from the subtree, and any consumer path that stops going through that COPY inherits an exit 126 |
+| `the shared smoke baseline asserts the orchestrator's in-image path (#945)` | Joins the two files nothing else joins -- it reads the ENTRYPOINT out of the shipped Dockerfile and requires the shared build-time baseline to name that same path. Without it the half the container actually starts is asserted by nothing, and a dropped runtime-directory COPY stays invisible until a real container fails to come up |
 
 ### test/bats/unit/env_emit_spec.bats (27)
 
@@ -4251,7 +4294,7 @@ alias / `network.network_name` / `devices.device_` / `security.cap_add_` /
 | `self-hosted guard: the real repo tree has every eligible job guarded` | - |
 | `self-hosted guard: the real tree's eligible set is the three runtime-matrix worker jobs` | - |
 
-### test/bats/unit/self_test_yaml_spec.bats (112)
+### test/bats/unit/self_test_yaml_spec.bats (113)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks fourteen
 cumulative invariants:
@@ -4581,6 +4624,7 @@ list is extensible + all five `build_local` obtain steps carry the guard
 | `self-test.yaml: acceptance job declares needs on actionlint AND classify (#317)` | - |
 | `self-test.yaml: acceptance drives the container via just, not raw script/*.sh (#579)` | - |
 | `self-test.yaml: acceptance asserts the runnability contract (#579)` | - |
+| `self-test.yaml: acceptance pins the entry point the shipped Dockerfile wires (#945)` | The acceptance job's `.Path` check is a runnability assertion only while the literal it compares against is the one the template's ENTRYPOINT names. Reading BOTH here, rather than remembering one, is what makes a move of the entry point fail in the local gate instead of on the CI-only acceptance matrix that `just test` cannot see |
 | `self-test.yaml: acceptance exercises the remaining downstream just commands for real (#769)` | - |
 | ``self-test.yaml: acceptance drives `just template new` end-to-end and asserts the consumer artifact (#785)`` | - |
 | `self-test.yaml: acceptance documents setup-tui as intentionally out of scope (#769)` | - |
@@ -5147,7 +5191,7 @@ duplicate-target guards, and S7 `runtime.env` retirement (#507).
 | `_run_shell_metrics: reports all three metrics in one run (#994)` | The combined report is what `just test metrics` runs, so it has to say all three states in one pass rather than stopping at the first -- a report that stopped would hide two thirds of the tree behind whichever metric ran first. |
 | `_run_shell_metrics: FAILS when ONE metric is past its ceiling (#994)` | The combined report has three verdicts to reconcile and one exit status to say them in. Failing when ANY metric is past its own ceiling is what keeps it from being the loosest of the three -- the shape a caller would reach for if it reported the union but judged by the minimum. |
 
-### test/bats/unit/smoke_harness_spec.bats (14)
+### test/bats/unit/smoke_harness_spec.bats (15)
 
 | Test | Description |
 |------|-------------|
@@ -5159,6 +5203,7 @@ duplicate-target guards, and S7 `runtime.env` retirement (#507).
 | `the harness reproduces every devel-test COPY into /lint and /smoke_test` | - |
 | `every harness COPY exemption is still a real devel-test COPY` | - |
 | `the harness installs the entrypoint the shared smoke baseline asserts` | - |
+| `the harness installs the orchestrator the shared smoke baseline asserts (#945)` | The orchestrator arrives in a consumer through a runtime-directory COPY that lands outside /lint and /smoke_test, so the COPY-set parity loop above cannot see it. Without this the harness silently stops installing the half the shared baseline asserts, and that assertion goes red here and green nowhere |
 | `the harness Dockerfile writes the manifest before the specs read it (#951)` | The manifest and the OCI annotation the sys stage writes are mirrored here, and written before `RUN bats`; whether the specs then run rather than skip is asserted at system level, which builds this file |
 | `the harness exports BATS_LIB_PATH like the devel-test stage does` | - |
 | `the harness runs the specs as a non-root user, after the COPYs` | - |
@@ -5166,7 +5211,7 @@ duplicate-target guards, and S7 `runtime.env` retirement (#507).
 | `the harness has no compose image name to displace a sibling checkout's (#891)` | - |
 | `runtime-test ships no specs, which is why the harness covers devel-test only` | - |
 
-### test/bats/unit/smoke_helper_spec.bats (28)
+### test/bats/unit/smoke_helper_spec.bats (33)
 
 Exercises the runtime assertion helpers shipped in
 `dist/test/bats/smoke/shared/test_helper.bash` (used by downstream-repo
@@ -5202,6 +5247,11 @@ smoke specs via `load "${BATS_TEST_DIRNAME}/test_helper"`).
 | `run_wrapper_xhost: fails when the wrapper path does not exist` | - |
 | `run_wrapper_xhost: fails when the wrapper's lib/ cannot be located` | - |
 | `run_wrapper_xhost: errors when the wrapper path arg is missing` | - |
+| `entrypoint_is_single_file: true for a file that execs the workload` | The pre-ADR-00000032 model, which is what the guard exists for. A false answer here makes the shared baseline assert the orchestrator on a repo that never installed one, turning its next `just upgrade` into a red build over a model it did not adopt |
+| `entrypoint_is_single_file: false for a bringup that only sets env` | The other direction, and the one that keeps the guard non-vacuous: a probe that answered true for everything would skip the orchestrator assertion everywhere and report green over an unchecked suite |
+| `entrypoint_is_single_file: a commented exec is not an exec` | The seeded bringup template TALKS about the exec it must not have, and a repo that migrated by commenting the line out has migrated. A substring match on `exec` reads both as the old model and would skip the assertion on every correctly migrated repo -- the same code-versus-comment distinction dockerfile_migrate.sh's notice makes |
+| `entrypoint_is_single_file: false when the path does not exist` | An image with no bringup at all is not on the old model, so the orchestrator assertion must still run there. Answering true on a missing path would silently exempt exactly the image most likely to be missing the orchestrator too |
+| `entrypoint_is_single_file: errors when the path arg is missing` | The caller-error case, separated from the honest false above: a no-argument call must say so rather than answer "not the old model", which is the answer that turns a typo in a spec into a silent skip |
 
 ### test/bats/unit/sourceable_scripts_spec.bats (8)
 
@@ -5675,9 +5725,9 @@ Unit tests for the repo-local command-group scaffolder
 | `nothing in dist/script/docker/runtime/ has a destiny other than the helper dir (#971)` | - |
 | `Dockerfile.example commented runtime stage shows the helper-dir COPY example (#971)` | - |
 | `runtime/logging.sh header documents in-image source-line (no $USER, no work/.base) (#368)` | - |
-| `dockerfile/entrypoint.sh sources the watchdog helper after logging (#797)` | - |
-| `dockerfile/entrypoint.sh guards both lib sources with a readability test (#842)` | Both source lines wrapped in `[[ -r ]]`, matching the logrotate.sh pattern |
-| `dockerfile/entrypoint.sh execs cleanly under set -euo pipefail with the libs absent (#842)` | Opt-out runtime image: reaches `exec`, no stderr, no strict-mode abort |
+| `the seeded bringup template carries no base plumbing and no exec (#945)` | init.sh seeds this file once and the repo owns it from then on -- no subtree pull ever rewrites it. So anything of base's left in it is frozen in every consumer for good, which is the defect the two-file model exists to remove. Asserted over code lines only, because the header deliberately NAMES the helpers and the exec to say they are not its job |
+| `Dockerfile.example makes base's orchestrator the container ENTRYPOINT (#945)` | The wiring line of the two-file model (ADR-00000032): ENTRYPOINT names base's orchestrator, the repo's bringup is COPY'd to /entrypoint.sh but never named as ENTRYPOINT. Pointing ENTRYPOINT at the repo's own file is what froze base's plumbing in every consumer, so the retired shape is asserted absent rather than merely not asserted |
+| `Dockerfile.example commented runtime stage runs the orchestrator too (#945)` | The runtime stage starts from a fresh BASE_IMAGE and inherits nothing from devel, so the commented scaffold is what a repo uncommenting it adopts. A scaffold still naming /entrypoint.sh teaches the retired one-file model, which is why the old line is asserted absent and not just the new one present |
 | `no inline _detect_lang fallbacks remain after dedupe (issue #104)` | - |
 | `setup.sh does not redefine _detect_lang` | No duplication |
 | `setup.sh defines _setup_msg, not _msg (closes #101)` | - |

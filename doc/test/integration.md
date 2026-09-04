@@ -206,7 +206,7 @@ the unit `tui_spec`.
 | `new repo: compose.yaml exists and references the repo name` | compose gen |
 | `new repo: .env.example is NOT generated (image name via setup.conf rules)` | setup.conf rules drive IMAGE_NAME |
 | `new repo: script/entrypoint.sh exists and is executable` | entrypoint gen |
-| `new repo: script/entrypoint.sh sources [logging] helper by default (refs #364)` | default in-image helper source line + comment present; ${USER} / /home/ absent (regression guards) |
+| `new repo: the seeded entrypoint is a clean bringup under base's orchestrator (refs #364)` | the seeded entrypoint carries no base plumbing and no exec, the Dockerfile names the orchestrator, and the orchestrator is vendored -- the [logging] UX guarantee of #364 now held by base's half instead of by a repo-owned copy that a subtree pull could never reach. Also keeps the v0.30.0 regression guards: no ${USER}, no /home/ in the seeded file. |
 | `new repo: smoke test skeleton exists for the repo` | smoke skeleton |
 | `new repo: smoke tree is per-stage tool-first (shared/devel-test/runtime-test), not flat test/smoke/ (S4 items 5,8)` | - |
 | `new repo: shared smoke spec loads test_helper (resolves via Dockerfile COPY at build time) (S4 item 8)` | - |
