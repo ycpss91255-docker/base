@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **4010 tests**.
+Unit specs under `test/bats/unit/`: **4012 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -980,13 +980,15 @@ Pure git + filesystem, no docker.
 | `changelog_index.sh --write: the index keeps its own file mode (#926)` | The rewrite goes through mktemp, which creates 0600. Git does not track the bit, so the documented refresh would leave the changelog owner-only-readable in a state no gate reports and no later reader can explain. |
 | `changelog_index.sh --write: an index with no markers is REFUSED, not appended to (#926)` | Non-vacuity for the three cases above, which all assert on what lands BETWEEN the markers: a --write that silently wrote nowhere when it could not find them would satisfy each of them and be caught by nothing else here. |
 
-### test/bats/unit/changelog_layout_lint_spec.bats (15)
+### test/bats/unit/changelog_layout_lint_spec.bats (17)
 
 | Test | Description |
 |------|-------------|
 | `changelog layout: a split whose index matches its series files is clean` | The negative control for the thirteen refusals below, all of which a lint that refused everything would also satisfy. The '2 series' assertion is what stops it passing over a tree it never walked. |
 | `changelog layout: a released section left in the index is named` | The regression this rule exists for, and the one every OTHER rule here is blind to: a merge with main re-adds the release history to the index wholesale, because git reads main's edits to a file the split emptied as lines to add back. Every rule above walks the series files only, so the copy is not misplaced, not duplicated and not dangling -- it is simply never looked at. It went green over 108 re-added sections twice. |
 | `changelog layout: a live [Unreleased] in the index is named` | The live half of the same rule, and the only corner of the disease the gate ever saw: `## [Unreleased]` in the index. The entry lint objects to it because it globs `*.md`, so a fix aimed at the symptom deletes this block alone and leaves the released sections sitting in the index -- which is what happened, twice. This rule refuses both halves at once. |
+| `changelog layout: a release section in a file that is no series file is named` | The index rule's own reasoning, applied to the other half of the directory. Every rule above walks doc/changelog/v*.md filtered to `^v[0-9]+\.[0-9]+$`, and the index rule adds exactly one more file, so a `## [` heading in any OTHER .md here -- notes.md, or the v0.2.0.md a split slip writes one character away from a series name -- is not misplaced, not duplicated and not dangling, because nothing opened the file. script/release/release_notes.sh globs *.md in this directory: the assembler reads the files this lint skipped, and refuses at tag push instead, which is the failure this lint exists to move earlier. |
+| `changelog layout: the ONLY copy of a section outside the series files is named` | The half of the same gap that fails OPEN instead of loudly: the only copy of a released section lives outside the series files. Nothing above fires -- the section is not duplicated, and the series file it belongs to is merely empty -- so the gate goes green while the index derives a row that points at no section and release_notes.sh publishes a page from a file the index never names. |
 | `changelog layout: a section in the wrong series file is named` | A vX.Y.Z section renders identically wherever it sits, so nothing but a lint notices it in the wrong file. The fixture MOVES rather than copies the section precisely so the duplicate-section rule cannot satisfy this assertion with the placement rule deleted. |
 | `changelog layout: a version section that appears TWICE is named` | What `merge=union` leaves behind: union keeps both sides and conflicts on nothing, so two branches promoting the same section land it twice with nothing to review. Both copies sit in the file the version names, so this is the only rule that can catch it. |
 | `changelog layout: a compare link DEFINED TWICE in one file is named` | The other half of what `merge=union` leaves behind, and the quiet one. Both compare-link definitions are in the file the version names, so the section/definition agreement rule beside this one is satisfied by either, and CommonMark resolves every reference to the FIRST -- so a stale or wrong URL wins with nothing rendering differently. |

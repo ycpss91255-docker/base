@@ -165,6 +165,68 @@ _reindex() {
   assert_output --partial '1 misplaced section'
 }
 
+# why: The index rule's own reasoning, applied to the other half of the
+# directory. Every rule above walks doc/changelog/v*.md filtered to
+# `^v[0-9]+\.[0-9]+$`, and the index rule adds exactly one more file, so a
+# `## [` heading in any OTHER .md here -- notes.md, or the v0.2.0.md a
+# split slip writes one character away from a series name -- is not
+# misplaced, not duplicated and not dangling, because nothing opened the
+# file. script/release/release_notes.sh globs *.md in this directory: the
+# assembler reads the files this lint skipped, and refuses at tag push
+# instead, which is the failure this lint exists to move earlier.
+@test "changelog layout: a release section in a file that is no series file is named" {
+  _clean_tree
+  # A COPY: v0.2.md still holds the original, so placement, duplication and
+  # the compare-link rules all still hold over the series files and this
+  # rule is the only one that can fire.
+  printf '%s\n' \
+    '# stray notes' \
+    '' \
+    '## [v0.2.0] - 2026-04-02' \
+    '' \
+    '### Added' \
+    '- the second thing (#2, PR #3)' > "${CL}/notes.md"
+
+  run _run_changelog_layout
+  [ "${status}" -ne 0 ]
+  # The rule's own sentence and the tag it found -- not a substring the
+  # index rule or the duplicate-section rule also print.
+  assert_output --partial 'notes.md:3: 1 section(s) in a file that is not a series file -- v0.2.0'
+  # And it is the ONLY rule that fired.
+  assert_output --partial '1 misplaced section'
+}
+
+# why: The half of the same gap that fails OPEN instead of loudly: the only
+# copy of a released section lives outside the series files. Nothing above
+# fires -- the section is not duplicated, and the series file it belongs to
+# is merely empty -- so the gate goes green while the index derives a row
+# that points at no section and release_notes.sh publishes a page from a
+# file the index never names.
+@test "changelog layout: the ONLY copy of a section outside the series files is named" {
+  _clean_tree
+  # The section MOVED out of v0.2.md, links and all, rather than copied:
+  # a copy would trip the rule above, and then this assertion would be
+  # satisfied by a lint that still cannot see a section it is the sole
+  # home of.
+  _series v0.2 '# base changelog -- v0.2'
+  printf '%s\n' \
+    '# stray notes' \
+    '' \
+    '## [v0.2.0] - 2026-04-02' \
+    '' \
+    '### Added' \
+    '- the second thing (#2, PR #3)' \
+    '' \
+    '[v0.2.0]: https://example.invalid/compare/v0.1.0...v0.2.0' \
+    > "${CL}/notes.md"
+  _reindex
+
+  run _run_changelog_layout
+  [ "${status}" -ne 0 ]
+  assert_output --partial 'notes.md:3: 1 section(s) in a file that is not a series file -- v0.2.0'
+  assert_output --partial '1 misplaced section'
+}
+
 # why: A vX.Y.Z section renders identically wherever it sits, so nothing but a
 # lint notices it in the wrong file. The fixture MOVES rather than copies
 # the section precisely so the duplicate-section rule cannot satisfy this
