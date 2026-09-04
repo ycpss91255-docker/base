@@ -70,34 +70,6 @@ setup() {
   assert_success
 }
 
-@test "build-worker.yaml: preflight probes GHCR login for the packages permission (#800)" {
-  # A login probe feeds PREFLIGHT_PERM_PACKAGES; paves the way for the
-  # registry-cache backend's packages: write.
-  run code_grep -F 'PREFLIGHT_PERM_PACKAGES:' "${BUILD_WF}"
-  assert_success
-  run code_grep -F 'docker login ghcr.io' "${BUILD_WF}"
-  assert_success
-}
-
-@test "build-worker.yaml: preflight exports cache_backend into the manifest guard env (#801)" {
-  # The build manifest's packages: write requirement is conditional on
-  # cache_backend == registry; the preflight must feed the real input into
-  # the guard env var the manifest names.
-  run code_grep -F 'PREFLIGHT_CACHE_BACKEND: ${{ inputs.cache_backend }}' "${BUILD_WF}"
-  assert_success
-}
-
-@test "build-worker.yaml: preflight verifies a REAL packages:write, not just login, for the registry backend (#801)" {
-  # A read-only token can still `docker login`, so login alone is not
-  # proof of packages: write. The probe opens a GHCR blob upload against
-  # the repo's buildcache namespace (202 == write granted) and only runs
-  # the write check when cache_backend == registry.
-  run code_grep -F '/buildcache/blobs/uploads/' "${BUILD_WF}"
-  assert_success
-  run code_grep -F 'CACHE_BACKEND: ${{ inputs.cache_backend }}' "${BUILD_WF}"
-  assert_success
-}
-
 # ── the manifest a worker guards itself with ──────────────────────────
 
 # _worker_manifest_pairs

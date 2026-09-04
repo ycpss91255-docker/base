@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3926 tests**.
+Unit specs under `test/bats/unit/`: **3920 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -671,7 +671,7 @@ name, which is exactly the set the compose emitter drops.
 | `stage_names: a missing Dockerfile fails naming the path it looked for` | An unreadable Dockerfile is not "no stages", it is "we do not know". Answering an empty roster there is how a worker skips a build and calls it a pass, and the path has to be in the message or the operator cannot tell which file it failed to find. |
 | `stage_names: an empty DOCKERFILE path fails loudly` | The unset-input case, which a workflow reaches by forgetting one `env:` line. It has to fail at the reader naming the variable, because the alternative -- an empty roster from an empty path -- is a build the worker quietly declines to run. |
 
-### test/bats/unit/build_worker_yaml_spec.bats (69)
+### test/bats/unit/build_worker_yaml_spec.bats (65)
 
 Structural assertions for `.github/workflows/build-worker.yaml` (#195 + #243
 + #272 + #273 + #378 b1). Reusable workflows are not exec'd by these tests;
@@ -807,20 +807,16 @@ matching fails instead of reporting a clean scan
 | `build-worker.yaml: build_contexts default preserves zero-diff for existing callers (#207)` | - |
 | `build-worker.yaml: declares cache_variant input with empty default (#272)` | - |
 | `build-worker.yaml: Compute cache scope step emits id: cache with base key in GITHUB_OUTPUT (#272 + #378 + #802)` | - |
-| `build-worker.yaml: 4 build steps use per-target gha cache scopes in the default branch (#378 b1, #801 ternary)` | - |
-| `build-worker.yaml: 4 build steps emit a type=registry GHCR buildcache ref when cache_backend is registry (#801)` | - |
-| `build-worker.yaml: extra_stages loop honors cache_backend for both backends (#801)` | - |
+| `build-worker.yaml: 4 build steps use per-target gha cache scopes (#378 b1, #980)` | - |
+| `build-worker.yaml: extra_stages caches the same way the standard steps do (#980)` | - |
 | `build-worker.yaml: an extra stage's -test companion is found on a --platform FROM line (#1013)` | The reported #1013 miss, asserted on what the step BUILDS rather than on what its text says: the detector allowed one token between FROM and AS, so the cross-build form the arm64 matrix invites declared nothing and the stage's smoke test was silently not built. |
 | `build-worker.yaml: an extra stage with no -test companion builds only itself (#1013)` | The cost of widening a detector, pinned in the opposite direction: inventing a `-test` target the Dockerfile does not declare fails the build outright, which is a worse outcome than the miss it was fixing. |
 | `build-worker.yaml: the extra-stages roster comes from the shared resolver (#1013)` | The structural half, and the one that stops #1013 recurring: two readers of one fact with a comment asserting they agree is what produced the miss. This fails if the file grows a `FROM ... AS` pattern of its own again, which a behavioural case on a correct pattern cannot see. |
 | `build-worker.yaml: an extra stage's name is matched literally, not as a regex (#1013)` | Docker allows `.` in a target name, so a membership test that reads the caller's stage name as a regex finds a DIFFERENT stage: `foo.bar` matches `fooxbar-test` and the step asks buildx for a target nothing declares, failing the build over a companion that was never there. |
 | `build-worker.yaml: the extra-stages step does not pipe its roster into an early-closing reader (#1013)` | The early-close-reader lint cannot reach here -- it scans *.sh under dist/ and script/, and a workflow `run:` block is not a shell file -- so this is the only thing standing between the step and a `grep -q` whose SIGPIPE 141 becomes the pipeline's status under `pipefail`, turning a stage that WAS found into one that reads as absent. |
-| `build-worker.yaml: cache lines select the backend on inputs.cache_backend (#801)` | - |
 | `build-worker.yaml: 4 distinct cache scopes exist, no shared scope leftover (#378 b1)` | - |
-| `build-worker.yaml: 4 build steps all set mode=max on cache-to for both backends (#272 preserved, #801)` | - |
-| `build-worker.yaml: declares cache_backend input with default gha (#801)` | - |
-| `build-worker.yaml: cache_backend default preserves the gha backend for existing callers (#801)` | - |
-| `build-worker.yaml: GHCR login step is gated on cache_backend == registry (#801)` | - |
+| `build-worker.yaml: 4 build steps all set mode=max on cache-to (#272 preserved)` | - |
+| `build-worker.yaml: the buildx cache has exactly one backend, chosen by no input (#980)` | The deletion asserted as a property rather than as the absence of one string. `cache_backend: registry` could never work -- its cache export needed `packages: write` on a job that declares a read-only block, and a called job gets exactly the block it declares (#957) -- so every line reachable only through it was unreachable from the day it shipped. What must not come back is any SECOND cache backend selected by an input, because `permissions:` accepts no expression and the next one is unreachable for the same reason. |
 | `build-worker.yaml: cache_variant default preserves zero-diff for single-call callers (#272)` | - |
 | `build-worker.yaml: declares path-filter job (#273)` | - |
 | `build-worker.yaml: path-filter classifier is pure shell (#273 Phase 2: no dorny/paths-filter)` | - |
@@ -6654,7 +6650,7 @@ guard; it runs plain under `bats-fragile`, ADR-00000008 / #613 / #677).
 | `_within_case_bound: answers no exactly when a case outran its own ceiling (#965)` | - |
 | `every SHELL this file starts is started inside the one bounded harness (#965)` | - |
 
-### test/bats/unit/worker_preflight_yaml_spec.bats (12)
+### test/bats/unit/worker_preflight_yaml_spec.bats (10)
 
 Structural assertions that `build-worker.yaml` and `release-worker.yaml`
 wire in the caller-contract preflight: a `preflight` job that the real build
@@ -6675,9 +6671,7 @@ login) for the registry backend.
 | `build-worker.yaml: preflight fetches the validator at the worker's own ref (job_workflow_sha, no drift) (#800)` | - |
 | `build-worker.yaml: preflight runs preflight.sh with the build manifest (#800)` | - |
 | `build-worker.yaml: preflight exports image_name into the manifest env var (#800)` | - |
-| `build-worker.yaml: preflight probes GHCR login for the packages permission (#800)` | - |
-| `build-worker.yaml: preflight exports cache_backend into the manifest guard env (#801)` | - |
-| `build-worker.yaml: preflight verifies a REAL packages:write, not just login, for the registry backend (#801)` | - |
+| `reusable workers: no preflight manifest demands a permission its worker cannot hold (#980)` | A preflight requirement the worker itself makes unsatisfiable is worse than no preflight: it fails every caller that follows its instructions, and the instructions cannot be followed. `cache_backend: registry` shipped in exactly that state for two releases (#980) -- the manifest told the caller to grant `packages: write`, and every job of the worker declared a block without it, so the probe could not come back 202 whatever the caller did. Derived on both sides: the worker roster from `on: workflow_call`, the manifest from the path the worker passes to preflight.sh, the grant from the parsed permission surface. |
 | `release-worker.yaml: declares a preflight job (#800)` | - |
 | `release-worker.yaml: release job gates on preflight (#800)` | - |
 | `release-worker.yaml: preflight runs preflight.sh with the release manifest (#800)` | - |

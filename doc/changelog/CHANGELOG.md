@@ -630,6 +630,15 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   editing `doc/test/`, and invariant 2's guard list, which loses the doc-count
   drift gate when the mechanism lands.
 ### Removed
+- **`build-worker.yaml` drops the `cache_backend` input and its unreachable
+  `registry` buildx cache (closes #980)** -- the registry backend needed
+  `packages: write` on jobs that declare a read-only block, and a called job
+  gets exactly the block it declares, so no caller could ever reach it: the
+  preflight told a caller to grant a scope, then failed on the grant it had
+  just asked for. The input, the GHCR login step, the write probe and the
+  manifest's permission line are gone; `gha` is the one backend and needs no
+  permission. **No caller passes the input today**, so no downstream repo
+  changes. A `cache_backend:` still in a call now fails as an undefined input.
 - **base's own release no longer attaches a hand-built source archive (closes
   #924)** -- the `release:` job assembled a `template-vX.Y.Z.tar.gz` / `.zip`
   pair from a hardcoded nine-operand `cp -r`, beside the source archives
