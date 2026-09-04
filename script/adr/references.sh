@@ -161,9 +161,15 @@ _adr_ref_ignored_paths() {
   done < "${_root}/.gitignore"
 }
 
-# _adr_ref_walk <root> -- every regular file under <root> that the tree
-# does not declare derived, one root-relative path per line. The fallback
-# for a root git cannot answer for.
+# _adr_ref_walk <root> -- every file under <root> that the tree does not
+# declare derived, one root-relative path per line. The fallback for a
+# root git cannot answer for.
+#
+# Symlinks are printed as well as regular files, because `git ls-files`
+# reports them and the two tiers have to name one population -- this
+# tree's eight wrapper links carry ADR tokens between them. `_adr_ref_files`
+# then drops the ones that do not resolve to a file, which is what keeps a
+# broken link and a link to a directory out.
 _adr_ref_walk() {
   local _root="$1" _kind _name
   local -a _expr=( '(' -name '.git' )
@@ -173,7 +179,7 @@ _adr_ref_walk() {
       anywhere) _expr+=( -o -name "${_name}" ) ;;
     esac
   done < <(_adr_ref_ignored_paths "${_root}")
-  _expr+=( ')' -prune -o -type f -print )
+  _expr+=( ')' -prune -o '(' -type f -o -type l ')' -print )
   ( cd -- "${_root}" && find . "${_expr[@]}" ) | sed 's|^\./||'
 }
 

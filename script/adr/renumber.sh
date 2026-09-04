@@ -248,6 +248,16 @@ _renumber_patterns() {
 _renumber_rewrite_file() {
   local _root="$1" _from="$2" _to="$3" _rel="$4"
   local _re
+  # A symlink has no content of its own: the bytes are the target's, and
+  # the target is swept like any other file. Writing through it is not
+  # merely redundant, it is destructive -- `sed -i` replaces the link with
+  # a regular copy of the target, silently, and reports success. This tool
+  # survived that only because base's eight wrapper links sort after their
+  # `dist/` targets, so the pattern no longer matched by the time a link
+  # was reached. Where the target is NOT in the population, the survivor
+  # check below reports the link, which is the honest answer: that
+  # reference is not one this verb can repair.
+  [[ ! -L "${_root}/${_rel}" ]] || return 0
   _re="$(_renumber_patterns "${_from}" "${_rel}")"
   grep -qIE -e "${_re}" "${_root}/${_rel}" || return 0
   local -a _args=(
