@@ -2253,15 +2253,77 @@ EOF
   assert_output ""
 }
 
-# why: The record is only as complete as the writes that report to it, so
-# a raw in-place write is a rewritten file the caller never stages
-@test "every in-place write in the migration list reports what it rewrote (#1036)" {
-  assert_spec_subject "${LIB}/dockerfile_migrate.sh" \
-    "the migration list this spec drives"
-  # Every write goes through the recording helpers, which carry the
-  # `dfm-write-primitive` marker on the one line that actually writes.
-  # Status pinned to grep's own no-match: assert_failure also accepts an
-  # exit 2 (unreadable file), which would pass this with nothing read.
-  run bash -c "grep -nE '^[[:space:]]*(sed[[:space:]]+-i|mv[[:space:]])' '${LIB}/dockerfile_migrate.sh' | grep -v 'dfm-write-primitive'"
-  [ "${status}" -eq 1 ]
+# ── the record is closed by the dispatcher, not by house style ──────────────
+#
+# The first attempt at this guarantee was a grep over the lib: every write
+# had to be `sed -i` or `mv` as the first token of its line, carrying a
+# marker comment, and a spec failed the suite on anything else. That
+# recognises the shapes whoever wrote the grep had in mind and passes on
+# every other one -- `sed -E -i`, `sed --in-place`, a write after a `&&`,
+# a `cp`, a `>` redirect -- so a migration could rewrite a file the record
+# never named while the suite stayed green. Modelling shell syntax in a
+# grep is the wrong instrument: the question is not how a migration wrote,
+# it is whether the file changed. So the dispatcher answers it directly --
+# it compares each file the migration list may write before and after the
+# run -- and the tests below drive migrations that write in shapes no grep
+# was written for.
+
+# why: A migration is free to write however it likes, so the record has to
+# be closed by the dispatcher rather than by every author remembering a
+# house-style helper
+@test "a raw in-place write no helper made is still reported (#1036)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS lint
+COPY .base/dist/script/docker/lib /lint/lib
+EOF
+  run bash -c "$(_src)
+_migrate_zz_raw_detect() { return 0; }
+_migrate_zz_raw_apply() { sed -E -i 's#busybox#alpine#' \"\$1\"; }
+_MIGRATIONS+=(zz_raw)
+apply_migrations '${DF}' >/dev/null 2>&1
+migrated_files"
+  assert_success
+  assert_output "${DF}"
+}
+
+# why: The sibling entrypoint is written by migrations too, so a raw write
+# there is the same unstaged rewrite one file over
+@test "a raw write to the entrypoint is still reported (#1036)" {
+  mkdir -p "${TEMP_DIR}/script"
+  cat > "${DF}" <<'EOF'
+FROM busybox AS lint
+COPY .base/dist/script/docker/lib /lint/lib
+EOF
+  cat > "${TEMP_DIR}/script/entrypoint.sh" <<'EOF'
+#!/usr/bin/env bash
+echo hi
+EOF
+  run bash -c "$(_src)
+_migrate_zz_entry_detect() { return 0; }
+_migrate_zz_entry_apply() {
+  printf 'rewritten\n' > \"\$(_dfm_entrypoint_path \"\$1\")\"
+}
+_MIGRATIONS+=(zz_entry)
+apply_migrations '${DF}' >/dev/null 2>&1
+migrated_files"
+  assert_success
+  assert_output "${TEMP_DIR}/script/entrypoint.sh"
+}
+
+# why: "The dispatcher checks the files itself" must mean their CONTENT --
+# a check on mtime would report every file a migration merely opened and
+# hand the caller a commit of files nothing changed
+@test "a migration that opens a file without changing it reports nothing (#1036)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS lint
+COPY .base/dist/script/docker/lib /lint/lib
+EOF
+  run bash -c "$(_src)
+_migrate_zz_touch_detect() { return 0; }
+_migrate_zz_touch_apply() { touch \"\$1\"; }
+_MIGRATIONS+=(zz_touch)
+apply_migrations '${DF}' >/dev/null 2>&1
+migrated_files"
+  assert_success
+  assert_output ""
 }

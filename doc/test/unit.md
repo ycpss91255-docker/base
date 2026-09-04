@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **4146 tests**.
+Unit specs under `test/bats/unit/`: **4148 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1902,7 +1902,7 @@ the author did not have to escape.
 | `_sync_doc_counts: a second run over a generated catalogue changes nothing` | "Regenerating from scratch reproduces what is committed" is the gate check_test_md_drift.sh applies to the real tree, so a second run that moved a byte would make every branch red for a reason no diff explains. |
 | `_sync_doc_counts: a shipped smoke spec lands in smoke.md` | A shipped smoke spec is the one level whose glob leaves test/ for dist/, and it was the case that caught the doc-to-glob map going stale before. It stays because the map is still hand-written. |
 
-### test/bats/unit/dockerfile_migrate_spec.bats (120)
+### test/bats/unit/dockerfile_migrate_spec.bats (122)
 
 Unit tests for the declarative Dockerfile-migration list
 `lib/dockerfile_migrate.sh` (#567, folds #579 facet B). The lib exposes a
@@ -2036,7 +2036,9 @@ force-rewrite).
 | `migrated_files names the Dockerfile the run rewrote (#1036)` | The caller cannot name the files itself -- it stages what the record names, so the record has to name every file the run rewrote |
 | `migrated_files names the entrypoint the run rewrote (#1036)` | The sibling entrypoint is rewritten by migrations of its own, so a record that knows only about the Dockerfile leaves it behind |
 | `migrated_files is empty on a second, idempotent run (#1036)` | A run that rewrote nothing must hand its caller nothing to stage, and the record may not survive into the next run |
-| `every in-place write in the migration list reports what it rewrote (#1036)` | The record is only as complete as the writes that report to it, so a raw in-place write is a rewritten file the caller never stages |
+| `a raw in-place write no helper made is still reported (#1036)` | A migration is free to write however it likes, so the record has to be closed by the dispatcher rather than by every author remembering a house-style helper |
+| `a raw write to the entrypoint is still reported (#1036)` | The sibling entrypoint is written by migrations too, so a raw write there is the same unstaged rewrite one file over |
+| `a migration that opens a file without changing it reports nothing (#1036)` | "The dispatcher checks the files itself" must mean their CONTENT -- a check on mtime would report every file a migration merely opened and hand the caller a commit of files nothing changed |
 
 ### test/bats/unit/dockerignore_spec.bats (11)
 
