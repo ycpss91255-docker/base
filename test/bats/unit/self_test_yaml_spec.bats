@@ -28,7 +28,7 @@
 #    its `needs:` without further branch-protection churn.
 #
 # why: Structural assertions for `.github/workflows/self-test.yaml`. Locks
-# thirteen cumulative invariants:
+# fourteen cumulative invariants:
 #
 # 1. **#305 actionlint gate** — `actionlint` job declared, runs
 # `rhysd/actionlint` via Docker pinned to an explicit version (`x.y.z`);
@@ -219,6 +219,24 @@
 # `bats-fragile`; `coverage` joins the `release` chain (it is now the
 # primary unit gate). Every unit test still runs SOMEWHERE: non-fragile
 # under coverage/kcov, the fragile files under `bats-fragile` (plain).
+#
+# 14. **#1009 the gate rosters are DERIVED from the job graph** — every
+# assertion above about a `needs:` list named the roster it checked, so the
+# roster and the assertion were two hand-kept copies of the same thing and
+# adding a job updated neither. Three guards now read the roster out of the
+# file instead: every job the workflow declares is named DIRECTLY in
+# `ci-rollup`'s `needs:` (directly, because `if: always()` means it can only
+# see its own needs, and a job reached through a failed one arrives as
+# SKIPPED, which the tolerant bucket passes); every job `ci-rollup` needs is
+# bound to a `*_RESULT` and compared in EXACTLY ONE of the two result loops
+# (a needed job nothing compares is waited for and ignored); and `release`'s
+# transitive `needs:` closure equals the set `ci-rollup` names, since the
+# tag path does not go through `ci-rollup`. The two defects that motivated
+# this land with it: `compute-shards` joins `ci-rollup` in the STRICT loop,
+# and `coverage-gate` joins `release`'s `needs:` so a tag cannot cut a
+# Release below `COVERAGE_MIN`. Because the roster prose in this blurb is
+# hand-kept in exactly the way the guards forbid, the file -- not this
+# paragraph -- is now the record of who needs whom.
 #
 # Grouped by concern:
 #
@@ -951,9 +969,14 @@ _job_comments() {
   # adds `coverage` to the list — it is now the primary unit gate (a
   # sharded kcov PR gate), so a kcov failure must block PR merge; the
   # bats-unit matrix is replaced with a single bats-fragile job.
+  #
+  # `compute-shards` joins the list too: it is the producer the coverage
+  # matrix reads its shard list from, so its failure skips BOTH coverage
+  # and coverage-gate, and a rollup that does not name it collapses that
+  # double skip into a green required check.
   run yaml_job_lines "${WF}" ci-rollup
   assert_success
-  assert_output --partial 'needs: [actionlint, classify, shellcheck, doc-counts, lint-static, hadolint, bats-fragile, bats-integration, coverage, coverage-gate, acceptance, system, worker-selftest]'
+  assert_output --partial 'needs: [actionlint, classify, shellcheck, doc-counts, lint-static, hadolint, bats-fragile, bats-integration, compute-shards, coverage, coverage-gate, acceptance, system, worker-selftest]'
 }
 
 @test "self-test.yaml: ci-rollup DOES need coverage now (#615 amends #377)" {
@@ -987,6 +1010,7 @@ _job_comments() {
   assert_output --partial 'needs.hadolint.result'
   assert_output --partial 'needs.bats-fragile.result'
   assert_output --partial 'needs.bats-integration.result'
+  assert_output --partial 'needs.compute-shards.result'
   assert_output --partial 'needs.coverage.result'
   assert_output --partial 'needs.coverage-gate.result'
   assert_output --partial 'needs.acceptance.result'
@@ -1028,8 +1052,311 @@ _job_comments() {
   run yaml_job_lines "${WF}" ci-rollup
   assert_success
   assert_output --partial 'for r in "${ACTIONLINT_RESULT}" "${CLASSIFY_RESULT}" \'
-  assert_output --partial '"${DOC_COUNTS_RESULT}" "${LINT_STATIC_RESULT}"; do'
+  assert_output --partial '"${DOC_COUNTS_RESULT}" "${LINT_STATIC_RESULT}" \'
+  assert_output --partial '"${COMPUTE_SHARDS_RESULT}"; do'
   assert_output --partial '[[ "${r}" == "success" ]] || fail=1'
+}
+
+# why: compute-shards carries no `if:` gate, so a SKIPPED there is a
+# workflow bug and not a conditional job declining to run. It is also the
+# one job whose FAILURE is otherwise invisible: coverage needs it and
+# coverage-gate needs coverage, and both of those sit in the rollup's
+# skipped-tolerant bucket, so putting compute-shards in the tolerant bucket
+# too leaves the required check green with the entire unit suite and the
+# coverage floor never run.
+@test "self-test.yaml: ci-rollup treats compute-shards as hard-mandatory, not SKIPPED-tolerant (#1009)" {
+  # compute-shards emits the shard list the coverage matrix expands, and it
+  # carries no `if:` gate -- so a SKIPPED there is a workflow bug, exactly
+  # like doc-counts / lint-static. It is also the one job whose FAILURE is
+  # otherwise invisible: coverage needs it, coverage-gate needs coverage,
+  # and both sit in the rollup's skipped-tolerant bucket, so a
+  # compute-shards failure used to leave the required check green with the
+  # whole unit suite and the coverage floor unrun.
+  run yaml_job_lines "${WF}" ci-rollup
+  assert_success
+  assert_output --partial 'needs.compute-shards.result'
+
+  # In the strict loop ...
+  run code_grep -A2 'for r in "${ACTIONLINT_RESULT}"' "${WF}"
+  assert_success
+  assert_output --partial 'COMPUTE_SHARDS_RESULT'
+
+  # ... and NOT in the skipped-tolerant one. Read the tolerant loop alone:
+  # asserting over the whole job would find the name in the strict loop and
+  # pass whichever bucket it really sits in.
+  run code_grep -A4 'for r in "${SHELLCHECK_RESULT}"' "${WF}"
+  assert_success
+  refute_output --partial 'COMPUTE_SHARDS_RESULT'
+}
+
+# ── The gate roster is DERIVED, not hand-kept ──────────────────
+#
+# Every assertion above this line names the roster it checks, which means
+# the roster is written twice -- once in the workflow, once here -- and
+# adding a job to the workflow updates neither. That is not a hypothetical:
+# `compute-shards` shipped outside ci-rollup's `needs:` and `coverage-gate`
+# outside release's, and each assertion above passed the whole time,
+# because each one asserted the text that was there.
+#
+# So the three guards below take the roster from the FILE. The set of jobs
+# comes from the `jobs:` mapping, the dependencies come from each job's
+# `needs:`, and the two gates are compared against those rather than
+# against a list a human maintains. A job added tomorrow is covered the day
+# it lands.
+
+# _result_var <job> -- the env var ci-rollup binds a job's result to.
+# Derived from the job id (upper-case, dashes to underscores) rather than
+# looked up in a table, so the mapping cannot drift from the naming the
+# workflow already uses.
+_result_var() {
+  printf '%s_RESULT\n' "${1}" | tr 'a-z-' 'A-Z_'
+}
+
+# _rollup_loops -- ci-rollup's verify loops, one per line, as
+# `<kind> <VAR>...`. The KIND is decided by the loop BODY's comparison --
+# a body that also accepts "skipped" is the tolerant bucket, one that
+# accepts "success" alone is the strict one -- not by which variable
+# happens to be written first, so a loop reordered or renamed is still
+# classified by what it actually does.
+_rollup_loops() {
+  yaml_job_lines "${WF}" ci-rollup | awk '
+    /for r in / { collecting = 1; header = "" }
+    collecting {
+      header = header " " $0
+      if ($0 ~ /; do[[:space:]]*$/) { collecting = 0; pending = header }
+      next
+    }
+    pending != "" && /== "success"/ {
+      kind = ($0 ~ /"skipped"/) ? "tolerant" : "strict"
+      n = split(pending, parts, /[^A-Z_]+/)
+      out = kind
+      for (i = 1; i <= n; i++) {
+        if (parts[i] ~ /_RESULT$/) { out = out " " parts[i] }
+      }
+      print out
+      pending = ""
+    }
+  '
+}
+
+# _needs_closure <job> -- every job <job> transitively depends on, sorted,
+# excluding <job> itself. This is what makes the tag path answerable: a
+# release gate inherits a dependency through the job it names, so the
+# comparable quantity is the closure and not the literal list.
+#
+# On a `needs:` entry naming a job the workflow does not declare, the
+# parser's `BUG:` line is PROPAGATED and the walk stops with a non-zero
+# status -- it is not queued as another job id. That entry is the
+# rename/typo drift this spec exists to catch, and a `BUG:` line walked
+# as an id yields a new, longer `BUG:` line every round, which the
+# seen-set can never dedupe: the walk would run forever and hang the
+# suite instead of failing it.
+_needs_closure() {
+  local -a _queue=("${1}")
+  local -A _seen=()
+  local _job _dep _deps _status
+  while [ "${#_queue[@]}" -gt 0 ]; do
+    _job="${_queue[0]}"
+    _queue=("${_queue[@]:1}")
+    [[ -z "${_seen[${_job}]:-}" ]] || continue
+    _seen["${_job}"]=1
+    _status=0
+    _deps="$(yaml_job_needs "${WF}" "${_job}")" || _status=$?
+    if [ "${_status}" -ne 0 ]; then
+      printf '%s\n' "${_deps}"
+      return 1
+    fi
+    while IFS= read -r _dep; do
+      [[ -n "${_dep}" ]] || continue
+      _queue+=("${_dep}")
+    done <<<"${_deps}"
+  done
+  unset '_seen[${1}]'
+  [ "${#_seen[@]}" -gt 0 ] || return 0
+  printf '%s\n' "${!_seen[@]}" | sort
+}
+
+# _job_names -- the workflow's jobs, failing the test (rather than
+# returning a short list) when the parse did not work.
+_job_names() {
+  local _names _status=0
+  _names="$(yaml_job_names "${WF}")" || _status=$?
+  [ "${_status}" -eq 0 ] || fail "${_names}"
+  printf '%s\n' "${_names}"
+}
+
+# why: This is the guard that makes the merge gate's roster DERIVED rather
+# than hand-kept, and it is the recurrence #1009 asks to close: adding a job
+# to the workflow used to update neither ci-rollup's needs nor any
+# assertion, so the new job gated nothing and every existing test stayed
+# green. Directly and not transitively, because ci-rollup runs under
+# `if: always()` and reads each upstream's `.result`: GitHub reports a job
+# whose need failed as SKIPPED, and SKIPPED is pass-equivalent in the
+# tolerant bucket, so a job reached only through another is invisible to it.
+@test "self-test.yaml: every job the workflow declares is named directly in ci-rollup's needs (#1009)" {
+  # Directly, not transitively. ci-rollup runs under `if: always()` and
+  # reads each upstream's `.result`, so what it can SEE is its own `needs:`
+  # -- and a dependency reached only through another job is invisible to
+  # it in the worst case: GitHub reports a job whose need failed as
+  # SKIPPED, and SKIPPED is pass-equivalent in the tolerant bucket. That is
+  # how a compute-shards failure used to travel: coverage skipped,
+  # coverage-gate skipped, required check green, unit suite and coverage
+  # floor never run.
+  #
+  # ci-rollup and release are the two SINKS and so are exempt: nothing
+  # aggregates the aggregator, and the tag path is checked separately
+  # below.
+  local -a _jobs=()
+  mapfile -t _jobs < <(_job_names)
+  [ "${#_jobs[@]}" -ge 14 ] \
+    || fail "parsed ${#_jobs[@]} jobs out of the workflow; the jobs mapping did not read"
+
+  local _needs _status=0
+  _needs="$(yaml_job_needs "${WF}" ci-rollup)" || _status=$?
+  [ "${_status}" -eq 0 ] || fail "${_needs}"
+
+  local _job
+  for _job in "${_jobs[@]}"; do
+    case "${_job}" in
+      ci-rollup | release) continue ;;
+    esac
+    grep -qxF -- "${_job}" <<<"${_needs}" \
+      || fail "job '${_job}' is declared in self-test.yaml but ci-rollup does not name it in needs: -- its failure cannot reach the required check"
+  done
+}
+
+# why: Joining `needs:` is only half a gate, so the guard above is not
+# enough on its own. The rollup's verdict is the two loops over the
+# `*_RESULT` variables: a job that is needed but compared in neither loop is
+# waited for and then ignored, which is the same green as never having been
+# needed, with a needs list that reads as correct. Exactly one bucket rather
+# than at least one, because a variable in both is strict and tolerant at
+# once. No pre-existing test caught a `*_RESULT` dropped from a loop.
+@test "self-test.yaml: ci-rollup inspects every job it needs, in exactly one result bucket (#1009)" {
+  # Joining `needs:` is half a gate. The rollup's verdict is the two loops
+  # over the *_RESULT variables, so a job that is needed but named in
+  # neither loop is waited for and then ignored -- the same green as not
+  # being needed at all, with the needs list looking correct.
+  local -a _loops=()
+  mapfile -t _loops < <(_rollup_loops)
+  [ "${#_loops[@]}" -eq 2 ] \
+    || fail "expected a strict and a tolerant result loop in ci-rollup, parsed ${#_loops[@]}"
+
+  local _rollup
+  _rollup="$(yaml_job_lines "${WF}" ci-rollup)"
+
+  local _needs _status=0
+  _needs="$(yaml_job_needs "${WF}" ci-rollup)" || _status=$?
+  [ "${_status}" -eq 0 ] || fail "${_needs}"
+
+  local _job _var _line _hits
+  while IFS= read -r _job; do
+    [[ -n "${_job}" ]] || continue
+    _var="$(_result_var "${_job}")"
+    grep -qF -- "${_var}: \${{ needs.${_job}.result }}" <<<"${_rollup}" \
+      || fail "ci-rollup needs '${_job}' but binds no ${_var} from needs.${_job}.result"
+    _hits=0
+    for _line in "${_loops[@]}"; do
+      case " ${_line} " in
+        *" ${_var} "*) _hits=$(( _hits + 1 )) ;;
+      esac
+    done
+    [ "${_hits}" -eq 1 ] \
+      || fail "ci-rollup needs '${_job}' but ${_var} appears in ${_hits} result loops (expected exactly 1) -- a needed job nothing compares is a job that gates nothing"
+  done <<<"${_needs}"
+}
+
+# why: The two guards above cover the PR path only. `release` does not go
+# through ci-rollup -- ci-rollup is not in its `needs:` -- so the merge gate
+# and the tag path were independent hand-kept lists of the same thing with
+# nothing making them agree, and coverage-gate sat in one of them only. That
+# left the coverage floor enforced on every PR and unenforced on the one
+# path that publishes a Release, which is the half of #1009 no assertion
+# about either roster could have found.
+@test "self-test.yaml: the tag path requires exactly what the merge gate requires (#1009)" {
+  # release does NOT go through ci-rollup -- ci-rollup is not in its
+  # `needs:` -- so the two rosters are independent lists of the same thing,
+  # and nothing made them agree. coverage-gate was in one and not the
+  # other, which left the coverage floor enforced on PRs and unenforced on
+  # the one path that publishes an artifact.
+  #
+  # Compared as SETS derived from the file: release's transitive closure
+  # against the jobs ci-rollup names. Transitive on the release side
+  # because a skipped or failed need there skips release itself, so a
+  # dependency inherited through another job really is a gate; ci-rollup
+  # needs the direct list for the reason the guard above states.
+  #
+  # Neither roster is read through a PIPELINE: bats leaves `pipefail` off
+  # (`set +o pipefail`, probed in the harness), so `yaml_job_needs ... |
+  # sort` reports SORT's status and the parser's `BUG:` line arrives as
+  # data with a status of 0. The sort happens after the status is read.
+  local _merge _tag _status=0
+  _merge="$(yaml_job_needs "${WF}" ci-rollup)" || _status=$?
+  [ "${_status}" -eq 0 ] || fail "${_merge}"
+  _merge="$(sort <<<"${_merge}")"
+  _status=0
+  _tag="$(_needs_closure release)" || _status=$?
+  [ "${_status}" -eq 0 ] || fail "${_tag}"
+
+  # Non-vacuity: two empty sets are equal. Checked as EMPTINESS and not
+  # by probing for a job by name -- the name to hand was `coverage-gate`,
+  # the very job whose absence from a roster this test exists to detect,
+  # so reintroducing that defect tripped the guard first and reported a
+  # MISSING GATE as "the tag-path closure did not parse". That statement
+  # is false (the closure parsed perfectly) and it points a maintainer at
+  # yq instead of at the gate. A roster that genuinely failed to parse
+  # already arrives as a non-zero status from the two calls above; what
+  # is left for this guard is a roster that parsed to nothing.
+  [ -n "${_merge}" ] || fail "ci-rollup declares no needs: at all"
+  [ -n "${_tag}" ] || fail "release transitively requires nothing at all"
+
+  [ "${_merge}" == "${_tag}" ] || fail "the tag path and the merge gate require different jobs.
+ci-rollup requires:
+${_merge}
+release transitively requires:
+${_tag}"
+}
+
+# why: The guard above compares a transitive closure, so it is worth no
+# more than the walk that computes it -- this is the test that keeps that
+# one from being vacuous. `yaml_job_needs` answers an undeclared job id with
+# a `BUG:` line and a non-zero status; a walk that reads the line and drops
+# the status queues the diagnostic as another job id, and since each bogus
+# id yields a new and longer line the seen-set never dedupes, the walk never
+# ends. That turns exactly the roster drift this spec exists to catch -- a
+# renamed job still named in a `needs:` entry -- into `just test` hanging
+# with no TAP output and a container left spinning, which is the worst
+# failure mode available to it.
+@test "self-test.yaml: the closure walk reports a dangling needs: entry instead of walking forever (#1009)" {
+  # The guard above compares a CLOSURE, so it is only as good as the walk
+  # that computes it. `yaml_job_needs` answers a job id the file does not
+  # declare with a `BUG:` line AND a non-zero status, because a `needs:`
+  # entry naming a renamed job is a defect and not an absence. A walk that
+  # reads the line and drops the status queues the diagnostic as if it were
+  # a job id -- and each bogus id yields a NEW, longer `BUG:` line, so the
+  # seen-set never dedupes it and the walk never ends. That turns exactly
+  # the roster drift this spec exists to catch -- a rename or a typo in a
+  # `needs:` entry -- into `just test` HANGING: no TAP output, no
+  # diagnostic, and a container left spinning.
+  #
+  # Run against a fixture rather than the real workflow: the property is
+  # about what the walk does with a dangling edge, and the workflow under
+  # test must not have one. A status of 124 below is the timeout firing,
+  # i.e. the walk is still unbounded.
+  local _fixture="${BATS_TEST_TMPDIR}/dangling-needs.yaml"
+  cat >"${_fixture}" <<'YAML'
+jobs:
+  root:
+    needs: [present, renamed-away]
+  present:
+    runs-on: ubuntu-latest
+YAML
+  export -f _needs_closure yaml_job_needs _yaml_eval
+  run env WF="${_fixture}" timeout 20 bash -c '_needs_closure root'
+  [ "${status}" -ne 124 ] \
+    || fail "the closure walk never terminated on a needs: entry naming a job the workflow does not declare"
+  assert_failure
+  assert_output --partial 'declares no job renamed-away'
 }
 
 # ── Fork PRs cannot make the rollup vacuously green ────────────
@@ -1376,9 +1703,14 @@ _job_comments() {
   # tag should NOT produce a Release. The bats-unit matrix is replaced
   # with `bats-fragile` and `coverage` (now the primary unit gate) joins
   # the release chain.
+  #
+  # `coverage-gate` joins it too: it is the coverage FLOOR
+  # (ADR-00000008), it was in ci-rollup but not here, and ci-rollup is not
+  # a `needs:` of release -- so the one path that produces an artifact
+  # users consume was the one path the floor did not gate.
   run yaml_job_lines "${WF}" release
   assert_success
-  assert_output --partial 'needs: [shellcheck, doc-counts, lint-static, hadolint, bats-fragile, bats-integration, coverage, acceptance, system, worker-selftest]'
+  assert_output --partial 'needs: [shellcheck, doc-counts, lint-static, hadolint, bats-fragile, bats-integration, coverage, coverage-gate, acceptance, system, worker-selftest]'
 }
 
 @test "self-test.yaml: the release job assembles no source archive of its own (#924)" {

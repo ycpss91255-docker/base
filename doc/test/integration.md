@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **158 tests**.
+Integration specs under `test/bats/integration/`: **165 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -9,6 +9,26 @@ Integration specs under `test/bats/integration/`: **158 tests**.
 ## Test Files
 
 <!-- generated: catalogue sections -->
+
+### test/bats/integration/apk_mirror_spec.bats (2)
+
+The FORWARDING half of the APK_MIRROR contract -- the repo-root
+`compose.yaml` passes the arg to the tooling build only when the caller set
+one, so the upstream host keeps being named in exactly one place, the
+Dockerfile. Passing it unconditionally would put an empty `--build-arg` in
+front of the image's own default on every machine that needs no override,
+and a `:-` default here would move the declaration of the upstream host into
+a file the Dockerfile cannot see.
+
+Compose's own interpolation is what decides this, not the file's text, so
+the assertions drive `docker compose config` rather than grepping. The knob
+itself -- the default, the skip at the default, the reach over every apk
+stage -- is test/bats/unit/apk_mirror_spec.bats'.
+
+| Test | Description |
+|------|-------------|
+| `compose.yaml: with APK_MIRROR unset the tooling build receives no mirror arg (#1008)` | Unset has to mean "the Dockerfile's default", not "an empty override the Dockerfile then has to defend itself against". This is the case every machine that can reach dl-cdn is in, so an unconditional forward would put an empty `--build-arg` in front of the image's own default everywhere and be noticed nowhere. |
+| `compose.yaml: the caller's APK_MIRROR reaches the tooling build (#1008)` | The other direction, and what makes the case above non-vacuous: a `build.args` entry deleted outright would also forward nothing when unset. Both halves together are what says the bare `- APK_MIRROR` form is doing its job -- override through, nothing through otherwise. |
 
 ### test/bats/integration/ci_preflight_contract_spec.bats (8)
 
@@ -147,6 +167,16 @@ gitignore sync requires the **real** `init.sh` to run during Step 3 of
 | `init.sh existing-repo: idempotent — second run produces no .dockerignore changes (#604)` | - |
 | `upgrade.sh end-to-end: synced .gitignore + untracked compose.yaml in single commit` | One-shot upgrade |
 | `upgrade.sh end-to-end: idempotent on a second run — no extra commits` | Re-upgrade clean |
+
+### test/bats/integration/init_existing_repo_signals_spec.bats (5)
+
+| Test | Description |
+|------|-------------|
+| `a repo carrying none of the published signals is scaffolded as new (#928)` | The baseline base#928 broke: with no signal present the new-repo path must actually run, and the three artifacts it alone installs are the currency the outage was measured in. |
+| `each published signal, on its own, sends init down the existing-repo path (#928)` | The anti-decay half. A published list nothing exercises is a second statement of the branch condition, and a second statement is what goes stale -- so every entry is run through a real init rather than trusted. |
+| `a repo carrying a file the list does NOT publish is still scaffolded as new (#928)` | The converse, without which the case above passes on a branch that treats ANY file as a signal: presence must not decide, the list must. |
+| `no file a repo can carry, scaffold output or not, can quietly become a signal (#928)` | The case that closes the class rather than one file. base#928 was a file joining the branch condition without joining the list, and the population has to include what no scaffold writes -- `Dockerfile` came from exactly that half. |
+| `the new-repo scaffold creates every published signal (#928)` | The other direction of the same proxy. A signal init never installs can only ever be supplied by somebody else, which is precisely how the template's shipped Dockerfile inverted it. |
 
 ### test/bats/integration/init_installed_paths_spec.bats (1)
 

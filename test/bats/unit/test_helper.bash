@@ -317,6 +317,48 @@ yaml_step_id_for() {
         '
 }
 
+# yaml_step_run <file> <job> <step>
+#   The `run:` script of ONE step of <job>, as the shell that step actually
+#   executes: the block scalar already folded, `${{ }}` template tokens left
+#   as the literal text they are in the file. A spec whose subject is what an
+#   inline step DOES -- not what its text looks like -- feeds this to `bash`
+#   with the step's `env:` supplied and reads the exit status, so the
+#   assertion survives a rewrite of the same behaviour and fails on a rewrite
+#   of the behaviour itself.
+#
+#   <step> names the step by its `id:` OR by its `name:`. Both are read
+#   because a step is only obliged to carry the second: requiring an `id:`
+#   would mean editing the workflow to make a step testable, and a step
+#   edited to be tested is no longer quite the step that runs.
+#
+#   A job, step or `run:` that does not exist yields NOTHING, so a caller's
+#   `[ -s ... ]` guard fails the assertion loudly rather than executing an
+#   empty script and reading its success as the step's. The `run:` half of
+#   that needs the `select` below and does not come free: asked for a key a
+#   step does not carry -- and a `uses:` step carries no `run:` -- yq prints
+#   the literal string `null` at status 0, which passes a `[ -s ... ]` guard
+#   and runs under `bash` as a one-line script whose 127 the caller reads as
+#   the step's own failure.
+yaml_step_run() {
+    _yaml_eval "${1}" \
+        ".jobs.\"${2}\".steps[] | select(.id == \"${3}\" or .name == \"${3}\")\
+         | select(.run != null) | .run"
+}
+
+# yaml_run_blocks <file>
+#   Every step `run:` script in <file>, in document order, one block after
+#   another -- the shell a workflow actually executes, separated from the
+#   YAML that carries it. A scan whose subject is what workflow shell DOES
+#   has to read it here: shellcheck never sees these blocks (they are not
+#   shell FILES), so nothing else in the tree reads them as code.
+#
+#   A job with no `steps:` contributes nothing rather than an error, so a
+#   workflow whose jobs are pure `uses:` calls is scanned like any other.
+yaml_run_blocks() {
+    _yaml_eval "${1}" \
+        '.jobs | to_entries | .[] | .value.steps // [] | .[] | select(has("run")) | .run'
+}
+
 # yaml_job_names <file>
 #   The top-level `jobs:` keys of <file>, one per line -- the workflow's own
 #   job roster, DERIVED from the file rather than remembered by the spec. A
@@ -428,6 +470,41 @@ yaml_job_names() {
         return 1
     fi
     _yaml_eval "${_file}" '.jobs | keys | .[]'
+}
+
+# yaml_job_needs <file> <job>
+#   The job ids one job declares in `needs:`, one per line, in document
+#   order. A job that declares no `needs:` yields nothing; a job that is
+#   not in the file yields a `BUG:` line and a non-zero status, because a
+#   caller naming a renamed job is a defect and not an absence.
+#
+#   Both legal spellings are one case: the scalar (`needs: actionlint`)
+#   and the sequence (`needs: [a, b]`, or a block list). They are folded
+#   by the parser rather than by the caller, so a guard that walks the job
+#   graph cannot see a dependency under one spelling and miss it under the
+#   other -- and `needs: actionlint` is exactly how the job at the root of
+#   this workflow's coverage chain is written.
+yaml_job_needs() {
+    local _file="${1}" _job="${2}" _kind _status=0
+    _kind="$(YAML_JOB="${_job}" yq '.jobs[strenv(YAML_JOB)] | tag' \
+        "${_file}" 2>&1)" || _status=$?
+    if [[ "${_status}" -ne 0 ]]; then
+        printf 'BUG: yq exited %s reading job %s of %s: %s\n' \
+            "${_status}" "${_job}" "${_file}" \
+            "$(printf '%s' "${_kind}" | tr '\n' ' ')"
+        return 1
+    fi
+    if [[ "${_kind}" != '!!map' ]]; then
+        printf 'BUG: %s declares no job %s (that key reads as %s)\n' \
+            "${_file}" "${_job}" "${_kind}"
+        return 1
+    fi
+    YAML_JOB="${_job}" _yaml_eval "${_file}" \
+        '[.jobs[strenv(YAML_JOB)].needs]
+           | flatten
+           | .[]
+           | select(. != null)
+           | tostring'
 }
 
 # yaml_job_permission_entries <file> <job>

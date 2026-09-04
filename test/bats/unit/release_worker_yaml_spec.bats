@@ -49,6 +49,11 @@
 # - Every job's grant pinned as an exact per-job entry set, over the job
 # list derived from the file (`preflight: contents: read`, `release:
 # contents: write`)
+#
+# - The released version is RESOLVED (`script/ci/release-version.sh`) rather
+# than read off `github.ref_name`, so the worker can be called directly by a
+# downstream repo auto-releasing a merged dependency bump -- a run that has no
+# tag ref to read (#829)
 
 bats_require_minimum_version 1.5.0
 
@@ -155,4 +160,67 @@ setup() {
   assert_success
   assert_output 'preflight: contents: read
 release: contents: write'
+}
+
+# ── the released version is resolved, not read off the ref ───────────────────
+
+# why: The input that makes a direct call possible at all. A downstream repo
+# cannot auto-release by pushing a tag -- an event created with the default
+# GITHUB_TOKEN starts no workflow run -- so it calls this worker with the
+# version it computed. Declared optional with an empty default, so every
+# existing tag-triggered caller keeps working unchanged (#829).
+@test "release-worker.yaml: version is an optional input with an empty default (#829)" {
+  run bash -c "grep -A4 '^      version:' '${WF}' | grep -F 'required: false'"
+  assert_success
+  run bash -c "grep -A4 '^      version:' '${WF}' | grep -F 'default: \"\"'"
+  assert_success
+}
+
+# why: The resolution is a tested script, not an expression in the YAML. Same
+# split as the preflight validator and the archive assembler: the logic runs
+# under `just test`, the workflow keeps the GITHUB_OUTPUT plumbing (#829).
+@test "release-worker.yaml: the version is resolved by script/ci/release-version.sh (#829)" {
+  run code_grep -F '.release-base/script/ci/release-version.sh' "${WF}"
+  assert_success
+}
+
+# why: The caller's input reaches the resolver through `env:`, the same rule
+# the archive step follows -- an input interpolated into a `run:` block is
+# caller-controlled text spliced into the shell before bash sees it (#829).
+@test "release-worker.yaml: the version input reaches the resolver via env (#829)" {
+  run code_grep -F 'RELEASE_VERSION_INPUT: ${{ inputs.version }}' "${WF}"
+  assert_success
+}
+
+# why: Without an explicit tag_name the release action falls back to the ref
+# that started the run, so a direct call would try to publish a release for a
+# BRANCH. The tag is the resolved version, whichever source it came from
+# (#829).
+@test "release-worker.yaml: the release is cut for the resolved version (#829)" {
+  run code_grep -F 'tag_name: ${{ steps.version.outputs.version }}' "${WF}"
+  assert_success
+}
+
+# why: The archive name and the release tag must be the one value. The step
+# used to build the name from GITHUB_REF_NAME, which on a direct call is a
+# branch name -- an archive called `<repo>-main` attached to a release tagged
+# vX.Y.Z (#829).
+@test "release-worker.yaml: the archive is named from the resolved version (#829)" {
+  run code_grep -F 'VERSION: ${{ steps.version.outputs.version }}' "${WF}"
+  assert_success
+  run code_grep -F 'GITHUB_REF_NAME' "${WF}"
+  assert_failure
+}
+
+# why: The #1012 shape: a decision about a version read off a ref that does
+# not carry one. `contains(github.ref_name, "-")` is false for every branch,
+# so a direct call cutting an RC would publish it as a full release -- and
+# `publish-worker` defaults consumers to whatever the newest full release
+# left. The flag comes from the resolver, which derived it from the version
+# actually being released (#829, refs #1012).
+@test "release-worker.yaml: prerelease is derived from the resolved version, not the ref (#829)" {
+  run code_grep -F 'steps.version.outputs.prerelease' "${WF}"
+  assert_success
+  run code_grep -F 'contains(github.ref_name' "${WF}"
+  assert_failure
 }

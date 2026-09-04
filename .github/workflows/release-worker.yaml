@@ -12,6 +12,17 @@ on:
         type: string
         default: ""
         description: "Space-separated list of extra files/dirs to include in archive"
+      version:
+        required: false
+        type: string
+        default: ""
+        description: >-
+          Release version to cut, e.g. v1.2.3. Leave unset on the
+          tag-triggered path: the version is then read off the pushed tag.
+          Pass it when calling this worker directly from a non-tag run --
+          an event created with the default GITHUB_TOKEN starts no workflow
+          run, so a repo auto-releasing a merged change cannot get there by
+          pushing a tag, and its ref is a branch that names no version.
 
 jobs:
   # ────────────────────────────────────────────────────────────────
@@ -67,12 +78,27 @@ jobs:
           ref: ${{ github.job_workflow_sha }}
           path: .release-base
 
+      # WHICH version this release cuts is resolved by a script, not by an
+      # expression: github.ref_name carries a version only on a tag push, and
+      # the direct-call path this worker now supports has a branch there. The
+      # resolver refuses anything it cannot read rather than falling back --
+      # its answer becomes a tag name and a Release title -- and prints
+      # nothing on stdout when it does, so a refusal leaves no output key
+      # behind for a later step to release under. Host-testable under
+      # `just test`, same split as the preflight validator and the assembler.
+      - name: Resolve the release version
+        id: version
+        env:
+          RELEASE_VERSION_INPUT: ${{ inputs.version }}
+        run: |
+          bash .release-base/script/ci/release-version.sh >> "${GITHUB_OUTPUT}"
+
       - name: Create release archive
         env:
           ARCHIVE_NAME_PREFIX: ${{ inputs.archive_name_prefix }}
           RELEASE_EXTRA_FILES: ${{ inputs.extra_files }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          VERSION="${GITHUB_REF_NAME}"
           ARCHIVE_NAME="${ARCHIVE_NAME_PREFIX}-${VERSION}"
 
           bash .release-base/script/ci/release-archive.sh \
@@ -82,32 +108,33 @@ jobs:
           tar czf "${ARCHIVE_NAME}.tar.gz" "${ARCHIVE_NAME}"
           zip -r  "${ARCHIVE_NAME}.zip"    "${ARCHIVE_NAME}"
 
-      # Whether this tag is a prerelease is asked of the one classifier
-      # that owns the rule, checked out with the rest of the worker source
-      # at the SAME ref as this workflow. It used to be an inline
-      # `contains(github.ref_name, '-')` here and a second copy of the
-      # same expression in self-test.yaml, with a third site
-      # (release-test-tools.yaml) deciding the org's `test-tools:latest`
-      # without asking at all. The classifier also REFUSES a tag it cannot
-      # read as a version instead of calling it final, so a malformed tag
-      # fails the release rather than publishing a mislabelled one.
-      - name: Classify the release ref
-        id: ref
-        env:
-          REF: ${{ github.ref_name }}
-        run: |
-          set -euo pipefail
-          prerelease="$(bash .release-base/script/ci/release-ref.sh \
-              prerelease "${REF}")"
-          printf 'prerelease=%s\n' "${prerelease}" >> "${GITHUB_OUTPUT}"
-          echo "prerelease=${prerelease} (ref=${REF})"
-
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
+          # tag_name is explicit because the action otherwise releases the ref
+          # the run started on -- a branch, on the direct-call path. The tag
+          # does not have to exist yet: the action creates it at this commit,
+          # which is what lets a repo release a merged change without pushing
+          # a tag no event would fire for.
+          tag_name: ${{ steps.version.outputs.version }}
           body_path: doc/changelog/CHANGELOG.md
           generate_release_notes: true
-          prerelease: ${{ steps.ref.outputs.prerelease }}
+          # Whether this release is a prerelease is asked of the one place
+          # that owns the classification OF THIS WORKER'S OWN INPUT, and
+          # never spelled here. That input is a VERSION, not a ref -- the
+          # caller's when it passed one, github.ref_name only when it did
+          # not -- so the owner is script/ci/release-version.sh, which
+          # resolved this key alongside the version in the step above and
+          # refuses a value it cannot read rather than calling it final. The
+          # sites that classify a git REF (self-test.yaml,
+          # release-test-tools.yaml) ask script/ci/release-ref.sh for the
+          # same reason. This line used to spell the test itself, and a
+          # second copy of that expression lived in self-test.yaml while a
+          # third site did not ask at all -- which is how v0.42.0-rc1
+          # through -rc4 each moved the org's `test-tools:latest`. The
+          # `== 'true'` is the resolver's string output becoming the boolean
+          # this input takes; it is not a second test.
+          prerelease: ${{ steps.version.outputs.prerelease == 'true' }}
           files: |
             ${{ inputs.archive_name_prefix }}-*.tar.gz
             ${{ inputs.archive_name_prefix }}-*.zip
