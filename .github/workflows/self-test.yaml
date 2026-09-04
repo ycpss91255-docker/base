@@ -111,15 +111,19 @@ jobs:
     # spirit as #273 Phase 2's build-worker.yaml classifier). Emits two
     # outputs for downstream jobs:
     #   code_changed         — false if the PR changes only doc/** + README.md + LICENSE + CONTEXT.md
-    #   system_relevant — false if the PR does NOT touch any path in the
-    #                          system block-list (script/entrypoint.sh,
-    #                          compose.yaml, Dockerfile.example,
-    #                          Dockerfile.test-tools, build/run/exec/stop.sh,
-    #                          dist/script/base/{init,upgrade}.sh,
-    #                          test/bats/system/**, .github/workflows/**)
+    #   system_relevant      — false if the PR touches no pathspec emitted
+    #                          by script/ci/system_paths.sh. The pathspecs
+    #                          are read from that script at run time and
+    #                          are deliberately NOT restated here: they
+    #                          used to be seventeen literals in the step
+    #                          below, and a roster kept by hand names what
+    #                          somebody remembered rather than the system
+    #                          under test (#1011). The script's header
+    #                          carries the reasoning for each line.
     # Non-PR events (push / tag / workflow_dispatch) default to 'true' on
     # both outputs so post-merge / release builds run the full suite.
-    # See issue #317 for the full design and path-list rationale.
+    # See issue #317 for the classifier's design; #1011 for why the system
+    # pathspecs live in a script rather than in a list.
     needs: actionlint
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -1378,9 +1382,12 @@ jobs:
     needs: [actionlint, classify]
     # P3 (#317): gate on the narrower `system_relevant` output so
     # PRs that change pure lint / unit-test / doc paths (already covered
-    # by `test`) don't burn the docker.sock-mounted compose run. The
-    # block-list driving this output is in the `classify` job above;
-    # gotcha-5 extends it to setup.sh + lib/** + i18n.sh + prune.sh.
+    # by `test`) don't burn the docker.sock-mounted compose run. What makes
+    # a PR system-relevant is decided by script/ci/system_paths.sh, which
+    # the `classify` job above reads: it selects the system these specs
+    # exercise -- the shipped template, base's own harness, the images they
+    # build and the workflows that run them -- rather than listing the
+    # files somebody remembered (#1011).
     if: needs.classify.outputs.system_relevant == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -1463,8 +1470,9 @@ jobs:
     # (does the CONSUMER get told what to supply) and from the `system` job
     # above (base's own image lifecycle): this asks "does the worker itself
     # build". Gated on system_relevant so pure lint / unit-test / doc PRs
-    # skip it (`.github/workflows/**` is in the classify block-list, so any
-    # change to the worker or this job re-runs it); ci-rollup collapses
+    # skip it (`.github/workflows/**` is one of the pathspecs
+    # script/ci/system_paths.sh emits, so any change to the worker or this
+    # job re-runs it); ci-rollup collapses
     # SKIPPED into pass, and the `release` gate requires it before a tag.
     #
     # The pyramid is pushed down first: the worker's matrix + cache-scope
