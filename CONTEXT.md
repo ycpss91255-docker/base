@@ -308,6 +308,22 @@ captures only the orchestration phase and then `_transcript_detach`s
 before the session. `run -d` is non-interactive (full capture).
 _Avoid_: foreground/background (orthogonal), TTY verb.
 
+**ABI axis**:
+Which leading components of a dependency's version its ABI is expressed in
+-- `major` for a library that breaks only on a major, `major.minor` where
+the SONAME carries the minor. Declared per dependency by the repo doing the
+bumping and never defaulted: it is a fact about the dependency, so a default
+would be base guessing on somebody else's behalf, in the direction that
+releases a break (ADR-00000031, `script/ci/abi-gate.sh`).
+_Avoid_: semver level, compatibility level.
+
+**Dependency-bump gate**:
+The shared answer to "may this pin change auto-release" -- one question, and
+a refusal for everything it cannot decide, so an unanswerable bump goes to a
+person instead of releasing itself. It approves a Z and can produce nothing
+else (ADR-00000031 amending ADR-00000027).
+_Avoid_: release gate (that is the CI required-check set), ABI check.
+
 ### Architecture seams
 
 Concepts named by the 2026-06-11 architecture review

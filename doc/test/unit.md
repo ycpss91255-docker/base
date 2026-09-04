@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3773 tests**.
+Unit specs under `test/bats/unit/`: **3809 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -81,6 +81,49 @@ tests to their owning lib's spec: the `_parse_ini_section` /
 ## Test Files
 
 <!-- generated: catalogue sections -->
+
+### test/bats/unit/abi_gate_spec.bats (18)
+
+Unit tests for `script/ci/abi-gate.sh`, the shared gate a downstream repo
+asks before auto-releasing a merged dependency bump (#829). The question it
+answers is narrow on purpose -- is this old -> new pin change ABI-safe by
+the rule this dependency itself follows -- and every other question (which
+version to cut, whether to fan out) belongs to the caller.
+
+The fail-open direction here is declaring a breaking change safe, so "cannot
+determine" resolves to NOT releasing, always: an unparseable version, a
+missing declaration, an axis this cannot read, a downgrade, a pair the
+upstream never sanctioned. There is deliberately no default for the ABI axis
+-- which component of a version is that dependency's ABI is a fact about the
+dependency (librealsense's SONAME carries its minor, plenty of libraries
+only their major), and base guessing it is exactly the fail-open this gate
+exists to prevent.
+
+A refusal exits non-zero and prints NOTHING on stdout, so a caller appending
+stdout to GITHUB_OUTPUT gets no `decision` key -- both the
+`steps.x.outputs.decision == 'release'` wiring and the bare exit status read
+a refusal as "do not release".
+
+| Test | Description |
+|------|-------------|
+| `abi-gate: a patch bump under a major.minor ABI is released` | The case the whole mechanism exists for: a patch bump of a dependency whose ABI is its major.minor. Nothing about the interface moved, so the repo may cut a Z without a human (ADR-00000027 sec.1). |
+| `abi-gate: a minor bump under a major-only ABI is released` | The same bump judged by a dependency whose ABI is only its major. The axis is the caller's declaration, so a minor move is safe here and is not safe above -- one rule, two answers, which is why the axis has no default. |
+| `abi-gate: an approval prints exactly a decision and a one-line reason` | GITHUB_OUTPUT is line-oriented, so the reason has to be one line or the key after it is lost. Also pins the shape a caller reads: exactly a decision and a reason. |
+| `abi-gate: refuses a minor bump under a major.minor ABI` | The bump this gate is for: the minor moved on a dependency whose SONAME carries the minor, so the ABI changed and a downstream rebuild is not a formality. Refused by name, with the axis in the message. |
+| `abi-gate: refuses a major bump` | The unambiguous break, under any convention. |
+| `abi-gate: refuses when no ABI axis is declared, naming what to declare` | The gate cannot know which component is a given dependency's ABI, and a default would be a guess that silently releases a break. Absent means refuse, and the message has to say what to declare. |
+| `abi-gate: refuses an ABI axis it does not recognise` | An axis the gate does not recognise is the #1012 shape -- an unrecognised input must not resolve to the permissive branch. It refuses instead of falling back to either known axis. |
+| `abi-gate: refuses an unparseable new version, naming it` | A version the gate cannot parse cannot be compared, and an uncomparable pair is the definition of "cannot determine". Named in the message so the reader sees which side was unreadable. |
+| `abi-gate: refuses an unparseable old version` | The same rule on the other side. An old pin recorded as a commit sha says nothing about the interface it carried. |
+| `abi-gate: refuses a version carrying a suffix` | A suffixed upstream version is a prerelease or a vendor build, not a released interface. It is refused rather than compared on its numbers. |
+| `abi-gate: refuses when the version did not change` | Nothing changed, so there is nothing to release. Silence here would cut a release whose changelog says a dependency moved when it did not. |
+| `abi-gate: refuses a downgrade the axis test would call safe` | A downgrade is never a routine bump -- it is a revert or a mistake, and either way it is a person's call. The component test alone would call 2.56.2 -> 2.56.1 a safe patch move. |
+| `abi-gate: refuses a 0.x pair declared with a major-only ABI` | Under 0.x a major carries no compatibility promise, so `major` is not a meaningful axis for such a pin. Refused with the fix rather than silently re-read as major.minor: a declaration nobody corrected would keep meaning something other than what it says. |
+| `abi-gate: a 0.x patch bump under a major.minor ABI is released` | The same 0.x dependency declared correctly still auto-releases its patch bumps -- the rule above is about the declaration, not a blanket ban on 0.x. |
+| `abi-gate: refuses a bump only the upstream compat declaration stops` | A wrapper declares the dependency version it was tested against, and a pair upstream never shipped together is not made safe by each half being ABI-clean on its own. When the caller supplies that declaration, the new pin has to agree with it on the ABI axis. The bump here is one the axis test alone would release -- 2.56.1 -> 2.56.4 leaves the major.minor untouched -- so only the declaration (2.55.0) can be refusing it. A pair the axis check already stops would hold with this rule deleted, and pin nothing. |
+| `abi-gate: releases a bump the upstream compat declaration sanctions` | The sanctioned pair passes -- the declaration is a constraint, not a second reason to refuse everything. |
+| `abi-gate: refuses an unparseable upstream compat declaration` | A declaration the gate cannot parse is not a satisfied constraint. It is refused rather than dropped, which is what an ignored unreadable input amounts to. |
+| `abi-gate: a refusal prints nothing on stdout and names the dependency` | The fail-closed property the wiring rests on. A refusal that printed a partial decision would leave an output key for a later job to gate on. It writes to stderr only, so there is no `decision` key at all, and the dependency is named there for whoever reads the log. |
 
 ### test/bats/unit/action_ref_agreement_lint_spec.bats (21)
 
@@ -3532,7 +3575,44 @@ per-platform + push by digest; `merge` job creates the manifest via
 | `release-test-tools.yaml: declares packages: write permission for GHCR push` | - |
 | `release-test-tools.yaml: the build job carries the same-repo guard (#766)` | - |
 
-### test/bats/unit/release_worker_yaml_spec.bats (8)
+### test/bats/unit/release_version_spec.bats (12)
+
+Unit tests for `script/ci/release-version.sh`, the resolver that decides
+WHICH version `release-worker.yaml` cuts and whether it is a prerelease
+(#829). The worker used to read both off `github.ref_name`, which only
+exists on a tag push; a downstream that wants to auto-release a merged
+dependency bump cannot push a tag with `GITHUB_TOKEN` and have the tag event
+fire (GitHub's recursion guard), so it calls the worker directly and the ref
+is a BRANCH. The resolver takes the caller's `version` input when there is
+one, falls back to the ref otherwise, and derives the prerelease flag from
+the version it resolved rather than from the ref -- the same defect shape as
+#1012, where a decision about a version was read off a ref that did not
+carry one.
+
+Every unresolvable case REFUSES: an input the resolver cannot read becomes
+the name of a git tag and a published GitHub Release, so "cannot determine"
+must not fall through to the ref, to a default, or to any name that is
+already consumed (#1012's `else` arm resolved to `:latest`). A refusal
+prints nothing on stdout, so a caller appending stdout to `GITHUB_OUTPUT`
+ends up with no `version` key at all and every downstream `if:` on it is
+false.
+
+| Test | Description |
+|------|-------------|
+| `release-version: no input resolves the pushed tag, not a prerelease` | The pre-existing path: a tag push, no `version` input. The resolved version is the tag and the release is not a prerelease, so adding the input does not move what a tag-triggered release cuts today. |
+| `release-version: no input marks an rc tag as a prerelease` | A hyphen in the resolved version is what marks a prerelease, which is the test `release-worker.yaml` already applied to `github.ref_name`. On the tag path the answer must not change. |
+| `release-version: the version input wins over a branch ref` | The point of the input: called from a merged bump on the default branch, `github.ref_name` is `main`, which is not a version at all. The caller's version wins and the ref is never consulted. |
+| `release-version: a prerelease input is a prerelease even from a branch ref` | The #1012 shape, in the direction that matters here: a prerelease cut from a branch. If the flag were still read off the ref, `main` carries no hyphen and an RC would publish as a full release. It is derived from the resolved version instead. |
+| `release-version: a whitespace-only input means not supplied` | `version` is declared with an empty default, so "not supplied" reaches the resolver as an empty (or whitespace-only) string and must mean the tag path rather than a refusal. |
+| `release-version: refuses an input that is not a version, naming it` | #1012's `else` arm resolved an unrecognised input to `:latest`, the most-consumed name in the registry. The inverse is the rule here: a version the resolver cannot read is refused by name, never resolved to anything. |
+| `release-version: refuses a version missing the v prefix` | The resolved value becomes a git tag and downstream repos pin `vX.Y.Z` (ADR-00000002). A bare `1.2.3` is refused rather than silently prefixed: normalising would publish a tag the caller did not ask for. |
+| `release-version: refuses a two-component version` | A two-component version cannot be classified -- there is no patch component to say whether this is the Z the caller means -- so it is refused rather than completed with a zero. |
+| `release-version: refuses a version carrying shell metacharacters` | The resolved value is interpolated into a tag name and a release title. The shape check is what keeps caller-controlled text from carrying shell or ref metacharacters through, so a version with a command in it is refused. |
+| `release-version: refuses a ref that is not a version` | The fallback is subject to the same rule as the input. A tag that is not a version reaches this worker whenever a repo pushes one (the caller's `call-release` fires on any tag), and releasing under a name nothing can pin is the failure being refused. |
+| `release-version: refuses when neither input nor ref is supplied` | Neither source supplied is the caller-contract error, and it must be named as such rather than producing an empty version. |
+| `release-version: a refusal prints nothing on stdout` | The fail-closed property the whole design rests on. The workflow appends this script's stdout to GITHUB_OUTPUT; a refusal that printed a partial `version=` line would leave a value for a later step to release under. A refusal writes to stderr only, so there is no output key and every `if:` reading it is false. |
+
+### test/bats/unit/release_worker_yaml_spec.bats (14)
 
 Structural assertions for `.github/workflows/release-worker.yaml`'s archive
 step. The step used to hardcode the payload as operands of one `cp -r`; `cp`
@@ -3560,6 +3640,11 @@ path)
 derived from the file (`preflight: contents: read`, `release: contents:
 write`)
 
+- The released version is RESOLVED (`script/ci/release-version.sh`) rather
+than read off `github.ref_name`, so the worker can be called directly by a
+downstream repo auto-releasing a merged dependency bump -- a run that has no
+tag ref to read (#829)
+
 | Test | Description |
 |------|-------------|
 | `release-worker.yaml: archive step names no hardcoded payload path list (#914)` | - |
@@ -3570,6 +3655,12 @@ write`)
 | `release-worker.yaml: extra_files reaches the archive step via env (#914)` | - |
 | `release-worker.yaml: no caller input is interpolated into the archive run block (#914)` | - |
 | `release-worker.yaml: every job's grant is pinned as an exact set (#957)` | - |
+| `release-worker.yaml: version is an optional input with an empty default (#829)` | The input that makes a direct call possible at all. A downstream repo cannot auto-release by pushing a tag -- an event created with the default GITHUB_TOKEN starts no workflow run -- so it calls this worker with the version it computed. Declared optional with an empty default, so every existing tag-triggered caller keeps working unchanged (#829). |
+| `release-worker.yaml: the version is resolved by script/ci/release-version.sh (#829)` | The resolution is a tested script, not an expression in the YAML. Same split as the preflight validator and the archive assembler: the logic runs under `just test`, the workflow keeps the GITHUB_OUTPUT plumbing (#829). |
+| `release-worker.yaml: the version input reaches the resolver via env (#829)` | The caller's input reaches the resolver through `env:`, the same rule the archive step follows -- an input interpolated into a `run:` block is caller-controlled text spliced into the shell before bash sees it (#829). |
+| `release-worker.yaml: the release is cut for the resolved version (#829)` | Without an explicit tag_name the release action falls back to the ref that started the run, so a direct call would try to publish a release for a BRANCH. The tag is the resolved version, whichever source it came from (#829). |
+| `release-worker.yaml: the archive is named from the resolved version (#829)` | The archive name and the release tag must be the one value. The step used to build the name from GITHUB_REF_NAME, which on a direct call is a branch name -- an archive called `<repo>-main` attached to a release tagged vX.Y.Z (#829). |
+| `release-worker.yaml: prerelease is derived from the resolved version, not the ref (#829)` | The #1012 shape: a decision about a version read off a ref that does not carry one. `contains(github.ref_name, "-")` is false for every branch, so a direct call cutting an RC would publish it as a full release -- and `publish-worker` defaults consumers to whatever the newest full release left. The flag comes from the resolver, which derived it from the version actually being released (#829, refs #1012). |
 
 ### test/bats/unit/residue_guard_spec.bats (22)
 

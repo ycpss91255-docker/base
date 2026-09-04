@@ -58,6 +58,14 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 ## [Unreleased]
 
 ### Changed
+- **the release worker cuts the version it was given, and refuses a tag it
+  cannot read (refs #829, refs #1012)** -- `prerelease` no longer reads
+  `contains(github.ref_name, '-')`, which is false for every branch and
+  would have published a directly-called RC as a full release; it now comes
+  from the resolved version. `tag_name` is explicit, so a call from a branch
+  releases the version it was given rather than the branch. **A tag that is
+  not `vX.Y.Z[-suffix]` now fails the release at the resolve step** instead
+  of publishing under a name nothing can pin.
 - **`config/<component>/` has a written layout, and a build says which preset it bakes (closes #826, closes #827; ADR-00000030)** -- a repo picks the baked preset with a committed repo-root symlink into `config/<component>/`, read through a build `ARG` whose default is that symlink's name, so `--build-arg` overrides one build with no tracked change. `just setup` names every selector and the preset it resolves to, and WARNs about one whose file is missing -- which used to surface as a `docker build` dying on a `COPY`. The seeded `config/.gitkeep` states the convention (new repos only).
 - **three of base's widest signatures narrow to what they actually take
   (refs #994)** -- `_write_setup_conf` no longer takes the section array it
@@ -123,6 +131,16 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   type at 1.7.12.
 
 ### Added
+- **a dependency bump auto-releases only when a gate proves it ABI-safe
+  (closes #829, ADR-00000031)** -- `script/ci/abi-gate.sh` asks one
+  question, did this dependency's declared ABI component move, and refuses
+  everything else: an unreadable version, an undeclared or unrecognised
+  axis, a 0.x pin declared major-only, a downgrade, an unchanged pin, a pair
+  the upstream compat declaration does not sanction. A refusal prints
+  nothing on stdout, so no caller can read a decision out of one, and there
+  is no default axis to guess with. `release-worker.yaml` gains an optional
+  `version` input, so the release is cut by calling the worker -- a
+  bot-pushed tag fires no event.
 - **`just test metrics`: one shell reader, three implementation-standard thresholds (refs #994)** -- nesting depth <= 3, function length <= 50 body code lines, positional parameters <= 5, measured in one pass over every tracked shell file. Not in `just test` or `just test lint`: today's tree reports 26 / 69 / 7, which phase 3 flattens and phase 4 then gates. The figures replace an ad-hoc count whose parser bugs are now fixtures, and every counting rule the reader states has its worked example as a fixture too -- three defects were found by running them, one of them fail-open. A file the reader cannot parse is a finding, never a skip. Host-direct: the population is the git index.
 - **`just docker prune --reclaim`: base collects its own compose litter
   (closes #995)** -- compose stamps the checkout's absolute path on its
