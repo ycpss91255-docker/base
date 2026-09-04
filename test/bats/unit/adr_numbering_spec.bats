@@ -297,18 +297,43 @@ _index() {
   [[ "${output}" == *"00000002-alpha.md"* ]]
 }
 
-# why: The difference between a reference and a FIXTURE, which is the
-# whole reason this cannot be a blind grep: the lint specs build throwaway
-# registries under a temp root, and a path rooted in a shell expansion
-# points into the tree that test builds, never into this one.
-@test "_run_adr_numbering: a doc/adr path rooted in a shell expansion is not a reference (#1021)" {
+# why: The difference between a reference and a FIXTURE, DECLARED rather
+# than guessed at. A file that builds a throwaway registry says so on a
+# line of its own and is dropped WHOLE -- every reference form in it, not
+# the ones some heuristic recognised, which is what let a renumber rewrite
+# half of one and leave the assertions naming the other record.
+@test "_run_adr_numbering: a file that declares its registry a fixture is not scanned (#1021)" {
   _touch_adr "00000001-alpha.md"
   _index '| 00000001 -- alpha | keep | mechanism | note |'
+  # Assembled from a variable, for the reason the mispaired case above
+  # states: a literal dangling reference in THIS file is a dangling
+  # reference in the real tree, which the real-tree case below reads.
+  local _ghost='00000099'
   _write 'test/bats/unit/x_spec.bats' \
-    '  : > "${SCRATCH}/doc/adr/00000004-fixture.md"'
+    '# adr-refs: fixture' \
+    "  : > \"\${SCRATCH}/doc/adr/${_ghost}-fixture.md\"" \
+    "  printf 'ADR-${_ghost}'"
   run _run_adr_numbering
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"clean"* ]]
+}
+
+# why: The blind spot the guess created, and it was live. The rule was a
+# two-character lookback: a `doc/adr/` path preceded by `}` was taken for
+# somebody's fixture. This tree writes `"${REPO}/doc/adr/00000008-...md"`
+# into a spec as a pointer at its OWN registry, so a renumber of that
+# record left a stale pointer under a green lint -- and a rule whose
+# default on the shape it does not recognise is "pass" is not a check.
+@test "_run_adr_numbering: FAILS on a doc/adr path rooted in a shell expansion (#1021)" {
+  _touch_adr "00000001-alpha.md"
+  _index '| 00000001 -- alpha | keep | mechanism | note |'
+  # Assembled, for the reason the case above states.
+  local _ghost='00000099'
+  _write 'test/bats/unit/x_spec.bats' \
+    "  local _adr=\"\${REPO_ROOT}/doc/adr/${_ghost}-ghost.md\""
+  run _run_adr_numbering
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"${_ghost}-ghost.md"* ]]
 }
 
 # why: The site the hand renumber actually missed. The index row is the

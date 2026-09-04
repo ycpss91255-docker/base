@@ -161,6 +161,28 @@ _file() {
   refute_output --partial '**99 tests**'
 }
 
+# why: The tool corrupting its own spec. A file that builds a throwaway
+# registry declares it and is left ALONE -- whole. Rewriting only the
+# classes a heuristic recognised is worse than rewriting none of them: the
+# `ADR-<n>` and `adr/<n>-` forms moved and the bare numbers a spec passes
+# to this tool as ARGUMENTS did not, so the setup and the command named
+# different records, with the survivor self-check and the lint both green.
+@test "adr renumber: leaves a file that declares its registry a fixture alone (#1021)" {
+  local _from='00000030' _to='00000032'
+  _file 'test/bats/unit/lint_spec.bats' \
+    '# adr-refs: fixture' \
+    "  : > \"\${T}/doc/adr/${_from}-entry-point.md\"" \
+    "  run bash \"\${RENUMBER}\" ${_from} ${_to} \"\${T}\"" \
+    "  # the fixture record is ADR-${_from} throughout"
+  _file 'CONTEXT.md' "ADR-${_from} is the record."
+  run bash "${RENUMBER}" 30 32 "${ROOT}"
+  assert_success
+  run cat "${ROOT}/test/bats/unit/lint_spec.bats"
+  assert_output --partial "doc/adr/${_from}-entry-point.md"
+  assert_output --partial "ADR-${_from}"
+  refute_output --partial "doc/adr/${_to}-entry-point.md"
+}
+
 # why: The population, and the property that keeps this verb and the ADR
 # lint from disagreeing about what a reference is -- they read one. A
 # tree the checkout declares derived is not swept: a materialised old
