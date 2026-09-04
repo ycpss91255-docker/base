@@ -126,6 +126,54 @@ setup() {
   refute_output --partial "**7 tests**"
 }
 
+# ── No aggregate suite figure is committed ───────────────────────────────────
+#
+# The figures above are per-DOCUMENT: one catalogue's own count, generated
+# into the catalogue it describes. The ones below were AGGREGATES over the
+# whole suite, and they lived in the two documents every branch touches --
+# TEST.md's grand total, the "in the N figure" prose, the "System (N) and
+# smoke (N)" pair, the index table's Count column, and unit.md's per-type
+# total. ADR-00000028 sec. 1 removes them: an aggregate over a moving tree
+# names nothing it measured, so it is wrong between every commit and its
+# resync, and it was the whole merge surface of doc/test/.
+#
+# Nothing in the generator forbids writing one back -- a sed that finds no
+# pattern is a silent no-op, and re-adding the line would put it back under
+# maintenance. This is the guard that fails instead.
+
+# The shapes an aggregate figure took. `\*\*[0-9]+\*\*` is the bare grand
+# total; the rest are the four prose and table sites verbatim.
+_AGGREGATE_FIGURE_RE='\*\*[0-9]+ tests?\*\*|\*\*[0-9]+\*\*|\| Count \||in the [0-9]+ figure|System \([0-9]+\) and smoke \([0-9]+\)'
+
+# _aggregate_figure_hits <doc> -- `<line>: <text>` for every authored line of
+# <doc> carrying an aggregate figure. Scanning STOPS at the generated fence:
+# past it the document is the catalogue, whose per-spec headings and rows are
+# derived on every run and are not this rule's business.
+_aggregate_figure_hits() {
+  awk '/<!-- generated: catalogue sections -->/ { exit } { print FNR ": " $0 }' "$1" \
+    | grep -E "${_AGGREGATE_FIGURE_RE}" || true
+}
+
+# why: TEST.md is the index and carried four of the five aggregate lines, so
+# it is where a reintroduced total would land first. The guard reads the
+# COMMITTED document rather than a fixture: the fixture cases above prove
+# what the generator writes, and this one proves what the repo ships.
+@test "doc/test/TEST.md commits no aggregate suite figure (#978)" {
+  run _aggregate_figure_hits /source/doc/test/TEST.md
+  assert_success
+  assert_output ''
+}
+
+# why: unit.md's total is the fifth line, and the load-bearing one: it is the
+# figure every branch that adds a unit test had to edit. Only the authored
+# preamble is scanned -- the generated region below the fence is derived from
+# the specs on every run.
+@test "doc/test/unit.md commits no aggregate suite figure (#978)" {
+  run _aggregate_figure_hits /source/doc/test/unit.md
+  assert_success
+  assert_output ''
+}
+
 @test "_sync_test_md_index: fills the system + acceptance rows, retires behavioural (#782)" {
   run bash -c '
     source "'"${GEN}"'"
