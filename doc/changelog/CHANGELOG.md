@@ -272,6 +272,15 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 - **the changelog lint now catches an entry that was edited and not re-wrapped (refs #927)** -- a single word left alone on a continuation line with more of its paragraph on the next line. The length measure collapses whitespace on purpose and markdown collapses it again at render time, so nothing else could see it. A short final line, a table row, a fenced line and an HTML comment are left alone. Affects anyone writing an `[Unreleased]` entry.
 
 ### Fixed
+- **`compute-shards` and `coverage-gate` now gate something (closes #1009)**
+  -- neither was named by a gate's `needs:`. A failed `compute-shards`
+  skipped `coverage` and `coverage-gate`, both skip-tolerated, so the
+  required check went green with the whole unit suite and the coverage floor
+  never run; and `release` did not require `coverage-gate`, so a tag could
+  publish below `COVERAGE_MIN`. `ci-rollup` now requires `compute-shards`
+  hard-mandatorily, and `release` requires `coverage-gate`. Three specs
+  DERIVE both rosters from the job graph, so a job added to the workflow
+  fails until a gate names it.
 - **the tooling image takes an `APK_MIRROR` build arg (closes #1008)** --
   `dockerfile/Dockerfile.test-tools` had no mirror override, so a host that
   cannot reach `dl-cdn.alpinelinux.org` could not build the image the whole

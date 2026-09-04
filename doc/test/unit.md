@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3822 tests**.
+Unit specs under `test/bats/unit/`: **3827 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -4151,9 +4151,9 @@ alias / `network.network_name` / `devices.device_` / `security.cap_add_` /
 | `self-hosted guard: the real repo tree has every eligible job guarded` | - |
 | `self-hosted guard: the real tree's eligible set is the three runtime-matrix worker jobs` | - |
 
-### test/bats/unit/self_test_yaml_spec.bats (107)
+### test/bats/unit/self_test_yaml_spec.bats (112)
 
-Structural assertions for `.github/workflows/self-test.yaml`. Locks thirteen
+Structural assertions for `.github/workflows/self-test.yaml`. Locks fourteen
 cumulative invariants:
 
 1. **#305 actionlint gate** — `actionlint` job declared, runs
@@ -4343,6 +4343,24 @@ joins the `release` chain (it is now the primary unit gate). Every unit test
 still runs SOMEWHERE: non-fragile under coverage/kcov, the fragile files
 under `bats-fragile` (plain).
 
+14. **#1009 the gate rosters are DERIVED from the job graph** — every
+assertion above about a `needs:` list named the roster it checked, so the
+roster and the assertion were two hand-kept copies of the same thing and
+adding a job updated neither. Three guards now read the roster out of the
+file instead: every job the workflow declares is named DIRECTLY in
+`ci-rollup`'s `needs:` (directly, because `if: always()` means it can only
+see its own needs, and a job reached through a failed one arrives as
+SKIPPED, which the tolerant bucket passes); every job `ci-rollup` needs is
+bound to a `*_RESULT` and compared in EXACTLY ONE of the two result loops (a
+needed job nothing compares is waited for and ignored); and `release`'s
+transitive `needs:` closure equals the set `ci-rollup` names, since the tag
+path does not go through `ci-rollup`. The two defects that motivated this
+land with it: `compute-shards` joins `ci-rollup` in the STRICT loop, and
+`coverage-gate` joins `release`'s `needs:` so a tag cannot cut a Release
+below `COVERAGE_MIN`. Because the roster prose in this blurb is hand-kept in
+exactly the way the guards forbid, the file -- not this paragraph -- is now
+the record of who needs whom.
+
 Grouped by concern:
 
 - `actionlint` job declared
@@ -4494,6 +4512,11 @@ list is extensible + all five `build_local` obtain steps carry the guard
 | `self-test.yaml: ci-rollup verify step consumes every needs result incl coverage (#337 + #376 + #377 + #615)` | - |
 | `self-test.yaml: ci-rollup treats SKIPPED as pass for conditionally-gated jobs (#337 + #377)` | - |
 | `self-test.yaml: ci-rollup requires hard-mandatory jobs to be success (#337 + #377)` | - |
+| `self-test.yaml: ci-rollup treats compute-shards as hard-mandatory, not SKIPPED-tolerant (#1009)` | compute-shards carries no `if:` gate, so a SKIPPED there is a workflow bug and not a conditional job declining to run. It is also the one job whose FAILURE is otherwise invisible: coverage needs it and coverage-gate needs coverage, and both of those sit in the rollup's skipped-tolerant bucket, so putting compute-shards in the tolerant bucket too leaves the required check green with the entire unit suite and the coverage floor never run. |
+| `self-test.yaml: every job the workflow declares is named directly in ci-rollup's needs (#1009)` | This is the guard that makes the merge gate's roster DERIVED rather than hand-kept, and it is the recurrence #1009 asks to close: adding a job to the workflow used to update neither ci-rollup's needs nor any assertion, so the new job gated nothing and every existing test stayed green. Directly and not transitively, because ci-rollup runs under `if: always()` and reads each upstream's `.result`: GitHub reports a job whose need failed as SKIPPED, and SKIPPED is pass-equivalent in the tolerant bucket, so a job reached only through another is invisible to it. |
+| `self-test.yaml: ci-rollup inspects every job it needs, in exactly one result bucket (#1009)` | Joining `needs:` is only half a gate, so the guard above is not enough on its own. The rollup's verdict is the two loops over the `*_RESULT` variables: a job that is needed but compared in neither loop is waited for and then ignored, which is the same green as never having been needed, with a needs list that reads as correct. Exactly one bucket rather than at least one, because a variable in both is strict and tolerant at once. No pre-existing test caught a `*_RESULT` dropped from a loop. |
+| `self-test.yaml: the tag path requires exactly what the merge gate requires (#1009)` | The two guards above cover the PR path only. `release` does not go through ci-rollup -- ci-rollup is not in its `needs:` -- so the merge gate and the tag path were independent hand-kept lists of the same thing with nothing making them agree, and coverage-gate sat in one of them only. That left the coverage floor enforced on every PR and unenforced on the one path that publishes a Release, which is the half of #1009 no assertion about either roster could have found. |
+| `self-test.yaml: the closure walk reports a dangling needs: entry instead of walking forever (#1009)` | The guard above compares a transitive closure, so it is worth no more than the walk that computes it -- this is the test that keeps that one from being vacuous. `yaml_job_needs` answers an undeclared job id with a `BUG:` line and a non-zero status; a walk that reads the line and drops the status queues the diagnostic as another job id, and since each bogus id yields a new and longer line the seen-set never dedupes, the walk never ends. That turns exactly the roster drift this spec exists to catch -- a renamed job still named in a `needs:` entry -- into `just test` hanging with no TAP output and a container left spinning, which is the worst failure mode available to it. |
 | `self-test.yaml: ci-rollup fails a fork PR instead of reporting a partial run as green (#766)` | - |
 | `self-test.yaml: the fork-PR branch is a hard failure, not an advisory note (#766)` | - |
 | `self-test.yaml: the self-hosted guard lint has a lint-static CI join (#766)` | - |
