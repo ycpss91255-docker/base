@@ -428,6 +428,56 @@ _index() {
   [[ "${output}" == *"00000001"* ]]
 }
 
+# why: Two of the three sites the 00000030 hand repair actually left stale
+# were audit-conclusion bullets, not table rows -- and the row check reads
+# only `^| NNNNNNNN `, so a recurrence in exactly those two lines stayed
+# green. `just adr renumber` disagrees: it rewrites a BARE number ANYWHERE
+# in this document, on the stated ground that its 8-digit runs are all ADR
+# numbers, its rows opening with one AND its audit conclusions enumerating
+# them. Half a document guarded is the same defect one line down.
+@test "_run_adr_numbering: FAILS on a bare number outside a row that no record claims (#1021)" {
+  _touch_adr "00000001-alpha.md"
+  # Assembled, for the reason the mispaired case above states.
+  local _ghost='00000099'
+  _index '| 00000001 -- alpha | keep | mechanism | note |' \
+    '' '## Audit conclusion' '' \
+    "- ${_ghost} -> invariant 6. Postdates the audit; listed for index" \
+    '  completeness.'
+  run _run_adr_numbering
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"${_ghost}"* ]]
+}
+
+# why: The other spelling the live document actually uses for the same
+# conclusion, emphasised rather than bare-leading. One reading of "a bare
+# 8-digit run", not a list of the shapes somebody happened to write.
+@test "_run_adr_numbering: FAILS on an emphasised bare number no record claims (#1021)" {
+  _touch_adr "00000001-alpha.md"
+  # Assembled, for the reason the mispaired case above states.
+  local _ghost='00000099'
+  _index '| 00000001 -- alpha | keep | mechanism | note |' \
+    '' '## Audit conclusion' '' \
+    "- **${_ghost}** postdates the audit and is listed for index" \
+    '  completeness.'
+  run _run_adr_numbering
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"${_ghost}"* ]]
+}
+
+# why: The same rule inside a row, where the note cell carries the numbers
+# a verdict points at (`keep (amended by 00000023)`). The row check reads
+# the number the row OPENS with and nothing else, so a stale cross-
+# reference three columns along is the audit-conclusion gap again.
+@test "_run_adr_numbering: FAILS on a bare number in a row's note cell (#1021)" {
+  _touch_adr "00000001-alpha.md"
+  # Assembled, for the reason the mispaired case above states.
+  local _ghost='00000099'
+  _index "| 00000001 -- alpha | keep (amended by ${_ghost}) | mechanism | note |"
+  run _run_adr_numbering
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"${_ghost}"* ]]
+}
+
 # why: The passing shape, so the three failures above are read as a
 # contract rather than as a lint that dislikes index tables.
 @test "_run_adr_numbering: PASSES when every record has one row and every reference resolves (#1021)" {
