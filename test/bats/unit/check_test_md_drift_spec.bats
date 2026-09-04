@@ -75,6 +75,53 @@ setup() {
   assert_output --partial "the sentence that is about to go"
 }
 
+# why: The ceiling became a generated figure (base#1024), and a gate that
+# compared only doc/test would report a tree in sync while the number in
+# the driver was one the specs no longer justify -- which is the slack
+# nobody closes, back again as a green run.
+@test "_check_test_md_drift: FAILS when the committed ceiling is not what the tree measures" {
+  run bash -c '
+    source "'"${CHECK}"'"
+    root="${BATS_TEST_TMPDIR}/r"
+    mkdir -p "${root}/test/bats/unit" "${root}/doc/test" "${root}/script/test/drivers"
+    printf "%s\n" "#!/usr/bin/env bats" "" "@test \"a\" {" ":" "}" \
+      > "${root}/test/bats/unit/x_spec.bats"
+    printf "%s\n" "Unit specs under \`test/bats/unit/\`: **0 tests**." "" \
+      "<!-- generated: catalogue sections -->" "<!-- /generated -->" \
+      > "${root}/doc/test/unit.md"
+    printf "%s\n" "readonly _CATALOG_DESC_UNDESCRIBED_CEILING=9" \
+      > "${root}/script/test/drivers/catalog_description.sh"
+    _sync_doc_counts "${root}"
+    printf "%s\n" "readonly _CATALOG_DESC_UNDESCRIBED_CEILING=9" \
+      > "${root}/script/test/drivers/catalog_description.sh"
+    _check_test_md_drift "${root}"
+  '
+  assert_failure
+  assert_output --partial 'catalog_description.sh'
+  assert_output --partial '_CATALOG_DESC_UNDESCRIBED_CEILING'
+}
+
+# why: The other side of the same gate. A tree the generator has just
+# written must verify, or `just test sync-docs` would leave a red gate
+# behind and the message telling people to run it would be a lie.
+@test "_check_test_md_drift: a regenerated ceiling verifies in sync" {
+  run bash -c '
+    source "'"${CHECK}"'"
+    root="${BATS_TEST_TMPDIR}/r"
+    mkdir -p "${root}/test/bats/unit" "${root}/doc/test" "${root}/script/test/drivers"
+    printf "%s\n" "#!/usr/bin/env bats" "" "@test \"a\" {" ":" "}" \
+      > "${root}/test/bats/unit/x_spec.bats"
+    printf "%s\n" "Unit specs under \`test/bats/unit/\`: **0 tests**." "" \
+      "<!-- generated: catalogue sections -->" "<!-- /generated -->" \
+      > "${root}/doc/test/unit.md"
+    printf "%s\n" "readonly _CATALOG_DESC_UNDESCRIBED_CEILING=9" \
+      > "${root}/script/test/drivers/catalog_description.sh"
+    _sync_doc_counts "${root}"
+    _check_test_md_drift "${root}"
+  '
+  assert_success
+}
+
 @test "_check_test_md_drift: tolerates an empty acceptance level dir (count 0) (#782)" {
   run bash -c '
     source "'"${CHECK}"'"

@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3933 tests**.
+Unit specs under `test/bats/unit/`: **3935 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -963,7 +963,7 @@ Pure git + filesystem, no docker.
 | `_run_changelog_entry: the real repo tree's [Unreleased] section is clean (#917)` | - |
 | `TEST.md's changelog-entry row names all three rules this lint enforces (#956)` | - |
 
-### test/bats/unit/check_test_md_drift_spec.bats (11)
+### test/bats/unit/check_test_md_drift_spec.bats (13)
 
 The read-only validating twin of `sync-doc-counts.sh`. It runs THAT
 generator against a throwaway copy and diffs, so "byte-identical to what is
@@ -983,6 +983,8 @@ fail on the next formatting change for a reason none of them is about.
 | `_check_test_md_drift: exits 0 on an in-sync tree (#782)` | - |
 | `_check_test_md_drift: exits non-zero and names the drifted doc on a stale count (#782)` | - |
 | `_check_test_md_drift: FAILS when a '# why:' block is deleted from a spec` | THE case this change adds to the gate. A description now lives in one place, so deleting it has to be visible somewhere -- and the catalogue is that somewhere: the row falls back to `-` while the committed one still carries prose, and the drift diff fires. Without this, the one edit that silently empties the catalogue would be the one edit nothing checks. |
+| `_check_test_md_drift: FAILS when the committed ceiling is not what the tree measures` | The ceiling became a generated figure (base#1024), and a gate that compared only doc/test would report a tree in sync while the number in the driver was one the specs no longer justify -- which is the slack nobody closes, back again as a green run. |
+| `_check_test_md_drift: a regenerated ceiling verifies in sync` | The other side of the same gate. A tree the generator has just written must verify, or `just test sync-docs` would leave a red gate behind and the message telling people to run it would be a lie. |
 | `_check_test_md_drift: tolerates an empty acceptance level dir (count 0) (#782)` | - |
 | `_check_test_md_drift: a RELATIVE root gives the same verdict as the absolute one (#848)` | - |
 | `_check_test_md_drift: a RELATIVE root still detects real drift (#848)` | - |
