@@ -12,7 +12,14 @@
 # `grep -c '^@test'` per spec, and the sections (blurb + one row per test)
 # from the spec files' own `# why:` markers. So "byte-identical to what is
 # committed" is the whole gate -- there is no preserved content for a
-# regeneration to be merged into. ISTQB taxonomy (ADR-00000018): unit / integration / system /
+# regeneration to be merged into.
+#
+# The comparison is not doc/test-shaped any more. The description lint's
+# undescribed ceiling is generated as well (base#1024) and lives in the
+# lint's own driver, so it is copied into the throwaway tree and diffed
+# beside the documents. Without that a branch could describe tests, leave
+# the number where it was, and read as in sync -- which is the slack that
+# design accepts arriving as a green run rather than as a printed number. ISTQB taxonomy (ADR-00000018): unit / integration / system /
 # acceptance levels + the shipped smoke type; empty level dirs count 0.
 #
 # Usage:
@@ -136,6 +143,17 @@ _check_test_md_drift() {
   cp -R "${_root}/doc/test" "${_tmp}/doc/test"
   ln -s "${_root}/test" "${_tmp}/test"
   [[ -d "${_root}/dist" ]] && ln -s "${_root}/dist" "${_tmp}/dist"
+  # The description lint's ceiling is a generated figure too (base#1024)
+  # and it does not live under doc/test, so the copy has to reach outside
+  # that directory or the gate would report a tree in sync while the
+  # number in the driver was one the specs no longer justify. COPIED and
+  # not symlinked, unlike the spec trees: the generator writes this one,
+  # and a symlink would have it write into the checkout the gate is meant
+  # to leave alone.
+  if [[ -f "${_root}/${_CATALOG_CEILING_REL}" ]]; then
+    mkdir -p "${_tmp}/$(dirname -- "${_CATALOG_CEILING_REL}")"
+    cp "${_root}/${_CATALOG_CEILING_REL}" "${_tmp}/${_CATALOG_CEILING_REL}"
+  fi
 
   if ! _sync_doc_counts "${_tmp}" >/dev/null; then
     rm -rf "${_tmp}"
@@ -144,14 +162,24 @@ _check_test_md_drift() {
     return 1
   fi
 
-  local _diff _rc=0
+  local _diff _ceiling_diff='' _rc=0
   _diff="$(diff -ru "${_root}/doc/test" "${_tmp}/doc/test" 2>/dev/null)" || _rc=1
+  if [[ -f "${_tmp}/${_CATALOG_CEILING_REL}" ]]; then
+    _ceiling_diff="$(diff -u \
+      "${_root}/${_CATALOG_CEILING_REL}" \
+      "${_tmp}/${_CATALOG_CEILING_REL}" 2>/dev/null)" || _rc=1
+  fi
   rm -rf "${_tmp}"
 
   if (( _rc != 0 )); then
     {
-      printf 'doc/test count drift detected. Run: just test sync-docs (then commit):\n'
-      printf '%s\n' "${_diff}"
+      printf 'generated-figure drift detected. Run: just test sync-docs (then commit):\n'
+      if [[ -n "${_diff}" ]]; then
+        printf '%s\n' "${_diff}"
+      fi
+      if [[ -n "${_ceiling_diff}" ]]; then
+        printf '%s\n' "${_ceiling_diff}"
+      fi
     } >&2
     return 1
   fi

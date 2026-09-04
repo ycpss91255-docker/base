@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3935 tests**.
+Unit specs under `test/bats/unit/`: **3936 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3963,7 +3963,7 @@ CHANGE after an acknowledgement are named again.
 | `_residue_guard_available: is switched off by TEST_RESIDUE_GUARD=0 (#965)` | The escape hatch for an edit made WHILE the suite runs, asserted in both directions |
 | `the compose dispatch is what runs the guard, not a caller that could forget (#965)` | Wired into the one host-side point every bats dispatch passes through |
 
-### test/bats/unit/resolve_doc_counts_spec.bats (9)
+### test/bats/unit/resolve_doc_counts_spec.bats (10)
 
 Unit coverage for `script/test/resolve-doc-counts.sh` -- the one command
 that resolves a `doc/test/*.md` merge conflict. Two halves: the toil
@@ -3976,6 +3976,7 @@ than resolved to whichever side the collapse happened to keep).
 |------|-------------|
 | `_resolve_doc_counts: FAILS on a RELATIVE root, naming it (#857)` | - |
 | `_resolve_doc_counts: FAILS on a nonexistent root, naming it (#857)` | - |
+| `_resolve_doc_counts: resolves a ceiling conflict by recomputing, not by taking a side` | The conflict this tool did not cover, and the reason base#1024 exists: two branches that each described tests each lowered the ceiling, so the merge conflicts on that line and the right answer is NEITHER side's -- the descriptions compose, so the merged tree measures lower than both. Recomputing is the only resolution, which is exactly what this tool already does for the documents. |
 | `_resolve_doc_counts: collapses a counter-only conflict and regenerates (#857)` | - |
 | `_resolve_doc_counts: drops the diff3 base section too (#857)` | - |
 | `_resolve_doc_counts: catalogue prose survives a conflict because both sides regenerate it (#857)` | What used to need reconciling, and no longer can. Each side's collapse used to carry hand-written descriptions the generator could not re-derive, so a mechanical collapse dropped a sentence nothing would put back and this script had to merge them row by row. Descriptions are authored in the specs now, so both collapses regenerate the SAME rows from the SAME merged spec tree -- whichever side a conflicted counter line came from. This case pins that the prose survives a conflict without any reconciliation code left to do it. |

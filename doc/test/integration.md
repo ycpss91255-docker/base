@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **164 tests**.
+Integration specs under `test/bats/integration/`: **165 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -105,7 +105,7 @@ resolved-compose -> bundle-files wiring as a flow.
 | `deploy flow: [environment] is baked as ENV into a stage that is not named runtime (#840)` | - |
 | `deploy flow: the README names the versioned image + the tunable config workflow (field-deploy)` | README template |
 
-### test/bats/integration/doc_counts_merge_spec.bats (2)
+### test/bats/integration/doc_counts_merge_spec.bats (3)
 
 The unit spec drives the resolver's functions over hand-written marker
 fixtures. This one reproduces what actually happens: two branches each added
@@ -127,6 +127,7 @@ second case drives that, and asserts nothing is staged.
 | Test | Description |
 |------|-------------|
 | `resolve-doc-counts: resolves a real two-branch counter conflict end to end (#857)` | The whole toil, end to end. The load-bearing assertion is that BOTH branches' descriptions survive: a mechanical collapse keeps one side's document, and under the old design that dropped whichever description the other side had written. Here neither side's document holds a description at all, so there is nothing to drop. |
+| `resolve-doc-counts: resolves a real two-branch CEILING conflict, landing neither side's number` | base#1024's conflict, reproduced rather than described. Two branches each describe tests, so each lowers the ceiling, so the merge conflicts on the one line -- and the answer is NEITHER side's, because the descriptions compose and the merged tree carries fewer undescribed tests than either branch did. 1 and 2 merging into 0 is the same shape as the 2617/2614 pair that merged into 2609 and got landed wrong twice. |
 | `resolve-doc-counts: REFUSES a merge whose sides differ OUTSIDE the generated region, staging nothing (#857)` | The refusal that survives. Inside the fence there is nothing left to disagree about, but the preamble is still hand-written, and adopting one side of a sentence regeneration cannot justify is exactly the trap the hand-typed recipe carried. Nothing is staged, so a half-resolved tree cannot be committed by accident. |
 
 ### test/bats/integration/fresh_clone_portability_spec.bats (2)

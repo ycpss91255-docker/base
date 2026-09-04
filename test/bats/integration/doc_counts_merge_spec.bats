@@ -133,6 +133,61 @@ _commit_all() {
   assert_success
 }
 
+# why: base#1024's conflict, reproduced rather than described. Two
+# branches each describe tests, so each lowers the ceiling, so the merge
+# conflicts on the one line -- and the answer is NEITHER side's, because
+# the descriptions compose and the merged tree carries fewer undescribed
+# tests than either branch did. 1 and 2 merging into 0 is the same shape
+# as the 2617/2614 pair that merged into 2609 and got landed wrong twice.
+@test "resolve-doc-counts: resolves a real two-branch CEILING conflict, landing neither side's number" {
+  local _driver="${REPO}/script/test/drivers/catalog_description.sh"
+  mkdir -p "${REPO}/script/test/drivers"
+  printf '%s\n' 'readonly _CATALOG_DESC_UNDESCRIBED_CEILING=9' > "${_driver}"
+  _spec a_spec 'alpha:the original' 'u1:' 'u2:'
+  _spec b_spec 'bravo:the other original' 'u3:'
+  _doc 5
+  run bash /source/script/test/sync-doc-counts.sh "${REPO}"
+  assert_success
+  run grep -F 'CEILING=3' "${_driver}"
+  assert_success
+  _commit_all 'the debt both branches inherited'
+
+  git -C "${REPO}" checkout -q -b feature
+  _spec a_spec 'alpha:the original' 'u1:described on the branch' 'u2:and this one too'
+  run bash /source/script/test/sync-doc-counts.sh "${REPO}"
+  assert_success
+  _commit_all feature
+
+  git -C "${REPO}" checkout -q main
+  _spec b_spec 'bravo:the other original' 'u3:described on main'
+  run bash /source/script/test/sync-doc-counts.sh "${REPO}"
+  assert_success
+  _commit_all main
+
+  run git -C "${REPO}" merge --no-edit feature
+  assert_failure
+  run git -C "${REPO}" diff --name-only --diff-filter=U
+  assert_output --partial 'script/test/drivers/catalog_description.sh'
+
+  run bash "${RESOLVE}" "${REPO}"
+  assert_success
+
+  run cat "${_driver}"
+  assert_success
+  refute_output --partial '<<<<<<<'
+  # 0, not the branch's 1 and not main's 2: the merged tree describes all
+  # three, so the bound the tree can actually hold is lower than either
+  # side could have known.
+  assert_line 'readonly _CATALOG_DESC_UNDESCRIBED_CEILING=0'
+
+  run git -C "${REPO}" diff --name-only --diff-filter=U
+  assert_success
+  assert_output ''
+
+  run bash /source/script/test/check_test_md_drift.sh "${REPO}"
+  assert_success
+}
+
 # why: The refusal that survives. Inside the fence there is nothing left to
 # disagree about, but the preamble is still hand-written, and adopting one
 # side of a sentence regeneration cannot justify is exactly the trap the

@@ -57,6 +57,38 @@ setup() {
 
 # ── The toil ─────────────────────────────────────────────────────────────────
 
+# why: The conflict this tool did not cover, and the reason base#1024
+# exists: two branches that each described tests each lowered the ceiling,
+# so the merge conflicts on that line and the right answer is NEITHER
+# side's -- the descriptions compose, so the merged tree measures lower
+# than both. Recomputing is the only resolution, which is exactly what
+# this tool already does for the documents.
+@test "_resolve_doc_counts: resolves a ceiling conflict by recomputing, not by taking a side" {
+  run bash -c '
+    source "'"${RESOLVE}"'"
+    root="${BATS_TEST_TMPDIR}/r"
+    mkdir -p "${root}/test/bats/unit" "${root}/doc/test" "${root}/script/test/drivers"
+    printf "%s\n" "#!/usr/bin/env bats" "" "@test \"alpha\" {" ":" "}" \
+      "@test \"beta\" {" ":" "}" > "${root}/test/bats/unit/x_spec.bats"
+    printf "%s\n" "Unit specs under \`test/bats/unit/\`: **2 tests**." "" \
+      "<!-- generated: catalogue sections -->" "<!-- /generated -->" \
+      > "${root}/doc/test/unit.md"
+    printf "%s\n" \
+      "<<<<<<< HEAD" \
+      "readonly _CATALOG_DESC_UNDESCRIBED_CEILING=5" \
+      "=======" \
+      "readonly _CATALOG_DESC_UNDESCRIBED_CEILING=4" \
+      ">>>>>>> origin/main" \
+      > "${root}/script/test/drivers/catalog_description.sh"
+    _resolve_doc_counts "${root}"
+    cat "${root}/script/test/drivers/catalog_description.sh"
+  '
+  assert_success
+  assert_output --partial 'readonly _CATALOG_DESC_UNDESCRIBED_CEILING=2'
+  refute_output --partial '<<<<<<<'
+  refute_output --partial '======='
+}
+
 @test "_resolve_doc_counts: collapses a counter-only conflict and regenerates (#857)" {
   run bash -c '
     source "'"${RESOLVE}"'"
