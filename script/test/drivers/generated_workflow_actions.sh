@@ -9,7 +9,7 @@
 #
 # Contract: pure bash over the checkout, so it runs host-direct as well as
 # inside the ci (test-tools) container. References ${REPO_ROOT} (a global
-# exported by test.sh).
+# exported by test.sh) and the pin registry at script/watch/lib.sh.
 #
 # ── The gap ─────────────────────────────────────────────────────────────
 #
@@ -18,7 +18,7 @@
 # a workflow file, so dependabot cannot see it. Three other candidate
 # owners do not have it either:
 #
-#   - no other mechanism in this tree reads a `uses:` version ref.
+#   - no other mechanism in this tree compares a `uses:` version ref.
 #     `action-ref-agreement` compares call sites WITHIN
 #     `.github/workflows/`, so a ref in a shell script is outside its
 #     population by construction;
@@ -43,6 +43,79 @@
 # into dependabot's reach: its own bump PR turns this lint red until the
 # heredoc moves with it.
 #
+# ── The contract, in one sentence ───────────────────────────────────────
+#
+#   A `uses:` ref a shell script writes must be either a literal
+#   <owner>/<repo>@<ref>, or a variable whose value the PIN REGISTRY
+#   declares IN THAT FILE -- anything else is a finding.
+#
+# The second half is where this driver used to keep a scanner of its own.
+# A generator that hoists its ref into `readonly NAME='<owner>/<repo>@<ref>'`
+# above the heredoc writes exactly the string it would have written
+# inline, so excluding it would take a real pin out of the population --
+# and it is the only one this lint has. But resolving it means answering
+# "which assignment of NAME is live at this line", and that question was
+# answered here by a scanner: function bodies tracked by brace
+# indentation, compound commands counted by keyword at column 0, `local`
+# refused by keyword. Three ways to be wrong were found in it and every
+# one failed OPEN -- a bare `{` at column 0 inside a function,
+# `for((i=0;...))` (the counter matched `for ` with a space), and
+# `if<TAB>`. In each the lint reported lockstep over a ref it had never
+# resolved.
+#
+# The registry answers that question without deriving anything. Every
+# version this repo names carries a `tool-pin:` marker on its declaration
+# line, and `_pin_read` returns a record naming that file, that line, and
+# the value read off it -- by `_pin_extract_value` for a `pinned` marker,
+# by `_pin_assign_value` for an `unpinned` one, which is what the live
+# `actions/checkout` ref is. The answer was written once, at the site, by a
+# human, under a lint (`pin-coverage`) that fails when it is missing. This
+# driver looks it up.
+#
+# ── The scope of a declaration: one file ────────────────────────────────
+#
+# A record names a FILE and a LINE, and resolution reads both. A
+# `${NAME}` written in one file resolves only against a declaration in
+# THAT file; a marker on a `NAME` somewhere else declares that other
+# file's variable, which is a different variable that happens to be
+# spelled the same. Keyed on the name alone the lookup threw away the
+# half of the record that made it better than the scanner it replaced,
+# and the cost was not theoretical: a generator computing its own `REF`
+# at run time -- carrying no marker, because `$(...)` is neither a
+# version nor an action ref and nothing asks it for one -- borrowed a
+# marked `REF` from an unrelated file and was reported in lockstep with a
+# value it may never write. The ambiguity test could not see it either:
+# it compares MARKED sites, and the competing assignment has no marker.
+#
+# Nothing in this tree needs the cross-file form. The one generated ref
+# there is declares and uses `_INIT_MONITOR_CHECKOUT_REF` in one file,
+# dist/script/base/init.sh. If a second one ever needs a constant from a
+# sibling, the rule to change is this one, in a commit that says which
+# case forced it -- "any file may declare any name" is not a rule, it is
+# the absence of one.
+#
+# ── The trade, stated rather than hidden ────────────────────────────────
+#
+# Within that file the registry proves a DECLARATION EXISTS AT A LINE. It
+# does not prove that assignment is live at the use. A marker on a `local`
+# inside a function nothing ever calls still yields a record, and this
+# driver will resolve a `uses:` ref against it. That is a real loss of
+# precision against the scanner's intent -- and the scanner did not
+# deliver that intent either, in three ways, silently. What is gained is
+# that the property is now DECLARED instead of inferred, by the person who
+# wrote the line, and that a missing declaration is a lint failure rather
+# than a resolution this driver quietly performs. It is the direction this
+# tree has already taken twice: the downstream repo roster and the
+# lint-tool table both stopped being derived-by-inspection for the same
+# reason.
+#
+# One reader. `_PIN_ASSIGN_RE` in script/watch/lib.sh is now the only
+# definition of "an assignment" either lint has, and `_PIN_ACTION_REF_RE`
+# the only definition of "an action ref". They disagreed before: the
+# registry's regex accepts `local`, the scanner here marked it unusable on
+# sight, so one line could be a pin the watch reads and a finding this
+# lint reports.
+#
 # ── What is asserted, and what is not ───────────────────────────────────
 #
 # Agreement, not currency. This driver holds no opinion about which
@@ -53,11 +126,16 @@
 # workflows is the same defect with the opposite sign, and it is the shape
 # a well-meant hand-edit takes.
 #
-# Three cases have no single ref to inherit, and each fails with its own
+# Four cases have no single ref to inherit, and each fails with its own
 # sentence rather than being guessed at:
 #
-#   - this repo pins the action at two different refs (it does today, for
-#     docker/build-push-action) -- there is no answer to "which one";
+#   - this repo pins the action at two different refs -- there is no
+#     answer to "which one". It takes an `action-ref-agreement: allow`
+#     comment to reach that state, since that lint holds every call site
+#     of one action's repository across `.github/workflows/` at one ref;
+#     no call site carries one today, so the case is reachable rather
+#     than live, and it is spelled out here because the alternative is
+#     picking one of the two;
 #   - this repo never calls the action itself -- there is no dependabot PR
 #     for the generated ref to follow, which is the bare form of the
 #     defect;
@@ -70,22 +148,90 @@
 # Deliberately NOT a pin, each excluded BY NAME in _gwa_classify rather
 # than by failing to match:
 #
-#   - an interpolated ref, e.g. this repo calling its own reusable
-#     workflow at the pinned subtree version. Both halves are shell
-#     variables, there is no literal to compare, and upgrade.sh already
-#     rewrites that ref on every upgrade;
 #   - a local `./` callee, which carries no ref: it is this tree, at this
 #     commit;
 #   - a `docker://` container action, an image reference rather than a
-#     repository tag, with no `<owner>/<repo>` reading to compare.
+#     repository tag, with no `<owner>/<repo>` reading to compare;
+#   - a call to a reusable workflow THIS repo ships, FROM this repo: a
+#     generated `main.yaml` calling build-worker.yaml at the pinned subtree
+#     version. That ref has an owner -- upgrade.sh rewrites
+#     `<worker>.yaml@vX.Y.Z` in every downstream main.yaml on every upgrade
+#     -- and it is not a marketplace action, so `.github/workflows/` holds
+#     no comparable ref for it: this repo calls the same worker LOCALLY, as
+#     `./`. BOTH halves of the callee are read: the file has to be one this
+#     repo ships, and the `<owner>/<repo>` half has to be this repo's own
+#     slug. Keyed on the file alone the exclusion was as wide as the
+#     basenames this repo happens to ship -- nine of them, several generic
+#     -- and somebody else's `build-worker.yaml` was exempted for being
+#     spelled like one of ours.
+#   - a `${{ ... }}` GitHub Actions expression. It is the one `$` spelling
+#     a `uses:` value can carry that is not a shell reference at all:
+#     GitHub resolves it, at run time, out of a context this tree cannot
+#     read, so there is no ref here to hold in lockstep with anything. It
+#     is named rather than left to fall through the resolver as an
+#     unreadable value -- and it excludes the EXPRESSION, not the value
+#     carrying one: shell references beside it are resolved first, so
+#     `${UNDECLARED}/x@${{ env.V }}` is still a finding.
 #
-# Nor is a ref quoted inside a shell or YAML COMMENT: prose explaining
-# what a step looks like is not a step, and a lint that fails on its own
-# documentation gets muted. A ref in QUOTES is not an exclusion -- quoting
-# is a YAML spelling of the same reference, and it is compared like any
-# other.
+# One thing is deliberately NOT modelled here, and its absence is the
+# rule. A `uses:` value is read LEXICALLY: `${{ ... }}` is the GitHub
+# expression excluded above, and a braced `${NAME}` must resolve against a
+# tool-pin declaration in the same file. Anything else carrying a `$` --
+# an undeclared name, a bare `$NAME`, `${NAME:-x}`, `$(cmd)` -- is a
+# finding. No code here parses a heredoc.
+#
+# What that does NOT do, said plainly: it does not know whether a given
+# site expands. A `${NAME}` written inside `<<'QUOTED'` is resolved and
+# compared exactly as one inside `<<QUOTED` is, so where the two copies
+# agree this lint reports clean over a line whose generated copy reads
+# `${NAME}` verbatim.
+#
+# It does not need to know. A `uses:` value of `${NAME}` is none of the
+# three forms `uses:` accepts -- `<owner>/<repo>[/<path>]@<ref>`, a `./`
+# local path, `docker://<image>` -- so a shell reference that reaches a
+# workflow file unexpanded is a generator writing a workflow that does
+# not run. That is reportable on its own terms, and it is a different
+# defect from the one here. Whether the ref is THE SAME REF is the
+# question this lint owns, and it has the same answer on both sides of
+# the quote.
+#
+# The predecessor was `_gwa_use_expands`: a model of bash's heredoc
+# grammar written in bash, the same class of thing as the scanner deleted
+# above it, and it went the same way for the same reason. Six defects
+# were found in it. Three were run against real bash and each made the
+# lint report lockstep over a string bash provably never writes --
+# `<<\D`, unrecognised, so its body was walked as ordinary lines; a
+# terminator with leading space, which closed a body bash had not left;
+# and a delimiter word truncated at a blank inside its own quotes, so
+# `<<'A B'` closed on a bare `A`, the same early close one layer down.
+# Three more were spellings it did not cover on its own and had to be
+# taught, each named by a spec or by a line of code: `<<"${_D}"`,
+# passed over as though the line held no redirection; a `<<` inside a
+# quoted string, opening a body that never closed; and `<<<`, read as an
+# opener unless deleted first.
+#
+# It also never ran against the case it was written for. This tree writes
+# three `uses:` refs from a shell script, all three in
+# `dist/script/base/init.sh`, and both heredocs that write them are
+# UNQUOTED. There is no quoted case here and never was one.
+#
+# Nor is a ref quoted inside a shell or YAML COMMENT read: prose
+# explaining what a step looks like is not a step, and a lint that fails
+# on its own documentation gets muted. A ref in QUOTES is not an exclusion
+# -- quoting is a YAML spelling of the same reference, and it is compared
+# like any other.
 #
 # Style: Google Shell Style Guide.
+
+_GWA_DRIVER_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
+readonly _GWA_DRIVER_DIR
+
+# The pin registry: the walk, the marker grammar, the reader, and the two
+# regexes this driver shares with the pin-coverage lint. Sourced rather
+# than re-implemented so the two cannot drift apart about what an
+# assignment is, what an action ref is, or which files are scanned.
+# shellcheck source=script/watch/lib.sh
+source "${_GWA_DRIVER_DIR}/../../watch/lib.sh"
 
 # Where this repo's own workflows live. A directory, not a file list, so a
 # workflow added tomorrow is read without touching this driver.
@@ -97,31 +243,65 @@ readonly _GWA_WORKFLOW_DIR_REL='.github/workflows'
 # The two stages are separate because a single matcher that both finds the
 # line and vets the value also decides, silently, what this lint stops
 # covering: every value it declines leaves the population with no
-# diagnostic. That is not hypothetical -- the first version of this file
-# anchored the action at `[A-Za-z0-9]`, so `uses: "actions/checkout@v3"`
-# and `uses: 'actions/setup-node@v1'` -- legal YAML, legal Actions syntax,
-# and neither an exclusion nor an error -- were dropped, and a generated
-# ref disagreeing with the workflows passed green.
+# diagnostic. A matcher that anchored the action at `[A-Za-z0-9]` would
+# decline every QUOTED value -- `"actions/checkout@v3"`,
+# `'actions/setup-node@v1'`, legal YAML and legal Actions syntax, neither
+# an exclusion nor an error -- and a generated ref disagreeing with the
+# workflows would then pass green. Two specs hold the split rather than
+# this paragraph: "a double-quoted generated ref is compared, not
+# skipped" and its single-quoted twin.
 readonly _GWA_USES_LINE_RE='uses:[[:space:]]+(.+)$'
 
-# A value that names a versioned action: `<owner>/<repo>[/<sub>...]@<ref>`.
-# Capture 1 is the action, capture 3 the ref. The required `/` keeps a
-# bare word ahead of an `@` from being read as an action.
-readonly _GWA_ACTION_RE='^([A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9._-]+)+)@([A-Za-z0-9._-]+)$'
+# One shell VARIABLE REFERENCE inside a `uses:` value: `${NAME}` or
+# `$NAME`. Deliberately only the two plain spellings. `${NAME:-default}`,
+# `${NAME#prefix}` and `$(command)` all fail to match, and a value still
+# carrying a `$` after resolution is refused -- so a spelling this matcher
+# does not read becomes a finding rather than a value it guessed at.
+# GitHub's `${{ expr }}` fails to match too and never reaches here: it is
+# excised first, because it is an exclusion rather than an unreadable
+# shell reference.
+# shellcheck disable=SC2016 # an ERE matching a `$`; nothing here expands.
+# Only the BRACED spelling is readable. `${NAME}` is a closed token, so a
+# global substitution of it cannot reach into a neighbouring reference.
+# The bare `$NAME` spelling is deliberately NOT here: it has no terminator,
+# so a short name that is a prefix of a longer one consumed the longer
+# one's `$` -- `$A/checkout@$A7` with A=v and A7=v6 resolved to
+# `v/checkout@v7`, a ref that appears in no declaration, and the `$`
+# backstop below found nothing left to refuse. A bare `$NAME` is therefore
+# a value this reader cannot read, which is the finding branch, and the
+# fix at the call site is one character: write `${NAME}`.
+readonly _GWA_VAR_RE='\$\{([A-Za-z_][A-Za-z0-9_]*)\}'
 
-# Generated trees the walk must not descend into, by directory basename.
+# Where this repo declares the `<owner>/<repo>` it is served from, and the
+# name it declares it under. base is its own upstream, so that slug is this
+# repo's own name; upgrade.sh, init.sh and check-base-version.sh all source
+# this file and read this name rather than repeating the literal, which
+# makes the pair the file's published interface rather than a guess about
+# its contents. Renaming the REPO moves the value and this follows it.
+readonly _GWA_UPSTREAM_REL='dist/script/base/upstream.sh'
+readonly _GWA_SLUG_VAR='BASE_UPSTREAM_SLUG'
+
+# A bare GitHub `<owner>/<repo>`, which is what a slug looks like and what
+# a clone URL, a path or a ref does not.
+readonly _GWA_SLUG_RE='^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9._-]+$'
+
+# ── Per-run state ───────────────────────────────────────────────────────
 #
-# The walk is the whole repository, so this is a PRUNE list rather than a
-# roster of scanned directories: a generator added tomorrow at any depth
-# is covered without editing this file, and forgetting to prune a new
-# generated tree makes the lint fire rather than quietly exempting
-# something. Every entry is gitignored.
-#
-# `.prev-release/` is the one that matters. The self-test materialises
-# PAST releases into it, and their refs are stale BY DEFINITION -- a
-# release cannot be re-pinned. Scanning it means the first dependabot bump
-# after a release fails a lint no edit can satisfy.
-readonly _GWA_SCAN_PRUNE=('.git' 'log' '.prev-release')
+# Both are rebuilt at the top of every _run_generated_workflow_actions
+# rather than memoised across calls: REPO_ROOT is a global a caller can
+# move between runs (the specs do), and a cache keyed on nothing would
+# then answer for the previous tree.
+
+# The scanned files, repo-root-relative, one per line -- the pin registry's
+# own walk. See _gwa_load_files.
+_GWA_FILES=''
+
+# `<file>\t<variable name> -> <value>` for every declaration the registry
+# holds whose target line is an assignment, and the keys two sites in ONE
+# file declare differently. Keyed on the pair because a declaration is
+# scoped to its file: see _gwa_key and _gwa_load_registry.
+declare -gA _GWA_PIN_VALUE=()
+declare -gA _GWA_PIN_AMBIGUOUS=()
 
 # _gwa_is_comment <line> -- true when the line's first non-blank
 # character opens a comment. The same test serves shell and YAML.
@@ -152,51 +332,57 @@ _gwa_value() {
   printf '%s' "${_v}"
 }
 
-# _gwa_classify <value> -- decide what one `uses:` value is.
+# ── The population: the registry's walk, split at dependabot's border ───
+
+# _gwa_load_files -- fill _GWA_FILES; non-zero when the walk yields nothing.
 #
-# Prints `<action>\t<ref>` and returns 0 for a versioned action this lint
-# can compare; returns 1 for a value EXCLUDED BY NAME; returns 2 for one
-# it cannot read at all.
+# The roster this replaced was `*.sh`, which is a list of the file shapes a
+# generator may take -- and this repo has retired that exact list twice
+# already, once in the pin registry's scan roots and once in its file
+# shapes, both times because the thing it stopped covering went SILENT
+# rather than red. An extensionless script, a `.bash`, a justfile recipe
+# writing a workflow: each was invisible here, and the non-vacuity backstop
+# below could not notice, because the one generator that does end in `.sh`
+# kept the count at 1.
 #
-# Three outcomes rather than two, because the safe default for the last
-# two is OPPOSITE: an exclusion must pass, an unreadable value must fail.
-# A matcher answering only "matched / did not match" collapses them and
-# has to pick one default for both, and picking "pass" is how a lint
-# quietly stops covering whatever its author did not foresee.
-_gwa_classify() {
-  local _v="${1}"
-  # An interpolated ref -- this repo calling its OWN reusable workflow at
-  # the pinned subtree version. Both halves are shell variables, there is
-  # no literal to compare, and upgrade.sh rewrites that ref on every
-  # upgrade.
-  [[ "${_v}" == *'$'* ]] && return 1
-  case "${_v}" in
-    # A local callee carries no ref: it is this tree, at this commit.
-    ./*|/*) return 1 ;;
-    # A container action is an image reference, not a repository tag; it
-    # has no `<owner>/<repo>` reading for a workflow ref to agree with.
-    docker://*) return 1 ;;
-  esac
-  [[ "${_v}" =~ ${_GWA_ACTION_RE} ]] || return 2
-  printf '%s\t%s' "${BASH_REMATCH[1]}" "${BASH_REMATCH[3]}"
+# So there is no roster. The walk is the pin registry's: every file the
+# repo TRACKS, minus the prose and specs it exempts -- and that exemption
+# list it CHECKS rather than trusts, since a marker in an exempt file is a
+# failure. Untracked content comes with it, for the reason the registry
+# states: a generated directory left in the checkout would otherwise make
+# the verdict depend on whose machine the lint ran on. That is not
+# hypothetical here either -- `coverage/` holds kcov's HTML rendering of
+# this repo's own scripts, `uses:` lines and all.
+_gwa_load_files() {
+  _GWA_FILES="$(_pin_files "${REPO_ROOT}")"
 }
 
-# _gwa_hits <glob> -- every candidate line under REPO_ROOT in files
-# matching <glob>, as `<relative-path>:<lineno>:<content>`.
+# _gwa_hits <scope> -- every candidate line in one half of the walk, as
+# `<relative-path>:<lineno>:<content>`.
 #
-# grep pre-filters so only files that mention `uses:` are read at all;
-# without it this walks every line of every script in the tree on each
-# lint run. A tree with no match is not an error here -- the callers
-# decide what an empty result means, and they mean different things.
+# `dependabot` is `.github/workflows/*.ya?ml`, the files dependabot reads;
+# `generated` is everything else, i.e. every file whose `uses:` refs are
+# nobody's job but this lint's. The border is _PIN_DEPENDABOT_SCOPE_RE,
+# the registry's own statement of where the division of labour sits, so
+# the two mechanisms cannot disagree about which file is whose.
+#
+# grep pre-filters so only files that mention `uses:` are read at all. A
+# scope with no match is not an error here -- the callers decide what an
+# empty result means, and they mean different things.
 _gwa_hits() {
-  local _glob="${1}" _dir="${2}" _p
-  [[ -d "${_dir}" ]] || return 0
-  local -a _prune=()
-  for _p in "${_GWA_SCAN_PRUNE[@]}"; do
-    _prune+=("--exclude-dir=${_p}")
-  done
-  # grep exits 1 for "matched nothing", which is an ordinary answer here --
-  # this repo has no `.yml` workflow, so the `.yml` pass always takes it.
+  local _scope="${1}" _f
+  local -a _abs=()
+  while IFS= read -r _f; do
+    [[ -n "${_f}" ]] || continue
+    if [[ "${_f}" =~ ${_PIN_DEPENDABOT_SCOPE_RE} ]]; then
+      [[ "${_scope}" == 'dependabot' ]] || continue
+    else
+      [[ "${_scope}" == 'generated' ]] || continue
+    fi
+    _abs+=("${REPO_ROOT}/${_f}")
+  done <<< "${_GWA_FILES}"
+  [[ "${#_abs[@]}" -eq 0 ]] && return 0
+  # grep exits 1 for "matched nothing", which is an ordinary answer here.
   # Under the dispatcher's `pipefail` + ERR trap that ordinary answer was
   # logged as `ci_lint_driver_failed ... stopped at sed, status 1` on every
   # run, INCLUDING a green one: an ERROR line in a passing log, naming this
@@ -204,8 +390,7 @@ _gwa_hits() {
   # grep failure and still propagates, so tolerating no-match does not
   # turn a broken scan into a silent pass.
   local _out _status=0
-  _out="$(grep -rn --include="${_glob}" "${_prune[@]}" \
-    -E 'uses:[[:space:]]' "${_dir}")" || _status=$?
+  _out="$(grep -nHI -E 'uses:[[:space:]]' -- "${_abs[@]}")" || _status=$?
   if (( _status > 1 )); then
     return "${_status}"
   fi
@@ -222,6 +407,252 @@ _gwa_split() {
   _rest="${_hit#*:}"
   _GWA_LINENO="${_rest%%:*}"
   _GWA_TEXT="${_rest#*:}"
+}
+
+# ── Resolution: what the registry declares, and nothing else ────────────
+
+# _gwa_key <file> <name> -- the map key for one variable IN one file.
+#
+# A tab joins them because `_pin_read`'s own table is tab-separated, so a
+# path holding one is already outside what the registry can express; and
+# a variable name can hold neither a tab nor a `/`, so the two halves
+# cannot be confused for one another.
+_gwa_key() {
+  printf '%s\t%s' "${1}" "${2}"
+}
+
+# _gwa_load_registry -- fill _GWA_PIN_VALUE / _GWA_PIN_AMBIGUOUS from the
+# pin registry; non-zero when the markers do not parse.
+#
+# One entry per declaration site whose TARGET LINE is an assignment: the
+# FILE and the variable it assigns, mapped to the value the registry read
+# off it. The registry supplies the line, so nothing here decides which
+# assignment is live -- that is the whole job the deleted scanner was
+# doing -- and it supplies the file, so nothing here has to guess whose
+# `NAME` a `${NAME}` is.
+#
+# `ignore` records contribute nothing, and that is deliberate rather than
+# incidental: `tool-pin: ignore` asserts the line names no third-party
+# version, so a `uses:` ref resolved from one would be a ref nobody
+# watches -- the defect this lint exists to report. It carries no value
+# either, so it is dropped by the empty-value test below.
+#
+# Two sites IN ONE FILE declaring one name DIFFERENTLY is refused rather
+# than resolved: which one reaches a given use is exactly the question
+# this driver no longer answers. Two sites in different files are not
+# that question -- they are two variables -- and each answers only for
+# its own file.
+_gwa_load_registry() {
+  _GWA_PIN_VALUE=()
+  _GWA_PIN_AMBIGUOUS=()
+  local _table _decl _var _key
+  local _state _name _resolver _coord _pattern _skip _current _file _line
+  # Command substitution, not a process substitution feeding the loop: a
+  # `< <(...)` redirection discards the producer's exit status, and a
+  # registry that could not be read would then look like a registry that
+  # declares nothing -- which resolves nothing and reports every ref as a
+  # finding, in a sentence about the wrong defect.
+  _table="$(_pin_read "${REPO_ROOT}")" || return 1
+  while IFS=$'\t' read -r _state _name _resolver _coord _pattern _skip \
+      _current _file _line; do
+    [[ -z "${_state}" ]] && continue
+    [[ -z "${_current}" || "${_current}" == '-' ]] && continue
+    _decl="$(awk -v n="${_line}" 'NR == n' "${REPO_ROOT}/${_file}")" || continue
+    _var="$(_pin_assign_name "${_decl}")" || continue
+    _key="$(_gwa_key "${_file}" "${_var}")"
+    if [[ -n "${_GWA_PIN_VALUE[${_key}]:-}" \
+          && "${_GWA_PIN_VALUE[${_key}]}" != "${_current}" ]]; then
+      _GWA_PIN_AMBIGUOUS["${_key}"]=1
+      continue
+    fi
+    _GWA_PIN_VALUE["${_key}"]="${_current}"
+  done <<< "${_table}"
+}
+
+# _gwa_registry_literal <file> <name> -- the value the registry declares
+# for <name> IN <file>; non-zero when that file declares none, or more
+# than one. A declaration in some other file is not an answer here: it
+# declares that file's variable.
+_gwa_registry_literal() {
+  local _key _v
+  _key="$(_gwa_key "${1}" "${2}")"
+  [[ -n "${_GWA_PIN_AMBIGUOUS[${_key}]:-}" ]] && return 1
+  _v="${_GWA_PIN_VALUE[${_key}]:-}"
+  [[ -n "${_v}" ]] || return 1
+  # A declared value that itself carries a `$` would re-enter resolution
+  # and could substitute itself; refusing it here is what keeps
+  # _gwa_resolve's termination an argument rather than a hope.
+  [[ "${_v}" == *'$'* ]] && return 1
+  printf '%s' "${_v}"
+}
+
+# _gwa_resolve <value> <file> -- <value> with every variable reference
+# replaced by the literal the pin registry declares for it IN <file>;
+# non-zero if any one of them is not declared there.
+#
+# Termination is not an assumption: a resolved literal can never contain
+# `$` (_gwa_registry_literal refuses one that does), so each pass strictly
+# reduces the number of `$` in the value.
+_gwa_resolve() {
+  local _v="${1}" _file="${2}" _ref _name _lit
+  while [[ "${_v}" =~ ${_GWA_VAR_RE} ]]; do
+    # Both halves of the match are read BEFORE anything else runs: the next
+    # statement re-matches inside its own regex, which is exactly what
+    # would overwrite these.
+    _ref="${BASH_REMATCH[0]}"
+    _name="${BASH_REMATCH[1]}"
+    _lit="$(_gwa_registry_literal "${_file}" "${_name}")" || return 1
+    _v="${_v//"${_ref}"/${_lit}}"
+  done
+  # A `$` the reference matcher could not read at all -- `${{ }}`,
+  # `${NAME:-x}`, `$(cmd)`, a bare `$NAME` -- survives the loop. Refuse it
+  # rather than comparing a value still carrying an unexpanded fragment.
+  [[ "${_v}" == *'$'* ]] && return 1
+  printf '%s' "${_v}"
+}
+
+# ── The one `$` that is not a shell reference ───────────────────────────
+
+# A GitHub Actions expression inside a `uses:` value. `[^}]*` cannot run
+# past the first `}`, so a value carrying two expressions yields two
+# matches rather than one spanning both. An expression this does not match
+# -- a nested brace, say -- keeps its `$`, is not excluded, and lands in
+# the finding branch, which is the safe way to be wrong about it.
+# shellcheck disable=SC2016 # an ERE matching a `$`; nothing here expands.
+readonly _GWA_GHA_EXPR_RE='\$\{\{[^}]*\}\}'
+
+# _gwa_strip_gha_expr <value> -- <value> with every `${{ ... }}` removed.
+#
+# Termination: every pass deletes a run of text beginning `${{`, deletion
+# adds no character, so the number of `$` in the value strictly falls.
+_gwa_strip_gha_expr() {
+  local _v="${1}" _e
+  while [[ "${_v}" =~ ${_GWA_GHA_EXPR_RE} ]]; do
+    _e="${BASH_REMATCH[0]}"
+    _v="${_v//"${_e}"/}"
+  done
+  printf '%s' "${_v}"
+}
+
+# ── This repo's own name, and the calls home it excludes ────────────────
+
+# _gwa_repo_slug -- this repo's own `<owner>/<repo>`, read by SOURCING the
+# one file that declares it; non-zero when that file does not yield a
+# slug-shaped value.
+#
+# Sourced rather than pattern-matched. The file is a two-assignment
+# constants file that upgrade.sh, init.sh and check-base-version.sh all
+# source and read `BASE_UPSTREAM_SLUG` out of, so asking it the same way
+# they do is exact where a text scan was a heuristic -- and it is the
+# heuristic, not the value, that this change is retiring. A repo RENAME
+# moves the value and this follows it; a file that stops defining the name
+# yields nothing, which switches the exclusion that depends on it OFF, so
+# every call home becomes a finding rather than every call being exempt.
+#
+# In a subshell, with the guard variable cleared, so a caller that has
+# already sourced it still gets this file's answer and not a stale one --
+# and so sourcing has no effect on the lint's own shell.
+_gwa_repo_slug() {
+  local _upstream="${REPO_ROOT}/${_GWA_UPSTREAM_REL}" _slug
+  [[ -f "${_upstream}" ]] || return 1
+  _slug="$(
+    unset _BASE_UPSTREAM_SOURCED "${_GWA_SLUG_VAR}"
+    # shellcheck source=dist/script/base/upstream.sh
+    source "${_upstream}" >/dev/null 2>&1 || exit 1
+    printf '%s' "${!_GWA_SLUG_VAR:-}"
+  )" || return 1
+  [[ "${_slug}" =~ ${_GWA_SLUG_RE} ]] || return 1
+  printf '%s' "${_slug}"
+}
+
+# _gwa_owner_is_self <owner> -- true when the `<owner>/<repo>` half of a
+# reusable-workflow callee names THIS repo.
+#
+# Two spellings, and no third. The slug written out, compared against the
+# one the upstream file yields; or the very variable that file declares it
+# in, which init.sh has to use because the value it needs lives in a file
+# it sources at runtime and cannot be spelled inline. `${SOMEBODY_ELSE}`
+# is not a stand-in for us: an unresolved variable that is not that name
+# is not this repo, and the tree never says it is.
+_gwa_owner_is_self() {
+  local _owner="${1}" _slug
+  _slug="$(_gwa_repo_slug)" || return 1
+  [[ "${_owner}" == "${_slug}" ]] && return 0
+  [[ "${_owner}" == "\${${_GWA_SLUG_VAR}}" \
+     || "${_owner}" == "\$${_GWA_SLUG_VAR}" ]]
+}
+
+# _gwa_ships_workflow <value> -- true when <value> calls a reusable
+# workflow THIS repo ships, whatever its ref looks like.
+#
+# Both halves of the callee are read. The FILE half has to name a workflow
+# present under `.github/workflows/` here, as one path segment --
+# `<owner>/<repo>/.github/workflows/<file>` is the only shape GitHub
+# accepts, so a deeper path is not this call at all. The OWNER half has to
+# name this repo. Keying on the file alone was a hole exactly the width of
+# the basenames this repo happens to ship: nine generic names, several of
+# them ones anybody would pick, and a call to somebody else's
+# `build-worker.yaml` was exempted because ours is spelled the same. The
+# reason for the exclusion -- upgrade.sh rewrites `<worker>.yaml@vX.Y.Z`
+# in every downstream main.yaml on every upgrade, so the ref has an owner
+# -- only holds when that owner is us.
+_gwa_ships_workflow() {
+  local _callee="${1%%@*}" _owner _base
+  [[ "${_callee}" == */.github/workflows/* ]] || return 1
+  _owner="${_callee%%/.github/workflows/*}"
+  _base="${_callee##*/.github/workflows/}"
+  [[ "${_base}" == */* ]] && return 1
+  [[ "${_base}" == *.yaml || "${_base}" == *.yml ]] || return 1
+  [[ -f "${REPO_ROOT}/${_GWA_WORKFLOW_DIR_REL}/${_base}" ]] || return 1
+  _gwa_owner_is_self "${_owner}"
+}
+
+# _gwa_classify <value> [<file>] -- decide what one `uses:` value is.
+# <file> is REPO-ROOT-RELATIVE, because that is the spelling the pin
+# registry's records use, and whose declaration of a name applies is keyed
+# on it.
+#
+# Prints `<action>\t<ref>` and returns 0 for a versioned action this lint
+# can compare; returns 1 for a value EXCLUDED BY NAME; returns 2 for one
+# it cannot read at all.
+#
+# Three outcomes rather than two, because the safe default for the last
+# two is OPPOSITE: an exclusion must pass, an unreadable value must fail.
+# A matcher answering only "matched / did not match" collapses them and
+# has to pick one default for both, and picking "pass" is how a lint
+# quietly stops covering whatever its author did not foresee.
+#
+# A value carrying a `$` is read in one order and it matters: GitHub's
+# expressions are excised, what is LEFT must resolve against this file's
+# declarations, and only then does the presence of an expression exclude
+# the value. Excluding first would make `${{ }}` a pass for any value
+# with one anywhere in it.
+_gwa_classify() {
+  local _v="${1}" _file="${2:-}" _rest _expr=0
+  case "${_v}" in
+    # A local callee carries no ref: it is this tree, at this commit.
+    ./*|/*) return 1 ;;
+    # A container action is an image reference, not a repository tag; it
+    # has no `<owner>/<repo>` reading for a workflow ref to agree with.
+    docker://*) return 1 ;;
+  esac
+  # A call home to one of this repo's own worker workflows: pinned to the
+  # subtree version, rewritten by upgrade.sh on every upgrade, and not a
+  # marketplace action this repo also calls by ref.
+  _gwa_ships_workflow "${_v}" && return 1
+  if [[ "${_v}" == *'$'* ]]; then
+    _rest="$(_gwa_strip_gha_expr "${_v}")"
+    [[ "${_rest}" == "${_v}" ]] || _expr=1
+    if [[ "${_rest}" == *'$'* ]]; then
+      _rest="$(_gwa_resolve "${_rest}" "${_file}")" || return 2
+    fi
+    if (( _expr )); then
+      return 1
+    fi
+    _v="${_rest}"
+  fi
+  [[ "${_v}" =~ ${_PIN_ACTION_REF_RE} ]] || return 2
+  printf '%s\t%s' "${BASH_REMATCH[1]}" "${BASH_REMATCH[3]}"
 }
 
 # _gwa_workflow_refs -- `<action>\t<ref>` for every literal `uses:` this
@@ -241,15 +672,14 @@ _gwa_workflow_refs() {
     # never turn one into a pass. `.github/workflows/` is the
     # action-ref-agreement lint's population, and this lint does not
     # re-judge what that one already owns.
-    _pair="$(_gwa_classify "${_value}")" || continue
+    _pair="$(_gwa_classify "${_value}" "${_GWA_FILE}")" || continue
     printf '%s\n' "${_pair}"
-  done < <(_gwa_hits '*.yaml' "${REPO_ROOT}/${_GWA_WORKFLOW_DIR_REL}"
-           _gwa_hits '*.yml' "${REPO_ROOT}/${_GWA_WORKFLOW_DIR_REL}")
+  done < <(_gwa_hits 'dependabot')
 }
 
-# _gwa_generated_refs -- one record per `uses:` written by a shell script,
-# i.e. every ref that ends up in a workflow dependabot will never read
-# here. Two record shapes:
+# _gwa_generated_refs -- one record per `uses:` written outside
+# dependabot's scope, i.e. every ref that ends up in a workflow dependabot
+# will never read here. Two record shapes:
 #
 #   <file>\t<lineno>\t<action>\t<ref>   a ref to compare
 #   <file>\t<lineno>\t\t<value>         a value nothing could read
@@ -264,18 +694,36 @@ _gwa_generated_refs() {
     _gwa_is_comment "${_GWA_TEXT}" && continue
     _value="$(_gwa_value "${_GWA_TEXT}")" || continue
     _status=0
-    _pair="$(_gwa_classify "${_value}")" || _status=$?
+    _pair="$(_gwa_classify "${_value}" "${_GWA_FILE}")" || _status=$?
     if (( _status == 0 )); then
       printf '%s\t%s\t%s\n' "${_GWA_FILE}" "${_GWA_LINENO}" "${_pair}"
     elif (( _status > 1 )); then
       printf '%s\t%s\t\t%s\n' "${_GWA_FILE}" "${_GWA_LINENO}" "${_value}"
     fi
-  done < <(_gwa_hits '*.sh' "${REPO_ROOT}")
+  done < <(_gwa_hits 'generated')
 }
 
 # _run_generated_workflow_actions -- the lint.
 _run_generated_workflow_actions() {
   echo "--- Running generated-workflow action ref lockstep lint ---"
+
+  local _walk_rc=0
+  _gwa_load_files || _walk_rc=$?
+  if [[ "${_walk_rc}" -eq 2 ]]; then
+    _die ci_generated_workflow_actions \
+      "this lint could not establish which files ${REPO_ROOT} tracks (the registry's complaint is above), and the tracked set IS what it reads. A run that cannot see the population would report lockstep over refs it never opened, so it fails instead. Run it on the host, or set PIN_TRACKED_ROOT / PIN_TRACKED_FILES the way script/test/test.sh does for the compose run."
+    return 1
+  fi
+  if [[ "${_walk_rc}" -ne 0 ]]; then
+    _die ci_generated_workflow_actions \
+      "the walk yielded no scannable file at all under ${REPO_ROOT} -- nothing was read, so this lint would pass vacuously. script/watch/lib.sh's exempt shapes, not the tree, are what to look at."
+    return 1
+  fi
+  if ! _gwa_load_registry; then
+    _die ci_generated_workflow_actions \
+      "the tool-pin markers did not parse (the registry's complaint is above), so no generated ref could be resolved against a declared value. Every interpolated ref would be reported as unreadable, which is a sentence about the wrong defect -- so this stops here instead. The pin-coverage lint owns the marker grammar."
+    return 1
+  fi
 
   local -A _own=()
   local _action _ref
@@ -294,11 +742,11 @@ _run_generated_workflow_actions() {
   # is defined by an EMPTY action field. Under that reader the raw value
   # slid into the action column, the `[[ -z "${_action}" ]]` branch below
   # never ran, and the finding came out as a sentence about a different
-  # defect: `uses: actions/checkout` (no ref) was reported as
-  # `actions/checkout@` disagreeing with the workflows, which is false
-  # about a tree that does use that action. Splitting by hand also makes
-  # the last field the whole remainder, so a tab inside a raw value
-  # shifts nothing -- what the record shape already promised.
+  # defect: an action named with no ref was reported as `actions/checkout@`
+  # disagreeing with the workflows, which is false about a tree that does
+  # use that action. Splitting by hand also makes the last field the whole
+  # remainder, so a tab inside a raw value shifts nothing -- what the
+  # record shape already promised.
   while IFS= read -r _record; do
     _file="${_record%%$'\t'*}"
     _rest="${_record#*$'\t'}"
@@ -313,10 +761,12 @@ _run_generated_workflow_actions() {
     if [[ -z "${_action}" ]]; then
       [[ -n "${_ref}" ]] || continue
       # The value is printed bare, with no `uses:` prefix. This driver is
-      # a `*.sh` under REPO_ROOT and so is scanned by its own walk: a
-      # literal `uses: ` in an emitted message is read as a generated ref
-      # on the next run, and the lint fails on its own error text.
-      printf '%s:%s: %s -- not a versioned action reference, and not one of the documented exclusions (a ref interpolated from a shell variable, a local ./ callee, a docker:// image). This lint cannot say whether that is in lockstep, so it refuses rather than skipping it: spell it <owner>/<repo>[/<path>]@<ref>, or add the exclusion to _gwa_classify with the reason it is not a pin.\n' \
+      # itself one of the files the walk reads: a `uses:` followed by a
+      # space in an emitted message is read as a generated ref on the next
+      # run, and the lint fails on its own error text.
+      # shellcheck disable=SC2016 # the exclusion list names GitHub's
+      # `${{ }}` spelling; this is prose, not an expansion.
+      printf '%s:%s: %s -- not a versioned action reference, and not one of the documented exclusions (a local ./ callee, a docker:// image, a call to a reusable workflow this repo ships, from this repo, by its own name, a ${{ }} GitHub Actions expression). A variable is read only where the pin registry DECLARES its value IN THIS FILE: a tool-pin: marker on an assignment here that gives it that value. A marker on the same name in another file declares the variable OF THAT FILE and is not an answer here. Undeclared in this file, declared here at two sites that disagree, or holding a value that is itself interpolated, it lands here. This lint cannot say whether that is in lockstep, so it refuses rather than skipping it: spell it <owner>/<repo>[/<path>]@<ref>, or hoist it into an assignment and put a tool-pin: marker on that line -- which is what makes the ref watched as well as checked.\n' \
         "${_file}" "${_lineno}" "${_ref}"
       _violations=$(( _violations + 1 ))
       continue

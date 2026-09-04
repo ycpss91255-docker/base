@@ -694,14 +694,28 @@ _dfm_needs_dl3066() {
 _migrate_hadolint_apply() {
   local _file="$1"
   # DL3007: pin the helper-stage :latest tags.
+  #
+  # Both versions are hoisted onto lines of their own rather than written
+  # inline in the sed. Inline they were TWO versions on ONE line, which no
+  # marker can address (a marker owns a line, and extraction anchors on one
+  # coordinate), so neither was watched -- and the bats tag had drifted two
+  # minors behind this repo's own bats pin while being written into every
+  # downstream Dockerfile this function migrates.
+  #
   # The alpine series here is the one base itself builds on -- see
   # ARG ALPINE_VERSION in dockerfile/Dockerfile.test-tools, whose recorded
   # end-of-life fails base's own suite 180 days out. Keeping the two equal
   # is asserted by dockerfile_migrate_spec.bats, so this literal cannot
   # quietly become the older of two dates: it wrote an end-of-life series
   # into every consumer Dockerfile it healed, during an upgrade, which is
-  # the moment nobody reads the diff.
-  sed -i -E 's|^FROM bats/bats:latest|FROM bats/bats:1.11.0|; s|^FROM alpine:latest|FROM alpine:3.22|' "${_file}"
+  # the moment nobody reads the diff. The marker on it is the other half of
+  # the same argument -- the spec keeps it equal to base's pin, the marker
+  # is what makes a proposal to move both arrive at all.
+  # tool-pin: migrate-bats dockerhub bats/bats pattern=^[0-9]+\.[0-9]+\.[0-9]+$
+  local _bats_tag='1.13.0'
+  # tool-pin: migrate-alpine dockerhub library/alpine pattern=^[0-9]+\.[0-9]+$
+  local _alpine_tag='3.22'
+  sed -i -E "s|^FROM bats/bats:latest|FROM bats/bats:${_bats_tag}|; s|^FROM alpine:latest|FROM alpine:${_alpine_tag}|" "${_file}"
   # DL3046: useradd -l (idempotent — only adds when not already present).
   #
   # `-l` goes directly after the `useradd` token, not in front of `-u`.

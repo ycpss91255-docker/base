@@ -137,7 +137,7 @@ flowchart LR
     release_worker -->|"tar.gz + zip"| release["GitHub Release"]
 ```
 
-<!-- sync: whats-included e2bee7b5023c e1c8819c0fec -->
+<!-- sync: whats-included 15d472ab822b 551d669a1309 -->
 ### 包含内容
 
 | 文件 | 说明 |
@@ -194,6 +194,7 @@ flowchart LR
 | `dist/script/base/upgrade.sh` | Subtree 版本升级（`just base upgrade [vX.Y.Z]`）。 |
 | `script/test/justfile.test` | base 自测入口（`just test`、`just test lint`、`just test coverage` …）。 |
 | `script/release/justfile.release` | base `release` namespace（release / publish 工具）。 |
+| `script/watch/justfile.watch` | base `watch` namespace — 上游 release 监看（`just watch`、`just watch pins`、`just watch bump <name> <version>`）。 |
 | `dist/dockerfile/Dockerfile` | 新 repo 的多阶段 Dockerfile 模板 |
 | `dockerfile/Dockerfile.test-tools` | 预构建 lint/test 工具 image（shellcheck、hadolint、bats、bats-mock） |
 | `.github/workflows/` | 可重用 CI workflows（build + release） |
@@ -1167,7 +1168,7 @@ just --list        # 显示 CI 命令
 [system](../test/system.md) / [acceptance](../test/acceptance.md) /
 [smoke](../test/smoke.md)）。
 
-<!-- sync: directory-structure 57d0265174f4 c799ace4be65 -->
+<!-- sync: directory-structure 00a6ff22dba0 3b354ae6cc7a -->
 ## 目录结构
 
 ```
@@ -1223,8 +1224,13 @@ just --list        # 显示 CI 命令
 │   │   └── drivers/                    # 每个 lint/test 工具一个 driver（bats / shellcheck / hadolint
 │   │                                   #   / issueref / adr_numbering / stale_setup_conf / readme_sync
 │   │                                   #   / doc_counts / home_literal / derived_figures / coverage_gate）
-│   └── release/
-│       └── justfile.release            # just release <recipe>
+│   ├── release/
+│   │   └── justfile.release            # just release <recipe>
+│   └── watch/                          # 上游 release 监看（pin 与 upstream 比对）
+│       ├── justfile.watch              # just watch / pins / value / bump / uncovered
+│       ├── lib.sh                      # tool-pin 标记的语法、读取器与侦测器
+│       ├── pins.sh                     # 读写已宣告的 pin（不需网络）
+│       └── check.sh                    # 将每个 pin 与上游比对
 ├── dockerfile/
 │   └── Dockerfile.test-tools           # 预构建 lint/test 工具 image（shellcheck/hadolint/bats）
 ├── test/                               # base 自身的 specs（tool-first：test/<tool>/<category>/）

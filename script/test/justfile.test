@@ -40,7 +40,7 @@ default:
 # just test lint -> all linters (ShellCheck + Hadolint + issue-ref comment
 # lint + ADR-numbering lint + stale setup.conf path lint + localized README
 # sync lint + doc/test count drift gate + hardcoded home path lint +
-# derived-figure lint) via the test-tools container (hadolint has no host binary; the alpine ci image
+# derived-figure lint + tool-pin coverage lint) via the test-tools container (hadolint has no host binary; the alpine ci image
 # bakes it in).
 # Narrow with
 # `just test lint --shellcheck` / `just test lint --hadolint`
@@ -51,6 +51,7 @@ default:
 # / `just test lint --arch-literal`
 # / `just test lint --errexit-bang`
 # / `just test lint --derived-figures` / `just test lint --changelog-entry`
+# / `just test lint --pin-coverage`
 # / `just test lint --action-ref-agreement`
 # / `just test lint --just-provenance`
 # / `just test lint --catalog-description`
