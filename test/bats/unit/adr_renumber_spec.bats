@@ -174,10 +174,10 @@ _file() {
 # `ADR-<n>` and `adr/<n>-` forms moved and the bare numbers a spec passes
 # to this tool as ARGUMENTS did not, so the setup and the command named
 # different records, with the survivor self-check and the lint both green.
-@test "adr renumber: leaves a file that declares its registry a fixture alone (#1021)" {
+@test "adr renumber: leaves a number a file declares its own alone (#1021)" {
   local _from='00000030' _to='00000032'
   _file 'test/bats/unit/lint_spec.bats' \
-    '# adr-refs: fixture' \
+    "# adr-refs: fixture ${_from}" \
     "  : > \"\${T}/doc/adr/${_from}-entry-point.md\"" \
     "  run bash \"\${RENUMBER}\" ${_from} ${_to} \"\${T}\"" \
     "  # the fixture record is ADR-${_from} throughout"
@@ -188,6 +188,35 @@ _file() {
   assert_output --partial "doc/adr/${_from}-entry-point.md"
   assert_output --partial "ADR-${_from}"
   refute_output --partial "doc/adr/${_to}-entry-point.md"
+}
+
+# why: The whole-file drop's other half, and the state it left behind. A
+# spec that builds a throwaway registry still carries pointers at THIS
+# tree's -- a `# why:` block naming the record a case came from, which the
+# generator then publishes verbatim as a catalogue row. Dropped whole, the
+# marker was never rewritten, so the rewrite pass fixed the catalogue and
+# the regeneration immediately put the old number back: the verb aborted
+# on a survivor no message could attribute, with the record already moved
+# and 25 files rewritten. A declaration exempts the numbers it NAMES, and
+# one that names none exempts nothing.
+@test "adr renumber: a declaration that names no number hides no reference (#1021)" {
+  _file 'test/bats/unit/lint_spec.bats' \
+    '#!/usr/bin/env bats' \
+    '# adr-refs: fixture' '' \
+    '# why: the convention ADR-00000030 records' \
+    '@test "a described case" {' \
+    '  true' \
+    '}'
+  run bash "${RENUMBER}" 30 32 "${ROOT}"
+  assert_success
+  run cat "${ROOT}/test/bats/unit/lint_spec.bats"
+  assert_output --partial 'ADR-00000032'
+  refute_output --partial 'ADR-00000030'
+  # The catalogue row is REGENERATED from that marker, so the rewrite
+  # holding and the regeneration agreeing are the same assertion.
+  run cat "${ROOT}/doc/test/unit.md"
+  assert_output --partial 'ADR-00000032'
+  refute_output --partial 'ADR-00000030'
 }
 
 # why: The population, and the property that keeps this verb and the ADR

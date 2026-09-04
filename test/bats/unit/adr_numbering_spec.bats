@@ -304,11 +304,11 @@ _index() {
 }
 
 # why: The difference between a reference and a FIXTURE, DECLARED rather
-# than guessed at. A file that builds a throwaway registry says so on a
-# line of its own and is dropped WHOLE -- every reference form in it, not
-# the ones some heuristic recognised, which is what let a renumber rewrite
-# half of one and leave the assertions naming the other record.
-@test "_run_adr_numbering: a file that declares its registry a fixture is not scanned (#1021)" {
+# than guessed at -- and declared per NUMBER. Every reference form
+# carrying a declared number is dropped, not the ones some heuristic
+# recognised, which is what let a renumber rewrite half of one and leave
+# the assertions naming the other record.
+@test "_run_adr_numbering: a number a file declares its own is not scanned (#1021)" {
   _touch_adr "00000001-alpha.md"
   _index '| 00000001 -- alpha | keep | mechanism | note |'
   # Assembled from a variable, for the reason the mispaired case above
@@ -316,12 +316,54 @@ _index() {
   # reference in the real tree, which the real-tree case below reads.
   local _ghost='00000099'
   _write 'test/bats/unit/x_spec.bats' \
-    '# adr-refs: fixture' \
+    "# adr-refs: fixture ${_ghost}" \
     "  : > \"\${SCRATCH}/doc/adr/${_ghost}-fixture.md\"" \
     "  printf 'ADR-${_ghost}'"
   run _run_adr_numbering
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"clean"* ]]
+}
+
+# why: The half a whole-FILE drop resolved to "pass". A spec that builds a
+# throwaway registry still says things about THIS tree's -- a `# why:`
+# block naming the record a case came from, a comment naming the record
+# whose shape the check was written for -- and dropping the file whole
+# made those pointers invisible here and unreachable by the verb, which is
+# the stale-pointer-under-a-green-gate this check exists to prevent. The
+# declaration names numbers; a number it does not name is this tree's.
+@test "_run_adr_numbering: a number the declaration does not name is this tree's (#1021)" {
+  _touch_adr "00000001-alpha.md"
+  _index '| 00000001 -- alpha | keep | mechanism | note |'
+  # Assembled, for the reason the cases above state.
+  local _ghost='00000099' _own='00000098'
+  _write 'test/bats/unit/x_spec.bats' \
+    "# adr-refs: fixture ${_own}" \
+    "  printf 'ADR-${_own}'" \
+    "  # the record this case came from is ADR-${_ghost}"
+  run _run_adr_numbering
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"ADR-${_ghost}"* ]]
+  [[ "${output}" != *"ADR-${_own}"* ]]
+}
+
+# why: Where the grammar's residue points. A declaration this reader
+# cannot parse -- no number list, the shape the whole-file drop used --
+# exempts NOTHING and is itself a finding. The alternative is a marker
+# that has quietly stopped protecting the fixtures it was written for
+# while every gate stays green, which is the failure mode the declaration
+# exists to remove.
+@test "_run_adr_numbering: a declaration that names no number exempts nothing (#1021)" {
+  _touch_adr "00000001-alpha.md"
+  _index '| 00000001 -- alpha | keep | mechanism | note |'
+  # Assembled, for the reason the cases above state.
+  local _ghost='00000099'
+  _write 'test/bats/unit/x_spec.bats' \
+    '# adr-refs: fixture' \
+    "  printf 'ADR-${_ghost}'"
+  run _run_adr_numbering
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"ADR-${_ghost}"* ]]
+  [[ "${output}" == *"x_spec.bats:1"* ]]
 }
 
 # why: The blind spot the guess created, and it was live. The rule was a
