@@ -236,6 +236,40 @@ _grand_total_mentions() {
 # assumed, from the tree: this case only forbids the pointers because
 # TEST.md itself records no total, so restoring the figure lifts the rule
 # instead of leaving a rule nobody can satisfy.
+# _prd_gate_removal_predictions -- every doc/PRD.md paragraph that both
+# names the doc-count drift gate and predicts its removal, folded to one
+# line each. The unit is a paragraph because that is the span a reader
+# takes as one claim (the rule adr_doc_claims_spec.bats reads records by).
+#
+# The PRD is scanned and doc/adr/ deliberately is not: an ADR records a
+# decision as it was taken and amends by APPENDING, so superseded prose is
+# supposed to survive in it. The PRD states the invariants as they stand
+# and is edited in place, so a prediction left in it is not history, it is
+# the current record being wrong.
+_prd_gate_removal_predictions() {
+  awk '
+    BEGIN { RS = ""; FS = "\n" }
+    { _b = $0; gsub(/\n/, " ", _b) }
+    _b ~ /doc-count/ && _b ~ /drops? from invariant|removed from invariant|removes/ { print _b }
+  ' /source/doc/PRD.md
+}
+
+# why: The PRD is what a later branch follows, and a prediction it never
+# retracts is an instruction. Invariant 10 said the doc-count drift gate
+# entry drops from invariant 2 "when that mechanism lands" -- the mechanism
+# is #978, it landed, and the gate stayed, because since #999 it validates
+# the generated catalogue rather than the removed figures. The premise is
+# derived from the tree, not restated: the case only forbids the prediction
+# while `doc-counts` is still a `_LINT_TOOLS` entry, so a decision to
+# actually retire the gate lifts the rule with it.
+@test "doc/PRD.md predicts no removal of a lint the tree still runs (#978)" {
+  run grep -Fx '  doc-counts' /source/script/test/test.sh
+  assert_success
+  run _prd_gate_removal_predictions
+  assert_success
+  assert_output ''
+}
+
 @test "doc/test: no catalogue points at a grand total TEST.md no longer records (#978)" {
   run _aggregate_figure_hits /source/doc/test/TEST.md
   assert_success
