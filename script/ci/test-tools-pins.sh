@@ -66,17 +66,45 @@ _TTP_DECL_REL='dockerfile/Dockerfile.test-tools'
 # alpine is read from /etc/alpine-release rather than from a `--version`
 # flag: it is the base image, not a program, and that file is the only
 # thing in the image that knows which one it is.
+#
+# Two probes end in a `sed`, and the reason is in the PIN rather than in
+# the tool. shellcheck and hadolint are fetched from a release URL that
+# interpolates the ARG, so the pin has to be the release TAG (`v0.11.0`),
+# while both tools print a bare number (`version: 0.11.0`, `Haskell
+# Dockerfile Linter 2.15.1`). The comparison below matches the pin as a
+# whole token, so the two spellings never meet. The `sed` re-attaches the
+# tag's `v` to the number the tool reported -- it translates the answer,
+# it does not supply one: a tool answering 0.10.0 yields `v0.10.0` and
+# fails, and a tool that answers nothing yields nothing, which the check
+# already refuses as "a probe that did not run".
+#
+# The three bats helper libraries have no `--version` at all: they are
+# shell libraries, cloned at a tag. The tag is still IN the image -- the
+# clone's `.git` is copied with them -- so `git describe --tags` is the
+# library's own answer about which release it is, in the pin's own
+# spelling. It fails loudly if a future Dockerfile drops that directory,
+# which is the right direction for a probe.
 _TTP_ARG=(
   'BATS_VERSION'
   'ALPINE_VERSION'
   'KCOV_VERSION'
   'JUST_VERSION'
+  'SHELLCHECK_VERSION'
+  'HADOLINT_VERSION'
+  'BATS_SUPPORT_VERSION'
+  'BATS_ASSERT_VERSION'
+  'BATS_MOCK_VERSION'
 )
 _TTP_PROBE=(
   'bats --version'
   'cat /etc/alpine-release'
   'kcov --version'
   'just --version'
+  'shellcheck --version | sed -n "s/^version: /v/p"'
+  'hadolint --version | sed -n "s/.*Linter /v/p"'
+  'git -C /usr/lib/bats/bats-support describe --tags'
+  'git -C /usr/lib/bats/bats-assert describe --tags'
+  'git -C /usr/lib/bats/bats-mock describe --tags'
 )
 
 # _ttp_root -- the repo root, derived from this file's own location

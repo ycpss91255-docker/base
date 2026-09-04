@@ -303,10 +303,14 @@ jobs:
           # so the roster loop below asserts them by version, which is
           # strictly more than the exit status a probe here would read.
           #
-          # The static-analysis pair cannot go through that roster: both are
-          # pinned by literal release URL, not by an ARG, so they are
-          # compared against the pin read out of the Dockerfile, below. The
-          # two mechanisms cover disjoint sets; neither is redundant.
+          # The static-analysis pair IS on that roster now -- the pins moved
+          # onto ARG lines so a `tool-pin:` marker had a line to attach to,
+          # and the roster reads every ARG. The explicit comparison below
+          # therefore re-asserts what the roster loop already asserts. It is
+          # kept rather than deleted because it is the check that caught a
+          # 3.8-year-stale hadolint pin and it names the two tools every PR
+          # in this repo is gated by; the cost is one duplicated assertion,
+          # not a gap.
           #
           # (This line does not open with the tool's name on purpose: a
           # comment beginning `# shellcheck ...` inside a run: block is
