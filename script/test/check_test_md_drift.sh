@@ -14,13 +14,19 @@
 # committed" is the whole gate -- there is no preserved content for a
 # regeneration to be merged into.
 #
-# The comparison is not doc/test-shaped any more. The description lint's
-# undescribed ceiling is generated as well (base#1024) and lives in the
-# lint's own driver, so it is copied into the throwaway tree and diffed
-# beside the documents. Without that a branch could describe tests, leave
-# the number where it was, and read as in sync -- which is the slack that
-# design accepts arriving as a green run rather than as a printed number. ISTQB taxonomy (ADR-00000018): unit / integration / system /
-# acceptance levels + the shipped smoke type; empty level dirs count 0.
+# The comparison is not doc/test-shaped any more, and it does not carry a
+# list of what else to compare either. The generator is asked
+# (`_sync_doc_counts_outputs`), the same question the merge resolver asks
+# it, and every output outside doc/test is staged and diffed beside the
+# documents. The description lint's undescribed ceiling (base#1024) is the
+# first of those: without it a branch could describe tests, leave the
+# number where it was, and read as in sync -- the slack that design
+# accepts arriving as a green run rather than as a printed number. Naming
+# that file here instead would have covered exactly it, and the next
+# generated figure would have arrived uncompared with pass as the default.
+#
+# ISTQB taxonomy (ADR-00000018): unit / integration / system / acceptance
+# levels + the shipped smoke type; empty level dirs count 0.
 #
 # Usage:
 #   ./script/test/check_test_md_drift.sh            # check REPO_ROOT/doc/test
@@ -104,6 +110,46 @@ _check_drift_count_specs() {
   printf '%s\n' "${_n}"
 }
 
+# _check_drift_stage_generated <root> <tmp> -- copy every generated file
+# that does NOT live under doc/test into <tmp> at its ROOT-RELATIVE path,
+# printing those paths one per line.
+#
+# The set is the generator's own answer (`_sync_doc_counts_outputs`), the
+# same question the merge resolver asks it, and not a constant kept here:
+# a gate that names its outputs cannot notice the next one, and its
+# default on a file it does not name is to pass. COPIED and not symlinked,
+# unlike the spec trees: the generator WRITES these, and a symlink would
+# have it write into the checkout the gate is meant to leave alone. The
+# root-relative path matters -- a file placed anywhere but where the
+# generator expects it is one the regeneration silently declines to write.
+_check_drift_stage_generated() {
+  local _root="$1" _tmp="$2" _out _rel
+  while IFS= read -r _out; do
+    case "${_out}" in
+      "${_root}/doc/test/"*) continue ;;
+    esac
+    _rel="${_out#"${_root}"/}"
+    mkdir -p "${_tmp}/$(dirname -- "${_rel}")"
+    cp -- "${_out}" "${_tmp}/${_rel}"
+    printf '%s\n' "${_rel}"
+  done < <(_sync_doc_counts_outputs "${_root}")
+}
+
+# _check_drift_generated_diff <root> <tmp> <rel>... -- the unified diff of
+# each named file, committed against regenerated; empty output and status
+# 0 when they all match, status 1 when any differed.
+_check_drift_generated_diff() {
+  local _root="$1" _tmp="$2"
+  shift 2
+  local _rel _one _rc=0
+  for _rel in "$@"; do
+    [[ -f "${_tmp}/${_rel}" ]] || continue
+    _one="$(diff -u "${_root}/${_rel}" "${_tmp}/${_rel}" 2>/dev/null)" || _rc=1
+    [[ -z "${_one}" ]] || printf '%s\n' "${_one}"
+  done
+  return "${_rc}"
+}
+
 # _check_test_md_drift [root] -- return 0 when <root>/doc/test/*.md already
 # match what _sync_doc_counts would generate, 1 (with a diff on stderr) when
 # they drift. Non-mutating: the generator runs against a temp copy; the spec
@@ -143,17 +189,12 @@ _check_test_md_drift() {
   cp -R "${_root}/doc/test" "${_tmp}/doc/test"
   ln -s "${_root}/test" "${_tmp}/test"
   [[ -d "${_root}/dist" ]] && ln -s "${_root}/dist" "${_tmp}/dist"
-  # The description lint's ceiling is a generated figure too (base#1024)
-  # and it does not live under doc/test, so the copy has to reach outside
-  # that directory or the gate would report a tree in sync while the
-  # number in the driver was one the specs no longer justify. COPIED and
-  # not symlinked, unlike the spec trees: the generator writes this one,
-  # and a symlink would have it write into the checkout the gate is meant
-  # to leave alone.
-  if [[ -f "${_root}/${_CATALOG_CEILING_REL}" ]]; then
-    mkdir -p "${_tmp}/$(dirname -- "${_CATALOG_CEILING_REL}")"
-    cp "${_root}/${_CATALOG_CEILING_REL}" "${_tmp}/${_CATALOG_CEILING_REL}"
-  fi
+  # The generated figures that do not live under doc/test -- the
+  # description lint's ceiling is one (base#1024) -- staged at their
+  # root-relative paths, so the comparison below covers whatever the
+  # generator says it writes rather than whatever this file remembers.
+  local -a _generated=()
+  mapfile -t _generated < <(_check_drift_stage_generated "${_root}" "${_tmp}")
 
   if ! _sync_doc_counts "${_tmp}" >/dev/null; then
     rm -rf "${_tmp}"
@@ -162,13 +203,10 @@ _check_test_md_drift() {
     return 1
   fi
 
-  local _diff _ceiling_diff='' _rc=0
+  local _diff _generated_diff='' _rc=0
   _diff="$(diff -ru "${_root}/doc/test" "${_tmp}/doc/test" 2>/dev/null)" || _rc=1
-  if [[ -f "${_tmp}/${_CATALOG_CEILING_REL}" ]]; then
-    _ceiling_diff="$(diff -u \
-      "${_root}/${_CATALOG_CEILING_REL}" \
-      "${_tmp}/${_CATALOG_CEILING_REL}" 2>/dev/null)" || _rc=1
-  fi
+  _generated_diff="$(_check_drift_generated_diff "${_root}" "${_tmp}" \
+    "${_generated[@]+"${_generated[@]}"}")" || _rc=1
   rm -rf "${_tmp}"
 
   if (( _rc != 0 )); then
@@ -177,8 +215,8 @@ _check_test_md_drift() {
       if [[ -n "${_diff}" ]]; then
         printf '%s\n' "${_diff}"
       fi
-      if [[ -n "${_ceiling_diff}" ]]; then
-        printf '%s\n' "${_ceiling_diff}"
+      if [[ -n "${_generated_diff}" ]]; then
+        printf '%s\n' "${_generated_diff}"
       fi
     } >&2
     return 1
