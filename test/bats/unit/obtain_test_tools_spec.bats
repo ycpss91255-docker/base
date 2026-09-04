@@ -157,6 +157,10 @@ _hand_rolled_obtains() {
 # others. A job that reaches the rolling tag without going through the
 # script is that copy, whoever writes it next.
 @test "workflows: no job obtains the rolling test-tools tag by hand (#1010)" {
+  local _n
+  _n="$(workflow_files "${WF_DIR}" | awk 'END { print NR }')"
+  [[ "${_n}" -ge 8 ]] || fail \
+      "expected the tree's workflows, derived ${_n} -- the scan below would have read an empty set as a clean one"
   run _hand_rolled_obtains
   assert_success
   assert_output ''
