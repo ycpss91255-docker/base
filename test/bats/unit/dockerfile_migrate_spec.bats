@@ -2195,3 +2195,73 @@ EOF
   grep -Fq 'useradd -l -m -s /bin/bash -u "${USER_UID}"' "${DF}"
   grep -Fq 'usermod -l "${USER_NAME}"' "${DF}"
 }
+
+# ── what the run rewrote: the record its caller stages from ─────────────────
+#
+# A cross-version upgrade is driven by the CONSUMER'S OWN vendored
+# upgrade.sh, and the copy a consumer is sitting on stages a pair of
+# filenames hardcoded when it shipped -- v0.41.0's stages the Dockerfile
+# only down a branch these migrations never reach, so the file this
+# dispatcher had just rewritten was left uncommitted while the same run
+# told the user to push. The dispatcher is the only party that knows what
+# its migrations actually rewrote, so it keeps the record and the caller
+# stages what the record names. A list of filenames in the caller is what
+# that replaces: it decays the first time a migration touches one more
+# file, which is how the entrypoint arrived and how the next one will.
+
+# why: The caller cannot name the files itself -- it stages what the
+# record names, so the record has to name every file the run rewrote
+@test "migrated_files names the Dockerfile the run rewrote (#1036)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS lint
+COPY .base/script/docker/lib /lint/lib
+COPY .base/config /tmp/config
+EOF
+  run bash -c "$(_src); apply_migrations '${DF}' >/dev/null 2>&1; migrated_files"
+  assert_success
+  assert_output "${DF}"
+}
+
+# why: The sibling entrypoint is rewritten by migrations of its own, so a
+# record that knows only about the Dockerfile leaves it behind
+@test "migrated_files names the entrypoint the run rewrote (#1036)" {
+  mkdir -p "${TEMP_DIR}/script"
+  cat > "${DF}" <<'EOF'
+FROM busybox AS devel
+COPY --chmod=0755 .base/dist/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
+EOF
+  cat > "${TEMP_DIR}/script/entrypoint.sh" <<'EOF'
+#!/usr/bin/env bash
+# shellcheck disable=SC1091
+source /usr/local/lib/base/_entrypoint_logging.sh
+EOF
+  run bash -c "$(_src); apply_migrations '${DF}' >/dev/null 2>&1; migrated_files"
+  assert_success
+  assert_line "${TEMP_DIR}/script/entrypoint.sh"
+}
+
+# why: A run that rewrote nothing must hand its caller nothing to stage,
+# and the record may not survive into the next run
+@test "migrated_files is empty on a second, idempotent run (#1036)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS lint
+COPY .base/script/docker/lib /lint/lib
+COPY .base/config /tmp/config
+EOF
+  run bash -c "$(_src); apply_migrations '${DF}' >/dev/null 2>&1; apply_migrations '${DF}' >/dev/null 2>&1; migrated_files"
+  assert_success
+  assert_output ""
+}
+
+# why: The record is only as complete as the writes that report to it, so
+# a raw in-place write is a rewritten file the caller never stages
+@test "every in-place write in the migration list reports what it rewrote (#1036)" {
+  assert_spec_subject "${LIB}/dockerfile_migrate.sh" \
+    "the migration list this spec drives"
+  # Every write goes through the recording helpers, which carry the
+  # `dfm-write-primitive` marker on the one line that actually writes.
+  # Status pinned to grep's own no-match: assert_failure also accepts an
+  # exit 2 (unreadable file), which would pass this with nothing read.
+  run bash -c "grep -nE '^[[:space:]]*(sed[[:space:]]+-i|mv[[:space:]])' '${LIB}/dockerfile_migrate.sh' | grep -v 'dfm-write-primitive'"
+  [ "${status}" -eq 1 ]
+}

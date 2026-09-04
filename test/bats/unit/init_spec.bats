@@ -641,6 +641,70 @@ EOF
   [[ "$(cat "${TMP_REPO}/Dockerfile")" == "${_before}" ]]
 }
 
+# _git_seed_consumer
+#   Turn the seeded TMP_REPO into a git repo with everything committed, so
+#   what the resync stages afterwards is exactly what the resync did.
+_git_seed_consumer() {
+  git -C "${TMP_REPO}" init -q -b main
+  git -C "${TMP_REPO}" config user.email t@t
+  git -C "${TMP_REPO}" config user.name t
+  git -C "${TMP_REPO}" add -A
+  git -C "${TMP_REPO}" commit -q -m "chore: seed"
+}
+
+# The resync applies the migrations, and until #1036 nobody staged their
+# output: the caller that commits is the consumer's OWN vendored
+# upgrade.sh, which stages a pair of filenames hardcoded when it shipped
+# (v0.41.0's does not reach the Dockerfile at all). So the file the
+# migration had just rewritten stayed uncommitted while the same run
+# printed "git push". Staging belongs where the rewrite happens.
+
+# why: The committing caller is a released script that cannot be changed;
+# the run that rewrites the file is the only one that can stage it
+@test "_init_existing_repo: stages the Dockerfile its migrations rewrote (#1036)" {
+  _source_init
+  cat > "${TMP_REPO}/Dockerfile" <<'EOF'
+FROM busybox AS lint
+COPY .base/script/docker/lib /lint/lib
+EOF
+  _git_seed_consumer
+  _init_existing_repo
+  run git -C "${TMP_REPO}" diff --cached --name-only
+  assert_line "Dockerfile"
+}
+
+# why: A user's half-finished edit is not the resync's to commit, which is
+# what a `git add -A` sweep would make it
+@test "_init_existing_repo: leaves a file no migration touched unstaged (#1036)" {
+  _source_init
+  cat > "${TMP_REPO}/Dockerfile" <<'EOF'
+FROM busybox AS lint
+COPY .base/script/docker/lib /lint/lib
+EOF
+  printf 'committed\n' > "${TMP_REPO}/NOTES.md"
+  _git_seed_consumer
+  printf 'my half-finished edit\n' >> "${TMP_REPO}/NOTES.md"
+  _init_existing_repo
+  run git -C "${TMP_REPO}" diff --cached --name-only
+  refute_output --partial "NOTES.md"
+}
+
+# why: Nothing rewritten is nothing to stage -- and not an error
+@test "_init_existing_repo: stages no Dockerfile when no migration applies (#1036)" {
+  _source_init
+  cat > "${TMP_REPO}/Dockerfile" <<'EOF'
+FROM busybox AS lint
+COPY .base/dist/script/docker/lib /lint/lib
+EOF
+  _git_seed_consumer
+  # Called directly, not through `run`: the resync arms an EXIT trap of its
+  # own, and `run` would fire it in the wrapper's context. A non-zero
+  # return fails the test here anyway, which is the "does not fail" half.
+  _init_existing_repo
+  run git -C "${TMP_REPO}" diff --cached --name-only
+  refute_output --partial "Dockerfile"
+}
+
 @test "_init_existing_repo: syncs base-version-monitor.yaml on upgrade (#777)" {
   _source_init
   : > "${TMP_REPO}/Dockerfile"   # mark as "existing repo"

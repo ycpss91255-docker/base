@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **4139 tests**.
+Unit specs under `test/bats/unit/`: **4146 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1902,7 +1902,7 @@ the author did not have to escape.
 | `_sync_doc_counts: a second run over a generated catalogue changes nothing` | "Regenerating from scratch reproduces what is committed" is the gate check_test_md_drift.sh applies to the real tree, so a second run that moved a byte would make every branch red for a reason no diff explains. |
 | `_sync_doc_counts: a shipped smoke spec lands in smoke.md` | A shipped smoke spec is the one level whose glob leaves test/ for dist/, and it was the case that caught the doc-to-glob map going stale before. It stays because the map is still hand-written. |
 
-### test/bats/unit/dockerfile_migrate_spec.bats (116)
+### test/bats/unit/dockerfile_migrate_spec.bats (120)
 
 Unit tests for the declarative Dockerfile-migration list
 `lib/dockerfile_migrate.sh` (#567, folds #579 facet B). The lib exposes a
@@ -2033,6 +2033,10 @@ force-rewrite).
 | `migration 5 (hadolint): DL3046 leaves usermod -l alone (#946)` | The conflict-handling branch beside it is a different command; rewriting it would corrupt it |
 | `migration 5 (hadolint): DL3046 detect sees the flags-before--u shape (#946)` | A detect blind to the shipped shape logs a patched Dockerfile with the finding still live |
 | `migration 5 (hadolint): DL3046 heals a useradd whose own line also runs usermod -l (#946)` | A sibling flag after `&&` is not this command's flag; scanning to end of line left the finding live |
+| `migrated_files names the Dockerfile the run rewrote (#1036)` | The caller cannot name the files itself -- it stages what the record names, so the record has to name every file the run rewrote |
+| `migrated_files names the entrypoint the run rewrote (#1036)` | The sibling entrypoint is rewritten by migrations of its own, so a record that knows only about the Dockerfile leaves it behind |
+| `migrated_files is empty on a second, idempotent run (#1036)` | A run that rewrote nothing must hand its caller nothing to stage, and the record may not survive into the next run |
+| `every in-place write in the migration list reports what it rewrote (#1036)` | The record is only as complete as the writes that report to it, so a raw in-place write is a rewritten file the caller never stages |
 
 ### test/bats/unit/dockerignore_spec.bats (11)
 
@@ -2706,7 +2710,7 @@ forwarding for caller abort, and DRY_RUN skip.
 | `init.sh --list-installed-paths output is sorted and free of duplicates` | - |
 | `init.sh --list-installed-paths mutates nothing and never leaves its cwd` | - |
 
-### test/bats/unit/init_spec.bats (69)
+### test/bats/unit/init_spec.bats (72)
 
 Unit coverage for `init.sh` helpers that previous rounds exercised only
 through the Level-1 integration test. Complements
@@ -2756,6 +2760,9 @@ are hard to trigger from a real `bash template/init.sh` invocation
 | `_create_new_repo: also generates base-version-monitor.yaml` | - |
 | `_init_existing_repo: heals a Dockerfile still naming the pre-dist layout (#915)` | - |
 | `_init_existing_repo: leaves an already-migrated Dockerfile untouched (#915)` | - |
+| `_init_existing_repo: stages the Dockerfile its migrations rewrote (#1036)` | The committing caller is a released script that cannot be changed; the run that rewrites the file is the only one that can stage it |
+| `_init_existing_repo: leaves a file no migration touched unstaged (#1036)` | A user's half-finished edit is not the resync's to commit, which is what a `git add -A` sweep would make it |
+| `_init_existing_repo: stages no Dockerfile when no migration applies (#1036)` | Nothing rewritten is nothing to stage -- and not an error |
 | `_init_existing_repo: syncs base-version-monitor.yaml on upgrade (#777)` | - |
 | `_preflight_just: warns and exits 0 when just is absent (#607)` | Missing runner -> non-fatal WARN |
 | `_preflight_just: emits the init_just_missing event under LOG_FORMAT=json (#607)` | Structured event wired through |
