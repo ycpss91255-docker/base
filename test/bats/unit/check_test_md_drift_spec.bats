@@ -122,6 +122,62 @@ setup() {
   assert_success
 }
 
+# why: The gate's file set has to be the GENERATOR's answer and not a
+# constant this file keeps beside it. The merge resolver was changed for
+# exactly that reason -- a resolver carrying its own copy of "what is
+# generated" refuses the one file whose conflicts it is best placed to
+# settle -- and the gate names its single outside output twice instead.
+# A further generated output is then covered on a merge and silently
+# uncovered here, with pass as the default. The case swaps in a generator
+# with a second output and asks the gate to notice it has gone stale.
+@test "_check_test_md_drift: compares every file the generator claims, not one it names (#1024)" {
+  local _runner="${BATS_TEST_TMPDIR}/second_output.sh"
+  # Quoted heredoc: every expansion below belongs to the child, not here.
+  cat > "${_runner}" << 'EOF'
+set -uo pipefail
+source /source/script/test/check_test_md_drift.sh
+
+_SECOND_REL='script/test/drivers/second_figure.sh'
+
+# A generator with one more output than the gate can name. Both halves
+# are replaced together, because they are one fact: what it WRITES, and
+# what it answers when asked which files those are.
+eval "_orig_sync_doc_counts() $(declare -f _sync_doc_counts | tail -n +2)"
+_sync_doc_counts() {
+  _orig_sync_doc_counts "$@" || return 1
+  mkdir -p "$(dirname -- "$1/${_SECOND_REL}")"
+  printf 'readonly _SECOND=%s\n' \
+    "$(grep -c '^@test' "$1/test/bats/unit/x_spec.bats")" \
+    > "$1/${_SECOND_REL}"
+}
+_sync_doc_counts_outputs() {
+  local _r="$1" _doc
+  for _doc in "${_r}"/doc/test/*.md; do
+    [[ -f "${_doc}" ]] && printf '%s\n' "${_doc}"
+  done
+  [[ -f "${_r}/${_SECOND_REL}" ]] && printf '%s\n' "${_r}/${_SECOND_REL}"
+  return 0
+}
+
+root="${ROOT}"
+mkdir -p "${root}/test/bats/unit" "${root}/doc/test"
+printf '%s\n' '#!/usr/bin/env bats' '' '@test "a" {' ':' '}' \
+  > "${root}/test/bats/unit/x_spec.bats"
+printf '%s\n' 'Unit specs under `test/bats/unit/`: **0 tests**.' '' \
+  '<!-- generated: catalogue sections -->' '<!-- /generated -->' \
+  > "${root}/doc/test/unit.md"
+_sync_doc_counts "${root}"
+# The second output, and nothing else, is now what the specs no longer
+# justify. doc/test is in sync, so only a gate that reads the whole
+# output set can see it.
+printf 'readonly _SECOND=99\n' > "${root}/${_SECOND_REL}"
+_check_test_md_drift "${root}"
+EOF
+  run env ROOT="${BATS_TEST_TMPDIR}/r" bash "${_runner}"
+  assert_failure
+  assert_output --partial 'second_figure.sh'
+}
+
 @test "_check_test_md_drift: tolerates an empty acceptance level dir (count 0) (#782)" {
   run bash -c '
     source "'"${CHECK}"'"
