@@ -119,6 +119,21 @@ jobs:
           tag_name: ${{ steps.version.outputs.version }}
           body_path: doc/changelog/CHANGELOG.md
           generate_release_notes: true
+          # Whether this release is a prerelease is asked of the one place
+          # that owns the classification OF THIS WORKER'S OWN INPUT, and
+          # never spelled here. That input is a VERSION, not a ref -- the
+          # caller's when it passed one, github.ref_name only when it did
+          # not -- so the owner is script/ci/release-version.sh, which
+          # resolved this key alongside the version in the step above and
+          # refuses a value it cannot read rather than calling it final. The
+          # sites that classify a git REF (self-test.yaml,
+          # release-test-tools.yaml) ask script/ci/release-ref.sh for the
+          # same reason. This line used to spell the test itself, and a
+          # second copy of that expression lived in self-test.yaml while a
+          # third site did not ask at all -- which is how v0.42.0-rc1
+          # through -rc4 each moved the org's `test-tools:latest`. The
+          # `== 'true'` is the resolver's string output becoming the boolean
+          # this input takes; it is not a second test.
           prerelease: ${{ steps.version.outputs.prerelease == 'true' }}
           files: |
             ${{ inputs.archive_name_prefix }}-*.tar.gz

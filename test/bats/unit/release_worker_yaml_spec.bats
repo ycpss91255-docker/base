@@ -118,7 +118,22 @@ setup() {
   # `${{ inputs.* }}` expanded inside `run:` splices caller-controlled text
   # into the shell before bash sees it. Every input the step needs is bound
   # in `env:` instead.
-  run bash -c "sed -n '/name: Create release archive/,/name: Create GitHub Release/p' '${WF}' | sed -n '/run: |/,\$p' | grep -nF '\${{'"
+  #
+  # The block is taken from the PARSED document, not from a line window.
+  # The window ran from one step's name to a neighbour's, so inserting any
+  # step between the two dragged the neighbour's `env:` block --
+  # legitimately `${{ ... }}` -- into the range, and a comment paragraph
+  # belonging to the next step sat inside it either way. And it read
+  # nothing when the step was renamed: an empty read reported a clean
+  # block. Reading `.run` gives exactly the shell, and a step that is not
+  # there fails here.
+  local _body
+  _body="$(RW_STEP='Create release archive' yq -r \
+      '.jobs.release.steps[] | select(.name == strenv(RW_STEP)) | .run' \
+      "${WF}")"
+  [[ -n "${_body}" && "${_body}" != 'null' ]] || fail \
+    "${WF} has no 'Create release archive' step in its release job -- it was renamed, and this assertion had nothing to read."
+  run grep -nF '${{' <<< "${_body}"
   if [ "${status}" -eq 0 ]; then
     echo "caller input interpolated into the archive run block:"
     echo "${output}"

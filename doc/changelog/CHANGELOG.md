@@ -332,6 +332,32 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 - **the changelog lint now catches an entry that was edited and not re-wrapped (refs #927)** -- a single word left alone on a continuation line with more of its paragraph on the next line. The length measure collapses whitespace on purpose and markdown collapses it again at render time, so nothing else could see it. A short final line, a table row, a fenced line and an HTML comment are left alone. Affects anyone writing an `[Unreleased]` entry.
 
 ### Fixed
+- **the tooling image's pinned tools are checked by version, from a derived
+  roster (refs #1012)** -- fourteen of the fifteen probes in the release
+  smoke step asserted an exit status only, so `bats`, `kcov` and `alpine`
+  could go stale silently and `alpine` was never probed. The step now
+  iterates `script/ci/test-tools-pins.sh`, which reads every
+  `ARG <NAME>_VERSION=` in `dockerfile/Dockerfile.test-tools` and refuses
+  to answer while one of them has no probe -- so a tool pinned tomorrow is
+  asserted tomorrow.
+- **no workflow spells the prerelease rule itself (refs #1012)** -- the
+  question decides three things org-wide and was spelled twice as an inline
+  `contains(github.ref_name, '-')`, which is also true of
+  `feature/add-thing`. Each site now asks the script owning the
+  classification of its own input: `self-test.yaml` and
+  `release-test-tools.yaml` classify a ref (`script/ci/release-ref.sh`),
+  `release-worker.yaml` its `version` input
+  (`script/ci/release-version.sh`). **Both refuse a value they cannot read
+  as SemVer rather than calling it final**, so a tag outside `vX.Y.Z` fails
+  the release job instead of publishing a mislabelled release, and the two
+  owners are compared wherever both answer.
+- **a release-candidate tag no longer moves `test-tools:latest` (refs #1012)**
+  -- the `v*` trigger matched `v0.42.0-rc1` through `-rc4`, and each moved
+  `:latest`, so every repo leaving `test_tools_version` at its default built
+  its lint stage from a release candidate for the whole RC window. `:latest`
+  now moves only for a finished release. A ref the tag resolver does not
+  recognise -- a `workflow_dispatch` from a feature branch, say -- is refused
+  instead of resolving to `:latest`.
 - **`compute-shards` and `coverage-gate` now gate something (closes #1009)**
   -- neither was named by a gate's `needs:`. A failed `compute-shards`
   skipped `coverage` and `coverage-gate`, both skip-tolerated, so the
