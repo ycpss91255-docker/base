@@ -68,21 +68,64 @@
 # setup and the command named different records -- with the tool's own
 # survivor check and the lint both reporting clean.
 #
-# So a file that builds a registry says so, on a line of its own, and both
-# tools drop it WHOLE. Whole is the half that was missing: a file is
-# either this tree's or its own, and there is no reference class for which
-# the answer differs.
+# ── What the declaration is ABOUT: numbers, not the file ────────────────
 #
-# The marker is a comment line reading `adr-refs: fixture` (see
-# _ADR_REF_FIXTURE_RE). It has to be the whole line, so that a sentence
-# about the marker -- this one -- is not one. The residue: a file in a
-# language with no `#` comment cannot declare itself, and none of this
-# tree's registry-building fixtures is in one.
+# The declaration first dropped the whole FILE, on the reading that a file
+# is either this tree's or its own. That reading is false, and both of
+# this tree's declaring specs falsify it. adr_structure_spec.bats builds
+# fixture records AND names, in a comment, the real record whose three
+# column-0 Status lines the check was written for. adr_numbering_spec.bats
+# builds fixture registries AND carries a `# why:` block citing
+# `doc/adr/00000008-coverage-sharded-pr-gate.md` -- a marker the generator
+# publishes VERBATIM as a doc/test catalogue row, which is a file in this
+# population.
+#
+# Whole-file, that second one has no consistent state at all: the sweep
+# rewrites the generated row, `_sync_doc_counts` regenerates it from the
+# marker the sweep may not touch, the old number comes straight back, and
+# the verb aborts on a survivor -- with the record already moved, 25 files
+# rewritten, and no message naming the marker that produced the row. The
+# first one is quieter and worse: neither tool sees the pointer, so it
+# goes stale under a green gate.
+#
+# So the declaration names the NUMBERS whose references in this file are
+# the file's own. A reference carrying one of them is dropped in every
+# class -- token, path, and the bare arguments a spec passes to the verb --
+# which is what the per-class guess got wrong. A reference carrying any
+# other number is this tree's, and is swept and checked like any other.
+#
+# The default is now the SAFE direction. Whole-file, an unlisted live
+# pointer was silently exempt; per-number, an undeclared fixture number is
+# rewritten and, where it names no record, reported -- loudly, by the lint
+# that reads the same declaration.
+#
+# The marker is a comment line whose whole content is `adr-refs:`, the
+# word `fixture`, and one or more 8-digit numbers (see
+# _ADR_REF_FIXTURE_RE). Whole-line, so that a sentence about the marker --
+# this one -- is not one. A file may carry several; their numbers add up.
+#
+# The residue, stated rather than papered over. A declaration this reader
+# cannot parse exempts NOTHING, which is why the lint reports one
+# (_adr_ref_bad_markers): a marker that has quietly stopped protecting the
+# fixtures it was written for is the failure the declaration exists to
+# remove. A fixture number that IS a real record's number and is left
+# undeclared is rewritten in the token and path classes and not in the
+# bare-argument one -- the pre-existing failure, reached only by omitting
+# the one line that prevents it, and visible as a spec whose setup and
+# command name different records. And a file in a language with no `#`
+# comment cannot declare itself; none of this tree's registry-building
+# fixtures is in one.
 #
 # Style: Google Shell Style Guide.
 
-# The fixture declaration: a comment line and nothing else on it.
-_ADR_REF_FIXTURE_RE='^[[:space:]]*#[[:space:]]*adr-refs:[[:space:]]*fixture[[:space:]]*$'
+# The fixture declaration: a comment line naming the numbers this file's
+# references are its own, and nothing else on it.
+_ADR_REF_FIXTURE_RE='^[[:space:]]*#[[:space:]]*adr-refs:[[:space:]]*fixture([[:space:]]+[0-9]{8})+[[:space:]]*$'
+
+# Any line that OPENS a declaration, well-formed or not. A line that
+# matches this and not the above is a declaration this reader cannot
+# read, and the lint says so rather than treating it as an exemption.
+_ADR_REF_MARKER_RE='^[[:space:]]*#[[:space:]]*adr-refs:'
 
 # _adr_ref_ignored_dirs <root> -- the directories <root>/.gitignore
 # declares derived, as `anchored<TAB><path>` (root-relative, matched
@@ -144,28 +187,78 @@ _adr_ref_candidates() {
 # reference to THIS tree's ADR registry, one root-relative path per line.
 # The answer both tools use, so that neither can be right about a file the
 # other is wrong about.
+#
+# A file that declares fixture numbers is in this population like any
+# other; what its declaration exempts is looked up per reference, against
+# _adr_ref_fixture_map.
 _adr_ref_files() {
   local _root="$1" _rel
-  local -a _all=()
   while IFS= read -r _rel; do
     [[ -f "${_root}/${_rel}" ]] || continue
-    _all+=( "${_rel}" )
+    printf '%s\n' "${_rel}"
   done < <(_adr_ref_candidates "${_root}")
-  (( ${#_all[@]} > 0 )) || return 0
+}
 
-  # One grep for the whole population rather than one per file: the
-  # declaration is rare and the population is the tree.
-  local -A _fixture=()
+# _adr_ref_fixture_map <root> -- `<rel><TAB><num> <num>...` for every file
+# in the population that carries a declaration, one per line. A file whose
+# declarations name no number appears with an empty list, because a
+# declaration that names nothing exempts nothing.
+#
+# Two passes rather than one grep per file: the marker is rare and the
+# population is the tree, so the first pass finds the handful of files
+# that carry one and the second reads only those.
+_adr_ref_fixture_map() {
+  local _root="$1" _rel _nums
+  local -a _all=() _marked=()
   while IFS= read -r _rel; do
+    _all+=( "${_rel}" )
+  done < <(_adr_ref_files "${_root}")
+  (( ${#_all[@]} > 0 )) || return 0
+  mapfile -t _marked < <(
+    cd -- "${_root}" || exit 0
+    grep -lIE -e "${_ADR_REF_MARKER_RE}" -- "${_all[@]}" 2>/dev/null || true
+  )
+  for _rel in "${_marked[@]+"${_marked[@]}"}"; do
     [[ -n "${_rel}" ]] || continue
-    _fixture["${_rel}"]=1
+    _nums="$(
+      grep -hIE -e "${_ADR_REF_FIXTURE_RE}" -- "${_root}/${_rel}" 2>/dev/null \
+        | grep -oE '[0-9]{8}' | LC_ALL=C sort -u | tr '\n' ' '
+    )"
+    printf '%s\t%s\n' "${_rel}" "${_nums% }"
+  done
+}
+
+# _adr_ref_declares <fixture-list> <num> -- whether a file whose declared
+# numbers are <fixture-list> (a space-separated list, possibly empty)
+# claims <num> as its own. The one reading of the list, so the verb and
+# the lint cannot spell the membership test differently.
+_adr_ref_declares() {
+  local _list="$1" _num="$2"
+  [[ " ${_list} " == *" ${_num} "* ]]
+}
+
+# _adr_ref_bad_markers <root> -- `<rel>:<line>:<text>` for every line that
+# opens a declaration this reader cannot parse, one per line.
+#
+# Reported rather than tolerated: an unreadable declaration exempts
+# nothing, so the fixtures it was written for are being swept and checked
+# as if they were this tree's. That is the safe direction to fail in, and
+# saying so is what keeps it from being discovered by a rewritten fixture.
+_adr_ref_bad_markers() {
+  local _root="$1" _rel _hit _text
+  local -a _all=()
+  while IFS= read -r _rel; do
+    _all+=( "${_rel}" )
+  done < <(_adr_ref_files "${_root}")
+  (( ${#_all[@]} > 0 )) || return 0
+  while IFS= read -r _hit; do
+    # `<rel>:<line>:<text>`; the text is what follows the second colon.
+    _text="${_hit#*:}"
+    _text="${_text#*:}"
+    [[ ! "${_text}" =~ ${_ADR_REF_FIXTURE_RE} ]] || continue
+    printf '%s\n' "${_hit}"
   done < <(
     cd -- "${_root}" || exit 0
-    grep -lIE -e "${_ADR_REF_FIXTURE_RE}" -- "${_all[@]}" 2>/dev/null || true
+    grep -HnIE -e "${_ADR_REF_MARKER_RE}" -- "${_all[@]}" 2>/dev/null || true
   )
-
-  for _rel in "${_all[@]}"; do
-    [[ -z "${_fixture[${_rel}]:-}" ]] || continue
-    printf '%s\n' "${_rel}"
-  done
 }

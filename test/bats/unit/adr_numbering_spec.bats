@@ -16,11 +16,15 @@
 # trees, plus a real-tree guard that the live `doc/adr/` passes today with
 # the intentional `00000009` gap warned.
 
-# adr-refs: fixture
-# Every ADR number, token and doc/adr path below names one of the
-# throwaway registries these cases build under a temp root. Declaring it
-# takes this file out of the ADR reference population for both the lint
-# and `just adr renumber` -- see script/adr/references.sh.
+# adr-refs: fixture 00000001 00000002 00000007
+# Those three numbers name the throwaway registries these cases build
+# under a temp root, never this tree's, so neither the lint nor
+# `just adr renumber` reads them here. Every OTHER number in this file is
+# this tree's -- the `# why:` block below citing
+# doc/adr/00000008-coverage-sharded-pr-gate.md is a live pointer, and the
+# generator publishes that marker verbatim as a doc/test/unit.md row. See
+# script/adr/references.sh for why the declaration is about numbers and
+# not about the file.
 
 setup() {
   export LOG_FORMAT=text

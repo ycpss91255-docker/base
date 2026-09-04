@@ -45,13 +45,6 @@
 #             its audit conclusions enumerate them). Everywhere else an
 #             8-digit run standing on its own is not a reference to
 #             anything: it is a version, a count, an argument.
-#
-# A file that builds its own throwaway registry is not in the population
-# at all -- it declares itself (script/adr/references.sh) and is dropped
-# WHOLE. Per-class was tried and is how this tool corrupted the spec that
-# guards it: the `ADR-<n>` and `adr/<n>-` forms in adr_renumber_spec.bats
-# were rewritten and the numbers it passes to this tool as ARGUMENTS were
-# not, so its setup and its command named different records.
 #   derived   the generated regions of the doc/test catalogues. Rewritten
 #             LIKE ANY OTHER FILE and then REBUILT, in that order, and
 #             neither step subsumes the other. One of the 14 sites was a
@@ -63,6 +56,18 @@
 #             hand-written prose the generator does not own -- so skipping
 #             the file, which this tool did first, leaves a reference
 #             standing there under a green run. Both, in order.
+#
+# A file that builds its own throwaway registry DECLARES the numbers that
+# registry uses (script/adr/references.sh), and a reference carrying one
+# of them is dropped in every class. Per-class was tried and is how this
+# tool corrupted the spec that guards it: the `ADR-<n>` and `adr/<n>-`
+# forms in adr_renumber_spec.bats were rewritten and the numbers it passes
+# to this tool as ARGUMENTS were not, so its setup and its command named
+# different records. Per-FILE was tried next and is how this tool aborted
+# half-way: adr_numbering_spec.bats's `# why:` marker cites a live record
+# and the generator publishes that marker as a doc/test row, so the sweep
+# fixed the row, the regeneration put the old number back, and the run
+# ended on a survivor with the record already moved.
 #
 # The population is references.sh's, which is also the ADR-numbering
 # lint's -- see that file for why one definition and not two. Not a list:
@@ -208,6 +213,25 @@ _renumber_resolve() {
 # substitution on the row would appear to do and the next regeneration
 # would revert.
 
+# _renumber_targets <root> <from> -- the files whose references to <from>
+# are THIS tree's: the population minus the files that declare <from> one
+# of their own fixture numbers.
+#
+# One definition for the sweep and for the survivor check below, so the
+# tool cannot rewrite a file it will then read back with a different idea
+# of what counts.
+_renumber_targets() {
+  local _root="$1" _from="$2" _rel _nums
+  local -A _fixture=()
+  while IFS=$'\t' read -r _rel _nums; do
+    _fixture["${_rel}"]="${_nums}"
+  done < <(_adr_ref_fixture_map "${_root}")
+  while IFS= read -r _rel; do
+    ! _adr_ref_declares "${_fixture[${_rel}]:-}" "${_from}" || continue
+    printf '%s\n' "${_rel}"
+  done < <(_adr_ref_files "${_root}")
+}
+
 # _renumber_patterns <from> <rel> -- the grep -E alternation that finds a
 # reference to <from> in <rel>. The bare-number class is only ever offered
 # for the index.
@@ -258,7 +282,7 @@ _renumber_survivors() {
     _re="$(_renumber_patterns "${_from}" "${_rel}")"
     grep -qIE -e "${_re}" "${_root}/${_rel}" || continue
     printf '%s\n' "${_rel}"
-  done < <(_adr_ref_files "${_root}")
+  done < <(_renumber_targets "${_root}" "${_from}")
 }
 
 # _renumber_move <root> <old-base> <new-base> -- rename the record.
@@ -311,7 +335,7 @@ _adr_renumber() {
   done < <(
     while IFS= read -r _rel; do
       _renumber_rewrite_file "${_root}" "${_from}" "${_to}" "${_rel}"
-    done < <(_adr_ref_files "${_root}")
+    done < <(_renumber_targets "${_root}" "${_from}")
   )
 
   _renumber_move "${_root}" "${_base}" "${_new}" || return 1

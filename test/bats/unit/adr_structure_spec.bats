@@ -20,10 +20,12 @@
 # matching, and the second is the failure mode that costs the most, because
 # its output is indistinguishable from success (PRD design principle P3).
 
-# adr-refs: fixture
-# The doc/adr paths below name the throwaway registry these cases build
-# under ${SCRATCH}. Declaring it takes this file out of the ADR reference
-# population -- see script/adr/references.sh.
+# adr-refs: fixture 00000001 00000012
+# Those two numbers name the throwaway registry these cases build under
+# ${SCRATCH}, never this tree's. Every OTHER number here is this tree's:
+# the case below names the real record whose three column-0 Status lines
+# the check was written for, and that pointer is swept and checked like
+# any other. See script/adr/references.sh.
 
 setup() {
   export LOG_FORMAT=text

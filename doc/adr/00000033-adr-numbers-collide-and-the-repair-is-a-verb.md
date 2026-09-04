@@ -102,8 +102,8 @@ Four parts.
    plain directory patterns in the root `.gitignore`. That is a reader of
    the repo's own declaration, not a second opinion about what is derived.
 
-   A file that builds its own throwaway `doc/adr/` DECLARES it, on a line
-   reading `adr-refs: fixture`, and is dropped whole. Declared and not
+   A file that builds its own throwaway `doc/adr/` DECLARES the NUMBERS
+   that registry uses, on a comment line naming them. Declared and not
    inferred, because both attempts to infer it failed in the same
    direction. The lint read a `doc/adr/` path preceded by `}` as a shell
    expansion and therefore as somebody's fixture -- which silently
@@ -112,9 +112,32 @@ Four parts.
    unbraced expansion as a reference. The verb inferred per class instead,
    rewriting the `ADR-<n>` and `adr/<n>-` forms inside a spec while
    leaving the bare numbers that spec passes to it as ARGUMENTS, so a
-   renumber left the setup and the command naming different records.
-   Whole, or not at all: a file is either this tree's or its own, and
-   there is no reference class for which the answer differs.
+   renumber left the setup and the command naming different records. A
+   declared number is dropped in EVERY class, which is what the per-class
+   guess got wrong.
+
+   **Amended: the declaration is about numbers, not about the file.** It
+   first dropped the whole FILE, on the reading that "a file is either
+   this tree's or its own, and there is no reference class for which the
+   answer differs". That reading is false, and both of this tree's
+   declaring specs falsify it. `adr_structure_spec.bats` builds fixture
+   records and also names, in a comment, the real record whose three
+   column-0 Status lines the check was written for. `adr_numbering_spec.bats`
+   builds fixture registries and also carries a `# why:` block citing
+   `doc/adr/00000008-coverage-sharded-pr-gate.md` -- and the generator
+   publishes that marker verbatim as a `doc/test/unit.md` row, which is a
+   file in the population. Whole-file, renumbering that record had no
+   consistent state to reach: the sweep rewrote the row, the regeneration
+   in part 1 put the old number straight back from the marker the sweep
+   was forbidden to touch, and the verb aborted on a survivor with the
+   record already moved and 25 files rewritten -- the red gate with no
+   repair path through the documented verb that this very part exists to
+   remove. The first case is quieter and worse: neither tool sees the
+   pointer, so it rots under a green gate.
+
+   Per number, the default also points the safe way. Whole-file, an
+   undeclared live pointer was silently exempt; per number, an undeclared
+   fixture number is swept and, where it names no record, reported.
 
 4. **A number claimed by two records is refused, not guessed at.** With
    two claimants, a bare `ADR-00000030` in a sentence names whichever of
@@ -140,7 +163,17 @@ Where git can answer, none of that runs.
 A file that builds its own registry now carries a declaration, and a file
 that acquires one later without declaring it becomes a lint finding
 rather than a silent exemption. That is the direction the residue should
-point: the failure is visible and its repair is one line.
+point: the failure is visible and its repair is one line. A declaration
+the reader cannot parse is a finding for the same reason -- it exempts
+nothing, and saying so is what keeps a marker that has stopped
+protecting its fixtures from being discovered by a rewritten fixture.
+
+The residue the per-number rule keeps: a fixture number that happens to
+BE a real record's number, and is left undeclared, is rewritten in the
+token and path classes and not in the bare-argument one. That is the
+pre-existing per-class failure, now reachable only by omitting the one
+line that prevents it, and it surfaces as a spec whose setup and command
+name different records.
 
 The residue, stated rather than papered over: a prose `ADR-NNNNNNNN`
 whose number EXISTS but names a different record than its author meant is

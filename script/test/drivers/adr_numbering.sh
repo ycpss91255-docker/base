@@ -39,7 +39,7 @@
 # two of the audit conclusions -- with every gate green, because a stale
 # number in prose is read by nothing.
 #
-# Three checks, and what each catches:
+# Four checks, and what each catches:
 #
 #   dangling    `ADR-NNNNNNNN` naming a number no record claims. What a
 #               renumber leaves behind once the old number is free.
@@ -50,6 +50,11 @@
 #   index       doc/adr/README.md's audit table: exactly one row per
 #               record, no row without a record. The site the hand
 #               renumber actually missed, twice.
+#   declaration a fixture declaration this reader cannot parse. It exempts
+#               nothing, which is the safe direction to fail in and
+#               exactly why it is worth saying out loud: the alternative
+#               is a marker that has silently stopped protecting the
+#               fixtures it was written for.
 #
 # WHAT IS NOT CHECKED, said out loud because the gap is the interesting
 # part. A prose `ADR-NNNNNNNN` whose number EXISTS but names a different
@@ -68,10 +73,13 @@
 #
 # WHICH FILES are read is script/adr/references.sh's answer, shared with
 # the verb that repairs these findings, and it is also where a file that
-# builds its own throwaway registry declares itself. Both halves were once
-# decided here and decided differently: this lint read the whole
-# filesystem while the verb swept the tracked files, and it guessed at a
-# fixture from a brace two characters back. See that file.
+# builds its own throwaway registry declares the NUMBERS that registry
+# uses. Both halves were once decided here and decided differently: this
+# lint read the whole filesystem while the verb swept the tracked files,
+# and it guessed at a fixture from a brace two characters back. See that
+# file -- including why the declaration is about numbers and not about
+# the file, which a spec that builds fixtures AND cites a live record
+# settles.
 #
 # The index checks run only where doc/adr/README.md carries the audit
 # table's HEADER. A README without one is not an index, which is the
@@ -102,8 +110,9 @@ readonly _ADR_TOKEN_SCAN_RE='ADR-[0-9]{8}'
 # shell expansion and therefore as somebody's throwaway registry, which
 # dropped `"${REPO}/doc/adr/00000008-coverage-sharded-pr-gate.md"` -- a
 # live pointer into this tree's own registry -- unchecked. A file that
-# builds a registry declares it instead (script/adr/references.sh), and
-# declaring it takes the file out of the population entirely.
+# builds a registry declares the NUMBERS it uses instead
+# (script/adr/references.sh); a reference carrying one of them is skipped
+# and every other reference in that file is read like any other.
 readonly _ADR_PATH_SCAN_RE='doc/adr/[0-9]{8}-[A-Za-z0-9._-]+\.md'
 # The audit table: its header marks the document as the index, and a row
 # opens with the number of the record it is about.
@@ -143,12 +152,23 @@ _adr_ref_findings() {
   for _n in "$@"; do
     _known["${_n}"]=1
   done
+  # Which numbers each file claims as its OWN fixture registry's. Read
+  # once here rather than per hit, and read from the same file the verb
+  # reads it from, so a number the verb refuses to rewrite is a number
+  # this lint refuses to judge.
+  local -A _fixture=()
+  local _rel _nums
+  while IFS=$'\t' read -r _rel _nums; do
+    _fixture["${_rel}"]="${_nums}"
+  done < <(_adr_ref_fixture_map "${_root}")
+
   local _hit _loc _match _num _path
   while IFS= read -r _hit; do
     _match="${_hit##*:}"
     _loc="${_hit%:*}"
     _num="${_match#ADR-}"
     [[ -z "${_known[${_num}]:-}" ]] || continue
+    ! _adr_ref_declares "${_fixture[${_loc%:*}]:-}" "${_num}" || continue
     printf 'ADR numbering: %s: reference to ADR-%s, which no record claims (there is no doc/adr/%s-*.md).\n' \
       "${_loc}" "${_num}" "${_num}"
   done < <(_adr_scan "${_root}" "${_ADR_TOKEN_SCAN_RE}")
@@ -157,9 +177,20 @@ _adr_ref_findings() {
     _loc="${_hit%:*}"
     _path="${_match}"
     [[ ! -f "${_root}/${_path}" ]] || continue
+    # `doc/adr/` is 8 characters, and the number is the 8 that follow it.
+    ! _adr_ref_declares "${_fixture[${_loc%:*}]:-}" "${_path:8:8}" || continue
     printf 'ADR numbering: %s: reference to %s, which is not a record in this tree (renumbered, renamed, or a typo).\n' \
       "${_loc}" "${_path}"
   done < <(_adr_scan "${_root}" "${_ADR_PATH_SCAN_RE}")
+  # `<rel>:<line>:<text>`, and the TEXT of a declaration carries a colon
+  # of its own, so the location is taken from the front rather than by
+  # trimming from the back the way the two reference forms are.
+  local _rest
+  while IFS= read -r _hit; do
+    _rest="${_hit#*:}"
+    printf 'ADR numbering: %s:%s: a fixture declaration this reader cannot parse, so it exempts nothing. The form is the word fixture followed by the 8-digit numbers the file uses.\n' \
+      "${_hit%%:*}" "${_rest%%:*}"
+  done < <(_adr_ref_bad_markers "${_root}")
 }
 
 # _adr_index_findings <root> <claimed-number>... -- one line per

@@ -179,14 +179,14 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 ### Added
 - **`just adr renumber <record> <number>` moves an ADR and every reference to
   it (closes #1021)** -- nothing allocates an ADR number, so parallel branches
-  collide by construction; three took 00000030 in one day. The repair was a
-  14-file hand sweep and was left incomplete. The verb derives the reference
-  set from the same population the registry lint reads, which a spec that
-  builds its own fixture registry declares itself out of, regenerates
-  the doc/test catalogues instead of editing them, and refuses -- before
-  writing -- a taken target or a number two records claim. The registry lint
-  now also fails on a reference to no record and on an index table that has
-  lost a row.
+  collide by construction; three took 00000030 in one day, and the 14-file
+  hand repair was incomplete. The verb derives the reference set from
+  the same population the registry lint reads -- out of which a spec declares
+  the NUMBERS its own fixture registry uses, so a live pointer in that file
+  is still swept -- regenerates the doc/test catalogues instead of editing
+  them, and refuses a taken target or a twice-claimed number before writing.
+  The lint now also fails on a dangling reference, a missing index row,
+  and a declaration it cannot parse.
 - **`init.sh` states its new-vs-existing discriminator instead of hiding it
   in a branch (refs #928)** -- the decision is a proxy: a file only an
   already-initialized repo was meant to carry. It inverted when the template
