@@ -46,15 +46,17 @@
 #             8-digit run is not a reference: it is the throwaway registry
 #             a lint spec builds, and rewriting those is how this tool
 #             would corrupt the tests that guard it.
-#   derived   every path the doc/test generator writes. NEVER rewritten,
-#             REGENERATED once at the end. One of the 14 sites was a
+#   derived   the generated regions of the doc/test catalogues. Rewritten
+#             LIKE ANY OTHER FILE and then REBUILT, in that order, and
+#             neither step subsumes the other. One of the 14 sites was a
 #             `@test` NAME carrying the number, and a test name is a ROW in
-#             a generated catalogue: editing the row directly puts a hand
-#             edit into a generated file, which the next regeneration
-#             reverts. The spec is a source and is rewritten; the document
-#             is rebuilt from it. `_sync_doc_counts_outputs` is asked which
-#             files those are, so this tool holds no second copy of the
-#             answer.
+#             a catalogue: a substitution on the row appears to work and
+#             the next regeneration reverts it, so the rebuild is what
+#             actually carries a renamed test into its document. But a
+#             catalogue is only PARTLY generated -- its preamble is
+#             hand-written prose the generator does not own -- so skipping
+#             the file, which this tool did first, leaves a reference
+#             standing there under a green run. Both, in order.
 #
 # The population is the tracked files where the root is a checkout, and
 # every regular file otherwise. Not a list: a list of the 14 places is the
@@ -191,17 +193,26 @@ _renumber_tracked() {
   ( cd "${_root}" && find . -type f -not -path './.git/*' ) | sed 's|^\./||'
 }
 
-# _renumber_population <root> -- the tracked files MINUS everything the
-# doc/test generator writes. The generated ones are regenerated at the end
-# instead; see the header on why a `@test` name is not a thing to sed.
+# _renumber_population <root> -- the tracked files, all of them.
+#
+# A GENERATED file is not excluded, and the first version of this tool
+# excluded it. Running the verb over a copy of the real tree is what
+# corrected that: a doc/test catalogue is only PARTLY generated -- the
+# paragraph above the fence explaining the level is hand-written, and the
+# generator does not own a word of it -- so skipping the file left
+# `ADR-00000032` standing in doc/test/acceptance.md's preamble with the
+# run reporting success.
+#
+# So both halves are covered, in this order: every file is rewritten, and
+# the generated regions are then REBUILT from the specs. Neither step
+# subsumes the other. The rewrite is the only thing that reaches
+# hand-written prose inside a generated file; the rebuild is the only
+# thing that carries a renamed `@test` into its catalogue row, which a
+# substitution on the row would appear to do and the next regeneration
+# would revert.
 _renumber_population() {
-  local _root="$1" _f _out
-  local -A _derived=()
-  while IFS= read -r _out; do
-    _derived["${_out#"${_root}"/}"]=1
-  done < <(_sync_doc_counts_outputs "${_root}")
+  local _root="$1" _f
   while IFS= read -r _f; do
-    [[ -z "${_derived[${_f}]:-}" ]] || continue
     [[ -f "${_root}/${_f}" ]] || continue
     printf '%s\n' "${_f}"
   done < <(_renumber_tracked "${_root}")
