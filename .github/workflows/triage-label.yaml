@@ -13,12 +13,24 @@ on:
   issues:
     types: [opened]
 
+# One labeller per issue. Two runs for the same issue -- a re-delivered
+# webhook, a re-run -- would both read `labels[0] == null` from the same
+# payload and both add the label; serialising makes the second read the
+# state the first left. Never cancelled: the run IS the labelling, and a
+# cancelled one leaves the issue untriaged with nothing to retry it.
+concurrency:
+  group: triage-label-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
 permissions:
   issues: write
 
 jobs:
   label:
     runs-on: ubuntu-latest
+    # Every job in the tree bounds itself; GitHub's default is six hours.
+    # This one adds a label through the API and nothing else.
+    timeout-minutes: 5
     # Only act when the issue was opened without any label.
     if: github.event.issue.labels[0] == null
     steps:

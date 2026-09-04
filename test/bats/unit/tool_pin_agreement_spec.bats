@@ -65,16 +65,33 @@ setup() {
 }
 
 # _pinned_version <file> <tool>
-#   The version in the tool's pinned release URL, leading v stripped.
-#   Prints nothing and fails when no such URL is present -- an unreadable
-#   pin is a defect, not an absent constraint.
+#   The version the Dockerfile pins for the tool, from its
+#   `ARG <TOOL>_VERSION=` declaration, leading v stripped. Prints nothing
+#   and fails when the ARG is absent or declared more than once -- an
+#   unreadable pin is a defect, not an absent constraint, and two
+#   declarations name no single version for the image to agree with.
+#
+#   The declaration, not the release URL it feeds. Both linters were
+#   hoisted onto ARG lines because a version inside a line-continued RUN
+#   has no line of its own for a `tool-pin:` marker to attach to, and the
+#   URLs interpolate them now. Reading the ARG is the same provenance path
+#   the URL was, taken one step earlier.
 _pinned_version() {
   local _file="${1:?BUG: _pinned_version expects a file}"
   local _tool="${2:?BUG: _pinned_version expects a tool}"
-  local _v
-  _v="$(sed -n "s|.*${_tool}/releases/download/v\([0-9][0-9.]*\)/.*|\1|p" \
-    "${_file}" | head -n1)"
-  [[ -n "${_v}" ]] || return 1
+  local _arg="${_tool^^}_VERSION"
+  local -a _hits=()
+  local _line
+  while IFS= read -r _line; do
+    _hits+=("${_line}")
+  done < <(sed -n "s|^ARG[[:space:]]\{1,\}${_arg}=[[:space:]]*||p" "${_file}")
+  [[ "${#_hits[@]}" -eq 1 ]] || return 1
+  local _v="${_hits[0]}"
+  _v="${_v%\"}"; _v="${_v#\"}"
+  _v="${_v%\'}"; _v="${_v#\'}"
+  _v="${_v//[[:space:]]/}"
+  _v="${_v#v}"
+  [[ "${_v}" =~ ^[0-9][0-9.]*$ ]] || return 1
   printf '%s\n' "${_v}"
 }
 
@@ -142,7 +159,7 @@ _table_bash() {
 
 # why: A reader returning nothing would reduce both checks to empty-vs-empty
 # agreement
-@test "tool pins reader: a Dockerfile with no pinned URL FAILS rather than returning nothing" {
+@test "tool pins reader: a Dockerfile with no pin declaration FAILS rather than returning nothing" {
   local _f="${BATS_TEST_TMPDIR}/no-pin"
   printf 'FROM alpine\nRUN apk add shellcheck\n' > "${_f}"
   run _pinned_version "${_f}" shellcheck

@@ -52,6 +52,11 @@ mod? docker 'script/docker/justfile.docker'
 mod? test 'script/test/justfile.test'
 # Release / publish tooling (just release <recipe>)
 mod? release 'script/release/justfile.release'
+# `just` is the control surface, so the thing CI runs on a schedule is the
+# thing a maintainer can run by hand.
+
+# Upstream-release watch: declared pins vs upstream (just watch [pins|bump])
+mod? watch 'script/watch/justfile.watch'
 
 # Default: list available recipes / namespaces.
 default:

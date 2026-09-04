@@ -57,6 +57,51 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 
 ## [Unreleased]
 
+### Fixed
+- **every CI job now gets its tooling image the same way, and the probe
+  asserts what the image actually installs (closes #1010)** -- the obtain
+  decision was shell pasted into six jobs and five of them probed the pulled
+  `:main`; `acceptance`, the job whose scaffolded lint stage IS that image,
+  pulled and exited 0. It is one script now
+  (`script/ci/obtain_test_tools.sh`, ADR-00000033), and a workflow naming
+  the rolling tag by hand fails the suite. The roster is now the final
+  stage's own `apk add` plus what it puts on PATH, so `yq`, `grep` and
+  `coreutils` are asserted. A push that changes the Dockerfile, and any run
+  that cannot diff its own ref, rebuilds instead of pulling.
+- **the system job now runs for the files its own specs are about (closes
+  #1011)** -- `system_relevant` was a hand-kept list that named the wrapper
+  `setup.sh` and not `setup_tui.sh`, base's entrypoint and not the shipped
+  one, every wrapper `.sh` and no justfile, and never
+  `dockerfile/Dockerfile.smoke` -- the file the only spec that builds it
+  names in the line that builds it. Editing any of them alone skipped the
+  one job that exercises them. The pathspecs move to
+  `script/ci/system_paths.sh` and select the system under test outright;
+  a spec naming a path nothing selects now fails the suite. Doc-only and
+  unit-only PRs still skip the job.
+- **a red CI check names which red it is, and a cleanup failure is no longer
+  one of them (closes #1014)** -- seven artifact sweeps could fail a build
+  that had passed; they are `continue-on-error` now. A fork PR's required
+  `docker-build` check and a doc-only `ci-rollup` green both said nothing
+  about why they looked like that; both say it now. Every triggerable
+  workflow gained a concurrency group, cancelling only a superseded
+  pull_request and never a main push, tag or publish, and every job in the
+  tree that runs steps a `timeout-minutes` under GitHub's six-hour default
+  -- the coverage shards and `acceptance` included. Affects anyone reading
+  a base or downstream CI result.
+
+### Removed
+- **`build-worker.yaml` drops the `cache_backend` input and its unreachable
+  `registry` buildx cache (closes #980)** -- the registry backend needed
+  `packages: write` on jobs that declare a read-only block, and a called job
+  gets exactly the block it declares, so no caller could ever reach it: the
+  preflight told a caller to grant a scope, then failed on the grant it had
+  just asked for. The input, the GHCR login step, the write probe and the
+  manifest's permission line are gone; `gha` is the one backend and needs no
+  permission. **No caller passes the input today**, so no downstream repo
+  changes. A `cache_backend:` still in a call now fails as an undefined input.
+
+## [v0.43.0-rc1] - 2026-09-04
+
 ### Changed
 - **`doc/test/TEST.md` and `doc/test/unit.md` record no suite total any more
   (closes #978)** -- an aggregate over the working tree names nothing it
@@ -184,6 +229,16 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   whole workflows tree. The `-ignore` workaround stays --
   `github.job_workflow_sha` is still missing from actionlint's github-context
   type at 1.7.12.
+- **`generated-workflow-actions` resolves a generated ref from the pin
+  registry, within one file, and models no bash (refs #950, #987)** -- a
+  variable is read only where a `tool-pin:` marker DECLARES its value IN
+  THE SAME FILE; a marker on that name elsewhere declares a different
+  variable, and borrowing it reported lockstep over a value the generator
+  may never write. The heredoc reader that decided whether a use site
+  expands is gone -- six defects, and no input here to exercise it. A
+  `uses:` value is read lexically: `${{ }}` excluded by name, every other
+  `$` must resolve here. Whether the ref is the SAME ref is what this
+  lint owns; one reaching a workflow unexpanded is a broken generator.
 
 ### Added
 - **`init.sh` states its new-vs-existing discriminator instead of hiding it
@@ -232,6 +287,10 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 - **a multi-arch-aware GHCR cleanup for the `test-tools` package, defaulting to dry-run (refs #813)** -- every multi-arch publish strands the previous index and its per-arch children as untagged orphans, which accumulate release after release. The obvious tool is the dangerous one: `delete-only-untagged-versions` reads "untagged" off the packages API without opening a manifest, so it collects children a **live** tag still references and `docker pull` starts 404ing. This uses a manifest-aware action, SHA-pinned, scoped to `test-tools`, deleting untagged versions older than 14 days -- and it deletes nothing until `GHCR_CLEANUP_ENFORCE` is set.
 
 - **a job cannot reach the org's self-hosted runner from a fork PR, and the rule is linted rather than remembered (closes #766)** -- the issue filed this as insurance, but the premise was false: the org has one online self-hosted runner, in a group with `visibility: all` and `allows_public_repositories: true`, and this repo is public. Eligibility is now computed from each job's `runs-on` by a lint that scans the workflow directory and fails CLOSED on anything it cannot statically prove is a reserved GitHub-hosted label. Three of 33 jobs are eligible today; all carry the guard. A job added tomorrow is covered without editing the lint.
+
+- **an upstream-release watch: it proposes a bump, CI proves it, and it stops there (refs #946, #947, #950)** -- every third-party version this repo names that dependabot cannot see now carries a `tool-pin:` marker naming its upstream, and a weekly workflow compares each one and opens ONE proposal per drifted tool. It never merges and never arms auto-merge. The proposal is opened with a credential that is NOT `GITHUB_TOKEN`: GitHub starts no CI run for an event that token raised, and a proposal with no checks reads as nothing-is-wrong. An unreachable upstream -- or a pin table that will not parse, or that names no pin at all -- FAILS the run rather than reading as a clean week.
+
+- **`pin-coverage`: a version added with nothing watching it fails the lint (refs #950)** -- the watch's table is derived from the declaration sites, which opens the mirror failure: a pin with no marker is absent from it. It reads every file this repo TRACKS, minus prose and `.bats` fixtures, and recognises an image reference at a version tag wherever it is written, an assignment whose value is a version whatever its keyword, and an action ref. Untracked-ness is its only exemption, so a generated `coverage/` cannot move the verdict; where git cannot say, the list comes from the host, and a run with neither FAILS. Affects anyone adding a pinned tool: `just test` fails until it is declared.
 
 - **`arch-literal`: a shipped Dockerfile may not write an architecture into a
   string (closes #939)** -- buildx builds one Dockerfile per `--platform`, so a
@@ -327,6 +386,32 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 - **the changelog lint now catches an entry that was edited and not re-wrapped (refs #927)** -- a single word left alone on a continuation line with more of its paragraph on the next line. The length measure collapses whitespace on purpose and markdown collapses it again at render time, so nothing else could see it. A short final line, a table row, a fenced line and an HTML comment are left alone. Affects anyone writing an `[Unreleased]` entry.
 
 ### Fixed
+- **the tooling image's pinned tools are checked by version, from a derived
+  roster (refs #1012)** -- fourteen of the fifteen probes in the release
+  smoke step asserted an exit status only, so `bats`, `kcov` and `alpine`
+  could go stale silently and `alpine` was never probed. The step now
+  iterates `script/ci/test-tools-pins.sh`, which reads every
+  `ARG <NAME>_VERSION=` in `dockerfile/Dockerfile.test-tools` and refuses
+  to answer while one of them has no probe -- so a tool pinned tomorrow is
+  asserted tomorrow.
+- **no workflow spells the prerelease rule itself (refs #1012)** -- the
+  question decides three things org-wide and was spelled twice as an inline
+  `contains(github.ref_name, '-')`, which is also true of
+  `feature/add-thing`. Each site now asks the script owning the
+  classification of its own input: `self-test.yaml` and
+  `release-test-tools.yaml` classify a ref (`script/ci/release-ref.sh`),
+  `release-worker.yaml` its `version` input
+  (`script/ci/release-version.sh`). **Both refuse a value they cannot read
+  as SemVer rather than calling it final**, so a tag outside `vX.Y.Z` fails
+  the release job instead of publishing a mislabelled release, and the two
+  owners are compared wherever both answer.
+- **a release-candidate tag no longer moves `test-tools:latest` (refs #1012)**
+  -- the `v*` trigger matched `v0.42.0-rc1` through `-rc4`, and each moved
+  `:latest`, so every repo leaving `test_tools_version` at its default built
+  its lint stage from a release candidate for the whole RC window. `:latest`
+  now moves only for a finished release. A ref the tag resolver does not
+  recognise -- a `workflow_dispatch` from a feature branch, say -- is refused
+  instead of resolving to `:latest`.
 - **`compute-shards` and `coverage-gate` now gate something (closes #1009)**
   -- neither was named by a gate's `needs:`. A failed `compute-shards`
   skipped `coverage` and `coverage-gate`, both skip-tolerated, so the
@@ -3582,7 +3667,8 @@ GUI-using env repo before promoting to v0.10.0.
 - Dockerfile `CONFIG_SRC` path: `docker_setup_helper/src/config` → `template/config`
 - Shared smoke tests loaded via `COPY template/smoke_test/` in Dockerfile (not symlinks)
 
-[Unreleased]: https://github.com/ycpss91255-docker/base/compare/v0.42.0...HEAD
+[Unreleased]: https://github.com/ycpss91255-docker/base/compare/v0.43.0-rc1...HEAD
+[v0.43.0-rc1]: https://github.com/ycpss91255-docker/base/compare/v0.42.0...v0.43.0-rc1
 [v0.42.0]: https://github.com/ycpss91255-docker/base/compare/v0.42.0-rc4...v0.42.0
 [v0.42.0-rc4]: https://github.com/ycpss91255-docker/base/compare/v0.42.0-rc3...v0.42.0-rc4
 [v0.42.0-rc3]: https://github.com/ycpss91255-docker/base/compare/v0.42.0-rc2...v0.42.0-rc3

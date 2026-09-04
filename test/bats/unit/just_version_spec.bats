@@ -160,10 +160,8 @@ _seed_tree() {
 # was in until now.
 #
 # Job scope also subsumes the comment hazard the previous form was
-# converted for: yaml_job_lines strips comment-only lines, so
-# release-test-tools.yaml's prose "read via dist/script/base/just-version.sh"
-# (the file's ONLY other mention of the accessor) cannot vouch for the
-# smoke check that sits under it.
+# converted for: yaml_job_lines strips comment-only lines, so prose about
+# an accessor cannot vouch for the check that sits under it.
 
 @test "self-test.yaml: setup-just is pinned from the accessor, not left to install latest (#948)" {
   local _wf=/source/.github/workflows/self-test.yaml
@@ -201,12 +199,22 @@ _seed_tree() {
   _body="$(yaml_job_lines "${_wf}" merge)"
   [ -n "${_body}" ] \
     || fail "derived an empty 'merge' job from ${_wf} -- the job reader is broken, so this test checked nothing"
-  [[ "${_body}" == *'dist/script/base/just-version.sh'* ]] \
-    || fail "the merge job smoke-checks the published image but never reads the declared pin"
-  # Reading both versions is not comparing them: the compare is what
-  # turns "the binary is there" into "the binary is the pinned one".
-  [[ "${_body}" == *'!= "just ${just_pin}"'* ]] \
-    || fail "the merge job reads the pin and the image's version but never compares them"
+  # The comparison is no longer written per tool. `just` was the only
+  # probe in that step comparing anything, and the three other tools the
+  # Dockerfile pins were compared to nothing, so the step now
+  # iterates the roster script/ci/test-tools-pins.sh derives from those
+  # ARG declarations. Both halves are asserted: reading a roster is not
+  # comparing against it.
+  [[ "${_body}" == *'script/ci/test-tools-pins.sh roster'* ]] \
+    || fail "the merge job smoke-checks the published image but never reads the pin roster"
+  [[ "${_body}" == *'script/ci/test-tools-pins.sh check'* ]] \
+    || fail "the merge job reads the roster but never compares the image against it"
+  # ... and the runner really is a row of that roster, so the loop covers
+  # `just` rather than merely existing. Derived from the accessor, not
+  # asserted against a remembered list.
+  run bash /source/script/ci/test-tools-pins.sh roster
+  assert_success
+  assert_output --partial 'JUST_VERSION'
   # A bare `docker run ... just --version` with nothing comparing its
   # output is the check that caught removal and never staleness.
   run grep -nE 'docker run --rm "\$\{image\}" just --version$' "${_wf}"

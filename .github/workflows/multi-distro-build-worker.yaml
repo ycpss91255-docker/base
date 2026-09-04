@@ -87,6 +87,12 @@ on:
 jobs:
   resolve-matrix:
     runs-on: ubuntu-latest
+    # Every job of a worker bounds itself: GitHub's default is six hours,
+    # and it applies per matrix shard. `call-build` carries none because
+    # `timeout-minutes` is not accepted on a job that `uses:` another
+    # workflow -- its bound lives on build-worker's own jobs, which is
+    # where the work is.
+    timeout-minutes: 5
     # This is a REUSABLE workflow: a job with no `permissions:` runs on
     # the CALLING repo's whole grant. The job picks one of two inputs and
     # writes it to GITHUB_OUTPUT -- it does not even check out -- so it
@@ -154,6 +160,7 @@ jobs:
     needs: call-build
     if: ${{ always() }}
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     # Reads `needs.call-build.result` and exits. `contents: read` rather
     # than `{}` keeps the block uniform with its siblings (#957).
     permissions:
