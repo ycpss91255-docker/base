@@ -326,6 +326,51 @@ _file() {
   [[ -f "${ROOT}/doc/adr/00000030-config-layout.md" ]]
 }
 
+# why: The record this verb exists for is the one a branch authored this
+# morning, and `git add` is not part of authoring an ADR. `git mv` refuses
+# a path it does not track, so the git tier renamed nothing, ignored the
+# refusal and reported a renumber -- leaving the record at its old number
+# with every reference in the tree rewritten to the new one, and the
+# survivor check unable to see it because the survivor check greps for the
+# number the sweep has just removed everywhere.
+@test "adr renumber: moves a record git does not track yet (#1021)" {
+  _file 'CONTEXT.md' 'ADR-00000030 is the record.'
+  git -C "${ROOT}" init -q
+  # Everything BUT the record, which is the state a freshly written ADR is
+  # in: authored, referenced, not yet staged.
+  git -C "${ROOT}" add CONTEXT.md doc/test
+  run bash "${RENUMBER}" 30 32 "${ROOT}"
+  assert_success
+  [[ -f "${ROOT}/doc/adr/00000032-entry-point.md" ]]
+  [[ ! -e "${ROOT}/doc/adr/00000030-entry-point.md" ]]
+  run cat "${ROOT}/CONTEXT.md"
+  assert_output --partial 'ADR-00000032'
+}
+
+# why: A rename that did not happen is not a renumber. `_renumber_move`
+# ran `git mv` and returned 0 whatever it said, so any failure -- a
+# concurrent `index.lock`, a permission, a repository state -- came back
+# as "N reference file(s) rewritten" and exit 0, with the record still at
+# its old number and every pointer at the tree moved to the new one. The
+# header promises the opposite ("a refusal leaves nothing half-renumbered")
+# and the rename is now the FIRST write, so there is nothing to unpick.
+@test "adr renumber: REFUSES when the rename fails, changing nothing (#1021)" {
+  _file 'CONTEXT.md' 'ADR-00000030 is the record.'
+  git -C "${ROOT}" init -q
+  git -C "${ROOT}" add -A
+  # An index git cannot take. Not a contrivance: it is what a second git
+  # process in the same checkout leaves behind, and the point is that the
+  # tool's answer does not depend on which failure it was.
+  : > "${ROOT}/.git/index.lock"
+  run bash "${RENUMBER}" 30 32 "${ROOT}"
+  assert_failure
+  assert_output --partial '00000030-entry-point.md'
+  [[ -f "${ROOT}/doc/adr/00000030-entry-point.md" ]]
+  run cat "${ROOT}/CONTEXT.md"
+  assert_output --partial 'ADR-00000030'
+  refute_output --partial 'ADR-00000032'
+}
+
 # why: A record that is not there is a typo, and a tool that renamed
 # nothing and reported success would leave the operator believing a sweep
 # had happened.
