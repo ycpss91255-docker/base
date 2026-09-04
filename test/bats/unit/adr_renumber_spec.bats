@@ -133,6 +133,34 @@ _file() {
   refute_output --partial '**99 tests**'
 }
 
+# why: A generated document is only PARTLY generated -- its preamble is
+# hand-written prose outside the fence, and the generator does not own a
+# word of it. Skipping the file because the generator writes part of it
+# left a reference standing there, found by running the tool over a copy
+# of the real tree. Both halves are covered: the prose is rewritten, and
+# the fenced half is rebuilt afterwards from the specs.
+@test "adr renumber: rewrites the hand-written half of a generated document (#1021)" {
+  _file 'test/bats/unit/init_spec.bats' \
+    '#!/usr/bin/env bats' '' \
+    '# why: a described case' \
+    '@test "a" {' \
+    '}'
+  _file 'doc/test/unit.md' \
+    'Unit specs under `test/bats/unit/`: **99 tests**.' '' \
+    'The acceptance bringup is base'"'"'s orchestrator (ADR-00000030), which' \
+    'this paragraph says by hand -- no generator wrote it.' '' \
+    '<!-- generated: catalogue sections -->' '<!-- /generated -->'
+  run bash "${RENUMBER}" 30 32 "${ROOT}"
+  assert_success
+  run cat "${ROOT}/doc/test/unit.md"
+  assert_output --partial 'orchestrator (ADR-00000032)'
+  refute_output --partial 'ADR-00000030'
+  # Still regenerated: the hand-written half being rewritten must not cost
+  # the rebuild of the half that is derived.
+  assert_output --partial '### test/bats/unit/init_spec.bats (1)'
+  refute_output --partial '**99 tests**'
+}
+
 # why: A target somebody else already claims is the collision again, one
 # move later. Refusing BEFORE the first write is what keeps a refusal from
 # leaving a half-renumbered tree somebody has to unpick by hand.

@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3951 tests**.
+Unit specs under `test/bats/unit/`: **3952 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -203,7 +203,7 @@ warned.
 | `_run_adr_numbering: PASSES when every record has one row and every reference resolves (#1021)` | The passing shape, so the three failures above are read as a contract rather than as a lint that dislikes index tables. |
 | `_run_adr_numbering: the REAL doc/adr/ passes today (00000009 gap warned) (#808)` | Live tree clean, 00000009 gap warned |
 
-### test/bats/unit/adr_renumber_spec.bats (8)
+### test/bats/unit/adr_renumber_spec.bats (9)
 
 Nothing allocates an ADR number, so parallel branches collide by
 construction (base#1021: three took 00000030 on one day, each right by the
@@ -224,6 +224,7 @@ the cases about references rather than about git.
 | `adr renumber: rewrites a doc/adr path reference, slug and all (#1021)` | The path form carries the slug, which is what makes it the one reference class that stays unambiguous even where the number does not -- and the class a rewrite of `ADR-<n>` alone would leave behind. |
 | `adr renumber: rewrites the bare number in the index and nowhere else (#1021)` | The index writes its numbers bare, and everywhere else a bare 8-digit run is not a reference at all. Rewriting bare numbers tree-wide is how a renumber would corrupt the fixture registries the lint specs build, so the class is scoped to the one document whose 8-digit runs are all ADR numbers. |
 | `adr renumber: regenerates the catalogue instead of editing it (#1021)` | The site a blind sed gets wrong. One of the 14 was a `@test` NAME carrying the number, and a test name is a ROW in a generated catalogue: rewriting the row directly puts a hand edit into a generated file, which the next regeneration reverts. The spec is a source and is rewritten; the catalogue is rebuilt from it. The stale count proves the rebuild happened rather than a substitution that only looked like one. |
+| `adr renumber: rewrites the hand-written half of a generated document (#1021)` | A generated document is only PARTLY generated -- its preamble is hand-written prose outside the fence, and the generator does not own a word of it. Skipping the file because the generator writes part of it left a reference standing there, found by running the tool over a copy of the real tree. Both halves are covered: the prose is rewritten, and the fenced half is rebuilt afterwards from the specs. |
 | `adr renumber: REFUSES a target number a record already claims, changing nothing (#1021)` | A target somebody else already claims is the collision again, one move later. Refusing BEFORE the first write is what keeps a refusal from leaving a half-renumbered tree somebody has to unpick by hand. |
 | `adr renumber: REFUSES a number two records claim, naming both (#1021)` | The state a collision merge actually lands in, and the one the tool must not guess its way through: with two records on one number, a prose ADR-00000030 names whichever the author had in mind and nothing in the tree records which. The refusal names both and points at the resolution that IS derivable -- renumber on the branch, where the number has one claimant. |
 | `adr renumber: REFUSES a record no file matches, naming what it looked for (#1021)` | A record that is not there is a typo, and a tool that renamed nothing and reported success would leave the operator believing a sweep had happened. |
