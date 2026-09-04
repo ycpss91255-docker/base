@@ -228,10 +228,84 @@ _probe_image img '${DOCKERFILE}'"
 # why: The kcov race the probe was originally written for
 @test "probe: a MISSING tool is refused and named (#947)" {
   run bash -c "$(_src)
-$(_fake_run "*'command -v kcov'*) return 1 ;;")
+$(_fake_run "")
+_probe_missing_binaries() { printf 'kcov\n'; }
 _probe_image img '${DOCKERFILE}'"
   assert_failure
   assert_output --partial 'kcov'
+}
+
+# ── the roster, read rather than restated ───────────────────────────────────
+
+# why: The roster was five names written into this script, and the image
+# installs fifteen packages. `yq` was the omission that already bit us: it
+# was added to the Dockerfile, the post-merge run took the pull path, and
+# the probe declared the stale image acceptable because it was not looking
+# for it. Read the final stage's own `apk add` instead, and a package added
+# to the image is a package the probe asserts.
+@test "probe: the required packages are read from the Dockerfile (#1010)" {
+  run bash -c "$(_src); _probe_apk_packages '${DOCKERFILE}'"
+  assert_success
+  assert_line 'yq-go'
+  assert_line 'grep'
+  assert_line 'coreutils'
+}
+
+# why: The stage boundary, which is what makes reading the file safe. The
+# kcov builder `apk add`s a compiler toolchain that is deliberately NOT in
+# the final image; a reader that took every `apk add` in the file would
+# demand `g++` of an image that is correct without it, and the first
+# refusal it produced would be read as a bug in the probe.
+@test "probe: only the FINAL stage's packages are required (#1010)" {
+  run bash -c "$(_src); _probe_apk_packages '${DOCKERFILE}'"
+  assert_success
+  refute_line 'g++'
+  refute_line 'cmake'
+}
+
+# why: The other half of the roster. shellcheck, hadolint, kcov, just and
+# bats are not packages -- they are COPYed in from builder stages or
+# symlinked -- so a package reader alone would stop asserting the five
+# tools the suite actually executes.
+@test "probe: the required binaries are read from what lands on PATH (#1010)" {
+  run bash -c "$(_src); _probe_path_binaries '${DOCKERFILE}'"
+  assert_success
+  assert_line 'shellcheck'
+  assert_line 'hadolint'
+  assert_line 'kcov'
+  assert_line 'just'
+  assert_line 'bats'
+}
+
+# why: The consequence, stated as behaviour. `grep` and `coreutils` are the
+# dangerous ones: on alpine they SHADOW busybox applets, so losing one does
+# not produce "command not found" -- it silently changes what `sort`,
+# `date` and `grep -P` mean, in a suite whose gates depend on the GNU
+# semantics.
+@test "probe: a package the image lacks is refused and named (#1010)" {
+  run bash -c "$(_src)
+$(_fake_run "")
+_probe_missing_packages() { printf 'coreutils\n'; }
+_probe_image img '${DOCKERFILE}'"
+  assert_failure 1
+  assert_output --partial 'coreutils'
+}
+
+# why: A roster the file does not yield is the empty-expectation shape this
+# whole mechanism exists to refuse: a probe over an empty list answers yes
+# to every image. Separated from a mismatch, because "cannot tell" is not
+# "does not match" -- and it is emphatically not a pass.
+@test "probe: a Dockerfile yielding no roster is refused, not read as agreement (#1010)" {
+  local _f="${TEMP_DIR}/no-roster"
+  printf 'ARG ALPINE_VERSION=3.22\nFROM alpine:${ALPINE_VERSION}\n' > "${_f}"
+  run bash -c "$(_src)
+$(_fake_run "")
+_probe_image img '${_f}'"
+  assert_failure 2
+  # Named for the roster, not for whatever the reader happened to trip on
+  # next: a refusal that says "unreadable pin" would send the reader to
+  # the wrong half of the file.
+  assert_output --partial 'roster'
 }
 
 # why: The quiet failure: a lint gate on an older rule set under-reports
@@ -267,9 +341,10 @@ _probe_image img '${DOCKERFILE}'"
   # The state a moved release URL or a renamed file produces. Comparing an
   # empty expectation against an empty reading agrees with itself.
   local _f="${TEMP_DIR}/no-pin"
-  printf 'FROM alpine\n' > "${_f}"
-  # Every tool is PRESENT, so the only thing left to refuse is the missing
-  # expectation itself.
+  # A roster the reader CAN form, so the only thing left to refuse is the
+  # missing expectation itself; every tool is reported present.
+  printf 'FROM alpine AS b\nFROM alpine\nRUN apk add --no-cache bash\nCOPY --from=b /usr/local/bin/shellcheck /usr/local/bin/\n' \
+      > "${_f}"
   run bash -c "$(_src)
 $(_fake_run "")
 _probe_image img '${_f}'"
@@ -277,21 +352,16 @@ _probe_image img '${_f}'"
   assert_output --partial 'pin'
 }
 
-# why: A probe over an empty list answers yes to every image
-@test "probe: an empty REQUIRED_TOOLS is refused rather than passing vacuously (#947)" {
-  run bash -c "$(_src); REQUIRED_TOOLS='' _probe_image img '${DOCKERFILE}'"
-  assert_failure
-}
-
 # why: A tool whose version matters that the probe never looks for is drift,
 # not narrowing
-@test "probe: a PINNED tool absent from REQUIRED_TOOLS is refused as a contradiction (#947)" {
-  # PINNED_TOOLS names tools whose VERSION matters; REQUIRED_TOOLS names
-  # the tools the run executes. A pinned tool the probe never looks at is
-  # a list that has drifted, not a narrower probe.
-  run bash -c "$(_src); REQUIRED_TOOLS='kcov bats' _probe_image img '${DOCKERFILE}'"
-  assert_failure
-  assert_output --partial 'REQUIRED_TOOLS'
+@test "probe: a PINNED tool the Dockerfile never puts on PATH is refused as a contradiction (#947)" {
+  # PINNED_TOOLS names tools whose VERSION matters; the roster names what
+  # the image is built to carry. A pinned tool the probe never looks at is
+  # a list that has drifted apart, not a narrower probe.
+  run bash -c "$(_src); PINNED_TOOLS='shellcheck nosuchtool' \
+      _probe_image img '${DOCKERFILE}'"
+  assert_failure 2
+  assert_output --partial 'nosuchtool'
 }
 
 # why: Another series means another bash, which is what decides whether kcov
