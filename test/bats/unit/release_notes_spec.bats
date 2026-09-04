@@ -347,6 +347,33 @@ _notes_with_lossy_assembler() (
   assert_output --partial 'v0.9.0'
 }
 
+# why: The postcondition exists to catch the shape the merge was not written
+# for, so it must not ask the merge's own reader what the sources hold. It
+# used to: both counts ran the same fence state, so any section that state
+# mis-read was subtracted from BOTH sides and the release shipped short at
+# exit 0 -- the one class of shape the count claims to turn into a refusal.
+# It now counts a `- ` at column 0 wherever it stands, which can only
+# over-count, and an over-count only ever fires early.
+@test "release_notes.sh: the completeness count does not share the merge's fence reader" {
+  # The entries sit under a fence nothing closes, so the merge's reader sees
+  # no entries in this section at all -- and neither did the count that used
+  # the same reader.
+  _series v0.9 \
+    '## [v0.9.0] - 2026-04-03' \
+    '' \
+    '### Added' \
+    '- the entry that survives (#1, PR #2)' \
+    '' \
+    '```markdown' \
+    '' \
+    '- the entry under the unclosed fence (#3, PR #4)' \
+    '- the other one under it (#5, PR #6)'
+
+  run _notes_with_lossy_assembler v0.9.0 "${CL}"
+  [ "${status}" -ne 0 ]
+  assert_output --partial 'carry 1 of the 3 entry bullets'
+}
+
 # why: The guard tests the lead ARRAY's length, and a `## [tag]` heading is
 # always followed by a blank line, so the array is never empty -- only
 # ever blank. Every assembled body therefore opened with a stray blank
@@ -389,6 +416,38 @@ _notes_with_lossy_assembler() (
   run "${NOTES}" v0.9.0 "${CL}"
   [ "${status}" -eq 0 ]
   assert_output --partial '- the entry after the fence (#3, PR #4)'
+}
+
+# why: The fence reader is a state machine over a thing a human gets wrong: an
+# example that opens ```markdown and never closes it. Everything below it
+# -- the `### ` heading and its entries -- then reads as fence content, so
+# the merge filed none of it and dropped the lead that held it, and the
+# postcondition subtracted the same lines from the SOURCE count with the
+# same reader, so the release shipped short at exit 0. No file in the tree
+# has an unbalanced fence today; this pins that the day one does, its
+# entries are on the page or the release refuses.
+@test "release_notes.sh: entries under an unclosed fence still reach the page" {
+  _series v0.9 \
+    '## [v0.9.0] - 2026-04-03' \
+    '' \
+    'Promoted from rc1.' \
+    '' \
+    '### Added' \
+    '- the final-only entry (#30, PR #31)' \
+    '' \
+    '## [v0.9.0-rc1] - 2026-04-01' \
+    '' \
+    '```markdown' \
+    '' \
+    '### Added' \
+    '- the candidate entry (#10, PR #11)' \
+    '- the other candidate entry (#12, PR #13)'
+
+  run "${NOTES}" v0.9.0 "${CL}"
+  [ "${status}" -eq 0 ]
+  assert_output --partial '- the candidate entry (#10, PR #11)'
+  assert_output --partial '- the other candidate entry (#12, PR #13)'
+  assert_output --partial '- the final-only entry (#30, PR #31)'
 }
 
 # why: In a series file the link definitions follow the section directly, so a

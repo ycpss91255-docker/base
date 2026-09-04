@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **4017 tests**.
+Unit specs under `test/bats/unit/`: **4019 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3742,7 +3742,7 @@ naming the path and what its absence costs.
 | `release-archive: refuses a manifest path that escapes the repo root (#914)` | Same escape guard on the declared paths |
 | `release-archive: --list prints the declared payload with its required/optional split` | The payload contract is readable without running an archive |
 
-### test/bats/unit/release_notes_spec.bats (18)
+### test/bats/unit/release_notes_spec.bats (20)
 
 | Test | Description |
 |------|-------------|
@@ -3756,8 +3756,10 @@ naming the path and what its absence costs.
 | `release_notes.sh: a final section's entries above its first category heading survive the union` | Measured on the real v0.29.0: a promoted final whose section carries no `### ` of its own, and whose pointer prose ends in three bullets naming the downstream propagation queued for it. Those bullets are entries, and the pointer-paragraph rule dropped the whole lead including them -- silently, and with `generate_release_notes: false` there is no second source for what it dropped. |
 | `release_notes.sh: an RC's entries above its first category heading survive the union` | The other half of the same drop, and the unconditional one: an RC's entries above its first `### ` were discarded for every release, whatever the final section looked like. Measured on the real v0.29.0-rc1, whose two headline bullets are the only place the release says what it is. |
 | `release_notes.sh: an assembled body that lost an entry is refused, not published` | The completeness guard was `grep -q '^- '` over the whole body, which passes as long as ONE bulleted category survived -- so the merge losing an entry it could not file was indistinguishable from a release with one category. The postcondition is per-entry: what the sections hold is what the page carries, or the release fails here rather than shipping short. |
+| `release_notes.sh: the completeness count does not share the merge's fence reader` | The postcondition exists to catch the shape the merge was not written for, so it must not ask the merge's own reader what the sources hold. It used to: both counts ran the same fence state, so any section that state mis-read was subtracted from BOTH sides and the release shipped short at exit 0 -- the one class of shape the count claims to turn into a refusal. It now counts a `- ` at column 0 wherever it stands, which can only over-count, and an over-count only ever fires early. |
 | `release_notes.sh: a section with no lead paragraph does not open with a blank line` | The guard tests the lead ARRAY's length, and a `## [tag]` heading is always followed by a blank line, so the array is never empty -- only ever blank. Every assembled body therefore opened with a stray blank line, on every release page, and nothing but an assertion on the first line can see it. |
 | `release_notes.sh: a '## [' inside a fenced block does not end the section` | The entry most likely to quote a section heading is the entry about the changelog's own format. A scan with no fence state truncates there and drops every entry after it, so the release documenting the split is the release the split silently shortens. |
+| `release_notes.sh: entries under an unclosed fence still reach the page` | The fence reader is a state machine over a thing a human gets wrong: an example that opens ```markdown and never closes it. Everything below it -- the `### ` heading and its entries -- then reads as fence content, so the merge filed none of it and dropped the lead that held it, and the postcondition subtracted the same lines from the SOURCE count with the same reader, so the release shipped short at exit 0. No file in the tree has an unbalanced fence today; this pins that the day one does, its entries are on the page or the release refuses. |
 | `release_notes.sh: the compare-link block is not part of the notes` | In a series file the link definitions follow the section directly, so a section that ends only at the next `## [` publishes reference data as page content. The split is what moved those definitions inside the span the assembler reads. |
 | `release_notes.sh: a tag present in two series files is refused` | The split's own failure mode: a section copied rather than moved leaves two answers to what shipped in this tag. Picking either silently puts one of them on a page nobody can correct afterwards, so the ambiguity is refused instead of ordered away. |
 | `release_notes.sh: a body over GitHub's release-body limit is refused, naming both numbers` | Measured on the real tree: v0.42's RC union is 326,932 characters against GitHub's 125,000 cap, so the API answers the tag push with a 422 after every gate has gone green. Refusing here fails the release with our message and both numbers, and refuses rather than truncates because a page silently missing entries is the failure this script exists to stop. |
