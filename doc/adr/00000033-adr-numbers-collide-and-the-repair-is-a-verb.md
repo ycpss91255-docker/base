@@ -49,11 +49,12 @@ survived until this ADR's own branch found it.
 **Keep the collision. Make the repair one command, and make an incomplete
 repair fail a gate.**
 
-Three parts.
+Four parts.
 
 1. **`just adr renumber <record> <number>`** (`script/adr/renumber.sh`)
    moves a record and rewrites every reference to it. The reference set is
-   DERIVED -- the tracked files are swept for the reference forms -- never
+   DERIVED -- the population in part 3 is swept for the reference forms --
+   never
    listed, because a list of the 14 places is the same defect one level up
    and would have been written the day before the fifteenth appeared.
 
@@ -64,8 +65,8 @@ Three parts.
      wherever they appear.
    - A BARE eight-digit number is rewritten in `doc/adr/README.md` and
      nowhere else. That document's eight-digit runs are all ADR numbers;
-     elsewhere they are the throwaway registries the lint specs build, and
-     rewriting those would corrupt the tests that guard this.
+     an eight-digit run standing on its own anywhere else is not a
+     reference to anything -- it is a version, a count, an argument.
    - The generated documents are REGENERATED, never rewritten. One of the
      14 sites was a `@test` NAME carrying the number, and a test name is a
      row in a generated catalogue: editing the row puts a hand edit into a
@@ -84,7 +85,38 @@ Three parts.
    no record, or carries two rows on one number. The last is the check
    that would have caught the incomplete repair above.
 
-3. **A number claimed by two records is refused, not guessed at.** With
+3. **What a reference IS is defined once, for both of them.**
+   `script/adr/references.sh` answers which files can carry one, and the
+   verb and the lint both source it. Two answers is not a detail: the
+   verb swept `git ls-files` and the lint grepped the whole filesystem,
+   so a repair the verb reported complete -- with its own survivor check
+   green -- failed the lint on `.prev-release/` and `log/`, the two roots
+   this repo's `.gitignore` parks at the top precisely so an old release
+   is not read as current source. A red gate with no repair path through
+   the documented verb.
+
+   Where git can answer, the tracked files ARE what this repo keeps true.
+   Where it cannot -- a fixture tree, or this checkout seen from inside
+   the test container, where a worktree's `.git` names a gitdir that was
+   never mounted -- the walk prunes what the tree DECLARES derived: the
+   plain directory patterns in the root `.gitignore`. That is a reader of
+   the repo's own declaration, not a second opinion about what is derived.
+
+   A file that builds its own throwaway `doc/adr/` DECLARES it, on a line
+   reading `adr-refs: fixture`, and is dropped whole. Declared and not
+   inferred, because both attempts to infer it failed in the same
+   direction. The lint read a `doc/adr/` path preceded by `}` as a shell
+   expansion and therefore as somebody's fixture -- which silently
+   dropped `"${REPO}/doc/adr/00000008-coverage-sharded-pr-gate.md"`, a
+   live pointer at this tree's own registry, and would have read an
+   unbraced expansion as a reference. The verb inferred per class instead,
+   rewriting the `ADR-<n>` and `adr/<n>-` forms inside a spec while
+   leaving the bare numbers that spec passes to it as ARGUMENTS, so a
+   renumber left the setup and the command naming different records.
+   Whole, or not at all: a file is either this tree's or its own, and
+   there is no reference class for which the answer differs.
+
+4. **A number claimed by two records is refused, not guessed at.** With
    two claimants, a bare `ADR-00000030` in a sentence names whichever of
    them its author meant and nothing in the merged tree records which.
    The tool refuses before writing anything and names the resolution that
@@ -98,6 +130,17 @@ this decision buys a cheap repair, not an absence of collisions.
 
 The repair is now one command whose coverage is derived, and an
 incomplete one fails a gate for the two classes a checkout can recognise.
+
+The verb and the gate cannot disagree about what they swept, because
+neither of them decides. The cost is a shared file both must keep
+correct, and a `.gitignore` reader that is only as good as the shapes it
+reads -- root file, plain directory patterns, no wildcards or negations.
+Where git can answer, none of that runs.
+
+A file that builds its own registry now carries a declaration, and a file
+that acquires one later without declaring it becomes a lint finding
+rather than a silent exemption. That is the direction the residue should
+point: the failure is visible and its repair is one line.
 
 The residue, stated rather than papered over: a prose `ADR-NNNNNNNN`
 whose number EXISTS but names a different record than its author meant is

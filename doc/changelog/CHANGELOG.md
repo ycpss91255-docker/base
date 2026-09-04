@@ -181,7 +181,8 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   it (closes #1021)** -- nothing allocates an ADR number, so parallel branches
   collide by construction; three took 00000030 in one day. The repair was a
   14-file hand sweep and was left incomplete. The verb derives the reference
-  set from the tree, tells a reference from a lint spec's fixture, regenerates
+  set from the same population the registry lint reads, which a spec that
+  builds its own fixture registry declares itself out of, regenerates
   the doc/test catalogues instead of editing them, and refuses -- before
   writing -- a taken target or a number two records claim. The registry lint
   now also fails on a reference to no record and on an index table that has
@@ -333,7 +334,8 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   was neither side's: 2617 and 2614 merge into a tree measuring 2609.
   `sync-doc-counts.sh` now writes it in the run that writes the catalogue,
   refusing to raise it, and the drift gate and the merge resolver both cover
-  it. Affects anyone describing tests: run `just test sync-docs` instead of
+  it by asking the generator which files it writes rather than naming one.
+  Affects anyone describing tests: run `just test sync-docs` instead of
   computing the number, and a conflict on it resolves with
   `just test resolve-docs`.
 - **`compute-shards` and `coverage-gate` now gate something (closes #1009)**
