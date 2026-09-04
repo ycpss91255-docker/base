@@ -4539,27 +4539,30 @@ not found`. STALE: the tool is present at the version the pin used to name —
 fail, it under-reports, and the green check has examined something other
 than what the checkout asked for, while a `just` older than `ARG
 JUST_VERSION` reddens `test/bats/integration/just_runner_version_spec.bats`
-on a PR that touched nothing related. After the pull + `docker tag`, every
-`:main`-pulling Obtain step therefore runs `script/ci/probe_test_tools.sh`,
-which requires every tool in `REQUIRED_TOOLS` to be present AND every tool
+on a PR that touched nothing related. So no job pulls that tag itself: all
+six call `script/ci/obtain_test_tools.sh`, which pulls, re-tags, and ALWAYS
+runs `script/ci/probe_test_tools.sh` on what it got. The probe requires
+every package and binary the Dockerfile's FINAL stage installs to be present
+-- a roster DERIVED from that stage, never restated here -- AND every tool
 in `PINNED_TOOLS` to report the version this checkout pins (the two linters
 out of their release URLs in the Dockerfile, the runner through
-`dist/script/base/just-version.sh` — never restated). On any refusal it
-emits `build_local=true` so the existing buildx Build step rebuilds from
+`dist/script/base/just-version.sh` — never restated either). On any refusal
+the script answers `build_local=true` so the image is rebuilt from
 `dockerfile/Dockerfile.test-tools` — self-correcting whatever the cause,
 with layer-1 (PR touched Dockerfile -> build) and layer-3 (pull failed ->
-build) intact. Applied to the five `build_local`-pattern obtain steps
-(`hadolint`, `bats-fragile`, `bats-integration`, `coverage`, `system`) since
-they pull the same tag and race identically, and asserted per job. The sixth
-`:main`-pulling step, `acceptance`, carries no probe and needs none: the
-probe is about the tools a job EXECUTES, and acceptance runs none of them --
-it consumes the image only as the `FROM` base of the scaffolded consumer's
-test stage. It is ONE script rather than a loop pasted into each step
-because five copies is how the version blind spot survived: each copy asked
-`command -v` and none of them looked wrong. The guard used to be a `grep -c`
-== 5 over the whole workflow under the name "every `:main`-pulling Obtain
-step", which named an invariant that did not hold (there are six such steps)
-and was satisfied by any five occurrences wherever they sat.
+build) intact.
+
+`acceptance` used to be excluded on the argument that the probe is about the
+tools a job EXECUTES and acceptance executes none of them, consuming the
+image only as the `FROM` base of the scaffolded consumer's test stage. That
+argument was false -- the stage that image becomes runs those tools -- and
+it is the job the whole mitigation was written for (ADR-00000033). Nothing
+could have caught it while the decision was a block of shell pasted into
+each step: no single copy looked wrong, and a `grep -c` == 5 under the name
+"every `:main`-pulling Obtain step" named an invariant that did not hold
+(there are six such steps) and was satisfied by any five occurrences
+wherever they sat. The guard is now that NO workflow run block names the
+rolling tag at all, asserted in obtain_test_tools_spec.bats.
 
 13. **#677 CI double-run restructure (coverage = primary unit gate,
 weight-balanced shards, single `bats-fragile` job)** — after #686 unified
@@ -4688,10 +4691,10 @@ matrix.shard }}` + uploads each shard report as a CI artifact (#615 + #677 +
 bats-integration, coverage, integration-e2e, system]` before publishing a
 tag (#376 + #377 + #677)
 
-- Probe-and-rebuild against a stale/racing `:main`: `bats-fragile` +
-`coverage` Obtain probe for kcov and rebuild on a miss + `REQUIRED_TOOLS`
-list is extensible + all five `build_local` obtain steps carry the guard
-(#697)
+- Probe-and-rebuild against a stale/racing `:main`: every job that consumes
+the image obtains it through `script/ci/obtain_test_tools.sh`, which always
+probes what it pulled and answers `build_local`; no run block names the
+rolling tag itself (#697, #1010)
 
 | Test | Description |
 |------|-------------|

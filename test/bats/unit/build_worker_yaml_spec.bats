@@ -1010,13 +1010,13 @@ _worker_jobs_granting_more_than_contents_read() {
 }
 
 # Print `<job>: packages: write` for every job that names that scope in its
-# own permissions block. Read off the DERIVED permission surface, so the
-# caller-facing example inside the `cache_backend` input description --
-# which is instructing the CALLER to grant it, and is correct -- is outside
-# the jobs section and never reaches this, and a rationale comment quoting
-# the scope is stripped before matching. grep's status is pinned: 1 is "no
-# job asks for it", anything above that is a scan that failed and is
-# reported rather than read as a pass.
+# own permissions block. Read off the DERIVED permission surface, so a
+# mention of the scope anywhere but a job's own block -- an input
+# description telling a CALLER what to grant, a rationale comment quoting
+# what a job may not ask for -- is outside the jobs section, or stripped as
+# a comment, before matching. grep's status is pinned: 1 is "no job asks for
+# it", anything above that is a scan that failed and is reported rather than
+# read as a pass.
 _jobs_requesting_packages_write() {
   local _out _status=0
   _out="$(yaml_permission_surface "${WF}" \
@@ -1039,9 +1039,11 @@ _jobs_requesting_packages_write() {
   # ELEVATION, and GitHub rejects the whole run before it starts:
   #   The nested job 'build' is requesting 'contents: read, packages:
   #   write', but is only allowed 'contents: read, packages: none'.
-  # The `cache_backend: registry` write therefore stays a CALLER-side
-  # grant, which is what the input description already asks callers for;
-  # the worker may not declare it on their behalf.
+  # That is why the `registry` buildx cache backend was removed rather
+  # than documented (#980): it needed this scope on a job whose declared
+  # block is read-only, so the preflight told a caller to grant something
+  # no caller could make reachable. Any write a future feature needs here
+  # is a CALLER-side grant; the worker may not declare it on their behalf.
   _assert_worker_job_population
   run _jobs_requesting_packages_write
   assert_success
@@ -1050,10 +1052,10 @@ _jobs_requesting_packages_write() {
 
 @test "build-worker.yaml: the build job asks for contents: read alone (#957)" {
   # The job builds but never pushes an image (`push: false`, no `tags:`),
-  # so on the default `cache_backend: gha` a checkout grant is all it
-  # needs. `permissions:` accepts no expression, so one static set has to
-  # serve both backends, and the only set every caller can satisfy is the
-  # read-only one (see the elevation test above).
+  # so with the GHA cache backend a checkout grant is all it needs.
+  # `permissions:` accepts no expression, so one static set has to serve
+  # every call, and the only set every caller can satisfy is the read-only
+  # one (see the elevation test above).
   #
   # "alone" is asserted as an EXACT entry set, not as presence: `packages:
   # write` is only the scope this issue happened to find, and any other
