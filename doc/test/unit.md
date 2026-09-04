@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3708 tests**.
+Unit specs under `test/bats/unit/`: **3773 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -210,7 +210,7 @@ warned.
 | `_run_arch_literal: FAILS when a scan root holds no Dockerfile (#939)` | - |
 | `_run_arch_literal: the REAL shipped Dockerfiles pass today (#939)` | - |
 
-### test/bats/unit/base_docker_namespace_spec.bats (11)
+### test/bats/unit/base_docker_namespace_spec.bats (16)
 
 base's self-use of the `docker` namespace (#713, ADR-00000011 sec.2/4/5):
 root justfile `mod? docker`, the committed `script/docker/justfile.docker` +
@@ -239,6 +239,11 @@ write one tag while the run read another.
 | `base root justfile exports the host identity every compose read needs (#895)` | - |
 | `just test system supplies the host identity its bare compose run needs (#895)` | - |
 | `just test system names the compose project instead of inheriting the basename (#891)` | - |
+| `just docker stop builds a compose command with no .env.generated (#1015)` | the env-load half: base never writes an interpolation cache, so a stop that dies sourcing one is a flow `just docker build` can start and no verb can end. Says only that the wrapper gets as far as building a compose command -- `--dry-run` returns before compose is called, so it cannot speak for what compose is handed. That is the test below. |
+| `just docker exec reaches compose in a checkout with no .env.generated (#1015)` | exec carried the same unconditional source as stop, so the whole build -> run -> exec -> stop flow was dead in a self-managed checkout, not just its last verb. |
+| `just docker run reaches compose in a checkout with no .env.generated (#1015)` | the third wrapper with the same defect. Fixing only the verb named in the report would have left the flow it belongs to still broken. |
+| `just docker stop hands compose the tooling tag its compose.yaml demands (#1015)` | the verb that ENDS the flow has to hand compose the one value its compose.yaml refuses to be read without, and it has to be the value the checkout's own resolver produces -- a second derivation would agree today and drift tomorrow. |
+| `just docker exec hands compose the tooling tag its compose.yaml demands (#1015)` | exec asks the same file the same way (its running-service precheck is a `compose ps`), so fixing only stop would leave the flow broken one verb earlier. |
 
 ### test/bats/unit/base_version_monitor_spec.bats (13)
 
@@ -1641,7 +1646,7 @@ downgraded in silence.
 | `_collect_deploy_binds: duplicate basename across components fails loud (tunable-manifest)` | basename collision |
 | `_collect_deploy_binds: propagates a malformed manifest failure (tunable-manifest)` | fail propagation |
 
-### test/bats/unit/deploy_spec.bats (59)
+### test/bats/unit/deploy_spec.bats (66)
 
 Covers the self-contained field-deploy generator (#832; ADR-3 amended by
 ADR-00000023). Deploy produces an output FOLDER run via a fully-resolved,
@@ -1698,6 +1703,13 @@ refused before any build or bundle step.
 | `_bake_config_copy: bakes every component to its own destination (#1000)` | per-component target |
 | `_bake_config_copy: bakes config/shell and config/pip too (#1000)` | no name list |
 | `_bake_config_copy: returns 1 and writes nothing when no component dir exists (#1000)` | nothing-to-bake |
+| `_collect_preset_selectors: a root symlink into config/ is a selector, other root symlinks are not (#826)` | selector derivation |
+| `_collect_preset_selectors: collects a selector whose target does not exist (#826)` | dangling is collected, not hidden |
+| `_collect_preset_selectors: a ./-prefixed link text is the same selector (#826)` | link-text normalisation |
+| `_collect_preset_selectors: a repo with no selector yields nothing (#826)` | empty population |
+| `_report_config_components: states which preset each selector currently selects (#826)` | which preset is live |
+| `_report_config_components: WARNs a selector whose preset is missing (#826)` | dangling selector named |
+| `_report_config_components: says nothing about presets when the repo has no selector (#826)` | silence when there is no selector |
 | `_generate_deploy_bundle: dry-run plans build (versioned image) + save + xz + install (#832)` | bundle plan |
 | `_generate_deploy_bundle: dry-run builds from the baked Dockerfile when [environment] is set (#832/#503)` | env-bake build |
 | `_generate_deploy_bundle: dry-run plans a docker cp per tunable-manifest path (#833)` | tunable extract |
@@ -2381,7 +2393,7 @@ Unit tests for `template/script/docker/lib/gitignore.sh` — the canonical
 | `_sync_managed_entries: appends without a spurious blank line (#876)` | - |
 | `_sync_gitignore + _sync_logging_gitignore converge over repeated passes (#876)` | - |
 
-### test/bats/unit/help_lang_spec.bats (19)
+### test/bats/unit/help_lang_spec.bats (20)
 
 --help / --lang coverage across the recipe-backing scripts (#655,
 ADR-00000011 §6). Runs each script directly (no `just`): asserts the
@@ -2396,6 +2408,7 @@ live in justfile_user_spec.bats.
 |------|-------------|
 | `test.sh --help exits 0 and prints usage` | English baseline usage |
 | `test.sh -h exits 0 and prints usage` | short flag |
+| `test.sh --help: the metric lints' verdict is the ceiling they judge by, not per-violation failure (base#994)` | The usage block is the only place a user is told what the three metric lints DO with a violation, and it is the copy that answers `--help` rather than a comment somebody has to go find. It promised a failure the driver stopped delivering when base#994 phase 3 gave each lint an adoption ceiling: the run prints every function over an implementation standard and still exits 0 while the count is under the ceiling, so a reader of this text believes a green run could not have contained one. The assertion reads the COLLAPSED text because the block is line-wrapped, and the wrapping is not the property. |
 | `init.sh --help exits 0 and prints usage` | base ns usage |
 | `upgrade.sh --help exits 0 and prints usage` | base ns usage |
 | `completions.sh --help exits 0 and prints usage` | base ns usage |
@@ -2503,7 +2516,7 @@ forwarding for caller abort, and DRY_RUN skip.
 | `init.sh --list-installed-paths output is sorted and free of duplicates` | - |
 | `init.sh --list-installed-paths mutates nothing and never leaves its cwd` | - |
 
-### test/bats/unit/init_spec.bats (66)
+### test/bats/unit/init_spec.bats (69)
 
 Unit coverage for `init.sh` helpers that previous rounds exercised only
 through the Level-1 integration test. Complements
@@ -2580,6 +2593,9 @@ are hard to trigger from a real `bash template/init.sh` invocation
 | `_init_restore_tree: restores a rewritten file byte for byte (#937)` | - |
 | `_init_restore_tree: refuses to delete when its snapshot copy is missing (#937)` | - |
 | `_init_existing_repo: hands back the caller's EXIT trap on success (#937)` | - |
+| `_populate_config: the seeded placeholder names the config/<component>/ channel` | the seeded text names the structured channel |
+| `_populate_config: the seeded placeholder still names the build-time overlay` | the seeded text keeps the build-time channel |
+| `_populate_config: the seeded placeholder and ADR-00000030 name the convention identically` | seeded text and the record use one vocabulary |
 
 ### test/bats/unit/issueref_lint_spec.bats (20)
 
@@ -2725,7 +2741,7 @@ status).
 | `just template new <name> scaffolds a working repo-local group (#633, closes #594)` | #633 / closes #594 -- scaffold + immediately usable |
 | `bare just template prints help (#633)` | #633 -- module default recipe |
 
-### test/bats/unit/lib_spec.bats (65)
+### test/bats/unit/lib_spec.bats (67)
 
 | Test | Description |
 |------|-------------|
@@ -2760,6 +2776,8 @@ status).
 | `_resolve_project_name: two OS users with no Docker Hub login derive distinct project names (#920)` | Multi-user isolation with no config, pinned through the detection that delivers it |
 | `_resolve_project_name: falls back to local + directory basename with nothing to go on (#893)` | - |
 | `_compute_project_name warns when .env.generated carries no PROJECT_NAME (#893)` | - |
+| `_compute_project_name refuses to derive for a configured checkout with no cache (#1015)` | the missing-cache case the warning above does not cover. A configured checkout RECORDS its project name; deriving one over the gap invents a name this checkout never ran under, and acting on it can reach a different live checkout on a shared host. Only a self-managed checkout may derive. |
+| `_compute_project_name still derives for a self-managed checkout (#1015)` | the same gap in a self-managed checkout is that checkout's normal state -- nothing writes the cache there and nothing ever will -- so the derivation is the answer rather than a guess over a missing one. |
 | `_compose with DRY_RUN=true prints command instead of running` | DRY_RUN path |
 | `_compose without DRY_RUN tries to invoke docker compose (sanity)` | Real-call branch |
 | `_compose_project pre-fills -p / -f / --env-file from PROJECT_NAME and FILE_PATH` | Project wrapper |
@@ -3083,7 +3101,7 @@ builds nothing and pushes nothing)
 | `prev-release gate: under kcov the shard out-ranks a leftover BATS_FILE` | - |
 | `prev-release gate: --bats-path over the spec itself refuses to start when the tags cannot be resolved` | - |
 
-### test/bats/unit/project_reclaim_spec.bats (32)
+### test/bats/unit/project_reclaim_spec.bats (42)
 
 | Test | Description |
 |------|-------------|
@@ -3107,7 +3125,7 @@ builds nothing and pushes nothing)
 | `an unreadable network listing issues no removal command at all` | - |
 | `an unreadable container listing ABORTS -- it cannot say nothing is attached` | - |
 | `an unparseable grace aborts before any docker call` | - |
-| `images are never collected by the project rule (the tooling tag is shared)` | - |
+| `a PROJECT label on an image is not a proof, whatever it says` | - |
 | `the fact read asks for the JSON creation time and both labels` | - |
 | `the live-checkout set comes from the artifacts, not from any worktree list` | - |
 | `tag retention keeps the current tree's tag and the last N and retires the rest` | - |
@@ -3119,6 +3137,35 @@ builds nothing and pushes nothing)
 | `the retained-tag count is derived from the live checkouts, not a buried literal` | - |
 | `the retained-tag count is overridable by the environment` | - |
 | `the pinned tag set is the invoking tree plus every live checkout` | - |
+| `an image whose checkout is gone is retired` | the case the whole image rule exists for: 275MB per dead checkout that ran `just test smoke`, which no verb could reclaim before. |
+| `an image whose checkout still exists is kept` | the sparing side. A rule that collected a live checkout's image would cost a 275MB rebuild in the middle of someone's work. |
+| `an image inside the grace window is kept` | the window covers a path that is momentarily absent because something is moving or recreating it while its run is in flight -- the one case the existence test cannot see. |
+| `the tooling image carries no checkout label and is never a candidate here` | content-hash shared on purpose, so no artifact can name all its users. This is what keeps the image rule off the one image class where deletion would reach a live checkout. |
+| `an image whose path label is not absolute is left alone` | a relative label names nothing testable, so it attributes nothing. On a shared host the fail-open direction is deleting what cannot be placed. |
+| `a dangling labelled image is left alone rather than removed by id` | `<none>:<none>` has no name that can be removed safely -- the id behind it may carry other tags -- so acting on it would reach past what this rule can prove. |
+| `an image whose live checkout path contains a newline is NOT retired` | the shape that got a live worktree's network removed under the rule this replaced: a truncated path is very plausibly absent, and absent is what makes an artifact a candidate. |
+| `an image whose DEAD checkout path contains a newline IS retired` | the pair to the case above. Read wrongly in either direction the rule is broken, so both directions are pinned. |
+| `an unreadable image listing retires nothing` | read as "nothing is labelled", a failed listing turns a broken daemon connection into a reason to delete. |
+| `a dry run names the image it would retire and removes nothing` | the mode an operator uses to check the rule before trusting it with the removal, so it must name the victim rather than only counting it. |
+
+### test/bats/unit/project_wait_spec.bats (14)
+
+| Test | Description |
+|------|-------------|
+| `a project with nothing attached to its network is ready at once` | the ordinary case, and the one the cost lands on: every run pays this check, so it must not wait when there is nothing to wait for. |
+| `a project with no network of its own at all is ready at once` | a first run on a fresh checkout has no artifacts, and must not be delayed by a mechanism built for a second one. |
+| `the listing is filtered by both labels, so only this checkout's project is looked at` | ownership is exact and carried by the artifact. A prefix or a bare project filter would let another checkout's run block this one. |
+| `a container still detaching is waited for, and the wait says what it waits for` | the load-bearing one. The wait is worthless if it is silent: the reader must be able to tell waiting from hanging. |
+| `a container that never detaches fails naming it and the verb that clears it` | the bounded half. Waiting forever trades a confusing red for a hang, so the timeout has to produce an answer the operator can act on. |
+| `the wedged run says no test failed, so the reader stops hunting for one` | the whole reason the issue was filed: the old failure reported rc=1 with not_ok=0, and the reader's first move was to look for a code defect that was not there. |
+| `a running container is a concurrent run, not a wedge` | compose reuses a live network happily. Waiting here would be waiting for something that is not leaving. |
+| `an unreadable docker is not evidence of a wedge` | a failed listing cannot say a container is attached, and refusing to start the suite over it would be a worse red than the one this replaces. |
+| `a malformed wait window is named and the default is used, not the run refused` | declining to run the suite over a typo in a duration string would just be a different confusing red. |
+| `a wedged project stops the dispatch before compose is called` | reaching compose anyway would emit the daemon's raw text again, which is the defect. Behaviour, not line order. |
+| `a quiescent project lets the dispatch through` | the pair to the case above: a guard that blocked the ordinary run would be caught here rather than by every developer. |
+| `test.sh --await-project answers for this checkout and exits` | it is a query, like --compose-project-name: the recipes that call it must not have it mint anything. |
+| `test.sh --await-project refuses when the project is still held` | the flag is only worth having if its verdict reaches the caller; a query that always exits 0 would let system and smoke run into the wedge. |
+| `system and smoke both ask before they build` | neither goes through the dispatcher, so neither inherits the question. They are the flows most likely to leave a container behind. |
 
 ### test/bats/unit/prune_sh_spec.bats (41)
 
@@ -3350,7 +3397,7 @@ the capture (#965).
 | `_capture_readme_baseline: a capture the source changed under is DISCARDED, not used (#965)` | A torn read must never become the baseline a verdict rests on |
 | `_capture_readme_baseline: a source that never settles FAILS loudly, it does not hand back a torn set (#965)` | No snapshot means nothing to assert on; say so rather than pick a read |
 
-### test/bats/unit/reclaim_wiring_spec.bats (22)
+### test/bats/unit/reclaim_wiring_spec.bats (32)
 
 | Test | Description |
 |------|-------------|
@@ -3373,9 +3420,19 @@ the capture (#965).
 | `stop.sh's reclaim cannot fail the stop` | - |
 | `the verbs that BEGIN a flow do not reclaim` | - |
 | `prune.sh exposes the scoped reclaim as its own mode` | - |
+| `every language's --orphan-projects help stamps the path on both artifacts (#997)` | the help is four translations of one promise, and a half-updated one is worse than an untouched one: it tells a reader the mode collects an image and then tells them only the network carries the proof of ownership, which is the sentence someone reaches for when deciding whether the mode can be trusted with an image. |
 | `--all does not quietly acquire the scoped reclaim` | - |
 | `the daemon-wide prune targets are untouched` | - |
 | `the scoped reclaim is reachable through just, with no new namespace` | - |
+| `just test stop ends this checkout's self-test project` | the verb the issue asked for. Run for real, because a recipe is a seam and a grep cannot tell a working seam from a broken one. |
+| `just test stop asks the single producer for the name instead of deriving a second` | two derivations that agree today drift tomorrow, and a stop pointed at the wrong project silently tears down nothing. |
+| `just test stop forwards its arguments to the wrapper` | -v and --dry-run are how an operator inspects a teardown before trusting it; a recipe that swallowed them would make the verb unusable for that. |
+| `just test stop hands compose every value compose.yaml demands` | compose interpolates the whole file for `down` too, so a stop missing one `${VAR:?}` dies naming four services and tears nothing down. --dry-run cannot see it, which is how it shipped once. |
+| `compose.yaml records the checkout path on the image it builds` | the producer side of the image rule: a collector can only read back what something recorded, so an unstamped image is uncollectable forever. |
+| `the image stamp is refused rather than defaulted, like every other` | a default would create artifacts nobody can attribute, and the failure has to land on the invocation that would create them. |
+| `the tooling image is NOT stamped, because it is shared on purpose` | one image serves every checkout whose inputs hash alike, so a checkout label there would name its builder and collecting on it would delete an image live checkouts still resolve. |
+| `every recipe that reaches docker states its lifecycle` | the anti-decay mechanism. Every other assertion in this file names verbs by hand and so answers only for the recipes that existed when it was written -- which is the failure the issue is about. |
+| `the derived population is not empty, and reaches both namespaces` | a parser that quietly matched nothing would make the check above pass for every tree, which is how a derived population fails. |
 
 ### test/bats/unit/release_archive_spec.bats (26)
 
@@ -4621,7 +4678,7 @@ sanitization, `detect_ws_path`, and `_reconcile_workspace_path` (#569).
 | `_setup_ssh_x11_cookie returns 1 with warning when nmerge pipe exits non-zero (#688)` | - |
 | `_setup_ssh_x11_cookie returns 1 with warning when xauth is not installed (#321)` | - |
 
-### test/bats/unit/setup_spec.bats (121)
+### test/bats/unit/setup_spec.bats (123)
 
 The `setup.sh` orchestrator spec. `main` subcommand dispatch (`set` / `show`
 / `remove` for `[logging]` #328 and `[lifecycle]` #478, `reset`, `--lang` /
@@ -4710,6 +4767,8 @@ duplicate-target guards, and S7 `runtime.env` retirement (#507).
 | `apply omits the config bind when no component dir exists, and SAYS so (#504/#1000)` | - |
 | `apply WARNs about config files sitting directly under config/ (#1000)` | - |
 | `apply stays quiet about the config/.gitkeep placeholder (#1000)` | - |
+| `apply names the preset selector and the file it resolves to (#826)` | the selector reaches the real apply path |
+| `apply WARNs when the preset selector resolves to nothing (#826)` | a broken selector reaches the real apply path |
 | `main reset --yes works on first-time bootstrap (no prior .local or setup.conf) (#174)` | - |
 | `_setup_msg returns English messages by default` | - |
 | `_setup_msg returns Traditional Chinese messages when _LANG=zh-TW` | - |
@@ -4760,7 +4819,7 @@ duplicate-target guards, and S7 `runtime.env` retirement (#507).
 | `apply no longer emits runtime.env; [environment] still reaches the container (#868)` | - |
 | `_write_runtime_env is removed (#507)` | - |
 
-### test/bats/unit/shell_metrics_spec.bats (52)
+### test/bats/unit/shell_metrics_spec.bats (59)
 
 | Test | Description |
 |------|-------------|
@@ -4808,14 +4867,21 @@ duplicate-target guards, and S7 `runtime.env` retirement (#507).
 | `refusal: a legacy backtick substitution is reported rather than guessed at (#994)` | - |
 | `limitation: a function body that is not a brace group is a finding, not a record (base#994)` | - |
 | `limitation: an arithmetic left shift is misread as a heredoc, and errs toward a finding (base#994)` | - |
-| `_run_nesting_depth: FAILS at depth 4, naming file and function (#994)` | - |
-| `_run_nesting_depth: passes at depth 3 (#994)` | - |
-| `_run_function_length: FAILS at 51 body code lines (#994)` | - |
-| `_run_function_length: passes at exactly 50 body code lines (#994)` | - |
-| `_run_positional_params: FAILS at 6 positional parameters (#994)` | - |
-| `_run_positional_params: passes at exactly 5 (#994)` | - |
-| `the three lints share ONE reader pass (#994)` | - |
-| `_run_shell_metrics: reports all three metrics in one run (#994)` | - |
+| `_run_nesting_depth: reports a depth-4 function by file, name and value whatever the verdict (#994)` | The row is what phase 3 works from, and it is printed whatever the verdict -- a run that showed the worklist only when the ceiling broke would be a lint nobody could act on between slices. The status is deliberately NOT asserted here: whether ONE violation fails depends on the ceiling, which every slice lowers, and pinning it would make this case need an edit each time. |
+| `_run_nesting_depth: FAILS one over the adoption ceiling, naming both figures (#994)` | The ceiling is the verdict, so this is the case that says what the gate is FOR: one more violation than the tree is carrying today fails, and the failure names both figures so the reader knows whether to fix the function or lower the number. |
+| `_run_nesting_depth: a population AT the ceiling passes (#994)` | The other side of the boundary, and the one that makes the ratchet usable at all: a population AT the ceiling passes, which is what lets a slice land without flattening all 23 functions at once. |
+| `_run_nesting_depth: passes at depth 3 (#994)` | The threshold's own boundary from below, and the case that stops the reader drifting one level: a three-deep function is the shape the limit was set to admit (65 functions in the tree sit exactly here), so an off-by-one in the counter would be visible as a green tree turning red on code nobody changed. |
+| `_run_function_length: reports a function at 51 body code lines (#994)` | The threshold's own boundary, one body code line over. It is the row and not the verdict for the same reason as the depth case above. |
+| `_run_function_length: FAILS one over the adoption ceiling (#994)` | Length carries the largest unflattened population of the three, so it is the ceiling most likely to be reached for by a change that wants to add one more long function rather than split it. |
+| `_run_function_length: passes at exactly 50 body code lines (#994)` | Exactly at the limit, which is where a length metric is most likely to be wrong by one -- the header line and the closing brace are both excluded, and this is the case that says so. |
+| `_run_positional_params: reports a function at 6 positional parameters (#994)` | Six positions is the first value past the threshold, and the parameter metric is the one the epic sized its first slice from, so the row's exact wording is what that slice reads. |
+| `_run_positional_params: FAILS one over the adoption ceiling (#994)` | The parameter ceiling is the lowest of the three and the first one a slice will drive to zero, so this is the case that will still be meaningful when the other two are still counting down. |
+| `_run_positional_params: passes at exactly 5 (#994)` | Five is the widest signature base admits, and the case that keeps the in/out nameref shape legal: two arrays in, one out and two scalars is a real function here, not a violation waiting to be counted. |
+| `the census names count, limit, ceiling and slack on a CLEAN run (#994)` | The census is the cost of the ceiling made visible -- slack is the room in which a new violation can land green -- and a cost nobody can see is one nobody closes. It prints on a CLEAN run too, which is the run where nobody would otherwise look. |
+| `each ceiling is ONE readonly integer, and the driver carries no exemption vocabulary (#994)` | One number per metric is what "no roster" has to mean in the code, and it is checkable: a ceiling that named sites would need a data structure or a vocabulary of exemption, and this refuses both. The header argues the case; without this the argument is the only thing holding it. |
+| `the three lints share ONE reader pass (#994)` | The one-reader claim in the driver header is the reason three lints live in one file, and it is a performance AND a correctness claim: three passes could disagree about where a function begins. This is the case that keeps the memoisation from being quietly lost. |
+| `_run_shell_metrics: reports all three metrics in one run (#994)` | The combined report is what `just test metrics` runs, so it has to say all three states in one pass rather than stopping at the first -- a report that stopped would hide two thirds of the tree behind whichever metric ran first. |
+| `_run_shell_metrics: FAILS when ONE metric is past its ceiling (#994)` | The combined report has three verdicts to reconcile and one exit status to say them in. Failing when ANY metric is past its own ceiling is what keeps it from being the loosest of the three -- the shape a caller would reach for if it reported the union but judged by the minimum. |
 
 ### test/bats/unit/smoke_harness_spec.bats (14)
 
@@ -5161,7 +5227,7 @@ throwaway fixture `dist/` trees, plus a real-tree guard that the live
 | `_run_stale_setup_conf: FAILS when the dist/ scan root is missing (no vacuous pass) (#845)` | Missing scan root fails, no vacuous pass |
 | `_run_stale_setup_conf: the REAL dist/ passes today (migration block allowlisted) (#845)` | Live tree clean |
 
-### test/bats/unit/stop_sh_spec.bats (28)
+### test/bats/unit/stop_sh_spec.bats (31)
 
 Unit tests for `stop.sh` argument parsing, the single-project teardown, and
 i18n. `docker ps -a` output is PATH-shimmed via `${DOCKER_PS_A_FILE}` so
@@ -5213,6 +5279,9 @@ runs).
 | `stop.sh without --prune does NOT emit prune commands (#319)` | - |
 | `stop.sh --prune --dry-run runs prune after compose down (#319)` | - |
 | `stop.sh aborts on a failing pre-stop hook and skips compose down (#690)` | - |
+| `stop.sh ends the project when a self-managed checkout has no .env.generated (#1015)` | the defect in its smallest form: the wrapper died on a missing file before it reached compose at all. The checkout is self-managed, which is the shape in which that file's absence is normal rather than a question. |
+| `stop.sh refuses a derived name when a configured checkout lost its cache (#1015)` | the other half of that shape, and the destructive one. A CONFIGURED checkout records its project name in the cache; with the cache gone and no name handed in, the derived `local-<basename>` is a name this checkout never ran under and, on a shared host, one another checkout may be running under right now -- so `down --remove-orphans` against it reports success having ended the wrong thing, or nothing. |
+| `stop.sh honours an ambient PROJECT_NAME with no .env.generated to read (#1015)` | the seam `just test stop` uses -- the caller that already knows the name hands it over, so no second derivation exists to drift. |
 
 ### test/bats/unit/template_guard_spec.bats (2)
 
@@ -5246,7 +5315,7 @@ Unit tests for the repo-local command-group scaffolder
 | `new.sh registers a real mod? line even when the seed registry only COMMENTS that name (#785)` | - |
 | `new.sh source ships with the executable bit set (recipe invokes it directly) (#785)` | - |
 
-### test/bats/unit/template_spec.bats (171)
+### test/bats/unit/template_spec.bats (170)
 
 | Test | Description |
 |------|-------------|
@@ -5285,8 +5354,7 @@ Unit tests for the repo-local command-group scaffolder
 | `exec.sh uses set -euo pipefail` | Shell convention |
 | `stop.sh uses set -euo pipefail` | Shell convention |
 | `lib/compose.sh is the ONLY producer of a project name (#893)` | - |
-| `exec.sh loads .env via _load_env helper` | Uses shared lib |
-| `stop.sh loads .env via _load_env helper` | Uses shared lib |
+| `every wrapper loads .env.generated through the shared optional loader (#1015)` | every wrapper loads the interpolation cache optionally, and none carries a bare `_load_env "` -- the shape that made `stop` die in a self-managed checkout. |
 | `lib/env.sh defines _load_env helper` | - |
 | `lib/compose.sh defines _compute_project_name helper` | - |
 | `lib/compose.sh defines _compose wrapper` | - |
@@ -5861,7 +5929,7 @@ space-bearing path rejection (#687).
 | `_prompt_mount_with_picker no propagation gives just host:container:access (#461)` | Access-only picker |
 | `_prompt_mount_with_picker no access + no propagation gives just host:container (#461)` | Bare picker |
 
-### test/bats/unit/tui_spec.bats (138)
+### test/bats/unit/tui_spec.bats (140)
 
 Pure-logic unit tests for the TUI support libraries (`_tui_conf.sh`). No
 dialog/whiptail invocations here — strictly validators, mount-string
@@ -6011,6 +6079,8 @@ overlay; writes no override)
 | `_upsert_conf_value replaces a value carrying an inline ' #' instead of appending a duplicate key (#955)` | - |
 | `_write_setup_conf keeps a logging.<svc> override out of the parent [logging] section (#955)` | - |
 | `_write_setup_conf appends a brand-new [logging.<svc>] section rather than folding it into [logging] (#955)` | - |
+| `_edit_list_section: an unknown list has no label row, and fails rather than drawing a blank screen (base#994)` | The labels stopped being call-site arguments and became a table, and the failure mode moved with them: a missing row can no longer be a wrong argument, it is a screen with no words on it. This is the case that keeps that from rendering -- an unknown (section, prefix) pair fails loudly instead of drawing a menu whose title, Add and Back rows are empty strings, which is the silent-failure shape invariant 2 exists to refuse. |
+| `_edit_list_section: every list editor the TUI ships has a complete label row (base#994)` | The complement, and the reason the guard is not vacuous: every list the TUI actually ships has a complete row, so the failure above can only ever be a typo or an editor somebody added without a screen. The population is DERIVED from setup_tui.sh's own `_edit_list_section` call sites, because the editor this case exists to catch is the twelfth one -- added with no `_TUI_LIST_LABELS` row, which a hand-written list of eleven pairs would not know to ask about. The floor below is the only remembered number, and it is there so a derivation that silently matched nothing cannot pass over an empty set. |
 | `_edit_list_section shows mount_1 when value is non-empty` | - |
 | `_edit_list_section add reuses empty mount_1 slot instead of leapfrogging` | - |
 | `_edit_list_section add uses max+1 when no empty slots exist` | - |

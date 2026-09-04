@@ -469,6 +469,47 @@ EOF
   rm -rf "${_repo}"
 }
 
+# why: the missing-cache case the warning above does not cover. A configured
+# checkout RECORDS its project name; deriving one over the gap invents a
+# name this checkout never ran under, and acting on it can reach a
+# different live checkout on a shared host. Only a self-managed checkout
+# may derive.
+@test "_compute_project_name refuses to derive for a configured checkout with no cache (#1015)" {
+  local _repo
+  _repo="$(mktemp -d)"
+  printf '[image]\nname = myrepo\n' > "${_repo}/.setup.conf"
+  run bash -c "
+    source ${LIB}
+    unset PROJECT_NAME
+    FILE_PATH='${_repo}'
+    DOCKER_HUB_USER=alice IMAGE_NAME=myrepo
+    _compute_project_name
+    echo \"REACHED \${PROJECT_NAME}\"
+  "
+  rm -rf "${_repo}"
+  assert_failure
+  refute_output --partial "REACHED"
+  assert_output --partial ".env.generated"
+}
+
+# why: the same gap in a self-managed checkout is that checkout's normal state --
+# nothing writes the cache there and nothing ever will -- so the derivation
+# is the answer rather than a guess over a missing one.
+@test "_compute_project_name still derives for a self-managed checkout (#1015)" {
+  local _repo
+  _repo="$(mktemp -d)"
+  run bash -c "
+    source ${LIB}
+    unset DOCKER_HUB_USER IMAGE_NAME USER_NAME PROJECT_NAME
+    FILE_PATH='${_repo}'
+    _compute_project_name
+    echo \"\${PROJECT_NAME}\"
+  "
+  rm -rf "${_repo}"
+  assert_success
+  assert_output --partial "local-"
+}
+
 # ── _compose / _compose_project (DRY_RUN path) ──────────────────────────────
 
 # why: DRY_RUN path

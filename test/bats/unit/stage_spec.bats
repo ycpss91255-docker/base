@@ -823,7 +823,7 @@ EOF
   local -a _values=("/tmp/cache:/cache" "/data:/data")
   local _top="/etc/localtime:/etc/localtime:ro"$'\n'"\${HOME}/.ssh:/home/user/.ssh:ro"
   local _out=""
-  _resolve_stage_list _keys _values "volumes.mount_" "volumes.mount_inherit" "${_top}" _out
+  _resolve_stage_list _keys _values "volumes.mount_" "${_top}" _out
   # Top-level 2 entries + stage 2 entries = 4 lines
   local -a _lines=()
   IFS=$'\n' read -rd '' -a _lines <<< "${_out}" || true
@@ -838,7 +838,7 @@ EOF
   local -a _values=("false" "/only:/only")
   local _top="/etc/localtime:/etc/localtime:ro"
   local _out=""
-  _resolve_stage_list _keys _values "volumes.mount_" "volumes.mount_inherit" "${_top}" _out
+  _resolve_stage_list _keys _values "volumes.mount_" "${_top}" _out
   [[ "${_out}" == "/only:/only" ]] || { echo "expected only stage entry, got '${_out}'"; return 1; }
 }
 
@@ -847,7 +847,7 @@ EOF
   local -a _values=()
   local _top="/etc/localtime:/etc/localtime:ro"$'\n'"/data:/data"
   local _out=""
-  _resolve_stage_list _keys _values "volumes.mount_" "volumes.mount_inherit" "${_top}" _out
+  _resolve_stage_list _keys _values "volumes.mount_" "${_top}" _out
   [[ "${_out}" == "${_top}" ]] || { echo "expected top-level passthrough, got '${_out}'"; return 1; }
 }
 
@@ -856,7 +856,7 @@ EOF
   local -a _values=("false")
   local _top="/etc/localtime:/etc/localtime:ro"
   local _out="initial"
-  _resolve_stage_list _keys _values "volumes.mount_" "volumes.mount_inherit" "${_top}" _out
+  _resolve_stage_list _keys _values "volumes.mount_" "${_top}" _out
   [[ -z "${_out}" ]] || { echo "expected empty, got '${_out}'"; return 1; }
 }
 
@@ -867,7 +867,7 @@ EOF
   local -a _keys=("network.port_3" "network.port_1" "network.port_2")
   local -a _values=("9000:9000" "8080:80" "5000:5000")
   local _out=""
-  _resolve_stage_list _keys _values "network.port_" "network.port_inherit" "" _out
+  _resolve_stage_list _keys _values "network.port_" "" _out
   local -a _lines=()
   IFS=$'\n' read -rd '' -a _lines <<< "${_out}" || true
   [[ "${_lines[0]}" == "9000:9000" ]] || return 1
@@ -881,7 +881,7 @@ EOF
   local -a _keys=("volumes.mount_1" "volumes.mount_inherit" "volumes.mount_2")
   local -a _values=("/a:/a" "false" "/b:/b")
   local _out=""
-  _resolve_stage_list _keys _values "volumes.mount_" "volumes.mount_inherit" "" _out
+  _resolve_stage_list _keys _values "volumes.mount_" "" _out
   # inherit=false → only stage entries
   local -a _lines=()
   IFS=$'\n' read -rd '' -a _lines <<< "${_out}" || true

@@ -573,8 +573,11 @@ _wrapper_setup_sync() {
   # "no .base/ subtree + no setup.conf -> the repo manages its own compose"
   # rule (ADR-00000011 sec.4), not a base special-case; consumers always
   # carry a `.base/` subtree so this never fires for them.
-  if [[ ! -d "${_file_path}/.base" \
-        && ! -f "${_file_path}/.setup.conf" ]]; then
+  #
+  # Asked through compose.sh's predicate rather than re-stated here: the
+  # same shape decides whether a missing `.env.generated` is normal, and
+  # two copies of that rule would agree today and drift tomorrow.
+  if _is_self_managed_repo "${_file_path}"; then
     return 0
   fi
 
