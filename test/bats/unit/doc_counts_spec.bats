@@ -213,17 +213,26 @@ _aggregate_figure_hits() {
   assert_output ''
 }
 
-# _grand_total_mentions -- `<doc>:<line>: <text>` for every authored line
-# under doc/test/ that sends the reader to the suite grand total. Every
-# catalogue introduces itself by its relation to that figure ("part of it",
-# "not part of it"), so removing the figure leaves five documents pointing
-# at something the index no longer records.
-_grand_total_mentions() {
+# The shapes a POINTER at a removed figure took. A pointer is not a figure:
+# the number is gone from it, so `_AGGREGATE_FIGURE_RE` -- every alternative
+# of which needs digits -- cannot see one. It names the figure ("grand
+# total") or quotes the line the figure lived on with an `N` where the digits
+# were, which is the form a document reaches for once the real line is gone.
+_REMOVED_FIGURE_POINTER_RE='grand total|System \([0-9N]+\) and smoke|in the [0-9N]+ figure'
+
+# _removed_figure_mentions -- `<doc>:<line>: <text>` for every authored line
+# under doc/test/ that sends the reader to a figure ADR-00000028 sec. 1
+# removed. Every catalogue introduced itself by its relation to the grand
+# total ("part of it", "not part of it"), and TEST.md's merge advice cited
+# the "System (N) and smoke (N)" line it carried as the worked example of a
+# collapse gone wrong -- so removing the figures leaves documents pointing at
+# something no document records.
+_removed_figure_mentions() {
   local _doc _base
   for _doc in /source/doc/test/*.md; do
     _base="$(basename -- "${_doc}")"
     _authored_lines "${_doc}" \
-      | grep -E 'grand total' \
+      | grep -E "${_REMOVED_FIGURE_POINTER_RE}" \
       | sed -e "s|^|${_base}:|" || true
   done
   return 0
@@ -232,15 +241,19 @@ _grand_total_mentions() {
 # why: The figure and the POINTERS to it are one shape, and a branch that
 # removes the first without the second leaves the documentation worse than
 # it found it: a live cross-reference to a number nobody can find reads as
-# the reader's failure to look. The premise is asserted rather than
-# assumed, from the tree: this case only forbids the pointers because
-# TEST.md itself records no total, so restoring the figure lifts the rule
-# instead of leaving a rule nobody can satisfy.
-@test "doc/test: no catalogue points at a grand total TEST.md no longer records (#978)" {
+# the reader's failure to look. A pointer need not name the figure to be
+# one: TEST.md's merge advice cited the removed "System (N) and smoke (N)"
+# line as its worked example, with the digits already written as an `N`, so
+# a rule that greps for `grand total` alone reads that document as clean
+# while it still sends the reader one paragraph up to a line that is gone.
+# The premise is asserted rather than assumed, from the tree: this case only
+# forbids the pointers because TEST.md itself records no total, so restoring
+# the figure lifts the rule instead of leaving a rule nobody can satisfy.
+@test "doc/test: no catalogue points at an aggregate figure TEST.md no longer records (#978)" {
   run _aggregate_figure_hits /source/doc/test/TEST.md
   assert_success
   assert_output ''
-  run _grand_total_mentions
+  run _removed_figure_mentions
   assert_success
   assert_output ''
 }
