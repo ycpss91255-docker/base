@@ -240,11 +240,28 @@ hatch records in the bundle itself which sections came from it -- because
 the person holding the bundle in the field is not the person who chose to
 bypass the gate.
 
+**Which config a deployable stage bakes is itself committed, and visible.**
+The two means above provision *a* config; they say nothing about which one,
+and a repo that ships several curated presets bakes one of them. That choice
+is a **repo-root symlink into `config/<component>/`**, read through a build
+`ARG` whose default is the symlink's own name -- so one build overrides it
+with `--build-arg` and no tracked file moves, while the repo's default
+changes by re-pointing one link. The committed target is the **inert**
+preset, so a fresh clone builds stock behaviour and a chosen profile is
+always something someone recorded (invariant 4). Every `setup` run names each
+selector and the preset it resolves to, and refuses to be silent about one
+that resolves to nothing (invariant 2). The layout rules that go with it --
+group by kind only once a kind has a second file, `<name>.example.<ext>` for
+a copy-me template, no audience directory because `deploy.manifest` already
+records tunability, and a diff-only upstream baseline is a test fixture
+rather than config -- are ADR-00000030's.
+
 *Serves / established by:* ADR-00000003 (env/workload boundary + field
 delivery; this generalizes its env-row override to config files); ADR-00000023
-(config field-override + field-deploy mechanism); ADR-00000011 / ADR-00000018
-(devel/runtime/*-test stage structure); ADR-00000025 (the untracked-layer
-refusal).
+(config field-override + field-deploy mechanism); ADR-00000030 (which preset
+a build bakes, and the `config/<component>/` layout); ADR-00000011 /
+ADR-00000018 (devel/runtime/*-test stage structure); ADR-00000025 (the
+untracked-layer refusal).
 
 ### 9. Identity and naming are resolved once, from a file
 

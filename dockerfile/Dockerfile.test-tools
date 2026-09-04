@@ -21,9 +21,48 @@ ARG KCOV_VERSION=v43
 # leave the tag unchanged and silently reuse the previous image.
 ARG JUST_VERSION=1.58.0
 
+# ── The alpine every package-installing stage below derives from ────────
+#
+# APK_MIRROR points apk at a different host. The default keeps the
+# upstream CDN, so a network that can reach it sees no change at all and
+# the rewrite is skipped entirely rather than running a sed that would
+# replace the host with itself.
+#
+# Networks a build cannot reach dl-cdn.alpinelinux.org from exist -- on
+# one of ours the general internet is fine while this one host resolves
+# in DNS and then HANGS at TCP connect, which is why the wait is minutes
+# rather than the microseconds a refusal would take, and why there is no
+# error line to recognise it by -- and what apk does there is spend 480s
+# across the two repository indexes and then report every package as
+# "no such package", because an unreachable index reads as an EMPTY one.
+# The reader is told the package list does not contain `bash`, not that
+# it could not be fetched, and goes looking for a packaging mistake that
+# does not exist. The Ubuntu half of this already exists as
+# APT_MIRROR_UBUNTU in dist/dockerfile/Dockerfile; this is the Alpine
+# spelling of it.
+#
+# It is ONE stage rather than an ARG repeated per stage because four
+# stages here install packages, and a knob wired into one of them leaves
+# the build dying in the next -- later, and with the same message. The
+# `just-runner` stage deliberately does NOT derive from it: it installs
+# nothing and so needs no package index at all, which is a property worth
+# keeping rather than a line worth sharing.
+#
+# An EMPTY value is refused rather than treated as "no override": it
+# would otherwise rewrite the host to nothing and hand back the very
+# "no such package" this arg exists to remove.
+FROM alpine:${ALPINE_VERSION} AS alpine-apk
+ARG APK_MIRROR="dl-cdn.alpinelinux.org"
+RUN if [ -z "${APK_MIRROR}" ]; then \
+      echo "APK_MIRROR is empty: name a mirror host, or leave the arg unset to use dl-cdn.alpinelinux.org" >&2; \
+      exit 1; \
+    elif [ "${APK_MIRROR}" != "dl-cdn.alpinelinux.org" ]; then \
+      sed -i "s@dl-cdn\.alpinelinux\.org@${APK_MIRROR}@g" /etc/apk/repositories; \
+    fi
+
 FROM bats/bats:${BATS_VERSION} AS bats-src
 
-FROM alpine:${ALPINE_VERSION} AS bats-extensions
+FROM alpine-apk AS bats-extensions
 RUN apk add --no-cache git && \
     git clone --depth 1 -b v0.3.0 \
         https://github.com/bats-core/bats-support /bats/bats-support && \
@@ -32,7 +71,7 @@ RUN apk add --no-cache git && \
     git clone --depth 1 -b v1.2.5 \
         https://github.com/jasonkarns/bats-mock   /bats/bats-mock
 
-FROM alpine:${ALPINE_VERSION} AS lint-tools
+FROM alpine-apk AS lint-tools
 # arch-literal-lint: allow-begin -- the TARGETARCH-to-upstream-asset mapping is
 # the one place both spellings legitimately meet: TARGETARCH speaks amd64 /
 # arm64, shellcheck publishes linux.x86_64 / linux.aarch64 and hadolint
@@ -123,7 +162,7 @@ RUN case "${TARGETARCH}" in \
 # of every PR. kcov-on-musl was spiked for accuracy + stability: line-rate
 # and per-file covered counts matched the debian kcov baseline within <0.1%
 # (codecov threshold is 1%) and were bit-stable across repeated runs.
-FROM alpine:${ALPINE_VERSION} AS kcov-builder
+FROM alpine-apk AS kcov-builder
 ARG KCOV_VERSION
 RUN apk add --no-cache \
         cmake make g++ binutils-dev curl-dev elfutils-dev libdwarf-dev \
@@ -168,7 +207,7 @@ RUN apk add --no-cache \
 # smoke gate actually gates. Only active when the ci-system
 # compose service is invoked (it mounts the host docker.sock); the
 # default `ci` service ignores docker even when CLI is present.
-FROM alpine:${ALPINE_VERSION}
+FROM alpine-apk
 # mawk + gawk alongside the default busybox awk so the issueref awk
 # program is exercised under all three engines by its portability unit
 # test (issueref_lint_spec.bats). This closes a local==CI blind spot in

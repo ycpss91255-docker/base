@@ -58,6 +58,15 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 ## [Unreleased]
 
 ### Changed
+- **the release worker cuts the version it was given, and refuses a tag it
+  cannot read (refs #829, refs #1012)** -- `prerelease` no longer reads
+  `contains(github.ref_name, '-')`, which is false for every branch and
+  would have published a directly-called RC as a full release; it now comes
+  from the resolved version. `tag_name` is explicit, so a call from a branch
+  releases the version it was given rather than the branch. **A tag that is
+  not `vX.Y.Z[-suffix]` now fails the release at the resolve step** instead
+  of publishing under a name nothing can pin.
+- **`config/<component>/` has a written layout, and a build says which preset it bakes (closes #826, closes #827; ADR-00000030)** -- a repo picks the baked preset with a committed repo-root symlink into `config/<component>/`, read through a build `ARG` whose default is that symlink's name, so `--build-arg` overrides one build with no tracked change. `just setup` names every selector and the preset it resolves to, and WARNs about one whose file is missing -- which used to surface as a `docker build` dying on a `COPY`. The seeded `config/.gitkeep` states the convention (new repos only).
 - **three of base's widest signatures narrow to what they actually take
   (refs #994)** -- `_write_setup_conf` no longer takes the section array it
   never read; `_resolve_stage_list` derives its `<prefix>inherit` meta-key
@@ -122,6 +131,26 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   type at 1.7.12.
 
 ### Added
+- **`init.sh` states its new-vs-existing discriminator instead of hiding it
+  in a branch (refs #928)** -- the decision is a proxy: a file only an
+  already-initialized repo was meant to carry. It inverted when the template
+  began shipping a `Dockerfile` -- every bootstrapped repo took the
+  existing-repo path and got no `main.yaml`, changelog or smoke tree -- and no
+  test failed, because the proxy lived only as a condition inside `main`.
+  `--list-existing-repo-signals` prints it (a query: mutates nothing,
+  answerable on a base checkout), the branch reads that list and nothing else,
+  and a spec runs a real init per published path. Nothing is installed and no
+  repo's classification changes.
+- **a dependency bump auto-releases only when a gate proves it ABI-safe
+  (closes #829, ADR-00000031)** -- `script/ci/abi-gate.sh` asks one
+  question, did this dependency's declared ABI component move, and refuses
+  everything else: an unreadable version, an undeclared or unrecognised
+  axis, a 0.x pin declared major-only, a downgrade, an unchanged pin, a pair
+  the upstream compat declaration does not sanction. A refusal prints
+  nothing on stdout, so no caller can read a decision out of one, and there
+  is no default axis to guess with. `release-worker.yaml` gains an optional
+  `version` input, so the release is cut by calling the worker -- a
+  bot-pushed tag fires no event.
 - **`just test metrics`: one shell reader, three implementation-standard thresholds (refs #994)** -- nesting depth <= 3, function length <= 50 body code lines, positional parameters <= 5, measured in one pass over every tracked shell file. Not in `just test` or `just test lint`: today's tree reports 26 / 69 / 7, which phase 3 flattens and phase 4 then gates. The figures replace an ad-hoc count whose parser bugs are now fixtures, and every counting rule the reader states has its worked example as a fixture too -- three defects were found by running them, one of them fail-open. A file the reader cannot parse is a finding, never a skip. Host-direct: the population is the git index.
 - **`just docker prune --reclaim`: base collects its own compose litter
   (closes #995)** -- compose stamps the checkout's absolute path on its
@@ -252,6 +281,15 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   hard-mandatorily, and `release` requires `coverage-gate`. Three specs
   DERIVE both rosters from the job graph, so a job added to the workflow
   fails until a gate names it.
+- **the tooling image takes an `APK_MIRROR` build arg (closes #1008)** --
+  `dockerfile/Dockerfile.test-tools` had no mirror override, so a host that
+  cannot reach `dl-cdn.alpinelinux.org` could not build the image the whole
+  local gate runs inside. It does not read as a network failure: apk spends
+  ~480s and then reports every package as `no such package`, because an
+  unreachable index reads as an empty one. Pass
+  `APK_MIRROR=<host> just test`. The default is the upstream CDN and the
+  rewrite is skipped there, so a machine that can reach it sees no change.
+- **a failed diff no longer takes the required `docker-build` check green, and one FROM-line reader replaces three (closes #1013)** -- the doc-only classifier read its diff through `done < <(git diff ...)`, and a loop's status is the loop's: a force-pushed base or a shallow clone delivered zero paths, classified doc-only, and passed the required check having built nothing. It is captured and checked now, and a spec scans every workflow run block for the shape. Separately, the extra-stages loop and `runtime_stages.sh` each carried a `FROM ... AS` regex claiming to match the stage parser; neither did, so `FROM --platform=... AS x-test` was invisible to the loop. One roster serves both now.
 - **`just` owns the lifecycle of what `just` creates (closes #1015, #997)** --
   `just test stop` ends this checkout's self-test project. `just docker stop`
   and `just docker exec` work in a self-managed checkout: `.env.generated` is

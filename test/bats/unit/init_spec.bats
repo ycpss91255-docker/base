@@ -1028,3 +1028,75 @@ _stage_missing_template_conf() {
   assert_output --partial "CALLER-TRAP-RAN"
   assert_output --partial "echo CALLER-TRAP-RAN"
 }
+
+# ════════════════════════════════════════════════════════════════════
+# _populate_config -- the one text base seeds into every new repo about
+# config/, and the two DIFFERENT channels that directory feeds
+# (ADR-00000030).
+#
+# A repo's config/ is read twice, at two moments, for two purposes, and
+# the placeholder used to describe only the first:
+#
+#   * build time: the Dockerfile's layered COPY into /tmp/config, deleted
+#     in the same RUN -- the shell / pip template-override overlay.
+#   * dev and field: every config/<component>/ bind-mounted at
+#     /opt/app/config/<component> in development and COPY-baked at the
+#     same path for deploy (PRD invariant 8's two opposite means).
+#
+# The second is where a repo puts its actual app config, and it is the one
+# a repo author has to be told about, because nothing about an empty
+# directory suggests it. So the placeholder must NAME the component
+# directory, the path it lands on, and the manifest that makes one of its
+# files field-tunable -- the three terms a reader needs in order to search
+# for the rest.
+# ════════════════════════════════════════════════════════════════════
+
+# why: the seeded text names the structured channel
+@test "_populate_config: the seeded placeholder names the config/<component>/ channel" {
+  _source_init
+  _populate_config
+  run cat "${TMP_REPO}/config/.gitkeep"
+  assert_output --partial "config/<component>/"
+  assert_output --partial "/opt/app/config/<component>"
+  assert_output --partial "deploy.manifest"
+}
+
+# why: the seeded text keeps the build-time channel
+@test "_populate_config: the seeded placeholder still names the build-time overlay" {
+  _source_init
+  _populate_config
+  run cat "${TMP_REPO}/config/.gitkeep"
+  assert_output --partial ".base/dist/config/"
+}
+
+# why: seeded text and the record use one vocabulary
+@test "_populate_config: the seeded placeholder and ADR-00000030 name the convention identically" {
+  # The convention now lives in two artifacts by design, and ADR-00000028
+  # is the reason that needs a guard rather than a shrug: the ADR carries
+  # the RATIONALE (why a symlink, why no audience level) and the
+  # placeholder carries the INSTRUCTION, at the one moment a repo author
+  # meets config/. Different jobs, so neither is derivable from the other
+  # -- but they share the convention's proper nouns, and a rename that
+  # reaches only one of them leaves a new repo being told to create
+  # something the record no longer describes.
+  #
+  # The three terms are LISTED, not derived from the placeholder's text,
+  # and the reason is worth stating because this repo prefers derivation
+  # (PRD design principle P2). The placeholder also documents the
+  # build-time template overlay, whose examples (config/shell/bashrc and
+  # friends) the ADR has no reason to mention at all, so a derivation over
+  # the whole text would assert agreement the two artifacts do not owe
+  # each other. These three are the structured channel's names, and the
+  # set is closed because the convention is.
+  _source_init
+  _populate_config
+  local _adr=/source/doc/adr/00000030-config-component-layout-and-preset-selector.md
+  local _seed="${TMP_REPO}/config/.gitkeep"
+  local _term
+  for _term in 'config/<component>/' 'deploy.manifest' '.example.'; do
+    grep -qF -- "${_term}" "${_seed}" \
+      || { echo "the seeded placeholder no longer names: ${_term}"; return 1; }
+    grep -qF -- "${_term}" "${_adr}" \
+      || { echo "ADR-00000030 does not name: ${_term}"; return 1; }
+  done
+}
