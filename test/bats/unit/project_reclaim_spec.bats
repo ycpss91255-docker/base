@@ -125,10 +125,26 @@ case "${1-} ${2-}" in
     ;;
   "image inspect")
     _target="${!#}"
-    while IFS='|' read -r _k _id _name _proj _age _ck; do
-      [[ "${_k}" == image && "${_name}" == "${_target}" ]] || continue
-      _created "$(( _now - _age ))"
-    done < "${DOCKER_STATE}"
+    # Two readers, told apart by the template they ask for: the tag
+    # retention wants only the creation time, the orphan-image rule wants
+    # the creation time plus the checkout label with a terminator after it
+    # (the path is the field that may contain a newline).
+    case "$*" in
+      *'end of image facts'*)
+        while IFS='|' read -r _k _id _name _proj _age _ck; do
+          [[ "${_k}" == image && "${_name}" == "${_target}" ]] || continue
+          _created "$(( _now - _age ))"
+          _unesc "${_ck}"; printf '\n'
+          printf '%s\n' '--- end of image facts ---'
+        done < "${DOCKER_STATE}"
+        ;;
+      *)
+        while IFS='|' read -r _k _id _name _proj _age _ck; do
+          [[ "${_k}" == image && "${_name}" == "${_target}" ]] || continue
+          _created "$(( _now - _age ))"
+        done < "${DOCKER_STATE}"
+        ;;
+    esac
     ;;
   *)
     case "${1-}" in
@@ -141,8 +157,15 @@ case "${1-} ${2-}" in
         ;;
       images)
         [[ "${DOCKER_FAIL_IMAGES:-0}" == 1 ]] && exit 1
+        # `--filter label=base.checkout.path` is the daemon's own
+        # narrowing to images that carry the provenance; the shim honours
+        # it so a fixture without a path label is invisible to the
+        # orphan-image rule exactly as it is to a real docker.
+        _labelled_only=0
+        case "$*" in *base.checkout.path*) _labelled_only=1 ;; esac
         while IFS='|' read -r _k _id _name _proj _age _ck; do
           [[ "${_k}" == image ]] || continue
+          if (( _labelled_only )) && [[ -z "${_ck}" ]]; then continue; fi
           printf '%s\n' "${_name}"
         done < "${DOCKER_STATE}"
         ;;
@@ -194,6 +217,13 @@ _net() {
 
 _reclaim() {
   run bash -c "source ${LIB}; _reclaim_orphan_projects \"\${GRACE:-6h}\""
+}
+
+# _img <ref> <checkout path> <age seconds> -- a build image row carrying
+# the provenance label. The empty project field is deliberate: nothing in
+# the image rule reads it, and the proof is the path.
+_img() {
+  printf 'image|%s|%s||%s|%s\n' "${1//[^a-z0-9]/}" "${1}" "${3}" "${2}"
 }
 
 # ── the derivations base's self-test mints artifacts by ────────────────────
@@ -418,11 +448,18 @@ _reclaim() {
   assert_output ""
 }
 
-@test "images are never collected by the project rule (the tooling tag is shared)" {
+@test "a PROJECT label on an image is not a proof, whatever it says" {
   # test-tools is content-hash tagged, so its project label names the
-  # checkout that happened to build it, never the checkouts that use it.
-  printf 'image|i1|test-tools:aaaaaaaaaaaa|%s|86400|%s\n' \
-    "$(_project "${TEMP_DIR}/gone")" "${TEMP_DIR}/gone" > "${DOCKER_STATE}"
+  # checkout that happened to build it, never the checkouts that use it --
+  # and the checkout that built it being gone says nothing about the
+  # checkouts that still resolve the tag. The only image label that IS a
+  # proof is the checkout path, which compose.yaml stamps on the
+  # per-checkout build image and deliberately not on this one (asserted in
+  # reclaim_wiring_spec). So the fixture carries the project label of a
+  # dead checkout and no path label, which is the shape of a real tooling
+  # image, and nothing may act on it.
+  printf 'image|i1|test-tools:aaaaaaaaaaaa|%s|86400|\n' \
+    "$(_project "${TEMP_DIR}/gone")" > "${DOCKER_STATE}"
   _reclaim
   assert_success
   run cat "${DOCKER_REMOVED}"
@@ -586,4 +623,147 @@ _tag() {
 ')"
   assert_line "$(_tag 'FROM debian
 ')"
+}
+
+# ── the per-checkout BUILD image ──────────────────────────────────────────
+#
+# The survey behind this found one artifact class that no verb reclaimed:
+# `just test smoke` builds the smoke harness through compose, which tags
+# it `<project>-smoke` -- one image per checkout, 275MB measured on the
+# development host, produced by a build whose whole result is pass or fail
+# and consumed by nothing afterwards. The orphan sweep did not collect it
+# (it removes networks), and the tooling-tag retention does not either (it
+# matches `test-tools:<12hex>` by name).
+#
+# WHY THIS IMAGE AND NOT THE TOOLING IMAGE. The header of the file under
+# test argues that a project label on an image names its BUILDER and not
+# its users, so collecting on it would delete an image live checkouts
+# still resolve. That argument is about the TOOLING tag, which is
+# content-hash shared on purpose: one image, many checkouts. It does not
+# transfer to an image that carries the checkout path stamped at build
+# time -- that label names the one checkout that can ever ask for it,
+# because the tag itself is derived from that checkout's project name. So
+# the proof here is the same proof the network rule acts on, on an
+# artifact where nothing is shared, and the rule stays out of the tooling
+# image's way by only ever looking at what carries the label.
+
+# why: the case the whole image rule exists for: 275MB per dead checkout that ran
+# `just test smoke`, which no verb could reclaim before.
+@test "an image whose checkout is gone is retired" {
+  _img "base-deadbeef1234-smoke:latest" "${TEMP_DIR}/gone" 86400 > "${DOCKER_STATE}"
+  _reclaim
+  assert_success
+  run cat "${DOCKER_REMOVED}"
+  assert_output --partial "image base-deadbeef1234-smoke:latest"
+}
+
+# why: the sparing side. A rule that collected a live checkout's image would cost
+# a 275MB rebuild in the middle of someone's work.
+@test "an image whose checkout still exists is kept" {
+  _img "base-deadbeef1234-smoke:latest" "${ROOT}" 86400 > "${DOCKER_STATE}"
+  _reclaim
+  assert_success
+  run cat "${DOCKER_REMOVED}"
+  refute_output --partial "base-deadbeef1234-smoke"
+}
+
+# why: the window covers a path that is momentarily absent because something is
+# moving or recreating it while its run is in flight -- the one case the
+# existence test cannot see.
+@test "an image inside the grace window is kept" {
+  _img "base-deadbeef1234-smoke:latest" "${TEMP_DIR}/gone" 60 > "${DOCKER_STATE}"
+  _reclaim
+  assert_success
+  run cat "${DOCKER_REMOVED}"
+  refute_output --partial "base-deadbeef1234-smoke"
+}
+
+# why: content-hash shared on purpose, so no artifact can name all its users.
+# This is what keeps the image rule off the one image class where deletion
+# would reach a live checkout.
+@test "the tooling image carries no checkout label and is never a candidate here" {
+  # Content-hash shared on purpose: one image, many checkouts, and no
+  # artifact can name all of its users. It is retired by --tool-tags or
+  # not at all.
+  printf 'image|i1|test-tools:111111111111||99999|\n' > "${DOCKER_STATE}"
+  _reclaim
+  assert_success
+  run cat "${DOCKER_REMOVED}"
+  refute_output --partial "test-tools"
+}
+
+# why: a relative label names nothing testable, so it attributes nothing. On a
+# shared host the fail-open direction is deleting what cannot be placed.
+@test "an image whose path label is not absolute is left alone" {
+  _img "base-deadbeef1234-smoke:latest" "relative/path" 86400 > "${DOCKER_STATE}"
+  _reclaim
+  assert_success
+  run cat "${DOCKER_REMOVED}"
+  refute_output --partial "base-deadbeef1234-smoke"
+}
+
+# why: `<none>:<none>` has no name that can be removed safely -- the id behind it
+# may carry other tags -- so acting on it would reach past what this rule
+# can prove.
+@test "a dangling labelled image is left alone rather than removed by id" {
+  # `<none>:<none>` has no name that can be removed safely: the id behind
+  # it may carry other tags, so `docker rmi <id>` would reach beyond the
+  # artifact this rule can prove. The daemon-wide prune clears it.
+  _img "<none>:<none>" "${TEMP_DIR}/gone" 86400 > "${DOCKER_STATE}"
+  _reclaim
+  assert_success
+  run cat "${DOCKER_REMOVED}"
+  refute_output --partial "<none>"
+}
+
+# why: the shape that got a live worktree's network removed under the rule this
+# replaced: a truncated path is very plausibly absent, and absent is what
+# makes an artifact a candidate.
+@test "an image whose live checkout path contains a newline is NOT retired" {
+  # The same failure shape the network rule was built around: a shorter,
+  # non-existent path read out of a truncated field is very plausibly
+  # absent, and absent is what makes an artifact a candidate. The label is
+  # read per artifact with the path last, so every byte survives.
+  local _live="${TEMP_DIR}/line1"$'\n'"line2"
+  mkdir -p "${_live}"
+  printf 'image|i9|base-deadbeef1234-smoke:latest||86400|%s\\nline2\n' \
+    "${TEMP_DIR}/line1" > "${DOCKER_STATE}"
+  _reclaim
+  assert_success
+  run cat "${DOCKER_REMOVED}"
+  refute_output --partial "base-deadbeef1234-smoke"
+}
+
+# why: the pair to the case above. Read wrongly in either direction the rule is
+# broken, so both directions are pinned.
+@test "an image whose DEAD checkout path contains a newline IS retired" {
+  # The pair to the case above: read wrongly in either direction the rule
+  # is broken, so both directions are pinned.
+  printf 'image|i9|base-deadbeef1234-smoke:latest||86400|%s\\nline2\n' \
+    "${TEMP_DIR}/gone" > "${DOCKER_STATE}"
+  _reclaim
+  assert_success
+  run cat "${DOCKER_REMOVED}"
+  assert_output --partial "image base-deadbeef1234-smoke:latest"
+}
+
+# why: read as "nothing is labelled", a failed listing turns a broken daemon
+# connection into a reason to delete.
+@test "an unreadable image listing retires nothing" {
+  _img "base-deadbeef1234-smoke:latest" "${TEMP_DIR}/gone" 86400 > "${DOCKER_STATE}"
+  DOCKER_FAIL_IMAGES=1 run bash -c "source ${LIB}; _reclaim_orphan_projects 6h"
+  assert_failure
+  run cat "${DOCKER_REMOVED}"
+  refute_output --partial "base-deadbeef1234-smoke"
+}
+
+# why: the mode an operator uses to check the rule before trusting it with the
+# removal, so it must name the victim rather than only counting it.
+@test "a dry run names the image it would retire and removes nothing" {
+  _img "base-deadbeef1234-smoke:latest" "${TEMP_DIR}/gone" 86400 > "${DOCKER_STATE}"
+  DRY_RUN=true run bash -c "source ${LIB}; DRY_RUN=true _reclaim_orphan_projects 6h"
+  assert_success
+  assert_output --partial "base-deadbeef1234-smoke:latest"
+  run cat "${DOCKER_REMOVED}"
+  refute_output --partial "base-deadbeef1234-smoke"
 }

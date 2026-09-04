@@ -19,10 +19,24 @@
 # (script/test), i.e. the repo root.
 set working-directory := '../..'
 
+# lifecycle: RECLAIMED BY THE RUNNER. script/test/test.sh installs an EXIT
+# trap that sweeps orphaned compose projects on every dispatch it arms,
+# pass or fail, and asks whether the previous run has let go of this
+# project before it starts. The recipe does not repeat either, because the
+# runner is also what CI invokes directly -- a copy here would cover the
+# `just` path only.
+#
 # just test -> run the whole self-test (ShellCheck + Bats, no kcov: fast)
 default:
     ./script/test/test.sh
 
+# lifecycle: RECLAIMED BY THE RUNNER. script/test/test.sh installs an EXIT
+# trap that sweeps orphaned compose projects on every dispatch it arms,
+# pass or fail, and asks whether the previous run has let go of this
+# project before it starts. The recipe does not repeat either, because the
+# runner is also what CI invokes directly -- a copy here would cover the
+# `just` path only.
+#
 # just test lint -> all linters (ShellCheck + Hadolint + issue-ref comment
 # lint + ADR-numbering lint + stale setup.conf path lint + localized README
 # sync lint + doc/test count drift gate + hardcoded home path lint +
@@ -50,15 +64,27 @@ default:
 lint *args:
     ./script/test/test.sh --lint {{args}}
 
-# just test metrics -> the three implementation-standard shell metrics
-# (base#994 phase 2): nesting depth <= 3, function length <= 50 body code
-# lines, positional parameters <= 5, measured over every tracked shell
-# file by ONE reader in ONE pass (script/test/drivers/shell_metrics.sh).
+# lifecycle: CREATES NOTHING. It is the one recipe here that runs
+# host-direct -- pure bash over the checkout, no compose, no container --
+# so there is no project to reclaim and no previous run to wait for.
 #
-# It is NOT part of the default `just test` gate and not part of
-# `just test lint`: on today's tree it reports 102 violations (26 over
-# nesting depth, 69 over function length, 7 over positional parameters),
-# which phase 3 flattens in slices and phase 4 then gates.
+# just test metrics -> the three implementation-standard shell metrics
+# (base#994): nesting depth <= 3, function length <= 50 body code lines,
+# positional parameters <= 5, measured over every tracked shell file by
+# ONE reader in ONE pass (script/test/drivers/shell_metrics.sh).
+#
+# Each metric FAILS only above its adoption ceiling -- the count of
+# functions phase 3 has not flattened yet -- so the census figures are
+# printed by the run and are deliberately not written down here; a
+# number in this comment would be a second place to keep them true
+# (ADR-00000028). The ceilings, and the argument that a ceiling is not
+# the baseline ADR-00000029 rejected, live in the driver's header.
+#
+# It is still NOT part of the default `just test` gate and not part of
+# `just test lint`, and the reason is no longer the unflattened tree:
+# that phase runs INSIDE the ci container, and this population comes
+# from the git index (see the host-direct note below). Joining it is
+# base#994 phase 4's.
 # This recipe exists because phase 3 works from its output -- every
 # violation is printed, one per line, `file:line: name -- metric N`.
 #
@@ -92,6 +118,13 @@ metrics metric='':
         ;;
     esac
 
+# lifecycle: RECLAIMED BY THE RUNNER. script/test/test.sh installs an EXIT
+# trap that sweeps orphaned compose projects on every dispatch it arms,
+# pass or fail, and asks whether the previous run has let go of this
+# project before it starts. The recipe does not repeat either, because the
+# runner is also what CI invokes directly -- a copy here would cover the
+# `just` path only.
+#
 # just test coverage -> full Kcov coverage (slow; local / release check).
 # just test coverage 1/4 -> kcov one matrix shard only, the same
 # slice the CI coverage matrix runs; handy to prove the sharded path
@@ -116,6 +149,13 @@ coverage shard='':
       ./script/test/test.sh --coverage
     fi
 
+# lifecycle: RECLAIMED BY THE RUNNER. script/test/test.sh installs an EXIT
+# trap that sweeps orphaned compose projects on every dispatch it arms,
+# pass or fail, and asks whether the previous run has let go of this
+# project before it starts. The recipe does not repeat either, because the
+# runner is also what CI invokes directly -- a copy here would cover the
+# `just` path only.
+#
 # just test coverage-path <spec> -> run ONE spec under kcov instrumentation.
 #
 # The inner loop for the failure class whose entire evidence is "this spec is
@@ -160,6 +200,14 @@ coverage-path spec *args:
 # _test_exit_reclaim). A recipe may collect its own litter unasked; it may
 # not retire an image a sibling checkout might still want.
 
+# Each also carries its own `--await-project` line, for the same reason it
+# carries its own reclaim line: neither goes through test.sh's dispatcher,
+# so neither inherits the question the dispatcher asks before it hands
+# compose a project name -- has the previous run let go of this project's
+# network? It is a query that mints nothing, and it is what turns the
+# daemon's raw "has active endpoints" text into either a bounded wait or a
+# refusal naming the container and `just test stop`.
+
 # just test system -> system runtime-test specs (opt-in; host docker.sock)
 # Builds the test-tools image through the docker namespace base self-uses
 # (ADR-00000011 sec.5) rather than a raw `docker build -f` one-liner.
@@ -196,6 +244,7 @@ system:
     HOST_UID="$(id -u)"
     HOST_GID="$(id -g)"
     export HOST_UID HOST_GID
+    ./script/test/test.sh --await-project
     just docker build --target test-tools
     docker compose run --rm ci-system
 
@@ -260,8 +309,52 @@ smoke *args:
     HOST_GID="$(id -g)"
     export HOST_UID HOST_GID
     export BUILDKIT_PROGRESS=plain
+    ./script/test/test.sh --await-project
     just docker build --target test-tools
     just docker build {{args}} --target smoke
+
+# The gap it closes: base runs two compose projects out of one checkout.
+# `just docker build` / `run` mint `local-<dir>`, which the shipped
+# wrapper owns and `just docker stop` ends. `just test` mints
+# `base-<sha256(checkout path)[0:12]>` -- keyed to the PATH so two
+# worktrees cannot share one set of containers -- and nothing ended that
+# one. `just docker stop` resolves the other name, and `just docker prune`
+# says in its own help that it does not touch running containers, so the
+# only way to clear an interrupted run's container was raw `docker`. A
+# thing `just` cannot do is a gap in the control surface, not a licence to
+# reach past it.
+#
+# The name is not derived here. `test.sh --compose-project-name` is the
+# one producer (it delegates to lib/project_reclaim.sh's
+# _reclaim_project_for_path, which the collector shares), and handing its
+# answer over as PROJECT_NAME is what stops a second derivation existing
+# that agrees today and drifts tomorrow. stop.sh takes an ambient
+# PROJECT_NAME in preference to computing one, and needs no
+# `.env.generated` to do it -- that file is a configured consumer's
+# interpolation cache, and generating one just to stop a container would
+# write into the tree under test.
+#
+# TEST_TOOLS_IMAGE and HOST_UID / HOST_GID are resolved here for the
+# reason `system` and `smoke` resolve them: compose interpolates the WHOLE
+# file whatever command it is given -- `down` included -- so every
+# `${VAR:?}` in compose.yaml has to have a value or compose refuses to
+# read the file at all. A stop that supplied only the project name died
+# naming four services and tore nothing down, and `--dry-run` could not
+# show it because dry-run never calls compose. The ids are also what a
+# direct `just -f` needs, which the root entry's exports do not reach.
+#
+# just test stop -> stop and remove the containers of THIS checkout's self-test project
+stop *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    PROJECT_NAME="$(./script/test/test.sh --compose-project-name)"
+    export PROJECT_NAME
+    TEST_TOOLS_IMAGE="${TEST_TOOLS_IMAGE:-$(./script/test/test.sh --test-tools-image)}"
+    export TEST_TOOLS_IMAGE
+    HOST_UID="$(id -u)"
+    HOST_GID="$(id -g)"
+    export HOST_UID HOST_GID
+    ./script/stop.sh {{args}}
 
 # just test clean -> remove coverage reports
 clean:
@@ -282,6 +375,13 @@ clean:
 sync-docs:
     ./script/test/sync-doc-counts.sh
 
+# lifecycle: RECLAIMED BY THE RUNNER. script/test/test.sh installs an EXIT
+# trap that sweeps orphaned compose projects on every dispatch it arms,
+# pass or fail, and asks whether the previous run has let go of this
+# project before it starts. The recipe does not repeat either, because the
+# runner is also what CI invokes directly -- a copy here would cover the
+# `just` path only.
+#
 # just test sync-docs-check -> validate doc/test/*.md counts WITHOUT writing
 # (the read-only twin of sync-docs, and the same gate the default `just test`
 # lint phase runs). Non-zero exit on drift, printing the unified diff of what
@@ -315,6 +415,13 @@ resolve-docs:
 sync-readme *args:
     ./script/test/sync-readme-hashes.sh {{args}}
 
+# lifecycle: RECLAIMED BY THE RUNNER. script/test/test.sh installs an EXIT
+# trap that sweeps orphaned compose projects on every dispatch it arms,
+# pass or fail, and asks whether the previous run has let go of this
+# project before it starts. The recipe does not repeat either, because the
+# runner is also what CI invokes directly -- a copy here would cover the
+# `just` path only.
+#
 # just test sync-readme-check -> validate the translation markers WITHOUT
 # writing (the read-only twin of sync-readme, and the same lint the default
 # `just test` lint phase runs). Non-zero exit naming the FILE and the SECTION

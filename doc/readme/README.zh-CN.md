@@ -1136,7 +1136,7 @@ jobs:
 | `archive_name_prefix` | string | 是 | - | Archive 名称前缀 |
 | `extra_files` | string | 否 | `""` | 额外文件（空格分隔） |
 
-<!-- sync: running-template-tests 961bde4ce2e8 5ffd1af67fe7 -->
+<!-- sync: running-template-tests 4e411d749017 9e717f2fcbfe -->
 ## 本地运行测试
 
 base 自测入口 `just test`：
@@ -1144,6 +1144,7 @@ base 自测入口 `just test`：
 just test        # 完整 CI（ShellCheck + Bats + Kcov）通过 docker compose
 just test lint        # 只运行 ShellCheck
 just test clean       # 清除覆盖率报告
+just test stop        # 停掉本 checkout 自测的容器
 just                            # 显示 repo 命令
 just --list        # 显示 CI 命令
 ```

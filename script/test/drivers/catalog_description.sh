@@ -211,7 +211,7 @@ readonly _CATALOG_DESC_SCAN_GLOBS=(
 # renamed 2, and all 44 were described here rather than imported as debt --
 # the 42 are this branch's own, and the 2 renames were already inside the
 # ceiling, so describing them is what takes the number down by 2.
-readonly _CATALOG_DESC_UNDESCRIBED_CEILING=2620
+readonly _CATALOG_DESC_UNDESCRIBED_CEILING=2612
 
 # The written-out non-answers, matched case-insensitively on the whole
 # trimmed marker. `nil`, `none`, `tbd`, `todo` and `unknown` carry a
