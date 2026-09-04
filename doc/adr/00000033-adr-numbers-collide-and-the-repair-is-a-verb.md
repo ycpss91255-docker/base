@@ -99,8 +99,10 @@ Four parts.
    Where it cannot -- a fixture tree, or this checkout seen from inside
    the test container, where a worktree's `.git` names a gitdir that was
    never mounted -- the walk prunes what the tree DECLARES derived: the
-   plain directory patterns in the root `.gitignore`. That is a reader of
-   the repo's own declaration, not a second opinion about what is derived.
+   plain path patterns in the root `.gitignore`, trailing slash or not,
+   because git needs none and this repo's own file writes `.claude` and
+   `CLAUDE.md` without one. That is a reader of the repo's own
+   declaration, not a second opinion about what is derived.
 
    A file that builds its own throwaway `doc/adr/` DECLARES the NUMBERS
    that registry uses, on a comment line naming them. Declared and not
@@ -157,8 +159,8 @@ incomplete one fails a gate for the two classes a checkout can recognise.
 The verb and the gate cannot disagree about what they swept, because
 neither of them decides. The cost is a shared file both must keep
 correct, and a `.gitignore` reader that is only as good as the shapes it
-reads -- root file, plain directory patterns, no wildcards or negations.
-Where git can answer, none of that runs.
+reads -- root file, plain path patterns, no wildcards or negations. Where
+git can answer, none of that runs.
 
 A file that builds its own registry now carries a declaration, and a file
 that acquires one later without declaring it becomes a lint finding

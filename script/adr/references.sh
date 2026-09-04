@@ -31,17 +31,19 @@
 # Where it cannot -- a fixture tree that is no checkout, or the real
 # checkout seen from inside the test container, where a worktree's `.git`
 # is a file naming a gitdir that was never mounted -- walk the filesystem
-# and prune what the tree DECLARES derived: the plain directory patterns
-# in the root `.gitignore`. That is a reader of the repo's own
-# declaration, not a second opinion about what is derived.
+# and prune what the tree DECLARES derived: the plain path patterns in the
+# root `.gitignore`. That is a reader of the repo's own declaration, not a
+# second opinion about what is derived.
 #
 # The residue, stated rather than papered over: only the ROOT .gitignore
-# is read, and only its unambiguous directory patterns (`name/`,
-# `/name/`) -- no wildcards, no negations, no nested .gitignore files.
+# is read, and only its unambiguous patterns (`name`, `name/`, `/name`,
+# `dir/name`) -- no wildcards, no negations, no nested .gitignore files.
 # Anything more expressive is git's business, and where git is available
 # it is git that answers. The effect of missing one is a file scanned that
-# git would have skipped, which is the behaviour this fallback replaces
-# rather than a new failure.
+# git would have skipped -- which is not harmless, and was not: requiring
+# the trailing slash left `.claude` and `CLAUDE.md`, the two this repo's
+# own root .gitignore writes without one, in this lint's population and
+# out of the verb's, which is a finding no documented command can clear.
 #
 # ── A file that builds its own registry ─────────────────────────────────
 #
@@ -127,22 +129,32 @@ _ADR_REF_FIXTURE_RE='^[[:space:]]*#[[:space:]]*adr-refs:[[:space:]]*fixture([[:s
 # read, and the lint says so rather than treating it as an exemption.
 _ADR_REF_MARKER_RE='^[[:space:]]*#[[:space:]]*adr-refs:'
 
-# _adr_ref_ignored_dirs <root> -- the directories <root>/.gitignore
-# declares derived, as `anchored<TAB><path>` (root-relative, matched
-# there only) or `anywhere<TAB><name>` (matched at any depth), one per
-# line. Only unambiguous directory patterns are read; see the header.
-_adr_ref_ignored_dirs() {
+# _adr_ref_ignored_paths <root> -- the paths <root>/.gitignore declares
+# derived, as `anchored<TAB><path>` (root-relative, matched there only)
+# or `anywhere<TAB><name>` (matched at any depth), one per line. Only
+# unambiguous patterns are read; see the header.
+#
+# A trailing slash means "a directory and not a file", which is a
+# distinction this reader does not need to make: pruning the name reaches
+# whichever of the two is there. It is therefore STRIPPED rather than
+# required -- git needs none, and this repo's own root .gitignore writes
+# `.claude` and `CLAUDE.md` without one, so requiring it left two paths
+# the tree declares derived in the lint's population and out of the
+# verb's.
+_adr_ref_ignored_paths() {
   local _root="$1" _line
   [[ -f "${_root}/.gitignore" ]] || return 0
   while IFS= read -r _line || [[ -n "${_line}" ]]; do
     _line="${_line%$'\r'}"
     _line="${_line%"${_line##*[![:space:]]}"}"
-    [[ "${_line}" == */ ]] || continue
     [[ "${_line}" != '#'* && "${_line}" != '!'* ]] || continue
     [[ "${_line}" != *[*?\[]* ]] || continue
     _line="${_line%/}"
-    if [[ "${_line}" == */* ]]; then
+    [[ -n "${_line}" ]] || continue
+    if [[ "${_line}" == /* ]]; then
       printf 'anchored\t%s\n' "${_line#/}"
+    elif [[ "${_line}" == */* ]]; then
+      printf 'anchored\t%s\n' "${_line}"
     else
       printf 'anywhere\t%s\n' "${_line}"
     fi
@@ -160,7 +172,7 @@ _adr_ref_walk() {
       anchored) _expr+=( -o -path "./${_name}" ) ;;
       anywhere) _expr+=( -o -name "${_name}" ) ;;
     esac
-  done < <(_adr_ref_ignored_dirs "${_root}")
+  done < <(_adr_ref_ignored_paths "${_root}")
   _expr+=( ')' -prune -o -type f -print )
   ( cd -- "${_root}" && find . "${_expr[@]}" ) | sed 's|^\./||'
 }
