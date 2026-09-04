@@ -27,6 +27,14 @@
 #     link definitions are file-scoped, so `[v0.12.4]` in v0.12.md resolves
 #     to nothing if its definition stayed behind in the index. The
 #     single-file changelog already went stale here once, around v0.6.8.
+#   - A tag has ONE section and ONE compare-link definition. The series
+#     files carry `merge=union` (.gitattributes), which keeps both sides of
+#     every overlapping hunk and conflicts on nothing, so two branches
+#     promoting the same version land the section twice and append the same
+#     definition twice -- with nothing for a reviewer to resolve. Neither
+#     renders as an error: markdown stacks the sections, and CommonMark
+#     resolves a reference to the FIRST definition and ignores the rest, so
+#     a correction written into the second one is dead text.
 #   - Exactly one file carries `## [Unreleased]`. Two is two places to write
 #     the next entry and two places a merge can keep; zero means the entry
 #     lint has nothing to measure and every future entry goes unchecked.
@@ -204,6 +212,18 @@ _run_changelog_layout() {
           fi
           ;;
         L)
+          # A tag defined twice in one file is the section rule's shape in
+          # the block a union merge overlaps most reliably -- the foot of
+          # every series file, which every branch appends to. CommonMark
+          # resolves a reference to the FIRST definition and ignores the
+          # rest, so nothing renders differently and the losing URL is the
+          # one an editor is most likely to have just corrected.
+          if [[ -n "${_defs["${_tag}"]:-}" ]]; then
+            printf '%s:%s: duplicate compare-link definition -- [%s] is already defined at line %s of this file, and a reference resolves to the FIRST definition, so this one is dead text and any correction written into it is silently ignored\n' \
+              "${_rel}" "${_lineno}" "${_tag}" "${_def_line["${_tag}"]}"
+            _violations=$(( _violations + 1 ))
+            continue
+          fi
           _links=$(( _links + 1 ))
           _defs["${_tag}"]=1
           _def_line["${_tag}"]="${_lineno}"
@@ -297,7 +317,7 @@ _run_changelog_layout() {
 
   if [[ "${_violations}" -gt 0 ]]; then
     _die ci_changelog_layout \
-      "${_violations} misplaced section / dangling compare link / index drift / live-series problem under '${_CHANGELOG_LAYOUT_DIR}'. The changelog is one file per 0.Y series behind an index: a section for vX.Y.Z lives in vX.Y.md, its compare-link definition lives in the SAME file (markdown link definitions are file-scoped), exactly one series file carries '${_CHANGELOG_LAYOUT_UNRELEASED}', '${_CHANGELOG_LAYOUT_INDEX}' carries no section at all because it NAMES the series rather than holding them, and the index block between the changelog-index markers is DERIVED -- refresh it with 'just release changelog-index' rather than editing it, because an index nothing re-derives goes stale on the first series nobody remembers to add and a missing row reads exactly like a series that does not exist."
+      "${_violations} misplaced section / duplicated section or compare link / dangling compare link / index drift / live-series problem under '${_CHANGELOG_LAYOUT_DIR}'. The changelog is one file per 0.Y series behind an index: a section for vX.Y.Z lives in vX.Y.md, its compare-link definition lives in the SAME file (markdown link definitions are file-scoped) and there is exactly ONE of each -- the series files merge=union, so a second copy of either arrives with nothing to resolve and a second definition is text no reference ever reaches -- exactly one series file carries '${_CHANGELOG_LAYOUT_UNRELEASED}', '${_CHANGELOG_LAYOUT_INDEX}' carries no section at all because it NAMES the series rather than holding them, and the index block between the changelog-index markers is DERIVED -- refresh it with 'just release changelog-index' rather than editing it, because an index nothing re-derives goes stale on the first series nobody remembers to add and a missing row reads exactly like a series that does not exist."
     return 1
   fi
 
