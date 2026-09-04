@@ -326,8 +326,8 @@ main() {
     esac
   fi
 
-  # Load .env.generated, derive PROJECT_NAME.
-  _load_env "${FILE_PATH}/.env.generated"
+  # Load .env.generated, derive PROJECT_NAME. Optional, as in stop.sh.
+  _load_env_optional "${FILE_PATH}/.env.generated"
   _compute_project_name
 
   # Precheck: refuse with a friendly hint if the target service is not

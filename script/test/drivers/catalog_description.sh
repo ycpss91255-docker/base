@@ -208,7 +208,7 @@ readonly _CATALOG_DESC_SCAN_GLOBS=(
 # release workflow) on its way past. Closing the slack a backfill opens is
 # what keeps a later branch from landing an undescribed test inside it. See
 # the header for why this is one number and not a file of them.
-readonly _CATALOG_DESC_UNDESCRIBED_CEILING=2621
+readonly _CATALOG_DESC_UNDESCRIBED_CEILING=2613
 
 # The written-out non-answers, matched case-insensitively on the whole
 # trimmed marker. `nil`, `none`, `tbd`, `todo` and `unknown` carry a
