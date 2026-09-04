@@ -39,10 +39,16 @@
 #   - Exactly one file carries `## [Unreleased]`. Two is two places to write
 #     the next entry and two places a merge can keep; zero means the entry
 #     lint has nothing to measure and every future entry goes unchecked.
-#   - The index is an INDEX: it names the series and links to them, and
-#     carries no release section of its own. This is the one the split's own
-#     branch broke three times. Every rule above walks the SERIES files, so
-#     a section sitting in CHANGELOG.md is invisible to all of them; and a
+#   - A section lives in a SERIES file. The rules above walk the series
+#     files, so a `## [` heading in any other .md in the directory is
+#     invisible to all of them -- not misplaced, not duplicated, not
+#     dangling, because nothing opened the file. That is not a hypothetical
+#     filename: script/release/release_notes.sh assembles a release page by
+#     globbing *.md HERE, so the files this lint skips are exactly the
+#     files the release path reads, and it discovers the duplicate at tag
+#     push after every gate has gone green. The index is the loudest case
+#     of it and the one the split's own branch broke three times: a
+#     section sitting in CHANGELOG.md is invisible to all of them; and a
 #     merge with main re-adds the whole release history to the index as an
 #     ADDITION, because git sees main's edits to a file this branch emptied
 #     as lines to add back. Nothing renders differently, the entry lint
@@ -73,6 +79,11 @@
 readonly _CHANGELOG_LAYOUT_DIR='doc/changelog'
 readonly _CHANGELOG_LAYOUT_INDEX='CHANGELOG.md'
 readonly _CHANGELOG_LAYOUT_GENERATOR='script/release/changelog_index.sh'
+
+# The release-page assembler. Named in a finding rather than merely relied
+# on: it is the reason the file set below is every *.md in the directory and
+# not the series files plus the index.
+readonly _CHANGELOG_LAYOUT_ASSEMBLER='script/release/release_notes.sh'
 
 # The heading that marks the series currently being written.
 readonly _CHANGELOG_LAYOUT_UNRELEASED='## [Unreleased]'
@@ -151,16 +162,27 @@ _run_changelog_layout() {
     return 1
   fi
 
-  # The series files, by derived name. A file under doc/changelog/ that is
-  # not vX.Y.md is not a series file (CHANGELOG.md, CONVENTIONS.md), and is
-  # left alone rather than guessed at.
-  local -a _series=()
+  # Every .md in the directory, split into the series files and the rest.
+  # The rest is not a known pair (CHANGELOG.md, CONVENTIONS.md) but whatever
+  # is there: a filename this lint does not recognise used to be walked by
+  # nothing at all, which made "unrecognised" a synonym for "clean" -- and
+  # the release assembler globs *.md in this same directory, so the set of
+  # files skipped here is exactly the set read at tag push.
+  #
+  # _series holds derived names (v0.2), because every rule below builds a
+  # path or a comparison out of one; _stray holds basenames WITH the
+  # extension, because there is nothing to derive from a name that matches
+  # no pattern.
+  local -a _series=() _stray=()
   local _file _name
-  for _file in "${_dir}"/v*.md; do
+  for _file in "${_dir}"/*.md; do
     [[ -f "${_file}" ]] || continue
-    _name="$(basename "${_file}" .md)"
-    [[ "${_name}" =~ ^v[0-9]+\.[0-9]+$ ]] || continue
-    _series+=("${_name}")
+    _name="$(basename "${_file}")"
+    if [[ "${_name%.md}" =~ ^v[0-9]+\.[0-9]+$ ]]; then
+      _series+=("${_name%.md}")
+    else
+      _stray+=("${_name}")
+    fi
   done
   if [[ "${#_series[@]}" -eq 0 ]]; then
     _die ci_changelog_layout \
@@ -248,42 +270,54 @@ _run_changelog_layout() {
     done
   done
 
-  # Pass 2: the index is an index. Pass 1 walks the SERIES files only, so a
-  # release section that lands in CHANGELOG.md is outside every rule it
-  # applies -- it is not misplaced, not duplicated and not dangling, because
-  # none of those rules ever looked at the file. That is how this branch
-  # went green over 108 duplicated sections twice: a merge with main re-adds
-  # the release history to the index wholesale, and the only rule that
-  # noticed anything was the entry lint objecting to the second
-  # `## [Unreleased]` -- the smallest visible corner of it.
+  # Pass 2: a section lives in a SERIES file. Pass 1 walks those only, so a
+  # `## [` heading in any other .md here is outside every rule it applies --
+  # not misplaced, not duplicated and not dangling, because none of those
+  # rules ever opened the file. That is how this branch went green over 108
+  # duplicated sections twice: a merge with main re-adds the release history
+  # to the index wholesale, and the only rule that noticed anything was the
+  # entry lint objecting to the second `## [Unreleased]` -- the smallest
+  # visible corner of it.
   #
-  # The rule is the whole property, not that corner: the index carries NO
-  # `## [` section, released or live. A released section here is a second
-  # copy of one in vX.Y.md, and the copy is the one that goes stale, because
-  # the generator only ever rewrites the block between the markers. A live
-  # `## [Unreleased]` here is a second place to write the next entry.
-  local -a _index_sections=()
-  local _index_first=''
-  while IFS=$'\t' read -r _kind _lineno _tag; do
-    [[ "${_kind}" == 'H' ]] || continue
-    [[ -z "${_index_first}" ]] && _index_first="${_lineno}"
-    _index_sections+=("${_tag}")
-  done < <(_cll_scan "${_index}")
-  if [[ "${#_index_sections[@]}" -gt 0 ]]; then
+  # The index is the loudest case, not the whole rule. The rule is that the
+  # directory holds sections in series files and nowhere else, because
+  # release_notes.sh assembles a release page by globbing *.md here: a
+  # section in notes.md, or in the v0.2.0.md a split slip writes one
+  # character away from a series name, is read at tag push by the one thing
+  # downstream of every gate. A copy is a second answer to what shipped; a
+  # sole copy is a release page the derived index names no row for.
+  local -a _sections_here=()
+  local _first='' _named
+  for _name in "${_stray[@]}"; do
+    _file="${_dir}/${_name}"
+    _rel="${_CHANGELOG_LAYOUT_DIR}/${_name}"
+    _sections_here=()
+    _first=''
+    while IFS=$'\t' read -r _kind _lineno _tag; do
+      [[ "${_kind}" == 'H' ]] || continue
+      [[ -z "${_first}" ]] && _first="${_lineno}"
+      _sections_here+=("${_tag}")
+    done < <(_cll_scan "${_file}")
+    [[ "${#_sections_here[@]}" -eq 0 ]] && continue
     # Named, not just counted -- the same reason pass 1 prints both line
     # numbers. A bare count leaves the reader to find them by eye, and with
     # 109 of them the list is the fix's work order. Capped at five so one
     # stray section is not buried under a hundred lines of the same finding.
-    local _named="${_index_sections[*]:0:5}"
-    if [[ "${#_index_sections[@]}" -gt 5 ]]; then
-      _named+=" (+$(( ${#_index_sections[@]} - 5 )) more)"
+    _named="${_sections_here[*]:0:5}"
+    if [[ "${#_sections_here[@]}" -gt 5 ]]; then
+      _named+=" (+$(( ${#_sections_here[@]} - 5 )) more)"
     fi
-    printf '%s/%s:%s: the index carries %d release section(s) -- %s. The index NAMES the series and links to them; a section itself belongs in %s/vX.Y.md, and a copy here is the one that goes stale\n' \
-      "${_CHANGELOG_LAYOUT_DIR}" "${_CHANGELOG_LAYOUT_INDEX}" \
-      "${_index_first}" "${#_index_sections[@]}" "${_named}" \
-      "${_CHANGELOG_LAYOUT_DIR}"
+    if [[ "${_name}" == "${_CHANGELOG_LAYOUT_INDEX}" ]]; then
+      printf '%s:%s: the index carries %d release section(s) -- %s. The index NAMES the series and links to them; a section itself belongs in %s/vX.Y.md, and a copy here is the one that goes stale, because the generator only ever rewrites the block between the markers\n' \
+        "${_rel}" "${_first}" "${#_sections_here[@]}" "${_named}" \
+        "${_CHANGELOG_LAYOUT_DIR}"
+    else
+      printf '%s:%s: %d section(s) in a file that is not a series file -- %s. A section belongs in %s/vX.Y.md and nowhere else; %s assembles a release page by globbing *.md in this directory, so a section here is read at tag push while every rule above walked past the file and the derived index names no row for it\n' \
+        "${_rel}" "${_first}" "${#_sections_here[@]}" "${_named}" \
+        "${_CHANGELOG_LAYOUT_DIR}" "${_CHANGELOG_LAYOUT_ASSEMBLER}"
+    fi
     _violations=$(( _violations + 1 ))
-  fi
+  done
 
   # Pass 3: exactly one live series. Zero is the state in which every future
   # entry goes unmeasured; two is two places a merge can keep.
@@ -318,11 +352,11 @@ _run_changelog_layout() {
 
   if [[ "${_violations}" -gt 0 ]]; then
     _die ci_changelog_layout \
-      "${_violations} misplaced section / duplicated section or compare link / dangling compare link / index drift / live-series problem under '${_CHANGELOG_LAYOUT_DIR}'. The changelog is one file per 0.Y series behind an index: a section for vX.Y.Z lives in vX.Y.md, its compare-link definition lives in the SAME file (markdown link definitions are file-scoped) and there is exactly ONE of each -- the series files merge=union, so a second copy of either arrives with nothing to resolve and a second definition is text no reference ever reaches -- exactly one series file carries '${_CHANGELOG_LAYOUT_UNRELEASED}', '${_CHANGELOG_LAYOUT_INDEX}' carries no section at all because it NAMES the series rather than holding them, and the index block between the changelog-index markers is DERIVED -- refresh it with 'just release changelog-index' rather than editing it, because an index nothing re-derives goes stale on the first series nobody remembers to add and a missing row reads exactly like a series that does not exist."
+      "${_violations} misplaced section / duplicated section or compare link / dangling compare link / index drift / live-series problem under '${_CHANGELOG_LAYOUT_DIR}'. The changelog is one file per 0.Y series behind an index: a section for vX.Y.Z lives in vX.Y.md, its compare-link definition lives in the SAME file (markdown link definitions are file-scoped) and there is exactly ONE of each -- the series files merge=union, so a second copy of either arrives with nothing to resolve and a second definition is text no reference ever reaches -- exactly one series file carries '${_CHANGELOG_LAYOUT_UNRELEASED}', no file that is not a series file carries a section at all ('${_CHANGELOG_LAYOUT_INDEX}' included, because it NAMES the series rather than holding them, and ${_CHANGELOG_LAYOUT_ASSEMBLER} reads every *.md here at tag push), and the index block between the changelog-index markers is DERIVED -- refresh it with 'just release changelog-index' rather than editing it, because an index nothing re-derives goes stale on the first series nobody remembers to add and a missing row reads exactly like a series that does not exist."
     return 1
   fi
 
-  echo "changelog layout lint: clean (${#_series[@]} series, ${_sections} version sections each in the file its version names, ${_links} compare links resolved in-file, ${_CHANGELOG_LAYOUT_INDEX} carries none of them, index re-derived and identical)"
+  echo "changelog layout lint: clean (${#_series[@]} series, ${_sections} version sections each in the file its version names, ${_links} compare links resolved in-file, ${_CHANGELOG_LAYOUT_INDEX} carries none of them and neither does any other of the ${#_stray[@]} non-series .md files here, index re-derived and identical)"
 }
 
 # _cll_committed_block <index-file> -- the text between the changelog-index
