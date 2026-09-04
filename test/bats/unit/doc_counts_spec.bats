@@ -273,9 +273,11 @@ _removed_figure_mentions() {
 # line as its worked example, with the digits already written as an `N`, so
 # a rule that greps for `grand total` alone reads that document as clean
 # while it still sends the reader to a line that is gone.
-# The premise is asserted rather than assumed, from the tree: this case only
-# forbids the pointers because TEST.md itself records no total, so restoring
-# the figure lifts the rule instead of leaving a rule nobody can satisfy.
+# The premise is asserted rather than assumed, from the tree: the case reads
+# TEST.md first and requires it to record no total. That is a conjunction,
+# not a guard -- typing the figure back does not quietly license the
+# pointers again, it fails this case on the premise line, and whoever
+# restores the figure decides the pointers' fate in the same edit.
 @test "doc/test: no catalogue points at an aggregate figure TEST.md no longer records (#978)" {
   run _aggregate_figure_hits /source/doc/test/TEST.md
   assert_success
@@ -308,9 +310,11 @@ _prd_gate_removal_predictions() {
 # entry drops from invariant 2 "when that mechanism lands" -- the mechanism
 # is #978, it landed, and the gate stayed, because since #999 it validates
 # the generated catalogue rather than the removed figures. The premise is
-# derived from the tree, not restated: the case only forbids the prediction
-# while `doc-counts` is still a `_LINT_TOOLS` entry, so a decision to
-# actually retire the gate lifts the rule with it.
+# read from the tree, not restated: the case greps `_LINT_TOOLS` for the
+# entry before it forbids the prediction, and asserts both. Retiring the
+# gate therefore does not lift this rule silently -- it turns the case red
+# on the premise line, which is where a person re-reads the PRD paragraph
+# and rewrites or deletes this case in the change that retires it.
 @test "doc/PRD.md predicts no removal of a lint the tree still runs (#978)" {
   run grep -Fx '  doc-counts' /source/script/test/test.sh
   assert_success
