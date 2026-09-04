@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3943 tests**.
+Unit specs under `test/bats/unit/`: **3951 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -202,6 +202,32 @@ warned.
 | `_run_adr_numbering: FAILS when two index rows carry the same number (#1021)` | Two rows on one number is what a collision looks like in the index, and taking the first would make the check agree with whichever row was written first rather than with the tree. |
 | `_run_adr_numbering: PASSES when every record has one row and every reference resolves (#1021)` | The passing shape, so the three failures above are read as a contract rather than as a lint that dislikes index tables. |
 | `_run_adr_numbering: the REAL doc/adr/ passes today (00000009 gap warned) (#808)` | Live tree clean, 00000009 gap warned |
+
+### test/bats/unit/adr_renumber_spec.bats (8)
+
+Nothing allocates an ADR number, so parallel branches collide by
+construction (base#1021: three took 00000030 on one day, each right by the
+only rule there is). The collision reaches a red check; the REPAIR was what
+cost -- 14 files, three of them left incomplete and green. The cases here
+are about the property that makes the repair trustworthy: the reference set
+is DERIVED, the classes are told apart rather than sed'ed over, and a state
+the tool cannot resolve without guessing is refused whole rather than
+half-applied.
+
+The fixture roots are not git checkouts. That is deliberate: it exercises
+the same code path a checkout takes apart from the rename verb, and it keeps
+the cases about references rather than about git.
+
+| Test | Description |
+|------|-------------|
+| `adr renumber: moves the record and rewrites ADR- references (#1021)` | The record itself, and the reference class that carries most of them. If the tool did only this it would already be the whole 14-file sweep for most files -- the interesting part is what it does NOT do to the other classes. |
+| `adr renumber: rewrites a doc/adr path reference, slug and all (#1021)` | The path form carries the slug, which is what makes it the one reference class that stays unambiguous even where the number does not -- and the class a rewrite of `ADR-<n>` alone would leave behind. |
+| `adr renumber: rewrites the bare number in the index and nowhere else (#1021)` | The index writes its numbers bare, and everywhere else a bare 8-digit run is not a reference at all. Rewriting bare numbers tree-wide is how a renumber would corrupt the fixture registries the lint specs build, so the class is scoped to the one document whose 8-digit runs are all ADR numbers. |
+| `adr renumber: regenerates the catalogue instead of editing it (#1021)` | The site a blind sed gets wrong. One of the 14 was a `@test` NAME carrying the number, and a test name is a ROW in a generated catalogue: rewriting the row directly puts a hand edit into a generated file, which the next regeneration reverts. The spec is a source and is rewritten; the catalogue is rebuilt from it. The stale count proves the rebuild happened rather than a substitution that only looked like one. |
+| `adr renumber: REFUSES a target number a record already claims, changing nothing (#1021)` | A target somebody else already claims is the collision again, one move later. Refusing BEFORE the first write is what keeps a refusal from leaving a half-renumbered tree somebody has to unpick by hand. |
+| `adr renumber: REFUSES a number two records claim, naming both (#1021)` | The state a collision merge actually lands in, and the one the tool must not guess its way through: with two records on one number, a prose ADR-00000030 names whichever the author had in mind and nothing in the tree records which. The refusal names both and points at the resolution that IS derivable -- renumber on the branch, where the number has one claimant. |
+| `adr renumber: REFUSES a record no file matches, naming what it looked for (#1021)` | A record that is not there is a typo, and a tool that renamed nothing and reported success would leave the operator believing a sweep had happened. |
+| `adr renumber: reports the files it rewrote and leaves no reference behind (#1021)` | The self-check, and the reason the tool can be trusted with a 14-file sweep: it re-reads the tree afterwards and fails if any reference to the old number survived. A class nobody thought of shows up as a failure here rather than as a green run with a stale pointer. |
 
 ### test/bats/unit/adr_structure_spec.bats (27)
 
