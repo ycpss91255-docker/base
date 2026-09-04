@@ -4484,7 +4484,7 @@ alias / `network.network_name` / `devices.device_` / `security.cap_add_` /
 | `self-hosted guard: FAILS when the workflows parse to zero jobs` | - |
 | `self-hosted guard: scans every workflow in the directory, not a named list` | - |
 | `self-hosted guard: the real repo tree has every eligible job guarded` | - |
-| `self-hosted guard: the real tree's eligible set is the three runtime-matrix worker jobs` | - |
+| `self-hosted guard: the real tree's eligible set is the three runtime-matrix worker jobs plus the one that names the runner outright` | - |
 
 ### test/bats/unit/self_test_yaml_spec.bats (115)
 

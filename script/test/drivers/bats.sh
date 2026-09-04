@@ -527,19 +527,36 @@ _run_coverage_parallel() {
     _die ci_invalid_coverage_jobs \
       "Invalid coverage job count '${_jobs}'. Expected a positive integer (default: nproc)."
   fi
-
-  # Shared with the serial runner and the single-spec runner: all three must
-  # instrument the same tree, or a figure produced here would not be
-  # comparable with the one the matrix produces.
-  local _exclude_path
-  _exclude_path="$(_coverage_exclude_path)"
-
-  # The partition is computed BEFORE the first fork, and that ordering is
-  # load-bearing: `_shard_unit_files` refuses an empty match by `_die`, and a
-  # `_die` inside a background job exits the CHILD -- the parent would go on
-  # to wait for a slice that never ran and then merge N-1 reports.
   local -a _slices=()
+  _coverage_parallel_slices _slices "${_jobs}"
+
+  local _work
+  _work="$(_coverage_parallel_workdir)"
+  echo "--- Running Tests with Kcov Coverage (local, ${_jobs} parallel kcov processes) ---"
+
+  local -a _pids=()
+  _coverage_parallel_launch _pids _slices "${_work}"
+  local _rc=0
+  _coverage_parallel_collect _pids "${_work}" || _rc=$?
+  _coverage_parallel_merge "${_work}" "${_jobs}"
+
+  [[ -n "${COVERAGE_LOCAL_WORKDIR:-}" ]] || rm -rf "${_work}"
+  return "${_rc}"
+}
+
+# _coverage_parallel_slices <array_name> <jobs>
+#   Fill the named array with one slice per job, each a newline-separated
+#   list of spec paths from `_shard_unit_files`.
+#
+#   Computed BEFORE the first fork, and that ordering is load-bearing:
+#   `_shard_unit_files` refuses an empty match by `_die`, and a `_die`
+#   inside a background job exits the CHILD -- the parent would go on to
+#   wait for a slice that never ran and then merge N-1 reports.
+_coverage_parallel_slices() {
+  local -n _cps_out="${1:?BUG: _coverage_parallel_slices expects <array_name>}"
+  local _jobs="${2:?BUG: _coverage_parallel_slices expects <jobs>}"
   local _i _slice _srun_rc
+  _cps_out=()
   for (( _i = 1; _i <= _jobs; _i++ )); do
     _srun_rc=0
     _slice="$(_shard_unit_files "${_i}/${_jobs}")" || _srun_rc=$?
@@ -547,15 +564,27 @@ _run_coverage_parallel() {
       _die ci_coverage_parallel_empty_slice \
         "coverage slice ${_i} of ${_jobs} matched no spec files. ${_jobs} is more slices than the suite has specs; run with fewer --jobs."
     fi
-    _slices+=("${_slice}")
+    _cps_out+=("${_slice}")
   done
+}
 
-  local _work
-  _work="$(_coverage_parallel_workdir)"
-  echo "--- Running Tests with Kcov Coverage (local, ${_jobs} parallel kcov processes) ---"
-
-  local -a _pids=()
-  for (( _i = 1; _i <= _jobs; _i++ )); do
+# _coverage_parallel_launch <pids_array_name> <slices_array_name> <workdir>
+#   Start one background kcov per slice, each writing its report to
+#   <workdir>/part-<i>, its junit report to <workdir>/junit-<i> and its
+#   combined output to <workdir>/log-<i>. Fills the pids array in slice
+#   order.
+_coverage_parallel_launch() {
+  local -n _cpl_pids="${1:?BUG: _coverage_parallel_launch expects <pids_array_name>}"
+  local -n _cpl_slices="${2:?BUG: _coverage_parallel_launch expects <slices_array_name>}"
+  local _work="${3:?BUG: _coverage_parallel_launch expects <workdir>}"
+  # Shared with the serial runner and the single-spec runner: all three must
+  # instrument the same tree, or a figure produced here would not be
+  # comparable with the one the matrix produces.
+  local _exclude_path
+  _exclude_path="$(_coverage_exclude_path)"
+  local _i
+  _cpl_pids=()
+  for (( _i = 1; _i <= ${#_cpl_slices[@]}; _i++ )); do
     mkdir -p "${_work}/junit-${_i}"
     # Word-split intentional: one bats target per slice file. Each slice's
     # bats is SERIAL (no --jobs): `kcov` over `bats --jobs` is the
@@ -567,43 +596,59 @@ _run_coverage_parallel() {
       --exclude-path="${_exclude_path}" \
       "${_work}/part-${_i}" \
       bats --recursive --report-formatter junit \
-        --output "${_work}/junit-${_i}" ${_slices[_i - 1]} \
+        --output "${_work}/junit-${_i}" ${_cpl_slices[_i - 1]} \
       > "${_work}/log-${_i}" 2>&1 &
-    _pids+=("$!")
+    _cpl_pids+=("$!")
   done
+}
 
-  # Each slice's output is replayed WHOLE and in order after its wait, not
-  # streamed: N concurrent bats writing one terminal interleaves into
-  # something no one can read a failure out of, which would send the
-  # operator back to the serial run to find out what broke.
-  local _rc=0 _prc
+# _coverage_parallel_collect <pids_array_name> <workdir>
+#   Wait for every slice and return the worst status.
+#
+#   Each slice's output is replayed WHOLE and in order after its wait, not
+#   streamed: N concurrent bats writing one terminal interleaves into
+#   something no one can read a failure out of, which would send the
+#   operator back to the serial run to find out what broke.
+_coverage_parallel_collect() {
+  local -n _cpc_pids="${1:?BUG: _coverage_parallel_collect expects <pids_array_name>}"
+  local _work="${2:?BUG: _coverage_parallel_collect expects <workdir>}"
+  local _jobs="${#_cpc_pids[@]}"
+  local _rc=0 _prc _i
   for (( _i = 1; _i <= _jobs; _i++ )); do
     _prc=0
-    wait "${_pids[_i - 1]}" || _prc=$?
+    wait "${_cpc_pids[_i - 1]}" || _prc=$?
     echo "--- coverage slice ${_i}/${_jobs} (exit ${_prc}) ---"
     cat "${_work}/log-${_i}" 2>/dev/null || true
     (( _prc == 0 )) || _rc="${_prc}"
   done
+  return "${_rc}"
+}
+
+# _coverage_parallel_merge <workdir> <jobs>
+#   Refuse a lost slice, then merge every slice's report into
+#   ${REPO_ROOT}/coverage and write the merged run manifest.
+_coverage_parallel_merge() {
+  local _work="${1:?BUG: _coverage_parallel_merge expects <workdir>}"
+  local _jobs="${2:?BUG: _coverage_parallel_merge expects <jobs>}"
 
   # Refusal 3. Captured rather than piped into a `-q` reader: a reader that
   # leaves at its first match strands `find` with SIGPIPE, and the whole
   # point here is to tell "no report" apart from "reader gave up".
-  local _found
+  local _i _found
+  local -a _parts=()
   for (( _i = 1; _i <= _jobs; _i++ )); do
     _found="$(find "${_work}/part-${_i}" -type f -name cobertura.xml 2>/dev/null)"
-    [[ -n "${_found}" ]] && continue
-    _die ci_coverage_slice_no_report \
-      "coverage slice ${_i} of ${_jobs} produced no report under ${_work}/part-${_i}; merging the rest would publish a smaller line set as the project total. Its log is ${_work}/log-${_i}."
+    if [[ -z "${_found}" ]]; then
+      _die ci_coverage_slice_no_report \
+        "coverage slice ${_i} of ${_jobs} produced no report under ${_work}/part-${_i}; merging the rest would publish a smaller line set as the project total. Its log is ${_work}/log-${_i}."
+    fi
+    _parts+=("${_work}/part-${_i}")
   done
 
   # kcov's own merge, over every slice. A line covered by ANY slice is
   # covered: the union is the only correct reading, and it is what the
   # coverage-gate independently computes over the per-shard reports of the
   # CI path (base#730).
-  local -a _parts=()
-  for (( _i = 1; _i <= _jobs; _i++ )); do
-    _parts+=("${_work}/part-${_i}")
-  done
   mkdir -p "${REPO_ROOT}/coverage"
   local _mrc=0
   kcov --merge "${REPO_ROOT}/coverage" "${_parts[@]}" || _mrc=$?
@@ -622,9 +667,6 @@ _run_coverage_parallel() {
       _junit_to_timings "${_work}/junit-${_i}/report.xml"
     done
   } | LC_ALL=C sort -k2,2 > "${REPO_ROOT}/coverage/timings.tsv" 2>/dev/null || true
-
-  [[ -n "${COVERAGE_LOCAL_WORKDIR:-}" ]] || rm -rf "${_work}"
-  return "${_rc}"
 }
 
 # ── System runtime-test specs ────────────────────────────────────

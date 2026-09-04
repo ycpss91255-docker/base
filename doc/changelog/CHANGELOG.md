@@ -57,6 +57,18 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 
 ## [Unreleased]
 
+### Added
+- **a full-scope coverage run can use the whole machine (closes #726)** --
+  `just test coverage-local [N]` (`test.sh --coverage-local [--jobs N]`,
+  default `nproc`) measures exactly what `just test coverage` measures, but
+  as N concurrent kcov processes over the shared time-balanced partition,
+  merged into one report. It stamps `scope=full`, so
+  `just release coverage-badge` accepts it -- the serial run is no longer
+  the only way to a releasable figure. A slice that produced no report
+  fails the run instead of merging to a smaller total. **The PR gate is
+  unchanged**: CI stays on the hosted shard matrix, and the self-hosted
+  validation workflow is `workflow_dispatch` and opt-in.
+
 ## [v0.43.0-rc1] - 2026-09-04
 
 ### Changed

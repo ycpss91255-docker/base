@@ -526,3 +526,122 @@ Recording it as done here would be worse than the gap.
 - Publishing the kcov **HTML** remains Decision 5's other, still-deferred
   half; it has its own obstacle (Pages on a private repo needs a paid
   plan) and is out of scope here.
+
+## Amendment (#726): coverage has TWO parallel modes -- hosted matrix and local in-job -- over one partition
+
+- **Date:** 2026-09-04
+- **Amendment status:** Accepted -- extends Decision 1. The sharded
+  hosted matrix is unchanged and remains the PR gate. **Relates:** #724
+  (the shared LPT partition both modes slice with), #725 (dynamic shard
+  count), #730 (the union merge), ADR-00000017 (the throughput ceiling
+  this is measured against), ADR-00000026 (self-hosted eligibility is a
+  static property of `runs-on`).
+
+### Context
+
+Decision 1 sharded kcov ACROSS a CI matrix. That is the only parallelism
+a GitHub-hosted plan sells: one runner runs one job, so the way to use
+eight machines is eight jobs.
+
+Two things it does not cover. **On one fat machine the matrix buys
+nothing** -- a single self-hosted runner takes the eight entries one after
+another, so `CI_SHARDS` there is a way of making the same work slower.
+And the run this repo needs MOST is one the matrix never touches: the
+#952 amendment made `just release coverage-badge` publish only a
+`scope=full` measurement, so every release pays for a whole-suite local
+coverage run. That run was serial, and serial is not a kcov floor -- this
+ADR's own Context says the cost is "serial x kcov". kcov's bash engine
+parses one xtrace stream per traced process and is single-threaded, and
+`kcov` wrapping `bats --jobs` is unreliable for coverage ACCURACY, which
+is exactly why the coverage path stayed serial while the normal path did
+not. Neither fact forbids **N independent kcov PROCESSES**: each traces
+its own children into its own database, and nothing is shared until the
+merge.
+
+### Decision
+
+**Coverage has two parallel modes. They differ in HOW the slices are
+distributed, never in WHAT a slice is.**
+
+1. **Hosted matrix (production, unchanged).** `test.sh --coverage-shard
+   N/T`, one slice per GitHub-hosted job, merged by the `coverage-gate`
+   job's per-line union over the shard artifacts. This is the PR gate.
+
+2. **Local in-job.** `test.sh --coverage-local [--jobs N]` (default N =
+   `nproc`; `just test coverage-local [N]`) runs EVERY slice of the same
+   partition as N concurrent kcov processes inside one dispatch, and
+   merges them with `kcov --merge` into `coverage/kcov-merged/`. It writes
+   the same `coverage/` tree the serial run writes and leaves the same
+   `timings.tsv`, so the scope stamp reads `full` and the release badge
+   accepts it.
+
+   The scope is the point, not a detail: a mode that measured the whole
+   suite and stamped `partial` would be refused by the badge generator and
+   the serial run would still be on the release critical path.
+
+3. **ONE partition primitive serves both.** Both call
+   `_shard_unit_files <n>/<total>` (#724's greedy LPT over recorded
+   seconds). A second partitioner would be a second roster, and the
+   failure mode of two rosters is a spec that belongs to neither.
+
+4. **A lost slice is a REFUSAL, not a smaller number.** A slice that
+   produced no report -- a kcov that died after its tests passed, leaving
+   an empty output directory and a zero status -- fails the run. Merging
+   the survivors would publish a smaller line set under a whole-suite
+   certificate, which reads as a coverage regression rather than as the
+   lost slice it is. The same applies to a job count that is not a
+   positive integer and to a slice that matched no spec files (more slices
+   than the suite has specs).
+
+5. **The local mode is NOT in the PR gate, and that is deliberate.**
+   `self-test.yaml` is untouched; the local mode's CI exposure is an
+   opt-in `workflow_dispatch` workflow, `.github/workflows/coverage-local.yaml`,
+   on `[self-hosted, gpu]`, carrying the fork guard every
+   self-hosted-eligible job in this tree carries (ADR-00000026). One
+   self-hosted runner is a single point of failure and a contention point:
+   a required check that queues behind another tenant's job can be blocked
+   by work unrelated to the PR, and a machine that is down blocks every
+   merge. The hosted matrix has neither property. Should the fleet ever
+   grow, promoting the mode is a `runs-on` plus a trigger, not a rewrite --
+   which is the second reason to build it now rather than at migration
+   time.
+
+### Consequences (amendment)
+
+- A full-scope coverage run -- the one every release needs -- can use the
+  whole machine instead of one core. The PR gate's latency is unchanged,
+  because the PR gate did not move.
+- kcov's `--merge` becomes load-bearing for the local mode, where the CI
+  path relies on the gate's own per-line union (#730). They are two
+  implementations of one property, and the property is checkable: the
+  merged report's `(file, line)` set must equal the serial run's. That
+  equivalence is what the measurement below reports, and it is the
+  acceptance this amendment stands on -- a matching PERCENTAGE over a
+  different line set would not be equivalence.
+- The self-hosted workflow is authored but, at the time of writing, has
+  not been RUN: no self-hosted runner was reachable from where this
+  landed. It is stated rather than implied, because a validation nobody
+  performed is not a validation.
+- `--coverage-local` is refused in combination with `--coverage-shard`,
+  `--coverage-path` and `--bats-path`, each by a message naming the flag
+  the operator typed.
+
+### Alternatives (amendment)
+
+- **`kcov` over `bats --jobs`.** The obvious in-job parallelism, and the
+  one this ADR already rejected: kcov's parallel-mode caveats make the
+  resulting coverage figure unreliable, and an unreliable figure behind a
+  required floor is worse than a slow one.
+- **Raise `CI_SHARDS` and point the matrix at the self-hosted runner.**
+  It does not parallelise anything on ONE runner (the entries serialise),
+  and it puts the PR gate on a shared workstation -- the SPOF and
+  contention this amendment's Decision 5 refuses.
+- **Make the local mode the PR gate outright.** Same objection, plus it
+  would delete the hosted matrix's ability to run when the workstation is
+  off.
+- **Let the coverage-gate union the per-slice reports instead of
+  `kcov --merge`.** It would reuse the merge math #730 already proved,
+  but it leaves no single HTML report for a human to open, and the badge
+  generator's `discover_reports` treats a top-level `kcov-merged/` as THE
+  project report -- so the local run would have to be special-cased in the
+  release path. Kept as the fallback if the equivalence check ever fails.
