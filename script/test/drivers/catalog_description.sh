@@ -214,7 +214,7 @@ readonly _CATALOG_DESC_SCAN_GLOBS=(
 # branch that writes descriptions; that is the slack this design accepts.
 # But the slack was its own, so it closed it, which is the ordinary
 # direction.
-readonly _CATALOG_DESC_UNDESCRIBED_CEILING=2614
+readonly _CATALOG_DESC_UNDESCRIBED_CEILING=2609
 
 # The written-out non-answers, matched case-insensitively on the whole
 # trimmed marker. `nil`, `none`, `tbd`, `todo` and `unknown` carry a

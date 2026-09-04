@@ -1954,4 +1954,243 @@ EOF
   grep -Fq 'exec "${@}"' "${TEMP_DIR}/script/entrypoint.sh"
   grep -Fq '. /usr/local/lib/base/logging.sh' "${TEMP_DIR}/script/entrypoint.sh"
   grep -Fq 'export MY_APP_HOME=/opt/app' "${TEMP_DIR}/script/entrypoint.sh"
+# ── DL3007: the series this migration WRITES is a series we still support ───
+#
+# The DL3007 migration replaces a consumer's floating `FROM alpine:latest`
+# with a pinned series. Pinning is the point, but a literal in a sed is a
+# pin nobody ever re-reads: it wrote 3.21 -- a series reaching end-of-life
+# on 2026-11-01 -- into every Dockerfile it healed, which is the same silent
+# expiry the test-tools image had, with a longer blast radius because the
+# result lands in a downstream repo.
+#
+# So the migration's literal is tied to the one series this repo builds,
+# tests and dates: the ALPINE_VERSION pinned in
+# dockerfile/Dockerfile.test-tools, which alpine_eol_spec.bats already
+# fails the suite over 180 days before its recorded expiry. One series, one
+# place to bump, one expiry that is already being counted down. The
+# alternative -- a second literal with its own date -- is a second thing to
+# forget.
+#
+# Derived on both sides: neither test below names a version.
+
+# why: The series written into a consumer's Dockerfile is the one this repo
+# builds, tests and dates
+@test "migration 5 (hadolint): DL3007 pins alpine to the series this repo pins (#567)" {
+  local _pinned _written
+  _pinned="$(sed -n 's|^ARG ALPINE_VERSION=\(.*\)$|\1|p' \
+    /source/dockerfile/Dockerfile.test-tools)"
+  [[ -n "${_pinned}" ]] || fail \
+    "could not read ARG ALPINE_VERSION from dockerfile/Dockerfile.test-tools -- the migration's target series is derived from it, and an unreadable source must not be compared against as an empty string."
+
+  printf 'FROM alpine:latest AS lint-tools\n' > "${DF}"
+  run bash -c "$(_src); _migrate_hadolint_apply '${DF}'"
+  assert_success
+  _written="$(sed -n 's|^FROM alpine:\([^[:space:]]*\).*|\1|p' "${DF}")"
+  [[ "${_written}" == "${_pinned}" ]] || fail \
+    "the DL3007 migration writes alpine:${_written} into a consumer's Dockerfile while this repo pins alpine:${_pinned}. A literal in a sed is a pin nobody re-reads: it would keep installing an end-of-life base into downstream repos long after this repo moved off it. Bump the sed in _migrate_hadolint_apply to match, and the dated expiry beside ARG ALPINE_VERSION covers both."
+}
+
+# why: Healing `:latest` is a lint fix; retagging a deliberate pin is not
+@test "migration 5 (hadolint): DL3007 leaves an already-pinned alpine alone (#567)" {
+  printf 'FROM alpine:3.19 AS lint-tools\n' > "${DF}"
+  run bash -c "$(_src); _migrate_hadolint_apply '${DF}'"
+  assert_success
+  # The migration heals `:latest`, it does not overwrite a deliberate pin --
+  # a consumer on an older series has a reason, and silently retagging their
+  # base image is not a lint fix.
+  grep -Fq 'FROM alpine:3.19' "${DF}"
+}
+
+# ── DL3066: the rule the 2022 hadolint could not report ─────────────────────
+#
+# hadolint 2.15.1, this repo's current pin, reports DL3066 "non-numeric
+# user-id may not be resolvable by host system" on a literal `USER root`.
+# The rule postdates the 2.12.0 that stood here for three and a half years,
+# so no consumer Dockerfile carries a pragma for it -- and every consumer
+# Dockerfile has the line: it is the build-time hop the template's
+# devel-test stage takes so its COPYs can write into /usr/local/bin and
+# /lint.
+#
+# That matters because a consumer lints ITSELF -- `WORKDIR /lint` + `RUN
+# hadolint Dockerfile` -- inside the very image `just base upgrade`
+# re-pins. Without this migration the first `just build test` after an
+# upgrade fails on a rule the consumer never chose, while base's own gate
+# stays green: the "CI green, just build broken" shape v0.41.0 already
+# produced once. base's own template silences DL3066 inline with its
+# reason; upgrade.sh HEALS a consumer's Dockerfile and never overwrites it,
+# so the silencing has to be carried there by a migration, exactly as
+# DL3006's is.
+#
+# Only the literal `root` is silenced. DL3066's actual case -- a name the
+# host may not resolve -- is real for any other literal user, and
+# `USER "${USER}"`, the identity these images ship with, is left alone.
+
+# why: hadolint binds an ignore to the next LINE, so the pragma must sit
+# directly above the instruction
+@test "migration 5 (hadolint): DL3066 inline ignore before a literal USER root (#946)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS devel-test
+USER root
+COPY x /y
+USER "${USER}"
+EOF
+  run bash -c "$(_src); _migrate_hadolint_detect '${DF}' && _migrate_hadolint_apply '${DF}'"
+  assert_success
+  # hadolint binds an ignore to the NEXT LINE, so "present in the file" is
+  # not the assertion -- "immediately above the instruction" is.
+  run grep -A1 -Fx '# hadolint ignore=DL3066' "${DF}"
+  assert_success
+  assert_line --index 1 'USER root'
+}
+
+# why: The real downstream shape already has `# hadolint ignore=DL3002`
+# there; inserting between would re-arm it
+@test "migration 5 (hadolint): DL3066 extends an existing pragma rather than displacing it (#946)" {
+  cat > "${DF}" <<'EOF'
+# hadolint ignore=DL3002
+USER root
+EOF
+  run bash -c "$(_src); _migrate_hadolint_apply '${DF}'"
+  assert_success
+  # Inserting a second pragma line BETWEEN the two would push DL3002 off its
+  # instruction and silently re-arm a rule the consumer had already
+  # answered. The real downstream shape (isaac's Dockerfile:38-39) is
+  # exactly this one, so the merge path is the common case, not the corner.
+  grep -Fxq '# hadolint ignore=DL3002,DL3066' "${DF}"
+  [ "$(grep -c 'hadolint ignore=' "${DF}")" = "1" ]
+}
+
+# why: The migration pass runs on every upgrade, not once
+@test "migration 5 (hadolint): DL3066 idempotent — does not double-insert (#946)" {
+  cat > "${DF}" <<'EOF'
+# hadolint ignore=DL3066
+USER root
+EOF
+  run bash -c "$(_src); apply_migrations '${DF}'; apply_migrations '${DF}'"
+  assert_success
+  [ "$(grep -c 'hadolint ignore=DL3066' "${DF}")" = "1" ]
+}
+
+# why: The merge path needs its own proof; the insert path's says nothing
+# about it
+@test "migration 5 (hadolint): DL3066 idempotent when merged into a sibling pragma (#946)" {
+  cat > "${DF}" <<'EOF'
+# hadolint ignore=DL3002
+USER root
+EOF
+  run bash -c "$(_src); apply_migrations '${DF}'; apply_migrations '${DF}'"
+  assert_success
+  grep -Fxq '# hadolint ignore=DL3002,DL3066' "${DF}"
+}
+
+# why: `root` resolves in every image by definition; any other literal name
+# is the case the rule is worth having
+@test "migration 5 (hadolint): DL3066 leaves every non-root USER alone (#946)" {
+  cat > "${DF}" <<'EOF'
+USER "${USER}"
+USER someoperator
+USER 1000
+EOF
+  run bash -c "$(_src); _migrate_hadolint_apply '${DF}'"
+  assert_success
+  # Silencing DL3066 on a name that is NOT root would switch off the case
+  # the rule is worth having, in the file the consumer actually ships.
+  ! grep -q 'hadolint ignore=DL3066' "${DF}"
+}
+
+# why: Detect and apply must agree about which file is a candidate
+@test "migration 5 (hadolint): DL3066 detect fires on an unguarded USER root (#946)" {
+  printf 'FROM busybox\nUSER root\n' > "${DF}"
+  run bash -c "$(_src); _migrate_hadolint_detect '${DF}'"
+  assert_success
+}
+
+# why: A healed file must stop reporting as needing the migration
+@test "migration 5 (hadolint): DL3066 detect is quiet once the pragma is there (#946)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox
+# hadolint ignore=DL3002,DL3066
+USER root
+EOF
+  run bash -c "$(_src); _migrate_hadolint_detect '${DF}'"
+  assert_failure
+}
+
+# ── DL3046: -u is not always the first flag ─────────────────────────────────
+#
+# The DL3046 heal matched `useradd` followed IMMEDIATELY by `-u`, which is
+# how base's own template writes it. No downstream repo has to: the shape
+# actually shipped in the org is
+#   useradd -m -s /bin/bash -u "${USER_UID}" -g "${USER_GID}" "${USER_NAME}"
+# and the anchored match walks straight past it. The migration then reports
+# a patched Dockerfile while DL3046 is still live in it, so the consumer's
+# self-lint fails on the first `just build test` after the upgrade -- the
+# same end state the missing DL3066 heal produced, reached a different way.
+#
+# `-l` is inserted directly after the `useradd` token rather than before
+# `-u`, so the position of the flag being answered stops mattering.
+
+# why: The shape downstream repos actually ship; the anchored match walked
+# straight past it
+@test "migration 5 (hadolint): DL3046 adds -l when -u is not the first flag (#946)" {
+  cat > "${DF}" <<'EOF'
+RUN useradd -m -s /bin/bash -u "${USER_UID}" -g "${USER_GID}" "${USER_NAME}"
+EOF
+  run bash -c "$(_src); _migrate_hadolint_detect '${DF}' && _migrate_hadolint_apply '${DF}'"
+  assert_success
+  grep -Fq 'useradd -l -m -s /bin/bash -u "${USER_UID}"' "${DF}"
+}
+
+# why: The flag can already be anywhere in the invocation, not only where
+# the migration would put it
+@test "migration 5 (hadolint): DL3046 idempotent when -l already sits among the flags (#946)" {
+  cat > "${DF}" <<'EOF'
+RUN useradd -m -l -s /bin/bash -u "${USER_UID}" "${USER_NAME}"
+EOF
+  run bash -c "$(_src); apply_migrations '${DF}'; apply_migrations '${DF}'"
+  assert_success
+  [ "$(grep -co -- '-l' "${DF}")" = "1" ]
+}
+
+# why: The conflict-handling branch beside it is a different command;
+# rewriting it would corrupt it
+@test "migration 5 (hadolint): DL3046 leaves usermod -l alone (#946)" {
+  # The conflict-handling branch every downstream Dockerfile carries renames
+  # an existing account with `usermod -l`. It is not a useradd, it already
+  # has the flag, and rewriting it would corrupt the command.
+  cat > "${DF}" <<'EOF'
+RUN usermod -l "${USER_NAME}" -d "/home/${USER_NAME}" -m "$(id -nu 1000)"
+EOF
+  run bash -c "$(_src); _migrate_hadolint_apply '${DF}'"
+  assert_success
+  grep -Fxq 'RUN usermod -l "${USER_NAME}" -d "/home/${USER_NAME}" -m "$(id -nu 1000)"' "${DF}"
+}
+
+# why: A detect blind to the shipped shape logs a patched Dockerfile with
+# the finding still live
+@test "migration 5 (hadolint): DL3046 detect sees the flags-before--u shape (#946)" {
+  printf 'RUN useradd -m -u "${USER_UID}" "${USER_NAME}"\n' > "${DF}"
+  run bash -c "$(_src); _migrate_hadolint_detect '${DF}'"
+  assert_success
+}
+
+# why: A sibling flag after `&&` is not this command's flag; scanning to end
+# of line left the finding live
+@test "migration 5 (hadolint): DL3046 heals a useradd whose own line also runs usermod -l (#946)" {
+  # A sibling `usermod -l` after `&&` sits in the text that follows the
+  # `useradd` token, so scanning to end of line reads the useradd as
+  # already carrying the flag and the heal never fires -- DL3046 left live
+  # in a Dockerfile the migration reports as patched, which is the exact
+  # failure the flags-before--u case above was opened for. The scan window
+  # is the useradd's OWN command segment, up to the first `&&`, `||`, `;`
+  # or `|`.
+  cat > "${DF}" <<'EOF'
+RUN useradd -m -s /bin/bash -u "${USER_UID}" "${USER_NAME}" && usermod -l "${USER_NAME}" "$(id -nu 1000)"
+EOF
+  run bash -c "$(_src); _dfm_needs_dl3046 '${DF}'"
+  assert_success
+  run bash -c "$(_src); _migrate_hadolint_apply '${DF}'; _migrate_hadolint_apply '${DF}'"
+  assert_success
+  grep -Fq 'useradd -l -m -s /bin/bash -u "${USER_UID}"' "${DF}"
+  grep -Fq 'usermod -l "${USER_NAME}"' "${DF}"
 }
