@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3930 tests**.
+Unit specs under `test/bats/unit/`: **3938 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -4290,7 +4290,7 @@ alias / `network.network_name` / `devices.device_` / `security.cap_add_` /
 | `self-hosted guard: the real repo tree has every eligible job guarded` | - |
 | `self-hosted guard: the real tree's eligible set is the three runtime-matrix worker jobs` | - |
 
-### test/bats/unit/self_test_yaml_spec.bats (113)
+### test/bats/unit/self_test_yaml_spec.bats (112)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks fourteen
 cumulative invariants:
@@ -4611,7 +4611,8 @@ list is extensible + all five `build_local` obtain steps carry the guard
 | `self-test.yaml: classify job declares code_changed output (#317)` | - |
 | `self-test.yaml: classify job declares system_relevant output (#317)` | - |
 | `self-test.yaml: classify uses doc-only allow-list 'doc/**' + 'README.md' + 'LICENSE' + 'CONTEXT.md' (#317)` | - |
-| `self-test.yaml: classify uses system block-list entrypoint + compose + Dockerfile + wrappers + init/upgrade + workflows (#317)` | - |
+| `self-test.yaml: classify reads the system pathspecs, it does not restate them (#1011)` | The system pathspecs are READ, not restated. They used to be seventeen quoted literals in this step and this test named twelve of them, so the two files it did not name could leave the list without anything noticing -- which is how `dockerfile/Dockerfile.smoke`, the subject of the only spec that builds it, was never in it at all. What the classifier decides for each path is asserted by driving the step in system_paths_spec.bats; what this test owns is that the step has no second list of its own. |
+| `self-test.yaml: classify fails open when it cannot read the pathspecs (#1011)` | An unreadable or empty pathspec list must not read as "no system path changed". Every other unknown in this step already falls open -- `set -uo pipefail` with no `-e`, the `if git diff` form routing a failed diff to the else branch -- and a list the step could not read is the same kind of unknown: it is not evidence that the job can be skipped. |
 | `self-test.yaml: classify defaults code_changed/system_relevant to true on non-PR events (#317)` | - |
 | `self-test.yaml: classify omits set -e to fail-open on diff errors (#317 gotcha-1)` | - |
 | `self-test.yaml: classify pre-fetches base ref before diff (#317 gotcha-2)` | - |
@@ -4633,8 +4634,6 @@ list is extensible + all five `build_local` obtain steps carry the guard
 | ``self-test.yaml: no monolithic `test:` job remains after #377 split`` | - |
 | `self-test.yaml: acceptance job-level if: gates on code_changed (#317)` | - |
 | `self-test.yaml: system job-level if: gates on system_relevant (#317 P3)` | - |
-| `self-test.yaml: classify system block-list extends to setup.sh + i18n.sh + lib/** + prune.sh (#317 P3 gotcha-5)` | - |
-| `self-test.yaml: classify system block-list covers the CI scripts + self-test fixture (#802, #947)` | A PR touching only `script/ci/**` or the build-worker fixture would otherwise skip the System self-test that consumes them -- and since the system job now picks its image via `script/ci/probe_test_tools.sh`, the directory is listed rather than the one subdirectory, so the next CI script cannot land outside the gate by omission |
 | `self-test.yaml: bats-fragile job uses docker/build-push-action with GHA cache scope=test-tools (#677)` | - |
 | `self-test.yaml: bats-integration job uses docker/build-push-action with GHA cache scope=test-tools (#377)` | - |
 | `self-test.yaml: system job uses docker/build-push-action with GHA cache scope=test-tools (#317)` | - |
@@ -5592,6 +5591,37 @@ runs).
 | `stop.sh ends the project when a self-managed checkout has no .env.generated (#1015)` | the defect in its smallest form: the wrapper died on a missing file before it reached compose at all. The checkout is self-managed, which is the shape in which that file's absence is normal rather than a question. |
 | `stop.sh refuses a derived name when a configured checkout lost its cache (#1015)` | the other half of that shape, and the destructive one. A CONFIGURED checkout records its project name in the cache; with the cache gone and no name handed in, the derived `local-<basename>` is a name this checkout never ran under and, on a shared host, one another checkout may be running under right now -- so `down --remove-orphans` against it reports success having ended the wrong thing, or nothing. |
 | `stop.sh honours an ambient PROJECT_NAME with no .env.generated to read (#1015)` | the seam `just test stop` uses -- the caller that already knows the name hands it over, so no second derivation exists to drift. |
+
+### test/bats/unit/system_paths_spec.bats (9)
+
+`system_relevant` decides whether the docker.sock-mounted system job runs at
+all, and it was decided by a hand-kept list of seventeen paths that had
+drifted from the specs it is about. The list omitted
+`dockerfile/Dockerfile.smoke` -- the file `smoke_harness_spec.bats` BUILDS
+-- the shipped smoke specs that Dockerfile RUNs, the container runtime under
+`dist/script/docker/runtime/`, `setup_tui.sh` while listing `setup.sh`, and
+every justfile in the tree, in a repo whose stated position is that `just`
+is the only control surface. Editing any of them alone skipped the only job
+that exercises them.
+
+The classifier now reads its pathspecs from `script/ci/system_paths.sh` and
+this spec drives the REAL classify step against a synthetic PR per path, so
+each case asserts the OUTPUT the workflow writes rather than the presence of
+a line in a list. The last two cases are the opposite direction: the answer
+"everything is relevant" would pass every case above and delete the
+optimisation the output exists for.
+
+| Test | Description |
+|------|-------------|
+| `classify: editing the Dockerfile a system spec builds is system-relevant (#1011)` | The reported case, asserted on what the classifier ANSWERS. The only spec that builds this Dockerfile is a system spec, and editing the Dockerfile alone skipped it -- so the file could stop building and the suite would still be green. |
+| `classify: editing a justfile is system-relevant (#1011)` | The justfiles. Every wrapper `.sh` was listed and none of the files that dispatch them were, in a repo whose position is that `just` is the only control surface -- so the one surface a user actually touches was the one surface the gate treated as unable to affect the system under test. |
+| `classify: editing the shipped container runtime is system-relevant (#1011)` | The shipped runtime -- entrypoint, smoke, watchdog, logrotate -- is what runs INSIDE the container the system specs start. base's own `script/entrypoint.sh` was listed; the one that actually ships was not. |
+| `classify: editing the shipped smoke specs is system-relevant (#1011)` | The shipped smoke specs are the body of the image `Dockerfile.smoke` builds and `RUN bats`-es; a change to them changes what that build asserts. |
+| `classify: editing the TUI half of setup is system-relevant (#1011)` | `setup.sh` was listed and `setup_tui.sh` was not, though both emit the `.env` and `compose.yaml` the system job's compose run consumes. The pair is the shape of a hand-kept list: it names what somebody remembered. |
+| `classify: a doc-only diff is neither code-changed nor system-relevant (#1011)` | The guard against buying every case above by answering "relevant" to everything. A doc-only PR must still classify as neither code nor system, or the classifier has stopped classifying. |
+| `classify: a unit-spec-only diff is code, and still not system-relevant (#1011)` | The other half of that guard, and the reason `system_relevant` exists at all: a unit-spec-only PR is code, and it still skips the docker.sock-mounted system job. |
+| `system paths: every subject a system spec names is covered (#1011)` | The list has to be answerable against the specs rather than kept in agreement with them by hand. Every subject a system spec names is read off the specs themselves, so the spec added tomorrow brings its own coverage requirement with it -- which is what stops the next omission from being noticed only when the job it gates stops running. |
+| `system paths: every pathspec names something that exists (#1011)` | The opposite direction. A pathspec naming something the tree no longer has is a filter that can never match, and it reads as coverage: the list stays long, the gate stays narrow, and nothing says so. |
 
 ### test/bats/unit/template_guard_spec.bats (2)
 

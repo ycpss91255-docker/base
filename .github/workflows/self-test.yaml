@@ -163,39 +163,32 @@ jobs:
           else
             echo "code_changed=true" >> "${GITHUB_OUTPUT}"
           fi
-          # system_relevant: block-list (Q5 in #317; #317 P3 gotcha-5
-          # extends it to setup.sh + lib/** + i18n.sh + prune.sh — each
-          # of these affects .env / compose.yaml generation or wrapper
-          # behaviour that the system docker.sock-mounted compose
-          # service exercises end-to-end). script/ci/** + the build-worker
-          # self-test fixture are also here: the worker-selftest job
-          # consumes script/ci/build_worker (its YAML plumbing / output
-          # contract) and builds that fixture, and the system job's own
-          # Obtain step decides WHICH IMAGE it runs in via
-          # script/ci/probe_test_tools.sh. So a PR touching ONLY them --
-          # without any .github/workflows/** change -- must still re-run the
-          # System self-test instead of skipping it. The directory is listed
-          # rather than each file, which is what keeps the next CI script
-          # from landing outside the gate by omission.
-          if git diff --quiet "${BASE}"...HEAD \
-               -- 'script/entrypoint.sh' \
-                  'compose.yaml' \
-                  'dist/dockerfile/Dockerfile' \
-                  'dockerfile/Dockerfile.test-tools' \
-                  'dist/script/docker/wrapper/build.sh' \
-                  'dist/script/docker/wrapper/run.sh' \
-                  'dist/script/docker/wrapper/exec.sh' \
-                  'dist/script/docker/wrapper/stop.sh' \
-                  'dist/script/docker/wrapper/prune.sh' \
-                  'dist/script/docker/wrapper/setup.sh' \
-                  'dist/script/docker/lib/i18n.sh' \
-                  'dist/script/docker/lib/**' \
-                  'test/bats/system/**' \
-                  'script/ci/**' \
-                  'test/fixtures/build-worker/**' \
-                  'dist/script/base/init.sh' \
-                  'dist/script/base/upgrade.sh' \
-                  '.github/workflows/**'; then
+          # system_relevant: the pathspecs come from
+          # script/ci/system_paths.sh, which is where the reasoning for
+          # each one lives. They used to be written here, and a list
+          # written by hand names what somebody remembered: this one
+          # carried the wrapper `setup.sh` and not `setup_tui.sh`, base's
+          # own entrypoint and not the one that ships, every wrapper `.sh`
+          # and none of the justfiles that dispatch them, and never
+          # `dockerfile/Dockerfile.smoke` -- the file the only spec that
+          # builds it names in the line that builds it. Editing any of
+          # those alone skipped the one job that exercises them.
+          #
+          # Fails OPEN twice over, because "cannot tell" must not mean
+          # "skip the job": an unreadable list and an empty one both
+          # classify the PR as system-relevant, and the `if git diff` form
+          # routes a failing diff to the same side.
+          system_paths=()
+          if paths_out="$(bash ./script/ci/system_paths.sh)"; then
+            while IFS= read -r p; do
+              [[ -n "${p}" ]] && system_paths+=("${p}")
+            done <<< "${paths_out}"
+          fi
+          if [[ "${#system_paths[@]}" -eq 0 ]]; then
+            echo "::warning::could not read the system pathspecs;" \
+                 "classifying this PR as system-relevant"
+            echo "system_relevant=true" >> "${GITHUB_OUTPUT}"
+          elif git diff --quiet "${BASE}"...HEAD -- "${system_paths[@]}"; then
             echo "system_relevant=false" >> "${GITHUB_OUTPUT}"
           else
             echo "system_relevant=true" >> "${GITHUB_OUTPUT}"

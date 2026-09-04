@@ -147,20 +147,33 @@ _classify() {
 # _named_subjects
 #   Every path under this checkout that a system spec's CODE names
 #   through its `/source/` prefix -- the files those specs build, run and
-#   read. Comments are stripped first: prose about a sibling spec names a
-#   path the spec does not touch.
+#   read. Read through `code_lines`, so prose about a sibling spec cannot
+#   name a path the spec does not touch, and a spec that cannot be read
+#   arrives as a `BUG:` line rather than as an empty contribution.
 _named_subjects() {
-    local _f _p
+    local _f _p _raw="" _hits _status
     for _f in "${SYSTEM_SPEC_DIR}"/*.bats; do
         [[ -f "${_f}" ]] || continue
-        strip_comments "${_f}" \
-            | grep -ohE '/source/[A-Za-z0-9_./-]+' \
-            | sed -e 's|^/source/||' -e 's|[./]*$||'
-    done | sort -u | while IFS= read -r _p; do
-        [[ -n "${_p}" ]] || continue
-        [[ -e "/source/${_p}" ]] || continue
-        printf '%s\n' "${_p}"
+        # A spec naming no `/source/` path is a spec with nothing to
+        # require here, not a scan that failed: grep's 1 is pinned so it
+        # cannot abort the walk, while anything above it is reported.
+        _status=0
+        _hits="$(code_lines "${_f}" \
+            | grep -ohE '/source/[A-Za-z0-9_./-]+')" || _status=$?
+        case "${_status}" in
+            0) _raw="${_raw}${_hits}"$'\n' ;;
+            1) ;;
+            *) printf 'BUG: grep exited %s scanning %s\n' "${_status}" "${_f}" ;;
+        esac
     done
+    printf '%s' "${_raw}" \
+        | sed -e 's|^/source/||' -e 's|[./]*$||' \
+        | sort -u \
+        | while IFS= read -r _p; do
+              [[ -n "${_p}" ]] || continue
+              [[ -e "/source/${_p}" ]] || continue
+              printf '%s\n' "${_p}"
+          done
 }
 
 # _covered_by_pathspecs <path>

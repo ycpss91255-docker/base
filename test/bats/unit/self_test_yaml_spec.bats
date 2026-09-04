@@ -426,21 +426,35 @@ _job_comments() {
   assert_output --partial "':!CONTEXT.md'"
 }
 
-@test "self-test.yaml: classify uses system block-list entrypoint + compose + Dockerfile + wrappers + init/upgrade + workflows (#317)" {
+# why: The system pathspecs are READ, not restated. They used to be
+# seventeen quoted literals in this step and this test named twelve of
+# them, so the two files it did not name could leave the list without
+# anything noticing -- which is how `dockerfile/Dockerfile.smoke`, the
+# subject of the only spec that builds it, was never in it at all. What
+# the classifier decides for each path is asserted by driving the step in
+# system_paths_spec.bats; what this test owns is that the step has no
+# second list of its own.
+@test "self-test.yaml: classify reads the system pathspecs, it does not restate them (#1011)" {
   run yaml_job_lines "${WF}" classify
   assert_success
-  assert_output --partial "'script/entrypoint.sh'"
-  assert_output --partial "'compose.yaml'"
-  assert_output --partial "'dist/dockerfile/Dockerfile'"
-  assert_output --partial "'dockerfile/Dockerfile.test-tools'"
-  assert_output --partial "'dist/script/docker/wrapper/build.sh'"
-  assert_output --partial "'dist/script/docker/wrapper/run.sh'"
-  assert_output --partial "'dist/script/docker/wrapper/exec.sh'"
-  assert_output --partial "'dist/script/docker/wrapper/stop.sh'"
-  assert_output --partial "'test/bats/system/**'"
-  assert_output --partial "'dist/script/base/init.sh'"
-  assert_output --partial "'dist/script/base/upgrade.sh'"
-  assert_output --partial "'.github/workflows/**'"
+  assert_output --partial 'script/ci/system_paths.sh'
+  assert_output --partial 'system_paths[@]'
+  # A pathspec quoted into the step is a second roster: the one in the
+  # script, and the one whoever edited this step remembered.
+  refute_output --partial "'dist/script/docker/lib/**'"
+  refute_output --partial "'test/bats/system/**'"
+}
+
+# why: An unreadable or empty pathspec list must not read as "no system
+# path changed". Every other unknown in this step already falls open --
+# `set -uo pipefail` with no `-e`, the `if git diff` form routing a failed
+# diff to the else branch -- and a list the step could not read is the
+# same kind of unknown: it is not evidence that the job can be skipped.
+@test "self-test.yaml: classify fails open when it cannot read the pathspecs (#1011)" {
+  run yaml_job_lines "${WF}" classify
+  assert_success
+  assert_output --partial '"${#system_paths[@]}" -eq 0'
+  assert_output --partial 'classifying this PR as system-relevant'
 }
 
 @test "self-test.yaml: classify defaults code_changed/system_relevant to true on non-PR events (#317)" {
@@ -674,43 +688,6 @@ _job_comments() {
   assert_success
   assert_output --partial "if: needs.classify.outputs.system_relevant == 'true'"
   refute_output --partial "if: needs.classify.outputs.code_changed == 'true'"
-}
-
-@test "self-test.yaml: classify system block-list extends to setup.sh + i18n.sh + lib/** + prune.sh (#317 P3 gotcha-5)" {
-  # setup.sh / lib/** drive .env + compose.yaml generation; i18n.sh
-  # gates wrapper message output (smoke regressions surface in compose
-  # logs); prune.sh is part of the wrapper family. All four indirectly
-  # affect what the docker.sock-mounted compose service does, so they
-  # must invalidate the system-skip optimization.
-  run yaml_job_lines "${WF}" classify
-  assert_success
-  assert_output --partial "'dist/script/docker/wrapper/setup.sh'"
-  assert_output --partial "'dist/script/docker/lib/i18n.sh'"
-  assert_output --partial "'dist/script/docker/lib/**'"
-  assert_output --partial "'dist/script/docker/wrapper/prune.sh'"
-}
-
-# why: A PR touching only `script/ci/**` or the build-worker fixture would
-# otherwise skip the System self-test that consumes them -- and since the
-# system job now picks its image via `script/ci/probe_test_tools.sh`, the
-# directory is listed rather than the one subdirectory, so the next CI
-# script cannot land outside the gate by omission
-@test "self-test.yaml: classify system block-list covers the CI scripts + self-test fixture (#802, #947)" {
-  # The worker-selftest job consumes script/ci/build_worker/** (its YAML
-  # plumbing / output contract) and builds test/fixtures/build-worker/**, so
-  # a PR touching ONLY those -- without a .github/workflows/** change -- must
-  # still flip system_relevant=true and re-run the System self-test instead
-  # of skipping it.
-  #
-  # The whole of script/ci/, not the worker subdirectory alone: the system
-  # job now decides WHICH IMAGE it runs in via script/ci/probe_test_tools.sh,
-  # so that script's behaviour is as load-bearing for it as the worker's is
-  # for worker-selftest. Listing the directory rather than each file is what
-  # keeps the next CI script from landing outside the gate by omission.
-  run yaml_job_lines "${WF}" classify
-  assert_success
-  assert_output --partial "'script/ci/**'"
-  assert_output --partial "'test/fixtures/build-worker/**'"
 }
 
 # ── buildx GHA cache on test-tools builds ────────────────

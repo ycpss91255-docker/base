@@ -318,6 +318,16 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 - **the changelog lint now catches an entry that was edited and not re-wrapped (refs #927)** -- a single word left alone on a continuation line with more of its paragraph on the next line. The length measure collapses whitespace on purpose and markdown collapses it again at render time, so nothing else could see it. A short final line, a table row, a fenced line and an HTML comment are left alone. Affects anyone writing an `[Unreleased]` entry.
 
 ### Fixed
+- **the system job now runs for the files its own specs are about (closes
+  #1011)** -- `system_relevant` was a hand-kept list that named the wrapper
+  `setup.sh` and not `setup_tui.sh`, base's entrypoint and not the shipped
+  one, every wrapper `.sh` and no justfile, and never
+  `dockerfile/Dockerfile.smoke` -- the file the only spec that builds it
+  names in the line that builds it. Editing any of them alone skipped the
+  one job that exercises them. The pathspecs move to
+  `script/ci/system_paths.sh` and select the system under test outright;
+  a spec naming a path nothing selects now fails the suite. Doc-only and
+  unit-only PRs still skip the job.
 - **a red CI check names which red it is, and a cleanup failure is no longer
   one of them (closes #1014)** -- seven artifact sweeps could fail a build
   that had passed; they are `continue-on-error` now. A fork PR's required
