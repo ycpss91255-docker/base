@@ -152,8 +152,16 @@ _table_bash() {
 # why: 0.11.0 must not be satisfied by 0.11.01 or by 10.11.0
 @test "tool pins reader: a version is matched whole, not as a prefix of a longer one" {
   _reports_version 'version: 0.11.0' '0.11.0'
-  ! _reports_version 'version: 0.11.01' '0.11.0'
-  ! _reports_version 'version: 10.11.0' '0.11.0'
+  # Written as an `if`, not as a leading `!`: bash exempts a `!` statement
+  # from errexit, so anywhere but the last statement of the body the
+  # negation is computed and thrown away and the case passes whatever the
+  # reader did (the `errexit-bang` lint).
+  if _reports_version 'version: 0.11.01' '0.11.0'; then
+    fail "0.11.01 satisfied a 0.11.0 pin -- the match is not bounded on the right"
+  fi
+  if _reports_version 'version: 10.11.0' '0.11.0'; then
+    fail "10.11.0 satisfied a 0.11.0 pin -- the match is not bounded on the left"
+  fi
 }
 
 # why: An unescaped regex dot would let 0x11x0 pass as 0.11.0
