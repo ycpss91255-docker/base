@@ -478,6 +478,26 @@ _index() {
   [[ "${output}" == *"${_ghost}"* ]]
 }
 
+# why: The boundary, and it is load-bearing rather than a concession. The
+# index deliberately names a number no record claims -- "`00000009` is an
+# intentional gap ... do not invent a `00000009`", twice, in free prose --
+# and running the bare check over the whole document reddens the live tree
+# on exactly those two lines. That is the one place this lint and the verb
+# cannot share a rule: the verb rewrites the number it is MOVING, which has
+# a record by construction, and this asks which numbers have none.
+@test "_run_adr_numbering: reads a bare number in prose as prose, not a row (#1021)" {
+  _touch_adr "00000001-alpha.md"
+  # Assembled, for the reason the mispaired case above states.
+  local _gap='00000009'
+  _index '| 00000001 -- alpha | keep | mechanism | note |' \
+    '' '## Anomalies (resolved)' '' \
+    "- **\`${_gap}\` is an intentional gap.** There is no ADR-9 and none" \
+    "  will be back-filled. Do not invent a \`${_gap}\`."
+  run _run_adr_numbering
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"clean"* ]]
+}
+
 # why: The passing shape, so the three failures above are read as a
 # contract rather than as a lint that dislikes index tables.
 @test "_run_adr_numbering: PASSES when every record has one row and every reference resolves (#1021)" {

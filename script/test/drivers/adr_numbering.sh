@@ -47,9 +47,17 @@
 #               The number may still resolve -- another record took it --
 #               and the slug beside it is what says the pointer no longer
 #               names what its author meant.
-#   index       doc/adr/README.md's audit table: exactly one row per
-#               record, no row without a record. The site the hand
-#               renumber actually missed, twice.
+#   index       doc/adr/README.md: exactly one row per record, no row
+#               without a record, and no bare number in either of the
+#               document's two ENUMERATIONS -- the audit table and the
+#               audit conclusion -- that no record claims. The site the
+#               hand renumber actually missed, twice, and both times it
+#               was a conclusion bullet rather than a row, which is why
+#               the row's opening number is not the whole check. Free
+#               prose is out: that is where the document deliberately
+#               names a number no record claims (the intentional 00000009
+#               gap), and the verb can rewrite it safely only because the
+#               number IT moves has a record by construction.
 #   declaration a fixture declaration this reader cannot parse. It exempts
 #               nothing, which is the safe direction to fail in and
 #               exactly why it is worth saying out loud: the alternative
@@ -118,6 +126,34 @@ readonly _ADR_PATH_SCAN_RE='doc/adr/[0-9]{8}-[A-Za-z0-9._-]+\.md'
 # opens with the number of the record it is about.
 readonly _ADR_INDEX_HEADER_RE='^\| ADR \| Verdict \|'
 readonly _ADR_INDEX_ROW_RE='^\| ([0-9]{8}) '
+# The index's OTHER numbers: the ones a row or a conclusion carries
+# without an `ADR-` in front. Digit RUNS, so a longer number is not read as
+# eight digits with something after it.
+readonly _ADR_INDEX_RUN_RE='[0-9]+'
+# WHERE those are read: the document's two ENUMERATIONS. A table row is
+# about a record from its first cell to its last, so a `keep (amended by
+# 00000023)` three columns along is a pointer like any other. The audit
+# conclusion is a second listing of the same records, and it is where the
+# 00000030 hand repair was actually left incomplete -- twice, in bullets
+# no row check reads.
+#
+# NOT the whole document, and the reason is the one place the verb's rule
+# and this lint's part company. The verb rewrites a bare number anywhere
+# here, and that is safe for it by construction: the number it rewrites has
+# exactly one record (it refuses otherwise), so every occurrence names that
+# record. This lint asks the opposite question -- which numbers name NO
+# record -- and the document answers it deliberately in prose: "`00000009`
+# is an intentional gap ... do not invent a `00000009`", under Anomalies,
+# twice. A rule that read those would be a rule the document has to be
+# written around. The residue, stated rather than hidden: a stale number in
+# free prose here is not caught, and renaming either heading turns the
+# check it guards off -- the same shape, and the same argument, as the
+# audit table's own header.
+readonly _ADR_INDEX_CONCLUSION_RE='^## Audit conclusion'
+readonly _ADR_INDEX_SECTION_RE='^## '
+# The two classes _adr_ref_findings already reports, removed before the
+# bare scan so one site produces one finding rather than two.
+readonly _ADR_INDEX_CLASSED_RE='ADR-[0-9]{8}|doc/adr/[0-9]{8}-'
 
 # _adr_scan <root> <regexp> -- `<relpath>:<line>:<match>` for every match
 # under <root>, one per line.
@@ -193,6 +229,66 @@ _adr_ref_findings() {
   done < <(_adr_ref_bad_markers "${_root}")
 }
 
+# _adr_index_line_bare <line> -- the bare ADR numbers in one index line:
+# every digit run of exactly eight, once the token and path classes have
+# been removed. Runs and not a bounded pattern, so a 9-digit number is not
+# read as an 8-digit one with a digit after it.
+#
+# `#` as the sed delimiter: the expression's own alternation is spelled
+# with pipes and its paths carry slashes, so both of the obvious choices
+# would end the pattern early.
+_adr_index_line_bare() {
+  local _line="$1" _run
+  _line="$(printf '%s\n' "${_line}" | sed -E "s#${_ADR_INDEX_CLASSED_RE}##g")"
+  while IFS= read -r _run; do
+    [[ "${#_run}" -eq 8 ]] || continue
+    printf '%s\n' "${_run}"
+  done < <(printf '%s\n' "${_line}" | grep -oE -e "${_ADR_INDEX_RUN_RE}" || true)
+}
+
+# _adr_index_bare_findings <readme> <claimed-number>... -- one line per
+# bare number in the index's enumerations that no record claims.
+#
+# The row check below reads the number a row OPENS with, and nothing else.
+# That is where the verb and this lint parted: `just adr renumber` rewrites
+# a bare number anywhere in this document, and two of the three sites the
+# 00000030 hand repair left stale were audit-conclusion bullets rather than
+# rows. Same document, same failure, and only half of it guarded.
+#
+# A row's own opening number is taken out of the line first: it is the row
+# check's finding, and reporting it twice would make one stale row read as
+# two defects.
+_adr_index_bare_findings() {
+  local _readme="$1"
+  shift
+  local -A _known=()
+  local _n
+  for _n in "$@"; do
+    _known["${_n}"]=1
+  done
+  local _line _rest _rownum _num _lineno=0 _in_conclusion=0
+  while IFS= read -r _line || [[ -n "${_line}" ]]; do
+    _lineno=$(( _lineno + 1 ))
+    if [[ "${_line}" =~ ${_ADR_INDEX_SECTION_RE} ]]; then
+      _in_conclusion=0
+      [[ ! "${_line}" =~ ${_ADR_INDEX_CONCLUSION_RE} ]] || _in_conclusion=1
+      continue
+    fi
+    _rest="${_line}"
+    if [[ "${_rest}" =~ ${_ADR_INDEX_ROW_RE} ]]; then
+      _rownum="${BASH_REMATCH[1]}"
+      _rest="${_rest/${_rownum}/}"
+    elif (( ! _in_conclusion )); then
+      continue
+    fi
+    while IFS= read -r _num; do
+      [[ -z "${_known[${_num}]:-}" ]] || continue
+      printf 'ADR numbering: doc/adr/README.md:%s: %s names no record; every number the index enumerates is a record.\n' \
+        "${_lineno}" "${_num}"
+    done < <(_adr_index_line_bare "${_rest}")
+  done < "${_readme}"
+}
+
 # _adr_index_findings <root> <claimed-number>... -- one line per
 # disagreement between doc/adr/README.md's audit table and the records.
 #
@@ -205,6 +301,8 @@ _adr_index_findings() {
   local _readme="${_root}/doc/adr/README.md"
   [[ -f "${_readme}" ]] || return 0
   grep -qE -e "${_ADR_INDEX_HEADER_RE}" "${_readme}" || return 0
+
+  _adr_index_bare_findings "${_readme}" "$@"
 
   local -A _rows=()
   local _line _num
