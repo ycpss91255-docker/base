@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **4006 tests**.
+Unit specs under `test/bats/unit/`: **4009 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3736,7 +3736,7 @@ naming the path and what its absence costs.
 | `release-archive: refuses a manifest path that escapes the repo root (#914)` | Same escape guard on the declared paths |
 | `release-archive: --list prints the declared payload with its required/optional split` | The payload contract is readable without running an archive |
 
-### test/bats/unit/release_notes_spec.bats (13)
+### test/bats/unit/release_notes_spec.bats (16)
 
 | Test | Description |
 |------|-------------|
@@ -3746,6 +3746,9 @@ naming the path and what its absence costs.
 | `release_notes.sh: a promoted final release's notes are the union of its RCs` | This project cuts RCs and promotes one unchanged, so a final tag's own section is a pointer and the entries sit under headings a reader of vX.Y.0 has no interest in. One heading per category across the whole union is what makes the page complete without republishing RC structure as if it were history. |
 | `release_notes.sh: categories are emitted in the locked roster order` | The union merges by category, which is a few lines only because the headings come from a known set. This is where the locked roster pays for itself: the page opens with BREAKING rather than in whatever order the RCs happened to land in. |
 | `release_notes.sh: a final release with its own entries keeps its lead paragraph` | The union must add, not replace. A final release that says something of its own is the one part written for the release page itself, and losing it to the merge would silently delete the only prose a human aimed at that page. |
+| `release_notes.sh: a final section's entries above its first category heading survive the union` | Measured on the real v0.29.0: a promoted final whose section carries no `### ` of its own, and whose pointer prose ends in three bullets naming the downstream propagation queued for it. Those bullets are entries, and the pointer-paragraph rule dropped the whole lead including them -- silently, and with `generate_release_notes: false` there is no second source for what it dropped. |
+| `release_notes.sh: an RC's entries above its first category heading survive the union` | The other half of the same drop, and the unconditional one: an RC's entries above its first `### ` were discarded for every release, whatever the final section looked like. Measured on the real v0.29.0-rc1, whose two headline bullets are the only place the release says what it is. |
+| `release_notes.sh: an assembled body that lost an entry is refused, not published` | The completeness guard was `grep -q '^- '` over the whole body, which passes as long as ONE bulleted category survived -- so the merge losing an entry it could not file was indistinguishable from a release with one category. The postcondition is per-entry: what the sections hold is what the page carries, or the release fails here rather than shipping short. |
 | `release_notes.sh: a section with no lead paragraph does not open with a blank line` | The guard tests the lead ARRAY's length, and a `## [tag]` heading is always followed by a blank line, so the array is never empty -- only ever blank. Every assembled body therefore opened with a stray blank line, on every release page, and nothing but an assertion on the first line can see it. |
 | `release_notes.sh: a '## [' inside a fenced block does not end the section` | The entry most likely to quote a section heading is the entry about the changelog's own format. A scan with no fence state truncates there and drops every entry after it, so the release documenting the split is the release the split silently shortens. |
 | `release_notes.sh: the compare-link block is not part of the notes` | In a series file the link definitions follow the section directly, so a section that ends only at the next `## [` publishes reference data as page content. The split is what moved those definitions inside the span the assembler reads. |

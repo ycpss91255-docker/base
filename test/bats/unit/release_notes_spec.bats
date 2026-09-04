@@ -57,6 +57,22 @@ _series() {
   printf '%s\n' "$@" > "${CL}/${_name}.md"
 }
 
+# _notes_with_lossy_assembler <tag> <dir> -- main(), with the merge replaced
+# by one that emits a single entry whatever it was given.
+#
+# The file carries the `BASH_SOURCE == $0` guard, so it is sourceable and
+# main is reachable with any of its parts substituted. Run inside a subshell
+# function body: main turns on `set -euo pipefail`, and the sourced file's
+# readonly declarations would refuse a second test in the same shell.
+_notes_with_lossy_assembler() (
+  # shellcheck disable=SC1090
+  source "${NOTES}"
+  _assemble() {
+    printf '### Added\n- the entry that survives (#1, PR #2)\n'
+  }
+  main "$@"
+)
+
 # why: The base case the twelve below deviate from, and the one that pins that
 # the `## [tag]` heading itself is NOT part of the body: the release page
 # already prints the tag as its title, so emitting it again is a
@@ -205,6 +221,90 @@ _series() {
   assert_output --partial 'This release closes the 0.9 line.'
   assert_output --partial '- the final-only entry (#30, PR #31)'
   assert_output --partial '- the candidate entry (#10, PR #11)'
+}
+
+# why: Measured on the real v0.29.0: a promoted final whose section carries no
+# `### ` of its own, and whose pointer prose ends in three bullets naming
+# the downstream propagation queued for it. Those bullets are entries, and
+# the pointer-paragraph rule dropped the whole lead including them --
+# silently, and with `generate_release_notes: false` there is no second
+# source for what it dropped.
+@test "release_notes.sh: a final section's entries above its first category heading survive the union" {
+  # The real v0.29.0 shape, shortened: the section has no `### ` of its own,
+  # so the whole body is read as a pointer at the RCs -- but its last three
+  # lines are entries, not a pointer.
+  _series v0.29 \
+    '## [v0.29.0] - 2026-05-14' \
+    '' \
+    'Promoted from `v0.29.0-rc1`; bundles all rc1 content.' \
+    '' \
+    'Downstream propagation queued separately:' \
+    '' \
+    '- `app/ros1_bridge` -- migrate to the dispatcher (#1).' \
+    '' \
+    '## [v0.29.0-rc1] - 2026-05-14' \
+    '' \
+    '### Added' \
+    '- the dispatcher (#2, PR #3)'
+
+  run "${NOTES}" v0.29.0 "${CL}"
+  [ "${status}" -eq 0 ]
+  assert_output --partial '- `app/ros1_bridge` -- migrate to the dispatcher (#1).'
+  # The sentence that introduces them travels with them: a bare list under
+  # no heading says nothing about what the list is.
+  assert_output --partial 'Downstream propagation queued separately:'
+  assert_output --partial '- the dispatcher (#2, PR #3)'
+}
+
+# why: The other half of the same drop, and the unconditional one: an RC's
+# entries above its first `### ` were discarded for every release, whatever
+# the final section looked like. Measured on the real v0.29.0-rc1, whose
+# two headline bullets are the only place the release says what it is.
+@test "release_notes.sh: an RC's entries above its first category heading survive the union" {
+  _series v0.29 \
+    '## [v0.29.0] - 2026-05-14' \
+    '' \
+    'Promoted from `v0.29.0-rc1`.' \
+    '' \
+    '### Fixed' \
+    '- the final-only fix (#9, PR #10)' \
+    '' \
+    '## [v0.29.0-rc1] - 2026-05-14' \
+    '' \
+    'Release Candidate bundling one theme since v0.28.2:' \
+    '' \
+    '- **#317 the CI optimization plan completed** -- all four phases (#5).' \
+    '' \
+    '### Added' \
+    '- the dispatcher (#2, PR #3)'
+
+  run "${NOTES}" v0.29.0 "${CL}"
+  [ "${status}" -eq 0 ]
+  assert_output --partial '- **#317 the CI optimization plan completed** -- all four phases (#5).'
+  assert_output --partial '- the final-only fix (#9, PR #10)'
+  assert_output --partial '- the dispatcher (#2, PR #3)'
+}
+
+# why: The completeness guard was `grep -q '^- '` over the whole body, which
+# passes as long as ONE bulleted category survived -- so the merge losing
+# an entry it could not file was indistinguishable from a release with one
+# category. The postcondition is per-entry: what the sections hold is what
+# the page carries, or the release fails here rather than shipping short.
+@test "release_notes.sh: an assembled body that lost an entry is refused, not published" {
+  _series v0.9 \
+    '## [v0.9.0] - 2026-04-03' \
+    '' \
+    '### Added' \
+    '- the entry that survives (#1, PR #2)' \
+    '- the entry that does not (#3, PR #4)'
+
+  # A merge step that drops one entry, injected rather than waited for: the
+  # guard's whole point is that it fires for a shape nobody predicted, and
+  # a fixture can only carry a shape somebody did.
+  run _notes_with_lossy_assembler v0.9.0 "${CL}"
+  [ "${status}" -ne 0 ]
+  assert_output --partial 'carry 1 of the 2 entry bullets'
+  assert_output --partial 'v0.9.0'
 }
 
 # why: The guard tests the lead ARRAY's length, and a `## [tag]` heading is
