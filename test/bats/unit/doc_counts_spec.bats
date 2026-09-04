@@ -9,12 +9,18 @@
 # validating safety net and runs this same generator, so a case here is a
 # case for the gate too.
 #
-# The first half covers the count figures, which were generated first and
-# for the same reason: they were hand-edited every PR and went stale
-# silently. The second half covers the generated catalogue REGION, and
-# every case in it is a property the previous design could not have --
-# a rename carrying its prose, a deleted row restored byte-for-byte, a
-# description with a pipe in it that the author did not have to escape.
+# The file runs in three parts. The first covers the count figures that are
+# still generated, which came first and for the same reason: they were
+# hand-edited every PR and went stale silently. The second is the guard that
+# the AGGREGATE figures stay gone (ADR-00000028 sec. 1) -- in the two
+# documents that carried them, in the catalogues that pointed at them, in the
+# PRD that once predicted the gate would go with them, and in the generator
+# that used to maintain them; it reads the COMMITTED tree, because what it
+# forbids is a line being typed back into the repo. The third covers the
+# generated catalogue REGION, and every case in it is a property the previous
+# design could not have -- a rename carrying its prose, a deleted row
+# restored byte-for-byte, a description with a pipe in it that the author did
+# not have to escape.
 
 bats_require_minimum_version 1.5.0
 
@@ -266,7 +272,7 @@ _removed_figure_mentions() {
 # one: TEST.md's merge advice cited the removed "System (N) and smoke (N)"
 # line as its worked example, with the digits already written as an `N`, so
 # a rule that greps for `grand total` alone reads that document as clean
-# while it still sends the reader one paragraph up to a line that is gone.
+# while it still sends the reader to a line that is gone.
 # The premise is asserted rather than assumed, from the tree: this case only
 # forbids the pointers because TEST.md itself records no total, so restoring
 # the figure lifts the rule instead of leaving a rule nobody can satisfy.

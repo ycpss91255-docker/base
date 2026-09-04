@@ -1874,12 +1874,18 @@ whose blurbs and per-test descriptions are read out of the spec files' own
 `# why:` markers. `check_test_md_drift.sh` stays the validating safety net
 and runs this same generator, so a case here is a case for the gate too.
 
-The first half covers the count figures, which were generated first and for
-the same reason: they were hand-edited every PR and went stale silently. The
-second half covers the generated catalogue REGION, and every case in it is a
-property the previous design could not have -- a rename carrying its prose,
-a deleted row restored byte-for-byte, a description with a pipe in it that
-the author did not have to escape.
+The file runs in three parts. The first covers the count figures that are
+still generated, which came first and for the same reason: they were
+hand-edited every PR and went stale silently. The second is the guard that
+the AGGREGATE figures stay gone (ADR-00000028 sec. 1) -- in the two
+documents that carried them, in the catalogues that pointed at them, in the
+PRD that once predicted the gate would go with them, and in the generator
+that used to maintain them; it reads the COMMITTED tree, because what it
+forbids is a line being typed back into the repo. The third covers the
+generated catalogue REGION, and every case in it is a property the previous
+design could not have -- a rename carrying its prose, a deleted row restored
+byte-for-byte, a description with a pipe in it that the author did not have
+to escape.
 
 | Test | Description |
 |------|-------------|
@@ -1892,7 +1898,7 @@ the author did not have to escape.
 | `_authored_lines: a fence marker quoted in prose opens and closes nothing (#978)` | A guard is only as wide as the span it reads, and the span here is decided by a marker BOTH documents quote in their own prose while explaining that editing the generated region does nothing. The fixture reproduces the shape unit.md actually ships: both markers on ONE line, 34 lines above the real fence. That is the shape a substring match cannot survive -- the opening rule's `next` means the closing rule never runs on that line, so the region opens at the quote and the 33 lines between it and the real fence are handed to the generated half unread. It is exactly where a typed-back total would sit, and where `_sync_type_total`'s unanchored `sed` would go on maintaining it. Splitting the two markers across two lines would pin nothing: the second line re-closes the region and the preamble below is scanned after all, on the broken helper as much as the fixed one. The whole authored span is asserted rather than the figure alone, so unanchoring EITHER fence fails the case -- the closing one drops the quoting line itself. |
 | `doc/test/TEST.md commits no aggregate suite figure (#978)` | TEST.md is the index and carried four of the five aggregate lines, so it is where a reintroduced total would land first. The guard reads the COMMITTED document rather than a fixture: the fixture cases above prove what the generator writes, and this one proves what the repo ships. |
 | `doc/test/unit.md commits no aggregate suite figure (#978)` | unit.md's total is the fifth line, and the load-bearing one: it is the figure every branch that adds a unit test had to edit. Only the authored preamble is scanned -- the generated region below the fence is derived from the specs on every run. |
-| `doc/test: no catalogue points at an aggregate figure TEST.md no longer records (#978)` | The figure and the POINTERS to it are one shape, and a branch that removes the first without the second leaves the documentation worse than it found it: a live cross-reference to a number nobody can find reads as the reader's failure to look. A pointer need not name the figure to be one: TEST.md's merge advice cited the removed "System (N) and smoke (N)" line as its worked example, with the digits already written as an `N`, so a rule that greps for `grand total` alone reads that document as clean while it still sends the reader one paragraph up to a line that is gone. The premise is asserted rather than assumed, from the tree: this case only forbids the pointers because TEST.md itself records no total, so restoring the figure lifts the rule instead of leaving a rule nobody can satisfy. |
+| `doc/test: no catalogue points at an aggregate figure TEST.md no longer records (#978)` | The figure and the POINTERS to it are one shape, and a branch that removes the first without the second leaves the documentation worse than it found it: a live cross-reference to a number nobody can find reads as the reader's failure to look. A pointer need not name the figure to be one: TEST.md's merge advice cited the removed "System (N) and smoke (N)" line as its worked example, with the digits already written as an `N`, so a rule that greps for `grand total` alone reads that document as clean while it still sends the reader to a line that is gone. The premise is asserted rather than assumed, from the tree: this case only forbids the pointers because TEST.md itself records no total, so restoring the figure lifts the rule instead of leaving a rule nobody can satisfy. |
 | `doc/PRD.md predicts no removal of a lint the tree still runs (#978)` | The PRD is what a later branch follows, and a prediction it never retracts is an instruction. Invariant 10 said the doc-count drift gate entry drops from invariant 2 "when that mechanism lands" -- the mechanism is #978, it landed, and the gate stayed, because since #999 it validates the generated catalogue rather than the removed figures. The premise is derived from the tree, not restated: the case only forbids the prediction while `doc-counts` is still a `_LINT_TOOLS` entry, so a decision to actually retire the gate lifts the rule with it. |
 | `_sync_doc_counts: does not maintain an aggregate figure in TEST.md (#978)` | Removing the lines is only half of it. The generator's TEST.md pass was the mechanism that made them maintainable, and every one of its rewrites is a `sed` that silently does nothing when its pattern is absent -- so left in place it would sit there looking retired while standing ready to adopt any figure typed back in, which is how the count became a maintained thing the first time. This is the case that says the generator no longer owns TEST.md: a document carrying every shape at once comes back unchanged. |
 | `_sync_doc_counts: a '# why:' block above a test becomes that row's description` | The ordinary case end to end: a description authored above a test in the spec file arrives in the rendered row. Everything else here is a deviation from this one. |
