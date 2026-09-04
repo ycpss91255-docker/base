@@ -20,6 +20,11 @@
 # matching, and the second is the failure mode that costs the most, because
 # its output is indistinguishable from success (PRD design principle P3).
 
+# adr-refs: fixture
+# The doc/adr paths below name the throwaway registry these cases build
+# under ${SCRATCH}. Declaring it takes this file out of the ADR reference
+# population -- see script/adr/references.sh.
+
 setup() {
   export LOG_FORMAT=text
   load "${BATS_TEST_DIRNAME}/test_helper"

@@ -16,6 +16,13 @@
 # the same code path a checkout takes apart from the rename verb, and it
 # keeps the cases about references rather than about git.
 
+# adr-refs: fixture
+# Every ADR number, token and doc/adr path below names the throwaway
+# registry a case builds under ${ROOT}. Declaring it takes this file out
+# of the reference population for both the lint and the verb -- which is
+# what stops the verb from renumbering the fixtures out from under the
+# assertions that guard it. See script/adr/references.sh.
+
 bats_require_minimum_version 1.5.0
 
 setup() {

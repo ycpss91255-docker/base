@@ -16,6 +16,12 @@
 # trees, plus a real-tree guard that the live `doc/adr/` passes today with
 # the intentional `00000009` gap warned.
 
+# adr-refs: fixture
+# Every ADR number, token and doc/adr path below names one of the
+# throwaway registries these cases build under a temp root. Declaring it
+# takes this file out of the ADR reference population for both the lint
+# and `just adr renumber` -- see script/adr/references.sh.
+
 setup() {
   export LOG_FORMAT=text
   load "${BATS_TEST_DIRNAME}/test_helper"
@@ -320,10 +326,11 @@ _index() {
 
 # why: The blind spot the guess created, and it was live. The rule was a
 # two-character lookback: a `doc/adr/` path preceded by `}` was taken for
-# somebody's fixture. This tree writes `"${REPO}/doc/adr/00000008-...md"`
-# into a spec as a pointer at its OWN registry, so a renumber of that
-# record left a stale pointer under a green lint -- and a rule whose
-# default on the shape it does not recognise is "pass" is not a check.
+# somebody's fixture. coverage_badge_spec.bats writes
+# `"${REPO}/doc/adr/00000008-coverage-sharded-pr-gate.md"` as a pointer at
+# this tree's OWN registry, so a renumber of that record would leave a
+# stale pointer under a green lint -- and a rule whose default on the
+# shape it does not recognise is "pass" is not a check.
 @test "_run_adr_numbering: FAILS on a doc/adr path rooted in a shell expansion (#1021)" {
   _touch_adr "00000001-alpha.md"
   _index '| 00000001 -- alpha | keep | mechanism | note |'

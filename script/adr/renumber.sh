@@ -42,10 +42,16 @@
 #             slug, so it stays unambiguous where the number does not.
 #   index     a BARE <from> -- doc/adr/README.md ONLY. That document's
 #             8-digit runs are all ADR numbers (its rows open with one and
-#             its audit conclusions enumerate them). Everywhere else a bare
-#             8-digit run is not a reference: it is the throwaway registry
-#             a lint spec builds, and rewriting those is how this tool
-#             would corrupt the tests that guard it.
+#             its audit conclusions enumerate them). Everywhere else an
+#             8-digit run standing on its own is not a reference to
+#             anything: it is a version, a count, an argument.
+#
+# A file that builds its own throwaway registry is not in the population
+# at all -- it declares itself (script/adr/references.sh) and is dropped
+# WHOLE. Per-class was tried and is how this tool corrupted the spec that
+# guards it: the `ADR-<n>` and `adr/<n>-` forms in adr_renumber_spec.bats
+# were rewritten and the numbers it passes to this tool as ARGUMENTS were
+# not, so its setup and its command named different records.
 #   derived   the generated regions of the doc/test catalogues. Rewritten
 #             LIKE ANY OTHER FILE and then REBUILT, in that order, and
 #             neither step subsumes the other. One of the 14 sites was a

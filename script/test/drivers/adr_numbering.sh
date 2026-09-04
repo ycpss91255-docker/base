@@ -66,6 +66,13 @@
 # contract; widening the pattern to shapes the registry never uses would
 # trade precision for guesswork.
 #
+# WHICH FILES are read is script/adr/references.sh's answer, shared with
+# the verb that repairs these findings, and it is also where a file that
+# builds its own throwaway registry declares itself. Both halves were once
+# decided here and decided differently: this lint read the whole
+# filesystem while the verb swept the tracked files, and it guessed at a
+# fixture from a brace two characters back. See that file.
+#
 # The index checks run only where doc/adr/README.md carries the audit
 # table's HEADER. A README without one is not an index, which is the
 # fixture case and also the honest reading -- and the residue is stated
@@ -90,19 +97,14 @@ readonly _ADR_NAME_RE='^[0-9]{8}-.+\.md$'
 # The reference vocabulary. The token form is the common one; the path
 # form is the one that carries a slug.
 readonly _ADR_TOKEN_SCAN_RE='ADR-[0-9]{8}'
-# Up to two leading characters are captured so a path built on a shell
-# EXPANSION can be told apart from one rooted in this tree: leftmost-match
-# makes `"${SCRATCH}/doc/adr/..."` come back as `}/doc/adr/...`, and a
-# path whose root is a variable is a registry some test builds, not this
-# one. Without that distinction every lint spec's throwaway fixture would
-# be a finding here. TWO characters and not one because the brace is
-# separated from the path by its slash.
-#
-# The residue: an expansion written without braces (`"$SCRATCH/doc/..."`)
-# is not recognised and would be read as a reference. This tree's style
-# requires the braces, so the shape has no instances -- and widening the
-# lookback until it did would start swallowing real references.
-readonly _ADR_PATH_SCAN_RE='.{0,2}doc/adr/[0-9]{8}-[A-Za-z0-9._-]+\.md'
+# No lookback, and no attempt to tell a fixture path from a real one by
+# how it is spelled. That was tried: a path preceded by `}` was read as a
+# shell expansion and therefore as somebody's throwaway registry, which
+# dropped `"${REPO}/doc/adr/00000008-coverage-sharded-pr-gate.md"` -- a
+# live pointer into this tree's own registry -- unchecked. A file that
+# builds a registry declares it instead (script/adr/references.sh), and
+# declaring it takes the file out of the population entirely.
+readonly _ADR_PATH_SCAN_RE='doc/adr/[0-9]{8}-[A-Za-z0-9._-]+\.md'
 # The audit table: its header marks the document as the index, and a row
 # opens with the number of the record it is about.
 readonly _ADR_INDEX_HEADER_RE='^\| ADR \| Verdict \|'
@@ -153,11 +155,7 @@ _adr_ref_findings() {
   while IFS= read -r _hit; do
     _match="${_hit##*:}"
     _loc="${_hit%:*}"
-    # A path whose root is a shell expansion is a registry some test
-    # builds, not this one -- see the header. The brace can only be in the
-    # captured lookback: a record's path cannot contain one.
-    [[ "${_match}" != *'}'* ]] || continue
-    _path="doc/adr/${_match#*doc/adr/}"
+    _path="${_match}"
     [[ ! -f "${_root}/${_path}" ]] || continue
     printf 'ADR numbering: %s: reference to %s, which is not a record in this tree (renumbered, renamed, or a typo).\n' \
       "${_loc}" "${_path}"

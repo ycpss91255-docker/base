@@ -43,7 +43,46 @@
 # git would have skipped, which is the behaviour this fallback replaces
 # rather than a new failure.
 #
+# ── A file that builds its own registry ─────────────────────────────────
+#
+# A lint spec constructs a throwaway `doc/adr/` under a temp root. Its
+# `ADR-NNNNNNNN` tokens and `doc/adr/NNNNNNNN-<slug>.md` paths name THAT
+# registry, never this one, and both tools have to know it: the lint would
+# report every fixture as a dangling reference, and the verb would rewrite
+# the fixtures out from under the assertions that guard it.
+#
+# It is DECLARED, not guessed. The guess was a two-character lookback in
+# the lint -- a path preceded by `}` was taken for a shell expansion and
+# therefore a fixture -- and it was wrong in both directions at once: it
+# read `"${REPO}/doc/adr/00000008-coverage-sharded-pr-gate.md"`, a live
+# pointer into this tree's own registry, as somebody's fixture, and it
+# would have read an unbraced `"$SCRATCH/doc/adr/..."` as a reference. A
+# rule whose default on the shape it does not recognise is "pass" is not a
+# check.
+#
+# The verb made the same distinction a THIRD way, per class: it rewrote
+# the `ADR-<n>` and `adr/<n>-` forms inside a lint spec while leaving the
+# bare numbers that spec passes to it as ARGUMENTS alone. Renumbering
+# 00000030 therefore rewrote adr_renumber_spec.bats's fixture record and
+# its assertions but not its `renumber.sh 00000030 00000032` lines, so the
+# setup and the command named different records -- with the tool's own
+# survivor check and the lint both reporting clean.
+#
+# So a file that builds a registry says so, on a line of its own, and both
+# tools drop it WHOLE. Whole is the half that was missing: a file is
+# either this tree's or its own, and there is no reference class for which
+# the answer differs.
+#
+# The marker is a comment line reading `adr-refs: fixture` (see
+# _ADR_REF_FIXTURE_RE). It has to be the whole line, so that a sentence
+# about the marker -- this one -- is not one. The residue: a file in a
+# language with no `#` comment cannot declare itself, and none of this
+# tree's registry-building fixtures is in one.
+#
 # Style: Google Shell Style Guide.
+
+# The fixture declaration: a comment line and nothing else on it.
+_ADR_REF_FIXTURE_RE='^[[:space:]]*#[[:space:]]*adr-refs:[[:space:]]*fixture[[:space:]]*$'
 
 # _adr_ref_ignored_dirs <root> -- the directories <root>/.gitignore
 # declares derived, as `anchored<TAB><path>` (root-relative, matched
@@ -107,8 +146,26 @@ _adr_ref_candidates() {
 # other is wrong about.
 _adr_ref_files() {
   local _root="$1" _rel
+  local -a _all=()
   while IFS= read -r _rel; do
     [[ -f "${_root}/${_rel}" ]] || continue
-    printf '%s\n' "${_rel}"
+    _all+=( "${_rel}" )
   done < <(_adr_ref_candidates "${_root}")
+  (( ${#_all[@]} > 0 )) || return 0
+
+  # One grep for the whole population rather than one per file: the
+  # declaration is rare and the population is the tree.
+  local -A _fixture=()
+  while IFS= read -r _rel; do
+    [[ -n "${_rel}" ]] || continue
+    _fixture["${_rel}"]=1
+  done < <(
+    cd -- "${_root}" || exit 0
+    grep -lIE -e "${_ADR_REF_FIXTURE_RE}" -- "${_all[@]}" 2>/dev/null || true
+  )
+
+  for _rel in "${_all[@]}"; do
+    [[ -z "${_fixture[${_rel}]:-}" ]] || continue
+    printf '%s\n' "${_rel}"
+  done
 }
