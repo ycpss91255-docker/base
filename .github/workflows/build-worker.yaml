@@ -393,6 +393,22 @@ jobs:
             echo "code_changed=true" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
+          # The diff is CAPTURED and its status CHECKED before a single
+          # path is classified. Read as `done < <(git diff ...)` the loop's
+          # exit status is the LOOP's -- never the producer's -- and
+          # `pipefail` would not have reached it either, a process
+          # substitution being no pipeline. So a diff that FAILED (base
+          # force-pushed, a partial fetch, a shallow clone without the base
+          # commit) delivered zero lines, classified as doc-only, and took
+          # the REQUIRED docker-build check green having built nothing --
+          # and the reason it built nothing was a failure nobody was told
+          # about (#1013). An unreadable diff is not "no code changed", it
+          # is "we do not know", and this step is the last place that can
+          # still say so.
+          if ! changed="$(git diff --name-only "${BASE_SHA}...${HEAD_SHA}")"; then
+            echo "::error::classify: git diff --name-only ${BASE_SHA}...${HEAD_SHA} failed, so the changed-path set is unknown and the doc-only fast-pass cannot be taken. Both commits have to be reachable in this checkout (fetch-depth: 0), and the base branch must not have been force-pushed mid-run."
+            exit 1
+          fi
           has_code=0
           # Bash `case` globs treat `*` as matching `/` too, so `*.md`
           # covers nested-path markdown files and `doc/*` covers any
@@ -411,7 +427,7 @@ jobs:
                 break
                 ;;
             esac
-          done < <(git diff --name-only "${BASE_SHA}...${HEAD_SHA}")
+          done <<< "${changed}"
           if [ "${has_code}" -eq 1 ]; then
             echo "code_changed=true" >> "${GITHUB_OUTPUT}"
           else
@@ -771,8 +787,15 @@ jobs:
       # already configured the builder with the cache backend.
       #
       # Blocklist prevents re-building stages owned by the standard
-      # pipeline. Test-stage detection reuses the same `FROM ... AS`
-      # regex pattern as setup.sh's _parse_dockerfile_stages().
+      # pipeline. Which stages the Dockerfile declares is READ, not
+      # re-derived here: stage_names.sh calls the tree's one FROM-line
+      # matcher, the same one runtime_stages.sh reads the runtime pair
+      # through. This step used to carry a regex of its own with a comment
+      # claiming it was that matcher's; it allowed one token between FROM
+      # and AS, so `FROM --platform=$BUILDPLATFORM <image> AS <stage>-test`
+      # declared nothing to it and the stage's smoke test was silently not
+      # built (#1013). Reached through the same version-matched
+      # `.worker-base` checkout as the cache-scope and runtime resolvers.
       # ────────────────────────────────────────────────────────────
       - name: Build extra stages
         if: ${{ inputs.extra_stages != '' }}
@@ -818,9 +841,7 @@ jobs:
 
           blocklist="sys devel-base devel devel-test runtime-test runtime"
 
-          available_stages=$(grep -iE '^FROM[[:space:]]+[^[:space:]]+[[:space:]]+AS[[:space:]]+' \
-            "${DOCKERFILE}" | \
-            sed -E 's/^FROM[[:space:]]+[^[:space:]]+[[:space:]]+AS[[:space:]]+([^[:space:]#]+).*/\1/i')
+          available_stages="$(bash .worker-base/script/ci/build_worker/stage_names.sh)"
 
           build_arg_flags=(
             --build-arg "USER_NAME=ci"
@@ -856,7 +877,19 @@ jobs:
             done
 
             test_stage="${stage}-test"
-            if echo "${available_stages}" | grep -qx "${test_stage}"; then
+            # A here-string and a `> /dev/null`, not a pipe into `grep -q`:
+            # that reader leaves at the first match, the writer upstream
+            # takes SIGPIPE, and under this step's `pipefail` its 141
+            # becomes the pipeline's status -- so a stage that WAS found
+            # reads as absent and its smoke test is silently not built.
+            # `-Fx` because the stage name is DATA: it reaches here from
+            # the caller's `extra_stages` input, and read as a basic
+            # regular expression a `.` in it (docker allows one in a
+            # target name) matches a DIFFERENT stage, sending buildx after
+            # a target the Dockerfile does not declare. Same spelling as
+            # runtime_stages.sh's `_declares_stage`, which reads the same
+            # roster for the same reason.
+            if grep -Fx -- "${test_stage}" > /dev/null <<< "${available_stages}"; then
               echo "::group::Build ${test_stage} (extra stage test)"
               docker buildx build \
                 --file "${DOCKERFILE}" \
