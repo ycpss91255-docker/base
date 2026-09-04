@@ -1954,6 +1954,7 @@ EOF
   grep -Fq 'exec "${@}"' "${TEMP_DIR}/script/entrypoint.sh"
   grep -Fq '. /usr/local/lib/base/logging.sh' "${TEMP_DIR}/script/entrypoint.sh"
   grep -Fq 'export MY_APP_HOME=/opt/app' "${TEMP_DIR}/script/entrypoint.sh"
+}
 # ── DL3007: the series this migration WRITES is a series we still support ───
 #
 # The DL3007 migration replaces a consumer's floating `FROM alpine:latest`
