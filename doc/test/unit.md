@@ -1,10 +1,14 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **4167 tests**.
-
 > Part of the `just test` self-test suite — what runs in the `Self Test`
-> CI job. See [TEST.md](TEST.md) for the index across all test types and
-> the self-test grand total.
+> CI job. See [TEST.md](TEST.md) for the index across all test levels and
+> types.
+>
+> No suite total is recorded here (ADR-00000028 sec. 1): this file is the
+> one every branch that adds a unit test rewrites, and a total of the
+> working tree is wrong between every commit and its resync. `just test`
+> reports what it ran. The per-spec `(N)` in each heading below stays --
+> it is generated from that spec on every run and describes only it.
 
 ## How this catalogue is maintained
 
@@ -1882,7 +1886,7 @@ refused before any build or bundle step.
 | `_run_derived_figures: FAILS when the dist/ scan root is missing (no vacuous pass) (#874)` | - |
 | `_run_derived_figures: the REAL tree passes today (#874)` | - |
 
-### test/bats/unit/doc_counts_spec.bats (22)
+### test/bats/unit/doc_counts_spec.bats (26)
 
 Unit coverage for the generator that derives ALL of doc/test/*.md from the
 specs: the count figures (`grep -c '^@test'`) and the catalogue sections,
@@ -1890,12 +1894,18 @@ whose blurbs and per-test descriptions are read out of the spec files' own
 `# why:` markers. `check_test_md_drift.sh` stays the validating safety net
 and runs this same generator, so a case here is a case for the gate too.
 
-The first half covers the count figures, which were generated first and for
-the same reason: they were hand-edited every PR and went stale silently. The
-second half covers the generated catalogue REGION, and every case in it is a
-property the previous design could not have -- a rename carrying its prose,
-a deleted row restored byte-for-byte, a description with a pipe in it that
-the author did not have to escape.
+The file runs in three parts. The first covers the count figures that are
+still generated, which came first and for the same reason: they were
+hand-edited every PR and went stale silently. The second is the guard that
+the AGGREGATE figures stay gone (ADR-00000028 sec. 1) -- in the two
+documents that carried them, in the catalogues that pointed at them, in the
+PRD that once predicted the gate would go with them, and in the generator
+that used to maintain them; it reads the COMMITTED tree, because what it
+forbids is a line being typed back into the repo. The third covers the
+generated catalogue REGION, and every case in it is a property the previous
+design could not have -- a rename carrying its prose, a deleted row restored
+byte-for-byte, a description with a pipe in it that the author did not have
+to escape.
 
 | Test | Description |
 |------|-------------|
@@ -1905,8 +1915,12 @@ the author did not have to escape.
 | `_sync_doc_counts: is idempotent on an already-synced tree (#727)` | re-run no-op |
 | `_sync_doc_counts: rewrites the system per-type total from test/bats/system/ (#782)` | - |
 | `_sync_doc_counts: tolerates an empty acceptance dir (count 0, no error) (#782)` | - |
-| `_sync_test_md_index: fills the system + acceptance rows, retires behavioural (#782)` | - |
-| `_sync_test_md_index: regenerates the blockquote prose System/smoke pair (#843)` | - |
+| `_authored_lines: a fence marker quoted in prose opens and closes nothing (#978)` | A guard is only as wide as the span it reads, and the span here is decided by a marker BOTH documents quote in their own prose while explaining that editing the generated region does nothing. The fixture reproduces the shape unit.md actually ships: both markers on ONE line, 34 lines above the real fence. That is the shape a substring match cannot survive -- the opening rule's `next` means the closing rule never runs on that line, so the region opens at the quote and the 33 lines between it and the real fence are handed to the generated half unread. It is exactly where a typed-back total would sit, and where `_sync_type_total`'s unanchored `sed` would go on maintaining it. Splitting the two markers across two lines would pin nothing: the second line re-closes the region and the preamble below is scanned after all, on the broken helper as much as the fixed one. The whole authored span is asserted rather than the figure alone, so unanchoring EITHER fence fails the case -- the closing one drops the quoting line itself. |
+| `doc/test/TEST.md commits no aggregate suite figure (#978)` | TEST.md is the index and carried four of the five aggregate lines, so it is where a reintroduced total would land first. The guard reads the COMMITTED document rather than a fixture: the fixture cases above prove what the generator writes, and this one proves what the repo ships. |
+| `doc/test/unit.md commits no aggregate suite figure (#978)` | unit.md's total is the fifth line, and the load-bearing one: it is the figure every branch that adds a unit test had to edit. Only the authored preamble is scanned -- the generated region below the fence is derived from the specs on every run. |
+| `doc/test: no catalogue points at an aggregate figure TEST.md no longer records (#978)` | The figure and the POINTERS to it are one shape, and a branch that removes the first without the second leaves the documentation worse than it found it: a live cross-reference to a number nobody can find reads as the reader's failure to look. A pointer need not name the figure to be one: TEST.md's merge advice cited the removed "System (N) and smoke (N)" line as its worked example, with the digits already written as an `N`, so a rule that greps for `grand total` alone reads that document as clean while it still sends the reader to a line that is gone. The premise is asserted rather than assumed, from the tree: the case reads TEST.md first and requires it to record no total. That is a conjunction, not a guard -- typing the figure back does not quietly license the pointers again, it fails this case on the premise line, and whoever restores the figure decides the pointers' fate in the same edit. |
+| `doc/PRD.md predicts no removal of a lint the tree still runs (#978)` | The PRD is what a later branch follows, and a prediction it never retracts is an instruction. Invariant 10 said the doc-count drift gate entry drops from invariant 2 "when that mechanism lands" -- the mechanism is #978, it landed, and the gate stayed, because since #999 it validates the generated catalogue rather than the removed figures. The premise is read from the tree, not restated: the case greps `_LINT_TOOLS` for the entry before it forbids the prediction, and asserts both. Retiring the gate therefore does not lift this rule silently -- it turns the case red on the premise line, which is where a person re-reads the PRD paragraph and rewrites or deletes this case in the change that retires it. |
+| `_sync_doc_counts: does not maintain an aggregate figure in TEST.md (#978)` | Removing the lines is only half of it. The generator's TEST.md pass was the mechanism that made them maintainable, and every one of its rewrites is a `sed` that silently does nothing when its pattern is absent -- so left in place it would sit there looking retired while standing ready to adopt any figure typed back in, which is how the count became a maintained thing the first time. This is the case that says the generator no longer owns TEST.md: a document carrying every shape at once comes back unchanged. |
 | `_sync_doc_counts: a '# why:' block above a test becomes that row's description` | The ordinary case end to end: a description authored above a test in the spec file arrives in the rendered row. Everything else here is a deviation from this one. |
 | `_sync_doc_counts: renaming a test carries its description to the new name` | The whole point of moving the prose to the spec. A rename used to lose the description -- the catalogue documented that loss as a rule -- because the row was keyed on the name. The description now moves with the lines above the test, so this is the case the previous design could not satisfy at all. |
 | `_sync_doc_counts: a row deleted from the catalogue is restored byte-for-byte` | The other direction of "the spec is the source": a row deleted from the committed catalogue is not a decision, it is damage, and the next run has to put it back exactly. Under the old design the description went with it and nothing could restore that half. |

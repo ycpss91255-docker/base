@@ -1168,7 +1168,7 @@ just --list        # 显示 CI 命令
 [system](../test/system.md) / [acceptance](../test/acceptance.md) /
 [smoke](../test/smoke.md)）。
 
-<!-- sync: directory-structure 00a6ff22dba0 3b354ae6cc7a -->
+<!-- sync: directory-structure 018c147ed3e5 fd07fbd1386c -->
 ## 目录结构
 
 ```
@@ -1254,7 +1254,7 @@ just --list        # 显示 CI 命令
 │   ├── readme/                         # README 翻译（zh-TW / zh-CN / ja）
 │   ├── adr/                            # Architecture Decision Records（00000001 … 00000024）
 │   ├── test/
-│   │   ├── TEST.md                     # 测试索引（总计 + 各类型链接）
+│   │   ├── TEST.md                     # 测试索引（各类型链接；不记总计，ADR-00000028）
 │   │   ├── unit.md                     # 单元测试清单
 │   │   ├── integration.md             # 集成测试清单
 │   │   ├── system.md             # System／Regression 测试清单

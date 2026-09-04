@@ -169,6 +169,58 @@ PRD invariant 2 lists the doc-count drift gate among the guards that
 establish it; that one entry drops from invariant 2 when this mechanism
 lands, and the invariant itself is untouched.
 
+**Amendment (#978, 2026-09-04): the five lines are GONE. The per-spec
+`### <path> (N)` count is KEPT, the drift gate is KEPT, and the paragraph
+directly above is wrong on both.**
+
+This is the mechanism half of section 1, and it landed against a record
+that #999 had already moved underneath. What holds, item by item:
+
+- **The five lines are removed**, as decided. `TEST.md`'s
+  `**N tests** total (...)`, the "not in the N figure" prose, the
+  "System (N) and smoke (N)" pair and the index table's `Count` column;
+  `unit.md`'s `**N tests**` header. `_sync_test_md_index` -- the
+  generator pass that maintained every one of them -- is deleted, and
+  `test/bats/unit/doc_counts_spec.bats` fails if a shape is typed back
+  into either document or if the generator starts writing one again.
+- **The per-spec `### <path> (N)` count is KEPT**, so the sentence above
+  grouping it with the grand total no longer holds. It was grouped there
+  while both were maintained by hand. Since #999 it is rendered from the
+  spec file on every run inside the fenced region, so it costs no sync
+  step -- the same ground on which the amendment above keeps the per-test
+  rows. It is also not an aggregate: it describes exactly the one file
+  whose heading it is, and it is regenerated where it is read.
+- **The per-level total at a catalogue's own head is KEPT** in
+  `integration.md`, `system.md`, `acceptance.md` and `smoke.md`, by the
+  same generator (`_sync_type_total`) and for the same reason. `unit.md`
+  loses its one because it is the figure every branch that adds a unit
+  test rewrites. That property -- who has to edit it -- is what made the
+  five lines cost what they cost, not the presence of a number.
+- **`check_test_md_drift.sh` and `sync-doc-counts.sh` STAY.** The
+  paragraph above has them "removed with the figures they served"; they
+  are not, because since #999 they serve the generated catalogue, which
+  is what keeps a description from silently vanishing on a rename. Only
+  `_sync_test_md_index` went. PRD invariant 2's guard list keeps its
+  doc-count drift gate entry for the same reason: the gate did not go
+  away, so nothing drops from the invariant.
+
+**What this does NOT achieve, recorded because section 1 claims it.**
+"Nothing in a branch's normal work touches `doc/test/` any more, so the
+file stops being a merge surface" was false the moment #999 made the
+per-test rows generated, and it stays false now. Replaying
+`git merge-tree --write-tree --name-only origin/main <head>` over the 64
+PRs opened since 2026-08-25, measured 2026-09-04 against `cb79382e`: 60
+conflict, and 57 of those conflict in `doc/test/`. `TEST.md` conflicts in
+57, and in 52 of them the conflict is confined to the lines this change
+removes -- so `TEST.md` very nearly stops being a merge surface.
+`unit.md` conflicts in 56, but in only 5 on its header: the other 51 are
+in the generated per-test rows, which every branch that adds a test
+writes. `doc/test/` therefore remains a merge surface by design, and
+`script/test/resolve-doc-counts.sh` is the answer to it rather than a
+transitional tool. The measurement the issue was filed on holds; the
+inference drawn from it -- that removing the five lines ends the
+conflicts -- does not.
+
 ### 2. Test statistics exist only in the release, and come from the run
 
 A tag push already runs the full suite. `classify` returns

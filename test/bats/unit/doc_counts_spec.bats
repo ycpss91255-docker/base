@@ -9,12 +9,18 @@
 # validating safety net and runs this same generator, so a case here is a
 # case for the gate too.
 #
-# The first half covers the count figures, which were generated first and
-# for the same reason: they were hand-edited every PR and went stale
-# silently. The second half covers the generated catalogue REGION, and
-# every case in it is a property the previous design could not have --
-# a rename carrying its prose, a deleted row restored byte-for-byte, a
-# description with a pipe in it that the author did not have to escape.
+# The file runs in three parts. The first covers the count figures that are
+# still generated, which came first and for the same reason: they were
+# hand-edited every PR and went stale silently. The second is the guard that
+# the AGGREGATE figures stay gone (ADR-00000028 sec. 1) -- in the two
+# documents that carried them, in the catalogues that pointed at them, in the
+# PRD that once predicted the gate would go with them, and in the generator
+# that used to maintain them; it reads the COMMITTED tree, because what it
+# forbids is a line being typed back into the repo. The third covers the
+# generated catalogue REGION, and every case in it is a property the previous
+# design could not have -- a rename carrying its prose, a deleted row
+# restored byte-for-byte, a description with a pipe in it that the author did
+# not have to escape.
 
 bats_require_minimum_version 1.5.0
 
@@ -126,54 +132,238 @@ setup() {
   refute_output --partial "**7 tests**"
 }
 
-@test "_sync_test_md_index: fills the system + acceptance rows, retires behavioural (#782)" {
+# ── No aggregate suite figure is committed ───────────────────────────────────
+#
+# The figures above are per-DOCUMENT: one catalogue's own count, generated
+# into the catalogue it describes. The ones below were AGGREGATES over the
+# whole suite, and they lived in the two documents every branch touches --
+# TEST.md's grand total, the "in the N figure" prose, the "System (N) and
+# smoke (N)" pair, the index table's Count column, and unit.md's per-type
+# total. ADR-00000028 sec. 1 removes them: an aggregate over a moving tree
+# names nothing it measured, so it is wrong between every commit and its
+# resync, and it was the whole merge surface of doc/test/.
+#
+# Nothing in the generator forbids writing one back -- a sed that finds no
+# pattern is a silent no-op, and re-adding the line would put it back under
+# maintenance. This is the guard that fails instead.
+
+# The shapes an aggregate figure took. `\*\*[0-9]+\*\*` is the bare grand
+# total; the rest are the four prose and table sites verbatim.
+_AGGREGATE_FIGURE_RE='\*\*[0-9]+ tests?\*\*|\*\*[0-9]+\*\*|\| Count \||in the [0-9]+ figure|System \([0-9]+\) and smoke \([0-9]+\)'
+
+# _authored_lines <doc> -- `<line>: <text>` for every AUTHORED line of <doc>:
+# everything OUTSIDE the generated catalogue region. Inside it the document is
+# the catalogue, whose per-spec headings and rows are derived on every run and
+# are not any of these rules' business.
+#
+# Both fences are matched as WHOLE LINES, and that is the whole of it: a
+# catalogue's own prose quotes the marker inline while explaining that the
+# region is replaced wholesale, so a substring match hands a document's
+# authored tail to the generated half and stops reading it. The region is
+# skipped rather than the scan ended, so the prose BELOW `<!-- /generated -->`
+# is read too -- smoke.md's "The shared test helper" section sits there, the
+# only authored tail any catalogue has today. No count is written down here:
+# it would be a second place to keep a figure true (ADR-00000028), and the
+# rule is about the span being read, not its length.
+_authored_lines() {
+  awk '
+    /^<!-- generated: catalogue sections -->$/ { _in = 1; next }
+    /^<!-- \/generated -->$/                   { _in = 0; next }
+    _in == 0                                   { print FNR ": " $0 }
+  ' "$1"
+}
+
+# _aggregate_figure_hits <doc> -- `<line>: <text>` for every authored line of
+# <doc> carrying an aggregate figure.
+_aggregate_figure_hits() {
+  _authored_lines "$1" | grep -E "${_AGGREGATE_FIGURE_RE}" || true
+}
+
+# why: A guard is only as wide as the span it reads, and the span here is
+# decided by a marker BOTH documents quote in their own prose while
+# explaining that editing the generated region does nothing. The fixture
+# reproduces the shape unit.md actually ships: both markers on ONE line, 34
+# lines above the real fence. That is the shape a substring match cannot
+# survive -- the opening rule's `next` means the closing rule never runs on
+# that line, so the region opens at the quote and the 33 lines between it
+# and the real fence are handed to the generated half unread. It is exactly
+# where a typed-back total would sit, and where `_sync_type_total`'s
+# unanchored `sed` would go on maintaining it. Splitting the two markers
+# across two lines would pin nothing: the second line re-closes the region
+# and the preamble below is scanned after all, on the broken helper as much
+# as the fixed one. The whole authored span is asserted rather than the
+# figure alone, so unanchoring EITHER fence fails the case -- the closing
+# one drops the quoting line itself.
+@test "_authored_lines: a fence marker quoted in prose opens and closes nothing (#978)" {
+  local _doc="${BATS_TEST_TMPDIR}/quoted_fence.md"
+  printf '%s\n' \
+    '**Editing the generated region does nothing.** Everything between' \
+    '`<!-- generated: catalogue sections -->` and `<!-- /generated -->` is' \
+    'replaced wholesale on every run.' \
+    'Unit specs under `test/bats/unit/`: **3927 tests**.' \
+    '<!-- generated: catalogue sections -->' \
+    '| Doc | Scope | Count |' \
+    '<!-- /generated -->' \
+    'Rows follow spec file order; sections follow the glob order.' > "${_doc}"
+
+  local _want
+  _want="$(printf '%s\n' \
+    '1: **Editing the generated region does nothing.** Everything between' \
+    '2: `<!-- generated: catalogue sections -->` and `<!-- /generated -->` is' \
+    '3: replaced wholesale on every run.' \
+    '4: Unit specs under `test/bats/unit/`: **3927 tests**.' \
+    '8: Rows follow spec file order; sections follow the glob order.')"
+
+  run _authored_lines "${_doc}"
+  assert_success
+  assert_output "${_want}"
+
+  run _aggregate_figure_hits "${_doc}"
+  assert_success
+  assert_output '4: Unit specs under `test/bats/unit/`: **3927 tests**.'
+}
+
+# why: TEST.md is the index and carried four of the five aggregate lines, so
+# it is where a reintroduced total would land first. The guard reads the
+# COMMITTED document rather than a fixture: the fixture cases above prove
+# what the generator writes, and this one proves what the repo ships.
+@test "doc/test/TEST.md commits no aggregate suite figure (#978)" {
+  run _aggregate_figure_hits /source/doc/test/TEST.md
+  assert_success
+  assert_output ''
+}
+
+# why: unit.md's total is the fifth line, and the load-bearing one: it is the
+# figure every branch that adds a unit test had to edit. Only the authored
+# preamble is scanned -- the generated region below the fence is derived from
+# the specs on every run.
+@test "doc/test/unit.md commits no aggregate suite figure (#978)" {
+  run _aggregate_figure_hits /source/doc/test/unit.md
+  assert_success
+  assert_output ''
+}
+
+# The shapes a POINTER at a removed figure took. A pointer is not a figure:
+# the number is gone from it, so `_AGGREGATE_FIGURE_RE` -- every alternative
+# of which needs digits -- cannot see one. It names the figure ("grand
+# total") or quotes the line the figure lived on with an `N` where the digits
+# were, which is the form a document reaches for once the real line is gone.
+_REMOVED_FIGURE_POINTER_RE='grand total|System \([0-9N]+\) and smoke|in the [0-9N]+ figure'
+
+# _removed_figure_mentions -- `<doc>:<line>: <text>` for every authored line
+# under doc/test/ that sends the reader to a figure ADR-00000028 sec. 1
+# removed. Every catalogue introduced itself by its relation to the grand
+# total ("part of it", "not part of it"), and TEST.md's merge advice cited
+# the "System (N) and smoke (N)" line it carried as the worked example of a
+# collapse gone wrong -- so removing the figures leaves documents pointing at
+# something no document records.
+_removed_figure_mentions() {
+  local _doc _base
+  for _doc in /source/doc/test/*.md; do
+    _base="$(basename -- "${_doc}")"
+    _authored_lines "${_doc}" \
+      | grep -E "${_REMOVED_FIGURE_POINTER_RE}" \
+      | sed -e "s|^|${_base}:|" || true
+  done
+  return 0
+}
+
+# why: The figure and the POINTERS to it are one shape, and a branch that
+# removes the first without the second leaves the documentation worse than
+# it found it: a live cross-reference to a number nobody can find reads as
+# the reader's failure to look. A pointer need not name the figure to be
+# one: TEST.md's merge advice cited the removed "System (N) and smoke (N)"
+# line as its worked example, with the digits already written as an `N`, so
+# a rule that greps for `grand total` alone reads that document as clean
+# while it still sends the reader to a line that is gone.
+# The premise is asserted rather than assumed, from the tree: the case reads
+# TEST.md first and requires it to record no total. That is a conjunction,
+# not a guard -- typing the figure back does not quietly license the
+# pointers again, it fails this case on the premise line, and whoever
+# restores the figure decides the pointers' fate in the same edit.
+@test "doc/test: no catalogue points at an aggregate figure TEST.md no longer records (#978)" {
+  run _aggregate_figure_hits /source/doc/test/TEST.md
+  assert_success
+  assert_output ''
+  run _removed_figure_mentions
+  assert_success
+  assert_output ''
+}
+
+# _prd_gate_removal_predictions -- every doc/PRD.md paragraph that both
+# names the doc-count drift gate and predicts its removal, folded to one
+# line each. The unit is a paragraph because that is the span a reader
+# takes as one claim (the rule adr_doc_claims_spec.bats reads records by).
+#
+# The PRD is scanned and doc/adr/ deliberately is not: an ADR records a
+# decision as it was taken and amends by APPENDING, so superseded prose is
+# supposed to survive in it. The PRD states the invariants as they stand
+# and is edited in place, so a prediction left in it is not history, it is
+# the current record being wrong.
+_prd_gate_removal_predictions() {
+  awk '
+    BEGIN { RS = ""; FS = "\n" }
+    { _b = $0; gsub(/\n/, " ", _b) }
+    _b ~ /doc-count/ && _b ~ /drops? from invariant|removed from invariant|removes/ { print _b }
+  ' /source/doc/PRD.md
+}
+
+# why: The PRD is what a later branch follows, and a prediction it never
+# retracts is an instruction. Invariant 10 said the doc-count drift gate
+# entry drops from invariant 2 "when that mechanism lands" -- the mechanism
+# is #978, it landed, and the gate stayed, because since #999 it validates
+# the generated catalogue rather than the removed figures. The premise is
+# read from the tree, not restated: the case greps `_LINT_TOOLS` for the
+# entry before it forbids the prediction, and asserts both. Retiring the
+# gate therefore does not lift this rule silently -- it turns the case red
+# on the premise line, which is where a person re-reads the PRD paragraph
+# and rewrites or deletes this case in the change that retires it.
+@test "doc/PRD.md predicts no removal of a lint the tree still runs (#978)" {
+  run grep -Fx '  doc-counts' /source/script/test/test.sh
+  assert_success
+  run _prd_gate_removal_predictions
+  assert_success
+  assert_output ''
+}
+
+# why: Removing the lines is only half of it. The generator's TEST.md pass
+# was the mechanism that made them maintainable, and every one of its rewrites
+# is a `sed` that silently does nothing when its pattern is absent -- so left
+# in place it would sit there looking retired while standing ready to adopt
+# any figure typed back in, which is how the count became a maintained thing
+# the first time. This is the case that says the generator no longer owns
+# TEST.md: a document carrying every shape at once comes back unchanged.
+@test "_sync_doc_counts: does not maintain an aggregate figure in TEST.md (#978)" {
   run bash -c '
     source "'"${GEN}"'"
     root="${BATS_TEST_TMPDIR}/r"
-    mkdir -p "${root}/test/bats/unit" "${root}/test/bats/integration" \
-             "${root}/test/bats/system" "${root}/test/bats/acceptance" \
-             "${root}/dist/test/bats/smoke/shared" "${root}/doc/test"
+    mkdir -p "${root}/test/bats/unit" "${root}/test/bats/system" \
+             "${root}/dist/test/bats/smoke" "${root}/doc/test"
     printf "@test \"u\" {\n:\n}\n" > "${root}/test/bats/unit/u_spec.bats"
-    printf "@test \"i\" {\n:\n}\n" > "${root}/test/bats/integration/i_spec.bats"
-    printf "@test \"s1\" {\n:\n}\n@test \"s2\" {\n:\n}\n@test \"s3\" {\n:\n}\n" > "${root}/test/bats/system/s_spec.bats"
-    {
-      echo "| Doc | Scope | Count |"
-      echo "| [unit.md](unit.md) | unit | 0 |"
-      echo "| [integration.md](integration.md) | integration | 0 |"
-      echo "| [system.md](system.md) | system | 0 |"
-      echo "| [acceptance.md](acceptance.md) | acceptance | 0 |"
-      echo "| [smoke.md](smoke.md) | smoke | 0 |"
-    } > "${root}/doc/test/TEST.md"
-    _sync_doc_counts "${root}"
-    cat "${root}/doc/test/TEST.md"
-  '
-  assert_success
-  assert_output --partial "[system.md](system.md) | system | 3 "
-  assert_output --partial "[acceptance.md](acceptance.md) | acceptance | 0 "
-}
-
-@test "_sync_test_md_index: regenerates the blockquote prose System/smoke pair (#843)" {
-  # Regression: only the table rows and per-level headers were regenerated,
-  # so TEST.md's hand-written "System (N) and smoke (N)" prose drifted and
-  # ended up contradicting the table sitting right below it.
-  run bash -c '
-    source "'"${GEN}"'"
-    root="${BATS_TEST_TMPDIR}/r"
-    mkdir -p "${root}/test/bats/system" "${root}/dist/test/bats/smoke" \
-             "${root}/doc/test"
-    printf "@test \"s1\" {\n:\n}\n@test \"s2\" {\n:\n}\n" > "${root}/test/bats/system/s_spec.bats"
+    printf "@test \"s\" {\n:\n}\n" > "${root}/test/bats/system/s_spec.bats"
     printf "@test \"k\" {\n:\n}\n" > "${root}/dist/test/bats/smoke/k.bats"
-    printf "%s\n" "> System (99) and smoke (98) tests are tracked here too." \
+    printf "%s\n" \
+      "Template self-tests: **99 tests** total (98 unit + 1 integration)." \
+      "> System (97) and smoke (96) tests are tracked here too but are" \
+      "> **not** in the 99 figure." \
+      "| Doc | Scope | Count |" \
+      "| [unit.md](unit.md) | unit | 95 |" \
+      "| [system.md](system.md) | system | 94 |" \
+      "Self-test grand total (unit + integration): **99**." \
       > "${root}/doc/test/TEST.md"
+    cp "${root}/doc/test/TEST.md" "${root}/before"
     _sync_doc_counts "${root}"
-    cat "${root}/doc/test/TEST.md"
+    diff -u "${root}/before" "${root}/doc/test/TEST.md"
   '
   assert_success
-  assert_output --partial "System (2) and smoke (1) tests"
-  refute_output --partial "System (99)"
+  assert_output ''
 }
 
-
+# The two `_sync_test_md_index` cases that stood here -- the index table's
+# Count column and the "System (N) and smoke (N)" blockquote pair -- went
+# with the function. Both asserted that a figure in TEST.md was kept true;
+# ADR-00000028 sec. 1 is that it is not kept at all. The case above replaces
+# them: it asserts TEST.md comes back unchanged.
 
 # ── The generated catalogue region ───────────────────────────────────────────
 #

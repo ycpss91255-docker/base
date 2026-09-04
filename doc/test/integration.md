@@ -3,8 +3,8 @@
 Integration specs under `test/bats/integration/`: **163 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
-> CI job. See [TEST.md](TEST.md) for the index across all test types and
-> the self-test grand total.
+> CI job. See [TEST.md](TEST.md) for the index across all test levels and
+> types.
 
 ## Test Files
 

@@ -1255,7 +1255,7 @@ just --list  # CI ターゲット表示
 [system](../test/system.md) / [acceptance](../test/acceptance.md) /
 [smoke](../test/smoke.md)）。
 
-<!-- sync: directory-structure 00a6ff22dba0 e77f81d44b48 -->
+<!-- sync: directory-structure 018c147ed3e5 ee55c77ca793 -->
 ## ディレクトリ構造
 
 ```
@@ -1341,7 +1341,7 @@ just --list  # CI ターゲット表示
 │   ├── readme/                         # README 翻訳（zh-TW / zh-CN / ja）
 │   ├── adr/                            # Architecture Decision Records（00000001 … 00000024）
 │   ├── test/
-│   │   ├── TEST.md                     # テスト索引（総数 + 種別リンク）
+│   │   ├── TEST.md                     # テスト索引（種別リンク；総数は記録しない、ADR-00000028）
 │   │   ├── unit.md                     # ユニットテスト一覧
 │   │   ├── integration.md             # 統合テスト一覧
 │   │   ├── system.md             # System／Regression テスト一覧

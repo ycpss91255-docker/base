@@ -346,11 +346,16 @@ commit and the sync that follows it.
 release, sourced from the run's JUnit XML rather than from a scan of the
 source); ADR-00000027 (the release cadence this rides); the
 `derived-figures` lint, which enforces the same rule for the named
-constants it covers. Invariant 2's guard list names the doc-count drift
-gate, which ADR-00000028 removes along with the figures it guarded; that
-entry drops from invariant 2 when that mechanism lands. #952 (the release
-coverage badge, merged as PR #974) is the case that fixes where the line
-falls: it names the version it measured, so it is stored.
+constants it covers. Invariant 2's guard list KEEPS its doc-count drift
+gate entry (amended #978, 2026-09-04: this sentence used to say the entry
+drops when ADR-00000028's mechanism lands). That mechanism has landed and
+the gate did not go with it. The earlier reasoning assumed the gate
+existed to guard the removed figures; since #999 it validates the
+GENERATED per-test catalogue -- what keeps a description from silently
+vanishing on a rename -- so nothing was removed from under it. See
+ADR-00000028's #978 amendment. #952 (the release coverage badge, merged
+as PR #974) is the case that fixes where the line falls: it names the
+version it measured, so it is stored.
 
 ### 11. A default is decided by two questions, not by preference
 
