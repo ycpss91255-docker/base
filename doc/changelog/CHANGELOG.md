@@ -95,6 +95,7 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   pins in the checkout, and rebuilds from source when they disagree; the series
   decides which bash kcov has to read. The probe is one script
   (`script/ci/probe_test_tools.sh`) instead of the five copies that hid the gap.
+- **`config/<component>/` has a written layout, and a build says which preset it bakes (closes #826, closes #827; ADR-00000030)** -- a repo picks the baked preset with a committed repo-root symlink into `config/<component>/`, read through a build `ARG` whose default is that symlink's name, so `--build-arg` overrides one build with no tracked change. `just setup` names every selector and the preset it resolves to, and WARNs about one whose file is missing -- which used to surface as a `docker build` dying on a `COPY`. The seeded `config/.gitkeep` states the convention (new repos only).
 - **three of base's widest signatures narrow to what they actually take
   (refs #994)** -- `_write_setup_conf` no longer takes the section array it
   never read; `_resolve_stage_list` derives its `<prefix>inherit` meta-key
