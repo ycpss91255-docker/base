@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3827 tests**.
+Unit specs under `test/bats/unit/`: **3893 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -227,6 +227,20 @@ warned.
 | `_run_adr_structure: REFUSES when doc/adr/ holds ONLY the exempt README (#994)` | - |
 | `_run_adr_structure: REFUSES when doc/adr/ does not exist (#994)` | - |
 | `_run_adr_structure: the REAL doc/adr/ passes today (#994)` | - |
+
+### test/bats/unit/alpine_eol_spec.bats (9)
+
+| Test | Description |
+|------|-------------|
+| `alpine eol: the test-tools Dockerfile records its series' end-of-life (#946)` | The expiry is written next to the pin as a marker, not left in a commit message |
+| `alpine eol: the recorded series is the series actually pinned (#946)` | A date attached to a series this image is not built on would arm the alarm for the wrong pin |
+| `alpine eol: the recorded date is parseable, not merely present (#946)` | Present-but-unreadable is the state a presence check would pass |
+| `alpine eol: the pinned series is more than the lead time from expiry (#946)` | The scheduled alarm itself: red 180 days out, so the bump is planned work rather than an incident |
+| `alpine eol reader: a Dockerfile with NO marker fails, it does not pass (#946)` | Fail-closed: a missing marker is a defect, never an absent constraint |
+| `alpine eol reader: TWO disagreeing markers fail rather than a side being picked (#946)` | Two dates for one pin is ambiguity the reader must refuse, not resolve |
+| `alpine eol reader: a marker naming a series the ARG does not pin is visible (#946)` | Proves the agreement check can actually see a disagreement |
+| `alpine eol reader: an already-expired date reads as negative days (#946)` | The past side of the window, exercised rather than assumed |
+| `alpine eol reader: a malformed date FAILS, it does not read as far away (#946)` | A typo must not disarm the alarm by parsing as a distant future |
 
 ### test/bats/unit/apk_mirror_spec.bats (7)
 
@@ -1888,7 +1902,7 @@ the author did not have to escape.
 | `_sync_doc_counts: a second run over a generated catalogue changes nothing` | "Regenerating from scratch reproduces what is committed" is the gate check_test_md_drift.sh applies to the real tree, so a second run that moved a byte would make every branch red for a reason no diff explains. |
 | `_sync_doc_counts: a shipped smoke spec lands in smoke.md` | A shipped smoke spec is the one level whose glob leaves test/ for dist/, and it was the case that caught the doc-to-glob map going stale before. It stays because the map is still hand-written. |
 
-### test/bats/unit/dockerfile_migrate_spec.bats (86)
+### test/bats/unit/dockerfile_migrate_spec.bats (100)
 
 Unit tests for the declarative Dockerfile-migration list
 `lib/dockerfile_migrate.sh` (#567, folds #579 facet B). The lib exposes a
@@ -1989,6 +2003,20 @@ force-rewrite).
 | `migration 8 (nounset-source): brackets the ROS source with set +u/-u (#579)` | - |
 | `migration 8 (nounset-source): idempotent — already-guarded source untouched (#579)` | - |
 | `migration 8 (nounset-source): detect false when no set -u in entrypoint (#579)` | - |
+| `migration 5 (hadolint): DL3007 pins alpine to the series this repo pins (#567)` | The series written into a consumer's Dockerfile is the one this repo builds, tests and dates |
+| `migration 5 (hadolint): DL3007 leaves an already-pinned alpine alone (#567)` | Healing `:latest` is a lint fix; retagging a deliberate pin is not |
+| `migration 5 (hadolint): DL3066 inline ignore before a literal USER root (#946)` | hadolint binds an ignore to the next LINE, so the pragma must sit directly above the instruction |
+| `migration 5 (hadolint): DL3066 extends an existing pragma rather than displacing it (#946)` | The real downstream shape already has `# hadolint ignore=DL3002` there; inserting between would re-arm it |
+| `migration 5 (hadolint): DL3066 idempotent — does not double-insert (#946)` | The migration pass runs on every upgrade, not once |
+| `migration 5 (hadolint): DL3066 idempotent when merged into a sibling pragma (#946)` | The merge path needs its own proof; the insert path's says nothing about it |
+| `migration 5 (hadolint): DL3066 leaves every non-root USER alone (#946)` | `root` resolves in every image by definition; any other literal name is the case the rule is worth having |
+| `migration 5 (hadolint): DL3066 detect fires on an unguarded USER root (#946)` | Detect and apply must agree about which file is a candidate |
+| `migration 5 (hadolint): DL3066 detect is quiet once the pragma is there (#946)` | A healed file must stop reporting as needing the migration |
+| `migration 5 (hadolint): DL3046 adds -l when -u is not the first flag (#946)` | The shape downstream repos actually ship; the anchored match walked straight past it |
+| `migration 5 (hadolint): DL3046 idempotent when -l already sits among the flags (#946)` | The flag can already be anywhere in the invocation, not only where the migration would put it |
+| `migration 5 (hadolint): DL3046 leaves usermod -l alone (#946)` | The conflict-handling branch beside it is a different command; rewriting it would corrupt it |
+| `migration 5 (hadolint): DL3046 detect sees the flags-before--u shape (#946)` | A detect blind to the shipped shape logs a patched Dockerfile with the finding still live |
+| `migration 5 (hadolint): DL3046 heals a useradd whose own line also runs usermod -l (#946)` | A sibling flag after `&&` is not this command's flag; scanning to end of line left the finding live |
 
 ### test/bats/unit/dockerignore_spec.bats (11)
 
@@ -2824,6 +2852,28 @@ status).
 | `just template new <name> scaffolds a working repo-local group (#633, closes #594)` | #633 / closes #594 -- scaffold + immediately usable |
 | `bare just template prints help (#633)` | #633 -- module default recipe |
 
+### test/bats/unit/kcov_bash_instrumentation_spec.bats (2)
+
+Asserts about the MEASURING INSTRUMENT rather than about the code, because
+the instrument is the one input to the coverage gate that nothing was
+watching. kcov reads bash coverage out of the xtrace stream and tracks
+single-quote parity across lines; while it believes it is inside an
+unterminated quote it discards every line it reads, markers included. bash
+5.3 changed xtrace to ANSI-C quoting (`$'a\nb'`, embedded quotes written
+`\'`), each of which flipped that counter -- so a burst of lines that had
+just executed was reported as never run, silently, with the suite green.
+`dockerfile/Dockerfile.test-tools` answers that by pinning an alpine series
+on the bash 5.2 side of the boundary, which is at 3.23 (3.21 and 3.22 ship
+5.2.37; 3.23 ships 5.3.3, 3.24 ships 5.3.9). These two tests are that
+choice's acceptance, and they are behavioural (run the real kcov over a
+fixture and read the report), so a bump onto a bash kcov misreads fails at
+the bump rather than moving the coverage number by a plausible margin.
+
+| Test | Description |
+|------|-------------|
+| `kcov: lines after an ANSI-C $'...' value are recorded as run (bash 5.3 xtrace quoting)` | The bug: an embedded `\'` must not flip the quote-parity counter and swallow the following lines |
+| `kcov: a backslash inside a plain '...' value stays literal, so the next line is recorded` | The mirror case: inside `'...'` a backslash is literal, so a value ending in one really does close its quote |
+
 ### test/bats/unit/lib_spec.bats (67)
 
 | Test | Description |
@@ -3183,6 +3233,50 @@ builds nothing and pushes nothing)
 | `prev-release gate: the shard that carries the spec refuses to start when the tags cannot be resolved` | - |
 | `prev-release gate: under kcov the shard out-ranks a leftover BATS_FILE` | - |
 | `prev-release gate: --bats-path over the spec itself refuses to start when the tags cannot be resolved` | - |
+
+### test/bats/unit/probe_test_tools_spec.bats (25)
+
+Unit tests for `script/ci/probe_test_tools.sh`, the CI-side verdict on
+whether a pulled `test-tools:main` corresponds to the checkout that pulled
+it. Presence answers the kcov race; the VERSION comparison answers the
+quieter half, a lint gate silently running the rule set the repo just moved
+off, and a runner older than `ARG JUST_VERSION` reddening a PR that touched
+nothing related. The alpine SERIES is compared first and for the same
+reason: it decides which bash the image ships, and bash decides whether kcov
+reads this suite's coverage or under-reports it. The expectations are read
+out of `dockerfile/Dockerfile.test-tools` -- the two linters from their
+release URLs, the runner through `dist/script/base/just-version.sh` -- so
+neither the probe nor this spec names a version. Docker is reached through a
+single `_probe_run` seam, which is what lets the decision logic be driven
+here with no daemon.
+
+| Test | Description |
+|------|-------------|
+| `probe: reads the shellcheck pin out of the real Dockerfile (#947)` | Shape-asserted, not literal: naming a version here would be the second place to bump |
+| `probe: reads the hadolint pin out of the real Dockerfile (#947)` | The pin that sat three and a half years stale, now read by the thing that accepts the image |
+| `probe: reads the just pin through the one accessor, not a second reader (#948)` | The runner's pin is the one that is NOT in a release URL -- the URL names `${JUST_VERSION}` -- so it is read through the single accessor over `ARG JUST_VERSION`; a second sed here would be the fifth provenance path for the runner that #948 exists to close |
+| `probe: a Dockerfile with no pinned URL FAILS rather than returning nothing (#947)` | A reader returning nothing would reduce the comparison to empty-vs-empty |
+| `probe: a version is matched whole, not as a prefix of a longer one (#947)` | 0.11.0 must not be satisfied by 0.11.01 or by 10.11.0 |
+| `probe: the dots in a version are literal, not any-character (#947)` | An unescaped regex dot would let 0x11x0 pass as 0.11.0 |
+| `probe: reads the alpine series pin out of the real Dockerfile (#946)` | The third pin in the file, read from the checkout rather than restated in the probe |
+| `probe: a Dockerfile with no ALPINE_VERSION FAILS rather than returning nothing (#946)` | A reader returning nothing would reduce the comparison to empty-vs-empty |
+| `probe: two ALPINE_VERSION pins are refused, not silently the first (#946)` | Whichever one a reader picked, half the stages would be built on the other |
+| `probe: an image carrying every tool at the pinned version is accepted (#947)` | The hot path: a matching `:main` must not cost every PR a local rebuild |
+| `probe: an image shipping ANOTHER just is refused and both versions named (#948)` | The runner mismatch a presence-only probe cannot see: `just` is there, at the version published before the bump, and just_runner_version_spec is fail-closed on exactly that -- so accepting the image reddens a PR that touched nothing related |
+| `probe: a MISSING tool is refused and named (#947)` | The kcov race the probe was originally written for |
+| `probe: a tool at the WRONG version is refused and both versions are named (#947)` | The quiet failure: a lint gate on an older rule set under-reports rather than failing |
+| `probe: a present-but-silent tool is refused, not read as agreement (#947)` | Empty output must not compare equal to a pin |
+| `probe: an unreadable pin for a PINNED tool is a hard refusal (#947)` | The state a moved release URL produces; cannot-tell is not matches |
+| `probe: an empty REQUIRED_TOOLS is refused rather than passing vacuously (#947)` | A probe over an empty list answers yes to every image |
+| `probe: a PINNED tool absent from REQUIRED_TOOLS is refused as a contradiction (#947)` | A tool whose version matters that the probe never looks for is drift, not narrowing |
+| `probe: an image built on ANOTHER alpine series is refused and both named (#946)` | Another series means another bash, which is what decides whether kcov can read this suite at all |
+| `probe: an image that reports no alpine series is refused, not read as agreement (#946)` | A reading the image cannot produce is a mismatch, never an absent constraint |
+| `probe: a series pin the probe cannot read is a hard refusal (#946)` | Cannot tell is not matches: exit 2 rather than a comparison with no expectation |
+| `probe: a longer series is not satisfied by a prefix of it (#946)` | The comparison is on the whole series field, so 3.2 does not agree with a 3.22 image |
+| `probe: main refuses an invocation that names no image (#947)` | A usage error is its own exit status, not a verdict about an image |
+| `probe: end to end, an image reporting the pinned versions is accepted (#947)` | Drives the script as a program over a PATH-shimmed docker, so the one function that touches the daemon is actually entered |
+| `probe: end to end, an image reporting a STALE version is refused (#947)` | The whole point of the probe, asserted end to end: present but out of date is a refusal, not a pass |
+| `probe: the Dockerfile defaults to this checkout's, not the caller's cwd (#947)` | A cwd change must not silently turn the comparison into an unreadable-pin refusal |
 
 ### test/bats/unit/project_reclaim_spec.bats (42)
 
@@ -3555,7 +3649,7 @@ naming the path and what its absence costs.
 | `release-archive: refuses a manifest path that escapes the repo root (#914)` | Same escape guard on the declared paths |
 | `release-archive: --list prints the declared payload with its required/optional split` | The payload contract is readable without running an archive |
 
-### test/bats/unit/release_test_tools_yaml_spec.bats (15)
+### test/bats/unit/release_test_tools_yaml_spec.bats (21)
 
 Structural assertions for `.github/workflows/release-test-tools.yaml`. Locks
 the publish surface that downstream Dockerfile.example's `FROM
@@ -3614,6 +3708,12 @@ per-platform + push by digest; `merge` job creates the manifest via
 | `release-test-tools.yaml: merge job creates the multi-arch manifest via imagetools (#587)` | - |
 | `release-test-tools.yaml: declares packages: write permission for GHCR push` | - |
 | `release-test-tools.yaml: the build job carries the same-repo guard (#766)` | - |
+| `release-test-tools.yaml: merge job checks out the repo so the smoke step can read the pins (#947)` | The precondition the other five rest on -- with no checkout in the merge job there is no Dockerfile to read the pins out of, and the whole comparison degrades to the exit-0 check it replaced |
+| `release-test-tools.yaml: smoke step reads the shellcheck pin from the Dockerfile (#947)` | The expectation has to come from the pin: a version literal in the workflow would be a second place to bump, and two literals agreeing prove only that somebody edited both |
+| `release-test-tools.yaml: smoke step reads the hadolint pin from the Dockerfile (#947)` | The pin that sat 3.8 years stale behind an exit-0 check -- the concrete drift this whole step was rewritten for, so its half of the comparison is asserted separately from shellcheck's |
+| `release-test-tools.yaml: smoke step COMPARES the reported versions, not just exit 0 (#947)` | Reading two numbers is not comparing them: holding the pin and running `<tool> --version` still passes for an image whose linters are years old, which is exactly the state that shipped |
+| `release-test-tools.yaml: smoke step fails loudly when a pin and a binary disagree (#947)` | A comparison whose mismatch branch only warns is not a gate -- the publish would go out with the wrong linters and a green log |
+| `release-test-tools.yaml: smoke step refuses an unreadable pin rather than passing (#947)` | The failure mode a moved release URL produces: an empty expectation compared against an empty reading agrees with itself, which is the shape of pass the whole step exists to refuse |
 
 ### test/bats/unit/release_version_spec.bats (12)
 
@@ -4297,30 +4397,40 @@ cobertura reports into one line-weighted project rate and fails below >
 gates merge with no external SaaS. The gate script is asserted > in
 `coverage_gate_spec.bats`.
 
-12. **#697 probe-and-rebuild against a stale / racing `:main`** — the
-`release-test-tools` workflow republishes `:main` on a
-`dockerfile/Dockerfile.test-tools` change CONCURRENTLY with this workflow,
-so an Obtain step that `docker pull`s `:main` can fetch a pre-new-tool image
-(e.g. pre-kcov) while the republish is mid-flight, fast-failing the coverage
-shards with `kcov: command not found`. After the pull + `docker tag`, every
-`:main`-pulling Obtain step now PROBES the image for the tools this run
-needs via a single, easy-to-extend `REQUIRED_TOOLS="kcov bats shellcheck
-hadolint"` list (`docker run --rm test-tools:local sh -c 'command -v
-<tool>'`); on any miss it emits `build_local=true` so the existing buildx
-Build step rebuilds from `dockerfile/Dockerfile.test-tools`. This makes the
-Obtain path self-correcting against a stale / old / racing `:main`
-regardless of cause, keeping layer-1 (PR touched Dockerfile -> build) and
-layer-3 (pull failed -> build) intact. Applied to the five
-`build_local`-pattern obtain steps (`hadolint`, `bats-fragile`,
-`bats-integration`, `coverage`, `system`) since they pull the same tag and
-race identically, and asserted per job. The sixth `:main`-pulling step,
-`acceptance`, carries no probe and needs none: `REQUIRED_TOOLS` is about the
-tools a job EXECUTES, and acceptance runs none of them -- it consumes the
-image only as the `FROM` base of the scaffolded consumer's test stage. The
-guard used to be a `grep -c 'REQUIRED_TOOLS=' == 5` over the whole workflow
-under the name "every `:main`-pulling Obtain step", which named an invariant
-that did not hold (there are six such steps) and was satisfied by any five
-occurrences wherever they sat.
+12. **#697 / #947 / #948 probe-and-rebuild against a `:main` that is not
+this checkout's** — CI rebuilds the tooling image only for a PR that touches
+`dockerfile/Dockerfile.test-tools`; every other PR pulls the rolling
+`:main`, which is republished only by a push to main touching that same
+file. Two ways the pulled image can fail to correspond to the checkout, and
+only one is loud. ABSENT: `release-test-tools` republishes concurrently with
+this workflow, so an Obtain step can fetch a pre-new-tool image (e.g.
+pre-kcov) mid-flight and the coverage shards fast-fail with `kcov: command
+not found`. STALE: the tool is present at the version the pin used to name —
+`shellcheck` / `hadolint` are lint GATES, so an older rule set does not
+fail, it under-reports, and the green check has examined something other
+than what the checkout asked for, while a `just` older than `ARG
+JUST_VERSION` reddens `test/bats/integration/just_runner_version_spec.bats`
+on a PR that touched nothing related. After the pull + `docker tag`, every
+`:main`-pulling Obtain step therefore runs `script/ci/probe_test_tools.sh`,
+which requires every tool in `REQUIRED_TOOLS` to be present AND every tool
+in `PINNED_TOOLS` to report the version this checkout pins (the two linters
+out of their release URLs in the Dockerfile, the runner through
+`dist/script/base/just-version.sh` — never restated). On any refusal it
+emits `build_local=true` so the existing buildx Build step rebuilds from
+`dockerfile/Dockerfile.test-tools` — self-correcting whatever the cause,
+with layer-1 (PR touched Dockerfile -> build) and layer-3 (pull failed ->
+build) intact. Applied to the five `build_local`-pattern obtain steps
+(`hadolint`, `bats-fragile`, `bats-integration`, `coverage`, `system`) since
+they pull the same tag and race identically, and asserted per job. The sixth
+`:main`-pulling step, `acceptance`, carries no probe and needs none: the
+probe is about the tools a job EXECUTES, and acceptance runs none of them --
+it consumes the image only as the `FROM` base of the scaffolded consumer's
+test stage. It is ONE script rather than a loop pasted into each step
+because five copies is how the version blind spot survived: each copy asked
+`command -v` and none of them looked wrong. The guard used to be a `grep -c`
+== 5 over the whole workflow under the name "every `:main`-pulling Obtain
+step", which named an invariant that did not hold (there are six such steps)
+and was satisfied by any five occurrences wherever they sat.
 
 13. **#677 CI double-run restructure (coverage = primary unit gate,
 weight-balanced shards, single `bats-fragile` job)** — after #686 unified
@@ -4484,7 +4594,7 @@ list is extensible + all five `build_local` obtain steps carry the guard
 | `self-test.yaml: acceptance job-level if: gates on code_changed (#317)` | - |
 | `self-test.yaml: system job-level if: gates on system_relevant (#317 P3)` | - |
 | `self-test.yaml: classify system block-list extends to setup.sh + i18n.sh + lib/** + prune.sh (#317 P3 gotcha-5)` | - |
-| `self-test.yaml: classify system block-list covers the build_worker scripts + self-test fixture (#802)` | - |
+| `self-test.yaml: classify system block-list covers the CI scripts + self-test fixture (#802, #947)` | A PR touching only `script/ci/**` or the build-worker fixture would otherwise skip the System self-test that consumes them -- and since the system job now picks its image via `script/ci/probe_test_tools.sh`, the directory is listed rather than the one subdirectory, so the next CI script cannot land outside the gate by omission |
 | `self-test.yaml: bats-fragile job uses docker/build-push-action with GHA cache scope=test-tools (#677)` | - |
 | `self-test.yaml: bats-integration job uses docker/build-push-action with GHA cache scope=test-tools (#377)` | - |
 | `self-test.yaml: system job uses docker/build-push-action with GHA cache scope=test-tools (#317)` | - |
@@ -4494,11 +4604,11 @@ list is extensible + all five `build_local` obtain steps carry the guard
 | `self-test.yaml: acceptance job has Obtain step + TEST_TOOLS_IMAGE env passthrough (#317 P2)` | - |
 | `self-test.yaml: acceptance job keeps buildx driver: docker for host-daemon visibility (#317 P2)` | - |
 | `self-test.yaml: system job has Obtain step with 3-layer fallback (#317 P2)` | - |
-| `self-test.yaml: bats-fragile Obtain probes the pulled :main for kcov and rebuilds on a missing tool (#697)` | - |
-| `self-test.yaml: coverage Obtain probes the pulled :main for kcov and rebuilds on a missing tool (#697)` | - |
-| `self-test.yaml: probe REQUIRED_TOOLS list is easy to extend with the tools each run needs (#697)` | - |
+| `self-test.yaml: bats-fragile Obtain probes the pulled :main and rebuilds on a miss (#697, #947)` | Named per job rather than counted: the fragile shard is one of the five that RUN the baked tools, so a `:main` that does not correspond to this checkout has to send it to a local rebuild, not into the suite |
+| `self-test.yaml: coverage Obtain probes the pulled :main and rebuilds on a miss (#697, #947)` | The coverage shards are the ones that actually raced -- the kcov-not-found fast-fail is the incident this guard was written after -- and they are also the job whose numbers a wrong alpine series quietly changes, so their obtain step is pinned on its own |
+| `self-test.yaml: the probe is ONE script, not a loop copied into every job (#947)` | Keeps the copies from growing back: five inline copies of the loop is how the presence-only blind spot survived, because no single copy looked wrong, and a re-inlined loop is invisible to the probe's own spec |
 | `self-test.yaml: every job that RUNS the baked tools probes the pulled :main for them (#697)` | - |
-| `self-test.yaml: every job that probes :main compares the runner VERSION, not just presence (#948)` | - |
+| `self-test.yaml: every job that probes :main compares the runner VERSION, not just presence (#948)` | Presence is the dimension the tool roster can express and the version is not, so a `:main` published before a bump carries every required tool AND the wrong runner; the population is derived from the workflow so the sixth probing job cannot land outside the rule |
 | `self-test.yaml: only classify fetches the base ref; image jobs read its testtools_changed output (#734)` | - |
 | `self-test.yaml: classify emits testtools_changed from a full-history diff (#734)` | - |
 | `self-test.yaml: image jobs gate the rebuild on classify's testtools_changed (#734)` | - |
@@ -5702,6 +5812,21 @@ Unit tests for the repo-local command-group scaffolder
 | `main creates tmux config directory` | Config dir |
 | `main copies tmux.conf to config directory` | Config copy |
 | `script runs entry_point when executed directly` | Direct-run guard |
+
+### test/bats/unit/tool_pin_agreement_spec.bats (10)
+
+| Test | Description |
+|------|-------------|
+| `tool pins: the shipped shellcheck is the version the Dockerfile pins` | Exit 0 says a binary exists; this says it is the one the pin asked for |
+| `tool pins: the shipped hadolint is the version the Dockerfile pins` | The drift that let a 2022 rule set stay behind a green gate, now asserted every run |
+| `tool pins reader: a Dockerfile with no pinned URL FAILS rather than returning nothing` | A reader returning nothing would reduce both checks to empty-vs-empty agreement |
+| `tool pins reader: a version is matched whole, not as a prefix of a longer one` | 0.11.0 must not be satisfied by 0.11.01 or by 10.11.0 |
+| `tool pins reader: the dots in a version are literal, not any-character` | An unescaped regex dot would let 0x11x0 pass as 0.11.0 |
+| `tool pins: the alpine this image runs on is the series the Dockerfile pins` | The base every stage is built on, compared with the image the suite is actually running in |
+| `tool pins: the bash this image ships is the series the pin's table records` | The bash-per-series table the series was chosen on, asserted rather than left as a comment |
+| `tool pins reader: a series the table does not cover FAILS rather than returning nothing` | A pin the table has no row for is a choice nothing supports |
+| `tool pins reader: a table row is matched whole, not as a prefix of a longer series` | A row for 3.2 must not answer for 3.22, nor one for 13.22 |
+| `tool pins reader: an ALPINE_VERSION declared twice FAILS rather than picking one` | With two pins there is no single series for the image to agree with |
 
 ### test/bats/unit/transcript_lnav_spec.bats (8)
 

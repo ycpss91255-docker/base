@@ -173,30 +173,41 @@
 # floor gates merge with no external SaaS. The gate script is asserted > in
 # `coverage_gate_spec.bats`.
 #
-# 12. **#697 probe-and-rebuild against a stale / racing `:main`** — the
-# `release-test-tools` workflow republishes `:main` on a
-# `dockerfile/Dockerfile.test-tools` change CONCURRENTLY with this workflow,
-# so an Obtain step that `docker pull`s `:main` can fetch a pre-new-tool
-# image (e.g. pre-kcov) while the republish is mid-flight, fast-failing the
-# coverage shards with `kcov: command not found`. After the pull + `docker
-# tag`, every `:main`-pulling Obtain step now PROBES the image for the tools
-# this run needs via a single, easy-to-extend `REQUIRED_TOOLS="kcov bats
-# shellcheck hadolint"` list (`docker run --rm test-tools:local sh -c
-# 'command -v <tool>'`); on any miss it emits `build_local=true` so the
-# existing buildx Build step rebuilds from
-# `dockerfile/Dockerfile.test-tools`. This makes the Obtain path
-# self-correcting against a stale / old / racing `:main` regardless of
-# cause, keeping layer-1 (PR touched Dockerfile -> build) and layer-3 (pull
-# failed -> build) intact. Applied to the five `build_local`-pattern obtain
-# steps (`hadolint`, `bats-fragile`, `bats-integration`, `coverage`,
-# `system`) since they pull the same tag and race identically, and asserted
-# per job. The sixth `:main`-pulling step, `acceptance`, carries no probe
-# and needs none: `REQUIRED_TOOLS` is about the tools a job EXECUTES, and
-# acceptance runs none of them -- it consumes the image only as the `FROM`
-# base of the scaffolded consumer's test stage. The guard used to be a `grep
-# -c 'REQUIRED_TOOLS=' == 5` over the whole workflow under the name "every
-# `:main`-pulling Obtain step", which named an invariant that did not hold
-# (there are six such steps) and was satisfied by any five occurrences
+# 12. **#697 / #947 / #948 probe-and-rebuild against a `:main` that is not
+# this checkout's** — CI rebuilds the tooling image only for a PR that
+# touches `dockerfile/Dockerfile.test-tools`; every other PR pulls the
+# rolling `:main`, which is republished only by a push to main touching that
+# same file. Two ways the pulled image can fail to correspond to the
+# checkout, and only one is loud. ABSENT: `release-test-tools` republishes
+# concurrently with this workflow, so an Obtain step can fetch a
+# pre-new-tool image (e.g. pre-kcov) mid-flight and the coverage shards
+# fast-fail with `kcov: command not found`. STALE: the tool is present at
+# the version the pin used to name — `shellcheck` / `hadolint` are lint
+# GATES, so an older rule set does not fail, it under-reports, and the green
+# check has examined something other than what the checkout asked for, while
+# a `just` older than `ARG JUST_VERSION` reddens
+# `test/bats/integration/just_runner_version_spec.bats` on a PR that touched
+# nothing related. After the pull + `docker tag`, every `:main`-pulling
+# Obtain step therefore runs `script/ci/probe_test_tools.sh`, which requires
+# every tool in `REQUIRED_TOOLS` to be present AND every tool in
+# `PINNED_TOOLS` to report the version this checkout pins (the two linters
+# out of their release URLs in the Dockerfile, the runner through
+# `dist/script/base/just-version.sh` — never restated). On any refusal it
+# emits `build_local=true` so the existing buildx Build step rebuilds from
+# `dockerfile/Dockerfile.test-tools` — self-correcting whatever the cause,
+# with layer-1 (PR touched Dockerfile -> build) and layer-3 (pull failed ->
+# build) intact. Applied to the five `build_local`-pattern obtain steps
+# (`hadolint`, `bats-fragile`, `bats-integration`, `coverage`, `system`)
+# since they pull the same tag and race identically, and asserted per job.
+# The sixth `:main`-pulling step, `acceptance`, carries no probe and needs
+# none: the probe is about the tools a job EXECUTES, and acceptance runs
+# none of them -- it consumes the image only as the `FROM` base of the
+# scaffolded consumer's test stage. It is ONE script rather than a loop
+# pasted into each step because five copies is how the version blind spot
+# survived: each copy asked `command -v` and none of them looked wrong. The
+# guard used to be a `grep -c` == 5 over the whole workflow under the name
+# "every `:main`-pulling Obtain step", which named an invariant that did not
+# hold (there are six such steps) and was satisfied by any five occurrences
 # wherever they sat.
 #
 # 13. **#677 CI double-run restructure (coverage = primary unit gate,
@@ -659,15 +670,26 @@ _job_comments() {
   assert_output --partial "'dist/script/docker/wrapper/prune.sh'"
 }
 
-@test "self-test.yaml: classify system block-list covers the build_worker scripts + self-test fixture (#802)" {
+# why: A PR touching only `script/ci/**` or the build-worker fixture would
+# otherwise skip the System self-test that consumes them -- and since the
+# system job now picks its image via `script/ci/probe_test_tools.sh`, the
+# directory is listed rather than the one subdirectory, so the next CI
+# script cannot land outside the gate by omission
+@test "self-test.yaml: classify system block-list covers the CI scripts + self-test fixture (#802, #947)" {
   # The worker-selftest job consumes script/ci/build_worker/** (its YAML
   # plumbing / output contract) and builds test/fixtures/build-worker/**, so
   # a PR touching ONLY those -- without a .github/workflows/** change -- must
   # still flip system_relevant=true and re-run the System self-test instead
   # of skipping it.
+  #
+  # The whole of script/ci/, not the worker subdirectory alone: the system
+  # job now decides WHICH IMAGE it runs in via script/ci/probe_test_tools.sh,
+  # so that script's behaviour is as load-bearing for it as the worker's is
+  # for worker-selftest. Listing the directory rather than each file is what
+  # keeps the next CI script from landing outside the gate by omission.
   run yaml_job_lines "${WF}" classify
   assert_success
-  assert_output --partial "'script/ci/build_worker/**'"
+  assert_output --partial "'script/ci/**'"
   assert_output --partial "'test/fixtures/build-worker/**'"
 }
 
@@ -779,43 +801,50 @@ _job_comments() {
 
 # ── Probe-and-rebuild against a stale / racing :main ────────────
 
-@test "self-test.yaml: bats-fragile Obtain probes the pulled :main for kcov and rebuilds on a missing tool (#697)" {
+# why: Named per job rather than counted: the fragile shard is one of the
+# five that RUN the baked tools, so a `:main` that does not correspond to
+# this checkout has to send it to a local rebuild, not into the suite
+@test "self-test.yaml: bats-fragile Obtain probes the pulled :main and rebuilds on a miss (#697, #947)" {
   # release-test-tools republishes :main on a Dockerfile.test-tools change
   # concurrently with this run, so a freshly-baked tool (kcov) can be
   # absent from the :main we just pulled. After the pull+tag, the obtain
-  # step must PROBE for the required tools (kcov at minimum) and, on a
-  # miss, fall back to building locally (build_local=true) instead of
-  # running the suite against a stale image.
+  # step must PROBE the image and, on a miss, fall back to building
+  # locally (build_local=true) instead of running the suite against it.
   run yaml_job_lines "${WF}" bats-fragile
   assert_success
-  assert_output --partial 'REQUIRED_TOOLS'
-  assert_output --partial 'kcov'
-  assert_output --partial 'command -v ${_tool}'
-  assert_output --partial 'docker run --rm "${TEST_TOOLS_IMAGE}"'
+  assert_output --partial 'script/ci/probe_test_tools.sh'
+  assert_output --partial 'build_local=true'
 }
 
-@test "self-test.yaml: coverage Obtain probes the pulled :main for kcov and rebuilds on a missing tool (#697)" {
+# why: The coverage shards are the ones that actually raced -- the
+# kcov-not-found fast-fail is the incident this guard was written after --
+# and they are also the job whose numbers a wrong alpine series quietly
+# changes, so their obtain step is pinned on its own
+@test "self-test.yaml: coverage Obtain probes the pulled :main and rebuilds on a miss (#697, #947)" {
   # The coverage shards are the ones that actually race (kcov-not-found
-  # fast-fail). Same probe-and-rebuild guard as bats-unit so a stale
+  # fast-fail). Same probe-and-rebuild guard as bats-fragile so a stale
   # :main self-corrects to a local rebuild.
   run yaml_job_lines "${WF}" coverage
   assert_success
-  assert_output --partial 'REQUIRED_TOOLS'
-  assert_output --partial 'kcov'
-  assert_output --partial 'command -v ${_tool}'
-  assert_output --partial 'docker run --rm "${TEST_TOOLS_IMAGE}"'
+  assert_output --partial 'script/ci/probe_test_tools.sh'
+  assert_output --partial 'build_local=true'
 }
 
-@test "self-test.yaml: probe REQUIRED_TOOLS list is easy to extend with the tools each run needs (#697)" {
-  # The probe drives off a single REQUIRED_TOOLS list so a new baked
-  # tool is covered by adding one word, not editing loop logic. kcov is
-  # the racing one; bats / shellcheck / hadolint are also asserted.
+# why: Keeps the copies from growing back: five inline copies of the loop
+# is how the presence-only blind spot survived, because no single copy
+# looked wrong, and a re-inlined loop is invisible to the probe's own spec
+@test "self-test.yaml: the probe is ONE script, not a loop copied into every job (#947)" {
+  # The probe used to be ~12 lines of inline bash repeated across five
+  # obtain steps. Five copies is how the guard grew a blind spot nobody
+  # could see from any one of them: each asked `command -v <tool>` --
+  # presence, never version -- so a :main whose linters predate this
+  # checkout's pins passed all five. The logic now lives in one script
+  # with its own unit spec (probe_test_tools_spec.bats), and this test
+  # keeps a copy from growing back beside it.
+  run code_grep 'command -v ' "${WF}"
+  assert_failure
   run code_grep 'REQUIRED_TOOLS=' "${WF}"
-  assert_success
-  assert_output --partial 'kcov'
-  assert_output --partial 'bats'
-  assert_output --partial 'shellcheck'
-  assert_output --partial 'hadolint'
+  assert_failure
 }
 
 @test "self-test.yaml: every job that RUNS the baked tools probes the pulled :main for them (#697)" {
@@ -823,16 +852,16 @@ _job_comments() {
   # bats-integration, coverage, system) pull the same :main tag and race
   # identically; each must probe + rebuild on a miss.
   #
-  # Named per job, not counted. The previous form asserted
-  # a `grep -c 'REQUIRED_TOOLS='` equal to 5 over the whole workflow,
-  # which is satisfied by ANY five occurrences: deleting hadolint's guard
-  # and double-listing coverage's keeps it green, and the count says
-  # nothing about which job is covered. It also carried the wrong name --
-  # there are SIX :main-pulling Obtain steps, so as written the invariant
-  # it claimed was false while the test was green.
+  # Named per job, not counted. An earlier form asserted a
+  # `grep -c` equal to 5 over the whole workflow, which is satisfied by
+  # ANY five occurrences: deleting hadolint's guard and double-listing
+  # coverage's keeps it green, and the count says nothing about which job
+  # is covered. It also carried the wrong name -- there are SIX
+  # :main-pulling Obtain steps, so as written the invariant it claimed was
+  # false while the test was green.
   #
   # The sixth, `acceptance`, is deliberately not in this list and is not a
-  # gap: REQUIRED_TOOLS is about the tools a job EXECUTES, and acceptance
+  # gap: the probe is about the tools a job EXECUTES, and acceptance
   # executes none of them. It consumes the image only as the `FROM` base of
   # the scaffolded consumer's test stage, so a :main missing kcov costs it
   # nothing. The honest invariant is the one this test now names -- every
@@ -842,25 +871,38 @@ _job_comments() {
   for _job in hadolint bats-fragile bats-integration coverage system; do
     run yaml_job_lines "${WF}" "${_job}"
     assert_success
-    assert_output --partial 'REQUIRED_TOOLS="kcov bats shellcheck hadolint just"'
-    assert_output --partial 'command -v ${_tool}'
+    assert_output --partial './script/ci/probe_test_tools.sh "${TEST_TOOLS_IMAGE}"'
     assert_output --partial 'build_local=true'
   done
 }
 
+# why: Presence is the dimension the tool roster can express and the
+# version is not, so a `:main` published before a bump carries every
+# required tool AND the wrong runner; the population is derived from the
+# workflow so the sixth probing job cannot land outside the rule
 @test "self-test.yaml: every job that probes :main compares the runner VERSION, not just presence (#948)" {
   # The population is DERIVED: every top-level job of this workflow whose
-  # body carries a REQUIRED_TOOLS probe. A roster typed here would be
-  # green on exactly the sixth probing job somebody adds tomorrow.
+  # body invokes the probe. A roster typed here would be green on exactly
+  # the sixth probing job somebody adds tomorrow.
   #
   # Why presence is not enough. The probe exists so a stale / racing
-  # :main self-corrects to a local rebuild, and it answers "is the tool
-  # there?". test/bats/integration/just_runner_version_spec.bats is
-  # deliberately fail-closed on a MISMATCH between the image's `just` and
-  # ARG JUST_VERSION -- so a :main published before a version bump has
+  # :main self-corrects to a local rebuild, and it used to answer only "is
+  # the tool there?". test/bats/integration/just_runner_version_spec.bats
+  # is deliberately fail-closed on a MISMATCH between the image's `just`
+  # and ARG JUST_VERSION -- so a :main published before a version bump has
   # every required tool AND the wrong runner, passes a presence-only
   # probe, and reddens any PR that touched nothing related, for as long as
   # the republish takes. The probe has to see the version too.
+  #
+  # WHERE that comparison lives moved, and this test moved with it. It was
+  # twelve lines inlined into each of the five obtain steps; it is now one
+  # script (base#947), so the version dimension is asserted where the script
+  # declares it -- `just` among the tools whose version is compared, not
+  # merely found -- rather than five times over copies of one loop. The
+  # compare itself, and the verdict it flips, are covered case by case in
+  # probe_test_tools_spec.bats, which drives the real function bodies; what
+  # this file is still the right place to state is that every job that
+  # probes reaches THAT script and not a private re-implementation.
   local -a _jobs=() _probing=()
   mapfile -t _jobs < <(yaml_job_names "${WF}")
   [ "${#_jobs[@]}" -ge 10 ] \
@@ -868,29 +910,28 @@ _job_comments() {
   local _job _body
   for _job in "${_jobs[@]}"; do
     _body="$(yaml_job_lines "${WF}" "${_job}")"
-    [[ "${_body}" == *'REQUIRED_TOOLS='* ]] || continue
+    [[ "${_body}" == *'probe_test_tools.sh'* ]] || continue
     _probing+=("${_job}")
-    [[ "${_body}" == *'dist/script/base/just-version.sh'* ]] \
-      || fail "job '${_job}' probes the pulled :main for tool presence but never reads the declared pin"
-    [[ "${_body}" == *'just --version'* ]] \
-      || fail "job '${_job}' reads the declared pin but never asks the image which version it ships"
-    # Holding both numbers is not comparing them. With only the two
-    # ingredients asserted, `if false; then` over the comparison keeps
-    # this test green while the probe stops self-correcting -- so the
-    # compare itself, and the verdict it has to flip, are what is
-    # asserted. The verdict is looked for in the compare's OWN branch
-    # (the following few lines), not anywhere in the job: `probe_ok=false`
-    # also sits in the presence loop above, which would vouch for a
-    # version check whose branch body was emptied.
-    [[ "${_body}" == *'!= "just ${just_pin}"'* ]] \
-      || fail "job '${_job}' reads both versions but never compares them"
-    printf '%s\n' "${_body}" \
-      | grep -A8 -F '!= "just ${just_pin}"' \
-      | grep -qF 'probe_ok=false' \
-      || fail "job '${_job}' compares the versions but the mismatch branch does not flip the probe verdict, so a stale :main is used anyway"
   done
   [ "${#_probing[@]}" -ge 5 ] \
     || fail "found ${#_probing[@]} probing job(s) among ${#_jobs[@]}; expected at least the five that run the baked tools -- the scan matched nothing, which is not a pass"
+
+  # The script the five reach, read as the declaration it is. `just` has
+  # to be a tool the probe REQUIRES (present) and one whose version it
+  # COMPARES; requiring it alone is the presence-only probe this test is
+  # named against.
+  local _probe=/source/script/ci/probe_test_tools.sh
+  assert_spec_subject "${_probe}" \
+    "the CI-side probe every obtain step in this workflow calls"
+  local _required _pinned
+  _required="$(sed -n 's|^: "${REQUIRED_TOOLS:=\(.*\)}"$|\1|p' "${_probe}")"
+  _pinned="$(sed -n 's|^: "${PINNED_TOOLS:=\(.*\)}"$|\1|p' "${_probe}")"
+  [ -n "${_required}" ] && [ -n "${_pinned}" ] \
+    || fail "could not read REQUIRED_TOOLS / PINNED_TOOLS out of ${_probe} -- the defaults moved, so this test compared nothing"
+  [[ " ${_required} " == *' just '* ]] \
+    || fail "the probe does not require 'just' (REQUIRED_TOOLS='${_required}'), so a :main without the runner is handed to the suite"
+  [[ " ${_pinned} " == *' just '* ]] \
+    || fail "the probe finds 'just' but never compares its version (PINNED_TOOLS='${_pinned}') -- a :main published before a version bump passes"
 }
 
 @test "self-test.yaml: only classify fetches the base ref; image jobs read its testtools_changed output (#734)" {

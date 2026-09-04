@@ -506,6 +506,20 @@ FROM ${TEST_TOOLS_IMAGE} AS test-tools-stage
 
 FROM devel AS devel-test
 
+# DL3066 ("non-numeric user-id may not be resolvable by host system", new
+# in hadolint 2.13) asks for a numeric uid so a host / orchestrator can
+# resolve the identity a container RUNS as. Neither half applies to this
+# line. `root` is the one name every image resolves by definition, and this
+# is a BUILD-time hop inside a discarded `-test` stage -- it exists so the
+# COPYs below can write into /usr/local/bin and /lint, and the stage drops
+# back to the unprivileged user before it runs anything. The identity this
+# image actually ships with is `USER "${USER}"` at the end of devel and of
+# devel-test, and DL3066 still guards both. Silenced HERE rather than in
+# dist/.hadolint.yaml on purpose: an entry in the config would switch the
+# rule off for every downstream repo's real runtime USER too, which is the
+# case it is worth having. The pragma sits directly above the instruction
+# because hadolint binds it to the NEXT line, not the next instruction.
+# hadolint ignore=DL3066
 USER root
 
 # Lint tools (from pre-built test-tools image; see TEST_TOOLS_IMAGE at top)
