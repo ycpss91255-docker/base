@@ -161,7 +161,10 @@ _AGGREGATE_FIGURE_RE='\*\*[0-9]+ tests?\*\*|\*\*[0-9]+\*\*|\| Count \||in the [0
 # region is replaced wholesale, so a substring match hands a document's
 # authored tail to the generated half and stops reading it. The region is
 # skipped rather than the scan ended, so the prose BELOW `<!-- /generated -->`
-# is read too -- smoke.md carries 120 lines of it.
+# is read too -- smoke.md's "The shared test helper" section sits there, the
+# only authored tail any catalogue has today. No count is written down here:
+# it would be a second place to keep a figure true (ADR-00000028), and the
+# rule is about the span being read, not its length.
 _authored_lines() {
   awk '
     /^<!-- generated: catalogue sections -->$/ { _in = 1; next }
