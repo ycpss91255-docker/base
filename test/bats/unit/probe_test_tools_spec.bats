@@ -237,8 +237,9 @@ _probe_image img '${DOCKERFILE}'"
 
 # ── the roster, read rather than restated ───────────────────────────────────
 
-# why: The roster was five names written into this script, and the image
-# installs fifteen packages. `yq` was the omission that already bit us: it
+# why: The roster was five names written into this script -- exactly what
+# the final stage puts on PATH -- and said nothing about the packages that
+# stage installs. `yq` was the omission that already bit us: it
 # was added to the Dockerfile, the post-merge run took the pull path, and
 # the probe declared the stale image acceptable because it was not looking
 # for it. Read the final stage's own `apk add` instead, and a package added

@@ -49,11 +49,15 @@ definition; `:main` corresponds to the checkout and is used; it does not, or
 could not be pulled, and the image is built from source -- and always
 probes what it pulled.
 
-The two jobs whose buildx runs `driver: docker` pass `--local-build inline`
-so the fallback build happens inside the call; the four whose build runs
-through `docker/build-push-action` (for the GHA layer cache) pass
-`delegate` and gate that step on the script's `build_local` output. That is
-the only difference between the callers, and it is one word.
+A job whose buildx runs `driver: docker` passes `--local-build inline`, so
+the fallback build happens inside the call and resolves against the host
+daemon its later `docker compose build` reads; a job whose build runs
+through `docker/build-push-action` (for the GHA layer cache) passes
+`delegate` and gates that step on the script's `build_local` output. That
+is the only difference between the callers, and it is one word. No count of
+either group is written here: which jobs sit on which side is read out of
+`self-test.yaml`, and a figure in this record would be a second place to
+keep it true.
 
 **The roster the probe asserts is derived from the Dockerfile's final
 stage**, not restated: its packages from the stage's `apk add`, its binaries
@@ -70,9 +74,9 @@ artifact the consumers download.** This is what #1010 proposed, and it does
 remove both defects at once -- there is one obtain, so there is no sixth
 call site to forget. It was rejected on three counts.
 
-It serialises. Fourteen consumers currently start as soon as `classify`
-finishes; behind a publishing job they start after it, and the eight
-coverage shards ADR-00000008 exists to parallelise are the ones that wait.
+It serialises. Every consumer currently starts as soon as `classify`
+finishes; behind a publishing job they start after it, and the coverage
+shards ADR-00000008 exists to parallelise are the ones that wait.
 
 It cannot serve the two-arch `acceptance` matrix from one artifact. That
 job runs on `ubuntu-latest` and `ubuntu-24.04-arm`, so the artifact job

@@ -62,9 +62,12 @@
 #            refuse.
 #
 # The roster is READ, for the same reason the versions are. It used to be
-# five names in this file -- kcov, bats, shellcheck, hadolint, just -- while
-# the image's final stage installs fifteen packages and puts five binaries
-# on PATH. `yq` is what that cost: it was added to the Dockerfile, the
+# five names in this file -- kcov, bats, shellcheck, hadolint, just --
+# which is exactly the set the final stage puts on PATH, and said nothing
+# about the packages that stage installs alongside them. No count of those
+# packages is written down here: a figure in this comment would be a second
+# thing to keep true about a list the whole point is to stop restating.
+# `yq` is what that cost: it was added to the Dockerfile, the
 # post-merge run took the pull path, and the probe declared the stale
 # `:main` acceptable because it was not looking for it. `grep` and
 # `coreutils` are the ones to be afraid of next: on alpine they SHADOW
@@ -212,9 +215,9 @@ _probe_path_binaries() {
 # _probe_missing_packages <image> <package>...
 #   The packages of <package>... that <image> does not carry, one per line.
 #   ONE `docker run` for the whole roster rather than one per name: the
-#   roster is now fifteen long, and fifteen container starts per job across
-#   six jobs is a cost the probe would be paying to ask a question the
-#   image answers in a single loop.
+#   roster is derived and grows with the image, and one container start per
+#   name across six jobs is a cost the probe would be paying to ask a
+#   question the image answers in a single loop.
 #
 #   The status is what is read, and it is load-bearing enough to have been
 #   measured rather than assumed: in this image `apk info -e grep` prints
