@@ -57,6 +57,18 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 
 ## [Unreleased]
 
+### Fixed
+- **an upgrade now commits the Dockerfile its migrations rewrote (closes
+  #1036)** -- a cross-version upgrade left the migrated file unstaged and
+  still closed with "git push", so the commit claimed the new release while
+  the rewrite that makes the tree buildable stayed local. Staging moved into
+  `init.sh`, the one point where a repo already on v0.41.0 / v0.42.0 runs
+  current code, and what it stages is the migration run's own record of what
+  it rewrote -- never a sweep, so a file you were editing stays yours to
+  commit. **Upgrading FROM a release older than this one still prints the old
+  advice**, which comes from your vendored copy: check `git status` once
+  after the upgrade that lands this.
+
 ## [v0.43.0-rc1] - 2026-09-04
 
 ### Changed

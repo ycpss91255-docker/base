@@ -60,6 +60,26 @@
   `test/bats/integration/prev_release_upgrade_spec.bats` runs the real
   released `upgrade.sh` against the current tree, so the next move of a
   frozen path fails in CI instead of at a consumer's terminal.
+- **Amended:** 2026-09-04 by #1036 -- the correction above covers a path an
+  already-released caller NAMES. The same asymmetry applies one step
+  further, to work an already-released caller DOES. Every released
+  `upgrade.sh` stages the migrated files at its own Step 5 by hardcoded
+  filename, and v0.41.0's reaches the Dockerfile only down a branch the
+  current migration list never takes -- so a cross-version upgrade committed
+  the workflow `@tag` bump and the `.gitignore` sync, left the Dockerfile
+  the Step-3 resync had just rewritten unstaged, and closed by telling the
+  user to `git push`. As with the path, no edit to `upgrade.sh` reaches a
+  consumer already sitting on v0.41.0 / v0.42.0. **The addition to the
+  contract:** work whose result the CALLER has to commit belongs on the new
+  tree's side of the boundary, staged where it is performed. Region A's
+  Step-3 `init.sh` now stages what its migrations rewrote, taken from the
+  migration run's OWN record (`migrated_files` in
+  `dist/script/docker/lib/dockerfile_migrate.sh`, written by the two write
+  primitives every migration goes through) rather than from a list of
+  filenames, so a migration that later touches one more file is covered
+  without anyone remembering to widen anything. The caller's Step 5 stays
+  harmless: the migrations are idempotent and `git add` of an
+  already-staged path is a no-op.
 
 ## Context
 

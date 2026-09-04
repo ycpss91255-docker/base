@@ -652,7 +652,7 @@ _git_seed_consumer() {
   git -C "${TMP_REPO}" commit -q -m "chore: seed"
 }
 
-# The resync applies the migrations, and until #1036 nobody staged their
+# The resync applies the migrations, and until base#1036 nobody staged their
 # output: the caller that commits is the consumer's OWN vendored
 # upgrade.sh, which stages a pair of filenames hardcoded when it shipped
 # (v0.41.0's does not reach the Dockerfile at all). So the file the

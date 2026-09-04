@@ -1062,7 +1062,7 @@ _migrate_dockerfile() {
 #   cross-version upgrade committed the workflow @tag bump and the
 #   .gitignore sync, left the rewritten Dockerfile unstaged, and closed by
 #   telling the user to `git push` -- a commit claiming the new release
-#   while the migration that makes the tree buildable stayed local (#1036).
+#   while the migration that makes the tree buildable stayed local (base#1036).
 #   That copy cannot be fixed retroactively for anyone; this file can,
 #   because every release re-runs the NEWLY PULLED init.sh as its resync
 #   step. Staging beside the rewrite also makes the NEXT cross-version

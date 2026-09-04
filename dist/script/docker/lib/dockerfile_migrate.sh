@@ -90,7 +90,7 @@ _dfm_join_copy_statements() {
 # hardcoded when it shipped. v0.41.0's reaches the Dockerfile only down a
 # branch these migrations never take, so on a cross-version upgrade the
 # file this list had just rewritten was left uncommitted while the same run
-# told the user to `git push` (#1036).
+# told the user to `git push` (base#1036).
 #
 # So a run says what it rewrote and its caller stages exactly that. The
 # record is NOT a list of names kept somewhere -- a list decays the first
