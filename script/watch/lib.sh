@@ -146,9 +146,11 @@ readonly _PIN_RESOLVERS=(
 # scanned.
 #
 # The failure mode still inverts the safe way. A tree added tomorrow is
-# scanned the moment it is committed and exempt for exactly as long as it
-# is not -- there is nothing to forget to edit, and nothing a person can
-# edit to make a shipped file stop being read.
+# scanned the moment it is STAGED -- `git ls-files` reads the index, not
+# a commit, so `just test` sees a new file as soon as `git add` does, one
+# step before it could reach a PR -- and it is exempt for exactly as long
+# as it is not. There is nothing to forget to edit, and nothing a person
+# can edit to make a shipped file stop being read.
 
 # What is NOT read -- and nothing else. This was a list of the shapes a
 # declaration MAY live in (`Dockerfile*`, `*.y{a,}ml`, `*.sh`), which is
@@ -403,9 +405,11 @@ _pin_is_exempt_shape() {
 # repository is what is missing.
 #
 # So the answer is computed where git works and carried to where it does
-# not, which is the handoff `PIN_PRUNE_TRACKED` already existed to be:
-# script/test/test.sh sets PIN_TRACKED_ROOT and PIN_TRACKED_FILES on the
-# HOST before the compose run. git WINS when it is readable, so a stale or
+# not: script/test/test.sh sets PIN_TRACKED_ROOT and PIN_TRACKED_FILES on
+# the HOST before the compose run. (It is the same handoff the removed
+# prune roster used, one question earlier. `PIN_PRUNE_TRACKED` carried
+# that guard's VERDICT and no longer exists anywhere; nothing reads it,
+# and setting it does nothing.) git WINS when it is readable, so a stale or
 # hand-set list can never silence a file git can see. The handoff is
 # keyed to the root it describes and is ignored for any other, because a
 # list of one tree's tracked files is not an answer about a different
