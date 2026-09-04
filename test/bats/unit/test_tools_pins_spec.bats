@@ -212,24 +212,38 @@ ${output}"
 
 # ── check: does an observed version carry the pin ────────────────────
 
+# _pin <ARG> -- the declared pin, asked of the roster rather than restated.
+# A literal here is a second place to bump: this spec broke the day
+# ALPINE_VERSION moved 3.21 -> 3.22 in the Dockerfile, because the observed
+# value it fed `check` was written out beside the pin instead of derived
+# from it. The subject of this whole file is that a version has one home.
+_pin() {
+  bash "${ACCESSOR}" roster | awk -v k="$1" -F'\t' '$1 == k { print $2 }'
+}
+
 # why: The ordinary agreement, without which every refusal below could be a
-# rule that refuses everything.
+# rule that refuses everything. Every observed string is built from the
+# declared pin, so a bump cannot break this case without breaking the rule
+# it asserts.
 @test "test-tools pins: check accepts the exact declared version (#1012)" {
-  run bash "${ACCESSOR}" check BATS_VERSION 'Bats 1.13.0'
+  run bash "${ACCESSOR}" check BATS_VERSION "Bats $(_pin BATS_VERSION)"
   assert_success
-  run bash "${ACCESSOR}" check JUST_VERSION 'just 1.58.0'
+  run bash "${ACCESSOR}" check JUST_VERSION "just $(_pin JUST_VERSION)"
   assert_success
-  run bash "${ACCESSOR}" check KCOV_VERSION 'kcov v43'
+  run bash "${ACCESSOR}" check KCOV_VERSION "kcov $(_pin KCOV_VERSION)"
   assert_success
 }
 
-# why: `ALPINE_VERSION=3.21` against `/etc/alpine-release`'s `3.21.7`: an
-# equality rule would fail every image this Dockerfile can build.
+# why: a series pin (`ALPINE_VERSION=3.22`) against `/etc/alpine-release`'s
+# patch answer (`3.22.5`): an equality rule would fail every image this
+# Dockerfile can build. Both sides are derived from the roster, so the
+# example in this sentence cannot drift away from what the case runs.
 @test "test-tools pins: check accepts a longer version under a series pin (#1012)" {
-  # ALPINE_VERSION pins a SERIES (3.21); /etc/alpine-release answers
-  # 3.21.7. A rule that demanded equality would fail every alpine image
-  # this Dockerfile can produce.
-  run bash "${ACCESSOR}" check ALPINE_VERSION '3.21.7'
+  # ALPINE_VERSION pins a SERIES; /etc/alpine-release answers a patch
+  # release under it. A rule that demanded equality would fail every alpine
+  # image this Dockerfile can produce. The patch suffix is appended to the
+  # DECLARED series, so this stays true across a series bump.
+  run bash "${ACCESSOR}" check ALPINE_VERSION "$(_pin ALPINE_VERSION).7"
   assert_success
 }
 
