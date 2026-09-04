@@ -1017,6 +1017,39 @@ EOF
   refute_output --partial ".gitkeep"
 }
 
+# why: the selector reaches the real apply path
+@test "apply names the preset selector and the file it resolves to (#826)" {
+  # Wired through _report_config_components rather than at a second call
+  # site, so both halves of the config channel report it -- but "covered
+  # by construction" is exactly the claim base#1000 falsified (a hardcoded
+  # directory name meant the dev bind was never taken and nothing said
+  # so). So this asserts through the command a user actually runs.
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  mkdir -p "${TEMP_DIR}/config/realsense/yaml"
+  : > "${TEMP_DIR}/config/realsense/yaml/none.yaml"
+  ln -s config/realsense/yaml/none.yaml "${TEMP_DIR}/camera.yaml"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  assert_output --partial "camera.yaml -> config/realsense/yaml/none.yaml"
+}
+
+# why: a broken selector reaches the real apply path
+@test "apply WARNs when the preset selector resolves to nothing (#826)" {
+  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  mkdir -p "${TEMP_DIR}/config/realsense/yaml"
+  ln -s config/realsense/yaml/gone.yaml "${TEMP_DIR}/camera.yaml"
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' 2>&1
+  "
+  assert_success
+  assert_output --partial "[setup] WARN :"
+  assert_output --partial "camera.yaml -> config/realsense/yaml/gone.yaml"
+}
+
 @test "main reset --yes works on first-time bootstrap (no prior .local or setup.conf) (#174)" {
   rm -f "${TEMP_DIR}/.setup.conf" "${TEMP_DIR}/.setup.conf"
   run main reset --yes --base-path "${TEMP_DIR}"

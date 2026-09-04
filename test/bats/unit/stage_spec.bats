@@ -823,7 +823,7 @@ EOF
   local -a _values=("/tmp/cache:/cache" "/data:/data")
   local _top="/etc/localtime:/etc/localtime:ro"$'\n'"\${HOME}/.ssh:/home/user/.ssh:ro"
   local _out=""
-  _resolve_stage_list _keys _values "volumes.mount_" "volumes.mount_inherit" "${_top}" _out
+  _resolve_stage_list _keys _values "volumes.mount_" "${_top}" _out
   # Top-level 2 entries + stage 2 entries = 4 lines
   local -a _lines=()
   IFS=$'\n' read -rd '' -a _lines <<< "${_out}" || true
@@ -838,7 +838,7 @@ EOF
   local -a _values=("false" "/only:/only")
   local _top="/etc/localtime:/etc/localtime:ro"
   local _out=""
-  _resolve_stage_list _keys _values "volumes.mount_" "volumes.mount_inherit" "${_top}" _out
+  _resolve_stage_list _keys _values "volumes.mount_" "${_top}" _out
   [[ "${_out}" == "/only:/only" ]] || { echo "expected only stage entry, got '${_out}'"; return 1; }
 }
 
@@ -847,7 +847,7 @@ EOF
   local -a _values=()
   local _top="/etc/localtime:/etc/localtime:ro"$'\n'"/data:/data"
   local _out=""
-  _resolve_stage_list _keys _values "volumes.mount_" "volumes.mount_inherit" "${_top}" _out
+  _resolve_stage_list _keys _values "volumes.mount_" "${_top}" _out
   [[ "${_out}" == "${_top}" ]] || { echo "expected top-level passthrough, got '${_out}'"; return 1; }
 }
 
@@ -856,7 +856,7 @@ EOF
   local -a _values=("false")
   local _top="/etc/localtime:/etc/localtime:ro"
   local _out="initial"
-  _resolve_stage_list _keys _values "volumes.mount_" "volumes.mount_inherit" "${_top}" _out
+  _resolve_stage_list _keys _values "volumes.mount_" "${_top}" _out
   [[ -z "${_out}" ]] || { echo "expected empty, got '${_out}'"; return 1; }
 }
 
@@ -867,7 +867,7 @@ EOF
   local -a _keys=("network.port_3" "network.port_1" "network.port_2")
   local -a _values=("9000:9000" "8080:80" "5000:5000")
   local _out=""
-  _resolve_stage_list _keys _values "network.port_" "network.port_inherit" "" _out
+  _resolve_stage_list _keys _values "network.port_" "" _out
   local -a _lines=()
   IFS=$'\n' read -rd '' -a _lines <<< "${_out}" || true
   [[ "${_lines[0]}" == "9000:9000" ]] || return 1
@@ -881,7 +881,7 @@ EOF
   local -a _keys=("volumes.mount_1" "volumes.mount_inherit" "volumes.mount_2")
   local -a _values=("/a:/a" "false" "/b:/b")
   local _out=""
-  _resolve_stage_list _keys _values "volumes.mount_" "volumes.mount_inherit" "" _out
+  _resolve_stage_list _keys _values "volumes.mount_" "" _out
   # inherit=false → only stage entries
   local -a _lines=()
   IFS=$'\n' read -rd '' -a _lines <<< "${_out}" || true
@@ -1452,13 +1452,20 @@ EOF
 # <S>" matcher, and the agreement test that keeps its call sites from
 # drifting apart again.
 #
-# The four call sites (_parse_dockerfile_stages, _compute_dockerfile_hash,
-# _generate_runtime_dockerfile, _bake_config_copy) used to answer the
-# question with three different regexes, so a `FROM --platform=... AS x`
-# line was a compose service to one of them and invisible to the other
-# three. Per-function specs could not see that: each one only ever
-# exercised its own regex. Every test below drives ALL of them off the
-# same line and asserts one verdict.
+# The four call sites in this library (_parse_dockerfile_stages,
+# _compute_dockerfile_hash, _generate_runtime_dockerfile,
+# _bake_config_copy) used to answer the question with three different
+# regexes, so a `FROM --platform=... AS x` line was a compose service to
+# one of them and invisible to the other three. Per-function specs could
+# not see that: each one only ever exercised its own regex. Every test
+# below drives ALL of them off the same line and asserts one verdict.
+#
+# The CI build worker is the fifth site and the only one outside this
+# file, reached through script/ci/build_worker/stage_names.sh. It is here
+# because it repeated the same history one level up: two more regexes,
+# one in build-worker.yaml's extra_stages loop and one in
+# runtime_stages.sh, with a comment beside each asserting they agreed
+# with this matcher when they did not.
 # ════════════════════════════════════════════════════════════════════
 
 # _stage_line_verdicts <from_line> <stage> <out_array_var>
@@ -1525,6 +1532,19 @@ _stage_line_verdicts() {
     _slv_out+=("configcopy=nomatch")
   fi
 
+  # 6. the CI build worker's roster reader -- the one call site that lives
+  #    outside this library. build-worker.yaml's extra_stages loop and
+  #    runtime_stages.sh both ask it which stages a Dockerfile declares, and
+  #    each used to answer with a regex of its own while a comment beside it
+  #    claimed agreement with this matcher. Neither agreed, so the
+  #    claim is a verdict here instead of a sentence there.
+  if DOCKERFILE="${_df}" bash /source/script/ci/build_worker/stage_names.sh \
+     | grep -Fx -- "${_stage}" > /dev/null; then
+    _slv_out+=("worker=match")
+  else
+    _slv_out+=("worker=nomatch")
+  fi
+
   rm -rf "${_d}"
 }
 
@@ -1532,7 +1552,7 @@ _stage_line_verdicts() {
   local -a _v=()
   _stage_line_verdicts 'FROM devel AS runtime' runtime _v
   assert_equal "${_v[*]}" \
-    "matcher=match parse=match hash=match envbake=match configcopy=match"
+    "matcher=match parse=match hash=match envbake=match configcopy=match worker=match"
 }
 
 @test "all FROM-line call sites agree a --platform flagged line declares the stage (#875)" {
@@ -1543,28 +1563,28 @@ _stage_line_verdicts() {
   local -a _v=()
   _stage_line_verdicts 'FROM --platform=$BUILDPLATFORM ubuntu:24.04 AS runtime' runtime _v
   assert_equal "${_v[*]}" \
-    "matcher=match parse=match hash=match envbake=match configcopy=match"
+    "matcher=match parse=match hash=match envbake=match configcopy=match worker=match"
 }
 
 @test "all FROM-line call sites agree on a multi-flag FROM line (#875)" {
   local -a _v=()
   _stage_line_verdicts 'FROM --platform=linux/arm64 --link ubuntu:24.04 AS runtime' runtime _v
   assert_equal "${_v[*]}" \
-    "matcher=match parse=match hash=match envbake=match configcopy=match"
+    "matcher=match parse=match hash=match envbake=match configcopy=match worker=match"
 }
 
 @test "all FROM-line call sites agree a lowercase 'as' line declares nothing (#875)" {
   local -a _v=()
   _stage_line_verdicts 'FROM ubuntu:24.04 as runtime' runtime _v
   assert_equal "${_v[*]}" \
-    "matcher=nomatch parse=nomatch hash=nomatch envbake=nomatch configcopy=nomatch"
+    "matcher=nomatch parse=nomatch hash=nomatch envbake=nomatch configcopy=nomatch worker=nomatch"
 }
 
 @test "all FROM-line call sites agree a commented-out FROM declares nothing (#875)" {
   local -a _v=()
   _stage_line_verdicts '# FROM ubuntu:24.04 AS runtime' runtime _v
   assert_equal "${_v[*]}" \
-    "matcher=nomatch parse=nomatch hash=nomatch envbake=nomatch configcopy=nomatch"
+    "matcher=nomatch parse=nomatch hash=nomatch envbake=nomatch configcopy=nomatch worker=nomatch"
 }
 
 @test "all FROM-line call sites agree a stray bare token declares nothing (#875)" {
@@ -1574,14 +1594,14 @@ _stage_line_verdicts() {
   local -a _v=()
   _stage_line_verdicts 'FROM ubuntu:24.04 junk AS runtime' runtime _v
   assert_equal "${_v[*]}" \
-    "matcher=nomatch parse=nomatch hash=nomatch envbake=nomatch configcopy=nomatch"
+    "matcher=nomatch parse=nomatch hash=nomatch envbake=nomatch configcopy=nomatch worker=nomatch"
 }
 
 @test "all FROM-line call sites agree an inline '#' declares nothing (#875)" {
   local -a _v=()
   _stage_line_verdicts 'FROM ubuntu:24.04 # note AS runtime' runtime _v
   assert_equal "${_v[*]}" \
-    "matcher=nomatch parse=nomatch hash=nomatch envbake=nomatch configcopy=nomatch"
+    "matcher=nomatch parse=nomatch hash=nomatch envbake=nomatch configcopy=nomatch worker=nomatch"
 }
 
 @test "_dockerfile_stage_from_line reports the declared stage name (#875)" {

@@ -259,6 +259,20 @@ read-only unless the path declares `rw`. base moves the files the manifest
 lists and never parses their contents (ADR-00000023 sec. 5, #870).
 _Avoid_: tunable list, override manifest, config manifest.
 
+**Preset selector**:
+A committed repo-root **symlink** whose link text names a path under
+`config/`, declaring which of a component's curated presets this repo
+bakes (e.g. `camera.yaml -> config/realsense/yaml/none.yaml`). The build
+reads it through an `ARG` whose default is the symlink's own name, so
+`--build-arg` overrides one build with no tracked change; the committed
+target is the inert preset. The population is derived
+(`_collect_preset_selectors`, `lib/deploy.sh`) from the link's target, not
+its filename, which is what excludes base's own root symlinks; every
+`setup` run names each selector and WARNs about one whose preset is not in
+the repo (ADR-00000030).
+_Avoid_: profile symlink, config switch, camera.yaml (one repo's instance
+of it).
+
 **Managed `.gitignore` block**:
 The base-owned region of a downstream `.gitignore` that `lib/gitignore.sh`
 (re)syncs to ignore derived artifacts (`.env`, `compose.yaml`) and the
@@ -293,6 +307,22 @@ hand the terminal to an interactive docker/TUI process; the transcript
 captures only the orchestration phase and then `_transcript_detach`s
 before the session. `run -d` is non-interactive (full capture).
 _Avoid_: foreground/background (orthogonal), TTY verb.
+
+**ABI axis**:
+Which leading components of a dependency's version its ABI is expressed in
+-- `major` for a library that breaks only on a major, `major.minor` where
+the SONAME carries the minor. Declared per dependency by the repo doing the
+bumping and never defaulted: it is a fact about the dependency, so a default
+would be base guessing on somebody else's behalf, in the direction that
+releases a break (ADR-00000031, `script/ci/abi-gate.sh`).
+_Avoid_: semver level, compatibility level.
+
+**Dependency-bump gate**:
+The shared answer to "may this pin change auto-release" -- one question, and
+a refusal for everything it cannot decide, so an unanswerable bump goes to a
+person instead of releasing itself. It approves a Z and can produce nothing
+else (ADR-00000031 amending ADR-00000027).
+_Avoid_: release gate (that is the CI required-check set), ABI check.
 
 ### Architecture seams
 

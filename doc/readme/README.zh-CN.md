@@ -1131,15 +1131,16 @@ jobs:
 | `platforms` | string | 否 | `"linux/amd64"` | 逗号分隔的目标平台；每个在原生 runner 上并行运行（`linux/amd64` → ubuntu-latest、`linux/arm64` → ubuntu-24.04-arm） |
 | `test_tools_version` | string | 否 | `"latest"` | `ghcr.io/ycpss91255-docker/test-tools:<tag>` 的 tag，下游可固定到所升级的 template release 以保证可复现 |
 
-<!-- sync: release-workeryaml-inputs 018ae0329ece 644e746de083 -->
+<!-- sync: release-workeryaml-inputs 76c6974e7c8c 85321649f314 -->
 ### release-worker.yaml 参数
 
 | 参数 | 类型 | 必填 | 默认值 | 说明 |
 |------|------|------|--------|------|
 | `archive_name_prefix` | string | 是 | - | Archive 名称前缀 |
 | `extra_files` | string | 否 | `""` | 额外文件（空格分隔） |
+| `version` | string | 否 | `""` | 要发布的版本（`vX.Y.Z`）。走 tag 触发路径时留空，版本会从所推的 tag 读出。若要从非 tag 的 run 直接调用这个 worker 就传入它：用默认 `GITHUB_TOKEN` 产生的事件不会启动新的 workflow run，所以要自动发布已合并变更的 repo，靠推 tag 到不了这里。不是 `vX.Y.Z[-suffix]` 的值会被拒绝，而不是照样拿来发布 |
 
-<!-- sync: running-template-tests 961bde4ce2e8 5ffd1af67fe7 -->
+<!-- sync: running-template-tests 4e411d749017 9e717f2fcbfe -->
 ## 本地运行测试
 
 base 自测入口 `just test`：
@@ -1147,6 +1148,7 @@ base 自测入口 `just test`：
 just test        # 完整 CI（ShellCheck + Bats + Kcov）通过 docker compose
 just test lint        # 只运行 ShellCheck
 just test clean       # 清除覆盖率报告
+just test stop        # 停掉本 checkout 自测的容器
 just                            # 显示 repo 命令
 just --list        # 显示 CI 命令
 ```

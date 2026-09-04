@@ -1218,15 +1218,16 @@ jobs:
 | `platforms` | string | いいえ | `"linux/amd64"` | カンマ区切りのターゲットプラットフォーム；各プラットフォームがネイティブ runner 上で並列実行（`linux/amd64` → ubuntu-latest、`linux/arm64` → ubuntu-24.04-arm） |
 | `test_tools_version` | string | いいえ | `"latest"` | `ghcr.io/ycpss91255-docker/test-tools:<tag>` のタグ。下流側は採用した template release にピン留めすると再現性が確保できる |
 
-<!-- sync: release-workeryaml-inputs 018ae0329ece 70d1e3d75a6c -->
+<!-- sync: release-workeryaml-inputs 76c6974e7c8c 05ff0e4a6010 -->
 ### release-worker.yaml パラメータ
 
 | パラメータ | 型 | 必須 | デフォルト | 説明 |
 |------------|------|------|------------|------|
 | `archive_name_prefix` | string | はい | - | アーカイブ名プレフィックス |
 | `extra_files` | string | いいえ | `""` | 追加ファイル（スペース区切り） |
+| `version` | string | いいえ | `""` | リリースするバージョン（`vX.Y.Z`）。tag 経由の経路では未設定のままにすると、push された tag から読み取られる。tag 以外の run からこの worker を直接呼ぶ場合に渡す：既定の `GITHUB_TOKEN` で作成されたイベントは新しい workflow run を開始しないため、マージ済みの変更を自動リリースする repo は tag を push しても到達できない。`vX.Y.Z[-suffix]` でない値はリリースされず拒否される |
 
-<!-- sync: running-template-tests 961bde4ce2e8 8ec510a4fc2f -->
+<!-- sync: running-template-tests 4e411d749017 2fa910a54d4b -->
 ## ローカルテスト実行
 
 `script/test/justfile.test`（template ルートから）を使用：
@@ -1234,6 +1235,7 @@ jobs:
 just test        # フル CI（ShellCheck + Bats + Kcov）docker compose 経由
 just test lint        # ShellCheck のみ
 just test clean       # カバレッジレポート削除
+just test stop        # この checkout の自己テストコンテナを停止
 just             # repo recipe 一覧表示
 just --list  # CI ターゲット表示
 ```

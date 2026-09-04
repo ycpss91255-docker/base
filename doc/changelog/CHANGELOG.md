@@ -67,6 +67,33 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   and `exec`, bracket any ROS source with `set +u` -- the orchestrator
   sources the bringup under `set -euo pipefail`, which the seeded file never
   set. Flipping alone breaks it; `just upgrade` notices until then.
+- **the release worker cuts the version it was given, and refuses a tag it
+  cannot read (refs #829, refs #1012)** -- `prerelease` no longer reads
+  `contains(github.ref_name, '-')`, which is false for every branch and
+  would have published a directly-called RC as a full release; it now comes
+  from the resolved version. `tag_name` is explicit, so a call from a branch
+  releases the version it was given rather than the branch. **A tag that is
+  not `vX.Y.Z[-suffix]` now fails the release at the resolve step** instead
+  of publishing under a name nothing can pin.
+- **`config/<component>/` has a written layout, and a build says which preset it bakes (closes #826, closes #827; ADR-00000030)** -- a repo picks the baked preset with a committed repo-root symlink into `config/<component>/`, read through a build `ARG` whose default is that symlink's name, so `--build-arg` overrides one build with no tracked change. `just setup` names every selector and the preset it resolves to, and WARNs about one whose file is missing -- which used to surface as a `docker build` dying on a `COPY`. The seeded `config/.gitkeep` states the convention (new repos only).
+- **three of base's widest signatures narrow to what they actually take
+  (refs #994)** -- `_write_setup_conf` no longer takes the section array it
+  never read; `_resolve_stage_list` derives its `<prefix>inherit` meta-key
+  instead of taking it, which all six call sites spelled out identically;
+  and the TUI list editor's six message keys move out of eight positional
+  parameters into one `_TUI_LIST_LABELS` table keyed by section and prefix,
+  where a missing row now fails loudly instead of drawing a screen with no
+  words on it. Internal functions only -- no wrapper, recipe or
+  `.setup.conf` surface moves, and behaviour is unchanged.
+- **the three implementation-standard metric lints judge by an adoption
+  ceiling (refs #994)** -- `just test metrics` still prints every function
+  past depth 3 / 50 body code lines / 5 positional parameters, and now fails
+  only ABOVE a per-metric ceiling: one readonly integer in
+  `script/test/drivers/shell_metrics.sh` recording how much of the tree #994
+  phase 3 has not flattened yet, which may only ever go down. Every run
+  prints count / limit / ceiling / slack, so the room a new violation could
+  land in green is a figure on the log rather than an invisible category.
+  Not the per-site baseline ADR-00000029 rejected: it names no function.
 - **a test's description is written above the `@test`, and `doc/test/` is
   generated from it (closes #922, amends ADR-00000028)** -- write
   `# why: <prose>` above a test; `just test sync-docs` renders the catalogue
@@ -113,6 +140,16 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   type at 1.7.12.
 
 ### Added
+- **a dependency bump auto-releases only when a gate proves it ABI-safe
+  (closes #829, ADR-00000031)** -- `script/ci/abi-gate.sh` asks one
+  question, did this dependency's declared ABI component move, and refuses
+  everything else: an unreadable version, an undeclared or unrecognised
+  axis, a 0.x pin declared major-only, a downgrade, an unchanged pin, a pair
+  the upstream compat declaration does not sanction. A refusal prints
+  nothing on stdout, so no caller can read a decision out of one, and there
+  is no default axis to guess with. `release-worker.yaml` gains an optional
+  `version` input, so the release is cut by calling the worker -- a
+  bot-pushed tag fires no event.
 - **`just test metrics`: one shell reader, three implementation-standard thresholds (refs #994)** -- nesting depth <= 3, function length <= 50 body code lines, positional parameters <= 5, measured in one pass over every tracked shell file. Not in `just test` or `just test lint`: today's tree reports 26 / 69 / 7, which phase 3 flattens and phase 4 then gates. The figures replace an ad-hoc count whose parser bugs are now fixtures, and every counting rule the reader states has its worked example as a fixture too -- three defects were found by running them, one of them fail-open. A file the reader cannot parse is a finding, never a skip. Host-direct: the population is the git index.
 - **`just docker prune --reclaim`: base collects its own compose litter
   (closes #995)** -- compose stamps the checkout's absolute path on its
@@ -234,6 +271,17 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 - **the changelog lint now catches an entry that was edited and not re-wrapped (refs #927)** -- a single word left alone on a continuation line with more of its paragraph on the next line. The length measure collapses whitespace on purpose and markdown collapses it again at render time, so nothing else could see it. A short final line, a table row, a fenced line and an HTML comment are left alone. Affects anyone writing an `[Unreleased]` entry.
 
 ### Fixed
+- **a failed diff no longer takes the required `docker-build` check green, and one FROM-line reader replaces three (closes #1013)** -- the doc-only classifier read its diff through `done < <(git diff ...)`, and a loop's status is the loop's: a force-pushed base or a shallow clone delivered zero paths, classified doc-only, and passed the required check having built nothing. It is captured and checked now, and a spec scans every workflow run block for the shape. Separately, the extra-stages loop and `runtime_stages.sh` each carried a `FROM ... AS` regex claiming to match the stage parser; neither did, so `FROM --platform=... AS x-test` was invisible to the loop. One roster serves both now.
+- **`just` owns the lifecycle of what `just` creates (closes #1015, #997)** --
+  `just test stop` ends this checkout's self-test project. `just docker stop`
+  and `just docker exec` work in a self-managed checkout: `.env.generated` is
+  optional, and every compose call carries the tooling tag its compose.yaml
+  interpolates for `down` as much as for `build`. A checkout that SHOULD carry
+  that file and does not is refused, not ended under a name derived from its
+  directory. A run whose predecessor holds the project network waits
+  (`BASE_PROJECT_WAIT`, default 2m), saying why. `just test smoke`'s
+  per-checkout image is reclaimed like the network, and every docker-reaching
+  recipe states its lifecycle.
 - **the errexit-bang lint's three named misses (closes #990, #991, #992)** --
   a CRLF `*.bats` is REFUSED by name (a `\r` disarmed the line continuation,
   so a spliced `; true` went unreported); a `!` ending an `if` / `while` /
