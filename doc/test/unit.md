@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **4134 tests**.
+Unit specs under `test/bats/unit/`: **4138 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -2455,7 +2455,7 @@ exit $?`; a failing pre-exec hook aborts before `compose exec` runs).
 | `generated-workflow-actions: an assignment no marker claims is a finding (#987)` | The whole trade in one case: file-scope, unconditional, column 0, above the use -- and still refused, because nothing declares it to the watch |
 | `generated-workflow-actions: one reader -- a declared local resolves too (#987)` | The two lints disagreed about what an assignment is, so one marker on a local produced a record the watch read and this lint refused |
 | `generated-workflow-actions: a generator that is not named *.sh is scanned (#987)` | A *.sh glob is a roster of file shapes, and the non-vacuity backstop cannot notice the gap because the one known generator keeps the count at 1 |
-| `generated-workflow-actions: ignores a generator under .claude/ (#987)` | Two walks over one tree with two prune lists is how "the verdict must not depend on whose machine it ran on" stops applying to half of them |
+| `generated-workflow-actions: ignores an UNTRACKED generator (#987)` | This driver shares the pin registry's walk, so an untracked generator is outside its population too -- one population, not two that can drift (#987) |
 | `generated-workflow-actions: the real repo is in lockstep (#950)` | Drives the live tree, so the fixtures cannot drift away from what ships |
 
 ### test/bats/unit/ghcr_cleanup_yaml_spec.bats (22)
@@ -3300,7 +3300,7 @@ builds nothing and pushes nothing)
 | `the ports-inert diagnostic is translated in all four locales (#879)` | - |
 | `the ports-inert diagnostic differs per locale (no untranslated arms) (#879)` | - |
 
-### test/bats/unit/pin_coverage_lint_spec.bats (63)
+### test/bats/unit/pin_coverage_lint_spec.bats (67)
 
 | Test | Description |
 |------|-------------|
@@ -3335,12 +3335,16 @@ builds nothing and pushes nothing)
 | `_run_pin_coverage: the failure names all three marker forms` | Two of the three states exist for dependencies that cannot name a version, so a reader who only knows the pinned form has no correct move |
 | `_run_pin_coverage: DIES when the scanned trees yield no pinned entry` | A reader regression matching nothing would report a clean tree forever -- the failure this guard exists to prevent one level up |
 | `_run_pin_coverage: DIES when the walk yields no file at all` | A walk that opens no file is the same vacuous pass by the other road, and it must not be quieter than the first |
-| `_run_pin_coverage: FAILS when a pruned BASENAME matches a tracked tree at depth` | -name <entry> -prune prunes at ANY depth, and the guard only tested the repo root, so an entry never appearing there was never checked |
-| `_run_pin_coverage: a pruned basename matching nothing tracked is fine` | The honest case the prune list exists for, without which the guard above would make every entry a finding |
-| `_run_pin_coverage: DIES when the prune list cannot be checked at all` | The guard used to be skipped where git was unreadable -- which is the container the local gate runs in, so fail-open was the default there |
-| `_run_pin_coverage: accepts a host-computed verdict when git is unreadable` | The container cannot answer and the host always can, so the verdict is computed where git works and carried in rather than skipped |
-| `_run_pin_coverage: FAILS on a host-computed verdict naming a tracked tree` | The carried verdict has to be able to FAIL, or computing it on the host is just a longer way to pass |
-| `_run_pin_coverage: git OUTRANKS an inherited verdict` | A stale or hand-set verdict must not silence a tree git can see; the fallback is for an environment with no git, never an override |
+| `_run_pin_coverage: an UNTRACKED file is not part of the population` | A generated directory inside the checkout made the verdict depend on whose machine ran the lint -- the one thing a gate must not do (base#987) |
+| `_run_pin_coverage: a TRACKED file anywhere is part of the population` | The other half of that rule: untracked-ness is the ONLY exemption, so a file the repo ships is read wherever it sits |
+| `_run_pin_coverage: a force-added file inside an IGNORED tree is scanned` | The question the prune guard could not reach: check-ignore says yes for the whole tree while the file inside it is content this repo ships |
+| `_run_pin_coverage: an ignored tree nobody tracked is simply absent` | An ignored tree nobody force-added is the ordinary case the old roster existed for, and it must stay quiet with no roster at all |
+| `_run_pin_coverage: a tracked SYMLINK is a pointer, not content` | This repo tracks eight symlinks into dist/, and reading through one yields a SECOND record for every marker in the target -- the duplicate-name check fires |
+| `_run_pin_coverage: DIES when the tracked set cannot be established` | The registry used to be skipped where git was unreadable -- which is the container the local gate runs in, so fail-open was the default there |
+| `_run_pin_coverage: accepts a host-computed tracked list when git is gone` | The container cannot answer and the host always can, so the population is computed where git works and carried in rather than skipped |
+| `_run_pin_coverage: FAILS on a carried list naming an undeclared version` | The carried list has to be able to FAIL, or computing it on the host is just a longer way to pass |
+| `_run_pin_coverage: a carried list for another root is not consulted` | A list describing a DIFFERENT tree is not an answer about this one, and the suite container exports one describing /source into every case |
+| `_run_pin_coverage: git OUTRANKS a carried tracked list` | A stale or hand-set list must not silence a file git can see; the handoff is for an environment with no git, never an override |
 | `_run_pin_coverage: FAILS on an image: in compose.yaml` | This repo's own core artefact names its image with no docker verb anywhere on the line |
 | `_run_pin_coverage: FAILS on a workflow container: image` | The job runs inside this image, and dependabot can bump it no more than it can bump a run: one |
 | `_run_pin_coverage: FAILS on a bare image tag sed into a generated file` | The live shape: the migration's sed rewrote a FROM line, and only the namespaced half was caught -- the alpine half was invisible |
@@ -6083,10 +6087,10 @@ is the smoke step, which iterates this same roster.
 | `pins: a trailing comment does not leak whitespace into the version` | A stray space does not stay local: it flows into the reported from, into the branch name a bump builds, and into whatever CI feeds from --value |
 | `pins: --set leaves the file's mode alone` | mktemp creates 0600 and mv carries that mode onto the file -- invisible in CI and a permission denied on the next local just test |
 | `pins: a tree yielding no scannable file at all FAILS` | An empty table read as "this repo declares no pins" is indistinguishable from a clean week, which is the one answer the watch must never guess |
-| `pins: --files lists every file it walks, prose and specs aside` | The walk is the whole repo minus a prune list, so what it actually opens is the claim worth checking rather than trusting |
+| `pins: --files lists every file it walks, prose and specs aside` | The walk is every tracked file minus the exempt shapes, so what it actually opens is the claim worth checking rather than trusting |
 | `pins: a Dockerfile at a path nothing anticipated is still scanned` | The scan surface is not a roster of directories; it decayed once already, with two live pins sitting outside the three original roots |
 | `pins: a shell script that generates a file is a declaration site` | A uses: ref inside a heredoc is not a workflow file, so nothing but this watch can ever see the versions a generator writes |
-| `pins: a pruned tree contributes nothing` | Every version in a shipped release is supposed to be stale, so a bump inside .prev-release/ would be meaningless |
+| `pins: an untracked tree contributes nothing` | Every version in a shipped release is supposed to be stale, so a bump inside .prev-release/ would be meaningless -- and nothing tracks it |
 | `pins: check.sh dispatches every resolver the registry declares` | A resolver the lint accepts and check.sh does not implement blesses a pin that then fails weeks later, unattended |
 | `pins: the real tree's markers all parse` | Drives the live tree, so a marker written today is parsed by the same reader the scheduled run uses |
 | `pins: just is PINNED in the real tree, not left to a package manager` | The defect this closes: four provenance paths for one tool, 37 minors apart, none of them naming a version in the image |

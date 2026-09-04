@@ -345,12 +345,14 @@ _gwa_value() {
 # below could not notice, because the one generator that does end in `.sh`
 # kept the count at 1.
 #
-# So there is no roster. The walk is the pin registry's: the whole
-# repository, minus the machine-local trees it prunes and the prose and
-# specs it exempts, both of which it CHECKS rather than trusts (a pruned
-# tree must be gitignored and untracked; a marker in an exempt file is a
-# failure). `.claude/` comes with it, for the reason the registry states:
-# scanning it makes the verdict depend on whose machine the lint ran on.
+# So there is no roster. The walk is the pin registry's: every file the
+# repo TRACKS, minus the prose and specs it exempts -- and that exemption
+# list it CHECKS rather than trusts, since a marker in an exempt file is a
+# failure. Untracked content comes with it, for the reason the registry
+# states: a generated directory left in the checkout would otherwise make
+# the verdict depend on whose machine the lint ran on. That is not
+# hypothetical here either -- `coverage/` holds kcov's HTML rendering of
+# this repo's own scripts, `uses:` lines and all.
 _gwa_load_files() {
   _GWA_FILES="$(_pin_files "${REPO_ROOT}")"
 }
@@ -705,9 +707,16 @@ _gwa_generated_refs() {
 _run_generated_workflow_actions() {
   echo "--- Running generated-workflow action ref lockstep lint ---"
 
-  if ! _gwa_load_files; then
+  local _walk_rc=0
+  _gwa_load_files || _walk_rc=$?
+  if [[ "${_walk_rc}" -eq 2 ]]; then
     _die ci_generated_workflow_actions \
-      "the walk yielded no scannable file at all under ${REPO_ROOT} -- nothing was read, so this lint would pass vacuously. script/watch/lib.sh's prune list and exempt shapes, not the tree, are what to look at."
+      "this lint could not establish which files ${REPO_ROOT} tracks (the registry's complaint is above), and the tracked set IS what it reads. A run that cannot see the population would report lockstep over refs it never opened, so it fails instead. Run it on the host, or set PIN_TRACKED_ROOT / PIN_TRACKED_FILES the way script/test/test.sh does for the compose run."
+    return 1
+  fi
+  if [[ "${_walk_rc}" -ne 0 ]]; then
+    _die ci_generated_workflow_actions \
+      "the walk yielded no scannable file at all under ${REPO_ROOT} -- nothing was read, so this lint would pass vacuously. script/watch/lib.sh's exempt shapes, not the tree, are what to look at."
     return 1
   fi
   if ! _gwa_load_registry; then

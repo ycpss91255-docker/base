@@ -83,19 +83,34 @@
 #   5. It is not vacuous: the walk yielded files, and the table yielded
 #      pinned entries. A reader regression that matched nothing would
 #      otherwise report a clean tree forever.
-#   6. Every tree the prune list removes -- at any depth, since the
-#      entries are basenames -- is one git ignores and does not track. The
-#      walk covers the whole repository, so the prune list is the only way
-#      to remove something from all of the above, and it must not become
-#      the quiet place to put an awkward pin. It has no environment in
-#      which it is skipped: where git cannot answer, the verdict is
-#      carried in from the host, and where neither can, this DIES.
-#   7. No `tool-pin:` marker sits in a file the walk EXEMPTS. The scan is
-#      whole-tree minus prose and specs, and that exemption list is the
-#      other way to remove something from every check above. A marker
-#      written in an exempt file is a pin its author believes is watched
-#      and which nothing reads -- the precise belief this mechanism
-#      exists to make impossible -- so it fails here.
+#   6. No `tool-pin:` marker sits in a file the walk EXEMPTS. The scan is
+#      every tracked file minus prose and specs, and that exemption list
+#      is the one remaining way to remove something from every check
+#      above. A marker written in an exempt file is a pin its author
+#      believes is watched and which nothing reads -- the precise belief
+#      this mechanism exists to make impossible -- so it fails here.
+#
+# There used to be a seventh: the walk had a hand-kept PRUNE roster of
+# trees not to read, and a guard proved every entry named a gitignored,
+# untracked tree. Both are gone. The population is now the set of files
+# the repo TRACKS, so there is no roster to check -- and the roster was
+# not a check that had gone missing, it was a check that could not have
+# worked. `coverage/` (kcov's HTML report, written into the checkout by
+# `just test coverage`) was not on it, so the CI coverage shard read
+# kcov's bundled jQuery and reported `m="2.1.1"` as an undeclared
+# version, while the same run on a checkout that had never run coverage
+# was clean. script/watch/lib.sh carries the argument.
+#
+# What the roster's guard used to buy is now structural. It asked "is
+# this tree ignored" and "is anything in it tracked", and both dissolve
+# when the population IS the tracked set: an ignored tree contributes
+# nothing, and a force-added file inside one contributes itself -- which
+# is the right answer and the one that guard could not reach.
+#
+# The environment answer keeps its old shape, because the old shape was
+# right: where git cannot say what a tree tracks, the answer is carried
+# in from the host, and where neither can, this DIES rather than reading
+# a population it could not establish.
 
 # The pin registry: grammar, reader and detector. Sourced rather than
 # re-implemented so the lint and the watch cannot drift apart about what a
@@ -106,22 +121,32 @@ source "${SCRIPT_DIR}/../watch/lib.sh"
 _run_pin_coverage() {
   echo "--- Running pin-coverage lint ---"
 
-  local _table
-  if ! _table="$(_pin_read "${REPO_ROOT}")"; then
+  # The population comes first, and its two failures are told apart,
+  # because every check below reads whatever it decided. `2` is "nobody
+  # could establish what this tree tracks" -- the environment answer,
+  # which must never resolve to a clean run -- and `1` is "the tree
+  # tracks nothing this lint reads", which is a reader regression.
+  local -a _files=()
+  local _f _file_list _walk_rc=0
+  _file_list="$(_pin_files "${REPO_ROOT}")" || _walk_rc=$?
+  if [[ "${_walk_rc}" -eq 2 ]]; then
     _die ci_pin_coverage \
-      "the tool-pin markers did not parse (the reader's complaint is above). A marker that does not parse is a dependency that is not being watched, so this is a failure rather than a skipped entry."
+      "this lint could not establish which files ${REPO_ROOT} tracks (the registry's complaint is above), and the tracked set IS what it reads. A run that cannot see the population would pass over any number of undeclared versions, so it fails instead. Run './script/test/test.sh --pin-coverage-only' on the host, or set PIN_TRACKED_ROOT / PIN_TRACKED_FILES the way test.sh does for the compose run."
     return 1
   fi
-
-  local -a _files=()
-  local _f _file_list
-  _file_list="$(_pin_files "${REPO_ROOT}")" || _file_list=""
   while IFS= read -r _f; do
     [[ -n "${_f}" ]] && _files+=("${_f}")
   done <<< "${_file_list}"
   if [[ "${#_files[@]}" -eq 0 ]]; then
     _die ci_pin_coverage \
-      "the walk yielded no scannable file at all -- nothing was read, so this lint would pass vacuously. script/watch/lib.sh's exempt shapes and prune list, not the tree, are what to look at."
+      "the walk yielded no scannable file at all -- nothing was read, so this lint would pass vacuously. script/watch/lib.sh's exempt shapes, not the tree, are what to look at."
+    return 1
+  fi
+
+  local _table
+  if ! _table="$(_pin_read "${REPO_ROOT}")"; then
+    _die ci_pin_coverage \
+      "the tool-pin markers did not parse (the reader's complaint is above). A marker that does not parse is a dependency that is not being watched, so this is a failure rather than a skipped entry."
     return 1
   fi
 
@@ -175,55 +200,10 @@ Known resolvers: $(printf '%s ' "${_PIN_RESOLVERS[@]}"). An unknown one is not a
     return 1
   fi
 
-  # The prune list is the one hand-kept thing left in the registry, and an
-  # entry added to it silently removes a whole tree from every check
-  # above. So it is checked rather than trusted: every directory the prune
-  # MATCHES -- at any depth, which is how `-name <entry> -prune` behaves --
-  # must be a tree git ignores and does not track. That is what makes
-  # "prune the directory the awkward pin lives in" fail here instead of
-  # passing quietly.
-  #
-  # Where the verdict comes from, and why it is never absent. The check
-  # needs git, and the suite's own container bind-mounts the checkout
-  # WITHOUT a resolvable .git -- a worktree's `.git` is a file naming a
-  # path outside the mount. This used to be an `if git ...` around the
-  # whole guard, i.e. a pass on the environment the repo's local gate
-  # actually runs in: a guard whose default on an environment it cannot
-  # inspect is "clean" is fail-open, and this one guards the mechanism
-  # that removes trees from every other check.
-  #
-  # So the answer is computed where git works and carried to where it does
-  # not. `PIN_PRUNE_TRACKED` is set by test.sh on the HOST before the
-  # compose run: `-` for clean, the offending paths otherwise. git wins
-  # when it is readable, so a stale or hand-set value can never silence a
-  # tree git can see. When neither source can answer, this DIES.
-  local _prune_offenders
-  if ! _prune_offenders="$(_pin_prune_offenders "${REPO_ROOT}")"; then
-    if [[ -z "${PIN_PRUNE_TRACKED:-}" ]]; then
-      _die ci_pin_coverage \
-        "this lint cannot check its prune list: ${REPO_ROOT} is not a readable git repository and no host-computed verdict arrived in PIN_PRUNE_TRACKED. The prune list removes whole trees from the walk, from this lint and from the watch, so an unchecked one is the failure this guard exists for -- not a detail to skip. Run './script/test/test.sh --pin-coverage-only' on the host, or set PIN_PRUNE_TRACKED (\`-\` when clean) the way test.sh does for the compose run."
-      return 1
-    fi
-    _prune_offenders="${PIN_PRUNE_TRACKED}"
-    [[ "${_prune_offenders}" == '-' ]] && _prune_offenders=""
-  fi
-  if [[ -n "${_prune_offenders}" ]]; then
-    local _off
-    local -a _prune_bad=()
-    while IFS= read -r _off; do
-      [[ -n "${_off}" ]] && _prune_bad+=("${_off}")
-    done <<< "${_prune_offenders}"
-    _die ci_pin_coverage \
-      "script/watch/lib.sh prunes a tree the repo tracks or does not ignore:
-$(printf '  %s\n' "${_prune_bad[@]}")
-The prune list exists for machine-local trees. Pruning a tree the repo ships removes every version in it from the watch AND from this lint, and nothing else would report that. Note the entries are BASENAMES: \`-name <entry> -prune\` matches at any depth, so an entry that is harmless at the root can still remove a tree deeper in."
-    return 1
-  fi
-
-  # The exemption list is the other hand-kept thing in the scan surface,
-  # and it removes a whole SHAPE from every check above. So it gets the
-  # prune list's treatment: a marker written where the reader never looks
-  # is caught here, by name, rather than becoming a pin its author
+  # The exemption list is the one hand-kept thing left in the scan
+  # surface, and it removes a whole SHAPE from every check above. So it is
+  # checked rather than trusted: a marker written where the reader never
+  # looks is caught here, by name, rather than becoming a pin its author
   # believes is watched and which nothing reads.
   local _exempt
   local -a _stray=()

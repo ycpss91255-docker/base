@@ -103,38 +103,52 @@ readonly _PIN_RESOLVERS=(
   dockerhub
 )
 
-# What is NOT walked -- and nothing else. There is deliberately no list of
-# trees to look in.
+# What is walked: THE FILES THIS REPO TRACKS. There is no list here, and
+# that is the point -- see _pin_tracked.
 #
-# A roster of scan roots is the same artefact as a roster of tools, one
-# level up: it is hand-kept, it is edited by different people on different
-# days from the trees it describes, and when it falls behind, the thing it
-# stops covering goes silent rather than red. This repo had exactly that
-# defect while the roots were `dockerfile`, `dist/dockerfile` and
-# `.github/workflows` -- two live third-party versions sat outside them,
-# both of them versions this repo BAKES INTO FILES IT SHIPS DOWNSTREAM,
-# and one had drifted two minors behind base's own pin with nothing
-# reporting it.
+# The population went through the same three corrections everything else
+# in this file did. It was a roster of scan ROOTS (`dockerfile`,
+# `dist/dockerfile`, `.github/workflows`) and two live pins sat outside
+# it, both of them versions this repo BAKES INTO FILES IT SHIPS
+# DOWNSTREAM. So it inverted: walk the whole checkout, and keep a PRUNE
+# roster of trees not to read -- `.git`, `log`, `.prev-release`,
+# `.claude` -- with a guard asserting each of them was gitignored and
+# untracked, so the roster could not quietly grow to cover something the
+# repo ships.
 #
-# So the walk is the whole repository and this is a PRUNE list. The
-# failure mode inverts with it: forgetting to touch this file when a tree
-# is added means the new tree IS scanned and the lint fires, rather than
-# the new tree being quietly exempt.
+# That inversion was right about the direction and wrong about the
+# artefact. A prune roster is still hand-kept, and hand-kept lists in this
+# mechanism fail the same way every time: correct when written, with
+# nothing to notice when the world moves. It moved. `just test coverage`
+# writes kcov's HTML report into `coverage/` INSIDE the checkout, so on
+# the CI coverage shard -- and on any machine that had run coverage
+# locally -- the walk read kcov's own bundled jquery, handlebars and
+# `bcov.css`, and reported jQuery's `m="2.1.1"` as an undeclared
+# third-party version. Same for the generated-workflow lint, which shares
+# this walk: it read a `uses:` line out of a kcov HTML rendering of one of
+# this repo's scripts. Adding `coverage` to the roster would have passed,
+# and the guard would have accepted it, and the NEXT generated directory
+# would have reproduced it exactly.
 #
-# Every entry is a machine-local tree that is gitignored, and the lint
-# asserts exactly that -- so this list cannot quietly grow to cover
-# something the repo actually ships. `.prev-release/` earns its place
-# twice over: it is `git archive` of PAST releases, and the versions in it
-# are supposed to be stale. `.claude/` is the agent harness a checkout may
-# or may not carry; scanning it would make the lint's verdict depend on
-# whose machine it ran on, which is the one thing a gate must not do.
+# The roster's own justification says why that was never the fix. It
+# exempted `.claude/` because "scanning it would make the lint's verdict
+# depend on whose machine it ran on, which is the one thing a gate must
+# not do" -- and a leftover `coverage/` is precisely that dependency,
+# which the roster did not prevent and could not have.
 #
-# Note what an entry MEANS here, because the guard was once narrower than
-# it: these are BASENAMES, and `-name <entry> -prune` prunes a directory
-# of that name AT ANY DEPTH. `log` removes `dist/script/log/` as surely as
-# `./log/`. The check asserts the property over every directory the prune
-# actually matches -- see _pin_prune_offenders.
-readonly _PIN_SCAN_PRUNE=('.git' 'log' '.prev-release' '.claude')
+# So the population is DERIVED and the roster is gone. A version in a file
+# the repo does not track is not a version this repo declares: nothing
+# ships it, nobody pulls it, and it is on this machine by accident.
+# `git ls-files` answers that exactly. Both questions the prune guard
+# existed to ask -- is this tree ignored, is anything in it tracked --
+# dissolve with it, and the one it could not reach is now answered right:
+# a force-added tracked file inside an ignored tree IS tracked, so it IS
+# scanned.
+#
+# The failure mode still inverts the safe way. A tree added tomorrow is
+# scanned the moment it is committed and exempt for exactly as long as it
+# is not -- there is nothing to forget to edit, and nothing a person can
+# edit to make a shipped file stop being read.
 
 # What is NOT read -- and nothing else. This was a list of the shapes a
 # declaration MAY live in (`Dockerfile*`, `*.y{a,}ml`, `*.sh`), which is
@@ -173,9 +187,14 @@ readonly _PIN_SCAN_PRUNE=('.git' 'log' '.prev-release' '.claude')
 # The lint checks this list rather than trusting it: a `tool-pin:` marker
 # in an exempt file is a failure, so "exempt the shape the awkward pin
 # lives in" cannot quietly become a way to stop watching a pin.
+#
+# Globs matched against a path's BASENAME, by _pin_is_exempt_shape. They
+# were `find` predicates while the population came from `find`; both
+# halves of the walk now partition one list of tracked paths, so the
+# predicate has to be answerable about a string rather than about a
+# directory entry.
 readonly _PIN_SCAN_EXEMPT_SHAPES=(
-  -name '*.md' -o -name '*.adoc' -o -name 'README' -o -name 'LICENSE'
-  -o -name '*.bats'
+  '*.md' '*.adoc' 'README' 'LICENSE' '*.bats'
 )
 
 # ── Declaration shapes the detector recognises ──────────────────────────────
@@ -334,107 +353,153 @@ readonly _PIN_ACTION_REF_RE='^([A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9._-]+)+)@([
 
 # ── Reader ──────────────────────────────────────────────────────────────────
 
+# _pin_is_exempt_shape <repo-root-relative-path>
+#
+# TRUE when the path's BASENAME matches one of the exempt shapes. Both
+# halves of the walk partition one list of paths through this, so a file
+# is read by exactly one of them and neither can drift.
+_pin_is_exempt_shape() {
+  local _base="${1##*/}" _glob
+  for _glob in "${_PIN_SCAN_EXEMPT_SHAPES[@]}"; do
+    # Deliberately unquoted: _glob IS a pattern.
+    # shellcheck disable=SC2053
+    [[ "${_base}" == ${_glob} ]] && return 0
+  done
+  return 1
+}
+
+# _pin_tracked <repo-root>
+#
+# Print every file this repo TRACKS at <repo-root>, repo-root-relative,
+# one per line, LC_ALL=C sorted. This is the whole population both walks
+# partition -- see the section head above for why it is `git ls-files`
+# and not a roster.
+#
+# Returns 2, printing what to supply, when tracked-ness cannot be
+# established. "Nothing is tracked" and "nobody could look" are the two
+# answers a caller must never confuse, and only one of them is allowed to
+# read as a clean tree.
+#
+# ── Only blobs ──────────────────────────────────────────────────────────
+#
+# Index modes 100644 and 100755 and nothing else. A 120000 entry is a
+# SYMLINK, and this repo tracks eight of them -- `script/run.sh` and its
+# siblings point into `dist/script/docker/wrapper/`. Reading through one
+# reads a file already in the population under a second name, which does
+# not just duplicate work: every marker in it yields a second record with
+# a different `file`, and the lint's duplicate-NAME check would fire on
+# the repo's own pins. A symlink is a pointer to content, not content.
+# 160000 (a submodule) is excluded by the same rule and for the same
+# reason -- it is another repository's content, tracked here as a commit
+# id.
+#
+# ── Where the answer comes from, and why it is never absent ─────────────
+#
+# The check needs git, and the suite's own container bind-mounts the
+# checkout WITHOUT a resolvable `.git`: a worktree's `.git` is a FILE
+# naming a path outside the mount, so `git -C /source rev-parse
+# --git-dir` answers `fatal: not a git repository:
+# <host-path>/.git/worktrees/<name>`. git is installed there; the
+# repository is what is missing.
+#
+# So the answer is computed where git works and carried to where it does
+# not, which is the handoff `PIN_PRUNE_TRACKED` already existed to be:
+# script/test/test.sh sets PIN_TRACKED_ROOT and PIN_TRACKED_FILES on the
+# HOST before the compose run. git WINS when it is readable, so a stale or
+# hand-set list can never silence a file git can see. The handoff is
+# keyed to the root it describes and is ignored for any other, because a
+# list of one tree's tracked files is not an answer about a different
+# tree -- a fixture root would otherwise inherit the repository's.
+#
+# When neither source can answer, this refuses. A guard whose default on
+# an environment it cannot inspect is "clean" is fail-open, and this one
+# decides which files every check downstream of it reads.
+_pin_tracked() {
+  local _root="${1}"
+  local _rec _mode _path
+  local -a _found=()
+  if git -C "${_root}" rev-parse --git-dir >/dev/null 2>&1; then
+    while IFS= read -r -d '' _rec; do
+      _mode="${_rec%% *}"
+      [[ "${_mode}" == '100644' || "${_mode}" == '100755' ]] || continue
+      _path="${_rec#*$'\t'}"
+      _found+=("${_path}")
+    done < <(git -C "${_root}" ls-files -s -z)
+  elif [[ "${PIN_TRACKED_ROOT:-}" == "${_root}" \
+       && -n "${PIN_TRACKED_FILES:-}" ]]; then
+    while IFS= read -r _path; do
+      [[ -n "${_path}" ]] && _found+=("${_path}")
+    done <<< "${PIN_TRACKED_FILES}"
+  else
+    printf 'pin registry: cannot tell what %s tracks -- it is not a readable git repository and no host-computed list arrived for it in PIN_TRACKED_FILES. The tracked set IS the scan population, so an unanswered one is not a detail to skip. Run the lint on the host, or set PIN_TRACKED_ROOT=%s and PIN_TRACKED_FILES the way script/test/test.sh does for the compose run.\n' \
+      "${_root}" "${_root}" >&2
+    return 2
+  fi
+  [[ "${#_found[@]}" -eq 0 ]] && return 0
+  printf '%s\n' "${_found[@]}" | LC_ALL=C sort -u
+}
+
 # _pin_files <repo-root>
 #
-# Print every scanned file, repo-root-relative, one per line, sorted.
-# Every file under <repo-root> that is neither in a pruned tree nor of an
-# exempt shape -- so a Dockerfile, workflow, script, justfile or config
-# added tomorrow, at any depth, under any name, is scanned without
-# touching this file.
+# Print every scanned file, repo-root-relative, one per line, sorted:
+# every TRACKED file that is not of an exempt shape. A Dockerfile,
+# workflow, script, justfile or config committed tomorrow, at any depth,
+# under any name, is scanned without touching this file -- and an
+# untracked one is not scanned on anybody's machine.
 #
 # A tree that yields nothing at all is an error rather than an empty
 # table: every caller would read "no pins declared" as a clean repo, which
-# is the one answer this mechanism must never give by accident.
+# is the one answer this mechanism must never give by accident. It is
+# distinct from "could not look", which _pin_tracked reports as 2 and this
+# passes straight through.
 _pin_files() {
   local _root="${1}"
-  local _abs _p
-  local -a _found=() _prune=()
-  for _p in "${_PIN_SCAN_PRUNE[@]}"; do
-    _prune+=(-name "${_p}" -prune -o)
-  done
-  while IFS= read -r -d '' _abs; do
-    _found+=("${_abs#"${_root}/"}")
-  done < <(find "${_root}" "${_prune[@]}" -type f \
-    ! \( "${_PIN_SCAN_EXEMPT_SHAPES[@]}" \) -print0)
+  local _path _tracked _rc=0
+  local -a _found=()
+  _tracked="$(_pin_tracked "${_root}")" || _rc=$?
+  if [[ "${_rc}" -ne 0 ]]; then
+    return "${_rc}"
+  fi
+  while IFS= read -r _path; do
+    [[ -n "${_path}" ]] || continue
+    if ! _pin_is_exempt_shape "${_path}"; then
+      _found+=("${_path}")
+    fi
+  done <<< "${_tracked}"
   if [[ "${#_found[@]}" -eq 0 ]]; then
     printf 'pin registry: no scannable file under %s\n' \
       "${_root}" >&2
     return 1
   fi
-  printf '%s\n' "${_found[@]}" | LC_ALL=C sort
+  printf '%s\n' "${_found[@]}"
 }
 
 # _pin_exempt_files <repo-root>
 #
-# The other half of that walk: every file the scan EXEMPTS, same pruning,
+# The other half of that partition: every TRACKED file the scan EXEMPTS,
 # repo-root-relative and sorted. The lint reads it to prove no `tool-pin:`
 # marker was written where nothing reads it -- which is how the exemption
-# list is CHECKED rather than trusted, the treatment the prune list gets.
+# list is CHECKED rather than trusted.
 #
 # Empty is a normal answer here, unlike _pin_files: a tree with no prose
-# and no specs in it is a tree, not a broken walk.
+# and no specs in it is a tree, not a broken walk. "Could not look" is
+# still not empty -- it propagates as 2.
 _pin_exempt_files() {
   local _root="${1}"
-  local _abs _p
-  local -a _found=() _prune=()
-  for _p in "${_PIN_SCAN_PRUNE[@]}"; do
-    _prune+=(-name "${_p}" -prune -o)
-  done
-  while IFS= read -r -d '' _abs; do
-    _found+=("${_abs#"${_root}/"}")
-  done < <(find "${_root}" "${_prune[@]}" -type f \
-    \( "${_PIN_SCAN_EXEMPT_SHAPES[@]}" \) -print0)
-  [[ "${#_found[@]}" -eq 0 ]] && return 0
-  printf '%s\n' "${_found[@]}" | LC_ALL=C sort
-}
-
-# _pin_prune_offenders <repo-root>
-#
-# Print every directory the prune list actually removes that is NOT a
-# machine-local tree, repo-root-relative, one per line, sorted. Prints
-# nothing when the list is honest. Returns 1 -- rather than "nothing" --
-# when git cannot answer, because "no offenders" and "could not look" are
-# the two answers a caller must never confuse.
-#
-# Two questions, because the prune list can lie in two ways.
-#
-# It can name a tree git does not ignore, which is the roster failure this
-# whole file is built to avoid arriving through the back door: "the pin is
-# awkward, prune the directory it lives in" has to fail here, since
-# nothing else would report it.
-#
-# It can also name a tree that IS ignored and yet holds a force-added,
-# tracked file -- content the repo ships, out of the walk, out of this
-# lint and out of the watch, with `check-ignore` answering yes the whole
-# time.
-#
-# Both are asked of every directory the prune MATCHES, not of
-# `<repo-root>/<entry>`. The root-only form was the defect: an entry that
-# never appears at the root -- `workflows`, say -- was skipped by the
-# guard entirely while removing `.github/workflows/` from the scan.
-_pin_prune_offenders() {
-  local _root="${1}"
-  git -C "${_root}" rev-parse --git-dir >/dev/null 2>&1 || return 1
-  local _entry _dir _rel
-  local -a _offending=() _names=()
-  for _entry in "${_PIN_SCAN_PRUNE[@]}"; do
-    # git's own directory is not repo content and is never tracked.
-    [[ "${_entry}" == '.git' ]] && continue
-    [[ "${#_names[@]}" -gt 0 ]] && _names+=(-o)
-    _names+=(-name "${_entry}")
-  done
-  [[ "${#_names[@]}" -eq 0 ]] && return 0
-  while IFS= read -r -d '' _dir; do
-    _rel="${_dir#"${_root}/"}"
-    [[ "${_rel}" == "${_root}" ]] && continue
-    if ! git -C "${_root}" check-ignore -q "${_rel}" \
-       || [[ -n "$(git -C "${_root}" ls-files -- "${_rel}")" ]]; then
-      _offending+=("${_rel}")
+  local _path _tracked _rc=0
+  local -a _found=()
+  _tracked="$(_pin_tracked "${_root}")" || _rc=$?
+  if [[ "${_rc}" -ne 0 ]]; then
+    return "${_rc}"
+  fi
+  while IFS= read -r _path; do
+    [[ -n "${_path}" ]] || continue
+    if _pin_is_exempt_shape "${_path}"; then
+      _found+=("${_path}")
     fi
-  done < <(find "${_root}" -name '.git' -prune -o \
-    -type d \( "${_names[@]}" \) -print0)
-  [[ "${#_offending[@]}" -eq 0 ]] && return 0
-  printf '%s\n' "${_offending[@]}" | LC_ALL=C sort -u
+  done <<< "${_tracked}"
+  [[ "${#_found[@]}" -eq 0 ]] && return 0
+  printf '%s\n' "${_found[@]}"
 }
 
 # _pin_unquote <value> -- strip one layer of matching quotes.

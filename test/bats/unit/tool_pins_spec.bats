@@ -20,8 +20,16 @@ setup() {
   export LOG_FORMAT=text
   load "${BATS_TEST_DIRNAME}/test_helper"
 
+  # The suite container's host-computed handoff is left in place on
+  # purpose. It is keyed to the root it describes (/source), so it cannot
+  # reach a scratch tree -- and the real-tree cases at the bottom of this
+  # file are the ones that read it, which is the only in-container
+  # exercise the handoff gets.
   PINS="/source/script/watch/pins.sh"
   SCRATCH="$(mktemp -d)"
+  # The reader's population is what the tree TRACKS, so the fixture is a
+  # real repository. `_pins` stages it before every invocation.
+  git -C "${SCRATCH}" init -q
   mkdir -p "${SCRATCH}/dockerfile" "${SCRATCH}/dist/dockerfile" \
            "${SCRATCH}/.github/workflows"
   # The reader walks the whole tree by shape, so these paths are a
@@ -47,6 +55,7 @@ _workflow() {
 }
 
 _pins() {
+  git -C "${SCRATCH}" add -A
   PIN_REPO_ROOT="${SCRATCH}" run "${PINS}" "$@"
 }
 
@@ -412,14 +421,15 @@ _pins() {
   # clean week.
   rm -rf "${SCRATCH:?}"
   mkdir -p "${SCRATCH}/doc"
+  git -C "${SCRATCH}" init -q
   printf 'hello\n' > "${SCRATCH}/doc/a.md"
   _pins --list
   assert_failure
   assert_output --partial 'no scannable file'
 }
 
-# why: The walk is the whole repo minus a prune list, so what it actually opens is
-# the claim worth checking rather than trusting
+# why: The walk is every tracked file minus the exempt shapes, so what it actually
+# opens is the claim worth checking rather than trusting
 @test "pins: --files lists every file it walks, prose and specs aside" {
   _dockerfile 'FROM scratch'
   _pins --files
@@ -469,20 +479,25 @@ _pins() {
 }
 
 # why: Every version in a shipped release is supposed to be stale, so a bump inside
-# .prev-release/ would be meaningless
-@test "pins: a pruned tree contributes nothing" {
+# .prev-release/ would be meaningless -- and nothing tracks it
+@test "pins: an untracked tree contributes nothing" {
   # `.prev-release/` is `git archive` of PAST releases, materialised for a
   # spec. Every version in it is supposed to be stale, and a bump inside
-  # it would be meaningless.
+  # it would be meaningless. It used to be named in a prune roster; it is
+  # absent now because nothing tracks it, which is the same verdict with
+  # nothing to keep up to date.
+  _dockerfile 'FROM scratch'
+  _pins --files
+  assert_success
   mkdir -p "${SCRATCH}/.prev-release/v0.1.0/dockerfile"
   printf '%s\n' \
     '# tool-pin: ancient github-release owner/ancient' \
     'ARG ANCIENT_VERSION=0.0.1' \
     > "${SCRATCH}/.prev-release/v0.1.0/dockerfile/Dockerfile"
-  _pins --files
+  PIN_REPO_ROOT="${SCRATCH}" run "${PINS}" --files
   assert_success
   refute_output --partial '.prev-release'
-  _pins --value ancient
+  PIN_REPO_ROOT="${SCRATCH}" run "${PINS}" --value ancient
   assert_failure
 }
 

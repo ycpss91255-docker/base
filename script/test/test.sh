@@ -1680,28 +1680,27 @@ _await_project_quiescent() {
 
 # ── Docker compose wrapper ───────────────────────────────────────────────────
 
-# _pin_prune_verdict
+# _pin_tracked_handoff
 #
-# The pin-coverage lint's prune-list verdict, computed HERE because this
-# side can compute it: `-` when every tree the prune list removes is one
-# git ignores and does not track, the offending paths otherwise, and
-# EMPTY when this side cannot answer either.
+# The files this checkout TRACKS, computed HERE because this side can
+# compute it, for the pin registry to read on the side that cannot. One
+# repo-root-relative path per line; EMPTY when this side cannot answer
+# either.
 #
-# The lint needs git and the container has none -- a worktree's `.git` is
-# a file naming a path outside the bind mount. The lint used to answer
-# that by skipping the check, which made its default on the repo's own
-# local gate "clean". So the answer travels instead. Empty is not "clean":
-# the lint treats an empty value as no answer and dies, which is the
-# correct outcome for a run that could not check the one list that removes
-# whole trees from every other check.
-_pin_prune_verdict() {
-  local _offenders
-  _offenders="$(_pin_prune_offenders "${REPO_ROOT}")" || return 0
-  if [[ -z "${_offenders}" ]]; then
-    printf '%s' '-'
-    return 0
-  fi
-  printf '%s' "${_offenders}"
+# The registry's scan population is the tracked set (script/watch/lib.sh
+# says why it is derived rather than rostered), and answering that needs
+# git. The container has the git BINARY but not this repository: a
+# worktree's `.git` is a FILE naming a path outside the bind mount, so
+# `git -C /source rev-parse --git-dir` fails there. So the answer
+# travels, the way the prune-list verdict it replaces did.
+#
+# Empty is not "nothing is tracked": _pin_tracked treats an absent list as
+# no answer and refuses, which is the correct outcome for a run that could
+# not establish which files it is supposed to read. git still WINS on the
+# far side wherever it is readable -- a normal clone's `.git` IS in the
+# mount -- so this value can never silence a file git can see there.
+_pin_tracked_handoff() {
+  _pin_tracked "${REPO_ROOT}" 2>/dev/null || return 0
 }
 
 _run_via_compose() {
@@ -1841,7 +1840,8 @@ _run_via_compose() {
     -e BATS_FILTER="${BATS_FILTER:-}" \
     -e LINT_ONLY="${LINT_ONLY:-0}" \
     -e LINT_TOOL="${LINT_TOOL:-}" \
-    -e PIN_PRUNE_TRACKED="$(_pin_prune_verdict)" \
+    -e PIN_TRACKED_ROOT=/source \
+    -e PIN_TRACKED_FILES="$(_pin_tracked_handoff)" \
     "${_service}" || _rc=$?
   if [[ -n "${_residue_before}" ]]; then
     _residue_check "${_residue_before}" "${REPO_ROOT}" || _rc=1

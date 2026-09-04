@@ -38,13 +38,17 @@ setup() {
   # shellcheck disable=SC1091
   source /source/script/test/drivers/pin_coverage.sh
 
-  # The scratch tree carries none of the pruned basenames, so `-` (clean)
-  # is the honest verdict for it. It is set explicitly rather than left to
-  # the ambient container environment so each case starts from a known
-  # state -- the cases about the verdict itself override or unset it.
-  export PIN_PRUNE_TRACKED='-'
-
+  # The suite container's host-computed handoff is left in place on
+  # purpose. It is keyed to the root it describes (/source), so it cannot
+  # reach the fixture -- which is the property "a carried list for another
+  # root is not consulted" below asserts, and the reason no case here has
+  # to remember to clear it.
   SCRATCH="$(mktemp -d)"
+  # The scan population is what the tree TRACKS, so the fixture is a real
+  # repository rather than a bare directory. `_lint` commits the fixture
+  # to the index before each run; a case that wants an UNTRACKED file
+  # writes it after calling nothing, or uses `_untracked`.
+  git -C "${SCRATCH}" init -q
   mkdir -p "${SCRATCH}/dockerfile" "${SCRATCH}/dist/dockerfile" \
            "${SCRATCH}/.github/workflows"
   printf 'FROM scratch\n' > "${SCRATCH}/dist/dockerfile/Dockerfile"
@@ -54,6 +58,16 @@ setup() {
 
 teardown() {
   [[ -n "${SCRATCH:-}" ]] && rm -rf "${SCRATCH}"
+}
+
+# Run the lint over the fixture as the repo would see it: everything
+# written so far is tracked. Staging here rather than in each writer
+# keeps "what this case put in the tree" and "what the lint reads" the
+# same thing by construction -- a case that means to leave a file
+# untracked has to say so.
+_lint() {
+  git -C "${SCRATCH}" add -A
+  run _run_pin_coverage
 }
 
 _dockerfile() {
@@ -89,7 +103,7 @@ _one_good_pin() {
 @test "_run_pin_coverage: FAILS on an ARG version with no marker" {
   _one_good_pin
   _dockerfile 'ARG HADOLINT_VERSION=v2.12.0'
-  run _run_pin_coverage
+  _lint
   assert_failure
   assert_output --partial 'declared with no tool-pin marker'
   assert_output --partial 'dockerfile/Dockerfile.test-tools:1'
@@ -100,7 +114,7 @@ _one_good_pin() {
 @test "_run_pin_coverage: FAILS on an ARG naming an image with an explicit tag" {
   _one_good_pin
   _dockerfile 'ARG BASE_IMAGE="ubuntu:24.04"'
-  run _run_pin_coverage
+  _lint
   assert_failure
   assert_output --partial 'ARG BASE_IMAGE="ubuntu:24.04"'
 }
@@ -110,7 +124,7 @@ _one_good_pin() {
 @test "_run_pin_coverage: FAILS on a FROM with a literal tag" {
   _one_good_pin
   _dockerfile 'FROM alpine:3.21 AS builder'
-  run _run_pin_coverage
+  _lint
   assert_failure
   assert_output --partial 'FROM alpine:3.21'
 }
@@ -127,7 +141,7 @@ _one_good_pin() {
     '  a:' \
     '    steps:' \
     '      - run: docker run --rm rhysd/actionlint:1.7.7 -color'
-  run _run_pin_coverage
+  _lint
   assert_failure
   assert_output --partial 'rhysd/actionlint:1.7.7'
 }
@@ -143,7 +157,7 @@ _one_good_pin() {
   _dockerfile \
     'RUN curl -fsSL -o /usr/local/bin/hadolint \\' \
     '  "https://github.com/hadolint/hadolint/releases/download/v2.12.0/hadolint-Linux-x86_64"'
-  run _run_pin_coverage
+  _lint
   assert_failure
   assert_output --partial 'releases/download/v2.12.0'
 }
@@ -156,7 +170,7 @@ _one_good_pin() {
   _dockerfile \
     'RUN git clone --depth 1 -b v2.1.0 \\' \
     '      https://github.com/bats-core/bats-assert.git /x'
-  run _run_pin_coverage
+  _lint
   assert_failure
   assert_output --partial '-b v2.1.0'
 }
@@ -173,7 +187,7 @@ _one_good_pin() {
     '  a:' \
     '    steps:' \
     '      - run: docker run --rm alpine:3.21 true'
-  run _run_pin_coverage
+  _lint
   assert_failure
   assert_output --partial 'alpine:3.21'
 }
@@ -192,7 +206,7 @@ _one_good_pin() {
     '      - uses: actions/checkout@v7' \
     'YAML' \
     > "${SCRATCH}/dist/script/gen.sh"
-  run _run_pin_coverage
+  _lint
   assert_failure
   assert_output --partial 'actions/checkout@v7'
 }
@@ -212,7 +226,7 @@ _one_good_pin() {
   _script 'gen.sh' \
     '#!/usr/bin/env bash' \
     "readonly _MONITOR_REF='actions/checkout@v7'"
-  run _run_pin_coverage
+  _lint
   assert_failure
   assert_output --partial '_MONITOR_REF'
 }
@@ -229,7 +243,7 @@ _one_good_pin() {
     '#!/usr/bin/env bash' \
     '# tool-pin: unpinned downstream-checkout -- a major ref on purpose' \
     "readonly _MONITOR_REF='actions/checkout@v7'"
-  run _run_pin_coverage
+  _lint
   assert_success
 }
 
@@ -244,7 +258,7 @@ _one_good_pin() {
     '#!/usr/bin/env bash' \
     "readonly _DIR='dist/script/base'" \
     "readonly _GLOB='dist/script/*.sh'"
-  run _run_pin_coverage
+  _lint
   assert_success
 }
 
@@ -259,7 +273,7 @@ _one_good_pin() {
   printf '%s\n' \
     "sed -i -E 's|^FROM bats/bats:latest|FROM bats/bats:1.11.0|' \"\${_f}\"" \
     > "${SCRATCH}/dist/script/gen.sh"
-  run _run_pin_coverage
+  _lint
   assert_failure
   assert_output --partial 'bats/bats:1.11.0'
 }
@@ -275,7 +289,7 @@ _one_good_pin() {
     '  a:' \
     '    steps:' \
     '      - uses: jlumbroso/free-disk-space@main'
-  run _run_pin_coverage
+  _lint
   assert_failure
   assert_output --partial 'free-disk-space@main'
 }
@@ -296,7 +310,7 @@ _one_good_pin() {
     '    steps:' \
     '      - uses: actions/checkout@v7' \
     '      - uses: docker/login-action@v4.5.2'
-  run _run_pin_coverage
+  _lint
   assert_success
 }
 
@@ -309,7 +323,7 @@ _one_good_pin() {
     '  a:' \
     '    steps:' \
     '      - uses: dataaxiom/ghcr-cleanup-action@d52806a0dc70b430571a37da1fde39733ffd640f'
-  run _run_pin_coverage
+  _lint
   assert_success
 }
 
@@ -320,7 +334,7 @@ _one_good_pin() {
     'jobs:' \
     '  a:' \
     '    uses: ./.github/workflows/build-worker.yaml'
-  run _run_pin_coverage
+  _lint
   assert_success
 }
 
@@ -336,7 +350,7 @@ _one_good_pin() {
     'ARG DEBIAN_FRONTEND=noninteractive' \
     'ARG ENTRYPOINT_FILE="script/entrypoint.sh"' \
     'ARG TARGETARCH'
-  run _run_pin_coverage
+  _lint
   assert_success
 }
 
@@ -350,7 +364,7 @@ _one_good_pin() {
     'ARG ALPINE_VERSION=3.21' \
     'FROM alpine:${ALPINE_VERSION} AS builder' \
     'FROM builder AS final'
-  run _run_pin_coverage
+  _lint
   assert_success
 }
 
@@ -367,7 +381,7 @@ _one_good_pin() {
     'ARG SHELLCHECK_VERSION=v0.10.0' \
     'RUN curl -fsSL \\' \
     '  "https://example.invalid/releases/download/${SHELLCHECK_VERSION}/sc.tar.xz"'
-  run _run_pin_coverage
+  _lint
   assert_success
 }
 
@@ -379,7 +393,7 @@ _one_good_pin() {
     '# tool-pin: ba github-release bats-core/bats-assert' \
     'ARG BATS_ASSERT_VERSION=v2.1.0' \
     'RUN git clone --depth 1 -b "${BATS_ASSERT_VERSION}" https://x/y /z'
-  run _run_pin_coverage
+  _lint
   assert_success
 }
 
@@ -397,7 +411,7 @@ _one_good_pin() {
     '      - uses: ${_REF}' \
     'YAML' \
     > "${SCRATCH}/dist/script/gen.sh"
-  run _run_pin_coverage
+  _lint
   assert_success
 }
 
@@ -407,7 +421,7 @@ _one_good_pin() {
   _one_good_pin
   _dockerfile \
     '# ARG HADOLINT_VERSION=v2.12.0  (was here before the rewrite)'
-  run _run_pin_coverage
+  _lint
   assert_success
 }
 
@@ -421,7 +435,7 @@ _one_good_pin() {
   _dockerfile \
     '# tool-pin: hadolint github-release hadolint/hadolint' \
     'ARG HADOLINT_VERSION=v2.12.0'
-  run _run_pin_coverage
+  _lint
   assert_success
   assert_output --partial 'pin-coverage lint: clean'
 }
@@ -436,7 +450,7 @@ _one_good_pin() {
     'ARG SEED_VERSION=1.0.0' \
     '# tool-pin: unpinned base-image -- a moving tag, consumer-facing' \
     'FROM ubuntu:24.04 AS sys'
-  run _run_pin_coverage
+  _lint
   assert_success
   assert_output --partial '1 pinned, 1 declared unpinned'
 }
@@ -448,7 +462,7 @@ _one_good_pin() {
   _dockerfile \
     '# tool-pin: ignore -- ours, not a third-party version' \
     'ARG SCHEMA_VERSION=2.1'
-  run _run_pin_coverage
+  _lint
   assert_success
 }
 
@@ -463,7 +477,7 @@ _one_good_pin() {
   _dockerfile \
     '# tool-pin: foo gitub-release owner/foo' \
     'ARG FOO_VERSION=1.0.0'
-  run _run_pin_coverage
+  _lint
   assert_failure
   assert_output --partial "names resolver 'gitub-release'"
   assert_output --partial 'Known resolvers:'
@@ -479,7 +493,7 @@ _one_good_pin() {
     'ARG FOO_VERSION=1.0.0' \
     '# tool-pin: foo github-release owner/other' \
     'ARG OTHER_VERSION=2.0.0'
-  run _run_pin_coverage
+  _lint
   assert_failure
   assert_output --partial 'two tool-pin markers share a name'
 }
@@ -490,7 +504,7 @@ _one_good_pin() {
   _dockerfile \
     '# tool-pin: foo github-release owner/foo bogus=1' \
     'ARG FOO_VERSION=1.0.0'
-  run _run_pin_coverage
+  _lint
   assert_failure
   assert_output --partial 'did not parse'
 }
@@ -503,7 +517,7 @@ _one_good_pin() {
   # about the pinned form has no correct move.
   _one_good_pin
   _dockerfile 'ARG HADOLINT_VERSION=v2.12.0'
-  run _run_pin_coverage
+  _lint
   assert_failure
   assert_output --partial 'tool-pin: <name> github-release <owner>/<repo>'
   assert_output --partial 'tool-pin: unpinned <name>'
@@ -521,7 +535,7 @@ _one_good_pin() {
   # clean tree forever, which is the failure this guard exists to prevent
   # one level up.
   _dockerfile 'FROM scratch'
-  run _run_pin_coverage
+  _lint
   assert_failure
   assert_output --partial 'yielded no PINNED entry'
 }
@@ -531,100 +545,165 @@ _one_good_pin() {
 @test "_run_pin_coverage: DIES when the walk yields no file at all" {
   rm -rf "${SCRATCH:?}"
   mkdir -p "${SCRATCH}/doc"
+  git -C "${SCRATCH}" init -q
   printf 'hello\n' > "${SCRATCH}/doc/a.md"
-  run _run_pin_coverage
+  _lint
   assert_failure
-  assert_output --partial 'did not parse'
+  assert_output --partial 'no scannable file at all'
 }
 
-# why: -name <entry> -prune prunes at ANY depth, and the guard only tested the repo
-# root, so an entry never appearing there was never checked
-@test "_run_pin_coverage: FAILS when a pruned BASENAME matches a tracked tree at depth" {
-  # `find -name <entry> -prune` prunes a directory of that basename at ANY
-  # depth. The guard only ever tested `<repo-root>/<entry>` and skipped
-  # the entry when that path did not exist, so an entry that never appears
-  # at the root was not checked at all -- while removing every nested tree
-  # of that name from the walk, from this lint and from the watch.
+# ════════════════════════════════════════════════════════════════════
+# The population: the files this repo TRACKS, and nothing else
+# ════════════════════════════════════════════════════════════════════
+
+# why: A generated directory inside the checkout made the verdict depend on whose
+# machine ran the lint -- the one thing a gate must not do (base#987)
+@test "_run_pin_coverage: an UNTRACKED file is not part of the population" {
+  # The defect this replaced a prune roster to fix. `just test coverage`
+  # writes kcov's HTML report into `coverage/` INSIDE the checkout, so the
+  # CI coverage shard read kcov's bundled jQuery and reported its
+  # `m="2.1.1"` as an undeclared third-party version, while the same
+  # commit on a checkout that had never run coverage was clean. A roster
+  # of trees not to read would have had to name `coverage/` in advance,
+  # and the next generated directory reproduces it exactly.
   _one_good_pin
-  git -C "${SCRATCH}" init -q
-  mkdir -p "${SCRATCH}/dist/script/log"
-  printf 'FROM alpine:3.19\n' > "${SCRATCH}/dist/script/log/Dockerfile"
+  _lint
+  assert_success
+  mkdir -p "${SCRATCH}/coverage/data/js"
+  printf 'var m="2.1.1";\nFROM alpine:3.19\n' \
+    > "${SCRATCH}/coverage/data/js/jquery.min.js"
+  run _run_pin_coverage
+  assert_success
+}
+
+# why: The other half of that rule: untracked-ness is the ONLY exemption, so a file
+# the repo ships is read wherever it sits
+@test "_run_pin_coverage: a TRACKED file anywhere is part of the population" {
+  _one_good_pin
+  mkdir -p "${SCRATCH}/some/deep/place"
+  printf 'FROM alpine:3.19\n' > "${SCRATCH}/some/deep/place/Dockerfile"
+  _lint
+  assert_failure
+  assert_output --partial 'some/deep/place/Dockerfile:1'
+}
+
+# why: The question the prune guard could not reach: check-ignore says yes for the
+# whole tree while the file inside it is content this repo ships
+@test "_run_pin_coverage: a force-added file inside an IGNORED tree is scanned" {
+  # The old guard asked "is this tree ignored" and "is anything in it
+  # tracked" as two separate questions about a roster entry, and a
+  # force-added file could satisfy both at once -- ignored tree, tracked
+  # content, out of the walk. Deriving the population from the index makes
+  # the answer structural: the file is tracked, so it is read.
+  _one_good_pin
+  printf 'log/\n' > "${SCRATCH}/.gitignore"
+  mkdir -p "${SCRATCH}/log"
+  printf 'FROM alpine:3.19\n' > "${SCRATCH}/log/Dockerfile"
   git -C "${SCRATCH}" add -A
+  git -C "${SCRATCH}" add -f log/Dockerfile
   run _run_pin_coverage
   assert_failure
-  assert_output --partial 'prunes a tree the repo tracks'
-  assert_output --partial 'dist/script/log'
+  assert_output --partial 'log/Dockerfile:1'
 }
 
-# why: The honest case the prune list exists for, without which the guard above
-# would make every entry a finding
-@test "_run_pin_coverage: a pruned basename matching nothing tracked is fine" {
-  # The whole point of the prune list. `log/` holds run transcripts and is
-  # gitignored, so no tracked path lies under it and the entry is honest.
+# why: An ignored tree nobody force-added is the ordinary case the old roster
+# existed for, and it must stay quiet with no roster at all
+@test "_run_pin_coverage: an ignored tree nobody tracked is simply absent" {
   _one_good_pin
-  git -C "${SCRATCH}" init -q
   printf 'log/\n' > "${SCRATCH}/.gitignore"
   mkdir -p "${SCRATCH}/log" "${SCRATCH}/dist/log"
-  printf 'x\n' > "${SCRATCH}/log/x.txt"
-  printf 'x\n' > "${SCRATCH}/dist/log/x.txt"
-  git -C "${SCRATCH}" add -A
-  run _run_pin_coverage
+  printf 'FROM alpine:3.19\n' > "${SCRATCH}/log/Dockerfile"
+  printf 'FROM alpine:3.19\n' > "${SCRATCH}/dist/log/Dockerfile"
+  _lint
   assert_success
 }
 
-# why: The guard used to be skipped where git was unreadable -- which is the
+# why: This repo tracks eight symlinks into dist/, and reading through one yields a
+# SECOND record for every marker in the target -- the duplicate-name check fires
+@test "_run_pin_coverage: a tracked SYMLINK is a pointer, not content" {
+  # `script/run.sh` and its siblings point into
+  # `dist/script/docker/wrapper/`. Following one reads a file already in
+  # the population under a second name, so every marker in it produces two
+  # records with two `file` fields -- and the lint's own duplicate-NAME
+  # check fails on the repo's real pins.
+  _one_good_pin
+  ln -s dist/dockerfile/Dockerfile "${SCRATCH}/Dockerfile.link"
+  _lint
+  assert_success
+  assert_output --partial 'no undeclared version'
+}
+
+# why: The registry used to be skipped where git was unreadable -- which is the
 # container the local gate runs in, so fail-open was the default there
-@test "_run_pin_coverage: DIES when the prune list cannot be checked at all" {
-  # The guard used to be wrapped in `if git rev-parse --git-dir`, so an
-  # environment it could not inspect got a PASS. The suite runs in a
+@test "_run_pin_coverage: DIES when the tracked set cannot be established" {
+  # The guard this replaced was wrapped in `if git rev-parse --git-dir`,
+  # so an environment it could not inspect got a PASS. The suite runs in a
   # container that bind-mounts the checkout without a resolvable .git,
-  # which is the repo's own local gate -- so the fail-open default was the
-  # default in the place the guard is run most.
+  # which is the repo's own local gate -- so fail-open was the default in
+  # the place the lint runs most. Reading a population nobody could
+  # establish is the same fail-open one layer down.
   _one_good_pin
-  unset PIN_PRUNE_TRACKED
+  git -C "${SCRATCH}" add -A
+  rm -rf "${SCRATCH}/.git"
   run _run_pin_coverage
   assert_failure
-  assert_output --partial 'cannot check its prune list'
+  assert_output --partial 'could not establish which files'
 }
 
-# why: The container cannot answer and the host always can, so the verdict is
+# why: The container cannot answer and the host always can, so the population is
 # computed where git works and carried in rather than skipped
-@test "_run_pin_coverage: accepts a host-computed verdict when git is unreadable" {
-  # The container cannot answer the question; the host always can. So the
-  # answer is COMPUTED where git works and carried in, and the guard runs
-  # on it rather than being skipped. `-` is the clean verdict, spelled so
-  # that "clean" and "never computed" are different values.
+@test "_run_pin_coverage: accepts a host-computed tracked list when git is gone" {
   _one_good_pin
-  unset PIN_PRUNE_TRACKED
-  PIN_PRUNE_TRACKED='-' run _run_pin_coverage
+  git -C "${SCRATCH}" add -A
+  local _files
+  _files="$(git -C "${SCRATCH}" ls-files)"
+  rm -rf "${SCRATCH}/.git"
+  PIN_TRACKED_ROOT="${SCRATCH}" PIN_TRACKED_FILES="${_files}" \
+    run _run_pin_coverage
   assert_success
 }
 
-# why: The carried verdict has to be able to FAIL, or computing it on the host is
-# just a longer way to pass
-@test "_run_pin_coverage: FAILS on a host-computed verdict naming a tracked tree" {
+# why: The carried list has to be able to FAIL, or computing it on the host is just
+# a longer way to pass
+@test "_run_pin_coverage: FAILS on a carried list naming an undeclared version" {
   _one_good_pin
-  unset PIN_PRUNE_TRACKED
-  PIN_PRUNE_TRACKED='doc' run _run_pin_coverage
+  _dockerfile 'ARG HADOLINT_VERSION=v2.12.0'
+  git -C "${SCRATCH}" add -A
+  local _files
+  _files="$(git -C "${SCRATCH}" ls-files)"
+  rm -rf "${SCRATCH}/.git"
+  PIN_TRACKED_ROOT="${SCRATCH}" PIN_TRACKED_FILES="${_files}" \
+    run _run_pin_coverage
   assert_failure
-  assert_output --partial 'prunes a tree the repo tracks'
-  assert_output --partial 'doc'
+  assert_output --partial 'dockerfile/Dockerfile.test-tools:1'
 }
 
-# why: A stale or hand-set verdict must not silence a tree git can see; the
-# fallback is for an environment with no git, never an override
-@test "_run_pin_coverage: git OUTRANKS an inherited verdict" {
-  # A stale or hand-set PIN_PRUNE_TRACKED must not be able to silence a
-  # tree git can see is tracked. The carried answer is a fallback for the
-  # environment that has no git, never an override for the one that does.
+# why: A list describing a DIFFERENT tree is not an answer about this one, and the
+# suite container exports one describing /source into every case
+@test "_run_pin_coverage: a carried list for another root is not consulted" {
+  # PIN_TRACKED_FILES is keyed to the root it was computed for. Without
+  # that key the container's list -- which describes /source -- would be
+  # applied to any scratch tree a case builds, and the lint would report
+  # on files that are not there.
   _one_good_pin
-  git -C "${SCRATCH}" init -q
-  mkdir -p "${SCRATCH}/log"
-  printf 'x\n' > "${SCRATCH}/log/x.txt"
   git -C "${SCRATCH}" add -A
-  PIN_PRUNE_TRACKED='-' run _run_pin_coverage
+  rm -rf "${SCRATCH}/.git"
+  PIN_TRACKED_ROOT=/source PIN_TRACKED_FILES='dockerfile/Dockerfile' \
+    run _run_pin_coverage
   assert_failure
-  assert_output --partial 'prunes a tree the repo tracks'
+  assert_output --partial 'could not establish which files'
+}
+
+# why: A stale or hand-set list must not silence a file git can see; the handoff is
+# for an environment with no git, never an override
+@test "_run_pin_coverage: git OUTRANKS a carried tracked list" {
+  _one_good_pin
+  _dockerfile 'ARG HADOLINT_VERSION=v2.12.0'
+  git -C "${SCRATCH}" add -A
+  PIN_TRACKED_ROOT="${SCRATCH}" PIN_TRACKED_FILES='dist/dockerfile/Dockerfile' \
+    run _run_pin_coverage
+  assert_failure
+  assert_output --partial 'dockerfile/Dockerfile.test-tools:1'
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -650,7 +729,7 @@ _one_good_pin() {
     '  devel:' \
     '    image: alpine:3.21' \
     > "${SCRATCH}/compose.yaml"
-  run _run_pin_coverage
+  _lint
   assert_failure
   assert_output --partial 'alpine:3.21'
 }
@@ -667,7 +746,7 @@ _one_good_pin() {
     '    container: alpine:3.21' \
     '    steps:' \
     '      - run: true'
-  run _run_pin_coverage
+  _lint
   assert_failure
   assert_output --partial 'alpine:3.21'
 }
@@ -684,7 +763,7 @@ _one_good_pin() {
   printf '%s\n' \
     "sed -i -E 's|^FROM alpine:latest|FROM alpine:3.21|' \"\${_file}\"" \
     > "${SCRATCH}/dist/script/gen.sh"
-  run _run_pin_coverage
+  _lint
   assert_failure
   assert_output --partial 'alpine:3.21'
 }
@@ -698,7 +777,7 @@ _one_good_pin() {
   # must raise the question rather than pass.
   _one_good_pin
   printf 'fallback_image=alpine:3.21\n' > "${SCRATCH}/dist.setup.conf"
-  run _run_pin_coverage
+  _lint
   assert_failure
   assert_output --partial 'alpine:3.21'
 }
@@ -714,7 +793,7 @@ _one_good_pin() {
     'lint:' \
     '    docker run --rm alpine:3.21 true' \
     > "${SCRATCH}/justfile"
-  run _run_pin_coverage
+  _lint
   assert_failure
   assert_output --partial 'alpine:3.21'
 }
@@ -738,7 +817,7 @@ _one_good_pin() {
   printf '%s\n' \
     'docker run --rm -p 8080:8080 "${IMAGE}" true' \
     > "${SCRATCH}/dist/script/gen.sh"
-  run _run_pin_coverage
+  _lint
   assert_success
 }
 
@@ -750,7 +829,7 @@ _one_good_pin() {
   printf '%s\n' \
     'docker run --rm --user 1000:1000 "${IMAGE}" bats' \
     > "${SCRATCH}/dist/script/gen.sh"
-  run _run_pin_coverage
+  _lint
   assert_success
 }
 
@@ -765,7 +844,7 @@ _one_good_pin() {
   printf '%s\n' \
     'docker build --build-arg USER_UID=1000 -t base:0.1 .' \
     > "${SCRATCH}/dist/script/gen.sh"
-  run _run_pin_coverage
+  _lint
   assert_success
 }
 
@@ -778,7 +857,7 @@ _one_good_pin() {
     '  a:' \
     '    steps:' \
     '      - run: echo sha256:0123456789abcdef0123456789abcdef01234567'
-  run _run_pin_coverage
+  _lint
   assert_success
 }
 
@@ -802,7 +881,7 @@ _one_good_pin() {
     'EOD' \
     '}' \
     > "${SCRATCH}/test/bats/unit/x_spec.bats"
-  run _run_pin_coverage
+  _lint
   assert_success
 }
 
@@ -813,7 +892,7 @@ _one_good_pin() {
   mkdir -p "${SCRATCH}/doc"
   printf 'Run `docker run --rm alpine:3.21 true` to check.\n' \
     > "${SCRATCH}/doc/guide.md"
-  run _run_pin_coverage
+  _lint
   assert_success
 }
 
@@ -821,8 +900,8 @@ _one_good_pin() {
 # marker in an exempt file is a belief in watching that nothing reads
 @test "_run_pin_coverage: FAILS when a tool-pin marker sits in an unscanned file" {
   # The exemption list is the one hand-kept thing left in the scan
-  # surface, so it is checked rather than trusted -- the same treatment
-  # the prune list gets. A marker written in an exempt file is a pin its
+  # surface -- the population itself is derived now -- so it is checked
+  # rather than trusted. A marker written in an exempt file is a pin its
   # author believes is watched and which nothing reads, and that belief is
   # exactly what this whole mechanism exists to make impossible.
   _one_good_pin
@@ -831,7 +910,7 @@ _one_good_pin() {
     '# tool-pin: ghost github-release owner/ghost' \
     'ARG GHOST_VERSION=1.0.0' \
     > "${SCRATCH}/test/bats/unit/x_spec.bats"
-  run _run_pin_coverage
+  _lint
   assert_failure
   assert_output --partial 'is not scanned'
 }
@@ -866,7 +945,7 @@ _one_good_pin() {
     '_f() {' \
     "  local _bats_tag='1.13.0'" \
     '}'
-  run _run_pin_coverage
+  _lint
   assert_failure
   assert_output --partial 'declared with no tool-pin marker'
   assert_output --partial 'x.sh:2'
@@ -877,7 +956,7 @@ _one_good_pin() {
 @test "_run_pin_coverage: FAILS on a readonly= version with no marker" {
   _one_good_pin
   _script 'x.sh' 'readonly HELM_VERSION=3.16.2'
-  run _run_pin_coverage
+  _lint
   assert_failure
   assert_output --partial 'x.sh:1'
 }
@@ -887,7 +966,7 @@ _one_good_pin() {
 @test "_run_pin_coverage: FAILS on an export= version with no marker" {
   _one_good_pin
   _script 'x.sh' 'export TERRAFORM_VERSION="1.9.5"'
-  run _run_pin_coverage
+  _lint
   assert_failure
   assert_output --partial 'x.sh:1'
 }
@@ -899,7 +978,7 @@ _one_good_pin() {
   # produces this shape as readily as the other three.
   _one_good_pin
   _script 'x.sh' 'KUBECTL_VERSION=1.31.0'
-  run _run_pin_coverage
+  _lint
   assert_failure
   assert_output --partial 'x.sh:1'
 }
@@ -911,7 +990,7 @@ _one_good_pin() {
   _script 'x.sh' \
     '# tool-pin: bats dockerhub bats/bats pattern=.' \
     "local _bats_tag='1.13.0'"
-  run _run_pin_coverage
+  _lint
   assert_success
 }
 
@@ -932,7 +1011,7 @@ _one_good_pin() {
     '  local _msg="took 1.5s"' \
     '  local _n' \
     '}'
-  run _run_pin_coverage
+  _lint
   assert_success
 }
 
@@ -947,7 +1026,7 @@ _one_good_pin() {
     '  local _tag="${BATS_VERSION}"' \
     '  local _url="releases/download/${HADOLINT_VERSION}/hadolint"' \
     '}'
-  run _run_pin_coverage
+  _lint
   assert_success
 }
 
@@ -973,7 +1052,7 @@ _one_good_pin() {
 @test "_run_pin_coverage: FAILS on a v-prefixed version with no dot" {
   _one_good_pin
   _dockerfile 'ARG KCOV_VERSION=v43'
-  run _run_pin_coverage
+  _lint
   assert_failure
   assert_output --partial 'declared with no tool-pin marker'
   assert_output --partial 'dockerfile/Dockerfile.test-tools:1'
@@ -984,7 +1063,7 @@ _one_good_pin() {
 @test "_run_pin_coverage: FAILS on a v-prefixed major-only ref in a shell assignment" {
   _one_good_pin
   _script 'x.sh' 'readonly ACTION_MAJOR=v7'
-  run _run_pin_coverage
+  _lint
   assert_failure
   assert_output --partial 'x.sh:1'
 }
@@ -996,7 +1075,7 @@ _one_good_pin() {
   _dockerfile \
     '# tool-pin: kcov github-release SimonKagstrom/kcov' \
     'ARG KCOV_VERSION=v43'
-  run _run_pin_coverage
+  _lint
   assert_success
 }
 
@@ -1009,7 +1088,7 @@ _one_good_pin() {
   _dockerfile \
     'ARG USER_UID=1000' \
     'ARG THIRD_VERSION=2024'
-  run _run_pin_coverage
+  _lint
   assert_success
 }
 

@@ -48,13 +48,26 @@ setup() {
 
   DRIVER=/source/script/test/drivers/generated_workflow_actions.sh
 
+  # This driver walks the pin registry's population, which is the set of
+  # files the tree TRACKS -- so the fixture is a real repository. The
+  # container's host-computed handoff is left in place: it is keyed to
+  # /source and cannot reach a scratch tree, and the real-tree case at the
+  # bottom of this file reads it.
   SCRATCH="$(mktemp -d)"
+  git -C "${SCRATCH}" init -q
   mkdir -p "${SCRATCH}/.github/workflows" "${SCRATCH}/dist"
   REPO_ROOT="${SCRATCH}"
 }
 
 teardown() {
   [[ -n "${SCRATCH:-}" ]] && rm -rf "${SCRATCH}"
+}
+
+# Run the lint over the fixture as the repo would see it: everything
+# written so far is tracked. See pin_coverage_lint_spec.bats's `_lint`.
+_gwa_lint() {
+  git -C "${SCRATCH}" add -A
+  run _run_generated_workflow_actions
 }
 
 # _load_driver -- source the driver under test.
@@ -181,7 +194,7 @@ _write_generator_raw() {
   _write_workflow 'actions/checkout@v8'
   _write_generator '      - uses: actions/checkout@v7'
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -ne 0 ]
   assert_output --partial 'actions/checkout'
   assert_output --partial 'v7'
@@ -195,7 +208,7 @@ _write_generator_raw() {
   _write_workflow 'actions/checkout@v8'
   _write_generator '      - uses: actions/checkout@v7'
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -ne 0 ]
   assert_output --partial 'dist/init.sh:7'
 }
@@ -207,7 +220,7 @@ _write_generator_raw() {
   _write_workflow 'actions/checkout@v8' 'actions/upload-artifact@v7'
   _write_generator '      - uses: actions/checkout@v8'
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -eq 0 ]
   assert_output --partial 'clean'
 }
@@ -222,7 +235,7 @@ _write_generator_raw() {
   _write_workflow 'actions/checkout@v7'
   _write_generator '      - uses: actions/checkout@v8'
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -ne 0 ]
   assert_output --partial 'actions/checkout'
 }
@@ -248,7 +261,7 @@ _write_generator_raw() {
     '      - uses: ${BASE_UPSTREAM_SLUG}/.github/workflows/build-worker.yaml@${ref}' \
     '      - uses: actions/checkout@v8'
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -eq 0 ]
 }
 
@@ -271,7 +284,7 @@ _write_generator_raw() {
     '      - uses: evilorg/evilrepo/.github/workflows/build-worker.yaml@v1' \
     '      - uses: actions/checkout@v8'
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -ne 0 ]
   assert_output --partial 'evilorg/evilrepo'
 }
@@ -292,7 +305,7 @@ _write_generator_raw() {
     '      - uses: ${OTHER_SLUG}/.github/workflows/build-worker.yaml@${ref}' \
     '      - uses: actions/checkout@v8'
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -ne 0 ]
   assert_output --partial 'OTHER_SLUG'
 }
@@ -310,7 +323,7 @@ _write_generator_raw() {
     '      - uses: ycpss91255-docker/base/.github/workflows/build-worker.yaml@v1.2.3' \
     '      - uses: actions/checkout@v8'
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -eq 0 ]
   assert_output --partial '1 generated ref'
 }
@@ -330,14 +343,14 @@ _write_generator_raw() {
     '      - uses: someone/elsewhere/.github/workflows/build-worker.yaml@v1' \
     '      - uses: actions/checkout@v8'
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -eq 0 ]
 
   _write_generator \
     '      - uses: ycpss91255-docker/base/.github/workflows/build-worker.yaml@v1' \
     '      - uses: actions/checkout@v8'
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -ne 0 ]
   assert_output --partial 'ycpss91255-docker/base'
 }
@@ -358,7 +371,7 @@ _write_generator_raw() {
     '      - uses: ycpss91255-docker/base/.github/workflows/build-worker.yaml@v1' \
     '      - uses: actions/checkout@v8'
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -ne 0 ]
   assert_output --partial 'build-worker.yaml'
 }
@@ -378,7 +391,7 @@ _write_generator_raw() {
     '      - uses: ${BASE_UPSTREAM_SLUG}/.github/workflows/sub/build-worker.yaml@v1' \
     '      - uses: actions/checkout@v8'
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -ne 0 ]
   assert_output --partial 'sub/build-worker.yaml'
 }
@@ -396,7 +409,7 @@ _write_generator_raw() {
     '      - uses: ${OTHER_SLUG}/.github/workflows/not-ours.yaml@${ref}' \
     '      - uses: actions/checkout@v8'
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -ne 0 ]
   assert_output --partial 'not-ours.yaml'
 }
@@ -415,7 +428,7 @@ _write_generator_raw() {
     printf '   # indented prose about uses: actions/checkout@v2 as well\n'
   } > "${SCRATCH}/dist/init.sh"
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -ne 0 ]
   # Fails because the tree holds NO generated ref at all, not because it
   # read either comment as one.
@@ -440,7 +453,7 @@ _write_generator_raw() {
   _write_workflow 'actions/checkout@v8'
   _write_generator '      - uses: "actions/checkout@v7"'
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -ne 0 ]
   assert_output --partial 'actions/checkout'
   assert_output --partial 'v7'
@@ -454,7 +467,7 @@ _write_generator_raw() {
   _write_workflow 'actions/checkout@v8'
   _write_generator "      - uses: 'actions/checkout@v7'"
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -ne 0 ]
   assert_output --partial 'v7'
   assert_output --partial 'v8'
@@ -471,7 +484,7 @@ _write_generator_raw() {
     '      - uses: "actions/setup-node@v1"' \
     '      - uses: actions/checkout@v8'
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -ne 0 ]
   assert_output --partial 'actions/setup-node'
 }
@@ -488,7 +501,7 @@ _write_generator_raw() {
     '      - uses: actions/checkout@v8' \
     '      - uses: "actions/checkout@v3"'
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -ne 0 ]
   assert_output --partial 'v3'
 }
@@ -504,7 +517,7 @@ _write_generator_raw() {
     '      - uses: actions/checkout@v8' \
     '      - uses: not-an-action-reference'
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -ne 0 ]
   assert_output --partial 'not-an-action-reference'
   assert_output --partial 'dist/init.sh'
@@ -526,7 +539,7 @@ _write_generator_raw() {
     '      - uses: actions/checkout@v8' \
     '      - uses: not-an-action-reference'
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -ne 0 ]
   assert_output --partial 'not a versioned action reference'
   refute_output --partial 'never uses'
@@ -545,7 +558,7 @@ _write_generator_raw() {
     '      - uses: actions/checkout@v8' \
     '      - uses: actions/checkout'
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -ne 0 ]
   assert_output --partial 'not a versioned action reference'
   refute_output --partial 'never uses actions/checkout'
@@ -563,7 +576,7 @@ _write_generator_raw() {
     '      - uses: ./.github/workflows/local.yaml' \
     '      - uses: actions/checkout@v8'
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -eq 0 ]
 }
 
@@ -578,7 +591,7 @@ _write_generator_raw() {
     '      - uses: docker://alpine:3.21' \
     '      - uses: actions/checkout@v8'
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -eq 0 ]
 }
 
@@ -592,7 +605,7 @@ _write_generator_raw() {
   _write_workflow '"actions/checkout@v8"'
   _write_generator '      - uses: actions/checkout@v8'
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -eq 0 ]
 }
 
@@ -606,6 +619,9 @@ _write_generator_raw() {
   _load_driver
   _write_workflow 'actions/checkout@v8'
   _write_generator '      - uses: actions/checkout@v8'
+  git -C "${SCRATCH}" add -A
+  # Materialised by the suite, never committed -- which is now the whole
+  # of why it is out of the walk.
   mkdir -p "${SCRATCH}/.prev-release/v0.1.0"
   printf '      - uses: actions/checkout@v6\n' \
     > "${SCRATCH}/.prev-release/v0.1.0/init.sh"
@@ -641,7 +657,7 @@ _write_generator_raw() {
     "readonly _MONITOR_REF='actions/checkout@v7'" \
     -- '      - uses: ${_MONITOR_REF}'
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -ne 0 ]
   assert_output --partial 'actions/checkout'
   assert_output --partial 'v7'
@@ -661,7 +677,7 @@ _write_generator_raw() {
     "readonly _MONITOR_REF='actions/checkout@v8'" \
     -- '      - uses: ${_MONITOR_REF}'
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -eq 0 ]
   assert_output --partial '1 generated ref'
 }
@@ -678,7 +694,7 @@ _write_generator_raw() {
     "_MONITOR_REF='actions/checkout@v7'" \
     -- '      - uses: ${_MONITOR_REF}'
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -ne 0 ]
   assert_output --partial 'v7'
 }
@@ -701,7 +717,7 @@ _write_generator_raw() {
     "readonly _MONITOR_REF='actions/checkout@v7'" \
     -- '      - uses: $_MONITOR_REF'
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -ne 0 ]
   assert_output --partial 'not a versioned action reference'
   assert_output --partial '_MONITOR_REF'
@@ -721,7 +737,7 @@ _write_generator_raw() {
     "readonly _V='v7'" \
     -- '      - uses: actions/checkout@${_V}'
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -ne 0 ]
   assert_output --partial 'v7'
 }
@@ -737,7 +753,7 @@ _write_generator_raw() {
     "readonly _MONITOR_REF='actions/setup-node@v3'" \
     -- '      - uses: ${_MONITOR_REF}'
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -ne 0 ]
   assert_output --partial 'never uses'
   assert_output --partial 'actions/setup-node'
@@ -761,7 +777,7 @@ _write_generator_raw() {
     > "${SCRATCH}/dist/constants.sh"
   _write_generator_var -- '      - uses: ${_MONITOR_REF}'
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -ne 0 ]
   assert_output --partial 'not a versioned action reference'
   assert_output --partial '_MONITOR_REF'
@@ -794,7 +810,7 @@ _write_generator_raw() {
     'YAML' \
     '}'
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -ne 0 ]
   assert_output --partial 'not a versioned action reference'
   assert_output --partial '_MONITOR_REF'
@@ -825,7 +841,7 @@ _write_generator_raw() {
     '# tool-pin: unpinned monitor-checkout -- a major ref on purpose' \
     "readonly _MONITOR_REF='actions/checkout@v7'"
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -ne 0 ]
   assert_output --partial 'v7'
   assert_output --partial 'v8'
@@ -852,7 +868,7 @@ _write_generator_raw() {
     "_MONITOR_REF='actions/checkout@v6'" \
     -- '      - uses: ${_MONITOR_REF}'
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -ne 0 ]
   assert_output --partial 'not a versioned action reference'
   assert_output --partial '_MONITOR_REF'
@@ -870,7 +886,7 @@ _write_generator_raw() {
     '_MONITOR_REF="$(cat .checkout-ref)"' \
     -- '      - uses: ${_MONITOR_REF}'
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -ne 0 ]
   assert_output --partial 'not a versioned action reference'
   assert_output --partial '_MONITOR_REF'
@@ -891,7 +907,7 @@ _write_generator_raw() {
     '_MONITOR_REF="${_A}"' \
     -- '      - uses: ${_MONITOR_REF}'
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -ne 0 ]
   assert_output --partial 'not a versioned action reference'
 }
@@ -906,7 +922,7 @@ _write_generator_raw() {
     '_MONITOR_REF="actions/checkout@${CHECKOUT_MAJOR}"' \
     -- '      - uses: ${_MONITOR_REF}'
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -ne 0 ]
   assert_output --partial 'not a versioned action reference'
 }
@@ -918,7 +934,7 @@ _write_generator_raw() {
   _write_workflow 'actions/checkout@v8'
   _write_generator_var -- '      - uses: ${_MONITOR_REF}'
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -ne 0 ]
   assert_output --partial 'not a versioned action reference'
   assert_output --partial '_MONITOR_REF'
@@ -936,7 +952,7 @@ _write_generator_raw() {
     > "${SCRATCH}/dist/constants.sh"
   _write_generator_var -- '      - uses: ${_MONITOR_REF}'
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -ne 0 ]
   assert_output --partial 'not a versioned action reference'
 }
@@ -956,7 +972,7 @@ _write_generator_raw() {
     "_MONITOR_REF+='@v7'" \
     -- '      - uses: ${_MONITOR_REF}'
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -ne 0 ]
   assert_output --partial 'not a versioned action reference'
 }
@@ -973,7 +989,7 @@ _write_generator_raw() {
   _write_workflow 'docker/build-push-action@v6' 'docker/build-push-action@v7'
   _write_generator '      - uses: docker/build-push-action@v6'
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -ne 0 ]
   assert_output --partial 'docker/build-push-action'
   assert_output --partial 'v6'
@@ -990,7 +1006,7 @@ _write_generator_raw() {
   _write_workflow 'actions/checkout@v8'
   _write_generator '      - uses: actions/setup-node@v3'
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -ne 0 ]
   assert_output --partial 'actions/setup-node'
 }
@@ -1004,7 +1020,7 @@ _write_generator_raw() {
   _write_workflow 'actions/checkout@v8'
   _write_generator
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -ne 0 ]
   assert_output --partial 'no generated'
 }
@@ -1044,7 +1060,7 @@ _write_generator_raw() {
     'YAML' \
     '}'
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -ne 0 ]
   assert_output --partial '_MONITOR_REF'
 }
@@ -1068,7 +1084,7 @@ _write_generator_raw() {
     'YAML' \
     '}'
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -ne 0 ]
   assert_output --partial '_MONITOR_REF'
 }
@@ -1092,7 +1108,7 @@ _write_generator_raw() {
     'YAML' \
     '}'
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -ne 0 ]
   assert_output --partial '_MONITOR_REF'
 }
@@ -1129,7 +1145,7 @@ _write_generator_raw() {
     'YAML' \
     '}'
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -ne 0 ]
   assert_output --partial 'the generated copy disagrees'
 }
@@ -1150,7 +1166,7 @@ _write_generator_raw() {
     -- '      - uses: ${{ matrix.action }}' \
        '      - uses: ${_MONITOR_REF}'
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -eq 0 ]
   assert_output --partial 'clean (1 generated ref(s) checked'
 }
@@ -1172,7 +1188,7 @@ _write_generator_raw() {
     -- '      - uses: ${_UNDECLARED}/checkout@${{ env.V }}' \
        '      - uses: ${_MONITOR_REF}'
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -ne 0 ]
   assert_output --partial '_UNDECLARED'
 }
@@ -1200,7 +1216,7 @@ _write_generator_raw() {
     'YAML' \
     '}'
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -ne 0 ]
   assert_output --partial 'the generated copy disagrees'
 }
@@ -1224,7 +1240,7 @@ _write_generator_raw() {
     "readonly _MONITOR_REF='actions/checkout@v7'" \
     -- '      - uses: ${_MONITOR_REF}'
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -ne 0 ]
   assert_output --partial 'v7'
   assert_output --partial 'v8'
@@ -1250,7 +1266,7 @@ _write_generator_raw() {
     "readonly A7='v6'" \
     -- '      - uses: $A/checkout@$A7'
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -ne 0 ]
   refute_output --partial 'v7'
 }
@@ -1269,7 +1285,7 @@ _write_generator_raw() {
     "readonly _MONITOR_REF='actions/checkout@v8'" \
     -- '      - uses: ${_MONITOR_REF}'
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -ne 0 ]
   assert_output --partial '_MONITOR_REF'
 }
@@ -1297,7 +1313,7 @@ _write_generator_raw() {
     'YAML' \
     '}'
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -ne 0 ]
   assert_output --partial 'v7'
   assert_output --partial 'v8'
@@ -1325,22 +1341,26 @@ _write_generator_raw() {
     '}' \
     > "${SCRATCH}/dist/gen-workflow"
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -ne 0 ]
   assert_output --partial 'v3'
 }
 
-# why: Two walks over one tree with two prune lists is how "the verdict must not
-# depend on whose machine it ran on" stops applying to half of them
-@test "generated-workflow-actions: ignores a generator under .claude/ (#987)" {
+# why: This driver shares the pin registry's walk, so an untracked generator is
+# outside its population too -- one population, not two that can drift (#987)
+@test "generated-workflow-actions: ignores an UNTRACKED generator (#987)" {
   # `.claude/` is the agent harness a checkout may or may not carry, and
-  # the pin registry prunes it for a stated reason: scanning it makes the
-  # verdict depend on whose machine the lint ran on, which is the one thing
-  # a gate must not do. Two walks over one tree with two prune lists is how
-  # that reason stops applying to half of them.
+  # nothing tracks it here. It used to be exempt because the registry's
+  # prune roster named it; it is exempt now because it is untracked, which
+  # is the same verdict reached without a roster to keep. The property
+  # being relied on is that this driver reads THE registry's population --
+  # two walks over one tree with two exemption rules is how "the verdict
+  # must not depend on whose machine it ran on" stops applying to half of
+  # them.
   _load_driver
   _write_workflow 'actions/checkout@v8'
   _write_generator '      - uses: actions/checkout@v8'
+  git -C "${SCRATCH}" add -A
   mkdir -p "${SCRATCH}/.claude/scripts"
   printf '      - uses: actions/checkout@v6\n' \
     > "${SCRATCH}/.claude/scripts/gen.sh"
@@ -1358,7 +1378,7 @@ _write_generator_raw() {
   _load_driver
   REPO_ROOT=/source
 
-  run _run_generated_workflow_actions
+  _gwa_lint
   [ "${status}" -eq 0 ]
   assert_output --partial 'clean'
 }

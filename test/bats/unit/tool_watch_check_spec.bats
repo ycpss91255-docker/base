@@ -24,6 +24,11 @@ setup() {
   CHECK="/source/script/watch/check.sh"
   SCRATCH="$(mktemp -d)"
   mkdir -p "${SCRATCH}/tree/dockerfile" "${SCRATCH}/api" "${SCRATCH}/bin"
+  # The registry's population is what the scanned tree TRACKS, so the
+  # tree is a real repository. `_check` stages it before each run; the
+  # fixture API and the curl stub sit OUTSIDE it on purpose, so nothing
+  # the harness needs can be mistaken for repo content.
+  git -C "${SCRATCH}/tree" init -q
   API="file://${SCRATCH}/api"
 
   # The one external call check.sh makes, served from a fixture tree. A
@@ -59,8 +64,25 @@ _dockerfile() {
 }
 
 _check() {
+  _stage
   PATH="${SCRATCH}/bin:${PATH}" PIN_REPO_ROOT="${SCRATCH}/tree" \
     WATCH_GITHUB_API="${API}" run "${CHECK}" "$@"
+}
+
+# _stage -- everything written into the tree so far is what it tracks.
+# Called by _check, and by hand in the cases that invoke check.sh
+# directly to separate its two streams.
+_stage() {
+  git -C "${SCRATCH}/tree" add -A
+}
+
+# _reset_tree <subdir>... -- start the scanned tree over. It is a git
+# repository again afterwards, because that is what makes it a tree the
+# reader has a population for at all.
+_reset_tree() {
+  rm -rf "${SCRATCH:?}/tree"
+  mkdir -p "${SCRATCH}/tree" "${@/#/${SCRATCH}/tree/}"
+  git -C "${SCRATCH}/tree" init -q
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -169,8 +191,7 @@ _check() {
   # and found nothing in printed DRIFTED (0) / UNRESOLVED (0) /
   # FLOATING (0) / CURRENT (0) and exited 0: `count=0` in the workflow,
   # the bump skipped, the job green.
-  rm -rf "${SCRATCH:?}/tree"
-  mkdir -p "${SCRATCH}/tree"
+  _reset_tree
   printf 'echo hi\n' > "${SCRATCH}/tree/a.sh"
   _check --report
   assert_equal "${status}" 1
@@ -180,9 +201,9 @@ _check() {
 # why: The floor has to hold on the machine path too -- an empty TSV with status 0
 # is the same silent clean week the report path refuses
 @test "watch: the no-pin floor also refuses to emit a machine answer" {
-  rm -rf "${SCRATCH:?}/tree"
-  mkdir -p "${SCRATCH}/tree"
+  _reset_tree
   printf 'echo hi\n' > "${SCRATCH}/tree/a.sh"
+  _stage
   PATH="${SCRATCH}/bin:${PATH}" PIN_REPO_ROOT="${SCRATCH}/tree" \
     WATCH_GITHUB_API="${API}" run --separate-stderr "${CHECK}" --drift-tsv
   assert_equal "${status}" 1
@@ -192,8 +213,7 @@ _check() {
 # why: A scan root of pure prose is the other way to reach an empty table, and it
 # must not read as up to date either
 @test "watch: a tree with nothing scannable in it exits 1" {
-  rm -rf "${SCRATCH:?}/tree"
-  mkdir -p "${SCRATCH}/tree/doc"
+  _reset_tree doc
   printf 'hello\n' > "${SCRATCH}/tree/doc/a.md"
   _check --report
   assert_equal "${status}" 1
@@ -208,6 +228,7 @@ _check() {
   _dockerfile \
     '# tool-pin: broken github-release owner/broken latest=9' \
     'ARG BROKEN_VERSION=1.0.0'
+  _stage
   PATH="${SCRATCH}/bin:${PATH}" PIN_REPO_ROOT="${SCRATCH}/tree" \
     WATCH_GITHUB_API="${API}" run --separate-stderr "${CHECK}" --drift-tsv
   assert_equal "${status}" 1
@@ -221,6 +242,7 @@ _check() {
   _dockerfile \
     '# tool-pin: foo github-release owner/foo' \
     'ARG FOO_VERSION=1.0.0'
+  _stage
   PATH="${SCRATCH}/bin:${PATH}" PIN_REPO_ROOT="${SCRATCH}/tree" \
     WATCH_GITHUB_API="${API}" run --separate-stderr "${CHECK}" --drift-tsv
   assert_equal "${status}" 10
