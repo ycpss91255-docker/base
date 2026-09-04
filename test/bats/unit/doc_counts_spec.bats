@@ -172,25 +172,46 @@ _aggregate_figure_hits() {
 
 # why: A guard is only as wide as the span it reads, and the span here is
 # decided by a marker BOTH documents quote in their own prose while
-# explaining that editing the generated region does nothing -- unit.md does
-# it 34 lines above its real fence. Matching the mention ends the scan
-# there and declares the rest of the preamble clean without reading it,
-# which is exactly where a typed-back total would sit and where
-# `_sync_type_total`'s unanchored `sed` would go on maintaining it. The
-# marker has to be matched as a WHOLE LINE for the two committed-document
-# cases below to mean what they say.
-@test "_aggregate_figure_hits: a fence marker quoted in prose does not end the scan (#978)" {
+# explaining that editing the generated region does nothing. The fixture
+# reproduces the shape unit.md actually ships: both markers on ONE line, 34
+# lines above the real fence. That is the shape a substring match cannot
+# survive -- the opening rule's `next` means the closing rule never runs on
+# that line, so the region opens at the quote and the 33 lines between it
+# and the real fence are handed to the generated half unread. It is exactly
+# where a typed-back total would sit, and where `_sync_type_total`'s
+# unanchored `sed` would go on maintaining it. Splitting the two markers
+# across two lines would pin nothing: the second line re-closes the region
+# and the preamble below is scanned after all, on the broken helper as much
+# as the fixed one. The whole authored span is asserted rather than the
+# figure alone, so unanchoring EITHER fence fails the case -- the closing
+# one drops the quoting line itself.
+@test "_authored_lines: a fence marker quoted in prose opens and closes nothing (#978)" {
   local _doc="${BATS_TEST_TMPDIR}/quoted_fence.md"
   printf '%s\n' \
-    'Everything between `<!-- generated: catalogue sections -->` and' \
-    '`<!-- /generated -->` is replaced wholesale on every run.' \
+    '**Editing the generated region does nothing.** Everything between' \
+    '`<!-- generated: catalogue sections -->` and `<!-- /generated -->` is' \
+    'replaced wholesale on every run.' \
     'Unit specs under `test/bats/unit/`: **3927 tests**.' \
     '<!-- generated: catalogue sections -->' \
     '| Doc | Scope | Count |' \
-    '<!-- /generated -->' > "${_doc}"
+    '<!-- /generated -->' \
+    'Rows follow spec file order; sections follow the glob order.' > "${_doc}"
+
+  local _want
+  _want="$(printf '%s\n' \
+    '1: **Editing the generated region does nothing.** Everything between' \
+    '2: `<!-- generated: catalogue sections -->` and `<!-- /generated -->` is' \
+    '3: replaced wholesale on every run.' \
+    '4: Unit specs under `test/bats/unit/`: **3927 tests**.' \
+    '8: Rows follow spec file order; sections follow the glob order.')"
+
+  run _authored_lines "${_doc}"
+  assert_success
+  assert_output "${_want}"
+
   run _aggregate_figure_hits "${_doc}"
   assert_success
-  assert_output '3: Unit specs under `test/bats/unit/`: **3927 tests**.'
+  assert_output '4: Unit specs under `test/bats/unit/`: **3927 tests**.'
 }
 
 # why: TEST.md is the index and carried four of the five aggregate lines, so
