@@ -37,10 +37,15 @@
 #
 # Every other path reads this accessor: init.sh (the install hint and the
 # --bootstrap-just installer), .github/workflows/self-test.yaml (the
-# `just-version:` input of setup-just), .github/workflows/
-# release-test-tools.yaml (the published-image smoke check) and
+# `just-version:` input of setup-just) and
 # script/test/drivers/just_provenance.sh (the lint that refuses a new
 # provenance path with no pin).
+#
+# The published-image smoke check reads the same ARG through a different
+# door: script/ci/test-tools-pins.sh, which answers for EVERY version pin
+# in that Dockerfile rather than for this one. `just` was the only tool
+# in that step whose version was checked at all, and a per-tool accessor
+# is how the other three came to be pinned and compared to nothing.
 #
 # Reads nothing from the environment: it is a constant, not a knob.
 #

@@ -1787,12 +1787,27 @@ jobs:
           echo "--- Extracted release notes ---"
           cat /tmp/release-notes.md
 
+      # base's own release asks the same classifier the downstream worker
+      # asks (script/ci/release-ref.sh), out of base's own checkout. The
+      # inline `contains(github.ref_name, '-')` that used to sit on the
+      # `prerelease:` line below was the second of three hand-kept copies
+      # of one rule.
+      - name: Classify the release ref
+        id: ref
+        env:
+          REF: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          prerelease="$(./script/ci/release-ref.sh prerelease "${REF}")"
+          printf 'prerelease=%s\n' "${prerelease}" >> "${GITHUB_OUTPUT}"
+          echo "prerelease=${prerelease} (ref=${REF})"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
           body_path: /tmp/release-notes.md
           generate_release_notes: true
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          prerelease: ${{ steps.ref.outputs.prerelease }}
           # No `files:`. GitHub attaches its own source archives
           # (tarball_url / zipball_url) to every release, and they hold the
           # FULL tracked tree. This job used to build a second pair beside

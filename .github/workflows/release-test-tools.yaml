@@ -3,16 +3,24 @@ name: Release test-tools image to GHCR
 # Multi-arch (linux/amd64 + linux/arm64) build of
 # dockerfile/Dockerfile.test-tools, pushed to
 # ghcr.io/ycpss91255-docker/test-tools tagged with the release version
-# and :latest. Downstream repo Dockerfiles consume this via
+# (and :latest, for a finished release). Downstream repo Dockerfiles
+# consume this via
 # `ARG TEST_TOOLS_IMAGE=ghcr.io/ycpss91255-docker/test-tools:<ver>`,
 # avoiding the cross-step image-store isolation that sank the previous
 # `test-tools:local` approach (v0.9.11 pre-D migration).
 #
 # Triggers:
-#   push of a vX.Y.Z tag -> pushes :<tag> and :latest
+#   push of a vX.Y.Z tag -> pushes :<tag>, plus :latest when the tag is
+#                           NOT a prerelease. That question has one
+#                           answer in this repo -- script/ci/release-ref.sh
+#                           -- and release-worker.yaml asks the same one.
 #   push to main (Dockerfile.test-tools or this workflow changed)
 #                        -> pushes :main rolling tag (#317 P2)
-#   workflow_dispatch    -> manual bootstrap; pushes only :latest
+#   workflow_dispatch    -> resolves by the ref it was dispatched FROM:
+#                           main takes the :main arm, a v* tag takes the
+#                           tag arm. Any other ref is refused rather
+#                           than published -- see the tag resolver step
+#                           in the merge job.
 #
 # Why the paths filter on main push: every non-doc PR merge triggers
 # a push to main, but most don't touch Dockerfile.test-tools. Without
@@ -162,12 +170,15 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      # The smoke step below compares three of the image's tools against
-      # the checkout that built it, so this job needs the tree -- it
-      # previously needed none. shellcheck and hadolint are read out of the
-      # release URLs dockerfile/Dockerfile.test-tools pins; `just` is read
-      # out of ARG JUST_VERSION through dist/script/base/just-version.sh.
-      # Deriving all three from the declaration is the whole point: a
+      # This job needs the tree, where it previously needed none, because
+      # three things below are read out of the checkout rather than written
+      # here. Every `ARG <NAME>_VERSION=` in dockerfile/Dockerfile.test-tools
+      # is read through script/ci/test-tools-pins.sh; shellcheck and hadolint
+      # are pinned by literal release URL, a shape no ARG roster can see, so
+      # they are read from those URLs; and the tag resolver asks
+      # script/ci/release-ref.sh whether the tag is a prerelease.
+      #
+      # Deriving all of them from the declaration is the whole point: a
       # version literal in this workflow would be a second place to forget,
       # and two literals that agree with each other prove only that someone
       # edited both.
@@ -194,22 +205,61 @@ jobs:
       - name: Resolve tags
         id: tags
         shell: bash
-        # Three publish modes, three tag sets. `smoke` is the single tag
-        # the post-publish smoke step pulls so we always exercise the
-        # image we just pushed (rather than statically pulling :latest
-        # and missing :main bootstrapping bugs).
+        # Two tag sets and a refusal. A finished `v*` tag and a push to
+        # main each resolve a tag set; every other ref -- which is the
+        # only thing `workflow_dispatch` can add, since it carries the
+        # ref it was dispatched FROM -- resolves nothing and fails.
+        # `smoke` is the single tag the post-publish smoke step pulls so
+        # we always exercise the image we just pushed (rather than
+        # statically pulling :latest and missing :main bootstrapping
+        # bugs).
+        #
+        # `:latest` is the tag the whole org consumes: publish-worker.yaml
+        # DEFAULTS `test_tools_version` to it, so every downstream repo
+        # that has not pinned builds its lint stage from whatever :latest
+        # currently is. Both rules below are about protecting it.
+        #
+        # A PRERELEASE tag publishes `:<ver>` and stops there. The `v*`
+        # trigger matches `v0.42.0-rc4` as readily as `v0.42.0`, and rc1
+        # through rc4 each moved `:latest` -- so for the length of an RC
+        # window the org was building against a release candidate.
+        #
+        # Prerelease is the same question release-worker.yaml asks before
+        # it marks a GitHub Release, so it is ASKED rather than restated:
+        # script/ci/release-ref.sh owns the rule. Its answer is captured
+        # into a variable rather than tested inline as `[[ "$(...)" == ]]`,
+        # because a command substitution that FAILS inside `[[ ]]` does
+        # not trip errexit -- the refusal would read as "not a
+        # prerelease", which is the arm that moves `:latest`.
+        #
+        # A ref this resolver does not recognise publishes NOTHING.
+        # `workflow_dispatch` is unrestricted by ref, so that arm is
+        # reachable from any feature branch; resolving it to `:latest`
+        # made the unrecognised input the most destructive one. Same
+        # direction as ghcr-cleanup.yaml's dry-run resolver, which routes
+        # an input it cannot parse to the safe branch rather than the
+        # default one.
         run: |
           set -euo pipefail
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
             ver="${GITHUB_REF##refs/tags/}"
-            tags="${IMAGE}:${ver},${IMAGE}:latest"
+            tags="${IMAGE}:${ver}"
+            pre="$(./script/ci/release-ref.sh prerelease "${ver}")"
+            if [[ "${pre}" == 'true' ]]; then
+              echo "::notice::${ver} is a prerelease tag: publishing" \
+                "${IMAGE}:${ver} only and leaving :latest where it is."
+            else
+              tags="${tags},${IMAGE}:latest"
+            fi
             smoke="${IMAGE}:${ver}"
           elif [[ "${GITHUB_REF}" == refs/heads/main ]]; then
             tags="${IMAGE}:main"
             smoke="${IMAGE}:main"
           else
-            tags="${IMAGE}:latest"
-            smoke="${IMAGE}:latest"
+            echo "::error::${GITHUB_REF} is neither a v* tag nor main," \
+              "so this workflow has no tag to publish for it. Dispatch" \
+              "from main, or push a v* tag." >&2
+            exit 1
           fi
           printf 'tags=%s\n' "${tags}" >> "${GITHUB_OUTPUT}"
           printf 'smoke=%s\n' "${smoke}" >> "${GITHUB_OUTPUT}"
@@ -249,8 +299,19 @@ jobs:
           set -euo pipefail
           image="${{ steps.tags.outputs.smoke }}"
           docker pull "${image}"
-          docker run --rm "${image}" bats --version
-
+          # bats and kcov are NOT probed here: both are pinned by an ARG,
+          # so the roster loop below asserts them by version, which is
+          # strictly more than the exit status a probe here would read.
+          #
+          # The static-analysis pair cannot go through that roster: both are
+          # pinned by literal release URL, not by an ARG, so they are
+          # compared against the pin read out of the Dockerfile, below. The
+          # two mechanisms cover disjoint sets; neither is redundant.
+          #
+          # (This line does not open with the tool's name on purpose: a
+          # comment beginning `# shellcheck ...` inside a run: block is
+          # parsed as a shellcheck DIRECTIVE, and actionlint fails the
+          # workflow with SC1072/SC1073 rather than reading prose.)
           # The two lint gates every PR in this repo must pass are the
           # static-analysis pair pinned by literal release URL in
           # dockerfile/Dockerfile.test-tools -- a shape dependabot cannot
@@ -297,22 +358,40 @@ jobs:
           echo "hadolint: pinned v${expected_hd}, image agrees"
           docker run --rm "${image}" parallel --version
           docker run --rm "${image}" git --version
-          # just (#546, #948): the justfile entry point replaces the
-          # Makefile; downstream + CI run `just <verb>` (the single
-          # runner, make is retired), so the image must carry it -- at the
-          # PINNED version. Every other check in this step asserts exit 0,
-          # which catches a tool's removal and never its staleness; that
-          # is precisely how this image sat 37 minors behind the `just`
-          # CI and developer hosts ran, green throughout. So compare the
-          # version string against the declaration the image was built
-          # from.
-          just_pin="$(./dist/script/base/just-version.sh)"
-          just_actual="$(docker run --rm "${image}" just --version)"
-          if [ "${just_actual}" != "just ${just_pin}" ]; then
-            echo "::error::${image} ships '${just_actual}' but dockerfile/Dockerfile.test-tools declares ARG JUST_VERSION=${just_pin}" >&2
+          # Every probe above asserts an exit status and nothing else,
+          # which catches a tool's REMOVAL and never its staleness -- that
+          # is how this image sat 37 minors behind the `just` CI and
+          # developer hosts ran, green throughout. The tools the
+          # Dockerfile PINS are therefore compared to their declaration,
+          # and the list of them is the declaration's, not one kept here:
+          # script/ci/test-tools-pins.sh reads every `ARG <NAME>_VERSION=`
+          # in dockerfile/Dockerfile.test-tools and refuses to answer
+          # while any of them has no probe. So a tool pinned tomorrow is
+          # asserted tomorrow, rather than joining the three (bats, kcov,
+          # alpine) that were pinned and compared to nothing.
+          #
+          # The roster is captured into a variable BEFORE the loop rather
+          # than piped into it: a loop fed by a command that failed simply
+          # gets no input and passes, which for a step whose whole
+          # assertion is "the versions were checked" is the fail-open
+          # direction. An assignment from a failing command substitution
+          # trips errexit, and emptiness is refused by name below.
+          roster="$(./script/ci/test-tools-pins.sh roster)"
+          if [ -z "${roster}" ]; then
+            echo "::error::the pin roster came back empty, so no version" \
+              "was checked at all. Read script/ci/test-tools-pins.sh." >&2
             exit 1
           fi
-          echo "just ${just_pin} confirmed in ${image}"
+          while IFS="$(printf '\t')" read -r pin_arg pin_ver pin_probe; do
+            observed="$(docker run --rm "${image}" sh -c "${pin_probe}" 2>&1)"
+            if ! ./script/ci/test-tools-pins.sh check "${pin_arg}" "${observed}"; then
+              echo "::error::${image} answers '${observed}' for" \
+                "${pin_probe}, but dockerfile/Dockerfile.test-tools" \
+                "declares ARG ${pin_arg}=${pin_ver}" >&2
+              exit 1
+            fi
+            echo "${pin_arg}=${pin_ver} confirmed in ${image} (${observed})"
+          done <<< "${roster}"
           # `git subtree --help` would invoke `man git-subtree`, but alpine
           # ships no man viewer in the test-tools image (and we don't want
           # to install one just for this smoke check). Confirm the binary
@@ -344,9 +423,3 @@ jobs:
           # can no longer go missing. Alpine ships it as `yq-go`; the
           # binary on PATH is `yq`, which is what this probe pins.
           docker run --rm "${image}" yq --version
-          # kcov (#686): source-built into the image (not in any alpine
-          # repo) so the coverage matrix runs on this one shared image
-          # instead of the old debian kcov/kcov + per-shard apt-install.
-          # Smoke-check the binary loads (its runtime shared libs are
-          # apk-installed in the final stage); --version exits 0.
-          docker run --rm "${image}" kcov --version
