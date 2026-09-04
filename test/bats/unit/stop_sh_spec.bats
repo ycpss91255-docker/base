@@ -3,6 +3,27 @@
 # Unit tests for dist/script/docker/wrapper/stop.sh argument handling and i18n log lines.
 # Sandbox tree mirrors build_sh_spec.bats. A PATH-shimmed `docker` stub
 # lets tests control `docker ps -a` output without a real docker daemon.
+#
+# why: Unit tests for `stop.sh` argument parsing, the single-project
+# teardown, and i18n. `docker ps -a` output is PATH-shimmed via
+# `${DOCKER_PS_A_FILE}` so tests can seed the project container list for the
+# verbose listing.
+#
+# Covers: `--help` (en/zh/zh-CN/ja), `--lang` value validation, teardown via
+# `docker compose down` (base is single-instance, #600), fallback
+# `_detect_lang` branches, **`-C` / `--chdir` flag** (docker_harness#53:
+# redirect FILE_PATH so .env / project name come from the alt repo, short +
+# long form, value-required and directory guards, usage help mention), and
+# **`-v` / `--verbose` / `-vv` / `--very-verbose` flag** (#311: parity
+# across wrappers; flag is a no-op for `docker compose down` but `-vv` still
+# enables wrapper trace; the verbose path lists the project containers
+# before tearing them down), and **`--prune` flag** (#319: opt-in
+# lightweight cleanup after compose down — `docker network prune --filter
+# until=10m` + `docker image prune --filter until=24h`; usage help mentions
+# `--prune` with the two grace windows; the plain `stop.sh --dry-run` path
+# emits no `docker prune` commands), and **#690 pre-stop hook abort** (a
+# failing `script/hooks/pre/stop.sh` aborts with the hook's rc before
+# `compose down` runs).
 
 bats_require_minimum_version 1.5.0
 
@@ -328,4 +349,73 @@ HOOK
   assert_output --partial "PRE_STOP_HOOK_FIRED"
   refute_output --partial "docker compose"
   refute_output --partial "down --remove-orphans"
+}
+
+# ── a checkout with no .env.generated is a checkout stop still has to end ─
+#
+# `.env.generated` is a CONFIGURED CONSUMER's interpolation cache. base
+# itself has none -- `just docker build` in a base checkout mints the
+# `local-<dir>` project from the hand-authored compose.yaml and never
+# writes one -- so `stop` was the one verb in that flow that could not run:
+# it sourced the file unconditionally and died on `No such file or
+# directory` before reaching compose at all. build.sh and prune.sh already
+# treated the file as optional; stop / run / exec did not, and the flow
+# they make together is build -> run -> exec -> stop.
+#
+# The name it stops under is deliberately unchanged: with no recorded
+# PROJECT_NAME, _compute_project_name derives the same `local-<basename>`
+# the build used, so stop ends exactly the project build created.
+
+# _self_managed_sandbox <dir>
+#   A checkout that owns its own compose.yaml: no `.base/` subtree, no
+#   `.setup.conf`, and therefore no `.env.generated` anyone could have
+#   written. base's own shape.
+_self_managed_sandbox() {
+  local _dir="${1:?_self_managed_sandbox requires a dir}"
+  mkdir -p "${_dir}/dist/script/docker/lib"
+  cp /source/dist/script/docker/lib/* "${_dir}/dist/script/docker/lib/"
+  ln -s /source/dist/script/docker/wrapper/stop.sh "${_dir}/stop.sh"
+  assert [ ! -e "${_dir}/.base" ]
+  assert [ ! -e "${_dir}/.setup.conf" ]
+  assert [ ! -e "${_dir}/.env.generated" ]
+}
+
+# why: the defect in its smallest form: the wrapper died on a missing file before
+# it reached compose at all. The checkout is self-managed, which is the
+# shape in which that file's absence is normal rather than a question.
+@test "stop.sh ends the project when a self-managed checkout has no .env.generated (#1015)" {
+  local _sm="${TEMP_DIR}/self-managed"
+  _self_managed_sandbox "${_sm}"
+  run bash "${_sm}/stop.sh" --dry-run
+  assert_success
+  assert_output --partial "down"
+  refute_output --partial "No such file or directory"
+}
+
+# why: the other half of that shape, and the destructive one. A CONFIGURED
+# checkout records its project name in the cache; with the cache gone and
+# no name handed in, the derived `local-<basename>` is a name this checkout
+# never ran under and, on a shared host, one another checkout may be
+# running under right now -- so `down --remove-orphans` against it reports
+# success having ended the wrong thing, or nothing.
+@test "stop.sh refuses a derived name when a configured checkout lost its cache (#1015)" {
+  rm -f "${SANDBOX}/.env.generated"
+  assert [ -d "${SANDBOX}/.base" ]
+  run bash "${SANDBOX}/stop.sh" --dry-run
+  assert_failure
+  assert_output --partial ".env.generated"
+  refute_output --partial "down --remove-orphans"
+}
+
+# why: the seam `just test stop` uses -- the caller that already knows the name
+# hands it over, so no second derivation exists to drift.
+@test "stop.sh honours an ambient PROJECT_NAME with no .env.generated to read (#1015)" {
+  # The seam `just test stop` uses: base's self-test project name is
+  # derived from the checkout PATH, not from a consumer's env cache, so the
+  # caller that already knows it hands it over and stop does not compute a
+  # second one.
+  rm -f "${SANDBOX}/.env.generated"
+  PROJECT_NAME=base-0123456789ab run bash "${SANDBOX}/stop.sh" --dry-run
+  assert_success
+  assert_output --partial "base-0123456789ab"
 }

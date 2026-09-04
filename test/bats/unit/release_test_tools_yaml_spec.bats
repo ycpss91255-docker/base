@@ -26,6 +26,47 @@
 # the tag the current trigger produced (rather than statically
 # pulling :latest, which would leave a freshly-pushed :main
 # unverified).
+#
+# why: Structural assertions for
+# `.github/workflows/release-test-tools.yaml`. Locks the publish surface
+# that downstream Dockerfile.example's `FROM ${TEST_TOOLS_IMAGE} AS
+# test-tools-stage` depends on. The workflow has three publish modes:
+#
+# 1. **Tag push (`v*`)** — multi-arch `:<version>` + `:latest`. Cuts the
+# release downstream consumers pin via `inputs.test_tools_version`. 2.
+# **Main push** (#317 P2) — multi-arch `:main` rolling tag. Used by
+# self-test.yaml's Obtain step to skip from-source rebuilds. Paths filter
+# (gotcha 3) restricts to commits that touched
+# `dockerfile/Dockerfile.test-tools` or this workflow. 3.
+# **workflow_dispatch** — manual `:latest` republish, kept unfiltered for
+# bootstrap.
+#
+# Smoke step uses `steps.tags.outputs.smoke` so it always pulls the tag the
+# current trigger produced (rather than statically pulling `:latest`, which
+# would leave a freshly-pushed `:main` unverified).
+#
+# Grouped by concern:
+#
+# - Triggers on `v*` tag push (existing)
+#
+# - Triggers on main push (#317 P2)
+#
+# - Main push trigger has `paths:` filter limiting to Dockerfile.test-tools
+# + workflow self (#317 P2 gotcha-3)
+#
+# - Triggers on `workflow_dispatch` (existing)
+#
+# - Resolve tags step: 3 publish modes (`v*` + `main` + dispatch) emit
+# correct tag sets and `smoke` output
+#
+# - Smoke step pulls trigger's tag via `steps.tags.outputs.smoke` (#317 P2)
+#
+# - Native-runner matrix (#587): drops `setup-qemu-action`; `compute-matrix`
+# maps platforms to native runners; build shards run on `matrix.runner`;
+# build per-platform + push by digest; `merge` job creates the manifest via
+# `imagetools`
+#
+# - Declares `packages: write` permission
 
 bats_require_minimum_version 1.5.0
 
@@ -168,4 +209,93 @@ _smoke_step() {
   assert_success
   assert_output --partial "github.event_name != 'pull_request' ||"
   assert_output --partial 'github.event.pull_request.head.repo.full_name == github.repository'
+}
+
+# ── Pin agreement: the smoke step compares versions, it does not print them ──
+#
+# The smoke step ran `shellcheck --version` and `hadolint --version` and
+# asserted exit 0. That catches a tool that vanished; it cannot catch a tool
+# that is the wrong version, which is the failure that actually happened --
+# a hadolint pin sat 3.8 years stale behind a green gate, and the gate was
+# reading "the binary starts" as "the binary is what the Dockerfile asked
+# for". The two are only the same claim while nothing goes wrong.
+#
+# The comparison has to DERIVE the expected version from the pin rather than
+# restate it in YAML: a hardcoded expectation in the workflow is a second
+# place to forget, and a bump that updates the Dockerfile and not the
+# workflow would fail for the wrong reason -- or, worse, a bump that updates
+# both would prove only that two literals match each other.
+#
+# `hadolint --version` prints the version as a bare number ("Haskell
+# Dockerfile Linter 2.15.1") while the pin is a tag ("v2.15.1"), so the
+# comparison is on the number with the leading v stripped. Asserting the
+# stripping happens is part of the rule: without it the check would compare
+# "v2.15.1" against a line that never contains it and fail every run, which
+# is the shape of a check that gets deleted rather than fixed.
+
+# why: The precondition the other five rest on -- with no checkout in the
+# merge job there is no Dockerfile to read the pins out of, and the whole
+# comparison degrades to the exit-0 check it replaced
+@test "release-test-tools.yaml: merge job checks out the repo so the smoke step can read the pins (#947)" {
+  run grep -n 'actions/checkout' "${WF}"
+  assert_success
+  # Two call sites: the build shards, and the merge job the smoke step
+  # lives in. One means the smoke step is comparing against nothing.
+  [[ "$(grep -c 'actions/checkout' "${WF}")" -ge 2 ]]
+}
+
+# why: The expectation has to come from the pin: a version literal in the
+# workflow would be a second place to bump, and two literals agreeing prove
+# only that somebody edited both
+@test "release-test-tools.yaml: smoke step reads the shellcheck pin from the Dockerfile (#947)" {
+  run _smoke_step
+  assert_success
+  assert_output --partial 'dockerfile/Dockerfile.test-tools'
+  # The ARG declaration, not the release URL it feeds: the URL interpolates
+  # the ARG now, so there is no literal in it left to read.
+  assert_output --regexp 'SHELLCHECK_VERSION='
+}
+
+# why: The pin that sat 3.8 years stale behind an exit-0 check -- the
+# concrete drift this whole step was rewritten for, so its half of the
+# comparison is asserted separately from shellcheck's
+@test "release-test-tools.yaml: smoke step reads the hadolint pin from the Dockerfile (#947)" {
+  run _smoke_step
+  assert_success
+  assert_output --regexp 'HADOLINT_VERSION='
+}
+
+# why: Reading two numbers is not comparing them: holding the pin and
+# running `<tool> --version` still passes for an image whose linters are
+# years old, which is exactly the state that shipped
+@test "release-test-tools.yaml: smoke step COMPARES the reported versions, not just exit 0 (#947)" {
+  run _smoke_step
+  assert_success
+  # The shipped binary's own report is captured and matched against the
+  # pin. A step that only ran `<tool> --version` would have neither.
+  assert_output --regexp 'shellcheck --version'
+  assert_output --regexp 'hadolint --version'
+  assert_output --partial 'expected_sc'
+  assert_output --partial 'expected_hd'
+}
+
+# why: A comparison whose mismatch branch only warns is not a gate -- the
+# publish would go out with the wrong linters and a green log
+@test "release-test-tools.yaml: smoke step fails loudly when a pin and a binary disagree (#947)" {
+  run _smoke_step
+  assert_success
+  # An exit non-zero on mismatch, with both values in the message -- a
+  # comparison whose failure branch only warns is not a gate.
+  assert_output --regexp 'exit 1'
+}
+
+# why: The failure mode a moved release URL produces: an empty expectation
+# compared against an empty reading agrees with itself, which is the shape
+# of pass the whole step exists to refuse
+@test "release-test-tools.yaml: smoke step refuses an unreadable pin rather than passing (#947)" {
+  run _smoke_step
+  assert_success
+  # A grep that matched nothing must not compare "" against "" and call it
+  # agreement. The step names the empty case explicitly.
+  assert_output --partial 'could not read'
 }

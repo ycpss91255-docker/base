@@ -13,6 +13,17 @@
 # Apply policy (inherited from upgrade.sh's Step-5 convention):
 #   - detect matches a known shape  -> transform auto-applies, idempotent
 #   - structure absent / ambiguous  -> _log_warn + SKIP (never force-rewrite)
+#
+# why: Unit tests for the declarative Dockerfile-migration list
+# `lib/dockerfile_migrate.sh` (#567, folds #579 facet B). The lib exposes a
+# small interface — `apply_migrations <dockerfile>` — over an ordered,
+# data-driven `_MIGRATIONS` table of `{detect, transform}` units, each
+# healing one v0.41.0-fanout Dockerfile/entrypoint breakage. upgrade.sh Step
+# 5 sources the lib and calls the dispatcher (replacing the old one-off
+# seds). Each migration is driven in isolation via before/after fixtures
+# plus the dispatcher's apply / skip / idempotency contract: a detected
+# shape auto-applies idempotently, a missing/ambiguous shape is skipped
+# (warn, never force-rewrite).
 
 bats_require_minimum_version 1.5.0
 
@@ -63,17 +74,20 @@ _stage_template_tree() {
 
 # ── dispatcher contract: apply_migrations ───────────────────────────────────
 
+# why: Small interface exists
 @test "apply_migrations is the public dispatcher entry (#567)" {
   run bash -c "$(_src); declare -F apply_migrations"
   assert_success
 }
 
+# why: No-Dockerfile skip
 @test "apply_migrations skips cleanly when path does not exist (#567)" {
   run bash -c "$(_src); apply_migrations '${TEMP_DIR}/nope'"
   assert_success
   assert_output --partial "no Dockerfile"
 }
 
+# why: Data-driven table is seeded
 @test "_MIGRATIONS is a non-empty ordered list (#567)" {
   run bash -c "$(_src); printf '%s\n' \"\${_MIGRATIONS[@]}\""
   assert_success
@@ -1054,10 +1068,10 @@ EOF
 # ── dispatcher over the whole v0.41.0 shape ─────────────────────────────────
 # The unit tests above drive one {detect, transform} pair each. This one
 # drives the dispatcher over the shape a real v0.41.0 consumer carries,
-# because ORDER is what decides whether the logrotate / watchdog twins are
-# generated from an already-dist-rooted logging COPY or from the flat one --
-# and appending two more COPYs of paths that no longer exist is a strictly
-# worse outcome than leaving the Dockerfile alone.
+# because ORDER is what decides whether the helper COPY is collapsed from an
+# already-dist-rooted source or from the flat one -- and emitting a directory
+# COPY of a path that no longer exists is a strictly worse outcome than
+# leaving the Dockerfile alone.
 
 @test "apply_migrations leaves no .base COPY source behind on the v0.41.0 shape (#915)" {
   mkdir -p "${TEMP_DIR}/.base/dist/test/bats/smoke/shared" \
@@ -1083,8 +1097,7 @@ EOF
   # exit 2 (unreadable file), which would pass this with nothing read.
   run grep -nE '\.base/(config|script|test)/' "${DF}"
   [ "${status}" -eq 1 ]
-  grep -Fq "COPY --chmod=0755 .base/dist/script/docker/runtime/logrotate.sh /usr/local/lib/base/logrotate.sh" "${DF}"
-  grep -Fq "COPY --chmod=0755 .base/dist/script/docker/runtime/watchdog.sh /usr/local/lib/base/watchdog.sh" "${DF}"
+  grep -Fq "COPY --chmod=0755 .base/dist/script/docker/runtime/ /usr/local/lib/base/" "${DF}"
 }
 
 # ── every COPY source the dispatcher leaves behind must RESOLVE ────────────
@@ -1098,8 +1111,8 @@ EOF
 #     "resolves" means the file base actually ships is there;
 #   * the population of paths checked is DERIVED from the migrated
 #     Dockerfile -- every `.base/...` token in a COPY source position,
-#     including the logrotate / watchdog COPYs the dispatcher itself
-#     appends -- never a list written out here. A migration that starts
+#     the collapsed helper directory the dispatcher itself writes included
+#     -- never a list written out here. A migration that starts
 #     emitting a new path is checked the moment it emits it, and a shipped
 #     directory that moves fails this test without being named in it;
 #   * the derived population is asserted NON-EMPTY before it is walked, so
@@ -1139,11 +1152,11 @@ EOF
     | grep -oE '\.base/[A-Za-z0-9_.*/-]+')"
   local _n
   _n="$(printf '%s\n' "${_tokens}" | grep -c .)"
-  # Population assertion: eight COPY sources are reachable from this
-  # fixture (five written above plus the wrapper glob's rewrite and the two
-  # runtime siblings the dispatcher appends). Fewer means the extraction
-  # stopped matching, not that the Dockerfile got cleaner.
-  [ "${_n}" -ge 8 ]
+  # Population assertion: the COPY sources reachable from this fixture, a
+  # figure that drops when the extraction stops matching rather than when
+  # the Dockerfile gets cleaner. It fell by two when the per-file helper
+  # COPYs collapsed into one directory COPY.
+  [ "${_n}" -ge 6 ]
 
   local _tok
   while IFS= read -r _tok; do
@@ -1163,102 +1176,238 @@ EOF
   [ "${status}" -eq 1 ]
 }
 
-# ── migration (logrotate-copy): logging.sh's logrotate.sh sibling ────────────
-# runtime/logging.sh now sources a sibling logrotate.sh from the in-image
-# helper dir. A downstream Dockerfile that COPYs logging.sh but predates the
-# split lacks the logrotate.sh COPY, so the container tee degrades. This
-# migration inserts the sibling COPY after the logging.sh COPY.
+# ── migration (runtime-moved-files): the two non-helpers leaving runtime/ ────
+# entrypoint.sh (a seeded template) and smoke.sh (a runtime-test helper) left
+# dist/script/docker/runtime/ so the directory could be COPY'd whole. A
+# consumer Dockerfile that names either source -- the commented runtime-test
+# scaffold names smoke.sh in every repo init.sh ever seeded -- resolves to
+# nothing the moment it is uncommented.
 
-@test "migration (logrotate-copy): inserts logrotate.sh COPY after the logging.sh COPY (#805)" {
+@test "migration (runtime-moved-files): rewrites the smoke.sh source to the shipped test tree (#971)" {
   cat > "${DF}" <<'EOF'
-FROM busybox AS devel
-COPY --chmod=0755 .base/dist/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
+FROM busybox AS runtime-test
+# COPY .base/dist/script/docker/runtime/smoke.sh /usr/local/lib/base/smoke.sh
 EOF
-  run bash -c "$(_src); _migrate_logrotate_copy_detect '${DF}' && _migrate_logrotate_copy_apply '${DF}'"
+  run bash -c "$(_src); _migrate_runtime_moved_files_detect '${DF}' && _migrate_runtime_moved_files_apply '${DF}'"
   assert_success
-  grep -Fq "COPY --chmod=0755 .base/dist/script/docker/runtime/logrotate.sh /usr/local/lib/base/logrotate.sh" "${DF}"
-  # The original logging.sh COPY is preserved.
-  grep -Fq "COPY --chmod=0755 .base/dist/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh" "${DF}"
+  grep -Fq ".base/dist/test/bats/smoke/smoke.sh /usr/local/lib/base/smoke.sh" "${DF}"
+  run grep -F 'script/docker/runtime/smoke.sh' "${DF}"
+  assert_failure
 }
 
-@test "migration (logrotate-copy): detect false when logrotate COPY already present (idempotent) (#805)" {
+@test "migration (runtime-moved-files): rewrites the entrypoint.sh source at the pre-dist path (#971)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS devel
+COPY --chmod=0755 .base/script/docker/runtime/entrypoint.sh /entrypoint.sh
+EOF
+  run bash -c "$(_src); apply_migrations '${DF}'"
+  assert_success
+  grep -Fq "COPY --chmod=0755 .base/dist/dockerfile/entrypoint.sh /entrypoint.sh" "${DF}"
+}
+
+@test "migration (runtime-moved-files): detect false once nothing names the old paths (#971)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS devel
+COPY --chmod=0755 .base/dist/script/docker/runtime/ /usr/local/lib/base/
+EOF
+  run bash -c "$(_src); _migrate_runtime_moved_files_detect '${DF}'"
+  assert_failure
+}
+
+# ── migration (runtime-dir-copy): per-file helper COPYs -> one dir COPY ──────
+# Every consumer Dockerfile listed base's runtime helpers one COPY per file,
+# so base adding a helper was a change to every consumer repo -- and the two
+# migrations that existed only to close that gap (logrotate_copy,
+# watchdog_copy) are what this replaces. Collapse any subset of the helper
+# COPYs, in any order, at either the pre-dist or the dist path, into the one
+# directory COPY that cannot fall out of agreement with what base ships.
+
+@test "migration (runtime-dir-copy): collapses the three per-file COPYs into one dir COPY (#971)" {
   cat > "${DF}" <<'EOF'
 FROM busybox AS devel
 COPY --chmod=0755 .base/dist/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
 COPY --chmod=0755 .base/dist/script/docker/runtime/logrotate.sh /usr/local/lib/base/logrotate.sh
+COPY --chmod=0755 .base/dist/script/docker/runtime/watchdog.sh /usr/local/lib/base/watchdog.sh
 EOF
-  run bash -c "$(_src); _migrate_logrotate_copy_detect '${DF}'"
-  assert_failure
-}
-
-@test "migration (logrotate-copy): detect false when no logging.sh COPY present (#805)" {
-  cat > "${DF}" <<'EOF'
-FROM busybox AS devel
-RUN echo hi
-EOF
-  run bash -c "$(_src); _migrate_logrotate_copy_detect '${DF}'"
-  assert_failure
-}
-
-@test "migration (logrotate-copy): dispatcher run twice inserts the COPY exactly once (#805)" {
-  cat > "${DF}" <<'EOF'
-FROM busybox AS devel
-COPY --chmod=0755 .base/dist/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
-EOF
-  run bash -c "$(_src); apply_migrations '${DF}'; apply_migrations '${DF}'"
+  run bash -c "$(_src); _migrate_runtime_dir_copy_detect '${DF}' && _migrate_runtime_dir_copy_apply '${DF}'"
   assert_success
   local _n
-  _n="$(grep -cF '/usr/local/lib/base/logrotate.sh' "${DF}")"
+  _n="$(grep -cF 'COPY --chmod=0755 .base/dist/script/docker/runtime/ /usr/local/lib/base/' "${DF}")"
+  [ "${_n}" -eq 1 ]
+  # No per-file helper COPY survives.
+  run grep -E 'runtime/(logging|logrotate|watchdog)\.sh' "${DF}"
+  assert_failure
+}
+
+@test "migration (runtime-dir-copy): collapses a subset in any order at the pre-dist path (#971)" {
+  # The shape a consumer that took the watchdog fanout but not the logrotate
+  # one carries, written in the order the two migrations appended it.
+  cat > "${DF}" <<'EOF'
+FROM busybox AS devel
+COPY --chmod=0755 .base/script/docker/runtime/watchdog.sh /usr/local/lib/base/watchdog.sh
+COPY --chmod=0755 .base/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
+EOF
+  run bash -c "$(_src); apply_migrations '${DF}'"
+  assert_success
+  local _n
+  _n="$(grep -cF 'COPY --chmod=0755 .base/dist/script/docker/runtime/ /usr/local/lib/base/' "${DF}")"
   [ "${_n}" -eq 1 ]
 }
 
-# ── migration (watchdog-copy): watchdog.sh runtime helper sibling ────────────
-# The generic watchdog ships runtime/watchdog.sh, COPY'd next to
-# logging.sh at /usr/local/lib/base/. A downstream Dockerfile that COPYs
-# logging.sh but predates the watchdog lacks the watchdog.sh COPY; this
-# migration inserts the sibling COPY after the logging.sh COPY.
-
-@test "migration (watchdog-copy): inserts watchdog.sh COPY after the logging.sh COPY (#797)" {
+@test "migration (runtime-dir-copy): one dir COPY per stage, not one for the file (#971)" {
+  # omniverse_web_viewer carries the helper COPY in three stages
+  # (runtime / devel / example) and ros1_bridge in two: a stage that does not
+  # COPY the helpers must not acquire them, and a stage that does must keep
+  # exactly one.
   cat > "${DF}" <<'EOF'
-FROM busybox AS devel
+FROM busybox AS runtime
 COPY --chmod=0755 .base/dist/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
-EOF
-  run bash -c "$(_src); _migrate_watchdog_copy_detect '${DF}' && _migrate_watchdog_copy_apply '${DF}'"
-  assert_success
-  grep -Fq "COPY --chmod=0755 .base/dist/script/docker/runtime/watchdog.sh /usr/local/lib/base/watchdog.sh" "${DF}"
-  # The original logging.sh COPY is preserved.
-  grep -Fq "COPY --chmod=0755 .base/dist/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh" "${DF}"
-}
 
-@test "migration (watchdog-copy): detect false when watchdog COPY already present (idempotent) (#797)" {
-  cat > "${DF}" <<'EOF'
 FROM busybox AS devel
 COPY --chmod=0755 .base/dist/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
 COPY --chmod=0755 .base/dist/script/docker/runtime/watchdog.sh /usr/local/lib/base/watchdog.sh
+
+FROM devel AS devel-test
+RUN echo hi
 EOF
-  run bash -c "$(_src); _migrate_watchdog_copy_detect '${DF}'"
-  assert_failure
+  run bash -c "$(_src); apply_migrations '${DF}'"
+  assert_success
+  local _n
+  _n="$(grep -cF 'COPY --chmod=0755 .base/dist/script/docker/runtime/ /usr/local/lib/base/' "${DF}")"
+  [ "${_n}" -eq 2 ]
 }
 
-@test "migration (watchdog-copy): detect false when no logging.sh COPY present (#797)" {
+@test "migration (runtime-dir-copy): a statement hand-listing two helpers collapses to one source (#971)" {
+  # ros1_bridge and urg_node_humble already hand-list two sources on one
+  # COPY for their smoke specs, so the shape is one a consumer writes.
+  cat > "${DF}" <<'EOF'
+FROM busybox AS devel
+COPY --chmod=0755 .base/dist/script/docker/runtime/logging.sh .base/dist/script/docker/runtime/watchdog.sh /usr/local/lib/base/
+EOF
+  run bash -c "$(_src); apply_migrations '${DF}'"
+  assert_success
+  grep -Fxq "COPY --chmod=0755 .base/dist/script/docker/runtime/ /usr/local/lib/base/" "${DF}"
+}
+
+@test "migration (runtime-dir-copy): a hand-relocated destination is preserved (#971)" {
+  # detect anchors on the SOURCE, so a consumer that bakes the helpers
+  # somewhere other than /usr/local/lib/base/ still collapses -- into its own
+  # destination, not into base's.
+  cat > "${DF}" <<'EOF'
+FROM busybox AS devel
+COPY --chmod=0755 .base/dist/script/docker/runtime/logging.sh /opt/base/logging.sh
+EOF
+  run bash -c "$(_src); apply_migrations '${DF}'"
+  assert_success
+  grep -Fq "COPY --chmod=0755 .base/dist/script/docker/runtime/ /opt/base/" "${DF}"
+}
+
+@test "migration (runtime-dir-copy): rewrites the commented runtime-stage example too (#971)" {
+  # init.sh seeds the commented runtime-stage scaffold into every repo. Left
+  # per-file it teaches the shape this change exists to remove, to a reader
+  # who will uncomment it later.
   cat > "${DF}" <<'EOF'
 FROM busybox AS devel
 RUN echo hi
+# COPY --chmod=0755 .base/dist/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
+# COPY --chmod=0755 .base/dist/script/docker/runtime/logrotate.sh /usr/local/lib/base/logrotate.sh
 EOF
-  run bash -c "$(_src); _migrate_watchdog_copy_detect '${DF}'"
+  run bash -c "$(_src); apply_migrations '${DF}'"
+  assert_success
+  local _n
+  _n="$(grep -cE '^# COPY --chmod=0755 \.base/dist/script/docker/runtime/ /usr/local/lib/base/$' "${DF}")"
+  [ "${_n}" -eq 1 ]
+}
+
+@test "migration (runtime-dir-copy): an already-collapsed dir COPY is left alone (#971)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS devel
+COPY --chmod=0755 .base/dist/script/docker/runtime/ /usr/local/lib/base/
+EOF
+  run bash -c "$(_src); _migrate_runtime_dir_copy_detect '${DF}'"
   assert_failure
 }
 
-@test "migration (watchdog-copy): dispatcher run twice inserts the COPY exactly once (#797)" {
+@test "migration (runtime-dir-copy): dispatcher run twice collapses exactly once (#971)" {
   cat > "${DF}" <<'EOF'
 FROM busybox AS devel
-COPY --chmod=0755 .base/dist/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
+COPY --chmod=0755 .base/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
 EOF
   run bash -c "$(_src); apply_migrations '${DF}'; apply_migrations '${DF}'"
   assert_success
   local _n
-  _n="$(grep -cF '/usr/local/lib/base/watchdog.sh' "${DF}")"
+  _n="$(grep -cF 'COPY --chmod=0755 .base/dist/script/docker/runtime/ /usr/local/lib/base/' "${DF}")"
   [ "${_n}" -eq 1 ]
+}
+
+@test "migration (runtime-dir-copy): detect false when no helper COPY is present (#971)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS devel
+RUN echo hi
+EOF
+  run bash -c "$(_src); _migrate_runtime_dir_copy_detect '${DF}'"
+  assert_failure
+}
+
+# ── the shape the REAL consumers carry ──────────────────────────────────────
+#
+# Not a synthesised fixture: base's own new-repo fixture is written by
+# _create_new_repo, a shape base#928 showed no real consumer has. Every repo
+# under the org whose Dockerfile names a runtime helper was read, and this
+# is what they carry -- the FLAT pre-dist path, `logging.sh` alone (no repo
+# took the logrotate / watchdog fanout), repeated once per stage that wants
+# it, plus the commented runtime-test smoke.sh scaffold init.sh seeded:
+#
+#   jetson_sdk_manager   1 COPY  (devel)
+#   omniverse_web_viewer 3 COPYs (runtime, devel, example)
+#   ros1_bridge          2 COPYs (devel, runtime)
+#
+# The property asserted is the one an upgrade owes them: after the
+# dispatcher, no COPY source names a path base no longer ships.
+
+@test "apply_migrations heals the runtime COPYs every real consumer actually carries (#971)" {
+  assert_spec_subject "/source/dist/script/docker/lib/dockerfile_migrate.sh" \
+    "the migration list this spec drives"
+  mkdir -p "${TEMP_DIR}/.base"
+  ln -s /source/dist "${TEMP_DIR}/.base/dist"
+
+  cat > "${DF}" <<'EOF'
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE} AS runtime
+COPY --chmod=0755 .base/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
+
+FROM ${BASE_IMAGE} AS devel
+COPY --chmod=0755 .base/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
+
+FROM runtime AS runtime-test
+# COPY .base/script/docker/runtime/smoke.sh /usr/local/lib/base/smoke.sh
+# ARG RUNTIME_SMOKE_CMD='whoami && bash --version && bash /usr/local/lib/base/smoke.sh'
+
+FROM devel-base AS example
+COPY --chmod=0755 .base/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
+EOF
+  run bash -c "$(_src); apply_migrations '${DF}'"
+  assert_success
+
+  # One dir COPY per stage that had a helper COPY -- three, not four.
+  local _n
+  _n="$(grep -cF 'COPY --chmod=0755 .base/dist/script/docker/runtime/ /usr/local/lib/base/' "${DF}")"
+  [ "${_n}" -eq 3 ]
+
+  # Every `.base/...` COPY source left behind resolves in the shipped tree,
+  # the commented smoke.sh scaffold included: it is inert today and a
+  # "COPY source not found" the day a consumer uncomments it.
+  local _tokens
+  _tokens="$(grep -E '^[[:space:]]*#?[[:space:]]*COPY[[:space:]]' "${DF}" \
+    | grep -oE '\.base/[A-Za-z0-9_.*/-]+')"
+  local _count
+  _count="$(printf '%s\n' "${_tokens}" | grep -c .)"
+  [ "${_count}" -ge 4 ]
+  local _tok
+  while IFS= read -r _tok; do
+    [[ -e "${TEMP_DIR}/${_tok}" ]] \
+      || fail "COPY source does not resolve in the shipped tree: ${_tok}"
+  done <<< "${_tokens}"
 }
 
 # ── migration 5: hadolint rules surfaced by the slimmed .hadolint.yaml ───────
@@ -1484,4 +1633,565 @@ source "/opt/ros/${ROS_DISTRO}/setup.bash"
 EOF
   run bash -c "$(_src); _migrate_nounset_source_detect '${DF}'"
   assert_failure
+}
+
+# The nounset the ROS source runs under is not always written in the file
+# that runs it. base's orchestrator (ADR-00000032) SOURCES the bringup under
+# its own `set -euo pipefail`, so a repo that flipped its ENTRYPOINT while
+# carrying the bringup init.sh seeded BEFORE that release -- which has no
+# `set` line at all -- runs its ROS source under nounset for the first time
+# and the container dies on the unbound AMENT_TRACE_SETUP_FILES before the
+# workload ever starts. Keying the guard on an in-file `set -u` alone leaves
+# exactly the migration path README documents uncovered, and silently: the
+# orchestrator notice does not fire on an already-flipped Dockerfile, and
+# the bringup-residue notice does not fire on a correctly cleaned bringup.
+
+# why: The gap the branch's own README migration opens. Keying the guard
+# on an in-file `set -u` covers nothing here -- the bringup seeded before
+# this release has no `set` line at all, and the orchestrator imposes
+# nounset from outside it. This is the FAILS-at-HEAD case; without it the
+# migration stays silent on exactly the path base tells people to take
+@test "migration 8 (nounset-source): fires under the orchestrator when the bringup sets nothing (#945)" {
+  mkdir -p "${TEMP_DIR}/script"
+  printf 'ENTRYPOINT ["/usr/local/lib/base/entrypoint.sh"]\n' > "${DF}"
+  cat > "${TEMP_DIR}/script/entrypoint.sh" <<'EOF'
+#!/usr/bin/env bash
+# shellcheck disable=SC1090,SC1091
+source "/opt/ros/${ROS_DISTRO}/setup.bash"
+export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}"
+EOF
+  run bash -c "$(_src); _migrate_nounset_source_detect '${DF}'"
+  assert_success
+}
+
+# why: Detecting is half of it; the write has to be correct for a file
+# that never set nounset itself. The trailing `set -u` must RESTORE the
+# mode the orchestrator was already in, which is checked by re-running
+# detect on the rewritten file rather than by eyeballing the diff
+@test "migration 8 (nounset-source): brackets that bringup's source, directive and all (#945)" {
+  mkdir -p "${TEMP_DIR}/script"
+  printf 'ENTRYPOINT ["/usr/local/lib/base/entrypoint.sh"]\n' > "${DF}"
+  cat > "${TEMP_DIR}/script/entrypoint.sh" <<'EOF'
+#!/usr/bin/env bash
+# shellcheck disable=SC1090,SC1091
+source "/opt/ros/${ROS_DISTRO}/setup.bash"
+export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}"
+EOF
+  run bash -c "$(_src); apply_migrations '${DF}'"
+  assert_success
+  local plus src minus
+  plus="$(grep -n '^set +u' "${TEMP_DIR}/script/entrypoint.sh" | head -1 | cut -d: -f1)"
+  src="$(grep -n 'setup.bash' "${TEMP_DIR}/script/entrypoint.sh" | head -1 | cut -d: -f1)"
+  minus="$(grep -n '^set -u' "${TEMP_DIR}/script/entrypoint.sh" | tail -1 | cut -d: -f1)"
+  [ "${plus}" -lt "${src}" ]
+  [ "${minus}" -gt "${src}" ]
+  # The trailing `set -u` RESTORES the orchestrator's nounset rather than
+  # introducing one: everything after the bracket runs exactly as the
+  # orchestrator would have run it.
+  run bash -c "$(_src); _migrate_nounset_source_detect '${DF}'"
+  assert_failure
+}
+
+# why: Bounds the widened trigger. Now that an ENTRYPOINT can turn the
+# migration on, the obvious over-reach is firing on the ENTRYPOINT alone --
+# which would bracket nothing and warn on every orchestrator repo for ever
+@test "migration 8 (nounset-source): silent under the orchestrator with no ROS source (#945)" {
+  # The trigger is the unguarded source, never the ENTRYPOINT on its own:
+  # a bringup that sources nothing has nothing to bracket.
+  mkdir -p "${TEMP_DIR}/script"
+  printf 'ENTRYPOINT ["/usr/local/lib/base/entrypoint.sh"]\n' > "${DF}"
+  cat > "${TEMP_DIR}/script/entrypoint.sh" <<'EOF'
+#!/usr/bin/env bash
+export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}"
+EOF
+  run bash -c "$(_src); _migrate_nounset_source_detect '${DF}'"
+  assert_failure
+}
+
+# why: The direction that would do harm rather than nothing. Pre-flip the
+# repo's own file is the ENTRYPOINT and no nounset is in force, so writing
+# a trailing `set -u` would TURN IT ON for the rest of a file that never
+# asked -- a migration breaking the repo it was meant to protect
+@test "migration 8 (nounset-source): still silent pre-flip, where nothing imposes nounset (#945)" {
+  # An un-migrated repo runs its own file as the ENTRYPOINT, under whatever
+  # options that file sets -- none here. Inserting a trailing `set -u` would
+  # turn nounset ON for the rest of a file that never asked for it.
+  mkdir -p "${TEMP_DIR}/script"
+  printf 'ENTRYPOINT ["/entrypoint.sh"]\n' > "${DF}"
+  cat > "${TEMP_DIR}/script/entrypoint.sh" <<'EOF'
+#!/usr/bin/env bash
+source "/opt/ros/${ROS_DISTRO}/setup.bash"
+exec "${@}"
+EOF
+  run bash -c "$(_src); _migrate_nounset_source_detect '${DF}'"
+  assert_failure
+}
+
+# ── migration (entrypoint-orchestrator / bringup-residue): notice, no rewrite ─
+#
+# base's plumbing moved into an orchestrator that ships from .base/. The two
+# per-repo edits that adopt it -- flip ENTRYPOINT, clean the bringup -- are
+# the repo owner's, because only the owner can tell a bringup line from base
+# plumbing in a file that has been hand-edited for a year. So base NOTICES.
+#
+# The hard half of "warn-only" is not the warning, it is the two claims
+# either side of it: that nothing on disk moves, and that the notice is
+# silent on every shape it does not name. An alarm that fires on a migrated
+# repo, or on a repo whose ENTRYPOINT is some third file, is one a reader
+# learns to ignore -- and it would fire on every upgrade of every repo.
+
+# _write_old_model_repo -- a repo on the pre-orchestrator model: its own
+# /entrypoint.sh as the ENTRYPOINT, and a bringup carrying base's plumbing
+# and the exec. This is the shape every consumer repo is in today.
+_write_old_model_repo() {
+  cat > "${DF}" <<'EOF'
+FROM ubuntu:24.04 AS devel
+ARG ENTRYPOINT_FILE="script/entrypoint.sh"
+COPY --chmod=0755 "./${ENTRYPOINT_FILE}" "/entrypoint.sh"
+COPY --chmod=0755 .base/dist/script/docker/runtime/ /usr/local/lib/base/
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["bash"]
+EOF
+  mkdir -p "${TEMP_DIR}/script"
+  cat > "${TEMP_DIR}/script/entrypoint.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+# shellcheck disable=SC1091
+. /usr/local/lib/base/logging.sh
+export MY_APP_HOME=/opt/app
+exec "${@}"
+EOF
+}
+
+# _write_migrated_repo <bringup-body> -- a repo that has flipped its
+# ENTRYPOINT to the orchestrator, with the given bringup.
+_write_migrated_repo() {
+  cat > "${DF}" <<'EOF'
+FROM ubuntu:24.04 AS devel
+ARG ENTRYPOINT_FILE="script/entrypoint.sh"
+COPY --chmod=0755 "./${ENTRYPOINT_FILE}" "/entrypoint.sh"
+COPY --chmod=0755 .base/dist/script/docker/runtime/ /usr/local/lib/base/
+ENTRYPOINT ["/usr/local/lib/base/entrypoint.sh"]
+CMD ["bash"]
+EOF
+  mkdir -p "${TEMP_DIR}/script"
+  printf '#!/usr/bin/env bash\n%s\n' "$1" > "${TEMP_DIR}/script/entrypoint.sh"
+}
+
+# why: The positive case, on the shape every consumer repo is in today. A
+# detect that never fires is a migration nobody is told about, and the
+# adoption edits are the owner's to make
+@test "migration (entrypoint-orchestrator): notices a repo still running its own entrypoint (#945)" {
+  _write_old_model_repo
+  run bash -c "$(_src); _migrate_entrypoint_orchestrator_detect '${DF}'"
+  assert_success
+}
+
+# why: The load-bearing claim of the whole release -- an existing repo
+# comes out of `just upgrade` byte-identical and goes on working. Only the
+# owner can tell a bringup line from base plumbing in a file hand-edited
+# for a year, so an apply that rewrote anything here would break repos base
+# cannot see. Both files are diffed, not just the Dockerfile
+@test "migration (entrypoint-orchestrator): the notice changes nothing on disk (#945)" {
+  # The whole contract. A repo that has not migrated must come out of an
+  # upgrade byte-identical -- Dockerfile AND bringup -- and go on working.
+  _write_old_model_repo
+  cp "${DF}" "${TEMP_DIR}/Dockerfile.orig"
+  cp "${TEMP_DIR}/script/entrypoint.sh" "${TEMP_DIR}/ep.orig"
+  run bash -c "$(_src); _migrate_entrypoint_orchestrator_apply '${DF}'"
+  assert_success
+  assert_output --partial "orchestrator"
+  diff "${DF}" "${TEMP_DIR}/Dockerfile.orig"
+  diff "${TEMP_DIR}/script/entrypoint.sh" "${TEMP_DIR}/ep.orig"
+}
+
+# why: The notice has to stop. It runs on every `just upgrade` of every
+# repo, so one that kept firing after the migration is one readers learn to
+# ignore -- which costs the next migration its only channel
+@test "migration (entrypoint-orchestrator): silent once the ENTRYPOINT is the orchestrator (#945)" {
+  _write_migrated_repo 'export MY_APP_HOME=/opt/app'
+  run bash -c "$(_src); _migrate_entrypoint_orchestrator_detect '${DF}'"
+  assert_failure
+}
+
+# why: Every repo generated from the shipped template carries a commented
+# runtime-stage ENTRYPOINT, so a detect that read comments would fire on
+# fully migrated repos for ever. The most likely wrong implementation is a
+# plain grep, and this is the case that separates it from a correct one
+@test "migration (entrypoint-orchestrator): a commented ENTRYPOINT is not the live model (#945)" {
+  # The shipped Dockerfile carries a commented runtime-stage scaffold, and
+  # so does every repo generated from it. A notice that read those would
+  # fire on a fully migrated repo for ever.
+  _write_migrated_repo 'export MY_APP_HOME=/opt/app'
+  printf '# ENTRYPOINT ["/entrypoint.sh"]\n' >> "${DF}"
+  run bash -c "$(_src); _migrate_entrypoint_orchestrator_detect '${DF}'"
+  assert_failure
+}
+
+# why: A real repo in the org does this -- ros1_bridge's runtime stage runs
+# the upstream image's /ros_entrypoint.sh. Detecting "an ENTRYPOINT that is
+# not the orchestrator" instead of "the repo's own bringup" would nag that
+# repo on every upgrade about a migration it has already made
+@test "migration (entrypoint-orchestrator): an unrelated ENTRYPOINT is not this model (#945)" {
+  # ros1_bridge's runtime stage runs the upstream image's
+  # /ros_entrypoint.sh. Naming a different file is not being un-migrated.
+  _write_migrated_repo 'export MY_APP_HOME=/opt/app'
+  printf 'ENTRYPOINT ["/ros_entrypoint.sh"]\n' >> "${DF}"
+  run bash -c "$(_src); _migrate_entrypoint_orchestrator_detect '${DF}'"
+  assert_failure
+}
+
+# why: The coupling between the two adoption edits, and the failure that
+# hides. The orchestrator SOURCES the bringup, so a surviving exec fires
+# mid-source: the watchdog never arms and the container looks healthy until
+# the day it needed restarting
+@test "migration (bringup-residue): notices an exec left in a migrated repo's bringup (#945)" {
+  # The coupling the two edits have: the orchestrator SOURCES the bringup,
+  # so a surviving exec fires mid-source, the watchdog never arms, and the
+  # container looks fine until the day it needed restarting.
+  _write_migrated_repo 'exec "${@}"'
+  run bash -c "$(_src); _migrate_bringup_residue_detect '${DF}'"
+  assert_success
+  run bash -c "$(_src); _migrate_bringup_residue_apply '${DF}'"
+  assert_success
+  assert_output --partial "exec"
+}
+
+# why: The quieter half of the same residue. Sourced twice, logging.sh
+# opens a SECOND per-start file and re-tees and watchdog.sh arms a second
+# supervisor -- neither of which fails a build or a start, so nothing but
+# this notice would ever surface it
+@test "migration (bringup-residue): notices a helper the orchestrator already sources (#945)" {
+  # Sourced twice, logging.sh opens a SECOND per-start file and re-tees;
+  # watchdog.sh arms a second supervisor.
+  _write_migrated_repo '. /usr/local/lib/base/logging.sh'
+  run bash -c "$(_src); _migrate_bringup_residue_detect '${DF}'"
+  assert_success
+  run bash -c "$(_src); _migrate_bringup_residue_apply '${DF}'"
+  assert_success
+  assert_output --partial "twice"
+}
+
+# why: The warn-only claim for the residue pair specifically. This one is
+# the more tempting to auto-fix -- deleting an exec line looks safe -- and
+# it is not: the line may be the repo's own workload launch
+@test "migration (bringup-residue): changes nothing on disk (#945)" {
+  _write_migrated_repo 'exec "${@}"'
+  cp "${DF}" "${TEMP_DIR}/Dockerfile.orig"
+  cp "${TEMP_DIR}/script/entrypoint.sh" "${TEMP_DIR}/ep.orig"
+  run bash -c "$(_src); _migrate_bringup_residue_apply '${DF}'"
+  assert_success
+  diff "${DF}" "${TEMP_DIR}/Dockerfile.orig"
+  diff "${TEMP_DIR}/script/entrypoint.sh" "${TEMP_DIR}/ep.orig"
+}
+
+# why: Pre-flip the exec is CORRECT and the helper sources are the
+# documented wiring, so this notice must be gated on the OTHER migration
+# having happened. Ungated it would add a second warning to every upgrade
+# of every un-migrated repo, about a file doing exactly what it should
+@test "migration (bringup-residue): silent while the repo still owns the ENTRYPOINT (#945)" {
+  # Before the flip the exec is CORRECT and the helper sources are the
+  # documented pre-migration wiring. Warning there would put a second
+  # notice on every upgrade of every un-migrated repo, about a file that
+  # is doing exactly what its Dockerfile asks of it.
+  _write_old_model_repo
+  run bash -c "$(_src); _migrate_bringup_residue_detect '${DF}'"
+  assert_failure
+}
+
+# why: The steady state after both edits. This is the shape every migrated
+# repo upgrades in from then on, so a false positive here is a permanent
+# notice on the correct outcome
+@test "migration (bringup-residue): silent for a clean bringup (#945)" {
+  _write_migrated_repo 'export MY_APP_HOME=/opt/app'
+  run bash -c "$(_src); _migrate_bringup_residue_detect '${DF}'"
+  assert_failure
+}
+
+# why: A bringup is optional under the orchestrator, so the absent file is
+# a supported shape and not an error. It is also the case a naive
+# implementation turns into a stray grep diagnostic on stderr during an
+# otherwise clean upgrade
+@test "migration (bringup-residue): silent when the repo has no bringup at all (#945)" {
+  _write_migrated_repo 'export MY_APP_HOME=/opt/app'
+  rm -f "${TEMP_DIR}/script/entrypoint.sh"
+  run bash -c "$(_src); _migrate_bringup_residue_detect '${DF}'"
+  assert_failure
+}
+
+# why: The claim a consumer actually cares about, asserted through the real
+# dispatcher rather than the detect/apply pair: `just upgrade` as a whole
+# leaves a repo running the model it was running. The pair-level tests
+# cannot see a SIBLING migration rewriting the same files -- the sc1090 one
+# does, which is why the entrypoint is compared over its code lines and the
+# three surviving lines are named individually so an emptied file cannot pass
+@test "apply_migrations: an un-migrated repo keeps the entrypoint model it runs (#945)" {
+  # Through the real dispatcher rather than the pair directly, because the
+  # claim a consumer cares about is about `just upgrade` as a whole: the
+  # repo it has been running for a year still runs the same way afterwards.
+  #
+  # Stated as "what the two files DO", not "the bytes", and the difference
+  # is measured rather than assumed: the sc1090 migration normalises the
+  # shellcheck DIRECTIVE on this same sibling file (SC1091 ->
+  # SC1090,SC1091), so a byte comparison of the entrypoint is false today
+  # for a reason that has nothing to do with the entrypoint model. The
+  # Dockerfile is still compared byte-for-byte -- nothing in the list may
+  # touch it here -- and the entrypoint is compared over its code lines,
+  # which is where the model lives.
+  _write_old_model_repo
+  cp "${DF}" "${TEMP_DIR}/Dockerfile.orig"
+  grep -vE '^[[:space:]]*#' "${TEMP_DIR}/script/entrypoint.sh" \
+    > "${TEMP_DIR}/ep.code.orig"
+  run bash -c "$(_src); apply_migrations '${DF}'"
+  assert_success
+  assert_output --partial "orchestrator"
+  diff "${DF}" "${TEMP_DIR}/Dockerfile.orig"
+  grep -vE '^[[:space:]]*#' "${TEMP_DIR}/script/entrypoint.sh" \
+    > "${TEMP_DIR}/ep.code.new"
+  diff "${TEMP_DIR}/ep.code.new" "${TEMP_DIR}/ep.code.orig"
+  # Named individually so a future rewrite that empties the file cannot
+  # pass by making both sides equally empty.
+  grep -Fq 'exec "${@}"' "${TEMP_DIR}/script/entrypoint.sh"
+  grep -Fq '. /usr/local/lib/base/logging.sh' "${TEMP_DIR}/script/entrypoint.sh"
+  grep -Fq 'export MY_APP_HOME=/opt/app' "${TEMP_DIR}/script/entrypoint.sh"
+}
+# ── DL3007: the series this migration WRITES is a series we still support ───
+#
+# The DL3007 migration replaces a consumer's floating `FROM alpine:latest`
+# with a pinned series. Pinning is the point, but a literal in a sed is a
+# pin nobody ever re-reads: it wrote 3.21 -- a series reaching end-of-life
+# on 2026-11-01 -- into every Dockerfile it healed, which is the same silent
+# expiry the test-tools image had, with a longer blast radius because the
+# result lands in a downstream repo.
+#
+# So the migration's literal is tied to the one series this repo builds,
+# tests and dates: the ALPINE_VERSION pinned in
+# dockerfile/Dockerfile.test-tools, which alpine_eol_spec.bats already
+# fails the suite over 180 days before its recorded expiry. One series, one
+# place to bump, one expiry that is already being counted down. The
+# alternative -- a second literal with its own date -- is a second thing to
+# forget.
+#
+# Derived on both sides: neither test below names a version.
+
+# why: The series written into a consumer's Dockerfile is the one this repo
+# builds, tests and dates
+@test "migration 5 (hadolint): DL3007 pins alpine to the series this repo pins (#567)" {
+  local _pinned _written
+  _pinned="$(sed -n 's|^ARG ALPINE_VERSION=\(.*\)$|\1|p' \
+    /source/dockerfile/Dockerfile.test-tools)"
+  [[ -n "${_pinned}" ]] || fail \
+    "could not read ARG ALPINE_VERSION from dockerfile/Dockerfile.test-tools -- the migration's target series is derived from it, and an unreadable source must not be compared against as an empty string."
+
+  printf 'FROM alpine:latest AS lint-tools\n' > "${DF}"
+  run bash -c "$(_src); _migrate_hadolint_apply '${DF}'"
+  assert_success
+  _written="$(sed -n 's|^FROM alpine:\([^[:space:]]*\).*|\1|p' "${DF}")"
+  [[ "${_written}" == "${_pinned}" ]] || fail \
+    "the DL3007 migration writes alpine:${_written} into a consumer's Dockerfile while this repo pins alpine:${_pinned}. A literal in a sed is a pin nobody re-reads: it would keep installing an end-of-life base into downstream repos long after this repo moved off it. Bump the sed in _migrate_hadolint_apply to match, and the dated expiry beside ARG ALPINE_VERSION covers both."
+}
+
+# why: Healing `:latest` is a lint fix; retagging a deliberate pin is not
+@test "migration 5 (hadolint): DL3007 leaves an already-pinned alpine alone (#567)" {
+  printf 'FROM alpine:3.19 AS lint-tools\n' > "${DF}"
+  run bash -c "$(_src); _migrate_hadolint_apply '${DF}'"
+  assert_success
+  # The migration heals `:latest`, it does not overwrite a deliberate pin --
+  # a consumer on an older series has a reason, and silently retagging their
+  # base image is not a lint fix.
+  grep -Fq 'FROM alpine:3.19' "${DF}"
+}
+
+# ── DL3066: the rule the 2022 hadolint could not report ─────────────────────
+#
+# hadolint 2.15.1, this repo's current pin, reports DL3066 "non-numeric
+# user-id may not be resolvable by host system" on a literal `USER root`.
+# The rule postdates the 2.12.0 that stood here for three and a half years,
+# so no consumer Dockerfile carries a pragma for it -- and every consumer
+# Dockerfile has the line: it is the build-time hop the template's
+# devel-test stage takes so its COPYs can write into /usr/local/bin and
+# /lint.
+#
+# That matters because a consumer lints ITSELF -- `WORKDIR /lint` + `RUN
+# hadolint Dockerfile` -- inside the very image `just base upgrade`
+# re-pins. Without this migration the first `just build test` after an
+# upgrade fails on a rule the consumer never chose, while base's own gate
+# stays green: the "CI green, just build broken" shape v0.41.0 already
+# produced once. base's own template silences DL3066 inline with its
+# reason; upgrade.sh HEALS a consumer's Dockerfile and never overwrites it,
+# so the silencing has to be carried there by a migration, exactly as
+# DL3006's is.
+#
+# Only the literal `root` is silenced. DL3066's actual case -- a name the
+# host may not resolve -- is real for any other literal user, and
+# `USER "${USER}"`, the identity these images ship with, is left alone.
+
+# why: hadolint binds an ignore to the next LINE, so the pragma must sit
+# directly above the instruction
+@test "migration 5 (hadolint): DL3066 inline ignore before a literal USER root (#946)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS devel-test
+USER root
+COPY x /y
+USER "${USER}"
+EOF
+  run bash -c "$(_src); _migrate_hadolint_detect '${DF}' && _migrate_hadolint_apply '${DF}'"
+  assert_success
+  # hadolint binds an ignore to the NEXT LINE, so "present in the file" is
+  # not the assertion -- "immediately above the instruction" is.
+  run grep -A1 -Fx '# hadolint ignore=DL3066' "${DF}"
+  assert_success
+  assert_line --index 1 'USER root'
+}
+
+# why: The real downstream shape already has `# hadolint ignore=DL3002`
+# there; inserting between would re-arm it
+@test "migration 5 (hadolint): DL3066 extends an existing pragma rather than displacing it (#946)" {
+  cat > "${DF}" <<'EOF'
+# hadolint ignore=DL3002
+USER root
+EOF
+  run bash -c "$(_src); _migrate_hadolint_apply '${DF}'"
+  assert_success
+  # Inserting a second pragma line BETWEEN the two would push DL3002 off its
+  # instruction and silently re-arm a rule the consumer had already
+  # answered. The real downstream shape (isaac's Dockerfile:38-39) is
+  # exactly this one, so the merge path is the common case, not the corner.
+  grep -Fxq '# hadolint ignore=DL3002,DL3066' "${DF}"
+  [ "$(grep -c 'hadolint ignore=' "${DF}")" = "1" ]
+}
+
+# why: The migration pass runs on every upgrade, not once
+@test "migration 5 (hadolint): DL3066 idempotent — does not double-insert (#946)" {
+  cat > "${DF}" <<'EOF'
+# hadolint ignore=DL3066
+USER root
+EOF
+  run bash -c "$(_src); apply_migrations '${DF}'; apply_migrations '${DF}'"
+  assert_success
+  [ "$(grep -c 'hadolint ignore=DL3066' "${DF}")" = "1" ]
+}
+
+# why: The merge path needs its own proof; the insert path's says nothing
+# about it
+@test "migration 5 (hadolint): DL3066 idempotent when merged into a sibling pragma (#946)" {
+  cat > "${DF}" <<'EOF'
+# hadolint ignore=DL3002
+USER root
+EOF
+  run bash -c "$(_src); apply_migrations '${DF}'; apply_migrations '${DF}'"
+  assert_success
+  grep -Fxq '# hadolint ignore=DL3002,DL3066' "${DF}"
+}
+
+# why: `root` resolves in every image by definition; any other literal name
+# is the case the rule is worth having
+@test "migration 5 (hadolint): DL3066 leaves every non-root USER alone (#946)" {
+  cat > "${DF}" <<'EOF'
+USER "${USER}"
+USER someoperator
+USER 1000
+EOF
+  run bash -c "$(_src); _migrate_hadolint_apply '${DF}'"
+  assert_success
+  # Silencing DL3066 on a name that is NOT root would switch off the case
+  # the rule is worth having, in the file the consumer actually ships.
+  ! grep -q 'hadolint ignore=DL3066' "${DF}"
+}
+
+# why: Detect and apply must agree about which file is a candidate
+@test "migration 5 (hadolint): DL3066 detect fires on an unguarded USER root (#946)" {
+  printf 'FROM busybox\nUSER root\n' > "${DF}"
+  run bash -c "$(_src); _migrate_hadolint_detect '${DF}'"
+  assert_success
+}
+
+# why: A healed file must stop reporting as needing the migration
+@test "migration 5 (hadolint): DL3066 detect is quiet once the pragma is there (#946)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox
+# hadolint ignore=DL3002,DL3066
+USER root
+EOF
+  run bash -c "$(_src); _migrate_hadolint_detect '${DF}'"
+  assert_failure
+}
+
+# ── DL3046: -u is not always the first flag ─────────────────────────────────
+#
+# The DL3046 heal matched `useradd` followed IMMEDIATELY by `-u`, which is
+# how base's own template writes it. No downstream repo has to: the shape
+# actually shipped in the org is
+#   useradd -m -s /bin/bash -u "${USER_UID}" -g "${USER_GID}" "${USER_NAME}"
+# and the anchored match walks straight past it. The migration then reports
+# a patched Dockerfile while DL3046 is still live in it, so the consumer's
+# self-lint fails on the first `just build test` after the upgrade -- the
+# same end state the missing DL3066 heal produced, reached a different way.
+#
+# `-l` is inserted directly after the `useradd` token rather than before
+# `-u`, so the position of the flag being answered stops mattering.
+
+# why: The shape downstream repos actually ship; the anchored match walked
+# straight past it
+@test "migration 5 (hadolint): DL3046 adds -l when -u is not the first flag (#946)" {
+  cat > "${DF}" <<'EOF'
+RUN useradd -m -s /bin/bash -u "${USER_UID}" -g "${USER_GID}" "${USER_NAME}"
+EOF
+  run bash -c "$(_src); _migrate_hadolint_detect '${DF}' && _migrate_hadolint_apply '${DF}'"
+  assert_success
+  grep -Fq 'useradd -l -m -s /bin/bash -u "${USER_UID}"' "${DF}"
+}
+
+# why: The flag can already be anywhere in the invocation, not only where
+# the migration would put it
+@test "migration 5 (hadolint): DL3046 idempotent when -l already sits among the flags (#946)" {
+  cat > "${DF}" <<'EOF'
+RUN useradd -m -l -s /bin/bash -u "${USER_UID}" "${USER_NAME}"
+EOF
+  run bash -c "$(_src); apply_migrations '${DF}'; apply_migrations '${DF}'"
+  assert_success
+  [ "$(grep -co -- '-l' "${DF}")" = "1" ]
+}
+
+# why: The conflict-handling branch beside it is a different command;
+# rewriting it would corrupt it
+@test "migration 5 (hadolint): DL3046 leaves usermod -l alone (#946)" {
+  # The conflict-handling branch every downstream Dockerfile carries renames
+  # an existing account with `usermod -l`. It is not a useradd, it already
+  # has the flag, and rewriting it would corrupt the command.
+  cat > "${DF}" <<'EOF'
+RUN usermod -l "${USER_NAME}" -d "/home/${USER_NAME}" -m "$(id -nu 1000)"
+EOF
+  run bash -c "$(_src); _migrate_hadolint_apply '${DF}'"
+  assert_success
+  grep -Fxq 'RUN usermod -l "${USER_NAME}" -d "/home/${USER_NAME}" -m "$(id -nu 1000)"' "${DF}"
+}
+
+# why: A detect blind to the shipped shape logs a patched Dockerfile with
+# the finding still live
+@test "migration 5 (hadolint): DL3046 detect sees the flags-before--u shape (#946)" {
+  printf 'RUN useradd -m -u "${USER_UID}" "${USER_NAME}"\n' > "${DF}"
+  run bash -c "$(_src); _migrate_hadolint_detect '${DF}'"
+  assert_success
+}
+
+# why: A sibling flag after `&&` is not this command's flag; scanning to end
+# of line left the finding live
+@test "migration 5 (hadolint): DL3046 heals a useradd whose own line also runs usermod -l (#946)" {
+  # A sibling `usermod -l` after `&&` sits in the text that follows the
+  # `useradd` token, so scanning to end of line reads the useradd as
+  # already carrying the flag and the heal never fires -- DL3046 left live
+  # in a Dockerfile the migration reports as patched, which is the exact
+  # failure the flags-before--u case above was opened for. The scan window
+  # is the useradd's OWN command segment, up to the first `&&`, `||`, `;`
+  # or `|`.
+  cat > "${DF}" <<'EOF'
+RUN useradd -m -s /bin/bash -u "${USER_UID}" "${USER_NAME}" && usermod -l "${USER_NAME}" "$(id -nu 1000)"
+EOF
+  run bash -c "$(_src); _dfm_needs_dl3046 '${DF}'"
+  assert_success
+  run bash -c "$(_src); _migrate_hadolint_apply '${DF}'; _migrate_hadolint_apply '${DF}'"
+  assert_success
+  grep -Fq 'useradd -l -m -s /bin/bash -u "${USER_UID}"' "${DF}"
+  grep -Fq 'usermod -l "${USER_NAME}"' "${DF}"
 }

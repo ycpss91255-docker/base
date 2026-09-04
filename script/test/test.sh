@@ -17,6 +17,7 @@
 #   ./test.sh --<tool>-only     # Run ONE lint of the phase on the host, no
 #                             # compose: --shellcheck-only / --issueref-only
 #                             # / --adr-numbering-only /
+#                             # --adr-structure-only /
 #                             # --stale-setup-conf-only / --readme-sync-only
 #                             # / --doc-counts-only / --home-literal-only /
 #                             # --arch-literal-only /
@@ -99,6 +100,8 @@ source "${SCRIPT_DIR}/drivers/bats.sh"
 source "${SCRIPT_DIR}/drivers/issueref.sh"
 # shellcheck source=script/test/drivers/adr_numbering.sh
 source "${SCRIPT_DIR}/drivers/adr_numbering.sh"
+# shellcheck source=script/test/drivers/adr_structure.sh
+source "${SCRIPT_DIR}/drivers/adr_structure.sh"
 # shellcheck source=script/test/drivers/stale_setup_conf.sh
 source "${SCRIPT_DIR}/drivers/stale_setup_conf.sh"
 # shellcheck source=script/test/drivers/readme_sync.sh
@@ -131,6 +134,10 @@ source "${SCRIPT_DIR}/drivers/action_ref_agreement.sh"
 source "${SCRIPT_DIR}/drivers/generated_workflow_actions.sh"
 # shellcheck source=script/test/drivers/just_provenance.sh
 source "${SCRIPT_DIR}/drivers/just_provenance.sh"
+# shellcheck source=script/test/drivers/catalog_description.sh
+source "${SCRIPT_DIR}/drivers/catalog_description.sh"
+# shellcheck source=script/test/drivers/shell_metrics.sh
+source "${SCRIPT_DIR}/drivers/shell_metrics.sh"
 
 # ── The lint phase's tool table ──────────────────────────────────────────────
 
@@ -151,6 +158,7 @@ readonly _LINT_TOOLS=(
   hadolint
   issueref
   adr-numbering
+  adr-structure
   stale-setup-conf
   readme-sync
   doc-counts
@@ -167,6 +175,7 @@ readonly _LINT_TOOLS=(
   action-ref-agreement
   generated-workflow-actions
   just-provenance
+  catalog-description
 )
 
 # Every tool but hadolint is runnable host-direct (`--<tool>-only`): the
@@ -225,6 +234,7 @@ _run_lint_tool() {
     hadolint)         _run_hadolint ;;
     issueref)         _run_issueref ;;
     adr-numbering)    _run_adr_numbering ;;
+    adr-structure)    _run_adr_structure ;;
     stale-setup-conf) _run_stale_setup_conf ;;
     readme-sync)      _run_readme_sync ;;
     doc-counts)       _run_doc_counts ;;
@@ -241,6 +251,22 @@ _run_lint_tool() {
     action-ref-agreement) _run_action_ref_agreement ;;
     generated-workflow-actions) _run_generated_workflow_actions ;;
     just-provenance)  _run_just_provenance ;;
+    catalog-description) _run_catalog_description ;;
+    # The three implementation-standard metric lints and their combined
+    # report (base#994 phase 2). Dispatchable here -- this is the one
+    # place a lint driver is run, and the ERR trap above is what names
+    # the tool when one dies on a signal -- but deliberately ABSENT from
+    # _LINT_TOOLS. Each judges by an adoption ceiling (base#994 phase 3), so
+    # what keeps them out of the table is no longer an unflattened tree:
+    # it is that _LINT_TOOLS runs INSIDE the ci container while their
+    # population comes from the git index, and a `git worktree`
+    # checkout's `.git` is a file pointing outside the bind mount. Giving
+    # the lint phase a host-direct leg is phase 4's, along with the CI
+    # jobs the table's completeness guard then demands.
+    nesting-depth)    _run_nesting_depth ;;
+    function-length)  _run_function_length ;;
+    positional-params) _run_positional_params ;;
+    shell-metrics)    _run_shell_metrics ;;
     *) _die ci_unknown_lint_tool \
          "Unknown LINT_TOOL '${1:-}' (expected $(printf '%s | ' "${_LINT_TOOLS[@]}")empty)." ;;
   esac
@@ -282,9 +308,38 @@ Options:
   --hadolint              With --lint: run only Hadolint (still via compose)
   --issueref              With --lint: run only the issue-ref comment lint
                           (no transient #NNN in code comments; ADR-00000013)
+  --shell-metrics-only    Report the three implementation-standard shell
+                          metrics -- nesting depth <= 3, function length
+                          <= 50 body code lines, positional parameters
+                          <= 5 -- over every tracked shell file, and fail
+                          only ABOVE each metric's adoption ceiling: the
+                          number of functions base#994 phase 3 has not
+                          flattened yet, one readonly integer in
+                          script/test/drivers/shell_metrics.sh that may
+                          only ever go down. Every run prints count /
+                          limit / ceiling / slack, clean or not. Also
+                          --nesting-depth-only / --function-length-only /
+                          --positional-params-only for one metric at a
+                          time. NOT part of the default gate or of --lint
+                          -- no longer because the tree is unflattened,
+                          which the ceiling settled, but because the lint
+                          phase runs INSIDE the ci container while this
+                          population is derived from the git index, which
+                          a container bind-mounting a `git worktree`
+                          checkout cannot read. Giving the phase a
+                          host-direct leg is base#994 phase 4's, and it
+                          is why this entry is host-direct only.
+                          `just test metrics` is the wrapper.
   --adr-numbering         With --lint: run only the ADR-numbering lint
                           (doc/adr/ duplicate-free + well-formed; gaps
                           warned, not failed)
+  --adr-structure         With --lint: run only the ADR-structure lint
+                          (every ADR carries a '> Serves:' back-pointer,
+                          ## Context / ## Decision / ## Consequences /
+                          ## Alternatives, and a Status of exactly
+                          Accepted | Rejected | Superseded by
+                          ADR-NNNNNNNN; zero ADRs examined is a refusal,
+                          not a pass)
   --stale-setup-conf      With --lint: run only the stale setup.conf path
                           lint (no legacy config/docker/setup.conf in
                           dist/**/*.sh; the override lives at the repo-root
@@ -388,6 +443,11 @@ Options:
                           name the ref .github/workflows/ uses, since
                           dependabot reads workflow files and cannot see
                           a ref inside a heredoc)
+  --catalog-description   With --lint: run only the test description
+                          marker lint (every `@test` in the spec trees
+                          carries a `# why:` block above it, and every
+                          block is attached to one; the undescribed count
+                          stays under the driver's transition ceiling)
   --just-provenance       With --lint: run only the just provenance pin
                           lint (every site under dockerfile/,
                           .github/workflows/, dist/ or script/ that
@@ -412,6 +472,7 @@ Options:
                                                      ships it)
                             --issueref-only          pure bash
                             --adr-numbering-only     pure bash
+                            --adr-structure-only     pure bash
                             --stale-setup-conf-only  pure bash
                             --readme-sync-only       pure bash
                             --doc-counts-only        pure bash + diff
@@ -481,6 +542,15 @@ Options:
                           resolves (a content hash of
                           dockerfile/Dockerfile.test-tools) and exit.
                           TEST_TOOLS_IMAGE, when set, is echoed verbatim.
+  --await-project         Wait for the previous run's container to let go
+                          of this checkout's compose project network, then
+                          exit 0; exit non-zero -- naming the container and
+                          the verb that clears it -- when it is still held
+                          after the window (BASE_PROJECT_WAIT, default 2m).
+                          A query that mints nothing, for the flows that
+                          drive compose themselves (`just test system` /
+                          `just test smoke`); the ordinary dispatch asks on
+                          its own
   --compose-project-name  Print the compose project name this checkout
                           resolves (a hash of its absolute path, so two
                           checkouts sharing a directory basename do not
@@ -517,6 +587,7 @@ Examples:
   just test lint --early-close-reader # early-closing-reader pipeline lint only
   just test lint --errexit-bang   # non-final bang-statement lint only
   just test lint --just-provenance # just provenance pin lint only
+  just test lint --catalog-description # test description marker lint only
   ./test.sh --shellcheck-only     # Direct shellcheck, no compose
   ./test.sh --doc-counts-only     # Direct doc/test count drift gate, no compose
   ./test.sh --readme-sync-only    # Direct localized README sync lint, no compose
@@ -533,6 +604,7 @@ Examples:
   ./test.sh --action-ref-agreement-only # Direct action ref agreement lint, no compose
   ./test.sh --generated-workflow-actions-only # Direct generated-workflow action ref lint, no compose
   ./test.sh --just-provenance-only # Direct just provenance pin lint, no compose
+  ./test.sh --catalog-description-only # Direct test description marker lint, no compose
   ./test.sh --hadolint-only       # Hadolint only (inside ci container)
   ./test.sh --bats-only           # Compose-bats only, skip ShellCheck
   ./test.sh --bats-unit-shard 1/2 # Compose-bats unit shard 1 of 2
@@ -992,13 +1064,13 @@ readonly _TEST_TOOLS_DOCKERFILE_REL="dockerfile/Dockerfile.test-tools"
 _compute_test_tools_hash() {
   local _dockerfile="${1:?_compute_test_tools_hash requires <dockerfile>}"
   local -n _ctth_out="${2:?_compute_test_tools_hash requires <outvar>}"
-  if [[ ! -f "${_dockerfile}" ]]; then
-    _ctth_out=""
-    return 0
-  fi
-  # Redirected stdin (not `sha256sum <file>`) so the PATH never enters the
-  # digest: the same content in two checkouts must produce one tag.
-  _ctth_out="$(sha256sum < "${_dockerfile}" | cut -d' ' -f1)"
+  # Delegated to lib/project_reclaim.sh, which owns the derivation for the
+  # same reason it owns the compose project name: the retention policy that
+  # decides which of these tags to retire has to compute exactly what this
+  # computes, and two implementations of one rule is how they come to
+  # disagree. Absent Dockerfile still yields the empty string here (the
+  # caller decides what to do about it).
+  _ctth_out="$(_reclaim_tool_dockerfile_hash "${_dockerfile}")"
   return 0
 }
 
@@ -1081,19 +1153,35 @@ _ensure_test_tools_image() {
 # concurrent case this exists to separate. The path is also stable across
 # commits, so a checkout keeps one project (and one network) instead of
 # churning a fresh one per commit.
+#
+# Delegated to lib/project_reclaim.sh's _reclaim_project_for_path, which is
+# THE producer, so the rule has one implementation and cannot drift into
+# two. Note what the name is NOT used for: the scoped reclaim in that same
+# file decides whether an artifact belongs to a checkout that still exists
+# by reading the checkout's PATH off the artifact's `base.checkout.path`
+# label, never by recomputing this hash for anything. It used to recompute
+# it for every worktree `git worktree list` reported, which made its answer
+# depend on which repository the sweep was standing in -- and from a
+# downstream consumer's checkout that answer was "every live base project
+# is an orphan".
 _compute_compose_project_name() {
   local _root="${1:?_compute_compose_project_name requires <repo_root>}"
   local -n _ccpn_out="${2:?_compute_compose_project_name requires <outvar>}"
-  local _hash
-  _hash="$(printf '%s' "${_root}" | sha256sum | cut -d' ' -f1)"
+  # `_ccpn_name`, not `_name`: the caller passes a variable of its own to be
+  # filled, and a local here that happens to share that variable's NAME
+  # captures the nameref -- the assignment below then lands on the local and
+  # the caller sees an empty project name. The prefix is what keeps the
+  # collision out of reach of any caller's choice of variable.
+  local _ccpn_name
   # A short/empty digest (sha256sum or cut missing) would degrade to the
   # bare prefix -- a name EVERY checkout resolves, i.e. the collision this
-  # exists to prevent, reintroduced silently. Fail loud instead.
-  if [[ ! "${_hash}" =~ ^[0-9a-f]{12} ]]; then
+  # exists to prevent, reintroduced silently. The producer refuses it; this
+  # turns the refusal into a loud death.
+  if ! _ccpn_name="$(_reclaim_project_for_path "${_root}")"; then
     _die ci_project_name_digest_failed \
       "cannot derive a compose project name for '${_root}': sha256sum produced no usable digest."
   fi
-  _ccpn_out="base-${_hash:0:12}"
+  _ccpn_out="${_ccpn_name}"
   return 0
 }
 
@@ -1428,6 +1516,168 @@ _residue_check() {
   return 1
 }
 
+# ── The previous run's residue ───────────────────────────────────────────
+#
+# A compose network that cannot be recreated because a container is still
+# attached to it is a WAIT, not a failure. Left to compose, that condition
+# reaches the operator as the daemon's raw text plus `recipe failed`, with
+# `not_ok=0` the only hint that no test was involved -- so the first thing
+# they do is go looking for a code defect. It cleared on its own about a
+# minute after it was first seen, which is what makes it worth handling:
+# the run knows how to wait, and the operator cannot tell that waiting is
+# all that was needed.
+#
+# So the dispatch asks first. It is one `network ls` and one `inspect` on
+# the happy path, and it turns the whole class into either a wait that
+# says what it waits for or a refusal that names the container and the
+# verb that clears it.
+#
+# OWNERSHIP IS EXACT AND CARRIED BY THE ARTIFACT. The listing filters on
+# BOTH labels: `com.docker.compose.project` must equal the name this run
+# is about to hand compose, and `base.checkout.path` must equal this
+# checkout. Neither is a prefix and neither is an enumeration of what else
+# is on the host -- a network that does not carry both is somebody else's
+# and is never inspected, let alone waited for. A network created before
+# the path label existed carries no proof and is skipped, which costs this
+# run the nicer message and nothing else.
+#
+# A RUNNING CONTAINER IS NOT A WEDGE. Two runs sharing a project's network
+# is the ordinary concurrent case and compose reuses the network happily.
+# Waiting there would be waiting for something that is not leaving, so a
+# running endpoint is reported and stepped over.
+#
+# NOTHING HERE REMOVES ANYTHING. The wait's whole job is to make the
+# condition legible; deleting a container to get past it would be acting
+# on an artifact whose run may still be finishing with it. Removal is the
+# operator's `just test stop`, which is what the refusal names.
+
+# How long to wait for the previous run's container to let go. Not a tuned
+# number: the one observation available says a minute, and the cost of
+# waiting too long is a slow start while the cost of waiting too little is
+# the confusing red this exists to remove. BASE_PROJECT_WAIT overrides it.
+readonly _PROJECT_WAIT_DEFAULT='2m'
+readonly _PROJECT_WAIT_POLL_SECONDS=2
+
+# _await_docker_project_networks <project> <checkout>
+#
+# The ids of the networks that carry BOTH proofs. Ids only: they are hex,
+# so this listing cannot be corrupted by the content of a label.
+_await_docker_project_networks() {
+  local _project="${1:?_await_docker_project_networks requires <project>}"
+  local _checkout="${2:?_await_docker_project_networks requires <checkout>}"
+  docker network ls \
+    --filter "label=${_RECLAIM_PROJECT_LABEL}=${_project}" \
+    --filter "label=${_RECLAIM_CHECKOUT_LABEL}=${_checkout}" \
+    --format '{{.ID}}' 2>/dev/null
+}
+
+# _await_docker_network_endpoints <id>
+#
+# The name of every container attached to that network -- the daemon's own
+# answer to the question that blocks the removal, rather than a model of
+# which container states hold an endpoint. Compose's grammar for a
+# container name excludes a newline, so one name per line is unambiguous.
+_await_docker_network_endpoints() {
+  local _id="${1:?_await_docker_network_endpoints requires <id>}"
+  docker network inspect \
+    --format '{{range $id, $c := .Containers}}{{$c.Name}}{{"\n"}}{{end}}' \
+    "${_id}" 2>/dev/null
+}
+
+# _await_docker_container_state <name> -- `running` / `exited` /
+# `removing` / ..., empty when the container has already gone.
+_await_docker_container_state() {
+  local _name="${1:?_await_docker_container_state requires <name>}"
+  docker inspect --format '{{.State.Status}}' "${_name}" 2>/dev/null
+}
+
+# _await_project_blockers <project> <checkout> <outvar-array>
+#
+# Fills the outvar with `<name> (<state>)` for every attached container
+# that is NOT running -- the previous run's residue, the thing that is on
+# its way out. Returns non-zero when the networks could not be listed at
+# all, which the caller reports and steps over: a failed listing is not
+# evidence that something is attached.
+_await_project_blockers() {
+  local _project="${1:?_await_project_blockers requires <project>}"
+  local _checkout="${2:?_await_project_blockers requires <checkout>}"
+  local -n _apb_out="${3:?_await_project_blockers requires <outvar>}"
+  _apb_out=()
+  local _ids
+  _ids="$(_await_docker_project_networks "${_project}" "${_checkout}")" || return 1
+  local _id _name _state
+  while IFS= read -r _id; do
+    [[ -n "${_id}" ]] || continue
+    while IFS= read -r _name; do
+      [[ -n "${_name}" ]] || continue
+      _state="$(_await_docker_container_state "${_name}")"
+      # An empty state is a container that vanished between the two reads:
+      # gone is exactly what we were waiting for.
+      [[ -n "${_state}" ]] || continue
+      [[ "${_state}" == running ]] && continue
+      _apb_out+=("${_name} (${_state})")
+    done < <(_await_docker_network_endpoints "${_id}")
+  done <<< "${_ids}"
+  return 0
+}
+
+# _await_project_quiescent <project> <checkout> [window]
+#
+# 0 when nothing of this checkout's project is holding its network, or
+# when what was holding it let go inside the window. Non-zero -- naming
+# every container still attached, its state, and `just test stop` -- when
+# it did not.
+_await_project_quiescent() {
+  local _project="${1:?_await_project_quiescent requires <project>}"
+  local _checkout="${2:?_await_project_quiescent requires <checkout>}"
+  local _window="${3:-${BASE_PROJECT_WAIT:-${_PROJECT_WAIT_DEFAULT}}}"
+
+  # A malformed window is named and replaced by the default rather than
+  # refused. This function exists to turn one confusing red into a legible
+  # one; declining to start the suite over a typo in a duration string
+  # would just be a different confusing red.
+  local _window_s
+  if ! _window_s="$(_reclaim_duration_seconds "${_window}")"; then
+    _log_warn ci ci_project_bad_wait \
+      "display=not a duration: ${_window} (expected <N>s / <N>m / <N>h / <N>d); waiting the default ${_PROJECT_WAIT_DEFAULT} instead." \
+      "window=${_window}"
+    _window_s="$(_reclaim_duration_seconds "${_PROJECT_WAIT_DEFAULT}")"
+  fi
+
+  local -a _blockers=()
+  if ! _await_project_blockers "${_project}" "${_checkout}" _blockers; then
+    _log_warn ci ci_project_wait_unreadable \
+      "display=could not list the networks of project ${_project}; starting anyway (a failed listing is not evidence that a container is still attached)." \
+      "project=${_project}"
+    return 0
+  fi
+  if (( ${#_blockers[@]} == 0 )); then
+    return 0
+  fi
+
+  local _deadline=$(( $(date +%s) + _window_s ))
+  _log_info ci ci_project_wait \
+    "display=waiting up to ${_window} for the previous run to let go of project ${_project}: ${_blockers[*]}. Nothing is being removed -- these are containers on their way out, and the network cannot be recreated until they are." \
+    "project=${_project}" "window=${_window}" "blocked_by=${_blockers[*]}"
+
+  while (( $(date +%s) < _deadline )); do
+    sleep "${_PROJECT_WAIT_POLL_SECONDS}"
+    _blockers=()
+    _await_project_blockers "${_project}" "${_checkout}" _blockers || return 0
+    if (( ${#_blockers[@]} == 0 )); then
+      _log_info ci ci_project_ready \
+        "display=project ${_project} is clear; starting the suite." \
+        "project=${_project}"
+      return 0
+    fi
+  done
+
+  _log_err ci ci_project_wedged \
+    "display=project ${_project} is still held after ${_window} by: ${_blockers[*]}. The suite never started, so no test ran and none failed: this is the previous run's container, not a defect in this one. Clear it with 'just test stop', then run again." \
+    "project=${_project}" "window=${_window}" "blocked_by=${_blockers[*]}"
+  return 1
+}
+
 # ── Docker compose wrapper ───────────────────────────────────────────────────
 
 # _pin_prune_verdict
@@ -1509,6 +1759,17 @@ _run_via_compose() {
   export HOST_UID HOST_GID
   HOST_UID="$(id -u)"
   HOST_GID="$(id -g)"
+  # The provenance compose.yaml stamps onto the network it is about to
+  # create (`base.checkout.path`). The scoped reclaim reads that path back
+  # off the artifact to decide whether the checkout that made it still
+  # exists, so an artifact created without it can never be attributed;
+  # compose.yaml therefore takes it with `:?` and no default, and this is
+  # the assignment that satisfies it on every path that does not come
+  # through `just` (each CI shard, the fragile set, a single --bats-path
+  # run). Set beside the ids and for the same reason they are: compose
+  # interpolates the WHOLE file whatever service a command names, so the
+  # `docker compose build` inside _ensure_test_tools_image needs it too.
+  export BASE_CHECKOUT_PATH="${REPO_ROOT}"
   # compose.yaml names every service's image `${TEST_TOOLS_IMAGE}` with NO
   # default, so resolving it is this runner's job -- it is the script `just
   # test` puts behind that entry point. Exported rather than passed with
@@ -1518,6 +1779,23 @@ _run_via_compose() {
   # substitution inline in an argument would not abort the command).
   local _image
   _image="$(_resolve_test_tools_image)"
+  # Ask whether the previous run has let go of this project's network
+  # before asking compose to use it. ABOVE the arm, because a refusal here
+  # mints nothing: the project it names already exists, and a sweep for
+  # dead checkouts has nothing to say about a checkout that is right here.
+  _await_project_quiescent "${_project}" "${REPO_ROOT}" || return 1
+  # Arm the end-of-run reclaim. BELOW everything that can still refuse the
+  # dispatch and ABOVE the first compose call, because those are the two
+  # things arming has to separate. A run that dies mid-compose is exactly
+  # the run whose litter nobody comes back for, so it must be armed before
+  # the build; a dispatch that refuses to start -- `_prepare_prev_release`
+  # with no resolvable release tags, a missing tooling Dockerfile -- has
+  # minted no project, so sweeping for its litter is a daemon round trip
+  # spent on nothing. Arming is also what separates a run that minted a
+  # project from `test.sh --test-tools-image`, a pure query the system /
+  # smoke recipes make before they build: that one must not open a daemon
+  # connection at all.
+  _RECLAIM_ARMED=1
   _ensure_test_tools_image "${_image}" "${_project}"
   export TEST_TOOLS_IMAGE="${_image}"
   # The BEFORE half of the residue guard, taken here and not in main: this
@@ -1604,10 +1882,20 @@ main() {
       -h|--help) usage ;;
       --ci) mode="ci"; shift ;;
       --lint) lint=1; shift ;;
+      --await-project)
+        # A query, like --compose-project-name / --test-tools-image: it
+        # answers about this checkout and exits, minting nothing. The
+        # project it asks about comes from the same resolver the dispatch
+        # uses, so a caller that has already exported COMPOSE_PROJECT_NAME
+        # is asking about the project it is actually going to drive.
+        _await_project_quiescent "$(_resolve_compose_project_name)" "${REPO_ROOT}"
+        exit $?
+        ;;
       --shellcheck) lint_tool="shellcheck"; shift ;;
       --hadolint) lint_tool="hadolint"; shift ;;
       --issueref) lint_tool="issueref"; shift ;;
       --adr-numbering) lint_tool="adr-numbering"; shift ;;
+      --adr-structure) lint_tool="adr-structure"; shift ;;
       --stale-setup-conf) lint_tool="stale-setup-conf"; shift ;;
       --readme-sync) lint_tool="readme-sync"; shift ;;
       --doc-counts) lint_tool="doc-counts"; shift ;;
@@ -1624,9 +1912,11 @@ main() {
       --action-ref-agreement) lint_tool="action-ref-agreement"; shift ;;
       --generated-workflow-actions) lint_tool="generated-workflow-actions"; shift ;;
       --just-provenance) lint_tool="just-provenance"; shift ;;
+      --catalog-description) lint_tool="catalog-description"; shift ;;
       --shellcheck-only) host_lint="shellcheck"; shift ;;
       --issueref-only) host_lint="issueref"; shift ;;
       --adr-numbering-only) host_lint="adr-numbering"; shift ;;
+      --adr-structure-only) host_lint="adr-structure"; shift ;;
       --stale-setup-conf-only) host_lint="stale-setup-conf"; shift ;;
       --readme-sync-only) host_lint="readme-sync"; shift ;;
       --doc-counts-only) host_lint="doc-counts"; shift ;;
@@ -1643,6 +1933,11 @@ main() {
       --action-ref-agreement-only) host_lint="action-ref-agreement"; shift ;;
       --generated-workflow-actions-only) host_lint="generated-workflow-actions"; shift ;;
       --just-provenance-only) host_lint="just-provenance"; shift ;;
+      --catalog-description-only) host_lint="catalog-description"; shift ;;
+      --nesting-depth-only) host_lint="nesting-depth"; shift ;;
+      --function-length-only) host_lint="function-length"; shift ;;
+      --positional-params-only) host_lint="positional-params"; shift ;;
+      --shell-metrics-only) host_lint="shell-metrics"; shift ;;
       --hadolint-only) hadolint_only=1; shift ;;
       --bats-only) bats_only=1; shift ;;
       --bats-unit-shard) bats_unit_shard="${2:?--bats-unit-shard expects <n>/<total>}"; shift 2 ;;
@@ -1674,7 +1969,7 @@ main() {
   fi
 
   # The host-direct lint primitives (`--shellcheck-only`,
-  # `--issueref-only`, `--adr-numbering-only`,
+  # `--issueref-only`, `--adr-numbering-only`, `--adr-structure-only`,
   # `--stale-setup-conf-only`, `--readme-sync-only`,
   # `--doc-counts-only`, `--home-literal-only`, `--arch-literal-only`,
   # `--bash-source-guard-only`, `--derived-figures-only`,
@@ -1947,7 +2242,57 @@ main() {
   esac
 }
 
+# ── End-of-run reclaim ───────────────────────────────────────────────────────
+#
+# `just test` is where the litter is made. Every throwaway copy of this tree
+# an agent takes to mutation-test a guard is a fresh absolute path, and a
+# fresh path is a fresh compose project with a network of its own; the copy
+# is then deleted and the network is not. Nobody runs `just docker prune` in
+# a directory they are about to remove, and the measurement that opened this
+# was 468 such networks, 417 of them belonging to paths that no longer
+# existed. A chore that requires a human to remember it is not a handled
+# chore, so the suite collects after itself.
+#
+# It runs on the FAILING path too: litter from a red run is still litter,
+# and a red run is the one a developer walks away from.
+#
+# _test_exit_reclaim
+#   Captures the status the shell was about to exit with, reclaims, and
+#   exits with that same status. THE STATUS IS NEVER THE RECLAIM'S. A
+#   collector that could turn a green suite red would be switched off within
+#   the week, and it would deserve to be: nothing about the verdict on the
+#   code under test depends on whether a network could be removed. A failure
+#   is reported and the sweep is left to the next run.
+#
+#   The PROJECT sweep only. Tooling-tag retention is deliberately not here:
+#   it is the half of `just docker prune --reclaim` that has no proof to
+#   act on -- the tooling tag is content-hash shared on purpose, so no
+#   artifact names all of a tag's users and "nothing I can see resolves it"
+#   is a measurement rather than evidence. Measured on the shared host: the
+#   first automatic run retired one tooling image nobody asked it to, and
+#   with the recency window out of the way the same rule names the tag a
+#   live sibling worktree still resolves. That costs a rebuild rather than
+#   data, which is exactly why it stays an explicit
+#   `just docker prune --tool-tags` alongside --volumes and
+#   --worktree-orphans instead of something the suite does to the machine on
+#   its way out.
+_test_exit_reclaim() {
+  local _rc=$?
+  if [[ "${_RECLAIM_ARMED:-0}" == "1" ]]; then
+    _reclaim_orphan_projects \
+      || _log_warn ci ci_reclaim_failed \
+        "display=scoped reclaim of orphaned compose projects failed; litter left for the next run (the suite's verdict is unchanged)."
+  fi
+  exit "${_rc}"
+}
+
 # Guard: only run main when executed directly, not when sourced (for testing)
+#
+# The trap is installed INSIDE this guard, not at file scope: the specs
+# source this file, and a file-scope EXIT trap would fire when the spec's
+# own shell exits -- reclaiming from a bats worker, in the middle of the
+# 32-way parallel run, against the daemon the suite itself is using.
 if [[ "${BASH_SOURCE[0]:-}" == "${0:-}" ]]; then
+  trap _test_exit_reclaim EXIT
   main "$@"
 fi

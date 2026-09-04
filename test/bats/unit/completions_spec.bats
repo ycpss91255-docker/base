@@ -9,6 +9,14 @@
 # to a temp tree and stub `just` on PATH so `JUST_COMPLETE=<shell> just` emits
 # a recognisable per-shell marker; they assert the written file contents,
 # idempotency, the zsh fpath hint, default-shell detection, and uninstall.
+#
+# why: Unit tests for the opt-in shell tab-completion installer
+# `dist/script/base/completions.sh` (#653, ADR-00000011), reached as `just
+# base completions install|uninstall [--shell ...]`. Sandboxes HOME + the
+# XDG dirs to a temp tree and stubs `just` on PATH so `JUST_COMPLETE=<shell>
+# just` emits a per-shell marker; asserts the DYNAMIC loader is written to
+# each shell's standard auto-load dir (no rc edits), idempotency, the zsh
+# fpath hint, default `$SHELL` detection, and uninstall.
 
 bats_require_minimum_version 1.5.0
 
@@ -39,6 +47,7 @@ teardown() {
   [[ -n "${SANDBOX:-}" ]] && rm -rf "${SANDBOX}"
 }
 
+# why: exact `eval "$(JUST_COMPLETE=bash just)"` content
 @test "install bash writes the dynamic eval-loader file" {
   run "${COMPLETIONS}" install --shell bash
   assert_success
@@ -47,6 +56,7 @@ teardown() {
   assert_output 'eval "$(JUST_COMPLETE=bash just)"'
 }
 
+# why: captures `JUST_COMPLETE=fish just`
 @test "install fish writes the file with the dynamic completer output" {
   run "${COMPLETIONS}" install --shell fish
   assert_success
@@ -55,6 +65,7 @@ teardown() {
   assert_output --partial "dynamic-completer for fish"
 }
 
+# why: `_just` + stdout fpath hint
 @test "install zsh writes _just + prints the fpath hint when dir not on fpath" {
   run "${COMPLETIONS}" install --shell zsh
   assert_success
@@ -86,6 +97,7 @@ teardown() {
   refute_output --partial "fpath+=("
 }
 
+# why: removes the loader
 @test "uninstall removes the installed file" {
   "${COMPLETIONS}" install --shell bash
   assert [ -f "${BASH_TARGET}" ]
@@ -94,12 +106,14 @@ teardown() {
   assert [ ! -f "${BASH_TARGET}" ]
 }
 
+# why: safe no-op
 @test "uninstall is idempotent when the file is absent (no error)" {
   run "${COMPLETIONS}" uninstall --shell bash
   assert_success
   assert [ ! -f "${BASH_TARGET}" ]
 }
 
+# why: bash + fish + zsh
 @test "install --shell all installs all three shells" {
   run "${COMPLETIONS}" install --shell all
   assert_success
@@ -108,6 +122,7 @@ teardown() {
   assert [ -f "${ZSH_TARGET}" ]
 }
 
+# why: bash + fish + zsh removed
 @test "uninstall --shell all removes all three shells" {
   "${COMPLETIONS}" install --shell all
   run "${COMPLETIONS}" uninstall --shell all
@@ -117,18 +132,21 @@ teardown() {
   assert [ ! -f "${ZSH_TARGET}" ]
 }
 
+# why: `$SHELL`-driven detection
 @test "default --shell detects bash from \$SHELL basename" {
   SHELL="/usr/bin/bash" run "${COMPLETIONS}" install
   assert_success
   assert [ -f "${BASH_TARGET}" ]
 }
 
+# why: unknown -> error asking for --shell
 @test "default --shell detection errors on an unknown shell" {
   SHELL="/usr/bin/tcsh" run "${COMPLETIONS}" install
   assert_failure
   assert_output --partial "--shell"
 }
 
+# why: exit 2 vs exit 1
 @test "unknown argument is a usage error (exit 2), distinct from detection error (#692)" {
   # A bogus flag is a usage error: exit 2, not the exit 1 used for an
   # unsupported-shell detection error. The distinction must not collapse.
@@ -137,6 +155,7 @@ teardown() {
   assert_output --partial "unknown argument"
 }
 
+# why: missing install/uninstall -> exit 2
 @test "missing action is a usage error (exit 2) (#692)" {
   # A valid --shell but no install|uninstall action: usage error, exit 2.
   run "${COMPLETIONS}" --shell bash
@@ -144,6 +163,7 @@ teardown() {
   assert_output --partial "missing action"
 }
 
+# why: help text
 @test "-h / --help exits 0 with usage" {
   run "${COMPLETIONS}" --help
   assert_success
@@ -153,6 +173,7 @@ teardown() {
   assert_output --partial "install"
 }
 
+# why: overwrite-on-reinstall
 @test "install is idempotent: a re-run overwrites cleanly" {
   "${COMPLETIONS}" install --shell bash
   run "${COMPLETIONS}" install --shell bash
@@ -161,6 +182,7 @@ teardown() {
   assert_output 'eval "$(JUST_COMPLETE=bash just)"'
 }
 
+# why: missing flag value -> exit 1, no arg-loop spin
 @test "--shell with no value is a usage error, not an infinite loop (#955)" {
   # `shift 2` with a single positional left fails and shifts NOTHING, so a
   # swallowed failure left `$1` as `--shell` and the arg loop spun

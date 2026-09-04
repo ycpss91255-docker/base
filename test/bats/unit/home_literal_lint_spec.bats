@@ -15,6 +15,18 @@
 # independent of the live tree's contents; a final case drives the REAL
 # shipped tree to prove it passes today. Shape mirrors
 # stale_setup_conf_lint_spec.bats.
+#
+# why: Unit coverage for `script/test/drivers/home_literal.sh` -- the
+# mechanical half of the "bake self-built artifacts at `/opt`, not under
+# `$HOME`" convention (ADR-00000024). The container user is a BUILD arg, so
+# a concrete username in a shipped Dockerfile / entrypoint / in-image config
+# file breaks the moment the image is rebuilt or `docker save`+`load`'ed
+# under a different `USER_NAME`. The parameterised `${USER_NAME}` / escaped
+# `\${USER_NAME}` / `<placeholder>` forms and absolute `/opt` paths pass; a
+# narrative mention opts out through a bracketed allow region that must be
+# balanced and does not leak past its end; a missing scan root fails loudly
+# instead of passing vacuously; and a final case drives the REAL shipped
+# tree.
 
 setup() {
   export LOG_FORMAT=text
@@ -31,7 +43,6 @@ setup() {
 
   SCRATCH="$(mktemp -d)"
   mkdir -p "${SCRATCH}/dist/dockerfile" \
-    "${SCRATCH}/dist/script/docker/runtime" \
     "${SCRATCH}/dockerfile"
   REPO_ROOT="${SCRATCH}"
 
@@ -65,7 +76,7 @@ _write() {
 }
 
 @test "_run_home_literal: FAILS on a hardcoded home path in a runtime entrypoint (#799)" {
-  _write "dist/script/docker/runtime/entrypoint.sh" \
+  _write "dist/dockerfile/entrypoint.sh" \
     '#!/usr/bin/env bash' \
     ". ${LITERAL}/some_ws/install/setup.bash"
   run _run_home_literal
@@ -86,7 +97,7 @@ _write() {
 @test "_run_home_literal: FAILS on a hardcoded home path inside a comment too (#799)" {
   # A comment is documentation a downstream author copies; a concrete
   # username there teaches the exact anti-pattern the lint exists to stop.
-  _write "dist/script/docker/runtime/entrypoint.sh" \
+  _write "dist/dockerfile/entrypoint.sh" \
     "# sources ${LITERAL}/some_ws at start"
   run _run_home_literal
   [ "${status}" -ne 0 ]
@@ -120,7 +131,7 @@ _write() {
 }
 
 @test "_run_home_literal: FAILS on a literal AFTER an allow-end (region does not leak) (#799)" {
-  _write "dist/script/docker/runtime/entrypoint.sh" \
+  _write "dist/dockerfile/entrypoint.sh" \
     "# ${_HOME_LITERAL_ALLOW_BEGIN} narrative" \
     "# the default user's home is ${LITERAL}" \
     "# ${_HOME_LITERAL_ALLOW_END}" \
@@ -132,7 +143,7 @@ _write() {
 }
 
 @test "_run_home_literal: FAILS on an unterminated allow-begin region (#799)" {
-  _write "dist/script/docker/runtime/entrypoint.sh" \
+  _write "dist/dockerfile/entrypoint.sh" \
     "# ${_HOME_LITERAL_ALLOW_BEGIN} narrative" \
     "# the default user's home is ${LITERAL}"
   run _run_home_literal
@@ -141,7 +152,7 @@ _write() {
 }
 
 @test "_run_home_literal: FAILS on an allow-end with no matching allow-begin (#799)" {
-  _write "dist/script/docker/runtime/entrypoint.sh" \
+  _write "dist/dockerfile/entrypoint.sh" \
     '#!/usr/bin/env bash' \
     "# ${_HOME_LITERAL_ALLOW_END}"
   run _run_home_literal
@@ -175,7 +186,7 @@ _write() {
 @test "_run_home_literal: PASSES the angle-bracket placeholder form (#799)" {
   # Prose that talks ABOUT the shape uses a placeholder, not a name; only a
   # concrete username is a defect.
-  _write "dist/script/docker/runtime/entrypoint.sh" \
+  _write "dist/dockerfile/entrypoint.sh" \
     '# a different USER_NAME points at an empty /home/<other>/ tree'
   run _run_home_literal
   [ "${status}" -eq 0 ]
@@ -183,7 +194,7 @@ _write() {
 }
 
 @test "_run_home_literal: PASSES an absolute /opt artifact path (#799)" {
-  _write "dist/script/docker/runtime/entrypoint.sh" \
+  _write "dist/dockerfile/entrypoint.sh" \
     '. /opt/some_ws/install/setup.bash --'
   run _run_home_literal
   [ "${status}" -eq 0 ]

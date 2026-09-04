@@ -33,6 +33,7 @@ teardown() {
 # that drift surfaces as a test failure.
 # ════════════════════════════════════════════════════════════════════
 
+# why: Wired-file regression guard
 @test "_run_shellcheck: invokes shellcheck against every expected script" {
   # Log each invocation to a capture file so we can inspect the set.
   local _log="${BATS_TEST_TMPDIR}/shellcheck.log"
@@ -60,6 +61,7 @@ teardown() {
   assert_output --partial "dist/script/base"
 }
 
+# why: `find` covers new scripts
 @test "_run_shellcheck: picks up every .sh file in script/docker/" {
   local _log="${BATS_TEST_TMPDIR}/shellcheck.log"
   mock_cmd "shellcheck" '
@@ -101,6 +103,7 @@ teardown() {
   [ -z "${_missing}" ] || { echo "script/test scripts never linted:${_missing}"; false; }
 }
 
+# why: Strict-mode propagation
 @test "_run_shellcheck: exits non-zero when shellcheck fails on any script" {
   # Simulate a lint violation on init.sh specifically.
   mock_cmd "shellcheck" '
@@ -131,6 +134,7 @@ teardown() {
 # and the command that stopped it, through the registered event id.
 # ════════════════════════════════════════════════════════════════════
 
+# why: 141 reported as tool + command + SIGPIPE
 @test "_run_lint_tool: names the tool and the signal when a driver dies of SIGPIPE (#898)" {
   run env LOG_FORMAT=json bash -c '
     source /source/script/test/test.sh
@@ -151,6 +155,7 @@ teardown() {
   assert_output --partial "SIGPIPE"
 }
 
+# why: Plain non-zero abort still names the tool
 @test "_run_lint_tool: names the tool when a driver fails without a signal (#898)" {
   run env LOG_FORMAT=json bash -c '
     source /source/script/test/test.sh
@@ -164,6 +169,7 @@ teardown() {
   assert_output --partial "false"
 }
 
+# why: Silent on success, trap disarmed after
 @test "_run_lint_tool: a clean driver reports nothing and leaves no ERR trap armed (#898)" {
   run env LOG_FORMAT=json bash -c '
     source /source/script/test/test.sh
@@ -189,6 +195,7 @@ teardown() {
 # compose.
 # ════════════════════════════════════════════════════════════════════
 
+# why: Service routing — fast path
 @test "_run_via_compose: routes default mode to the ci service with COVERAGE=0" {
   local _log="${BATS_TEST_TMPDIR}/docker.log"
   mock_cmd "docker" '
@@ -211,6 +218,7 @@ teardown() {
   refute_output --partial "COVERAGE=1"
 }
 
+# why: Service routing — coverage path
 @test "_run_via_compose: routes coverage mode to the coverage service with COVERAGE=1" {
   local _log="${BATS_TEST_TMPDIR}/docker.log"
   mock_cmd "docker" '
@@ -232,6 +240,7 @@ teardown() {
   assert_output --partial " coverage"
 }
 
+# why: End-to-end default dispatch
 @test "main: dispatches no-flag default to the ci service" {
   local _log="${BATS_TEST_TMPDIR}/docker.log"
   mock_cmd "docker" '
@@ -252,6 +261,7 @@ teardown() {
   assert_output --partial "COVERAGE=0"
 }
 
+# why: Parallel-present branch
 @test "_run_tests: passes --jobs N when parallel is on PATH" {
   local _log="${BATS_TEST_TMPDIR}/bats.log"
   mock_cmd "parallel" 'exit 0'
@@ -272,6 +282,7 @@ teardown() {
   assert_output --partial "--jobs 8"
 }
 
+# why: Parallel-missing branch
 @test "_run_tests: omits --jobs when parallel is absent (graceful fallback)" {
   local _log="${BATS_TEST_TMPDIR}/bats.log"
   # Intentionally NOT mocking `parallel` so command -v misses.
@@ -293,6 +304,7 @@ teardown() {
   refute_output --partial "--jobs"
 }
 
+# why: End-to-end --coverage dispatch
 @test "main: dispatches --coverage to the coverage service" {
   local _log="${BATS_TEST_TMPDIR}/docker.log"
   mock_cmd "docker" '
@@ -334,6 +346,7 @@ teardown() {
 # COVERAGE_SHARD into the coverage service.
 # ════════════════════════════════════════════════════════════════════
 
+# why: #615 coverage shard returns spec paths
 @test "_shard_unit_files: a single shard returns real unit spec paths (#615)" {
   run bash -c '
     source /source/script/test/test.sh
@@ -344,6 +357,7 @@ teardown() {
   assert_output --partial "_spec.bats"
 }
 
+# why: #615 partition invariant (each slice runs once)
 @test "_shard_unit_files: partition is exhaustive + disjoint across all shards of T (#615, #724)" {
   # Union of every shard of 4 must equal the full sorted spec list (unit +
   # integration, folded into one pool), with no file in two shards (the
@@ -570,6 +584,8 @@ printf 'denominator=%s probe-avg=%s pool-avg=%d unit-only-avg=%d\n' \
 AUDIT
 }
 
+# why: #677 live-tree probe through `_spec_weight`, at the eight shards CI
+# runs
 @test "_shard_unit_files: greedy weight-balance keeps every shard within 1.5x the partition bound (#677, #940)" {
   # The round-robin floor dumped the heaviest specs into one shard (~2x the
   # others). Greedy LPT must hold every shard within 1.5x of the bound NO
@@ -611,6 +627,8 @@ $(_shard_balance_probe)"
   assert_output --partial "verdict=BALANCED"
 }
 
+# why: #940 skewed `SHARD_WEIGHTS_FILE`: the guard follows seconds, not
+# `@test` count
 @test "_shard_unit_files: one slow low-@test spec balances by weight though the count axis calls it lopsided (#940)" {
   # The wrong-axis mismatch, isolated. This shape has never turned a CI run
   # red -- the run that prompted this work failed on a short denominator,
@@ -632,6 +650,8 @@ $(_shard_balance_probe)"
   assert_output --partial "verdict=LOPSIDED"
 }
 
+# why: #940 non-vacuity: N+1 equal heavy specs over eight shards must FAIL
+# the guard
 @test "_shard_unit_files: a distribution no partition can balance is reported IMBALANCED (#940)" {
   # The inverse, and the proof the guard is not vacuous, driven at the eight
   # shards CI runs: N+1 specs of equal dominating runtime over N shards
@@ -649,6 +669,8 @@ $(_shard_balance_probe)"
   assert_output --partial "verdict=IMBALANCED"
 }
 
+# why: #940 the probe's shard total is load-bearing: N=4 passes what N=8
+# catches
 @test "_shard_unit_files: the same partition a four-shard probe calls balanced fails at eight (#940)" {
   # Why the probe's shard total is load-bearing, shown on the SAME
   # distribution the case above condemns. Nine equally dominating specs over
@@ -665,6 +687,8 @@ $(_shard_balance_probe)"
   assert_output --partial "verdict=BALANCED"
 }
 
+# why: #936 regression guard: a probe totalling `test/bats/unit/` alone is
+# caught on the live tree
 @test "_shard_unit_files: the live probe's total spans the partition pool, not test/bats/unit alone (#936, #940)" {
   # The regression guard proper, aimed at the LIVE probe rather than at a
   # replay of constants: the coverage-shard failure this work came from was
@@ -691,6 +715,8 @@ $(_pool_denominator_audit)"
   assert_line --partial "denominator=pool"
 }
 
+# why: #936 arithmetic: the recorded loads clear the ceil'd bound once the
+# total is pooled
 @test "_shard_unit_files: the loads that failed CI clear the bound once the total spans the whole pool (#936, #940)" {
   # The arithmetic of the rule, replayed on the numbers the failing run
   # recorded. This case pins `_balance_lb`'s ceil and `_balance_verdict`'s
@@ -733,6 +759,7 @@ $(_pool_denominator_audit)"
   assert_line "pool lb=775 verdict=BALANCED"
 }
 
+# why: #615 shard-spec validation (asserts message)
 @test "_shard_unit_files: rejects an out-of-range shard spec (#615, #692)" {
   run bash -c '
     set -e
@@ -743,6 +770,7 @@ $(_pool_denominator_audit)"
   assert_output --partial "Need 1<=n<=total"
 }
 
+# why: #692 missing-slash format guard
 @test "_shard_unit_files: rejects a no-slash shard spec (#692)" {
   run bash -c '
     set -e
@@ -753,6 +781,7 @@ $(_pool_denominator_audit)"
   assert_output --partial "Expected <n>/<total>"
 }
 
+# why: #692 non-numeric guard
 @test "_shard_unit_files: rejects a non-numeric shard spec (#692)" {
   run bash -c '
     set -e
@@ -763,6 +792,7 @@ $(_pool_denominator_audit)"
   assert_output --partial "Need 1<=n<=total"
 }
 
+# why: #692 empty-slice guard
 @test "_shard_unit_files: dies ci_empty_shard when a valid shard matches no files (#692)" {
   # Greedy-LPT leaves the tail shards empty whenever total exceeds the spec
   # count. Driven over a fixture REPO_ROOT holding exactly two specs so the
@@ -1081,6 +1111,7 @@ SH
   assert_output --partial "OK"
 }
 
+# why: #615 sharded kcov targets
 @test "_run_coverage: shard N/T kcov's only that unit slice, not the whole tree (#615)" {
   # No PATH override: _run_coverage shells out to find/sort/awk via
   # _shard_unit_files. mock_cmd already PREPENDS MOCK_DIR to PATH, so the
@@ -1159,6 +1190,7 @@ SH
   assert_output --partial "_spec.bats"
 }
 
+# why: #615 local full-coverage path
 @test "_run_coverage: no argument keeps the full-suite path (unit + integration) (#615)" {
   local _log="${BATS_TEST_TMPDIR}/kcov.log"
   mock_cmd "kcov" '
@@ -1197,6 +1229,7 @@ SH
   assert_output --partial "test/bats/integration/"
 }
 
+# why: #615 shard env plumbing
 @test "main --coverage-shard: routes to the coverage service with COVERAGE_SHARD set (#615)" {
   local _log="${BATS_TEST_TMPDIR}/docker.log"
   mock_cmd "docker" '
@@ -1225,6 +1258,7 @@ SH
   assert_output --partial "COVERAGE_SHARD=2/4"
 }
 
+# why: #615 coverage path skips lint
 @test "main --ci with COVERAGE=1 skips the lint phase (lint is a separate matrix concern) (#615)" {
   # The coverage shards are a kcov-only concern; lint is measured by the
   # dedicated shellcheck/hadolint jobs. Running the lint phase once per
@@ -1259,6 +1293,7 @@ SH
   assert [ ! -f "${_hd_log}" ]
 }
 
+# why: #615 single-path/coverage combo guard
 @test "main --coverage-shard + --bats-path is rejected (coverage mode guard) (#615)" {
   # --coverage-shard sets coverage mode, which the single-path guard
   # rejects (single-path is the fast no-kcov loop).
@@ -1417,6 +1452,7 @@ AWK
 # guard) so it self-maintains; these guards pin the contract.
 # ════════════════════════════════════════════════════════════════════
 
+# why: #677 runtime fragile-set == anchored grep
 @test "_fragile_unit_files: returns exactly the spec files with a kcov-skip guard (#677)" {
   # The runtime-computed set must equal an independent grep for the
   # line-anchored skip guard — a NEW fragile-skip in a 10th file is picked
@@ -1433,6 +1469,7 @@ AWK
   assert_output --partial "OK"
 }
 
+# why: #677 inverse-direction completeness guard
 @test "_fragile_unit_files: every kcov-skipped file is in the fragile set (no unit test goes unrun) (#677)" {
   # Coverage skips a test only in files in the fragile set; this asserts
   # the inverse direction too — there is NO file containing a kcov-skip
@@ -1452,6 +1489,7 @@ AWK
   assert_output --partial "OK"
 }
 
+# why: #677 fragile job targets only fragile files
 @test "_run_bats_fragile: runs bats over only the fragile spec files, not the whole unit tree (#677)" {
   local _log="${BATS_TEST_TMPDIR}/bats.log"
   mock_cmd "bats" '
@@ -1472,6 +1510,7 @@ AWK
   refute_output --partial "test/bats/unit/ "
 }
 
+# why: #677 plain mode runs the skipped tests
 @test "_run_bats_fragile: does NOT set COVERAGE=1 so the kcov-skip guards fall through (#677)" {
   # The fragile tests are precisely the ones coverage skips; running them
   # here in PLAIN mode (COVERAGE != 1) is the whole point. Run with
@@ -1493,6 +1532,7 @@ AWK
   refute_output --partial "COVERAGE=[1]"
 }
 
+# why: #677 fragile flag dispatch
 @test "main --bats-fragile: routes to the ci service with BATS_FRAGILE=1 + BATS_ONLY=1, no COVERAGE (#677)" {
   local _log="${BATS_TEST_TMPDIR}/docker.log"
   mock_cmd "docker" '
@@ -1520,6 +1560,7 @@ AWK
 # --bats-path / --filter single-path inner loop
 # ════════════════════════════════════════════════════════════════════
 
+# why: #523 single-file dispatch
 @test "main --bats-path: dispatches a single spec to the ci service with BATS_FILE + BATS_ONLY=1" {
   local _log="${BATS_TEST_TMPDIR}/docker.log"
   mock_cmd "docker" '
@@ -1542,6 +1583,7 @@ AWK
   refute_output --partial "COVERAGE=1"
 }
 
+# why: #523 directory path
 @test "main --bats-path: accepts a directory" {
   local _log="${BATS_TEST_TMPDIR}/docker.log"
   mock_cmd "docker" '
@@ -1559,6 +1601,7 @@ AWK
   assert_output --partial "BATS_FILE=test/bats/unit/"
 }
 
+# why: #523 missing-path guard
 @test "main --bats-path: non-existent path dies with ci_bats_path_not_found" {
   mock_cmd "docker" 'echo "docker should not be called"; exit 1'
   mock_cmd "id" 'echo 1000'
@@ -1573,6 +1616,7 @@ AWK
   refute_output --partial "docker should not be called"
 }
 
+# why: #523 system guard
 @test "main --bats-path: test/bats/system/ path dies with a clear hint" {
   mock_cmd "docker" 'echo "docker should not be called"; exit 1'
   mock_cmd "id" 'echo 1000'
@@ -1587,6 +1631,7 @@ AWK
   refute_output --partial "docker should not be called"
 }
 
+# why: #523 coverage-combo guard
 @test "main --bats-path + --coverage is rejected (ci_bats_path_coverage)" {
   mock_cmd "docker" 'echo "docker should not be called"; exit 1'
   mock_cmd "id" 'echo 1000'
@@ -1624,6 +1669,8 @@ AWK
 #      "run THIS spec" has to mean the same thing in both.
 # ════════════════════════════════════════════════════════════════════
 
+# why: The gate's artifacts stay untouched -- no figure can be fabricated
+# from one spec
 @test "_run_coverage_path: writes nothing into the checkout's coverage/ (#887)" {
   # The gate reads coverage/cobertura.xml + coverage/timings.tsv from the
   # mounted checkout. A single-spec run that dropped either there would
@@ -1654,6 +1701,7 @@ AWK
   assert_output "sentinel"
 }
 
+# why: Report lands in container-local scratch and is deleted
 @test "_run_coverage_path: the kcov report dir is a throwaway outside the checkout, removed after the run (#887)" {
   local _log="${BATS_TEST_TMPDIR}/outdir.log"
   mock_cmd "bats" 'exit 0'
@@ -1682,6 +1730,7 @@ AWK
   assert_output --partial "OK"
 }
 
+# why: Shard independence: a planted .shard-weights pulls in nothing
 @test "_run_coverage_path: kcov's exactly the named spec, never a shard slice (#887)" {
   # A weights file is planted that a greedy-LPT partition would honour, so
   # a re-implementation routed through _shard_unit_files would pull in the
@@ -1716,6 +1765,7 @@ AWK
   refute_output --partial "d_spec.bats"
 }
 
+# why: Same instrumented tree as a shard, so the failure reproduces
 @test "_run_coverage_path: instruments with the same include/exclude set a coverage shard uses (#887)" {
   # The point of the mode is to reproduce what the coverage shard does to
   # one spec. Instrument a different tree than the shard does and the
@@ -1755,6 +1805,8 @@ AWK
   assert_output --partial "--exclude-path="
 }
 
+# why: Exit-status propagation -- the loop is useless if failure is
+# swallowed
 @test "_run_coverage_path: propagates the spec's exit status so a red spec is a red run (#887)" {
   # The entry point exists to be a red-green loop. A runner that swallowed
   # the failure would report green on the exact run whose whole purpose is
@@ -1771,6 +1823,7 @@ AWK
   assert_output "rc=3"
 }
 
+# why: Composes with --filter to instrument a single @test
 @test "_run_coverage_path: BATS_FILTER appends a bats -f name filter (#887)" {
   local _log="${BATS_TEST_TMPDIR}/kcov.log"
   mock_cmd "bats" 'exit 0'
@@ -1790,6 +1843,7 @@ AWK
   assert_output --partial "test/bats/unit/ci_spec.bats"
 }
 
+# why: Dispatch: coverage service, COVERAGE_PATH plumbed, never a shard
 @test "main --coverage-path: routes one spec to the coverage service with COVERAGE_PATH + BATS_ONLY=1 (#887)" {
   local _log="${BATS_TEST_TMPDIR}/docker.log"
   mock_cmd "docker" '
@@ -1815,6 +1869,7 @@ AWK
   refute_output --regexp 'COVERAGE_SHARD=[0-9]'
 }
 
+# why: In-container branch sits ahead of _run_coverage; no report line
 @test "main --ci: COVERAGE=1 with COVERAGE_PATH runs the one spec and reports no coverage figure (#887)" {
   # The in-container dispatch must branch BEFORE _run_coverage, which
   # kcov's the whole suite and writes coverage/timings.tsv + the report
@@ -1845,6 +1900,7 @@ AWK
   refute_output --partial "/test/bats/integration/ "
 }
 
+# why: Host-side missing-path guard
 @test "main --coverage-path: non-existent path dies before docker is called (#887)" {
   mock_cmd "docker" 'echo "docker should not be called"; exit 1'
   mock_cmd "id" 'echo 1000'
@@ -1859,6 +1915,7 @@ AWK
   refute_output --partial "docker should not be called"
 }
 
+# why: Host-side system-spec guard (needs the ci-system service)
 @test "main --coverage-path: test/bats/system/ dies with the ci-system hint (#887)" {
   mock_cmd "docker" 'echo "docker should not be called"; exit 1'
   mock_cmd "id" 'echo 1000'
@@ -1873,6 +1930,8 @@ AWK
   refute_output --partial "docker should not be called"
 }
 
+# why: A figure over a partition and one instrumented spec are different
+# asks
 @test "main --coverage-path + --coverage-shard is rejected (#887)" {
   # One asks for a figure over a partition, the other for instrumentation
   # over one named spec. Silently letting one win would be how a one-spec
@@ -1892,6 +1951,7 @@ AWK
   refute_output --partial "docker should not be called"
 }
 
+# why: Two runners, two services -- refused by name
 @test "main --coverage-path + --bats-path is rejected (#887)" {
   mock_cmd "docker" 'echo "docker should not be called"; exit 1'
   mock_cmd "id" 'echo 1000'
@@ -1908,6 +1968,7 @@ AWK
   refute_output --partial "docker should not be called"
 }
 
+# why: #523's refusal is intact; the combination is --coverage-path
 @test "main --bats-path + --coverage stays rejected: the fast loop is still kcov-free (#887)" {
   # --coverage-path did NOT lift the original refusal. --bats-path is the
   # no-kcov loop by definition; combining it with --coverage would have
@@ -1926,6 +1987,7 @@ AWK
   refute_output --partial "docker should not be called"
 }
 
+# why: #692 unknown-flag guard
 @test "main: unknown option dies with ci_unknown_option (#692)" {
   mock_cmd "docker" 'echo "docker should not be called"; exit 1'
   mock_cmd "id" 'echo 1000'
@@ -1940,6 +2002,7 @@ AWK
   refute_output --partial "docker should not be called"
 }
 
+# why: #692 narrowing-flag typo guard
 @test "main: --hadolint without --lint dies (narrowing flag, not standalone) (#692)" {
   # `--hadolint` narrows --lint; standalone is the easy-to-make typo for
   # --hadolint-only. It must fail loudly, not silently no-op.
@@ -1956,6 +2019,7 @@ AWK
   refute_output --partial "docker should not be called"
 }
 
+# why: #692 LINT_TOOL validation
 @test "main --ci: unknown LINT_TOOL dies with ci_unknown_lint_tool (#692)" {
   run bash -c '
     source /source/script/test/test.sh
@@ -1965,6 +2029,7 @@ AWK
   assert_output --partial "Unknown LINT_TOOL"
 }
 
+# why: #845 stale setup.conf lint reaches the CI gate
 @test "main --ci: LINT_TOOL=stale-setup-conf runs the stale setup.conf lint (#845)" {
   # Wiring guard: the lint must reach the CI gate, not only an Edit-time
   # hook. An unwired tool falls through to the ci_unknown_lint_tool branch
@@ -1977,6 +2042,7 @@ AWK
   assert_output --partial "stale setup.conf path lint: clean"
 }
 
+# why: #846 localized README sync lint reaches the CI gate
 @test "main --ci: LINT_TOOL=readme-sync runs the localized README sync lint (#846)" {
   # Wiring guard: the translation drift guard must reach the CI gate, not
   # only the on-demand generator. An unwired tool falls through to the
@@ -1990,6 +2056,7 @@ AWK
   assert_output --partial "localized README sync lint: clean"
 }
 
+# why: #864 doc/test count drift gate reaches the CI gate
 @test "main --ci: LINT_TOOL=doc-counts runs the doc/test count drift gate (#864)" {
   # Wiring guard: the doc-count drift gate must reach the CI gate, not only
   # `just test sync-docs-check` and the advisory harness hook. An unwired
@@ -2003,6 +2070,8 @@ AWK
   assert_output --partial "doc/test count drift gate: clean"
 }
 
+# why: #864 host-direct primitive so a CI job can run the gate without
+# compose
 @test "main --doc-counts-only: runs the drift gate on the host, no compose (#864)" {
   # CI-reachability guard. The lint phase runs in `just test`, but no CI job
   # runs it: the GHA lint jobs are shellcheck (--shellcheck-only) and
@@ -2039,6 +2108,24 @@ AWK
   '
   assert_success
   assert_output --partial "issue-ref comment lint: clean"
+  refute_output --partial "docker should not be called"
+}
+
+@test "main --adr-structure-only: runs the ADR-structure lint on the host, no compose (#994)" {
+  # Ungated in CI for the same reason its sibling is: an ADR body is a
+  # doc-only change, so a code_changed gate would skip the lint on exactly
+  # the PR that lands a malformed ADR. That only works host-direct.
+  mock_cmd "docker" 'echo "docker should not be called"; exit 1'
+  mock_cmd "id" 'echo 1000'
+
+  run bash -c '
+    source /source/script/test/test.sh
+    export PATH="'"${MOCK_DIR}"':${PATH}"
+    main --adr-structure-only
+  '
+  assert_success
+  assert_output --partial "ADR-structure lint:"
+  assert_output --partial "clean"
   refute_output --partial "docker should not be called"
 }
 
@@ -2107,6 +2194,7 @@ AWK
   refute_output --partial "docker should not be called"
 }
 
+# why: The CI join is host-direct, like its siblings
 @test "main --action-ref-agreement-only: runs the action ref agreement lint on the host, no compose (#949)" {
   # Same CI-reachability shape as the sibling primitives: the lint-static
   # matrix entry calls this on a plain ubuntu-latest runner, so the driver
@@ -2156,6 +2244,7 @@ AWK
   assert_line "hadolint"
   assert_line "issueref"
   assert_line "adr-numbering"
+  assert_line "adr-structure"
   assert_line "stale-setup-conf"
   assert_line "readme-sync"
   assert_line "doc-counts"
@@ -2164,6 +2253,7 @@ AWK
   assert_line "action-ref-agreement"
 }
 
+# why: #523 filter-only dispatch
 @test "main --filter: dispatches with BATS_FILTER + BATS_ONLY=1 and no BATS_FILE" {
   local _log="${BATS_TEST_TMPDIR}/docker.log"
   mock_cmd "docker" '
@@ -2183,6 +2273,7 @@ AWK
   assert_output --partial "BATS_FILE= "
 }
 
+# why: #523 single-path runner
 @test "_run_bats_path: BATS_FILE runs bats on that path; BATS_FILTER appends -f" {
   local _log="${BATS_TEST_TMPDIR}/bats.log"
   mock_cmd "bats" '
@@ -2200,6 +2291,7 @@ AWK
   assert_output --partial "-f shard"
 }
 
+# why: #523 filter-only runner
 @test "_run_bats_path: filter-only runs bats across unit + integration" {
   local _log="${BATS_TEST_TMPDIR}/bats.log"
   mock_cmd "bats" '
@@ -2227,6 +2319,7 @@ AWK
 # `source` line.
 # ════════════════════════════════════════════════════════════════════
 
+# why: #650 driver files present (incl. hadolint)
 @test "drivers: bats.sh, shellcheck.sh and hadolint.sh driver files exist" {
   assert [ -f /source/script/test/drivers/bats.sh ]
   assert [ -f /source/script/test/drivers/shellcheck.sh ]
@@ -2235,6 +2328,7 @@ AWK
   assert [ -f /source/script/test/drivers/hadolint.sh ]
 }
 
+# why: #650 dispatcher sources every driver
 @test "drivers: test.sh sources all per-tool drivers" {
   run grep -F 'source "${SCRIPT_DIR}/drivers/shellcheck.sh"' /source/script/test/test.sh
   assert_success
@@ -2244,6 +2338,7 @@ AWK
   assert_success
 }
 
+# why: #650 bats runners moved out
 @test "drivers: the bats runners live in drivers/bats.sh, not test.sh" {
   # Each runner must be defined once (in the driver), and NOT re-inlined
   # back into the dispatcher.
@@ -2258,6 +2353,7 @@ AWK
   done
 }
 
+# why: #650 shellcheck moved out
 @test "drivers: _run_shellcheck lives in drivers/shellcheck.sh, not test.sh" {
   run grep -E '^_run_shellcheck\(\) \{' /source/script/test/drivers/shellcheck.sh
   assert_success
@@ -2265,6 +2361,7 @@ AWK
   assert_failure
 }
 
+# why: #650 hadolint in its driver
 @test "drivers: _run_hadolint lives in drivers/hadolint.sh, not test.sh (#650)" {
   run grep -E '^_run_hadolint\(\) \{' /source/script/test/drivers/hadolint.sh
   assert_success
@@ -2272,6 +2369,7 @@ AWK
   assert_failure
 }
 
+# why: #650 driver is a library
 @test "drivers: are sourced libraries (no top-level main invocation)" {
   run grep -E '^main "\$@"' /source/script/test/drivers/bats.sh
   assert_failure
@@ -2281,6 +2379,7 @@ AWK
   assert_failure
 }
 
+# why: #650 driver self-shellcheck
 @test "drivers: _run_shellcheck also lints the driver files themselves" {
   local _log="${BATS_TEST_TMPDIR}/shellcheck.log"
   mock_cmd "shellcheck" '
@@ -2304,6 +2403,7 @@ AWK
 # runs THIS driver, not the hadolint-action).
 # ════════════════════════════════════════════════════════════════════
 
+# why: #650 single-source Dockerfile list + config
 @test "_run_hadolint: lints every Dockerfile in the tree with the shared config" {
   local _log="${BATS_TEST_TMPDIR}/hadolint.log"
   mock_cmd "hadolint" '
@@ -2327,6 +2427,8 @@ AWK
   assert_output --partial "dockerfile/Dockerfile.smoke"
 }
 
+# why: A Dockerfile added beside the others and never added to the list is a
+# Dockerfile no lint pass names
 @test "_run_hadolint: the linted list is every Dockerfile the tree carries" {
   # The list is hand-maintained (the CI hadolint job invokes this driver,
   # so it has to be a constant, not a glob evaluated at some other cwd).
@@ -2340,6 +2442,7 @@ AWK
   [[ "${_found}" == "${_listed}" ]]
 }
 
+# why: #650 one invocation per listed Dockerfile
 @test "_run_hadolint: invokes hadolint once per Dockerfile (no extra targets)" {
   local _log="${BATS_TEST_TMPDIR}/hadolint.log"
   mock_cmd "hadolint" '
@@ -2359,6 +2462,7 @@ AWK
   assert_output "${_n}"
 }
 
+# why: #650 host-missing-binary guard
 @test "_run_hadolint: dies with a clear message when hadolint is absent" {
   # The host has no hadolint binary; the driver must fail loudly pointing
   # at the test-tools container path, not silently no-op.
@@ -2371,6 +2475,7 @@ AWK
   assert_output --partial "hadolint not in PATH"
 }
 
+# why: #650 propagates lint failure
 @test "_run_hadolint: exits non-zero when hadolint fails on any Dockerfile" {
   mock_cmd "hadolint" '
     for _arg in "$@"; do
@@ -2401,6 +2506,7 @@ AWK
 # tests used to have on the shared process-global /var/run/docker.sock
 # under parallel bats jobs.
 
+# why: #692 system socket guard
 @test "_system_setup: dies ci_no_docker_socket when the docker socket is absent (#692)" {
   local _sock="${BATS_TEST_TMPDIR}/absent.sock"
   run env SYSTEM_DOCKER_SOCK="${_sock}" bash -c '
@@ -2412,6 +2518,7 @@ AWK
   assert_output --partial "requires ${_sock}"
 }
 
+# why: #692 system docker-CLI guard
 @test "_system_setup: dies ci_no_docker_cli when docker is not on PATH (#692)" {
   # Create a transient unix socket at a per-test path so the socket guard
   # passes, then run with a PATH that omits docker to hit the CLI guard.
@@ -2445,6 +2552,7 @@ AWK
 # difference resolves to a tag that cannot clobber the other.
 # ════════════════════════════════════════════════════════════════════
 
+# why: #891 content-keyed local tag cannot clobber
 @test "_resolve_test_tools_image: different tooling inputs resolve to different tags (#891)" {
   local _a="${BATS_TEST_TMPDIR}/a.Dockerfile"
   local _b="${BATS_TEST_TMPDIR}/b.Dockerfile"
@@ -2463,6 +2571,7 @@ AWK
   [[ "${lines[1]}" =~ ^test-tools:[0-9a-f]{12}$ ]]
 }
 
+# why: #891 same inputs -> cache hit, not a rebuild
 @test "_resolve_test_tools_image: identical inputs at different paths resolve to the same tag (#891)" {
   # The cache contract: two checkouts whose tooling Dockerfile is
   # byte-identical must land on ONE tag, so the second build is a cache hit
@@ -2484,6 +2593,7 @@ AWK
   assert [ "${lines[0]}" = "${lines[1]}" ]
 }
 
+# why: #891 CI's pinned published tags untouched
 @test "_resolve_test_tools_image: TEST_TOOLS_IMAGE wins verbatim (#891)" {
   # CI pins published, version-scoped tags through this env
   # (build-worker / publish-worker / release-test-tools), and
@@ -2498,6 +2608,7 @@ AWK
   assert_output "ghcr.io/ycpss91255-docker/test-tools:v9.9.9"
 }
 
+# why: #891 no silent bare-literal fallback
 @test "_resolve_test_tools_image: fails loud when the tooling Dockerfile is missing (#891)" {
   # No bare-literal fallback: a silent `test-tools:local` here would resolve
   # to whatever another checkout last built.
@@ -2510,6 +2621,7 @@ AWK
   assert_output --partial "absent.Dockerfile"
 }
 
+# why: #891 one entry point for build + consumers
 @test "main --test-tools-image: prints the resolved tag for the justfile (#891)" {
   # The single entry point the `just test system` recipe reads, so the
   # build-only test-tools service and the ci-system consumer cannot
@@ -2534,6 +2646,7 @@ AWK
 # exactly the concurrent case this separates).
 # ════════════════════════════════════════════════════════════════════
 
+# why: #891 path-keyed, not directory-basename
 @test "_compute_compose_project_name: two checkouts sharing a basename get different names (#891)" {
   run bash -c '
     source /source/script/test/test.sh
@@ -2547,6 +2660,7 @@ AWK
   assert [ "${lines[0]}" != "${lines[1]}" ]
 }
 
+# why: #891 one project per checkout, no per-commit churn
 @test "_compute_compose_project_name: the same checkout path is stable across calls (#891)" {
   # Keyed to the path, not the commit or the run: a checkout keeps ONE
   # project (and one network) instead of churning a fresh one per commit.
@@ -2560,6 +2674,7 @@ AWK
   assert [ "${lines[0]}" = "${lines[1]}" ]
 }
 
+# why: #891 compose grammar guaranteed, not hoped for
 @test "_compute_compose_project_name: a hostile checkout path still yields a legal project name (#891)" {
   # Compose accepts only [a-z0-9][a-z0-9_-]* and a checkout path can hold
   # anything: spaces, uppercase, punctuation, non-ASCII, a leading dot.
@@ -2574,6 +2689,7 @@ AWK
   [[ "${output}" =~ ^[a-z0-9][a-z0-9_-]*$ ]]
 }
 
+# why: #891 env override still wins
 @test "_resolve_compose_project_name: COMPOSE_PROJECT_NAME wins verbatim (#891)" {
   # CI keys the project to its run id through this env; the derivation is a
   # local default only.
@@ -2585,6 +2701,7 @@ AWK
   assert_output "ci-run-4242"
 }
 
+# why: #891 the missing -p is the defect
 @test "_run_via_compose: passes an explicit -p so the project is not the directory basename (#891)" {
   local _log="${BATS_TEST_TMPDIR}/docker.log"
   mock_cmd "docker" '
@@ -2605,6 +2722,7 @@ AWK
   assert_output --regexp "compose -p base-[0-9a-f]{12} "
 }
 
+# why: #891 -p forwards the caller's name
 @test "_run_via_compose: honours COMPOSE_PROJECT_NAME (#891)" {
   local _log="${BATS_TEST_TMPDIR}/docker.log"
   mock_cmd "docker" '
@@ -2625,6 +2743,7 @@ AWK
   assert_output --partial "compose -p ci-run-4242 "
 }
 
+# why: #896 one derivation, exported for interpolation
 @test "_run_via_compose: hands compose the very tag the tooling resolver prints (#896)" {
   # compose.yaml names every service's image ${TEST_TOOLS_IMAGE} with NO
   # default, so this runner resolves it -- and it must be the SAME value
@@ -2651,6 +2770,7 @@ AWK
   assert_success
 }
 
+# why: #896 a local-only tag absent means not built, not pull
 @test "_ensure_test_tools_image: builds the derived tag when the host does not have it (#896)" {
   # The derived tag is local-only -- no registry can serve it -- so an
   # absent one means "not built yet", never "pull it". It is built through
@@ -2673,6 +2793,7 @@ AWK
   assert_output --partial "compose -p base-000000000000 -f /source/compose.yaml build test-tools"
 }
 
+# why: #896 CI provisions its own
 @test "_ensure_test_tools_image: leaves a caller-pinned image alone (#896)" {
   # CI pins a published GHCR tag, or an in-run tag it built itself, and
   # provisioning it is the caller's job -- building over it here would
@@ -2695,6 +2816,7 @@ AWK
   refute_output --partial "build test-tools"
 }
 
+# why: #896 identical inputs are a cache hit
 @test "_ensure_test_tools_image: does not rebuild a tag the host already has (#896)" {
   # Identical tooling inputs resolve to one tag on purpose: the second run
   # is a cache HIT, not a rebuild.
@@ -2715,6 +2837,7 @@ AWK
   refute_output --partial "build test-tools"
 }
 
+# why: #891 one entry point for both call sites
 @test "main --compose-project-name: prints the resolved project for the justfile (#891)" {
   # The `just test system` recipe reads this so its bare `docker compose run`
   # names the project the same way test.sh's does, instead of inheriting the
@@ -2727,6 +2850,7 @@ AWK
   [[ "${output}" =~ ^base-[0-9a-f]{12}$ ]]
 }
 
+# why: #891 no silent degrade to the shared bare prefix
 @test "_compute_compose_project_name: fails loud when the digest cannot be produced (#891)" {
   # A short/empty digest would degrade to the bare `base-` prefix -- a name
   # EVERY checkout resolves, i.e. the collision this derivation exists to

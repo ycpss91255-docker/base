@@ -1,4 +1,25 @@
 #!/usr/bin/env bats
+#
+# why: Mirrors `lib/stage.sh`. The per-stage engine: `_validate_stage_name`
+# (#215), `_parse_dockerfile_stages`, `_compute_dockerfile_hash`, `main
+# apply` auto-emit of non-baseline stages (#215), per-stage overrides #220
+# (`_parse_stage_sections` / `_load_stage_overrides` /
+# `_validate_stage_override_key` / `_resolve_stage_scalar` /
+# `_resolve_stage_list` + compose-emit integration, incl. #493 `devel-test`
+# override surface), the `_resolve_docker_flags` single per-stage
+# flag-resolution layer (#505/#526, relocated from the compose spec in P1a),
+# `_generate_runtime_dockerfile` ENV-bake (#503/#688, relocated from
+# setup_emit in P1a), and `_is_deployable_stage`, the ADR-00000023 sec.4
+# stage-eligibility predicate (`deployable = not devel and not *-test`,
+# widened in #841 to the whole template-managed baseline incl. the `sys` /
+# `devel-base` build intermediates) that both the deploy-scoped `[lifecycle]
+# restart` emission and the `setup deploy` stage guard gate on. Also carries
+# the #875 AGREEMENT spec for `_dockerfile_stage_from_line`, the one shared
+# "which line declares stage `<S>`" matcher: instead of testing each reader
+# against its own regex — the shape that let three regexes drift apart until
+# a `FROM --platform=... AS <stage>` line was a stage to one call site and
+# invisible to the others — it drives every call site off a single FROM line
+# and asserts one verdict per site.
 
 bats_require_minimum_version 1.5.0
 
@@ -802,7 +823,7 @@ EOF
   local -a _values=("/tmp/cache:/cache" "/data:/data")
   local _top="/etc/localtime:/etc/localtime:ro"$'\n'"\${HOME}/.ssh:/home/user/.ssh:ro"
   local _out=""
-  _resolve_stage_list _keys _values "volumes.mount_" "volumes.mount_inherit" "${_top}" _out
+  _resolve_stage_list _keys _values "volumes.mount_" "${_top}" _out
   # Top-level 2 entries + stage 2 entries = 4 lines
   local -a _lines=()
   IFS=$'\n' read -rd '' -a _lines <<< "${_out}" || true
@@ -817,7 +838,7 @@ EOF
   local -a _values=("false" "/only:/only")
   local _top="/etc/localtime:/etc/localtime:ro"
   local _out=""
-  _resolve_stage_list _keys _values "volumes.mount_" "volumes.mount_inherit" "${_top}" _out
+  _resolve_stage_list _keys _values "volumes.mount_" "${_top}" _out
   [[ "${_out}" == "/only:/only" ]] || { echo "expected only stage entry, got '${_out}'"; return 1; }
 }
 
@@ -826,7 +847,7 @@ EOF
   local -a _values=()
   local _top="/etc/localtime:/etc/localtime:ro"$'\n'"/data:/data"
   local _out=""
-  _resolve_stage_list _keys _values "volumes.mount_" "volumes.mount_inherit" "${_top}" _out
+  _resolve_stage_list _keys _values "volumes.mount_" "${_top}" _out
   [[ "${_out}" == "${_top}" ]] || { echo "expected top-level passthrough, got '${_out}'"; return 1; }
 }
 
@@ -835,7 +856,7 @@ EOF
   local -a _values=("false")
   local _top="/etc/localtime:/etc/localtime:ro"
   local _out="initial"
-  _resolve_stage_list _keys _values "volumes.mount_" "volumes.mount_inherit" "${_top}" _out
+  _resolve_stage_list _keys _values "volumes.mount_" "${_top}" _out
   [[ -z "${_out}" ]] || { echo "expected empty, got '${_out}'"; return 1; }
 }
 
@@ -846,7 +867,7 @@ EOF
   local -a _keys=("network.port_3" "network.port_1" "network.port_2")
   local -a _values=("9000:9000" "8080:80" "5000:5000")
   local _out=""
-  _resolve_stage_list _keys _values "network.port_" "network.port_inherit" "" _out
+  _resolve_stage_list _keys _values "network.port_" "" _out
   local -a _lines=()
   IFS=$'\n' read -rd '' -a _lines <<< "${_out}" || true
   [[ "${_lines[0]}" == "9000:9000" ]] || return 1
@@ -860,7 +881,7 @@ EOF
   local -a _keys=("volumes.mount_1" "volumes.mount_inherit" "volumes.mount_2")
   local -a _values=("/a:/a" "false" "/b:/b")
   local _out=""
-  _resolve_stage_list _keys _values "volumes.mount_" "volumes.mount_inherit" "" _out
+  _resolve_stage_list _keys _values "volumes.mount_" "" _out
   # inherit=false → only stage entries
   local -a _lines=()
   IFS=$'\n' read -rd '' -a _lines <<< "${_out}" || true
@@ -1431,13 +1452,20 @@ EOF
 # <S>" matcher, and the agreement test that keeps its call sites from
 # drifting apart again.
 #
-# The four call sites (_parse_dockerfile_stages, _compute_dockerfile_hash,
-# _generate_runtime_dockerfile, _bake_config_copy) used to answer the
-# question with three different regexes, so a `FROM --platform=... AS x`
-# line was a compose service to one of them and invisible to the other
-# three. Per-function specs could not see that: each one only ever
-# exercised its own regex. Every test below drives ALL of them off the
-# same line and asserts one verdict.
+# The four call sites in this library (_parse_dockerfile_stages,
+# _compute_dockerfile_hash, _generate_runtime_dockerfile,
+# _bake_config_copy) used to answer the question with three different
+# regexes, so a `FROM --platform=... AS x` line was a compose service to
+# one of them and invisible to the other three. Per-function specs could
+# not see that: each one only ever exercised its own regex. Every test
+# below drives ALL of them off the same line and asserts one verdict.
+#
+# The CI build worker is the fifth site and the only one outside this
+# file, reached through script/ci/build_worker/stage_names.sh. It is here
+# because it repeated the same history one level up: two more regexes,
+# one in build-worker.yaml's extra_stages loop and one in
+# runtime_stages.sh, with a comment beside each asserting they agreed
+# with this matcher when they did not.
 # ════════════════════════════════════════════════════════════════════
 
 # _stage_line_verdicts <from_line> <stage> <out_array_var>
@@ -1494,12 +1522,27 @@ _stage_line_verdicts() {
     _slv_out+=("envbake=nomatch")
   fi
 
-  # 5. _bake_config_copy -- the COPY config/app splice.
-  _bake_config_copy "${_df}" "${_stage}" "${_d}/baked"
-  if grep -q '^COPY config/app ' "${_d}/baked"; then
+  # 5. _bake_config_copy -- the COPY config/<component> splice; the
+  # population is derived from config/*/, so the fixture ships one.
+  mkdir -p "${_d}/with/config/realsense"
+  _bake_config_copy "${_df}" "${_stage}" "${_d}/baked" "${_d}/with"
+  if grep -q '^COPY config/realsense ' "${_d}/baked"; then
     _slv_out+=("configcopy=match")
   else
     _slv_out+=("configcopy=nomatch")
+  fi
+
+  # 6. the CI build worker's roster reader -- the one call site that lives
+  #    outside this library. build-worker.yaml's extra_stages loop and
+  #    runtime_stages.sh both ask it which stages a Dockerfile declares, and
+  #    each used to answer with a regex of its own while a comment beside it
+  #    claimed agreement with this matcher. Neither agreed, so the
+  #    claim is a verdict here instead of a sentence there.
+  if DOCKERFILE="${_df}" bash /source/script/ci/build_worker/stage_names.sh \
+     | grep -Fx -- "${_stage}" > /dev/null; then
+    _slv_out+=("worker=match")
+  else
+    _slv_out+=("worker=nomatch")
   fi
 
   rm -rf "${_d}"
@@ -1509,56 +1552,56 @@ _stage_line_verdicts() {
   local -a _v=()
   _stage_line_verdicts 'FROM devel AS runtime' runtime _v
   assert_equal "${_v[*]}" \
-    "matcher=match parse=match hash=match envbake=match configcopy=match"
+    "matcher=match parse=match hash=match envbake=match configcopy=match worker=match"
 }
 
 @test "all FROM-line call sites agree a --platform flagged line declares the stage (#875)" {
   # The cross-build form this repo invites (TARGETARCH, the arm64
   # matrix). Three sites used to see nothing here while _bake_config_copy
-  # matched, so the field image got the baked config/app and none of the
+  # matched, so the field image got the baked config/<component> and none of the
   # [environment] defaults.
   local -a _v=()
   _stage_line_verdicts 'FROM --platform=$BUILDPLATFORM ubuntu:24.04 AS runtime' runtime _v
   assert_equal "${_v[*]}" \
-    "matcher=match parse=match hash=match envbake=match configcopy=match"
+    "matcher=match parse=match hash=match envbake=match configcopy=match worker=match"
 }
 
 @test "all FROM-line call sites agree on a multi-flag FROM line (#875)" {
   local -a _v=()
   _stage_line_verdicts 'FROM --platform=linux/arm64 --link ubuntu:24.04 AS runtime' runtime _v
   assert_equal "${_v[*]}" \
-    "matcher=match parse=match hash=match envbake=match configcopy=match"
+    "matcher=match parse=match hash=match envbake=match configcopy=match worker=match"
 }
 
 @test "all FROM-line call sites agree a lowercase 'as' line declares nothing (#875)" {
   local -a _v=()
   _stage_line_verdicts 'FROM ubuntu:24.04 as runtime' runtime _v
   assert_equal "${_v[*]}" \
-    "matcher=nomatch parse=nomatch hash=nomatch envbake=nomatch configcopy=nomatch"
+    "matcher=nomatch parse=nomatch hash=nomatch envbake=nomatch configcopy=nomatch worker=nomatch"
 }
 
 @test "all FROM-line call sites agree a commented-out FROM declares nothing (#875)" {
   local -a _v=()
   _stage_line_verdicts '# FROM ubuntu:24.04 AS runtime' runtime _v
   assert_equal "${_v[*]}" \
-    "matcher=nomatch parse=nomatch hash=nomatch envbake=nomatch configcopy=nomatch"
+    "matcher=nomatch parse=nomatch hash=nomatch envbake=nomatch configcopy=nomatch worker=nomatch"
 }
 
 @test "all FROM-line call sites agree a stray bare token declares nothing (#875)" {
   # `FROM <image> <junk> AS <stage>` is not a directive docker accepts.
-  # The greedy `.*` matcher used to splice COPY config/app into it while
+  # The greedy `.*` matcher used to splice COPY config/<component> into it while
   # the other three skipped it; widening for flags must not inherit that.
   local -a _v=()
   _stage_line_verdicts 'FROM ubuntu:24.04 junk AS runtime' runtime _v
   assert_equal "${_v[*]}" \
-    "matcher=nomatch parse=nomatch hash=nomatch envbake=nomatch configcopy=nomatch"
+    "matcher=nomatch parse=nomatch hash=nomatch envbake=nomatch configcopy=nomatch worker=nomatch"
 }
 
 @test "all FROM-line call sites agree an inline '#' declares nothing (#875)" {
   local -a _v=()
   _stage_line_verdicts 'FROM ubuntu:24.04 # note AS runtime' runtime _v
   assert_equal "${_v[*]}" \
-    "matcher=nomatch parse=nomatch hash=nomatch envbake=nomatch configcopy=nomatch"
+    "matcher=nomatch parse=nomatch hash=nomatch envbake=nomatch configcopy=nomatch worker=nomatch"
 }
 
 @test "_dockerfile_stage_from_line reports the declared stage name (#875)" {

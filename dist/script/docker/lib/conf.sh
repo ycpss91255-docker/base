@@ -439,7 +439,14 @@ _conf_list_sorted() {
 # INI writer (comment-preserving)
 # ════════════════════════════════════════════════════════════════════
 
-# _write_setup_conf <dst_file> <template_src> <sections_ref> <keys_ref> <values_ref> [<removed_keys>]
+# _write_setup_conf <dst_file> <template_src> <keys_ref> <values_ref> [<removed_keys>]
+#
+# The section list is NOT a parameter. It was one, and it was never read:
+# the body bound it and then silenced the unused-nameref warning, so every
+# caller passed an array to satisfy a slot that carried nothing. Section
+# ORDER comes from the template being copied, which is where it has always
+# come from. A positional slot nothing reads is a slot every caller can
+# still get wrong (base#994).
 #
 # Copies <template_src> to <dst_file> line-by-line. `key = value` lines
 # whose namespaced key `<section>.<key>` appears in the overrides arrays
@@ -452,10 +459,9 @@ _conf_list_sorted() {
 _write_setup_conf() {
   local _dst="${1:?}"
   local _tpl="${2:?}"
-  local -n _wsc_sections="${3:?}"
-  local -n _wsc_keys="${4:?}"
-  local -n _wsc_values="${5:?}"
-  local _removed_keys="${6:-}"
+  local -n _wsc_keys="${3:?}"
+  local -n _wsc_values="${4:?}"
+  local _removed_keys="${5:-}"
 
   [[ -f "${_tpl}" ]] || return 1
 
@@ -469,9 +475,6 @@ _write_setup_conf() {
   for i in ${_removed_keys}; do
     __removed["${i}"]=1
   done
-  # Silence unused-nameref warning; the declaration is part of the API.
-  : "${_wsc_sections[*]:-}"
-
   # setup_tui's `_commit_and_setup` passes the same path for dst
   # and tpl when the per-repo file already exists. Truncating dst before
   # reading from tpl (the original `: > "${_dst}"` followed by `done <

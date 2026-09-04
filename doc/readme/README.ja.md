@@ -141,7 +141,7 @@ flowchart LR
     release_worker -->|"tar.gz + zip"| release["GitHub Release"]
 ```
 
-<!-- sync: whats-included 59eb8601baa5 1f722bfd8837 -->
+<!-- sync: whats-included 15d472ab822b be1c0e7dc10f -->
 ### 含まれるもの
 
 | ファイル | 説明 |
@@ -168,8 +168,10 @@ flowchart LR
 | `dist/script/docker/lib/_tui_conf.sh` | INI バリデータ + 読み書き（`setup_tui.sh` と `setup.sh` の書き戻し用） |
 | `dist/script/docker/runtime/logging.sh` | host 側ログ tee helper（per-start ファイル + 安定 symlink） |
 | `dist/script/docker/runtime/logrotate.sh` | 共有 rotate/symlink/prune primitives（tee + transcript 共有） |
-| `dist/script/docker/runtime/smoke.sh` | runtime install-check smoke |
-| `dist/script/docker/runtime/entrypoint.sh` | テンプレート entrypoint helper |
+| `dist/script/docker/runtime/watchdog.sh` | 汎用シングルサービス watchdog（再起動 + プラガブルなヘルスチェック） |
+| `dist/script/docker/runtime/entrypoint.sh` | base の ENTRYPOINT orchestrator：log tee を開き、repo の bringup を source し、watchdog を arm し、workload を exec |
+| `dist/dockerfile/entrypoint.sh` | bringup テンプレート、新規 repo 作成時に `script/entrypoint.sh` として seed（repo 側の半分、orchestrator が source） |
+| `dist/test/bats/smoke/smoke.sh` | runtime install-check smoke（ldd 依存欠落スキャン） |
 | `config/` | コンテナ内部のシェル設定ファイル（bashrc、tmux、terminator、pip） |
 | `.setup.conf` | 単一の repo ランタイム設定（image / build / deploy / gui / network / volumes） |
 | `dist/test/bats/smoke/` | 共有 smoke テスト + runtime assertion helpers（下記参照） |
@@ -427,13 +429,13 @@ assertion helpers のセットを提供します。ダウンストリーム repo
 | `assert_file_owned_by <user> <path>` | `<path>` の所有者が `<user>` でない場合に失敗 |
 | `assert_pip_pkg <pkg>` | `pip show <pkg>` が 0 以外で終了した場合に失敗 |
 
-<!-- sync: what-stays-in-each-repo-not-shared 5cff28619497 69c33a09cc50 -->
+<!-- sync: what-stays-in-each-repo-not-shared 64249bb1afa8 ef9831f42d7e -->
 ### 各 repo で個別管理するファイル（共有しない）
 
 - `Dockerfile`
 - `compose.yaml`
 - `script/` — repo ローカルの **runtime helpers**（container 内で `ENTRYPOINT` / `CMD` または手動で呼ばれる）
-  - `script/entrypoint.sh`（canonical）
+  - `script/entrypoint.sh` — この repo の **bringup**、base の orchestrator が source する；これ自体は `ENTRYPOINT` ではない（英語 README の Container entrypoint 節を参照）
   - ros / アプリ起動 helper 等
 - `script/docker/` — repo ローカルの **Dockerfile-internal build helpers**（Dockerfile `RUN` で呼び、container 起動後は使わない；サンプル + lint COPY は `dist/dockerfile/Dockerfile` 参照、#275）
 - `doc/` と `README.md`
@@ -590,7 +592,7 @@ template ファイルが repo にコピーされ、検出された workspace が
 ./.base/dist/script/base/init.sh --gen-conf # .base/dist/.setup.conf を repo ルートに単純コピー
 ```
 
-<!-- sync: logging-output-to-host df27d24459b2 b6f9fea109de -->
+<!-- sync: logging-output-to-host 81a10abacbca 5e1aebf86a32 -->
 ### ホスト側へのログ出力
 
 `[logging] local_path` を設定するとコンテナの stdout/stderr が
@@ -614,11 +616,12 @@ container_log_days = 14  # かつ D 日より古いものを削除（厳しい�
 削除されません。`docker logs <ct>` の動作は変わりません（json-file
 はローリング履歴を維持）。
 
-**新規 repo**：本バージョン以降の `init.sh` で生成された
-`script/entrypoint.sh` には helper の source 行が事前に組み込まれて
-います。`[logging] local_path` を設定するだけで動作します。
-**既存 repo**：`script/entrypoint.sh` の最後の `exec` の手前に
-次の 1 行を追加して一度だけ移行してください：
+base の ENTRYPOINT orchestrator を使う repo では `[logging] local_path`
+の設定だけで動きます：helper は orchestrator が source するので bringup
+に足すものはなく、base 側の後の変更も subtree と一緒に届きます。
+**まだ自前の `/entrypoint.sh` を `ENTRYPOINT` にしている repo**：最後の
+`exec` の手前に次の 1 行を追加するか、英語 README の Container entrypoint
+節の一度きりの移行を行ってください：
 
 ```bash
 . /usr/local/lib/base/logging.sh
@@ -631,8 +634,10 @@ source 行は build-time / runtime どちらでも、どんな workspace 構成�
 動作します — `$USER` 参照や workspace bind mount への依存はありません。
 
 トラブルシューティング：`local_path` を設定したのにホスト側
-ファイルが空のまま → `script/entrypoint.sh` に source 行が
-含まれているか確認してください
+ファイルが空のまま → まずどちらのモデルか確認してください
+（`grep ENTRYPOINT Dockerfile`）。orchestrator なら他に必要な作業は
+ありません。自前の `/entrypoint.sh` のままなら、そのファイルに source
+行が含まれているか確認してください
 （`grep logging.sh script/entrypoint.sh`）。
 
 <!-- sync: interactive-tui 23df6f6f09ab f5eb99a83f34 -->
@@ -720,7 +725,7 @@ apt mirror はアップグレードで上書きされません。
 
 `--setup` を付けて再実行すれば `.env.generated` + `compose.yaml` を再生成できます。
 
-<!-- sync: field-deployment-just-docker-setup-deploy 66110bfc975b eba624dfb163 -->
+<!-- sync: field-deployment-just-docker-setup-deploy 9112a5c7eaaa 93fb0bfe1ba5 -->
 ### フィールド配備（`just docker setup deploy`）
 
 `just docker setup deploy`（または直接 `./setup.sh deploy`）は同じ `setup.conf` から自己完結型のフィールド配備**ディレクトリ**を生成します —— 上記ルーティングモデルの deploy 側です（[ADR-00000023](../adr/00000023-config-field-override-and-field-deploy-contract.md)、[ADR-00000003](../adr/00000003-env-vs-workload-param-boundary.md) を改訂；[PRD invariant 8](../PRD.md)）。対象は *フィールド向け* ステージ（既定 `runtime`；`devel` や `*-test` ステージは**決して**対象になりません）で、生成されるディレクトリは配備先ホストが必要とするものをすべて含みます —— フィールドホストが base のツールチェーン・ソースツリー・`setup.conf` を見ることはありません。
@@ -745,7 +750,7 @@ just docker setup deploy -o /tmp/robot-bundle # 出力ディレクトリを指�
 
 処理は順に:
 
-1. `[environment]` の既定値をイメージの実 `ENV` として焼き込み（S3）、`config/app/` があればイメージへ `COPY`（S4）—— フィールドイメージを自己完結化（env ファイルも config bind も持ち運ばない）;
+1. `[environment]` の既定値をイメージの実 `ENV` として焼き込み（S3）、各 `config/<component>/` をイメージの `/opt/app/config/<component>` へ `COPY`（S4）—— フィールドイメージを自己完結化（env ファイルも config bind も持ち運ばない）;
 2. `docker build --target <stage>` で不変イメージを build し、`<repo>:<stage>-<version>` を tag;
 3. `docker save | xz` で `image.tar.xz` を作成;
 4. 完全に解決済みの `compose.yaml`（`apply` と同じ resolver を共用するため、フィールドが dev からドリフトしない）、`deploy.sh` ランチャ、`README` を書き出し、調整可能な各ファイルの焼き込み済みデフォルトを `config/` へ取り出す。
@@ -1214,15 +1219,16 @@ jobs:
 | `platforms` | string | いいえ | `"linux/amd64"` | カンマ区切りのターゲットプラットフォーム；各プラットフォームがネイティブ runner 上で並列実行（`linux/amd64` → ubuntu-latest、`linux/arm64` → ubuntu-24.04-arm） |
 | `test_tools_version` | string | いいえ | `"latest"` | `ghcr.io/ycpss91255-docker/test-tools:<tag>` のタグ。下流側は採用した template release にピン留めすると再現性が確保できる |
 
-<!-- sync: release-workeryaml-inputs 018ae0329ece 70d1e3d75a6c -->
+<!-- sync: release-workeryaml-inputs 76c6974e7c8c 05ff0e4a6010 -->
 ### release-worker.yaml パラメータ
 
 | パラメータ | 型 | 必須 | デフォルト | 説明 |
 |------------|------|------|------------|------|
 | `archive_name_prefix` | string | はい | - | アーカイブ名プレフィックス |
 | `extra_files` | string | いいえ | `""` | 追加ファイル（スペース区切り） |
+| `version` | string | いいえ | `""` | リリースするバージョン（`vX.Y.Z`）。tag 経由の経路では未設定のままにすると、push された tag から読み取られる。tag 以外の run からこの worker を直接呼ぶ場合に渡す：既定の `GITHUB_TOKEN` で作成されたイベントは新しい workflow run を開始しないため、マージ済みの変更を自動リリースする repo は tag を push しても到達できない。`vX.Y.Z[-suffix]` でない値はリリースされず拒否される |
 
-<!-- sync: running-template-tests 961bde4ce2e8 8ec510a4fc2f -->
+<!-- sync: running-template-tests 4e411d749017 2fa910a54d4b -->
 ## ローカルテスト実行
 
 `script/test/justfile.test`（template ルートから）を使用：
@@ -1230,6 +1236,7 @@ jobs:
 just test        # フル CI（ShellCheck + Bats + Kcov）docker compose 経由
 just test lint        # ShellCheck のみ
 just test clean       # カバレッジレポート削除
+just test stop        # この checkout の自己テストコンテナを停止
 just             # repo recipe 一覧表示
 just --list  # CI ターゲット表示
 ```
@@ -1358,6 +1365,7 @@ just --list  # CI ターゲット表示
      translated heading. -->
 <!-- sync-skip: getting-help-namespace-vs-recipe -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
 <!-- sync-skip: wrapper-ux-cheat-sheet-291 -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
+<!-- sync-skip: container-entrypoint-the-orchestrator-and-your-bringup -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
 <!-- sync-skip: network-mode-host-default-bridge-opt-in-794 -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
 <!-- sync-skip: restart-policy-is-deploy-scoped-841 -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
 <!-- sync-skip: container-init-pid1-reaper-792 -- untranslated: the localized READMEs are abridged; README.md is authoritative -->

@@ -58,6 +58,105 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 ## [Unreleased]
 
 ### Changed
+- **the container ENTRYPOINT is base's orchestrator; `script/entrypoint.sh` is a bringup it sources (closes #945)**
+  -- base's plumbing (the helper sources and the final `exec`) sat in a file
+  `init.sh` seeds and the repo then OWNS, so no pull ever updated it. It now
+  ships as `/usr/local/lib/base/entrypoint.sh` in the helper directory,
+  arriving with every pull. **An existing repo is unchanged**, `-test` stages
+  included. Adopting it is ONE commit: flip `ENTRYPOINT`, drop the plumbing
+  and `exec`, bracket any ROS source with `set +u` -- the orchestrator
+  sources the bringup under `set -euo pipefail`, which the seeded file never
+  set. Flipping alone breaks it; `just upgrade` notices until then.
+- **the test-tools image moved to alpine 3.22, and the next series expiry is
+  now a scheduled red build (refs #946)** -- 3.21 goes end-of-life 2026-11-01,
+  and a series tag cannot show that: it keeps resolving, the image keeps
+  building, and the ~20 unpinned apk packages quietly inherit an unsupported
+  base. The expiry sits beside the pin as `# alpine-eol: 3.22 2027-05-01` and a
+  spec fails the suite 180 days before it -- on 2026-11-02, since 3.22 is eight
+  months out, not the twelve #946 asked for: every newer series ships bash 5.3,
+  whose xtrace makes kcov under-report. #946 stays open on that. Affects anyone
+  rebuilding test-tools: the jump re-resolves every unpinned apk package at
+  once.
+- **shellcheck 0.10.0 -> 0.11.0, hadolint 2.12.0 -> 2.15.1, and the version is
+  now compared rather than printed (closes #947)** -- a stale linter does not
+  fail, it under-reports: every rule added since 2022-11-09 had never run here.
+  The bump surfaced exactly one finding, DL3066 on the template's build-time
+  `USER root`, suppressed inline with its reason rather than added to
+  `dist/.hadolint.yaml`, which ships to every consumer. hadolint also renamed
+  its release asset to a lowercase `hadolint-linux-*`. The publish smoke stage
+  and a new unit spec both compare the shipped binary with the pin instead of
+  asserting exit 0.
+- **`just base upgrade` now heals the hadolint findings a consumer's own
+  Dockerfile would fail on (refs #946, #947)** -- a consumer lints ITSELF with
+  the image the upgrade re-pins, and 2.15.1 reports DL3066 on the literal
+  `USER root` every consumer carries for its build-time hop. An upgrade HEALS a
+  Dockerfile rather than overwriting it, so the fix travels as a migration:
+  migration 5 inserts that pragma, extending one already on the line instead of
+  displacing it, and now also heals DL3046 wherever `-u` sits among useradd's
+  flags rather than only first. Without both, the first `just build test` after
+  an upgrade fails on rules the consumer never chose.
+- **CI checks what a pulled `test-tools:main` IS, not just that the tools are
+  there (refs #946, #947)** -- a PR that leaves the test-tools Dockerfile alone
+  reuses the rolling `:main`, republished only by a push to main touching that
+  file. Between a pin bump and that republish, an unrelated PR's lint jobs ran
+  green under the rule set the repo had just moved off. The obtain step now
+  compares the image's alpine series and its shellcheck / hadolint with the
+  pins in the checkout, and rebuilds from source when they disagree; the series
+  decides which bash kcov has to read. The probe is one script
+  (`script/ci/probe_test_tools.sh`) instead of the five copies that hid the gap.
+- **the release worker cuts the version it was given, and refuses a tag it
+  cannot read (refs #829, refs #1012)** -- `prerelease` no longer reads
+  `contains(github.ref_name, '-')`, which is false for every branch and
+  would have published a directly-called RC as a full release; it now comes
+  from the resolved version. `tag_name` is explicit, so a call from a branch
+  releases the version it was given rather than the branch. **A tag that is
+  not `vX.Y.Z[-suffix]` now fails the release at the resolve step** instead
+  of publishing under a name nothing can pin.
+- **`config/<component>/` has a written layout, and a build says which preset it bakes (closes #826, closes #827; ADR-00000030)** -- a repo picks the baked preset with a committed repo-root symlink into `config/<component>/`, read through a build `ARG` whose default is that symlink's name, so `--build-arg` overrides one build with no tracked change. `just setup` names every selector and the preset it resolves to, and WARNs about one whose file is missing -- which used to surface as a `docker build` dying on a `COPY`. The seeded `config/.gitkeep` states the convention (new repos only).
+- **three of base's widest signatures narrow to what they actually take
+  (refs #994)** -- `_write_setup_conf` no longer takes the section array it
+  never read; `_resolve_stage_list` derives its `<prefix>inherit` meta-key
+  instead of taking it, which all six call sites spelled out identically;
+  and the TUI list editor's six message keys move out of eight positional
+  parameters into one `_TUI_LIST_LABELS` table keyed by section and prefix,
+  where a missing row now fails loudly instead of drawing a screen with no
+  words on it. Internal functions only -- no wrapper, recipe or
+  `.setup.conf` surface moves, and behaviour is unchanged.
+- **the three implementation-standard metric lints judge by an adoption
+  ceiling (refs #994)** -- `just test metrics` still prints every function
+  past depth 3 / 50 body code lines / 5 positional parameters, and now fails
+  only ABOVE a per-metric ceiling: one readonly integer in
+  `script/test/drivers/shell_metrics.sh` recording how much of the tree #994
+  phase 3 has not flattened yet, which may only ever go down. Every run
+  prints count / limit / ceiling / slack, so the room a new violation could
+  land in green is a figure on the log rather than an invisible category.
+  Not the per-site baseline ADR-00000029 rejected: it names no function.
+- **a test's description is written above the `@test`, and `doc/test/` is
+  generated from it (closes #922, amends ADR-00000028)** -- write
+  `# why: <prose>` above a test; `just test sync-docs` renders the catalogue
+  from those markers into a fenced region it replaces wholesale, so editing
+  that region does nothing. A rename now carries its description, a deleted
+  row is restored byte-for-byte, and deleting the marker fails the drift
+  gate. The new `catalog-description` lint reads `^@test` over the spec
+  trees, so no section shape exempts a test. 1209 descriptions and 106
+  blurbs were relocated by script.
+- **the dev bind and the deploy bake now cover every `config/<component>/`, not the literal `config/app` (closes #1000)**
+  -- both halves tested one hardcoded directory name **no repo in the org
+  has**, so the `[[ -d ]]` was always false: nothing mounted, nothing baked,
+  nothing said. Both now derive the population from `config/*/` -- the glob
+  `deploy.manifest` already uses -- each component landing at
+  `/opt/app/config/<component>`. No name list, so `config/shell/` and
+  `config/pip/` come along, inert (their build-time channel is `/tmp/config`,
+  deleted mid-`RUN`). PRD invariant 8 becomes true. Every run states what it
+  provisioned; a file directly under `config/` is WARNed by name.
+- **base's runtime helpers arrive by one directory COPY (closes #971)** --
+  a consumer Dockerfile listed them one `COPY` per file, so base adding a
+  helper was a change to every consumer repo. The directory is now the list.
+  The two files in it that were never image helpers moved out:
+  `runtime/entrypoint.sh` -> `dist/dockerfile/entrypoint.sh` (the template
+  `init.sh` seeds) and `runtime/smoke.sh` -> `dist/test/bats/smoke/smoke.sh`
+  (the runtime-test install-check). `just upgrade` collapses the per-file
+  COPYs and repoints both moved paths, commented scaffolds included.
 - **one env-file naming rule: the standard name is ours, a suffix marks a local variant (closes #847, refs #868)** -- `.env` is now GENERATED by `just setup`, carrying the `[environment]` list and the `[lifecycle] watchdog_*` block. Both used to sit in compose's `environment:`, which outranks every `env_file` and would have made the new channel silently inert. `.env.local` is the operator's, never rewritten, loaded after `.env` so its keys win; `.env.generated` is unchanged. The field bundle ships both. `just base upgrade` renames an existing hand-written `.env` to `.env.local` first. **Skip the upgrade, run `just setup`, and that file is overwritten -- gitignored, unrecoverable.**
 - **the dev stack's `compose.yaml` no longer names containers (closes #920)**
   -- a baked `container_name` is namespaced by the daemon, not the project, so
@@ -88,6 +187,47 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   lint owns; one reaching a workflow unexpanded is a broken generator.
 
 ### Added
+- **`init.sh` states its new-vs-existing discriminator instead of hiding it
+  in a branch (refs #928)** -- the decision is a proxy: a file only an
+  already-initialized repo was meant to carry. It inverted when the template
+  began shipping a `Dockerfile` -- every bootstrapped repo took the
+  existing-repo path and got no `main.yaml`, changelog or smoke tree -- and no
+  test failed, because the proxy lived only as a condition inside `main`.
+  `--list-existing-repo-signals` prints it (a query: mutates nothing,
+  answerable on a base checkout), the branch reads that list and nothing else,
+  and a spec runs a real init per published path. Nothing is installed and no
+  repo's classification changes.
+- **a dependency bump auto-releases only when a gate proves it ABI-safe
+  (closes #829, ADR-00000031)** -- `script/ci/abi-gate.sh` asks one
+  question, did this dependency's declared ABI component move, and refuses
+  everything else: an unreadable version, an undeclared or unrecognised
+  axis, a 0.x pin declared major-only, a downgrade, an unchanged pin, a pair
+  the upstream compat declaration does not sanction. A refusal prints
+  nothing on stdout, so no caller can read a decision out of one, and there
+  is no default axis to guess with. `release-worker.yaml` gains an optional
+  `version` input, so the release is cut by calling the worker -- a
+  bot-pushed tag fires no event.
+- **`just test metrics`: one shell reader, three implementation-standard thresholds (refs #994)** -- nesting depth <= 3, function length <= 50 body code lines, positional parameters <= 5, measured in one pass over every tracked shell file. Not in `just test` or `just test lint`: today's tree reports 26 / 69 / 7, which phase 3 flattens and phase 4 then gates. The figures replace an ad-hoc count whose parser bugs are now fixtures, and every counting rule the reader states has its worked example as a fixture too -- three defects were found by running them, one of them fail-open. A file the reader cannot parse is a finding, never a skip. Host-direct: the population is the git index.
+- **`just docker prune --reclaim`: base collects its own compose litter
+  (closes #995)** -- compose stamps the checkout's absolute path on its
+  network (`base.checkout.path`); the sweep reads it back and removes the
+  network only when nothing is there, no container is attached, and a 6h
+  grace (`--grace`, `BASE_RECLAIM_GRACE`) has passed -- correct from any
+  directory, in any repository. A network without that label (every one made
+  before this) is left to the daemon-wide prune. It runs after `just stop` /
+  `just test` without changing their status. `--tool-tags` retires unresolved
+  `test-tools:<12hex>` images, but only when asked.
+- **`adr-structure`: an ADR must carry the parts an ADR is read for (refs
+  #994)** -- `adr_numbering` guarded what an ADR file is called; nothing
+  guarded what is in it, and 20 of 27 ADRs met this contract by convention
+  alone. The lint requires EXACTLY ONE of each, at column 0: a
+  `> Serves:` back-pointer, `## Context` / `## Decision` / `## Consequences`
+  / `## Alternatives`, and a Status of exactly `Accepted`, `Rejected` or
+  `Superseded by ADR-NNNNNNNN`; zero ADRs examined refuses. An illustrated
+  line is indented out of column 0. Four Status values lost their free text,
+  two ADRs gained an Alternatives section, and ADR-00000008's amendment
+  Status lines became `- **Amendment status:**`.
+
 - **`init.sh --list-installed-paths`: the installer now states which files it puts into a consumer (refs #927)** -- `.base` files reach a repo only through an upgrade's resync, so "which release is this repo on" was answerable while "did that release's files actually arrive" was not; the base-version monitor sat at zero adoption, unreported, for months. The manifest is read from init.sh instead of copied, and an integration spec diffs it against a real resync in both directions -- which immediately caught `.setup.conf` missing from the first draft. Affects anyone auditing `.base` delivery across repos.
 
 - **a multi-arch-aware GHCR cleanup for the `test-tools` package, defaulting to dry-run (refs #813)** -- every multi-arch publish strands the previous index and its per-arch children as untagged orphans, which accumulate release after release. The obvious tool is the dangerous one: `delete-only-untagged-versions` reads "untagged" off the packages API without opening a manifest, so it collects children a **live** tag still references and `docker pull` starts 404ing. This uses a manifest-aware action, SHA-pinned, scoped to `test-tools`, deleting untagged versions older than 14 days -- and it deletes nothing until `GHCR_CLEANUP_ENFORCE` is set.
@@ -192,6 +332,43 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 - **the changelog lint now catches an entry that was edited and not re-wrapped (refs #927)** -- a single word left alone on a continuation line with more of its paragraph on the next line. The length measure collapses whitespace on purpose and markdown collapses it again at render time, so nothing else could see it. A short final line, a table row, a fenced line and an HTML comment are left alone. Affects anyone writing an `[Unreleased]` entry.
 
 ### Fixed
+- **`compute-shards` and `coverage-gate` now gate something (closes #1009)**
+  -- neither was named by a gate's `needs:`. A failed `compute-shards`
+  skipped `coverage` and `coverage-gate`, both skip-tolerated, so the
+  required check went green with the whole unit suite and the coverage floor
+  never run; and `release` did not require `coverage-gate`, so a tag could
+  publish below `COVERAGE_MIN`. `ci-rollup` now requires `compute-shards`
+  hard-mandatorily, and `release` requires `coverage-gate`. Three specs
+  DERIVE both rosters from the job graph, so a job added to the workflow
+  fails until a gate names it.
+- **the tooling image takes an `APK_MIRROR` build arg (closes #1008)** --
+  `dockerfile/Dockerfile.test-tools` had no mirror override, so a host that
+  cannot reach `dl-cdn.alpinelinux.org` could not build the image the whole
+  local gate runs inside. It does not read as a network failure: apk spends
+  ~480s and then reports every package as `no such package`, because an
+  unreachable index reads as an empty one. Pass
+  `APK_MIRROR=<host> just test`. The default is the upstream CDN and the
+  rewrite is skipped there, so a machine that can reach it sees no change.
+- **a failed diff no longer takes the required `docker-build` check green, and one FROM-line reader replaces three (closes #1013)** -- the doc-only classifier read its diff through `done < <(git diff ...)`, and a loop's status is the loop's: a force-pushed base or a shallow clone delivered zero paths, classified doc-only, and passed the required check having built nothing. It is captured and checked now, and a spec scans every workflow run block for the shape. Separately, the extra-stages loop and `runtime_stages.sh` each carried a `FROM ... AS` regex claiming to match the stage parser; neither did, so `FROM --platform=... AS x-test` was invisible to the loop. One roster serves both now.
+- **`just` owns the lifecycle of what `just` creates (closes #1015, #997)** --
+  `just test stop` ends this checkout's self-test project. `just docker stop`
+  and `just docker exec` work in a self-managed checkout: `.env.generated` is
+  optional, and every compose call carries the tooling tag its compose.yaml
+  interpolates for `down` as much as for `build`. A checkout that SHOULD carry
+  that file and does not is refused, not ended under a name derived from its
+  directory. A run whose predecessor holds the project network waits
+  (`BASE_PROJECT_WAIT`, default 2m), saying why. `just test smoke`'s
+  per-checkout image is reclaimed like the network, and every docker-reaching
+  recipe states its lifecycle.
+- **the errexit-bang lint's three named misses (closes #990, #991, #992)** --
+  a CRLF `*.bats` is REFUSED by name (a `\r` disarmed the line continuation,
+  so a spliced `; true` went unreported); a `!` ending an `if` / `while` /
+  `for` / `case` / `{ }` block is judged against its BLOCK, not the body; and
+  a `;` now outranks the live-`||` exemption, with the always-zero operand
+  set widened to `echo` and `return 0` and an unreadable group operand
+  refused. A spec holding `! A || echo x`, `! A || { ... }` or
+  `! A || return "${_rc}"` now fails the gate and needs a real assertion or
+  an allow region.
 - **`just upgrade` no longer deletes a working pip install from a consumer
   Dockerfile (refs #956)** -- the migration dropped every `pip install -r
   ${CONFIG_DIR}/pip/requirements.txt` line as base's empty placeholder, but

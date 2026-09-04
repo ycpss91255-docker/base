@@ -10,6 +10,116 @@
 # inputs and the corresponding `context:` / `file:` lines in the 3
 # build steps — so a future refactor that drops one of them lights up
 # CI red instead of silently breaking nested-Dockerfile downstreams.
+#
+# why: Structural assertions for `.github/workflows/build-worker.yaml` (#195
+# + #243 + #272 + #273 + #378 b1). Reusable workflows are not exec'd by
+# these tests; instead grep patterns lock the YAML invariants —
+# `context_path` / `dockerfile_path` inputs declared with the right
+# defaults, all 4 `docker/build-push-action` steps (devel-test / devel /
+# runtime-test / runtime after #243) forwarding those inputs, no leftover
+# `context: .` / `file: ./Dockerfile` literals, the GHA-cache plumbing
+# (#272: `cache_variant` input, `Compute cache scope` step; #378 b1:
+# per-target scope suffix so a late-stage COPY change in one target no
+# longer cascades into siblings' manifests; #801: `cache_backend` input
+# selecting the gha default or a GHCR registry backend via a per-step
+# ternary, a guarded `docker/login-action` step), and the #273 doc-only PR
+# fast-pass (`path-filter` job; Phase 2 classifier is pure shell via `git
+# diff --name-only base...head` + `case` glob, no `dorny/paths-filter`
+# dependency; 6-path allowlist; compute-matrix + build gated on
+# `code_changed`; docker-build aggregator short-circuits on doc-only PRs).
+#
+# Grouped by concern:
+#
+# - `inputs.context_path` declared with `default: "."`
+#
+# - `inputs.dockerfile_path` declared with `default: ""`
+#
+# - 4 build steps reference `inputs.context_path` (#243 added runtime-test)
+#
+# - 4 build steps reference `inputs.dockerfile_path` with `format()`
+# fallback
+#
+# - No leftover `context: .` literals
+#
+# - No leftover `file: ./Dockerfile` literals
+#
+# - Default values together preserve repo-root-Dockerfile callers
+#
+# - User build-args use long form matching Dockerfile.example sys stage
+# (#198: USER_NAME / USER_GROUP / USER_UID / USER_GID across 4 build steps +
+# no short-form regression)
+#
+# - `build_contexts` input forwards to docker/build-push-action
+# `build-contexts:` (#207: input declared with empty default, 4 build steps
+# forward, default preserves zero-diff)
+#
+# - #243 stage rename + runtime-test smoke: `target: devel-test` (renamed
+# from `test`), no leftover `target: test`, `target: runtime-test` exists,
+# runtime-test gated on the resolved runtime answer (>=2 occurrences shared
+# with runtime gate)
+#
+# - #272 + #378 b1 GHA buildx cache: `cache_variant` input declared with
+# empty default, `Compute cache scope` step emits `id: cache` + base key (no
+# `-cache` suffix; per-target suffix appended at use site), 4 build steps
+# use per-target `<base>-<target>-cache` gha scopes in the default ternary
+# branch, no legacy shared-scope leftover (negative regression), 4 build
+# steps preserve `mode=max` on both branches, default preserves zero-diff
+# for single-call callers
+#
+# - #801 registry cache backend: `cache_backend` input declared `type:
+# string` default `"gha"` (default preserves the gha backend for existing
+# callers), all 4 build steps emit a
+# `type=registry,ref=ghcr.io/<repo>/buildcache:<scope>` ref in the registry
+# branch, cache-from/cache-to select the backend on `inputs.cache_backend`
+# (8 lines), the `extra_stages` buildx loop honors `cache_backend` too
+# (shell-side selection, no hardwired gha ref), GHCR `docker/login-action`
+# step gated on `cache_backend == 'registry'`
+#
+# - #273 doc-only PR fast-pass (Phase 1 + Phase 2 shell rewrite):
+# `path-filter` job declared, classifier is pure shell (`git diff
+# --name-only base...head` + `case` glob; no `dorny/paths-filter`
+# dependency), reads EVENT_NAME / BASE_SHA / HEAD_SHA from env: keys so the
+# case body stays portable, non-PR event short-circuits before git diff
+# (BASE_SHA / HEAD_SHA empty on push / tag / workflow_dispatch), 6-path
+# allowlist (`**/*.md`, `doc/**`, `LICENSE`, `.gitignore`,
+# `.github/CODEOWNERS`, `.github/dependabot.yml`) in a single `case` arm,
+# `compute-matrix` + `build` jobs gated on `code_changed == 'true'` (2
+# occurrences), `docker-build` aggregator handles `code_changed == 'false'`
+# short-circuit + `needs: [path-filter, build]`, non-PR triggers always set
+# `code_changed=true`
+#
+# - #470 opt-in `free_disk_space` for large BASE_IMAGE repos: input declared
+# `type: boolean` default `false`, step gated on `inputs.free_disk_space`,
+# uses `jlumbroso/free-disk-space@...`, positioned before `Set up Docker
+# Buildx` so the overlayfs snapshot dir has room
+#
+# - #925 runtime gate read from the Dockerfile: a `Resolve runtime stages`
+# step delegates to `runtime_stages.sh`, exports `build_runtime` to
+# `GITHUB_OUTPUT`, both runtime build steps gate on
+# `steps.runtime.outputs.build_runtime`, and no build step gates on
+# `inputs.build_runtime` directly
+#
+# - #802 push worker logic down: `compute-matrix` delegates to
+# `compute_matrix.sh` (no inline platform fan-out) and version-matches it
+# via `job_workflow_sha` into `.worker-base`, `Compute cache scope`
+# delegates to `cache_scope.sh` (feeds IMAGE_NAME / CACHE_VARIANT /
+# HARDWARE, no inline derivation), build job checks out base worker source
+# into `.worker-base`
+#
+# - #957 per-job least privilege, over a job list DERIVED from the workflow
+# (never a roster in the spec -- the five-name loop this replaced stayed
+# green when a sixth job asking `contents: write` was appended): every job
+# declares its own `permissions:` block (a bare job inherits the CALLER's
+# grant), no job names `packages: write` (a called job that asks for a scope
+# its caller did not grant fails the run instead of intersecting down), no
+# job's entry set is anything but `contents: read` (comments stripped so a
+# rationale quoting a grant cannot stand in for one; a job with no block
+# surfaces as `<no entries>` and fails the same way), and the `build` job's
+# rationale never cites the preflight probe as proof of a caller's package
+# grant (the preflight is capped at `contents: read` itself). Each of the
+# four asserts its own population first -- a floor on the derived job count,
+# cross-checked against a second reading of the file -- so an extractor that
+# stopped matching fails instead of reporting a clean scan
 
 bats_require_minimum_version 1.5.0
 
@@ -315,6 +425,138 @@ setup() {
   assert_output "2"
 }
 
+# _extra_stages <dockerfile-body> <extra_stages>
+#   Runs the workflow's OWN "Build extra stages" step -- lifted out of the
+#   YAML, not a copy of it -- against a Dockerfile written from
+#   <dockerfile-body>, with `docker` replaced by a stub that prints its
+#   argv. What the step decided to build is therefore READ OFF the run
+#   (`--target <stage>` in the output) rather than re-derived by the spec.
+#
+#   `.worker-base` is symlinked to this checkout because that is the path
+#   the build job checks base's own worker source out to; a resolver the
+#   step calls from there runs here as the same file.
+_extra_stages() {
+  local _dir="${BATS_TEST_TMPDIR}/extra"
+  rm -rf "${_dir}"
+  mkdir -p "${_dir}/bin"
+  ln -s /source "${_dir}/.worker-base"
+  printf '%s\n' "${1}" > "${_dir}/Dockerfile"
+  printf '%s\n' '#!/usr/bin/env bash' 'printf "docker %s\n" "$*"' \
+      > "${_dir}/bin/docker"
+  chmod +x "${_dir}/bin/docker"
+  yaml_step_run "${WF}" build 'Build extra stages' > "${_dir}/step.sh"
+  [ -s "${_dir}/step.sh" ] || return 2
+  (
+    cd "${_dir}" || return 2
+    env "PATH=${_dir}/bin:${PATH}" \
+        EXTRA_STAGES="${2}" CACHE_KEY=key CACHE_BACKEND=gha \
+        REPO=org/repo CONTEXT_PATH=. DOCKERFILE=Dockerfile \
+        BUILD_CONTEXTS_INPUT= BUILD_ARGS_INPUT= \
+        PLATFORM=linux/amd64 HARDWARE=x86_64 TEST_TOOLS_IMAGE=tools:1 \
+        bash step.sh
+  )
+}
+
+# why: The reported #1013 miss, asserted on what the step BUILDS rather
+# than on what its text says: the detector allowed one token between FROM
+# and AS, so the cross-build form the arm64 matrix invites declared nothing
+# and the stage's smoke test was silently not built.
+@test "build-worker.yaml: an extra stage's -test companion is found on a --platform FROM line (#1013)" {
+  # The detector matched ONE token between FROM and AS, so the standard
+  # cross-build form -- the one the arm64 matrix invites -- declared a
+  # stage the step could not see, and the stage's smoke test was silently
+  # not built. The sibling resolver (runtime_stages.sh) reads the same
+  # shape correctly; the comment above this step claimed the two agree.
+  run _extra_stages 'FROM debian:bookworm AS foo
+FROM --platform=$BUILDPLATFORM debian:bookworm AS foo-test' foo
+  assert_success
+  assert_output --partial '--target foo-test'
+  assert_output --partial '--target foo'
+}
+
+# why: The cost of widening a detector, pinned in the opposite direction:
+# inventing a `-test` target the Dockerfile does not declare fails the
+# build outright, which is a worse outcome than the miss it was fixing.
+@test "build-worker.yaml: an extra stage with no -test companion builds only itself (#1013)" {
+  # The other direction: widening the detector must not invent a test
+  # stage that the Dockerfile does not declare -- buildx would fail the
+  # build on a target that is not there.
+  run _extra_stages 'FROM debian:bookworm AS foo' foo
+  assert_success
+  assert_output --partial '--target foo'
+  refute_output --partial '--target foo-test'
+}
+
+# why: The structural half, and the one that stops #1013 recurring: two
+# readers of one fact with a comment asserting they agree is what produced
+# the miss. This fails if the file grows a `FROM ... AS` pattern of its own
+# again, which a behavioural case on a correct pattern cannot see.
+@test "build-worker.yaml: the extra-stages roster comes from the shared resolver (#1013)" {
+  # Two readers of one fact, with a comment asserting they agree, is how
+  # this file got a stage detector that missed the cross-build FROM form
+  # while its sibling resolver read it correctly. The roster is now read
+  # through script/ci/build_worker/stage_names.sh -- the same script
+  # runtime_stages.sh reads it through, which in turn calls the tree's one
+  # FROM-line matcher -- and this file carries no such pattern of its own.
+  run code_grep -F 'build_worker/stage_names.sh' "${WF}"
+  assert_success
+  run code_grep -E 'FROM\[\[:space:\]\]' "${WF}"
+  [ "${status}" -ne 0 ] || [ -z "${output}" ]
+}
+
+# why: Docker allows `.` in a target name, so a membership test that reads
+# the caller's stage name as a regex finds a DIFFERENT stage: `foo.bar`
+# matches `fooxbar-test` and the step asks buildx for a target nothing
+# declares, failing the build over a companion that was never there.
+@test "build-worker.yaml: an extra stage's name is matched literally, not as a regex (#1013)" {
+  # The membership test read the stage name as a BASIC REGULAR EXPRESSION,
+  # so a metacharacter in it matched a DIFFERENT stage. Docker allows `.`
+  # in a target name, so `foo.bar` found `fooxbar-test` in the roster and
+  # the step asked buildx for `foo.bar-test` -- a target the Dockerfile
+  # does not declare, which fails the build for a companion that was never
+  # there. The sibling resolver already compares literally (`grep -Fx`).
+  run _extra_stages 'FROM debian:bookworm AS foo.bar
+FROM debian:bookworm AS fooxbar-test' foo.bar
+  assert_success
+  assert_output --partial '--target foo.bar'
+  refute_output --partial '--target foo.bar-test'
+}
+
+# why: The early-close-reader lint cannot reach here -- it scans *.sh under
+# dist/ and script/, and a workflow `run:` block is not a shell file -- so
+# this is the only thing standing between the step and a `grep -q` whose
+# SIGPIPE 141 becomes the pipeline's status under `pipefail`, turning a
+# stage that WAS found into one that reads as absent.
+@test "build-worker.yaml: the extra-stages step does not pipe its roster into an early-closing reader (#1013)" {
+  # The same shape the early-close-reader lint exists for, one file over
+  # from where the branch removed it: a quiet reader leaves at the first
+  # match, the writer upstream takes SIGPIPE, and under this step's
+  # `pipefail` its 141 becomes the pipeline's status -- so a stage that WAS
+  # found reads as absent and its smoke test is silently not built. That
+  # lint cannot see this: it scans *.sh under dist/ and script/, and a
+  # workflow `run:` block is not a shell file. The roster is a variable
+  # already in hand here, so no pipe is needed to read it.
+  local _step _line _code _bad=""
+  _step="$(yaml_step_run "${WF}" build 'Build extra stages')"
+  [ -n "${_step}" ] || {
+    echo "no run: block for the 'Build extra stages' step"
+    return 1
+  }
+  # Whole-line comments are dropped before the match, as the early-close
+  # lint drops them: the prose explaining the rule must not violate it.
+  _code="$(printf '%s\n' "${_step}" | grep -v '^[[:space:]]*#')" || :
+  while IFS= read -r _line; do
+    if [[ "${_line}" =~ \|[[:space:]]*(head|grep[[:space:]]+[^|]*-[A-Za-z]*q) ]]; then
+      _bad+="${_line}"$'\n'
+    fi
+  done <<< "${_code}"
+  [ -z "${_bad}" ] || {
+    echo "the extra-stages step pipes into a reader that stops reading:"
+    echo "${_bad}"
+    return 1
+  }
+}
+
 @test "build-worker.yaml: cache lines select the backend on inputs.cache_backend (#801)" {
   # Both cache-from and cache-to (8 lines total) gate on the input so the
   # backend is chosen per call, defaulting to gha.
@@ -425,6 +667,78 @@ setup() {
   # because BASE_SHA / HEAD_SHA are empty on non-PR events.
   run code_grep -E '\[ "\$\{EVENT_NAME\}" != "pull_request" \]' "${WF}"
   assert_success
+}
+
+# _classify <git-stub-body>
+#   Runs the workflow's OWN `classify` step -- the script lifted out of the
+#   YAML, not a copy of it -- with `git` replaced by a stub whose body is
+#   <git-stub-body>. The step's GITHUB_OUTPUT lands in
+#   ${BATS_TEST_TMPDIR}/classify/out for the caller to read; the caller wraps
+#   the call in `run` and asserts on the STATUS, which is the whole point:
+#   the failure this covers is a step that exits 0 having learnt nothing.
+_classify() {
+  local _dir="${BATS_TEST_TMPDIR}/classify"
+  rm -rf "${_dir}"
+  mkdir -p "${_dir}/bin"
+  printf '%s\n' '#!/usr/bin/env bash' "${1}" > "${_dir}/bin/git"
+  chmod +x "${_dir}/bin/git"
+  yaml_step_run "${WF}" path-filter classify > "${_dir}/step.sh"
+  [ -s "${_dir}/step.sh" ] || return 2
+  : > "${_dir}/out"
+  env "PATH=${_dir}/bin:${PATH}" \
+      EVENT_NAME=pull_request BASE_SHA=1111111 HEAD_SHA=2222222 \
+      GITHUB_OUTPUT="${_dir}/out" \
+      bash "${_dir}/step.sh"
+}
+
+# why: The load-bearing case of the three. A failed diff used to deliver
+# zero lines through a process substitution the loop's status hides, so the
+# step said doc-only and the REQUIRED docker-build check went green having
+# built nothing. It asserts the step's OWN status, not merely non-zero, so
+# a harness that could not lift a script cannot stand in for the step
+# failing.
+@test "build-worker.yaml: a git diff that FAILS fails the classifier, it does not read as doc-only (#1013)" {
+  # The producer used to be a process substitution, `done < <(git diff ...)`,
+  # and a `while` loop's exit status is the LOOP's -- never the producer's.
+  # `set -eu` does not see it and `pipefail` would not either, a process
+  # substitution being no pipeline. So a diff that failed (base
+  # force-pushed, a partial fetch, a shallow clone without the base commit)
+  # delivered zero lines, classified as doc-only, and turned the REQUIRED
+  # docker-build check green having built nothing -- and the reason it built
+  # nothing was a failure nobody was told about.
+  run _classify 'exit 128'
+  # The step's OWN status, not merely non-zero: `_classify` returns 2 when
+  # it could not lift a script out of the YAML at all, and a bare
+  # `assert_failure` reads that harness-level miss as the step failing --
+  # which is how this case would stay green against a workflow whose
+  # classify step ran no shell at all.
+  assert_failure 1
+  assert_output --partial '::error::classify:'
+  run cat "${BATS_TEST_TMPDIR}/classify/out"
+  assert_success
+  refute_output --partial 'code_changed=false'
+}
+
+# why: The guard against buying safety by classifying everything as code.
+# Without this the failed-diff case is satisfied by a step that never says
+# doc-only at all, and every doc PR pays for a full image build.
+@test "build-worker.yaml: a diff of only allowlisted paths classifies doc-only (#1013)" {
+  # The fast-pass still has to happen -- the guard above must not buy its
+  # safety by classifying everything as code.
+  run _classify 'printf "%s\n" doc/adr/00000001-x.md README.md LICENSE'
+  assert_success
+  run cat "${BATS_TEST_TMPDIR}/classify/out"
+  assert_output --partial 'code_changed=false'
+}
+
+# why: The mixed diff, which is the shape most PRs have. One code path
+# among documentation must carry the whole change into a build; an
+# allowlist evaluated per file rather than per change-set would skip it.
+@test "build-worker.yaml: a diff carrying one non-allowlisted path classifies as code (#1013)" {
+  run _classify 'printf "%s\n" README.md script/setup.sh'
+  assert_success
+  run cat "${BATS_TEST_TMPDIR}/classify/out"
+  assert_output --partial 'code_changed=true'
 }
 
 @test "build-worker.yaml: doc-only allowlist case-glob covers all 6 documented paths (#273)" {

@@ -76,41 +76,49 @@ the other creates a socket to get past it, and on the single global
 the variable at its own `BATS_TEST_TMPDIR` path instead. Production
 behaviour with the variable unset is unchanged.
 
-### test/bats/system/runtime_test_smoke_spec.bats (5)
+## Test Files
+
+<!-- generated: catalogue sections -->
+
+### test/bats/system/compose_multi_stack_e2e_spec.bats (3)
+
+Two stacks of ONE repo, co-hosted, driven against a real daemon. Compose is
+what refuses a duplicate container name and what refuses to scale a service
+that declares one, so neither question can be answered by reading the
+emitted file -- these run it. The fixture is a real repo put through `setup
+apply` (the emitter is the subject) and needs no bind mounts.
 
 | Test | Description |
 |------|-------------|
-| `runtime-test build succeeds with default smoke command` | Baseline `whoami && bash --version` ARG default works |
-| `runtime-test build succeeds with && chain override (#243 word-split regression)` | Wrapper preserves shell operators |
-| `runtime-test build succeeds with bash parameter expansion override (#249 dash-source regression)` | `${var:offset:length}` works (would fail under `sh -c`) |
-| `runtime-test build succeeds with bash [[ test operator override (#249)` | `[[` works (sister bash-only regression guard) |
-| `runtime-test build FAILS when smoke command exits non-zero (gate-fires assertion)` | Negative case: the gate actually gates |
+| `co-hosted stacks: two project names bring the SAME repo up twice (#920)` | Both `up`s succeed and land in their own project, with project-scoped names |
+| `co-hosted stacks: tearing one down leaves the other running (#920)` | Project-scoped teardown reaps one stack and leaves the co-hosted one alone |
+| `--scale: one service runs as more than one container (#920)` | `--scale devel=2` yields two running containers instead of a refusal |
 
 ### test/bats/system/deploy_bundle_e2e_spec.bats (5)
 
 A REAL field deploy end-to-end (ADR-00000023; System level, E2E type).
 Generates the bundle for real (`docker build` + `docker save | xz`),
-docker-loads the image, runs the generated `deploy.sh up` (real
-`docker compose up -d`), asserts the container is Up, then asserts the
+docker-loads the image, runs the generated `deploy.sh up` (real `docker
+compose up -d`), asserts the container is Up, then asserts the
 tunable-config override applies at the mounted container path (edit the
-bundle `config/`, re-up, read it back inside the container), and tears
-down with `deploy.sh down`. A tiny alpine `runtime` stage keeps it fast;
-the point is the orchestration (build -> save -> load -> compose up ->
+bundle `config/`, re-up, read it back inside the container), and tears down
+with `deploy.sh down`. A tiny alpine `runtime` stage keeps it fast; the
+point is the orchestration (build -> save -> load -> compose up ->
 mount-wins override -> down), not a heavy image. Needs the `ci-system`
-service's docker.sock plus the `docker compose` plugin + `xz` baked into
-the test-tools image; auto-skips cleanly when any is absent.
+service's docker.sock plus the `docker compose` plugin + `xz` baked into the
+test-tools image; auto-skips cleanly when any is absent.
 
 The fixture repo is a real git tree carrying a tag, with a run-unique
 basename: the deploy stamp resolves to that tag rather than the `unknown`
-fallback (so the version-scoped image identity `<repo>:<stage>-<version>`
-is what actually gets built, loaded and asserted), and no container leaked
-by a crashed earlier run can share this run's name namespace.
+fallback (so the version-scoped image identity `<repo>:<stage>-<version>` is
+what actually gets built, loaded and asserted), and no container leaked by a
+crashed earlier run can share this run's name namespace.
 
-It declares one default-access and one `rw` tunable so the read-only
-default (#870) is proven by BEHAVIOUR, not by grepping `:ro` out of the
-generated compose: a real `docker exec` write to the default-access mount
-must fail with a read-only filesystem error and leave the operator's host
-copy untouched, while the declared-`rw` write must succeed and land in the
+It declares one default-access and one `rw` tunable so the read-only default
+(#870) is proven by BEHAVIOUR, not by grepping `:ro` out of the generated
+compose: a real `docker exec` write to the default-access mount must fail
+with a read-only filesystem error and leave the operator's host copy
+untouched, while the declared-`rw` write must succeed and land in the
 bundle's `config/`. Every test here drives the one bundle and the one
 container name, so the file pins `BATS_NO_PARALLELIZE_WITHIN_FILE` --
 concurrent `deploy.sh up` calls would race for that name.
@@ -123,24 +131,33 @@ concurrent `deploy.sh up` calls would race for that name.
 | `field-deploy e2e: an operator .env.local override reaches the RUNNING container` | - |
 | `field-deploy e2e: a container write to an undeclared-rw tunable really FAILS, a declared rw one lands on the host` | read-only default proven by a real write |
 
+### test/bats/system/runtime_test_smoke_spec.bats (5)
+
+| Test | Description |
+|------|-------------|
+| `runtime-test build succeeds with default smoke command` | Baseline `whoami && bash --version` ARG default works |
+| `runtime-test build succeeds with && chain override (#243 word-split regression)` | Wrapper preserves shell operators |
+| `runtime-test build succeeds with bash parameter expansion override (#249 dash-source regression)` | `${var:offset:length}` works (would fail under `sh -c`) |
+| `runtime-test build succeeds with bash [[ test operator override (#249)` | `[[` works (sister bash-only regression guard) |
+| `runtime-test build FAILS when smoke command exits non-zero (gate-fires assertion)` | Negative case: the gate actually gates |
+
 ### test/bats/system/smoke_harness_spec.bats (6)
 
 The behavioural half of the `just test smoke` harness (see
-[smoke.md](smoke.md) for what the harness is and how to run it); the
-static half -- COPY-set parity against the shipped `devel-test` stage --
-is `test/bats/unit/smoke_harness_spec.bats`.
+[smoke.md](smoke.md) for what the harness is and how to run it); the static
+half -- COPY-set parity against the shipped `devel-test` stage -- is
+`test/bats/unit/smoke_harness_spec.bats`.
 
-Every case builds the **real** `dockerfile/Dockerfile.smoke`; only the
-build CONTEXT is synthesized, a minimal copy of the paths that Dockerfile
-COPYs, so a fixture spec can be dropped in without touching the checkout.
-Building a fixture Dockerfile instead would assert against the fixture and
-leave the real one unproven -- the shape the harness exists to replace.
+Every case builds the **real** `dockerfile/Dockerfile.smoke`; only the build
+CONTEXT is synthesized, a minimal copy of the paths that Dockerfile COPYs,
+so a fixture spec can be dropped in without touching the checkout. Building
+a fixture Dockerfile instead would assert against the fixture and leave the
+real one unproven -- the shape the harness exists to replace.
 
 `--no-cache` on each build is load-bearing, not caution: these assert on
-what the `RUN bats` layer produced, and a CACHED layer produces nothing.
-The positive case rebuilds a context identical to the previous run's, so
-without it the second invocation reports success having executed no specs
-at all.
+what the `RUN bats` layer produced, and a CACHED layer produces nothing. The
+positive case rebuilds a context identical to the previous run's, so without
+it the second invocation reports success having executed no specs at all.
 
 | Test | Description |
 |------|-------------|
@@ -151,16 +168,4 @@ at all.
 | `a digest-carrying BASE_IMAGE alone BUILDS, recording the pin without inventing a digest (#951)` | The documented pin-by-reference call, with no second argument, must produce an image: `base_image_pin=digest`, an empty digest field, an empty OCI `base.digest` and the digest still on `base.name` |
 | `the shipped spec FAILS a build whose digest arg contradicts the reference (#951)` | Negative case: the one combination that is false -- both halves stated, naming different digests -- fails in the `-test` stage from the shipped smoke spec, not from a refusal in `sys` |
 
-### test/bats/system/compose_multi_stack_e2e_spec.bats (3)
-
-Two stacks of ONE repo, co-hosted, driven against a real daemon. Compose
-is what refuses a duplicate container name and what refuses to scale a
-service that declares one, so neither question can be answered by reading
-the emitted file -- these run it. The fixture is a real repo put through
-`setup apply` (the emitter is the subject) and needs no bind mounts.
-
-| Test | Description |
-|------|-------------|
-| `co-hosted stacks: two project names bring the SAME repo up twice (#920)` | Both `up`s succeed and land in their own project, with project-scoped names |
-| `co-hosted stacks: tearing one down leaves the other running (#920)` | Project-scoped teardown reaps one stack and leaves the co-hosted one alone |
-| `--scale: one service runs as more than one container (#920)` | `--scale devel=2` yields two running containers instead of a refusal |
+<!-- /generated -->

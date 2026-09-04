@@ -59,6 +59,90 @@
 # 32 jobs in flight there is no attribution to be had at the phase
 # boundary; the path is what a `grep -rn` over test/bats/ turns into a spec
 # in one step.
+#
+# why: The live-tree residue guard in `script/test/test.sh`: the EXECUTED
+# answer to "did a spec write into the checkout it does not own". Every
+# compose dispatch snapshots the checkout either side of the bats phase and
+# fails naming any path that differs -- no command list, no spelling to
+# miss, and no false positive on the suite's own setup, which is what a
+# static scan of the specs could never manage (it was widened three times
+# and was still blind to six spellings it claimed). Measured end to end: a
+# planted spec writing into `doc/readme/` ran GREEN with the guard off and
+# left the file behind; with the guard on the same run reported
+# `ci_live_tree_residue` naming that path and exited 1 while bats still said
+# `ok 1`.
+#
+# The check is TWO snapshots, not one, and that is its whole usability: a
+# bare "is the tree clean" check needs a clean tree and would red every
+# developer with work in flight, whereas an edit made BEFORE the run appears
+# in both and cancels. Each record is status code + content hash + path, so
+# a spec overwriting a file the developer was already editing still moves
+# it. Ignored trees (`coverage/`, `log/`, `.prev-release/`) are absent by
+# construction -- the list is git's, and git's means all of it:
+# `.gitignore`, `.git/info/exclude` and `core.excludesFile` alike, so an
+# ignore rule this repo never wrote silences the guard for the paths it
+# covers. It is inert outside a git checkout, and it must run host-side: a
+# worktree's `.git` is a FILE naming a gitdir the container never mounts.
+#
+# That same cancelling made the alarm ONE-SHOT, which is a hole in the shape
+# rather than a slip: residue left by run N is on disk before run N+1
+# starts, so run N+1 read it as "in flight" and went green with the defect
+# unchanged -- measured, run 1 exit 1 naming the path, run 2 exit 0. The
+# guard now REMEMBERS what it named, in a record under the git dir (never in
+# the working tree, where it would be residue itself, and per-worktree, so
+# two checkouts do not inherit each other's). A remembered path is reported
+# again on every run while it is still changed in the checkout and drops out
+# the moment it is gone: cleaning up is the acknowledgement and nothing has
+# to be typed for it. Two other shapes were weighed and rejected -- taking
+# the baseline from the index removes the laundering and with it the whole
+# reason the guard is usable, and narrowing what BEFORE may cancel is a
+# guess about which changes are developer-shaped that is wrong for anyone
+# adding a file.
+#
+# The cost to the dirty working tree is unchanged: an edit made before a run
+# cancels, is never named, and is therefore never remembered. Only a path
+# the guard has already reported out loud can become sticky, which is the
+# one false positive two snapshots cannot cancel -- an edit made WHILE the
+# suite ran. That is what `TEST_RESIDUE_GUARD=0` is for, and it now drops
+# the record on its way past, so there is one knob rather than two.
+#
+# The report keeps the two facts it now has apart. The lead sentence names
+# what THIS run wrote; a carried path gets a clause of its own that opens by
+# saying the run changed nothing when that is what happened. Built from the
+# union, as it first was, every re-run of an unfixed residue asserted a
+# write that did not happen in it.
+#
+# Four blind spots and one price, stated because a guard whose limits are
+# implied gets believed past them, and each with a case that measures it
+# rather than an assurance.
+#
+# - A spec that writes and then removes its own traces before the phase ends
+# is invisible; closing that means snapshotting per SPEC, in the
+# in-container driver, which cannot read a worktree's gitdir at all.
+#
+# - Anything git ignores, through any of the files git reads to decide that.
+#
+# - Anything under `.git/`: `git status` never reports it, so a planted
+# hook, config or alternates entry is unseen -- excluded with a reason
+# rather than closed, because git rewrites its own dir on almost any command
+# (the guard's own `git status` refreshes the index) and narrowing that to
+# "the parts that matter" is an open-set roster, the exact shape this round
+# deleted. A case pins both the silence and how narrow it is: one directory
+# up, the same write is still named.
+#
+# - A permission change git does not track. Git records the exec bit and
+# nothing else of a file's mode, so 644 -> 755 IS named while 644 -> 600
+# leaves both the status line and the content hash where they were.
+#
+# - The price: `TEST_RESIDUE_GUARD=0` ends the alarm permanently for a spec
+# that writes the SAME bytes every run, because the path is then identical
+# in both snapshots and no memory is left to say otherwise. It stays
+# permanent because an acknowledged path and an unfinished edit are the same
+# thing at the phase boundary -- same status line, same hash -- so expiring
+# the acknowledgement re-raises the developer's edit on a timer and scoping
+# it points at the same absent signal. The failure message now says what the
+# flag gives up at the moment it offers it, and a case pins the limit: bytes
+# that CHANGE after an acknowledgement are named again.
 
 bats_require_minimum_version 1.5.0
 
@@ -98,6 +182,7 @@ _make_repo() {
 _snapshot_before() { _residue_snapshot "${REPO}" > "${BEFORE}"; }
 _snapshot_after()  { _residue_snapshot "${REPO}" > "${AFTER}"; }
 
+# why: The base case: an untracked file that was not there before
 @test "_residue_paths: a file the run CREATED is named (#965)" {
   _snapshot_before
   printf 'planted\n' > "${REPO}/planted.md"
@@ -107,6 +192,8 @@ _snapshot_after()  { _residue_snapshot "${REPO}" > "${AFTER}"; }
   assert_output "planted.md"
 }
 
+# why: The cry-wolf case; a guard that reds a dirty working tree is switched
+# off within the week
 @test "_residue_paths: an edit already in flight before the run is NOT named (#965)" {
   # The cry-wolf case, and the reason the guard compares two snapshots
   # instead of asking for a clean tree. A developer mid-change must be able
@@ -119,6 +206,8 @@ _snapshot_after()  { _residue_snapshot "${REPO}" > "${AFTER}"; }
   assert_output ""
 }
 
+# why: Why the record carries a content hash: both snapshots show the same `
+# M` status line
 @test "_residue_paths: a SECOND edit to an already-dirty file IS named (#965)" {
   # Why the record carries a content hash and not just git's status code:
   # both snapshots report ` M tracked.txt`, so a status-only record would
@@ -132,6 +221,7 @@ _snapshot_after()  { _residue_snapshot "${REPO}" > "${AFTER}"; }
   assert_output "tracked.txt"
 }
 
+# why: Residue is any difference, not only an addition
 @test "_residue_paths: a tracked file the run DELETED is named (#965)" {
   _snapshot_before
   rm -f "${REPO}/tracked.txt"
@@ -141,6 +231,8 @@ _snapshot_after()  { _residue_snapshot "${REPO}" > "${AFTER}"; }
   assert_output "tracked.txt"
 }
 
+# why: coverage/, log/ and .prev-release/ are the suite's own; git's ignore
+# list is the allowlist
 @test "_residue_paths: a gitignored path the run wrote is NOT named (#965)" {
   # The suite legitimately writes coverage/, log/ and .prev-release/, all
   # of them ignored. The guard inherits that list from git rather than
@@ -156,6 +248,8 @@ _snapshot_after()  { _residue_snapshot "${REPO}" > "${AFTER}"; }
   assert_output ""
 }
 
+# why: `.git/info/exclude` silences it too, and the same write one directory
+# over is still named
 @test "_residue_paths: the ignore list is git's whole exclude stack, not .gitignore alone (#965)" {
   # The list is inherited, and inheriting it means inheriting all of it.
   # `git status` obeys `.git/info/exclude` and `core.excludesFile` exactly
@@ -184,6 +278,8 @@ _snapshot_after()  { _residue_snapshot "${REPO}" > "${AFTER}"; }
   assert_output "named.txt"
 }
 
+# why: Read NUL-separated with the path last, so porcelain quoting cannot
+# truncate the report
 @test "_residue_paths: a path containing a space is named whole (#965)" {
   # git's porcelain output QUOTES such a path unless it is read NUL-
   # separated, and a record split on whitespace truncates it. Either way
@@ -197,6 +293,8 @@ _snapshot_after()  { _residue_snapshot "${REPO}" > "${AFTER}"; }
   assert_output "a file with spaces.txt"
 }
 
+# why: The first blind spot, measured: neither undo shape reaches `git
+# status`, and the same write left in place is still named
 @test "_residue_paths: a write the run UNDID before the snapshot is NOT named (#965)" {
   # The blind spot the guard's SHAPE cannot close, measured rather than
   # assumed. The two snapshots are taken either side of the whole bats
@@ -261,6 +359,8 @@ _snapshot_after()  { _residue_snapshot "${REPO}" > "${AFTER}"; }
   assert_output "planted.md"
 }
 
+# why: 644 -> 600 is invisible, 644 -> 755 is named: the shape of the limit,
+# not just its existence
 @test "_residue_paths: a permission change is seen only where git tracks one (#965)" {
   # Git records ONE bit of a file's mode. A spec that tightens a file in the
   # live checkout to 600 leaves the status line clean and the content hash
@@ -286,6 +386,7 @@ _snapshot_after()  { _residue_snapshot "${REPO}" > "${AFTER}"; }
   assert_output "tracked.txt"
 }
 
+# why: The report has to be actionable without opening the guard
 @test "_residue_check: fails naming the path, and says what to do about it (#965)" {
   _snapshot_before
   printf 'planted\n' > "${REPO}/planted.md"
@@ -294,6 +395,7 @@ _snapshot_after()  { _residue_snapshot "${REPO}" > "${AFTER}"; }
   assert_output --partial "planted.md"
 }
 
+# why: The path every green gate takes
 @test "_residue_check: passes on a run that changed nothing (#965)" {
   _snapshot_before
   run _residue_check "${BEFORE}" "${REPO}"
@@ -326,6 +428,8 @@ _snapshot_after()  { _residue_snapshot "${REPO}" > "${AFTER}"; }
   assert_output --partial "planted.md"
 }
 
+# why: The lead sentence is about THIS run; a carried path says so in its
+# own clause
 @test "_residue_check: a run that changed nothing does not report that it did (#965)" {
   # What the memory did to the REPORT. The lead sentence -- "the test run
   # changed the checkout it does not own" -- was built from the union of
@@ -395,6 +499,8 @@ _snapshot_after()  { _residue_snapshot "${REPO}" > "${AFTER}"; }
   assert_success
 }
 
+# why: The escape hatch's price, decided and pinned: silent for an identical
+# rewrite, named again when the bytes change
 @test "_residue_forget: an acknowledgement is permanent while the bytes stay the same (#965)" {
   # The cost of the escape hatch, made executable rather than discovered in
   # a gate run. Once the record is dropped, a spec that writes the SAME
@@ -470,6 +576,7 @@ _snapshot_after()  { _residue_snapshot "${REPO}" > "${AFTER}"; }
   assert_success
 }
 
+# why: A released tarball still runs the suite; absence costs nothing
 @test "_residue_guard_available: answers no outside a git checkout (#965)" {
   # A released tarball is not a checkout. The guard is a developer-tree
   # invariant, so its absence must cost nothing -- a suite that refuses to
@@ -481,6 +588,8 @@ _snapshot_after()  { _residue_snapshot "${REPO}" > "${AFTER}"; }
   assert_success
 }
 
+# why: The escape hatch for an edit made WHILE the suite runs, asserted in
+# both directions
 @test "_residue_guard_available: is switched off by TEST_RESIDUE_GUARD=0 (#965)" {
   # The escape hatch for the one false positive the two-snapshot form
   # cannot cancel: an edit made WHILE the suite runs. It is per-invocation
@@ -496,6 +605,7 @@ _snapshot_after()  { _residue_snapshot "${REPO}" > "${AFTER}"; }
   assert_failure
 }
 
+# why: Wired into the one host-side point every bats dispatch passes through
 @test "the compose dispatch is what runs the guard, not a caller that could forget (#965)" {
   # Both halves live inside _run_via_compose, which is the ONE host-side
   # point every bats dispatch passes through -- the local gate, each CI

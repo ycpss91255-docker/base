@@ -26,6 +26,14 @@
 #                     present, no smoke tree at all
 #   - docs-less    -- a consumer with neither `doc/` nor `.hadolint.yaml`
 #   - broken       -- missing a MANDATORY path; must fail, naming it
+#
+# why: Drives `script/ci/release-archive.sh` against the REAL shipped
+# payload manifest (`script/ci/release/archive.manifest`) over synthesised
+# consumer trees. base's own checkout cannot stand in for a consumer -- it
+# has no `.base/` subtree (it is the template source) and its smoke
+# templates live under `dist/` -- and, more to the point, a real tree cannot
+# express the case that matters: a repo deliberately MISSING a standard
+# path. That vacuity is why the same defect shipped twice.
 
 bats_require_minimum_version 1.5.0
 
@@ -111,6 +119,7 @@ _manifest_declares() {
 
 # ── both historical smoke layouts, same workflow ─────────────────────────────
 
+# why: Full payload, `test/bats/smoke/` layout: every declared path lands
 @test "archive manifest: a current-layout consumer (test/bats/smoke/) archives its whole payload (#914)" {
   _seed_common
   _seed 'test/bats/smoke/shared/'
@@ -125,6 +134,8 @@ _manifest_declares() {
   [ -f "${REPO}/${DEST}/test/bats/smoke/shared/payload.txt" ]
 }
 
+# why: `test/smoke/` layout archives with no restructuring (the v0.42.0
+# casualty)
 @test "archive manifest: a previous-layout consumer (test/smoke/) archives without restructuring (#914)" {
   # The v0.42.0 instance: the operand list moved to `test/bats/smoke/`, so a
   # consumer still on `test/smoke/` could not cut a release. Both layouts
@@ -137,6 +148,7 @@ _manifest_declares() {
   [ -f "${REPO}/${DEST}/test/smoke/payload.txt" ]
 }
 
+# why: No smoke tree at all still cuts a release; the absence is reported
 @test "archive manifest: neither smoke layout present still cuts a release (#914)" {
   # The exact shape that failed v0.42.0 downstream: everything else in
   # place, no smoke tree at all. Absence is reported, not fatal.
@@ -149,6 +161,7 @@ _manifest_declares() {
 
 # ── optional gaps degrade the archive, they do not fail the release ──────────
 
+# why: Missing docs + lint config degrade the archive, they do not fail it
 @test "archive manifest: a consumer with no doc/ and no .hadolint.yaml still archives (#914)" {
   _seed 'Dockerfile' '.base/dist/script/' 'script/' 'README.md'
   run _archive
@@ -159,6 +172,7 @@ _manifest_declares() {
   assert_output --partial '.hadolint.yaml'
 }
 
+# why: Missing wrapper tree degrades the archive, it does not fail it
 @test "archive manifest: a consumer with no script/ wrappers still archives (#914)" {
   # The first instance's mirror image: `script/` is the wrapper tree, whose
   # contents are duplicated out of `.base/` anyway, so its absence is a
@@ -171,6 +185,7 @@ _manifest_declares() {
 
 # ── the mandatory half is genuinely mandatory ────────────────────────────────
 
+# why: Mandatory gap fails naming `Dockerfile`, never `cp: cannot stat`
 @test "archive manifest: a tree with no Dockerfile fails, naming Dockerfile (#914)" {
   _seed '.base/dist/script/' 'script/' 'README.md' 'doc/'
   run _archive
@@ -179,6 +194,7 @@ _manifest_declares() {
   refute_output --partial 'cannot stat'
 }
 
+# why: Mandatory gap fails naming `.base/`, never `cp: cannot stat`
 @test "archive manifest: a tree with no .base/ subtree fails, naming .base/ (#914)" {
   # An archive without the vendored toolchain is not a release: every entry
   # point it ships resolves into `.base/`. Shipping it silently would move
@@ -192,6 +208,7 @@ _manifest_declares() {
 
 # ── the declared payload itself ──────────────────────────────────────────────
 
+# why: Pins the mandatory set so widening it is a deliberate, reviewed edit
 @test "archive manifest: declares exactly two required entries (Dockerfile and .base/) (#914)" {
   # Pins the mandatory decision. Promoting a path to required makes a base
   # layout change able to break a downstream release again, so it must be a
@@ -209,6 +226,7 @@ _manifest_declares() {
   assert_output "$(printf 'Dockerfile\n.base/')"
 }
 
+# why: No payload path was silently pruned while making the list tolerant
 @test "archive manifest: still declares every path the hardcoded cp list carried (#914)" {
   # The payload must not be pruned by accident while making it tolerant.
   local _path
@@ -219,6 +237,8 @@ _manifest_declares() {
   done
 }
 
+# why: The payload guard cannot be satisfied by the prose that explains the
+# entry
 @test "archive manifest: a payload entry deleted behind its own comment is no longer declared (#914)" {
   # The guard above is only worth its name if deleting a payload line makes it
   # go red. The manifest's header prose names `Dockerfile`, `.base/` and
@@ -237,6 +257,8 @@ _manifest_declares() {
   assert_failure
 }
 
+# why: The #558 instance: no removed root wrapper is declared as a payload
+# path
 @test "archive manifest: names no wrapper that init.sh no longer creates at the repo root (#914)" {
   # The first instance: the operand list still named `build.sh` / `run.sh` /
   # `exec.sh` / `stop.sh` / `setup_tui.sh` at the root after they moved into

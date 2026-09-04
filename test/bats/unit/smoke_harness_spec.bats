@@ -250,11 +250,32 @@ _HARNESS_EXEMPT_SRCS=(
   # (COPY --chmod=0755 "./${ENTRYPOINT_FILE}" "/entrypoint.sh"), which the
   # harness does not inherit -- so it installs the same shipped script
   # itself, from the path init.sh seeds a consumer's copy from.
-  run grep -nE '^COPY --chmod=0755 dist/script/docker/runtime/entrypoint\.sh /entrypoint\.sh$' \
+  run grep -nE '^COPY --chmod=0755 dist/dockerfile/entrypoint\.sh /entrypoint\.sh$' \
     "${HARNESS_DOCKERFILE}"
   assert_success
 }
 
+# why: The orchestrator arrives in a consumer through a runtime-directory
+# COPY that lands outside /lint and /smoke_test, so the COPY-set parity
+# loop above cannot see it. Without this the harness silently stops
+# installing the half the shared baseline asserts, and that assertion goes
+# red here and green nowhere
+@test "the harness installs the orchestrator the shared smoke baseline asserts (#945)" {
+  # The sibling of the /entrypoint.sh COPY above, for the OTHER half of the
+  # two-file entrypoint model (ADR-00000032). In a consumer the base-owned
+  # orchestrator arrives with the devel stage's
+  # `COPY --chmod=0755 .base/dist/script/docker/runtime/ /usr/local/lib/base/`,
+  # which lands outside /lint and /smoke_test and so is invisible to the
+  # parity loop above -- the harness has to reproduce it explicitly or the
+  # baseline's orchestrator assertion is red here and green nowhere.
+  run grep -nE '^COPY --chmod=0755 dist/script/docker/runtime/ /usr/local/lib/base/$' \
+    "${HARNESS_DOCKERFILE}"
+  assert_success
+}
+
+# why: The manifest and the OCI annotation the sys stage writes are mirrored
+# here, and written before `RUN bats`; whether the specs then run rather
+# than skip is asserted at system level, which builds this file
 @test "the harness Dockerfile writes the manifest before the specs read it (#951)" {
   # Named for what a grep of a Dockerfile can establish: the instructions
   # are there, in that order. Whether the specs then RUN rather than skip

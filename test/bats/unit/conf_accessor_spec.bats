@@ -5,6 +5,23 @@
 # The accessor verbs (_conf_load / _conf_get / _conf_list / _conf_sections)
 # hide conf.sh's internal parallel-array + namespacing representation: callers
 # load a handle once and query it by (section, key) without touching arrays.
+#
+# why: Unit tests for the `conf.sh` opaque accessor interface (#564 / #563):
+# `_conf_load` loads a file into a named handle, `_conf_get` reads a value
+# by (section, key) with an optional default, `_conf_sections` lists section
+# names, `_conf_list` lists a section's keys, `_conf_load_merged` loads a
+# template+repo section-replace merge into a handle, and `_conf_list_sorted`
+# returns `prefix_N` values in numeric order (skipping empties) -- all
+# without callers touching the internal parallel-array representation or the
+# `<section>.<key>` namespacing rule. Also the low-level INI reader the
+# accessor is built on: `_parse_ini_section` (per-section key/value
+# extraction, section isolation, comment/whitespace handling, dotted
+# sub-sections, duplicate/reopened sections) and the shared single-pass core
+# `_ini_tokenize` (relocated here from `setup_spec` in P1b, #758 -- they
+# test `lib/conf.sh`).
+#
+# Dirty-input + error-path coverage (#689) pins the parser/accessor
+# contracts on hand-edited / malformed setup.conf:
 
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
@@ -94,6 +111,7 @@ EOF
   rm -f "${_tpl}" "${_repo}"
 }
 
+# why: Override semantics (merge + re-save)
 @test "_conf_get: duplicate key within a section -- last occurrence wins (#689)" {
   # _conf_get documents 'Last occurrence wins (override semantics)'. The
   # setup.conf merge + re-save legitimately produce duplicate keys within
@@ -113,6 +131,7 @@ EOF
   rm -f "${_f}"
 }
 
+# why: Reopened section appends; header deduped
 @test "_conf_list: a section reopened later in the file keeps entries from both occurrences (#689)" {
   # A reopened [deploy] header appends to the same section. _conf_load /
   # _conf_list must surface keys from both occurrences in file order.
@@ -141,6 +160,7 @@ EOF
   rm -f "${_f}"
 }
 
+# why: Trailing `# ...` is literal (only leading-# stripped)
 @test "_conf_get: inline '#' comment text is KEPT in the value (no inline-comment support) (#689)" {
   # _ini_tokenize strips only lines that START with optional-ws-then-#
   # (conf.sh leading-# rule); a TRAILING inline comment is NOT stripped.
@@ -160,6 +180,7 @@ EOF
   rm -f "${_f}"
 }
 
+# why: Interior spaces kept in captured name
 @test "_conf_sections: section header with internal whitespace is NOT trimmed ([ deploy ] != deploy) (#689)" {
   # The greedy `^\[(.+)\]$` capture runs AFTER trimming the whole line,
   # but only the LINE's outer whitespace is trimmed -- the captured name
@@ -185,6 +206,7 @@ EOF
   rm -f "${_f}"
 }
 
+# why: No header match -> keys lost, no crash
 @test "_conf_load: an unterminated section header ([deploy without ]) drops its keys (#689)" {
   # A line missing its closing bracket is not a header match and (having
   # no `=`) is not a key line either, so it is dropped -- and because no
@@ -229,6 +251,7 @@ EOF
   rm -f "${_f}"
 }
 
+# why: Numeric-suffix guard reject path
 @test "_conf_list_sorted skips non-numeric list suffixes (mount_x / mount_ / mount_2b) (#689)" {
   # The `=~ ^[0-9]+$` guard's reject path: a user/template typo like
   # `mount_abc`, a bare `mount_` (empty suffix), or `mount_2b` (trailing
@@ -265,6 +288,7 @@ EOF
 # not define it (it is provided by the umbrella _lib.sh loader in
 # production), so these tests stub it locally to capture the diagnostic.
 
+# why: Guarded mktemp -> no clobber/truncate on temp-create failure
 @test "_upsert_conf_value leaves the original file intact when mktemp fails (#700)" {
   # Skipped under kcov: the test overrides `mktemp` with a failing shell
   # function inside the sourced shell to simulate a no-inodes / read-only
@@ -297,6 +321,7 @@ EOF
   rm -f "${_f}"
 }
 
+# why: Temp+atomic-mv -> no in-place truncate data-loss window
 @test "_write_setup_conf leaves the destination intact when its temp file cannot be created (#700)" {
   # Skipped under kcov: overrides `mktemp` with a failing shell function
   # to simulate temp-file-creation failure.
@@ -320,8 +345,8 @@ EOF
     source /source/dist/script/docker/lib/conf.sh
     _log_err() { printf 'ERR: %s\n' \"\${*:3}\" >&2; }
     mktemp() { return 1; }
-    declare -a _sections=() _keys=() _values=()
-    _write_setup_conf '${_dst}' '${_tpl}' _sections _keys _values
+    declare -a _keys=() _values=()
+    _write_setup_conf '${_dst}' '${_tpl}' _keys _values
   "
   assert_failure
   assert_output --partial "cannot create temp file"
@@ -338,6 +363,8 @@ EOF
 # leave the orphan temp behind silently AND must surface a clear error,
 # while the original file stays untouched. Stub `mv` to fail.
 
+# why: Failed atomic mv -> orphan temp removed + error logged + original
+# unchanged
 @test "_upsert_conf_value cleans the orphan temp + errors when the final mv fails (#702)" {
   # Skipped under kcov: overrides `mv` with a failing shell function to
   # simulate a read-only destination; kcov's instrumentation perturbs
@@ -370,6 +397,8 @@ EOF
   rm -f "${_f}"
 }
 
+# why: Failed atomic mv -> orphan temp removed + error logged + destination
+# unchanged
 @test "_write_setup_conf cleans the orphan temp + errors when the final mv fails (#702)" {
   # Skipped under kcov: overrides `mv` with a failing shell function to
   # simulate a read-only destination.
@@ -393,8 +422,8 @@ EOF
     source /source/dist/script/docker/lib/conf.sh
     _log_err() { printf 'ERR: %s\n' \"\${*:3}\" >&2; }
     mv() { return 1; }
-    declare -a _sections=() _keys=() _values=()
-    _write_setup_conf '${_dst}' '${_tpl}' _sections _keys _values
+    declare -a _keys=() _values=()
+    _write_setup_conf '${_dst}' '${_tpl}' _keys _values
   "
   assert_failure
   assert_output --partial "could not replace"

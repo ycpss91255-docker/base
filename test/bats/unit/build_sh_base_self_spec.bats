@@ -8,6 +8,12 @@
 # always has `.base/` + a mock setup.sh; this file models the base-self
 # shape (real files shipped under dist/, wrapper reached via a
 # script/<x>.sh symlink) instead.
+#
+# why: build.sh in the base self-use topology (#713): base is the template
+# SOURCE, so its tree has no `.base/` subtree, no setup.conf, no
+# .env.generated, and a hand-authored compose.yaml. Covers lib resolution
+# via the base-self path and `--target test-tools` dispatching `docker
+# compose build` while skipping the setup-sync lifecycle.
 
 bats_require_minimum_version 1.5.0
 

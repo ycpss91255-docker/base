@@ -12,6 +12,17 @@ on:
         type: string
         default: ""
         description: "Space-separated list of extra files/dirs to include in archive"
+      version:
+        required: false
+        type: string
+        default: ""
+        description: >-
+          Release version to cut, e.g. v1.2.3. Leave unset on the
+          tag-triggered path: the version is then read off the pushed tag.
+          Pass it when calling this worker directly from a non-tag run --
+          an event created with the default GITHUB_TOKEN starts no workflow
+          run, so a repo auto-releasing a merged change cannot get there by
+          pushing a tag, and its ref is a branch that names no version.
 
 jobs:
   # ────────────────────────────────────────────────────────────────
@@ -67,12 +78,27 @@ jobs:
           ref: ${{ github.job_workflow_sha }}
           path: .release-base
 
+      # WHICH version this release cuts is resolved by a script, not by an
+      # expression: github.ref_name carries a version only on a tag push, and
+      # the direct-call path this worker now supports has a branch there. The
+      # resolver refuses anything it cannot read rather than falling back --
+      # its answer becomes a tag name and a Release title -- and prints
+      # nothing on stdout when it does, so a refusal leaves no output key
+      # behind for a later step to release under. Host-testable under
+      # `just test`, same split as the preflight validator and the assembler.
+      - name: Resolve the release version
+        id: version
+        env:
+          RELEASE_VERSION_INPUT: ${{ inputs.version }}
+        run: |
+          bash .release-base/script/ci/release-version.sh >> "${GITHUB_OUTPUT}"
+
       - name: Create release archive
         env:
           ARCHIVE_NAME_PREFIX: ${{ inputs.archive_name_prefix }}
           RELEASE_EXTRA_FILES: ${{ inputs.extra_files }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          VERSION="${GITHUB_REF_NAME}"
           ARCHIVE_NAME="${ARCHIVE_NAME_PREFIX}-${VERSION}"
 
           bash .release-base/script/ci/release-archive.sh \
@@ -85,9 +111,15 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
+          # tag_name is explicit because the action otherwise releases the ref
+          # the run started on -- a branch, on the direct-call path. The tag
+          # does not have to exist yet: the action creates it at this commit,
+          # which is what lets a repo release a merged change without pushing
+          # a tag no event would fire for.
+          tag_name: ${{ steps.version.outputs.version }}
           body_path: doc/changelog/CHANGELOG.md
           generate_release_notes: true
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          prerelease: ${{ steps.version.outputs.prerelease == 'true' }}
           files: |
             ${{ inputs.archive_name_prefix }}-*.tar.gz
             ${{ inputs.archive_name_prefix }}-*.zip

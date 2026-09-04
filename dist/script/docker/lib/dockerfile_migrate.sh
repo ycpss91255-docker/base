@@ -609,15 +609,46 @@ _migrate_logging_rename_apply() {
 #   DL3006  parameterized `FROM ${BASE_IMAGE}` / `${TEST_TOOLS_IMAGE}` gains
 #           an inline `# hadolint ignore=DL3006` (an ARG-driven base image
 #           cannot be explicitly tagged)
+#   DL3066  a literal `USER root` gains an inline `# hadolint ignore=DL3066`
+#           (the rule postdates hadolint 2.12.0, so no existing consumer
+#           Dockerfile answers it, and every one of them has the line)
 _migrate_hadolint_detect() {
   local _file="$1"
   grep -Eq '^FROM (bats/bats|alpine):latest' "${_file}" && return 0
-  grep -Eq 'useradd[[:space:]]+-u[[:space:]]' "${_file}" && return 0
+  _dfm_needs_dl3046 "${_file}" && return 0
   grep -Eq '^[[:space:]]*RUN[[:space:]]+cd[[:space:]]+/lint[[:space:]]+&&[[:space:]]+hadolint' "${_file}" && return 0
   grep -Eq 'pip install[[:space:]]+-r' "${_file}" && return 0
   _dfm_needs_dl4006 "${_file}" && return 0
   _dfm_needs_dl3006 "${_file}" && return 0
+  _dfm_needs_dl3066 "${_file}" && return 0
   return 1
+}
+
+# _dfm_needs_dl3046 <file>
+#   True when a `useradd` that sets a uid carries no `-l`, whatever order
+#   its flags are in. Same head/tail split and same scan window as the
+#   transform, so detect and apply cannot disagree about which line is a
+#   candidate.
+_dfm_needs_dl3046() {
+  local _file="$1"
+  awk '
+    function _dfm_scan(_text) {
+      if (match(_text, /(&&|\|\||;|\|)/)) {
+        return substr(_text, 1, RSTART - 1)
+      }
+      return _text
+    }
+    {
+      if (match($0, /(^|[[:space:]])useradd[[:space:]]+/)) {
+        _scan = _dfm_scan(substr($0, RSTART + RLENGTH))
+        if (_scan ~ /(^|[[:space:]])(-[[:alnum:]]*u|--uid)([[:space:]]|=)/ &&
+            _scan !~ /(^|[[:space:]])(-[[:alnum:]]*l|--no-log-init)([[:space:]]|$)/) {
+          found = 1
+        }
+      }
+    }
+    END { exit (found ? 0 : 1) }
+  ' "${_file}"
 }
 
 # _dfm_needs_dl4006 <file>
@@ -640,6 +671,26 @@ _dfm_needs_dl3006() {
   ' "${_file}"
 }
 
+# _dfm_needs_dl3066 <file>
+#   True when a literal `USER root` is present whose preceding line does not
+#   already ignore DL3066.
+#
+#   Only the literal `root` is in scope. DL3066 asks for a NUMERIC user-id so
+#   a host or orchestrator can resolve the identity a container runs as, and
+#   `root` is the one name every image resolves by definition. Any other
+#   literal user is the case the rule is worth having, and `USER "${USER}"`
+#   -- the identity these images actually ship with -- is a parameter
+#   hadolint does not evaluate. Neither is touched.
+_dfm_needs_dl3066() {
+  local _file="$1"
+  awk '
+    /^[[:space:]]*USER[[:space:]]+"?root"?[[:space:]]*$/ &&
+      prev !~ /hadolint ignore=[A-Za-z0-9,]*DL3066/ { found=1 }
+    { prev=$0 }
+    END { exit (found ? 0 : 1) }
+  ' "${_file}"
+}
+
 _migrate_hadolint_apply() {
   local _file="$1"
   # DL3007: pin the helper-stage :latest tags.
@@ -650,14 +701,60 @@ _migrate_hadolint_apply() {
   # coordinate), so neither was watched -- and the bats tag had drifted two
   # minors behind this repo's own bats pin while being written into every
   # downstream Dockerfile this function migrates.
+  #
+  # The alpine series here is the one base itself builds on -- see
+  # ARG ALPINE_VERSION in dockerfile/Dockerfile.test-tools, whose recorded
+  # end-of-life fails base's own suite 180 days out. Keeping the two equal
+  # is asserted by dockerfile_migrate_spec.bats, so this literal cannot
+  # quietly become the older of two dates: it wrote an end-of-life series
+  # into every consumer Dockerfile it healed, during an upgrade, which is
+  # the moment nobody reads the diff. The marker on it is the other half of
+  # the same argument -- the spec keeps it equal to base's pin, the marker
+  # is what makes a proposal to move both arrive at all.
   # tool-pin: migrate-bats dockerhub bats/bats pattern=^[0-9]+\.[0-9]+\.[0-9]+$
   local _bats_tag='1.13.0'
   # tool-pin: migrate-alpine dockerhub library/alpine pattern=^[0-9]+\.[0-9]+$
-  local _alpine_tag='3.21'
+  local _alpine_tag='3.22'
   sed -i -E "s|^FROM bats/bats:latest|FROM bats/bats:${_bats_tag}|; s|^FROM alpine:latest|FROM alpine:${_alpine_tag}|" "${_file}"
   # DL3046: useradd -l (idempotent — only adds when not already present).
-  sed -i -E 's|useradd[[:space:]]+-u[[:space:]]|useradd -l -u |' "${_file}"
-  sed -i -E 's|useradd -l[[:space:]]+-l |useradd -l |' "${_file}"
+  #
+  # `-l` goes directly after the `useradd` token, not in front of `-u`.
+  # Anchoring on `useradd -u` matches only the order base's own template
+  # happens to use; a downstream repo writes
+  # `useradd -m -s /bin/bash -u ...` and the anchored form walks past it,
+  # leaving DL3046 live in a Dockerfile the migration reported as patched.
+  # Rewriting the head of the command instead makes the position of the
+  # flag being answered irrelevant. The flags are read from the useradd's
+  # OWN command segment -- the text after the token, cut at the first
+  # `&&`, `||`, `;` or `|` -- because the conflict-handling branch every
+  # downstream Dockerfile carries writes `usermod -l` after an `&&`, and
+  # scanning to end of line reads that sibling flag as this command
+  # already answering DL3046. The heal would then never fire and the
+  # migration would report a patched Dockerfile with the finding still
+  # live in it.
+  local _tmp3046
+  _tmp3046="$(mktemp)"
+  awk '
+    function _dfm_scan(_text) {
+      if (match(_text, /(&&|\|\||;|\|)/)) {
+        return substr(_text, 1, RSTART - 1)
+      }
+      return _text
+    }
+    {
+      if (match($0, /(^|[[:space:]])useradd[[:space:]]+/)) {
+        _head = substr($0, 1, RSTART + RLENGTH - 1)
+        _tail = substr($0, RSTART + RLENGTH)
+        _scan = _dfm_scan(_tail)
+        if (_scan ~ /(^|[[:space:]])(-[[:alnum:]]*u|--uid)([[:space:]]|=)/ &&
+            _scan !~ /(^|[[:space:]])(-[[:alnum:]]*l|--no-log-init)([[:space:]]|$)/) {
+          $0 = _head "-l " _tail
+        }
+      }
+      print
+    }
+  ' "${_file}" > "${_tmp3046}"
+  mv "${_tmp3046}" "${_file}"
   # DL3042: pip --no-cache-dir (idempotent).
   sed -i -E 's|pip install[[:space:]]+-r|pip install --no-cache-dir -r|' "${_file}"
   sed -i -E 's|pip install --no-cache-dir --no-cache-dir|pip install --no-cache-dir|' "${_file}"
@@ -679,7 +776,45 @@ _migrate_hadolint_apply() {
     ' "${_file}" > "${_tmp}"
     mv "${_tmp}" "${_file}"
   fi
-  _log_info upgrade upgrade_started "display=  Dockerfile patched: hadolint DL3007/DL3046/DL3003/DL3042/DL4006/DL3006 (#567 m5)"
+  # DL3066: inline ignore before each unguarded literal `USER root`.
+  #
+  # A pragma already sitting above the instruction is EXTENDED, never
+  # displaced: hadolint binds an ignore to the NEXT LINE, so inserting a
+  # second pragma between an existing one and its instruction would silently
+  # re-arm the rule that pragma was answering (the shipped shape of a real
+  # downstream Dockerfile is `# hadolint ignore=DL3002` directly above
+  # `USER root`). The inserted line copies the USER line's own indentation
+  # so the pragma cannot land outside a block it was meant to sit in.
+  if _dfm_needs_dl3066 "${_file}"; then
+    local _tmp3066
+    _tmp3066="$(mktemp)"
+    awk '
+      function flush(  ) { if (have) { print held; have = 0 } }
+      {
+        if ($0 ~ /^[[:space:]]*USER[[:space:]]+"?root"?[[:space:]]*$/) {
+          if (have && held ~ /hadolint ignore=/) {
+            if (held !~ /hadolint ignore=[A-Za-z0-9,]*DL3066/) {
+              sub(/hadolint ignore=[A-Za-z0-9,]+/, "&,DL3066", held)
+            }
+            print held
+            have = 0
+          } else {
+            flush()
+            match($0, /^[[:space:]]*/)
+            print substr($0, 1, RLENGTH) "# hadolint ignore=DL3066"
+          }
+          print $0
+          next
+        }
+        flush()
+        held = $0
+        have = 1
+      }
+      END { flush() }
+    ' "${_file}" > "${_tmp3066}"
+    mv "${_tmp3066}" "${_file}"
+  fi
+  _log_info upgrade upgrade_started "display=  Dockerfile patched: hadolint DL3007/DL3046/DL3003/DL3042/DL4006/DL3006/DL3066 (#567 m5, #946)"
 }
 
 # ── Migration 6: noetic entrypoint SC1090 directive ─────────────────────────
@@ -740,14 +875,40 @@ _migrate_arg_user_apply() {
 # container / runs the ENTRYPOINT. Bracket the source with `set +u` before
 # and `set -u` after so unbound vars inside setup.bash do not abort PID 1.
 #
-# Only fires when the entrypoint actually runs under nounset (`set -u` /
-# `set -eu` / `set -euo pipefail`) AND the source is not already guarded by
-# an immediately-preceding `set +u`.
+# Only fires when the entrypoint actually runs under nounset AND the source
+# is not already guarded by an immediately-preceding `set +u`.
+#
+# _dfm_entry_runs_under_nounset <dockerfile>
+#   True when the file beside <dockerfile> executes with nounset in effect.
+#   TWO independent sources, and the second is nowhere in the file:
+#     - the file turns it on itself (`set -u` / `set -eu` / `set -euo
+#       pipefail`) -- the whole story while the repo's own file IS the
+#       ENTRYPOINT;
+#     - the Dockerfile names base's orchestrator as the ENTRYPOINT, and the
+#       orchestrator SOURCES this file under its own `set -euo pipefail`
+#       (ADR-00000032). A repo that migrated to that model carrying the
+#       bringup init.sh seeded BEFORE it -- which has no `set` line at all
+#       -- runs its ROS source under nounset for the first time, with
+#       nothing in the file saying so.
+#   Reads the orchestrator ENTRYPOINT through _dfm_bringup_on_orchestrator
+#   so that spelling lives in one place; it is defined further down and
+#   both are in scope by the time apply_migrations calls either.
+_dfm_entry_runs_under_nounset() {
+  local _file="$1"
+  local _entry
+  _entry="$(_dfm_entrypoint_path "${_file}")"
+  [[ -f "${_entry}" ]] || return 1
+  if grep -Eq '^[[:space:]]*set[[:space:]]+-[a-z]*u' "${_entry}"; then
+    return 0
+  fi
+  _dfm_bringup_on_orchestrator "${_file}" >/dev/null
+}
+
 _migrate_nounset_source_detect() {
   local _entry
   _entry="$(_dfm_entrypoint_path "$1")"
   [[ -f "${_entry}" ]] || return 1
-  grep -Eq '^[[:space:]]*set[[:space:]]+-[a-z]*u' "${_entry}" || return 1
+  _dfm_entry_runs_under_nounset "$1" || return 1
   # An un-guarded source is one whose nearest preceding non-shellcheck-comment
   # line is NOT `set +u` (a shellcheck directive sits between guard and source
   # and must be treated as transparent so re-runs stay idempotent).
@@ -1029,9 +1190,9 @@ _migrate_smoke_copy_apply() {
 #
 # Order is load-bearing. It runs AFTER the migrations whose detect anchors on
 # the flat spelling (wrapper_copy, explicit_copy) so those still recognise it,
-# and BEFORE logrotate_copy / watchdog_copy, which clone the logging.sh COPY
-# line -- from the flat path they would append two MORE COPYs of files that
-# no longer exist. Idempotent: `.base/dist/...` does not match.
+# and BEFORE runtime_moved_files / runtime_dir_copy, which rewrite the runtime
+# helper COPYs -- from the flat path they would emit a source that no longer
+# exists. Idempotent: `.base/dist/...` does not match.
 _migrate_flat_to_dist_detect() {
   local _file="$1"
   grep -qE '\.base/(config|script)' "${_file}"
@@ -1044,81 +1205,230 @@ _migrate_flat_to_dist_apply() {
   _log_info upgrade upgrade_started "display=  Dockerfile patched: flat .base/{config,script} -> .base/dist/ (#915)"
 }
 
-# ── Migration (logrotate-copy): logging.sh's logrotate.sh sibling ────────────
+# ── Migration (runtime-moved-files): the two non-helpers leaving runtime/ ───
 #
-# runtime/logging.sh now sources a sibling logrotate.sh from the in-image
-# helper dir (the shared per-start-file + symlink + retention primitives).
-# A downstream Dockerfile that COPYs logging.sh into /usr/local/lib/base/
-# but predates the split lacks the logrotate.sh COPY, so the container tee
-# degrades to no rotation/prune. Insert the sibling COPY right after the
-# logging.sh COPY, reusing that line's own flag/src shape. Runs after
-# logging_rename so the logging COPY is already in its canonical
-# runtime/logging.sh -> /usr/local/lib/base/logging.sh form.
-_migrate_logrotate_copy_detect() {
+# dist/script/docker/runtime/ used to hold three kinds of file: helpers
+# baked into the image, one template init.sh seeds into a consumer repo,
+# and one runtime-test install-check helper. The directory is now COPY'd
+# whole (see runtime_dir_copy below), so the two that are not helpers moved
+# to the trees that match their destiny:
+#
+#   runtime/entrypoint.sh -> dist/dockerfile/entrypoint.sh
+#   runtime/smoke.sh      -> dist/test/bats/smoke/smoke.sh
+#
+# A consumer Dockerfile that names either source stops resolving. smoke.sh
+# is the one that reaches every repo: init.sh seeded the commented
+# runtime-test scaffold naming it, so the break is invisible until someone
+# uncomments the runtime split and gets "COPY source not found".
+#
+# Rewrites wherever they appear, comments included, for exactly that
+# reason. Runs after flat_to_dist so the pre-dist spelling is already
+# normalised; the optional prefixes are still matched so the migration does
+# not depend on that order holding. Idempotent: the new paths do not match.
+_migrate_runtime_moved_files_detect() {
   local _file="$1"
-  # Fire only on an ACTIVE (non-commented) COPY of the logging helper into
-  # its baked dest, with the logrotate sibling not yet COPY'd. Anchoring on
-  # the stable dest path (not the src) heals a hand-relocated src too.
-  grep -Eq '^[[:space:]]*COPY[^#]*/usr/local/lib/base/logging\.sh([[:space:]]|$)' "${_file}" || return 1
-  grep -Eq '^[[:space:]]*COPY[^#]*/usr/local/lib/base/logrotate\.sh([[:space:]]|$)' "${_file}" && return 1
-  return 0
+  grep -qE '\.base/(downstream/|dist/)?script/docker/runtime/(entrypoint|smoke)\.sh' \
+    "${_file}"
 }
 
-_migrate_logrotate_copy_apply() {
+_migrate_runtime_moved_files_apply() {
   local _file="$1"
-  # Emit each active logging.sh COPY line, then a logrotate.sh twin with
-  # both the src basename and the baked dest rewritten logging -> logrotate.
+  sed -i -E \
+    -e 's#\.base/(downstream/|dist/)?script/docker/runtime/entrypoint\.sh#.base/dist/dockerfile/entrypoint.sh#g' \
+    -e 's#\.base/(downstream/|dist/)?script/docker/runtime/smoke\.sh#.base/dist/test/bats/smoke/smoke.sh#g' \
+    "${_file}"
+  _log_info upgrade upgrade_started "display=  Dockerfile patched: runtime/{entrypoint,smoke}.sh moved out of the helper dir (#971)"
+}
+
+# ── Migration (runtime-dir-copy): per-file helper COPYs -> one dir COPY ──────
+#
+# Every consumer Dockerfile listed base's runtime helpers one COPY per file:
+#
+#   COPY --chmod=0755 .base/dist/script/docker/runtime/logging.sh   /usr/local/lib/base/logging.sh
+#   COPY --chmod=0755 .base/dist/script/docker/runtime/logrotate.sh /usr/local/lib/base/logrotate.sh
+#   COPY --chmod=0755 .base/dist/script/docker/runtime/watchdog.sh  /usr/local/lib/base/watchdog.sh
+#
+# so base adding a helper was not a change to base, it was a change to every
+# consumer repo -- and the two migrations this one replaces (logrotate_copy,
+# watchdog_copy) existed for no other reason. Collapsing to the directory
+# retires the whole class: the directory is the list, and it cannot fall out
+# of agreement with itself.
+#
+# Anchors on the SOURCE naming a helper, so any subset in any order
+# collapses and a consumer that bakes the helpers somewhere other than
+# /usr/local/lib/base/ collapses into its own destination. The consumer's
+# flags, comment prefix and spacing are preserved by rewriting the two
+# tokens in place rather than emitting a canonical line.
+#
+# Deliberately NOT deleted: the comment lines a consumer wrote above the
+# COPYs it loses. A stale comment is cosmetic; deleting text the consumer
+# may have edited is not reversible by the next upgrade.
+_DFM_RUNTIME_HELPER_SRC_RE='\.base/(downstream/|dist/)?script/docker/runtime/(logging|logrotate|watchdog)\.sh([[:space:]]|$)'
+
+_migrate_runtime_dir_copy_detect() {
+  local _file="$1"
+  # Commented COPYs count: init.sh seeded the runtime-stage scaffold into
+  # every repo, and left per-file it teaches the retired shape to whoever
+  # uncomments it later.
+  grep -qE "^[[:space:]]*#?[[:space:]]*COPY[[:space:]].*${_DFM_RUNTIME_HELPER_SRC_RE}" \
+    "${_file}"
+}
+
+_migrate_runtime_dir_copy_apply() {
+  local _file="$1"
   local _tmp
   _tmp="$(mktemp)"
+  # One statement per physical line is the shape every measured consumer
+  # carries. A backslash-continued one is passed through untouched rather
+  # than half-rewritten -- its per-file COPYs still resolve (base still
+  # ships all three helpers), so leaving it is safe, and the warning below
+  # says it is there.
   awk '
-    { print }
-    /^[[:space:]]*COPY[^#]*\/usr\/local\/lib\/base\/logging\.sh([[:space:]]|$)/ {
-      twin=$0
-      gsub(/logging\.sh/, "logrotate.sh", twin)
-      print twin
+    # Trailing path component removed, keeping the separator: the
+    # destination named a file, the collapsed COPY names its directory.
+    function _dirpart(_p,   _i) {
+      _i = length(_p)
+      while (_i > 0 && substr(_p, _i, 1) != "/") { _i-- }
+      return (_i > 0) ? substr(_p, 1, _i) : _p
+    }
+    BEGIN { _stage = 0 }
+    {
+      _line = $0
+      sub(/[ \t]+$/, "", _line)
+      # Stage tracking decides the scope of the de-duplication: two stages
+      # that each COPY the helpers must each keep a COPY. A COMMENTED FROM
+      # is a boundary too -- the commented runtime scaffold is a stage.
+      if (_line ~ /^[ \t]*#?[ \t]*FROM[ \t]/) { _stage++ }
+      if (_line ~ /^[ \t]*#?[ \t]*COPY[ \t]/ &&
+          _line ~ /\.base\/(downstream\/|dist\/)?script\/docker\/runtime\/(logging|logrotate|watchdog)\.sh([ \t]|$)/ &&
+          _line !~ /\\$/ && NF >= 3) {
+        _dest = $NF
+        _quote = ""
+        if (_dest ~ /^".*"$/) {
+          _quote = "\""
+          _dest = substr(_dest, 2, length(_dest) - 2)
+        }
+        _dest = _quote _dirpart(_dest) _quote
+        # gsub, not sub: a COPY may hand-list two or three helpers as
+        # sources of one statement, and each has to become the directory.
+        gsub(/\.base\/(downstream\/|dist\/)?script\/docker\/runtime\/(logging|logrotate|watchdog)\.sh/,
+             ".base/dist/script/docker/runtime/", _line)
+        # Which leaves the directory named two or three times in a row.
+        # Squeeze the repeats; docker accepts them, a reader should not
+        # have to wonder whether they mean something.
+        while (_line ~ /\.base\/dist\/script\/docker\/runtime\/[ \t]+\.base\/dist\/script\/docker\/runtime\//) {
+          sub(/\.base\/dist\/script\/docker\/runtime\/[ \t]+\.base\/dist\/script\/docker\/runtime\//,
+              ".base/dist/script/docker/runtime/", _line)
+        }
+        _line = substr(_line, 1, length(_line) - length($NF)) _dest
+        _key = _stage SUBSEP _line
+        if (_key in _seen) { next }
+        _seen[_key] = 1
+      }
+      print _line
     }
   ' "${_file}" > "${_tmp}"
   mv "${_tmp}" "${_file}"
-  _log_info upgrade upgrade_started "display=  Dockerfile patched: added runtime/logrotate.sh COPY sibling (#805)"
+  _log_info upgrade upgrade_started "display=  Dockerfile patched: runtime helper COPYs collapsed into one directory COPY (#971)"
+
+  # Anything still naming a helper file is a shape the rewrite declined --
+  # a backslash-continued statement. It still builds; say so rather than
+  # reporting a collapse that did not happen to that line.
+  if grep -qE "^[[:space:]]*#?[[:space:]]*COPY[[:space:]].*${_DFM_RUNTIME_HELPER_SRC_RE}" \
+      "${_file}"; then
+    _log_warn upgrade upgrade_started "display=  Dockerfile still COPYs a runtime helper per file on a continued statement — collapse it by hand into the directory COPY (#971)"
+  fi
 }
 
-# ── Migration (watchdog-copy): watchdog.sh runtime helper sibling ────────────
+# ── Migration (entrypoint-orchestrator): a notice, never a rewrite ──────────
 #
-# The generic single-service watchdog ships a new runtime helper
-# watchdog.sh, COPY'd next to logging.sh / logrotate.sh at
-# /usr/local/lib/base/. A downstream Dockerfile that COPYs logging.sh but
-# predates the watchdog lacks the watchdog.sh COPY, so a repo that adds
-# `. /usr/local/lib/base/watchdog.sh` to its entrypoint would source a
-# missing file. Insert the sibling COPY right after the logging.sh COPY,
-# reusing that line's own flag/src shape. Mirrors the logrotate-copy
-# migration; runs after logging_rename / logrotate_copy so the logging
-# COPY is already canonical. Idempotent: skipped once watchdog.sh is COPY'd.
-_migrate_watchdog_copy_detect() {
+# base's plumbing -- the logging / watchdog source lines and the final exec
+# -- moved out of the seeded entrypoint into a base-owned ORCHESTRATOR that
+# ships inside the runtime helper directory, so it arrives with a subtree
+# pull and updates with the next one. A repo adopts it with two edits that
+# must land TOGETHER:
+#
+#   Dockerfile           ENTRYPOINT ["/usr/local/lib/base/entrypoint.sh"]
+#   script/entrypoint.sh drop base's plumbing and the exec, keep the repo's
+#                        own bringup -- the orchestrator sources this file
+#
+# Flipping the ENTRYPOINT first breaks the container: the orchestrator
+# SOURCES the bringup, so an un-removed `exec "$@"` fires mid-source and the
+# watchdog never arms. Cleaning the bringup first is merely inert. Doing
+# neither is also fine -- the repo keeps its own ENTRYPOINT and runs exactly
+# as before; it just does not get the drift fix.
+#
+# base does NOT make the edit. Only the repo owner can tell a bringup line
+# from base plumbing in a file that has been hand-edited for years, and a
+# parser guessing at that is the fragility this whole split exists to leave
+# behind. So this migration detects and WARNS and writes nothing -- the
+# apply-nothing end of the policy this file's header states for a shape it
+# recognises but must not rewrite.
+#
+# It reaches an existing repo for the same reason every other migration
+# does: init.sh calls apply_migrations from the FRESHLY PULLED subtree as
+# the upgrade's resync step, so the notice runs even under a consumer's own
+# vendored upgrade.sh from a release that predates it.
+_migrate_entrypoint_orchestrator_detect() {
   local _file="$1"
-  # Fire only on an ACTIVE (non-commented) COPY of the logging helper into
-  # its baked dest, with the watchdog sibling not yet COPY'd. Anchoring on
-  # the stable dest path heals a hand-relocated src too.
-  grep -Eq '^[[:space:]]*COPY[^#]*/usr/local/lib/base/logging\.sh([[:space:]]|$)' "${_file}" || return 1
-  grep -Eq '^[[:space:]]*COPY[^#]*/usr/local/lib/base/watchdog\.sh([[:space:]]|$)' "${_file}" && return 1
-  return 0
+  grep -qE '^[[:space:]]*ENTRYPOINT[[:space:]]*\[[[:space:]]*"?/entrypoint\.sh"?' \
+    "${_file}"
 }
 
-_migrate_watchdog_copy_apply() {
+_migrate_entrypoint_orchestrator_apply() {
   local _file="$1"
-  # Emit each active logging.sh COPY line, then a watchdog.sh twin with both
-  # the src basename and the baked dest rewritten logging -> watchdog.
-  local _tmp
-  _tmp="$(mktemp)"
-  awk '
-    { print }
-    /^[[:space:]]*COPY[^#]*\/usr\/local\/lib\/base\/logging\.sh([[:space:]]|$)/ {
-      twin=$0
-      gsub(/logging\.sh/, "watchdog.sh", twin)
-      print twin
-    }
-  ' "${_file}" > "${_tmp}"
-  mv "${_tmp}" "${_file}"
-  _log_info upgrade upgrade_started "display=  Dockerfile patched: added runtime/watchdog.sh COPY sibling (#797)"
+  _log_warn upgrade upgrade_started "display=  Dockerfile still runs the repo's own /entrypoint.sh as the container ENTRYPOINT. base now ships an orchestrator at /usr/local/lib/base/entrypoint.sh that sources it; migrating means flipping ENTRYPOINT and cleaning script/entrypoint.sh in the SAME commit (README: Container entrypoint). Nothing was changed here."
+}
+
+# ── Migration (bringup-residue): the other half of that same notice ─────────
+#
+# Once the ENTRYPOINT is the orchestrator, the repo's file is a BRINGUP that
+# gets sourced, and two leftovers stop being harmless:
+#
+#   exec              fires mid-source and pre-empts the watchdog and the
+#                     orchestrator's own exec
+#   a helper source   sources logging.sh / watchdog.sh a SECOND time, which
+#                     opens a second per-start log file and re-tees, or arms
+#                     the watchdog twice
+#
+# Deliberately silent while the ENTRYPOINT is still the repo's own file:
+# there the exec is correct and the helper sources are the documented
+# pre-migration wiring, so warning about them would be noise on every
+# upgrade of every repo that has not migrated yet -- which is what the
+# migration above already says once.
+_DFM_BRINGUP_EXEC_RE='^[[:space:]]*exec[[:space:]]'
+_DFM_BRINGUP_PLUMBING_RE='^[[:space:]]*(\.|source)[[:space:]]+/usr/local/lib/base/(logging|watchdog)\.sh'
+
+# _dfm_bringup_on_orchestrator <dockerfile>
+#   Echo the sibling bringup path when this Dockerfile has already flipped
+#   its ENTRYPOINT to the orchestrator and that sibling exists; else fail.
+_dfm_bringup_on_orchestrator() {
+  local _file="$1"
+  grep -qE '^[[:space:]]*ENTRYPOINT[[:space:]]*\[[[:space:]]*"?/usr/local/lib/base/entrypoint\.sh"?' \
+    "${_file}" || return 1
+  local _bringup
+  _bringup="$(_dfm_entrypoint_path "${_file}")"
+  [[ -f "${_bringup}" ]] || return 1
+  printf '%s' "${_bringup}"
+}
+
+_migrate_bringup_residue_detect() {
+  local _file="$1"
+  local _bringup
+  _bringup="$(_dfm_bringup_on_orchestrator "${_file}")" || return 1
+  grep -qE "${_DFM_BRINGUP_EXEC_RE}|${_DFM_BRINGUP_PLUMBING_RE}" "${_bringup}"
+}
+
+_migrate_bringup_residue_apply() {
+  local _file="$1"
+  local _bringup
+  _bringup="$(_dfm_bringup_on_orchestrator "${_file}")" || return 0
+  if grep -qE "${_DFM_BRINGUP_EXEC_RE}" "${_bringup}"; then
+    _log_warn upgrade upgrade_started "display=  script/entrypoint.sh still execs, but the ENTRYPOINT is base's orchestrator, which SOURCES it -- the exec fires mid-source and the watchdog never arms. Drop it; the orchestrator owns the final exec. Nothing was changed here."
+  fi
+  if grep -qE "${_DFM_BRINGUP_PLUMBING_RE}" "${_bringup}"; then
+    _log_warn upgrade upgrade_started "display=  script/entrypoint.sh still sources a /usr/local/lib/base/ helper the orchestrator already sources, so it runs twice (a second per-start log, or a second watchdog). Drop the source line. Nothing was changed here."
+  fi
 }
 
 # Ordered migration list. Append new {detect, transform} pairs here; the
@@ -1131,10 +1441,12 @@ _MIGRATIONS=(
   logging_rename
   smoke_copy
   flat_to_dist
-  logrotate_copy
-  watchdog_copy
+  runtime_moved_files
+  runtime_dir_copy
   hadolint
   sc1090
   arg_user
   nounset_source
+  entrypoint_orchestrator
+  bringup_residue
 )

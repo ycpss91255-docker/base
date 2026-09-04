@@ -84,6 +84,8 @@ _one_good_pin() {
 # The detector: a version declared with no marker FAILS
 # ════════════════════════════════════════════════════════════════════
 
+# why: The base case: an ARG is where most of this repo's versions live, and an
+# unmarked one is a pin nothing watches
 @test "_run_pin_coverage: FAILS on an ARG version with no marker" {
   _one_good_pin
   _dockerfile 'ARG HADOLINT_VERSION=v2.12.0'
@@ -93,6 +95,8 @@ _one_good_pin() {
   assert_output --partial 'dockerfile/Dockerfile.test-tools:1'
 }
 
+# why: An image named through an ARG is still a third-party version, and the tag is
+# the half that goes stale
 @test "_run_pin_coverage: FAILS on an ARG naming an image with an explicit tag" {
   _one_good_pin
   _dockerfile 'ARG BASE_IMAGE="ubuntu:24.04"'
@@ -101,6 +105,8 @@ _one_good_pin() {
   assert_output --partial 'ARG BASE_IMAGE="ubuntu:24.04"'
 }
 
+# why: A literal FROM tag is the shape a helper stage takes, and it moves without
+# any ARG changing
 @test "_run_pin_coverage: FAILS on a FROM with a literal tag" {
   _one_good_pin
   _dockerfile 'FROM alpine:3.21 AS builder'
@@ -109,6 +115,8 @@ _one_good_pin() {
   assert_output --partial 'FROM alpine:3.21'
 }
 
+# why: dependabot parses uses: and nothing else, so an image run inside a run: step
+# is invisible to it -- how a 14-month-old actionlint kept passing
 @test "_run_pin_coverage: FAILS on an image named inside a workflow run: step" {
   # dependabot parses `uses:` refs and nothing else, so an image invoked
   # by `docker run` inside a `run:` step is invisible to it. That is how a
@@ -124,6 +132,8 @@ _one_good_pin() {
   assert_output --partial 'rhysd/actionlint:1.7.7'
 }
 
+# why: The form hadolint and shellcheck were actually pinned in for three years, so
+# a guard blind to it is blind to the defect it exists to prevent
 @test "_run_pin_coverage: FAILS on a release-download URL naming the version" {
   # Not a shape at the margin. This is the form hadolint v2.12.0 and
   # shellcheck v0.10.0 were ACTUALLY pinned in for three years, and the
@@ -138,6 +148,8 @@ _one_good_pin() {
   assert_output --partial 'releases/download/v2.12.0'
 }
 
+# why: The form the three bats helper libraries were pinned in -- the same story,
+# a different verb
 @test "_run_pin_coverage: FAILS on a git clone pinned to a literal tag" {
   # The form the three bats helper libraries were pinned in. Same story.
   _one_good_pin
@@ -149,6 +161,8 @@ _one_good_pin() {
   assert_output --partial '-b v2.1.0'
 }
 
+# why: An official image carries no slash, so the registry-reference shape cannot
+# anchor on it and it would pass unseen
 @test "_run_pin_coverage: FAILS on an OFFICIAL image, which has no namespace" {
   # `alpine:3.21` carries no slash, so the registry-reference shape cannot
   # anchor on it. The `docker run` context is what keeps a `<host>:<port>`
@@ -164,6 +178,8 @@ _one_good_pin() {
   assert_output --partial 'alpine:3.21'
 }
 
+# why: A ref in a generator's heredoc is not a workflow file, so dependabot cannot
+# see it, and the downstream repos it lands in have no updater at all
 @test "_run_pin_coverage: FAILS on a uses: ref written inside a SHELL SCRIPT" {
   # The `uses:` exemption is dependabot's job, and dependabot reads
   # WORKFLOW FILES. A ref inside a heredoc a generator writes is not one,
@@ -181,6 +197,8 @@ _one_good_pin() {
   assert_output --partial 'actions/checkout@v7'
 }
 
+# why: The hole under this repo's own advice: hoisting a ref makes the marker on it
+# voluntary, so deleting the marker leaves the lint green
 @test "_run_pin_coverage: FAILS on an assignment whose value is an action ref" {
   # The shape this repo's own advice produces, and the hole under it. When
   # a `uses:` ref inside a heredoc has no line a marker can address, the
@@ -199,6 +217,8 @@ _one_good_pin() {
   assert_output --partial '_MONITOR_REF'
 }
 
+# why: The other half -- the hoist is the documented fix, so declaring it has to be
+# enough, and unpinned keeps the ref on the floating list every run
 @test "_run_pin_coverage: a marked assignment of an action ref satisfies it" {
   # The other half: the hoist is the fix, so declaring it has to be
   # enough. `unpinned` is the honest state for a MAJOR ref -- there is no
@@ -213,6 +233,8 @@ _one_good_pin() {
   assert_success
 }
 
+# why: The rule is owner/repo@ref, not "has a slash in it"; a detector that flagged
+# paths and globs would be muted within a week
 @test "_run_pin_coverage: an assignment of a plain path is not an action ref" {
   # The rule is `<owner>/<repo>@<ref>`, not "has a slash in it". A path, a
   # glob or a URL fragment assigned to a name is not a third-party pin,
@@ -226,6 +248,8 @@ _one_good_pin() {
   assert_success
 }
 
+# why: The live instance: the migration wrote bats/bats:1.11.0 into every
+# downstream Dockerfile it healed, two minors behind this repo's own pin
 @test "_run_pin_coverage: FAILS on an image tag sed into a generated Dockerfile" {
   # The live instance: dockerfile_migrate.sh wrote `bats/bats:1.11.0` into
   # every downstream Dockerfile it migrated, two minors behind this repo's
@@ -240,6 +264,8 @@ _one_good_pin() {
   assert_output --partial 'bats/bats:1.11.0'
 }
 
+# why: dependabot bumps a version ref to the next version, and a branch is not one,
+# so it can never advance the ref and never says so
 @test "_run_pin_coverage: FAILS on a uses: ref pinned to a BRANCH" {
   # dependabot bumps a version ref to the next version. `main` is not one,
   # so it can never advance it and never says so.
@@ -258,6 +284,8 @@ _one_good_pin() {
 # The scope boundary: what deliberately needs NO marker
 # ════════════════════════════════════════════════════════════════════
 
+# why: Covering it here would give one dependency two mechanisms with opinions,
+# which is worse than one that works
 @test "_run_pin_coverage: a uses: VERSION ref needs no marker (dependabot's job)" {
   # Covering it here would give one dependency two mechanisms with
   # opinions, which is worse than one that works.
@@ -272,6 +300,8 @@ _one_good_pin() {
   assert_success
 }
 
+# why: A SHA is already immutable, so there is nothing for a marker to name and
+# demanding one would teach people to reach for ignore
 @test "_run_pin_coverage: a SHA-pinned uses: ref needs no marker" {
   _one_good_pin
   _workflow \
@@ -283,6 +313,7 @@ _one_good_pin() {
   assert_success
 }
 
+# why: A local call is this tree at this commit; it names no third party to watch
 @test "_run_pin_coverage: a local reusable-workflow call needs no marker" {
   _one_good_pin
   _workflow \
@@ -293,6 +324,8 @@ _one_good_pin() {
   assert_success
 }
 
+# why: ARG USER_UID=1000 is ours, not a third-party version, and a detector that
+# flagged it would be muted
 @test "_run_pin_coverage: an ARG that is not a version needs no marker" {
   # `ARG USER_UID=1000` and `ARG TZ="Asia/Taipei"` are ours, not a
   # third-party version. A detector that flagged them would be muted.
@@ -307,6 +340,8 @@ _one_good_pin() {
   assert_success
 }
 
+# why: The ARG carries the pin and the FROM references it; demanding a second
+# marker for one pin is how a lint gets muted
 @test "_run_pin_coverage: a FROM whose tag is an ARG needs no marker" {
   # The ARG carries the pin; the FROM is a reference to it.
   _one_good_pin
@@ -319,6 +354,8 @@ _one_good_pin() {
   assert_success
 }
 
+# why: An interpolated URL names no version -- it references the ARG that carries
+# the marker, and redundant markers are what people mute
 @test "_run_pin_coverage: an INTERPOLATED release URL needs no marker" {
   # `releases/download/${FOO_VERSION}/` names no version -- it references
   # the ARG, which carries the marker. Flagging it would demand a second
@@ -334,6 +371,8 @@ _one_good_pin() {
   assert_success
 }
 
+# why: The clone half of the same rule, so the fix documented for a clone ref does
+# not itself become a finding
 @test "_run_pin_coverage: an INTERPOLATED clone ref needs no marker" {
   _one_good_pin
   _dockerfile \
@@ -344,6 +383,8 @@ _one_good_pin() {
   assert_success
 }
 
+# why: The fix for the live instance: the ref is hoisted to a line a marker can
+# address, so the accepted shape has to actually be accepted
 @test "_run_pin_coverage: an INTERPOLATED uses: ref in a script needs no marker" {
   # The fix for the live instance: the ref is hoisted onto a line of its
   # own where a marker can address it, and the heredoc references that.
@@ -360,6 +401,8 @@ _one_good_pin() {
   assert_success
 }
 
+# why: Commented-out text declares nothing, and demanding a marker on it teaches
+# people to delete history to satisfy the lint
 @test "_run_pin_coverage: a commented-out declaration needs no marker" {
   _one_good_pin
   _dockerfile \
@@ -372,6 +415,8 @@ _one_good_pin() {
 # The three ways to satisfy the detector
 # ════════════════════════════════════════════════════════════════════
 
+# why: The ordinary success path, and the only one of the three states that ends up
+# compared against an upstream
 @test "_run_pin_coverage: a pinned marker satisfies the detector" {
   _dockerfile \
     '# tool-pin: hadolint github-release hadolint/hadolint' \
@@ -381,6 +426,8 @@ _one_good_pin() {
   assert_output --partial 'pin-coverage lint: clean'
 }
 
+# why: unpinned is a declaration that the dependency floats, counted apart so the
+# watch prints it on every run rather than hiding it
 @test "_run_pin_coverage: an unpinned marker satisfies it and is counted apart" {
   # `unpinned` is a DECLARATION that the dependency floats, not an off
   # switch: the watch prints every one of them on every run.
@@ -394,6 +441,8 @@ _one_good_pin() {
   assert_output --partial '1 pinned, 1 declared unpinned'
 }
 
+# why: ignore is the escape for a false positive, and without one a detector this
+# broad gets turned off wholesale
 @test "_run_pin_coverage: an ignore marker satisfies it for a false positive" {
   _one_good_pin
   _dockerfile \
@@ -407,6 +456,8 @@ _one_good_pin() {
 # Marker hygiene the lint enforces
 # ════════════════════════════════════════════════════════════════════
 
+# why: A typo caught by a scheduled run weeks later is weeks of not watching, so
+# the resolver is validated at the declaration site
 @test "_run_pin_coverage: FAILS on a marker naming an unimplemented resolver" {
   # A typo caught by a scheduled run weeks later is weeks of not watching.
   _dockerfile \
@@ -418,6 +469,8 @@ _one_good_pin() {
   assert_output --partial 'Known resolvers:'
 }
 
+# why: --value and --set address a pin by name, so a shared name makes both read
+# and rewrite whichever came first, silently
 @test "_run_pin_coverage: FAILS when two markers share a name" {
   # `pins.sh --value` and `--set` address a pin BY NAME, so a shared name
   # makes both read and rewrite whichever came first, silently.
@@ -431,6 +484,8 @@ _one_good_pin() {
   assert_output --partial 'two tool-pin markers share a name'
 }
 
+# why: A marker that does not parse must fail at the site rather than be dropped,
+# which would leave the pin uncovered and the lint green
 @test "_run_pin_coverage: FAILS when a marker does not parse" {
   _dockerfile \
     '# tool-pin: foo github-release owner/foo bogus=1' \
@@ -440,6 +495,8 @@ _one_good_pin() {
   assert_output --partial 'did not parse'
 }
 
+# why: Two of the three states exist for dependencies that cannot name a version,
+# so a reader who only knows the pinned form has no correct move
 @test "_run_pin_coverage: the failure names all three marker forms" {
   # The message has to be actionable: two of the three states exist for
   # dependencies that CANNOT name a version, and a reader who only knows
@@ -457,6 +514,8 @@ _one_good_pin() {
 # Non-vacuity: the lint must not pass because it read nothing
 # ════════════════════════════════════════════════════════════════════
 
+# why: A reader regression matching nothing would report a clean tree forever --
+# the failure this guard exists to prevent one level up
 @test "_run_pin_coverage: DIES when the scanned trees yield no pinned entry" {
   # A reader regression that matched nothing would otherwise report a
   # clean tree forever, which is the failure this guard exists to prevent
@@ -467,6 +526,8 @@ _one_good_pin() {
   assert_output --partial 'yielded no PINNED entry'
 }
 
+# why: A walk that opens no file is the same vacuous pass by the other road, and it
+# must not be quieter than the first
 @test "_run_pin_coverage: DIES when the walk yields no file at all" {
   rm -rf "${SCRATCH:?}"
   mkdir -p "${SCRATCH}/doc"
@@ -476,6 +537,8 @@ _one_good_pin() {
   assert_output --partial 'did not parse'
 }
 
+# why: -name <entry> -prune prunes at ANY depth, and the guard only tested the repo
+# root, so an entry never appearing there was never checked
 @test "_run_pin_coverage: FAILS when a pruned BASENAME matches a tracked tree at depth" {
   # `find -name <entry> -prune` prunes a directory of that basename at ANY
   # depth. The guard only ever tested `<repo-root>/<entry>` and skipped
@@ -493,6 +556,8 @@ _one_good_pin() {
   assert_output --partial 'dist/script/log'
 }
 
+# why: The honest case the prune list exists for, without which the guard above
+# would make every entry a finding
 @test "_run_pin_coverage: a pruned basename matching nothing tracked is fine" {
   # The whole point of the prune list. `log/` holds run transcripts and is
   # gitignored, so no tracked path lies under it and the entry is honest.
@@ -507,6 +572,8 @@ _one_good_pin() {
   assert_success
 }
 
+# why: The guard used to be skipped where git was unreadable -- which is the
+# container the local gate runs in, so fail-open was the default there
 @test "_run_pin_coverage: DIES when the prune list cannot be checked at all" {
   # The guard used to be wrapped in `if git rev-parse --git-dir`, so an
   # environment it could not inspect got a PASS. The suite runs in a
@@ -520,6 +587,8 @@ _one_good_pin() {
   assert_output --partial 'cannot check its prune list'
 }
 
+# why: The container cannot answer and the host always can, so the verdict is
+# computed where git works and carried in rather than skipped
 @test "_run_pin_coverage: accepts a host-computed verdict when git is unreadable" {
   # The container cannot answer the question; the host always can. So the
   # answer is COMPUTED where git works and carried in, and the guard runs
@@ -531,6 +600,8 @@ _one_good_pin() {
   assert_success
 }
 
+# why: The carried verdict has to be able to FAIL, or computing it on the host is
+# just a longer way to pass
 @test "_run_pin_coverage: FAILS on a host-computed verdict naming a tracked tree" {
   _one_good_pin
   unset PIN_PRUNE_TRACKED
@@ -540,6 +611,8 @@ _one_good_pin() {
   assert_output --partial 'doc'
 }
 
+# why: A stale or hand-set verdict must not silence a tree git can see; the
+# fallback is for an environment with no git, never an override
 @test "_run_pin_coverage: git OUTRANKS an inherited verdict" {
   # A stale or hand-set PIN_PRUNE_TRACKED must not be able to silence a
   # tree git can see is tracked. The carried answer is a fallback for the
@@ -565,6 +638,8 @@ _one_good_pin() {
 # contexts that were missing, and the last one is the point -- an
 # unrecognised context has to raise the question, not answer it.
 
+# why: This repo's own core artefact names its image with no docker verb anywhere
+# on the line
 @test "_run_pin_coverage: FAILS on an image: in compose.yaml" {
   # This repo's own core artefact. A compose service names its image the
   # way a Dockerfile names its base, and no `docker` verb appears on the
@@ -580,6 +655,8 @@ _one_good_pin() {
   assert_output --partial 'alpine:3.21'
 }
 
+# why: The job runs inside this image, and dependabot can bump it no more than it
+# can bump a run: one
 @test "_run_pin_coverage: FAILS on a workflow container: image" {
   # A first-class GitHub Actions feature: the job runs INSIDE this image,
   # and dependabot cannot bump it any more than it can bump a `run:` one.
@@ -595,6 +672,8 @@ _one_good_pin() {
   assert_output --partial 'alpine:3.21'
 }
 
+# why: The live shape: the migration's sed rewrote a FROM line, and only the
+# namespaced half was caught -- the alpine half was invisible
 @test "_run_pin_coverage: FAILS on a bare image tag sed into a generated file" {
   # The live shape. dockerfile_migrate.sh rewrote the FROM line of every
   # downstream Dockerfile it migrated, and the namespaced half of that one
@@ -610,6 +689,8 @@ _one_good_pin() {
   assert_output --partial 'alpine:3.21'
 }
 
+# why: The whole point of dropping the context roster: an unrecognised context has
+# to raise the question rather than answer it
 @test "_run_pin_coverage: FAILS on an image named by a key nothing anticipated" {
   # The whole point of dropping the context roster. Neither `image:` nor
   # `container:` nor any `docker` verb appears here, and the file shape is
@@ -622,6 +703,8 @@ _one_good_pin() {
   assert_output --partial 'alpine:3.21'
 }
 
+# why: justfiles are this repo's control surface, so a container it actually starts
+# is likelier to be named in one than in a shell script
 @test "_run_pin_coverage: FAILS on a bare image named in a justfile" {
   # justfiles are this repo's control surface -- ADR-00000005 makes `just`
   # the single runner, so a container this repo actually starts is far
@@ -645,6 +728,8 @@ _one_good_pin() {
 # it), never of the surrounding line, so they do not decay the way the
 # context roster did.
 
+# why: A published port is core idiom here and would have fired even under the old
+# rule, so this is the noise the token rules buy down
 @test "_run_pin_coverage: a published port is not a version" {
   # `-p 8080:8080` is core idiom here and would have fired even under the
   # old rule, which required only a `docker run` somewhere on the line.
@@ -657,6 +742,8 @@ _one_good_pin() {
   assert_success
 }
 
+# why: A UID:GID pair wears the same shape as a tag, and flagging it would teach
+# people to mute the lint
 @test "_run_pin_coverage: a UID:GID pair is not a version" {
   _one_good_pin
   mkdir -p "${SCRATCH}/dist/script"
@@ -667,6 +754,8 @@ _one_good_pin() {
   assert_success
 }
 
+# why: You cannot depend on a version you are creating; -t names an output, which is
+# a shape rule rather than a list of our own image names
 @test "_run_pin_coverage: the image this repo BUILDS is not one it depends on" {
   # You cannot depend on a version you are creating. `-t`/`--tag` names an
   # OUTPUT, so the token it introduces is ours by construction -- which is
@@ -680,6 +769,7 @@ _one_good_pin() {
   assert_success
 }
 
+# why: A digest is already immutable, so there is no newer one to propose
 @test "_run_pin_coverage: a digest is not a version" {
   # A digest is already immutable; there is no newer one to propose.
   _one_good_pin
@@ -696,6 +786,8 @@ _one_good_pin() {
 # The scan surface: an exemption list, and it is checked
 # ════════════════════════════════════════════════════════════════════
 
+# why: A spec's heredoc IS the fixture under test, and the marker grammar cannot
+# reach inside one without changing what the test feeds its subject
 @test "_run_pin_coverage: a spec's fixture text needs no marker" {
   # A .bats spec's heredoc IS the fixture the code under test parses, so
   # the marker grammar cannot reach it: the marker's target is the next
@@ -714,6 +806,8 @@ _one_good_pin() {
   assert_success
 }
 
+# why: A version in prose is stale the way a sentence is stale -- a doc-review
+# problem rather than a supply-chain one
 @test "_run_pin_coverage: prose needs no marker" {
   _one_good_pin
   mkdir -p "${SCRATCH}/doc"
@@ -723,6 +817,8 @@ _one_good_pin() {
   assert_success
 }
 
+# why: The exemption list is the last hand-kept thing in the scan surface, so a
+# marker in an exempt file is a belief in watching that nothing reads
 @test "_run_pin_coverage: FAILS when a tool-pin marker sits in an unscanned file" {
   # The exemption list is the one hand-kept thing left in the scan
   # surface, so it is checked rather than trusted -- the same treatment
@@ -762,6 +858,8 @@ _one_good_pin() {
 # assign a version -- of the same regex, so they cannot disagree about
 # which shapes are pins.
 
+# why: local sat outside the keyword roster while the extraction regex already named
+# it, so the convention pushed authors into the one invisible shape
 @test "_run_pin_coverage: FAILS on a local= version with no marker" {
   _one_good_pin
   _script 'x.sh' \
@@ -774,6 +872,8 @@ _one_good_pin() {
   assert_output --partial 'x.sh:2'
 }
 
+# why: readonly is the spelling this repo's style guide asks for, which makes it the
+# likeliest place for an unwatched pin to land
 @test "_run_pin_coverage: FAILS on a readonly= version with no marker" {
   _one_good_pin
   _script 'x.sh' 'readonly HELM_VERSION=3.16.2'
@@ -782,6 +882,8 @@ _one_good_pin() {
   assert_output --partial 'x.sh:1'
 }
 
+# why: export crosses into the environment a build reads, so a version declared
+# there reaches further than the file it sits in
 @test "_run_pin_coverage: FAILS on an export= version with no marker" {
   _one_good_pin
   _script 'x.sh' 'export TERRAFORM_VERSION="1.9.5"'
@@ -790,6 +892,8 @@ _one_good_pin() {
   assert_output --partial 'x.sh:1'
 }
 
+# why: No keyword at all is still an assignment, and the hoisting convention
+# produces this shape as readily as the other three
 @test "_run_pin_coverage: FAILS on a bare NAME=version with no marker" {
   # No keyword at all is still an assignment, and the hoisting convention
   # produces this shape as readily as the other three.
@@ -800,6 +904,8 @@ _one_good_pin() {
   assert_output --partial 'x.sh:1'
 }
 
+# why: The success path for the four shapes above, so the fix for all of them is one
+# marker rather than four different answers
 @test "_run_pin_coverage: a marked shell assignment satisfies the detector" {
   _one_good_pin
   _script 'x.sh' \
@@ -809,6 +915,8 @@ _one_good_pin() {
   assert_success
 }
 
+# why: This repo's scripts are full of counts, ports and timeouts, and a detector
+# that flagged them would be muted within a week
 @test "_run_pin_coverage: a shell assignment that is not a version is not one" {
   # The same boundary the ARG branch draws, for the same reason: this
   # repo's scripts are full of assignments, and a detector that flagged a
@@ -828,6 +936,8 @@ _one_good_pin() {
   assert_success
 }
 
+# why: An interpolating value references a pin rather than declaring one, exactly as
+# a FROM on an ARG tag does
 @test "_run_pin_coverage: an assignment whose value INTERPOLATES needs no marker" {
   # `local _t="${BATS_VERSION}"` references the pin; it does not declare
   # one, exactly as a `FROM alpine:${ALPINE_VERSION}` does not.
@@ -858,6 +968,8 @@ _one_good_pin() {
 # keeps it usable. That boundary is stated, not silent -- it is the
 # reason `ARG THIRD_VERSION=2024` is accepted below.
 
+# why: kcov's own pin is a single-component tag, so the dot rule made this repo's
+# own pin invisible to the guard meant to prove it was watched
 @test "_run_pin_coverage: FAILS on a v-prefixed version with no dot" {
   _one_good_pin
   _dockerfile 'ARG KCOV_VERSION=v43'
@@ -867,6 +979,8 @@ _one_good_pin() {
   assert_output --partial 'dockerfile/Dockerfile.test-tools:1'
 }
 
+# why: The shell half of the same rule -- a major action ref hoisted for a marker is
+# dotless by construction
 @test "_run_pin_coverage: FAILS on a v-prefixed major-only ref in a shell assignment" {
   _one_good_pin
   _script 'x.sh' 'readonly ACTION_MAJOR=v7'
@@ -875,6 +989,8 @@ _one_good_pin() {
   assert_output --partial 'x.sh:1'
 }
 
+# why: The success path for the dotless rule, so the fix is a marker rather than an
+# artificial dot
 @test "_run_pin_coverage: a marked dotless version satisfies the detector" {
   _one_good_pin
   _dockerfile \
@@ -884,6 +1000,8 @@ _one_good_pin() {
   assert_success
 }
 
+# why: The stated cost of the v-prefix rule: a bare integer carries nothing that
+# separates a release from a UID or a year
 @test "_run_pin_coverage: a bare integer is still not a version" {
   # The stated cost of the rule above. `1000` and `2024` carry nothing
   # that separates a release from a UID or a year.
@@ -899,12 +1017,16 @@ _one_good_pin() {
 # The real tree
 # ════════════════════════════════════════════════════════════════════
 
+# why: Drives the live tree, so the fixtures cannot drift away from the pins that
+# actually ship
 @test "_run_pin_coverage: the real repo tree declares every version it names" {
   REPO_ROOT=/source run _run_pin_coverage
   assert_success
   assert_output --partial 'pin-coverage lint: clean'
 }
 
+# why: Membership in that table is what gives the lint a CI job; without it the lint
+# would gate only a local run
 @test "_run_pin_coverage: pin-coverage is in test.sh's _LINT_TOOLS table" {
   # Membership is what gives it a CI job: self_test_yaml_spec asserts
   # every entry of that table is named by a job in self-test.yaml.
@@ -912,6 +1034,8 @@ _one_good_pin() {
   assert_success
 }
 
+# why: The host-direct entry point is how a bump proposal's author checks coverage
+# without building the image
 @test "_run_pin_coverage: --pin-coverage-only runs it host-direct" {
   run /source/script/test/test.sh --pin-coverage-only
   assert_success

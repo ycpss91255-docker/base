@@ -18,42 +18,49 @@ setup() {
 # callers resolve it explicitly via _resolve_lang. These assert the new
 # contract -- the function maps LANG / SETUP_LANG to the canonical code.
 
+# why: Default language
 @test "_resolve_lang sets 'en' when LANG is unset (#568)" {
   run bash -c "unset LANG SETUP_LANG; source ${LIB}; _resolve_lang _LANG; echo \"\${_LANG}\""
   assert_success
   assert_output "en"
 }
 
+# why: Traditional Chinese
 @test "_resolve_lang sets 'zh-TW' for zh_TW.UTF-8 (#568)" {
   run bash -c "unset SETUP_LANG; LANG=zh_TW.UTF-8; source ${LIB}; _resolve_lang _LANG; echo \"\${_LANG}\""
   assert_success
   assert_output "zh-TW"
 }
 
+# why: Simplified Chinese
 @test "_resolve_lang sets 'zh-CN' for zh_CN.UTF-8 (#568)" {
   run bash -c "unset SETUP_LANG; LANG=zh_CN.UTF-8; source ${LIB}; _resolve_lang _LANG; echo \"\${_LANG}\""
   assert_success
   assert_output "zh-CN"
 }
 
+# why: Singapore variant
 @test "_resolve_lang sets 'zh-CN' for zh_SG (Singapore) (#568)" {
   run bash -c "unset SETUP_LANG; LANG=zh_SG.UTF-8; source ${LIB}; _resolve_lang _LANG; echo \"\${_LANG}\""
   assert_success
   assert_output "zh-CN"
 }
 
+# why: Japanese
 @test "_resolve_lang sets 'ja' for ja_JP.UTF-8 (#568)" {
   run bash -c "unset SETUP_LANG; LANG=ja_JP.UTF-8; source ${LIB}; _resolve_lang _LANG; echo \"\${_LANG}\""
   assert_success
   assert_output "ja"
 }
 
+# why: Env override
 @test "_resolve_lang honors SETUP_LANG override (#568)" {
   run bash -c "SETUP_LANG=ja LANG=en_US.UTF-8; source ${LIB}; _resolve_lang _LANG; echo \"\${_LANG}\""
   assert_success
   assert_output "ja"
 }
 
+# why: Load-time side-effect removed
 @test "_lib.sh does NOT set _LANG at source time (#568 Part B)" {
   # The load-time side-effect is removed -- sourcing the lib chain leaves
   # _LANG unset until a caller invokes _resolve_lang explicitly.
@@ -64,6 +71,7 @@ setup() {
 
 # ── lib self-sourcing (load order not load-bearing, Part A) ─────────────
 
+# why: Self-sourcing (load order not load-bearing)
 @test "conf_logging.sh self-sources its conf.sh dependency in isolation (#568)" {
   # Sourcing conf_logging.sh alone (no _lib.sh / conf.sh first) must still
   # make its _parse_ini_section dependency available -- the module
@@ -75,6 +83,7 @@ setup() {
 
 # ── double-source guard ─────────────────────────────────────────────────────
 
+# why: Double-source guard
 @test "_lib.sh is idempotent when sourced twice" {
   run bash -c "source ${LIB}; source ${LIB}; echo \"\${_DOCKER_LIB_SOURCED}\""
   assert_success
@@ -83,6 +92,7 @@ setup() {
 
 # ── _load_env ───────────────────────────────────────────────────────────────
 
+# why: Env loader works
 @test "_load_env exports variables from a .env file" {
   local _tmp
   _tmp="$(mktemp)"
@@ -96,10 +106,12 @@ EOF
   rm -f "${_tmp}"
 }
 
+# why: Required arg check
 @test "_load_env errors when no path is given" {
   run -127 bash -c "source ${LIB}; _load_env"
 }
 
+# why: %q-quoted hostile value loads literally (no command-sub / word-split)
 @test "_load_env round-trips shell-hostile values verbatim (no exec, no split) (#689)" {
   # _load_env does `set -o allexport; source "${env_file}"`, executing the
   # .env as shell. write_env is responsible for producing safe quoting (it
@@ -131,6 +143,7 @@ EOF
   rm -f "${_tmp}"
 }
 
+# why: Missing-file error path (no `[[ -f ]]` guard)
 @test "_load_env aborts under set -euo pipefail when the file does not exist (#689)" {
   # kcov instrumentation perturbs the inner set -u shell (BASH_SOURCE comes
   # back unbound), masking the real "No such file" diagnostic; the abort
@@ -151,6 +164,7 @@ EOF
 
 # ── _compute_project_name ───────────────────────────────────────────────────
 
+# why: Project name (single-instance)
 @test "_compute_project_name produces clean PROJECT_NAME (single-instance #600)" {
   run bash -c "
     source ${LIB}
@@ -162,6 +176,7 @@ EOF
   assert_output "alice-myrepo"
 }
 
+# why: The only path that reaches the `local` last resort
 @test "_compute_project_name derives local-<basename> with nothing loaded (#920)" {
   # The wrapper's pre-bootstrap path, and the ONLY path that reaches the
   # `local` last resort. Nothing has been loaded, so there is no hub user
@@ -235,6 +250,7 @@ EOF
   assert_output "alice-myrepo"
 }
 
+# why: `[project] name` answers a shared Docker Hub login
 @test "_resolve_project_name: a configured name wins where the derivation cannot separate two users (#920)" {
   # The project name is now the ONLY per-host isolation the emitted stack
   # has, and the one case the derivation cannot separate is two OS users
@@ -252,6 +268,7 @@ EOF
 
 # ── _env_file_value / _carry_project_name (project-name continuity) ────────
 
+# why: Reads the file, not the environment
 @test "_env_file_value reads the last assignment, and empty when absent (#920)" {
   # Deliberately not `source`: the question is what the FILE records, so an
   # absent key must answer empty rather than answering with whatever the
@@ -270,6 +287,7 @@ EOF
   assert_output "[second][][]"
 }
 
+# why: Fresh checkout, nothing pending
 @test "_carry_project_name: a checkout with no recorded name takes the resolved one (#920)" {
   run bash -c "
     source ${LIB}
@@ -280,6 +298,7 @@ EOF
   assert_output "[tester-myrepo][]"
 }
 
+# why: The ordinary apply
 @test "_carry_project_name: an unchanged resolution records nothing pending (#920)" {
   run bash -c "
     source ${LIB}
@@ -290,6 +309,7 @@ EOF
   assert_output "[tester-myrepo][]"
 }
 
+# why: A rename nobody asked for waits
 @test "_carry_project_name: a changed DERIVATION keeps the recorded name (#920)" {
   # The rename nobody asked for: an upgrade changes what the default
   # derives, and the project name is the key compose finds the RUNNING
@@ -304,6 +324,7 @@ EOF
   assert_output "[local-myrepo][tester-myrepo]"
 }
 
+# why: The setting is not deferred
 @test "_carry_project_name: a CONFIGURED name is taken at once (#920, #893)" {
   # The exception, and the reason for it: `[project] name` exists so a
   # second worktree does not share the first's derived name. Deferring it
@@ -318,6 +339,7 @@ EOF
   assert_output "[myrepo-wt2][]"
 }
 
+# why: The recorded key wins outright
 @test "_recorded_project_name reads the PROJECT_NAME a repo already records (#920)" {
   local _f="${BATS_TEST_TMPDIR}/env-new"
   printf 'DOCKER_HUB_USER=bobhub\nIMAGE_NAME=myrepo\nPROJECT_NAME=isaac-ci\n' \
@@ -333,6 +355,7 @@ EOF
   assert_output "[isaac-ci]"
 }
 
+# why: The previous release's file shape is not a fresh checkout
 @test "_recorded_project_name reconstructs the name a PRE-record env file runs under (#920)" {
   # The shape every consumer on the previous release carries: no
   # PROJECT_NAME key at all, because the emitter interpolated
@@ -372,6 +395,7 @@ EOF
   assert_output "[bobhub-myrepo]"
 }
 
+# why: A genuinely fresh checkout, and both half-shapes
 @test "_recorded_project_name answers empty when there is no name to reconstruct (#920)" {
   # A genuinely fresh checkout, and the two half-shapes: either key
   # missing leaves a string compose would have refused as a project name,
@@ -394,6 +418,8 @@ EOF
   assert_output "[][][][]"
 }
 
+# why: Multi-user isolation with no config, pinned through the detection
+# that delivers it
 @test "_resolve_project_name: two OS users with no Docker Hub login derive distinct project names (#920)" {
   # The property that dropping the container name made load-bearing, pinned
   # through the chain that actually delivers it. The resolver has no OS-user
@@ -443,8 +469,50 @@ EOF
   rm -rf "${_repo}"
 }
 
+# why: the missing-cache case the warning above does not cover. A configured
+# checkout RECORDS its project name; deriving one over the gap invents a
+# name this checkout never ran under, and acting on it can reach a
+# different live checkout on a shared host. Only a self-managed checkout
+# may derive.
+@test "_compute_project_name refuses to derive for a configured checkout with no cache (#1015)" {
+  local _repo
+  _repo="$(mktemp -d)"
+  printf '[image]\nname = myrepo\n' > "${_repo}/.setup.conf"
+  run bash -c "
+    source ${LIB}
+    unset PROJECT_NAME
+    FILE_PATH='${_repo}'
+    DOCKER_HUB_USER=alice IMAGE_NAME=myrepo
+    _compute_project_name
+    echo \"REACHED \${PROJECT_NAME}\"
+  "
+  rm -rf "${_repo}"
+  assert_failure
+  refute_output --partial "REACHED"
+  assert_output --partial ".env.generated"
+}
+
+# why: the same gap in a self-managed checkout is that checkout's normal state --
+# nothing writes the cache there and nothing ever will -- so the derivation
+# is the answer rather than a guess over a missing one.
+@test "_compute_project_name still derives for a self-managed checkout (#1015)" {
+  local _repo
+  _repo="$(mktemp -d)"
+  run bash -c "
+    source ${LIB}
+    unset DOCKER_HUB_USER IMAGE_NAME USER_NAME PROJECT_NAME
+    FILE_PATH='${_repo}'
+    _compute_project_name
+    echo \"\${PROJECT_NAME}\"
+  "
+  rm -rf "${_repo}"
+  assert_success
+  assert_output --partial "local-"
+}
+
 # ── _compose / _compose_project (DRY_RUN path) ──────────────────────────────
 
+# why: DRY_RUN path
 @test "_compose with DRY_RUN=true prints command instead of running" {
   run bash -c "source ${LIB}; DRY_RUN=true _compose ps --all"
   assert_success
@@ -453,6 +521,7 @@ EOF
   assert_output --partial "--all"
 }
 
+# why: Real-call branch
 @test "_compose without DRY_RUN tries to invoke docker compose (sanity)" {
   # When DRY_RUN is unset/false, _compose calls real docker compose; on a
   # CI runner without docker the command exits non-zero, but we just want
@@ -463,6 +532,7 @@ EOF
   refute_output --partial "[dry-run]"
 }
 
+# why: Project wrapper
 @test "_compose_project pre-fills -p / -f / --env-file from PROJECT_NAME and FILE_PATH" {
   local _repo
   _repo="$(mktemp -d)"
@@ -507,6 +577,7 @@ EOF
 # _sanitize_lang (i18n.sh)
 # ════════════════════════════════════════════════════════════════════
 
+# why: Lang validator pass-through
 @test "_sanitize_lang accepts en / zh-TW / zh-CN / ja unchanged" {
   run bash -c "source ${LIB}; v=en;    _sanitize_lang v; echo \"\${v}\""
   assert_success
@@ -522,6 +593,7 @@ EOF
   assert_output "ja"
 }
 
+# why: Unknown lang fallback
 @test "_sanitize_lang warns and falls back to 'en' for unsupported values (English default)" {
   # Locale-agnostic / English system: English WARNING is emitted.
   run bash -c "unset LANG; source ${LIB}; v=foo; _sanitize_lang v test 2>&1; echo \"--VALUE=\${v}\""
@@ -531,6 +603,7 @@ EOF
   assert_output --partial "--VALUE=en"
 }
 
+# why: Legacy lang rejection
 @test "_sanitize_lang warns for the old bare 'zh' code (post zh→zh-TW rename)" {
   run bash -c "unset LANG; source ${LIB}; v=zh; _sanitize_lang v tui 2>&1; echo \"--VALUE=\${v}\""
   assert_success
@@ -587,6 +660,7 @@ mount_1 = /home/alice/work:/home/alice/work
 EOF
 }
 
+# why: INI section dump
 @test "_dump_conf_section extracts keys from the named section" {
   local _f="${BATS_TEST_TMPDIR}/setup.conf"
   _write_sample_conf "${_f}"
@@ -599,6 +673,7 @@ EOF
   refute_output --partial "rule comment"
 }
 
+# why: Section boundary
 @test "_dump_conf_section stops at the next section header" {
   local _f="${BATS_TEST_TMPDIR}/setup.conf"
   _write_sample_conf "${_f}"
@@ -610,12 +685,14 @@ EOF
   refute_output --partial "mount_"
 }
 
+# why: Missing file
 @test "_dump_conf_section returns silent empty for missing file" {
   run bash -c "source ${LIB}; _dump_conf_section /no/such/file.conf image"
   assert_success
   assert_output ""
 }
 
+# why: Missing section
 @test "_dump_conf_section returns silent empty for unknown section" {
   local _f="${BATS_TEST_TMPDIR}/setup.conf"
   _write_sample_conf "${_f}"
@@ -650,6 +727,7 @@ EOF
   assert_output ""
 }
 
+# why: Full config dump
 @test "_print_config_summary prints files, identity, all populated sections, resolved" {
   local _fp="${BATS_TEST_TMPDIR}"
   _write_sample_conf "${_fp}/.setup.conf"
@@ -728,6 +806,7 @@ EOF
   refute_output --partial ".setup.conf.local"
 }
 
+# why: Variables block populated
 @test "_print_config_summary prints Variables block mapping setup.conf placeholders to detected values" {
   # The Identity block already shows resolved user/workspace, but the
   # setup.conf [volumes] dump prints raw `${WS_PATH}` / `${USER_NAME}`
@@ -758,6 +837,7 @@ EOF
   assert_output --partial "\${WS_PATH}   = /home/alice/work"
 }
 
+# why: Variables fallback
 @test "_print_config_summary Variables block falls back to '-' for unset values" {
   local _fp="${BATS_TEST_TMPDIR}"
   _write_sample_conf "${_fp}/.setup.conf"
@@ -772,6 +852,7 @@ EOF
   assert_output --partial "\${WS_PATH}   = -"
 }
 
+# why: Empty-section skip
 @test "_print_config_summary hides sections that are empty in setup.conf" {
   local _fp="${BATS_TEST_TMPDIR}"
   # Minimal conf with only [image]; expect no [build]/[volumes] headers
@@ -786,6 +867,7 @@ EOF
   refute_output --partial "  [volumes]"
 }
 
+# why: Missing-conf hint
 @test "_print_config_summary warns when setup.conf is missing" {
   local _fp="${BATS_TEST_TMPDIR}/no_conf"
   mkdir -p "${_fp}"
@@ -795,6 +877,7 @@ EOF
   assert_output --partial "./setup_tui.sh"
 }
 
+# why: Color migration via _log_plain
 @test "_print_config_summary wraps dividers + section headers in ANSI when FORCE_COLOR=1 (#309)" {
   local _fp="${BATS_TEST_TMPDIR}"
   _write_sample_conf "${_fp}/.setup.conf"
@@ -818,6 +901,7 @@ EOF
   refute_output --partial $'\033[2m  setup.conf'
 }
 
+# why: NO_COLOR precedence on summary
 @test "_print_config_summary omits ANSI when NO_COLOR=1 overrides FORCE_COLOR=1 (#309)" {
   local _fp="${BATS_TEST_TMPDIR}"
   _write_sample_conf "${_fp}/.setup.conf"
@@ -835,6 +919,7 @@ EOF
   assert_output --partial "Resolved"
 }
 
+# why: #157 empty-conf hint on build/run summary
 @test "_print_config_summary warns when setup.conf exists but has no [section] headers" {
   # Empty / comments-only setup.conf is the same situation as missing
   # from a behavior standpoint (every section falls back to template

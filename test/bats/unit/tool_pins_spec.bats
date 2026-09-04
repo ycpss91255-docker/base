@@ -54,6 +54,8 @@ _pins() {
 # What is a marker
 # ════════════════════════════════════════════════════════════════════
 
+# why: The grammar's one structural rule -- comments and blanks are skipped, so a
+# marker can be documented above the line it claims
 @test "pins: a marker's target is the next non-comment, non-blank line" {
   _dockerfile \
     '# tool-pin: foo github-release owner/foo' \
@@ -66,6 +68,8 @@ _pins() {
   assert_output --partial $'1.2.3\tdockerfile/Dockerfile.test-tools\t4'
 }
 
+# why: The convention must be documentable inside the trees it scans, and a
+# substring match would make every mention a marker with the wrong target
 @test "pins: PROSE that merely mentions the marker token is not a marker" {
   # The convention has to be documentable inside the very trees it scans:
   # the Dockerfile header explains it, this file quotes it, and the lint's
@@ -84,6 +88,8 @@ _pins() {
   [[ "$(printf '%s\n' "${output}" | grep -c 'pinned') " == "1 " ]]
 }
 
+# why: A marker claiming nothing is a pin its author believes is watched; that
+# belief is the state the whole mechanism exists to remove
 @test "pins: a marker with no target line after it FAILS" {
   _dockerfile \
     'ARG FOO_VERSION=1.2.3' \
@@ -93,6 +99,8 @@ _pins() {
   assert_output --partial 'has no target line after it'
 }
 
+# why: Both would claim one line and only the first would ever be read -- a pin
+# that looks declared and is not watched
 @test "pins: two markers with no target between them FAIL" {
   # Both would otherwise claim one line and only the first would ever be
   # read -- a pin that looks declared and is not watched.
@@ -105,6 +113,8 @@ _pins() {
   assert_output --partial 'marker follows another with no target between them'
 }
 
+# why: A pinned marker with no coordinate can never be compared, so accepting it
+# would put an uncheckable row in the table
 @test "pins: a pinned marker naming no coordinate FAILS" {
   _dockerfile \
     '# tool-pin: foo github-release' \
@@ -114,6 +124,8 @@ _pins() {
   assert_output --partial 'names no resolver and coordinate'
 }
 
+# why: An unknown option is a typo in the one line that says how to watch a pin,
+# and a typo caught weeks later is weeks of not watching
 @test "pins: a marker carrying an unknown option FAILS" {
   _dockerfile \
     '# tool-pin: foo github-release owner/foo latest=9' \
@@ -123,6 +135,8 @@ _pins() {
   assert_output --partial 'unknown option latest=9'
 }
 
+# why: A marker whose target holds no version is a declaration with nothing to
+# compare, which reads as watched and is not
 @test "pins: a pinned marker whose target carries no version FAILS" {
   _dockerfile \
     '# tool-pin: foo github-release owner/foo' \
@@ -132,6 +146,8 @@ _pins() {
   assert_output --partial 'no version for owner/foo on its target line'
 }
 
+# why: unpinned is a declaration that the dependency floats, not an off switch, so
+# it must produce a record rather than nothing
 @test "pins: an unpinned marker records the dependency and no version" {
   _dockerfile \
     '# tool-pin: unpinned apk-packages -- bounded by the alpine pin' \
@@ -141,6 +157,8 @@ _pins() {
   assert_output --partial $'unpinned\tapk-packages'
 }
 
+# why: Where the target IS an assignment, an empty value column throws away the one
+# fact the record could carry -- the generated-workflow lint needs it
 @test "pins: an unpinned marker on an assignment records the value it declares" {
   # An `unpinned` marker says "this dependency floats", not "this line
   # holds nothing". Where the target IS an assignment the reader can
@@ -157,6 +175,8 @@ _pins() {
   assert_output --partial $'actions/checkout@v7\tdockerfile/Dockerfile.test-tools\t2'
 }
 
+# why: The other side of that rule: an unpinned marker carries no coordinate to
+# anchor on, so guessing a token would put a fabricated version in the table
 @test "pins: an unpinned marker on a NON-assignment still records no value" {
   # The other side of that rule. `RUN apk add ...` names no single value,
   # and an unpinned marker carries no coordinate to anchor an extraction
@@ -170,6 +190,8 @@ _pins() {
   assert_output --partial $'unpinned\tapk-packages\t-\t-\t-\t-\t-\t'
 }
 
+# why: An unnamed floating dependency cannot be reported on, which is the whole
+# point of recording it
 @test "pins: an unpinned marker that names no dependency FAILS" {
   _dockerfile \
     '# tool-pin: unpinned -- no name at all' \
@@ -179,6 +201,8 @@ _pins() {
   assert_output --partial 'names no dependency'
 }
 
+# why: These are per-pin properties of the upstream; dropped from the table they
+# silently become "compare every tag, refuse nothing"
 @test "pins: pattern= and skip= are carried through to the table" {
   _dockerfile \
     '# tool-pin: alp dockerhub library/alpine pattern=^[0-9]+\.[0-9]+$ skip=3.24' \
@@ -193,6 +217,8 @@ _pins() {
 # Version extraction: the two target shapes
 # ════════════════════════════════════════════════════════════════════
 
+# why: The ARG shape is the majority of this repo's pins, and quoting must not
+# become part of the version a branch name and CI are built from
 @test "pins: an ARG target yields its right-hand side, unquoted" {
   _dockerfile \
     '# tool-pin: base dockerhub library/ubuntu pattern=.' \
@@ -202,6 +228,8 @@ _pins() {
   assert_output 'ubuntu:24.04'
 }
 
+# why: Anchoring on the coordinate is what keeps extraction precise on a line
+# carrying flags, paths and other colons
 @test "pins: a non-ARG target yields the token after the coordinate" {
   # Anchoring on the coordinate is what keeps extraction precise on a line
   # that also carries flags, paths and other colons.
@@ -217,6 +245,8 @@ _pins() {
   assert_output '1.7.7'
 }
 
+# why: A name that declares no version has no answer to give, and an empty answer
+# would be read by a caller as a version
 @test "pins: --value refuses a name declared unpinned" {
   _dockerfile \
     '# tool-pin: unpinned apk-packages -- no version to name' \
@@ -226,6 +256,8 @@ _pins() {
   assert_output --partial 'names no version'
 }
 
+# why: A typo in a pin name must fail rather than resolve to nothing, which a
+# caller would substitute into a URL or a branch name
 @test "pins: --value refuses a name nothing declares" {
   _dockerfile '# nothing here'
   _pins --value ghost
@@ -237,6 +269,8 @@ _pins() {
 # --set: the one edit a bump consists of
 # ════════════════════════════════════════════════════════════════════
 
+# why: --set is the whole of a bump, and rebuilding the line would drop the quoting
+# the Dockerfile relies on
 @test "pins: --set rewrites an ARG and preserves its quoting" {
   _dockerfile \
     '# tool-pin: foo github-release owner/foo' \
@@ -249,6 +283,8 @@ _pins() {
   assert_success
 }
 
+# why: A blind file-wide substitution rewrites a URL that happens to carry the old
+# version; the pin is a line, not a string
 @test "pins: --set leaves every other line of the file alone" {
   _dockerfile \
     '# tool-pin: foo github-release owner/foo' \
@@ -263,6 +299,8 @@ _pins() {
   assert_success
 }
 
+# why: An image tag is the other target shape a bump must rewrite, and it lives on
+# its own line inside a nested YAML block
 @test "pins: --set rewrites an image tag in place, on its own line" {
   _workflow \
     'jobs:' \
@@ -279,6 +317,8 @@ _pins() {
   assert_success
 }
 
+# why: A bump run twice must not report a change it did not make, or the workflow
+# opens a proposal with an empty diff
 @test "pins: --set is a no-op when the pin already names that version" {
   _dockerfile \
     '# tool-pin: foo github-release owner/foo' \
@@ -288,6 +328,8 @@ _pins() {
   assert_output --partial 'already 1.2.3'
 }
 
+# why: The from/to and the site are what a reviewer of a proposal reads first, and
+# they are the only record of what the bump touched
 @test "pins: --set reports the from/to and where it wrote" {
   _dockerfile \
     '# tool-pin: foo github-release owner/foo' \
@@ -298,6 +340,8 @@ _pins() {
   assert_output --partial 'dockerfile/Dockerfile.test-tools:2'
 }
 
+# why: There is no version to set on a floating dependency, so a silent success
+# would report a bump nobody performed
 @test "pins: --set refuses a name declared unpinned" {
   _dockerfile \
     '# tool-pin: unpinned apk-packages -- no version to set' \
@@ -307,6 +351,8 @@ _pins() {
   assert_output --partial 'there is no version to set'
 }
 
+# why: That trailing comment is where a "held at this version because" rationale
+# lives -- the one sentence a reviewer of a bump most needs
 @test "pins: --set keeps the trailing comment on the line it rewrites" {
   # That comment is where a "held at this version because ..." rationale
   # lives, and it is the one sentence a reviewer of a bump proposal most
@@ -323,6 +369,8 @@ _pins() {
   assert_success
 }
 
+# why: A stray space does not stay local: it flows into the reported from, into the
+# branch name a bump builds, and into whatever CI feeds from --value
 @test "pins: a trailing comment does not leak whitespace into the version" {
   # The stray space does not stay local: it flows into the reported
   # `from`, into the branch name a bump builds, and into whatever CI feeds
@@ -335,6 +383,8 @@ _pins() {
   assert_output 'v2.12.0'
 }
 
+# why: mktemp creates 0600 and mv carries that mode onto the file -- invisible in
+# CI and a permission denied on the next local just test
 @test "pins: --set leaves the file's mode alone" {
   # `mktemp` creates 0600 and `mv` carries that mode onto whatever it
   # lands on. Invisible in the bump job (fresh checkout, git records
@@ -354,6 +404,8 @@ _pins() {
 # Scan roots
 # ════════════════════════════════════════════════════════════════════
 
+# why: An empty table read as "this repo declares no pins" is indistinguishable
+# from a clean week, which is the one answer the watch must never guess
 @test "pins: a tree yielding no scannable file at all FAILS" {
   # An empty table read as "this repo declares no pins" is the one answer
   # the watch must never give by accident: it is indistinguishable from a
@@ -366,6 +418,8 @@ _pins() {
   assert_output --partial 'no scannable file'
 }
 
+# why: The walk is the whole repo minus a prune list, so what it actually opens is
+# the claim worth checking rather than trusting
 @test "pins: --files lists every file it walks, prose and specs aside" {
   _dockerfile 'FROM scratch'
   _pins --files
@@ -375,6 +429,8 @@ _pins() {
   assert_output --partial '.github/workflows/x.yaml'
 }
 
+# why: The scan surface is not a roster of directories; it decayed once already,
+# with two live pins sitting outside the three original roots
 @test "pins: a Dockerfile at a path nothing anticipated is still scanned" {
   # The scan surface is NOT a roster of directories. A hand-kept list of
   # places to look decays exactly the way a hand-kept list of tools does,
@@ -391,6 +447,8 @@ _pins() {
   assert_output '1.0.0'
 }
 
+# why: A uses: ref inside a heredoc is not a workflow file, so nothing but this
+# watch can ever see the versions a generator writes
 @test "pins: a shell script that generates a file is a declaration site" {
   # dist/script/base/init.sh writes a workflow and dockerfile_migrate.sh
   # seds a downstream Dockerfile. dependabot reads workflow files, and a
@@ -410,6 +468,8 @@ _pins() {
   assert_success
 }
 
+# why: Every version in a shipped release is supposed to be stale, so a bump inside
+# .prev-release/ would be meaningless
 @test "pins: a pruned tree contributes nothing" {
   # `.prev-release/` is `git archive` of PAST releases, materialised for a
   # spec. Every version in it is supposed to be stale, and a bump inside
@@ -430,6 +490,8 @@ _pins() {
 # The resolvers the lint accepts are the resolvers check.sh implements
 # ════════════════════════════════════════════════════════════════════
 
+# why: A resolver the lint accepts and check.sh does not implement blesses a pin
+# that then fails weeks later, unattended
 @test "pins: check.sh dispatches every resolver the registry declares" {
   # The lint rejects an unknown resolver at the declaration site, using
   # _PIN_RESOLVERS. If that table listed a resolver check.sh does not
@@ -448,11 +510,15 @@ _pins() {
 # The real tree
 # ════════════════════════════════════════════════════════════════════
 
+# why: Drives the live tree, so a marker written today is parsed by the same reader
+# the scheduled run uses
 @test "pins: the real tree's markers all parse" {
   PIN_REPO_ROOT=/source run "${PINS}" --list
   assert_success
 }
 
+# why: The defect this closes: four provenance paths for one tool, 37 minors apart,
+# none of them naming a version in the image
 @test "pins: just is PINNED in the real tree, not left to a package manager" {
   # The defect this closes: four provenance paths for one tool, 37 minors
   # apart, none of them naming a version in the image.
@@ -461,6 +527,8 @@ _pins() {
   assert_output --regexp '^[0-9]+\.[0-9]+\.[0-9]+$'
 }
 
+# why: The pin and the image must be one number, or the accessor answers for a just
+# the image does not ship
 @test "pins: the just pin is the number the test-tools image installs" {
   PIN_REPO_ROOT=/source run "${PINS}" --value just
   assert_success
@@ -470,6 +538,8 @@ _pins() {
   assert_success
 }
 
+# why: Otherwise the workflow carries a fourth copy, and a bump moving only the
+# Dockerfile leaves CI testing a different just than the image ships
 @test "pins: the CI just install reads the pin instead of repeating it" {
   # Without this the workflow would carry a fourth copy of the number, and
   # a bump PR that moved the Dockerfile alone would leave CI testing a
@@ -489,6 +559,8 @@ _pins() {
   assert_success
 }
 
+# why: An unversioned setup-just installs whatever released most recently, so the
+# e2e job turns red on a day nobody touched the repo
 @test "pins: setup-just is no longer invoked without a just-version" {
   # An unversioned setup-just installs whatever released most recently, so
   # the e2e job turns red on a day nobody touched the repo and the diff

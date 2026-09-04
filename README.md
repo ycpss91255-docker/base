@@ -161,8 +161,10 @@ flowchart LR
 | `dist/script/docker/lib/_tui_conf.sh` | INI validators + read/write for `setup_tui.sh` and `setup.sh` writeback |
 | `dist/script/docker/runtime/logging.sh` | Host-side log tee helper (per-start file + stable symlink) |
 | `dist/script/docker/runtime/logrotate.sh` | Shared rotate/symlink/prune primitives (tee + transcript) |
-| `dist/script/docker/runtime/smoke.sh` | Runtime install-check smoke |
-| `dist/script/docker/runtime/entrypoint.sh` | Template entrypoint helper |
+| `dist/script/docker/runtime/watchdog.sh` | Generic single-service watchdog (restart + pluggable health check) |
+| `dist/script/docker/runtime/entrypoint.sh` | base's ENTRYPOINT orchestrator: opens the log tee, sources the repo bringup, arms the watchdog, execs the workload |
+| `dist/dockerfile/entrypoint.sh` | Bringup template, seeded into a new repo as `script/entrypoint.sh` (the repo's half, sourced by the orchestrator) |
+| `dist/test/bats/smoke/smoke.sh` | Runtime install-check smoke (ldd missing-dep scan) |
 | `script/test/test.sh` | base self-test dispatcher (local + in-container) |
 | `script/test/drivers/` | One driver per tool — `bats.sh` / `shellcheck.sh` / `hadolint.sh` |
 | `script/test/lint_bare_stderr.sh` | Bare stderr lint checker |
@@ -477,11 +479,91 @@ diagnostics pointing at the missing artifact.
 - `Dockerfile`
 - `compose.yaml`
 - `script/` — repo-local runtime helpers (invoked inside the container by `ENTRYPOINT` / `CMD` or by hand)
-  - `script/entrypoint.sh` (canonical)
+  - `script/entrypoint.sh` — the repo's **bringup**, sourced by base's orchestrator; it is not the `ENTRYPOINT` itself (see [Container entrypoint](#container-entrypoint-the-orchestrator-and-your-bringup))
   - any ros / app launch helpers etc.
 - `script/docker/` — repo-local Dockerfile-internal build helpers (invoked from a Dockerfile `RUN`, never inside a running container; see commented stub + lint COPY in `dist/dockerfile/Dockerfile`, #275)
 - `doc/` and `README.md`
 - Repo-specific smoke tests
+
+### Container entrypoint: the orchestrator and your bringup
+
+The container `ENTRYPOINT` is **base's**. Your `script/entrypoint.sh` is a
+**bringup** that base's orchestrator *sources*:
+
+| in the image | owner | ships from | role |
+|---|---|---|---|
+| `/usr/local/lib/base/entrypoint.sh` | base | `.base/dist/script/docker/runtime/` — the one directory `COPY` | the container `ENTRYPOINT` |
+| `/entrypoint.sh` | the repo | `script/entrypoint.sh`, seeded once by `init.sh` | the repo's own bringup |
+
+The orchestrator runs four steps, in this order:
+
+```bash
+. /usr/local/lib/base/logging.sh    # host log tee: wraps everything after it
+. /entrypoint.sh                    # YOUR bringup -- sourced, not exec'd
+. /usr/local/lib/base/watchdog.sh   # may take over and never return
+exec "$@"                           # the workload (CMD / the command you passed)
+```
+
+Each step needs the one before it. Logging rebinds stdout/stderr, so it has
+to open first. The bringup sets the environment both the watchdog's health
+check and the workload read, so it has to run before either. The watchdog
+arms last because with `watchdog_on_fail = restart-service` it supervises
+the service itself and never comes back. All three sources are skipped if
+the file is not there, so an image that opted into none of it still starts.
+
+**What goes in your bringup:** whatever the workload needs in its
+environment — a ROS overlay to source, an `export`, a directory to create.
+It runs with the workload still in `"$@"`.
+
+**What must not:** an `exec` (the orchestrator owns the final one; an exec
+here fires mid-source and the watchdog never arms), and any
+`. /usr/local/lib/base/...` line (the orchestrator already sources them —
+a second source means a second per-start log file, or a second watchdog).
+
+**Why two files.** The bringup is seeded once and is yours from then on:
+no subtree pull ever rewrites it. So anything base may need to change later
+cannot live there. It used to — the `logging.sh` / `watchdog.sh` source
+lines and the `exec` were seeded into every repo, which meant base could
+not change its own plumbing without an edit in every consumer. The helpers
+themselves never had that problem (they arrive by the directory `COPY`),
+and the orchestrator now arrives the same way.
+
+**Migrating an existing repo.** Two edits, and they must land **together**:
+
+```diff
+  # Dockerfile
+- ENTRYPOINT ["/entrypoint.sh"]
++ ENTRYPOINT ["/usr/local/lib/base/entrypoint.sh"]
+```
+
+```diff
+  # script/entrypoint.sh -- keep your bringup, drop base's plumbing
+- . /usr/local/lib/base/logging.sh
+- . /usr/local/lib/base/watchdog.sh
++ set +u
+  source "/opt/ros/${ROS_DISTRO}/setup.bash"
++ set -u
+  export MY_APP_HOME=/opt/app
+- exec "${@}"
+```
+
+**The `set +u` is not cosmetic** if your bringup sources anything that
+dereferences unbound variables — a ROS overlay being that case in this org.
+Your file used to be the `ENTRYPOINT`, running under whatever options it set
+itself, and the file `init.sh` seeded before this release sets none. Sourced
+by the orchestrator it now runs under `set -euo pipefail`, so the same line
+aborts on ROS's unbound `AMENT_TRACE_SETUP_FILES` and the container dies
+before your workload ever starts. Bracket it in the SAME commit as the other
+two edits. `just upgrade` writes the bracket too, but only on the upgrade
+AFTER the flip — the flip commit itself has to carry it.
+
+Flipping the `ENTRYPOINT` first breaks the container (the un-removed `exec`
+pre-empts the watchdog); cleaning the bringup first is merely inert. Until
+you do both, **nothing changes** — your repo keeps its own `ENTRYPOINT`,
+runs exactly as before, and simply does not get base's later plumbing
+changes. `just upgrade` prints a one-line notice until it is migrated, and
+never edits either file: only you can tell your bringup from base's
+plumbing in a file you have been hand-editing.
 
 ## Per-repo runtime configuration
 
@@ -729,8 +811,8 @@ is a **generic, health-check-driven watchdog** for the container's one
 service. It is **generic** because the app supplies the health-check
 *command*; base ships the supervision loop. **Every knob defaults OFF** —
 with `watchdog_check` empty (the master switch) there is no watchdog and
-no behavior change, and the entrypoint's `. /usr/local/lib/base/watchdog.sh`
-line is a no-op. Enable it per repo:
+no behavior change, and the orchestrator's
+`. /usr/local/lib/base/watchdog.sh` line is a no-op. Enable it per repo:
 
 ```bash
 ./setup.sh set lifecycle.watchdog_check 'curl -fsS localhost:8080/health'
@@ -817,7 +899,7 @@ into a field deployment that ships just the image:
 |---|---|---|---|---|
 | machine-bound / set-once | GPU reservation, `privileged`, device/volume mounts, `IMAGE_NAME`, APT mirror | `setup.conf` (committed) | rendered into `compose.yaml` | resolved into the bundle's self-contained `compose.yaml` (literal values, no `${VAR}`) |
 | volatile workload **env vars** | `ROS_DOMAIN_ID`, `LOG_LEVEL`, API tokens, dataset selectors | `.env.local` (hand-authored, gitignored) | `env_file: [.env, .env.local]` -- the generated `.env` carries the `[environment]` defaults, yours override them (later file wins) | the bundle ships both: `.env` lists every default it runs with (incl. `WATCHDOG_*`), `.env.local` is where the operator retunes one without a rebuild |
-| structured app **config** | bridge topic lists, pipeline definitions | `config/app/` (#504) | bind-mounted at `/opt/app/config` (edit + restart, no rebuild) | `COPY`-baked default + optional mount-wins override via `config/<component>/deploy.manifest` (edit `config/` + `./deploy.sh up`, no rebuild) |
+| structured app **config** | bridge topic lists, pipeline definitions | `config/<component>/` (#504, #1000) | every component directory bind-mounted at `/opt/app/config/<component>` (edit + restart, no rebuild) | each `COPY`-baked at the same path + optional mount-wins override via `config/<component>/deploy.manifest` (edit `config/` + `./deploy.sh up`, no rebuild) |
 
 `setup.conf`'s `[environment]` section is the *first* kind -- stable,
 machine-bound env defaults. They are written into the generated `.env` and
@@ -871,8 +953,9 @@ several field versions on one host never collides). It contains:
 What it does, in order:
 
 1. bake the `[environment]` defaults into the image as real `ENV` (S3) and
-   `COPY` `config/app/` into it when present (S4) -- so the field image is
-   self-contained (no env file, no config bind travels);
+   `COPY` every `config/<component>/` into it at `/opt/app/config/<component>`
+   (S4) -- so the field image is self-contained (no env file, no config bind
+   travels);
 2. `docker build --target <stage>` the immutable image, tagged
    `<repo>:<stage>-<version>`;
 3. `docker save | xz` it into `image.tar.xz`;
@@ -973,11 +1056,13 @@ Old per-start files are pruned by `container_log_keep` most-recent AND
 `container_log_days` age (stricter wins), never the symlink. `docker logs
 <ct>` is unaffected (json-file keeps rolling history).
 
-For **new repos** generated with `init.sh` from this version on, the
-helper is pre-wired in `script/entrypoint.sh` — setting
-`[logging] local_path` is the only step. For **existing repos**, add
-this single un-guarded line to `script/entrypoint.sh` before the
-final `exec` as a one-time migration:
+Setting `[logging] local_path` is the only step for any repo running
+base's ENTRYPOINT orchestrator: the orchestrator sources the helper, so
+there is nothing to add to your bringup, and a later change on base's side
+arrives with the subtree. A repo still running its **own** `/entrypoint.sh`
+as the `ENTRYPOINT` needs this single un-guarded line before its final
+`exec` — or, better, the one-time migration in
+[Container entrypoint](#container-entrypoint-the-orchestrator-and-your-bringup):
 
 ```bash
 . /usr/local/lib/base/logging.sh
@@ -989,8 +1074,10 @@ The helper is COPY'd into the image at the stable in-image path
 source line works at build-time AND runtime in every workspace layout —
 no `$USER` deref, no workspace bind-mount dependence.
 
-Troubleshooting: `local_path` set but the host file stays empty →
-check `script/entrypoint.sh` actually contains the source line
+Troubleshooting: `local_path` set but the host file stays empty → check
+which model the repo is on (`grep ENTRYPOINT Dockerfile`). On the
+orchestrator, nothing else is needed; on its own `/entrypoint.sh`, check
+that file actually contains the source line
 (`grep logging.sh script/entrypoint.sh`).
 
 ### Wrapper transcripts
@@ -1569,6 +1656,7 @@ jobs:
 |-------|------|----------|---------|-------------|
 | `archive_name_prefix` | string | yes | - | Archive name prefix |
 | `extra_files` | string | no | `""` | Space-separated extra files |
+| `version` | string | no | `""` | Release version to cut (`vX.Y.Z`). Leave unset on the tag path -- the version is then read off the pushed tag. Pass it to call this worker directly from a non-tag run: an event created with the default `GITHUB_TOKEN` starts no workflow run, so a repo auto-releasing a merged change cannot get there by pushing a tag. A value that is not `vX.Y.Z[-suffix]` is refused, never released under |
 
 ### publish-worker.yaml inputs (opt-in, foundational image repos)
 
@@ -1653,6 +1741,7 @@ Using `script/test/justfile.test` (from template root):
 just test        # Full CI (ShellCheck + Bats + Kcov) via docker compose
 just test lint        # ShellCheck only
 just test clean       # Remove coverage reports
+just test stop        # Stop this checkout's self-test containers
 just                      # Show repo recipes
 just --list  # List CI recipes
 ```

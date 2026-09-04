@@ -19,6 +19,23 @@
 #
 # Each @test invokes one `docker build` over an alpine-based image with no
 # package installs -- a few seconds once the tooling image is warm.
+#
+# why: The behavioural half of the `just test smoke` harness (see
+# [smoke.md](smoke.md) for what the harness is and how to run it); the
+# static half -- COPY-set parity against the shipped `devel-test` stage --
+# is `test/bats/unit/smoke_harness_spec.bats`.
+#
+# Every case builds the **real** `dockerfile/Dockerfile.smoke`; only the
+# build CONTEXT is synthesized, a minimal copy of the paths that Dockerfile
+# COPYs, so a fixture spec can be dropped in without touching the checkout.
+# Building a fixture Dockerfile instead would assert against the fixture and
+# leave the real one unproven -- the shape the harness exists to replace.
+#
+# `--no-cache` on each build is load-bearing, not caution: these assert on
+# what the `RUN bats` layer produced, and a CACHED layer produces nothing.
+# The positive case rebuilds a context identical to the previous run's, so
+# without it the second invocation reports success having executed no specs
+# at all.
 
 bats_require_minimum_version 1.5.0
 
@@ -58,9 +75,11 @@ _make_context() {
   local -n _mc_out="${1}"
   _mc_out="$(mktemp -d -t smoke-harness-XXXXXX)"
   mkdir -p "${_mc_out}/script" \
+    "${_mc_out}/dist/dockerfile" \
     "${_mc_out}/dist/script/docker" \
     "${_mc_out}/dist/test/bats"
   cp -L /source/script/*.sh "${_mc_out}/script/"
+  cp /source/dist/dockerfile/entrypoint.sh "${_mc_out}/dist/dockerfile/"
   cp -a /source/dist/script/docker/lib "${_mc_out}/dist/script/docker/"
   cp -a /source/dist/script/docker/wrapper "${_mc_out}/dist/script/docker/"
   cp -a /source/dist/script/docker/runtime "${_mc_out}/dist/script/docker/"
@@ -121,6 +140,8 @@ teardown() {
 # Positive case: the shipped specs, unmodified, pass in the harness.
 # ────────────────────────────────────────────────────────────────────
 
+# why: The shipped specs, unmodified, pass in the harness -- and bats
+# reported a plan, so an empty `/smoke_test` cannot pass by doing nothing
 @test "the smoke harness runs the shipped specs and they pass" {
   _make_context CONTEXT_DIR
   run _build_harness "${CONTEXT_DIR}"
@@ -147,6 +168,8 @@ teardown() {
 # meaningful.
 # ────────────────────────────────────────────────────────────────────
 
+# why: Fixture specs reading `id -u` and attempting a write into `/lint`
+# prove the runtime identity, not just the Dockerfile's `USER` line
 @test "the smoke harness runs the specs as a non-root user" {
   _make_context CONTEXT_DIR
   _add_fixture_spec "${CONTEXT_DIR}" zz_identity \
@@ -169,6 +192,9 @@ teardown() {
 # no entry point at all.
 # ────────────────────────────────────────────────────────────────────
 
+# why: Negative case: a deliberately failing spec fails the build, so a
+# future `|| true` cannot turn the entry point into a report that always
+# says green
 @test "the smoke harness build FAILS when a shipped spec fails (gate-fires assertion)" {
   _make_context CONTEXT_DIR
   _add_fixture_spec "${CONTEXT_DIR}" zz_failing \
@@ -204,6 +230,10 @@ teardown() {
 # stops producing.
 PINNED_DIGEST="sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
+# why: Builds the harness with a digest-bearing `BASE_IMAGE`; a fixture spec
+# reads `base-image.env` from inside the build and `docker inspect` reads
+# the OCI annotation from outside, so the two sinks are compared on one real
+# image
 @test "a digest-pinned BASE_IMAGE lands in the manifest and the OCI annotation as one value (#951)" {
   _make_context CONTEXT_DIR
   # The file half is asserted from INSIDE the build, by a spec running in
@@ -234,6 +264,9 @@ PINNED_DIGEST="sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789
 # comparable.
 OTHER_DIGEST="sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
 
+# why: The documented pin-by-reference call, with no second argument, must
+# produce an image: `base_image_pin=digest`, an empty digest field, an empty
+# OCI `base.digest` and the digest still on `base.name`
 @test "a digest-carrying BASE_IMAGE alone BUILDS, recording the pin without inventing a digest (#951)" {
   _make_context CONTEXT_DIR
   # The configuration the note documents -- an immutable reference, no
@@ -273,6 +306,9 @@ OTHER_DIGEST="sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba98765
   [ "${output}" = "ubuntu@${PINNED_DIGEST}" ]
 }
 
+# why: Negative case: the one combination that is false -- both halves
+# stated, naming different digests -- fails in the `-test` stage from the
+# shipped smoke spec, not from a refusal in `sys`
 @test "the shipped spec FAILS a build whose digest arg contradicts the reference (#951)" {
   _make_context CONTEXT_DIR
   # The one combination that IS false: both halves stated, naming

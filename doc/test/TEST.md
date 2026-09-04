@@ -1,10 +1,10 @@
 # TEST.md
 
-Template self-tests: **3815 tests** total (3660 unit + 155 integration).
+Template self-tests: **4262 tests** total (4098 unit + 164 integration).
 
 > "Self-test total" is the `just test` suite -- what runs in the
-> `Self Test` CI job. System (19) and smoke (38) tests are tracked here
-> too but are **not** in the 3815 figure: System specs need host docker
+> `Self Test` CI job. System (19) and smoke (39) tests are tracked here
+> too but are **not** in the 4262 figure: System specs need host docker
 > access and are opt-in, and smoke specs are Dockerfile `test`-stage
 > build-time assertions, not self-tests. Acceptance is a CI-only level (0
 > bats specs by design): it drives a real scaffolded consumer + built
@@ -20,13 +20,13 @@ carrying its own test count) live in the sibling docs below.
 
 | Doc | Scope | Count |
 |-----|-------|-------|
-| [unit.md](unit.md) | `test/bats/unit/` -- library, wrappers, generators, templates (Unit level) | 3660 |
-| [integration.md](integration.md) | `test/bats/integration/` -- init / upgrade / dispatch across components (Integration level) | 155 |
+| [unit.md](unit.md) | `test/bats/unit/` -- library, wrappers, generators, templates (Unit level) | 4098 |
+| [integration.md](integration.md) | `test/bats/integration/` -- init / upgrade / dispatch across components (Integration level) | 164 |
 | [system.md](system.md) | `test/bats/system/` -- opt-in `runtime-test` buildx specs, gate-fires Regression (System level, host docker) | 19 |
 | [acceptance.md](acceptance.md) | `test/bats/acceptance/` -- consumer framework + UX, UAT/OAT (Acceptance level; CI-only via the `acceptance` job, #785) | 0 |
-| [smoke.md](smoke.md) | `dist/test/bats/smoke/` -- shipped per-stage build-time smoke templates (Smoke type) | 38 |
+| [smoke.md](smoke.md) | `dist/test/bats/smoke/` -- shipped per-stage build-time smoke templates (Smoke type) | 39 |
 
-Self-test grand total (unit + integration): **3815**.
+Self-test grand total (unit + integration): **4262**.
 
 ## Running one spec under kcov: `just test coverage-path`
 
@@ -111,10 +111,22 @@ them.
 
 ## Maintaining these docs
 
-Every figure and every catalog row in this directory is derived from the specs
-themselves. Regenerate with `just test sync-docs`; validate without writing
-with `just test sync-docs-check`. Never hand-edit a count or hand-add a row --
-see [unit.md](unit.md) for the full contract.
+Every figure and every catalogue section in this directory is derived from the
+specs themselves. Regenerate with `just test sync-docs`; validate without
+writing with `just test sync-docs-check`. See [unit.md](unit.md) for the full
+contract.
+
+**Where a description is written.** Not here. A test's description is a
+`# why:` comment block on the lines immediately above its `@test` in the spec
+file, and a spec file's blurb is a `# why:` block in its opening comment run;
+`sync-doc-counts.sh` renders both into the fenced region of each catalogue.
+Editing that region does nothing -- it is replaced wholesale on every run, so
+a row deleted here comes back byte-for-byte and a description reworded here is
+overwritten. Deleting the block in the spec is the one edit that changes the
+catalogue, and the drift gate fails on it. Renaming a test carries its
+description, because the description moved with the lines above it.
+`just test lint --catalog-description` is the rule at its source: it reads
+`^@test` over the spec trees, so no section shape can take a test out of it.
 
 **Where the check is enforced (one rule, three entry points).** All three run
 the same `script/test/check_test_md_drift.sh`; they differ only in when they
@@ -142,9 +154,11 @@ just test resolve-docs
 ```
 
 which collapses the markers, regenerates from the merged spec tree, verifies,
-and stages -- and refuses loudly, staging nothing, when the two sides disagree
-about something regeneration cannot settle (a catalog row each side describes
-differently, or any hand-written prose that differs). A mechanical collapse
-adopts whichever side it kept for exactly that content, which is how the
+and stages -- and refuses loudly, staging nothing, when the two collapses
+still differ after regeneration. That can now only be hand-written prose
+OUTSIDE the generated region: everything inside it is derived from the specs
+both sides already merged, so a description one branch wrote can no longer be
+dropped by the side the collapse kept. A mechanical collapse adopts whichever
+side it kept for content the generator does not own, which is how the
 "System (N) and smoke (N)" line above shipped stale three times before the
 generator learned to derive it.

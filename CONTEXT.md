@@ -235,6 +235,21 @@ travel. The dev binds do not.
 _Avoid_: release bundle, tarball, image bundle (it is more than the
 image), `deploy.sh` bundle.
 
+**Config component**:
+One directory directly under a repo's `config/` — the unit the structured
+app-config channel provisions. The population is derived, never listed:
+every `config/*/` qualifies, `config/shell/` and `config/pip/` included
+(they are consumed by a *different* channel — the Dockerfile's layered
+`COPY config /tmp/config`, deleted in the same `RUN` — so a bind or bake
+at `/opt/app/config/<component>` shares neither its path nor its moment).
+Both halves of **PRD invariant 8** read the one derivation
+(`_collect_config_components`, `lib/deploy.sh`): dev bind-mounts each at
+`/opt/app/config/<component>`, deploy `COPY`-bakes each at the same path.
+A regular file sitting directly under `config/` is provisioned by neither
+half and is WARNed about by name (#1000).
+_Avoid_: `config/app`, app config dir, component config (ambiguous with
+**`deploy.manifest`**'s per-file tunables).
+
 **`deploy.manifest`**:
 A committed `config/<component>/deploy.manifest` (INI-lite, one section
 per **deployable stage**) naming the absolute container paths a field
@@ -244,6 +259,20 @@ under the bundle's `config/` and binds it over the image's baked default
 read-only unless the path declares `rw`. base moves the files the manifest
 lists and never parses their contents (ADR-00000023 sec. 5, #870).
 _Avoid_: tunable list, override manifest, config manifest.
+
+**Preset selector**:
+A committed repo-root **symlink** whose link text names a path under
+`config/`, declaring which of a component's curated presets this repo
+bakes (e.g. `camera.yaml -> config/realsense/yaml/none.yaml`). The build
+reads it through an `ARG` whose default is the symlink's own name, so
+`--build-arg` overrides one build with no tracked change; the committed
+target is the inert preset. The population is derived
+(`_collect_preset_selectors`, `lib/deploy.sh`) from the link's target, not
+its filename, which is what excludes base's own root symlinks; every
+`setup` run names each selector and WARNs about one whose preset is not in
+the repo (ADR-00000030).
+_Avoid_: profile symlink, config switch, camera.yaml (one repo's instance
+of it).
 
 **Managed `.gitignore` block**:
 The base-owned region of a downstream `.gitignore` that `lib/gitignore.sh`
@@ -280,6 +309,22 @@ captures only the orchestration phase and then `_transcript_detach`s
 before the session. `run -d` is non-interactive (full capture).
 _Avoid_: foreground/background (orthogonal), TTY verb.
 
+**ABI axis**:
+Which leading components of a dependency's version its ABI is expressed in
+-- `major` for a library that breaks only on a major, `major.minor` where
+the SONAME carries the minor. Declared per dependency by the repo doing the
+bumping and never defaulted: it is a fact about the dependency, so a default
+would be base guessing on somebody else's behalf, in the direction that
+releases a break (ADR-00000031, `script/ci/abi-gate.sh`).
+_Avoid_: semver level, compatibility level.
+
+**Dependency-bump gate**:
+The shared answer to "may this pin change auto-release" -- one question, and
+a refusal for everything it cannot decide, so an unanswerable bump goes to a
+person instead of releasing itself. It approves a Z and can produce nothing
+else (ADR-00000031 amending ADR-00000027).
+_Avoid_: release gate (that is the CI required-check set), ABI check.
+
 ### Architecture seams
 
 Concepts named by the 2026-06-11 architecture review
@@ -308,6 +353,23 @@ _Avoid_: wrapper base, common lib.
 from a resolved-stage value, isolating per-service YAML shape from the
 generator (#566).
 _Avoid_: compose generator (that is the whole `generate_compose_yaml`).
+
+**ENTRYPOINT orchestrator**:
+`dist/script/docker/runtime/entrypoint.sh` -- base-owned, shipped in the
+runtime helper directory, installed at `/usr/local/lib/base/entrypoint.sh`
+and named as the image's `ENTRYPOINT`. Opens the log tee, sources the
+**container bringup**, arms the watchdog, execs the workload (#945,
+ADR-00000032).
+_Avoid_: the entrypoint (ambiguous with the repo's file), entrypoint
+wrapper.
+
+**Container bringup**:
+A repo's own `script/entrypoint.sh`, installed at `/entrypoint.sh` and
+SOURCED by the **ENTRYPOINT orchestrator**. Holds only the repo's own
+start-up (an overlay to source, env to export); no `exec`, no base
+plumbing. Repo-owned: seeded once by `init.sh` and never rewritten by a
+subtree pull, which is why base's plumbing may not live in it.
+_Avoid_: the entrypoint, repo entrypoint (both read as "the ENTRYPOINT").
 
 **Dockerfile-migration list**:
 The declarative ordered `{detect, transform}` migration table in
@@ -380,3 +442,8 @@ _Avoid_: upgrade seds, Dockerfile patcher.
 - "entrypoint" was used for both the **wrapper** scripts and the container
   `ENTRYPOINT` — resolved: "wrapper" for the former, "ENTRYPOINT" for the
   latter.
+- "entrypoint" then split again, between the file that IS the container
+  `ENTRYPOINT` and the repo file it runs — resolved: **ENTRYPOINT
+  orchestrator** for base's, **container bringup** for the repo's. The
+  repo's file keeps the on-disk name `script/entrypoint.sh`; the
+  distinction is in the word, not the path (#945).

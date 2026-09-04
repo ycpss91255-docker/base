@@ -174,6 +174,8 @@ _write_generator_raw() {
 
 # ── The drift the lint exists to catch ──────────────────────────────────
 
+# why: The drift itself -- dependabot bumps the workflows and cannot reach
+# the heredoc
 @test "generated-workflow-actions: fails when a generated ref is behind this repo's own (#950)" {
   _load_driver
   _write_workflow 'actions/checkout@v8'
@@ -187,6 +189,7 @@ _write_generator_raw() {
   assert_output --partial 'dist/init.sh'
 }
 
+# why: A bump proposal is actionable only if it says which line to edit
 @test "generated-workflow-actions: names the generated ref's file and line (#950)" {
   _load_driver
   _write_workflow 'actions/checkout@v8'
@@ -197,6 +200,8 @@ _write_generator_raw() {
   assert_output --partial 'dist/init.sh:7'
 }
 
+# why: Lockstep is the whole assertion; the lint owns no opinion on which
+# version is right
 @test "generated-workflow-actions: passes when the two copies agree (#950)" {
   _load_driver
   _write_workflow 'actions/checkout@v8' 'actions/upload-artifact@v7'
@@ -207,6 +212,8 @@ _write_generator_raw() {
   assert_output --partial 'clean'
 }
 
+# why: Direction-agnostic: a hand-edit past the workflows is the same
+# defect, other sign
 @test "generated-workflow-actions: a ref ahead of this repo's own fails too (#950)" {
   # Direction-agnostic on purpose: the failure is disagreement, not
   # staleness. A generated copy edited past the workflows is the same
@@ -222,6 +229,8 @@ _write_generator_raw() {
 
 # ── What is deliberately not a generated pin ────────────────────────────
 
+# why: A call home has an owner -- upgrade.sh rewrites it -- so the exclusion
+# is keyed on the callee being ours, not on the ref being interpolated
 @test "generated-workflow-actions: ignores a call to a reusable workflow this repo ships (#950)" {
   # `${SLUG}/.github/workflows/build-worker.yaml@${ref}` is this repo
   # calling its OWN worker at the pinned subtree version. The exclusion is
@@ -243,6 +252,8 @@ _write_generator_raw() {
   [ "${status}" -eq 0 ]
 }
 
+# why: The hole: nine of our workflow basenames are names anybody would
+# pick, so a basename-keyed exclusion exempts a stranger's copy in silence
 @test "generated-workflow-actions: somebody else's copy of one of our workflow filenames is not excluded (#950)" {
   # The hole this closes. The exclusion used to key on the callee's
   # BASENAME alone, and this repo ships nine of them -- build-worker,
@@ -265,6 +276,8 @@ _write_generator_raw() {
   assert_output --partial 'evilorg/evilrepo'
 }
 
+# why: The obvious repair for that hole is the same hole one layer up --
+# "any variable, since it might be us" exempts ${OTHER_SLUG} too
 @test "generated-workflow-actions: an unresolved variable is not a stand-in for our own slug (#950)" {
   # The obvious repair for the basename hole is its own hole: init.sh HAS
   # to spell the owner as `${BASE_UPSTREAM_SLUG}`, so a reader that accepts
@@ -284,6 +297,8 @@ _write_generator_raw() {
   assert_output --partial 'OTHER_SLUG'
 }
 
+# why: The other half of the owner check -- an exclusion that only survives
+# interpolation would fire on the literal spelling of the same call home
 @test "generated-workflow-actions: our own slug spelled out is excluded (#950)" {
   # The other half of the owner check: written literally, with no variable
   # anywhere, the call home is still a call home.
@@ -300,6 +315,8 @@ _write_generator_raw() {
   assert_output --partial '1 generated ref'
 }
 
+# why: A repo rename must move the exclusion with it; a driver holding a
+# copy of either literal fails one of these two halves
 @test "generated-workflow-actions: the owner is read off the tree, not carried in the driver (#950)" {
   # Derived, not hardcoded. Move the slug the upstream file declares -- a
   # repo rename -- and the exclusion follows it: the new one is excluded
@@ -325,6 +342,8 @@ _write_generator_raw() {
   assert_output --partial 'ycpss91255-docker/base'
 }
 
+# why: Fail-closed is the only safe direction for an exemption -- an
+# unreadable upstream file must switch it off, not leave every call exempt
 @test "generated-workflow-actions: an upstream file declaring no slug excludes nothing (#987)" {
   # The exclusion is switched OFF by an unreadable upstream file, not left
   # on: a file that stops declaring the name its three consumers source it
@@ -344,6 +363,8 @@ _write_generator_raw() {
   assert_output --partial 'build-worker.yaml'
 }
 
+# why: Reading the basename off the tail of an arbitrary path is how
+# .../workflows/vendor/build-worker.yaml claimed our exemption
 @test "generated-workflow-actions: a deeper path under .github/workflows/ is not excluded (#950)" {
   # `<owner>/<repo>/.github/workflows/<file>` is the only shape GitHub
   # calls a reusable workflow by, so a nested path is not that call at all
@@ -362,6 +383,8 @@ _write_generator_raw() {
   assert_output --partial 'sub/build-worker.yaml'
 }
 
+# why: Nothing rewrites somebody else's reusable workflow, so it stays in
+# the population rather than inheriting our upgrade.sh justification
 @test "generated-workflow-actions: a reusable workflow this repo does NOT ship is not excluded (#950)" {
   # The exclusion above is derived from the tree -- the callee has to be a
   # workflow this repo actually ships. A call to somebody else's reusable
@@ -378,6 +401,8 @@ _write_generator_raw() {
   assert_output --partial 'not-ours.yaml'
 }
 
+# why: Prose quoting a step is not a step; a lint that fails on its own docs
+# gets muted
 @test "generated-workflow-actions: ignores a uses: ref inside a shell comment (#950)" {
   # Driver prose quotes `uses: owner/repo@ref` when explaining what it
   # scans. Prose is not a pin, and a lint that fails on its own
@@ -408,6 +433,8 @@ _write_generator_raw() {
 # other, and a value the matcher cannot resolve at all FAILS rather than
 # passing.
 
+# why: Quoting is legal Actions syntax, so a matcher that only reads bare values
+# is narrower than the name it carries
 @test "generated-workflow-actions: a double-quoted generated ref is compared, not skipped (#950)" {
   _load_driver
   _write_workflow 'actions/checkout@v8'
@@ -420,6 +447,8 @@ _write_generator_raw() {
   assert_output --partial 'v8'
 }
 
+# why: The other quote character, because a matcher fixed for one and not the
+# other is the same silent skip wearing a different mark
 @test "generated-workflow-actions: a single-quoted generated ref is compared, not skipped (#950)" {
   _load_driver
   _write_workflow 'actions/checkout@v8'
@@ -431,6 +460,8 @@ _write_generator_raw() {
   assert_output --partial 'v8'
 }
 
+# why: The bare form of the defect behind quotes -- nothing bumps it, and the
+# quotes must not be what hides it
 @test "generated-workflow-actions: a quoted ref to an action this repo never uses fails (#950)" {
   # The bare form of the defect, behind quotes: nothing bumps it, and the
   # quotes must not be what hides it.
@@ -445,6 +476,8 @@ _write_generator_raw() {
   assert_output --partial 'actions/setup-node'
 }
 
+# why: The partial silent drop: a tree whose other refs agree is exactly where a
+# skipped ref reports clean, and the count backstop cannot see it
 @test "generated-workflow-actions: one unreadable ref among readable ones still fails (#950)" {
   # The partial silent drop: a tree whose OTHER refs are in lockstep is
   # exactly where a skipped ref reports clean. The count backstop cannot
@@ -460,6 +493,8 @@ _write_generator_raw() {
   assert_output --partial 'v3'
 }
 
+# why: Refusing to guess is the point, and the message has to name the line it
+# could not read or the reader has nowhere to go
 @test "generated-workflow-actions: a uses: value it cannot resolve fails by name (#950)" {
   # Not a versioned action, not a documented exclusion: refusing to guess
   # is the point, and the message has to say which line it could not read.
@@ -475,6 +510,8 @@ _write_generator_raw() {
   assert_output --partial 'dist/init.sh'
 }
 
+# why: An unreadable value carries an empty action field, and dropping that field
+# re-routes the finding into a sentence about an action nobody wrote
 @test "generated-workflow-actions: an unreadable value is reported as unreadable, not as an unused action (#950)" {
   # The three outcomes of _gwa_classify exist so that "excluded by name"
   # and "cannot read this at all" take OPPOSITE defaults. Collapsing them
@@ -495,6 +532,8 @@ _write_generator_raw() {
   refute_output --partial 'never uses'
 }
 
+# why: This repo plainly does use actions/checkout, so calling it an action this
+# repo never uses states something false and sends the reader elsewhere
 @test "generated-workflow-actions: an action named with no ref is not called unused (#950)" {
   # `uses: actions/checkout` is unreadable -- there is no ref to compare --
   # but this repo plainly DOES use actions/checkout. Reporting it as an
@@ -512,6 +551,8 @@ _write_generator_raw() {
   refute_output --partial 'never uses actions/checkout'
 }
 
+# why: A ./ callee is this tree at this commit; excluding it by name keeps the pass
+# from riding on the matcher merely declining to match
 @test "generated-workflow-actions: a local ./ callee is skipped by name, not by accident (#950)" {
   # `uses: ./.github/workflows/x.yaml` carries no ref: the callee is this
   # tree at this commit. A named exclusion, so it does not ride on the
@@ -526,6 +567,8 @@ _write_generator_raw() {
   [ "${status}" -eq 0 ]
 }
 
+# why: An image reference has no owner/repo reading for a workflow ref to agree
+# with, so it is excluded by name rather than by accident
 @test "generated-workflow-actions: a docker:// container action is skipped by name (#950)" {
   # An image reference, not a repository tag: it has no <owner>/<repo>
   # reading for a workflow ref to agree with.
@@ -539,6 +582,8 @@ _write_generator_raw() {
   [ "${status}" -eq 0 ]
 }
 
+# why: The same matcher reads both sides; a quoted ref dropped from the expected
+# set turns a real disagreement into the right verdict for the wrong reason
 @test "generated-workflow-actions: a quoted ref in this repo's own workflow is read too (#950)" {
   # The same matcher reads both sides. A quoted ref in .github/workflows/
   # dropped from the expected set turns a real disagreement into "this
@@ -551,6 +596,8 @@ _write_generator_raw() {
   [ "${status}" -eq 0 ]
 }
 
+# why: A shipped release cannot be re-pinned, so scanning it fails a lint no
+# edit can satisfy
 @test "generated-workflow-actions: ignores a generator under .prev-release/ (#950)" {
   # The self-test materialises PAST releases into .prev-release/, and a
   # shipped release's refs are stale BY DEFINITION -- a release cannot be
@@ -584,6 +631,8 @@ _write_generator_raw() {
 # lint that fails when it is missing. The driver looks the answer up; it
 # does not re-derive which assignment is live.
 
+# why: The shape init.sh actually uses -- a hoisted ref writes the same value as an
+# inline one, so excluding it would drop the ref this lint was built for
 @test "generated-workflow-actions: a declared readonly literal is resolved and compared (#950)" {
   _load_driver
   _write_workflow 'actions/checkout@v8'
@@ -599,6 +648,8 @@ _write_generator_raw() {
   assert_output --partial 'v8'
 }
 
+# why: Not merely "does not fail": a resolved ref that is silently dropped also
+# passes, and the count is what separates the two
 @test "generated-workflow-actions: a resolved ref that agrees enters the population (#950)" {
   # Not just "does not fail": the ref has to be COUNTED. A resolved ref
   # that is silently dropped also passes, and the count is what separates
@@ -615,6 +666,8 @@ _write_generator_raw() {
   assert_output --partial '1 generated ref'
 }
 
+# why: readonly is a hardening detail of the declaration; what makes the value
+# readable is the marker, not the keyword
 @test "generated-workflow-actions: the declaration keyword decides nothing (#950)" {
   # `readonly` is a hardening detail of the declaration, not what makes the
   # value readable. What makes it readable is the marker.
@@ -630,6 +683,8 @@ _write_generator_raw() {
   assert_output --partial 'v7'
 }
 
+# why: The single-variable shape, with no neighbour to collide with: the rule is
+# "a bare name", not "a bare name that could collide"
 @test "generated-workflow-actions: an unbraced \$NAME is refused with no neighbour to collide with (#987)" {
   # This used to assert the opposite -- that the bare spelling RESOLVES --
   # and the driver was narrowed to read only `${NAME}` because the bare
@@ -653,6 +708,8 @@ _write_generator_raw() {
   refute_output --partial 'v7'
 }
 
+# why: The variable need not be the whole value; actions/checkout@${_V} is the same
+# static ref written differently
 @test "generated-workflow-actions: resolves the ref half alone (#950)" {
   # The variable need not be the whole value. `actions/checkout@${V}` is
   # the same static ref written differently -- and `v7` is a version, so
@@ -669,6 +726,8 @@ _write_generator_raw() {
   assert_output --partial 'v7'
 }
 
+# why: Resolution feeds the ordinary comparison rather than bypassing it, or the
+# registry would become a way to opt a ref out
 @test "generated-workflow-actions: a resolved ref to an action this repo never uses still fails (#950)" {
   # Resolution feeds the ordinary comparison; it is not a bypass around it.
   _load_driver
@@ -684,6 +743,8 @@ _write_generator_raw() {
   assert_output --partial 'actions/setup-node'
 }
 
+# why: The record names a file AND a line; matching on the name alone throws away
+# the half that makes the lookup better than the scanner it replaced
 @test "generated-workflow-actions: a declaration in ANOTHER file does not resolve (#987)" {
   # The record names a FILE and a line, and resolution uses both. A marker
   # in dist/constants.sh says what THAT file's `_MONITOR_REF` holds; it
@@ -706,6 +767,8 @@ _write_generator_raw() {
   assert_output --partial '_MONITOR_REF'
 }
 
+# why: What name-keyed resolution costs: a marked constant in a sibling file
+# answers for a runtime value here, and reports lockstep over it
 @test "generated-workflow-actions: a marked name elsewhere does not vouch for a runtime value here (#987)" {
   # What name-keyed resolution costs, in the shape it actually arrives in.
   # dist/init.sh computes its own `_MONITOR_REF` at run time and carries
@@ -747,6 +810,8 @@ _write_generator_raw() {
 # property is declared by the author rather than inferred here, and that
 # an undeclared one fails instead of being resolved in silence.
 
+# why: The stated cost of trusting a declaration -- a declaration below the heredoc
+# that reads it still resolves, and that is bought knowingly
 @test "generated-workflow-actions: a declaration BELOW the use still resolves (#987)" {
   _load_driver
   _write_workflow 'actions/checkout@v8'
@@ -773,6 +838,8 @@ _write_generator_raw() {
 # unrecognised shape is to refuse it, so it is reported with the raw value
 # and the reader decides.
 
+# why: Which declaration reaches the use is the question this driver no longer
+# answers, so it says so rather than picking one
 @test "generated-workflow-actions: two declarations that disagree are a finding (#950)" {
   # Which one reaches this use is exactly the question this driver no
   # longer answers, so it says so rather than picking.
@@ -791,6 +858,8 @@ _write_generator_raw() {
   assert_output --partial '_MONITOR_REF'
 }
 
+# why: Declared and still not a value -- what the line holds is decided at run
+# time, so there is nothing to hold in lockstep
 @test "generated-workflow-actions: a declared command substitution is a finding (#950)" {
   # Declared, and still not a value: what the line holds is decided at run
   # time, so there is nothing here to hold in lockstep with anything.
@@ -807,6 +876,8 @@ _write_generator_raw() {
   assert_output --partial '_MONITOR_REF'
 }
 
+# why: A second hop is not a value, and refusing it is also what keeps resolution
+# terminating rather than substituting forever
 @test "generated-workflow-actions: a declared value that is itself a variable is a finding (#950)" {
   # `_A='actions/checkout@v7'` is a value; `_B="${_A}"` is a second hop.
   # Refusing it is also what keeps resolution terminating: a declared
@@ -825,6 +896,8 @@ _write_generator_raw() {
   assert_output --partial 'not a versioned action reference'
 }
 
+# why: A value built at run time from an interpolation is not a static ref, so
+# resolving it would compare a string the generator never writes
 @test "generated-workflow-actions: a declared value with an interpolation is a finding (#950)" {
   _load_driver
   _write_workflow 'actions/checkout@v8'
@@ -838,6 +911,8 @@ _write_generator_raw() {
   assert_output --partial 'not a versioned action reference'
 }
 
+# why: A variable nothing declares is the fail-open case: resolving it to nothing
+# would drop the ref from the population in silence
 @test "generated-workflow-actions: a variable nothing in the tree declares is a finding (#950)" {
   _load_driver
   _write_workflow 'actions/checkout@v8'
@@ -849,6 +924,8 @@ _write_generator_raw() {
   assert_output --partial '_MONITOR_REF'
 }
 
+# why: The mirror of the cross-file case -- resolution reads the registry, not the
+# tree, so an unclaimed assignment contributes nothing wherever it sits
 @test "generated-workflow-actions: an UNDECLARED assignment in another file is a finding (#987)" {
   # The mirror of the cross-file case above. Tree-wide resolution reads
   # the registry, not the tree: an assignment no marker claims contributes
@@ -864,6 +941,8 @@ _write_generator_raw() {
   assert_output --partial 'not a versioned action reference'
 }
 
+# why: NAME+= builds a value rather than declaring one, so reading only the NAME=
+# line resolves to a prefix of what the generator writes
 @test "generated-workflow-actions: an appended variable is a finding (#950)" {
   # `NAME+=` builds a value rather than declaring one, so it is not an
   # assignment to the registry either: reading only the `NAME=` line would
@@ -884,6 +963,8 @@ _write_generator_raw() {
 
 # ── The cases where there is no single ref to follow ────────────────────
 
+# why: No answer to which ref the generated copy should carry, so it says so
+# rather than guessing
 @test "generated-workflow-actions: fails when this repo pins the action at two refs (#950)" {
   # With the workflows themselves disagreeing there is no answer to
   # "which ref should the generated copy carry", so the lint says that
@@ -899,6 +980,8 @@ _write_generator_raw() {
   assert_output --partial 'v7'
 }
 
+# why: No dependabot PR for the generated ref to inherit -- the bare form of
+# the defect
 @test "generated-workflow-actions: fails when this repo never uses the generated action (#950)" {
   # An action this repo does not call itself has no dependabot PR to
   # inherit from, so the generated ref is pinned by nobody -- the exact
@@ -912,6 +995,7 @@ _write_generator_raw() {
   assert_output --partial 'actions/setup-node'
 }
 
+# why: A renamed generator or a dead matcher must not read as lockstep
 @test "generated-workflow-actions: refuses a tree it found no generated ref in (#950)" {
   # Reporting clean over a scan that read nothing is how a lint quietly
   # stops covering anything -- a renamed generator, a moved directory, a
@@ -939,6 +1023,8 @@ _write_generator_raw() {
 # author's declaration, under a lint that fails when the declaration is
 # missing.
 
+# why: A bare brace group at column 0 drops the reader back to file scope for the
+# rest of the body, so every later assignment is judged live
 @test "generated-workflow-actions: a brace group at column 0 does not end a function (#987)" {
   # `}` at column 0 is read as the close of the enclosing function, so a
   # bare brace group written unindented inside one drops the reader back to
@@ -963,6 +1049,8 @@ _write_generator_raw() {
   assert_output --partial '_MONITOR_REF'
 }
 
+# why: for((...)) carries no space, so the loop never counts as opened and an
+# assignment that runs only inside it is read as unconditional
 @test "generated-workflow-actions: a C-style for loop is a conditional block (#987)" {
   # The open-block counter matches `for ` with a space. `for((i=0;...))`
   # has none, so the loop is never counted as opened -- and an assignment
@@ -985,6 +1073,8 @@ _write_generator_raw() {
   assert_output --partial '_MONITOR_REF'
 }
 
+# why: A tab after if is legal bash and does not match "if ", so the block never
+# opens and the guarded assignment reads as unconditional
 @test "generated-workflow-actions: a tab after if still opens a block (#987)" {
   # Same counter, same defect one character over: `if<TAB>` is legal bash
   # and does not match `if `, so the block never opens and the guarded
@@ -1016,6 +1106,8 @@ _write_generator_raw() {
 # finding. Whether the site the reference is written at EXPANDS is not
 # asked, and the cases below are where that shows.
 
+# why: A quoted heredoc writes the reference out verbatim, which is a broken
+# generator rather than a ref to pass over -- the comparison is the same
 @test "generated-workflow-actions: a reference in a QUOTED heredoc is compared like any other (#987)" {
   # `<<'YAML'` writes `${_MONITOR_REF}` out verbatim, and the previous
   # reader spent a bash model on saying so -- to exempt the line from the
@@ -1042,6 +1134,8 @@ _write_generator_raw() {
   assert_output --partial 'the generated copy disagrees'
 }
 
+# why: The one dollar spelling in a uses: value that is not a shell reference at
+# all, so it is excluded by name beside ./ and docker://
 @test "generated-workflow-actions: a \${{ }} GitHub expression is excluded by name (#987)" {
   # The one `$` spelling in a `uses:` value that is not a shell reference
   # at all: GitHub resolves it, at run time, from a context this tree
@@ -1061,6 +1155,8 @@ _write_generator_raw() {
   assert_output --partial 'clean (1 generated ref(s) checked'
 }
 
+# why: The exclusion is of the expression, not of any value carrying one; it is
+# what stops the new exclusion becoming a blanket pass
 @test "generated-workflow-actions: a \${{ }} does not excuse a shell reference beside it (#987)" {
   # The exclusion is of the EXPRESSION, not of the value that carries
   # one. Shell references are resolved first and the exclusion is applied
@@ -1081,6 +1177,8 @@ _write_generator_raw() {
   assert_output --partial '_UNDECLARED'
 }
 
+# why: What the deleted heredoc model cost while working as designed -- a shift
+# read as an unterminated heredoc refused every ref in the file
 @test "generated-workflow-actions: an arithmetic left shift is not a reason to refuse a file (#987)" {
   # What the deleted model cost when it was working as designed. `1 << 3`
   # is a shift; a heredoc reader sees `<<` and opens a body on `3` that no
@@ -1116,6 +1214,8 @@ _write_generator_raw() {
 # extracts the value on that line, because a human wrote a `tool-pin:`
 # marker there under a lint that fails when it is missing.
 
+# why: The replacement contract in one case: a variable is what the pin registry
+# says it is, and the registry already names the file, line and value
 @test "generated-workflow-actions: a variable the registry declares is resolved (#987)" {
   _load_driver
   _write_workflow 'actions/checkout@v8'
@@ -1130,6 +1230,8 @@ _write_generator_raw() {
   assert_output --partial 'v8'
 }
 
+# why: A short name substituted into a longer one it prefixes fabricated a ref that
+# appears in no declaration, and the backstop found nothing to refuse
 @test "generated-workflow-actions: a bare \$NAME is a finding, not a resolution (#987)" {
   # why: the bare spelling has no terminator, so a global substitution of a
   # SHORT name reached into a LONGER name it prefixes. With A declared as
@@ -1153,6 +1255,8 @@ _write_generator_raw() {
   refute_output --partial 'v7'
 }
 
+# why: The whole trade in one case: file-scope, unconditional, column 0, above the
+# use -- and still refused, because nothing declares it to the watch
 @test "generated-workflow-actions: an assignment no marker claims is a finding (#987)" {
   # The whole trade in one case. The assignment below is file-scope,
   # unconditional, at column 0 and above the use -- everything the deleted
@@ -1170,6 +1274,8 @@ _write_generator_raw() {
   assert_output --partial '_MONITOR_REF'
 }
 
+# why: The two lints disagreed about what an assignment is, so one marker on a
+# local produced a record the watch read and this lint refused
 @test "generated-workflow-actions: one reader -- a declared local resolves too (#987)" {
   # The two lints used to disagree about what an assignment IS. The pin
   # registry's regex accepts `local`; this driver's scanner marked it
@@ -1199,6 +1305,8 @@ _write_generator_raw() {
 
 # ── The population is derived, not a glob ───────────────────────────────
 
+# why: A *.sh glob is a roster of file shapes, and the non-vacuity backstop cannot
+# notice the gap because the one known generator keeps the count at 1
 @test "generated-workflow-actions: a generator that is not named *.sh is scanned (#987)" {
   # `*.sh` is a roster of the file shapes a generator may take, and this
   # repo has retired that roster twice already for the same reason: an
@@ -1222,6 +1330,8 @@ _write_generator_raw() {
   assert_output --partial 'v3'
 }
 
+# why: Two walks over one tree with two prune lists is how "the verdict must not
+# depend on whose machine it ran on" stops applying to half of them
 @test "generated-workflow-actions: ignores a generator under .claude/ (#987)" {
   # `.claude/` is the agent harness a checkout may or may not carry, and
   # the pin registry prunes it for a stated reason: scanning it makes the
@@ -1242,6 +1352,8 @@ _write_generator_raw() {
 
 # ── The real tree ───────────────────────────────────────────────────────
 
+# why: Drives the live tree, so the fixtures cannot drift away from what
+# ships
 @test "generated-workflow-actions: the real repo is in lockstep (#950)" {
   _load_driver
   REPO_ROOT=/source

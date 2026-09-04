@@ -17,6 +17,10 @@
 #   * Run each wrapper's --help; the wrapper must succeed in sourcing
 #     _lib.sh from .base/dist/script/docker/lib/_lib.sh and print usage. The lookup
 #     bug surfaces as the "cannot find _lib.sh" error path.
+#
+# why: Locks how the wrappers locate `_lib.sh` (#282): `--help` paths source
+# it from `.base/` when present, and the lookup errors clearly when neither
+# `.base/` nor a sibling `_lib.sh` exists.
 
 bats_require_minimum_version 1.5.0
 
@@ -43,24 +47,28 @@ teardown() {
 
 # ── .base/ layout: wrapper sources _lib.sh successfully ───────────────
 
+# why: build resolves lib from subtree
 @test "build.sh --help: sources _lib.sh from .base/ (#282)" {
   run "${SANDBOX}/build.sh" --help
   assert_success
   refute_output --partial "cannot find _lib.sh"
 }
 
+# why: run resolves lib from subtree
 @test "run.sh --help: sources _lib.sh from .base/ (#282)" {
   run "${SANDBOX}/run.sh" --help
   assert_success
   refute_output --partial "cannot find _lib.sh"
 }
 
+# why: exec resolves lib from subtree
 @test "exec.sh --help: sources _lib.sh from .base/ (#282)" {
   run "${SANDBOX}/exec.sh" --help
   assert_success
   refute_output --partial "cannot find _lib.sh"
 }
 
+# why: stop resolves lib from subtree
 @test "stop.sh --help: sources _lib.sh from .base/ (#282)" {
   run "${SANDBOX}/stop.sh" --help
   assert_success
@@ -69,6 +77,7 @@ teardown() {
 
 # ── Missing _lib.sh: wrapper surfaces the documented error ───────────
 
+# why: Missing-lib hard fail
 @test "build.sh: errors clearly when neither .base/ nor sibling _lib.sh exists (#282)" {
   rm -f "${SANDBOX}/.base/dist/script/docker/lib/_lib.sh"
   run "${SANDBOX}/build.sh" --help

@@ -16,8 +16,9 @@
 # one-time bootstrap before `just` is wired up.
 #
 # Auto-detects:
-#   - Has Dockerfile → existing repo: create symlinks
-#   - No Dockerfile → new repo: generate full project structure
+#   - Carries a published signal (`--list-existing-repo-signals`; today
+#     `Dockerfile`) → existing repo: create symlinks
+#   - Carries none of them → new repo: generate full project structure
 
 # Only set strict mode when running directly; when sourced, respect caller's settings
 if [[ "${BASH_SOURCE[0]:-}" == "${0:-}" ]]; then
@@ -146,7 +147,20 @@ _create_symlinks() {
 # _populate_config
 #
 # On first init (no <repo>/config), create an empty placeholder
-# directory at `<repo>/config/` with a `.gitkeep`. The Dockerfile's
+# directory at `<repo>/config/` with a `.gitkeep`.
+#
+# The `.gitkeep` is the only thing base ever tells a repo author about
+# `config/`, and that directory feeds TWO channels, not one: the
+# build-time template overlay described below, and the structured
+# app-config channel (`config/<component>/`, bind-mounted at
+# `/opt/app/config/<component>` in development and baked at the same path
+# for deploy -- PRD invariant 8's two opposite means). So the placeholder
+# states both, plus the `config/<component>/` shape convention and the
+# preset selector (ADR-00000030); nothing about an empty directory would
+# suggest any of it, and a convention nobody is told is one every repo
+# re-invents. It reaches NEW repos only -- an existing `config/` is
+# preserved untouched by the guard below, deliberately, because that
+# directory is the user's. The Dockerfile's
 # layered COPY chain (template#254) reads `.base/dist/config/` first
 # as the default layer and `<repo>/config/` second as the override
 # overlay; an empty <repo>/config/ means "no overrides, take all
@@ -192,14 +206,43 @@ _populate_config() {
   # (Docker COPY of <repo>/config/ requires the path to exist).
   mkdir -p config
   cat > config/.gitkeep <<'EOF'
-# Placeholder so this directory exists in git. The Dockerfile's
-# layered COPY (template#254) reads .base/dist/config/ first then
-# overlays <repo>/config/ on top. Drop files under <repo>/config/
-# only when you want to override a specific template default
-# (e.g. <repo>/config/shell/bashrc to override template's bashrc,
-# or <repo>/config/shell/bashrc.d/your-snippet.sh to add a drop-in).
-# Files NOT placed here keep flowing through from .base/dist/config/
-# on every build.
+# Placeholder so this directory exists in git. This directory is read
+# TWICE, at two moments, and what you put where decides which.
+#
+# 1. Template overrides, at BUILD time. The Dockerfile's layered COPY
+#    reads .base/dist/config/ first, then overlays <repo>/config/ on top,
+#    into /tmp/config -- which is deleted in the same RUN. Drop a file
+#    here only to override a specific template default
+#    (e.g. <repo>/config/shell/bashrc to override the template's bashrc,
+#    or <repo>/config/shell/bashrc.d/your-snippet.sh to add a drop-in).
+#    Files NOT placed here keep flowing through from .base/dist/config/
+#    on every build.
+#
+# 2. YOUR APP'S OWN CONFIG, in a directory of its own: config/<component>/
+#    (config/realsense/, config/ros1_bridge/). Every such directory is
+#    bind-mounted at /opt/app/config/<component> in development -- edit on
+#    the host, restart, no rebuild -- and COPY-baked at the same path into
+#    a deployable image, which is how one config survives both. A regular
+#    file sitting directly under config/ gets NEITHER; `just setup` warns
+#    about it by name.
+#
+#    Inside config/<component>/, group by kind only once a kind has more
+#    than one file. Name a copy-me template <name>.example.<ext>, keeping
+#    the real extension last. Do NOT add an audience level
+#    (official/custom/internal/): which files a field operator may retune
+#    is declared in config/<component>/deploy.manifest, one section per
+#    deployable stage, and a directory that says it too can only disagree.
+#    A file kept only to be diffed against upstream is a test fixture, not
+#    config -- keep it out of config/, or it is mounted and baked for
+#    nothing.
+#
+#    When a component ships several curated presets and the repo bakes one
+#    of them, say WHICH with a committed repo-root symlink into
+#    config/<component>/ -- e.g. camera.yaml -> config/realsense/yaml/none.yaml
+#    -- and COPY it through a build ARG whose default is that symlink's
+#    name, so `--build-arg` overrides one build without touching the tree.
+#    `just setup` names every selector and the preset it currently points
+#    at.
 EOF
   _log "  Created empty config/ placeholder (.base/dist/config/ is the default layer; <repo>/config/ overlays per-file)"
 }
@@ -310,6 +353,53 @@ _detect_template_version() {
 
 # ── New repo scaffolding ────────────────────────────────────────────────────
 
+# _init_existing_repo_signals
+#   Every repo-relative path whose presence means "this repo has been set up
+#   before", one per line, sorted (LC_ALL=C) and duplicate-free. It is the
+#   whole of the new-vs-existing decision: `_init_repo_is_existing` below
+#   reads nothing else, so the list and the branch cannot disagree.
+#
+#   WHY IT IS PUBLISHED. The decision is a PROXY. A file only an initialized
+#   repo was supposed to carry stands in for "initialized", and that holds
+#   only while nothing ELSE ships the file. It inverted once: the template
+#   began shipping a `Dockerfile`, so every repo bootstrapped from it arrived
+#   carrying the proxy, took the existing-repo branch, and never got the
+#   new-repo scaffold -- no CI workflow, no changelog, no smoke tree. Months
+#   passed and no test failed, because the proxy existed only as a condition
+#   inside `main`: nothing outside this file could name what it depended on.
+#
+#   Printing it (`--list-existing-repo-signals`) is what makes the assumption
+#   checkable from where the collision actually happens. The template repo is
+#   the one place the shipped file set and the vendored installer are both on
+#   disk, and its guard derives the discriminator from this list rather than
+#   restating the condition -- a restatement being the thing that goes stale.
+#
+#   A signal must be a file the new-repo path itself creates. One that is not
+#   can never flip a repo from new to existing on its own, so it can only
+#   arrive from somewhere else, which is precisely the inversion above.
+#   test/bats/integration/init_existing_repo_signals_spec.bats runs a real
+#   init per published path and reads the branch off the artifacts.
+_init_existing_repo_signals() {
+  cat <<'EOF'
+Dockerfile
+EOF
+}
+
+# _init_repo_is_existing
+#   True when the repo at cwd carries any published signal. Same test the
+#   branch has always made (`[[ -f Dockerfile ]]`), asked of the list instead
+#   of a literal.
+_init_repo_is_existing() {
+  local _signal
+  while IFS= read -r _signal; do
+    [[ -n "${_signal}" ]] || continue
+    if [[ -f "${_signal}" ]]; then
+      return 0
+    fi
+  done < <(_init_existing_repo_signals)
+  return 1
+}
+
 _detect_repo_name() {
   basename "${REPO_ROOT}"
 }
@@ -351,7 +441,7 @@ _create_new_repo() {
 
   # script/entrypoint.sh
   mkdir -p script
-  cp "${TEMPLATE_DIR}/dist/script/docker/runtime/entrypoint.sh" script/entrypoint.sh
+  cp "${TEMPLATE_DIR}/dist/dockerfile/entrypoint.sh" script/entrypoint.sh
   chmod +x script/entrypoint.sh
   _log "  Created script/entrypoint.sh"
 
@@ -1267,11 +1357,14 @@ main() {
   if [[ "${1:-}" =~ ^(-h|--help)$ ]]; then
     cat >&2 <<'EOF'
 Usage: ./<subtree-prefix>/init.sh [--gen-conf [--force]] [--bootstrap-just]
-       [--list-installed-paths] [--lang <en|zh-TW|zh-CN|ja>]
+       [--list-installed-paths] [--list-existing-repo-signals]
+       [--lang <en|zh-TW|zh-CN|ja>]
 
 Initialize a repo with the template subtree. Auto-detects:
-  - Has Dockerfile → create symlinks, then run setup.sh
-  - No Dockerfile  → generate full project structure, then run setup.sh
+  - Carries a signal (--list-existing-repo-signals) → create symlinks,
+    then run setup.sh
+  - Carries none of them → generate full project structure, then run
+    setup.sh
 
 The subtree prefix is taken from init.sh's own directory; the standard
 prefix is `.base/` but the script handles any prefix without code
@@ -1295,6 +1388,14 @@ Options:
                      existing-repo resync guarantees a consumer carries,
                      then exit without touching anything. The delivery
                      audit reads this instead of keeping its own copy.
+  --list-existing-repo-signals
+                     Print, one per line, every repo-relative path whose
+                     presence makes init treat this repo as ALREADY set
+                     up (the new-vs-existing discriminator), then exit
+                     without touching anything. A checker that must know
+                     the discriminator -- the template's guard against
+                     shipping a file that collides with it -- reads this
+                     instead of restating the condition.
   --bootstrap-just   Opt-in: install the `just` runner via the official
                      prebuilt-binary installer into ~/.local/bin before
                      init proceeds, at the version this repo pins (the
@@ -1326,6 +1427,17 @@ EOF
     return 0
   fi
 
+  # `--list-existing-repo-signals` is a QUERY too, answered here for the
+  # same reasons: the caller is asking what init.sh READS to classify a
+  # repo, not asking it to initialize one, and the answer has to be
+  # obtainable from a base checkout the self-run guard would (correctly)
+  # refuse to scaffold in. Nothing below this point runs, so the query
+  # mutates nothing.
+  if [[ "${1:-}" == "--list-existing-repo-signals" ]]; then
+    _init_existing_repo_signals
+    return 0
+  fi
+
   # Refuse to run inside the base template source itself (ADR-00000011 sec.8).
   # A vendored `.base/` subtree never carries `.git`; the base checkout/
   # worktree does, so `.git` at the resolved subtree root means "this is the
@@ -1351,7 +1463,7 @@ EOF
   local template_version=""
   template_version="$(_detect_template_version)"
 
-  if [[ -f Dockerfile ]]; then
+  if _init_repo_is_existing; then
     _init_existing_repo
   else
     _create_new_repo "${template_version:-main}"

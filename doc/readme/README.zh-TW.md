@@ -137,7 +137,7 @@ flowchart LR
     release_worker -->|"tar.gz + zip"| release["GitHub Release"]
 ```
 
-<!-- sync: whats-included 59eb8601baa5 06d3c15b8665 -->
+<!-- sync: whats-included 15d472ab822b f2a9fdf253ea -->
 ### 包含內容
 
 | 檔案 | 說明 |
@@ -164,8 +164,10 @@ flowchart LR
 | `dist/script/docker/lib/_tui_conf.sh` | TUI 的 INI validator + 讀寫 |
 | `dist/script/docker/runtime/logging.sh` | host 端 log tee helper（per-start 檔案 + 穩定 symlink） |
 | `dist/script/docker/runtime/logrotate.sh` | 共用 rotate/symlink/prune primitives（tee + transcript 共用） |
-| `dist/script/docker/runtime/smoke.sh` | runtime install-check smoke |
-| `dist/script/docker/runtime/entrypoint.sh` | template entrypoint helper |
+| `dist/script/docker/runtime/watchdog.sh` | 通用單服務 watchdog（重啟 + 可插拔健康檢查） |
+| `dist/script/docker/runtime/entrypoint.sh` | base 的 ENTRYPOINT orchestrator：開 log tee、source repo bringup、arm watchdog、exec workload |
+| `dist/dockerfile/entrypoint.sh` | bringup 範本，建立新 repo 時 seed 成 `script/entrypoint.sh`（repo 那一半，由 orchestrator source） |
+| `dist/test/bats/smoke/smoke.sh` | runtime install-check smoke（ldd 缺依賴掃描） |
 | `script/test/test.sh` | base 自身測試 dispatcher（本地 + 容器內） |
 | `script/test/drivers/` | 每個工具一支 driver — `bats.sh` / `shellcheck.sh` / `hadolint.sh` |
 | `script/test/lint_bare_stderr.sh` | Bare stderr lint 檢查 |
@@ -401,13 +403,13 @@ assertion helpers。下游 repo 應優先使用這些 helper 而非原生的
 | `assert_file_owned_by <user> <path>` | `<path>` 擁有者不是 `<user>` 時失敗 |
 | `assert_pip_pkg <pkg>` | `pip show <pkg>` 非 0 時失敗 |
 
-<!-- sync: what-stays-in-each-repo-not-shared 5cff28619497 07c60b45f9cf -->
+<!-- sync: what-stays-in-each-repo-not-shared 64249bb1afa8 74e1e92d2627 -->
 ### 各 repo 自行維護的檔案（不共用）
 
 - `Dockerfile`
 - `compose.yaml`
 - `script/` — repo 本地的 **runtime helpers**（在 container 內被 `ENTRYPOINT` / `CMD` 或人工呼叫）
-  - `script/entrypoint.sh`（canonical）
+  - `script/entrypoint.sh` — 這個 repo 的 **bringup**，由 base 的 orchestrator source；它本身不是 `ENTRYPOINT`（見英文版 README 的 Container entrypoint 一節）
   - 任何 ros / app 啟動 helper 等
 - `script/docker/` — repo 本地的 **Dockerfile-internal build helpers**（在 Dockerfile `RUN` 階段呼叫，container 啟動後不會用到；範例與 lint COPY 見 `dist/dockerfile/Dockerfile`，#275）
 - `doc/` 和 `README.md`
@@ -552,7 +554,7 @@ wrapper 的 `docker compose -p`，以及產生出來的 `compose.yaml` 裡的
 ./.base/dist/script/base/init.sh --gen-conf # 單純複製 .base/dist/.setup.conf 到 <repo>/.setup.conf
 ```
 
-<!-- sync: logging-output-to-host df27d24459b2 8c949a8dc246 -->
+<!-- sync: logging-output-to-host 81a10abacbca c253badf6270 -->
 ### 輸出 log 到 host
 
 設 `[logging] local_path`，容器 stdout/stderr 會 tee 一份到 host 上的
@@ -573,10 +575,11 @@ per-start 檔 `<local_path>/<svc>_<ts>.log`，並把穩定的 symlink
 （保留幾天）兩者取嚴清掉，symlink 本身不會被清。`docker logs <ct>`
 行為不變（json-file 維持 rolling 歷史）。
 
-**新 repo**：用本版本之後的 `init.sh` 產生時，`script/entrypoint.sh`
-已內建 helper source，設 `[logging] local_path` 是唯一一步。
-**既有 repo**：在 `script/entrypoint.sh` 的最終 `exec` 之前加一行做
-一次性遷移：
+跑 base ENTRYPOINT orchestrator 的 repo，設 `[logging] local_path`
+就是唯一一步：helper 由 orchestrator source，bringup 什麼都不用加，
+base 之後改了也會隨 subtree 一起到。**還在用自己 `/entrypoint.sh`
+當 `ENTRYPOINT` 的 repo**：在最終 `exec` 之前加下面這一行，或直接做
+英文版 README「Container entrypoint」那一節的一次性遷移：
 
 ```bash
 . /usr/local/lib/base/logging.sh
@@ -588,8 +591,9 @@ Helper 由 `Dockerfile` 的 devel stage COPY 到 image 內穩定路徑
 各種 workspace 結構下都能 work — 不需要 `$USER`，也不依賴 workspace
 bind mount。
 
-疑難排解：`local_path` 設了但 host 檔案沒東西 → 確認
-`script/entrypoint.sh` 真的有那行 source
+疑難排解：`local_path` 設了但 host 檔案沒東西 → 先看這個 repo 是哪一種
+模型（`grep ENTRYPOINT Dockerfile`）。跑 orchestrator 的不用再做任何事；
+還在跑自己 `/entrypoint.sh` 的，確認那個檔案真的有那行 source
 （`grep logging.sh script/entrypoint.sh`）。
 
 <!-- sync: interactive-tui 23df6f6f09ab 4cef5048d56e -->
@@ -669,7 +673,7 @@ Main
 
 帶 `--setup` 重跑以重新產 `.env.generated` + `compose.yaml`。
 
-<!-- sync: field-deployment-just-docker-setup-deploy 66110bfc975b 57181691d363 -->
+<!-- sync: field-deployment-just-docker-setup-deploy 9112a5c7eaaa a7a48df3b067 -->
 ### Field 部署（`just docker setup deploy`）
 
 `just docker setup deploy`（或直接呼叫 `./setup.sh deploy`）用同一份 `setup.conf` 打包出自帶式的 field 部署**資料夾** —— 即上述路由模型的 deploy 半邊（[ADR-00000023](../adr/00000023-config-field-override-and-field-deploy-contract.md)，修訂 [ADR-00000003](../adr/00000003-env-vs-workload-param-boundary.md)；[PRD invariant 8](../PRD.md)）。它針對 *field 導向* 的 stage（預設 `runtime`；**絕不**是 `devel` 或任何 `*-test` stage），產出的資料夾帶齊目標主機需要的一切 —— field 主機不會看到 base 的工具鏈、原始碼樹或 `setup.conf`。
@@ -694,7 +698,7 @@ Bundle 落在 `deploy/<repo>-<stage>-<version>/`（repo 根的 `deploy/` 資料�
 
 依序做這些事：
 
-1. 把 `[environment]` 預設烤成映像的真 `ENV`（S3），有 `config/app/` 就 `COPY` 進映像（S4）—— 使 field 映像自帶（不帶 env 檔、不帶 config bind）；
+1. 把 `[environment]` 預設烤成映像的真 `ENV`（S3），每個 `config/<component>/` 都 `COPY` 進映像的 `/opt/app/config/<component>`（S4）—— 使 field 映像自帶（不帶 env 檔、不帶 config bind）；
 2. `docker build --target <stage>` 出不可變映像，tag 為 `<repo>:<stage>-<version>`；
 3. `docker save | xz` 成 `image.tar.xz`；
 4. 寫出完全解析的 `compose.yaml`（與 `apply` 共用同一支 resolver，所以 field 永遠不會跟 dev 漂移）、`deploy.sh` 啟動器與 `README`，再把每個可調整檔案 baked 的預設抽出來放進 `config/`。
@@ -1128,15 +1132,16 @@ jobs:
 | `platforms` | string | 否 | `"linux/amd64"` | 逗號分隔的目標平台；每個會在原生 runner 上平行跑（`linux/amd64` → ubuntu-latest、`linux/arm64` → ubuntu-24.04-arm） |
 | `test_tools_version` | string | 否 | `"latest"` | `ghcr.io/ycpss91255-docker/test-tools:<tag>` 的 tag，下游可釘到所升級的 template release 以保證可重現 |
 
-<!-- sync: release-workeryaml-inputs 018ae0329ece b0cdf79f8677 -->
+<!-- sync: release-workeryaml-inputs 76c6974e7c8c 59f2d7db8667 -->
 ### release-worker.yaml 參數
 
 | 參數 | 類型 | 必填 | 預設值 | 說明 |
 |------|------|------|--------|------|
 | `archive_name_prefix` | string | 是 | - | Archive 名稱前綴 |
 | `extra_files` | string | 否 | `""` | 額外檔案（空格分隔） |
+| `version` | string | 否 | `""` | 要發布的版本（`vX.Y.Z`）。走 tag 觸發路徑時留空，版本會從所推的 tag 讀出。若要從非 tag 的 run 直接呼叫這個 worker 就傳入它：用預設 `GITHUB_TOKEN` 產生的事件不會啟動新的 workflow run，所以要自動發布已合併變更的 repo，靠推 tag 到不了這裡。不是 `vX.Y.Z[-suffix]` 的值會被拒絕，而不是照樣拿來發布 |
 
-<!-- sync: running-template-tests 961bde4ce2e8 98d35556d05c -->
+<!-- sync: running-template-tests 4e411d749017 27d1766d68f7 -->
 ## 本地執行測試
 
 base 自身測試入口是 `just test`（由 `script/test/justfile.test` 提供）：
@@ -1144,6 +1149,7 @@ base 自身測試入口是 `just test`（由 `script/test/justfile.test` 提供�
 just test        # 完整 CI（ShellCheck + Bats + Kcov）透過 docker compose
 just test lint        # 只跑 ShellCheck
 just test clean       # 清除覆蓋率報表
+just test stop        # 停掉本 checkout 自我測試的容器
 just             # 列出 repo recipe
 just --list  # 顯示 CI 指令
 ```
@@ -1272,6 +1278,7 @@ just --list  # 顯示 CI 指令
      translated heading. -->
 <!-- sync-skip: getting-help-namespace-vs-recipe -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
 <!-- sync-skip: wrapper-ux-cheat-sheet-291 -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
+<!-- sync-skip: container-entrypoint-the-orchestrator-and-your-bringup -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
 <!-- sync-skip: network-mode-host-default-bridge-opt-in-794 -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
 <!-- sync-skip: restart-policy-is-deploy-scoped-841 -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
 <!-- sync-skip: container-init-pid1-reaper-792 -- untranslated: the localized READMEs are abridged; README.md is authoritative -->

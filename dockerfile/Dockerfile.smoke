@@ -135,7 +135,20 @@ LABEL org.opencontainers.image.base.name="${BASE_IMAGE}" \
 # executable. A consumer gets it from the devel stage, whose
 # ENTRYPOINT_FILE points at the script/entrypoint.sh that init.sh seeded
 # from this very path.
-COPY --chmod=0755 dist/script/docker/runtime/entrypoint.sh /entrypoint.sh
+COPY --chmod=0755 dist/dockerfile/entrypoint.sh /entrypoint.sh
+# The OTHER half. smoke/shared/entrypoint.bats also asserts the base-owned
+# orchestrator at /usr/local/lib/base/entrypoint.sh -- the file the devel
+# stage names as ENTRYPOINT, which sources the bringup above
+# (ADR-00000030). A consumer gets the whole runtime helper directory from
+# the devel stage's `COPY .base/dist/script/docker/runtime/`; here the same
+# directory is base's own dist/, since base carries no .base/ subtree.
+# That assertion is guarded on the entry-point MODEL (it skips where
+# /entrypoint.sh still execs, so an un-migrated consumer's runtime-test is
+# not failed by a spec its Dockerfile never opted into), and the guard
+# cannot weaken the gate here: the bringup COPYed above is the seeded
+# template, which carries no exec. Delete the COPY below and this stage
+# goes red, which is the point of pinning it.
+COPY --chmod=0755 dist/script/docker/runtime/ /usr/local/lib/base/
 
 # ── mirrors `devel-test` ────────────────────────────────────────────────
 # /lint: the wrappers the specs execute, plus the lib chain they source.

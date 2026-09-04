@@ -8,6 +8,57 @@
 # an atexit registry that owns the single EXIT trap. Pure helpers are
 # tested directly; the tee + EXIT-finalize is exercised end-to-end by
 # running a tiny harness in a subshell.
+#
+# why: Wrapper transcript capture (#606) + interactive orchestration capture
+# (#608): tees a verb's combined output to `log/<verb>/<ts>-<traceid8>.log`
+# (ANSI stripped) with a per-verb `latest.log` symlink, an
+# exit-code+duration closing line, retention, and an `_atexit` registry that
+# owns the single EXIT trap. Interactive verbs (run / exec / setup_tui)
+# capture the orchestration phase then `_transcript_detach` before the
+# session. Pure helpers are unit-tested; the tee + EXIT-finalize + detach
+# are exercised end-to-end by running a tiny harness in a subshell.
+# Activation is execution-only (`_transcript_begin` in each verb's
+# `main()`), never at source time.
+#
+# Grouped by concern:
+#
+# - `_transcript_is_full_verb`: 5 captured verbs / interactive + unknown not
+#
+# - `_transcript_is_interactive_verb` + `_transcript_is_capture_verb`
+# classification (#608)
+#
+# - `_transcript_filename` path shape; `_transcript_meta_line`
+# lnav-parseable format
+#
+# - `_transcript_resolve_traceid`: inherits TRACEPARENT trace_id / generates
+# 32-hex
+#
+# - `_transcript_enabled`: default true / `wrapper_transcript=false` kill
+# switch; `WRAPPER_TRANSCRIPT` env override wins over conf both ways (#622)
+#
+# - `_atexit`: registered callbacks run LIFO on exit
+#
+# - `_transcript_prune`: keep-N-most-recent + drop-older-than-D-days
+#
+# - `_transcript_prune` keep=0 wipes all + read-side guard rejects
+# hand-edited `wrapper_transcript_keep=0` (falls back to 20) (#691)
+#
+# - Degrade-to-no-op failure branches (#691): mkdir-fail /
+# raw-file-unwritable / tee-missing each WARN + return 0, wrapper continues
+#
+# - Non-zero wrapper exit recorded (`transcript_complete exit_code=7`) AND
+# propagated to caller (#691)
+#
+# - End-to-end: file produced with combined content; ANSI stripped in file
+# (colour on terminal); exit-code+duration line; `latest.log` symlink;
+# `wrapper_transcript=false` no-op
+#
+# - `_transcript_detach` (#608): no-detach full-captures (run -d path);
+# detach captures orchestration only (`transcript_detached`, not the
+# session); no-op when never begun
+#
+# - Wiring guards: 5 full verbs call `_transcript_begin`; run/exec/setup_tui
+# call begin + detach
 
 bats_require_minimum_version 1.5.0
 

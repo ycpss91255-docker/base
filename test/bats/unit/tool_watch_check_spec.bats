@@ -67,6 +67,8 @@ _check() {
 # The three answers stay apart
 # ════════════════════════════════════════════════════════════════════
 
+# why: The load-bearing case: exit 10 is what the workflow reads as "open a
+# proposal", and it has to carry both versions to write one
 @test "watch: a pin behind its upstream exits 10 and names both versions" {
   _release owner/foo v2.0.0
   _dockerfile \
@@ -79,6 +81,8 @@ _check() {
   assert_output --partial 'v2.0.0'
 }
 
+# why: The other side of that switch -- a clean week must stay distinguishable
+# from a run that compared nothing
 @test "watch: a pin level with its upstream exits 0" {
   _release owner/foo v1.0.0
   _dockerfile \
@@ -89,6 +93,8 @@ _check() {
   assert_output --partial 'CURRENT (1)'
 }
 
+# why: An unreachable upstream yielding an empty matrix would look exactly like
+# a clean week
 @test "watch: an upstream that does not answer FAILS the run" {
   # Never reported as up to date and never skipped quietly: an
   # unreachable upstream that yielded an empty matrix would look exactly
@@ -101,6 +107,8 @@ _check() {
   assert_output --partial 'UNRESOLVED (1)'
 }
 
+# why: A refusal this repo already recorded must not be re-proposed every week;
+# closing a PR is how the old mechanism forgot one silently
 @test "watch: a version on the pin's skip list is refused, not proposed" {
   _release owner/foo v2.0.0
   _dockerfile \
@@ -116,6 +124,8 @@ _check() {
 # A table it could not read must never read as a clean week
 # ════════════════════════════════════════════════════════════════════
 
+# why: The regression: a process substitution discarded the reader's status, so
+# an unreadable tree printed all-zero counts and exited green
 @test "watch: a pin table that does not parse exits 1, not 0" {
   # The regression this pins down: the scan loop used to consume the
   # reader through a process substitution, which discards the producer's
@@ -132,6 +142,8 @@ _check() {
   refute_output --partial 'CURRENT (0)'
 }
 
+# why: The partial form of that defect -- pins after the bad marker vanish while
+# the exit code reflects only the ones before it
 @test "watch: a marker that stops the reader mid-file does not shrink the table silently" {
   # The partial form of the same defect: the reader stops at the bad
   # marker, and every pin after it vanishes from the report while the
@@ -147,6 +159,8 @@ _check() {
   refute_output --partial 'CURRENT (1)'
 }
 
+# why: The floor the lint already had and this did not: a walk that found nothing
+# is the case that actually comes back looking clean
 @test "watch: a tree that yields files but no pin exits 1" {
   # The floor the lint already has and this did not. `pin_coverage.sh`
   # dies when the table yields no PINNED entry, with the rationale that a
@@ -163,6 +177,8 @@ _check() {
   assert_output --partial 'NOTHING was compared'
 }
 
+# why: The floor has to hold on the machine path too -- an empty TSV with status 0
+# is the same silent clean week the report path refuses
 @test "watch: the no-pin floor also refuses to emit a machine answer" {
   rm -rf "${SCRATCH:?}/tree"
   mkdir -p "${SCRATCH}/tree"
@@ -173,6 +189,8 @@ _check() {
   assert_output ''
 }
 
+# why: A scan root of pure prose is the other way to reach an empty table, and it
+# must not read as up to date either
 @test "watch: a tree with nothing scannable in it exits 1" {
   rm -rf "${SCRATCH:?}/tree"
   mkdir -p "${SCRATCH}/tree/doc"
@@ -182,6 +200,8 @@ _check() {
   assert_output --partial 'NOTHING was compared'
 }
 
+# why: The workflow builds its matrix from this stdout, so an empty list with a
+# zero status is precisely the silent clean week
 @test "watch: --drift-tsv emits no machine answer when the table is unreadable" {
   # The workflow builds its matrix from this stdout. Emitting an empty
   # list with a zero status is precisely the silent-clean-week outcome.
@@ -194,6 +214,8 @@ _check() {
   assert_output ''
 }
 
+# why: The machine answer and the human report share one run, so a report line
+# landing on stdout would corrupt the matrix
 @test "watch: --drift-tsv puts the drifted pins on stdout, the report on stderr" {
   _release owner/foo v2.0.0
   _dockerfile \
@@ -210,6 +232,8 @@ _check() {
 # Usage
 # ════════════════════════════════════════════════════════════════════
 
+# why: Exit 2 keeps a typo apart from 1 (nothing compared) and 10 (drift), which
+# is what the workflow branches on
 @test "watch: an unknown option is a usage error, distinct from both" {
   _dockerfile 'FROM scratch'
   _check --nonsense
