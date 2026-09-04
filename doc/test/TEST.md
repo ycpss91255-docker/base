@@ -163,5 +163,6 @@ OUTSIDE the generated region: everything inside it is derived from the specs
 both sides already merged, so a description one branch wrote can no longer be
 dropped by the side the collapse kept. A mechanical collapse adopts whichever
 side it kept for content the generator does not own, which is how the
-"System (N) and smoke (N)" line above shipped stale three times before the
-generator learned to derive it.
+suite-wide figures this file used to carry shipped stale three times before
+the generator learned to derive them -- and part of why they are not recorded
+here at all any more (ADR-00000028 sec. 1).
