@@ -1040,10 +1040,10 @@ _jobs_requesting_packages_write() {
   #   The nested job 'build' is requesting 'contents: read, packages:
   #   write', but is only allowed 'contents: read, packages: none'.
   # That is why the `registry` buildx cache backend was removed rather
-  # than documented (#980): it needed this scope on a job whose declared
-  # block is read-only, so the preflight told a caller to grant something
-  # no caller could make reachable. Any write a future feature needs here
-  # is a CALLER-side grant; the worker may not declare it on their behalf.
+  # than documented: it needed this scope on a job whose declared block is
+  # read-only, so the preflight told a caller to grant something no caller
+  # could make reachable. Any write a future feature needs here is a
+  # CALLER-side grant; the worker may not declare it on their behalf.
   _assert_worker_job_population
   run _jobs_requesting_packages_write
   assert_success
