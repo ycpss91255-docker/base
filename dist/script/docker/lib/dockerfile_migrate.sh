@@ -95,14 +95,33 @@ _dfm_join_copy_statements() {
 # So a run says what it rewrote and its caller stages exactly that. The
 # record is NOT a list of names kept somewhere -- a list decays the first
 # time a migration touches one more file, which is how the sibling
-# entrypoint arrived here -- it is written by the WRITES THEMSELVES. Every
-# in-place edit goes through _dfm_sed / _dfm_install, which record the path
-# only when the bytes actually changed, so a migration whose detect fired
-# but whose sed matched nothing contributes nothing, and a migration added
-# later is covered the moment it writes. The `dfm-write-primitive` marker
-# names the only two lines allowed to write in place; a spec fails the
-# suite on any other.
+# entrypoint arrived here.
+#
+# TWO WAYS INTO THE RECORD, and the second is what closes it.
+#
+#   1. The write helpers. _dfm_sed / _dfm_install record the path when the
+#      bytes actually changed, so a migration whose detect fired but whose
+#      sed matched nothing contributes nothing. They are the idiom because
+#      they are precise and they reach ANY path, including one outside the
+#      set below.
+#   2. The dispatcher reconciles. Before the run it snapshots every file
+#      the migration list may write (_dfm_targets: the Dockerfile and its
+#      sibling entrypoint) and afterwards records each one whose CONTENT
+#      differs -- created, deleted or rewritten -- however it was written.
+#
+# (2) exists because (1) alone is a promise, not a guarantee. Its first
+# guard was a grep asserting every write in this file was `sed -i` or `mv`
+# as the first token of a line: `sed -E -i`, `sed --in-place`, a write
+# after an `&&`, a `cp`, a `tee`, a `>` redirect all sailed past it, so a
+# migration could rewrite a file the record never named and the suite
+# stayed green -- base#1036 recurring, with "proceed" as the default on a
+# shape nobody had thought of. Modelling shell syntax in a grep answers
+# the wrong question. Whether the file changed is answerable directly, so
+# the dispatcher answers it, and a migration author cannot get it wrong by
+# writing in an unanticipated way.
 _DFM_TOUCHED=()
+_DFM_TARGETS=()
+_DFM_BEFORE_DIR=""
 
 # _dfm_record <path>
 #   Add <path> to this run's record, once.
@@ -126,7 +145,7 @@ _dfm_sed() {
   local _before
   _before="$(mktemp)"
   cp -- "${_file}" "${_before}"
-  sed -i "$@" "${_file}"  # dfm-write-primitive
+  sed -i "$@" "${_file}"
   cmp -s -- "${_before}" "${_file}" || _dfm_record "${_file}"
   rm -f -- "${_before}"
   return 0
@@ -141,8 +160,77 @@ _dfm_install() {
   local _new="${2:?BUG: _dfm_install expects the rewritten file}"
   local _changed=0
   cmp -s -- "${_file}" "${_new}" || _changed=1
-  mv -- "${_new}" "${_file}"  # dfm-write-primitive
+  mv -- "${_new}" "${_file}"
   (( _changed )) && _dfm_record "${_file}"
+  return 0
+}
+
+# _dfm_targets <dockerfile>
+#   Every path the migration list may write for this Dockerfile: the file
+#   itself and the sibling entrypoint the entrypoint-side migrations heal.
+#   Printed whether or not each one exists -- a file that APPEARS during a
+#   run was written by it just as much as one that changed.
+#
+#   This is the reconciliation's scope, and the only thing in the record
+#   that is still a list. It is a short and structural one -- the argument
+#   the dispatcher was handed, plus the path _dfm_entrypoint_path derives
+#   from it -- rather than a roster of migrations, so it does not decay as
+#   migrations are added. A migration that writes somewhere else entirely
+#   has to go through the write helpers to be recorded; it also has to
+#   invent the path, which is the moment to widen this.
+_dfm_targets() {
+  local _file="${1:?BUG: _dfm_targets expects a Dockerfile path}"
+  printf '%s\n' "${_file}" "$(_dfm_entrypoint_path "${_file}")"
+}
+
+# _dfm_snapshot_targets <dockerfile>
+#   Take a byte copy of every target that exists, so the reconciliation
+#   below can compare CONTENT rather than mtime. Keyed by position in
+#   _DFM_TARGETS, which both halves then read instead of enumerating twice.
+_dfm_snapshot_targets() {
+  local _file="$1"
+  _DFM_TARGETS=()
+  mapfile -t _DFM_TARGETS < <(_dfm_targets "${_file}")
+
+  # No scratch dir is a degraded record, not a failed migration: the write
+  # helpers still report. Say so rather than reconciling against nothing.
+  if ! _DFM_BEFORE_DIR="$(mktemp -d)"; then
+    _DFM_BEFORE_DIR=""
+    _log_warn upgrade upgrade_started "display=  cannot snapshot the migration targets; a rewrite made outside the write helpers will not be reported"
+    return 0
+  fi
+
+  local _i
+  for _i in "${!_DFM_TARGETS[@]}"; do
+    [[ -f "${_DFM_TARGETS[${_i}]}" ]] || continue
+    cp -- "${_DFM_TARGETS[${_i}]}" "${_DFM_BEFORE_DIR}/${_i}"
+  done
+}
+
+# _dfm_reconcile_targets
+#   Close the record over the snapshot: every target whose content the run
+#   changed -- rewritten, created or deleted -- is recorded, whatever wrote
+#   it. _dfm_record is idempotent, so a file the write helpers already
+#   reported is not named twice.
+_dfm_reconcile_targets() {
+  [[ -n "${_DFM_BEFORE_DIR}" ]] || return 0
+
+  local _i _target _copy
+  for _i in "${!_DFM_TARGETS[@]}"; do
+    _target="${_DFM_TARGETS[${_i}]}"
+    _copy="${_DFM_BEFORE_DIR}/${_i}"
+    if [[ -f "${_copy}" ]]; then
+      if [[ ! -f "${_target}" ]] || ! cmp -s -- "${_copy}" "${_target}"; then
+        _dfm_record "${_target}"
+      fi
+    elif [[ -f "${_target}" ]]; then
+      _dfm_record "${_target}"
+    fi
+  done
+
+  rm -rf -- "${_DFM_BEFORE_DIR}"
+  _DFM_BEFORE_DIR=""
+  _DFM_TARGETS=()
   return 0
 }
 
@@ -166,7 +254,10 @@ migrated_files() {
 #
 #   The run's record (migrated_files above) is reset here, so what it
 #   reports is what THIS run rewrote -- a second, idempotent run reports
-#   nothing rather than repeating the first run's answer.
+#   nothing rather than repeating the first run's answer -- and closed
+#   here, by comparing the target files either side of the loop. A
+#   migration cannot leave a rewrite out of the record by writing in a
+#   shape nobody anticipated.
 apply_migrations() {
   local _file="${1:?apply_migrations requires a Dockerfile path}"
   _DFM_TOUCHED=()
@@ -176,12 +267,16 @@ apply_migrations() {
     return 0
   fi
 
+  _dfm_snapshot_targets "${_file}"
+
   local _name
   for _name in "${_MIGRATIONS[@]}"; do
     if "_migrate_${_name}_detect" "${_file}"; then
       "_migrate_${_name}_apply" "${_file}"
     fi
   done
+
+  _dfm_reconcile_targets
 }
 
 # ── Migration 0: shipped-tree dir rename .base/downstream/ -> .base/dist/ ────
