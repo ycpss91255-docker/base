@@ -88,29 +88,36 @@ teardown() {
   assert [ -f "${REPO_DIR}/script/entrypoint.sh" ]
 }
 
-# why: default in-image helper source line + comment present; ${USER} /
-# /home/ absent (regression guards)
-@test "new repo: script/entrypoint.sh sources [logging] helper by default (refs #364)" {
-  # The helper is no-op safe when LOG_FILE_PATH is unset (early-return
-  # in logging.sh), so default-sourcing has zero side
-  # effect when [logging] local_path is empty. Wiring it here closes
-  # the v0.30.0 `local_path` UX gap: setting the conf alone is now
-  # enough for the host file to materialise -- no manual entrypoint.sh
-  # edit required.
+# why: the seeded entrypoint carries no base plumbing and no exec, the
+# Dockerfile names the orchestrator, and the orchestrator is vendored --
+# the [logging] UX guarantee of #364 now held by base's half instead of by
+# a repo-owned copy that a subtree pull could never reach. Also keeps the
+# v0.30.0 regression guards: no ${USER}, no /home/ in the seeded file.
+@test "new repo: the seeded entrypoint is a clean bringup under base's orchestrator (refs #364)" {
+  # The [logging] UX guarantee is unchanged and it is what this test has
+  # always been about: setting `[logging] local_path` alone materialises
+  # the host file, with no hand edit to the entrypoint. What moved is WHO
+  # sources the helper. It used to be this seeded file -- repo-owned from
+  # the moment it lands, so base's later plumbing changes never reached an
+  # existing repo. It is now base's orchestrator, which ships inside the
+  # runtime helper directory and updates with every subtree pull.
   #
-  # The source path is the stable in-image path shipped byPR
-  # (COPY into /usr/local/lib/base). It deliberately avoids
-  # ${USER} expansion + the workspace bind mount path, both of which
-  # the v0.30.0 example mis-used.
+  # So the seeded file is asserted to be EMPTY of base plumbing, and the
+  # wiring is asserted where it now lives: the ENTRYPOINT points at the
+  # orchestrator, and the orchestrator is present in the vendored subtree.
   bash .base/dist/script/base/init.sh
   local _entry="${REPO_DIR}/script/entrypoint.sh"
   assert [ -f "${_entry}" ]
-  # Source line — must be the in-image path.
-  run grep -F '. /usr/local/lib/base/logging.sh' "${_entry}"
+  run code_grep -F '/usr/local/lib/base/' "${_entry}"
+  assert_failure
+  # No exec either: the orchestrator sources this file and owns the exec,
+  # so one here would fire mid-source and pre-empt the watchdog.
+  run code_grep -E '(^|[[:space:];&|])exec[[:space:]]' "${_entry}"
+  assert_failure
+  run code_grep -Fx 'ENTRYPOINT ["/usr/local/lib/base/entrypoint.sh"]' \
+    "${REPO_DIR}/Dockerfile"
   assert_success
-  # Explanatory comment so casual readers know what the source does.
-  run grep -F '[logging] local_path' "${_entry}"
-  assert_success
+  assert [ -f "${REPO_DIR}/.base/dist/script/docker/runtime/entrypoint.sh" ]
   # Regression guards against the broken v0.30.0 example.
   run grep -F '${USER}' "${_entry}"
   assert_failure

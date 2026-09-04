@@ -141,7 +141,7 @@ flowchart LR
     release_worker -->|"tar.gz + zip"| release["GitHub Release"]
 ```
 
-<!-- sync: whats-included 26ac98cd01c1 77aba870a522 -->
+<!-- sync: whats-included e2bee7b5023c 162293c110c6 -->
 ### 含まれるもの
 
 | ファイル | 説明 |
@@ -169,7 +169,8 @@ flowchart LR
 | `dist/script/docker/runtime/logging.sh` | host 側ログ tee helper（per-start ファイル + 安定 symlink） |
 | `dist/script/docker/runtime/logrotate.sh` | 共有 rotate/symlink/prune primitives（tee + transcript 共有） |
 | `dist/script/docker/runtime/watchdog.sh` | 汎用シングルサービス watchdog（再起動 + プラガブルなヘルスチェック） |
-| `dist/dockerfile/entrypoint.sh` | テンプレート entrypoint、新規 repo 作成時に `script/entrypoint.sh` として seed |
+| `dist/script/docker/runtime/entrypoint.sh` | base の ENTRYPOINT orchestrator：log tee を開き、repo の bringup を source し、watchdog を arm し、workload を exec |
+| `dist/dockerfile/entrypoint.sh` | bringup テンプレート、新規 repo 作成時に `script/entrypoint.sh` として seed（repo 側の半分、orchestrator が source） |
 | `dist/test/bats/smoke/smoke.sh` | runtime install-check smoke（ldd 依存欠落スキャン） |
 | `config/` | コンテナ内部のシェル設定ファイル（bashrc、tmux、terminator、pip） |
 | `.setup.conf` | 単一の repo ランタイム設定（image / build / deploy / gui / network / volumes） |
@@ -427,13 +428,13 @@ assertion helpers のセットを提供します。ダウンストリーム repo
 | `assert_file_owned_by <user> <path>` | `<path>` の所有者が `<user>` でない場合に失敗 |
 | `assert_pip_pkg <pkg>` | `pip show <pkg>` が 0 以外で終了した場合に失敗 |
 
-<!-- sync: what-stays-in-each-repo-not-shared 5cff28619497 69c33a09cc50 -->
+<!-- sync: what-stays-in-each-repo-not-shared 64249bb1afa8 ef9831f42d7e -->
 ### 各 repo で個別管理するファイル（共有しない）
 
 - `Dockerfile`
 - `compose.yaml`
 - `script/` — repo ローカルの **runtime helpers**（container 内で `ENTRYPOINT` / `CMD` または手動で呼ばれる）
-  - `script/entrypoint.sh`（canonical）
+  - `script/entrypoint.sh` — この repo の **bringup**、base の orchestrator が source する；これ自体は `ENTRYPOINT` ではない（英語 README の Container entrypoint 節を参照）
   - ros / アプリ起動 helper 等
 - `script/docker/` — repo ローカルの **Dockerfile-internal build helpers**（Dockerfile `RUN` で呼び、container 起動後は使わない；サンプル + lint COPY は `dist/dockerfile/Dockerfile` 参照、#275）
 - `doc/` と `README.md`
@@ -590,7 +591,7 @@ template ファイルが repo にコピーされ、検出された workspace が
 ./.base/dist/script/base/init.sh --gen-conf # .base/dist/.setup.conf を repo ルートに単純コピー
 ```
 
-<!-- sync: logging-output-to-host df27d24459b2 b6f9fea109de -->
+<!-- sync: logging-output-to-host 81a10abacbca 5e1aebf86a32 -->
 ### ホスト側へのログ出力
 
 `[logging] local_path` を設定するとコンテナの stdout/stderr が
@@ -614,11 +615,12 @@ container_log_days = 14  # かつ D 日より古いものを削除（厳しい�
 削除されません。`docker logs <ct>` の動作は変わりません（json-file
 はローリング履歴を維持）。
 
-**新規 repo**：本バージョン以降の `init.sh` で生成された
-`script/entrypoint.sh` には helper の source 行が事前に組み込まれて
-います。`[logging] local_path` を設定するだけで動作します。
-**既存 repo**：`script/entrypoint.sh` の最後の `exec` の手前に
-次の 1 行を追加して一度だけ移行してください：
+base の ENTRYPOINT orchestrator を使う repo では `[logging] local_path`
+の設定だけで動きます：helper は orchestrator が source するので bringup
+に足すものはなく、base 側の後の変更も subtree と一緒に届きます。
+**まだ自前の `/entrypoint.sh` を `ENTRYPOINT` にしている repo**：最後の
+`exec` の手前に次の 1 行を追加するか、英語 README の Container entrypoint
+節の一度きりの移行を行ってください：
 
 ```bash
 . /usr/local/lib/base/logging.sh
@@ -631,8 +633,10 @@ source 行は build-time / runtime どちらでも、どんな workspace 構成�
 動作します — `$USER` 参照や workspace bind mount への依存はありません。
 
 トラブルシューティング：`local_path` を設定したのにホスト側
-ファイルが空のまま → `script/entrypoint.sh` に source 行が
-含まれているか確認してください
+ファイルが空のまま → まずどちらのモデルか確認してください
+（`grep ENTRYPOINT Dockerfile`）。orchestrator なら他に必要な作業は
+ありません。自前の `/entrypoint.sh` のままなら、そのファイルに source
+行が含まれているか確認してください
 （`grep logging.sh script/entrypoint.sh`）。
 
 <!-- sync: interactive-tui 23df6f6f09ab f5eb99a83f34 -->
@@ -1355,6 +1359,7 @@ just --list  # CI ターゲット表示
      translated heading. -->
 <!-- sync-skip: getting-help-namespace-vs-recipe -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
 <!-- sync-skip: wrapper-ux-cheat-sheet-291 -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
+<!-- sync-skip: container-entrypoint-the-orchestrator-and-your-bringup -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
 <!-- sync-skip: network-mode-host-default-bridge-opt-in-794 -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
 <!-- sync-skip: restart-policy-is-deploy-scoped-841 -- untranslated: the localized READMEs are abridged; README.md is authoritative -->
 <!-- sync-skip: container-init-pid1-reaper-792 -- untranslated: the localized READMEs are abridged; README.md is authoritative -->

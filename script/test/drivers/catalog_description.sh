@@ -195,20 +195,26 @@ readonly _CATALOG_DESC_SCAN_GLOBS=(
 )
 
 # The transition ceiling. Set to the exact count the migration left, then
-# recomputed once when origin/main was merged in: 2473 -> 2641 -> 2622 ->
-# 2621. It may only ever go DOWN by an ordinary change; the one thing that
-# raises it is a merge that IMPORTS tests written before this rule existed,
-# which is a ratchet reset and not a licence, and it is recomputed from the
-# merged tree rather than guessed. Every step after the first is the
-# ordinary direction and not part of that reset: 19 of the imported tests
-# arrived carrying a description main had written in the catalogue table,
-# so those 19 were migrated into markers here rather than counted as debt
-# somebody else would have to re-derive, and the RC-tag merge described one
-# more pre-existing case (the same-repository guard on the test-tools
-# release workflow) on its way past. Closing the slack a backfill opens is
-# what keeps a later branch from landing an undescribed test inside it. See
-# the header for why this is one number and not a file of them.
-readonly _CATALOG_DESC_UNDESCRIBED_CEILING=2613
+# recomputed once when origin/main was merged in: 2473 -> 2641 -> 2622. It
+# may only ever go DOWN by an ordinary change; the one thing that raises it
+# is a merge that IMPORTS tests written before this rule existed, which is a
+# ratchet reset and not a licence, and it is recomputed from the merged
+# tree rather than guessed. The second step is the ordinary direction and
+# not part of that reset: 19 of the imported tests arrived carrying a
+# description main had written in the catalogue table, so those 19 were
+# migrated into markers here rather than counted as debt somebody else
+# would have to re-derive. See the header for why this is one number and
+# not a file of them.
+#
+# 2622 -> 2614 (base#994 phase 3): that branch described eight cases in
+# test/bats/unit/shell_metrics_spec.bats -- four it was rewriting anyway
+# and the four boundary cases beside them -- and that is the whole of the
+# 8. Every case it ADDED carries a marker, so none of them moved this
+# number in either direction. Lowering the ceiling is not REQUIRED of a
+# branch that writes descriptions; that is the slack this design accepts.
+# But the slack was its own, so it closed it, which is the ordinary
+# direction.
+readonly _CATALOG_DESC_UNDESCRIBED_CEILING=2607
 
 # The written-out non-answers, matched case-insensitively on the whole
 # trimmed marker. `nil`, `none`, `tbd`, `todo` and `unknown` carry a

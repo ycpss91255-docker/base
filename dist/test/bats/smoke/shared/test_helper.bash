@@ -121,6 +121,36 @@ assert_pip_pkg() {
   fi
 }
 
+# ── Entry-point model probe ─────────────────────────────────────────────────
+
+# True when <path> is a PRE-ADR-00000032 single-file entry point -- one that
+# execs the workload itself, and is therefore the container's ENTRYPOINT
+# rather than a bringup base's orchestrator sources.
+#
+# The exec is the discriminator because it is the one line the two models
+# cannot share: a bringup must not carry one (taking over the process
+# mid-source means the watchdog never arms and the orchestrator's own exec
+# never runs), so an exec says "this file IS the entry point" -- which is
+# the fact a spec running INSIDE the image cannot otherwise get at, the
+# Dockerfile's ENTRYPOINT line being unreadable from in there. The pattern
+# is deliberately the same one `dockerfile_migrate.sh` warns on
+# (_DFM_BRINGUP_EXEC_RE), so the build-time probe and the upgrade-time
+# notice cannot disagree about what counts as an exec.
+#
+# Why a probe at all: the shared smoke baseline reaches a consumer through
+# `.base/dist/`, which `just upgrade` refreshes, while the Dockerfile that
+# would install the orchestrator is the consumer's own and hand-edited. A
+# repo that has not migrated therefore gets the spec before it gets the
+# file, and failing it would turn an upgrade into a broken build over a
+# model the repo never adopted.
+#
+# Usage: entrypoint_is_single_file <path>
+entrypoint_is_single_file() {
+  local _path="${1:?entrypoint_is_single_file: missing path}"
+  [[ -f "${_path}" ]] || return 1
+  grep -qE '^[[:space:]]*exec[[:space:]]' "${_path}"
+}
+
 # ── Wrapper drivers ─────────────────────────────────────────────────────────
 
 # Drive a real wrapper script through `--dry-run` with a logging `xhost` shim

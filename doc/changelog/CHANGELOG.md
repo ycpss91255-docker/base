@@ -58,6 +58,52 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 ## [Unreleased]
 
 ### Changed
+- **the container ENTRYPOINT is base's orchestrator; `script/entrypoint.sh` is a bringup it sources (closes #945)**
+  -- base's plumbing (the helper sources and the final `exec`) sat in a file
+  `init.sh` seeds and the repo then OWNS, so no pull ever updated it. It now
+  ships as `/usr/local/lib/base/entrypoint.sh` in the helper directory,
+  arriving with every pull. **An existing repo is unchanged**, `-test` stages
+  included. Adopting it is ONE commit: flip `ENTRYPOINT`, drop the plumbing
+  and `exec`, bracket any ROS source with `set +u` -- the orchestrator
+  sources the bringup under `set -euo pipefail`, which the seeded file never
+  set. Flipping alone breaks it; `just upgrade` notices until then.
+- **the test-tools image moved to alpine 3.22, and the next series expiry is
+  now a scheduled red build (refs #946)** -- 3.21 goes end-of-life 2026-11-01,
+  and a series tag cannot show that: it keeps resolving, the image keeps
+  building, and the ~20 unpinned apk packages quietly inherit an unsupported
+  base. The expiry sits beside the pin as `# alpine-eol: 3.22 2027-05-01` and a
+  spec fails the suite 180 days before it -- on 2026-11-02, since 3.22 is eight
+  months out, not the twelve #946 asked for: every newer series ships bash 5.3,
+  whose xtrace makes kcov under-report. #946 stays open on that. Affects anyone
+  rebuilding test-tools: the jump re-resolves every unpinned apk package at
+  once.
+- **shellcheck 0.10.0 -> 0.11.0, hadolint 2.12.0 -> 2.15.1, and the version is
+  now compared rather than printed (closes #947)** -- a stale linter does not
+  fail, it under-reports: every rule added since 2022-11-09 had never run here.
+  The bump surfaced exactly one finding, DL3066 on the template's build-time
+  `USER root`, suppressed inline with its reason rather than added to
+  `dist/.hadolint.yaml`, which ships to every consumer. hadolint also renamed
+  its release asset to a lowercase `hadolint-linux-*`. The publish smoke stage
+  and a new unit spec both compare the shipped binary with the pin instead of
+  asserting exit 0.
+- **`just base upgrade` now heals the hadolint findings a consumer's own
+  Dockerfile would fail on (refs #946, #947)** -- a consumer lints ITSELF with
+  the image the upgrade re-pins, and 2.15.1 reports DL3066 on the literal
+  `USER root` every consumer carries for its build-time hop. An upgrade HEALS a
+  Dockerfile rather than overwriting it, so the fix travels as a migration:
+  migration 5 inserts that pragma, extending one already on the line instead of
+  displacing it, and now also heals DL3046 wherever `-u` sits among useradd's
+  flags rather than only first. Without both, the first `just build test` after
+  an upgrade fails on rules the consumer never chose.
+- **CI checks what a pulled `test-tools:main` IS, not just that the tools are
+  there (refs #946, #947)** -- a PR that leaves the test-tools Dockerfile alone
+  reuses the rolling `:main`, republished only by a push to main touching that
+  file. Between a pin bump and that republish, an unrelated PR's lint jobs ran
+  green under the rule set the repo had just moved off. The obtain step now
+  compares the image's alpine series and its shellcheck / hadolint with the
+  pins in the checkout, and rebuilds from source when they disagree; the series
+  decides which bash kcov has to read. The probe is one script
+  (`script/ci/probe_test_tools.sh`) instead of the five copies that hid the gap.
 - **the release worker cuts the version it was given, and refuses a tag it
   cannot read (refs #829, refs #1012)** -- `prerelease` no longer reads
   `contains(github.ref_name, '-')`, which is false for every branch and

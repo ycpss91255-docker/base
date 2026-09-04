@@ -145,12 +145,16 @@ jobs:
           # extends it to setup.sh + lib/** + i18n.sh + prune.sh — each
           # of these affects .env / compose.yaml generation or wrapper
           # behaviour that the system docker.sock-mounted compose
-          # service exercises end-to-end). The build_worker script dir +
-          # the build-worker self-test fixture are also here: the worker-
-          # selftest job consumes those scripts (its YAML plumbing / output
-          # contract) and builds that fixture, so a PR touching ONLY them --
+          # service exercises end-to-end). script/ci/** + the build-worker
+          # self-test fixture are also here: the worker-selftest job
+          # consumes script/ci/build_worker (its YAML plumbing / output
+          # contract) and builds that fixture, and the system job's own
+          # Obtain step decides WHICH IMAGE it runs in via
+          # script/ci/probe_test_tools.sh. So a PR touching ONLY them --
           # without any .github/workflows/** change -- must still re-run the
-          # System self-test instead of skipping it.
+          # System self-test instead of skipping it. The directory is listed
+          # rather than each file, which is what keeps the next CI script
+          # from landing outside the gate by omission.
           if git diff --quiet "${BASE}"...HEAD \
                -- 'script/entrypoint.sh' \
                   'compose.yaml' \
@@ -165,7 +169,7 @@ jobs:
                   'dist/script/docker/lib/i18n.sh' \
                   'dist/script/docker/lib/**' \
                   'test/bats/system/**' \
-                  'script/ci/build_worker/**' \
+                  'script/ci/**' \
                   'test/fixtures/build-worker/**' \
                   'dist/script/base/init.sh' \
                   'dist/script/base/upgrade.sh' \
@@ -421,53 +425,37 @@ jobs:
             printf 'FROM %s\nLABEL base.ci.run=%s\n' \
               ghcr.io/ycpss91255-docker/test-tools:main "${CI_RUN_KEY}" \
               | docker build -q -t "${TEST_TOOLS_IMAGE}" - >/dev/null
-            # Probe the pulled :main for the tools this run needs. The
+            # Does the pulled :main correspond to THIS checkout? Two ways
+            # it may not, and only one of them is loud. The
             # release-test-tools workflow republishes :main on a
             # Dockerfile.test-tools change CONCURRENTLY with this run, so a
-            # freshly-baked tool (e.g. kcov, baked in by the change behind
-            # release tag history) can be ABSENT from the :main we just
-            # pulled. On any missing tool, fall back to building locally
-            # from dockerfile/Dockerfile.test-tools (the same build the
-            # layer-1 / layer-3 path uses) -> self-correcting against a
-            # stale / racing / old :main regardless of cause. Extend
-            # REQUIRED_TOOLS as the image gains new required tools.
-            REQUIRED_TOOLS="kcov bats shellcheck hadolint just"
-            read -ra _required <<< "${REQUIRED_TOOLS}"
-            probe_ok=true
-            for _tool in "${_required[@]}"; do
-              if ! docker run --rm "${TEST_TOOLS_IMAGE}" \
-                   sh -c "command -v ${_tool}" >/dev/null 2>&1; then
-                echo "::warning::test-tools:main is missing '${_tool}'" \
-                     "(stale / racing republish); rebuilding from source"
-                probe_ok=false
-                break
-              fi
-            done
-            # Presence is not enough for the RUNNER. `just` is the only
-            # control surface, and test/bats/integration/
-            # just_runner_version_spec.bats is deliberately fail-closed on
-            # a mismatch between the image's `just` and ARG JUST_VERSION.
-            # A :main published before a version bump carries every tool in
-            # REQUIRED_TOOLS and the WRONG runner, so a presence-only probe
-            # would hand it to a PR that touched nothing related and redden
-            # it for as long as the republish takes -- and forever if the
-            # republish failed. The version is the dimension the roster
-            # cannot express, so it is asked separately.
-            if [[ "${probe_ok}" == "true" ]]; then
-              just_pin="$(./dist/script/base/just-version.sh)"
-              just_actual="$(docker run --rm "${TEST_TOOLS_IMAGE}" \
-                               just --version 2>/dev/null)"
-              if [[ "${just_actual}" != "just ${just_pin}" ]]; then
-                echo "::warning::test-tools:main ships '${just_actual}'," \
-                     "not 'just ${just_pin}' (stale / racing republish);" \
-                     "rebuilding from source"
-                probe_ok=false
-              fi
-            fi
-            if [[ "${probe_ok}" == "true" ]]; then
+            # freshly-baked tool (e.g. kcov) can be ABSENT from what we
+            # just pulled -- the suite fast-fails and says so. A tool whose
+            # PIN moved is the quiet one: shellcheck and hadolint are lint
+            # gates, and a gate running the previous rule set does not
+            # fail, it under-reports, so the check goes green having
+            # examined something other than what this checkout asked for.
+            # `just` is the third: it is the only control surface, and
+            # test/bats/integration/just_runner_version_spec.bats is
+            # fail-closed on a mismatch between the image's runner and ARG
+            # JUST_VERSION, so a :main published before a version bump
+            # carries every required tool AND the wrong runner and would
+            # redden a PR that touched nothing related. The probe therefore
+            # compares versions, not just PATH.
+            #
+            # It is one script rather than a loop pasted into each of these
+            # obtain steps: five copies is how the version blind spot
+            # survived, because no single copy looked wrong. Any refusal
+            # falls back to building locally from
+            # dockerfile/Dockerfile.test-tools (the layer-1 / layer-3
+            # build) -- the strict side, self-correcting against a stale /
+            # racing / old :main whatever the cause.
+            if ./script/ci/probe_test_tools.sh "${TEST_TOOLS_IMAGE}"; then
               echo "build_local=false" >> "${GITHUB_OUTPUT}"
               exit 0
             fi
+            echo "::warning::the pulled test-tools:main does not match this" \
+                 "checkout (reason above); rebuilding from source"
             echo "build_local=true" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
@@ -581,53 +569,37 @@ jobs:
             printf 'FROM %s\nLABEL base.ci.run=%s\n' \
               ghcr.io/ycpss91255-docker/test-tools:main "${CI_RUN_KEY}" \
               | docker build -q -t "${TEST_TOOLS_IMAGE}" - >/dev/null
-            # Probe the pulled :main for the tools this run needs. The
+            # Does the pulled :main correspond to THIS checkout? Two ways
+            # it may not, and only one of them is loud. The
             # release-test-tools workflow republishes :main on a
             # Dockerfile.test-tools change CONCURRENTLY with this run, so a
-            # freshly-baked tool (e.g. kcov, baked in by the change behind
-            # release tag history) can be ABSENT from the :main we just
-            # pulled. On any missing tool, fall back to building locally
-            # from dockerfile/Dockerfile.test-tools (the same build the
-            # layer-1 / layer-3 path uses) -> self-correcting against a
-            # stale / racing / old :main regardless of cause. Extend
-            # REQUIRED_TOOLS as the image gains new required tools.
-            REQUIRED_TOOLS="kcov bats shellcheck hadolint just"
-            read -ra _required <<< "${REQUIRED_TOOLS}"
-            probe_ok=true
-            for _tool in "${_required[@]}"; do
-              if ! docker run --rm "${TEST_TOOLS_IMAGE}" \
-                   sh -c "command -v ${_tool}" >/dev/null 2>&1; then
-                echo "::warning::test-tools:main is missing '${_tool}'" \
-                     "(stale / racing republish); rebuilding from source"
-                probe_ok=false
-                break
-              fi
-            done
-            # Presence is not enough for the RUNNER. `just` is the only
-            # control surface, and test/bats/integration/
-            # just_runner_version_spec.bats is deliberately fail-closed on
-            # a mismatch between the image's `just` and ARG JUST_VERSION.
-            # A :main published before a version bump carries every tool in
-            # REQUIRED_TOOLS and the WRONG runner, so a presence-only probe
-            # would hand it to a PR that touched nothing related and redden
-            # it for as long as the republish takes -- and forever if the
-            # republish failed. The version is the dimension the roster
-            # cannot express, so it is asked separately.
-            if [[ "${probe_ok}" == "true" ]]; then
-              just_pin="$(./dist/script/base/just-version.sh)"
-              just_actual="$(docker run --rm "${TEST_TOOLS_IMAGE}" \
-                               just --version 2>/dev/null)"
-              if [[ "${just_actual}" != "just ${just_pin}" ]]; then
-                echo "::warning::test-tools:main ships '${just_actual}'," \
-                     "not 'just ${just_pin}' (stale / racing republish);" \
-                     "rebuilding from source"
-                probe_ok=false
-              fi
-            fi
-            if [[ "${probe_ok}" == "true" ]]; then
+            # freshly-baked tool (e.g. kcov) can be ABSENT from what we
+            # just pulled -- the suite fast-fails and says so. A tool whose
+            # PIN moved is the quiet one: shellcheck and hadolint are lint
+            # gates, and a gate running the previous rule set does not
+            # fail, it under-reports, so the check goes green having
+            # examined something other than what this checkout asked for.
+            # `just` is the third: it is the only control surface, and
+            # test/bats/integration/just_runner_version_spec.bats is
+            # fail-closed on a mismatch between the image's runner and ARG
+            # JUST_VERSION, so a :main published before a version bump
+            # carries every required tool AND the wrong runner and would
+            # redden a PR that touched nothing related. The probe therefore
+            # compares versions, not just PATH.
+            #
+            # It is one script rather than a loop pasted into each of these
+            # obtain steps: five copies is how the version blind spot
+            # survived, because no single copy looked wrong. Any refusal
+            # falls back to building locally from
+            # dockerfile/Dockerfile.test-tools (the layer-1 / layer-3
+            # build) -- the strict side, self-correcting against a stale /
+            # racing / old :main whatever the cause.
+            if ./script/ci/probe_test_tools.sh "${TEST_TOOLS_IMAGE}"; then
               echo "build_local=false" >> "${GITHUB_OUTPUT}"
               exit 0
             fi
+            echo "::warning::the pulled test-tools:main does not match this" \
+                 "checkout (reason above); rebuilding from source"
             echo "build_local=true" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
@@ -697,53 +669,37 @@ jobs:
             printf 'FROM %s\nLABEL base.ci.run=%s\n' \
               ghcr.io/ycpss91255-docker/test-tools:main "${CI_RUN_KEY}" \
               | docker build -q -t "${TEST_TOOLS_IMAGE}" - >/dev/null
-            # Probe the pulled :main for the tools this run needs. The
+            # Does the pulled :main correspond to THIS checkout? Two ways
+            # it may not, and only one of them is loud. The
             # release-test-tools workflow republishes :main on a
             # Dockerfile.test-tools change CONCURRENTLY with this run, so a
-            # freshly-baked tool (e.g. kcov, baked in by the change behind
-            # release tag history) can be ABSENT from the :main we just
-            # pulled. On any missing tool, fall back to building locally
-            # from dockerfile/Dockerfile.test-tools (the same build the
-            # layer-1 / layer-3 path uses) -> self-correcting against a
-            # stale / racing / old :main regardless of cause. Extend
-            # REQUIRED_TOOLS as the image gains new required tools.
-            REQUIRED_TOOLS="kcov bats shellcheck hadolint just"
-            read -ra _required <<< "${REQUIRED_TOOLS}"
-            probe_ok=true
-            for _tool in "${_required[@]}"; do
-              if ! docker run --rm "${TEST_TOOLS_IMAGE}" \
-                   sh -c "command -v ${_tool}" >/dev/null 2>&1; then
-                echo "::warning::test-tools:main is missing '${_tool}'" \
-                     "(stale / racing republish); rebuilding from source"
-                probe_ok=false
-                break
-              fi
-            done
-            # Presence is not enough for the RUNNER. `just` is the only
-            # control surface, and test/bats/integration/
-            # just_runner_version_spec.bats is deliberately fail-closed on
-            # a mismatch between the image's `just` and ARG JUST_VERSION.
-            # A :main published before a version bump carries every tool in
-            # REQUIRED_TOOLS and the WRONG runner, so a presence-only probe
-            # would hand it to a PR that touched nothing related and redden
-            # it for as long as the republish takes -- and forever if the
-            # republish failed. The version is the dimension the roster
-            # cannot express, so it is asked separately.
-            if [[ "${probe_ok}" == "true" ]]; then
-              just_pin="$(./dist/script/base/just-version.sh)"
-              just_actual="$(docker run --rm "${TEST_TOOLS_IMAGE}" \
-                               just --version 2>/dev/null)"
-              if [[ "${just_actual}" != "just ${just_pin}" ]]; then
-                echo "::warning::test-tools:main ships '${just_actual}'," \
-                     "not 'just ${just_pin}' (stale / racing republish);" \
-                     "rebuilding from source"
-                probe_ok=false
-              fi
-            fi
-            if [[ "${probe_ok}" == "true" ]]; then
+            # freshly-baked tool (e.g. kcov) can be ABSENT from what we
+            # just pulled -- the suite fast-fails and says so. A tool whose
+            # PIN moved is the quiet one: shellcheck and hadolint are lint
+            # gates, and a gate running the previous rule set does not
+            # fail, it under-reports, so the check goes green having
+            # examined something other than what this checkout asked for.
+            # `just` is the third: it is the only control surface, and
+            # test/bats/integration/just_runner_version_spec.bats is
+            # fail-closed on a mismatch between the image's runner and ARG
+            # JUST_VERSION, so a :main published before a version bump
+            # carries every required tool AND the wrong runner and would
+            # redden a PR that touched nothing related. The probe therefore
+            # compares versions, not just PATH.
+            #
+            # It is one script rather than a loop pasted into each of these
+            # obtain steps: five copies is how the version blind spot
+            # survived, because no single copy looked wrong. Any refusal
+            # falls back to building locally from
+            # dockerfile/Dockerfile.test-tools (the layer-1 / layer-3
+            # build) -- the strict side, self-correcting against a stale /
+            # racing / old :main whatever the cause.
+            if ./script/ci/probe_test_tools.sh "${TEST_TOOLS_IMAGE}"; then
               echo "build_local=false" >> "${GITHUB_OUTPUT}"
               exit 0
             fi
+            echo "::warning::the pulled test-tools:main does not match this" \
+                 "checkout (reason above); rebuilding from source"
             echo "build_local=true" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
@@ -875,53 +831,37 @@ jobs:
             printf 'FROM %s\nLABEL base.ci.run=%s\n' \
               ghcr.io/ycpss91255-docker/test-tools:main "${CI_RUN_KEY}" \
               | docker build -q -t "${TEST_TOOLS_IMAGE}" - >/dev/null
-            # Probe the pulled :main for the tools this run needs. The
+            # Does the pulled :main correspond to THIS checkout? Two ways
+            # it may not, and only one of them is loud. The
             # release-test-tools workflow republishes :main on a
             # Dockerfile.test-tools change CONCURRENTLY with this run, so a
-            # freshly-baked tool (e.g. kcov, baked in by the change behind
-            # release tag history) can be ABSENT from the :main we just
-            # pulled. On any missing tool, fall back to building locally
-            # from dockerfile/Dockerfile.test-tools (the same build the
-            # layer-1 / layer-3 path uses) -> self-correcting against a
-            # stale / racing / old :main regardless of cause. Extend
-            # REQUIRED_TOOLS as the image gains new required tools.
-            REQUIRED_TOOLS="kcov bats shellcheck hadolint just"
-            read -ra _required <<< "${REQUIRED_TOOLS}"
-            probe_ok=true
-            for _tool in "${_required[@]}"; do
-              if ! docker run --rm "${TEST_TOOLS_IMAGE}" \
-                   sh -c "command -v ${_tool}" >/dev/null 2>&1; then
-                echo "::warning::test-tools:main is missing '${_tool}'" \
-                     "(stale / racing republish); rebuilding from source"
-                probe_ok=false
-                break
-              fi
-            done
-            # Presence is not enough for the RUNNER. `just` is the only
-            # control surface, and test/bats/integration/
-            # just_runner_version_spec.bats is deliberately fail-closed on
-            # a mismatch between the image's `just` and ARG JUST_VERSION.
-            # A :main published before a version bump carries every tool in
-            # REQUIRED_TOOLS and the WRONG runner, so a presence-only probe
-            # would hand it to a PR that touched nothing related and redden
-            # it for as long as the republish takes -- and forever if the
-            # republish failed. The version is the dimension the roster
-            # cannot express, so it is asked separately.
-            if [[ "${probe_ok}" == "true" ]]; then
-              just_pin="$(./dist/script/base/just-version.sh)"
-              just_actual="$(docker run --rm "${TEST_TOOLS_IMAGE}" \
-                               just --version 2>/dev/null)"
-              if [[ "${just_actual}" != "just ${just_pin}" ]]; then
-                echo "::warning::test-tools:main ships '${just_actual}'," \
-                     "not 'just ${just_pin}' (stale / racing republish);" \
-                     "rebuilding from source"
-                probe_ok=false
-              fi
-            fi
-            if [[ "${probe_ok}" == "true" ]]; then
+            # freshly-baked tool (e.g. kcov) can be ABSENT from what we
+            # just pulled -- the suite fast-fails and says so. A tool whose
+            # PIN moved is the quiet one: shellcheck and hadolint are lint
+            # gates, and a gate running the previous rule set does not
+            # fail, it under-reports, so the check goes green having
+            # examined something other than what this checkout asked for.
+            # `just` is the third: it is the only control surface, and
+            # test/bats/integration/just_runner_version_spec.bats is
+            # fail-closed on a mismatch between the image's runner and ARG
+            # JUST_VERSION, so a :main published before a version bump
+            # carries every required tool AND the wrong runner and would
+            # redden a PR that touched nothing related. The probe therefore
+            # compares versions, not just PATH.
+            #
+            # It is one script rather than a loop pasted into each of these
+            # obtain steps: five copies is how the version blind spot
+            # survived, because no single copy looked wrong. Any refusal
+            # falls back to building locally from
+            # dockerfile/Dockerfile.test-tools (the layer-1 / layer-3
+            # build) -- the strict side, self-correcting against a stale /
+            # racing / old :main whatever the cause.
+            if ./script/ci/probe_test_tools.sh "${TEST_TOOLS_IMAGE}"; then
               echo "build_local=false" >> "${GITHUB_OUTPUT}"
               exit 0
             fi
+            echo "::warning::the pulled test-tools:main does not match this" \
+                 "checkout (reason above); rebuilding from source"
             echo "build_local=true" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
@@ -1269,12 +1209,18 @@ jobs:
             exit 1
           fi
 
-          # (3) the ENTRYPOINT actually ran -- the wired entrypoint is
-          # /entrypoint.sh (Dockerfile ENTRYPOINT ["/entrypoint.sh"]).
+          # (3) the ENTRYPOINT actually ran -- the wired entry point is
+          # base's orchestrator at /usr/local/lib/base/entrypoint.sh
+          # (Dockerfile ENTRYPOINT
+          # ["/usr/local/lib/base/entrypoint.sh"]), which SOURCES the
+          # repo-owned bringup at /entrypoint.sh before it execs the
+          # workload (ADR-00000032). `.Path` therefore names the
+          # base-owned half; the bringup is not an entry point and never
+          # appears here.
           path="$(docker inspect -f '{{.Path}}' "${cname}")"
           echo "container Path: ${path}"
-          if [[ "${path}" != "/entrypoint.sh" ]]; then
-            echo "ERROR: container entrypoint '${path}' != /entrypoint.sh"
+          if [[ "${path}" != "/usr/local/lib/base/entrypoint.sh" ]]; then
+            echo "ERROR: container entrypoint '${path}' != /usr/local/lib/base/entrypoint.sh"
             exit 1
           fi
 
@@ -1580,53 +1526,37 @@ jobs:
             printf 'FROM %s\nLABEL base.ci.run=%s\n' \
               ghcr.io/ycpss91255-docker/test-tools:main "${CI_RUN_KEY}" \
               | docker build -q -t "${TEST_TOOLS_IMAGE}" - >/dev/null
-            # Probe the pulled :main for the tools this run needs. The
+            # Does the pulled :main correspond to THIS checkout? Two ways
+            # it may not, and only one of them is loud. The
             # release-test-tools workflow republishes :main on a
             # Dockerfile.test-tools change CONCURRENTLY with this run, so a
-            # freshly-baked tool (e.g. kcov, baked in by the change behind
-            # release tag history) can be ABSENT from the :main we just
-            # pulled. On any missing tool, fall back to building locally
-            # from dockerfile/Dockerfile.test-tools (the same build the
-            # layer-1 / layer-3 path uses) -> self-correcting against a
-            # stale / racing / old :main regardless of cause. Extend
-            # REQUIRED_TOOLS as the image gains new required tools.
-            REQUIRED_TOOLS="kcov bats shellcheck hadolint just"
-            read -ra _required <<< "${REQUIRED_TOOLS}"
-            probe_ok=true
-            for _tool in "${_required[@]}"; do
-              if ! docker run --rm "${TEST_TOOLS_IMAGE}" \
-                   sh -c "command -v ${_tool}" >/dev/null 2>&1; then
-                echo "::warning::test-tools:main is missing '${_tool}'" \
-                     "(stale / racing republish); rebuilding from source"
-                probe_ok=false
-                break
-              fi
-            done
-            # Presence is not enough for the RUNNER. `just` is the only
-            # control surface, and test/bats/integration/
-            # just_runner_version_spec.bats is deliberately fail-closed on
-            # a mismatch between the image's `just` and ARG JUST_VERSION.
-            # A :main published before a version bump carries every tool in
-            # REQUIRED_TOOLS and the WRONG runner, so a presence-only probe
-            # would hand it to a PR that touched nothing related and redden
-            # it for as long as the republish takes -- and forever if the
-            # republish failed. The version is the dimension the roster
-            # cannot express, so it is asked separately.
-            if [[ "${probe_ok}" == "true" ]]; then
-              just_pin="$(./dist/script/base/just-version.sh)"
-              just_actual="$(docker run --rm "${TEST_TOOLS_IMAGE}" \
-                               just --version 2>/dev/null)"
-              if [[ "${just_actual}" != "just ${just_pin}" ]]; then
-                echo "::warning::test-tools:main ships '${just_actual}'," \
-                     "not 'just ${just_pin}' (stale / racing republish);" \
-                     "rebuilding from source"
-                probe_ok=false
-              fi
-            fi
-            if [[ "${probe_ok}" == "true" ]]; then
+            # freshly-baked tool (e.g. kcov) can be ABSENT from what we
+            # just pulled -- the suite fast-fails and says so. A tool whose
+            # PIN moved is the quiet one: shellcheck and hadolint are lint
+            # gates, and a gate running the previous rule set does not
+            # fail, it under-reports, so the check goes green having
+            # examined something other than what this checkout asked for.
+            # `just` is the third: it is the only control surface, and
+            # test/bats/integration/just_runner_version_spec.bats is
+            # fail-closed on a mismatch between the image's runner and ARG
+            # JUST_VERSION, so a :main published before a version bump
+            # carries every required tool AND the wrong runner and would
+            # redden a PR that touched nothing related. The probe therefore
+            # compares versions, not just PATH.
+            #
+            # It is one script rather than a loop pasted into each of these
+            # obtain steps: five copies is how the version blind spot
+            # survived, because no single copy looked wrong. Any refusal
+            # falls back to building locally from
+            # dockerfile/Dockerfile.test-tools (the layer-1 / layer-3
+            # build) -- the strict side, self-correcting against a stale /
+            # racing / old :main whatever the cause.
+            if ./script/ci/probe_test_tools.sh "${TEST_TOOLS_IMAGE}"; then
               echo "build_local=false" >> "${GITHUB_OUTPUT}"
               exit 0
             fi
+            echo "::warning::the pulled test-tools:main does not match this" \
+                 "checkout (reason above); rebuilding from source"
             echo "build_local=true" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
