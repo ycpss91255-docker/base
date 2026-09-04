@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **159 tests**.
+Integration specs under `test/bats/integration/`: **164 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -167,6 +167,16 @@ gitignore sync requires the **real** `init.sh` to run during Step 3 of
 | `init.sh existing-repo: idempotent — second run produces no .dockerignore changes (#604)` | - |
 | `upgrade.sh end-to-end: synced .gitignore + untracked compose.yaml in single commit` | One-shot upgrade |
 | `upgrade.sh end-to-end: idempotent on a second run — no extra commits` | Re-upgrade clean |
+
+### test/bats/integration/init_existing_repo_signals_spec.bats (5)
+
+| Test | Description |
+|------|-------------|
+| `a repo carrying none of the published signals is scaffolded as new (#928)` | The baseline base#928 broke: with no signal present the new-repo path must actually run, and the three artifacts it alone installs are the currency the outage was measured in. |
+| `each published signal, on its own, sends init down the existing-repo path (#928)` | The anti-decay half. A published list nothing exercises is a second statement of the branch condition, and a second statement is what goes stale -- so every entry is run through a real init rather than trusted. |
+| `a repo carrying a file the list does NOT publish is still scaffolded as new (#928)` | The converse, without which the case above passes on a branch that treats ANY file as a signal: presence must not decide, the list must. |
+| `no file a repo can carry, scaffold output or not, can quietly become a signal (#928)` | The case that closes the class rather than one file. base#928 was a file joining the branch condition without joining the list, and the population has to include what no scaffold writes -- `Dockerfile` came from exactly that half. |
+| `the new-repo scaffold creates every published signal (#928)` | The other direction of the same proxy. A signal init never installs can only ever be supplied by somebody else, which is precisely how the template's shipped Dockerfile inverted it. |
 
 ### test/bats/integration/init_installed_paths_spec.bats (1)
 

@@ -131,6 +131,16 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   type at 1.7.12.
 
 ### Added
+- **`init.sh` states its new-vs-existing discriminator instead of hiding it
+  in a branch (refs #928)** -- the decision is a proxy: a file only an
+  already-initialized repo was meant to carry. It inverted when the template
+  began shipping a `Dockerfile` -- every bootstrapped repo took the
+  existing-repo path and got no `main.yaml`, changelog or smoke tree -- and no
+  test failed, because the proxy lived only as a condition inside `main`.
+  `--list-existing-repo-signals` prints it (a query: mutates nothing,
+  answerable on a base checkout), the branch reads that list and nothing else,
+  and a spec runs a real init per published path. Nothing is installed and no
+  repo's classification changes.
 - **a dependency bump auto-releases only when a gate proves it ABI-safe
   (closes #829, ADR-00000031)** -- `script/ci/abi-gate.sh` asks one
   question, did this dependency's declared ABI component move, and refuses

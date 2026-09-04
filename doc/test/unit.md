@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3816 tests**.
+Unit specs under `test/bats/unit/`: **3822 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -2576,6 +2576,17 @@ forwarding for caller abort, and DRY_RUN skip.
 | `_run_i18n_orphan: catches the removed per-instance mechanism verbatim, as it stood before the hand fix (#902)` | - |
 | `_run_i18n_orphan: catches the retired argv shim verbatim, as it stood before the hand fix (#902)` | - |
 | `_run_i18n_orphan: the real repo tree carries no translation-only identifier (#902)` | - |
+
+### test/bats/unit/init_existing_repo_signals_spec.bats (6)
+
+| Test | Description |
+|------|-------------|
+| `init.sh --list-existing-repo-signals prints a non-empty list and exits 0` | The floor the rest of the mechanism stands on -- a discriminator that cannot be asked at all leaves the branch condition in the middle of `main` as its only statement, which is the state base#928 shipped in. |
+| `init.sh --list-existing-repo-signals names the Dockerfile proxy (#928)` | The one signal that has already inverted is stated by name, so the template's shipped-file guard has something concrete to collide with rather than an empty list it can satisfy vacuously. |
+| `init.sh --list-existing-repo-signals emits repo-relative paths only` | A consumer joins each entry onto its own repo root, so an absolute path, a trailing slash or a `.base/`-internal path names something the downstream checker cannot test and the guard silently covers nothing. |
+| `init.sh --list-existing-repo-signals output is sorted and free of duplicates` | A stable, duplicate-free order is what lets a consumer compare the list with a plain `diff` across two base versions; without it every reader has to normalise first, and each reader normalises differently. |
+| `init.sh --list-existing-repo-signals mutates nothing and never leaves its cwd` | The load-bearing one for asking base about itself: the answer has to come before the template self-run guard and before `cd "${REPO_ROOT}"`, or querying the discriminator would scaffold the checkout being queried. |
+| `init.sh --help names --list-existing-repo-signals` | A query nobody can find is one nobody derives from, and a checker that restates the discriminator instead of reading it is the second statement this flag exists to remove. |
 
 ### test/bats/unit/init_installed_paths_spec.bats (6)
 
