@@ -48,8 +48,10 @@ _check() {
 _cond_applies() {
   # Return 0 when the guard expression `<condvar>=<value>` matches the
   # current environment (env `<condvar>` equals `<value>`), non-zero
-  # otherwise. Used to make a requirement conditional -- e.g. only require
-  # `packages: write` when the caller selected `cache_backend: registry`.
+  # otherwise. Used to make a requirement conditional -- to require
+  # something of the callers who selected one input value and of nobody
+  # else. No shipped manifest declares a guard today; the one that did
+  # named a permission the worker could not hold, and both went.
   local cond="$1" condvar condval
   condvar="${cond%%=*}"
   condval="${cond#*=}"
@@ -84,9 +86,8 @@ _list() {
   printf 'Caller contract -- this worker requires:\n\n'
   while IFS='|' read -r kind key envvar desc hint cond; do
     if [[ -n "${cond}" ]]; then
-      # Self-describe that this requirement is only enforced conditionally
-      # (e.g. `packages` only when cache_backend: registry), so `--list`
-      # doubles as accurate contract documentation.
+      # Self-describe that this requirement is only enforced conditionally,
+      # so `--list` doubles as accurate contract documentation.
       printf '  [%s] %s -- %s (when %s)\n' "${kind}" "${key}" "${desc}" "${cond}"
     else
       printf '  [%s] %s -- %s\n' "${kind}" "${key}" "${desc}"
@@ -111,8 +112,8 @@ _validate() {
     esac
     total=$((total + 1))
     # Optional 6th field `<condvar>=<value>` gates a requirement on another
-    # env var (e.g. only require `packages: write` when the caller selected
-    # `cache_backend: registry`). A declared-but-not-applicable requirement
+    # env var, so a worker can require of one input's callers what it does
+    # not require of the rest. A declared-but-not-applicable requirement
     # is counted in the total (the manifest is non-empty) but skipped, never
     # a failure -- keeping unrelated callers backward compatible.
     if [[ -n "${cond}" ]]; then

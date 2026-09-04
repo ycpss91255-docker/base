@@ -143,6 +143,9 @@ jobs:
   # ────────────────────────────────────────────────────────────────
   compute-matrix:
     runs-on: ubuntu-latest
+    # Every job of a worker bounds itself: GitHub's default is six hours,
+    # and it applies per matrix shard.
+    timeout-minutes: 5
     # Expands `inputs.platforms` into a matrix and exits; no checkout, no
     # package. Its siblings `publish` and `merge` declare their own grants
     # already -- this one inherited the CALLER's until #957.
@@ -209,6 +212,9 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.compute-matrix.outputs.matrix) }}
     runs-on: ${{ matrix.runner }}
+    # Builds the full image for one arch and pushes it by digest; the same
+    # ceiling the build worker's own shard takes.
+    timeout-minutes: 120
     permissions:
       contents: read
       packages: write
@@ -287,6 +293,9 @@ jobs:
   merge:
     needs: publish
     runs-on: ubuntu-latest
+    # Assembles a manifest list from digests already pushed: registry
+    # calls only, no build.
+    timeout-minutes: 15
     permissions:
       contents: read
       packages: write
