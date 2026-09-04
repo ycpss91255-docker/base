@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **157 tests**.
+Integration specs under `test/bats/integration/`: **165 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -9,6 +9,26 @@ Integration specs under `test/bats/integration/`: **157 tests**.
 ## Test Files
 
 <!-- generated: catalogue sections -->
+
+### test/bats/integration/apk_mirror_spec.bats (2)
+
+The FORWARDING half of the APK_MIRROR contract -- the repo-root
+`compose.yaml` passes the arg to the tooling build only when the caller set
+one, so the upstream host keeps being named in exactly one place, the
+Dockerfile. Passing it unconditionally would put an empty `--build-arg` in
+front of the image's own default on every machine that needs no override,
+and a `:-` default here would move the declaration of the upstream host into
+a file the Dockerfile cannot see.
+
+Compose's own interpolation is what decides this, not the file's text, so
+the assertions drive `docker compose config` rather than grepping. The knob
+itself -- the default, the skip at the default, the reach over every apk
+stage -- is test/bats/unit/apk_mirror_spec.bats'.
+
+| Test | Description |
+|------|-------------|
+| `compose.yaml: with APK_MIRROR unset the tooling build receives no mirror arg (#1008)` | Unset has to mean "the Dockerfile's default", not "an empty override the Dockerfile then has to defend itself against". This is the case every machine that can reach dl-cdn is in, so an unconditional forward would put an empty `--build-arg` in front of the image's own default everywhere and be noticed nowhere. |
+| `compose.yaml: the caller's APK_MIRROR reaches the tooling build (#1008)` | The other direction, and what makes the case above non-vacuous: a `build.args` entry deleted outright would also forward nothing when unset. Both halves together are what says the bare `- APK_MIRROR` form is doing its job -- override through, nothing through otherwise. |
 
 ### test/bats/integration/ci_preflight_contract_spec.bats (8)
 
@@ -148,6 +168,16 @@ gitignore sync requires the **real** `init.sh` to run during Step 3 of
 | `upgrade.sh end-to-end: synced .gitignore + untracked compose.yaml in single commit` | One-shot upgrade |
 | `upgrade.sh end-to-end: idempotent on a second run — no extra commits` | Re-upgrade clean |
 
+### test/bats/integration/init_existing_repo_signals_spec.bats (5)
+
+| Test | Description |
+|------|-------------|
+| `a repo carrying none of the published signals is scaffolded as new (#928)` | The baseline base#928 broke: with no signal present the new-repo path must actually run, and the three artifacts it alone installs are the currency the outage was measured in. |
+| `each published signal, on its own, sends init down the existing-repo path (#928)` | The anti-decay half. A published list nothing exercises is a second statement of the branch condition, and a second statement is what goes stale -- so every entry is run through a real init rather than trusted. |
+| `a repo carrying a file the list does NOT publish is still scaffolded as new (#928)` | The converse, without which the case above passes on a branch that treats ANY file as a signal: presence must not decide, the list must. |
+| `no file a repo can carry, scaffold output or not, can quietly become a signal (#928)` | The case that closes the class rather than one file. base#928 was a file joining the branch condition without joining the list, and the population has to include what no scaffold writes -- `Dockerfile` came from exactly that half. |
+| `the new-repo scaffold creates every published signal (#928)` | The other direction of the same proxy. A signal init never installs can only ever be supplied by somebody else, which is precisely how the template's shipped Dockerfile inverted it. |
+
 ### test/bats/integration/init_installed_paths_spec.bats (1)
 
 | Test | Description |
@@ -176,7 +206,7 @@ the unit `tui_spec`.
 | `new repo: compose.yaml exists and references the repo name` | compose gen |
 | `new repo: .env.example is NOT generated (image name via setup.conf rules)` | setup.conf rules drive IMAGE_NAME |
 | `new repo: script/entrypoint.sh exists and is executable` | entrypoint gen |
-| `new repo: script/entrypoint.sh sources [logging] helper by default (refs #364)` | default in-image helper source line + comment present; ${USER} / /home/ absent (regression guards) |
+| `new repo: the seeded entrypoint is a clean bringup under base's orchestrator (refs #364)` | the seeded entrypoint carries no base plumbing and no exec, the Dockerfile names the orchestrator, and the orchestrator is vendored -- the [logging] UX guarantee of #364 now held by base's half instead of by a repo-owned copy that a subtree pull could never reach. Also keeps the v0.30.0 regression guards: no ${USER}, no /home/ in the seeded file. |
 | `new repo: smoke test skeleton exists for the repo` | smoke skeleton |
 | `new repo: smoke tree is per-stage tool-first (shared/devel-test/runtime-test), not flat test/smoke/ (S4 items 5,8)` | - |
 | `new repo: shared smoke spec loads test_helper (resolves via Dockerfile COPY at build time) (S4 item 8)` | - |
@@ -281,6 +311,21 @@ why the same defect shipped twice.
 | `archive manifest: still declares every path the hardcoded cp list carried (#914)` | No payload path was silently pruned while making the list tolerant |
 | `archive manifest: a payload entry deleted behind its own comment is no longer declared (#914)` | The payload guard cannot be satisfied by the prose that explains the entry |
 | `archive manifest: names no wrapper that init.sh no longer creates at the repo root (#914)` | The #558 instance: no removed root wrapper is declared as a payload path |
+
+### test/bats/integration/test_tools_pins_spec.bats (1)
+
+The image really ships the versions its Dockerfile pins -- the behavioural
+half of `test/bats/unit/test_tools_pins_spec.bats`. The suite runs INSIDE
+the test-tools image, so every tool on `PATH` is the image's own copy and
+the probe the roster names can simply be run. Fail-closed, for the reason
+its `just` sibling states: an image whose tool disagrees with the
+declaration is exactly the drift this exists to report, and a skip would
+restore the silence. A probe that cannot run at all is reported too -- it is
+not evidence that the version is right.
+
+| Test | Description |
+|------|-------------|
+| `test-tools image: every pinned tool answers with the declared version (#1012)` | It iterates the roster rather than a list of tools, so a pin declared tomorrow is asserted tomorrow -- and a probe that cannot run at all is reported rather than read as agreement. |
 
 ### test/bats/integration/upgrade_spec.bats (24)
 

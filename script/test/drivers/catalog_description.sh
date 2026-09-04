@@ -211,7 +211,17 @@ readonly _CATALOG_DESC_SCAN_GLOBS=(
 # renamed 2, and all 44 were described here rather than imported as debt --
 # the 42 are this branch's own, and the 2 renames were already inside the
 # ceiling, so describing them is what takes the number down by 2.
-readonly _CATALOG_DESC_UNDESCRIBED_CEILING=2612
+#
+# 2605 at the second merge with origin/main. This is the case the number's
+# storage makes awkward and it is worth writing down: BOTH sides had
+# lowered it independently -- 2612 here, 2607 on main -- and NEITHER was
+# right afterwards, because the descriptions compose. The merged tree
+# measures 2605. Taking a side would have handed this branch slack it did
+# not earn (2612) or claimed a floor the tree does not reach (2607); the
+# rule is to recompute from the merged tree, which is what the catalogue
+# itself does. See base#1024 for why a single stored number conflicts on
+# every merge by construction.
+readonly _CATALOG_DESC_UNDESCRIBED_CEILING=2605
 
 # The written-out non-answers, matched case-insensitively on the whole
 # trimmed marker. `nil`, `none`, `tbd`, `todo` and `unknown` carry a

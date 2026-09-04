@@ -609,15 +609,46 @@ _migrate_logging_rename_apply() {
 #   DL3006  parameterized `FROM ${BASE_IMAGE}` / `${TEST_TOOLS_IMAGE}` gains
 #           an inline `# hadolint ignore=DL3006` (an ARG-driven base image
 #           cannot be explicitly tagged)
+#   DL3066  a literal `USER root` gains an inline `# hadolint ignore=DL3066`
+#           (the rule postdates hadolint 2.12.0, so no existing consumer
+#           Dockerfile answers it, and every one of them has the line)
 _migrate_hadolint_detect() {
   local _file="$1"
   grep -Eq '^FROM (bats/bats|alpine):latest' "${_file}" && return 0
-  grep -Eq 'useradd[[:space:]]+-u[[:space:]]' "${_file}" && return 0
+  _dfm_needs_dl3046 "${_file}" && return 0
   grep -Eq '^[[:space:]]*RUN[[:space:]]+cd[[:space:]]+/lint[[:space:]]+&&[[:space:]]+hadolint' "${_file}" && return 0
   grep -Eq 'pip install[[:space:]]+-r' "${_file}" && return 0
   _dfm_needs_dl4006 "${_file}" && return 0
   _dfm_needs_dl3006 "${_file}" && return 0
+  _dfm_needs_dl3066 "${_file}" && return 0
   return 1
+}
+
+# _dfm_needs_dl3046 <file>
+#   True when a `useradd` that sets a uid carries no `-l`, whatever order
+#   its flags are in. Same head/tail split and same scan window as the
+#   transform, so detect and apply cannot disagree about which line is a
+#   candidate.
+_dfm_needs_dl3046() {
+  local _file="$1"
+  awk '
+    function _dfm_scan(_text) {
+      if (match(_text, /(&&|\|\||;|\|)/)) {
+        return substr(_text, 1, RSTART - 1)
+      }
+      return _text
+    }
+    {
+      if (match($0, /(^|[[:space:]])useradd[[:space:]]+/)) {
+        _scan = _dfm_scan(substr($0, RSTART + RLENGTH))
+        if (_scan ~ /(^|[[:space:]])(-[[:alnum:]]*u|--uid)([[:space:]]|=)/ &&
+            _scan !~ /(^|[[:space:]])(-[[:alnum:]]*l|--no-log-init)([[:space:]]|$)/) {
+          found = 1
+        }
+      }
+    }
+    END { exit (found ? 0 : 1) }
+  ' "${_file}"
 }
 
 # _dfm_needs_dl4006 <file>
@@ -640,13 +671,76 @@ _dfm_needs_dl3006() {
   ' "${_file}"
 }
 
+# _dfm_needs_dl3066 <file>
+#   True when a literal `USER root` is present whose preceding line does not
+#   already ignore DL3066.
+#
+#   Only the literal `root` is in scope. DL3066 asks for a NUMERIC user-id so
+#   a host or orchestrator can resolve the identity a container runs as, and
+#   `root` is the one name every image resolves by definition. Any other
+#   literal user is the case the rule is worth having, and `USER "${USER}"`
+#   -- the identity these images actually ship with -- is a parameter
+#   hadolint does not evaluate. Neither is touched.
+_dfm_needs_dl3066() {
+  local _file="$1"
+  awk '
+    /^[[:space:]]*USER[[:space:]]+"?root"?[[:space:]]*$/ &&
+      prev !~ /hadolint ignore=[A-Za-z0-9,]*DL3066/ { found=1 }
+    { prev=$0 }
+    END { exit (found ? 0 : 1) }
+  ' "${_file}"
+}
+
 _migrate_hadolint_apply() {
   local _file="$1"
   # DL3007: pin the helper-stage :latest tags.
-  sed -i -E 's|^FROM bats/bats:latest|FROM bats/bats:1.11.0|; s|^FROM alpine:latest|FROM alpine:3.21|' "${_file}"
+  # The alpine series here is the one base itself builds on -- see
+  # ARG ALPINE_VERSION in dockerfile/Dockerfile.test-tools, whose recorded
+  # end-of-life fails base's own suite 180 days out. Keeping the two equal
+  # is asserted by dockerfile_migrate_spec.bats, so this literal cannot
+  # quietly become the older of two dates: it wrote an end-of-life series
+  # into every consumer Dockerfile it healed, during an upgrade, which is
+  # the moment nobody reads the diff.
+  sed -i -E 's|^FROM bats/bats:latest|FROM bats/bats:1.11.0|; s|^FROM alpine:latest|FROM alpine:3.22|' "${_file}"
   # DL3046: useradd -l (idempotent — only adds when not already present).
-  sed -i -E 's|useradd[[:space:]]+-u[[:space:]]|useradd -l -u |' "${_file}"
-  sed -i -E 's|useradd -l[[:space:]]+-l |useradd -l |' "${_file}"
+  #
+  # `-l` goes directly after the `useradd` token, not in front of `-u`.
+  # Anchoring on `useradd -u` matches only the order base's own template
+  # happens to use; a downstream repo writes
+  # `useradd -m -s /bin/bash -u ...` and the anchored form walks past it,
+  # leaving DL3046 live in a Dockerfile the migration reported as patched.
+  # Rewriting the head of the command instead makes the position of the
+  # flag being answered irrelevant. The flags are read from the useradd's
+  # OWN command segment -- the text after the token, cut at the first
+  # `&&`, `||`, `;` or `|` -- because the conflict-handling branch every
+  # downstream Dockerfile carries writes `usermod -l` after an `&&`, and
+  # scanning to end of line reads that sibling flag as this command
+  # already answering DL3046. The heal would then never fire and the
+  # migration would report a patched Dockerfile with the finding still
+  # live in it.
+  local _tmp3046
+  _tmp3046="$(mktemp)"
+  awk '
+    function _dfm_scan(_text) {
+      if (match(_text, /(&&|\|\||;|\|)/)) {
+        return substr(_text, 1, RSTART - 1)
+      }
+      return _text
+    }
+    {
+      if (match($0, /(^|[[:space:]])useradd[[:space:]]+/)) {
+        _head = substr($0, 1, RSTART + RLENGTH - 1)
+        _tail = substr($0, RSTART + RLENGTH)
+        _scan = _dfm_scan(_tail)
+        if (_scan ~ /(^|[[:space:]])(-[[:alnum:]]*u|--uid)([[:space:]]|=)/ &&
+            _scan !~ /(^|[[:space:]])(-[[:alnum:]]*l|--no-log-init)([[:space:]]|$)/) {
+          $0 = _head "-l " _tail
+        }
+      }
+      print
+    }
+  ' "${_file}" > "${_tmp3046}"
+  mv "${_tmp3046}" "${_file}"
   # DL3042: pip --no-cache-dir (idempotent).
   sed -i -E 's|pip install[[:space:]]+-r|pip install --no-cache-dir -r|' "${_file}"
   sed -i -E 's|pip install --no-cache-dir --no-cache-dir|pip install --no-cache-dir|' "${_file}"
@@ -668,7 +762,45 @@ _migrate_hadolint_apply() {
     ' "${_file}" > "${_tmp}"
     mv "${_tmp}" "${_file}"
   fi
-  _log_info upgrade upgrade_started "display=  Dockerfile patched: hadolint DL3007/DL3046/DL3003/DL3042/DL4006/DL3006 (#567 m5)"
+  # DL3066: inline ignore before each unguarded literal `USER root`.
+  #
+  # A pragma already sitting above the instruction is EXTENDED, never
+  # displaced: hadolint binds an ignore to the NEXT LINE, so inserting a
+  # second pragma between an existing one and its instruction would silently
+  # re-arm the rule that pragma was answering (the shipped shape of a real
+  # downstream Dockerfile is `# hadolint ignore=DL3002` directly above
+  # `USER root`). The inserted line copies the USER line's own indentation
+  # so the pragma cannot land outside a block it was meant to sit in.
+  if _dfm_needs_dl3066 "${_file}"; then
+    local _tmp3066
+    _tmp3066="$(mktemp)"
+    awk '
+      function flush(  ) { if (have) { print held; have = 0 } }
+      {
+        if ($0 ~ /^[[:space:]]*USER[[:space:]]+"?root"?[[:space:]]*$/) {
+          if (have && held ~ /hadolint ignore=/) {
+            if (held !~ /hadolint ignore=[A-Za-z0-9,]*DL3066/) {
+              sub(/hadolint ignore=[A-Za-z0-9,]+/, "&,DL3066", held)
+            }
+            print held
+            have = 0
+          } else {
+            flush()
+            match($0, /^[[:space:]]*/)
+            print substr($0, 1, RLENGTH) "# hadolint ignore=DL3066"
+          }
+          print $0
+          next
+        }
+        flush()
+        held = $0
+        have = 1
+      }
+      END { flush() }
+    ' "${_file}" > "${_tmp3066}"
+    mv "${_tmp3066}" "${_file}"
+  fi
+  _log_info upgrade upgrade_started "display=  Dockerfile patched: hadolint DL3007/DL3046/DL3003/DL3042/DL4006/DL3006/DL3066 (#567 m5, #946)"
 }
 
 # ── Migration 6: noetic entrypoint SC1090 directive ─────────────────────────
@@ -729,14 +861,40 @@ _migrate_arg_user_apply() {
 # container / runs the ENTRYPOINT. Bracket the source with `set +u` before
 # and `set -u` after so unbound vars inside setup.bash do not abort PID 1.
 #
-# Only fires when the entrypoint actually runs under nounset (`set -u` /
-# `set -eu` / `set -euo pipefail`) AND the source is not already guarded by
-# an immediately-preceding `set +u`.
+# Only fires when the entrypoint actually runs under nounset AND the source
+# is not already guarded by an immediately-preceding `set +u`.
+#
+# _dfm_entry_runs_under_nounset <dockerfile>
+#   True when the file beside <dockerfile> executes with nounset in effect.
+#   TWO independent sources, and the second is nowhere in the file:
+#     - the file turns it on itself (`set -u` / `set -eu` / `set -euo
+#       pipefail`) -- the whole story while the repo's own file IS the
+#       ENTRYPOINT;
+#     - the Dockerfile names base's orchestrator as the ENTRYPOINT, and the
+#       orchestrator SOURCES this file under its own `set -euo pipefail`
+#       (ADR-00000032). A repo that migrated to that model carrying the
+#       bringup init.sh seeded BEFORE it -- which has no `set` line at all
+#       -- runs its ROS source under nounset for the first time, with
+#       nothing in the file saying so.
+#   Reads the orchestrator ENTRYPOINT through _dfm_bringup_on_orchestrator
+#   so that spelling lives in one place; it is defined further down and
+#   both are in scope by the time apply_migrations calls either.
+_dfm_entry_runs_under_nounset() {
+  local _file="$1"
+  local _entry
+  _entry="$(_dfm_entrypoint_path "${_file}")"
+  [[ -f "${_entry}" ]] || return 1
+  if grep -Eq '^[[:space:]]*set[[:space:]]+-[a-z]*u' "${_entry}"; then
+    return 0
+  fi
+  _dfm_bringup_on_orchestrator "${_file}" >/dev/null
+}
+
 _migrate_nounset_source_detect() {
   local _entry
   _entry="$(_dfm_entrypoint_path "$1")"
   [[ -f "${_entry}" ]] || return 1
-  grep -Eq '^[[:space:]]*set[[:space:]]+-[a-z]*u' "${_entry}" || return 1
+  _dfm_entry_runs_under_nounset "$1" || return 1
   # An un-guarded source is one whose nearest preceding non-shellcheck-comment
   # line is NOT `set +u` (a shellcheck directive sits between guard and source
   # and must be treated as transparent so re-runs stay idempotent).
@@ -1168,6 +1326,97 @@ _migrate_runtime_dir_copy_apply() {
   fi
 }
 
+# ── Migration (entrypoint-orchestrator): a notice, never a rewrite ──────────
+#
+# base's plumbing -- the logging / watchdog source lines and the final exec
+# -- moved out of the seeded entrypoint into a base-owned ORCHESTRATOR that
+# ships inside the runtime helper directory, so it arrives with a subtree
+# pull and updates with the next one. A repo adopts it with two edits that
+# must land TOGETHER:
+#
+#   Dockerfile           ENTRYPOINT ["/usr/local/lib/base/entrypoint.sh"]
+#   script/entrypoint.sh drop base's plumbing and the exec, keep the repo's
+#                        own bringup -- the orchestrator sources this file
+#
+# Flipping the ENTRYPOINT first breaks the container: the orchestrator
+# SOURCES the bringup, so an un-removed `exec "$@"` fires mid-source and the
+# watchdog never arms. Cleaning the bringup first is merely inert. Doing
+# neither is also fine -- the repo keeps its own ENTRYPOINT and runs exactly
+# as before; it just does not get the drift fix.
+#
+# base does NOT make the edit. Only the repo owner can tell a bringup line
+# from base plumbing in a file that has been hand-edited for years, and a
+# parser guessing at that is the fragility this whole split exists to leave
+# behind. So this migration detects and WARNS and writes nothing -- the
+# apply-nothing end of the policy this file's header states for a shape it
+# recognises but must not rewrite.
+#
+# It reaches an existing repo for the same reason every other migration
+# does: init.sh calls apply_migrations from the FRESHLY PULLED subtree as
+# the upgrade's resync step, so the notice runs even under a consumer's own
+# vendored upgrade.sh from a release that predates it.
+_migrate_entrypoint_orchestrator_detect() {
+  local _file="$1"
+  grep -qE '^[[:space:]]*ENTRYPOINT[[:space:]]*\[[[:space:]]*"?/entrypoint\.sh"?' \
+    "${_file}"
+}
+
+_migrate_entrypoint_orchestrator_apply() {
+  local _file="$1"
+  _log_warn upgrade upgrade_started "display=  Dockerfile still runs the repo's own /entrypoint.sh as the container ENTRYPOINT. base now ships an orchestrator at /usr/local/lib/base/entrypoint.sh that sources it; migrating means flipping ENTRYPOINT and cleaning script/entrypoint.sh in the SAME commit (README: Container entrypoint). Nothing was changed here."
+}
+
+# ── Migration (bringup-residue): the other half of that same notice ─────────
+#
+# Once the ENTRYPOINT is the orchestrator, the repo's file is a BRINGUP that
+# gets sourced, and two leftovers stop being harmless:
+#
+#   exec              fires mid-source and pre-empts the watchdog and the
+#                     orchestrator's own exec
+#   a helper source   sources logging.sh / watchdog.sh a SECOND time, which
+#                     opens a second per-start log file and re-tees, or arms
+#                     the watchdog twice
+#
+# Deliberately silent while the ENTRYPOINT is still the repo's own file:
+# there the exec is correct and the helper sources are the documented
+# pre-migration wiring, so warning about them would be noise on every
+# upgrade of every repo that has not migrated yet -- which is what the
+# migration above already says once.
+_DFM_BRINGUP_EXEC_RE='^[[:space:]]*exec[[:space:]]'
+_DFM_BRINGUP_PLUMBING_RE='^[[:space:]]*(\.|source)[[:space:]]+/usr/local/lib/base/(logging|watchdog)\.sh'
+
+# _dfm_bringup_on_orchestrator <dockerfile>
+#   Echo the sibling bringup path when this Dockerfile has already flipped
+#   its ENTRYPOINT to the orchestrator and that sibling exists; else fail.
+_dfm_bringup_on_orchestrator() {
+  local _file="$1"
+  grep -qE '^[[:space:]]*ENTRYPOINT[[:space:]]*\[[[:space:]]*"?/usr/local/lib/base/entrypoint\.sh"?' \
+    "${_file}" || return 1
+  local _bringup
+  _bringup="$(_dfm_entrypoint_path "${_file}")"
+  [[ -f "${_bringup}" ]] || return 1
+  printf '%s' "${_bringup}"
+}
+
+_migrate_bringup_residue_detect() {
+  local _file="$1"
+  local _bringup
+  _bringup="$(_dfm_bringup_on_orchestrator "${_file}")" || return 1
+  grep -qE "${_DFM_BRINGUP_EXEC_RE}|${_DFM_BRINGUP_PLUMBING_RE}" "${_bringup}"
+}
+
+_migrate_bringup_residue_apply() {
+  local _file="$1"
+  local _bringup
+  _bringup="$(_dfm_bringup_on_orchestrator "${_file}")" || return 0
+  if grep -qE "${_DFM_BRINGUP_EXEC_RE}" "${_bringup}"; then
+    _log_warn upgrade upgrade_started "display=  script/entrypoint.sh still execs, but the ENTRYPOINT is base's orchestrator, which SOURCES it -- the exec fires mid-source and the watchdog never arms. Drop it; the orchestrator owns the final exec. Nothing was changed here."
+  fi
+  if grep -qE "${_DFM_BRINGUP_PLUMBING_RE}" "${_bringup}"; then
+    _log_warn upgrade upgrade_started "display=  script/entrypoint.sh still sources a /usr/local/lib/base/ helper the orchestrator already sources, so it runs twice (a second per-start log, or a second watchdog). Drop the source line. Nothing was changed here."
+  fi
+}
+
 # Ordered migration list. Append new {detect, transform} pairs here; the
 # order is load-bearing (earlier normalisations feed later ones).
 _MIGRATIONS=(
@@ -1184,4 +1433,6 @@ _MIGRATIONS=(
   sc1090
   arg_user
   nounset_source
+  entrypoint_orchestrator
+  bringup_residue
 )

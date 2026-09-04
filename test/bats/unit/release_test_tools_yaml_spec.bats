@@ -5,12 +5,16 @@
 #
 # Locks the publish surface for the test-tools image consumed by every
 # downstream Dockerfile.example (`FROM ${TEST_TOOLS_IMAGE} AS
-# test-tools-stage`). The workflow has three publish modes; the first
-# two ship behaviour that downstream CI depends on:
+# test-tools-stage`). The workflow has three triggers and two tag sets:
+# the first two triggers each resolve one, and both ship behaviour that
+# downstream CI depends on:
 #
-# 1. **Tag push (`v*`)** — multi-arch `:<version>` + `:latest`. Cuts
-#    the release that downstream consumers pin via
-#    `inputs.test_tools_version` on build-worker / publish-worker.
+# 1. **Tag push (`v*`)** — multi-arch `:<version>`, plus `:latest` only
+#    when the tag is NOT a prerelease. Cuts the release downstream
+#    consumers pin via `inputs.test_tools_version` on build-worker /
+#    publish-worker — whose default IS `latest`, which is why an RC tag
+#    must leave it alone. `v0.42.0-rc1` through `-rc4` each matched the
+#    `v*` trigger and each moved it.
 #
 # 2. **Main push** (P2) — multi-arch `:main` rolling tag. The
 #    template's own self-test.yaml pulls this in its Obtain step to
@@ -19,8 +23,10 @@
 #    Dockerfile.test-tools or this workflow, so most main-branch
 #    merges don't churn GHCR.
 #
-# 3. **workflow_dispatch** — manual `:latest` republish. Bootstrap
-#    path; kept un-filtered.
+# 3. **workflow_dispatch** — no tag set of its own: it resolves by the
+#    ref it was dispatched FROM (main takes the `:main` arm, a `v*` tag
+#    takes the tag rules above). Unrestricted by ref, so any other ref is
+#    REFUSED rather than resolved to the tag every downstream consumes.
 #
 # Smoke test step uses `steps.tags.outputs.smoke` so it always pulls
 # the tag the current trigger produced (rather than statically
@@ -30,43 +36,31 @@
 # why: Structural assertions for
 # `.github/workflows/release-test-tools.yaml`. Locks the publish surface
 # that downstream Dockerfile.example's `FROM ${TEST_TOOLS_IMAGE} AS
-# test-tools-stage` depends on. The workflow has three publish modes:
+# test-tools-stage` depends on. The workflow has three triggers and two tag
+# sets -- the first two triggers each resolve one:
 #
-# 1. **Tag push (`v*`)** — multi-arch `:<version>` + `:latest`. Cuts the
-# release downstream consumers pin via `inputs.test_tools_version`. 2.
-# **Main push** (#317 P2) — multi-arch `:main` rolling tag. Used by
-# self-test.yaml's Obtain step to skip from-source rebuilds. Paths filter
-# (gotcha 3) restricts to commits that touched
-# `dockerfile/Dockerfile.test-tools` or this workflow. 3.
-# **workflow_dispatch** — manual `:latest` republish, kept unfiltered for
-# bootstrap.
+# 1. **Tag push (`v*`)** -- multi-arch `:<version>`, and `:latest` only when
+# the tag is not a prerelease. Cuts the release downstream consumers pin via
+# `inputs.test_tools_version`, whose default IS `latest`, which is why a
+# prerelease tag must leave it alone.
 #
-# Smoke step uses `steps.tags.outputs.smoke` so it always pulls the tag the
-# current trigger produced (rather than statically pulling `:latest`, which
-# would leave a freshly-pushed `:main` unverified).
+# 2. **Main push** (P2) -- multi-arch `:main` rolling tag, pulled by
+# self-test.yaml's Obtain step to skip from-source rebuilds. The paths
+# filter (gotcha 3) restricts it to commits that touched
+# `dockerfile/Dockerfile.test-tools` or this workflow.
 #
-# Grouped by concern:
+# 3. **workflow_dispatch** -- no tag set of its own: it resolves by the ref
+# it was dispatched from (main takes the `:main` arm, a `v*` tag takes the
+# tag rules). Any other ref is refused, so an unrecognised input publishes
+# nothing rather than overwriting `:latest`.
 #
-# - Triggers on `v*` tag push (existing)
-#
-# - Triggers on main push (#317 P2)
-#
-# - Main push trigger has `paths:` filter limiting to Dockerfile.test-tools
-# + workflow self (#317 P2 gotcha-3)
-#
-# - Triggers on `workflow_dispatch` (existing)
-#
-# - Resolve tags step: 3 publish modes (`v*` + `main` + dispatch) emit
-# correct tag sets and `smoke` output
-#
-# - Smoke step pulls trigger's tag via `steps.tags.outputs.smoke` (#317 P2)
-#
-# - Native-runner matrix (#587): drops `setup-qemu-action`; `compute-matrix`
-# maps platforms to native runners; build shards run on `matrix.runner`;
-# build per-platform + push by digest; `merge` job creates the manifest via
-# `imagetools`
-#
-# - Declares `packages: write` permission
+# The smoke step uses `steps.tags.outputs.smoke`, so it always pulls the tag
+# the current trigger produced rather than statically pulling `:latest` and
+# leaving a freshly-pushed `:main` unverified. Four of the cases below RUN
+# the resolver rather than reading it: the step's own `run:` body is
+# extracted with yq and executed against each ref shape. The text-reading
+# cases above them stayed green through four RC tags that each moved
+# `:latest`.
 
 bats_require_minimum_version 1.5.0
 
@@ -89,6 +83,105 @@ _resolve_tags_step() {
 # _smoke_step -- the code lines from the "Smoke test pushed image" step on.
 _smoke_step() {
   awk '/Smoke test pushed image/{flag=1} flag' "${WF}" | strip_comments
+}
+
+# _repo_root -- the checkout this spec reads, derived from the spec's own
+# location rather than restated, so the helpers below and ${WF} above cannot
+# disagree about which tree is under test.
+_repo_root() {
+  (cd -- "${BATS_TEST_DIRNAME}/../../.." && pwd)
+}
+
+# _resolve_tags_for <ref> -- RUN the workflow's own "Resolve tags" step
+# against <ref>, and print the `key=value` lines it wrote to GITHUB_OUTPUT.
+#
+# The body is read OUT OF THE WORKFLOW (yq over that step's `run:`) instead
+# of being restated here: a spec that carried its own copy of the resolver
+# would keep agreeing with itself while the workflow drifted, which is how
+# a tag arm came to move `:latest` on four consecutive RC tags with the
+# structural assertions above all green.
+#
+# The status is the step's OWN. A ref the resolver refuses must be
+# observable as a FAILURE and not merely as an absence of output -- the
+# defect being pinned here is precisely a branch that resolved silently
+# and successfully to the most-consumed tag in the registry.
+_resolve_tags_for() {
+  local _ref="${1}" _dir _body _status=0
+  _body="$(RTT_STEP='Resolve tags' yq -r \
+      '.jobs.merge.steps[] | select(.name == strenv(RTT_STEP)) | .run' \
+      "${WF}" 2>&1)" || {
+    printf 'BUG: yq could not read the Resolve tags step of %s: %s\n' \
+        "${WF}" "$(printf '%s' "${_body}" | tr '\n' ' ')"
+    return 2
+  }
+  if [[ -z "${_body}" || "${_body}" == 'null' ]]; then
+    printf 'BUG: %s declares no "Resolve tags" step in its merge job\n' "${WF}"
+    return 2
+  fi
+  _dir="$(mktemp -d)"
+  printf '%s\n' "${_body}" > "${_dir}/step.sh"
+  (
+    cd -- "$(_repo_root)" || exit 2
+    GITHUB_REF="${_ref}" \
+    IMAGE='ghcr.io/ycpss91255-docker/test-tools' \
+    GITHUB_OUTPUT="${_dir}/out" \
+      bash "${_dir}/step.sh" > /dev/null
+  ) || _status=$?
+  if [[ -f "${_dir}/out" ]]; then
+    cat "${_dir}/out"
+  fi
+  rm -rf "${_dir}"
+  return "${_status}"
+}
+
+# _header_comments -- the file's header prose: every line above the `on:`
+# key, comments only. What the header CLAIMS is checked against what the
+# resolver above actually DOES; a header describing a branch the code
+# cannot reach is a defect with the same shape as the code one.
+_header_comments() {
+  awk '/^on:/{exit} {print}' "${WF}" | only_comments
+}
+
+# _merge_checkout_rationale -- the merge job's prose above its Checkout step.
+# That job needs the tree for one reason (the smoke step compares the
+# published image against the declaration it was built from), and the
+# sentence naming that reason is the thing a reader follows to the file
+# doing the comparison.
+_merge_checkout_rationale() {
+  yaml_job_text "${WF}" merge | awk '/- name: Checkout/{exit} {print}' \
+    | only_comments
+}
+
+# _resolve_tags_prose -- the "Resolve tags" step's OWN comment block, from
+# the step's name down to its `run:` body.
+#
+# Every other reader of that step in this file strips its comments on
+# purpose, so that the explanation cannot stand in for the branch that
+# implements it -- which leaves the block itself read by nothing. It is the
+# longest description of the tag rules anywhere in the tree, so a sentence
+# in it that survived the rules changing is the description a reader is
+# most likely to believe.
+_resolve_tags_prose() {
+  awk '/- name: Resolve tags/{flag=1} flag && /^ *run: \|/{exit} flag' \
+    "${WF}" | only_comments
+}
+
+# _spec_prose -- THIS file's own prose about the surface it pins: the header
+# above, the section dividers, and every `@test` NAME.
+#
+# A spec's header is read far more often than its cases, so a header still
+# describing the behaviour the cases refute misinforms every later reader
+# -- the same defect as a workflow header describing an unreachable branch,
+# one file over. A case NAME is read more often still: it is what the TAP
+# output prints, so a name promising the old surface reports the new one
+# under the old description on every green run. They are one reader
+# because they are one property; splitting them is how half of it came to
+# be corrected and the other half left standing.
+_spec_prose() {
+  local _self="${BATS_TEST_DIRNAME}/release_test_tools_yaml_spec.bats"
+  awk '/^bats_require_minimum_version/{exit} {print}' "${_self}" \
+    | only_comments
+  grep -E '^(@test|# .*──)' "${_self}"
 }
 
 # ── Trigger surface ──────────────────────────────────────────────────
@@ -120,9 +213,9 @@ _smoke_step() {
   assert_output --partial 'workflow_dispatch:'
 }
 
-# ── Resolve tags step: 3 publish modes ───────────────────────────────
+# ── Resolve tags step: the two tag sets, read ────────────────────────
 
-@test "release-test-tools.yaml: Resolve tags step handles v* tag push -> :<ver> + :latest" {
+@test "release-test-tools.yaml: Resolve tags step handles v* tag push -> :<ver>, and :latest for a finished release" {
   run _resolve_tags_step
   assert_success
   assert_output --partial 'refs/tags/v*'
@@ -143,6 +236,108 @@ _smoke_step() {
   assert_output --partial 'smoke='
 }
 
+# ── Resolve tags: the decision, exercised ────────────────────────────
+#
+# The four assertions above read the step's TEXT. These four RUN it, over
+# the four ref shapes that reach this workflow.
+
+# why: The arm the four text-reading cases above only READ. It is the one
+# ref shape allowed to move the tag every unpinned downstream builds its
+# lint stage from.
+@test "release-test-tools.yaml: a release tag publishes :<ver> and moves :latest" {
+  run _resolve_tags_for refs/tags/v0.42.0
+  assert_success
+  assert_output --partial 'tags=ghcr.io/ycpss91255-docker/test-tools:v0.42.0,ghcr.io/ycpss91255-docker/test-tools:latest'
+  assert_output --partial 'smoke=ghcr.io/ycpss91255-docker/test-tools:v0.42.0'
+}
+
+# why: The load-bearing case: `v0.42.0-rc1` through `-rc4` each matched the
+# `v*` trigger and each moved the tag whose default every unpinned
+# downstream inherits, for the length of an RC window.
+@test "release-test-tools.yaml: an RC tag publishes :<ver> and leaves :latest where it was (#1012)" {
+  # v0.42.0-rc1..rc4 each matched the `v*` trigger and each moved
+  # `:latest`, so every downstream repo that does not pin
+  # `test_tools_version` (its default IS "latest") built its lint stage
+  # from an RC image for the whole RC window.
+  run _resolve_tags_for refs/tags/v0.42.0-rc4
+  assert_success
+  assert_output --partial 'tags=ghcr.io/ycpss91255-docker/test-tools:v0.42.0-rc4'
+  assert_output --partial 'smoke=ghcr.io/ycpss91255-docker/test-tools:v0.42.0-rc4'
+  refute_output --partial ':latest'
+}
+
+# why: The rolling tag self-test.yaml pulls to skip a from-source rebuild;
+# it must not reach `:latest` either.
+@test "release-test-tools.yaml: a main push publishes the :main rolling tag only" {
+  run _resolve_tags_for refs/heads/main
+  assert_success
+  assert_output --partial 'tags=ghcr.io/ycpss91255-docker/test-tools:main'
+  assert_output --partial 'smoke=ghcr.io/ycpss91255-docker/test-tools:main'
+  refute_output --partial ':latest'
+}
+
+# why: `workflow_dispatch` is unrestricted by ref, so this arm is reachable
+# from any feature branch: resolving it to the production tag made the
+# unrecognised input the most destructive one.
+@test "release-test-tools.yaml: a ref the resolver does not recognise is refused, never resolved to :latest (#1012)" {
+  # `workflow_dispatch` is unrestricted by ref, so this arm is reachable
+  # from any feature branch. Resolving it to the production tag makes an
+  # unrecognised input the most destructive one.
+  run _resolve_tags_for refs/heads/feature/whatever
+  assert_failure
+  refute_output --partial ':latest'
+}
+
+# why: A header describing a branch the code cannot reach is a defect with
+# the same shape as the code one, and it is what a later reader believes
+# over the code.
+@test "release-test-tools.yaml: the header and the resolver step's own prose describe the tag rules it applies (#1012)" {
+  # The header promised `workflow_dispatch -> pushes only :latest`. A
+  # dispatch from main carries GITHUB_REF=refs/heads/main and so takes the
+  # main arm; the sentence described a branch the code cannot reach.
+  run _header_comments
+  assert_success
+  refute_output --partial 'pushes only :latest'
+  assert_output --partial 'prerelease'
+
+  # The step's own block is the second half of the same property. It
+  # opened on "Three publish modes, three tag sets" -- written when the
+  # third arm published `:latest` -- and the paragraphs beneath it were
+  # rewritten to say that arm now publishes nothing, which left the
+  # summary sentence contradicting the four paragraphs under it.
+  run _resolve_tags_prose
+  assert_success
+  refute_output --partial 'three tag sets'
+  assert_output --partial 'prerelease'
+  assert_output --partial 'publishes NOTHING'
+}
+
+# why: What keeps the correction from being half made: a case NAME is what
+# the TAP line prints, so a stale one reports the new behaviour under the
+# old description on every green run.
+@test "release-test-tools.yaml: this spec's own prose -- header, dividers and case names -- describes the surface it pins (#1012)" {
+  # The header above is the first thing a reader of this file meets, and it
+  # documented the surface these cases now refute: `:<version>` + `:latest`
+  # on every `v*` tag, and a `workflow_dispatch` that republishes
+  # `:latest`. Both are what four RC tags did to `:latest` and what an
+  # unrecognised dispatch ref could still do. The workflow's header was
+  # corrected and this one was not, which leaves the correction half made
+  # -- and a reader who trusts the header reads the cases as the anomaly.
+  #
+  # The case NAMES and the section dividers are the same prose at a site
+  # that is read more often, not less: a name is what the TAP line prints.
+  # `-> :<ver> + :latest` stayed on the case that reads the step's text
+  # while the case three lines below it proves an RC tag leaves `:latest`
+  # alone, so a green run printed both.
+  run _spec_prose
+  assert_success
+  refute_output --partial 'republish'
+  refute_output --partial '+ `:latest`'
+  refute_output --partial '+ :latest'
+  refute_output --partial '3 publish modes'
+  assert_output --partial 'prerelease'
+}
+
 # ── Smoke test step ──────────────────────────────────────────────────
 
 @test "release-test-tools.yaml: smoke step pulls the trigger's tag (not statically :latest) (#317 P2)" {
@@ -152,6 +347,51 @@ _smoke_step() {
   run _smoke_step
   assert_success
   assert_output --partial 'steps.tags.outputs.smoke'
+}
+
+# why: One loop over the pins the Dockerfile declares, rather than fourteen
+# hand-written comparisons that leave the next tool unasserted the day it is
+# pinned.
+@test "release-test-tools.yaml: the smoke step derives its version assertions from the pin roster (#1012)" {
+  # Fourteen of the fifteen probes asserted exit 0 and nothing else,
+  # which catches a tool's removal and never its staleness. The repair is
+  # not fourteen hand-written comparisons: it is one loop over the pins
+  # the Dockerfile declares, so a tool pinned tomorrow is asserted
+  # tomorrow. script/ci/test-tools-pins.sh refuses to produce a roster
+  # while any declared pin lacks a probe.
+  run _smoke_step
+  assert_success
+  assert_output --partial 'script/ci/test-tools-pins.sh roster'
+  assert_output --partial 'script/ci/test-tools-pins.sh check'
+  refute_output --partial 'just_pin='
+}
+
+# why: A loop fed by a command that failed simply gets no input and passes,
+# which is fail-open for a step whose whole assertion is that the versions
+# were checked.
+@test "release-test-tools.yaml: the smoke step refuses an empty pin roster (#1012)" {
+  # A loop fed by a command that failed simply gets no input and passes.
+  # For a step whose whole assertion is "the versions were checked", that
+  # is the fail-open direction, so emptiness is refused by name.
+  run _smoke_step
+  assert_success
+  assert_output --partial 'the pin roster came back empty'
+}
+
+# why: That sentence is what a reader follows to the file doing the
+# comparison, and it still named the accessor the step had stopped opening.
+@test "release-test-tools.yaml: the merge job's checkout rationale names what the smoke step reads (#1012)" {
+  # That job checks the tree out for exactly one reason, and the sentence
+  # saying so still sent a reader to dist/script/base/just-version.sh --
+  # the file the smoke step compared `just` against BEFORE this workflow
+  # started iterating the pin roster instead. The step no longer opens it,
+  # so the rationale named a dependency the job does not have and hid the
+  # one it does.
+  run grep -n 'just-version\.sh' "${WF}"
+  assert_failure
+  run _merge_checkout_rationale
+  assert_success
+  assert_output --partial 'test-tools-pins.sh'
 }
 
 # ── Native-runner matrix + push-by-digest + manifest merge ─────
@@ -200,6 +440,8 @@ _smoke_step() {
 
 # ── Same-repository guard on the self-hosted-eligible build job ────────
 
+# why: Inert today -- this workflow has no `pull_request` trigger at all --
+# so that adding one later cannot open the hole silently.
 @test "release-test-tools.yaml: the build job carries the same-repo guard (#766)" {
   # Self-hosted-eligible by the static rule: `runs-on: ${{ matrix.runner }}`
   # over a runtime-computed matrix. This workflow has no `pull_request`
@@ -209,4 +451,91 @@ _smoke_step() {
   assert_success
   assert_output --partial "github.event_name != 'pull_request' ||"
   assert_output --partial 'github.event.pull_request.head.repo.full_name == github.repository'
+}
+
+# ── Pin agreement: the smoke step compares versions, it does not print them ──
+#
+# The smoke step ran `shellcheck --version` and `hadolint --version` and
+# asserted exit 0. That catches a tool that vanished; it cannot catch a tool
+# that is the wrong version, which is the failure that actually happened --
+# a hadolint pin sat 3.8 years stale behind a green gate, and the gate was
+# reading "the binary starts" as "the binary is what the Dockerfile asked
+# for". The two are only the same claim while nothing goes wrong.
+#
+# The comparison has to DERIVE the expected version from the pin rather than
+# restate it in YAML: a hardcoded expectation in the workflow is a second
+# place to forget, and a bump that updates the Dockerfile and not the
+# workflow would fail for the wrong reason -- or, worse, a bump that updates
+# both would prove only that two literals match each other.
+#
+# `hadolint --version` prints the version as a bare number ("Haskell
+# Dockerfile Linter 2.15.1") while the pin is a tag ("v2.15.1"), so the
+# comparison is on the number with the leading v stripped. Asserting the
+# stripping happens is part of the rule: without it the check would compare
+# "v2.15.1" against a line that never contains it and fail every run, which
+# is the shape of a check that gets deleted rather than fixed.
+
+# why: The precondition the other five rest on -- with no checkout in the
+# merge job there is no Dockerfile to read the pins out of, and the whole
+# comparison degrades to the exit-0 check it replaced
+@test "release-test-tools.yaml: merge job checks out the repo so the smoke step can read the pins (#947)" {
+  run grep -n 'actions/checkout' "${WF}"
+  assert_success
+  # Two call sites: the build shards, and the merge job the smoke step
+  # lives in. One means the smoke step is comparing against nothing.
+  [[ "$(grep -c 'actions/checkout' "${WF}")" -ge 2 ]]
+}
+
+# why: The expectation has to come from the pin: a version literal in the
+# workflow would be a second place to bump, and two literals agreeing prove
+# only that somebody edited both
+@test "release-test-tools.yaml: smoke step reads the shellcheck pin from the Dockerfile (#947)" {
+  run _smoke_step
+  assert_success
+  assert_output --partial 'dockerfile/Dockerfile.test-tools'
+  assert_output --regexp 'shellcheck/releases/download'
+}
+
+# why: The pin that sat 3.8 years stale behind an exit-0 check -- the
+# concrete drift this whole step was rewritten for, so its half of the
+# comparison is asserted separately from shellcheck's
+@test "release-test-tools.yaml: smoke step reads the hadolint pin from the Dockerfile (#947)" {
+  run _smoke_step
+  assert_success
+  assert_output --regexp 'hadolint/releases/download'
+}
+
+# why: Reading two numbers is not comparing them: holding the pin and
+# running `<tool> --version` still passes for an image whose linters are
+# years old, which is exactly the state that shipped
+@test "release-test-tools.yaml: smoke step COMPARES the reported versions, not just exit 0 (#947)" {
+  run _smoke_step
+  assert_success
+  # The shipped binary's own report is captured and matched against the
+  # pin. A step that only ran `<tool> --version` would have neither.
+  assert_output --regexp 'shellcheck --version'
+  assert_output --regexp 'hadolint --version'
+  assert_output --partial 'expected_sc'
+  assert_output --partial 'expected_hd'
+}
+
+# why: A comparison whose mismatch branch only warns is not a gate -- the
+# publish would go out with the wrong linters and a green log
+@test "release-test-tools.yaml: smoke step fails loudly when a pin and a binary disagree (#947)" {
+  run _smoke_step
+  assert_success
+  # An exit non-zero on mismatch, with both values in the message -- a
+  # comparison whose failure branch only warns is not a gate.
+  assert_output --regexp 'exit 1'
+}
+
+# why: The failure mode a moved release URL produces: an empty expectation
+# compared against an empty reading agrees with itself, which is the shape
+# of pass the whole step exists to refuse
+@test "release-test-tools.yaml: smoke step refuses an unreadable pin rather than passing (#947)" {
+  run _smoke_step
+  assert_success
+  # A grep that matched nothing must not compare "" against "" and call it
+  # agreement. The step names the empty case explicitly.
+  assert_output --partial 'could not read'
 }

@@ -35,8 +35,10 @@ each time:
 - **Container lifecycle** -- `just docker build [test]` -> `just docker
   run -d` -> `just docker exec` -> `just docker stop`, asserting the
   runnability contract (configured user, container still running, wired
-  `/entrypoint.sh`, writable `~/work`, full teardown of container +
-  project network). Issues #579 / #603.
+  entry point -- base's orchestrator at
+  `/usr/local/lib/base/entrypoint.sh`, which sources the repo-owned
+  bringup at `/entrypoint.sh` (ADR-00000032) -- writable `~/work`, full
+  teardown of container + project network). Issues #579 / #603 / #945.
 - **Remaining container-ops verbs** -- the foreground `run` variant with
   #386 auto-cleanup, `just docker start` (build + run), a real `just
   docker prune --networks`, `just docker setup apply` (regenerates

@@ -155,6 +155,52 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 ## [Unreleased]
 
 ### Changed
+- **the container ENTRYPOINT is base's orchestrator; `script/entrypoint.sh` is a bringup it sources (closes #945)**
+  -- base's plumbing (the helper sources and the final `exec`) sat in a file
+  `init.sh` seeds and the repo then OWNS, so no pull ever updated it. It now
+  ships as `/usr/local/lib/base/entrypoint.sh` in the helper directory,
+  arriving with every pull. **An existing repo is unchanged**, `-test` stages
+  included. Adopting it is ONE commit: flip `ENTRYPOINT`, drop the plumbing
+  and `exec`, bracket any ROS source with `set +u` -- the orchestrator
+  sources the bringup under `set -euo pipefail`, which the seeded file never
+  set. Flipping alone breaks it; `just upgrade` notices until then.
+- **the test-tools image moved to alpine 3.22, and the next series expiry is
+  now a scheduled red build (refs #946)** -- 3.21 goes end-of-life 2026-11-01,
+  and a series tag cannot show that: it keeps resolving, the image keeps
+  building, and the ~20 unpinned apk packages quietly inherit an unsupported
+  base. The expiry sits beside the pin as `# alpine-eol: 3.22 2027-05-01` and a
+  spec fails the suite 180 days before it -- on 2026-11-02, since 3.22 is eight
+  months out, not the twelve #946 asked for: every newer series ships bash 5.3,
+  whose xtrace makes kcov under-report. #946 stays open on that. Affects anyone
+  rebuilding test-tools: the jump re-resolves every unpinned apk package at
+  once.
+- **shellcheck 0.10.0 -> 0.11.0, hadolint 2.12.0 -> 2.15.1, and the version is
+  now compared rather than printed (closes #947)** -- a stale linter does not
+  fail, it under-reports: every rule added since 2022-11-09 had never run here.
+  The bump surfaced exactly one finding, DL3066 on the template's build-time
+  `USER root`, suppressed inline with its reason rather than added to
+  `dist/.hadolint.yaml`, which ships to every consumer. hadolint also renamed
+  its release asset to a lowercase `hadolint-linux-*`. The publish smoke stage
+  and a new unit spec both compare the shipped binary with the pin instead of
+  asserting exit 0.
+- **`just base upgrade` now heals the hadolint findings a consumer's own
+  Dockerfile would fail on (refs #946, #947)** -- a consumer lints ITSELF with
+  the image the upgrade re-pins, and 2.15.1 reports DL3066 on the literal
+  `USER root` every consumer carries for its build-time hop. An upgrade HEALS a
+  Dockerfile rather than overwriting it, so the fix travels as a migration:
+  migration 5 inserts that pragma, extending one already on the line instead of
+  displacing it, and now also heals DL3046 wherever `-u` sits among useradd's
+  flags rather than only first. Without both, the first `just build test` after
+  an upgrade fails on rules the consumer never chose.
+- **CI checks what a pulled `test-tools:main` IS, not just that the tools are
+  there (refs #946, #947)** -- a PR that leaves the test-tools Dockerfile alone
+  reuses the rolling `:main`, republished only by a push to main touching that
+  file. Between a pin bump and that republish, an unrelated PR's lint jobs ran
+  green under the rule set the repo had just moved off. The obtain step now
+  compares the image's alpine series and its shellcheck / hadolint with the
+  pins in the checkout, and rebuilds from source when they disagree; the series
+  decides which bash kcov has to read. The probe is one script
+  (`script/ci/probe_test_tools.sh`) instead of the five copies that hid the gap.
 - **the release worker cuts the version it was given, and refuses a tag it
   cannot read (refs #829, refs #1012)** -- `prerelease` no longer reads
   `contains(github.ref_name, '-')`, which is false for every branch and
@@ -228,6 +274,16 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   type at 1.7.12.
 
 ### Added
+- **`init.sh` states its new-vs-existing discriminator instead of hiding it
+  in a branch (refs #928)** -- the decision is a proxy: a file only an
+  already-initialized repo was meant to carry. It inverted when the template
+  began shipping a `Dockerfile` -- every bootstrapped repo took the
+  existing-repo path and got no `main.yaml`, changelog or smoke tree -- and no
+  test failed, because the proxy lived only as a condition inside `main`.
+  `--list-existing-repo-signals` prints it (a query: mutates nothing,
+  answerable on a base checkout), the branch reads that list and nothing else,
+  and a spec runs a real init per published path. Nothing is installed and no
+  repo's classification changes.
 - **a dependency bump auto-releases only when a gate proves it ABI-safe
   (closes #829, ADR-00000031)** -- `script/ci/abi-gate.sh` asks one
   question, did this dependency's declared ABI component move, and refuses
@@ -359,6 +415,49 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 - **the changelog lint now catches an entry that was edited and not re-wrapped (refs #927)** -- a single word left alone on a continuation line with more of its paragraph on the next line. The length measure collapses whitespace on purpose and markdown collapses it again at render time, so nothing else could see it. A short final line, a table row, a fenced line and an HTML comment are left alone. Affects anyone writing an `[Unreleased]` entry.
 
 ### Fixed
+- **the tooling image's pinned tools are checked by version, from a derived
+  roster (refs #1012)** -- fourteen of the fifteen probes in the release
+  smoke step asserted an exit status only, so `bats`, `kcov` and `alpine`
+  could go stale silently and `alpine` was never probed. The step now
+  iterates `script/ci/test-tools-pins.sh`, which reads every
+  `ARG <NAME>_VERSION=` in `dockerfile/Dockerfile.test-tools` and refuses
+  to answer while one of them has no probe -- so a tool pinned tomorrow is
+  asserted tomorrow.
+- **no workflow spells the prerelease rule itself (refs #1012)** -- the
+  question decides three things org-wide and was spelled twice as an inline
+  `contains(github.ref_name, '-')`, which is also true of
+  `feature/add-thing`. Each site now asks the script owning the
+  classification of its own input: `self-test.yaml` and
+  `release-test-tools.yaml` classify a ref (`script/ci/release-ref.sh`),
+  `release-worker.yaml` its `version` input
+  (`script/ci/release-version.sh`). **Both refuse a value they cannot read
+  as SemVer rather than calling it final**, so a tag outside `vX.Y.Z` fails
+  the release job instead of publishing a mislabelled release, and the two
+  owners are compared wherever both answer.
+- **a release-candidate tag no longer moves `test-tools:latest` (refs #1012)**
+  -- the `v*` trigger matched `v0.42.0-rc1` through `-rc4`, and each moved
+  `:latest`, so every repo leaving `test_tools_version` at its default built
+  its lint stage from a release candidate for the whole RC window. `:latest`
+  now moves only for a finished release. A ref the tag resolver does not
+  recognise -- a `workflow_dispatch` from a feature branch, say -- is refused
+  instead of resolving to `:latest`.
+- **`compute-shards` and `coverage-gate` now gate something (closes #1009)**
+  -- neither was named by a gate's `needs:`. A failed `compute-shards`
+  skipped `coverage` and `coverage-gate`, both skip-tolerated, so the
+  required check went green with the whole unit suite and the coverage floor
+  never run; and `release` did not require `coverage-gate`, so a tag could
+  publish below `COVERAGE_MIN`. `ci-rollup` now requires `compute-shards`
+  hard-mandatorily, and `release` requires `coverage-gate`. Three specs
+  DERIVE both rosters from the job graph, so a job added to the workflow
+  fails until a gate names it.
+- **the tooling image takes an `APK_MIRROR` build arg (closes #1008)** --
+  `dockerfile/Dockerfile.test-tools` had no mirror override, so a host that
+  cannot reach `dl-cdn.alpinelinux.org` could not build the image the whole
+  local gate runs inside. It does not read as a network failure: apk spends
+  ~480s and then reports every package as `no such package`, because an
+  unreachable index reads as an empty one. Pass
+  `APK_MIRROR=<host> just test`. The default is the upstream CDN and the
+  rewrite is skipped there, so a machine that can reach it sees no change.
 - **a failed diff no longer takes the required `docker-build` check green, and one FROM-line reader replaces three (closes #1013)** -- the doc-only classifier read its diff through `done < <(git diff ...)`, and a loop's status is the loop's: a force-pushed base or a shallow clone delivered zero paths, classified doc-only, and passed the required check having built nothing. It is captured and checked now, and a spec scans every workflow run block for the shape. Separately, the extra-stages loop and `runtime_stages.sh` each carried a `FROM ... AS` regex claiming to match the stage parser; neither did, so `FROM --platform=... AS x-test` was invisible to the loop. One roster serves both now.
 - **`just` owns the lifecycle of what `just` creates (closes #1015, #997)** --
   `just test stop` ends this checkout's self-test project. `just docker stop`
