@@ -222,3 +222,29 @@ _committed_block() {
   [[ "${_live}" == *'in progress'* ]] \
     || fail "the live series is not marked in progress: ${_live}"
 }
+
+# why: The third way into the marker, and the one that reaches it without any
+# series file being unusual: a released heading carrying no ISO date leaves
+# the row with no span to print, and the fallback for THAT was 'in progress'
+# too. The layout lint reads a heading for its tag and never for its date,
+# so a section written `## [v0.9.0]` is a shape the tree admits. A row is
+# marked in progress because it carries [Unreleased], never because
+# something about it could not be read.
+@test "changelog_index.sh: a released section with no date does not borrow the marker (#926)" {
+  _live_and_stub
+  _series v0.9 \
+    '# base changelog -- v0.9' \
+    '' \
+    '## [v0.9.0]' \
+    '' \
+    '### Added' \
+    '- the undated thing (#6, PR #7)' \
+    '' \
+    '[v0.9.0]: https://example.invalid/compare/v0.8.0...v0.9.0'
+  local _undated
+  _undated="$(_row v0.9)"
+  [[ "${_undated}" == *'1 version'* ]] \
+    || fail "the fixture rendered no v0.9 version count: ${_undated}"
+  [[ "${_undated}" != *'in progress'* ]] \
+    || fail "an undated section claims the live-series marker: ${_undated}"
+}
