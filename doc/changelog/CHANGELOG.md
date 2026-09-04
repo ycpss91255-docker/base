@@ -281,16 +281,16 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   to answer while one of them has no probe -- so a tool pinned tomorrow is
   asserted tomorrow.
 - **no workflow spells the prerelease rule itself (refs #1012)** -- the
-  question decided three things across the org and was spelled twice as an
-  inline `contains(github.ref_name, '-')`, which is also true of
-  `feature/add-thing`. Each site now asks the script that owns the
+  question decides three things org-wide and was spelled twice as an inline
+  `contains(github.ref_name, '-')`, which is also true of
+  `feature/add-thing`. Each site now asks the script owning the
   classification of its own input: `self-test.yaml` and
-  `release-test-tools.yaml` classify a ref and ask
-  `script/ci/release-ref.sh`; `release-worker.yaml` classifies its `version`
-  input and asks `script/ci/release-version.sh`. **Both refuse a value they
-  cannot read as SemVer rather than calling it final**, so a repo tagging
-  outside `vX.Y.Z` fails its release job instead of publishing a mislabelled
-  release.
+  `release-test-tools.yaml` classify a ref (`script/ci/release-ref.sh`),
+  `release-worker.yaml` its `version` input
+  (`script/ci/release-version.sh`). **Both refuse a value they cannot read
+  as SemVer rather than calling it final**, so a tag outside `vX.Y.Z` fails
+  the release job instead of publishing a mislabelled release, and the two
+  owners are compared wherever both answer.
 - **a release-candidate tag no longer moves `test-tools:latest` (refs #1012)**
   -- the `v*` trigger matched `v0.42.0-rc1` through `-rc4`, and each moved
   `:latest`, so every repo leaving `test_tools_version` at its default built

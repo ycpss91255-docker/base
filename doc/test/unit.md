@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3861 tests**.
+Unit specs under `test/bats/unit/`: **3863 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3555,7 +3555,7 @@ naming the path and what its absence costs.
 | `release-archive: refuses a manifest path that escapes the repo root (#914)` | Same escape guard on the declared paths |
 | `release-archive: --list prints the declared payload with its required/optional split` | The payload contract is readable without running an archive |
 
-### test/bats/unit/release_ref_spec.bats (12)
+### test/bats/unit/release_ref_spec.bats (14)
 
 "Is this tag a prerelease?" decides whether a GitHub Release is marked
 prerelease (`release-worker.yaml` for downstream repos, `self-test.yaml` for
@@ -3570,10 +3570,12 @@ themselves and the third did not ask, which is how `v0.42.0-rc1` through
 `script/ci/release-version.sh` owns it there. The first nine cases pin what
 release-ref.sh answers -- including that it REFUSES a ref it cannot read as
 a version tag, because the alternative answer (`false`) is the branch that
-publishes. The last three derive the population of asking sites from
+publishes. The next three derive the population of asking sites from
 `.github/workflows/` rather than listing it, and the classifier behind each
 site from the step that input names, so neither a fourth site nor a second
-owner can be the one nobody checks.
+owner can be the one nobody checks. The last two derive the owners
+themselves and compare them against each other, because two homes for one
+rule with nothing comparing them is the #1012 shape with one fewer copy.
 
 | Test | Description |
 |------|-------------|
@@ -3589,6 +3591,8 @@ owner can be the one nobody checks.
 | `release-ref: every prerelease: input in the workflow tree is fed by a step output (#1012)` | The population is derived from `.github/workflows/` rather than remembered, so a fourth asking site added tomorrow is covered tomorrow. |
 | `release-ref: no workflow restates the prerelease test itself (#1012)` | Neither spelling this tree has used -- the GitHub expression nor the shell glob -- may survive anywhere, or there are two rules again. |
 | `release-ref: every prerelease: input is answered by a classifier under script/ci (#1012)` | The load-bearing half of "one rule, one home per classified thing": every asking site is followed back to the step it names, and that step must run a script that computes the answer. All three hops are derived -- the sites from the workflow tree, the step from the expression, the classifier from the step and from script/ci/ -- because the one thing that cannot go stale is a table nobody wrote. |
+| `release-ref: every prerelease classifier under script/ci is one this spec can ask (#1012)` | "One home per classified thing" is only true while the homes agree wherever their inputs overlap. #1012's own reasoning is that three hand-kept copies of a rule are a defect BECAUSE nothing in the tree compared any pair of them; two hand-kept copies with nothing comparing them is the same shape with one fewer copy. The owner list is derived by the same predicate the site scan uses, so a third classifier lands here the day it lands in script/ci/ -- and it fails until someone states how to ask it, because an interface is the one thing a scan cannot derive. |
+| `release-ref: no two prerelease classifiers disagree where both answer (#1012)` | The two owners accept different grammars on purpose -- a released VERSION must carry the `v` a downstream repo pins, a git REF may be a full `refs/tags/...` -- so each refuses inputs the other reads. What must never happen is the pair ANSWERING a shared input differently: one of them would be marking a Release final or moving the org's `test-tools:latest` for a tag the other calls a release candidate. Only inputs both owners accept are compared; a refusal is not a disagreement. |
 
 ### test/bats/unit/release_test_tools_yaml_spec.bats (24)
 

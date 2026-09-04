@@ -51,6 +51,14 @@
 # original defect wearing the fix's clothes -- it is not "call this one
 # script", it is "do not be the third copy of the rule".
 #
+# Two owners are still two places one question is answered, and the whole
+# reason the three hand-kept copies above were a defect is that nothing in
+# the tree compared them. So the pair is compared: over every input both
+# accept, their verdicts must be equal. The owner list is derived by the
+# same predicate the site scan uses, so a third classifier is compared the
+# day it appears -- and refuses to pass until someone states how to ask
+# it, an interface being the one thing a scan cannot derive.
+#
 # The population of sites is DERIVED from .github/workflows/, never listed
 # here: a guard for "every site" that consulted a remembered list of three
 # would pass on precisely the fourth site added tomorrow. The classifier
@@ -83,10 +91,13 @@
 # `script/ci/release-version.sh` owns it there. The first nine cases pin
 # what release-ref.sh answers -- including that it REFUSES a ref it cannot
 # read as a version tag, because the alternative answer (`false`) is the
-# branch that publishes. The last three derive the population of asking
+# branch that publishes. The next three derive the population of asking
 # sites from `.github/workflows/` rather than listing it, and the
 # classifier behind each site from the step that input names, so neither a
-# fourth site nor a second owner can be the one nobody checks.
+# fourth site nor a second owner can be the one nobody checks. The last
+# two derive the owners themselves and compare them against each other,
+# because two homes for one rule with nothing comparing them is the #1012
+# shape with one fewer copy.
 
 bats_require_minimum_version 1.5.0
 
@@ -207,6 +218,52 @@ _answers_prerelease() {
   local _abs="/source/${1}"
   [[ -f "${_abs}" ]] || return 1
   code_grep -E 'prerelease' "${_abs}" > /dev/null
+}
+
+# _prerelease_owners -- the basename of every script under script/ci/ that
+# computes a prerelease verdict, by the SAME predicate the site scan uses.
+# Derived, so the day a third classification is added it arrives here on
+# its own rather than waiting for someone to remember this list.
+_prerelease_owners() {
+  local _f
+  while IFS= read -r _f; do
+    if _answers_prerelease "script/ci/${_f##*/}"; then
+      printf '%s\n' "${_f##*/}"
+    fi
+  done < <(find /source/script/ci -maxdepth 1 -type f -name '*.sh' | sort)
+}
+
+# _ask_owner <basename> <input> -- one owner's verdict on <input>: `true`,
+# `false`, or `refused`. Exit 1 when the owner is one this spec does not
+# know how to call, which is the whole point of the case that walks the
+# derived owner list: an interface cannot be derived, so a new classifier
+# must be wired in here deliberately instead of joining the tree unasked.
+#
+# A refusal is folded into a VALUE rather than a failure. Both owners
+# refuse an input they cannot read -- that is the fail-closed posture this
+# spec exists to protect -- so a comparison of the two must be able to say
+# "this one declined" without that reading as disagreement.
+_ask_owner() {
+  local _owner="${1}" _in="${2}" _out
+  case "${_owner}" in
+    release-ref.sh)
+      _out="$(bash /source/script/ci/release-ref.sh prerelease "${_in}" \
+          2>/dev/null)" || _out='refused'
+      ;;
+    release-version.sh)
+      _out="$(RELEASE_VERSION_INPUT="${_in}" GITHUB_REF_NAME='' \
+          bash /source/script/ci/release-version.sh 2>/dev/null)" \
+          || _out='refused'
+      if [[ "${_out}" != 'refused' ]]; then
+        _out="$(printf '%s\n' "${_out}" | sed -n 's/^prerelease=//p')"
+        [[ -n "${_out}" ]] || _out='refused'
+      fi
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+  printf '%s\n' "${_out}"
 }
 
 # ── The classifier's answers ─────────────────────────────────────────
@@ -366,4 +423,64 @@ _answers_prerelease() {
   done < <(_workflow_files)
   [[ "${_sites}" -ge 2 ]] || fail \
     "only ${_sites} prerelease: input(s) found across the workflow tree; base cuts its own release and downstream releases, so at least two are expected. The derivation found nothing to check."
+}
+
+# ── The owners, compared against each other ──────────────────────────
+
+# why: "One home per classified thing" is only true while the homes agree
+# wherever their inputs overlap. #1012's own reasoning is that three
+# hand-kept copies of a rule are a defect BECAUSE nothing in the tree
+# compared any pair of them; two hand-kept copies with nothing comparing
+# them is the same shape with one fewer copy. The owner list is derived by
+# the same predicate the site scan uses, so a third classifier lands here
+# the day it lands in script/ci/ -- and it fails until someone states how
+# to ask it, because an interface is the one thing a scan cannot derive.
+@test "release-ref: every prerelease classifier under script/ci is one this spec can ask (#1012)" {
+  local _owner _owners=0
+  while IFS= read -r _owner; do
+    _owners=$(( _owners + 1 ))
+    _ask_owner "${_owner}" v0.42.0 > /dev/null || fail \
+      "script/ci/${_owner} computes a prerelease verdict, but this spec does not know how to call it -- so nothing compares its answer with the other owners', which is exactly the condition that let one rule live in three places. Teach _ask_owner its interface, or say why it is not the same question."
+  done < <(_prerelease_owners)
+  [[ "${_owners}" -ge 2 ]] || fail \
+    "only ${_owners} prerelease classifier(s) found under script/ci/; a git ref (release-ref.sh) and a resolved version (release-version.sh) are both classified here, so at least two are expected. A scan that stopped matching reports agreement forever."
+}
+
+# why: The two owners accept different grammars on purpose -- a released
+# VERSION must carry the `v` a downstream repo pins, a git REF may be a
+# full `refs/tags/...` -- so each refuses inputs the other reads. What must
+# never happen is the pair ANSWERING a shared input differently: one of
+# them would be marking a Release final or moving the org's
+# `test-tools:latest` for a tag the other calls a release candidate. Only
+# inputs both owners accept are compared; a refusal is not a disagreement.
+@test "release-ref: no two prerelease classifiers disagree where both answer (#1012)" {
+  local -a _corpus=(
+    v0.42.0 v0.42.0-rc4 v0.42.0-rc.1 v0.42.0-alpha.1 v1.2.3-RC1
+    v10.0.0 v0.0.1-0 main v1.0 ''
+  )
+  local _in _owner _verdict _first _first_owner
+  local _compared=0 _saw_true=0 _saw_false=0
+  for _in in "${_corpus[@]}"; do
+    _first=''
+    _first_owner=''
+    while IFS= read -r _owner; do
+      _verdict="$(_ask_owner "${_owner}" "${_in}")" || fail \
+        "script/ci/${_owner} cannot be asked -- see the case above."
+      [[ "${_verdict}" != 'refused' ]] || continue
+      if [[ -z "${_first}" ]]; then
+        _first="${_verdict}"
+        _first_owner="${_owner}"
+        continue
+      fi
+      _compared=$(( _compared + 1 ))
+      [[ "${_verdict}" == "${_first}" ]] || fail \
+        "'${_in}': ${_first_owner} answers ${_first} and ${_owner} answers ${_verdict}. Both are consulted before something publishes, so one of them is about to mark a prerelease final -- the rule has drifted into two rules."
+      [[ "${_verdict}" != 'true' ]] || _saw_true=1
+      [[ "${_verdict}" != 'false' ]] || _saw_false=1
+    done < <(_prerelease_owners)
+  done
+  [[ "${_compared}" -gt 0 ]] || fail \
+    "no input in the corpus was answered by two owners at once, so nothing was compared. The grammars have drifted apart far enough that the pair no longer overlaps, and this assertion agrees with everything."
+  [[ "${_saw_true}" -eq 1 && "${_saw_false}" -eq 1 ]] || fail \
+    "the owners agreed, but only on one arm (true=${_saw_true}, false=${_saw_false}). A comparison that never sees both answers would pass against a classifier hardcoded to either one."
 }
