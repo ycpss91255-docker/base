@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **4196 tests**.
+Unit specs under `test/bats/unit/`: **4228 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -671,7 +671,7 @@ name, which is exactly the set the compose emitter drops.
 | `stage_names: a missing Dockerfile fails naming the path it looked for` | An unreadable Dockerfile is not "no stages", it is "we do not know". Answering an empty roster there is how a worker skips a build and calls it a pass, and the path has to be in the message or the operator cannot tell which file it failed to find. |
 | `stage_names: an empty DOCKERFILE path fails loudly` | The unset-input case, which a workflow reaches by forgetting one `env:` line. It has to fail at the reader naming the variable, because the alternative -- an empty roster from an empty path -- is a build the worker quietly declines to run. |
 
-### test/bats/unit/build_worker_yaml_spec.bats (69)
+### test/bats/unit/build_worker_yaml_spec.bats (65)
 
 Structural assertions for `.github/workflows/build-worker.yaml` (#195 + #243
 + #272 + #273 + #378 b1). Reusable workflows are not exec'd by these tests;
@@ -682,13 +682,12 @@ runtime after #243) forwarding those inputs, no leftover `context: .` /
 `file: ./Dockerfile` literals, the GHA-cache plumbing (#272: `cache_variant`
 input, `Compute cache scope` step; #378 b1: per-target scope suffix so a
 late-stage COPY change in one target no longer cascades into siblings'
-manifests; #801: `cache_backend` input selecting the gha default or a GHCR
-registry backend via a per-step ternary, a guarded `docker/login-action`
-step), and the #273 doc-only PR fast-pass (`path-filter` job; Phase 2
-classifier is pure shell via `git diff --name-only base...head` + `case`
-glob, no `dorny/paths-filter` dependency; 6-path allowlist; compute-matrix +
-build gated on `code_changed`; docker-build aggregator short-circuits on
-doc-only PRs).
+manifests; #980: exactly one backend, selected by no input, because a second
+one needed a permission a called job cannot hold), and the #273 doc-only PR
+fast-pass (`path-filter` job; Phase 2 classifier is pure shell via `git diff
+--name-only base...head` + `case` glob, no `dorny/paths-filter` dependency;
+6-path allowlist; compute-matrix + build gated on `code_changed`;
+docker-build aggregator short-circuits on doc-only PRs).
 
 Grouped by concern:
 
@@ -722,19 +721,17 @@ with runtime gate)
 - #272 + #378 b1 GHA buildx cache: `cache_variant` input declared with empty
 default, `Compute cache scope` step emits `id: cache` + base key (no
 `-cache` suffix; per-target suffix appended at use site), 4 build steps use
-per-target `<base>-<target>-cache` gha scopes in the default ternary branch,
-no legacy shared-scope leftover (negative regression), 4 build steps
-preserve `mode=max` on both branches, default preserves zero-diff for
-single-call callers
+per-target `<base>-<target>-cache` gha scopes, no legacy shared-scope
+leftover (negative regression), 4 build steps preserve `mode=max`, default
+preserves zero-diff for single-call callers
 
-- #801 registry cache backend: `cache_backend` input declared `type: string`
-default `"gha"` (default preserves the gha backend for existing callers),
-all 4 build steps emit a
-`type=registry,ref=ghcr.io/<repo>/buildcache:<scope>` ref in the registry
-branch, cache-from/cache-to select the backend on `inputs.cache_backend` (8
-lines), the `extra_stages` buildx loop honors `cache_backend` too
-(shell-side selection, no hardwired gha ref), GHCR `docker/login-action`
-step gated on `cache_backend == 'registry'`
+- #980 one cache backend: the `cache_backend` input and its `registry` arm
+are gone. That arm's cache export needed `packages: write` on jobs that
+declare a read-only block, and a called job gets exactly the block it
+declares, so it was unreachable from the day it shipped. Asserted as a
+property -- every cache line names `type=gha` outright, no input selects a
+backend, no `docker/login-action` -- because the next second backend is
+unreachable for the same reason
 
 - #273 doc-only PR fast-pass (Phase 1 + Phase 2 shell rewrite):
 `path-filter` job declared, classifier is pure shell (`git diff --name-only
@@ -807,20 +804,16 @@ matching fails instead of reporting a clean scan
 | `build-worker.yaml: build_contexts default preserves zero-diff for existing callers (#207)` | - |
 | `build-worker.yaml: declares cache_variant input with empty default (#272)` | - |
 | `build-worker.yaml: Compute cache scope step emits id: cache with base key in GITHUB_OUTPUT (#272 + #378 + #802)` | - |
-| `build-worker.yaml: 4 build steps use per-target gha cache scopes in the default branch (#378 b1, #801 ternary)` | - |
-| `build-worker.yaml: 4 build steps emit a type=registry GHCR buildcache ref when cache_backend is registry (#801)` | - |
-| `build-worker.yaml: extra_stages loop honors cache_backend for both backends (#801)` | - |
+| `build-worker.yaml: 4 build steps use per-target gha cache scopes (#378 b1, #980)` | - |
+| `build-worker.yaml: extra_stages caches the same way the standard steps do (#980)` | - |
 | `build-worker.yaml: an extra stage's -test companion is found on a --platform FROM line (#1013)` | The reported #1013 miss, asserted on what the step BUILDS rather than on what its text says: the detector allowed one token between FROM and AS, so the cross-build form the arm64 matrix invites declared nothing and the stage's smoke test was silently not built. |
 | `build-worker.yaml: an extra stage with no -test companion builds only itself (#1013)` | The cost of widening a detector, pinned in the opposite direction: inventing a `-test` target the Dockerfile does not declare fails the build outright, which is a worse outcome than the miss it was fixing. |
 | `build-worker.yaml: the extra-stages roster comes from the shared resolver (#1013)` | The structural half, and the one that stops #1013 recurring: two readers of one fact with a comment asserting they agree is what produced the miss. This fails if the file grows a `FROM ... AS` pattern of its own again, which a behavioural case on a correct pattern cannot see. |
 | `build-worker.yaml: an extra stage's name is matched literally, not as a regex (#1013)` | Docker allows `.` in a target name, so a membership test that reads the caller's stage name as a regex finds a DIFFERENT stage: `foo.bar` matches `fooxbar-test` and the step asks buildx for a target nothing declares, failing the build over a companion that was never there. |
 | `build-worker.yaml: the extra-stages step does not pipe its roster into an early-closing reader (#1013)` | The early-close-reader lint cannot reach here -- it scans *.sh under dist/ and script/, and a workflow `run:` block is not a shell file -- so this is the only thing standing between the step and a `grep -q` whose SIGPIPE 141 becomes the pipeline's status under `pipefail`, turning a stage that WAS found into one that reads as absent. |
-| `build-worker.yaml: cache lines select the backend on inputs.cache_backend (#801)` | - |
 | `build-worker.yaml: 4 distinct cache scopes exist, no shared scope leftover (#378 b1)` | - |
-| `build-worker.yaml: 4 build steps all set mode=max on cache-to for both backends (#272 preserved, #801)` | - |
-| `build-worker.yaml: declares cache_backend input with default gha (#801)` | - |
-| `build-worker.yaml: cache_backend default preserves the gha backend for existing callers (#801)` | - |
-| `build-worker.yaml: GHCR login step is gated on cache_backend == registry (#801)` | - |
+| `build-worker.yaml: 4 build steps all set mode=max on cache-to (#272 preserved)` | - |
+| `build-worker.yaml: the buildx cache has exactly one backend, chosen by no input (#980)` | The deletion asserted as a property rather than as the absence of one string. `cache_backend: registry` could never work -- its cache export needed `packages: write` on a job that declares a read-only block, and a called job gets exactly the block it declares (#957) -- so every line reachable only through it was unreachable from the day it shipped. What must not come back is any SECOND cache backend selected by an input, because `permissions:` accepts no expression and the next one is unreachable for the same reason. |
 | `build-worker.yaml: cache_variant default preserves zero-diff for single-call callers (#272)` | - |
 | `build-worker.yaml: declares path-filter job (#273)` | - |
 | `build-worker.yaml: path-filter classifier is pure shell (#273 Phase 2: no dorny/paths-filter)` | - |
@@ -1047,13 +1040,17 @@ manifest lines are ignored. Malformed-manifest guards keep the never-silent
 thesis honest: an unknown requirement kind (a typo'd `kind` column) fails
 loudly naming the offending kind, and a missing / empty / all-comment
 (zero-requirement) manifest is a config error (exit 2) rather than a silent
-green. Conditional requirements (#801): an optional 6th manifest field
-`<condvar>=<value>` gates a requirement on another env var (e.g. `packages:
-write` only when `cache_backend: registry`) -- a guard that does not match
-is declared-but-skipped (never a failure), a matching guard enforces the
-requirement without leaking the guard into the hint, and `--list` annotates
-it as `(when <condvar>=<value>)`. A malformed guard field lacking `=` fails
-loud as a config error (exit 2), never failing open.
+green. Conditional requirements: an optional 6th manifest field
+`<condvar>=<value>` gates a requirement on another env var, so a worker can
+require of one input's callers what it does not require of the rest. No
+shipped manifest declares a guard today -- the one that did named a
+permission no job of the worker could hold, and both were removed (#980) --
+so the fixtures here are synthetic and the engine is what they cover. A
+guard that does not match is declared-but-skipped (never a failure), a
+matching guard enforces the requirement without leaking the guard into the
+hint, and `--list` annotates it as `(when <condvar>=<value>)`. A malformed
+guard field lacking `=` fails loud as a config error (exit 2), never failing
+open.
 
 | Test | Description |
 |------|-------------|
@@ -1226,6 +1223,29 @@ between them can be asserted at all.
 | `_compute_compose_project_name: fails loud when the digest cannot be produced (#891)` | #891 no silent degrade to the shared bare prefix |
 | `_run_via_compose: the real ids are in the environment compose interpolates (#895)` | - |
 | `_fix_permissions: refuses a non-numeric id instead of handing it to chown (#895)` | - |
+
+### test/bats/unit/classify_testtools_spec.bats (5)
+
+`testtools_changed` tells every image-consuming job whether to rebuild the
+tooling image from source instead of pulling the rolling `:main`. On a pull
+request it is computed from the diff; on every other event it was the
+literal `false`, including the one event that can answer it -- a push to
+main whose commit is what makes `:main` stale in the first place. So the
+merge that added a tool to the Dockerfile ran the whole post-merge suite
+inside the image from before it. The probe was supposed to compensate and
+was itself too narrow to notice; both halves are the same incident, and this
+is the half that can be answered from the diff.
+
+The cases drive the REAL classify step against a synthetic push, so each
+reads the output the step writes.
+
+| Test | Description |
+|------|-------------|
+| `classify: a push that changes the test-tools Dockerfile rebuilds it (#1010)` | The reported case. A push to main that changes the test-tools Dockerfile is exactly the push for which the rolling tag is stale -- the republish that would refresh it is racing this very run -- and it was the push that reported the image unchanged. |
+| `classify: a push that leaves it alone still pulls (#1010)` | The guard against answering true to every push, which would put a full multi-arch tooling build in front of every merge. A push that leaves the Dockerfile alone takes the pull path, where the probe is now the thing that catches a stale image. |
+| `classify: a push is still code-changed and system-relevant (#1010)` | A non-PR event still runs the full suite. The flag being computable now must not narrow what a push runs. |
+| `classify: an event that cannot be diffed still rebuilds (#1010)` | The fail-safe direction the step's own comment promises and did not take. `workflow_dispatch` has no previous commit to diff against, so the classifier cannot know whether the rolling tag corresponds to this ref -- and it answered `false`, which is the side that USES an image it could not check. The path here is deliberately not the Dockerfile, so a `true` can only come from the default and never from a diff. |
+| `classify: a push with no parent to diff still rebuilds (#1010)` | The other half of the same promise, and the half that already held: a push whose `HEAD^` does not resolve is a diff that cannot be taken, not an answer of "unchanged". Pinned because the fix above rewrites the branch that decides it, and a rewrite that inverted this one would look green against the dispatch case alone. |
 
 ### test/bats/unit/code_lines_spec.bats (46)
 
@@ -1904,7 +1924,7 @@ refused before any build or bundle step.
 | `_run_derived_figures: FAILS when the dist/ scan root is missing (no vacuous pass) (#874)` | - |
 | `_run_derived_figures: the REAL tree passes today (#874)` | - |
 
-### test/bats/unit/doc_counts_spec.bats (22)
+### test/bats/unit/doc_counts_spec.bats (26)
 
 Unit coverage for the generator that derives ALL of doc/test/*.md from the
 specs: the count figures (`grep -c '^@test'`) and the catalogue sections,
@@ -1912,12 +1932,18 @@ whose blurbs and per-test descriptions are read out of the spec files' own
 `# why:` markers. `check_test_md_drift.sh` stays the validating safety net
 and runs this same generator, so a case here is a case for the gate too.
 
-The first half covers the count figures, which were generated first and for
-the same reason: they were hand-edited every PR and went stale silently. The
-second half covers the generated catalogue REGION, and every case in it is a
-property the previous design could not have -- a rename carrying its prose,
-a deleted row restored byte-for-byte, a description with a pipe in it that
-the author did not have to escape.
+The file runs in three parts. The first covers the count figures that are
+still generated, which came first and for the same reason: they were
+hand-edited every PR and went stale silently. The second is the guard that
+the AGGREGATE figures stay gone (ADR-00000028 sec. 1) -- in the two
+documents that carried them, in the catalogues that pointed at them, in the
+PRD that once predicted the gate would go with them, and in the generator
+that used to maintain them; it reads the COMMITTED tree, because what it
+forbids is a line being typed back into the repo. The third covers the
+generated catalogue REGION, and every case in it is a property the previous
+design could not have -- a rename carrying its prose, a deleted row restored
+byte-for-byte, a description with a pipe in it that the author did not have
+to escape.
 
 | Test | Description |
 |------|-------------|
@@ -1927,8 +1953,12 @@ the author did not have to escape.
 | `_sync_doc_counts: is idempotent on an already-synced tree (#727)` | re-run no-op |
 | `_sync_doc_counts: rewrites the system per-type total from test/bats/system/ (#782)` | - |
 | `_sync_doc_counts: tolerates an empty acceptance dir (count 0, no error) (#782)` | - |
-| `_sync_test_md_index: fills the system + acceptance rows, retires behavioural (#782)` | - |
-| `_sync_test_md_index: regenerates the blockquote prose System/smoke pair (#843)` | - |
+| `_authored_lines: a fence marker quoted in prose opens and closes nothing (#978)` | A guard is only as wide as the span it reads, and the span here is decided by a marker BOTH documents quote in their own prose while explaining that editing the generated region does nothing. The fixture reproduces the shape unit.md actually ships: both markers on ONE line, 34 lines above the real fence. That is the shape a substring match cannot survive -- the opening rule's `next` means the closing rule never runs on that line, so the region opens at the quote and the 33 lines between it and the real fence are handed to the generated half unread. It is exactly where a typed-back total would sit, and where `_sync_type_total`'s unanchored `sed` would go on maintaining it. Splitting the two markers across two lines would pin nothing: the second line re-closes the region and the preamble below is scanned after all, on the broken helper as much as the fixed one. The whole authored span is asserted rather than the figure alone, so unanchoring EITHER fence fails the case -- the closing one drops the quoting line itself. |
+| `doc/test/TEST.md commits no aggregate suite figure (#978)` | TEST.md is the index and carried four of the five aggregate lines, so it is where a reintroduced total would land first. The guard reads the COMMITTED document rather than a fixture: the fixture cases above prove what the generator writes, and this one proves what the repo ships. |
+| `doc/test/unit.md commits no aggregate suite figure (#978)` | unit.md's total is the fifth line, and the load-bearing one: it is the figure every branch that adds a unit test had to edit. Only the authored preamble is scanned -- the generated region below the fence is derived from the specs on every run. |
+| `doc/test: no catalogue points at an aggregate figure TEST.md no longer records (#978)` | The figure and the POINTERS to it are one shape, and a branch that removes the first without the second leaves the documentation worse than it found it: a live cross-reference to a number nobody can find reads as the reader's failure to look. A pointer need not name the figure to be one: TEST.md's merge advice cited the removed "System (N) and smoke (N)" line as its worked example, with the digits already written as an `N`, so a rule that greps for `grand total` alone reads that document as clean while it still sends the reader to a line that is gone. The premise is asserted rather than assumed, from the tree: the case reads TEST.md first and requires it to record no total. That is a conjunction, not a guard -- typing the figure back does not quietly license the pointers again, it fails this case on the premise line, and whoever restores the figure decides the pointers' fate in the same edit. |
+| `doc/PRD.md predicts no removal of a lint the tree still runs (#978)` | The PRD is what a later branch follows, and a prediction it never retracts is an instruction. Invariant 10 said the doc-count drift gate entry drops from invariant 2 "when that mechanism lands" -- the mechanism is #978, it landed, and the gate stayed, because since #999 it validates the generated catalogue rather than the removed figures. The premise is read from the tree, not restated: the case greps `_LINT_TOOLS` for the entry before it forbids the prediction, and asserts both. Retiring the gate therefore does not lift this rule silently -- it turns the case red on the premise line, which is where a person re-reads the PRD paragraph and rewrites or deletes this case in the change that retires it. |
+| `_sync_doc_counts: does not maintain an aggregate figure in TEST.md (#978)` | Removing the lines is only half of it. The generator's TEST.md pass was the mechanism that made them maintainable, and every one of its rewrites is a `sed` that silently does nothing when its pattern is absent -- so left in place it would sit there looking retired while standing ready to adopt any figure typed back in, which is how the count became a maintained thing the first time. This is the case that says the generator no longer owns TEST.md: a document carrying every shape at once comes back unchanged. |
 | `_sync_doc_counts: a '# why:' block above a test becomes that row's description` | The ordinary case end to end: a description authored above a test in the spec file arrives in the rendered row. Everything else here is a deviation from this one. |
 | `_sync_doc_counts: renaming a test carries its description to the new name` | The whole point of moving the prose to the spec. A rename used to lose the description -- the catalogue documented that loss as a rule -- because the row was keyed on the name. The description now moves with the lines above the test, so this is the case the previous design could not satisfy at all. |
 | `_sync_doc_counts: a row deleted from the catalogue is restored byte-for-byte` | The other direction of "the spec is the source": a row deleted from the committed catalogue is not a decision, it is damage, and the next run has to put it back exactly. Under the old design the description went with it and nothing could restore that half. |
@@ -3350,6 +3380,33 @@ builds nothing and pushes nothing)
 | `the ports-inert diagnostic is translated in all four locales (#879)` | - |
 | `the ports-inert diagnostic differs per locale (no untranslated arms) (#879)` | - |
 
+### test/bats/unit/obtain_test_tools_spec.bats (7)
+
+Six jobs of self-test.yaml consume
+`ghcr.io/ycpss91255-docker/test-tools:main`. Five pulled it, probed it and
+rebuilt from source when the probe refused; the sixth -- the `acceptance`
+job, which scaffolds a downstream repo and runs `just docker build test`
+against a lint stage that is `FROM ${TEST_TOOLS_IMAGE}` -- pulled it and
+exited 0. It is precisely the job the mitigation was written for, and it is
+the one that did not get it, because the mitigation was a block of shell
+pasted into each job and a paste is something a person has to remember to
+do.
+
+So the decision is a script and the jobs call it. What the script decides is
+asserted here through a docker seam, with no daemon; that no job reaches
+past it is asserted at the bottom, over the workflow tree rather than over a
+list of job names.
+
+| Test | Description |
+|------|-------------|
+| `obtain: a pulled image that passes the probe is used as-is (#1010)` | The hot path. A `:main` that corresponds to this checkout is used as it is, and the local rebuild is skipped -- which is the whole reason the pull exists. |
+| `obtain: a pulled image the probe refuses is rebuilt, loudly (#1010)` | The reported defect, as behaviour. A pulled image the probe refuses must fall back to the source build -- the strict side, which self-corrects against a stale, racing or old `:main` whatever the cause -- and it must say why, because a silent rebuild is a five-minute cost nobody can attribute. |
+| `obtain: a pull that fails resolves to the source build (#1010)` | No image to probe is not a passing probe. A registry that cannot be reached leaves the run with nothing, and nothing must resolve to the source build rather than to an empty comparison. |
+| `obtain: a PR that changes the Dockerfile does not pull at all (#1010)` | When the PR itself changes the Dockerfile, `:main` is stale for it by definition -- so the pull is not attempted at all. Asserted on the ABSENCE of the pull rather than on the verdict alone: the verdict is the same either way, and pulling first would spend the minute anyway. |
+| `obtain: inline mode performs the fallback build itself (#1010)` | The two jobs that cannot use the cached buildx action -- they run the docker driver so `docker compose build`'s `FROM ${TEST_TOOLS_IMAGE}` resolves against the host daemon -- need the fallback build to happen HERE rather than in a following step. One flag, so the difference between the two callers is one word rather than two copies. |
+| `obtain: delegate mode leaves the build to its caller (#1010)` | The mirror. In delegate mode the build is a later workflow step gated on the output, so performing it here would build the image twice. |
+| `workflows: no job obtains the rolling test-tools tag by hand (#1010)` | The structural half of the same defect, and the half that stops it recurring. While the decision was shell pasted into each consuming job, nothing could tell a job that probes from a job that does not -- no single copy looked wrong, and the one without a probe read like the others. A job that reaches the rolling tag without going through the script is that copy, whoever writes it next. |
+
 ### test/bats/unit/pin_coverage_lint_spec.bats (68)
 
 | Test | Description |
@@ -3436,7 +3493,7 @@ builds nothing and pushes nothing)
 | `prev-release gate: under kcov the shard out-ranks a leftover BATS_FILE` | - |
 | `prev-release gate: --bats-path over the spec itself refuses to start when the tags cannot be resolved` | - |
 
-### test/bats/unit/probe_test_tools_spec.bats (25)
+### test/bats/unit/probe_test_tools_spec.bats (29)
 
 Unit tests for `script/ci/probe_test_tools.sh`, the CI-side verdict on
 whether a pulled `test-tools:main` corresponds to the checkout that pulled
@@ -3466,11 +3523,15 @@ here with no daemon.
 | `probe: an image carrying every tool at the pinned version is accepted (#947)` | The hot path: a matching `:main` must not cost every PR a local rebuild |
 | `probe: an image shipping ANOTHER just is refused and both versions named (#948)` | The runner mismatch a presence-only probe cannot see: `just` is there, at the version published before the bump, and just_runner_version_spec is fail-closed on exactly that -- so accepting the image reddens a PR that touched nothing related |
 | `probe: a MISSING tool is refused and named (#947)` | The kcov race the probe was originally written for |
+| `probe: the required packages are read from the Dockerfile (#1010)` | The roster was five names written into this script -- exactly what the final stage puts on PATH -- and said nothing about the packages that stage installs. `yq` was the omission that already bit us: it was added to the Dockerfile, the post-merge run took the pull path, and the probe declared the stale image acceptable because it was not looking for it. Read the final stage's own `apk add` instead, and a package added to the image is a package the probe asserts. |
+| `probe: only the FINAL stage's packages are required (#1010)` | The stage boundary, which is what makes reading the file safe. The kcov builder `apk add`s a compiler toolchain that is deliberately NOT in the final image; a reader that took every `apk add` in the file would demand `g++` of an image that is correct without it, and the first refusal it produced would be read as a bug in the probe. |
+| `probe: the required binaries are read from what lands on PATH (#1010)` | The other half of the roster. shellcheck, hadolint, kcov, just and bats are not packages -- they are COPYed in from builder stages or symlinked -- so a package reader alone would stop asserting the five tools the suite actually executes. |
+| `probe: a package the image lacks is refused and named (#1010)` | The consequence, stated as behaviour. `grep` and `coreutils` are the dangerous ones: on alpine they SHADOW busybox applets, so losing one does not produce "command not found" -- it silently changes what `sort`, `date` and `grep -P` mean, in a suite whose gates depend on the GNU semantics. |
+| `probe: a Dockerfile yielding no roster is refused, not read as agreement (#1010)` | A roster the file does not yield is the empty-expectation shape this whole mechanism exists to refuse: a probe over an empty list answers yes to every image. Separated from a mismatch, because "cannot tell" is not "does not match" -- and it is emphatically not a pass. |
 | `probe: a tool at the WRONG version is refused and both versions are named (#947)` | The quiet failure: a lint gate on an older rule set under-reports rather than failing |
 | `probe: a present-but-silent tool is refused, not read as agreement (#947)` | Empty output must not compare equal to a pin |
 | `probe: an unreadable pin for a PINNED tool is a hard refusal (#947)` | The state a moved release URL produces; cannot-tell is not matches |
-| `probe: an empty REQUIRED_TOOLS is refused rather than passing vacuously (#947)` | A probe over an empty list answers yes to every image |
-| `probe: a PINNED tool absent from REQUIRED_TOOLS is refused as a contradiction (#947)` | A tool whose version matters that the probe never looks for is drift, not narrowing |
+| `probe: a PINNED tool the Dockerfile never puts on PATH is refused as a contradiction (#947)` | A tool whose version matters that the probe never looks for is drift, not narrowing |
 | `probe: an image built on ANOTHER alpine series is refused and both named (#946)` | Another series means another bash, which is what decides whether kcov can read this suite at all |
 | `probe: an image that reports no alpine series is refused, not read as agreement (#946)` | A reading the image cannot produce is a mismatch, never an absent constraint |
 | `probe: a series pin the probe cannot read is a hard refusal (#946)` | Cannot tell is not matches: exit 2 rather than a comparison with no expectation |
@@ -4513,7 +4574,7 @@ alias / `network.network_name` / `devices.device_` / `security.cap_add_` /
 | `self-hosted guard: the real repo tree has every eligible job guarded` | - |
 | `self-hosted guard: the real tree's eligible set is the three runtime-matrix worker jobs` | - |
 
-### test/bats/unit/self_test_yaml_spec.bats (117)
+### test/bats/unit/self_test_yaml_spec.bats (115)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks fourteen
 cumulative invariants:
@@ -4672,27 +4733,30 @@ not found`. STALE: the tool is present at the version the pin used to name —
 fail, it under-reports, and the green check has examined something other
 than what the checkout asked for, while a `just` older than `ARG
 JUST_VERSION` reddens `test/bats/integration/just_runner_version_spec.bats`
-on a PR that touched nothing related. After the pull + `docker tag`, every
-`:main`-pulling Obtain step therefore runs `script/ci/probe_test_tools.sh`,
-which requires every tool in `REQUIRED_TOOLS` to be present AND every tool
+on a PR that touched nothing related. So no job pulls that tag itself: all
+six call `script/ci/obtain_test_tools.sh`, which pulls, re-tags, and ALWAYS
+runs `script/ci/probe_test_tools.sh` on what it got. The probe requires
+every package and binary the Dockerfile's FINAL stage installs to be present
+-- a roster DERIVED from that stage, never restated here -- AND every tool
 in `PINNED_TOOLS` to report the version this checkout pins (the two linters
 out of their release URLs in the Dockerfile, the runner through
-`dist/script/base/just-version.sh` — never restated). On any refusal it
-emits `build_local=true` so the existing buildx Build step rebuilds from
+`dist/script/base/just-version.sh` — never restated either). On any refusal
+the script answers `build_local=true` so the image is rebuilt from
 `dockerfile/Dockerfile.test-tools` — self-correcting whatever the cause,
 with layer-1 (PR touched Dockerfile -> build) and layer-3 (pull failed ->
-build) intact. Applied to the five `build_local`-pattern obtain steps
-(`hadolint`, `bats-fragile`, `bats-integration`, `coverage`, `system`) since
-they pull the same tag and race identically, and asserted per job. The sixth
-`:main`-pulling step, `acceptance`, carries no probe and needs none: the
-probe is about the tools a job EXECUTES, and acceptance runs none of them --
-it consumes the image only as the `FROM` base of the scaffolded consumer's
-test stage. It is ONE script rather than a loop pasted into each step
-because five copies is how the version blind spot survived: each copy asked
-`command -v` and none of them looked wrong. The guard used to be a `grep -c`
-== 5 over the whole workflow under the name "every `:main`-pulling Obtain
-step", which named an invariant that did not hold (there are six such steps)
-and was satisfied by any five occurrences wherever they sat.
+build) intact.
+
+`acceptance` used to be excluded on the argument that the probe is about the
+tools a job EXECUTES and acceptance executes none of them, consuming the
+image only as the `FROM` base of the scaffolded consumer's test stage. That
+argument was false -- the stage that image becomes runs those tools -- and
+it is the job the whole mitigation was written for (ADR-00000033). Nothing
+could have caught it while the decision was a block of shell pasted into
+each step: no single copy looked wrong, and a `grep -c` == 5 under the name
+"every `:main`-pulling Obtain step" named an invariant that did not hold
+(there are six such steps) and was satisfied by any five occurrences
+wherever they sat. The guard is now that NO workflow run block names the
+rolling tag at all, asserted in obtain_test_tools_spec.bats.
 
 13. **#677 CI double-run restructure (coverage = primary unit gate,
 weight-balanced shards, single `bats-fragile` job)** — after #686 unified
@@ -4821,10 +4885,10 @@ matrix.shard }}` + uploads each shard report as a CI artifact (#615 + #677 +
 bats-integration, coverage, integration-e2e, system]` before publishing a
 tag (#376 + #377 + #677)
 
-- Probe-and-rebuild against a stale/racing `:main`: `bats-fragile` +
-`coverage` Obtain probe for kcov and rebuild on a miss + `REQUIRED_TOOLS`
-list is extensible + all five `build_local` obtain steps carry the guard
-(#697)
+- Probe-and-rebuild against a stale/racing `:main`: every job that consumes
+the image obtains it through `script/ci/obtain_test_tools.sh`, which always
+probes what it pulled and answers `build_local`; no run block names the
+rolling tag itself (#697, #1010)
 
 | Test | Description |
 |------|-------------|
@@ -4834,7 +4898,8 @@ list is extensible + all five `build_local` obtain steps carry the guard
 | `self-test.yaml: classify job declares code_changed output (#317)` | - |
 | `self-test.yaml: classify job declares system_relevant output (#317)` | - |
 | `self-test.yaml: classify uses doc-only allow-list 'doc/**' + 'README.md' + 'LICENSE' + 'CONTEXT.md' (#317)` | - |
-| `self-test.yaml: classify uses system block-list entrypoint + compose + Dockerfile + wrappers + init/upgrade + workflows (#317)` | - |
+| `self-test.yaml: classify reads the system pathspecs, it does not restate them (#1011)` | The system pathspecs are READ, not restated. They used to be seventeen quoted literals in this step and this test named twelve of them, so the two files it did not name could leave the list without anything noticing -- which is how `dockerfile/Dockerfile.smoke`, the subject of the only spec that builds it, was never in it at all. What the classifier decides for each path is asserted by driving the step in system_paths_spec.bats; what this test owns is that the step has no second list of its own. |
+| `self-test.yaml: classify fails open when it cannot read the pathspecs (#1011)` | An unreadable or empty pathspec list must not read as "no system path changed". Every other unknown in this step already falls open -- `set -uo pipefail` with no `-e`, the `if git diff` form routing a failed diff to the else branch -- and a list the step could not read is the same kind of unknown: it is not evidence that the job can be skipped. |
 | `self-test.yaml: classify defaults code_changed/system_relevant to true on non-PR events (#317)` | - |
 | `self-test.yaml: classify omits set -e to fail-open on diff errors (#317 gotcha-1)` | - |
 | `self-test.yaml: classify pre-fetches base ref before diff (#317 gotcha-2)` | - |
@@ -4856,21 +4921,18 @@ list is extensible + all five `build_local` obtain steps carry the guard
 | ``self-test.yaml: no monolithic `test:` job remains after #377 split`` | - |
 | `self-test.yaml: acceptance job-level if: gates on code_changed (#317)` | - |
 | `self-test.yaml: system job-level if: gates on system_relevant (#317 P3)` | - |
-| `self-test.yaml: classify system block-list extends to setup.sh + i18n.sh + lib/** + prune.sh (#317 P3 gotcha-5)` | - |
-| `self-test.yaml: classify system block-list covers the CI scripts + self-test fixture (#802, #947)` | A PR touching only `script/ci/**` or the build-worker fixture would otherwise skip the System self-test that consumes them -- and since the system job now picks its image via `script/ci/probe_test_tools.sh`, the directory is listed rather than the one subdirectory, so the next CI script cannot land outside the gate by omission |
 | `self-test.yaml: bats-fragile job uses docker/build-push-action with GHA cache scope=test-tools (#677)` | - |
 | `self-test.yaml: bats-integration job uses docker/build-push-action with GHA cache scope=test-tools (#377)` | - |
 | `self-test.yaml: system job uses docker/build-push-action with GHA cache scope=test-tools (#317)` | - |
-| `self-test.yaml: bats-fragile job has Obtain step pulling :main with 3-layer fallback (#317 P2 + #677)` | - |
+| `self-test.yaml: bats-fragile job has an Obtain step reaching the one obtain path (#317 P2 + #677)` | - |
 | `self-test.yaml: bats-fragile Build step is gated on steps.obtain.outputs.build_local == 'true' (#317 P2 + #677)` | - |
-| `self-test.yaml: bats-integration job has Obtain step + 3-layer fallback (#317 P2 + #377)` | - |
-| `self-test.yaml: acceptance job has Obtain step + TEST_TOOLS_IMAGE env passthrough (#317 P2)` | - |
+| `self-test.yaml: bats-integration job has an Obtain step reaching the one obtain path (#317 P2 + #377)` | - |
+| `self-test.yaml: acceptance job obtains inline, with the TEST_TOOLS_IMAGE passthrough (#317 P2)` | - |
 | `self-test.yaml: acceptance job keeps buildx driver: docker for host-daemon visibility (#317 P2)` | - |
-| `self-test.yaml: system job has Obtain step with 3-layer fallback (#317 P2)` | - |
-| `self-test.yaml: bats-fragile Obtain probes the pulled :main and rebuilds on a miss (#697, #947)` | Named per job rather than counted: the fragile shard is one of the five that RUN the baked tools, so a `:main` that does not correspond to this checkout has to send it to a local rebuild, not into the suite |
-| `self-test.yaml: coverage Obtain probes the pulled :main and rebuilds on a miss (#697, #947)` | The coverage shards are the ones that actually raced -- the kcov-not-found fast-fail is the incident this guard was written after -- and they are also the job whose numbers a wrong alpine series quietly changes, so their obtain step is pinned on its own |
+| `self-test.yaml: system job has an Obtain step reaching the one obtain path (#317 P2)` | - |
+| `self-test.yaml: coverage Obtain reaches the probe-and-rebuild path (#697, #947)` | The coverage shards are the ones that actually raced -- the kcov-not-found fast-fail is the incident this guard was written after -- and they are also the job whose numbers a wrong alpine series quietly changes, so their obtain step is pinned on its own |
 | `self-test.yaml: the probe is ONE script, not a loop copied into every job (#947)` | Keeps the copies from growing back: five inline copies of the loop is how the presence-only blind spot survived, because no single copy looked wrong, and a re-inlined loop is invisible to the probe's own spec |
-| `self-test.yaml: every job that RUNS the baked tools probes the pulled :main for them (#697)` | - |
+| `self-test.yaml: every job that consumes the image obtains it the one way (#697, #1010)` | - |
 | `self-test.yaml: every job that probes :main compares the runner VERSION, not just presence (#948)` | Presence is the dimension the tool roster can express and the version is not, so a `:main` published before a bump carries every required tool AND the wrong runner; the population is derived from the workflow so the sixth probing job cannot land outside the rule |
 | `self-test.yaml: only classify fetches the base ref; image jobs read its testtools_changed output (#734)` | - |
 | `self-test.yaml: classify emits testtools_changed from a full-history diff (#734)` | - |
@@ -5819,6 +5881,37 @@ runs).
 | `stop.sh ends the project when a self-managed checkout has no .env.generated (#1015)` | the defect in its smallest form: the wrapper died on a missing file before it reached compose at all. The checkout is self-managed, which is the shape in which that file's absence is normal rather than a question. |
 | `stop.sh refuses a derived name when a configured checkout lost its cache (#1015)` | the other half of that shape, and the destructive one. A CONFIGURED checkout records its project name in the cache; with the cache gone and no name handed in, the derived `local-<basename>` is a name this checkout never ran under and, on a shared host, one another checkout may be running under right now -- so `down --remove-orphans` against it reports success having ended the wrong thing, or nothing. |
 | `stop.sh honours an ambient PROJECT_NAME with no .env.generated to read (#1015)` | the seam `just test stop` uses -- the caller that already knows the name hands it over, so no second derivation exists to drift. |
+
+### test/bats/unit/system_paths_spec.bats (9)
+
+`system_relevant` decides whether the docker.sock-mounted system job runs at
+all, and it was decided by a hand-kept list of seventeen paths that had
+drifted from the specs it is about. The list omitted
+`dockerfile/Dockerfile.smoke` -- the file `smoke_harness_spec.bats` BUILDS
+-- the shipped smoke specs that Dockerfile RUNs, the container runtime under
+`dist/script/docker/runtime/`, `setup_tui.sh` while listing `setup.sh`, and
+every justfile in the tree, in a repo whose stated position is that `just`
+is the only control surface. Editing any of them alone skipped the only job
+that exercises them.
+
+The classifier now reads its pathspecs from `script/ci/system_paths.sh` and
+this spec drives the REAL classify step against a synthetic PR per path, so
+each case asserts the OUTPUT the workflow writes rather than the presence of
+a line in a list. The last two cases are the opposite direction: the answer
+"everything is relevant" would pass every case above and delete the
+optimisation the output exists for.
+
+| Test | Description |
+|------|-------------|
+| `classify: editing the Dockerfile a system spec builds is system-relevant (#1011)` | The reported case, asserted on what the classifier ANSWERS. The only spec that builds this Dockerfile is a system spec, and editing the Dockerfile alone skipped it -- so the file could stop building and the suite would still be green. |
+| `classify: editing a justfile is system-relevant (#1011)` | The justfiles. Every wrapper `.sh` was listed and none of the files that dispatch them were, in a repo whose position is that `just` is the only control surface -- so the one surface a user actually touches was the one surface the gate treated as unable to affect the system under test. |
+| `classify: editing the shipped container runtime is system-relevant (#1011)` | The shipped runtime -- entrypoint, smoke, watchdog, logrotate -- is what runs INSIDE the container the system specs start. base's own `script/entrypoint.sh` was listed; the one that actually ships was not. |
+| `classify: editing the shipped smoke specs is system-relevant (#1011)` | The shipped smoke specs are the body of the image `Dockerfile.smoke` builds and `RUN bats`-es; a change to them changes what that build asserts. |
+| `classify: editing the TUI half of setup is system-relevant (#1011)` | `setup.sh` was listed and `setup_tui.sh` was not, though both emit the `.env` and `compose.yaml` the system job's compose run consumes. The pair is the shape of a hand-kept list: it names what somebody remembered. |
+| `classify: a doc-only diff is neither code-changed nor system-relevant (#1011)` | The guard against buying every case above by answering "relevant" to everything. A doc-only PR must still classify as neither code nor system, or the classifier has stopped classifying. |
+| `classify: a unit-spec-only diff is code, and still not system-relevant (#1011)` | The other half of that guard, and the reason `system_relevant` exists at all: a unit-spec-only PR is code, and it still skips the docker.sock-mounted system job. |
+| `system paths: every subject a system spec names is covered (#1011)` | The list has to be answerable against the specs rather than kept in agreement with them by hand. Every subject a system spec names is read off the specs themselves, so the spec added tomorrow brings its own coverage requirement with it -- which is what stops the next omission from being noticed only when the job it gates stops running. |
+| `system paths: every pathspec names something that exists (#1011)` | The opposite direction. A pathspec naming something the tree no longer has is a filter that can never match, and it reads as coverage: the list stays long, the gate stays narrow, and nothing says so. |
 
 ### test/bats/unit/template_guard_spec.bats (2)
 
@@ -6997,7 +7090,7 @@ guard; it runs plain under `bats-fragile`, ADR-00000008 / #613 / #677).
 | `_within_case_bound: answers no exactly when a case outran its own ceiling (#965)` | - |
 | `every SHELL this file starts is started inside the one bounded harness (#965)` | - |
 
-### test/bats/unit/worker_preflight_yaml_spec.bats (12)
+### test/bats/unit/worker_preflight_yaml_spec.bats (10)
 
 Structural assertions that `build-worker.yaml` and `release-worker.yaml`
 wire in the caller-contract preflight: a `preflight` job that the real build
@@ -7005,11 +7098,14 @@ wire in the caller-contract preflight: a `preflight` job that the real build
 validator + manifest from base at the worker's own ref
 (`github.job_workflow_sha`, so the validator can never drift from the worker
 it guards), then calling `preflight.sh` with the per-worker manifest and the
-real inputs exported into the env vars the manifest names (plus a GHCR-login
-probe feeding the packages-permission check on the build side). #801 adds
-the build side's `cache_backend` export into the manifest guard env and a
-REAL packages: write probe (a GHCR blob-upload scope check, not a bare
-login) for the registry backend.
+real inputs exported into the env vars the manifest names. Plus the
+invariant that connects the two halves: a manifest may not demand a
+permission its own worker cannot hold. The build manifest did for two
+releases -- it told a `cache_backend: registry` caller to grant `packages:
+write`, and every job of the worker declares a block without it, so the
+probe could not come back 202 whatever the caller granted (#980). Derived on
+both sides, so the next such promise is named on the day it lands rather
+than by the caller who follows it.
 
 | Test | Description |
 |------|-------------|
@@ -7018,13 +7114,44 @@ login) for the registry backend.
 | `build-worker.yaml: preflight fetches the validator at the worker's own ref (job_workflow_sha, no drift) (#800)` | - |
 | `build-worker.yaml: preflight runs preflight.sh with the build manifest (#800)` | - |
 | `build-worker.yaml: preflight exports image_name into the manifest env var (#800)` | - |
-| `build-worker.yaml: preflight probes GHCR login for the packages permission (#800)` | - |
-| `build-worker.yaml: preflight exports cache_backend into the manifest guard env (#801)` | - |
-| `build-worker.yaml: preflight verifies a REAL packages:write, not just login, for the registry backend (#801)` | - |
+| `reusable workers: no preflight manifest demands a permission its worker cannot hold (#980)` | A preflight requirement the worker itself makes unsatisfiable is worse than no preflight: it fails every caller that follows its instructions, and the instructions cannot be followed. `cache_backend: registry` shipped in exactly that state for two releases (#980) -- the manifest told the caller to grant `packages: write`, and every job of the worker declared a block without it, so the probe could not come back 202 whatever the caller did. Derived on both sides: the worker roster from `on: workflow_call`, the manifest from the path the worker passes to preflight.sh, the grant from the parsed permission surface. |
 | `release-worker.yaml: declares a preflight job (#800)` | - |
 | `release-worker.yaml: release job gates on preflight (#800)` | - |
 | `release-worker.yaml: preflight runs preflight.sh with the release manifest (#800)` | - |
 | `release-worker.yaml: preflight exports archive_name_prefix into the manifest env var (#800)` | - |
+
+### test/bats/unit/workflow_failure_surface_spec.bats (11)
+
+Four properties of the workflow tree, each one about what a reader learns
+from a failed run. A cleanup sweep that reddens a build which succeeded, and
+a fork PR whose required check is red with no text distinguishing "we refuse
+to build fork code" from "the build broke", are both failures that carry no
+information -- and a reader who meets enough of them stops reading the ones
+that do. The rollup's silence on a doc-only run is the same defect inverted:
+an undifferentiated GREEN for "everything passed" and for "almost nothing
+ran". The absences are the fourth: nothing serialises the publishes that
+race for one rolling tag, nothing cancels a superseded PR's eight-shard
+matrix, and nothing bounds a hung buildx below GitHub's six-hour default.
+
+Every population here is DERIVED from the tree -- the workflow list from the
+directory, the reusable workers from `on: workflow_call`, the cleanup steps
+from what their `run:` invokes -- so the workflow, worker or sweep added
+tomorrow is scanned the day it lands. Each scan asserts what it walked
+before reading an empty result as a clean one.
+
+| Test | Description |
+|------|-------------|
+| `workflows: a cleanup sweep cannot fail the job it cleans up after (#1014)` | `if: always()` on a cleanup step ADDS a failure mode rather than swallowing one: the sweep runs after a build that passed, and its non-zero exit is the job's. Litter left behind is worth a warning; it is not worth a red build, and it is certainly not worth a red build whose log names a docker prune rather than the code under test. |
+| `build-worker: a fork PR's red explains the fork posture (#1014)` | A fork PR skips `build` under the same-repo guard, so the aggregator sees `skipped` and the required check is red forever. The posture is right -- untrusted code must not reach a self-hosted-eligible job -- but the run said nothing about it, so the contributor and the maintainer both read it as a broken build. self-test's rollup already prints the explanation for the identical case. |
+| `build-worker: a same-repo skip is not reported as a fork refusal (#1014)` | The other direction, so the message above cannot be bought by printing it on every red. A same-repo run whose matrix skipped is a workflow bug, not a refusal, and must not be described as one. |
+| `build-worker: the aggregator still passes a doc-only PR and a green matrix (#1014)` | The two passes the aggregator owes, asserted so the message work above cannot quietly turn either into a failure: a doc-only PR short- circuits green (the required check still has to resolve), and a matrix that succeeded is a pass. |
+| `build-worker: a cancelled matrix reads as cancelled, not as a broken build (#1014)` | The cost of a concurrency group, paid where it lands. A cancelled run still executes an `if: always()` aggregator, so a superseded PR push arrives here as `cancelled` -- which is not a build failure and must not be reported as one. Asserted on the sentence only the cancelled branch prints, and against the generic one: the word `cancel` alone is bought by the result line the step echoes before any branch runs, so a test spelled that way stays green with the branch deleted. |
+| `build-worker: a failed matrix is reported as a failed build (#1014)` | The third red, which nothing else pins. Delete it and a plain `failure` falls off the end of the script and exits 0 -- a failed matrix reported as a passed required check -- while the two reds above stay green. It has to say which red it is for the same reason they do: a build that failed is neither a fork refusal nor a superseded run. |
+| `self-test: the rollup names the doc-only classification it passed on (#1014)` | A doc-only PR emits nine grey skips beside a green `ci-rollup`. A reviewer reading the checks list can see that; a reviewer reading only the required check sees an undifferentiated green, and the rollup's summary was identical for "everything passed" and "almost nothing ran". The classification the rollup already consumes is the answer, said out loud. |
+| `self-test: a full green run is not announced as doc-only (#1014)` | The opposite direction, so the notice cannot be bought by printing it always: a full run that passed everything is not a doc-only run and must not claim to be one. |
+| `workflows: every workflow a trigger can start declares a concurrency group (#1014)` | Nothing in the tree orders anything. Every push to a PR branch starts a fresh eight-shard coverage matrix beside the one still running, and two main merges touching the test-tools Dockerfile run two unserialised publishes whose last writer is decided by arm64 queue time rather than by commit order -- which is how a rolling tag ends up pointing at the older build. |
+| `workflows: no concurrency group cancels a run whose verdict is the record (#1014)` | Cancellation is only free where the cancelled run's verdict no longer matters. On a PR branch a superseded push replaces it; on a main push or a tag the run IS the record, and on the publish path a cancelled `imagetools create` is how a rolling tag loses an arch. So a group may cancel a pull_request and nothing else -- and an `if: always()` aggregator turns whatever it cancels into a red required check. |
+| `workflows: every job that runs steps bounds them (#1014)` | A hung buildx burns GitHub's six-hour default before anyone sees it. The population is every workflow file, not the reusable workers alone: the workers were bounded first because a worker spends the CALLER's minutes, but the jobs that actually run a build here are self-test's eight-shard coverage matrix and its two-arch `acceptance` matrix, both self-hosted-eligible and both unbounded -- so the hazard the rule names lived entirely outside the set the rule scanned. The bound is per job rather than per workflow because that is the only place GitHub accepts one, and the roster is derived from the directory so the ninth workflow cannot land unbounded. |
 
 ### test/bats/unit/workflow_unchecked_producer_spec.bats (6)
 

@@ -1,10 +1,10 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **165 tests**.
+Integration specs under `test/bats/integration/`: **163 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
-> CI job. See [TEST.md](TEST.md) for the index across all test types and
-> the self-test grand total.
+> CI job. See [TEST.md](TEST.md) for the index across all test levels and
+> types.
 
 ## Test Files
 
@@ -30,32 +30,26 @@ stage -- is test/bats/unit/apk_mirror_spec.bats'.
 | `compose.yaml: with APK_MIRROR unset the tooling build receives no mirror arg (#1008)` | Unset has to mean "the Dockerfile's default", not "an empty override the Dockerfile then has to defend itself against". This is the case every machine that can reach dl-cdn is in, so an unconditional forward would put an empty `--build-arg` in front of the image's own default everywhere and be noticed nowhere. |
 | `compose.yaml: the caller's APK_MIRROR reaches the tooling build (#1008)` | The other direction, and what makes the case above non-vacuous: a `build.args` entry deleted outright would also forward nothing when unset. Both halves together are what says the bare `- APK_MIRROR` form is doing its job -- override through, nothing through otherwise. |
 
-### test/bats/integration/ci_preflight_contract_spec.bats (8)
+### test/bats/integration/ci_preflight_contract_spec.bats (6)
 
 Drives `script/ci/preflight.sh` against the ACTUAL shipped requirement
 manifests (`script/ci/preflight/build.manifest` + `release.manifest`) with a
 deliberately-incomplete fake caller environment. A complete caller passes; a
 caller that forgot `image_name` (build) or `archive_name_prefix` (release)
-fails early with the plain-language `main.yaml` fix. The packages
-requirement is `cache_backend`-conditional (#801): a `registry`-cache caller
-whose probe came back missing fails with a hint that names the real fix --
-drop the registry backend, which base's own `build` job cannot reach under
-its read-only `permissions:` block -- and never hands the caller a grant
-snippet (#957, superseding the #801 wording; the hint and the requirement
-description are both printed on failure, so the assertion covers both). A
-`registry` caller whose probe came back granted passes, and the default
-`gha` caller passes even without the permission (backward compatible);
-`--list` self-describes the build contract, annotating packages as
-registry-conditional.
+fails early with the plain-language `main.yaml` fix. The build contract
+declares NO permission requirement (#980): the one it used to carry demanded
+`packages: write` for the `registry` buildx cache backend, which no job of
+the worker declares and no caller could supply, so it failed every caller
+that followed its instructions. The backend and the requirement were removed
+together, and a caller that grants nothing beyond `contents: read` passes.
+`--list` self-describes the remaining contract.
 
 | Test | Description |
 |------|-------------|
 | `build manifest: a complete caller passes preflight` | - |
 | `build manifest: a caller that forgot image_name fails early, naming the fix` | - |
-| `build manifest: a registry-cache caller is told the backend is unreachable, not to grant more (#957)` | - |
-| `build manifest: the default gha caller without packages permission still passes (#801 backward compat)` | - |
-| `build manifest: a registry-cache caller with packages granted passes (#801)` | - |
-| `build manifest --list: self-describes both requirements, packages as registry-conditional (#801)` | - |
+| `build manifest: a caller granting no write scope is complete (#980)` | The caller that grants nothing. Every job of build-worker.yaml declares `contents: read` and pushes nothing, so a caller holding no other scope is a COMPLETE caller -- and the build contract must say so. It did not: it demanded `packages: write` for a cache backend no job could reach, so the one caller shape that is entirely correct failed the gate written to help it (#980). |
+| `build manifest --list: self-describes the contract, and demands no permission (#980)` | - |
 | `release manifest: a complete caller passes preflight` | - |
 | `release manifest: a caller that forgot archive_name_prefix fails early, naming the fix` | - |
 

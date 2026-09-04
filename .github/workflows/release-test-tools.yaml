@@ -52,6 +52,23 @@ on:
       - 'v*'
   workflow_dispatch:
 
+# ── Ordering: the rolling tag has one writer at a time ────────────────
+#
+# The `merge` job's `imagetools create` is last-writer-wins on a tag, and
+# without a group the winner is decided by arm64 queue time rather than by
+# commit order: two main merges that both touch Dockerfile.test-tools can
+# finish out of order and leave `:main` pointing at the OLDER recipe --
+# which every self-test job then pulls and, until the probe rebuilds,
+# runs inside.
+#
+# `cancel-in-progress: false`, deliberately, and this is the workflow where
+# it matters most: a cancelled run between the per-arch digest pushes and
+# the manifest assembly leaves the tag naming whatever was there before,
+# with a set of orphan digests behind it. Serialise; never interrupt.
+concurrency:
+  group: release-test-tools-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
   packages: write
@@ -67,6 +84,9 @@ jobs:
   # single source shared across all three workflows is a follow-up.
   compute-matrix:
     runs-on: ubuntu-latest
+    # Every job in the tree bounds itself; GitHub's default is six hours
+    # and applies per matrix shard. This one only writes an output.
+    timeout-minutes: 5
     outputs:
       matrix: ${{ steps.set.outputs.matrix }}
     steps:
@@ -120,6 +140,10 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.compute-matrix.outputs.matrix) }}
     runs-on: ${{ matrix.runner }}
+    # A per-arch image build, including a kcov compile, on a runner that
+    # may be self-hosted. Far above the measured run, far below the
+    # six-hour default a hung buildx would otherwise burn per arch.
+    timeout-minutes: 120
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -169,6 +193,7 @@ jobs:
   merge:
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       # This job needs the tree, where it previously needed none, because
       # three things below are read out of the checkout rather than written

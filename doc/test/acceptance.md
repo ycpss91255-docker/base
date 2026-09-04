@@ -22,7 +22,7 @@ consumers invoke. That cannot be reproduced inside the mounted-`/source`
 bats sandbox the unit / integration levels run in, so the level is
 realized in CI where those preconditions exist. `test/bats/acceptance/`
 therefore stays an intentional empty placeholder (`.gitkeep`, count 0)
-and is **not** part of the `just test` self-test grand total (see
+and is **not** part of the `just test` self-test suite (see
 [TEST.md](TEST.md)); it keeps the level x type grid visible in the tree.
 
 ## What the `acceptance` job verifies (consumer's chair)

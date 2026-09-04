@@ -2,7 +2,7 @@
 
 System specs under `test/bats/system/`: **19 tests**.
 
-> **Not** part of the `just test` self-test grand total -- these require
+> **Not** part of the `just test` self-test suite -- these require
 > host docker access and are opt-in. See [TEST.md](TEST.md) for the index
 > across all test levels.
 
@@ -46,7 +46,7 @@ synthesized fixtures so the runtime smoke gate in `Dockerfile.example`
 is genuinely exercised end-to-end -- not just static-grep asserted
 in `template_spec.bats`. Issue #249.
 
-Excluded from the self-test grand total (see [TEST.md](TEST.md)) because they require host
+Excluded from the `just test` self-test suite (see [TEST.md](TEST.md)) because they require host
 docker access (mounted via the `ci-system` compose service)
 which the default `ci` service does NOT provide. Run with `just
 test system` locally, or via the dedicated
