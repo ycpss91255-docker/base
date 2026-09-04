@@ -1048,6 +1048,59 @@ _init_existing_repo() {
 #   migration would run.
 _migrate_dockerfile() {
   apply_migrations "${REPO_ROOT}/Dockerfile"
+  _stage_migrated_files
+}
+
+# _stage_migrated_files
+#   Stage what the migrations above rewrote, so it lands in the commit the
+#   CALLER makes rather than being left behind it.
+#
+#   WHY THE STAGING IS HERE and not in the script that commits. The script
+#   that commits is the consumer's OWN vendored upgrade.sh, and it stages a
+#   pair of filenames written into it when it shipped. v0.41.0's reaches
+#   the Dockerfile only down a branch these migrations never take, so a
+#   cross-version upgrade committed the workflow @tag bump and the
+#   .gitignore sync, left the rewritten Dockerfile unstaged, and closed by
+#   telling the user to `git push` -- a commit claiming the new release
+#   while the migration that makes the tree buildable stayed local (#1036).
+#   That copy cannot be fixed retroactively for anyone; this file can,
+#   because every release re-runs the NEWLY PULLED init.sh as its resync
+#   step. Staging beside the rewrite also makes the NEXT cross-version
+#   upgrade correct by construction, whatever the caller does.
+#
+#   WHAT IS STAGED is the run's own record (lib/dockerfile_migrate.sh's
+#   migrated_files), not `git add -A` and not a list of names kept here.
+#   The sweep would commit whatever the user happened to be editing; a list
+#   decays the first time a migration touches one more file. The resync's
+#   other output -- re-pointed wrappers, newly seeded files -- is
+#   deliberately NOT staged: it is review-able work for the user, and the
+#   released caller has always left it that way.
+#
+#   Failing to stage is reported, never fatal: the migration itself
+#   succeeded, and aborting here would roll back a good upgrade over an
+#   index the user can fix with one `git add`.
+_stage_migrated_files() {
+  local -a _paths=()
+  mapfile -t _paths < <(migrated_files)
+  (( ${#_paths[@]} > 0 )) || return 0
+
+  # `just base init` is also a repair command, and a repo bootstrapped by
+  # hand may not be a git repo at all. Nothing to stage into is not a
+  # failure.
+  git -C "${REPO_ROOT}" rev-parse --is-inside-work-tree > /dev/null 2>&1 \
+    || return 0
+
+  local -a _rel=()
+  local _path
+  for _path in "${_paths[@]}"; do
+    _rel+=("${_path#"${REPO_ROOT}/"}")
+  done
+
+  if ! git -C "${REPO_ROOT}" add -- "${_paths[@]}" > /dev/null 2>&1; then
+    _log_warn init init_progress "display=  could not stage the migrated file(s): ${_rel[*]} -- commit them by hand before pushing"
+    return 0
+  fi
+  _log "  staged for the upgrade commit: ${_rel[*]}"
 }
 
 # _create_hook_stubs
