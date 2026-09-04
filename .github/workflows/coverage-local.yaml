@@ -1,0 +1,124 @@
+name: Coverage (local parallel kcov)
+
+# Opt-in validation of `test.sh --coverage-local` on the org's self-hosted
+# runner. base#726.
+#
+# -- What this is, and what it deliberately is NOT ----------------------
+#
+# It is NOT part of the PR gate. Production `self-test.yaml` stays on the
+# GitHub-hosted shard matrix, and nothing here is in `ci-rollup`'s `needs:`.
+# One self-hosted runner is a single point of failure and a contention
+# point: a required check that queues behind whatever else is on that
+# machine is a required check that can be blocked by an unrelated job, and
+# a machine that is down blocks every merge in the org. The hosted matrix
+# has neither property.
+#
+# What it IS: the only place the in-job parallel mode can be exercised on
+# hardware it was written for. `--coverage-local` runs N concurrent kcov
+# processes over the shared time-balanced partition; on a two-core hosted
+# runner that measures nothing, because the mode's whole premise is a fat
+# machine where the shard MATRIX buys nothing (one runner runs one job at a
+# time, so eight matrix entries run one after another).
+#
+# -- Why it is manual ---------------------------------------------------
+#
+# `workflow_dispatch` only. A schedule or a push trigger would put a shared
+# developer workstation on the path of an automatic run, which is the
+# contention this mode was scoped away from. Someone asks for it when they
+# want the measurement.
+#
+# -- The fork guard -----------------------------------------------------
+#
+# The org's runner is registered at org level with `allows_public_repositories:
+# true`, and this repo is public. A job that can land there must be guarded
+# to same-repository events or a fork PR's attacker-authored workflow runs
+# as the runner user on that machine. The condition below is the canonical
+# one `script/test/drivers/self_hosted_guard.sh` requires of EVERY
+# self-hosted-eligible job in this tree; `workflow_dispatch` passes it on
+# the first disjunct without ever reading a pull_request payload.
+
+on:
+  workflow_dispatch:
+    inputs:
+      jobs:
+        description: >-
+          Concurrent kcov processes. Empty = nproc on the runner.
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+# One at a time on one machine. Two concurrent runs would each start nproc
+# kcov processes on the same host and measure each other's contention
+# rather than the mode.
+concurrency:
+  group: coverage-local-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  coverage-local:
+    name: Full-suite kcov, ${{ inputs.jobs || 'nproc' }} parallel processes
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, gpu]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Run the full suite as parallel kcov processes
+        env:
+          JOBS: ${{ inputs.jobs }}
+        # The mode, through the same entry an operator uses. No
+        # TEST_TOOLS_IMAGE is pinned: test.sh derives the content-hash
+        # tooling tag for this checkout and builds it if it is absent,
+        # which is what keeps the image this run consumes one produced
+        # from this checkout's Dockerfile.
+        run: |
+          set -euo pipefail
+          if [[ -n "${JOBS}" ]]; then
+            ./script/test/test.sh --coverage-local --jobs "${JOBS}"
+          else
+            ./script/test/test.sh --coverage-local
+          fi
+
+      - name: The run must certify itself as whole-suite
+        # The reason the mode exists. `just release coverage-badge`
+        # publishes only `scope=full`, and the scope is DERIVED from
+        # coverage/timings.tsv rather than from the invocation -- so a
+        # parallel run whose merged manifest lost a slice's specs stamps
+        # `partial` and is refused exactly like a shard. Asserting it here
+        # is what makes this workflow a validation rather than a demo.
+        run: |
+          set -euo pipefail
+          stamp=coverage/.head-sha
+          if [[ ! -f "${stamp}" ]]; then
+            echo "no provenance stamp under ${stamp}" >&2
+            exit 1
+          fi
+          cat "${stamp}"
+          grep -qx 'scope=full' "${stamp}"
+
+      - name: Feed the merged report to the coverage gate
+        # The same gate the hosted matrix runs, over the ONE merged report
+        # this mode produces instead of over N shard artifacts. If the
+        # merge were a sum or an average rather than a union, this is where
+        # the number would disagree with the matrix's.
+        run: |
+          set -euo pipefail
+          report=coverage/kcov-merged/cobertura.xml
+          if [[ ! -f "${report}" ]]; then
+            echo "no merged report at ${report}" >&2
+            exit 1
+          fi
+          bash ./script/test/drivers/coverage_gate.sh "${report}"
+
+# No reclaim step. `script/test/test.sh` arms an EXIT-trap sweep of
+# orphaned compose projects on every dispatch it makes, pass or fail, so
+# this run collects after itself already. The hosted jobs' extra
+# `script/ci/reclaim.sh --stale` pass exists to catch the artifacts a
+# CANCELLED run leaves on a shared machine, and it is deliberately not
+# copied here: this workflow stamps no `base.ci.run` label, so a stale
+# sweep from it would be reaching for artifacts belonging to the other
+# tenants of that workstation rather than to itself.

@@ -194,6 +194,12 @@ ci_bats_path_system
 ci_bats_path_coverage
 ci_coverage_path_conflict
 ci_coverage_evidence_not_erased
+ci_coverage_local_conflict
+ci_jobs_without_coverage_local
+ci_invalid_coverage_jobs
+ci_coverage_parallel_empty_slice
+ci_coverage_slice_no_report
+ci_coverage_merge_failed
 ci_mixed_test_layout
 ci_issueref_in_comment
 ci_adr_numbering

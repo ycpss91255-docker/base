@@ -460,6 +460,173 @@ _run_coverage() {
   return "${_rc}"
 }
 
+# ── In-job parallel kcov (local mode) ────────────────────────────────────────
+#
+# ADR-00000008 shards kcov ACROSS a CI matrix, which is the only parallelism
+# a GitHub-hosted plan sells: one runner runs one job, so the way to use
+# eight machines is eight jobs. On ONE fat machine that mechanism buys
+# nothing -- a self-hosted runner takes the matrix one entry at a time --
+# and the run that matters most is the one the matrix cannot help with
+# anyway: `just release coverage-badge` publishes only a `scope=full`
+# measurement, so every release pays for a whole-suite coverage run, and
+# that run was serial.
+#
+# Serial is not a kcov floor. kcov's bash engine parses one xtrace stream
+# per traced process and is single-threaded, and `kcov` wrapping
+# `bats --jobs` is unreliable for coverage ACCURACY -- which is exactly why
+# ADR-00000008 left the coverage path serial while the normal path is not.
+# What that argument does NOT forbid is N INDEPENDENT kcov processes, each
+# wrapping a serial bats over its own slice, merged afterwards. Each process
+# traces its own children and writes its own database; nothing is shared but
+# the merge.
+#
+# The slices come from `_shard_unit_files`, the SAME greedy-LPT primitive the
+# CI matrix partitions with (base#724). A second partitioner would be a
+# second roster, and the failure mode of two rosters is a spec that belongs
+# to neither: an exhaustive, disjoint partition is the whole reason the
+# merged total may be read as the project's.
+
+# _coverage_parallel_workdir
+#   Echo the scratch root the slices write into. COVERAGE_LOCAL_WORKDIR
+#   names it explicitly -- a spec that has to point at one slice's output
+#   directory, and an operator keeping the per-slice logs after a red run;
+#   otherwise a fresh container-local temp dir, removed on the way out.
+_coverage_parallel_workdir() {
+  if [[ -n "${COVERAGE_LOCAL_WORKDIR:-}" ]]; then
+    mkdir -p "${COVERAGE_LOCAL_WORKDIR}"
+    printf '%s\n' "${COVERAGE_LOCAL_WORKDIR}"
+    return 0
+  fi
+  mktemp -d
+}
+
+# _run_coverage_parallel <jobs>
+#   Run the WHOLE suite under kcov as <jobs> concurrent processes over the
+#   time-balanced partition, then merge their reports into
+#   ${REPO_ROOT}/coverage -- the same tree the serial run writes, carrying
+#   the same `kcov-merged/cobertura.xml` the coverage-gate and the release
+#   badge generator already read. Returns the worst slice's status, so a red
+#   spec is still red.
+#
+#   THREE REFUSALS, and each is a way the merge could otherwise lie:
+#
+#   1. A job count that is not a positive integer. It would reach
+#      `_shard_unit_files` as a malformed total, whose message names a shard
+#      spec nobody typed.
+#   2. A slice that matched no spec files (jobs > specs). An empty slice is
+#      not a slice that ran nothing; it is a partition that never covered
+#      the tree.
+#   3. A slice that produced NO REPORT -- a kcov that died after its tests
+#      passed, leaving an empty output directory and a zero status. Merging
+#      the survivors would publish a smaller line set under a whole-suite
+#      certificate, which reads as a coverage regression rather than as the
+#      lost slice it is. "Cannot tell" resolves to refusing.
+_run_coverage_parallel() {
+  local _jobs="${1:?BUG: _run_coverage_parallel expects <jobs>}"
+  if ! [[ "${_jobs}" =~ ^[0-9]+$ ]] || (( _jobs < 1 )); then
+    _die ci_invalid_coverage_jobs \
+      "Invalid coverage job count '${_jobs}'. Expected a positive integer (default: nproc)."
+  fi
+
+  # Shared with the serial runner and the single-spec runner: all three must
+  # instrument the same tree, or a figure produced here would not be
+  # comparable with the one the matrix produces.
+  local _exclude_path
+  _exclude_path="$(_coverage_exclude_path)"
+
+  # The partition is computed BEFORE the first fork, and that ordering is
+  # load-bearing: `_shard_unit_files` refuses an empty match by `_die`, and a
+  # `_die` inside a background job exits the CHILD -- the parent would go on
+  # to wait for a slice that never ran and then merge N-1 reports.
+  local -a _slices=()
+  local _i _slice _srun_rc
+  for (( _i = 1; _i <= _jobs; _i++ )); do
+    _srun_rc=0
+    _slice="$(_shard_unit_files "${_i}/${_jobs}")" || _srun_rc=$?
+    if (( _srun_rc != 0 )) || [[ -z "${_slice}" ]]; then
+      _die ci_coverage_parallel_empty_slice \
+        "coverage slice ${_i} of ${_jobs} matched no spec files. ${_jobs} is more slices than the suite has specs; run with fewer --jobs."
+    fi
+    _slices+=("${_slice}")
+  done
+
+  local _work
+  _work="$(_coverage_parallel_workdir)"
+  echo "--- Running Tests with Kcov Coverage (local, ${_jobs} parallel kcov processes) ---"
+
+  local -a _pids=()
+  for (( _i = 1; _i <= _jobs; _i++ )); do
+    mkdir -p "${_work}/junit-${_i}"
+    # Word-split intentional: one bats target per slice file. Each slice's
+    # bats is SERIAL (no --jobs): `kcov` over `bats --jobs` is the
+    # combination ADR-00000008 found unreliable for accuracy, and this mode
+    # exists to get the cores WITHOUT it.
+    # shellcheck disable=SC2086
+    kcov \
+      --include-path="${REPO_ROOT}" \
+      --exclude-path="${_exclude_path}" \
+      "${_work}/part-${_i}" \
+      bats --recursive --report-formatter junit \
+        --output "${_work}/junit-${_i}" ${_slices[_i - 1]} \
+      > "${_work}/log-${_i}" 2>&1 &
+    _pids+=("$!")
+  done
+
+  # Each slice's output is replayed WHOLE and in order after its wait, not
+  # streamed: N concurrent bats writing one terminal interleaves into
+  # something no one can read a failure out of, which would send the
+  # operator back to the serial run to find out what broke.
+  local _rc=0 _prc
+  for (( _i = 1; _i <= _jobs; _i++ )); do
+    _prc=0
+    wait "${_pids[_i - 1]}" || _prc=$?
+    echo "--- coverage slice ${_i}/${_jobs} (exit ${_prc}) ---"
+    cat "${_work}/log-${_i}" 2>/dev/null || true
+    (( _prc == 0 )) || _rc="${_prc}"
+  done
+
+  # Refusal 3. Captured rather than piped into a `-q` reader: a reader that
+  # leaves at its first match strands `find` with SIGPIPE, and the whole
+  # point here is to tell "no report" apart from "reader gave up".
+  local _found
+  for (( _i = 1; _i <= _jobs; _i++ )); do
+    _found="$(find "${_work}/part-${_i}" -type f -name cobertura.xml 2>/dev/null)"
+    [[ -n "${_found}" ]] && continue
+    _die ci_coverage_slice_no_report \
+      "coverage slice ${_i} of ${_jobs} produced no report under ${_work}/part-${_i}; merging the rest would publish a smaller line set as the project total. Its log is ${_work}/log-${_i}."
+  done
+
+  # kcov's own merge, over every slice. A line covered by ANY slice is
+  # covered: the union is the only correct reading, and it is what the
+  # coverage-gate independently computes over the per-shard reports of the
+  # CI path (base#730).
+  local -a _parts=()
+  for (( _i = 1; _i <= _jobs; _i++ )); do
+    _parts+=("${_work}/part-${_i}")
+  done
+  mkdir -p "${REPO_ROOT}/coverage"
+  local _mrc=0
+  kcov --merge "${REPO_ROOT}/coverage" "${_parts[@]}" || _mrc=$?
+  if (( _mrc != 0 )); then
+    _die ci_coverage_merge_failed \
+      "kcov --merge over ${_jobs} slice report(s) failed (status ${_mrc}); the per-slice reports are under ${_work}."
+  fi
+
+  # The run manifest, merged from every slice's junit report. It is what
+  # `_measured_coverage_scope` compares against the spec inventory, so a
+  # manifest carrying one slice's specs would stamp `partial` and
+  # `just release coverage-badge` would refuse the run -- which is the whole
+  # reason this mode exists.
+  {
+    for (( _i = 1; _i <= _jobs; _i++ )); do
+      _junit_to_timings "${_work}/junit-${_i}/report.xml"
+    done
+  } | LC_ALL=C sort -k2,2 > "${REPO_ROOT}/coverage/timings.tsv" 2>/dev/null || true
+
+  [[ -n "${COVERAGE_LOCAL_WORKDIR:-}" ]] || rm -rf "${_work}"
+  return "${_rc}"
+}
+
 # ── System runtime-test specs ────────────────────────────────────
 #
 # Opt-in path. Requires the ci-system compose service (mounts host

@@ -110,6 +110,11 @@ _install_kcov_mocks() {
     while [ $# -gt 0 ]; do
       case "${1}" in
         --output) _out="${2}"; shift 2 ;;
+        # A value-taking flag whose value is NOT a spec path. Left as a
+        # bare `-*` it would consume only the flag and the formatter name
+        # would be read as a sixth spec, which is how this fixture first
+        # made a whole-suite manifest look partial.
+        --report-formatter) shift 2 ;;
         -*)       shift ;;
         *)        _files="${_files} ${1}"
                   if [ -n "${MOCK_FAIL_ARG:-}" ]; then

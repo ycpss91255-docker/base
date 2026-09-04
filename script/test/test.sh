@@ -50,6 +50,12 @@
 #                                  #
 #   ./test.sh --coverage        # Run ShellCheck + Bats + Kcov coverage
 #                             # (full suite; local `just test coverage`)
+#   ./test.sh --coverage-local [--jobs N]
+#                             # Full suite under kcov as N parallel kcov
+#                             # processes (default nproc), merged into one
+#                             # report. Same scope as --coverage; for a
+#                             # single fat runner where the CI shard matrix
+#                             # does not help
 #   ./test.sh --coverage-shard N/T  # Run kcov over coverage shard N of T
 #                                  # (skip ShellCheck). Used by the coverage
 #                                  # matrix in self-test.yaml. Codecov
@@ -519,6 +525,18 @@ Options:
   --coverage              Run tests with Kcov coverage (slow; CI / release
                           check). Full suite (unit + integration). Local
                           `just test coverage`.
+  --coverage-local        Run the FULL suite under kcov as N concurrent
+      [--jobs N]          kcov processes (default N=nproc) over the shared
+                          time-balanced partition, merged with
+                          `kcov --merge` into one report. Same specs and
+                          same coverage/ tree as --coverage, so it stamps
+                          `scope=full` and a release badge accepts it; it
+                          just uses the whole machine. For a single fat
+                          runner, where the CI shard matrix buys nothing
+                          (one runner runs one job). A slice that produced
+                          no report FAILS the run rather than merging to a
+                          smaller total. Rejected with --coverage-shard /
+                          --coverage-path / --bats-path (#726)
   --coverage-shard N/T    Run kcov over coverage shard N of T (skip
                           ShellCheck). Mirrors --bats-unit-shard's
                           round-robin slice; integration runs on the last
@@ -1832,6 +1850,7 @@ _run_via_compose() {
     -e COVERAGE="${_coverage}" \
     -e COVERAGE_SHARD="${COVERAGE_SHARD:-}" \
     -e COVERAGE_PATH="${COVERAGE_PATH:-}" \
+    -e COVERAGE_LOCAL_JOBS="${COVERAGE_LOCAL_JOBS:-}" \
     -e BATS_ONLY="${BATS_ONLY:-0}" \
     -e BATS_UNIT_SHARD="${BATS_UNIT_SHARD:-}" \
     -e BATS_FRAGILE="${BATS_FRAGILE:-0}" \
@@ -1876,6 +1895,13 @@ main() {
   local coverage_path=""
   local bats_filter=""
   local coverage_shard=""
+  # The in-job parallel kcov mode (base#726). `coverage_local` is the mode
+  # switch; `coverage_jobs` is the count the operator typed, empty until
+  # the nproc default is resolved below. They are two variables because
+  # `--jobs` on its own has to be refusable: a count with no mode is a typo
+  # for the mode, and defaulting it would run the wrong one silently.
+  local coverage_local=0
+  local coverage_jobs=""
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -1947,6 +1973,8 @@ main() {
       --coverage-path) coverage_path="${2:?--coverage-path expects <path>}"; shift 2 ;;
       --filter) bats_filter="${2:?--filter expects <regex>}"; shift 2 ;;
       --coverage) mode="coverage"; shift ;;
+      --coverage-local) mode="coverage"; coverage_local=1; shift ;;
+      --jobs) coverage_jobs="${2:?--jobs expects <n>}"; shift 2 ;;
       --coverage-shard) mode="coverage"; coverage_shard="${2:?--coverage-shard expects <n>/<total>}"; shift 2 ;;
       --system) system=1; shift ;;
       # Name-resolution primitives. They print one line and stop -- the
@@ -2012,6 +2040,42 @@ main() {
   if [[ "${lint}" == "1" ]]; then
     LINT_ONLY=1 LINT_TOOL="${lint_tool}" _run_via_compose ci 0
     return 0
+  fi
+
+  # ── The in-job parallel kcov mode (base#726) ───────────────────────────
+  #
+  # `--coverage-local [--jobs N]` is a THIRD kcov mode beside `--coverage`
+  # (serial, whole suite) and `--coverage-shard` (one slice of the CI
+  # matrix), and it has to be told apart from both: it produces a
+  # whole-suite figure like the first and runs a partition like the second.
+  #
+  # The refusals are checked HERE, ahead of the `--coverage-path` guard
+  # below, so each conflict is reported by the flag the operator typed. A
+  # `--coverage-local --coverage-shard 1/4` that fell through would be
+  # refused by a message naming only `--coverage-path`, which is not in the
+  # command line at all.
+  if [[ -n "${coverage_jobs}" && "${coverage_local}" != "1" ]]; then
+    _die ci_jobs_without_coverage_local \
+      "--jobs <n> sets the kcov process count of --coverage-local; it means nothing on its own (bare 'just test' already runs bats in parallel). Use './test.sh --coverage-local --jobs ${coverage_jobs}'."
+  fi
+  local coverage_local_jobs=""
+  if [[ "${coverage_local}" == "1" ]]; then
+    if [[ -n "${coverage_shard}" ]]; then
+      _die ci_coverage_local_conflict \
+        "--coverage-local runs EVERY slice of the partition and reports the whole suite; --coverage-shard runs ONE. Pick one."
+    fi
+    if [[ -n "${coverage_path}" || -n "${bats_path}" ]]; then
+      _die ci_coverage_local_conflict \
+        "--coverage-local produces a whole-suite coverage figure; --coverage-path instruments ONE spec and reports none, and --bats-path is the deliberately kcov-free loop. Pick one."
+    fi
+    # The default is the container's core count, resolved on the host so the
+    # number that was chosen can be said out loud in the dispatch (and
+    # refused here rather than inside a container).
+    coverage_local_jobs="${coverage_jobs:-$(nproc 2>/dev/null || echo 1)}"
+    if ! [[ "${coverage_local_jobs}" =~ ^[0-9]+$ ]] || (( coverage_local_jobs < 1 )); then
+      _die ci_invalid_coverage_jobs \
+        "--jobs '${coverage_local_jobs}' is not a positive integer. It is the number of concurrent kcov processes; the default is nproc."
+    fi
   fi
 
   # Instrumented single-spec inner loop. `--coverage-path <file|dir>` runs
@@ -2134,9 +2198,19 @@ main() {
           _run_coverage_path "${COVERAGE_PATH}"
           return 0
         fi
-        # COVERAGE_SHARD narrows kcov to one matrix slice; empty =
+        # COVERAGE_LOCAL_JOBS is the in-job parallel mode (base#726): the
+        # WHOLE suite, run as N concurrent kcov processes over the shared
+        # partition and merged. It is checked ahead of the serial runner
+        # and after COVERAGE_PATH -- it covers the same specs
+        # `_run_coverage` with no shard covers, so which of the two runs is
+        # a question about how many cores to use, not about what to
+        # measure. COVERAGE_SHARD narrows kcov to one matrix slice; empty =
         # full suite (local `just test coverage` / release path).
-        _run_coverage "${COVERAGE_SHARD:-}"
+        if [[ -n "${COVERAGE_LOCAL_JOBS:-}" ]]; then
+          _run_coverage_parallel "${COVERAGE_LOCAL_JOBS}"
+        else
+          _run_coverage "${COVERAGE_SHARD:-}"
+        fi
         _fix_permissions
         echo "Coverage report: ${REPO_ROOT}/coverage/index.html"
       elif [[ -n "${BATS_FILE:-}" || -n "${BATS_FILTER:-}" ]]; then
@@ -2201,6 +2275,7 @@ main() {
       # until each member is assigned here -- so a third selector added to
       # that forwarder arrives with its clearing already demanded.
       COVERAGE_SHARD="${coverage_shard}" COVERAGE_PATH="" \
+        COVERAGE_LOCAL_JOBS="${coverage_local_jobs}" \
         _run_via_compose coverage 1
       # The status is read AFTER the branch, never as `|| rc=$?`: a
       # command on the left of `||` runs with errexit suspended, and the
