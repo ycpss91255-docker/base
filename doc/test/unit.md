@@ -682,13 +682,12 @@ runtime after #243) forwarding those inputs, no leftover `context: .` /
 `file: ./Dockerfile` literals, the GHA-cache plumbing (#272: `cache_variant`
 input, `Compute cache scope` step; #378 b1: per-target scope suffix so a
 late-stage COPY change in one target no longer cascades into siblings'
-manifests; #801: `cache_backend` input selecting the gha default or a GHCR
-registry backend via a per-step ternary, a guarded `docker/login-action`
-step), and the #273 doc-only PR fast-pass (`path-filter` job; Phase 2
-classifier is pure shell via `git diff --name-only base...head` + `case`
-glob, no `dorny/paths-filter` dependency; 6-path allowlist; compute-matrix +
-build gated on `code_changed`; docker-build aggregator short-circuits on
-doc-only PRs).
+manifests; #980: exactly one backend, selected by no input, because a second
+one needed a permission a called job cannot hold), and the #273 doc-only PR
+fast-pass (`path-filter` job; Phase 2 classifier is pure shell via `git diff
+--name-only base...head` + `case` glob, no `dorny/paths-filter` dependency;
+6-path allowlist; compute-matrix + build gated on `code_changed`;
+docker-build aggregator short-circuits on doc-only PRs).
 
 Grouped by concern:
 
@@ -722,19 +721,17 @@ with runtime gate)
 - #272 + #378 b1 GHA buildx cache: `cache_variant` input declared with empty
 default, `Compute cache scope` step emits `id: cache` + base key (no
 `-cache` suffix; per-target suffix appended at use site), 4 build steps use
-per-target `<base>-<target>-cache` gha scopes in the default ternary branch,
-no legacy shared-scope leftover (negative regression), 4 build steps
-preserve `mode=max` on both branches, default preserves zero-diff for
-single-call callers
+per-target `<base>-<target>-cache` gha scopes, no legacy shared-scope
+leftover (negative regression), 4 build steps preserve `mode=max`, default
+preserves zero-diff for single-call callers
 
-- #801 registry cache backend: `cache_backend` input declared `type: string`
-default `"gha"` (default preserves the gha backend for existing callers),
-all 4 build steps emit a
-`type=registry,ref=ghcr.io/<repo>/buildcache:<scope>` ref in the registry
-branch, cache-from/cache-to select the backend on `inputs.cache_backend` (8
-lines), the `extra_stages` buildx loop honors `cache_backend` too
-(shell-side selection, no hardwired gha ref), GHCR `docker/login-action`
-step gated on `cache_backend == 'registry'`
+- #980 one cache backend: the `cache_backend` input and its `registry` arm
+are gone. That arm's cache export needed `packages: write` on jobs that
+declare a read-only block, and a called job gets exactly the block it
+declares, so it was unreachable from the day it shipped. Asserted as a
+property -- every cache line names `type=gha` outright, no input selects a
+backend, no `docker/login-action` -- because the next second backend is
+unreachable for the same reason
 
 - #273 doc-only PR fast-pass (Phase 1 + Phase 2 shell rewrite):
 `path-filter` job declared, classifier is pure shell (`git diff --name-only
@@ -1001,13 +998,17 @@ manifest lines are ignored. Malformed-manifest guards keep the never-silent
 thesis honest: an unknown requirement kind (a typo'd `kind` column) fails
 loudly naming the offending kind, and a missing / empty / all-comment
 (zero-requirement) manifest is a config error (exit 2) rather than a silent
-green. Conditional requirements (#801): an optional 6th manifest field
-`<condvar>=<value>` gates a requirement on another env var (e.g. `packages:
-write` only when `cache_backend: registry`) -- a guard that does not match
-is declared-but-skipped (never a failure), a matching guard enforces the
-requirement without leaking the guard into the hint, and `--list` annotates
-it as `(when <condvar>=<value>)`. A malformed guard field lacking `=` fails
-loud as a config error (exit 2), never failing open.
+green. Conditional requirements: an optional 6th manifest field
+`<condvar>=<value>` gates a requirement on another env var, so a worker can
+require of one input's callers what it does not require of the rest. No
+shipped manifest declares a guard today -- the one that did named a
+permission no job of the worker could hold, and both were removed (#980) --
+so the fixtures here are synthetic and the engine is what they cover. A
+guard that does not match is declared-but-skipped (never a failure), a
+matching guard enforces the requirement without leaking the guard into the
+hint, and `--list` annotates it as `(when <condvar>=<value>)`. A malformed
+guard field lacking `=` fails loud as a config error (exit 2), never failing
+open.
 
 | Test | Description |
 |------|-------------|
@@ -6739,11 +6740,14 @@ wire in the caller-contract preflight: a `preflight` job that the real build
 validator + manifest from base at the worker's own ref
 (`github.job_workflow_sha`, so the validator can never drift from the worker
 it guards), then calling `preflight.sh` with the per-worker manifest and the
-real inputs exported into the env vars the manifest names (plus a GHCR-login
-probe feeding the packages-permission check on the build side). #801 adds
-the build side's `cache_backend` export into the manifest guard env and a
-REAL packages: write probe (a GHCR blob-upload scope check, not a bare
-login) for the registry backend.
+real inputs exported into the env vars the manifest names. Plus the
+invariant that connects the two halves: a manifest may not demand a
+permission its own worker cannot hold. The build manifest did for two
+releases -- it told a `cache_backend: registry` caller to grant `packages:
+write`, and every job of the worker declares a block without it, so the
+probe could not come back 202 whatever the caller granted (#980). Derived on
+both sides, so the next such promise is named on the day it lands rather
+than by the caller who follows it.
 
 | Test | Description |
 |------|-------------|

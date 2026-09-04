@@ -20,9 +20,9 @@
 # `context: .` / `file: ./Dockerfile` literals, the GHA-cache plumbing
 # (#272: `cache_variant` input, `Compute cache scope` step; #378 b1:
 # per-target scope suffix so a late-stage COPY change in one target no
-# longer cascades into siblings' manifests; #801: `cache_backend` input
-# selecting the gha default or a GHCR registry backend via a per-step
-# ternary, a guarded `docker/login-action` step), and the #273 doc-only PR
+# longer cascades into siblings' manifests; #980: exactly one backend,
+# selected by no input, because a second one needed a permission a called
+# job cannot hold), and the #273 doc-only PR
 # fast-pass (`path-filter` job; Phase 2 classifier is pure shell via `git
 # diff --name-only base...head` + `case` glob, no `dorny/paths-filter`
 # dependency; 6-path allowlist; compute-matrix + build gated on
@@ -61,19 +61,17 @@
 # - #272 + #378 b1 GHA buildx cache: `cache_variant` input declared with
 # empty default, `Compute cache scope` step emits `id: cache` + base key (no
 # `-cache` suffix; per-target suffix appended at use site), 4 build steps
-# use per-target `<base>-<target>-cache` gha scopes in the default ternary
-# branch, no legacy shared-scope leftover (negative regression), 4 build
-# steps preserve `mode=max` on both branches, default preserves zero-diff
-# for single-call callers
+# use per-target `<base>-<target>-cache` gha scopes, no legacy shared-scope
+# leftover (negative regression), 4 build steps preserve `mode=max`,
+# default preserves zero-diff for single-call callers
 #
-# - #801 registry cache backend: `cache_backend` input declared `type:
-# string` default `"gha"` (default preserves the gha backend for existing
-# callers), all 4 build steps emit a
-# `type=registry,ref=ghcr.io/<repo>/buildcache:<scope>` ref in the registry
-# branch, cache-from/cache-to select the backend on `inputs.cache_backend`
-# (8 lines), the `extra_stages` buildx loop honors `cache_backend` too
-# (shell-side selection, no hardwired gha ref), GHCR `docker/login-action`
-# step gated on `cache_backend == 'registry'`
+# - #980 one cache backend: the `cache_backend` input and its `registry`
+# arm are gone. That arm's cache export needed `packages: write` on jobs
+# that declare a read-only block, and a called job gets exactly the block
+# it declares, so it was unreachable from the day it shipped. Asserted as
+# a property -- every cache line names `type=gha` outright, no input
+# selects a backend, no `docker/login-action` -- because the next second
+# backend is unreachable for the same reason
 #
 # - #273 doc-only PR fast-pass (Phase 1 + Phase 2 shell rewrite):
 # `path-filter` job declared, classifier is pure shell (`git diff

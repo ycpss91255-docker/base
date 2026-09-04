@@ -18,11 +18,14 @@
 # it), fetching the validator + manifest from base at the worker's own ref
 # (`github.job_workflow_sha`, so the validator can never drift from the
 # worker it guards), then calling `preflight.sh` with the per-worker
-# manifest and the real inputs exported into the env vars the manifest names
-# (plus a GHCR-login probe feeding the packages-permission check on the
-# build side). #801 adds the build side's `cache_backend` export into the
-# manifest guard env and a REAL packages: write probe (a GHCR blob-upload
-# scope check, not a bare login) for the registry backend.
+# manifest and the real inputs exported into the env vars the manifest
+# names. Plus the invariant that connects the two halves: a manifest may
+# not demand a permission its own worker cannot hold. The build manifest
+# did for two releases -- it told a `cache_backend: registry` caller to
+# grant `packages: write`, and every job of the worker declares a block
+# without it, so the probe could not come back 202 whatever the caller
+# granted (#980). Derived on both sides, so the next such promise is named
+# on the day it lands rather than by the caller who follows it.
 
 bats_require_minimum_version 1.5.0
 

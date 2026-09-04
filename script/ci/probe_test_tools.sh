@@ -215,6 +215,12 @@ _probe_path_binaries() {
 #   roster is now fifteen long, and fifteen container starts per job across
 #   six jobs is a cost the probe would be paying to ask a question the
 #   image answers in a single loop.
+#
+#   The status is what is read, and it is load-bearing enough to have been
+#   measured rather than assumed: in this image `apk info -e grep` prints
+#   `grep` and exits 0, and `apk info -e <absent>` prints nothing and exits
+#   1. A reader that took the exit status of a query that always succeeded
+#   would report every image complete.
 _probe_missing_packages() {
   local _image="${1:?BUG: _probe_missing_packages expects an image}"
   shift
