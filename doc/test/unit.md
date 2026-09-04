@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3989 tests**.
+Unit specs under `test/bats/unit/`: **3990 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -6836,7 +6836,7 @@ than by the caller who follows it.
 | `release-worker.yaml: preflight runs preflight.sh with the release manifest (#800)` | - |
 | `release-worker.yaml: preflight exports archive_name_prefix into the manifest env var (#800)` | - |
 
-### test/bats/unit/workflow_failure_surface_spec.bats (10)
+### test/bats/unit/workflow_failure_surface_spec.bats (11)
 
 Four properties of the workflow tree, each one about what a reader learns
 from a failed run. A cleanup sweep that reddens a build which succeeded, and
@@ -6861,7 +6861,8 @@ before reading an empty result as a clean one.
 | `build-worker: a fork PR's red explains the fork posture (#1014)` | A fork PR skips `build` under the same-repo guard, so the aggregator sees `skipped` and the required check is red forever. The posture is right -- untrusted code must not reach a self-hosted-eligible job -- but the run said nothing about it, so the contributor and the maintainer both read it as a broken build. self-test's rollup already prints the explanation for the identical case. |
 | `build-worker: a same-repo skip is not reported as a fork refusal (#1014)` | The other direction, so the message above cannot be bought by printing it on every red. A same-repo run whose matrix skipped is a workflow bug, not a refusal, and must not be described as one. |
 | `build-worker: the aggregator still passes a doc-only PR and a green matrix (#1014)` | The two passes the aggregator owes, asserted so the message work above cannot quietly turn either into a failure: a doc-only PR short- circuits green (the required check still has to resolve), and a matrix that succeeded is a pass. |
-| `build-worker: a cancelled matrix reads as cancelled, not as a broken build (#1014)` | The cost of a concurrency group, paid where it lands. A cancelled run still executes an `if: always()` aggregator, so a superseded PR push arrives here as `cancelled` -- which is not a build failure and must not be reported as one. |
+| `build-worker: a cancelled matrix reads as cancelled, not as a broken build (#1014)` | The cost of a concurrency group, paid where it lands. A cancelled run still executes an `if: always()` aggregator, so a superseded PR push arrives here as `cancelled` -- which is not a build failure and must not be reported as one. Asserted on the sentence only the cancelled branch prints, and against the generic one: the word `cancel` alone is bought by the result line the step echoes before any branch runs, so a test spelled that way stays green with the branch deleted. |
+| `build-worker: a failed matrix is reported as a failed build (#1014)` | The third red, which nothing else pins. Delete it and a plain `failure` falls off the end of the script and exits 0 -- a failed matrix reported as a passed required check -- while the two reds above stay green. It has to say which red it is for the same reason they do: a build that failed is neither a fork refusal nor a superseded run. |
 | `self-test: the rollup names the doc-only classification it passed on (#1014)` | A doc-only PR emits nine grey skips beside a green `ci-rollup`. A reviewer reading the checks list can see that; a reviewer reading only the required check sees an undifferentiated green, and the rollup's summary was identical for "everything passed" and "almost nothing ran". The classification the rollup already consumes is the answer, said out loud. |
 | `self-test: a full green run is not announced as doc-only (#1014)` | The opposite direction, so the notice cannot be bought by printing it always: a full run that passed everything is not a doc-only run and must not claim to be one. |
 | `workflows: every workflow a trigger can start declares a concurrency group (#1014)` | Nothing in the tree orders anything. Every push to a PR branch starts a fresh eight-shard coverage matrix beside the one still running, and two main merges touching the test-tools Dockerfile run two unserialised publishes whose last writer is decided by arm64 queue time rather than by commit order -- which is how a rolling tag ends up pointing at the older build. |

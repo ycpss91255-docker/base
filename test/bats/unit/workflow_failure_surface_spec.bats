@@ -139,11 +139,30 @@ _aggregate() {
 # why: The cost of a concurrency group, paid where it lands. A cancelled
 # run still executes an `if: always()` aggregator, so a superseded PR push
 # arrives here as `cancelled` -- which is not a build failure and must not
-# be reported as one.
+# be reported as one. Asserted on the sentence only the cancelled branch
+# prints, and against the generic one: the word `cancel` alone is bought
+# by the result line the step echoes before any branch runs, so a test
+# spelled that way stays green with the branch deleted.
 @test "build-worker: a cancelled matrix reads as cancelled, not as a broken build (#1014)" {
   run _aggregate true cancelled false
   assert_failure
-  assert_output --partial 'cancel'
+  assert_output --partial '::error::'
+  assert_output --partial 'superseded by a newer push'
+  refute_output --partial 'did not succeed'
+}
+
+# why: The third red, which nothing else pins. Delete it and a plain
+# `failure` falls off the end of the script and exits 0 -- a failed matrix
+# reported as a passed required check -- while the two reds above stay
+# green. It has to say which red it is for the same reason they do: a
+# build that failed is neither a fork refusal nor a superseded run.
+@test "build-worker: a failed matrix is reported as a failed build (#1014)" {
+  run _aggregate true failure false
+  assert_failure
+  assert_output --partial '::error::'
+  assert_output --partial 'did not succeed'
+  refute_output --partial 'superseded'
+  refute_output --partial 'Fork PR'
 }
 
 # ── 3. the rollup says why it collapsed to skips ──────────────────────
