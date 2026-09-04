@@ -65,12 +65,19 @@
 # The MARKER READER is shared with the generator (../spec-markers.sh), not
 # copied: one `# why:` block has exactly one correct reading, and a second
 # copy of that loop would agree on the day it was pasted and drift after.
-# What is deliberately NOT shared is the SCAN -- which files are in scope.
-# That is where leaning on the generator goes vacuous: a lint that
-# inherits the generator's idea of the population agrees, by construction,
-# that a spec the generator has stopped seeing has nothing to check. So
-# the scan is this driver's own, and it is the whole spec tree rather than
-# the five globs the catalogues happen to cover.
+# What this lint does NOT do is take the generator's idea of the SCAN --
+# which files are in scope. That is where leaning on the generator goes
+# vacuous: a lint that inherits the generator's population agrees, by
+# construction, that a spec the generator has stopped seeing has nothing
+# to check. So the scan is the lint's, and it is the whole spec tree
+# rather than the five globs the catalogues happen to cover.
+#
+# It now lives in ../spec-scan.sh rather than in this file, and the
+# direction is what makes that safe. The generator READS it, because the
+# generator writes the ceiling below and a bound measured over one
+# population and enforced over another would be two answers to one
+# question. Nothing flows back: the doc-to-glob map stays the generator's
+# and this lint never consults it.
 #
 # ── The transition ceiling ──────────────────────────────────────────────
 #
@@ -139,11 +146,20 @@
 # undescribed=.. ceiling=.. slack=..` on every invocation, clean or not,
 # so the slack is a visible number on every CI log rather than an
 # invisible category. Closing it is a one-line PR anybody can open.
-# Raising the ceiling is one reviewable line, and the policy is that it
-# may only go down; that is NOT mechanically enforceable in the
-# lint-static runner's shallow checkout with no history, and this driver
-# does not pretend otherwise -- a lint whose verdict depends on how much
-# was fetched is worse than no lint.
+#
+# Raising the ceiling is one reviewable line. WHERE down-only is enforced
+# moved with base#1024 and the earlier text here has to be corrected, not
+# just extended: this driver used to say the policy was not mechanically
+# enforceable at all. It is not enforceable BY THIS LINT -- a shallow
+# lint-static checkout has no history to compare against, and a lint whose
+# verdict depends on how much was fetched is worse than no lint, which is
+# still why nothing is attempted here. It IS enforced by the generator
+# that now writes the number (script/test/sync-doc-counts.sh): it lowers
+# and refuses to raise, and the drift gate makes a tree whose committed
+# number is not what regeneration produces a red one. So the slack a
+# backfill leaves is closed by `just test sync-docs` instead of by
+# somebody remembering, and a raise is a hand edit that survives
+# regeneration only because regeneration never moves the number up.
 #
 # Considered and rejected:
 #   - per-file or per-directory ceilings: five to fifteen numbers instead
@@ -185,36 +201,48 @@ readonly _CATALOG_DESC_DRIVER_DIR
 # shellcheck source=script/test/spec-markers.sh
 source "${_CATALOG_DESC_DRIVER_DIR}/../spec-markers.sh"
 
+# The scan -- which files are spec files -- lives in ../spec-scan.sh. It is
+# still this lint's own population and not the generator's doc-to-glob map
+# (see the header); what changed is that the generator now writes a number
+# ABOUT that population, so the definition has one home and the generator
+# reads it from here rather than keeping a second copy that agrees on the
+# day it is pasted.
+# shellcheck source=script/test/spec-scan.sh
+source "${_CATALOG_DESC_DRIVER_DIR}/../spec-scan.sh"
+
 # ── Catalog description lint ─────────────────────────────────────────────────
 
-# The spec trees, repo-root-relative. This driver's OWN scan: see the
-# header on why it is not the generator's doc-to-glob map.
-readonly _CATALOG_DESC_SCAN_GLOBS=(
-  'test/bats/**/*_spec.bats'
-  'dist/test/bats/smoke/**/*.bats'
-)
-
-# The transition ceiling. Set to the exact count the migration left, then
-# recomputed once when origin/main was merged in: 2473 -> 2641 -> 2622. It
-# may only ever go DOWN by an ordinary change; the one thing that raises it
-# is a merge that IMPORTS tests written before this rule existed, which is a
-# ratchet reset and not a licence, and it is recomputed from the merged
-# tree rather than guessed. The second step is the ordinary direction and
-# not part of that reset: 19 of the imported tests arrived carrying a
-# description main had written in the catalogue table, so those 19 were
-# migrated into markers here rather than counted as debt somebody else
-# would have to re-derive. See the header for why this is one number and
-# not a file of them.
+# The transition ceiling, and it is GENERATED (base#1024).
+# script/test/sync-doc-counts.sh rewrites this line in the same run that
+# writes doc/test/*.md, from the same spec tree, and `just test sync-docs`
+# is how it moves. Do not hand-edit it downwards: the drift gate
+# regenerates it and will disagree.
 #
-# 2622 -> 2614 (base#994 phase 3): that branch described eight cases in
-# test/bats/unit/shell_metrics_spec.bats -- four it was rewriting anyway
-# and the four boundary cases beside them -- and that is the whole of the
-# 8. Every case it ADDED carries a marker, so none of them moved this
-# number in either direction. Lowering the ceiling is not REQUIRED of a
-# branch that writes descriptions; that is the slack this design accepts.
-# But the slack was its own, so it closed it, which is the ordinary
-# direction.
-readonly _CATALOG_DESC_UNDESCRIBED_CEILING=2609
+# DOWN ONLY, and the generator enforces that half rather than merely
+# observing it: it writes the measured count when the measurement is
+# LOWER, and leaves this line untouched when the tree has more undescribed
+# tests than it records. A generator that wrote whatever it measured would
+# turn a bound into a mirror and the lint would stop bounding anything.
+# So the one event that RAISES the number is still a person editing this
+# line, deliberately, in a reviewable diff -- and a merge cannot raise it
+# as a side effect, because regeneration only ever lowers.
+#
+# The value's history is git's, not this comment's. It was a hand-kept
+# figure through 2473 -> 2641 -> 2622 -> 2614 -> 2609, each step narrated
+# here, and the narration fell behind the value twice in three commits --
+# 2614 was still the story when the number was already 2609. That is
+# ADR-00000028's defect exactly ("a figure about a moving tree with no
+# referent"), and the fix is the same one: derive the figure and stop
+# writing prose about its arithmetic. What the steps show, and the reason
+# they are worth one sentence rather than a table, is that the number went
+# down five times and up once -- at a merge that IMPORTED 168 tests
+# written before this rule existed, which is a ratchet reset (the header's
+# "The transition" argues why that is not a licence).
+#
+# See the header for why this is ONE number rather than a file of them,
+# and why lowering it is not required of a branch that merely writes
+# descriptions.
+readonly _CATALOG_DESC_UNDESCRIBED_CEILING=2608
 
 # The written-out non-answers, matched case-insensitively on the whole
 # trimmed marker. `nil`, `none`, `tbd`, `todo` and `unknown` carry a
@@ -251,29 +279,6 @@ _catalog_desc_is_placeholder() {
   return 1
 }
 
-# _catalog_desc_spec_files <root> -- every spec file in scope, one per
-# line, repo-root-relative.
-# Sorted explicitly under LC_ALL=C: this lint runs both in the musl
-# test-tools container and on a glibc host, whose collations order
-# `log_spec.bats` and `logrotate_spec.bats` oppositely, and a findings list
-# that reorders between the two is a diff nobody can read. The globstar
-# dance happens in the subshell, so nothing leaks to the caller.
-_catalog_desc_spec_files() {
-  local _root="$1"
-  (
-    shopt -s globstar
-    local _glob _f
-    for _glob in "${_CATALOG_DESC_SCAN_GLOBS[@]}"; do
-      for _f in "${_root}"/${_glob}; do
-        # `|| continue` and not `&& printf`: under pipefail the loop's
-        # status is the last iteration's, so a final non-file match would
-        # fail the pipeline and be reported as a broken driver.
-        [[ -f "${_f}" ]] || continue
-        printf '%s\n' "${_f#"${_root}"/}"
-      done
-    done
-  ) | LC_ALL=C sort
-}
 
 # _run_catalog_description -- the dispatcher entry point.
 _run_catalog_description() {
@@ -287,10 +292,10 @@ _run_catalog_description() {
   fi
 
   local -a _files=()
-  mapfile -t _files < <(_catalog_desc_spec_files "${_root}")
+  mapfile -t _files < <(_spec_scan_files "${_root}")
   if (( ${#_files[@]} == 0 )); then
     _die ci_catalog_description \
-      "no spec files under '${_root}' (looked for ${_CATALOG_DESC_SCAN_GLOBS[*]}) -- every test would be described vacuously. Point the lint at the repo root, or update the scan globs if the spec tree moved."
+      "no spec files under '${_root}' (looked for ${_SPEC_SCAN_GLOBS[*]}) -- every test would be described vacuously. Point the lint at the repo root, or update the scan globs if the spec tree moved."
     return 1
   fi
 

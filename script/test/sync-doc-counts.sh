@@ -12,6 +12,14 @@
 #   2. The catalogue SECTIONS -- one per spec file, each with its blurb
 #      and one row per `@test`. Source: the `# why:` markers the spec
 #      files carry (script/test/spec-markers.sh).
+#   3. The description lint's UNDESCRIBED CEILING, the one figure written
+#      outside doc/test (into the lint's own driver). Source: the same
+#      markers, over the lint's own population. It is a bound rather than
+#      a statistic, so the write is down-only -- see "The undescribed
+#      ceiling" below, and base#1024 for why a number every branch edits
+#      by hand is a merge conflict whose right answer is neither side's.
+#      `_sync_doc_counts_outputs` is the machine-readable answer to which
+#      files those are.
 #
 # Nothing flows the other way. A description used to be hand-written in
 # the document and PRESERVED here across regeneration, which made a person
@@ -48,6 +56,14 @@ _SYNC_DOC_COUNTS_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)
 # check.
 # shellcheck source=script/test/spec-markers.sh
 source "${_SYNC_DOC_COUNTS_DIR}/spec-markers.sh"
+
+# The description lint's population, for the one figure this generator
+# writes ABOUT that lint rather than about the catalogues. The scan is
+# still the lint's (spec-scan.sh's header argues the direction); reading
+# it from there is what keeps the ceiling measured over the same set it
+# is enforced over.
+# shellcheck source=script/test/spec-scan.sh
+source "${_SYNC_DOC_COUNTS_DIR}/spec-scan.sh"
 
 # _dir_test_count <root> <relglob> -- total `^@test` count across the spec
 # files matching <root>/<relglob>. This is the authoritative per-type total
@@ -346,6 +362,129 @@ _sync_test_md_index() {
 }
 
 
+# ── The undescribed ceiling ──────────────────────────────────────────────────
+#
+# The third derived figure, and the one that is not a statistic. It is a
+# BOUND: the description lint fails when the tree carries more undescribed
+# tests than the number records, so the number has to be stored somewhere
+# or it bounds nothing (base#999 chose one number over a roster of per-test
+# exemptions, and that choice stands).
+#
+# It was stored as a hand-kept `readonly` in the lint's own driver, which
+# made it the shape ADR-00000028 removed for the test-count totals: every
+# branch that describes a test has a correct reason to lower it, so every
+# branch edited the same line, every merge conflicted on it, and the
+# merged tree's right value was NEITHER side's -- descriptions compose, so
+# two branches lowering to 2617 and 2614 merge into a tree that measures
+# 2609. The resolution was never "take the lower"; it was "recompute from
+# the merged tree", which is exactly what this generator does for the
+# catalogues.
+#
+# So the generator writes it, in the run that writes the catalogue, from
+# the same spec tree.
+#
+# WHAT MAKES THIS DIFFERENT FROM A MIRROR, and it is the whole reason the
+# ceiling exists: the write is DOWN-ONLY. A measurement lower than the
+# record replaces it; a measurement higher leaves the record alone and the
+# breach reaches the lint, which fails. A generator that wrote whatever it
+# measured would turn the ratchet into a mirror and the lint would stop
+# bounding anything. Raising the number is still a person editing that
+# line -- a merge cannot raise it as a side effect, because regeneration
+# only ever lowers.
+_CATALOG_CEILING_REL='script/test/drivers/catalog_description.sh'
+_CATALOG_CEILING_VAR='_CATALOG_DESC_UNDESCRIBED_CEILING'
+_CATALOG_CEILING_ASSIGN_RE="^readonly ${_CATALOG_CEILING_VAR}=[0-9]+\$"
+
+# _sync_err <message> -- diagnostic to stderr. Block-redirected rather than
+# a bare `printf ... >&2`: this is a standalone, log.sh-free CI tool (the
+# same rationale class as check_test_md_drift.sh) and the bare-stderr lint
+# scans script/test/.
+_sync_err() {
+  {
+    printf 'sync-doc-counts: %s\n' "$1"
+  } >&2
+}
+
+# _undescribed_count <root> -- how many `@test`s in the lint's population
+# carry no `# why:` marker at all.
+#
+# The lint's own arithmetic, deliberately: a marker that is PRESENT and
+# says nothing is a hard finding there and is NOT under the ceiling, so it
+# must not be counted here either. `<line> TAB <marked> TAB ...` -- only
+# the second field is read.
+_undescribed_count() {
+  local _root="$1" _rel _rec _rest _n=0
+  local -a _files=() _tests=() _findings=()
+  local _blurb=''
+  mapfile -t _files < <(_spec_scan_files "${_root}")
+  for _rel in "${_files[@]+"${_files[@]}"}"; do
+    _spec_markers_scan "${_root}/${_rel}" _tests _findings _blurb
+    for _rec in "${_tests[@]+"${_tests[@]}"}"; do
+      _rest="${_rec#*$'\t'}"
+      (( "${_rest%%$'\t'*}" )) || _n=$(( _n + 1 ))
+    done
+  done
+  printf '%s\n' "${_n}"
+}
+
+# _recorded_ceiling <file> -- the number the driver currently records.
+#
+# Fails, rather than defaulting, when the assignment is not there exactly
+# once. Guessing is the fail-open direction for a BOUND: a missing value
+# read as "no limit" unbounds the lint silently, and a conflicted file
+# (two assignments between merge markers) would otherwise be resolved by
+# whichever `grep` hit first.
+_recorded_ceiling() {
+  local _file="$1"
+  local -a _hits=()
+  mapfile -t _hits < <(grep -E -- "${_CATALOG_CEILING_ASSIGN_RE}" "${_file}")
+  if (( ${#_hits[@]} != 1 )); then
+    _sync_err "${_file} carries ${#_hits[@]} '${_CATALOG_CEILING_VAR}=<n>' assignment(s), expected exactly 1 -- the undescribed ceiling is a bound this generator maintains, and a value it cannot read is not one to guess at (a guess high unbounds the lint). Resolve the file (conflict markers?), then re-run."
+    return 1
+  fi
+  printf '%s\n' "${_hits[0]##*=}"
+}
+
+# _sync_undescribed_ceiling <root> -- lower the recorded ceiling to what
+# <root> measures; never raise it.
+#
+# A root with no driver in it is a SKIP and not a failure: the drift gate
+# and the merge resolver both run this generator against scratch trees
+# that hold doc/test plus symlinked spec trees and nothing else, and those
+# callers are the normal case, not a broken checkout.
+_sync_undescribed_ceiling() {
+  local _root="$1"
+  local _file="${_root}/${_CATALOG_CEILING_REL}"
+  [[ -f "${_file}" ]] || return 0
+  local _recorded _measured
+  _recorded="$(_recorded_ceiling "${_file}")" || return 1
+  _measured="$(_undescribed_count "${_root}")"
+  (( _measured < _recorded )) || return 0
+  sed -i -E "s/${_CATALOG_CEILING_ASSIGN_RE}/readonly ${_CATALOG_CEILING_VAR}=${_measured}/" \
+    "${_file}"
+}
+
+# _sync_doc_counts_outputs <root> -- every file _sync_doc_counts writes,
+# one absolute path per line.
+#
+# The answer to "which files in this tree are generated", asked by the
+# drift gate (what to compare) and by the merge resolver (what a
+# regeneration is entitled to overwrite). It is computed here, next to the
+# writes, because a second copy of the list kept anywhere else is the
+# defect this whole file exists to remove -- and because the set grew: the
+# ceiling is an output now and a resolver carrying "doc/test/*.md" would
+# have gone on refusing it.
+_sync_doc_counts_outputs() {
+  local _root="$1" _doc
+  for _doc in "${_root}"/doc/test/*.md; do
+    [[ -f "${_doc}" ]] || continue
+    printf '%s\n' "${_doc}"
+  done
+  [[ -f "${_root}/${_CATALOG_CEILING_REL}" ]] \
+    && printf '%s\n' "${_root}/${_CATALOG_CEILING_REL}"
+  return 0
+}
+
 # _sync_doc_counts [root] -- regenerate every derived figure and every
 # catalogue section under <root>/doc/test.
 _sync_doc_counts() {
@@ -362,6 +501,7 @@ _sync_doc_counts() {
     _sync_type_total "${_doc}" "$(_dir_test_count "${_root}" "${_glob}")"
   done
   _sync_test_md_index "${_root}"
+  _sync_undescribed_ceiling "${_root}" || return 1
 }
 
 main() {
