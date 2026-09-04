@@ -44,10 +44,22 @@
 # the roster governs what is written from now on, not what shipped.
 #
 # THE POINTER PARAGRAPH. Prose sitting under the version heading before the
-# first `### ` is a lead paragraph and is kept -- UNLESS the section carries
-# no `### ` heading of its own, which is the promoted-release shape: the
-# whole body is a pointer at the RCs, and the union it points at is about to
-# be emitted in its place.
+# first `### ` is a lead paragraph. The leading section's is kept; an RC's
+# is not, because an RC's lead says which candidate this is and a reader of
+# the final tag is not being told that. The one exception, in both
+# directions, is a lead that CARRIES AN ENTRY: a `- ` bullet under no
+# heading is an entry that happens to sit above the first one, not prose,
+# and it is kept along with the sentence that introduces it.
+#
+# That exception is the difference between a pointer paragraph and a
+# promoted release that wrote its entries where it stood. The rule used to
+# be "the section has no `### ` of its own, so its whole body is a pointer",
+# which is the v0.42.0 shape -- five lines saying the entries are elsewhere.
+# It is not the v0.29.0 shape, whose pointer prose ends in three bullets
+# naming the downstream propagation queued for that release: the rule read
+# the section for headings and never the lead for content, and dropped all
+# three. Measured across the real tree it dropped entries from five of the
+# tags it was run on.
 #
 # WHAT IT REFUSES. A body over GitHub's 125,000-character release-body cap
 # (the union of v0.42's four RCs is 326,638, so this is not hypothetical --
@@ -55,11 +67,22 @@
 # no section for the tag; a tag whose section appears in
 # more than one file (the split's own failure mode -- a section copied
 # rather than moved leaves two answers to "what shipped", and picking either
-# silently is how the wrong one reaches a release page); and an assembled
-# body carrying no entry bullet at all. That last one is the v0.42.0 shape
-# with no RCs to union in, and it is a refusal rather than a short body
-# because a release page with no notes is exactly what this script exists to
-# stop shipping.
+# silently is how the wrong one reaches a release page); an assembled
+# body carrying no entry bullet at all (the v0.42.0 shape with no RCs to
+# union in -- a refusal rather than a short body because a release page with
+# no notes is exactly what this script exists to stop shipping); and an
+# assembled body carrying FEWER entry bullets than the sections it was
+# merged from.
+#
+# That last one is a postcondition, not a shape check, and it is here
+# because the mechanism it guards has already failed once. `grep -q '^- '`
+# over the whole body passes as long as one bulleted category survived, so
+# an entry the merge could not file was indistinguishable from a release
+# with a single category -- and the release job publishes this body ALONE
+# (`generate_release_notes: false`), so a dropped entry has no second
+# source. Counting the entries in and out costs one pass and turns the next
+# shape this file was not written for into a refusal at tag push rather
+# than a release page nobody knows is short.
 #
 # Fenced code blocks are structurally inert, as in the changelog lint: the
 # file documents its own format in ```markdown examples, so a `## [` inside
@@ -212,14 +235,18 @@ _assemble() {
   local -a _tags=("$@")
   local -A _bucket=()
   local -a _order=()
-  local -a _lead=()
+  local -a _lead=() _leads=()
   local _tag _line _current='' _own_headings=0 _first=1 _key _fence=''
+  local _lead_entries=0 _lead_text=''
   local -a _body=()
 
   for _tag in "${_tags[@]}"; do
     mapfile -t _body < <(_section_body "${_tag}")
     _current=''
     _fence=''
+    _lead=()
+    _lead_entries=0
+    _own_headings=0
     for _line in "${_body[@]}"; do
       if _is_fence_delimiter "${_line}"; then
         if [[ -z "${_fence}" ]]; then
@@ -235,35 +262,48 @@ _assemble() {
           _bucket["${_current}"]=''
           _order+=("${_current}")
         fi
-        [[ "${_first}" -eq 1 ]] && _own_headings=$(( _own_headings + 1 ))
+        _own_headings=$(( _own_headings + 1 ))
         continue
       fi
       if [[ -z "${_current}" ]]; then
-        [[ "${_first}" -eq 1 ]] && _lead+=("${_line}")
+        _lead+=("${_line}")
+        if [[ -z "${_fence}" && "${_line}" == '- '* ]]; then
+          _lead_entries=$(( _lead_entries + 1 ))
+        fi
         continue
       fi
       _bucket["${_current}"]+="${_line}"$'\n'
     done
+
+    # Keep this section's lead when it carries an entry -- a `- ` bullet
+    # under no heading is an entry that sits above the first one, and the
+    # sentence introducing it is what says what the list is. Otherwise keep
+    # only the LEADING section's, and only when that section wrote entries
+    # of its own: a prose-only lead from a section with no `### ` is the
+    # promoted-release pointer at the RCs whose union replaces it, and an
+    # RC's own lead names the candidate, which the final tag's reader is
+    # not being told.
+    #
+    # The guard is on the TEXT, not on the line count. A `## [tag]` heading
+    # is always followed by a blank line, so _lead is never an empty array
+    # -- only ever an array of blanks -- and a count-based guard therefore
+    # fires for every release that wrote no lead at all, emitting a blank
+    # line ahead of the first `### `. Every assembled body opened with one.
+    _lead_text=''
+    if [[ "${#_lead[@]}" -gt 0 ]] \
+      && { [[ "${_lead_entries}" -gt 0 ]] \
+        || [[ "${_first}" -eq 1 && "${_own_headings}" -gt 0 ]]; }; then
+      _lead_text="$(printf '%s\n' "${_lead[@]}" | _trim_blank_edges)"
+    fi
+    [[ -n "${_lead_text}" ]] && _leads+=("${_lead_text}")
     _first=0
   done
 
-  # The lead paragraph is prose the release itself wrote. A section with no
-  # `### ` of its own wrote no entries either, so its prose is the pointer
-  # at the RC sections whose union is about to replace it.
-  #
-  # The guard is on the TEXT, not on the line count. A `## [tag]` heading is
-  # always followed by a blank line, so _lead is never an empty array --
-  # only ever an array of blanks -- and a count-based guard therefore fires
-  # for every release that wrote no lead at all, emitting a blank line ahead
-  # of the first `### `. Every assembled body opened with one.
-  local _lead_text=''
-  if [[ "${_own_headings}" -gt 0 && "${#_lead[@]}" -gt 0 ]]; then
-    _lead_text="$(printf '%s\n' "${_lead[@]}" | _trim_blank_edges)"
-  fi
-  if [[ -n "${_lead_text}" ]]; then
-    printf '%s\n' "${_lead_text}"
+  local _i
+  for (( _i = 0; _i < ${#_leads[@]}; _i++ )); do
+    printf '%s\n' "${_leads[_i]}"
     printf '\n'
-  fi
+  done
 
   # Roster order first, then whatever history left behind, in first-seen
   # order. A shipped heading outside the roster is a record, not a defect.
@@ -288,6 +328,27 @@ _in_list() {
     [[ "${_item}" == "${_needle}" ]] && return 0
   done
   return 1
+}
+
+# _count_entries -- how many entry bullets stdin carries, outside fenced
+# blocks. A `- ` at column 0 is the unit the changelog is written in and the
+# unit the entry lint measures; a continuation line and a nested bullet are
+# indented and belong to the entry above them.
+_count_entries() {
+  local _line _fence='' _n=0
+  while IFS= read -r _line; do
+    if _is_fence_delimiter "${_line}"; then
+      if [[ -z "${_fence}" ]]; then
+        _fence="${_RN_FENCE_CHAR}"
+      elif [[ "${_RN_FENCE_CHAR}" == "${_fence}" ]]; then
+        _fence=''
+      fi
+      continue
+    fi
+    [[ -n "${_fence}" ]] && continue
+    [[ "${_line}" == '- '* ]] && _n=$(( _n + 1 ))
+  done
+  printf '%s' "${_n}"
 }
 
 # _emit_category <name> <body> -- one heading and its merged list.
@@ -340,6 +401,29 @@ main() {
     err "REFUSING: the assembled notes for ${_tag} carry no entry." \
         "Sections read: ${_sources[*]}. A promoted release whose section" \
         "only points at its RCs needs those RC sections present to union."
+    return 1
+  fi
+
+  # The merge is complete or the release fails here. Counted rather than
+  # trusted because the last thing that went wrong in this file went wrong
+  # in silence: entries the merge could not file under a category were
+  # dropped, and the guard above passed on the categories that survived.
+  local _source_entries=0 _emitted_entries _rc_entries
+  local _source
+  for _source in "${_sources[@]}"; do
+    _rc_entries="$(_section_body "${_source}" | _count_entries)"
+    _source_entries=$(( _source_entries + _rc_entries ))
+  done
+  _emitted_entries="$(_count_entries <<< "${_notes}")"
+  if (( _emitted_entries < _source_entries )); then
+    err "REFUSING: the assembled notes for ${_tag} carry" \
+        "${_emitted_entries} of the ${_source_entries} entry bullets their" \
+        "sections hold. Sections read: ${_sources[*]}. The merge files" \
+        "entries under the category heading above them, so an entry it" \
+        "could not place is an entry nobody is told is missing -- and the" \
+        "release job publishes this body alone" \
+        "(generate_release_notes: false), so there is no second source for" \
+        "it. Fix the assembler, not the changelog."
     return 1
   fi
   # Measured in BYTES, which is at least the character count GitHub
