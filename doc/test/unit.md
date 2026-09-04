@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3936 tests**.
+Unit specs under `test/bats/unit/`: **3943 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -173,7 +173,7 @@ a refusal as "do not release".
 | `R3: PASSES a verbatim claim about a file this repo carries (#927)` | - |
 | `R3: IGNORES verbatim used about behaviour rather than a quotation (#927)` | - |
 
-### test/bats/unit/adr_numbering_spec.bats (10)
+### test/bats/unit/adr_numbering_spec.bats (17)
 
 Unit tests for `script/test/drivers/adr_numbering.sh` (`_run_adr_numbering`,
 refs #808), the ADR-numbering lint. The registry is the filesystem
@@ -194,6 +194,13 @@ warned.
 | `_run_adr_numbering: does NOT flag a gap as a duplicate or malformed (#808)` | Gaps are advisory, not failures |
 | `_run_adr_numbering: an early-closing reader cannot abort the min/max scan (#898)` | No pipeline status owned by a departing reader |
 | `_run_adr_numbering: min/max stay correct with sort/head unusable (#898)` | In-shell range still bounds the gap scan |
+| `_run_adr_numbering: FAILS on an ADR- reference to a number no record claims (#1021)` | The reference that outlives its record. A renumber frees the old number, so every `ADR-<old>` left behind names nothing -- and this is the only shape of missed reference a checkout can still recognise. |
+| `_run_adr_numbering: FAILS on a doc/adr path whose number and slug name no file (#1021)` | The shape that survives a collision repair. The number still resolves -- another record took it -- so nothing about the number is wrong; the SLUG beside it is what says the pointer no longer names what the author meant. |
+| `_run_adr_numbering: a doc/adr path rooted in a shell expansion is not a reference (#1021)` | The difference between a reference and a FIXTURE, which is the whole reason this cannot be a blind grep: the lint specs build throwaway registries under a temp root, and a path rooted in a shell expansion points into the tree that test builds, never into this one. |
+| `_run_adr_numbering: FAILS when the index has no row for a record (#1021)` | The site the hand renumber actually missed. The index row is the one place every record is named exactly once, so a record with no row is a record the index has lost track of. |
+| `_run_adr_numbering: FAILS when the index carries a row for no record (#1021)` | The same failure in its other direction, and the exact state the 00000030 renumber left behind: the record moved and its row did not, so the index names a number that is nobody's. |
+| `_run_adr_numbering: FAILS when two index rows carry the same number (#1021)` | Two rows on one number is what a collision looks like in the index, and taking the first would make the check agree with whichever row was written first rather than with the tree. |
+| `_run_adr_numbering: PASSES when every record has one row and every reference resolves (#1021)` | The passing shape, so the three failures above are read as a contract rather than as a lint that dislikes index tables. |
 | `_run_adr_numbering: the REAL doc/adr/ passes today (00000009 gap warned) (#808)` | Live tree clean, 00000009 gap warned |
 
 ### test/bats/unit/adr_structure_spec.bats (27)

@@ -234,6 +234,130 @@ EOF
 }
 
 # ════════════════════════════════════════════════════════════════════
+# _run_adr_numbering: the references into the registry (base#1021)
+#
+# A registry nothing points at is half a registry. The renumber that
+# followed the 00000030 collision touched 14 files and was left
+# incomplete in three of them -- the index row and two audit conclusions
+# still named the old number -- and every gate stayed green, because a
+# stale number in prose was read by nothing.
+# ════════════════════════════════════════════════════════════════════
+
+# _write <relpath> <line>... -- a fixture file somewhere in the scan root.
+_write() {
+  local _rel="$1"
+  shift
+  mkdir -p "${SCRATCH}/$(dirname -- "${_rel}")"
+  printf '%s\n' "$@" > "${SCRATCH}/${_rel}"
+}
+
+# _index <row>... -- doc/adr/README.md with the audit table header and the
+# given rows. The header is what marks the document as the index; a
+# README without one is not one.
+_index() {
+  {
+    printf '%s\n' '# ADR index'
+    printf '%s\n' '| ADR | Verdict | Serves | Note |'
+    printf '%s\n' '|---|---|---|---|'
+    printf '%s\n' "$@"
+  } > "${SCRATCH}/doc/adr/README.md"
+}
+
+# why: The reference that outlives its record. A renumber frees the old
+# number, so every `ADR-<old>` left behind names nothing -- and this is
+# the only shape of missed reference a checkout can still recognise.
+@test "_run_adr_numbering: FAILS on an ADR- reference to a number no record claims (#1021)" {
+  _touch_adr "00000001-alpha.md"
+  _index '| 00000001 -- alpha | keep | mechanism | note |'
+  _write 'CONTEXT.md' 'The rule is written down in ADR-00000007.'
+  run _run_adr_numbering
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"00000007"* ]]
+  [[ "${output}" == *"CONTEXT.md"* ]]
+}
+
+# why: The shape that survives a collision repair. The number still
+# resolves -- another record took it -- so nothing about the number is
+# wrong; the SLUG beside it is what says the pointer no longer names what
+# the author meant.
+@test "_run_adr_numbering: FAILS on a doc/adr path whose number and slug name no file (#1021)" {
+  _touch_adr "00000001-alpha.md"
+  _touch_adr "00000002-beta.md"
+  _index '| 00000001 -- alpha | keep | mechanism | note |' \
+    '| 00000002 -- beta | keep | mechanism | note |'
+  _write 'CONTEXT.md' 'See doc/adr/00000002-alpha.md for the argument.'
+  run _run_adr_numbering
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"00000002-alpha.md"* ]]
+}
+
+# why: The difference between a reference and a FIXTURE, which is the
+# whole reason this cannot be a blind grep: the lint specs build throwaway
+# registries under a temp root, and a path rooted in a shell expansion
+# points into the tree that test builds, never into this one.
+@test "_run_adr_numbering: a doc/adr path rooted in a shell expansion is not a reference (#1021)" {
+  _touch_adr "00000001-alpha.md"
+  _index '| 00000001 -- alpha | keep | mechanism | note |'
+  _write 'test/bats/unit/x_spec.bats' \
+    '  : > "${SCRATCH}/doc/adr/00000004-fixture.md"'
+  run _run_adr_numbering
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"clean"* ]]
+}
+
+# why: The site the hand renumber actually missed. The index row is the
+# one place every record is named exactly once, so a record with no row is
+# a record the index has lost track of.
+@test "_run_adr_numbering: FAILS when the index has no row for a record (#1021)" {
+  _touch_adr "00000001-alpha.md"
+  _touch_adr "00000002-beta.md"
+  _index '| 00000001 -- alpha | keep | mechanism | note |'
+  run _run_adr_numbering
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"00000002"* ]]
+  [[ "${output}" == *"README.md"* ]]
+}
+
+# why: The same failure in its other direction, and the exact state the
+# 00000030 renumber left behind: the record moved and its row did not, so
+# the index names a number that is nobody's.
+@test "_run_adr_numbering: FAILS when the index carries a row for no record (#1021)" {
+  _touch_adr "00000001-alpha.md"
+  _index '| 00000001 -- alpha | keep | mechanism | note |' \
+    '| 00000009 -- ghost | keep | mechanism | note |'
+  run _run_adr_numbering
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"00000009"* ]]
+}
+
+# why: Two rows on one number is what a collision looks like in the index,
+# and taking the first would make the check agree with whichever row was
+# written first rather than with the tree.
+@test "_run_adr_numbering: FAILS when two index rows carry the same number (#1021)" {
+  _touch_adr "00000001-alpha.md"
+  _touch_adr "00000002-beta.md"
+  _index '| 00000001 -- alpha | keep | mechanism | note |' \
+    '| 00000001 -- alpha again | keep | mechanism | note |' \
+    '| 00000002 -- beta | keep | mechanism | note |'
+  run _run_adr_numbering
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"00000001"* ]]
+}
+
+# why: The passing shape, so the three failures above are read as a
+# contract rather than as a lint that dislikes index tables.
+@test "_run_adr_numbering: PASSES when every record has one row and every reference resolves (#1021)" {
+  _touch_adr "00000001-alpha.md"
+  _touch_adr "00000002-beta.md"
+  _index '| 00000001 -- alpha | keep | mechanism | note |' \
+    '| 00000002 -- beta | keep | mechanism | note |'
+  _write 'CONTEXT.md' 'ADR-00000002 and doc/adr/00000001-alpha.md both resolve.'
+  run _run_adr_numbering
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"clean"* ]]
+}
+
+# ════════════════════════════════════════════════════════════════════
 # _run_adr_numbering: real tree guard
 # ════════════════════════════════════════════════════════════════════
 
