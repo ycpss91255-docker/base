@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3951 tests**.
+Unit specs under `test/bats/unit/`: **3987 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3741,47 +3741,73 @@ naming the path and what its absence costs.
 | `release-archive: refuses a manifest path that escapes the repo root (#914)` | Same escape guard on the declared paths |
 | `release-archive: --list prints the declared payload with its required/optional split` | The payload contract is readable without running an archive |
 
-### test/bats/unit/release_test_tools_yaml_spec.bats (21)
+### test/bats/unit/release_ref_spec.bats (14)
+
+"Is this tag a prerelease?" decides whether a GitHub Release is marked
+prerelease (`release-worker.yaml` for downstream repos, `self-test.yaml` for
+base) and whether `release-test-tools.yaml` moves `test-tools:latest` -- the
+image every repo that has not pinned `test_tools_version` builds its lint
+stage from, that input's default being `latest`. Two sites spelled the test
+themselves and the third did not ask, which is how `v0.42.0-rc1` through
+`-rc4` each moved `:latest`.
+
+`script/ci/release-ref.sh` is the one home for that rule ON A GIT REF;
+`release-worker.yaml` now classifies a VERSION input instead, and
+`script/ci/release-version.sh` owns it there. The first nine cases pin what
+release-ref.sh answers -- including that it REFUSES a ref it cannot read as
+a version tag, because the alternative answer (`false`) is the branch that
+publishes. The next three derive the population of asking sites from
+`.github/workflows/` rather than listing it, and the classifier behind each
+site from the step that input names, so neither a fourth site nor a second
+owner can be the one nobody checks. The last two derive the owners
+themselves and compare them against each other, because two homes for one
+rule with nothing comparing them is the #1012 shape with one fewer copy.
+
+| Test | Description |
+|------|-------------|
+| `release-ref: a finished release tag is not a prerelease (#1012)` | `v0.42.0` -> `false`. The one answer that lets `:latest` move, so it is the case a wrong rule fails open on. |
+| `release-ref: an RC tag is a prerelease (#1012)` | `v0.42.0-rc4` -> `true`. The four tags that each moved `:latest`, for the length of an RC window. |
+| `release-ref: a full refs/tags/ ref answers the same as its bare tag (#1012)` | `GITHUB_REF` and `github.ref_name` are both accepted, so a caller passes whichever it holds instead of trimming one into the other and getting it wrong. |
+| `release-ref: the leading v is optional (#1012)` | The `v` this project's tags carry is stripped, not required: the rule is SemVer's, not this repo's tag style. |
+| `release-ref: build metadata is not a prerelease, a dotted prerelease id is (#1012)` | SemVer 10 (`+build.5`) says nothing about precedence; SemVer 9 (`-rc.1`) does. The pair is what separates the rule from a dash test. |
+| `release-ref: a branch whose name merely contains a dash is refused, not answered (#1012)` | The defect the inline `contains(ref_name, '-')` carries: it is true of `feature/add-thing`, and it is the reason the rule has one home. |
+| `release-ref: a ref that is not a version tag at all is refused (#1012)` | `main`, `v1.0`. Refusing is the only safe answer, because the other one (`false`) is the arm that moves `:latest`. |
+| `release-ref: a missing ref is refused rather than defaulted (#1012)` | No default: an absent ref would otherwise read as a finished release, which is the fail-open direction. |
+| `release-ref: an unrecognised subcommand is refused and names what it does answer (#1012)` | A caller that asked for something else asked for a reason; it must not fall through to the one question that exists. |
+| `release-ref: every prerelease: input in the workflow tree is fed by a step output (#1012)` | The population is derived from `.github/workflows/` rather than remembered, so a fourth asking site added tomorrow is covered tomorrow. |
+| `release-ref: no workflow restates the prerelease test itself (#1012)` | Neither spelling this tree has used -- the GitHub expression nor the shell glob -- may survive anywhere, or there are two rules again. |
+| `release-ref: every prerelease: input is answered by a classifier under script/ci (#1012)` | The load-bearing half of "one rule, one home per classified thing": every asking site is followed back to the step it names, and that step must run a script that computes the answer. All three hops are derived -- the sites from the workflow tree, the step from the expression, the classifier from the step and from script/ci/ -- because the one thing that cannot go stale is a table nobody wrote. |
+| `release-ref: every prerelease classifier under script/ci is one this spec can ask (#1012)` | "One home per classified thing" is only true while the homes agree wherever their inputs overlap. #1012's own reasoning is that three hand-kept copies of a rule are a defect BECAUSE nothing in the tree compared any pair of them; two hand-kept copies with nothing comparing them is the same shape with one fewer copy. The owner list is derived by the same predicate the site scan uses, so a third classifier lands here the day it lands in script/ci/ -- and it fails until someone states how to ask it, because an interface is the one thing a scan cannot derive. |
+| `release-ref: no two prerelease classifiers disagree where both answer (#1012)` | The two owners accept different grammars on purpose -- a released VERSION must carry the `v` a downstream repo pins, a git REF may be a full `refs/tags/...` -- so each refuses inputs the other reads. What must never happen is the pair ANSWERING a shared input differently: one of them would be marking a Release final or moving the org's `test-tools:latest` for a tag the other calls a release candidate. Only inputs both owners accept are compared; a refusal is not a disagreement. |
+
+### test/bats/unit/release_test_tools_yaml_spec.bats (30)
 
 Structural assertions for `.github/workflows/release-test-tools.yaml`. Locks
 the publish surface that downstream Dockerfile.example's `FROM
 ${TEST_TOOLS_IMAGE} AS test-tools-stage` depends on. The workflow has three
-publish modes:
+triggers and two tag sets -- the first two triggers each resolve one:
 
-1. **Tag push (`v*`)** — multi-arch `:<version>` + `:latest`. Cuts the
-release downstream consumers pin via `inputs.test_tools_version`. 2. **Main
-push** (#317 P2) — multi-arch `:main` rolling tag. Used by self-test.yaml's
-Obtain step to skip from-source rebuilds. Paths filter (gotcha 3) restricts
-to commits that touched `dockerfile/Dockerfile.test-tools` or this workflow.
-3. **workflow_dispatch** — manual `:latest` republish, kept unfiltered for
-bootstrap.
+1. **Tag push (`v*`)** -- multi-arch `:<version>`, and `:latest` only when
+the tag is not a prerelease. Cuts the release downstream consumers pin via
+`inputs.test_tools_version`, whose default IS `latest`, which is why a
+prerelease tag must leave it alone.
 
-Smoke step uses `steps.tags.outputs.smoke` so it always pulls the tag the
-current trigger produced (rather than statically pulling `:latest`, which
-would leave a freshly-pushed `:main` unverified).
+2. **Main push** (P2) -- multi-arch `:main` rolling tag, pulled by
+self-test.yaml's Obtain step to skip from-source rebuilds. The paths filter
+(gotcha 3) restricts it to commits that touched
+`dockerfile/Dockerfile.test-tools` or this workflow.
 
-Grouped by concern:
+3. **workflow_dispatch** -- no tag set of its own: it resolves by the ref it
+was dispatched from (main takes the `:main` arm, a `v*` tag takes the tag
+rules). Any other ref is refused, so an unrecognised input publishes nothing
+rather than overwriting `:latest`.
 
-- Triggers on `v*` tag push (existing)
-
-- Triggers on main push (#317 P2)
-
-- Main push trigger has `paths:` filter limiting to Dockerfile.test-tools +
-workflow self (#317 P2 gotcha-3)
-
-- Triggers on `workflow_dispatch` (existing)
-
-- Resolve tags step: 3 publish modes (`v*` + `main` + dispatch) emit correct
-tag sets and `smoke` output
-
-- Smoke step pulls trigger's tag via `steps.tags.outputs.smoke` (#317 P2)
-
-- Native-runner matrix (#587): drops `setup-qemu-action`; `compute-matrix`
-maps platforms to native runners; build shards run on `matrix.runner`; build
-per-platform + push by digest; `merge` job creates the manifest via
-`imagetools`
-
-- Declares `packages: write` permission
+The smoke step uses `steps.tags.outputs.smoke`, so it always pulls the tag
+the current trigger produced rather than statically pulling `:latest` and
+leaving a freshly-pushed `:main` unverified. Four of the cases below RUN the
+resolver rather than reading it: the step's own `run:` body is extracted
+with yq and executed against each ref shape. The text-reading cases above
+them stayed green through four RC tags that each moved `:latest`.
 
 | Test | Description |
 |------|-------------|
@@ -3789,17 +3815,26 @@ per-platform + push by digest; `merge` job creates the manifest via
 | `release-test-tools.yaml: triggers on main push (#317 P2)` | - |
 | `release-test-tools.yaml: main push trigger has paths filter limiting to Dockerfile.test-tools + workflow self (#317 P2 gotcha-3)` | - |
 | `release-test-tools.yaml: triggers on workflow_dispatch (existing)` | - |
-| `release-test-tools.yaml: Resolve tags step handles v* tag push -> :<ver> + :latest` | - |
+| `release-test-tools.yaml: Resolve tags step handles v* tag push -> :<ver>, and :latest for a finished release` | - |
 | `release-test-tools.yaml: Resolve tags step handles main push -> :main rolling tag (#317 P2)` | - |
 | `release-test-tools.yaml: Resolve tags step emits a smoke output tracking the current trigger's tag (#317 P2)` | - |
+| `release-test-tools.yaml: a release tag publishes :<ver> and moves :latest` | The arm the four text-reading cases above only READ. It is the one ref shape allowed to move the tag every unpinned downstream builds its lint stage from. |
+| `release-test-tools.yaml: an RC tag publishes :<ver> and leaves :latest where it was (#1012)` | The load-bearing case: `v0.42.0-rc1` through `-rc4` each matched the `v*` trigger and each moved the tag whose default every unpinned downstream inherits, for the length of an RC window. |
+| `release-test-tools.yaml: a main push publishes the :main rolling tag only` | The rolling tag self-test.yaml pulls to skip a from-source rebuild; it must not reach `:latest` either. |
+| `release-test-tools.yaml: a ref the resolver does not recognise is refused, never resolved to :latest (#1012)` | `workflow_dispatch` is unrestricted by ref, so this arm is reachable from any feature branch: resolving it to the production tag made the unrecognised input the most destructive one. |
+| `release-test-tools.yaml: the header and the resolver step's own prose describe the tag rules it applies (#1012)` | A header describing a branch the code cannot reach is a defect with the same shape as the code one, and it is what a later reader believes over the code. |
+| `release-test-tools.yaml: this spec's own prose -- header, dividers and case names -- describes the surface it pins (#1012)` | What keeps the correction from being half made: a case NAME is what the TAP line prints, so a stale one reports the new behaviour under the old description on every green run. |
 | `release-test-tools.yaml: smoke step pulls the trigger's tag (not statically :latest) (#317 P2)` | - |
+| `release-test-tools.yaml: the smoke step derives its version assertions from the pin roster (#1012)` | One loop over the pins the Dockerfile declares, rather than fourteen hand-written comparisons that leave the next tool unasserted the day it is pinned. |
+| `release-test-tools.yaml: the smoke step refuses an empty pin roster (#1012)` | A loop fed by a command that failed simply gets no input and passes, which is fail-open for a step whose whole assertion is that the versions were checked. |
+| `release-test-tools.yaml: the merge job's checkout rationale names what the smoke step reads (#1012)` | That sentence is what a reader follows to the file doing the comparison, and it still named the accessor the step had stopped opening. |
 | `release-test-tools.yaml: drops docker/setup-qemu-action (native arm64 runner, #587)` | - |
 | `release-test-tools.yaml: compute-matrix job maps platforms to native runners (#587)` | - |
 | `release-test-tools.yaml: build shards run on the matrix runner (#587)` | - |
 | `release-test-tools.yaml: build shards build per-platform and push by digest (#587)` | - |
 | `release-test-tools.yaml: merge job creates the multi-arch manifest via imagetools (#587)` | - |
 | `release-test-tools.yaml: declares packages: write permission for GHCR push` | - |
-| `release-test-tools.yaml: the build job carries the same-repo guard (#766)` | - |
+| `release-test-tools.yaml: the build job carries the same-repo guard (#766)` | Inert today -- this workflow has no `pull_request` trigger at all -- so that adding one later cannot open the hole silently. |
 | `release-test-tools.yaml: merge job checks out the repo so the smoke step can read the pins (#947)` | The precondition the other five rest on -- with no checkout in the merge job there is no Dockerfile to read the pins out of, and the whole comparison degrades to the exit-0 check it replaced |
 | `release-test-tools.yaml: smoke step reads the shellcheck pin from the Dockerfile (#947)` | The expectation has to come from the pin: a version literal in the workflow would be a second place to bump, and two literals agreeing prove only that somebody edited both |
 | `release-test-tools.yaml: smoke step reads the hadolint pin from the Dockerfile (#947)` | The pin that sat 3.8 years stale behind an exit-0 check -- the concrete drift this whole step was rewritten for, so its half of the comparison is asserted separately from shellcheck's |
@@ -5909,6 +5944,40 @@ Unit tests for the repo-local command-group scaffolder
 | `main copies terminator config file` | Config copy |
 | `main calls chown with correct user and group` | Permissions |
 | `script runs entry_point when executed directly` | Direct-run guard |
+
+### test/bats/unit/test_tools_pins_spec.bats (13)
+
+The release smoke step ran fifteen probes against the image it had just
+published, and fourteen of them asserted an exit status and nothing else --
+which catches a tool's removal and never its staleness. Three tools besides
+`just` are pinned by an `ARG` in `dockerfile/Dockerfile.test-tools`
+(`BATS_VERSION`, `KCOV_VERSION`, `ALPINE_VERSION`) and none was compared to
+anything; the last was not probed at all.
+
+Three more comparisons would leave the same defect one `ARG` away, so
+`script/ci/test-tools-pins.sh` derives the POPULATION from the declaration
+and refuses to produce a roster while a declared pin has no probe. What
+stays a fixed table is the vocabulary -- how to ask a given tool its version
+-- the same detector/population split
+`script/test/drivers/just_provenance.sh` draws. The behavioural half is
+`test/bats/integration/test_tools_pins_spec.bats`; the published-image half
+is the smoke step, which iterates this same roster.
+
+| Test | Description |
+|------|-------------|
+| `test-tools pins: the roster names every ARG *_VERSION the Dockerfile declares (#1012)` | The population is compared against a reader that is not the accessor's, so this is a real comparison rather than the accessor agreeing with itself. |
+| `test-tools pins: every roster row carries a pin and a probe (#1012)` | A row with no probe is a pin nobody can ask about, which is the silence this roster exists to end. |
+| `test-tools pins: a declared pin with no probe is refused, naming it (#1012)` | The load-bearing case, and the anti-recurrence property: a tool cannot be pinned in that Dockerfile and go unasserted. |
+| `test-tools pins: a pin the Dockerfile spells differently is on the roster, not dropped (#1012)` | That refusal is only as wide as the reader that finds the pins, and an indented instruction, a lower-case keyword and a lower-case name prefix are all legal declarations the first anchor walked past. |
+| `test-tools pins: a Dockerfile declaring no pin at all is refused, not answered empty (#1012)` | An empty roster satisfies every consumer that iterates it, in silence. |
+| `test-tools pins: check accepts the exact declared version (#1012)` | The ordinary agreement, without which every refusal below could be a rule that refuses everything. Every observed string is built from the declared pin, so a bump cannot break this case without breaking the rule it asserts. |
+| `test-tools pins: check accepts a longer version under a series pin (#1012)` | a series pin (`ALPINE_VERSION=3.22`) against `/etc/alpine-release`'s patch answer (`3.22.5`): an equality rule would fail every image this Dockerfile can build. Both sides are derived from the roster, so the example in this sentence cannot drift away from what the case runs. |
+| `test-tools pins: check refuses a downlevel version (#1012)` | Staleness, which is the whole reason the exit-0 probes were not enough. |
+| `test-tools pins: check refuses a version the pin is merely a digit prefix of (#1012)` | `v43` is not satisfied by `v431`: the false green a substring test wearing a boundary check's clothes would give. |
+| `test-tools pins: check refuses empty observed output (#1012)` | A probe that did not run is not agreement. |
+| `test-tools pins: check refuses an ARG that is not on the roster (#1012)` | There is nothing to compare against, so it refuses rather than passing over it. |
+| `test-tools pins: an unrecognised subcommand is refused and names what it does answer (#1012)` | It must not fall through to the roster, because a roster is an answer the caller would then act on. |
+| `test-tools pins: roster and check read a quoted declaration the same way (#1012)` | Quoting a build arg's default is legal, and the two halves of one accessor disagreeing about it fails a CORRECT image while naming a pin nobody could satisfy. |
 
 ### test/bats/unit/tmux_conf_spec.bats (12)
 

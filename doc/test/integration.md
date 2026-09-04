@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **162 tests**.
+Integration specs under `test/bats/integration/`: **163 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -305,6 +305,21 @@ why the same defect shipped twice.
 | `archive manifest: still declares every path the hardcoded cp list carried (#914)` | No payload path was silently pruned while making the list tolerant |
 | `archive manifest: a payload entry deleted behind its own comment is no longer declared (#914)` | The payload guard cannot be satisfied by the prose that explains the entry |
 | `archive manifest: names no wrapper that init.sh no longer creates at the repo root (#914)` | The #558 instance: no removed root wrapper is declared as a payload path |
+
+### test/bats/integration/test_tools_pins_spec.bats (1)
+
+The image really ships the versions its Dockerfile pins -- the behavioural
+half of `test/bats/unit/test_tools_pins_spec.bats`. The suite runs INSIDE
+the test-tools image, so every tool on `PATH` is the image's own copy and
+the probe the roster names can simply be run. Fail-closed, for the reason
+its `just` sibling states: an image whose tool disagrees with the
+declaration is exactly the drift this exists to report, and a skip would
+restore the silence. A probe that cannot run at all is reported too -- it is
+not evidence that the version is right.
+
+| Test | Description |
+|------|-------------|
+| `test-tools image: every pinned tool answers with the declared version (#1012)` | It iterates the roster rather than a list of tools, so a pin declared tomorrow is asserted tomorrow -- and a probe that cannot run at all is reported rather than read as agreement. |
 
 ### test/bats/integration/upgrade_spec.bats (24)
 
