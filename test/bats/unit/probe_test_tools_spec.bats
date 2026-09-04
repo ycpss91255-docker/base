@@ -210,10 +210,14 @@ _probe_image img '${DOCKERFILE}'"
 # just_runner_version_spec is fail-closed on exactly that -- so accepting
 # the image reddens a PR that touched nothing related
 @test "probe: an image shipping ANOTHER just is refused and both versions named (#948)" {
-  local _pin
+  # The two linters are given their real versions so the refusal below can
+  # only be about the runner.
+  local _pin _sc _hd
   _pin="$(bash -c "$(_src); _probe_just_pin")"
+  _sc="$(bash -c "$(_src); _probe_pinned_version '${DOCKERFILE}' shellcheck")"
+  _hd="$(bash -c "$(_src); _probe_pinned_version '${DOCKERFILE}' hadolint")"
   run bash -c "$(_src)
-$(_fake_run "*'just --version'*) echo 'just 1.0.0' ;;")
+$(_fake_run "*'shellcheck --version'*) echo 'version: ${_sc}' ;; *'hadolint --version'*) echo 'Haskell Dockerfile Linter ${_hd}' ;; *'just --version'*) echo 'just 1.0.0' ;;")
 _probe_image img '${DOCKERFILE}'"
   assert_failure 1
   assert_output --partial 'just'
@@ -366,7 +370,8 @@ _probe_image img '${_f}'"
 # and the versions it reports are READ from the Dockerfile like everywhere
 # else in this file, so a pin bump still touches one place.
 
-# _fake_docker <bin_dir> <shellcheck-version> <hadolint-version> <alpine-release>
+# _fake_docker <bin_dir> <shellcheck-version> <hadolint-version>
+#              <alpine-release> <just-version>
 #   A `docker` that answers the three questions _probe_run asks -- presence
 #   (`command -v <tool>`), tool version, and which alpine the image was
 #   built on -- for the readings given. It reads the LAST argument, which
@@ -377,6 +382,7 @@ _fake_docker() {
   local _sc="${2:?BUG: _fake_docker expects a shellcheck version}"
   local _hd="${3:?BUG: _fake_docker expects a hadolint version}"
   local _al="${4:?BUG: _fake_docker expects an alpine release}"
+  local _ju="${5:?BUG: _fake_docker expects a just version}"
   mkdir -p "${_dir}"
   cat > "${_dir}/docker" <<EOS
 #!/usr/bin/env bash
@@ -386,6 +392,7 @@ case "\${_cmd}" in
   'shellcheck --version') echo 'ShellCheck - shell script analysis tool'
                           echo 'version: ${_sc}' ;;
   'hadolint --version')   echo 'Haskell Dockerfile Linter ${_hd}' ;;
+  'just --version')       echo 'just ${_ju}' ;;
   'cat /etc/alpine-release') echo '${_al}' ;;
   *) echo "fake docker: unexpected command: \${_cmd}" >&2; exit 127 ;;
 esac
@@ -396,11 +403,12 @@ EOS
 # why: Drives the script as a program over a PATH-shimmed docker, so the one
 # function that touches the daemon is actually entered
 @test "probe: end to end, an image reporting the pinned versions is accepted (#947)" {
-  local _sc _hd _al
+  local _sc _hd _al _ju
   _sc="$(bash -c "$(_src); _probe_pinned_version '${DOCKERFILE}' shellcheck")"
   _hd="$(bash -c "$(_src); _probe_pinned_version '${DOCKERFILE}' hadolint")"
   _al="$(bash -c "$(_src); _probe_pinned_series '${DOCKERFILE}'")"
-  _fake_docker "${TEMP_DIR}/bin" "${_sc}" "${_hd}" "${_al}.0"
+  _ju="$(bash -c "$(_src); _probe_just_pin")"
+  _fake_docker "${TEMP_DIR}/bin" "${_sc}" "${_hd}" "${_al}.0" "${_ju}"
   # No dockerfile argument: this is CI's own invocation shape, so the
   # default-resolution branch of main runs here too.
   PATH="${TEMP_DIR}/bin:${PATH}" run bash "${PROBE}" some-image:tag
@@ -414,11 +422,12 @@ EOS
   # The failure this whole file exists for: the tool is present, so a
   # presence check passes, and the lint gate would run the previous rule
   # set behind a green check.
-  local _sc _hd _al
+  local _sc _hd _al _ju
   _sc="$(bash -c "$(_src); _probe_pinned_version '${DOCKERFILE}' shellcheck")"
   _hd="$(bash -c "$(_src); _probe_pinned_version '${DOCKERFILE}' hadolint")"
   _al="$(bash -c "$(_src); _probe_pinned_series '${DOCKERFILE}'")"
-  _fake_docker "${TEMP_DIR}/bin" '0.1.0' "${_hd}" "${_al}.0"
+  _ju="$(bash -c "$(_src); _probe_just_pin")"
+  _fake_docker "${TEMP_DIR}/bin" '0.1.0' "${_hd}" "${_al}.0" "${_ju}"
   PATH="${TEMP_DIR}/bin:${PATH}" run bash "${PROBE}" some-image:tag "${DOCKERFILE}"
   assert_failure 1
   assert_output --partial 'shellcheck'
