@@ -1,0 +1,40 @@
+# base ADR-registry tooling (`just adr <recipe>`).
+#
+# ADR-00000011: action-named namespaces, one per subject; `adr` is the
+# registry under doc/adr/ and the references into it. Its sibling gate is
+# script/test/drivers/adr_numbering.sh, which is where a defect in the
+# registry is REPORTED; this namespace is where one is repaired.
+#
+# `set working-directory` mirrors script/test/justfile.test so recipes run
+# from the repo root whether reached via the `adr` module or `just -f`.
+set working-directory := '../..'
+
+# source_file (not justfile) is this module's own file: inside a mod?'d
+# module justfile resolves to the ROOT entry, so listing it would show the
+# entry's namespaces instead of these recipes.
+# Default: list available recipes
+default:
+    @just --justfile '{{source_file()}}' --list
+
+# lifecycle: CREATES NOTHING to reclaim. Pure bash over the checkout -- no
+# compose, no container, no project.
+#
+# just adr renumber <record> <number> -> move one ADR record to another
+# number and rewrite every reference to it, in one step.
+#
+# <record> is the number when one record claims it (`just adr renumber 30
+# 33`) and the filename when more than one does. The reference set is
+# DERIVED from the tree, not listed: the tracked files are swept for the
+# three reference forms, the ADR index's bare numbers are rewritten there
+# and nowhere else, and the generated documents under doc/test are
+# REGENERATED rather than edited -- a `@test` name carrying the number is
+# a row in one of them.
+#
+# It refuses, before writing anything, a target number somebody already
+# claims and a source number two records claim: with two claimants a bare
+# `ADR-<n>` in prose cannot be attributed to either, so the tool says so
+# instead of guessing. The repair for that state is to renumber on the
+# branch, where the record is the only claimant, and merge afterwards.
+# script/adr/renumber.sh's header argues all of it.
+renumber *args:
+    ./script/adr/renumber.sh {{args}}

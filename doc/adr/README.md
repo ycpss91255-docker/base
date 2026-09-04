@@ -12,8 +12,28 @@ files *is* the registry. The ADR-numbering lint
 (`script/test/drivers/adr_numbering.sh`, wired into `just test`; landed
 with the PRD work under #808 / #823) guards it: a duplicate ADR number or
 a malformed filename **fails** CI, while a numbering **gap** is warned,
-not failed. This `README.md` is deliberately *not* an ADR file (its name
-does not match `NNNNNNNN-<slug>.md`), so it does not perturb that lint.
+not failed. The same lint reads the POINTERS into the registry
+(base#1021): a reference to a number no record claims, a `doc/adr/` path
+whose number and slug are not a file, and an audit table that has lost a
+row, gained one for no record, or carries two rows on one number all fail
+it too. This `README.md` is deliberately *not* an ADR file (its name does
+not match `NNNNNNNN-<slug>.md`), so it does not perturb the naming half.
+
+**Allocating a number, and what to do when two branches took the same
+one.** The rule is still "take the next free number", and it still
+collides: nothing allocates, so parallel branches read the same tree and
+are each right (ADR-00000033 records why that is kept rather than fixed).
+When it collides, do not sweep the references by hand -- the last hand
+sweep touched 14 files and was left incomplete in three of them. Run
+
+```text
+just adr renumber <record> <number>
+```
+
+on the BRANCH, before merging, where your record is the only claimant of
+its number: it moves the record, rewrites every reference it can derive,
+regenerates the catalogues, and refuses rather than guessing where a
+number has two claimants.
 
 **Authoring rule.** The ADR-structure lint
 (`script/test/drivers/adr_structure.sh`) requires exactly one occurrence of
@@ -100,6 +120,7 @@ establishes one of those is `elevates-principle`.
 | 00000030 -- the `config/<component>/` layout + the preset selector | keep | invariant 8 (dev/field separation) -- completes ADR-00000023 with the half it left open, WHICH config a build bakes; also invariant 4 (the committed preset is the inert one), invariant 2 (a selector resolving to nothing is reported, not found inside `docker build`) and invariant 10 (audience is not a second record of tunability) | Answers #826 ask 1 and all five of #827, which ADR-00000023 only forward-referenced. The org was surveyed first: preset selection had already converged on one shape in three repos (a repo-root symlink into `config/<component>/` read through an `ARG` whose default is its own name), so the decision writes down what works rather than inventing a mechanism -- and the one repo choosing a preset without the symlink pays for it with a three-branch `COPY` fallback duplicated per stage. Grouping is by count, not taxonomy (`launch/` exists once there is a second `*.launch`), which describes 6 of 6 component directories today where mandatory type-first would migrate 4. Audience directories are refused as a second record of what `deploy.manifest` already says. Enforcement reaches only what base can see: base reports the selectors in the tree it runs against, and nothing gates a downstream's directory shape. |
 | 00000031 -- ABI-gated dependency-bump auto-release | keep (amends 00000027) | invariant 6 (one convention in base rather than seventeen repo-local definitions of "safe to release") -- mechanism; also invariant 4 ("cannot determine" resolves to not releasing) and invariant 2 (the gate names the rule that refused) | The answer to #829's second half. `script/ci/abi-gate.sh` decides one question -- did this dependency's declared ABI component move -- and refuses everything else: an unreadable version, an undeclared or unrecognised axis, a 0.x pin declared major-only, a downgrade, an unchanged pin, a pair the upstream compat declaration does not sanction. No default ABI axis, deliberately: librealsense's SONAME carries its minor and a plain major-only library disagrees, so any default is wrong for somebody in the direction that releases a break. A gate may cut a Z and nothing else, which is what keeps it inside ADR-00000027 section 2. The release goes through the new `version` input of `release-worker.yaml` (`on: workflow_call` only, reached by a caller's job) rather than a bot-pushed tag, because an event created with the default `GITHUB_TOKEN` starts no workflow run. Written against #1012's defect class. |
 | 00000032 -- the container entry point is base's; the repo's entrypoint is a bringup it sources | elevates-invariant (6) | invariant 6 (base is a subtree, downstream a thin caller) -- the mechanism half: anything base must be able to change later has to ship from `.base/`, so it cannot live in a file seeded into a repo and owned by it from then on | base's plumbing moved out of the seeded `script/entrypoint.sh` into an orchestrator shipped in the runtime helper directory. Records why base does NOT rewrite existing entrypoints (only the owner can tell a bringup line from base plumbing), and why the two per-repo edits -- flip `ENTRYPOINT`, clean the bringup -- must land together. Adds `/usr/local/lib/base/entrypoint.sh`; changes no path ADR-00000006 freezes. |
+| 00000033 -- ADR numbers collide by construction; the repair is a verb | keep | invariant 2 (never fail silently) -- the half that says an incomplete repair must be visible; establishes no invariant, an ADR number is a naming mechanism | Answers #1021. Nothing allocates an ADR number, so three branches took 00000030 on one day and each was right by the only rule there is. The collision is KEPT -- it already reaches a red check -- and the repair becomes `just adr renumber`, whose reference set is derived from the tree rather than listed, whose classes are told apart (a bare number is an index reference and a lint spec's fixture elsewhere), and which regenerates the doc/test catalogues instead of editing them, because a `@test` name carrying the number is a row in one. The registry lint gains the pointer checks: a reference to no record, a doc/adr path whose number and slug are not a file, and an index that has lost a row or carries two on one number -- the check that would have caught the hand repair this ADR found incomplete. A number two records claim is refused rather than guessed at. |
 
 ## Audit conclusion
 
@@ -124,6 +145,10 @@ establishes one of those is `elevates-principle`.
 - **00000030** postdates the audit and is listed for index completeness;
   its verdict column reads `keep` because it is a mechanism decision under
   invariant 8, which ADR-00000023 already established.
+- **00000033** postdates the audit and is listed for index completeness;
+  its verdict column reads `keep` because an ADR number is a naming
+  mechanism -- it serves invariant 2 (an incomplete repair must be
+  visible) without establishing it.
 - **amend:** 0 in the verdict column; 1 recommended follow-up (a
   forward-pointer on 00000010 -- see below)
 - **merge:** 0

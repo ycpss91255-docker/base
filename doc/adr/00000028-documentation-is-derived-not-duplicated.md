@@ -18,7 +18,8 @@
   ADR-00000018 (the ISTQB taxonomy whose level directories the report
   groups by); ADR-00000027 (release cadence -- this rides the release
   commit that cadence already produces); docker_harness **#287** (the
-  mechanical merge conflict this removes the cause of).
+  mechanical merge conflict this removes the cause of); **#1024** (the
+  amendment below: a bound stored in a driver is a derived figure too).
 
 ## Context
 
@@ -310,11 +311,61 @@ paragraph per spec file is the whole of `doc/test/`. It must say why the
 file exists and why it tests the way it does -- which is what it already
 does well, and is the half no generator can write.
 
+### Amendment (#1024, 2026-09-04): a BOUND is a derived figure too, and derived here means down-only
+
+This record's rule is about statistics -- a figure describing a moving
+tree, kept by hand, going stale between every commit and its resync. A
+number that is a **bound** rather than a description was not in view, and
+one arrived afterwards: the description lint's undescribed-test ceiling
+(#999), a single `readonly` in `script/test/drivers/catalog_description.sh`
+that the lint fails above.
+
+It reproduced this ADR's defect under a different name. The policy is
+down-only, so every branch that describes a test has a correct reason to
+lower it; every branch therefore edits the same line, and every merge
+conflicts on it -- the 61-conflicts-in-65-merges shape, one figure
+instead of five. Worse, the conflict's correct resolution is **neither
+side**: descriptions compose, so two branches lowering to 2617 and 2614
+merge into a tree that measures 2609. It was landed wrong twice in one
+cycle.
+
+**The amendment: the ceiling is generated output.**
+`script/test/sync-doc-counts.sh` writes it in the run that writes the
+catalogues, from the same spec tree; the drift gate compares it; the
+merge resolver recomputes it. That is a category change this ADR has to
+say out loud, because it is the first time a **driver's constant** is
+generated rather than a document: the rule "documentation is derived"
+generalises to "a figure about the tree is derived, wherever it is
+stored", and a `.sh` file is a place a figure can be stored.
+
+**What does NOT generalise, and it is the reason a bound is not a
+statistic.** A generator that writes whatever it measures turns a ratchet
+into a mirror, and a lint that mirrors the tree bounds nothing. So the
+write is one-directional in the other sense too: a measurement lower than
+the record replaces it, a measurement higher leaves the record alone and
+the breach reaches the lint. Raising the number stays a deliberate hand
+edit in a reviewable diff, and a merge cannot raise it as a side effect.
+
+#999's reasoning is untouched by this. "One number, not a roster of
+per-test exemptions" was the choice, and it still is; what moved is who
+writes the one number, not how many there are.
+
 ## Alternatives
 
 **Keep the total, update it only at release.** Rejected in sec. 3: it
 trades a merge conflict for a figure that is silently wrong most of the
 time.
+
+**(#1024) Store the ceiling where merges do not collide** -- a one-line
+file with a `.gitattributes` merge driver whose resolution is "recompute".
+Rejected on the same ground as the driver alternative below: it is
+machinery nobody here has, invisible until it misfires, and it would
+duplicate a recomputation the doc generator already performs.
+
+**(#1024) Do not store the ceiling at all** -- fail when the undescribed
+count exceeds the count at the merge base. Rejected: it needs a base ref
+at lint time, which the container does not reliably have, and a lint whose
+verdict depends on how much history was fetched is worse than no lint.
 
 **Auto-resolve the conflict with a git merge driver.** A `.gitattributes`
 driver could regenerate the count during a merge. It removes the conflict

@@ -70,12 +70,17 @@ _file() {
 # reference class that stays unambiguous even where the number does not --
 # and the class a rewrite of `ADR-<n>` alone would leave behind.
 @test "adr renumber: rewrites a doc/adr path reference, slug and all (#1021)" {
+  # Assembled from variables, and the reason is this case's own subject: a
+  # literal `doc/adr/NNNNNNNN-<slug>.md` in THIS file is a reference in the
+  # real tree, where `entry-point` names no record -- so the fixture
+  # spelled the obvious way would fail the ADR-reference lint.
+  local _from='00000030' _to='00000032'
   _file 'test/bats/unit/init_spec.bats' \
-    '  local _adr=/source/doc/adr/00000030-entry-point.md'
+    "  local _adr=/source/doc/adr/${_from}-entry-point.md"
   run bash "${RENUMBER}" 30 32 "${ROOT}"
   assert_success
   run cat "${ROOT}/test/bats/unit/init_spec.bats"
-  assert_output --partial '/source/doc/adr/00000032-entry-point.md'
+  assert_output --partial "/source/doc/adr/${_to}-entry-point.md"
 }
 
 # why: The index writes its numbers bare, and everywhere else a bare
@@ -172,7 +177,9 @@ _file() {
 # reference to the old number survived. A class nobody thought of shows up
 # as a failure here rather than as a green run with a stale pointer.
 @test "adr renumber: reports the files it rewrote and leaves no reference behind (#1021)" {
-  _file 'CONTEXT.md' 'ADR-00000030 and doc/adr/00000030-entry-point.md.'
+  # Assembled, for the reason the path case above states.
+  local _from='00000030'
+  _file 'CONTEXT.md' "ADR-${_from} and doc/adr/${_from}-entry-point.md."
   _file 'doc/changelog/CHANGELOG.md' '- something (ADR-00000030)'
   run bash "${RENUMBER}" 30 32 "${ROOT}"
   assert_success

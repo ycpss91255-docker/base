@@ -177,6 +177,15 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   type at 1.7.12.
 
 ### Added
+- **`just adr renumber <record> <number>` moves an ADR and every reference to
+  it (closes #1021)** -- nothing allocates an ADR number, so parallel branches
+  collide by construction; three took 00000030 in one day. The repair was a
+  14-file hand sweep and was left incomplete. The verb derives the reference
+  set from the tree, tells a reference from a lint spec's fixture, regenerates
+  the doc/test catalogues instead of editing them, and refuses -- before
+  writing -- a taken target or a number two records claim. The registry lint
+  now also fails on a reference to no record and on an index table that has
+  lost a row.
 - **`init.sh` states its new-vs-existing discriminator instead of hiding it
   in a branch (refs #928)** -- the decision is a proxy: a file only an
   already-initialized repo was meant to carry. It inverted when the template
@@ -318,6 +327,15 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 - **the changelog lint now catches an entry that was edited and not re-wrapped (refs #927)** -- a single word left alone on a continuation line with more of its paragraph on the next line. The length measure collapses whitespace on purpose and markdown collapses it again at render time, so nothing else could see it. A short final line, a table row, a fenced line and an HTML comment are left alone. Affects anyone writing an `[Unreleased]` entry.
 
 ### Fixed
+- **the undescribed-test ceiling is generated, and only ever downwards
+  (closes #1024)** -- it was a `readonly` every branch that describes a test
+  had a reason to lower, so every merge conflicted on it and the right value
+  was neither side's: 2617 and 2614 merge into a tree measuring 2609.
+  `sync-doc-counts.sh` now writes it in the run that writes the catalogue,
+  refusing to raise it, and the drift gate and the merge resolver both cover
+  it. Affects anyone describing tests: run `just test sync-docs` instead of
+  computing the number, and a conflict on it resolves with
+  `just test resolve-docs`.
 - **`compute-shards` and `coverage-gate` now gate something (closes #1009)**
   -- neither was named by a gate's `needs:`. A failed `compute-shards`
   skipped `coverage` and `coverage-gate`, both skip-tolerated, so the

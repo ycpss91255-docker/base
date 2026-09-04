@@ -52,6 +52,8 @@ mod? docker 'script/docker/justfile.docker'
 mod? test 'script/test/justfile.test'
 # Release / publish tooling (just release <recipe>)
 mod? release 'script/release/justfile.release'
+# ADR registry tooling (just adr renumber <record> <number>)
+mod? adr 'script/adr/justfile.adr'
 
 # Default: list available recipes / namespaces.
 default:

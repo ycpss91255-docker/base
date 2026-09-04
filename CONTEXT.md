@@ -53,7 +53,8 @@ _Avoid_: source, canonical copy.
 
 **base-own tooling**:
 base's self-only tooling that is NOT shipped to downstream repos:
-`script/test`, `script/release` (real directories, no `dist/` origin).
+`script/test`, `script/release`, `script/adr` (real directories, no
+`dist/` origin).
 _Avoid_: internal scripts, CI tooling.
 
 **Wrapper**:

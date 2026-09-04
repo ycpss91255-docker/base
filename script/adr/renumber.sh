@@ -1,0 +1,356 @@
+#!/usr/bin/env bash
+#
+# renumber.sh - move one ADR record to another number and rewrite every
+# reference to it, in one step, with the reference set DERIVED from the
+# tree rather than kept in a list here.
+#
+# Usage:
+#   ./script/adr/renumber.sh <record> <to> [root]
+#
+#   <record>  the record to move: its number (`30`, `00000030`) when
+#             exactly one record claims that number, or its filename when
+#             the tree is in a state where more than one does.
+#   <to>      the number to move it to; must be claimed by nothing.
+#   [root]    repo root. Defaults to the enclosing checkout.
+#
+# Exit status: 0 = renumbered; 1 = refused. Every precondition is checked
+# BEFORE the first write, so a refusal leaves nothing half-renumbered.
+#
+# ── Why this exists ─────────────────────────────────────────────────────
+#
+# Nothing allocates an ADR number. Every branch reads doc/adr/, sees the
+# highest, and takes the next one -- and every branch is right, by the only
+# rule there is, so parallel work collides by construction rather than by
+# mistake. Three branches took 00000030 on one day (base#1021).
+#
+# The collision itself reaches a red check: drivers/adr_numbering.sh fails
+# on a duplicate number. What was expensive was the REPAIR. Renumbering one
+# of them touched 14 files -- CONTEXT.md, the index row, the audit
+# keep-list and two of its "postdates the audit" notes, the changelog, an
+# amended ADR's forward pointer, six spec files, three catalogue documents,
+# a lib and a workflow -- and every one of those is a place the repair can
+# be done incompletely and stay green. It was done by hand, and it WAS left
+# incomplete: the index row for the moved record still carried the old
+# number when this tool was written.
+#
+# ── The classes of reference, and why a blind sed is wrong ──────────────
+#
+#   record    doc/adr/<from>-<slug>.md itself. Renamed with `git mv` where
+#             the root is a checkout, so the move is a move.
+#   token     `ADR-<from>` in prose, comments and code. The common one.
+#   path      `doc/adr/<from>-<slug>.md` written out as a path. Carries the
+#             slug, so it stays unambiguous where the number does not.
+#   index     a BARE <from> -- doc/adr/README.md ONLY. That document's
+#             8-digit runs are all ADR numbers (its rows open with one and
+#             its audit conclusions enumerate them). Everywhere else a bare
+#             8-digit run is not a reference: it is the throwaway registry
+#             a lint spec builds, and rewriting those is how this tool
+#             would corrupt the tests that guard it.
+#   derived   every path the doc/test generator writes. NEVER rewritten,
+#             REGENERATED once at the end. One of the 14 sites was a
+#             `@test` NAME carrying the number, and a test name is a ROW in
+#             a generated catalogue: editing the row directly puts a hand
+#             edit into a generated file, which the next regeneration
+#             reverts. The spec is a source and is rewritten; the document
+#             is rebuilt from it. `_sync_doc_counts_outputs` is asked which
+#             files those are, so this tool holds no second copy of the
+#             answer.
+#
+# The population is the tracked files where the root is a checkout, and
+# every regular file otherwise. Not a list: a list of the 14 places is the
+# same defect one level up, and it would have been written on the day the
+# fifteenth site was added.
+#
+# ── What it refuses, and why that is not a gap ──────────────────────────
+#
+# A number claimed by TWO records is refused before anything is written.
+# That is the state a collision merge lands in, and in it the `token` class
+# is genuinely unattributable: `ADR-00000030` in a sentence names whichever
+# of the two the author had in mind, and nothing in the merged tree records
+# which. Rewriting all of them corrupts every reference to the record that
+# keeps the number; rewriting none leaves the repair half-done under a
+# green gate, which is the defect this tool is for.
+#
+# So the refusal names both records and points at the resolution that IS
+# derivable: renumber ON THE BRANCH, where the record is the only claimant
+# of its number, and merge afterwards. The reference set is unambiguous
+# there, and the merge then carries a record nobody else has claimed.
+#
+# (The attribution a later version could derive: during a merge, or while
+# the merge commit is still the tip, `MERGE_HEAD` / the second parent names
+# the side each reference came from. Not built, because it holds only for
+# as long as that is true, and a repair tool whose correctness depends on
+# how soon it is run is worse than one that says what it cannot do.)
+#
+# Style: Google Shell Style Guide.
+
+if [[ "${BASH_SOURCE[0]:-}" == "${0:-}" ]]; then
+  set -euo pipefail
+fi
+
+_ADR_RENUMBER_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
+
+# The doc/test generator, for exactly one question this tool must not
+# answer for itself: WHICH FILES ARE GENERATED. Sourced, not run, for
+# `_sync_doc_counts_outputs` and `_sync_doc_counts`; it guards its own
+# `main` on being executed directly, and this file's `main` is defined
+# after the source, so the entry point below is the one that runs.
+# shellcheck source=script/test/sync-doc-counts.sh
+source "${_ADR_RENUMBER_DIR}/../test/sync-doc-counts.sh"
+
+# An ADR record's basename: the contract drivers/adr_numbering.sh enforces.
+_ADR_RECORD_RE='^[0-9]{8}-.+\.md$'
+
+_renumber_err() {
+  {
+    printf 'adr renumber: %s\n' "$1"
+  } >&2
+}
+
+_renumber_usage() {
+  {
+    printf 'Usage: renumber.sh <record> <to> [root]\n'
+    printf '  <record>  the record to move: its number, or its filename\n'
+    printf '            when more than one record claims that number.\n'
+    printf '  <to>      the number to move it to; must be free.\n'
+    printf '  [root]    repo root (default: the enclosing checkout).\n'
+  } >&2
+}
+
+# _renumber_pad <n> -- <n> as the canonical 8 digits.
+_renumber_pad() {
+  local _n="$1"
+  if [[ ! "${_n}" =~ ^[0-9]{1,8}$ ]]; then
+    _renumber_err "'${_n}' is not an ADR number (one to eight digits)."
+    return 1
+  fi
+  # `10#` so a leading zero is decimal and not octal; the arithmetic
+  # happens in the expansion because printf's %d does not evaluate one.
+  printf '%08d\n' "$(( 10#${_n} ))"
+}
+
+# _renumber_claimants <root> <num> -- basenames of the records claiming
+# <num>, one per line. The glob runs in a subshell so `nullglob` cannot
+# leak into a caller that is not expecting it.
+_renumber_claimants() {
+  local _root="$1" _num="$2"
+  (
+    shopt -s nullglob
+    local _f
+    for _f in "${_root}"/doc/adr/"${_num}"-*.md; do
+      printf '%s\n' "${_f##*/}"
+    done
+  )
+}
+
+# _renumber_resolve <root> <arg> -- the basename of the record <arg> names.
+# A bare number is accepted only where it is unambiguous; a filename is
+# accepted always, which is how an operator names one of two claimants.
+_renumber_resolve() {
+  local _root="$1" _arg="$2" _num _base
+  local -a _claimants=()
+  if [[ "${_arg}" =~ ^[0-9]{1,8}$ ]]; then
+    _num="$(_renumber_pad "${_arg}")" || return 1
+    mapfile -t _claimants < <(_renumber_claimants "${_root}" "${_num}")
+    if (( ${#_claimants[@]} == 0 )); then
+      _renumber_err "no record claims ${_num}: there is no doc/adr/${_num}-*.md."
+      return 1
+    fi
+    if (( ${#_claimants[@]} > 1 )); then
+      _renumber_err "${_num} is claimed by ${#_claimants[@]} records (${_claimants[*]}); name the one to move by filename."
+      return 1
+    fi
+    printf '%s\n' "${_claimants[0]}"
+    return 0
+  fi
+  _base="${_arg##*/}"
+  if [[ ! -f "${_root}/doc/adr/${_base}" ]]; then
+    _renumber_err "no such record: doc/adr/${_base}"
+    return 1
+  fi
+  if [[ ! "${_base}" =~ ${_ADR_RECORD_RE} ]]; then
+    _renumber_err "doc/adr/${_base} is not a record filename (NNNNNNNN-<slug>.md)."
+    return 1
+  fi
+  printf '%s\n' "${_base}"
+}
+
+# _renumber_tracked <root> -- every file the rewrite may read, one
+# root-relative path per line.
+#
+# Tracked files where the root is a checkout: an untracked scratch file is
+# not a reference this repo keeps true, and a build directory would make
+# the sweep enormous. A plain find otherwise, which is what a fixture tree
+# gets.
+_renumber_tracked() {
+  local _root="$1"
+  if git -C "${_root}" rev-parse --git-dir >/dev/null 2>&1; then
+    git -C "${_root}" ls-files
+    return 0
+  fi
+  ( cd "${_root}" && find . -type f -not -path './.git/*' ) | sed 's|^\./||'
+}
+
+# _renumber_population <root> -- the tracked files MINUS everything the
+# doc/test generator writes. The generated ones are regenerated at the end
+# instead; see the header on why a `@test` name is not a thing to sed.
+_renumber_population() {
+  local _root="$1" _f _out
+  local -A _derived=()
+  while IFS= read -r _out; do
+    _derived["${_out#"${_root}"/}"]=1
+  done < <(_sync_doc_counts_outputs "${_root}")
+  while IFS= read -r _f; do
+    [[ -z "${_derived[${_f}]:-}" ]] || continue
+    [[ -f "${_root}/${_f}" ]] || continue
+    printf '%s\n' "${_f}"
+  done < <(_renumber_tracked "${_root}")
+}
+
+# _renumber_patterns <from> <rel> -- the grep -E alternation that finds a
+# reference to <from> in <rel>. The bare-number class is only ever offered
+# for the index.
+_renumber_patterns() {
+  local _from="$1" _rel="$2"
+  printf 'ADR-%s|adr/%s-' "${_from}" "${_from}"
+  if [[ "${_rel}" == 'doc/adr/README.md' ]]; then
+    printf '|(^|[^0-9])%s([^0-9]|$)' "${_from}"
+  fi
+}
+
+# _renumber_rewrite_file <root> <from> <to> <rel> -- rewrite one file,
+# printing its path when it changed.
+_renumber_rewrite_file() {
+  local _root="$1" _from="$2" _to="$3" _rel="$4"
+  local _re
+  _re="$(_renumber_patterns "${_from}" "${_rel}")"
+  grep -qIE -e "${_re}" "${_root}/${_rel}" || return 0
+  local -a _args=(
+    -E -i
+    -e "s|ADR-${_from}|ADR-${_to}|g"
+    -e "s|adr/${_from}-|adr/${_to}-|g"
+  )
+  if [[ "${_rel}" == 'doc/adr/README.md' ]]; then
+    # The bare-number class, index only. Applied TWICE because the
+    # expression consumes the character on each side of the number, so two
+    # numbers with a single character between them would leave the second
+    # unmatched on the first pass.
+    # `/` and not `|` as the delimiter: the expression's own alternation
+    # is spelled with pipes, and sed reads the first one as the end of the
+    # pattern.
+    local _bare="s/(^|[^0-9])${_from}([^0-9]|$)/\\1${_to}\\2/g"
+    _args+=( -e "${_bare}" -e "${_bare}" )
+  fi
+  sed "${_args[@]}" -- "${_root}/${_rel}"
+  printf '%s\n' "${_rel}"
+}
+
+# _renumber_survivors <root> <from> -- any reference to <from> still in the
+# population, as `<file>: <match>` lines.
+#
+# The self-check, and the reason a 14-file sweep can be trusted to a tool:
+# a class nobody thought of shows up here as a failure rather than as a
+# green run with a stale pointer.
+_renumber_survivors() {
+  local _root="$1" _from="$2" _rel _re
+  while IFS= read -r _rel; do
+    _re="$(_renumber_patterns "${_from}" "${_rel}")"
+    grep -qIE -e "${_re}" "${_root}/${_rel}" || continue
+    printf '%s\n' "${_rel}"
+  done < <(_renumber_population "${_root}")
+}
+
+# _renumber_move <root> <old-base> <new-base> -- rename the record.
+_renumber_move() {
+  local _root="$1" _old="$2" _new="$3"
+  if git -C "${_root}" rev-parse --git-dir >/dev/null 2>&1; then
+    git -C "${_root}" mv -- "doc/adr/${_old}" "doc/adr/${_new}"
+    return 0
+  fi
+  mv -- "${_root}/doc/adr/${_old}" "${_root}/doc/adr/${_new}"
+}
+
+# _adr_renumber <record> <to> <root> -- the whole flow.
+_adr_renumber() {
+  local _record="$1" _to_arg="$2" _root="$3"
+  local _base _from _to
+  if [[ ! -d "${_root}/doc/adr" ]]; then
+    _renumber_err "no doc/adr/ under ${_root} -- there is no registry here to renumber."
+    return 1
+  fi
+  _base="$(_renumber_resolve "${_root}" "${_record}")" || return 1
+  _to="$(_renumber_pad "${_to_arg}")" || return 1
+  _from="${_base:0:8}"
+
+  if [[ "${_from}" == "${_to}" ]]; then
+    _renumber_err "doc/adr/${_base} already carries ${_to}."
+    return 1
+  fi
+
+  # Ambiguity is refused whichever way the record was named: with two
+  # records on one number the `ADR-<from>` class cannot be attributed by
+  # any rule. See the header.
+  local -a _claimants=() _taken=()
+  mapfile -t _claimants < <(_renumber_claimants "${_root}" "${_from}")
+  if (( ${#_claimants[@]} > 1 )); then
+    _renumber_err "${_from} is claimed by ${#_claimants[@]} records (${_claimants[*]}) -- a bare 'ADR-${_from}' in prose names whichever of them its author meant, and nothing here records which. Renumber on the branch instead, where the record is the only claimant of its number, and merge afterwards. Nothing was changed."
+    return 1
+  fi
+  mapfile -t _taken < <(_renumber_claimants "${_root}" "${_to}")
+  if (( ${#_taken[@]} > 0 )); then
+    _renumber_err "${_to} is already claimed by ${_taken[*]}. Nothing was changed."
+    return 1
+  fi
+
+  local _new="${_to}-${_base#*-}"
+  local -a _changed=()
+  local _rel
+  while IFS= read -r _rel; do
+    _changed+=( "${_rel}" )
+  done < <(
+    while IFS= read -r _rel; do
+      _renumber_rewrite_file "${_root}" "${_from}" "${_to}" "${_rel}"
+    done < <(_renumber_population "${_root}")
+  )
+
+  _renumber_move "${_root}" "${_base}" "${_new}" || return 1
+
+  # The generated documents are rebuilt, never rewritten. This is also
+  # what carries a renamed `@test` into its catalogue row.
+  _sync_doc_counts "${_root}" >/dev/null || return 1
+
+  local -a _left=()
+  mapfile -t _left < <(_renumber_survivors "${_root}" "${_from}")
+  if (( ${#_left[@]} > 0 )); then
+    _renumber_err "the record and ${#_changed[@]} file(s) were rewritten, but a reference to ${_from} survives in: ${_left[*]}. That is a class of reference this tool does not know about -- fix those by hand and report it."
+    return 1
+  fi
+
+  printf 'adr renumber: doc/adr/%s -> doc/adr/%s\n' "${_base}" "${_new}"
+  local _c
+  for _c in "${_changed[@]+"${_changed[@]}"}"; do
+    printf 'adr renumber: rewrote %s\n' "${_c}"
+  done
+  printf 'adr renumber: %s reference file(s) rewritten; generated documents regenerated.\n' \
+    "${#_changed[@]}"
+}
+
+main() {
+  local _record="${1:-}" _to="${2:-}" _root="${3:-}"
+  if [[ "${_record}" == '-h' || "${_record}" == '--help' ]]; then
+    _renumber_usage
+    return 0
+  fi
+  if [[ -z "${_record}" || -z "${_to}" ]]; then
+    _renumber_usage
+    return 1
+  fi
+  if [[ -z "${_root}" ]]; then
+    _root="$(git rev-parse --show-toplevel 2>/dev/null || pwd -P)"
+  fi
+  _adr_renumber "${_record}" "${_to}" "${_root}"
+}
+
+if [[ "${BASH_SOURCE[0]:-}" == "${0:-}" ]]; then
+  main "$@"
+fi
