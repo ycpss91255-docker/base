@@ -722,8 +722,13 @@ _classify() {
 @test "build-worker.yaml: docker-build aggregator short-circuits to success on doc-only (#273)" {
   # The aggregator must report success when code_changed == 'false'
   # so branch protection's required check still resolves green even
-  # though the matrix was skipped.
-  run code_grep -F 'needs.path-filter.outputs.code_changed }}" = "false"' "${WF}"
+  # though the matrix was skipped. The classification reaches the step
+  # through `env:` rather than an inline `${{ }}`, which is what makes
+  # the branch drivable from a test rather than only greppable --
+  # workflow_failure_surface_spec runs this block against each shape.
+  run code_grep -F 'CODE_CHANGED: ${{ needs.path-filter.outputs.code_changed }}' "${WF}"
+  assert_success
+  run code_grep -F '[ "${CODE_CHANGED}" = "false" ]' "${WF}"
   assert_success
   # And it still needs both path-filter + build so the conditional
   # has both data sources.

@@ -38,6 +38,28 @@ on:
 # `github` expression is spelled once per name rather than once per job
 # because a workflow-level `env:` block cannot read the `env` context --
 # GitHub resolves the whole block against `github` only.
+# ── Ordering: one run per ref, and cancellation only where the verdict
+# stops mattering ─────────────────────────────────────────────────────
+#
+# Without a group, every push to a PR branch starts a fresh eight-shard
+# coverage matrix beside the one still running, and both keep a runner
+# each until the older one finishes work nobody will read.
+#
+# `cancel-in-progress` is scoped to `pull_request` and not spelled `true`,
+# because the two are not the same posture. On a PR branch a superseded
+# push replaces the run's verdict, so cancelling costs nothing. On a push
+# to main or a tag the run IS the record -- it gates the release job -- and
+# a cancelled run there leaves a commit whose suite never finished, with
+# nothing later to replace it. The `if: always()` rollup makes that
+# concrete rather than theoretical: a cancelled run still executes it, so
+# whatever is cancelled arrives as a RED required check on that commit.
+#
+# The group is keyed to the workflow AND the ref so a PR and the main push
+# that merges it are never in one another's group.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   CI_RUN_KEY: ${{ github.run_id }}-${{ github.run_attempt }}
   TEST_TOOLS_IMAGE: test-tools:ci-${{ github.run_id }}-${{ github.run_attempt }}
@@ -491,7 +513,14 @@ jobs:
       # cover for itself.
       #
       # `if: always()` because a job that FAILED halfway is the job most
-      # likely to have left something behind.
+      # likely to have left something behind -- and `continue-on-error`
+      # with it, because in that position `always()` ADDS a failure mode
+      # rather than swallowing one: the sweep also runs after a build that
+      # passed, and its non-zero exit would be the job's. Litter is worth a
+      # warning; it is not worth a red build whose log names a docker prune
+      # rather than the code under test. Every sweep in the tree carries
+      # both, asserted as a property in
+      # test/bats/unit/workflow_failure_surface_spec.bats.
       #
       # Both layers are ownership-scoped. A blanket `docker system prune
       # -a` here would destroy a concurrent job's in-flight build cache
@@ -507,6 +536,7 @@ jobs:
       # image would delete a sibling job's tooling 11 minutes in.
       - name: Reclaim this run's docker artifacts
         if: always()
+        continue-on-error: true
         run: ./script/ci/reclaim.sh --run "${CI_RUN_KEY}" --stale 12h
 
   bats-fragile:
@@ -628,6 +658,7 @@ jobs:
 
       - name: Reclaim this run's docker artifacts
         if: always()
+        continue-on-error: true
         run: ./script/ci/reclaim.sh --run "${CI_RUN_KEY}" --stale 12h
 
   bats-integration:
@@ -728,6 +759,7 @@ jobs:
 
       - name: Reclaim this run's docker artifacts
         if: always()
+        continue-on-error: true
         run: ./script/ci/reclaim.sh --run "${CI_RUN_KEY}" --stale 12h
 
   compute-shards:
@@ -920,6 +952,7 @@ jobs:
 
       - name: Reclaim this run's docker artifacts
         if: always()
+        continue-on-error: true
         run: ./script/ci/reclaim.sh --run "${CI_RUN_KEY}" --stale 12h
 
   coverage-gate:
@@ -1483,6 +1516,7 @@ jobs:
       # is why the scaffold directory is keyed to the run at all.
       - name: Reclaim this run's docker artifacts
         if: always()
+        continue-on-error: true
         run: ./script/ci/reclaim.sh --run "${CI_RUN_KEY}" --stale 12h
 
   system:
@@ -1597,6 +1631,7 @@ jobs:
 
       - name: Reclaim this run's docker artifacts
         if: always()
+        continue-on-error: true
         run: ./script/ci/reclaim.sh --run "${CI_RUN_KEY}" --stale 12h
 
   worker-selftest:
@@ -1708,6 +1743,15 @@ jobs:
           # job); what would be wrong is reporting the resulting run as a
           # full one. So say so, loudly, instead.
           IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+          # The classification the gated jobs already consumed, consumed
+          # once more HERE so the rollup can say what it passed on. A
+          # doc-only PR resolves this check green beside nine grey skips:
+          # a reviewer reading the checks list sees that, and a reviewer
+          # reading only the required check sees a green identical to the
+          # one a full run produces. The results are printed either way;
+          # what was missing was the sentence naming WHY almost nothing
+          # ran.
+          CODE_CHANGED: ${{ needs.classify.outputs.code_changed }}
         run: |
           set -euo pipefail
           echo "actionlint:       ${ACTIONLINT_RESULT}"
@@ -1754,6 +1798,12 @@ jobs:
           if [[ "${IS_FORK_PR}" == "true" ]]; then
             echo "::error::Fork PR: the self-hosted-eligible jobs were skipped by the same-repo guard, so this run does not certify the commit. Re-push the contribution as a same-repository branch to get a full run."
             fail=1
+          fi
+          # Said only where it is true, and only when the answer is a
+          # pass: a doc-only run that FAILED is described by its failure,
+          # not by what it skipped.
+          if [[ "${fail}" -eq 0 && "${CODE_CHANGED}" == "false" ]]; then
+            echo "::notice::Passed as a doc-only change: the diff touched nothing outside doc/, README.md, LICENSE and CONTEXT.md, so every gated job above skipped by design. This green means the classification held, not that the suite ran."
           fi
           exit "${fail}"
 

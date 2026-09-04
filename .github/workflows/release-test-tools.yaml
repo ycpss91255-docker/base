@@ -44,6 +44,23 @@ on:
       - 'v*'
   workflow_dispatch:
 
+# ── Ordering: the rolling tag has one writer at a time ────────────────
+#
+# The `merge` job's `imagetools create` is last-writer-wins on a tag, and
+# without a group the winner is decided by arm64 queue time rather than by
+# commit order: two main merges that both touch Dockerfile.test-tools can
+# finish out of order and leave `:main` pointing at the OLDER recipe --
+# which every self-test job then pulls and, until the probe rebuilds,
+# runs inside.
+#
+# `cancel-in-progress: false`, deliberately, and this is the workflow where
+# it matters most: a cancelled run between the per-arch digest pushes and
+# the manifest assembly leaves the tag naming whatever was there before,
+# with a set of orphan digests behind it. Serialise; never interrupt.
+concurrency:
+  group: release-test-tools-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
   packages: write

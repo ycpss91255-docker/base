@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3920 tests**.
+Unit specs under `test/bats/unit/`: **3930 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -6676,6 +6676,38 @@ login) for the registry backend.
 | `release-worker.yaml: release job gates on preflight (#800)` | - |
 | `release-worker.yaml: preflight runs preflight.sh with the release manifest (#800)` | - |
 | `release-worker.yaml: preflight exports archive_name_prefix into the manifest env var (#800)` | - |
+
+### test/bats/unit/workflow_failure_surface_spec.bats (10)
+
+Four properties of the workflow tree, each one about what a reader learns
+from a failed run. A cleanup sweep that reddens a build which succeeded, and
+a fork PR whose required check is red with no text distinguishing "we refuse
+to build fork code" from "the build broke", are both failures that carry no
+information -- and a reader who meets enough of them stops reading the ones
+that do. The rollup's silence on a doc-only run is the same defect inverted:
+an undifferentiated GREEN for "everything passed" and for "almost nothing
+ran". The absences are the fourth: nothing serialises the publishes that
+race for one rolling tag, nothing cancels a superseded PR's eight-shard
+matrix, and nothing bounds a hung buildx below GitHub's six-hour default.
+
+Every population here is DERIVED from the tree -- the workflow list from the
+directory, the reusable workers from `on: workflow_call`, the cleanup steps
+from what their `run:` invokes -- so the workflow, worker or sweep added
+tomorrow is scanned the day it lands. Each scan asserts what it walked
+before reading an empty result as a clean one.
+
+| Test | Description |
+|------|-------------|
+| `workflows: a cleanup sweep cannot fail the job it cleans up after (#1014)` | `if: always()` on a cleanup step ADDS a failure mode rather than swallowing one: the sweep runs after a build that passed, and its non-zero exit is the job's. Litter left behind is worth a warning; it is not worth a red build, and it is certainly not worth a red build whose log names a docker prune rather than the code under test. |
+| `build-worker: a fork PR's red explains the fork posture (#1014)` | A fork PR skips `build` under the same-repo guard, so the aggregator sees `skipped` and the required check is red forever. The posture is right -- untrusted code must not reach a self-hosted-eligible job -- but the run said nothing about it, so the contributor and the maintainer both read it as a broken build. self-test's rollup already prints the explanation for the identical case. |
+| `build-worker: a same-repo skip is not reported as a fork refusal (#1014)` | The other direction, so the message above cannot be bought by printing it on every red. A same-repo run whose matrix skipped is a workflow bug, not a refusal, and must not be described as one. |
+| `build-worker: the aggregator still passes a doc-only PR and a green matrix (#1014)` | The two passes the aggregator owes, asserted so the message work above cannot quietly turn either into a failure: a doc-only PR short- circuits green (the required check still has to resolve), and a matrix that succeeded is a pass. |
+| `build-worker: a cancelled matrix reads as cancelled, not as a broken build (#1014)` | The cost of a concurrency group, paid where it lands. A cancelled run still executes an `if: always()` aggregator, so a superseded PR push arrives here as `cancelled` -- which is not a build failure and must not be reported as one. |
+| `self-test: the rollup names the doc-only classification it passed on (#1014)` | A doc-only PR emits nine grey skips beside a green `ci-rollup`. A reviewer reading the checks list can see that; a reviewer reading only the required check sees an undifferentiated green, and the rollup's summary was identical for "everything passed" and "almost nothing ran". The classification the rollup already consumes is the answer, said out loud. |
+| `self-test: a full green run is not announced as doc-only (#1014)` | The opposite direction, so the notice cannot be bought by printing it always: a full run that passed everything is not a doc-only run and must not claim to be one. |
+| `workflows: every workflow a trigger can start declares a concurrency group (#1014)` | Nothing in the tree orders anything. Every push to a PR branch starts a fresh eight-shard coverage matrix beside the one still running, and two main merges touching the test-tools Dockerfile run two unserialised publishes whose last writer is decided by arm64 queue time rather than by commit order -- which is how a rolling tag ends up pointing at the older build. |
+| `workflows: no concurrency group cancels a run whose verdict is the record (#1014)` | Cancellation is only free where the cancelled run's verdict no longer matters. On a PR branch a superseded push replaces it; on a main push or a tag the run IS the record, and on the publish path a cancelled `imagetools create` is how a rolling tag loses an arch. So a group may cancel a pull_request and nothing else -- and an `if: always()` aggregator turns whatever it cancels into a red required check. |
+| `reusable workers: every job that runs steps bounds them (#1014)` | A worker runs on the CALLER's runner budget, and a hung buildx burns GitHub's six-hour default per shard before anyone sees it. The bound is per job rather than per workflow because that is the only place GitHub accepts one, and it is asserted over the derived worker roster so the fifth worker cannot land unbounded. |
 
 ### test/bats/unit/workflow_unchecked_producer_spec.bats (6)
 

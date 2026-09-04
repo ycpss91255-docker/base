@@ -111,7 +111,8 @@ _aggregate() {
   run _aggregate true skipped true
   assert_failure
   assert_output --partial '::error::'
-  assert_output --partial 'fork'
+  assert_output --partial 'Fork PR'
+  assert_output --partial 'same-repository branch'
 }
 
 # why: The other direction, so the message above cannot be bought by
@@ -120,6 +121,7 @@ _aggregate() {
 @test "build-worker: a same-repo skip is not reported as a fork refusal (#1014)" {
   run _aggregate true skipped false
   assert_failure
+  refute_output --partial 'Fork'
   refute_output --partial 'fork'
 }
 

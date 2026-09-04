@@ -236,6 +236,15 @@ jobs:
   # ────────────────────────────────────────────────────────────────
   preflight:
     runs-on: ubuntu-latest
+    # A worker runs on the CALLER's minutes, so every job of it bounds
+    # itself: GitHub's default is SIX HOURS per job, and a hung buildx or a
+    # curl against an unreachable registry burns all of it, per matrix
+    # shard, before anyone is told. The numbers are ceilings, not budgets
+    # -- each sits far above the measured run so a slow day is not a red
+    # build, and far below the default so a wedge is one. Asserted as a
+    # property over the derived worker roster in
+    # test/bats/unit/workflow_failure_surface_spec.bats.
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
@@ -275,6 +284,7 @@ jobs:
   # ────────────────────────────────────────────────────────────────
   path-filter:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     # Checks out and diffs; touches nothing else. Without the block this
     # job would inherit the calling repo's whole grant.
     permissions:
@@ -355,6 +365,7 @@ jobs:
     needs: path-filter
     if: needs.path-filter.outputs.code_changed == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
     outputs:
@@ -405,6 +416,11 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.compute-matrix.outputs.matrix) }}
     runs-on: ${{ matrix.runner }}
+    # The heaviest job in the org: the Isaac Sim image is a measured ~31
+    # minutes warm and recompiles cold whenever the layer cache misses.
+    # 120 leaves room for a cold arm64 shard on a bad day and still stops
+    # a hung buildx three hours before the default would.
+    timeout-minutes: 120
     # The job builds but never pushes an image (`push: false`, no `tags:`),
     # so a checkout grant is all it needs.
     # A job in a CALLED workflow may only NARROW the calling job's grant,
@@ -814,8 +830,14 @@ jobs:
       # 12h for the reason self-test.yaml uses it: the window has to sit
       # above the longest a job may run, or the sweep deletes a sibling
       # job's work in flight.
+      # `continue-on-error` because `if: always()` here ADDS a failure mode
+      # rather than swallowing one: the sweep runs after a build that
+      # passed, and its non-zero exit would be the job's. Litter left on a
+      # shared host is worth a warning; it is not worth a red build whose
+      # log names a docker prune rather than the code under test.
       - name: Reclaim this run's docker artifacts
         if: always()
+        continue-on-error: true
         run: |
           bash .worker-base/script/ci/reclaim.sh \
             --run "${{ github.run_id }}-${{ github.run_attempt }}" \
@@ -834,6 +856,7 @@ jobs:
     needs: [path-filter, build]
     if: always()
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     # Reads the matrix result off `needs` and exits; it does not even
     # check out. `contents: read` rather than `{}` keeps the block
     # uniform with its siblings.
@@ -841,16 +864,48 @@ jobs:
       contents: read
     steps:
       - name: Aggregate matrix result
-        # #273 — short-circuit to success when the PR diff was doc-only,
+        # #273 -- short-circuit to success when the PR diff was doc-only,
         # so branch protection's required `call-docker-build / docker-build`
         # check still resolves green without the matrix actually running.
+        #
+        # Every input arrives through `env:` rather than inline `${{ }}`.
+        # A `${{ }}` in the script body is substituted before bash ever
+        # sees it, which makes the decision unreachable from a test: the
+        # three branches below are driven directly by
+        # test/bats/unit/workflow_failure_surface_spec.bats, which runs
+        # THIS block rather than a copy of it.
+        #
+        # Three reds, and each one says which it is. A required check is
+        # the only thing many readers look at, so "the build broke", "we
+        # refuse to build fork code" and "a newer push superseded this run"
+        # have to be three different messages -- self-test's own rollup
+        # already does this for the fork case, and a reader who meets
+        # enough uninformative reds stops reading the informative ones.
+        env:
+          CODE_CHANGED: ${{ needs.path-filter.outputs.code_changed }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          # The FORK test, not a PR test, and the same one the `build`
+          # job's own guard applies: under `workflow_call` the github
+          # context is the CALLER's, so this reads "the calling repo's run
+          # was started by a fork PR against that repo".
+          IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
         run: |
-          if [ "${{ needs.path-filter.outputs.code_changed }}" = "false" ]; then
+          set -uo pipefail
+          if [ "${CODE_CHANGED}" = "false" ]; then
             echo "Doc-only PR; full build matrix skipped. Required check passes (#273)."
             exit 0
           fi
-          result="${{ needs.build.result }}"
-          echo "Matrix build result: ${result}"
-          if [ "${result}" != "success" ]; then
+          echo "Matrix build result: ${BUILD_RESULT}"
+          if [ "${BUILD_RESULT}" = "success" ]; then
+            exit 0
+          fi
+          if [ "${IS_FORK_PR}" = "true" ] && [ "${BUILD_RESULT}" = "skipped" ]; then
+            echo "::error::Fork PR: the build matrix was skipped by the same-repo guard, so nothing was built and this check cannot certify the commit. This is the posture, not a broken build -- untrusted code must not reach a self-hosted-eligible job. Re-push the contribution as a same-repository branch to get a full run."
             exit 1
           fi
+          if [ "${BUILD_RESULT}" = "cancelled" ]; then
+            echo "::error::The build matrix was cancelled, most likely superseded by a newer push to this pull request. Read the newest run; this one built nothing."
+            exit 1
+          fi
+          echo "::error::The build matrix did not succeed (result: ${BUILD_RESULT}). Open the per-platform build jobs for the failure."
+          exit 1

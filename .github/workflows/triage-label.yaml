@@ -13,6 +13,15 @@ on:
   issues:
     types: [opened]
 
+# One labeller per issue. Two runs for the same issue -- a re-delivered
+# webhook, a re-run -- would both read `labels[0] == null` from the same
+# payload and both add the label; serialising makes the second read the
+# state the first left. Never cancelled: the run IS the labelling, and a
+# cancelled one leaves the issue untriaged with nothing to retry it.
+concurrency:
+  group: triage-label-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
 permissions:
   issues: write
 

@@ -318,6 +318,15 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 - **the changelog lint now catches an entry that was edited and not re-wrapped (refs #927)** -- a single word left alone on a continuation line with more of its paragraph on the next line. The length measure collapses whitespace on purpose and markdown collapses it again at render time, so nothing else could see it. A short final line, a table row, a fenced line and an HTML comment are left alone. Affects anyone writing an `[Unreleased]` entry.
 
 ### Fixed
+- **a red CI check names which red it is, and a cleanup failure is no longer
+  one of them (closes #1014)** -- seven artifact sweeps could fail a build
+  that had passed; they are `continue-on-error` now. A fork PR's required
+  `docker-build` check and a doc-only `ci-rollup` green both said nothing
+  about why they looked like that; both say it now. Every triggerable
+  workflow gained a concurrency group, cancelling only a superseded
+  pull_request and never a main push, tag or publish, and every reusable
+  worker job a `timeout-minutes` under GitHub's six-hour default. Affects
+  anyone reading a base or downstream CI result.
 - **`compute-shards` and `coverage-gate` now gate something (closes #1009)**
   -- neither was named by a gate's `needs:`. A failed `compute-shards`
   skipped `coverage` and `coverage-gate`, both skip-tolerated, so the
