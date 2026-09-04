@@ -111,18 +111,88 @@ EOF
   assert_output "false"
 }
 
-# why: `from ... as runtime-test` is the same declaration to buildx
-@test "runtime_stages: stage detection is case-insensitive (Dockerfile keywords are)" {
+# why: The one shape where this resolver used to disagree with every other
+# FROM-line reader in the tree. Losing it would let the resolver grow a
+# second case-insensitive regex again and hand CI a runtime image that
+# compose has no service for.
+@test "runtime_stages: a lowercase 'from ... as' line declares nothing, here as everywhere (#1013)" {
+  # The resolver used to carry its own case-insensitive regex, which made
+  # it the ONE reader in the tree that saw a stage on this line: the
+  # compose emitter, the [environment] ENV bake and the config COPY bake
+  # all agree a lowercase keyword declares nothing (stage_spec.bats,
+  # where the rule is argued). Reading the roster through that same matcher
+  # ends the disagreement -- a Dockerfile written this way now gets one
+  # answer everywhere, instead of a runtime image CI builds and compose has
+  # no service for.
   _fixture <<'EOF'
-from alpine:3 as sys
-from sys as devel
-from devel as devel-test
+FROM alpine:3 AS sys
+FROM sys AS devel
+FROM devel AS devel-test
 from sys as runtime
 from runtime as runtime-test
 EOF
   DOCKERFILE="${TMP}/Dockerfile" run --separate-stderr bash "${SCRIPT}"
   assert_success
+  assert_output "false"
+}
+
+# why: The shape the arm64 matrix invites, and the one shape the sibling
+# extra-stages loop got wrong. The old regex here read it correctly, so
+# this case is what stops the delegation to the shared matcher regressing
+# the half that already worked.
+@test "runtime_stages: the cross-build --platform FROM form declares the pair (#1013)" {
+  # The form the arm64 matrix invites. The old regex read it correctly and
+  # so does the shared matcher; the case is here so the delegation cannot
+  # regress the one shape the sibling extra-stages loop got wrong.
+  _fixture <<'EOF'
+FROM alpine:3 AS sys
+FROM sys AS devel
+FROM devel AS devel-test
+FROM --platform=$BUILDPLATFORM alpine:3 AS runtime
+FROM --platform=$BUILDPLATFORM runtime AS runtime-test
+EOF
+  DOCKERFILE="${TMP}/Dockerfile" run --separate-stderr bash "${SCRIPT}"
+  assert_success
   assert_output "true"
+}
+
+# why: The reader's `while read` loop drops a final unterminated line, and
+# a Dockerfile that ends without a newline is ordinary. Here that turns a
+# COMPLETE runtime pair into a half-declared one and fails the build naming
+# a stage the file plainly declares -- a failure whose message points at
+# the author's Dockerfile rather than at the reader that lost the line.
+@test "runtime_stages: a Dockerfile with no trailing newline declares the pair (#1013)" {
+  # The roster reader's `while read` loop returns false on a final partial
+  # line, so a Dockerfile that ends without a newline loses its last stage.
+  # Here that turns a COMPLETE runtime pair into a half-declared one and
+  # fails the build with "declares stage runtime but not runtime-test",
+  # naming a stage the file plainly declares.
+  printf 'FROM alpine:3 AS sys\nFROM sys AS devel-base\nFROM devel-base AS devel\nFROM sys AS runtime\nFROM runtime AS runtime-test' \
+      > "${TMP}/Dockerfile"
+  DOCKERFILE="${TMP}/Dockerfile" run --separate-stderr bash "${SCRIPT}"
+  assert_success
+  assert_output "true"
+}
+
+# why: The over-reading direction, which widening a pattern is how you
+# acquire. `FROM <image> <junk> AS <stage>` is not a directive docker
+# accepts, so seeing a stage there makes the worker ask buildx for a target
+# no Dockerfile can produce -- an invented pair, not a missed one.
+@test "runtime_stages: a stray bare token before AS declares nothing (#1013)" {
+  # `FROM <image> <junk> AS <stage>` is not a directive docker accepts, and
+  # the old `.*` regex read it as a declaration -- so the worker would ask
+  # buildx for a target no Dockerfile could produce. The shared matcher
+  # refuses it, and the pair reads as absent rather than half-present.
+  _fixture <<'EOF'
+FROM alpine:3 AS sys
+FROM sys AS devel
+FROM devel AS devel-test
+FROM alpine:3 junk AS runtime
+FROM alpine:3 junk AS runtime-test
+EOF
+  DOCKERFILE="${TMP}/Dockerfile" run --separate-stderr bash "${SCRIPT}"
+  assert_success
+  assert_output "false"
 }
 
 # ── The two shapes the shipped Dockerfile can be in ────────────
