@@ -35,7 +35,7 @@ downstream repo and runs `just docker build test`, whose lint stage is
 `FROM` base" -- and the rationale was false: the stage that image becomes
 runs those tools.
 
-Nothing could have caught it. A test over the workflow could asssert "five
+Nothing could have caught it. A test over the workflow could assert "five
 jobs probe" and be green with any five; a test naming the six would have
 been a roster somebody had to keep. The defect was not in any copy. It was
 that there were copies.
