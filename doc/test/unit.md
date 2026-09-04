@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3938 tests**.
+Unit specs under `test/bats/unit/`: **3951 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1180,6 +1180,27 @@ between them can be asserted at all.
 | `_compute_compose_project_name: fails loud when the digest cannot be produced (#891)` | #891 no silent degrade to the shared bare prefix |
 | `_run_via_compose: the real ids are in the environment compose interpolates (#895)` | - |
 | `_fix_permissions: refuses a non-numeric id instead of handing it to chown (#895)` | - |
+
+### test/bats/unit/classify_testtools_spec.bats (3)
+
+`testtools_changed` tells every image-consuming job whether to rebuild the
+tooling image from source instead of pulling the rolling `:main`. On a pull
+request it is computed from the diff; on every other event it was the
+literal `false`, including the one event that can answer it -- a push to
+main whose commit is what makes `:main` stale in the first place. So the
+merge that added a tool to the Dockerfile ran the whole post-merge suite
+inside the image from before it. The probe was supposed to compensate and
+was itself too narrow to notice; both halves are the same incident, and this
+is the half that can be answered from the diff.
+
+The cases drive the REAL classify step against a synthetic push, so each
+reads the output the step writes.
+
+| Test | Description |
+|------|-------------|
+| `classify: a push that changes the test-tools Dockerfile rebuilds it (#1010)` | The reported case. A push to main that changes the test-tools Dockerfile is exactly the push for which the rolling tag is stale -- the republish that would refresh it is racing this very run -- and it was the push that reported the image unchanged. |
+| `classify: a push that leaves it alone still pulls (#1010)` | The guard against answering true to every push, which would put a full multi-arch tooling build in front of every merge. A push that leaves the Dockerfile alone takes the pull path, where the probe is now the thing that catches a stale image. |
+| `classify: a push is still code-changed and system-relevant (#1010)` | A non-PR event still runs the full suite. The flag being computable now must not narrow what a push runs. |
 
 ### test/bats/unit/code_lines_spec.bats (46)
 
@@ -3260,6 +3281,33 @@ builds nothing and pushes nothing)
 | `the ports-inert diagnostic is translated in all four locales (#879)` | - |
 | `the ports-inert diagnostic differs per locale (no untranslated arms) (#879)` | - |
 
+### test/bats/unit/obtain_test_tools_spec.bats (7)
+
+Six jobs of self-test.yaml consume
+`ghcr.io/ycpss91255-docker/test-tools:main`. Five pulled it, probed it and
+rebuilt from source when the probe refused; the sixth -- the `acceptance`
+job, which scaffolds a downstream repo and runs `just docker build test`
+against a lint stage that is `FROM ${TEST_TOOLS_IMAGE}` -- pulled it and
+exited 0. It is precisely the job the mitigation was written for, and it is
+the one that did not get it, because the mitigation was a block of shell
+pasted into each job and a paste is something a person has to remember to
+do.
+
+So the decision is a script and the jobs call it. What the script decides is
+asserted here through a docker seam, with no daemon; that no job reaches
+past it is asserted at the bottom, over the workflow tree rather than over a
+list of job names.
+
+| Test | Description |
+|------|-------------|
+| `obtain: a pulled image that passes the probe is used as-is (#1010)` | The hot path. A `:main` that corresponds to this checkout is used as it is, and the local rebuild is skipped -- which is the whole reason the pull exists. |
+| `obtain: a pulled image the probe refuses is rebuilt, loudly (#1010)` | The reported defect, as behaviour. A pulled image the probe refuses must fall back to the source build -- the strict side, which self-corrects against a stale, racing or old `:main` whatever the cause -- and it must say why, because a silent rebuild is a five-minute cost nobody can attribute. |
+| `obtain: a pull that fails resolves to the source build (#1010)` | No image to probe is not a passing probe. A registry that cannot be reached leaves the run with nothing, and nothing must resolve to the source build rather than to an empty comparison. |
+| `obtain: a PR that changes the Dockerfile does not pull at all (#1010)` | When the PR itself changes the Dockerfile, `:main` is stale for it by definition -- so the pull is not attempted at all. Asserted on the ABSENCE of the pull rather than on the verdict alone: the verdict is the same either way, and pulling first would spend the minute anyway. |
+| `obtain: inline mode performs the fallback build itself (#1010)` | The two jobs that cannot use the cached buildx action -- they run the docker driver so `docker compose build`'s `FROM ${TEST_TOOLS_IMAGE}` resolves against the host daemon -- need the fallback build to happen HERE rather than in a following step. One flag, so the difference between the two callers is one word rather than two copies. |
+| `obtain: delegate mode leaves the build to its caller (#1010)` | The mirror. In delegate mode the build is a later workflow step gated on the output, so performing it here would build the image twice. |
+| `workflows: no job obtains the rolling test-tools tag by hand (#1010)` | The structural half of the same defect, and the half that stops it recurring. While the decision was shell pasted into each consuming job, nothing could tell a job that probes from a job that does not -- no single copy looked wrong, and the one without a probe read like the others. A job that reaches the rolling tag without going through the script is that copy, whoever writes it next. |
+
 ### test/bats/unit/prev_release_gating_spec.bats (8)
 
 | Test | Description |
@@ -3273,7 +3321,7 @@ builds nothing and pushes nothing)
 | `prev-release gate: under kcov the shard out-ranks a leftover BATS_FILE` | - |
 | `prev-release gate: --bats-path over the spec itself refuses to start when the tags cannot be resolved` | - |
 
-### test/bats/unit/probe_test_tools_spec.bats (25)
+### test/bats/unit/probe_test_tools_spec.bats (29)
 
 Unit tests for `script/ci/probe_test_tools.sh`, the CI-side verdict on
 whether a pulled `test-tools:main` corresponds to the checkout that pulled
@@ -3303,11 +3351,15 @@ here with no daemon.
 | `probe: an image carrying every tool at the pinned version is accepted (#947)` | The hot path: a matching `:main` must not cost every PR a local rebuild |
 | `probe: an image shipping ANOTHER just is refused and both versions named (#948)` | The runner mismatch a presence-only probe cannot see: `just` is there, at the version published before the bump, and just_runner_version_spec is fail-closed on exactly that -- so accepting the image reddens a PR that touched nothing related |
 | `probe: a MISSING tool is refused and named (#947)` | The kcov race the probe was originally written for |
+| `probe: the required packages are read from the Dockerfile (#1010)` | The roster was five names written into this script, and the image installs fifteen packages. `yq` was the omission that already bit us: it was added to the Dockerfile, the post-merge run took the pull path, and the probe declared the stale image acceptable because it was not looking for it. Read the final stage's own `apk add` instead, and a package added to the image is a package the probe asserts. |
+| `probe: only the FINAL stage's packages are required (#1010)` | The stage boundary, which is what makes reading the file safe. The kcov builder `apk add`s a compiler toolchain that is deliberately NOT in the final image; a reader that took every `apk add` in the file would demand `g++` of an image that is correct without it, and the first refusal it produced would be read as a bug in the probe. |
+| `probe: the required binaries are read from what lands on PATH (#1010)` | The other half of the roster. shellcheck, hadolint, kcov, just and bats are not packages -- they are COPYed in from builder stages or symlinked -- so a package reader alone would stop asserting the five tools the suite actually executes. |
+| `probe: a package the image lacks is refused and named (#1010)` | The consequence, stated as behaviour. `grep` and `coreutils` are the dangerous ones: on alpine they SHADOW busybox applets, so losing one does not produce "command not found" -- it silently changes what `sort`, `date` and `grep -P` mean, in a suite whose gates depend on the GNU semantics. |
+| `probe: a Dockerfile yielding no roster is refused, not read as agreement (#1010)` | A roster the file does not yield is the empty-expectation shape this whole mechanism exists to refuse: a probe over an empty list answers yes to every image. Separated from a mismatch, because "cannot tell" is not "does not match" -- and it is emphatically not a pass. |
 | `probe: a tool at the WRONG version is refused and both versions are named (#947)` | The quiet failure: a lint gate on an older rule set under-reports rather than failing |
 | `probe: a present-but-silent tool is refused, not read as agreement (#947)` | Empty output must not compare equal to a pin |
 | `probe: an unreadable pin for a PINNED tool is a hard refusal (#947)` | The state a moved release URL produces; cannot-tell is not matches |
-| `probe: an empty REQUIRED_TOOLS is refused rather than passing vacuously (#947)` | A probe over an empty list answers yes to every image |
-| `probe: a PINNED tool absent from REQUIRED_TOOLS is refused as a contradiction (#947)` | A tool whose version matters that the probe never looks for is drift, not narrowing |
+| `probe: a PINNED tool the Dockerfile never puts on PATH is refused as a contradiction (#947)` | A tool whose version matters that the probe never looks for is drift, not narrowing |
 | `probe: an image built on ANOTHER alpine series is refused and both named (#946)` | Another series means another bash, which is what decides whether kcov can read this suite at all |
 | `probe: an image that reports no alpine series is refused, not read as agreement (#946)` | A reading the image cannot produce is a mismatch, never an absent constraint |
 | `probe: a series pin the probe cannot read is a hard refusal (#946)` | Cannot tell is not matches: exit 2 rather than a comparison with no expectation |
@@ -4290,7 +4342,7 @@ alias / `network.network_name` / `devices.device_` / `security.cap_add_` /
 | `self-hosted guard: the real repo tree has every eligible job guarded` | - |
 | `self-hosted guard: the real tree's eligible set is the three runtime-matrix worker jobs` | - |
 
-### test/bats/unit/self_test_yaml_spec.bats (112)
+### test/bats/unit/self_test_yaml_spec.bats (111)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks fourteen
 cumulative invariants:
@@ -4637,16 +4689,15 @@ list is extensible + all five `build_local` obtain steps carry the guard
 | `self-test.yaml: bats-fragile job uses docker/build-push-action with GHA cache scope=test-tools (#677)` | - |
 | `self-test.yaml: bats-integration job uses docker/build-push-action with GHA cache scope=test-tools (#377)` | - |
 | `self-test.yaml: system job uses docker/build-push-action with GHA cache scope=test-tools (#317)` | - |
-| `self-test.yaml: bats-fragile job has Obtain step pulling :main with 3-layer fallback (#317 P2 + #677)` | - |
+| `self-test.yaml: bats-fragile job has an Obtain step reaching the one obtain path (#317 P2 + #677)` | - |
 | `self-test.yaml: bats-fragile Build step is gated on steps.obtain.outputs.build_local == 'true' (#317 P2 + #677)` | - |
-| `self-test.yaml: bats-integration job has Obtain step + 3-layer fallback (#317 P2 + #377)` | - |
-| `self-test.yaml: acceptance job has Obtain step + TEST_TOOLS_IMAGE env passthrough (#317 P2)` | - |
+| `self-test.yaml: bats-integration job has an Obtain step reaching the one obtain path (#317 P2 + #377)` | - |
+| `self-test.yaml: acceptance job obtains inline, with the TEST_TOOLS_IMAGE passthrough (#317 P2)` | - |
 | `self-test.yaml: acceptance job keeps buildx driver: docker for host-daemon visibility (#317 P2)` | - |
-| `self-test.yaml: system job has Obtain step with 3-layer fallback (#317 P2)` | - |
-| `self-test.yaml: bats-fragile Obtain probes the pulled :main and rebuilds on a miss (#697, #947)` | Named per job rather than counted: the fragile shard is one of the five that RUN the baked tools, so a `:main` that does not correspond to this checkout has to send it to a local rebuild, not into the suite |
-| `self-test.yaml: coverage Obtain probes the pulled :main and rebuilds on a miss (#697, #947)` | The coverage shards are the ones that actually raced -- the kcov-not-found fast-fail is the incident this guard was written after -- and they are also the job whose numbers a wrong alpine series quietly changes, so their obtain step is pinned on its own |
+| `self-test.yaml: system job has an Obtain step reaching the one obtain path (#317 P2)` | - |
+| `self-test.yaml: coverage Obtain reaches the probe-and-rebuild path (#697, #947)` | The coverage shards are the ones that actually raced -- the kcov-not-found fast-fail is the incident this guard was written after -- and they are also the job whose numbers a wrong alpine series quietly changes, so their obtain step is pinned on its own |
 | `self-test.yaml: the probe is ONE script, not a loop copied into every job (#947)` | Keeps the copies from growing back: five inline copies of the loop is how the presence-only blind spot survived, because no single copy looked wrong, and a re-inlined loop is invisible to the probe's own spec |
-| `self-test.yaml: every job that RUNS the baked tools probes the pulled :main for them (#697)` | - |
+| `self-test.yaml: every job that consumes the image obtains it the one way (#697, #1010)` | - |
 | `self-test.yaml: every job that probes :main compares the runner VERSION, not just presence (#948)` | Presence is the dimension the tool roster can express and the version is not, so a `:main` published before a bump carries every required tool AND the wrong runner; the population is derived from the workflow so the sixth probing job cannot land outside the rule |
 | `self-test.yaml: only classify fetches the base ref; image jobs read its testtools_changed output (#734)` | - |
 | `self-test.yaml: classify emits testtools_changed from a full-history diff (#734)` | - |

@@ -343,7 +343,7 @@ _probe_image img '${DOCKERFILE}'"
   local _f="${TEMP_DIR}/no-pin"
   # A roster the reader CAN form, so the only thing left to refuse is the
   # missing expectation itself; every tool is reported present.
-  printf 'FROM alpine AS b\nFROM alpine\nRUN apk add --no-cache bash\nCOPY --from=b /usr/local/bin/shellcheck /usr/local/bin/\n' \
+  printf 'FROM alpine AS b\nFROM alpine\nRUN apk add --no-cache bash\nCOPY --from=b /usr/local/bin/shellcheck /usr/local/bin/\nCOPY --from=b /usr/local/bin/hadolint /usr/local/bin/\nCOPY --from=b /usr/local/bin/just /usr/local/bin/\n' \
       > "${_f}"
   run bash -c "$(_src)
 $(_fake_run "")
@@ -442,11 +442,12 @@ _probe_image img '${_f}'"
 
 # _fake_docker <bin_dir> <shellcheck-version> <hadolint-version>
 #              <alpine-release> <just-version>
-#   A `docker` that answers the three questions _probe_run asks -- presence
-#   (`command -v <tool>`), tool version, and which alpine the image was
-#   built on -- for the readings given. It reads the LAST argument, which
-#   is the `sh -c` command string, so it also fails the test if _probe_run
-#   ever stops passing one.
+#   A `docker` that answers the questions _probe_run asks -- which of the
+#   roster's packages and binaries are ABSENT (an empty answer is the
+#   image carrying all of them), tool version, and which alpine the image
+#   was built on -- for the readings given. It reads the LAST argument,
+#   which is the `sh -c` command string, so it also fails the test if
+#   _probe_run ever stops passing one.
 _fake_docker() {
   local _dir="${1:?BUG: _fake_docker expects a bin dir}"
   local _sc="${2:?BUG: _fake_docker expects a shellcheck version}"
@@ -458,7 +459,8 @@ _fake_docker() {
 #!/usr/bin/env bash
 _cmd="\${*: -1}"
 case "\${_cmd}" in
-  'command -v '*)        exit 0 ;;
+  'for p in '*)          exit 0 ;;
+  'for b in '*)          exit 0 ;;
   'shellcheck --version') echo 'ShellCheck - shell script analysis tool'
                           echo 'version: ${_sc}' ;;
   'hadolint --version')   echo 'Haskell Dockerfile Linter ${_hd}' ;;

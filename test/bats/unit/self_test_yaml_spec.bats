@@ -639,8 +639,8 @@ _job_comments() {
   # FROM ${TEST_TOOLS_IMAGE} build.
   run yaml_job_lines "${WF}" acceptance
   assert_success
-  assert_output --partial 'docker pull --platform ${{ matrix.platform }}'
-  refute_output --partial 'docker pull --platform linux/amd64'
+  assert_output --partial '--platform ${{ matrix.platform }}'
+  refute_output --partial '--platform linux/amd64'
 }
 
 @test "self-test.yaml: system job declares needs on actionlint AND classify (#317)" {
@@ -726,25 +726,18 @@ _job_comments() {
 
 # ── P2: Obtain step + rolling tag fallback ──────────────────────
 
-@test "self-test.yaml: bats-fragile job has Obtain step pulling :main with 3-layer fallback (#317 P2 + #677)" {
-  # The re-tag is a one-line `FROM ... LABEL ...` build, NOT `docker tag`:
-  # the pulled image has to carry this run's ownership label so reclaim can
-  # tell whose it is, and `docker tag` cannot add a label. The step's own
-  # comment says exactly that, in the words `docker tag` -- which is why the
-  # old `--partial 'docker tag'` here asserted nothing: all six occurrences
-  # of the string in this workflow are inside that one comment, repeated per
-  # job, and none is code. Both halves are pinned against the code lines:
-  # the mechanism that IS used, and the one that must not come back.
+@test "self-test.yaml: bats-fragile job has an Obtain step reaching the one obtain path (#317 P2 + #677)" {
+  # What the step DOES -- the three-layer fallback, the ownership-stamping
+  # re-tag that `docker tag` cannot perform, the probe and its rebuild --
+  # is asserted case by case in obtain_test_tools_spec.bats, which drives
+  # the real function bodies. What this file owns is that the job reaches
+  # that script rather than a private copy of it.
   run yaml_job_lines "${WF}" bats-fragile
   assert_success
   assert_output --partial 'Obtain the run-scoped test-tools image'
-  assert_output --partial 'docker pull --platform linux/amd64'
-  assert_output --partial 'ghcr.io/ycpss91255-docker/test-tools:main'
-  assert_output --partial 'LABEL base.ci.run=%s'
-  assert_output --partial 'docker build -q -t "${TEST_TOOLS_IMAGE}" -'
-  refute_output --partial 'docker tag'
-  assert_output --partial 'build_local=true'
-  assert_output --partial 'build_local=false'
+  assert_output --partial 'script/ci/obtain_test_tools.sh'
+  assert_output --partial '--local-build delegate'
+  refute_output --partial 'docker pull'
 }
 
 @test "self-test.yaml: bats-fragile Build step is gated on steps.obtain.outputs.build_local == 'true' (#317 P2 + #677)" {
@@ -753,21 +746,25 @@ _job_comments() {
   assert_output --partial "steps.obtain.outputs.build_local == 'true'"
 }
 
-@test "self-test.yaml: bats-integration job has Obtain step + 3-layer fallback (#317 P2 + #377)" {
+@test "self-test.yaml: bats-integration job has an Obtain step reaching the one obtain path (#317 P2 + #377)" {
   run yaml_job_lines "${WF}" bats-integration
   assert_success
   assert_output --partial 'Obtain the run-scoped test-tools image'
-  assert_output --partial 'ghcr.io/ycpss91255-docker/test-tools:main'
-  assert_output --partial 'build_local=true'
-  assert_output --partial 'build_local=false'
+  assert_output --partial 'script/ci/obtain_test_tools.sh'
+  assert_output --partial '--local-build delegate'
 }
 
-@test "self-test.yaml: acceptance job has Obtain step + TEST_TOOLS_IMAGE env passthrough (#317 P2)" {
+@test "self-test.yaml: acceptance job obtains inline, with the TEST_TOOLS_IMAGE passthrough (#317 P2)" {
   run yaml_job_lines "${WF}" acceptance
   assert_success
   assert_output --partial 'Obtain the run-scoped test-tools image'
-  assert_output --partial 'ghcr.io/ycpss91255-docker/test-tools:main'
-  # The value itself now comes from the workflow-level env block every job
+  assert_output --partial 'script/ci/obtain_test_tools.sh'
+  # Inline, not delegate: this job's buildx runs `driver: docker` so the
+  # later `docker compose build` can resolve `FROM ${TEST_TOOLS_IMAGE}`
+  # against the host daemon, and there is no gated build-push step behind
+  # it to perform the fallback.
+  assert_output --partial '--local-build inline'
+  # The value itself comes from the workflow-level env block every job
   # inherits, so build.sh still skips its internal test-tools build
   # without the job restating a literal tag of its own.
   assert_output --partial '${TEST_TOOLS_IMAGE}'
@@ -787,44 +784,30 @@ _job_comments() {
   assert_output --partial 'driver: docker'
 }
 
-@test "self-test.yaml: system job has Obtain step with 3-layer fallback (#317 P2)" {
+@test "self-test.yaml: system job has an Obtain step reaching the one obtain path (#317 P2)" {
   run yaml_job_lines "${WF}" system
   assert_success
   assert_output --partial 'Obtain the run-scoped test-tools image'
-  assert_output --partial 'ghcr.io/ycpss91255-docker/test-tools:main'
-  assert_output --partial 'build_local=true'
-  assert_output --partial 'build_local=false'
+  assert_output --partial 'script/ci/obtain_test_tools.sh'
+  assert_output --partial '--local-build delegate'
 }
 
 # ── Probe-and-rebuild against a stale / racing :main ────────────
-
-# why: Named per job rather than counted: the fragile shard is one of the
-# five that RUN the baked tools, so a `:main` that does not correspond to
-# this checkout has to send it to a local rebuild, not into the suite
-@test "self-test.yaml: bats-fragile Obtain probes the pulled :main and rebuilds on a miss (#697, #947)" {
-  # release-test-tools republishes :main on a Dockerfile.test-tools change
-  # concurrently with this run, so a freshly-baked tool (kcov) can be
-  # absent from the :main we just pulled. After the pull+tag, the obtain
-  # step must PROBE the image and, on a miss, fall back to building
-  # locally (build_local=true) instead of running the suite against it.
-  run yaml_job_lines "${WF}" bats-fragile
-  assert_success
-  assert_output --partial 'script/ci/probe_test_tools.sh'
-  assert_output --partial 'build_local=true'
-}
 
 # why: The coverage shards are the ones that actually raced -- the
 # kcov-not-found fast-fail is the incident this guard was written after --
 # and they are also the job whose numbers a wrong alpine series quietly
 # changes, so their obtain step is pinned on its own
-@test "self-test.yaml: coverage Obtain probes the pulled :main and rebuilds on a miss (#697, #947)" {
-  # The coverage shards are the ones that actually race (kcov-not-found
-  # fast-fail). Same probe-and-rebuild guard as bats-fragile so a stale
-  # :main self-corrects to a local rebuild.
+@test "self-test.yaml: coverage Obtain reaches the probe-and-rebuild path (#697, #947)" {
+  # release-test-tools republishes :main on a Dockerfile.test-tools change
+  # concurrently with this run, so a freshly-baked tool (kcov) can be
+  # absent from the :main a shard just pulled. The obtain path PROBES the
+  # image and, on a miss, falls back to building locally instead of
+  # running the suite against it.
   run yaml_job_lines "${WF}" coverage
   assert_success
-  assert_output --partial 'script/ci/probe_test_tools.sh'
-  assert_output --partial 'build_local=true'
+  assert_output --partial 'script/ci/obtain_test_tools.sh'
+  assert_output --partial "steps.obtain.outputs.build_local == 'true'"
 }
 
 # why: Keeps the copies from growing back: five inline copies of the loop
@@ -844,32 +827,25 @@ _job_comments() {
   assert_failure
 }
 
-@test "self-test.yaml: every job that RUNS the baked tools probes the pulled :main for them (#697)" {
-  # The five build_local-pattern obtain steps (hadolint, bats-fragile,
-  # bats-integration, coverage, system) pull the same :main tag and race
-  # identically; each must probe + rebuild on a miss.
+@test "self-test.yaml: every job that consumes the image obtains it the one way (#697, #1010)" {
+  # SIX jobs consume `test-tools`, and the sixth is the point. While the
+  # obtain decision was shell pasted into each of them, five probed the
+  # pulled image and `acceptance` did not -- it pulled and exited 0. The
+  # exclusion had a rationale ("acceptance executes none of the baked
+  # tools, it only uses the image as a FROM base"), and the rationale was
+  # wrong: the scaffolded consumer's lint stage IS that image, and it runs
+  # the tools inside it. A stale `:main` passed a check it should have
+  # failed, and a racing republish reddened the job with no self-heal.
   #
-  # Named per job, not counted. An earlier form asserted a
-  # `grep -c` equal to 5 over the whole workflow, which is satisfied by
-  # ANY five occurrences: deleting hadolint's guard and double-listing
-  # coverage's keeps it green, and the count says nothing about which job
-  # is covered. It also carried the wrong name -- there are SIX
-  # :main-pulling Obtain steps, so as written the invariant it claimed was
-  # false while the test was green.
-  #
-  # The sixth, `acceptance`, is deliberately not in this list and is not a
-  # gap: the probe is about the tools a job EXECUTES, and acceptance
-  # executes none of them. It consumes the image only as the `FROM` base of
-  # the scaffolded consumer's test stage, so a :main missing kcov costs it
-  # nothing. The honest invariant is the one this test now names -- every
-  # job that runs the baked tools probes for them -- rather than every job
-  # that pulls the tag.
+  # So the invariant is no longer "the five that run the tools probe": it
+  # is that every job reaching the image reaches it through the one script,
+  # which always probes. Named per job AND counted, because the count is
+  # what the earlier form got wrong.
   local _job
-  for _job in hadolint bats-fragile bats-integration coverage system; do
+  for _job in hadolint bats-fragile bats-integration coverage system acceptance; do
     run yaml_job_lines "${WF}" "${_job}"
     assert_success
-    assert_output --partial './script/ci/probe_test_tools.sh "${TEST_TOOLS_IMAGE}"'
-    assert_output --partial 'build_local=true'
+    assert_output --partial './script/ci/obtain_test_tools.sh "${TEST_TOOLS_IMAGE}"'
   done
 }
 
@@ -900,33 +876,37 @@ _job_comments() {
   # probe_test_tools_spec.bats, which drives the real function bodies; what
   # this file is still the right place to state is that every job that
   # probes reaches THAT script and not a private re-implementation.
-  local -a _jobs=() _probing=()
+  local -a _jobs=() _obtaining=()
   mapfile -t _jobs < <(yaml_job_names "${WF}")
   [ "${#_jobs[@]}" -ge 10 ] \
     || fail "derived only ${#_jobs[@]} job(s) from ${WF} -- the roster reader is broken, so this test checked nothing"
   local _job _body
   for _job in "${_jobs[@]}"; do
     _body="$(yaml_job_lines "${WF}" "${_job}")"
-    [[ "${_body}" == *'probe_test_tools.sh'* ]] || continue
-    _probing+=("${_job}")
+    [[ "${_body}" == *'obtain_test_tools.sh'* ]] || continue
+    _obtaining+=("${_job}")
   done
-  [ "${#_probing[@]}" -ge 5 ] \
-    || fail "found ${#_probing[@]} probing job(s) among ${#_jobs[@]}; expected at least the five that run the baked tools -- the scan matched nothing, which is not a pass"
+  [ "${#_obtaining[@]}" -ge 6 ] \
+    || fail "found ${#_obtaining[@]} obtaining job(s) among ${#_jobs[@]}; expected at least the six that consume the image -- the scan matched nothing, which is not a pass"
 
-  # The script the five reach, read as the declaration it is. `just` has
-  # to be a tool the probe REQUIRES (present) and one whose version it
-  # COMPARES; requiring it alone is the presence-only probe this test is
-  # named against.
+  # The script they reach, read as the declaration it is. `just` has to be
+  # a tool the probe finds AND one whose version it compares; finding it
+  # alone is the presence-only probe this test is named against. Which
+  # tools it finds is no longer a literal to read -- it is derived from
+  # the Dockerfile -- so the derivation is what gets asked.
   local _probe=/source/script/ci/probe_test_tools.sh
+  local _dockerfile=/source/dockerfile/Dockerfile.test-tools
   assert_spec_subject "${_probe}" \
-    "the CI-side probe every obtain step in this workflow calls"
-  local _required _pinned
-  _required="$(sed -n 's|^: "${REQUIRED_TOOLS:=\(.*\)}"$|\1|p' "${_probe}")"
+    "the CI-side probe every obtain step in this workflow reaches"
+  assert_spec_subject "${_dockerfile}" \
+    "the Dockerfile the probe derives its roster from"
+  local _binaries _pinned
+  _binaries="$(bash -c "source '${_probe}'; _probe_path_binaries '${_dockerfile}'")"
   _pinned="$(sed -n 's|^: "${PINNED_TOOLS:=\(.*\)}"$|\1|p' "${_probe}")"
-  [ -n "${_required}" ] && [ -n "${_pinned}" ] \
-    || fail "could not read REQUIRED_TOOLS / PINNED_TOOLS out of ${_probe} -- the defaults moved, so this test compared nothing"
-  [[ " ${_required} " == *' just '* ]] \
-    || fail "the probe does not require 'just' (REQUIRED_TOOLS='${_required}'), so a :main without the runner is handed to the suite"
+  [ -n "${_binaries}" ] && [ -n "${_pinned}" ] \
+    || fail "could not read the derived roster / PINNED_TOOLS out of ${_probe} -- the reader or the default moved, so this test compared nothing"
+  printf '%s\n' "${_binaries}" | grep -Fxq just \
+    || fail "the probe's derived roster does not contain 'just' (got: $(printf '%s' "${_binaries}" | tr '\n' ' ')), so a :main without the runner is handed to the suite"
   [[ " ${_pinned} " == *' just '* ]] \
     || fail "the probe finds 'just' but never compares its version (PINNED_TOOLS='${_pinned}') -- a :main published before a version bump passes"
 }
@@ -1991,10 +1971,23 @@ YAML
   # so cleanup cannot ask compose "whose is this". Every path that puts it
   # in the runner's daemon -- the cached build, the inline build, the
   # pulled-and-retagged hot path -- stamps the run identity on it.
+  #
+  # Two of those three paths moved into script/ci/obtain_test_tools.sh, so
+  # the count here covers the cached build-push steps that remain and the
+  # script is asked for its own two. Both readings are pinned: a stamp
+  # dropped on either side is a leftover nothing can attribute, and the
+  # sweep leaves an unattributable artifact alone forever.
   run code_grep -c 'base.ci.run' "${WF}"
   assert_success
-  [ "${output}" -ge 6 ] \
-    || fail "expected the ownership label on every test-tools provisioning path, found ${output}"
+  [ "${output}" -ge 5 ] \
+    || fail "expected the ownership label on every cached build path, found ${output}"
+  local _obtain=/source/script/ci/obtain_test_tools.sh
+  assert_spec_subject "${_obtain}" \
+    "the obtain path that stamps the pulled and the inline-built image"
+  run code_grep -c 'base.ci.run' "${_obtain}"
+  assert_success
+  [ "${output}" -ge 2 ] \
+    || fail "expected the ownership stamp on both the re-tag and the inline build in ${_obtain}, found ${output}"
 }
 
 @test "self-test.yaml: the acceptance scaffold is keyed to the run (#900)" {

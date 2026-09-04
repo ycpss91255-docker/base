@@ -318,6 +318,16 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 - **the changelog lint now catches an entry that was edited and not re-wrapped (refs #927)** -- a single word left alone on a continuation line with more of its paragraph on the next line. The length measure collapses whitespace on purpose and markdown collapses it again at render time, so nothing else could see it. A short final line, a table row, a fenced line and an HTML comment are left alone. Affects anyone writing an `[Unreleased]` entry.
 
 ### Fixed
+- **every CI job now gets its tooling image the same way, and the probe
+  asserts what the image actually installs (closes #1010)** -- the obtain
+  decision was shell pasted into six jobs and five of them probed the pulled
+  `:main`; `acceptance`, the job whose scaffolded lint stage IS that image,
+  pulled and exited 0. It is one script now
+  (`script/ci/obtain_test_tools.sh`, ADR-00000033), and a workflow naming
+  the rolling tag by hand fails the suite. The probe's roster of five became
+  the final stage's own `apk add` plus what it puts on PATH, so `yq` -- and
+  `grep` / `coreutils`, which shadow busybox applets silently -- are
+  asserted. A push that changes the Dockerfile rebuilds instead of pulling.
 - **the system job now runs for the files its own specs are about (closes
   #1011)** -- `system_relevant` was a hand-kept list that named the wrapper
   `setup.sh` and not `setup_tui.sh`, base's entrypoint and not the shipped

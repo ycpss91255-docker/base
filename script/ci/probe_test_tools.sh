@@ -61,17 +61,32 @@
 #            that is the shape of pass this whole mechanism exists to
 #            refuse.
 #
+# The roster is READ, for the same reason the versions are. It used to be
+# five names in this file -- kcov, bats, shellcheck, hadolint, just -- while
+# the image's final stage installs fifteen packages and puts five binaries
+# on PATH. `yq` is what that cost: it was added to the Dockerfile, the
+# post-merge run took the pull path, and the probe declared the stale
+# `:main` acceptable because it was not looking for it. `grep` and
+# `coreutils` are the ones to be afraid of next: on alpine they SHADOW
+# busybox applets, so losing one produces no "command not found" at all --
+# it silently changes what `sort`, `date` and `grep -P` mean underneath
+# gates that depend on the GNU semantics.
+#
+# So both halves come out of the Dockerfile's FINAL stage: the packages
+# from its `apk add`, the binaries from what it COPYs or symlinks into
+# /usr/local/bin. The final stage and not the file, because the kcov
+# builder installs a compiler toolchain the final image is correct
+# without.
+#
 # Usage:
 #   ./script/ci/probe_test_tools.sh <image> [dockerfile]
 #
 # Env:
-#   REQUIRED_TOOLS  tools the run EXECUTES and must therefore be present
-#                   (default: kcov bats shellcheck hadolint just). A job
-#                   that only uses the image as a `FROM` base needs no
-#                   probe at all -- see the acceptance job.
-#   PINNED_TOOLS    subset whose VERSION is pinned by the checkout and is
-#                   therefore compared, not merely found
-#                   (default: shellcheck hadolint just).
+#   PINNED_TOOLS    subset of the binaries whose VERSION is pinned by the
+#                   checkout and is therefore compared, not merely found
+#                   (default: shellcheck hadolint just). A name here that
+#                   the Dockerfile never puts on PATH is refused as a
+#                   contradiction rather than honoured.
 #
 # Style: Google Shell Style Guide.
 
@@ -81,10 +96,9 @@ fi
 
 _PROBE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
 
-# The tools a run executes, and the subset whose version is load-bearing.
-# Overridable so a caller can narrow, never silently: an override that
-# drops a PINNED tool is refused below rather than honoured.
-: "${REQUIRED_TOOLS:=kcov bats shellcheck hadolint just}"
+# The subset of the derived binary roster whose version is load-bearing.
+# Overridable so a caller can narrow, never silently: a name here the
+# Dockerfile does not put on PATH is refused below rather than honoured.
 : "${PINNED_TOOLS:=shellcheck hadolint just}"
 
 # _probe_default_dockerfile
@@ -106,6 +120,116 @@ _probe_run() {
   local _image="${1:?BUG: _probe_run expects an image}"
   local _cmd="${2:?BUG: _probe_run expects a command}"
   docker run --rm "${_image}" sh -c "${_cmd}"
+}
+
+# _probe_final_stage <dockerfile>
+#   The text of the LAST stage of <dockerfile> -- everything from the final
+#   `FROM` line to the end. That is the stage whose contents ARE the image;
+#   the builder stages above it install a compiler toolchain, a git clone
+#   and a package index the final image is correct without, and a reader
+#   that took the whole file would demand `g++` of an image that never had
+#   it and read as a bug in the probe on its first refusal.
+#   Comment lines are dropped before anything else. This Dockerfile
+#   explains its own package choices at length, and one of those
+#   paragraphs contains the words `apk add yq` inside a sentence about why
+#   the package is called `yq-go` -- so a reader that did not strip
+#   comments extracted that sentence as a package list and refused the
+#   correct image, naming half an English sentence.
+_probe_final_stage() {
+  local _file="${1:?BUG: _probe_final_stage expects a file}"
+  [[ -f "${_file}" ]] || return 1
+  grep -v '^[[:space:]]*#' "${_file}" | awk '
+    toupper($1) == "FROM" { _n = NR }
+    { _line[NR] = $0 }
+    END {
+      if (_n == 0) { exit 1 }
+      for (_i = _n; _i <= NR; _i++) { print _line[_i] }
+    }
+  '
+}
+
+# _probe_apk_packages <dockerfile>
+#   Every package the final stage installs, one per line. Continuation
+#   lines are folded first, so a multi-line `apk add` is one command the
+#   way the shell sees it; flags and the `&&`-joined remainder are dropped,
+#   which is what keeps a package list from collecting `--no-cache` or the
+#   next command in the chain.
+_probe_apk_packages() {
+  local _file="${1:?BUG: _probe_apk_packages expects a file}"
+  _probe_final_stage "${_file}" \
+    | awk '
+        { _buf = _buf $0 }
+        /\\[[:space:]]*$/ { sub(/\\[[:space:]]*$/, " ", _buf); next }
+        { print _buf; _buf = "" }
+        END { if (_buf != "") { print _buf } }
+      ' \
+    | awk '
+        /apk[[:space:]]+add/ {
+          _seen = 0
+          for (_i = 1; _i <= NF; _i++) {
+            if ($_i == "add") { _seen = 1; continue }
+            if (!_seen) { continue }
+            if ($_i ~ /^-/) { continue }
+            if ($_i == "&&" || $_i == "\\") { break }
+            print $_i
+          }
+        }
+      '
+}
+
+# _probe_path_binaries <dockerfile>
+#   Every name the final stage puts on PATH under /usr/local/bin, one per
+#   line: the COPYs from the builder stages, and the symlink that exposes
+#   bats. These are the tools the suite EXECUTES and none of them is a
+#   package, so a package reader alone would stop asserting exactly the
+#   five the roster used to name.
+_probe_path_binaries() {
+  local _file="${1:?BUG: _probe_path_binaries expects a file}"
+  _probe_final_stage "${_file}" \
+    | awk '
+        function _emit(_dest, _src,   _name) {
+          if (_dest !~ /^\/usr\/local\/bin(\/|$)/) { return }
+          _name = _dest
+          sub(/^\/usr\/local\/bin\/?/, "", _name)
+          # A destination that is the DIRECTORY keeps the source basename;
+          # `COPY --from=lint-tools /usr/local/bin/shellcheck
+          # /usr/local/bin/` is how two of the five arrive.
+          if (_name == "") {
+            _name = _src
+            sub(/.*\//, "", _name)
+          }
+          if (_name != "") { print _name }
+        }
+        toupper($1) == "COPY" && NF >= 3 { _emit($NF, $(NF - 1)) }
+        /ln[[:space:]]+-s/ {
+          for (_i = 1; _i < NF; _i++) {
+            if ($_i == "-s") { _emit($(_i + 2), $(_i + 1)) }
+          }
+        }
+      '
+}
+
+# _probe_missing_packages <image> <package>...
+#   The packages of <package>... that <image> does not carry, one per line.
+#   ONE `docker run` for the whole roster rather than one per name: the
+#   roster is now fifteen long, and fifteen container starts per job across
+#   six jobs is a cost the probe would be paying to ask a question the
+#   image answers in a single loop.
+_probe_missing_packages() {
+  local _image="${1:?BUG: _probe_missing_packages expects an image}"
+  shift
+  _probe_run "${_image}" \
+    "for p in $*; do apk info -e \"\$p\" >/dev/null 2>&1 || printf '%s\n' \"\$p\"; done"
+}
+
+# _probe_missing_binaries <image> <name>...
+#   The names of <name>... that are not on PATH in <image>, one per line.
+#   Same single-run reasoning as the packages above.
+_probe_missing_binaries() {
+  local _image="${1:?BUG: _probe_missing_binaries expects an image}"
+  shift
+  _probe_run "${_image}" \
+    "for b in $*; do command -v \"\$b\" >/dev/null 2>&1 || printf '%s\n' \"\$b\"; done"
 }
 
 # _probe_pinned_version <dockerfile> <tool>
@@ -210,27 +334,36 @@ _probe_image() {
   local _image="${1:?BUG: _probe_image expects an image}"
   local _file="${2:-$(_probe_default_dockerfile)}"
 
-  local -a _required=() _pinned=()
-  read -ra _required <<< "${REQUIRED_TOOLS}"
+  local -a _packages=() _binaries=() _pinned=()
+  local _line
+  while IFS= read -r _line; do
+    [[ -n "${_line}" ]] && _packages+=("${_line}")
+  done <<< "$(_probe_apk_packages "${_file}")"
+  while IFS= read -r _line; do
+    [[ -n "${_line}" ]] && _binaries+=("${_line}")
+  done <<< "$(_probe_path_binaries "${_file}")"
   read -ra _pinned <<< "${PINNED_TOOLS}"
 
-  # Non-vacuity. A probe over an empty list answers "yes" to every image.
-  if [[ "${#_required[@]}" -eq 0 ]]; then
-    printf 'probe: REQUIRED_TOOLS is empty, so this probe would accept any image. Name the tools the run executes.\n' >&2
+  # Non-vacuity. A probe over an empty roster answers "yes" to every image,
+  # and an empty roster is what a moved or renamed Dockerfile produces --
+  # so it is a refusal to form an expectation, not an absent constraint.
+  if [[ "${#_packages[@]}" -eq 0 || "${#_binaries[@]}" -eq 0 ]]; then
+    printf 'probe: could not read a roster from %s (%s package(s), %s binary(ies)). The file moved, or its final stage no longer installs anything. Refusing to report agreement with an image nothing was compared against.\n' \
+      "${_file}" "${#_packages[@]}" "${#_binaries[@]}" >&2
     return 2
   fi
 
-  # A tool whose version matters that the probe never even looks for is a
+  # A tool whose version matters that the roster never even names is a
   # list that has drifted apart, not a deliberately narrower probe.
   local _p _r _found
   for _p in "${_pinned[@]}"; do
     _found=false
-    for _r in "${_required[@]}"; do
+    for _r in "${_binaries[@]}"; do
       [[ "${_r}" == "${_p}" ]] && _found=true
     done
     if [[ "${_found}" != "true" ]]; then
-      printf 'probe: %s is in PINNED_TOOLS but not in REQUIRED_TOOLS (%s), so its version would never be compared.\n' \
-        "${_p}" "${REQUIRED_TOOLS}" >&2
+      printf 'probe: %s is in PINNED_TOOLS but %s never puts it on PATH (%s), so its version would never be compared.\n' \
+        "${_p}" "${_file}" "${_binaries[*]}" >&2
       return 2
     fi
   done
@@ -256,19 +389,31 @@ _probe_image() {
   esac
   printf 'probe: alpine %s matches the pin.\n' "${_series}"
 
+  # Presence, both halves of the roster, one container start each. The
+  # packages matter as much as the binaries and are easier to lose: on
+  # alpine `grep` and `coreutils` SHADOW busybox applets, so an image
+  # without them still answers `command -v grep` -- with the applet, at
+  # different semantics, silently.
+  local _missing
+  _missing="$(_probe_missing_packages "${_image}" "${_packages[@]}" 2>/dev/null)" \
+    || _missing="${_packages[*]}"
+  if [[ -n "${_missing}" ]]; then
+    printf 'probe: %s installs these packages and %s does not carry them: %s\n' \
+      "${_file}" "${_image}" \
+      "$(printf '%s' "${_missing}" | tr '\n' ' ')" >&2
+    return 1
+  fi
+  _missing="$(_probe_missing_binaries "${_image}" "${_binaries[@]}" 2>/dev/null)" \
+    || _missing="${_binaries[*]}"
+  if [[ -n "${_missing}" ]]; then
+    printf 'probe: %s carries no %s.\n' \
+      "${_image}" "$(printf '%s' "${_missing}" | tr '\n' ' ')" >&2
+    return 1
+  fi
+  printf 'probe: every package and binary %s installs is present.\n' "${_file}"
+
   local _tool _pin _actual
-  for _tool in "${_required[@]}"; do
-    if ! _probe_run "${_image}" "command -v ${_tool}" >/dev/null 2>&1; then
-      printf 'probe: %s carries no %s.\n' "${_image}" "${_tool}" >&2
-      return 1
-    fi
-
-    _found=false
-    for _p in "${_pinned[@]}"; do
-      [[ "${_p}" == "${_tool}" ]] && _found=true
-    done
-    [[ "${_found}" == "true" ]] || continue
-
+  for _tool in "${_pinned[@]}"; do
     if ! _pin="$(_probe_tool_pin "${_file}" "${_tool}")"; then
       printf 'probe: could not read the %s pin from %s (or, for the runner, through dist/script/base/just-version.sh). The release URL moved, or the file did. Refusing to report agreement between two empty strings.\n' \
         "${_tool}" "${_file}" >&2

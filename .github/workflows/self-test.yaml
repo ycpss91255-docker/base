@@ -135,13 +135,32 @@ jobs:
         run: |
           set -uo pipefail
           if [[ "${EVENT_NAME}" != "pull_request" ]]; then
-            # push to main / tag push / workflow_dispatch — full suite.
-            # testtools_changed=false: the image jobs pull :main and self-heal
-            # via the tool probe, so a non-PR build needs no forced rebuild.
+            # push to main / tag push / workflow_dispatch -- full suite.
+            #
+            # testtools_changed used to be the literal false here, on every
+            # non-PR event including the ONE that can answer it: a push
+            # whose commit changes the test-tools Dockerfile is exactly the
+            # push for which the rolling tag is stale, because the
+            # republish that would refresh it is racing this very run. So
+            # the merge that added a tool ran the whole post-merge suite
+            # inside the image from before it.
+            #
+            # A push has a previous commit to diff against, so ask. On any
+            # other event, and when the diff cannot be taken at all (a root
+            # commit, an unreadable parent), the answer is `true`: a
+            # needless rebuild costs minutes, and the alternative is the
+            # incident above.
+            testtools=false
+            if [[ "${EVENT_NAME}" == "push" ]]; then
+              if ! git diff --quiet HEAD^ HEAD \
+                     -- 'dockerfile/Dockerfile.test-tools'; then
+                testtools=true
+              fi
+            fi
             {
               echo "code_changed=true"
               echo "system_relevant=true"
-              echo "testtools_changed=false"
+              echo "testtools_changed=${testtools}"
             } >> "${GITHUB_OUTPUT}"
             exit 0
           fi
@@ -420,61 +439,18 @@ jobs:
         id: obtain
         env:
           TESTTOOLS_CHANGED: ${{ needs.classify.outputs.testtools_changed }}
-        run: |
-          set -uo pipefail
-          if [[ "${TESTTOOLS_CHANGED}" == "true" ]]; then
-            # classify (fetch-depth: 0) already determined this PR changes
-            # Dockerfile.test-tools, so :main is stale for it -> rebuild from
-            # source. Computing it here on the shallow (fetch-depth: 1)
-            # checkout misfired (no reachable merge-base) and rebuilt on every
-            # PR.
-            echo "build_local=true" >> "${GITHUB_OUTPUT}"
-            exit 0
-          fi
-          if docker pull --platform linux/amd64 \
-               ghcr.io/ycpss91255-docker/test-tools:main 2>/dev/null; then
-            # Re-tag under the run-scoped name AND stamp the ownership
-            # label in one metadata-only layer. `docker tag` cannot add a
-            # label, and an image the run pulled is still an image the run
-            # has to clean up.
-            printf 'FROM %s\nLABEL base.ci.run=%s\n' \
-              ghcr.io/ycpss91255-docker/test-tools:main "${CI_RUN_KEY}" \
-              | docker build -q -t "${TEST_TOOLS_IMAGE}" - >/dev/null
-            # Does the pulled :main correspond to THIS checkout? Two ways
-            # it may not, and only one of them is loud. The
-            # release-test-tools workflow republishes :main on a
-            # Dockerfile.test-tools change CONCURRENTLY with this run, so a
-            # freshly-baked tool (e.g. kcov) can be ABSENT from what we
-            # just pulled -- the suite fast-fails and says so. A tool whose
-            # PIN moved is the quiet one: shellcheck and hadolint are lint
-            # gates, and a gate running the previous rule set does not
-            # fail, it under-reports, so the check goes green having
-            # examined something other than what this checkout asked for.
-            # `just` is the third: it is the only control surface, and
-            # test/bats/integration/just_runner_version_spec.bats is
-            # fail-closed on a mismatch between the image's runner and ARG
-            # JUST_VERSION, so a :main published before a version bump
-            # carries every required tool AND the wrong runner and would
-            # redden a PR that touched nothing related. The probe therefore
-            # compares versions, not just PATH.
-            #
-            # It is one script rather than a loop pasted into each of these
-            # obtain steps: five copies is how the version blind spot
-            # survived, because no single copy looked wrong. Any refusal
-            # falls back to building locally from
-            # dockerfile/Dockerfile.test-tools (the layer-1 / layer-3
-            # build) -- the strict side, self-correcting against a stale /
-            # racing / old :main whatever the cause.
-            if ./script/ci/probe_test_tools.sh "${TEST_TOOLS_IMAGE}"; then
-              echo "build_local=false" >> "${GITHUB_OUTPUT}"
-              exit 0
-            fi
-            echo "::warning::the pulled test-tools:main does not match this" \
-                 "checkout (reason above); rebuilding from source"
-            echo "build_local=true" >> "${GITHUB_OUTPUT}"
-            exit 0
-          fi
-          echo "build_local=true" >> "${GITHUB_OUTPUT}"
+        # The whole decision -- rebuild because this PR changed the
+        # Dockerfile, use the rolling tag because it corresponds to this
+        # checkout, or rebuild because it does not or could not be pulled
+        # -- lives in script/ci/obtain_test_tools.sh, one copy for all six
+        # consumers. It used to be this block, pasted into each of them,
+        # and five of the six probed the pulled image while the sixth did
+        # not: a paste is something a person has to remember to do, and no
+        # single copy looked wrong.
+        #
+        # `delegate` because the buildx step below carries the GHA layer
+        # cache and gates on this step's `build_local` output.
+        run: ./script/ci/obtain_test_tools.sh "${TEST_TOOLS_IMAGE}" --platform linux/amd64 --local-build delegate
 
       - name: Build the run-scoped test-tools image (with GHA cache)
         if: steps.obtain.outputs.build_local == 'true'
@@ -572,61 +548,18 @@ jobs:
         # Layer 3: pull failed (first bootstrap of :main, network, GHCR
         # auth gap) -> emit build_local=true and let the buildx step
         # below take over with GHA cache.
-        run: |
-          set -uo pipefail
-          if [[ "${TESTTOOLS_CHANGED}" == "true" ]]; then
-            # classify (fetch-depth: 0) already determined this PR changes
-            # Dockerfile.test-tools, so :main is stale for it -> rebuild from
-            # source. Computing it here on the shallow (fetch-depth: 1)
-            # checkout misfired (no reachable merge-base) and rebuilt on every
-            # PR.
-            echo "build_local=true" >> "${GITHUB_OUTPUT}"
-            exit 0
-          fi
-          if docker pull --platform linux/amd64 \
-               ghcr.io/ycpss91255-docker/test-tools:main 2>/dev/null; then
-            # Re-tag under the run-scoped name AND stamp the ownership
-            # label in one metadata-only layer. `docker tag` cannot add a
-            # label, and an image the run pulled is still an image the run
-            # has to clean up.
-            printf 'FROM %s\nLABEL base.ci.run=%s\n' \
-              ghcr.io/ycpss91255-docker/test-tools:main "${CI_RUN_KEY}" \
-              | docker build -q -t "${TEST_TOOLS_IMAGE}" - >/dev/null
-            # Does the pulled :main correspond to THIS checkout? Two ways
-            # it may not, and only one of them is loud. The
-            # release-test-tools workflow republishes :main on a
-            # Dockerfile.test-tools change CONCURRENTLY with this run, so a
-            # freshly-baked tool (e.g. kcov) can be ABSENT from what we
-            # just pulled -- the suite fast-fails and says so. A tool whose
-            # PIN moved is the quiet one: shellcheck and hadolint are lint
-            # gates, and a gate running the previous rule set does not
-            # fail, it under-reports, so the check goes green having
-            # examined something other than what this checkout asked for.
-            # `just` is the third: it is the only control surface, and
-            # test/bats/integration/just_runner_version_spec.bats is
-            # fail-closed on a mismatch between the image's runner and ARG
-            # JUST_VERSION, so a :main published before a version bump
-            # carries every required tool AND the wrong runner and would
-            # redden a PR that touched nothing related. The probe therefore
-            # compares versions, not just PATH.
-            #
-            # It is one script rather than a loop pasted into each of these
-            # obtain steps: five copies is how the version blind spot
-            # survived, because no single copy looked wrong. Any refusal
-            # falls back to building locally from
-            # dockerfile/Dockerfile.test-tools (the layer-1 / layer-3
-            # build) -- the strict side, self-correcting against a stale /
-            # racing / old :main whatever the cause.
-            if ./script/ci/probe_test_tools.sh "${TEST_TOOLS_IMAGE}"; then
-              echo "build_local=false" >> "${GITHUB_OUTPUT}"
-              exit 0
-            fi
-            echo "::warning::the pulled test-tools:main does not match this" \
-                 "checkout (reason above); rebuilding from source"
-            echo "build_local=true" >> "${GITHUB_OUTPUT}"
-            exit 0
-          fi
-          echo "build_local=true" >> "${GITHUB_OUTPUT}"
+        # The whole decision -- rebuild because this PR changed the
+        # Dockerfile, use the rolling tag because it corresponds to this
+        # checkout, or rebuild because it does not or could not be pulled
+        # -- lives in script/ci/obtain_test_tools.sh, one copy for all six
+        # consumers. It used to be this block, pasted into each of them,
+        # and five of the six probed the pulled image while the sixth did
+        # not: a paste is something a person has to remember to do, and no
+        # single copy looked wrong.
+        #
+        # `delegate` because the buildx step below carries the GHA layer
+        # cache and gates on this step's `build_local` output.
+        run: ./script/ci/obtain_test_tools.sh "${TEST_TOOLS_IMAGE}" --platform linux/amd64 --local-build delegate
 
       - name: Build the run-scoped test-tools image (with GHA cache)
         if: steps.obtain.outputs.build_local == 'true'
@@ -673,61 +606,18 @@ jobs:
         id: obtain
         env:
           TESTTOOLS_CHANGED: ${{ needs.classify.outputs.testtools_changed }}
-        run: |
-          set -uo pipefail
-          if [[ "${TESTTOOLS_CHANGED}" == "true" ]]; then
-            # classify (fetch-depth: 0) already determined this PR changes
-            # Dockerfile.test-tools, so :main is stale for it -> rebuild from
-            # source. Computing it here on the shallow (fetch-depth: 1)
-            # checkout misfired (no reachable merge-base) and rebuilt on every
-            # PR.
-            echo "build_local=true" >> "${GITHUB_OUTPUT}"
-            exit 0
-          fi
-          if docker pull --platform linux/amd64 \
-               ghcr.io/ycpss91255-docker/test-tools:main 2>/dev/null; then
-            # Re-tag under the run-scoped name AND stamp the ownership
-            # label in one metadata-only layer. `docker tag` cannot add a
-            # label, and an image the run pulled is still an image the run
-            # has to clean up.
-            printf 'FROM %s\nLABEL base.ci.run=%s\n' \
-              ghcr.io/ycpss91255-docker/test-tools:main "${CI_RUN_KEY}" \
-              | docker build -q -t "${TEST_TOOLS_IMAGE}" - >/dev/null
-            # Does the pulled :main correspond to THIS checkout? Two ways
-            # it may not, and only one of them is loud. The
-            # release-test-tools workflow republishes :main on a
-            # Dockerfile.test-tools change CONCURRENTLY with this run, so a
-            # freshly-baked tool (e.g. kcov) can be ABSENT from what we
-            # just pulled -- the suite fast-fails and says so. A tool whose
-            # PIN moved is the quiet one: shellcheck and hadolint are lint
-            # gates, and a gate running the previous rule set does not
-            # fail, it under-reports, so the check goes green having
-            # examined something other than what this checkout asked for.
-            # `just` is the third: it is the only control surface, and
-            # test/bats/integration/just_runner_version_spec.bats is
-            # fail-closed on a mismatch between the image's runner and ARG
-            # JUST_VERSION, so a :main published before a version bump
-            # carries every required tool AND the wrong runner and would
-            # redden a PR that touched nothing related. The probe therefore
-            # compares versions, not just PATH.
-            #
-            # It is one script rather than a loop pasted into each of these
-            # obtain steps: five copies is how the version blind spot
-            # survived, because no single copy looked wrong. Any refusal
-            # falls back to building locally from
-            # dockerfile/Dockerfile.test-tools (the layer-1 / layer-3
-            # build) -- the strict side, self-correcting against a stale /
-            # racing / old :main whatever the cause.
-            if ./script/ci/probe_test_tools.sh "${TEST_TOOLS_IMAGE}"; then
-              echo "build_local=false" >> "${GITHUB_OUTPUT}"
-              exit 0
-            fi
-            echo "::warning::the pulled test-tools:main does not match this" \
-                 "checkout (reason above); rebuilding from source"
-            echo "build_local=true" >> "${GITHUB_OUTPUT}"
-            exit 0
-          fi
-          echo "build_local=true" >> "${GITHUB_OUTPUT}"
+        # The whole decision -- rebuild because this PR changed the
+        # Dockerfile, use the rolling tag because it corresponds to this
+        # checkout, or rebuild because it does not or could not be pulled
+        # -- lives in script/ci/obtain_test_tools.sh, one copy for all six
+        # consumers. It used to be this block, pasted into each of them,
+        # and five of the six probed the pulled image while the sixth did
+        # not: a paste is something a person has to remember to do, and no
+        # single copy looked wrong.
+        #
+        # `delegate` because the buildx step below carries the GHA layer
+        # cache and gates on this step's `build_local` output.
+        run: ./script/ci/obtain_test_tools.sh "${TEST_TOOLS_IMAGE}" --platform linux/amd64 --local-build delegate
 
       - name: Build the run-scoped test-tools image (with GHA cache)
         if: steps.obtain.outputs.build_local == 'true'
@@ -836,61 +726,18 @@ jobs:
         # PR touched Dockerfile.test-tools -> rebuild from source. Layer 2:
         # pull the rolling :main tag and re-tag locally (hot path). Layer
         # 3: pull failed -> build below with GHA cache.
-        run: |
-          set -uo pipefail
-          if [[ "${TESTTOOLS_CHANGED}" == "true" ]]; then
-            # classify (fetch-depth: 0) already determined this PR changes
-            # Dockerfile.test-tools, so :main is stale for it -> rebuild from
-            # source. Computing it here on the shallow (fetch-depth: 1)
-            # checkout misfired (no reachable merge-base) and rebuilt on every
-            # PR.
-            echo "build_local=true" >> "${GITHUB_OUTPUT}"
-            exit 0
-          fi
-          if docker pull --platform linux/amd64 \
-               ghcr.io/ycpss91255-docker/test-tools:main 2>/dev/null; then
-            # Re-tag under the run-scoped name AND stamp the ownership
-            # label in one metadata-only layer. `docker tag` cannot add a
-            # label, and an image the run pulled is still an image the run
-            # has to clean up.
-            printf 'FROM %s\nLABEL base.ci.run=%s\n' \
-              ghcr.io/ycpss91255-docker/test-tools:main "${CI_RUN_KEY}" \
-              | docker build -q -t "${TEST_TOOLS_IMAGE}" - >/dev/null
-            # Does the pulled :main correspond to THIS checkout? Two ways
-            # it may not, and only one of them is loud. The
-            # release-test-tools workflow republishes :main on a
-            # Dockerfile.test-tools change CONCURRENTLY with this run, so a
-            # freshly-baked tool (e.g. kcov) can be ABSENT from what we
-            # just pulled -- the suite fast-fails and says so. A tool whose
-            # PIN moved is the quiet one: shellcheck and hadolint are lint
-            # gates, and a gate running the previous rule set does not
-            # fail, it under-reports, so the check goes green having
-            # examined something other than what this checkout asked for.
-            # `just` is the third: it is the only control surface, and
-            # test/bats/integration/just_runner_version_spec.bats is
-            # fail-closed on a mismatch between the image's runner and ARG
-            # JUST_VERSION, so a :main published before a version bump
-            # carries every required tool AND the wrong runner and would
-            # redden a PR that touched nothing related. The probe therefore
-            # compares versions, not just PATH.
-            #
-            # It is one script rather than a loop pasted into each of these
-            # obtain steps: five copies is how the version blind spot
-            # survived, because no single copy looked wrong. Any refusal
-            # falls back to building locally from
-            # dockerfile/Dockerfile.test-tools (the layer-1 / layer-3
-            # build) -- the strict side, self-correcting against a stale /
-            # racing / old :main whatever the cause.
-            if ./script/ci/probe_test_tools.sh "${TEST_TOOLS_IMAGE}"; then
-              echo "build_local=false" >> "${GITHUB_OUTPUT}"
-              exit 0
-            fi
-            echo "::warning::the pulled test-tools:main does not match this" \
-                 "checkout (reason above); rebuilding from source"
-            echo "build_local=true" >> "${GITHUB_OUTPUT}"
-            exit 0
-          fi
-          echo "build_local=true" >> "${GITHUB_OUTPUT}"
+        # The whole decision -- rebuild because this PR changed the
+        # Dockerfile, use the rolling tag because it corresponds to this
+        # checkout, or rebuild because it does not or could not be pulled
+        # -- lives in script/ci/obtain_test_tools.sh, one copy for all six
+        # consumers. It used to be this block, pasted into each of them,
+        # and five of the six probed the pulled image while the sixth did
+        # not: a paste is something a person has to remember to do, and no
+        # single copy looked wrong.
+        #
+        # `delegate` because the buildx step below carries the GHA layer
+        # cache and gates on this step's `build_local` output.
+        run: ./script/ci/obtain_test_tools.sh "${TEST_TOOLS_IMAGE}" --platform linux/amd64 --local-build delegate
 
       - name: Build the run-scoped test-tools image (with GHA cache)
         if: steps.obtain.outputs.build_local == 'true'
@@ -1081,37 +928,20 @@ jobs:
       - name: Obtain the run-scoped test-tools image (#317 P2 3-layer fallback)
         env:
           TESTTOOLS_CHANGED: ${{ needs.classify.outputs.testtools_changed }}
-        # Inline rebuild on layers 1 + 3 because the docker driver above
-        # cannot use docker/build-push-action's GHA cache. Plain
-        # `docker build` matches the pre-P2 behaviour in this job; the
-        # net effect of P2 here is the hot path (layer 2) skipping the
-        # rebuild entirely. The PR-changed-Dockerfile decision comes from
-        # classify (fetch-depth: 0) -- this job's shallow checkout cannot
-        # compute it without misfiring.
-        run: |
-          set -uo pipefail
-          if [[ "${TESTTOOLS_CHANGED}" == "true" ]]; then
-            docker build \
-              --label "base.ci.run=${CI_RUN_KEY}" \
-              -t "${TEST_TOOLS_IMAGE}" \
-              -f dockerfile/Dockerfile.test-tools .
-            exit 0
-          fi
-          if docker pull --platform ${{ matrix.platform }} \
-               ghcr.io/ycpss91255-docker/test-tools:main 2>/dev/null; then
-            # Re-tag under the run-scoped name AND stamp the ownership
-            # label in one metadata-only layer. `docker tag` cannot add a
-            # label, and an image the run pulled is still an image the run
-            # has to clean up.
-            printf 'FROM %s\nLABEL base.ci.run=%s\n' \
-              ghcr.io/ycpss91255-docker/test-tools:main "${CI_RUN_KEY}" \
-              | docker build -q -t "${TEST_TOOLS_IMAGE}" - >/dev/null
-            exit 0
-          fi
-          docker build \
-            --label "base.ci.run=${CI_RUN_KEY}" \
-            -t "${TEST_TOOLS_IMAGE}" \
-            -f dockerfile/Dockerfile.test-tools .
+        # The same obtain script the other five consumers call, and this
+        # job is the reason it is a script. It used to pull the rolling tag
+        # and `exit 0` -- no probe, alone among the six -- so a stale
+        # `:main` passed a check it should have failed and a racing
+        # republish reddened it with no self-heal. It is the job the
+        # mitigation was written for: it scaffolds a downstream repo and
+        # runs `just docker build test`, whose lint stage is
+        # `FROM ${TEST_TOOLS_IMAGE}`.
+        #
+        # `inline` because the buildx setup above uses `driver: docker`, so
+        # `docker compose build`'s `FROM ${TEST_TOOLS_IMAGE}` resolves
+        # against the host daemon; the container driver's isolated store
+        # cannot serve it, and that driver has no GHA cache to lose.
+        run: ./script/ci/obtain_test_tools.sh "${TEST_TOOLS_IMAGE}" --platform ${{ matrix.platform }} --local-build inline
 
       - name: Create temp repo and run init.sh
         run: |
@@ -1533,61 +1363,18 @@ jobs:
         id: obtain
         env:
           TESTTOOLS_CHANGED: ${{ needs.classify.outputs.testtools_changed }}
-        run: |
-          set -uo pipefail
-          if [[ "${TESTTOOLS_CHANGED}" == "true" ]]; then
-            # classify (fetch-depth: 0) already determined this PR changes
-            # Dockerfile.test-tools, so :main is stale for it -> rebuild from
-            # source. Computing it here on the shallow (fetch-depth: 1)
-            # checkout misfired (no reachable merge-base) and rebuilt on every
-            # PR.
-            echo "build_local=true" >> "${GITHUB_OUTPUT}"
-            exit 0
-          fi
-          if docker pull --platform linux/amd64 \
-               ghcr.io/ycpss91255-docker/test-tools:main 2>/dev/null; then
-            # Re-tag under the run-scoped name AND stamp the ownership
-            # label in one metadata-only layer. `docker tag` cannot add a
-            # label, and an image the run pulled is still an image the run
-            # has to clean up.
-            printf 'FROM %s\nLABEL base.ci.run=%s\n' \
-              ghcr.io/ycpss91255-docker/test-tools:main "${CI_RUN_KEY}" \
-              | docker build -q -t "${TEST_TOOLS_IMAGE}" - >/dev/null
-            # Does the pulled :main correspond to THIS checkout? Two ways
-            # it may not, and only one of them is loud. The
-            # release-test-tools workflow republishes :main on a
-            # Dockerfile.test-tools change CONCURRENTLY with this run, so a
-            # freshly-baked tool (e.g. kcov) can be ABSENT from what we
-            # just pulled -- the suite fast-fails and says so. A tool whose
-            # PIN moved is the quiet one: shellcheck and hadolint are lint
-            # gates, and a gate running the previous rule set does not
-            # fail, it under-reports, so the check goes green having
-            # examined something other than what this checkout asked for.
-            # `just` is the third: it is the only control surface, and
-            # test/bats/integration/just_runner_version_spec.bats is
-            # fail-closed on a mismatch between the image's runner and ARG
-            # JUST_VERSION, so a :main published before a version bump
-            # carries every required tool AND the wrong runner and would
-            # redden a PR that touched nothing related. The probe therefore
-            # compares versions, not just PATH.
-            #
-            # It is one script rather than a loop pasted into each of these
-            # obtain steps: five copies is how the version blind spot
-            # survived, because no single copy looked wrong. Any refusal
-            # falls back to building locally from
-            # dockerfile/Dockerfile.test-tools (the layer-1 / layer-3
-            # build) -- the strict side, self-correcting against a stale /
-            # racing / old :main whatever the cause.
-            if ./script/ci/probe_test_tools.sh "${TEST_TOOLS_IMAGE}"; then
-              echo "build_local=false" >> "${GITHUB_OUTPUT}"
-              exit 0
-            fi
-            echo "::warning::the pulled test-tools:main does not match this" \
-                 "checkout (reason above); rebuilding from source"
-            echo "build_local=true" >> "${GITHUB_OUTPUT}"
-            exit 0
-          fi
-          echo "build_local=true" >> "${GITHUB_OUTPUT}"
+        # The whole decision -- rebuild because this PR changed the
+        # Dockerfile, use the rolling tag because it corresponds to this
+        # checkout, or rebuild because it does not or could not be pulled
+        # -- lives in script/ci/obtain_test_tools.sh, one copy for all six
+        # consumers. It used to be this block, pasted into each of them,
+        # and five of the six probed the pulled image while the sixth did
+        # not: a paste is something a person has to remember to do, and no
+        # single copy looked wrong.
+        #
+        # `delegate` because the buildx step below carries the GHA layer
+        # cache and gates on this step's `build_local` output.
+        run: ./script/ci/obtain_test_tools.sh "${TEST_TOOLS_IMAGE}" --platform linux/amd64 --local-build delegate
 
       - name: Build the run-scoped test-tools image (with GHA cache)
         if: ${{ steps.obtain.outputs.build_local == 'true' }}
