@@ -433,7 +433,7 @@ _notes_with_lossy_assembler() (
   assert_output --partial 'v0.9.0'
 }
 
-# why: Measured on the real tree: v0.42's RC union is 326,637 characters
+# why: Measured on the real tree: v0.42's RC union is 326,932 characters
 # against GitHub's 125,000 cap, so the API answers the tag push with a 422
 # after every gate has gone green. Refusing here fails the release with
 # our message and both numbers, and refuses rather than truncates because
@@ -441,7 +441,7 @@ _notes_with_lossy_assembler() (
 # stop.
 @test "release_notes.sh: a body over GitHub's release-body limit is refused, naming both numbers" {
   # Found by running the assembler over the real v0.42.0: the union of
-  # rc1..rc4 is 326,637 characters, and GitHub caps a release body at
+  # rc1..rc4 is 326,932 characters, and GitHub caps a release body at
   # 125,000. Handing that to action-gh-release is a 422 at tag push, after
   # every gate has passed, with the API's message and not ours. Refusing
   # here says which release, how big, and against what limit -- and it is a
@@ -495,7 +495,7 @@ _notes_with_lossy_assembler() (
 # not about this script.
 @test "release_notes.sh: a real released tag assembles from the live tree" {
   # v0.41.0 rather than .version: v0.42's sections predate the 700-character
-  # entry cap, and its RC union measures 326,637 characters against
+  # entry cap, and its RC union measures 326,932 characters against
   # GitHub's 125,000 limit, so it is refused by the case above -- a fact
   # about released text nobody may rewrite, not about this script. v0.41.0
   # is a real single-version tag in the real tree and exercises the same
@@ -512,18 +512,21 @@ _notes_with_lossy_assembler() (
 # why: The figure this file and release_notes.sh quote in four places -- the
 # size of v0.42's RC union -- is the one part of the refusal a reader cannot
 # check by reading, and every copy of it said 326,638 for a script that
-# prints 326637. The extra character is the newline printf adds after the
+# printed 326,637. The extra character is the newline printf adds after the
 # body, which the cap is deliberately not measured over. Pinning it here
 # makes the quoted figure a thing that fails rather than a thing that
 # drifts: the case above asserts only on '125000', so nothing measured the
-# other number in the same message.
+# other number in the same message. It has moved once since, to 326,932,
+# when publishing the final section's lead paragraph added that paragraph
+# to the union -- caught in all four places by this case.
 @test "release_notes.sh: the v0.42 RC union is the size the comments quote (#926)" {
   # A property of the REAL tree, because the quoted figure is a claim about
   # the real tree. v0.42's sections are released text nobody may rewrite, so
-  # the number is fixed; the day it moves, the four copies of it are wrong
-  # again and this is what says so.
+  # the figure moves only when the ASSEMBLER changes what it publishes --
+  # and the day it does, the four copies of it are wrong again and this is
+  # what says so.
   run "${NOTES}" v0.42.0
   [ "${status}" -ne 0 ]
-  assert_output --partial '326637 bytes'
+  assert_output --partial '326932 bytes'
   assert_output --partial '125000'
 }

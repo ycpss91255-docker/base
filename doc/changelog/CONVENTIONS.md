@@ -85,3 +85,25 @@ Released sections are **never** checked: they are a historical record, and
 rewriting a shipped entry falsifies it. A genuinely exceptional entry opts out
 by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 `<!-- changelog-entry-lint: allow-end -->`.
+
+## The paragraph above the first category
+
+A section may open with prose before its first `### ` heading. For the tag
+being released that paragraph is **published as written**, at the top of the
+GitHub release page above the merged entries, so write what a reader of that
+page needs -- what the release is for, what to do before their next build --
+or write nothing.
+
+Do not write it to point at the RC sections. A promoted final's notes are the
+union of its own section and every `-rcN` section under it
+(`script/release/release_notes.sh`), so "the entries stay under the RC
+headings that introduced them" is a sentence about this directory's layout,
+printed on a page that already carries those entries. The assembler cannot
+tell it from a release summary -- both are prose under a section with no
+categories of its own -- and it publishes rather than guesses, because the
+alternative deletes the summary too.
+
+An `-rcN` section's own lead is dropped unless it carries a `- ` entry: it
+says which candidate this is, which the reader of the final tag is not being
+told. A bullet under no heading is an entry that happens to sit above the
+first category, and travels to the page with the sentence introducing it.

@@ -43,30 +43,44 @@
 # in first-seen order rather than dropped -- released text is a record, and
 # the roster governs what is written from now on, not what shipped.
 #
-# THE POINTER PARAGRAPH. Prose sitting under the version heading before the
-# first `### ` is a lead paragraph. The leading section's is kept; an RC's
-# is not, because an RC's lead says which candidate this is and a reader of
-# the final tag is not being told that. The one exception, in both
-# directions, is a lead that CARRIES AN ENTRY: a `- ` bullet under no
-# heading is an entry that happens to sit above the first one, not prose,
-# and it is kept along with the sentence that introduces it.
+# THE LEAD PARAGRAPH. Prose sitting under the version heading before the
+# first `### ` is a lead paragraph. The LEADING section's is always kept --
+# it is the only prose anyone wrote for this release page. An RC's is kept
+# only when it CARRIES AN ENTRY: a `- ` bullet under no heading is an entry
+# that happens to sit above the first one, not prose, and it is kept along
+# with the sentence that introduces it. An RC lead that carries none says
+# which candidate this is, which a reader of the final tag is not being
+# told.
 #
-# That exception is the difference between a pointer paragraph and a
-# promoted release that wrote its entries where it stood. The rule used to
-# be "the section has no `### ` of its own, so its whole body is a pointer",
-# which is the v0.42.0 shape -- five lines saying the entries are elsewhere.
-# It is not the v0.29.0 shape, whose pointer prose ends in three bullets
-# naming the downstream propagation queued for that release: the rule read
-# the section for headings and never the lead for content, and dropped all
-# three. Measured across the real tree it dropped entries from five of the
-# tags it was run on.
+# Both halves of that are corrections, and they were made a fix apart. The
+# rule used to be "the section has no `### ` of its own, so its whole body
+# is a pointer at the RCs" -- the v0.42.0 shape, five lines saying the
+# entries are elsewhere, and superseded by the union that fetches them. It
+# is not the v0.29.0 shape, whose prose ends in three bullets naming the
+# downstream propagation queued for that release: the rule read the section
+# for headings and never the lead for content, and dropped all three.
+# Measured across the real tree it dropped entries from five of the tags it
+# was run on.
+#
+# Reading the lead for bullets fixed the half that is measurable, and left
+# a prose-only lead falling the same way -- which is the same defect with
+# nothing able to see it, since the entry count below cannot miss what was
+# never a bullet. A promoted final's lead is prose under no headings
+# whether it points at the RCs or tells the reader to upgrade before their
+# next build; the shapes are identical, so the old rule was not classifying
+# them, it was deleting both. Publishing both is the cheaper failure: a
+# stale pointer is a sentence a reader can see and an author can correct in
+# the next release, where a deleted upgrade instruction is gone from the
+# one page it was aimed at, with no message. CONVENTIONS.md says so where
+# the author writes it.
 #
 # WHAT IT REFUSES. A body over GitHub's 125,000-character release-body cap
-# (the union of v0.42's four RCs is 326,637 -- the figure the check itself
+# (the union of v0.42's four RCs is 326,932 -- the figure the check itself
 # prints, measured over the body and not over the newline printf adds after
 # it, which is the character the four places that used to quote 326,638 had
-# counted; a spec pins it so the next copy cannot drift either -- so this is
-# not hypothetical: handing it over would be a 422 at tag push, after every
+# counted; a spec pins it, which is what caught all four the day publishing
+# the final section's lead moved it off 326,637 -- so this is not
+# hypothetical: handing it over would be a 422 at tag push, after every
 # gate has passed);
 # no section for the tag; a tag whose section appears in
 # more than one file (the split's own failure mode -- a section copied
@@ -240,7 +254,7 @@ _assemble() {
   local -A _bucket=()
   local -a _order=()
   local -a _lead=() _leads=()
-  local _tag _line _current='' _own_headings=0 _first=1 _key _fence=''
+  local _tag _line _current='' _first=1 _key _fence=''
   local _lead_entries=0 _lead_text=''
   local -a _body=()
 
@@ -250,7 +264,6 @@ _assemble() {
     _fence=''
     _lead=()
     _lead_entries=0
-    _own_headings=0
     for _line in "${_body[@]}"; do
       if _is_fence_delimiter "${_line}"; then
         if [[ -z "${_fence}" ]]; then
@@ -266,7 +279,6 @@ _assemble() {
           _bucket["${_current}"]=''
           _order+=("${_current}")
         fi
-        _own_headings=$(( _own_headings + 1 ))
         continue
       fi
       if [[ -z "${_current}" ]]; then
@@ -279,14 +291,15 @@ _assemble() {
       _bucket["${_current}"]+="${_line}"$'\n'
     done
 
-    # Keep this section's lead when it carries an entry -- a `- ` bullet
-    # under no heading is an entry that sits above the first one, and the
-    # sentence introducing it is what says what the list is. Otherwise keep
-    # only the LEADING section's, and only when that section wrote entries
-    # of its own: a prose-only lead from a section with no `### ` is the
-    # promoted-release pointer at the RCs whose union replaces it, and an
-    # RC's own lead names the candidate, which the final tag's reader is
-    # not being told.
+    # Keep the LEADING section's lead whatever it holds: it is the only
+    # prose written for this release page, and a pointer at the RCs and a
+    # summary of them are the same shape (see THE LEAD PARAGRAPH above), so
+    # a rule that drops one drops the other with no message. Keep a later
+    # section's only when it carries an entry -- a `- ` bullet under no
+    # heading is an entry that sits above the first one, and the sentence
+    # introducing it is what says what the list is. An RC lead that carries
+    # none names the candidate, which the final tag's reader is not being
+    # told.
     #
     # The guard is on the TEXT, not on the line count. A `## [tag]` heading
     # is always followed by a blank line, so _lead is never an empty array
@@ -295,8 +308,7 @@ _assemble() {
     # line ahead of the first `### `. Every assembled body opened with one.
     _lead_text=''
     if [[ "${#_lead[@]}" -gt 0 ]] \
-      && { [[ "${_lead_entries}" -gt 0 ]] \
-        || [[ "${_first}" -eq 1 && "${_own_headings}" -gt 0 ]]; }; then
+      && { [[ "${_first}" -eq 1 ]] || [[ "${_lead_entries}" -gt 0 ]]; }; then
       _lead_text="$(printf '%s\n' "${_lead[@]}" | _trim_blank_edges)"
     fi
     [[ -n "${_lead_text}" ]] && _leads+=("${_lead_text}")
