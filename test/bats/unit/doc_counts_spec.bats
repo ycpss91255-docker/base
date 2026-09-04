@@ -207,54 +207,11 @@ _aggregate_figure_hits() {
   assert_output ''
 }
 
-@test "_sync_test_md_index: fills the system + acceptance rows, retires behavioural (#782)" {
-  run bash -c '
-    source "'"${GEN}"'"
-    root="${BATS_TEST_TMPDIR}/r"
-    mkdir -p "${root}/test/bats/unit" "${root}/test/bats/integration" \
-             "${root}/test/bats/system" "${root}/test/bats/acceptance" \
-             "${root}/dist/test/bats/smoke/shared" "${root}/doc/test"
-    printf "@test \"u\" {\n:\n}\n" > "${root}/test/bats/unit/u_spec.bats"
-    printf "@test \"i\" {\n:\n}\n" > "${root}/test/bats/integration/i_spec.bats"
-    printf "@test \"s1\" {\n:\n}\n@test \"s2\" {\n:\n}\n@test \"s3\" {\n:\n}\n" > "${root}/test/bats/system/s_spec.bats"
-    {
-      echo "| Doc | Scope | Count |"
-      echo "| [unit.md](unit.md) | unit | 0 |"
-      echo "| [integration.md](integration.md) | integration | 0 |"
-      echo "| [system.md](system.md) | system | 0 |"
-      echo "| [acceptance.md](acceptance.md) | acceptance | 0 |"
-      echo "| [smoke.md](smoke.md) | smoke | 0 |"
-    } > "${root}/doc/test/TEST.md"
-    _sync_doc_counts "${root}"
-    cat "${root}/doc/test/TEST.md"
-  '
-  assert_success
-  assert_output --partial "[system.md](system.md) | system | 3 "
-  assert_output --partial "[acceptance.md](acceptance.md) | acceptance | 0 "
-}
-
-@test "_sync_test_md_index: regenerates the blockquote prose System/smoke pair (#843)" {
-  # Regression: only the table rows and per-level headers were regenerated,
-  # so TEST.md's hand-written "System (N) and smoke (N)" prose drifted and
-  # ended up contradicting the table sitting right below it.
-  run bash -c '
-    source "'"${GEN}"'"
-    root="${BATS_TEST_TMPDIR}/r"
-    mkdir -p "${root}/test/bats/system" "${root}/dist/test/bats/smoke" \
-             "${root}/doc/test"
-    printf "@test \"s1\" {\n:\n}\n@test \"s2\" {\n:\n}\n" > "${root}/test/bats/system/s_spec.bats"
-    printf "@test \"k\" {\n:\n}\n" > "${root}/dist/test/bats/smoke/k.bats"
-    printf "%s\n" "> System (99) and smoke (98) tests are tracked here too." \
-      > "${root}/doc/test/TEST.md"
-    _sync_doc_counts "${root}"
-    cat "${root}/doc/test/TEST.md"
-  '
-  assert_success
-  assert_output --partial "System (2) and smoke (1) tests"
-  refute_output --partial "System (99)"
-}
-
-
+# The two `_sync_test_md_index` cases that stood here -- the index table's
+# Count column and the "System (N) and smoke (N)" blockquote pair -- went
+# with the function. Both asserted that a figure in TEST.md was kept true;
+# ADR-00000028 sec. 1 is that it is not kept at all. The case above replaces
+# them: it asserts TEST.md comes back unchanged.
 
 # ── The generated catalogue region ───────────────────────────────────────────
 #
