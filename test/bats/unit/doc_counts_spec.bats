@@ -174,6 +174,39 @@ _aggregate_figure_hits() {
   assert_output ''
 }
 
+# why: Removing the lines is only half of it. The generator's TEST.md pass
+# was the mechanism that made them maintainable, and every one of its rewrites
+# is a `sed` that silently does nothing when its pattern is absent -- so left
+# in place it would sit there looking retired while standing ready to adopt
+# any figure typed back in, which is how the count became a maintained thing
+# the first time. This is the case that says the generator no longer owns
+# TEST.md: a document carrying every shape at once comes back unchanged.
+@test "_sync_doc_counts: does not maintain an aggregate figure in TEST.md (#978)" {
+  run bash -c '
+    source "'"${GEN}"'"
+    root="${BATS_TEST_TMPDIR}/r"
+    mkdir -p "${root}/test/bats/unit" "${root}/test/bats/system" \
+             "${root}/dist/test/bats/smoke" "${root}/doc/test"
+    printf "@test \"u\" {\n:\n}\n" > "${root}/test/bats/unit/u_spec.bats"
+    printf "@test \"s\" {\n:\n}\n" > "${root}/test/bats/system/s_spec.bats"
+    printf "@test \"k\" {\n:\n}\n" > "${root}/dist/test/bats/smoke/k.bats"
+    printf "%s\n" \
+      "Template self-tests: **99 tests** total (98 unit + 1 integration)." \
+      "> System (97) and smoke (96) tests are tracked here too but are" \
+      "> **not** in the 99 figure." \
+      "| Doc | Scope | Count |" \
+      "| [unit.md](unit.md) | unit | 95 |" \
+      "| [system.md](system.md) | system | 94 |" \
+      "Self-test grand total (unit + integration): **99**." \
+      > "${root}/doc/test/TEST.md"
+    cp "${root}/doc/test/TEST.md" "${root}/before"
+    _sync_doc_counts "${root}"
+    diff -u "${root}/before" "${root}/doc/test/TEST.md"
+  '
+  assert_success
+  assert_output ''
+}
+
 @test "_sync_test_md_index: fills the system + acceptance rows, retires behavioural (#782)" {
   run bash -c '
     source "'"${GEN}"'"
