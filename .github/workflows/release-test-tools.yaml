@@ -303,10 +303,15 @@ jobs:
           # so the roster loop below asserts them by version, which is
           # strictly more than the exit status a probe here would read.
           #
-          # shellcheck and hadolint cannot go through that roster -- they
-          # are pinned by literal release URL, not by an ARG -- so they are
+          # The static-analysis pair cannot go through that roster: both are
+          # pinned by literal release URL, not by an ARG, so they are
           # compared against the pin read out of the Dockerfile, below. The
           # two mechanisms cover disjoint sets; neither is redundant.
+          #
+          # (This line does not open with the tool's name on purpose: a
+          # comment beginning `# shellcheck ...` inside a run: block is
+          # parsed as a shellcheck DIRECTIVE, and actionlint fails the
+          # workflow with SC1072/SC1073 rather than reading prose.)
           # The two lint gates every PR in this repo must pass are the
           # static-analysis pair pinned by literal release URL in
           # dockerfile/Dockerfile.test-tools -- a shape dependabot cannot
