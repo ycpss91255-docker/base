@@ -62,8 +62,12 @@
 # tags it was run on.
 #
 # WHAT IT REFUSES. A body over GitHub's 125,000-character release-body cap
-# (the union of v0.42's four RCs is 326,638, so this is not hypothetical --
-# handing it over would be a 422 at tag push, after every gate has passed);
+# (the union of v0.42's four RCs is 326,637 -- the figure the check itself
+# prints, measured over the body and not over the newline printf adds after
+# it, which is the character the four places that used to quote 326,638 had
+# counted; a spec pins it so the next copy cannot drift either -- so this is
+# not hypothetical: handing it over would be a 422 at tag push, after every
+# gate has passed);
 # no section for the tag; a tag whose section appears in
 # more than one file (the split's own failure mode -- a section copied
 # rather than moved leaves two answers to "what shipped", and picking either

@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **4014 tests**.
+Unit specs under `test/bats/unit/`: **4015 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3741,7 +3741,7 @@ naming the path and what its absence costs.
 | `release-archive: refuses a manifest path that escapes the repo root (#914)` | Same escape guard on the declared paths |
 | `release-archive: --list prints the declared payload with its required/optional split` | The payload contract is readable without running an archive |
 
-### test/bats/unit/release_notes_spec.bats (16)
+### test/bats/unit/release_notes_spec.bats (17)
 
 | Test | Description |
 |------|-------------|
@@ -3758,9 +3758,10 @@ naming the path and what its absence costs.
 | `release_notes.sh: a '## [' inside a fenced block does not end the section` | The entry most likely to quote a section heading is the entry about the changelog's own format. A scan with no fence state truncates there and drops every entry after it, so the release documenting the split is the release the split silently shortens. |
 | `release_notes.sh: the compare-link block is not part of the notes` | In a series file the link definitions follow the section directly, so a section that ends only at the next `## [` publishes reference data as page content. The split is what moved those definitions inside the span the assembler reads. |
 | `release_notes.sh: a tag present in two series files is refused` | The split's own failure mode: a section copied rather than moved leaves two answers to what shipped in this tag. Picking either silently puts one of them on a page nobody can correct afterwards, so the ambiguity is refused instead of ordered away. |
-| `release_notes.sh: a body over GitHub's release-body limit is refused, naming both numbers` | Measured on the real tree: v0.42's RC union is 326,638 characters against GitHub's 125,000 cap, so the API answers the tag push with a 422 after every gate has gone green. Refusing here fails the release with our message and both numbers, and refuses rather than truncates because a page silently missing entries is the failure this script exists to stop. |
+| `release_notes.sh: a body over GitHub's release-body limit is refused, naming both numbers` | Measured on the real tree: v0.42's RC union is 326,637 characters against GitHub's 125,000 cap, so the API answers the tag push with a 422 after every gate has gone green. Refusing here fails the release with our message and both numbers, and refuses rather than truncates because a page silently missing entries is the failure this script exists to stop. |
 | `release_notes.sh: the version being released has exactly one section in the live tree` | The regression stated as a property of the REAL tree rather than of a fixture, so it still holds for a version whose notes are too large to assemble. This is the assertion that would have caught a doc-only heading rename before the release job ran on it. |
 | `release_notes.sh: a real released tag assembles from the live tree` | Every other case drives a scratch fixture, so without this the spec could pass in full against a changelog shaped nothing like the one that ships. v0.41.0 rather than `.version`, because v0.42's released text predates the entry cap and is refused for size -- a fact about history, not about this script. |
+| `release_notes.sh: the v0.42 RC union is the size the comments quote (#926)` | The figure this file and release_notes.sh quote in four places -- the size of v0.42's RC union -- is the one part of the refusal a reader cannot check by reading, and every copy of it said 326,638 for a script that prints 326637. The extra character is the newline printf adds after the body, which the cap is deliberately not measured over. Pinning it here makes the quoted figure a thing that fails rather than a thing that drifts: the case above asserts only on '125000', so nothing measured the other number in the same message. |
 
 ### test/bats/unit/release_ref_spec.bats (14)
 
