@@ -236,6 +236,15 @@ _grand_total_mentions() {
 # assumed, from the tree: this case only forbids the pointers because
 # TEST.md itself records no total, so restoring the figure lifts the rule
 # instead of leaving a rule nobody can satisfy.
+@test "doc/test: no catalogue points at a grand total TEST.md no longer records (#978)" {
+  run _aggregate_figure_hits /source/doc/test/TEST.md
+  assert_success
+  assert_output ''
+  run _grand_total_mentions
+  assert_success
+  assert_output ''
+}
+
 # _prd_gate_removal_predictions -- every doc/PRD.md paragraph that both
 # names the doc-count drift gate and predicts its removal, folded to one
 # line each. The unit is a paragraph because that is the span a reader
@@ -266,15 +275,6 @@ _prd_gate_removal_predictions() {
   run grep -Fx '  doc-counts' /source/script/test/test.sh
   assert_success
   run _prd_gate_removal_predictions
-  assert_success
-  assert_output ''
-}
-
-@test "doc/test: no catalogue points at a grand total TEST.md no longer records (#978)" {
-  run _aggregate_figure_hits /source/doc/test/TEST.md
-  assert_success
-  assert_output ''
-  run _grand_total_mentions
   assert_success
   assert_output ''
 }
