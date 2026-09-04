@@ -27,6 +27,7 @@
 #                             # --errexit-bang-only /
 #                             # --self-hosted-guard-only /
 #                             # --changelog-entry-only /
+#                             # --pin-coverage-only /
 #                             # --action-ref-agreement-only /
 #                             # --generated-workflow-actions-only.
 #                             # These are what the self-test.yaml lint jobs
@@ -127,6 +128,8 @@ source "${SCRIPT_DIR}/drivers/self_hosted_guard.sh"
 source "${SCRIPT_DIR}/drivers/changelog_entry.sh"
 # shellcheck source=script/test/drivers/changelog_layout.sh
 source "${SCRIPT_DIR}/drivers/changelog_layout.sh"
+# shellcheck source=script/test/drivers/pin_coverage.sh
+source "${SCRIPT_DIR}/drivers/pin_coverage.sh"
 # shellcheck source=script/test/drivers/action_ref_agreement.sh
 source "${SCRIPT_DIR}/drivers/action_ref_agreement.sh"
 # shellcheck source=script/test/drivers/generated_workflow_actions.sh
@@ -171,6 +174,7 @@ readonly _LINT_TOOLS=(
   self-hosted-guard
   changelog-entry
   changelog-layout
+  pin-coverage
   action-ref-agreement
   generated-workflow-actions
   just-provenance
@@ -247,6 +251,7 @@ _run_lint_tool() {
     self-hosted-guard) _run_self_hosted_guard ;;
     changelog-entry)  _run_changelog_entry ;;
     changelog-layout) _run_changelog_layout ;;
+    pin-coverage)     _run_pin_coverage ;;
     action-ref-agreement) _run_action_ref_agreement ;;
     generated-workflow-actions) _run_generated_workflow_actions ;;
     just-provenance)  _run_just_provenance ;;
@@ -432,6 +437,14 @@ Options:
                           '## [Unreleased]', and the index block is
                           re-derived by script/release/changelog_index.sh
                           and must match what is committed)
+  --pin-coverage          With --lint: run only the pin-coverage lint
+                          (every third-party version this repo names in a
+                          Dockerfile or a workflow -- the versions
+                          dependabot cannot see -- carries a `tool-pin:`
+                          marker saying where its upstream lives, so the
+                          release watch's table is derived from the
+                          declaration sites instead of a roster that falls
+                          behind them)
   --action-ref-agreement  With --lint: run only the action ref agreement
                           lint (every call site of one action's REPOSITORY
                           across .github/workflows/ must name the same ref;
@@ -490,6 +503,7 @@ Options:
                             --self-hosted-guard-only pure bash
                             --changelog-entry-only   pure bash
                             --changelog-layout-only  pure bash
+                            --pin-coverage-only      pure bash
                             --action-ref-agreement-only pure bash
                             --generated-workflow-actions-only pure bash
                           (no --hadolint-only equivalent: hadolint exists
@@ -604,6 +618,7 @@ Examples:
   ./test.sh --i18n-orphan-only    # Direct translation-only identifier lint, no compose
   ./test.sh --self-hosted-guard-only # Direct self-hosted runner guard lint, no compose
   ./test.sh --changelog-entry-only # Direct changelog entry lint, no compose
+  ./test.sh --pin-coverage-only   # Direct tool-pin coverage lint, no compose
   ./test.sh --action-ref-agreement-only # Direct action ref agreement lint, no compose
   ./test.sh --generated-workflow-actions-only # Direct generated-workflow action ref lint, no compose
   ./test.sh --just-provenance-only # Direct just provenance pin lint, no compose
@@ -1683,6 +1698,29 @@ _await_project_quiescent() {
 
 # ── Docker compose wrapper ───────────────────────────────────────────────────
 
+# _pin_tracked_handoff
+#
+# The files this checkout TRACKS, computed HERE because this side can
+# compute it, for the pin registry to read on the side that cannot. One
+# repo-root-relative path per line; EMPTY when this side cannot answer
+# either.
+#
+# The registry's scan population is the tracked set (script/watch/lib.sh
+# says why it is derived rather than rostered), and answering that needs
+# git. The container has the git BINARY but not this repository: a
+# worktree's `.git` is a FILE naming a path outside the bind mount, so
+# `git -C /source rev-parse --git-dir` fails there. So the answer
+# travels, the way the prune-list verdict it replaces did.
+#
+# Empty is not "nothing is tracked": _pin_tracked treats an absent list as
+# no answer and refuses, which is the correct outcome for a run that could
+# not establish which files it is supposed to read. git still WINS on the
+# far side wherever it is readable -- a normal clone's `.git` IS in the
+# mount -- so this value can never silence a file git can see there.
+_pin_tracked_handoff() {
+  _pin_tracked "${REPO_ROOT}" 2>/dev/null || return 0
+}
+
 _run_via_compose() {
   # Service is the first arg so the caller picks the runner image:
   #   `ci`       — alpine test-tools (bats/shellcheck/hadolint baked in,
@@ -1820,6 +1858,8 @@ _run_via_compose() {
     -e BATS_FILTER="${BATS_FILTER:-}" \
     -e LINT_ONLY="${LINT_ONLY:-0}" \
     -e LINT_TOOL="${LINT_TOOL:-}" \
+    -e PIN_TRACKED_ROOT=/source \
+    -e PIN_TRACKED_FILES="$(_pin_tracked_handoff)" \
     "${_service}" || _rc=$?
   if [[ -n "${_residue_before}" ]]; then
     _residue_check "${_residue_before}" "${REPO_ROOT}" || _rc=1
@@ -1887,6 +1927,7 @@ main() {
       --self-hosted-guard) lint_tool="self-hosted-guard"; shift ;;
       --changelog-entry) lint_tool="changelog-entry"; shift ;;
       --changelog-layout) lint_tool="changelog-layout"; shift ;;
+      --pin-coverage) lint_tool="pin-coverage"; shift ;;
       --action-ref-agreement) lint_tool="action-ref-agreement"; shift ;;
       --generated-workflow-actions) lint_tool="generated-workflow-actions"; shift ;;
       --just-provenance) lint_tool="just-provenance"; shift ;;
@@ -1908,6 +1949,7 @@ main() {
       --self-hosted-guard-only) host_lint="self-hosted-guard"; shift ;;
       --changelog-entry-only) host_lint="changelog-entry"; shift ;;
       --changelog-layout-only) host_lint="changelog-layout"; shift ;;
+      --pin-coverage-only) host_lint="pin-coverage"; shift ;;
       --action-ref-agreement-only) host_lint="action-ref-agreement"; shift ;;
       --generated-workflow-actions-only) host_lint="generated-workflow-actions"; shift ;;
       --just-provenance-only) host_lint="just-provenance"; shift ;;
@@ -1954,7 +1996,7 @@ main() {
   # `--i18n-orphan-only`, `--early-close-reader-only`,
   # `--errexit-bang-only`,
   # `--self-hosted-guard-only`, `--changelog-entry-only`,
-  # `--action-ref-agreement-only`) short-circuit
+  # `--pin-coverage-only`, `--action-ref-agreement-only`) short-circuit
   # before any mode dispatch and run
   # ONE driver right here: no compose, no test-tools image, no
   # apt-install. This is the CI join for the lint phase -- a plain

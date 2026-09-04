@@ -493,7 +493,9 @@ _spec_prose() {
   run _smoke_step
   assert_success
   assert_output --partial 'dockerfile/Dockerfile.test-tools'
-  assert_output --regexp 'shellcheck/releases/download'
+  # The ARG declaration, not the release URL it feeds: the URL interpolates
+  # the ARG now, so there is no literal in it left to read.
+  assert_output --regexp 'SHELLCHECK_VERSION='
 }
 
 # why: The pin that sat 3.8 years stale behind an exit-0 check -- the
@@ -502,7 +504,7 @@ _spec_prose() {
 @test "release-test-tools.yaml: smoke step reads the hadolint pin from the Dockerfile (#947)" {
   run _smoke_step
   assert_success
-  assert_output --regexp 'hadolint/releases/download'
+  assert_output --regexp 'HADOLINT_VERSION='
 }
 
 # why: Reading two numbers is not comparing them: holding the pin and

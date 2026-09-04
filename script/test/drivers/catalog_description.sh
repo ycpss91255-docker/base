@@ -221,7 +221,13 @@ readonly _CATALOG_DESC_SCAN_GLOBS=(
 # rule is to recompute from the merged tree, which is what the catalogue
 # itself does. See base#1024 for why a single stored number conflicts on
 # every merge by construction.
-readonly _CATALOG_DESC_UNDESCRIBED_CEILING=2605
+#
+# 2595 at the third merge with origin/main. Both sides had lowered it again
+# and independently -- 2605 here, 2597 on main -- and the merged tree
+# measures 2595, below both. Recomputed rather than picked, for the third
+# time on this branch; base#1024 is the issue for why a single stored number
+# does this on every merge by construction.
+readonly _CATALOG_DESC_UNDESCRIBED_CEILING=2595
 
 # The written-out non-answers, matched case-insensitively on the whole
 # trimmed marker. `nil`, `none`, `tbd`, `todo` and `unknown` carry a

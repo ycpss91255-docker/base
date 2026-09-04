@@ -194,6 +194,7 @@ ships its own `test/bats/{unit,integration,system,acceptance}/`.
 | `dist/script/base/upgrade.sh` | Subtree version upgrade (`just base upgrade [vX.Y.Z]`). |
 | `script/test/justfile.test` | base self-test entry (`just test`, `just test lint`, `just test coverage`, …). |
 | `script/release/justfile.release` | base `release` namespace (release / publish tooling). |
+| `script/watch/justfile.watch` | base `watch` namespace — upstream-release watch (`just watch`, `just watch pins`, `just watch bump <name> <version>`). |
 | `dist/dockerfile/Dockerfile` | Multi-stage Dockerfile template for new repos |
 | `dockerfile/Dockerfile.test-tools` | Pre-built lint/test tools image (shellcheck, hadolint, bats, bats-mock) |
 | `.github/workflows/` | Reusable CI workflows (build + release) |
@@ -1813,8 +1814,13 @@ See [TEST.md](doc/test/TEST.md) for the test index (per-category catalogs:
 │   │   └── drivers/                    # One driver per lint/test tool (bats / shellcheck / hadolint
 │   │                                   #   / issueref / adr_numbering / stale_setup_conf / readme_sync
 │   │                                   #   / doc_counts / home_literal / derived_figures / coverage_gate)
-│   └── release/
-│       └── justfile.release            # just release <recipe>
+│   ├── release/
+│   │   └── justfile.release            # just release <recipe>
+│   └── watch/                          # Upstream-release watch (pins vs upstream)
+│       ├── justfile.watch              # just watch / pins / value / bump / uncovered
+│       ├── lib.sh                      # tool-pin marker grammar, reader, detector
+│       ├── pins.sh                     # Read + rewrite the declared pins (no network)
+│       └── check.sh                    # Compare each pin against its upstream
 ├── dockerfile/
 │   └── Dockerfile.test-tools           # Pre-built lint/test tools image (shellcheck/hadolint/bats)
 ├── test/                               # base's OWN specs (tool-first: test/<tool>/<category>/)

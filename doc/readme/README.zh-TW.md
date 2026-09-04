@@ -137,7 +137,7 @@ flowchart LR
     release_worker -->|"tar.gz + zip"| release["GitHub Release"]
 ```
 
-<!-- sync: whats-included e2bee7b5023c 15e57d7e3de5 -->
+<!-- sync: whats-included 15d472ab822b 77e2a7e702de -->
 ### 包含內容
 
 | 檔案 | 說明 |
@@ -194,6 +194,7 @@ flowchart LR
 | `dist/script/base/upgrade.sh` | Subtree 版本升級（`just base upgrade [vX.Y.Z]`）。 |
 | `script/test/justfile.test` | base 自身測試入口（`just test`、`just test lint`、`just test coverage` …）。 |
 | `script/release/justfile.release` | base `release` namespace（release / publish 工具）。 |
+| `script/watch/justfile.watch` | base `watch` namespace — 上游發佈監控（`just watch`、`just watch pins`、`just watch bump <name> <version>`）。 |
 | `dist/dockerfile/Dockerfile` | 新 repo 的多階段 Dockerfile 範本 |
 | `dockerfile/Dockerfile.test-tools` | 預建置 lint/test 工具 image（shellcheck、hadolint、bats、bats-mock） |
 | `.github/workflows/` | 可重用 CI workflows（build + release） |
@@ -1167,7 +1168,7 @@ just --list  # 顯示 CI 指令
 [system](../test/system.md) / [acceptance](../test/acceptance.md) /
 [smoke](../test/smoke.md)）。
 
-<!-- sync: directory-structure 8c0bbba9a0c3 fe84ec4f23fc -->
+<!-- sync: directory-structure 90f39e438804 bac410521d47 -->
 ## 目錄結構
 
 ```
@@ -1254,10 +1255,10 @@ just --list  # 顯示 CI 指令
 │   │   ├── system.md             # System／Regression 測試清單
 │   │   ├── acceptance.md         # Acceptance 測試清單（保留，S5 #785）
 │   │   └── smoke.md                   # smoke 測試清單
-│   ├── changelog/
-│   │   ├── CHANGELOG.md
-│   │   ├── CONVENTIONS.md
-│   │   └── v0.NN.md
+│   ├── changelog/                     # 生成的索引之下，每個 0.Y 系列一個檔案
+│   │   ├── CHANGELOG.md                # 索引：每個系列、其日期與 BREAKING 條目（生成）
+│   │   ├── CONVENTIONS.md              # 如何寫一條條目
+│   │   └── v0.NN.md                    # 每個 0.Y 系列一個；最新的那個帶有 [Unreleased]
 │   └── deprecations.md
 ├── CONTEXT.md
 ├── .gitignore

@@ -141,7 +141,7 @@ flowchart LR
     release_worker -->|"tar.gz + zip"| release["GitHub Release"]
 ```
 
-<!-- sync: whats-included e2bee7b5023c 162293c110c6 -->
+<!-- sync: whats-included 15d472ab822b fe13e3fcdb36 -->
 ### 含まれるもの
 
 | ファイル | 説明 |
@@ -196,6 +196,7 @@ flowchart LR
 | `dist/script/base/upgrade.sh` | Subtree バージョンアップグレード（`just base upgrade [vX.Y.Z]`）。 |
 | `script/test/justfile.test` | base 自己テストのエントリ（`just test`、`just test lint`、`just test coverage`、…）。 |
 | `script/release/justfile.release` | base の `release` namespace（release / publish ツール）。 |
+| `script/watch/justfile.watch` | base の `watch` namespace — 上流リリース監視（`just watch`、`just watch pins`、`just watch bump <name> <version>`）。 |
 | `script/test/test.sh` | base 自己テストのディスパッチャ（ローカル + コンテナ内） |
 | `script/test/drivers/` | ツールごとに 1 つの driver — `bats.sh` / `shellcheck.sh` / `hadolint.sh` |
 | `script/test/lint_bare_stderr.sh` | 素の stderr 出力 lint チェッカ |
@@ -1254,7 +1255,7 @@ just --list  # CI ターゲット表示
 [system](../test/system.md) / [acceptance](../test/acceptance.md) /
 [smoke](../test/smoke.md)）。
 
-<!-- sync: directory-structure 8c0bbba9a0c3 ce4e036c2782 -->
+<!-- sync: directory-structure 90f39e438804 1ca84949a238 -->
 ## ディレクトリ構造
 
 ```
@@ -1341,10 +1342,10 @@ just --list  # CI ターゲット表示
 │   │   ├── system.md             # System／Regression テスト一覧
 │   │   ├── acceptance.md         # Acceptance テスト一覧（予約、S5 #785）
 │   │   └── smoke.md                   # smoke テスト一覧
-│   ├── changelog/
-│   │   ├── CHANGELOG.md
-│   │   ├── CONVENTIONS.md
-│   │   └── v0.NN.md
+│   ├── changelog/                     # 生成された索引の下に 0.Y シリーズごと 1 ファイル
+│   │   ├── CHANGELOG.md                # 索引：全シリーズとその期間、BREAKING 項目（生成）
+│   │   ├── CONVENTIONS.md              # エントリの書き方
+│   │   └── v0.NN.md                    # 0.Y シリーズごとに 1 つ、最新が [Unreleased] を持つ
 │   └── deprecations.md
 ├── CONTEXT.md
 ├── .gitignore

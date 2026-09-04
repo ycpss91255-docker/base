@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **4019 tests**.
+Unit specs under `test/bats/unit/`: **4196 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -2438,7 +2438,7 @@ exit $?`; a failing pre-exec hook aborts before `compose exec` runs).
 | `exec.sh post-exec hook failure still overrides a non-zero container rc (#956)` | - |
 | `exec.sh aborts on a failing pre-exec hook and skips compose exec (#690)` | - |
 
-### test/bats/unit/generated_workflow_actions_lint_spec.bats (21)
+### test/bats/unit/generated_workflow_actions_lint_spec.bats (57)
 
 | Test | Description |
 |------|-------------|
@@ -2446,22 +2446,58 @@ exit $?`; a failing pre-exec hook aborts before `compose exec` runs).
 | `generated-workflow-actions: names the generated ref's file and line (#950)` | A bump proposal is actionable only if it says which line to edit |
 | `generated-workflow-actions: passes when the two copies agree (#950)` | Lockstep is the whole assertion; the lint owns no opinion on which version is right |
 | `generated-workflow-actions: a ref ahead of this repo's own fails too (#950)` | Direction-agnostic: a hand-edit past the workflows is the same defect, other sign |
-| `generated-workflow-actions: ignores an interpolated ref (#950)` | This repo calling its OWN reusable workflow -- no literal to compare, upgrade.sh rewrites it |
+| `generated-workflow-actions: ignores a call to a reusable workflow this repo ships (#950)` | A call home has an owner -- upgrade.sh rewrites it -- so the exclusion is keyed on the callee being ours, not on the ref being interpolated |
+| `generated-workflow-actions: somebody else's copy of one of our workflow filenames is not excluded (#950)` | The hole: nine of our workflow basenames are names anybody would pick, so a basename-keyed exclusion exempts a stranger's copy in silence |
+| `generated-workflow-actions: an unresolved variable is not a stand-in for our own slug (#950)` | The obvious repair for that hole is the same hole one layer up -- "any variable, since it might be us" exempts ${OTHER_SLUG} too |
+| `generated-workflow-actions: our own slug spelled out is excluded (#950)` | The other half of the owner check -- an exclusion that only survives interpolation would fire on the literal spelling of the same call home |
+| `generated-workflow-actions: the owner is read off the tree, not carried in the driver (#950)` | A repo rename must move the exclusion with it; a driver holding a copy of either literal fails one of these two halves |
+| `generated-workflow-actions: an upstream file declaring no slug excludes nothing (#987)` | Fail-closed is the only safe direction for an exemption -- an unreadable upstream file must switch it off, not leave every call exempt |
+| `generated-workflow-actions: a deeper path under .github/workflows/ is not excluded (#950)` | Reading the basename off the tail of an arbitrary path is how .../workflows/vendor/build-worker.yaml claimed our exemption |
+| `generated-workflow-actions: a reusable workflow this repo does NOT ship is not excluded (#950)` | Nothing rewrites somebody else's reusable workflow, so it stays in the population rather than inheriting our upgrade.sh justification |
 | `generated-workflow-actions: ignores a uses: ref inside a shell comment (#950)` | Prose quoting a step is not a step; a lint that fails on its own docs gets muted |
-| `generated-workflow-actions: a double-quoted generated ref is compared, not skipped (#950)` | - |
-| `generated-workflow-actions: a single-quoted generated ref is compared, not skipped (#950)` | - |
-| `generated-workflow-actions: a quoted ref to an action this repo never uses fails (#950)` | - |
-| `generated-workflow-actions: one unreadable ref among readable ones still fails (#950)` | - |
-| `generated-workflow-actions: a uses: value it cannot resolve fails by name (#950)` | - |
-| `generated-workflow-actions: an unreadable value is reported as unreadable, not as an unused action (#950)` | - |
-| `generated-workflow-actions: an action named with no ref is not called unused (#950)` | - |
-| `generated-workflow-actions: a local ./ callee is skipped by name, not by accident (#950)` | - |
-| `generated-workflow-actions: a docker:// container action is skipped by name (#950)` | - |
-| `generated-workflow-actions: a quoted ref in this repo's own workflow is read too (#950)` | - |
+| `generated-workflow-actions: a double-quoted generated ref is compared, not skipped (#950)` | Quoting is legal Actions syntax, so a matcher that only reads bare values is narrower than the name it carries |
+| `generated-workflow-actions: a single-quoted generated ref is compared, not skipped (#950)` | The other quote character, because a matcher fixed for one and not the other is the same silent skip wearing a different mark |
+| `generated-workflow-actions: a quoted ref to an action this repo never uses fails (#950)` | The bare form of the defect behind quotes -- nothing bumps it, and the quotes must not be what hides it |
+| `generated-workflow-actions: one unreadable ref among readable ones still fails (#950)` | The partial silent drop: a tree whose other refs agree is exactly where a skipped ref reports clean, and the count backstop cannot see it |
+| `generated-workflow-actions: a uses: value it cannot resolve fails by name (#950)` | Refusing to guess is the point, and the message has to name the line it could not read or the reader has nowhere to go |
+| `generated-workflow-actions: an unreadable value is reported as unreadable, not as an unused action (#950)` | An unreadable value carries an empty action field, and dropping that field re-routes the finding into a sentence about an action nobody wrote |
+| `generated-workflow-actions: an action named with no ref is not called unused (#950)` | This repo plainly does use actions/checkout, so calling it an action this repo never uses states something false and sends the reader elsewhere |
+| `generated-workflow-actions: a local ./ callee is skipped by name, not by accident (#950)` | A ./ callee is this tree at this commit; excluding it by name keeps the pass from riding on the matcher merely declining to match |
+| `generated-workflow-actions: a docker:// container action is skipped by name (#950)` | An image reference has no owner/repo reading for a workflow ref to agree with, so it is excluded by name rather than by accident |
+| `generated-workflow-actions: a quoted ref in this repo's own workflow is read too (#950)` | The same matcher reads both sides; a quoted ref dropped from the expected set turns a real disagreement into the right verdict for the wrong reason |
 | `generated-workflow-actions: ignores a generator under .prev-release/ (#950)` | A shipped release cannot be re-pinned, so scanning it fails a lint no edit can satisfy |
+| `generated-workflow-actions: a declared readonly literal is resolved and compared (#950)` | The shape init.sh actually uses -- a hoisted ref writes the same value as an inline one, so excluding it would drop the ref this lint was built for |
+| `generated-workflow-actions: a resolved ref that agrees enters the population (#950)` | Not merely "does not fail": a resolved ref that is silently dropped also passes, and the count is what separates the two |
+| `generated-workflow-actions: the declaration keyword decides nothing (#950)` | readonly is a hardening detail of the declaration; what makes the value readable is the marker, not the keyword |
+| `generated-workflow-actions: an unbraced $NAME is refused with no neighbour to collide with (#987)` | The single-variable shape, with no neighbour to collide with: the rule is "a bare name", not "a bare name that could collide" |
+| `generated-workflow-actions: resolves the ref half alone (#950)` | The variable need not be the whole value; actions/checkout@${_V} is the same static ref written differently |
+| `generated-workflow-actions: a resolved ref to an action this repo never uses still fails (#950)` | Resolution feeds the ordinary comparison rather than bypassing it, or the registry would become a way to opt a ref out |
+| `generated-workflow-actions: a declaration in ANOTHER file does not resolve (#987)` | The record names a file AND a line; matching on the name alone throws away the half that makes the lookup better than the scanner it replaced |
+| `generated-workflow-actions: a marked name elsewhere does not vouch for a runtime value here (#987)` | What name-keyed resolution costs: a marked constant in a sibling file answers for a runtime value here, and reports lockstep over it |
+| `generated-workflow-actions: a declaration BELOW the use still resolves (#987)` | The stated cost of trusting a declaration -- a declaration below the heredoc that reads it still resolves, and that is bought knowingly |
+| `generated-workflow-actions: two declarations that disagree are a finding (#950)` | Which declaration reaches the use is the question this driver no longer answers, so it says so rather than picking one |
+| `generated-workflow-actions: a declared command substitution is a finding (#950)` | Declared and still not a value -- what the line holds is decided at run time, so there is nothing to hold in lockstep |
+| `generated-workflow-actions: a declared value that is itself a variable is a finding (#950)` | A second hop is not a value, and refusing it is also what keeps resolution terminating rather than substituting forever |
+| `generated-workflow-actions: a declared value with an interpolation is a finding (#950)` | A value built at run time from an interpolation is not a static ref, so resolving it would compare a string the generator never writes |
+| `generated-workflow-actions: a variable nothing in the tree declares is a finding (#950)` | A variable nothing declares is the fail-open case: resolving it to nothing would drop the ref from the population in silence |
+| `generated-workflow-actions: an UNDECLARED assignment in another file is a finding (#987)` | The mirror of the cross-file case -- resolution reads the registry, not the tree, so an unclaimed assignment contributes nothing wherever it sits |
+| `generated-workflow-actions: an appended variable is a finding (#950)` | NAME+= builds a value rather than declaring one, so reading only the NAME= line resolves to a prefix of what the generator writes |
 | `generated-workflow-actions: fails when this repo pins the action at two refs (#950)` | No answer to which ref the generated copy should carry, so it says so rather than guessing |
 | `generated-workflow-actions: fails when this repo never uses the generated action (#950)` | No dependabot PR for the generated ref to inherit -- the bare form of the defect |
 | `generated-workflow-actions: refuses a tree it found no generated ref in (#950)` | A renamed generator or a dead matcher must not read as lockstep |
+| `generated-workflow-actions: a brace group at column 0 does not end a function (#987)` | A bare brace group at column 0 drops the reader back to file scope for the rest of the body, so every later assignment is judged live |
+| `generated-workflow-actions: a C-style for loop is a conditional block (#987)` | for((...)) carries no space, so the loop never counts as opened and an assignment that runs only inside it is read as unconditional |
+| `generated-workflow-actions: a tab after if still opens a block (#987)` | A tab after if is legal bash and does not match "if ", so the block never opens and the guarded assignment reads as unconditional |
+| `generated-workflow-actions: a reference in a QUOTED heredoc is compared like any other (#987)` | A quoted heredoc writes the reference out verbatim, which is a broken generator rather than a ref to pass over -- the comparison is the same |
+| `generated-workflow-actions: a ${{ }} GitHub expression is excluded by name (#987)` | The one dollar spelling in a uses: value that is not a shell reference at all, so it is excluded by name beside ./ and docker:// |
+| `generated-workflow-actions: a ${{ }} does not excuse a shell reference beside it (#987)` | The exclusion is of the expression, not of any value carrying one; it is what stops the new exclusion becoming a blanket pass |
+| `generated-workflow-actions: an arithmetic left shift is not a reason to refuse a file (#987)` | What the deleted heredoc model cost while working as designed -- a shift read as an unterminated heredoc refused every ref in the file |
+| `generated-workflow-actions: a variable the registry declares is resolved (#987)` | The replacement contract in one case: a variable is what the pin registry says it is, and the registry already names the file, line and value |
+| `generated-workflow-actions: a bare $NAME is a finding, not a resolution (#987)` | A short name substituted into a longer one it prefixes fabricated a ref that appears in no declaration, and the backstop found nothing to refuse |
+| `generated-workflow-actions: an assignment no marker claims is a finding (#987)` | The whole trade in one case: file-scope, unconditional, column 0, above the use -- and still refused, because nothing declares it to the watch |
+| `generated-workflow-actions: one reader -- a declared local resolves too (#987)` | The two lints disagreed about what an assignment is, so one marker on a local produced a record the watch read and this lint refused |
+| `generated-workflow-actions: a generator that is not named *.sh is scanned (#987)` | A *.sh glob is a roster of file shapes, and the non-vacuity backstop cannot notice the gap because the one known generator keeps the count at 1 |
+| `generated-workflow-actions: ignores an UNTRACKED generator (#987)` | This driver shares the pin registry's walk, so an untracked generator is outside its population too -- one population, not two that can drift (#987) |
 | `generated-workflow-actions: the real repo is in lockstep (#950)` | Drives the live tree, so the fixtures cannot drift away from what ships |
 
 ### test/bats/unit/ghcr_cleanup_yaml_spec.bats (22)
@@ -3313,6 +3349,79 @@ builds nothing and pushes nothing)
 | `_generate_resolved_compose stays quiet when the field bundle emits ports (#879)` | - |
 | `the ports-inert diagnostic is translated in all four locales (#879)` | - |
 | `the ports-inert diagnostic differs per locale (no untranslated arms) (#879)` | - |
+
+### test/bats/unit/pin_coverage_lint_spec.bats (68)
+
+| Test | Description |
+|------|-------------|
+| `_run_pin_coverage: FAILS on an ARG version with no marker` | The base case: an ARG is where most of this repo's versions live, and an unmarked one is a pin nothing watches |
+| `_run_pin_coverage: FAILS on an ARG naming an image with an explicit tag` | An image named through an ARG is still a third-party version, and the tag is the half that goes stale |
+| `_run_pin_coverage: FAILS on a FROM with a literal tag` | A literal FROM tag is the shape a helper stage takes, and it moves without any ARG changing |
+| `_run_pin_coverage: FAILS on an image named inside a workflow run: step` | dependabot parses uses: and nothing else, so an image run inside a run: step is invisible to it -- how a 14-month-old actionlint kept passing |
+| `_run_pin_coverage: FAILS on a release-download URL naming the version` | The form hadolint and shellcheck were actually pinned in for three years, so a guard blind to it is blind to the defect it exists to prevent |
+| `_run_pin_coverage: FAILS on a git clone pinned to a literal tag` | The form the three bats helper libraries were pinned in -- the same story, a different verb |
+| `_run_pin_coverage: FAILS on an OFFICIAL image, which has no namespace` | An official image carries no slash, so the registry-reference shape cannot anchor on it and it would pass unseen |
+| `_run_pin_coverage: FAILS on a uses: ref written inside a SHELL SCRIPT` | A ref in a generator's heredoc is not a workflow file, so dependabot cannot see it, and the downstream repos it lands in have no updater at all |
+| `_run_pin_coverage: FAILS on an assignment whose value is an action ref` | The hole under this repo's own advice: hoisting a ref makes the marker on it voluntary, so deleting the marker leaves the lint green |
+| `_run_pin_coverage: a marked assignment of an action ref satisfies it` | The other half -- the hoist is the documented fix, so declaring it has to be enough, and unpinned keeps the ref on the floating list every run |
+| `_run_pin_coverage: an assignment of a plain path is not an action ref` | The rule is owner/repo@ref, not "has a slash in it"; a detector that flagged paths and globs would be muted within a week |
+| `_run_pin_coverage: FAILS on an image tag sed into a generated Dockerfile` | The live instance: the migration wrote bats/bats:1.11.0 into every downstream Dockerfile it healed, two minors behind this repo's own pin |
+| `_run_pin_coverage: FAILS on a uses: ref pinned to a BRANCH` | dependabot bumps a version ref to the next version, and a branch is not one, so it can never advance the ref and never says so |
+| `_run_pin_coverage: a uses: VERSION ref needs no marker (dependabot's job)` | Covering it here would give one dependency two mechanisms with opinions, which is worse than one that works |
+| `_run_pin_coverage: a SHA-pinned uses: ref needs no marker` | A SHA is already immutable, so there is nothing for a marker to name and demanding one would teach people to reach for ignore |
+| `_run_pin_coverage: a local reusable-workflow call needs no marker` | A local call is this tree at this commit; it names no third party to watch |
+| `_run_pin_coverage: an ARG that is not a version needs no marker` | ARG USER_UID=1000 is ours, not a third-party version, and a detector that flagged it would be muted |
+| `_run_pin_coverage: a FROM whose tag is an ARG needs no marker` | The ARG carries the pin and the FROM references it; demanding a second marker for one pin is how a lint gets muted |
+| `_run_pin_coverage: an INTERPOLATED release URL needs no marker` | An interpolated URL names no version -- it references the ARG that carries the marker, and redundant markers are what people mute |
+| `_run_pin_coverage: an INTERPOLATED clone ref needs no marker` | The clone half of the same rule, so the fix documented for a clone ref does not itself become a finding |
+| `_run_pin_coverage: an INTERPOLATED uses: ref in a script needs no marker` | The fix for the live instance: the ref is hoisted to a line a marker can address, so the accepted shape has to actually be accepted |
+| `_run_pin_coverage: a commented-out declaration needs no marker` | Commented-out text declares nothing, and demanding a marker on it teaches people to delete history to satisfy the lint |
+| `_run_pin_coverage: a pinned marker satisfies the detector` | The ordinary success path, and the only one of the three states that ends up compared against an upstream |
+| `_run_pin_coverage: an unpinned marker satisfies it and is counted apart` | unpinned is a declaration that the dependency floats, counted apart so the watch prints it on every run rather than hiding it |
+| `_run_pin_coverage: an ignore marker satisfies it for a false positive` | ignore is the escape for a false positive, and without one a detector this broad gets turned off wholesale |
+| `_run_pin_coverage: FAILS on a marker naming an unimplemented resolver` | A typo caught by a scheduled run weeks later is weeks of not watching, so the resolver is validated at the declaration site |
+| `_run_pin_coverage: FAILS when two markers share a name` | --value and --set address a pin by name, so a shared name makes both read and rewrite whichever came first, silently |
+| `_run_pin_coverage: FAILS when a marker does not parse` | A marker that does not parse must fail at the site rather than be dropped, which would leave the pin uncovered and the lint green |
+| `_run_pin_coverage: the failure names all three marker forms` | Two of the three states exist for dependencies that cannot name a version, so a reader who only knows the pinned form has no correct move |
+| `_run_pin_coverage: DIES when the scanned trees yield no pinned entry` | A reader regression matching nothing would report a clean tree forever -- the failure this guard exists to prevent one level up |
+| `_run_pin_coverage: DIES when the walk yields no file at all` | A walk that opens no file is the same vacuous pass by the other road, and it must not be quieter than the first |
+| `_run_pin_coverage: an UNTRACKED file is not part of the population` | A generated directory inside the checkout made the verdict depend on whose machine ran the lint -- the one thing a gate must not do (base#987) |
+| `_run_pin_coverage: a TRACKED file anywhere is part of the population` | The other half of that rule: untracked-ness is the ONLY exemption, so a file the repo ships is read wherever it sits |
+| `_run_pin_coverage: a force-added file inside an IGNORED tree is scanned` | The question the prune guard could not reach: check-ignore says yes for the whole tree while the file inside it is content this repo ships |
+| `_run_pin_coverage: an ignored tree nobody tracked is simply absent` | An ignored tree nobody force-added is the ordinary case the old roster existed for, and it must stay quiet with no roster at all |
+| `_run_pin_coverage: a tracked SYMLINK is a pointer, not content` | This repo tracks eight symlinks into dist/, and reading through one yields a SECOND record for every marker in the target -- the duplicate-name check fires |
+| `_run_pin_coverage: a carried list's symlink is a pointer too` | The blobs-only rule was enforced on the git road only, so one checkout answered two ways depending on which road the environment took |
+| `_run_pin_coverage: DIES when the tracked set cannot be established` | The registry used to be skipped where git was unreadable -- which is the container the local gate runs in, so fail-open was the default there |
+| `_run_pin_coverage: accepts a host-computed tracked list when git is gone` | The container cannot answer and the host always can, so the population is computed where git works and carried in rather than skipped |
+| `_run_pin_coverage: FAILS on a carried list naming an undeclared version` | The carried list has to be able to FAIL, or computing it on the host is just a longer way to pass |
+| `_run_pin_coverage: a carried list for another root is not consulted` | A list describing a DIFFERENT tree is not an answer about this one, and the suite container exports one describing /source into every case |
+| `_run_pin_coverage: git OUTRANKS a carried tracked list` | A stale or hand-set list must not silence a file git can see; the handoff is for an environment with no git, never an override |
+| `_run_pin_coverage: FAILS on an image: in compose.yaml` | This repo's own core artefact names its image with no docker verb anywhere on the line |
+| `_run_pin_coverage: FAILS on a workflow container: image` | The job runs inside this image, and dependabot can bump it no more than it can bump a run: one |
+| `_run_pin_coverage: FAILS on a bare image tag sed into a generated file` | The live shape: the migration's sed rewrote a FROM line, and only the namespaced half was caught -- the alpine half was invisible |
+| `_run_pin_coverage: FAILS on an image named by a key nothing anticipated` | The whole point of dropping the context roster: an unrecognised context has to raise the question rather than answer it |
+| `_run_pin_coverage: FAILS on a bare image named in a justfile` | justfiles are this repo's control surface, so a container it actually starts is likelier to be named in one than in a shell script |
+| `_run_pin_coverage: a published port is not a version` | A published port is core idiom here and would have fired even under the old rule, so this is the noise the token rules buy down |
+| `_run_pin_coverage: a UID:GID pair is not a version` | A UID:GID pair wears the same shape as a tag, and flagging it would teach people to mute the lint |
+| `_run_pin_coverage: the image this repo BUILDS is not one it depends on` | You cannot depend on a version you are creating; -t names an output, which is a shape rule rather than a list of our own image names |
+| `_run_pin_coverage: a digest is not a version` | A digest is already immutable, so there is no newer one to propose |
+| `_run_pin_coverage: a spec's fixture text needs no marker` | A spec's heredoc IS the fixture under test, and the marker grammar cannot reach inside one without changing what the test feeds its subject |
+| `_run_pin_coverage: prose needs no marker` | A version in prose is stale the way a sentence is stale -- a doc-review problem rather than a supply-chain one |
+| `_run_pin_coverage: FAILS when a tool-pin marker sits in an unscanned file` | The exemption list is the last hand-kept thing in the scan surface, so a marker in an exempt file is a belief in watching that nothing reads |
+| `_run_pin_coverage: FAILS on a local= version with no marker` | local sat outside the keyword roster while the extraction regex already named it, so the convention pushed authors into the one invisible shape |
+| `_run_pin_coverage: FAILS on a readonly= version with no marker` | readonly is the spelling this repo's style guide asks for, which makes it the likeliest place for an unwatched pin to land |
+| `_run_pin_coverage: FAILS on an export= version with no marker` | export crosses into the environment a build reads, so a version declared there reaches further than the file it sits in |
+| `_run_pin_coverage: FAILS on a bare NAME=version with no marker` | No keyword at all is still an assignment, and the hoisting convention produces this shape as readily as the other three |
+| `_run_pin_coverage: a marked shell assignment satisfies the detector` | The success path for the four shapes above, so the fix for all of them is one marker rather than four different answers |
+| `_run_pin_coverage: a shell assignment that is not a version is not one` | This repo's scripts are full of counts, ports and timeouts, and a detector that flagged them would be muted within a week |
+| `_run_pin_coverage: an assignment whose value INTERPOLATES needs no marker` | An interpolating value references a pin rather than declaring one, exactly as a FROM on an ARG tag does |
+| `_run_pin_coverage: FAILS on a v-prefixed version with no dot` | kcov's own pin is a single-component tag, so the dot rule made this repo's own pin invisible to the guard meant to prove it was watched |
+| `_run_pin_coverage: FAILS on a v-prefixed major-only ref in a shell assignment` | The shell half of the same rule -- a major action ref hoisted for a marker is dotless by construction |
+| `_run_pin_coverage: a marked dotless version satisfies the detector` | The success path for the dotless rule, so the fix is a marker rather than an artificial dot |
+| `_run_pin_coverage: a bare integer is still not a version` | The stated cost of the v-prefix rule: a bare integer carries nothing that separates a release from a UID or a year |
+| `_run_pin_coverage: the real repo tree declares every version it names` | Drives the live tree, so the fixtures cannot drift away from the pins that actually ship |
+| `_run_pin_coverage: pin-coverage is in test.sh's _LINT_TOOLS table` | Membership in that table is what gives the lint a CI job; without it the lint would gate only a local run |
+| `_run_pin_coverage: --pin-coverage-only runs it host-direct` | The host-direct entry point is how a bump proposal's author checks coverage without building the image |
 
 ### test/bats/unit/prev_release_gating_spec.bats (8)
 
@@ -4404,7 +4513,7 @@ alias / `network.network_name` / `devices.device_` / `security.cap_add_` /
 | `self-hosted guard: the real repo tree has every eligible job guarded` | - |
 | `self-hosted guard: the real tree's eligible set is the three runtime-matrix worker jobs` | - |
 
-### test/bats/unit/self_test_yaml_spec.bats (115)
+### test/bats/unit/self_test_yaml_spec.bats (117)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks fourteen
 cumulative invariants:
@@ -4784,6 +4893,8 @@ list is extensible + all five `build_local` obtain steps carry the guard
 | `self-test.yaml: ci-rollup fails a fork PR instead of reporting a partial run as green (#766)` | - |
 | `self-test.yaml: the fork-PR branch is a hard failure, not an advisory note (#766)` | - |
 | `self-test.yaml: the self-hosted guard lint has a lint-static CI join (#766)` | - |
+| `self-test.yaml: pull_request is unfiltered, so a watch/ proposal gets the gate` | The CI run on a watch/ branch IS the proposal's whole answer; a branches: filter here would leave every proposal green with zero checks |
+| `self-test.yaml: the pin-coverage lint has a lint-static CI join` | A PR is the only moment pin-coverage can fire; with no CI join it would gate a local just test and nothing a reviewer ever sees |
 | `self-test.yaml: declares worker-selftest job that really invokes the shared build worker (#802)` | - |
 | `self-test.yaml: worker-selftest drives the worker with a minimal fixture repo (#802)` | - |
 | `self-test.yaml: worker-selftest needs actionlint + classify and gates on system_relevant (#802)` | - |
@@ -6015,7 +6126,7 @@ is the smoke step, which iterates this same roster.
 |------|-------------|
 | `tool pins: the shipped shellcheck is the version the Dockerfile pins` | Exit 0 says a binary exists; this says it is the one the pin asked for |
 | `tool pins: the shipped hadolint is the version the Dockerfile pins` | The drift that let a 2022 rule set stay behind a green gate, now asserted every run |
-| `tool pins reader: a Dockerfile with no pinned URL FAILS rather than returning nothing` | A reader returning nothing would reduce both checks to empty-vs-empty agreement |
+| `tool pins reader: a Dockerfile with no pin declaration FAILS rather than returning nothing` | A reader returning nothing would reduce both checks to empty-vs-empty agreement |
 | `tool pins reader: a version is matched whole, not as a prefix of a longer one` | 0.11.0 must not be satisfied by 0.11.01 or by 10.11.0 |
 | `tool pins reader: the dots in a version are literal, not any-character` | An unescaped regex dot would let 0x11x0 pass as 0.11.0 |
 | `tool pins: the alpine this image runs on is the series the Dockerfile pins` | The base every stage is built on, compared with the image the suite is actually running in |
@@ -6023,6 +6134,92 @@ is the smoke step, which iterates this same roster.
 | `tool pins reader: a series the table does not cover FAILS rather than returning nothing` | A pin the table has no row for is a choice nothing supports |
 | `tool pins reader: a table row is matched whole, not as a prefix of a longer series` | A row for 3.2 must not answer for 3.22, nor one for 13.22 |
 | `tool pins reader: an ALPINE_VERSION declared twice FAILS rather than picking one` | With two pins there is no single series for the image to agree with |
+
+### test/bats/unit/tool_pins_spec.bats (36)
+
+| Test | Description |
+|------|-------------|
+| `pins: a marker's target is the next non-comment, non-blank line` | The grammar's one structural rule -- comments and blanks are skipped, so a marker can be documented above the line it claims |
+| `pins: PROSE that merely mentions the marker token is not a marker` | The convention must be documentable inside the trees it scans, and a substring match would make every mention a marker with the wrong target |
+| `pins: a marker with no target line after it FAILS` | A marker claiming nothing is a pin its author believes is watched; that belief is the state the whole mechanism exists to remove |
+| `pins: two markers with no target between them FAIL` | Both would claim one line and only the first would ever be read -- a pin that looks declared and is not watched |
+| `pins: a pinned marker naming no coordinate FAILS` | A pinned marker with no coordinate can never be compared, so accepting it would put an uncheckable row in the table |
+| `pins: a marker carrying an unknown option FAILS` | An unknown option is a typo in the one line that says how to watch a pin, and a typo caught weeks later is weeks of not watching |
+| `pins: a pinned marker whose target carries no version FAILS` | A marker whose target holds no version is a declaration with nothing to compare, which reads as watched and is not |
+| `pins: an unpinned marker records the dependency and no version` | unpinned is a declaration that the dependency floats, not an off switch, so it must produce a record rather than nothing |
+| `pins: an unpinned marker on an assignment records the value it declares` | Where the target IS an assignment, an empty value column throws away the one fact the record could carry -- the generated-workflow lint needs it |
+| `pins: an unpinned marker on a NON-assignment still records no value` | The other side of that rule: an unpinned marker carries no coordinate to anchor on, so guessing a token would put a fabricated version in the table |
+| `pins: an unpinned marker that names no dependency FAILS` | An unnamed floating dependency cannot be reported on, which is the whole point of recording it |
+| `pins: pattern= and skip= are carried through to the table` | These are per-pin properties of the upstream; dropped from the table they silently become "compare every tag, refuse nothing" |
+| `pins: an ARG target yields its right-hand side, unquoted` | The ARG shape is the majority of this repo's pins, and quoting must not become part of the version a branch name and CI are built from |
+| `pins: a non-ARG target yields the token after the coordinate` | Anchoring on the coordinate is what keeps extraction precise on a line carrying flags, paths and other colons |
+| `pins: --value refuses a name declared unpinned` | A name that declares no version has no answer to give, and an empty answer would be read by a caller as a version |
+| `pins: --value refuses a name nothing declares` | A typo in a pin name must fail rather than resolve to nothing, which a caller would substitute into a URL or a branch name |
+| `pins: --set rewrites an ARG and preserves its quoting` | --set is the whole of a bump, and rebuilding the line would drop the quoting the Dockerfile relies on |
+| `pins: --set leaves every other line of the file alone` | A blind file-wide substitution rewrites a URL that happens to carry the old version; the pin is a line, not a string |
+| `pins: --set rewrites an image tag in place, on its own line` | An image tag is the other target shape a bump must rewrite, and it lives on its own line inside a nested YAML block |
+| `pins: --set is a no-op when the pin already names that version` | A bump run twice must not report a change it did not make, or the workflow opens a proposal with an empty diff |
+| `pins: --set reports the from/to and where it wrote` | The from/to and the site are what a reviewer of a proposal reads first, and they are the only record of what the bump touched |
+| `pins: --set refuses a name declared unpinned` | There is no version to set on a floating dependency, so a silent success would report a bump nobody performed |
+| `pins: --set keeps the trailing comment on the line it rewrites` | That trailing comment is where a "held at this version because" rationale lives -- the one sentence a reviewer of a bump most needs |
+| `pins: a trailing comment does not leak whitespace into the version` | A stray space does not stay local: it flows into the reported from, into the branch name a bump builds, and into whatever CI feeds from --value |
+| `pins: --set leaves the file's mode alone` | mktemp creates 0600 and mv carries that mode onto the file -- invisible in CI and a permission denied on the next local just test |
+| `pins: a tree yielding no scannable file at all FAILS` | An empty table read as "this repo declares no pins" is indistinguishable from a clean week, which is the one answer the watch must never guess |
+| `pins: --files lists every file it walks, prose and specs aside` | The walk is every tracked file minus the exempt shapes, so what it actually opens is the claim worth checking rather than trusting |
+| `pins: a Dockerfile at a path nothing anticipated is still scanned` | The scan surface is not a roster of directories; it decayed once already, with two live pins sitting outside the three original roots |
+| `pins: a shell script that generates a file is a declaration site` | A uses: ref inside a heredoc is not a workflow file, so nothing but this watch can ever see the versions a generator writes |
+| `pins: an untracked tree contributes nothing` | Every version in a shipped release is supposed to be stale, so a bump inside .prev-release/ would be meaningless -- and nothing tracks it |
+| `pins: check.sh dispatches every resolver the registry declares` | A resolver the lint accepts and check.sh does not implement blesses a pin that then fails weeks later, unattended |
+| `pins: the real tree's markers all parse` | Drives the live tree, so a marker written today is parsed by the same reader the scheduled run uses |
+| `pins: just is PINNED in the real tree, not left to a package manager` | The defect this closes: four provenance paths for one tool, 37 minors apart, none of them naming a version in the image |
+| `pins: the just pin is the number the test-tools image installs` | The pin and the image must be one number, or the accessor answers for a just the image does not ship |
+| `pins: the CI just install reads the pin instead of repeating it` | Otherwise the workflow carries a fourth copy, and a bump moving only the Dockerfile leaves CI testing a different just than the image ships |
+| `pins: setup-just is no longer invoked without a just-version` | An unversioned setup-just installs whatever released most recently, so the e2e job turns red on a day nobody touched the repo |
+
+### test/bats/unit/tool_version_watch_yaml_spec.bats (23)
+
+| Test | Description |
+|------|-------------|
+| `tool-version-watch: runs on a schedule` | No PR exists on the day a pinned tool goes stale, so a PR gate cannot catch this class at all |
+| `tool-version-watch: can also be dispatched by hand, with a dry run` | The by-hand path is how the watch is exercised without waiting a week, and the dry run is what makes trying it safe |
+| `tool-version-watch: never merges anything` | The settled boundary: the automation stops at verification and a human audits and merges |
+| `tool-version-watch: never enables auto-merge through the API either` | The same boundary through the other door -- the API can arm auto-merge without any of the CLI spellings above appearing |
+| `tool-version-watch: the workflow's default permission is read-only` | The default is what every job inherits, so a write here quietly widens jobs that were never reviewed for it |
+| `tool-version-watch: the scan job inherits read-only permissions` | A scan job that could write is a scan job that could land something; it resolves upstream versions and nothing else |
+| `tool-version-watch: the bump job takes exactly contents+pull-requests write` | The grant block is what GitHub actually reads, and the scopes deliberately omitted are only visible as an absence |
+| `tool-version-watch: the proposal is opened with a credential that is NOT GITHUB_TOKEN` | GitHub creates no run from an event GITHUB_TOKEN triggered, so a proposal opened with it arrives with zero checks -- silence read as green |
+| `tool-version-watch: it verifies that credential BEFORE it pushes anything` | Ordering is the whole assertion: a push before the credential check leaves a branch with no proposal pointing at it |
+| `tool-version-watch: an abandoned branch is replaced, not left to wedge the pin` | An abandoned branch makes every later run a non-fast-forward, failing that pin every week until a human deletes it by hand |
+| `tool-version-watch: the bump job is a matrix over the drifted pins` | One shared branch conflates N questions into one red/green, so a safe bump cannot land while another is held |
+| `tool-version-watch: one failing bump does not cancel the others` | One held bump must not take the others down with it; the matrix exists to keep the questions separate |
+| `tool-version-watch: the branch name carries the tool AND the version` | A per-tool branch that omitted the version would make the second bump of a tool collide with the first one's open proposal |
+| `tool-version-watch: it skips a version pair that is already open` | Re-opening a proposal that is already open is how a weekly schedule turns into weekly noise |
+| `tool-version-watch: it does NOT treat a closed proposal as a refusal` | A closed proposal is dependabot's silent opt-out; the refusal here has to be skip= in the file that declares the pin |
+| `tool-version-watch: an unresolved upstream FAILS the scan job` | Exit 1 means a source did not answer, and treating that as an empty matrix would look exactly like a clean week |
+| `tool-version-watch: it separates 'drift found' from 'could not resolve'` | Drift and unresolved take opposite actions, so collapsing the two exit codes would either skip real bumps or bump on no answer |
+| `tool-version-watch: it walks the upstream APIs once per run` | Two walks can disagree, and each costs a request per pin against a 60/hour anonymous limit |
+| `tool-version-watch: it authenticates to the GitHub API` | An anonymous walk runs out of quota mid-run, which surfaces as an upstream that did not answer rather than as the quota problem it is |
+| `tool-version-watch: the report reaches the run summary, not just the log` | The report is the run's human output; buried in the log it is read only by whoever already suspected something |
+| `tool-version-watch: the workflow names no individual tool` | A roster kept in the workflow is one more thing to fall behind the Dockerfile -- the exact defect class the watch is built against |
+| `tool-version-watch: the bump is performed by the same script a human runs` | The scheduled path and the human path must be one script, or the bump CI proves is not the bump a person can reproduce |
+| `tool-version-watch: it runs on a reserved GitHub-hosted runner` | Both jobs check out and execute repository code, so a self-hosted runner would run it on hardware this repo does not control |
+
+### test/bats/unit/tool_watch_check_spec.bats (12)
+
+| Test | Description |
+|------|-------------|
+| `watch: a pin behind its upstream exits 10 and names both versions` | The load-bearing case: exit 10 is what the workflow reads as "open a proposal", and it has to carry both versions to write one |
+| `watch: a pin level with its upstream exits 0` | The other side of that switch -- a clean week must stay distinguishable from a run that compared nothing |
+| `watch: an upstream that does not answer FAILS the run` | An unreachable upstream yielding an empty matrix would look exactly like a clean week |
+| `watch: a version on the pin's skip list is refused, not proposed` | A refusal this repo already recorded must not be re-proposed every week; closing a PR is how the old mechanism forgot one silently |
+| `watch: a pin table that does not parse exits 1, not 0` | The regression: a process substitution discarded the reader's status, so an unreadable tree printed all-zero counts and exited green |
+| `watch: a marker that stops the reader mid-file does not shrink the table silently` | The partial form of that defect -- pins after the bad marker vanish while the exit code reflects only the ones before it |
+| `watch: a tree that yields files but no pin exits 1` | The floor the lint already had and this did not: a walk that found nothing is the case that actually comes back looking clean |
+| `watch: the no-pin floor also refuses to emit a machine answer` | The floor has to hold on the machine path too -- an empty TSV with status 0 is the same silent clean week the report path refuses |
+| `watch: a tree with nothing scannable in it exits 1` | A scan root of pure prose is the other way to reach an empty table, and it must not read as up to date either |
+| `watch: --drift-tsv emits no machine answer when the table is unreadable` | The workflow builds its matrix from this stdout, so an empty list with a zero status is precisely the silent clean week |
+| `watch: --drift-tsv puts the drifted pins on stdout, the report on stderr` | The machine answer and the human report share one run, so a report line landing on stdout would corrupt the matrix |
+| `watch: an unknown option is a usage error, distinct from both` | Exit 2 keeps a typo apart from 1 (nothing compared) and 10 (drift), which is what the workflow branches on |
 
 ### test/bats/unit/transcript_lnav_spec.bats (8)
 

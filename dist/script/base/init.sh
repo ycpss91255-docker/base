@@ -1093,6 +1093,17 @@ HOOK
 #   the generated workflow is a thin weekly scheduler. Called from both
 #   the new-repo path and the existing-repo (upgrade) path so every repo
 #   converges on it.
+# The actions/checkout ref baked into the workflow below. Hoisted out of
+# the heredoc so it has a declaration site a `tool-pin:` marker can sit on:
+# written inline it was a `uses:` ref that NOTHING could advance -- this
+# repo's dependabot only reads workflow files and a heredoc is not one, and
+# the downstream repos it is written into have no updater at all.
+# tool-pin: unpinned downstream-checkout-action -- a MAJOR ref on purpose,
+# so every generated repo picks up actions/checkout patches without waiting
+# for a base release. A major names no comparable version, so the watch
+# lists it as floating on every run instead of pretending to check it.
+readonly _INIT_MONITOR_CHECKOUT_REF='actions/checkout@v7'
+
 _sync_base_monitor_workflow() {
   local _wf="${REPO_ROOT}/.github/workflows/base-version-monitor.yaml"
   [[ -e "${_wf}" ]] && return 0
@@ -1121,7 +1132,7 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: ${_INIT_MONITOR_CHECKOUT_REF}
       - name: Check for a newer base release
         env:
           GH_TOKEN: \${{ github.token }}
