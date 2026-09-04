@@ -92,19 +92,36 @@
 # assembled body carrying FEWER entry bullets than the sections it was
 # merged from.
 #
-# That last one is a postcondition, not a shape check, and it is here
-# because the mechanism it guards has already failed once. `grep -q '^- '`
-# over the whole body passes as long as one bulleted category survived, so
-# an entry the merge could not file was indistinguishable from a release
-# with a single category -- and the release job publishes this body ALONE
-# (`generate_release_notes: false`), so a dropped entry has no second
-# source. Counting the entries in and out costs one pass and turns the next
-# shape this file was not written for into a refusal at tag push rather
-# than a release page nobody knows is short.
+# THE COUNT. That last one is a postcondition, not a shape check, and it is
+# here because the mechanism it guards has already failed once.
+# `grep -q '^- '` over the whole body passes as long as one bulleted
+# category survived, so an entry the merge could not file was
+# indistinguishable from a release with a single category -- and the release
+# job publishes this body ALONE (`generate_release_notes: false`), so a
+# dropped entry has no second source. Counting the entries in and out costs
+# one pass and turns the next shape this file was not written for into a
+# refusal at tag push rather than a release page nobody knows is short.
 #
-# Fenced code blocks are structurally inert, as in the changelog lint: the
-# file documents its own format in ```markdown examples, so a `## [` inside
-# a fence is an example of a heading and must not end a section.
+# It only does that while the count is NOT the merge's reader. Both sides
+# used to run the same fence state, so a shape that state mis-read was
+# subtracted from the source count and the emitted count alike and the two
+# agreed -- on a page missing everything the reader had misfiled. The class
+# of shape the count exists for is exactly the class it was blind to. An
+# unclosed ```markdown fence is the demonstrated one: everything below it,
+# a `### ` heading and its entries included, reads as fence content.
+#
+# So _count_entries has no fence state at all: a `- ` at column 0 is an
+# entry wherever it stands. That over-counts what an entry is -- a bullet
+# inside a fenced example counts -- and an over-count can only refuse a
+# release early, never publish one short. The lead rule above counts the
+# same way for the same reason: a lead the count calls entry-carrying must
+# not be a lead the merge drops, or the release refuses over a shape nobody
+# got wrong.
+#
+# Everywhere else fenced code blocks are structurally inert, as in the
+# changelog lint: the file documents its own format in ```markdown examples,
+# so a `## [` inside a fence is an example of a heading and must not end a
+# section.
 
 # Where this script lives, so the default changelog directory resolves
 # without a caller having to know the layout.
@@ -283,7 +300,11 @@ _assemble() {
       fi
       if [[ -z "${_current}" ]]; then
         _lead+=("${_line}")
-        if [[ -z "${_fence}" && "${_line}" == '- '* ]]; then
+        # Counted the way the postcondition counts, fence state ignored: a
+        # lead this file calls an entry-carrying lead must not be one the
+        # merge drops, or the count below refuses a release over a shape
+        # nobody got wrong.
+        if [[ "${_line}" == '- '* ]]; then
           _lead_entries=$(( _lead_entries + 1 ))
         fi
         continue
@@ -346,22 +367,20 @@ _in_list() {
   return 1
 }
 
-# _count_entries -- how many entry bullets stdin carries, outside fenced
-# blocks. A `- ` at column 0 is the unit the changelog is written in and the
-# unit the entry lint measures; a continuation line and a nested bullet are
-# indented and belong to the entry above them.
+# _count_entries -- how many entry bullets stdin carries. A `- ` at column 0
+# is the unit the changelog is written in and the unit the entry lint
+# measures; a continuation line and a nested bullet are indented and belong
+# to the entry above them.
+#
+# It counts one WHEREVER it stands, fence or no fence, and that is the whole
+# point of it: this is the postcondition's reader, and a postcondition that
+# borrows the merge's reader cannot see what that reader gets wrong (see
+# THE COUNT above). Counting a bullet inside a fenced example is an
+# over-count of what an entry is, and an over-count can only refuse early --
+# never publish short.
 _count_entries() {
-  local _line _fence='' _n=0
+  local _line _n=0
   while IFS= read -r _line; do
-    if _is_fence_delimiter "${_line}"; then
-      if [[ -z "${_fence}" ]]; then
-        _fence="${_RN_FENCE_CHAR}"
-      elif [[ "${_RN_FENCE_CHAR}" == "${_fence}" ]]; then
-        _fence=''
-      fi
-      continue
-    fi
-    [[ -n "${_fence}" ]] && continue
     [[ "${_line}" == '- '* ]] && _n=$(( _n + 1 ))
   done
   printf '%s' "${_n}"
