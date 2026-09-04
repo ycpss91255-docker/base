@@ -344,9 +344,10 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   `docker-build` check and a doc-only `ci-rollup` green both said nothing
   about why they looked like that; both say it now. Every triggerable
   workflow gained a concurrency group, cancelling only a superseded
-  pull_request and never a main push, tag or publish, and every reusable
-  worker job a `timeout-minutes` under GitHub's six-hour default. Affects
-  anyone reading a base or downstream CI result.
+  pull_request and never a main push, tag or publish, and every job in the
+  tree that runs steps a `timeout-minutes` under GitHub's six-hour default
+  -- the coverage shards and `acceptance` included. Affects anyone reading
+  a base or downstream CI result.
 - **the tooling image's pinned tools are checked by version, from a derived
   roster (refs #1012)** -- fourteen of the fifteen probes in the release
   smoke step asserted an exit status only, so `bats`, `kcov` and `alpine`

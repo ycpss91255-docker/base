@@ -28,6 +28,9 @@ permissions:
 jobs:
   label:
     runs-on: ubuntu-latest
+    # Every job in the tree bounds itself; GitHub's default is six hours.
+    # This one adds a label through the API and nothing else.
+    timeout-minutes: 5
     # Only act when the issue was opened without any label.
     if: github.event.issue.labels[0] == null
     steps:

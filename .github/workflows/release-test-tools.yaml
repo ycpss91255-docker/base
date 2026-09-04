@@ -84,6 +84,9 @@ jobs:
   # single source shared across all three workflows is a follow-up.
   compute-matrix:
     runs-on: ubuntu-latest
+    # Every job in the tree bounds itself; GitHub's default is six hours
+    # and applies per matrix shard. This one only writes an output.
+    timeout-minutes: 5
     outputs:
       matrix: ${{ steps.set.outputs.matrix }}
     steps:
@@ -137,6 +140,10 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.compute-matrix.outputs.matrix) }}
     runs-on: ${{ matrix.runner }}
+    # A per-arch image build, including a kcov compile, on a runner that
+    # may be self-hosted. Far above the measured run, far below the
+    # six-hour default a hung buildx would otherwise burn per arch.
+    timeout-minutes: 120
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -186,6 +193,7 @@ jobs:
   merge:
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       # This job needs the tree, where it previously needed none, because
       # three things below are read out of the checkout rather than written
