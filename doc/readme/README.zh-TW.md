@@ -1128,13 +1128,14 @@ jobs:
 | `platforms` | string | 否 | `"linux/amd64"` | 逗號分隔的目標平台；每個會在原生 runner 上平行跑（`linux/amd64` → ubuntu-latest、`linux/arm64` → ubuntu-24.04-arm） |
 | `test_tools_version` | string | 否 | `"latest"` | `ghcr.io/ycpss91255-docker/test-tools:<tag>` 的 tag，下游可釘到所升級的 template release 以保證可重現 |
 
-<!-- sync: release-workeryaml-inputs 018ae0329ece b0cdf79f8677 -->
+<!-- sync: release-workeryaml-inputs 76c6974e7c8c 59f2d7db8667 -->
 ### release-worker.yaml 參數
 
 | 參數 | 類型 | 必填 | 預設值 | 說明 |
 |------|------|------|--------|------|
 | `archive_name_prefix` | string | 是 | - | Archive 名稱前綴 |
 | `extra_files` | string | 否 | `""` | 額外檔案（空格分隔） |
+| `version` | string | 否 | `""` | 要發布的版本（`vX.Y.Z`）。走 tag 觸發路徑時留空，版本會從所推的 tag 讀出。若要從非 tag 的 run 直接呼叫這個 worker 就傳入它：用預設 `GITHUB_TOKEN` 產生的事件不會啟動新的 workflow run，所以要自動發布已合併變更的 repo，靠推 tag 到不了這裡。不是 `vX.Y.Z[-suffix]` 的值會被拒絕，而不是照樣拿來發布 |
 
 <!-- sync: running-template-tests 4e411d749017 27d1766d68f7 -->
 ## 本地執行測試

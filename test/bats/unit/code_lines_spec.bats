@@ -659,3 +659,63 @@ DOCKERFILE
   assert_success
   assert_output ''
 }
+
+# ── yaml_step_run: the step's run: script, or NOTHING ─────────────────
+#
+# `yaml_step_run` is the reader a spec uses when its subject is what an
+# inline step DOES: it lifts the step's `run:` out of the YAML and the
+# caller feeds it to `bash`. Its whole safety property is what it does
+# with a step it cannot deliver -- it must yield NOTHING, so the caller's
+# `[ -s ... ]` guard turns "no script" into a loud failure instead of
+# running an empty file and reading its success as the step's.
+#
+# A step that EXISTS but carries no `run:` -- a `uses:` step, the shape
+# every action call has -- is the case the helper's own comment claimed
+# and did not have: yq prints the literal string `null` for a missing
+# key, at status 0, which is a one-line script the guard is happy with
+# and `bash` runs as a command. The classifier spec built on this helper
+# would then pass its "a failed diff must fail the step" case on
+# `null: command not found` against a workflow whose classify step ran no
+# shell at all.
+
+# why: The base case the rest deviate from: the lifted script is the step's
+# own body, so a spec can RUN what the workflow runs instead of asserting
+# against a copy of it that drifts.
+@test "yaml_step_run: returns the named step's run: script" {
+  run yaml_step_run "${STEPS}" acceptance resolver
+  assert_success
+  assert_output --partial 'accessor.sh'
+}
+
+# why: A step is only obliged to carry a `name:`. Requiring an `id:` would
+# mean editing the workflow to make it testable, and the step under test
+# would no longer be the step that runs.
+@test "yaml_step_run: names a step by its name: when it has no id:" {
+  run yaml_step_run "${STEPS}" acceptance 'A later step that carries no id'
+  assert_success
+  assert_output --partial 'a later mention of ./accessor.sh'
+}
+
+# why: The load-bearing case for every caller's `[ -s ... ]` guard. yq
+# answers a missing key with the literal `null` at status 0, which is a
+# one-line script the guard accepts and bash runs as a command -- so a
+# spec asserting "this step fails" passes on `null: command not found`
+# against a workflow whose step runs no shell at all.
+@test "yaml_step_run: a step that carries no run: yields NOTHING, not 'null' (#1013)" {
+  # `Consume it` is a `uses:` step. yq answers a missing key with the
+  # literal `null`, and a helper that passes that on hands its caller a
+  # one-line script that runs as a command instead of the empty output
+  # its guard is watching for.
+  run yaml_step_run "${STEPS}" acceptance 'Consume it'
+  assert_success
+  assert_output ''
+}
+
+# why: The other end of the same contract -- a step name that resolves to
+# nothing (a rename, a typo) must be empty output, which is what turns a
+# caller's guard into a loud failure instead of a silently empty run.
+@test "yaml_step_run: a step name that matches nothing yields nothing (#1013)" {
+  run yaml_step_run "${STEPS}" acceptance 'no such step'
+  assert_success
+  assert_output ''
+}
