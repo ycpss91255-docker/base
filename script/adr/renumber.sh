@@ -14,7 +14,10 @@
 #   [root]    repo root. Defaults to the enclosing checkout.
 #
 # Exit status: 0 = renumbered; 1 = refused. Every precondition is checked
-# BEFORE the first write, so a refusal leaves nothing half-renumbered.
+# BEFORE the first write, and the RENAME is that first write, so a refusal
+# leaves nothing half-renumbered -- including the refusals no precondition
+# can predict, because the rename is the step that fails for reasons the
+# tree cannot be asked about in advance.
 #
 # ── Why this exists ─────────────────────────────────────────────────────
 #
@@ -36,7 +39,9 @@
 # ── The classes of reference, and why a blind sed is wrong ──────────────
 #
 #   record    doc/adr/<from>-<slug>.md itself. Renamed with `git mv` where
-#             the root is a checkout, so the move is a move.
+#             git TRACKS it, so the move is a move; with a plain `mv`
+#             otherwise, which covers the root that is no checkout and the
+#             ADR authored this morning and not yet `git add`ed.
 #   token     `ADR-<from>` in prose, comments and code. The common one.
 #   path      `doc/adr/<from>-<slug>.md` written out as a path. Carries the
 #             slug, so it stays unambiguous where the number does not.
@@ -295,11 +300,24 @@ _renumber_survivors() {
   done < <(_renumber_targets "${_root}" "${_from}")
 }
 
-# _renumber_move <root> <old-base> <new-base> -- rename the record.
+# _renumber_move <root> <old-base> <new-base> -- rename the record, and
+# say so truthfully. Every path here returns the mover's own status: this
+# is the one destructive step, and it ran `git mv` followed by an
+# unconditional `return 0`, which made it the one step whose failure the
+# tool could not see. The survivor check cannot cover for it -- that greps
+# for the OLD number, which the sweep has just removed everywhere.
+#
+# WHICH mover is a question about the record, not about the root. `git mv`
+# refuses a path git does not track, and an ADR authored on this branch and
+# not yet `git add`ed is exactly the record this verb exists to renumber.
+# There, and wherever the root is no checkout at all, a plain `mv` IS the
+# move: git has nothing to be told, because it was never told about the
+# file.
 _renumber_move() {
   local _root="$1" _old="$2" _new="$3"
-  if git -C "${_root}" rev-parse --git-dir >/dev/null 2>&1; then
-    git -C "${_root}" mv -- "doc/adr/${_old}" "doc/adr/${_new}"
+  if git -C "${_root}" ls-files --error-unmatch -- "doc/adr/${_old}" \
+    >/dev/null 2>&1; then
+    git -C "${_root}" mv -- "doc/adr/${_old}" "doc/adr/${_new}" || return 1
     return 0
   fi
   mv -- "${_root}/doc/adr/${_old}" "${_root}/doc/adr/${_new}"
@@ -337,7 +355,21 @@ _adr_renumber() {
     return 1
   fi
 
+  # The rename goes FIRST, and that ordering is the whole of the header's
+  # "a refusal leaves nothing half-renumbered". It is the one step that can
+  # fail for a reason no precondition can check -- a concurrent
+  # `index.lock`, a permission, a repository state -- and a failure after
+  # the sweep would leave a tree whose every pointer names a record that is
+  # still at its old number. Before it, the same failure leaves the tree
+  # exactly as it was found. Nothing depends on the order: the sweep
+  # enumerates the population fresh, and the record's own path is the only
+  # thing the move changes.
   local _new="${_to}-${_base#*-}"
+  if ! _renumber_move "${_root}" "${_base}" "${_new}"; then
+    _renumber_err "could not rename doc/adr/${_base} to doc/adr/${_new} (the mover's own message is above). Nothing was changed."
+    return 1
+  fi
+
   local -a _changed=()
   local _rel
   while IFS= read -r _rel; do
@@ -347,8 +379,6 @@ _adr_renumber() {
       _renumber_rewrite_file "${_root}" "${_from}" "${_to}" "${_rel}"
     done < <(_renumber_targets "${_root}" "${_from}")
   )
-
-  _renumber_move "${_root}" "${_base}" "${_new}" || return 1
 
   # The generated documents are rebuilt, never rewritten. This is also
   # what carries a renamed `@test` into its catalogue row.
