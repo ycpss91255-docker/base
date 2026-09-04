@@ -183,15 +183,37 @@ _ci_series_names() {
 }
 
 # _ci_row <series> <version-count> <has-unreleased> <date>... -- the
-# series' own line. The live series -- the one holding [Unreleased] -- reads
-# "in progress" rather than borrowing a date from a version it has not cut.
+# series' own line.
+#
+# "in progress" MEANS "carries [Unreleased]", in both directions, and the
+# index's own prose is why: it tells a writer that the next entry goes into
+# "the row below marked *in progress*", so the marker is a navigation
+# instruction and nothing else may render it. The layout lint guarantees
+# exactly one series file carries the heading, so exactly one row says it.
+#
+# It used to be derived from the version count instead, which agreed with
+# the live series only by coincidence -- a series with a released version of
+# its own said "(plus [Unreleased])" and left the words the prose names on
+# no row at all, while a stub cut and not yet written into claimed them. A
+# marker that names the wrong row is worse than an absent one: the reader
+# does what it says.
 _ci_row() {
   local _series="${1}" _versions="${2}" _unreleased="${3}"
   shift 3
-  local _span='in progress' _noun='versions'
+  # 'undated' is the span of a released section whose heading carries no
+  # ISO date for the caller to collect. That fallback used to be
+  # 'in progress' too, which handed the live-series marker to a row on the
+  # strength of a missing date.
+  local _span='undated' _noun='versions' _live=''
   [[ "${_versions}" -eq 1 ]] && _noun='version'
+  [[ "${_unreleased}" -eq 1 ]] && _live=', in progress'
   if [[ "${_versions}" -eq 0 ]]; then
-    printf -- '- **[%s](%s.md)** -- in progress\n' "${_series}" "${_series}"
+    # No date to borrow: a series with nothing released has no span. The
+    # live one says so; the other says it is empty rather than silently
+    # rendering the same words the live one does.
+    _span='no versions yet'
+    [[ "${_unreleased}" -eq 1 ]] && _span='in progress'
+    printf -- '- **[%s](%s.md)** -- %s\n' "${_series}" "${_series}" "${_span}"
     return 0
   fi
   if [[ "$#" -gt 0 ]]; then
@@ -210,8 +232,6 @@ _ci_row() {
       _span="${_oldest} .. ${_newest}"
     fi
   fi
-  local _live=''
-  [[ "${_unreleased}" -eq 1 ]] && _live=' (plus [Unreleased])'
   printf -- '- **[%s](%s.md)** -- %s, %d %s%s\n' \
     "${_series}" "${_series}" "${_span}" "${_versions}" "${_noun}" "${_live}"
 }

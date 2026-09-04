@@ -483,7 +483,8 @@ _reindex() {
   run _run_changelog_layout
   [ "${status}" -ne 0 ]
   # The live-series rule's own count, not the word 'Unreleased' -- which the
-  # index-drift diff prints too, in the row that gains '(plus [Unreleased])'.
+  # index-drift diff prints too, in the row that gains the in-progress
+  # marker.
   assert_output --partial "'## [Unreleased]' appears in 2 series files"
   assert_output --partial '1 misplaced section'
 }
