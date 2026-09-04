@@ -2,7 +2,7 @@
 
 Shared smoke specs that ship under `dist/test/bats/smoke/`: **39 tests**.
 
-> **Not** part of the `just test` self-test grand total — these are
+> **Not** part of the `just test` self-test suite — these are
 > Dockerfile `-test`-stage build-time assertions, not self-tests. See
 > [TEST.md](TEST.md) for the index across all test types.
 
@@ -13,7 +13,7 @@ both this repo and every downstream repo that consumes the template.
 They assert the integrity of the generated `compose.yaml` + the wrapper
 scripts' `-h` / `--help` paths, plus the universal "does it even come
 up" baseline (entrypoint installed, bash on PATH). **Not** part of the
-self-test grand total (see [TEST.md](TEST.md)) (those run via
+`just test` self-test suite (see [TEST.md](TEST.md)) (those run via
 `just test` and never enter the build graph).
 
 The tree is split per Dockerfile `-test` stage so each stage runs only
@@ -117,7 +117,7 @@ anyway.
 **Not part of the default `just test`.** That gate is the fast self-test
 -- no daemon, no image build -- and these are a different level: a
 Dockerfile stage's build-time assertions, which is also why they are
-excluded from the self-test grand total in [TEST.md](TEST.md). Their CI
+excluded from the self-test suite in [TEST.md](TEST.md). Their CI
 coverage stays the `acceptance` job, which builds a real scaffolded
 consumer's `-test` stage on both arches. The harness itself is covered by
 `test/bats/unit/smoke_harness_spec.bats` (in the default gate) and
@@ -255,7 +255,7 @@ Not a spec — runtime helpers loaded by every smoke spec via
 `assert_cmd_runs` / `assert_file_exists` / `assert_dir_exists` /
 `assert_file_owned_by` / `assert_pip_pkg` assertions, plus the
 `run_wrapper_xhost` wrapper driver. Everything in this file is exercised
-via `test/bats/unit/smoke_helper_spec.bats` (which IS in the self-test
-grand total) — including `run_wrapper_xhost` against the wrapper at its
+via `test/bats/unit/smoke_helper_spec.bats` (which IS in the `just test`
+self-test suite) — including `run_wrapper_xhost` against the wrapper at its
 source path, so the `xhost` branch is covered by base's own gate and not
 only by a downstream image build.
