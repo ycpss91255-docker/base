@@ -66,6 +66,7 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   those conflict in `TEST.md` on those lines alone. Ask `just test` instead.
   The per-spec `(N)` headings and the per-test rows STAY: #999 made them
   generated from the specs' `# why:` markers, so they cost no sync step.
+  The sibling catalogues name the self-test suite, not the gone figure.
 - **the container ENTRYPOINT is base's orchestrator; `script/entrypoint.sh` is a bringup it sources (closes #945)**
   -- base's plumbing (the helper sources and the final `exec`) sat in a file
   `init.sh` seeds and the repo then OWNS, so no pull ever updated it. It now
