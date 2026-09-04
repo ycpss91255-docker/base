@@ -25,14 +25,29 @@
 #
 # ── How the population is decided ───────────────────────────────────────
 #
-# Ask git where git can answer: the tracked files are exactly "what this
-# repo keeps true", and no rule here can be more accurate than that.
+# One rule, in two tiers that have to answer the same: every file under the
+# root that the tree does not DECLARE derived. Not "every file git tracks".
 #
-# Where it cannot -- a fixture tree that is no checkout, or the real
-# checkout seen from inside the test container, where a worktree's `.git`
-# is a file naming a gitdir that was never mounted -- walk the filesystem
-# and prune what the tree DECLARES derived: the plain path patterns in the
-# root `.gitignore`. That is a reader of the repo's own declaration, not a
+# The difference is untracked files, and it matters because only one of the
+# two tiers can ask git. `git ls-files` alone drops a file that is in the
+# working tree and not yet in the index; the walk has no way to tell one
+# from a tracked one and keeps it. And the WALK is the tier the local gate
+# takes -- `just test` reads this checkout from inside the container, where
+# a worktree's `.git` is a file naming a gitdir that was never mounted, so
+# `git rev-parse` fails there by construction. Tracked-only therefore
+# reproduced the very split this file exists to close, one tier over: a
+# scratch note carrying a dangling `ADR-NNNNNNNN` reddened `just test lint
+# --adr-numbering` and `just adr renumber`, which runs on the host where
+# git DOES answer, never swept it. A red gate with no repair path through
+# the verb, again. Not yet tracked is not derived -- and it is the state a
+# freshly authored ADR and every reference to it are in.
+#
+# So git is asked for the tracked files AND the untracked ones it does not
+# exclude (`--others --exclude-standard`), which is git's own reading of
+# the tree's declaration and strictly better than this file's. Where git
+# cannot answer at all -- a fixture tree that is no checkout, or the
+# container case above -- the walk prunes what the root `.gitignore`
+# declares derived. That is a reader of the repo's own declaration, not a
 # second opinion about what is derived.
 #
 # The residue, stated rather than papered over: only the ROOT .gitignore
@@ -188,11 +203,21 @@ _adr_ref_walk() {
 # empty answer from git is treated as no answer, because a root that is
 # inside a checkout without being one of its tracked directories would
 # otherwise come back as a tree with nothing in it.
+#
+# `--others --exclude-standard` alongside the tracked files, and not
+# `ls-files` bare: the question is which files the tree does not declare
+# derived, and an untracked one answers it the same way a tracked one does.
+# See the header for the split the bare form produced between this tier and
+# the walk -- and note that the exclusion here is git's own, which reads
+# nested .gitignore files, negations and `info/exclude` that the walk's
+# reader deliberately does not.
 _adr_ref_candidates() {
   local _root="$1"
   local -a _tracked=()
   if git -C "${_root}" rev-parse --git-dir >/dev/null 2>&1; then
-    mapfile -t _tracked < <(git -C "${_root}" ls-files 2>/dev/null)
+    mapfile -t _tracked < <(
+      git -C "${_root}" ls-files --cached --others --exclude-standard 2>/dev/null
+    )
   fi
   if (( ${#_tracked[@]} > 0 )); then
     printf '%s\n' "${_tracked[@]}"

@@ -95,14 +95,30 @@ Four parts.
    is not read as current source. A red gate with no repair path through
    the documented verb.
 
-   Where git can answer, the tracked files ARE what this repo keeps true.
-   Where it cannot -- a fixture tree, or this checkout seen from inside
-   the test container, where a worktree's `.git` names a gitdir that was
-   never mounted -- the walk prunes what the tree DECLARES derived: the
-   plain path patterns in the root `.gitignore`, trailing slash or not,
+   The population is every file under the root that the tree does not
+   DECLARE derived. Where git can answer it is asked, for the tracked
+   files and the untracked ones it does not exclude; where it cannot -- a
+   fixture tree, or this checkout seen from inside the test container,
+   where a worktree's `.git` names a gitdir that was never mounted -- the
+   walk prunes what the root `.gitignore` declares, trailing slash or not,
    because git needs none and this repo's own file writes `.claude` and
    `CLAUDE.md` without one. That is a reader of the repo's own
    declaration, not a second opinion about what is derived.
+
+   > **Amended (base#1021, same wave).** This section first read "where
+   > git can answer, the tracked files ARE what this repo keeps true",
+   > and the verb asked `git ls-files` bare. That does not hold, because
+   > only ONE of the two tiers can ask git at all: a walk cannot tell an
+   > untracked file from a tracked one, so tracked-only reproduced the
+   > split this section is about, one tier over. The walk is also the
+   > tier the LOCAL gate takes, so the divergence ran in the worse
+   > direction -- an untracked scratch note carrying a dangling
+   > `ADR-NNNNNNNN` reddened `just test lint --adr-numbering` while
+   > `just adr renumber`, which runs on the host where git answers, never
+   > swept it. A red gate with no repair path through the verb, which is
+   > the defect this whole section exists to remove. Not yet tracked is
+   > not derived, and it is the state a freshly authored ADR and its first
+   > references are in.
 
    A file that builds its own throwaway `doc/adr/` DECLARES the NUMBERS
    that registry uses, on a comment line naming them. Declared and not
