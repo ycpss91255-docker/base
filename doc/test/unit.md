@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **4016 tests**.
+Unit specs under `test/bats/unit/`: **4017 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3742,16 +3742,17 @@ naming the path and what its absence costs.
 | `release-archive: refuses a manifest path that escapes the repo root (#914)` | Same escape guard on the declared paths |
 | `release-archive: --list prints the declared payload with its required/optional split` | The payload contract is readable without running an archive |
 
-### test/bats/unit/release_notes_spec.bats (17)
+### test/bats/unit/release_notes_spec.bats (18)
 
 | Test | Description |
 |------|-------------|
 | `release_notes.sh: an RC tag's notes are that RC's own entries` | The base case the twelve below deviate from, and the one that pins that the `## [tag]` heading itself is NOT part of the body: the release page already prints the tag as its title, so emitting it again is a duplicated heading on every page. |
 | `release_notes.sh: a tag with no section DIES rather than emitting an empty body` | The regression the whole script exists for. The awk it replaces exited 0 on no match and wrote an empty file, which action-gh-release publishes without complaint, so a renamed heading shipped a release whose whole body was GitHub's PR-title list. Only a refusal makes that visible at tag push. |
 | `release_notes.sh: a section whose body carries no entry DIES` | Finding the section is not the same question as finding release notes. The measured v0.42.0 shape is a promoted final whose entire section is a paragraph pointing at its RCs, so a check that only asks whether the tag was found passes on a body worth nothing to a reader. |
-| `release_notes.sh: a promoted final release's notes are the union of its RCs` | This project cuts RCs and promotes one unchanged, so a final tag's own section is a pointer and the entries sit under headings a reader of vX.Y.0 has no interest in. One heading per category across the whole union is what makes the page complete without republishing RC structure as if it were history. |
+| `release_notes.sh: a promoted final release's notes are the union of its RCs` | This project cuts RCs and promotes one unchanged, so a final tag's own section says little and the entries sit under headings a reader of vX.Y.0 has no interest in. One heading per category across the whole union is what makes the page complete without republishing RC structure as if it were history. The final's own paragraph rides above that union rather than being dropped: see the prose-only case below for why a pointer and a summary are the same shape to this script. |
 | `release_notes.sh: categories are emitted in the locked roster order` | The union merges by category, which is a few lines only because the headings come from a known set. This is where the locked roster pays for itself: the page opens with BREAKING rather than in whatever order the RCs happened to land in. |
 | `release_notes.sh: a final release with its own entries keeps its lead paragraph` | The union must add, not replace. A final release that says something of its own is the one part written for the release page itself, and losing it to the merge would silently delete the only prose a human aimed at that page. |
+| `release_notes.sh: a promoted final release's prose-only lead is published` | The same lead, in the shape a promoted release actually has: prose with no `### ` of its own, because the entries are under the RCs. The keep rule asked for a `- ` bullet in the lead or a category heading in the section, so a paragraph of upgrade instructions aimed at the release page was deleted from it -- and the entry-count postcondition cannot see a loss that is not a bullet. A pointer at the RCs is the same shape, so this publishes both: prose a human can read and correct, rather than prose the script decided for them was not worth publishing. |
 | `release_notes.sh: a final section's entries above its first category heading survive the union` | Measured on the real v0.29.0: a promoted final whose section carries no `### ` of its own, and whose pointer prose ends in three bullets naming the downstream propagation queued for it. Those bullets are entries, and the pointer-paragraph rule dropped the whole lead including them -- silently, and with `generate_release_notes: false` there is no second source for what it dropped. |
 | `release_notes.sh: an RC's entries above its first category heading survive the union` | The other half of the same drop, and the unconditional one: an RC's entries above its first `### ` were discarded for every release, whatever the final section looked like. Measured on the real v0.29.0-rc1, whose two headline bullets are the only place the release says what it is. |
 | `release_notes.sh: an assembled body that lost an entry is refused, not published` | The completeness guard was `grep -q '^- '` over the whole body, which passes as long as ONE bulleted category survived -- so the merge losing an entry it could not file was indistinguishable from a release with one category. The postcondition is per-entry: what the sections hold is what the page carries, or the release fails here rather than shipping short. |

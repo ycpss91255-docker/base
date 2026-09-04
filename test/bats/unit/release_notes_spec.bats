@@ -137,10 +137,12 @@ _notes_with_lossy_assembler() (
 }
 
 # why: This project cuts RCs and promotes one unchanged, so a final tag's own
-# section is a pointer and the entries sit under headings a reader of
+# section says little and the entries sit under headings a reader of
 # vX.Y.0 has no interest in. One heading per category across the whole
 # union is what makes the page complete without republishing RC structure
-# as if it were history.
+# as if it were history. The final's own paragraph rides above that union
+# rather than being dropped: see the prose-only case below for why a
+# pointer and a summary are the same shape to this script.
 @test "release_notes.sh: a promoted final release's notes are the union of its RCs" {
   _series v0.42 \
     '## [v0.42.0] - 2026-08-25' \
@@ -168,8 +170,13 @@ _notes_with_lossy_assembler() (
   assert_output --partial '- the late fix (#20, PR #21)'
   # One heading per category across the whole union, not one per RC.
   [ "$(grep -c '^### Fixed$' <<< "${output}")" -eq 1 ]
-  # The pointer paragraph is superseded by the entries it pointed at.
-  refute_output --partial 'promoted unchanged'
+  # The final section's own paragraph is published above the union. It used
+  # to be dropped as a pointer superseded by the entries it points at, which
+  # is true of THIS paragraph and unknowable in general: a promoted final's
+  # lead is prose either way, and the script resolved the ambiguity by
+  # deleting. A stale sentence a reader can see beats a summary nobody was
+  # told was removed.
+  assert_output --partial 'promoted unchanged'
 }
 
 # why: The union merges by category, which is a few lines only because the
@@ -221,6 +228,39 @@ _notes_with_lossy_assembler() (
   assert_output --partial 'This release closes the 0.9 line.'
   assert_output --partial '- the final-only entry (#30, PR #31)'
   assert_output --partial '- the candidate entry (#10, PR #11)'
+}
+
+# why: The same lead, in the shape a promoted release actually has: prose with
+# no `### ` of its own, because the entries are under the RCs. The keep
+# rule asked for a `- ` bullet in the lead or a category heading in the
+# section, so a paragraph of upgrade instructions aimed at the release
+# page was deleted from it -- and the entry-count postcondition cannot see
+# a loss that is not a bullet. A pointer at the RCs is the same shape, so
+# this publishes both: prose a human can read and correct, rather than
+# prose the script decided for them was not worth publishing.
+@test "release_notes.sh: a promoted final release's prose-only lead is published" {
+  # The v0.42.0 shape with something worth reading in it: the section has no
+  # `### ` and no `- ` of its own, which is exactly the pointer paragraph's
+  # shape -- nothing structural separates the two.
+  _series v0.9 \
+    '## [v0.9.0] - 2026-04-03' \
+    '' \
+    'This release closes the 0.9 line. Downstream repos must run' \
+    '`just upgrade v0.9.0` BEFORE their next build or the entrypoint will' \
+    'refuse to start.' \
+    '' \
+    '## [v0.9.0-rc1] - 2026-04-01' \
+    '' \
+    '### Added' \
+    '- the candidate entry (#10, PR #11)'
+
+  run "${NOTES}" v0.9.0 "${CL}"
+  [ "${status}" -eq 0 ]
+  assert_output --partial 'This release closes the 0.9 line.'
+  assert_output --partial '`just upgrade v0.9.0` BEFORE their next build'
+  assert_output --partial '- the candidate entry (#10, PR #11)'
+  # And it opens the page: the lead of the section being released leads.
+  [ "${lines[0]}" = 'This release closes the 0.9 line. Downstream repos must run' ]
 }
 
 # why: Measured on the real v0.29.0: a promoted final whose section carries no
