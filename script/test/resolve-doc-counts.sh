@@ -13,19 +13,31 @@
 #
 # Why this exists
 # ---------------
-# Every merge of main into a queued branch conflicts on doc/test/TEST.md and
-# doc/test/unit.md, because both sides bumped the same generated counters. The
-# resolution never needs judgement -- collapse to either side, then regenerate
-# -- yet it was retyped by hand six times in a single review batch and pasted
+# Every merge of main into a queued branch conflicts on doc/test/unit.md,
+# because both sides regenerated the same derived content -- the per-spec
+# `### <path> (N)` headings, the per-type total at the head, and the
+# catalogue rows the specs' `# why:` markers render into. The resolution
+# never needs judgement -- collapse to either side, then regenerate -- yet
+# it was retyped by hand six times in a single review batch and pasted
 # verbatim into every dispatched agent prompt, awk one-liner included.
+#
+# doc/test/TEST.md used to be the other half of that sentence, and no
+# longer is. ADR-00000028 sec. 1 removed the suite-wide figures it carried
+# and the generator's TEST.md pass with them, so the index holds nothing
+# derived: it has no generated region, and `_sync_doc_counts` does not
+# write to it. A conflict in TEST.md is therefore a conflict in authored
+# prose, which this script REFUSES with the diff rather than resolves --
+# the same refusal the paragraph below describes, reached for the whole
+# file.
 #
 # Why it is not just the awk one-liner
 # ------------------------------------
-# A mechanical collapse adopts whichever side it keeps, INCLUDING for content
-# the generator does not derive. That already bit this repo: the "System (N)
-# and smoke (N)" prose in TEST.md was hand-maintained, and a collapse silently
-# carried the stale side through three times before the generator learned to
-# regenerate it.
+# A mechanical collapse adopts whichever side it keeps, INCLUDING for
+# content the generator does not derive. That already bit this repo: the
+# suite-wide prose TEST.md used to carry was hand-maintained, and a
+# collapse silently carried the stale side through three times before the
+# generator learned to derive it -- which is part of why the figures are
+# not recorded there at all any more.
 #
 # So this script never trusts one side. It regenerates BOTH collapses and
 # then compares them. Any remaining difference is, by construction, content
