@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **157 tests**.
+Integration specs under `test/bats/integration/`: **159 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -9,6 +9,26 @@ Integration specs under `test/bats/integration/`: **157 tests**.
 ## Test Files
 
 <!-- generated: catalogue sections -->
+
+### test/bats/integration/apk_mirror_spec.bats (2)
+
+The FORWARDING half of the APK_MIRROR contract -- the repo-root
+`compose.yaml` passes the arg to the tooling build only when the caller set
+one, so the upstream host keeps being named in exactly one place, the
+Dockerfile. Passing it unconditionally would put an empty `--build-arg` in
+front of the image's own default on every machine that needs no override,
+and a `:-` default here would move the declaration of the upstream host into
+a file the Dockerfile cannot see.
+
+Compose's own interpolation is what decides this, not the file's text, so
+the assertions drive `docker compose config` rather than grepping. The knob
+itself -- the default, the skip at the default, the reach over every apk
+stage -- is test/bats/unit/apk_mirror_spec.bats'.
+
+| Test | Description |
+|------|-------------|
+| `compose.yaml: with APK_MIRROR unset the tooling build receives no mirror arg (#1008)` | Unset has to mean "the Dockerfile's default", not "an empty override the Dockerfile then has to defend itself against". This is the case every machine that can reach dl-cdn is in, so an unconditional forward would put an empty `--build-arg` in front of the image's own default everywhere and be noticed nowhere. |
+| `compose.yaml: the caller's APK_MIRROR reaches the tooling build (#1008)` | The other direction, and what makes the case above non-vacuous: a `build.args` entry deleted outright would also forward nothing when unset. Both halves together are what says the bare `- APK_MIRROR` form is doing its job -- override through, nothing through otherwise. |
 
 ### test/bats/integration/ci_preflight_contract_spec.bats (8)
 

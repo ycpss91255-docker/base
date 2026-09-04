@@ -262,6 +262,14 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 - **the changelog lint now catches an entry that was edited and not re-wrapped (refs #927)** -- a single word left alone on a continuation line with more of its paragraph on the next line. The length measure collapses whitespace on purpose and markdown collapses it again at render time, so nothing else could see it. A short final line, a table row, a fenced line and an HTML comment are left alone. Affects anyone writing an `[Unreleased]` entry.
 
 ### Fixed
+- **the tooling image takes an `APK_MIRROR` build arg (closes #1008)** --
+  `dockerfile/Dockerfile.test-tools` had no mirror override, so a host that
+  cannot reach `dl-cdn.alpinelinux.org` could not build the image the whole
+  local gate runs inside. It does not read as a network failure: apk spends
+  ~480s and then reports every package as `no such package`, because an
+  unreachable index reads as an empty one. Pass
+  `APK_MIRROR=<host> just test`. The default is the upstream CDN and the
+  rewrite is skipped there, so a machine that can reach it sees no change.
 - **a failed diff no longer takes the required `docker-build` check green, and one FROM-line reader replaces three (closes #1013)** -- the doc-only classifier read its diff through `done < <(git diff ...)`, and a loop's status is the loop's: a force-pushed base or a shallow clone delivered zero paths, classified doc-only, and passed the required check having built nothing. It is captured and checked now, and a spec scans every workflow run block for the shape. Separately, the extra-stages loop and `runtime_stages.sh` each carried a `FROM ... AS` regex claiming to match the stage parser; neither did, so `FROM --platform=... AS x-test` was invisible to the loop. One roster serves both now.
 - **`just` owns the lifecycle of what `just` creates (closes #1015, #997)** --
   `just test stop` ends this checkout's self-test project. `just docker stop`
