@@ -240,6 +240,37 @@ _reindex() {
   assert_output --partial '1 misplaced section'
 }
 
+# why: The other half of what `merge=union` leaves behind, and the quiet one.
+# Both compare-link definitions are in the file the version names, so the
+# section/definition agreement rule beside this one is satisfied by
+# either, and CommonMark resolves every reference to the FIRST -- so a
+# stale or wrong URL wins with nothing rendering differently.
+@test "changelog layout: a compare link DEFINED TWICE in one file is named" {
+  _clean_tree
+  # The definition block is where a union merge overlaps most reliably: it
+  # is the foot of every series file and every branch appends to it. Both
+  # copies name the same tag in the file that tag belongs to, so the
+  # agreement rule and the placement rule both hold; only this one can fire.
+  _series v0.2 \
+    '# base changelog -- v0.2' \
+    '' \
+    '## [v0.2.0] - 2026-04-02' \
+    '' \
+    '### Added' \
+    '- the second thing (#2, PR #3)' \
+    '' \
+    '[v0.2.0]: https://example.invalid/compare/v0.1.0...v0.2.0' \
+    '[v0.2.0]: https://example.invalid/compare/WRONG...v0.2.0'
+
+  run _run_changelog_layout
+  [ "${status}" -ne 0 ]
+  # The rule's own sentence, naming the line the winning definition is on --
+  # the one a reader has to go and read to see which URL is live.
+  assert_output --partial 'duplicate compare-link definition -- [v0.2.0] is already defined at line 8'
+  # And nothing else fired.
+  assert_output --partial '1 misplaced section'
+}
+
 # why: A heading belonging to no series has no file the placement rule could
 # say it belongs in, so it would be filed wherever it was found and pass.
 # Without this rule the layout check is silent on exactly the headings the
