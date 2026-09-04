@@ -238,6 +238,46 @@ _file() {
   assert_output --partial 'ADR-00000030'
 }
 
+# why: What `sed -i` does to a symlink, which is replace it with a regular
+# copy of its target and report success. A symlink has no content of its
+# own, so there is nothing here to rewrite: the bytes belong to the target,
+# and the target is swept like any other file. base survived this only by
+# an ordering accident -- all eight of its wrapper links sort after their
+# `dist/` targets in `git ls-files`, so the pattern no longer matched by
+# the time the link was reached. This case pins the opposite order.
+@test "adr renumber: a tracked symlink is not replaced by a copy of its target (#1021)" {
+  _file 'zz/target.md' 'The rule is ADR-00000030.'
+  ln -s zz/target.md "${ROOT}/a-link.md"
+  # A checkout, because this is the tier `just adr renumber` runs on and
+  # the one whose population carries symlinks at all. `a-link.md` sorts
+  # BEFORE `zz/target.md`, so the link is reached while the old number is
+  # still there.
+  git -C "${ROOT}" init -q
+  git -C "${ROOT}" add -A
+  run bash "${RENUMBER}" 30 32 "${ROOT}"
+  assert_success
+  [[ -L "${ROOT}/a-link.md" ]]
+  run cat "${ROOT}/zz/target.md"
+  assert_output --partial 'ADR-00000032'
+  refute_output --partial 'ADR-00000030'
+}
+
+# why: The other half of not writing through a link: a reference reachable
+# only through one is a reference this verb cannot repair, because the file
+# holding the bytes is a tree the checkout declares derived and rewriting
+# it would falsify a record of what was said. Refused and named, rather
+# than reported as a complete sweep -- the lint reads the same link and
+# would fail on it, so a silent pass here is the disagreement the shared
+# population exists to prevent.
+@test "adr renumber: REFUSES a reference reachable only through a symlink (#1021)" {
+  _file '.gitignore' 'ignored/'
+  _file 'ignored/target.md' 'The rule is ADR-00000030.'
+  ln -s ignored/target.md "${ROOT}/link.md"
+  run bash "${RENUMBER}" 30 32 "${ROOT}"
+  assert_failure
+  assert_output --partial 'link.md'
+}
+
 # why: A target somebody else already claims is the collision again, one
 # move later. Refusing BEFORE the first write is what keeps a refusal from
 # leaving a half-renumbered tree somebody has to unpick by hand.

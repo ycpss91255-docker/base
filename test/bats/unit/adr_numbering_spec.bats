@@ -474,6 +474,27 @@ _index() {
   [[ "${output}" == *"clean"* ]]
 }
 
+# why: A symlink is a file this repo keeps true. `git ls-files` lists the
+# eight wrapper links at the root, so the git tier reads them; the walk
+# printed only `-type f` and did not, which made the two tiers' populations
+# differ by eight files -- and a lint and a verb that read one population
+# is the whole point of the shared reader. The reference here is reachable
+# ONLY through the link, so nothing but the link can report it.
+@test "_run_adr_numbering: a symlink is read as the file it points at (#1021)" {
+  _touch_adr "00000001-alpha.md"
+  _index '| 00000001 -- alpha | keep | mechanism | note |'
+  # Assembled from a variable, for the reason the mispaired case above
+  # states: a literal dangling `ADR-NNNNNNNN` in THIS file is a dangling
+  # reference in the real tree, which the real-tree case below reads.
+  local _ghost='00000099'
+  _write '.gitignore' 'ignored/'
+  _write 'ignored/target.md' "A pointer at ADR-${_ghost}."
+  ln -s ../ignored/target.md "${SCRATCH}/doc/link.md"
+  run _run_adr_numbering
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"doc/link.md"* ]]
+}
+
 # why: The tree's own declaration, read the way the tree actually writes
 # it. git needs no trailing slash, and this repo's root .gitignore uses
 # none for `.claude` or `CLAUDE.md`. A pattern the reader does not

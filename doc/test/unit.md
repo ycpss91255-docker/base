@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3962 tests**.
+Unit specs under `test/bats/unit/`: **3965 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -173,7 +173,7 @@ a refusal as "do not release".
 | `R3: PASSES a verbatim claim about a file this repo carries (#927)` | - |
 | `R3: IGNORES verbatim used about behaviour rather than a quotation (#927)` | - |
 
-### test/bats/unit/adr_numbering_spec.bats (23)
+### test/bats/unit/adr_numbering_spec.bats (24)
 
 Unit tests for `script/test/drivers/adr_numbering.sh` (`_run_adr_numbering`,
 refs #808), the ADR-numbering lint. The registry is the filesystem
@@ -205,11 +205,12 @@ warned.
 | `_run_adr_numbering: FAILS when two index rows carry the same number (#1021)` | Two rows on one number is what a collision looks like in the index, and taking the first would make the check agree with whichever row was written first rather than with the tree. |
 | `_run_adr_numbering: PASSES when every record has one row and every reference resolves (#1021)` | The passing shape, so the three failures above are read as a contract rather than as a lint that dislikes index tables. |
 | `_run_adr_numbering: a tree the checkout declares derived carries no reference (#1021)` | The tier the local run actually takes -- a checkout whose git the reader cannot query (a worktree inside the test container). What the tree DECLARES derived is still not source: an old release and a transcript are records of what was said once, and the verb cannot reach either, so a finding in one is a red gate with no way to clear it. |
+| `_run_adr_numbering: a symlink is read as the file it points at (#1021)` | A symlink is a file this repo keeps true. `git ls-files` lists the eight wrapper links at the root, so the git tier reads them; the walk printed only `-type f` and did not, which made the two tiers' populations differ by eight files -- and a lint and a verb that read one population is the whole point of the shared reader. The reference here is reachable ONLY through the link, so nothing but the link can report it. |
 | `_run_adr_numbering: an ignored path written without a trailing slash is not read (#1021)` | The tree's own declaration, read the way the tree actually writes it. git needs no trailing slash, and this repo's root .gitignore uses none for `.claude` or `CLAUDE.md`. A pattern the reader does not recognise is a path this lint scans and the verb never sweeps -- a finding with no repair path through the documented command, which is the whole reason the two read one population. The residue is unchanged: only the root file, and only patterns with no wildcard and no negation. |
 | `_run_adr_numbering: an untracked file in a checkout is not a reference (#1021)` | The tier CI takes, where git can answer. An untracked scratch file is not a reference this repo keeps true and the verb never rewrites one, so the lint must not fail on it either -- the same disagreement as the case above, arriving through the other branch of the population. |
 | `_run_adr_numbering: the REAL doc/adr/ passes today (00000009 gap warned) (#808)` | Live tree clean, 00000009 gap warned |
 
-### test/bats/unit/adr_renumber_spec.bats (12)
+### test/bats/unit/adr_renumber_spec.bats (14)
 
 Nothing allocates an ADR number, so parallel branches collide by
 construction (base#1021: three took 00000030 on one day, each right by the
@@ -234,6 +235,8 @@ the cases about references rather than about git.
 | `adr renumber: leaves a number a file declares its own alone (#1021)` | The tool corrupting its own spec. A file that builds a throwaway registry declares it and is left ALONE -- whole. Rewriting only the classes a heuristic recognised is worse than rewriting none of them: the `ADR-<n>` and `adr/<n>-` forms moved and the bare numbers a spec passes to this tool as ARGUMENTS did not, so the setup and the command named different records, with the survivor self-check and the lint both green. |
 | `adr renumber: a declaration that names no number hides no reference (#1021)` | The whole-file drop's other half, and the state it left behind. A spec that builds a throwaway registry still carries pointers at THIS tree's -- a `# why:` block naming the record a case came from, which the generator then publishes verbatim as a catalogue row. Dropped whole, the marker was never rewritten, so the rewrite pass fixed the catalogue and the regeneration immediately put the old number back: the verb aborted on a survivor no message could attribute, with the record already moved and 25 files rewritten. A declaration exempts the numbers it NAMES, and one that names none exempts nothing. |
 | `adr renumber: leaves a tree the checkout declares derived alone (#1021)` | The population, and the property that keeps this verb and the ADR lint from disagreeing about what a reference is -- they read one. A tree the checkout declares derived is not swept: a materialised old release and a wrapper transcript are records of what WAS said, so rewriting one falsifies it, and a finding the verb cannot reach is a red gate with no repair path through the verb. |
+| `adr renumber: a tracked symlink is not replaced by a copy of its target (#1021)` | What `sed -i` does to a symlink, which is replace it with a regular copy of its target and report success. A symlink has no content of its own, so there is nothing here to rewrite: the bytes belong to the target, and the target is swept like any other file. base survived this only by an ordering accident -- all eight of its wrapper links sort after their `dist/` targets in `git ls-files`, so the pattern no longer matched by the time the link was reached. This case pins the opposite order. |
+| `adr renumber: REFUSES a reference reachable only through a symlink (#1021)` | The other half of not writing through a link: a reference reachable only through one is a reference this verb cannot repair, because the file holding the bytes is a tree the checkout declares derived and rewriting it would falsify a record of what was said. Refused and named, rather than reported as a complete sweep -- the lint reads the same link and would fail on it, so a silent pass here is the disagreement the shared population exists to prevent. |
 | `adr renumber: REFUSES a target number a record already claims, changing nothing (#1021)` | A target somebody else already claims is the collision again, one move later. Refusing BEFORE the first write is what keeps a refusal from leaving a half-renumbered tree somebody has to unpick by hand. |
 | `adr renumber: REFUSES a number two records claim, naming both (#1021)` | The state a collision merge actually lands in, and the one the tool must not guess its way through: with two records on one number, a prose ADR-00000030 names whichever the author had in mind and nothing in the tree records which. The refusal names both and points at the resolution that IS derivable -- renumber on the branch, where the number has one claimant. |
 | `adr renumber: REFUSES a record no file matches, naming what it looked for (#1021)` | A record that is not there is a typo, and a tool that renamed nothing and reported success would leave the operator believing a sweep had happened. |
