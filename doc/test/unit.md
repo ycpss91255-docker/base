@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3961 tests**.
+Unit specs under `test/bats/unit/`: **3962 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -173,7 +173,7 @@ a refusal as "do not release".
 | `R3: PASSES a verbatim claim about a file this repo carries (#927)` | - |
 | `R3: IGNORES verbatim used about behaviour rather than a quotation (#927)` | - |
 
-### test/bats/unit/adr_numbering_spec.bats (22)
+### test/bats/unit/adr_numbering_spec.bats (23)
 
 Unit tests for `script/test/drivers/adr_numbering.sh` (`_run_adr_numbering`,
 refs #808), the ADR-numbering lint. The registry is the filesystem
@@ -205,6 +205,7 @@ warned.
 | `_run_adr_numbering: FAILS when two index rows carry the same number (#1021)` | Two rows on one number is what a collision looks like in the index, and taking the first would make the check agree with whichever row was written first rather than with the tree. |
 | `_run_adr_numbering: PASSES when every record has one row and every reference resolves (#1021)` | The passing shape, so the three failures above are read as a contract rather than as a lint that dislikes index tables. |
 | `_run_adr_numbering: a tree the checkout declares derived carries no reference (#1021)` | The tier the local run actually takes -- a checkout whose git the reader cannot query (a worktree inside the test container). What the tree DECLARES derived is still not source: an old release and a transcript are records of what was said once, and the verb cannot reach either, so a finding in one is a red gate with no way to clear it. |
+| `_run_adr_numbering: an ignored path written without a trailing slash is not read (#1021)` | The tree's own declaration, read the way the tree actually writes it. git needs no trailing slash, and this repo's root .gitignore uses none for `.claude` or `CLAUDE.md`. A pattern the reader does not recognise is a path this lint scans and the verb never sweeps -- a finding with no repair path through the documented command, which is the whole reason the two read one population. The residue is unchanged: only the root file, and only patterns with no wildcard and no negation. |
 | `_run_adr_numbering: an untracked file in a checkout is not a reference (#1021)` | The tier CI takes, where git can answer. An untracked scratch file is not a reference this repo keeps true and the verb never rewrites one, so the lint must not fail on it either -- the same disagreement as the case above, arriving through the other branch of the population. |
 | `_run_adr_numbering: the REAL doc/adr/ passes today (00000009 gap warned) (#808)` | Live tree clean, 00000009 gap warned |
 

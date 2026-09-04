@@ -474,6 +474,29 @@ _index() {
   [[ "${output}" == *"clean"* ]]
 }
 
+# why: The tree's own declaration, read the way the tree actually writes
+# it. git needs no trailing slash, and this repo's root .gitignore uses
+# none for `.claude` or `CLAUDE.md`. A pattern the reader does not
+# recognise is a path this lint scans and the verb never sweeps -- a
+# finding with no repair path through the documented command, which is the
+# whole reason the two read one population. The residue is unchanged: only
+# the root file, and only patterns with no wildcard and no negation.
+@test "_run_adr_numbering: an ignored path written without a trailing slash is not read (#1021)" {
+  _touch_adr "00000001-alpha.md"
+  _index '| 00000001 -- alpha | keep | mechanism | note |'
+  # Assembled from a variable, for the reason the mispaired case above
+  # states: a literal dangling `ADR-NNNNNNNN` in THIS file is a dangling
+  # reference in the real tree, which the real-tree case below reads.
+  local _ghost='00000099'
+  _write '.gitignore' '.claude' 'NOTES.md' '/vendor'
+  _write '.claude/note.md' "A session note citing ADR-${_ghost}."
+  _write 'NOTES.md' "A scratch note citing ADR-${_ghost}."
+  _write 'vendor/old/CONTEXT.md' "A vendored tree citing ADR-${_ghost}."
+  run _run_adr_numbering
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"clean"* ]]
+}
+
 # why: The tier CI takes, where git can answer. An untracked scratch file
 # is not a reference this repo keeps true and the verb never rewrites
 # one, so the lint must not fail on it either -- the same disagreement as
