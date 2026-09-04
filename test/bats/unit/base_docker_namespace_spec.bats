@@ -174,6 +174,12 @@ setup() {
 #   tooling tag its hand-authored compose.yaml interpolates) and the
 #   tooling Dockerfile that tag is a content hash of; no .base/, no
 #   .setup.conf, no .env.generated.
+#
+#   script/adr comes along because script/test needs it: test.sh sources
+#   every lint driver at startup, whatever verb it was handed, and the
+#   ADR-numbering driver sources script/adr/references.sh for the file set
+#   it shares with the renumber verb. A checkout with one and not the
+#   other is not base-shaped.
 _base_shaped_checkout() {
   local _dir="${1:?_base_shaped_checkout requires a dir}"
   mkdir -p "${_dir}/dist/script/docker/lib" "${_dir}/dist/script/docker/wrapper" \
@@ -183,6 +189,7 @@ _base_shaped_checkout() {
   cp /source/compose.yaml "${_dir}/compose.yaml"
   cp /source/dockerfile/Dockerfile.test-tools "${_dir}/dockerfile/"
   cp -r /source/script/test "${_dir}/script/test"
+  cp -r /source/script/adr "${_dir}/script/adr"
   local _w
   for _w in build run exec stop prune; do
     ln -s "../dist/script/docker/wrapper/${_w}.sh" "${_dir}/script/${_w}.sh"
