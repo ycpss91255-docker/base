@@ -1866,7 +1866,7 @@ refused before any build or bundle step.
 | `_run_derived_figures: FAILS when the dist/ scan root is missing (no vacuous pass) (#874)` | - |
 | `_run_derived_figures: the REAL tree passes today (#874)` | - |
 
-### test/bats/unit/doc_counts_spec.bats (23)
+### test/bats/unit/doc_counts_spec.bats (24)
 
 Unit coverage for the generator that derives ALL of doc/test/*.md from the
 specs: the count figures (`grep -c '^@test'`) and the catalogue sections,
@@ -1889,6 +1889,7 @@ the author did not have to escape.
 | `_sync_doc_counts: is idempotent on an already-synced tree (#727)` | re-run no-op |
 | `_sync_doc_counts: rewrites the system per-type total from test/bats/system/ (#782)` | - |
 | `_sync_doc_counts: tolerates an empty acceptance dir (count 0, no error) (#782)` | - |
+| `_aggregate_figure_hits: a fence marker quoted in prose does not end the scan (#978)` | A guard is only as wide as the span it reads, and the span here is decided by a marker BOTH documents quote in their own prose while explaining that editing the generated region does nothing -- unit.md does it 34 lines above its real fence. Matching the mention ends the scan there and declares the rest of the preamble clean without reading it, which is exactly where a typed-back total would sit and where `_sync_type_total`'s unanchored `sed` would go on maintaining it. The marker has to be matched as a WHOLE LINE for the two committed-document cases below to mean what they say. |
 | `doc/test/TEST.md commits no aggregate suite figure (#978)` | TEST.md is the index and carried four of the five aggregate lines, so it is where a reintroduced total would land first. The guard reads the COMMITTED document rather than a fixture: the fixture cases above prove what the generator writes, and this one proves what the repo ships. |
 | `doc/test/unit.md commits no aggregate suite figure (#978)` | unit.md's total is the fifth line, and the load-bearing one: it is the figure every branch that adds a unit test had to edit. Only the authored preamble is scanned -- the generated region below the fence is derived from the specs on every run. |
 | `_sync_doc_counts: does not maintain an aggregate figure in TEST.md (#978)` | Removing the lines is only half of it. The generator's TEST.md pass was the mechanism that made them maintainable, and every one of its rewrites is a `sed` that silently does nothing when its pattern is absent -- so left in place it would sit there looking retired while standing ready to adopt any figure typed back in, which is how the count became a maintained thing the first time. This is the case that says the generator no longer owns TEST.md: a document carrying every shape at once comes back unchanged. |

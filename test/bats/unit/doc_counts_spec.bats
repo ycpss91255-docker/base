@@ -154,6 +154,29 @@ _aggregate_figure_hits() {
     | grep -E "${_AGGREGATE_FIGURE_RE}" || true
 }
 
+# why: A guard is only as wide as the span it reads, and the span here is
+# decided by a marker BOTH documents quote in their own prose while
+# explaining that editing the generated region does nothing -- unit.md does
+# it 34 lines above its real fence. Matching the mention ends the scan
+# there and declares the rest of the preamble clean without reading it,
+# which is exactly where a typed-back total would sit and where
+# `_sync_type_total`'s unanchored `sed` would go on maintaining it. The
+# marker has to be matched as a WHOLE LINE for the two committed-document
+# cases below to mean what they say.
+@test "_aggregate_figure_hits: a fence marker quoted in prose does not end the scan (#978)" {
+  local _doc="${BATS_TEST_TMPDIR}/quoted_fence.md"
+  printf '%s\n' \
+    'Everything between `<!-- generated: catalogue sections -->` and' \
+    '`<!-- /generated -->` is replaced wholesale on every run.' \
+    'Unit specs under `test/bats/unit/`: **3927 tests**.' \
+    '<!-- generated: catalogue sections -->' \
+    '| Doc | Scope | Count |' \
+    '<!-- /generated -->' > "${_doc}"
+  run _aggregate_figure_hits "${_doc}"
+  assert_success
+  assert_output '3: Unit specs under `test/bats/unit/`: **3927 tests**.'
+}
+
 # why: TEST.md is the index and carried four of the five aggregate lines, so
 # it is where a reintroduced total would land first. The guard reads the
 # COMMITTED document rather than a fixture: the fixture cases above prove
