@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3782 tests**.
+Unit specs under `test/bats/unit/`: **3809 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -565,7 +565,7 @@ to zero build jobs.
 | `compute_matrix: empty platform list fails (no matrix -> no jobs guard)` | - |
 | `compute_matrix: all-empty segments fail (whitespace-only -> no jobs guard)` | - |
 
-### test/bats/unit/build_worker_runtime_stages_spec.bats (13)
+### test/bats/unit/build_worker_runtime_stages_spec.bats (16)
 
 `script/ci/build_worker/runtime_stages.sh`, the resolver that decides
 whether build-worker.yaml runs its `runtime-test` / `runtime` targets
@@ -582,7 +582,10 @@ shapes of the shipped file are covered here: runtime blocks commented out
 | `runtime_stages: a Dockerfile with no runtime stages resolves to false` | The four-stage default shape skips the runtime build steps |
 | `runtime_stages: a Dockerfile declaring runtime + runtime-test resolves to true` | A declared pair enables the runtime build with no second edit |
 | `runtime_stages: commented-out runtime stages do not count as declared` | A `#`-prefixed `FROM ... AS runtime` is documentation, not a stage |
-| `runtime_stages: stage detection is case-insensitive (Dockerfile keywords are)` | `from ... as runtime-test` is the same declaration to buildx |
+| `runtime_stages: a lowercase 'from ... as' line declares nothing, here as everywhere (#1013)` | The one shape where this resolver used to disagree with every other FROM-line reader in the tree. Losing it would let the resolver grow a second case-insensitive regex again and hand CI a runtime image that compose has no service for. |
+| `runtime_stages: the cross-build --platform FROM form declares the pair (#1013)` | The shape the arm64 matrix invites, and the one shape the sibling extra-stages loop got wrong. The old regex here read it correctly, so this case is what stops the delegation to the shared matcher regressing the half that already worked. |
+| `runtime_stages: a Dockerfile with no trailing newline declares the pair (#1013)` | The reader's `while read` loop drops a final unterminated line, and a Dockerfile that ends without a newline is ordinary. Here that turns a COMPLETE runtime pair into a half-declared one and fails the build naming a stage the file plainly declares -- a failure whose message points at the author's Dockerfile rather than at the reader that lost the line. |
+| `runtime_stages: a stray bare token before AS declares nothing (#1013)` | The over-reading direction, which widening a pattern is how you acquire. `FROM <image> <junk> AS <stage>` is not a directive docker accepts, so seeing a stage there makes the worker ask buildx for a target no Dockerfile can produce -- an invented pair, not a missed one. |
 | `runtime_stages: the shipped dist Dockerfile (runtime blocks commented out) resolves to false` | The real default artifact, the shape that shipped red |
 | `runtime_stages: the shipped dist Dockerfile with its runtime blocks uncommented resolves to true` | Uncommenting is sufficient to get a runtime build |
 | `runtime_stages: build_runtime=false opts out even when both stages exist` | The surviving flag is an opt-out and is honoured |
@@ -593,7 +596,39 @@ shapes of the shipped file are covered here: runtime blocks commented out
 | `runtime_stages: a missing Dockerfile fails naming the path it looked for` | A wrong `context_path` / `dockerfile_path` is reported by path |
 | `runtime_stages: an empty DOCKERFILE path fails loudly` | No path means no source of truth to read |
 
-### test/bats/unit/build_worker_yaml_spec.bats (61)
+### test/bats/unit/build_worker_stage_names_spec.bats (6)
+
+Two worker steps need that answer: the extra_stages loop (is there a
+<stage>-test companion to build?) and runtime_stages.sh (are runtime and
+runtime-test declared?). Each used to carry a regex of its own, and each
+carried a comment claiming it was the same regex the compose emitter's stage
+parser uses. Neither was. The loop matched ONE token between FROM and AS, so
+the cross-build `FROM --platform=... AS x-test` form declared nothing to it
+and a stage's smoke test was silently not built; the resolver's was looser
+than the emitter's in the other direction.
+
+This script ends that by CALLING the shared matcher
+(dist/script/docker/lib/stage.sh's _dockerfile_stage_from_line) rather than
+restating it, so there is one grammar with one owner. The agreement is
+asserted where it belongs -- stage_spec.bats runs every call site, this one
+included, over one corpus of FROM lines and demands a single verdict. What
+is left here is this script's OWN contract: which stages it emits, in what
+order, and what it does when it cannot read the file.
+
+The roster is deliberately UNFILTERED, unlike _parse_dockerfile_stages'
+projection: the worker asks about runtime / runtime-test / devel-test by
+name, which is exactly the set the compose emitter drops.
+
+| Test | Description |
+|------|-------------|
+| `stage_names: lists every declared stage in file order` | The roster the worker's two steps read, in the order the file declares it -- the base case everything else here is a deviation from. |
+| `stage_names: keeps the stages the compose parser filters out` | runtime-test / devel-test are the very names the worker asks about, and they are the ones the compose emitter's projection drops. Inheriting that filter would answer "no runtime-test stage" about a Dockerfile that declares one. |
+| `stage_names: a Dockerfile declaring no stages is an empty roster, not an error` | Draws the line between the two empty answers this reader can give. "No extra stages" is legitimate and the caller decides what it means; only an unreadable file is a failure. Collapsing the two is what the refusal cases below defend. |
+| `stage_names: the last line declares a stage even with no trailing newline (#1013)` | The blind spot a `while read` loop has and the grep this reader replaced did not: a Dockerfile that ends without a newline silently loses its last stage. That is the #1013 symptom from the other end -- no smoke test built for a last-line `<stage>-test`, and a complete runtime pair read as half-declared -- so it must be pinned at the reader itself. |
+| `stage_names: a missing Dockerfile fails naming the path it looked for` | An unreadable Dockerfile is not "no stages", it is "we do not know". Answering an empty roster there is how a worker skips a build and calls it a pass, and the path has to be in the message or the operator cannot tell which file it failed to find. |
+| `stage_names: an empty DOCKERFILE path fails loudly` | The unset-input case, which a workflow reaches by forgetting one `env:` line. It has to fail at the reader naming the variable, because the alternative -- an empty roster from an empty path -- is a build the worker quietly declines to run. |
+
+### test/bats/unit/build_worker_yaml_spec.bats (69)
 
 Structural assertions for `.github/workflows/build-worker.yaml` (#195 + #243
 + #272 + #273 + #378 b1). Reusable workflows are not exec'd by these tests;
@@ -732,6 +767,11 @@ matching fails instead of reporting a clean scan
 | `build-worker.yaml: 4 build steps use per-target gha cache scopes in the default branch (#378 b1, #801 ternary)` | - |
 | `build-worker.yaml: 4 build steps emit a type=registry GHCR buildcache ref when cache_backend is registry (#801)` | - |
 | `build-worker.yaml: extra_stages loop honors cache_backend for both backends (#801)` | - |
+| `build-worker.yaml: an extra stage's -test companion is found on a --platform FROM line (#1013)` | The reported #1013 miss, asserted on what the step BUILDS rather than on what its text says: the detector allowed one token between FROM and AS, so the cross-build form the arm64 matrix invites declared nothing and the stage's smoke test was silently not built. |
+| `build-worker.yaml: an extra stage with no -test companion builds only itself (#1013)` | The cost of widening a detector, pinned in the opposite direction: inventing a `-test` target the Dockerfile does not declare fails the build outright, which is a worse outcome than the miss it was fixing. |
+| `build-worker.yaml: the extra-stages roster comes from the shared resolver (#1013)` | The structural half, and the one that stops #1013 recurring: two readers of one fact with a comment asserting they agree is what produced the miss. This fails if the file grows a `FROM ... AS` pattern of its own again, which a behavioural case on a correct pattern cannot see. |
+| `build-worker.yaml: an extra stage's name is matched literally, not as a regex (#1013)` | Docker allows `.` in a target name, so a membership test that reads the caller's stage name as a regex finds a DIFFERENT stage: `foo.bar` matches `fooxbar-test` and the step asks buildx for a target nothing declares, failing the build over a companion that was never there. |
+| `build-worker.yaml: the extra-stages step does not pipe its roster into an early-closing reader (#1013)` | The early-close-reader lint cannot reach here -- it scans *.sh under dist/ and script/, and a workflow `run:` block is not a shell file -- so this is the only thing standing between the step and a `grep -q` whose SIGPIPE 141 becomes the pipeline's status under `pipefail`, turning a stage that WAS found into one that reads as absent. |
 | `build-worker.yaml: cache lines select the backend on inputs.cache_backend (#801)` | - |
 | `build-worker.yaml: 4 distinct cache scopes exist, no shared scope leftover (#378 b1)` | - |
 | `build-worker.yaml: 4 build steps all set mode=max on cache-to for both backends (#272 preserved, #801)` | - |
@@ -743,6 +783,9 @@ matching fails instead of reporting a clean scan
 | `build-worker.yaml: path-filter classifier is pure shell (#273 Phase 2: no dorny/paths-filter)` | - |
 | `build-worker.yaml: classifier reads EVENT_NAME / BASE_SHA / HEAD_SHA from env (#273 Phase 2)` | - |
 | `build-worker.yaml: non-pull_request event short-circuits to code_changed=true before git diff (#273 Phase 2)` | - |
+| `build-worker.yaml: a git diff that FAILS fails the classifier, it does not read as doc-only (#1013)` | The load-bearing case of the three. A failed diff used to deliver zero lines through a process substitution the loop's status hides, so the step said doc-only and the REQUIRED docker-build check went green having built nothing. It asserts the step's OWN status, not merely non-zero, so a harness that could not lift a script cannot stand in for the step failing. |
+| `build-worker.yaml: a diff of only allowlisted paths classifies doc-only (#1013)` | The guard against buying safety by classifying everything as code. Without this the failed-diff case is satisfied by a step that never says doc-only at all, and every doc PR pays for a full image build. |
+| `build-worker.yaml: a diff carrying one non-allowlisted path classifies as code (#1013)` | The mixed diff, which is the shape most PRs have. One code path among documentation must carry the whole change into a build; an allowlist evaluated per file rather than per change-set would skip it. |
 | `build-worker.yaml: doc-only allowlist case-glob covers all 6 documented paths (#273)` | - |
 | `build-worker.yaml: compute-matrix and build are gated on code_changed (#273)` | - |
 | `build-worker.yaml: docker-build aggregator short-circuits to success on doc-only (#273)` | - |
@@ -1099,7 +1142,7 @@ between them can be asserted at all.
 | `_run_via_compose: the real ids are in the environment compose interpolates (#895)` | - |
 | `_fix_permissions: refuses a non-numeric id instead of handing it to chown (#895)` | - |
 
-### test/bats/unit/code_lines_spec.bats (42)
+### test/bats/unit/code_lines_spec.bats (46)
 
 The comment-stripped file views in `test/bats/unit/test_helper.bash`
 (`strip_comments` / `only_comments` / `code_lines` / `code_grep` /
@@ -1173,6 +1216,10 @@ still arrive as 1.
 | `yaml_step_id_for: an action input named id does not become the step name (#993)` | `id` is an ordinary action input; read as the step's own key it renames the step to a string no `steps.<id>.outputs` reference resolves. A step's own keys sit at the indent its dash set, a `with:` input deeper |
 | `yaml_step_id_for: a match above the job's first step names no step (#993)` | The job keys above `steps:` are outside the region the helper can attribute, so nothing there is answered with an id |
 | `yaml_step_id_for: a match below the steps list names no step (#993)` | The other end of that region: a job key after the steps list ends attribution, so the id of the last step does not follow the scan out |
+| `yaml_step_run: returns the named step's run: script` | The base case the rest deviate from: the lifted script is the step's own body, so a spec can RUN what the workflow runs instead of asserting against a copy of it that drifts. |
+| `yaml_step_run: names a step by its name: when it has no id:` | A step is only obliged to carry a `name:`. Requiring an `id:` would mean editing the workflow to make it testable, and the step under test would no longer be the step that runs. |
+| `yaml_step_run: a step that carries no run: yields NOTHING, not 'null' (#1013)` | The load-bearing case for every caller's `[ -s ... ]` guard. yq answers a missing key with the literal `null` at status 0, which is a one-line script the guard accepts and bash runs as a command -- so a spec asserting "this step fails" passes on `null: command not found` against a workflow whose step runs no shell at all. |
+| `yaml_step_run: a step name that matches nothing yields nothing (#1013)` | The other end of the same contract -- a step name that resolves to nothing (a rename, a typo) must be empty output, which is what turns a caller's guard into a loud failure instead of a silently empty run. |
 
 ### test/bats/unit/completions_spec.bats (15)
 
@@ -6397,6 +6444,46 @@ login) for the registry backend.
 | `release-worker.yaml: release job gates on preflight (#800)` | - |
 | `release-worker.yaml: preflight runs preflight.sh with the release manifest (#800)` | - |
 | `release-worker.yaml: preflight exports archive_name_prefix into the manifest env var (#800)` | - |
+
+### test/bats/unit/workflow_unchecked_producer_spec.bats (6)
+
+`while ... done < <(cmd)` hands the loop cmd's OUTPUT and never cmd's
+STATUS: a loop's exit status is its own. `set -e` cannot see the failure,
+and `pipefail` does not reach it either -- a process substitution is no
+pipeline. A producer that fails therefore delivers ZERO LINES, and zero
+lines is a plausible answer to nearly every question a CI step asks: no
+paths changed, no stages declared, no artifacts to reclaim. The step then
+does less work than it was asked to and reports success for it.
+
+This is not a hypothetical shape. build-worker.yaml's doc-only classifier
+read `git diff --name-only base...head` exactly this way, so a force-pushed
+base or a shallow clone missing the base commit read as "no code changed"
+and took the REQUIRED docker-build check green having built nothing. Nothing
+in the tree could have caught it: shellcheck never sees a workflow `run:`
+block (it is not a shell FILE), and every behavioural test of such a step
+asserts what it does when the producer WORKED.
+
+The rule: capture the producer's output and check its status, then read the
+loop from the variable. An unreadable answer is not an empty one.
+
+Scope is the `run:` blocks of .github/workflows only. Shell under script/
+and dist/ is a different case -- there strict mode is at file scope, the
+early-close-reader lint already owns the pipeline half of this family, and
+shellcheck reads the file. A workflow step is where none of that reaches.
+
+The population is DERIVED from the directory, so a workflow added tomorrow
+is scanned the day it lands, and the last two cases assert the scan actually
+walked something -- an empty scan passes a "nothing found" assertion for the
+wrong reason.
+
+| Test | Description |
+|------|-------------|
+| `workflow run blocks: a loop fed by a process substitution is reported` | The rule bites, demonstrated over a fixture rather than the live tree -- the only occurrence in this repo was removed by the fix this spec accompanies, so without a fixture the scan would be asserting nothing and could not go red if it stopped matching. |
+| `workflow run blocks: capturing the producer and checking it is clean` | The other half of a usable rule: the prescribed fix has to pass, or the lint tells authors what to stop doing without telling them what to write instead, and the first false positive is on the corrected code. |
+| `workflow run blocks: a comment naming the shape is not the shape` | This repo's own fix explains itself by quoting the construct it replaced, so a scan that cannot tell prose from code would make the explanation unwritable and push authors to delete the reasoning to get the lint green. |
+| `workflow run blocks: a job with no steps is scanned, not an error` | A pure `uses:` caller job contributes no run blocks, and this repo has several. If one aborted the walk the scan would report clean for the rest of the directory, which is the fail-open this whole spec exists to refuse. |
+| `every workflow in this repo reads its producers checked` | The rule applied to the live tree, over a population derived from the directory rather than listed here -- which is what makes a workflow added tomorrow scanned the day it lands instead of the day somebody remembers to add it. |
+| `the scan really walked this repo's workflows, so a clean result means something` | The non-vacuity case, and the one that keeps the live-tree case honest: an empty result satisfies "nothing found" whether the scan read every workflow or none of them, so the population and the run blocks it read are asserted rather than assumed. |
 
 ### test/bats/unit/wrapper_lib_lookup_spec.bats (5)
 
