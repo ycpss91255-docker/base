@@ -58,6 +58,14 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 ## [Unreleased]
 
 ### Changed
+- **`doc/test/TEST.md` and `doc/test/unit.md` record no suite total any more
+  (closes #978)** -- an aggregate over the working tree names nothing it
+  measured, so it is wrong between every commit and its resync, and its five
+  lines were the ones every branch rewrote. Replaying the 64 PRs opened since
+  2026-08-25 against today's `main`, 57 conflict in `doc/test/`, and 52 of
+  those conflict in `TEST.md` on those lines alone. Ask `just test` instead.
+  The per-spec `(N)` headings and the per-test rows STAY: #999 made them
+  generated from the specs' `# why:` markers, so they cost no sync step.
 - **the container ENTRYPOINT is base's orchestrator; `script/entrypoint.sh` is a bringup it sources (closes #945)**
   -- base's plumbing (the helper sources and the final `exec`) sat in a file
   `init.sh` seeds and the repo then OWNS, so no pull ever updated it. It now

@@ -1838,7 +1838,7 @@ See [TEST.md](doc/test/TEST.md) for the test index (per-category catalogs:
 │   ├── readme/                         # README translations (zh-TW / zh-CN / ja)
 │   ├── adr/                            # Architecture Decision Records (00000001 … 00000024)
 │   ├── test/
-│   │   ├── TEST.md                     # Test index (grand total + per-category links)
+│   │   ├── TEST.md                     # Test index (per-category links; no suite total, ADR-00000028)
 │   │   ├── unit.md                     # Unit spec catalog
 │   │   ├── integration.md             # Integration spec catalog
 │   │   ├── system.md                  # System / Regression spec catalog
