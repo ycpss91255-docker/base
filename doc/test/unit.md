@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **4138 tests**.
+Unit specs under `test/bats/unit/`: **4139 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -3300,7 +3300,7 @@ builds nothing and pushes nothing)
 | `the ports-inert diagnostic is translated in all four locales (#879)` | - |
 | `the ports-inert diagnostic differs per locale (no untranslated arms) (#879)` | - |
 
-### test/bats/unit/pin_coverage_lint_spec.bats (67)
+### test/bats/unit/pin_coverage_lint_spec.bats (68)
 
 | Test | Description |
 |------|-------------|
@@ -3340,6 +3340,7 @@ builds nothing and pushes nothing)
 | `_run_pin_coverage: a force-added file inside an IGNORED tree is scanned` | The question the prune guard could not reach: check-ignore says yes for the whole tree while the file inside it is content this repo ships |
 | `_run_pin_coverage: an ignored tree nobody tracked is simply absent` | An ignored tree nobody force-added is the ordinary case the old roster existed for, and it must stay quiet with no roster at all |
 | `_run_pin_coverage: a tracked SYMLINK is a pointer, not content` | This repo tracks eight symlinks into dist/, and reading through one yields a SECOND record for every marker in the target -- the duplicate-name check fires |
+| `_run_pin_coverage: a carried list's symlink is a pointer too` | The blobs-only rule was enforced on the git road only, so one checkout answered two ways depending on which road the environment took |
 | `_run_pin_coverage: DIES when the tracked set cannot be established` | The registry used to be skipped where git was unreadable -- which is the container the local gate runs in, so fail-open was the default there |
 | `_run_pin_coverage: accepts a host-computed tracked list when git is gone` | The container cannot answer and the host always can, so the population is computed where git works and carried in rather than skipped |
 | `_run_pin_coverage: FAILS on a carried list naming an undeclared version` | The carried list has to be able to FAIL, or computing it on the host is just a longer way to pass |

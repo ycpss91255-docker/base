@@ -395,6 +395,11 @@ _pin_is_exempt_shape() {
 # reason -- it is another repository's content, tracked here as a commit
 # id.
 #
+# The rule is held on BOTH roads into this function, not only on the one
+# that can read modes: the carried list is filtered against the tree
+# instead. A rule enforced on one road is a verdict that depends on which
+# road the environment took.
+#
 # ── Where the answer comes from, and why it is never absent ─────────────
 #
 # The check needs git, and the suite's own container bind-mounts the
@@ -432,7 +437,19 @@ _pin_tracked() {
   elif [[ "${PIN_TRACKED_ROOT:-}" == "${_root}" \
        && -n "${PIN_TRACKED_FILES:-}" ]]; then
     while IFS= read -r _path; do
-      [[ -n "${_path}" ]] && _found+=("${_path}")
+      # The blobs-only rule again, asked of the TREE because a carried
+      # list has no index modes to read. Without this the rule would hold
+      # on one of the two roads into this function, and the same checkout
+      # would answer differently depending on which one an environment
+      # took -- a verdict that depends on how you got here is the defect
+      # the derived population exists to end, not a detail of the
+      # handoff. The failure it produces is not subtle: a symlink to a
+      # file that declares a pin yields a second record for that pin
+      # under a second name, and the lint's duplicate-NAME check fails on
+      # the repo's own declarations.
+      if [[ -n "${_path}" && ! -L "${_root}/${_path}" ]]; then
+        _found+=("${_path}")
+      fi
     done <<< "${PIN_TRACKED_FILES}"
   else
     printf 'pin registry: cannot tell what %s tracks -- it is not a readable git repository and no host-computed list arrived for it in PIN_TRACKED_FILES. The tracked set IS the scan population, so an unanswered one is not a detail to skip. Run the lint on the host, or set PIN_TRACKED_ROOT=%s and PIN_TRACKED_FILES the way script/test/test.sh does for the compose run.\n' \

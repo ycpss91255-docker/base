@@ -633,6 +633,27 @@ _one_good_pin() {
   assert_output --partial 'no undeclared version'
 }
 
+# why: The blobs-only rule was enforced on the git road only, so one checkout
+# answered two ways depending on which road the environment took
+@test "_run_pin_coverage: a carried list's symlink is a pointer too" {
+  # The index modes are what tell a symlink from a blob, and a carried
+  # list has none -- so this half of the population has to ask the tree.
+  # Without that, `git ls-files` piped in by hand (which is what the
+  # refusal message above asks a reader to supply) reads through the
+  # repo's eight wrapper symlinks, and the duplicate-NAME check fails on
+  # declarations that are fine.
+  _one_good_pin
+  ln -s dist/dockerfile/Dockerfile "${SCRATCH}/Dockerfile.link"
+  git -C "${SCRATCH}" add -A
+  local _files
+  _files="$(git -C "${SCRATCH}" ls-files)"
+  rm -rf "${SCRATCH:?}/.git"
+  PIN_TRACKED_ROOT="${SCRATCH}" PIN_TRACKED_FILES="${_files}" \
+    run _run_pin_coverage
+  assert_success
+  assert_output --partial 'no undeclared version'
+}
+
 # why: The registry used to be skipped where git was unreadable -- which is the
 # container the local gate runs in, so fail-open was the default there
 @test "_run_pin_coverage: DIES when the tracked set cannot be established" {
