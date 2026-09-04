@@ -213,6 +213,38 @@ _aggregate_figure_hits() {
   assert_output ''
 }
 
+# _grand_total_mentions -- `<doc>:<line>: <text>` for every authored line
+# under doc/test/ that sends the reader to the suite grand total. Every
+# catalogue introduces itself by its relation to that figure ("part of it",
+# "not part of it"), so removing the figure leaves five documents pointing
+# at something the index no longer records.
+_grand_total_mentions() {
+  local _doc _base
+  for _doc in /source/doc/test/*.md; do
+    _base="$(basename -- "${_doc}")"
+    _authored_lines "${_doc}" \
+      | grep -E 'grand total' \
+      | sed -e "s|^|${_base}:|" || true
+  done
+  return 0
+}
+
+# why: The figure and the POINTERS to it are one shape, and a branch that
+# removes the first without the second leaves the documentation worse than
+# it found it: a live cross-reference to a number nobody can find reads as
+# the reader's failure to look. The premise is asserted rather than
+# assumed, from the tree: this case only forbids the pointers because
+# TEST.md itself records no total, so restoring the figure lifts the rule
+# instead of leaving a rule nobody can satisfy.
+@test "doc/test: no catalogue points at a grand total TEST.md no longer records (#978)" {
+  run _aggregate_figure_hits /source/doc/test/TEST.md
+  assert_success
+  assert_output ''
+  run _grand_total_mentions
+  assert_success
+  assert_output ''
+}
+
 # why: Removing the lines is only half of it. The generator's TEST.md pass
 # was the mechanism that made them maintainable, and every one of its rewrites
 # is a `sed` that silently does nothing when its pattern is absent -- so left
