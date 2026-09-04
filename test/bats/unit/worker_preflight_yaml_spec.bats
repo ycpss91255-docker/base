@@ -98,6 +98,97 @@ setup() {
   assert_success
 }
 
+# ── the manifest a worker guards itself with ──────────────────────────
+
+# _worker_manifest_pairs
+#   Every `<worker-file>|<manifest-file>` pair the TREE declares: each
+#   reusable worker, and the preflight manifest its own `run:` lines name.
+#   Both halves are derived -- the worker list from `on: workflow_call`, the
+#   manifest from the path the worker actually passes to preflight.sh -- so a
+#   worker added tomorrow, or a manifest renamed, is read here rather than
+#   remembered.
+_worker_manifest_pairs() {
+    local _wf _m _one _status
+    while IFS= read -r _wf; do
+        [[ -n "${_wf}" ]] || continue
+        case "${_wf}" in BUG:*) printf '%s\n' "${_wf}" ; continue ;; esac
+        _status=0
+        _m="$(yaml_run_blocks "${_wf}" \
+            | grep -oE 'preflight/[A-Za-z0-9_.-]+\.manifest' \
+            | sort -u)" || _status=$?
+        case "${_status}" in
+            0) ;;
+            1) continue ;;
+            *) printf 'BUG: grep exited %s reading %s\n' "${_status}" "${_wf}"
+               continue ;;
+        esac
+        while IFS= read -r _one; do
+            [[ -n "${_one}" ]] || continue
+            printf '%s|/source/script/ci/%s\n' "${_wf}" "${_one}"
+        done <<< "${_m}"
+    done < <(reusable_workflow_files)
+}
+
+# _unsatisfiable_manifest_permissions
+#   One line per permission requirement a manifest declares that NO job of
+#   the worker consuming it can ever hold. A `permission|<scope>|...` line is
+#   a promise to the caller that granting <scope> makes the worker work; a
+#   called job gets exactly the block it declares and a caller's grant never
+#   widens it, so the promise is only true when some job of that worker
+#   declares the scope at `write`.
+_unsatisfiable_manifest_permissions() {
+    local _pair _wf _mf _scope _surface _status
+    while IFS= read -r _pair; do
+        [[ -n "${_pair}" ]] || continue
+        case "${_pair}" in BUG:*) printf '%s\n' "${_pair}" ; continue ;; esac
+        _wf="${_pair%%|*}"
+        _mf="${_pair#*|}"
+        [[ -f "${_mf}" ]] || {
+            printf 'BUG: %s names %s, which is not a file\n' "${_wf}" "${_mf}"
+            continue
+        }
+        _status=0
+        _surface="$(yaml_permission_surface "${_wf}")" || _status=$?
+        if [[ "${_status}" -ne 0 ]]; then
+            printf '%s\n' "${_surface}"
+            continue
+        fi
+        while IFS='|' read -r _kind _scope _rest; do
+            [[ "${_kind}" == "permission" ]] || continue
+            _status=0
+            printf '%s\n' "${_surface}" \
+                | grep -E ": ${_scope}:[[:space:]]*write\$" >/dev/null \
+                || _status=$?
+            case "${_status}" in
+                0) ;;
+                1) printf '%s requires %s: write, but no job of %s declares it\n' \
+                       "${_mf}" "${_scope}" "${_wf}" ;;
+                *) printf 'BUG: grep exited %s scanning the surface of %s\n' \
+                       "${_status}" "${_wf}" ;;
+            esac
+        done < <(grep -v '^#' "${_mf}")
+    done < <(_worker_manifest_pairs)
+}
+
+# why: A preflight requirement the worker itself makes unsatisfiable is
+# worse than no preflight: it fails every caller that follows its
+# instructions, and the instructions cannot be followed. `cache_backend:
+# registry` shipped in exactly that state for two releases (#980) -- the
+# manifest told the caller to grant `packages: write`, and every job of the
+# worker declared a block without it, so the probe could not come back 202
+# whatever the caller did. Derived on both sides: the worker roster from `on:
+# workflow_call`, the manifest from the path the worker passes to
+# preflight.sh, the grant from the parsed permission surface.
+@test "reusable workers: no preflight manifest demands a permission its worker cannot hold (#980)" {
+  local _pairs
+  _pairs="$(_worker_manifest_pairs | awk 'END { print NR }')"
+  [[ "${_pairs}" -ge 2 ]] || fail \
+      "expected at least the build + release worker/manifest pairs, derived ${_pairs} -- the scan below would have read an empty pairing as a clean one"
+  run _unsatisfiable_manifest_permissions
+  assert_success
+  assert_output ''
+}
+
 # ── release-worker.yaml ───────────────────────────────────────────────
 
 @test "release-worker.yaml: declares a preflight job (#800)" {
