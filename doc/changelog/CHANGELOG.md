@@ -58,6 +58,25 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 ## [Unreleased]
 
 ### Changed
+- **`config/<component>/` has a written layout, and a build says which preset it bakes (closes #826, closes #827; ADR-00000030)** -- a repo picks the baked preset with a committed repo-root symlink into `config/<component>/`, read through a build `ARG` whose default is that symlink's name, so `--build-arg` overrides one build with no tracked change. `just setup` names every selector and the preset it resolves to, and WARNs about one whose file is missing -- which used to surface as a `docker build` dying on a `COPY`. The seeded `config/.gitkeep` states the convention (new repos only).
+- **three of base's widest signatures narrow to what they actually take
+  (refs #994)** -- `_write_setup_conf` no longer takes the section array it
+  never read; `_resolve_stage_list` derives its `<prefix>inherit` meta-key
+  instead of taking it, which all six call sites spelled out identically;
+  and the TUI list editor's six message keys move out of eight positional
+  parameters into one `_TUI_LIST_LABELS` table keyed by section and prefix,
+  where a missing row now fails loudly instead of drawing a screen with no
+  words on it. Internal functions only -- no wrapper, recipe or
+  `.setup.conf` surface moves, and behaviour is unchanged.
+- **the three implementation-standard metric lints judge by an adoption
+  ceiling (refs #994)** -- `just test metrics` still prints every function
+  past depth 3 / 50 body code lines / 5 positional parameters, and now fails
+  only ABOVE a per-metric ceiling: one readonly integer in
+  `script/test/drivers/shell_metrics.sh` recording how much of the tree #994
+  phase 3 has not flattened yet, which may only ever go down. Every run
+  prints count / limit / ceiling / slack, so the room a new violation could
+  land in green is a figure on the log rather than an invisible category.
+  Not the per-site baseline ADR-00000029 rejected: it names no function.
 - **a test's description is written above the `@test`, and `doc/test/` is
   generated from it (closes #922, amends ADR-00000028)** -- write
   `# why: <prose>` above a test; `just test sync-docs` renders the catalogue
@@ -235,6 +254,16 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 - **the changelog lint now catches an entry that was edited and not re-wrapped (refs #927)** -- a single word left alone on a continuation line with more of its paragraph on the next line. The length measure collapses whitespace on purpose and markdown collapses it again at render time, so nothing else could see it. A short final line, a table row, a fenced line and an HTML comment are left alone. Affects anyone writing an `[Unreleased]` entry.
 
 ### Fixed
+- **`just` owns the lifecycle of what `just` creates (closes #1015, #997)** --
+  `just test stop` ends this checkout's self-test project. `just docker stop`
+  and `just docker exec` work in a self-managed checkout: `.env.generated` is
+  optional, and every compose call carries the tooling tag its compose.yaml
+  interpolates for `down` as much as for `build`. A checkout that SHOULD carry
+  that file and does not is refused, not ended under a name derived from its
+  directory. A run whose predecessor holds the project network waits
+  (`BASE_PROJECT_WAIT`, default 2m), saying why. `just test smoke`'s
+  per-checkout image is reclaimed like the network, and every docker-reaching
+  recipe states its lifecycle.
 - **the errexit-bang lint's three named misses (closes #990, #991, #992)** --
   a CRLF `*.bats` is REFUSED by name (a `\r` disarmed the line continuation,
   so a spliced `; true` went unreported); a `!` ending an `if` / `while` /

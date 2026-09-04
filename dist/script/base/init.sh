@@ -147,7 +147,20 @@ _create_symlinks() {
 # _populate_config
 #
 # On first init (no <repo>/config), create an empty placeholder
-# directory at `<repo>/config/` with a `.gitkeep`. The Dockerfile's
+# directory at `<repo>/config/` with a `.gitkeep`.
+#
+# The `.gitkeep` is the only thing base ever tells a repo author about
+# `config/`, and that directory feeds TWO channels, not one: the
+# build-time template overlay described below, and the structured
+# app-config channel (`config/<component>/`, bind-mounted at
+# `/opt/app/config/<component>` in development and baked at the same path
+# for deploy -- PRD invariant 8's two opposite means). So the placeholder
+# states both, plus the `config/<component>/` shape convention and the
+# preset selector (ADR-00000030); nothing about an empty directory would
+# suggest any of it, and a convention nobody is told is one every repo
+# re-invents. It reaches NEW repos only -- an existing `config/` is
+# preserved untouched by the guard below, deliberately, because that
+# directory is the user's. The Dockerfile's
 # layered COPY chain (template#254) reads `.base/dist/config/` first
 # as the default layer and `<repo>/config/` second as the override
 # overlay; an empty <repo>/config/ means "no overrides, take all
@@ -193,14 +206,43 @@ _populate_config() {
   # (Docker COPY of <repo>/config/ requires the path to exist).
   mkdir -p config
   cat > config/.gitkeep <<'EOF'
-# Placeholder so this directory exists in git. The Dockerfile's
-# layered COPY (template#254) reads .base/dist/config/ first then
-# overlays <repo>/config/ on top. Drop files under <repo>/config/
-# only when you want to override a specific template default
-# (e.g. <repo>/config/shell/bashrc to override template's bashrc,
-# or <repo>/config/shell/bashrc.d/your-snippet.sh to add a drop-in).
-# Files NOT placed here keep flowing through from .base/dist/config/
-# on every build.
+# Placeholder so this directory exists in git. This directory is read
+# TWICE, at two moments, and what you put where decides which.
+#
+# 1. Template overrides, at BUILD time. The Dockerfile's layered COPY
+#    reads .base/dist/config/ first, then overlays <repo>/config/ on top,
+#    into /tmp/config -- which is deleted in the same RUN. Drop a file
+#    here only to override a specific template default
+#    (e.g. <repo>/config/shell/bashrc to override the template's bashrc,
+#    or <repo>/config/shell/bashrc.d/your-snippet.sh to add a drop-in).
+#    Files NOT placed here keep flowing through from .base/dist/config/
+#    on every build.
+#
+# 2. YOUR APP'S OWN CONFIG, in a directory of its own: config/<component>/
+#    (config/realsense/, config/ros1_bridge/). Every such directory is
+#    bind-mounted at /opt/app/config/<component> in development -- edit on
+#    the host, restart, no rebuild -- and COPY-baked at the same path into
+#    a deployable image, which is how one config survives both. A regular
+#    file sitting directly under config/ gets NEITHER; `just setup` warns
+#    about it by name.
+#
+#    Inside config/<component>/, group by kind only once a kind has more
+#    than one file. Name a copy-me template <name>.example.<ext>, keeping
+#    the real extension last. Do NOT add an audience level
+#    (official/custom/internal/): which files a field operator may retune
+#    is declared in config/<component>/deploy.manifest, one section per
+#    deployable stage, and a directory that says it too can only disagree.
+#    A file kept only to be diffed against upstream is a test fixture, not
+#    config -- keep it out of config/, or it is mounted and baked for
+#    nothing.
+#
+#    When a component ships several curated presets and the repo bakes one
+#    of them, say WHICH with a committed repo-root symlink into
+#    config/<component>/ -- e.g. camera.yaml -> config/realsense/yaml/none.yaml
+#    -- and COPY it through a build ARG whose default is that symlink's
+#    name, so `--build-arg` overrides one build without touching the tree.
+#    `just setup` names every selector and the preset it currently points
+#    at.
 EOF
   _log "  Created empty config/ placeholder (.base/dist/config/ is the default layer; <repo>/config/ overlays per-file)"
 }

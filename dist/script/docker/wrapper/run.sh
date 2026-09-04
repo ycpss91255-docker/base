@@ -489,8 +489,9 @@ main() {
   # .env. Reads RUN_SETUP / SETUP_FORWARD_ARGS / FILE_PATH / _LANG.
   _wrapper_setup_sync run
 
-  # Load .env, derive PROJECT_NAME.
-  _load_env "${FILE_PATH}/.env.generated"
+  # Load .env, derive PROJECT_NAME. The env file is optional for the same
+  # reason it is in stop.sh: base self-use has no interpolation cache.
+  _load_env_optional "${FILE_PATH}/.env.generated"
   _compute_project_name
 
   # Pre-run snapshot so the user can see which files + values this

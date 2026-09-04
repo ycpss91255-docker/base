@@ -886,9 +886,9 @@ _setup_remove() {
   local _tmp
   _tmp="$(mktemp "${_conf}.XXXXXX")"
   cp "${_conf}" "${_tmp}"
-  local -a _empty_s=() _empty_k=() _empty_v=()
+  local -a _empty_k=() _empty_v=()
   _write_setup_conf "${_conf}" "${_tmp}" \
-    _empty_s _empty_k _empty_v "${_section}.${_target_key}"
+    _empty_k _empty_v "${_section}.${_target_key}"
   rm -f "${_tmp}"
 
   if [[ "${_quiet}" -eq 0 ]]; then

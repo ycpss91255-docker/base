@@ -92,6 +92,36 @@ Three consequences of stating it that way rather than as a limit:
    muted gate is a gate that has been removed with the maintenance cost
    left in.
 
+   **Amendment (#994, 2026-09-03): a clean tree is what the gate needed
+   to land GREEN, and an adoption ceiling supplies that without one.**
+   The reason above is intact and it is the reason: a gate must not be
+   red on the day it lands. What phase 3 found is that "the tree is
+   clean" was one way to get there and not the property being asked for.
+   Each lint now judges by a per-metric CEILING -- the count of functions
+   still past the threshold, one readonly integer in
+   `script/test/drivers/shell_metrics.sh`, which may only ever go down --
+   so a RUN of the lint is green on arrival, fails the moment a change
+   adds a violation, and tightens as each slice lands. The thresholds
+   themselves do not move; that is the distinction the next section
+   turns on.
+
+   **This amendment records a precondition falling away, not
+   enforcement arriving.** The three lints are still absent from
+   `script/test/test.sh`'s `_LINT_TOOLS`, from `just test` and from
+   every workflow under `.github/`, so a new function written at depth 5
+   still lands green in the gate exactly as it did before phase 3. What
+   the original wording got wrong was the ORDERING: it made the whole
+   108-function flattening a prerequisite of any enforcement at all, and
+   that flattening is measured in months of slices. That prerequisite is
+   gone -- a lint with a ceiling can be wired into a gate on the tree as
+   it stands. The blocker that remains is structural and belongs to
+   phase 4: `_LINT_TOOLS` runs INSIDE the ci container while this lint's
+   population comes from the git index, and a `git worktree` checkout's
+   `.git` is a file naming a path outside the bind mount, so joining the
+   lint phase means giving it a host-direct leg rather than adding three
+   strings to a table. Until that lands the entry points are
+   `just test metrics` and `test.sh --<metric>-only`, run by hand.
+
 ## Consequences
 
 - The three metric lints (nesting, length, parameters) are written before
@@ -135,6 +165,38 @@ recorded here", and that file is a permanent, tracked, growing record of
 what we decided not to do. It converts a quality bar into an inventory of
 debt with an accountant attached. The tree is made clean instead, and the
 gate lands on a clean tree.
+
+> **Amendment (#994, 2026-09-03): the single-integer CEILING phase 3
+> adopted is not this alternative, and here is the test that separates
+> them.** Every reason above is a property of a per-SITE roster, and
+> each fails to attach to one number. It has to be regenerated when a
+> file moves -- a count does not know what a file is. It drifts silently
+> against the tree -- a count is recomputed from the tree on every run.
+> Nothing in it distinguishes "fixed" from "no longer matches" -- a
+> count has no entries to be stale about. It says "the standard holds
+> except in these 108 places" -- a count names no place, so it can
+> excuse no particular function; what it says is "the standard holds,
+> and 108 functions have not been brought to it yet", which is a true
+> statement about a migration rather than a permanent exemption. P2 is
+> the sharpest of these and it comes out the same way: the population is
+> still derived from the git index every run, and the only hand-kept
+> figure is how far the migration has got.
+>
+> The concession, stated because an amendment that only argues its own
+> side is worth nothing: a ceiling has SLACK. Flatten one function
+> without lowering the number and a new violation can land green in the
+> room that opens. A per-site baseline would have caught that. What
+> bounds it is that the slack is printed on every run, clean or not, and
+> that lowering the number is a one-line change any reviewer can ask
+> for; what makes it acceptable is that the alternative on offer was not
+> a per-site baseline but no enforcement for the length of the
+> migration.
+>
+> The instrument is not new here. `drivers/catalog_description.sh` (#999)
+> carries the same one-number transition ceiling for the same reason,
+> with the same argument and the same disclosed cost -- so this is base
+> applying a mechanism it had already settled, not inventing an
+> exception for its own metrics.
 
 **Gate new and changed code only, with no baseline file** -- compute the
 violation set against the merge base and fail only on additions. Rejected

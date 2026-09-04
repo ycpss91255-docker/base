@@ -221,8 +221,11 @@ main() {
   done
   export DRY_RUN
 
-  # Load .env.generated so DOCKER_HUB_USER / IMAGE_NAME are available below.
-  _load_env "${FILE_PATH}/.env.generated"
+  # Load .env.generated so DOCKER_HUB_USER / IMAGE_NAME are available
+  # below. OPTIONAL: a self-managed checkout (base itself) has no such
+  # cache and never will, and the verb that ENDS a flow must not be the
+  # one verb in it that refuses to run there.
+  _load_env_optional "${FILE_PATH}/.env.generated"
 
   # pre-stop hook fires after env load, before docker stop.
   # Skipped under --dry-run.

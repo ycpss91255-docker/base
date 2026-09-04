@@ -345,8 +345,8 @@ EOF
     source /source/dist/script/docker/lib/conf.sh
     _log_err() { printf 'ERR: %s\n' \"\${*:3}\" >&2; }
     mktemp() { return 1; }
-    declare -a _sections=() _keys=() _values=()
-    _write_setup_conf '${_dst}' '${_tpl}' _sections _keys _values
+    declare -a _keys=() _values=()
+    _write_setup_conf '${_dst}' '${_tpl}' _keys _values
   "
   assert_failure
   assert_output --partial "cannot create temp file"
@@ -422,8 +422,8 @@ EOF
     source /source/dist/script/docker/lib/conf.sh
     _log_err() { printf 'ERR: %s\n' \"\${*:3}\" >&2; }
     mv() { return 1; }
-    declare -a _sections=() _keys=() _values=()
-    _write_setup_conf '${_dst}' '${_tpl}' _sections _keys _values
+    declare -a _keys=() _values=()
+    _write_setup_conf '${_dst}' '${_tpl}' _keys _values
   "
   assert_failure
   assert_output --partial "could not replace"
