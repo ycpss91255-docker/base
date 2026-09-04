@@ -30,6 +30,15 @@
 #   - Exactly one file carries `## [Unreleased]`. Two is two places to write
 #     the next entry and two places a merge can keep; zero means the entry
 #     lint has nothing to measure and every future entry goes unchecked.
+#   - The index is an INDEX: it names the series and links to them, and
+#     carries no release section of its own. This is the one the split's own
+#     branch broke three times. Every rule above walks the SERIES files, so
+#     a section sitting in CHANGELOG.md is invisible to all of them; and a
+#     merge with main re-adds the whole release history to the index as an
+#     ADDITION, because git sees main's edits to a file this branch emptied
+#     as lines to add back. Nothing renders differently, the entry lint
+#     measures the series file it reaches first, and the gate goes green
+#     over 108 duplicated sections -- which it did, twice.
 #
 # THE INDEX IS DERIVED, NOT CURATED. That is the answer to "what keeps the
 # roster honest", and it is why this lint is not itself a second list to
@@ -218,7 +227,44 @@ _run_changelog_layout() {
     done
   done
 
-  # Pass 2: exactly one live series. Zero is the state in which every future
+  # Pass 2: the index is an index. Pass 1 walks the SERIES files only, so a
+  # release section that lands in CHANGELOG.md is outside every rule it
+  # applies -- it is not misplaced, not duplicated and not dangling, because
+  # none of those rules ever looked at the file. That is how this branch
+  # went green over 108 duplicated sections twice: a merge with main re-adds
+  # the release history to the index wholesale, and the only rule that
+  # noticed anything was the entry lint objecting to the second
+  # `## [Unreleased]` -- the smallest visible corner of it.
+  #
+  # The rule is the whole property, not that corner: the index carries NO
+  # `## [` section, released or live. A released section here is a second
+  # copy of one in vX.Y.md, and the copy is the one that goes stale, because
+  # the generator only ever rewrites the block between the markers. A live
+  # `## [Unreleased]` here is a second place to write the next entry.
+  local -a _index_sections=()
+  local _index_first=''
+  while IFS=$'\t' read -r _kind _lineno _tag; do
+    [[ "${_kind}" == 'H' ]] || continue
+    [[ -z "${_index_first}" ]] && _index_first="${_lineno}"
+    _index_sections+=("${_tag}")
+  done < <(_cll_scan "${_index}")
+  if [[ "${#_index_sections[@]}" -gt 0 ]]; then
+    # Named, not just counted -- the same reason pass 1 prints both line
+    # numbers. A bare count leaves the reader to find them by eye, and with
+    # 109 of them the list is the fix's work order. Capped at five so one
+    # stray section is not buried under a hundred lines of the same finding.
+    local _named="${_index_sections[*]:0:5}"
+    if [[ "${#_index_sections[@]}" -gt 5 ]]; then
+      _named+=" (+$(( ${#_index_sections[@]} - 5 )) more)"
+    fi
+    printf '%s/%s:%s: the index carries %d release section(s) -- %s. The index NAMES the series and links to them; a section itself belongs in %s/vX.Y.md, and a copy here is the one that goes stale\n' \
+      "${_CHANGELOG_LAYOUT_DIR}" "${_CHANGELOG_LAYOUT_INDEX}" \
+      "${_index_first}" "${#_index_sections[@]}" "${_named}" \
+      "${_CHANGELOG_LAYOUT_DIR}"
+    _violations=$(( _violations + 1 ))
+  fi
+
+  # Pass 3: exactly one live series. Zero is the state in which every future
   # entry goes unmeasured; two is two places a merge can keep.
   local _unreleased_count=0
   # shellcheck disable=SC2086  # the accumulator is a space-separated list.
@@ -231,7 +277,7 @@ _run_changelog_layout() {
     _violations=$(( _violations + 1 ))
   fi
 
-  # Pass 3: index drift. The generator is the definition of the block; the
+  # Pass 4: index drift. The generator is the definition of the block; the
   # committed text is a copy, and a copy is a thing that can be wrong.
   local _rendered _committed
   if ! _rendered="$(bash "${_generator}" "${_dir}" 2>&1)"; then
@@ -251,11 +297,11 @@ _run_changelog_layout() {
 
   if [[ "${_violations}" -gt 0 ]]; then
     _die ci_changelog_layout \
-      "${_violations} misplaced section / dangling compare link / index drift / live-series problem under '${_CHANGELOG_LAYOUT_DIR}'. The changelog is one file per 0.Y series behind an index: a section for vX.Y.Z lives in vX.Y.md, its compare-link definition lives in the SAME file (markdown link definitions are file-scoped), exactly one series file carries '${_CHANGELOG_LAYOUT_UNRELEASED}', and the index block between the changelog-index markers is DERIVED -- refresh it with 'just release changelog-index' rather than editing it, because an index nothing re-derives goes stale on the first series nobody remembers to add and a missing row reads exactly like a series that does not exist."
+      "${_violations} misplaced section / dangling compare link / index drift / live-series problem under '${_CHANGELOG_LAYOUT_DIR}'. The changelog is one file per 0.Y series behind an index: a section for vX.Y.Z lives in vX.Y.md, its compare-link definition lives in the SAME file (markdown link definitions are file-scoped), exactly one series file carries '${_CHANGELOG_LAYOUT_UNRELEASED}', '${_CHANGELOG_LAYOUT_INDEX}' carries no section at all because it NAMES the series rather than holding them, and the index block between the changelog-index markers is DERIVED -- refresh it with 'just release changelog-index' rather than editing it, because an index nothing re-derives goes stale on the first series nobody remembers to add and a missing row reads exactly like a series that does not exist."
     return 1
   fi
 
-  echo "changelog layout lint: clean (${#_series[@]} series, ${_sections} version sections each in the file its version names, ${_links} compare links resolved in-file, index re-derived and identical)"
+  echo "changelog layout lint: clean (${#_series[@]} series, ${_sections} version sections each in the file its version names, ${_links} compare links resolved in-file, ${_CHANGELOG_LAYOUT_INDEX} carries none of them, index re-derived and identical)"
 }
 
 # _cll_committed_block <index-file> -- the text between the changelog-index

@@ -107,15 +107,62 @@ _reindex() {
     >> "${CL}/CHANGELOG.md"
 }
 
-# why: The negative control for the eleven refusals below, all of which a lint
-# that refused everything would also satisfy. The '2 series' assertion is
-# what stops it passing over a tree it never walked.
+# why: The negative control for the thirteen refusals below, all of which a
+# lint that refused everything would also satisfy. The '2 series' assertion
+# is what stops it passing over a tree it never walked.
 @test "changelog layout: a split whose index matches its series files is clean" {
   _clean_tree
   run _run_changelog_layout
   [ "${status}" -eq 0 ]
   # Non-vacuity: the clean line says what it actually walked.
   assert_output --partial '2 series'
+  # And that it walked the INDEX too, not only the series files.
+  assert_output --partial 'CHANGELOG.md carries none of them'
+}
+
+# why: The regression this rule exists for, and the one every OTHER rule here
+# is blind to: a merge with main re-adds the release history to the index
+# wholesale, because git reads main's edits to a file the split emptied as
+# lines to add back. Every rule above walks the series files only, so the
+# copy is not misplaced, not duplicated and not dangling -- it is simply
+# never looked at. It went green over 108 re-added sections twice.
+@test "changelog layout: a released section left in the index is named" {
+  _clean_tree
+  # The index, correct in every derived respect, with a release section
+  # re-added below the generated block -- exactly what the merge leaves.
+  # The section is a COPY: v0.1.md still has the original, so the
+  # placement, duplicate and compare-link rules all still hold over the
+  # series files, and this rule is the only one that can fire.
+  {
+    printf '\n## [v0.1.0] - 2026-04-01\n\n### Added\n- the first thing (#1, PR #2)\n'
+  } >> "${CL}/CHANGELOG.md"
+
+  run _run_changelog_layout
+  [ "${status}" -ne 0 ]
+  # The rule's own sentence, and the tag it found -- not a bare count.
+  assert_output --partial 'the index carries 1 release section(s) -- v0.1.0'
+  # And it is the ONLY rule that fired.
+  assert_output --partial '1 misplaced section'
+}
+
+# why: The live half of the same rule, and the only corner of the disease the
+# gate ever saw: `## [Unreleased]` in the index. The entry lint objects to
+# it because it globs `*.md`, so a fix aimed at the symptom deletes this
+# block alone and leaves the released sections sitting in the index --
+# which is what happened, twice. This rule refuses both halves at once.
+@test "changelog layout: a live [Unreleased] in the index is named" {
+  _clean_tree
+  {
+    printf '\n## [Unreleased]\n\n### Fixed\n- written into the index (#6, PR #7)\n'
+  } >> "${CL}/CHANGELOG.md"
+
+  run _run_changelog_layout
+  [ "${status}" -ne 0 ]
+  assert_output --partial 'the index carries 1 release section(s) -- Unreleased'
+  # The live-series rule counts SERIES files, so it still sees exactly one
+  # and stays quiet: without this pass, an [Unreleased] in the index is
+  # invisible to the layout lint entirely.
+  assert_output --partial '1 misplaced section'
 }
 
 # why: A vX.Y.Z section renders identically wherever it sits, so nothing but a

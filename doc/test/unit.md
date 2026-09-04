@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **4004 tests**.
+Unit specs under `test/bats/unit/`: **4006 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -980,11 +980,13 @@ Pure git + filesystem, no docker.
 | `changelog_index.sh --write: the index keeps its own file mode (#926)` | The rewrite goes through mktemp, which creates 0600. Git does not track the bit, so the documented refresh would leave the changelog owner-only-readable in a state no gate reports and no later reader can explain. |
 | `changelog_index.sh --write: an index with no markers is REFUSED, not appended to (#926)` | Non-vacuity for the three cases above, which all assert on what lands BETWEEN the markers: a --write that silently wrote nowhere when it could not find them would satisfy each of them and be caught by nothing else here. |
 
-### test/bats/unit/changelog_layout_lint_spec.bats (12)
+### test/bats/unit/changelog_layout_lint_spec.bats (14)
 
 | Test | Description |
 |------|-------------|
-| `changelog layout: a split whose index matches its series files is clean` | The negative control for the eleven refusals below, all of which a lint that refused everything would also satisfy. The '2 series' assertion is what stops it passing over a tree it never walked. |
+| `changelog layout: a split whose index matches its series files is clean` | The negative control for the thirteen refusals below, all of which a lint that refused everything would also satisfy. The '2 series' assertion is what stops it passing over a tree it never walked. |
+| `changelog layout: a released section left in the index is named` | The regression this rule exists for, and the one every OTHER rule here is blind to: a merge with main re-adds the release history to the index wholesale, because git reads main's edits to a file the split emptied as lines to add back. Every rule above walks the series files only, so the copy is not misplaced, not duplicated and not dangling -- it is simply never looked at. It went green over 108 re-added sections twice. |
+| `changelog layout: a live [Unreleased] in the index is named` | The live half of the same rule, and the only corner of the disease the gate ever saw: `## [Unreleased]` in the index. The entry lint objects to it because it globs `*.md`, so a fix aimed at the symptom deletes this block alone and leaves the released sections sitting in the index -- which is what happened, twice. This rule refuses both halves at once. |
 | `changelog layout: a section in the wrong series file is named` | A vX.Y.Z section renders identically wherever it sits, so nothing but a lint notices it in the wrong file. The fixture MOVES rather than copies the section precisely so the duplicate-section rule cannot satisfy this assertion with the placement rule deleted. |
 | `changelog layout: a version section that appears TWICE is named` | What `merge=union` leaves behind: union keeps both sides and conflicts on nothing, so two branches promoting the same section land it twice with nothing to review. Both copies sit in the file the version names, so this is the only rule that can catch it. |
 | `changelog layout: a section heading that is not a version is named` | A heading belonging to no series has no file the placement rule could say it belongs in, so it would be filed wherever it was found and pass. Without this rule the layout check is silent on exactly the headings the roster does not govern. |
