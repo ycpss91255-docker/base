@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **4139 tests**.
+Unit specs under `test/bats/unit/`: **4158 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1678,6 +1678,54 @@ the file's lines to the denominator.
 | `coverage_gate: emits a GitHub step summary table when GITHUB_STEP_SUMMARY is set` | GitHub visibility (no SaaS) |
 | `coverage_gate --merge-timings: merges per-shard timings keeping max seconds per basename (#733)` | - |
 | `coverage_gate --merge-timings: no input files yields an empty weights file (#733)` | - |
+
+### test/bats/unit/coverage_local_spec.bats (19)
+
+ADR-00000008 shards kcov ACROSS a CI matrix, which is the only parallelism a
+GitHub-hosted plan offers: one runner, one concurrent job. On a single fat
+machine that matrix buys nothing, so the full-scope coverage run the release
+badge requires falls back to the serial path -- tens of minutes pinning one
+core while the other thirty-one idle. kcov's bash engine parses one xtrace
+stream per traced process and is single-threaded, and `kcov` wrapping `bats
+--jobs` is unreliable for coverage ACCURACY, so the ONLY parallelism
+available is N independent kcov PROCESSES over disjoint slices, merged.
+
+What this spec pins is everything about that mode a merge could quietly lie
+about. The partition is the SHARED `_shard_unit_files` primitive (base#724)
+rather than a second partitioner, so the slices are the same exhaustive +
+disjoint set the CI matrix runs. A slice that produced no report at all must
+FAIL the run rather than merge to a smaller total that reads as a coverage
+regression -- "cannot tell" resolves to refusing. And the run covers the
+WHOLE suite, so it must stamp `scope=full`: a parallel run that stamped
+`partial` would be refused by `just release coverage-badge`, which is the
+entire point of building it.
+
+The mode is NOT wired into the PR gate. Production `self-test.yaml` stays on
+the GitHub-hosted matrix (one self-hosted runner is a SPOF and a contention
+point); the local mode's CI exposure is an opt-in `workflow_dispatch`
+workflow, whose shape the last section pins.
+
+| Test | Description |
+|------|-------------|
+| `main: --jobs without --coverage-local is refused` | `--jobs` alone reads as "run the suite with N parallel jobs", which is what bare `just test` already does. Accepting it there would make a typo for `--coverage-local --jobs N` a silent no-op run of the wrong mode. |
+| `main: --coverage-local with --coverage-shard is refused` | the load-bearing conflict. `--coverage-shard` narrows the run to ONE slice, `--coverage-local` runs every slice; a run that took both would write a partition's reports while the operator believed they had the whole suite -- exactly the certificate defect ADR-00000008's #952 amendment closed. |
+| `main: --coverage-local with --coverage-path is refused` | `--coverage-path` reports NO figure at all and writes nothing into coverage/, so pairing it with a mode whose whole output is a merged report is two answers to one question. |
+| `main: --coverage-local rejects a non-numeric --jobs` | a job count that is not a positive integer would reach `_shard_unit_files` as a malformed total, whose message names a shard spec the operator never typed. Refuse it where it was typed. |
+| `main: --coverage-local rejects --jobs 0` | zero jobs is the boundary the partitioner cannot answer -- a partition of the suite into no slices covers nothing, and a run that covered nothing must not be reported as one that covered everything. |
+| `main: --coverage-local dispatches to the coverage service with the job count pinned` | the dispatch is what makes the mode real, and the two selectors it CLEARS matter as much as the one it sets: `_run_via_compose` forwards COVERAGE_SHARD / COVERAGE_PATH from the AMBIENT environment, so this suite's own specs -- which run inside a coverage shard -- would otherwise hand a whole-suite mode a partition value. |
+| `main: --coverage-local --jobs N overrides the nproc default` | the default is `nproc` and the flag has to beat it, or `--jobs` would be decoration on a machine whose core count the operator is deliberately not using (a shared workstation, a cgroup-limited shell). |
+| `main --ci: COVERAGE_PATH out-ranks COVERAGE_LOCAL_JOBS` | the branch order is the contract. COVERAGE_PATH is read FIRST because it is the one kcov mode that writes nothing into coverage/; letting a stale COVERAGE_LOCAL_JOBS out-rank it would turn a one-spec instrumentation loop into a whole-suite run against the checkout. |
+| `main --ci: COVERAGE_LOCAL_JOBS routes to the parallel runner, not the serial one` | without this the flag is inert -- the container would fall through to the serial `_run_coverage`, and the mode would be a rename of the run it was built to replace. |
+| `_run_coverage_parallel: launches one kcov per slice over an exhaustive, disjoint partition` | the whole claim of the mode. N kcov PROCESSES, each over one slice of the SHARED partition -- so the union of the slices is the suite and no spec is instrumented twice. A second partitioner would be a second roster; a partition that dropped a spec would report a coverage regression nobody caused. |
+| `_run_coverage_parallel: merges every slice's report into the repo coverage tree` | the merge is what turns N partial reports into the project figure, and it must name EVERY slice. A merge over a subset is the silent-loss case: it produces a valid report carrying a smaller line set, which reads as a regression rather than as the bug it is. |
+| `_run_coverage_parallel: a slice that produced no report fails the run instead of merging` | "cannot tell" resolves to refusing. A kcov that dies after its tests pass leaves an EMPTY output directory and a zero status, and merging the survivors would publish a smaller line set under a whole-suite certificate. The refusal is what makes a lost slice distinguishable from a coverage drop. |
+| `_run_coverage_parallel: the merged run manifest names every spec, so the scope stamps full` | the release path is the reason this mode exists. `just release coverage-badge` publishes only `scope=full`, and the scope is DERIVED from coverage/timings.tsv -- so a parallel run whose manifest named the last slice's specs alone would be refused exactly like a shard, and the serial run it replaces would still be on the critical path. |
+| `_run_coverage_parallel: a failing slice fails the run` | a red spec must stay red. The slices run concurrently, so a failing one is a status that has to survive `wait` and the merge -- swallowing it would make the fastest coverage mode the one that cannot fail. |
+| `_run_coverage_parallel: rejects a job count that is not a positive integer` | the runner is reachable from the container's environment as well as from the flag (`COVERAGE_LOCAL_JOBS` is forwarded), so the validation cannot live only in the host-side parser -- an inherited junk value would otherwise reach `_shard_unit_files` as a malformed total. |
+| `coverage-local workflow: is manually triggered only` | the scope limit, asserted rather than promised. A trigger other than `workflow_dispatch` would put a single shared workstation on the path of an automatic run -- which is the SPOF this mode was scoped away from. |
+| `coverage-local workflow: runs on the self-hosted GPU runner behind the fork guard` | the runner is the point -- an in-job parallel mode measured on a hosted two-core runner would prove nothing about the fat machine it was written for. And a job that can land on the org's self-hosted runner is arbitrary code execution on a shared workstation unless it carries the fork guard, which is what `self-hosted-guard` enforces for every job in this tree. |
+| `coverage-local workflow: drives test.sh --coverage-local` | the workflow has to drive the MODE, through the same entry an operator uses. A validation job that called `--coverage` would be a second, slower way of running what CI already runs and would never exercise the merge this issue is about. |
+| `self-test.yaml: the PR gate is unchanged -- no self-hosted runner, no local mode` | production must be untouched. The acceptance criterion is explicit that the PR gate keeps the hosted matrix, and the cheapest way for that to rot is a job quietly added to self-test.yaml on the way past. |
 
 ### test/bats/unit/deploy_hint_spec.bats (6)
 
