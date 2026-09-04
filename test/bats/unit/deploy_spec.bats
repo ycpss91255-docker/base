@@ -672,6 +672,104 @@ DOCK
 }
 
 # ════════════════════════════════════════════════════════════════════
+# _collect_preset_selectors / the selector half of _report_config_components
+# -- how a repo says WHICH of its curated presets is the one it bakes
+# (ADR-00000030).
+#
+# The population is derived, never listed: a selector is a repo-root
+# SYMLINK whose link text names a path under config/. That is what
+# separates it from base's own root symlinks (justfile, .hadolint.yaml ->
+# .base/...), and it needs no filename convention to do it. The collector
+# reports what the tree claims; deciding whether the claim resolves is the
+# reporter's job, because a dangling selector is a docker build that dies
+# on COPY with a message naming neither the symlink nor the preset.
+# ════════════════════════════════════════════════════════════════════
+
+# why: selector derivation
+@test "_collect_preset_selectors: a root symlink into config/ is a selector, other root symlinks are not (#826)" {
+  local _d; _d="$(mktemp -d)"
+  mkdir -p "${_d}/config/realsense/yaml" "${_d}/.base/script/docker"
+  : > "${_d}/config/realsense/yaml/none.yaml"
+  : > "${_d}/.base/script/docker/justfile"
+  ln -s config/realsense/yaml/none.yaml "${_d}/camera.yaml"
+  ln -s .base/script/docker/justfile "${_d}/justfile"
+  : > "${_d}/README.md"
+  local -a _names=() _targets=()
+  _collect_preset_selectors "${_d}" _names _targets
+  [[ "${_names[*]}" == "camera.yaml" ]]
+  [[ "${_targets[*]}" == "config/realsense/yaml/none.yaml" ]]
+  rm -rf "${_d}"
+}
+
+# why: dangling is collected, not hidden
+@test "_collect_preset_selectors: collects a selector whose target does not exist (#826)" {
+  local _d; _d="$(mktemp -d)"
+  mkdir -p "${_d}/config/realsense/yaml"
+  ln -s config/realsense/yaml/gone.yaml "${_d}/camera.yaml"
+  local -a _names=() _targets=()
+  _collect_preset_selectors "${_d}" _names _targets
+  [[ "${_names[*]}" == "camera.yaml" ]]
+  rm -rf "${_d}"
+}
+
+# why: link-text normalisation
+@test "_collect_preset_selectors: a ./-prefixed link text is the same selector (#826)" {
+  local _d; _d="$(mktemp -d)"
+  mkdir -p "${_d}/config/jetson"
+  : > "${_d}/config/jetson/agx-orin-emmc.yaml"
+  ln -s ./config/jetson/agx-orin-emmc.yaml "${_d}/jetson.yaml"
+  local -a _names=() _targets=()
+  _collect_preset_selectors "${_d}" _names _targets
+  [[ "${_targets[*]}" == "config/jetson/agx-orin-emmc.yaml" ]]
+  rm -rf "${_d}"
+}
+
+# why: empty population
+@test "_collect_preset_selectors: a repo with no selector yields nothing (#826)" {
+  local _d; _d="$(mktemp -d)"
+  mkdir -p "${_d}/config/ros1_bridge"
+  : > "${_d}/config/ros1_bridge/demo_bridge.yaml"
+  local -a _names=(stale) _targets=(stale)
+  _collect_preset_selectors "${_d}" _names _targets
+  (( ${#_names[@]} == 0 ))
+  (( ${#_targets[@]} == 0 ))
+  rm -rf "${_d}"
+}
+
+# why: which preset is live
+@test "_report_config_components: states which preset each selector currently selects (#826)" {
+  local _d; _d="$(mktemp -d)"
+  mkdir -p "${_d}/config/realsense/yaml"
+  : > "${_d}/config/realsense/yaml/none.yaml"
+  ln -s config/realsense/yaml/none.yaml "${_d}/camera.yaml"
+  LOG_FORMAT=json run _report_config_components "${_d}" realsense
+  assert_output --partial '"body":"config_preset_selected"'
+  assert_output --partial 'camera.yaml -> config/realsense/yaml/none.yaml'
+  rm -rf "${_d}"
+}
+
+# why: dangling selector named
+@test "_report_config_components: WARNs a selector whose preset is missing (#826)" {
+  local _d; _d="$(mktemp -d)"
+  mkdir -p "${_d}/config/realsense/yaml"
+  ln -s config/realsense/yaml/gone.yaml "${_d}/camera.yaml"
+  LOG_FORMAT=json run _report_config_components "${_d}" realsense
+  assert_output --partial '"body":"config_preset_dangling"'
+  assert_output --partial 'camera.yaml'
+  rm -rf "${_d}"
+}
+
+# why: silence when there is no selector
+@test "_report_config_components: says nothing about presets when the repo has no selector (#826)" {
+  local _d; _d="$(mktemp -d)"
+  mkdir -p "${_d}/config/realsense"
+  LOG_FORMAT=json run _report_config_components "${_d}" realsense
+  refute_output --partial 'config_preset_selected'
+  refute_output --partial 'config_preset_dangling'
+  rm -rf "${_d}"
+}
+
+# ════════════════════════════════════════════════════════════════════
 # _generate_deploy_bundle -- the folder orchestrator. Docker / xz /
 # cp steps run through _dry_run_cmd, so DRY_RUN=true asserts the plan
 # without a real daemon.
