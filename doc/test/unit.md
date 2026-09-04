@@ -2064,7 +2064,7 @@ subshells and assert both the host file content and the inherited stdout
 ### test/bats/unit/entrypoint_spec.bats (10)
 
 base's container ENTRYPOINT orchestrator, the base-owned half of the
-two-file entrypoint model (ADR-00000030). It ships from `.base/dist/`, lands
+two-file entrypoint model (ADR-00000032). It ships from `.base/dist/`, lands
 at `/usr/local/lib/base/entrypoint.sh`, and SOURCES the repo-owned bringup
 at `/entrypoint.sh` rather than executing it.
 
@@ -5074,7 +5074,7 @@ smoke specs via `load "${BATS_TEST_DIRNAME}/test_helper"`).
 | `run_wrapper_xhost: fails when the wrapper path does not exist` | - |
 | `run_wrapper_xhost: fails when the wrapper's lib/ cannot be located` | - |
 | `run_wrapper_xhost: errors when the wrapper path arg is missing` | - |
-| `entrypoint_is_single_file: true for a file that execs the workload` | The pre-ADR-00000030 model, which is what the guard exists for. A false answer here makes the shared baseline assert the orchestrator on a repo that never installed one, turning its next `just upgrade` into a red build over a model it did not adopt |
+| `entrypoint_is_single_file: true for a file that execs the workload` | The pre-ADR-00000032 model, which is what the guard exists for. A false answer here makes the shared baseline assert the orchestrator on a repo that never installed one, turning its next `just upgrade` into a red build over a model it did not adopt |
 | `entrypoint_is_single_file: false for a bringup that only sets env` | The other direction, and the one that keeps the guard non-vacuous: a probe that answered true for everything would skip the orchestrator assertion everywhere and report green over an unchecked suite |
 | `entrypoint_is_single_file: a commented exec is not an exec` | The seeded bringup template TALKS about the exec it must not have, and a repo that migrated by commenting the line out has migrated. A substring match on `exec` reads both as the old model and would skip the assertion on every correctly migrated repo -- the same code-versus-comment distinction dockerfile_migrate.sh's notice makes |
 | `entrypoint_is_single_file: false when the path does not exist` | An image with no bringup at all is not on the old model, so the orchestrator assertion must still run there. Answering true on a missing path would silently exempt exactly the image most likely to be missing the orchestrator too |
@@ -5553,7 +5553,7 @@ Unit tests for the repo-local command-group scaffolder
 | `Dockerfile.example commented runtime stage shows the helper-dir COPY example (#971)` | - |
 | `runtime/logging.sh header documents in-image source-line (no $USER, no work/.base) (#368)` | - |
 | `the seeded bringup template carries no base plumbing and no exec (#945)` | init.sh seeds this file once and the repo owns it from then on -- no subtree pull ever rewrites it. So anything of base's left in it is frozen in every consumer for good, which is the defect the two-file model exists to remove. Asserted over code lines only, because the header deliberately NAMES the helpers and the exec to say they are not its job |
-| `Dockerfile.example makes base's orchestrator the container ENTRYPOINT (#945)` | The wiring line of the two-file model (ADR-00000030): ENTRYPOINT names base's orchestrator, the repo's bringup is COPY'd to /entrypoint.sh but never named as ENTRYPOINT. Pointing ENTRYPOINT at the repo's own file is what froze base's plumbing in every consumer, so the retired shape is asserted absent rather than merely not asserted |
+| `Dockerfile.example makes base's orchestrator the container ENTRYPOINT (#945)` | The wiring line of the two-file model (ADR-00000032): ENTRYPOINT names base's orchestrator, the repo's bringup is COPY'd to /entrypoint.sh but never named as ENTRYPOINT. Pointing ENTRYPOINT at the repo's own file is what froze base's plumbing in every consumer, so the retired shape is asserted absent rather than merely not asserted |
 | `Dockerfile.example commented runtime stage runs the orchestrator too (#945)` | The runtime stage starts from a fresh BASE_IMAGE and inherits nothing from devel, so the commented scaffold is what a repo uncommenting it adopts. A scaffold still naming /entrypoint.sh teaches the retired one-file model, which is why the old line is asserted absent and not just the new one present |
 | `no inline _detect_lang fallbacks remain after dedupe (issue #104)` | - |
 | `setup.sh does not redefine _detect_lang` | No duplication |

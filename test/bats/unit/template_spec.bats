@@ -1219,7 +1219,7 @@ _stage_lint_layout() {
   assert_failure
 }
 
-# why: The wiring line of the two-file model (ADR-00000030): ENTRYPOINT
+# why: The wiring line of the two-file model (ADR-00000032): ENTRYPOINT
 # names base's orchestrator, the repo's bringup is COPY'd to
 # /entrypoint.sh but never named as ENTRYPOINT. Pointing ENTRYPOINT at the
 # repo's own file is what froze base's plumbing in every consumer, so the

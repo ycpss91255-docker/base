@@ -510,7 +510,7 @@ _job_comments() {
   # The `.Path` check is only a runnability assertion while the literal it
   # compares against is the literal the template's ENTRYPOINT names. Both
   # halves are read here rather than one of them remembered: base owns the
-  # entry point (ADR-00000030), so moving it has to fail in the local gate
+  # entry point (ADR-00000032), so moving it has to fail in the local gate
   # instead of on the acceptance matrix, which `just test` cannot see.
   local _wired
   _wired="$(sed -nE 's/^ENTRYPOINT \["([^"]+)".*/\1/p' \

@@ -1274,7 +1274,7 @@ jobs:
           # (Dockerfile ENTRYPOINT
           # ["/usr/local/lib/base/entrypoint.sh"]), which SOURCES the
           # repo-owned bringup at /entrypoint.sh before it execs the
-          # workload (ADR-00000030). `.Path` therefore names the
+          # workload (ADR-00000032). `.Path` therefore names the
           # base-owned half; the bringup is not an entry point and never
           # appears here.
           path="$(docker inspect -f '{{.Path}}' "${cname}")"

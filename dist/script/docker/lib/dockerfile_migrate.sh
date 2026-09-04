@@ -740,7 +740,7 @@ _migrate_arg_user_apply() {
 #       ENTRYPOINT;
 #     - the Dockerfile names base's orchestrator as the ENTRYPOINT, and the
 #       orchestrator SOURCES this file under its own `set -euo pipefail`
-#       (ADR-00000030). A repo that migrated to that model carrying the
+#       (ADR-00000032). A repo that migrated to that model carrying the
 #       bringup init.sh seeded BEFORE it -- which has no `set` line at all
 #       -- runs its ROS source under nounset for the first time, with
 #       nothing in the file saying so.

@@ -26,7 +26,7 @@
 # named after the helper's former _entrypoint_logging.sh spelling.)
 #
 # why: base's container ENTRYPOINT orchestrator, the base-owned half of the
-# two-file entrypoint model (ADR-00000030). It ships from `.base/dist/`,
+# two-file entrypoint model (ADR-00000032). It ships from `.base/dist/`,
 # lands at `/usr/local/lib/base/entrypoint.sh`, and SOURCES the repo-owned
 # bringup at `/entrypoint.sh` rather than executing it.
 #

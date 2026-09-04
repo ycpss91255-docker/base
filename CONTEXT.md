@@ -358,7 +358,7 @@ _Avoid_: compose generator (that is the whole `generate_compose_yaml`).
 runtime helper directory, installed at `/usr/local/lib/base/entrypoint.sh`
 and named as the image's `ENTRYPOINT`. Opens the log tee, sources the
 **container bringup**, arms the watchdog, execs the workload (#945,
-ADR-00000030).
+ADR-00000032).
 _Avoid_: the entrypoint (ambiguous with the repo's file), entrypoint
 wrapper.
 

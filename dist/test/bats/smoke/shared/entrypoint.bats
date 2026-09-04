@@ -7,7 +7,7 @@
 # just the universal surface: both halves of the installed entrypoint +
 # bash on PATH.
 #
-# Both halves, because the entry point is two files (ADR-00000030): the
+# Both halves, because the entry point is two files (ADR-00000032): the
 # base-owned orchestrator at /usr/local/lib/base/entrypoint.sh is what the
 # Dockerfile names as ENTRYPOINT, and it SOURCES the repo-owned bringup at
 # /entrypoint.sh. Asserting only the bringup left the file the image
@@ -24,7 +24,7 @@
 # COPYs preserves whatever comment state it found -- so a repo running the
 # optional runtime-test bats smoke without it would get this spec before
 # it gets the file. An unconditional assertion there is a red build on a
-# repo that has adopted nothing, which is exactly what ADR-00000030 and
+# repo that has adopted nothing, which is exactly what ADR-00000032 and
 # the CHANGELOG promise cannot happen. The guard is narrow: it fires only
 # for a /entrypoint.sh that still execs, i.e. one that is itself the
 # container's entry point. A repo whose bringup no longer execs has
@@ -37,11 +37,11 @@
 #
 # why: The cross-stage baseline that runs inside every `-test` stage
 # (devel-test and runtime-test). Asserts only the universal surface — both
-# halves of the installed entry point (ADR-00000030) and bash on PATH — so
+# halves of the installed entry point (ADR-00000032) and bash on PATH — so
 # it never touches `/lint` (populated only in devel-test).
 #
 # The orchestrator half skips (rather than fails) on an image whose
-# `/entrypoint.sh` still execs, i.e. one running the pre-ADR-00000030
+# `/entrypoint.sh` still execs, i.e. one running the pre-ADR-00000032
 # single-file model. This file reaches a consumer through `.base/dist/`,
 # which `just upgrade` refreshes, while the Dockerfile that installs the
 # orchestrator is the consumer's own — and on the optional runtime stage
@@ -58,7 +58,7 @@ setup() {
 BRINGUP="/entrypoint.sh"
 ORCHESTRATOR="/usr/local/lib/base/entrypoint.sh"
 
-# why: The half the container actually starts (ADR-00000030). Without this
+# why: The half the container actually starts (ADR-00000032). Without this
 # the runtime-directory COPY that installs the orchestrator is pinned by
 # nothing, so dropping it gives a green build and a container that will not
 # start. Guarded, not unconditional: an image whose bringup still execs is
@@ -66,7 +66,7 @@ ORCHESTRATOR="/usr/local/lib/base/entrypoint.sh"
 # break the promise that this release leaves an existing repo unchanged.
 @test "the base entrypoint orchestrator is installed and executable" {
   if entrypoint_is_single_file "${BRINGUP}"; then
-    skip "image predates ADR-00000030: ${BRINGUP} still execs, so it is the ENTRYPOINT (migrate: README, Container entrypoint)"
+    skip "image predates ADR-00000032: ${BRINGUP} still execs, so it is the ENTRYPOINT (migrate: README, Container entrypoint)"
   fi
   assert_file_exists "${ORCHESTRATOR}"
   assert [ -x "${ORCHESTRATOR}" ]

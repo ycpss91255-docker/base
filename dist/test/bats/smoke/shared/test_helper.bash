@@ -123,7 +123,7 @@ assert_pip_pkg() {
 
 # ── Entry-point model probe ─────────────────────────────────────────────────
 
-# True when <path> is a PRE-ADR-00000030 single-file entry point -- one that
+# True when <path> is a PRE-ADR-00000032 single-file entry point -- one that
 # execs the workload itself, and is therefore the container's ENTRYPOINT
 # rather than a bringup base's orchestrator sources.
 #

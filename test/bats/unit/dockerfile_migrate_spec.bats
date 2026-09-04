@@ -1636,7 +1636,7 @@ EOF
 }
 
 # The nounset the ROS source runs under is not always written in the file
-# that runs it. base's orchestrator (ADR-00000030) SOURCES the bringup under
+# that runs it. base's orchestrator (ADR-00000032) SOURCES the bringup under
 # its own `set -euo pipefail`, so a repo that flipped its ENTRYPOINT while
 # carrying the bringup init.sh seeded BEFORE that release -- which has no
 # `set` line at all -- runs its ROS source under nounset for the first time

@@ -262,7 +262,7 @@ _HARNESS_EXEMPT_SRCS=(
 # red here and green nowhere
 @test "the harness installs the orchestrator the shared smoke baseline asserts (#945)" {
   # The sibling of the /entrypoint.sh COPY above, for the OTHER half of the
-  # two-file entrypoint model (ADR-00000030). In a consumer the base-owned
+  # two-file entrypoint model (ADR-00000032). In a consumer the base-owned
   # orchestrator arrives with the devel stage's
   # `COPY --chmod=0755 .base/dist/script/docker/runtime/ /usr/local/lib/base/`,
   # which lands outside /lint and /smoke_test and so is invisible to the

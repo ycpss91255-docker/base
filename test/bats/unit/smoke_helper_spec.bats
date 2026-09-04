@@ -292,12 +292,12 @@ _WRAPPER_UNDER_TEST=/source/dist/script/docker/wrapper/run.sh
 #
 # The probe the shared smoke baseline uses to tell the two entry-point
 # models apart from INSIDE an image, where the Dockerfile's ENTRYPOINT line
-# is not readable. A pre-ADR-00000030 repo runs its own /entrypoint.sh and
+# is not readable. A pre-ADR-00000032 repo runs its own /entrypoint.sh and
 # never installs the orchestrator; asserting the orchestrator unconditionally
 # turns that repo's next `just upgrade` into a red build over a model it
 # never adopted.
 
-# why: The pre-ADR-00000030 model, which is what the guard exists for. A
+# why: The pre-ADR-00000032 model, which is what the guard exists for. A
 # false answer here makes the shared baseline assert the orchestrator on a
 # repo that never installed one, turning its next `just upgrade` into a red
 # build over a model it did not adopt

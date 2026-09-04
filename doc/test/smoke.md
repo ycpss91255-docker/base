@@ -199,11 +199,11 @@ independence (pre-pass scans for `--lang` before main parse so `<script>
 
 The cross-stage baseline that runs inside every `-test` stage (devel-test
 and runtime-test). Asserts only the universal surface — both halves of the
-installed entry point (ADR-00000030) and bash on PATH — so it never touches
+installed entry point (ADR-00000032) and bash on PATH — so it never touches
 `/lint` (populated only in devel-test).
 
 The orchestrator half skips (rather than fails) on an image whose
-`/entrypoint.sh` still execs, i.e. one running the pre-ADR-00000030
+`/entrypoint.sh` still execs, i.e. one running the pre-ADR-00000032
 single-file model. This file reaches a consumer through `.base/dist/`, which
 `just upgrade` refreshes, while the Dockerfile that installs the
 orchestrator is the consumer's own — and on the optional runtime stage that
@@ -215,7 +215,7 @@ container that will not start, so it fails.
 
 | Test | Description |
 |------|-------------|
-| `the base entrypoint orchestrator is installed and executable` | The half the container actually starts (ADR-00000030). Without this the runtime-directory COPY that installs the orchestrator is pinned by nothing, so dropping it gives a green build and a container that will not start. Guarded, not unconditional: an image whose bringup still execs is its own ENTRYPOINT and has adopted nothing, and failing it there would break the promise that this release leaves an existing repo unchanged. |
+| `the base entrypoint orchestrator is installed and executable` | The half the container actually starts (ADR-00000032). Without this the runtime-directory COPY that installs the orchestrator is pinned by nothing, so dropping it gives a green build and a container that will not start. Guarded, not unconditional: an image whose bringup still execs is its own ENTRYPOINT and has adopted nothing, and failing it there would break the promise that this release leaves an existing repo unchanged. |
 | `entrypoint.sh is installed and executable` | Entrypoint present -- the repo-owned bringup half, which every image carries whichever entry-point model it is on. |
 | `bash is available on PATH` | Core shell present |
 
