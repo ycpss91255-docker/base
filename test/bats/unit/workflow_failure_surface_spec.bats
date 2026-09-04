@@ -306,16 +306,15 @@ _workflows_cancelling_unconditionally() {
   assert_output ''
 }
 
-# _worker_step_jobs_without_a_timeout
-#   One `<worker>: <job>` per job of a reusable worker that runs steps of
-#   its own and bounds none of them. A job that only `uses:` another
-#   workflow is excluded: GitHub refuses `timeout-minutes` there, and the
-#   bound belongs to the called workflow's own jobs.
-_worker_step_jobs_without_a_timeout() {
+# _step_jobs_without_a_timeout
+#   One `<workflow>: <job>` per job in the tree that runs steps of its own
+#   and bounds none of them. A job that only `uses:` another workflow is
+#   excluded: GitHub refuses `timeout-minutes` there, and the bound belongs
+#   to the called workflow's own jobs.
+_step_jobs_without_a_timeout() {
     local _f _status
     while IFS= read -r _f; do
         [[ -n "${_f}" ]] || continue
-        case "${_f}" in BUG:*) printf '%s\n' "${_f}" ; continue ;; esac
         _status=0
         _yaml_eval "${_f}" '
             .jobs | to_entries | .[]
@@ -325,20 +324,25 @@ _worker_step_jobs_without_a_timeout() {
             | sed "s|^|${_f}: |" || _status=$?
         [[ "${_status}" -eq 0 ]] \
             || printf 'BUG: could not read the jobs of %s\n' "${_f}"
-    done < <(reusable_workflow_files "${WF_DIR}")
+    done < <(workflow_files "${WF_DIR}")
 }
 
-# why: A worker runs on the CALLER's runner budget, and a hung buildx
-# burns GitHub's six-hour default per shard before anyone sees it. The
-# bound is per job rather than per workflow because that is the only place
-# GitHub accepts one, and it is asserted over the derived worker roster so
-# the fifth worker cannot land unbounded.
-@test "reusable workers: every job that runs steps bounds them (#1014)" {
+# why: A hung buildx burns GitHub's six-hour default before anyone sees
+# it. The population is every workflow file, not the reusable workers
+# alone: the workers were bounded first because a worker spends the
+# CALLER's minutes, but the jobs that actually run a build here are
+# self-test's eight-shard coverage matrix and its two-arch `acceptance`
+# matrix, both self-hosted-eligible and both unbounded -- so the hazard the
+# rule names lived entirely outside the set the rule scanned. The bound is
+# per job rather than per workflow because that is the only place GitHub
+# accepts one, and the roster is derived from the directory so the ninth
+# workflow cannot land unbounded.
+@test "workflows: every job that runs steps bounds them (#1014)" {
   local _n
-  _n="$(reusable_workflow_files "${WF_DIR}" | awk 'END { print NR }')"
-  [[ "${_n}" -ge 4 ]] || fail \
-      "expected the tree's reusable workers, derived ${_n} -- the scan below would have read an empty set as a clean one"
-  run _worker_step_jobs_without_a_timeout
+  _n="$(workflow_files "${WF_DIR}" | awk 'END { print NR }')"
+  [[ "${_n}" -ge 8 ]] || fail \
+      "expected the tree's workflows, derived ${_n} -- the scan below would have read an empty set as a clean one"
+  run _step_jobs_without_a_timeout
   assert_success
   assert_output ''
 }
