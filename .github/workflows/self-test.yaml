@@ -150,11 +150,18 @@ jobs:
             # commit, an unreadable parent), the answer is `true`: a
             # needless rebuild costs minutes, and the alternative is the
             # incident above.
-            testtools=false
+            #
+            # So `true` is the DEFAULT and the clean diff is what lowers
+            # it, rather than the other way round. Written the other way
+            # round, every event the classifier cannot answer -- today
+            # `workflow_dispatch`, tomorrow whatever trigger is added --
+            # falls to the side that uses an image nothing checked, which
+            # is the side this whole paragraph exists to refuse.
+            testtools=true
             if [[ "${EVENT_NAME}" == "push" ]]; then
-              if ! git diff --quiet HEAD^ HEAD \
-                     -- 'dockerfile/Dockerfile.test-tools'; then
-                testtools=true
+              if git diff --quiet HEAD^ HEAD \
+                   -- 'dockerfile/Dockerfile.test-tools'; then
+                testtools=false
               fi
             fi
             {

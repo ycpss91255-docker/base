@@ -324,10 +324,10 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   `:main`; `acceptance`, the job whose scaffolded lint stage IS that image,
   pulled and exited 0. It is one script now
   (`script/ci/obtain_test_tools.sh`, ADR-00000033), and a workflow naming
-  the rolling tag by hand fails the suite. The probe's roster of five became
-  the final stage's own `apk add` plus what it puts on PATH, so `yq` -- and
-  `grep` / `coreutils`, which shadow busybox applets silently -- are
-  asserted. A push that changes the Dockerfile rebuilds instead of pulling.
+  the rolling tag by hand fails the suite. The roster is now the final
+  stage's own `apk add` plus what it puts on PATH, so `yq`, `grep` and
+  `coreutils` are asserted. A push that changes the Dockerfile, and any run
+  that cannot diff its own ref, rebuilds instead of pulling.
 - **the system job now runs for the files its own specs are about (closes
   #1011)** -- `system_relevant` was a hand-kept list that named the wrapper
   `setup.sh` and not `setup_tui.sh`, base's entrypoint and not the shipped
