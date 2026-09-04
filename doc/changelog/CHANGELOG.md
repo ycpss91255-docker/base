@@ -3085,7 +3085,6 @@ GUI-using env repo before promoting to v0.10.0.
 - Dockerfile `CONFIG_SRC` path: `docker_setup_helper/src/config` → `template/config`
 - Shared smoke tests loaded via `COPY template/smoke_test/` in Dockerfile (not symlinks)
 
-[Unreleased]: https://github.com/ycpss91255-docker/base/compare/v0.42.0...HEAD
 [v0.42.0]: https://github.com/ycpss91255-docker/base/compare/v0.42.0-rc4...v0.42.0
 [v0.42.0-rc4]: https://github.com/ycpss91255-docker/base/compare/v0.42.0-rc3...v0.42.0-rc4
 [v0.42.0-rc3]: https://github.com/ycpss91255-docker/base/compare/v0.42.0-rc2...v0.42.0-rc3
