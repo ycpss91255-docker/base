@@ -694,7 +694,7 @@ _coverage_parallel_slices() {
     _slice="$(_shard_unit_files "${_i}/${_jobs}")" || _srun_rc=$?
     if (( _srun_rc != 0 )) || [[ -z "${_slice}" ]]; then
       _die ci_coverage_parallel_empty_slice \
-        "coverage slice ${_i} of ${_jobs} matched no spec files. ${_jobs} is more slices than the suite has specs; run with fewer --jobs."
+        "coverage slice ${_i} of ${_jobs} matched no spec files. ${_jobs} is more coverage slices -- independent kcov processes -- than the suite has spec files; re-run with fewer slices (just test coverage-local <N>)."
     fi
     _cps_out+=("${_slice}")
   done

@@ -755,11 +755,11 @@ _run_coverage_parallel 010"
   # By the refusal that names the INPUT. `010` also happens to trip the
   # empty-slice refusal on a five-spec pool -- 8 slices asked of a 10-bin
   # partition leave bins 6..10 empty -- and a run that dies there has been
-  # told to use fewer jobs, which is the wrong repair for a number that
+  # told to use fewer slices, which is the wrong repair for a number that
   # was read twice. On a pool of ten or more it would not die at all.
   assert_output --partial "ci_invalid_coverage_jobs"
   refute_output --partial "matched no spec files"
-  refute_output --partial "fewer --jobs"
+  refute_output --partial "fewer slices"
 }
 
 # why: the second refusal, and the one an operator reaches by accident --
@@ -781,7 +781,7 @@ _run_coverage_parallel 010"
 _run_coverage_parallel 9"
   assert_failure
   assert_output --partial "matched no spec files"
-  assert_output --partial "fewer --jobs"
+  assert_output --partial "fewer slices"
 
   # And nothing was launched: no kcov ran, so there is no partial report
   # set for a later merge to find.
