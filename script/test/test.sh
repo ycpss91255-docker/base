@@ -156,11 +156,12 @@ source "${SCRIPT_DIR}/drivers/shell_metrics.sh"
 # through _run_lint_tool / _run_all_lint_tools below now.
 #
 # It is also the CI-coverage manifest: self_test_yaml_spec asserts that
-# every entry here is named by a job in .github/workflows/self-test.yaml
-# (a host-direct `--<tool>-only` primitive, the in-container hadolint job,
-# or a `lint-static` matrix entry). Add a lint to this table without
-# giving it a CI job and that guard fails -- which is what stops the next
-# lint from landing local-only, the way these four did.
+# every entry here is RUN by a job in .github/workflows/self-test.yaml --
+# a dedicated one (a host-direct `--<tool>-only` primitive, or the
+# in-container hadolint job), or else exactly one group of the lint-static
+# partition, which is computed from this very table. Add a lint here
+# without giving it a CI job and that guard fails -- which is what stops
+# the next lint from landing local-only, the way these four did.
 readonly _LINT_TOOLS=(
   shellcheck
   hadolint
@@ -222,6 +223,113 @@ readonly _LINT_TOOLS=(
 # on ubuntu-latest. hadolint's binary exists only in the alpine
 # test-tools image, so its CI job runs the driver inside that image
 # (`--lint --hadolint`) instead of host-direct.
+
+# ── The lint-static CI partition ─────────────────────────────────────────────
+
+# The lints of the table that carry a CI job of their OWN, and so are not
+# part of the grouped lint-static jobs. Not a schedule and not a
+# preference: each is here because something about it needs a job to
+# itself -- shellcheck is the phase's own longest driver and ci-rollup
+# reads its result by name, hadolint's binary exists only inside the
+# test-tools image, and doc-counts is likewise read by name.
+#
+# THE OMISSION IS THE SAFE DIRECTION, which is why the roster this file no
+# longer keeps is not simply moved here. A lint added to _LINT_TOOLS and
+# not added here lands in a group and runs -- the default is covered. A
+# lint given its own job and not added here runs TWICE, which wastes a
+# runner and is visible. Neither direction can make a lint stop running,
+# and self_test_yaml_spec refuses a name here that no dedicated job runs.
+readonly _LINT_TOOLS_OWN_CI_JOB=(
+  shellcheck
+  hadolint
+  doc-counts
+)
+
+# _lint_group_members <index>/<total> -- print the lints of one group.
+#
+# WHY A COMPUTED PARTITION AND NOT A GROUP LIST. The alternative is a
+# table saying which driver belongs to which group. That table is a
+# roster: it is correct on the day it is written and wrong on the day the
+# next driver is added, and nothing notices, because a driver named in no
+# group simply stops running in CI while every check stays green. This
+# repo has decayed that way three times already (the _LINT_TOOLS
+# completeness gap, the downstream roster, the release archive's path
+# list). So the grouping falls out of _LINT_TOOLS, and adding a driver to
+# that table is the whole of adding it to CI -- no workflow edit, no
+# second list to keep true.
+#
+# THE PARTITION IS ROUND-ROBIN OVER TABLE POSITION, and deliberately
+# blind to what a driver costs. A cost-weighted assignment would need
+# per-driver durations written down, and a duration is exactly the
+# hand-maintained figure ADR-00000028 refuses: the tree moves it, the host
+# moves it, repeat runs on one machine move it, and nothing re-derives it.
+# Round-robin needs no such input and cannot go stale. What it gives up is
+# balance BETWEEN groups: the slowest group is the longest single driver
+# -- which no assignment can beat -- plus whatever else the deal put
+# beside it, so the phase runs somewhat above that floor rather than at
+# it. The group count's rationale in .github/workflows/self-test.yaml says
+# what that costs and why it is still the trade being made.
+#
+# The spec is validated rather than trusted. Every rejection here is a way
+# a CI job could run zero drivers and exit 0 -- a check that goes green
+# having gated nothing, which is the failure the grouping exists to avoid,
+# arriving by another door.
+
+# The group a validated spec names. Set by _refuse_bad_lint_group below,
+# read by its callers; meaningless before it has run.
+_LINT_GROUP_INDEX=0
+_LINT_GROUP_TOTAL=0
+
+# _refuse_bad_lint_group <index>/<total> -- parse and range-check a group
+# spec, or die naming which of those it failed.
+#
+# SEPARATE FROM THE LISTER, and called by both, because of WHERE each of
+# them runs. `_run_lint_group` reads the lister through a process
+# substitution, so a `_die` in the lister kills that subshell alone: the
+# runner sees an empty list and reports the empty group, which is not why
+# the spec was refused. That wrong reason is the visible half. The
+# invisible half is that the runner would be reading the lister's OUTPUT
+# as its verdict -- a lister that printed one member before dying hands
+# back a truncated group, and a truncated group runs to a green exit
+# having gated only part of the phase. So the runner validates in its own
+# shell, where a refusal is a refusal, and the lister's copy is a backstop
+# rather than the mechanism.
+#
+# `10#` because the regex above accepts digits and `(( ))` reads them as a
+# NUMBER: a zero-padded `1/08` is a well-formed spec by every rule stated
+# here and an invalid octal constant to bash arithmetic, which answers
+# with its own "value too great for base" and a status this function would
+# then blame on the range.
+_refuse_bad_lint_group() {
+  local _spec="${1:-}"
+  [[ "${_spec}" =~ ^([0-9]+)/([0-9]+)$ ]] || _die ci_bad_lint_group \
+    "lint group '${_spec}' is not <index>/<total> (e.g. 1/4)."
+  _LINT_GROUP_INDEX=$(( 10#${BASH_REMATCH[1]} ))
+  _LINT_GROUP_TOTAL=$(( 10#${BASH_REMATCH[2]} ))
+  (( _LINT_GROUP_TOTAL >= 1 )) || _die ci_bad_lint_group \
+    "lint group '${_spec}' asks for ${_LINT_GROUP_TOTAL} groups; a partition has at least one."
+  (( _LINT_GROUP_INDEX >= 1 && _LINT_GROUP_INDEX <= _LINT_GROUP_TOTAL )) \
+    || _die ci_bad_lint_group \
+    "lint group '${_spec}' is outside its own total; expected 1..${_LINT_GROUP_TOTAL}."
+}
+
+_lint_group_members() {
+  _refuse_bad_lint_group "${1:-}"
+  local _index="${_LINT_GROUP_INDEX}" _total="${_LINT_GROUP_TOTAL}"
+
+  local _tool _own _skip _position=0
+  for _tool in "${_LINT_TOOLS[@]}"; do
+    _skip=0
+    for _own in "${_LINT_TOOLS_OWN_CI_JOB[@]}"; do
+      [[ "${_tool}" != "${_own}" ]] || _skip=1
+    done
+    (( _skip == 0 )) || continue
+    if (( _position % _total == _index - 1 )); then
+      printf '%s\n' "${_tool}"
+    fi
+    _position=$(( _position + 1 ))
+  done
+}
 
 # The lint tool currently on the stack, for _lint_driver_failed below.
 # Empty whenever no driver is running.
@@ -443,6 +551,34 @@ _run_all_lint_tools() {
   _run_lint_tools "${_LINT_TOOLS[@]}"
 }
 
+# Run one group of the partition, host-direct. The CI join for the
+# grouped lint-static jobs.
+#
+# `_run_lint_tools`, not a loop: the group has to report EVERY driver in
+# it that failed, in phase order, because the checks list no longer names
+# the failing lint -- the job's name is a group, and its output is where
+# the answer now is (base#1059 is what made that output complete; before
+# it the phase stopped at the first failure, and a grouped job would have
+# hidden the rest).
+#
+# An EMPTY group is refused rather than run. `_run_lint_tools` over
+# nothing succeeds, so a total larger than the number of grouped lints
+# would leave the tail jobs green having run no lint at all. That refusal
+# is about a VALID spec whose group happens to be empty, which is why the
+# spec itself is checked first and separately: read off the member list
+# alone, "no members" is also what a spec that never parsed looks like,
+# and the run would name the wrong reason.
+_run_lint_group() {
+  local _spec="${1:-}"
+  # In THIS shell, before the process substitution below swallows it.
+  _refuse_bad_lint_group "${_spec}"
+  local -a _members=()
+  mapfile -t _members < <(_lint_group_members "${_spec}")
+  (( ${#_members[@]} > 0 )) || _die ci_bad_lint_group \
+    "lint group '${_spec}' contains no lint; a job that runs nothing must not report success."
+  _run_lint_tools "${_members[@]}"
+}
+
 # ── Help ─────────────────────────────────────────────────────────────────────
 
 usage() {
@@ -637,9 +773,10 @@ Options:
                           the phase itself (the lint jobs narrow to one
                           tool, and every bats / coverage job sets
                           BATS_ONLY=1 / COVERAGE=1, which skip it), so
-                          self-test.yaml calls one of these per job /
-                          matrix entry, running the same driver the local
-                          phase runs. Available:
+                          self-test.yaml runs the same drivers -- a
+                          dedicated job calls one of these, and a
+                          lint-static group calls --lint-group, which runs
+                          several. Available:
                             --shellcheck-only        (needs shellcheck in
                                                      PATH; ubuntu-latest
                                                      ships it)
@@ -664,6 +801,16 @@ Options:
                             --generated-workflow-actions-only pure bash
                           (no --hadolint-only equivalent: hadolint exists
                           only in the test-tools image; see below)
+  --lint-group N/T        Run lint group N of T directly on this host, no
+                          compose. The grouped CI join: the drivers are
+                          split round-robin over the _LINT_TOOLS table
+                          (minus the lints that carry their own job), so
+                          adding a lint to the table puts it in a group
+                          with nothing else edited. Every failing driver
+                          in the group is reported, not just the first.
+  --lint-group-members N/T
+                          Print the lints of group N of T, one per line,
+                          and run none of them.
   --hadolint-only         Hadolint only, directly inside the ci container
                           (hadolint baked into the test-tools image). Single
                           source of truth for self-test.yaml's hadolint job
@@ -2179,6 +2326,7 @@ main() {
   # compose) parameterised by tool, so they share one short-circuit rather
   # than one boolean each.
   local host_lint=""
+  local host_lint_group=""
   local bats_unit_shard=""
   local bats_fragile=0
   local bats_integration=0
@@ -2254,6 +2402,8 @@ main() {
       --function-length-only) host_lint="function-length"; shift ;;
       --positional-params-only) host_lint="positional-params"; shift ;;
       --shell-metrics-only) host_lint="shell-metrics"; shift ;;
+      --lint-group) host_lint_group="${2:?--lint-group expects <n>/<total>}"; shift 2 ;;
+      --lint-group-members) _lint_group_members "${2:?--lint-group-members expects <n>/<total>}"; return 0 ;;
       --hadolint-only) hadolint_only=1; shift ;;
       --bats-only) bats_only=1; shift ;;
       --bats-unit-shard) bats_unit_shard="${2:?--bats-unit-shard expects <n>/<total>}"; shift 2 ;;
@@ -2344,16 +2494,29 @@ main() {
   # `--pin-coverage-only`, `--action-ref-agreement-only`) short-circuit
   # before any mode dispatch and run
   # ONE driver right here: no compose, no test-tools image, no
-  # apt-install. This is the CI join for the lint phase -- a plain
-  # ubuntu-latest runner calls one of these per lint-static matrix entry,
-  # running the SAME driver the local phase runs, so the local gate and
-  # the CI gate cannot drift apart. Every tool but shellcheck is pure
+  # apt-install. It is how a DEDICATED CI job runs its one lint (and how
+  # a person times one driver); the grouped lint-static jobs reach the
+  # same drivers through `--lint-group` below. Either way a plain
+  # ubuntu-latest runner runs the SAME driver the local phase runs, so the
+  # local gate and the CI gate cannot drift apart. Every tool but shellcheck is pure
   # bash over the checkout; shellcheck relies on the binary ubuntu-latest
   # ships pre-installed. hadolint is deliberately absent: its binary
   # exists only in the test-tools image, so its CI job uses
   # `--lint --hadolint` inside that image instead.
   if [[ -n "${host_lint}" ]]; then
     _run_lint_tool "${host_lint}"
+    return 0
+  fi
+
+  # The grouped form of the same join (base#1071). One lint-static job per
+  # GROUP of the partition rather than per driver: 20 one-driver jobs spent
+  # more runner startup than they did work, and took 20 of the free plan's
+  # ~20 org-wide concurrent slots away from the coverage shards, which are
+  # the run's critical path. Which lint failed is still answerable -- the
+  # group enumerates every failing driver in its output (base#1059) instead
+  # of the checks list naming it.
+  if [[ -n "${host_lint_group}" ]]; then
+    _run_lint_group "${host_lint_group}"
     return 0
   fi
 

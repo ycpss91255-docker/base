@@ -988,3 +988,56 @@ assert_spec_subject_dir() {
     [[ -d "${_path}" ]] || fail \
         "missing ${_path} -- ${_what}. It is tracked, so it was deleted, renamed or moved: restore it or update the path here. Failing rather than skipping is deliberate; a spec that quietly shrinks to zero cases is the defect this guard exists to catch."
 }
+
+# lint_static_groups <workflow>
+#   The group specs of the `lint-static` matrix in <workflow>, one per line
+#   (`1/4`, `2/4`, ...). Prints nothing when the job is not the grouped
+#   form, which is the state every caller reports rather than passing over.
+#
+#   The job runs the static lint phase as a handful of GROUPED jobs
+#   (base#1071), and which lint falls in which group is COMPUTED from
+#   test.sh's `_LINT_TOOLS` table rather than written in the workflow -- a
+#   written assignment would be a roster, wrong the day a driver is added
+#   with nothing to say so. So the workflow answers only "how many groups";
+#   lint_group_hits below asks the partition the rest.
+lint_static_groups() {
+    local _wf="${1:?BUG: lint_static_groups expects a workflow path}"
+    local _line
+    _line="$(yaml_job_lines "${_wf}" lint-static | grep -E "^ +group: \[" || true)"
+    [ -n "${_line}" ] || return 0
+    _line="${_line#*\[}"
+    _line="${_line%\]*}"
+    _line="${_line//\'/}"
+    _line="${_line//,/ }"
+    local -a _groups=()
+    read -ra _groups <<<"${_line}"
+    [ "${#_groups[@]}" -eq 0 ] || printf '%s\n' "${_groups[@]}"
+}
+
+# lint_group_hits <tool> <workflow> [<test.sh>]
+#   How many of <workflow>'s lint-static groups run <tool>.
+#
+#   ONE is the only right answer for a lint with no dedicated job of its
+#   own: in no group it gates nothing on a PR while every check stays
+#   green, and in two it is paid for twice. Zero is also what a caller gets
+#   when the matrix is not the grouped form at all, which is why every
+#   caller states the count it expected rather than asserting a bare
+#   truth value.
+lint_group_hits() {
+    local _tool="${1:?BUG: lint_group_hits expects a lint name}"
+    local _wf="${2:?BUG: lint_group_hits expects a workflow path}"
+    local _test_sh="${3:-/source/script/test/test.sh}"
+    local -a _groups=()
+    mapfile -t _groups < <(lint_static_groups "${_wf}")
+    local -a _members=()
+    local _g
+    for _g in "${_groups[@]}"; do
+        mapfile -t -O "${#_members[@]}" _members \
+            < <("${_test_sh}" --lint-group-members "${_g}")
+    done
+    if [ "${#_members[@]}" -eq 0 ]; then
+        printf '0\n'
+        return 0
+    fi
+    printf '%s\n' "${_members[@]}" | grep -cx -- "${_tool}" || true
+}

@@ -172,8 +172,8 @@
 # `.git` is a file pointing at a path outside it). Joining the lint phase
 # therefore means giving the phase a host-direct leg, not adding three
 # strings to a table. Until then the entry points are `just test metrics`
-# and `test.sh --<metric>-only`, which is what CI's lint-static matrix
-# already uses for every pure-bash lint.
+# and `test.sh --<metric>-only`, the same host-direct shape CI's
+# lint-static jobs already run every pure-bash lint through.
 #
 # ── The counting rules ───────────────────────────────────────────────────────
 #

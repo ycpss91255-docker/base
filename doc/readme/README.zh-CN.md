@@ -242,7 +242,7 @@ flowchart LR
   <repo>:devel` 后会看到的内容。
 - `Dockerfile.test-tools` 构建 lint/test 工具集（bats + shellcheck + hadolint）。下游 `devel-test` 阶段通过 `ARG TEST_TOOLS_IMAGE` build arg 引用 — 默认 `test-tools:local`（对应本地 `./build.sh` 流程,把 `Dockerfile.test-tools` 构建到 host Docker daemon）。CI 则覆盖成 `ghcr.io/ycpss91255-docker/test-tools:vX.Y.Z`（由 `.github/workflows/release-test-tools.yaml` 在每次 tag 推的预构建 multi-arch image）,buildx 直接从 registry 拉对应架构的 bats / shellcheck / hadolint binary,避开 `docker-container` buildx driver 跨 step 不共享 image store 的问题。
 
-<!-- sync: baked-artifacts-live-at-opt-not-home eb898d65e2e1 2b1cd08fd898 -->
+<!-- sync: baked-artifacts-live-at-opt-not-home a29561d2cf43 ff4418095341 -->
 #### 自建产物放在 `/opt`，不要放 `$HOME`
 
 容器用户是在 **build** 时期烘进 image 的：`sys` 阶段吃
@@ -268,7 +268,7 @@ image，`$HOME` 可能不一样。
 3. 路径里永远不要写死具体用户名 —— 用 `${HOME}` / `${USER_NAME}`。
 
 第 3 条是机械式规则，因此有 gate：`home-literal` lint
-（`just test lint --home-literal`，CI job `lint-static (home-literal)`）会在
+（`just test lint --home-literal`，CI job `lint-static` 的其中一组）会在
 `dist/` 或 `dockerfile/` 底下任何 home 路径出现具体用户名时失败。
 第 1、2 条属于判断题，grep 判不出来。设计理由见
 [ADR-00000024](../adr/00000024-bake-artifacts-at-opt-not-home.md)。

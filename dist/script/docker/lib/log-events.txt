@@ -238,6 +238,7 @@ ci_lint_bad_root
 ci_no_hadolint
 ci_lint_tool_without_lint
 ci_unknown_lint_tool
+ci_bad_lint_group
 ci_lint_driver_failed
 ci_lint_phase_failed
 ci_lint_errexit_suppressed

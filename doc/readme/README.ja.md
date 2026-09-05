@@ -254,7 +254,7 @@ flowchart LR
   `docker run ... <repo>:devel` で目にするものと一致します。
 - `Dockerfile.test-tools` は lint/test ツールセット（bats + shellcheck + hadolint）をビルドします。ダウンストリームの `devel-test` ステージは `ARG TEST_TOOLS_IMAGE` build arg で参照します — デフォルト `test-tools:local`（ローカル `./build.sh` フロー、`Dockerfile.test-tools` を host Docker daemon に load）。CI では `ghcr.io/ycpss91255-docker/test-tools:vX.Y.Z`（`.github/workflows/release-test-tools.yaml` がタグ push ごとに publish するマルチアーキ image）で override し、buildx が registry からアーキ対応の bats / shellcheck / hadolint binary を直接 pull します。`docker-container` buildx driver の step 間 image store 分離問題を回避。
 
-<!-- sync: baked-artifacts-live-at-opt-not-home eb898d65e2e1 b858748fa031 -->
+<!-- sync: baked-artifacts-live-at-opt-not-home a29561d2cf43 609fe3367b0b -->
 #### ビルド成果物は `$HOME` ではなく `/opt` に置く
 
 コンテナユーザーは **ビルド** 時に image へ焼き込まれます。`sys` ステージが
@@ -283,7 +283,7 @@ flowchart LR
 3. パスに具体的なユーザー名を書かない。`${HOME}` / `${USER_NAME}` を使う。
 
 ルール 3 は機械的に判定できるためゲートされています。`home-literal` lint
-（`just test lint --home-literal`、CI ジョブ `lint-static (home-literal)`）が
+（`just test lint --home-literal`、CI ジョブ `lint-static`（そのグループの一つ））が
 `dist/` または `dockerfile/` 配下の home パスに具体的なユーザー名を見つけると
 失敗します。ルール 1-2 は grep では判定できない設計判断です。根拠は
 [ADR-00000024](../adr/00000024-bake-artifacts-at-opt-not-home.md)。
