@@ -1103,6 +1103,65 @@ EOF
   refute_output --partial "caf"
 }
 
+# The foreign-path fence answers only the OUTSIDE-the-repo way of handing
+# `git add` a pathspec it cannot match. A path INSIDE the repo that is
+# neither on disk nor in the index fails the identical whole-batch refusal,
+# and the migration record can name one today: _dfm_reconcile_targets
+# records a target the run DELETED, which git cannot match if it was never
+# tracked. Since failing to stage is deliberately non-fatal, the run then
+# prints the caller's `git push` advice over a tree whose Dockerfile
+# rewrite never reached the index -- base#1036 through the code written to
+# fix it.
+
+# why: `git add` refuses the WHOLE batch on a pathspec matching nothing,
+# and a path the run deleted that git never tracked matches nothing --
+# costing the commit the Dockerfile the same run rewrote
+@test "_stage_resync_output: a migrated path git cannot match loses only itself (#1036)" {
+  _source_init
+  cat > "${TMP_REPO}/Dockerfile" <<'EOF'
+FROM busybox AS lint
+COPY .base/script/docker/lib /lint/lib
+EOF
+  _git_seed_consumer
+  _init_existing_repo
+  # What _dfm_reconcile_targets records for a target the run removed. This
+  # one was never tracked, so no pathspec reaches it.
+  migrated_files() {
+    printf '%s\n' "${TMP_REPO}/Dockerfile" "${TMP_REPO}/script/gone.sh"
+  }
+
+  run _stage_resync_output
+  assert_success
+
+  run git -C "${TMP_REPO}" diff --cached --name-only
+  assert_line "Dockerfile"
+}
+
+# why: the half that must not regress -- a TRACKED path the run deleted is
+# still the run's output, and only the index can name it, so filtering on
+# "is it on disk" alone would drop the deletion out of the commit
+@test "_stage_resync_output: stages the deletion of a tracked path it removed (#1036)" {
+  _source_init
+  cat > "${TMP_REPO}/Dockerfile" <<'EOF'
+FROM busybox AS lint
+COPY .base/script/docker/lib /lint/lib
+EOF
+  mkdir -p "${TMP_REPO}/script"
+  printf 'retired\n' > "${TMP_REPO}/script/entrypoint.sh"
+  _git_seed_consumer
+  _init_existing_repo
+  rm -f "${TMP_REPO}/script/entrypoint.sh"
+  migrated_files() {
+    printf '%s\n' "${TMP_REPO}/Dockerfile" "${TMP_REPO}/script/entrypoint.sh"
+  }
+
+  run _stage_resync_output
+  assert_success
+
+  run git -C "${TMP_REPO}" diff --cached --name-only --diff-filter=D
+  assert_line "script/entrypoint.sh"
+}
+
 # why: the containment test is the whole fence, so the segment resolution
 # it rests on is worth pinning on its own -- including the cases that must
 # NOT move, a name that merely begins with dots and a relative path this
