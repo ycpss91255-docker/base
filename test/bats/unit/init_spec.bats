@@ -916,6 +916,64 @@ EOF
   assert_line ".github/workflows/base-version-monitor.yaml"
 }
 
+# why: `git add` refuses the WHOLE batch on a path outside the repo, and a
+# path spelled out of the repo through the repo root with a `..` segment
+# walks straight past a prefix test -- the one input shape the fence
+# against that failure was not written for
+@test "_stage_resync_output: a dot-dot path out of the repo loses only itself (#1036)" {
+  _source_init
+  cat > "${TMP_REPO}/Dockerfile" <<'EOF'
+FROM busybox AS lint
+COPY .base/script/docker/lib /lint/lib
+EOF
+  _git_seed_consumer
+  _init_existing_repo
+  # Same destination as the arm above, different spelling: the path goes
+  # THROUGH the repo root and back out of it, so it starts with
+  # "${REPO_ROOT}/" while naming somewhere the repo does not reach.
+  STRAY_DIR="$(mktemp -d)"
+  printf 'not ours\n' > "${STRAY_DIR}/stray.txt"
+  migrated_files() {
+    printf '%s\n' "${TMP_REPO}/Dockerfile" \
+      "${TMP_REPO}/../$(basename -- "${STRAY_DIR}")/stray.txt"
+  }
+
+  run _stage_resync_output
+  assert_success
+  assert_output --partial "stray.txt"
+
+  run git -C "${TMP_REPO}" diff --cached --name-only
+  assert_line "Dockerfile"
+  rm -rf "${STRAY_DIR}"
+}
+
+# why: the containment test is the whole fence, so the segment resolution
+# it rests on is worth pinning on its own -- including the cases that must
+# NOT move, a name that merely begins with dots and a relative path this
+# pass has no business rewriting
+@test "_init_lexical_path: resolves the segments without touching disk (#1036)" {
+  _source_init
+  _init_lexical_path "/a/b/../c/./d"
+  [[ "${_INIT_LEXICAL_PATH}" == "/a/c/d" ]] \
+    || fail "expected /a/c/d, got ${_INIT_LEXICAL_PATH}"
+  _init_lexical_path "/a//b/"
+  [[ "${_INIT_LEXICAL_PATH}" == "/a/b" ]] \
+    || fail "expected /a/b, got ${_INIT_LEXICAL_PATH}"
+  # Never above the root: a walk that runs out of segments stops there.
+  _init_lexical_path "/a/../.."
+  [[ "${_INIT_LEXICAL_PATH}" == "/" ]] \
+    || fail "expected /, got ${_INIT_LEXICAL_PATH}"
+  # A leading-dots NAME is a name, not a walk.
+  _init_lexical_path "/a/..b/c"
+  [[ "${_INIT_LEXICAL_PATH}" == "/a/..b/c" ]] \
+    || fail "expected /a/..b/c, got ${_INIT_LEXICAL_PATH}"
+  # A relative path resolves against a cwd this pass does not know, so it
+  # is handed back untouched and the caller drops it as foreign.
+  _init_lexical_path "relative/x"
+  [[ "${_INIT_LEXICAL_PATH}" == "relative/x" ]] \
+    || fail "expected relative/x, got ${_INIT_LEXICAL_PATH}"
+}
+
 # why: the two lists are edited in different places for different reasons,
 # and a seed-once path spelled differently from its published name would
 # silently fall back to being staged wholesale again

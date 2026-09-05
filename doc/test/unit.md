@@ -2796,7 +2796,7 @@ forwarding for caller abort, and DRY_RUN skip.
 | `init.sh --list-installed-paths output is sorted and free of duplicates` | - |
 | `init.sh --list-installed-paths mutates nothing and never leaves its cwd` | - |
 
-### test/bats/unit/init_spec.bats (84)
+### test/bats/unit/init_spec.bats (86)
 
 Unit coverage for `init.sh` helpers that previous rounds exercised only
 through the Level-1 integration test. Complements
@@ -2860,6 +2860,8 @@ are hard to trigger from a real `bash template/init.sh` invocation
 | `the resync: leaves an edited monitor workflow unstaged (#1036)` | the monitor workflow is generated once and then left alone on every later run, so a repo that has tuned its schedule owns the file the staging step would commit |
 | `the resync: leaves a customised .hadolint.yaml unstaged (#1036)` | _create_symlinks deliberately KEEPS a .hadolint.yaml that differs from the template rather than re-pointing it, and a file the run refused to touch is not the run's to commit |
 | `the resync: stages the hook stub it created this run (#1036)` | the half of the property that must NOT regress -- a stub this run created is the run's own output, and dropping the whole seed-once class from the commit would put the branch's own defect back one file over |
+| `_stage_resync_output: a dot-dot path out of the repo loses only itself (#1036)` | `git add` refuses the WHOLE batch on a path outside the repo, and a path spelled out of the repo through the repo root with a `..` segment walks straight past a prefix test -- the one input shape the fence against that failure was not written for |
+| `_init_lexical_path: resolves the segments without touching disk (#1036)` | the containment test is the whole fence, so the segment resolution it rests on is worth pinning on its own -- including the cases that must NOT move, a name that merely begins with dots and a relative path this pass has no business rewriting |
 | `_init_seed_only_paths: every entry is a published installed path (#1036)` | the two lists are edited in different places for different reasons, and a seed-once path spelled differently from its published name would silently fall back to being staged wholesale again |
 | `_init_existing_repo: syncs base-version-monitor.yaml on upgrade (#777)` | - |
 | `_preflight_just: warns and exits 0 when just is absent (#607)` | Missing runner -> non-fatal WARN |
