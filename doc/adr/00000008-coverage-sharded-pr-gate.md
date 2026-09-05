@@ -715,3 +715,149 @@ by `test/bats/integration/kcov_merge_union_spec.bats`, against the real
 binary over a subject with two disjoint branches: the merged covered set
 equals the union of the slices', and the merged instrumented set equals
 the union rather than the sum.
+## Amendment (#1060): a shard's bats runs parallel under kcov; the full-suite run does not, and that asymmetry is measured
+
+- **Date:** 2026-09-05
+- **Amendment status:** Accepted -- completes the correction this ADR's own
+  Context opened and half-applied. Section 1's sharding is unchanged, and so
+  is the "coverage is a gating PR check via `ci-rollup`" posture.
+  **Relates:** #726 (a kcov process per slice), #1002 (whose thesis this
+  supersedes), ADR-00000016, ADR-00000017.
+
+### What was left in place
+
+The Context above reads #377 correctly: it "left the **coverage path fully
+serial** ... The ~8-12 min coverage runtime was therefore **serial x kcov**
+... **not an inherent kcov floor**." Only one of those two factors was then
+addressed. Section 1 divided the kcov half across a CI matrix and left the
+serial half running inside every shard, where it stayed for two and a half
+months.
+
+The mechanism was a flag with two writers. `script/test/drivers/bats.sh` held
+TWO hand-assembled bats invocations, not one: `_run_coverage` and
+`_run_system`, each with its own argument list, and `_run_system` with its own
+`nproc` probe and its own `--jobs` besides. What was unique to `_run_coverage`
+is narrower and is the actual finding -- it was the only bats invocation in
+the driver that never received `--jobs` at all. Every other runner --
+including `_run_coverage_path`, added later -- takes its arguments from
+`_bats_args_with_label`, which appends `--jobs $(nproc)` where GNU parallel
+is present and falls back to serial with a message where it is not.
+`git log -S'--jobs' -- script/test/drivers/bats.sh` returns only the driver
+split: the flag was never removed from the coverage path, it was never added.
+That there were two copies is why the decision below is "one writer for the
+flag" rather than "add the flag here": a second copy is how the divergence
+arose, and a third is what the guard refuses.
+
+### Decision
+
+**`_run_coverage` builds its bats arguments through
+`_bats_args_with_label`,** and the helper takes a third argument naming the
+caller's jobs policy (`parallel`, the default, or `serial`). Writing
+`--jobs` a second time by hand -- which is how the divergence arose -- is
+refused by a spec that allows the flag exactly one occurrence in the driver,
+inside the helper; `_run_system`, the other hand-rolled copy, is routed
+through the helper as well. An unrecognised policy is a `_die`, not a
+default, and so is an EMPTY one: the helper reads `${3-parallel}`, so an
+omitted third argument takes the documented default while a caller
+expanding an unset variable reaches the refusal instead of the parallel
+branch.
+
+**The policy is derived from what the run will WALK, not from the
+argument it was called with.** The full-suite branch declares `serial`. The
+shard branch compares the slice `_shard_unit_files` returns against the
+whole pool (`_coverage_pool_files`, one writer for "what the whole suite
+is") and declares `serial` when the two are the same set, `parallel`
+otherwise. Keying the policy on WHETHER a shard argument was passed is not
+enough: `1/1` is a shard by syntax and the entire suite by content, and it
+earns `scope=full`, the only scope `coverage_badge.sh` publishes -- so it
+would have published the parallel figure this amendment measures as
+under-reporting. `just test coverage 1/1` reaches that case, and so does
+`vars.CI_SHARDS=1`, which `self-test.yaml` clamps into `[1,12]` and turns
+into the matrix `["1/1"]`. This is the same derivation the release
+certificate uses (`_measured_coverage_scope` compares the run manifest
+against the inventory): an invocation is not evidence of what a run
+measured, so neither the scope nor the policy is read off one.
+
+The asymmetry is the finding, not a hedge:
+
+- **A shard's line set holds, and where it does not the miss is 0.05%.**
+  Three slices (two different partitions of 1/8, plus 6/8), comparing the
+  covered and valid sets the coverage gate merges -- canonical
+  `(file, line)` keys, symmetric difference computed in BOTH directions.
+  Eight parallel runs: SEVEN reproduce the serial covered set exactly
+  (7835/9229, 6373/7360 and 6207/7439 lines, empty difference each way),
+  and the eighth was short **3 lines of 6207**, one-directionally.
+  Serial runs of a slice agree with each other exactly. Wall time for the
+  whole recipe: 147s / 164s serial against 47s-53s (shard 1/8) and 371s
+  against 196s (shard 6/8). **The CI matrix runs shards and merges them
+  by per-line UNION over a floor with ~4.7 points of margin, so a miss of
+  that size cannot reach the gate's verdict -- it is not zero, and it is
+  what #726 makes structurally zero.**
+
+- **The full suite's line set does move, so it stays serial.** At ~4500
+  tests, two serial runs record the same 8617 covered lines; two parallel
+  runs record 8532 and 8587 -- each a strict SUBSET of the serial set (0
+  lines covered in parallel that serial missed, twice) and differing from
+  each other. `lines-valid` is identical in every run (10194), so only the
+  numerator moves: 84.53% against 83.70% and 84.24%. This is the run that
+  stamps `scope=full` and feeds the release badge of the #952 amendment,
+  and a badge that moves a point between two runs of one tree is the
+  falsifiable-figure promise broken from the inside.
+
+- **What is lost is trace, not execution.** The dropped lines cluster in
+  subprocess-heavy code (`setup_cmd.sh`, `watchdog.sh`, `prune.sh`,
+  `transcript.sh`, `help.sh`, `bootstrap.sh`) whose tests PASS in both runs
+  -- `just docker help renders zh-TW recipe summaries` is `ok` in each, and
+  its zh-TW `case` arms appear only in the serial report. N parallel bats
+  jobs feed their trace streams to ONE kcov process whose parser is
+  single-threaded: the miss scales with the volume of trace and never
+  reverses sign (no parallel run has ever recorded a line serial missed,
+  in ten comparisons), which is a reader losing samples rather than a
+  flaky test. That parser is also the share of the runtime `--jobs` cannot
+  divide. **Making it scale, and with it the full-suite path, is #726 (a
+  kcov process per slice) -- a different change, not a competing one.**
+
+- **The residual is disclosed, not absorbed.** A gate that ever becomes the
+  regression-vs-baseline v2 this ADR still lists as a follow-up would be
+  comparing figures whose noise floor is now non-zero on the shard path;
+  that comparison has to be made against #726 landing first, or against a
+  serial policy for the gate too.
+
+### The junit report and the weights it feeds
+
+`_junit_to_timings` reads one `report.xml` and writes `coverage/timings.tsv`,
+which the next partition weighs. Under `--jobs` bats still emits ONE coherent
+report: after a parallel full run the manifest names all 173 specs and the
+run stamps `scope=full`, which is exactly the check that a narrowed or
+truncated report would fail.
+
+The per-spec seconds in it are wall-clock under contention, not per-test in
+isolation: mean 4.32x the serial figure, median 4.00, min 0.50, max 27.0.
+That distortion does not unbalance the partition, because greedy-LPT reads
+relative weights and these are recorded in the same regime they will predict.
+Driving the real `_shard_unit_files` at 8 shards and weighing each partition
+by the parallel durations it must balance: weights from a serial run give
+makespan 1446 (loads 754-1446); weights from a parallel run give 1138 (loads
+1111-1138). The transition run is the 1446 case -- better than the
+`@test`-count fallback, and one run long.
+
+### Consequences (amendment)
+
+- The PR critical path drops by the measured shard figures above, against a
+  merged gate rate whose measured movement is at most 3 lines in 6207 on one
+  shard of eight, unioned away wherever another shard ran the same line.
+- `just test coverage` (full suite) is unchanged in duration -- ~35 min on a
+  32-core host for this tree. The parallel version of it exists and is 4x
+  faster; it is not adopted because it under-reports. Anyone tempted to
+  flip that policy should re-run the comparison above first, and #726 is
+  what would make the answer different.
+- The helper now carries a policy argument, so "this run must be serial"
+  and "this host has no GNU parallel" are distinguishable in the run's own
+  first line (`serial by policy` against `serial; parallel not in PATH`).
+- `_run_system` gains `--recursive` and the fallback message it never had,
+  which is what routing it through the helper means.
+- A shard invocation whose slice IS the whole suite (`1/1`, or any
+  `<n>/<total>` a small enough tree makes exhaustive) runs serial and says
+  `serial by policy` in its first line. It is slower than the argument
+  suggests, and that is the point: it is the run that would otherwise
+  publish a parallel figure as `scope=full`.
