@@ -53,7 +53,13 @@ setup() {
   source /source/script/test/drivers/changelog_entry.sh
 
   SCRATCH="$(mktemp -d)"
-  mkdir -p "${SCRATCH}/doc/changelog"
+  mkdir -p "${SCRATCH}/doc/changelog" "${SCRATCH}/script/release"
+  # The locked category roster and the doc that prints it. The driver
+  # SOURCES the first and compares the second against it, so a scratch tree
+  # without them is a tree where the category rule has no list to enforce --
+  # the copies are what keep every other case here about the rule it names.
+  cp /source/script/release/changelog_categories.sh "${SCRATCH}/script/release/"
+  cp /source/doc/changelog/CONVENTIONS.md "${SCRATCH}/doc/changelog/"
   REPO_ROOT="${SCRATCH}"
   CHANGELOG="${SCRATCH}/doc/changelog/CHANGELOG.md"
 }
@@ -471,7 +477,7 @@ _long_prose() {
 # ════════════════════════════════════════════════════════════════════
 
 @test "_run_changelog_entry: FAILS on a single word orphaned above the rest of its paragraph (#927)" {
-  _write_changelog '### Documentation' \
+  _write_changelog '### Changed' \
     '- **an entry that was edited and not re-wrapped** -- the prose runs on' \
     '  for a while and then the tail was rewritten in place, leaving one' \
     '  word behind.' \
@@ -486,20 +492,20 @@ _long_prose() {
 @test "_run_changelog_entry: names the orphan's real line number in the file (#927)" {
   # Reported against the CHANGELOG's own numbering, not an offset within
   # the section -- the author has to be able to jump straight to it.
-  _write_changelog '### Documentation' \
+  _write_changelog '### Changed' \
     '- **an entry** -- prose.' \
     '  Affects' \
     '  anyone reading the source.'
   run _run_changelog_entry
   assert_failure
-  # preamble (4 lines) + heading + blank + '### Documentation' + bullet = 8.
+  # preamble (4 lines) + heading + blank + '### Changed' + bullet = 8.
   assert_output --partial 'CHANGELOG.md:9:'
 }
 
 @test "_run_changelog_entry: a one-word FINAL line of an entry is not an orphan (#927)" {
   # A paragraph is allowed to end on a short line; nothing follows it to
   # re-flow into, so there is nothing to fix.
-  _write_changelog '### Documentation' \
+  _write_changelog '### Changed' \
     '- **an entry** -- the prose runs on for a while and then ends on a' \
     '  word.'
   run _run_changelog_entry
@@ -509,7 +515,7 @@ _long_prose() {
 @test "_run_changelog_entry: a one-word line above a BLANK line is not an orphan (#927)" {
   # The next source line is not more of the same paragraph, so the two
   # were never one wrapped run. Contiguity is the whole test.
-  _write_changelog '### Documentation' \
+  _write_changelog '### Changed' \
     '- **an entry** -- prose that ends on a' \
     '  word.' \
     '' \
@@ -524,7 +530,7 @@ _long_prose() {
   # re-indentation case, which builds its fixture out of 60-character
   # spaceless chunks and would otherwise report four orphans in an entry
   # the lint is asserting PASSES.
-  _write_changelog '### Documentation' \
+  _write_changelog '### Changed' \
     '- **an entry with a long span** -- see' \
     "  \`$(_chars 60)\`" \
     '  for the details.'
@@ -535,7 +541,7 @@ _long_prose() {
 @test "_run_changelog_entry: an orphan is one that could have joined the line below (#927)" {
   # The pair has to FIT: 79 columns is the file's wrap, and a word that
   # cannot go anywhere is not a word left behind.
-  _write_changelog '### Documentation' \
+  _write_changelog '### Changed' \
     '- **an entry** -- prose.' \
     '  Affects' \
     "  $(_chars 74)"
@@ -546,7 +552,7 @@ _long_prose() {
 @test "_run_changelog_entry: a table separator row is not an orphaned word (#927)" {
   # '|---|---|' is one whitespace-delimited word and always will be; a
   # table is not a paragraph that failed to re-flow.
-  _write_changelog '### Documentation' \
+  _write_changelog '### Changed' \
     '- **an entry with a table** -- the shapes:' \
     '' \
     '  | Tag | Bump |' \
@@ -559,7 +565,7 @@ _long_prose() {
 @test "_run_changelog_entry: a single-word line inside a fenced block is not an orphan (#927)" {
   # Inside a fence the line is code, and code is not wrapped prose. The
   # fence delimiters are single "words" of their own, too.
-  _write_changelog '### Documentation' \
+  _write_changelog '### Changed' \
     '- **an entry with a snippet** -- like so:' \
     '' \
     '  ```bash' \
@@ -597,7 +603,7 @@ _long_prose() {
 }
 
 @test "_run_changelog_entry: reports EVERY orphan in the section, not just the first (#927)" {
-  _write_changelog '### Documentation' \
+  _write_changelog '### Changed' \
     '- **first** -- prose.' \
     '  Affects' \
     '  one reader.' \
@@ -650,11 +656,118 @@ _long_prose() {
 # Non-vacuity
 # ════════════════════════════════════════════════════════════════════
 
-@test "_run_changelog_entry: DIES when the CHANGELOG is missing rather than passing vacuously (#917)" {
-  rm -f "${CHANGELOG}"
+# why: The lint scans a directory now rather than one path, so the thing that
+# can go missing is the tree. A scan with no root reports clean, which is
+# the vacuous pass this repo keeps having to fix.
+@test "_run_changelog_entry: DIES when the changelog tree is missing rather than passing vacuously (#917)" {
+  rm -rf "${SCRATCH}/doc/changelog"
   run _run_changelog_entry
   assert_failure
-  assert_output --partial 'not found'
+  assert_output --partial 'doc/changelog'
+}
+
+# why: After the split the live section lives in the series being written, and
+# the path the lint used to be pinned to is now the INDEX, which never
+# holds an entry. Pointing at it would report clean over a file that
+# cannot fail -- a green line meaning nothing was measured.
+@test "_run_changelog_entry: measures [Unreleased] in the series file that carries it (#926)" {
+  # The changelog is one file per 0.Y series, so [Unreleased] lives in the
+  # series being written -- not at a fixed path. A lint pinned to
+  # doc/changelog/CHANGELOG.md stopped finding it the day the split landed,
+  # and the constant it was pinned to is now the INDEX, which carries no
+  # entries at all: pointing at it would report clean over a file that
+  # never holds an entry, which is the vacuous pass wearing a green line.
+  rm -f "${CHANGELOG}"
+  printf '# Changelog\n\n- **[v0.43](v0.43.md)** -- in progress\n' \
+    > "${CHANGELOG}"
+  {
+    printf '# base changelog -- v0.43\n\n'
+    printf '## [Unreleased]\n\n'
+    printf '### Added\n'
+    printf -- '- %s\n' "$(_long_prose)"
+  } > "${SCRATCH}/doc/changelog/v0.43.md"
+
+  run _run_changelog_entry
+  assert_failure
+  assert_output --partial 'doc/changelog/v0.43.md:'
+}
+
+# why: In a series file [Unreleased] is the last thing before the link
+# definitions, so a section that ends only at the next `## [` swallows
+# them and reports every one as unrecognised content. The split is what
+# moved reference data inside the measured span.
+@test "_run_changelog_entry: the compare-link block is not part of the section (#926)" {
+  # In a series file the [Unreleased] section is the LAST thing before the
+  # compare-link definitions, so a section that ends only at the next
+  # `## [` swallows them -- and every one of them is then a line no entry
+  # measures, i.e. reported as unrecognised content. Link definitions are
+  # reference data, not entries.
+  {
+    printf '# base changelog -- v0.43\n\n## [Unreleased]\n\n'
+    printf '### Added\n'
+    printf -- '- one (#1, PR #2)\n\n'
+    printf '[Unreleased]: https://example.invalid/compare/v0.42.0...HEAD\n'
+  } > "${SCRATCH}/doc/changelog/v0.43.md"
+  rm -f "${CHANGELOG}"
+
+  run _run_changelog_entry
+  assert_success
+  refute_output --partial 'unrecognised content'
+}
+
+# why: Two live series is two places a merge can keep, and measuring whichever
+# the glob reaches first reports clean over the other. The ambiguity is
+# refused by name rather than resolved by filename order.
+@test "_run_changelog_entry: DIES when two files carry [Unreleased] (#926)" {
+  # Two live series is two places to write the next entry and two places a
+  # merge can keep. Measuring whichever one the glob reaches first would
+  # report clean over the other, so the ambiguity is refused by name.
+  {
+    printf '# Changelog\n\n## [Unreleased]\n\n'
+    printf '### Added\n'
+    printf -- '- one (#1, PR #2)\n'
+  } > "${CHANGELOG}"
+  {
+    printf '# base changelog -- v0.43\n\n## [Unreleased]\n\n'
+    printf '### Added\n'
+    printf -- '- another (#3, PR #4)\n'
+  } > "${SCRATCH}/doc/changelog/v0.43.md"
+
+  run _run_changelog_entry
+  assert_failure
+  assert_output --partial 'Unreleased'
+}
+
+# why: CONVENTIONS.md is the document whose subject is how to write an entry,
+# so it is the document that shows the heading. A locate with no fence
+# state dies claiming two live series, and the only way to clear that is
+# deleting the example from the file that exists to carry it.
+@test "_run_changelog_entry: a '## [Unreleased]' inside a fenced example is not a second live series (#926)" {
+  # doc/changelog/CONVENTIONS.md is the document whose entire subject is how
+  # to write an entry, so the heading it documents is the heading it SHOWS.
+  # Locating the live series by a plain text match, with no fence state,
+  # reads that example as a second live series and dies saying there are
+  # two -- and the only way to clear it is to delete the example from the
+  # document that exists to carry it. Every other markdown scan this lint
+  # and its two siblings perform already treats a fence as inert.
+  rm -f "${CHANGELOG}"
+  {
+    printf '\n```markdown\n'
+    printf '## [Unreleased]\n\n'
+    printf '### Added\n'
+    printf -- '- **a thing** (#1, PR #2) -- what it does.\n'
+    printf '```\n'
+  } >> "${SCRATCH}/doc/changelog/CONVENTIONS.md"
+  {
+    printf '# base changelog -- v0.43\n\n## [Unreleased]\n\n'
+    printf '### Added\n'
+    printf -- '- one (#1, PR #2)\n'
+  } > "${SCRATCH}/doc/changelog/v0.43.md"
+
+  run _run_changelog_entry
+  assert_success
+  # The one real series was the one measured: one entry, not the example's.
+  assert_output --partial 'clean (1 entries'
 }
 
 @test "_run_changelog_entry: DIES when the [Unreleased] heading is missing rather than passing vacuously (#917)" {
@@ -842,12 +955,105 @@ _long_prose() {
     '- **the second thing** -- fine.'
   run _run_changelog_entry
   assert_success
-  assert_output --partial '2 category headings compared'
+  assert_output --partial '2 category headings checked against the 7-name roster'
 }
 
 # ════════════════════════════════════════════════════════════════════
 # The real tree
 # ════════════════════════════════════════════════════════════════════
+
+# why: Twenty category headings where seven will do is what an unlocked axis
+# produced, and a reader scanning for what broke then has no heading to
+# scan for. The refusal also hands over the roster, because one that does
+# not say what IS allowed is answered by guessing.
+@test "_run_changelog_entry: FAILS on an [Unreleased] heading outside the locked roster (#926)" {
+  # Twenty category headings where seven will do: `Documentation`, `Tests`,
+  # `Migration`, `Migration notes`, `Performance`, `Known issues`,
+  # `Release summary`, and one-offs carrying a date or a parenthetical. Each
+  # was one person's reasonable local choice, and together they mean a
+  # reader scanning for what broke has no heading to scan for.
+  _write_changelog \
+    '### Documentation' \
+    '- **a doc change** (#1, PR #2) -- fine on its own.'
+  run _run_changelog_entry
+  assert_failure
+  assert_output --partial 'Documentation'
+  # The message hands over the roster rather than leaving the author to
+  # find it: a refusal that does not say what IS allowed is a refusal the
+  # author answers by guessing.
+  assert_output --partial 'BREAKING'
+  assert_output --partial 'Security'
+}
+
+# why: The complement that catches a roster typed twice: a lint refusing
+# `Deprecated` because the driver's copy lost it fails on the honest
+# entry, which is how a roster gets muted rather than fixed. Driven from
+# the sourced array, so the case cannot drift from the definition it
+# checks.
+@test "_run_changelog_entry: PASSES every heading in the locked roster (#926)" {
+  # The complement of the case above, and the one that catches a roster
+  # typed twice: a lint that refuses `Deprecated` because the driver's copy
+  # of the list lost it fails on the honest entry, which is how a roster
+  # gets muted rather than fixed.
+  # shellcheck disable=SC1091
+  source /source/script/release/changelog_categories.sh
+  local _cat
+  for _cat in "${CHANGELOG_CATEGORIES[@]}"; do
+    _write_changelog \
+      "### ${_cat}" \
+      "- **an entry** (#1, PR #2) -- under ${_cat}."
+    run _run_changelog_entry
+    assert_success
+  done
+}
+
+# why: The roster governs what is written from now on. A shipped `### Tests` is
+# a fact about what shipped, and a lint that could fail on it would be one
+# nobody can make pass without falsifying the record.
+@test "_run_changelog_entry: a released section's off-roster heading is never checked (#926)" {
+  # The roster governs what is written from now on. A shipped `### Tests`
+  # is a fact about what shipped, and a lint that could fail on it would be
+  # a lint nobody can make pass without falsifying the record.
+  {
+    printf '# Changelog\n\n'
+    printf '## [Unreleased]\n\n'
+    printf '### Added\n'
+    printf -- '- **a live entry** (#1, PR #2) -- fine.\n\n'
+    printf '## [v0.42.0] - 2026-08-25\n\n'
+    printf '### Tests\n'
+    printf -- '- **a shipped entry** -- under a heading nobody may now write.\n'
+  } > "${CHANGELOG}"
+  run _run_changelog_entry
+  assert_success
+}
+
+# why: A roster written in two places drifts one place at a time, and the copy
+# that drifts is the one contributors read. This is what keeps the single
+# definition honest: the prose is a rendering, and a rendering that has
+# stopped agreeing is a wrong answer delivered confidently to the person
+# asking.
+@test "_run_changelog_entry: FAILS when the documented roster disagrees with the code (#926)" {
+  # A roster written in two places drifts one place at a time, and the
+  # copy that drifts is the one contributors read. The driver's array is
+  # the definition; CONVENTIONS.md is a rendering of it, and a rendering
+  # that has stopped agreeing is worse than none -- it is a wrong answer
+  # delivered confidently to exactly the person asking the question.
+  mkdir -p "${SCRATCH}/doc/changelog"
+  {
+    printf '# Writing a changelog entry\n\n'
+    printf '<!-- changelog-categories: begin -->\n\n'
+    printf -- '- `BREAKING`\n'
+    printf -- '- `Added`\n'
+    printf -- '- `Documentation`\n\n'
+    printf '<!-- changelog-categories: end -->\n'
+  } > "${SCRATCH}/doc/changelog/CONVENTIONS.md"
+  _write_changelog \
+    '### Added' \
+    '- **an entry** (#1, PR #2) -- fine.'
+  run _run_changelog_entry
+  assert_failure
+  assert_output --partial 'CONVENTIONS.md'
+}
 
 @test "_run_changelog_entry: the real repo tree's [Unreleased] section is clean (#917)" {
   REPO_ROOT=/source
@@ -869,7 +1075,11 @@ _long_prose() {
 # three rules that row must name -- not the whole table, and not "the docs
 # match the drivers": what a driver refuses cannot be derived from its
 # source, so a wider name here would be a claim the body cannot keep.
-@test "TEST.md's changelog-entry row names all three rules this lint enforces (#956)" {
+# why: The row is where a reader learns what this lint refuses, and it has
+# already drifted once -- a merge resolved it wholly to the older side and
+# dropped two rules with nothing to notice. Narrow by design: it guards
+# one row and the rules that row must name, not the whole table.
+@test "TEST.md's changelog-entry row names all four rules this lint enforces (#956)" {
   local _doc=/source/doc/test/TEST.md
   local _row _st=0
   _row="$(grep -F '| `changelog-entry` |' "${_doc}")" || _st=$?
@@ -880,9 +1090,13 @@ _long_prose() {
     fail "no readable '| \`changelog-entry\` |' row in ${_doc} (grep exit ${_st})"
   fi
   assert_equal "$(printf '%s\n' "${_row}" | wc -l)" 1
-  # The over-length rule, the duplicate-entry rule and the
-  # repeated-category-heading rule -- one clause each.
+  # The over-length rule, the duplicate-entry rule, the
+  # repeated-category-heading rule and the locked roster -- one clause each.
+  # The roster clause has to name where the roster IS: a row that says a
+  # heading must be "one of the allowed set" and does not say which set
+  # sends the reader hunting, which is the doc doing nothing.
   [[ "${_row}" == *"700 chars"* ]]
   [[ "${_row}" == *"lead bullet"* ]]
   [[ "${_row}" == *"heading opening twice"* ]]
+  [[ "${_row}" == *"changelog_categories.sh"* ]]
 }

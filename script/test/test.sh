@@ -126,6 +126,8 @@ source "${SCRIPT_DIR}/drivers/i18n_orphan.sh"
 source "${SCRIPT_DIR}/drivers/self_hosted_guard.sh"
 # shellcheck source=script/test/drivers/changelog_entry.sh
 source "${SCRIPT_DIR}/drivers/changelog_entry.sh"
+# shellcheck source=script/test/drivers/changelog_layout.sh
+source "${SCRIPT_DIR}/drivers/changelog_layout.sh"
 # shellcheck source=script/test/drivers/pin_coverage.sh
 source "${SCRIPT_DIR}/drivers/pin_coverage.sh"
 # shellcheck source=script/test/drivers/action_ref_agreement.sh
@@ -171,6 +173,7 @@ readonly _LINT_TOOLS=(
   i18n-orphan
   self-hosted-guard
   changelog-entry
+  changelog-layout
   pin-coverage
   action-ref-agreement
   generated-workflow-actions
@@ -247,6 +250,7 @@ _run_lint_tool() {
     i18n-orphan)      _run_i18n_orphan ;;
     self-hosted-guard) _run_self_hosted_guard ;;
     changelog-entry)  _run_changelog_entry ;;
+    changelog-layout) _run_changelog_layout ;;
     pin-coverage)     _run_pin_coverage ;;
     action-ref-agreement) _run_action_ref_agreement ;;
     generated-workflow-actions) _run_generated_workflow_actions ;;
@@ -411,7 +415,11 @@ Options:
                           code can never execute on the org's self-hosted
                           machine)
   --changelog-entry       With --lint: run only the changelog entry lint
-                          ([Unreleased] entries only: a length cap measured
+                          ([Unreleased] entries only: a category heading
+                          drawn from the locked roster in
+                          script/release/changelog_categories.sh, which
+                          doc/changelog/CONVENTIONS.md must print
+                          unchanged; a length cap measured
                           over the whole entry with whitespace collapsed,
                           so rewrapping the same prose or splitting it into
                           sub-bullets buys no budget; plus an entry that
@@ -420,6 +428,15 @@ Options:
                           both reported with BOTH line numbers. Released
                           sections are never checked -- rewriting a shipped
                           entry falsifies it)
+  --changelog-layout      With --lint: run only the changelog layout lint
+                          (the changelog is one file per 0.Y series behind
+                          a generated index: a vX.Y.Z section lives in
+                          vX.Y.md, its compare-link definition lives in the
+                          SAME file because markdown link definitions are
+                          file-scoped, exactly one series file carries
+                          '## [Unreleased]', and the index block is
+                          re-derived by script/release/changelog_index.sh
+                          and must match what is committed)
   --pin-coverage          With --lint: run only the pin-coverage lint
                           (every third-party version this repo names in a
                           Dockerfile or a workflow -- the versions
@@ -485,6 +502,7 @@ Options:
                             --i18n-orphan-only       pure bash
                             --self-hosted-guard-only pure bash
                             --changelog-entry-only   pure bash
+                            --changelog-layout-only  pure bash
                             --pin-coverage-only      pure bash
                             --action-ref-agreement-only pure bash
                             --generated-workflow-actions-only pure bash
@@ -1908,6 +1926,7 @@ main() {
       --i18n-orphan) lint_tool="i18n-orphan"; shift ;;
       --self-hosted-guard) lint_tool="self-hosted-guard"; shift ;;
       --changelog-entry) lint_tool="changelog-entry"; shift ;;
+      --changelog-layout) lint_tool="changelog-layout"; shift ;;
       --pin-coverage) lint_tool="pin-coverage"; shift ;;
       --action-ref-agreement) lint_tool="action-ref-agreement"; shift ;;
       --generated-workflow-actions) lint_tool="generated-workflow-actions"; shift ;;
@@ -1929,6 +1948,7 @@ main() {
       --i18n-orphan-only) host_lint="i18n-orphan"; shift ;;
       --self-hosted-guard-only) host_lint="self-hosted-guard"; shift ;;
       --changelog-entry-only) host_lint="changelog-entry"; shift ;;
+      --changelog-layout-only) host_lint="changelog-layout"; shift ;;
       --pin-coverage-only) host_lint="pin-coverage"; shift ;;
       --action-ref-agreement-only) host_lint="action-ref-agreement"; shift ;;
       --generated-workflow-actions-only) host_lint="generated-workflow-actions"; shift ;;

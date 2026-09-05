@@ -1,1 +1,15 @@
+# The changelog is one file per 0.Y series (doc/changelog/vX.Y.md) behind an
+# index (doc/changelog/CHANGELOG.md). Both are append-only and both are
+# named: [Unreleased] moved into the series file being written, so a pattern
+# naming only CHANGELOG.md would leave the one file branches actually append
+# to on the default three-way merge.
+#
+# The pattern is NOT the whole directory. A union merge cannot conflict --
+# git keeps both sides of every overlapping hunk and marks nothing -- which
+# is right for a log and wrong for prose. doc/changelog/CONVENTIONS.md is
+# prose, and no gate in this repo reads it outside its changelog-categories
+# marker block, so a union-merged duplicate paragraph there would ship
+# unremarked. `doc/changelog/*.md` would have covered it; `v[0-9]*.md` names
+# the series files and nothing else.
 doc/changelog/CHANGELOG.md merge=union
+doc/changelog/v[0-9]*.md merge=union

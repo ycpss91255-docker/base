@@ -141,7 +141,7 @@ flowchart LR
     release_worker -->|"tar.gz + zip"| release["GitHub Release"]
 ```
 
-<!-- sync: whats-included 15d472ab822b be1c0e7dc10f -->
+<!-- sync: whats-included 15d472ab822b fe13e3fcdb36 -->
 ### 含まれるもの
 
 | ファイル | 説明 |
@@ -196,7 +196,7 @@ flowchart LR
 | `dist/script/base/upgrade.sh` | Subtree バージョンアップグレード（`just base upgrade [vX.Y.Z]`）。 |
 | `script/test/justfile.test` | base 自己テストのエントリ（`just test`、`just test lint`、`just test coverage`、…）。 |
 | `script/release/justfile.release` | base の `release` namespace（release / publish ツール）。 |
-| `script/watch/justfile.watch` | base の `watch` namespace — アップストリームのリリース監視（`just watch`、`just watch pins`、`just watch bump <name> <version>`）。 |
+| `script/watch/justfile.watch` | base の `watch` namespace — 上流リリース監視（`just watch`、`just watch pins`、`just watch bump <name> <version>`）。 |
 | `script/test/test.sh` | base 自己テストのディスパッチャ（ローカル + コンテナ内） |
 | `script/test/drivers/` | ツールごとに 1 つの driver — `bats.sh` / `shellcheck.sh` / `hadolint.sh` |
 | `script/test/lint_bare_stderr.sh` | 素の stderr 出力 lint チェッカ |
@@ -1255,7 +1255,7 @@ just --list  # CI ターゲット表示
 [system](../test/system.md) / [acceptance](../test/acceptance.md) /
 [smoke](../test/smoke.md)）。
 
-<!-- sync: directory-structure 018c147ed3e5 ee55c77ca793 -->
+<!-- sync: directory-structure baa1cd88323d edc420381abd -->
 ## ディレクトリ構造
 
 ```
@@ -1311,13 +1311,8 @@ just --list  # CI ターゲット表示
 │   │   └── drivers/                    # lint/test ツールごとに 1 driver（bats / shellcheck / hadolint
 │   │                                   #   / issueref / adr_numbering / stale_setup_conf / readme_sync
 │   │                                   #   / doc_counts / home_literal / derived_figures / coverage_gate）
-│   ├── release/
-│   │   └── justfile.release            # just release <recipe>
-│   └── watch/                          # アップストリーム監視（pin と upstream の比較）
-│       ├── justfile.watch              # just watch / pins / value / bump / uncovered
-│       ├── lib.sh                      # tool-pin マーカーの文法・リーダー・検出器
-│       ├── pins.sh                     # 宣言された pin の読み書き（ネットワーク不要）
-│       └── check.sh                    # 各 pin をアップストリームと比較
+│   └── release/
+│       └── justfile.release            # just release <recipe>
 ├── dockerfile/
 │   └── Dockerfile.test-tools           # プリビルド lint/test ツール image（shellcheck/hadolint/bats）
 ├── test/                               # base 自身の spec（tool-first：test/<tool>/<category>/）
@@ -1347,8 +1342,10 @@ just --list  # CI ターゲット表示
 │   │   ├── system.md             # System／Regression テスト一覧
 │   │   ├── acceptance.md         # Acceptance テスト一覧（予約、S5 #785）
 │   │   └── smoke.md                   # smoke テスト一覧
-│   ├── changelog/
-│   │   └── CHANGELOG.md
+│   ├── changelog/                     # 生成された索引の下に 0.Y シリーズごと 1 ファイル
+│   │   ├── CHANGELOG.md                # 索引：全シリーズとその期間、BREAKING 項目（生成）
+│   │   ├── CONVENTIONS.md              # エントリの書き方
+│   │   └── v0.NN.md                    # 0.Y シリーズごとに 1 つ、最新が [Unreleased] を持つ
 │   └── deprecations.md
 ├── CONTEXT.md
 ├── .gitignore

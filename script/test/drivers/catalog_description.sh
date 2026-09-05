@@ -206,35 +206,34 @@ readonly _CATALOG_DESC_SCAN_GLOBS=(
 # would have to re-derive. See the header for why this is one number and
 # not a file of them.
 #
-# 2622 -> 2614 (base#994 phase 3): that branch described eight cases in
-# test/bats/unit/shell_metrics_spec.bats -- four it was rewriting anyway
-# and the four boundary cases beside them -- and that is the whole of the
-# 8. Every case it ADDED carries a marker, so none of them moved this
-# number in either direction. Lowering the ceiling is not REQUIRED of a
-# branch that writes descriptions; that is the slack this design accepts.
-# But the slack was its own, so it closed it, which is the ordinary
-# direction.
+# 2622 -> 2620 at the changelog-split merge, and that is the ordinary
+# direction again, not a second reset. That branch added 42 tests and
+# renamed 2, and all 44 were described here rather than imported as debt --
+# the 42 are this branch's own, and the 2 renames were already inside the
+# ceiling, so describing them is what takes the number down by 2.
 #
-# 2609 -> 2598 (the tool-version-watch merge, base#987). This is NOT a
-# reset: the merge went the other way. The branch predates the `# why:`
-# rule and arrived with 165 undescribed tests across its five watch specs,
-# which would have put the count 164 over. Raising the number to fit them
-# is the one move the header forbids, so all 165 were described, plus 8
-# already-undescribed cases in generated_workflow_actions_lint_spec.bats
-# that the same branch was editing anyway. That left 11 of slack against a
-# ceiling this branch had not earned, so it goes down to the recomputed
-# figure -- the ordinary direction, and it restores the ratchet to the one
-# notch of slack it stood at before.
+# 2605 at the second merge with origin/main. This is the case the number's
+# storage makes awkward and it is worth writing down: BOTH sides had
+# lowered it independently -- 2612 here, 2607 on main -- and NEITHER was
+# right afterwards, because the descriptions compose. The merged tree
+# measures 2605. Taking a side would have handed this branch slack it did
+# not earn (2612) or claimed a floor the tree does not reach (2607); the
+# rule is to recompute from the merged tree, which is what the catalogue
+# itself does. See base#1024 for why a single stored number conflicts on
+# every merge by construction.
 #
-# 2598 -> 2597 (merging origin/main a second time, base#1029). Both sides
-# lowered the number from 2609 -- this branch by 11, main by 2 -- and
-# neither reduction is the other's, so the merged tree carries both. 2597
-# is what the driver counts over the MERGED spec tree, not the lower of
-# the two sides and not a value above either of them: a number above both
-# is a raise, and only an import of tests written before this rule existed
-# may do that. It leaves zero slack, which is the ratchet at its tightest
-# and the state the next branch should expect to inherit.
-readonly _CATALOG_DESC_UNDESCRIBED_CEILING=2597
+# 2595 at the third merge with origin/main. Both sides had lowered it again
+# and independently -- 2605 here, 2597 on main -- and the merged tree
+# measures 2595, below both. Recomputed rather than picked, for the third
+# time on this branch; base#1024 is the issue for why a single stored number
+# does this on every merge by construction.
+#
+# 2580 at the fourth merge with origin/main. This one did NOT conflict: main
+# lowered it alone, while two branches that landed first described tests.
+# Leaving the number where it stood would hand this branch fifteen notches
+# main earned, so it is recomputed from the merged tree like the three
+# before it.
+readonly _CATALOG_DESC_UNDESCRIBED_CEILING=2580
 
 # The written-out non-answers, matched case-insensitively on the whole
 # trimmed marker. `nil`, `none`, `tbd`, `todo` and `unknown` carry a

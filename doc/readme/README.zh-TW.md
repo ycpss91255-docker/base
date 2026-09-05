@@ -137,7 +137,7 @@ flowchart LR
     release_worker -->|"tar.gz + zip"| release["GitHub Release"]
 ```
 
-<!-- sync: whats-included 15d472ab822b f2a9fdf253ea -->
+<!-- sync: whats-included 15d472ab822b 77e2a7e702de -->
 ### 包含內容
 
 | 檔案 | 說明 |
@@ -194,7 +194,7 @@ flowchart LR
 | `dist/script/base/upgrade.sh` | Subtree 版本升級（`just base upgrade [vX.Y.Z]`）。 |
 | `script/test/justfile.test` | base 自身測試入口（`just test`、`just test lint`、`just test coverage` …）。 |
 | `script/release/justfile.release` | base `release` namespace（release / publish 工具）。 |
-| `script/watch/justfile.watch` | base `watch` namespace — 上游 release 監看（`just watch`、`just watch pins`、`just watch bump <name> <version>`）。 |
+| `script/watch/justfile.watch` | base `watch` namespace — 上游發佈監控（`just watch`、`just watch pins`、`just watch bump <name> <version>`）。 |
 | `dist/dockerfile/Dockerfile` | 新 repo 的多階段 Dockerfile 範本 |
 | `dockerfile/Dockerfile.test-tools` | 預建置 lint/test 工具 image（shellcheck、hadolint、bats、bats-mock） |
 | `.github/workflows/` | 可重用 CI workflows（build + release） |
@@ -1168,7 +1168,7 @@ just --list  # 顯示 CI 指令
 [system](../test/system.md) / [acceptance](../test/acceptance.md) /
 [smoke](../test/smoke.md)）。
 
-<!-- sync: directory-structure 018c147ed3e5 e45f83b3a8b2 -->
+<!-- sync: directory-structure baa1cd88323d 7114280bc184 -->
 ## 目錄結構
 
 ```
@@ -1224,13 +1224,8 @@ just --list  # 顯示 CI 指令
 │   │   └── drivers/                    # 每個 lint/test 工具一支 driver（bats / shellcheck / hadolint
 │   │                                   #   / issueref / adr_numbering / stale_setup_conf / readme_sync
 │   │                                   #   / doc_counts / home_literal / derived_figures / coverage_gate）
-│   ├── release/
-│   │   └── justfile.release            # just release <recipe>
-│   └── watch/                          # 上游 release 監看（pin 與 upstream 比對）
-│       ├── justfile.watch              # just watch / pins / value / bump / uncovered
-│       ├── lib.sh                      # tool-pin 標記的語法、讀取器與偵測器
-│       ├── pins.sh                     # 讀寫已宣告的 pin（不需網路）
-│       └── check.sh                    # 將每個 pin 與上游比對
+│   └── release/
+│       └── justfile.release            # just release <recipe>
 ├── dockerfile/
 │   └── Dockerfile.test-tools           # 預建置 lint/test 工具 image（shellcheck/hadolint/bats）
 ├── test/                               # base 自身 spec（tool-first：test/<tool>/<category>/）
@@ -1260,8 +1255,10 @@ just --list  # 顯示 CI 指令
 │   │   ├── system.md             # System／Regression 測試清單
 │   │   ├── acceptance.md         # Acceptance 測試清單（保留，S5 #785）
 │   │   └── smoke.md                   # smoke 測試清單
-│   ├── changelog/
-│   │   └── CHANGELOG.md
+│   ├── changelog/                     # 生成的索引之下，每個 0.Y 系列一個檔案
+│   │   ├── CHANGELOG.md                # 索引：每個系列、其日期與 BREAKING 條目（生成）
+│   │   ├── CONVENTIONS.md              # 如何寫一條條目
+│   │   └── v0.NN.md                    # 每個 0.Y 系列一個；最新的那個帶有 [Unreleased]
 │   └── deprecations.md
 ├── CONTEXT.md
 ├── .gitignore
