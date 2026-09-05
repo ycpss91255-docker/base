@@ -73,6 +73,20 @@ jobs:
       github.event_name != 'pull_request' ||
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, gpu]
+    # This bounds the WORST LEGAL DISPATCH, not the fast one. On the
+    # 32-core machine ADR-00000008's Measurement was taken on, the default
+    # (nproc, 32 slices) finished in 299 s, but `jobs: 1` is a legal input
+    # here and is the one an operator picks to reproduce the serial figure:
+    # that control run took 2022 s, 34 minutes. The headroom on top is a
+    # multiple rather than a margin for two reasons that are properties of
+    # this runner, not of the mode -- no TEST_TOOLS_IMAGE is pinned below,
+    # so a checkout whose tooling Dockerfile moved builds the image before
+    # it measures anything, and the concurrency group serialises this
+    # workflow against itself but NOT against the other tenants of a shared
+    # workstation. ~2.6x the measured worst case. The bound is here to
+    # catch a HANG before GitHub's six-hour default does, not to police a
+    # slow run.
+    timeout-minutes: 90
     steps:
       - name: Checkout
         uses: actions/checkout@v7
