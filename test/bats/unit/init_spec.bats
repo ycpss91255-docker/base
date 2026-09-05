@@ -1036,6 +1036,30 @@ _fake_setup_sh() {
   assert_line ".setup.conf"
 }
 
+# The record is a comparison of the file's content across the call, and a
+# command substitution strips EVERY trailing newline -- so the `; printf x`
+# sentinel on both reads is the only thing that makes a pass whose one
+# change is a final newline visible to it. Without an arm on exactly that
+# input the sentinel is unproven: every other arm here changes bytes the
+# substitution keeps.
+
+# why: the one failure the trailing-newline sentinel exists for -- a write
+# the record cannot see is a write that never reaches the commit, which is
+# the tree/commit disagreement this staging closes
+@test "the resync: stages a .setup.conf rewritten only in its final newline (#1036)" {
+  _source_init
+  : > "${TMP_REPO}/Dockerfile"
+  printf '[project]\nname = mine\n' > "${TMP_REPO}/.setup.conf"
+  # Byte-identical but for the newline setup.sh drops off the end.
+  _fake_setup_sh 'printf "[project]\nname = mine" > "${3}/.setup.conf"'
+  _git_seed_consumer
+  _init_existing_repo
+  _call_setup
+  _stage_resync_output
+  run git -C "${TMP_REPO}" diff --cached --name-only
+  assert_line ".setup.conf"
+}
+
 # .gitignore and .dockerignore are the seventh and eighth paths of this
 # shape, and the pair the enumeration above missed. _sync_managed_entries
 # appends only the canonical entries the file is MISSING and returns
@@ -1097,6 +1121,28 @@ fixtures/
   run git -C "${TMP_REPO}" diff --cached --name-only
   assert_line ".gitignore"
   assert_line ".dockerignore"
+}
+
+# why: the ignore-file half of the same sentinel -- the [logging] block
+# sync re-emits the file line by line, so restoring a final newline a hand
+# edit dropped is a real pass whose ONLY change a substitution would eat
+@test "the resync: stages a .gitignore whose one change is its final newline (#1036)" {
+  _source_init
+  : > "${TMP_REPO}/Dockerfile"
+  # A relative [logging] local_path is what puts a managed block in
+  # .gitignore, and the block is what the second pass below re-emits.
+  printf '[logging]\nlocal_path = log\n' > "${TMP_REPO}/.setup.conf"
+  _git_seed_consumer
+  _init_existing_repo
+  # A hand edit that drops the final byte, committed: every canonical entry
+  # is present, so the append sync has nothing to write and restoring this
+  # newline is the whole of what the second pass below changes.
+  truncate -s -1 "${TMP_REPO}/.gitignore"
+  git -C "${TMP_REPO}" add -A
+  git -C "${TMP_REPO}" commit -q -m "chore: first resync"
+  _resync_and_stage
+  run git -C "${TMP_REPO}" diff --cached --name-only
+  assert_line ".gitignore"
 }
 
 # why: `git add` refuses the WHOLE batch on a path outside the repo, and a
