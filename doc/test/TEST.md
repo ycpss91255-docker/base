@@ -41,8 +41,9 @@ and green without it. kcov wraps every bash process it traces, sets its own
 `PS4`, and perturbs a nested `set -u` shell, so a spec can depend on something
 that only the coverage run disturbs -- which is precisely the class the
 coverage matrix exists to catch, and the class that is hardest to iterate on.
-The other two instrumented entries are the whole suite and a whole shard,
-minutes each; this one runs the spec you name.
+The other instrumented entries are the whole suite (serially, or as parallel
+kcov processes) and a whole shard, minutes each; this one runs the spec you
+name.
 
 **It reports no coverage figure, deliberately.** The kcov report goes to a
 throwaway directory inside the container and is removed on the way out, so
@@ -50,8 +51,8 @@ nothing this mode runs can write `coverage/cobertura.xml` -- which the
 coverage-gate merges into the project line rate -- or `coverage/timings.tsv`,
 which becomes the next partition's weights. One spec's covered lines over the
 whole tree's denominator is not a project rate. Ask for a figure with
-`just test coverage` (full suite) or `just test coverage <n>/<total>` (one
-shard); ask for a RUN with this.
+`just test coverage` / `just test coverage-local` (full suite) or
+`just test coverage <n>/<total>` (one shard); ask for a RUN with this.
 
 **It does not consult the shard partition, and that is load-bearing.** The
 partition is greedy longest-processing-time bin-packing over per-spec weights
@@ -68,6 +69,43 @@ you name is the spec that runs, in both places.
 ShellCheck, no kcov, on the `ci` service. It refuses `--coverage` and still
 does: that combination is this recipe, on the `coverage` service, which is
 where kcov lives.
+
+## A full-scope coverage run on all your cores: `just test coverage-local`
+
+```bash
+just test coverage-local        # N = nproc
+just test coverage-local 8      # N = 8
+```
+
+It measures exactly what `just test coverage` measures and writes the same
+`coverage/` tree, including the `scope=full` stamp `just release
+coverage-badge` requires. The only difference is how many cores it uses: N
+concurrent kcov processes over the shared time-balanced partition, merged
+with `kcov --merge` into one report.
+
+**Why processes and not `bats --jobs`.** kcov's bash engine parses one
+xtrace stream per traced process and is single-threaded, and `kcov` over
+`bats --jobs` is unreliable for coverage ACCURACY -- which is why the
+coverage path is serial while the normal path is not (ADR-00000008). N
+independent kcov processes each trace their own children into their own
+database and share nothing until the merge, so the accuracy argument does
+not reach them.
+
+**Prefer it over `just test coverage` on a machine with cores to spare.**
+The release path needs a full-scope run -- the badge generator refuses a
+partial one -- so the serial run sits on the critical path of every release.
+The shard matrix does not help there: one runner runs one job, so eight
+matrix entries on one machine run one after another.
+
+**A slice that produced no report FAILS the run.** Not a smaller merged
+total: merging the survivors would publish a shrunken line set under a
+whole-suite certificate, which reads as a coverage regression rather than
+as the lost slice it is. The same applies to a job count that is not a
+positive integer, and to asking for more slices than the suite has specs.
+
+`just test coverage <n>/<total>` remains the way to prove ONE matrix slice
+locally. The two answer different questions: that one asks what a CI shard
+does, this one asks what the project's rate is.
 
 ## Static lints and where they are enforced
 
