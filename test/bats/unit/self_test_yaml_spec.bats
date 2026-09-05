@@ -1539,10 +1539,11 @@ YAML
 }
 
 @test "self-test.yaml: shellcheck job runs test.sh --shellcheck-only on plain ubuntu-latest (#376)" {
-  # Goal: ~30s feedback on a shellcheck regression. Plain ubuntu-latest
-  # ships shellcheck pre-installed so no apt-install / no buildx /
-  # no test-tools image is needed — keeps the job cold-startup cost
-  # near zero.
+  # Goal: ~30s feedback on a shellcheck regression, which is why the job
+  # takes neither buildx nor the test-tools image -- it keeps the cold
+  # start near zero. It no longer takes the runner's pre-installed
+  # binary either (base#1080): the two tests below pin how it obtains
+  # the declared one instead, for one tarball's worth of time.
   run yaml_job_lines "${WF}" shellcheck
   assert_success
   assert_output --partial 'runs-on: ubuntu-latest'

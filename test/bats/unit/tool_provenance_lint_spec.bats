@@ -123,6 +123,9 @@ _workflow() {
   [ "${status}" -ne 0 ]
   [[ "${output}" == *"job lint"* ]]
   [[ "${output}" == *"shellcheck"* ]]
+  # And the finding names WHERE the demand came from. Without it a reader
+  # is sent looking for the word `shellcheck` in a job whose shell says
+  # `--needs-binary-only`.
   [[ "${output}" == *"needs_binary.sh"* ]]
 }
 

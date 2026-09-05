@@ -4764,7 +4764,7 @@ alias / `network.network_name` / `devices.device_` / `security.cap_add_` /
 | `self-hosted guard: the real repo tree has every eligible job guarded` | - |
 | `self-hosted guard: the real tree's eligible set is the three runtime-matrix worker jobs plus the one that names the runner outright` | - |
 
-### test/bats/unit/self_test_yaml_spec.bats (116)
+### test/bats/unit/self_test_yaml_spec.bats (119)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks fourteen
 cumulative invariants:
@@ -5155,6 +5155,9 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: declares shellcheck job (#376)` | - |
 | `self-test.yaml: shellcheck job needs actionlint + classify and gates on code_changed (#376)` | - |
 | `self-test.yaml: shellcheck job runs test.sh --shellcheck-only on plain ubuntu-latest (#376)` | - |
+| `self-test.yaml: shellcheck job installs the pinned ShellCheck rather than the runner's (#1080)` | base#1080. The job used to run whatever `ubuntu-latest` shipped pre-installed, so the local gate -- which runs v0.11.0 out of the test-tools image -- could not predict this required check in either direction, and which of the two binaries was stricter changed with GitHub's runner-image release schedule rather than with a commit here. |
+| `self-test.yaml: shellcheck job reads the version from the declaration, it does not restate it (#1080)` | One declaration, not a second copy of the number. The version comes out of dockerfile/Dockerfile.test-tools through the same accessor the release smoke step reads, so a bump moves both with nothing to remember. |
+| `self-test.yaml: shellcheck job asserts the installed binary IS the pin (#1080)` | Installing a tarball proves a download happened, not that the binary on PATH is the pinned one -- a pre-installed shellcheck earlier in PATH would keep the job green while nothing changed. |
 | `self-test.yaml: declares doc-counts job (#864)` | - |
 | `self-test.yaml: doc-counts job runs test.sh --doc-counts-only on plain ubuntu-latest (#864)` | - |
 | `self-test.yaml: doc-counts carries NO code_changed gate (#864)` | - |
@@ -6496,6 +6499,24 @@ is the smoke step, which iterates this same roster.
 | `pins: the just pin is the number the test-tools image installs` | The pin and the image must be one number, or the accessor answers for a just the image does not ship |
 | `pins: the CI just install reads the pin instead of repeating it` | Otherwise the workflow carries a fourth copy, and a bump moving only the Dockerfile leaves CI testing a different just than the image ships |
 | `pins: setup-just is no longer invoked without a just-version` | An unversioned setup-just installs whatever released most recently, so the e2e job turns red on a day nobody touched the repo |
+
+### test/bats/unit/tool_provenance_lint_spec.bats (13)
+
+| Test | Description |
+|------|-------------|
+| `tool provenance: FAILS on a job invoking a pinned tool directly` | The direct shape. A job invoking a pinned binary on a bare runner is running whatever the runner image happens to carry that week, which is the divergence base#1080 measured. |
+| `tool provenance: FAILS on a host-direct test.sh selector whose driver needs a pinned binary` | base#1080 itself. The job's shell says `--shellcheck-only`, not `shellcheck`, so a scan for command words alone reads it as clean. The demand is resolved through the driver the selector names. |
+| `tool provenance: REFUSES a host-direct selector whose driver file is absent` | A selector naming a driver that does not exist cannot be resolved, and an unresolvable demand must not read as no demand -- that is the silent green this lint exists to refuse. |
+| `tool provenance: PASSES a job that installs the tool from the declaration` | The fix shape. The job reads the version from the one declaration and installs it, so the binary it runs is the binary the gate runs. |
+| `tool provenance: PASSES a job that obtains the pinned test-tools image` | The other legitimate provenance: the tool comes from the image whose every version this repo pins, so no per-tool evidence is needed. |
+| `tool provenance: PASSES a host-direct selector whose driver is pure bash` | A pure-bash driver demands nothing, and a lint that reported one anyway would push every lint job into obtaining an image it does not need -- the cost the split-out jobs exist to avoid. |
+| `tool provenance: resolves --lint-group through test.sh, not through a group list` | `--lint-group N/T` takes its index from a matrix expression, so the demand is the UNION over the whole partition -- resolved by asking test.sh for the members of the single-group partition rather than by a list of which driver lands in which group. |
+| `tool provenance: a tool named in a comment is not an invocation` | A comment installs and runs nothing, and the prose of this repo -- this driver's own header included -- names every tool it reasons about. |
+| `tool provenance: a tool name in an argument or a path is not an invocation` | ci-rollup echoes the name of the job whose result it reports, and a path under coverage/ carries `kcov` in it. Neither runs anything, and a lint that read them as invocations would be answered by muting it -- which is how a guard stops being read. |
+| `tool provenance: a tool named in a step name is not an invocation` | A job `name:` is a label in the checks list, not a command. The bats jobs are named after the harness they run, so reading names as demands would report every one of them. |
+| `tool provenance: REFUSES a workflow tree with no job at all` | An empty workflow directory scans nothing and would report every job compliant, which is the failure mode of every guard this repo has had to repair. |
+| `tool provenance: REFUSES an empty roster` | The roster is the population of tools. If the accessor stops answering, the scan has nothing to look for and passes having looked at nothing. |
+| `tool provenance: the live workflow tree is clean` | The rule above is worth nothing if the repo it guards does not satisfy it. This is also the assertion that fails the day a new job reaches for a runner-provided pinned tool. |
 
 ### test/bats/unit/tool_version_watch_yaml_spec.bats (23)
 
