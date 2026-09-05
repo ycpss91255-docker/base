@@ -57,6 +57,16 @@
 # in this lint's population and out of the verb's, which is a finding no
 # documented command can clear.
 #
+# The split also runs the OTHER way, and no reading of a rule can catch
+# that one. git never ignores a file it TRACKS -- `.gitignore` decides
+# what to do about a path git has not been told about -- so a tracked path
+# the root file names is in the git tier and pruned out of the walk's, with
+# the rule applied exactly by both. There the walk reads LESS than the verb
+# sweeps, and it is the tier the local gate takes, so a stale reference in
+# such a file is invisible to `just test` while `just adr renumber`
+# rewrites it. Only the git tier can see it, and _adr_ref_tier_split is
+# where it says so.
+#
 # So the reader applies every form it can apply EXACTLY, and REPORTS the
 # rest rather than skipping them. The line between the two is not a
 # judgement about how likely a form is; it is whether `find`'s matcher and
@@ -448,6 +458,46 @@ _adr_ref_unreadable_ignores() {
 _adr_ref_population_refusal() {
   printf 'no file under %s can carry an ADR reference, so every reference check over it would pass by examining nothing. A tree carrying a doc/adr/ has at least the record itself to read, so this is a scan that has stopped matching -- most often an ignore rule that covers the whole root.\n' \
     "$1"
+}
+
+# _adr_ref_tier_split <root> -- `<path><TAB><reason>` for every file the
+# GIT tier reads that the walk would not, one per line, and NOTHING where
+# git cannot answer.
+#
+# The divergence the rule-level report above cannot see, because the rule
+# was applied exactly and the tiers still disagree. git never ignores a
+# file it TRACKS: `.gitignore` decides what to do about a path git has not
+# been told about, so a tracked path the root file names is in the git
+# tier's population and pruned out of the walk's. The walk then reads LESS
+# than the verb sweeps, which is the direction the header's account did
+# not consider -- and the direction the local gate takes, so a stale
+# reference in such a file is invisible to `just test` while
+# `just adr renumber` rewrites it.
+#
+# Only that direction. The other one -- a path the walk reads and git
+# drops -- is already reported, in the tier that can act on it and by the
+# rule that causes it (_adr_ref_unreadable_ignores): a negation, a
+# wildcard beside a separator, a nested file. That report is about the
+# RUN, and in the git tier the run's population IS the verb's, so a
+# finding there would name nothing this run got wrong. What is reported
+# here is not about the run at all: it is a fact about the TREE that only
+# the git tier can observe, and its repair -- untrack the file, or narrow
+# the rule that covers it -- is one a diff can show.
+_adr_ref_tier_split() {
+  local _root="$1" _rel
+  local -a _git=() _walk=()
+  mapfile -t _git < <(_adr_ref_git_files "${_root}")
+  (( ${#_git[@]} > 0 )) || return 0
+  mapfile -t _walk < <(_adr_ref_walk "${_root}")
+  local -A _seen=()
+  for _rel in "${_walk[@]+"${_walk[@]}"}"; do
+    _seen["${_rel}"]=1
+  done
+  for _rel in "${_git[@]}"; do
+    [[ -z "${_seen[${_rel}]:-}" ]] || continue
+    printf '%s\ta path git reads and the walk prunes; git does not ignore a file it tracks\n' \
+      "${_rel}"
+  done
 }
 
 # _adr_ref_files <root> -- every file under <root> that can carry a

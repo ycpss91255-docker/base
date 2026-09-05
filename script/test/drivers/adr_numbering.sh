@@ -298,6 +298,16 @@ _adr_ref_findings() {
     printf 'ADR numbering: %s: %s -- an ignore rule this scan cannot apply, so the files it covers are read here and never swept by "just adr renumber". Spell it as a separator-less pattern or an explicit path in the root .gitignore.\n' \
       "${_loc}" "${_text}"
   done < <(_adr_ref_unreadable_ignores "${_root}")
+  # The same honesty check for the split no ignore RULE can explain, and
+  # the one this run CAN see: git answered here, and it lists a file the
+  # walk prunes. The walk is the tier the in-container gate takes, so that
+  # file is one `just adr renumber` rewrites and `just test` never reads --
+  # a stale reference in it goes green locally and the two tiers name two
+  # populations, which is the state the shared reader exists to prevent.
+  while IFS=$'\t' read -r _loc _text; do
+    printf 'ADR numbering: %s: %s, so the walk that decides the population where git cannot be asked -- the in-container run of this lint -- never reads it while "just adr renumber" sweeps it. Untrack the file, or narrow the root .gitignore rule that covers it.\n' \
+      "${_loc}" "${_text}"
+  done < <(_adr_ref_tier_split "${_root}")
 }
 
 # _adr_marker_captive_findings <root> -- one line per DECLARED fixture
