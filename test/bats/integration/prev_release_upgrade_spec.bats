@@ -462,10 +462,21 @@ _assert_release_migrates_env() {
 #
 #   Which release drives is the whole point. The consumer's own vendored
 #   upgrade.sh does the committing, and it stages a pair of filenames
-#   hardcoded when it shipped -- so the OLDEST release in the
-#   compatibility window is the arm that says something here, and the run
-#   that rewrote the file is the only party that can stage it for every
-#   driver at once.
+#   hardcoded when it shipped, so the run that rewrote the files is the
+#   only party that can stage them for every driver at once.
+#
+#   EVERY release in the window drives this, not just the oldest, and the
+#   difference matters because the obvious reading of the paragraph above
+#   is wrong. The oldest release is the only one whose Step 5 misses the
+#   DOCKERFILE -- v0.42.0's reaches it -- so an arm that asserted only
+#   "the Dockerfile is in the commit" really would go quiet as the window
+#   slides forward. What this arm asserts is the whole listing, and no
+#   released Step 5 stages `.dockerignore`, the re-pointed wrappers or the
+#   monitor workflow, whatever its vintage. Measured, not assumed:
+#   disabling the staging in `init.sh` and driving with the NEWEST release
+#   fails here on ` M .dockerignore`. Pinning both ends is what stops the
+#   next reader from narrowing this back to one tag on the premise the
+#   first paragraph suggests.
 _assert_release_stages_migrated_files() {
   local _tag="${1:?BUG: _assert_release_stages_migrated_files expects a tag}"
 
@@ -521,6 +532,14 @@ _assert_release_stages_migrated_files() {
 # upgrade still leaves the file behind
 @test "the oldest supported upgrade.sh commits what the migrations rewrote (#1036)" {
   _assert_release_stages_migrated_files "$(_release_tag 2)"
+}
+
+# why: The oldest driver is the only one whose own Step 5 misses the
+# Dockerfile, so an arm that ran only there would go quiet as the window
+# slides forward and the fix could be deleted with the suite green; the
+# newest driver still leaves the rest of the resync unstaged without it
+@test "the newest supported upgrade.sh commits what the migrations rewrote (#1036)" {
+  _assert_release_stages_migrated_files "$(_release_tag 1)"
 }
 
 @test "a released upgrade.sh still migrates a hand-written .env to .env.local (#868)" {

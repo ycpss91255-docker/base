@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **164 tests**.
+Integration specs under `test/bats/integration/`: **165 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test levels and
@@ -274,11 +274,12 @@ the unit `tui_spec`.
 |------|-------------|
 | `test-tools image: just --version equals the declared pin (#948)` | - |
 
-### test/bats/integration/prev_release_upgrade_spec.bats (4)
+### test/bats/integration/prev_release_upgrade_spec.bats (5)
 
 | Test | Description |
 |------|-------------|
 | `the oldest supported upgrade.sh commits what the migrations rewrote (#1036)` | The commit is made by the consumer's OWN released upgrade.sh, so the only proof that the migrated Dockerfile lands in it is to let that script drive; a unit test on the staging helper passes while the real upgrade still leaves the file behind |
+| `the newest supported upgrade.sh commits what the migrations rewrote (#1036)` | The oldest driver is the only one whose own Step 5 misses the Dockerfile, so an arm that ran only there would go quiet as the window slides forward and the fix could be deleted with the suite green; the newest driver still leaves the rest of the resync unstaged without it |
 | `a released upgrade.sh still migrates a hand-written .env to .env.local (#868)` | - |
 | `the newest released upgrade.sh drives the current tree to a working consumer` | - |
 | `the previous released upgrade.sh drives the current tree to a working consumer (N-1)` | - |
