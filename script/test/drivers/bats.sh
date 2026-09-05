@@ -586,13 +586,20 @@ _run_coverage() {
 # that run was serial.
 #
 # Serial is not a kcov floor. kcov's bash engine parses one xtrace stream
-# per traced process and is single-threaded, and `kcov` wrapping
-# `bats --jobs` is unreliable for coverage ACCURACY -- which is exactly why
-# ADR-00000008 left the coverage path serial while the normal path is not.
-# What that argument does NOT forbid is N INDEPENDENT kcov processes, each
+# per traced process and is single-threaded, so N parallel bats jobs under
+# ONE kcov all feed one parser. base#1060 measured where that starts to cost
+# accuracy and found a BOUNDARY, not a blanket: a shard's covered set
+# survives it -- `_run_coverage` above runs a shard's bats parallel for that
+# reason -- and the full suite's does not, which is why the same function
+# declares `serial` on the full-suite branch. What is lost there is trace,
+# not execution, so the bound is trace VOLUME through the one parser.
+#
+# What that boundary does NOT reach is N INDEPENDENT kcov processes, each
 # wrapping a serial bats over its own slice, merged afterwards. Each process
-# traces its own children and writes its own database; nothing is shared but
-# the merge.
+# traces its own children into its own database and parses only its own
+# slice's volume; nothing is shared but the merge. This mode is therefore
+# the remedy for the full-suite case base#1060 could not take, not a
+# competing answer to it.
 #
 # The slices come from `_shard_unit_files`, the SAME greedy-LPT primitive the
 # CI matrix partitions with (base#724). A second partitioner would be a
@@ -719,9 +726,11 @@ _coverage_parallel_launch() {
   for (( _i = 1; _i <= ${#_cpl_slices[@]}; _i++ )); do
     mkdir -p "${_work}/junit-${_i}"
     # Word-split intentional: one bats target per slice file. Each slice's
-    # bats is SERIAL (no --jobs): `kcov` over `bats --jobs` is the
-    # combination ADR-00000008 found unreliable for accuracy, and this mode
-    # exists to get the cores WITHOUT it.
+    # bats is SERIAL, and that is the mode's whole shape: the cores come from
+    # separate kcov processes, each with its own parser. Handing a slice's
+    # bats concurrent jobs as well would put N of them back behind ONE
+    # parser -- the trace-volume bound base#1060 measured -- inside every
+    # slice, which is the cost this mode was built to remove.
     # shellcheck disable=SC2086
     kcov \
       --include-path="${REPO_ROOT}" \

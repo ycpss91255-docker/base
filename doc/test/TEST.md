@@ -93,13 +93,22 @@ not the merge: the suite covers slightly different lines depending on the
 order it runs in. ADR-00000008's Measurement has the numbers and the
 control that separates the two.
 
-**Why processes and not `bats --jobs`.** kcov's bash engine parses one
-xtrace stream per traced process and is single-threaded, and `kcov` over
-`bats --jobs` is unreliable for coverage ACCURACY -- which is why the
-coverage path is serial while the normal path is not (ADR-00000008). N
-independent kcov processes each trace their own children into their own
-database and share nothing until the merge, so the accuracy argument does
-not reach them.
+**Why processes and not `bats --jobs`.** A coverage SHARD does run its bats
+under `--jobs` inside one kcov (base#1060). The full-suite run does not, and
+the difference is measured rather than assumed. kcov's bash engine parses one
+xtrace stream per traced process and is single-threaded, so every concurrent
+bats job feeds that one parser: at shard volume it keeps up -- seven of eight
+runs reproduce the serial covered set exactly, the eighth was short 3 lines of
+6207 -- and at whole-suite volume it does not: 8617 covered lines serial,
+reproducibly, against 8532 and 8587 parallel, each a strict subset of the
+serial set and the two differing from each other. What is dropped is trace,
+not execution; the lost lines sit in subprocess-heavy specs whose tests PASS.
+
+The bound is therefore trace VOLUME through one parser, and N independent kcov
+processes remove it: each parses only its own slice, into its own database,
+sharing nothing until the merge. That makes this mode the remedy for the
+full-suite case base#1060 could not take, not a competitor to it
+(ADR-00000008, both amendments).
 
 **Prefer it over `just test coverage` on a machine with cores to spare.**
 The release path needs a full-scope run -- the badge generator refuses a

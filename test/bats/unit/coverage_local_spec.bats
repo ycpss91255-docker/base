@@ -9,9 +9,12 @@
 # coverage run the release badge requires falls back to the serial path --
 # tens of minutes pinning one core while the other thirty-one idle. kcov's
 # bash engine parses one xtrace stream per traced process and is
-# single-threaded, and `kcov` wrapping `bats --jobs` is unreliable for
-# coverage ACCURACY, so the ONLY parallelism available is N independent
-# kcov PROCESSES over disjoint slices, merged.
+# single-threaded, and base#1060 measured what that costs: `bats --jobs`
+# under ONE kcov reproduces a SHARD's covered set but not the WHOLE
+# SUITE's, so it is on for shards and off for the full run. The bound is
+# trace VOLUME through the one parser, which leaves the full run exactly
+# one parallelism: N independent kcov PROCESSES over disjoint slices,
+# merged -- one parser per slice instead of one for all of them.
 #
 # What this spec pins is everything about that mode a merge could quietly
 # lie about. The partition is the SHARED `_shard_unit_files` primitive

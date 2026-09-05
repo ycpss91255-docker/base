@@ -529,13 +529,15 @@ Recording it as done here would be worse than the gap.
 
 ## Amendment (#726): coverage has TWO parallel modes -- hosted matrix and local in-job -- over one partition
 
-- **Date:** 2026-09-04
+- **Date:** 2026-09-05
 - **Amendment status:** Accepted -- extends Decision 1. The sharded
   hosted matrix is unchanged and remains the PR gate. **Relates:** #724
   (the shared LPT partition both modes slice with), #725 (dynamic shard
-  count), #730 (the union merge), ADR-00000017 (the throughput ceiling
-  this is measured against), ADR-00000026 (self-hosted eligibility is a
-  static property of `runs-on`).
+  count), #730 (the union merge), #1060 (which measured where `bats
+  --jobs` under one kcov holds and where it does not; this amendment is
+  the remedy for the case it left serial), ADR-00000017 (the throughput
+  ceiling this is measured against), ADR-00000026 (self-hosted
+  eligibility is a static property of `runs-on`).
 
 ### Context
 
@@ -551,12 +553,22 @@ And the run this repo needs MOST is one the matrix never touches: the
 `scope=full` measurement, so every release pays for a whole-suite local
 coverage run. That run was serial, and serial is not a kcov floor -- this
 ADR's own Context says the cost is "serial x kcov". kcov's bash engine
-parses one xtrace stream per traced process and is single-threaded, and
-`kcov` wrapping `bats --jobs` is unreliable for coverage ACCURACY, which
-is exactly why the coverage path stayed serial while the normal path did
-not. Neither fact forbids **N independent kcov PROCESSES**: each traces
-its own children into its own database, and nothing is shared until the
-merge.
+parses one xtrace stream per traced process and is single-threaded, so N
+concurrent bats jobs under ONE kcov all feed one parser. The #1060
+amendment below measured where that costs accuracy and found a BOUNDARY
+rather than a blanket: on a SHARD, parallel bats under one kcov reproduces
+the serial covered set in seven of eight runs and misses 3 lines of 6207
+in the eighth, so shards now run parallel; on the FULL SUITE it does not,
+so the full-suite run stays serial. What is lost there is trace, not
+execution -- the missing lines belong to subprocess-heavy specs whose
+tests PASS -- so the bound is trace VOLUME through the one parser.
+
+That bound does not reach **N independent kcov PROCESSES**: each traces
+its own children into its own database, each parser reads only its own
+slice's volume, and nothing is shared until the merge. This amendment is
+the remedy for the case #1060 could not take -- it gives the full-suite
+path the machine by removing the single parser, not by parallelising bats
+behind it.
 
 ### Decision
 
@@ -629,9 +641,13 @@ distributed, never in WHAT a slice is.**
 ### Alternatives (amendment)
 
 - **`kcov` over `bats --jobs`.** The obvious in-job parallelism, and the
-  one this ADR already rejected: kcov's parallel-mode caveats make the
-  resulting coverage figure unreliable, and an unreliable figure behind a
-  required floor is worse than a slow one.
+  one the #1060 amendment measured rather than assumed. It is not rejected
+  everywhere -- #1060 turned it ON for shards, where the trace volume
+  through the one parser stays inside the bound. It is rejected for THIS
+  run: at whole-suite volume the covered set moves (8617 lines serial,
+  reproducibly, against 8532 and 8587 parallel), and the full-scope run is
+  the one that feeds the release badge, so a figure that shifts a point
+  between two runs of one tree is worse than a slow one.
 - **Raise `CI_SHARDS` and point the matrix at the self-hosted runner.**
   It does not parallelise anything on ONE runner (the entries serialise),
   and it puts the PR gate on a shared workstation -- the SPOF and
