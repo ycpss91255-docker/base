@@ -917,6 +917,32 @@ _index_headed() {
   [[ "${output}" != *".gitignore"* ]]
 }
 
+# why: The direction of the split the report above cannot see. git never
+# ignores a file it TRACKS, so a tracked path the root .gitignore names is
+# in the git tier's population and pruned out of the walk's -- the walk
+# reading LESS than the verb sweeps, which is the one direction no
+# unreadable-rule finding covers: the rule was applied, exactly, and the
+# tiers still disagree. Nothing said so, and the consequence is a stale
+# reference in that file that the local in-container gate never reads
+# while `just adr renumber` rewrites it -- the two tiers answering
+# differently about one file, which is the whole premise of the shared
+# reader.
+@test "_run_adr_numbering: a tracked file the root .gitignore names is reported (#1021)" {
+  _touch_adr "00000001-alpha.md"
+  _index '| 00000001 -- alpha | keep | mechanism | note |'
+  _write '.gitignore' 'vendor/'
+  _write 'CONTEXT.md' 'ADR-00000001 resolves.'
+  # The reference here RESOLVES: the finding is about the population, not
+  # about the pointer, so nothing else in this tree can produce it.
+  _write 'vendor/old.md' 'ADR-00000001 resolves.'
+  git -C "${SCRATCH}" init -q
+  git -C "${SCRATCH}" add doc CONTEXT.md .gitignore
+  git -C "${SCRATCH}" add -f vendor/old.md
+  run _run_adr_numbering
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"vendor/old.md"* ]]
+}
+
 # why: The guard the git tier has and the walk did not. An empty answer
 # from git is already refused -- a root INSIDE a checkout that lists
 # nothing is not an empty tree -- and an empty answer from the WALK was
