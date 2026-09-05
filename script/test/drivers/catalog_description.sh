@@ -140,15 +140,24 @@
 # from the merged spec tree (script/test/resolve-doc-counts.sh) instead of
 # by a person picking a side.
 #
-# What the ceiling still buys, and it is why exact equality is still the
-# wrong shape: a bound can sit ABOVE the measurement without lying. That is
-# the only state in which a merge importing 168 tests written before this
-# rule existed has an answer other than "fail until somebody backfills them
-# in a hurry" -- the ratchet reset the transition above argues for. It also
-# splits two questions that deserve different failures: this LINT asks
-# whether the tree is worse than what was ratified, and the drift gate asks
-# whether what was ratified is what the tree measures. Exact equality here
-# would collapse them into one message that cannot say which happened.
+# What the ceiling still buys, and this too is corrected rather than left
+# standing: it is NOT headroom. The earlier text here said a bound may sit
+# above the measurement without lying, and since base#1024 no green tree
+# can be in that state -- the generator lowers the number to what the tree
+# measures in the run that writes the catalogues, and the drift gate reds a
+# tree whose committed number is anything else, so slack is exactly 0 three
+# paragraphs down and cannot be otherwise here.
+#
+# What it buys is that the number is RATIFIED and moves UP only by hand.
+# That is what gives a merge importing 168 tests written before this rule
+# existed an answer other than "fail until somebody backfills them in a
+# hurry": a person raises the line, once, reviewably, and regeneration
+# brings it back down as the descriptions land -- the ratchet reset the
+# transition above argues for. And it splits two questions that deserve
+# different failures: this LINT asks whether the tree is worse than what
+# was ratified, and the drift gate asks whether what was ratified is what
+# the tree measures. Exact equality here would collapse them into one
+# message that cannot say which happened.
 #
 # THE COST, restated, because base#1024 moved it. Slack = ceiling - actual
 # used to start at 0 and grow by one per un-lowered backfill, with a new
