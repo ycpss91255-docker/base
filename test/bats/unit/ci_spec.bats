@@ -332,6 +332,59 @@ teardown() {
   assert_output --partial "ci_lint_errexit_suppressed"
 }
 
+# why: The phase's OWN refusal, pinned by something only it can answer.
+# Both guards above are satisfied by `_run_lint_tool`'s copy of the
+# refusal, which fires inside the driver subshell and emits the same
+# event, so deleting the phase's line leaves them green -- a precondition
+# with two enforcers and assertions that cannot tell which one spoke. This
+# one names the phase in the refusal it demands and refuses to see a
+# dispatch at all: the phase must stop the run BEFORE the first driver is
+# reached, not collect one refusal per table entry and report "23 of 23
+# lint tools failed", which is a different sentence about a different
+# thing.
+@test "_run_lint_tools: the refusal is the phase's own, before any dispatch (#1059)" {
+  run env LOG_FORMAT=json bash -c '
+    source /source/script/test/test.sh
+    set -eo pipefail
+    _run_adr_numbering() { echo "reached adr-numbering"; }
+    _run_arch_literal()  { echo "reached arch-literal"; }
+    if _run_lint_tools adr-numbering arch-literal; then echo "PHASE SAID CLEAN"; fi
+  '
+  assert_failure
+  assert_output --partial "ci_lint_errexit_suppressed"
+  assert_output --partial "the lint phase was called from a context"
+  # No driver was dispatched, so no dispatch refused on the phase's
+  # behalf and no driver ran.
+  refute_output --partial "the lint dispatch for"
+  refute_output --partial "reached adr-numbering"
+  refute_output --partial "reached arch-literal"
+  # And the run ended in a refusal, not in a phase report counting the
+  # drivers that refused.
+  refute_output --partial "ci_lint_phase_failed"
+  refute_output --partial "PHASE SAID CLEAN"
+}
+
+# why: The empty set is the input no driver can answer for. The phase
+# takes `"$@"`, so the list it is handed is the caller's; with nothing in
+# it the loop runs zero times, and a phase leaning on its drivers to
+# enforce the call-site precondition would answer a suppressed caller with
+# a clean tree -- the exact defect the refusal exists for, reached by
+# passing an empty list rather than a failing one. Today the only caller
+# passes the whole table, which is why this is a guard on the function's
+# contract and not on a reachable path: a filtered list is what the next
+# caller passes, and an empty result is what a filter returns.
+@test "_run_lint_tools: an empty set is refused too, by the phase itself (#1059)" {
+  run env LOG_FORMAT=json bash -c '
+    source /source/script/test/test.sh
+    set -eo pipefail
+    if _run_lint_tools; then echo "PHASE SAID CLEAN"; fi
+  '
+  assert_failure
+  assert_output --partial "ci_lint_errexit_suppressed"
+  assert_output --partial "the lint phase was called from a context"
+  refute_output --partial "PHASE SAID CLEAN"
+}
+
 # why: The other half of the contract. A clean set must exit zero and say
 # nothing, and the loop must hand the caller back the errexit it borrowed
 # -- the collection is implemented by clearing it, so a phase that forgot
