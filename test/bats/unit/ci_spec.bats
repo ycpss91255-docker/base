@@ -1241,9 +1241,10 @@ SH
 # both answers are measured, not assumed:
 #
 #   - a SHARD (what the CI matrix runs, ~550 specs' worth of tests) is
-#     parallel: two shards, both directions, the covered and valid line
-#     sets are byte-identical to the serial run's, at 1.9x-3.1x the
-#     speed.
+#     parallel: over three slices, seven of eight parallel runs
+#     reproduce the serial covered and valid line sets exactly, and the
+#     eighth missed 3 lines of 6207 -- at 1.9x-3.1x the speed, into a
+#     gate that unions eight shards over a floor with points to spare.
 #   - the FULL SUITE is serial by declared policy: at ~4500 tests every
 #     parallel run records a strict SUBSET of what serial records
 #     (8617 lines serial, twice; 8532 and 8587 parallel, nothing extra

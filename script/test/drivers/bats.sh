@@ -449,11 +449,15 @@ _run_coverage() {
   # coverage gate merges -- canonical (file, line) keys, symmetric
   # difference in both directions:
   #
-  #   - a SHARD is INVARIANT. Shards 1/8 and 6/8, serial against
-  #     parallel: 7835/9229 and 6373/7360 lines, identical sets, empty
-  #     difference each way. Repeated runs of either mode agree exactly.
-  #     The CI matrix runs shards, so this is the path the enforced gate
-  #     figure comes from, and it does not move.
+  #   - a SHARD reproduces the serial run's sets, and where it does not
+  #     the miss is 0.05%. Three slices (two partitions of 1/8, plus
+  #     6/8), eight parallel runs: seven reproduce the serial covered set
+  #     EXACTLY (7835/9229, 6373/7360, 6207/7439 lines, empty difference
+  #     each way); the eighth was short 3 lines of 6207, one-directionally
+  #     as always. The enforced gate merges eight shards by per-line
+  #     UNION over a floor with ~4.7 points of margin, so a miss of that
+  #     size cannot reach it -- but it is not zero, and base#726 is what
+  #     makes it structurally zero.
   #
   #   - the FULL SUITE is NOT, so it declares `serial` above. At ~4500
   #     tests two serial runs record the same 8617 covered lines, while
@@ -466,9 +470,13 @@ _run_coverage() {
   #
   # THE COST, so it is not rediscovered: N parallel bats jobs feed their
   # trace streams to ONE kcov process, whose parser is single-threaded.
-  # At shard volume it keeps up; at full-suite volume it does not, and
-  # what is dropped is the trace of code that ran -- the lost lines
-  # belong to subprocess-heavy code whose tests PASS in both runs. That
+  # It keeps up at shard volume, mostly, and does not at full-suite
+  # volume -- the miss scales with the volume and never reverses sign,
+  # which is the signature of a reader losing samples rather than of a
+  # flaky test. What is dropped is the trace of code that RAN: the lost
+  # lines belong to subprocess-heavy code whose tests PASS in both
+  # runs -- `just docker help renders zh-TW recipe summaries` is `ok` in
+  # each, and its zh-TW case arms appear only in the serial report. That
   # parser is also the share that does not divide by --jobs. Making it
   # scale, and with it the full-suite path, needs a kcov process per
   # slice (base#726): a different change from this one, and not a

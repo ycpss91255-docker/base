@@ -567,15 +567,19 @@ default.
 
 The asymmetry is the finding, not a hedge:
 
-- **A shard's line set does not move.** Shards 1/8 and 6/8, serial against
-  parallel, comparing the covered and valid sets the coverage gate merges
-  (canonical `(file, line)` keys, symmetric difference computed in BOTH
-  directions): empty, both shards, both directions -- 7835/9229 and
-  6373/7360 lines, identical. Repeat runs of either mode agree exactly.
-  Wall time for the whole recipe: 147s / 164s serial against 53s / 48s
-  (shard 1/8), and 371s against 196s (shard 6/8). **The CI matrix runs
-  shards, so the enforced gate figure is unchanged and its critical path
-  is 1.9x-3.1x shorter.**
+- **A shard's line set holds, and where it does not the miss is 0.05%.**
+  Three slices (two different partitions of 1/8, plus 6/8), comparing the
+  covered and valid sets the coverage gate merges -- canonical
+  `(file, line)` keys, symmetric difference computed in BOTH directions.
+  Eight parallel runs: SEVEN reproduce the serial covered set exactly
+  (7835/9229, 6373/7360 and 6207/7439 lines, empty difference each way),
+  and the eighth was short **3 lines of 6207**, one-directionally.
+  Serial runs of a slice agree with each other exactly. Wall time for the
+  whole recipe: 147s / 164s serial against 47s-53s (shard 1/8) and 371s
+  against 196s (shard 6/8). **The CI matrix runs shards and merges them
+  by per-line UNION over a floor with ~4.7 points of margin, so a miss of
+  that size cannot reach the gate's verdict -- it is not zero, and it is
+  what #726 makes structurally zero.**
 
 - **The full suite's line set does move, so it stays serial.** At ~4500
   tests, two serial runs record the same 8617 covered lines; two parallel
@@ -593,10 +597,18 @@ The asymmetry is the finding, not a hedge:
   -- `just docker help renders zh-TW recipe summaries` is `ok` in each, and
   its zh-TW `case` arms appear only in the serial report. N parallel bats
   jobs feed their trace streams to ONE kcov process whose parser is
-  single-threaded: it keeps up at shard volume and does not at full-suite
-  volume. That parser is also the share of the runtime that `--jobs` cannot
+  single-threaded: the miss scales with the volume of trace and never
+  reverses sign (no parallel run has ever recorded a line serial missed,
+  in ten comparisons), which is a reader losing samples rather than a
+  flaky test. That parser is also the share of the runtime `--jobs` cannot
   divide. **Making it scale, and with it the full-suite path, is #726 (a
   kcov process per slice) -- a different change, not a competing one.**
+
+- **The residual is disclosed, not absorbed.** A gate that ever becomes the
+  regression-vs-baseline v2 this ADR still lists as a follow-up would be
+  comparing figures whose noise floor is now non-zero on the shard path;
+  that comparison has to be made against #726 landing first, or against a
+  serial policy for the gate too.
 
 ### The junit report and the weights it feeds
 
@@ -618,8 +630,9 @@ makespan 1446 (loads 754-1446); weights from a parallel run give 1138 (loads
 
 ### Consequences (amendment)
 
-- The PR critical path drops by the measured shard figures above with no
-  change to the merged gate rate, because the shard line sets are identical.
+- The PR critical path drops by the measured shard figures above, against a
+  merged gate rate whose measured movement is at most 3 lines in 6207 on one
+  shard of eight, unioned away wherever another shard ran the same line.
 - `just test coverage` (full suite) is unchanged in duration -- ~35 min on a
   32-core host for this tree. The parallel version of it exists and is 4x
   faster; it is not adopted because it under-reports. Anyone tempted to
