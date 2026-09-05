@@ -2268,12 +2268,14 @@ main() {
       # One call for both branches: the shard spec is empty on the full
       # run, which is the value that has to be said out loud.
       #
-      # The roster is not a memory exercise. coverage_badge_spec's "the
+      # The roster is not a memory exercise. coverage_badge_spec's "every
       # coverage dispatch pins every selector the container reads"
       # intersects the `-e NAME="${NAME:-}"` lines of _run_via_compose
       # with the names the in-container COVERAGE branch reads, and fails
-      # until each member is assigned here -- so a third selector added to
-      # that forwarder arrives with its clearing already demanded.
+      # until each member is assigned at EVERY `_run_via_compose coverage`
+      # call site -- so a third selector added to that forwarder, or a
+      # third mode wired to that container, arrives with its clearing
+      # already demanded.
       COVERAGE_SHARD="${coverage_shard}" COVERAGE_PATH="" \
         COVERAGE_LOCAL_JOBS="${coverage_local_jobs}" \
         _run_via_compose coverage 1

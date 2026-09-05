@@ -1626,7 +1626,7 @@ three tests assert the repo's own published figure, not the generator.
 | `coverage_badge: --coverage-shard partitions the CONTAINER, and tells the writer nothing` | - |
 | `coverage_badge: a full --coverage run hands the writer only the root` | - |
 | `coverage_badge: a full --coverage run tells the CONTAINER no selector at all` | - |
-| `coverage_badge: the coverage dispatch pins every selector the container reads` | - |
+| `coverage_badge: every coverage dispatch pins every selector the container reads` | - |
 | `coverage_badge: refuses when the reports cover one shard, not the suite` | Every identity check passes and the figure is still a quarter of the suite |
 | `coverage_badge: refuses when the stamp records no scope at all` | An unscoped stamp is no evidence of a release figure |
 | `coverage_badge: the operator sequence shard-then-badge publishes nothing` | `just test coverage 1/4` then `just release coverage-badge` at one commit |

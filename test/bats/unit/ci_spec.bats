@@ -1860,7 +1860,12 @@ AWK
     exit 0'
   mock_cmd "id" 'echo 1000'
 
-  run bash -c '
+  # The ambient environment this mode is actually reached from. Both other
+  # selectors are set here because `_run_via_compose` forwards them FROM
+  # THE ENVIRONMENT: this suite's own specs run inside a coverage shard, or
+  # inside a `--coverage-local` run, and whatever that run carries is what
+  # this dispatch inherits unless it says otherwise.
+  run env COVERAGE_SHARD=1/4 COVERAGE_LOCAL_JOBS=32 bash -c '
     source /source/script/test/test.sh
     export PATH="'"${MOCK_DIR}"'"
     main --coverage-path test/bats/unit/ci_spec.bats --filter shard
@@ -1876,6 +1881,13 @@ AWK
   assert_output --partial "BATS_ONLY=1"
   # Never a shard: the mode names its target, it does not partition.
   refute_output --regexp 'COVERAGE_SHARD=[0-9]'
+  # And never a job count. This mode runs ONE spec; a forwarded
+  # COVERAGE_LOCAL_JOBS is a whole-suite parallel run's selector, and it is
+  # ignored here only because the in-container dispatch happens to read
+  # COVERAGE_PATH first. An ignored value carried into the container is the
+  # value that a later reordering turns into a read one -- which is the
+  # argument this dispatch's own comment makes about COVERAGE_SHARD.
+  refute_output --regexp 'COVERAGE_LOCAL_JOBS=[0-9]'
 }
 
 # why: In-container branch sits ahead of _run_coverage; no report line
