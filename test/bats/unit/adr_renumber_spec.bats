@@ -170,8 +170,9 @@ _file() {
 }
 
 # why: The tool corrupting its own spec. A file that builds a throwaway
-# registry declares it and is left ALONE -- whole. Rewriting only the
-# classes a heuristic recognised is worse than rewriting none of them: the
+# registry declares the NUMBERS it uses, and a reference carrying one of
+# them is left alone in every class at once. Rewriting only the classes a
+# heuristic recognised is worse than rewriting none of them: the
 # `ADR-<n>` and `adr/<n>-` forms moved and the bare numbers a spec passes
 # to this tool as ARGUMENTS did not, so the setup and the command named
 # different records, with the survivor self-check and the lint both green.
@@ -189,6 +190,42 @@ _file() {
   assert_output --partial "doc/adr/${_from}-entry-point.md"
   assert_output --partial "ADR-${_from}"
   refute_output --partial "doc/adr/${_to}-entry-point.md"
+}
+
+# why: The half of that rule the verb can lose on its own. A declaration
+# exempts the NUMBERS it names, not the file that carries one: both of this
+# tree's declaring specs also point at real records, so a whole-file drop
+# leaves a live pointer unswept -- and where that pointer is a `# why:`
+# block, the generator publishes it as a catalogue row, the rewrite fixes
+# the row, the regeneration puts the old number straight back, and the run
+# ends on a survivor with the record already moved. Asserted here on the
+# VERB because nothing else runs it: the lint reads the same declaration
+# through the same reader, and its half is asserted in
+# adr_numbering_spec.bats, so without this case the verb could go back to
+# a whole-file exemption with every spec green.
+@test "adr renumber: a declaration exempts its numbers, not its file (#1021)" {
+  _file 'test/bats/unit/lint_spec.bats' \
+    '#!/usr/bin/env bats' \
+    '# adr-refs: fixture 00000029' \
+    '  : > "${T}/doc/adr/00000029-early-return.md"' \
+    '  # the fixture registry is ADR-00000029' '' \
+    '# why: the convention ADR-00000030 records' \
+    '@test "a described case" {' \
+    '  true' \
+    '}'
+  run bash "${RENUMBER}" 30 32 "${ROOT}"
+  assert_success
+  run cat "${ROOT}/test/bats/unit/lint_spec.bats"
+  # Its own registry's number: untouched, in both classes.
+  assert_output --partial 'doc/adr/00000029-early-return.md'
+  assert_output --partial 'ADR-00000029'
+  # This tree's pointer, in the same file: swept like any other.
+  assert_output --partial 'ADR-00000032'
+  refute_output --partial 'ADR-00000030'
+  # And the row the generator publishes from that marker moved with it,
+  # which is the step a whole-file exemption cannot reach.
+  run cat "${ROOT}/doc/test/unit.md"
+  assert_output --partial 'the convention ADR-00000032 records'
 }
 
 # why: The whole-file drop's other half, and the state it left behind. A
