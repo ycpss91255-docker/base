@@ -370,6 +370,79 @@ _index() {
   [[ "${output}" == *"x_spec.bats:1"* ]]
 }
 
+# why: The residue the per-number rule keeps, and the only site at which
+# it bites. A declaration is per FILE, and a `# why:` marker is the one
+# thing in a spec that LEAVES the file: the catalogue generator publishes
+# it verbatim into doc/test, a document that declares nothing. A DECLARED
+# number written there therefore arrives in the catalogue as this tree's
+# reference, and the verb has no state to reach -- it rewrites the
+# published row, the regeneration puts the number straight back from the
+# marker it may not touch, and the run aborts half-way with the record
+# already moved. The marker is the one thing a repair can edit, so the
+# finding names it.
+@test "_run_adr_numbering: FAILS on a declared number a test's marker publishes (#1021)" {
+  _touch_adr "00000001-alpha.md"
+  _index '| 00000001 -- alpha | keep | mechanism | note |'
+  # Assembled, for the reason the cases above state.
+  local _own='00000098'
+  _write 'test/bats/unit/x_spec.bats' \
+    '#!/usr/bin/env bats' \
+    "# adr-refs: fixture ${_own}" '' \
+    "# why: the convention ADR-${_own} records" \
+    '@test "a described case" {' \
+    '  true' \
+    '}'
+  run _run_adr_numbering
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"x_spec.bats:5"* ]]
+  [[ "${output}" == *"${_own}"* ]]
+}
+
+# why: The same shape at the file-level marker, which the generator
+# publishes as the section BLURB rather than a row. One grammar, two
+# sites, and a rule that read only the attached blocks would leave the
+# other half of the published text unchecked.
+@test "_run_adr_numbering: FAILS on a declared number the file blurb publishes (#1021)" {
+  _touch_adr "00000001-alpha.md"
+  _index '| 00000001 -- alpha | keep | mechanism | note |'
+  # Assembled, for the reason the cases above state.
+  local _own='00000098'
+  _write 'test/bats/unit/x_spec.bats' \
+    '#!/usr/bin/env bats' \
+    "# adr-refs: fixture ${_own}" \
+    "# why: this spec builds its own registry; ADR-${_own} is the record" \
+    '# it takes its shape from.' '' \
+    '@test "a case" {' \
+    '  true' \
+    '}'
+  run _run_adr_numbering
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"x_spec.bats"* ]]
+  [[ "${output}" == *"${_own}"* ]]
+}
+
+# why: The third published site, and the one ADR-00000034 records as
+# having actually cost: a `@test` NAME carrying the number is a ROW in a
+# generated catalogue, published whether the test carries a marker or not.
+# A check that read only the prose would pass a spec whose names are the
+# half that comes straight back after every regeneration.
+@test "_run_adr_numbering: FAILS on a declared number a test name publishes (#1021)" {
+  _touch_adr "00000001-alpha.md"
+  _index '| 00000001 -- alpha | keep | mechanism | note |'
+  # Assembled, for the reason the cases above state.
+  local _own='00000098'
+  _write 'test/bats/unit/x_spec.bats' \
+    '#!/usr/bin/env bats' \
+    "# adr-refs: fixture ${_own}" '' \
+    "@test \"the placeholder and ADR-${_own} say one thing\" {" \
+    '  true' \
+    '}'
+  run _run_adr_numbering
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"x_spec.bats:4"* ]]
+  [[ "${output}" == *"${_own}"* ]]
+}
+
 # why: The blind spot the guess created, and it was live. The rule was a
 # two-character lookback: a `doc/adr/` path preceded by `}` was taken for
 # somebody's fixture. coverage_badge_spec.bats writes

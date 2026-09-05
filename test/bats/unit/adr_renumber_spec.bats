@@ -257,6 +257,32 @@ _file() {
   refute_output --partial 'ADR-00000030'
 }
 
+# why: The residue the per-number rule keeps, and the message it has to
+# carry. A declaration is per FILE, and a marker is the one thing in a
+# spec that LEAVES the file: the generator publishes it verbatim into a
+# catalogue that declares nothing. So a DECLARED number written in a
+# marker arrives there as this tree's reference, the sweep rewrites the
+# published row, the regeneration puts the old number straight back from
+# the marker this verb may not touch, and the run aborts on a survivor.
+# Naming only the generated file misdirects the repair: a hand edit there
+# is undone by the next `just test sync-docs`, and the marker is the one
+# thing that can be changed.
+@test "adr renumber: a survivor in a generated file names the marker it came from (#1021)" {
+  _file 'test/bats/unit/lint_spec.bats' \
+    '#!/usr/bin/env bats' \
+    '# adr-refs: fixture 00000030' '' \
+    '# why: the convention ADR-00000030 records' \
+    '@test "a described case" {' \
+    '  true' \
+    '}'
+  run bash "${RENUMBER}" 30 32 "${ROOT}"
+  assert_failure
+  # The survivor itself, which is the generated document.
+  assert_output --partial 'doc/test/unit.md'
+  # And the file whose marker put it there, which is the only repair site.
+  assert_output --partial 'test/bats/unit/lint_spec.bats'
+}
+
 # why: The population, and the property that keeps this verb and the ADR
 # lint from disagreeing about what a reference is -- they read one. A
 # tree the checkout declares derived is not swept: a materialised old
