@@ -104,13 +104,21 @@ _create_symlinks() {
   # Makefile, so an upgrading repo's stale root symlink must go or it
   # dangles. (The base-only `justfile.test` is unrelated -- it is a
   # regular file under `.base/`, never a root symlink.)
+  #
+  # The removal is RECORDED (_init_record_write) where it happens, for the
+  # reason every other conditional write is: the guard above is the
+  # condition, it is gone by the time the staging step runs, and a consumer
+  # carrying a hand-written REGULAR file at one of these names still has it,
+  # untouched, when that step asks what to commit. Staging the name instead
+  # of the record puts their file in a commit about a base release.
   local _stale
-  for _stale in build.sh run.sh exec.sh stop.sh prune.sh setup.sh setup_tui.sh tui.sh Makefile; do
+  while IFS= read -r _stale; do
     if [[ -L "${_stale}" ]]; then
       rm -f "${_stale}"
+      _init_record_write "${_stale}"
       _log "  Removed stale root symlink ${_stale}"
     fi
-  done
+  done < <(_init_retired_root_paths)
   # ADR-00000005 / ADR-00000010 / ADR-00000011: `just` is the user-facing
   # entry, now layered + fully namespaced. <repo>/justfile -> script/justfile
   # -> .base/dist/script/justfile (the entry), which `mod?`s the docker
@@ -138,6 +146,7 @@ _create_symlinks() {
     || diff -q .hadolint.yaml "${TEMPLATE_REL}/dist/.hadolint.yaml" \
       >/dev/null 2>&1; then
     _symlink "${TEMPLATE_REL}/dist/.hadolint.yaml" ".hadolint.yaml"
+    _init_record_write ".hadolint.yaml"
   else
     _log "  Keeping custom .hadolint.yaml (differs from template)"
   fi
@@ -207,6 +216,7 @@ _populate_config() {
   # Create empty placeholder + .gitkeep so the dir exists in git
   # (Docker COPY of <repo>/config/ requires the path to exist).
   mkdir -p config
+  _init_record_write "config/.gitkeep"
   cat > config/.gitkeep <<'EOF'
 # Placeholder so this directory exists in git. This directory is read
 # TWICE, at two moments, and what you put where decides which.
@@ -283,6 +293,7 @@ _seed_local() {
 #   local-hello:
 #       @./local.sh
 EOF
+    _init_record_write "script/local/justfile.local"
     _log "  Created script/local/justfile.local (repo-local command-group registry)"
   fi
 
@@ -312,6 +323,7 @@ main() {
 main "$@"
 EOF
     chmod +x script/local/local.sh
+    _init_record_write "script/local/local.sh"
     _log "  Created script/local/local.sh (companion bash template)"
   fi
 }
@@ -750,6 +762,105 @@ script/template/skel
 EOF
 }
 
+# _init_conditional_paths
+#   The subset of _init_installed_paths the resync writes only under a
+#   condition, and leaves exactly as it found it once that condition has
+#   stopped holding.
+#
+#   WHY THIS EXISTS. _init_installed_paths answers "what does a consumer
+#   CARRY", which is the question the delivery audit asks. The staging step
+#   needs a different one -- "what did THIS RUN write" -- and for most of
+#   that list the two answers coincide: the wrappers and the justfile
+#   layering are re-pointed on every run, whatever was there before. For
+#   the paths below they do not. Each is written only when its own
+#   condition holds, so what is in one on any other run is the repo's own
+#   work:
+#
+#     - the 14 hook stubs, whose whole point is that a user-authored hook
+#       survives every later re-init and upgrade (_create_hook_stubs);
+#     - the script/local/ starter pair, REPO-OWNED by the naming contract
+#       (ADR-00000010, _seed_local);
+#     - config/.gitkeep, which an existing config/ keeps (_populate_config);
+#     - the monitor workflow, generated once (_sync_base_monitor_workflow);
+#     - .hadolint.yaml, which _create_symlinks refuses to re-point once it
+#       differs from the template;
+#     - .gitignore and .dockerignore, which the sync APPENDS to only when a
+#       canonical entry is missing -- it returns without a write when none
+#       is, "the common case for an up-to-date repo" in its own comment --
+#       and whose hand-maintained region above the managed block it never
+#       touches at all;
+#     - .setup.conf, which setup.sh writes on a first-time bootstrap or a
+#       stale-mount_1 rewrite and leaves alone otherwise.
+#
+#   The ignore pair and .setup.conf are why this list is CONDITIONAL and
+#   not seed-only, which is what it was called before the pair was in it.
+#   Neither is seeded once: an ignore file is written again on any release
+#   that adds a canonical entry, and .setup.conf is rewritten in place by a
+#   stale-mount repair. "Seeded once" is a promise about them that is not
+#   true, and the predicate the staging step actually needs is the weaker
+#   one -- written only under a condition, so ask the run.
+#
+#   Staging these wholesale put the user's half-finished hook into a commit
+#   whose message names a base release -- the sweep the staging step was
+#   written to avoid, arriving through the published list instead of
+#   through `git add -A`. What makes them stageable again is the RECORD
+#   below: a run that actually wrote one names it, and only a named one is
+#   staged.
+#
+#   Kept as its own list rather than as a flag on the big one because the
+#   big one is a published surface with two consumers that must not learn
+#   about this distinction. A spec in test/bats/unit/init_spec.bats asserts
+#   every entry here is also an installed path, so the two cannot drift
+#   into naming different files.
+_init_conditional_paths() {
+  cat <<'EOF'
+.dockerignore
+.github/workflows/base-version-monitor.yaml
+.gitignore
+.hadolint.yaml
+.setup.conf
+config/.gitkeep
+script/hooks/post/build.sh
+script/hooks/post/exec.sh
+script/hooks/post/prune.sh
+script/hooks/post/run.sh
+script/hooks/post/setup.sh
+script/hooks/post/setup_tui.sh
+script/hooks/post/stop.sh
+script/hooks/pre/build.sh
+script/hooks/pre/exec.sh
+script/hooks/pre/prune.sh
+script/hooks/pre/run.sh
+script/hooks/pre/setup.sh
+script/hooks/pre/setup_tui.sh
+script/hooks/pre/stop.sh
+script/local/justfile.local
+script/local/local.sh
+EOF
+}
+
+# _INIT_WROTE / _init_record_write <repo-relative-path>
+#   The conditional paths THIS run actually wrote, recorded at the moment
+#   they are written. Only the writing pass knows: the condition it tested
+#   ("the file was not there", "it still matches the template", "an entry
+#   was missing") is gone by the time the staging step runs, and re-deriving
+#   it from the tree is how the user's own content gets classified as ours
+#   again.
+#
+#   Reset at the top of the resync so a sourced init.sh -- the unit specs,
+#   and nothing else -- cannot carry one run's record into the next.
+#
+#   `-g` because a bare `declare` inside a FUNCTION declares a local, and
+#   the unit specs source this file from inside a bats test function: the
+#   array would go out of scope with the source, leave the subscripts below
+#   to be read as arithmetic against an ordinary indexed array, and take
+#   the whole resync down with it.
+declare -gA _INIT_WROTE=()
+
+_init_record_write() {
+  _INIT_WROTE["${1:?BUG: _init_record_write expects a repo-relative path}"]=1
+}
+
 # _init_protected_paths
 #   Every repo-root-relative path the existing-repo resync can create,
 #   rewrite or delete. Directories are listed AS directories: the resync
@@ -782,6 +893,10 @@ EOF
 #                                  hand-written -- so they are named here
 #                                  even though the migration that moves
 #                                  them lands separately.
+#
+#   The retired root wrappers come from _init_retired_root_paths below,
+#   which is also what _create_symlinks deletes from and what the staging
+#   step commits the deletion of.
 _init_protected_paths() {
   cat <<'EOF'
 Dockerfile
@@ -796,6 +911,24 @@ config
 .github/workflows/base-version-monitor.yaml
 test/smoke
 test/bats/smoke
+EOF
+  _init_retired_root_paths
+}
+
+# _init_retired_root_paths
+#   The pre-relocation root wrapper names the resync drops on sight: the
+#   seven user-facing wrappers that moved under `script/`, the
+#   pre-setup_tui-rename `tui.sh`, and the retired container-ops
+#   `Makefile` (ADR-00000005 phase 2).
+#
+#   One accessor rather than a literal per caller, because three of them
+#   need the same answer and would drift the first time one was edited:
+#   _create_symlinks removes these, _init_protected_paths has to restore
+#   them if the run fails, and _stage_resync_output has to put the REMOVAL
+#   in the commit -- a tracked file deleted but not staged is the same
+#   tree/commit disagreement as a rewrite that never got staged.
+_init_retired_root_paths() {
+  cat <<'EOF'
 build.sh
 run.sh
 exec.sh
@@ -1011,6 +1144,7 @@ _init_disarm_rollback() {
 # ── Existing repo initialization ────────────────────────────────────────────
 
 _init_existing_repo() {
+  _INIT_WROTE=()
   _init_arm_rollback
   _log "Existing repo detected (Dockerfile found)"
   # BEFORE anything can regenerate: a `.env` written back when that name
@@ -1064,6 +1198,323 @@ _migrate_dockerfile() {
   apply_migrations "${REPO_ROOT}/Dockerfile"
 }
 
+# _stage_resync_output
+#   Stage what the resync wrote, so it lands in the commit the CALLER
+#   makes rather than being left behind it.
+#
+#   WHY THE STAGING IS HERE and not in the script that commits. The script
+#   that commits is the consumer's OWN vendored upgrade.sh, and it stages a
+#   pair of filenames written into it when it shipped. v0.41.0's reaches
+#   the Dockerfile only down a branch these migrations never take, so a
+#   cross-version upgrade committed the workflow @tag bump and the
+#   .gitignore sync, left everything the resync had just written unstaged,
+#   and closed by telling the user to `git push` -- a commit claiming the
+#   new release over a tree on a different layout (base#1036). That copy
+#   cannot be fixed retroactively for anyone; this file can, because every
+#   release re-runs the NEWLY PULLED init.sh as its resync step. Staging
+#   beside the work also makes the NEXT cross-version upgrade correct by
+#   construction, whatever the caller does.
+#
+#   WHAT IS STAGED is everything this run can NAME as its own output:
+#
+#     - the migration record (lib/dockerfile_migrate.sh's migrated_files),
+#       which the dispatcher closes over the files it rewrote;
+#     - _init_installed_paths, the published list of what the resync
+#       guarantees a consumer carries -- wrappers, the justfile layering,
+#       the monitor workflow -- already kept honest by a spec that diffs it
+#       against a real resync, MINUS the conditional paths of it this run
+#       did not write (see _init_conditional_paths and the _INIT_WROTE
+#       record);
+#     - _init_retired_root_paths, whose entries the resync DELETES: a
+#       tracked file removed but not staged leaves the same tree/commit
+#       disagreement one direction over, and git's index is the only place
+#       those still exist to be named -- MINUS the ones this run did not
+#       remove, since the resync drops such a name only when it is a
+#       symlink and a consumer's hand-written regular file at it is theirs
+#       (the same _INIT_WROTE record, for the same reason).
+#
+#   Never `git add -A`. Every path above was written by THIS run, so none
+#   of it is the user's work to review, while a sweep would commit whatever
+#   they happened to be editing. "What a consumer carries" is not the same
+#   set and was the first version of this: the published list also names
+#   the 14 hook stubs, the script/local/ pair, config/.gitkeep, the monitor
+#   workflow, .hadolint.yaml, the two ignore files and .setup.conf, each of
+#   which the resync writes only under a condition and otherwise leaves
+#   exactly as it found it -- so staging the list wholesale committed the
+#   user's own half-finished hook under a message about a base release, the
+#   sweep this paragraph forbids arriving by the other door. A path the
+#   user has told git to ignore is theirs, not ours, so it is dropped
+#   rather than forced.
+#
+#   Failing to stage is reported, never fatal: the resync itself succeeded,
+#   and aborting here would roll back a good upgrade over an index the user
+#   can fix with one `git add`.
+_stage_resync_output() {
+  local -a _paths=()
+  local _path
+
+  mapfile -t _paths < <(migrated_files)
+
+  # A conditional path is this run's output only if this run wrote it;
+  # every other one holds the repo's own work and is not ours to commit.
+  local -A _conditional=()
+  while IFS= read -r _path; do
+    [[ -n "${_path}" ]] || continue
+    _conditional["${_path}"]=1
+  done < <(_init_conditional_paths)
+
+  while IFS= read -r _path; do
+    [[ -n "${_path}" ]] || continue
+    [[ -e "${REPO_ROOT}/${_path}" || -L "${REPO_ROOT}/${_path}" ]] || continue
+    if [[ -n "${_conditional[${_path}]:-}" \
+      && -z "${_INIT_WROTE[${_path}]:-}" ]]; then
+      continue
+    fi
+    _paths+=("${REPO_ROOT}/${_path}")
+  done < <(_init_installed_paths)
+
+  _init_drop_foreign_paths
+  (( ${#_paths[@]} > 0 )) || return 0
+  _init_git_can_stage || return 0
+  _init_drop_unmatchable_paths
+  (( ${#_paths[@]} > 0 )) || return 0
+
+  # The retired wrappers are gone from disk, so only the index can say
+  # which of them this repo was tracking. A name it never tracked must not
+  # reach `git add`, which fails the whole batch on a pathspec matching
+  # nothing.
+  #
+  # Filtered by the same record the conditional installed paths are, and
+  # for the same reason: the resync removes one of these names only when it
+  # is a SYMLINK, so the list names what this run MAY have deleted, never
+  # what it did. A consumer's own hand-written `Makefile` or `run.sh` at
+  # the root survives the resync untouched and is theirs to commit -- the
+  # sweep the paragraph above forbids, arriving through the second list.
+  local -a _retired=()
+  mapfile -t _retired < <(_init_retired_root_paths)
+  while IFS= read -r _path; do
+    [[ -n "${_path}" ]] || continue
+    [[ -n "${_INIT_WROTE[${_path}]:-}" ]] || continue
+    _paths+=("${REPO_ROOT}/${_path}")
+  done < <(git -C "${REPO_ROOT}" ls-files -- "${_retired[@]}" 2>/dev/null)
+
+  # check-ignore consults the index, so a TRACKED file is never reported
+  # here even when a pattern would otherwise match it -- what is dropped is
+  # only what the user has told git to keep out.
+  #
+  # NUL-delimited in both directions. Newline-delimited, git answers under
+  # `core.quotePath`, whose default C-quotes any path carrying a byte over
+  # 0x7F -- so under a repo path with a non-ASCII character the key coming
+  # back never equals the key that went in, the ignored path survives this
+  # filter, `git add` refuses it, and the run reports "could not stage"
+  # over a batch it did stage. `-z` also makes a path containing a newline
+  # round-trip, which the reader below could not otherwise do.
+  local -A _ignored=()
+  while IFS= read -r -d '' _path; do
+    [[ -n "${_path}" ]] || continue
+    _ignored["${_path}"]=1
+  done < <(printf '%s\0' "${_paths[@]}" \
+    | git -C "${REPO_ROOT}" check-ignore -z --stdin 2>/dev/null)
+
+  local -a _stage=()
+  for _path in "${_paths[@]}"; do
+    [[ -n "${_ignored[${_path}]:-}" ]] || _stage+=("${_path}")
+  done
+  (( ${#_stage[@]} > 0 )) || return 0
+
+  # `-A` so a staged path can be a removal as well as a write.
+  if ! git -C "${REPO_ROOT}" add -A -- "${_stage[@]}" > /dev/null 2>&1; then
+    _log_warn init init_progress "display=  could not stage what the resync wrote -- run \`git add\` over it by hand before pushing"
+    return 0
+  fi
+  _log "  staged for the upgrade commit: ${#_stage[@]} path(s) the resync wrote (review with: git diff --cached)"
+}
+
+# _init_lexical_path <path>
+#   Set _INIT_LEXICAL_PATH to <path> with its `.` and `..` segments
+#   resolved and its empty ones collapsed. Purely textual: no stat, no
+#   readlink, nothing that can fail or that depends on the path existing --
+#   the caller is deciding whether to hand a name to `git add`, and half
+#   the names it asks about are files a migration has just written or is
+#   about to.
+#
+#   Lexical resolution and physical resolution differ where a `..` follows
+#   a symlink, and lexical is the one wanted here: `script/` in a consumer
+#   IS a symlink into the subtree, so resolving links would relocate paths
+#   that git stages perfectly well, and the answer would change with the
+#   tree rather than with the name.
+#
+#   `..` at the root stays at the root, matching every path resolver: a
+#   name cannot escape above `/`. A RELATIVE path is handed back untouched
+#   -- it resolves against a cwd this function is not told about, and the
+#   one caller drops it as foreign either way.
+#
+#   Answers through a variable rather than stdout for the reason
+#   _init_drop_foreign_paths does below: a command substitution eats
+#   trailing newlines, and not silently altering the paths it is handed is
+#   the whole job.
+_INIT_LEXICAL_PATH=""
+
+_init_lexical_path() {
+  local _path="${1-}" _seg _res=""
+  if [[ "${_path}" != /* ]]; then
+    _INIT_LEXICAL_PATH="${_path}"
+    return 0
+  fi
+  # `read -d /` splits on the separator and on nothing else, so a segment
+  # containing a space, a tab or a glob character survives it intact. The
+  # appended `/` terminates the last segment.
+  while IFS= read -r -d '/' _seg; do
+    case "${_seg}" in
+      '' | '.') ;;
+      '..') _res="${_res%/*}" ;;
+      *) _res+="/${_seg}" ;;
+    esac
+  done < <(printf '%s/' "${_path}")
+  _INIT_LEXICAL_PATH="${_res:-/}"
+  return 0
+}
+
+# _init_drop_foreign_paths
+#   Remove from the caller's `_paths` any entry that is not under
+#   REPO_ROOT, naming what it dropped.
+#
+#   `git add` is all-or-nothing over its pathspec: handed one path outside
+#   the repository it exits 128 and stages NONE of the batch. So a single
+#   foreign entry in the record would un-stage the Dockerfile, the wrappers
+#   and the workflow along with it -- and the run would continue, because
+#   failing to stage is deliberately not fatal. That is base#1036 arriving
+#   through the code written to fix it, so the batch is filtered before
+#   `git add` sees it rather than after it has refused.
+#
+#   Nothing reaches this today: `apply_migrations` is handed
+#   ${REPO_ROOT}/Dockerfile and derives the entrypoint beside it, and the
+#   other two sources build their paths from REPO_ROOT. It is a fence
+#   around the record's GENERALITY -- `migrated_files` is a published
+#   surface whose set of writers is open -- and a migration that does write
+#   outside the repo is a bug in that migration, not a reason to lose the
+#   rewrite the same run made inside it.
+#
+#   A fence for the general case has to answer the general question, so the
+#   comparison runs on _init_lexical_path's output. The first version of it
+#   was a prefix test on the unresolved string, which reads
+#   `${REPO_ROOT}/../elsewhere/x` as inside the repo and hands `git add`
+#   precisely the argument described above. "Cannot tell whether this is
+#   inside the repo" must not resolve to "proceed".
+#
+#   Operates on the caller's array by name rather than returning a list,
+#   because a path may legitimately contain anything but a newline and
+#   round-tripping it through a substitution is where that stops being true.
+_init_drop_foreign_paths() {
+  local -a _kept=() _foreign=()
+  local _candidate _root
+  _init_lexical_path "${REPO_ROOT}"
+  _root="${_INIT_LEXICAL_PATH}"
+  for _candidate in ${_paths[@]+"${_paths[@]}"}; do
+    # Compared after the `.` and `..` segments are resolved, kept in the
+    # spelling it arrived in. A raw prefix test reads
+    # `${REPO_ROOT}/../elsewhere/x` as inside the repo -- it starts with
+    # the root -- and hands `git add` the one argument that fails the whole
+    # batch, which is this function's entire reason to exist.
+    _init_lexical_path "${_candidate}"
+    if [[ "${_INIT_LEXICAL_PATH}" == "${_root}/"* ]]; then
+      _kept+=("${_candidate}")
+    else
+      _foreign+=("${_candidate}")
+    fi
+  done
+
+  (( ${#_foreign[@]} > 0 )) \
+    && _log_warn init init_progress "display=  not staging ${#_foreign[@]} path(s) written outside ${REPO_ROOT}: ${_foreign[*]} -- commit them by hand if they belong to this repo"
+
+  _paths=(${_kept[@]+"${_kept[@]}"})
+  return 0
+}
+
+# _init_drop_unmatchable_paths
+#   Remove from the caller's `_paths` any entry git has nothing to match --
+#   not on disk and not in the index -- naming what it dropped.
+#
+#   The SAME whole-batch refusal _init_drop_foreign_paths exists for, from
+#   inside the repo instead of outside it. `git add` fails its entire
+#   pathspec on a name that matches nothing, and "failing to stage" is
+#   deliberately non-fatal, so one such entry costs the commit the
+#   Dockerfile the run just rewrote and the run still closes by telling the
+#   user to push. That is base#1036 arriving through the code written to
+#   fix it, so the batch is filtered before `git add` sees it.
+#
+#   NOT an existence test. A path the run DELETED is still its output, and
+#   `git add -A` records the removal -- but only where git was tracking it,
+#   which is why the index is the second question rather than the whole
+#   answer being the first. `migrated_files` names exactly that shape
+#   today: `_dfm_reconcile_targets` records a target whose content changed
+#   in either direction, deletion included, and an untracked one is
+#   unreachable by any pathspec. The published-list half asks its own,
+#   stricter question before this one -- a file the resync guarantees but
+#   did not put there is not a deletion to commit under a release message
+#   -- so what actually reaches here is the migration record.
+#
+#   Operates on the caller's array by name for the reason
+#   _init_drop_foreign_paths does: a path may contain anything but a
+#   newline, and round-tripping it through a substitution is where that
+#   stops being true.
+_init_drop_unmatchable_paths() {
+  local -a _kept=() _unmatchable=()
+  local _candidate
+  for _candidate in ${_paths[@]+"${_paths[@]}"}; do
+    if [[ -e "${_candidate}" || -L "${_candidate}" ]] \
+      || git -C "${REPO_ROOT}" ls-files --error-unmatch -- "${_candidate}" \
+        > /dev/null 2>&1; then
+      _kept+=("${_candidate}")
+    else
+      _unmatchable+=("${_candidate}")
+    fi
+  done
+
+  (( ${#_unmatchable[@]} > 0 )) \
+    && _log_warn init init_progress "display=  not staging ${#_unmatchable[@]} path(s) git cannot match -- nothing there and nothing tracked: ${_unmatchable[*]}"
+
+  _paths=(${_kept[@]+"${_kept[@]}"})
+  return 0
+}
+
+# _init_git_can_stage
+#   Whether REPO_ROOT'S OWN index is there to stage into -- and, when it is
+#   not, whether that is worth saying out loud.
+#
+#   `just base init` is also a repair command, and a repo bootstrapped by
+#   hand may not be a git repo at all: nothing to stage into is neither a
+#   failure nor news. But git failing while a `.git` IS sitting there is a
+#   different answer -- a worktree checkout whose gitdir has moved, dubious
+#   ownership, no git on PATH -- and resolving THAT to silent success is
+#   how the work this function exists to stage gets pushed uncommitted.
+#   Ask git first; let the presence of `.git` say which "no" it was.
+#
+#   WHOSE index is the question, not whether one is reachable. The
+#   hand-bootstrapped tree above can sit anywhere -- including inside
+#   another repository's working tree -- and `--is-inside-work-tree` says
+#   yes to that, which stages the entire resync into a third-party
+#   repository's index and reports success. `--show-toplevel` answers the
+#   question actually being asked, and it is the same property
+#   _init_drop_foreign_paths guarantees from the other end: that fence
+#   keeps a path outside REPO_ROOT out of `git add`, this one keeps `git
+#   add` itself inside REPO_ROOT's repo. Compared PHYSICALLY, because git
+#   answers with symlinks resolved and REPO_ROOT need not be spelled that
+#   way. "Cannot determine which repo this is" resolves to refusing.
+_init_git_can_stage() {
+  local _top _root
+  _top="$(git -C "${REPO_ROOT}" rev-parse --show-toplevel 2> /dev/null)"
+  if [[ -n "${_top}" ]]; then
+    _top="$(cd -P -- "${_top}" 2> /dev/null && pwd -P)"
+    _root="$(cd -P -- "${REPO_ROOT}" 2> /dev/null && pwd -P)"
+    [[ -n "${_root}" && "${_top}" == "${_root}" ]] && return 0
+  fi
+  if [[ -e "${REPO_ROOT}/.git" || -L "${REPO_ROOT}/.git" ]]; then
+    _log_warn init init_progress "display=  could not stage what the resync wrote: git cannot read ${REPO_ROOT} as a work tree -- stage and commit it by hand before pushing"
+  fi
+  return 1
+}
+
 # _create_hook_stubs
 #   Creates 14 stub files (7 wrappers x 2 phases) under
 #   script/hooks/{pre,post}/. Idempotent: never overwrites an
@@ -1085,6 +1536,7 @@ _create_hook_stubs() {
     for _wrapper in build run exec stop prune setup setup_tui; do
       _file="${REPO_ROOT}/script/hooks/${_kind}/${_wrapper}.sh"
       [[ -e "${_file}" ]] && continue
+      _init_record_write "script/hooks/${_kind}/${_wrapper}.sh"
       cat > "${_file}" <<HOOK
 #!/usr/bin/env bash
 # ${_kind}-${_wrapper} hook: host-side, runs ${_verb} ${_wrapper}.sh main logic.
@@ -1153,6 +1605,7 @@ jobs:
           GH_REPO: \${{ github.repository }}
         run: ./${TEMPLATE_REL}/dist/script/base/check-base-version.sh run
 YAML
+  _init_record_write ".github/workflows/base-version-monitor.yaml"
   _log "  Created .github/workflows/base-version-monitor.yaml"
 }
 
@@ -1161,17 +1614,51 @@ YAML
 #   user's .gitignore is missing AND `git rm --cached` any tracked
 #   files that have since become derived artifacts. Heals the 15-repo
 #   drift, in one shot — no separate sweep PR needed.
+#
+#   Records whether the pass actually WROTE either ignore file, because
+#   both are conditional paths (_init_conditional_paths) and the staging
+#   step stages one only when this run wrote it. Neither can be recorded by
+#   its writer the way a hook stub is: three separate syncs write .gitignore
+#   -- the canonical append, the retired-entry prune inside it, and the
+#   [logging] block rebuild -- and each already answers a different question
+#   than "did anything change". The file's CONTENT across the whole pass
+#   answers it once, for every writer present and future, which is also how
+#   _call_setup records `.setup.conf` across a separate process.
+#
+#   The `; printf x` on every read is load-bearing, for the reason spelled
+#   out at _call_setup: a command substitution eats trailing newlines, so
+#   without it a pass whose only change was one would read as no change and
+#   go unstaged -- the tree/commit disagreement this staging exists to
+#   close.
 _sync_existing_gitignore() {
-  _sync_gitignore "${REPO_ROOT}/.gitignore"
+  local _gitignore="${REPO_ROOT}/.gitignore"
+  local _dockerignore="${REPO_ROOT}/.dockerignore"
+  local _git_before="" _docker_before="" _git_after="" _docker_after=""
+  [[ -f "${_gitignore}" ]] \
+    && _git_before="$(cat -- "${_gitignore}" 2> /dev/null; printf x)"
+  [[ -f "${_dockerignore}" ]] \
+    && _docker_before="$(cat -- "${_dockerignore}" 2> /dev/null; printf x)"
+
+  _sync_gitignore "${_gitignore}"
   _untrack_canonical_in_repo "${REPO_ROOT}"
   # append-missing the same derived-artifact set into .dockerignore
   # (created if absent), preserving user build-context lines.
-  _sync_dockerignore "${REPO_ROOT}/.dockerignore"
+  _sync_dockerignore "${_dockerignore}"
   # PR-B: rebuild the [logging] local_path managed block from the
   # current setup.conf. Used to live in setup.sh apply (runtime); now
   # tied to init/upgrade lifecycle so the file stays consistent even
   # when setup.conf changed between wrapper invocations.
   _sync_logging_gitignore "${REPO_ROOT}"
+
+  [[ -f "${_gitignore}" ]] \
+    && _git_after="$(cat -- "${_gitignore}" 2> /dev/null; printf x)"
+  [[ -f "${_dockerignore}" ]] \
+    && _docker_after="$(cat -- "${_dockerignore}" 2> /dev/null; printf x)"
+  [[ "${_git_after}" == "${_git_before}" ]] \
+    || _init_record_write ".gitignore"
+  [[ "${_docker_after}" == "${_docker_before}" ]] \
+    || _init_record_write ".dockerignore"
+  return 0
 }
 
 # ── Generate per-repo setup.conf ────────────────────────────────────────────
@@ -1213,7 +1700,29 @@ _gen_setup_conf() {
 
 # ── Trigger setup.sh to materialize .env + compose.yaml ─────────────────────
 
+# _call_setup
+#   Run setup.sh over this repo, and record whether it wrote `.setup.conf`.
+#
+#   `.setup.conf` is a published installed path, so the staging step has to
+#   decide whether it is this run's output -- and it is one only sometimes.
+#   setup.sh writes it on a first-time bootstrap and on a stale-mount_1
+#   rewrite, and leaves it exactly as it found it on every other run (see
+#   `_reconcile_workspace_path` in lib/setup_detect.sh). On the ordinary
+#   upgrade, therefore, the file holds the repo's own tuning.
+#
+#   Recorded by comparing the file's CONTENT across the call, for a reason
+#   the ignore files share (see _sync_existing_gitignore) and take one step
+#   further: here the writer is a separate PROCESS, and no shell variable
+#   crosses that at all. The `; printf x` on both reads is not a flourish:
+#   a command substitution eats trailing newlines, so without it a run
+#   whose only change was one would read as no change and go unstaged,
+#   leaving the working tree disagreeing with the commit -- the failure
+#   this whole step exists to close.
 _call_setup() {
+  local _conf="${REPO_ROOT}/.setup.conf"
+  local _before="" _after=""
+  [[ -f "${_conf}" ]] && _before="$(cat -- "${_conf}" 2> /dev/null; printf x)"
+
   local _setup="${TEMPLATE_DIR}/dist/script/docker/wrapper/setup.sh"
   if [[ ! -f "${_setup}" ]]; then
     _log "Skipping setup.sh (${_setup} not found)"
@@ -1223,6 +1732,10 @@ _call_setup() {
   if ! bash "${_setup}" apply --base-path "${REPO_ROOT}" >/dev/null; then
     _log "WARNING: setup.sh exited non-zero; inspect manually and rerun ./build.sh --setup"
   fi
+
+  [[ -f "${_conf}" ]] && _after="$(cat -- "${_conf}" 2> /dev/null; printf x)"
+  [[ "${_after}" == "${_before}" ]] || _init_record_write ".setup.conf"
+  return 0
 }
 
 # _error <message>
@@ -1477,14 +1990,30 @@ EOF
   local template_version=""
   template_version="$(_detect_template_version)"
 
+  local _resynced=false
   if _init_repo_is_existing; then
     _init_existing_repo
+    _resynced=true
   else
     _create_new_repo "${template_version:-main}"
     _create_symlinks
   fi
 
   _call_setup
+
+  # AFTER _call_setup, not at the end of _init_existing_repo, because
+  # `.setup.conf` is written there and it is one of the paths
+  # _init_installed_paths publishes. Staging one step earlier committed
+  # every other file the resync wrote and left that one untracked -- the
+  # same tree/commit disagreement this staging exists to close, one file
+  # over. Nothing after this point writes a published path.
+  #
+  # Existing-repo path only. A brand-new repo has no upgrade commit to
+  # join: `_create_new_repo` runs before the first commit exists, and the
+  # released `upgrade.sh` that this staging feeds never takes that branch.
+  if [[ "${_resynced}" == "true" ]]; then
+    _stage_resync_output
+  fi
 
   # host preflight for the `just` runner. Runs on BOTH the new-repo
   # and existing-repo paths (placed in main, after the scaffolding/setup

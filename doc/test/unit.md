@@ -1978,7 +1978,7 @@ to escape.
 | `_sync_doc_counts: a second run over a generated catalogue changes nothing` | "Regenerating from scratch reproduces what is committed" is the gate check_test_md_drift.sh applies to the real tree, so a second run that moved a byte would make every branch red for a reason no diff explains. |
 | `_sync_doc_counts: a shipped smoke spec lands in smoke.md` | A shipped smoke spec is the one level whose glob leaves test/ for dist/, and it was the case that caught the doc-to-glob map going stale before. It stays because the map is still hand-written. |
 
-### test/bats/unit/dockerfile_migrate_spec.bats (123)
+### test/bats/unit/dockerfile_migrate_spec.bats (129)
 
 Unit tests for the declarative Dockerfile-migration list
 `lib/dockerfile_migrate.sh` (#567, folds #579 facet B). The lib exposes a
@@ -2116,6 +2116,12 @@ force-rewrite).
 | `migration 5 (hadolint): DL3046 leaves usermod -l alone (#946)` | The conflict-handling branch beside it is a different command; rewriting it would corrupt it |
 | `migration 5 (hadolint): DL3046 detect sees the flags-before--u shape (#946)` | A detect blind to the shipped shape logs a patched Dockerfile with the finding still live |
 | `migration 5 (hadolint): DL3046 heals a useradd whose own line also runs usermod -l (#946)` | A sibling flag after `&&` is not this command's flag; scanning to end of line left the finding live |
+| `migrated_files names the Dockerfile the run rewrote (#1036)` | The caller cannot name the files itself -- it stages what the record names, so the record has to name every file the run rewrote |
+| `migrated_files names the entrypoint the run rewrote (#1036)` | The sibling entrypoint is rewritten by migrations of its own, so a record that knows only about the Dockerfile leaves it behind |
+| `migrated_files is empty on a second, idempotent run (#1036)` | A run that rewrote nothing must hand its caller nothing to stage, and the record may not survive into the next run |
+| `a raw in-place write no helper made is still reported (#1036)` | A migration is free to write however it likes, so the record has to be closed by the dispatcher rather than by every author remembering a house-style helper |
+| `a raw write to the entrypoint is still reported (#1036)` | The sibling entrypoint is written by migrations too, so a raw write there is the same unstaged rewrite one file over |
+| `a migration that opens a file without changing it reports nothing (#1036)` | "The dispatcher checks the files itself" must mean their CONTENT -- a check on mtime would report every file a migration merely opened and hand the caller a commit of files nothing changed |
 
 ### test/bats/unit/dockerignore_spec.bats (11)
 
@@ -2797,7 +2803,7 @@ forwarding for caller abort, and DRY_RUN skip.
 | `init.sh --list-installed-paths output is sorted and free of duplicates` | - |
 | `init.sh --list-installed-paths mutates nothing and never leaves its cwd` | - |
 
-### test/bats/unit/init_spec.bats (69)
+### test/bats/unit/init_spec.bats (99)
 
 Unit coverage for `init.sh` helpers that previous rounds exercised only
 through the Level-1 integration test. Complements
@@ -2847,6 +2853,36 @@ are hard to trigger from a real `bash template/init.sh` invocation
 | `_create_new_repo: also generates base-version-monitor.yaml` | - |
 | `_init_existing_repo: heals a Dockerfile still naming the pre-dist layout (#915)` | - |
 | `_init_existing_repo: leaves an already-migrated Dockerfile untouched (#915)` | - |
+| `the resync: stages the Dockerfile its migrations rewrote (#1036)` | The committing caller is a released script that cannot be changed; the run that rewrites the file is the only one that can stage it |
+| `the resync: leaves a file no migration touched unstaged (#1036)` | A user's half-finished edit is not the resync's to commit, which is what a `git add -A` sweep would make it |
+| `the resync: stages the wrappers it installed (#1036)` | The wrappers are output of the same mechanical run as the Dockerfile, so leaving them out of the commit leaves the tree disagreeing with the release the commit claims |
+| `the resync: stages the retired root wrapper it removed (#1036)` | The resync DELETES the pre-relocation root wrappers, and a deletion left out of the commit is the same tree/commit disagreement one direction over |
+| `the resync: leaves a hand-written root Makefile unstaged (#1036)` | the resync deletes a retired root name only when it is a SYMLINK, so a consumer's own regular file at that name is not this run's output and staging it by name commits an edit the run never made |
+| `_stage_resync_output: warns when git cannot read the repo (#1036)` | "git cannot answer" is not "there is nothing to stage" -- resolving it to silent success is how an unstaged rewrite gets pushed |
+| `_stage_resync_output: a path outside the repo root loses only itself (#1036)` | `git add` fails the WHOLE batch on one path it will not take, so an entry pointing outside the repo costs the commit every other path -- including the Dockerfile this staging exists to commit |
+| `_stage_resync_output: is silent when the tree is no git repo at all (#1036)` | `just base init` is also a repair command for a hand-bootstrapped tree, and a directory that is genuinely not a repo is not a problem to report |
+| `_stage_resync_output: refuses an index that is not this repo's (#1036)` | "cannot tell which repo this is" must not resolve to staging, or a repair run inside someone else's checkout writes the whole resync into THEIR index and reports success |
+| `the resync: stages no Dockerfile when no migration applies (#1036)` | Nothing rewritten is nothing to stage -- and not an error |
+| `the resync: leaves a hook stub the user wrote unstaged (#1036)` | init.sh never overwrites a hook stub, so what is in one is the user's; staging the published list wholesale commits their half-finished hook under a message about a base release |
+| `the resync: leaves a repo-owned local.sh unstaged (#1036)` | script/local/local.sh is REPO-OWNED by the naming contract -- the resync seeds it once and a subtree upgrade never clobbers it -- so its content after the first run is only ever the repo's own work |
+| `the resync: leaves an existing config/.gitkeep unstaged (#1036)` | _populate_config keeps an existing config/ untouched, so the .gitkeep inside it is whatever the repo put there -- the placeholder is seeded once and never rewritten |
+| `the resync: leaves an edited monitor workflow unstaged (#1036)` | the monitor workflow is generated once and then left alone on every later run, so a repo that has tuned its schedule owns the file the staging step would commit |
+| `the resync: leaves a customised .hadolint.yaml unstaged (#1036)` | _create_symlinks deliberately KEEPS a .hadolint.yaml that differs from the template rather than re-pointing it, and a file the run refused to touch is not the run's to commit |
+| `the resync: stages the hook stub it created this run (#1036)` | the half of the property that must NOT regress -- a stub this run created is the run's own output, and dropping the whole conditional class from the commit would put the branch's own defect back one file over |
+| `the resync: leaves a .setup.conf setup.sh did not touch unstaged (#1036)` | setup.sh leaves an existing .setup.conf alone on every run but a bootstrap or a stale-path rewrite, so what is in it is the repo's own tuning and staging it commits an edit the user had not finished |
+| `the resync: stages the .setup.conf setup.sh bootstrapped (#1036)` | the half that must not regress -- a first-time bootstrap writes the file, and leaving THAT out of the commit is the tree/commit disagreement the staging step exists to close |
+| `the resync: stages a .setup.conf setup.sh rewrote in place (#1036)` | the stale-mount_1 rewrite changes a file that was already there, so "did it exist before" is the wrong question and only the content answers |
+| `the resync: stages a .setup.conf rewritten only in its final newline (#1036)` | the one failure the trailing-newline sentinel exists for -- a write the record cannot see is a write that never reaches the commit, which is the tree/commit disagreement this staging closes |
+| `the resync: leaves a .gitignore it did not write unstaged (#1036)` | the sync writes nothing when the file already carries every canonical entry, so on the ordinary upgrade .gitignore holds only the repo's own rules and staging it commits a rule the user had not finished |
+| `the resync: leaves a .dockerignore it did not write unstaged (#1036)` | the sibling half of the same list -- .dockerignore is synced by the same mechanism, from the same canonical set, and carries the same hand-maintained build-context region the sync never touches |
+| `the resync: stages the ignore files it wrote this run (#1036)` | the half that must not regress -- the run that actually creates the ignore files wrote them, and leaving THOSE out of the commit is the tree/commit disagreement the staging step exists to close |
+| `the resync: stages a .gitignore whose one change is its final newline (#1036)` | the ignore-file half of the same sentinel -- the [logging] block sync re-emits the file line by line, so restoring a final newline a hand edit dropped is a real pass whose ONLY change a substitution would eat |
+| `_stage_resync_output: a dot-dot path out of the repo loses only itself (#1036)` | `git add` refuses the WHOLE batch on a path outside the repo, and a path spelled out of the repo through the repo root with a `..` segment walks straight past a prefix test -- the one input shape the fence against that failure was not written for |
+| `_stage_resync_output: drops a gitignored path git would quote (#1036)` | the ignored-path filter matches check-ignore's answer back against the strings it fed in, and under the default core.quotePath git C-quotes any path carrying a byte over 0x7F -- so the answer never equals the question, the ignored path survives the filter, and `git add` reports a failure over a batch it did stage |
+| `_stage_resync_output: a migrated path git cannot match loses only itself (#1036)` | `git add` refuses the WHOLE batch on a pathspec matching nothing, and a path the run deleted that git never tracked matches nothing -- costing the commit the Dockerfile the same run rewrote |
+| `_stage_resync_output: stages the deletion of a tracked path it removed (#1036)` | the half that must not regress -- a TRACKED path the run deleted is still the run's output, and only the index can name it, so filtering on "is it on disk" alone would drop the deletion out of the commit |
+| `_init_lexical_path: resolves the segments without touching disk (#1036)` | the containment test is the whole fence, so the segment resolution it rests on is worth pinning on its own -- including the cases that must NOT move, a name that merely begins with dots and a relative path this pass has no business rewriting |
+| `_init_conditional_paths: every entry is a published installed path (#1036)` | the two lists are edited in different places for different reasons, and a conditional path spelled differently from its published name would silently fall back to being staged wholesale again |
 | `_init_existing_repo: syncs base-version-monitor.yaml on upgrade (#777)` | - |
 | `_preflight_just: warns and exits 0 when just is absent (#607)` | Missing runner -> non-fatal WARN |
 | `_preflight_just: emits the init_just_missing event under LOG_FORMAT=json (#607)` | Structured event wired through |

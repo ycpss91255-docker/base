@@ -373,9 +373,14 @@ _Avoid_: the entrypoint, repo entrypoint (both read as "the ENTRYPOINT").
 
 **Dockerfile-migration list**:
 The declarative ordered `{detect, transform}` migration table in
-`lib/dockerfile_migrate.sh` that `upgrade.sh` Step 5 iterates (via the
-`apply_migrations` dispatcher) to heal downstream Dockerfiles + entrypoints,
-replacing the ad-hoc Step-5 seds (#567, folds #579 facet B).
+`lib/dockerfile_migrate.sh` that `init.sh`'s Step-3 resync and `upgrade.sh`
+Step 5 both iterate (via the `apply_migrations` dispatcher) to heal
+downstream Dockerfiles + entrypoints, replacing the ad-hoc Step-5 seds
+(#567, folds #579 facet B). A run records what it actually rewrote
+(`migrated_files`), and the resync stages that record together with the
+rest of its own output -- the installed paths this run wrote and the
+retired root names it removed -- so the heal reaches the caller's commit
+whichever release is driving (#1036).
 _Avoid_: upgrade seds, Dockerfile patcher.
 
 ## Relationships

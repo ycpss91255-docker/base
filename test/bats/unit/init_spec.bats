@@ -641,6 +641,680 @@ EOF
   [[ "$(cat "${TMP_REPO}/Dockerfile")" == "${_before}" ]]
 }
 
+# _git_seed_consumer
+#   Turn the seeded TMP_REPO into a git repo with everything committed, so
+#   what the resync stages afterwards is exactly what the resync did.
+_git_seed_consumer() {
+  git -C "${TMP_REPO}" init -q -b main
+  git -C "${TMP_REPO}" config user.email t@t
+  git -C "${TMP_REPO}" config user.name t
+  git -C "${TMP_REPO}" add -A
+  git -C "${TMP_REPO}" commit -q -m "chore: seed"
+}
+
+# _resync_and_stage
+#   The existing-repo half of init.sh's `main`, in main's order: resync,
+#   then stage what it wrote. Staging is a step of `main` rather than of
+#   `_init_existing_repo` because `.setup.conf` is written between the two
+#   (by `_call_setup`, which these unit arms do not run -- it shells out to
+#   the real setup.sh; the integration arm covers that file). Calling both
+#   here rather than asserting against `_init_existing_repo` alone is what
+#   keeps these arms testing the order the released upgrade.sh drives.
+_resync_and_stage() {
+  _init_existing_repo
+  _stage_resync_output
+}
+
+# The resync applies the migrations, and until base#1036 nobody staged their
+# output: the caller that commits is the consumer's OWN vendored
+# upgrade.sh, which stages a pair of filenames hardcoded when it shipped
+# (v0.41.0's does not reach the Dockerfile at all). So the file the
+# migration had just rewritten stayed uncommitted while the same run
+# printed "git push". Staging belongs where the rewrite happens.
+
+# why: The committing caller is a released script that cannot be changed;
+# the run that rewrites the file is the only one that can stage it
+@test "the resync: stages the Dockerfile its migrations rewrote (#1036)" {
+  _source_init
+  cat > "${TMP_REPO}/Dockerfile" <<'EOF'
+FROM busybox AS lint
+COPY .base/script/docker/lib /lint/lib
+EOF
+  _git_seed_consumer
+  _resync_and_stage
+  run git -C "${TMP_REPO}" diff --cached --name-only
+  assert_line "Dockerfile"
+}
+
+# why: A user's half-finished edit is not the resync's to commit, which is
+# what a `git add -A` sweep would make it
+@test "the resync: leaves a file no migration touched unstaged (#1036)" {
+  _source_init
+  cat > "${TMP_REPO}/Dockerfile" <<'EOF'
+FROM busybox AS lint
+COPY .base/script/docker/lib /lint/lib
+EOF
+  printf 'committed\n' > "${TMP_REPO}/NOTES.md"
+  _git_seed_consumer
+  printf 'my half-finished edit\n' >> "${TMP_REPO}/NOTES.md"
+  _resync_and_stage
+  run git -C "${TMP_REPO}" diff --cached --name-only
+  refute_output --partial "NOTES.md"
+}
+
+# The Dockerfile is not the only thing the resync writes. It re-points the
+# wrapper symlinks, lands the justfile layering and the monitor workflow,
+# and drops the retired root wrappers -- all of it mechanical output of
+# the same run, none of it the user's work to review. Leaving that half
+# unstaged leaves the branch's own defect standing: the commit still says
+# "template references to <ver>" while the tree it describes is on a
+# different layout, and the run still ends with "git push".
+
+# why: The wrappers are output of the same mechanical run as the
+# Dockerfile, so leaving them out of the commit leaves the tree
+# disagreeing with the release the commit claims
+@test "the resync: stages the wrappers it installed (#1036)" {
+  _source_init
+  cat > "${TMP_REPO}/Dockerfile" <<'EOF'
+FROM busybox AS lint
+COPY .base/dist/script/docker/lib /lint/lib
+EOF
+  _git_seed_consumer
+  _resync_and_stage
+  run git -C "${TMP_REPO}" diff --cached --name-only
+  assert_line "justfile"
+  assert_line "script/build.sh"
+  assert_line ".hadolint.yaml"
+}
+
+# why: The resync DELETES the pre-relocation root wrappers, and a deletion
+# left out of the commit is the same tree/commit disagreement one
+# direction over
+@test "the resync: stages the retired root wrapper it removed (#1036)" {
+  _source_init
+  cat > "${TMP_REPO}/Dockerfile" <<'EOF'
+FROM busybox AS lint
+COPY .base/dist/script/docker/lib /lint/lib
+EOF
+  # The pre-relocation layout: a root symlink the resync drops on sight.
+  ln -s ".base/dist/script/docker/wrapper/build.sh" "${TMP_REPO}/build.sh"
+  _git_seed_consumer
+  _resync_and_stage
+  run git -C "${TMP_REPO}" diff --cached --name-only --diff-filter=D
+  assert_line "build.sh"
+}
+
+# A retired root NAME is not the same set as the retired root symlinks the
+# resync actually removes. _create_symlinks deletes one only when it is a
+# symlink, so a consumer carrying a hand-written regular file at that name
+# still has it, unchanged, when staging runs -- and it is theirs.
+
+# why: the resync deletes a retired root name only when it is a SYMLINK, so
+# a consumer's own regular file at that name is not this run's output and
+# staging it by name commits an edit the run never made
+@test "the resync: leaves a hand-written root Makefile unstaged (#1036)" {
+  _source_init
+  cat > "${TMP_REPO}/Dockerfile" <<'EOF'
+FROM busybox AS lint
+COPY .base/dist/script/docker/lib /lint/lib
+EOF
+  # A regular file at a retired name: the migration loop's `[[ -L ]]` guard
+  # passes over it, so the resync never touches it.
+  printf 'all:\n\t@echo mine\n' > "${TMP_REPO}/Makefile"
+  _git_seed_consumer
+  printf 'newtarget:\n\t@echo wip\n' >> "${TMP_REPO}/Makefile"
+  _resync_and_stage
+  run git -C "${TMP_REPO}" diff --cached --name-only
+  refute_output --partial "Makefile"
+}
+
+# why: "git cannot answer" is not "there is nothing to stage" -- resolving
+# it to silent success is how an unstaged rewrite gets pushed
+@test "_stage_resync_output: warns when git cannot read the repo (#1036)" {
+  _source_init
+  : > "${TMP_REPO}/Dockerfile"
+  _init_existing_repo
+  # A worktree checkout whose gitdir has gone -- the shape this repo's own
+  # integration specs run in. `rev-parse` exits 128, not 0.
+  printf 'gitdir: %s/gone\n' "${TMP_REPO}" > "${TMP_REPO}/.git"
+  run _stage_resync_output
+  assert_success
+  assert_output --partial "could not stage"
+}
+
+# why: `git add` fails the WHOLE batch on one path it will not take, so an
+# entry pointing outside the repo costs the commit every other path --
+# including the Dockerfile this staging exists to commit
+@test "_stage_resync_output: a path outside the repo root loses only itself (#1036)" {
+  _source_init
+  cat > "${TMP_REPO}/Dockerfile" <<'EOF'
+FROM busybox AS lint
+COPY .base/script/docker/lib /lint/lib
+EOF
+  _git_seed_consumer
+  _init_existing_repo
+  # A record naming somewhere this repo does not reach. No migration
+  # writes outside the repo root today; the point is that the day one
+  # does, the rewrite it made INSIDE still has to reach the commit.
+  STRAY_DIR="$(mktemp -d)"
+  printf 'not ours\n' > "${STRAY_DIR}/stray.txt"
+  migrated_files() {
+    printf '%s\n' "${TMP_REPO}/Dockerfile" "${STRAY_DIR}/stray.txt"
+  }
+
+  run _stage_resync_output
+  assert_success
+  assert_output --partial "stray.txt"
+
+  run git -C "${TMP_REPO}" diff --cached --name-only
+  assert_line "Dockerfile"
+  rm -rf "${STRAY_DIR}"
+}
+
+# why: `just base init` is also a repair command for a hand-bootstrapped
+# tree, and a directory that is genuinely not a repo is not a problem to
+# report
+@test "_stage_resync_output: is silent when the tree is no git repo at all (#1036)" {
+  _source_init
+  : > "${TMP_REPO}/Dockerfile"
+  _init_existing_repo
+  run _stage_resync_output
+  assert_success
+  refute_output --partial "could not stage"
+}
+
+# The other half of the foreign-path fence. That one guarantees no path
+# outside REPO_ROOT reaches `git add`; this one asks whether the git being
+# handed those paths is REPO_ROOT's own. A hand-bootstrapped consumer -- the
+# input the "may not be a git repo at all" branch is written for -- sitting
+# anywhere inside another repository's working tree has an index reachable
+# from it, and it is not this repo's to write.
+
+# why: "cannot tell which repo this is" must not resolve to staging, or a
+# repair run inside someone else's checkout writes the whole resync into
+# THEIR index and reports success
+@test "_stage_resync_output: refuses an index that is not this repo's (#1036)" {
+  local _outer
+  _outer="$(mktemp -d)"
+  git -C "${_outer}" init -q -b main
+  git -C "${_outer}" config user.email t@t
+  git -C "${_outer}" config user.name t
+  git -C "${_outer}" commit -q --allow-empty -m "chore: outer"
+  # The consumer is a plain directory INSIDE that checkout: no `.git` of
+  # its own, exactly the hand-bootstrapped tree this branch is written for.
+  mv "${TMP_REPO}" "${_outer}/consumer"
+  TMP_REPO="${_outer}/consumer"
+  cd "${TMP_REPO}"
+
+  _source_init
+  : > "${TMP_REPO}/Dockerfile"
+  _init_existing_repo
+  run _stage_resync_output
+  assert_success
+
+  run git -C "${_outer}" diff --cached --name-only
+  assert_output ""
+  rm -rf "${_outer}"
+}
+
+# why: Nothing rewritten is nothing to stage -- and not an error
+@test "the resync: stages no Dockerfile when no migration applies (#1036)" {
+  _source_init
+  cat > "${TMP_REPO}/Dockerfile" <<'EOF'
+FROM busybox AS lint
+COPY .base/dist/script/docker/lib /lint/lib
+EOF
+  _git_seed_consumer
+  # Called directly, not through `run`: the resync arms an EXIT trap of its
+  # own, and `run` would fire it in the wrapper's context. A non-zero
+  # return fails the test here anyway, which is the "does not fail" half.
+  _resync_and_stage
+  run git -C "${TMP_REPO}" diff --cached --name-only
+  refute_output --partial "Dockerfile"
+}
+
+# _init_installed_paths answers "what does a consumer CARRY", which is not
+# "what did this run WRITE". Eight of the paths behind that list are
+# written only under a condition and otherwise left exactly as they were
+# found -- the 14 hook stubs, the script/local/ starter pair,
+# config/.gitkeep, the monitor workflow, a .hadolint.yaml the user has
+# customised, .gitignore, .dockerignore and .setup.conf. Staging the list
+# wholesale therefore stages the user's own content in those files and, on
+# the real upgrade path, commits it. The arms below name each writer,
+# because a fix that reaches only the one that was reported leaves the
+# same defect standing seven files over.
+
+# why: init.sh never overwrites a hook stub, so what is in one is the
+# user's; staging the published list wholesale commits their half-finished
+# hook under a message about a base release
+@test "the resync: leaves a hook stub the user wrote unstaged (#1036)" {
+  _source_init
+  : > "${TMP_REPO}/Dockerfile"
+  mkdir -p "${TMP_REPO}/script/hooks/pre"
+  printf 'exit 0\n' > "${TMP_REPO}/script/hooks/pre/build.sh"
+  _git_seed_consumer
+  printf 'my half-finished hook\n' >> "${TMP_REPO}/script/hooks/pre/build.sh"
+  _resync_and_stage
+  run git -C "${TMP_REPO}" diff --cached --name-only
+  refute_output --partial "script/hooks/pre/build.sh"
+}
+
+# why: script/local/local.sh is REPO-OWNED by the naming contract -- the
+# resync seeds it once and a subtree upgrade never clobbers it -- so its
+# content after the first run is only ever the repo's own work
+@test "the resync: leaves a repo-owned local.sh unstaged (#1036)" {
+  _source_init
+  : > "${TMP_REPO}/Dockerfile"
+  mkdir -p "${TMP_REPO}/script/local"
+  printf 'main() { :; }\n' > "${TMP_REPO}/script/local/local.sh"
+  _git_seed_consumer
+  printf 'my own recipe body\n' >> "${TMP_REPO}/script/local/local.sh"
+  _resync_and_stage
+  run git -C "${TMP_REPO}" diff --cached --name-only
+  refute_output --partial "script/local/local.sh"
+}
+
+# why: _populate_config keeps an existing config/ untouched, so the
+# .gitkeep inside it is whatever the repo put there -- the placeholder is
+# seeded once and never rewritten
+@test "the resync: leaves an existing config/.gitkeep unstaged (#1036)" {
+  _source_init
+  : > "${TMP_REPO}/Dockerfile"
+  mkdir -p "${TMP_REPO}/config"
+  printf 'placeholder\n' > "${TMP_REPO}/config/.gitkeep"
+  _git_seed_consumer
+  printf 'my note about this directory\n' >> "${TMP_REPO}/config/.gitkeep"
+  _resync_and_stage
+  run git -C "${TMP_REPO}" diff --cached --name-only
+  refute_output --partial "config/.gitkeep"
+}
+
+# why: the monitor workflow is generated once and then left alone on every
+# later run, so a repo that has tuned its schedule owns the file the
+# staging step would commit
+@test "the resync: leaves an edited monitor workflow unstaged (#1036)" {
+  _source_init
+  : > "${TMP_REPO}/Dockerfile"
+  mkdir -p "${TMP_REPO}/.github/workflows"
+  printf 'name: Base Version Monitor\n' \
+    > "${TMP_REPO}/.github/workflows/base-version-monitor.yaml"
+  _git_seed_consumer
+  printf '# my own schedule\n' \
+    >> "${TMP_REPO}/.github/workflows/base-version-monitor.yaml"
+  _resync_and_stage
+  run git -C "${TMP_REPO}" diff --cached --name-only
+  refute_output --partial "base-version-monitor.yaml"
+}
+
+# why: _create_symlinks deliberately KEEPS a .hadolint.yaml that differs
+# from the template rather than re-pointing it, and a file the run refused
+# to touch is not the run's to commit
+@test "the resync: leaves a customised .hadolint.yaml unstaged (#1036)" {
+  _source_init
+  : > "${TMP_REPO}/Dockerfile"
+  printf 'ignored:\n  - DL3008\n' > "${TMP_REPO}/.hadolint.yaml"
+  _git_seed_consumer
+  printf '  - DL3009\n' >> "${TMP_REPO}/.hadolint.yaml"
+  _resync_and_stage
+  run git -C "${TMP_REPO}" diff --cached --name-only
+  refute_output --partial ".hadolint.yaml"
+}
+
+# why: the half of the property that must NOT regress -- a stub this run
+# created is the run's own output, and dropping the whole conditional class
+# from the commit would put the branch's own defect back one file over
+@test "the resync: stages the hook stub it created this run (#1036)" {
+  _source_init
+  : > "${TMP_REPO}/Dockerfile"
+  _git_seed_consumer
+  _resync_and_stage
+  run git -C "${TMP_REPO}" diff --cached --name-only
+  assert_line "script/hooks/pre/build.sh"
+  assert_line "script/local/local.sh"
+  assert_line "config/.gitkeep"
+  assert_line ".github/workflows/base-version-monitor.yaml"
+}
+
+# _fake_setup_sh <body>
+#   Stand in for the real setup.sh at the path _call_setup shells out to.
+#   Its arguments are `apply --base-path <REPO_ROOT>`, so $3 is the repo.
+_fake_setup_sh() {
+  printf '#!/usr/bin/env bash\n%s\n' "${1}" \
+    > "${TMP_REPO}/.base/dist/script/docker/wrapper/setup.sh"
+}
+
+# .setup.conf is the one path of this shape whose writer is in another
+# PROCESS: setup.sh writes it, on bootstrap or on a stale mount_1 rewrite,
+# and leaves it alone on every other run. No in-process record reaches
+# across that, so the content across the call is what says whether this run
+# wrote the file.
+
+# why: setup.sh leaves an existing .setup.conf alone on every run but a
+# bootstrap or a stale-path rewrite, so what is in it is the repo's own
+# tuning and staging it commits an edit the user had not finished
+@test "the resync: leaves a .setup.conf setup.sh did not touch unstaged (#1036)" {
+  _source_init
+  : > "${TMP_REPO}/Dockerfile"
+  printf '[project]\nname = mine\n' > "${TMP_REPO}/.setup.conf"
+  _fake_setup_sh 'exit 0'
+  _git_seed_consumer
+  printf '# my half-finished tuning\n' >> "${TMP_REPO}/.setup.conf"
+  _init_existing_repo
+  _call_setup
+  _stage_resync_output
+  run git -C "${TMP_REPO}" diff --cached --name-only
+  refute_output --partial ".setup.conf"
+}
+
+# why: the half that must not regress -- a first-time bootstrap writes the
+# file, and leaving THAT out of the commit is the tree/commit disagreement
+# the staging step exists to close
+@test "the resync: stages the .setup.conf setup.sh bootstrapped (#1036)" {
+  _source_init
+  : > "${TMP_REPO}/Dockerfile"
+  _fake_setup_sh 'printf "[project]\nname = seeded\n" > "${3}/.setup.conf"'
+  _git_seed_consumer
+  _init_existing_repo
+  _call_setup
+  _stage_resync_output
+  run git -C "${TMP_REPO}" diff --cached --name-only
+  assert_line ".setup.conf"
+}
+
+# why: the stale-mount_1 rewrite changes a file that was already there, so
+# "did it exist before" is the wrong question and only the content answers
+@test "the resync: stages a .setup.conf setup.sh rewrote in place (#1036)" {
+  _source_init
+  : > "${TMP_REPO}/Dockerfile"
+  printf '[volumes]\nmount_1 = /gone:/work\n' > "${TMP_REPO}/.setup.conf"
+  _fake_setup_sh 'printf "[volumes]\nmount_1 = portable\n" > "${3}/.setup.conf"'
+  _git_seed_consumer
+  _init_existing_repo
+  _call_setup
+  _stage_resync_output
+  run git -C "${TMP_REPO}" diff --cached --name-only
+  assert_line ".setup.conf"
+}
+
+# The record is a comparison of the file's content across the call, and a
+# command substitution strips EVERY trailing newline -- so the `; printf x`
+# sentinel on both reads is the only thing that makes a pass whose one
+# change is a final newline visible to it. Without an arm on exactly that
+# input the sentinel is unproven: every other arm here changes bytes the
+# substitution keeps.
+
+# why: the one failure the trailing-newline sentinel exists for -- a write
+# the record cannot see is a write that never reaches the commit, which is
+# the tree/commit disagreement this staging closes
+@test "the resync: stages a .setup.conf rewritten only in its final newline (#1036)" {
+  _source_init
+  : > "${TMP_REPO}/Dockerfile"
+  printf '[project]\nname = mine\n' > "${TMP_REPO}/.setup.conf"
+  # Byte-identical but for the newline setup.sh drops off the end.
+  _fake_setup_sh 'printf "[project]\nname = mine" > "${3}/.setup.conf"'
+  _git_seed_consumer
+  _init_existing_repo
+  _call_setup
+  _stage_resync_output
+  run git -C "${TMP_REPO}" diff --cached --name-only
+  assert_line ".setup.conf"
+}
+
+# .gitignore and .dockerignore are the seventh and eighth paths of this
+# shape, and the pair the enumeration above missed. _sync_managed_entries
+# appends only the canonical entries the file is MISSING and returns
+# without a write when none are -- "the common case for an up-to-date
+# repo", in its own comment -- and both files carry a hand-maintained
+# region above the managed block that the sync documents as never touched.
+# So on the ordinary upgrade what is in one is the repo's own work, exactly
+# as with a hook stub. Reached through `just base init`, which the code
+# calls a repair command; an upgrade cannot reach it because git-subtree
+# refuses a dirty tree first.
+
+# _resync_twice_over_edit <file> <user-lines>
+#   The shape both arms below need: one resync brings the ignore file up to
+#   date, that lands in a commit, the user then appends a rule of their own,
+#   and a SECOND resync -- which has nothing left to add -- runs over it.
+#   What the second run stages is the question.
+_resync_twice_over_edit() {
+  : > "${TMP_REPO}/Dockerfile"
+  _git_seed_consumer
+  _init_existing_repo
+  git -C "${TMP_REPO}" add -A
+  git -C "${TMP_REPO}" commit -q -m "chore: first resync"
+  printf '%s' "${2}" >> "${TMP_REPO}/${1}"
+  _resync_and_stage
+}
+
+# why: the sync writes nothing when the file already carries every
+# canonical entry, so on the ordinary upgrade .gitignore holds only the
+# repo's own rules and staging it commits a rule the user had not finished
+@test "the resync: leaves a .gitignore it did not write unstaged (#1036)" {
+  _source_init
+  _resync_twice_over_edit ".gitignore" '# my own rule
+secrets/
+'
+  run git -C "${TMP_REPO}" diff --cached --name-only
+  refute_output --partial ".gitignore"
+}
+
+# why: the sibling half of the same list -- .dockerignore is synced by the
+# same mechanism, from the same canonical set, and carries the same
+# hand-maintained build-context region the sync never touches
+@test "the resync: leaves a .dockerignore it did not write unstaged (#1036)" {
+  _source_init
+  _resync_twice_over_edit ".dockerignore" '# my own context rule
+fixtures/
+'
+  run git -C "${TMP_REPO}" diff --cached --name-only
+  refute_output --partial ".dockerignore"
+}
+
+# why: the half that must not regress -- the run that actually creates the
+# ignore files wrote them, and leaving THOSE out of the commit is the
+# tree/commit disagreement the staging step exists to close
+@test "the resync: stages the ignore files it wrote this run (#1036)" {
+  _source_init
+  : > "${TMP_REPO}/Dockerfile"
+  _git_seed_consumer
+  _resync_and_stage
+  run git -C "${TMP_REPO}" diff --cached --name-only
+  assert_line ".gitignore"
+  assert_line ".dockerignore"
+}
+
+# why: the ignore-file half of the same sentinel -- the [logging] block
+# sync re-emits the file line by line, so restoring a final newline a hand
+# edit dropped is a real pass whose ONLY change a substitution would eat
+@test "the resync: stages a .gitignore whose one change is its final newline (#1036)" {
+  _source_init
+  : > "${TMP_REPO}/Dockerfile"
+  # A relative [logging] local_path is what puts a managed block in
+  # .gitignore, and the block is what the second pass below re-emits.
+  printf '[logging]\nlocal_path = log\n' > "${TMP_REPO}/.setup.conf"
+  _git_seed_consumer
+  _init_existing_repo
+  # A hand edit that drops the final byte, committed: every canonical entry
+  # is present, so the append sync has nothing to write and restoring this
+  # newline is the whole of what the second pass below changes.
+  truncate -s -1 "${TMP_REPO}/.gitignore"
+  git -C "${TMP_REPO}" add -A
+  git -C "${TMP_REPO}" commit -q -m "chore: first resync"
+  _resync_and_stage
+  run git -C "${TMP_REPO}" diff --cached --name-only
+  assert_line ".gitignore"
+}
+
+# why: `git add` refuses the WHOLE batch on a path outside the repo, and a
+# path spelled out of the repo through the repo root with a `..` segment
+# walks straight past a prefix test -- the one input shape the fence
+# against that failure was not written for
+@test "_stage_resync_output: a dot-dot path out of the repo loses only itself (#1036)" {
+  _source_init
+  cat > "${TMP_REPO}/Dockerfile" <<'EOF'
+FROM busybox AS lint
+COPY .base/script/docker/lib /lint/lib
+EOF
+  _git_seed_consumer
+  _init_existing_repo
+  # Same destination as the arm above, different spelling: the path goes
+  # THROUGH the repo root and back out of it, so it starts with
+  # "${REPO_ROOT}/" while naming somewhere the repo does not reach.
+  STRAY_DIR="$(mktemp -d)"
+  printf 'not ours\n' > "${STRAY_DIR}/stray.txt"
+  migrated_files() {
+    printf '%s\n' "${TMP_REPO}/Dockerfile" \
+      "${TMP_REPO}/../$(basename -- "${STRAY_DIR}")/stray.txt"
+  }
+
+  run _stage_resync_output
+  assert_success
+  assert_output --partial "stray.txt"
+
+  run git -C "${TMP_REPO}" diff --cached --name-only
+  assert_line "Dockerfile"
+  rm -rf "${STRAY_DIR}"
+}
+
+# why: the ignored-path filter matches check-ignore's answer back against
+# the strings it fed in, and under the default core.quotePath git C-quotes
+# any path carrying a byte over 0x7F -- so the answer never equals the
+# question, the ignored path survives the filter, and `git add` reports a
+# failure over a batch it did stage
+@test "_stage_resync_output: drops a gitignored path git would quote (#1036)" {
+  _source_init
+  cat > "${TMP_REPO}/Dockerfile" <<'EOF'
+FROM busybox AS lint
+COPY .base/script/docker/lib /lint/lib
+EOF
+  # A derived artifact of the user's, under a name git will not hand back
+  # verbatim. Written before the seed so it is ignored, not tracked.
+  printf 'caf\xc3\xa9.txt\n' > "${TMP_REPO}/.gitignore"
+  printf 'derived\n' > "${TMP_REPO}/$(printf 'caf\xc3\xa9.txt')"
+  _git_seed_consumer
+  _init_existing_repo
+  migrated_files() {
+    printf '%s\n' "${TMP_REPO}/Dockerfile" \
+      "${TMP_REPO}/$(printf 'caf\xc3\xa9.txt')"
+  }
+
+  run _stage_resync_output
+  assert_success
+  refute_output --partial "could not stage"
+
+  run git -C "${TMP_REPO}" diff --cached --name-only
+  assert_line "Dockerfile"
+  refute_output --partial "caf"
+}
+
+# The foreign-path fence answers only the OUTSIDE-the-repo way of handing
+# `git add` a pathspec it cannot match. A path INSIDE the repo that is
+# neither on disk nor in the index fails the identical whole-batch refusal,
+# and the migration record can name one today: _dfm_reconcile_targets
+# records a target the run DELETED, which git cannot match if it was never
+# tracked. Since failing to stage is deliberately non-fatal, the run then
+# prints the caller's `git push` advice over a tree whose Dockerfile
+# rewrite never reached the index -- base#1036 through the code written to
+# fix it.
+
+# why: `git add` refuses the WHOLE batch on a pathspec matching nothing,
+# and a path the run deleted that git never tracked matches nothing --
+# costing the commit the Dockerfile the same run rewrote
+@test "_stage_resync_output: a migrated path git cannot match loses only itself (#1036)" {
+  _source_init
+  cat > "${TMP_REPO}/Dockerfile" <<'EOF'
+FROM busybox AS lint
+COPY .base/script/docker/lib /lint/lib
+EOF
+  _git_seed_consumer
+  _init_existing_repo
+  # What _dfm_reconcile_targets records for a target the run removed. This
+  # one was never tracked, so no pathspec reaches it.
+  migrated_files() {
+    printf '%s\n' "${TMP_REPO}/Dockerfile" "${TMP_REPO}/script/gone.sh"
+  }
+
+  run _stage_resync_output
+  assert_success
+
+  run git -C "${TMP_REPO}" diff --cached --name-only
+  assert_line "Dockerfile"
+}
+
+# why: the half that must not regress -- a TRACKED path the run deleted is
+# still the run's output, and only the index can name it, so filtering on
+# "is it on disk" alone would drop the deletion out of the commit
+@test "_stage_resync_output: stages the deletion of a tracked path it removed (#1036)" {
+  _source_init
+  cat > "${TMP_REPO}/Dockerfile" <<'EOF'
+FROM busybox AS lint
+COPY .base/script/docker/lib /lint/lib
+EOF
+  mkdir -p "${TMP_REPO}/script"
+  printf 'retired\n' > "${TMP_REPO}/script/entrypoint.sh"
+  _git_seed_consumer
+  _init_existing_repo
+  rm -f "${TMP_REPO}/script/entrypoint.sh"
+  migrated_files() {
+    printf '%s\n' "${TMP_REPO}/Dockerfile" "${TMP_REPO}/script/entrypoint.sh"
+  }
+
+  run _stage_resync_output
+  assert_success
+
+  run git -C "${TMP_REPO}" diff --cached --name-only --diff-filter=D
+  assert_line "script/entrypoint.sh"
+}
+
+# why: the containment test is the whole fence, so the segment resolution
+# it rests on is worth pinning on its own -- including the cases that must
+# NOT move, a name that merely begins with dots and a relative path this
+# pass has no business rewriting
+@test "_init_lexical_path: resolves the segments without touching disk (#1036)" {
+  _source_init
+  _init_lexical_path "/a/b/../c/./d"
+  [[ "${_INIT_LEXICAL_PATH}" == "/a/c/d" ]] \
+    || fail "expected /a/c/d, got ${_INIT_LEXICAL_PATH}"
+  _init_lexical_path "/a//b/"
+  [[ "${_INIT_LEXICAL_PATH}" == "/a/b" ]] \
+    || fail "expected /a/b, got ${_INIT_LEXICAL_PATH}"
+  # Never above the root: a walk that runs out of segments stops there.
+  _init_lexical_path "/a/../.."
+  [[ "${_INIT_LEXICAL_PATH}" == "/" ]] \
+    || fail "expected /, got ${_INIT_LEXICAL_PATH}"
+  # A leading-dots NAME is a name, not a walk.
+  _init_lexical_path "/a/..b/c"
+  [[ "${_INIT_LEXICAL_PATH}" == "/a/..b/c" ]] \
+    || fail "expected /a/..b/c, got ${_INIT_LEXICAL_PATH}"
+  # A relative path resolves against a cwd this pass does not know, so it
+  # is handed back untouched and the caller drops it as foreign.
+  _init_lexical_path "relative/x"
+  [[ "${_INIT_LEXICAL_PATH}" == "relative/x" ]] \
+    || fail "expected relative/x, got ${_INIT_LEXICAL_PATH}"
+}
+
+# why: the two lists are edited in different places for different reasons,
+# and a conditional path spelled differently from its published name would
+# silently fall back to being staged wholesale again
+@test "_init_conditional_paths: every entry is a published installed path (#1036)" {
+  _source_init
+  # Non-empty first: a missing accessor makes the loop below read nothing
+  # and report no stray, which is the same green as a correct list.
+  run _init_conditional_paths
+  assert_success
+  [[ -n "${output}" ]] || fail "_init_conditional_paths named nothing"
+
+  local _stray=""
+  local _path
+  while IFS= read -r _path; do
+    [[ -n "${_path}" ]] || continue
+    _init_installed_paths | grep -qxF -- "${_path}" \
+      || _stray+="${_path} "
+  done < <(_init_conditional_paths)
+  [[ -z "${_stray}" ]] \
+    || fail "not in _init_installed_paths: ${_stray}"
+}
+
 @test "_init_existing_repo: syncs base-version-monitor.yaml on upgrade (#777)" {
   _source_init
   : > "${TMP_REPO}/Dockerfile"   # mark as "existing repo"

@@ -639,7 +639,7 @@ lib/compose_emit.sh|        USER_NAME: \${USER_NAME}
 lib/config_summary.sh|    "$(_lib_msg user)" "${USER_NAME:--}" "${USER_UID:--}" \
 lib/config_summary.sh|  printf "[%s]   \${USER_NAME} = %s\n"  "${_tag}" "${USER_NAME:--}"
 lib/dockerfile_migrate.sh|  _log_info upgrade upgrade_started "display=  Dockerfile patched: ARG USER -> ARG USER=\${USER_NAME} (#567 m7 / #579)"
-lib/dockerfile_migrate.sh|  sed -i -E 's|^([[:space:]]*)ARG[[:space:]]+USER[[:space:]]*$|\1ARG USER="${USER_NAME}"|' "${_file}"
+lib/dockerfile_migrate.sh|  _dfm_sed "${_file}" -E 's|^([[:space:]]*)ARG[[:space:]]+USER[[:space:]]*$|\1ARG USER="${USER_NAME}"|'
 lib/env_emit.sh|USER_NAME=${_user_name}
 lib/setup_cmd.sh|    printf 'USER_NAME=%s\n' "${user_name}"
 lib/setup_detect.sh|  local _ws_portable_form='${WS_PATH}:/home/${USER_NAME}/work'
