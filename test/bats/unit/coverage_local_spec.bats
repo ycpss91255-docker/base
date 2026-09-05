@@ -410,16 +410,45 @@ _driver_prelude() {
 # suite is inside. The roster is read off `_run_via_compose`'s own
 # forwarding lines rather than listed here, so a fourth selector arrives
 # with this demand already made of every fixture.
+#
+# EVERY selector it forwards from the ambient environment, that is -- all
+# eleven, not the three whose names begin `COVERAGE_`. The prefix was the
+# family the defect was found in, and a roster shaped like the cause of
+# one instance is the curation this rule was written to replace: it left
+# out `BATS_FILTER`, which the coverage branch itself reads through
+# `_run_coverage_path`, so a spec silently narrowed by an inherited filter
+# would have been the same defect in a member the guard could not see.
 @test "specs driving the in-container coverage entry pin every forwarded selector (#726)" {
-  # The roster, derived. These are the names the coverage service is
-  # started with, which is exactly the set a spec can inherit.
-  run bash -c "grep -oE -- '-e COVERAGE_[A-Z_]+=' /source/script/test/test.sh \
-    | grep -oE 'COVERAGE_[A-Z_]+' | sort -u | tr '\n' ' '"
-  assert_success
-  local _roster="${output}"
-  # Three today; the assertion is that there is a roster at all, not how
-  # long it is.
+  # The roster, derived: the `-e NAME="${NAME:-...}"` selectors of
+  # `_run_via_compose`'s own dispatch, which is exactly the set a spec can
+  # INHERIT -- each is forwarded from the ambient environment, so whatever
+  # started the container is what a block sees unless it says otherwise.
+  #
+  # Read from the dispatch rather than from the whole file, and by the
+  # `${NAME:-` shape rather than by a name prefix. Both narrowings are
+  # about the same thing: this list is what is inherited, not what is
+  # passed. `-e COVERAGE="${_coverage}"` is a positional the dispatch
+  # computes and `-e PIN_TRACKED_ROOT=/source` is a literal; neither can
+  # arrive from outside, so neither is a fixture's problem.
+  #
+  # A prefix -- the `COVERAGE_` this guard was written with -- is not that
+  # property. It named three of the eleven, and the eight it left out
+  # include `BATS_FILTER`, which the coverage branch itself reads: a spec
+  # narrowed by an inherited filter is the defect this guard exists for,
+  # in a member the guard could not see.
+  local _names _roster
+  _names="$(sed -n '/docker compose -p/,/^}/p' /source/script/test/test.sh \
+    | sed '/^[[:space:]]*#/d' \
+    | sed -n 's/.*-e \([A-Z][A-Z_]*\)="\${\1:-[^}]*}".*/\1/p' \
+    | sort -u)"
+  _roster="$(tr '\n' ' ' <<< "${_names}")"
+  # Eleven today; the assertion is that there is a roster at all, not how
+  # long it is -- and that BOTH families are in it, since a derivation that
+  # silently went back to reading one prefix would still pass a bare
+  # emptiness check.
   assert [ -n "${_roster}" ]
+  grep -qx 'COVERAGE_LOCAL_JOBS' <<< "${_names}"
+  grep -qx 'BATS_FILTER' <<< "${_names}"
 
   local _script="${BATS_TEST_TMPDIR}/pin.awk"
   cat > "${_script}" << 'AWK'
@@ -478,17 +507,22 @@ AWK
   # Non-vacuous: the scan actually found the blocks it is judging. A
   # detector that matched nothing would report every tree compliant.
   #
-  # What this guard measured when it was written, so that the next person
-  # to change the detector can tell a real movement from a bug in it: over
-  # the tree it landed on, TOTAL=4 driving blocks, and before the four
-  # fixtures were completed it printed 6 offending lines across all 4 of
-  # them. (Five blocks match the entry's shape; the fifth is this file's
-  # own scanner-carrying case, which the `awk -f` exemption above takes
-  # out. b1b8b0ea's message reported the un-exempted 5/5 -- the figures
-  # from a mid-work version of the detector, not from the one it committed;
-  # that message cannot be reworded, as history rewriting is denied
-  # org-wide, so the correct figures are recorded here beside the code they
-  # describe.)
+  # What this guard measured, so that the next person to change the
+  # detector can tell a real movement from a bug in it: over the tree it
+  # landed on, TOTAL=4 driving blocks, and against the corrected roster --
+  # the eleven forwarded selectors, not the three `COVERAGE_` ones -- it
+  # printed 30 offending lines across all 4 of them before the fixtures
+  # were completed. (Five blocks match the entry's shape; the fifth is this
+  # file's own scanner-carrying case, which the `awk -f` exemption above
+  # takes out.
+  #
+  # Two earlier figures were recorded here and are kept because they are
+  # what the messages of commits that cannot be reworded report. b1b8b0ea
+  # said 5/5 -- a mid-work detector, before the `awk -f` exemption. The
+  # commit that added the exemption said 6 offending lines across 4 blocks,
+  # which was this detector reading only the three-name roster; history
+  # rewriting is denied org-wide, so the figure that describes the code as
+  # it now stands is the 30 above.)
   assert_line --partial "TOTAL="
   refute_line --partial "TOTAL=0"
   refute_output --partial "does not pin"
