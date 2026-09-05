@@ -3091,9 +3091,9 @@ AWK
 @test "main --issueref-only: runs the issue-ref comment lint on the host, no compose (#866)" {
   # CI-reachability guard, same shape as --doc-counts-only / --shellcheck-only.
   # The lint phase is what enforces ADR-00000013, and no CI job ran that
-  # phase, so the rule gated nothing on a PR. The lint-static matrix entry
-  # calls this primitive on a plain ubuntu-latest runner; docker must not be
-  # touched on the path.
+  # phase, so the rule gated nothing on a PR. A lint-static group runs this
+  # driver on a plain ubuntu-latest runner; docker must not be touched on
+  # the path.
   mock_cmd "docker" 'echo "docker should not be called"; exit 1'
   mock_cmd "id" 'echo 1000'
 
@@ -3157,9 +3157,9 @@ AWK
 }
 
 @test "main --home-literal-only: runs the hardcoded home path lint on the host, no compose (#799)" {
-  # Same CI-reachability shape as the sibling primitives: the lint-static
-  # matrix entry calls this on a plain ubuntu-latest runner, so the driver
-  # must be pure bash over the checkout and never touch docker.
+  # Same CI-reachability shape as the sibling primitives: a lint-static
+  # group runs this driver on a plain ubuntu-latest runner, so it must be
+  # pure bash over the checkout and never touch docker.
   mock_cmd "docker" 'echo "docker should not be called"; exit 1'
   mock_cmd "id" 'echo 1000'
 
@@ -3174,9 +3174,9 @@ AWK
 }
 
 @test "main --changelog-entry-only: runs the changelog entry-length lint on the host, no compose (#917)" {
-  # Same CI-reachability shape as the sibling primitives: the lint-static
-  # matrix entry calls this on a plain ubuntu-latest runner, so the driver
-  # must be pure bash over the checkout and never touch docker.
+  # Same CI-reachability shape as the sibling primitives: a lint-static
+  # group runs this driver on a plain ubuntu-latest runner, so it must be
+  # pure bash over the checkout and never touch docker.
   mock_cmd "docker" 'echo "docker should not be called"; exit 1'
   mock_cmd "id" 'echo 1000'
 
@@ -3192,9 +3192,9 @@ AWK
 
 # why: The CI join is host-direct, like its siblings
 @test "main --action-ref-agreement-only: runs the action ref agreement lint on the host, no compose (#949)" {
-  # Same CI-reachability shape as the sibling primitives: the lint-static
-  # matrix entry calls this on a plain ubuntu-latest runner, so the driver
-  # must be pure bash over the checkout and never touch docker.
+  # Same CI-reachability shape as the sibling primitives: a lint-static
+  # group runs this driver on a plain ubuntu-latest runner, so it must be
+  # pure bash over the checkout and never touch docker.
   mock_cmd "docker" 'echo "docker should not be called"; exit 1'
   mock_cmd "id" 'echo 1000'
 

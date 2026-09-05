@@ -372,17 +372,23 @@ ${_report}A ref is a tag on the action's repository, so two refs in one tree mea
   assert_line "action-ref-agreement"
 }
 
-# why: Named plain-runner matrix entry, no docker
+# why: One plain-runner lint group, no docker
 @test "action-ref-agreement: has a lint-static CI join (#949)" {
   # Belt to the completeness guard's braces: that check proves EVERY
   # table entry has some join, this one names the join this lint needs --
-  # a plain-runner matrix entry, because the driver is pure bash over the
-  # checkout and touches no docker.
+  # a plain-runner lint-static group, because the driver is pure bash over
+  # the checkout and touches no docker.
+  #
+  # Asked of the PARTITION, not of the workflow text (base#1071): the
+  # matrix names group positions now and membership is computed from
+  # _LINT_TOOLS, so the file cannot answer which group holds this lint.
+  # Exactly one, because none gates nothing and two pays twice.
   local _wf="/source/.github/workflows/self-test.yaml"
-  assert_spec_subject "${_wf}" "the workflow whose lint-static matrix this lint joins"
-  run awk '/^  lint-static:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${_wf}"
-  assert_success
-  assert_output --partial '- action-ref-agreement'
+  assert_spec_subject "${_wf}" "the workflow whose lint-static groups this lint joins"
+  local _hits
+  _hits="$(lint_group_hits action-ref-agreement "${_wf}")"
+  [ "${_hits}" -eq 1 ] \
+    || fail "the action-ref-agreement lint is in ${_hits} lint-static groups; in none, a partial action bump reaches main with nothing watching it"
 }
 
 # why: An unregistered id is an anonymous exit

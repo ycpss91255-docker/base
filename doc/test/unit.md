@@ -152,7 +152,7 @@ a refusal as "do not release".
 | `_run_action_ref_agreement: dies when no workflow names a versioned action (#949)` | A reader regression cannot report silence forever |
 | `_run_action_ref_agreement: reports the real workflow tree clean (#949)` | The lint agrees with the tree it ships with |
 | `action-ref-agreement: is a member of the lint phase's tool table (#949)` | A lint nobody runs is a comment |
-| `action-ref-agreement: has a lint-static CI join (#949)` | Named plain-runner matrix entry, no docker |
+| `action-ref-agreement: has a lint-static CI join (#949)` | One plain-runner lint group, no docker |
 | `action-ref-agreement: its failure event id is registered (#949)` | An unregistered id is an anonymous exit |
 
 ### test/bats/unit/adr_doc_claims_spec.bats (17)
@@ -1105,7 +1105,7 @@ between them can be asserted at all.
 | `reclaim.sh --stale delegates the unowned classes to prune.sh with the same window` | - |
 | `reclaim.sh --stale never touches volumes` | - |
 
-### test/bats/unit/ci_spec.bats (145)
+### test/bats/unit/ci_spec.bats (150)
 
 | Test | Description |
 |------|-------------|
@@ -1135,6 +1135,11 @@ between them can be asserted at all.
 | `_stored_measurements: a unit in upper case is still a stored figure (#1059)` | bash `=~` is case-sensitive, and this file's own house style writes emphasis in upper case (ORDER IS NOT A FAIL-FAST LEVER, THE SUBSHELL SHAPE IS LOAD-BEARING), so a lower-case-only match is a guard that does not see the shape most likely to be written next to it. Prose carrying no figure must still come back clean, or the guard would refuse the argument it exists to protect. |
 | `_stored_measurements: a spread stated as a fraction is a stored figure (#1059)` | A duration is not the only measurement a comment can store. The claim that repeat runs "spread by more than a tenth" is the same kind of number -- hand-measured, un-derived, silently stale -- and it sat inside this very rationale until this guard was widened, so a matcher that looked only for unit tokens refused the seconds while carrying the spread. |
 | `_stored_measurements: a quantity spelled in words is a stored figure (#1059)` | A stored figure does not have to arrive as a digit. "about thirty seconds per driver" is the same hand-measured, un-derived, silently stale claim as "40 SECONDS", and every branch of this matcher required `[0-9]`, so the guard refused the spelling with digits and passed the spelling in words -- the shape a writer reaches for when the number is approximate, which is exactly when it is a claim nothing re-derives. Second widening of the same guard for the same reason: the first was a spread stated as a fraction, which the block itself was carrying. The prose the block does need must still come back clean, or the guard refuses the argument it exists to protect. |
+| `lint groups: every grouped lint lands in exactly one group, at any group count (base#1071)` | The property the whole shape rests on. A grouped CI job is only as trustworthy as "every lint is in exactly one group": a lint in no group runs nowhere and gates nothing while CI stays green, and a lint in two groups pays for itself twice. It is asserted at SEVERAL totals, not at the one the workflow happens to use, because the partition is arithmetic over the table's positions -- a total that divides the table evenly and one that does not are different cases, and the workflow's count is free to change. |
+| `lint groups: a lint added to the table lands in a group with nothing else edited (base#1071)` | The half a test over today's table cannot reach. The roster this replaces was not wrong when it was written -- it was wrong on the day the NEXT driver was added, and the tree at that moment is not the tree this suite reads. So the addition is performed: a driver the table does not carry is appended to a copy of it, and the partition of that copy must place it, with no workflow and no group list edited. A partition that could only place the names it already knew would pass every other test in this file. |
+| `lint groups: every lint excluded from the groups is a lint of the table (base#1071)` | The exclusion list is the one hand-written thing left, so it is held to the only rule that matters: a name is excluded from the groups BECAUSE it has a job of its own. A name in it that the table does not carry excludes nothing and is a typo that reads as a decision -- and the lint it meant to name keeps running in a group, so nothing else notices. |
+| `lint groups: a group spec that is not <n>/<total> in range is refused (base#1071)` | A group spec the dispatcher cannot read must not resolve to an empty group. Every refusal here is a way a CI job could run zero drivers and report success, which is the same green-while-gating-nothing failure the grouping itself is built to avoid -- so the spec is validated rather than trusted, and an index outside its own total is refused with the malformed ones. |
+| `lint groups: running a group with no lints in it is refused (base#1071)` | The other empty group, and the one arithmetic produces on its own: more groups than there are lints leaves the tail groups with nothing to run. Listing nothing is a fair answer to a question about membership; RUNNING nothing and exiting 0 is a job that gates nothing while its check goes green, so the runner refuses what the lister may print. |
 | `_run_via_compose: routes default mode to the ci service with COVERAGE=0` | Service routing — fast path |
 | `_run_via_compose: routes coverage mode to the coverage service with COVERAGE=1` | Service routing — coverage path |
 | `main: dispatches no-flag default to the ci service` | End-to-end default dispatch |
@@ -4648,7 +4653,7 @@ alias / `network.network_name` / `devices.device_` / `security.cap_add_` /
 | `self-hosted guard: the real repo tree has every eligible job guarded` | - |
 | `self-hosted guard: the real tree's eligible set is the three runtime-matrix worker jobs` | - |
 
-### test/bats/unit/self_test_yaml_spec.bats (115)
+### test/bats/unit/self_test_yaml_spec.bats (116)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks fourteen
 cumulative invariants:
@@ -5044,10 +5049,11 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: doc-counts carries NO code_changed gate (#864)` | - |
 | `self-test.yaml: ci-rollup treats doc-counts as hard-mandatory, not SKIPPED-tolerant (#864)` | - |
 | `self-test.yaml: declares lint-static job (#866)` | - |
-| `self-test.yaml: lint-static runs one matrix entry per host-direct lint on a plain runner (#866)` | - |
 | `self-test.yaml: lint-static carries NO code_changed gate (#866)` | - |
 | `self-test.yaml: ci-rollup treats lint-static as hard-mandatory, not SKIPPED-tolerant (#866)` | - |
 | `self-test.yaml: every lint the just test lint phase runs has a CI join (#866)` | - |
+| `self-test.yaml: lint-static runs one job per lint GROUP, not one per lint (base#1071)` | The shape itself. One job per DRIVER spent more runner startup than the drivers spent working, and took up to twenty of the free plan's ~twenty org-wide concurrent slots in the same second the coverage shards -- the run's critical path -- asked for theirs. One job per GROUP is the trade, and it is only a trade if the job still runs the same drivers the local phase runs, host-direct on a plain runner, with one failing group not cancelling its siblings. |
+| `self-test.yaml: the lint-static matrix names group positions, never drivers (base#1071)` | The anti-roster assertion, stated over the workflow rather than over the partition. A matrix entry that NAMES a driver is the roster coming back: the day a driver is added it is not in the list, and nothing says so. Every entry must therefore be a position in the partition and nothing else -- and the positions must be a partition: one total shared by all of them, each index once, as many entries as the total. A matrix of ['1/4', '2/4'] would run half the lint phase and go green over it. |
 | `self-test.yaml: declares hadolint job (#376)` | - |
 | `self-test.yaml: hadolint job needs actionlint + classify and gates on code_changed (#376)` | - |
 | `self-test.yaml: hadolint job runs the driver, not the hadolint-action (#650)` | - |

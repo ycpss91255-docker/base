@@ -150,11 +150,12 @@ source "${SCRIPT_DIR}/drivers/shell_metrics.sh"
 # through _run_lint_tool / _run_all_lint_tools below now.
 #
 # It is also the CI-coverage manifest: self_test_yaml_spec asserts that
-# every entry here is named by a job in .github/workflows/self-test.yaml
-# (a host-direct `--<tool>-only` primitive, the in-container hadolint job,
-# or a `lint-static` matrix entry). Add a lint to this table without
-# giving it a CI job and that guard fails -- which is what stops the next
-# lint from landing local-only, the way these four did.
+# every entry here is RUN by a job in .github/workflows/self-test.yaml --
+# a dedicated one (a host-direct `--<tool>-only` primitive, or the
+# in-container hadolint job), or else exactly one group of the lint-static
+# partition, which is computed from this very table. Add a lint here
+# without giving it a CI job and that guard fails -- which is what stops
+# the next lint from landing local-only, the way these four did.
 readonly _LINT_TOOLS=(
   shellcheck
   hadolint
@@ -725,9 +726,10 @@ Options:
                           the phase itself (the lint jobs narrow to one
                           tool, and every bats / coverage job sets
                           BATS_ONLY=1 / COVERAGE=1, which skip it), so
-                          self-test.yaml calls one of these per job /
-                          matrix entry, running the same driver the local
-                          phase runs. Available:
+                          self-test.yaml runs the same drivers -- a
+                          dedicated job calls one of these, and a
+                          lint-static group calls --lint-group, which runs
+                          several. Available:
                             --shellcheck-only        (needs shellcheck in
                                                      PATH; ubuntu-latest
                                                      ships it)
@@ -2256,10 +2258,11 @@ main() {
   # `--pin-coverage-only`, `--action-ref-agreement-only`) short-circuit
   # before any mode dispatch and run
   # ONE driver right here: no compose, no test-tools image, no
-  # apt-install. This is the CI join for the lint phase -- a plain
-  # ubuntu-latest runner calls one of these per lint-static matrix entry,
-  # running the SAME driver the local phase runs, so the local gate and
-  # the CI gate cannot drift apart. Every tool but shellcheck is pure
+  # apt-install. It is how a DEDICATED CI job runs its one lint (and how
+  # a person times one driver); the grouped lint-static jobs reach the
+  # same drivers through `--lint-group` below. Either way a plain
+  # ubuntu-latest runner runs the SAME driver the local phase runs, so the
+  # local gate and the CI gate cannot drift apart. Every tool but shellcheck is pure
   # bash over the checkout; shellcheck relies on the binary ubuntu-latest
   # ships pre-installed. hadolint is deliberately absent: its binary
   # exists only in the test-tools image, so its CI job uses

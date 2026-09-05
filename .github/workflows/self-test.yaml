@@ -427,14 +427,63 @@ jobs:
     #                     which is how docker/build-push-action ran at v6
     #                     here and v7 everywhere else for months, green
     #
-    # A matrix rather than one lint-static job running the whole phase:
-    # each entry is its own check ("lint-static (readme-sync)"), so the
-    # checks list says WHICH lint failed without opening a log, and
-    # fail-fast: false means one failure does not cancel the siblings and
-    # hide the rest. The cost of the split is one ~20s plain runner each --
-    # every driver here is pure bash over the checkout, so no buildx, no
-    # test-tools image, no compose. hadolint is NOT in this matrix: its
-    # binary lives only in the test-tools image, so it keeps its own job.
+    # GROUPED, not one job per driver, and not one job for the phase
+    # (base#1071). One job per driver read best in the checks list -- the
+    # entry named the failing lint -- and cost the most of any shape: 20
+    # jobs, each paying a fixed runner startup before it does anything,
+    # spent MORE time being born than the drivers spent working, and asked
+    # for up to 20 of the free plan's ~20 org-wide concurrent slots in the
+    # same second the coverage shards -- the run's critical path -- asked
+    # for theirs. Shards started late because lint jobs were being created.
+    #
+    # WHY FOUR AND NOT ONE, AND NOT TWENTY. Two figures bound the choice:
+    #
+    #   the FLOOR   no partition finishes faster than its LONGEST SINGLE
+    #               driver. That driver runs alone in whichever group it
+    #               lands in, so its duration is this job's wall clock
+    #               however many groups there are.
+    #   the SHARE   G groups divide the phase's total work G ways.
+    #
+    # A group is worth adding only while the share is still above the
+    # floor; once the share drops under it, the floor sets the wall clock
+    # and another group buys nothing while costing another slot. Measured
+    # once on run 33965580692 the phase's total was a little over three
+    # times its longest driver, so G=3 still had the share on top and G=4
+    # put the floor on top: four is the smallest count that reaches the
+    # floor, and reaching it is the whole of what more groups can do.
+    #
+    # That ratio is a measurement of one run and nothing re-derives it
+    # (ADR-00000028), which is why the count is written as the RULE --
+    # smallest G whose share falls under the floor -- and not as a tuned
+    # constant. Re-measure the ratio (`./script/test/test.sh --<tool>-only`
+    # times one driver) before moving the number; a phase whose longest
+    # driver got faster wants fewer groups, not more.
+    #
+    # ONE JOB WAS REJECTED for the same arithmetic, not for the checks
+    # list: the whole phase in one job runs for its total, which is
+    # survivable against today's coverage shard and becomes the run's
+    # critical path the moment the shards get faster. Making the run
+    # slower later is not an improvement now.
+    #
+    # WHAT THE GROUPING COSTS. A check-list entry names a group, not a
+    # lint, so a reader who scanned the list to see WHICH lint failed now
+    # reads the job's output instead. base#1059 is what makes that
+    # acceptable: the phase enumerates every failing driver rather than
+    # stopping at the first, and reports them together in phase order, so
+    # one group names all of its own failures in one round trip.
+    # fail-fast: false keeps that true across groups as well as within one.
+    #
+    # THE MEMBERSHIP IS NOT WRITTEN HERE. `--lint-group N/T` computes it
+    # from test.sh's _LINT_TOOLS table, so a lint added to the phase lands
+    # in a group with this file untouched. A list of which driver goes in
+    # which group would be a roster: correct the day it is written and
+    # wrong the day the next driver is added, with a lint silently gating
+    # nothing and every check still green. Every driver here is pure bash
+    # over the checkout, so a plain runner runs them host-direct -- no
+    # buildx, no test-tools image, no compose. hadolint is NOT among them:
+    # its binary lives only in the test-tools image, so it keeps its own
+    # job, as do shellcheck and doc-counts, whose results ci-rollup reads
+    # by name.
     #
     # Ungated on purpose (no `if: code_changed`), like doc-counts: the
     # ADR-numbering and ADR-structure lints read doc/adr/ and the README sync lint
@@ -443,45 +492,25 @@ jobs:
     # the PR they exist to catch. A matrix shares one job-level `if:`, so
     # the choice is all-or-nothing anyway.
     #
-    # Adding a lint to the phase without adding it here fails the
+    # Adding a lint to the phase without a CI join still fails the
     # completeness guard in test/bats/unit/self_test_yaml_spec.bats, which
-    # reads test.sh's _LINT_TOOLS table -- that is what keeps the next
-    # lint from landing local-only the way these four did.
+    # reads test.sh's _LINT_TOOLS table and asks, of every entry, whether a
+    # dedicated job runs it or exactly one group holds it.
     needs: [actionlint, classify]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        lint:
-          - issueref
-          - adr-numbering
-          - adr-structure
-          - stale-setup-conf
-          - readme-sync
-          - home-literal
-          - arch-literal
-          - bash-source-guard
-          - early-close-reader
-          - errexit-bang
-          - derived-figures
-          - i18n-orphan
-          - self-hosted-guard
-          - changelog-entry
-          - changelog-layout
-          - pin-coverage
-          - action-ref-agreement
-          - generated-workflow-actions
-          - just-provenance
-          - catalog-description
+        group: ['1/4', '2/4', '3/4', '4/4']
     steps:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Run the ${{ matrix.lint }} lint
+      - name: Run lint group ${{ matrix.group }}
         env:
-          LINT: ${{ matrix.lint }}
-        run: ./script/test/test.sh "--${LINT}-only"
+          LINT_GROUP: ${{ matrix.group }}
+        run: ./script/test/test.sh --lint-group "${LINT_GROUP}"
 
   hadolint:
     # Dedicated Hadolint job (#376). Lints the two template-owned
