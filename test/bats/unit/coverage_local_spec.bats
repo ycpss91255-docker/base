@@ -413,7 +413,6 @@ _driver_prelude() {
 # suite is inside. The roster is read off `_run_via_compose`'s own
 # forwarding lines rather than listed here, so a fourth selector arrives
 # with this demand already made of every fixture.
-#
 # EVERY selector it forwards from the ambient environment, that is -- all
 # eleven, not the three whose names begin `COVERAGE_`. The prefix was the
 # family the defect was found in, and a roster shaped like the cause of
