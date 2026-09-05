@@ -2796,7 +2796,7 @@ forwarding for caller abort, and DRY_RUN skip.
 | `init.sh --list-installed-paths output is sorted and free of duplicates` | - |
 | `init.sh --list-installed-paths mutates nothing and never leaves its cwd` | - |
 
-### test/bats/unit/init_spec.bats (77)
+### test/bats/unit/init_spec.bats (84)
 
 Unit coverage for `init.sh` helpers that previous rounds exercised only
 through the Level-1 integration test. Complements
@@ -2854,6 +2854,13 @@ are hard to trigger from a real `bash template/init.sh` invocation
 | `_stage_resync_output: a path outside the repo root loses only itself (#1036)` | `git add` fails the WHOLE batch on one path it will not take, so an entry pointing outside the repo costs the commit every other path -- including the Dockerfile this staging exists to commit |
 | `_stage_resync_output: is silent when the tree is no git repo at all (#1036)` | `just base init` is also a repair command for a hand-bootstrapped tree, and a directory that is genuinely not a repo is not a problem to report |
 | `the resync: stages no Dockerfile when no migration applies (#1036)` | Nothing rewritten is nothing to stage -- and not an error |
+| `the resync: leaves a hook stub the user wrote unstaged (#1036)` | init.sh never overwrites a hook stub, so what is in one is the user's; staging the published list wholesale commits their half-finished hook under a message about a base release |
+| `the resync: leaves a repo-owned local.sh unstaged (#1036)` | script/local/local.sh is REPO-OWNED by the naming contract -- the resync seeds it once and a subtree upgrade never clobbers it -- so its content after the first run is only ever the repo's own work |
+| `the resync: leaves an existing config/.gitkeep unstaged (#1036)` | _populate_config keeps an existing config/ untouched, so the .gitkeep inside it is whatever the repo put there -- the placeholder is seeded once and never rewritten |
+| `the resync: leaves an edited monitor workflow unstaged (#1036)` | the monitor workflow is generated once and then left alone on every later run, so a repo that has tuned its schedule owns the file the staging step would commit |
+| `the resync: leaves a customised .hadolint.yaml unstaged (#1036)` | _create_symlinks deliberately KEEPS a .hadolint.yaml that differs from the template rather than re-pointing it, and a file the run refused to touch is not the run's to commit |
+| `the resync: stages the hook stub it created this run (#1036)` | the half of the property that must NOT regress -- a stub this run created is the run's own output, and dropping the whole seed-once class from the commit would put the branch's own defect back one file over |
+| `_init_seed_only_paths: every entry is a published installed path (#1036)` | the two lists are edited in different places for different reasons, and a seed-once path spelled differently from its published name would silently fall back to being staged wholesale again |
 | `_init_existing_repo: syncs base-version-monitor.yaml on upgrade (#777)` | - |
 | `_preflight_just: warns and exits 0 when just is absent (#607)` | Missing runner -> non-fatal WARN |
 | `_preflight_just: emits the init_just_missing event under LOG_FORMAT=json (#607)` | Structured event wired through |

@@ -495,6 +495,19 @@ _assert_release_stages_migrated_files() {
   # `git add -A` sweep would take it just the same.
   printf 'notes I have not committed yet\n' > "${CONSUMER}/NOTES.md"
 
+  # And a file of the user's own that IS one of the paths the resync
+  # publishes. NOTES.md alone cannot see the difference between "stages
+  # its own output" and "stages the published list wholesale": it is
+  # outside that list either way, so a sweep of the list passes it. A hook
+  # stub is inside the list AND never overwritten -- init.sh seeds it once
+  # and leaves it alone forever after -- so whatever is in one is the
+  # user's. Dropped from the index rather than modified in place for the
+  # reason above: `git subtree pull` refuses to run over a modified
+  # tracked file, and untracked is the same shape to the staging step.
+  git -C "${CONSUMER}" rm -q --cached script/hooks/pre/build.sh
+  git -C "${CONSUMER}" commit -q -m "chore: take a hook stub back"
+  printf '# my own hook step\n' >> "${CONSUMER}/script/hooks/pre/build.sh"
+
   local _before
   _before="$(cat "${CONSUMER}/Dockerfile")"
 
@@ -516,14 +529,17 @@ _assert_release_stages_migrated_files() {
   # ... and the working tree no longer disagrees with it.
   run git -C "${CONSUMER}" status --porcelain -- Dockerfile
   assert_output ""
-  # The user's own file is still the user's to commit -- and it is the ONLY
-  # thing the upgrade left behind. Everything else in that listing would be
-  # the resync's own output: re-pointed wrappers, the justfile layering,
-  # the monitor workflow. Mechanical output of the run the commit claims to
-  # be, so a commit that says "template references to <ver>" while they sit
-  # unstaged describes a tree that does not exist.
+  # The user's own two files are still the user's to commit -- and they are
+  # the ONLY things the upgrade left behind. Everything else in that listing
+  # would be the resync's own output: re-pointed wrappers, the justfile
+  # layering, the monitor workflow. Mechanical output of the run the commit
+  # claims to be, so a commit that says "template references to <ver>" while
+  # they sit unstaged describes a tree that does not exist. Both directions
+  # are in this one assertion: too little staged adds a line, and the
+  # customised hook stub swept into the commit removes one.
   run git -C "${CONSUMER}" status --porcelain
-  assert_output "?? NOTES.md"
+  assert_output "?? NOTES.md
+?? script/hooks/pre/build.sh"
 }
 
 # why: The commit is made by the consumer's OWN released upgrade.sh, so

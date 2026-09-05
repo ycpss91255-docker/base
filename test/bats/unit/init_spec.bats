@@ -815,6 +815,129 @@ EOF
   refute_output --partial "Dockerfile"
 }
 
+# _init_installed_paths answers "what does a consumer CARRY", which is not
+# "what did this run WRITE". Five of the writers behind that list seed a
+# file only when it is absent and then never touch it again -- the 14 hook
+# stubs, the script/local/ starter pair, config/.gitkeep, the monitor
+# workflow, and a .hadolint.yaml the user has customised. Staging the list
+# wholesale therefore stages the user's own content in those files and, on
+# the real upgrade path, commits it. The arms below name each writer,
+# because a fix that reaches only the one that was reported leaves the
+# same defect standing four files over.
+
+# why: init.sh never overwrites a hook stub, so what is in one is the
+# user's; staging the published list wholesale commits their half-finished
+# hook under a message about a base release
+@test "the resync: leaves a hook stub the user wrote unstaged (#1036)" {
+  _source_init
+  : > "${TMP_REPO}/Dockerfile"
+  mkdir -p "${TMP_REPO}/script/hooks/pre"
+  printf 'exit 0\n' > "${TMP_REPO}/script/hooks/pre/build.sh"
+  _git_seed_consumer
+  printf 'my half-finished hook\n' >> "${TMP_REPO}/script/hooks/pre/build.sh"
+  _resync_and_stage
+  run git -C "${TMP_REPO}" diff --cached --name-only
+  refute_output --partial "script/hooks/pre/build.sh"
+}
+
+# why: script/local/local.sh is REPO-OWNED by the naming contract -- the
+# resync seeds it once and a subtree upgrade never clobbers it -- so its
+# content after the first run is only ever the repo's own work
+@test "the resync: leaves a repo-owned local.sh unstaged (#1036)" {
+  _source_init
+  : > "${TMP_REPO}/Dockerfile"
+  mkdir -p "${TMP_REPO}/script/local"
+  printf 'main() { :; }\n' > "${TMP_REPO}/script/local/local.sh"
+  _git_seed_consumer
+  printf 'my own recipe body\n' >> "${TMP_REPO}/script/local/local.sh"
+  _resync_and_stage
+  run git -C "${TMP_REPO}" diff --cached --name-only
+  refute_output --partial "script/local/local.sh"
+}
+
+# why: _populate_config keeps an existing config/ untouched, so the
+# .gitkeep inside it is whatever the repo put there -- the placeholder is
+# seeded once and never rewritten
+@test "the resync: leaves an existing config/.gitkeep unstaged (#1036)" {
+  _source_init
+  : > "${TMP_REPO}/Dockerfile"
+  mkdir -p "${TMP_REPO}/config"
+  printf 'placeholder\n' > "${TMP_REPO}/config/.gitkeep"
+  _git_seed_consumer
+  printf 'my note about this directory\n' >> "${TMP_REPO}/config/.gitkeep"
+  _resync_and_stage
+  run git -C "${TMP_REPO}" diff --cached --name-only
+  refute_output --partial "config/.gitkeep"
+}
+
+# why: the monitor workflow is generated once and then left alone on every
+# later run, so a repo that has tuned its schedule owns the file the
+# staging step would commit
+@test "the resync: leaves an edited monitor workflow unstaged (#1036)" {
+  _source_init
+  : > "${TMP_REPO}/Dockerfile"
+  mkdir -p "${TMP_REPO}/.github/workflows"
+  printf 'name: Base Version Monitor\n' \
+    > "${TMP_REPO}/.github/workflows/base-version-monitor.yaml"
+  _git_seed_consumer
+  printf '# my own schedule\n' \
+    >> "${TMP_REPO}/.github/workflows/base-version-monitor.yaml"
+  _resync_and_stage
+  run git -C "${TMP_REPO}" diff --cached --name-only
+  refute_output --partial "base-version-monitor.yaml"
+}
+
+# why: _create_symlinks deliberately KEEPS a .hadolint.yaml that differs
+# from the template rather than re-pointing it, and a file the run refused
+# to touch is not the run's to commit
+@test "the resync: leaves a customised .hadolint.yaml unstaged (#1036)" {
+  _source_init
+  : > "${TMP_REPO}/Dockerfile"
+  printf 'ignored:\n  - DL3008\n' > "${TMP_REPO}/.hadolint.yaml"
+  _git_seed_consumer
+  printf '  - DL3009\n' >> "${TMP_REPO}/.hadolint.yaml"
+  _resync_and_stage
+  run git -C "${TMP_REPO}" diff --cached --name-only
+  refute_output --partial ".hadolint.yaml"
+}
+
+# why: the half of the property that must NOT regress -- a stub this run
+# created is the run's own output, and dropping the whole seed-once class
+# from the commit would put the branch's own defect back one file over
+@test "the resync: stages the hook stub it created this run (#1036)" {
+  _source_init
+  : > "${TMP_REPO}/Dockerfile"
+  _git_seed_consumer
+  _resync_and_stage
+  run git -C "${TMP_REPO}" diff --cached --name-only
+  assert_line "script/hooks/pre/build.sh"
+  assert_line "script/local/local.sh"
+  assert_line "config/.gitkeep"
+  assert_line ".github/workflows/base-version-monitor.yaml"
+}
+
+# why: the two lists are edited in different places for different reasons,
+# and a seed-once path spelled differently from its published name would
+# silently fall back to being staged wholesale again
+@test "_init_seed_only_paths: every entry is a published installed path (#1036)" {
+  _source_init
+  # Non-empty first: a missing accessor makes the loop below read nothing
+  # and report no stray, which is the same green as a correct list.
+  run _init_seed_only_paths
+  assert_success
+  [[ -n "${output}" ]] || fail "_init_seed_only_paths named nothing"
+
+  local _stray=""
+  local _path
+  while IFS= read -r _path; do
+    [[ -n "${_path}" ]] || continue
+    _init_installed_paths | grep -qxF -- "${_path}" \
+      || _stray+="${_path} "
+  done < <(_init_seed_only_paths)
+  [[ -z "${_stray}" ]] \
+    || fail "not in _init_installed_paths: ${_stray}"
+}
+
 @test "_init_existing_repo: syncs base-version-monitor.yaml on upgrade (#777)" {
   _source_init
   : > "${TMP_REPO}/Dockerfile"   # mark as "existing repo"
