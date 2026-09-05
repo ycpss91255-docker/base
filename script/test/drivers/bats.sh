@@ -23,17 +23,41 @@ _bats_args_with_label() {
   # parallelism + fallback messaging stay in one place. Inputs:
   #   $1 = name of array var (e.g. _bats_args)
   #   $2 = name of label string var (e.g. _label)
+  #   $3 = jobs policy, `parallel` (default) or `serial`
   # All specs use per-test mktemp dirs (BATS_TEST_TMPDIR / TEMP_DIR) so
   # there's no shared filesystem state between tests — safe to run
   # concurrently. When parallel is missing (earlier alpine test-tools
   # images), fall back to serial bats — slower but correct.
+  #
+  # A caller passes `serial` when its run must not be concurrent for a
+  # reason of its own -- today only the full-suite coverage run, whose
+  # comment carries the measurement. Declaring the policy HERE is the
+  # point: `--jobs` and its fallback message keep exactly one writer, so
+  # a run that must not be parallel says so in the same vocabulary as one
+  # that cannot be, instead of quietly assembling a different command.
+  # An unreadable policy is a _die, not a default: a `seriel` that fell
+  # through to the parallel branch is precisely the silent wrong answer
+  # this argument exists to prevent.
   local -n _out_args="$1"
   local -n _out_label="$2"
+  local _policy="${3:-parallel}"
+  case "${_policy}" in
+    parallel|serial) ;;
+    *) _die ci_invalid_jobs_policy \
+         "BUG: _bats_args_with_label got jobs policy '${_policy}' (expected parallel|serial)." ;;
+  esac
   # --recursive so a directory target descends into per-lib sub-folders
   # (test/bats/unit/<lib>/<subunit>_spec.bats); foldered specs are
   # first-class shard units (ADR-00000015). Harmless when the target is a
   # file rather than a directory.
   _out_args=(--recursive)
+  if [[ "${_policy}" == "serial" ]]; then
+    # Named apart from the parallel-not-installed fallback below: one is
+    # a decision, the other an environment, and a reader of the run's
+    # first line has to be able to tell which one they are looking at.
+    _out_label="serial by policy"
+    return 0
+  fi
   if command -v parallel >/dev/null 2>&1; then
     local _jobs
     _jobs="$(nproc 2>/dev/null || echo 4)"
@@ -413,31 +437,49 @@ _run_coverage() {
   _exclude_path="$(_coverage_exclude_path)"
 
   # kcov WRAPS bats, so this is a bats run like every other one in this
-  # driver and takes its arguments from the same helper -- parallelism
-  # where GNU parallel is present, serial and said out loud where it is
-  # not. Assembled by hand instead, it was the one bats invocation here
-  # that never received --jobs, and serial execution, not the
-  # instrumentation, was the larger half of a coverage shard's wall time:
-  # measured on one shard of the real partition, 157.3s serial under kcov
-  # against 50.0s at --jobs 32, of which kcov's instrumentation is 42.6s.
-  # It is latency-bound rather than CPU-bound (a 4-vCPU cap costs a
-  # serial shard nothing, and oversubscribing past the core count keeps
-  # paying), so the gain is not a property of a large host: at 4 vCPU,
-  # --jobs 16 is 2.07x with kcov in the loop.
+  # driver and takes its arguments from the same helper. It was assembled
+  # by hand instead, and so was the one bats invocation here that never
+  # received --jobs: serial execution, not the instrumentation, was the
+  # larger half of a coverage shard's wall time. Measured on the real
+  # partition, whole recipe: shard 1/8 147s / 164s serial against 53s /
+  # 48s parallel, shard 6/8 371s against 196s.
+  #
+  # THE TWO BRANCHES GET DIFFERENT ANSWERS, and the difference is
+  # measured, not assumed. Comparing the covered and valid line sets the
+  # coverage gate merges -- canonical (file, line) keys, symmetric
+  # difference in both directions:
+  #
+  #   - a SHARD is INVARIANT. Shards 1/8 and 6/8, serial against
+  #     parallel: 7835/9229 and 6373/7360 lines, identical sets, empty
+  #     difference each way. Repeated runs of either mode agree exactly.
+  #     The CI matrix runs shards, so this is the path the enforced gate
+  #     figure comes from, and it does not move.
+  #
+  #   - the FULL SUITE is NOT, so it declares `serial` above. At ~4500
+  #     tests two serial runs record the same 8617 covered lines, while
+  #     parallel runs record 8532 and 8587 -- each a strict SUBSET, with
+  #     nothing covered that serial missed, and differing from each
+  #     other. VALID never moves (10194), so it is the numerator alone:
+  #     84.53% against 83.70% / 84.24%. This is the run that stamps
+  #     scope=full and feeds the release badge, and a figure that drifts
+  #     by a point between runs of the same tree is not a figure.
   #
   # THE COST, so it is not rediscovered: N parallel bats jobs feed their
   # trace streams to ONE kcov process, whose parser is single-threaded.
-  # That parser is what the remaining ~27% is, and it does not divide by
-  # --jobs; the measurements above are net of it. Making that share scale
-  # needs a kcov process per slice (base#726), which is a different
-  # change from this one and not a competing one.
+  # At shard volume it keeps up; at full-suite volume it does not, and
+  # what is dropped is the trace of code that ran -- the lost lines
+  # belong to subprocess-heavy code whose tests PASS in both runs. That
+  # parser is also the share that does not divide by --jobs. Making it
+  # scale, and with it the full-suite path, needs a kcov process per
+  # slice (base#726): a different change from this one, and not a
+  # competing one.
   local -a _bats_args
   local _label
-  _bats_args_with_label _bats_args _label
 
   local -a _targets=()
   local _pool
   if [[ -z "${_shard_spec}" ]]; then
+    _bats_args_with_label _bats_args _label serial
     echo "--- Running Tests with Kcov Coverage (full suite; ${_label}) ---"
     # The pools, from the one roster the inventory reads too -- so what
     # the certificate is measured against is what the run walked.
@@ -453,6 +495,7 @@ _run_coverage() {
     # spread by runtime).
     local _files
     _files="$(_shard_unit_files "${_shard_spec}")"
+    _bats_args_with_label _bats_args _label
     echo "--- Running Tests with Kcov Coverage (shard ${_shard_spec}; ${_label}) ---"
     # Word-split intentional: one shard file per target entry.
     # shellcheck disable=SC2206
@@ -526,12 +569,14 @@ _run_system() {
   _system_setup
   trap _system_teardown EXIT
 
-  local -a _bats_args=()
-  local _jobs
-  _jobs="$(nproc 2>/dev/null || echo 1)"
-  if command -v parallel >/dev/null 2>&1; then
-    _bats_args=(--jobs "${_jobs}")
-  fi
-
+  # The same helper every other bats run in this driver uses. Its own
+  # nproc probe and its own flag list were a second copy of a decision
+  # with one home, and the copy had already drifted: no --recursive, and
+  # nothing said when parallel was missing, so a serial system run looked
+  # exactly like a parallel one.
+  local -a _bats_args
+  local _label
+  _bats_args_with_label _bats_args _label
+  echo "--- Running Bats System Runtime Tests (${_label}) ---"
   bats "${_bats_args[@]}" "${REPO_ROOT}/test/bats/system/"
 }

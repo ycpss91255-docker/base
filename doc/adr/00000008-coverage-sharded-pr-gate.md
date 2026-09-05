@@ -526,3 +526,107 @@ Recording it as done here would be worse than the gap.
 - Publishing the kcov **HTML** remains Decision 5's other, still-deferred
   half; it has its own obstacle (Pages on a private repo needs a paid
   plan) and is out of scope here.
+
+## Amendment (#1060): a shard's bats runs parallel under kcov; the full-suite run does not, and that asymmetry is measured
+
+- **Date:** 2026-09-05
+- **Amendment status:** Accepted -- completes the correction this ADR's own
+  Context opened and half-applied. Section 1's sharding is unchanged, and so
+  is the "coverage is a gating PR check via `ci-rollup`" posture.
+  **Relates:** #726 (a kcov process per slice), #1002 (whose thesis this
+  supersedes), ADR-00000016, ADR-00000017.
+
+### What was left in place
+
+The Context above reads #377 correctly: it "left the **coverage path fully
+serial** ... The ~8-12 min coverage runtime was therefore **serial x kcov**
+... **not an inherent kcov floor**." Only one of those two factors was then
+addressed. Section 1 divided the kcov half across a CI matrix and left the
+serial half running inside every shard, where it stayed for two and a half
+months.
+
+The mechanism was one function. `_run_coverage` was the only bats invocation
+in `script/test/drivers/bats.sh` assembled by hand; every other runner --
+including `_run_coverage_path`, added later -- takes its arguments from
+`_bats_args_with_label`, which appends `--jobs $(nproc)` where GNU parallel
+is present and falls back to serial with a message where it is not.
+`git log -S'--jobs' -- script/test/drivers/bats.sh` returns only the driver
+split: the flag was never removed from the coverage path, it was never added.
+
+### Decision
+
+**`_run_coverage` builds its bats arguments through
+`_bats_args_with_label`,** and the helper takes a third argument naming the
+caller's jobs policy (`parallel`, the default, or `serial`). The shard
+branch is parallel; the full-suite branch declares `serial`. Writing
+`--jobs` a second time by hand -- which is how the divergence arose -- is
+refused by a spec that allows the flag exactly one occurrence in the driver,
+inside the helper; `_run_system`, the other hand-rolled copy, is routed
+through the helper as well. An unrecognised policy is a `_die`, not a
+default.
+
+The asymmetry is the finding, not a hedge:
+
+- **A shard's line set does not move.** Shards 1/8 and 6/8, serial against
+  parallel, comparing the covered and valid sets the coverage gate merges
+  (canonical `(file, line)` keys, symmetric difference computed in BOTH
+  directions): empty, both shards, both directions -- 7835/9229 and
+  6373/7360 lines, identical. Repeat runs of either mode agree exactly.
+  Wall time for the whole recipe: 147s / 164s serial against 53s / 48s
+  (shard 1/8), and 371s against 196s (shard 6/8). **The CI matrix runs
+  shards, so the enforced gate figure is unchanged and its critical path
+  is 1.9x-3.1x shorter.**
+
+- **The full suite's line set does move, so it stays serial.** At ~4500
+  tests, two serial runs record the same 8617 covered lines; two parallel
+  runs record 8532 and 8587 -- each a strict SUBSET of the serial set (0
+  lines covered in parallel that serial missed, twice) and differing from
+  each other. `lines-valid` is identical in every run (10194), so only the
+  numerator moves: 84.53% against 83.70% and 84.24%. This is the run that
+  stamps `scope=full` and feeds the release badge of the #952 amendment,
+  and a badge that moves a point between two runs of one tree is the
+  falsifiable-figure promise broken from the inside.
+
+- **What is lost is trace, not execution.** The dropped lines cluster in
+  subprocess-heavy code (`setup_cmd.sh`, `watchdog.sh`, `prune.sh`,
+  `transcript.sh`, `help.sh`, `bootstrap.sh`) whose tests PASS in both runs
+  -- `just docker help renders zh-TW recipe summaries` is `ok` in each, and
+  its zh-TW `case` arms appear only in the serial report. N parallel bats
+  jobs feed their trace streams to ONE kcov process whose parser is
+  single-threaded: it keeps up at shard volume and does not at full-suite
+  volume. That parser is also the share of the runtime that `--jobs` cannot
+  divide. **Making it scale, and with it the full-suite path, is #726 (a
+  kcov process per slice) -- a different change, not a competing one.**
+
+### The junit report and the weights it feeds
+
+`_junit_to_timings` reads one `report.xml` and writes `coverage/timings.tsv`,
+which the next partition weighs. Under `--jobs` bats still emits ONE coherent
+report: after a parallel full run the manifest names all 173 specs and the
+run stamps `scope=full`, which is exactly the check that a narrowed or
+truncated report would fail.
+
+The per-spec seconds in it are wall-clock under contention, not per-test in
+isolation: mean 4.32x the serial figure, median 4.00, min 0.50, max 27.0.
+That distortion does not unbalance the partition, because greedy-LPT reads
+relative weights and these are recorded in the same regime they will predict.
+Driving the real `_shard_unit_files` at 8 shards and weighing each partition
+by the parallel durations it must balance: weights from a serial run give
+makespan 1446 (loads 754-1446); weights from a parallel run give 1138 (loads
+1111-1138). The transition run is the 1446 case -- better than the
+`@test`-count fallback, and one run long.
+
+### Consequences (amendment)
+
+- The PR critical path drops by the measured shard figures above with no
+  change to the merged gate rate, because the shard line sets are identical.
+- `just test coverage` (full suite) is unchanged in duration -- ~35 min on a
+  32-core host for this tree. The parallel version of it exists and is 4x
+  faster; it is not adopted because it under-reports. Anyone tempted to
+  flip that policy should re-run the comparison above first, and #726 is
+  what would make the answer different.
+- The helper now carries a policy argument, so "this run must be serial"
+  and "this host has no GNU parallel" are distinguishable in the run's own
+  first line (`serial by policy` against `serial; parallel not in PATH`).
+- `_run_system` gains `--recursive` and the fallback message it never had,
+  which is what routing it through the helper means.

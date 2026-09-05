@@ -1406,9 +1406,12 @@ SH
   assert_output "1"
 
   # ...and the one place is inside _bats_args_with_label, not merely
-  # somewhere in the file.
+  # somewhere in the file. Comment lines are dropped here for the same
+  # reason code_grep drops them above: the helper's own header discusses
+  # the flag it owns, twice.
   run bash -c "awk '/^_bats_args_with_label\\(\\) \\{/,/^\\}/' \
-    /source/script/test/drivers/bats.sh | grep -c -- '--jobs'"
+    /source/script/test/drivers/bats.sh \
+    | grep -vE '^[[:space:]]*(#|\$)' | grep -c -- '--jobs'"
   assert_success
   assert_output "1"
 }
