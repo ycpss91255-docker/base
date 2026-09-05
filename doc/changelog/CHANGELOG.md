@@ -78,14 +78,14 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   a badge refusal: the faster route is now in the message.
 - **an ADR's trigger claim may now name any real trigger, not only
   `workflow_call` (#726)** -- the `adr_doc_claims` rule read its escape
-  hatch as one literal string, so the first record to describe a
+  hatch as one literal string, so the first record describing a
   `workflow_dispatch`-only workflow was reported for saying something true.
   The accepted trigger is now read off the workflow's own `on:` block, and
-  the code span must BE it: an event name is an ordinary word, so a span
-  like `gh issues list` would otherwise excuse a claim about a workflow
-  triggered by `issues`. Affects anyone writing an ADR that names a
-  workflow: put the trigger alone in backticks. `push` is still refused for
-  a workflow with no `tags:` filter, because a tag push is a push.
+  the code span must BE it -- `gh issues list` no longer excuses a claim
+  about an `issues`-triggered workflow. A `tags:` key that is not a push
+  filter, such as a `workflow_dispatch` input named `tags`, no longer reads
+  as a tag trigger either. Affects anyone writing an ADR that names a
+  workflow: put the trigger alone in backticks.
 - **a coverage job count written with a leading zero is now refused
   (#726)** -- `010` passed the `^[0-9]+$` validator and was then read in
   two bases: the loops that count slices use bash arithmetic, where it is

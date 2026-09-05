@@ -76,13 +76,40 @@ teardown() {
 # list kept here: a workflow that gains or loses a tag trigger must move
 # this answer by itself.
 #
+# STRUCTURALLY, on the same anchor `_adr_wf_statable_triggers` uses below,
+# because the two questions are asked of the same block and a block cannot
+# have two structures. What makes a tag push arrive is a `tags:` FILTER
+# under a top-level `push:` -- not the string `tags:` anywhere in the
+# block. That string is also a legal input name (`workflow_dispatch:` /
+# `workflow_call:` with an input called `tags`), and reading one as a
+# trigger is worse than a wrong answer to this question: R1 `continue`s
+# past a workflow it believes is tag-triggered, so a false tag claim about
+# that workflow is waved through unread.
+#
+# Keys are tracked at two levels only: the event (at the first key's
+# indentation) and anything under it. That is all this question needs, and
+# a deeper reading would be a YAML parser written in awk.
+#
 # No pipeline: the answer is captured and compared in-shell, so no exit
 # status here depends on how two processes were scheduled -- the
 # early-closing-reader class this repo has already had to fix once.
 _adr_wf_tag_triggered() {
-  local _on
-  _on="$(awk '/^on:/ { o = 1; next } /^[^[:space:]#]/ { o = 0 } o' "${1}")"
-  [[ "${_on}" == *"tags:"* ]]
+  local _hit
+  _hit="$(awk '
+    /^on:/ { o = 1; next }
+    /^[^[:space:]#]/ { o = 0 }
+    o && $0 ~ /^[[:space:]]+[a-z_]+:/ {
+      match($0, /^[[:space:]]+/)
+      ind = RLENGTH
+      k = $0
+      sub(/^[[:space:]]+/, "", k)
+      sub(/:.*$/, "", k)
+      if (first == 0) { first = ind }
+      if (ind == first) { ev = k; next }
+      if (ev == "push" && k == "tags") { print "tags" }
+    }
+  ' "${1}")"
+  [[ -n "${_hit}" ]]
 }
 
 # _adr_wf_statable_triggers <workflow-file> -- the trigger names a block may
