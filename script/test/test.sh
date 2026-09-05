@@ -279,12 +279,60 @@ _run_lint_tool() {
   _LINT_ACTIVE_TOOL=""
 }
 
+# Run a set of lint tools and report EVERY one that failed.
+#
+# The phase used to be a bare loop over the table under this file's
+# `set -e`, so the first failing driver ended the run and every driver
+# behind it was never reached -- measured on a branch mid-merge, 17
+# drivers ran, `changelog-entry` died, and `changelog-layout`,
+# `pin-coverage` and `catalog-description` were not attempted. A tree with
+# three violations therefore cost three full gate cycles, and after each
+# one nothing said how many remained (base#1059).
+#
+# Running them all is sound because the drivers are INDEPENDENT: the
+# dispatch above is a `case`, each driver reads its own file set off the
+# checkout, and none consumes another's output or writes anything a later
+# one reads.
+#
+# THE SUBSHELL SHAPE IS LOAD-BEARING. The obvious spelling --
+#
+#   ( _run_lint_tool "${_tool}" ) || _failed+=( "${_tool}" )
+#
+# -- is wrong, and wrong in exactly the way _run_lint_tool's header
+# refuses. bash suppresses `errexit` for the whole of a command that is
+# part of a `||` list, and the suppression reaches INSIDE the subshell;
+# a `set -e` in the subshell body does not bring it back (verified on
+# bash 5.1 and 5.2). The driver would then sail past its own first
+# failing command, which is the one thing this change must not buy.
+#
+# So the parent clears errexit for the loop and reads `$?` from a
+# STANDALONE subshell -- no `||`, no `if`, nothing that creates the
+# suppression context -- which re-arms `set -e` for itself. Each driver
+# keeps its own errexit and its own ERR trap, and the trap still names
+# the driver that died because `_LINT_ACTIVE_TOOL` is set inside that
+# same subshell. stdout and stderr are inherited, not piped, so the
+# drivers that stream progress interleave exactly as they did before.
+#
+# The caller's errexit is restored before returning: a phase that
+# silently left `set +e` behind would disarm every check after it.
+_run_lint_tools() {
+  local _tool _rc
+  local _caller_opts="$-"
+  local -a _failed=()
+  set +e
+  for _tool in "$@"; do
+    ( set -e; _run_lint_tool "${_tool}" )
+    _rc=$?
+    (( _rc == 0 )) || _failed+=( "${_tool}" )
+  done
+  [[ "${_caller_opts}" != *e* ]] || set -e
+  (( ${#_failed[@]} == 0 )) || _die ci_lint_phase_failed \
+    "${#_failed[@]} of $# lint tools failed: ${_failed[*]}. Each report is above, in phase order; this run enumerated all of them."
+}
+
 # Run the whole lint phase, in table order.
 _run_all_lint_tools() {
-  local _tool
-  for _tool in "${_LINT_TOOLS[@]}"; do
-    _run_lint_tool "${_tool}"
-  done
+  _run_lint_tools "${_LINT_TOOLS[@]}"
 }
 
 # ── Help ─────────────────────────────────────────────────────────────────────
