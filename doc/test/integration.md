@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **165 tests**.
+Integration specs under `test/bats/integration/`: **168 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -279,6 +279,41 @@ the unit `tui_spec`.
 | Test | Description |
 |------|-------------|
 | `test-tools image: just --version equals the declared pin (#948)` | - |
+
+### test/bats/integration/kcov_merge_union_spec.bats (3)
+
+the in-job parallel coverage mode (base#726) runs the suite as N independent
+kcov processes over disjoint slices and merges their reports with `kcov
+--merge`. The merged report is then read as the PROJECT's figure -- the
+release badge publishes it, and `just release coverage-badge` accepts it
+because the run stamps `scope=full`.
+
+Everything about that rests on one property of a tool this repo does not
+own: a line covered in ONE slice and not another must be covered in the
+merge. Union is the only correct reading. A sum inflates a shared library's
+lines with the slice count; an intersection or a last-writer-wins would
+report a whole-suite run as a fraction of itself. base#730 closed exactly
+that class of defect on the OTHER merge -- the coverage-gate's per-line
+union over the CI matrix's shard artifacts -- and that fix says nothing
+about this one, because this one is kcov's.
+
+The unit spec for the mode (test/bats/unit/coverage_local_spec.bats) mocks
+kcov, which is right for pinning what the runner CALLS and wrong for pinning
+what kcov DOES. This spec runs the real binary from the test-tools image
+over a subject with two disjoint branches, so a kcov upgrade that changed
+the merge is a red test here rather than a quiet drop in the published rate.
+
+Deliberately NOT asserted: hit COUNTS. Cobertura carries a per-line `hits`,
+and whether a merge adds them or takes the maximum is kcov's business --
+nothing in this repo reads the number, only `hits > 0`. Asserting the
+arithmetic would pin an implementation detail and fail on a change that
+costs this repo nothing.
+
+| Test | Description |
+|------|-------------|
+| `kcov: two slices of one subject cover different lines (#726)` | the guard that keeps every other case in this file from being vacuous. If both slices covered the same lines, a merge that dropped one input entirely -- or that intersected rather than unioned -- would still produce the right answer, and the union assertion would prove nothing. So: the two slices must genuinely disagree, in both directions. |
+| `kcov --merge: the merged covered set is the UNION of the slices' (#726)` | the property the whole mode rests on. A line covered in ONE slice is covered in the merge -- exactly the union, neither more nor less. Asserted as set EQUALITY rather than as a count or a rate, because a merge that lost one slice's lines and gained an equal number of another's would match on any percentage and be wrong. |
+| `kcov --merge: the merged instrumented set is the union, not a sum (#726)` | the denominator half, and the one a SUM would break first. Each slice's kcov runs with the same `--include-path`, so both reports carry the whole instrumented file; adding their `lines-valid` would count every shared line once per slice and drive the rate down as the slice count rose. That is base#730's defect, on the other merge. The merged denominator must be the union -- here, identical to either slice's. |
 
 ### test/bats/integration/prev_release_upgrade_spec.bats (3)
 
