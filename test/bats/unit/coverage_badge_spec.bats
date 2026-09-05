@@ -1281,3 +1281,55 @@ _make_cobertura() {
     [ "${status}" -ne 0 ]
   done
 }
+
+# why: the ordering that costs a 34-minute run when it is done backwards
+@test "coverage_badge: the recipe states the release order, coverage before the bump (base#1032)" {
+  # The recipe doc said the badge is hand-run "BEFORE the release commit is
+  # made" and stopped there. That leaves the ordering that actually bites
+  # unstated: the coverage run has to happen BEFORE `.version` is bumped,
+  # because the test directly below this one -- "the committed badge names
+  # the released version" -- fails by construction on a bumped tree, and a
+  # red coverage run is a coverage run that has to be done again.
+  #
+  # Anchored on the CLAIM, the way the hand-run guard above is: the steps
+  # are read out of the doc and their ORDER is compared, so a rewording
+  # keeps passing and a permutation cannot.
+  local _doc
+  _doc="$(sed -n '/^# just release coverage-badge ->/,/^coverage-badge/p' \
+    "${REPO}/script/release/justfile.release")"
+  [ -n "${_doc}" ]
+
+  local -a _steps=()
+  mapfile -t _steps < <(printf '%s\n' "${_doc}" \
+    | sed -n 's/^#[[:space:]]*\([0-9]\+\)\.[[:space:]]*/\1 /p')
+  [ "${#_steps[@]}" -ge 4 ] \
+    || fail "the recipe doc lists ${#_steps[@]} ordered release steps; the order is not stated"
+
+  # Where each landmark appears in the ordered list. `-1` = never.
+  local _i=0 _coverage=-1 _bump=-1 _badge=-1 _commit=-1
+  local _s
+  for _s in "${_steps[@]}"; do
+    [[ "${_s}" == *"just test coverage"*   && "${_coverage}" -lt 0 ]] && _coverage="${_i}"
+    [[ "${_s}" == *".version"*             && "${_bump}"     -lt 0 ]] && _bump="${_i}"
+    [[ "${_s}" == *"coverage-badge"*       && "${_badge}"    -lt 0 ]] && _badge="${_i}"
+    [[ "${_s}" == *"commit"*               && "${_commit}"   -lt 0 ]] && _commit="${_i}"
+    _i=$(( _i + 1 ))
+  done
+  [ "${_coverage}" -ge 0 ] || fail "no ordered step runs the coverage suite"
+  [ "${_bump}"     -ge 0 ] || fail "no ordered step bumps .version"
+  [ "${_badge}"    -ge 0 ] || fail "no ordered step regenerates the badge"
+  [ "${_commit}"   -ge 0 ] || fail "no ordered step makes the release commit"
+
+  (( _coverage < _bump )) \
+    || fail "the doc puts the coverage run at step ${_coverage} and the .version bump at ${_bump}"
+  (( _bump < _badge )) \
+    || fail "the doc puts the .version bump at step ${_bump} and the badge at ${_badge}"
+  (( _badge < _commit )) \
+    || fail "the doc puts the badge at step ${_badge} and the release commit at ${_commit}"
+
+  # And the reason, named by the guard that enforces it, so the order is
+  # not a rule the reader has to take on faith.
+  run grep -F 'the committed badge names the released version' \
+    "${REPO}/script/release/justfile.release"
+  [ "${status}" -eq 0 ]
+}

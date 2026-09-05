@@ -205,6 +205,9 @@ ci_invalid_coverage_jobs
 ci_coverage_parallel_empty_slice
 ci_coverage_slice_no_report
 ci_coverage_merge_failed
+ci_coverage_clean_absent
+ci_coverage_cleaned
+ci_coverage_not_reclaimed
 ci_mixed_test_layout
 ci_issueref_in_comment
 ci_adr_numbering
@@ -241,6 +244,7 @@ ci_lint_errexit_suppressed
 ci_test_tools_dockerfile_missing
 ci_project_name_digest_failed
 ci_host_id_not_numeric
+ci_handback_failed
 ci_prev_release_progress
 ci_prev_release_unavailable
 ci_live_tree_residue
