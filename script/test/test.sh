@@ -249,8 +249,8 @@ _lint_driver_failed() {
     "lint tool '${_LINT_ACTIVE_TOOL}' stopped at \`${_command}\`, status ${_status}${_detail}."
 }
 
-# _refuse_suppressed_errexit <what> -- die unless errexit still reaches a
-# subshell of THIS call.
+# _refuse_suppressed_errexit <what> -- die if a COMMAND SUBSTITUTION of
+# this call sees errexit suppressed.
 #
 # bash suppresses errexit for every command of an `if` condition, an
 # `&&` / `||` list or a `!`, and the suppression follows the call into the
@@ -261,13 +261,30 @@ _lint_driver_failed() {
 # defaults to pass: the driver sails, the dispatch returns zero, and the
 # tree is reported clean.
 #
-# So the precondition is measured. The probe is the same shape as the work
-# it guards -- a subshell that arms errexit and then fails. With errexit
-# reaching it, it dies at the `false` and prints nothing; inside a
-# suppression context it sails and prints. The wrapping `( ... ); true`
-# keeps the substitution's own status zero, so the probe is safe to run
-# under the caller's errexit; `|| true` around it would instead create the
-# very context it asks about and always answer "suppressed".
+# So the precondition is measured. The probe is a subshell that arms
+# errexit and then fails. With errexit reaching it, it dies at the `false`
+# and prints nothing; inside a suppression context it sails and prints.
+# The wrapping `( ... ); true` keeps the substitution's own status zero, so
+# the probe is safe to run under the caller's errexit; `|| true` around it
+# would instead create the very context it asks about and always answer
+# "suppressed".
+#
+# WHAT IT MEASURES IS NARROWER THAN WHAT IT GUARDS, and the header says
+# "command substitution" because of it. The probe runs inside `$( ... )`;
+# the drivers run inside a plain `( ... )`. Those two answer the same for a
+# direct `if` / `&&` / `||` / `!` caller, and differently through `eval`:
+# on bash 5.1, `if eval f` leaves the substitution reporting errexit ARMED
+# while a plain `( set -e; false )` subshell of that same call still sails.
+# An eval'd suppressing caller is therefore NOT refused here.
+#
+# It is still not a way to make a driver sail, because this is not the only
+# mechanism: `_run_lint_tool` arms `set -E` and an ERR trap around the
+# dispatch, `eval` does not disarm either, and the driver dies at its first
+# failing command with `ci_lint_driver_failed` naming it. ci_spec pins that
+# ("an eval'd caller escapes the probe, the driver still cannot sail"), so
+# the narrower claim above rests on a measured mechanism rather than on the
+# absence of a report. What this refusal buys over the trap alone is the
+# earlier and better-named stop: one refusal, before any driver runs.
 #
 # CALL THIS AS A PLAIN STATEMENT. Called from a condition of its own it
 # measures that condition and refuses every time -- which is the honest
@@ -385,9 +402,17 @@ _run_lint_tool() {
 # Nothing inside the subshell repairs it (`( set +e; set -e; ... )` and an
 # `ERR` trap were both tried); only a separate process escapes it. So the
 # precondition is enforced instead of assumed, by the shared refusal above
-# -- the default on an input this mechanism cannot measure is a refusal,
-# not a pass. `_run_lint_tool` guards itself the same way, because
-# `main --ci` also calls it on its own.
+# -- every caller shape its probe can read defaults to a refusal, not to a
+# pass. A shape the probe cannot read is a different case and is handled
+# by a different mechanism, not by this one: an `eval`'d suppressing caller
+# is measured as armed and passes here, and is stopped one level down by
+# `_run_lint_tool`'s ERR trap. Both are pinned in ci_spec, and the refusal's
+# header carries the boundary between them.
+#
+# `_run_lint_tool` guards itself the same way, because `main --ci` also
+# calls it on its own -- which is why an assertion about THIS refusal has
+# to name the phase: the driver's copy emits the same event, and a spec
+# that only reads the event name cannot tell the two apart.
 #
 # The caller's errexit is restored before returning: a phase that
 # silently left `set +e` behind would disarm every check after it.
