@@ -281,11 +281,15 @@ _adr_ref_other_excludes() {
   elif [[ -f "${_root}/.git" ]]; then
     # `gitdir: <path>`, absolute in every worktree git writes, but the
     # format permits a relative one and it is resolved against the root.
-    _line="$(sed -n 's/^gitdir: //p' "${_root}/.git" 2>/dev/null | head -n 1)"
-    if [[ -n "${_line}" ]]; then
-      _gitdir="${_line}"
+    # Read in-shell rather than `sed | head`: a reader that leaves early
+    # strands the writer with SIGPIPE, and pipefail then reports the
+    # pipeline's status as the failure of the file it just read.
+    while IFS= read -r _line || [[ -n "${_line}" ]]; do
+      [[ "${_line}" == 'gitdir: '* ]] || continue
+      _gitdir="${_line#gitdir: }"
       [[ "${_gitdir}" == /* ]] || _gitdir="${_root}/${_gitdir}"
-    fi
+      break
+    done < "${_root}/.git"
   fi
   if [[ -n "${_gitdir}" ]] \
     && _adr_ref_has_rules "${_gitdir}/info/exclude"; then
@@ -298,10 +302,13 @@ _adr_ref_other_excludes() {
   # whole function reports about -- so the answer would depend on where
   # the lint was invoked from. Scoped to the root, a failure means only
   # that git cannot be asked here, and nothing is reported.
-  _global="$(git -C "${_root}" config --get core.excludesFile 2>/dev/null \
-    || true)"
+  #
+  # `--path` so git expands a leading `~` itself. The value is routinely
+  # written `~/.gitignore_global`, and expanding it here would be this
+  # file's own opinion about a path git already knows how to resolve.
+  _global="$(git -C "${_root}" config --path --get core.excludesFile \
+    2>/dev/null || true)"
   [[ -n "${_global}" ]] || return 0
-  [[ "${_global}" != '~/'* ]] || _global="${HOME:-}/${_global#\~/}"
   ! _adr_ref_has_rules "${_global}" || printf '%s\n' "${_global}"
 }
 

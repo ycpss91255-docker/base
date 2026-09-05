@@ -377,12 +377,10 @@ _file() {
 # `ADR-` token naming it names whichever the author had in mind and
 # nothing in the tree records which. The refusal names both and points at
 # the resolution that IS derivable -- renumber on the branch, where the
-# number has one claimant.
-#
-# Spelled with the token rather than the number, because this block is
-# published verbatim as a doc/test row and this file declares that number
-# its own: written out, the row would be a reference the verb rewrites and
-# the regeneration restores.
+# number has one claimant. Spelled with the token rather than the number,
+# because this block is published verbatim as a doc/test row and this file
+# declares that number its own: written out, the row would be a reference
+# the verb rewrites and the regeneration restores.
 @test "adr renumber: REFUSES a number two records claim, naming both (#1021)" {
   printf '%s\n' '# The other one' > "${ROOT}/doc/adr/00000030-config-layout.md"
   _file 'CONTEXT.md' 'ADR-00000030 is ambiguous now.'

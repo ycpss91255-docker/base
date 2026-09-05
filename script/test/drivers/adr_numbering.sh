@@ -334,14 +334,16 @@ _adr_marker_captive_findings() {
     # wrongly.
     # shellcheck disable=SC2086
     for _num in ${_nums}; do
+      # Matched in-shell rather than piped into `grep -q`: a reader that
+      # leaves on its first match strands the writer with SIGPIPE, and
+      # pipefail then reports a SUCCESSFUL match as the pipeline failing.
       _re="ADR-${_num}|doc/adr/${_num}-"
-      if [[ -n "${_blurb}" ]] \
-        && printf '%s\n' "${_blurb}" | grep -qE -e "${_re}"; then
+      if [[ -n "${_blurb}" && "${_blurb}" =~ ${_re} ]]; then
         _adr_marker_captive_report "${_rel}" '' "${_num}"
       fi
       for _site in "${_tests[@]+"${_tests[@]}"}"; do
         IFS=$'\t' read -r _line _marked _name _desc <<< "${_site}"
-        printf '%s\n' "${_name} ${_desc}" | grep -qE -e "${_re}" || continue
+        [[ "${_name} ${_desc}" =~ ${_re} ]] || continue
         _adr_marker_captive_report "${_rel}" "${_line}" "${_num}"
       done
     done
