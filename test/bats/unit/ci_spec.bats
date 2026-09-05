@@ -1281,11 +1281,20 @@ SH
     # marker still proves the coverage branch was the one taken.
     _run_coverage() { printf "COVERAGE-RAN shard=[%s]\n" "${1:-}"; }
     _fix_permissions() { :; }
-    # COVERAGE_PATH is cleared explicitly: the in-container dispatch
-    # reads it BEFORE the shard, and this spec inherits whatever the
-    # container was started with -- `just test coverage-path` sets it,
-    # so the branch under test would silently not be the branch taken.
-    COVERAGE=1 COVERAGE_SHARD=1/4 COVERAGE_PATH= main --ci
+    # Every selector the dispatch forwards is PINNED here, set or
+    # emptied: this block inherits whatever the container was started
+    # with, and each selector the dispatch reads before the shard would
+    # otherwise decide the branch instead of the shard under test.
+    # `just test coverage-path` sets COVERAGE_PATH; `just test
+    # coverage-local` sets COVERAGE_LOCAL_JOBS, and leaving that one
+    # unpinned routed this block past the `_run_coverage` stub into the
+    # real parallel runner -- 32 nested kcov processes inside a unit test
+    # (base#726). The guard in coverage_local_spec, "specs driving the
+    # in-container coverage entry pin every forwarded selector", is what
+    # keeps the roster here complete as it grows.
+    # (No apostrophes in this block: it lives inside a single-quoted
+    # bash -c string, where one ends the program.)
+    COVERAGE=1 COVERAGE_SHARD=1/4 COVERAGE_PATH= COVERAGE_LOCAL_JOBS= main --ci
   '
   assert_success
   assert_output --partial "COVERAGE-RAN shard=[1/4]"
@@ -1887,7 +1896,11 @@ AWK
     # the day the branch regresses from writing coverage/timings.tsv into
     # the mounted checkout while the assertion is still red.
     _run_coverage() { printf "REACHED-FULL-RUNNER\n"; }
-    COVERAGE=1 COVERAGE_PATH=test/bats/unit/ci_spec.bats main --ci
+    # The other two selectors are pinned empty for the same reason the
+    # marker exists: COVERAGE_PATH is asserted to out-rank them, and a
+    # block that inherited one from the run it is inside would be
+    # asserting that only for whichever run happened to be in flight.
+    COVERAGE=1 COVERAGE_PATH=test/bats/unit/ci_spec.bats COVERAGE_SHARD= COVERAGE_LOCAL_JOBS= main --ci
   '
   assert_success
   refute_output --partial "REACHED-FULL-RUNNER"

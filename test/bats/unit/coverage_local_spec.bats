@@ -305,7 +305,7 @@ _driver_prelude() {
     _run_coverage_parallel() { printf "PARALLEL_RUNNER %s\n" "$1"; }
     _fix_permissions() { :; }
     COVERAGE=1 COVERAGE_PATH=test/bats/unit/ci_spec.bats \
-      COVERAGE_LOCAL_JOBS=4 BATS_ONLY=1 main --ci
+      COVERAGE_LOCAL_JOBS=4 COVERAGE_SHARD= BATS_ONLY=1 main --ci
   '
   assert_success
   assert_output --partial "PATH_RUNNER test/bats/unit/ci_spec.bats"
@@ -321,11 +321,102 @@ _driver_prelude() {
     _run_coverage() { printf "SERIAL_RUNNER %s\n" "${1:-}"; }
     _run_coverage_parallel() { printf "PARALLEL_RUNNER %s\n" "$1"; }
     _fix_permissions() { :; }
-    COVERAGE=1 COVERAGE_LOCAL_JOBS=4 BATS_ONLY=1 main --ci
+    COVERAGE=1 COVERAGE_LOCAL_JOBS=4 COVERAGE_PATH= COVERAGE_SHARD= \
+      BATS_ONLY=1 main --ci
   '
   assert_success
   assert_output --partial "PARALLEL_RUNNER 4"
   refute_output --partial "SERIAL_RUNNER"
+}
+
+# why: found by RUNNING the mode, not by reading it. `just test
+# coverage-local` on the real tree turned ci_spec's "main --ci with
+# COVERAGE=1 skips the lint phase" red, and the reason is the whole
+# selector family, not this one member: the in-container dispatch reads
+# COVERAGE_SHARD / COVERAGE_PATH / COVERAGE_LOCAL_JOBS out of the
+# ENVIRONMENT, and a spec that drives that entry inherits whatever the
+# container was started with. That spec pinned two of the three and stubbed
+# `_run_coverage`; under `--coverage-local` the inherited
+# COVERAGE_LOCAL_JOBS routed past the stub into the real parallel runner,
+# so a unit test launched 32 nested kcov processes and failed.
+#
+# The rule is therefore not "clear COVERAGE_LOCAL_JOBS" -- that is this
+# defect, not its class. It is: a block that drives the in-container
+# coverage entry PINS EVERY selector the dispatch forwards, set or
+# emptied, so the branch under test is the branch taken whichever run the
+# suite is inside. The roster is read off `_run_via_compose`'s own
+# forwarding lines rather than listed here, so a fourth selector arrives
+# with this demand already made of every fixture.
+@test "specs driving the in-container coverage entry pin every forwarded selector (#726)" {
+  # The roster, derived. These are the names the coverage service is
+  # started with, which is exactly the set a spec can inherit.
+  run bash -c "grep -oE -- '-e COVERAGE_[A-Z_]+=' /source/script/test/test.sh \
+    | grep -oE 'COVERAGE_[A-Z_]+' | sort -u | tr '\n' ' '"
+  assert_success
+  local _roster="${output}"
+  # Three today; the assertion is that there is a roster at all, not how
+  # long it is.
+  assert [ -n "${_roster}" ]
+
+  local _script="${BATS_TEST_TMPDIR}/pin.awk"
+  cat > "${_script}" << 'AWK'
+    # The in-container entry is one command: the COVERAGE=1 assignment and
+    # the `main --ci` call on ONE logical line. That shape reaches the
+    # dispatch's coverage branch without the word `_run_coverage` or
+    # `--coverage` appearing in the block at all, which is why a
+    # name-based reading misses it.
+    #
+    # The pattern is ASSEMBLED from pieces rather than written out,
+    # because a detector spelled in full matches its own block: this file
+    # carries the scanner and would be reported as a spec that drives a
+    # coverage run and pins nothing.
+    BEGIN {
+      n = split(sel, s, " ")
+      entry = "COVERAGE" "=1[^\n]*main --" "ci"
+    }
+    /^@test / { blk = $0; body = ""; cont = ""; inblk = 1; next }
+    inblk {
+      line = $0
+      sub(/^[[:space:]]+/, "", line)
+      # Prose about a selector is not a pin, and prose about the entry is
+      # not a drive.
+      if (line ~ /^#/) next
+      # Continuations are joined, so an invocation wrapped across lines is
+      # still one command to this reader -- the form both of this file's
+      # own dispatch cases are written in.
+      if (cont != "") { line = cont " " line; cont = "" }
+      if (line ~ /\\$/) { sub(/\\$/, "", line); cont = line; next }
+      body = body "\n" line
+      if ($0 == "}") {
+        inblk = 0
+        if (body !~ entry) next
+        # A block that hands the entry's SHAPE to a scanner is describing
+        # it, not running it -- ci_spec's own "no spec drives a coverage
+        # run against the mounted checkout" carries the same command as a
+        # regex, and pinning selectors inside a pattern would change what
+        # that guard matches. `awk -f` over the spec tree is the mark of a
+        # reader; a driver sources test.sh and calls main.
+        if (body ~ /awk -f/) next
+        total++
+        for (i = 1; i <= n; i++) {
+          if (s[i] == "") continue
+          if (body !~ (s[i] "=")) {
+            print FILENAME ": " blk " -- does not pin " s[i]
+          }
+        }
+      }
+    }
+    END { print "TOTAL=" total }
+AWK
+
+  run awk -v sel="${_roster}" -f "${_script}" \
+    /source/test/bats/unit/*.bats /source/test/bats/integration/*.bats
+  assert_success
+  # Non-vacuous: the scan actually found the blocks it is judging. A
+  # detector that matched nothing would report every tree compliant.
+  assert_line --partial "TOTAL="
+  refute_line --partial "TOTAL=0"
+  refute_output --partial "does not pin"
 }
 
 # ════════════════════════════════════════════════════════════════════

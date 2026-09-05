@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **4164 tests**.
+Unit specs under `test/bats/unit/`: **4165 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1684,7 +1684,7 @@ the file's lines to the denominator.
 | `coverage_gate --merge-timings: merges per-shard timings keeping max seconds per basename (#733)` | - |
 | `coverage_gate --merge-timings: no input files yields an empty weights file (#733)` | - |
 
-### test/bats/unit/coverage_local_spec.bats (20)
+### test/bats/unit/coverage_local_spec.bats (21)
 
 ADR-00000008 shards kcov ACROSS a CI matrix, which is the only parallelism a
 GitHub-hosted plan offers: one runner, one concurrent job. On a single fat
@@ -1721,6 +1721,7 @@ workflow, whose shape the last section pins.
 | `main: --coverage-local --jobs N overrides the nproc default` | the default is `nproc` and the flag has to beat it, or `--jobs` would be decoration on a machine whose core count the operator is deliberately not using (a shared workstation, a cgroup-limited shell). |
 | `main --ci: COVERAGE_PATH out-ranks COVERAGE_LOCAL_JOBS` | the branch order is the contract. COVERAGE_PATH is read FIRST because it is the one kcov mode that writes nothing into coverage/; letting a stale COVERAGE_LOCAL_JOBS out-rank it would turn a one-spec instrumentation loop into a whole-suite run against the checkout. |
 | `main --ci: COVERAGE_LOCAL_JOBS routes to the parallel runner, not the serial one` | without this the flag is inert -- the container would fall through to the serial `_run_coverage`, and the mode would be a rename of the run it was built to replace. |
+| `specs driving the in-container coverage entry pin every forwarded selector (#726)` | found by RUNNING the mode, not by reading it. `just test coverage-local` on the real tree turned ci_spec's "main --ci with COVERAGE=1 skips the lint phase" red, and the reason is the whole selector family, not this one member: the in-container dispatch reads COVERAGE_SHARD / COVERAGE_PATH / COVERAGE_LOCAL_JOBS out of the ENVIRONMENT, and a spec that drives that entry inherits whatever the container was started with. That spec pinned two of the three and stubbed `_run_coverage`; under `--coverage-local` the inherited COVERAGE_LOCAL_JOBS routed past the stub into the real parallel runner, so a unit test launched 32 nested kcov processes and failed. The rule is therefore not "clear COVERAGE_LOCAL_JOBS" -- that is this defect, not its class. It is: a block that drives the in-container coverage entry PINS EVERY selector the dispatch forwards, set or emptied, so the branch under test is the branch taken whichever run the suite is inside. The roster is read off `_run_via_compose`'s own forwarding lines rather than listed here, so a fourth selector arrives with this demand already made of every fixture. |
 | `_run_coverage_parallel: launches one kcov per slice over an exhaustive, disjoint partition` | the whole claim of the mode. N kcov PROCESSES, each over one slice of the SHARED partition -- so the union of the slices is the suite and no spec is instrumented twice. A second partitioner would be a second roster; a partition that dropped a spec would report a coverage regression nobody caused. |
 | `_run_coverage_parallel: merges every slice's report into the repo coverage tree` | the merge is what turns N partial reports into the project figure, and it must name EVERY slice. A merge over a subset is the silent-loss case: it produces a valid report carrying a smaller line set, which reads as a regression rather than as the bug it is. |
 | `_run_coverage_parallel: a slice that produced no report fails the run instead of merging` | "cannot tell" resolves to refusing. A kcov that dies after its tests pass leaves an EMPTY output directory and a zero status, and merging the survivors would publish a smaller line set under a whole-suite certificate. The refusal is what makes a lost slice distinguishable from a coverage drop. |
