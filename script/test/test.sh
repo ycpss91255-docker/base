@@ -2329,7 +2329,7 @@ main() {
   # the project the reclaim just minted.
   if [[ -n "${repair}" ]]; then
     case "${repair}" in
-      clean-coverage) _clean_coverage; exit $? ;;
+      clean-coverage) _clean_coverage "${REPO_ROOT}"; exit $? ;;
     esac
   fi
 
