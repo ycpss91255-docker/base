@@ -332,6 +332,33 @@ teardown() {
   assert_output --partial "ci_lint_errexit_suppressed"
 }
 
+# why: The probe measures a COMMAND-SUBSTITUTION subshell, which is
+# narrower than "a subshell of this call", and the two come apart under
+# `eval`: measured on bash 5.1, `if eval f` leaves the substitution
+# reporting errexit ARMED while a plain `( set -e; false )` subshell of
+# the same call still sails. So an `if eval _run_lint_tools ...` is NOT
+# refused -- and what stops the driver there is the OTHER mechanism, the
+# `set -E` and ERR trap inside _run_lint_tool, which `eval` does not
+# disarm. That is the mechanism the refusal's narrowed header now leans
+# on for the shapes its probe cannot see, so it is pinned here rather
+# than assumed: under the shape that escapes the probe, the driver must
+# still die at its first failing command and be named.
+@test "_run_lint_tools: an eval'd caller escapes the probe, the driver still cannot sail (#1059)" {
+  run env LOG_FORMAT=json bash -c '
+    source /source/script/test/test.sh
+    set -eo pipefail
+    _run_adr_numbering() { false; echo "SAILED PAST the first failure"; }
+    if eval _run_lint_tools adr-numbering; then echo "PHASE SAID CLEAN"; fi
+  '
+  assert_failure
+  refute_output --partial "SAILED PAST"
+  refute_output --partial "PHASE SAID CLEAN"
+  # Not the refusal -- the probe cannot see this shape -- but the driver's
+  # own ERR trap, naming the driver that died.
+  assert_output --partial "ci_lint_driver_failed"
+  assert_output --partial "adr-numbering"
+}
+
 # why: The phase's OWN refusal, pinned by something only it can answer.
 # Both guards above are satisfied by `_run_lint_tool`'s copy of the
 # refusal, which fires inside the driver subshell and emits the same
