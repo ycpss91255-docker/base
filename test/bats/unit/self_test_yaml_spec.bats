@@ -1416,11 +1416,16 @@ YAML
 
 @test "self-test.yaml: the self-hosted guard lint has a lint-static CI join (#766)" {
   # Belt to the _LINT_TOOLS completeness guard's braces: that check proves
-  # SOME job names every lint, this one names the join the guard is meant
-  # to have. A guard whose own CI job vanished would gate nothing.
-  run yaml_job_lines "${WF}" lint-static
-  assert_success
-  assert_output --partial '- self-hosted-guard'
+  # EVERY lint is run by some job, this one names the join the guard is
+  # meant to have. A guard whose own CI job vanished would gate nothing.
+  #
+  # Asked of the partition rather than of the matrix (base#1071): the
+  # matrix names group positions now, and the group a lint falls in is
+  # computed, so the workflow text cannot answer this question.
+  local _hits
+  _hits="$(lint_group_hits self-hosted-guard "${WF}")"
+  [ "${_hits}" -eq 1 ] \
+    || fail "the self-hosted guard lint is in ${_hits} lint-static groups; a fork-PR guard that runs in none gates nothing"
 }
 
 # why: The CI run on a watch/ branch IS the proposal's whole answer; a
@@ -1447,9 +1452,10 @@ YAML
   # more than usual: pin-coverage is what stops a third-party version from
   # being added with nothing watching it, so a PR is the only moment it can
   # fire. Without a CI job it would gate only a local `just test`.
-  run awk '/^  lint-static:/{flag=1; next} /^  [a-z]/{flag=0} flag' "${WF}"
-  assert_success
-  assert_output --partial '- pin-coverage'
+  local _hits
+  _hits="$(lint_group_hits pin-coverage "${WF}")"
+  [ "${_hits}" -eq 1 ] \
+    || fail "the pin-coverage lint is in ${_hits} lint-static groups; in none, a third-party version can be added with nothing watching it"
 }
 
 # ── System-level build-worker self-test ────────────────────────
@@ -1596,45 +1602,11 @@ YAML
   assert_output --partial 'DOC_COUNTS_RESULT'
 }
 
-# ── lint-static matrix (the rest of the lint phase) ────────────
+# ── lint-static groups (the rest of the lint phase) ────────────
 
 @test "self-test.yaml: declares lint-static job (#866)" {
   run code_grep -E '^  lint-static:' "${WF}"
   assert_success
-}
-
-@test "self-test.yaml: lint-static runs one matrix entry per host-direct lint on a plain runner (#866)" {
-  # The lint phase runs the static lints no CI job ran: the issue-ref
-  # comment lint, the ADR-numbering lint, the stale
-  # config/docker/setup.conf path lint, the localized README sync lint and
-  # the hardcoded home path lint.
-  # Each is pure bash over the checkout, so a plain ubuntu-latest runner
-  # can call it host-direct -- no buildx, no test-tools image. One matrix
-  # entry each so the checks list names WHICH lint failed.
-  run yaml_job_lines "${WF}" lint-static
-  assert_success
-  assert_output --partial 'needs: [actionlint, classify]'
-  assert_output --partial 'runs-on: ubuntu-latest'
-  # fail-fast off: one failing lint must not cancel the sibling entries,
-  # or a branch fixes them one round-trip at a time.
-  assert_output --partial 'fail-fast: false'
-  assert_output --partial '- issueref'
-  assert_output --partial '- adr-numbering'
-  assert_output --partial '- adr-structure'
-  assert_output --partial '- stale-setup-conf'
-  assert_output --partial '- readme-sync'
-  # The hardcoded-home-path lint joined the same matrix: it reads the
-  # shipped image tree, so a plain runner can call it host-direct too.
-  assert_output --partial '- home-literal'
-  # Same for the unguarded-BASH_SOURCE lint: pure bash over dist/ + script/.
-  assert_output --partial '- bash-source-guard'
-  # And for the early-closing-reader pipeline lint, same trees, same shape.
-  assert_output --partial '- early-close-reader'
-  # And for the non-final bang-statement lint, over the bats tree.
-  assert_output --partial '- errexit-bang'
-  assert_output --partial './script/test/test.sh'
-  refute_output --partial 'docker/setup-buildx-action'
-  refute_output --partial 'docker pull'
 }
 
 @test "self-test.yaml: lint-static carries NO code_changed gate (#866)" {
@@ -1649,7 +1621,7 @@ YAML
   assert_success
   # Non-vacuity: an absent job yields an empty block, against which the
   # refute below would pass while asserting nothing.
-  assert_output --partial '- readme-sync'
+  assert_output --partial './script/test/test.sh --lint-group'
   refute_output --partial 'if: needs.classify.outputs'
 }
 
@@ -1669,11 +1641,19 @@ YAML
 @test "self-test.yaml: every lint the just test lint phase runs has a CI join (#866)" {
   # The anti-rot guard, and the answer to "which lints are CI-enforced":
   # script/test/test.sh's _LINT_TOOLS table is the one list of tools the
-  # lint phase runs, and every entry in it must be named by a CI job --
-  # a host-direct primitive (--<tool>-only), the in-container hadolint
-  # job (--lint --hadolint), or a lint-static matrix entry (- <tool>).
-  # Adding a lint to the phase without giving it a CI join fails HERE,
-  # instead of quietly shipping a local-only rule.
+  # lint phase runs, and every entry in it must be run by a CI job --
+  # a dedicated one calling a host-direct primitive (--<tool>-only) or the
+  # in-container hadolint job (--lint --hadolint), or else EXACTLY ONE
+  # group of the lint-static partition. Adding a lint to the phase without
+  # giving it a CI join fails HERE, instead of quietly shipping a
+  # local-only rule.
+  #
+  # The group half is asked of the PARTITION, not of the workflow file
+  # (base#1071). The workflow no longer names a driver anywhere -- that
+  # list was a roster, wrong on the day a driver was added -- so the
+  # question "does a job run this lint" is now answered by running the
+  # thing that decides it. In one group: it runs, once. In none: it gates
+  # nothing. In two: it is paid for twice.
   #
   # The claim is STATIC -- a table literal in one file versus job names
   # in another -- so the table is PARSED, never sourced. Sourcing
@@ -1713,10 +1693,87 @@ YAML
       || fail "_LINT_TOOLS does not list '${_t}'"
   done
 
-  for _t in "${_tools[@]}"; do
-    code_grep -qE -- "--${_t}-only|--lint --${_t}|^ +- ${_t}\$" "${WF}" \
-      || fail "lint '${_t}' runs in the just test lint phase but NO job in self-test.yaml runs it -- it would gate nothing on a PR"
+  # The partition the lint-static matrix expands, read from the matrix so
+  # the guard follows a change to the group count instead of pinning it.
+  local -a _groups=()
+  mapfile -t _groups < <(lint_static_groups "${WF}")
+  [ "${#_groups[@]}" -ge 2 ] \
+    || fail "the lint-static matrix declares ${#_groups[@]} group entries; the grouped lints below would all be reported unrun"
+
+  local -a _grouped=()
+  local _g
+  for _g in "${_groups[@]}"; do
+    mapfile -t -O "${#_grouped[@]}" _grouped \
+      < <("${_test_sh}" --lint-group-members "${_g}")
   done
+  [ "${#_grouped[@]}" -gt 0 ] \
+    || fail "the lint-static groups hold no lints at all; every entry below would be reported unrun"
+
+  local _hits
+  for _t in "${_tools[@]}"; do
+    if code_grep -qE -- "--${_t}-only|--lint --${_t}" "${WF}"; then
+      continue
+    fi
+    _hits="$(printf '%s\n' "${_grouped[@]}" | grep -cx -- "${_t}" || true)"
+    [ "${_hits}" -eq 1 ] \
+      || fail "lint '${_t}' runs in the just test lint phase, has no dedicated job in self-test.yaml, and is in ${_hits} of the ${#_groups[@]} lint-static groups -- it must be in exactly one or it gates nothing on a PR"
+  done
+}
+
+# why: The shape itself. One job per DRIVER spent more runner startup than
+# the drivers spent working, and took up to twenty of the free plan's
+# ~twenty org-wide concurrent slots in the same second the coverage shards
+# -- the run's critical path -- asked for theirs. One job per GROUP is the
+# trade, and it is only a trade if the job still runs the same drivers the
+# local phase runs, host-direct on a plain runner, with one failing group
+# not cancelling its siblings.
+@test "self-test.yaml: lint-static runs one job per lint GROUP, not one per lint (base#1071)" {
+  run yaml_job_lines "${WF}" lint-static
+  assert_success
+  assert_output --partial 'needs: [actionlint, classify]'
+  assert_output --partial 'runs-on: ubuntu-latest'
+  assert_output --partial 'fail-fast: false'
+  assert_output --partial './script/test/test.sh --lint-group'
+  # Still a plain runner running the same drivers: no buildx, no image.
+  refute_output --partial 'docker/setup-buildx-action'
+  refute_output --partial 'docker pull'
+}
+
+# why: The anti-roster assertion, stated over the workflow rather than
+# over the partition. A matrix entry that NAMES a driver is the roster
+# coming back: the day a driver is added it is not in the list, and
+# nothing says so. Every entry must therefore be a position in the
+# partition and nothing else -- and the positions must be a partition:
+# one total shared by all of them, each index once, as many entries as
+# the total. A matrix of ['1/4', '2/4'] would run half the lint phase
+# and go green over it.
+@test "self-test.yaml: the lint-static matrix names group positions, never drivers (base#1071)" {
+  local -a _groups=()
+  mapfile -t _groups < <(lint_static_groups "${WF}")
+  [ "${#_groups[@]}" -ge 2 ] \
+    || fail "the lint-static matrix declares ${#_groups[@]} group entries; it is not the grouped form (or the matrix key is not 'group')"
+
+  local _total="" _g _index
+  local -a _indices=()
+  for _g in "${_groups[@]}"; do
+    [[ "${_g}" =~ ^([0-9]+)/([0-9]+)$ ]] \
+      || fail "lint-static matrix entry '${_g}' is not <index>/<total> -- an entry that names a driver is the roster this change removed"
+    _index="${BASH_REMATCH[1]}"
+    if [ -z "${_total}" ]; then
+      _total="${BASH_REMATCH[2]}"
+    else
+      [ "${BASH_REMATCH[2]}" = "${_total}" ] \
+        || fail "lint-static matrix entry '${_g}' partitions into ${BASH_REMATCH[2]} while its siblings partition into ${_total} -- the groups would overlap and leave lints unrun"
+    fi
+    _indices+=( "${_index}" )
+  done
+
+  [ "${#_groups[@]}" -eq "${_total}" ] \
+    || fail "the lint-static matrix declares ${#_groups[@]} of ${_total} groups -- the missing ones run nowhere"
+  local _seen
+  _seen="$(printf '%s\n' "${_indices[@]}" | sort -n | uniq | wc -l)"
+  [ "${_seen}" -eq "${_total}" ] \
+    || fail "the lint-static matrix repeats a group index; ${_seen} of ${_total} are distinct"
 }
 
 @test "self-test.yaml: declares hadolint job (#376)" {

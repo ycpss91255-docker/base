@@ -324,7 +324,7 @@ The convention, stated in the shipped `Dockerfile` where you will meet it:
    `${USER_NAME}`.
 
 Rule 3 is mechanical and gated: the `home-literal` lint
-(`just test lint --home-literal`, CI job `lint-static (home-literal)`) fails
+(`just test lint --home-literal`, CI job `lint-static` (one of its groups)) fails
 on a concrete username in a home path anywhere under `dist/` or
 `dockerfile/`. Rules 1-2 are a judgement call no grep can make. Rationale:
 [ADR-00000024](doc/adr/00000024-bake-artifacts-at-opt-not-home.md).

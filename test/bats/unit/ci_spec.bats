@@ -706,6 +706,234 @@ _stored_measurements() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# The lint-static CI partition: derived from the table, never rostered
+#
+# CI runs the static lints as a handful of GROUPED jobs rather than one
+# job per driver (base#1071). The grouping is the thing under test here,
+# and what makes it worth testing is the failure it replaces: a written
+# table of "which driver goes in which group" is a roster, and a roster
+# is wrong on the day a driver is added, with nothing to say so -- the
+# lint would simply stop running in CI while every job stayed green.
+#
+# So the partition is computed from `_LINT_TOOLS`, and these tests assert
+# the property that makes the computation trustworthy: every lint of the
+# table is either run by its own dedicated job or lands in EXACTLY ONE
+# group, at any group count, including a lint the table does not carry
+# today.
+# ════════════════════════════════════════════════════════════════════
+
+# The entries of a `readonly <name>=( ... )` table, read out of the tree.
+# Parsed, never sourced, for the reason self_test_yaml_spec's sibling
+# guard states: sourcing test.sh drags in the whole lib chain, which reads
+# BASH_SOURCE unguarded, and under the kcov-instrumented bash of a
+# coverage shard that source aborts and its stderr is read as data.
+#
+# Takes the file so the reader is exercisable on a fixture; the default is
+# the tree the guards read.
+_declared_array() {
+  local _name="${1}" _file="${2:-/source/script/test/test.sh}"
+  awk -v name="${_name}" '
+    $0 == "readonly " name "=(" { inside = 1; next }
+    inside && /^\)/             { inside = 0 }
+    inside {
+      sub(/#.*/, "")
+      gsub(/[[:space:]]+/, "")
+      if ($0 != "") print
+    }
+  ' "${_file}"
+}
+
+# The lints the grouped jobs are responsible for: the table minus the ones
+# that carry a dedicated CI job of their own. Derived from the two tables,
+# so it moves when they move.
+_grouped_lints() {
+  local _file="${1:-/source/script/test/test.sh}"
+  local -a _table=() _own=()
+  mapfile -t _table < <(_declared_array _LINT_TOOLS "${_file}")
+  mapfile -t _own   < <(_declared_array _LINT_TOOLS_OWN_CI_JOB "${_file}")
+  local _t _o _skip
+  for _t in "${_table[@]}"; do
+    _skip=0
+    for _o in "${_own[@]}"; do
+      [[ "${_t}" != "${_o}" ]] || _skip=1
+    done
+    (( _skip == 1 )) || printf '%s\n' "${_t}"
+  done
+}
+
+# Every group of a partition of TOTAL, concatenated, one name per line.
+_all_group_members() {
+  local _total="${1}" _script="${2:-/source/script/test/test.sh}"
+  local _i
+  for (( _i = 1; _i <= _total; _i++ )); do
+    "${_script}" --lint-group-members "${_i}/${_total}" || return 1
+  done
+}
+
+# why: The property the whole shape rests on. A grouped CI job is only as
+# trustworthy as "every lint is in exactly one group": a lint in no group
+# runs nowhere and gates nothing while CI stays green, and a lint in two
+# groups pays for itself twice. It is asserted at SEVERAL totals, not at
+# the one the workflow happens to use, because the partition is arithmetic
+# over the table's positions -- a total that divides the table evenly and
+# one that does not are different cases, and the workflow's count is free
+# to change.
+@test "lint groups: every grouped lint lands in exactly one group, at any group count (base#1071)" {
+  local -a _expected=()
+  mapfile -t _expected < <(_grouped_lints)
+  # Non-vacuity: an unparsed table would make every comparison below a
+  # comparison of two empty sets, which is the failure this guard exists
+  # to catch.
+  [ "${#_expected[@]}" -ge 13 ] \
+    || fail "the lint tables yielded ${#_expected[@]} grouped lints; they did not parse"
+
+  local _total
+  for _total in 1 2 3 4 5 7 13; do
+    local -a _seen=()
+    mapfile -t _seen < <(_all_group_members "${_total}")
+    [ "${#_seen[@]}" -eq "${#_expected[@]}" ] \
+      || fail "at ${_total} groups the partition yielded ${#_seen[@]} names for ${#_expected[@]} grouped lints -- a lint is in no group or in two"
+    local _diff
+    _diff="$(comm -3 \
+      <(printf '%s\n' "${_expected[@]}" | sort) \
+      <(printf '%s\n' "${_seen[@]}" | sort))"
+    [ -z "${_diff}" ] \
+      || fail "at ${_total} groups the partition does not cover the table: ${_diff}"
+  done
+}
+
+# why: The half a test over today's table cannot reach. The roster this
+# replaces was not wrong when it was written -- it was wrong on the day
+# the NEXT driver was added, and the tree at that moment is not the tree
+# this suite reads. So the addition is performed: a driver the table does
+# not carry is appended to a copy of it, and the partition of that copy
+# must place it, with no workflow and no group list edited. A partition
+# that could only place the names it already knew would pass every other
+# test in this file.
+@test "lint groups: a lint added to the table lands in a group with nothing else edited (base#1071)" {
+  local _tree="${BATS_TEST_TMPDIR}/tree"
+  mkdir -p "${_tree}/dist/script"
+  cp -r /source/script "${_tree}/script"
+  cp -r /source/dist/script/docker "${_tree}/dist/script/"
+  local _script="${_tree}/script/test/test.sh"
+
+  # The tomorrow this test is about: one more driver in the table, added
+  # the way the next one will be.
+  local _added="zz-a-lint-nobody-has-written-yet"
+  run awk -v add="  ${_added}" '
+    /^readonly _LINT_TOOLS=\(/ { inside = 1 }
+    inside && /^\)/            { print add; inside = 0 }
+    { print }
+  ' "${_script}"
+  assert_success
+  printf '%s\n' "${output}" > "${_script}.new"
+  mv "${_script}.new" "${_script}"
+  chmod +x "${_script}"
+
+  run "${_script}" --lint-group-members 1/1
+  assert_success
+  assert_output --partial "${_added}"
+
+  local -a _seen=()
+  mapfile -t _seen < <(_all_group_members 4 "${_script}")
+  local _hits
+  _hits="$(printf '%s\n' "${_seen[@]}" | grep -cx -- "${_added}" || true)"
+  [ "${_hits}" -eq 1 ] \
+    || fail "the new driver appears in ${_hits} of 4 groups -- adding a lint to the table must place it in exactly one, or it silently stops running in CI"
+}
+
+# why: The exclusion list is the one hand-written thing left, so it is
+# held to the only rule that matters: a name is excluded from the groups
+# BECAUSE it has a job of its own. A name in it that the table does not
+# carry excludes nothing and is a typo that reads as a decision -- and the
+# lint it meant to name keeps running in a group, so nothing else notices.
+@test "lint groups: every lint excluded from the groups is a lint of the table (base#1071)" {
+  local -a _table=() _own=()
+  mapfile -t _table < <(_declared_array _LINT_TOOLS)
+  mapfile -t _own   < <(_declared_array _LINT_TOOLS_OWN_CI_JOB)
+  [ "${#_own[@]}" -ge 1 ] \
+    || fail "_LINT_TOOLS_OWN_CI_JOB yielded no entries; the table did not parse"
+
+  local _o
+  for _o in "${_own[@]}"; do
+    printf '%s\n' "${_table[@]}" | grep -qx -- "${_o}" \
+      || fail "'${_o}' is excluded from the lint groups but is not in _LINT_TOOLS -- it excludes nothing"
+  done
+}
+
+# why: A group spec the dispatcher cannot read must not resolve to an
+# empty group. Every refusal here is a way a CI job could run zero
+# drivers and report success, which is the same green-while-gating-nothing
+# failure the grouping itself is built to avoid -- so the spec is
+# validated rather than trusted, and an index outside its own total is
+# refused with the malformed ones.
+@test "lint groups: a group spec that is not <n>/<total> in range is refused (base#1071)" {
+  local _spec
+  for _spec in "" "4" "0/4" "5/4" "1/0" "one/four" "1/4/4" "-1/4"; do
+    run /source/script/test/test.sh --lint-group-members "${_spec}"
+    assert_failure
+  done
+}
+
+# why: The other empty group, and the one arithmetic produces on its own:
+# more groups than there are lints leaves the tail groups with nothing to
+# run. Listing nothing is a fair answer to a question about membership;
+# RUNNING nothing and exiting 0 is a job that gates nothing while its
+# check goes green, so the runner refuses what the lister may print.
+@test "lint groups: running a group with no lints in it is refused (base#1071)" {
+  local -a _expected=()
+  mapfile -t _expected < <(_grouped_lints)
+  local _total=$(( ${#_expected[@]} + 1 ))
+
+  run /source/script/test/test.sh --lint-group-members "${_total}/${_total}"
+  assert_success
+  assert_output ""
+
+  run /source/script/test/test.sh --lint-group "${_total}/${_total}"
+  assert_failure
+}
+
+# why: A refusal has to name what it refused for, and this one did not.
+# `--lint-group` reads the membership through a process substitution, so a
+# `_die` inside the lister kills the SUBSHELL only: the runner saw an empty
+# list and blamed the empty group, reporting "contains no lint" for a spec
+# that never parsed. The wrong reason is the visible half. The invisible
+# half is worse -- the runner was treating the lister's OUTPUT as its
+# verdict, so a lister that ever printed one member before dying would hand
+# back a truncated group and run it to a green exit. So the runner
+# validates the spec in its OWN shell, and the lister's refusal is a
+# backstop it no longer depends on.
+@test "lint groups: a malformed spec is refused for BEING malformed, not for being empty (base#1071)" {
+  local _spec
+  for _spec in "abc" "9/4" "1/0"; do
+    run /source/script/test/test.sh --lint-group "${_spec}"
+    assert_failure
+    assert_output --partial "lint group '${_spec}'"
+    refute_output --partial "contains no lint"
+  done
+}
+
+# why: The one shape the digits-only regex accepts and bash arithmetic
+# rejects. `1/08` is a well-formed spec by every rule stated above and an
+# INVALID OCTAL CONSTANT to `(( ))`, so the range checks printed a raw
+# "value too great for base" from the shell itself and then refused for a
+# reason that was not the reason -- a padded index reported as "outside its
+# own total", a padded total as "asks for 08 groups". A spec is read in the
+# base it is written in, and a padded one names the same group as its bare
+# twin.
+@test "lint groups: a zero-padded spec is read as decimal, not as octal (base#1071)" {
+  run /source/script/test/test.sh --lint-group-members 1/08
+  assert_success
+  refute_output --partial "value too great for base"
+  local _padded="${output}"
+
+  run /source/script/test/test.sh --lint-group-members 1/8
+  assert_success
+  [ "${output}" = "${_padded}" ] \
+    || fail "group 1/08 lists '${_padded}' while group 1/8 lists '${output}'; a zero-padded spec must name the same group as its bare twin"
+}
+
+# ════════════════════════════════════════════════════════════════════
 # _run_via_compose / main routing
 #
 # Regression guards: default `test.sh` (no flag) must hit the alpine
@@ -3224,9 +3452,9 @@ AWK
 @test "main --issueref-only: runs the issue-ref comment lint on the host, no compose (#866)" {
   # CI-reachability guard, same shape as --doc-counts-only / --shellcheck-only.
   # The lint phase is what enforces ADR-00000013, and no CI job ran that
-  # phase, so the rule gated nothing on a PR. The lint-static matrix entry
-  # calls this primitive on a plain ubuntu-latest runner; docker must not be
-  # touched on the path.
+  # phase, so the rule gated nothing on a PR. A lint-static group runs this
+  # driver on a plain ubuntu-latest runner; docker must not be touched on
+  # the path.
   mock_cmd "docker" 'echo "docker should not be called"; exit 1'
   mock_cmd "id" 'echo 1000'
 
@@ -3290,9 +3518,9 @@ AWK
 }
 
 @test "main --home-literal-only: runs the hardcoded home path lint on the host, no compose (#799)" {
-  # Same CI-reachability shape as the sibling primitives: the lint-static
-  # matrix entry calls this on a plain ubuntu-latest runner, so the driver
-  # must be pure bash over the checkout and never touch docker.
+  # Same CI-reachability shape as the sibling primitives: a lint-static
+  # group runs this driver on a plain ubuntu-latest runner, so it must be
+  # pure bash over the checkout and never touch docker.
   mock_cmd "docker" 'echo "docker should not be called"; exit 1'
   mock_cmd "id" 'echo 1000'
 
@@ -3307,9 +3535,9 @@ AWK
 }
 
 @test "main --changelog-entry-only: runs the changelog entry-length lint on the host, no compose (#917)" {
-  # Same CI-reachability shape as the sibling primitives: the lint-static
-  # matrix entry calls this on a plain ubuntu-latest runner, so the driver
-  # must be pure bash over the checkout and never touch docker.
+  # Same CI-reachability shape as the sibling primitives: a lint-static
+  # group runs this driver on a plain ubuntu-latest runner, so it must be
+  # pure bash over the checkout and never touch docker.
   mock_cmd "docker" 'echo "docker should not be called"; exit 1'
   mock_cmd "id" 'echo 1000'
 
@@ -3325,9 +3553,9 @@ AWK
 
 # why: The CI join is host-direct, like its siblings
 @test "main --action-ref-agreement-only: runs the action ref agreement lint on the host, no compose (#949)" {
-  # Same CI-reachability shape as the sibling primitives: the lint-static
-  # matrix entry calls this on a plain ubuntu-latest runner, so the driver
-  # must be pure bash over the checkout and never touch docker.
+  # Same CI-reachability shape as the sibling primitives: a lint-static
+  # group runs this driver on a plain ubuntu-latest runner, so it must be
+  # pure bash over the checkout and never touch docker.
   mock_cmd "docker" 'echo "docker should not be called"; exit 1'
   mock_cmd "id" 'echo 1000'
 

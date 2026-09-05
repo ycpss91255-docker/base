@@ -156,11 +156,12 @@ source "${SCRIPT_DIR}/drivers/shell_metrics.sh"
 # through _run_lint_tool / _run_all_lint_tools below now.
 #
 # It is also the CI-coverage manifest: self_test_yaml_spec asserts that
-# every entry here is named by a job in .github/workflows/self-test.yaml
-# (a host-direct `--<tool>-only` primitive, the in-container hadolint job,
-# or a `lint-static` matrix entry). Add a lint to this table without
-# giving it a CI job and that guard fails -- which is what stops the next
-# lint from landing local-only, the way these four did.
+# every entry here is RUN by a job in .github/workflows/self-test.yaml --
+# a dedicated one (a host-direct `--<tool>-only` primitive, or the
+# in-container hadolint job), or else exactly one group of the lint-static
+# partition, which is computed from this very table. Add a lint here
+# without giving it a CI job and that guard fails -- which is what stops
+# the next lint from landing local-only, the way these four did.
 readonly _LINT_TOOLS=(
   shellcheck
   hadolint
@@ -222,6 +223,113 @@ readonly _LINT_TOOLS=(
 # on ubuntu-latest. hadolint's binary exists only in the alpine
 # test-tools image, so its CI job runs the driver inside that image
 # (`--lint --hadolint`) instead of host-direct.
+
+# ── The lint-static CI partition ─────────────────────────────────────────────
+
+# The lints of the table that carry a CI job of their OWN, and so are not
+# part of the grouped lint-static jobs. Not a schedule and not a
+# preference: each is here because something about it needs a job to
+# itself -- shellcheck is the phase's own longest driver and ci-rollup
+# reads its result by name, hadolint's binary exists only inside the
+# test-tools image, and doc-counts is likewise read by name.
+#
+# THE OMISSION IS THE SAFE DIRECTION, which is why the roster this file no
+# longer keeps is not simply moved here. A lint added to _LINT_TOOLS and
+# not added here lands in a group and runs -- the default is covered. A
+# lint given its own job and not added here runs TWICE, which wastes a
+# runner and is visible. Neither direction can make a lint stop running,
+# and self_test_yaml_spec refuses a name here that no dedicated job runs.
+readonly _LINT_TOOLS_OWN_CI_JOB=(
+  shellcheck
+  hadolint
+  doc-counts
+)
+
+# _lint_group_members <index>/<total> -- print the lints of one group.
+#
+# WHY A COMPUTED PARTITION AND NOT A GROUP LIST. The alternative is a
+# table saying which driver belongs to which group. That table is a
+# roster: it is correct on the day it is written and wrong on the day the
+# next driver is added, and nothing notices, because a driver named in no
+# group simply stops running in CI while every check stays green. This
+# repo has decayed that way three times already (the _LINT_TOOLS
+# completeness gap, the downstream roster, the release archive's path
+# list). So the grouping falls out of _LINT_TOOLS, and adding a driver to
+# that table is the whole of adding it to CI -- no workflow edit, no
+# second list to keep true.
+#
+# THE PARTITION IS ROUND-ROBIN OVER TABLE POSITION, and deliberately
+# blind to what a driver costs. A cost-weighted assignment would need
+# per-driver durations written down, and a duration is exactly the
+# hand-maintained figure ADR-00000028 refuses: the tree moves it, the host
+# moves it, repeat runs on one machine move it, and nothing re-derives it.
+# Round-robin needs no such input and cannot go stale. What it gives up is
+# balance BETWEEN groups: the slowest group is the longest single driver
+# -- which no assignment can beat -- plus whatever else the deal put
+# beside it, so the phase runs somewhat above that floor rather than at
+# it. The group count's rationale in .github/workflows/self-test.yaml says
+# what that costs and why it is still the trade being made.
+#
+# The spec is validated rather than trusted. Every rejection here is a way
+# a CI job could run zero drivers and exit 0 -- a check that goes green
+# having gated nothing, which is the failure the grouping exists to avoid,
+# arriving by another door.
+
+# The group a validated spec names. Set by _refuse_bad_lint_group below,
+# read by its callers; meaningless before it has run.
+_LINT_GROUP_INDEX=0
+_LINT_GROUP_TOTAL=0
+
+# _refuse_bad_lint_group <index>/<total> -- parse and range-check a group
+# spec, or die naming which of those it failed.
+#
+# SEPARATE FROM THE LISTER, and called by both, because of WHERE each of
+# them runs. `_run_lint_group` reads the lister through a process
+# substitution, so a `_die` in the lister kills that subshell alone: the
+# runner sees an empty list and reports the empty group, which is not why
+# the spec was refused. That wrong reason is the visible half. The
+# invisible half is that the runner would be reading the lister's OUTPUT
+# as its verdict -- a lister that printed one member before dying hands
+# back a truncated group, and a truncated group runs to a green exit
+# having gated only part of the phase. So the runner validates in its own
+# shell, where a refusal is a refusal, and the lister's copy is a backstop
+# rather than the mechanism.
+#
+# `10#` because the regex above accepts digits and `(( ))` reads them as a
+# NUMBER: a zero-padded `1/08` is a well-formed spec by every rule stated
+# here and an invalid octal constant to bash arithmetic, which answers
+# with its own "value too great for base" and a status this function would
+# then blame on the range.
+_refuse_bad_lint_group() {
+  local _spec="${1:-}"
+  [[ "${_spec}" =~ ^([0-9]+)/([0-9]+)$ ]] || _die ci_bad_lint_group \
+    "lint group '${_spec}' is not <index>/<total> (e.g. 1/4)."
+  _LINT_GROUP_INDEX=$(( 10#${BASH_REMATCH[1]} ))
+  _LINT_GROUP_TOTAL=$(( 10#${BASH_REMATCH[2]} ))
+  (( _LINT_GROUP_TOTAL >= 1 )) || _die ci_bad_lint_group \
+    "lint group '${_spec}' asks for ${_LINT_GROUP_TOTAL} groups; a partition has at least one."
+  (( _LINT_GROUP_INDEX >= 1 && _LINT_GROUP_INDEX <= _LINT_GROUP_TOTAL )) \
+    || _die ci_bad_lint_group \
+    "lint group '${_spec}' is outside its own total; expected 1..${_LINT_GROUP_TOTAL}."
+}
+
+_lint_group_members() {
+  _refuse_bad_lint_group "${1:-}"
+  local _index="${_LINT_GROUP_INDEX}" _total="${_LINT_GROUP_TOTAL}"
+
+  local _tool _own _skip _position=0
+  for _tool in "${_LINT_TOOLS[@]}"; do
+    _skip=0
+    for _own in "${_LINT_TOOLS_OWN_CI_JOB[@]}"; do
+      [[ "${_tool}" != "${_own}" ]] || _skip=1
+    done
+    (( _skip == 0 )) || continue
+    if (( _position % _total == _index - 1 )); then
+      printf '%s\n' "${_tool}"
+    fi
+    _position=$(( _position + 1 ))
+  done
+}
 
 # The lint tool currently on the stack, for _lint_driver_failed below.
 # Empty whenever no driver is running.
@@ -443,6 +551,34 @@ _run_all_lint_tools() {
   _run_lint_tools "${_LINT_TOOLS[@]}"
 }
 
+# Run one group of the partition, host-direct. The CI join for the
+# grouped lint-static jobs.
+#
+# `_run_lint_tools`, not a loop: the group has to report EVERY driver in
+# it that failed, in phase order, because the checks list no longer names
+# the failing lint -- the job's name is a group, and its output is where
+# the answer now is (base#1059 is what made that output complete; before
+# it the phase stopped at the first failure, and a grouped job would have
+# hidden the rest).
+#
+# An EMPTY group is refused rather than run. `_run_lint_tools` over
+# nothing succeeds, so a total larger than the number of grouped lints
+# would leave the tail jobs green having run no lint at all. That refusal
+# is about a VALID spec whose group happens to be empty, which is why the
+# spec itself is checked first and separately: read off the member list
+# alone, "no members" is also what a spec that never parsed looks like,
+# and the run would name the wrong reason.
+_run_lint_group() {
+  local _spec="${1:-}"
+  # In THIS shell, before the process substitution below swallows it.
+  _refuse_bad_lint_group "${_spec}"
+  local -a _members=()
+  mapfile -t _members < <(_lint_group_members "${_spec}")
+  (( ${#_members[@]} > 0 )) || _die ci_bad_lint_group \
+    "lint group '${_spec}' contains no lint; a job that runs nothing must not report success."
+  _run_lint_tools "${_members[@]}"
+}
+
 # ── Help ─────────────────────────────────────────────────────────────────────
 
 usage() {
@@ -637,9 +773,10 @@ Options:
                           the phase itself (the lint jobs narrow to one
                           tool, and every bats / coverage job sets
                           BATS_ONLY=1 / COVERAGE=1, which skip it), so
-                          self-test.yaml calls one of these per job /
-                          matrix entry, running the same driver the local
-                          phase runs. Available:
+                          self-test.yaml runs the same drivers -- a
+                          dedicated job calls one of these, and a
+                          lint-static group calls --lint-group, which runs
+                          several. Available:
                             --shellcheck-only        (needs shellcheck in
                                                      PATH; ubuntu-latest
                                                      ships it)
@@ -664,6 +801,16 @@ Options:
                             --generated-workflow-actions-only pure bash
                           (no --hadolint-only equivalent: hadolint exists
                           only in the test-tools image; see below)
+  --lint-group N/T        Run lint group N of T directly on this host, no
+                          compose. The grouped CI join: the drivers are
+                          split round-robin over the _LINT_TOOLS table
+                          (minus the lints that carry their own job), so
+                          adding a lint to the table puts it in a group
+                          with nothing else edited. Every failing driver
+                          in the group is reported, not just the first.
+  --lint-group-members N/T
+                          Print the lints of group N of T, one per line,
+                          and run none of them.
   --hadolint-only         Hadolint only, directly inside the ci container
                           (hadolint baked into the test-tools image). Single
                           source of truth for self-test.yaml's hadolint job
@@ -737,6 +884,16 @@ Options:
                           drive compose themselves (`just test system` /
                           `just test smoke`); the ordinary dispatch asks on
                           its own
+  --clean-coverage        Remove this checkout's coverage/ reports and
+                          exit. The removal is done by a container over
+                          the same bind mount that wrote them, because the
+                          reports are written as root and a host `rm`
+                          cannot unlink a file out of root's directory --
+                          which is the state an interrupted or a failed
+                          run used to leave behind for good. Succeeds when
+                          there is nothing there; fails, naming the path,
+                          when anything is left. What `just test clean`
+                          runs
   --compose-project-name  Print the compose project name this checkout
                           resolves (a hash of its absolute path, so two
                           checkouts sharing a directory basename do not
@@ -1165,6 +1322,13 @@ _stamp_coverage_head() {
 # describes), a read-only checkout, an I/O error. The run stops before it
 # writes a single report under a certificate it could not invalidate.
 #
+# This refusal is the one the operator MEETS, so it is the one that has to
+# name the way out. The first of those cases is also what an interrupted
+# run leaves behind, and neither `rm` nor `trash-put` can clear it -- so
+# the message names `just test clean`, which reclaims the directory from
+# inside a container, rather than advice the reader cannot take
+# (base#1032).
+#
 # The RUN MANIFEST goes with it, and inherits the same rule, because the
 # scope on the certificate is now derived from the manifest: it is half
 # the certificate, so leaving it behind leaves half a certificate
@@ -1185,14 +1349,27 @@ _invalidate_coverage_head() {
     # writer), and presence is what the next stamp will be derived from.
     if [[ -e "${_path}" ]]; then
       _die ci_coverage_evidence_not_erased \
-        "cannot remove the stale coverage evidence ${_path}; a run that starts with it standing would write fresh partial reports under an earlier whole-suite certificate. Remove it (or fix the ownership of ${_root}/coverage) and re-run."
+        "cannot remove the stale coverage evidence ${_path}; a run that starts with it standing would write fresh partial reports under an earlier whole-suite certificate. The usual cause is a run that never handed the reports back -- an interrupt, a killed container -- which leaves ${_root}/coverage owned by the container that wrote it: unlinking a file needs write permission on the DIRECTORY holding it, so 'rm' and 'trash-put' both fail here and neither is advice you can act on. 'just test clean' takes the directory back from inside a container over the same mount; run that, then re-run."
     fi
   done
   return 0
 }
 
 # ── Fix coverage permissions ─────────────────────────────────────────────────
-
+#
+# The handback. Everything the suite writes into the bind-mounted checkout
+# is written by a container running as root, so this is what the run OWES
+# the invoking user -- and it is owed whatever the verdict was, which is
+# why it is no longer called from the success path. It is called from the
+# EXIT handler (_test_exit_reclaim), armed once at the top of the
+# in-container dispatch, so a red suite, an early `return 0` and an
+# `exit` all reach it. The reports it hands back are already on disk by
+# then: kcov writes cobertura.xml before the driver returns the failing
+# spec's status, and _run_coverage preserves that on purpose (base#1032).
+#
+# It cannot cover a container that never got to run its exit handler at
+# all -- a `kill -9`, a machine that lost power. That case has no
+# in-process answer and is what `just test clean` exists for.
 _fix_permissions() {
   local uid="${HOST_UID:-}"
   local gid="${HOST_GID:-}"
@@ -1211,6 +1388,93 @@ _fix_permissions() {
   if [[ -n "${uid}" && -n "${gid}" && -d "${REPO_ROOT}/coverage" ]]; then
     chown -R "${uid}:${gid}" "${REPO_ROOT}/coverage"
   fi
+}
+
+# ── Reclaiming coverage/ when no handback ever ran ───────────────────────────
+#
+# `just test clean` used to be `rm -rf coverage/` on the HOST, and that is
+# not a thing the host can always do: the reports are written by a
+# container running as root over the bind mount, and unlinking a file
+# needs write permission on the DIRECTORY holding it. Once that directory
+# is root's, the host user cannot empty it -- `trash-put` fails the same
+# way -- and the next run's _invalidate_coverage_head correctly refuses to
+# start over evidence it could not erase. The tree is then stuck with no
+# in-repo remedy, and the operator's only moves were raw docker or sudo,
+# both outside this project's control surface (base#1032).
+#
+# The handback above closes the common cause. It cannot close all of them:
+# a Ctrl-C, a killed container or a lost machine leaves the same directory
+# with no exit handler having run. So the repair has to exist on its own,
+# and it goes where root is -- the same service, over the same mount, that
+# made the directory root's in the first place.
+#
+# WHY NOT A HOST `rm` FIRST, for the trees that do not need this. Because
+# then the container path is the one that only ever runs on the tree
+# nobody can reproduce, i.e. the untested branch of the only case that
+# matters. One path is what makes the case that matters the case that is
+# exercised. The cost is a container start on a `clean` that could have
+# been a `rm`; the reports it is cleaning came from a run that already
+# built the image.
+#
+# WHY THE TARGET IS A LITERAL. This is `rm -rf` as root inside a mount of
+# the whole checkout, so the distance between "remove the reports" and
+# "remove the checkout" is one variable that expanded to the wrong thing.
+# There is no such variable: the command is a single-quoted constant and
+# the path in it is the CONTAINER-side mount point compose.yaml pins for
+# the `ci` service, not anything derived on this host. Nothing the caller
+# can set reaches it.
+readonly _COVERAGE_CLEAN_COMMAND='rm -rf /source/coverage'
+
+# _clean_coverage [root] -- hand `coverage/` back by removing it from
+# inside the container, then PROVE it is gone.
+#
+# The proof is the point, and it is taken on the host afterwards rather
+# than read off the container's exit status: a clean that half-works is
+# how the tree gets back into the state this exists to leave. A directory
+# still standing is a named, loud death whatever compose reported.
+#
+# Three states, one path: absent (nothing to do, and no container is
+# started for it), the user's, and root's.
+_clean_coverage() {
+  local _root="${1:-${REPO_ROOT}}"
+  local _target="${_root}/coverage"
+  if [[ ! -e "${_target}" ]]; then
+    _log_info ci ci_coverage_clean_absent \
+      "display=no coverage reports under ${_target}; nothing to reclaim." \
+      "target=${_target}"
+    return 0
+  fi
+
+  # The same four values every compose dispatch in this file resolves, and
+  # for the same reason: compose interpolates the WHOLE file whatever
+  # command it is given, and every `${VAR:?}` in it must have a value or
+  # compose refuses to read the file at all.
+  local _project _image _rc=0
+  _project="$(_resolve_compose_project_name "${_root}")"
+  export HOST_UID HOST_GID
+  HOST_UID="$(id -u)"
+  HOST_GID="$(id -g)"
+  export BASE_CHECKOUT_PATH="${_root}"
+  _image="$(_resolve_test_tools_image)"
+  # This mints a project, so the end-of-run sweep has to know: a repair
+  # that leaves a network behind is a repair that makes litter.
+  _RECLAIM_ARMED=1
+  _ensure_test_tools_image "${_image}" "${_project}"
+  export TEST_TOOLS_IMAGE="${_image}"
+  # `ci`, not `coverage`: the two run the same image over the same mount,
+  # and this one carries no docker socket. The status is captured rather
+  # than left to errexit because it is EVIDENCE for the message below, not
+  # the verdict -- the verdict is whether the directory is still there.
+  docker compose -p "${_project}" -f "${_root}/compose.yaml" \
+    run --rm --entrypoint /bin/sh ci -c "${_COVERAGE_CLEAN_COMMAND}" || _rc=$?
+
+  if [[ -e "${_target}" ]]; then
+    _die ci_coverage_not_reclaimed \
+      "${_target} is still there after the reclaim container exited ${_rc}; the reports have NOT been handed back and the next coverage run will refuse to start over them. Check that the docker daemon is reachable and that nothing is writing there, then run 'just test clean' again."
+  fi
+  _log_info ci ci_coverage_cleaned \
+    "display=reclaimed ${_target}." "target=${_target}"
+  return 0
 }
 
 # ── Local test-tools tag ─────────────────────────────────────────────────────
@@ -1371,18 +1635,24 @@ _compute_compose_project_name() {
   return 0
 }
 
-# _resolve_compose_project_name
+# _resolve_compose_project_name [root]
 #
 # Prints the project name `_run_via_compose` passes to `docker compose -p`.
 # COMPOSE_PROJECT_NAME wins verbatim so CI can key the project to its run
 # id; the derivation is a local default only.
+#
+# The root is an argument for the same reason _invalidate_coverage_head's
+# is: the name is keyed to a CHECKOUT PATH, so a caller working on a tree
+# other than this process's own must be able to say which. Every
+# production caller passes none and means REPO_ROOT.
+# shellcheck disable=SC2120  # production callers pass no args; _clean_coverage and the specs do
 _resolve_compose_project_name() {
   if [[ -n "${COMPOSE_PROJECT_NAME:-}" ]]; then
     printf '%s\n' "${COMPOSE_PROJECT_NAME}"
     return 0
   fi
   local _name=""
-  _compute_compose_project_name "${REPO_ROOT}" _name
+  _compute_compose_project_name "${1:-${REPO_ROOT}}" _name
   printf '%s\n' "${_name}"
   return 0
 }
@@ -2056,6 +2326,7 @@ main() {
   # compose) parameterised by tool, so they share one short-circuit rather
   # than one boolean each.
   local host_lint=""
+  local host_lint_group=""
   local bats_unit_shard=""
   local bats_fragile=0
   local bats_integration=0
@@ -2073,7 +2344,7 @@ main() {
   # The queries -- `--test-tools-image`, `--compose-project-name`,
   # `--await-project`. Recorded rather than answered on the spot: see the
   # dispatch below the flag-combination guards.
-  local name_query=""
+  local name_query="" repair=""
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -2081,6 +2352,7 @@ main() {
       --ci) mode="ci"; shift ;;
       --lint) lint=1; shift ;;
       --await-project) name_query="await-project"; shift ;;
+      --clean-coverage) repair="clean-coverage"; shift ;;
       --shellcheck) lint_tool="shellcheck"; shift ;;
       --hadolint) lint_tool="hadolint"; shift ;;
       --issueref) lint_tool="issueref"; shift ;;
@@ -2130,6 +2402,8 @@ main() {
       --function-length-only) host_lint="function-length"; shift ;;
       --positional-params-only) host_lint="positional-params"; shift ;;
       --shell-metrics-only) host_lint="shell-metrics"; shift ;;
+      --lint-group) host_lint_group="${2:?--lint-group expects <n>/<total>}"; shift 2 ;;
+      --lint-group-members) _lint_group_members "${2:?--lint-group-members expects <n>/<total>}"; return 0 ;;
       --hadolint-only) hadolint_only=1; shift ;;
       --bats-only) bats_only=1; shift ;;
       --bats-unit-shard) bats_unit_shard="${2:?--bats-unit-shard expects <n>/<total>}"; shift 2 ;;
@@ -2197,6 +2471,18 @@ main() {
     esac
   fi
 
+  # A repair, not a query: it answers nothing and it is the whole run. It
+  # defers to here for the SAME reason the queries above do -- a mid-loop
+  # exit is taken before the guards have run and before the rest of the
+  # command line has been read, so `--clean-coverage --typo` would repair
+  # and swallow the typo. `exit`, not `return`, so the EXIT handler sweeps
+  # the project the reclaim just minted.
+  if [[ -n "${repair}" ]]; then
+    case "${repair}" in
+      clean-coverage) _clean_coverage "${REPO_ROOT}"; exit $? ;;
+    esac
+  fi
+
   # The host-direct lint primitives (`--shellcheck-only`,
   # `--issueref-only`, `--adr-numbering-only`, `--adr-structure-only`,
   # `--stale-setup-conf-only`, `--readme-sync-only`,
@@ -2208,16 +2494,29 @@ main() {
   # `--pin-coverage-only`, `--action-ref-agreement-only`) short-circuit
   # before any mode dispatch and run
   # ONE driver right here: no compose, no test-tools image, no
-  # apt-install. This is the CI join for the lint phase -- a plain
-  # ubuntu-latest runner calls one of these per lint-static matrix entry,
-  # running the SAME driver the local phase runs, so the local gate and
-  # the CI gate cannot drift apart. Every tool but shellcheck is pure
+  # apt-install. It is how a DEDICATED CI job runs its one lint (and how
+  # a person times one driver); the grouped lint-static jobs reach the
+  # same drivers through `--lint-group` below. Either way a plain
+  # ubuntu-latest runner runs the SAME driver the local phase runs, so the
+  # local gate and the CI gate cannot drift apart. Every tool but shellcheck is pure
   # bash over the checkout; shellcheck relies on the binary ubuntu-latest
   # ships pre-installed. hadolint is deliberately absent: its binary
   # exists only in the test-tools image, so its CI job uses
   # `--lint --hadolint` inside that image instead.
   if [[ -n "${host_lint}" ]]; then
     _run_lint_tool "${host_lint}"
+    return 0
+  fi
+
+  # The grouped form of the same join (base#1071). One lint-static job per
+  # GROUP of the partition rather than per driver: 20 one-driver jobs spent
+  # more runner startup than they did work, and took 20 of the free plan's
+  # ~20 org-wide concurrent slots away from the coverage shards, which are
+  # the run's critical path. Which lint failed is still answerable -- the
+  # group enumerates every failing driver in its output (base#1059) instead
+  # of the checks list naming it.
+  if [[ -n "${host_lint_group}" ]]; then
+    _run_lint_group "${host_lint_group}"
     return 0
   fi
 
@@ -2362,9 +2661,19 @@ main() {
       # bats-unit / bats-integration jobs set these via the outer
       # `--bats-unit-shard` / `--bats-integration` flags so the
       # in-container path matches the local dev path.
+      #
+      # Arm the handback FIRST, above every phase and every early
+      # `return`. This is the process that runs as root over the mounted
+      # checkout, so it is the one that owes the files back, and it owes
+      # them whatever it is about to conclude. Called from the EXIT
+      # handler rather than after each phase: the calls used to sit on the
+      # success path, and a suite with one red test therefore returned
+      # without one -- leaving coverage/ owned by root and the checkout
+      # unable to run coverage again (base#1032). The reports are on disk
+      # before the verdict is, so there is nothing to wait for.
+      _HANDBACK_ARMED=1
       if [[ "${system}" == "1" ]]; then
         _run_system
-        _fix_permissions
         return 0
       fi
       # LINT_ONLY: `just test lint [--shellcheck | --hadolint]`
@@ -2408,8 +2717,10 @@ main() {
         # must not fall through to _run_coverage, which writes
         # coverage/cobertura.xml + coverage/timings.tsv into the mounted
         # checkout -- the exact artifacts the coverage-gate merges and the
-        # next partition weighs itself by. Nothing to chown and no report
-        # to announce either, hence no _fix_permissions and no report line.
+        # next partition weighs itself by. No report to announce either,
+        # hence no report line. The handback armed above still fires and
+        # is a no-op on a tree with no coverage/; on a tree that has one
+        # from an earlier run, handing it back is correct anyway.
         if [[ -n "${COVERAGE_PATH:-}" ]]; then
           _run_coverage_path "${COVERAGE_PATH}"
           return 0
@@ -2427,7 +2738,6 @@ main() {
         else
           _run_coverage "${COVERAGE_SHARD:-}"
         fi
-        _fix_permissions
         echo "Coverage report: ${REPO_ROOT}/coverage/index.html"
       elif [[ -n "${BATS_FILE:-}" || -n "${BATS_FILTER:-}" ]]; then
         _run_bats_path
@@ -2569,8 +2879,29 @@ main() {
 #   `just docker prune --tool-tags` alongside --volumes and
 #   --worktree-orphans instead of something the suite does to the machine on
 #   its way out.
+#
+#   TWO reclamations, one handler, because a shell has ONE EXIT trap. The
+#   HANDBACK is the container-side half: the process inside the container
+#   ran as root over the bind-mounted checkout, so it hands coverage/ back
+#   to the invoking uid here rather than from the success path it used to
+#   sit on -- a red suite owes those files just as much as a green one
+#   does (base#1032). The two halves never arm together: only the
+#   in-container dispatch arms the handback, only a host-side compose
+#   dispatch arms the project sweep.
+#
+#   The handback follows the sweep's rule about the status, for the sweep's
+#   reason: a chown that failed is REPORTED and leaves the verdict alone,
+#   and the report names `just test clean`, which is the way back. The one
+#   exception is a HOST_UID that is not an id at all -- _fix_permissions
+#   dies on that, because a run whose ownership contract is unconfigurable
+#   has nothing useful to say about the code either.
 _test_exit_reclaim() {
   local _rc=$?
+  if [[ "${_HANDBACK_ARMED:-0}" == "1" ]]; then
+    _fix_permissions \
+      || _log_warn ci ci_handback_failed \
+        "display=could not hand ${REPO_ROOT}/coverage back to ${HOST_UID:-?}:${HOST_GID:-?}; the reports are still owned by the container that wrote them, and the next coverage run will refuse to start over them. 'just test clean' reclaims them (the run's verdict is unchanged)."
+  fi
   if [[ "${_RECLAIM_ARMED:-0}" == "1" ]]; then
     _reclaim_orphan_projects \
       || _log_warn ci ci_reclaim_failed \
