@@ -1844,14 +1844,16 @@ See [TEST.md](doc/test/TEST.md) for the test index (per-category catalogs:
 │   ├── readme/                         # README translations (zh-TW / zh-CN / ja)
 │   ├── adr/                            # Architecture Decision Records (00000001 … 00000024)
 │   ├── test/
-│   │   ├── TEST.md                     # Test index (grand total + per-category links)
+│   │   ├── TEST.md                     # Test index (per-category links; no suite total, ADR-00000028)
 │   │   ├── unit.md                     # Unit spec catalog
 │   │   ├── integration.md             # Integration spec catalog
 │   │   ├── system.md                  # System / Regression spec catalog
 │   │   ├── acceptance.md              # Acceptance spec catalog (reserved, S5 #785)
 │   │   └── smoke.md                   # Smoke spec catalog
-│   ├── changelog/
-│   │   └── CHANGELOG.md
+│   ├── changelog/                     # One file per 0.Y series behind a generated index
+│   │   ├── CHANGELOG.md                # Index: every series, its dates, its BREAKING entries (generated)
+│   │   ├── CONVENTIONS.md              # How to write an entry
+│   │   └── v0.NN.md                    # One per 0.Y series; the newest carries [Unreleased]
 │   └── deprecations.md
 ├── CONTEXT.md
 ├── .gitignore

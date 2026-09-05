@@ -60,6 +60,110 @@
   `test/bats/integration/prev_release_upgrade_spec.bats` runs the real
   released `upgrade.sh` against the current tree, so the next move of a
   frozen path fails in CI instead of at a consumer's terminal.
+- **Amended:** 2026-09-04 by #1036 -- the correction above covers a path an
+  already-released caller NAMES. The same asymmetry applies one step
+  further, to work an already-released caller DOES. Every released
+  `upgrade.sh` stages the migrated files at its own Step 5 by hardcoded
+  filename, and v0.41.0's reaches the Dockerfile only down a branch the
+  current migration list never takes -- so a cross-version upgrade committed
+  the workflow `@tag` bump and the `.gitignore` sync, left the Dockerfile
+  the Step-3 resync had just rewritten unstaged, and closed by telling the
+  user to `git push`. As with the path, no edit to `upgrade.sh` reaches a
+  consumer already sitting on v0.41.0 / v0.42.0. **The addition to the
+  contract:** work whose result the CALLER has to commit belongs on the new
+  tree's side of the boundary, staged where it is performed. Region A's
+  Step-3 `init.sh` now stages what the resync wrote. The caller's Step 5
+  stays harmless: the migrations are idempotent and `git add` of an
+  already-staged path is a no-op.
+- **Amended again:** 2026-09-05 by #1036, before the fix shipped. The
+  paragraph above scoped the staging to the migration record
+  (`migrated_files` in `dist/script/docker/lib/dockerfile_migrate.sh`) and
+  argued that a list of filenames was the wrong shape because it decays the
+  first time the work touches one more file. **That argument was right about
+  the migrations and wrong about the resync.** The Dockerfile is not the
+  only thing Step 3 writes: the same run re-points the wrapper symlinks,
+  lands the justfile layering and the monitor workflow, and DELETES the
+  pre-relocation root wrappers. Staging only the migration record left every
+  one of those out, so the commit still described a tree on a different
+  layout -- the defect this amendment was written to close, one file over.
+  Two of the three things now staged are therefore lists of names, and the
+  reason that is not the decay the earlier paragraph rejected is that
+  neither is hand-kept against nothing: `_init_installed_paths` is diffed
+  against a REAL resync in both directions by
+  `test/bats/integration/init_installed_paths_spec.bats`, so a file added to
+  the resync and not to the list fails CI; `_init_retired_root_paths`
+  enumerates a closed historical set -- names that already stopped existing
+  -- and is the single definition the resync deletes from, restores from and
+  stages the deletion of, so it cannot come apart from itself. What stays
+  forbidden is the shape the earlier paragraph was really aimed at: a sweep.
+  `git add -A` over the tree would commit whatever the user happened to be
+  editing, and every path staged here is base's own by the repo's naming
+  contract -- shipped or generated, replaced on update, never hand-edited
+  per instance -- so none of it is the user's work to review.
+- **Amended a third time:** 2026-09-05 by #1036, again before the fix
+  shipped. The last sentence above was false as written. The naming
+  contract makes those paths base's to SHIP; it does not make them base's
+  to REWRITE, and `_init_installed_paths` answers "what does a consumer
+  carry", not "what did this run write". EIGHT of the paths behind that
+  list are written only under a condition and otherwise left exactly as
+  they were found -- the 14 hook stubs (whose entire purpose is that a
+  user-authored hook survives every later upgrade), the REPO-OWNED
+  `script/local/` pair, `config/.gitkeep`, the monitor workflow, a
+  `.hadolint.yaml` the user has customised, `.gitignore` and
+  `.dockerignore` (the sync APPENDS only the canonical entries a file is
+  missing and returns without a write when none is -- "the common case for
+  an up-to-date repo" -- and never touches the hand-maintained region above
+  the managed block at all), and `.setup.conf`, which `setup.sh` writes
+  only on a first-time bootstrap or a stale-`mount_1` rewrite. Staging the
+  published list wholesale therefore committed
+  the user's own half-finished hook under a message about a base release:
+  the sweep the paragraph above forbids, arriving through the published
+  list instead of through `git add -A`. **The correction:** the staged set
+  is what THIS RUN WROTE. `_init_conditional_paths` names that subset and
+  every write of one is recorded as it happens (`_INIT_WROTE`), because the
+  condition it tested is gone by the time the staging step runs and
+  re-deriving it from the tree is how the user's content gets classified as
+  ours a second time. Three entries cannot be recorded by the writer
+  itself: `.setup.conf`, whose writer is a separate process that no shell
+  variable crosses, and the two ignore files, which three separate syncs
+  write and none of which is asked "did anything change" -- for all three
+  the file's CONTENT across the pass answers it instead, in `_call_setup`
+  and `_sync_existing_gitignore` respectively. A spec pins the two lists to
+  each other, and the integration arm now hands the real upgrade a
+  customised hook stub -- a path inside the published list, which the
+  earlier anti-sweep arms (both on `NOTES.md`, outside it) could not see.
+
+  This paragraph first said SIX and named neither ignore file. The
+  enumeration was drawn from the writers that seed a file when it is
+  ABSENT, and the ignore sync does not look like one of those -- it runs on
+  every resync and rewrites nothing only because it finds nothing missing.
+  That is the same predicate wearing different clothes, which is why the
+  list is now called conditional rather than seed-only: "seeded once" was
+  a promise about `.gitignore` and `.setup.conf` that was not true, and the
+  predicate the staging step needs is the weaker one.
+- **Amended a fourth time:** 2026-09-05 by #1036, still before the fix
+  shipped, on the two halves the correction above left standing. First,
+  the same defect one list over: `_init_retired_root_paths` was staged by
+  NAME, and the resync deletes one of those names only where it is a
+  SYMLINK -- the `[[ -L ]]` guard is what makes the migration idempotent
+  and silent on a fork that never carried the name. So the list enumerates
+  what a run MAY delete, and a consumer's own hand-written `Makefile` or
+  `run.sh` at the root went into the release commit with whatever they had
+  uncommitted in it. It is now recorded where the removal happens, like
+  every other conditional write; the index lookup stays, because it is what
+  keeps a name this repo never tracked out of a pathspec that would fail
+  the whole batch. Second, WHOSE index: the staging step asked `rev-parse
+  --is-inside-work-tree`, which answers "is REPO_ROOT inside ANY work
+  tree". On the input the function's own docstring is written for -- a repo
+  bootstrapped by hand, which may not be a git repo at all -- sitting
+  anywhere inside another repository's checkout, that resolved to proceed
+  and wrote the entire resync into a third-party index, then reported how
+  many paths it had staged. `--show-toplevel` compared against REPO_ROOT is
+  the other half of the property `_init_drop_foreign_paths` already
+  guarantees: that fence keeps a path outside REPO_ROOT out of `git add`,
+  this one keeps `git add` inside REPO_ROOT's own repo. Both corrections
+  are the same rule the amendment above states and neither followed all the
+  way: the staged set is what THIS RUN WROTE, into THIS repo.
 
 ## Context
 

@@ -171,6 +171,11 @@ init_failed
 init_rollback
 init_rollback_failed
 
+# smoke_migrate.sh (repo-owned smoke tree layout; emitted under the init
+# service because init.sh is the only caller)
+smoke_tree_migrated
+smoke_tree_migration_conflict
+
 # gitignore.sh (managed .gitignore blocks; emitted under the init service
 # because init.sh / upgrade.sh are the only callers)
 gitignore_managed_block_invalid
@@ -217,6 +222,7 @@ ci_derived_figures
 ci_i18n_orphan
 ci_self_hosted_guard
 ci_changelog_entry
+ci_changelog_layout
 ci_pin_coverage
 ci_action_ref_agreement
 ci_generated_workflow_actions
@@ -230,6 +236,8 @@ ci_no_hadolint
 ci_lint_tool_without_lint
 ci_unknown_lint_tool
 ci_lint_driver_failed
+ci_lint_phase_failed
+ci_lint_errexit_suppressed
 ci_test_tools_dockerfile_missing
 ci_project_name_digest_failed
 ci_host_id_not_numeric

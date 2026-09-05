@@ -81,6 +81,169 @@ _dfm_join_copy_statements() {
   ' "${_file}"
 }
 
+# ── What a run rewrote: the record its caller stages from ───────────────────
+#
+# A migration's output has to be COMMITTED, and the script that commits is
+# never this one. An upgrade is driven by the consumer's OWN vendored
+# upgrade.sh -- a copy that shipped in an older release and cannot be
+# changed retroactively -- and each of those stages a pair of filenames
+# hardcoded when it shipped. v0.41.0's reaches the Dockerfile only down a
+# branch these migrations never take, so on a cross-version upgrade the
+# file this list had just rewritten was left uncommitted while the same run
+# told the user to `git push` (base#1036).
+#
+# So a run says what it rewrote and its caller stages exactly that. The
+# record is NOT a list of names kept somewhere -- a list decays the first
+# time a migration touches one more file, which is how the sibling
+# entrypoint arrived here.
+#
+# TWO WAYS INTO THE RECORD, and the second is what closes it.
+#
+#   1. The write helpers. _dfm_sed / _dfm_install record the path when the
+#      bytes actually changed, so a migration whose detect fired but whose
+#      sed matched nothing contributes nothing. They are the idiom because
+#      they are precise and they reach ANY path, including one outside the
+#      set below.
+#   2. The dispatcher reconciles. Before the run it snapshots every file
+#      the migration list may write (_dfm_targets: the Dockerfile and its
+#      sibling entrypoint) and afterwards records each one whose CONTENT
+#      differs -- created, deleted or rewritten -- however it was written.
+#
+# (2) exists because (1) alone is a promise, not a guarantee. Its first
+# guard was a grep asserting every write in this file was `sed -i` or `mv`
+# as the first token of a line: `sed -E -i`, `sed --in-place`, a write
+# after an `&&`, a `cp`, a `tee`, a `>` redirect all sailed past it, so a
+# migration could rewrite a file the record never named and the suite
+# stayed green -- base#1036 recurring, with "proceed" as the default on a
+# shape nobody had thought of. Modelling shell syntax in a grep answers
+# the wrong question. Whether the file changed is answerable directly, so
+# the dispatcher answers it, and a migration author cannot get it wrong by
+# writing in an unanticipated way.
+_DFM_TOUCHED=()
+_DFM_TARGETS=()
+_DFM_BEFORE_DIR=""
+
+# _dfm_record <path>
+#   Add <path> to this run's record, once.
+_dfm_record() {
+  local _path="${1:?BUG: _dfm_record expects a path}"
+  local _seen
+  for _seen in ${_DFM_TOUCHED[@]+"${_DFM_TOUCHED[@]}"}; do
+    [[ "${_seen}" == "${_path}" ]] && return 0
+  done
+  _DFM_TOUCHED+=("${_path}")
+  return 0
+}
+
+# _dfm_sed <file> <sed_arg>...
+#   `sed -i` over <file>, recorded when it actually changed the bytes. The
+#   file comes FIRST so the record cannot be skipped by an argument order
+#   that happens to put it last.
+_dfm_sed() {
+  local _file="${1:?BUG: _dfm_sed expects a file}"
+  shift
+  local _before
+  _before="$(mktemp)"
+  cp -- "${_file}" "${_before}"
+  sed -i "$@" "${_file}"
+  cmp -s -- "${_before}" "${_file}" || _dfm_record "${_file}"
+  rm -f -- "${_before}"
+  return 0
+}
+
+# _dfm_install <file> <rewritten>
+#   Put a rewritten copy in place of <file>, recorded when the bytes
+#   differ. The awk-driven migrations build their output beside the
+#   original and land it through here.
+_dfm_install() {
+  local _file="${1:?BUG: _dfm_install expects a file}"
+  local _new="${2:?BUG: _dfm_install expects the rewritten file}"
+  local _changed=0
+  cmp -s -- "${_file}" "${_new}" || _changed=1
+  mv -- "${_new}" "${_file}"
+  (( _changed )) && _dfm_record "${_file}"
+  return 0
+}
+
+# _dfm_targets <dockerfile>
+#   Every path the migration list may write for this Dockerfile: the file
+#   itself and the sibling entrypoint the entrypoint-side migrations heal.
+#   Printed whether or not each one exists -- a file that APPEARS during a
+#   run was written by it just as much as one that changed.
+#
+#   This is the reconciliation's scope, and the only thing in the record
+#   that is still a list. It is a short and structural one -- the argument
+#   the dispatcher was handed, plus the path _dfm_entrypoint_path derives
+#   from it -- rather than a roster of migrations, so it does not decay as
+#   migrations are added. A migration that writes somewhere else entirely
+#   has to go through the write helpers to be recorded; it also has to
+#   invent the path, which is the moment to widen this.
+_dfm_targets() {
+  local _file="${1:?BUG: _dfm_targets expects a Dockerfile path}"
+  printf '%s\n' "${_file}" "$(_dfm_entrypoint_path "${_file}")"
+}
+
+# _dfm_snapshot_targets <dockerfile>
+#   Take a byte copy of every target that exists, so the reconciliation
+#   below can compare CONTENT rather than mtime. Keyed by position in
+#   _DFM_TARGETS, which both halves then read instead of enumerating twice.
+_dfm_snapshot_targets() {
+  local _file="$1"
+  _DFM_TARGETS=()
+  mapfile -t _DFM_TARGETS < <(_dfm_targets "${_file}")
+
+  # No scratch dir is a degraded record, not a failed migration: the write
+  # helpers still report. Say so rather than reconciling against nothing.
+  if ! _DFM_BEFORE_DIR="$(mktemp -d)"; then
+    _DFM_BEFORE_DIR=""
+    _log_warn upgrade upgrade_started "display=  cannot snapshot the migration targets; a rewrite made outside the write helpers will not be reported"
+    return 0
+  fi
+
+  local _i
+  for _i in "${!_DFM_TARGETS[@]}"; do
+    [[ -f "${_DFM_TARGETS[${_i}]}" ]] || continue
+    cp -- "${_DFM_TARGETS[${_i}]}" "${_DFM_BEFORE_DIR}/${_i}"
+  done
+}
+
+# _dfm_reconcile_targets
+#   Close the record over the snapshot: every target whose content the run
+#   changed -- rewritten, created or deleted -- is recorded, whatever wrote
+#   it. _dfm_record is idempotent, so a file the write helpers already
+#   reported is not named twice.
+_dfm_reconcile_targets() {
+  [[ -n "${_DFM_BEFORE_DIR}" ]] || return 0
+
+  local _i _target _copy
+  for _i in "${!_DFM_TARGETS[@]}"; do
+    _target="${_DFM_TARGETS[${_i}]}"
+    _copy="${_DFM_BEFORE_DIR}/${_i}"
+    if [[ -f "${_copy}" ]]; then
+      if [[ ! -f "${_target}" ]] || ! cmp -s -- "${_copy}" "${_target}"; then
+        _dfm_record "${_target}"
+      fi
+    elif [[ -f "${_target}" ]]; then
+      _dfm_record "${_target}"
+    fi
+  done
+
+  rm -rf -- "${_DFM_BEFORE_DIR}"
+  _DFM_BEFORE_DIR=""
+  _DFM_TARGETS=()
+  return 0
+}
+
+# migrated_files
+#   Every path THIS run of apply_migrations rewrote, one per line, in the
+#   order the migrations reached them. Prints nothing when a run changed
+#   nothing, which is what makes "stage what was rewritten" a no-op rather
+#   than a special case at the caller.
+migrated_files() {
+  (( ${#_DFM_TOUCHED[@]} > 0 )) || return 0
+  printf '%s\n' "${_DFM_TOUCHED[@]}"
+}
+
 # ── Dispatcher ──────────────────────────────────────────────────────────────
 
 # apply_migrations <dockerfile_path>
@@ -88,13 +251,23 @@ _dfm_join_copy_statements() {
 #   matches the file, run _migrate_<name>_apply. Migrations that do not
 #   detect are silently skipped (not applicable to this repo's shape).
 #   Returns 0 unless the path is unusable.
+#
+#   The run's record (migrated_files above) is reset here, so what it
+#   reports is what THIS run rewrote -- a second, idempotent run reports
+#   nothing rather than repeating the first run's answer -- and closed
+#   here, by comparing the target files either side of the loop. A
+#   migration cannot leave a rewrite out of the record by writing in a
+#   shape nobody anticipated.
 apply_migrations() {
   local _file="${1:?apply_migrations requires a Dockerfile path}"
+  _DFM_TOUCHED=()
 
   if [[ ! -f "${_file}" ]]; then
     _log_info upgrade upgrade_started "display=  no Dockerfile at ${_file} — skip migrations"
     return 0
   fi
+
+  _dfm_snapshot_targets "${_file}"
 
   local _name
   for _name in "${_MIGRATIONS[@]}"; do
@@ -102,6 +275,8 @@ apply_migrations() {
       "_migrate_${_name}_apply" "${_file}"
     fi
   done
+
+  _dfm_reconcile_targets
 }
 
 # ── Migration 0: shipped-tree dir rename .base/downstream/ -> .base/dist/ ────
@@ -123,7 +298,7 @@ _migrate_downstream_to_dist_detect() {
 
 _migrate_downstream_to_dist_apply() {
   local _file="$1"
-  sed -i 's#\.base/downstream/#.base/dist/#g' "${_file}"
+  _dfm_sed "${_file}" 's#\.base/downstream/#.base/dist/#g'
   _log_info upgrade upgrade_started "display=  Dockerfile patched: .base/downstream/ -> .base/dist/ (#714)"
 }
 
@@ -146,9 +321,9 @@ _migrate_wrapper_copy_detect() {
 _migrate_wrapper_copy_apply() {
   local _file="$1"
   # Shape A: root-anchored glob.
-  sed -i -E 's|^([[:space:]]*)COPY[[:space:]]+\*\.sh[[:space:]]+/lint/|\1COPY .base/script/docker/wrapper/*.sh /lint/|' "${_file}"
+  _dfm_sed "${_file}" -E 's|^([[:space:]]*)COPY[[:space:]]+\*\.sh[[:space:]]+/lint/|\1COPY .base/script/docker/wrapper/*.sh /lint/|'
   # Shape B: flat top-level .base glob.
-  sed -i -E 's|^([[:space:]]*)COPY[[:space:]]+\.base/script/docker/\*\.sh[[:space:]]+/lint/|\1COPY .base/script/docker/wrapper/*.sh /lint/|' "${_file}"
+  _dfm_sed "${_file}" -E 's|^([[:space:]]*)COPY[[:space:]]+\.base/script/docker/\*\.sh[[:space:]]+/lint/|\1COPY .base/script/docker/wrapper/*.sh /lint/|'
   _log_info upgrade upgrade_started "display=  Dockerfile patched: wrapper COPY -> .base/script/docker/wrapper/*.sh (#567 m1)"
 }
 
@@ -497,8 +672,8 @@ _migrate_pip_helper_apply() {
     return 0
   fi
 
-  sed -i -E "\\%${_DFM_PIP_HELPER_RE}%d" "${_file}"
-  sed -i '/^# Setup pip packages$/d' "${_file}"
+  _dfm_sed "${_file}" -E "\\%${_DFM_PIP_HELPER_RE}%d"
+  _dfm_sed "${_file}" '/^# Setup pip packages$/d'
   _log_warn upgrade upgrade_started "display=  Dockerfile patched: dropped retired CONFIG_DIR pip helper line (#567 m2) — re-add an explicit pip step if you ship a real requirements file"
 }
 
@@ -548,7 +723,7 @@ _migrate_explicit_copy_apply() {
     }
     { print }
   ' "${_file}" > "${_tmp}"
-  mv "${_tmp}" "${_file}"
+  _dfm_install "${_file}" "${_tmp}"
   _log_info upgrade upgrade_started "display=  Dockerfile patched: dropped redundant explicit lib/wrapper COPY(s) (#567 m3)"
 }
 
@@ -578,10 +753,9 @@ _migrate_logging_rename_apply() {
   local _file="$1"
   # Dockerfile COPY: old flat helper path -> new runtime/ path, both src and
   # the baked dest filename.
-  sed -i -E \
-    's#\.base/(downstream/|dist/)?script/docker/(runtime/)?_entrypoint_logging\.sh#.base/dist/script/docker/runtime/logging.sh#g' \
-    "${_file}"
-  sed -i 's|/usr/local/lib/base/_entrypoint_logging\.sh|/usr/local/lib/base/logging.sh|g' "${_file}"
+  _dfm_sed "${_file}" -E \
+    's#\.base/(downstream/|dist/)?script/docker/(runtime/)?_entrypoint_logging\.sh#.base/dist/script/docker/runtime/logging.sh#g'
+  _dfm_sed "${_file}" 's|/usr/local/lib/base/_entrypoint_logging\.sh|/usr/local/lib/base/logging.sh|g'
 
   # Heal the sibling entrypoint's baked source path, if present. The
   # Dockerfile sits at the repo root; the entrypoint is the conventional
@@ -589,7 +763,7 @@ _migrate_logging_rename_apply() {
   local _entry
   _entry="$(_dfm_entrypoint_path "${_file}")"
   if [[ -f "${_entry}" ]] && grep -q '_entrypoint_logging\.sh' "${_entry}"; then
-    sed -i 's|/usr/local/lib/base/_entrypoint_logging\.sh|/usr/local/lib/base/logging.sh|g' "${_entry}"
+    _dfm_sed "${_entry}" 's|/usr/local/lib/base/_entrypoint_logging\.sh|/usr/local/lib/base/logging.sh|g'
     _log_info upgrade upgrade_started "display=  entrypoint patched: _entrypoint_logging.sh -> logging.sh source (#567 m4)"
   fi
   _log_info upgrade upgrade_started "display=  Dockerfile patched: _entrypoint_logging.sh -> runtime/logging.sh (#567 m4)"
@@ -715,7 +889,7 @@ _migrate_hadolint_apply() {
   local _bats_tag='1.13.0'
   # tool-pin: migrate-alpine dockerhub library/alpine pattern=^[0-9]+\.[0-9]+$
   local _alpine_tag='3.22'
-  sed -i -E "s|^FROM bats/bats:latest|FROM bats/bats:${_bats_tag}|; s|^FROM alpine:latest|FROM alpine:${_alpine_tag}|" "${_file}"
+  _dfm_sed "${_file}" -E "s|^FROM bats/bats:latest|FROM bats/bats:${_bats_tag}|; s|^FROM alpine:latest|FROM alpine:${_alpine_tag}|"
   # DL3046: useradd -l (idempotent — only adds when not already present).
   #
   # `-l` goes directly after the `useradd` token, not in front of `-u`.
@@ -754,16 +928,16 @@ _migrate_hadolint_apply() {
       print
     }
   ' "${_file}" > "${_tmp3046}"
-  mv "${_tmp3046}" "${_file}"
+  _dfm_install "${_file}" "${_tmp3046}"
   # DL3042: pip --no-cache-dir (idempotent).
-  sed -i -E 's|pip install[[:space:]]+-r|pip install --no-cache-dir -r|' "${_file}"
-  sed -i -E 's|pip install --no-cache-dir --no-cache-dir|pip install --no-cache-dir|' "${_file}"
+  _dfm_sed "${_file}" -E 's|pip install[[:space:]]+-r|pip install --no-cache-dir -r|'
+  _dfm_sed "${_file}" -E 's|pip install --no-cache-dir --no-cache-dir|pip install --no-cache-dir|'
   # DL3003: cd /lint -> WORKDIR /lint + RUN.
-  sed -i -E 's|^([[:space:]]*)RUN[[:space:]]+cd[[:space:]]+/lint[[:space:]]+&&[[:space:]]+hadolint[[:space:]]+(.*)$|\1WORKDIR /lint\n\1RUN hadolint \2|' "${_file}"
+  _dfm_sed "${_file}" -E 's|^([[:space:]]*)RUN[[:space:]]+cd[[:space:]]+/lint[[:space:]]+&&[[:space:]]+hadolint[[:space:]]+(.*)$|\1WORKDIR /lint\n\1RUN hadolint \2|'
 
   # DL4006: SHELL ash-pipefail right after the alpine lint-tools FROM.
   if _dfm_needs_dl4006 "${_file}"; then
-    sed -i -E '/^FROM alpine:[^[:space:]]+ AS lint-tools/a SHELL ["/bin/ash", "-o", "pipefail", "-c"]' "${_file}"
+    _dfm_sed "${_file}" -E '/^FROM alpine:[^[:space:]]+ AS lint-tools/a SHELL ["/bin/ash", "-o", "pipefail", "-c"]'
   fi
 
   # DL3006: inline ignore before each unguarded parameterized FROM.
@@ -774,7 +948,7 @@ _migrate_hadolint_apply() {
       /^FROM \$\{[A-Za-z_]+\}/ && prev !~ /hadolint ignore=DL3006/ { print "# hadolint ignore=DL3006" }
       { print; prev=$0 }
     ' "${_file}" > "${_tmp}"
-    mv "${_tmp}" "${_file}"
+    _dfm_install "${_file}" "${_tmp}"
   fi
   # DL3066: inline ignore before each unguarded literal `USER root`.
   #
@@ -812,7 +986,7 @@ _migrate_hadolint_apply() {
       }
       END { flush() }
     ' "${_file}" > "${_tmp3066}"
-    mv "${_tmp3066}" "${_file}"
+    _dfm_install "${_file}" "${_tmp3066}"
   fi
   _log_info upgrade upgrade_started "display=  Dockerfile patched: hadolint DL3007/DL3046/DL3003/DL3042/DL4006/DL3006/DL3066 (#567 m5, #946)"
 }
@@ -833,7 +1007,7 @@ _migrate_sc1090_detect() {
 _migrate_sc1090_apply() {
   local _entry
   _entry="$(_dfm_entrypoint_path "$1")"
-  sed -i -E 's|^([[:space:]]*#[[:space:]]*shellcheck disable=)SC1091([[:space:]]*)$|\1SC1090,SC1091\2|' "${_entry}"
+  _dfm_sed "${_entry}" -E 's|^([[:space:]]*#[[:space:]]*shellcheck disable=)SC1091([[:space:]]*)$|\1SC1090,SC1091\2|'
   _log_info upgrade upgrade_started "display=  entrypoint patched: shellcheck SC1091 -> SC1090,SC1091 (#567 m6)"
 }
 
@@ -862,7 +1036,7 @@ _migrate_arg_user_apply() {
   # (Docker, not this shell, resolves the build arg), so single quotes are
   # intentional.
   # shellcheck disable=SC2016
-  sed -i -E 's|^([[:space:]]*)ARG[[:space:]]+USER[[:space:]]*$|\1ARG USER="${USER_NAME}"|' "${_file}"
+  _dfm_sed "${_file}" -E 's|^([[:space:]]*)ARG[[:space:]]+USER[[:space:]]*$|\1ARG USER="${USER_NAME}"|'
   _log_info upgrade upgrade_started "display=  Dockerfile patched: ARG USER -> ARG USER=\${USER_NAME} (#567 m7 / #579)"
 }
 
@@ -945,7 +1119,7 @@ _migrate_nounset_source_apply() {
     }
     END { if (held != "") print held }
   ' "${_entry}" > "${_tmp}"
-  mv "${_tmp}" "${_entry}"
+  _dfm_install "${_entry}" "${_tmp}"
   _log_info upgrade upgrade_started "display=  entrypoint patched: nounset-guard ROS setup.bash source (#567 m8 / #579)"
 }
 
@@ -992,12 +1166,34 @@ _migrate_nounset_source_apply() {
 #   The fold is captured into a variable rather than piped into grep: `grep
 #   -q` stops reading at the first match, which SIGPIPEs the writer, and
 #   under pipefail the caller would read a SUCCESSFUL match as "not found".
-_dfm_smoke_copy_present() {
+#   Generalised over the retired prefix because there are two of them: the
+#   SHIPPED tree (.base/test/smoke) and the repo's OWN (test/smoke). They
+#   moved in the same reorganisation and differ only in where they are
+#   rooted, so one implementation serves both rather than two copies of
+#   this awk drifting apart (ADR-00000028).
+_dfm_regex_escape() {
+  printf '%s' "$1" | sed 's/[][^$.*+?(){}|\\]/\\&/g'
+}
+
+# _dfm_smoke_present <file> <retired_prefix>
+_dfm_smoke_present() {
   local _file="$1"
-  local _joined
+  local _retired="$2"
+  local _joined _re
   _joined="$(_dfm_join_copy_statements "${_file}")"
-  grep -qE '^[[:space:]]*COPY[[:space:]][^#]*\.base/test/smoke(/|[[:space:]]|$)' \
+  _re="$(_dfm_regex_escape "${_retired}")"
+  # The retired path has to appear as a whole SOURCE TOKEN: opened at a
+  # whitespace boundary and closed at a path boundary. Both halves carry
+  # weight. Without the leading one the repo-owned prefix `test/smoke`
+  # would also match inside `.base/test/smoke`, and the two migrations
+  # would fight over one statement. Without the trailing one a sibling
+  # merely PREFIXED by the name -- test/smoke_helpers -- would be caught.
+  grep -qE "^[[:space:]]*COPY[[:space:]]([^#]*[[:space:]])?${_re}(/|[[:space:]]|\$)" \
     <<< "${_joined}"
+}
+
+_dfm_smoke_copy_present() {
+  _dfm_smoke_present "$1" '.base/test/smoke'
 }
 
 # A COPY is a STATEMENT, not a line: a consumer wraps a long hand-listed one
@@ -1010,14 +1206,20 @@ _migrate_smoke_copy_detect() {
   _dfm_smoke_copy_present "${_file}"
 }
 
-_migrate_smoke_copy_apply() {
+# _dfm_smoke_rewrite <file> <retired_prefix> <new_prefix> <tree_root> <ref>
+#   The shared body of both smoke migrations. <retired_prefix> is the path
+#   that is gone, <new_prefix> the root it is re-rooted at (trailing slash
+#   included), <tree_root> the on-disk tree consulted for which per-stage
+#   folders exist and where a hand-listed spec now lives, and <ref> the
+#   issue the message cites.
+_dfm_smoke_rewrite() {
   local _file="$1"
-
-  # Both derivations read the tree NEXT TO the Dockerfile, i.e. the subtree
-  # the upgrade just pulled.
-  local _root
-  _root="$(dirname -- "${_file}")"
-  local _smoke_root="${_root}/.base/dist/test/bats/smoke"
+  local _retired="$2"
+  local _new="$3"
+  local _smoke_root="$4"
+  local _ref="$5"
+  local _retired_re
+  _retired_re="$(_dfm_regex_escape "${_retired}")"
 
   # Which stage folders the subtree ships, as a ":a:b:" membership string
   # awk can test with index().
@@ -1046,7 +1248,8 @@ _migrate_smoke_copy_apply() {
   # and the consumer's own wrapping, flags, destination and column
   # alignment survive. Track the enclosing build stage (`FROM ... AS
   # <name>`) so each rewritten wholesale COPY can name its own folder.
-  awk -v stages="${_stages}" -v specs="${_specs}" '
+  awk -v stages="${_stages}" -v specs="${_specs}" \
+      -v retired="${_retired_re}" -v newroot="${_new}" '
     # Exact, whitespace-delimited literal substitution. A regex would let
     # the dots in a spec name match anything, and these are file names read
     # off disk, not patterns.
@@ -1075,8 +1278,8 @@ _migrate_smoke_copy_apply() {
       done = 0
       for (i = 1; i <= nb; i++) {
         line = buf[i]
-        if (!done && line ~ /\.base\/test\/smoke\/?([ \t\\]|$)/) {
-          sub(/\.base\/test\/smoke\/?/, prefix, line)
+        if (!done && line ~ ("[ \t]" retired "/?([ \t\\\\]|$)")) {
+          sub(retired "/?", prefix, line)
           done = 1
         }
         print line
@@ -1099,17 +1302,17 @@ _migrate_smoke_copy_apply() {
         emit(); reset(); return
       }
       if (toupper(f[1]) != "COPY" \
-          || s !~ /^[^#]*\.base\/test\/smoke(\/|[ \t]|$)/) {
+          || s !~ ("[ \t]" retired "(/|[ \t]|$)")) {
         emit(); reset(); return
       }
       # Wholesale: a source ENDS at the smoke directory. The whole
       # statement is reproduced twice -- once re-rooted at the shared
       # baseline, once at the enclosing stage folder when the pulled
       # subtree ships one.
-      if (s ~ /\.base\/test\/smoke\/?([ \t]|$)/) {
-        emit_rerooted(".base/dist/test/bats/smoke/shared/")
+      if (s ~ ("[ \t]" retired "/?([ \t]|$)")) {
+        emit_rerooted(newroot "shared/")
         if (stage != "" && index(stages, ":" stage ":") > 0) {
-          emit_rerooted(".base/dist/test/bats/smoke/" stage "/")
+          emit_rerooted(newroot stage "/")
         }
         reset(); return
       }
@@ -1122,11 +1325,11 @@ _migrate_smoke_copy_apply() {
         k = split(line, tok, /[ \t]+/)
         for (j = 1; j <= k; j++) {
           t = tok[j]
-          if (t !~ /^\.base\/test\/smoke\//) { continue }
+          if (t !~ ("^" retired "/")) { continue }
           b = t
           sub(/.*\//, "", b)
           if (!(b in seen) || seen[b] == "?") { continue }
-          line = repl(line, t, ".base/dist/test/bats/smoke/" seen[b])
+          line = repl(line, t, newroot seen[b])
         }
         buf[i] = line
       }
@@ -1155,8 +1358,8 @@ _migrate_smoke_copy_apply() {
     }
     END { flush() }
   ' "${_file}" > "${_tmp}"
-  mv "${_tmp}" "${_file}"
-  _log_info upgrade upgrade_started "display=  Dockerfile patched: .base/test/smoke/ -> per-stage dist smoke COPYs (#915)"
+  _dfm_install "${_file}" "${_tmp}"
+  _log_info upgrade upgrade_started "display=  Dockerfile patched: ${_retired}/ -> per-stage smoke COPYs under ${_new} (${_ref})"
 
   # Anything still naming the retired tree is a spec the pulled subtree no
   # longer ships under that name, or ships twice. Say so: the build will
@@ -1164,9 +1367,46 @@ _migrate_smoke_copy_apply() {
   # same folded view the detect uses: a half-healed statement leaves its
   # unresolved sources on continuation lines, which is exactly where a
   # ^COPY-anchored grep over raw lines cannot see them.
-  if _dfm_smoke_copy_present "${_file}"; then
-    _log_warn upgrade upgrade_started "display=  Dockerfile still COPYs a retired .base/test/smoke/ spec the pulled subtree ships at no single path — resolve it by hand (#928)"
+  if _dfm_smoke_present "${_file}" "${_retired}"; then
+    _log_warn upgrade upgrade_started "display=  Dockerfile still COPYs a retired ${_retired}/ spec that is shipped at no single path — resolve it by hand (${_ref})"
   fi
+}
+
+_migrate_smoke_copy_apply() {
+  local _root
+  _root="$(dirname -- "$1")"
+  _dfm_smoke_rewrite "$1" '.base/test/smoke' '.base/dist/test/bats/smoke/' \
+    "${_root}/.base/dist/test/bats/smoke" '#928'
+}
+
+# ── Migration (repo-smoke-copy): repo-owned test/smoke/ -> per-stage ─────────
+#
+# The sibling of smoke-copy above. That one heals the COPY that reads
+# base's SHIPPED smoke tree; this one heals the COPY that reads the repo's
+# OWN. Both trees moved in the same v0.42.0 split, only the shipped half
+# was migrated, so an upgraded Dockerfile kept the one-line
+#   COPY test/smoke/ /smoke_test/
+# spelling while a fresh bootstrap writes the per-stage pair.
+#
+# Runs AFTER smoke_copy, and the order is load-bearing in one direction:
+# `test/smoke` is a SUBSTRING of `.base/test/smoke`, so a statement still
+# naming the shipped tree must already have been rewritten before this
+# migration looks at it. The token-boundary anchoring in _dfm_smoke_present
+# makes the two disjoint even so; the ordering is the second lock, not the
+# only one.
+#
+# The repo's own tree is read from the repo, not the subtree: lib/
+# smoke_migrate.sh has just moved it into place on the same init.sh run, so
+# by the time this executes the per-stage folders it emits COPYs for exist.
+_migrate_repo_smoke_copy_detect() {
+  _dfm_smoke_present "$1" 'test/smoke'
+}
+
+_migrate_repo_smoke_copy_apply() {
+  local _root
+  _root="$(dirname -- "$1")"
+  _dfm_smoke_rewrite "$1" 'test/smoke' 'test/bats/smoke/' \
+    "${_root}/test/bats/smoke" '#1044'
 }
 
 # ── Migration (flat-to-dist): pre-dist .base/ layout -> .base/dist/ ──────────
@@ -1200,8 +1440,8 @@ _migrate_flat_to_dist_detect() {
 
 _migrate_flat_to_dist_apply() {
   local _file="$1"
-  sed -i -e 's#\.base/config#.base/dist/config#g' \
-    -e 's#\.base/script#.base/dist/script#g' "${_file}"
+  _dfm_sed "${_file}" -e 's#\.base/config#.base/dist/config#g' \
+    -e 's#\.base/script#.base/dist/script#g'
   _log_info upgrade upgrade_started "display=  Dockerfile patched: flat .base/{config,script} -> .base/dist/ (#915)"
 }
 
@@ -1233,10 +1473,9 @@ _migrate_runtime_moved_files_detect() {
 
 _migrate_runtime_moved_files_apply() {
   local _file="$1"
-  sed -i -E \
+  _dfm_sed "${_file}" -E \
     -e 's#\.base/(downstream/|dist/)?script/docker/runtime/entrypoint\.sh#.base/dist/dockerfile/entrypoint.sh#g' \
-    -e 's#\.base/(downstream/|dist/)?script/docker/runtime/smoke\.sh#.base/dist/test/bats/smoke/smoke.sh#g' \
-    "${_file}"
+    -e 's#\.base/(downstream/|dist/)?script/docker/runtime/smoke\.sh#.base/dist/test/bats/smoke/smoke.sh#g'
   _log_info upgrade upgrade_started "display=  Dockerfile patched: runtime/{entrypoint,smoke}.sh moved out of the helper dir (#971)"
 }
 
@@ -1328,7 +1567,7 @@ _migrate_runtime_dir_copy_apply() {
       print _line
     }
   ' "${_file}" > "${_tmp}"
-  mv "${_tmp}" "${_file}"
+  _dfm_install "${_file}" "${_tmp}"
   _log_info upgrade upgrade_started "display=  Dockerfile patched: runtime helper COPYs collapsed into one directory COPY (#971)"
 
   # Anything still naming a helper file is a shape the rewrite declined --
@@ -1440,6 +1679,7 @@ _MIGRATIONS=(
   explicit_copy
   logging_rename
   smoke_copy
+  repo_smoke_copy
   flat_to_dist
   runtime_moved_files
   runtime_dir_copy

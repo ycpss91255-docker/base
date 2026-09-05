@@ -20,9 +20,9 @@
 # `context: .` / `file: ./Dockerfile` literals, the GHA-cache plumbing
 # (#272: `cache_variant` input, `Compute cache scope` step; #378 b1:
 # per-target scope suffix so a late-stage COPY change in one target no
-# longer cascades into siblings' manifests; #801: `cache_backend` input
-# selecting the gha default or a GHCR registry backend via a per-step
-# ternary, a guarded `docker/login-action` step), and the #273 doc-only PR
+# longer cascades into siblings' manifests; #980: exactly one backend,
+# selected by no input, because a second one needed a permission a called
+# job cannot hold), and the #273 doc-only PR
 # fast-pass (`path-filter` job; Phase 2 classifier is pure shell via `git
 # diff --name-only base...head` + `case` glob, no `dorny/paths-filter`
 # dependency; 6-path allowlist; compute-matrix + build gated on
@@ -61,19 +61,17 @@
 # - #272 + #378 b1 GHA buildx cache: `cache_variant` input declared with
 # empty default, `Compute cache scope` step emits `id: cache` + base key (no
 # `-cache` suffix; per-target suffix appended at use site), 4 build steps
-# use per-target `<base>-<target>-cache` gha scopes in the default ternary
-# branch, no legacy shared-scope leftover (negative regression), 4 build
-# steps preserve `mode=max` on both branches, default preserves zero-diff
-# for single-call callers
+# use per-target `<base>-<target>-cache` gha scopes, no legacy shared-scope
+# leftover (negative regression), 4 build steps preserve `mode=max`,
+# default preserves zero-diff for single-call callers
 #
-# - #801 registry cache backend: `cache_backend` input declared `type:
-# string` default `"gha"` (default preserves the gha backend for existing
-# callers), all 4 build steps emit a
-# `type=registry,ref=ghcr.io/<repo>/buildcache:<scope>` ref in the registry
-# branch, cache-from/cache-to select the backend on `inputs.cache_backend`
-# (8 lines), the `extra_stages` buildx loop honors `cache_backend` too
-# (shell-side selection, no hardwired gha ref), GHCR `docker/login-action`
-# step gated on `cache_backend == 'registry'`
+# - #980 one cache backend: the `cache_backend` input and its `registry`
+# arm are gone. That arm's cache export needed `packages: write` on jobs
+# that declare a read-only block, and a called job gets exactly the block
+# it declares, so it was unreachable from the day it shipped. Asserted as
+# a property -- every cache line names `type=gha` outright, no input
+# selects a backend, no `docker/login-action` -- because the next second
+# backend is unreachable for the same reason
 #
 # - #273 doc-only PR fast-pass (Phase 1 + Phase 2 shell rewrite):
 # `path-filter` job declared, classifier is pure shell (`git diff
@@ -364,57 +362,33 @@ setup() {
   assert_success
 }
 
-@test "build-worker.yaml: 4 build steps use per-target gha cache scopes in the default branch (#378 b1, #801 ternary)" {
+@test "build-worker.yaml: 4 build steps use per-target gha cache scopes (#378 b1, #980)" {
   # all 4 build steps shared `${steps.cache.outputs.key}` so a
   # late-stage COPY in devel cascaded the manifest pointer in the
   # shared scope, invalidating runtime / runtime-test caches on the
   # next PR. each target has its own scope; one scope's manifest update
   # no longer affects the others.
   #
-  # The cache_backend option made cache-from / cache-to a
-  # `cache_backend`-selected ternary; the default (gha) branch is a
-  # `format()` that emits the SAME `type=gha,scope=<key>-<target>-cache`
-  # string as before, so gha callers are byte-for-byte unchanged at runtime.
+  # Spelled as one literal per line rather than as the `cache_backend`
+  # ternary that used to select it: the registry arm of that ternary was
+  # unreachable from the day it shipped and was removed with the input,
+  # and what a gha caller executes is unchanged either way.
   for _target in devel-test devel runtime-test runtime; do
-    run code_grep -F "format('type=gha,scope={0}-${_target}-cache', steps.cache.outputs.key)" "${WF}"
+    run code_grep -F "cache-from: type=gha,scope=\${{ steps.cache.outputs.key }}-${_target}-cache" "${WF}"
     assert_success
-    run code_grep -F "format('type=gha,scope={0}-${_target}-cache,mode=max', steps.cache.outputs.key)" "${WF}"
+    run code_grep -F "cache-to: type=gha,scope=\${{ steps.cache.outputs.key }}-${_target}-cache,mode=max" "${WF}"
     assert_success
   done
 }
 
-@test "build-worker.yaml: 4 build steps emit a type=registry GHCR buildcache ref when cache_backend is registry (#801)" {
-  # The registry branch of the ternary stores/reads the buildx cache in
-  # GHCR (no 10 GB GHA ceiling): type=registry,ref=ghcr.io/<repo>/buildcache
-  # tagged per target, with mode=max on cache-to.
-  for _target in devel-test devel runtime-test runtime; do
-    run code_grep -F "format('type=registry,ref=ghcr.io/{0}/buildcache:{1}-${_target}-cache', github.repository, steps.cache.outputs.key)" "${WF}"
-    assert_success
-    run code_grep -F "format('type=registry,ref=ghcr.io/{0}/buildcache:{1}-${_target}-cache,mode=max', github.repository, steps.cache.outputs.key)" "${WF}"
-    assert_success
-  done
-}
-
-@test "build-worker.yaml: extra_stages loop honors cache_backend for both backends (#801)" {
-  # A caller using cache_backend: registry AND extra_stages must not get
-  # those stages silently gha-cached. The extra_stages buildx loop receives
-  # the backend + repo via env and selects the cache ref in shell with the
-  # same registry/gha shapes as the four standard steps (registry ref with
-  # mode=max on cache-to; gha branch byte-for-byte unchanged).
-  run code_grep -F 'CACHE_BACKEND: ${{ inputs.cache_backend }}' "${WF}"
-  assert_success
-  run code_grep -F 'REPO: ${{ github.repository }}' "${WF}"
-  assert_success
-  # Shell selection helpers emit the registry ref (unique %s printf form,
-  # distinct from the four steps' format() {0}/{1}) and the unchanged gha form.
-  run code_grep -F 'type=registry,ref=ghcr.io/%s/buildcache:%s' "${WF}"
-  assert_success
-  run code_grep -F 'type=registry,ref=ghcr.io/%s/buildcache:%s,mode=max' "${WF}"
-  assert_success
+@test "build-worker.yaml: extra_stages caches the same way the standard steps do (#980)" {
+  # The extra-stages loop drives buildx directly, so its cache ref is
+  # built in shell rather than by the action. It must land on the same
+  # per-scope gha spelling; a second backend here was the shape that let
+  # `registry` look supported while being unreachable.
   run code_grep -F 'type=gha,scope=%s' "${WF}"
   assert_success
-  # The loop no longer hardwires a gha cache ref on the buildx invocations.
-  run code_grep -F '"type=gha,scope=${CACHE_KEY}' "${WF}"
+  run code_grep -F 'type=registry' "${WF}"
   [ "${status}" -ne 0 ] || [ -z "${output}" ]
   # Both buildx invocations (test-stage + stage) call the selection helpers.
   run code_grep -cF -e '--cache-from "$(cache_from_for ' "${WF}"
@@ -449,8 +423,8 @@ _extra_stages() {
   (
     cd "${_dir}" || return 2
     env "PATH=${_dir}/bin:${PATH}" \
-        EXTRA_STAGES="${2}" CACHE_KEY=key CACHE_BACKEND=gha \
-        REPO=org/repo CONTEXT_PATH=. DOCKERFILE=Dockerfile \
+        EXTRA_STAGES="${2}" CACHE_KEY=key \
+        CONTEXT_PATH=. DOCKERFILE=Dockerfile \
         BUILD_CONTEXTS_INPUT= BUILD_ARGS_INPUT= \
         PLATFORM=linux/amd64 HARDWARE=x86_64 TEST_TOOLS_IMAGE=tools:1 \
         bash step.sh
@@ -557,14 +531,6 @@ FROM debian:bookworm AS fooxbar-test' foo.bar
   }
 }
 
-@test "build-worker.yaml: cache lines select the backend on inputs.cache_backend (#801)" {
-  # Both cache-from and cache-to (8 lines total) gate on the input so the
-  # backend is chosen per call, defaulting to gha.
-  run code_grep -cE "^          cache-(from|to): \\\$\{\{ inputs\.cache_backend == 'registry'" "${WF}"
-  assert_success
-  assert_output "8"
-}
-
 @test "build-worker.yaml: 4 distinct cache scopes exist, no shared scope leftover (#378 b1)" {
   # Negative regression: ensure no legacy `cache-from:`/`cache-to:` line
   # still references the bare base key (which would mean a build step
@@ -573,49 +539,35 @@ FROM debian:bookworm AS fooxbar-test' foo.bar
   [ "${status}" -ne 0 ] || [ "${output}" = "0" ]
 }
 
-@test "build-worker.yaml: 4 build steps all set mode=max on cache-to for both backends (#272 preserved, #801)" {
+@test "build-worker.yaml: 4 build steps all set mode=max on cache-to (#272 preserved)" {
   # mode=max exports all intermediate stage layers (including the heavy
-  # builder / source-build stages). Both ternary branches (gha default +
-  # registry) carry mode=max on cache-to; 4 cache-to lines * both
-  # branches = 4 gha + 4 registry mode=max occurrences.
-  # gha default branch is the `|| format(...)` fallback, so its cache-to
-  # format() ends the whole `${{ ... }}` expression ( `) }}` ).
-  run code_grep -cF ",mode=max', steps.cache.outputs.key) }}" "${WF}"
-  assert_success
-  assert_output "4"
-  # registry branch is the `&& format(...)` arm, so its cache-to format()
-  # is followed by the `||` fallback ( `) ||` ).
-  run code_grep -cF ",mode=max', github.repository, steps.cache.outputs.key) ||" "${WF}"
+  # builder / source-build stages). One cache-to line per target.
+  run code_grep -cE '^          cache-to: type=gha,scope=.*,mode=max$' "${WF}"
   assert_success
   assert_output "4"
 }
 
-@test "build-worker.yaml: declares cache_backend input with default gha (#801)" {
-  # Opt-in registry cache backend; default gha keeps every existing
-  # caller byte-for-byte unchanged (no 10 GB GHA ceiling escape unless
-  # asked for).
-  run code_grep -A 3 '^      cache_backend:' "${WF}"
-  assert_success
-  assert_output --partial 'required: false'
-  assert_output --partial 'type: string'
-  assert_output --partial 'default: "gha"'
-}
-
-@test "build-worker.yaml: cache_backend default preserves the gha backend for existing callers (#801)" {
-  local _cb
-  _cb="$(code_grep -A 3 '^      cache_backend:' "${WF}" | grep 'default:' | head -1)"
-  [[ "${_cb}" == *'"gha"'* ]]
-}
-
-@test "build-worker.yaml: GHCR login step is gated on cache_backend == registry (#801)" {
-  # The registry backend pushes cache to ghcr.io/<repo>/buildcache and
-  # needs an authenticated buildx session; the default gha path adds no
-  # login. Assert both the docker/login-action use and its cache_backend
-  # gate are present.
-  run code_grep -E '^[[:space:]]+uses: docker/login-action@' "${WF}"
-  assert_success
-  run code_grep -F "if: \${{ inputs.cache_backend == 'registry' }}" "${WF}"
-  assert_success
+# why: The deletion asserted as a property rather than as the absence of
+# one string. `cache_backend: registry` could never work -- its cache
+# export needed `packages: write` on a job that declares a read-only block,
+# and a called job gets exactly the block it declares (#957) -- so every
+# line reachable only through it was unreachable from the day it shipped.
+# What must not come back is any SECOND cache backend selected by an input,
+# because `permissions:` accepts no expression and the next one is
+# unreachable for the same reason.
+@test "build-worker.yaml: the buildx cache has exactly one backend, chosen by no input (#980)" {
+  run code_grep -F 'cache_backend' "${WF}"
+  [ "${status}" -ne 0 ] || [ -z "${output}" ]
+  run code_grep -F 'docker/login-action' "${WF}"
+  [ "${status}" -ne 0 ] || [ -z "${output}" ]
+  # Every cache line the worker carries names the one backend outright.
+  local _lines _gha
+  _lines="$(code_grep -cE '^          cache-(from|to): ' "${WF}")"
+  _gha="$(code_grep -cE '^          cache-(from|to): type=gha,scope=' "${WF}")"
+  [[ "${_lines}" -eq 8 ]] || fail \
+      "expected the 4 build steps' 8 cache lines, found ${_lines} -- the equality below would be comparing two numbers that are both wrong"
+  [[ "${_gha}" -eq "${_lines}" ]] || fail \
+      "${_gha} of ${_lines} cache lines name type=gha outright; the rest select a backend some caller cannot reach"
 }
 
 @test "build-worker.yaml: cache_variant default preserves zero-diff for single-call callers (#272)" {
@@ -768,8 +720,13 @@ _classify() {
 @test "build-worker.yaml: docker-build aggregator short-circuits to success on doc-only (#273)" {
   # The aggregator must report success when code_changed == 'false'
   # so branch protection's required check still resolves green even
-  # though the matrix was skipped.
-  run code_grep -F 'needs.path-filter.outputs.code_changed }}" = "false"' "${WF}"
+  # though the matrix was skipped. The classification reaches the step
+  # through `env:` rather than an inline `${{ }}`, which is what makes
+  # the branch drivable from a test rather than only greppable --
+  # workflow_failure_surface_spec runs this block against each shape.
+  run code_grep -F 'CODE_CHANGED: ${{ needs.path-filter.outputs.code_changed }}' "${WF}"
+  assert_success
+  run code_grep -F '[ "${CODE_CHANGED}" = "false" ]' "${WF}"
   assert_success
   # And it still needs both path-filter + build so the conditional
   # has both data sources.
@@ -1053,13 +1010,13 @@ _worker_jobs_granting_more_than_contents_read() {
 }
 
 # Print `<job>: packages: write` for every job that names that scope in its
-# own permissions block. Read off the DERIVED permission surface, so the
-# caller-facing example inside the `cache_backend` input description --
-# which is instructing the CALLER to grant it, and is correct -- is outside
-# the jobs section and never reaches this, and a rationale comment quoting
-# the scope is stripped before matching. grep's status is pinned: 1 is "no
-# job asks for it", anything above that is a scan that failed and is
-# reported rather than read as a pass.
+# own permissions block. Read off the DERIVED permission surface, so a
+# mention of the scope anywhere but a job's own block -- an input
+# description telling a CALLER what to grant, a rationale comment quoting
+# what a job may not ask for -- is outside the jobs section, or stripped as
+# a comment, before matching. grep's status is pinned: 1 is "no job asks for
+# it", anything above that is a scan that failed and is reported rather than
+# read as a pass.
 _jobs_requesting_packages_write() {
   local _out _status=0
   _out="$(yaml_permission_surface "${WF}" \
@@ -1082,9 +1039,11 @@ _jobs_requesting_packages_write() {
   # ELEVATION, and GitHub rejects the whole run before it starts:
   #   The nested job 'build' is requesting 'contents: read, packages:
   #   write', but is only allowed 'contents: read, packages: none'.
-  # The `cache_backend: registry` write therefore stays a CALLER-side
-  # grant, which is what the input description already asks callers for;
-  # the worker may not declare it on their behalf.
+  # That is why the `registry` buildx cache backend was removed rather
+  # than documented: it needed this scope on a job whose declared block is
+  # read-only, so the preflight told a caller to grant something no caller
+  # could make reachable. Any write a future feature needs here is a
+  # CALLER-side grant; the worker may not declare it on their behalf.
   _assert_worker_job_population
   run _jobs_requesting_packages_write
   assert_success
@@ -1093,10 +1052,10 @@ _jobs_requesting_packages_write() {
 
 @test "build-worker.yaml: the build job asks for contents: read alone (#957)" {
   # The job builds but never pushes an image (`push: false`, no `tags:`),
-  # so on the default `cache_backend: gha` a checkout grant is all it
-  # needs. `permissions:` accepts no expression, so one static set has to
-  # serve both backends, and the only set every caller can satisfy is the
-  # read-only one (see the elevation test above).
+  # so with the GHA cache backend a checkout grant is all it needs.
+  # `permissions:` accepts no expression, so one static set has to serve
+  # every call, and the only set every caller can satisfy is the read-only
+  # one (see the elevation test above).
   #
   # "alone" is asserted as an EXACT entry set, not as presence: `packages:
   # write` is only the scope this issue happened to find, and any other

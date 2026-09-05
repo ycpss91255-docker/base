@@ -185,6 +185,526 @@ teardown() {
   refute_output --partial "_lint_driver_failed"
 }
 
+# why: The single dispatch has the same call-site precondition the phase
+# has, and it is reachable on its own -- `main --ci` calls it directly for
+# LINT_ONLY with one named tool. Under a suppressing caller its ERR trap
+# never fires (bash suppresses the trap for the same commands it suppresses
+# errexit for), the driver runs on past its first failing command, and the
+# dispatch returns the zero of its own last statement. Guarding only the
+# plural would leave the narrower entry point reporting clean.
+@test "_run_lint_tool: an errexit-suppressing caller is refused, not trusted (#1059)" {
+  run env LOG_FORMAT=json bash -c '
+    source /source/script/test/test.sh
+    set -eo pipefail
+    _run_adr_numbering() { false; echo "SAILED PAST the first failure"; }
+    if _run_lint_tool adr-numbering; then echo "DISPATCH SAID CLEAN"; fi
+  '
+  assert_failure
+  refute_output --partial "SAILED PAST"
+  refute_output --partial "DISPATCH SAID CLEAN"
+  assert_output --partial "ci_lint_errexit_suppressed"
+}
+
+# why: The refusal asks about the CALL, not about the option. `set +e` is
+# a caller that has turned errexit off, which is harmless here -- the
+# driver subshell arms its own -- while an `if` condition is a caller that
+# has taken it away in a way no `set -e` can give back. A probe that
+# confused the two would either refuse the whole gate or protect nothing.
+@test "_refuse_suppressed_errexit: reads the call shape, not the errexit option (#1059)" {
+  run env LOG_FORMAT=json bash -c '
+    source /source/script/test/test.sh
+    set -eo pipefail
+    set +e
+    _refuse_suppressed_errexit "the option-off call"
+    echo "option off, plain statement: allowed"
+    set -e
+    if _refuse_suppressed_errexit "the suppressed call"; then
+      echo "SUPPRESSED CALL ALLOWED"
+    fi
+  '
+  assert_failure
+  assert_output --partial "option off, plain statement: allowed"
+  refute_output --partial "SUPPRESSED CALL ALLOWED"
+  assert_output --partial "ci_lint_errexit_suppressed"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _run_lint_tools: the phase enumerates, the driver still stops
+#
+# The lint phase used to be a bare loop under the file's `set -e`, so the
+# first failing driver ended the run and every driver behind it went
+# unreported. A tree with three violations therefore cost three full gate
+# cycles, and after each one nobody knew how many remained.
+#
+# The drivers are independent -- a `case` dispatch, each reading its own
+# file set, none consuming another's output -- so the phase can run them
+# all and report the failures together. What must NOT come with that is a
+# driver that keeps going past its own first failing command: that is a
+# different scope, and the one _run_lint_tool's header argues for.
+# ════════════════════════════════════════════════════════════════════
+
+# why: Three independent violations must be enumerated by ONE run. This is
+# the defect measured in base#1059: a lint phase that ran 17 drivers, died
+# on changelog-entry and never reached any of the entries behind it --
+# changelog-layout through catalog-description -- so each cycle returned
+# one bit, "this one is broken, and something unknown may be behind it".
+@test "_run_lint_tools: three failing drivers are all run and all named in one pass (#1059)" {
+  run env LOG_FORMAT=json bash -c '
+    source /source/script/test/test.sh
+    set -eo pipefail
+    _run_issueref()            { echo "reached issueref"; false; }
+    _run_adr_numbering()       { echo "reached adr-numbering"; }
+    _run_changelog_entry()     { echo "reached changelog-entry"; false; }
+    _run_pin_coverage()        { echo "reached pin-coverage"; }
+    _run_catalog_description() { echo "reached catalog-description"; false; }
+    _run_lint_tools issueref adr-numbering changelog-entry pin-coverage \
+      catalog-description
+  '
+  assert_failure
+  # Every tool was reached, including the two behind the first failure.
+  assert_output --partial "reached issueref"
+  assert_output --partial "reached adr-numbering"
+  assert_output --partial "reached changelog-entry"
+  assert_output --partial "reached pin-coverage"
+  assert_output --partial "reached catalog-description"
+  # And the phase names all three failures together, in phase order, so
+  # the operator learns the whole list from this one run.
+  assert_output --partial "ci_lint_phase_failed"
+  assert_output --partial "issueref changelog-entry catalog-description"
+}
+
+# why: The collection must not be bought with the driver's own errexit.
+# `( _run_lint_tool "${_tool}" ) || _failed+=(...)` reads as the obvious
+# shape and is wrong: bash suppresses errexit for the whole of a `||`
+# command, inside the subshell too, and a `set -e` in the subshell body
+# does not bring it back. That is the exact failure _run_lint_tool's
+# header refuses -- a driver sailing past its first failing command.
+@test "_run_lint_tools: a failing driver still stops at its FIRST failing command (#1059)" {
+  run env LOG_FORMAT=json bash -c '
+    source /source/script/test/test.sh
+    set -eo pipefail
+    _run_adr_numbering() { false; echo "SAILED PAST the first failure"; }
+    _run_lint_tools adr-numbering
+  '
+  assert_failure
+  refute_output --partial "SAILED PAST"
+  assert_output --partial "ci_lint_driver_failed"
+  assert_output --partial "adr-numbering"
+}
+
+# why: The subshell's guarantee is a CALL-SITE precondition, and an
+# unenforced precondition defaults to pass. bash suppresses errexit for
+# every command of an `if` condition, a `&&` / `||` list or a `!`, and the
+# suppression reaches through this function into the standalone subshell
+# too, so a caller who writes `if _run_lint_tools ...` gets back the exact
+# defect the shape was chosen to refuse -- the driver sails past its first
+# failing command, the subshell exits zero, and the phase reports a clean
+# tree. No spelling of the subshell repairs it from the inside, so the
+# phase probes for the suppression and refuses instead of measuring
+# something it cannot measure.
+@test "_run_lint_tools: an errexit-suppressing caller is refused, not trusted (#1059)" {
+  run env LOG_FORMAT=json bash -c '
+    source /source/script/test/test.sh
+    set -eo pipefail
+    _run_adr_numbering() { false; echo "SAILED PAST the first failure"; }
+    if _run_lint_tools adr-numbering; then echo "PHASE SAID CLEAN"; fi
+  '
+  assert_failure
+  refute_output --partial "PHASE SAID CLEAN"
+  refute_output --partial "SAILED PAST"
+  assert_output --partial "ci_lint_errexit_suppressed"
+}
+
+# why: The sibling call shape, and the one a `_run_all_lint_tools || x`
+# reads as harmless. Same suppression, same refusal -- pinned separately
+# because a probe that only covered the `if` condition would leave the
+# list operators reporting clean.
+@test "_run_lint_tools: an errexit-suppressing list operator is refused too (#1059)" {
+  run env LOG_FORMAT=json bash -c '
+    source /source/script/test/test.sh
+    set -eo pipefail
+    _run_adr_numbering() { false; echo "SAILED PAST the first failure"; }
+    _run_lint_tools adr-numbering || echo "CALLER HANDLED IT"
+  '
+  assert_failure
+  refute_output --partial "CALLER HANDLED IT"
+  refute_output --partial "SAILED PAST"
+  assert_output --partial "ci_lint_errexit_suppressed"
+}
+
+# why: The probe measures a COMMAND-SUBSTITUTION subshell, which is
+# narrower than "a subshell of this call", and the two come apart under
+# `eval`: measured on bash 5.1, `if eval f` leaves the substitution
+# reporting errexit ARMED while a plain `( set -e; false )` subshell of
+# the same call still sails. So an `if eval _run_lint_tools ...` is NOT
+# refused -- and what stops the driver there is the OTHER mechanism, the
+# `set -E` and ERR trap inside _run_lint_tool, which `eval` does not
+# disarm. That is the mechanism the refusal's narrowed header now leans
+# on for the shapes its probe cannot see, so it is pinned here rather
+# than assumed: under the shape that escapes the probe, the driver must
+# still die at its first failing command and be named.
+@test "_run_lint_tools: an eval'd caller escapes the probe, the driver still cannot sail (#1059)" {
+  run env LOG_FORMAT=json bash -c '
+    source /source/script/test/test.sh
+    set -eo pipefail
+    _run_adr_numbering() { false; echo "SAILED PAST the first failure"; }
+    if eval _run_lint_tools adr-numbering; then echo "PHASE SAID CLEAN"; fi
+  '
+  assert_failure
+  refute_output --partial "SAILED PAST"
+  refute_output --partial "PHASE SAID CLEAN"
+  # Not the refusal -- the probe cannot see this shape -- but the driver's
+  # own ERR trap, naming the driver that died.
+  assert_output --partial "ci_lint_driver_failed"
+  assert_output --partial "adr-numbering"
+}
+
+# why: The phase's OWN refusal, pinned by something only it can answer.
+# Both guards above are satisfied by `_run_lint_tool`'s copy of the
+# refusal, which fires inside the driver subshell and emits the same
+# event, so deleting the phase's line leaves them green -- a precondition
+# with two enforcers and assertions that cannot tell which one spoke. This
+# one names the phase in the refusal it demands and refuses to see a
+# dispatch at all: the phase must stop the run BEFORE the first driver is
+# reached, not collect one refusal per table entry and report "23 of 23
+# lint tools failed", which is a different sentence about a different
+# thing.
+@test "_run_lint_tools: the refusal is the phase's own, before any dispatch (#1059)" {
+  run env LOG_FORMAT=json bash -c '
+    source /source/script/test/test.sh
+    set -eo pipefail
+    _run_adr_numbering() { echo "reached adr-numbering"; }
+    _run_arch_literal()  { echo "reached arch-literal"; }
+    if _run_lint_tools adr-numbering arch-literal; then echo "PHASE SAID CLEAN"; fi
+  '
+  assert_failure
+  assert_output --partial "ci_lint_errexit_suppressed"
+  assert_output --partial "the lint phase was called from a context"
+  # No driver was dispatched, so no dispatch refused on the phase's
+  # behalf and no driver ran.
+  refute_output --partial "the lint dispatch for"
+  refute_output --partial "reached adr-numbering"
+  refute_output --partial "reached arch-literal"
+  # And the run ended in a refusal, not in a phase report counting the
+  # drivers that refused.
+  refute_output --partial "ci_lint_phase_failed"
+  refute_output --partial "PHASE SAID CLEAN"
+}
+
+# why: The empty set is the input no driver can answer for. The phase
+# takes `"$@"`, so the list it is handed is the caller's; with nothing in
+# it the loop runs zero times, and a phase leaning on its drivers to
+# enforce the call-site precondition would answer a suppressed caller with
+# a clean tree -- the exact defect the refusal exists for, reached by
+# passing an empty list rather than a failing one. Today the only caller
+# passes the whole table, which is why this is a guard on the function's
+# contract and not on a reachable path: a filtered list is what the next
+# caller passes, and an empty result is what a filter returns.
+@test "_run_lint_tools: an empty set is refused too, by the phase itself (#1059)" {
+  run env LOG_FORMAT=json bash -c '
+    source /source/script/test/test.sh
+    set -eo pipefail
+    if _run_lint_tools; then echo "PHASE SAID CLEAN"; fi
+  '
+  assert_failure
+  assert_output --partial "ci_lint_errexit_suppressed"
+  assert_output --partial "the lint phase was called from a context"
+  refute_output --partial "PHASE SAID CLEAN"
+}
+
+# why: The other half of the contract. A clean set must exit zero and say
+# nothing, and the loop must hand the caller back the errexit it borrowed
+# -- the collection is implemented by clearing it, so a phase that forgot
+# to restore it would disarm every `set -e` check after the lint phase.
+@test "_run_lint_tools: a clean set exits zero and returns the caller's errexit (#1059)" {
+  run env LOG_FORMAT=json bash -c '
+    source /source/script/test/test.sh
+    set -eo pipefail
+    _run_adr_numbering() { echo "adr ok"; }
+    _run_arch_literal()  { echo "arch ok"; }
+    _run_lint_tools adr-numbering arch-literal
+    case "$-" in *e*) echo "errexit still armed" ;; *) echo "ERREXIT LOST" ;; esac
+  '
+  assert_success
+  assert_output --partial "adr ok"
+  assert_output --partial "arch ok"
+  assert_output --partial "errexit still armed"
+  refute_output --partial "ci_lint_phase_failed"
+}
+
+# why: The population is the whole _LINT_TOOLS table, read out of the tree
+# rather than restated here, so a tool added to the table is covered by
+# this guard the day it lands. A failure at the FIRST entry must not hide
+# the twenty-two behind it.
+@test "_run_all_lint_tools: an early failure does not hide the tools behind it (#1059)" {
+  run env LOG_FORMAT=json bash -c '
+    source /source/script/test/test.sh
+    set -eo pipefail
+    _run_lint_tool() { echo "dispatched ${1}"; [[ "${1}" != "shellcheck" ]]; }
+    _run_all_lint_tools
+  '
+  assert_failure
+  local _dispatched="${output}"
+  local -a _tools=()
+  mapfile -t _tools < <(awk '
+    /^readonly _LINT_TOOLS=\(/ { inside = 1; next }
+    inside && /^\)/            { inside = 0 }
+    inside                     { gsub(/[[:space:]]/, "", $0); if ($0 != "") print }
+  ' /source/script/test/test.sh)
+  [ "${#_tools[@]}" -gt 20 ] \
+    || fail "_LINT_TOOLS yielded ${#_tools[@]} entries; the table did not parse"
+  local _tool
+  for _tool in "${_tools[@]}"; do
+    [[ "${_dispatched}" == *"dispatched ${_tool}"* ]] \
+      || fail "the phase never reached '${_tool}' after an earlier tool failed"
+  done
+}
+
+# why: The full gate keeps its fail-fast where fail-fast is worth having.
+# Collecting happens WITHIN the lint phase; a phase that failed still ends
+# the run before bats, so a tree that does not lint never spends the
+# suite's minutes to be told so.
+@test "main --ci: a lint phase that collected failures never reaches bats (#1059)" {
+  # The suite itself runs INSIDE a `--ci` dispatch, so BATS_ONLY / BATS_FILE
+  # / BATS_FILTER are already exported into this process. Left alone, the
+  # `main --ci` under test would take the branch that dispatches bats over
+  # BATS_FILE -- bats inside bats, recursively, which hangs rather than
+  # fails. Clear the whole ambient dispatch so this exercises the full-gate
+  # branch (lint, then the suite) the test is named for.
+  run env LOG_FORMAT=json BATS_ONLY=0 BATS_FILE= BATS_FILTER= \
+    BATS_UNIT_SHARD= BATS_FRAGILE=0 BATS_INTEGRATION=0 \
+    COVERAGE=0 COVERAGE_PATH= COVERAGE_SHARD= LINT_ONLY=0 bash -c '
+    source /source/script/test/test.sh
+    set -eo pipefail
+    _run_lint_tool()     { echo "dispatched ${1}"; [[ "${1}" != "changelog-entry" ]]; }
+    _run_tests()         { echo "BATS PHASE RAN"; }
+    _fix_permissions()   { :; }
+    main --ci
+  '
+  assert_failure
+  # catalog-description is the last table entry, behind changelog-entry.
+  assert_output --partial "dispatched catalog-description"
+  refute_output --partial "BATS PHASE RAN"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# The lint-order rationale: an argument, with no wall-clock figure in it
+#
+# The ordering question the enumeration raises -- cheap drivers first, so
+# the common case still fails fast -- is answered above _LINT_TOOLS,
+# because a run that enumerates ends when its LAST driver ends whatever
+# the order. That argument has to stay readable: without it the next
+# reader re-litigates the order from the same intuition.
+#
+# What it must not carry is a measurement: how long a driver took, or how
+# far repeat timings of the table spread. Nothing here re-derives such a
+# figure -- no lint, no test, no generator -- so it is a hand-maintained
+# number about a moving tree measured on a moving host, which is exactly
+# ADR-00000028's invariant-2 case: it goes stale silently while still
+# reading as authoritative. Repeat runs of the same table on one machine
+# do not agree either, which is the argument for measuring on demand and
+# not for writing the spread down. So the block below is pinned to hold
+# the reasoning and not the numbers.
+# ════════════════════════════════════════════════════════════════════
+
+# The ordering rationale, one line per comment line: the block between
+# its opening sentence and its closing one, read out of the tree rather
+# than restated here, so both guards below see the block the file
+# actually has.
+#
+# BOTH bounds are named, and that is the point. A block ended at "the
+# first line that is not a comment" is delimited by whatever the file
+# happens to do next: one blank line inside the argument truncates it,
+# and both guards then read a shorter block while the present-to-be-read
+# guard still passes on it. A block whose closing sentence is missing is
+# a block this reader cannot delimit, so it returns NOTHING -- which
+# fails the guard below by name, rather than handing the figure guard a
+# population that runs to the end of the file.
+#
+# Takes the file to read so its own behaviour is testable on a fixture;
+# the default is the tree the guards lint.
+_lint_order_rationale() {
+  local _file="${1:-/source/script/test/test.sh}"
+  awk '
+    /^# ORDER IS NOT A FAIL-FAST LEVER/       { inside = 1 }
+    inside                                    { block = block $0 "\n" }
+    inside && /^# END OF THE ORDER RATIONALE/ { printf "%s", block; exit }
+  ' "${_file}"
+}
+
+# The lines of a comment block that STORE a measurement, read on stdin
+# and printed back. Four shapes, because a stale number arrives in more
+# than one: a duration ("40 seconds"), a percentage ("12%"), a spread
+# stated as a fraction ("more than a tenth") -- which the rationale itself
+# carried while the guard looked only for units -- and a quantity spelled
+# in words ("thirty seconds", "half a minute").
+#
+# The digit is not the thing being refused. The first three shapes all
+# began with `[0-9]`, which made the guard a lint against notation rather
+# than against a stored figure: the same claim written out in words went
+# straight through, and words are what a writer reaches for when the
+# number is approximate -- which is precisely when nothing re-derives it.
+# The word list is cardinals and fraction words only, so an ordinal ("the
+# second driver") stays prose: it names a position, not a magnitude.
+#
+# Matched case-insensitively. bash `=~` is case-sensitive, and the block
+# this reads writes its emphasis in upper case, so a lower-case-only
+# matcher would miss the spelling most likely to be written next to it.
+_stored_measurements() {
+  local _line _lower
+  local _words='one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty|forty|fifty|sixty|ninety|hundred|dozen|couple|few|several|half|quarter|third'
+  local -a _stored=()
+  while IFS= read -r _line; do
+    _lower="${_line,,}"
+    if [[ "${_lower}" =~ [0-9]+(\.[0-9]+)?[[:space:]]*(seconds|second|secs|sec|minutes|minute|mins|min|hours|hour|hrs|hr|ms|s|m|h)([^a-z0-9]|$) ]] \
+      || [[ "${_lower}" =~ [0-9]+(\.[0-9]+)?[[:space:]]*(%|percent) ]] \
+      || [[ "${_lower}" =~ (more|less|fewer|greater)[[:space:]]+than[[:space:]]+(a|one|two|three|half|[0-9]+)[[:space:]]*(tenth|quarter|third|half|fifth|percent) ]] \
+      || [[ "${_lower}" =~ (^|[^a-z])(${_words})([[:space:]]+of)?([[:space:]]+(a|an))?[[:space:]]+(seconds|second|minutes|minute|hours|hour|milliseconds|millisecond)([^a-z]|$) ]]; then
+      _stored+=( "${_line}" )
+    fi
+  done
+  (( ${#_stored[@]} == 0 )) || printf '%s\n' "${_stored[@]}"
+}
+
+# why: The anchor, and the reason it is a test of its own. The figure
+# guard below reads the same block, so a comment that was deleted or
+# reworded past its opening sentence would leave that guard scanning an
+# empty set and passing -- a lint that has quietly stopped linting. This
+# one fails loudly instead, naming the sentence it looks for.
+@test "_LINT_TOOLS: the ordering rationale is present to be read (#1059)" {
+  local -a _block=()
+  mapfile -t _block < <(_lint_order_rationale)
+  [ "${#_block[@]}" -gt 0 ] || fail \
+    "no block bounded by '# ORDER IS NOT A FAIL-FAST LEVER' and '# END OF THE ORDER RATIONALE' above _LINT_TOOLS: either the ordering decision is unrecorded or its closing sentence is gone, and the figure guard reads the same block, so it would otherwise scan an empty set and pass"
+}
+
+# why: A measurement written into a permanent comment is a claim nothing
+# re-derives. The tree moves it, the host moves it, and repeat runs of the
+# same table move it, so it is wrong soon after it is typed and nothing
+# says when. The rationale needs none of them -- "the phase ends when its
+# last driver ends" holds at any timing -- so the numbers are refused
+# here, and measured when the question is actually asked.
+@test "_LINT_TOOLS: the ordering rationale stores no measured figure (#1059)" {
+  local -a _block=()
+  mapfile -t _block < <(_lint_order_rationale)
+  [ "${#_block[@]}" -gt 0 ] || fail \
+    "no ordering rationale to check -- see the guard above; this one must not pass on an empty set"
+
+  local -a _stored=()
+  mapfile -t _stored < <(printf '%s\n' "${_block[@]}" | _stored_measurements)
+  [ "${#_stored[@]}" -eq 0 ] || fail \
+    "the ordering rationale states a measured figure, which nothing re-derives: ${_stored[*]} -- drop it and measure when the question is asked (./script/test/test.sh --<tool>-only times one driver)"
+}
+
+# why: The population is read out of the tree, so the reader must hold
+# BOTH bounds of it. "From the opening sentence to the first line that is
+# not a comment" holds only one: a blank line dropped into the rationale
+# silently shrinks what both guards scan, and the present-to-be-read guard
+# above still passes, because a truncated block is not an empty one --
+# cannot-determine-the-block resolving to pass. The same single bound
+# over-runs the other way, swallowing the neighbouring paragraph a bare
+# `#` line joins to the rationale.
+@test "_lint_order_rationale: the block is bounded at both ends, blank line or not (#1059)" {
+  local _fixture="${BATS_TEST_TMPDIR}/bounded.sh"
+  printf '%s\n' \
+    '# A paragraph above the rationale.' \
+    '# ORDER IS NOT A FAIL-FAST LEVER. The argument opens here.' \
+    '# The second line of the argument.' \
+    '' \
+    '# Still the argument, one blank line later.' \
+    '# END OF THE ORDER RATIONALE. The argument closes here.' \
+    '#' \
+    '# A neighbouring paragraph that is not the rationale.' \
+    'readonly _SOMETHING=1' > "${_fixture}"
+
+  run _lint_order_rationale "${_fixture}"
+  assert_success
+  assert_output --partial "The argument opens here"
+  assert_output --partial "Still the argument, one blank line later"
+  assert_output --partial "The argument closes here"
+  refute_output --partial "A paragraph above the rationale"
+  refute_output --partial "A neighbouring paragraph"
+}
+
+# why: The refusal side of the same reader. A block whose closing sentence
+# is gone cannot be delimited, and a reader that answers such a question
+# by returning everything to the end of the file would hand the figure
+# guard a population nobody chose. Returning nothing instead lands on the
+# present-to-be-read guard, which fails loudly and names the sentence.
+@test "_lint_order_rationale: a block it cannot bound is no block at all (#1059)" {
+  local _fixture="${BATS_TEST_TMPDIR}/unbounded.sh"
+  printf '%s\n' \
+    '# ORDER IS NOT A FAIL-FAST LEVER. The argument opens here.' \
+    '# and is never closed.' \
+    'readonly _SOMETHING=1' > "${_fixture}"
+
+  run _lint_order_rationale "${_fixture}"
+  assert_output ""
+}
+
+# why: bash `=~` is case-sensitive, and this file's own house style writes
+# emphasis in upper case (ORDER IS NOT A FAIL-FAST LEVER, THE SUBSHELL
+# SHAPE IS LOAD-BEARING), so a lower-case-only match is a guard that does
+# not see the shape most likely to be written next to it. Prose carrying
+# no figure must still come back clean, or the guard would refuse the
+# argument it exists to protect.
+@test "_stored_measurements: a unit in upper case is still a stored figure (#1059)" {
+  run _stored_measurements <<< '# shellcheck takes about 40 SECONDS of the phase'
+  assert_success
+  assert_output --partial "40 SECONDS"
+
+  run _stored_measurements <<< '# the phase ends when its LAST driver ends'
+  assert_success
+  assert_output ""
+}
+
+# why: A duration is not the only measurement a comment can store. The
+# claim that repeat runs "spread by more than a tenth" is the same kind of
+# number -- hand-measured, un-derived, silently stale -- and it sat inside
+# this very rationale until this guard was widened, so a matcher that
+# looked only for unit tokens refused the seconds while carrying the
+# spread.
+@test "_stored_measurements: a spread stated as a fraction is a stored figure (#1059)" {
+  run _stored_measurements <<< '# three timing rounds already spread by more than a tenth'
+  assert_success
+  assert_output --partial "more than a tenth"
+
+  run _stored_measurements <<< '# the drivers disagree by 12% between runs'
+  assert_success
+  assert_output --partial "12%"
+}
+
+# why: A stored figure does not have to arrive as a digit. "about thirty
+# seconds per driver" is the same hand-measured, un-derived, silently
+# stale claim as "40 SECONDS", and every branch of this matcher required
+# `[0-9]`, so the guard refused the spelling with digits and passed the
+# spelling in words -- the shape a writer reaches for when the number is
+# approximate, which is exactly when it is a claim nothing re-derives.
+# Second widening of the same guard for the same reason: the first was a
+# spread stated as a fraction, which the block itself was carrying.
+# The prose the block does need must still come back clean, or the guard
+# refuses the argument it exists to protect.
+@test "_stored_measurements: a quantity spelled in words is a stored figure (#1059)" {
+  run _stored_measurements <<< '# shellcheck takes about thirty seconds per driver'
+  assert_success
+  assert_output --partial "thirty seconds"
+
+  run _stored_measurements <<< '# the phase costs roughly half a minute per driver'
+  assert_success
+  assert_output --partial "half a minute"
+
+  # The rationale's own line about repeat runs: a comparison, not a
+  # magnitude, and it must survive the widening.
+  run _stored_measurements <<< '# repeat runs of the same table on one machine do not agree'
+  assert_success
+  assert_output ""
+
+  # An ordinal is not a quantity: "the second driver" names a position.
+  run _stored_measurements <<< '# the second driver in the table is hadolint'
+  assert_success
+  assert_output ""
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _run_via_compose / main routing
 #

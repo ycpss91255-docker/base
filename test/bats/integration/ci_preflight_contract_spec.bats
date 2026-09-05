@@ -17,17 +17,13 @@
 # `release.manifest`) with a deliberately-incomplete fake caller
 # environment. A complete caller passes; a caller that forgot `image_name`
 # (build) or `archive_name_prefix` (release) fails early with the
-# plain-language `main.yaml` fix. The packages requirement is
-# `cache_backend`-conditional (#801): a `registry`-cache caller whose probe
-# came back missing fails with a hint that names the real fix -- drop the
-# registry backend, which base's own `build` job cannot reach under its
-# read-only `permissions:` block -- and never hands the caller a grant
-# snippet (#957, superseding the #801 wording; the hint and the requirement
-# description are both printed on failure, so the assertion covers both). A
-# `registry` caller whose probe came back granted passes, and the default
-# `gha` caller passes even without the permission (backward compatible);
-# `--list` self-describes the build contract, annotating packages as
-# registry-conditional.
+# plain-language `main.yaml` fix. The build contract declares NO permission
+# requirement (#980): the one it used to carry demanded `packages: write`
+# for the `registry` buildx cache backend, which no job of the worker
+# declares and no caller could supply, so it failed every caller that
+# followed its instructions. The backend and the requirement were removed
+# together, and a caller that grants nothing beyond `contents: read` passes.
+# `--list` self-describes the remaining contract.
 
 bats_require_minimum_version 1.5.0
 
@@ -43,17 +39,14 @@ setup() {
 
 @test "build manifest: a complete caller passes preflight" {
   PREFLIGHT_INPUT_IMAGE_NAME=ros_noetic \
-  PREFLIGHT_PERM_PACKAGES=granted \
     run bash "${PREFLIGHT}" "${BUILD_MANIFEST}"
   assert_success
 }
 
 @test "build manifest: a caller that forgot image_name fails early, naming the fix" {
   # Simulate a downstream main.yaml that calls build-worker.yaml but omits
-  # `with: { image_name: ... }`. GHCR probe granted so only the input gap
-  # is exercised.
+  # `with: { image_name: ... }`.
   PREFLIGHT_INPUT_IMAGE_NAME="" \
-  PREFLIGHT_PERM_PACKAGES=granted \
     run bash "${PREFLIGHT}" "${BUILD_MANIFEST}"
   assert_failure
   assert_output --partial 'image_name'
@@ -61,54 +54,24 @@ setup() {
   assert_output --partial 'with:'
 }
 
-@test "build manifest: a registry-cache caller is told the backend is unreachable, not to grant more (#957)" {
-  # cache_backend: registry selected, image_name supplied, but the GHCR
-  # write probe reported missing. This message is the ONLY text a failing
-  # caller actually reads, and it used to tell them to add a `packages:
-  # write` grant to call-docker-build. That grant cannot
-  # reach the worker's `build` job, which declares its own read-only
-  # `permissions:` block -- a called job gets the block it declares, and a
-  # caller's grant does not widen it -- so following the old hint produced
-  # this same failure again. The hint must name the real fix (drop the
-  # registry backend) and must not hand the caller a grant snippet.
+# why: The caller that grants nothing. Every job of build-worker.yaml
+# declares `contents: read` and pushes nothing, so a caller holding no
+# other scope is a COMPLETE caller -- and the build contract must say so.
+# It did not: it demanded `packages: write` for a cache backend no job
+# could reach, so the one caller shape that is entirely correct failed the
+# gate written to help it (#980).
+@test "build manifest: a caller granting no write scope is complete (#980)" {
   PREFLIGHT_INPUT_IMAGE_NAME=ros_noetic \
-  PREFLIGHT_CACHE_BACKEND=registry \
-  PREFLIGHT_PERM_PACKAGES=missing \
-    run bash "${PREFLIGHT}" "${BUILD_MANIFEST}"
-  assert_failure
-  assert_output --partial 'packages'
-  assert_output --partial 'cache_backend: registry is not usable'
-  # Neither the hint nor the requirement description -- both are printed
-  # on failure -- may spell the grant out: that IS the false promise.
-  refute_output --partial 'packages: write'
-}
-
-@test "build manifest: the default gha caller without packages permission still passes (#801 backward compat)" {
-  # cache_backend defaults to gha -> the buildx cache lives in GHA cache
-  # and the test-tools image is pulled anonymously, so no packages
-  # permission is required. An existing caller that never granted
-  # `packages: write` must not start failing.
-  PREFLIGHT_INPUT_IMAGE_NAME=ros_noetic \
-  PREFLIGHT_CACHE_BACKEND=gha \
   PREFLIGHT_PERM_PACKAGES=missing \
     run bash "${PREFLIGHT}" "${BUILD_MANIFEST}"
   assert_success
 }
 
-@test "build manifest: a registry-cache caller with packages granted passes (#801)" {
-  PREFLIGHT_INPUT_IMAGE_NAME=ros_noetic \
-  PREFLIGHT_CACHE_BACKEND=registry \
-  PREFLIGHT_PERM_PACKAGES=granted \
-    run bash "${PREFLIGHT}" "${BUILD_MANIFEST}"
-  assert_success
-}
-
-@test "build manifest --list: self-describes both requirements, packages as registry-conditional (#801)" {
+@test "build manifest --list: self-describes the contract, and demands no permission (#980)" {
   run bash "${PREFLIGHT}" --list "${BUILD_MANIFEST}"
   assert_success
   assert_output --partial 'image_name'
-  assert_output --partial 'packages'
-  assert_output --partial 'when PREFLIGHT_CACHE_BACKEND=registry'
+  refute_output --partial 'packages'
 }
 
 # ── release-worker caller contract ────────────────────────────────────

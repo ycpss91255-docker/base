@@ -6,12 +6,24 @@
 # ONE-DIRECTIONAL, and that is the whole design. Everything derived flows
 # spec -> document:
 #
-#   1. The count figures -- per-spec `### <path> (N)` headings, the
-#      per-type `**N tests**` totals, and TEST.md's index table +
-#      blockquote prose. Source: `grep -c '^@test'` per spec file.
+#   1. The count figures -- per-spec `### <path> (N)` headings and the
+#      per-type `**N tests**` total at a catalogue's head. Source:
+#      `grep -c '^@test'` per spec file.
 #   2. The catalogue SECTIONS -- one per spec file, each with its blurb
 #      and one row per `@test`. Source: the `# why:` markers the spec
 #      files carry (script/test/spec-markers.sh).
+#
+# What is deliberately NOT here: any AGGREGATE over the suite.
+# ADR-00000028 sec. 1 removed the grand total, TEST.md's index-table
+# Count column and its blockquote figures, and unit.md's per-type header,
+# and this generator's TEST.md pass went with them -- so TEST.md is now a
+# document this script does not write to at all. A figure above is about
+# ONE spec file or ONE level and is regenerated where it is read; an
+# aggregate named nothing it measured, so it was wrong between every
+# commit and its resync and every branch had to edit it. The count for
+# the working tree comes from the run (`just test`), and a released
+# version's from its release. `doc_counts_spec.bats` fails if one is
+# typed back into TEST.md or unit.md.
 #
 # Nothing flows the other way. A description used to be hand-written in
 # the document and PRESERVED here across regeneration, which made a person
@@ -303,48 +315,19 @@ _sync_catalog_region() {
 }
 
 # _sync_type_total <doc> <count> -- rewrite the per-type `...: **N tests**.`
-# header to <count>.
+# header to <count>, in the catalogues that have one.
+#
+# unit.md deliberately does NOT: it is the file every branch that adds a
+# unit test rewrites, and its header was one of the five aggregate lines
+# ADR-00000028 sec. 1 removed. The `sed` below simply finds no pattern
+# there. That is a silent no-op, which is exactly why it is not the only
+# thing keeping the line out: `doc_counts_spec.bats` fails if one is typed
+# back into unit.md or TEST.md.
 _sync_type_total() {
   local _doc="$1" _count="$2"
   [[ -f "${_doc}" ]] || return 0
   sed -i -E "s/(: )\*\*[0-9]+ tests\*\*/\1**${_count} tests**/" "${_doc}"
 }
-
-# _sync_test_md_index <root> -- rewrite TEST.md's derived figures (grand total,
-# per-type table, "not in the N figure", and the blockquote prose "System (N)
-# and smoke (N)" pair) from the per-type totals. The prose pair is regenerated
-# too: hand-maintaining it let it drift out of step with the table it sits
-# next to.
-_sync_test_md_index() {
-  local _root="$1"
-  local _t="${_root}/doc/test/TEST.md"
-  [[ -f "${_t}" ]] || return 0
-  # ISTQB taxonomy (ADR-00000018): levels unit / integration / system /
-  # acceptance, plus the shipped build-time smoke type. system replaces the
-  # retired behavioural category. Empty level dirs (e.g. acceptance before
-  # S5 content lands) resolve to 0 via _dir_test_count's no-match path.
-  local _u _i _sy _a _sm _tot
-  _u="$(_dir_test_count "${_root}" 'test/bats/unit/**/*_spec.bats')"
-  _i="$(_dir_test_count "${_root}" 'test/bats/integration/**/*_spec.bats')"
-  _sy="$(_dir_test_count "${_root}" 'test/bats/system/**/*_spec.bats')"
-  _a="$(_dir_test_count "${_root}" 'test/bats/acceptance/**/*_spec.bats')"
-  _sm="$(_dir_test_count "${_root}" 'dist/test/bats/smoke/**/*.bats')"
-  _tot=$(( _u + _i ))
-  sed -i -E \
-    "s/\*\*[0-9]+ tests\*\* total \([0-9]+ unit \+ [0-9]+ integration\)/**${_tot} tests** total (${_u} unit + ${_i} integration)/" \
-    "${_t}"
-  sed -i -E "s/not\*\* in the [0-9]+ figure/not** in the ${_tot} figure/" "${_t}"
-  sed -i -E \
-    "s/System \([0-9]+\) and smoke \([0-9]+\)/System (${_sy}) and smoke (${_sm})/" \
-    "${_t}"
-  sed -i -E "s#(\[unit\.md\]\(unit\.md\).*\| )[0-9]+ #\1${_u} #" "${_t}"
-  sed -i -E "s#(\[integration\.md\]\(integration\.md\).*\| )[0-9]+ #\1${_i} #" "${_t}"
-  sed -i -E "s#(\[system\.md\]\(system\.md\).*\| )[0-9]+ #\1${_sy} #" "${_t}"
-  sed -i -E "s#(\[acceptance\.md\]\(acceptance\.md\).*\| )[0-9]+ #\1${_a} #" "${_t}"
-  sed -i -E "s#(\[smoke\.md\]\(smoke\.md\).*\| )[0-9]+ #\1${_sm} #" "${_t}"
-  sed -i -E "s/(grand total \(unit \+ integration\): )\*\*[0-9]+\*\*/\1**${_tot}**/" "${_t}"
-}
-
 
 # _sync_doc_counts [root] -- regenerate every derived figure and every
 # catalogue section under <root>/doc/test.
@@ -355,13 +338,12 @@ _sync_doc_counts() {
     [[ -f "${_doc}" ]] || continue
     _glob="$(_doc_spec_glob "$(basename -- "${_doc}")")"
     # TEST.md is the index, not a per-level catalogue: it has no spec glob
-    # and no fenced region, and its figures are written by
-    # _sync_test_md_index below.
+    # and no fenced region. It also carries no figure any more, so this
+    # generator writes nothing to it at all (ADR-00000028 sec. 1).
     [[ -n "${_glob}" ]] || continue
     _sync_catalog_region "${_root}" "${_doc}" "${_glob}" || return 1
     _sync_type_total "${_doc}" "$(_dir_test_count "${_root}" "${_glob}")"
   done
-  _sync_test_md_index "${_root}"
 }
 
 main() {

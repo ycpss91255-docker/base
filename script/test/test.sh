@@ -132,6 +132,8 @@ source "${SCRIPT_DIR}/drivers/i18n_orphan.sh"
 source "${SCRIPT_DIR}/drivers/self_hosted_guard.sh"
 # shellcheck source=script/test/drivers/changelog_entry.sh
 source "${SCRIPT_DIR}/drivers/changelog_entry.sh"
+# shellcheck source=script/test/drivers/changelog_layout.sh
+source "${SCRIPT_DIR}/drivers/changelog_layout.sh"
 # shellcheck source=script/test/drivers/pin_coverage.sh
 source "${SCRIPT_DIR}/drivers/pin_coverage.sh"
 # shellcheck source=script/test/drivers/action_ref_agreement.sh
@@ -177,6 +179,7 @@ readonly _LINT_TOOLS=(
   i18n-orphan
   self-hosted-guard
   changelog-entry
+  changelog-layout
   pin-coverage
   action-ref-agreement
   generated-workflow-actions
@@ -184,6 +187,36 @@ readonly _LINT_TOOLS=(
   catalog-description
 )
 
+# ORDER IS NOT A FAIL-FAST LEVER. It reads like one -- put the cheap
+# drivers first and a broken tree is refused sooner -- and it stopped
+# being one when the phase started running every driver (base#1059).
+# Whatever the order, a run that enumerates ends when its LAST driver
+# ends, so reordering moves only WHEN each finding appears on screen, not
+# when the operator has the whole list -- and the whole list is what a
+# cycle is spent on.
+#
+# The order therefore stays as it is: phase order, which is also the
+# order the reports come out in and the order the failure summary names
+# them in. The wall-clock lever that does exist is elsewhere: running the
+# independent drivers concurrently, bounded by the slowest driver rather
+# than by their sum, since a handful of them are most of the phase. That
+# is a separate change with its own interleaving question and is
+# deliberately not made here.
+#
+# What this comment does NOT carry is a measurement: how long a driver
+# takes, or how far repeat timings of the table spread. Nothing re-derives
+# such a figure -- no lint, no test, no generator -- the host and the tree
+# both move it, and repeat runs of the same table on one machine do not
+# agree either, so a number written here would be stale without saying so
+# (ADR-00000028; `metrics` in justfile.test refuses the same thing for the
+# same reason). Measure when the question is asked: `./script/test/test.sh
+# --<tool>-only` times exactly one driver, host-direct. ci_spec pins this
+# block to the argument and against the figures.
+#
+# END OF THE ORDER RATIONALE. ci_spec reads the block bounded by this
+# sentence and the one that opens it, so neither a blank line inside the
+# argument nor the paragraph below it can move what the two guards lint.
+#
 # Every tool but hadolint is runnable host-direct (`--<tool>-only`): the
 # drivers are pure bash over the checkout, and shellcheck's binary ships
 # on ubuntu-latest. hadolint's binary exists only in the alpine
@@ -222,6 +255,54 @@ _lint_driver_failed() {
     "lint tool '${_LINT_ACTIVE_TOOL}' stopped at \`${_command}\`, status ${_status}${_detail}."
 }
 
+# _refuse_suppressed_errexit <what> -- die if a COMMAND SUBSTITUTION of
+# this call sees errexit suppressed.
+#
+# bash suppresses errexit for every command of an `if` condition, an
+# `&&` / `||` list or a `!`, and the suppression follows the call into the
+# functions and subshells below it -- an ERR trap is suppressed with it,
+# and a `set -e` inside does not give it back. Everything the lint phase
+# leans on to stop a driver at its first failing command is therefore a
+# property of how the phase was CALLED, and an unenforced precondition
+# defaults to pass: the driver sails, the dispatch returns zero, and the
+# tree is reported clean.
+#
+# So the precondition is measured. The probe is a subshell that arms
+# errexit and then fails. With errexit reaching it, it dies at the `false`
+# and prints nothing; inside a suppression context it sails and prints.
+# The wrapping `( ... ); true` keeps the substitution's own status zero, so
+# the probe is safe to run under the caller's errexit; `|| true` around it
+# would instead create the very context it asks about and always answer
+# "suppressed".
+#
+# WHAT IT MEASURES IS NARROWER THAN WHAT IT GUARDS, and the header says
+# "command substitution" because of it. The probe runs inside `$( ... )`;
+# the drivers run inside a plain `( ... )`. Those two answer the same for a
+# direct `if` / `&&` / `||` / `!` caller, and differently through `eval`:
+# on bash 5.1, `if eval f` leaves the substitution reporting errexit ARMED
+# while a plain `( set -e; false )` subshell of that same call still sails.
+# An eval'd suppressing caller is therefore NOT refused here.
+#
+# It is still not a way to make a driver sail, because this is not the only
+# mechanism: `_run_lint_tool` arms `set -E` and an ERR trap around the
+# dispatch, `eval` does not disarm either, and the driver dies at its first
+# failing command with `ci_lint_driver_failed` naming it. ci_spec pins that
+# ("an eval'd caller escapes the probe, the driver still cannot sail"), so
+# the narrower claim above rests on a measured mechanism rather than on the
+# absence of a report. What this refusal buys over the trap alone is the
+# earlier and better-named stop: one refusal, before any driver runs.
+#
+# CALL THIS AS A PLAIN STATEMENT. Called from a condition of its own it
+# measures that condition and refuses every time -- which is the honest
+# answer to the question it is asked, and useless as a guard.
+_refuse_suppressed_errexit() {
+  local _what="${1:?BUG: _refuse_suppressed_errexit expects <what>}"
+  local _probe
+  _probe="$( ( set -e; false; printf suppressed ); true )"
+  [[ -z "${_probe}" ]] || _die ci_lint_errexit_suppressed \
+    "${_what} was called from a context that suppresses errexit (an 'if' condition, an '&&' / '||' list, or '!'). bash propagates that suppression into the driver, which would then run past its own first failing command and be reported as clean. Call it as a plain statement and let its failure end the run."
+}
+
 # Run one lint tool by name. The single dispatch point; unknown names die
 # loudly rather than no-op'ing, so a typo in a CI job or a stale
 # LINT_TOOL export cannot silently skip a gate.
@@ -232,6 +313,7 @@ _lint_driver_failed() {
 # a failure sail past). `-E` is required because an ERR trap is not
 # inherited by shell functions, and every driver is one.
 _run_lint_tool() {
+  _refuse_suppressed_errexit "the lint dispatch for '${1:-}'"
   _LINT_ACTIVE_TOOL="${1:-}"
   set -E
   trap '_lint_driver_failed "$?" "${BASH_COMMAND}"' ERR
@@ -253,6 +335,7 @@ _run_lint_tool() {
     i18n-orphan)      _run_i18n_orphan ;;
     self-hosted-guard) _run_self_hosted_guard ;;
     changelog-entry)  _run_changelog_entry ;;
+    changelog-layout) _run_changelog_layout ;;
     pin-coverage)     _run_pin_coverage ;;
     action-ref-agreement) _run_action_ref_agreement ;;
     generated-workflow-actions) _run_generated_workflow_actions ;;
@@ -281,12 +364,83 @@ _run_lint_tool() {
   _LINT_ACTIVE_TOOL=""
 }
 
+# Run a set of lint tools and report EVERY one that failed.
+#
+# The phase used to be a bare loop over the table under this file's
+# `set -e`, so the first failing driver ended the run and every driver
+# behind it was never reached -- measured on a branch mid-merge, 17
+# drivers ran, `changelog-entry` died, and every entry behind it in the
+# table, `changelog-layout` through `catalog-description`, was not
+# attempted. A tree with three violations therefore cost three full gate
+# cycles, and after each one nothing said how many remained (base#1059).
+#
+# Running them all is sound because the drivers are INDEPENDENT: the
+# dispatch above is a `case`, each driver reads its own file set off the
+# checkout, and none consumes another's output or writes anything a later
+# one reads.
+#
+# THE SUBSHELL SHAPE IS LOAD-BEARING. The obvious spelling --
+#
+#   ( _run_lint_tool "${_tool}" ) || _failed+=( "${_tool}" )
+#
+# -- is wrong, and wrong in exactly the way _run_lint_tool's header
+# refuses. bash suppresses `errexit` for the whole of a command that is
+# part of a `||` list, and the suppression reaches INSIDE the subshell;
+# a `set -e` in the subshell body does not bring it back (verified on
+# bash 5.1 and 5.2). The driver would then sail past its own first
+# failing command, which is the one thing this change must not buy.
+#
+# So the parent clears errexit for the loop and reads `$?` from a
+# STANDALONE subshell -- no `||`, no `if`, nothing that creates the
+# suppression context -- which re-arms `set -e` for itself. Each driver
+# keeps its own errexit and its own ERR trap, and the trap still names
+# the driver that died because `_LINT_ACTIVE_TOOL` is set inside that
+# same subshell. stdout and stderr are inherited, not piped, so the
+# drivers that stream progress interleave exactly as they did before.
+#
+# THAT SHAPE IS ONLY HALF THE INVARIANT. The suppression a `||` creates
+# is a property of the CALL, not of this function: a caller who writes
+# `if _run_lint_tools ...`, `_run_lint_tools ... || x` or `! _run_lint_tools
+# ...` hands the same suppression through this function into the
+# standalone subshell, and the driver sails past its first failing
+# command exactly as it would in the spelling above -- only now the
+# subshell exits 0, `_failed` stays empty, and the PHASE REPORTS CLEAN.
+# Nothing inside the subshell repairs it (`( set +e; set -e; ... )` and an
+# `ERR` trap were both tried); only a separate process escapes it. So the
+# precondition is enforced instead of assumed, by the shared refusal above
+# -- every caller shape its probe can read defaults to a refusal, not to a
+# pass. A shape the probe cannot read is a different case and is handled
+# by a different mechanism, not by this one: an `eval`'d suppressing caller
+# is measured as armed and passes here, and is stopped one level down by
+# `_run_lint_tool`'s ERR trap. Both are pinned in ci_spec, and the refusal's
+# header carries the boundary between them.
+#
+# `_run_lint_tool` guards itself the same way, because `main --ci` also
+# calls it on its own -- which is why an assertion about THIS refusal has
+# to name the phase: the driver's copy emits the same event, and a spec
+# that only reads the event name cannot tell the two apart.
+#
+# The caller's errexit is restored before returning: a phase that
+# silently left `set +e` behind would disarm every check after it.
+_run_lint_tools() {
+  _refuse_suppressed_errexit "the lint phase"
+  local _tool _rc
+  local _caller_opts="$-"
+  local -a _failed=()
+  set +e
+  for _tool in "$@"; do
+    ( set -e; _run_lint_tool "${_tool}" )
+    _rc=$?
+    (( _rc == 0 )) || _failed+=( "${_tool}" )
+  done
+  [[ "${_caller_opts}" != *e* ]] || set -e
+  (( ${#_failed[@]} == 0 )) || _die ci_lint_phase_failed \
+    "${#_failed[@]} of $# lint tools failed: ${_failed[*]}. Each report is above, in phase order; this run enumerated all of them."
+}
+
 # Run the whole lint phase, in table order.
 _run_all_lint_tools() {
-  local _tool
-  for _tool in "${_LINT_TOOLS[@]}"; do
-    _run_lint_tool "${_tool}"
-  done
+  _run_lint_tools "${_LINT_TOOLS[@]}"
 }
 
 # ── Help ─────────────────────────────────────────────────────────────────────
@@ -417,7 +571,11 @@ Options:
                           code can never execute on the org's self-hosted
                           machine)
   --changelog-entry       With --lint: run only the changelog entry lint
-                          ([Unreleased] entries only: a length cap measured
+                          ([Unreleased] entries only: a category heading
+                          drawn from the locked roster in
+                          script/release/changelog_categories.sh, which
+                          doc/changelog/CONVENTIONS.md must print
+                          unchanged; a length cap measured
                           over the whole entry with whitespace collapsed,
                           so rewrapping the same prose or splitting it into
                           sub-bullets buys no budget; plus an entry that
@@ -426,6 +584,15 @@ Options:
                           both reported with BOTH line numbers. Released
                           sections are never checked -- rewriting a shipped
                           entry falsifies it)
+  --changelog-layout      With --lint: run only the changelog layout lint
+                          (the changelog is one file per 0.Y series behind
+                          a generated index: a vX.Y.Z section lives in
+                          vX.Y.md, its compare-link definition lives in the
+                          SAME file because markdown link definitions are
+                          file-scoped, exactly one series file carries
+                          '## [Unreleased]', and the index block is
+                          re-derived by script/release/changelog_index.sh
+                          and must match what is committed)
   --pin-coverage          With --lint: run only the pin-coverage lint
                           (every third-party version this repo names in a
                           Dockerfile or a workflow -- the versions
@@ -491,6 +658,7 @@ Options:
                             --i18n-orphan-only       pure bash
                             --self-hosted-guard-only pure bash
                             --changelog-entry-only   pure bash
+                            --changelog-layout-only  pure bash
                             --pin-coverage-only      pure bash
                             --action-ref-agreement-only pure bash
                             --generated-workflow-actions-only pure bash
@@ -1930,6 +2098,7 @@ main() {
       --i18n-orphan) lint_tool="i18n-orphan"; shift ;;
       --self-hosted-guard) lint_tool="self-hosted-guard"; shift ;;
       --changelog-entry) lint_tool="changelog-entry"; shift ;;
+      --changelog-layout) lint_tool="changelog-layout"; shift ;;
       --pin-coverage) lint_tool="pin-coverage"; shift ;;
       --action-ref-agreement) lint_tool="action-ref-agreement"; shift ;;
       --generated-workflow-actions) lint_tool="generated-workflow-actions"; shift ;;
@@ -1951,6 +2120,7 @@ main() {
       --i18n-orphan-only) host_lint="i18n-orphan"; shift ;;
       --self-hosted-guard-only) host_lint="self-hosted-guard"; shift ;;
       --changelog-entry-only) host_lint="changelog-entry"; shift ;;
+      --changelog-layout-only) host_lint="changelog-layout"; shift ;;
       --pin-coverage-only) host_lint="pin-coverage"; shift ;;
       --action-ref-agreement-only) host_lint="action-ref-agreement"; shift ;;
       --generated-workflow-actions-only) host_lint="generated-workflow-actions"; shift ;;

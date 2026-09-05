@@ -51,6 +51,7 @@ default:
 # / `just test lint --arch-literal`
 # / `just test lint --errexit-bang`
 # / `just test lint --derived-figures` / `just test lint --changelog-entry`
+# / `just test lint --changelog-layout`
 # / `just test lint --pin-coverage`
 # / `just test lint --action-ref-agreement`
 # / `just test lint --just-provenance`

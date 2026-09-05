@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **168 tests**.
+Integration specs under `test/bats/integration/`: **174 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -30,32 +30,26 @@ stage -- is test/bats/unit/apk_mirror_spec.bats'.
 | `compose.yaml: with APK_MIRROR unset the tooling build receives no mirror arg (#1008)` | Unset has to mean "the Dockerfile's default", not "an empty override the Dockerfile then has to defend itself against". This is the case every machine that can reach dl-cdn is in, so an unconditional forward would put an empty `--build-arg` in front of the image's own default everywhere and be noticed nowhere. |
 | `compose.yaml: the caller's APK_MIRROR reaches the tooling build (#1008)` | The other direction, and what makes the case above non-vacuous: a `build.args` entry deleted outright would also forward nothing when unset. Both halves together are what says the bare `- APK_MIRROR` form is doing its job -- override through, nothing through otherwise. |
 
-### test/bats/integration/ci_preflight_contract_spec.bats (8)
+### test/bats/integration/ci_preflight_contract_spec.bats (6)
 
 Drives `script/ci/preflight.sh` against the ACTUAL shipped requirement
 manifests (`script/ci/preflight/build.manifest` + `release.manifest`) with a
 deliberately-incomplete fake caller environment. A complete caller passes; a
 caller that forgot `image_name` (build) or `archive_name_prefix` (release)
-fails early with the plain-language `main.yaml` fix. The packages
-requirement is `cache_backend`-conditional (#801): a `registry`-cache caller
-whose probe came back missing fails with a hint that names the real fix --
-drop the registry backend, which base's own `build` job cannot reach under
-its read-only `permissions:` block -- and never hands the caller a grant
-snippet (#957, superseding the #801 wording; the hint and the requirement
-description are both printed on failure, so the assertion covers both). A
-`registry` caller whose probe came back granted passes, and the default
-`gha` caller passes even without the permission (backward compatible);
-`--list` self-describes the build contract, annotating packages as
-registry-conditional.
+fails early with the plain-language `main.yaml` fix. The build contract
+declares NO permission requirement (#980): the one it used to carry demanded
+`packages: write` for the `registry` buildx cache backend, which no job of
+the worker declares and no caller could supply, so it failed every caller
+that followed its instructions. The backend and the requirement were removed
+together, and a caller that grants nothing beyond `contents: read` passes.
+`--list` self-describes the remaining contract.
 
 | Test | Description |
 |------|-------------|
 | `build manifest: a complete caller passes preflight` | - |
 | `build manifest: a caller that forgot image_name fails early, naming the fix` | - |
-| `build manifest: a registry-cache caller is told the backend is unreachable, not to grant more (#957)` | - |
-| `build manifest: the default gha caller without packages permission still passes (#801 backward compat)` | - |
-| `build manifest: a registry-cache caller with packages granted passes (#801)` | - |
-| `build manifest --list: self-describes both requirements, packages as registry-conditional (#801)` | - |
+| `build manifest: a caller granting no write scope is complete (#980)` | The caller that grants nothing. Every job of build-worker.yaml declares `contents: read` and pushes nothing, so a caller holding no other scope is a COMPLETE caller -- and the build contract must say so. It did not: it demanded `packages: write` for a cache backend no job could reach, so the one caller shape that is entirely correct failed the gate written to help it (#980). |
+| `build manifest --list: self-describes the contract, and demands no permission (#980)` | - |
 | `release manifest: a complete caller passes preflight` | - |
 | `release manifest: a caller that forgot archive_name_prefix fails early, naming the fix` | - |
 
@@ -264,6 +258,12 @@ the unit `tui_spec`.
 | `existing repo: init never rewrites a main.yaml it did not create (#957)` | Delivery boundary: an existing repo's hand-maintained CI survives init byte-for-byte |
 | `existing repo: init syncs the monitor workflow but seeds no main.yaml (#957)` | The same boundary stated positively: the monitor converges, main.yaml is new-repo-only (#927 / #928) |
 
+### test/bats/integration/init_protected_paths_spec.bats (1)
+
+| Test | Description |
+|------|-------------|
+| `every path the resync touches lies under a protected root (refs #1050)` | The rollback surface is derived from what the resync does, not from a list restated in the spec |
+
 ### test/bats/integration/init_rollback_spec.bats (5)
 
 | Test | Description |
@@ -315,10 +315,12 @@ costs this repo nothing.
 | `kcov --merge: the merged covered set is the UNION of the slices' (#726)` | the property the whole mode rests on. A line covered in ONE slice is covered in the merge -- exactly the union, neither more nor less. Asserted as set EQUALITY rather than as a count or a rate, because a merge that lost one slice's lines and gained an equal number of another's would match on any percentage and be wrong. |
 | `kcov --merge: the merged instrumented set is the union, not a sum (#726)` | the denominator half, and the one a SUM would break first. Each slice's kcov runs with the same `--include-path`, so both reports carry the whole instrumented file; adding their `lines-valid` would count every shared line once per slice and drive the rate down as the slice count rose. That is base#730's defect, on the other merge. The merged denominator must be the union -- here, identical to either slice's. |
 
-### test/bats/integration/prev_release_upgrade_spec.bats (3)
+### test/bats/integration/prev_release_upgrade_spec.bats (5)
 
 | Test | Description |
 |------|-------------|
+| `the oldest supported upgrade.sh commits what the migrations rewrote (#1036)` | The commit is made by the consumer's OWN released upgrade.sh, so the only proof that the migrated Dockerfile lands in it is to let that script drive; a unit test on the staging helper passes while the real upgrade still leaves the file behind |
+| `the newest supported upgrade.sh commits what the migrations rewrote (#1036)` | The oldest driver is the only one whose own Step 5 misses the Dockerfile, so an arm that ran only there would go quiet as the window slides forward and the fix could be deleted with the suite green; the newest driver still leaves the rest of the resync unstaged without it |
 | `a released upgrade.sh still migrates a hand-written .env to .env.local (#868)` | - |
 | `the newest released upgrade.sh drives the current tree to a working consumer` | - |
 | `the previous released upgrade.sh drives the current tree to a working consumer (N-1)` | - |
@@ -346,6 +348,20 @@ why the same defect shipped twice.
 | `archive manifest: still declares every path the hardcoded cp list carried (#914)` | No payload path was silently pruned while making the list tolerant |
 | `archive manifest: a payload entry deleted behind its own comment is no longer declared (#914)` | The payload guard cannot be satisfied by the prose that explains the entry |
 | `archive manifest: names no wrapper that init.sh no longer creates at the repo root (#914)` | The #558 instance: no removed root wrapper is declared as a payload path |
+
+### test/bats/integration/smoke_layout_convergence_spec.bats (5)
+
+The two init.sh paths must converge on the smoke layout. Divergence here is
+invisible to per-path unit tests and only surfaces on a real downstream repo
+months later, which is exactly how this was found.
+
+| Test | Description |
+|------|-------------|
+| `created and migrated repos agree on the smoke tree layout (#1044)` | The two init.sh paths converge on the layout |
+| `created and migrated repos agree on the Dockerfile smoke sources (#1044)` | The two init.sh paths converge on the COPY sources |
+| `the migrated repo keeps its own spec, moved rather than dropped (#1044)` | The repo own spec survives the move |
+| `the migrated repo's per-stage placeholders match a created one byte for byte (#1044)` | Placeholders come from one definition, so they cannot drift |
+| `migrating twice is the same as migrating once (#1044)` | Idempotent end to end, not only per function |
 
 ### test/bats/integration/test_tools_pins_spec.bats (1)
 

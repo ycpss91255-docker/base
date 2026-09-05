@@ -1013,6 +1013,131 @@ DOCKERFILE
   diff "${TEMP_DIR}/Dockerfile.before" "${DF}"
 }
 
+# ── migration (repo-smoke-copy): repo-owned test/smoke/ -> per-stage ────────
+# The sibling of smoke-copy. That one heals the path into base's SHIPPED
+# tree; this one heals the path into the repo's OWN. Both moved in the same
+# v0.42.0 reorganisation, only the shipped half was migrated, so an upgraded
+# repo kept a flat test/smoke/ that a fresh bootstrap never produces.
+#
+# A fresh repo emits the stage COPY even when that stage's folder holds only
+# a .gitkeep, so matching it means emitting on folder existence, not on the
+# folder having specs in it.
+
+# why: Wholesale rewrite: shared baseline plus the enclosing stage folder
+@test "migration (repo-smoke-copy): rewrites the flat COPY into shared + the stage's own folder (#1044)" {
+  mkdir -p "${TEMP_DIR}/test/bats/smoke/shared" \
+    "${TEMP_DIR}/test/bats/smoke/devel-test"
+  cat > "${DF}" <<'EOF'
+FROM devel AS devel-test
+COPY test/smoke/ /smoke_test/
+EOF
+  run bash -c "$(_src); _migrate_repo_smoke_copy_detect '${DF}' && _migrate_repo_smoke_copy_apply '${DF}'"
+  assert_success
+  grep -Fq "COPY test/bats/smoke/shared/ /smoke_test/" "${DF}"
+  grep -Fq "COPY test/bats/smoke/devel-test/ /smoke_test/" "${DF}"
+  refute grep -qE '^[[:space:]]*COPY[[:space:]]+test/smoke/' "${DF}"
+}
+
+# why: A stage the repo has no folder for gets no COPY of its own
+@test "migration (repo-smoke-copy): emits only the shared baseline when the repo ships no stage folder (#1044)" {
+  mkdir -p "${TEMP_DIR}/test/bats/smoke/shared"
+  cat > "${DF}" <<'EOF'
+FROM devel AS custom-test
+COPY test/smoke/ /smoke_test/
+EOF
+  run bash -c "$(_src); _migrate_repo_smoke_copy_apply '${DF}'"
+  assert_success
+  grep -Fq "COPY test/bats/smoke/shared/ /smoke_test/" "${DF}"
+  refute grep -q 'smoke/custom-test/' "${DF}"
+}
+
+# why: The two smoke migrations stay disjoint over one Dockerfile
+@test "migration (repo-smoke-copy): leaves base's own shipped path to smoke-copy (#1044)" {
+  mkdir -p "${TEMP_DIR}/.base/dist/test/bats/smoke/shared" \
+    "${TEMP_DIR}/test/bats/smoke/shared"
+  cat > "${DF}" <<'EOF'
+FROM devel AS devel-test
+COPY .base/test/smoke/ /smoke_test/
+EOF
+  # Guard against a vacuous pass: a MISSING function also exits non-zero,
+  # which would satisfy assert_failure for entirely the wrong reason.
+  run bash -c "$(_src); declare -F _migrate_repo_smoke_copy_detect"
+  assert_success
+  run bash -c "$(_src); _migrate_repo_smoke_copy_detect '${DF}'"
+  assert_failure
+}
+
+# why: Idempotent: a Dockerfile already per-stage is not detected
+@test "migration (repo-smoke-copy): idempotent — detect false once already per-stage (#1044)" {
+  mkdir -p "${TEMP_DIR}/test/bats/smoke/shared" \
+    "${TEMP_DIR}/test/bats/smoke/devel-test"
+  cat > "${DF}" <<'EOF'
+FROM devel AS devel-test
+COPY test/bats/smoke/shared/ /smoke_test/
+COPY test/bats/smoke/devel-test/ /smoke_test/
+EOF
+  cp "${DF}" "${TEMP_DIR}/Dockerfile.before"
+  # Guard against a vacuous pass: a MISSING function also exits non-zero,
+  # which would satisfy assert_failure for entirely the wrong reason.
+  run bash -c "$(_src); declare -F _migrate_repo_smoke_copy_detect"
+  assert_success
+  run bash -c "$(_src); _migrate_repo_smoke_copy_detect '${DF}'"
+  assert_failure
+  run bash -c "$(_src); apply_migrations '${DF}'"
+  assert_success
+  diff "${TEMP_DIR}/Dockerfile.before" "${DF}"
+}
+
+# why: A sibling merely prefixed by the retired name is not it
+@test "migration (repo-smoke-copy): a test/smoke-prefixed sibling path is not the retired tree (#1044)" {
+  mkdir -p "${TEMP_DIR}/test/bats/smoke/shared"
+  cat > "${DF}" <<'DOCKERFILE'
+FROM devel AS devel-test
+COPY test/smoke_helpers/x.bash /smoke_test/x.bash
+DOCKERFILE
+  cp "${DF}" "${TEMP_DIR}/Dockerfile.before"
+  # Guard against a vacuous pass: a MISSING function also exits non-zero,
+  # which would satisfy assert_failure for entirely the wrong reason.
+  run bash -c "$(_src); declare -F _migrate_repo_smoke_copy_detect"
+  assert_success
+  run bash -c "$(_src); _migrate_repo_smoke_copy_detect '${DF}'"
+  assert_failure
+  run bash -c "$(_src); apply_migrations '${DF}'"
+  assert_success
+  diff "${TEMP_DIR}/Dockerfile.before" "${DF}"
+}
+
+# why: A COPY is a statement, not a line: continuations count
+@test "migration (repo-smoke-copy): detects a source only on a continuation line (#1044)" {
+  mkdir -p "${TEMP_DIR}/test/bats/smoke/shared"
+  cat > "${DF}" <<'DOCKERFILE'
+FROM devel AS devel-test
+COPY \
+  test/smoke/ /smoke_test/
+DOCKERFILE
+  run bash -c "$(_src); _migrate_repo_smoke_copy_detect '${DF}'"
+  assert_success
+}
+
+# why: Registered, and ordered after the migration whose path contains its own
+@test "migration (repo-smoke-copy): is registered, and after smoke-copy (#1044)" {
+  run bash -c "$(_src); printf '%s\n' \"\${_MIGRATIONS[@]}\""
+  assert_success
+  assert_line 'repo_smoke_copy'
+  # Order is load-bearing. smoke-copy rewrites the SHIPPED path first, so
+  # by the time this one runs no line still names the retired shipped
+  # tree and the two cannot both claim the same statement.
+  local _base_at _repo_at _i=0 _line
+  while IFS= read -r _line; do
+    [[ "${_line}" == 'smoke_copy' ]] && _base_at="${_i}"
+    [[ "${_line}" == 'repo_smoke_copy' ]] && _repo_at="${_i}"
+    _i=$((_i + 1))
+  done <<< "${output}"
+  assert [ -n "${_base_at}" ]
+  assert [ -n "${_repo_at}" ]
+  assert [ "${_base_at}" -lt "${_repo_at}" ]
+}
+
 # ── migration (flat-to-dist): v0.41.0 flat .base/ layout -> .base/dist/ ──────
 # The stable layout deployed on every consumer is the FLAT one: .base/config,
 # .base/script/... . The dist relocation deleted both. downstream_to_dist
@@ -2194,4 +2319,136 @@ EOF
   assert_success
   grep -Fq 'useradd -l -m -s /bin/bash -u "${USER_UID}"' "${DF}"
   grep -Fq 'usermod -l "${USER_NAME}"' "${DF}"
+}
+
+# ── what the run rewrote: the record its caller stages from ─────────────────
+#
+# A cross-version upgrade is driven by the CONSUMER'S OWN vendored
+# upgrade.sh, and the copy a consumer is sitting on stages a pair of
+# filenames hardcoded when it shipped -- v0.41.0's stages the Dockerfile
+# only down a branch these migrations never reach, so the file this
+# dispatcher had just rewritten was left uncommitted while the same run
+# told the user to push. The dispatcher is the only party that knows what
+# its migrations actually rewrote, so it keeps the record and the caller
+# stages what the record names. A list of filenames in the caller is what
+# that replaces: it decays the first time a migration touches one more
+# file, which is how the entrypoint arrived and how the next one will.
+
+# why: The caller cannot name the files itself -- it stages what the
+# record names, so the record has to name every file the run rewrote
+@test "migrated_files names the Dockerfile the run rewrote (#1036)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS lint
+COPY .base/script/docker/lib /lint/lib
+COPY .base/config /tmp/config
+EOF
+  run bash -c "$(_src); apply_migrations '${DF}' >/dev/null 2>&1; migrated_files"
+  assert_success
+  assert_output "${DF}"
+}
+
+# why: The sibling entrypoint is rewritten by migrations of its own, so a
+# record that knows only about the Dockerfile leaves it behind
+@test "migrated_files names the entrypoint the run rewrote (#1036)" {
+  mkdir -p "${TEMP_DIR}/script"
+  cat > "${DF}" <<'EOF'
+FROM busybox AS devel
+COPY --chmod=0755 .base/dist/script/docker/runtime/logging.sh /usr/local/lib/base/logging.sh
+EOF
+  cat > "${TEMP_DIR}/script/entrypoint.sh" <<'EOF'
+#!/usr/bin/env bash
+# shellcheck disable=SC1091
+source /usr/local/lib/base/_entrypoint_logging.sh
+EOF
+  run bash -c "$(_src); apply_migrations '${DF}' >/dev/null 2>&1; migrated_files"
+  assert_success
+  assert_line "${TEMP_DIR}/script/entrypoint.sh"
+}
+
+# why: A run that rewrote nothing must hand its caller nothing to stage,
+# and the record may not survive into the next run
+@test "migrated_files is empty on a second, idempotent run (#1036)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS lint
+COPY .base/script/docker/lib /lint/lib
+COPY .base/config /tmp/config
+EOF
+  run bash -c "$(_src); apply_migrations '${DF}' >/dev/null 2>&1; apply_migrations '${DF}' >/dev/null 2>&1; migrated_files"
+  assert_success
+  assert_output ""
+}
+
+# ── the record is closed by the dispatcher, not by house style ──────────────
+#
+# The first attempt at this guarantee was a grep over the lib: every write
+# had to be `sed -i` or `mv` as the first token of its line, carrying a
+# marker comment, and a spec failed the suite on anything else. That
+# recognises the shapes whoever wrote the grep had in mind and passes on
+# every other one -- `sed -E -i`, `sed --in-place`, a write after a `&&`,
+# a `cp`, a `>` redirect -- so a migration could rewrite a file the record
+# never named while the suite stayed green. Modelling shell syntax in a
+# grep is the wrong instrument: the question is not how a migration wrote,
+# it is whether the file changed. So the dispatcher answers it directly --
+# it compares each file the migration list may write before and after the
+# run -- and the tests below drive migrations that write in shapes no grep
+# was written for.
+
+# why: A migration is free to write however it likes, so the record has to
+# be closed by the dispatcher rather than by every author remembering a
+# house-style helper
+@test "a raw in-place write no helper made is still reported (#1036)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS lint
+COPY .base/dist/script/docker/lib /lint/lib
+EOF
+  run bash -c "$(_src)
+_migrate_zz_raw_detect() { return 0; }
+_migrate_zz_raw_apply() { sed -E -i 's#busybox#alpine#' \"\$1\"; }
+_MIGRATIONS+=(zz_raw)
+apply_migrations '${DF}' >/dev/null 2>&1
+migrated_files"
+  assert_success
+  assert_output "${DF}"
+}
+
+# why: The sibling entrypoint is written by migrations too, so a raw write
+# there is the same unstaged rewrite one file over
+@test "a raw write to the entrypoint is still reported (#1036)" {
+  mkdir -p "${TEMP_DIR}/script"
+  cat > "${DF}" <<'EOF'
+FROM busybox AS lint
+COPY .base/dist/script/docker/lib /lint/lib
+EOF
+  cat > "${TEMP_DIR}/script/entrypoint.sh" <<'EOF'
+#!/usr/bin/env bash
+echo hi
+EOF
+  run bash -c "$(_src)
+_migrate_zz_entry_detect() { return 0; }
+_migrate_zz_entry_apply() {
+  printf 'rewritten\n' > \"\$(_dfm_entrypoint_path \"\$1\")\"
+}
+_MIGRATIONS+=(zz_entry)
+apply_migrations '${DF}' >/dev/null 2>&1
+migrated_files"
+  assert_success
+  assert_output "${TEMP_DIR}/script/entrypoint.sh"
+}
+
+# why: "The dispatcher checks the files itself" must mean their CONTENT --
+# a check on mtime would report every file a migration merely opened and
+# hand the caller a commit of files nothing changed
+@test "a migration that opens a file without changing it reports nothing (#1036)" {
+  cat > "${DF}" <<'EOF'
+FROM busybox AS lint
+COPY .base/dist/script/docker/lib /lint/lib
+EOF
+  run bash -c "$(_src)
+_migrate_zz_touch_detect() { return 0; }
+_migrate_zz_touch_apply() { touch \"\$1\"; }
+_MIGRATIONS+=(zz_touch)
+apply_migrations '${DF}' >/dev/null 2>&1
+migrated_files"
+  assert_success
+  assert_output ""
 }

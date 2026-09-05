@@ -14,6 +14,14 @@
 #   kind=input      -> <envvar> must be non-empty
 #   kind=permission -> <envvar> must equal "granted" (set by a probe step)
 #   \n in <hint> is expanded to a newline for a multi-line main.yaml snippet.
+#
+# A `permission` line is a PROMISE that granting the scope makes the worker
+# work, so it may only name a scope some job of build-worker.yaml declares
+# for itself -- a called job gets exactly the block it declares and a
+# caller's grant never widens it (#957). The one that used to live here
+# demanded `packages: write` for the `registry` buildx cache backend, which
+# no job declared and no caller could supply; the backend and the
+# requirement were removed together (#980). The worker's jobs are read-only
+# and require no permission line at all today.
 
 input|image_name|PREFLIGHT_INPUT_IMAGE_NAME|the container image name the build produces|Add the required input to the build-worker.yaml call in .github/workflows/main.yaml:\n\njobs:\n  call-docker-build:\n    uses: ycpss91255-docker/base/.github/workflows/build-worker.yaml@<tag>\n    with:\n      image_name: <your-image-name>
-permission|packages|PREFLIGHT_PERM_PACKAGES|packages write on the worker's build job for the GHCR buildx cache -- unreachable today (cache_backend: registry only)|cache_backend: registry is not usable today, and granting the calling job more permission cannot make it usable. Its cache export needs a packages write scope on build-worker.yaml's own `build` job; that job declares its own read-only `permissions:` block, a called job gets exactly the block it declares, and a caller's grant does not widen it (#957). Drop cache_backend: registry from the build-worker.yaml call in .github/workflows/main.yaml and take the default gha backend, which needs no packages permission:\n\njobs:\n  call-docker-build:\n    permissions:\n      contents: read\n    uses: ycpss91255-docker/base/.github/workflows/build-worker.yaml@<tag>\n    with:\n      image_name: <your-image-name>\n\nRe-enabling registry needs a permission the worker can vary per input; until then gha is the supported backend.|PREFLIGHT_CACHE_BACKEND=registry
