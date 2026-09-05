@@ -452,6 +452,112 @@ _assert_release_migrates_env() {
   refute_output --partial "API_TOKEN=secret"
 }
 
+# _assert_release_stages_migrated_files <tag>
+#   The upgrade COMMITS what its migrations rewrote, and commits nothing
+#   else. The failure this arm exists for is not a broken tree: it is a
+#   tree that builds locally and pushes a lie -- the commit says
+#   "template references to <ver>" while the path migration that makes
+#   the repo buildable is still sitting unstaged, and the same run's last
+#   words are "git push".
+#
+#   Which release drives is the whole point. The consumer's own vendored
+#   upgrade.sh does the committing, and it stages a pair of filenames
+#   hardcoded when it shipped, so the run that rewrote the files is the
+#   only party that can stage them for every driver at once.
+#
+#   EVERY release in the window drives this, not just the oldest, and the
+#   difference matters because the obvious reading of the paragraph above
+#   is wrong. The oldest release is the only one whose Step 5 misses the
+#   DOCKERFILE -- v0.42.0's reaches it -- so an arm that asserted only
+#   "the Dockerfile is in the commit" really would go quiet as the window
+#   slides forward. What this arm asserts is the whole listing, and no
+#   released Step 5 stages `.dockerignore`, the re-pointed wrappers or the
+#   monitor workflow, whatever its vintage. Measured, not assumed:
+#   disabling the staging in `init.sh` and driving with the NEWEST release
+#   fails here on ` M .dockerignore`. Pinning both ends is what stops the
+#   next reader from narrowing this back to one tag on the premise the
+#   first paragraph suggests.
+_assert_release_stages_migrated_files() {
+  local _tag="${1:?BUG: _assert_release_stages_migrated_files expects a tag}"
+
+  _seed_current_remote
+  _seed_released_remote "${_tag}"
+  _seed_consumer "${_tag}"
+  _consumerise_dir_copies
+
+  git -C "${CONSUMER}" commit -q -a \
+    -m "chore: hand-list the subtree COPY sources"
+
+  # A file of the user's own, sitting in the tree while they upgrade.
+  # Nothing migrates it, so nothing may stage it. Untracked rather than
+  # modified-and-tracked because `git subtree pull` refuses to run at all
+  # over unstaged changes -- an untracked file it does not mind, and a
+  # `git add -A` sweep would take it just the same.
+  printf 'notes I have not committed yet\n' > "${CONSUMER}/NOTES.md"
+
+  # And a file of the user's own that IS one of the paths the resync
+  # publishes. NOTES.md alone cannot see the difference between "stages
+  # its own output" and "stages the published list wholesale": it is
+  # outside that list either way, so a sweep of the list passes it. A hook
+  # stub is inside the list AND never overwritten -- init.sh seeds it once
+  # and leaves it alone forever after -- so whatever is in one is the
+  # user's. Dropped from the index rather than modified in place for the
+  # reason above: `git subtree pull` refuses to run over a modified
+  # tracked file, and untracked is the same shape to the staging step.
+  git -C "${CONSUMER}" rm -q --cached script/hooks/pre/build.sh
+  git -C "${CONSUMER}" commit -q -m "chore: take a hook stub back"
+  printf '# my own hook step\n' >> "${CONSUMER}/script/hooks/pre/build.sh"
+
+  local _before
+  _before="$(cat "${CONSUMER}/Dockerfile")"
+
+  local _upgrade
+  _upgrade="$(_released_entry upgrade.sh)"
+  cd "${CONSUMER}"
+  run env TEMPLATE_REMOTE="file://${CUR_BARE}" "${_upgrade}" "${NEXT_VER}"
+  assert_success
+
+  # This arm only says something where the migrations actually rewrote
+  # the Dockerfile; a release that stops migrating anything must fail
+  # here rather than pass with nothing to stage.
+  [[ "$(cat "${CONSUMER}/Dockerfile")" != "${_before}" ]] \
+    || fail "${_tag}: the upgrade rewrote nothing in the Dockerfile, so this arm asserts nothing about staging it"
+
+  # The rewrite is IN the commit the upgrade made ...
+  run git -C "${CONSUMER}" show --format= --name-only HEAD
+  assert_line "Dockerfile"
+  # ... and the working tree no longer disagrees with it.
+  run git -C "${CONSUMER}" status --porcelain -- Dockerfile
+  assert_output ""
+  # The user's own two files are still the user's to commit -- and they are
+  # the ONLY things the upgrade left behind. Everything else in that listing
+  # would be the resync's own output: re-pointed wrappers, the justfile
+  # layering, the monitor workflow. Mechanical output of the run the commit
+  # claims to be, so a commit that says "template references to <ver>" while
+  # they sit unstaged describes a tree that does not exist. Both directions
+  # are in this one assertion: too little staged adds a line, and the
+  # customised hook stub swept into the commit removes one.
+  run git -C "${CONSUMER}" status --porcelain
+  assert_output "?? NOTES.md
+?? script/hooks/pre/build.sh"
+}
+
+# why: The commit is made by the consumer's OWN released upgrade.sh, so
+# the only proof that the migrated Dockerfile lands in it is to let that
+# script drive; a unit test on the staging helper passes while the real
+# upgrade still leaves the file behind
+@test "the oldest supported upgrade.sh commits what the migrations rewrote (#1036)" {
+  _assert_release_stages_migrated_files "$(_release_tag 2)"
+}
+
+# why: The oldest driver is the only one whose own Step 5 misses the
+# Dockerfile, so an arm that ran only there would go quiet as the window
+# slides forward and the fix could be deleted with the suite green; the
+# newest driver still leaves the rest of the resync unstaged without it
+@test "the newest supported upgrade.sh commits what the migrations rewrote (#1036)" {
+  _assert_release_stages_migrated_files "$(_release_tag 1)"
+}
+
 @test "a released upgrade.sh still migrates a hand-written .env to .env.local (#868)" {
   _assert_release_migrates_env "$(_release_tag 1)"
 }
