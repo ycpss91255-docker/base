@@ -1,10 +1,14 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **4354 tests**.
-
 > Part of the `just test` self-test suite — what runs in the `Self Test`
-> CI job. See [TEST.md](TEST.md) for the index across all test types and
-> the self-test grand total.
+> CI job. See [TEST.md](TEST.md) for the index across all test levels and
+> types.
+>
+> No suite total is recorded here (ADR-00000028 sec. 1): this file is the
+> one every branch that adds a unit test rewrites, and a total of the
+> working tree is wrong between every commit and its resync. `just test`
+> reports what it ran. The per-spec `(N)` in each heading below stays --
+> it is generated from that spec on every run and describes only it.
 
 ## How this catalogue is maintained
 

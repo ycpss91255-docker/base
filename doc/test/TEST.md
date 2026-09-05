@@ -1,32 +1,35 @@
 # TEST.md
 
-Template self-tests: **4346 tests** total (4178 unit + 168 integration).
-
-> "Self-test total" is the `just test` suite -- what runs in the
-> `Self Test` CI job. System (19) and smoke (39) tests are tracked here
-> too but are **not** in the 4346 figure: System specs need host docker
-> access and are opt-in, and smoke specs are Dockerfile `test`-stage
-> build-time assertions, not self-tests. Acceptance is a CI-only level (0
-> bats specs by design): it drives a real scaffolded consumer + built
-> image via the host-driven `acceptance` job, not the mounted-`/source`
-> sandbox (see [acceptance.md](acceptance.md)).
-
 This file is the index. The taxonomy is ISTQB-aligned (ADR-00000018):
 the **levels** are Unit -> Integration -> System -> Acceptance, plus the
-shipped build-time **Smoke** type. Per-category spec catalogs (each
-carrying its own test count) live in the sibling docs below.
+shipped build-time **Smoke** type. Per-category spec catalogs live in the
+sibling docs below.
+
+> **No suite total is recorded here, and that is the decision**
+> (ADR-00000028 sec. 1 and 3). An aggregate over the working tree names
+> nothing it measured, so it is wrong between every commit and its
+> resync, and the lines that carried it were the ones every branch had to
+> edit. Ask the run instead: `just test` reports what it ran, and a
+> released version's figure belongs to that release.
+>
+> The `just test` self-test suite is **Unit + Integration** -- what runs
+> in the `Self Test` CI job. System and smoke specs are catalogued here
+> too but are **not** part of it: System specs need host docker access
+> and are opt-in, and smoke specs are Dockerfile `test`-stage build-time
+> assertions, not self-tests. Acceptance is a CI-only level with no bats
+> specs by design: it drives a real scaffolded consumer + built image via
+> the host-driven `acceptance` job, not the mounted-`/source` sandbox
+> (see [acceptance.md](acceptance.md)).
 
 ## Test Docs by Level / Type
 
-| Doc | Scope | Count |
-|-----|-------|-------|
-| [unit.md](unit.md) | `test/bats/unit/` -- library, wrappers, generators, templates (Unit level) | 4178 |
-| [integration.md](integration.md) | `test/bats/integration/` -- init / upgrade / dispatch across components (Integration level) | 168 |
-| [system.md](system.md) | `test/bats/system/` -- opt-in `runtime-test` buildx specs, gate-fires Regression (System level, host docker) | 19 |
-| [acceptance.md](acceptance.md) | `test/bats/acceptance/` -- consumer framework + UX, UAT/OAT (Acceptance level; CI-only via the `acceptance` job, #785) | 0 |
-| [smoke.md](smoke.md) | `dist/test/bats/smoke/` -- shipped per-stage build-time smoke templates (Smoke type) | 39 |
-
-Self-test grand total (unit + integration): **4346**.
+| Doc | Scope |
+|-----|-------|
+| [unit.md](unit.md) | `test/bats/unit/` -- library, wrappers, generators, templates (Unit level) |
+| [integration.md](integration.md) | `test/bats/integration/` -- init / upgrade / dispatch across components (Integration level) |
+| [system.md](system.md) | `test/bats/system/` -- opt-in `runtime-test` buildx specs, gate-fires Regression (System level, host docker) |
+| [acceptance.md](acceptance.md) | `test/bats/acceptance/` -- consumer framework + UX, UAT/OAT (Acceptance level; CI-only via the `acceptance` job, #785) |
+| [smoke.md](smoke.md) | `dist/test/bats/smoke/` -- shipped per-stage build-time smoke templates (Smoke type) |
 
 ## Running one spec under kcov: `just test coverage-path`
 
@@ -77,12 +80,13 @@ just test coverage-local        # N = nproc
 just test coverage-local 8      # N = 8
 ```
 
-It runs the same 164 specs `just test coverage` runs and writes the same
-`coverage/` tree, including the `scope=full` stamp `just release
-coverage-badge` requires. What differs is how many cores it uses: N
-concurrent kcov processes over the shared time-balanced partition, merged
-with `kcov --merge` into one report. Measured on a 32-core machine: 34
-minutes becomes 5.
+It runs the same specs `just test coverage` runs -- both walk one roster,
+`_coverage_pool_files`, so the set is identical by construction rather than
+by a count kept in step here -- and writes the same `coverage/` tree,
+including the `scope=full` stamp `just release coverage-badge` requires.
+What differs is how many cores it uses: N concurrent kcov processes over
+the shared time-balanced partition, merged with `kcov --merge` into one
+report. Measured on a 32-core machine: 34 minutes becomes 5.
 
 **It is not line-for-line the serial run, and the difference is the
 suite's.** The merged report's instrumented set is identical and the mode
@@ -150,7 +154,7 @@ tool therefore needs its own join to `.github/workflows/self-test.yaml`:
 | `errexit-bang` | no `!` statement outside the LAST statement of any `*.bats` body in the repo, and none handing its verdict on via a `;`, an async `&` or an `\|\| true` anywhere in it, continuation lines included. An `\|\|` with a live right operand still exempts the statement -- `! A \|\| return 1` fails its test from any position -- unless a RIGHT operand -- one after such an operator, never the leading `!` that made the statement a candidate -- is itself `!`-inverted: bash exempts THAT from errexit too, so `! A \|\| ! B` aborts nothing and is judged by position and by `;` like any other statement. It is the list's FINAL operand that decides whether it can abort, and the whole class is declined rather than only the inert half, so a live chain (`! A \|\| ! B \|\| return 1`, which DOES abort from a non-final position) is reported alongside it: telling them apart needs the chain evaluated, not read, and that over-report costs one allow region. The judgement is made on the FOLDED statement: physical lines are joined while the text is INCOMPLETE -- a `\` continuation, a quote or a `(` still open, or a `\|` / `\|\|` / `&&` / `\|&` still waiting for its right operand -- and the scan then runs once from the first character, so a separator inside a `( ... )` is the argument's wherever the `(` and its `)` sit. The `\` join is a SPLICE, matching bash: `! grep -q A\` over `#b f; true` is the one word `A#b` and a live `; true`, while `! grep -q A \` over the same text is a comment. The fold answers where a statement STARTS as well as where it ends: a `!` line read in as an operator's right operand -- `echo a \|\|` over `! grep -q A f; true` -- is judged from the line the `!` opens on, over the span that begins there, so the `\|\|` in front of it stays the `echo`'s rather than being read as the `!`'s own hand-off. A statement still unfinished where its body closes is REPORTED when that span is a `!` one, or when an unterminated quote or `(` folded a line opening with `!` into it; otherwise it is unreadable but provably hid nothing this rule judges, which is stated in the driver rather than claimed away. Every row that judges a `!` line is silenced by the allow region; the two that report the FILE instead -- a body left open at EOF, an unbalanced allow marker -- are deliberately not, because the mechanism they are about must not be able to silence them. What is NOT modelled is listed in the driver header with the direction each errs in: `$'...'`, backticks, a heredoc's fixture text and a `!` that ends a compound command ending the body (#991) all OVER-report, which is the refusing direction. The ones that MISS are a `}` at column 0 inside a heredoc, a CRLF file (#990), and the `{ }` half of that same compound-command entry (#991): a brace group carries the `!` exemption out of itself, so a one-line `{ ! cmd; }` away from the body's last statement is inert in bash and unreported, because the scan needs `!` as the statement's first token and there it is `{`. Those two are not every miss the lint has, and the list does not claim to be: the `\|\|` narrowings the driver states separately miss as well -- an always-zero GROUP (`\|\| { true; }`, `\|\| ( true )`) and an operand outside the closed set of always-zero builtins that cannot fail in practice (`\|\| echo x`) are inert and go unreported, and a `;` behind either is swallowed with them (#992). A list whose FINAL operand cannot fail is inert in EVERY position, so position cannot catch it either -- `! A && ! B \|\| echo x` as a body's last statement is such a case, and a spec PINS it as a known miss so it cannot change shape unnoticed; that spec is inverted when #992 lands. The population is derived by walking the tree, not listed: `test/bats/` and the shipped `dist/test/bats/smoke/` both count | `lint-static (errexit-bang)` | ungated |
 | `derived-figures` | a figure a document repeats matches the code that defines it | `lint-static (derived-figures)` | ungated |
 | `i18n-orphan` | no identifier-shaped token in a translation's code spans that `README.md` never names | `lint-static (i18n-orphan)` | ungated |
-| `changelog-entry` | no `[Unreleased]` changelog entry over 700 chars (measured whitespace-collapsed over the whole entry), no entry repeating another's lead bullet, no `### <category>` heading opening twice in one release block | `lint-static (changelog-entry)` | ungated |
+| `changelog-entry` | no `[Unreleased]` changelog entry over 700 chars (measured whitespace-collapsed over the whole entry), no entry repeating another's lead bullet, no `### <category>` heading opening twice in one release block, and every `### <category>` heading one of the seven in `script/release/changelog_categories.sh` | `lint-static (changelog-entry)` | ungated |
 
 `lint-static` is a matrix so a red check names the lint that failed, and it is
 ungated because two of its entries (`adr-numbering`, `readme-sync`) are
@@ -217,5 +221,6 @@ OUTSIDE the generated region: everything inside it is derived from the specs
 both sides already merged, so a description one branch wrote can no longer be
 dropped by the side the collapse kept. A mechanical collapse adopts whichever
 side it kept for content the generator does not own, which is how the
-"System (N) and smoke (N)" line above shipped stale three times before the
-generator learned to derive it.
+suite-wide figures this file used to carry shipped stale three times before
+the generator learned to derive them -- and part of why they are not recorded
+here at all any more (ADR-00000028 sec. 1).
