@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **4162 tests**.
+Unit specs under `test/bats/unit/`: **4163 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1683,7 +1683,7 @@ the file's lines to the denominator.
 | `coverage_gate --merge-timings: merges per-shard timings keeping max seconds per basename (#733)` | - |
 | `coverage_gate --merge-timings: no input files yields an empty weights file (#733)` | - |
 
-### test/bats/unit/coverage_local_spec.bats (19)
+### test/bats/unit/coverage_local_spec.bats (20)
 
 ADR-00000008 shards kcov ACROSS a CI matrix, which is the only parallelism a
 GitHub-hosted plan offers: one runner, one concurrent job. On a single fat
@@ -1726,6 +1726,7 @@ workflow, whose shape the last section pins.
 | `_run_coverage_parallel: the merged run manifest names every spec, so the scope stamps full` | the release path is the reason this mode exists. `just release coverage-badge` publishes only `scope=full`, and the scope is DERIVED from coverage/timings.tsv -- so a parallel run whose manifest named the last slice's specs alone would be refused exactly like a shard, and the serial run it replaces would still be on the critical path. |
 | `_run_coverage_parallel: a failing slice fails the run` | a red spec must stay red. The slices run concurrently, so a failing one is a status that has to survive `wait` and the merge -- swallowing it would make the fastest coverage mode the one that cannot fail. |
 | `_run_coverage_parallel: rejects a job count that is not a positive integer` | the runner is reachable from the container's environment as well as from the flag (`COVERAGE_LOCAL_JOBS` is forwarded), so the validation cannot live only in the host-side parser -- an inherited junk value would otherwise reach `_shard_unit_files` as a malformed total. |
+| `_run_coverage_parallel: refuses more slices than the suite has specs` | the second refusal, and the one an operator reaches by accident -- `nproc` on a big machine can exceed the spec count of a small tree, and then the tail slices match nothing. An empty slice is not a slice that ran nothing; it is a partition that never covered the tree, and merging what the non-empty slices produced would publish a fraction of the suite under a whole-suite certificate. It is checked BEFORE the first fork, because `_shard_unit_files` refuses by `_die` and a `_die` inside a background job exits the CHILD -- the parent would wait for a slice that never ran and then merge N-1 reports. |
 | `coverage-local workflow: is manually triggered only` | the scope limit, asserted rather than promised. A trigger other than `workflow_dispatch` would put a single shared workstation on the path of an automatic run -- which is the SPOF this mode was scoped away from. |
 | `coverage-local workflow: runs on the self-hosted GPU runner behind the fork guard` | the runner is the point -- an in-job parallel mode measured on a hosted two-core runner would prove nothing about the fat machine it was written for. And a job that can land on the org's self-hosted runner is arbitrary code execution on a shared workstation unless it carries the fork guard, which is what `self-hosted-guard` enforces for every job in this tree. |
 | `coverage-local workflow: drives test.sh --coverage-local` | the workflow has to drive the MODE, through the same entry an operator uses. A validation job that called `--coverage` would be a second, slower way of running what CI already runs and would never exercise the merge this issue is about. |

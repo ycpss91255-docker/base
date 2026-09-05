@@ -468,6 +468,32 @@ _run_coverage_parallel two"
   assert_output --partial "two"
 }
 
+# why: the second refusal, and the one an operator reaches by accident --
+# `nproc` on a big machine can exceed the spec count of a small tree, and
+# then the tail slices match nothing. An empty slice is not a slice that
+# ran nothing; it is a partition that never covered the tree, and merging
+# what the non-empty slices produced would publish a fraction of the suite
+# under a whole-suite certificate. It is checked BEFORE the first fork,
+# because `_shard_unit_files` refuses by `_die` and a `_die` inside a
+# background job exits the CHILD -- the parent would wait for a slice that
+# never ran and then merge N-1 reports.
+@test "_run_coverage_parallel: refuses more slices than the suite has specs" {
+  local _root _log="${BATS_TEST_TMPDIR}/kcov.log"
+  _root="$(_make_pool_root)"
+  _install_kcov_mocks "${_log}"
+
+  # The pool holds five spec files.
+  run bash -c "$(_driver_prelude "${_root}")
+_run_coverage_parallel 9"
+  assert_failure
+  assert_output --partial "matched no spec files"
+  assert_output --partial "fewer --jobs"
+
+  # And nothing was launched: no kcov ran, so there is no partial report
+  # set for a later merge to find.
+  assert [ ! -f "${_log}" ]
+}
+
 # ════════════════════════════════════════════════════════════════════
 # The opt-in validation workflow
 #
