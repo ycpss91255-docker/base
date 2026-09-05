@@ -1749,6 +1749,294 @@ SH
   assert_output --partial "test/bats/integration/"
 }
 
+# ════════════════════════════════════════════════════════════════════
+# The coverage run is a bats run, and takes its parallelism from the
+# same helper every other bats run does -- including the decision NOT
+# to be parallel
+#
+# kcov wraps bats, so `_run_coverage`'s command IS a bats invocation --
+# and it was the only one in the driver that never received the `--jobs`
+# that `_bats_args_with_label` gives every other runner. It was one of
+# TWO assembled by hand (`_run_system` is the other, below); being
+# hand-assembled is why a second `--jobs` could drift, being the one
+# without the flag is why this path ran serial for two and a half months.
+# The two branches of the function get different answers, and both
+# answers are measured, not assumed:
+#
+#   - a SHARD (what the CI matrix runs, ~550 specs' worth of tests) is
+#     parallel: over three slices, seven of eight parallel runs
+#     reproduce the serial covered and valid line sets exactly, and the
+#     eighth missed 3 lines of 6207 -- at 1.9x-3.1x the speed, into a
+#     gate that unions eight shards over a floor with points to spare.
+#   - the FULL SUITE is serial by declared policy: at ~4500 tests every
+#     parallel run records a strict SUBSET of what serial records
+#     (8617 lines serial, twice; 8532 and 8587 parallel, nothing extra
+#     either time), so the published figure would move and jitter. The
+#     policy is decided by what the run WALKS, so a shard slice that is
+#     the whole suite (`1/1`) lands here rather than in the branch above.
+#
+# These assert on the arguments kcov was handed, because the args are
+# where the divergence was invisible: both runs pass, one takes three
+# times as long.
+# ════════════════════════════════════════════════════════════════════
+
+# why: the full-suite run is the one that stamps scope=full and feeds the
+# release badge, and at that volume kcov's single parser drops trace data
+# from passing tests -- two serial runs record the same 8617 covered
+# lines, two parallel runs record 8532 and 8587, each a strict subset. So
+# it is serial, declared through the helper rather than by omission: the
+# omission is what this issue is about.
+@test "_run_coverage: the full-suite run declares serial, and kcov gets no --jobs (#1060)" {
+  local _log="${BATS_TEST_TMPDIR}/kcov.log"
+  mock_cmd "kcov" '
+    printf "%s\n" "$*" >> "'"${_log}"'"
+    exit 0'
+  # parallel IS present and nproc DOES answer: the run must still come
+  # out serial, or the policy is not being declared, merely unreachable.
+  mock_cmd "parallel" 'exit 0'
+  mock_cmd "nproc" 'echo 8'
+
+  run bash -c '
+    # REPO_ROOT points at a scratch tree, and the DRIVER is sourced rather
+    # than test.sh, because test.sh makes REPO_ROOT readonly. _run_coverage
+    # writes ${REPO_ROOT}/coverage/timings.tsv as its last act.
+    REPO_ROOT="${BATS_TEST_TMPDIR}/repo"
+    mkdir -p "${REPO_ROOT}/coverage" "${REPO_ROOT}/test/bats/unit" \
+             "${REPO_ROOT}/test/bats/integration"
+    _die() { echo "DIE: $*"; exit 1; }
+    source /source/script/test/drivers/bats.sh
+    _run_coverage
+  '
+  assert_success
+  # The label the helper set, printed where the run announces itself --
+  # the same one-line report every other runner prints. It says WHICH
+  # serial this is: a policy, not a missing GNU parallel.
+  assert_output --partial "serial by policy"
+
+  run cat "${_log}"
+  assert_success
+  refute_output --partial "--jobs"
+  # --recursive still comes from the helper, so the directory targets
+  # descend into the per-lib subfolders (ADR-00000015).
+  assert_output --partial "--recursive"
+}
+
+# why: an unreadable policy must not resolve to a default that silently
+# runs the wrong way round -- a typo'd `seriel` reaching the parallel
+# branch is how the full suite would quietly start losing lines again.
+@test "_bats_args_with_label: an unknown jobs policy dies rather than defaulting (#1060)" {
+  run bash -c '
+    _die() { echo "DIE: $*"; exit 1; }
+    source /source/script/test/drivers/bats.sh
+    declare -a _args
+    declare _label
+    _bats_args_with_label _args _label seriel
+  '
+  assert_failure
+  assert_output --partial "DIE:"
+  assert_output --partial "seriel"
+}
+
+# why: an EMPTY policy is unreadable too, and it is the one a caller
+# reaches by accident -- `_bats_args_with_label _a _l "${SOME_POLICY}"`
+# with that variable unset. A `:-` default answers it with `parallel`
+# before the guard can see it, which is the silent wrong answer the
+# argument exists to refuse; only an OMITTED third argument is a default.
+@test "_bats_args_with_label: an empty jobs policy dies rather than defaulting (#1060)" {
+  run bash -c '
+    _die() { echo "DIE: $*"; exit 1; }
+    source /source/script/test/drivers/bats.sh
+    declare -a _args
+    declare _label
+    _bats_args_with_label _args _label "${SOME_POLICY:-}"
+  '
+  assert_failure
+  assert_output --partial "DIE:"
+  assert_output --partial "jobs policy"
+}
+
+# why: the shard path and the full-suite path are the same function, and
+# the shard is the one CI runs eight of; a fix that reached only the
+# full-suite branch would leave the measured critical path untouched.
+@test "_run_coverage: a shard's wrapped bats takes its --jobs from the helper too (#1060)" {
+  local _log="${BATS_TEST_TMPDIR}/kcov.log"
+  mock_cmd "kcov" '
+    printf "%s\n" "$*" >> "'"${_log}"'"
+    exit 0'
+  mock_cmd "parallel" 'exit 0'
+  mock_cmd "nproc" 'echo 8'
+
+  run bash -c '
+    REPO_ROOT="${BATS_TEST_TMPDIR}/repo"
+    mkdir -p "${REPO_ROOT}/coverage" "${REPO_ROOT}/test/bats/unit" \
+             "${REPO_ROOT}/test/bats/integration"
+    for _n in a b c d; do
+      printf "@test \"t1\" { :; }\n@test \"t2\" { :; }\n" \
+        > "${REPO_ROOT}/test/bats/unit/${_n}_spec.bats"
+    done
+    printf "@test \"t1\" { :; }\n" \
+      > "${REPO_ROOT}/test/bats/integration/i_spec.bats"
+    _die() { echo "DIE: $*"; exit 1; }
+    source /source/script/test/drivers/bats.sh
+    _run_coverage 1/2
+  '
+  assert_success
+  assert_output --partial "jobs=8"
+
+  run cat "${_log}"
+  assert_success
+  assert_output --partial "--jobs 8"
+}
+
+# why: `1/1` is a shard by SYNTAX and the whole suite by CONTENT, and the
+# certificate is derived from what ran, not from the argument -- so such a
+# run stamps scope=full, the only scope the release badge publishes, off a
+# parallel measurement the full-suite branch declares serial precisely
+# because it under-reports. `just test coverage 1/1` reaches it, and so
+# does vars.CI_SHARDS=1, which self-test.yaml turns into the matrix
+# ["1/1"]. The policy must follow the walked set, so a slice that IS the
+# suite is serial like the suite.
+@test "_run_coverage: a shard that is the whole suite runs serial, like the suite (#1060)" {
+  local _log="${BATS_TEST_TMPDIR}/kcov.log"
+  mock_cmd "kcov" '
+    printf "%s\n" "$*" >> "'"${_log}"'"
+    exit 0'
+  # parallel IS present and nproc DOES answer: the run must still come out
+  # serial, or the whole-suite case is not being asked.
+  mock_cmd "parallel" 'exit 0'
+  mock_cmd "nproc" 'echo 8'
+
+  run bash -c '
+    REPO_ROOT="${BATS_TEST_TMPDIR}/repo"
+    mkdir -p "${REPO_ROOT}/coverage" "${REPO_ROOT}/test/bats/unit" \
+             "${REPO_ROOT}/test/bats/integration"
+    for _n in a b c d; do
+      printf "@test \"t1\" { :; }\n@test \"t2\" { :; }\n" \
+        > "${REPO_ROOT}/test/bats/unit/${_n}_spec.bats"
+    done
+    printf "@test \"t1\" { :; }\n" \
+      > "${REPO_ROOT}/test/bats/integration/i_spec.bats"
+    _die() { echo "DIE: $*"; exit 1; }
+    source /source/script/test/drivers/bats.sh
+    _run_coverage 1/1
+  '
+  assert_success
+  assert_output --partial "serial by policy"
+
+  run cat "${_log}"
+  assert_success
+  refute_output --partial "--jobs"
+  # Every spec of BOTH pools is in the run: this is the whole suite, which
+  # is why the policy had to change.
+  assert_output --partial "a_spec.bats"
+  assert_output --partial "i_spec.bats"
+}
+
+# why: the helper exists because parallelism has a fallback -- GNU
+# parallel absent means serial, said out loud, and the SHARD path is the
+# one that asks. Proven by CONFINING PATH so parallel is genuinely gone,
+# not by reading the helper: a hand-assembled command would keep working
+# here and say nothing.
+@test "_run_coverage: with parallel absent a shard run is serial and says so (#1060)" {
+  local _log="${BATS_TEST_TMPDIR}/kcov.log"
+
+  # A PATH of its OWN, not MOCK_DIR: the run is confined to it, and
+  # teardown removes MOCK_DIR with an `rm` the confined shell would
+  # otherwise have hashed inside the directory being deleted.
+  run bash -c '
+    set -e
+    _bin="${BATS_TEST_TMPDIR}/serial-bin"
+    mkdir -p "${_bin}"
+    cat > "${_bin}/kcov" <<SH
+#!/bin/bash
+printf "%s\n" "\$*" >> "'"${_log}"'"
+exit 0
+SH
+    chmod +x "${_bin}/kcov"
+    # The externals the shard run still reaches for -- the partition
+    # shells out to find / sort / awk / grep / basename. `parallel` is
+    # deliberately not among them: that absence IS the test.
+    for _c in mktemp rm find sort awk grep basename cat printf; do
+      _p="$(command -v "${_c}")" && ln -sf "${_p}" "${_bin}/${_c}"
+    done
+
+    REPO_ROOT="${BATS_TEST_TMPDIR}/repo"
+    mkdir -p "${REPO_ROOT}/coverage" "${REPO_ROOT}/test/bats/unit" \
+             "${REPO_ROOT}/test/bats/integration"
+    for _n in a b c d; do
+      printf "@test \"t1\" { :; }\n@test \"t2\" { :; }\n" \
+        > "${REPO_ROOT}/test/bats/unit/${_n}_spec.bats"
+    done
+    _die() { echo "DIE: $*"; exit 1; }
+    source /source/script/test/drivers/bats.sh
+    export PATH="${_bin}"
+    _run_coverage 1/2
+  '
+  assert_success
+  assert_output --partial "serial"
+  assert_output --partial "parallel not in PATH"
+
+  run cat "${_log}"
+  assert_success
+  refute_output --partial "--jobs"
+}
+
+# why: the defect was never a missing flag, it was a second place to
+# write one -- _run_coverage assembled its own bats command, so what the
+# helper decides never reached it. A guard on the FLAG rather than on one
+# call site is what keeps a third hand-rolled invocation from appearing:
+# the driver may name --jobs exactly once, in the helper's own body.
+@test "drivers/bats.sh: --jobs is written in exactly one place, the shared helper (#1060)" {
+  # code_grep, so a comment that merely discusses --jobs (this driver's
+  # header does) cannot satisfy an assertion about code.
+  run code_grep -c -- '--jobs' /source/script/test/drivers/bats.sh
+  assert_success
+  assert_output "1"
+
+  # ...and the one place is inside _bats_args_with_label, not merely
+  # somewhere in the file. Comment lines are dropped here for the same
+  # reason code_grep drops them above: the helper's own header discusses
+  # the flag it owns, twice.
+  run bash -c "awk '/^_bats_args_with_label\\(\\) \\{/,/^\\}/' \
+    /source/script/test/drivers/bats.sh \
+    | grep -vE '^[[:space:]]*(#|\$)' | grep -c -- '--jobs'"
+  assert_success
+  assert_output "1"
+}
+
+# why: the system runner was the driver's OTHER hand-rolled bats command
+# -- its own nproc probe, no --recursive, and nothing said when parallel
+# was missing. It is the second copy the one-writer guard refuses, so it
+# takes its arguments from the helper like everything else.
+@test "_run_system: its bats takes --jobs and the label from the shared helper (#1060)" {
+  # A per-test socket so the prerequisite guard passes without touching
+  # the process-global /var/run/docker.sock.
+  local _sock="${BATS_TEST_TMPDIR}/present.sock"
+  perl -e 'use IO::Socket::UNIX; my $p = $ARGV[0]; unlink $p; IO::Socket::UNIX->new(Type=>SOCK_STREAM, Local=>$p, Listen=>1) or die $!;' "${_sock}"
+  local _log="${BATS_TEST_TMPDIR}/bats.log"
+  mock_cmd "docker" 'exit 0'
+  mock_cmd "parallel" 'exit 0'
+  mock_cmd "nproc" 'echo 8'
+  mock_cmd "bats" '
+    printf "%s\n" "$*" >> "'"${_log}"'"
+    exit 0'
+
+  run env SYSTEM_DOCKER_SOCK="${_sock}" bash -c '
+    REPO_ROOT="${BATS_TEST_TMPDIR}/repo"
+    mkdir -p "${REPO_ROOT}/test/bats/system"
+    _die() { echo "DIE: $*"; exit 1; }
+    source /source/script/test/drivers/bats.sh
+    _run_system
+  '
+  assert_success
+  assert_output --partial "jobs=8"
+
+  run cat "${_log}"
+  assert_success
+  assert_output --partial "--jobs 8"
+  assert_output --partial "--recursive"
+}
+
 # why: #615 shard env plumbing
 @test "main --coverage-shard: routes to the coverage service with COVERAGE_SHARD set (#615)" {
   local _log="${BATS_TEST_TMPDIR}/docker.log"

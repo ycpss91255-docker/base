@@ -33,6 +33,20 @@ recorded here to stop the topic being re-litigated.
   **522s (~8.7 min)** for the same 2135 tests. Extra cores do not speed a
   serial kcov run. Therefore **sharding is not removable** -- dropping it
   returns CI to ~8.7 min (~3x slower than the sharded ~3 min).
+
+  > Corrected (#1060): the CONCLUSION holds, the reason given for it does
+  > not. That run was serial for a second reason nobody had noticed -- the
+  > bats underneath kcov had no `--jobs`, because `_run_coverage` was the
+  > one bats invocation in the driver that never received the flag
+  > (ADR-00000008's #1060 amendment). A
+  > coverage SHARD is now parallel underneath its kcov and 1.9x-3.1x
+  > faster with a byte-identical line set, so "extra cores do not speed a
+  > serial kcov run" describes the invocation of the day, not the tool.
+  > Sharding stays non-removable on a different and stronger ground: the
+  > full-suite run must stay serial, because at that volume the single
+  > kcov parser drops trace data and the reported figure moves (measured;
+  > see the amendment). Per-process single-threadedness -- what #726
+  > addresses -- is unaffected by either finding.
 - **The two co-equal poles.** Slowest coverage shard ~155s and native arm64
   `integration-e2e` ~154s run in parallel; total is bounded by the larger.
   Cutting only one pole does not move the total (the other still sits at
