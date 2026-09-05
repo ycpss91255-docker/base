@@ -102,10 +102,18 @@ _create_symlinks() {
   # Makefile, so an upgrading repo's stale root symlink must go or it
   # dangles. (The base-only `justfile.test` is unrelated -- it is a
   # regular file under `.base/`, never a root symlink.)
+  #
+  # The removal is RECORDED (_init_record_write) where it happens, for the
+  # reason every other conditional write is: the guard above is the
+  # condition, it is gone by the time the staging step runs, and a consumer
+  # carrying a hand-written REGULAR file at one of these names still has it,
+  # untouched, when that step asks what to commit. Staging the name instead
+  # of the record puts their file in a commit about a base release.
   local _stale
   while IFS= read -r _stale; do
     if [[ -L "${_stale}" ]]; then
       rm -f "${_stale}"
+      _init_record_write "${_stale}"
       _log "  Removed stale root symlink ${_stale}"
     fi
   done < <(_init_retired_root_paths)
@@ -1206,7 +1214,10 @@ _migrate_dockerfile() {
 #     - _init_retired_root_paths, whose entries the resync DELETES: a
 #       tracked file removed but not staged leaves the same tree/commit
 #       disagreement one direction over, and git's index is the only place
-#       those still exist to be named.
+#       those still exist to be named -- MINUS the ones this run did not
+#       remove, since the resync drops such a name only when it is a
+#       symlink and a consumer's hand-written regular file at it is theirs
+#       (the same _INIT_WROTE record, for the same reason).
 #
 #   Never `git add -A`. Every path above was written by THIS run, so none
 #   of it is the user's work to review, while a sweep would commit whatever
@@ -1258,10 +1269,18 @@ _stage_resync_output() {
   # which of them this repo was tracking. A name it never tracked must not
   # reach `git add`, which fails the whole batch on a pathspec matching
   # nothing.
+  #
+  # Filtered by the same record the conditional installed paths are, and
+  # for the same reason: the resync removes one of these names only when it
+  # is a SYMLINK, so the list names what this run MAY have deleted, never
+  # what it did. A consumer's own hand-written `Makefile` or `run.sh` at
+  # the root survives the resync untouched and is theirs to commit -- the
+  # sweep the paragraph above forbids, arriving through the second list.
   local -a _retired=()
   mapfile -t _retired < <(_init_retired_root_paths)
   while IFS= read -r _path; do
     [[ -n "${_path}" ]] || continue
+    [[ -n "${_INIT_WROTE[${_path}]:-}" ]] || continue
     _paths+=("${REPO_ROOT}/${_path}")
   done < <(git -C "${REPO_ROOT}" ls-files -- "${_retired[@]}" 2>/dev/null)
 
