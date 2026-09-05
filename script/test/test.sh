@@ -258,9 +258,11 @@ readonly _LINT_TOOLS_OWN_CI_JOB=(
 # hand-maintained figure ADR-00000028 refuses: the tree moves it, the host
 # moves it, repeat runs on one machine move it, and nothing re-derives it.
 # Round-robin needs no such input and cannot go stale. What it gives up is
-# balance BETWEEN groups; what sets the wall clock is the longest single
-# driver, which no assignment can beat (see the group count's rationale in
-# .github/workflows/self-test.yaml).
+# balance BETWEEN groups: the slowest group is the longest single driver
+# -- which no assignment can beat -- plus whatever else the deal put
+# beside it, so the phase runs somewhat above that floor rather than at
+# it. The group count's rationale in .github/workflows/self-test.yaml says
+# what that costs and why it is still the trade being made.
 #
 # The spec is validated rather than trusted. Every rejection here is a way
 # a CI job could run zero drivers and exit 0 -- a check that goes green

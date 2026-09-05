@@ -439,25 +439,37 @@ jobs:
     # WHY FOUR AND NOT ONE, AND NOT TWENTY. Two figures bound the choice:
     #
     #   the FLOOR   no partition finishes faster than its LONGEST SINGLE
-    #               driver. That driver runs alone in whichever group it
-    #               lands in, so its duration is this job's wall clock
-    #               however many groups there are.
-    #   the SHARE   G groups divide the phase's total work G ways.
+    #               driver. Whichever group that driver lands in cannot
+    #               finish before it does, however many groups there are.
+    #   the SHARE   G groups divide the phase's total work G ways -- what
+    #               the slowest group would cost if the split were even.
     #
-    # A group is worth adding only while the share is still above the
-    # floor; once the share drops under it, the floor sets the wall clock
-    # and another group buys nothing while costing another slot. Measured
-    # once on run 33965580692 the phase's total was a little over three
-    # times its longest driver, so G=3 still had the share on top and G=4
-    # put the floor on top: four is the smallest count that reaches the
-    # floor, and reaching it is the whole of what more groups can do.
+    # While the share is above the floor, the split is what costs; below
+    # it, the driver is. Measured once on run 33965580692 the phase's
+    # total was a little over three times its longest driver, so G=3 still
+    # had the share on top and G=4 put the floor on top. Four is the
+    # smallest count at which splitting further stops being the thing that
+    # pays, and each further group costs one more of the concurrent slots
+    # this change exists to give back.
     #
-    # That ratio is a measurement of one run and nothing re-derives it
+    # THE SHARE IS NOT WHAT THIS PARTITION ACTUALLY DELIVERS, and the rule
+    # above would be dishonest without saying so. Round-robin is blind to
+    # cost (see `_lint_group_members`), so the slowest group is the
+    # longest driver PLUS whatever else the deal put beside it -- always
+    # above the floor, and not even monotonic in G: raising the count
+    # re-deals every driver, and two expensive ones that fell in different
+    # groups at one count can collide at the next. So the floor is a bound
+    # the shape approaches, never a wall clock it reaches, and "one more
+    # group" is not a lever that reliably shortens anything. G is chosen
+    # where the share stops binding and is then left alone.
+    #
+    # The ratio is a measurement of one run and nothing re-derives it
     # (ADR-00000028), which is why the count is written as the RULE --
     # smallest G whose share falls under the floor -- and not as a tuned
-    # constant. Re-measure the ratio (`./script/test/test.sh --<tool>-only`
-    # times one driver) before moving the number; a phase whose longest
-    # driver got faster wants fewer groups, not more.
+    # constant. Re-measure before moving the number
+    # (`./script/test/test.sh --<tool>-only` times one driver,
+    # `--lint-group N/T` times a whole group as CI runs it); a phase whose
+    # longest driver got faster wants fewer groups, not more.
     #
     # ONE JOB WAS REJECTED for the same arithmetic, not for the checks
     # list: the whole phase in one job runs for its total, which is
