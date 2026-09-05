@@ -183,6 +183,37 @@ _driver_prelude() {
   assert_output --partial "--coverage-local"
 }
 
+# why: and refused WHEREVER it was typed. The guard's own words are that a
+# count with no mode is a typo for the mode and that defaulting it would
+# run the wrong one silently -- but it sat after the short-circuit returns
+# (`--lint`, `--hadolint-only`, the host-direct `--*-only` lint primitives,
+# the name-resolution primitives), so on every one of those paths a job
+# count with no mode was accepted and ignored, which is the silence the
+# guard is named after. Two representatives are driven, one from each
+# short-circuit family, and each asserts the path it guards was NOT
+# reached: a refusal printed after the primitive already answered would
+# still have let the operator act on the answer.
+@test "main: --jobs without --coverage-local is refused before any short-circuit" {
+  run bash -c '
+    source /source/script/test/test.sh
+    main --jobs 4 --compose-project-name
+  '
+  assert_failure
+  assert_output --partial "--coverage-local"
+  refute_output --regexp 'base-[0-9a-f]{12}'
+
+  run bash -c '
+    source /source/script/test/test.sh
+    # Stubbed so the assertion is about reaching the primitive, not about
+    # what shellcheck thinks of the tree.
+    _run_lint_tool() { printf "LINTED %s\n" "${1}"; }
+    main --jobs 4 --shellcheck-only
+  '
+  assert_failure
+  assert_output --partial "--coverage-local"
+  refute_output --partial "LINTED"
+}
+
 # why: the load-bearing conflict. `--coverage-shard` narrows the run to ONE
 # slice, `--coverage-local` runs every slice; a run that took both would
 # write a partition's reports while the operator believed they had the

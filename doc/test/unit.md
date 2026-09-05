@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **4175 tests**.
+Unit specs under `test/bats/unit/`: **4176 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1689,7 +1689,7 @@ the file's lines to the denominator.
 | `coverage_gate --merge-timings: merges per-shard timings keeping max seconds per basename (#733)` | - |
 | `coverage_gate --merge-timings: no input files yields an empty weights file (#733)` | - |
 
-### test/bats/unit/coverage_local_spec.bats (26)
+### test/bats/unit/coverage_local_spec.bats (27)
 
 ADR-00000008 shards kcov ACROSS a CI matrix, which is the only parallelism a
 GitHub-hosted plan offers: one runner, one concurrent job. On a single fat
@@ -1718,6 +1718,7 @@ workflow, whose shape the last section pins.
 | Test | Description |
 |------|-------------|
 | `main: --jobs without --coverage-local is refused` | `--jobs` alone reads as "run the suite with N parallel jobs", which is what bare `just test` already does. Accepting it there would make a typo for `--coverage-local --jobs N` a silent no-op run of the wrong mode. |
+| `main: --jobs without --coverage-local is refused before any short-circuit` | and refused WHEREVER it was typed. The guard's own words are that a count with no mode is a typo for the mode and that defaulting it would run the wrong one silently -- but it sat after the short-circuit returns (`--lint`, `--hadolint-only`, the host-direct `--*-only` lint primitives, the name-resolution primitives), so on every one of those paths a job count with no mode was accepted and ignored, which is the silence the guard is named after. Two representatives are driven, one from each short-circuit family, and each asserts the path it guards was NOT reached: a refusal printed after the primitive already answered would still have let the operator act on the answer. |
 | `main: --coverage-local with --coverage-shard is refused` | the load-bearing conflict. `--coverage-shard` narrows the run to ONE slice, `--coverage-local` runs every slice; a run that took both would write a partition's reports while the operator believed they had the whole suite -- exactly the certificate defect ADR-00000008's #952 amendment closed. |
 | `main: --coverage-local with --coverage-path is refused` | `--coverage-path` reports NO figure at all and writes nothing into coverage/, so pairing it with a mode whose whole output is a merged report is two answers to one question. |
 | `main: --coverage-local rejects a non-numeric --jobs` | a job count that is not a positive integer would reach `_shard_unit_files` as a malformed total, whose message names a shard spec the operator never typed. Refuse it where it was typed. |
