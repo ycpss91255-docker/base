@@ -893,6 +893,46 @@ _all_group_members() {
   assert_failure
 }
 
+# why: A refusal has to name what it refused for, and this one did not.
+# `--lint-group` reads the membership through a process substitution, so a
+# `_die` inside the lister kills the SUBSHELL only: the runner saw an empty
+# list and blamed the empty group, reporting "contains no lint" for a spec
+# that never parsed. The wrong reason is the visible half. The invisible
+# half is worse -- the runner was treating the lister's OUTPUT as its
+# verdict, so a lister that ever printed one member before dying would hand
+# back a truncated group and run it to a green exit. So the runner
+# validates the spec in its OWN shell, and the lister's refusal is a
+# backstop it no longer depends on.
+@test "lint groups: a malformed spec is refused for BEING malformed, not for being empty (base#1071)" {
+  local _spec
+  for _spec in "abc" "9/4" "1/0"; do
+    run /source/script/test/test.sh --lint-group "${_spec}"
+    assert_failure
+    assert_output --partial "lint group '${_spec}'"
+    refute_output --partial "contains no lint"
+  done
+}
+
+# why: The one shape the digits-only regex accepts and bash arithmetic
+# rejects. `1/08` is a well-formed spec by every rule stated above and an
+# INVALID OCTAL CONSTANT to `(( ))`, so the range checks printed a raw
+# "value too great for base" from the shell itself and then refused for a
+# reason that was not the reason -- a padded index reported as "outside its
+# own total", a padded total as "asks for 08 groups". A spec is read in the
+# base it is written in, and a padded one names the same group as its bare
+# twin.
+@test "lint groups: a zero-padded spec is read as decimal, not as octal (base#1071)" {
+  run /source/script/test/test.sh --lint-group-members 1/08
+  assert_success
+  refute_output --partial "value too great for base"
+  local _padded="${output}"
+
+  run /source/script/test/test.sh --lint-group-members 1/8
+  assert_success
+  [ "${output}" = "${_padded}" ] \
+    || fail "group 1/08 lists '${_padded}' while group 1/8 lists '${output}'; a zero-padded spec must name the same group as its bare twin"
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _run_via_compose / main routing
 #

@@ -1105,7 +1105,7 @@ between them can be asserted at all.
 | `reclaim.sh --stale delegates the unowned classes to prune.sh with the same window` | - |
 | `reclaim.sh --stale never touches volumes` | - |
 
-### test/bats/unit/ci_spec.bats (150)
+### test/bats/unit/ci_spec.bats (152)
 
 | Test | Description |
 |------|-------------|
@@ -1140,6 +1140,8 @@ between them can be asserted at all.
 | `lint groups: every lint excluded from the groups is a lint of the table (base#1071)` | The exclusion list is the one hand-written thing left, so it is held to the only rule that matters: a name is excluded from the groups BECAUSE it has a job of its own. A name in it that the table does not carry excludes nothing and is a typo that reads as a decision -- and the lint it meant to name keeps running in a group, so nothing else notices. |
 | `lint groups: a group spec that is not <n>/<total> in range is refused (base#1071)` | A group spec the dispatcher cannot read must not resolve to an empty group. Every refusal here is a way a CI job could run zero drivers and report success, which is the same green-while-gating-nothing failure the grouping itself is built to avoid -- so the spec is validated rather than trusted, and an index outside its own total is refused with the malformed ones. |
 | `lint groups: running a group with no lints in it is refused (base#1071)` | The other empty group, and the one arithmetic produces on its own: more groups than there are lints leaves the tail groups with nothing to run. Listing nothing is a fair answer to a question about membership; RUNNING nothing and exiting 0 is a job that gates nothing while its check goes green, so the runner refuses what the lister may print. |
+| `lint groups: a malformed spec is refused for BEING malformed, not for being empty (base#1071)` | A refusal has to name what it refused for, and this one did not. `--lint-group` reads the membership through a process substitution, so a `_die` inside the lister kills the SUBSHELL only: the runner saw an empty list and blamed the empty group, reporting "contains no lint" for a spec that never parsed. The wrong reason is the visible half. The invisible half is worse -- the runner was treating the lister's OUTPUT as its verdict, so a lister that ever printed one member before dying would hand back a truncated group and run it to a green exit. So the runner validates the spec in its OWN shell, and the lister's refusal is a backstop it no longer depends on. |
+| `lint groups: a zero-padded spec is read as decimal, not as octal (base#1071)` | The one shape the digits-only regex accepts and bash arithmetic rejects. `1/08` is a well-formed spec by every rule stated above and an INVALID OCTAL CONSTANT to `(( ))`, so the range checks printed a raw "value too great for base" from the shell itself and then refused for a reason that was not the reason -- a padded index reported as "outside its own total", a padded total as "asks for 08 groups". A spec is read in the base it is written in, and a padded one names the same group as its bare twin. |
 | `_run_via_compose: routes default mode to the ci service with COVERAGE=0` | Service routing — fast path |
 | `_run_via_compose: routes coverage mode to the coverage service with COVERAGE=1` | Service routing — coverage path |
 | `main: dispatches no-flag default to the ci service` | End-to-end default dispatch |
