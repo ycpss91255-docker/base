@@ -1719,6 +1719,79 @@ YAML
   done
 }
 
+
+# The group specs of the lint-static matrix, one per line, read out of the
+# workflow. Returns nothing when the matrix is not the grouped form, which
+# is what the guards below name.
+_lint_static_groups() {
+  local _line
+  _line="$(yaml_job_lines "${WF}" lint-static | grep -E "^ +group: \[" || true)"
+  [ -n "${_line}" ] || return 0
+  _line="${_line#*\[}"
+  _line="${_line%\]*}"
+  _line="${_line//\'/}"
+  _line="${_line//,/ }"
+  local -a _groups=()
+  read -ra _groups <<<"${_line}"
+  [ "${#_groups[@]}" -eq 0 ] || printf '%s\n' "${_groups[@]}"
+}
+
+# why: The shape itself. One job per DRIVER spent more runner startup than
+# the drivers spent working, and took up to twenty of the free plan's
+# ~twenty org-wide concurrent slots in the same second the coverage shards
+# -- the run's critical path -- asked for theirs. One job per GROUP is the
+# trade, and it is only a trade if the job still runs the same drivers the
+# local phase runs, host-direct on a plain runner, with one failing group
+# not cancelling its siblings.
+@test "self-test.yaml: lint-static runs one job per lint GROUP, not one per lint (base#1071)" {
+  run yaml_job_lines "${WF}" lint-static
+  assert_success
+  assert_output --partial 'needs: [actionlint, classify]'
+  assert_output --partial 'runs-on: ubuntu-latest'
+  assert_output --partial 'fail-fast: false'
+  assert_output --partial './script/test/test.sh --lint-group'
+  # Still a plain runner running the same drivers: no buildx, no image.
+  refute_output --partial 'docker/setup-buildx-action'
+  refute_output --partial 'docker pull'
+}
+
+# why: The anti-roster assertion, stated over the workflow rather than
+# over the partition. A matrix entry that NAMES a driver is the roster
+# coming back: the day a driver is added it is not in the list, and
+# nothing says so. Every entry must therefore be a position in the
+# partition and nothing else -- and the positions must be a partition:
+# one total shared by all of them, each index once, as many entries as
+# the total. A matrix of ['1/4', '2/4'] would run half the lint phase
+# and go green over it.
+@test "self-test.yaml: the lint-static matrix names group positions, never drivers (base#1071)" {
+  local -a _groups=()
+  mapfile -t _groups < <(_lint_static_groups)
+  [ "${#_groups[@]}" -ge 2 ] \
+    || fail "the lint-static matrix declares ${#_groups[@]} group entries; it is not the grouped form (or the matrix key is not 'group')"
+
+  local _total="" _g _index
+  local -a _indices=()
+  for _g in "${_groups[@]}"; do
+    [[ "${_g}" =~ ^([0-9]+)/([0-9]+)$ ]] \
+      || fail "lint-static matrix entry '${_g}' is not <index>/<total> -- an entry that names a driver is the roster this change removed"
+    _index="${BASH_REMATCH[1]}"
+    if [ -z "${_total}" ]; then
+      _total="${BASH_REMATCH[2]}"
+    else
+      [ "${BASH_REMATCH[2]}" = "${_total}" ] \
+        || fail "lint-static matrix entry '${_g}' partitions into ${BASH_REMATCH[2]} while its siblings partition into ${_total} -- the groups would overlap and leave lints unrun"
+    fi
+    _indices+=( "${_index}" )
+  done
+
+  [ "${#_groups[@]}" -eq "${_total}" ] \
+    || fail "the lint-static matrix declares ${#_groups[@]} of ${_total} groups -- the missing ones run nowhere"
+  local _seen
+  _seen="$(printf '%s\n' "${_indices[@]}" | sort -n | uniq | wc -l)"
+  [ "${_seen}" -eq "${_total}" ] \
+    || fail "the lint-static matrix repeats a group index; ${_seen} of ${_total} are distinct"
+}
+
 @test "self-test.yaml: declares hadolint job (#376)" {
   run code_grep -E '^  hadolint:' "${WF}"
   assert_success
