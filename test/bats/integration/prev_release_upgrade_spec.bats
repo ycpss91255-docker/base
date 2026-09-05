@@ -575,11 +575,21 @@ _assert_release_stages_migrated_files() {
 #   path appears, which is the failure this repo keeps repeating. "The tree
 #   an upgrade produces can be upgraded from" covers the next one for free.
 #
-#   The support window is the scope, and it is the right one. `_release_tag`
-#   resolves from the repo's real tags, so once no supported release names a
-#   given path these arms stop saying anything about it -- which is exactly
-#   when ADR-00000006 stops requiring a forwarder for it. An arm that goes
-#   quiet about one path is that boundary moving, not this guard decaying.
+#   The support window is the scope, and that is a real limit rather than a
+#   property to be pleased about. `_release_tag` resolves from the repo's
+#   real tags and `PREV_RELEASE_WINDOW` is 2, so TODAY only the v0.41.0 arm
+#   exercises the repo-root `upgrade.sh` at all -- v0.42.0 already names the
+#   `dist/` path. When v0.43.0 is tagged the window becomes two `dist`-era
+#   releases and NO arm here names either root forwarder: both could be
+#   deleted with every arm still green.
+#
+#   That is not the same thing as ADR-00000006 releasing the forwarders. The
+#   ADR ties them to "as long as a release that names it is supported", and
+#   the window is a count of releases, not a statement about what consumers
+#   run -- base#919 made v0.42.0 a poisoned upgrade target, which is why
+#   consumers stayed on v0.41.0 in the first place. So the window going
+#   quiet is the guard losing sight of the path, and it has to be closed
+#   deliberately rather than read as permission. Tracked in base#1084.
 _assert_upgrade_leaves_an_upgradable_tree() {
   local _tag="${1:?BUG: _assert_upgrade_leaves_an_upgradable_tree expects a tag}"
 
