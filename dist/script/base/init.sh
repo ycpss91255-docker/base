@@ -1243,12 +1243,20 @@ _stage_resync_output() {
   # check-ignore consults the index, so a TRACKED file is never reported
   # here even when a pattern would otherwise match it -- what is dropped is
   # only what the user has told git to keep out.
+  #
+  # NUL-delimited in both directions. Newline-delimited, git answers under
+  # `core.quotePath`, whose default C-quotes any path carrying a byte over
+  # 0x7F -- so under a repo path with a non-ASCII character the key coming
+  # back never equals the key that went in, the ignored path survives this
+  # filter, `git add` refuses it, and the run reports "could not stage"
+  # over a batch it did stage. `-z` also makes a path containing a newline
+  # round-trip, which the reader below could not otherwise do.
   local -A _ignored=()
-  while IFS= read -r _path; do
+  while IFS= read -r -d '' _path; do
     [[ -n "${_path}" ]] || continue
     _ignored["${_path}"]=1
-  done < <(printf '%s\n' "${_paths[@]}" \
-    | git -C "${REPO_ROOT}" check-ignore --stdin 2>/dev/null)
+  done < <(printf '%s\0' "${_paths[@]}" \
+    | git -C "${REPO_ROOT}" check-ignore -z --stdin 2>/dev/null)
 
   local -a _stage=()
   for _path in "${_paths[@]}"; do
