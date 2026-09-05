@@ -359,6 +359,26 @@ _file() {
   assert_output --partial 'link.md'
 }
 
+# why: The verb's half of "a population of nothing is not an answer". The
+# lint refuses a scan root whose population is empty; this verb read the
+# same reader and, handed no files, renamed the record, swept nothing and
+# reported a complete sweep -- the one report it must never make wrongly,
+# since its whole claim is that the reference set is derived. A root with
+# a doc/adr/ in it has at least the record itself to read, so no files at
+# all is a reader that has stopped matching, not a tree with no
+# references.
+@test "adr renumber: REFUSES a root whose population is empty, changing nothing (#1021)" {
+  _file 'CONTEXT.md' 'ADR-00000030 is the record.'
+  # One line that covers the whole tree.
+  _file '.gitignore' '*'
+  run bash "${RENUMBER}" 30 32 "${ROOT}"
+  assert_failure
+  assert_output --partial 'no file'
+  [[ -f "${ROOT}/doc/adr/00000030-entry-point.md" ]]
+  run cat "${ROOT}/CONTEXT.md"
+  assert_output --partial 'ADR-00000030'
+}
+
 # why: A target somebody else already claims is the collision again, one
 # move later. Refusing BEFORE the first write is what keeps a refusal from
 # leaving a half-renumbered tree somebody has to unpick by hand.

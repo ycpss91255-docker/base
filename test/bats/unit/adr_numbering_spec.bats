@@ -917,6 +917,32 @@ _index_headed() {
   [[ "${output}" != *".gitignore"* ]]
 }
 
+# why: The guard the git tier has and the walk did not. An empty answer
+# from git is already refused -- a root INSIDE a checkout that lists
+# nothing is not an empty tree -- and an empty answer from the WALK was
+# passed straight through: every pointer check then ran over zero files
+# and reported clean, which is a lint that examined nothing and could not
+# tell that from a tree with nothing wrong in it. A root carrying a
+# doc/adr/ has at least the record itself in its population, so nothing
+# left to read is a scan that has stopped matching. "Cannot determine"
+# resolves to a refusal here, the way _check_test_md_drift refuses a
+# spec-free scan root.
+@test "_run_adr_numbering: a scan root with no readable file REFUSES (#1021)" {
+  _touch_adr "00000001-alpha.md"
+  _index '| 00000001 -- alpha | keep | mechanism | note |'
+  # Assembled, for the reason the case above states.
+  local _ghost='00000099'
+  _write 'CONTEXT.md' "A pointer at ADR-${_ghost}."
+  # One line that covers the whole tree. The walk prunes every path and
+  # answers with no files at all -- and with it, silently, every check
+  # below.
+  _write '.gitignore' '*'
+  run _run_adr_numbering
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"no file"* ]]
+  [[ "${output}" == *"${SCRATCH}"* ]]
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _run_adr_numbering: real tree guard
 # ════════════════════════════════════════════════════════════════════
