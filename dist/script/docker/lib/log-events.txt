@@ -171,6 +171,11 @@ init_failed
 init_rollback
 init_rollback_failed
 
+# smoke_migrate.sh (repo-owned smoke tree layout; emitted under the init
+# service because init.sh is the only caller)
+smoke_tree_migrated
+smoke_tree_migration_conflict
+
 # gitignore.sh (managed .gitignore blocks; emitted under the init service
 # because init.sh / upgrade.sh are the only callers)
 gitignore_managed_block_invalid

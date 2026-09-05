@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **165 tests**.
+Integration specs under `test/bats/integration/`: **170 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test levels and
@@ -307,6 +307,20 @@ why the same defect shipped twice.
 | `archive manifest: still declares every path the hardcoded cp list carried (#914)` | No payload path was silently pruned while making the list tolerant |
 | `archive manifest: a payload entry deleted behind its own comment is no longer declared (#914)` | The payload guard cannot be satisfied by the prose that explains the entry |
 | `archive manifest: names no wrapper that init.sh no longer creates at the repo root (#914)` | The #558 instance: no removed root wrapper is declared as a payload path |
+
+### test/bats/integration/smoke_layout_convergence_spec.bats (5)
+
+The two init.sh paths must converge on the smoke layout. Divergence here is
+invisible to per-path unit tests and only surfaces on a real downstream repo
+months later, which is exactly how this was found.
+
+| Test | Description |
+|------|-------------|
+| `created and migrated repos agree on the smoke tree layout (#1044)` | The two init.sh paths converge on the layout |
+| `created and migrated repos agree on the Dockerfile smoke sources (#1044)` | The two init.sh paths converge on the COPY sources |
+| `the migrated repo keeps its own spec, moved rather than dropped (#1044)` | The repo own spec survives the move |
+| `the migrated repo's per-stage placeholders match a created one byte for byte (#1044)` | Placeholders come from one definition, so they cannot drift |
+| `migrating twice is the same as migrating once (#1044)` | Idempotent end to end, not only per function |
 
 ### test/bats/integration/test_tools_pins_spec.bats (1)
 

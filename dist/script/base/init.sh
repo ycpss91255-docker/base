@@ -64,6 +64,8 @@ source "${TEMPLATE_DIR}/dist/script/docker/lib/_lib.sh"
 source "${TEMPLATE_DIR}/dist/script/docker/lib/template_guard.sh"
 # shellcheck disable=SC1091
 source "${TEMPLATE_DIR}/dist/script/docker/lib/dockerfile_migrate.sh"
+# shellcheck disable=SC1091
+source "${TEMPLATE_DIR}/dist/script/docker/lib/smoke_migrate.sh"
 
 _log() { _log_info init init_progress "display=$*"; }
 
@@ -494,17 +496,10 @@ setup() {
   assert_cmd_installed bash
 }
 BATS
-  cat > test/bats/smoke/devel-test/.gitkeep <<'KEEP'
-# Reserved for devel-test-only smoke specs. Empty until a devel-test
-# specific assertion is added; the shared/ baseline still runs here.
-KEEP
-  cat > test/bats/smoke/runtime-test/.gitkeep <<'KEEP'
-# Reserved for runtime-test-only smoke specs (opt-in runtime split). Empty
-# until the runtime stage is enabled and a runtime-specific assertion is
-# added; the shared/ baseline still runs here. The placeholder keeps the
-# folder present so the Dockerfile's commented-out runtime-test COPY block
-# resolves the moment the split is turned on.
-KEEP
+  # Same call the upgrade migration makes, so a repo created here and a
+  # repo migrated onto this layout cannot end up with different
+  # placeholders (ADR-00000028).
+  _smoke_seed_stage_dirs "${REPO_ROOT}"
   _log "  Created test/bats/smoke/shared/${name}_env.bats"
 
   # .github/workflows/main.yaml
@@ -1155,6 +1150,10 @@ _init_existing_repo() {
   # ensure the base version monitor workflow exists; existing repos
   # pick it up on their next upgrade (upgrade.sh Step 3 re-runs init).
   _sync_base_monitor_workflow
+  # Move the repo's own smoke tree onto the per-stage layout BEFORE the
+  # Dockerfile migration rewrites the COPY that reads it, so the rewritten
+  # per-stage sources resolve the moment they are written.
+  _migrate_smoke_tree "${REPO_ROOT}"
   _migrate_dockerfile
   _init_disarm_rollback
 }
