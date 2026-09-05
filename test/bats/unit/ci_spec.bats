@@ -784,7 +784,7 @@ _stored_measurements() {
 # why: Parallel-present branch, and the count it is handed is FLOORED
 # rather than equal to the core count -- `_run_tests` is one of the
 # runners with no kcov in the loop, so there is no line set to move and
-# nothing to hold it at the machine's size (#1068). The assertion is
+# nothing to hold it at the machine's size (base#1068). The assertion is
 # `> the mocked cores`, not a number: it says WHICH SIDE of the policy
 # this runner is on, which is the part a re-tune must not silently flip.
 @test "_run_tests: passes --jobs N when parallel is on PATH" {
@@ -1866,7 +1866,7 @@ SH
 # ════════════════════════════════════════════════════════════════════
 # The job count is a FLOOR under the core count, because this gate
 # WAITS rather than computes -- and a count nobody could read is not a
-# reading (#1068)
+# reading (base#1068)
 #
 # `nproc` is the right default for a CPU-bound workload and this is not
 # one: a bats test spends its time waiting on subprocesses (base#1002
@@ -2278,7 +2278,7 @@ SH
 # was missing. It is the second copy the one-writer guard refuses, so it
 # takes its arguments from the helper like everything else.
 # It gets the FLOORED count like every other runner with no kcov in the
-# loop (#1068): its tests are the most subprocess-bound in the suite, so
+# loop (base#1068): its tests are the most subprocess-bound in the suite, so
 # it is where oversubscription has the most to give.
 @test "_run_system: its bats takes --jobs and the label from the shared helper (#1060)" {
   # A per-test socket so the prerequisite guard passes without touching
@@ -2303,7 +2303,7 @@ SH
   assert_success
   # Floored, not equal to the core count: the system runner has no kcov
   # in its loop either, and it is the MOST subprocess-bound runner in the
-  # driver -- every one of its tests waits on docker (#1068).
+  # driver -- every one of its tests waits on docker (base#1068).
   local _jobs
   _jobs="$(printf '%s\n' "${output}" | sed -n 's/.*jobs=\([0-9][0-9]*\).*/\1/p' | head -n1)"
   assert [ -n "${_jobs}" ]

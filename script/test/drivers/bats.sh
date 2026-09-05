@@ -23,7 +23,7 @@ _bats_args_with_label() {
   # parallelism + fallback messaging stay in one place. Inputs:
   #   $1 = name of array var (e.g. _bats_args)
   #   $2 = name of label string var (e.g. _label)
-  #   $3 = jobs policy, `parallel` (default) or `serial`
+  #   $3 = jobs policy, `parallel` (default), `metered` or `serial`
   # All specs use per-test mktemp dirs (BATS_TEST_TMPDIR / TEMP_DIR) so
   # there's no shared filesystem state between tests — safe to run
   # concurrently. When parallel is missing (earlier alpine test-tools
@@ -31,10 +31,14 @@ _bats_args_with_label() {
   #
   # A caller passes `serial` when its run must not be concurrent for a
   # reason of its own -- today only a coverage run that walks the whole
-  # suite, whose comment carries the measurement. Declaring the policy
-  # HERE is the point: `--jobs` and its fallback message keep one writer, so
-  # a run that must not be parallel says so in the same vocabulary as one
-  # that cannot be, instead of quietly assembling a different command.
+  # suite, whose comment carries the measurement. It passes `metered` when
+  # its run may be concurrent but must not be OVERSUBSCRIBED, because
+  # something downstream of bats does not scale with the job count --
+  # today the two kcov runners, whose N bats jobs drain into one
+  # single-threaded trace parser. Declaring the policy HERE is the point:
+  # `--jobs` and its fallback message keep one writer, so a run that must
+  # not be parallel says so in the same vocabulary as one that cannot be,
+  # instead of quietly assembling a different command.
   # An unreadable policy is a _die, not a default: a `seriel` that fell
   # through to the parallel branch is precisely the silent wrong answer
   # this argument exists to prevent. `${3-parallel}` and not `${3:-...}`,
@@ -45,9 +49,9 @@ _bats_args_with_label() {
   local -n _out_label="$2"
   local _policy="${3-parallel}"
   case "${_policy}" in
-    parallel|serial) ;;
+    parallel|metered|serial) ;;
     *) _die ci_invalid_jobs_policy \
-         "BUG: _bats_args_with_label got jobs policy '${_policy}' (expected parallel|serial)." ;;
+         "BUG: _bats_args_with_label got jobs policy '${_policy}' (expected parallel|metered|serial)." ;;
   esac
   # --recursive so a directory target descends into per-lib sub-folders
   # (test/bats/unit/<lib>/<subunit>_spec.bats); foldered specs are
@@ -62,10 +66,78 @@ _bats_args_with_label() {
     return 0
   fi
   if command -v parallel >/dev/null 2>&1; then
-    local _jobs
-    _jobs="$(nproc 2>/dev/null || echo 4)"
+    # THE COUNT IS max(cores, floor) -- A FLOOR, NEVER A MULTIPLE.
+    #
+    # `nproc` alone is the right answer for a CPU-BOUND workload, and this
+    # is not one: a bats test spends its time waiting on subprocesses, not
+    # computing (base#1002 measured 1-2 of 32 cores busy). CI's runner has
+    # 4 cores, so `--jobs $(nproc)` there ran the gate at exactly the ratio
+    # the flag exists to remove -- and it was worth nothing: one real
+    # coverage shard on a 4-CPU cpuset took 113.4s / 104.8s at jobs=4
+    # against a 108.4s / 108.9s SERIAL control. 8 gives 1.28x, 32 gives
+    # 1.75x, 64 the same as 32. Plain bats, same shard, same 4 cores:
+    # 88.4s / 93.8s at jobs=4 against 42.5s / 42.2s at jobs=32, so this is
+    # a property of the SUITE, not of kcov.
+    #
+    # Why a floor and not `k x nproc`: the optimum sits at the same
+    # ABSOLUTE count on both machines measured. On 32 cores, 128 jobs (4x)
+    # was worse or equal to 32 (60.7 / 47.3 against 49.0 / 47.3), and 16
+    # was worse than 32. A factor rule gets the 4-core runner right by
+    # coincidence and prescribes a measurably worse number here. A floor
+    # gets both, and is monotone -- a bigger machine is never handed less.
+    #
+    # 32 is therefore a measured property of the WORKLOAD (how many tests
+    # it takes to keep the pipe full while each one waits), not of a
+    # machine, which is why it does not track the core count and why
+    # nothing here scales it. Re-derive it by sweeping --jobs against one
+    # shard on a constrained cpuset; do not multiply it.
+    local _floor=32
+    local _jobs _cores
+    if _cores="$(nproc 2>/dev/null)" && [[ "${_cores}" =~ ^[1-9][0-9]*$ ]]; then
+      if [[ "${_policy}" == "metered" ]]; then
+        # No floor: one job per core and no more. Raising a coverage shard
+        # from 4 to 32 jobs is 1.75x and costs a REPRODUCIBLE hole -- four
+        # runs at 16/32 jobs union to 31 lines short of the serial covered
+        # set, 30 of them the compose-lifecycle region of
+        # dist/script/docker/wrapper/run.sh, ~0.45 points off the reported
+        # rate -- where two runs at jobs=4 union to the serial set exactly.
+        # Faster while losing lines is not an improvement for the runner
+        # whose output IS the line set. Revisit when one kcov process per
+        # slice (base#726) stops the parser being the shared drain, and
+        # re-run the line-set comparison in the same change.
+        _jobs="${_cores}"
+        _out_label="jobs=${_jobs} (metered to the core count)"
+      elif (( _cores < _floor )); then
+        _jobs="${_floor}"
+        _out_label="jobs=${_jobs} (floor, over ${_cores} cores)"
+      else
+        _jobs="${_cores}"
+        _out_label="jobs=${_jobs} (cores, at or above the floor)"
+      fi
+    else
+      # A COUNT NOBODY COULD READ IS NOT A READING. The old
+      # `nproc 2>/dev/null || echo 4` printed `jobs=4` for a failed probe
+      # and for a genuine 4-core machine alike -- and on CI both were true
+      # at once, so the log could not say which had happened. That is the
+      # shape the policy argument above refuses.
+      #
+      # A FALLBACK is right here where a _die is right there, and the two
+      # are not in tension: an unreadable POLICY is a caller's bug, and
+      # there is no correct run to give it; an unreadable CORE COUNT is an
+      # ENVIRONMENT, the same kind as `parallel` missing from PATH, which
+      # this helper already falls back on and NAMES. So it falls back and
+      # labels itself a fallback. Under `metered` the fallback is 1 rather
+      # than the floor: with no core count there is nothing to meter to,
+      # and the safe direction for a run whose output is a line set is
+      # fewer jobs, not more.
+      if [[ "${_policy}" == "metered" ]]; then
+        _jobs=1
+      else
+        _jobs="${_floor}"
+      fi
+      _out_label="jobs=${_jobs} (fallback: nproc gave no core count)"
+    fi
     _out_args+=(--jobs "${_jobs}")
-    _out_label="jobs=${_jobs}"
   else
     _out_label="serial; parallel not in PATH"
   fi
@@ -403,7 +475,11 @@ _run_coverage_path() {
   local _path="${1:?BUG: _run_coverage_path expects a repo-root-relative spec path}"
   local -a _bats_args
   local _label
-  _bats_args_with_label _bats_args _label
+  # `metered`, like the shard: kcov is in the loop, so the single trace
+  # parser is the drain again. This mode publishes no figure, but showing
+  # what one spec covers under instrumentation is its entire purpose --
+  # oversubscribing it corrupts the thing it was run to look at.
+  _bats_args_with_label _bats_args _label metered
   [[ -n "${BATS_FILTER:-}" ]] && _bats_args+=(-f "${BATS_FILTER}")
 
   # Container-local scratch, never the mounted checkout. Removed below
@@ -498,6 +574,17 @@ _run_coverage() {
   # scale, and with it the full-suite path, needs a kcov process per
   # slice (base#726): a different change from this one, and not a
   # competing one.
+  #
+  # AND IT IS WHY THE SHARD DECLARES `metered` RATHER THAN `parallel`
+  # (base#1068). Every other runner now takes a FLOOR on concurrency,
+  # because the suite waits rather than computes; these two do not,
+  # because the drain above does not move with it. Measured on one shard:
+  # 4 -> 32 jobs is 1.75x, and four runs at 16/32 jobs union to 31 lines
+  # SHORT of the serial covered set -- 30 of them the compose-lifecycle
+  # region of dist/script/docker/wrapper/run.sh, ~0.45 points off the
+  # reported rate -- where two runs at jobs=4 union to the serial set
+  # exactly. The dropout stops being scatter and becomes a reproducible
+  # blind spot. Faster while losing lines is not an improvement here.
   local -a _bats_args
   local _label
 
@@ -531,7 +618,7 @@ _run_coverage() {
     # the matrix ["1/1"]. Asking the SET rather than the number also covers
     # the slices that are the suite without saying 1/1 (a tree with fewer
     # specs than shards, where 1/2 takes everything and 2/2 dies empty).
-    local _policy=parallel
+    local _policy=metered
     if [[ "$(printf '%s\n' "${_files}" | LC_ALL=C sort)" \
           == "$(_coverage_pool_files)" ]]; then
       _policy=serial
