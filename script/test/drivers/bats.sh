@@ -37,10 +37,13 @@ _bats_args_with_label() {
   # that cannot be, instead of quietly assembling a different command.
   # An unreadable policy is a _die, not a default: a `seriel` that fell
   # through to the parallel branch is precisely the silent wrong answer
-  # this argument exists to prevent.
+  # this argument exists to prevent. `${3-parallel}` and not `${3:-...}`,
+  # so OMITTED (the default this helper documents) and PASSED AS EMPTY (a
+  # caller expanding an unset variable) are different inputs: the second
+  # is unreadable, and it is the one a caller reaches by accident.
   local -n _out_args="$1"
   local -n _out_label="$2"
-  local _policy="${3:-parallel}"
+  local _policy="${3-parallel}"
   case "${_policy}" in
     parallel|serial) ;;
     *) _die ci_invalid_jobs_policy \
