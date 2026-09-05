@@ -976,6 +976,26 @@ _index_headed() {
   [[ "${output}" == *"vendor/old.md"* ]]
 }
 
+# why: The boundary of the report above, and the working state that would
+# otherwise trip it every time. `git ls-files` lists a tracked file that
+# has been DELETED from the working tree and not yet staged, and no walk
+# can list a file that is not there -- which is a difference between the
+# two answers and not a difference between the two POPULATIONS. Reported,
+# it would fail the lint on an ordinary uncommitted deletion, naming a
+# .gitignore rule that has nothing to do with it.
+@test "_run_adr_numbering: a tracked file deleted from the tree is not a split (#1021)" {
+  _touch_adr "99990001-alpha.md"
+  _index '| 99990001 -- alpha | keep | mechanism | note |'
+  _write 'CONTEXT.md' 'ADR-99990001 resolves.'
+  _write 'gone.md' 'ADR-99990001 resolves.'
+  git -C "${SCRATCH}" init -q
+  git -C "${SCRATCH}" add doc CONTEXT.md gone.md
+  rm -f "${SCRATCH}/gone.md"
+  run _run_adr_numbering
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"clean"* ]]
+}
+
 # why: The guard the git tier has and the walk did not. An empty answer
 # from git is already refused -- a root INSIDE a checkout that lists
 # nothing is not an empty tree -- and an empty answer from the WALK was

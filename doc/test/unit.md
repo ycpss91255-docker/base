@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3995 tests**.
+Unit specs under `test/bats/unit/`: **3996 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -173,7 +173,7 @@ a refusal as "do not release".
 | `R3: PASSES a verbatim claim about a file this repo carries (#927)` | - |
 | `R3: IGNORES verbatim used about behaviour rather than a quotation (#927)` | - |
 
-### test/bats/unit/adr_numbering_spec.bats (45)
+### test/bats/unit/adr_numbering_spec.bats (46)
 
 Unit tests for `script/test/drivers/adr_numbering.sh` (`_run_adr_numbering`,
 refs #808), the ADR-numbering lint. The registry is the filesystem
@@ -228,6 +228,7 @@ warned.
 | `_run_adr_numbering: an exclude file carrying no rule is not reported (#1021)` | The boundary that keeps the pair above from being noise. A declaration with no rules in it declares nothing, and reporting a `.git/info/exclude` that carries only git's own seeded comments would be a finding on every checkout with no repair to make. |
 | `_run_adr_numbering: a checkout reports no unreadable declaration (#1021)` | And the report is about the WALK, not about the tree. Where git answers, git applies every one of these forms itself -- that is the tier whose exclusion the walk is only ever approximating -- so reporting them there would fail a checkout for a declaration nothing in it gets wrong. |
 | `_run_adr_numbering: a tracked file the root .gitignore names is reported (#1021)` | The direction of the split the report above cannot see. git never ignores a file it TRACKS, so a tracked path the root .gitignore names is in the git tier's population and pruned out of the walk's -- the walk reading LESS than the verb sweeps, which is the one direction no unreadable-rule finding covers: the rule was applied, exactly, and the tiers still disagree. Nothing said so, and the consequence is a stale reference in that file that the local in-container gate never reads while `just adr renumber` rewrites it -- the two tiers answering differently about one file, which is the whole premise of the shared reader. |
+| `_run_adr_numbering: a tracked file deleted from the tree is not a split (#1021)` | The boundary of the report above, and the working state that would otherwise trip it every time. `git ls-files` lists a tracked file that has been DELETED from the working tree and not yet staged, and no walk can list a file that is not there -- which is a difference between the two answers and not a difference between the two POPULATIONS. Reported, it would fail the lint on an ordinary uncommitted deletion, naming a .gitignore rule that has nothing to do with it. |
 | `_run_adr_numbering: a scan root with no readable file REFUSES (#1021)` | The guard the git tier has and the walk did not. An empty answer from git is already refused -- a root INSIDE a checkout that lists nothing is not an empty tree -- and an empty answer from the WALK was passed straight through: every pointer check then ran over zero files and reported clean, which is a lint that examined nothing and could not tell that from a tree with nothing wrong in it. A root carrying a doc/adr/ has at least the record itself in its population, so nothing left to read is a scan that has stopped matching. "Cannot determine" resolves to a refusal here, the way _check_test_md_drift refuses a spec-free scan root. |
 | `_run_adr_numbering: the REAL doc/adr/ passes today (00000009 gap warned) (#808)` | Live tree clean, 00000009 gap warned |
 

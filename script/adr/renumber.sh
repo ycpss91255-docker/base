@@ -387,13 +387,13 @@ _adr_renumber() {
   # that leaves a stale pointer behind a green gate. The resolution that
   # IS derivable is to renumber the FIXTURE, which is also what the
   # ADR-numbering lint asks of the same tree.
+  #
   # Both ends of the move, because the state it must not reach is the same
-  # one either way: a number that a record claims and a file declares. At
-  # <from> the sweep would skip the declaring file whole and report a
-  # complete repair with a pointer at this record still in it; at <to> the
-  # move would CREATE that state, and the run would report success and
-  # leave the tree failing the ADR-numbering lint -- a red gate produced
-  # by the documented command.
+  # one either way. At <from> the sweep would skip the declaring file and
+  # report a complete repair with a pointer at this record still in it; at
+  # <to> the move would CREATE that state, and the run would report
+  # success and leave the tree failing the lint -- a red gate produced by
+  # the documented command.
   local -a _declared=()
   mapfile -t _declared < <(_renumber_declarations "${_root}" "${_from}")
   if (( ${#_declared[@]} > 0 )); then

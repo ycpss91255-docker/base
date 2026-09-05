@@ -517,6 +517,13 @@ _adr_ref_tier_split() {
   done
   for _rel in "${_git[@]}"; do
     [[ -z "${_seen[${_rel}]:-}" ]] || continue
+    # A path git lists and nothing can walk to: a tracked file deleted
+    # from the working tree and not yet staged. That is a difference
+    # between the two ANSWERS and not between the two populations -- no
+    # rule prunes it and no reader could have read it -- so reporting it
+    # would fail the lint on an ordinary uncommitted deletion, naming a
+    # rule that has nothing to do with it.
+    [[ -e "${_root}/${_rel}" || -L "${_root}/${_rel}" ]] || continue
     printf '%s\ta path git reads and the walk prunes; git does not ignore a file it tracks\n' \
       "${_rel}"
   done
