@@ -69,6 +69,16 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   unchanged**: CI stays on the hosted shard matrix, and the self-hosted
   validation workflow is `workflow_dispatch` and opt-in.
 
+### Changed
+- **an ADR's trigger claim may now name any real trigger, not only
+  `workflow_call` (#726)** -- the `adr_doc_claims` rule read its escape
+  hatch as one literal string, so the first record to describe a
+  `workflow_dispatch`-only workflow was reported for saying something true.
+  The accepted trigger is now read off the workflow's own `on:` block.
+  Affects anyone writing an ADR that names a workflow: state the trigger
+  the workflow has. `push` is still not accepted for a workflow with no
+  `tags:` filter, because a tag push is a push.
+
 ## [v0.43.0-rc1] - 2026-09-04
 
 ### Changed
