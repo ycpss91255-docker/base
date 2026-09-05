@@ -70,6 +70,12 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   validation workflow is `workflow_dispatch` and opt-in.
 
 ### Changed
+- **`just release coverage-badge`'s refusals now name both whole-suite
+  runs (#726)** -- every refusal that asks for a re-run costs the operator
+  the most expensive run in the repo, and the remedy sentence named only
+  the serial one. It now offers `just test coverage-local` beside it, from
+  a single shared hint rather than five copies. Affects anyone who has hit
+  a badge refusal: the faster route is now in the message.
 - **an ADR's trigger claim may now name any real trigger, not only
   `workflow_call` (#726)** -- the `adr_doc_claims` rule read its escape
   hatch as one literal string, so the first record to describe a

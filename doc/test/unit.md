@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **4163 tests**.
+Unit specs under `test/bats/unit/`: **4164 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1584,7 +1584,7 @@ order, plain `[logging]` global handling, and empty-when-absent behaviour.
 | `_collect_logging ignores an ambient SETUP_CONF (#893 decision 7)` | - |
 | `_collect_logging returns empty when no [logging] sections anywhere` | No-config empty |
 
-### test/bats/unit/coverage_badge_spec.bats (45)
+### test/bats/unit/coverage_badge_spec.bats (46)
 
 Unit tests for `script/release/coverage_badge.sh` (#952) -- the release
 coverage badge generator that replaces the README's static `Coverage-Kcov`
@@ -1630,6 +1630,7 @@ three tests assert the repo's own published figure, not the generator.
 | `coverage_badge: refuses when the reports cover one shard, not the suite` | Every identity check passes and the figure is still a quarter of the suite |
 | `coverage_badge: refuses when the stamp records no scope at all` | An unscoped stamp is no evidence of a release figure |
 | `coverage_badge: the operator sequence shard-then-badge publishes nothing` | `just test coverage 1/4` then `just release coverage-badge` at one commit |
+| `coverage_badge: a re-run refusal offers the parallel whole-suite mode too (#726)` | the refusal is not the end of the operator's day -- it is the moment they choose how to spend the next hour, and until base#726 there was only one whole-suite run to choose. The remedy sentence still named it alone, so the person who has just been told to re-run the most expensive thing in the repo would take the serial path while a parallel one that measures the same specs, writes the same tree and stamps the same `scope=full` sat unmentioned. Every refusal that asks for a re-run has to offer both. |
 | `coverage_badge: refuses when instrumented sources are modified in the worktree` | The reports then describe neither the commit nor the tree |
 | `coverage_badge: a release-bump edit is not a source change` | `.version` moving is the bump's own edit and must not block the step it runs |
 | `coverage_badge: refuses to overwrite an existing badge when it cannot measure` | A refusal leaves the last good badge byte-identical |

@@ -853,6 +853,45 @@ _make_cobertura() {
   refute_output --partial "13.0%"
 }
 
+# why: the refusal is not the end of the operator's day -- it is the moment
+# they choose how to spend the next hour, and until base#726 there was only
+# one whole-suite run to choose. The remedy sentence still named it alone,
+# so the person who has just been told to re-run the most expensive thing
+# in the repo would take the serial path while a parallel one that measures
+# the same specs, writes the same tree and stamps the same `scope=full` sat
+# unmentioned. Every refusal that asks for a re-run has to offer both.
+@test "coverage_badge: a re-run refusal offers the parallel whole-suite mode too (#726)" {
+  local _root
+  _root="$(_make_release_tree 13 100)"
+  rm -f "${_root}/coverage/.head-sha"
+  _make_specs "${_root}" unit/a_spec.bats unit/b_spec.bats \
+    unit/sub/c_spec.bats integration/d_spec.bats
+  _write_manifest "${_root}" a_spec.bats
+  run bash -c 'source /source/script/test/test.sh; _stamp_coverage_head "$1"' \
+    _ "${_root}"
+  [ "${status}" -eq 0 ]
+
+  run bash "${BADGE}" --repo-root "${_root}" --out "${_root}/badge.svg"
+  [ "${status}" -eq 1 ]
+  assert_output --partial "just test coverage-local"
+
+  # And the rule holds for every remedy in the file, not just the one this
+  # case happens to reach: no line may tell the operator to re-run
+  # `just test coverage` as a WHOLE-SUITE run without naming the parallel
+  # entry on the same line. The shard form is exempt -- `just test coverage
+  # <n>/<total>` is a different request, and coverage-local has no shard.
+  run grep -n 'Re-run' "${BADGE}"
+  assert_success
+  local _line _bad=0
+  while read -r _line; do
+    [[ "${_line}" == *"just test coverage"* ]] || continue
+    [[ "${_line}" == *"coverage-local"* ]] && continue
+    echo "remedy names only the serial run: ${_line}" >&2
+    _bad=$(( _bad + 1 ))
+  done <<< "${output}"
+  [ "${_bad}" -eq 0 ]
+}
+
 # why: The reports then describe neither the commit nor the tree
 @test "coverage_badge: refuses when instrumented sources are modified in the worktree" {
   local _root
