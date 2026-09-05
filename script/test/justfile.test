@@ -157,6 +157,38 @@ coverage shard='':
 # runner is also what CI invokes directly -- a copy here would cover the
 # `just` path only.
 #
+# just test coverage-local -> the SAME full-suite coverage `just test
+# coverage` produces, run as N concurrent kcov processes instead of one.
+# `just test coverage-local 8` sets N; bare uses nproc.
+#
+# It measures the same specs and writes the same coverage/ tree, so it
+# stamps `scope=full` and `just release coverage-badge` accepts it. What
+# differs is only how many cores it uses: kcov's bash engine is
+# single-threaded per traced process and `kcov` over `bats --jobs` is
+# unreliable for accuracy (ADR-00000008), so the parallelism is N
+# INDEPENDENT kcov processes over the shared time-balanced partition,
+# merged with `kcov --merge`.
+#
+# Prefer it over `just test coverage` on a machine with cores to spare --
+# the release path needs a full-scope run, and the serial one is on the
+# critical path of every release. `just test coverage <n>/<total>` remains
+# the way to prove ONE matrix slice locally.
+coverage-local jobs='':
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ -n '{{jobs}}' ]]; then
+      ./script/test/test.sh --coverage-local --jobs '{{jobs}}'
+    else
+      ./script/test/test.sh --coverage-local
+    fi
+
+# lifecycle: RECLAIMED BY THE RUNNER. script/test/test.sh installs an EXIT
+# trap that sweeps orphaned compose projects on every dispatch it arms,
+# pass or fail, and asks whether the previous run has let go of this
+# project before it starts. The recipe does not repeat either, because the
+# runner is also what CI invokes directly -- a copy here would cover the
+# `just` path only.
+#
 # just test coverage-path <spec> -> run ONE spec under kcov instrumentation.
 #
 # The inner loop for the failure class whose entire evidence is "this spec is
