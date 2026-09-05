@@ -1013,6 +1013,124 @@ DOCKERFILE
   diff "${TEMP_DIR}/Dockerfile.before" "${DF}"
 }
 
+# ── migration (repo-smoke-copy): repo-owned test/smoke/ -> per-stage ────────
+# The sibling of smoke-copy. That one heals the path into base's SHIPPED
+# tree; this one heals the path into the repo's OWN. Both moved in the same
+# v0.42.0 reorganisation, only the shipped half was migrated, so an upgraded
+# repo kept a flat test/smoke/ that a fresh bootstrap never produces (#1044).
+#
+# A fresh repo emits the stage COPY even when that stage's folder holds only
+# a .gitkeep, so matching it means emitting on folder existence, not on the
+# folder having specs in it.
+
+@test "migration (repo-smoke-copy): rewrites the flat COPY into shared + the stage's own folder (#1044)" {
+  mkdir -p "${TEMP_DIR}/test/bats/smoke/shared" \
+    "${TEMP_DIR}/test/bats/smoke/devel-test"
+  cat > "${DF}" <<'EOF'
+FROM devel AS devel-test
+COPY test/smoke/ /smoke_test/
+EOF
+  run bash -c "$(_src); _migrate_repo_smoke_copy_detect '${DF}' && _migrate_repo_smoke_copy_apply '${DF}'"
+  assert_success
+  grep -Fq "COPY test/bats/smoke/shared/ /smoke_test/" "${DF}"
+  grep -Fq "COPY test/bats/smoke/devel-test/ /smoke_test/" "${DF}"
+  refute grep -qE '^[[:space:]]*COPY[[:space:]]+test/smoke/' "${DF}"
+}
+
+@test "migration (repo-smoke-copy): emits only the shared baseline when the repo ships no stage folder (#1044)" {
+  mkdir -p "${TEMP_DIR}/test/bats/smoke/shared"
+  cat > "${DF}" <<'EOF'
+FROM devel AS custom-test
+COPY test/smoke/ /smoke_test/
+EOF
+  run bash -c "$(_src); _migrate_repo_smoke_copy_apply '${DF}'"
+  assert_success
+  grep -Fq "COPY test/bats/smoke/shared/ /smoke_test/" "${DF}"
+  refute grep -q 'smoke/custom-test/' "${DF}"
+}
+
+@test "migration (repo-smoke-copy): leaves base's own shipped path to smoke-copy (#1044)" {
+  mkdir -p "${TEMP_DIR}/.base/dist/test/bats/smoke/shared" \
+    "${TEMP_DIR}/test/bats/smoke/shared"
+  cat > "${DF}" <<'EOF'
+FROM devel AS devel-test
+COPY .base/test/smoke/ /smoke_test/
+EOF
+  # Guard against a vacuous pass: a MISSING function also exits non-zero,
+  # which would satisfy assert_failure for entirely the wrong reason.
+  run bash -c "$(_src); declare -F _migrate_repo_smoke_copy_detect"
+  assert_success
+  run bash -c "$(_src); _migrate_repo_smoke_copy_detect '${DF}'"
+  assert_failure
+}
+
+@test "migration (repo-smoke-copy): idempotent — detect false once already per-stage (#1044)" {
+  mkdir -p "${TEMP_DIR}/test/bats/smoke/shared" \
+    "${TEMP_DIR}/test/bats/smoke/devel-test"
+  cat > "${DF}" <<'EOF'
+FROM devel AS devel-test
+COPY test/bats/smoke/shared/ /smoke_test/
+COPY test/bats/smoke/devel-test/ /smoke_test/
+EOF
+  cp "${DF}" "${TEMP_DIR}/Dockerfile.before"
+  # Guard against a vacuous pass: a MISSING function also exits non-zero,
+  # which would satisfy assert_failure for entirely the wrong reason.
+  run bash -c "$(_src); declare -F _migrate_repo_smoke_copy_detect"
+  assert_success
+  run bash -c "$(_src); _migrate_repo_smoke_copy_detect '${DF}'"
+  assert_failure
+  run bash -c "$(_src); apply_migrations '${DF}'"
+  assert_success
+  diff "${TEMP_DIR}/Dockerfile.before" "${DF}"
+}
+
+@test "migration (repo-smoke-copy): a test/smoke-prefixed sibling path is not the retired tree (#1044)" {
+  mkdir -p "${TEMP_DIR}/test/bats/smoke/shared"
+  cat > "${DF}" <<'DOCKERFILE'
+FROM devel AS devel-test
+COPY test/smoke_helpers/x.bash /smoke_test/x.bash
+DOCKERFILE
+  cp "${DF}" "${TEMP_DIR}/Dockerfile.before"
+  # Guard against a vacuous pass: a MISSING function also exits non-zero,
+  # which would satisfy assert_failure for entirely the wrong reason.
+  run bash -c "$(_src); declare -F _migrate_repo_smoke_copy_detect"
+  assert_success
+  run bash -c "$(_src); _migrate_repo_smoke_copy_detect '${DF}'"
+  assert_failure
+  run bash -c "$(_src); apply_migrations '${DF}'"
+  assert_success
+  diff "${TEMP_DIR}/Dockerfile.before" "${DF}"
+}
+
+@test "migration (repo-smoke-copy): detects a source only on a continuation line (#1044)" {
+  mkdir -p "${TEMP_DIR}/test/bats/smoke/shared"
+  cat > "${DF}" <<'DOCKERFILE'
+FROM devel AS devel-test
+COPY \
+  test/smoke/ /smoke_test/
+DOCKERFILE
+  run bash -c "$(_src); _migrate_repo_smoke_copy_detect '${DF}'"
+  assert_success
+}
+
+@test "migration (repo-smoke-copy): is registered, and after smoke-copy (#1044)" {
+  run bash -c "$(_src); printf '%s\n' \"\${_MIGRATIONS[@]}\""
+  assert_success
+  assert_line 'repo_smoke_copy'
+  # Order is load-bearing. smoke-copy rewrites the SHIPPED path first, so
+  # by the time this one runs no line still names the retired shipped
+  # tree and the two cannot both claim the same statement.
+  local _base_at _repo_at _i=0 _line
+  while IFS= read -r _line; do
+    [[ "${_line}" == 'smoke_copy' ]] && _base_at="${_i}"
+    [[ "${_line}" == 'repo_smoke_copy' ]] && _repo_at="${_i}"
+    _i=$((_i + 1))
+  done <<< "${output}"
+  assert [ -n "${_base_at}" ]
+  assert [ -n "${_repo_at}" ]
+  assert [ "${_base_at}" -lt "${_repo_at}" ]
+}
+
 # ── migration (flat-to-dist): v0.41.0 flat .base/ layout -> .base/dist/ ──────
 # The stable layout deployed on every consumer is the FLAT one: .base/config,
 # .base/script/... . The dist relocation deleted both. downstream_to_dist
