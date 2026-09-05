@@ -421,6 +421,18 @@ AWK
   assert_success
   # Non-vacuous: the scan actually found the blocks it is judging. A
   # detector that matched nothing would report every tree compliant.
+  #
+  # What this guard measured when it was written, so that the next person
+  # to change the detector can tell a real movement from a bug in it: over
+  # the tree it landed on, TOTAL=4 driving blocks, and before the four
+  # fixtures were completed it printed 6 offending lines across all 4 of
+  # them. (Five blocks match the entry's shape; the fifth is this file's
+  # own scanner-carrying case, which the `awk -f` exemption above takes
+  # out. b1b8b0ea's message reported the un-exempted 5/5 -- the figures
+  # from a mid-work version of the detector, not from the one it committed;
+  # that message cannot be reworded, as history rewriting is denied
+  # org-wide, so the correct figures are recorded here beside the code they
+  # describe.)
   assert_line --partial "TOTAL="
   refute_line --partial "TOTAL=0"
   refute_output --partial "does not pin"
