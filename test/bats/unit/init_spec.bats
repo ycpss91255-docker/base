@@ -823,6 +823,40 @@ EOF
   refute_output --partial "could not stage"
 }
 
+# The other half of the foreign-path fence. That one guarantees no path
+# outside REPO_ROOT reaches `git add`; this one asks whether the git being
+# handed those paths is REPO_ROOT's own. A hand-bootstrapped consumer -- the
+# input the "may not be a git repo at all" branch is written for -- sitting
+# anywhere inside another repository's working tree has an index reachable
+# from it, and it is not this repo's to write.
+
+# why: "cannot tell which repo this is" must not resolve to staging, or a
+# repair run inside someone else's checkout writes the whole resync into
+# THEIR index and reports success
+@test "_stage_resync_output: refuses an index that is not this repo's (#1036)" {
+  local _outer
+  _outer="$(mktemp -d)"
+  git -C "${_outer}" init -q -b main
+  git -C "${_outer}" config user.email t@t
+  git -C "${_outer}" config user.name t
+  git -C "${_outer}" commit -q --allow-empty -m "chore: outer"
+  # The consumer is a plain directory INSIDE that checkout: no `.git` of
+  # its own, exactly the hand-bootstrapped tree this branch is written for.
+  mv "${TMP_REPO}" "${_outer}/consumer"
+  TMP_REPO="${_outer}/consumer"
+  cd "${TMP_REPO}"
+
+  _source_init
+  : > "${TMP_REPO}/Dockerfile"
+  _init_existing_repo
+  run _stage_resync_output
+  assert_success
+
+  run git -C "${_outer}" diff --cached --name-only
+  assert_output ""
+  rm -rf "${_outer}"
+}
+
 # why: Nothing rewritten is nothing to stage -- and not an error
 @test "the resync: stages no Dockerfile when no migration applies (#1036)" {
   _source_init

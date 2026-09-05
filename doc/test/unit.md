@@ -2796,7 +2796,7 @@ forwarding for caller abort, and DRY_RUN skip.
 | `init.sh --list-installed-paths output is sorted and free of duplicates` | - |
 | `init.sh --list-installed-paths mutates nothing and never leaves its cwd` | - |
 
-### test/bats/unit/init_spec.bats (96)
+### test/bats/unit/init_spec.bats (97)
 
 Unit coverage for `init.sh` helpers that previous rounds exercised only
 through the Level-1 integration test. Complements
@@ -2854,6 +2854,7 @@ are hard to trigger from a real `bash template/init.sh` invocation
 | `_stage_resync_output: warns when git cannot read the repo (#1036)` | "git cannot answer" is not "there is nothing to stage" -- resolving it to silent success is how an unstaged rewrite gets pushed |
 | `_stage_resync_output: a path outside the repo root loses only itself (#1036)` | `git add` fails the WHOLE batch on one path it will not take, so an entry pointing outside the repo costs the commit every other path -- including the Dockerfile this staging exists to commit |
 | `_stage_resync_output: is silent when the tree is no git repo at all (#1036)` | `just base init` is also a repair command for a hand-bootstrapped tree, and a directory that is genuinely not a repo is not a problem to report |
+| `_stage_resync_output: refuses an index that is not this repo's (#1036)` | "cannot tell which repo this is" must not resolve to staging, or a repair run inside someone else's checkout writes the whole resync into THEIR index and reports success |
 | `the resync: stages no Dockerfile when no migration applies (#1036)` | Nothing rewritten is nothing to stage -- and not an error |
 | `the resync: leaves a hook stub the user wrote unstaged (#1036)` | init.sh never overwrites a hook stub, so what is in one is the user's; staging the published list wholesale commits their half-finished hook under a message about a base release |
 | `the resync: leaves a repo-owned local.sh unstaged (#1036)` | script/local/local.sh is REPO-OWNED by the naming contract -- the resync seeds it once and a subtree upgrade never clobbers it -- so its content after the first run is only ever the repo's own work |
