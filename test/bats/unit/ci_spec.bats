@@ -186,6 +186,145 @@ teardown() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# _run_lint_tools: the phase enumerates, the driver still stops
+#
+# The lint phase used to be a bare loop under the file's `set -e`, so the
+# first failing driver ended the run and every driver behind it went
+# unreported. A tree with three violations therefore cost three full gate
+# cycles, and after each one nobody knew how many remained.
+#
+# The drivers are independent -- a `case` dispatch, each reading its own
+# file set, none consuming another's output -- so the phase can run them
+# all and report the failures together. What must NOT come with that is a
+# driver that keeps going past its own first failing command: that is a
+# different scope, and the one _run_lint_tool's header argues for.
+# ════════════════════════════════════════════════════════════════════
+
+# why: Three independent violations must be enumerated by ONE run. This is
+# the defect measured in base#1059: a lint phase that ran 17 drivers, died
+# on changelog-entry and never reached the four behind it, so each cycle
+# returned one bit -- "this one is broken, and something unknown may be
+# behind it".
+@test "_run_lint_tools: three failing drivers are all run and all named in one pass (#1059)" {
+  run env LOG_FORMAT=json bash -c '
+    source /source/script/test/test.sh
+    set -eo pipefail
+    _run_issueref()            { echo "reached issueref"; false; }
+    _run_adr_numbering()       { echo "reached adr-numbering"; }
+    _run_changelog_entry()     { echo "reached changelog-entry"; false; }
+    _run_pin_coverage()        { echo "reached pin-coverage"; }
+    _run_catalog_description() { echo "reached catalog-description"; false; }
+    _run_lint_tools issueref adr-numbering changelog-entry pin-coverage \
+      catalog-description
+  '
+  assert_failure
+  # Every tool was reached, including the two behind the first failure.
+  assert_output --partial "reached issueref"
+  assert_output --partial "reached adr-numbering"
+  assert_output --partial "reached changelog-entry"
+  assert_output --partial "reached pin-coverage"
+  assert_output --partial "reached catalog-description"
+  # And the phase names all three failures together, in phase order, so
+  # the operator learns the whole list from this one run.
+  assert_output --partial "ci_lint_phase_failed"
+  assert_output --partial "issueref changelog-entry catalog-description"
+}
+
+# why: The collection must not be bought with the driver's own errexit.
+# `( _run_lint_tool "${_tool}" ) || _failed+=(...)` reads as the obvious
+# shape and is wrong: bash suppresses errexit for the whole of a `||`
+# command, inside the subshell too, and a `set -e` in the subshell body
+# does not bring it back. That is the exact failure _run_lint_tool's
+# header refuses -- a driver sailing past its first failing command.
+@test "_run_lint_tools: a failing driver still stops at its FIRST failing command (#1059)" {
+  run env LOG_FORMAT=json bash -c '
+    source /source/script/test/test.sh
+    set -eo pipefail
+    _run_adr_numbering() { false; echo "SAILED PAST the first failure"; }
+    _run_lint_tools adr-numbering
+  '
+  assert_failure
+  refute_output --partial "SAILED PAST"
+  assert_output --partial "ci_lint_driver_failed"
+  assert_output --partial "adr-numbering"
+}
+
+# why: The other half of the contract. A clean set must exit zero and say
+# nothing, and the loop must hand the caller back the errexit it borrowed
+# -- the collection is implemented by clearing it, so a phase that forgot
+# to restore it would disarm every `set -e` check after the lint phase.
+@test "_run_lint_tools: a clean set exits zero and returns the caller's errexit (#1059)" {
+  run env LOG_FORMAT=json bash -c '
+    source /source/script/test/test.sh
+    set -eo pipefail
+    _run_adr_numbering() { echo "adr ok"; }
+    _run_arch_literal()  { echo "arch ok"; }
+    _run_lint_tools adr-numbering arch-literal
+    case "$-" in *e*) echo "errexit still armed" ;; *) echo "ERREXIT LOST" ;; esac
+  '
+  assert_success
+  assert_output --partial "adr ok"
+  assert_output --partial "arch ok"
+  assert_output --partial "errexit still armed"
+  refute_output --partial "ci_lint_phase_failed"
+}
+
+# why: The population is the whole _LINT_TOOLS table, read out of the tree
+# rather than restated here, so a tool added to the table is covered by
+# this guard the day it lands. A failure at the FIRST entry must not hide
+# the twenty-two behind it.
+@test "_run_all_lint_tools: an early failure does not hide the tools behind it (#1059)" {
+  run env LOG_FORMAT=json bash -c '
+    source /source/script/test/test.sh
+    set -eo pipefail
+    _run_lint_tool() { echo "dispatched ${1}"; [[ "${1}" != "shellcheck" ]]; }
+    _run_all_lint_tools
+  '
+  assert_failure
+  local _dispatched="${output}"
+  local -a _tools=()
+  mapfile -t _tools < <(awk '
+    /^readonly _LINT_TOOLS=\(/ { inside = 1; next }
+    inside && /^\)/            { inside = 0 }
+    inside                     { gsub(/[[:space:]]/, "", $0); if ($0 != "") print }
+  ' /source/script/test/test.sh)
+  [ "${#_tools[@]}" -gt 20 ] \
+    || fail "_LINT_TOOLS yielded ${#_tools[@]} entries; the table did not parse"
+  local _tool
+  for _tool in "${_tools[@]}"; do
+    [[ "${_dispatched}" == *"dispatched ${_tool}"* ]] \
+      || fail "the phase never reached '${_tool}' after an earlier tool failed"
+  done
+}
+
+# why: The full gate keeps its fail-fast where fail-fast is worth having.
+# Collecting happens WITHIN the lint phase; a phase that failed still ends
+# the run before bats, so a tree that does not lint never spends the
+# suite's minutes to be told so.
+@test "main --ci: a lint phase that collected failures never reaches bats (#1059)" {
+  # The suite itself runs INSIDE a `--ci` dispatch, so BATS_ONLY / BATS_FILE
+  # / BATS_FILTER are already exported into this process. Left alone, the
+  # `main --ci` under test would take the branch that dispatches bats over
+  # BATS_FILE -- bats inside bats, recursively, which hangs rather than
+  # fails. Clear the whole ambient dispatch so this exercises the full-gate
+  # branch (lint, then the suite) the test is named for.
+  run env LOG_FORMAT=json BATS_ONLY=0 BATS_FILE= BATS_FILTER= \
+    BATS_UNIT_SHARD= BATS_FRAGILE=0 BATS_INTEGRATION=0 \
+    COVERAGE=0 COVERAGE_PATH= COVERAGE_SHARD= LINT_ONLY=0 bash -c '
+    source /source/script/test/test.sh
+    set -eo pipefail
+    _run_lint_tool()     { echo "dispatched ${1}"; [[ "${1}" != "changelog-entry" ]]; }
+    _run_tests()         { echo "BATS PHASE RAN"; }
+    _fix_permissions()   { :; }
+    main --ci
+  '
+  assert_failure
+  # catalog-description is the last table entry, behind changelog-entry.
+  assert_output --partial "dispatched catalog-description"
+  refute_output --partial "BATS PHASE RAN"
+}
+
+# ════════════════════════════════════════════════════════════════════
 # _run_via_compose / main routing
 #
 # Regression guards: default `test.sh` (no flag) must hit the alpine
