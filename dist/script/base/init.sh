@@ -1124,6 +1124,7 @@ _stage_resync_output() {
     _paths+=("${REPO_ROOT}/${_path}")
   done < <(_init_installed_paths)
 
+  _init_drop_foreign_paths
   (( ${#_paths[@]} > 0 )) || return 0
   _init_git_can_stage || return 0
 
@@ -1160,6 +1161,47 @@ _stage_resync_output() {
     return 0
   fi
   _log "  staged for the upgrade commit: ${#_stage[@]} path(s) the resync wrote (review with: git diff --cached)"
+}
+
+# _init_drop_foreign_paths
+#   Remove from the caller's `_paths` any entry that is not under
+#   REPO_ROOT, naming what it dropped.
+#
+#   `git add` is all-or-nothing over its pathspec: handed one path outside
+#   the repository it exits 128 and stages NONE of the batch. So a single
+#   foreign entry in the record would un-stage the Dockerfile, the wrappers
+#   and the workflow along with it -- and the run would continue, because
+#   failing to stage is deliberately not fatal. That is base#1036 arriving
+#   through the code written to fix it, so the batch is filtered before
+#   `git add` sees it rather than after it has refused.
+#
+#   Nothing reaches this today: `apply_migrations` is handed
+#   ${REPO_ROOT}/Dockerfile and derives the entrypoint beside it, and the
+#   other two sources build their paths from REPO_ROOT. It is a fence
+#   around the record's GENERALITY -- `migrated_files` is a published
+#   surface whose set of writers is open -- and a migration that does write
+#   outside the repo is a bug in that migration, not a reason to lose the
+#   rewrite the same run made inside it.
+#
+#   Operates on the caller's array by name rather than returning a list,
+#   because a path may legitimately contain anything but a newline and
+#   round-tripping it through a substitution is where that stops being true.
+_init_drop_foreign_paths() {
+  local -a _kept=() _foreign=()
+  local _candidate
+  for _candidate in ${_paths[@]+"${_paths[@]}"}; do
+    if [[ "${_candidate}" == "${REPO_ROOT}/"* ]]; then
+      _kept+=("${_candidate}")
+    else
+      _foreign+=("${_candidate}")
+    fi
+  done
+
+  (( ${#_foreign[@]} > 0 )) \
+    && _log_warn init init_progress "display=  not staging ${#_foreign[@]} path(s) written outside ${REPO_ROOT}: ${_foreign[*]} -- commit them by hand if they belong to this repo"
+
+  _paths=(${_kept[@]+"${_kept[@]}"})
+  return 0
 }
 
 # _init_git_can_stage
