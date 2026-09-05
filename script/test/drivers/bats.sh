@@ -488,9 +488,17 @@ _run_coverage() {
 
 # _coverage_parallel_workdir
 #   Echo the scratch root the slices write into. COVERAGE_LOCAL_WORKDIR
-#   names it explicitly -- a spec that has to point at one slice's output
-#   directory, and an operator keeping the per-slice logs after a red run;
-#   otherwise a fresh container-local temp dir, removed on the way out.
+#   names it explicitly, and it exists for ONE caller: a spec that has to
+#   point at one slice's output directory. It is deliberately not an
+#   operator knob -- `_run_via_compose` does not forward it and compose.yaml
+#   does not name it, so through the shipped entry this is always a fresh
+#   temp dir inside the `--rm` container, removed on the way out.
+#
+#   That is not a gap, because there is nothing in it an operator needs:
+#   `_coverage_parallel_collect` replays every slice's log in full before
+#   either refusal, and the reports the run is FOR are merged into
+#   ${REPO_ROOT}/coverage, which is the mounted checkout. Both refusals name
+#   the replay rather than a path under here, for the same reason.
 _coverage_parallel_workdir() {
   if [[ -n "${COVERAGE_LOCAL_WORKDIR:-}" ]]; then
     mkdir -p "${COVERAGE_LOCAL_WORKDIR}"
@@ -639,8 +647,14 @@ _coverage_parallel_merge() {
   for (( _i = 1; _i <= _jobs; _i++ )); do
     _found="$(find "${_work}/part-${_i}" -type f -name cobertura.xml 2>/dev/null)"
     if [[ -z "${_found}" ]]; then
+      # The message names the SLICE, never the scratch path. That path is a
+      # container-local temp dir under the shipped entry, so a reader told
+      # to open it is told to open something their machine does not have --
+      # and COVERAGE_LOCAL_WORKDIR, the only knob that moves it, is not
+      # forwarded into the container. The slice's whole output is replayed
+      # above this line by _coverage_parallel_collect, unconditionally.
       _die ci_coverage_slice_no_report \
-        "coverage slice ${_i} of ${_jobs} produced no report under ${_work}/part-${_i}; merging the rest would publish a smaller line set as the project total. Its log is ${_work}/log-${_i}."
+        "coverage slice ${_i} of ${_jobs} produced no report; merging the rest would publish a smaller line set as the project total. That slice's output is replayed above, under '--- coverage slice ${_i}/${_jobs} ---'."
     fi
     _parts+=("${_work}/part-${_i}")
   done
@@ -654,7 +668,7 @@ _coverage_parallel_merge() {
   kcov --merge "${REPO_ROOT}/coverage" "${_parts[@]}" || _mrc=$?
   if (( _mrc != 0 )); then
     _die ci_coverage_merge_failed \
-      "kcov --merge over ${_jobs} slice report(s) failed (status ${_mrc}); the per-slice reports are under ${_work}."
+      "kcov --merge over ${_jobs} slice report(s) failed (status ${_mrc}); every slice ran and its output is replayed above. The merge did not complete, so nothing under ${REPO_ROOT}/coverage is a whole-suite measurement."
   fi
 
   # The run manifest, merged from every slice's junit report. It is what
