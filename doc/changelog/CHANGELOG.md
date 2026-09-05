@@ -84,8 +84,8 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   must be stated AS CODE -- an event name is an ordinary word, so prose
   about "issues" would otherwise excuse a claim about a workflow triggered
   by `issues`. Affects anyone writing an ADR that names a workflow: state
-  the trigger the workflow has, in backticks. `push` is still not accepted
-  for a workflow with no `tags:` filter, because a tag push is a push.
+  its trigger in backticks. `push` is still not accepted for a workflow
+  with no `tags:` filter, because a tag push is a push.
 
 ## [v0.43.0-rc1] - 2026-09-04
 
