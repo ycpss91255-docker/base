@@ -1902,21 +1902,17 @@ main() {
   # for the mode, and defaulting it would run the wrong one silently.
   local coverage_local=0
   local coverage_jobs=""
+  # The queries -- `--test-tools-image`, `--compose-project-name`,
+  # `--await-project`. Recorded rather than answered on the spot: see the
+  # dispatch below the flag-combination guards.
+  local name_query=""
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
       -h|--help) usage ;;
       --ci) mode="ci"; shift ;;
       --lint) lint=1; shift ;;
-      --await-project)
-        # A query, like --compose-project-name / --test-tools-image: it
-        # answers about this checkout and exits, minting nothing. The
-        # project it asks about comes from the same resolver the dispatch
-        # uses, so a caller that has already exported COMPOSE_PROJECT_NAME
-        # is asking about the project it is actually going to drive.
-        _await_project_quiescent "$(_resolve_compose_project_name)" "${REPO_ROOT}"
-        exit $?
-        ;;
+      --await-project) name_query="await-project"; shift ;;
       --shellcheck) lint_tool="shellcheck"; shift ;;
       --hadolint) lint_tool="hadolint"; shift ;;
       --issueref) lint_tool="issueref"; shift ;;
@@ -1977,13 +1973,8 @@ main() {
       --jobs) coverage_jobs="${2:?--jobs expects <n>}"; shift 2 ;;
       --coverage-shard) mode="coverage"; coverage_shard="${2:?--coverage-shard expects <n>/<total>}"; shift 2 ;;
       --system) system=1; shift ;;
-      # Name-resolution primitives. They print one line and stop -- the
-      # `just test system` recipe reads them so that the build-only
-      # test-tools service and the ci-system consumer resolve the SAME tag
-      # (a mismatch there is silent: the consumer would quietly pull the
-      # published image while the local build sat unused).
-      --test-tools-image) _resolve_test_tools_image; return 0 ;;
-      --compose-project-name) _resolve_compose_project_name; return 0 ;;
+      --test-tools-image) name_query="test-tools-image"; shift ;;
+      --compose-project-name) name_query="compose-project-name"; shift ;;
       *) _die ci_unknown_option "Unknown option: $1" ;;
     esac
   done
@@ -1994,6 +1985,46 @@ main() {
   if [[ -n "${lint_tool}" && "${lint}" != "1" ]]; then
     _die ci_lint_tool_without_lint \
       "--${lint_tool} narrows --lint; use './test.sh --lint --${lint_tool}' or '--${lint_tool}-only'."
+  fi
+
+  # `--jobs` narrows `--coverage-local` the same way, and is refused here
+  # -- beside the other "flag with no partner" typo guard and AHEAD of
+  # every short-circuit return below. A guard whose whole claim is that a
+  # count with no mode would otherwise be accepted silently cannot itself
+  # be skipped by the paths that return early: placed after them,
+  # `--jobs 4 --shellcheck-only` ran the linter and said nothing about the
+  # count, which is the silence this refusal is named after. The mode
+  # CONFLICTS (--coverage-local against --coverage-shard / --coverage-path)
+  # stay down with the dispatch: those are two modes disagreeing, and on a
+  # short-circuit path neither mode runs at all.
+  if [[ -n "${coverage_jobs}" && "${coverage_local}" != "1" ]]; then
+    _die ci_jobs_without_coverage_local \
+      "--jobs <n> sets the kcov process count of --coverage-local; it means nothing on its own (bare 'just test' already runs bats in parallel). Use './test.sh --coverage-local --jobs ${coverage_jobs}'."
+  fi
+
+  # The queries. They answer about this checkout and stop, minting nothing
+  # -- the `just test system` / `smoke` / `stop` recipes read them so that
+  # the build-only test-tools service and the ci-system consumer resolve
+  # the SAME tag (a mismatch there is silent: the consumer would quietly
+  # pull the published image while the local build sat unused), and
+  # `--await-project` asks about the project the dispatch would drive,
+  # through the same resolver, so a caller that already exported
+  # COMPOSE_PROJECT_NAME is asking about the one it is going to use.
+  #
+  # Answered HERE rather than from inside the parse loop. A `return` taken
+  # mid-loop is a return taken before the guards above have run, and before
+  # the rest of the command line has even been read: `--jobs 4
+  # --compose-project-name` printed a name and swallowed the typo, and a
+  # misspelt flag after one of these was never reported either.
+  if [[ -n "${name_query}" ]]; then
+    case "${name_query}" in
+      test-tools-image) _resolve_test_tools_image; return 0 ;;
+      compose-project-name) _resolve_compose_project_name; return 0 ;;
+      await-project)
+        _await_project_quiescent "$(_resolve_compose_project_name)" "${REPO_ROOT}"
+        exit $?
+        ;;
+    esac
   fi
 
   # The host-direct lint primitives (`--shellcheck-only`,
@@ -2049,15 +2080,13 @@ main() {
   # matrix), and it has to be told apart from both: it produces a
   # whole-suite figure like the first and runs a partition like the second.
   #
-  # The refusals are checked HERE, ahead of the `--coverage-path` guard
+  # The conflicts are checked HERE, ahead of the `--coverage-path` guard
   # below, so each conflict is reported by the flag the operator typed. A
   # `--coverage-local --coverage-shard 1/4` that fell through would be
   # refused by a message naming only `--coverage-path`, which is not in the
-  # command line at all.
-  if [[ -n "${coverage_jobs}" && "${coverage_local}" != "1" ]]; then
-    _die ci_jobs_without_coverage_local \
-      "--jobs <n> sets the kcov process count of --coverage-local; it means nothing on its own (bare 'just test' already runs bats in parallel). Use './test.sh --coverage-local --jobs ${coverage_jobs}'."
-  fi
+  # command line at all. The `--jobs`-with-no-mode refusal is NOT here: it
+  # is a typo guard rather than a conflict, so it sits with the other one
+  # of those, above every short-circuit return.
   local coverage_local_jobs=""
   if [[ "${coverage_local}" == "1" ]]; then
     if [[ -n "${coverage_shard}" ]]; then

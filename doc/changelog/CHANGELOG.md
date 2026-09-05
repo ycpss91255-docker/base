@@ -95,6 +95,15 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   count -- `just test coverage-local 010` now refuses, on the host and
   again inside the container, instead of publishing a figure with two
   bins missing from it. Plain counts are unchanged.
+- **a flag combination is now checked before `test.sh` answers a query
+  (#726)** -- `--jobs` with no `--coverage-local` is refused because a
+  count with no mode is a typo for the mode, but the check sat after the
+  paths that return early, so `--jobs 4 --shellcheck-only` linted and said
+  nothing. `--test-tools-image`, `--compose-project-name` and
+  `--await-project` now answer after the parse loop rather than from
+  inside it. Affects anyone scripting them: an unknown or mismatched flag
+  beside one of these is now reported instead of silently dropped. Each
+  used alone is unchanged.
 
 ## [v0.43.0-rc1] - 2026-09-04
 
