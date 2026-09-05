@@ -79,18 +79,27 @@ _bats_args_with_label() {
     # 88.4s / 93.8s at jobs=4 against 42.5s / 42.2s at jobs=32, so this is
     # a property of the SUITE, not of kcov.
     #
-    # Why a floor and not `k x nproc`: the optimum sits at the same
-    # ABSOLUTE count on both machines measured. On 32 cores, 128 jobs (4x)
-    # was worse or equal to 32 (60.7 / 47.3 against 49.0 / 47.3), and 16
-    # was worse than 32. A factor rule gets the 4-core runner right by
-    # coincidence and prescribes a measurably worse number here. A floor
-    # gets both, and is monotone -- a bigger machine is never handed less.
+    # Why a floor and not `k x nproc`: 32 is a KNEE, not a peak. Same
+    # slice on a 32-core host, four INTERLEAVED reps per point: 16 jobs
+    # 43.7s, 32 jobs 26.5s, 64 jobs 25.8s, 128 jobs 25.7s. Below the knee
+    # costs 1.65x; above it the curve is FLAT out to 4x the core count.
+    # (An earlier two-rep pass read 128 as worse than 32 -- 60.7 / 47.3
+    # against 49.0 / 47.3 -- and the 60.7 does not survive repetition;
+    # that reading is withdrawn, and with it any claim that a large
+    # machine must be held to its cores.)
+    #
+    # So the count ABOVE the knee is free, and the rule is picked for the
+    # property a re-tuner needs rather than for a winner: a floor is
+    # monotone and cannot land BELOW the knee, where `k x cores` lands on
+    # any machine smaller than 32/k -- which is the 4-core runner this
+    # started on.
     #
     # 32 is therefore a measured property of the WORKLOAD (how many tests
     # it takes to keep the pipe full while each one waits), not of a
     # machine, which is why it does not track the core count and why
     # nothing here scales it. Re-derive it by sweeping --jobs against one
-    # shard on a constrained cpuset; do not multiply it.
+    # shard on a constrained cpuset, interleaving the points so a single
+    # slow rep cannot become the finding; do not multiply it.
     local _floor=32
     local _jobs _cores
     if _cores="$(nproc 2>/dev/null)" && [[ "${_cores}" =~ ^[1-9][0-9]*$ ]]; then
@@ -105,6 +114,16 @@ _bats_args_with_label() {
         # whose output IS the line set. Revisit when one kcov process per
         # slice (base#726) stops the parser being the shared drain, and
         # re-run the line-set comparison in the same change.
+        #
+        # THE METER IS ONLY AS GOOD AS THE COUNT. `nproc` reports the CPUs
+        # this process may be SCHEDULED on -- an affinity mask -- and not a
+        # CFS quota, so a container run with `--cpus=N` on a larger host
+        # still reads the HOST's count and the meter does not hold there
+        # (measured: `--cpus=2` on a 32-core host reads 32). Nothing base
+        # launches is capped that way -- its own compose services set no
+        # CPU limit and a GitHub-hosted runner is a whole VM -- so this is
+        # a boundary of the policy rather than a live defect; a
+        # self-hosted runner that meters CPU by quota would make it one.
         _jobs="${_cores}"
         _out_label="jobs=${_jobs} (metered to the core count)"
       elif (( _cores < _floor )); then

@@ -1880,11 +1880,14 @@ SH
 # coverage-shaped and the floor is for every runner.
 #
 # The rule is max(cores, floor) and NOT `k x cores`, and that is a
-# measurement rather than a taste: on 32 cores, 128 jobs (4x) was worse
-# or equal to 32 (60.7 / 47.3 against 49.0 / 47.3), and 16 was worse
-# than 32. The optimum sits at the same ABSOLUTE count on a 4-core and a
-# 32-core machine, so a factor rule gets the small runner right by
-# coincidence and prescribes a measurably worse number on the large one.
+# measurement rather than a taste -- but the measurement says KNEE, not
+# peak. Same slice on a 32-core host, four INTERLEAVED reps per point:
+# 16 jobs 43.7s, 32 jobs 26.5s, 64 jobs 25.8s, 128 jobs 25.7s. Below the
+# knee costs 1.65x; above it the curve is flat out to 4x the core count.
+# So the count above the knee is free, and a floor is chosen for the
+# property rather than for a winner: it is monotone and cannot land
+# BELOW the knee, where `k x cores` lands on any machine smaller than
+# 32/k -- which is the 4-core runner this started on.
 #
 # So these tests assert the SHAPE -- never below the cores, ABOVE them
 # when the machine is small, EQUAL to them when it is large,
@@ -1927,11 +1930,13 @@ SH
   assert_output --partial "LABEL:jobs=${_jobs}"
 }
 
-# why: the floor has to be a FLOOR. `k x nproc` reproduces the right
-# answer on a 4-core runner by coincidence and prescribes 128 on a
-# 32-core host, where 128 measured worse or equal to 32 (60.7 / 47.3
-# against 49.0 / 47.3) -- so a large machine gets exactly its cores, and
-# the rule stays monotone so a bigger host is never handed less than a
+# why: the floor has to be a FLOOR. 32 is a knee and not a peak -- four
+# interleaved reps per point on a 32-core host read 43.7s at 16 jobs
+# against 26.5s / 25.8s / 25.7s at 32 / 64 / 128 -- so what a rule must
+# guarantee is that it never lands BELOW the knee, which `k x cores`
+# fails to do on any machine smaller than 32/k, the 4-core runner
+# included. A large machine therefore gets exactly its cores, and the
+# rule stays monotone so a bigger host is never handed less than a
 # smaller one. This is the assertion that lets the constant be re-tuned
 # without editing a test: never-below-the-machine, non-decreasing, and
 # equal at the top name nothing the measurement picked.
