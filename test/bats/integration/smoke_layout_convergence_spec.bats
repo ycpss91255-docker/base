@@ -99,6 +99,7 @@ _smoke_sources() {
     | sed 's/^[[:space:]]*//' | LC_ALL=C sort -u
 }
 
+# why: The two init.sh paths converge on the layout
 @test "created and migrated repos agree on the smoke tree layout (#1044)" {
   local _fresh _migrated
   _fresh="$(_fresh_repo)"
@@ -107,6 +108,7 @@ _smoke_sources() {
   assert_success
 }
 
+# why: The two init.sh paths converge on the COPY sources
 @test "created and migrated repos agree on the Dockerfile smoke sources (#1044)" {
   local _fresh _migrated
   _fresh="$(_fresh_repo)"
@@ -115,6 +117,7 @@ _smoke_sources() {
   assert_success
 }
 
+# why: The repo own spec survives the move
 @test "the migrated repo keeps its own spec, moved rather than dropped (#1044)" {
   local _migrated
   _migrated="$(_migrated_repo)"
@@ -123,6 +126,7 @@ _smoke_sources() {
   assert_output --partial '@test "repo owned"'
 }
 
+# why: Placeholders come from one definition, so they cannot drift
 @test "the migrated repo's per-stage placeholders match a created one byte for byte (#1044)" {
   local _fresh _migrated _stage
   _fresh="$(_fresh_repo)"
@@ -134,6 +138,7 @@ _smoke_sources() {
   done
 }
 
+# why: Idempotent end to end, not only per function
 @test "migrating twice is the same as migrating once (#1044)" {
   local _migrated _once
   _migrated="$(_migrated_repo)"

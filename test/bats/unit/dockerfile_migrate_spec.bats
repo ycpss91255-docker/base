@@ -1023,6 +1023,7 @@ DOCKERFILE
 # a .gitkeep, so matching it means emitting on folder existence, not on the
 # folder having specs in it.
 
+# why: Wholesale rewrite: shared baseline plus the enclosing stage folder
 @test "migration (repo-smoke-copy): rewrites the flat COPY into shared + the stage's own folder (#1044)" {
   mkdir -p "${TEMP_DIR}/test/bats/smoke/shared" \
     "${TEMP_DIR}/test/bats/smoke/devel-test"
@@ -1037,6 +1038,7 @@ EOF
   refute grep -qE '^[[:space:]]*COPY[[:space:]]+test/smoke/' "${DF}"
 }
 
+# why: A stage the repo has no folder for gets no COPY of its own
 @test "migration (repo-smoke-copy): emits only the shared baseline when the repo ships no stage folder (#1044)" {
   mkdir -p "${TEMP_DIR}/test/bats/smoke/shared"
   cat > "${DF}" <<'EOF'
@@ -1049,6 +1051,7 @@ EOF
   refute grep -q 'smoke/custom-test/' "${DF}"
 }
 
+# why: The two smoke migrations stay disjoint over one Dockerfile
 @test "migration (repo-smoke-copy): leaves base's own shipped path to smoke-copy (#1044)" {
   mkdir -p "${TEMP_DIR}/.base/dist/test/bats/smoke/shared" \
     "${TEMP_DIR}/test/bats/smoke/shared"
@@ -1064,6 +1067,7 @@ EOF
   assert_failure
 }
 
+# why: Idempotent: a Dockerfile already per-stage is not detected
 @test "migration (repo-smoke-copy): idempotent — detect false once already per-stage (#1044)" {
   mkdir -p "${TEMP_DIR}/test/bats/smoke/shared" \
     "${TEMP_DIR}/test/bats/smoke/devel-test"
@@ -1084,6 +1088,7 @@ EOF
   diff "${TEMP_DIR}/Dockerfile.before" "${DF}"
 }
 
+# why: A sibling merely prefixed by the retired name is not it
 @test "migration (repo-smoke-copy): a test/smoke-prefixed sibling path is not the retired tree (#1044)" {
   mkdir -p "${TEMP_DIR}/test/bats/smoke/shared"
   cat > "${DF}" <<'DOCKERFILE'
@@ -1102,6 +1107,7 @@ DOCKERFILE
   diff "${TEMP_DIR}/Dockerfile.before" "${DF}"
 }
 
+# why: A COPY is a statement, not a line: continuations count
 @test "migration (repo-smoke-copy): detects a source only on a continuation line (#1044)" {
   mkdir -p "${TEMP_DIR}/test/bats/smoke/shared"
   cat > "${DF}" <<'DOCKERFILE'
@@ -1113,6 +1119,7 @@ DOCKERFILE
   assert_success
 }
 
+# why: Registered, and ordered after the migration whose path contains its own
 @test "migration (repo-smoke-copy): is registered, and after smoke-copy (#1044)" {
   run bash -c "$(_src); printf '%s\n' \"\${_MIGRATIONS[@]}\""
   assert_success
