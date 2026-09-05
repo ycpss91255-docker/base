@@ -63,6 +63,16 @@
 #               exactly why it is worth saying out loud: the alternative
 #               is a marker that has silently stopped protecting the
 #               fixtures it was written for.
+#   captive     a declared number the declaring file PUBLISHES. The
+#               declaration is per file, and the doc/test generator copies
+#               a spec's blurb, its test descriptions and its test NAMES
+#               verbatim into a catalogue that declares nothing -- so the
+#               number arrives there as a reference to this tree, the verb
+#               rewrites the row, the regeneration puts it straight back
+#               from the marker the verb may not touch, and the run aborts
+#               half-way. The finding names the marker, because the row is
+#               generated and a hand edit to it is undone by the next
+#               `just test sync-docs`.
 #
 # WHAT IS NOT CHECKED, said out loud because the gap is the interesting
 # part. A prose `ADR-NNNNNNNN` whose number EXISTS but names a different
@@ -105,6 +115,16 @@
 _ADR_NUMBERING_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
 # shellcheck source=script/adr/references.sh
 source "${_ADR_NUMBERING_DIR}/../../adr/references.sh"
+# The two readers the `captive` check below needs, sourced rather than
+# re-implemented: which files the catalogue generator reads, and what it
+# publishes out of each one. A second copy of either would agree on the
+# day it was pasted and drift after -- and this check is precisely about
+# text that travels from a spec into a generated document, so it has to
+# ask the reader that moves it.
+# shellcheck source=script/test/spec-scan.sh
+source "${_ADR_NUMBERING_DIR}/../spec-scan.sh"
+# shellcheck source=script/test/spec-markers.sh
+source "${_ADR_NUMBERING_DIR}/../spec-markers.sh"
 
 # Well-formed ADR basename: 8-digit zero-padded number, a dash, a non-empty
 # slug, and the .md extension. Anything else is a malformed filename.
@@ -227,6 +247,9 @@ _adr_ref_findings() {
     printf 'ADR numbering: %s:%s: a fixture declaration this reader cannot parse, so it exempts nothing. The form is the word fixture followed by the 8-digit numbers the file uses.\n' \
       "${_hit%%:*}" "${_rest%%:*}"
   done < <(_adr_ref_bad_markers "${_root}")
+  # A declaration that IS readable and still fails to protect what it
+  # names, because the text carrying the number leaves the file.
+  _adr_marker_captive_findings "${_root}"
   # The population's own honesty check, and it is about THIS RUN rather
   # than about the tree: git could not be asked here, so the walk read the
   # declaration, and these are the lines it cannot apply. Every one of them
@@ -241,6 +264,78 @@ _adr_ref_findings() {
     printf 'ADR numbering: %s: %s -- an ignore rule this scan cannot apply, so the files it covers are read here and never swept by "just adr renumber". Spell it as a separator-less pattern or an explicit path in the root .gitignore.\n' \
       "${_loc}" "${_text}"
   done < <(_adr_ref_unreadable_ignores "${_root}")
+}
+
+# _adr_marker_captive_findings <root> -- one line per DECLARED fixture
+# number that the file declaring it also publishes into a generated
+# catalogue.
+#
+# The residue the per-number rule keeps, and the one site at which it
+# bites. A declaration is per FILE, and a `# why:` marker is the one thing
+# in a spec that LEAVES the file: script/test/sync-doc-counts.sh publishes
+# the file blurb, every test description and every test NAME verbatim into
+# doc/test/*.md, which declares nothing. So a declared number written at
+# one of those three sites arrives in the catalogue as THIS tree's
+# reference, and `just adr renumber` has no state it can reach -- it
+# rewrites the published row, the regeneration puts the number straight
+# back from the marker it may not touch, and the run aborts on a survivor
+# with the record already moved and the rest of the tree swept.
+#
+# The finding names the MARKER, not the row, because the row is generated:
+# a hand edit there is undone by the next `just test sync-docs`, and
+# rewording the marker is the only repair. It is a finding rather than a
+# tolerated residue for the reason every other declaration finding is one:
+# it is the safe direction to fail in, and the alternative is discovering
+# it from a half-renumbered tree.
+#
+# Three sites and not "the marker", because the generator publishes three
+# things: a check that read only the prose would pass a spec whose `@test`
+# names carry the number -- which is the site ADR-00000034 records as
+# having actually cost.
+_adr_marker_captive_findings() {
+  local _root="$1" _rel _nums _num _re _site _line _marked _name _desc
+  local -A _fixture=()
+  while IFS=$'\t' read -r _rel _nums; do
+    [[ -n "${_nums}" ]] || continue
+    _fixture["${_rel}"]="${_nums}"
+  done < <(_adr_ref_fixture_map "${_root}")
+  (( ${#_fixture[@]} > 0 )) || return 0
+
+  local -a _specs=() _tests=() _marker_findings=()
+  local _blurb=''
+  mapfile -t _specs < <(_spec_scan_files "${_root}")
+  for _rel in "${_specs[@]+"${_specs[@]}"}"; do
+    _nums="${_fixture[${_rel}]:-}"
+    [[ -n "${_nums}" ]] || continue
+    _spec_markers_scan "${_root}/${_rel}" _tests _marker_findings _blurb
+    # Unquoted on purpose: the declared numbers are a space-separated list
+    # and every element is eight digits, so there is nothing to split
+    # wrongly.
+    # shellcheck disable=SC2086
+    for _num in ${_nums}; do
+      _re="ADR-${_num}|doc/adr/${_num}-"
+      if [[ -n "${_blurb}" ]] \
+        && printf '%s\n' "${_blurb}" | grep -qE -e "${_re}"; then
+        _adr_marker_captive_report "${_rel}" '' "${_num}"
+      fi
+      for _site in "${_tests[@]+"${_tests[@]}"}"; do
+        IFS=$'\t' read -r _line _marked _name _desc <<< "${_site}"
+        printf '%s\n' "${_name} ${_desc}" | grep -qE -e "${_re}" || continue
+        _adr_marker_captive_report "${_rel}" "${_line}" "${_num}"
+      done
+    done
+  done
+}
+
+# _adr_marker_captive_report <rel> <line> <num> -- one captive-number
+# finding. Split out so the three publication sites cannot word the same
+# fact differently; <line> is empty for the file blurb, which is the one
+# site whose text is the whole opening block rather than one place in it.
+_adr_marker_captive_report() {
+  local _rel="$1" _line="$2" _num="$3" _loc="$1"
+  [[ -z "${_line}" ]] || _loc="${_rel}:${_line}"
+  printf 'ADR numbering: %s: %s is one of this file'"'"'s own declared fixture numbers, and this file publishes it into a generated doc/test catalogue -- where it reads as a reference to this tree, and where the regeneration puts it straight back after "just adr renumber" rewrites the row. Reword the marker or the test name; editing the generated document is undone by the next "just test sync-docs".\n' \
+    "${_loc}" "${_num}"
 }
 
 # _adr_index_line_bare <line> -- the bare ADR numbers in one index line:

@@ -157,6 +157,30 @@ Four parts.
    undeclared live pointer was silently exempt; per number, an undeclared
    fixture number is swept and, where it names no record, reported.
 
+   > **Amended (base#1021, same wave): a declared number the declaring
+   > file PUBLISHES is a finding.** Per number closed the case above and
+   > left its mirror open. A declaration is per FILE, and a `# why:`
+   > marker -- or a `@test` name -- is the one thing in a spec that LEAVES
+   > the file: the generator in part 1 copies the blurb, every
+   > description and every name verbatim into a doc/test catalogue, which
+   > declares nothing. A DECLARED number written at one of those three
+   > sites therefore arrives in the catalogue as a reference to this tree,
+   > and the verb has no consistent state to reach: it rewrites the
+   > published row, the regeneration puts the number straight back from
+   > the marker it may not touch, and the run aborts on a survivor with
+   > the record already moved -- the same half-applied tree the whole-file
+   > reading produced, one level in. This tree shipped one:
+   > `adr_renumber_spec.bats` declares 00000030 and a marker of its own
+   > spelled it out, so `just adr renumber 30 <n>` aborted on
+   > doc/test/unit.md.
+   >
+   > The lint reports it (`captive`) and the verb's survivor message now
+   > names the declaring file. Both name the MARKER rather than the row,
+   > because the row is generated: a hand edit there is undone by the next
+   > `just test sync-docs`, and rewording the marker is the only repair.
+   > That is the residue this rule keeps, and it is one line wide -- write
+   > the number a fixture uses only where the catalogue does not carry it.
+
 4. **A number claimed by two records is refused, not guessed at.** With
    two claimants, a bare `ADR-00000030` in a sentence names whichever of
    them its author meant and nothing in the merged tree records which.

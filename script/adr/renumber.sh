@@ -300,6 +300,29 @@ _renumber_survivors() {
   done < <(_renumber_targets "${_root}" "${_from}")
 }
 
+# _renumber_declarers <root> <from> -- the files that declare <from> one of
+# their own fixture numbers and still name it, one per line.
+#
+# Read only when the sweep has left a survivor, and it is what turns that
+# message from an accusation into a repair. A declaration is per FILE, and
+# a `# why:` marker (or a `@test` name) is the one thing in a spec that
+# LEAVES it: the generator publishes those verbatim into a doc/test
+# catalogue, which declares nothing. So a declared number written there
+# arrives in the catalogue as this tree's reference, this tool rewrites the
+# published row, `_sync_doc_counts` puts the number straight back from the
+# marker it may not touch, and the survivor is a GENERATED file. Naming
+# only that file points the repair at bytes the next `just test sync-docs`
+# overwrites; the marker is the one thing an edit can fix.
+_renumber_declarers() {
+  local _root="$1" _from="$2" _rel _nums _re
+  _re="ADR-${_from}|adr/${_from}-"
+  while IFS=$'\t' read -r _rel _nums; do
+    _adr_ref_declares "${_nums}" "${_from}" || continue
+    grep -qIE -e "${_re}" "${_root}/${_rel}" 2>/dev/null || continue
+    printf '%s\n' "${_rel}"
+  done < <(_adr_ref_fixture_map "${_root}")
+}
+
 # _renumber_move <root> <old-base> <new-base> -- rename the record, and
 # say so truthfully. Every path here returns the mover's own status: this
 # is the one destructive step, and it ran `git mv` followed by an
@@ -384,9 +407,14 @@ _adr_renumber() {
   # what carries a renamed `@test` into its catalogue row.
   _sync_doc_counts "${_root}" >/dev/null || return 1
 
-  local -a _left=()
+  local -a _left=() _declarers=()
   mapfile -t _left < <(_renumber_survivors "${_root}" "${_from}")
   if (( ${#_left[@]} > 0 )); then
+    mapfile -t _declarers < <(_renumber_declarers "${_root}" "${_from}")
+    if (( ${#_declarers[@]} > 0 )); then
+      _renumber_err "the record and ${#_changed[@]} file(s) were rewritten, but a reference to ${_from} survives in: ${_left[*]}. ${_from} is a number ${_declarers[*]} declares its OWN fixture number, so this tool may not rewrite it there -- and where a survivor above is a generated document, its bytes come from a marker or a test name in that file, which the regeneration puts straight back. Reword it there; a hand edit to the generated document is undone by the next 'just test sync-docs'."
+      return 1
+    fi
     _renumber_err "the record and ${#_changed[@]} file(s) were rewritten, but a reference to ${_from} survives in: ${_left[*]}. That is a class of reference this tool does not know about -- fix those by hand and report it."
     return 1
   fi
