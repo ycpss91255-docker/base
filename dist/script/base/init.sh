@@ -763,6 +763,19 @@ EOF
 #     _sync_existing_gitignore     .gitignore, .dockerignore
 #     _create_hook_stubs           script/hooks/
 #     _sync_base_monitor_workflow  the generated monitor workflow
+#     _migrate_smoke_tree          test/smoke AND test/bats/smoke. Both,
+#                                  because the migration empties one and
+#                                  fills the other: restoring either alone
+#                                  rebuilds the very mismatch the
+#                                  migration's own coupling guard declines
+#                                  to create -- a Dockerfile COPY naming a
+#                                  tree that has moved out from under it.
+#                                  Named at this depth rather than as
+#                                  `test/`: the consumer's other suites
+#                                  live under test/ and are no part of
+#                                  what the resync writes, so putting the
+#                                  whole tree back would revert work this
+#                                  run never touched.
 #     _migrate_dockerfile          Dockerfile, script/entrypoint.sh
 #     the .env -> .env.local rename  both names. Neither is recoverable
 #                                  from git -- they are gitignored and
@@ -781,6 +794,8 @@ justfile
 script
 config
 .github/workflows/base-version-monitor.yaml
+test/smoke
+test/bats/smoke
 build.sh
 run.sh
 exec.sh
