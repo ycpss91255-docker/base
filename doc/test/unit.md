@@ -1105,7 +1105,7 @@ between them can be asserted at all.
 | `reclaim.sh --stale delegates the unowned classes to prune.sh with the same window` | - |
 | `reclaim.sh --stale never touches volumes` | - |
 
-### test/bats/unit/ci_spec.bats (127)
+### test/bats/unit/ci_spec.bats (131)
 
 | Test | Description |
 |------|-------------|
@@ -1125,6 +1125,10 @@ between them can be asserted at all.
 | `main --ci: a lint phase that collected failures never reaches bats (#1059)` | The full gate keeps its fail-fast where fail-fast is worth having. Collecting happens WITHIN the lint phase; a phase that failed still ends the run before bats, so a tree that does not lint never spends the suite's minutes to be told so. |
 | `_LINT_TOOLS: the ordering rationale is present to be read (#1059)` | The anchor, and the reason it is a test of its own. The figure guard below reads the same block, so a comment that was deleted or reworded past its opening sentence would leave that guard scanning an empty set and passing -- a lint that has quietly stopped linting. This one fails loudly instead, naming the sentence it looks for. |
 | `_LINT_TOOLS: the ordering rationale stores no wall-clock figure (#1059)` | A duration written into a permanent comment is a claim nothing re-derives. The tree moves it, the host moves it, and repeat runs of the same table move it, so it is wrong soon after it is typed and nothing says when. The rationale needs none of them -- "the phase ends when its last driver ends" holds at any timing -- so the numbers are refused here, and measured when the question is actually asked. |
+| `_lint_order_rationale: the block is bounded at both ends, blank line or not (#1059)` | The population is read out of the tree, so the reader must hold BOTH bounds of it. "From the opening sentence to the first line that is not a comment" holds only one: a blank line dropped into the rationale silently shrinks what both guards scan, and the present-to-be-read guard above still passes, because a truncated block is not an empty one -- cannot-determine-the-block resolving to pass. The same single bound over-runs the other way, swallowing the neighbouring paragraph a bare `#` line joins to the rationale. |
+| `_lint_order_rationale: a block it cannot bound is no block at all (#1059)` | The refusal side of the same reader. A block whose closing sentence is gone cannot be delimited, and a reader that answers such a question by returning everything to the end of the file would hand the figure guard a population nobody chose. Returning nothing instead lands on the present-to-be-read guard, which fails loudly and names the sentence. |
+| `_stored_measurements: a unit in upper case is still a stored figure (#1059)` | bash `=~` is case-sensitive, and this file's own house style writes emphasis in upper case (ORDER IS NOT A FAIL-FAST LEVER, THE SUBSHELL SHAPE IS LOAD-BEARING), so a lower-case-only match is a guard that does not see the shape most likely to be written next to it. Prose carrying no figure must still come back clean, or the guard would refuse the argument it exists to protect. |
+| `_stored_measurements: a spread stated as a fraction is a stored figure (#1059)` | A duration is not the only measurement a comment can store. The claim that repeat runs "spread by more than a tenth" is the same kind of number -- hand-measured, un-derived, silently stale -- and it sits inside this very rationale, so a guard that looked only for unit tokens refused the seconds while carrying the spread. |
 | `_run_via_compose: routes default mode to the ci service with COVERAGE=0` | Service routing — fast path |
 | `_run_via_compose: routes coverage mode to the coverage service with COVERAGE=1` | Service routing — coverage path |
 | `main: dispatches no-flag default to the ci service` | End-to-end default dispatch |

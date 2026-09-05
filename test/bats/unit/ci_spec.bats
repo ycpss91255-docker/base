@@ -429,6 +429,83 @@ _lint_order_rationale() {
     "the ordering rationale states a duration, which nothing re-derives: ${_stored[*]} -- drop it and time the driver when the question is asked (./script/test/test.sh --<tool>-only)"
 }
 
+# why: The population is read out of the tree, so the reader must hold
+# BOTH bounds of it. "From the opening sentence to the first line that is
+# not a comment" holds only one: a blank line dropped into the rationale
+# silently shrinks what both guards scan, and the present-to-be-read guard
+# above still passes, because a truncated block is not an empty one --
+# cannot-determine-the-block resolving to pass. The same single bound
+# over-runs the other way, swallowing the neighbouring paragraph a bare
+# `#` line joins to the rationale.
+@test "_lint_order_rationale: the block is bounded at both ends, blank line or not (#1059)" {
+  local _fixture="${BATS_TEST_TMPDIR}/bounded.sh"
+  printf '%s\n' \
+    '# A paragraph above the rationale.' \
+    '# ORDER IS NOT A FAIL-FAST LEVER. The argument opens here.' \
+    '# The second line of the argument.' \
+    '' \
+    '# Still the argument, one blank line later.' \
+    '# END OF THE ORDER RATIONALE. The argument closes here.' \
+    '#' \
+    '# A neighbouring paragraph that is not the rationale.' \
+    'readonly _SOMETHING=1' > "${_fixture}"
+
+  run _lint_order_rationale "${_fixture}"
+  assert_success
+  assert_output --partial "The argument opens here"
+  assert_output --partial "Still the argument, one blank line later"
+  assert_output --partial "The argument closes here"
+  refute_output --partial "A paragraph above the rationale"
+  refute_output --partial "A neighbouring paragraph"
+}
+
+# why: The refusal side of the same reader. A block whose closing sentence
+# is gone cannot be delimited, and a reader that answers such a question
+# by returning everything to the end of the file would hand the figure
+# guard a population nobody chose. Returning nothing instead lands on the
+# present-to-be-read guard, which fails loudly and names the sentence.
+@test "_lint_order_rationale: a block it cannot bound is no block at all (#1059)" {
+  local _fixture="${BATS_TEST_TMPDIR}/unbounded.sh"
+  printf '%s\n' \
+    '# ORDER IS NOT A FAIL-FAST LEVER. The argument opens here.' \
+    '# and is never closed.' \
+    'readonly _SOMETHING=1' > "${_fixture}"
+
+  run _lint_order_rationale "${_fixture}"
+  assert_output ""
+}
+
+# why: bash `=~` is case-sensitive, and this file's own house style writes
+# emphasis in upper case (ORDER IS NOT A FAIL-FAST LEVER, THE SUBSHELL
+# SHAPE IS LOAD-BEARING), so a lower-case-only match is a guard that does
+# not see the shape most likely to be written next to it. Prose carrying
+# no figure must still come back clean, or the guard would refuse the
+# argument it exists to protect.
+@test "_stored_measurements: a unit in upper case is still a stored figure (#1059)" {
+  run _stored_measurements <<< '# shellcheck takes about 40 SECONDS of the phase'
+  assert_success
+  assert_output --partial "40 SECONDS"
+
+  run _stored_measurements <<< '# the phase ends when its LAST driver ends'
+  assert_success
+  assert_output ""
+}
+
+# why: A duration is not the only measurement a comment can store. The
+# claim that repeat runs "spread by more than a tenth" is the same kind of
+# number -- hand-measured, un-derived, silently stale -- and it sits
+# inside this very rationale, so a guard that looked only for unit tokens
+# refused the seconds while carrying the spread.
+@test "_stored_measurements: a spread stated as a fraction is a stored figure (#1059)" {
+  run _stored_measurements <<< '# three timing rounds already spread by more than a tenth'
+  assert_success
+  assert_output --partial "more than a tenth"
+
+  run _stored_measurements <<< '# the drivers disagree by 12% between runs'
+  assert_success
+  assert_output --partial "12%"
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _run_via_compose / main routing
 #
