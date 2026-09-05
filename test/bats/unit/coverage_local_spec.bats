@@ -740,14 +740,19 @@ _run_coverage_parallel 9"
 # arbitrary code execution on a shared workstation unless it carries the
 # fork guard, which is what `self-hosted-guard` enforces for every job in
 # this tree.
+#
+# Read off the CODE, comments dropped. This file's header spends a
+# paragraph on why one self-hosted runner is not a PR gate, so the words
+# "self-hosted" are in it whatever the job runs on -- a whole-file read
+# answers the question with the prose that explains the answer. That is the
+# rule the sibling `self-test.yaml` case already applies to `runs-on:`.
 @test "coverage-local workflow: runs on the self-hosted GPU runner behind the fork guard" {
   local _wf=/source/.github/workflows/coverage-local.yaml
   assert [ -f "${_wf}" ]
 
-  run cat "${_wf}"
+  run bash -c "sed '/^[[:space:]]*#/d' '${_wf}'"
   assert_success
-  assert_output --partial "self-hosted"
-  assert_output --partial "gpu"
+  assert_output --partial "runs-on: [self-hosted, gpu]"
   assert_output --partial "github.event_name != 'pull_request'"
   assert_output --partial "github.event.pull_request.head.repo.full_name == github.repository"
 }
@@ -756,13 +761,25 @@ _run_coverage_parallel 9"
 # operator uses. A validation job that called `--coverage` would be a
 # second, slower way of running what CI already runs and would never
 # exercise the merge this issue is about.
+#
+# Read as the SET of modes the workflow invokes, off the code. Two things
+# would otherwise pass a broken file: the header comment names
+# `test.sh --coverage-local` twice, so a whole-file `--partial` stays green
+# after the run step is switched back to the serial mode; and there are TWO
+# invocations (with and without `--jobs`), so a `--partial` over either one
+# is satisfied by the other. A set has neither hole -- and the `--jobs`
+# branch matters most, because `--jobs` on the serial mode is an invocation
+# the entry refuses outright.
 @test "coverage-local workflow: drives test.sh --coverage-local" {
   local _wf=/source/.github/workflows/coverage-local.yaml
   assert [ -f "${_wf}" ]
 
-  run cat "${_wf}"
+  run bash -c "
+    sed '/^[[:space:]]*#/d' '${_wf}' \
+      | grep -oE 'test\.sh --[a-z-]+' \
+      | LC_ALL=C sort -u"
   assert_success
-  assert_output --partial "--coverage-local"
+  assert_output "test.sh --coverage-local"
 }
 
 # why: production must be untouched. The acceptance criterion is explicit
