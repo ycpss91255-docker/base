@@ -1264,6 +1264,51 @@ _stage_resync_output() {
   _log "  staged for the upgrade commit: ${#_stage[@]} path(s) the resync wrote (review with: git diff --cached)"
 }
 
+# _init_lexical_path <path>
+#   Set _INIT_LEXICAL_PATH to <path> with its `.` and `..` segments
+#   resolved and its empty ones collapsed. Purely textual: no stat, no
+#   readlink, nothing that can fail or that depends on the path existing --
+#   the caller is deciding whether to hand a name to `git add`, and half
+#   the names it asks about are files a migration has just written or is
+#   about to.
+#
+#   Lexical resolution and physical resolution differ where a `..` follows
+#   a symlink, and lexical is the one wanted here: `script/` in a consumer
+#   IS a symlink into the subtree, so resolving links would relocate paths
+#   that git stages perfectly well, and the answer would change with the
+#   tree rather than with the name.
+#
+#   `..` at the root stays at the root, matching every path resolver: a
+#   name cannot escape above `/`. A RELATIVE path is handed back untouched
+#   -- it resolves against a cwd this function is not told about, and the
+#   one caller drops it as foreign either way.
+#
+#   Answers through a variable rather than stdout for the reason
+#   _init_drop_foreign_paths does below: a command substitution eats
+#   trailing newlines, and not silently altering the paths it is handed is
+#   the whole job.
+_INIT_LEXICAL_PATH=""
+
+_init_lexical_path() {
+  local _path="${1-}" _seg _res=""
+  if [[ "${_path}" != /* ]]; then
+    _INIT_LEXICAL_PATH="${_path}"
+    return 0
+  fi
+  # `read -d /` splits on the separator and on nothing else, so a segment
+  # containing a space, a tab or a glob character survives it intact. The
+  # appended `/` terminates the last segment.
+  while IFS= read -r -d '/' _seg; do
+    case "${_seg}" in
+      '' | '.') ;;
+      '..') _res="${_res%/*}" ;;
+      *) _res+="/${_seg}" ;;
+    esac
+  done < <(printf '%s/' "${_path}")
+  _INIT_LEXICAL_PATH="${_res:-/}"
+  return 0
+}
+
 # _init_drop_foreign_paths
 #   Remove from the caller's `_paths` any entry that is not under
 #   REPO_ROOT, naming what it dropped.
@@ -1284,14 +1329,29 @@ _stage_resync_output() {
 #   outside the repo is a bug in that migration, not a reason to lose the
 #   rewrite the same run made inside it.
 #
+#   A fence for the general case has to answer the general question, so the
+#   comparison runs on _init_lexical_path's output. The first version of it
+#   was a prefix test on the unresolved string, which reads
+#   `${REPO_ROOT}/../elsewhere/x` as inside the repo and hands `git add`
+#   precisely the argument described above. "Cannot tell whether this is
+#   inside the repo" must not resolve to "proceed".
+#
 #   Operates on the caller's array by name rather than returning a list,
 #   because a path may legitimately contain anything but a newline and
 #   round-tripping it through a substitution is where that stops being true.
 _init_drop_foreign_paths() {
   local -a _kept=() _foreign=()
-  local _candidate
+  local _candidate _root
+  _init_lexical_path "${REPO_ROOT}"
+  _root="${_INIT_LEXICAL_PATH}"
   for _candidate in ${_paths[@]+"${_paths[@]}"}; do
-    if [[ "${_candidate}" == "${REPO_ROOT}/"* ]]; then
+    # Compared after the `.` and `..` segments are resolved, kept in the
+    # spelling it arrived in. A raw prefix test reads
+    # `${REPO_ROOT}/../elsewhere/x` as inside the repo -- it starts with
+    # the root -- and hands `git add` the one argument that fails the whole
+    # batch, which is this function's entire reason to exist.
+    _init_lexical_path "${_candidate}"
+    if [[ "${_INIT_LEXICAL_PATH}" == "${_root}/"* ]]; then
       _kept+=("${_candidate}")
     else
       _foreign+=("${_candidate}")
