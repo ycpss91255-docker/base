@@ -64,6 +64,13 @@
 # - a dead-code guard: every function setup_tui.sh defines has to be
 # reachable from `dist/`, with the population derived from the file and the
 # callers from the shipped tree rather than kept as a roster
+#
+# - the editors and menu arms the flow suite only ever spied on
+# (`_tui_init_lang`, `_mark_removed` dedupe, the re-prompt paths in
+# `_edit_section_network` / `_edit_section_deploy`, `_edit_section_gui` /
+# `_volumes` / `_tmpfs`, the Advanced and Runtime menu arms,
+# `_edit_stage_list` on an entry already in the config, and
+# `_list_dockerfile_stages_available` de-duplicating a repeated stage)
 
 bats_require_minimum_version 1.5.0
 
@@ -952,4 +959,178 @@ stub_main_deps() {
   done
   printf 'unreachable: %s\n' "${_dead[*]-}" >&2
   [ "${#_dead[@]}" -eq 0 ]
+}
+
+# ════════════════════════════════════════════════════════════════════
+# The editors the flow suite only ever spied on
+# ════════════════════════════════════════════════════════════════════
+
+# why: every message lookup goes through the table _tui_init_lang selects, so
+# a locale that maps to the wrong table (or falls through to English) makes
+# the whole TUI monolingual for that user. Checked through _tui_msg rather
+# than the index variable: the table is what the user reads.
+@test "_tui_init_lang: each supported locale selects its own message table" {
+  local _lang _en
+  _en="$(_LANG=en; _tui_init_lang; _tui_msg title)"
+  for _lang in zh-TW zh-CN ja; do
+    local _got
+    _got="$(_LANG="${_lang}"; _tui_init_lang; _tui_msg title)"
+    [[ -n "${_got}" ]]
+    [[ "${_got}" != "${_en}" ]]
+  done
+  # An unknown value is English, not an empty table.
+  [[ "$(_LANG=klingon; _tui_init_lang; _tui_msg title)" == "${_en}" ]]
+}
+
+# why: the removal list is replayed key by key when the file is written, so a
+# key marked twice would be processed twice. Clearing the same entry from two
+# screens is ordinary use.
+@test "_mark_removed: marking the same key twice lists it once" {
+  _mark_removed network.ipc
+  _mark_removed network.ipc
+  [ "${#_TUI_REMOVED[@]}" -eq 1 ]
+}
+
+# why: an invalid network name has to send the user back to the SAME field
+# with what they typed still in it -- re-prompting from the old value throws
+# away the correction they were making.
+@test "_edit_section_network: a rejected network_name re-prompts and then accepts" {
+  queue "0|bridge" "0|host" "0|private" "0|bad name" "0|devnet" "0|back"
+  _edit_section_network
+  [[ "$(ovr_get network.network_name)" == "devnet" ]]
+  warned "$(_tui_msg err.invalid_network_name)"
+}
+
+# why: the shm_size prompt only appears when ipc is not host, and its
+# rejection path is the one a user hits by typing a size without a unit.
+@test "_edit_section_network: a rejected shm_size re-prompts and then accepts" {
+  queue "0|host" "0|private" "0|private" "0|not-a-size" "0|1g"
+  _edit_section_network
+  [[ "$(ovr_get resources.shm_size)" == "1g" ]]
+  warned "$(_tui_msg err.invalid_shm_size)"
+}
+
+# why: gpu_count reaches compose's `count:`; a value that is neither `all`
+# nor a positive integer is refused rather than written, and the loop asks
+# again instead of leaving the section.
+@test "_edit_section_deploy: a rejected gpu_count re-prompts and then accepts" {
+  _detect_mig() { return 1; }
+  queue "0|auto" "0|zero" "0|2" "0|gpu" "0|auto"
+  _edit_section_deploy
+  [[ "$(ovr_get deploy.gpu_count)" == "2" ]]
+  warned "$(_tui_msg err.invalid_gpu_count)"
+}
+
+# why: the runtime radio is the last step, and its rejection path does NOT
+# loop -- it warns and leaves the key unwritten, so `runtime: nvidia` is
+# never emitted from a value the resolver would not recognise.
+@test "_edit_section_deploy: an unrecognised runtime is warned about, not written" {
+  _detect_mig() { return 1; }
+  queue "0|auto" "0|all" "0|gpu" "0|bogus"
+  _edit_section_deploy
+  run ovr_get deploy.gpu_runtime
+  [ "${status}" -ne 0 ]
+  warned "$(_tui_msg err.invalid_runtime)"
+}
+
+# why: `restart:` goes into compose verbatim; a policy docker does not know
+# fails the service at start, so an unrecognised one is refused here and the
+# key is left alone.
+@test "_edit_section_lifecycle: an unrecognised restart policy is not written" {
+  queue "0|sometimes"
+  _edit_section_lifecycle
+  run ovr_get lifecycle.restart
+  [ "${status}" -ne 0 ]
+  warned "$(_tui_msg err.invalid_restart)"
+}
+
+# why: the GUI editor is a single radio and the flow suite only ever proved
+# the menu reaches it. Its job is to store the picked mode -- and to store
+# nothing when the user escapes.
+@test "_edit_section_gui: stores the picked mode, and nothing on Esc" {
+  queue "0|force"
+  _edit_section_gui
+  [[ "$(ovr_get gui.mode)" == "force" ]]
+  _TUI_OVR_KEYS=(); _TUI_OVR_VALUES=()
+  queue "1|"
+  _edit_section_gui
+  [ "${#_TUI_OVR_KEYS[@]}" -eq 0 ]
+}
+
+# why: volumes and tmpfs are one-line wrappers over the shared list editor,
+# and the section/prefix pair they pass is the only thing that distinguishes
+# them. A swapped pair files a bind mount as a tmpfs.
+@test "_edit_section_volumes / _edit_section_tmpfs: each opens its own list" {
+  queue "0|add" "0|/tmp:/tmp" "0|back"
+  _edit_section_volumes
+  [[ "$(ovr_get volumes.mount_1)" == "/tmp:/tmp" ]]
+  queue "0|add" "0|/run:size=64m" "0|back"
+  _edit_section_tmpfs
+  [[ "$(ovr_get tmpfs.tmpfs_1)" == "/run:size=64m" ]]
+}
+
+# why: Advanced is the only route to security, named contexts and Reset, and
+# the main menu is the only route to Advanced.
+@test "_render_main_menu: advanced opens the advanced sub-menu" {
+  _SEEN="${BATS_TEST_TMPDIR}/seen"
+  _render_advanced_menu() { printf 'advanced\n' >> "${_SEEN}"; }
+  queue "0|advanced" "0|__save"
+  _render_main_menu
+  grep -Fqx -- 'advanced' "${_SEEN}"
+}
+
+# why: the env-vars info page is guidance, not an editor -- the S2 invariant
+# is that the TUI never writes .env. Reaching it must show the page and
+# leave the config untouched.
+@test "_render_runtime_menu: envinfo shows the guidance page and writes nothing" {
+  queue "0|envinfo" "0|__back"
+  _render_runtime_menu
+  warned "$(_tui_msg envinfo.title)"
+  [ "${#_TUI_OVR_KEYS[@]}" -eq 0 ]
+}
+
+# why: the per-stage row is conditional on the Dockerfile having a
+# non-baseline stage, and Reset is the destructive entry. Both are dispatched
+# from this menu and nowhere else.
+@test "_render_advanced_menu: offers per-stage when stages exist, and routes reset" {
+  _list_dockerfile_stages_available() { local -n _o="${1}"; _o=(extra); }
+  _SEEN="${BATS_TEST_TMPDIR}/seen"
+  : > "${_SEEN}"
+  _edit_section_per_stage() { printf 'per_stage\n' >> "${_SEEN}"; }
+  _do_reset() { printf 'reset\n' >> "${_SEEN}"; }
+  queue "0|per_stage" "0|reset" "0|__back"
+  _render_advanced_menu
+  menu_row "$(_tui_msg advanced.per_stage)"
+  grep -Fqx -- 'per_stage' "${_SEEN}"
+  grep -Fqx -- 'reset' "${_SEEN}"
+}
+
+# why: a stage list built only from pending overrides would not OFFER the
+# entries already in setup.conf, and the user would have to retype a mount
+# to change it. The row has to be rendered -- asserted here, because the
+# queue would dispatch the click either way -- and editing it has to replace
+# the value rather than append a second entry.
+@test "_edit_stage_list: an entry already in the config is offered and can be edited" {
+  _TUI_CURRENT[stage:extra.volumes.mount_1]="/a:/a"
+  queue "0|mount_1" "0|/b:/b" "0|__back"
+  _edit_stage_volumes extra
+  menu_row "/a:/a"
+  [[ "$(ovr_get 'stage:extra.volumes.mount_1')" == "/b:/b" ]]
+  run ovr_get 'stage:extra.volumes.mount_2'
+  [ "${status}" -ne 0 ]
+}
+
+# why: a Dockerfile that names one stage twice (a later `FROM ... AS extra`
+# refining an earlier one) must offer that stage once; a duplicated row makes
+# the per-stage menu look like there are two independent stages.
+@test "_list_dockerfile_stages_available: a stage named twice is offered once" {
+  local _d="${BATS_TEST_TMPDIR}/df"
+  mkdir -p "${_d}"
+  printf 'FROM alpine AS extra\nFROM alpine AS other\nFROM extra AS extra\n' \
+    > "${_d}/Dockerfile"
+  local -a _got=()
+  _list_dockerfile_stages_available _got "${_d}"
+  [ "${#_got[@]}" -eq 2 ]
+  [[ "${_got[0]}" == "extra" ]]
+  [[ "${_got[1]}" == "other" ]]
 }

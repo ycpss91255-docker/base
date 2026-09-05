@@ -6727,7 +6727,7 @@ unification (#178: dialog also drops `--extra-button`)
 | `_tui_backend: an ambient TUI_OK_LABEL / TUI_CANCEL_LABEL does not reach the backend (#895)` | - |
 | `_tui_menu omits --extra-button / --extra-label on whiptail even when TUI_EXTRA_LABEL is set` | - |
 
-### test/bats/unit/tui_editor_flow_spec.bats (62)
+### test/bats/unit/tui_editor_flow_spec.bats (76)
 
 `tui_flow_spec.bats` proves the setup_tui.sh menus DISPATCH -- it spies on
 each section editor and asserts the right one was reached. What those
@@ -6794,6 +6794,13 @@ cancel saves nothing)
 from `dist/`, with the population derived from the file and the callers from
 the shipped tree rather than kept as a roster
 
+- the editors and menu arms the flow suite only ever spied on
+(`_tui_init_lang`, `_mark_removed` dedupe, the re-prompt paths in
+`_edit_section_network` / `_edit_section_deploy`, `_edit_section_gui` /
+`_volumes` / `_tmpfs`, the Advanced and Runtime menu arms,
+`_edit_stage_list` on an entry already in the config, and
+`_list_dockerfile_stages_available` de-duplicating a repeated stage)
+
 | Test | Description |
 |------|-------------|
 | `_edit_section_build: unset arch and network render a named default, never a blank` | an unset target_arch / build network means "let BuildKit decide", not "empty". Rendering the raw value would print a row ending in a bare `=`, which reads as a broken menu rather than as a default. |
@@ -6858,6 +6865,20 @@ the shipped tree rather than kept as a roster
 | `main: -h prints usage and does not open the menu` | -h must print usage rather than open the TUI, and it is the one path a user reaches when they do not know the subcommand names. |
 | `_tui_canonical_section: gpu resolves to deploy, other names are themselves` | `gpu` is an alias, not a section; everything else is its own name. Canonicalising the wrong way round would send `deploy` to a `_edit_section_gpu` that does not exist. |
 | `setup_tui.sh: every function it defines is reachable from dist/` | base#1073 found three functions in setup_tui.sh with no caller, and one of them had three specs -- so a test suite is not evidence that production code is reachable. A hand-kept roster of "known dead" would go stale the moment a caller is deleted, so the population is derived from the file and the callers from the shipped tree. Dynamic dispatch is honoured rather than special-cased: a `"_prefix_${var}"` construct in the file makes every `_prefix_*` function reachable, which is how `_edit_section_resources` -- whose only caller is main's `setup_tui.sh resources` direct jump -- stays in. |
+| `_tui_init_lang: each supported locale selects its own message table` | every message lookup goes through the table _tui_init_lang selects, so a locale that maps to the wrong table (or falls through to English) makes the whole TUI monolingual for that user. Checked through _tui_msg rather than the index variable: the table is what the user reads. |
+| `_mark_removed: marking the same key twice lists it once` | the removal list is replayed key by key when the file is written, so a key marked twice would be processed twice. Clearing the same entry from two screens is ordinary use. |
+| `_edit_section_network: a rejected network_name re-prompts and then accepts` | an invalid network name has to send the user back to the SAME field with what they typed still in it -- re-prompting from the old value throws away the correction they were making. |
+| `_edit_section_network: a rejected shm_size re-prompts and then accepts` | the shm_size prompt only appears when ipc is not host, and its rejection path is the one a user hits by typing a size without a unit. |
+| `_edit_section_deploy: a rejected gpu_count re-prompts and then accepts` | gpu_count reaches compose's `count:`; a value that is neither `all` nor a positive integer is refused rather than written, and the loop asks again instead of leaving the section. |
+| `_edit_section_deploy: an unrecognised runtime is warned about, not written` | the runtime radio is the last step, and its rejection path does NOT loop -- it warns and leaves the key unwritten, so `runtime: nvidia` is never emitted from a value the resolver would not recognise. |
+| `_edit_section_lifecycle: an unrecognised restart policy is not written` | `restart:` goes into compose verbatim; a policy docker does not know fails the service at start, so an unrecognised one is refused here and the key is left alone. |
+| `_edit_section_gui: stores the picked mode, and nothing on Esc` | the GUI editor is a single radio and the flow suite only ever proved the menu reaches it. Its job is to store the picked mode -- and to store nothing when the user escapes. |
+| `_edit_section_volumes / _edit_section_tmpfs: each opens its own list` | volumes and tmpfs are one-line wrappers over the shared list editor, and the section/prefix pair they pass is the only thing that distinguishes them. A swapped pair files a bind mount as a tmpfs. |
+| `_render_main_menu: advanced opens the advanced sub-menu` | Advanced is the only route to security, named contexts and Reset, and the main menu is the only route to Advanced. |
+| `_render_runtime_menu: envinfo shows the guidance page and writes nothing` | the env-vars info page is guidance, not an editor -- the S2 invariant is that the TUI never writes .env. Reaching it must show the page and leave the config untouched. |
+| `_render_advanced_menu: offers per-stage when stages exist, and routes reset` | the per-stage row is conditional on the Dockerfile having a non-baseline stage, and Reset is the destructive entry. Both are dispatched from this menu and nowhere else. |
+| `_edit_stage_list: an entry already in the config is offered and can be edited` | a stage list built only from pending overrides would not OFFER the entries already in setup.conf, and the user would have to retype a mount to change it. The row has to be rendered -- asserted here, because the queue would dispatch the click either way -- and editing it has to replace the value rather than append a second entry. |
+| `_list_dockerfile_stages_available: a stage named twice is offered once` | a Dockerfile that names one stage twice (a later `FROM ... AS extra` refining an earlier one) must offer that stage once; a duplicated row makes the per-stage menu look like there are two independent stages. |
 
 ### test/bats/unit/tui_flow_spec.bats (106)
 
