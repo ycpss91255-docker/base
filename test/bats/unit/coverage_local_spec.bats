@@ -739,9 +739,7 @@ _run_coverage_parallel 9"
 # written for. And a job that can land on the org's self-hosted runner is
 # arbitrary code execution on a shared workstation unless it carries the
 # fork guard, which is what `self-hosted-guard` enforces for every job in
-# this tree.
-#
-# Read off the CODE, comments dropped. This file's header spends a
+# this tree. Read off the CODE, comments dropped: this file's header spends a
 # paragraph on why one self-hosted runner is not a PR gate, so the words
 # "self-hosted" are in it whatever the job runs on -- a whole-file read
 # answers the question with the prose that explains the answer. That is the
@@ -760,10 +758,9 @@ _run_coverage_parallel 9"
 # why: the workflow has to drive the MODE, through the same entry an
 # operator uses. A validation job that called `--coverage` would be a
 # second, slower way of running what CI already runs and would never
-# exercise the merge this issue is about.
-#
-# Read as the SET of modes the workflow invokes, off the code. Two things
-# would otherwise pass a broken file: the header comment names
+# exercise the merge this issue is about. Read as the SET of modes the
+# workflow invokes, off the code, because two things would otherwise pass
+# a broken file: the header comment names
 # `test.sh --coverage-local` twice, so a whole-file `--partial` stays green
 # after the run step is switched back to the serial mode; and there are TWO
 # invocations (with and without `--jobs`), so a `--partial` over either one
