@@ -203,7 +203,19 @@ reads. That reader does not SKIP a shape it cannot read: it applies the
 forms whose meaning `find`'s matcher and git's share -- plain paths, and
 a wildcard with no separator -- and REPORTS the rest (a negation, a
 wildcard beside a separator, a nested `.gitignore`) as a finding saying
-its population is wider than the verb's. Modelling gitignore in shell was
+its population is wider than the verb's.
+
+The root `.gitignore` is not the whole declaration either, and the same
+rule covers the remainder: `--exclude-standard` is THREE files, and
+`<gitdir>/info/exclude` and `core.excludesFile` are reported by the walk
+for the same reason a nested file is -- a declaration it never opens. The
+second of them adds a reason of its own not to APPLY it: it is per user,
+so a lint that read it would answer differently in the container and on
+the host from a file that is not in the tree and that no diff can show.
+The residue is what this reader can SEE: where `.git` names a gitdir that
+was never mounted there is no exclude file to open, so none is reported,
+because a finding about a declaration that is not there to read has no
+repair. Modelling gitignore in shell was
 rejected for the reason the rest of this record argues: a model is right
 about the forms somebody thought of and silently wrong about the others,
 which is the failure this reader exists to remove, while a tree told

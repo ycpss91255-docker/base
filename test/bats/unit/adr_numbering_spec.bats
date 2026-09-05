@@ -827,7 +827,8 @@ _index() {
   printf '%s\n' 'scratch/' > "${SCRATCH}/home/ignore"
   printf '%s\n' '[core]' "  excludesFile = ${SCRATCH}/home/ignore" \
     > "${SCRATCH}/home/.gitconfig"
-  HOME="${SCRATCH}/home" run _run_adr_numbering
+  export HOME="${SCRATCH}/home"
+  run _run_adr_numbering
   [ "${status}" -ne 0 ]
   [[ "${output}" == *"home/ignore"* ]]
 }

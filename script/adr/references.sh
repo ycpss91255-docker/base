@@ -74,6 +74,14 @@
 #               reader never opens. Each would silently widen the walk's
 #               population past the verb's.
 #
+# And the root .gitignore is not the whole declaration either.
+# `--exclude-standard` is THREE files: that one, `<gitdir>/info/exclude`,
+# and whatever `core.excludesFile` names. The other two are reported by
+# the same rule and for the same reason (_adr_ref_other_excludes), with
+# one addition -- `core.excludesFile` is per USER, so applying it would
+# make this lint answer differently in the container and on the host from
+# a file that is not in the tree and that no diff can show.
+#
 # Reported and not modelled, deliberately. A shell reimplementation of
 # gitignore would be right about the forms someone thought of and wrong
 # in silence about the rest, which is the failure mode this file exists
@@ -221,6 +229,82 @@ _adr_ref_ignored_paths() {
   done < "${_root}/.gitignore"
 }
 
+# _adr_ref_has_rules <file> -- whether <file> carries at least one line
+# that is a rule rather than a blank or a comment.
+#
+# The boundary that keeps the report below from being noise: git seeds
+# every checkout's `.git/info/exclude` with comments and nothing else, and
+# a declaration that declares nothing is a finding with no repair to make.
+_adr_ref_has_rules() {
+  local _file="$1" _line
+  [[ -f "${_file}" ]] || return 1
+  while IFS= read -r _line || [[ -n "${_line}" ]]; do
+    _line="${_line%$'\r'}"
+    _line="${_line#"${_line%%[![:space:]]*}"}"
+    _line="${_line%"${_line##*[![:space:]]}"}"
+    [[ -n "${_line}" ]] || continue
+    [[ "${_line}" == '#'* ]] || return 0
+  done < "${_file}"
+  return 1
+}
+
+# _adr_ref_other_excludes <root> -- the exclude declarations git applies to
+# <root> that are NOT the root .gitignore and that this reader can SEE, one
+# absolute path per line.
+#
+# `--exclude-standard` is THREE files, not one: the root `.gitignore`,
+# `<gitdir>/info/exclude`, and whatever `core.excludesFile` names. The git
+# tier applies all three. This reader opens only the first, so a path
+# excluded by either of the others is read by the walk and never swept by
+# `just adr renumber` -- the nested-`.gitignore` split again, by the same
+# mechanism, and the reason the two are reported here.
+#
+# REPORTED and not applied, and the two have different reasons.
+# `core.excludesFile` is per USER: applying it would make this lint answer
+# differently in the container and on the host, from a file that is not in
+# the tree at all and that no diff can show. `info/exclude` is per
+# CHECKOUT and equally invisible in a diff, so the repair for both is the
+# same one every other finding here asks for -- spell the rule in the root
+# `.gitignore`, where both tiers read it and a reviewer can see it.
+#
+# The residue, stated rather than papered over: this reports what it can
+# SEE. Where `.git` is a file naming a gitdir that was never mounted --
+# a worktree read from inside the test container, which is the tier this
+# whole fallback exists for -- there is no exclude file to open and none
+# is reported. Nothing can be said about a declaration that is not there
+# to read, and saying it anyway would be a permanent finding with no
+# repair.
+_adr_ref_other_excludes() {
+  local _root="$1" _gitdir='' _line _global
+  if [[ -d "${_root}/.git" ]]; then
+    _gitdir="${_root}/.git"
+  elif [[ -f "${_root}/.git" ]]; then
+    # `gitdir: <path>`, absolute in every worktree git writes, but the
+    # format permits a relative one and it is resolved against the root.
+    _line="$(sed -n 's/^gitdir: //p' "${_root}/.git" 2>/dev/null | head -n 1)"
+    if [[ -n "${_line}" ]]; then
+      _gitdir="${_line}"
+      [[ "${_gitdir}" == /* ]] || _gitdir="${_root}/${_gitdir}"
+    fi
+  fi
+  if [[ -n "${_gitdir}" ]] \
+    && _adr_ref_has_rules "${_gitdir}/info/exclude"; then
+    printf '%s\n' "${_gitdir}/info/exclude"
+  fi
+  # `-C <root>`, and not a bare `git config`: the question is which global
+  # file applies to THIS root, and a bare call discovers the repository
+  # from the CALLER's directory. That is fatal where the caller stands in
+  # a worktree whose gitdir was never mounted -- which is the tier this
+  # whole function reports about -- so the answer would depend on where
+  # the lint was invoked from. Scoped to the root, a failure means only
+  # that git cannot be asked here, and nothing is reported.
+  _global="$(git -C "${_root}" config --get core.excludesFile 2>/dev/null \
+    || true)"
+  [[ -n "${_global}" ]] || return 0
+  [[ "${_global}" != '~/'* ]] || _global="${HOME:-}/${_global#\~/}"
+  ! _adr_ref_has_rules "${_global}" || printf '%s\n' "${_global}"
+}
+
 # _adr_ref_walk <root> -- every file under <root> that the tree does not
 # declare derived, one root-relative path per line. The fallback for a
 # root git cannot answer for.
@@ -304,10 +388,16 @@ _adr_ref_candidates() {
 # thought of) or to go on skipping the line (wrong in silence about all
 # of them).
 _adr_ref_unreadable_ignores() {
-  local _root="$1" _kind _lineno _text _rel
+  local _root="$1" _kind _lineno _text _rel _path
   local -a _git=()
   mapfile -t _git < <(_adr_ref_git_files "${_root}")
   (( ${#_git[@]} == 0 )) || return 0
+  # The two declarations that are not a `.gitignore` at all. See
+  # _adr_ref_other_excludes.
+  while IFS= read -r _path; do
+    printf '%s\ta declaration git applies and this reader does not open\n' \
+      "${_path}"
+  done < <(_adr_ref_other_excludes "${_root}")
   while IFS=$'\t' read -r _kind _lineno _text; do
     case "${_kind}" in
       negation|deep-glob)
