@@ -412,10 +412,33 @@ _run_coverage() {
   local _exclude_path
   _exclude_path="$(_coverage_exclude_path)"
 
+  # kcov WRAPS bats, so this is a bats run like every other one in this
+  # driver and takes its arguments from the same helper -- parallelism
+  # where GNU parallel is present, serial and said out loud where it is
+  # not. Assembled by hand instead, it was the one bats invocation here
+  # that never received --jobs, and serial execution, not the
+  # instrumentation, was the larger half of a coverage shard's wall time:
+  # measured on one shard of the real partition, 157.3s serial under kcov
+  # against 50.0s at --jobs 32, of which kcov's instrumentation is 42.6s.
+  # It is latency-bound rather than CPU-bound (a 4-vCPU cap costs a
+  # serial shard nothing, and oversubscribing past the core count keeps
+  # paying), so the gain is not a property of a large host: at 4 vCPU,
+  # --jobs 16 is 2.07x with kcov in the loop.
+  #
+  # THE COST, so it is not rediscovered: N parallel bats jobs feed their
+  # trace streams to ONE kcov process, whose parser is single-threaded.
+  # That parser is what the remaining ~27% is, and it does not divide by
+  # --jobs; the measurements above are net of it. Making that share scale
+  # needs a kcov process per slice (base#726), which is a different
+  # change from this one and not a competing one.
+  local -a _bats_args
+  local _label
+  _bats_args_with_label _bats_args _label
+
   local -a _targets=()
   local _pool
   if [[ -z "${_shard_spec}" ]]; then
-    echo "--- Running Tests with Kcov Coverage (full suite) ---"
+    echo "--- Running Tests with Kcov Coverage (full suite; ${_label}) ---"
     # The pools, from the one roster the inventory reads too -- so what
     # the certificate is measured against is what the run walked.
     for _pool in "${_COVERAGE_FULL_SUITE_POOLS[@]}"; do
@@ -430,7 +453,7 @@ _run_coverage() {
     # spread by runtime).
     local _files
     _files="$(_shard_unit_files "${_shard_spec}")"
-    echo "--- Running Tests with Kcov Coverage (shard ${_shard_spec}) ---"
+    echo "--- Running Tests with Kcov Coverage (shard ${_shard_spec}; ${_label}) ---"
     # Word-split intentional: one shard file per target entry.
     # shellcheck disable=SC2206
     _targets=(${_files})
@@ -452,7 +475,7 @@ _run_coverage() {
     --include-path="${REPO_ROOT}" \
     --exclude-path="${_exclude_path}" \
     "${REPO_ROOT}/coverage" \
-    bats --recursive --report-formatter junit --output "${_junit_dir}" "${_targets[@]}" \
+    bats "${_bats_args[@]}" --report-formatter junit --output "${_junit_dir}" "${_targets[@]}" \
     || _rc=$?
   _junit_to_timings "${_junit_dir}/report.xml" \
     > "${REPO_ROOT}/coverage/timings.tsv" 2>/dev/null || true

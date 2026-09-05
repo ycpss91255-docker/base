@@ -1317,24 +1317,30 @@ SH
 # hand-assembled command would keep working here and say nothing.
 @test "_run_coverage: with parallel absent the coverage run is serial and says so (#1060)" {
   local _log="${BATS_TEST_TMPDIR}/kcov.log"
-  mock_cmd "kcov" '
-    printf "%s\n" "$*" >> "'"${_log}"'"
-    exit 0'
-  # PATH is confined to MOCK_DIR below, so `parallel` is genuinely
-  # absent. The two externals the run still reaches for come with it.
-  local _cmd _path
-  for _cmd in mktemp rm; do
-    _path="$(command -v "${_cmd}" 2>/dev/null)" \
-      && ln -sf "${_path}" "${MOCK_DIR}/${_cmd}"
-  done
 
+  # A PATH of its OWN, not MOCK_DIR: the run is confined to it, and
+  # teardown removes MOCK_DIR with an `rm` the confined shell would
+  # otherwise have hashed inside the directory being deleted.
   run bash -c '
+    set -e
+    _bin="${BATS_TEST_TMPDIR}/serial-bin"
+    mkdir -p "${_bin}"
+    cat > "${_bin}/kcov" <<SH
+#!/bin/bash
+printf "%s\n" "\$*" >> "'"${_log}"'"
+exit 0
+SH
+    chmod +x "${_bin}/kcov"
+    # The two externals the run still reaches for. `parallel` is
+    # deliberately not among them -- that absence IS the test.
+    for _c in mktemp rm; do ln -sf "$(command -v "${_c}")" "${_bin}/${_c}"; done
+
     REPO_ROOT="${BATS_TEST_TMPDIR}/repo"
     mkdir -p "${REPO_ROOT}/coverage" "${REPO_ROOT}/test/bats/unit" \
              "${REPO_ROOT}/test/bats/integration"
     _die() { echo "DIE: $*"; exit 1; }
     source /source/script/test/drivers/bats.sh
-    export PATH="'"${MOCK_DIR}"'"
+    export PATH="${_bin}"
     _run_coverage
   '
   assert_success
