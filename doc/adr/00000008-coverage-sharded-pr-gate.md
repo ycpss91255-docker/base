@@ -731,6 +731,7 @@ by `test/bats/integration/kcov_merge_union_spec.bats`, against the real
 binary over a subject with two disjoint branches: the merged covered set
 equals the union of the slices', and the merged instrumented set equals
 the union rather than the sum.
+
 ## Amendment (#1060): a shard's bats runs parallel under kcov; the full-suite run does not, and that asymmetry is measured
 
 - **Date:** 2026-09-05
