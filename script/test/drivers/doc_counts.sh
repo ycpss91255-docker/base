@@ -35,10 +35,14 @@
 # driver, the driver is authoritative because it is the one that can fail a
 # branch.
 #
-# Scope: doc/test/*.md against the spec trees named by
-# ../check_test_md_drift.sh (test/bats/**/*_spec.bats plus the shipped
-# dist/test/bats/smoke/**). An unusable scan root -- missing, no doc/test/,
-# no specs -- is an error there rather than a vacuous pass here.
+# Scope: every file the generator says it writes -- the doc/test
+# catalogues AND the undescribed ceiling it writes into
+# drivers/catalog_description.sh (base#1024) -- against the spec trees
+# named by ../check_test_md_drift.sh (test/bats/**/*_spec.bats plus the
+# shipped dist/test/bats/smoke/**). The set is asked for, never listed,
+# here and in the failure message alike. An unusable scan root -- missing,
+# no doc/test/, no specs -- is an error there rather than a vacuous pass
+# here.
 
 _DOC_COUNTS_DRIVER_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
 readonly _DOC_COUNTS_DRIVER_DIR
@@ -48,7 +52,31 @@ source "${_DOC_COUNTS_DRIVER_DIR}/../check_test_md_drift.sh"
 
 # ── doc/test count drift gate ────────────────────────────────────────────────
 
+# _run_doc_counts_outputs <root> -- the files the generator writes,
+# root-relative, as one comma-separated phrase for the failure message.
+#
+# Asked of the generator (`_sync_doc_counts_outputs`) rather than written
+# out here, for the reason the gate itself asks it: the set grew once
+# already -- the undescribed ceiling lives in script/test/drivers, not
+# under doc/test -- and a message naming `doc/test/*.md` sent the reader of
+# a ceiling-only drift to a file that had not drifted, with the repair
+# ("never hand-edit a count or a catalogue row") describing an edit they
+# had not made. A named set here would go stale the same way, one figure
+# later, and nothing would fail when it did.
+_run_doc_counts_outputs() {
+  local _root="$1" _out _rel _list=''
+  while IFS= read -r _out; do
+    _rel="${_out#"${_root}"/}"
+    _list+="${_list:+, }${_rel}"
+  done < <(_sync_doc_counts_outputs "${_root}")
+  printf '%s\n' "${_list}"
+}
+
 _run_doc_counts() {
+  # The phase KEEPS its name. `doc/test count drift gate` is what test.sh's
+  # help, the `--doc-counts` flag, the workflow step and ci_spec all call
+  # this gate, and renaming the line they read is a change to the gate's
+  # identity rather than to the sentence a red branch has to act on.
   echo "--- Running doc/test count drift gate ---"
 
   # An ABSOLUTE root, always: _check_test_md_drift symlinks the spec trees
@@ -57,11 +85,13 @@ _run_doc_counts() {
   # already absolute (test.sh derives it with `pwd -P`); passing it
   # explicitly keeps that a property of the call, not of the environment.
   if ! _check_test_md_drift "${REPO_ROOT}"; then
+    local _outputs
+    _outputs="$(_run_doc_counts_outputs "${REPO_ROOT}")"
     # _die exits in the dispatcher; the explicit return keeps the
     # not-reached "clean" echo unreachable even where a caller stubs _die
     # to return instead of exit (e.g. the unit harness).
     _die ci_doc_counts \
-      "doc/test count drift. The figures in doc/test/*.md are GENERATED from the specs -- run 'just test sync-docs' and commit the result; never hand-edit a count or a catalogue row. The offending unified diff is above."
+      "generated-figure drift in one of ${_outputs}. Those are GENERATED from the specs -- run 'just test sync-docs' and commit the result; never hand-edit a count, a catalogue row or the ceiling. The offending unified diff is above."
     return 1
   fi
   echo "doc/test count drift gate: clean"

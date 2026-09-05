@@ -364,13 +364,15 @@ clean:
 # the `base` namespace supersedes them -- use `just base init`,
 # `just base upgrade [vX.Y.Z]`, `just base update` (the apt-style check).
 
-# just test sync-docs -> regenerate doc/test/*.md from the specs: the count
-# figures (grep -c '^@test') AND the catalogue sections, whose blurbs and
-# per-test descriptions are read out of the spec files' own `# why:` marker
-# blocks. One-directional -- nothing is read back out of the catalogue, so a
-# row deleted there is restored byte-for-byte and a renamed test carries its
-# description with it. Idempotent; check_test_md_drift.sh remains the
-# validator, and it runs THIS generator against a throwaway copy.
+# just test sync-docs -> regenerate every derived figure from the specs: the
+# count figures (grep -c '^@test') AND the catalogue sections in doc/test/*.md,
+# whose blurbs and per-test descriptions are read out of the spec files' own
+# `# why:` marker blocks, AND the description lint's undescribed ceiling, which
+# lives in script/test/drivers/catalog_description.sh and is lowered, never
+# raised (base#1024). One-directional -- nothing is read back out of the
+# catalogue, so a row deleted there is restored byte-for-byte and a renamed
+# test carries its description with it. Idempotent; check_test_md_drift.sh
+# remains the validator, and it runs THIS generator against a throwaway copy.
 sync-docs:
     ./script/test/sync-doc-counts.sh
 
@@ -381,7 +383,7 @@ sync-docs:
 # runner is also what CI invokes directly -- a copy here would cover the
 # `just` path only.
 #
-# just test sync-docs-check -> validate doc/test/*.md counts WITHOUT writing
+# just test sync-docs-check -> validate every generated figure WITHOUT writing
 # (the read-only twin of sync-docs, and the same gate the default `just test`
 # lint phase runs). Non-zero exit on drift, printing the unified diff of what
 # regeneration would change. Three entry points share this one rule: this
@@ -390,12 +392,16 @@ sync-docs:
 sync-docs-check:
     ./script/test/test.sh --lint --doc-counts
 
-# just test resolve-docs -> resolve a doc/test/*.md MERGE CONFLICT in one
-# command: collapse the markers, regenerate from the merged spec tree,
-# verify, and stage. It refuses (loudly, staging nothing) rather than pick a
+# just test resolve-docs -> resolve a MERGE CONFLICT in a generated file in
+# one command: collapse the markers, regenerate from the merged spec tree,
+# verify, and stage. The files are the generator's own answer -- the
+# doc/test/*.md catalogues and the undescribed ceiling in
+# script/test/drivers/catalog_description.sh, whose merged value is neither
+# side's (base#1024). It refuses (loudly, staging nothing) rather than pick a
 # side whenever the two collapses still differ after regeneration -- which
-# now means only hand-written prose OUTSIDE the generated region, since
-# everything inside it is derived from the specs both sides already merged.
+# means only content the generator does not derive: hand-written prose
+# outside a catalogue's generated region, and anything else in a file it
+# writes only one line of.
 resolve-docs:
     ./script/test/resolve-doc-counts.sh
 
