@@ -41,12 +41,12 @@
 #   test/bats/system/** the specs themselves, and test/fixtures/** the
 #                      trees they build.
 #
-#   compose.yaml, justfile, init.sh, .dockerignore
+#   compose.yaml, justfile, init.sh, upgrade.sh, .dockerignore
 #                      base's own top-level surface: the compose file the
 #                      system job runs through, base's root `just` entry,
-#                      the installer a scaffolded consumer runs, and the
-#                      file that decides what reaches a build context at
-#                      all.
+#                      the two compatibility forwarders a consumer executes
+#                      by the paths their released copy names, and the file
+#                      that decides what reaches a build context at all.
 #
 #   .github/workflows/** the workflows that run them.
 #
@@ -79,6 +79,7 @@ test/fixtures/**
 compose.yaml
 justfile
 init.sh
+upgrade.sh
 .dockerignore
 PATHS
 }

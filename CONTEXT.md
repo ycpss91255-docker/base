@@ -37,12 +37,13 @@ _Avoid_: downstream/ (the old name), shipped/, shared/.
 **`.base` subtree contract**:
 The frozen set of paths inside `.base/` (now `.base/dist/...`) that a
 downstream repo and `upgrade.sh` rely on; restructuring base must preserve
-it (ADR-00000006, amended by #714 and #915). Moving such a path in lockstep
-with this repo's callers is not enough when an ALREADY-RELEASED caller
-names it -- the consumer's vendored copy is what drives an upgrade and can
-never be updated retroactively -- so the old location keeps a forwarder
-(today: the repo-root `init.sh`). `prev_release_upgrade_spec.bats` is the
-enforcement.
+it (ADR-00000006, amended by #714, #915 and #1077). Moving such a path in
+lockstep with this repo's callers is not enough when an ALREADY-RELEASED
+caller names it -- the consumer's vendored copy is what drives an upgrade
+and can never be updated retroactively -- so the old location keeps a
+forwarder (today: the repo-root `init.sh` and `upgrade.sh`).
+`prev_release_upgrade_spec.bats` is the enforcement, and it can only see a
+frozen path a release INSIDE its window still names.
 _Avoid_: subtree layout, base API.
 
 **origin**:
