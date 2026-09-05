@@ -257,17 +257,18 @@ _file() {
   refute_output --partial 'ADR-00000030'
 }
 
-# why: The residue the per-number rule keeps, and the message it has to
-# carry. A declaration is per FILE, and a marker is the one thing in a
-# spec that LEAVES the file: the generator publishes it verbatim into a
-# catalogue that declares nothing. So a DECLARED number written in a
-# marker arrives there as this tree's reference, the sweep rewrites the
-# published row, the regeneration puts the old number straight back from
-# the marker this verb may not touch, and the run aborts on a survivor.
-# Naming only the generated file misdirects the repair: a hand edit there
-# is undone by the next `just test sync-docs`, and the marker is the one
-# thing that can be changed.
-@test "adr renumber: a survivor in a generated file names the marker it came from (#1021)" {
+# why: The one state in which this verb cannot tell a reference from a
+# fixture: a number a file DECLARES its own that a record also claims.
+# Both readings are true at once and nothing in the tree says which any
+# one pointer is, so the sweep skips that whole file and reports a
+# complete repair -- with a live pointer to the moved record still in it,
+# and the lint reading the same declaration and agreeing. Refused before
+# the first write, and named, the way two claimants on one number are: the
+# repair derivable here is to renumber the FIXTURE, which is what the lint
+# asks for too. It is also why the survivor path below no longer has a
+# captive-marker branch -- that state is refused, not diagnosed after the
+# record has moved.
+@test "adr renumber: REFUSES a number a file declares its own fixture (#1021)" {
   _file 'test/bats/unit/lint_spec.bats' \
     '#!/usr/bin/env bats' \
     '# adr-refs: fixture 00000030' '' \
@@ -277,10 +278,11 @@ _file() {
     '}'
   run bash "${RENUMBER}" 30 32 "${ROOT}"
   assert_failure
-  # The survivor itself, which is the generated document.
-  assert_output --partial 'doc/test/unit.md'
-  # And the file whose marker put it there, which is the only repair site.
+  # The file whose declaration covers the number, which is the repair site.
   assert_output --partial 'test/bats/unit/lint_spec.bats'
+  # And nothing was written: the record is still where it was.
+  [[ -f "${ROOT}/doc/adr/00000030-entry-point.md" ]]
+  [[ ! -e "${ROOT}/doc/adr/00000032-entry-point.md" ]]
 }
 
 # why: The population, and the property that keeps this verb and the ADR

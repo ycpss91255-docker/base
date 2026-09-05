@@ -337,6 +337,31 @@ _index_headed() {
   [[ "${output}" == *"clean"* ]]
 }
 
+# why: What a declaration may not name. Declaring a number a RECORD claims
+# says two true things at once -- this file's references to it are its own,
+# and the tree has a record by that number -- and nothing can tell one
+# pointer from the other afterwards, so the declaration exempts a real
+# pointer as silently as a fixture one. It is the exemption this whole
+# grammar exists to make visible, reached through the grammar itself: the
+# verb reports a complete sweep, the lint reports clean, and the pointer
+# left in the declaring file names a record that has moved. Refused here
+# instead, and the repair is one line -- a fixture registry uses numbers
+# no record claims, and then forgetting the declaration is LOUD (the
+# reference dangles) rather than silent.
+@test "_run_adr_numbering: FAILS on a declared number a record claims (#1021)" {
+  _touch_adr "00000001-alpha.md"
+  _index '| 00000001 -- alpha | keep | mechanism | note |'
+  # Assembled, for the reason the case above states.
+  local _own='00000001'
+  _write 'test/bats/unit/x_spec.bats' \
+    "# adr-refs: fixture ${_own}" \
+    "  # the pointer this declaration hides: ADR-${_own}"
+  run _run_adr_numbering
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"x_spec.bats"* ]]
+  [[ "${output}" == *"00000001-alpha.md"* ]]
+}
+
 # why: The half a whole-FILE drop resolved to "pass". A spec that builds a
 # throwaway registry still says things about THIS tree's -- a `# why:`
 # block naming the record a case came from, a comment naming the record
