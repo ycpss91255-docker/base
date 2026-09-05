@@ -266,15 +266,48 @@ readonly _LINT_TOOLS_OWN_CI_JOB=(
 # a CI job could run zero drivers and exit 0 -- a check that goes green
 # having gated nothing, which is the failure the grouping exists to avoid,
 # arriving by another door.
-_lint_group_members() {
+
+# The group a validated spec names. Set by _refuse_bad_lint_group below,
+# read by its callers; meaningless before it has run.
+_LINT_GROUP_INDEX=0
+_LINT_GROUP_TOTAL=0
+
+# _refuse_bad_lint_group <index>/<total> -- parse and range-check a group
+# spec, or die naming which of those it failed.
+#
+# SEPARATE FROM THE LISTER, and called by both, because of WHERE each of
+# them runs. `_run_lint_group` reads the lister through a process
+# substitution, so a `_die` in the lister kills that subshell alone: the
+# runner sees an empty list and reports the empty group, which is not why
+# the spec was refused. That wrong reason is the visible half. The
+# invisible half is that the runner would be reading the lister's OUTPUT
+# as its verdict -- a lister that printed one member before dying hands
+# back a truncated group, and a truncated group runs to a green exit
+# having gated only part of the phase. So the runner validates in its own
+# shell, where a refusal is a refusal, and the lister's copy is a backstop
+# rather than the mechanism.
+#
+# `10#` because the regex above accepts digits and `(( ))` reads them as a
+# NUMBER: a zero-padded `1/08` is a well-formed spec by every rule stated
+# here and an invalid octal constant to bash arithmetic, which answers
+# with its own "value too great for base" and a status this function would
+# then blame on the range.
+_refuse_bad_lint_group() {
   local _spec="${1:-}"
   [[ "${_spec}" =~ ^([0-9]+)/([0-9]+)$ ]] || _die ci_bad_lint_group \
     "lint group '${_spec}' is not <index>/<total> (e.g. 1/4)."
-  local _index="${BASH_REMATCH[1]}" _total="${BASH_REMATCH[2]}"
-  (( _total >= 1 )) || _die ci_bad_lint_group \
-    "lint group '${_spec}' asks for ${_total} groups; a partition has at least one."
-  (( _index >= 1 && _index <= _total )) || _die ci_bad_lint_group \
-    "lint group '${_spec}' is outside its own total; expected 1..${_total}."
+  _LINT_GROUP_INDEX=$(( 10#${BASH_REMATCH[1]} ))
+  _LINT_GROUP_TOTAL=$(( 10#${BASH_REMATCH[2]} ))
+  (( _LINT_GROUP_TOTAL >= 1 )) || _die ci_bad_lint_group \
+    "lint group '${_spec}' asks for ${_LINT_GROUP_TOTAL} groups; a partition has at least one."
+  (( _LINT_GROUP_INDEX >= 1 && _LINT_GROUP_INDEX <= _LINT_GROUP_TOTAL )) \
+    || _die ci_bad_lint_group \
+    "lint group '${_spec}' is outside its own total; expected 1..${_LINT_GROUP_TOTAL}."
+}
+
+_lint_group_members() {
+  _refuse_bad_lint_group "${1:-}"
+  local _index="${_LINT_GROUP_INDEX}" _total="${_LINT_GROUP_TOTAL}"
 
   local _tool _own _skip _position=0
   for _tool in "${_LINT_TOOLS[@]}"; do
@@ -522,9 +555,15 @@ _run_all_lint_tools() {
 #
 # An EMPTY group is refused rather than run. `_run_lint_tools` over
 # nothing succeeds, so a total larger than the number of grouped lints
-# would leave the tail jobs green having run no lint at all.
+# would leave the tail jobs green having run no lint at all. That refusal
+# is about a VALID spec whose group happens to be empty, which is why the
+# spec itself is checked first and separately: read off the member list
+# alone, "no members" is also what a spec that never parsed looks like,
+# and the run would name the wrong reason.
 _run_lint_group() {
   local _spec="${1:-}"
+  # In THIS shell, before the process substitution below swallows it.
+  _refuse_bad_lint_group "${_spec}"
   local -a _members=()
   mapfile -t _members < <(_lint_group_members "${_spec}")
   (( ${#_members[@]} > 0 )) || _die ci_bad_lint_group \
