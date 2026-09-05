@@ -104,28 +104,43 @@
   shipped. The last sentence above was false as written. The naming
   contract makes those paths base's to SHIP; it does not make them base's
   to REWRITE, and `_init_installed_paths` answers "what does a consumer
-  carry", not "what did this run write". Six of the writers behind that
-  list write a file only under a condition and then never touch it again --
-  the 14 hook stubs (whose entire purpose is that a user-authored hook
-  survives every later upgrade), the REPO-OWNED `script/local/` pair,
-  `config/.gitkeep`, the monitor workflow, a `.hadolint.yaml` the user has
-  customised, and `.setup.conf`, which `setup.sh` writes only on a
-  first-time bootstrap or a stale-`mount_1` rewrite. Staging the published
-  list wholesale therefore committed
+  carry", not "what did this run write". EIGHT of the paths behind that
+  list are written only under a condition and otherwise left exactly as
+  they were found -- the 14 hook stubs (whose entire purpose is that a
+  user-authored hook survives every later upgrade), the REPO-OWNED
+  `script/local/` pair, `config/.gitkeep`, the monitor workflow, a
+  `.hadolint.yaml` the user has customised, `.gitignore` and
+  `.dockerignore` (the sync APPENDS only the canonical entries a file is
+  missing and returns without a write when none is -- "the common case for
+  an up-to-date repo" -- and never touches the hand-maintained region above
+  the managed block at all), and `.setup.conf`, which `setup.sh` writes
+  only on a first-time bootstrap or a stale-`mount_1` rewrite. Staging the
+  published list wholesale therefore committed
   the user's own half-finished hook under a message about a base release:
   the sweep the paragraph above forbids, arriving through the published
   list instead of through `git add -A`. **The correction:** the staged set
-  is what THIS RUN WROTE. `_init_seed_only_paths` names the conditional
-  subset and each of its writers records the file at the moment it creates
-  it (`_INIT_WROTE`), because the condition it tested is gone by the time
-  the staging step runs and re-deriving it from the tree is how the user's
-  content gets classified as ours a second time. `.setup.conf` is the one
-  entry that cannot be recorded that way -- its writer is a separate
-  process, and no shell variable crosses that -- so `_call_setup` compares
-  the file's content across the call instead. A spec pins the two lists
-  to each other, and the integration arm now hands the real upgrade a
+  is what THIS RUN WROTE. `_init_conditional_paths` names that subset and
+  every write of one is recorded as it happens (`_INIT_WROTE`), because the
+  condition it tested is gone by the time the staging step runs and
+  re-deriving it from the tree is how the user's content gets classified as
+  ours a second time. Three entries cannot be recorded by the writer
+  itself: `.setup.conf`, whose writer is a separate process that no shell
+  variable crosses, and the two ignore files, which three separate syncs
+  write and none of which is asked "did anything change" -- for all three
+  the file's CONTENT across the pass answers it instead, in `_call_setup`
+  and `_sync_existing_gitignore` respectively. A spec pins the two lists to
+  each other, and the integration arm now hands the real upgrade a
   customised hook stub -- a path inside the published list, which the
   earlier anti-sweep arms (both on `NOTES.md`, outside it) could not see.
+
+  This paragraph first said SIX and named neither ignore file. The
+  enumeration was drawn from the writers that seed a file when it is
+  ABSENT, and the ignore sync does not look like one of those -- it runs on
+  every resync and rewrites nothing only because it finds nothing missing.
+  That is the same predicate wearing different clothes, which is why the
+  list is now called conditional rather than seed-only: "seeded once" was
+  a promise about `.gitignore` and `.setup.conf` that was not true, and the
+  predicate the staging step needs is the weaker one.
 
 ## Context
 

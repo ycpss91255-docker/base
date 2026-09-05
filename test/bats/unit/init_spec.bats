@@ -816,14 +816,15 @@ EOF
 }
 
 # _init_installed_paths answers "what does a consumer CARRY", which is not
-# "what did this run WRITE". Five of the writers behind that list seed a
-# file only when it is absent and then never touch it again -- the 14 hook
-# stubs, the script/local/ starter pair, config/.gitkeep, the monitor
-# workflow, and a .hadolint.yaml the user has customised. Staging the list
+# "what did this run WRITE". Eight of the paths behind that list are
+# written only under a condition and otherwise left exactly as they were
+# found -- the 14 hook stubs, the script/local/ starter pair,
+# config/.gitkeep, the monitor workflow, a .hadolint.yaml the user has
+# customised, .gitignore, .dockerignore and .setup.conf. Staging the list
 # wholesale therefore stages the user's own content in those files and, on
 # the real upgrade path, commits it. The arms below name each writer,
 # because a fix that reaches only the one that was reported leaves the
-# same defect standing four files over.
+# same defect standing seven files over.
 
 # why: init.sh never overwrites a hook stub, so what is in one is the
 # user's; staging the published list wholesale commits their half-finished
@@ -902,7 +903,7 @@ EOF
 }
 
 # why: the half of the property that must NOT regress -- a stub this run
-# created is the run's own output, and dropping the whole seed-once class
+# created is the run's own output, and dropping the whole conditional class
 # from the commit would put the branch's own defect back one file over
 @test "the resync: stages the hook stub it created this run (#1036)" {
   _source_init
@@ -924,11 +925,11 @@ _fake_setup_sh() {
     > "${TMP_REPO}/.base/dist/script/docker/wrapper/setup.sh"
 }
 
-# .setup.conf is the sixth path of this shape and the only one whose writer
-# is in another PROCESS: setup.sh writes it, on bootstrap or on a stale
-# mount_1 rewrite, and leaves it alone on every other run. The in-process
-# record cannot reach across that, so the content across the call is what
-# says whether this run wrote the file.
+# .setup.conf is the one path of this shape whose writer is in another
+# PROCESS: setup.sh writes it, on bootstrap or on a stale mount_1 rewrite,
+# and leaves it alone on every other run. No in-process record reaches
+# across that, so the content across the call is what says whether this run
+# wrote the file.
 
 # why: setup.sh leaves an existing .setup.conf alone on every run but a
 # bootstrap or a stale-path rewrite, so what is in it is the repo's own
@@ -1130,15 +1131,15 @@ EOF
 }
 
 # why: the two lists are edited in different places for different reasons,
-# and a seed-once path spelled differently from its published name would
+# and a conditional path spelled differently from its published name would
 # silently fall back to being staged wholesale again
-@test "_init_seed_only_paths: every entry is a published installed path (#1036)" {
+@test "_init_conditional_paths: every entry is a published installed path (#1036)" {
   _source_init
   # Non-empty first: a missing accessor makes the loop below read nothing
   # and report no stray, which is the same green as a correct list.
-  run _init_seed_only_paths
+  run _init_conditional_paths
   assert_success
-  [[ -n "${output}" ]] || fail "_init_seed_only_paths named nothing"
+  [[ -n "${output}" ]] || fail "_init_conditional_paths named nothing"
 
   local _stray=""
   local _path
@@ -1146,7 +1147,7 @@ EOF
     [[ -n "${_path}" ]] || continue
     _init_installed_paths | grep -qxF -- "${_path}" \
       || _stray+="${_path} "
-  done < <(_init_seed_only_paths)
+  done < <(_init_conditional_paths)
   [[ -z "${_stray}" ]] \
     || fail "not in _init_installed_paths: ${_stray}"
 }

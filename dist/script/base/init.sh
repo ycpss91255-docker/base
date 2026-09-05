@@ -759,17 +759,19 @@ script/template/skel
 EOF
 }
 
-# _init_seed_only_paths
+# _init_conditional_paths
 #   The subset of _init_installed_paths the resync writes only under a
-#   condition, and NEVER rewrites once the condition has stopped holding.
+#   condition, and leaves exactly as it found it once that condition has
+#   stopped holding.
 #
 #   WHY THIS EXISTS. _init_installed_paths answers "what does a consumer
 #   CARRY", which is the question the delivery audit asks. The staging step
 #   needs a different one -- "what did THIS RUN write" -- and for most of
-#   that list the two answers coincide: the wrappers, the justfile layering
-#   and the ignore files are rewritten or re-merged on every run. For the
-#   paths below they do not. Each is seeded once and then deliberately left
-#   alone, so what is in one afterwards is the repo's own work:
+#   that list the two answers coincide: the wrappers and the justfile
+#   layering are re-pointed on every run, whatever was there before. For
+#   the paths below they do not. Each is written only when its own
+#   condition holds, so what is in one on any other run is the repo's own
+#   work:
 #
 #     - the 14 hook stubs, whose whole point is that a user-authored hook
 #       survives every later re-init and upgrade (_create_hook_stubs);
@@ -779,26 +781,39 @@ EOF
 #     - the monitor workflow, generated once (_sync_base_monitor_workflow);
 #     - .hadolint.yaml, which _create_symlinks refuses to re-point once it
 #       differs from the template;
+#     - .gitignore and .dockerignore, which the sync APPENDS to only when a
+#       canonical entry is missing -- it returns without a write when none
+#       is, "the common case for an up-to-date repo" in its own comment --
+#       and whose hand-maintained region above the managed block it never
+#       touches at all;
 #     - .setup.conf, which setup.sh writes on a first-time bootstrap or a
-#       stale-mount_1 rewrite and leaves alone otherwise -- the one entry
-#       whose writer is a separate PROCESS, so _call_setup records it by
-#       comparing the file's content across the call instead.
+#       stale-mount_1 rewrite and leaves alone otherwise.
 #
-#   Staging those wholesale put the user's half-finished hook into a commit
+#   The last three are the reason this list is CONDITIONAL rather than
+#   seed-only, which is what it was called when it held only the first
+#   five: an ignore file is written again on any release that adds a
+#   canonical entry, and .setup.conf is rewritten in place by a stale-mount
+#   repair. "Seeded once" would have been a promise about two of them that
+#   is not true, and the predicate the staging step actually needs is the
+#   weaker one -- written only under a condition, so ask the run.
+#
+#   Staging these wholesale put the user's half-finished hook into a commit
 #   whose message names a base release -- the sweep the staging step was
 #   written to avoid, arriving through the published list instead of
 #   through `git add -A`. What makes them stageable again is the RECORD
-#   below: a run that actually created one names it, and only a named one
-#   is staged.
+#   below: a run that actually wrote one names it, and only a named one is
+#   staged.
 #
 #   Kept as its own list rather than as a flag on the big one because the
 #   big one is a published surface with two consumers that must not learn
 #   about this distinction. A spec in test/bats/unit/init_spec.bats asserts
 #   every entry here is also an installed path, so the two cannot drift
 #   into naming different files.
-_init_seed_only_paths() {
+_init_conditional_paths() {
   cat <<'EOF'
+.dockerignore
 .github/workflows/base-version-monitor.yaml
+.gitignore
 .hadolint.yaml
 .setup.conf
 config/.gitkeep
@@ -822,11 +837,12 @@ EOF
 }
 
 # _INIT_WROTE / _init_record_write <repo-relative-path>
-#   The seed-only paths THIS run actually wrote, recorded by the writer at
-#   the moment it writes. Only the writer knows: the condition it tested
-#   ("the file was not there", "it still matches the template") is gone by
-#   the time the staging step runs, and re-deriving it from the tree is how
-#   the user's own content gets classified as ours again.
+#   The conditional paths THIS run actually wrote, recorded at the moment
+#   they are written. Only the writing pass knows: the condition it tested
+#   ("the file was not there", "it still matches the template", "an entry
+#   was missing") is gone by the time the staging step runs, and re-deriving
+#   it from the tree is how the user's own content gets classified as ours
+#   again.
 #
 #   Reset at the top of the resync so a sourced init.sh -- the unit specs,
 #   and nothing else -- cannot carry one run's record into the next.
@@ -1184,8 +1200,9 @@ _migrate_dockerfile() {
 #     - _init_installed_paths, the published list of what the resync
 #       guarantees a consumer carries -- wrappers, the justfile layering,
 #       the monitor workflow -- already kept honest by a spec that diffs it
-#       against a real resync, MINUS the seed-only paths of it this run did
-#       not write (see _init_seed_only_paths and the _INIT_WROTE record);
+#       against a real resync, MINUS the conditional paths of it this run
+#       did not write (see _init_conditional_paths and the _INIT_WROTE
+#       record);
 #     - _init_retired_root_paths, whose entries the resync DELETES: a
 #       tracked file removed but not staged leaves the same tree/commit
 #       disagreement one direction over, and git's index is the only place
@@ -1196,10 +1213,11 @@ _migrate_dockerfile() {
 #   they happened to be editing. "What a consumer carries" is not the same
 #   set and was the first version of this: the published list also names
 #   the 14 hook stubs, the script/local/ pair, config/.gitkeep, the monitor
-#   workflow and .hadolint.yaml, each of which the resync seeds ONCE and
-#   then leaves alone forever -- so staging the list wholesale committed
-#   the user's own half-finished hook under a message about a base release,
-#   the sweep this paragraph forbids arriving by the other door. A path the
+#   workflow, .hadolint.yaml, the two ignore files and .setup.conf, each of
+#   which the resync writes only under a condition and otherwise leaves
+#   exactly as it found it -- so staging the list wholesale committed the
+#   user's own half-finished hook under a message about a base release, the
+#   sweep this paragraph forbids arriving by the other door. A path the
 #   user has told git to ignore is theirs, not ours, so it is dropped
 #   rather than forced.
 #
@@ -1212,18 +1230,18 @@ _stage_resync_output() {
 
   mapfile -t _paths < <(migrated_files)
 
-  # A seed-only path is this run's output only if this run wrote it; every
-  # other one holds the repo's own work and is not ours to commit.
-  local -A _seed_only=()
+  # A conditional path is this run's output only if this run wrote it;
+  # every other one holds the repo's own work and is not ours to commit.
+  local -A _conditional=()
   while IFS= read -r _path; do
     [[ -n "${_path}" ]] || continue
-    _seed_only["${_path}"]=1
-  done < <(_init_seed_only_paths)
+    _conditional["${_path}"]=1
+  done < <(_init_conditional_paths)
 
   while IFS= read -r _path; do
     [[ -n "${_path}" ]] || continue
     [[ -e "${REPO_ROOT}/${_path}" || -L "${REPO_ROOT}/${_path}" ]] || continue
-    if [[ -n "${_seed_only[${_path}]:-}" \
+    if [[ -n "${_conditional[${_path}]:-}" \
       && -z "${_INIT_WROTE[${_path}]:-}" ]]; then
       continue
     fi
@@ -1497,17 +1515,51 @@ YAML
 #   user's .gitignore is missing AND `git rm --cached` any tracked
 #   files that have since become derived artifacts. Heals the 15-repo
 #   drift, in one shot — no separate sweep PR needed.
+#
+#   Records whether the pass actually WROTE either ignore file, because
+#   both are conditional paths (_init_conditional_paths) and the staging
+#   step stages one only when this run wrote it. Neither can be recorded by
+#   its writer the way a hook stub is: three separate syncs write .gitignore
+#   -- the canonical append, the retired-entry prune inside it, and the
+#   [logging] block rebuild -- and each already answers a different question
+#   than "did anything change". The file's CONTENT across the whole pass
+#   answers it once, for every writer present and future, which is also how
+#   _call_setup records `.setup.conf` across a separate process.
+#
+#   The `; printf x` on every read is load-bearing, for the reason spelled
+#   out at _call_setup: a command substitution eats trailing newlines, so
+#   without it a pass whose only change was one would read as no change and
+#   go unstaged -- the tree/commit disagreement this staging exists to
+#   close.
 _sync_existing_gitignore() {
-  _sync_gitignore "${REPO_ROOT}/.gitignore"
+  local _gitignore="${REPO_ROOT}/.gitignore"
+  local _dockerignore="${REPO_ROOT}/.dockerignore"
+  local _git_before="" _docker_before="" _git_after="" _docker_after=""
+  [[ -f "${_gitignore}" ]] \
+    && _git_before="$(cat -- "${_gitignore}" 2> /dev/null; printf x)"
+  [[ -f "${_dockerignore}" ]] \
+    && _docker_before="$(cat -- "${_dockerignore}" 2> /dev/null; printf x)"
+
+  _sync_gitignore "${_gitignore}"
   _untrack_canonical_in_repo "${REPO_ROOT}"
   # append-missing the same derived-artifact set into .dockerignore
   # (created if absent), preserving user build-context lines.
-  _sync_dockerignore "${REPO_ROOT}/.dockerignore"
+  _sync_dockerignore "${_dockerignore}"
   # PR-B: rebuild the [logging] local_path managed block from the
   # current setup.conf. Used to live in setup.sh apply (runtime); now
   # tied to init/upgrade lifecycle so the file stays consistent even
   # when setup.conf changed between wrapper invocations.
   _sync_logging_gitignore "${REPO_ROOT}"
+
+  [[ -f "${_gitignore}" ]] \
+    && _git_after="$(cat -- "${_gitignore}" 2> /dev/null; printf x)"
+  [[ -f "${_dockerignore}" ]] \
+    && _docker_after="$(cat -- "${_dockerignore}" 2> /dev/null; printf x)"
+  [[ "${_git_after}" == "${_git_before}" ]] \
+    || _init_record_write ".gitignore"
+  [[ "${_docker_after}" == "${_docker_before}" ]] \
+    || _init_record_write ".dockerignore"
+  return 0
 }
 
 # ── Generate per-repo setup.conf ────────────────────────────────────────────
@@ -1559,14 +1611,14 @@ _gen_setup_conf() {
 #   `_reconcile_workspace_path` in lib/setup_detect.sh). On the ordinary
 #   upgrade, therefore, the file holds the repo's own tuning.
 #
-#   Every other seed-only path is recorded by the writer itself; this one
-#   cannot be, because the writer is a separate PROCESS and no shell
-#   variable crosses that. The file's CONTENT across the call is the answer
-#   that does. The `; printf x` on both reads is not a flourish: a command
-#   substitution eats trailing newlines, so without it a run whose only
-#   change was one would read as no change and go unstaged, leaving the
-#   working tree disagreeing with the commit -- the failure this whole step
-#   exists to close.
+#   Recorded by comparing the file's CONTENT across the call, for a reason
+#   the ignore files share (see _sync_existing_gitignore) and take one step
+#   further: here the writer is a separate PROCESS, and no shell variable
+#   crosses that at all. The `; printf x` on both reads is not a flourish:
+#   a command substitution eats trailing newlines, so without it a run
+#   whose only change was one would read as no change and go unstaged,
+#   leaving the working tree disagreeing with the commit -- the failure
+#   this whole step exists to close.
 _call_setup() {
   local _conf="${REPO_ROOT}/.setup.conf"
   local _before="" _after=""
