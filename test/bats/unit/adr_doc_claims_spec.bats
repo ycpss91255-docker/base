@@ -446,6 +446,45 @@ _write_adr() {
   assert_output --partial 'no tag trigger'
 }
 
+# why: dropping `.yaml` spans covered the case above and left the property
+# the case NAMES uncovered -- a span naming a file is only one of the spans
+# that say nothing about a trigger. Any code span whose text merely
+# CONTAINS an event name opened the hatch, and a repo's scripts are named
+# after what they do: `script/ci/schedule.sh` beside a workflow whose
+# statable trigger is `schedule` waved a false tag claim about it straight
+# through, with no `.yaml` anywhere for the exclusion to catch.
+@test "R1: a code span naming a script does not state a trigger (#726)" {
+  local _adr
+  _adr="$(_write_adr script_span.md \
+    '## Context' \
+    '' \
+    'A tag push triggers `.github/workflows/ghcr-cleanup.yaml`, which runs' \
+    'the retention pass in `script/ci/schedule.sh`.')"
+  run _adr_claims "${_adr}" "${REPO}"
+  assert_failure
+  assert_output --partial 'ghcr-cleanup.yaml'
+  assert_output --partial 'no tag trigger'
+}
+
+# why: the same hole with a command rather than a path, which is the form
+# an ADR reaches for most often. `gh issues list` is a code span that
+# states nothing about what starts anything, and it contains the only
+# statable trigger `triage-label.yaml` has -- so it excused a tag claim
+# about that workflow exactly as the block's own subject word would have,
+# which is the failure the case above this one was written to close.
+@test "R1: a code span quoting a command does not state a trigger (#726)" {
+  local _adr
+  _adr="$(_write_adr command_span.md \
+    '## Context' \
+    '' \
+    'A tag push triggers `.github/workflows/triage-label.yaml`; see' \
+    '`gh issues list` for what it labels.')"
+  run _adr_claims "${_adr}" "${REPO}"
+  assert_failure
+  assert_output --partial 'triage-label.yaml'
+  assert_output --partial 'no tag trigger'
+}
+
 # why: the other half of that change, and the reason it does not weaken the
 # rule: naming the workflow in a trigger claim and saying nothing about what
 # actually starts it is still the ADR-00000027 defect, whichever trigger the
