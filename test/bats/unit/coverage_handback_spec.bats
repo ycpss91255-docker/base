@@ -156,7 +156,7 @@ _PINS='export TEST_TOOLS_IMAGE=test-tools:spec; export COMPOSE_PROJECT_NAME=base
   # on the far side of the bind mount.
   mock_cmd "docker" '
     printf "%s\n" "$*" >> "'"${_log}"'"
-    rm -rf "'"${_dir}"'/coverage"
+    /bin/rm -rf "'"${_dir}"'/coverage"
     exit 0'
 
   run bash -c '
@@ -204,7 +204,9 @@ _PINS='export TEST_TOOLS_IMAGE=test-tools:spec; export COMPOSE_PROJECT_NAME=base
   printf 'x\n' > "${_dir}/coverage/timings.tsv"
   mock_cmd "docker" 'exit 1'
 
-  run bash -c '
+  # JSON, so the assertion anchors on the EVENT NAME -- the stable half of
+  # a log line -- rather than on the wording of the message.
+  run env LOG_FORMAT=json bash -c '
     source /source/script/test/test.sh
     export PATH="'"${MOCK_DIR}"'"
     '"${_PINS}"'
@@ -237,7 +239,7 @@ _PINS='export TEST_TOOLS_IMAGE=test-tools:spec; export COMPOSE_PROJECT_NAME=base
   run bash -c "
     sed -n '/^_clean_coverage()/,/^}/p' '${TESTSH}' \
       | grep -vE '^[[:space:]]*#' \
-      | grep -cE '(^|[^_[:alnum:]])rm[[:space:]]'
+      | grep -cE '(^|[[:space:]])rm[[:space:]]'
   "
   assert_output "0"
 
@@ -277,8 +279,12 @@ _PINS='export TEST_TOOLS_IMAGE=test-tools:spec; export COMPOSE_PROJECT_NAME=base
   # driven against a scratch root: `main` would drive it against the real
   # checkout, deleting the coverage/ of whatever run is in flight beside
   # this one.
-  run code_grep -nE -- '--clean-coverage\)[[:space:]]*_clean_coverage' "${TESTSH}"
-  assert_success
+  run bash -c "
+    sed -n '/--clean-coverage)/,/;;/p' '${TESTSH}' \
+      | grep -vE '^[[:space:]]*#' \
+      | grep -cF '_clean_coverage'
+  "
+  assert_output "1"
 
   # And it is documented where `--help` prints it, not only in the case arm.
   run bash -c "

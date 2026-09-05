@@ -1673,7 +1673,7 @@ order, plain `[logging]` global handling, and empty-when-absent behaviour.
 | `_collect_logging ignores an ambient SETUP_CONF (#893 decision 7)` | - |
 | `_collect_logging returns empty when no [logging] sections anywhere` | No-config empty |
 
-### test/bats/unit/coverage_badge_spec.bats (45)
+### test/bats/unit/coverage_badge_spec.bats (46)
 
 Unit tests for `script/release/coverage_badge.sh` (#952) -- the release
 coverage badge generator that replaces the README's static `Coverage-Kcov`
@@ -1734,6 +1734,7 @@ three tests assert the repo's own published figure, not the generator.
 | `coverage_badge: every localized README shows the committed badge` | All three translations, by their own relative path |
 | `coverage_badge: the committed badge names the released version` | The published SVG and `.version` agree |
 | `coverage_badge: every README records the release step as hand-run, not the bump's` | - |
+| `coverage_badge: the recipe states the release order, coverage before the bump (base#1032)` | the ordering that costs a 34-minute run when it is done backwards |
 
 ### test/bats/unit/coverage_gate_spec.bats (21)
 
@@ -1771,6 +1772,36 @@ the file's lines to the denominator.
 | `coverage_gate: emits a GitHub step summary table when GITHUB_STEP_SUMMARY is set` | GitHub visibility (no SaaS) |
 | `coverage_gate --merge-timings: merges per-shard timings keeping max seconds per basename (#733)` | - |
 | `coverage_gate --merge-timings: no input files yields an empty weights file (#733)` | - |
+
+### test/bats/unit/coverage_handback_spec.bats (13)
+
+The self-test containers run as root over a bind-mounted checkout, so every
+run OWES the invoking user the files it wrote there. Two halves of that debt
+are covered here. The first is the handback itself: it used to sit on the
+success path, one line below the phase that produces the reports, so a suite
+with a single red test left `coverage/` owned by `nobody:nogroup` -- and the
+reports were already on disk, which is what makes running the chown on the
+failing path both safe and required. The second is the way back when no
+handback ever ran (an interrupt, a killed container, a lost machine): `just
+test clean` is the recipe for exactly that and could not do it, because a
+host-side `rm` needs write permission on a directory that now belongs to
+root. Both are base#1032.
+
+| Test | Description |
+|------|-------------|
+| `main --ci: a FAILING coverage phase still hands coverage/ back (base#1032)` | the observed failure -- one red test in 4489 left the checkout unwritable |
+| `main --ci --system: a FAILING system phase still hands the checkout back (base#1032)` | the same hole on the other phase that writes into the mounted checkout |
+| `the handback never changes the run's exit status (base#1032)` | a handback that could change the verdict would be reporting on the run |
+| `a handback that failed is reported, and names the repair (base#1032)` | a silent chown failure is how the tree gets stuck with nobody told |
+| `a dispatch that never entered the container arms no handback (base#1032)` | a run that wrote nothing into the mount must not chown anything |
+| `just test clean: a checkout with no coverage/ succeeds and starts nothing (base#1032)` | the ordinary case -- nothing to clean must not cost a container |
+| `just test clean: the removal is done by the container over the mount (base#1032)` | the whole point -- the reclaim happens where root is, not on the host |
+| `just test clean: no host-side rm decides the outcome (base#1032)` | the failure this closes is a host rm that cannot unlink root's files |
+| `just test clean: a coverage/ still standing afterwards is a loud failure (base#1032)` | a clean that half-works recreates the stuck state one run later |
+| `just test clean: the target the container is given cannot be redirected (base#1032)` | `rm -rf` as root inside a mounted checkout must have no reachable variable |
+| `just test clean: /source is the checkout's mount point in the service it drives (base#1032)` | the literal is only right while /source is where the checkout is mounted |
+| `just test clean routes through the runner, not a host rm (base#1032)` | the recipe is the operator's entry; a host rm there is the defect itself |
+| `just test clean: the runner exposes the reclaim as a flag of its own (base#1032)` | a repair nothing reaches is not a repair |
 
 ### test/bats/unit/deploy_hint_spec.bats (6)
 

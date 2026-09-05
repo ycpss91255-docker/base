@@ -357,9 +357,29 @@ stop *args:
     export HOST_UID HOST_GID
     ./script/stop.sh {{args}}
 
-# just test clean -> remove coverage reports
+# lifecycle: RECLAIMED BY THE RUNNER. This recipe starts a container of
+# its own, so it mints a compose project; script/test/test.sh arms the
+# same EXIT sweep it arms for every other dispatch.
+#
+# just test clean -> remove this checkout's coverage/ reports
+#
+# It used to be `rm -rf coverage/` run here, on the host, as you -- and
+# that is the one thing this cannot be. The reports are written by a
+# container running as root over the bind-mounted checkout, unlinking a
+# file needs write permission on the DIRECTORY holding it, and after a
+# failed or an interrupted run that directory is root's. The host `rm`
+# then fails, `trash-put` fails the same way, and the next `just test
+# coverage` correctly refuses to start over evidence it could not erase:
+# the checkout can never run coverage again without sudo or raw docker,
+# neither of which is a thing this project asks of anyone (base#1032).
+#
+# So the removal happens where root is -- the same service, over the same
+# mount, that wrote the reports. The runner then checks on THIS side that
+# the directory is gone and fails loudly, naming the path, if it is not: a
+# clean that half-works puts the tree straight back into the state it was
+# run to fix. Nothing to clean is a success and starts no container.
 clean:
-    rm -rf coverage/
+    ./script/test/test.sh --clean-coverage
 
 # Base-management recipes (init / upgrade / upgrade-check) were removed:
 # ADR-00000011 §8 relocated init.sh / upgrade.sh to dist/script/base/ and

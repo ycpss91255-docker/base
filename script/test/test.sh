@@ -719,6 +719,16 @@ Options:
                           drive compose themselves (`just test system` /
                           `just test smoke`); the ordinary dispatch asks on
                           its own
+  --clean-coverage        Remove this checkout's coverage/ reports and
+                          exit. The removal is done by a container over
+                          the same bind mount that wrote them, because the
+                          reports are written as root and a host `rm`
+                          cannot unlink a file out of root's directory --
+                          which is the state an interrupted or a failed
+                          run used to leave behind for good. Succeeds when
+                          there is nothing there; fails, naming the path,
+                          when anything is left. What `just test clean`
+                          runs
   --compose-project-name  Print the compose project name this checkout
                           resolves (a hash of its absolute path, so two
                           checkouts sharing a directory basename do not
@@ -1174,7 +1184,20 @@ _invalidate_coverage_head() {
 }
 
 # ── Fix coverage permissions ─────────────────────────────────────────────────
-
+#
+# The handback. Everything the suite writes into the bind-mounted checkout
+# is written by a container running as root, so this is what the run OWES
+# the invoking user -- and it is owed whatever the verdict was, which is
+# why it is no longer called from the success path. It is called from the
+# EXIT handler (_test_exit_reclaim), armed once at the top of the
+# in-container dispatch, so a red suite, an early `return 0` and an
+# `exit` all reach it. The reports it hands back are already on disk by
+# then: kcov writes cobertura.xml before the driver returns the failing
+# spec's status, and _run_coverage preserves that on purpose (base#1032).
+#
+# It cannot cover a container that never got to run its exit handler at
+# all -- a `kill -9`, a machine that lost power. That case has no
+# in-process answer and is what `just test clean` exists for.
 _fix_permissions() {
   local uid="${HOST_UID:-}"
   local gid="${HOST_GID:-}"
@@ -1193,6 +1216,93 @@ _fix_permissions() {
   if [[ -n "${uid}" && -n "${gid}" && -d "${REPO_ROOT}/coverage" ]]; then
     chown -R "${uid}:${gid}" "${REPO_ROOT}/coverage"
   fi
+}
+
+# ── Reclaiming coverage/ when no handback ever ran ───────────────────────────
+#
+# `just test clean` used to be `rm -rf coverage/` on the HOST, and that is
+# not a thing the host can always do: the reports are written by a
+# container running as root over the bind mount, and unlinking a file
+# needs write permission on the DIRECTORY holding it. Once that directory
+# is root's, the host user cannot empty it -- `trash-put` fails the same
+# way -- and the next run's _invalidate_coverage_head correctly refuses to
+# start over evidence it could not erase. The tree is then stuck with no
+# in-repo remedy, and the operator's only moves were raw docker or sudo,
+# both outside this project's control surface (base#1032).
+#
+# The handback above closes the common cause. It cannot close all of them:
+# a Ctrl-C, a killed container or a lost machine leaves the same directory
+# with no exit handler having run. So the repair has to exist on its own,
+# and it goes where root is -- the same service, over the same mount, that
+# made the directory root's in the first place.
+#
+# WHY NOT A HOST `rm` FIRST, for the trees that do not need this. Because
+# then the container path is the one that only ever runs on the tree
+# nobody can reproduce, i.e. the untested branch of the only case that
+# matters. One path is what makes the case that matters the case that is
+# exercised. The cost is a container start on a `clean` that could have
+# been a `rm`; the reports it is cleaning came from a run that already
+# built the image.
+#
+# WHY THE TARGET IS A LITERAL. This is `rm -rf` as root inside a mount of
+# the whole checkout, so the distance between "remove the reports" and
+# "remove the checkout" is one variable that expanded to the wrong thing.
+# There is no such variable: the command is a single-quoted constant and
+# the path in it is the CONTAINER-side mount point compose.yaml pins for
+# the `ci` service, not anything derived on this host. Nothing the caller
+# can set reaches it.
+readonly _COVERAGE_CLEAN_COMMAND='rm -rf /source/coverage'
+
+# _clean_coverage [root] -- hand `coverage/` back by removing it from
+# inside the container, then PROVE it is gone.
+#
+# The proof is the point, and it is taken on the host afterwards rather
+# than read off the container's exit status: a clean that half-works is
+# how the tree gets back into the state this exists to leave. A directory
+# still standing is a named, loud death whatever compose reported.
+#
+# Three states, one path: absent (nothing to do, and no container is
+# started for it), the user's, and root's.
+_clean_coverage() {
+  local _root="${1:-${REPO_ROOT}}"
+  local _target="${_root}/coverage"
+  if [[ ! -e "${_target}" ]]; then
+    _log_info ci ci_coverage_clean_absent \
+      "display=no coverage reports under ${_target}; nothing to reclaim." \
+      "target=${_target}"
+    return 0
+  fi
+
+  # The same four values every compose dispatch in this file resolves, and
+  # for the same reason: compose interpolates the WHOLE file whatever
+  # command it is given, and every `${VAR:?}` in it must have a value or
+  # compose refuses to read the file at all.
+  local _project _image _rc=0
+  _project="$(_resolve_compose_project_name "${_root}")"
+  export HOST_UID HOST_GID
+  HOST_UID="$(id -u)"
+  HOST_GID="$(id -g)"
+  export BASE_CHECKOUT_PATH="${_root}"
+  _image="$(_resolve_test_tools_image)"
+  # This mints a project, so the end-of-run sweep has to know: a repair
+  # that leaves a network behind is a repair that makes litter.
+  _RECLAIM_ARMED=1
+  _ensure_test_tools_image "${_image}" "${_project}"
+  export TEST_TOOLS_IMAGE="${_image}"
+  # `ci`, not `coverage`: the two run the same image over the same mount,
+  # and this one carries no docker socket. The status is captured rather
+  # than left to errexit because it is EVIDENCE for the message below, not
+  # the verdict -- the verdict is whether the directory is still there.
+  docker compose -p "${_project}" -f "${_root}/compose.yaml" \
+    run --rm --entrypoint /bin/sh ci -c "${_COVERAGE_CLEAN_COMMAND}" || _rc=$?
+
+  if [[ -e "${_target}" ]]; then
+    _die ci_coverage_not_reclaimed \
+      "${_target} is still there after the reclaim container exited ${_rc}; the reports have NOT been handed back and the next coverage run will refuse to start over them. Check that the docker daemon is reachable and that nothing is writing there, then run 'just test clean' again."
+  fi
+  _log_info ci ci_coverage_cleaned \
+    "display=reclaimed ${_target}." "target=${_target}"
+  return 0
 }
 
 # ── Local test-tools tag ─────────────────────────────────────────────────────
@@ -1353,18 +1463,24 @@ _compute_compose_project_name() {
   return 0
 }
 
-# _resolve_compose_project_name
+# _resolve_compose_project_name [root]
 #
 # Prints the project name `_run_via_compose` passes to `docker compose -p`.
 # COMPOSE_PROJECT_NAME wins verbatim so CI can key the project to its run
 # id; the derivation is a local default only.
+#
+# The root is an argument for the same reason _invalidate_coverage_head's
+# is: the name is keyed to a CHECKOUT PATH, so a caller working on a tree
+# other than this process's own must be able to say which. Every
+# production caller passes none and means REPO_ROOT.
+# shellcheck disable=SC2120  # production callers pass no args; _clean_coverage and the specs do
 _resolve_compose_project_name() {
   if [[ -n "${COMPOSE_PROJECT_NAME:-}" ]]; then
     printf '%s\n' "${COMPOSE_PROJECT_NAME}"
     return 0
   fi
   local _name=""
-  _compute_compose_project_name "${REPO_ROOT}" _name
+  _compute_compose_project_name "${1:-${REPO_ROOT}}" _name
   printf '%s\n' "${_name}"
   return 0
 }
@@ -2059,6 +2175,13 @@ main() {
         _await_project_quiescent "$(_resolve_compose_project_name)" "${REPO_ROOT}"
         exit $?
         ;;
+      --clean-coverage)
+        # A repair, not a dispatch: it takes no other flag and there is
+        # nothing to run afterwards. `exit`, not `return`, so the EXIT
+        # handler sweeps the project this just minted.
+        _clean_coverage
+        exit $?
+        ;;
       --shellcheck) lint_tool="shellcheck"; shift ;;
       --hadolint) lint_tool="hadolint"; shift ;;
       --issueref) lint_tool="issueref"; shift ;;
@@ -2252,9 +2375,19 @@ main() {
       # bats-unit / bats-integration jobs set these via the outer
       # `--bats-unit-shard` / `--bats-integration` flags so the
       # in-container path matches the local dev path.
+      #
+      # Arm the handback FIRST, above every phase and every early
+      # `return`. This is the process that runs as root over the mounted
+      # checkout, so it is the one that owes the files back, and it owes
+      # them whatever it is about to conclude. Called from the EXIT
+      # handler rather than after each phase: the calls used to sit on the
+      # success path, and a suite with one red test therefore returned
+      # without one -- leaving coverage/ owned by root and the checkout
+      # unable to run coverage again (base#1032). The reports are on disk
+      # before the verdict is, so there is nothing to wait for.
+      _HANDBACK_ARMED=1
       if [[ "${system}" == "1" ]]; then
         _run_system
-        _fix_permissions
         return 0
       fi
       # LINT_ONLY: `just test lint [--shellcheck | --hadolint]`
@@ -2298,8 +2431,10 @@ main() {
         # must not fall through to _run_coverage, which writes
         # coverage/cobertura.xml + coverage/timings.tsv into the mounted
         # checkout -- the exact artifacts the coverage-gate merges and the
-        # next partition weighs itself by. Nothing to chown and no report
-        # to announce either, hence no _fix_permissions and no report line.
+        # next partition weighs itself by. No report to announce either,
+        # hence no report line. The handback armed above still fires and
+        # is a no-op on a tree with no coverage/; on a tree that has one
+        # from an earlier run, handing it back is correct anyway.
         if [[ -n "${COVERAGE_PATH:-}" ]]; then
           _run_coverage_path "${COVERAGE_PATH}"
           return 0
@@ -2307,7 +2442,6 @@ main() {
         # COVERAGE_SHARD narrows kcov to one matrix slice; empty =
         # full suite (local `just test coverage` / release path).
         _run_coverage "${COVERAGE_SHARD:-}"
-        _fix_permissions
         echo "Coverage report: ${REPO_ROOT}/coverage/index.html"
       elif [[ -n "${BATS_FILE:-}" || -n "${BATS_FILTER:-}" ]]; then
         _run_bats_path
@@ -2446,8 +2580,29 @@ main() {
 #   `just docker prune --tool-tags` alongside --volumes and
 #   --worktree-orphans instead of something the suite does to the machine on
 #   its way out.
+#
+#   TWO reclamations, one handler, because a shell has ONE EXIT trap. The
+#   HANDBACK is the container-side half: the process inside the container
+#   ran as root over the bind-mounted checkout, so it hands coverage/ back
+#   to the invoking uid here rather than from the success path it used to
+#   sit on -- a red suite owes those files just as much as a green one
+#   does (base#1032). The two halves never arm together: only the
+#   in-container dispatch arms the handback, only a host-side compose
+#   dispatch arms the project sweep.
+#
+#   The handback follows the sweep's rule about the status, for the sweep's
+#   reason: a chown that failed is REPORTED and leaves the verdict alone,
+#   and the report names `just test clean`, which is the way back. The one
+#   exception is a HOST_UID that is not an id at all -- _fix_permissions
+#   dies on that, because a run whose ownership contract is unconfigurable
+#   has nothing useful to say about the code either.
 _test_exit_reclaim() {
   local _rc=$?
+  if [[ "${_HANDBACK_ARMED:-0}" == "1" ]]; then
+    _fix_permissions \
+      || _log_warn ci ci_handback_failed \
+        "display=could not hand ${REPO_ROOT}/coverage back to ${HOST_UID:-?}:${HOST_GID:-?}; the reports are still owned by the container that wrote them, and the next coverage run will refuse to start over them. 'just test clean' reclaims them (the run's verdict is unchanged)."
+  fi
   if [[ "${_RECLAIM_ARMED:-0}" == "1" ]]; then
     _reclaim_orphan_projects \
       || _log_warn ci ci_reclaim_failed \
