@@ -653,8 +653,16 @@ _coverage_parallel_merge() {
       # and COVERAGE_LOCAL_WORKDIR, the only knob that moves it, is not
       # forwarded into the container. The slice's whole output is replayed
       # above this line by _coverage_parallel_collect, unconditionally.
+      #
+      # The quoted header is a PREFIX of what that replay prints, not the
+      # whole line: the header carries the slice's exit status
+      # (`--- coverage slice 2/3 (exit 0) ---`), which this refusal cannot
+      # know. Quoting the full shape would hand the operator a string to
+      # search for that no run ever emits -- a precise instruction that
+      # finds nothing, which reads as a missing replay rather than as a
+      # wrong message.
       _die ci_coverage_slice_no_report \
-        "coverage slice ${_i} of ${_jobs} produced no report; merging the rest would publish a smaller line set as the project total. That slice's output is replayed above, under '--- coverage slice ${_i}/${_jobs} ---'."
+        "coverage slice ${_i} of ${_jobs} produced no report; merging the rest would publish a smaller line set as the project total. That slice's output is replayed above, under '--- coverage slice ${_i}/${_jobs}'."
     fi
     _parts+=("${_work}/part-${_i}")
   done
