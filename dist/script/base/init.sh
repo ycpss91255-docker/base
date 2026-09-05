@@ -136,6 +136,7 @@ _create_symlinks() {
     || diff -q .hadolint.yaml "${TEMPLATE_REL}/dist/.hadolint.yaml" \
       >/dev/null 2>&1; then
     _symlink "${TEMPLATE_REL}/dist/.hadolint.yaml" ".hadolint.yaml"
+    _init_record_write ".hadolint.yaml"
   else
     _log "  Keeping custom .hadolint.yaml (differs from template)"
   fi
@@ -205,6 +206,7 @@ _populate_config() {
   # Create empty placeholder + .gitkeep so the dir exists in git
   # (Docker COPY of <repo>/config/ requires the path to exist).
   mkdir -p config
+  _init_record_write "config/.gitkeep"
   cat > config/.gitkeep <<'EOF'
 # Placeholder so this directory exists in git. This directory is read
 # TWICE, at two moments, and what you put where decides which.
@@ -281,6 +283,7 @@ _seed_local() {
 #   local-hello:
 #       @./local.sh
 EOF
+    _init_record_write "script/local/justfile.local"
     _log "  Created script/local/justfile.local (repo-local command-group registry)"
   fi
 
@@ -310,6 +313,7 @@ main() {
 main "$@"
 EOF
     chmod +x script/local/local.sh
+    _init_record_write "script/local/local.sh"
     _log "  Created script/local/local.sh (companion bash template)"
   fi
 }
@@ -755,6 +759,84 @@ script/template/skel
 EOF
 }
 
+# _init_seed_only_paths
+#   The subset of _init_installed_paths the resync writes only under a
+#   condition, and NEVER rewrites once the condition has stopped holding.
+#
+#   WHY THIS EXISTS. _init_installed_paths answers "what does a consumer
+#   CARRY", which is the question the delivery audit asks. The staging step
+#   needs a different one -- "what did THIS RUN write" -- and for most of
+#   that list the two answers coincide: the wrappers, the justfile layering
+#   and the ignore files are rewritten or re-merged on every run. For the
+#   paths below they do not. Each is seeded once and then deliberately left
+#   alone, so what is in one afterwards is the repo's own work:
+#
+#     - the 14 hook stubs, whose whole point is that a user-authored hook
+#       survives every later re-init and upgrade (_create_hook_stubs);
+#     - the script/local/ starter pair, REPO-OWNED by the naming contract
+#       (ADR-00000010, _seed_local);
+#     - config/.gitkeep, which an existing config/ keeps (_populate_config);
+#     - the monitor workflow, generated once (_sync_base_monitor_workflow);
+#     - .hadolint.yaml, which _create_symlinks refuses to re-point once it
+#       differs from the template.
+#
+#   Staging those wholesale put the user's half-finished hook into a commit
+#   whose message names a base release -- the sweep the staging step was
+#   written to avoid, arriving through the published list instead of
+#   through `git add -A`. What makes them stageable again is the RECORD
+#   below: a run that actually created one names it, and only a named one
+#   is staged.
+#
+#   Kept as its own list rather than as a flag on the big one because the
+#   big one is a published surface with two consumers that must not learn
+#   about this distinction. A spec in test/bats/unit/init_spec.bats asserts
+#   every entry here is also an installed path, so the two cannot drift
+#   into naming different files.
+_init_seed_only_paths() {
+  cat <<'EOF'
+.github/workflows/base-version-monitor.yaml
+.hadolint.yaml
+config/.gitkeep
+script/hooks/post/build.sh
+script/hooks/post/exec.sh
+script/hooks/post/prune.sh
+script/hooks/post/run.sh
+script/hooks/post/setup.sh
+script/hooks/post/setup_tui.sh
+script/hooks/post/stop.sh
+script/hooks/pre/build.sh
+script/hooks/pre/exec.sh
+script/hooks/pre/prune.sh
+script/hooks/pre/run.sh
+script/hooks/pre/setup.sh
+script/hooks/pre/setup_tui.sh
+script/hooks/pre/stop.sh
+script/local/justfile.local
+script/local/local.sh
+EOF
+}
+
+# _INIT_WROTE / _init_record_write <repo-relative-path>
+#   The seed-only paths THIS run actually wrote, recorded by the writer at
+#   the moment it writes. Only the writer knows: the condition it tested
+#   ("the file was not there", "it still matches the template") is gone by
+#   the time the staging step runs, and re-deriving it from the tree is how
+#   the user's own content gets classified as ours again.
+#
+#   Reset at the top of the resync so a sourced init.sh -- the unit specs,
+#   and nothing else -- cannot carry one run's record into the next.
+#
+#   `-g` because a bare `declare` inside a FUNCTION declares a local, and
+#   the unit specs source this file from inside a bats test function: the
+#   array would go out of scope with the source, leave the subscripts below
+#   to be read as arithmetic against an ordinary indexed array, and take
+#   the whole resync down with it.
+declare -gA _INIT_WROTE=()
+
+_init_record_write() {
+  _INIT_WROTE["${1:?BUG: _init_record_write expects a repo-relative path}"]=1
+}
+
 # _init_protected_paths
 #   Every repo-root-relative path the existing-repo resync can create,
 #   rewrite or delete. Directories are listed AS directories: the resync
@@ -1023,6 +1105,7 @@ _init_disarm_rollback() {
 # ── Existing repo initialization ────────────────────────────────────────────
 
 _init_existing_repo() {
+  _INIT_WROTE=()
   _init_arm_rollback
   _log "Existing repo detected (Dockerfile found)"
   # BEFORE anything can regenerate: a `.env` written back when that name
@@ -1096,16 +1179,22 @@ _migrate_dockerfile() {
 #     - _init_installed_paths, the published list of what the resync
 #       guarantees a consumer carries -- wrappers, the justfile layering,
 #       the monitor workflow -- already kept honest by a spec that diffs it
-#       against a real resync;
+#       against a real resync, MINUS the seed-only paths of it this run did
+#       not write (see _init_seed_only_paths and the _INIT_WROTE record);
 #     - _init_retired_root_paths, whose entries the resync DELETES: a
 #       tracked file removed but not staged leaves the same tree/commit
 #       disagreement one direction over, and git's index is the only place
 #       those still exist to be named.
 #
-#   Never `git add -A`. Every path above is base's by the repo's own naming
-#   contract -- shipped or generated, replaced on update, never hand-edited
-#   per instance -- so none of it is the user's work to review, while a
-#   sweep would commit whatever they happened to be editing. A path the
+#   Never `git add -A`. Every path above was written by THIS run, so none
+#   of it is the user's work to review, while a sweep would commit whatever
+#   they happened to be editing. "What a consumer carries" is not the same
+#   set and was the first version of this: the published list also names
+#   the 14 hook stubs, the script/local/ pair, config/.gitkeep, the monitor
+#   workflow and .hadolint.yaml, each of which the resync seeds ONCE and
+#   then leaves alone forever -- so staging the list wholesale committed
+#   the user's own half-finished hook under a message about a base release,
+#   the sweep this paragraph forbids arriving by the other door. A path the
 #   user has told git to ignore is theirs, not ours, so it is dropped
 #   rather than forced.
 #
@@ -1118,9 +1207,21 @@ _stage_resync_output() {
 
   mapfile -t _paths < <(migrated_files)
 
+  # A seed-only path is this run's output only if this run wrote it; every
+  # other one holds the repo's own work and is not ours to commit.
+  local -A _seed_only=()
+  while IFS= read -r _path; do
+    [[ -n "${_path}" ]] || continue
+    _seed_only["${_path}"]=1
+  done < <(_init_seed_only_paths)
+
   while IFS= read -r _path; do
     [[ -n "${_path}" ]] || continue
     [[ -e "${REPO_ROOT}/${_path}" || -L "${REPO_ROOT}/${_path}" ]] || continue
+    if [[ -n "${_seed_only[${_path}]:-}" \
+      && -z "${_INIT_WROTE[${_path}]:-}" ]]; then
+      continue
+    fi
     _paths+=("${REPO_ROOT}/${_path}")
   done < <(_init_installed_paths)
 
@@ -1245,6 +1346,7 @@ _create_hook_stubs() {
     for _wrapper in build run exec stop prune setup setup_tui; do
       _file="${REPO_ROOT}/script/hooks/${_kind}/${_wrapper}.sh"
       [[ -e "${_file}" ]] && continue
+      _init_record_write "script/hooks/${_kind}/${_wrapper}.sh"
       cat > "${_file}" <<HOOK
 #!/usr/bin/env bash
 # ${_kind}-${_wrapper} hook: host-side, runs ${_verb} ${_wrapper}.sh main logic.
@@ -1313,6 +1415,7 @@ jobs:
           GH_REPO: \${{ github.repository }}
         run: ./${TEMPLATE_REL}/dist/script/base/check-base-version.sh run
 YAML
+  _init_record_write ".github/workflows/base-version-monitor.yaml"
   _log "  Created .github/workflows/base-version-monitor.yaml"
 }
 
