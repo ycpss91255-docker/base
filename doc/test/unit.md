@@ -1105,7 +1105,7 @@ between them can be asserted at all.
 | `reclaim.sh --stale delegates the unowned classes to prune.sh with the same window` | - |
 | `reclaim.sh --stale never touches volumes` | - |
 
-### test/bats/unit/ci_spec.bats (121)
+### test/bats/unit/ci_spec.bats (124)
 
 | Test | Description |
 |------|-------------|
@@ -1148,9 +1148,12 @@ between them can be asserted at all.
 | `_run_coverage: shard N/T kcov's only that unit slice, not the whole tree (#615)` | #615 sharded kcov targets |
 | `_run_coverage: shard targets are individual spec files, never the whole integration dir (#724)` | - |
 | `_run_coverage: no argument keeps the full-suite path (unit + integration) (#615)` | #615 local full-coverage path |
-| `_run_coverage: the wrapped bats takes its --jobs from the shared helper (#1060)` | kcov wraps bats, so the coverage run is a bats run; assembled by hand it was the one that never got --jobs. The assertion is on what kcov was handed, since a serial run and a parallel one differ in nothing a passing suite reports. |
+| `_run_coverage: the full-suite run declares serial, and kcov gets no --jobs (#1060)` | the full-suite run is the one that stamps scope=full and feeds the release badge, and at that volume kcov's single parser drops trace data from passing tests -- two serial runs record the same 8617 covered lines, two parallel runs record 8532 and 8587, each a strict subset. So it is serial, declared through the helper rather than by omission: the omission is what this issue is about. |
+| `_bats_args_with_label: an unknown jobs policy dies rather than defaulting (#1060)` | an unreadable policy must not resolve to a default that silently runs the wrong way round -- a typo'd `seriel` reaching the parallel branch is how the full suite would quietly start losing lines again. |
 | `_run_coverage: a shard's wrapped bats takes its --jobs from the helper too (#1060)` | the shard path and the full-suite path are the same function, and the shard is the one CI runs eight of; a fix that reached only the full-suite branch would leave the measured critical path untouched. |
-| `_run_coverage: with parallel absent the coverage run is serial and says so (#1060)` | the helper exists because parallelism has a fallback -- GNU parallel absent means serial, said out loud. Proven by CONFINING PATH so parallel is genuinely gone, not by reading the helper: a hand-assembled command would keep working here and say nothing. |
+| `_run_coverage: with parallel absent a shard run is serial and says so (#1060)` | the helper exists because parallelism has a fallback -- GNU parallel absent means serial, said out loud, and the SHARD path is the one that asks. Proven by CONFINING PATH so parallel is genuinely gone, not by reading the helper: a hand-assembled command would keep working here and say nothing. |
+| `drivers/bats.sh: --jobs is written in exactly one place, the shared helper (#1060)` | the defect was never a missing flag, it was a second place to write one -- _run_coverage assembled its own bats command, so what the helper decides never reached it. A guard on the FLAG rather than on one call site is what keeps a third hand-rolled invocation from appearing: the driver may name --jobs exactly once, in the helper's own body. |
+| `_run_system: its bats takes --jobs and the label from the shared helper (#1060)` | the system runner was the driver's OTHER hand-rolled bats command -- its own nproc probe, no --recursive, and nothing said when parallel was missing. It is the second copy the one-writer guard refuses, so it takes its arguments from the helper like everything else. |
 | `main --coverage-shard: routes to the coverage service with COVERAGE_SHARD set (#615)` | #615 shard env plumbing |
 | `main --ci with COVERAGE=1 skips the lint phase (lint is a separate matrix concern) (#615)` | #615 coverage path skips lint |
 | `main --coverage-shard + --bats-path is rejected (coverage mode guard) (#615)` | #615 single-path/coverage combo guard |
