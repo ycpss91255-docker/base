@@ -197,15 +197,19 @@ readonly _LINT_TOOLS=(
 # is a separate change with its own interleaving question and is
 # deliberately not made here.
 #
-# What this comment does NOT carry is how long a driver takes. Nothing
-# re-derives such a figure -- no lint, no test, no generator -- the host
-# and the tree both move it, and three timing rounds of this table on one
-# machine already spread by more than a tenth, so a number written here
-# would be stale without saying so (ADR-00000028; `metrics` in
-# justfile.test refuses the same thing for the same reason). Time a
-# driver when the question is asked: `./script/test/test.sh
-# --<tool>-only` runs exactly one, host-direct. ci_spec pins this block
-# to the argument and against the seconds.
+# What this comment does NOT carry is a measurement: how long a driver
+# takes, or how far repeat timings of the table spread. Nothing re-derives
+# such a figure -- no lint, no test, no generator -- the host and the tree
+# both move it, and repeat runs of the same table on one machine do not
+# agree either, so a number written here would be stale without saying so
+# (ADR-00000028; `metrics` in justfile.test refuses the same thing for the
+# same reason). Measure when the question is asked: `./script/test/test.sh
+# --<tool>-only` times exactly one driver, host-direct. ci_spec pins this
+# block to the argument and against the figures.
+#
+# END OF THE ORDER RATIONALE. ci_spec reads the block bounded by this
+# sentence and the one that opens it, so neither a blank line inside the
+# argument nor the paragraph below it can move what the two guards lint.
 #
 # Every tool but hadolint is runnable host-direct (`--<tool>-only`): the
 # drivers are pure bash over the checkout, and shellcheck's binary ships
@@ -310,10 +314,10 @@ _run_lint_tool() {
 # The phase used to be a bare loop over the table under this file's
 # `set -e`, so the first failing driver ended the run and every driver
 # behind it was never reached -- measured on a branch mid-merge, 17
-# drivers ran, `changelog-entry` died, and `changelog-layout`,
-# `pin-coverage` and `catalog-description` were not attempted. A tree with
-# three violations therefore cost three full gate cycles, and after each
-# one nothing said how many remained (base#1059).
+# drivers ran, `changelog-entry` died, and every entry behind it in the
+# table, `changelog-layout` through `catalog-description`, was not
+# attempted. A tree with three violations therefore cost three full gate
+# cycles, and after each one nothing said how many remained (base#1059).
 #
 # Running them all is sound because the drivers are INDEPENDENT: the
 # dispatch above is a `case`, each driver reads its own file set off the

@@ -202,9 +202,9 @@ teardown() {
 
 # why: Three independent violations must be enumerated by ONE run. This is
 # the defect measured in base#1059: a lint phase that ran 17 drivers, died
-# on changelog-entry and never reached the four behind it, so each cycle
-# returned one bit -- "this one is broken, and something unknown may be
-# behind it".
+# on changelog-entry and never reached any of the entries behind it --
+# changelog-layout through catalog-description -- so each cycle returned
+# one bit, "this one is broken, and something unknown may be behind it".
 @test "_run_lint_tools: three failing drivers are all run and all named in one pass (#1059)" {
   run env LOG_FORMAT=json bash -c '
     source /source/script/test/test.sh
@@ -373,25 +373,63 @@ teardown() {
 # the order. That argument has to stay readable: without it the next
 # reader re-litigates the order from the same intuition.
 #
-# What it must not carry is how long a driver took. Nothing here
-# re-derives such a figure -- no lint, no test, no generator -- so it is a
-# hand-maintained number about a moving tree measured on a moving host,
-# which is exactly ADR-00000028's invariant-2 case: it goes stale
-# silently while still reading as authoritative. Two runs of the same
-# table on this machine already disagree by more than a tenth. So the
-# block below is pinned to hold the reasoning and not the seconds.
+# What it must not carry is a measurement: how long a driver took, or how
+# far repeat timings of the table spread. Nothing here re-derives such a
+# figure -- no lint, no test, no generator -- so it is a hand-maintained
+# number about a moving tree measured on a moving host, which is exactly
+# ADR-00000028's invariant-2 case: it goes stale silently while still
+# reading as authoritative. Repeat runs of the same table on one machine
+# do not agree either, which is the argument for measuring on demand and
+# not for writing the spread down. So the block below is pinned to hold
+# the reasoning and not the numbers.
 # ════════════════════════════════════════════════════════════════════
 
-# The ordering rationale, one line per comment line: anchored on its
-# opening sentence, terminated by the first line that is not a comment.
-# Read out of the tree rather than restated here, so both guards below
-# see the block the file actually has.
+# The ordering rationale, one line per comment line: the block between
+# its opening sentence and its closing one, read out of the tree rather
+# than restated here, so both guards below see the block the file
+# actually has.
+#
+# BOTH bounds are named, and that is the point. A block ended at "the
+# first line that is not a comment" is delimited by whatever the file
+# happens to do next: one blank line inside the argument truncates it,
+# and both guards then read a shorter block while the present-to-be-read
+# guard still passes on it. A block whose closing sentence is missing is
+# a block this reader cannot delimit, so it returns NOTHING -- which
+# fails the guard below by name, rather than handing the figure guard a
+# population that runs to the end of the file.
+#
+# Takes the file to read so its own behaviour is testable on a fixture;
+# the default is the tree the guards lint.
 _lint_order_rationale() {
+  local _file="${1:-/source/script/test/test.sh}"
   awk '
-    /^# ORDER IS NOT A FAIL-FAST LEVER/ { inside = 1 }
-    inside && !/^#/                     { inside = 0 }
-    inside                              { print }
-  ' /source/script/test/test.sh
+    /^# ORDER IS NOT A FAIL-FAST LEVER/       { inside = 1 }
+    inside                                    { block = block $0 "\n" }
+    inside && /^# END OF THE ORDER RATIONALE/ { printf "%s", block; exit }
+  ' "${_file}"
+}
+
+# The lines of a comment block that STORE a measurement, read on stdin
+# and printed back. Three shapes, because a stale number arrives in more
+# than one: a duration ("40 seconds"), a percentage ("12%"), and a spread
+# stated as a fraction ("more than a tenth") -- the last of which the
+# rationale itself carried while the guard looked only for units.
+#
+# Matched case-insensitively. bash `=~` is case-sensitive, and the block
+# this reads writes its emphasis in upper case, so a lower-case-only
+# matcher would miss the spelling most likely to be written next to it.
+_stored_measurements() {
+  local _line _lower
+  local -a _stored=()
+  while IFS= read -r _line; do
+    _lower="${_line,,}"
+    if [[ "${_lower}" =~ [0-9]+(\.[0-9]+)?[[:space:]]*(seconds|second|secs|sec|minutes|minute|mins|min|hours|hour|hrs|hr|ms|s|m|h)([^a-z0-9]|$) ]] \
+      || [[ "${_lower}" =~ [0-9]+(\.[0-9]+)?[[:space:]]*(%|percent) ]] \
+      || [[ "${_lower}" =~ (more|less|fewer|greater)[[:space:]]+than[[:space:]]+(a|one|two|three|half|[0-9]+)[[:space:]]*(tenth|quarter|third|half|fifth|percent) ]]; then
+      _stored+=( "${_line}" )
+    fi
+  done
+  (( ${#_stored[@]} == 0 )) || printf '%s\n' "${_stored[@]}"
 }
 
 # why: The anchor, and the reason it is a test of its own. The figure
@@ -403,30 +441,25 @@ _lint_order_rationale() {
   local -a _block=()
   mapfile -t _block < <(_lint_order_rationale)
   [ "${#_block[@]}" -gt 0 ] || fail \
-    "no '# ORDER IS NOT A FAIL-FAST LEVER' comment above _LINT_TOOLS: the ordering decision is unrecorded, and the figure guard reads the same block, so it would pass on an empty set"
+    "no block bounded by '# ORDER IS NOT A FAIL-FAST LEVER' and '# END OF THE ORDER RATIONALE' above _LINT_TOOLS: either the ordering decision is unrecorded or its closing sentence is gone, and the figure guard reads the same block, so it would otherwise scan an empty set and pass"
 }
 
-# why: A duration written into a permanent comment is a claim nothing
+# why: A measurement written into a permanent comment is a claim nothing
 # re-derives. The tree moves it, the host moves it, and repeat runs of the
 # same table move it, so it is wrong soon after it is typed and nothing
 # says when. The rationale needs none of them -- "the phase ends when its
 # last driver ends" holds at any timing -- so the numbers are refused
 # here, and measured when the question is actually asked.
-@test "_LINT_TOOLS: the ordering rationale stores no wall-clock figure (#1059)" {
+@test "_LINT_TOOLS: the ordering rationale stores no measured figure (#1059)" {
   local -a _block=()
   mapfile -t _block < <(_lint_order_rationale)
   [ "${#_block[@]}" -gt 0 ] || fail \
     "no ordering rationale to check -- see the guard above; this one must not pass on an empty set"
 
-  local _line
   local -a _stored=()
-  for _line in "${_block[@]}"; do
-    if [[ "${_line}" =~ [0-9]+(\.[0-9]+)?[[:space:]]*(seconds|second|secs|sec|minutes|minute|mins|min|hours|hour|hrs|hr|ms|s|m|h)([^a-z0-9]|$) ]]; then
-      _stored+=( "${_line}" )
-    fi
-  done
+  mapfile -t _stored < <(printf '%s\n' "${_block[@]}" | _stored_measurements)
   [ "${#_stored[@]}" -eq 0 ] || fail \
-    "the ordering rationale states a duration, which nothing re-derives: ${_stored[*]} -- drop it and time the driver when the question is asked (./script/test/test.sh --<tool>-only)"
+    "the ordering rationale states a measured figure, which nothing re-derives: ${_stored[*]} -- drop it and measure when the question is asked (./script/test/test.sh --<tool>-only times one driver)"
 }
 
 # why: The population is read out of the tree, so the reader must hold
