@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **4158 tests**.
+Unit specs under `test/bats/unit/`: **4160 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -151,7 +151,7 @@ a refusal as "do not release".
 | `action-ref-agreement: has a lint-static CI join (#949)` | Named plain-runner matrix entry, no docker |
 | `action-ref-agreement: its failure event id is registered (#949)` | An unregistered id is an anonymous exit |
 
-### test/bats/unit/adr_doc_claims_spec.bats (17)
+### test/bats/unit/adr_doc_claims_spec.bats (19)
 
 | Test | Description |
 |------|-------------|
@@ -161,6 +161,8 @@ a refusal as "do not release".
 | `self-test.yaml IS tag-triggered, so it is what a base tag runs (#927)` | - |
 | `R1: FAILS a tag claim that names a workflow with no tag trigger (#927)` | - |
 | `R1: PASSES the same claim once the block states the real trigger (#927)` | - |
+| `R1: PASSES a trigger claim that states a real trigger other than workflow_call (#726)` | R1's escape hatch was the literal `workflow_call`, which was the only non-tag trigger any ADR block named when the rule was written. The first block to name a `workflow_dispatch`-only workflow therefore stated its real trigger, correctly, and was reported anyway -- with a message demanding a trigger that workflow does not have. A rule that cannot be satisfied by telling the truth teaches people to reword around it. |
+| `R1: still FAILS a trigger claim that names the same workflow and states nothing (#726)` | the other half of that change, and the reason it does not weaken the rule: naming the workflow in a trigger claim and saying nothing about what actually starts it is still the ADR-00000027 defect, whichever trigger the workflow has. |
 | `R1: PASSES a tag claim about a workflow that IS tag-triggered (#927)` | - |
 | `R1: IGNORES a workflow named with no trigger claim in the block (#927)` | - |
 | `R1: IGNORES a name this repo has no workflow for (#927)` | - |

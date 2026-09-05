@@ -294,6 +294,40 @@ _write_adr() {
   assert_success
 }
 
+# why: R1's escape hatch was the literal `workflow_call`, which was the only
+# non-tag trigger any ADR block named when the rule was written. The first
+# block to name a `workflow_dispatch`-only workflow therefore stated its real
+# trigger, correctly, and was reported anyway -- with a message demanding a
+# trigger that workflow does not have. A rule that cannot be satisfied by
+# telling the truth teaches people to reword around it.
+@test "R1: PASSES a trigger claim that states a real trigger other than workflow_call (#726)" {
+  local _adr
+  _adr="$(_write_adr dispatch.md \
+    '## Context' \
+    '' \
+    '- `.github/workflows/coverage-local.yaml` is `workflow_dispatch` only,' \
+    '  so no push and no tag triggers it -- someone asks for the run.')"
+  run _adr_claims "${_adr}" "${REPO}"
+  assert_success
+}
+
+# why: the other half of that change, and the reason it does not weaken the
+# rule: naming the workflow in a trigger claim and saying nothing about what
+# actually starts it is still the ADR-00000027 defect, whichever trigger the
+# workflow has.
+@test "R1: still FAILS a trigger claim that names the same workflow and states nothing (#726)" {
+  local _adr
+  _adr="$(_write_adr dispatch_silent.md \
+    '## Context' \
+    '' \
+    'What the tag then triggers includes' \
+    '`.github/workflows/coverage-local.yaml`.')"
+  run _adr_claims "${_adr}" "${REPO}"
+  assert_failure
+  assert_output --partial 'coverage-local.yaml'
+  assert_output --partial 'workflow_dispatch'
+}
+
 @test "R1: PASSES a tag claim about a workflow that IS tag-triggered (#927)" {
   local _adr
   _adr="$(_write_adr tagged.md \
