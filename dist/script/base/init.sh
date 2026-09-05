@@ -789,13 +789,13 @@ EOF
 #     - .setup.conf, which setup.sh writes on a first-time bootstrap or a
 #       stale-mount_1 rewrite and leaves alone otherwise.
 #
-#   The last three are the reason this list is CONDITIONAL rather than
-#   seed-only, which is what it was called when it held only the first
-#   five: an ignore file is written again on any release that adds a
-#   canonical entry, and .setup.conf is rewritten in place by a stale-mount
-#   repair. "Seeded once" would have been a promise about two of them that
-#   is not true, and the predicate the staging step actually needs is the
-#   weaker one -- written only under a condition, so ask the run.
+#   The ignore pair and .setup.conf are why this list is CONDITIONAL and
+#   not seed-only, which is what it was called before the pair was in it.
+#   Neither is seeded once: an ignore file is written again on any release
+#   that adds a canonical entry, and .setup.conf is rewritten in place by a
+#   stale-mount repair. "Seeded once" is a promise about them that is not
+#   true, and the predicate the staging step actually needs is the weaker
+#   one -- written only under a condition, so ask the run.
 #
 #   Staging these wholesale put the user's half-finished hook into a commit
 #   whose message names a base release -- the sweep the staging step was
