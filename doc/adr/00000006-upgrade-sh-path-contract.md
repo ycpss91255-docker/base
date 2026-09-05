@@ -72,14 +72,34 @@
   consumer already sitting on v0.41.0 / v0.42.0. **The addition to the
   contract:** work whose result the CALLER has to commit belongs on the new
   tree's side of the boundary, staged where it is performed. Region A's
-  Step-3 `init.sh` now stages what its migrations rewrote, taken from the
-  migration run's OWN record (`migrated_files` in
-  `dist/script/docker/lib/dockerfile_migrate.sh`, written by the two write
-  primitives every migration goes through) rather than from a list of
-  filenames, so a migration that later touches one more file is covered
-  without anyone remembering to widen anything. The caller's Step 5 stays
-  harmless: the migrations are idempotent and `git add` of an
+  Step-3 `init.sh` now stages what the resync wrote. The caller's Step 5
+  stays harmless: the migrations are idempotent and `git add` of an
   already-staged path is a no-op.
+- **Amended again:** 2026-09-05 by #1036, before the fix shipped. The
+  paragraph above scoped the staging to the migration record
+  (`migrated_files` in `dist/script/docker/lib/dockerfile_migrate.sh`) and
+  argued that a list of filenames was the wrong shape because it decays the
+  first time the work touches one more file. **That argument was right about
+  the migrations and wrong about the resync.** The Dockerfile is not the
+  only thing Step 3 writes: the same run re-points the wrapper symlinks,
+  lands the justfile layering and the monitor workflow, and DELETES the
+  pre-relocation root wrappers. Staging only the migration record left every
+  one of those out, so the commit still described a tree on a different
+  layout -- the defect this amendment was written to close, one file over.
+  Two of the three things now staged are therefore lists of names, and the
+  reason that is not the decay the earlier paragraph rejected is that
+  neither is hand-kept against nothing: `_init_installed_paths` is diffed
+  against a REAL resync in both directions by
+  `test/bats/integration/init_installed_paths_spec.bats`, so a file added to
+  the resync and not to the list fails CI; `_init_retired_root_paths`
+  enumerates a closed historical set -- names that already stopped existing
+  -- and is the single definition the resync deletes from, restores from and
+  stages the deletion of, so it cannot come apart from itself. What stays
+  forbidden is the shape the earlier paragraph was really aimed at: a sweep.
+  `git add -A` over the tree would commit whatever the user happened to be
+  editing, and every path staged here is base's own by the repo's naming
+  contract -- shipped or generated, replaced on update, never hand-edited
+  per instance -- so none of it is the user's work to review.
 
 ## Context
 

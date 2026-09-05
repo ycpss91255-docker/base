@@ -652,6 +652,19 @@ _git_seed_consumer() {
   git -C "${TMP_REPO}" commit -q -m "chore: seed"
 }
 
+# _resync_and_stage
+#   The existing-repo half of init.sh's `main`, in main's order: resync,
+#   then stage what it wrote. Staging is a step of `main` rather than of
+#   `_init_existing_repo` because `.setup.conf` is written between the two
+#   (by `_call_setup`, which these unit arms do not run -- it shells out to
+#   the real setup.sh; the integration arm covers that file). Calling both
+#   here rather than asserting against `_init_existing_repo` alone is what
+#   keeps these arms testing the order the released upgrade.sh drives.
+_resync_and_stage() {
+  _init_existing_repo
+  _stage_resync_output
+}
+
 # The resync applies the migrations, and until base#1036 nobody staged their
 # output: the caller that commits is the consumer's OWN vendored
 # upgrade.sh, which stages a pair of filenames hardcoded when it shipped
@@ -661,21 +674,21 @@ _git_seed_consumer() {
 
 # why: The committing caller is a released script that cannot be changed;
 # the run that rewrites the file is the only one that can stage it
-@test "_init_existing_repo: stages the Dockerfile its migrations rewrote (#1036)" {
+@test "the resync: stages the Dockerfile its migrations rewrote (#1036)" {
   _source_init
   cat > "${TMP_REPO}/Dockerfile" <<'EOF'
 FROM busybox AS lint
 COPY .base/script/docker/lib /lint/lib
 EOF
   _git_seed_consumer
-  _init_existing_repo
+  _resync_and_stage
   run git -C "${TMP_REPO}" diff --cached --name-only
   assert_line "Dockerfile"
 }
 
 # why: A user's half-finished edit is not the resync's to commit, which is
 # what a `git add -A` sweep would make it
-@test "_init_existing_repo: leaves a file no migration touched unstaged (#1036)" {
+@test "the resync: leaves a file no migration touched unstaged (#1036)" {
   _source_init
   cat > "${TMP_REPO}/Dockerfile" <<'EOF'
 FROM busybox AS lint
@@ -684,7 +697,7 @@ EOF
   printf 'committed\n' > "${TMP_REPO}/NOTES.md"
   _git_seed_consumer
   printf 'my half-finished edit\n' >> "${TMP_REPO}/NOTES.md"
-  _init_existing_repo
+  _resync_and_stage
   run git -C "${TMP_REPO}" diff --cached --name-only
   refute_output --partial "NOTES.md"
 }
@@ -700,14 +713,14 @@ EOF
 # why: The wrappers are output of the same mechanical run as the
 # Dockerfile, so leaving them out of the commit leaves the tree
 # disagreeing with the release the commit claims
-@test "_init_existing_repo: stages the wrappers the resync installed (#1036)" {
+@test "the resync: stages the wrappers it installed (#1036)" {
   _source_init
   cat > "${TMP_REPO}/Dockerfile" <<'EOF'
 FROM busybox AS lint
 COPY .base/dist/script/docker/lib /lint/lib
 EOF
   _git_seed_consumer
-  _init_existing_repo
+  _resync_and_stage
   run git -C "${TMP_REPO}" diff --cached --name-only
   assert_line "justfile"
   assert_line "script/build.sh"
@@ -717,7 +730,7 @@ EOF
 # why: The resync DELETES the pre-relocation root wrappers, and a deletion
 # left out of the commit is the same tree/commit disagreement one
 # direction over
-@test "_init_existing_repo: stages the retired root wrapper it removed (#1036)" {
+@test "the resync: stages the retired root wrapper it removed (#1036)" {
   _source_init
   cat > "${TMP_REPO}/Dockerfile" <<'EOF'
 FROM busybox AS lint
@@ -726,7 +739,7 @@ EOF
   # The pre-relocation layout: a root symlink the resync drops on sight.
   ln -s ".base/dist/script/docker/wrapper/build.sh" "${TMP_REPO}/build.sh"
   _git_seed_consumer
-  _init_existing_repo
+  _resync_and_stage
   run git -C "${TMP_REPO}" diff --cached --name-only --diff-filter=D
   assert_line "build.sh"
 }
@@ -758,7 +771,7 @@ EOF
 }
 
 # why: Nothing rewritten is nothing to stage -- and not an error
-@test "_init_existing_repo: stages no Dockerfile when no migration applies (#1036)" {
+@test "the resync: stages no Dockerfile when no migration applies (#1036)" {
   _source_init
   cat > "${TMP_REPO}/Dockerfile" <<'EOF'
 FROM busybox AS lint
@@ -768,7 +781,7 @@ EOF
   # Called directly, not through `run`: the resync arms an EXIT trap of its
   # own, and `run` would fire it in the wrapper's context. A non-zero
   # return fails the test here anyway, which is the "does not fail" half.
-  _init_existing_repo
+  _resync_and_stage
   run git -C "${TMP_REPO}" diff --cached --name-only
   refute_output --partial "Dockerfile"
 }

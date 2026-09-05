@@ -103,12 +103,12 @@ _create_symlinks() {
   # dangles. (The base-only `justfile.test` is unrelated -- it is a
   # regular file under `.base/`, never a root symlink.)
   local _stale
-  for _stale in build.sh run.sh exec.sh stop.sh prune.sh setup.sh setup_tui.sh tui.sh Makefile; do
+  while IFS= read -r _stale; do
     if [[ -L "${_stale}" ]]; then
       rm -f "${_stale}"
       _log "  Removed stale root symlink ${_stale}"
     fi
-  done
+  done < <(_init_retired_root_paths)
   # ADR-00000005 / ADR-00000010 / ADR-00000011: `just` is the user-facing
   # entry, now layered + fully namespaced. <repo>/justfile -> script/justfile
   # -> .base/dist/script/justfile (the entry), which `mod?`s the docker
@@ -774,6 +774,10 @@ EOF
 #                                  hand-written -- so they are named here
 #                                  even though the migration that moves
 #                                  them lands separately.
+#
+#   The retired root wrappers come from _init_retired_root_paths below,
+#   which is also what _create_symlinks deletes from and what the staging
+#   step commits the deletion of.
 _init_protected_paths() {
   cat <<'EOF'
 Dockerfile
@@ -786,6 +790,24 @@ justfile
 script
 config
 .github/workflows/base-version-monitor.yaml
+EOF
+  _init_retired_root_paths
+}
+
+# _init_retired_root_paths
+#   The pre-relocation root wrapper names the resync drops on sight: the
+#   seven user-facing wrappers that moved under `script/`, the
+#   pre-setup_tui-rename `tui.sh`, and the retired container-ops
+#   `Makefile` (ADR-00000005 phase 2).
+#
+#   One accessor rather than a literal per caller, because three of them
+#   need the same answer and would drift the first time one was edited:
+#   _create_symlinks removes these, _init_protected_paths has to restore
+#   them if the run fails, and _stage_resync_output has to put the REMOVAL
+#   in the commit -- a tracked file deleted but not staged is the same
+#   tree/commit disagreement as a rewrite that never got staged.
+_init_retired_root_paths() {
+  cat <<'EOF'
 build.sh
 run.sh
 exec.sh
@@ -1048,59 +1070,116 @@ _init_existing_repo() {
 #   migration would run.
 _migrate_dockerfile() {
   apply_migrations "${REPO_ROOT}/Dockerfile"
-  _stage_migrated_files
 }
 
-# _stage_migrated_files
-#   Stage what the migrations above rewrote, so it lands in the commit the
-#   CALLER makes rather than being left behind it.
+# _stage_resync_output
+#   Stage what the resync wrote, so it lands in the commit the CALLER
+#   makes rather than being left behind it.
 #
 #   WHY THE STAGING IS HERE and not in the script that commits. The script
 #   that commits is the consumer's OWN vendored upgrade.sh, and it stages a
 #   pair of filenames written into it when it shipped. v0.41.0's reaches
 #   the Dockerfile only down a branch these migrations never take, so a
 #   cross-version upgrade committed the workflow @tag bump and the
-#   .gitignore sync, left the rewritten Dockerfile unstaged, and closed by
-#   telling the user to `git push` -- a commit claiming the new release
-#   while the migration that makes the tree buildable stayed local (base#1036).
-#   That copy cannot be fixed retroactively for anyone; this file can,
-#   because every release re-runs the NEWLY PULLED init.sh as its resync
-#   step. Staging beside the rewrite also makes the NEXT cross-version
-#   upgrade correct by construction, whatever the caller does.
+#   .gitignore sync, left everything the resync had just written unstaged,
+#   and closed by telling the user to `git push` -- a commit claiming the
+#   new release over a tree on a different layout (base#1036). That copy
+#   cannot be fixed retroactively for anyone; this file can, because every
+#   release re-runs the NEWLY PULLED init.sh as its resync step. Staging
+#   beside the work also makes the NEXT cross-version upgrade correct by
+#   construction, whatever the caller does.
 #
-#   WHAT IS STAGED is the run's own record (lib/dockerfile_migrate.sh's
-#   migrated_files), not `git add -A` and not a list of names kept here.
-#   The sweep would commit whatever the user happened to be editing; a list
-#   decays the first time a migration touches one more file. The resync's
-#   other output -- re-pointed wrappers, newly seeded files -- is
-#   deliberately NOT staged: it is review-able work for the user, and the
-#   released caller has always left it that way.
+#   WHAT IS STAGED is everything this run can NAME as its own output:
 #
-#   Failing to stage is reported, never fatal: the migration itself
-#   succeeded, and aborting here would roll back a good upgrade over an
-#   index the user can fix with one `git add`.
-_stage_migrated_files() {
+#     - the migration record (lib/dockerfile_migrate.sh's migrated_files),
+#       which the dispatcher closes over the files it rewrote;
+#     - _init_installed_paths, the published list of what the resync
+#       guarantees a consumer carries -- wrappers, the justfile layering,
+#       the monitor workflow -- already kept honest by a spec that diffs it
+#       against a real resync;
+#     - _init_retired_root_paths, whose entries the resync DELETES: a
+#       tracked file removed but not staged leaves the same tree/commit
+#       disagreement one direction over, and git's index is the only place
+#       those still exist to be named.
+#
+#   Never `git add -A`. Every path above is base's by the repo's own naming
+#   contract -- shipped or generated, replaced on update, never hand-edited
+#   per instance -- so none of it is the user's work to review, while a
+#   sweep would commit whatever they happened to be editing. A path the
+#   user has told git to ignore is theirs, not ours, so it is dropped
+#   rather than forced.
+#
+#   Failing to stage is reported, never fatal: the resync itself succeeded,
+#   and aborting here would roll back a good upgrade over an index the user
+#   can fix with one `git add`.
+_stage_resync_output() {
   local -a _paths=()
-  mapfile -t _paths < <(migrated_files)
-  (( ${#_paths[@]} > 0 )) || return 0
-
-  # `just base init` is also a repair command, and a repo bootstrapped by
-  # hand may not be a git repo at all. Nothing to stage into is not a
-  # failure.
-  git -C "${REPO_ROOT}" rev-parse --is-inside-work-tree > /dev/null 2>&1 \
-    || return 0
-
-  local -a _rel=()
   local _path
-  for _path in "${_paths[@]}"; do
-    _rel+=("${_path#"${REPO_ROOT}/"}")
-  done
 
-  if ! git -C "${REPO_ROOT}" add -- "${_paths[@]}" > /dev/null 2>&1; then
-    _log_warn init init_progress "display=  could not stage the migrated file(s): ${_rel[*]} -- commit them by hand before pushing"
+  mapfile -t _paths < <(migrated_files)
+
+  while IFS= read -r _path; do
+    [[ -n "${_path}" ]] || continue
+    [[ -e "${REPO_ROOT}/${_path}" || -L "${REPO_ROOT}/${_path}" ]] || continue
+    _paths+=("${REPO_ROOT}/${_path}")
+  done < <(_init_installed_paths)
+
+  (( ${#_paths[@]} > 0 )) || return 0
+  _init_git_can_stage || return 0
+
+  # The retired wrappers are gone from disk, so only the index can say
+  # which of them this repo was tracking. A name it never tracked must not
+  # reach `git add`, which fails the whole batch on a pathspec matching
+  # nothing.
+  local -a _retired=()
+  mapfile -t _retired < <(_init_retired_root_paths)
+  while IFS= read -r _path; do
+    [[ -n "${_path}" ]] || continue
+    _paths+=("${REPO_ROOT}/${_path}")
+  done < <(git -C "${REPO_ROOT}" ls-files -- "${_retired[@]}" 2>/dev/null)
+
+  # check-ignore consults the index, so a TRACKED file is never reported
+  # here even when a pattern would otherwise match it -- what is dropped is
+  # only what the user has told git to keep out.
+  local -A _ignored=()
+  while IFS= read -r _path; do
+    [[ -n "${_path}" ]] || continue
+    _ignored["${_path}"]=1
+  done < <(printf '%s\n' "${_paths[@]}" \
+    | git -C "${REPO_ROOT}" check-ignore --stdin 2>/dev/null)
+
+  local -a _stage=()
+  for _path in "${_paths[@]}"; do
+    [[ -n "${_ignored[${_path}]:-}" ]] || _stage+=("${_path}")
+  done
+  (( ${#_stage[@]} > 0 )) || return 0
+
+  # `-A` so a staged path can be a removal as well as a write.
+  if ! git -C "${REPO_ROOT}" add -A -- "${_stage[@]}" > /dev/null 2>&1; then
+    _log_warn init init_progress "display=  could not stage what the resync wrote -- run \`git add\` over it by hand before pushing"
     return 0
   fi
-  _log "  staged for the upgrade commit: ${_rel[*]}"
+  _log "  staged for the upgrade commit: ${#_stage[@]} path(s) the resync wrote (review with: git diff --cached)"
+}
+
+# _init_git_can_stage
+#   Whether there is an index to stage into -- and, when there is not,
+#   whether that is worth saying out loud.
+#
+#   `just base init` is also a repair command, and a repo bootstrapped by
+#   hand may not be a git repo at all: nothing to stage into is neither a
+#   failure nor news. But git failing while a `.git` IS sitting there is a
+#   different answer -- a worktree checkout whose gitdir has moved, dubious
+#   ownership, no git on PATH -- and resolving THAT to silent success is
+#   how the work this function exists to stage gets pushed uncommitted.
+#   Ask git first; let the presence of `.git` say which "no" it was.
+_init_git_can_stage() {
+  git -C "${REPO_ROOT}" rev-parse --is-inside-work-tree > /dev/null 2>&1 \
+    && return 0
+  if [[ -e "${REPO_ROOT}/.git" || -L "${REPO_ROOT}/.git" ]]; then
+    _log_warn init init_progress "display=  could not stage what the resync wrote: git cannot read ${REPO_ROOT} as a work tree -- stage and commit it by hand before pushing"
+  fi
+  return 1
 }
 
 # _create_hook_stubs
@@ -1516,14 +1595,30 @@ EOF
   local template_version=""
   template_version="$(_detect_template_version)"
 
+  local _resynced=false
   if _init_repo_is_existing; then
     _init_existing_repo
+    _resynced=true
   else
     _create_new_repo "${template_version:-main}"
     _create_symlinks
   fi
 
   _call_setup
+
+  # AFTER _call_setup, not at the end of _init_existing_repo, because
+  # `.setup.conf` is written there and it is one of the paths
+  # _init_installed_paths publishes. Staging one step earlier committed
+  # every other file the resync wrote and left that one untracked -- the
+  # same tree/commit disagreement this staging exists to close, one file
+  # over. Nothing after this point writes a published path.
+  #
+  # Existing-repo path only. A brand-new repo has no upgrade commit to
+  # join: `_create_new_repo` runs before the first commit exists, and the
+  # released `upgrade.sh` that this staging feeds never takes that branch.
+  if [[ "${_resynced}" == "true" ]]; then
+    _stage_resync_output
+  fi
 
   # host preflight for the `just` runner. Runs on BOTH the new-repo
   # and existing-repo paths (placed in main, after the scaffolding/setup
