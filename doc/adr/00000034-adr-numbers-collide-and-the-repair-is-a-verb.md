@@ -175,8 +175,16 @@ incomplete one fails a gate for the two classes a checkout can recognise.
 The verb and the gate cannot disagree about what they swept, because
 neither of them decides. The cost is a shared file both must keep
 correct, and a `.gitignore` reader that is only as good as the shapes it
-reads -- root file, plain path patterns, no wildcards or negations. Where
-git can answer, none of that runs.
+reads. That reader does not SKIP a shape it cannot read: it applies the
+forms whose meaning `find`'s matcher and git's share -- plain paths, and
+a wildcard with no separator -- and REPORTS the rest (a negation, a
+wildcard beside a separator, a nested `.gitignore`) as a finding saying
+its population is wider than the verb's. Modelling gitignore in shell was
+rejected for the reason the rest of this record argues: a model is right
+about the forms somebody thought of and silently wrong about the others,
+which is the failure this reader exists to remove, while a tree told
+which line to spell differently has a repair it can make. Where git can
+answer, none of it runs -- git applies every form itself.
 
 A file that builds its own registry now carries a declaration, and a file
 that acquires one later without declaring it becomes a lint finding
