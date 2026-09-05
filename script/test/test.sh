@@ -181,6 +181,32 @@ readonly _LINT_TOOLS=(
   catalog-description
 )
 
+# ORDER IS NOT A FAIL-FAST LEVER. It reads like one -- put the cheap
+# drivers first and a broken tree is refused sooner -- and it stopped
+# being one when the phase started running every driver (base#1059).
+# Whatever the order, a run that enumerates ends when its LAST driver
+# ends, so reordering moves only WHEN each finding appears on screen, not
+# when the operator has the whole list -- and the whole list is what a
+# cycle is spent on.
+#
+# The order therefore stays as it is: phase order, which is also the
+# order the reports come out in and the order the failure summary names
+# them in. The wall-clock lever that does exist is elsewhere: running the
+# independent drivers concurrently, bounded by the slowest driver rather
+# than by their sum, since a handful of them are most of the phase. That
+# is a separate change with its own interleaving question and is
+# deliberately not made here.
+#
+# What this comment does NOT carry is how long a driver takes. Nothing
+# re-derives such a figure -- no lint, no test, no generator -- the host
+# and the tree both move it, and three timing rounds of this table on one
+# machine already spread by more than a tenth, so a number written here
+# would be stale without saying so (ADR-00000028; `metrics` in
+# justfile.test refuses the same thing for the same reason). Time a
+# driver when the question is asked: `./script/test/test.sh
+# --<tool>-only` runs exactly one, host-direct. ci_spec pins this block
+# to the argument and against the seconds.
+#
 # Every tool but hadolint is runnable host-direct (`--<tool>-only`): the
 # drivers are pure bash over the checkout, and shellcheck's binary ships
 # on ubuntu-latest. hadolint's binary exists only in the alpine
