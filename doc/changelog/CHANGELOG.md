@@ -59,15 +59,15 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 
 ### Added
 - **a full-scope coverage run can use the whole machine (closes #726)** --
-  `just test coverage-local [N]` (`test.sh --coverage-local [--jobs N]`,
-  default `nproc`) measures exactly what `just test coverage` measures, but
-  as N concurrent kcov processes over the shared time-balanced partition,
-  merged into one report. It stamps `scope=full`, so
-  `just release coverage-badge` accepts it -- the serial run is no longer
-  the only way to a releasable figure. A slice that produced no report
-  fails the run instead of merging to a smaller total. **The PR gate is
-  unchanged**: CI stays on the hosted shard matrix, and the self-hosted
-  validation workflow is `workflow_dispatch` and opt-in.
+  `just test coverage-local [N]` (default `nproc`) runs the same 164 specs
+  `just test coverage` runs, as N concurrent kcov processes over the shared
+  partition, merged into one report: **34 minutes to 5 on 32 cores**. It
+  stamps `scope=full`, so `just release coverage-badge` accepts it. A slice
+  that produced no report fails the run rather than merging to a smaller
+  total. Caveat, measured: its covered set is 27 lines (0.33%) below the
+  serial run's, because the suite covers slightly different lines depending
+  on the order it runs in -- ADR-00000008's Measurement. **The PR gate is
+  unchanged.**
 
 ### Changed
 - **`just release coverage-badge`'s refusals now name both whole-suite

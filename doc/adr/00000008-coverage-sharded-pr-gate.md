@@ -613,11 +613,11 @@ distributed, never in WHAT a slice is.**
   because the PR gate did not move.
 - kcov's `--merge` becomes load-bearing for the local mode, where the CI
   path relies on the gate's own per-line union (#730). They are two
-  implementations of one property, and the property is checkable: the
-  merged report's `(file, line)` set must equal the serial run's. That
-  equivalence is what the measurement below reports, and it is the
-  acceptance this amendment stands on -- a matching PERCENTAGE over a
-  different line set would not be equivalence.
+  implementations of one property, and the property is checkable against
+  the LINE SET rather than the percentage -- a matching rate over a
+  different set is not equivalence. The measurement below is that check.
+  **It did not come back empty**, and the amendment states what it found
+  rather than the equality it set out to claim.
 - The self-hosted workflow is authored but, at the time of writing, has
   not been RUN: no self-hosted runner was reachable from where this
   landed. It is stated rather than implied, because a validation nobody
@@ -645,3 +645,73 @@ distributed, never in WHAT a slice is.**
   generator's `discover_reports` treats a top-level `kcov-merged/` as THE
   project report -- so the local run would have to be special-cased in the
   release path. Kept as the fallback if the equivalence check ever fails.
+
+### Measurement (amendment)
+
+Four whole-suite runs of ONE tree (`bea6324`, 32 cores, one at a time on
+an otherwise idle machine), compared on the canonicalised `(file, line)`
+sets of their merged cobertura reports rather than on their rates. The
+canonicalisation is the coverage-gate's own longest-path-suffix rule, so
+kcov's prefix-truncated aliases are not read as differences.
+
+| run | wall | instrumented | covered | stamp |
+|-----|------|--------------|---------|-------|
+| `just test coverage` (serial) | 2052 s | 9667 | 8179 | `scope=full` |
+| `just test coverage-local` (32 slices) | 299 s | 9667 | 8152 | `scope=full` |
+| the same, again | 294 s | 9667 | 8152 | `scope=full` |
+| `just test coverage-local 1` (1 slice) | 2022 s | 9667 | 8167 | `scope=full` |
+
+**What holds.**
+
+- **6.9x**, and the release path is the beneficiary: 34 minutes becomes 5.
+- The **instrumented set is identical** in all four -- symmetric
+  difference 0 over 9667 lines. The denominator does not move with the
+  slice count, which is the invariant #730 had to restore for the CI
+  path's merge and is the one a sum would break first.
+- The mode is **deterministic**: two 32-slice runs agree on every one of
+  8152 lines, in both directions.
+- Both parallel runs stamp **`scope=full`**, which is the acceptance the
+  release badge turns on. The scope is derived from the merged run
+  manifest, and both manifests name all 164 specs -- the same 164 the
+  serial run names.
+
+**What does not hold, stated rather than rounded away.** The covered sets
+are NOT equal. They are strictly nested:
+
+    32-slice (8152)  subset of  1-slice (8167)  subset of  serial (8179)
+
+27 lines, 0.33% of the covered set, in three files:
+`dist/script/docker/lib/help.sh` (12), `config_summary.sh` (14),
+`bootstrap.sh` (1) -- almost all of them arms of localised `case` lookup
+tables, where a line is executed only if something asked for that exact
+`<lang>:<key>`.
+
+The 1-slice run is what separates the two candidate causes, and it
+acquits the merge. At one slice there is no partition: the whole suite
+runs in ONE bats process, exactly as the serial run does, and the report
+still goes through `kcov --merge`. It loses 12 of the serial run's lines
+and gains none. A merge cannot lose what was never split, so those 12 are
+lost BEFORE the merge -- the remaining difference between the two runs is
+that the serial runner hands bats the pool DIRECTORIES with `--recursive`
+while this one hands it an explicit file list in greedy-LPT order. The
+suite therefore covers slightly different lines depending on the order it
+runs in. Splitting it 32 ways loses 15 more, which is the same effect
+with the processes separated as well.
+
+So the finding is about the SUITE, not about this mode: some spec's
+coverage depends on what ran before it in the same bats process. It is
+recorded here and left open, because closing it means finding that spec
+and giving it its own fixture -- work that belongs to whoever owns the
+coupling, not to the runner that exposed it.
+
+**What it costs meanwhile.** A badge published from a parallel run reads
+0.33 points lower than one published from a serial run of the same tree,
+against a floor of 80 and a rate near 84. Nothing in the gate moves. But
+the two modes are not interchangeable to the line, and this amendment does
+not claim they are.
+
+Independent of the suite, `kcov --merge` itself is now pinned as a UNION
+by `test/bats/integration/kcov_merge_union_spec.bats`, against the real
+binary over a subject with two disjoint branches: the merged covered set
+equals the union of the slices', and the merged instrumented set equals
+the union rather than the sum.

@@ -77,11 +77,21 @@ just test coverage-local        # N = nproc
 just test coverage-local 8      # N = 8
 ```
 
-It measures exactly what `just test coverage` measures and writes the same
+It runs the same 164 specs `just test coverage` runs and writes the same
 `coverage/` tree, including the `scope=full` stamp `just release
-coverage-badge` requires. The only difference is how many cores it uses: N
+coverage-badge` requires. What differs is how many cores it uses: N
 concurrent kcov processes over the shared time-balanced partition, merged
-with `kcov --merge` into one report.
+with `kcov --merge` into one report. Measured on a 32-core machine: 34
+minutes becomes 5.
+
+**It is not line-for-line the serial run, and the difference is the
+suite's.** The merged report's instrumented set is identical and the mode
+is deterministic, but its covered set is 27 lines (0.33%) smaller,
+concentrated in three localised lookup tables. The same loss appears at
+`just test coverage-local 1`, where there is no partition at all, so it is
+not the merge: the suite covers slightly different lines depending on the
+order it runs in. ADR-00000008's Measurement has the numbers and the
+control that separates the two.
 
 **Why processes and not `bats --jobs`.** kcov's bash engine parses one
 xtrace stream per traced process and is single-threaded, and `kcov` over
