@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **174 tests**.
+Integration specs under `test/bats/integration/`: **176 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test levels and
@@ -315,10 +315,12 @@ costs this repo nothing.
 | `kcov --merge: the merged covered set is the UNION of the slices' (#726)` | the property the whole mode rests on. A line covered in ONE slice is covered in the merge -- exactly the union, neither more nor less. Asserted as set EQUALITY rather than as a count or a rate, because a merge that lost one slice's lines and gained an equal number of another's would match on any percentage and be wrong. |
 | `kcov --merge: the merged instrumented set is the union, not a sum (#726)` | the denominator half, and the one a SUM would break first. Each slice's kcov runs with the same `--include-path`, so both reports carry the whole instrumented file; adding their `lines-valid` would count every shared line once per slice and drive the rate down as the slice count rose. That is base#730's defect, on the other merge. The merged denominator must be the union -- here, identical to either slice's. |
 
-### test/bats/integration/prev_release_upgrade_spec.bats (5)
+### test/bats/integration/prev_release_upgrade_spec.bats (7)
 
 | Test | Description |
 |------|-------------|
+| `the newest released upgrade.sh leaves a tree its own command can upgrade again (#1077)` | An upgrade that deletes the command that performed it passes every other arm here -- one successful run over a tree nobody asks to upgrade again -- and fails at the consumer's terminal on their next release |
+| `the previous released upgrade.sh leaves a tree its own command can upgrade again (N-1, #1077)` | The newest release is already on the path the current tree ships, so only the older driver names a path that has to be kept alive by a forwarder; pinning both ends is what stops this narrowing to one tag |
 | `the oldest supported upgrade.sh commits what the migrations rewrote (#1036)` | The commit is made by the consumer's OWN released upgrade.sh, so the only proof that the migrated Dockerfile lands in it is to let that script drive; a unit test on the staging helper passes while the real upgrade still leaves the file behind |
 | `the newest supported upgrade.sh commits what the migrations rewrote (#1036)` | The oldest driver is the only one whose own Step 5 misses the Dockerfile, so an arm that ran only there would go quiet as the window slides forward and the fix could be deleted with the suite green; the newest driver still leaves the rest of the resync unstaged without it |
 | `a released upgrade.sh still migrates a hand-written .env to .env.local (#868)` | - |

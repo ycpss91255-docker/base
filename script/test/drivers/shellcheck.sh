@@ -58,10 +58,13 @@ _run_shellcheck() {
   # references the way test.sh sees them.
   find "${REPO_ROOT}/script" -name "*.sh" -type f -print0 \
     | xargs -0 shellcheck -x
-  # The repo-root compatibility forwarder. Named explicitly because the
-  # find roots above are all subdirectories, so a script at the root would
-  # otherwise go unlinted.
-  shellcheck -x "${REPO_ROOT}/init.sh"
+  # The repo-root compatibility forwarders. The find roots above are all
+  # subdirectories, so a script at the root would otherwise go unlinted --
+  # and a hand-written pair of names is how the SECOND forwarder would
+  # arrive unlinted, which is the same shape of omission the forwarder
+  # itself exists to close. A glob is the derivation: whatever sits at the
+  # top level is linted, this one and the next.
+  shellcheck -x "${REPO_ROOT}"/*.sh
   shellcheck -x "${REPO_ROOT}/dist/script/base/init.sh"
   shellcheck -x "${REPO_ROOT}/dist/script/base/upgrade.sh"
   shellcheck -x "${REPO_ROOT}/dist/config/shell/terminator/setup.sh"
