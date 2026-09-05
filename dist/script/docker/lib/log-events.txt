@@ -230,6 +230,8 @@ ci_no_hadolint
 ci_lint_tool_without_lint
 ci_unknown_lint_tool
 ci_lint_driver_failed
+ci_lint_phase_failed
+ci_lint_errexit_suppressed
 ci_test_tools_dockerfile_missing
 ci_project_name_digest_failed
 ci_host_id_not_numeric
