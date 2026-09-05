@@ -544,6 +544,21 @@ _run_coverage_parallel 3"
   refute_output --partial "${_work}/part-2"
   # And the replay is named, because it is where the evidence actually is.
   assert_output --partial "replayed above"
+
+  # Naming the replay is half of it. A refusal that QUOTES a header for the
+  # reader to search for has to quote one the run actually printed --
+  # otherwise the instruction is precise, followable, and wrong, which is
+  # worse than "look above": the operator greps, finds nothing, and
+  # concludes the replay is missing rather than that the message is. So the
+  # quoted literal is lifted back out of the message and required to appear
+  # in the same output -- on some OTHER line, because the message quoting it
+  # would otherwise satisfy the search by itself.
+  local _all="${output}" _quoted _elsewhere
+  _quoted="$(sed -n "s/.*under '\([^']*\)'.*/\1/p" <<< "${_all}" | head -n 1)"
+  assert [ -n "${_quoted}" ]
+  _elsewhere="$(grep -vF -- "under '" <<< "${_all}" || true)"
+  run grep -qF -- "${_quoted}" <<< "${_elsewhere}"
+  assert_success
 }
 
 # why: the sibling refusal, and the same rule. A merge that fails leaves
