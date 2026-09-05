@@ -85,9 +85,16 @@ STUB
 #   script/hooks/pre/build.sh is user-authored and must survive untouched;
 #   the root build.sh symlink is the pre-relocation wrapper the resync
 #   deletes, and must come back.
+#
+#   test/smoke/ is the flat pre-v0.42.0 layout. The migration that moves it
+#   runs immediately BEFORE the Dockerfile rewrite the stub kills, so at
+#   abort time the tree has already moved -- and a rollback that restores
+#   the Dockerfile's old COPY over a tree that stayed moved leaves a build
+#   that dies with "COPY source not found". The specs are repo-owned and
+#   the only copy of themselves, so this is data loss, not layout drift.
 _seed_consumer_files() {
   local _dir="${1:?BUG: _seed_consumer_files expects a dir}"
-  mkdir -p "${_dir}/script/hooks/pre"
+  mkdir -p "${_dir}/script/hooks/pre" "${_dir}/test/smoke"
 
   cat > "${_dir}/Dockerfile" <<'EOF'
 FROM busybox AS lint
@@ -115,6 +122,11 @@ EOF
 exit 0
 EOF
   chmod 755 "${_dir}/script/hooks/pre/build.sh"
+
+  # printf, not a heredoc: a `@test` line at column zero inside this file
+  # is counted by the doc-catalogue marker scan as one of this spec's own.
+  printf '%s\n' '@test "repo-owned smoke spec" { [ 1 = 1 ]; }' \
+    > "${_dir}/test/smoke/repo_env.bats"
 
   echo "CONSUMER" > "${_dir}/README.md"
   ln -sf README.md "${_dir}/build.sh"
@@ -147,6 +159,7 @@ _snapshot_before() {
   cp -a "${CONSUMER}/.gitignore" "${BEFORE}/.gitignore"
   cp -a "${CONSUMER}/.env" "${BEFORE}/.env"
   cp -a "${CONSUMER}/script/hooks/pre/build.sh" "${BEFORE}/build_hook.sh"
+  cp -a "${CONSUMER}/test/smoke/repo_env.bats" "${BEFORE}/repo_env.bats"
 }
 
 # _assert_consumer_unchanged
@@ -162,7 +175,10 @@ _assert_consumer_unchanged() {
     || fail ".env was left rewritten -- it is hand-written and gitignored"
   cmp -s "${CONSUMER}/script/hooks/pre/build.sh" "${BEFORE}/build_hook.sh" \
     || fail "the user's own pre-build hook was not preserved"
+  cmp -s "${CONSUMER}/test/smoke/repo_env.bats" "${BEFORE}/repo_env.bats" \
+    || fail "the repo's own smoke tree was left migrated -- the restored Dockerfile still names test/smoke"
 
+  assert [ ! -e "${CONSUMER}/test/bats/smoke" ]
   assert [ ! -e "${CONSUMER}/.env.local" ]
   assert [ ! -e "${CONSUMER}/justfile" ]
   assert [ ! -e "${CONSUMER}/script/justfile" ]

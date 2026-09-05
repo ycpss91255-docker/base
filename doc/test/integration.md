@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **170 tests**.
+Integration specs under `test/bats/integration/`: **171 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test levels and
@@ -257,6 +257,12 @@ the unit `tui_spec`.
 | `init.sh refuses to run when the subtree root carries .git (base template source)` | Self-run guard (ADR-00000011 sec.8): .git at subtree root -> refuse, no scaffold |
 | `existing repo: init never rewrites a main.yaml it did not create (#957)` | Delivery boundary: an existing repo's hand-maintained CI survives init byte-for-byte |
 | `existing repo: init syncs the monitor workflow but seeds no main.yaml (#957)` | The same boundary stated positively: the monitor converges, main.yaml is new-repo-only (#927 / #928) |
+
+### test/bats/integration/init_protected_paths_spec.bats (1)
+
+| Test | Description |
+|------|-------------|
+| `every path the resync touches lies under a protected root (refs #1050)` | The rollback surface is derived from what the resync does, not from a list restated in the spec |
 
 ### test/bats/integration/init_rollback_spec.bats (5)
 
