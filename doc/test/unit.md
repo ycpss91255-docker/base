@@ -1105,7 +1105,7 @@ between them can be asserted at all.
 | `reclaim.sh --stale delegates the unowned classes to prune.sh with the same window` | - |
 | `reclaim.sh --stale never touches volumes` | - |
 
-### test/bats/unit/ci_spec.bats (118)
+### test/bats/unit/ci_spec.bats (121)
 
 | Test | Description |
 |------|-------------|
@@ -1148,6 +1148,9 @@ between them can be asserted at all.
 | `_run_coverage: shard N/T kcov's only that unit slice, not the whole tree (#615)` | #615 sharded kcov targets |
 | `_run_coverage: shard targets are individual spec files, never the whole integration dir (#724)` | - |
 | `_run_coverage: no argument keeps the full-suite path (unit + integration) (#615)` | #615 local full-coverage path |
+| `_run_coverage: the wrapped bats takes its --jobs from the shared helper (#1060)` | kcov wraps bats, so the coverage run is a bats run; assembled by hand it was the one that never got --jobs. The assertion is on what kcov was handed, since a serial run and a parallel one differ in nothing a passing suite reports. |
+| `_run_coverage: a shard's wrapped bats takes its --jobs from the helper too (#1060)` | the shard path and the full-suite path are the same function, and the shard is the one CI runs eight of; a fix that reached only the full-suite branch would leave the measured critical path untouched. |
+| `_run_coverage: with parallel absent the coverage run is serial and says so (#1060)` | the helper exists because parallelism has a fallback -- GNU parallel absent means serial, said out loud. Proven by CONFINING PATH so parallel is genuinely gone, not by reading the helper: a hand-assembled command would keep working here and say nothing. |
 | `main --coverage-shard: routes to the coverage service with COVERAGE_SHARD set (#615)` | #615 shard env plumbing |
 | `main --ci with COVERAGE=1 skips the lint phase (lint is a separate matrix concern) (#615)` | #615 coverage path skips lint |
 | `main --coverage-shard + --bats-path is rejected (coverage mode guard) (#615)` | #615 single-path/coverage combo guard |

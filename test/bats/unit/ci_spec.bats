@@ -1229,6 +1229,123 @@ SH
   assert_output --partial "test/bats/integration/"
 }
 
+# ════════════════════════════════════════════════════════════════════
+# The coverage run is a bats run, and takes its parallelism from the
+# same helper every other bats run does
+#
+# kcov wraps bats, so `_run_coverage`'s command IS a bats invocation --
+# and it was the only one in the driver assembled by hand. It therefore
+# never received the `--jobs` that `_bats_args_with_label` gives every
+# other runner, and serial execution, not the instrumentation, was the
+# larger half of a coverage shard's wall time. These assert on the
+# arguments kcov was handed, because the args are where the divergence
+# was invisible: both runs pass, one takes three times as long.
+# ════════════════════════════════════════════════════════════════════
+
+# why: kcov wraps bats, so the coverage run is a bats run; assembled by
+# hand it was the one that never got --jobs. The assertion is on what
+# kcov was handed, since a serial run and a parallel one differ in
+# nothing a passing suite reports.
+@test "_run_coverage: the wrapped bats takes its --jobs from the shared helper (#1060)" {
+  local _log="${BATS_TEST_TMPDIR}/kcov.log"
+  mock_cmd "kcov" '
+    printf "%s\n" "$*" >> "'"${_log}"'"
+    exit 0'
+  mock_cmd "parallel" 'exit 0'
+  mock_cmd "nproc" 'echo 8'
+
+  run bash -c '
+    # REPO_ROOT points at a scratch tree, and the DRIVER is sourced rather
+    # than test.sh, because test.sh makes REPO_ROOT readonly. _run_coverage
+    # writes ${REPO_ROOT}/coverage/timings.tsv as its last act.
+    REPO_ROOT="${BATS_TEST_TMPDIR}/repo"
+    mkdir -p "${REPO_ROOT}/coverage" "${REPO_ROOT}/test/bats/unit" \
+             "${REPO_ROOT}/test/bats/integration"
+    _die() { echo "DIE: $*"; exit 1; }
+    source /source/script/test/drivers/bats.sh
+    _run_coverage
+  '
+  assert_success
+  # The label the helper set, printed where the run announces itself --
+  # the same one-line report every other runner prints.
+  assert_output --partial "jobs=8"
+
+  run cat "${_log}"
+  assert_success
+  assert_output --partial "--jobs 8"
+  # --recursive comes from the helper too, so a directory target still
+  # descends into the per-lib subfolders (ADR-00000015).
+  assert_output --partial "--recursive"
+}
+
+# why: the shard path and the full-suite path are the same function, and
+# the shard is the one CI runs eight of; a fix that reached only the
+# full-suite branch would leave the measured critical path untouched.
+@test "_run_coverage: a shard's wrapped bats takes its --jobs from the helper too (#1060)" {
+  local _log="${BATS_TEST_TMPDIR}/kcov.log"
+  mock_cmd "kcov" '
+    printf "%s\n" "$*" >> "'"${_log}"'"
+    exit 0'
+  mock_cmd "parallel" 'exit 0'
+  mock_cmd "nproc" 'echo 8'
+
+  run bash -c '
+    REPO_ROOT="${BATS_TEST_TMPDIR}/repo"
+    mkdir -p "${REPO_ROOT}/coverage" "${REPO_ROOT}/test/bats/unit" \
+             "${REPO_ROOT}/test/bats/integration"
+    for _n in a b c d; do
+      printf "@test \"t1\" { :; }\n@test \"t2\" { :; }\n" \
+        > "${REPO_ROOT}/test/bats/unit/${_n}_spec.bats"
+    done
+    printf "@test \"t1\" { :; }\n" \
+      > "${REPO_ROOT}/test/bats/integration/i_spec.bats"
+    _die() { echo "DIE: $*"; exit 1; }
+    source /source/script/test/drivers/bats.sh
+    _run_coverage 1/2
+  '
+  assert_success
+  assert_output --partial "jobs=8"
+
+  run cat "${_log}"
+  assert_success
+  assert_output --partial "--jobs 8"
+}
+
+# why: the helper exists because parallelism has a fallback -- GNU
+# parallel absent means serial, said out loud. Proven by CONFINING PATH
+# so parallel is genuinely gone, not by reading the helper: a
+# hand-assembled command would keep working here and say nothing.
+@test "_run_coverage: with parallel absent the coverage run is serial and says so (#1060)" {
+  local _log="${BATS_TEST_TMPDIR}/kcov.log"
+  mock_cmd "kcov" '
+    printf "%s\n" "$*" >> "'"${_log}"'"
+    exit 0'
+  # PATH is confined to MOCK_DIR below, so `parallel` is genuinely
+  # absent. The two externals the run still reaches for come with it.
+  local _cmd _path
+  for _cmd in mktemp rm; do
+    _path="$(command -v "${_cmd}" 2>/dev/null)" \
+      && ln -sf "${_path}" "${MOCK_DIR}/${_cmd}"
+  done
+
+  run bash -c '
+    REPO_ROOT="${BATS_TEST_TMPDIR}/repo"
+    mkdir -p "${REPO_ROOT}/coverage" "${REPO_ROOT}/test/bats/unit" \
+             "${REPO_ROOT}/test/bats/integration"
+    _die() { echo "DIE: $*"; exit 1; }
+    source /source/script/test/drivers/bats.sh
+    export PATH="'"${MOCK_DIR}"'"
+    _run_coverage
+  '
+  assert_success
+  assert_output --partial "serial"
+  assert_output --partial "parallel not in PATH"
+
+  run cat "${_log}"
+  assert_success
+  refute_output --partial "--jobs"
+}
+
 # why: #615 shard env plumbing
 @test "main --coverage-shard: routes to the coverage service with COVERAGE_SHARD set (#615)" {
   local _log="${BATS_TEST_TMPDIR}/docker.log"
