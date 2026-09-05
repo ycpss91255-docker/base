@@ -709,6 +709,31 @@ _run_coverage_parallel 9"
   assert_output "workflow_dispatch"
 }
 
+# why: the concurrency group's stated property is one run at a time on the
+# MACHINE -- two of these would each start nproc kcov processes on the same
+# host and measure each other's contention rather than the mode. A group
+# keyed on `github.ref` does not have that property: the normal way this
+# gets used is a dispatch on the branch under test beside one on `main`,
+# which is two refs, two groups, and one runner. Nothing about the machine
+# is in the ref, so the group must not interpolate anything at all --
+# `github.ref`, an input, or a matrix leg would each split it the same way.
+@test "coverage-local workflow: one run at a time on the machine, not per ref (#726)" {
+  local _wf=/source/.github/workflows/coverage-local.yaml
+  assert [ -f "${_wf}" ]
+
+  # The `concurrency:` block's own lines, comments dropped: the paragraph
+  # above it states the property in prose and would answer for the key.
+  run bash -c "
+    sed '/^[[:space:]]*#/d' '${_wf}' \
+      | awk '/^concurrency:/ { c = 1; next } /^[^[:space:]]/ { c = 0 } c'"
+  assert_success
+  assert_output --partial "group: coverage-local"
+  refute_output --partial '${{'
+  # A cancelled run is a half-finished kcov tree on a shared machine, so
+  # queueing is the behaviour, not cancelling.
+  assert_output --partial "cancel-in-progress: false"
+}
+
 # why: the runner is the point -- an in-job parallel mode measured on a
 # hosted two-core runner would prove nothing about the fat machine it was
 # written for. And a job that can land on the org's self-hosted runner is
