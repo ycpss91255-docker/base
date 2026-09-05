@@ -878,3 +878,136 @@ makespan 1446 (loads 754-1446); weights from a parallel run give 1138 (loads
   `serial by policy` in its first line. It is slower than the argument
   suggests, and that is the point: it is the run that would otherwise
   publish a parallel figure as `scope=full`.
+
+## Amendment (#1068): the job count is a FLOOR on concurrency, and a third policy meters the kcov runners
+
+- **Date:** 2026-09-05
+- **Amendment status:** Accepted -- narrows the Decision of the amendment
+  above. Section 1's sharding, the one-writer guard, the shard /
+  full-suite asymmetry and the `1/1`-is-the-suite rule are all unchanged.
+  What changes is the COUNT the one writer derives and the size of the
+  policy vocabulary it accepts -- so the two-name enumeration in the
+  #1060 Decision (`parallel`, the default, or `serial`) and its
+  description of the helper as one that "appends `--jobs $(nproc)`" are
+  superseded here rather than left to be read as current.
+  **Relates:** #726 (a kcov process per slice), #1002, #1060.
+
+### What the previous amendment did not look at
+
+It routed every bats invocation in the driver through
+`_bats_args_with_label` and left the count that helper derives exactly as
+it found it: `$(nproc 2>/dev/null || echo 4)`. `nproc` is the right
+question for a CPU-BOUND workload and this suite is not one -- a bats
+test spends its time waiting on subprocesses, and #1002 measured 1-2 of
+32 cores busy for the length of a run. CI's runner has four cores, so
+`--jobs $(nproc)` there produced exactly the ratio the flag exists to
+remove.
+
+Measured on one real coverage shard, through the production path, under a
+4-CPU cpuset, two reps per point: `--jobs 1` (serial control) 108.4s /
+108.9s, `--jobs 4` (what CI ran) 113.4s / 104.8s, `--jobs 8` 82.7s /
+87.7s, `--jobs 32` 62.2s / 63.1s, `--jobs 64` 61.9s / 62.5s. One rep at 4
+is slower than serial and one is faster: indistinguishable. Plain bats on
+the same shard and the same four cores is 88.4s / 93.8s at `--jobs 4`
+against 42.5s / 42.2s at `--jobs 32`, so the effect belongs to the SUITE
+and not to kcov.
+
+Re-measured on a different 22-spec slice under the same 4-CPU cpuset, two
+reps per point: plain bats 75.7s / 81.7s serial, 83.8s / 98.9s at
+`--jobs 4`, 41.9s / 44.0s at `--jobs 32`; the same slice under kcov
+139.3s / 114.6s serial, 111.1s / 122.3s at 4, 67.9s / 70.2s at 32. A
+different partition and the same three conclusions: 4 is not
+distinguishable from serial, 32 is ~1.8x serial, and the ratio survives
+kcov being in the loop.
+
+`nproc 2>/dev/null || echo 4` also answered two different questions with
+one number. A failed probe and a genuine four-core machine both printed
+`jobs=4`, and on CI both were true at once, so a run's own log could not
+say which had happened -- the same shape of silent wrong answer the
+policy argument was added to refuse one line above.
+
+### Decision
+
+**1. The count is `max(cores, 32)`: a floor, never `k x nproc`.** 32 is a
+KNEE and not a peak, which is what decides the SHAPE of the rule. Four
+INTERLEAVED reps per point on a 32-core host, same slice: 16 jobs 43.7s,
+32 jobs 26.5s, 64 jobs 25.8s, 128 jobs 25.7s. Below the knee costs 1.65x;
+above it the curve is flat out to 4x the core count. (A first two-rep
+pass read 128 as worse than 32 -- 60.7s / 47.3s against 49.0s / 47.3s --
+and the 60.7s does not survive repetition; that reading is withdrawn, and
+with it any claim that a large machine must be held to its cores.)
+
+So the count ABOVE the knee is free, and a floor is chosen for the
+property a re-tuner needs rather than for a winner: it is monotone, and
+it cannot land BELOW the knee, where `k x cores` lands on any machine
+smaller than 32/k -- which is the four-core runner this started on. 32 is
+a property of the WORKLOAD, how many waiting tests it takes to keep the
+pipe full, not of a machine, which is why nothing here scales it.
+Re-derive it by sweeping `--jobs` against one shard on a constrained
+cpuset, interleaving the points so one slow rep cannot become the
+finding; do not multiply it.
+
+**2. A third policy, `metered`, is one job per core with no floor**, and
+the driver's two kcov runners (`_run_coverage`'s shard branch and
+`_run_coverage_path`) declare it. The amendment above established why: N
+bats jobs drain into ONE single-threaded trace parser, so the share that
+does not divide by `--jobs` is the share that decides what the report
+says. Measured on one shard: 4 -> 32 jobs is 1.75x and costs a
+REPRODUCIBLE hole -- four runs at 16/32 jobs union to 31 lines short of
+the serial covered set, 30 of them the compose-lifecycle region of
+`dist/script/docker/wrapper/run.sh`, ~0.45 points off the reported rate
+-- where two runs at `--jobs 4` union to the serial set exactly. The
+re-measurement above reproduces the shape on its own slice: two serial
+runs record a byte-identical 3093 covered lines, the union of two
+`--jobs 4` runs loses none of them, and the union of two `--jobs 32` runs
+is 18 short with 17 of the 18 in one file. Faster while losing lines is
+not an improvement for the runner whose output IS the line set.
+`metered` is refused-by-default like the other two: an unknown or empty
+third argument still `_die`s.
+
+**3. An unreadable core count falls back and LABELS ITSELF one**, where
+an unreadable policy still `_die`s, and the two are not in tension. An
+unreadable POLICY is a caller's bug and there is no correct run to give
+it; an unreadable CORE COUNT is an ENVIRONMENT, the same kind as
+`parallel` missing from PATH, which this helper already falls back on and
+names. Under `metered` the fallback is 1 rather than the floor: with no
+core count there is nothing to meter to, and fewer jobs is the safe
+direction for a run whose output is a line set.
+
+### Consequences (amendment)
+
+- Six runners with no kcov in the loop take the floor: unit, integration,
+  unit-shard, bats-path, bats-fragile and system. On the four-core CI
+  runner the `bats-integration`, `bats-fragile` and `system` jobs go from
+  four concurrent bats jobs to 32. On any host with 32 or more cores
+  NOTHING CHANGES -- `max(32, 32)` is what `nproc` already returned -- so
+  a green gate on a large developer machine is evidence about the tests
+  and the docs, not about the floor. The CI jobs are where it is
+  confirmed.
+- `system` is the runner whose every test waits on `docker`, so it has
+  the most to gain and is also the one whose concurrency this widens
+  furthest: two of its four spec files pin
+  `BATS_NO_PARALLELIZE_WITHIN_FILE`, so up to 13 of its 19 tests can now
+  be in flight at once against the four that could before, each one a
+  `docker buildx build` on a four-core runner. That is the one behaviour
+  here a local gate cannot settle.
+- The coverage matrix is unaffected. `metered` resolves to the core
+  count, which is what the shard path already ran at, so the reported
+  rate and the release badge move by nothing; what the policy buys is
+  that the next change to the DEFAULT cannot silently take 0.45 points
+  off them.
+- The four labels a run prints are mutually distinguishable --
+  `(cores, at or above the floor)`, `(floor, over N cores)`,
+  `(fallback: nproc gave no core count)`, `(metered to the core count)`
+  -- so a run's own first line says which of the four happened, which is
+  precisely what `jobs=4` could not.
+- `nproc` reports the CPUs a process may be SCHEDULED on, an affinity
+  mask, and not a CFS quota: in a container started with `--cpus=2` on a
+  32-core host it still prints 32 (measured). The floor does not care --
+  it oversubscribes on purpose -- but `metered`'s invariant is stated in
+  cores, so in a quota-limited container it is not held and the kcov
+  drain is oversubscribed anyway. Nothing base launches is capped that
+  way (its own compose services set no CPU limit, and a GitHub-hosted
+  runner is a whole VM), so this is a boundary of the policy and not a
+  live defect; a self-hosted runner that meters CPU by quota would make
+  it one.
