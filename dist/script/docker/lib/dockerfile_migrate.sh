@@ -992,12 +992,34 @@ _migrate_nounset_source_apply() {
 #   The fold is captured into a variable rather than piped into grep: `grep
 #   -q` stops reading at the first match, which SIGPIPEs the writer, and
 #   under pipefail the caller would read a SUCCESSFUL match as "not found".
-_dfm_smoke_copy_present() {
+#   Generalised over the retired prefix because there are two of them: the
+#   SHIPPED tree (.base/test/smoke) and the repo's OWN (test/smoke). They
+#   moved in the same reorganisation and differ only in where they are
+#   rooted, so one implementation serves both rather than two copies of
+#   this awk drifting apart (ADR-00000028, #1044).
+_dfm_regex_escape() {
+  printf '%s' "$1" | sed 's/[][^$.*+?(){}|\\]/\\&/g'
+}
+
+# _dfm_smoke_present <file> <retired_prefix>
+_dfm_smoke_present() {
   local _file="$1"
-  local _joined
+  local _retired="$2"
+  local _joined _re
   _joined="$(_dfm_join_copy_statements "${_file}")"
-  grep -qE '^[[:space:]]*COPY[[:space:]][^#]*\.base/test/smoke(/|[[:space:]]|$)' \
+  _re="$(_dfm_regex_escape "${_retired}")"
+  # The retired path has to appear as a whole SOURCE TOKEN: opened at a
+  # whitespace boundary and closed at a path boundary. Both halves carry
+  # weight. Without the leading one the repo-owned prefix `test/smoke`
+  # would also match inside `.base/test/smoke`, and the two migrations
+  # would fight over one statement. Without the trailing one a sibling
+  # merely PREFIXED by the name -- test/smoke_helpers -- would be caught.
+  grep -qE "^[[:space:]]*COPY[[:space:]]([^#]*[[:space:]])?${_re}(/|[[:space:]]|\$)" \
     <<< "${_joined}"
+}
+
+_dfm_smoke_copy_present() {
+  _dfm_smoke_present "$1" '.base/test/smoke'
 }
 
 # A COPY is a STATEMENT, not a line: a consumer wraps a long hand-listed one
@@ -1010,14 +1032,20 @@ _migrate_smoke_copy_detect() {
   _dfm_smoke_copy_present "${_file}"
 }
 
-_migrate_smoke_copy_apply() {
+# _dfm_smoke_rewrite <file> <retired_prefix> <new_prefix> <tree_root> <ref>
+#   The shared body of both smoke migrations. <retired_prefix> is the path
+#   that is gone, <new_prefix> the root it is re-rooted at (trailing slash
+#   included), <tree_root> the on-disk tree consulted for which per-stage
+#   folders exist and where a hand-listed spec now lives, and <ref> the
+#   issue the message cites.
+_dfm_smoke_rewrite() {
   local _file="$1"
-
-  # Both derivations read the tree NEXT TO the Dockerfile, i.e. the subtree
-  # the upgrade just pulled.
-  local _root
-  _root="$(dirname -- "${_file}")"
-  local _smoke_root="${_root}/.base/dist/test/bats/smoke"
+  local _retired="$2"
+  local _new="$3"
+  local _smoke_root="$4"
+  local _ref="$5"
+  local _retired_re
+  _retired_re="$(_dfm_regex_escape "${_retired}")"
 
   # Which stage folders the subtree ships, as a ":a:b:" membership string
   # awk can test with index().
@@ -1046,7 +1074,8 @@ _migrate_smoke_copy_apply() {
   # and the consumer's own wrapping, flags, destination and column
   # alignment survive. Track the enclosing build stage (`FROM ... AS
   # <name>`) so each rewritten wholesale COPY can name its own folder.
-  awk -v stages="${_stages}" -v specs="${_specs}" '
+  awk -v stages="${_stages}" -v specs="${_specs}" \
+      -v retired="${_retired_re}" -v newroot="${_new}" '
     # Exact, whitespace-delimited literal substitution. A regex would let
     # the dots in a spec name match anything, and these are file names read
     # off disk, not patterns.
@@ -1075,8 +1104,8 @@ _migrate_smoke_copy_apply() {
       done = 0
       for (i = 1; i <= nb; i++) {
         line = buf[i]
-        if (!done && line ~ /\.base\/test\/smoke\/?([ \t\\]|$)/) {
-          sub(/\.base\/test\/smoke\/?/, prefix, line)
+        if (!done && line ~ ("[ \t]" retired "/?([ \t\\\\]|$)")) {
+          sub(retired "/?", prefix, line)
           done = 1
         }
         print line
@@ -1099,17 +1128,17 @@ _migrate_smoke_copy_apply() {
         emit(); reset(); return
       }
       if (toupper(f[1]) != "COPY" \
-          || s !~ /^[^#]*\.base\/test\/smoke(\/|[ \t]|$)/) {
+          || s !~ ("[ \t]" retired "(/|[ \t]|$)")) {
         emit(); reset(); return
       }
       # Wholesale: a source ENDS at the smoke directory. The whole
       # statement is reproduced twice -- once re-rooted at the shared
       # baseline, once at the enclosing stage folder when the pulled
       # subtree ships one.
-      if (s ~ /\.base\/test\/smoke\/?([ \t]|$)/) {
-        emit_rerooted(".base/dist/test/bats/smoke/shared/")
+      if (s ~ ("[ \t]" retired "/?([ \t]|$)")) {
+        emit_rerooted(newroot "shared/")
         if (stage != "" && index(stages, ":" stage ":") > 0) {
-          emit_rerooted(".base/dist/test/bats/smoke/" stage "/")
+          emit_rerooted(newroot stage "/")
         }
         reset(); return
       }
@@ -1122,11 +1151,11 @@ _migrate_smoke_copy_apply() {
         k = split(line, tok, /[ \t]+/)
         for (j = 1; j <= k; j++) {
           t = tok[j]
-          if (t !~ /^\.base\/test\/smoke\//) { continue }
+          if (t !~ ("^" retired "/")) { continue }
           b = t
           sub(/.*\//, "", b)
           if (!(b in seen) || seen[b] == "?") { continue }
-          line = repl(line, t, ".base/dist/test/bats/smoke/" seen[b])
+          line = repl(line, t, newroot seen[b])
         }
         buf[i] = line
       }
@@ -1156,7 +1185,7 @@ _migrate_smoke_copy_apply() {
     END { flush() }
   ' "${_file}" > "${_tmp}"
   mv "${_tmp}" "${_file}"
-  _log_info upgrade upgrade_started "display=  Dockerfile patched: .base/test/smoke/ -> per-stage dist smoke COPYs (#915)"
+  _log_info upgrade upgrade_started "display=  Dockerfile patched: ${_retired}/ -> per-stage smoke COPYs under ${_new} (${_ref})"
 
   # Anything still naming the retired tree is a spec the pulled subtree no
   # longer ships under that name, or ships twice. Say so: the build will
@@ -1164,9 +1193,46 @@ _migrate_smoke_copy_apply() {
   # same folded view the detect uses: a half-healed statement leaves its
   # unresolved sources on continuation lines, which is exactly where a
   # ^COPY-anchored grep over raw lines cannot see them.
-  if _dfm_smoke_copy_present "${_file}"; then
-    _log_warn upgrade upgrade_started "display=  Dockerfile still COPYs a retired .base/test/smoke/ spec the pulled subtree ships at no single path — resolve it by hand (#928)"
+  if _dfm_smoke_present "${_file}" "${_retired}"; then
+    _log_warn upgrade upgrade_started "display=  Dockerfile still COPYs a retired ${_retired}/ spec that is shipped at no single path — resolve it by hand (${_ref})"
   fi
+}
+
+_migrate_smoke_copy_apply() {
+  local _root
+  _root="$(dirname -- "$1")"
+  _dfm_smoke_rewrite "$1" '.base/test/smoke' '.base/dist/test/bats/smoke/' \
+    "${_root}/.base/dist/test/bats/smoke" '#928'
+}
+
+# ── Migration (repo-smoke-copy): repo-owned test/smoke/ -> per-stage ─────────
+#
+# The sibling of smoke-copy above. That one heals the COPY that reads
+# base's SHIPPED smoke tree; this one heals the COPY that reads the repo's
+# OWN. Both trees moved in the same v0.42.0 split, only the shipped half
+# was migrated, so an upgraded Dockerfile kept the one-line
+#   COPY test/smoke/ /smoke_test/
+# spelling while a fresh bootstrap writes the per-stage pair (#1044).
+#
+# Runs AFTER smoke_copy, and the order is load-bearing in one direction:
+# `test/smoke` is a SUBSTRING of `.base/test/smoke`, so a statement still
+# naming the shipped tree must already have been rewritten before this
+# migration looks at it. The token-boundary anchoring in _dfm_smoke_present
+# makes the two disjoint even so; the ordering is the second lock, not the
+# only one.
+#
+# The repo's own tree is read from the repo, not the subtree: lib/
+# smoke_migrate.sh has just moved it into place on the same init.sh run, so
+# by the time this executes the per-stage folders it emits COPYs for exist.
+_migrate_repo_smoke_copy_detect() {
+  _dfm_smoke_present "$1" 'test/smoke'
+}
+
+_migrate_repo_smoke_copy_apply() {
+  local _root
+  _root="$(dirname -- "$1")"
+  _dfm_smoke_rewrite "$1" 'test/smoke' 'test/bats/smoke/' \
+    "${_root}/test/bats/smoke" '#1044'
 }
 
 # ── Migration (flat-to-dist): pre-dist .base/ layout -> .base/dist/ ──────────
@@ -1440,6 +1506,7 @@ _MIGRATIONS=(
   explicit_copy
   logging_rename
   smoke_copy
+  repo_smoke_copy
   flat_to_dist
   runtime_moved_files
   runtime_dir_copy
