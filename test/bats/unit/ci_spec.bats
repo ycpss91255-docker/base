@@ -1312,6 +1312,24 @@ SH
   assert_output --partial "seriel"
 }
 
+# why: an EMPTY policy is unreadable too, and it is the one a caller
+# reaches by accident -- `_bats_args_with_label _a _l "${SOME_POLICY}"`
+# with that variable unset. A `:-` default answers it with `parallel`
+# before the guard can see it, which is the silent wrong answer the
+# argument exists to refuse; only an OMITTED third argument is a default.
+@test "_bats_args_with_label: an empty jobs policy dies rather than defaulting (#1060)" {
+  run bash -c '
+    _die() { echo "DIE: $*"; exit 1; }
+    source /source/script/test/drivers/bats.sh
+    declare -a _args
+    declare _label
+    _bats_args_with_label _args _label "${SOME_POLICY:-}"
+  '
+  assert_failure
+  assert_output --partial "DIE:"
+  assert_output --partial "jobs policy"
+}
+
 # why: the shard path and the full-suite path are the same function, and
 # the shard is the one CI runs eight of; a fix that reached only the
 # full-suite branch would leave the measured critical path untouched.
