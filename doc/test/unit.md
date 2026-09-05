@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3976 tests**.
+Unit specs under `test/bats/unit/`: **3977 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -4035,7 +4035,7 @@ CHANGE after an acknowledgement are named again.
 | `_residue_guard_available: is switched off by TEST_RESIDUE_GUARD=0 (#965)` | The escape hatch for an edit made WHILE the suite runs, asserted in both directions |
 | `the compose dispatch is what runs the guard, not a caller that could forget (#965)` | Wired into the one host-side point every bats dispatch passes through |
 
-### test/bats/unit/resolve_doc_counts_spec.bats (10)
+### test/bats/unit/resolve_doc_counts_spec.bats (11)
 
 Unit coverage for `script/test/resolve-doc-counts.sh` -- the one command
 that resolves a `doc/test/*.md` merge conflict. Two halves: the toil
@@ -4054,6 +4054,7 @@ than resolved to whichever side the collapse happened to keep).
 | `_resolve_doc_counts: catalogue prose survives a conflict because both sides regenerate it (#857)` | What used to need reconciling, and no longer can. Each side's collapse used to carry hand-written descriptions the generator could not re-derive, so a mechanical collapse dropped a sentence nothing would put back and this script had to merge them row by row. Descriptions are authored in the specs now, so both collapses regenerate the SAME rows from the SAME merged spec tree -- whichever side a conflicted counter line came from. This case pins that the prose survives a conflict without any reconciliation code left to do it. |
 | `_resolve_doc_counts: an unconflicted tree is verified, not rewritten (#857)` | - |
 | `_resolve_doc_counts: FAILS when the sides differ in prose the generator does not derive (#857)` | - |
+| `_resolve_doc_counts: FAILS when the sides of a generated file outside doc/test differ in prose (#1024)` | The same trap, in the file that is only ONE LINE generated. The ceiling lives in a 400-line hand-written driver (base#1024), so adopting a side there adopts an argument somebody wrote, not a figure -- the doc/test half of this refusal has a case and this half had none, which left the guard free to be deleted invisibly. The two sides here disagree about a comment AND about the ceiling: the ceiling alone would resolve by recomputation, so only the comment can make it refuse. |
 | `_resolve_doc_counts: FAILS when the drift gate is unhappy afterwards (#857)` | - |
 | `_resolve_assert_no_markers: FAILS naming the file and line of a survivor (#857)` | - |
 

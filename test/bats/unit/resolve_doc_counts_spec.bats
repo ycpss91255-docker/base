@@ -224,6 +224,46 @@ setup() {
   assert_output --partial "hand written"
 }
 
+# why: The same trap, in the file that is only ONE LINE generated. The
+# ceiling lives in a 400-line hand-written driver (base#1024), so adopting
+# a side there adopts an argument somebody wrote, not a figure -- the
+# doc/test half of this refusal has a case and this half had none, which
+# left the guard free to be deleted invisibly. The two sides here disagree
+# about a comment AND about the ceiling: the ceiling alone would resolve
+# by recomputation, so only the comment can make it refuse.
+@test "_resolve_doc_counts: FAILS when the sides of a generated file outside doc/test differ in prose (#1024)" {
+  run bash -c '
+    source "'"${RESOLVE}"'"
+    root="${BATS_TEST_TMPDIR}/r"
+    mkdir -p "${root}/test/bats/unit" "${root}/doc/test" \
+      "${root}/script/test/drivers"
+    printf "%s\n" "#!/usr/bin/env bats" "" "@test \"alpha\" {" ":" "}" \
+      > "${root}/test/bats/unit/x_spec.bats"
+    printf "%s\n" "Unit specs under \`test/bats/unit/\`: **1 tests**." "" \
+      "<!-- generated: catalogue sections -->" "<!-- /generated -->" \
+      > "${root}/doc/test/unit.md"
+    printf "%s\n" \
+      "<<<<<<< HEAD" \
+      "# the argument for the ceiling, as ours wrote it" \
+      "readonly _CATALOG_DESC_UNDESCRIBED_CEILING=5" \
+      "=======" \
+      "# the argument for the ceiling, as theirs rewrote it" \
+      "readonly _CATALOG_DESC_UNDESCRIBED_CEILING=4" \
+      ">>>>>>> origin/main" \
+      > "${root}/script/test/drivers/catalog_description.sh"
+    _resolve_doc_counts "${root}"
+    _rc=$?
+    printf "AFTER %s\n" "$(cat "${root}/script/test/drivers/catalog_description.sh")"
+    exit "${_rc}"
+  '
+  assert_failure
+  assert_output --partial 'script/test/drivers/catalog_description.sh'
+  assert_output --partial 'Resolve it by hand'
+  # Refused means UNTOUCHED: the markers are still there for the person
+  # the message just handed the file to.
+  assert_output --partial '<<<<<<< HEAD'
+}
+
 @test "_resolve_doc_counts: FAILS when the drift gate is unhappy afterwards (#857)" {
   # A scan root the gate refuses (no spec files: every count would compare 0
   # against 0) must surface as a failure, not as a resolved-looking tree.
