@@ -1465,8 +1465,8 @@ _init_drop_unmatchable_paths() {
 }
 
 # _init_git_can_stage
-#   Whether there is an index to stage into -- and, when there is not,
-#   whether that is worth saying out loud.
+#   Whether REPO_ROOT'S OWN index is there to stage into -- and, when it is
+#   not, whether that is worth saying out loud.
 #
 #   `just base init` is also a repair command, and a repo bootstrapped by
 #   hand may not be a git repo at all: nothing to stage into is neither a
@@ -1475,9 +1475,26 @@ _init_drop_unmatchable_paths() {
 #   ownership, no git on PATH -- and resolving THAT to silent success is
 #   how the work this function exists to stage gets pushed uncommitted.
 #   Ask git first; let the presence of `.git` say which "no" it was.
+#
+#   WHOSE index is the question, not whether one is reachable. The
+#   hand-bootstrapped tree above can sit anywhere -- including inside
+#   another repository's working tree -- and `--is-inside-work-tree` says
+#   yes to that, which stages the entire resync into a third-party
+#   repository's index and reports success. `--show-toplevel` answers the
+#   question actually being asked, and it is the same property
+#   _init_drop_foreign_paths guarantees from the other end: that fence
+#   keeps a path outside REPO_ROOT out of `git add`, this one keeps `git
+#   add` itself inside REPO_ROOT's repo. Compared PHYSICALLY, because git
+#   answers with symlinks resolved and REPO_ROOT need not be spelled that
+#   way. "Cannot determine which repo this is" resolves to refusing.
 _init_git_can_stage() {
-  git -C "${REPO_ROOT}" rev-parse --is-inside-work-tree > /dev/null 2>&1 \
-    && return 0
+  local _top _root
+  _top="$(git -C "${REPO_ROOT}" rev-parse --show-toplevel 2> /dev/null)"
+  if [[ -n "${_top}" ]]; then
+    _top="$(cd -P -- "${_top}" 2> /dev/null && pwd -P)"
+    _root="$(cd -P -- "${REPO_ROOT}" 2> /dev/null && pwd -P)"
+    [[ -n "${_root}" && "${_top}" == "${_root}" ]] && return 0
+  fi
   if [[ -e "${REPO_ROOT}/.git" || -L "${REPO_ROOT}/.git" ]]; then
     _log_warn init init_progress "display=  could not stage what the resync wrote: git cannot read ${REPO_ROOT} as a work tree -- stage and commit it by hand before pushing"
   fi
