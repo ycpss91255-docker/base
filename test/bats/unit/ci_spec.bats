@@ -583,6 +583,37 @@ _stored_measurements() {
   assert_output --partial "12%"
 }
 
+# why: A stored figure does not have to arrive as a digit. "about thirty
+# seconds per driver" is the same hand-measured, un-derived, silently
+# stale claim as "40 SECONDS", and every branch of this matcher required
+# `[0-9]`, so the guard refused the spelling with digits and passed the
+# spelling in words -- the shape a writer reaches for when the number is
+# approximate, which is exactly when it is a claim nothing re-derives.
+# Second widening of the same guard for the same reason: the first was a
+# spread stated as a fraction, which the block itself was carrying.
+# The prose the block does need must still come back clean, or the guard
+# refuses the argument it exists to protect.
+@test "_stored_measurements: a quantity spelled in words is a stored figure (#1059)" {
+  run _stored_measurements <<< '# shellcheck takes about thirty seconds per driver'
+  assert_success
+  assert_output --partial "thirty seconds"
+
+  run _stored_measurements <<< '# the phase costs roughly half a minute per driver'
+  assert_success
+  assert_output --partial "half a minute"
+
+  # The rationale's own line about repeat runs: a comparison, not a
+  # magnitude, and it must survive the widening.
+  run _stored_measurements <<< '# repeat runs of the same table on one machine do not agree'
+  assert_success
+  assert_output ""
+
+  # An ordinal is not a quantity: "the second driver" names a position.
+  run _stored_measurements <<< '# the second driver in the table is hadolint'
+  assert_success
+  assert_output ""
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _run_via_compose / main routing
 #

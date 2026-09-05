@@ -1105,7 +1105,7 @@ between them can be asserted at all.
 | `reclaim.sh --stale delegates the unowned classes to prune.sh with the same window` | - |
 | `reclaim.sh --stale never touches volumes` | - |
 
-### test/bats/unit/ci_spec.bats (133)
+### test/bats/unit/ci_spec.bats (134)
 
 | Test | Description |
 |------|-------------|
@@ -1131,6 +1131,7 @@ between them can be asserted at all.
 | `_lint_order_rationale: a block it cannot bound is no block at all (#1059)` | The refusal side of the same reader. A block whose closing sentence is gone cannot be delimited, and a reader that answers such a question by returning everything to the end of the file would hand the figure guard a population nobody chose. Returning nothing instead lands on the present-to-be-read guard, which fails loudly and names the sentence. |
 | `_stored_measurements: a unit in upper case is still a stored figure (#1059)` | bash `=~` is case-sensitive, and this file's own house style writes emphasis in upper case (ORDER IS NOT A FAIL-FAST LEVER, THE SUBSHELL SHAPE IS LOAD-BEARING), so a lower-case-only match is a guard that does not see the shape most likely to be written next to it. Prose carrying no figure must still come back clean, or the guard would refuse the argument it exists to protect. |
 | `_stored_measurements: a spread stated as a fraction is a stored figure (#1059)` | A duration is not the only measurement a comment can store. The claim that repeat runs "spread by more than a tenth" is the same kind of number -- hand-measured, un-derived, silently stale -- and it sat inside this very rationale until this guard was widened, so a matcher that looked only for unit tokens refused the seconds while carrying the spread. |
+| `_stored_measurements: a quantity spelled in words is a stored figure (#1059)` | A stored figure does not have to arrive as a digit. "about thirty seconds per driver" is the same hand-measured, un-derived, silently stale claim as "40 SECONDS", and every branch of this matcher required `[0-9]`, so the guard refused the spelling with digits and passed the spelling in words -- the shape a writer reaches for when the number is approximate, which is exactly when it is a claim nothing re-derives. Second widening of the same guard for the same reason: the first was a spread stated as a fraction, which the block itself was carrying. The prose the block does need must still come back clean, or the guard refuses the argument it exists to protect. |
 | `_run_via_compose: routes default mode to the ci service with COVERAGE=0` | Service routing — fast path |
 | `_run_via_compose: routes coverage mode to the coverage service with COVERAGE=1` | Service routing — coverage path |
 | `main: dispatches no-flag default to the ci service` | End-to-end default dispatch |
