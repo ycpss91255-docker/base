@@ -23,7 +23,7 @@ _bats_args_with_label() {
   # parallelism + fallback messaging stay in one place. Inputs:
   #   $1 = name of array var (e.g. _bats_args)
   #   $2 = name of label string var (e.g. _label)
-  #   $3 = jobs policy, `parallel` (default) or `serial`
+  #   $3 = jobs policy, `parallel` (default), `metered` or `serial`
   # All specs use per-test mktemp dirs (BATS_TEST_TMPDIR / TEMP_DIR) so
   # there's no shared filesystem state between tests — safe to run
   # concurrently. When parallel is missing (earlier alpine test-tools
@@ -31,10 +31,14 @@ _bats_args_with_label() {
   #
   # A caller passes `serial` when its run must not be concurrent for a
   # reason of its own -- today only a coverage run that walks the whole
-  # suite, whose comment carries the measurement. Declaring the policy
-  # HERE is the point: `--jobs` and its fallback message keep one writer, so
-  # a run that must not be parallel says so in the same vocabulary as one
-  # that cannot be, instead of quietly assembling a different command.
+  # suite, whose comment carries the measurement. It passes `metered` when
+  # its run may be concurrent but must not be OVERSUBSCRIBED, because
+  # something downstream of bats does not scale with the job count --
+  # today the two kcov runners, whose N bats jobs drain into one
+  # single-threaded trace parser. Declaring the policy HERE is the point:
+  # `--jobs` and its fallback message keep one writer, so a run that must
+  # not be parallel says so in the same vocabulary as one that cannot be,
+  # instead of quietly assembling a different command.
   # An unreadable policy is a _die, not a default: a `seriel` that fell
   # through to the parallel branch is precisely the silent wrong answer
   # this argument exists to prevent. `${3-parallel}` and not `${3:-...}`,
@@ -45,9 +49,9 @@ _bats_args_with_label() {
   local -n _out_label="$2"
   local _policy="${3-parallel}"
   case "${_policy}" in
-    parallel|serial) ;;
+    parallel|metered|serial) ;;
     *) _die ci_invalid_jobs_policy \
-         "BUG: _bats_args_with_label got jobs policy '${_policy}' (expected parallel|serial)." ;;
+         "BUG: _bats_args_with_label got jobs policy '${_policy}' (expected parallel|metered|serial)." ;;
   esac
   # --recursive so a directory target descends into per-lib sub-folders
   # (test/bats/unit/<lib>/<subunit>_spec.bats); foldered specs are
@@ -62,10 +66,97 @@ _bats_args_with_label() {
     return 0
   fi
   if command -v parallel >/dev/null 2>&1; then
-    local _jobs
-    _jobs="$(nproc 2>/dev/null || echo 4)"
+    # THE COUNT IS max(cores, floor) -- A FLOOR, NEVER A MULTIPLE.
+    #
+    # `nproc` alone is the right answer for a CPU-BOUND workload, and this
+    # is not one: a bats test spends its time waiting on subprocesses, not
+    # computing (base#1002 measured 1-2 of 32 cores busy). CI's runner has
+    # 4 cores, so `--jobs $(nproc)` there ran the gate at exactly the ratio
+    # the flag exists to remove -- and it was worth nothing: one real
+    # coverage shard on a 4-CPU cpuset took 113.4s / 104.8s at jobs=4
+    # against a 108.4s / 108.9s SERIAL control. 8 gives 1.28x, 32 gives
+    # 1.75x, 64 the same as 32. Plain bats, same shard, same 4 cores:
+    # 88.4s / 93.8s at jobs=4 against 42.5s / 42.2s at jobs=32, so this is
+    # a property of the SUITE, not of kcov.
+    #
+    # Why a floor and not `k x nproc`: 32 is a KNEE, not a peak. Same
+    # slice on a 32-core host, four INTERLEAVED reps per point: 16 jobs
+    # 43.7s, 32 jobs 26.5s, 64 jobs 25.8s, 128 jobs 25.7s. Below the knee
+    # costs 1.65x; above it the curve is FLAT out to 4x the core count.
+    # (An earlier two-rep pass read 128 as worse than 32 -- 60.7 / 47.3
+    # against 49.0 / 47.3 -- and the 60.7 does not survive repetition;
+    # that reading is withdrawn, and with it any claim that a large
+    # machine must be held to its cores.)
+    #
+    # So the count ABOVE the knee is free, and the rule is picked for the
+    # property a re-tuner needs rather than for a winner: a floor is
+    # monotone and cannot land BELOW the knee, where `k x cores` lands on
+    # any machine smaller than 32/k -- which is the 4-core runner this
+    # started on.
+    #
+    # 32 is therefore a measured property of the WORKLOAD (how many tests
+    # it takes to keep the pipe full while each one waits), not of a
+    # machine, which is why it does not track the core count and why
+    # nothing here scales it. Re-derive it by sweeping --jobs against one
+    # shard on a constrained cpuset, interleaving the points so a single
+    # slow rep cannot become the finding; do not multiply it.
+    local _floor=32
+    local _jobs _cores
+    if _cores="$(nproc 2>/dev/null)" && [[ "${_cores}" =~ ^[1-9][0-9]*$ ]]; then
+      if [[ "${_policy}" == "metered" ]]; then
+        # No floor: one job per core and no more. Raising a coverage shard
+        # from 4 to 32 jobs is 1.75x and costs a REPRODUCIBLE hole -- four
+        # runs at 16/32 jobs union to 31 lines short of the serial covered
+        # set, 30 of them the compose-lifecycle region of
+        # dist/script/docker/wrapper/run.sh, ~0.45 points off the reported
+        # rate -- where two runs at jobs=4 union to the serial set exactly.
+        # Faster while losing lines is not an improvement for the runner
+        # whose output IS the line set. Revisit when one kcov process per
+        # slice (base#726) stops the parser being the shared drain, and
+        # re-run the line-set comparison in the same change.
+        #
+        # THE METER IS ONLY AS GOOD AS THE COUNT. `nproc` reports the CPUs
+        # this process may be SCHEDULED on -- an affinity mask -- and not a
+        # CFS quota, so a container run with `--cpus=N` on a larger host
+        # still reads the HOST's count and the meter does not hold there
+        # (measured: `--cpus=2` on a 32-core host reads 32). Nothing base
+        # launches is capped that way -- its own compose services set no
+        # CPU limit and a GitHub-hosted runner is a whole VM -- so this is
+        # a boundary of the policy rather than a live defect; a
+        # self-hosted runner that meters CPU by quota would make it one.
+        _jobs="${_cores}"
+        _out_label="jobs=${_jobs} (metered to the core count)"
+      elif (( _cores < _floor )); then
+        _jobs="${_floor}"
+        _out_label="jobs=${_jobs} (floor, over ${_cores} cores)"
+      else
+        _jobs="${_cores}"
+        _out_label="jobs=${_jobs} (cores, at or above the floor)"
+      fi
+    else
+      # A COUNT NOBODY COULD READ IS NOT A READING. The old
+      # `nproc 2>/dev/null || echo 4` printed `jobs=4` for a failed probe
+      # and for a genuine 4-core machine alike -- and on CI both were true
+      # at once, so the log could not say which had happened. That is the
+      # shape the policy argument above refuses.
+      #
+      # A FALLBACK is right here where a _die is right there, and the two
+      # are not in tension: an unreadable POLICY is a caller's bug, and
+      # there is no correct run to give it; an unreadable CORE COUNT is an
+      # ENVIRONMENT, the same kind as `parallel` missing from PATH, which
+      # this helper already falls back on and NAMES. So it falls back and
+      # labels itself a fallback. Under `metered` the fallback is 1 rather
+      # than the floor: with no core count there is nothing to meter to,
+      # and the safe direction for a run whose output is a line set is
+      # fewer jobs, not more.
+      if [[ "${_policy}" == "metered" ]]; then
+        _jobs=1
+      else
+        _jobs="${_floor}"
+      fi
+      _out_label="jobs=${_jobs} (fallback: nproc gave no core count)"
+    fi
     _out_args+=(--jobs "${_jobs}")
-    _out_label="jobs=${_jobs}"
   else
     _out_label="serial; parallel not in PATH"
   fi
@@ -403,7 +494,11 @@ _run_coverage_path() {
   local _path="${1:?BUG: _run_coverage_path expects a repo-root-relative spec path}"
   local -a _bats_args
   local _label
-  _bats_args_with_label _bats_args _label
+  # `metered`, like the shard: kcov is in the loop, so the single trace
+  # parser is the drain again. This mode publishes no figure, but showing
+  # what one spec covers under instrumentation is its entire purpose --
+  # oversubscribing it corrupts the thing it was run to look at.
+  _bats_args_with_label _bats_args _label metered
   [[ -n "${BATS_FILTER:-}" ]] && _bats_args+=(-f "${BATS_FILTER}")
 
   # Container-local scratch, never the mounted checkout. Removed below
@@ -439,12 +534,19 @@ _run_coverage() {
   #     that rule made the last shard the sole bottleneck and is superseded
   #     (ADR-00000008 amendment). Every spec still runs exactly once across
   #     the matrix, and the coverage-gate merges the per-shard cobertura
-  #     reports back into one line-weighted project figure, so WHERE a slice
-  #     runs does not matter to the merged total -- only that it runs once.
+  #     reports back into one project figure by taking the per-line UNION,
+  #     so WHERE a slice runs does not matter to the merged total -- only
+  #     that it runs once.
   #
   # Each shard writes to ${REPO_ROOT}/coverage and the GHA job uploads it
-  # as a CI artifact; coverage_gate.sh sums covered/valid lines across all
-  # shards' cobertura.xml into one project rate (no external SaaS).
+  # as a CI artifact; coverage_gate.sh unions the covered lines across all
+  # shards' cobertura.xml and divides by the DISTINCT source lines (no
+  # external SaaS). It summed the root counters until base#730, which is a
+  # different number and a wrong one: every shard runs with
+  # --include-path=<repo>, so every report carries the whole tree and
+  # adding the denominators counts shared source once per shard -- the rate
+  # then falls as the shard count rises. coverage_gate.sh's own header
+  # carries the measurement.
   local _shard_spec="${1:-}"
 
   # Shared with _run_coverage_path: both runners must instrument the same
@@ -498,6 +600,17 @@ _run_coverage() {
   # scale, and with it the full-suite path, needs a kcov process per
   # slice (base#726): a different change from this one, and not a
   # competing one.
+  #
+  # AND IT IS WHY THE SHARD DECLARES `metered` RATHER THAN `parallel`
+  # (base#1068). Every other runner now takes a FLOOR on concurrency,
+  # because the suite waits rather than computes; these two do not,
+  # because the drain above does not move with it. Measured on one shard:
+  # 4 -> 32 jobs is 1.75x, and four runs at 16/32 jobs union to 31 lines
+  # SHORT of the serial covered set -- 30 of them the compose-lifecycle
+  # region of dist/script/docker/wrapper/run.sh, ~0.45 points off the
+  # reported rate -- where two runs at jobs=4 union to the serial set
+  # exactly. The dropout stops being scatter and becomes a reproducible
+  # blind spot. Faster while losing lines is not an improvement here.
   local -a _bats_args
   local _label
 
@@ -531,7 +644,7 @@ _run_coverage() {
     # the matrix ["1/1"]. Asking the SET rather than the number also covers
     # the slices that are the suite without saying 1/1 (a tree with fewer
     # specs than shards, where 1/2 takes everything and 2/2 dies empty).
-    local _policy=parallel
+    local _policy=metered
     if [[ "$(printf '%s\n' "${_files}" | LC_ALL=C sort)" \
           == "$(_coverage_pool_files)" ]]; then
       _policy=serial
@@ -565,6 +678,256 @@ _run_coverage() {
     > "${REPO_ROOT}/coverage/timings.tsv" 2>/dev/null || true
   rm -rf "${_junit_dir}"
   return "${_rc}"
+}
+
+# ── In-job parallel kcov (local mode) ────────────────────────────────────────
+#
+# ADR-00000008 shards kcov ACROSS a CI matrix, which is the only parallelism
+# a GitHub-hosted plan sells: one runner runs one job, so the way to use
+# eight machines is eight jobs. On ONE fat machine that mechanism buys
+# nothing -- a self-hosted runner takes the matrix one entry at a time --
+# and the run that matters most is the one the matrix cannot help with
+# anyway: `just release coverage-badge` publishes only a `scope=full`
+# measurement, so every release pays for a whole-suite coverage run, and
+# that run was serial.
+#
+# Serial is not a kcov floor. kcov's bash engine parses one xtrace stream
+# per traced process and is single-threaded, so N parallel bats jobs under
+# ONE kcov all feed one parser. base#1060 measured where that starts to cost
+# accuracy and found a BOUNDARY, not a blanket: a shard's covered set
+# survives it -- `_run_coverage` above runs a shard's bats parallel for that
+# reason -- and the full suite's does not, which is why the same function
+# declares `serial` on the full-suite branch. What is lost there is trace,
+# not execution, so the bound is trace VOLUME through the one parser.
+#
+# What that boundary does NOT reach is N INDEPENDENT kcov processes, each
+# wrapping a serial bats over its own slice, merged afterwards. Each process
+# traces its own children into its own database and parses only its own
+# slice's volume; nothing is shared but the merge. This mode is therefore
+# the remedy for the full-suite case base#1060 could not take, not a
+# competing answer to it.
+#
+# The slices come from `_shard_unit_files`, the SAME greedy-LPT primitive the
+# CI matrix partitions with (base#724). A second partitioner would be a
+# second roster, and the failure mode of two rosters is a spec that belongs
+# to neither: an exhaustive, disjoint partition is the whole reason the
+# merged total may be read as the project's.
+
+# _coverage_parallel_workdir
+#   Echo the scratch root the slices write into. COVERAGE_LOCAL_WORKDIR
+#   names it explicitly, and it exists for ONE caller: a spec that has to
+#   point at one slice's output directory. It is deliberately not an
+#   operator knob -- `_run_via_compose` does not forward it and compose.yaml
+#   does not name it, so through the shipped entry this is always a fresh
+#   temp dir inside the `--rm` container, removed on the way out.
+#
+#   That is not a gap, because there is nothing in it an operator needs:
+#   `_coverage_parallel_collect` replays every slice's log in full before
+#   either refusal, and the reports the run is FOR are merged into
+#   ${REPO_ROOT}/coverage, which is the mounted checkout. Both refusals name
+#   the replay rather than a path under here, for the same reason.
+_coverage_parallel_workdir() {
+  if [[ -n "${COVERAGE_LOCAL_WORKDIR:-}" ]]; then
+    mkdir -p "${COVERAGE_LOCAL_WORKDIR}"
+    printf '%s\n' "${COVERAGE_LOCAL_WORKDIR}"
+    return 0
+  fi
+  mktemp -d
+}
+
+# _run_coverage_parallel <jobs>
+#   Run the WHOLE suite under kcov as <jobs> concurrent processes over the
+#   time-balanced partition, then merge their reports into
+#   ${REPO_ROOT}/coverage -- the same tree the serial run writes, carrying
+#   the same `kcov-merged/cobertura.xml` the coverage-gate and the release
+#   badge generator already read. Returns the worst slice's status, so a red
+#   spec is still red.
+#
+#   THREE REFUSALS, and each is a way the merge could otherwise lie:
+#
+#   1. A job count that is not a positive integer written in decimal. A
+#      non-numeric one would reach `_shard_unit_files` as a malformed
+#      total, whose message names a shard spec nobody typed; one with a
+#      leading zero would reach it as a WELL-FORMED total in the other
+#      base from the one the launch loop counted in.
+#   2. A slice that matched no spec files (jobs > specs). An empty slice is
+#      not a slice that ran nothing; it is a partition that never covered
+#      the tree.
+#   3. A slice that produced NO REPORT -- a kcov that died after its tests
+#      passed, leaving an empty output directory and a zero status. Merging
+#      the survivors would publish a smaller line set under a whole-suite
+#      certificate, which reads as a coverage regression rather than as the
+#      lost slice it is. "Cannot tell" resolves to refusing.
+_run_coverage_parallel() {
+  local _jobs="${1:?BUG: _run_coverage_parallel expects <jobs>}"
+  # Decimal, and no leading zero -- the same pattern the host-side parser
+  # admits, for the same reason and with more at stake here. The two bases
+  # sit a dozen lines apart on this path: `_coverage_parallel_slices`
+  # counts `_i <= _jobs` in bash arithmetic, where `010` is 8, and
+  # `_shard_unit_files` passes the SAME string to awk as the total, where
+  # it is 10. The refusal is repeated rather than delegated because this
+  # runner is reachable from the environment (COVERAGE_LOCAL_JOBS is
+  # forwarded), so a value the host parser never saw arrives here intact.
+  if ! [[ "${_jobs}" =~ ^[1-9][0-9]*$ ]]; then
+    _die ci_invalid_coverage_jobs \
+      "Invalid coverage job count '${_jobs}'. Expected a positive decimal integer (default: nproc). A leading zero is read as octal by the launch loop and as decimal by the partitioner, so '010' would instrument 8 slices of a 10-way partition and merge them as the whole suite."
+  fi
+  local -a _slices=()
+  _coverage_parallel_slices _slices "${_jobs}"
+
+  local _work
+  _work="$(_coverage_parallel_workdir)"
+  echo "--- Running Tests with Kcov Coverage (local, ${_jobs} parallel kcov processes) ---"
+
+  local -a _pids=()
+  _coverage_parallel_launch _pids _slices "${_work}"
+  local _rc=0
+  _coverage_parallel_collect _pids "${_work}" || _rc=$?
+  _coverage_parallel_merge "${_work}" "${_jobs}"
+
+  [[ -n "${COVERAGE_LOCAL_WORKDIR:-}" ]] || rm -rf "${_work}"
+  return "${_rc}"
+}
+
+# _coverage_parallel_slices <array_name> <jobs>
+#   Fill the named array with one slice per job, each a newline-separated
+#   list of spec paths from `_shard_unit_files`.
+#
+#   Computed BEFORE the first fork, and that ordering is load-bearing:
+#   `_shard_unit_files` refuses an empty match by `_die`, and a `_die`
+#   inside a background job exits the CHILD -- the parent would go on to
+#   wait for a slice that never ran and then merge N-1 reports.
+_coverage_parallel_slices() {
+  local -n _cps_out="${1:?BUG: _coverage_parallel_slices expects <array_name>}"
+  local _jobs="${2:?BUG: _coverage_parallel_slices expects <jobs>}"
+  local _i _slice _srun_rc
+  _cps_out=()
+  for (( _i = 1; _i <= _jobs; _i++ )); do
+    _srun_rc=0
+    _slice="$(_shard_unit_files "${_i}/${_jobs}")" || _srun_rc=$?
+    if (( _srun_rc != 0 )) || [[ -z "${_slice}" ]]; then
+      _die ci_coverage_parallel_empty_slice \
+        "coverage slice ${_i} of ${_jobs} matched no spec files. ${_jobs} is more coverage slices -- independent kcov processes -- than the suite has spec files; re-run with fewer slices (just test coverage-local <N>)."
+    fi
+    _cps_out+=("${_slice}")
+  done
+}
+
+# _coverage_parallel_launch <pids_array_name> <slices_array_name> <workdir>
+#   Start one background kcov per slice, each writing its report to
+#   <workdir>/part-<i>, its junit report to <workdir>/junit-<i> and its
+#   combined output to <workdir>/log-<i>. Fills the pids array in slice
+#   order.
+_coverage_parallel_launch() {
+  local -n _cpl_pids="${1:?BUG: _coverage_parallel_launch expects <pids_array_name>}"
+  local -n _cpl_slices="${2:?BUG: _coverage_parallel_launch expects <slices_array_name>}"
+  local _work="${3:?BUG: _coverage_parallel_launch expects <workdir>}"
+  # Shared with the serial runner and the single-spec runner: all three must
+  # instrument the same tree, or a figure produced here would not be
+  # comparable with the one the matrix produces.
+  local _exclude_path
+  _exclude_path="$(_coverage_exclude_path)"
+  local _i
+  _cpl_pids=()
+  for (( _i = 1; _i <= ${#_cpl_slices[@]}; _i++ )); do
+    mkdir -p "${_work}/junit-${_i}"
+    # Word-split intentional: one bats target per slice file. Each slice's
+    # bats is SERIAL, and that is the mode's whole shape: the cores come from
+    # separate kcov processes, each with its own parser. Handing a slice's
+    # bats concurrent jobs as well would put N of them back behind ONE
+    # parser -- the trace-volume bound base#1060 measured -- inside every
+    # slice, which is the cost this mode was built to remove.
+    # shellcheck disable=SC2086
+    kcov \
+      --include-path="${REPO_ROOT}" \
+      --exclude-path="${_exclude_path}" \
+      "${_work}/part-${_i}" \
+      bats --recursive --report-formatter junit \
+        --output "${_work}/junit-${_i}" ${_cpl_slices[_i - 1]} \
+      > "${_work}/log-${_i}" 2>&1 &
+    _cpl_pids+=("$!")
+  done
+}
+
+# _coverage_parallel_collect <pids_array_name> <workdir>
+#   Wait for every slice and return the worst status.
+#
+#   Each slice's output is replayed WHOLE and in order after its wait, not
+#   streamed: N concurrent bats writing one terminal interleaves into
+#   something no one can read a failure out of, which would send the
+#   operator back to the serial run to find out what broke.
+_coverage_parallel_collect() {
+  local -n _cpc_pids="${1:?BUG: _coverage_parallel_collect expects <pids_array_name>}"
+  local _work="${2:?BUG: _coverage_parallel_collect expects <workdir>}"
+  local _jobs="${#_cpc_pids[@]}"
+  local _rc=0 _prc _i
+  for (( _i = 1; _i <= _jobs; _i++ )); do
+    _prc=0
+    wait "${_cpc_pids[_i - 1]}" || _prc=$?
+    echo "--- coverage slice ${_i}/${_jobs} (exit ${_prc}) ---"
+    cat "${_work}/log-${_i}" 2>/dev/null || true
+    (( _prc == 0 )) || _rc="${_prc}"
+  done
+  return "${_rc}"
+}
+
+# _coverage_parallel_merge <workdir> <jobs>
+#   Refuse a lost slice, then merge every slice's report into
+#   ${REPO_ROOT}/coverage and write the merged run manifest.
+_coverage_parallel_merge() {
+  local _work="${1:?BUG: _coverage_parallel_merge expects <workdir>}"
+  local _jobs="${2:?BUG: _coverage_parallel_merge expects <jobs>}"
+
+  # Refusal 3. Captured rather than piped into a `-q` reader: a reader that
+  # leaves at its first match strands `find` with SIGPIPE, and the whole
+  # point here is to tell "no report" apart from "reader gave up".
+  local _i _found
+  local -a _parts=()
+  for (( _i = 1; _i <= _jobs; _i++ )); do
+    _found="$(find "${_work}/part-${_i}" -type f -name cobertura.xml 2>/dev/null)"
+    if [[ -z "${_found}" ]]; then
+      # The message names the SLICE, never the scratch path. That path is a
+      # container-local temp dir under the shipped entry, so a reader told
+      # to open it is told to open something their machine does not have --
+      # and COVERAGE_LOCAL_WORKDIR, the only knob that moves it, is not
+      # forwarded into the container. The slice's whole output is replayed
+      # above this line by _coverage_parallel_collect, unconditionally.
+      #
+      # The quoted header is a PREFIX of what that replay prints, not the
+      # whole line: the header carries the slice's exit status
+      # (`--- coverage slice 2/3 (exit 0) ---`), which this refusal cannot
+      # know. Quoting the full shape would hand the operator a string to
+      # search for that no run ever emits -- a precise instruction that
+      # finds nothing, which reads as a missing replay rather than as a
+      # wrong message.
+      _die ci_coverage_slice_no_report \
+        "coverage slice ${_i} of ${_jobs} produced no report; merging the rest would publish a smaller line set as the project total. That slice's output is replayed above, under '--- coverage slice ${_i}/${_jobs}'."
+    fi
+    _parts+=("${_work}/part-${_i}")
+  done
+
+  # kcov's own merge, over every slice. A line covered by ANY slice is
+  # covered: the union is the only correct reading, and it is what the
+  # coverage-gate independently computes over the per-shard reports of the
+  # CI path (base#730).
+  mkdir -p "${REPO_ROOT}/coverage"
+  local _mrc=0
+  kcov --merge "${REPO_ROOT}/coverage" "${_parts[@]}" || _mrc=$?
+  if (( _mrc != 0 )); then
+    _die ci_coverage_merge_failed \
+      "kcov --merge over ${_jobs} slice report(s) failed (status ${_mrc}); every slice ran and its output is replayed above. The merge did not complete, so nothing under ${REPO_ROOT}/coverage is a whole-suite measurement."
+  fi
+
+  # The run manifest, merged from every slice's junit report. It is what
+  # `_measured_coverage_scope` compares against the spec inventory, so a
+  # manifest carrying one slice's specs would stamp `partial` and
+  # `just release coverage-badge` would refuse the run -- which is the whole
+  # reason this mode exists.
+  {
+    for (( _i = 1; _i <= _jobs; _i++ )); do
+      _junit_to_timings "${_work}/junit-${_i}/report.xml"
+    done
+  } | LC_ALL=C sort -k2,2 > "${REPO_ROOT}/coverage/timings.tsv" 2>/dev/null || true
 }
 
 # ── System runtime-test specs ────────────────────────────────────

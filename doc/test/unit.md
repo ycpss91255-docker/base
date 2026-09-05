@@ -155,7 +155,7 @@ a refusal as "do not release".
 | `action-ref-agreement: has a lint-static CI join (#949)` | One plain-runner lint group, no docker |
 | `action-ref-agreement: its failure event id is registered (#949)` | An unregistered id is an anonymous exit |
 
-### test/bats/unit/adr_doc_claims_spec.bats (17)
+### test/bats/unit/adr_doc_claims_spec.bats (28)
 
 | Test | Description |
 |------|-------------|
@@ -165,6 +165,17 @@ a refusal as "do not release".
 | `self-test.yaml IS tag-triggered, so it is what a base tag runs (#927)` | - |
 | `R1: FAILS a tag claim that names a workflow with no tag trigger (#927)` | - |
 | `R1: PASSES the same claim once the block states the real trigger (#927)` | - |
+| `R1: PASSES a trigger claim that states a real trigger other than workflow_call (#726)` | R1's escape hatch was the literal `workflow_call`, which was the only non-tag trigger any ADR block named when the rule was written. The first block to name a `workflow_dispatch`-only workflow therefore stated its real trigger, correctly, and was reported anyway -- with a message demanding a trigger that workflow does not have. A rule that cannot be satisfied by telling the truth teaches people to reword around it. |
+| `R1: a workflow's own subject word does not state its trigger (#726)` | the third way widening the hatch can go wrong, and the one that empties the rule quietly. An event name is an ordinary English word -- `issues`, `schedule`, `push` -- so a substring reading lets a workflow's own SUBJECT excuse a false claim about it: the sentence "which is how this repo labels issues" states nothing about a trigger, and would have waved through a tag claim over `triage-label.yaml`, whose only statable trigger happens to be `issues`. A trigger has to be STATED AS ONE, which in this repo's prose means naming it as code. |
+| `R1: a trigger stated inside a code span opens the hatch (#726)` | the other side of that tightening: the hatch has to stay openable, and the way an ADR in this tree states a trigger is in a code span -- both shipped forms (`on: workflow_call`, `workflow_dispatch`) are written that way, and R3's quotation rule already reads the same spans. |
+| `R1: a code span naming a file does not state a trigger (#726)` | the same hole one layer down, and the reason a code span alone is not the rule. A FILE NAME is written as code too, so a workflow whose name contains its own event -- `schedule.yaml` on `on: schedule` -- would state its trigger merely by being named. Built here rather than found in the tree, because the tree happens to carry no such workflow and the rule must hold for the one somebody adds. |
+| `R1: a code span naming a script does not state a trigger (#726)` | dropping `.yaml` spans covered the case above and left the property the case NAMES uncovered -- a span naming a file is only one of the spans that say nothing about a trigger. Any code span whose text merely CONTAINS an event name opened the hatch, and a repo's scripts are named after what they do: `script/ci/schedule.sh` beside a workflow whose statable trigger is `schedule` waved a false tag claim about it straight through, with no `.yaml` anywhere for the exclusion to catch. |
+| `R1: a code span quoting a command does not state a trigger (#726)` | the same hole with a command rather than a path, which is the form an ADR reaches for most often. `gh issues list` is a code span that states nothing about what starts anything, and it contains the only statable trigger `triage-label.yaml` has -- so it excused a tag claim about that workflow exactly as the block's own subject word would have, which is the failure the case above this one was written to close. |
+| `R1: still FAILS a trigger claim that names the same workflow and states nothing (#726)` | the other half of that change, and the reason it does not weaken the rule: naming the workflow in a trigger claim and saying nothing about what actually starts it is still the ADR-00000027 defect, whichever trigger the workflow has. |
+| `R1: a workflow's statable triggers are its events, never its filters (#726)` | reading the escape hatch off the workflow instead of off a literal creates one new way to be wrong -- reading a FILTER as an event. `tags:` and `branches:` are keys inside the `on:` block too, and admitting `tags` would let the word "tag", the very word R1 is triggered by, excuse every block R1 exists to read. Pinned on the real self-test.yaml, whose `on:` has both a nested `tags:` and a nested `branches:`. |
+| `R1: a nested tags key that is not a push filter is not a tag trigger (#726)` | the unfixed half of that same reading. Anchoring the EVENTS on the first key's indentation was done precisely so a nested key is not read as a top-level event -- while the tag question beside it stayed a substring search over the whole `on:` block. `tags:` is not only a push filter: it is a legal name for a `workflow_dispatch` input, a `workflow_call` input or a job-level key, and any of them made the workflow read as tag-triggered. The two readings have to agree, or the block's structure means one thing to one line and another to the next. |
+| `R1: FAILS a tag claim about a workflow whose only tags key is an input (#726)` | and what that costs R1, which is worse than a wrong answer to one question. A workflow that reads as tag-triggered is `continue`d past before the rule looks at the block at all, so a false tag claim about it is not merely under-checked -- it is waved through with no check. The report has to name the trigger the block should have stated instead. |
+| `R1: saying 'push' does not excuse a claim about a tag-less push workflow (#726)` | the second new way to be wrong, and the reason `push` is the one event excluded: a tag push IS a push, so "push" said about a workflow whose `on: push:` carries no `tags:` filter answers nothing the rule asked. Such a block must still be reported -- and with nothing truthful left to name, the message says so rather than offering an empty list. |
 | `R1: PASSES a tag claim about a workflow that IS tag-triggered (#927)` | - |
 | `R1: IGNORES a workflow named with no trigger claim in the block (#927)` | - |
 | `R1: IGNORES a name this repo has no workflow for (#927)` | - |
@@ -1105,7 +1116,7 @@ between them can be asserted at all.
 | `reclaim.sh --stale delegates the unowned classes to prune.sh with the same window` | - |
 | `reclaim.sh --stale never touches volumes` | - |
 
-### test/bats/unit/ci_spec.bats (152)
+### test/bats/unit/ci_spec.bats (158)
 
 | Test | Description |
 |------|-------------|
@@ -1145,7 +1156,7 @@ between them can be asserted at all.
 | `_run_via_compose: routes default mode to the ci service with COVERAGE=0` | Service routing — fast path |
 | `_run_via_compose: routes coverage mode to the coverage service with COVERAGE=1` | Service routing — coverage path |
 | `main: dispatches no-flag default to the ci service` | End-to-end default dispatch |
-| `_run_tests: passes --jobs N when parallel is on PATH` | Parallel-present branch |
+| `_run_tests: passes --jobs N when parallel is on PATH` | Parallel-present branch, and the count it is handed is FLOORED rather than equal to the core count -- `_run_tests` is one of the runners with no kcov in the loop, so there is no line set to move and nothing to hold it at the machine's size (base#1068). The assertion is `> the mocked cores`, not a number: it says WHICH SIDE of the policy this runner is on, which is the part a re-tune must not silently flip. |
 | `_run_tests: omits --jobs when parallel is absent (graceful fallback)` | Parallel-missing branch |
 | `main: dispatches --coverage to the coverage service` | End-to-end --coverage dispatch |
 | `_shard_unit_files: a single shard returns real unit spec paths (#615)` | #615 coverage shard returns spec paths |
@@ -1177,11 +1188,17 @@ between them can be asserted at all.
 | `_run_coverage: the full-suite run declares serial, and kcov gets no --jobs (#1060)` | the full-suite run is the one that stamps scope=full and feeds the release badge, and at that volume kcov's single parser drops trace data from passing tests -- two serial runs record the same 8617 covered lines, two parallel runs record 8532 and 8587, each a strict subset. So it is serial, declared through the helper rather than by omission: the omission is what this issue is about. |
 | `_bats_args_with_label: an unknown jobs policy dies rather than defaulting (#1060)` | an unreadable policy must not resolve to a default that silently runs the wrong way round -- a typo'd `seriel` reaching the parallel branch is how the full suite would quietly start losing lines again. |
 | `_bats_args_with_label: an empty jobs policy dies rather than defaulting (#1060)` | an EMPTY policy is unreadable too, and it is the one a caller reaches by accident -- `_bats_args_with_label _a _l "${SOME_POLICY}"` with that variable unset. A `:-` default answers it with `parallel` before the guard can see it, which is the silent wrong answer the argument exists to refuse; only an OMITTED third argument is a default. |
+| `_bats_args_with_label: a small machine is oversubscribed, not run at one job per core (#1068)` | `nproc` names how many things a machine can COMPUTE at once, and this gate computes almost nothing -- it waits on subprocesses. On CI's 4-core runner `--jobs 4` measured indistinguishable from serial (113.4s / 104.8s against a 108.4s / 108.9s serial control on a real coverage shard under a 4-CPU cpuset), so a small machine has to be OVERSUBSCRIBED. The assertion is `> cores` and not any particular number, because the number is the thing that gets re-measured. |
+| `_bats_args_with_label: --jobs is a floor under the core count, never a multiple of it (#1068)` | the floor has to be a FLOOR. 32 is a knee and not a peak -- four interleaved reps per point on a 32-core host read 43.7s at 16 jobs against 26.5s / 25.8s / 25.7s at 32 / 64 / 128 -- so what a rule must guarantee is that it never lands BELOW the knee, which `k x cores` fails to do on any machine smaller than 32/k, the 4-core runner included. A large machine therefore gets exactly its cores, and the rule stays monotone so a bigger host is never handed less than a smaller one. This is the assertion that lets the constant be re-tuned without editing a test: never-below-the-machine, non-decreasing, and equal at the top name nothing the measurement picked. |
+| `_bats_args_with_label: an unreadable core count is labelled a fallback, not a reading (#1068)` | `nproc 2>/dev/null \|\| echo 4` printed `jobs=4` for a FAILED probe and for a genuine 4-core machine alike, so the run's own log could not say which had happened -- and on CI both readings were 4 at once. That is the shape the policy argument three lines up refuses. A FALLBACK is the right answer here where a `_die` is the right answer there: an unreadable POLICY is a caller's bug with no correct run to give it, while an unreadable CORE COUNT is an ENVIRONMENT -- the same kind as `parallel` missing from PATH, which this helper already falls back on and NAMES. So it falls back and says so, and what is pinned is the saying: the two labels must differ even when the two counts agree. |
+| `_bats_args_with_label: the metered policy holds a run at one job per core (#1068)` | every runner calls this helper, so the floor reaches all of them unless a policy says otherwise -- and for the kcov runners the measurement says otherwise. N bats jobs feed ONE single-threaded trace parser: raising a shard from 4 to 32 jobs is 1.75x and costs a REPRODUCIBLE hole, four runs at 16/32 jobs unioning to 31 lines short of the serial set (30 of them one region of wrapper/run.sh), ~0.45 points off the reported rate, where two runs at jobs=4 union to the serial set EXACTLY. Faster while losing lines is not an improvement for the runner whose output IS the line set, so `metered` is one job per core and no more -- until base#726 stops the parser being the drain. |
+| `_run_coverage: a shard declares metered, so kcov's one parser is not oversubscribed (#1068)` | the shard is the kcov path CI runs eight of, and the one whose covered set the badge publishes. It has to DECLARE that it is metered rather than merely happen to sit at the core count today, or the next change to the default silently takes 0.45 points off the reported rate and puts a 31-line hole in wrapper/run.sh. |
+| `_run_coverage_path: one spec under kcov is metered too (#1068)` | `_run_coverage_path` is the driver's other kcov runner. It publishes no figure, but its whole purpose is to show what one spec covers under instrumentation, so oversubscribing it corrupts exactly the thing the person ran it to look at. |
 | `_run_coverage: a shard's wrapped bats takes its --jobs from the helper too (#1060)` | the shard path and the full-suite path are the same function, and the shard is the one CI runs eight of; a fix that reached only the full-suite branch would leave the measured critical path untouched. |
 | `_run_coverage: a shard that is the whole suite runs serial, like the suite (#1060)` | `1/1` is a shard by SYNTAX and the whole suite by CONTENT, and the certificate is derived from what ran, not from the argument -- so such a run stamps scope=full, the only scope the release badge publishes, off a parallel measurement the full-suite branch declares serial precisely because it under-reports. `just test coverage 1/1` reaches it, and so does vars.CI_SHARDS=1, which self-test.yaml turns into the matrix ["1/1"]. The policy must follow the walked set, so a slice that IS the suite is serial like the suite. |
 | `_run_coverage: with parallel absent a shard run is serial and says so (#1060)` | the helper exists because parallelism has a fallback -- GNU parallel absent means serial, said out loud, and the SHARD path is the one that asks. Proven by CONFINING PATH so parallel is genuinely gone, not by reading the helper: a hand-assembled command would keep working here and say nothing. |
 | `drivers/bats.sh: --jobs is written in exactly one place, the shared helper (#1060)` | the defect was never a missing flag, it was a second place to write one -- _run_coverage assembled its own bats command, so what the helper decides never reached it. A guard on the FLAG rather than on one call site is what keeps a third hand-rolled invocation from appearing: the driver may name --jobs exactly once, in the helper's own body. |
-| `_run_system: its bats takes --jobs and the label from the shared helper (#1060)` | the system runner was the driver's OTHER hand-rolled bats command -- its own nproc probe, no --recursive, and nothing said when parallel was missing. It is the second copy the one-writer guard refuses, so it takes its arguments from the helper like everything else. |
+| `_run_system: its bats takes --jobs and the label from the shared helper (#1060)` | the system runner was the driver's OTHER hand-rolled bats command -- its own nproc probe, no --recursive, and nothing said when parallel was missing. It is the second copy the one-writer guard refuses, so it takes its arguments from the helper like everything else. It gets the FLOORED count like every other runner with no kcov in the loop (base#1068): its tests are the most subprocess-bound in the suite, so it is where oversubscription has the most to give. |
 | `main --coverage-shard: routes to the coverage service with COVERAGE_SHARD set (#615)` | #615 shard env plumbing |
 | `main --ci with COVERAGE=1 skips the lint phase (lint is a separate matrix concern) (#615)` | #615 coverage path skips lint |
 | `main --coverage-shard + --bats-path is rejected (coverage mode guard) (#615)` | #615 single-path/coverage combo guard |
@@ -1680,7 +1697,7 @@ order, plain `[logging]` global handling, and empty-when-absent behaviour.
 | `_collect_logging ignores an ambient SETUP_CONF (#893 decision 7)` | - |
 | `_collect_logging returns empty when no [logging] sections anywhere` | No-config empty |
 
-### test/bats/unit/coverage_badge_spec.bats (45)
+### test/bats/unit/coverage_badge_spec.bats (47)
 
 Unit tests for `script/release/coverage_badge.sh` (#952) -- the release
 coverage badge generator that replaces the README's static `Coverage-Kcov`
@@ -1722,10 +1739,11 @@ three tests assert the repo's own published figure, not the generator.
 | `coverage_badge: --coverage-shard partitions the CONTAINER, and tells the writer nothing` | - |
 | `coverage_badge: a full --coverage run hands the writer only the root` | - |
 | `coverage_badge: a full --coverage run tells the CONTAINER no selector at all` | - |
-| `coverage_badge: the coverage dispatch pins every selector the container reads` | - |
+| `coverage_badge: every coverage dispatch pins every selector the container reads` | - |
 | `coverage_badge: refuses when the reports cover one shard, not the suite` | Every identity check passes and the figure is still a quarter of the suite |
 | `coverage_badge: refuses when the stamp records no scope at all` | An unscoped stamp is no evidence of a release figure |
 | `coverage_badge: the operator sequence shard-then-badge publishes nothing` | `just test coverage 1/4` then `just release coverage-badge` at one commit |
+| `coverage_badge: a re-run refusal offers the parallel whole-suite mode too (#726)` | the refusal is not the end of the operator's day -- it is the moment they choose how to spend the next hour, and until base#726 there was only one whole-suite run to choose. The remedy sentence still named it alone, so the person who has just been told to re-run the most expensive thing in the repo would take the serial path while a parallel one that measures the same specs, writes the same tree and stamps the same `scope=full` sat unmentioned. Every refusal that asks for a re-run has to offer both. |
 | `coverage_badge: refuses when instrumented sources are modified in the worktree` | The reports then describe neither the commit nor the tree |
 | `coverage_badge: a release-bump edit is not a source change` | `.version` moving is the bump's own edit and must not block the step it runs |
 | `coverage_badge: refuses to overwrite an existing badge when it cannot measure` | A refusal leaves the last good badge byte-identical |
@@ -1741,6 +1759,7 @@ three tests assert the repo's own published figure, not the generator.
 | `coverage_badge: every localized README shows the committed badge` | All three translations, by their own relative path |
 | `coverage_badge: the committed badge names the released version` | The published SVG and `.version` agree |
 | `coverage_badge: every README records the release step as hand-run, not the bump's` | - |
+| `coverage_badge: the recipe states the release order, coverage before the bump (base#1032)` | the ordering that costs a 34-minute run when it is done backwards |
 
 ### test/bats/unit/coverage_gate_spec.bats (21)
 
@@ -1778,6 +1797,96 @@ the file's lines to the denominator.
 | `coverage_gate: emits a GitHub step summary table when GITHUB_STEP_SUMMARY is set` | GitHub visibility (no SaaS) |
 | `coverage_gate --merge-timings: merges per-shard timings keeping max seconds per basename (#733)` | - |
 | `coverage_gate --merge-timings: no input files yields an empty weights file (#733)` | - |
+
+### test/bats/unit/coverage_handback_spec.bats (14)
+
+The self-test containers run as root over a bind-mounted checkout, so every
+run OWES the invoking user the files it wrote there. Two halves of that debt
+are covered here. The first is the handback itself: it used to sit on the
+success path, one line below the phase that produces the reports, so a suite
+with a single red test left `coverage/` owned by `nobody:nogroup` -- and the
+reports were already on disk, which is what makes running the chown on the
+failing path both safe and required. The second is the way back when no
+handback ever ran (an interrupt, a killed container, a lost machine): `just
+test clean` is the recipe for exactly that and could not do it, because a
+host-side `rm` needs write permission on a directory that now belongs to
+root. Both are base#1032.
+
+| Test | Description |
+|------|-------------|
+| `main --ci: a FAILING coverage phase still hands coverage/ back (base#1032)` | the observed failure -- one red test in 4489 left the checkout unwritable |
+| `main --ci --system: a FAILING system phase still hands the checkout back (base#1032)` | the same hole on the other phase that writes into the mounted checkout |
+| `the handback never changes the run's exit status (base#1032)` | a handback that could change the verdict would be reporting on the run |
+| `a handback that failed is reported, and names the repair (base#1032)` | a silent chown failure is how the tree gets stuck with nobody told |
+| `a dispatch that never entered the container arms no handback (base#1032)` | a run that wrote nothing into the mount must not chown anything |
+| `the refusal that blocks the next run names the repair (base#1032)` | the refusal the operator actually meets is the one that must name the cure |
+| `just test clean: a checkout with no coverage/ succeeds and starts nothing (base#1032)` | the ordinary case -- nothing to clean must not cost a container |
+| `just test clean: the removal is done by the container over the mount (base#1032)` | the whole point -- the reclaim happens where root is, not on the host |
+| `just test clean: no host-side rm decides the outcome (base#1032)` | the failure this closes is a host rm that cannot unlink root's files |
+| `just test clean: a coverage/ still standing afterwards is a loud failure (base#1032)` | a clean that half-works recreates the stuck state one run later |
+| `just test clean: the target the container is given cannot be redirected (base#1032)` | `rm -rf` as root inside a mounted checkout must have no reachable variable |
+| `just test clean: /source is the checkout's mount point in the service it drives (base#1032)` | the literal is only right while /source is where the checkout is mounted |
+| `just test clean routes through the runner, not a host rm (base#1032)` | the recipe is the operator's entry; a host rm there is the defect itself |
+| `just test clean: the runner exposes the reclaim as a flag of its own (base#1032)` | a repair nothing reaches is not a repair |
+
+### test/bats/unit/coverage_local_spec.bats (27)
+
+ADR-00000008 shards kcov ACROSS a CI matrix, which is the only parallelism a
+GitHub-hosted plan offers: one runner, one concurrent job. On a single fat
+machine that matrix buys nothing, so the full-scope coverage run the release
+badge requires falls back to the serial path -- tens of minutes pinning one
+core while the other thirty-one idle. kcov's bash engine parses one xtrace
+stream per traced process and is single-threaded, and base#1060 measured
+what that costs: `bats --jobs` under ONE kcov reproduces a SHARD's covered
+set but not the WHOLE SUITE's, so it is on for shards and off for the full
+run. The bound is trace VOLUME through the one parser, which leaves the full
+run exactly one parallelism: N independent kcov PROCESSES over disjoint
+slices, merged -- one parser per slice instead of one for all of them.
+
+What this spec pins is everything about that mode a merge could quietly lie
+about. The partition is the SHARED `_shard_unit_files` primitive (base#724)
+rather than a second partitioner, so the slices are the same exhaustive +
+disjoint set the CI matrix runs. A slice that produced no report at all must
+FAIL the run rather than merge to a smaller total that reads as a coverage
+regression -- "cannot tell" resolves to refusing. And the run covers the
+WHOLE suite, so it must stamp `scope=full`: a parallel run that stamped
+`partial` would be refused by `just release coverage-badge`, which is the
+entire point of building it.
+
+The mode is NOT wired into the PR gate. Production `self-test.yaml` stays on
+the GitHub-hosted matrix (one self-hosted runner is a SPOF and a contention
+point); the local mode's CI exposure is an opt-in `workflow_dispatch`
+workflow, whose shape the last section pins.
+
+| Test | Description |
+|------|-------------|
+| `main: --jobs without --coverage-local is refused` | `--jobs` alone reads as "run the suite with N parallel jobs", which is what bare `just test` already does. Accepting it there would make a typo for `--coverage-local --jobs N` a silent no-op run of the wrong mode. |
+| `main: --jobs without --coverage-local is refused before any short-circuit` | and refused WHEREVER it was typed. The guard's own words are that a count with no mode is a typo for the mode and that defaulting it would run the wrong one silently -- but it sat after the short-circuit returns (`--lint`, `--hadolint-only`, the host-direct `--*-only` lint primitives, the name-resolution primitives), so on every one of those paths a job count with no mode was accepted and ignored, which is the silence the guard is named after. Two representatives are driven, one from each short-circuit family, and each asserts the path it guards was NOT reached: a refusal printed after the primitive already answered would still have let the operator act on the answer. |
+| `main: --coverage-local with --coverage-shard is refused` | the load-bearing conflict. `--coverage-shard` narrows the run to ONE slice, `--coverage-local` runs every slice; a run that took both would write a partition's reports while the operator believed they had the whole suite -- exactly the certificate defect ADR-00000008's #952 amendment closed. |
+| `main: --coverage-local with --coverage-path is refused` | `--coverage-path` reports NO figure at all and writes nothing into coverage/, so pairing it with a mode whose whole output is a merged report is two answers to one question. |
+| `main: --coverage-local rejects a non-numeric --jobs` | a job count that is not a positive integer would reach `_shard_unit_files` as a malformed total, whose message names a shard spec the operator never typed. Refuse it where it was typed. |
+| `main: --coverage-local rejects --jobs 0` | zero jobs is the boundary the partitioner cannot answer -- a partition of the suite into no slices covers nothing, and a run that covered nothing must not be reported as one that covered everything. |
+| `main: --coverage-local rejects a --jobs written with a leading zero` | `010` passes `^[0-9]+$` and is then READ IN TWO BASES. The launch loop counts with bash arithmetic, where a leading zero is octal (8); the partitioner hands the same string to awk as `-v t=`, where it is decimal (10). So `--jobs 010` launches 8 slices of a 10-way partition, two bins' specs are never run and never instrumented, and none of the three documented refusals fires -- a whole-suite certificate over a measurement with a hole in it. Refused where it was typed rather than resolved to one base: either resolution leaves the operator's `010` meaning a number they did not write. |
+| `main: --coverage-local dispatches to the coverage service with the job count pinned` | the dispatch is what makes the mode real, and the two selectors it CLEARS matter as much as the one it sets: `_run_via_compose` forwards COVERAGE_SHARD / COVERAGE_PATH from the AMBIENT environment, so this suite's own specs -- which run inside a coverage shard -- would otherwise hand a whole-suite mode a partition value. |
+| `main: --coverage-local --jobs N overrides the nproc default` | the default is `nproc` and the flag has to beat it, or `--jobs` would be decoration on a machine whose core count the operator is deliberately not using (a shared workstation, a cgroup-limited shell). |
+| `main --ci: COVERAGE_PATH out-ranks COVERAGE_LOCAL_JOBS` | the branch order is the contract. COVERAGE_PATH is read FIRST because it is the one kcov mode that writes nothing into coverage/; letting a stale COVERAGE_LOCAL_JOBS out-rank it would turn a one-spec instrumentation loop into a whole-suite run against the checkout. |
+| `main --ci: COVERAGE_LOCAL_JOBS routes to the parallel runner, not the serial one` | without this the flag is inert -- the container would fall through to the serial `_run_coverage`, and the mode would be a rename of the run it was built to replace. |
+| `specs driving the in-container coverage entry pin every forwarded selector (#726)` | found by RUNNING the mode, not by reading it. `just test coverage-local` on the real tree turned ci_spec's "main --ci with COVERAGE=1 skips the lint phase" red, and the reason is the whole selector family, not this one member: the in-container dispatch reads COVERAGE_SHARD / COVERAGE_PATH / COVERAGE_LOCAL_JOBS out of the ENVIRONMENT, and a spec that drives that entry inherits whatever the container was started with. That spec pinned two of the three and stubbed `_run_coverage`; under `--coverage-local` the inherited COVERAGE_LOCAL_JOBS routed past the stub into the real parallel runner, so a unit test launched 32 nested kcov processes and failed. The rule is therefore not "clear COVERAGE_LOCAL_JOBS" -- that is this defect, not its class. It is: a block that drives the in-container coverage entry PINS EVERY selector the dispatch forwards, set or emptied, so the branch under test is the branch taken whichever run the suite is inside. The roster is read off `_run_via_compose`'s own forwarding lines rather than listed here, so a fourth selector arrives with this demand already made of every fixture. EVERY selector it forwards from the ambient environment, that is -- all eleven, not the three whose names begin `COVERAGE_`. The prefix was the family the defect was found in, and a roster shaped like the cause of one instance is the curation this rule was written to replace: it left out `BATS_FILTER`, which the coverage branch itself reads through `_run_coverage_path`, so a spec silently narrowed by an inherited filter would have been the same defect in a member the guard could not see. |
+| `_run_coverage_parallel: launches one kcov per slice over an exhaustive, disjoint partition` | the whole claim of the mode. N kcov PROCESSES, each over one slice of the SHARED partition -- so the union of the slices is the suite and no spec is instrumented twice. A second partitioner would be a second roster; a partition that dropped a spec would report a coverage regression nobody caused. |
+| `_run_coverage_parallel: merges every slice's report into the repo coverage tree` | the merge is what turns N partial reports into the project figure, and it must name EVERY slice. A merge over a subset is the silent-loss case: it produces a valid report carrying a smaller line set, which reads as a regression rather than as the bug it is. |
+| `_run_coverage_parallel: a slice that produced no report fails the run instead of merging` | "cannot tell" resolves to refusing. A kcov that dies after its tests pass leaves an EMPTY output directory and a zero status, and merging the survivors would publish a smaller line set under a whole-suite certificate. The refusal is what makes a lost slice distinguishable from a coverage drop. |
+| `_run_coverage_parallel: the lost-slice refusal names output the operator has (#726)` | a refusal is only as useful as the next thing it tells you to look at, and this mode's scratch root is a `mktemp -d` INSIDE the ephemeral `docker compose run --rm` container the shipped entry starts. A path under it does not exist on the machine the operator is reading the message on, and COVERAGE_LOCAL_WORKDIR -- the only way to move it -- is not forwarded into that container, so they cannot make it exist either. What they DO have is every slice's output, replayed above the refusal by `_coverage_parallel_collect`; that is what both refusals must name. |
+| `_run_coverage_parallel: a failed merge names output the operator has (#726)` | the sibling refusal, and the same rule. A merge that fails leaves the same unreachable scratch root, and "the per-slice reports are under <container temp dir>" is the same instruction the reader cannot follow. |
+| `_run_coverage_parallel: the merged run manifest names every spec, so the scope stamps full` | the release path is the reason this mode exists. `just release coverage-badge` publishes only `scope=full`, and the scope is DERIVED from coverage/timings.tsv -- so a parallel run whose manifest named the last slice's specs alone would be refused exactly like a shard, and the serial run it replaces would still be on the critical path. |
+| `_run_coverage_parallel: a failing slice fails the run` | a red spec must stay red. The slices run concurrently, so a failing one is a status that has to survive `wait` and the merge -- swallowing it would make the fastest coverage mode the one that cannot fail. |
+| `_run_coverage_parallel: rejects a job count that is not a positive integer` | the runner is reachable from the container's environment as well as from the flag (`COVERAGE_LOCAL_JOBS` is forwarded), so the validation cannot live only in the host-side parser -- an inherited junk value would otherwise reach `_shard_unit_files` as a malformed total. |
+| `_run_coverage_parallel: rejects a job count written with a leading zero` | the same divergence one layer in, at the layer that actually partitions. This runner is reachable from the ENVIRONMENT as well as from the flag, so a leading zero the host parser never saw still gets here -- and here the two readings sit three lines apart: the launch loop counts `010` as octal 8 while `_shard_unit_files` passes it to awk as the decimal total 10. The refusal has to be here too, and it has to fire before anything is launched: 8 kcov processes over a 10-way partition produce reports that merge cleanly and certify a suite they never ran. |
+| `_run_coverage_parallel: refuses more slices than the suite has specs` | the second refusal, and the one an operator reaches by accident -- `nproc` on a big machine can exceed the spec count of a small tree, and then the tail slices match nothing. An empty slice is not a slice that ran nothing; it is a partition that never covered the tree, and merging what the non-empty slices produced would publish a fraction of the suite under a whole-suite certificate. It is checked BEFORE the first fork, because `_shard_unit_files` refuses by `_die` and a `_die` inside a background job exits the CHILD -- the parent would wait for a slice that never ran and then merge N-1 reports. |
+| `coverage-local workflow: is manually triggered only` | the scope limit, asserted rather than promised. A trigger other than `workflow_dispatch` would put a single shared workstation on the path of an automatic run -- which is the SPOF this mode was scoped away from. Read as a SET rather than as refusals of the two names anyone thought of: `push`, `repository_dispatch` and `workflow_call` are automatic triggers too, and nothing else in the tree would catch one -- `self_hosted_guard.sh` reads a job's `if:`, never a workflow's `on:`. |
+| `coverage-local workflow: one run at a time on the machine, not per ref (#726)` | the concurrency group's stated property is one run at a time on the MACHINE -- two of these would each start nproc kcov processes on the same host and measure each other's contention rather than the mode. A group keyed on `github.ref` does not have that property: the normal way this gets used is a dispatch on the branch under test beside one on `main`, which is two refs, two groups, and one runner. Nothing about the machine is in the ref, so the group must not interpolate anything at all -- `github.ref`, an input, or a matrix leg would each split it the same way. |
+| `coverage-local workflow: runs on the self-hosted GPU runner behind the fork guard` | the runner is the point -- an in-job parallel mode measured on a hosted two-core runner would prove nothing about the fat machine it was written for. And a job that can land on the org's self-hosted runner is arbitrary code execution on a shared workstation unless it carries the fork guard, which is what `self-hosted-guard` enforces for every job in this tree. Read off the CODE, comments dropped: this file's header spends a paragraph on why one self-hosted runner is not a PR gate, so the words "self-hosted" are in it whatever the job runs on -- a whole-file read answers the question with the prose that explains the answer. That is the rule the sibling `self-test.yaml` case already applies to `runs-on:`. |
+| `coverage-local workflow: drives test.sh --coverage-local` | the workflow has to drive the MODE, through the same entry an operator uses. A validation job that called `--coverage` would be a second, slower way of running what CI already runs and would never exercise the merge this issue is about. Read as the SET of modes the workflow invokes, off the code, because two things would otherwise pass a broken file: the header comment names `test.sh --coverage-local` twice, so a whole-file `--partial` stays green after the run step is switched back to the serial mode; and there are TWO invocations (with and without `--jobs`), so a `--partial` over either one is satisfied by the other. A set has neither hole -- and the `--jobs` branch matters most, because `--jobs` on the serial mode is an invocation the entry refuses outright. |
+| `self-test.yaml: the PR gate is unchanged -- no self-hosted runner, no local mode` | production must be untouched. The acceptance criterion is explicit that the PR gate keeps the hosted matrix, and the cheapest way for that to rot is a job quietly added to self-test.yaml on the way past. |
 
 ### test/bats/unit/deploy_hint_spec.bats (6)
 
@@ -4653,7 +4762,7 @@ alias / `network.network_name` / `devices.device_` / `security.cap_add_` /
 | `self-hosted guard: FAILS when the workflows parse to zero jobs` | - |
 | `self-hosted guard: scans every workflow in the directory, not a named list` | - |
 | `self-hosted guard: the real repo tree has every eligible job guarded` | - |
-| `self-hosted guard: the real tree's eligible set is the three runtime-matrix worker jobs` | - |
+| `self-hosted guard: the real tree's eligible set is the three runtime-matrix worker jobs plus the one that names the runner outright` | - |
 
 ### test/bats/unit/self_test_yaml_spec.bats (116)
 

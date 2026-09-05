@@ -699,7 +699,7 @@ _make_cobertura() {
   assert_output --partial "STAMP argc=[1]"
 }
 
-@test "coverage_badge: the coverage dispatch pins every selector the container reads" {
+@test "coverage_badge: every coverage dispatch pins every selector the container reads" {
   # This is the part that stays enumerable, and the reason it is bounded.
   # The scope on the certificate is derived from the measurement, so no
   # forgotten variable can make a partial run look whole; what a forgotten
@@ -729,7 +729,15 @@ _make_cobertura() {
   # assignment -- the failure the structural specs were fixed for.
   # Deleting `COVERAGE_PATH=""` from the command prefix must fail this
   # test even though the paragraph above it still says the words.
-  local _forwarded _container _pinned _name _n=0
+  #
+  # And EVERY dispatch that starts that container, not the `coverage)` case
+  # block alone. `--coverage-path` reaches the same service through the same
+  # forwarder, so a selector left unpinned there is inherited by a run of
+  # exactly the kind this guard is about -- and a reader anchored on one
+  # case block cannot see it. The sites are found by what they DO (a
+  # `_run_via_compose coverage` call), so a third mode wired to that
+  # container arrives inside the guard rather than beside it.
+  local _forwarded _container _dispatches _dispatch _name _n=0 _sites _bad=0
   local _strip='/^[[:space:]]*#/d' 
   _forwarded="$( {
     sed -n '/docker compose -p/,/^}/p' "${REPO}/script/test/test.sh" \
@@ -758,24 +766,49 @@ _make_cobertura() {
     "${REPO}/script/test/test.sh" | sed '$d' | sed "${_strip}")"
   [ -n "${_container}" ]
 
-  # The host-side dispatch that has to pin them.
-  _pinned="$(sed -n '/^    coverage)/,/^    compose)/p' "${REPO}/script/test/test.sh" \
-    | sed "${_strip}")"
-  [ -n "${_pinned}" ]
+  # Every host-side dispatch that has to pin them: one logical command per
+  # `_run_via_compose coverage` call. Comments are dropped and backslash
+  # continuations joined, because both of these dispatches are written
+  # across lines and a line-at-a-time reader would see a prefix with no
+  # call and a call with no prefix.
+  _dispatches="$(awk '
+    /^[[:space:]]*#/ { next }
+    {
+      line = $0
+      sub(/^[[:space:]]+/, "", line)
+      if (cont != "") { line = cont " " line; cont = "" }
+      if (line ~ /\\$/) { sub(/[[:space:]]*\\$/, "", line); cont = line; next }
+      if (line ~ /_run_via_compose coverage/) { print line }
+    }
+  ' "${REPO}/script/test/test.sh")"
+  [ -n "${_dispatches}" ]
 
   for _name in ${_forwarded}; do
     [[ "${_container}" == *"${_name}"* ]] || continue
     _n=$(( _n + 1 ))
     printf 'SELECTOR %s\n' "${_name}"
-    # Assigned by the dispatch, at any value: `NAME=` on a command
-    # prefix. Inheriting it is what the four rounds were about.
-    [[ "${_pinned}" =~ (^|[[:space:]])"${_name}"= ]]
+    _sites=0
+    while read -r _dispatch; do
+      [[ -n "${_dispatch}" ]] || continue
+      _sites=$(( _sites + 1 ))
+      # Assigned by the dispatch, at any value: `NAME=` on a command
+      # prefix. Inheriting it is what the four rounds were about.
+      if ! [[ "${_dispatch}" =~ (^|[[:space:]])"${_name}"= ]]; then
+        echo "dispatch does not pin ${_name}: ${_dispatch}" >&2
+        _bad=$(( _bad + 1 ))
+      fi
+    done <<< "${_dispatches}"
+    # Both known dispatches -- the figure-producing one and the one-spec
+    # one -- are read for every selector. A reader that found one site
+    # would be the case-block reader this replaced.
+    [ "${_sites}" -ge 2 ]
   done
 
   # An intersection that came out empty would satisfy the loop above
   # without checking anything, which is how a guard over a list becomes a
   # guard over nothing. Both known selectors must be in it.
   [ "${_n}" -ge 2 ]
+  [ "${_bad}" -eq 0 ]
 }
 
 # why: Every identity check passes and the figure is still a quarter of the
@@ -851,6 +884,53 @@ _make_cobertura() {
   assert_output --partial "partial 1/4 specs"
   [ ! -f "${_root}/badge.svg" ]
   refute_output --partial "13.0%"
+}
+
+# why: the refusal is not the end of the operator's day -- it is the moment
+# they choose how to spend the next hour, and until base#726 there was only
+# one whole-suite run to choose. The remedy sentence still named it alone,
+# so the person who has just been told to re-run the most expensive thing
+# in the repo would take the serial path while a parallel one that measures
+# the same specs, writes the same tree and stamps the same `scope=full` sat
+# unmentioned. Every refusal that asks for a re-run has to offer both.
+@test "coverage_badge: a re-run refusal offers the parallel whole-suite mode too (#726)" {
+  local _root
+  _root="$(_make_release_tree 13 100)"
+  rm -f "${_root}/coverage/.head-sha"
+  _make_specs "${_root}" unit/a_spec.bats unit/b_spec.bats \
+    unit/sub/c_spec.bats integration/d_spec.bats
+  _write_manifest "${_root}" a_spec.bats
+  run bash -c 'source /source/script/test/test.sh; _stamp_coverage_head "$1"' \
+    _ "${_root}"
+  [ "${status}" -eq 0 ]
+
+  run bash "${BADGE}" --repo-root "${_root}" --out "${_root}/badge.svg"
+  [ "${status}" -eq 1 ]
+  assert_output --partial "just test coverage-local"
+
+  # And the rule holds for every remedy in the file, not just the one this
+  # case happens to reach and not just the one PHRASING anyone thought of.
+  # It used to grep for the literal `Re-run`, which a remedy worded "Run
+  # `just test coverage` ..." walks straight past -- and that is the exact
+  # wording this file carried at one refusal before base#726 rewrote it.
+  #
+  # What makes a line a remedy is not its verb: it is that the line REACHES
+  # THE OPERATOR naming the whole-suite run. So comment lines are dropped
+  # (prose about the rule, including this file's own explanation of it, is
+  # not an instruction) and every remaining mention of `just test coverage`
+  # must name the parallel entry on the same line. The shard form is exempt
+  # -- `just test coverage <n>/<total>` is a different request, and
+  # coverage-local has no shard.
+  run bash -c "sed '/^[[:space:]]*#/d' '${BADGE}' | grep -n 'just test coverage'"
+  assert_success
+  local _line _bad=0
+  while read -r _line; do
+    [[ "${_line}" == *"<n>/<total>"* ]] && continue
+    [[ "${_line}" == *"coverage-local"* ]] && continue
+    echo "remedy names only the serial run: ${_line}" >&2
+    _bad=$(( _bad + 1 ))
+  done <<< "${output}"
+  [ "${_bad}" -eq 0 ]
 }
 
 # why: The reports then describe neither the commit nor the tree
@@ -1200,4 +1280,56 @@ _make_cobertura() {
       "${_f}"
     [ "${status}" -ne 0 ]
   done
+}
+
+# why: the ordering that costs a 34-minute run when it is done backwards
+@test "coverage_badge: the recipe states the release order, coverage before the bump (base#1032)" {
+  # The recipe doc said the badge is hand-run "BEFORE the release commit is
+  # made" and stopped there. That leaves the ordering that actually bites
+  # unstated: the coverage run has to happen BEFORE `.version` is bumped,
+  # because the test directly below this one -- "the committed badge names
+  # the released version" -- fails by construction on a bumped tree, and a
+  # red coverage run is a coverage run that has to be done again.
+  #
+  # Anchored on the CLAIM, the way the hand-run guard above is: the steps
+  # are read out of the doc and their ORDER is compared, so a rewording
+  # keeps passing and a permutation cannot.
+  local _doc
+  _doc="$(sed -n '/^# just release coverage-badge ->/,/^coverage-badge/p' \
+    "${REPO}/script/release/justfile.release")"
+  [ -n "${_doc}" ]
+
+  local -a _steps=()
+  mapfile -t _steps < <(printf '%s\n' "${_doc}" \
+    | sed -n 's/^#[[:space:]]*\([0-9]\+\)\.[[:space:]]*/\1 /p')
+  [ "${#_steps[@]}" -ge 4 ] \
+    || fail "the recipe doc lists ${#_steps[@]} ordered release steps; the order is not stated"
+
+  # Where each landmark appears in the ordered list. `-1` = never.
+  local _i=0 _coverage=-1 _bump=-1 _badge=-1 _commit=-1
+  local _s
+  for _s in "${_steps[@]}"; do
+    [[ "${_s}" == *"just test coverage"*   && "${_coverage}" -lt 0 ]] && _coverage="${_i}"
+    [[ "${_s}" == *".version"*             && "${_bump}"     -lt 0 ]] && _bump="${_i}"
+    [[ "${_s}" == *"coverage-badge"*       && "${_badge}"    -lt 0 ]] && _badge="${_i}"
+    [[ "${_s}" == *"commit"*               && "${_commit}"   -lt 0 ]] && _commit="${_i}"
+    _i=$(( _i + 1 ))
+  done
+  [ "${_coverage}" -ge 0 ] || fail "no ordered step runs the coverage suite"
+  [ "${_bump}"     -ge 0 ] || fail "no ordered step bumps .version"
+  [ "${_badge}"    -ge 0 ] || fail "no ordered step regenerates the badge"
+  [ "${_commit}"   -ge 0 ] || fail "no ordered step makes the release commit"
+
+  (( _coverage < _bump )) \
+    || fail "the doc puts the coverage run at step ${_coverage} and the .version bump at ${_bump}"
+  (( _bump < _badge )) \
+    || fail "the doc puts the .version bump at step ${_bump} and the badge at ${_badge}"
+  (( _badge < _commit )) \
+    || fail "the doc puts the badge at step ${_badge} and the release commit at ${_commit}"
+
+  # And the reason, named by the guard that enforces it, so the order is
+  # not a rule the reader has to take on faith.
+  run grep -F 'the committed badge names the released version' \
+    "${REPO}/script/release/justfile.release"
+  [ "${status}" -eq 0 ]
 }

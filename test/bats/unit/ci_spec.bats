@@ -1009,7 +1009,12 @@ _all_group_members() {
   assert_output --partial "COVERAGE=0"
 }
 
-# why: Parallel-present branch
+# why: Parallel-present branch, and the count it is handed is FLOORED
+# rather than equal to the core count -- `_run_tests` is one of the
+# runners with no kcov in the loop, so there is no line set to move and
+# nothing to hold it at the machine's size (base#1068). The assertion is
+# `> the mocked cores`, not a number: it says WHICH SIDE of the policy
+# this runner is on, which is the part a re-tune must not silently flip.
 @test "_run_tests: passes --jobs N when parallel is on PATH" {
   local _log="${BATS_TEST_TMPDIR}/bats.log"
   mock_cmd "parallel" 'exit 0'
@@ -1027,7 +1032,10 @@ _all_group_members() {
 
   run cat "${_log}"
   assert_success
-  assert_output --partial "--jobs 8"
+  local _jobs
+  _jobs="$(printf '%s\n' "${output}" | sed -n 's/.*jobs \([0-9][0-9]*\).*/\1/p' | head -n1)"
+  assert [ -n "${_jobs}" ]
+  assert [ "${_jobs}" -gt 8 ]
 }
 
 # why: Parallel-missing branch
@@ -2083,6 +2091,272 @@ SH
   assert_output --partial "jobs policy"
 }
 
+# ════════════════════════════════════════════════════════════════════
+# The job count is a FLOOR under the core count, because this gate
+# WAITS rather than computes -- and a count nobody could read is not a
+# reading (base#1068)
+#
+# `nproc` is the right default for a CPU-bound workload and this is not
+# one: a bats test spends its time waiting on subprocesses (base#1002
+# measured 1-2 of 32 cores busy). CI's runner has 4 cores, so
+# `--jobs $(nproc)` ran the gate at exactly the ratio the flag exists to
+# remove, and it measured as worth NOTHING: one real coverage shard on a
+# 4-CPU cpuset took 113.4s / 104.8s at jobs=4 against a 108.4s / 108.9s
+# SERIAL control. 8 gives 1.28x, 32 gives 1.75x, 64 the same as 32.
+# Plain bats on the same shard and the same 4 cores: 88.4s / 93.8s at
+# jobs=4 against 42.5s / 42.2s at jobs=32, so the effect is not
+# coverage-shaped and the floor is for every runner.
+#
+# The rule is max(cores, floor) and NOT `k x cores`, and that is a
+# measurement rather than a taste -- but the measurement says KNEE, not
+# peak. Same slice on a 32-core host, four INTERLEAVED reps per point:
+# 16 jobs 43.7s, 32 jobs 26.5s, 64 jobs 25.8s, 128 jobs 25.7s. Below the
+# knee costs 1.65x; above it the curve is flat out to 4x the core count.
+# So the count above the knee is free, and a floor is chosen for the
+# property rather than for a winner: it is monotone and cannot land
+# BELOW the knee, where `k x cores` lands on any machine smaller than
+# 32/k -- which is the 4-core runner this started on.
+#
+# So these tests assert the SHAPE -- never below the cores, ABOVE them
+# when the machine is small, EQUAL to them when it is large,
+# non-decreasing in between -- and never the constant, which is a figure
+# measured on two machines on one day and will be re-derived.
+# ════════════════════════════════════════════════════════════════════
+
+# why: `nproc` names how many things a machine can COMPUTE at once, and
+# this gate computes almost nothing -- it waits on subprocesses. On CI's
+# 4-core runner `--jobs 4` measured indistinguishable from serial (113.4s
+# / 104.8s against a 108.4s / 108.9s serial control on a real coverage
+# shard under a 4-CPU cpuset), so a small machine has to be
+# OVERSUBSCRIBED. The assertion is `> cores` and not any particular
+# number, because the number is the thing that gets re-measured.
+@test "_bats_args_with_label: a small machine is oversubscribed, not run at one job per core (#1068)" {
+  mock_cmd "parallel" 'exit 0'
+  # 4 = the core count of the CI runner the defect was measured on.
+  mock_cmd "nproc" 'echo 4'
+
+  run bash -c '
+    _die() { echo "DIE: $*"; exit 1; }
+    source /source/script/test/drivers/bats.sh
+    _jobs_of() {
+      local _p="" _n="" _x
+      for _x in "$@"; do [ "${_p}" = "--jobs" ] && _n="${_x}"; _p="${_x}"; done
+      printf "%s\n" "${_n}"
+    }
+    declare -a _args; declare _label
+    _bats_args_with_label _args _label
+    printf "JOBS:%s\n" "$(_jobs_of "${_args[@]}")"
+    printf "LABEL:%s\n" "${_label}"
+  '
+  assert_success
+  local _jobs
+  _jobs="$(printf '%s\n' "${output}" | sed -n 's/^JOBS://p')"
+  assert [ -n "${_jobs}" ]
+  assert [ "${_jobs}" -gt 4 ]
+  # The label reports the count that was CHOSEN, next to the one that was
+  # read, so the run's first line explains itself.
+  assert_output --partial "LABEL:jobs=${_jobs}"
+}
+
+# why: the floor has to be a FLOOR. 32 is a knee and not a peak -- four
+# interleaved reps per point on a 32-core host read 43.7s at 16 jobs
+# against 26.5s / 25.8s / 25.7s at 32 / 64 / 128 -- so what a rule must
+# guarantee is that it never lands BELOW the knee, which `k x cores`
+# fails to do on any machine smaller than 32/k, the 4-core runner
+# included. A large machine therefore gets exactly its cores, and the
+# rule stays monotone so a bigger host is never handed less than a
+# smaller one. This is the assertion that lets the constant be re-tuned
+# without editing a test: never-below-the-machine, non-decreasing, and
+# equal at the top name nothing the measurement picked.
+@test "_bats_args_with_label: --jobs is a floor under the core count, never a multiple of it (#1068)" {
+  mock_cmd "parallel" 'exit 0'
+
+  run bash -c '
+    _die() { echo "DIE: $*"; exit 1; }
+    source /source/script/test/drivers/bats.sh
+    _jobs_of() {
+      local _p="" _n="" _x
+      for _x in "$@"; do [ "${_p}" = "--jobs" ] && _n="${_x}"; _p="${_x}"; done
+      printf "%s\n" "${_n}"
+    }
+    for _c in 1 2 4 8 64 1000; do
+      printf "#!/bin/bash\necho %s\n" "${_c}" > "'"${MOCK_DIR}"'/nproc"
+      chmod +x "'"${MOCK_DIR}"'/nproc"
+      declare -a _args; declare _label
+      _bats_args_with_label _args _label
+      printf "%s %s\n" "${_c}" "$(_jobs_of "${_args[@]}")"
+    done
+  '
+  assert_success
+  local _sweep="${output}"
+
+  local _cores _jobs _last=0
+  while read -r _cores _jobs; do
+    assert [ -n "${_jobs}" ]
+    # Never below the machine.
+    assert [ "${_jobs}" -ge "${_cores}" ]
+    # Monotone in the core count: a bigger machine is never handed less.
+    assert [ "${_jobs}" -ge "${_last}" ]
+    _last="${_jobs}"
+  done <<< "${_sweep}"
+
+  # The biggest machine in the sweep gets EXACTLY its core count. A
+  # factor rule would hand it thousands of jobs; a floor cannot.
+  assert [ "$(printf '%s\n' "${_sweep}" | awk '$1 == 1000 {print $2}')" = "1000" ]
+}
+
+# why: `nproc 2>/dev/null || echo 4` printed `jobs=4` for a FAILED probe
+# and for a genuine 4-core machine alike, so the run's own log could not
+# say which had happened -- and on CI both readings were 4 at once. That
+# is the shape the policy argument three lines up refuses. A FALLBACK is
+# the right answer here where a `_die` is the right answer there: an
+# unreadable POLICY is a caller's bug with no correct run to give it,
+# while an unreadable CORE COUNT is an ENVIRONMENT -- the same kind as
+# `parallel` missing from PATH, which this helper already falls back on
+# and NAMES. So it falls back and says so, and what is pinned is the
+# saying: the two labels must differ even when the two counts agree.
+@test "_bats_args_with_label: an unreadable core count is labelled a fallback, not a reading (#1068)" {
+  mock_cmd "parallel" 'exit 0'
+  # Present but broken -- the failure the old `|| echo N` swallowed.
+  mock_cmd "nproc" 'echo "nproc: cannot determine number of CPUs" >&2; exit 1'
+
+  local _probe='
+    _die() { echo "DIE: $*"; exit 1; }
+    source /source/script/test/drivers/bats.sh
+    _jobs_of() {
+      local _p="" _n="" _x
+      for _x in "$@"; do [ "${_p}" = "--jobs" ] && _n="${_x}"; _p="${_x}"; done
+      printf "%s\n" "${_n}"
+    }
+    declare -a _args; declare _label
+    _bats_args_with_label _args _label
+    printf "JOBS:%s\n" "$(_jobs_of "${_args[@]}")"
+    printf "LABEL:%s\n" "${_label}"
+  '
+
+  run bash -c "${_probe}"
+  # An environment, not a caller bug: the run still happens.
+  assert_success
+  local _guessed _guess_label
+  _guessed="$(printf '%s\n' "${output}" | sed -n 's/^JOBS://p')"
+  _guess_label="$(printf '%s\n' "${output}" | sed -n 's/^LABEL://p')"
+  assert [ -n "${_guessed}" ]
+
+  # Now a machine that genuinely HAS that many cores. Same count, and the
+  # label must not be the same sentence -- that is the whole defect.
+  mock_cmd "nproc" "echo ${_guessed}"
+  run bash -c "${_probe}"
+  assert_success
+  assert [ "$(printf '%s\n' "${output}" | sed -n 's/^JOBS://p')" = "${_guessed}" ]
+  refute [ "$(printf '%s\n' "${output}" | sed -n 's/^LABEL://p')" = "${_guess_label}" ]
+}
+
+# why: every runner calls this helper, so the floor reaches all of them
+# unless a policy says otherwise -- and for the kcov runners the
+# measurement says otherwise. N bats jobs feed ONE single-threaded trace
+# parser: raising a shard from 4 to 32 jobs is 1.75x and costs a
+# REPRODUCIBLE hole, four runs at 16/32 jobs unioning to 31 lines short
+# of the serial set (30 of them one region of wrapper/run.sh), ~0.45
+# points off the reported rate, where two runs at jobs=4 union to the
+# serial set EXACTLY. Faster while losing lines is not an improvement for
+# the runner whose output IS the line set, so `metered` is one job per
+# core and no more -- until base#726 stops the parser being the drain.
+@test "_bats_args_with_label: the metered policy holds a run at one job per core (#1068)" {
+  mock_cmd "parallel" 'exit 0'
+  # Below the floor, so a metered run and a floored one are visibly
+  # different rather than coincidentally equal.
+  mock_cmd "nproc" 'echo 4'
+
+  run bash -c '
+    _die() { echo "DIE: $*"; exit 1; }
+    source /source/script/test/drivers/bats.sh
+    _jobs_of() {
+      local _p="" _n="" _x
+      for _x in "$@"; do [ "${_p}" = "--jobs" ] && _n="${_x}"; _p="${_x}"; done
+      printf "%s\n" "${_n}"
+    }
+    declare -a _args; declare _label
+    _bats_args_with_label _args _label
+    printf "PARALLEL:%s\n" "$(_jobs_of "${_args[@]}")"
+    _bats_args_with_label _args _label metered
+    printf "METERED:%s\n" "$(_jobs_of "${_args[@]}")"
+    printf "LABEL:%s\n" "${_label}"
+  '
+  assert_success
+  # Metered == the core count exactly; the default is above it.
+  assert_output --partial "METERED:4"
+  local _par
+  _par="$(printf '%s\n' "${output}" | sed -n 's/^PARALLEL://p')"
+  assert [ "${_par}" -gt 4 ]
+  # And it says so, the way "serial by policy" does: a reader can tell a
+  # decision from a machine that happens to have that many cores.
+  assert_output --partial "metered"
+}
+
+# why: the shard is the kcov path CI runs eight of, and the one whose
+# covered set the badge publishes. It has to DECLARE that it is metered
+# rather than merely happen to sit at the core count today, or the next
+# change to the default silently takes 0.45 points off the reported rate
+# and puts a 31-line hole in wrapper/run.sh.
+@test "_run_coverage: a shard declares metered, so kcov's one parser is not oversubscribed (#1068)" {
+  local _log="${BATS_TEST_TMPDIR}/kcov.log"
+  mock_cmd "kcov" '
+    printf "%s\n" "$*" >> "'"${_log}"'"
+    exit 0'
+  mock_cmd "parallel" 'exit 0'
+  mock_cmd "nproc" 'echo 4'
+
+  run bash -c '
+    REPO_ROOT="${BATS_TEST_TMPDIR}/repo"
+    mkdir -p "${REPO_ROOT}/coverage" "${REPO_ROOT}/test/bats/unit" \
+             "${REPO_ROOT}/test/bats/integration"
+    for _n in a b c d; do
+      printf "@test \"t1\" { :; }\n@test \"t2\" { :; }\n" \
+        > "${REPO_ROOT}/test/bats/unit/${_n}_spec.bats"
+    done
+    printf "@test \"t1\" { :; }\n" \
+      > "${REPO_ROOT}/test/bats/integration/i_spec.bats"
+    _die() { echo "DIE: $*"; exit 1; }
+    source /source/script/test/drivers/bats.sh
+    _run_coverage 1/2
+  '
+  assert_success
+  assert_output --partial "metered"
+
+  run cat "${_log}"
+  assert_success
+  assert_output --partial "--jobs 4"
+}
+
+# why: `_run_coverage_path` is the driver's other kcov runner. It
+# publishes no figure, but its whole purpose is to show what one spec
+# covers under instrumentation, so oversubscribing it corrupts exactly
+# the thing the person ran it to look at.
+@test "_run_coverage_path: one spec under kcov is metered too (#1068)" {
+  local _log="${BATS_TEST_TMPDIR}/kcov.log"
+  mock_cmd "bats" 'exit 0'
+  mock_cmd "kcov" '
+    printf "%s\n" "$*" >> "'"${_log}"'"
+    exit 0'
+  mock_cmd "parallel" 'exit 0'
+  mock_cmd "nproc" 'echo 4'
+
+  run bash -c '
+    REPO_ROOT="${BATS_TEST_TMPDIR}/repo"
+    mkdir -p "${REPO_ROOT}/test/bats/unit"
+    printf "@test \"t1\" { :; }\n" > "${REPO_ROOT}/test/bats/unit/b_spec.bats"
+    _die() { echo "DIE: $*"; exit 1; }
+    source /source/script/test/drivers/bats.sh
+    _run_coverage_path test/bats/unit/b_spec.bats
+  '
+  assert_success
+  assert_output --partial "metered"
+
+  run cat "${_log}"
+  assert_success
+  assert_output --partial "--jobs 4"
+}
+
 # why: the shard path and the full-suite path are the same function, and
 # the shard is the one CI runs eight of; a fix that reached only the
 # full-suite branch would leave the measured critical path untouched.
@@ -2236,6 +2510,9 @@ SH
 # -- its own nproc probe, no --recursive, and nothing said when parallel
 # was missing. It is the second copy the one-writer guard refuses, so it
 # takes its arguments from the helper like everything else.
+# It gets the FLOORED count like every other runner with no kcov in the
+# loop (base#1068): its tests are the most subprocess-bound in the suite, so
+# it is where oversubscription has the most to give.
 @test "_run_system: its bats takes --jobs and the label from the shared helper (#1060)" {
   # A per-test socket so the prerequisite guard passes without touching
   # the process-global /var/run/docker.sock.
@@ -2257,11 +2534,18 @@ SH
     _run_system
   '
   assert_success
-  assert_output --partial "jobs=8"
+  # Floored, not equal to the core count: the system runner has no kcov
+  # in its loop either, and it is the MOST subprocess-bound runner in the
+  # driver -- every one of its tests waits on docker (base#1068).
+  local _jobs
+  _jobs="$(printf '%s\n' "${output}" | sed -n 's/.*jobs=\([0-9][0-9]*\).*/\1/p' | head -n1)"
+  assert [ -n "${_jobs}" ]
+  assert [ "${_jobs}" -gt 8 ]
 
   run cat "${_log}"
   assert_success
-  assert_output --partial "--jobs 8"
+  # ...and the label is not a story told beside a different command line.
+  assert_output --partial "--jobs ${_jobs}"
   assert_output --partial "--recursive"
 }
 
@@ -2317,11 +2601,27 @@ SH
     # marker still proves the coverage branch was the one taken.
     _run_coverage() { printf "COVERAGE-RAN shard=[%s]\n" "${1:-}"; }
     _fix_permissions() { :; }
-    # COVERAGE_PATH is cleared explicitly: the in-container dispatch
-    # reads it BEFORE the shard, and this spec inherits whatever the
-    # container was started with -- `just test coverage-path` sets it,
-    # so the branch under test would silently not be the branch taken.
-    COVERAGE=1 COVERAGE_SHARD=1/4 COVERAGE_PATH= main --ci
+    # Every selector the dispatch forwards is PINNED here, set or
+    # emptied: this block inherits whatever the container was started
+    # with, and each selector the dispatch reads before the shard would
+    # otherwise decide the branch instead of the shard under test.
+    # `just test coverage-path` sets COVERAGE_PATH; `just test
+    # coverage-local` sets COVERAGE_LOCAL_JOBS, and leaving that one
+    # unpinned routed this block past the `_run_coverage` stub into the
+    # real parallel runner -- 32 nested kcov processes inside a unit test
+    # (base#726). The guard in coverage_local_spec, "specs driving the
+    # in-container coverage entry pin every forwarded selector", is what
+    # keeps the roster here complete as it grows.
+    # All ELEVEN of them, not the three whose names start COVERAGE_:
+    # LINT_ONLY=1 would short-circuit this dispatch into the linters
+    # before the coverage branch is reached at all, and BATS_ONLY is
+    # pinned to 0 on purpose -- 1 would skip the lint phase by itself and
+    # make the assertion below true whatever COVERAGE did.
+    # (No apostrophes in this block: it lives inside a single-quoted
+    # bash -c string, where one ends the program.)
+    COVERAGE=1 COVERAGE_SHARD=1/4 COVERAGE_PATH= COVERAGE_LOCAL_JOBS= \
+      BATS_ONLY=0 BATS_UNIT_SHARD= BATS_FRAGILE=0 BATS_INTEGRATION=0 \
+      BATS_FILE= BATS_FILTER= LINT_ONLY=0 LINT_TOOL= main --ci
   '
   assert_success
   assert_output --partial "COVERAGE-RAN shard=[1/4]"
@@ -2887,7 +3187,12 @@ AWK
     exit 0'
   mock_cmd "id" 'echo 1000'
 
-  run bash -c '
+  # The ambient environment this mode is actually reached from. Both other
+  # selectors are set here because `_run_via_compose` forwards them FROM
+  # THE ENVIRONMENT: this suite's own specs run inside a coverage shard, or
+  # inside a `--coverage-local` run, and whatever that run carries is what
+  # this dispatch inherits unless it says otherwise.
+  run env COVERAGE_SHARD=1/4 COVERAGE_LOCAL_JOBS=32 bash -c '
     source /source/script/test/test.sh
     export PATH="'"${MOCK_DIR}"'"
     main --coverage-path test/bats/unit/ci_spec.bats --filter shard
@@ -2903,6 +3208,13 @@ AWK
   assert_output --partial "BATS_ONLY=1"
   # Never a shard: the mode names its target, it does not partition.
   refute_output --regexp 'COVERAGE_SHARD=[0-9]'
+  # And never a job count. This mode runs ONE spec; a forwarded
+  # COVERAGE_LOCAL_JOBS is a whole-suite parallel run's selector, and it is
+  # ignored here only because the in-container dispatch happens to read
+  # COVERAGE_PATH first. An ignored value carried into the container is the
+  # value that a later reordering turns into a read one -- which is the
+  # argument this dispatch's own comment makes about COVERAGE_SHARD.
+  refute_output --regexp 'COVERAGE_LOCAL_JOBS=[0-9]'
 }
 
 # why: In-container branch sits ahead of _run_coverage; no report line
@@ -2923,7 +3235,16 @@ AWK
     # the day the branch regresses from writing coverage/timings.tsv into
     # the mounted checkout while the assertion is still red.
     _run_coverage() { printf "REACHED-FULL-RUNNER\n"; }
-    COVERAGE=1 COVERAGE_PATH=test/bats/unit/ci_spec.bats main --ci
+    # Every other selector the dispatch forwards is pinned for the same
+    # reason the marker exists: COVERAGE_PATH is asserted to out-rank
+    # them, and a block that inherited one from the run it is inside
+    # would be asserting that only for whichever run happened to be in
+    # flight. LINT_ONLY earns its place too -- set, it returns from this
+    # dispatch before the coverage branch is read.
+    COVERAGE=1 COVERAGE_PATH=test/bats/unit/ci_spec.bats COVERAGE_SHARD= \
+      COVERAGE_LOCAL_JOBS= BATS_ONLY=0 BATS_UNIT_SHARD= BATS_FRAGILE=0 \
+      BATS_INTEGRATION=0 BATS_FILE= BATS_FILTER= LINT_ONLY=0 LINT_TOOL= \
+      main --ci
   '
   assert_success
   refute_output --partial "REACHED-FULL-RUNNER"

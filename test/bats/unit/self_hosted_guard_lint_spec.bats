@@ -472,13 +472,19 @@ _guard_lines() {
   [[ "${output}" == *"clean"* ]]
 }
 
-@test "self-hosted guard: the real tree's eligible set is the three runtime-matrix worker jobs" {
+@test "self-hosted guard: the real tree's eligible set is the three runtime-matrix worker jobs plus the one that names the runner outright" {
   # Pins the CURRENT answer, so a change to the eligible set is a
-  # deliberate edit here rather than a silent drift. All three take their
-  # runner label from a `fromJSON` matrix; every other job in the tree
-  # resolves statically to a reserved hosted label.
+  # deliberate edit here rather than a silent drift.
+  #
+  # Three of the four take their runner label from a `fromJSON` matrix --
+  # unknowable statically, so they default to eligible. The fourth,
+  # coverage-local.yaml's job (base#726), is the first in this tree to say
+  # `runs-on: [self-hosted, gpu]` in as many words: it validates the in-job
+  # parallel kcov mode on the org's workstation, which is a machine the
+  # hosted matrix cannot stand in for. Every other job resolves statically
+  # to a reserved hosted label.
   REPO_ROOT="/source"
   run _run_self_hosted_guard
   [ "${status}" -eq 0 ]
-  [[ "${output}" == *"3 self-hosted-eligible, all guarded"* ]]
+  [[ "${output}" == *"4 self-hosted-eligible, all guarded"* ]]
 }

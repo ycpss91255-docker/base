@@ -50,6 +50,12 @@
 #                                  #
 #   ./test.sh --coverage        # Run ShellCheck + Bats + Kcov coverage
 #                             # (full suite; local `just test coverage`)
+#   ./test.sh --coverage-local [--jobs N]
+#                             # Full suite under kcov as N parallel kcov
+#                             # processes (default nproc), merged into one
+#                             # report. Same scope as --coverage; for a
+#                             # single fat runner where the CI shard matrix
+#                             # does not help
 #   ./test.sh --coverage-shard N/T  # Run kcov over coverage shard N of T
 #                                  # (skip ShellCheck). Used by the coverage
 #                                  # matrix in self-test.yaml. Codecov
@@ -834,6 +840,18 @@ Options:
   --coverage              Run tests with Kcov coverage (slow; CI / release
                           check). Full suite (unit + integration). Local
                           `just test coverage`.
+  --coverage-local        Run the FULL suite under kcov as N concurrent
+      [--jobs N]          kcov processes (default N=nproc) over the shared
+                          time-balanced partition, merged with
+                          `kcov --merge` into one report. Same specs and
+                          same coverage/ tree as --coverage, so it stamps
+                          `scope=full` and a release badge accepts it; it
+                          just uses the whole machine. For a single fat
+                          runner, where the CI shard matrix buys nothing
+                          (one runner runs one job). A slice that produced
+                          no report FAILS the run rather than merging to a
+                          smaller total. Rejected with --coverage-shard /
+                          --coverage-path / --bats-path (#726)
   --coverage-shard N/T    Run kcov over coverage shard N of T (skip
                           ShellCheck). Mirrors --bats-unit-shard's
                           round-robin slice; integration runs on the last
@@ -866,6 +884,16 @@ Options:
                           drive compose themselves (`just test system` /
                           `just test smoke`); the ordinary dispatch asks on
                           its own
+  --clean-coverage        Remove this checkout's coverage/ reports and
+                          exit. The removal is done by a container over
+                          the same bind mount that wrote them, because the
+                          reports are written as root and a host `rm`
+                          cannot unlink a file out of root's directory --
+                          which is the state an interrupted or a failed
+                          run used to leave behind for good. Succeeds when
+                          there is nothing there; fails, naming the path,
+                          when anything is left. What `just test clean`
+                          runs
   --compose-project-name  Print the compose project name this checkout
                           resolves (a hash of its absolute path, so two
                           checkouts sharing a directory basename do not
@@ -1294,6 +1322,13 @@ _stamp_coverage_head() {
 # describes), a read-only checkout, an I/O error. The run stops before it
 # writes a single report under a certificate it could not invalidate.
 #
+# This refusal is the one the operator MEETS, so it is the one that has to
+# name the way out. The first of those cases is also what an interrupted
+# run leaves behind, and neither `rm` nor `trash-put` can clear it -- so
+# the message names `just test clean`, which reclaims the directory from
+# inside a container, rather than advice the reader cannot take
+# (base#1032).
+#
 # The RUN MANIFEST goes with it, and inherits the same rule, because the
 # scope on the certificate is now derived from the manifest: it is half
 # the certificate, so leaving it behind leaves half a certificate
@@ -1314,14 +1349,27 @@ _invalidate_coverage_head() {
     # writer), and presence is what the next stamp will be derived from.
     if [[ -e "${_path}" ]]; then
       _die ci_coverage_evidence_not_erased \
-        "cannot remove the stale coverage evidence ${_path}; a run that starts with it standing would write fresh partial reports under an earlier whole-suite certificate. Remove it (or fix the ownership of ${_root}/coverage) and re-run."
+        "cannot remove the stale coverage evidence ${_path}; a run that starts with it standing would write fresh partial reports under an earlier whole-suite certificate. The usual cause is a run that never handed the reports back -- an interrupt, a killed container -- which leaves ${_root}/coverage owned by the container that wrote it: unlinking a file needs write permission on the DIRECTORY holding it, so 'rm' and 'trash-put' both fail here and neither is advice you can act on. 'just test clean' takes the directory back from inside a container over the same mount; run that, then re-run."
     fi
   done
   return 0
 }
 
 # ── Fix coverage permissions ─────────────────────────────────────────────────
-
+#
+# The handback. Everything the suite writes into the bind-mounted checkout
+# is written by a container running as root, so this is what the run OWES
+# the invoking user -- and it is owed whatever the verdict was, which is
+# why it is no longer called from the success path. It is called from the
+# EXIT handler (_test_exit_reclaim), armed once at the top of the
+# in-container dispatch, so a red suite, an early `return 0` and an
+# `exit` all reach it. The reports it hands back are already on disk by
+# then: kcov writes cobertura.xml before the driver returns the failing
+# spec's status, and _run_coverage preserves that on purpose (base#1032).
+#
+# It cannot cover a container that never got to run its exit handler at
+# all -- a `kill -9`, a machine that lost power. That case has no
+# in-process answer and is what `just test clean` exists for.
 _fix_permissions() {
   local uid="${HOST_UID:-}"
   local gid="${HOST_GID:-}"
@@ -1340,6 +1388,93 @@ _fix_permissions() {
   if [[ -n "${uid}" && -n "${gid}" && -d "${REPO_ROOT}/coverage" ]]; then
     chown -R "${uid}:${gid}" "${REPO_ROOT}/coverage"
   fi
+}
+
+# ── Reclaiming coverage/ when no handback ever ran ───────────────────────────
+#
+# `just test clean` used to be `rm -rf coverage/` on the HOST, and that is
+# not a thing the host can always do: the reports are written by a
+# container running as root over the bind mount, and unlinking a file
+# needs write permission on the DIRECTORY holding it. Once that directory
+# is root's, the host user cannot empty it -- `trash-put` fails the same
+# way -- and the next run's _invalidate_coverage_head correctly refuses to
+# start over evidence it could not erase. The tree is then stuck with no
+# in-repo remedy, and the operator's only moves were raw docker or sudo,
+# both outside this project's control surface (base#1032).
+#
+# The handback above closes the common cause. It cannot close all of them:
+# a Ctrl-C, a killed container or a lost machine leaves the same directory
+# with no exit handler having run. So the repair has to exist on its own,
+# and it goes where root is -- the same service, over the same mount, that
+# made the directory root's in the first place.
+#
+# WHY NOT A HOST `rm` FIRST, for the trees that do not need this. Because
+# then the container path is the one that only ever runs on the tree
+# nobody can reproduce, i.e. the untested branch of the only case that
+# matters. One path is what makes the case that matters the case that is
+# exercised. The cost is a container start on a `clean` that could have
+# been a `rm`; the reports it is cleaning came from a run that already
+# built the image.
+#
+# WHY THE TARGET IS A LITERAL. This is `rm -rf` as root inside a mount of
+# the whole checkout, so the distance between "remove the reports" and
+# "remove the checkout" is one variable that expanded to the wrong thing.
+# There is no such variable: the command is a single-quoted constant and
+# the path in it is the CONTAINER-side mount point compose.yaml pins for
+# the `ci` service, not anything derived on this host. Nothing the caller
+# can set reaches it.
+readonly _COVERAGE_CLEAN_COMMAND='rm -rf /source/coverage'
+
+# _clean_coverage [root] -- hand `coverage/` back by removing it from
+# inside the container, then PROVE it is gone.
+#
+# The proof is the point, and it is taken on the host afterwards rather
+# than read off the container's exit status: a clean that half-works is
+# how the tree gets back into the state this exists to leave. A directory
+# still standing is a named, loud death whatever compose reported.
+#
+# Three states, one path: absent (nothing to do, and no container is
+# started for it), the user's, and root's.
+_clean_coverage() {
+  local _root="${1:-${REPO_ROOT}}"
+  local _target="${_root}/coverage"
+  if [[ ! -e "${_target}" ]]; then
+    _log_info ci ci_coverage_clean_absent \
+      "display=no coverage reports under ${_target}; nothing to reclaim." \
+      "target=${_target}"
+    return 0
+  fi
+
+  # The same four values every compose dispatch in this file resolves, and
+  # for the same reason: compose interpolates the WHOLE file whatever
+  # command it is given, and every `${VAR:?}` in it must have a value or
+  # compose refuses to read the file at all.
+  local _project _image _rc=0
+  _project="$(_resolve_compose_project_name "${_root}")"
+  export HOST_UID HOST_GID
+  HOST_UID="$(id -u)"
+  HOST_GID="$(id -g)"
+  export BASE_CHECKOUT_PATH="${_root}"
+  _image="$(_resolve_test_tools_image)"
+  # This mints a project, so the end-of-run sweep has to know: a repair
+  # that leaves a network behind is a repair that makes litter.
+  _RECLAIM_ARMED=1
+  _ensure_test_tools_image "${_image}" "${_project}"
+  export TEST_TOOLS_IMAGE="${_image}"
+  # `ci`, not `coverage`: the two run the same image over the same mount,
+  # and this one carries no docker socket. The status is captured rather
+  # than left to errexit because it is EVIDENCE for the message below, not
+  # the verdict -- the verdict is whether the directory is still there.
+  docker compose -p "${_project}" -f "${_root}/compose.yaml" \
+    run --rm --entrypoint /bin/sh ci -c "${_COVERAGE_CLEAN_COMMAND}" || _rc=$?
+
+  if [[ -e "${_target}" ]]; then
+    _die ci_coverage_not_reclaimed \
+      "${_target} is still there after the reclaim container exited ${_rc}; the reports have NOT been handed back and the next coverage run will refuse to start over them. Check that the docker daemon is reachable and that nothing is writing there, then run 'just test clean' again."
+  fi
+  _log_info ci ci_coverage_cleaned \
+    "display=reclaimed ${_target}." "target=${_target}"
+  return 0
 }
 
 # ── Local test-tools tag ─────────────────────────────────────────────────────
@@ -1500,18 +1635,24 @@ _compute_compose_project_name() {
   return 0
 }
 
-# _resolve_compose_project_name
+# _resolve_compose_project_name [root]
 #
 # Prints the project name `_run_via_compose` passes to `docker compose -p`.
 # COMPOSE_PROJECT_NAME wins verbatim so CI can key the project to its run
 # id; the derivation is a local default only.
+#
+# The root is an argument for the same reason _invalidate_coverage_head's
+# is: the name is keyed to a CHECKOUT PATH, so a caller working on a tree
+# other than this process's own must be able to say which. Every
+# production caller passes none and means REPO_ROOT.
+# shellcheck disable=SC2120  # production callers pass no args; _clean_coverage and the specs do
 _resolve_compose_project_name() {
   if [[ -n "${COMPOSE_PROJECT_NAME:-}" ]]; then
     printf '%s\n' "${COMPOSE_PROJECT_NAME}"
     return 0
   fi
   local _name=""
-  _compute_compose_project_name "${REPO_ROOT}" _name
+  _compute_compose_project_name "${1:-${REPO_ROOT}}" _name
   printf '%s\n' "${_name}"
   return 0
 }
@@ -2147,6 +2288,7 @@ _run_via_compose() {
     -e COVERAGE="${_coverage}" \
     -e COVERAGE_SHARD="${COVERAGE_SHARD:-}" \
     -e COVERAGE_PATH="${COVERAGE_PATH:-}" \
+    -e COVERAGE_LOCAL_JOBS="${COVERAGE_LOCAL_JOBS:-}" \
     -e BATS_ONLY="${BATS_ONLY:-0}" \
     -e BATS_UNIT_SHARD="${BATS_UNIT_SHARD:-}" \
     -e BATS_FRAGILE="${BATS_FRAGILE:-0}" \
@@ -2192,21 +2334,25 @@ main() {
   local coverage_path=""
   local bats_filter=""
   local coverage_shard=""
+  # The in-job parallel kcov mode (base#726). `coverage_local` is the mode
+  # switch; `coverage_jobs` is the count the operator typed, empty until
+  # the nproc default is resolved below. They are two variables because
+  # `--jobs` on its own has to be refusable: a count with no mode is a typo
+  # for the mode, and defaulting it would run the wrong one silently.
+  local coverage_local=0
+  local coverage_jobs=""
+  # The queries -- `--test-tools-image`, `--compose-project-name`,
+  # `--await-project`. Recorded rather than answered on the spot: see the
+  # dispatch below the flag-combination guards.
+  local name_query="" repair=""
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
       -h|--help) usage ;;
       --ci) mode="ci"; shift ;;
       --lint) lint=1; shift ;;
-      --await-project)
-        # A query, like --compose-project-name / --test-tools-image: it
-        # answers about this checkout and exits, minting nothing. The
-        # project it asks about comes from the same resolver the dispatch
-        # uses, so a caller that has already exported COMPOSE_PROJECT_NAME
-        # is asking about the project it is actually going to drive.
-        _await_project_quiescent "$(_resolve_compose_project_name)" "${REPO_ROOT}"
-        exit $?
-        ;;
+      --await-project) name_query="await-project"; shift ;;
+      --clean-coverage) repair="clean-coverage"; shift ;;
       --shellcheck) lint_tool="shellcheck"; shift ;;
       --hadolint) lint_tool="hadolint"; shift ;;
       --issueref) lint_tool="issueref"; shift ;;
@@ -2267,15 +2413,12 @@ main() {
       --coverage-path) coverage_path="${2:?--coverage-path expects <path>}"; shift 2 ;;
       --filter) bats_filter="${2:?--filter expects <regex>}"; shift 2 ;;
       --coverage) mode="coverage"; shift ;;
+      --coverage-local) mode="coverage"; coverage_local=1; shift ;;
+      --jobs) coverage_jobs="${2:?--jobs expects <n>}"; shift 2 ;;
       --coverage-shard) mode="coverage"; coverage_shard="${2:?--coverage-shard expects <n>/<total>}"; shift 2 ;;
       --system) system=1; shift ;;
-      # Name-resolution primitives. They print one line and stop -- the
-      # `just test system` recipe reads them so that the build-only
-      # test-tools service and the ci-system consumer resolve the SAME tag
-      # (a mismatch there is silent: the consumer would quietly pull the
-      # published image while the local build sat unused).
-      --test-tools-image) _resolve_test_tools_image; return 0 ;;
-      --compose-project-name) _resolve_compose_project_name; return 0 ;;
+      --test-tools-image) name_query="test-tools-image"; shift ;;
+      --compose-project-name) name_query="compose-project-name"; shift ;;
       *) _die ci_unknown_option "Unknown option: $1" ;;
     esac
   done
@@ -2286,6 +2429,58 @@ main() {
   if [[ -n "${lint_tool}" && "${lint}" != "1" ]]; then
     _die ci_lint_tool_without_lint \
       "--${lint_tool} narrows --lint; use './test.sh --lint --${lint_tool}' or '--${lint_tool}-only'."
+  fi
+
+  # `--jobs` narrows `--coverage-local` the same way, and is refused here
+  # -- beside the other "flag with no partner" typo guard and AHEAD of
+  # every short-circuit return below. A guard whose whole claim is that a
+  # count with no mode would otherwise be accepted silently cannot itself
+  # be skipped by the paths that return early: placed after them,
+  # `--jobs 4 --shellcheck-only` ran the linter and said nothing about the
+  # count, which is the silence this refusal is named after. The mode
+  # CONFLICTS (--coverage-local against --coverage-shard / --coverage-path)
+  # stay down with the dispatch: those are two modes disagreeing, and on a
+  # short-circuit path neither mode runs at all.
+  if [[ -n "${coverage_jobs}" && "${coverage_local}" != "1" ]]; then
+    _die ci_jobs_without_coverage_local \
+      "--jobs <n> sets the kcov process count of --coverage-local; it means nothing on its own (bare 'just test' already runs bats in parallel). Use './test.sh --coverage-local --jobs ${coverage_jobs}'."
+  fi
+
+  # The queries. They answer about this checkout and stop, minting nothing
+  # -- the `just test system` / `smoke` / `stop` recipes read them so that
+  # the build-only test-tools service and the ci-system consumer resolve
+  # the SAME tag (a mismatch there is silent: the consumer would quietly
+  # pull the published image while the local build sat unused), and
+  # `--await-project` asks about the project the dispatch would drive,
+  # through the same resolver, so a caller that already exported
+  # COMPOSE_PROJECT_NAME is asking about the one it is going to use.
+  #
+  # Answered HERE rather than from inside the parse loop. A `return` taken
+  # mid-loop is a return taken before the guards above have run, and before
+  # the rest of the command line has even been read: `--jobs 4
+  # --compose-project-name` printed a name and swallowed the typo, and a
+  # misspelt flag after one of these was never reported either.
+  if [[ -n "${name_query}" ]]; then
+    case "${name_query}" in
+      test-tools-image) _resolve_test_tools_image; return 0 ;;
+      compose-project-name) _resolve_compose_project_name; return 0 ;;
+      await-project)
+        _await_project_quiescent "$(_resolve_compose_project_name)" "${REPO_ROOT}"
+        exit $?
+        ;;
+    esac
+  fi
+
+  # A repair, not a query: it answers nothing and it is the whole run. It
+  # defers to here for the SAME reason the queries above do -- a mid-loop
+  # exit is taken before the guards have run and before the rest of the
+  # command line has been read, so `--clean-coverage --typo` would repair
+  # and swallow the typo. `exit`, not `return`, so the EXIT handler sweeps
+  # the project the reclaim just minted.
+  if [[ -n "${repair}" ]]; then
+    case "${repair}" in
+      clean-coverage) _clean_coverage "${REPO_ROOT}"; exit $? ;;
+    esac
   fi
 
   # The host-direct lint primitives (`--shellcheck-only`,
@@ -2347,6 +2542,51 @@ main() {
     return 0
   fi
 
+  # ── The in-job parallel kcov mode (base#726) ───────────────────────────
+  #
+  # `--coverage-local [--jobs N]` is a THIRD kcov mode beside `--coverage`
+  # (serial, whole suite) and `--coverage-shard` (one slice of the CI
+  # matrix), and it has to be told apart from both: it produces a
+  # whole-suite figure like the first and runs a partition like the second.
+  #
+  # The conflicts are checked HERE, ahead of the `--coverage-path` guard
+  # below, so each conflict is reported by the flag the operator typed. A
+  # `--coverage-local --coverage-shard 1/4` that fell through would be
+  # refused by a message naming only `--coverage-path`, which is not in the
+  # command line at all. The `--jobs`-with-no-mode refusal is NOT here: it
+  # is a typo guard rather than a conflict, so it sits with the other one
+  # of those, above every short-circuit return.
+  local coverage_local_jobs=""
+  if [[ "${coverage_local}" == "1" ]]; then
+    if [[ -n "${coverage_shard}" ]]; then
+      _die ci_coverage_local_conflict \
+        "--coverage-local runs EVERY slice of the partition and reports the whole suite; --coverage-shard runs ONE. Pick one."
+    fi
+    if [[ -n "${coverage_path}" || -n "${bats_path}" ]]; then
+      _die ci_coverage_local_conflict \
+        "--coverage-local produces a whole-suite coverage figure; --coverage-path instruments ONE spec and reports none, and --bats-path is the deliberately kcov-free loop. Pick one."
+    fi
+    # The default is the container's core count, resolved on the host so the
+    # number that was chosen can be said out loud in the dispatch (and
+    # refused here rather than inside a container).
+    coverage_local_jobs="${coverage_jobs:-$(nproc 2>/dev/null || echo 1)}"
+    # `^[1-9][0-9]*$`, not `^[0-9]+$` plus an arithmetic `< 1`. The count
+    # is read by TWO consumers in two bases: every loop that counts slices
+    # uses bash arithmetic, where a leading zero is octal, and
+    # `_shard_unit_files` hands the same string to awk as `-v t=`, where it
+    # is decimal. `010` is 8 to one and 10 to the other, so the run would
+    # launch 8 slices of a 10-way partition and publish the merge of them
+    # as a whole-suite figure. One pattern that admits only what both read
+    # alike is the fix; resolving it to a base here would still hand back a
+    # number the operator did not write. The pattern also excludes `0`,
+    # which is why no `< 1` follows it -- a second reading of the same
+    # value is the shape being removed.
+    if ! [[ "${coverage_local_jobs}" =~ ^[1-9][0-9]*$ ]]; then
+      _die ci_invalid_coverage_jobs \
+        "--jobs '${coverage_local_jobs}' is not a positive decimal integer. It is the number of concurrent kcov processes (default: nproc). A leading zero is refused rather than resolved: bash arithmetic reads '010' as 8 and the partitioner's awk reads it as 10, so the run would instrument 8 slices of a 10-way partition and report the merge as the whole suite."
+    fi
+  fi
+
   # Instrumented single-spec inner loop. `--coverage-path <file|dir>` runs
   # ONE named spec under kcov via the `coverage` container -- the loop for
   # the failure class whose whole evidence is "red under kcov, green
@@ -2372,13 +2612,19 @@ main() {
         "--coverage-path runs ONE named spec under kcov and reports no coverage figure; it cannot combine with --coverage / --coverage-shard (a figure over a partition) or --bats-path (the no-kcov loop). Pick one."
     fi
     _validate_spec_target "${coverage_path}"
-    # COVERAGE_SHARD is cleared, not merely left unset: _run_via_compose
-    # forwards it from the AMBIENT environment, so a caller that already has
-    # one -- most obviously this suite's own specs when they run inside a
-    # coverage shard -- would hand this mode a partition value it does not
-    # use. Carrying an ignored value is how it later becomes a read one.
+    # Every OTHER selector is cleared, not merely left unset:
+    # _run_via_compose forwards them from the AMBIENT environment, so a
+    # caller that already carries one -- most obviously this suite's own
+    # specs, which run inside a coverage shard or a `--coverage-local` run
+    # -- would hand this mode a partition value or a job count it does not
+    # use. Carrying an ignored value is how it later becomes a read one:
+    # the in-container dispatch reads COVERAGE_PATH first TODAY, and that
+    # ordering is the only thing standing between an inherited
+    # COVERAGE_LOCAL_JOBS and a one-spec loop that runs the whole suite.
+    # coverage_badge_spec's "every coverage dispatch pins every selector
+    # the container reads" demands the whole roster here for that reason.
     BATS_ONLY=1 COVERAGE_PATH="${coverage_path}" BATS_FILTER="${bats_filter}" \
-      COVERAGE_SHARD="" _run_via_compose coverage 1
+      COVERAGE_SHARD="" COVERAGE_LOCAL_JOBS="" _run_via_compose coverage 1
     return 0
   fi
 
@@ -2415,9 +2661,19 @@ main() {
       # bats-unit / bats-integration jobs set these via the outer
       # `--bats-unit-shard` / `--bats-integration` flags so the
       # in-container path matches the local dev path.
+      #
+      # Arm the handback FIRST, above every phase and every early
+      # `return`. This is the process that runs as root over the mounted
+      # checkout, so it is the one that owes the files back, and it owes
+      # them whatever it is about to conclude. Called from the EXIT
+      # handler rather than after each phase: the calls used to sit on the
+      # success path, and a suite with one red test therefore returned
+      # without one -- leaving coverage/ owned by root and the checkout
+      # unable to run coverage again (base#1032). The reports are on disk
+      # before the verdict is, so there is nothing to wait for.
+      _HANDBACK_ARMED=1
       if [[ "${system}" == "1" ]]; then
         _run_system
-        _fix_permissions
         return 0
       fi
       # LINT_ONLY: `just test lint [--shellcheck | --hadolint]`
@@ -2461,16 +2717,27 @@ main() {
         # must not fall through to _run_coverage, which writes
         # coverage/cobertura.xml + coverage/timings.tsv into the mounted
         # checkout -- the exact artifacts the coverage-gate merges and the
-        # next partition weighs itself by. Nothing to chown and no report
-        # to announce either, hence no _fix_permissions and no report line.
+        # next partition weighs itself by. No report to announce either,
+        # hence no report line. The handback armed above still fires and
+        # is a no-op on a tree with no coverage/; on a tree that has one
+        # from an earlier run, handing it back is correct anyway.
         if [[ -n "${COVERAGE_PATH:-}" ]]; then
           _run_coverage_path "${COVERAGE_PATH}"
           return 0
         fi
-        # COVERAGE_SHARD narrows kcov to one matrix slice; empty =
+        # COVERAGE_LOCAL_JOBS is the in-job parallel mode (base#726): the
+        # WHOLE suite, run as N concurrent kcov processes over the shared
+        # partition and merged. It is checked ahead of the serial runner
+        # and after COVERAGE_PATH -- it covers the same specs
+        # `_run_coverage` with no shard covers, so which of the two runs is
+        # a question about how many cores to use, not about what to
+        # measure. COVERAGE_SHARD narrows kcov to one matrix slice; empty =
         # full suite (local `just test coverage` / release path).
-        _run_coverage "${COVERAGE_SHARD:-}"
-        _fix_permissions
+        if [[ -n "${COVERAGE_LOCAL_JOBS:-}" ]]; then
+          _run_coverage_parallel "${COVERAGE_LOCAL_JOBS}"
+        else
+          _run_coverage "${COVERAGE_SHARD:-}"
+        fi
         echo "Coverage report: ${REPO_ROOT}/coverage/index.html"
       elif [[ -n "${BATS_FILE:-}" || -n "${BATS_FILTER:-}" ]]; then
         _run_bats_path
@@ -2527,13 +2794,16 @@ main() {
       # One call for both branches: the shard spec is empty on the full
       # run, which is the value that has to be said out loud.
       #
-      # The roster is not a memory exercise. coverage_badge_spec's "the
+      # The roster is not a memory exercise. coverage_badge_spec's "every
       # coverage dispatch pins every selector the container reads"
       # intersects the `-e NAME="${NAME:-}"` lines of _run_via_compose
       # with the names the in-container COVERAGE branch reads, and fails
-      # until each member is assigned here -- so a third selector added to
-      # that forwarder arrives with its clearing already demanded.
+      # until each member is assigned at EVERY `_run_via_compose coverage`
+      # call site -- so a third selector added to that forwarder, or a
+      # third mode wired to that container, arrives with its clearing
+      # already demanded.
       COVERAGE_SHARD="${coverage_shard}" COVERAGE_PATH="" \
+        COVERAGE_LOCAL_JOBS="${coverage_local_jobs}" \
         _run_via_compose coverage 1
       # The status is read AFTER the branch, never as `|| rc=$?`: a
       # command on the left of `||` runs with errexit suspended, and the
@@ -2609,8 +2879,29 @@ main() {
 #   `just docker prune --tool-tags` alongside --volumes and
 #   --worktree-orphans instead of something the suite does to the machine on
 #   its way out.
+#
+#   TWO reclamations, one handler, because a shell has ONE EXIT trap. The
+#   HANDBACK is the container-side half: the process inside the container
+#   ran as root over the bind-mounted checkout, so it hands coverage/ back
+#   to the invoking uid here rather than from the success path it used to
+#   sit on -- a red suite owes those files just as much as a green one
+#   does (base#1032). The two halves never arm together: only the
+#   in-container dispatch arms the handback, only a host-side compose
+#   dispatch arms the project sweep.
+#
+#   The handback follows the sweep's rule about the status, for the sweep's
+#   reason: a chown that failed is REPORTED and leaves the verdict alone,
+#   and the report names `just test clean`, which is the way back. The one
+#   exception is a HOST_UID that is not an id at all -- _fix_permissions
+#   dies on that, because a run whose ownership contract is unconfigurable
+#   has nothing useful to say about the code either.
 _test_exit_reclaim() {
   local _rc=$?
+  if [[ "${_HANDBACK_ARMED:-0}" == "1" ]]; then
+    _fix_permissions \
+      || _log_warn ci ci_handback_failed \
+        "display=could not hand ${REPO_ROOT}/coverage back to ${HOST_UID:-?}:${HOST_GID:-?}; the reports are still owned by the container that wrote them, and the next coverage run will refuse to start over them. 'just test clean' reclaims them (the run's verdict is unchanged)."
+  fi
   if [[ "${_RECLAIM_ARMED:-0}" == "1" ]]; then
     _reclaim_orphan_projects \
       || _log_warn ci ci_reclaim_failed \

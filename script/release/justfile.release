@@ -36,6 +36,22 @@ default:
 # Forgetting it is caught by coverage_badge_spec (the committed badge must
 # name the current .version), but only after the tag, as a red main.
 #
+# THE RELEASE ORDER, and it is not free to permute:
+#
+#   1. `just test coverage` -- the FULL run, no shard argument, on the
+#      UNMODIFIED tree
+#   2. bump `.version` (and promote the CHANGELOG section)
+#   3. `just release coverage-badge`
+#   4. the `chore: release vX.Y.Z` commit
+#
+# Steps 1 and 2 are the pair that gets swapped, and swapping them costs a
+# whole second coverage run. Bumping first makes coverage_badge_spec's
+# "the committed badge names the released version" fail -- the committed
+# badge still names the PREVIOUS version at that point -- so the coverage
+# run goes red over a badge that has not been regenerated yet, and a red
+# run produces no stamp, so the badge then refuses too. Neither is a
+# defect in the tree; both are the order.
+#
 # It reads the kcov reports under coverage/, so run `just test coverage` on
 # the commit being released first -- the FULL run, with no shard argument.
 # It REFUSES -- writing nothing, leaving the previous badge in place --

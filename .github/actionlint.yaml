@@ -1,0 +1,27 @@
+# actionlint configuration.
+#
+# WHY THIS FILE EXISTS. actionlint validates every `runs-on:` label against
+# GitHub's reserved set and rejects anything else, because a typo in a label
+# is otherwise invisible: the job is queued and waits forever rather than
+# failing. A self-hosted runner's own labels are outside that set by
+# construction, so they have to be declared here for the check to keep its
+# value on the labels it CAN decide.
+#
+# WHERE `gpu` COMES FROM. The org has one registered runner, and its labels
+# are `self-hosted,Linux,X64,gpu`. That is the machine the full-suite
+# coverage workflow is written for. Verify with:
+#
+#     gh api /orgs/ycpss91255-docker/actions/runners \
+#       --jq '.runners[] | {name, status, labels: [.labels[].name]}'
+#
+# WHAT THIS DOES NOT CHECK, and why nothing here can. Declaring a label does
+# not prove a runner still carries it -- that fact lives on GitHub, not in
+# this tree, and the gate runs offline. If the org relabels the runner, this
+# file keeps actionlint quiet while the workflow stops being schedulable.
+# The failure is not silent, but it surfaces at dispatch rather than at lint:
+# a manually dispatched run sits in "Waiting for a runner to pick up this
+# job" instead of erroring. Keep this list to labels a real runner carries;
+# do not add one speculatively.
+self-hosted-runner:
+  labels:
+    - gpu
