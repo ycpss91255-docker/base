@@ -2746,7 +2746,7 @@ forwarding for caller abort, and DRY_RUN skip.
 | `init.sh --list-installed-paths output is sorted and free of duplicates` | - |
 | `init.sh --list-installed-paths mutates nothing and never leaves its cwd` | - |
 
-### test/bats/unit/init_spec.bats (76)
+### test/bats/unit/init_spec.bats (77)
 
 Unit coverage for `init.sh` helpers that previous rounds exercised only
 through the Level-1 integration test. Complements
@@ -2801,6 +2801,7 @@ are hard to trigger from a real `bash template/init.sh` invocation
 | `the resync: stages the wrappers it installed (#1036)` | The wrappers are output of the same mechanical run as the Dockerfile, so leaving them out of the commit leaves the tree disagreeing with the release the commit claims |
 | `the resync: stages the retired root wrapper it removed (#1036)` | The resync DELETES the pre-relocation root wrappers, and a deletion left out of the commit is the same tree/commit disagreement one direction over |
 | `_stage_resync_output: warns when git cannot read the repo (#1036)` | "git cannot answer" is not "there is nothing to stage" -- resolving it to silent success is how an unstaged rewrite gets pushed |
+| `_stage_resync_output: a path outside the repo root loses only itself (#1036)` | `git add` fails the WHOLE batch on one path it will not take, so an entry pointing outside the repo costs the commit every other path -- including the Dockerfile this staging exists to commit |
 | `_stage_resync_output: is silent when the tree is no git repo at all (#1036)` | `just base init` is also a repair command for a hand-bootstrapped tree, and a directory that is genuinely not a repo is not a problem to report |
 | `the resync: stages no Dockerfile when no migration applies (#1036)` | Nothing rewritten is nothing to stage -- and not an error |
 | `_init_existing_repo: syncs base-version-monitor.yaml on upgrade (#777)` | - |

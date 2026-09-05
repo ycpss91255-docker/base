@@ -758,6 +758,35 @@ EOF
   assert_output --partial "could not stage"
 }
 
+# why: `git add` fails the WHOLE batch on one path it will not take, so an
+# entry pointing outside the repo costs the commit every other path --
+# including the Dockerfile this staging exists to commit
+@test "_stage_resync_output: a path outside the repo root loses only itself (#1036)" {
+  _source_init
+  cat > "${TMP_REPO}/Dockerfile" <<'EOF'
+FROM busybox AS lint
+COPY .base/script/docker/lib /lint/lib
+EOF
+  _git_seed_consumer
+  _init_existing_repo
+  # A record naming somewhere this repo does not reach. No migration
+  # writes outside the repo root today; the point is that the day one
+  # does, the rewrite it made INSIDE still has to reach the commit.
+  STRAY_DIR="$(mktemp -d)"
+  printf 'not ours\n' > "${STRAY_DIR}/stray.txt"
+  migrated_files() {
+    printf '%s\n' "${TMP_REPO}/Dockerfile" "${STRAY_DIR}/stray.txt"
+  }
+
+  run _stage_resync_output
+  assert_success
+  assert_output --partial "stray.txt"
+
+  run git -C "${TMP_REPO}" diff --cached --name-only
+  assert_line "Dockerfile"
+  rm -rf "${STRAY_DIR}"
+}
+
 # why: `just base init` is also a repair command for a hand-bootstrapped
 # tree, and a directory that is genuinely not a repo is not a problem to
 # report
