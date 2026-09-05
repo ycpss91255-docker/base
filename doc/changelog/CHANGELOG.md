@@ -68,10 +68,60 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   Never a sweep, so a file you were editing stays yours. **An upgrade FROM
   an older release still prints the old advice**, which comes from your own
   vendored copy: check `git status` once after it.
+- **every CI job now gets its tooling image the same way, and the probe
+  asserts what the image actually installs (closes #1010)** -- the obtain
+  decision was shell pasted into six jobs and five of them probed the pulled
+  `:main`; `acceptance`, the job whose scaffolded lint stage IS that image,
+  pulled and exited 0. It is one script now
+  (`script/ci/obtain_test_tools.sh`, ADR-00000033), and a workflow naming
+  the rolling tag by hand fails the suite. The roster is now the final
+  stage's own `apk add` plus what it puts on PATH, so `yq`, `grep` and
+  `coreutils` are asserted. A push that changes the Dockerfile, and any run
+  that cannot diff its own ref, rebuilds instead of pulling.
+- **the system job now runs for the files its own specs are about (closes
+  #1011)** -- `system_relevant` was a hand-kept list that named the wrapper
+  `setup.sh` and not `setup_tui.sh`, base's entrypoint and not the shipped
+  one, every wrapper `.sh` and no justfile, and never
+  `dockerfile/Dockerfile.smoke` -- the file the only spec that builds it
+  names in the line that builds it. Editing any of them alone skipped the
+  one job that exercises them. The pathspecs move to
+  `script/ci/system_paths.sh` and select the system under test outright;
+  a spec naming a path nothing selects now fails the suite. Doc-only and
+  unit-only PRs still skip the job.
+- **a red CI check names which red it is, and a cleanup failure is no longer
+  one of them (closes #1014)** -- seven artifact sweeps could fail a build
+  that had passed; they are `continue-on-error` now. A fork PR's required
+  `docker-build` check and a doc-only `ci-rollup` green both said nothing
+  about why they looked like that; both say it now. Every triggerable
+  workflow gained a concurrency group, cancelling only a superseded
+  pull_request and never a main push, tag or publish, and every job in the
+  tree that runs steps a `timeout-minutes` under GitHub's six-hour default
+  -- the coverage shards and `acceptance` included. Affects anyone reading
+  a base or downstream CI result.
+
+### Removed
+- **`build-worker.yaml` drops the `cache_backend` input and its unreachable
+  `registry` buildx cache (closes #980)** -- the registry backend needed
+  `packages: write` on jobs that declare a read-only block, and a called job
+  gets exactly the block it declares, so no caller could ever reach it: the
+  preflight told a caller to grant a scope, then failed on the grant it had
+  just asked for. The input, the GHCR login step, the write probe and the
+  manifest's permission line are gone; `gha` is the one backend and needs no
+  permission. **No caller passes the input today**, so no downstream repo
+  changes. A `cache_backend:` still in a call now fails as an undefined input.
 
 ## [v0.43.0-rc1] - 2026-09-04
 
 ### Changed
+- **`doc/test/TEST.md` and `doc/test/unit.md` record no suite total any more
+  (closes #978)** -- an aggregate over the working tree names nothing it
+  measured, so it is wrong between every commit and its resync, and its five
+  lines were the ones every branch rewrote. Replaying the 64 PRs opened since
+  2026-08-25 against today's `main`, 57 conflict in `doc/test/`, and 52 of
+  those conflict in `TEST.md` on those lines alone. Ask `just test` instead.
+  The per-spec `(N)` headings and the per-test rows STAY: #999 made them
+  generated from the specs' `# why:` markers, so they cost no sync step.
+  The sibling catalogues name the self-test suite, not the gone figure.
 - **the container ENTRYPOINT is base's orchestrator; `script/entrypoint.sh` is a bringup it sources (closes #945)**
   -- base's plumbing (the helper sources and the final `exec`) sat in a file
   `init.sh` seeds and the repo then OWNS, so no pull ever updated it. It now

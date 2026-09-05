@@ -79,6 +79,11 @@ jobs:
     # here: a workflow-local roster would be one more thing to fall behind
     # the Dockerfile, which is the failure this mechanism is about.
     runs-on: ubuntu-latest
+    # Every job in the tree bounds itself; GitHub's default is six hours.
+    # This one makes one API round trip per declared pin and runs
+    # unattended on a schedule, where nobody is watching a wedged call --
+    # the exact shape ghcr-cleanup takes 30 for.
+    timeout-minutes: 30
     outputs:
       drift: ${{ steps.scan.outputs.drift }}
       count: ${{ steps.scan.outputs.count }}
@@ -147,6 +152,11 @@ jobs:
     needs: scan
     if: needs.scan.outputs.count != '0' && !inputs.dry-run
     runs-on: ubuntu-latest
+    # Every job in the tree bounds itself; GitHub's default is six hours,
+    # and it applies per matrix shard, so an unbounded wedge here costs six
+    # hours PER DRIFTED PIN. One checkout, one file edit, one push and one
+    # API call is minutes.
+    timeout-minutes: 15
     permissions:
       # Exactly enough to push a branch and propose the change.
       # Deliberately not `checks: write` or anything else that could

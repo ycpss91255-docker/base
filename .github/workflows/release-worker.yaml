@@ -36,6 +36,8 @@ jobs:
   # ────────────────────────────────────────────────────────────────
   preflight:
     runs-on: ubuntu-latest
+    # Every job of a worker bounds itself: GitHub's default is six hours.
+    timeout-minutes: 5
     permissions:
       contents: read
     steps:
@@ -53,6 +55,7 @@ jobs:
   release:
     needs: [preflight]
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     # softprops/action-gh-release creates a Release, which needs
     # `contents: write`. Declared rather than inherited: the caller's
     # `call-release` job grants exactly this (init.sh seeds it), so the

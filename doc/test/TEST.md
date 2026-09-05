@@ -1,32 +1,35 @@
 # TEST.md
 
-Template self-tests: **4318 tests** total (4152 unit + 166 integration).
-
-> "Self-test total" is the `just test` suite -- what runs in the
-> `Self Test` CI job. System (19) and smoke (39) tests are tracked here
-> too but are **not** in the 4318 figure: System specs need host docker
-> access and are opt-in, and smoke specs are Dockerfile `test`-stage
-> build-time assertions, not self-tests. Acceptance is a CI-only level (0
-> bats specs by design): it drives a real scaffolded consumer + built
-> image via the host-driven `acceptance` job, not the mounted-`/source`
-> sandbox (see [acceptance.md](acceptance.md)).
-
 This file is the index. The taxonomy is ISTQB-aligned (ADR-00000018):
 the **levels** are Unit -> Integration -> System -> Acceptance, plus the
-shipped build-time **Smoke** type. Per-category spec catalogs (each
-carrying its own test count) live in the sibling docs below.
+shipped build-time **Smoke** type. Per-category spec catalogs live in the
+sibling docs below.
+
+> **No suite total is recorded here, and that is the decision**
+> (ADR-00000028 sec. 1 and 3). An aggregate over the working tree names
+> nothing it measured, so it is wrong between every commit and its
+> resync, and the lines that carried it were the ones every branch had to
+> edit. Ask the run instead: `just test` reports what it ran, and a
+> released version's figure belongs to that release.
+>
+> The `just test` self-test suite is **Unit + Integration** -- what runs
+> in the `Self Test` CI job. System and smoke specs are catalogued here
+> too but are **not** part of it: System specs need host docker access
+> and are opt-in, and smoke specs are Dockerfile `test`-stage build-time
+> assertions, not self-tests. Acceptance is a CI-only level with no bats
+> specs by design: it drives a real scaffolded consumer + built image via
+> the host-driven `acceptance` job, not the mounted-`/source` sandbox
+> (see [acceptance.md](acceptance.md)).
 
 ## Test Docs by Level / Type
 
-| Doc | Scope | Count |
-|-----|-------|-------|
-| [unit.md](unit.md) | `test/bats/unit/` -- library, wrappers, generators, templates (Unit level) | 4152 |
-| [integration.md](integration.md) | `test/bats/integration/` -- init / upgrade / dispatch across components (Integration level) | 166 |
-| [system.md](system.md) | `test/bats/system/` -- opt-in `runtime-test` buildx specs, gate-fires Regression (System level, host docker) | 19 |
-| [acceptance.md](acceptance.md) | `test/bats/acceptance/` -- consumer framework + UX, UAT/OAT (Acceptance level; CI-only via the `acceptance` job, #785) | 0 |
-| [smoke.md](smoke.md) | `dist/test/bats/smoke/` -- shipped per-stage build-time smoke templates (Smoke type) | 39 |
-
-Self-test grand total (unit + integration): **4318**.
+| Doc | Scope |
+|-----|-------|
+| [unit.md](unit.md) | `test/bats/unit/` -- library, wrappers, generators, templates (Unit level) |
+| [integration.md](integration.md) | `test/bats/integration/` -- init / upgrade / dispatch across components (Integration level) |
+| [system.md](system.md) | `test/bats/system/` -- opt-in `runtime-test` buildx specs, gate-fires Regression (System level, host docker) |
+| [acceptance.md](acceptance.md) | `test/bats/acceptance/` -- consumer framework + UX, UAT/OAT (Acceptance level; CI-only via the `acceptance` job, #785) |
+| [smoke.md](smoke.md) | `dist/test/bats/smoke/` -- shipped per-stage build-time smoke templates (Smoke type) |
 
 ## Running one spec under kcov: `just test coverage-path`
 
@@ -160,5 +163,6 @@ OUTSIDE the generated region: everything inside it is derived from the specs
 both sides already merged, so a description one branch wrote can no longer be
 dropped by the side the collapse kept. A mechanical collapse adopts whichever
 side it kept for content the generator does not own, which is how the
-"System (N) and smoke (N)" line above shipped stale three times before the
-generator learned to derive it.
+suite-wide figures this file used to carry shipped stale three times before
+the generator learned to derive them -- and part of why they are not recorded
+here at all any more (ADR-00000028 sec. 1).
