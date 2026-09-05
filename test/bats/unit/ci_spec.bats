@@ -453,22 +453,33 @@ _lint_order_rationale() {
 }
 
 # The lines of a comment block that STORE a measurement, read on stdin
-# and printed back. Three shapes, because a stale number arrives in more
-# than one: a duration ("40 seconds"), a percentage ("12%"), and a spread
-# stated as a fraction ("more than a tenth") -- the last of which the
-# rationale itself carried while the guard looked only for units.
+# and printed back. Four shapes, because a stale number arrives in more
+# than one: a duration ("40 seconds"), a percentage ("12%"), a spread
+# stated as a fraction ("more than a tenth") -- which the rationale itself
+# carried while the guard looked only for units -- and a quantity spelled
+# in words ("thirty seconds", "half a minute").
+#
+# The digit is not the thing being refused. The first three shapes all
+# began with `[0-9]`, which made the guard a lint against notation rather
+# than against a stored figure: the same claim written out in words went
+# straight through, and words are what a writer reaches for when the
+# number is approximate -- which is precisely when nothing re-derives it.
+# The word list is cardinals and fraction words only, so an ordinal ("the
+# second driver") stays prose: it names a position, not a magnitude.
 #
 # Matched case-insensitively. bash `=~` is case-sensitive, and the block
 # this reads writes its emphasis in upper case, so a lower-case-only
 # matcher would miss the spelling most likely to be written next to it.
 _stored_measurements() {
   local _line _lower
+  local _words='one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty|forty|fifty|sixty|ninety|hundred|dozen|couple|few|several|half|quarter|third'
   local -a _stored=()
   while IFS= read -r _line; do
     _lower="${_line,,}"
     if [[ "${_lower}" =~ [0-9]+(\.[0-9]+)?[[:space:]]*(seconds|second|secs|sec|minutes|minute|mins|min|hours|hour|hrs|hr|ms|s|m|h)([^a-z0-9]|$) ]] \
       || [[ "${_lower}" =~ [0-9]+(\.[0-9]+)?[[:space:]]*(%|percent) ]] \
-      || [[ "${_lower}" =~ (more|less|fewer|greater)[[:space:]]+than[[:space:]]+(a|one|two|three|half|[0-9]+)[[:space:]]*(tenth|quarter|third|half|fifth|percent) ]]; then
+      || [[ "${_lower}" =~ (more|less|fewer|greater)[[:space:]]+than[[:space:]]+(a|one|two|three|half|[0-9]+)[[:space:]]*(tenth|quarter|third|half|fifth|percent) ]] \
+      || [[ "${_lower}" =~ (^|[^a-z])(${_words})([[:space:]]+of)?([[:space:]]+(a|an))?[[:space:]]+(seconds|second|minutes|minute|hours|hour|milliseconds|millisecond)([^a-z]|$) ]]; then
       _stored+=( "${_line}" )
     fi
   done
