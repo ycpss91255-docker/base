@@ -27,7 +27,9 @@
 #   R1 -- trigger. A block that makes a TRIGGER claim ("trigger", "tag
 #         push") and names a workflow this repo has must not leave a
 #         workflow with NO tag trigger looking tag-triggered: such a block
-#         has to state the real trigger (`workflow_call`). Derived from the
+#         has to state the real trigger, as a code span that IS that
+#         trigger (`workflow_dispatch`, `on: workflow_call`). Both the
+#         accepted triggers and the tag question are derived from the
 #         workflow's own `on:` block.
 #   R2 -- payload. A block that names an assembler or a payload manifest
 #         attributes it to every workflow the same block names, so each of
@@ -74,13 +76,109 @@ teardown() {
 # list kept here: a workflow that gains or loses a tag trigger must move
 # this answer by itself.
 #
+# STRUCTURALLY, on the same anchor `_adr_wf_statable_triggers` uses below,
+# because the two questions are asked of the same block and a block cannot
+# have two structures. What makes a tag push arrive is a `tags:` FILTER
+# under a top-level `push:` -- not the string `tags:` anywhere in the
+# block. That string is also a legal input name (`workflow_dispatch:` /
+# `workflow_call:` with an input called `tags`), and reading one as a
+# trigger is worse than a wrong answer to this question: R1 `continue`s
+# past a workflow it believes is tag-triggered, so a false tag claim about
+# that workflow is waved through unread.
+#
+# Keys are tracked at two levels only: the event (at the first key's
+# indentation) and anything under it. That is all this question needs, and
+# a deeper reading would be a YAML parser written in awk.
+#
 # No pipeline: the answer is captured and compared in-shell, so no exit
 # status here depends on how two processes were scheduled -- the
 # early-closing-reader class this repo has already had to fix once.
 _adr_wf_tag_triggered() {
-  local _on
-  _on="$(awk '/^on:/ { o = 1; next } /^[^[:space:]#]/ { o = 0 } o' "${1}")"
-  [[ "${_on}" == *"tags:"* ]]
+  local _hit
+  _hit="$(awk '
+    /^on:/ { o = 1; next }
+    /^[^[:space:]#]/ { o = 0 }
+    o && $0 ~ /^[[:space:]]+[a-z_]+:/ {
+      match($0, /^[[:space:]]+/)
+      ind = RLENGTH
+      k = $0
+      sub(/^[[:space:]]+/, "", k)
+      sub(/:.*$/, "", k)
+      if (first == 0) { first = ind }
+      if (ind == first) { ev = k; next }
+      if (ev == "push" && k == "tags") { print "tags" }
+    }
+  ' "${1}")"
+  [[ -n "${_hit}" ]]
+}
+
+# _adr_wf_statable_triggers <workflow-file> -- the trigger names a block may
+# state ABOUT this workflow to satisfy R1, one per line, read off the same
+# `on:` block as above rather than from a list kept here.
+#
+# `push` is deliberately not among them, and it is the only exclusion. A tag
+# push IS a push, so "push" said about a workflow whose `on: push:` carries
+# no `tags:` filter leaves the reader exactly where R1 found them -- it does
+# not distinguish the tag case from the branch case. Every other event name
+# (`workflow_call`, `workflow_dispatch`, `schedule`, `issues`, ...) settles
+# the question by being said.
+#
+# Only keys at the indentation of the FIRST key inside the block are events.
+# That first key is necessarily a top-level one, and anchoring to it is what
+# keeps a FILTER from being read as an event: `tags:` and `branches:` sit
+# under `push:`, and admitting `tags` here would let the word "tag" -- the
+# very word R1 is triggered by -- excuse every block it is about.
+#
+# The inline forms (`on: [push]`, `on: push`) yield no keys and therefore no
+# escape, so a block naming such a workflow is reported rather than waved
+# through. This tree writes none, and failing closed is the right direction
+# for a reader that meets one.
+_adr_wf_statable_triggers() {
+  awk '
+    /^on:/ { o = 1; next }
+    /^[^[:space:]#]/ { o = 0 }
+    o && $0 ~ /^[[:space:]]+[a-z_]+:/ {
+      match($0, /^[[:space:]]+/)
+      ind = RLENGTH
+      k = $0
+      sub(/^[[:space:]]+/, "", k)
+      sub(/:.*$/, "", k)
+      if (first == 0) { first = ind }
+      if (ind == first && k != "push") { print k }
+    }
+  ' "${1}" | LC_ALL=C sort -u
+}
+
+# _adr_stated_triggers <block-text> -- the trigger names the block STATES,
+# one per line: every code span in it, reduced to the bare event name it
+# would be if the span were a trigger statement, and to something else if
+# it is not.
+#
+# A span that merely CONTAINS an event name states nothing. Event names are
+# ordinary words and this tree names its scripts after what they do, so a
+# substring reading opens the hatch on `script/ci/schedule.sh` (`schedule`)
+# and on `gh issues list` (`issues`) -- and the block around either can be
+# saying the opposite of the truth about the workflow it names. Excluding
+# `.yaml` spans catches one shape of that and leaves the rest.
+#
+# What a trigger statement looks like in this tree is the whole span: both
+# shipped forms are `on: <event>` or the bare `<event>`, so the span is
+# reduced (drop a leading `on:`, drop a trailing `:`) and matched WHOLE by
+# the caller. Anything with other words in it -- a path, a command, a
+# sentence fragment -- reduces to itself and matches no event.
+_adr_stated_triggers() {
+  local _span _norm
+  while read -r _span; do
+    [[ -n "${_span}" ]] || continue
+    _norm="${_span//\`/}"
+    _norm="${_norm#on:}"
+    _norm="${_norm%:}"
+    # `read` has already stripped the outer whitespace; this is the space
+    # the `on:` prefix leaves behind.
+    _norm="${_norm#"${_norm%%[![:space:]]*}"}"
+    _norm="${_norm%"${_norm##*[![:space:]]}"}"
+    printf '%s\n' "${_norm}"
+  done <<< "$(grep -oE '`[^`]+`' <<< "${1}" || true)"
 }
 
 # _adr_claims_block <file> <line-no> <repo> <text> -- apply R1/R2/R3 to one
@@ -112,12 +210,53 @@ _adr_claims_block() {
   # takes that block -- the one measured false positive -- back out while
   # still catching the shipped defect, whose sentence is "what the tag then
   # *triggers*".
+  #
+  # The escape hatch is STATING THE REAL TRIGGER, and the trigger is read
+  # off the workflow (`_adr_wf_statable_triggers`) rather than being the
+  # literal `workflow_call` this rule was born with. `workflow_call` was
+  # simply the only non-tag trigger any ADR block named at the time, and the
+  # first block to describe a `workflow_dispatch`-only workflow got reported
+  # for saying something true -- by a message demanding a trigger that
+  # workflow does not have. A rule that cannot be satisfied by telling the
+  # truth teaches people to reword around it. What "stating" means is
+  # narrowed just below, because a hatch opened by any prose word is a
+  # hatch a workflow's own subject holds open.
   if grep -qiE 'trigger|tag push|push.*tags' <<< "${_text}"; then
+    local _real _t _stated _spans
+    # The hatch is opened by STATING the trigger, and an event name is an
+    # ordinary English word -- `issues`, `schedule`, `push`. Matched against
+    # the block's whole prose, a workflow's own SUBJECT excuses a false
+    # claim about it: "which is how this repo labels issues" would wave
+    # through a tag claim over `triage-label.yaml`, whose only statable
+    # trigger is `issues`. So the name must appear AS CODE, which is how
+    # both shipped forms are written (`on: workflow_call`,
+    # `workflow_dispatch`) and how R3 below already reads a claim's
+    # subject.
+    #
+    # And the span must BE the trigger, not contain it -- see
+    # _adr_stated_triggers. A span naming a file
+    # (`.github/workflows/schedule.yaml`) or a script (`script/ci/schedule.sh`)
+    # or a command (`gh issues list`) says what the block is about, not what
+    # starts it, and admitting any of them reopens the same hole one layer
+    # down.
+    _spans="$(_adr_stated_triggers "${_text}")"
     for _wf in ${_named[*]-}; do
       _adr_wf_tag_triggered "${_repo}/.github/workflows/${_wf}" && continue
-      grep -q 'workflow_call' <<< "${_text}" && continue
-      printf '%s:%d: names %s in a tag claim, but %s has no tag trigger and the block does not state its real trigger (workflow_call)\n' \
-        "${_file}" "${_lineno}" "${_wf}" "${_wf}"
+      _real="$(_adr_wf_statable_triggers "${_repo}/.github/workflows/${_wf}")"
+      _stated=0
+      while read -r _t; do
+        [[ -n "${_t}" ]] || continue
+        grep -qxF -- "${_t}" <<< "${_spans}" && _stated=1
+      done <<< "${_real}"
+      [[ "${_stated}" -eq 1 ]] && continue
+      # The message names the trigger the block SHOULD have stated, so the
+      # reader is told what to write rather than only that they are wrong.
+      # An `on:` this reader could not decompose says so instead of naming
+      # an empty list.
+      local _want="none this reader could name from its on: block"
+      [[ -n "${_real}" ]] && _want="$(printf '%s' "${_real}" | tr '\n' ',' | sed 's/,$//; s/,/, /g')"
+      printf '%s:%d: names %s in a tag claim, but %s has no tag trigger and the block does not state its real trigger (%s)\n' \
+        "${_file}" "${_lineno}" "${_wf}" "${_wf}" "${_want}"
       _v=$(( _v + 1 ))
     done
   fi
@@ -292,6 +431,214 @@ _write_adr() {
     '  so no base tag reaches it; a downstream repo'"'"'s tag calls it.')"
   run _adr_claims "${_adr}" "${REPO}"
   assert_success
+}
+
+# why: R1's escape hatch was the literal `workflow_call`, which was the only
+# non-tag trigger any ADR block named when the rule was written. The first
+# block to name a `workflow_dispatch`-only workflow therefore stated its real
+# trigger, correctly, and was reported anyway -- with a message demanding a
+# trigger that workflow does not have. A rule that cannot be satisfied by
+# telling the truth teaches people to reword around it.
+@test "R1: PASSES a trigger claim that states a real trigger other than workflow_call (#726)" {
+  local _adr
+  _adr="$(_write_adr dispatch.md \
+    '## Context' \
+    '' \
+    '- `.github/workflows/coverage-local.yaml` is `workflow_dispatch` only,' \
+    '  so no push and no tag triggers it -- someone asks for the run.')"
+  run _adr_claims "${_adr}" "${REPO}"
+  assert_success
+}
+
+# why: the third way widening the hatch can go wrong, and the one that
+# empties the rule quietly. An event name is an ordinary English word --
+# `issues`, `schedule`, `push` -- so a substring reading lets a workflow's
+# own SUBJECT excuse a false claim about it: the sentence "which is how
+# this repo labels issues" states nothing about a trigger, and would have
+# waved through a tag claim over `triage-label.yaml`, whose only statable
+# trigger happens to be `issues`. A trigger has to be STATED AS ONE, which
+# in this repo's prose means naming it as code.
+@test "R1: a workflow's own subject word does not state its trigger (#726)" {
+  local _adr
+  _adr="$(_write_adr subject_word.md \
+    '## Context' \
+    '' \
+    'A tag push triggers `.github/workflows/triage-label.yaml`, which is' \
+    'how this repo labels issues.')"
+  run _adr_claims "${_adr}" "${REPO}"
+  assert_failure
+  assert_output --partial 'triage-label.yaml'
+  assert_output --partial 'no tag trigger'
+  # And the message still names what the block should have said, so the
+  # remedy is the same one sentence away.
+  assert_output --partial 'issues'
+}
+
+# why: the other side of that tightening: the hatch has to stay openable,
+# and the way an ADR in this tree states a trigger is in a code span --
+# both shipped forms (`on: workflow_call`, `workflow_dispatch`) are
+# written that way, and R3's quotation rule already reads the same spans.
+@test "R1: a trigger stated inside a code span opens the hatch (#726)" {
+  local _adr
+  _adr="$(_write_adr subject_word_fixed.md \
+    '## Context' \
+    '' \
+    'A tag push does not reach `.github/workflows/triage-label.yaml`,' \
+    'which runs `on: issues` when one is opened.')"
+  run _adr_claims "${_adr}" "${REPO}"
+  assert_success
+}
+
+# why: the same hole one layer down, and the reason a code span alone is
+# not the rule. A FILE NAME is written as code too, so a workflow whose
+# name contains its own event -- `schedule.yaml` on `on: schedule` -- would
+# state its trigger merely by being named. Built here rather than found in
+# the tree, because the tree happens to carry no such workflow and the rule
+# must hold for the one somebody adds.
+@test "R1: a code span naming a file does not state a trigger (#726)" {
+  mkdir -p "${SCRATCH}/.github/workflows"
+  printf '%s\n' 'on:' '  schedule:' '    - cron: "0 0 * * *"' \
+    > "${SCRATCH}/.github/workflows/schedule.yaml"
+  local _adr
+  _adr="$(_write_adr filename_span.md \
+    '## Context' \
+    '' \
+    'A tag push triggers `.github/workflows/schedule.yaml`.')"
+  run _adr_claims "${_adr}" "${SCRATCH}"
+  assert_failure
+  assert_output --partial 'schedule.yaml'
+  assert_output --partial 'no tag trigger'
+}
+
+# why: dropping `.yaml` spans covered the case above and left the property
+# the case NAMES uncovered -- a span naming a file is only one of the spans
+# that say nothing about a trigger. Any code span whose text merely
+# CONTAINS an event name opened the hatch, and a repo's scripts are named
+# after what they do: `script/ci/schedule.sh` beside a workflow whose
+# statable trigger is `schedule` waved a false tag claim about it straight
+# through, with no `.yaml` anywhere for the exclusion to catch.
+@test "R1: a code span naming a script does not state a trigger (#726)" {
+  local _adr
+  _adr="$(_write_adr script_span.md \
+    '## Context' \
+    '' \
+    'A tag push triggers `.github/workflows/ghcr-cleanup.yaml`, which runs' \
+    'the retention pass in `script/ci/schedule.sh`.')"
+  run _adr_claims "${_adr}" "${REPO}"
+  assert_failure
+  assert_output --partial 'ghcr-cleanup.yaml'
+  assert_output --partial 'no tag trigger'
+}
+
+# why: the same hole with a command rather than a path, which is the form
+# an ADR reaches for most often. `gh issues list` is a code span that
+# states nothing about what starts anything, and it contains the only
+# statable trigger `triage-label.yaml` has -- so it excused a tag claim
+# about that workflow exactly as the block's own subject word would have,
+# which is the failure the case above this one was written to close.
+@test "R1: a code span quoting a command does not state a trigger (#726)" {
+  local _adr
+  _adr="$(_write_adr command_span.md \
+    '## Context' \
+    '' \
+    'A tag push triggers `.github/workflows/triage-label.yaml`; see' \
+    '`gh issues list` for what it labels.')"
+  run _adr_claims "${_adr}" "${REPO}"
+  assert_failure
+  assert_output --partial 'triage-label.yaml'
+  assert_output --partial 'no tag trigger'
+}
+
+# why: the other half of that change, and the reason it does not weaken the
+# rule: naming the workflow in a trigger claim and saying nothing about what
+# actually starts it is still the ADR-00000027 defect, whichever trigger the
+# workflow has.
+@test "R1: still FAILS a trigger claim that names the same workflow and states nothing (#726)" {
+  local _adr
+  _adr="$(_write_adr dispatch_silent.md \
+    '## Context' \
+    '' \
+    'What the tag then triggers includes' \
+    '`.github/workflows/coverage-local.yaml`.')"
+  run _adr_claims "${_adr}" "${REPO}"
+  assert_failure
+  assert_output --partial 'coverage-local.yaml'
+  assert_output --partial 'workflow_dispatch'
+}
+
+# why: reading the escape hatch off the workflow instead of off a literal
+# creates one new way to be wrong -- reading a FILTER as an event. `tags:`
+# and `branches:` are keys inside the `on:` block too, and admitting `tags`
+# would let the word "tag", the very word R1 is triggered by, excuse every
+# block R1 exists to read. Pinned on the real self-test.yaml, whose `on:`
+# has both a nested `tags:` and a nested `branches:`.
+@test "R1: a workflow's statable triggers are its events, never its filters (#726)" {
+  run _adr_wf_statable_triggers "${REPO}/.github/workflows/self-test.yaml"
+  assert_success
+  assert_output 'pull_request
+workflow_dispatch'
+}
+
+# why: the unfixed half of that same reading. Anchoring the EVENTS on the
+# first key's indentation was done precisely so a nested key is not read as
+# a top-level event -- while the tag question beside it stayed a substring
+# search over the whole `on:` block. `tags:` is not only a push filter: it
+# is a legal name for a `workflow_dispatch` input, a `workflow_call` input
+# or a job-level key, and any of them made the workflow read as
+# tag-triggered. The two readings have to agree, or the block's structure
+# means one thing to one line and another to the next.
+@test "R1: a nested tags key that is not a push filter is not a tag trigger (#726)" {
+  mkdir -p "${SCRATCH}/.github/workflows"
+  printf '%s\n' 'name: x' 'on:' '  workflow_dispatch:' '    inputs:' \
+    '      tags:' '        required: false' 'jobs:' '  a:' \
+    '    runs-on: ubuntu-latest' \
+    > "${SCRATCH}/.github/workflows/tagsinput.yaml"
+  run _adr_wf_tag_triggered "${SCRATCH}/.github/workflows/tagsinput.yaml"
+  assert_failure
+}
+
+# why: and what that costs R1, which is worse than a wrong answer to one
+# question. A workflow that reads as tag-triggered is `continue`d past
+# before the rule looks at the block at all, so a false tag claim about it
+# is not merely under-checked -- it is waved through with no check. The
+# report has to name the trigger the block should have stated instead.
+@test "R1: FAILS a tag claim about a workflow whose only tags key is an input (#726)" {
+  mkdir -p "${SCRATCH}/.github/workflows"
+  printf '%s\n' 'name: x' 'on:' '  workflow_dispatch:' '    inputs:' \
+    '      tags:' '        required: false' 'jobs:' '  a:' \
+    '    runs-on: ubuntu-latest' \
+    > "${SCRATCH}/.github/workflows/tagsinput.yaml"
+  local _adr
+  _adr="$(_write_adr taginput.md \
+    '## Context' \
+    '' \
+    'A base tag push triggers `tagsinput.yaml`.')"
+  run _adr_claims "${_adr}" "${SCRATCH}"
+  assert_failure
+  assert_output --partial 'tagsinput.yaml'
+  assert_output --partial 'no tag trigger'
+  assert_output --partial 'workflow_dispatch'
+}
+
+# why: the second new way to be wrong, and the reason `push` is the one
+# event excluded: a tag push IS a push, so "push" said about a workflow
+# whose `on: push:` carries no `tags:` filter answers nothing the rule
+# asked. Such a block must still be reported -- and with nothing truthful
+# left to name, the message says so rather than offering an empty list.
+@test "R1: saying 'push' does not excuse a claim about a tag-less push workflow (#726)" {
+  mkdir -p "${SCRATCH}/.github/workflows"
+  printf '%s\n' 'on:' '  push:' '    branches: [main]' \
+    > "${SCRATCH}/.github/workflows/branchy.yaml"
+  local _adr
+  _adr="$(_write_adr push_only.md \
+    '## Context' \
+    '' \
+    'A tag push triggers `branchy.yaml`, which runs on every push.')"
+  run _adr_claims "${_adr}" "${SCRATCH}"
+  assert_failure
+  assert_output --partial 'branchy.yaml'
+  assert_output --partial 'no tag trigger'
+  assert_output --partial 'none this reader could name from its on: block'
 }
 
 @test "R1: PASSES a tag claim about a workflow that IS tag-triggered (#927)" {

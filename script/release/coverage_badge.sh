@@ -128,6 +128,31 @@ readonly DEFAULT_OUT_REL="doc/badge/coverage.svg"
 # only local evidence of WHICH tree they describe.
 readonly HEAD_STAMP_REL="coverage/.head-sha"
 
+# The remedy every refusal below ends on, in ONE place.
+#
+# Each refusal here costs the operator a whole-suite coverage run, the most
+# expensive thing in this repo, and there are two ways to buy one: the
+# serial run, and the N-process parallel run base#726 added. They measure
+# the same specs, write the same coverage/ tree and stamp the same
+# `scope=full`, so on a machine with cores to spare the second is the one
+# to reach for -- and a refusal that names only the first sends the person
+# reading it down the slower path at exactly the moment they are choosing.
+#
+# One constant rather than a sentence repeated at five call sites: the
+# spec's "a re-run refusal offers the parallel whole-suite mode too" reads
+# every NON-COMMENT line of this file that names `just test coverage` and
+# requires the parallel entry on the same line, so a sixth refusal written
+# later cannot quietly name half the answer -- whatever verb it opens with.
+# (It used to look for the literal `Re-run`, which is a rule about one
+# phrasing rather than about remedies.) `just test coverage <n>/<total>` is
+# deliberately not offered -- a shard is a different request, and
+# coverage-local has no shard form.
+#
+# It is ONE unbroken line on purpose: that spec reads the remedy off this
+# file line by line, and a hint split across a continuation would show it a
+# first line naming only the serial run.
+readonly RERUN_HINT="Re-run \`just test coverage\` (or \`just test coverage-local\`, the same whole-suite measurement run as N parallel kcov processes) on the commit being released."
+
 # Paths whose content the coverage run measures or builds. A modification to
 # any of them makes an existing report a measurement of a DIFFERENT tree.
 # Everything else (`.version`, the CHANGELOG, the badge itself) is a release
@@ -226,8 +251,7 @@ assert_measures_head() {
   if [[ ! -r "${_stamp_file}" ]]; then
     err "REFUSING: the reports under ${_root}/coverage/ carry no" \
         "provenance stamp (${HEAD_STAMP_REL}), so nothing says which tree" \
-        "they measured. Re-run \`just test coverage\` on the commit being" \
-        "released."
+        "they measured. ${RERUN_HINT}"
     return 1
   fi
   _stamp=""
@@ -243,7 +267,7 @@ assert_measures_head() {
   if [[ -z "${_stamp}" || -z "${_sha}" || "${_stamp}" != "${_sha}" ]]; then
     err "REFUSING: the reports were produced from a different commit" \
         "(${_stamp:-<empty>}), not the one being released (${_sha:-<none>})." \
-        "Re-run \`just test coverage\` on the commit being released."
+        "${RERUN_HINT}"
     return 1
   fi
 
@@ -255,15 +279,15 @@ assert_measures_head() {
   if [[ -z "${_scope}" ]]; then
     err "REFUSING: the provenance stamp (${HEAD_STAMP_REL}) records no" \
         "scope, so nothing says whether the WHOLE suite produced these" \
-        "reports. Re-run \`just test coverage\` (no shard argument) on the" \
-        "commit being released."
+        "reports. ${RERUN_HINT} A shard argument narrows the run;" \
+        "a whole-suite measurement takes none."
     return 1
   fi
   if [[ "${_scope}" != "full" ]]; then
     err "REFUSING: the reports cover ${_scope}, not the whole suite; a" \
-        "partition's rate is not the project's. Re-run" \
-        "\`just test coverage\` with no shard argument on the commit being" \
-        "released."
+        "partition's rate is not the project's. ${RERUN_HINT}" \
+        "A shard argument narrows the run; a whole-suite measurement" \
+        "takes none."
     return 1
   fi
 
@@ -275,7 +299,7 @@ assert_measures_head() {
     fi
     if (( _mtime < _head )); then
       err "REFUSING: ${_report} is older than the commit being released;" \
-          "it measured an earlier tree. Re-run \`just test coverage\`."
+          "it measured an earlier tree. ${RERUN_HINT}"
       return 1
     fi
   done
@@ -445,9 +469,9 @@ main() {
     done < <(discover_reports "${_root}")
   fi
   if (( ${#_reports[@]} == 0 )); then
-    err "REFUSING: no coverage report under ${_root}/coverage/. Run" \
-        "\`just test coverage\` on the commit being released; the badge is" \
-        "never carried over from the previous release."
+    err "REFUSING: no coverage report under ${_root}/coverage/." \
+        "${RERUN_HINT} The badge is never carried over from the previous" \
+        "release."
     return 1
   fi
 
@@ -463,7 +487,7 @@ main() {
   _rate="$(measured_rate "${_reports[@]}")"
   if [[ -z "${_rate}" ]]; then
     err "REFUSING: the reports under ${_root}/coverage/ yielded no line" \
-        "rate. Re-run \`just test coverage\`."
+        "rate. ${RERUN_HINT}"
     return 1
   fi
 
