@@ -37,7 +37,8 @@ recorded here to stop the topic being re-litigated.
   > Corrected (#1060): the CONCLUSION holds, the reason given for it does
   > not. That run was serial for a second reason nobody had noticed -- the
   > bats underneath kcov had no `--jobs`, because `_run_coverage` was the
-  > one bats invocation built by hand (ADR-00000008's #1060 amendment). A
+  > one bats invocation in the driver that never received the flag
+  > (ADR-00000008's #1060 amendment). A
   > coverage SHARD is now parallel underneath its kcov and 1.9x-3.1x
   > faster with a byte-identical line set, so "extra cores do not speed a
   > serial kcov run" describes the invocation of the day, not the tool.

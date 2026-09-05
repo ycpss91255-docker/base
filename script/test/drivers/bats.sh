@@ -30,9 +30,9 @@ _bats_args_with_label() {
   # images), fall back to serial bats — slower but correct.
   #
   # A caller passes `serial` when its run must not be concurrent for a
-  # reason of its own -- today only the full-suite coverage run, whose
-  # comment carries the measurement. Declaring the policy HERE is the
-  # point: `--jobs` and its fallback message keep exactly one writer, so
+  # reason of its own -- today only a coverage run that walks the whole
+  # suite, whose comment carries the measurement. Declaring the policy
+  # HERE is the point: `--jobs` and its fallback message keep one writer, so
   # a run that must not be parallel says so in the same vocabulary as one
   # that cannot be, instead of quietly assembling a different command.
   # An unreadable policy is a _die, not a default: a `seriel` that fell
@@ -175,7 +175,9 @@ _junit_to_timings() {
 #
 #   - _run_coverage's full-suite targets (the directories handed to kcov's
 #     `bats --recursive`),
-#   - _shard_unit_files' partition pool (the same specs, sliced), and
+#   - _coverage_pool_files below -- the same specs as FILES, which
+#     _shard_unit_files slices into a partition and _run_coverage compares
+#     a slice against to decide the jobs policy, and
 #   - _coverage_spec_inventory in test.sh, the list the release
 #     certificate's scope is derived against.
 #
@@ -452,9 +454,10 @@ _run_coverage() {
 
   # kcov WRAPS bats, so this is a bats run like every other one in this
   # driver and takes its arguments from the same helper. It was assembled
-  # by hand instead, and so was the one bats invocation here that never
-  # received --jobs: serial execution, not the instrumentation, was the
-  # larger half of a coverage shard's wall time. Measured on the real
+  # by hand instead -- one of the two copies here that were (_run_system
+  # is the other), and the only bats invocation in this driver that never
+  # received --jobs at all: serial execution, not the instrumentation, was
+  # the larger half of a coverage shard's wall time. Measured on the real
   # partition, whole recipe: shard 1/8 147s / 164s serial against 53s /
   # 48s parallel, shard 6/8 371s against 196s.
   #

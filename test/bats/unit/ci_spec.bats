@@ -1235,10 +1235,13 @@ SH
 # to be parallel
 #
 # kcov wraps bats, so `_run_coverage`'s command IS a bats invocation --
-# and it was the only one in the driver assembled by hand, so it never
-# received the `--jobs` that `_bats_args_with_label` gives every other
-# runner. The two branches of the function get different answers, and
-# both answers are measured, not assumed:
+# and it was the only one in the driver that never received the `--jobs`
+# that `_bats_args_with_label` gives every other runner. It was one of
+# TWO assembled by hand (`_run_system` is the other, below); being
+# hand-assembled is why a second `--jobs` could drift, being the one
+# without the flag is why this path ran serial for two and a half months.
+# The two branches of the function get different answers, and both
+# answers are measured, not assumed:
 #
 #   - a SHARD (what the CI matrix runs, ~550 specs' worth of tests) is
 #     parallel: over three slices, seven of eight parallel runs
@@ -1248,7 +1251,9 @@ SH
 #   - the FULL SUITE is serial by declared policy: at ~4500 tests every
 #     parallel run records a strict SUBSET of what serial records
 #     (8617 lines serial, twice; 8532 and 8587 parallel, nothing extra
-#     either time), so the published figure would move and jitter.
+#     either time), so the published figure would move and jitter. The
+#     policy is decided by what the run WALKS, so a shard slice that is
+#     the whole suite (`1/1`) lands here rather than in the branch above.
 #
 # These assert on the arguments kcov was handed, because the args are
 # where the divergence was invisible: both runs pass, one takes three

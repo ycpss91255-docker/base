@@ -545,25 +545,50 @@ addressed. Section 1 divided the kcov half across a CI matrix and left the
 serial half running inside every shard, where it stayed for two and a half
 months.
 
-The mechanism was one function. `_run_coverage` was the only bats invocation
-in `script/test/drivers/bats.sh` assembled by hand; every other runner --
+The mechanism was a flag with two writers. `script/test/drivers/bats.sh` held
+TWO hand-assembled bats invocations, not one: `_run_coverage` and
+`_run_system`, each with its own argument list, and `_run_system` with its own
+`nproc` probe and its own `--jobs` besides. What was unique to `_run_coverage`
+is narrower and is the actual finding -- it was the only bats invocation in
+the driver that never received `--jobs` at all. Every other runner --
 including `_run_coverage_path`, added later -- takes its arguments from
 `_bats_args_with_label`, which appends `--jobs $(nproc)` where GNU parallel
 is present and falls back to serial with a message where it is not.
 `git log -S'--jobs' -- script/test/drivers/bats.sh` returns only the driver
 split: the flag was never removed from the coverage path, it was never added.
+That there were two copies is why the decision below is "one writer for the
+flag" rather than "add the flag here": a second copy is how the divergence
+arose, and a third is what the guard refuses.
 
 ### Decision
 
 **`_run_coverage` builds its bats arguments through
 `_bats_args_with_label`,** and the helper takes a third argument naming the
-caller's jobs policy (`parallel`, the default, or `serial`). The shard
-branch is parallel; the full-suite branch declares `serial`. Writing
+caller's jobs policy (`parallel`, the default, or `serial`). Writing
 `--jobs` a second time by hand -- which is how the divergence arose -- is
 refused by a spec that allows the flag exactly one occurrence in the driver,
 inside the helper; `_run_system`, the other hand-rolled copy, is routed
 through the helper as well. An unrecognised policy is a `_die`, not a
-default.
+default, and so is an EMPTY one: the helper reads `${3-parallel}`, so an
+omitted third argument takes the documented default while a caller
+expanding an unset variable reaches the refusal instead of the parallel
+branch.
+
+**The policy is derived from what the run will WALK, not from the
+argument it was called with.** The full-suite branch declares `serial`. The
+shard branch compares the slice `_shard_unit_files` returns against the
+whole pool (`_coverage_pool_files`, one writer for "what the whole suite
+is") and declares `serial` when the two are the same set, `parallel`
+otherwise. Keying the policy on WHETHER a shard argument was passed is not
+enough: `1/1` is a shard by syntax and the entire suite by content, and it
+earns `scope=full`, the only scope `coverage_badge.sh` publishes -- so it
+would have published the parallel figure this amendment measures as
+under-reporting. `just test coverage 1/1` reaches that case, and so does
+`vars.CI_SHARDS=1`, which `self-test.yaml` clamps into `[1,12]` and turns
+into the matrix `["1/1"]`. This is the same derivation the release
+certificate uses (`_measured_coverage_scope` compares the run manifest
+against the inventory): an invocation is not evidence of what a run
+measured, so neither the scope nor the policy is read off one.
 
 The asymmetry is the finding, not a hedge:
 
@@ -643,3 +668,8 @@ makespan 1446 (loads 754-1446); weights from a parallel run give 1138 (loads
   first line (`serial by policy` against `serial; parallel not in PATH`).
 - `_run_system` gains `--recursive` and the fallback message it never had,
   which is what routing it through the helper means.
+- A shard invocation whose slice IS the whole suite (`1/1`, or any
+  `<n>/<total>` a small enough tree makes exhaustive) runs serial and says
+  `serial by policy` in its first line. It is slower than the argument
+  suggests, and that is the point: it is the run that would otherwise
+  publish a parallel figure as `scope=full`.
