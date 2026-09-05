@@ -17,15 +17,23 @@
 # code, so it behaves identically under GitHub Actions and GitLab CI.
 #
 # MERGE MATH (the load-bearing detail): kcov writes one cobertura.xml per
-# shard whose root <coverage> element carries lines-covered / lines-valid.
-# The project total is SUM(covered) / SUM(valid) across all shards -- a
-# LINE-WEIGHTED merge. It is NOT the average of the per-shard line-rate
-# attributes: shards have different denominators (each shard instruments
-# only the slice of the time-balanced partition it was handed -- unit and
-# integration specs are ONE pool, spread by recorded runtime, so two
-# slices practically never cover the same number of lines), so averaging
-# the rates would weight a small shard equally with a large one and
-# report a wrong total.
+# shard, and the project total is the per-line UNION across them -- a line
+# is covered if ANY shard executed it, and `valid` is the count of DISTINCT
+# source lines. See _coverage_gate_run for the two halves that make that
+# invariant hold (the union itself, and the path-alias canonicalisation).
+#
+# It is neither of the two readings that look right and are not. Not the
+# average of the per-shard line-rate attributes: shards have different
+# denominators (each shard instruments only the slice of the time-balanced
+# partition it was handed -- unit and integration specs are ONE pool,
+# spread by recorded runtime, so two slices practically never cover the
+# same number of lines), so averaging would weight a small shard equally
+# with a large one. And not SUM(covered) / SUM(valid) of the root counters,
+# which is what this gate did until base#730: every shard runs with
+# --include-path=<repo> so every report carries the WHOLE tree, and adding
+# the denominators counts shared source once per shard -- the rate then
+# drifts DOWN as the shard count rises (52.9% at 4 shards, 42% at 8, same
+# suite) and the fix was not a bigger margin but the union above.
 #
 # THRESHOLD: COVERAGE_MIN (percent, env-overridable). The default is set
 # just below the current measured rate so it does not false-fail today;
