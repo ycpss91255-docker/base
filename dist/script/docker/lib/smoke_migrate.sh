@@ -8,7 +8,7 @@
 # heals consumer references to it. The half the REPO owns moved the same
 # way -- flat test/smoke/ -> test/bats/smoke/{shared,<stage>}/ -- and
 # nothing migrated it, so a repo upgraded from v0.41.0 kept a shape a fresh
-# bootstrap of the same tag never produces (#1044).
+# bootstrap of the same tag never produces.
 #
 # Why the placeholder bodies live HERE rather than inline in init.sh's
 # new-repo path: a fresh repo and an upgraded one have to end up with the
@@ -141,8 +141,7 @@ _migrate_smoke_tree() {
   fi
 
   # A repo that tracked the flat tree needs the rename staged, so it rides
-  # the caller's commit instead of surfacing later as an unexplained move
-  # (refs #1036).
+  # the caller's commit instead of surfacing later as an unexplained move.
   if git -C "${_root}" rev-parse --git-dir >/dev/null 2>&1; then
     git -C "${_root}" add -A -- test/smoke test/bats/smoke >/dev/null 2>&1 || true
   fi

@@ -7,7 +7,7 @@
 # nothing was comparing their outputs. v0.42.0 split the smoke tree per
 # Dockerfile stage; the new-repo path was updated and the existing-repo
 # path was not, so every repo upgraded from v0.41.0 kept a flat test/smoke/
-# that a fresh bootstrap of the same tag never produces (#1044). A unit
+# that a fresh bootstrap of the same tag never produces. A unit
 # test of either path alone cannot see that: each was internally
 # consistent. Only the comparison shows it.
 #
@@ -15,7 +15,7 @@
 #
 # why: The two init.sh paths must converge on the smoke layout. Divergence
 # here is invisible to per-path unit tests and only surfaces on a real
-# downstream repo months later, which is exactly how #1044 was found.
+# downstream repo months later, which is exactly how this was found.
 
 setup() {
   export LOG_FORMAT=text

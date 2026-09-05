@@ -310,7 +310,7 @@ why the same defect shipped twice.
 
 The two init.sh paths must converge on the smoke layout. Divergence here is
 invisible to per-path unit tests and only surfaces on a real downstream repo
-months later, which is exactly how #1044 was found.
+months later, which is exactly how this was found.
 
 | Test | Description |
 |------|-------------|

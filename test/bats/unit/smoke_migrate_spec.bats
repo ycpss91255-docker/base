@@ -3,7 +3,7 @@
 # why: Mirrors `lib/smoke_migrate.sh`. v0.42.0 moved the repo-owned smoke
 # tree from a flat `test/smoke/` to the per-stage `test/bats/smoke/` layout
 # and shipped no migration for it, so a repo upgraded from v0.41.0 keeps a
-# shape a fresh bootstrap of the same tag never produces (#1044).
+# shape a fresh bootstrap of the same tag never produces.
 #
 # The move is behaviour-preserving by construction: the pre-v0.42.0
 # Dockerfile copies the whole flat tree into EVERY `-test` stage, and
@@ -208,7 +208,7 @@ EOF
   assert [ -f "${TEMP_DIR}/test/bats/smoke/shared/ros_env.bats" ]
 }
 
-# ── git: the move rides the caller's commit (refs #1036) ────────────────────
+# ── git: the move rides the caller's commit ────────────────────
 
 @test "_migrate_smoke_tree stages the move when the repo is a git tree (#1044)" {
   git -C "${TEMP_DIR}" init --quiet -b main

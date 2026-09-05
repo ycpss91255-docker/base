@@ -996,7 +996,7 @@ _migrate_nounset_source_apply() {
 #   SHIPPED tree (.base/test/smoke) and the repo's OWN (test/smoke). They
 #   moved in the same reorganisation and differ only in where they are
 #   rooted, so one implementation serves both rather than two copies of
-#   this awk drifting apart (ADR-00000028, #1044).
+#   this awk drifting apart (ADR-00000028).
 _dfm_regex_escape() {
   printf '%s' "$1" | sed 's/[][^$.*+?(){}|\\]/\\&/g'
 }
@@ -1212,7 +1212,7 @@ _migrate_smoke_copy_apply() {
 # OWN. Both trees moved in the same v0.42.0 split, only the shipped half
 # was migrated, so an upgraded Dockerfile kept the one-line
 #   COPY test/smoke/ /smoke_test/
-# spelling while a fresh bootstrap writes the per-stage pair (#1044).
+# spelling while a fresh bootstrap writes the per-stage pair.
 #
 # Runs AFTER smoke_copy, and the order is load-bearing in one direction:
 # `test/smoke` is a SUBSTRING of `.base/test/smoke`, so a statement still

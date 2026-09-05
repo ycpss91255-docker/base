@@ -5554,7 +5554,7 @@ smoke specs via `load "${BATS_TEST_DIRNAME}/test_helper"`).
 Mirrors `lib/smoke_migrate.sh`. v0.42.0 moved the repo-owned smoke tree from
 a flat `test/smoke/` to the per-stage `test/bats/smoke/` layout and shipped
 no migration for it, so a repo upgraded from v0.41.0 keeps a shape a fresh
-bootstrap of the same tag never produces (#1044).
+bootstrap of the same tag never produces.
 
 The move is behaviour-preserving by construction: the pre-v0.42.0 Dockerfile
 copies the whole flat tree into EVERY `-test` stage, and `shared/` is

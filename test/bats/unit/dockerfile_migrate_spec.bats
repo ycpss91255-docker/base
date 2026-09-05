@@ -1017,7 +1017,7 @@ DOCKERFILE
 # The sibling of smoke-copy. That one heals the path into base's SHIPPED
 # tree; this one heals the path into the repo's OWN. Both moved in the same
 # v0.42.0 reorganisation, only the shipped half was migrated, so an upgraded
-# repo kept a flat test/smoke/ that a fresh bootstrap never produces (#1044).
+# repo kept a flat test/smoke/ that a fresh bootstrap never produces.
 #
 # A fresh repo emits the stage COPY even when that stage's folder holds only
 # a .gitkeep, so matching it means emitting on folder existence, not on the

@@ -1018,7 +1018,7 @@ _init_existing_repo() {
   _sync_base_monitor_workflow
   # Move the repo's own smoke tree onto the per-stage layout BEFORE the
   # Dockerfile migration rewrites the COPY that reads it, so the rewritten
-  # per-stage sources resolve the moment they are written (#1044).
+  # per-stage sources resolve the moment they are written.
   _migrate_smoke_tree "${REPO_ROOT}"
   _migrate_dockerfile
   _init_disarm_rollback
