@@ -909,15 +909,23 @@ _make_cobertura() {
   assert_output --partial "just test coverage-local"
 
   # And the rule holds for every remedy in the file, not just the one this
-  # case happens to reach: no line may tell the operator to re-run
-  # `just test coverage` as a WHOLE-SUITE run without naming the parallel
-  # entry on the same line. The shard form is exempt -- `just test coverage
-  # <n>/<total>` is a different request, and coverage-local has no shard.
-  run grep -n 'Re-run' "${BADGE}"
+  # case happens to reach and not just the one PHRASING anyone thought of.
+  # It used to grep for the literal `Re-run`, which a remedy worded "Run
+  # `just test coverage` ..." walks straight past -- and that is the exact
+  # wording this file carried at one refusal before base#726 rewrote it.
+  #
+  # What makes a line a remedy is not its verb: it is that the line REACHES
+  # THE OPERATOR naming the whole-suite run. So comment lines are dropped
+  # (prose about the rule, including this file's own explanation of it, is
+  # not an instruction) and every remaining mention of `just test coverage`
+  # must name the parallel entry on the same line. The shard form is exempt
+  # -- `just test coverage <n>/<total>` is a different request, and
+  # coverage-local has no shard.
+  run bash -c "sed '/^[[:space:]]*#/d' '${BADGE}' | grep -n 'just test coverage'"
   assert_success
   local _line _bad=0
   while read -r _line; do
-    [[ "${_line}" == *"just test coverage"* ]] || continue
+    [[ "${_line}" == *"<n>/<total>"* ]] && continue
     [[ "${_line}" == *"coverage-local"* ]] && continue
     echo "remedy names only the serial run: ${_line}" >&2
     _bad=$(( _bad + 1 ))

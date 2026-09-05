@@ -139,9 +139,12 @@ readonly HEAD_STAMP_REL="coverage/.head-sha"
 # reading it down the slower path at exactly the moment they are choosing.
 #
 # One constant rather than a sentence repeated at five call sites: the
-# spec's "a re-run refusal offers the parallel whole-suite mode too" checks
-# the file has no OTHER remedy line, so a sixth refusal written later
-# cannot quietly name half the answer. `just test coverage <n>/<total>` is
+# spec's "a re-run refusal offers the parallel whole-suite mode too" reads
+# every NON-COMMENT line of this file that names `just test coverage` and
+# requires the parallel entry on the same line, so a sixth refusal written
+# later cannot quietly name half the answer -- whatever verb it opens with.
+# (It used to look for the literal `Re-run`, which is a rule about one
+# phrasing rather than about remedies.) `just test coverage <n>/<total>` is
 # deliberately not offered -- a shard is a different request, and
 # coverage-local has no shard form.
 #
