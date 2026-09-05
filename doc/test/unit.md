@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3974 tests**.
+Unit specs under `test/bats/unit/`: **3975 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1919,6 +1919,21 @@ refused before any build or bundle step.
 | `_run_derived_figures: FAILS when a required doc file is missing (no vacuous pass) (#874)` | - |
 | `_run_derived_figures: FAILS when the dist/ scan root is missing (no vacuous pass) (#874)` | - |
 | `_run_derived_figures: the REAL tree passes today (#874)` | - |
+
+### test/bats/unit/doc_counts_driver_spec.bats (1)
+
+The driver is a thin wrapper around `_check_test_md_drift`, and the one
+thing it owns is the message a red branch reads. That message is not
+decoration: it is the whole repair instruction, and the gate's file set
+outgrew it -- the generator writes the undescribed ceiling into its own
+lint's driver as well as the `doc/test` catalogues, so a message naming
+`doc/test/*.md` sends the reader to a file that is not the one that drifted.
+The case here drives a ceiling-only drift and reads the message, not the
+diff.
+
+| Test | Description |
+|------|-------------|
+| `_run_doc_counts: the drift message names the files the generator writes (#1024)` | A drift the message used to describe wrongly. Only the ceiling is out of sync -- every `doc/test` document matches the tree -- so a message that names `doc/test/*.md` and tells the reader not to hand-edit a count or a catalogue row names neither the file that drifted nor the edit that would repair it. The set is the generator's own answer (`_sync_doc_counts_outputs`), so the next generated figure arrives in the message with it. Read from the stubbed `_die` alone: the unified diff on stderr already names the file, and asserting over both would pass on the diff. |
 
 ### test/bats/unit/doc_counts_spec.bats (29)
 
