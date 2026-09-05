@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3988 tests**.
+Unit specs under `test/bats/unit/`: **3990 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -173,7 +173,7 @@ a refusal as "do not release".
 | `R3: PASSES a verbatim claim about a file this repo carries (#927)` | - |
 | `R3: IGNORES verbatim used about behaviour rather than a quotation (#927)` | - |
 
-### test/bats/unit/adr_numbering_spec.bats (40)
+### test/bats/unit/adr_numbering_spec.bats (42)
 
 Unit tests for `script/test/drivers/adr_numbering.sh` (`_run_adr_numbering`,
 refs #808), the ADR-numbering lint. The registry is the filesystem
@@ -210,6 +210,8 @@ warned.
 | `_run_adr_numbering: FAILS on an emphasised bare number no record claims (#1021)` | The other spelling the live document actually uses for the same conclusion, emphasised rather than bare-leading. One reading of "a bare 8-digit run", not a list of the shapes somebody happened to write. |
 | `_run_adr_numbering: FAILS on a bare number in a row's note cell (#1021)` | The same rule inside a row, where the note cell carries the numbers a verdict points at (`keep (amended by 00000023)`). The row check reads the number the row OPENS with and nothing else, so a stale cross- reference three columns along is the audit-conclusion gap again. |
 | `_run_adr_numbering: reads a bare number in prose as prose, not a row (#1021)` | The boundary, and it is load-bearing rather than a concession. The index deliberately names a number no record claims -- "`00000009` is an intentional gap ... do not invent a `00000009`", twice, in free prose -- and running the bare check over the whole document reddens the live tree on exactly those two lines. That is the one place this lint and the verb cannot share a rule: the verb rewrites the number it is MOVING, which has a record by construction, and this asks which numbers have none. |
+| `_run_adr_numbering: reads an index whose column heading was renamed (#1021)` | The input the gate was not written for, and the direction it has to fail in. Every index check hung on the LITERAL `\| ADR \| Verdict \|`, with "proceed" as the default for anything else -- so renaming one column heading turned all four off, silently, in an edit that reads as a typographical tidy-up. What marks a README as the index is that it enumerates records, so a row is the signal and the header is only one of two ways to see it. |
+| `_run_adr_numbering: reads an enumeration whose heading was renamed (#1021)` | The same shape one heading down. The bare-number scan additionally hung on the literal `## Audit conclusion`, so renaming THAT heading turned off the half of the check the 00000030 hand repair actually needed -- the two sites it left stale were conclusion bullets, not rows. The enumeration is now the default and the prose section is the exception, which puts the fragile literal where a rename fails LOUDLY: rename `## Anomalies` and the deliberate gap is reported, rather than a stale number going unread. |
 | `_run_adr_numbering: PASSES when every record has one row and every reference resolves (#1021)` | The passing shape, so the three failures above are read as a contract rather than as a lint that dislikes index tables. |
 | `_run_adr_numbering: a tree the checkout declares derived carries no reference (#1021)` | The tier the local run actually takes -- a checkout whose git the reader cannot query (a worktree inside the test container). What the tree DECLARES derived is still not source: an old release and a transcript are records of what was said once, and the verb cannot reach either, so a finding in one is a red gate with no way to clear it. |
 | `_run_adr_numbering: a symlink is read as the file it points at (#1021)` | A symlink is a file this repo keeps true. `git ls-files` lists the eight wrapper links at the root, so the git tier reads them; the walk printed only `-type f` and did not, which made the two tiers' populations differ by eight files -- and a lint and a verb that read one population is the whole point of the shared reader. The reference here is reachable ONLY through the link, so nothing but the link can report it. |

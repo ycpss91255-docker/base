@@ -265,9 +265,18 @@ _write() {
 # given rows. The header is what marks the document as the index; a
 # README without one is not one.
 _index() {
+  _index_headed '| ADR | Verdict | Serves | Note |' "$@"
+}
+
+# _index_headed <header> <row>... -- the same document with a header line
+# the caller chooses, for the cases about what marks a README as the index
+# in the first place.
+_index_headed() {
+  local _header="$1"
+  shift
   {
     printf '%s\n' '# ADR index'
-    printf '%s\n' '| ADR | Verdict | Serves | Note |'
+    printf '%s\n' "${_header}"
     printf '%s\n' '|---|---|---|---|'
     printf '%s\n' "$@"
   } > "${SCRATCH}/doc/adr/README.md"
@@ -569,6 +578,46 @@ _index() {
   run _run_adr_numbering
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"clean"* ]]
+}
+
+# why: The input the gate was not written for, and the direction it has to
+# fail in. Every index check hung on the LITERAL `| ADR | Verdict |`, with
+# "proceed" as the default for anything else -- so renaming one column
+# heading turned all four off, silently, in an edit that reads as a
+# typographical tidy-up. What marks a README as the index is that it
+# enumerates records, so a row is the signal and the header is only one of
+# two ways to see it.
+@test "_run_adr_numbering: reads an index whose column heading was renamed (#1021)" {
+  _touch_adr "00000001-alpha.md"
+  # Assembled, for the reason the cases above state.
+  local _ghost='00000099'
+  _index_headed '| ADR | Status | Serves | Note |' \
+    '| 00000001 -- alpha | keep | mechanism | note |' \
+    "| ${_ghost} -- ghost | keep | mechanism | note |"
+  run _run_adr_numbering
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"${_ghost}"* ]]
+}
+
+# why: The same shape one heading down. The bare-number scan additionally
+# hung on the literal `## Audit conclusion`, so renaming THAT heading
+# turned off the half of the check the 00000030 hand repair actually
+# needed -- the two sites it left stale were conclusion bullets, not rows.
+# The enumeration is now the default and the prose section is the
+# exception, which puts the fragile literal where a rename fails LOUDLY:
+# rename `## Anomalies` and the deliberate gap is reported, rather than a
+# stale number going unread.
+@test "_run_adr_numbering: reads an enumeration whose heading was renamed (#1021)" {
+  _touch_adr "00000001-alpha.md"
+  # Assembled, for the reason the cases above state.
+  local _ghost='00000099'
+  _index '| 00000001 -- alpha | keep | mechanism | note |' \
+    '' '## Audit summary' '' \
+    "- ${_ghost} -> invariant 6. Postdates the audit; listed for index" \
+    '  completeness.'
+  run _run_adr_numbering
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"${_ghost}"* ]]
 }
 
 # why: The passing shape, so the three failures above are read as a
