@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3973 tests**.
+Unit specs under `test/bats/unit/`: **3974 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -173,7 +173,7 @@ a refusal as "do not release".
 | `R3: PASSES a verbatim claim about a file this repo carries (#927)` | - |
 | `R3: IGNORES verbatim used about behaviour rather than a quotation (#927)` | - |
 
-### test/bats/unit/adr_numbering_spec.bats (29)
+### test/bats/unit/adr_numbering_spec.bats (30)
 
 Unit tests for `script/test/drivers/adr_numbering.sh` (`_run_adr_numbering`,
 refs #808), the ADR-numbering lint. The registry is the filesystem
@@ -213,6 +213,7 @@ warned.
 | `_run_adr_numbering: an ignored path written without a trailing slash is not read (#1021)` | The tree's own declaration, read the way the tree actually writes it. git needs no trailing slash, and this repo's root .gitignore uses none for `.claude` or `CLAUDE.md`. A pattern the reader does not recognise is a path this lint scans and the verb never sweeps -- a finding with no repair path through the documented command, which is the whole reason the two read one population. The residue is unchanged: only the root file, and only patterns with no wildcard and no negation. |
 | `_run_adr_numbering: an untracked file in a checkout is read like any other (#1021)` | The two tiers have to name ONE population, and only one of them can ask git. `just test` reads this checkout from inside the container, where a worktree's `.git` is a file naming a gitdir that was never mounted, so the WALK is the tier the local gate takes -- and a walk cannot tell a tracked file from an untracked one. Dropping the untracked ones where git DOES answer therefore made the host verb sweep less than the container lint reads: a scratch file citing a dangling number reddens the local gate and `just adr renumber` never touches it, which is the red-with-no- repair-path the shared population exists to prevent. Not yet tracked is not derived. |
 | `_run_adr_numbering: an untracked but ignored path is still not read (#1021)` | The other half of the same rule, and the half that keeps it from collapsing into "grep everything". Untracked is read; DECLARED DERIVED is still not, and in the git tier it is git's own exclude machinery that says so rather than this file's reader. A materialised old release and a wrapper transcript are records of what WAS said, so a verb that rewrote them would falsify them -- the reason the population is pruned at all. |
+| `_run_adr_numbering: a root git answers for but lists nothing is not an empty tree (#1021)` | An empty answer from the probe is not the answer that the tree is empty. `git rev-parse` succeeds anywhere INSIDE a checkout, so a scan root that is a subdirectory the checkout declares derived -- a materialised release under .prev-release/, a vendored tree -- answers the probe and then lists nothing: nothing under it is tracked, and git's own excludes drop it from `--others`. Taking that for the population turns every file in the tree into no files at all, and a lint over no files is clean over anything, silently. Falling back to the walk is how "cannot tell" refuses instead of passing, and the verb reads the same population, so a sweep cannot go quiet here either. |
 | `_run_adr_numbering: the REAL doc/adr/ passes today (00000009 gap warned) (#808)` | Live tree clean, 00000009 gap warned |
 
 ### test/bats/unit/adr_renumber_spec.bats (17)

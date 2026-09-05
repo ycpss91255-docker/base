@@ -633,6 +633,42 @@ _index() {
   [[ "${output}" == *"clean"* ]]
 }
 
+# why: An empty answer from the probe is not the answer that the tree is
+# empty. `git rev-parse` succeeds anywhere INSIDE a checkout, so a scan
+# root that is a subdirectory the checkout declares derived -- a
+# materialised release under .prev-release/, a vendored tree -- answers the
+# probe and then lists nothing: nothing under it is tracked, and git's own
+# excludes drop it from `--others`. Taking that for the population turns
+# every file in the tree into no files at all, and a lint over no files is
+# clean over anything, silently. Falling back to the walk is how "cannot
+# tell" refuses instead of passing, and the verb reads the same population,
+# so a sweep cannot go quiet here either.
+@test "_run_adr_numbering: a root git answers for but lists nothing is not an empty tree (#1021)" {
+  # Assembled, for the reason the case above states.
+  local _ghost='00000099'
+  # The scan root is a subdirectory of a checkout that declares it derived,
+  # which is the one state where the probe succeeds and the listing is
+  # empty. The outer tree is the checkout; the inner one is what is linted.
+  local _inner="${SCRATCH}/vendor"
+  mkdir -p "${_inner}/doc/adr"
+  : > "${_inner}/doc/adr/00000001-alpha.md"
+  printf '%s\n' \
+    '# ADR index' \
+    '| ADR | Verdict | Serves | Note |' \
+    '|---|---|---|---|' \
+    '| 00000001 -- alpha | keep | mechanism | note |' \
+    > "${_inner}/doc/adr/README.md"
+  printf 'A pointer at ADR-%s.\n' "${_ghost}" > "${_inner}/CONTEXT.md"
+  _write '.gitignore' 'vendor/'
+  git -C "${SCRATCH}" init -q
+  git -C "${SCRATCH}" add .gitignore
+  REPO_ROOT="${_inner}"
+  run _run_adr_numbering
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"CONTEXT.md"* ]]
+  [[ "${output}" == *"${_ghost}"* ]]
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _run_adr_numbering: real tree guard
 # ════════════════════════════════════════════════════════════════════

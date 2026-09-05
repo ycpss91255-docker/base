@@ -204,6 +204,16 @@ _adr_ref_walk() {
 # inside a checkout without being one of its tracked directories would
 # otherwise come back as a tree with nothing in it.
 #
+# That is the same rule project_reclaim.sh states for the same shape ("a
+# failed listing is not evidence that nothing is labelled"), and it fails
+# the same way if it goes: the probe succeeds anywhere inside a checkout,
+# so a scan root the checkout declares derived -- a materialised release
+# under .prev-release/, a vendored tree -- answers it and lists nothing,
+# and a lint handed no files is clean over anything. Removing the guard
+# left the whole suite green until adr_numbering_spec's "a root git
+# answers for but lists nothing is not an empty tree" was written, which
+# is the case that now refuses it.
+#
 # `--others --exclude-standard` alongside the tracked files, and not
 # `ls-files` bare: the question is which files the tree does not declare
 # derived, and an untracked one answers it the same way a tracked one does.
