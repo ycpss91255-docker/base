@@ -164,6 +164,39 @@
   this one keeps `git add` inside REPO_ROOT's own repo. Both corrections
   are the same rule the amendment above states and neither followed all the
   way: the staged set is what THIS RUN WROTE, into THIS repo.
+- **Amended:** 2026-09-06 by #1077 -- the 2026-08-25 correction was
+  applied to ONE of two sibling paths. It says a path an already-released
+  caller names must keep a forwarder at the old location for as long as a
+  release that names it is supported, and the `dist/` reorganisation moved
+  `init.sh` and `upgrade.sh` together. `init.sh` got the forwarder because
+  a released `upgrade.sh` EXECS it and the failure was in front of us;
+  `.base/upgrade.sh` got none, and it is named by the callers no code
+  change can reach at all -- the person at the terminal following the
+  README and the usage text their own vendored copy prints, this repo's
+  `enforce_wrapper_first_upgrade.sh` hook, and any downstream runbook
+  written in that window. The result was worse-shaped than the v0.42.0
+  one: the upgrade REMOVED THE COMMAND THAT PERFORMED IT. The first
+  `./.base/upgrade.sh vX.Y.Z` succeeded and the second exited 127, one
+  release later, against a repo that was otherwise healthy -- so no run of
+  the upgrade could report it. **Nothing in the contract changes**; a
+  repo-root `upgrade.sh` forwarder now stands beside `init.sh`, on the
+  same three-line no-logic shape.
+
+  The half that does change is the regression guard this ADR named in
+  2026-08-25. `prev_release_upgrade_spec.bats` drove the real released
+  `upgrade.sh` against the current tree throughout, green, because every
+  arm in it asked whether ONE upgrade succeeds and answered it about the
+  tree the upgrade STARTED from. A frozen path missing from the tree the
+  upgrade PRODUCES is outside what any of them can see: exit status,
+  `.version`, dangling symlinks and the Dockerfile's COPY sources are all
+  satisfied by a tree nobody asks to upgrade again. So the guard is now
+  "upgrade twice" -- run the released driver, then re-run THE SAME COMMAND
+  STRING on the tree it produced. Re-resolving the entry point instead
+  would ask whether the new tree has SOME upgrade script, which the broken
+  tree also answers yes to. It names no file, deliberately: a roster of
+  paths that must exist goes stale the day a third frozen path appears,
+  and "the tree an upgrade produces can be upgraded from" covers that one
+  without an edit.
 
 ## Context
 

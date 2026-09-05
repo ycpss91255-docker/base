@@ -562,9 +562,9 @@ _assert_release_stages_migrated_files() {
 #   them: the run exits 0, `.version` is true, no symlink dangles, the
 #   Dockerfile builds -- and the next time the user types the command their
 #   release documented, it is gone. `.base/upgrade.sh` was absent for two
-#   release candidates with this suite green for exactly that reason
-#   (#1077), the same blindness that let the v0.42.0 `init.sh` breakage
-#   ship (#915).
+#   release candidates with this suite green for exactly that reason -- the
+#   same blindness that let the v0.42.0 `init.sh` breakage ship, and the
+#   arm names below carry the issue refs.
 #
 #   The command is RE-RUN, never re-resolved. Re-resolving asks "does the
 #   new tree have SOME upgrade entry point", which is true of the broken
@@ -574,6 +574,12 @@ _assert_release_stages_migrated_files() {
 #   exactly what it refuses to be: it goes stale the day a third frozen
 #   path appears, which is the failure this repo keeps repeating. "The tree
 #   an upgrade produces can be upgraded from" covers the next one for free.
+#
+#   The support window is the scope, and it is the right one. `_release_tag`
+#   resolves from the repo's real tags, so once no supported release names a
+#   given path these arms stop saying anything about it -- which is exactly
+#   when ADR-00000006 stops requiring a forwarder for it. An arm that goes
+#   quiet about one path is that boundary moving, not this guard decaying.
 _assert_upgrade_leaves_an_upgradable_tree() {
   local _tag="${1:?BUG: _assert_upgrade_leaves_an_upgradable_tree expects a tag}"
 

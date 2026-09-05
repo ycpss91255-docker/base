@@ -41,7 +41,7 @@ it (ADR-00000006, amended by #714 and #915). Moving such a path in lockstep
 with this repo's callers is not enough when an ALREADY-RELEASED caller
 names it -- the consumer's vendored copy is what drives an upgrade and can
 never be updated retroactively -- so the old location keeps a forwarder
-(today: the repo-root `init.sh`). `prev_release_upgrade_spec.bats` is the
+(today: the repo-root `init.sh` and `upgrade.sh`). `prev_release_upgrade_spec.bats` is the
 enforcement.
 _Avoid_: subtree layout, base API.
 
