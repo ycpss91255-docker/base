@@ -316,6 +316,16 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
 
 - **an ADR's claims about this repo are now checked against this repo (refs #927)** -- `test/bats/unit/adr_doc_claims_spec.bats` reads every record under `doc/adr/` block by block and refuses three ways of being wrong about the tree: a trigger claim that leaves a `workflow_call`-only workflow looking tag-triggered, an assembler or payload manifest attributed to a workflow that never references it, and a "verbatim" quotation of a file this repo does not carry. All three are derived from the tree, so a migration lifts the constraint instead of breaking the test. ADR-00000027 shipped all three and is the reason.
 - **the changelog lint now catches an entry that was edited and not re-wrapped (refs #927)** -- a single word left alone on a continuation line with more of its paragraph on the next line. The length measure collapses whitespace on purpose and markdown collapses it again at render time, so nothing else could see it. A short final line, a table row, a fenced line and an HTML comment are left alone. Affects anyone writing an `[Unreleased]` entry.
+- **`just adr renumber <record> <number>` moves an ADR and every reference to
+  it (closes #1021)** -- nothing allocates an ADR number, so branches collide
+  by construction and the hand repair touched 14 files. The verb sweeps the
+  population the registry lint reads: every file the tree does not declare
+  derived, tracked or not, less the fixture numbers a spec declares its own.
+  It rebuilds the doc/test catalogues rather than editing them, and renames
+  the record first, so a refusal changes nothing. The lint gains the pointer
+  checks: a dangling reference, an index row or enumeration naming no record,
+  a declaration or ignore rule it cannot apply, and a declared fixture number
+  a spec publishes.
 
 ### Fixed
 - **`compute-shards` and `coverage-gate` now gate something (closes #1009)**
@@ -609,6 +619,16 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   top-level file, exempting `init.sh`, `justfile`, `compose.yaml` and
   `CONTEXT.md`. Its marker guard counted `begin` against `end`, calling an
   inverted pair balanced while the file tail is excised anyway.
+- **the undescribed-test ceiling is generated, and only ever downwards
+  (closes #1024)** -- it was a `readonly` every branch that describes a test
+  had a reason to lower, so every merge conflicted on it and the right value
+  was neither side's: 2617 and 2614 merge into a tree measuring 2609.
+  `sync-doc-counts.sh` now writes it in the run that writes the catalogue,
+  refusing to raise it, and the drift gate and the merge resolver both cover
+  it by asking the generator which files it writes rather than naming one.
+  Affects anyone describing tests: run `just test sync-docs` instead of
+  computing the number, and a conflict on it resolves with
+  `just test resolve-docs`.
 
 ### Documentation
 - **ADR-00000027: a Z release is cut automatically and one per bug, X/Y stay
