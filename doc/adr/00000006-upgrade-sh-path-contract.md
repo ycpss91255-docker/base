@@ -141,6 +141,29 @@
   list is now called conditional rather than seed-only: "seeded once" was
   a promise about `.gitignore` and `.setup.conf` that was not true, and the
   predicate the staging step needs is the weaker one.
+- **Amended a fourth time:** 2026-09-05 by #1036, still before the fix
+  shipped, on the two halves the correction above left standing. First,
+  the same defect one list over: `_init_retired_root_paths` was staged by
+  NAME, and the resync deletes one of those names only where it is a
+  SYMLINK -- the `[[ -L ]]` guard is what makes the migration idempotent
+  and silent on a fork that never carried the name. So the list enumerates
+  what a run MAY delete, and a consumer's own hand-written `Makefile` or
+  `run.sh` at the root went into the release commit with whatever they had
+  uncommitted in it. It is now recorded where the removal happens, like
+  every other conditional write; the index lookup stays, because it is what
+  keeps a name this repo never tracked out of a pathspec that would fail
+  the whole batch. Second, WHOSE index: the staging step asked `rev-parse
+  --is-inside-work-tree`, which answers "is REPO_ROOT inside ANY work
+  tree". On the input the function's own docstring is written for -- a repo
+  bootstrapped by hand, which may not be a git repo at all -- sitting
+  anywhere inside another repository's checkout, that resolved to proceed
+  and wrote the entire resync into a third-party index, then reported how
+  many paths it had staged. `--show-toplevel` compared against REPO_ROOT is
+  the other half of the property `_init_drop_foreign_paths` already
+  guarantees: that fence keeps a path outside REPO_ROOT out of `git add`,
+  this one keeps `git add` inside REPO_ROOT's own repo. Both corrections
+  are the same rule the amendment above states and neither followed all the
+  way: the staged set is what THIS RUN WROTE, into THIS repo.
 
 ## Context
 
