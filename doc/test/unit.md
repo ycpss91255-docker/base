@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **4168 tests**.
+Unit specs under `test/bats/unit/`: **4170 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -1687,7 +1687,7 @@ the file's lines to the denominator.
 | `coverage_gate --merge-timings: merges per-shard timings keeping max seconds per basename (#733)` | - |
 | `coverage_gate --merge-timings: no input files yields an empty weights file (#733)` | - |
 
-### test/bats/unit/coverage_local_spec.bats (21)
+### test/bats/unit/coverage_local_spec.bats (23)
 
 ADR-00000008 shards kcov ACROSS a CI matrix, which is the only parallelism a
 GitHub-hosted plan offers: one runner, one concurrent job. On a single fat
@@ -1728,6 +1728,8 @@ workflow, whose shape the last section pins.
 | `_run_coverage_parallel: launches one kcov per slice over an exhaustive, disjoint partition` | the whole claim of the mode. N kcov PROCESSES, each over one slice of the SHARED partition -- so the union of the slices is the suite and no spec is instrumented twice. A second partitioner would be a second roster; a partition that dropped a spec would report a coverage regression nobody caused. |
 | `_run_coverage_parallel: merges every slice's report into the repo coverage tree` | the merge is what turns N partial reports into the project figure, and it must name EVERY slice. A merge over a subset is the silent-loss case: it produces a valid report carrying a smaller line set, which reads as a regression rather than as the bug it is. |
 | `_run_coverage_parallel: a slice that produced no report fails the run instead of merging` | "cannot tell" resolves to refusing. A kcov that dies after its tests pass leaves an EMPTY output directory and a zero status, and merging the survivors would publish a smaller line set under a whole-suite certificate. The refusal is what makes a lost slice distinguishable from a coverage drop. |
+| `_run_coverage_parallel: the lost-slice refusal names output the operator has (#726)` | a refusal is only as useful as the next thing it tells you to look at, and this mode's scratch root is a `mktemp -d` INSIDE the ephemeral `docker compose run --rm` container the shipped entry starts. A path under it does not exist on the machine the operator is reading the message on, and COVERAGE_LOCAL_WORKDIR -- the only way to move it -- is not forwarded into that container, so they cannot make it exist either. What they DO have is every slice's output, replayed above the refusal by `_coverage_parallel_collect`; that is what both refusals must name. |
+| `_run_coverage_parallel: a failed merge names output the operator has (#726)` | the sibling refusal, and the same rule. A merge that fails leaves the same unreachable scratch root, and "the per-slice reports are under <container temp dir>" is the same instruction the reader cannot follow. |
 | `_run_coverage_parallel: the merged run manifest names every spec, so the scope stamps full` | the release path is the reason this mode exists. `just release coverage-badge` publishes only `scope=full`, and the scope is DERIVED from coverage/timings.tsv -- so a parallel run whose manifest named the last slice's specs alone would be refused exactly like a shard, and the serial run it replaces would still be on the critical path. |
 | `_run_coverage_parallel: a failing slice fails the run` | a red spec must stay red. The slices run concurrently, so a failing one is a status that has to survive `wait` and the merge -- swallowing it would make the fastest coverage mode the one that cannot fail. |
 | `_run_coverage_parallel: rejects a job count that is not a positive integer` | the runner is reachable from the container's environment as well as from the flag (`COVERAGE_LOCAL_JOBS` is forwarded), so the validation cannot live only in the host-side parser -- an inherited junk value would otherwise reach `_shard_unit_files` as a malformed total. |

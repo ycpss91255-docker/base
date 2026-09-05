@@ -78,11 +78,19 @@ _make_pool_root() {
 #   MOCK_NO_REPORT names an output directory the kcov mock must leave
 #   EMPTY -- a crashed kcov that still exits 0, the case the run has to
 #   refuse. MOCK_FAIL_ARG names a spec whose slice exits non-zero.
+#   MOCK_MERGE_FAIL makes `kcov --merge` itself fail, every slice report
+#   present -- the one refusal that is about neither the specs nor a lost
+#   slice.
 _install_kcov_mocks() {
   local _log="${1}"
   mock_cmd "kcov" '
     printf "%s\n" "$*" >> "'"${_log}"'"
     if [ "${1}" = "--merge" ]; then
+      # MOCK_MERGE_FAIL: kcov merged nothing and said so. The slice
+      # reports all exist, so the run has to fail on the merge itself.
+      if [ -n "${MOCK_MERGE_FAIL:-}" ]; then
+        exit 3
+      fi
       shift
       _out="${1}"; shift
       mkdir -p "${_out}/kcov-merged"
@@ -496,6 +504,54 @@ _run_coverage_parallel 3"
 
   run bash -c "grep -c -- '--merge' '${_log}' || true"
   assert_output "0"
+}
+
+# why: a refusal is only as useful as the next thing it tells you to look
+# at, and this mode's scratch root is a `mktemp -d` INSIDE the ephemeral
+# `docker compose run --rm` container the shipped entry starts. A path
+# under it does not exist on the machine the operator is reading the
+# message on, and COVERAGE_LOCAL_WORKDIR -- the only way to move it -- is
+# not forwarded into that container, so they cannot make it exist either.
+# What they DO have is every slice's output, replayed above the refusal by
+# `_coverage_parallel_collect`; that is what both refusals must name.
+@test "_run_coverage_parallel: the lost-slice refusal names output the operator has (#726)" {
+  local _root _log="${BATS_TEST_TMPDIR}/kcov.log"
+  _root="$(_make_pool_root)"
+  _install_kcov_mocks "${_log}"
+
+  local _work="${BATS_TEST_TMPDIR}/refusal-work"
+  run bash -c "$(_driver_prelude "${_root}")
+export COVERAGE_LOCAL_WORKDIR='${_work}'
+export MOCK_NO_REPORT='${_work}/part-2'
+_run_coverage_parallel 3"
+  assert_failure
+  assert_output --partial "slice 2 of 3"
+  # The scratch root is container-local. Naming any path under it sends the
+  # reader to `ls` something that is not there.
+  refute_output --partial "${_work}/log-2"
+  refute_output --partial "${_work}/part-2"
+  # And the replay is named, because it is where the evidence actually is.
+  assert_output --partial "replayed above"
+}
+
+# why: the sibling refusal, and the same rule. A merge that fails leaves
+# the same unreachable scratch root, and "the per-slice reports are under
+# <container temp dir>" is the same instruction the reader cannot follow.
+@test "_run_coverage_parallel: a failed merge names output the operator has (#726)" {
+  local _root _log="${BATS_TEST_TMPDIR}/kcov.log"
+  _root="$(_make_pool_root)"
+  _install_kcov_mocks "${_log}"
+
+  local _work="${BATS_TEST_TMPDIR}/merge-work"
+  run bash -c "$(_driver_prelude "${_root}")
+export COVERAGE_LOCAL_WORKDIR='${_work}'
+export MOCK_MERGE_FAIL=1
+_run_coverage_parallel 2"
+  assert_failure
+  # The status is the one fact only the merge knows, so it stays.
+  assert_output --partial "status 3"
+  refute_output --partial "${_work}"
+  assert_output --partial "replayed above"
 }
 
 # why: the release path is the reason this mode exists.
