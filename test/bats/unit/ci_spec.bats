@@ -249,6 +249,46 @@ teardown() {
   assert_output --partial "adr-numbering"
 }
 
+# why: The subshell's guarantee is a CALL-SITE precondition, and an
+# unenforced precondition defaults to pass. bash suppresses errexit for
+# every command of an `if` condition, a `&&` / `||` list or a `!`, and the
+# suppression reaches through this function into the standalone subshell
+# too, so a caller who writes `if _run_lint_tools ...` gets back the exact
+# defect the shape was chosen to refuse -- the driver sails past its first
+# failing command, the subshell exits zero, and the phase reports a clean
+# tree. No spelling of the subshell repairs it from the inside, so the
+# phase probes for the suppression and refuses instead of measuring
+# something it cannot measure.
+@test "_run_lint_tools: an errexit-suppressing caller is refused, not trusted (#1059)" {
+  run env LOG_FORMAT=json bash -c '
+    source /source/script/test/test.sh
+    set -eo pipefail
+    _run_adr_numbering() { false; echo "SAILED PAST the first failure"; }
+    if _run_lint_tools adr-numbering; then echo "PHASE SAID CLEAN"; fi
+  '
+  assert_failure
+  refute_output --partial "PHASE SAID CLEAN"
+  refute_output --partial "SAILED PAST"
+  assert_output --partial "ci_lint_errexit_suppressed"
+}
+
+# why: The sibling call shape, and the one a `_run_all_lint_tools || x`
+# reads as harmless. Same suppression, same refusal -- pinned separately
+# because a probe that only covered the `if` condition would leave the
+# list operators reporting clean.
+@test "_run_lint_tools: an errexit-suppressing list operator is refused too (#1059)" {
+  run env LOG_FORMAT=json bash -c '
+    source /source/script/test/test.sh
+    set -eo pipefail
+    _run_adr_numbering() { false; echo "SAILED PAST the first failure"; }
+    _run_lint_tools adr-numbering || echo "CALLER HANDLED IT"
+  '
+  assert_failure
+  refute_output --partial "CALLER HANDLED IT"
+  refute_output --partial "SAILED PAST"
+  assert_output --partial "ci_lint_errexit_suppressed"
+}
+
 # why: The other half of the contract. A clean set must exit zero and say
 # nothing, and the loop must hand the caller back the errexit it borrowed
 # -- the collection is implemented by clearing it, so a phase that forgot
