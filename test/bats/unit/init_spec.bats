@@ -916,6 +916,67 @@ EOF
   assert_line ".github/workflows/base-version-monitor.yaml"
 }
 
+# _fake_setup_sh <body>
+#   Stand in for the real setup.sh at the path _call_setup shells out to.
+#   Its arguments are `apply --base-path <REPO_ROOT>`, so $3 is the repo.
+_fake_setup_sh() {
+  printf '#!/usr/bin/env bash\n%s\n' "${1}" \
+    > "${TMP_REPO}/.base/dist/script/docker/wrapper/setup.sh"
+}
+
+# .setup.conf is the sixth path of this shape and the only one whose writer
+# is in another PROCESS: setup.sh writes it, on bootstrap or on a stale
+# mount_1 rewrite, and leaves it alone on every other run. The in-process
+# record cannot reach across that, so the content across the call is what
+# says whether this run wrote the file.
+
+# why: setup.sh leaves an existing .setup.conf alone on every run but a
+# bootstrap or a stale-path rewrite, so what is in it is the repo's own
+# tuning and staging it commits an edit the user had not finished
+@test "the resync: leaves a .setup.conf setup.sh did not touch unstaged (#1036)" {
+  _source_init
+  : > "${TMP_REPO}/Dockerfile"
+  printf '[project]\nname = mine\n' > "${TMP_REPO}/.setup.conf"
+  _fake_setup_sh 'exit 0'
+  _git_seed_consumer
+  printf '# my half-finished tuning\n' >> "${TMP_REPO}/.setup.conf"
+  _init_existing_repo
+  _call_setup
+  _stage_resync_output
+  run git -C "${TMP_REPO}" diff --cached --name-only
+  refute_output --partial ".setup.conf"
+}
+
+# why: the half that must not regress -- a first-time bootstrap writes the
+# file, and leaving THAT out of the commit is the tree/commit disagreement
+# the staging step exists to close
+@test "the resync: stages the .setup.conf setup.sh bootstrapped (#1036)" {
+  _source_init
+  : > "${TMP_REPO}/Dockerfile"
+  _fake_setup_sh 'printf "[project]\nname = seeded\n" > "${3}/.setup.conf"'
+  _git_seed_consumer
+  _init_existing_repo
+  _call_setup
+  _stage_resync_output
+  run git -C "${TMP_REPO}" diff --cached --name-only
+  assert_line ".setup.conf"
+}
+
+# why: the stale-mount_1 rewrite changes a file that was already there, so
+# "did it exist before" is the wrong question and only the content answers
+@test "the resync: stages a .setup.conf setup.sh rewrote in place (#1036)" {
+  _source_init
+  : > "${TMP_REPO}/Dockerfile"
+  printf '[volumes]\nmount_1 = /gone:/work\n' > "${TMP_REPO}/.setup.conf"
+  _fake_setup_sh 'printf "[volumes]\nmount_1 = portable\n" > "${3}/.setup.conf"'
+  _git_seed_consumer
+  _init_existing_repo
+  _call_setup
+  _stage_resync_output
+  run git -C "${TMP_REPO}" diff --cached --name-only
+  assert_line ".setup.conf"
+}
+
 # why: `git add` refuses the WHOLE batch on a path outside the repo, and a
 # path spelled out of the repo through the repo root with a `..` segment
 # walks straight past a prefix test -- the one input shape the fence

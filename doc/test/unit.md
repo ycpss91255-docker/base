@@ -2796,7 +2796,7 @@ forwarding for caller abort, and DRY_RUN skip.
 | `init.sh --list-installed-paths output is sorted and free of duplicates` | - |
 | `init.sh --list-installed-paths mutates nothing and never leaves its cwd` | - |
 
-### test/bats/unit/init_spec.bats (87)
+### test/bats/unit/init_spec.bats (90)
 
 Unit coverage for `init.sh` helpers that previous rounds exercised only
 through the Level-1 integration test. Complements
@@ -2860,6 +2860,9 @@ are hard to trigger from a real `bash template/init.sh` invocation
 | `the resync: leaves an edited monitor workflow unstaged (#1036)` | the monitor workflow is generated once and then left alone on every later run, so a repo that has tuned its schedule owns the file the staging step would commit |
 | `the resync: leaves a customised .hadolint.yaml unstaged (#1036)` | _create_symlinks deliberately KEEPS a .hadolint.yaml that differs from the template rather than re-pointing it, and a file the run refused to touch is not the run's to commit |
 | `the resync: stages the hook stub it created this run (#1036)` | the half of the property that must NOT regress -- a stub this run created is the run's own output, and dropping the whole seed-once class from the commit would put the branch's own defect back one file over |
+| `the resync: leaves a .setup.conf setup.sh did not touch unstaged (#1036)` | setup.sh leaves an existing .setup.conf alone on every run but a bootstrap or a stale-path rewrite, so what is in it is the repo's own tuning and staging it commits an edit the user had not finished |
+| `the resync: stages the .setup.conf setup.sh bootstrapped (#1036)` | the half that must not regress -- a first-time bootstrap writes the file, and leaving THAT out of the commit is the tree/commit disagreement the staging step exists to close |
+| `the resync: stages a .setup.conf setup.sh rewrote in place (#1036)` | the stale-mount_1 rewrite changes a file that was already there, so "did it exist before" is the wrong question and only the content answers |
 | `_stage_resync_output: a dot-dot path out of the repo loses only itself (#1036)` | `git add` refuses the WHOLE batch on a path outside the repo, and a path spelled out of the repo through the repo root with a `..` segment walks straight past a prefix test -- the one input shape the fence against that failure was not written for |
 | `_stage_resync_output: drops a gitignored path git would quote (#1036)` | the ignored-path filter matches check-ignore's answer back against the strings it fed in, and under the default core.quotePath git C-quotes any path carrying a byte over 0x7F -- so the answer never equals the question, the ignored path survives the filter, and `git add` reports a failure over a batch it did stage |
 | `_init_lexical_path: resolves the segments without touching disk (#1036)` | the containment test is the whole fence, so the segment resolution it rests on is worth pinning on its own -- including the cases that must NOT move, a name that merely begins with dots and a relative path this pass has no business rewriting |
