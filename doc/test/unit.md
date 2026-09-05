@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3977 tests**.
+Unit specs under `test/bats/unit/`: **3981 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -173,7 +173,7 @@ a refusal as "do not release".
 | `R3: PASSES a verbatim claim about a file this repo carries (#927)` | - |
 | `R3: IGNORES verbatim used about behaviour rather than a quotation (#927)` | - |
 
-### test/bats/unit/adr_numbering_spec.bats (30)
+### test/bats/unit/adr_numbering_spec.bats (34)
 
 Unit tests for `script/test/drivers/adr_numbering.sh` (`_run_adr_numbering`,
 refs #808), the ADR-numbering lint. The registry is the filesystem
@@ -214,6 +214,10 @@ warned.
 | `_run_adr_numbering: an untracked file in a checkout is read like any other (#1021)` | The two tiers have to name ONE population, and only one of them can ask git. `just test` reads this checkout from inside the container, where a worktree's `.git` is a file naming a gitdir that was never mounted, so the WALK is the tier the local gate takes -- and a walk cannot tell a tracked file from an untracked one. Dropping the untracked ones where git DOES answer therefore made the host verb sweep less than the container lint reads: a scratch file citing a dangling number reddens the local gate and `just adr renumber` never touches it, which is the red-with-no- repair-path the shared population exists to prevent. Not yet tracked is not derived. |
 | `_run_adr_numbering: an untracked but ignored path is still not read (#1021)` | The other half of the same rule, and the half that keeps it from collapsing into "grep everything". Untracked is read; DECLARED DERIVED is still not, and in the git tier it is git's own exclude machinery that says so rather than this file's reader. A materialised old release and a wrapper transcript are records of what WAS said, so a verb that rewrote them would falsify them -- the reason the population is pruned at all. |
 | `_run_adr_numbering: a root git answers for but lists nothing is not an empty tree (#1021)` | An empty answer from the probe is not the answer that the tree is empty. `git rev-parse` succeeds anywhere INSIDE a checkout, so a scan root that is a subdirectory the checkout declares derived -- a materialised release under .prev-release/, a vendored tree -- answers the probe and then lists nothing: nothing under it is tracked, and git's own excludes drop it from `--others`. Taking that for the population turns every file in the tree into no files at all, and a lint over no files is clean over anything, silently. Falling back to the walk is how "cannot tell" refuses instead of passing, and the verb reads the same population, so a sweep cannot go quiet here either. |
+| `_run_adr_numbering: a wildcard the tree writes without a separator is read (#1021)` | The trailing-slash defect's remaining siblings. A pattern with a wildcard and no separator is what git matches against a basename at any depth, which is exactly what `find -name` matches: read it, and the tier that cannot ask git stops keeping a file git drops. The residue this leaves is not the same shape as the one it removes -- see the two cases below. |
+| `_run_adr_numbering: a declaration this reader cannot apply is reported (#1021)` | What a reader that cannot apply a declaration must do instead of quietly widening its population: SAY SO. A negation and a pattern whose wildcard sits beside a separator are the two forms whose meaning `find` does not reproduce -- git's `*` stops at a `/` and find's does not, and nothing in a prune expression re-includes. Skipped silently they put files in this lint's population that `just adr renumber` never sweeps, which is the red-gate-with-no-repair-path the shared reader exists to close; reported, the tree is told which line to spell differently. |
+| `_run_adr_numbering: a nested .gitignore is reported, not ignored (#1021)` | The same report for the declaration this reader never opens at all. Only the root file is read, so a nested one is a rule the walk cannot apply and git can -- the population splits on it exactly as it split on a trailing slash, and the finding is what keeps the split from being discovered by a red gate no documented command can clear. |
+| `_run_adr_numbering: a checkout reports no unreadable declaration (#1021)` | And the report is about the WALK, not about the tree. Where git answers, git applies every one of these forms itself -- that is the tier whose exclusion the walk is only ever approximating -- so reporting them there would fail a checkout for a declaration nothing in it gets wrong. |
 | `_run_adr_numbering: the REAL doc/adr/ passes today (00000009 gap warned) (#808)` | Live tree clean, 00000009 gap warned |
 
 ### test/bats/unit/adr_renumber_spec.bats (18)

@@ -669,6 +669,80 @@ _index() {
   [[ "${output}" == *"${_ghost}"* ]]
 }
 
+# why: The trailing-slash defect's remaining siblings. A pattern with a
+# wildcard and no separator is what git matches against a basename at any
+# depth, which is exactly what `find -name` matches: read it, and the tier
+# that cannot ask git stops keeping a file git drops. The residue this
+# leaves is not the same shape as the one it removes -- see the two cases
+# below.
+@test "_run_adr_numbering: a wildcard the tree writes without a separator is read (#1021)" {
+  _touch_adr "00000001-alpha.md"
+  _index '| 00000001 -- alpha | keep | mechanism | note |'
+  # Assembled from a variable, for the reason the mispaired case above
+  # states: a literal dangling reference in THIS file is a dangling
+  # reference in the real tree, which the real-tree case below reads.
+  local _ghost='00000099'
+  _write '.gitignore' 'build*'
+  _write 'build.log' "a build log naming ADR-${_ghost}"
+  run _run_adr_numbering
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"clean"* ]]
+}
+
+# why: What a reader that cannot apply a declaration must do instead of
+# quietly widening its population: SAY SO. A negation and a pattern whose
+# wildcard sits beside a separator are the two forms whose meaning `find`
+# does not reproduce -- git's `*` stops at a `/` and find's does not, and
+# nothing in a prune expression re-includes. Skipped silently they put
+# files in this lint's population that `just adr renumber` never sweeps,
+# which is the red-gate-with-no-repair-path the shared reader exists to
+# close; reported, the tree is told which line to spell differently.
+@test "_run_adr_numbering: a declaration this reader cannot apply is reported (#1021)" {
+  _touch_adr "00000001-alpha.md"
+  _index '| 00000001 -- alpha | keep | mechanism | note |'
+  _write '.gitignore' 'vendor/*.md' '!keep.md'
+  run _run_adr_numbering
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"vendor/*.md"* ]]
+  [[ "${output}" == *'!keep.md'* ]]
+}
+
+# why: The same report for the declaration this reader never opens at all.
+# Only the root file is read, so a nested one is a rule the walk cannot
+# apply and git can -- the population splits on it exactly as it split on
+# a trailing slash, and the finding is what keeps the split from being
+# discovered by a red gate no documented command can clear.
+@test "_run_adr_numbering: a nested .gitignore is reported, not ignored (#1021)" {
+  _touch_adr "00000001-alpha.md"
+  _index '| 00000001 -- alpha | keep | mechanism | note |'
+  _write '.gitignore' 'log/'
+  _write 'pkg/.gitignore' 'skip.md'
+  _write 'pkg/keep.md' 'ADR-00000001 resolves.'
+  run _run_adr_numbering
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"pkg/.gitignore"* ]]
+}
+
+# why: And the report is about the WALK, not about the tree. Where git
+# answers, git applies every one of these forms itself -- that is the tier
+# whose exclusion the walk is only ever approximating -- so reporting them
+# there would fail a checkout for a declaration nothing in it gets wrong.
+@test "_run_adr_numbering: a checkout reports no unreadable declaration (#1021)" {
+  _touch_adr "00000001-alpha.md"
+  _index '| 00000001 -- alpha | keep | mechanism | note |'
+  # Assembled, for the reason the case above states.
+  local _ghost='00000099'
+  _write '.gitignore' 'vendor/*.md' '!keep.md' 'pkg/'
+  _write 'CONTEXT.md' 'ADR-00000001 resolves.'
+  _write 'vendor/old.md' "a vendored tree naming ADR-${_ghost}"
+  git -C "${SCRATCH}" init -q
+  git -C "${SCRATCH}" add doc CONTEXT.md .gitignore
+  run _run_adr_numbering
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"clean"* ]]
+  [[ "${output}" != *".gitignore"* ]]
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _run_adr_numbering: real tree guard
 # ════════════════════════════════════════════════════════════════════
