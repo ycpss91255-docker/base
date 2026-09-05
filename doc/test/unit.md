@@ -2796,7 +2796,7 @@ forwarding for caller abort, and DRY_RUN skip.
 | `init.sh --list-installed-paths output is sorted and free of duplicates` | - |
 | `init.sh --list-installed-paths mutates nothing and never leaves its cwd` | - |
 
-### test/bats/unit/init_spec.bats (95)
+### test/bats/unit/init_spec.bats (96)
 
 Unit coverage for `init.sh` helpers that previous rounds exercised only
 through the Level-1 integration test. Complements
@@ -2850,6 +2850,7 @@ are hard to trigger from a real `bash template/init.sh` invocation
 | `the resync: leaves a file no migration touched unstaged (#1036)` | A user's half-finished edit is not the resync's to commit, which is what a `git add -A` sweep would make it |
 | `the resync: stages the wrappers it installed (#1036)` | The wrappers are output of the same mechanical run as the Dockerfile, so leaving them out of the commit leaves the tree disagreeing with the release the commit claims |
 | `the resync: stages the retired root wrapper it removed (#1036)` | The resync DELETES the pre-relocation root wrappers, and a deletion left out of the commit is the same tree/commit disagreement one direction over |
+| `the resync: leaves a hand-written root Makefile unstaged (#1036)` | the resync deletes a retired root name only when it is a SYMLINK, so a consumer's own regular file at that name is not this run's output and staging it by name commits an edit the run never made |
 | `_stage_resync_output: warns when git cannot read the repo (#1036)` | "git cannot answer" is not "there is nothing to stage" -- resolving it to silent success is how an unstaged rewrite gets pushed |
 | `_stage_resync_output: a path outside the repo root loses only itself (#1036)` | `git add` fails the WHOLE batch on one path it will not take, so an entry pointing outside the repo costs the commit every other path -- including the Dockerfile this staging exists to commit |
 | `_stage_resync_output: is silent when the tree is no git repo at all (#1036)` | `just base init` is also a repair command for a hand-bootstrapped tree, and a directory that is genuinely not a repo is not a problem to report |

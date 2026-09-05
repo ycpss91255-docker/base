@@ -744,6 +744,30 @@ EOF
   assert_line "build.sh"
 }
 
+# A retired root NAME is not the same set as the retired root symlinks the
+# resync actually removes. _create_symlinks deletes one only when it is a
+# symlink, so a consumer carrying a hand-written regular file at that name
+# still has it, unchanged, when staging runs -- and it is theirs.
+
+# why: the resync deletes a retired root name only when it is a SYMLINK, so
+# a consumer's own regular file at that name is not this run's output and
+# staging it by name commits an edit the run never made
+@test "the resync: leaves a hand-written root Makefile unstaged (#1036)" {
+  _source_init
+  cat > "${TMP_REPO}/Dockerfile" <<'EOF'
+FROM busybox AS lint
+COPY .base/dist/script/docker/lib /lint/lib
+EOF
+  # A regular file at a retired name: the migration loop's `[[ -L ]]` guard
+  # passes over it, so the resync never touches it.
+  printf 'all:\n\t@echo mine\n' > "${TMP_REPO}/Makefile"
+  _git_seed_consumer
+  printf 'newtarget:\n\t@echo wip\n' >> "${TMP_REPO}/Makefile"
+  _resync_and_stage
+  run git -C "${TMP_REPO}" diff --cached --name-only
+  refute_output --partial "Makefile"
+}
+
 # why: "git cannot answer" is not "there is nothing to stage" -- resolving
 # it to silent success is how an unstaged rewrite gets pushed
 @test "_stage_resync_output: warns when git cannot read the repo (#1036)" {
