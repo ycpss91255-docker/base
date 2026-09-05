@@ -1292,9 +1292,16 @@ SH
     # (base#726). The guard in coverage_local_spec, "specs driving the
     # in-container coverage entry pin every forwarded selector", is what
     # keeps the roster here complete as it grows.
+    # All ELEVEN of them, not the three whose names start COVERAGE_:
+    # LINT_ONLY=1 would short-circuit this dispatch into the linters
+    # before the coverage branch is reached at all, and BATS_ONLY is
+    # pinned to 0 on purpose -- 1 would skip the lint phase by itself and
+    # make the assertion below true whatever COVERAGE did.
     # (No apostrophes in this block: it lives inside a single-quoted
     # bash -c string, where one ends the program.)
-    COVERAGE=1 COVERAGE_SHARD=1/4 COVERAGE_PATH= COVERAGE_LOCAL_JOBS= main --ci
+    COVERAGE=1 COVERAGE_SHARD=1/4 COVERAGE_PATH= COVERAGE_LOCAL_JOBS= \
+      BATS_ONLY=0 BATS_UNIT_SHARD= BATS_FRAGILE=0 BATS_INTEGRATION=0 \
+      BATS_FILE= BATS_FILTER= LINT_ONLY=0 LINT_TOOL= main --ci
   '
   assert_success
   assert_output --partial "COVERAGE-RAN shard=[1/4]"
@@ -1908,11 +1915,16 @@ AWK
     # the day the branch regresses from writing coverage/timings.tsv into
     # the mounted checkout while the assertion is still red.
     _run_coverage() { printf "REACHED-FULL-RUNNER\n"; }
-    # The other two selectors are pinned empty for the same reason the
-    # marker exists: COVERAGE_PATH is asserted to out-rank them, and a
-    # block that inherited one from the run it is inside would be
-    # asserting that only for whichever run happened to be in flight.
-    COVERAGE=1 COVERAGE_PATH=test/bats/unit/ci_spec.bats COVERAGE_SHARD= COVERAGE_LOCAL_JOBS= main --ci
+    # Every other selector the dispatch forwards is pinned for the same
+    # reason the marker exists: COVERAGE_PATH is asserted to out-rank
+    # them, and a block that inherited one from the run it is inside
+    # would be asserting that only for whichever run happened to be in
+    # flight. LINT_ONLY earns its place too -- set, it returns from this
+    # dispatch before the coverage branch is read.
+    COVERAGE=1 COVERAGE_PATH=test/bats/unit/ci_spec.bats COVERAGE_SHARD= \
+      COVERAGE_LOCAL_JOBS= BATS_ONLY=0 BATS_UNIT_SHARD= BATS_FRAGILE=0 \
+      BATS_INTEGRATION=0 BATS_FILE= BATS_FILTER= LINT_ONLY=0 LINT_TOOL= \
+      main --ci
   '
   assert_success
   refute_output --partial "REACHED-FULL-RUNNER"

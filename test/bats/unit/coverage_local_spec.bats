@@ -369,7 +369,9 @@ _driver_prelude() {
     _run_coverage_parallel() { printf "PARALLEL_RUNNER %s\n" "$1"; }
     _fix_permissions() { :; }
     COVERAGE=1 COVERAGE_PATH=test/bats/unit/ci_spec.bats \
-      COVERAGE_LOCAL_JOBS=4 COVERAGE_SHARD= BATS_ONLY=1 main --ci
+      COVERAGE_LOCAL_JOBS=4 COVERAGE_SHARD= BATS_ONLY=1 \
+      BATS_UNIT_SHARD= BATS_FRAGILE=0 BATS_INTEGRATION=0 BATS_FILE= \
+      BATS_FILTER= LINT_ONLY=0 LINT_TOOL= main --ci
   '
   assert_success
   assert_output --partial "PATH_RUNNER test/bats/unit/ci_spec.bats"
@@ -386,7 +388,8 @@ _driver_prelude() {
     _run_coverage_parallel() { printf "PARALLEL_RUNNER %s\n" "$1"; }
     _fix_permissions() { :; }
     COVERAGE=1 COVERAGE_LOCAL_JOBS=4 COVERAGE_PATH= COVERAGE_SHARD= \
-      BATS_ONLY=1 main --ci
+      BATS_ONLY=1 BATS_UNIT_SHARD= BATS_FRAGILE=0 BATS_INTEGRATION=0 \
+      BATS_FILE= BATS_FILTER= LINT_ONLY=0 LINT_TOOL= main --ci
   '
   assert_success
   assert_output --partial "PARALLEL_RUNNER 4"
