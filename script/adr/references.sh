@@ -50,15 +50,38 @@
 # declares derived. That is a reader of the repo's own declaration, not a
 # second opinion about what is derived.
 #
-# The residue, stated rather than papered over: only the ROOT .gitignore
-# is read, and only its unambiguous patterns (`name`, `name/`, `/name`,
-# `dir/name`) -- no wildcards, no negations, no nested .gitignore files.
-# Anything more expressive is git's business, and where git is available
-# it is git that answers. The effect of missing one is a file scanned that
-# git would have skipped -- which is not harmless, and was not: requiring
-# the trailing slash left `.claude` and `CLAUDE.md`, the two this repo's
-# own root .gitignore writes without one, in this lint's population and
-# out of the verb's, which is a finding no documented command can clear.
+# Only the ROOT .gitignore is read, and the effect of a pattern it fails
+# to apply is a file scanned that git would have skipped -- which is not
+# harmless, and was not: requiring a trailing slash left `.claude` and
+# `CLAUDE.md`, the two this repo's own root .gitignore writes without one,
+# in this lint's population and out of the verb's, which is a finding no
+# documented command can clear.
+#
+# So the reader applies every form it can apply EXACTLY, and REPORTS the
+# rest rather than skipping them. The line between the two is not a
+# judgement about how likely a form is; it is whether `find`'s matcher and
+# git's agree on it:
+#
+#   applied     a plain path (`name`, `name/`, `/name`, `dir/name`), and a
+#               wildcard with no separator (`*.swp`). git matches a
+#               separator-less pattern against the basename at any depth
+#               with fnmatch, which is `find -name`, character for
+#               character.
+#   reported    a negation, a wildcard beside a separator, and a nested
+#               .gitignore. git's `*` stops at a `/` and find's `-path`
+#               does not, no prune expression re-includes what an earlier
+#               one excluded, and a per-directory file is a rule this
+#               reader never opens. Each would silently widen the walk's
+#               population past the verb's.
+#
+# Reported and not modelled, deliberately. A shell reimplementation of
+# gitignore would be right about the forms someone thought of and wrong
+# in silence about the rest, which is the failure mode this file exists
+# to remove -- whereas a tree told which line to spell differently has a
+# repair it can make. The report fires only in the WALK tier: where git
+# answers, git applies all of it, and a finding there would name a
+# declaration nothing gets wrong. base's own root .gitignore is inside the
+# applied set today, `*.swp` and `*.swo` included.
 #
 # ── A file that builds its own registry ─────────────────────────────────
 #
@@ -144,10 +167,18 @@ _ADR_REF_FIXTURE_RE='^[[:space:]]*#[[:space:]]*adr-refs:[[:space:]]*fixture([[:s
 # read, and the lint says so rather than treating it as an exemption.
 _ADR_REF_MARKER_RE='^[[:space:]]*#[[:space:]]*adr-refs:'
 
-# _adr_ref_ignored_paths <root> -- the paths <root>/.gitignore declares
-# derived, as `anchored<TAB><path>` (root-relative, matched there only)
-# or `anywhere<TAB><name>` (matched at any depth), one per line. Only
-# unambiguous patterns are read; see the header.
+# _adr_ref_ignored_paths <root> -- every line of <root>/.gitignore this
+# reader has an opinion about, as `<kind><TAB><lineno><TAB><text>`:
+#
+#   anchored   a root-relative path, matched there only.
+#   anywhere   a name (or a separator-less wildcard), matched at any depth.
+#   negation   a `!` line. NOT applied -- reported.
+#   deep-glob  a wildcard beside a separator. NOT applied -- reported.
+#
+# The two reported kinds are here rather than dropped so that ONE pass
+# over the file decides both what the walk prunes and what it cannot
+# promise, and neither list can go stale against the other. See the
+# header for why they are reported instead of modelled.
 #
 # A trailing slash means "a directory and not a file", which is a
 # distinction this reader does not need to make: pruning the name reaches
@@ -157,21 +188,35 @@ _ADR_REF_MARKER_RE='^[[:space:]]*#[[:space:]]*adr-refs:'
 # the tree declares derived in the lint's population and out of the
 # verb's.
 _adr_ref_ignored_paths() {
-  local _root="$1" _line
+  local _root="$1" _line _text _n=0
   [[ -f "${_root}/.gitignore" ]] || return 0
   while IFS= read -r _line || [[ -n "${_line}" ]]; do
+    _n=$(( _n + 1 ))
     _line="${_line%$'\r'}"
     _line="${_line%"${_line##*[![:space:]]}"}"
-    [[ "${_line}" != '#'* && "${_line}" != '!'* ]] || continue
-    [[ "${_line}" != *[*?\[]* ]] || continue
+    [[ "${_line}" != '#'* ]] || continue
+    [[ -n "${_line}" ]] || continue
+    _text="${_line}"
+    if [[ "${_line}" == '!'* ]]; then
+      printf 'negation\t%s\t%s\n' "${_n}" "${_text}"
+      continue
+    fi
     _line="${_line%/}"
     [[ -n "${_line}" ]] || continue
+    # A wildcard is applied only where git's matcher and find's are the
+    # same one: with no separator, both fnmatch the basename. With a
+    # separator git's `*` stops at the next `/` and find's `-path` does
+    # not, so that form is reported instead of approximated.
+    if [[ "${_line}" == *[*?\[]* && "${_line}" == */* ]]; then
+      printf 'deep-glob\t%s\t%s\n' "${_n}" "${_text}"
+      continue
+    fi
     if [[ "${_line}" == /* ]]; then
-      printf 'anchored\t%s\n' "${_line#/}"
+      printf 'anchored\t%s\t%s\n' "${_n}" "${_line#/}"
     elif [[ "${_line}" == */* ]]; then
-      printf 'anchored\t%s\n' "${_line}"
+      printf 'anchored\t%s\t%s\n' "${_n}" "${_line}"
     else
-      printf 'anywhere\t%s\n' "${_line}"
+      printf 'anywhere\t%s\t%s\n' "${_n}" "${_line}"
     fi
   done < "${_root}/.gitignore"
 }
@@ -186,10 +231,13 @@ _adr_ref_ignored_paths() {
 # then drops the ones that do not resolve to a file, which is what keeps a
 # broken link and a link to a directory out.
 _adr_ref_walk() {
-  local _root="$1" _kind _name
+  local _root="$1" _kind _lineno _name
   local -a _expr=( '(' -name '.git' )
-  while IFS=$'\t' read -r _kind _name; do
+  while IFS=$'\t' read -r _kind _lineno _name; do
     case "${_kind}" in
+      # `-path` and `-name` are find's own fnmatch, which is git's for
+      # these two kinds. The kinds this reader cannot apply are not
+      # approximated here; they are reported (_adr_ref_unreadable_ignores).
       anchored) _expr+=( -o -path "./${_name}" ) ;;
       anywhere) _expr+=( -o -name "${_name}" ) ;;
     esac
@@ -221,19 +269,60 @@ _adr_ref_walk() {
 # the walk -- and note that the exclusion here is git's own, which reads
 # nested .gitignore files, negations and `info/exclude` that the walk's
 # reader deliberately does not.
+_adr_ref_git_files() {
+  local _root="$1"
+  git -C "${_root}" rev-parse --git-dir >/dev/null 2>&1 || return 0
+  git -C "${_root}" ls-files --cached --others --exclude-standard 2>/dev/null
+}
+
 _adr_ref_candidates() {
   local _root="$1"
   local -a _tracked=()
-  if git -C "${_root}" rev-parse --git-dir >/dev/null 2>&1; then
-    mapfile -t _tracked < <(
-      git -C "${_root}" ls-files --cached --others --exclude-standard 2>/dev/null
-    )
-  fi
+  mapfile -t _tracked < <(_adr_ref_git_files "${_root}")
   if (( ${#_tracked[@]} > 0 )); then
     printf '%s\n' "${_tracked[@]}"
     return 0
   fi
   _adr_ref_walk "${_root}"
+}
+
+# _adr_ref_unreadable_ignores <root> -- `<location><TAB><text>` for every
+# declaration the walk cannot apply, one per line, and NOTHING where git
+# answers for <root>.
+#
+# The tier test is `_adr_ref_git_files`, the same call `_adr_ref_candidates`
+# decides the population with, so this cannot report about a tier the
+# population was not taken from. Where git answers it applies negations,
+# deep globs and nested files itself, and a finding there would name a
+# declaration nothing gets wrong.
+#
+# What it reports is not a defect in the tree: it is this reader saying
+# its population is WIDER than the verb's, so a reference finding may name
+# a file `just adr renumber` never sweeps. That is the whole failure the
+# shared reader exists to prevent, and the only honest alternatives were
+# to model gitignore in shell (wrong in silence about the forms nobody
+# thought of) or to go on skipping the line (wrong in silence about all
+# of them).
+_adr_ref_unreadable_ignores() {
+  local _root="$1" _kind _lineno _text _rel
+  local -a _git=()
+  mapfile -t _git < <(_adr_ref_git_files "${_root}")
+  (( ${#_git[@]} == 0 )) || return 0
+  while IFS=$'\t' read -r _kind _lineno _text; do
+    case "${_kind}" in
+      negation|deep-glob)
+        printf '.gitignore:%s\t%s\n' "${_lineno}" "${_text}"
+        ;;
+    esac
+  done < <(_adr_ref_ignored_paths "${_root}")
+  # A nested file, found through the walk itself so that one inside a
+  # pruned directory -- a materialised release under .prev-release/ --
+  # is not reported: the walk does not read that tree either.
+  while IFS= read -r _rel; do
+    [[ "${_rel}" == */.gitignore ]] || continue
+    printf '%s\ta per-directory declaration; only the root one is read\n' \
+      "${_rel}"
+  done < <(_adr_ref_walk "${_root}")
 }
 
 # _adr_ref_files <root> -- every file under <root> that can carry a

@@ -227,6 +227,20 @@ _adr_ref_findings() {
     printf 'ADR numbering: %s:%s: a fixture declaration this reader cannot parse, so it exempts nothing. The form is the word fixture followed by the 8-digit numbers the file uses.\n' \
       "${_hit%%:*}" "${_rest%%:*}"
   done < <(_adr_ref_bad_markers "${_root}")
+  # The population's own honesty check, and it is about THIS RUN rather
+  # than about the tree: git could not be asked here, so the walk read the
+  # declaration, and these are the lines it cannot apply. Every one of them
+  # leaves a file in this lint's population that `just adr renumber` (which
+  # runs where git DOES answer) never sweeps -- the red gate with no repair
+  # path the shared reader exists to close, which is why this is a finding
+  # and not a warning. The repair is to spell the rule in a form both tiers
+  # read: a separator-less pattern, an explicit path, and no per-directory
+  # file.
+  local _loc _text
+  while IFS=$'\t' read -r _loc _text; do
+    printf 'ADR numbering: %s: %s -- an ignore rule this scan cannot apply, so the files it covers are read here and never swept by "just adr renumber". Spell it as a separator-less pattern or an explicit path in the root .gitignore.\n' \
+      "${_loc}" "${_text}"
+  done < <(_adr_ref_unreadable_ignores "${_root}")
 }
 
 # _adr_index_line_bare <line> -- the bare ADR numbers in one index line:
