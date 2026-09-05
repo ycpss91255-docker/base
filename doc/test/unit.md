@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **3985 tests**.
+Unit specs under `test/bats/unit/`: **3988 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -173,7 +173,7 @@ a refusal as "do not release".
 | `R3: PASSES a verbatim claim about a file this repo carries (#927)` | - |
 | `R3: IGNORES verbatim used about behaviour rather than a quotation (#927)` | - |
 
-### test/bats/unit/adr_numbering_spec.bats (37)
+### test/bats/unit/adr_numbering_spec.bats (40)
 
 Unit tests for `script/test/drivers/adr_numbering.sh` (`_run_adr_numbering`,
 refs #808), the ADR-numbering lint. The registry is the filesystem
@@ -220,6 +220,9 @@ warned.
 | `_run_adr_numbering: a wildcard the tree writes without a separator is read (#1021)` | The trailing-slash defect's remaining siblings. A pattern with a wildcard and no separator is what git matches against a basename at any depth, which is exactly what `find -name` matches: read it, and the tier that cannot ask git stops keeping a file git drops. The residue this leaves is not the same shape as the one it removes -- see the two cases below. |
 | `_run_adr_numbering: a declaration this reader cannot apply is reported (#1021)` | What a reader that cannot apply a declaration must do instead of quietly widening its population: SAY SO. A negation and a pattern whose wildcard sits beside a separator are the two forms whose meaning `find` does not reproduce -- git's `*` stops at a `/` and find's does not, and nothing in a prune expression re-includes. Skipped silently they put files in this lint's population that `just adr renumber` never sweeps, which is the red-gate-with-no-repair-path the shared reader exists to close; reported, the tree is told which line to spell differently. |
 | `_run_adr_numbering: a nested .gitignore is reported, not ignored (#1021)` | The same report for the declaration this reader never opens at all. Only the root file is read, so a nested one is a rule the walk cannot apply and git can -- the population splits on it exactly as it split on a trailing slash, and the finding is what keeps the split from being discovered by a red gate no documented command can clear. |
+| `_run_adr_numbering: a .git/info/exclude the walk cannot apply is reported (#1021)` | The same report for the two declarations that are not a `.gitignore` at all. `--exclude-standard` is three files, not one: the root `.gitignore`, `.git/info/exclude`, and whatever `core.excludesFile` names. The git tier applies all three; this reader opens only the first, so a path excluded by either of the other two is read here and never swept by `just adr renumber` -- the same split as the nested file, by the same mechanism, and silent until it reddens a local gate no documented command can clear. |
+| `_run_adr_numbering: a core.excludesFile the walk cannot apply is reported (#1021)` | The per-user half of the same pair, and the one whose effect depends on whose machine the walk runs on -- which is exactly why it is reported rather than applied: a lint that read the operator's global ignore file would answer differently in the container and on the host, and neither answer would be visible in the tree. |
+| `_run_adr_numbering: an exclude file carrying no rule is not reported (#1021)` | The boundary that keeps the pair above from being noise. A declaration with no rules in it declares nothing, and reporting a `.git/info/exclude` that carries only git's own seeded comments would be a finding on every checkout with no repair to make. |
 | `_run_adr_numbering: a checkout reports no unreadable declaration (#1021)` | And the report is about the WALK, not about the tree. Where git answers, git applies every one of these forms itself -- that is the tier whose exclusion the walk is only ever approximating -- so reporting them there would fail a checkout for a declaration nothing in it gets wrong. |
 | `_run_adr_numbering: the REAL doc/adr/ passes today (00000009 gap warned) (#808)` | Live tree clean, 00000009 gap warned |
 

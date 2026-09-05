@@ -796,6 +796,57 @@ _index() {
   [[ "${output}" == *"pkg/.gitignore"* ]]
 }
 
+# why: The same report for the two declarations that are not a
+# `.gitignore` at all. `--exclude-standard` is three files, not one: the
+# root `.gitignore`, `.git/info/exclude`, and whatever `core.excludesFile`
+# names. The git tier applies all three; this reader opens only the first,
+# so a path excluded by either of the other two is read here and never
+# swept by `just adr renumber` -- the same split as the nested file, by
+# the same mechanism, and silent until it reddens a local gate no
+# documented command can clear.
+@test "_run_adr_numbering: a .git/info/exclude the walk cannot apply is reported (#1021)" {
+  _touch_adr "00000001-alpha.md"
+  _index '| 00000001 -- alpha | keep | mechanism | note |'
+  mkdir -p "${SCRATCH}/.git/info"
+  printf '%s\n' '# comments declare nothing' 'scratch/' \
+    > "${SCRATCH}/.git/info/exclude"
+  run _run_adr_numbering
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"info/exclude"* ]]
+}
+
+# why: The per-user half of the same pair, and the one whose effect
+# depends on whose machine the walk runs on -- which is exactly why it is
+# reported rather than applied: a lint that read the operator's global
+# ignore file would answer differently in the container and on the host,
+# and neither answer would be visible in the tree.
+@test "_run_adr_numbering: a core.excludesFile the walk cannot apply is reported (#1021)" {
+  _touch_adr "00000001-alpha.md"
+  _index '| 00000001 -- alpha | keep | mechanism | note |'
+  mkdir -p "${SCRATCH}/home"
+  printf '%s\n' 'scratch/' > "${SCRATCH}/home/ignore"
+  printf '%s\n' '[core]' "  excludesFile = ${SCRATCH}/home/ignore" \
+    > "${SCRATCH}/home/.gitconfig"
+  HOME="${SCRATCH}/home" run _run_adr_numbering
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"home/ignore"* ]]
+}
+
+# why: The boundary that keeps the pair above from being noise. A
+# declaration with no rules in it declares nothing, and reporting a
+# `.git/info/exclude` that carries only git's own seeded comments would be
+# a finding on every checkout with no repair to make.
+@test "_run_adr_numbering: an exclude file carrying no rule is not reported (#1021)" {
+  _touch_adr "00000001-alpha.md"
+  _index '| 00000001 -- alpha | keep | mechanism | note |'
+  mkdir -p "${SCRATCH}/.git/info"
+  printf '%s\n' '# git seeds this file with comments and nothing else' '' \
+    > "${SCRATCH}/.git/info/exclude"
+  run _run_adr_numbering
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"clean"* ]]
+}
+
 # why: And the report is about the WALK, not about the tree. Where git
 # answers, git applies every one of these forms itself -- that is the tier
 # whose exclusion the walk is only ever approximating -- so reporting them
