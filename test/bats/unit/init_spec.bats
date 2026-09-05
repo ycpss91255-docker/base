@@ -977,6 +977,69 @@ _fake_setup_sh() {
   assert_line ".setup.conf"
 }
 
+# .gitignore and .dockerignore are the seventh and eighth paths of this
+# shape, and the pair the enumeration above missed. _sync_managed_entries
+# appends only the canonical entries the file is MISSING and returns
+# without a write when none are -- "the common case for an up-to-date
+# repo", in its own comment -- and both files carry a hand-maintained
+# region above the managed block that the sync documents as never touched.
+# So on the ordinary upgrade what is in one is the repo's own work, exactly
+# as with a hook stub. Reached through `just base init`, which the code
+# calls a repair command; an upgrade cannot reach it because git-subtree
+# refuses a dirty tree first.
+
+# _resync_twice_over_edit <file> <user-lines>
+#   The shape both arms below need: one resync brings the ignore file up to
+#   date, that lands in a commit, the user then appends a rule of their own,
+#   and a SECOND resync -- which has nothing left to add -- runs over it.
+#   What the second run stages is the question.
+_resync_twice_over_edit() {
+  : > "${TMP_REPO}/Dockerfile"
+  _git_seed_consumer
+  _init_existing_repo
+  git -C "${TMP_REPO}" add -A
+  git -C "${TMP_REPO}" commit -q -m "chore: first resync"
+  printf '%s' "${2}" >> "${TMP_REPO}/${1}"
+  _resync_and_stage
+}
+
+# why: the sync writes nothing when the file already carries every
+# canonical entry, so on the ordinary upgrade .gitignore holds only the
+# repo's own rules and staging it commits a rule the user had not finished
+@test "the resync: leaves a .gitignore it did not write unstaged (#1036)" {
+  _source_init
+  _resync_twice_over_edit ".gitignore" '# my own rule
+secrets/
+'
+  run git -C "${TMP_REPO}" diff --cached --name-only
+  refute_output --partial ".gitignore"
+}
+
+# why: the sibling half of the same list -- .dockerignore is synced by the
+# same mechanism, from the same canonical set, and carries the same
+# hand-maintained build-context region the sync never touches
+@test "the resync: leaves a .dockerignore it did not write unstaged (#1036)" {
+  _source_init
+  _resync_twice_over_edit ".dockerignore" '# my own context rule
+fixtures/
+'
+  run git -C "${TMP_REPO}" diff --cached --name-only
+  refute_output --partial ".dockerignore"
+}
+
+# why: the half that must not regress -- the run that actually creates the
+# ignore files wrote them, and leaving THOSE out of the commit is the
+# tree/commit disagreement the staging step exists to close
+@test "the resync: stages the ignore files it wrote this run (#1036)" {
+  _source_init
+  : > "${TMP_REPO}/Dockerfile"
+  _git_seed_consumer
+  _resync_and_stage
+  run git -C "${TMP_REPO}" diff --cached --name-only
+  assert_line ".gitignore"
+  assert_line ".dockerignore"
+}
+
 # why: `git add` refuses the WHOLE batch on a path outside the repo, and a
 # path spelled out of the repo through the repo root with a `..` segment
 # walks straight past a prefix test -- the one input shape the fence
