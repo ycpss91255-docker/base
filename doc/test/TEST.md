@@ -91,11 +91,11 @@ report. Measured on a 32-core machine: 34 minutes becomes 5.
 **It is not line-for-line the serial run, and the difference is the
 suite's.** The merged report's instrumented set is identical and the mode
 is deterministic, but its covered set is 27 lines (0.33%) smaller,
-concentrated in three localised lookup tables. The same loss appears at
-`just test coverage-local 1`, where there is no partition at all, so it is
-not the merge: the suite covers slightly different lines depending on the
-order it runs in. ADR-00000008's Measurement has the numbers and the
-control that separates the two.
+concentrated in three localised lookup tables. 12 of those 27 are already
+lost at `just test coverage-local 1`, where there is no partition at all,
+so it is not the merge: the suite covers slightly different lines
+depending on the order it runs in. ADR-00000008's Measurement has the
+numbers and the control that separates the two.
 
 **Why processes and not `bats --jobs`.** A coverage SHARD does run its bats
 under `--jobs` inside one kcov (base#1060). The full-suite run does not, and
