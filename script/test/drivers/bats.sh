@@ -399,12 +399,19 @@ _run_coverage() {
   #     that rule made the last shard the sole bottleneck and is superseded
   #     (ADR-00000008 amendment). Every spec still runs exactly once across
   #     the matrix, and the coverage-gate merges the per-shard cobertura
-  #     reports back into one line-weighted project figure, so WHERE a slice
-  #     runs does not matter to the merged total -- only that it runs once.
+  #     reports back into one project figure by taking the per-line UNION,
+  #     so WHERE a slice runs does not matter to the merged total -- only
+  #     that it runs once.
   #
   # Each shard writes to ${REPO_ROOT}/coverage and the GHA job uploads it
-  # as a CI artifact; coverage_gate.sh sums covered/valid lines across all
-  # shards' cobertura.xml into one project rate (no external SaaS).
+  # as a CI artifact; coverage_gate.sh unions the covered lines across all
+  # shards' cobertura.xml and divides by the DISTINCT source lines (no
+  # external SaaS). It summed the root counters until base#730, which is a
+  # different number and a wrong one: every shard runs with
+  # --include-path=<repo>, so every report carries the whole tree and
+  # adding the denominators counts shared source once per shard -- the rate
+  # then falls as the shard count rises. coverage_gate.sh's own header
+  # carries the measurement.
   local _shard_spec="${1:-}"
 
   # Shared with _run_coverage_path: both runners must instrument the same

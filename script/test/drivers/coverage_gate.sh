@@ -72,7 +72,7 @@ _coverage_gate_step_summary() {
 }
 
 # The gate proper. Merges the given per-shard cobertura reports into one
-# line-weighted project rate and returns non-zero when it is below
+# project rate by per-line UNION and returns non-zero when it is below
 # COVERAGE_MIN. Args: one or more cobertura.xml paths. Emits the merged
 # rate to stdout; diagnostics to stderr. Self-contained (no _die / _log_*
 # dependency) so the standalone CLI and the sourced driver share it.
