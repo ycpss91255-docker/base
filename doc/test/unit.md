@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **4165 tests**.
+Unit specs under `test/bats/unit/`: **4167 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -151,7 +151,7 @@ a refusal as "do not release".
 | `action-ref-agreement: has a lint-static CI join (#949)` | Named plain-runner matrix entry, no docker |
 | `action-ref-agreement: its failure event id is registered (#949)` | An unregistered id is an anonymous exit |
 
-### test/bats/unit/adr_doc_claims_spec.bats (21)
+### test/bats/unit/adr_doc_claims_spec.bats (23)
 
 | Test | Description |
 |------|-------------|
@@ -162,6 +162,8 @@ a refusal as "do not release".
 | `R1: FAILS a tag claim that names a workflow with no tag trigger (#927)` | - |
 | `R1: PASSES the same claim once the block states the real trigger (#927)` | - |
 | `R1: PASSES a trigger claim that states a real trigger other than workflow_call (#726)` | R1's escape hatch was the literal `workflow_call`, which was the only non-tag trigger any ADR block named when the rule was written. The first block to name a `workflow_dispatch`-only workflow therefore stated its real trigger, correctly, and was reported anyway -- with a message demanding a trigger that workflow does not have. A rule that cannot be satisfied by telling the truth teaches people to reword around it. |
+| `R1: a workflow's own subject word does not state its trigger (#726)` | the third way widening the hatch can go wrong, and the one that empties the rule quietly. An event name is an ordinary English word -- `issues`, `schedule`, `push` -- so a substring reading lets a workflow's own SUBJECT excuse a false claim about it: the sentence "which is how this repo labels issues" states nothing about a trigger, and would have waved through a tag claim over `triage-label.yaml`, whose only statable trigger happens to be `issues`. A trigger has to be STATED AS ONE, which in this repo's prose means naming it as code. |
+| `R1: a trigger stated inside a code span opens the hatch (#726)` | the other side of that tightening: the hatch has to stay openable, and the way an ADR in this tree states a trigger is in a code span -- both shipped forms (`on: workflow_call`, `workflow_dispatch`) are written that way, and R3's quotation rule already reads the same spans. |
 | `R1: still FAILS a trigger claim that names the same workflow and states nothing (#726)` | the other half of that change, and the reason it does not weaken the rule: naming the workflow in a trigger claim and saying nothing about what actually starts it is still the ADR-00000027 defect, whichever trigger the workflow has. |
 | `R1: a workflow's statable triggers are its events, never its filters (#726)` | reading the escape hatch off the workflow instead of off a literal creates one new way to be wrong -- reading a FILTER as an event. `tags:` and `branches:` are keys inside the `on:` block too, and admitting `tags` would let the word "tag", the very word R1 is triggered by, excuse every block R1 exists to read. Pinned on the real self-test.yaml, whose `on:` has both a nested `tags:` and a nested `branches:`. |
 | `R1: saying 'push' does not excuse a claim about a tag-less push workflow (#726)` | the second new way to be wrong, and the reason `push` is the one event excluded: a tag push IS a push, so "push" said about a workflow whose `on: push:` carries no `tags:` filter answers nothing the rule asked. Such a block must still be reported -- and with nothing truthful left to name, the message says so rather than offering an empty list. |

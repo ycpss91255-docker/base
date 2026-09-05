@@ -370,6 +370,45 @@ _write_adr() {
   assert_success
 }
 
+# why: the third way widening the hatch can go wrong, and the one that
+# empties the rule quietly. An event name is an ordinary English word --
+# `issues`, `schedule`, `push` -- so a substring reading lets a workflow's
+# own SUBJECT excuse a false claim about it: the sentence "which is how
+# this repo labels issues" states nothing about a trigger, and would have
+# waved through a tag claim over `triage-label.yaml`, whose only statable
+# trigger happens to be `issues`. A trigger has to be STATED AS ONE, which
+# in this repo's prose means naming it as code.
+@test "R1: a workflow's own subject word does not state its trigger (#726)" {
+  local _adr
+  _adr="$(_write_adr subject_word.md \
+    '## Context' \
+    '' \
+    'A tag push triggers `.github/workflows/triage-label.yaml`, which is' \
+    'how this repo labels issues.')"
+  run _adr_claims "${_adr}" "${REPO}"
+  assert_failure
+  assert_output --partial 'triage-label.yaml'
+  assert_output --partial 'no tag trigger'
+  # And the message still names what the block should have said, so the
+  # remedy is the same one sentence away.
+  assert_output --partial 'issues'
+}
+
+# why: the other side of that tightening: the hatch has to stay openable,
+# and the way an ADR in this tree states a trigger is in a code span --
+# both shipped forms (`on: workflow_call`, `workflow_dispatch`) are
+# written that way, and R3's quotation rule already reads the same spans.
+@test "R1: a trigger stated inside a code span opens the hatch (#726)" {
+  local _adr
+  _adr="$(_write_adr subject_word_fixed.md \
+    '## Context' \
+    '' \
+    'A tag push does not reach `.github/workflows/triage-label.yaml`,' \
+    'which runs `on: issues` when one is opened.')"
+  run _adr_claims "${_adr}" "${REPO}"
+  assert_success
+}
+
 # why: the other half of that change, and the reason it does not weaken the
 # rule: naming the workflow in a trigger claim and saying nothing about what
 # actually starts it is still the ADR-00000027 defect, whichever trigger the
