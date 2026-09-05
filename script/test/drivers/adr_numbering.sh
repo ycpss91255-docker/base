@@ -48,16 +48,17 @@
 #               and the slug beside it is what says the pointer no longer
 #               names what its author meant.
 #   index       doc/adr/README.md: exactly one row per record, no row
-#               without a record, and no bare number in either of the
-#               document's two ENUMERATIONS -- the audit table and the
-#               audit conclusion -- that no record claims. The site the
-#               hand renumber actually missed, twice, and both times it
-#               was a conclusion bullet rather than a row, which is why
-#               the row's opening number is not the whole check. Free
-#               prose is out: that is where the document deliberately
-#               names a number no record claims (the intentional 00000009
-#               gap), and the verb can rewrite it safely only because the
-#               number IT moves has a record by construction.
+#               without a record, and no bare number that no record claims
+#               anywhere the document ENUMERATES -- which is every line
+#               except the prose sections named in _ADR_INDEX_PROSE_RE.
+#               The site the hand renumber actually missed, twice, and
+#               both times it was a conclusion bullet rather than a row,
+#               which is why the row's opening number is not the whole
+#               check. The prose exception is where the document
+#               deliberately names a number no record claims (the
+#               intentional 00000009 gap), and the verb can rewrite it
+#               safely only because the number IT moves has a record by
+#               construction.
 #   declaration a fixture declaration this reader cannot parse. It exempts
 #               nothing, which is the safe direction to fail in and
 #               exactly why it is worth saying out loud: the alternative
@@ -99,12 +100,18 @@
 # the file, which a spec that builds fixtures AND cites a live record
 # settles.
 #
-# The index checks run only where doc/adr/README.md carries the audit
-# table's HEADER. A README without one is not an index, which is the
-# fixture case and also the honest reading -- and the residue is stated
-# rather than hidden: deleting the table disables the check. That is a
-# whole document's spine going missing in a diff, where a single missed
-# row is invisible, and the invisible one is what this is for.
+# The index checks run where doc/adr/README.md enumerates records at all:
+# a row, or the audit table's header. A README with neither is not an
+# index, which is the fixture case and also the honest reading. Either
+# signal, and not the header alone, because the header is a LITERAL and
+# renaming one column heading turned all four checks off in silence -- an
+# input the guard was not written for, in an edit that reads as a
+# typographical tidy-up.
+#
+# The residue is stated rather than hidden: deleting the table -- every row
+# AND the header -- disables the checks. That is a whole document's spine
+# going missing in a diff, where a single missed row is invisible, and the
+# invisible one is what this is for.
 
 # ── ADR-numbering lint ───────────────────────────────────────────────────────
 
@@ -142,34 +149,48 @@ readonly _ADR_TOKEN_SCAN_RE='ADR-[0-9]{8}'
 # (script/adr/references.sh); a reference carrying one of them is skipped
 # and every other reference in that file is read like any other.
 readonly _ADR_PATH_SCAN_RE='doc/adr/[0-9]{8}-[A-Za-z0-9._-]+\.md'
-# The audit table: its header marks the document as the index, and a row
-# opens with the number of the record it is about.
+# The audit table: a row opens with the number of the record it is about,
+# and its header is the document's own label for the table.
+#
+# EITHER of them marks the document as the index, and that is the whole
+# reason both are here. The header alone was the gate, and it is a
+# literal: renaming one column heading turned all four index checks off
+# with "proceed" as the default, in an edit that reads as a typographical
+# tidy-up. What makes a README the index is that it ENUMERATES records, so
+# a row is the honest signal; the header stays beside it because deleting
+# every row would otherwise disable the missing-row check, which is the
+# one that reports a table emptied by accident.
 readonly _ADR_INDEX_HEADER_RE='^\| ADR \| Verdict \|'
 readonly _ADR_INDEX_ROW_RE='^\| ([0-9]{8}) '
 # The index's OTHER numbers: the ones a row or a conclusion carries
 # without an `ADR-` in front. Digit RUNS, so a longer number is not read as
 # eight digits with something after it.
 readonly _ADR_INDEX_RUN_RE='[0-9]+'
-# WHERE those are read: the document's two ENUMERATIONS. A table row is
-# about a record from its first cell to its last, so a `keep (amended by
-# 00000023)` three columns along is a pointer like any other. The audit
-# conclusion is a second listing of the same records, and it is where the
-# 00000030 hand repair was actually left incomplete -- twice, in bullets
-# no row check reads.
+# WHERE those are read: every row, and every line outside the sections
+# this document reserves for PROSE. A table row is about a record from its
+# first cell to its last, so a `keep (amended by 00000023)` three columns
+# along is a pointer like any other; the audit conclusion is a second
+# listing of the same records, and it is where the 00000030 hand repair
+# was actually left incomplete -- twice, in bullets no row check reads.
 #
-# NOT the whole document, and the reason is the one place the verb's rule
-# and this lint's part company. The verb rewrites a bare number anywhere
-# here, and that is safe for it by construction: the number it rewrites has
-# exactly one record (it refuses otherwise), so every occurrence names that
-# record. This lint asks the opposite question -- which numbers name NO
-# record -- and the document answers it deliberately in prose: "`00000009`
-# is an intentional gap ... do not invent a `00000009`", under Anomalies,
-# twice. A rule that read those would be a rule the document has to be
-# written around. The residue, stated rather than hidden: a stale number in
-# free prose here is not caught, and renaming either heading turns the
-# check it guards off -- the same shape, and the same argument, as the
-# audit table's own header.
-readonly _ADR_INDEX_CONCLUSION_RE='^## Audit conclusion'
+# The exception, and the one place the verb's rule and this lint's part
+# company. The verb rewrites a bare number anywhere here, and that is safe
+# for it by construction: the number it rewrites has exactly one record (it
+# refuses otherwise), so every occurrence names that record. This lint asks
+# the opposite question -- which numbers name NO record -- and the document
+# answers it deliberately in prose: "`00000009` is an intentional gap ...
+# do not invent a `00000009`", under Anomalies, twice.
+#
+# So Anomalies is named and everything else is read, rather than the
+# conclusion being named and everything else skipped. Both spellings pass
+# today; they differ in which way a rename fails. Gated on
+# `## Audit conclusion`, renaming that heading turned the scan off in
+# silence -- and it guards exactly the two sites the hand repair missed.
+# Excepting `## Anomalies` instead, renaming THAT heading makes the
+# deliberate gap a finding: loud, immediately, on the line that moved.
+# The residue is unchanged in kind and smaller: a stale number in a prose
+# section this list names is not caught.
+readonly _ADR_INDEX_PROSE_RE='^## Anomalies'
 readonly _ADR_INDEX_SECTION_RE='^## '
 # The two classes _adr_ref_findings already reports, removed before the
 # bare scan so one site produces one finding rather than two.
@@ -375,19 +396,19 @@ _adr_index_bare_findings() {
   for _n in "$@"; do
     _known["${_n}"]=1
   done
-  local _line _rest _rownum _num _lineno=0 _in_conclusion=0
+  local _line _rest _rownum _num _lineno=0 _in_prose=0
   while IFS= read -r _line || [[ -n "${_line}" ]]; do
     _lineno=$(( _lineno + 1 ))
     if [[ "${_line}" =~ ${_ADR_INDEX_SECTION_RE} ]]; then
-      _in_conclusion=0
-      [[ ! "${_line}" =~ ${_ADR_INDEX_CONCLUSION_RE} ]] || _in_conclusion=1
+      _in_prose=0
+      [[ ! "${_line}" =~ ${_ADR_INDEX_PROSE_RE} ]] || _in_prose=1
       continue
     fi
     _rest="${_line}"
     if [[ "${_rest}" =~ ${_ADR_INDEX_ROW_RE} ]]; then
       _rownum="${BASH_REMATCH[1]}"
       _rest="${_rest/${_rownum}/}"
-    elif (( ! _in_conclusion )); then
+    elif (( _in_prose )); then
       continue
     fi
     while IFS= read -r _num; do
@@ -401,15 +422,18 @@ _adr_index_bare_findings() {
 # _adr_index_findings <root> <claimed-number>... -- one line per
 # disagreement between doc/adr/README.md's audit table and the records.
 #
-# Runs only where the table's header is there to read: a README without
-# one is not an index. Row order is not checked -- the table is sorted by
-# hand and a renumber does not make it wrong, only unsorted.
+# Runs where the document enumerates records at all: a row, or the table
+# header. A README with neither is not an index, which is the fixture case
+# and also the honest reading. Row order is not checked -- the table is
+# sorted by hand and a renumber does not make it wrong, only unsorted.
 _adr_index_findings() {
   local _root="$1"
   shift
   local _readme="${_root}/doc/adr/README.md"
   [[ -f "${_readme}" ]] || return 0
-  grep -qE -e "${_ADR_INDEX_HEADER_RE}" "${_readme}" || return 0
+  grep -qE -e "${_ADR_INDEX_HEADER_RE}" "${_readme}" \
+    || grep -qE -e "${_ADR_INDEX_ROW_RE}" "${_readme}" \
+    || return 0
 
   _adr_index_bare_findings "${_readme}" "$@"
 

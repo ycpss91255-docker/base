@@ -245,9 +245,24 @@ looks like. No lint can settle it, which is the argument for renumbering
 on the branch -- where the rewrite is mechanical -- rather than after the
 merge.
 
-The index table is now load-bearing: deleting it disables the row check.
-That is a document's spine going missing in a diff, where a single missed
-row is invisible, and the invisible failure is the one the check is for.
+The index table is now load-bearing: deleting it -- every row and the
+header -- disables the row check. That is a document's spine going missing
+in a diff, where a single missed row is invisible, and the invisible
+failure is the one the check is for.
+
+> **Amended (base#1021, same wave).** That residue was first written with
+> a smaller table than the checks actually had. Both gates were LITERALS
+> with "proceed" as their default: the checks ran only where the header
+> read `| ADR | Verdict |`, and the bare-number scan only inside
+> `## Audit conclusion`. Renaming one column heading turned all four off,
+> and renaming the conclusion heading turned off the half that guards the
+> two sites the hand repair actually missed -- in an edit that reads as a
+> typographical tidy-up, which is a smaller thing than a spine going
+> missing. So the signal is now what the document DOES: a row, or the
+> header, marks it as the index, and the bare scan reads every line
+> outside the sections named as prose. The literal that remains is the
+> prose exception (`## Anomalies`), where a rename fails LOUDLY -- the
+> deliberate 00000009 gap becomes a finding -- instead of quietly.
 
 This ADR allocated its own number by the rule it is about, from a tree
 that already carried a wave of parallel branches. If it collides, the
