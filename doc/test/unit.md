@@ -1978,7 +1978,7 @@ to escape.
 | `_sync_doc_counts: a second run over a generated catalogue changes nothing` | "Regenerating from scratch reproduces what is committed" is the gate check_test_md_drift.sh applies to the real tree, so a second run that moved a byte would make every branch red for a reason no diff explains. |
 | `_sync_doc_counts: a shipped smoke spec lands in smoke.md` | A shipped smoke spec is the one level whose glob leaves test/ for dist/, and it was the case that caught the doc-to-glob map going stale before. It stays because the map is still hand-written. |
 
-### test/bats/unit/dockerfile_migrate_spec.bats (116)
+### test/bats/unit/dockerfile_migrate_spec.bats (123)
 
 Unit tests for the declarative Dockerfile-migration list
 `lib/dockerfile_migrate.sh` (#567, folds #579 facet B). The lib exposes a
@@ -2043,6 +2043,13 @@ force-rewrite).
 | `migration (smoke-copy): warns about an unresolvable spec on a continuation line (#928)` | - |
 | `migration (smoke-copy): duplicates a continued wholesale COPY into shared + the stage's own folder (#928)` | - |
 | `migration (smoke-copy): a .base/test/smoke-prefixed sibling path is not the retired tree (#928)` | - |
+| `migration (repo-smoke-copy): rewrites the flat COPY into shared + the stage's own folder (#1044)` | Wholesale rewrite: shared baseline plus the enclosing stage folder |
+| `migration (repo-smoke-copy): emits only the shared baseline when the repo ships no stage folder (#1044)` | A stage the repo has no folder for gets no COPY of its own |
+| `migration (repo-smoke-copy): leaves base's own shipped path to smoke-copy (#1044)` | The two smoke migrations stay disjoint over one Dockerfile |
+| `migration (repo-smoke-copy): idempotent — detect false once already per-stage (#1044)` | Idempotent: a Dockerfile already per-stage is not detected |
+| `migration (repo-smoke-copy): a test/smoke-prefixed sibling path is not the retired tree (#1044)` | A sibling merely prefixed by the retired name is not it |
+| `migration (repo-smoke-copy): detects a source only on a continuation line (#1044)` | A COPY is a statement, not a line: continuations count |
+| `migration (repo-smoke-copy): is registered, and after smoke-copy (#1044)` | Registered, and ordered after the migration whose path contains its own |
 | `migration (flat-to-dist): rewrites the flat lint-stage lib/wrapper COPYs (#915)` | - |
 | `migration (flat-to-dist): rewrites the flat config COPY (#915)` | - |
 | `migration (flat-to-dist): idempotent — detect false on an already-dist Dockerfile (#915)` | - |
@@ -5541,6 +5548,43 @@ smoke specs via `load "${BATS_TEST_DIRNAME}/test_helper"`).
 | `entrypoint_is_single_file: a commented exec is not an exec` | The seeded bringup template TALKS about the exec it must not have, and a repo that migrated by commenting the line out has migrated. A substring match on `exec` reads both as the old model and would skip the assertion on every correctly migrated repo -- the same code-versus-comment distinction dockerfile_migrate.sh's notice makes |
 | `entrypoint_is_single_file: false when the path does not exist` | An image with no bringup at all is not on the old model, so the orchestrator assertion must still run there. Answering true on a missing path would silently exempt exactly the image most likely to be missing the orchestrator too |
 | `entrypoint_is_single_file: errors when the path arg is missing` | The caller-error case, separated from the honest false above: a no-argument call must say so rather than answer "not the old model", which is the answer that turns a typo in a spec into a silent skip |
+
+### test/bats/unit/smoke_migrate_spec.bats (17)
+
+Mirrors `lib/smoke_migrate.sh`. v0.42.0 moved the repo-owned smoke tree from
+a flat `test/smoke/` to the per-stage `test/bats/smoke/` layout and shipped
+no migration for it, so a repo upgraded from v0.41.0 keeps a shape a fresh
+bootstrap of the same tag never produces.
+
+The move is behaviour-preserving by construction: the pre-v0.42.0 Dockerfile
+copies the whole flat tree into EVERY `-test` stage, and `shared/` is
+defined as "runs on every stage". So every spec lands in `shared/` --
+deciding which ones belong to one stage is a per-repo judgement this
+migration deliberately does not make.
+
+Apply policy follows _migrate_env_to_local: a shape it recognises is healed
+idempotently; anything ambiguous is warned about and left alone, never
+force-rewritten.
+
+| Test | Description |
+|------|-------------|
+| `_migrate_smoke_tree moves flat specs into the shared baseline (#1044)` | The move itself: every spec lands in the shared baseline |
+| `_migrate_smoke_tree preserves spec contents verbatim (#1044)` | A moved spec is the same file, not a regenerated one |
+| `_migrate_smoke_tree carries a non-.bats helper across too (#1044)` | Helpers move with the specs that load them |
+| `_migrate_smoke_tree creates the per-stage folders a fresh repo has (#1044)` | The migrated repo gains the folders a fresh one has |
+| `_migrate_smoke_tree is inert when there is no flat tree (#1044)` | Nothing to migrate creates nothing |
+| `_migrate_smoke_tree is inert on a second run (#1044)` | Idempotent: a second run neither moves nor clobbers |
+| `_migrate_smoke_tree leaves a repo already on the new layout alone (#1044)` | A repo past this migration is not disturbed by it |
+| `_migrate_smoke_tree does not claim a prefix-sharing sibling (#1044)` | test/smoke_helpers merely starts with the retired name |
+| `_migrate_smoke_tree keeps both sides when a name already exists at the destination (#1044)` | A name collision destroys neither file |
+| `_migrate_smoke_tree names the conflict it declined (#1044)` | The declined file is named, so the user can act on it |
+| `_migrate_smoke_tree declines when the Dockerfile names the tree unrewritably (#1044)` | Move and COPY rewrite stay coupled: neither happens alone |
+| `_migrate_smoke_tree proceeds on the shape the rewriter handles (#1044)` | The stock COPY shape is recognised, so the move runs |
+| `_migrate_smoke_tree proceeds when the Dockerfile never names the tree (#1044)` | No reference to the tree means nothing to keep in step |
+| `_migrate_smoke_tree does not decline over base's own shipped path (#1044)` | The decline keys off the repo path, not smoke_copy s |
+| `_migrate_smoke_tree proceeds when there is no Dockerfile at all (#1044)` | No Dockerfile means no COPY that could be left dangling |
+| `_migrate_smoke_tree stages the move when the repo is a git tree (#1044)` | The rename rides the caller commit instead of surfacing later |
+| `_migrate_smoke_tree works outside a git tree (#1044)` | An absent git degrades to a plain move, not an error |
 
 ### test/bats/unit/sourceable_scripts_spec.bats (8)
 
