@@ -50,7 +50,9 @@ teardown() {
     _run_coverage()    { return 1; }
     _fix_permissions() { printf "HANDBACK\n" >> "'"${_log}"'"; }
     trap _test_exit_reclaim EXIT
-    COVERAGE=1 COVERAGE_PATH= COVERAGE_SHARD= main --ci
+    COVERAGE=1 COVERAGE_PATH= COVERAGE_SHARD= COVERAGE_LOCAL_JOBS= \
+      BATS_ONLY=1 BATS_UNIT_SHARD= BATS_FRAGILE=0 BATS_INTEGRATION=0 \
+      BATS_FILE= BATS_FILTER= LINT_ONLY=0 LINT_TOOL= main --ci
   '
   assert_failure
   assert [ -f "${_log}" ]
@@ -309,8 +311,19 @@ _PINS='export TEST_TOOLS_IMAGE=test-tools:spec; export COMPOSE_PROJECT_NAME=base
   # driven against a scratch root: `main` would drive it against the real
   # checkout, deleting the coverage/ of whatever run is in flight beside
   # this one.
+  # Two links, asserted separately, because the flag defers: the case arm
+  # only records the request, and a later block acts on it. Asserting one
+  # link passes while the other is missing -- which is a flag that parses
+  # and does nothing.
   run bash -c "
     sed -n '/--clean-coverage)/,/;;/p' '${TESTSH}' \
+      | grep -vE '^[[:space:]]*#' \
+      | grep -cF 'repair=\"clean-coverage\"'
+  "
+  assert_output "1"
+
+  run bash -c "
+    sed -n '/if \[\[ -n \"\${repair}\" \]\]; then/,/^  fi\$/p' '${TESTSH}' \
       | grep -vE '^[[:space:]]*#' \
       | grep -cF '_clean_coverage'
   "
