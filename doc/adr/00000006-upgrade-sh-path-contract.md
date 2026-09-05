@@ -104,12 +104,14 @@
   shipped. The last sentence above was false as written. The naming
   contract makes those paths base's to SHIP; it does not make them base's
   to REWRITE, and `_init_installed_paths` answers "what does a consumer
-  carry", not "what did this run write". Five of the writers behind that
-  list seed a file only when it is absent and then never touch it again --
+  carry", not "what did this run write". Six of the writers behind that
+  list write a file only under a condition and then never touch it again --
   the 14 hook stubs (whose entire purpose is that a user-authored hook
   survives every later upgrade), the REPO-OWNED `script/local/` pair,
-  `config/.gitkeep`, the monitor workflow, and a `.hadolint.yaml` the user
-  has customised. Staging the published list wholesale therefore committed
+  `config/.gitkeep`, the monitor workflow, a `.hadolint.yaml` the user has
+  customised, and `.setup.conf`, which `setup.sh` writes only on a
+  first-time bootstrap or a stale-`mount_1` rewrite. Staging the published
+  list wholesale therefore committed
   the user's own half-finished hook under a message about a base release:
   the sweep the paragraph above forbids, arriving through the published
   list instead of through `git add -A`. **The correction:** the staged set
@@ -117,7 +119,10 @@
   subset and each of its writers records the file at the moment it creates
   it (`_INIT_WROTE`), because the condition it tested is gone by the time
   the staging step runs and re-deriving it from the tree is how the user's
-  content gets classified as ours a second time. A spec pins the two lists
+  content gets classified as ours a second time. `.setup.conf` is the one
+  entry that cannot be recorded that way -- its writer is a separate
+  process, and no shell variable crosses that -- so `_call_setup` compares
+  the file's content across the call instead. A spec pins the two lists
   to each other, and the integration arm now hands the real upgrade a
   customised hook stub -- a path inside the published list, which the
   earlier anti-sweep arms (both on `NOTES.md`, outside it) could not see.

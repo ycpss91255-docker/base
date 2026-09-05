@@ -778,7 +778,11 @@ EOF
 #     - config/.gitkeep, which an existing config/ keeps (_populate_config);
 #     - the monitor workflow, generated once (_sync_base_monitor_workflow);
 #     - .hadolint.yaml, which _create_symlinks refuses to re-point once it
-#       differs from the template.
+#       differs from the template;
+#     - .setup.conf, which setup.sh writes on a first-time bootstrap or a
+#       stale-mount_1 rewrite and leaves alone otherwise -- the one entry
+#       whose writer is a separate PROCESS, so _call_setup records it by
+#       comparing the file's content across the call instead.
 #
 #   Staging those wholesale put the user's half-finished hook into a commit
 #   whose message names a base release -- the sweep the staging step was
@@ -796,6 +800,7 @@ _init_seed_only_paths() {
   cat <<'EOF'
 .github/workflows/base-version-monitor.yaml
 .hadolint.yaml
+.setup.conf
 config/.gitkeep
 script/hooks/post/build.sh
 script/hooks/post/exec.sh
@@ -1544,7 +1549,29 @@ _gen_setup_conf() {
 
 # ── Trigger setup.sh to materialize .env + compose.yaml ─────────────────────
 
+# _call_setup
+#   Run setup.sh over this repo, and record whether it wrote `.setup.conf`.
+#
+#   `.setup.conf` is a published installed path, so the staging step has to
+#   decide whether it is this run's output -- and it is one only sometimes.
+#   setup.sh writes it on a first-time bootstrap and on a stale-mount_1
+#   rewrite, and leaves it exactly as it found it on every other run (see
+#   `_reconcile_workspace_path` in lib/setup_detect.sh). On the ordinary
+#   upgrade, therefore, the file holds the repo's own tuning.
+#
+#   Every other seed-only path is recorded by the writer itself; this one
+#   cannot be, because the writer is a separate PROCESS and no shell
+#   variable crosses that. The file's CONTENT across the call is the answer
+#   that does. The `; printf x` on both reads is not a flourish: a command
+#   substitution eats trailing newlines, so without it a run whose only
+#   change was one would read as no change and go unstaged, leaving the
+#   working tree disagreeing with the commit -- the failure this whole step
+#   exists to close.
 _call_setup() {
+  local _conf="${REPO_ROOT}/.setup.conf"
+  local _before="" _after=""
+  [[ -f "${_conf}" ]] && _before="$(cat -- "${_conf}" 2> /dev/null; printf x)"
+
   local _setup="${TEMPLATE_DIR}/dist/script/docker/wrapper/setup.sh"
   if [[ ! -f "${_setup}" ]]; then
     _log "Skipping setup.sh (${_setup} not found)"
@@ -1554,6 +1581,10 @@ _call_setup() {
   if ! bash "${_setup}" apply --base-path "${REPO_ROOT}" >/dev/null; then
     _log "WARNING: setup.sh exited non-zero; inspect manually and rerun ./build.sh --setup"
   fi
+
+  [[ -f "${_conf}" ]] && _after="$(cat -- "${_conf}" 2> /dev/null; printf x)"
+  [[ "${_after}" == "${_before}" ]] || _init_record_write ".setup.conf"
+  return 0
 }
 
 # _error <message>
