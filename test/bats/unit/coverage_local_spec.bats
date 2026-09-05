@@ -238,6 +238,31 @@ _driver_prelude() {
   refute_output --partial "Unknown option"
 }
 
+# why: `010` passes `^[0-9]+$` and is then READ IN TWO BASES. The launch
+# loop counts with bash arithmetic, where a leading zero is octal (8); the
+# partitioner hands the same string to awk as `-v t=`, where it is decimal
+# (10). So `--jobs 010` launches 8 slices of a 10-way partition, two bins'
+# specs are never run and never instrumented, and none of the three
+# documented refusals fires -- a whole-suite certificate over a
+# measurement with a hole in it. Refused where it was typed rather than
+# resolved to one base: either resolution leaves the operator's `010`
+# meaning a number they did not write.
+@test "main: --coverage-local rejects a --jobs written with a leading zero" {
+  run bash -c '
+    source /source/script/test/test.sh
+    _invalidate_coverage_head() { :; }
+    _stamp_coverage_head() { :; }
+    # The dispatch is stubbed so the assertion is about the value never
+    # LEAVING the host, not about what a container did with it.
+    _run_via_compose() { printf "DISPATCHED jobs=%s\n" "${COVERAGE_LOCAL_JOBS}"; }
+    main --coverage-local --jobs 010
+  '
+  assert_failure
+  assert_output --partial "010"
+  refute_output --partial "DISPATCHED"
+  refute_output --partial "Unknown option"
+}
+
 # why: the dispatch is what makes the mode real, and the two selectors it
 # CLEARS matter as much as the one it sets: `_run_via_compose` forwards
 # COVERAGE_SHARD / COVERAGE_PATH from the AMBIENT environment, so this
@@ -639,6 +664,35 @@ _run_coverage_parallel 0"
 _run_coverage_parallel two"
   assert_failure
   assert_output --partial "two"
+}
+
+# why: the same divergence one layer in, at the layer that actually
+# partitions. This runner is reachable from the ENVIRONMENT as well as
+# from the flag, so a leading zero the host parser never saw still gets
+# here -- and here the two readings sit three lines apart: the launch loop
+# counts `010` as octal 8 while `_shard_unit_files` passes it to awk as
+# the decimal total 10. The refusal has to be here too, and it has to fire
+# before anything is launched: 8 kcov processes over a 10-way partition
+# produce reports that merge cleanly and certify a suite they never ran.
+@test "_run_coverage_parallel: rejects a job count written with a leading zero" {
+  local _root _log="${BATS_TEST_TMPDIR}/kcov.log"
+  _root="$(_make_pool_root)"
+  _install_kcov_mocks "${_log}"
+
+  run bash -c "$(_driver_prelude "${_root}")
+_run_coverage_parallel 010"
+  assert_failure
+  assert_output --partial "010"
+  assert [ ! -f "${_log}" ]
+
+  # By the refusal that names the INPUT. `010` also happens to trip the
+  # empty-slice refusal on a five-spec pool -- 8 slices asked of a 10-bin
+  # partition leave bins 6..10 empty -- and a run that dies there has been
+  # told to use fewer jobs, which is the wrong repair for a number that
+  # was read twice. On a pool of ten or more it would not die at all.
+  assert_output --partial "ci_invalid_coverage_jobs"
+  refute_output --partial "matched no spec files"
+  refute_output --partial "fewer --jobs"
 }
 
 # why: the second refusal, and the one an operator reaches by accident --
