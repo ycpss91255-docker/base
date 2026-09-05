@@ -5,9 +5,12 @@
 # mount_* entries.
 #
 # why: Unit tests for the TUI mount-string assembler
-# (`_assemble_mount_value` / `_prompt_mount_with_picker`, #461):
-# host:container[:mode] composition, combined access/propagation modes,
-# `_validate_mount` round-trip, and space-bearing path rejection (#687).
+# (`_assemble_mount_value`, #461): host:container[:mode] composition,
+# combined access/propagation modes, `_validate_mount` round-trip, and
+# space-bearing path rejection (#687). The picker cases that used to sit
+# below these drove `_prompt_mount_with_picker`, which base#1073 found had
+# no production caller -- the mount editors all route through
+# `_edit_list_entry` -- so the function and its three specs are gone.
 
 bats_require_minimum_version 1.5.0
 
@@ -68,61 +71,4 @@ setup() {
   # Either side of the colon, and the container side, are all guarded.
   run _validate_mount "/host:/my data"
   assert_failure
-}
-
-# ── TUI picker flow (mocked) ───────────────────────────────────
-
-# why: Full picker assembly
-@test "_prompt_mount_with_picker assembles full mount string from picker steps (#461)" {
-  source /source/dist/script/docker/wrapper/setup_tui.sh
-  _QFILE="${BATS_TEST_TMPDIR}/q"
-  : > "${_QFILE}"
-  # Queue 4 responses: host, container, access, propagation
-  printf '0|/dev\n0|/dev\n0|rw\n0|rslave\n' > "${_QFILE}"
-  _tui_pop() {
-    local _line; _line="$(head -n 1 "${_QFILE}")"; sed -i '1d' "${_QFILE}"
-    printf '%s' "${_line#*|}"; return "${_line%%|*}"
-  }
-  _tui_inputbox()  { _tui_pop; }
-  _tui_radiolist() { _tui_pop; }
-  export -f _tui_pop _tui_inputbox _tui_radiolist; export _QFILE
-  run _prompt_mount_with_picker ""
-  assert_success
-  assert_output "/dev:/dev:rw,rslave"
-}
-
-# why: Access-only picker
-@test "_prompt_mount_with_picker no propagation gives just host:container:access (#461)" {
-  source /source/dist/script/docker/wrapper/setup_tui.sh
-  _QFILE="${BATS_TEST_TMPDIR}/q"
-  : > "${_QFILE}"
-  printf '0|/data\n0|/data\n0|ro\n0|none\n' > "${_QFILE}"
-  _tui_pop() {
-    local _line; _line="$(head -n 1 "${_QFILE}")"; sed -i '1d' "${_QFILE}"
-    printf '%s' "${_line#*|}"; return "${_line%%|*}"
-  }
-  _tui_inputbox()  { _tui_pop; }
-  _tui_radiolist() { _tui_pop; }
-  export -f _tui_pop _tui_inputbox _tui_radiolist; export _QFILE
-  run _prompt_mount_with_picker ""
-  assert_success
-  assert_output "/data:/data:ro"
-}
-
-# why: Bare picker
-@test "_prompt_mount_with_picker no access + no propagation gives just host:container (#461)" {
-  source /source/dist/script/docker/wrapper/setup_tui.sh
-  _QFILE="${BATS_TEST_TMPDIR}/q"
-  : > "${_QFILE}"
-  printf '0|/a\n0|/b\n0|none\n0|none\n' > "${_QFILE}"
-  _tui_pop() {
-    local _line; _line="$(head -n 1 "${_QFILE}")"; sed -i '1d' "${_QFILE}"
-    printf '%s' "${_line#*|}"; return "${_line%%|*}"
-  }
-  _tui_inputbox()  { _tui_pop; }
-  _tui_radiolist() { _tui_pop; }
-  export -f _tui_pop _tui_inputbox _tui_radiolist; export _QFILE
-  run _prompt_mount_with_picker ""
-  assert_success
-  assert_output "/a:/b"
 }

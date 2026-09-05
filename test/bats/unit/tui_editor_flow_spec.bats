@@ -60,6 +60,10 @@
 # - `main` (subcommand dispatch including the `resources` direct jump and
 # the `gpu` alias, unknown argument, `--lang` fallback notice, missing
 # backend, cancel saves nothing)
+#
+# - a dead-code guard: every function setup_tui.sh defines has to be
+# reachable from `dist/`, with the population derived from the file and the
+# callers from the shipped tree rather than kept as a roster
 
 bats_require_minimum_version 1.5.0
 
