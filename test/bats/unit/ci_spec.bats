@@ -569,9 +569,10 @@ _stored_measurements() {
 
 # why: A duration is not the only measurement a comment can store. The
 # claim that repeat runs "spread by more than a tenth" is the same kind of
-# number -- hand-measured, un-derived, silently stale -- and it sits
-# inside this very rationale, so a guard that looked only for unit tokens
-# refused the seconds while carrying the spread.
+# number -- hand-measured, un-derived, silently stale -- and it sat inside
+# this very rationale until this guard was widened, so a matcher that
+# looked only for unit tokens refused the seconds while carrying the
+# spread.
 @test "_stored_measurements: a spread stated as a fraction is a stored figure (#1059)" {
   run _stored_measurements <<< '# three timing rounds already spread by more than a tenth'
   assert_success
