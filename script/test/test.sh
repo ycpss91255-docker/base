@@ -2072,9 +2072,20 @@ main() {
     # number that was chosen can be said out loud in the dispatch (and
     # refused here rather than inside a container).
     coverage_local_jobs="${coverage_jobs:-$(nproc 2>/dev/null || echo 1)}"
-    if ! [[ "${coverage_local_jobs}" =~ ^[0-9]+$ ]] || (( coverage_local_jobs < 1 )); then
+    # `^[1-9][0-9]*$`, not `^[0-9]+$` plus an arithmetic `< 1`. The count
+    # is read by TWO consumers in two bases: every loop that counts slices
+    # uses bash arithmetic, where a leading zero is octal, and
+    # `_shard_unit_files` hands the same string to awk as `-v t=`, where it
+    # is decimal. `010` is 8 to one and 10 to the other, so the run would
+    # launch 8 slices of a 10-way partition and publish the merge of them
+    # as a whole-suite figure. One pattern that admits only what both read
+    # alike is the fix; resolving it to a base here would still hand back a
+    # number the operator did not write. The pattern also excludes `0`,
+    # which is why no `< 1` follows it -- a second reading of the same
+    # value is the shape being removed.
+    if ! [[ "${coverage_local_jobs}" =~ ^[1-9][0-9]*$ ]]; then
       _die ci_invalid_coverage_jobs \
-        "--jobs '${coverage_local_jobs}' is not a positive integer. It is the number of concurrent kcov processes; the default is nproc."
+        "--jobs '${coverage_local_jobs}' is not a positive decimal integer. It is the number of concurrent kcov processes (default: nproc). A leading zero is refused rather than resolved: bash arithmetic reads '010' as 8 and the partitioner's awk reads it as 10, so the run would instrument 8 slices of a 10-way partition and report the merge as the whole suite."
     fi
   fi
 

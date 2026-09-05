@@ -86,6 +86,15 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   triggered by `issues`. Affects anyone writing an ADR that names a
   workflow: put the trigger alone in backticks. `push` is still refused for
   a workflow with no `tags:` filter, because a tag push is a push.
+- **a coverage job count written with a leading zero is now refused
+  (#726)** -- `010` passed the `^[0-9]+$` validator and was then read in
+  two bases: the loops that count slices use bash arithmetic, where it is
+  8, and the partitioner hands the same string to awk, where it is 10. The
+  run instrumented 8 slices of a 10-way partition, merged them, and
+  reported the result as the whole suite. Affects anyone zero-padding a
+  count -- `just test coverage-local 010` now refuses, on the host and
+  again inside the container, instead of publishing a figure with two
+  bins missing from it. Plain counts are unchanged.
 
 ## [v0.43.0-rc1] - 2026-09-04
 

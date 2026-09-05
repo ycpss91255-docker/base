@@ -525,9 +525,11 @@ _coverage_parallel_workdir() {
 #
 #   THREE REFUSALS, and each is a way the merge could otherwise lie:
 #
-#   1. A job count that is not a positive integer. It would reach
-#      `_shard_unit_files` as a malformed total, whose message names a shard
-#      spec nobody typed.
+#   1. A job count that is not a positive integer written in decimal. A
+#      non-numeric one would reach `_shard_unit_files` as a malformed
+#      total, whose message names a shard spec nobody typed; one with a
+#      leading zero would reach it as a WELL-FORMED total in the other
+#      base from the one the launch loop counted in.
 #   2. A slice that matched no spec files (jobs > specs). An empty slice is
 #      not a slice that ran nothing; it is a partition that never covered
 #      the tree.
@@ -538,9 +540,17 @@ _coverage_parallel_workdir() {
 #      lost slice it is. "Cannot tell" resolves to refusing.
 _run_coverage_parallel() {
   local _jobs="${1:?BUG: _run_coverage_parallel expects <jobs>}"
-  if ! [[ "${_jobs}" =~ ^[0-9]+$ ]] || (( _jobs < 1 )); then
+  # Decimal, and no leading zero -- the same pattern the host-side parser
+  # admits, for the same reason and with more at stake here. The two bases
+  # sit a dozen lines apart on this path: `_coverage_parallel_slices`
+  # counts `_i <= _jobs` in bash arithmetic, where `010` is 8, and
+  # `_shard_unit_files` passes the SAME string to awk as the total, where
+  # it is 10. The refusal is repeated rather than delegated because this
+  # runner is reachable from the environment (COVERAGE_LOCAL_JOBS is
+  # forwarded), so a value the host parser never saw arrives here intact.
+  if ! [[ "${_jobs}" =~ ^[1-9][0-9]*$ ]]; then
     _die ci_invalid_coverage_jobs \
-      "Invalid coverage job count '${_jobs}'. Expected a positive integer (default: nproc)."
+      "Invalid coverage job count '${_jobs}'. Expected a positive decimal integer (default: nproc). A leading zero is read as octal by the launch loop and as decimal by the partitioner, so '010' would instrument 8 slices of a 10-way partition and merge them as the whole suite."
   fi
   local -a _slices=()
   _coverage_parallel_slices _slices "${_jobs}"
