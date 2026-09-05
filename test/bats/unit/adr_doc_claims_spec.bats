@@ -27,7 +27,9 @@
 #   R1 -- trigger. A block that makes a TRIGGER claim ("trigger", "tag
 #         push") and names a workflow this repo has must not leave a
 #         workflow with NO tag trigger looking tag-triggered: such a block
-#         has to state the real trigger (`workflow_call`). Derived from the
+#         has to state the real trigger, as a code span that IS that
+#         trigger (`workflow_dispatch`, `on: workflow_call`). Both the
+#         accepted triggers and the tag question are derived from the
 #         workflow's own `on:` block.
 #   R2 -- payload. A block that names an assembler or a payload manifest
 #         attributes it to every workflow the same block names, so each of
@@ -120,6 +122,38 @@ _adr_wf_statable_triggers() {
   ' "${1}" | LC_ALL=C sort -u
 }
 
+# _adr_stated_triggers <block-text> -- the trigger names the block STATES,
+# one per line: every code span in it, reduced to the bare event name it
+# would be if the span were a trigger statement, and to something else if
+# it is not.
+#
+# A span that merely CONTAINS an event name states nothing. Event names are
+# ordinary words and this tree names its scripts after what they do, so a
+# substring reading opens the hatch on `script/ci/schedule.sh` (`schedule`)
+# and on `gh issues list` (`issues`) -- and the block around either can be
+# saying the opposite of the truth about the workflow it names. Excluding
+# `.yaml` spans catches one shape of that and leaves the rest.
+#
+# What a trigger statement looks like in this tree is the whole span: both
+# shipped forms are `on: <event>` or the bare `<event>`, so the span is
+# reduced (drop a leading `on:`, drop a trailing `:`) and matched WHOLE by
+# the caller. Anything with other words in it -- a path, a command, a
+# sentence fragment -- reduces to itself and matches no event.
+_adr_stated_triggers() {
+  local _span _norm
+  while read -r _span; do
+    [[ -n "${_span}" ]] || continue
+    _norm="${_span//\`/}"
+    _norm="${_norm#on:}"
+    _norm="${_norm%:}"
+    # `read` has already stripped the outer whitespace; this is the space
+    # the `on:` prefix leaves behind.
+    _norm="${_norm#"${_norm%%[![:space:]]*}"}"
+    _norm="${_norm%"${_norm##*[![:space:]]}"}"
+    printf '%s\n' "${_norm}"
+  done <<< "$(grep -oE '`[^`]+`' <<< "${1}" || true)"
+}
+
 # _adr_claims_block <file> <line-no> <repo> <text> -- apply R1/R2/R3 to one
 # block. Prints one line per violation; returns non-zero if any.
 _adr_claims_block() {
@@ -172,17 +206,20 @@ _adr_claims_block() {
     # `workflow_dispatch`) and how R3 below already reads a claim's
     # subject.
     #
-    # A span naming a FILE is dropped: `.github/workflows/schedule.yaml`
-    # says what the block is about, not what starts it, and admitting it
-    # would reopen the same hole one layer down.
-    _spans="$(grep -oE '`[^`]+`' <<< "${_text}" | grep -v '\.yaml`' || true)"
+    # And the span must BE the trigger, not contain it -- see
+    # _adr_stated_triggers. A span naming a file
+    # (`.github/workflows/schedule.yaml`) or a script (`script/ci/schedule.sh`)
+    # or a command (`gh issues list`) says what the block is about, not what
+    # starts it, and admitting any of them reopens the same hole one layer
+    # down.
+    _spans="$(_adr_stated_triggers "${_text}")"
     for _wf in ${_named[*]-}; do
       _adr_wf_tag_triggered "${_repo}/.github/workflows/${_wf}" && continue
       _real="$(_adr_wf_statable_triggers "${_repo}/.github/workflows/${_wf}")"
       _stated=0
       while read -r _t; do
         [[ -n "${_t}" ]] || continue
-        grep -qF "${_t}" <<< "${_spans}" && _stated=1
+        grep -qxF -- "${_t}" <<< "${_spans}" && _stated=1
       done <<< "${_real}"
       [[ "${_stated}" -eq 1 ]] && continue
       # The message names the trigger the block SHOULD have stated, so the
