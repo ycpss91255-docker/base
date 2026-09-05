@@ -552,6 +552,47 @@ _write_adr() {
 workflow_dispatch'
 }
 
+# why: the unfixed half of that same reading. Anchoring the EVENTS on the
+# first key's indentation was done precisely so a nested key is not read as
+# a top-level event -- while the tag question beside it stayed a substring
+# search over the whole `on:` block. `tags:` is not only a push filter: it
+# is a legal name for a `workflow_dispatch` input, a `workflow_call` input
+# or a job-level key, and any of them made the workflow read as
+# tag-triggered. The two readings have to agree, or the block's structure
+# means one thing to one line and another to the next.
+@test "R1: a nested tags key that is not a push filter is not a tag trigger (#726)" {
+  mkdir -p "${SCRATCH}/.github/workflows"
+  printf '%s\n' 'name: x' 'on:' '  workflow_dispatch:' '    inputs:' \
+    '      tags:' '        required: false' 'jobs:' '  a:' \
+    '    runs-on: ubuntu-latest' \
+    > "${SCRATCH}/.github/workflows/tagsinput.yaml"
+  run _adr_wf_tag_triggered "${SCRATCH}/.github/workflows/tagsinput.yaml"
+  assert_failure
+}
+
+# why: and what that costs R1, which is worse than a wrong answer to one
+# question. A workflow that reads as tag-triggered is `continue`d past
+# before the rule looks at the block at all, so a false tag claim about it
+# is not merely under-checked -- it is waved through with no check. The
+# report has to name the trigger the block should have stated instead.
+@test "R1: FAILS a tag claim about a workflow whose only tags key is an input (#726)" {
+  mkdir -p "${SCRATCH}/.github/workflows"
+  printf '%s\n' 'name: x' 'on:' '  workflow_dispatch:' '    inputs:' \
+    '      tags:' '        required: false' 'jobs:' '  a:' \
+    '    runs-on: ubuntu-latest' \
+    > "${SCRATCH}/.github/workflows/tagsinput.yaml"
+  local _adr
+  _adr="$(_write_adr taginput.md \
+    '## Context' \
+    '' \
+    'A base tag push triggers `tagsinput.yaml`.')"
+  run _adr_claims "${_adr}" "${SCRATCH}"
+  assert_failure
+  assert_output --partial 'tagsinput.yaml'
+  assert_output --partial 'no tag trigger'
+  assert_output --partial 'workflow_dispatch'
+}
+
 # why: the second new way to be wrong, and the reason `push` is the one
 # event excluded: a tag push IS a push, so "push" said about a workflow
 # whose `on: push:` carries no `tags:` filter answers nothing the rule

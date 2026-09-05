@@ -1,6 +1,6 @@
 # Unit Tests
 
-Unit specs under `test/bats/unit/`: **4176 tests**.
+Unit specs under `test/bats/unit/`: **4178 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test types and
@@ -151,7 +151,7 @@ a refusal as "do not release".
 | `action-ref-agreement: has a lint-static CI join (#949)` | Named plain-runner matrix entry, no docker |
 | `action-ref-agreement: its failure event id is registered (#949)` | An unregistered id is an anonymous exit |
 
-### test/bats/unit/adr_doc_claims_spec.bats (26)
+### test/bats/unit/adr_doc_claims_spec.bats (28)
 
 | Test | Description |
 |------|-------------|
@@ -169,6 +169,8 @@ a refusal as "do not release".
 | `R1: a code span quoting a command does not state a trigger (#726)` | the same hole with a command rather than a path, which is the form an ADR reaches for most often. `gh issues list` is a code span that states nothing about what starts anything, and it contains the only statable trigger `triage-label.yaml` has -- so it excused a tag claim about that workflow exactly as the block's own subject word would have, which is the failure the case above this one was written to close. |
 | `R1: still FAILS a trigger claim that names the same workflow and states nothing (#726)` | the other half of that change, and the reason it does not weaken the rule: naming the workflow in a trigger claim and saying nothing about what actually starts it is still the ADR-00000027 defect, whichever trigger the workflow has. |
 | `R1: a workflow's statable triggers are its events, never its filters (#726)` | reading the escape hatch off the workflow instead of off a literal creates one new way to be wrong -- reading a FILTER as an event. `tags:` and `branches:` are keys inside the `on:` block too, and admitting `tags` would let the word "tag", the very word R1 is triggered by, excuse every block R1 exists to read. Pinned on the real self-test.yaml, whose `on:` has both a nested `tags:` and a nested `branches:`. |
+| `R1: a nested tags key that is not a push filter is not a tag trigger (#726)` | the unfixed half of that same reading. Anchoring the EVENTS on the first key's indentation was done precisely so a nested key is not read as a top-level event -- while the tag question beside it stayed a substring search over the whole `on:` block. `tags:` is not only a push filter: it is a legal name for a `workflow_dispatch` input, a `workflow_call` input or a job-level key, and any of them made the workflow read as tag-triggered. The two readings have to agree, or the block's structure means one thing to one line and another to the next. |
+| `R1: FAILS a tag claim about a workflow whose only tags key is an input (#726)` | and what that costs R1, which is worse than a wrong answer to one question. A workflow that reads as tag-triggered is `continue`d past before the rule looks at the block at all, so a false tag claim about it is not merely under-checked -- it is waved through with no check. The report has to name the trigger the block should have stated instead. |
 | `R1: saying 'push' does not excuse a claim about a tag-less push workflow (#726)` | the second new way to be wrong, and the reason `push` is the one event excluded: a tag push IS a push, so "push" said about a workflow whose `on: push:` carries no `tags:` filter answers nothing the rule asked. Such a block must still be reported -- and with nothing truthful left to name, the message says so rather than offering an empty list. |
 | `R1: PASSES a tag claim about a workflow that IS tag-triggered (#927)` | - |
 | `R1: IGNORES a workflow named with no trigger claim in the block (#927)` | - |
