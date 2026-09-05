@@ -339,6 +339,20 @@ _run_lint_tool() {
 # same subshell. stdout and stderr are inherited, not piped, so the
 # drivers that stream progress interleave exactly as they did before.
 #
+# THAT SHAPE IS ONLY HALF THE INVARIANT. The suppression a `||` creates
+# is a property of the CALL, not of this function: a caller who writes
+# `if _run_lint_tools ...`, `_run_lint_tools ... || x` or `! _run_lint_tools
+# ...` hands the same suppression through this function into the
+# standalone subshell, and the driver sails past its first failing
+# command exactly as it would in the spelling above -- only now the
+# subshell exits 0, `_failed` stays empty, and the PHASE REPORTS CLEAN.
+# Nothing inside the subshell repairs it (`( set +e; set -e; ... )` and an
+# `ERR` trap were both tried); only a separate process escapes it. So the
+# precondition is enforced instead of assumed: one probe subshell answers
+# whether errexit still reaches a subshell of this call, and a call that
+# has already lost it is REFUSED. The default on an input this mechanism
+# cannot measure is a refusal, not a pass.
+#
 # The caller's errexit is restored before returning: a phase that
 # silently left `set +e` behind would disarm every check after it.
 _run_lint_tools() {
@@ -346,6 +360,18 @@ _run_lint_tools() {
   local _caller_opts="$-"
   local -a _failed=()
   set +e
+  # The probe: a subshell shaped exactly like the per-driver one -- it
+  # arms errexit and then fails. With errexit reaching it, it dies at the
+  # `false` and prints nothing; inside a suppression context it sails and
+  # prints. It runs AFTER `set +e` because that clears the option, which
+  # is not the suppression the probe is asking about, and because an
+  # assignment from a substitution that exits non-zero would otherwise be
+  # the phase's own last command. `|| true` around it would answer its own
+  # question -- that list operator is itself a suppression context.
+  local _probe
+  _probe="$( set -e; false; printf sailed )"
+  [[ -z "${_probe}" ]] || _die ci_lint_errexit_suppressed \
+    "The lint phase was called from a context that suppresses errexit (an 'if' condition, an '&&' / '||' list, or '!'). bash propagates that suppression into the per-driver subshell, so a driver would run past its own first failing command and the phase would report a clean tree. Call the phase as a plain statement and let its failure end the run."
   for _tool in "$@"; do
     ( set -e; _run_lint_tool "${_tool}" )
     _rc=$?
