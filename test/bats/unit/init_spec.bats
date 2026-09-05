@@ -947,6 +947,37 @@ EOF
   rm -rf "${STRAY_DIR}"
 }
 
+# why: the ignored-path filter matches check-ignore's answer back against
+# the strings it fed in, and under the default core.quotePath git C-quotes
+# any path carrying a byte over 0x7F -- so the answer never equals the
+# question, the ignored path survives the filter, and `git add` reports a
+# failure over a batch it did stage
+@test "_stage_resync_output: drops a gitignored path git would quote (#1036)" {
+  _source_init
+  cat > "${TMP_REPO}/Dockerfile" <<'EOF'
+FROM busybox AS lint
+COPY .base/script/docker/lib /lint/lib
+EOF
+  # A derived artifact of the user's, under a name git will not hand back
+  # verbatim. Written before the seed so it is ignored, not tracked.
+  printf 'caf\xc3\xa9.txt\n' > "${TMP_REPO}/.gitignore"
+  printf 'derived\n' > "${TMP_REPO}/$(printf 'caf\xc3\xa9.txt')"
+  _git_seed_consumer
+  _init_existing_repo
+  migrated_files() {
+    printf '%s\n' "${TMP_REPO}/Dockerfile" \
+      "${TMP_REPO}/$(printf 'caf\xc3\xa9.txt')"
+  }
+
+  run _stage_resync_output
+  assert_success
+  refute_output --partial "could not stage"
+
+  run git -C "${TMP_REPO}" diff --cached --name-only
+  assert_line "Dockerfile"
+  refute_output --partial "caf"
+}
+
 # why: the containment test is the whole fence, so the segment resolution
 # it rests on is worth pinning on its own -- including the cases that must
 # NOT move, a name that merely begins with dots and a relative path this
