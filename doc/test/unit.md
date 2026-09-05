@@ -2868,8 +2868,8 @@ are hard to trigger from a real `bash template/init.sh` invocation
 | `_error: text output is framed like every other init record (#876)` | - |
 | `_error: the human message rides the display attribute (#876)` | - |
 | `_init_protected_paths: covers the .env pair the env-naming rename moves (#937)` | - |
-| `_init_protected_paths: covers every root the resync writes into (#937)` | - |
 | `_init_restore_tree: an .env moved to .env.local is put back (#937)` | - |
+| `_init_restore_tree: a migrated smoke tree is put back (#1050)` | A migration that empties one root and fills another is only undone if the rollback knows about both |
 | `_init_restore_tree: removes what the resync created (#937)` | - |
 | `_init_restore_tree: restores a rewritten file byte for byte (#937)` | - |
 | `_init_restore_tree: refuses to delete when its snapshot copy is missing (#937)` | - |

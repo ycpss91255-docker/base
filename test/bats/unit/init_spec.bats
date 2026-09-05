@@ -944,17 +944,17 @@ _stage_missing_template_conf() {
   assert_line ".env.local"
 }
 
-@test "_init_protected_paths: covers every root the resync writes into (#937)" {
-  _source_init
-  run _init_protected_paths
-  assert_success
-  assert_line "Dockerfile"
-  assert_line "script"
-  assert_line "config"
-  assert_line ".gitignore"
-  assert_line ".dockerignore"
-  assert_line "justfile"
-}
+# "covers every root the resync writes into" is NOT a test here any more.
+# It was one, and its body asserted six lines copied out of the list it was
+# checking. A subset of a list restated cannot notice the list going out of
+# date, which is what happened: a new migration landed with neither of its
+# two roots protected and this file stayed green. The invariant is now
+# derived from behaviour instead, in
+# test/bats/integration/init_protected_paths_spec.bats -- a real resync
+# against a real consumer, diffed, with every path it moved required to
+# fall under a root the function itself prints. The .env pair above stays
+# a unit assertion because those two names are not recoverable from git and
+# a fixture is free to stop exercising them.
 
 # The env-naming rename moves a hand-written, gitignored file. Nothing in
 # git can put it back, so the snapshot has to hold the bytes themselves.
@@ -968,6 +968,29 @@ _stage_missing_template_conf() {
   assert [ -f "${TMP_REPO}/.env" ]
   assert [ ! -e "${TMP_REPO}/.env.local" ]
   [ "$(cat "${TMP_REPO}/.env")" = "IMAGE_NAME=hand-written" ]
+  _init_rollback_cleanup
+}
+
+# why: A migration that empties one root and fills another is only undone
+# if the rollback knows about both
+@test "_init_restore_tree: a migrated smoke tree is put back (#1050)" {
+  _source_init
+  mkdir -p "${TMP_REPO}/test/smoke"
+  printf '@test "env" { :; }\n' > "${TMP_REPO}/test/smoke/env.bats"
+  _init_snapshot
+  _migrate_smoke_tree "${TMP_REPO}"
+  # The migration has to have actually moved something, or restoring it
+  # would be restoring nothing and the assertions below would hold for the
+  # wrong reason.
+  assert [ -f "${TMP_REPO}/test/bats/smoke/shared/env.bats" ]
+  assert [ ! -e "${TMP_REPO}/test/smoke" ]
+
+  _init_restore_tree
+  # Both halves. Leaving the new tree in place next to the restored old one
+  # is the state that breaks the build: the Dockerfile comes back naming
+  # test/smoke while the files sit somewhere else.
+  assert [ -f "${TMP_REPO}/test/smoke/env.bats" ]
+  assert [ ! -e "${TMP_REPO}/test/bats/smoke" ]
   _init_rollback_cleanup
 }
 
