@@ -325,6 +325,71 @@ teardown() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# The lint-order rationale: an argument, with no wall-clock figure in it
+#
+# The ordering question the enumeration raises -- cheap drivers first, so
+# the common case still fails fast -- is answered above _LINT_TOOLS,
+# because a run that enumerates ends when its LAST driver ends whatever
+# the order. That argument has to stay readable: without it the next
+# reader re-litigates the order from the same intuition.
+#
+# What it must not carry is how long a driver took. Nothing here
+# re-derives such a figure -- no lint, no test, no generator -- so it is a
+# hand-maintained number about a moving tree measured on a moving host,
+# which is exactly ADR-00000028's invariant-2 case: it goes stale
+# silently while still reading as authoritative. Two runs of the same
+# table on this machine already disagree by more than a tenth. So the
+# block below is pinned to hold the reasoning and not the seconds.
+# ════════════════════════════════════════════════════════════════════
+
+# The ordering rationale, one line per comment line: anchored on its
+# opening sentence, terminated by the first line that is not a comment.
+# Read out of the tree rather than restated here, so both guards below
+# see the block the file actually has.
+_lint_order_rationale() {
+  awk '
+    /^# ORDER IS NOT A FAIL-FAST LEVER/ { inside = 1 }
+    inside && !/^#/                     { inside = 0 }
+    inside                              { print }
+  ' /source/script/test/test.sh
+}
+
+# why: The anchor, and the reason it is a test of its own. The figure
+# guard below reads the same block, so a comment that was deleted or
+# reworded past its opening sentence would leave that guard scanning an
+# empty set and passing -- a lint that has quietly stopped linting. This
+# one fails loudly instead, naming the sentence it looks for.
+@test "_LINT_TOOLS: the ordering rationale is present to be read (#1059)" {
+  local -a _block=()
+  mapfile -t _block < <(_lint_order_rationale)
+  [ "${#_block[@]}" -gt 0 ] || fail \
+    "no '# ORDER IS NOT A FAIL-FAST LEVER' comment above _LINT_TOOLS: the ordering decision is unrecorded, and the figure guard reads the same block, so it would pass on an empty set"
+}
+
+# why: A duration written into a permanent comment is a claim nothing
+# re-derives. The tree moves it, the host moves it, and repeat runs of the
+# same table move it, so it is wrong soon after it is typed and nothing
+# says when. The rationale needs none of them -- "the phase ends when its
+# last driver ends" holds at any timing -- so the numbers are refused
+# here, and measured when the question is actually asked.
+@test "_LINT_TOOLS: the ordering rationale stores no wall-clock figure (#1059)" {
+  local -a _block=()
+  mapfile -t _block < <(_lint_order_rationale)
+  [ "${#_block[@]}" -gt 0 ] || fail \
+    "no ordering rationale to check -- see the guard above; this one must not pass on an empty set"
+
+  local _line
+  local -a _stored=()
+  for _line in "${_block[@]}"; do
+    if [[ "${_line}" =~ [0-9]+(\.[0-9]+)?[[:space:]]*(seconds|second|secs|sec|minutes|minute|mins|min|hours|hour|hrs|hr|ms|s|m|h)([^a-z0-9]|$) ]]; then
+      _stored+=( "${_line}" )
+    fi
+  done
+  [ "${#_stored[@]}" -eq 0 ] || fail \
+    "the ordering rationale states a duration, which nothing re-derives: ${_stored[*]} -- drop it and time the driver when the question is asked (./script/test/test.sh --<tool>-only)"
+}
+
+# ════════════════════════════════════════════════════════════════════
 # _run_via_compose / main routing
 #
 # Regression guards: default `test.sh` (no flag) must hit the alpine

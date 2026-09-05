@@ -1105,7 +1105,7 @@ between them can be asserted at all.
 | `reclaim.sh --stale delegates the unowned classes to prune.sh with the same window` | - |
 | `reclaim.sh --stale never touches volumes` | - |
 
-### test/bats/unit/ci_spec.bats (123)
+### test/bats/unit/ci_spec.bats (125)
 
 | Test | Description |
 |------|-------------|
@@ -1121,6 +1121,8 @@ between them can be asserted at all.
 | `_run_lint_tools: a clean set exits zero and returns the caller's errexit (#1059)` | The other half of the contract. A clean set must exit zero and say nothing, and the loop must hand the caller back the errexit it borrowed -- the collection is implemented by clearing it, so a phase that forgot to restore it would disarm every `set -e` check after the lint phase. |
 | `_run_all_lint_tools: an early failure does not hide the tools behind it (#1059)` | The population is the whole _LINT_TOOLS table, read out of the tree rather than restated here, so a tool added to the table is covered by this guard the day it lands. A failure at the FIRST entry must not hide the twenty-two behind it. |
 | `main --ci: a lint phase that collected failures never reaches bats (#1059)` | The full gate keeps its fail-fast where fail-fast is worth having. Collecting happens WITHIN the lint phase; a phase that failed still ends the run before bats, so a tree that does not lint never spends the suite's minutes to be told so. |
+| `_LINT_TOOLS: the ordering rationale is present to be read (#1059)` | The anchor, and the reason it is a test of its own. The figure guard below reads the same block, so a comment that was deleted or reworded past its opening sentence would leave that guard scanning an empty set and passing -- a lint that has quietly stopped linting. This one fails loudly instead, naming the sentence it looks for. |
+| `_LINT_TOOLS: the ordering rationale stores no wall-clock figure (#1059)` | A duration written into a permanent comment is a claim nothing re-derives. The tree moves it, the host moves it, and repeat runs of the same table move it, so it is wrong soon after it is typed and nothing says when. The rationale needs none of them -- "the phase ends when its last driver ends" holds at any timing -- so the numbers are refused here, and measured when the question is actually asked. |
 | `_run_via_compose: routes default mode to the ci service with COVERAGE=0` | Service routing — fast path |
 | `_run_via_compose: routes coverage mode to the coverage service with COVERAGE=1` | Service routing — coverage path |
 | `main: dispatches no-flag default to the ci service` | End-to-end default dispatch |
