@@ -191,6 +191,22 @@ readonly _COVERAGE_FULL_SUITE_POOLS=(test/bats/unit test/bats/integration)
 # is named otherwise.
 readonly _COVERAGE_SPEC_GLOB='*.bats'
 
+# _coverage_pool_files
+#   Echo, one per line and sorted, every spec file a FULL coverage run
+#   walks -- the pools of the roster above, enumerated by the file shape
+#   above. One writer for "what the whole suite is", read by the
+#   partition (_shard_unit_files, which slices it) and by _run_coverage
+#   (which compares a slice against it to see whether the slice IS the
+#   suite). Sorted so the comparison is against a canonical set rather
+#   than against find's directory order.
+_coverage_pool_files() {
+  local _pool
+  for _pool in "${_COVERAGE_FULL_SUITE_POOLS[@]}"; do
+    find "${REPO_ROOT}/${_pool}" -type f \
+      -name "${_COVERAGE_SPEC_GLOB}" 2>/dev/null
+  done | LC_ALL=C sort
+}
+
 _shard_unit_files() {
   # Shared shard-partition primitive for the coverage matrix. Echoes the
   # newline-separated subset of test/bats/unit/*_spec.bats for shard <n>
@@ -229,16 +245,11 @@ _shard_unit_files() {
   # `bats --recursive` does; each foldered spec is still its own
   # kcov/shard unit. A missing pool is not fatal here -- the empty-match
   # check below reports it once, with the shard that asked.
-  local _files _pool _f
+  local _files _f
   _files=$(
     while IFS= read -r _f; do
       printf '%s %s\n' "$(_spec_weight "${_f}")" "${_f}"
-    done < <(
-      for _pool in "${_COVERAGE_FULL_SUITE_POOLS[@]}"; do
-        find "${REPO_ROOT}/${_pool}" -type f \
-          -name "${_COVERAGE_SPEC_GLOB}" 2>/dev/null
-      done
-    ) \
+    done < <(_coverage_pool_files) \
       | sort -k1,1nr -k2,2 \
       | awk -v want="${_shard}" -v t="${_total}" '
           BEGIN { for (i = 1; i <= t; i++) load[i] = 0 }
@@ -506,7 +517,23 @@ _run_coverage() {
     # spread by runtime).
     local _files
     _files="$(_shard_unit_files "${_shard_spec}")"
-    _bats_args_with_label _bats_args _label
+    # THE POLICY FOLLOWS THE WALKED SET, NOT THE ARGUMENT -- the same way
+    # the release certificate's scope is derived (_measured_coverage_scope
+    # in test.sh compares the run manifest against the inventory, because
+    # an invocation cannot be trusted to describe what a run measured).
+    # `1/1` is a shard by syntax and the whole suite by content: it earns
+    # `scope=full`, the only scope the badge publishes, so it has to be
+    # measured the way the full suite is. `just test coverage 1/1` reaches
+    # it, and so does `vars.CI_SHARDS=1`, which self-test.yaml turns into
+    # the matrix ["1/1"]. Asking the SET rather than the number also covers
+    # the slices that are the suite without saying 1/1 (a tree with fewer
+    # specs than shards, where 1/2 takes everything and 2/2 dies empty).
+    local _policy=parallel
+    if [[ "$(printf '%s\n' "${_files}" | LC_ALL=C sort)" \
+          == "$(_coverage_pool_files)" ]]; then
+      _policy=serial
+    fi
+    _bats_args_with_label _bats_args _label "${_policy}"
     echo "--- Running Tests with Kcov Coverage (shard ${_shard_spec}; ${_label}) ---"
     # Word-split intentional: one shard file per target entry.
     # shellcheck disable=SC2206
