@@ -20,12 +20,18 @@
 # matching, and the second is the failure mode that costs the most, because
 # its output is indistinguishable from success (PRD design principle P3).
 
-# adr-refs: fixture 00000001 00000012
+# adr-refs: fixture 99990001 99990012
 # Those two numbers name the throwaway registry these cases build under
 # ${SCRATCH}, never this tree's. Every OTHER number here is this tree's:
 # the case below names the real record whose three column-0 Status lines
 # the check was written for, and that pointer is swept and checked like
-# any other. See script/adr/references.sh.
+# any other.
+#
+# They are in the 9999NNNN band because a declaration may not name a
+# number a RECORD claims: both readings of such a pointer -- this file's
+# fixture, and this tree's record -- would be true at once, and the
+# declaration would then exempt a live pointer as quietly as a fixture
+# one. See script/adr/references.sh.
 
 setup() {
   export LOG_FORMAT=text
@@ -85,15 +91,15 @@ _adr() {
 # ════════════════════════════════════════════════════════════════════
 
 @test "_run_adr_structure: FAILS on a missing '> Serves:' back-pointer, naming the file (#994)" {
-  _adr "00000001-alpha.md" "" "Accepted"
+  _adr "99990001-alpha.md" "" "Accepted"
   run _run_adr_structure
   [ "${status}" -ne 0 ]
-  [[ "${output}" == *"00000001-alpha.md"* ]]
+  [[ "${output}" == *"99990001-alpha.md"* ]]
   [[ "${output}" == *"Serves"* ]]
 }
 
 @test "_run_adr_structure: a '> Serves:' that is not at line start does NOT count (#994)" {
-  _adr "00000001-alpha.md" "Nothing here. > Serves: smuggled in mid-line." "Accepted"
+  _adr "99990001-alpha.md" "Nothing here. > Serves: smuggled in mid-line." "Accepted"
   run _run_adr_structure
   [ "${status}" -ne 0 ]
   [[ "${output}" == *"Serves"* ]]
@@ -104,16 +110,16 @@ _adr() {
 # ════════════════════════════════════════════════════════════════════
 
 @test "_run_adr_structure: FAILS on a missing '## Context' (#994)" {
-  _adr "00000001-alpha.md" "${_SERVES}" "Accepted" \
+  _adr "99990001-alpha.md" "${_SERVES}" "Accepted" \
     "## Decision" "## Consequences" "## Alternatives"
   run _run_adr_structure
   [ "${status}" -ne 0 ]
   [[ "${output}" == *"Context"* ]]
-  [[ "${output}" == *"00000001-alpha.md"* ]]
+  [[ "${output}" == *"99990001-alpha.md"* ]]
 }
 
 @test "_run_adr_structure: FAILS on a missing '## Decision' (#994)" {
-  _adr "00000001-alpha.md" "${_SERVES}" "Accepted" \
+  _adr "99990001-alpha.md" "${_SERVES}" "Accepted" \
     "## Context" "## Consequences" "## Alternatives"
   run _run_adr_structure
   [ "${status}" -ne 0 ]
@@ -121,7 +127,7 @@ _adr() {
 }
 
 @test "_run_adr_structure: FAILS on a missing '## Consequences' (#994)" {
-  _adr "00000001-alpha.md" "${_SERVES}" "Accepted" \
+  _adr "99990001-alpha.md" "${_SERVES}" "Accepted" \
     "## Context" "## Decision" "## Alternatives"
   run _run_adr_structure
   [ "${status}" -ne 0 ]
@@ -129,7 +135,7 @@ _adr() {
 }
 
 @test "_run_adr_structure: FAILS on a missing '## Alternatives' -- required, not advisory (#994)" {
-  _adr "00000001-alpha.md" "${_SERVES}" "Accepted" \
+  _adr "99990001-alpha.md" "${_SERVES}" "Accepted" \
     "## Context" "## Decision" "## Consequences"
   run _run_adr_structure
   [ "${status}" -ne 0 ]
@@ -137,7 +143,7 @@ _adr() {
 }
 
 @test "_run_adr_structure: ACCEPTS the house heading variants with trailing text (#994)" {
-  _adr "00000001-alpha.md" "${_SERVES}" "Accepted" \
+  _adr "99990001-alpha.md" "${_SERVES}" "Accepted" \
     "## Context" "## Decision (pending -- this ADR is Proposed)" \
     "## Consequences / trade-offs" "## Alternatives considered"
   run _run_adr_structure
@@ -174,7 +180,7 @@ _adr() {
     echo "## Decision"
     echo "## Consequences"
     echo "## Alternatives"
-  } > "${SCRATCH}/doc/adr/00000001-alpha.md"
+  } > "${SCRATCH}/doc/adr/99990001-alpha.md"
   run _run_adr_structure
   [ "${status}" -ne 0 ]
   [[ "${output}" == *"'## Decision' appears 2 times"* ]]
@@ -200,7 +206,7 @@ _adr() {
     echo "## Decision"
     echo "## Consequences"
     echo "## Alternatives"
-  } > "${SCRATCH}/doc/adr/00000001-alpha.md"
+  } > "${SCRATCH}/doc/adr/99990001-alpha.md"
   run _run_adr_structure
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"clean"* ]]
@@ -226,7 +232,7 @@ _adr() {
     echo "## Decision"
     echo "## Consequences"
     echo "## Alternatives"
-  } > "${SCRATCH}/doc/adr/00000001-alpha.md"
+  } > "${SCRATCH}/doc/adr/99990001-alpha.md"
   run _run_adr_structure
   [ "${status}" -ne 0 ]
   [[ "${output}" == *"'> Serves:' appears 2 times"* ]]
@@ -254,7 +260,7 @@ _adr() {
     echo "## Decision"
     echo "## Consequences"
     echo "## Alternatives"
-  } > "${SCRATCH}/doc/adr/00000001-alpha.md"
+  } > "${SCRATCH}/doc/adr/99990001-alpha.md"
   run _run_adr_structure
   [ "${status}" -ne 0 ]
   [[ "${output}" == *"'- **Status:**' appears 2 times"* ]]
@@ -283,7 +289,7 @@ _adr() {
     echo
     echo "## Consequences"
     echo "## Alternatives"
-  } > "${SCRATCH}/doc/adr/00000001-alpha.md"
+  } > "${SCRATCH}/doc/adr/99990001-alpha.md"
   run _run_adr_structure
   [ "${status}" -ne 0 ]
   [[ "${output}" == *"'## Context' appears 2 times"* ]]
@@ -319,7 +325,7 @@ _adr() {
     echo
     echo "## Consequences"
     echo "## Alternatives"
-  } > "${SCRATCH}/doc/adr/00000001-alpha.md"
+  } > "${SCRATCH}/doc/adr/99990001-alpha.md"
   run _run_adr_structure
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"clean"* ]]
@@ -330,7 +336,7 @@ _adr() {
 # ════════════════════════════════════════════════════════════════════
 
 @test "_run_adr_structure: FAILS on free text after Accepted (#994)" {
-  _adr "00000001-alpha.md" "${_SERVES}" "Accepted (amended 2026-06-12)"
+  _adr "99990001-alpha.md" "${_SERVES}" "Accepted (amended 2026-06-12)"
   run _run_adr_structure
   [ "${status}" -ne 0 ]
   [[ "${output}" == *"Status"* ]]
@@ -338,44 +344,44 @@ _adr() {
 }
 
 @test "_run_adr_structure: FAILS on free text after Rejected (#994)" {
-  _adr "00000001-alpha.md" "${_SERVES}" "Rejected (spike disproved the premise)"
+  _adr "99990001-alpha.md" "${_SERVES}" "Rejected (spike disproved the premise)"
   run _run_adr_structure
   [ "${status}" -ne 0 ]
   [[ "${output}" == *"Status"* ]]
 }
 
 @test "_run_adr_structure: FAILS on a Status line that is absent entirely (#994)" {
-  _adr "00000001-alpha.md" "${_SERVES}" ""
+  _adr "99990001-alpha.md" "${_SERVES}" ""
   run _run_adr_structure
   [ "${status}" -ne 0 ]
   [[ "${output}" == *"Status"* ]]
 }
 
 @test "_run_adr_structure: FAILS on 'Proposed', which is not one of the three values (#994)" {
-  _adr "00000001-alpha.md" "${_SERVES}" "Proposed"
+  _adr "99990001-alpha.md" "${_SERVES}" "Proposed"
   run _run_adr_structure
   [ "${status}" -ne 0 ]
   [[ "${output}" == *"Status"* ]]
 }
 
 @test "_run_adr_structure: FAILS on a supersession pointing at a non-8-digit number (#994)" {
-  _adr "00000001-alpha.md" "${_SERVES}" "Superseded by ADR-12"
+  _adr "99990001-alpha.md" "${_SERVES}" "Superseded by ADR-12"
   run _run_adr_structure
   [ "${status}" -ne 0 ]
   [[ "${output}" == *"Status"* ]]
 }
 
 @test "_run_adr_structure: FAILS on a supersession carrying a trailing date (#994)" {
-  _adr "00000001-alpha.md" "${_SERVES}" "Superseded by ADR-00000012 (2026-06-23)"
+  _adr "99990001-alpha.md" "${_SERVES}" "Superseded by ADR-99990012 (2026-06-23)"
   run _run_adr_structure
   [ "${status}" -ne 0 ]
   [[ "${output}" == *"Status"* ]]
 }
 
 @test "_run_adr_structure: ACCEPTS all three contract values (#994)" {
-  _adr "00000001-alpha.md" "${_SERVES}" "Accepted"
-  _adr "00000002-beta.md" "${_SERVES}" "Rejected"
-  _adr "00000003-gamma.md" "${_SERVES}" "Superseded by ADR-00000001"
+  _adr "99990001-alpha.md" "${_SERVES}" "Accepted"
+  _adr "99990002-beta.md" "${_SERVES}" "Rejected"
+  _adr "99990003-gamma.md" "${_SERVES}" "Superseded by ADR-99990001"
   run _run_adr_structure
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"clean"* ]]
@@ -386,7 +392,7 @@ _adr() {
 # ════════════════════════════════════════════════════════════════════
 
 @test "_run_adr_structure: EXEMPTS doc/adr/README.md (the index) (#994)" {
-  _adr "00000001-alpha.md" "${_SERVES}" "Accepted"
+  _adr "99990001-alpha.md" "${_SERVES}" "Accepted"
   printf '# ADR index\n\nNo Serves, no Status, no sections.\n' \
     > "${SCRATCH}/doc/adr/README.md"
   run _run_adr_structure
@@ -396,17 +402,17 @@ _adr() {
 }
 
 @test "_run_adr_structure: names EVERY offending file, not just the first (#994)" {
-  _adr "00000001-alpha.md" "" "Accepted"
-  _adr "00000002-beta.md" "${_SERVES}" "Proposed"
+  _adr "99990001-alpha.md" "" "Accepted"
+  _adr "99990002-beta.md" "${_SERVES}" "Proposed"
   run _run_adr_structure
   [ "${status}" -ne 0 ]
-  [[ "${output}" == *"00000001-alpha.md"* ]]
-  [[ "${output}" == *"00000002-beta.md"* ]]
+  [[ "${output}" == *"99990001-alpha.md"* ]]
+  [[ "${output}" == *"99990002-beta.md"* ]]
 }
 
 @test "_run_adr_structure: reports how many ADRs it examined (#994)" {
-  _adr "00000001-alpha.md" "${_SERVES}" "Accepted"
-  _adr "00000002-beta.md" "${_SERVES}" "Accepted"
+  _adr "99990001-alpha.md" "${_SERVES}" "Accepted"
+  _adr "99990002-beta.md" "${_SERVES}" "Accepted"
   run _run_adr_structure
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"2 ADR(s) examined"* ]]

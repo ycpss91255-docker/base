@@ -16,7 +16,7 @@
 # trees, plus a real-tree guard that the live `doc/adr/` passes today with
 # the intentional `00000009` gap warned.
 
-# adr-refs: fixture 00000001 00000002 00000007
+# adr-refs: fixture 99990001 99990002 99990007
 # Those three numbers name the throwaway registries these cases build
 # under a temp root, never this tree's, so neither the lint nor
 # `just adr renumber` reads them here. Every OTHER number in this file is
@@ -25,6 +25,14 @@
 # generator publishes that marker verbatim as a doc/test/unit.md row. See
 # script/adr/references.sh for why the declaration is about numbers and
 # not about the file.
+#
+# The band is 9999NNNN because a declaration may not name a number a
+# RECORD claims: both readings of such a pointer are true at once and
+# nothing tells them apart, so the declaration would exempt a live pointer
+# as quietly as a fixture one. Only the cases that write a reference FORM
+# (`ADR-NNNNNNNN`, `doc/adr/NNNNNNNN-`) need to be in it; a case whose
+# registry is only ever a filename argument writes no reference at all and
+# is left reading as the small numbers a registry really starts at.
 
 setup() {
   export LOG_FORMAT=text
@@ -286,12 +294,12 @@ _index_headed() {
 # number, so every `ADR-<old>` left behind names nothing -- and this is
 # the only shape of missed reference a checkout can still recognise.
 @test "_run_adr_numbering: FAILS on an ADR- reference to a number no record claims (#1021)" {
-  _touch_adr "00000001-alpha.md"
-  _index '| 00000001 -- alpha | keep | mechanism | note |'
-  _write 'CONTEXT.md' 'The rule is written down in ADR-00000007.'
+  _touch_adr "99990001-alpha.md"
+  _index '| 99990001 -- alpha | keep | mechanism | note |'
+  _write 'CONTEXT.md' 'The rule is written down in ADR-99990007.'
   run _run_adr_numbering
   [ "${status}" -ne 0 ]
-  [[ "${output}" == *"00000007"* ]]
+  [[ "${output}" == *"99990007"* ]]
   [[ "${output}" == *"CONTEXT.md"* ]]
 }
 
@@ -648,13 +656,13 @@ _index_headed() {
 # why: The passing shape, so the three failures above are read as a
 # contract rather than as a lint that dislikes index tables.
 @test "_run_adr_numbering: PASSES when every record has one row and every reference resolves (#1021)" {
-  _touch_adr "00000001-alpha.md"
-  _touch_adr "00000002-beta.md"
-  _index '| 00000001 -- alpha | keep | mechanism | note |' \
-    '| 00000002 -- beta | keep | mechanism | note |'
+  _touch_adr "99990001-alpha.md"
+  _touch_adr "99990002-beta.md"
+  _index '| 99990001 -- alpha | keep | mechanism | note |' \
+    '| 99990002 -- beta | keep | mechanism | note |'
   # Assembled, for the reason the mispaired case above states.
-  local _num='00000001'
-  _write 'CONTEXT.md' "ADR-00000002 and doc/adr/${_num}-alpha.md both resolve."
+  local _num='99990001'
+  _write 'CONTEXT.md' "ADR-99990002 and doc/adr/${_num}-alpha.md both resolve."
   run _run_adr_numbering
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"clean"* ]]
@@ -746,11 +754,11 @@ _index_headed() {
 # repair-path the shared population exists to prevent. Not yet tracked is
 # not derived.
 @test "_run_adr_numbering: an untracked file in a checkout is read like any other (#1021)" {
-  _touch_adr "00000001-alpha.md"
-  _index '| 00000001 -- alpha | keep | mechanism | note |'
+  _touch_adr "99990001-alpha.md"
+  _index '| 99990001 -- alpha | keep | mechanism | note |'
   # Assembled, for the reason the case above states.
   local _ghost='00000099'
-  _write 'CONTEXT.md' 'ADR-00000001 resolves.'
+  _write 'CONTEXT.md' 'ADR-99990001 resolves.'
   _write 'scratch.md' "A scratch note citing ADR-${_ghost}."
   git -C "${SCRATCH}" init -q
   git -C "${SCRATCH}" add doc CONTEXT.md
@@ -766,12 +774,12 @@ _index_headed() {
 # wrapper transcript are records of what WAS said, so a verb that rewrote
 # them would falsify them -- the reason the population is pruned at all.
 @test "_run_adr_numbering: an untracked but ignored path is still not read (#1021)" {
-  _touch_adr "00000001-alpha.md"
-  _index '| 00000001 -- alpha | keep | mechanism | note |'
+  _touch_adr "99990001-alpha.md"
+  _index '| 99990001 -- alpha | keep | mechanism | note |'
   # Assembled, for the reason the case above states.
   local _ghost='00000099'
   _write '.gitignore' 'log/'
-  _write 'CONTEXT.md' 'ADR-00000001 resolves.'
+  _write 'CONTEXT.md' 'ADR-99990001 resolves.'
   _write 'log/test/2026-09-04-abcdef12.log' "the transcript said ADR-${_ghost}"
   git -C "${SCRATCH}" init -q
   git -C "${SCRATCH}" add doc CONTEXT.md .gitignore
@@ -798,12 +806,12 @@ _index_headed() {
   # empty. The outer tree is the checkout; the inner one is what is linted.
   local _inner="${SCRATCH}/vendor"
   mkdir -p "${_inner}/doc/adr"
-  : > "${_inner}/doc/adr/00000001-alpha.md"
+  : > "${_inner}/doc/adr/99990001-alpha.md"
   printf '%s\n' \
     '# ADR index' \
     '| ADR | Verdict | Serves | Note |' \
     '|---|---|---|---|' \
-    '| 00000001 -- alpha | keep | mechanism | note |' \
+    '| 99990001 -- alpha | keep | mechanism | note |' \
     > "${_inner}/doc/adr/README.md"
   printf 'A pointer at ADR-%s.\n' "${_ghost}" > "${_inner}/CONTEXT.md"
   _write '.gitignore' 'vendor/'
@@ -860,11 +868,11 @@ _index_headed() {
 # a trailing slash, and the finding is what keeps the split from being
 # discovered by a red gate no documented command can clear.
 @test "_run_adr_numbering: a nested .gitignore is reported, not ignored (#1021)" {
-  _touch_adr "00000001-alpha.md"
-  _index '| 00000001 -- alpha | keep | mechanism | note |'
+  _touch_adr "99990001-alpha.md"
+  _index '| 99990001 -- alpha | keep | mechanism | note |'
   _write '.gitignore' 'log/'
   _write 'pkg/.gitignore' 'skip.md'
-  _write 'pkg/keep.md' 'ADR-00000001 resolves.'
+  _write 'pkg/keep.md' 'ADR-99990001 resolves.'
   run _run_adr_numbering
   [ "${status}" -ne 0 ]
   [[ "${output}" == *"pkg/.gitignore"* ]]
@@ -927,12 +935,12 @@ _index_headed() {
 # whose exclusion the walk is only ever approximating -- so reporting them
 # there would fail a checkout for a declaration nothing in it gets wrong.
 @test "_run_adr_numbering: a checkout reports no unreadable declaration (#1021)" {
-  _touch_adr "00000001-alpha.md"
-  _index '| 00000001 -- alpha | keep | mechanism | note |'
+  _touch_adr "99990001-alpha.md"
+  _index '| 99990001 -- alpha | keep | mechanism | note |'
   # Assembled, for the reason the case above states.
   local _ghost='00000099'
   _write '.gitignore' 'vendor/*.md' '!keep.md' 'pkg/'
-  _write 'CONTEXT.md' 'ADR-00000001 resolves.'
+  _write 'CONTEXT.md' 'ADR-99990001 resolves.'
   _write 'vendor/old.md' "a vendored tree naming ADR-${_ghost}"
   git -C "${SCRATCH}" init -q
   git -C "${SCRATCH}" add doc CONTEXT.md .gitignore
@@ -953,13 +961,13 @@ _index_headed() {
 # differently about one file, which is the whole premise of the shared
 # reader.
 @test "_run_adr_numbering: a tracked file the root .gitignore names is reported (#1021)" {
-  _touch_adr "00000001-alpha.md"
-  _index '| 00000001 -- alpha | keep | mechanism | note |'
+  _touch_adr "99990001-alpha.md"
+  _index '| 99990001 -- alpha | keep | mechanism | note |'
   _write '.gitignore' 'vendor/'
-  _write 'CONTEXT.md' 'ADR-00000001 resolves.'
+  _write 'CONTEXT.md' 'ADR-99990001 resolves.'
   # The reference here RESOLVES: the finding is about the population, not
   # about the pointer, so nothing else in this tree can produce it.
-  _write 'vendor/old.md' 'ADR-00000001 resolves.'
+  _write 'vendor/old.md' 'ADR-99990001 resolves.'
   git -C "${SCRATCH}" init -q
   git -C "${SCRATCH}" add doc CONTEXT.md .gitignore
   git -C "${SCRATCH}" add -f vendor/old.md

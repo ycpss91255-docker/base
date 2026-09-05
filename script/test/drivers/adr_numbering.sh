@@ -215,6 +215,38 @@ _adr_scan() {
   )
 }
 
+# _adr_declared_claim_finding <root> <rel> <num> -- the finding for a
+# fixture declaration that names a number a RECORD claims.
+#
+# What a declaration may NAME, which is the one thing about it no
+# reference can settle. It says "a reference to this number in this file
+# is the file's own"; where a record also claims the number, that is true
+# of the fixture pointers AND indistinguishable from a pointer at the
+# record, so the declaration exempts a live one from both this lint and
+# the verb -- silently, and permanently. Renumbering that record then
+# leaves the declaring file naming a record that has moved, with the verb
+# reporting a complete sweep and this lint reporting clean: the failure
+# the declaration was introduced to remove, reached through the
+# declaration.
+#
+# The repair is one line, and it also fixes the default. A fixture
+# registry numbered where no record claims (this tree's specs use the
+# 9999NNNN band) cannot collide, and FORGETTING to declare it is then
+# LOUD -- the reference dangles and is reported by name -- rather than
+# silent, which is what an undeclared number a record claims still is.
+_adr_declared_claim_finding() {
+  local _root="$1" _rel="$2" _num="$3" _claimant=''
+  _claimant="$(
+    shopt -s nullglob
+    for _f in "${_root}"/doc/adr/"${_num}"-*.md; do
+      printf '%s' "doc/adr/${_f##*/}"
+      break
+    done
+  )"
+  printf 'ADR numbering: %s: the fixture declaration names %s, which %s claims. A declared number exempts every reference to it in this file from this lint and from "just adr renumber", so a pointer at that record here would be exempt too, and nothing can tell the two apart. Renumber the fixture registry to a number no record claims.\n' \
+    "${_rel}" "${_num}" "${_claimant}"
+}
+
 # _adr_ref_findings <root> <claimed-number>... -- one line per reference
 # that names no record: a dangling `ADR-NNNNNNNN`, or a `doc/adr/` path
 # whose number and slug are not a file.
@@ -246,10 +278,24 @@ _adr_ref_findings() {
   # once here rather than per hit, and read from the same file the verb
   # reads it from, so a number the verb refuses to rewrite is a number
   # this lint refuses to judge.
+  #
+  # The same pass checks what a declaration may NAME, because that is the
+  # one question about it neither tool can answer from a reference: a
+  # declared number a RECORD claims makes both readings of every pointer
+  # to it true at once -- this file's fixture, and this tree's record --
+  # and the declaration then exempts a live pointer as silently as a
+  # fixture one. See _adr_declared_claim_finding.
   local -A _fixture=()
-  local _rel _nums
+  local _rel _nums _num
   while IFS=$'\t' read -r _rel _nums; do
     _fixture["${_rel}"]="${_nums}"
+    # Unquoted on purpose: the declared numbers are a space-separated list
+    # of eight-digit runs, so there is nothing to split wrongly.
+    # shellcheck disable=SC2086
+    for _num in ${_nums}; do
+      [[ -n "${_known[${_num}]:-}" ]] || continue
+      _adr_declared_claim_finding "${_root}" "${_rel}" "${_num}"
+    done
   done < <(_adr_ref_fixture_map "${_root}")
 
   local _hit _loc _match _num _path
@@ -320,10 +366,11 @@ _adr_ref_findings() {
 # the file blurb, every test description and every test NAME verbatim into
 # doc/test/*.md, which declares nothing. So a declared number written at
 # one of those three sites arrives in the catalogue as THIS tree's
-# reference, and `just adr renumber` has no state it can reach -- it
-# rewrites the published row, the regeneration puts the number straight
-# back from the marker it may not touch, and the run aborts on a survivor
-# with the record already moved and the rest of the tree swept.
+# reference -- and since a declared number may name no record, it arrives
+# there as a reference no record claims, which the dangling check reports
+# against the GENERATED document. That finding names bytes the next
+# `just test sync-docs` rewrites; this one names the marker they come
+# from, which is the only place an edit holds.
 #
 # The finding names the MARKER, not the row, because the row is generated:
 # a hand edit there is undone by the next `just test sync-docs`, and
@@ -380,7 +427,7 @@ _adr_marker_captive_findings() {
 _adr_marker_captive_report() {
   local _rel="$1" _line="$2" _num="$3" _loc="$1"
   [[ -z "${_line}" ]] || _loc="${_rel}:${_line}"
-  printf 'ADR numbering: %s: %s is one of this file'"'"'s own declared fixture numbers, and this file publishes it into a generated doc/test catalogue -- where it reads as a reference to this tree, and where the regeneration puts it straight back after "just adr renumber" rewrites the row. Reword the marker or the test name; editing the generated document is undone by the next "just test sync-docs".\n' \
+  printf 'ADR numbering: %s: %s is one of this file'"'"'s own declared fixture numbers, and this file publishes it into a generated doc/test catalogue, which declares nothing -- so the row reads as a reference by this tree to a number no record claims, and is reported as one against the generated document. Reword the marker or the test name; that row is where the number lands, not where it is written, and editing it is undone by the next "just test sync-docs".\n' \
     "${_loc}" "${_num}"
 }
 

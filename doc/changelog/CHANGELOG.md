@@ -326,6 +326,15 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   checks: a dangling reference, an index row or enumeration naming no record,
   a declaration or ignore rule it cannot apply, and a declared fixture number
   a spec publishes.
+- **a fixture declaration may name only a number no record claims, and
+  neither tool passes over a population it cannot determine (refs #1021)**
+  -- declaring a claimed number exempted every reference to it in that file
+  from both the lint and `just adr renumber`, live pointers included; base
+  shipped eight, and its spec registries move to the 9999NNNN band. The verb
+  refuses such a number at either end of a move. Two population holes close
+  with it: a walk that lists nothing is refused rather than passed (a lint
+  over no files reported clean), and the git tier now reports a tracked file
+  the root `.gitignore` names, which the in-container walk never reads.
 
 ### Fixed
 - **`compute-shards` and `coverage-gate` now gate something (closes #1009)**

@@ -63,16 +63,23 @@
 #             standing there under a green run. Both, in order.
 #
 # A file that builds its own throwaway registry DECLARES the numbers that
-# registry uses (script/adr/references.sh), and a reference carrying one
-# of them is dropped in every class. Per-class was tried and is how this
-# tool corrupted the spec that guards it: the `ADR-<n>` and `adr/<n>-`
-# forms in adr_renumber_spec.bats were rewritten and the numbers it passes
-# to this tool as ARGUMENTS were not, so its setup and its command named
-# different records. Per-FILE was tried next and is how this tool aborted
-# half-way: adr_numbering_spec.bats's `# why:` marker cites a live record
-# and the generator publishes that marker as a doc/test row, so the sweep
-# fixed the row, the regeneration put the old number back, and the run
-# ended on a survivor with the record already moved.
+# registry uses (script/adr/references.sh), and this tool never rewrites a
+# declared number: it REFUSES to be asked. A declaration may only name a
+# number no record claims, so the one way this tool could meet one is to
+# be handed it as <record> or <to>, and both are refused before the first
+# write. Two weaker rules were tried first, and each corrupted something.
+# Per-class dropped the `ADR-<n>` and `adr/<n>-` forms in
+# adr_renumber_spec.bats and rewrote the numbers it passes to this tool as
+# ARGUMENTS, so its setup and its command named different records.
+# Per-FILE skipped the declaring file whole: adr_numbering_spec.bats's
+# `# why:` marker cites a live record and the generator publishes that
+# marker as a doc/test row, so the sweep fixed the row, the regeneration
+# put the old number back, and the run ended on a survivor with the record
+# already moved. Per-NUMBER fixed that pair and kept the case underneath
+# both: with the declared number a record's number, no rule attributes any
+# single reference to it, so skipping was as wrong as rewriting. The
+# ambiguity is refused rather than resolved, the way two claimants on one
+# number are.
 #
 # The population is references.sh's, which is also the ADR-numbering
 # lint's -- see that file for why one definition and not two. Not a list:
@@ -218,24 +225,15 @@ _renumber_resolve() {
 # substitution on the row would appear to do and the next regeneration
 # would revert.
 
-# _renumber_targets <root> <from> -- the files whose references to <from>
-# are THIS tree's: the population minus the files that declare <from> one
-# of their own fixture numbers.
-#
-# One definition for the sweep and for the survivor check below, so the
-# tool cannot rewrite a file it will then read back with a different idea
-# of what counts.
-_renumber_targets() {
-  local _root="$1" _from="$2" _rel _nums
-  local -A _fixture=()
-  while IFS=$'\t' read -r _rel _nums; do
-    _fixture["${_rel}"]="${_nums}"
-  done < <(_adr_ref_fixture_map "${_root}")
-  while IFS= read -r _rel; do
-    ! _adr_ref_declares "${_fixture[${_rel}]:-}" "${_from}" || continue
-    printf '%s\n' "${_rel}"
-  done < <(_adr_ref_files "${_root}")
-}
+# The sweep and the survivor check both read `_adr_ref_files` whole, and
+# there is no per-file exemption between them. There was one -- the files
+# declaring <from> were subtracted from the population -- and it could
+# only ever subtract on the one number this tool refuses outright: a
+# declaration naming a number a record CLAIMS is the state the
+# precondition above rejects, and a declaration naming any other number
+# describes text this run was never going to rewrite. A filter that can
+# never filter is a second answer to a question already settled, so it is
+# gone rather than kept as a comment about an unreachable case.
 
 # _renumber_patterns <from> <rel> -- the grep -E alternation that finds a
 # reference to <from> in <rel>. The bare-number class is only ever offered
@@ -297,28 +295,32 @@ _renumber_survivors() {
     _re="$(_renumber_patterns "${_from}" "${_rel}")"
     grep -qIE -e "${_re}" "${_root}/${_rel}" || continue
     printf '%s\n' "${_rel}"
-  done < <(_renumber_targets "${_root}" "${_from}")
+  done < <(_adr_ref_files "${_root}")
 }
 
-# _renumber_declarers <root> <from> -- the files that declare <from> one of
-# their own fixture numbers and still name it, one per line.
+# _renumber_declarations <root> <from> -- the files that declare <from> one
+# of their own fixture numbers, one per line.
 #
-# Read only when the sweep has left a survivor, and it is what turns that
-# message from an accusation into a repair. A declaration is per FILE, and
-# a `# why:` marker (or a `@test` name) is the one thing in a spec that
-# LEAVES it: the generator publishes those verbatim into a doc/test
-# catalogue, which declares nothing. So a declared number written there
-# arrives in the catalogue as this tree's reference, this tool rewrites the
-# published row, `_sync_doc_counts` puts the number straight back from the
-# marker it may not touch, and the survivor is a GENERATED file. Naming
-# only that file points the repair at bytes the next `just test sync-docs`
-# overwrites; the marker is the one thing an edit can fix.
-_renumber_declarers() {
-  local _root="$1" _from="$2" _rel _nums _re
-  _re="ADR-${_from}|adr/${_from}-"
+# Read as a PRECONDITION, not as a diagnosis afterwards. A declaration
+# says a reference to that number in that file is the file's own; where a
+# record also claims the number -- which is exactly the case whenever this
+# tool is asked to move it -- that reading and "a pointer at the record
+# being moved" are true of the same text, and nothing in the tree tells
+# them apart. Sweeping skips the whole file and reports a complete repair
+# with a pointer at the moved record still standing in it.
+#
+# That state used to be discovered on the way out, from a survivor in a
+# GENERATED file: a declared number in a `# why:` marker is published
+# verbatim into a doc/test catalogue, the sweep rewrote the row, the
+# regeneration put the old number straight back from the marker this tool
+# may not touch, and the run ended with the record already moved. Refusing
+# up front covers that case and the quieter one it shared a cause with --
+# a declared number in ordinary prose, which produced no survivor at all
+# and no message.
+_renumber_declarations() {
+  local _root="$1" _from="$2" _rel _nums
   while IFS=$'\t' read -r _rel _nums; do
     _adr_ref_declares "${_nums}" "${_from}" || continue
-    grep -qIE -e "${_re}" "${_root}/${_rel}" 2>/dev/null || continue
     printf '%s\n' "${_rel}"
   done < <(_adr_ref_fixture_map "${_root}")
 }
@@ -378,6 +380,32 @@ _adr_renumber() {
     return 1
   fi
 
+  # A number some file declares its OWN fixture number is refused for the
+  # reason two claimants are: with both readings true of one text, no rule
+  # attributes a single pointer, and the sweep's answer -- skip that file
+  # whole and report a complete repair -- is wrong in the one direction
+  # that leaves a stale pointer behind a green gate. The resolution that
+  # IS derivable is to renumber the FIXTURE, which is also what the
+  # ADR-numbering lint asks of the same tree.
+  # Both ends of the move, because the state it must not reach is the same
+  # one either way: a number that a record claims and a file declares. At
+  # <from> the sweep would skip the declaring file whole and report a
+  # complete repair with a pointer at this record still in it; at <to> the
+  # move would CREATE that state, and the run would report success and
+  # leave the tree failing the ADR-numbering lint -- a red gate produced
+  # by the documented command.
+  local -a _declared=()
+  mapfile -t _declared < <(_renumber_declarations "${_root}" "${_from}")
+  if (( ${#_declared[@]} > 0 )); then
+    _renumber_err "${_from} is a number ${_declared[*]} declares its OWN fixture number, so a reference to it there is that file's and a reference to it anywhere else is this record's, and nothing distinguishes them. Sweeping would skip that file whole and report a complete repair with a pointer at this record left standing in it. Renumber the fixture registry there to a number no record claims first. Nothing was changed."
+    return 1
+  fi
+  mapfile -t _declared < <(_renumber_declarations "${_root}" "${_to}")
+  if (( ${#_declared[@]} > 0 )); then
+    _renumber_err "${_to} is a number ${_declared[*]} declares its OWN fixture number, and moving this record there would make it a number a record claims as well -- every reference to it in that file would then read both ways at once, which the ADR-numbering lint refuses. Pick a number nothing declares, or renumber the fixture registry there first. Nothing was changed."
+    return 1
+  fi
+
   # The population, before the record moves. This tool's whole claim is
   # that its reference set is DERIVED, so a population of no files is not
   # a tree with no references in it -- it is the derivation having failed,
@@ -413,21 +441,19 @@ _adr_renumber() {
   done < <(
     while IFS= read -r _rel; do
       _renumber_rewrite_file "${_root}" "${_from}" "${_to}" "${_rel}"
-    done < <(_renumber_targets "${_root}" "${_from}")
+    done < <(_adr_ref_files "${_root}")
   )
 
   # The generated documents are rebuilt, never rewritten. This is also
   # what carries a renamed `@test` into its catalogue row.
   _sync_doc_counts "${_root}" >/dev/null || return 1
 
-  local -a _left=() _declarers=()
+  # One message, because there is one cause left. The survivor that came
+  # from a declaration is refused before the rename now, so anything that
+  # reaches here is a reference form this tool does not recognise.
+  local -a _left=()
   mapfile -t _left < <(_renumber_survivors "${_root}" "${_from}")
   if (( ${#_left[@]} > 0 )); then
-    mapfile -t _declarers < <(_renumber_declarers "${_root}" "${_from}")
-    if (( ${#_declarers[@]} > 0 )); then
-      _renumber_err "the record and ${#_changed[@]} file(s) were rewritten, but a reference to ${_from} survives in: ${_left[*]}. ${_from} is a number ${_declarers[*]} declares its OWN fixture number, so this tool may not rewrite it there -- and where a survivor above is a generated document, its bytes come from a marker or a test name in that file, which the regeneration puts straight back. Reword it there; a hand edit to the generated document is undone by the next 'just test sync-docs'."
-      return 1
-    fi
     _renumber_err "the record and ${#_changed[@]} file(s) were rewritten, but a reference to ${_from} survives in: ${_left[*]}. That is a class of reference this tool does not know about -- fix those by hand and report it."
     return 1
   fi

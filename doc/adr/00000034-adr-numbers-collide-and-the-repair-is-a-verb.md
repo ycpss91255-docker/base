@@ -174,12 +174,49 @@ Four parts.
    > spelled it out, so `just adr renumber 30 <n>` aborted on
    > doc/test/unit.md.
    >
-   > The lint reports it (`captive`) and the verb's survivor message now
-   > names the declaring file. Both name the MARKER rather than the row,
-   > because the row is generated: a hand edit there is undone by the next
-   > `just test sync-docs`, and rewording the marker is the only repair.
-   > That is the residue this rule keeps, and it is one line wide -- write
-   > the number a fixture uses only where the catalogue does not carry it.
+   > The lint reports it (`captive`), naming the MARKER rather than the
+   > row, because the row is generated: a hand edit there is undone by the
+   > next `just test sync-docs`, and rewording the marker is the only
+   > repair. That is the residue this rule keeps, and it is one line wide
+   > -- write the number a fixture uses only where the catalogue does not
+   > carry it.
+
+   > **Amended (base#1021, same wave): a declaration may name only a
+   > number NO record claims.** Per number closed the two cases above and
+   > left the one they were both instances of. Where a record also claims
+   > the declared number, "this file's fixture" and "this tree's record"
+   > are both true of every pointer to it and nothing in the tree tells
+   > them apart -- so the declaration exempts a live pointer as quietly as
+   > a fixture one, from the lint and the verb at once. That is the
+   > failure this whole part exists to remove, reached through the
+   > mechanism it adds, and this tree shipped eight of them:
+   > `adr_renumber_spec.bats` declared 00000029/00000030/00000032,
+   > `adr_numbering_spec.bats` 00000001/00000002/00000007,
+   > `adr_structure_spec.bats` 00000001/00000012. Renumbering any of those
+   > records would have left a genuine pointer in the declaring file
+   > stale, with the verb reporting a complete sweep and the lint
+   > reporting clean.
+   >
+   > The lint refuses such a declaration by name, and the verb refuses to
+   > be handed one as either `<record>` or `<to>` -- the second because
+   > moving a record ONTO a declared number creates the same state, and a
+   > run that reported success would leave the tree failing the lint. This
+   > tree's fixture registries moved to the 9999NNNN band, which no
+   > sequential registry reaches.
+   >
+   > It also fixes the DEFAULT, which is the stronger reason. With the
+   > fixture numbered outside the registry, forgetting the declaration is
+   > loud -- the reference dangles and the lint names it -- where a
+   > forgotten declaration on a claimed number resolves quietly to
+   > somebody else's record.
+   >
+   > Two consequences follow. The verb's survivor message no longer has a
+   > captive-marker branch: that state is refused before the rename rather
+   > than diagnosed after it, with the record already moved. And the
+   > per-file exemption inside the sweep is gone -- the only number it
+   > could ever have subtracted is the one this tool now refuses outright,
+   > and a filter that cannot filter is a second answer to a settled
+   > question.
 
 4. **A number claimed by two records is refused, not guessed at.** With
    two claimants, a bare `ADR-00000030` in a sentence names whichever of
@@ -222,6 +259,27 @@ which is the failure this reader exists to remove, while a tree told
 which line to spell differently has a repair it can make. Where git can
 answer, none of it runs -- git applies every form itself.
 
+> **Amended (base#1021, same wave): the git tier is not silent either,
+> and an undeterminable population is refused in both tiers.** Two
+> statements above were half of a property. (1) "Where git can answer,
+> none of it runs" held for the rules and not for the SPLIT: git never
+> ignores a file it TRACKS, so a tracked path the root `.gitignore` names
+> is in git's population and pruned out of the walk's, with the rule
+> applied exactly by both. That is the walk reading LESS than the verb
+> sweeps -- the direction this record did not consider -- and it is the
+> tier the local gate takes, so a stale reference there passes
+> `just test` while `just adr renumber` rewrites it. Only the git tier
+> can observe it, and it now reports it; the opposite direction stays
+> where it was, reported by the rule that causes it, in the tier whose
+> own population is the one being described. (2) An empty answer from git
+> was already refused -- a root inside a checkout that lists nothing is
+> not an empty tree -- and an empty answer from the WALK was returned as
+> the population, over which every check is silent and silence reads as
+> clean. A root carrying a `doc/adr/` has at least the record itself to
+> read, so both tools now refuse it: the lint reports it instead of
+> checking nothing, and the verb refuses before the rename rather than
+> reporting a complete sweep of no files.
+
 A file that builds its own registry now carries a declaration, and a file
 that acquires one later without declaring it becomes a lint finding
 rather than a silent exemption. That is the direction the residue should
@@ -232,10 +290,11 @@ protecting its fixtures from being discovered by a rewritten fixture.
 
 The residue the per-number rule keeps: a fixture number that happens to
 BE a real record's number, and is left undeclared, is rewritten in the
-token and path classes and not in the bare-argument one. That is the
-pre-existing per-class failure, now reachable only by omitting the one
-line that prevents it, and it surfaces as a spec whose setup and command
-name different records.
+token and path classes and not in the bare-argument one, and it surfaces
+as a spec whose setup and command name different records. Declaring it is
+no longer the repair for that -- a declaration naming a claimed number is
+itself refused -- so the repair is the same one the refusal asks for:
+number the fixture registry where no record claims.
 
 The residue, stated rather than papered over: a prose `ADR-NNNNNNNN`
 whose number EXISTS but names a different record than its author meant is

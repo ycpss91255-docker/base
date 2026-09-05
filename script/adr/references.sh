@@ -157,6 +157,26 @@
 # rewritten and, where it names no record, reported -- loudly, by the lint
 # that reads the same declaration.
 #
+# ── What a declaration may NAME ─────────────────────────────────────────
+#
+# A number no record claims, and the rule is enforced (the lint reports
+# one that is, and the verb refuses to be handed one). Per-number closed
+# the two cases above and left the one they were both instances of: where
+# a RECORD also claims the declared number, "this file's fixture" and
+# "this tree's record" are both true of every pointer to it and nothing
+# tells them apart, so the declaration exempts a live pointer as quietly
+# as a fixture one -- from the lint and from the verb at once. This tree
+# shipped eight such declarations, and renumbering any of those records
+# would have left a genuine pointer stale with the verb reporting a
+# complete sweep and the lint reporting clean: the failure this whole file
+# exists to remove, reached through its own mechanism.
+#
+# Outside the registry's reach the mechanism is self-enforcing, which is
+# the second reason for the rule. A fixture registry numbered where no
+# record claims (this tree's specs use the 9999NNNN band) turns a
+# FORGOTTEN declaration into a dangling reference the lint names, instead
+# of into a reference that quietly resolves to somebody else's record.
+#
 # The marker is a comment line whose whole content is `adr-refs:`, the
 # word `fixture`, and one or more 8-digit numbers (see
 # _ADR_REF_FIXTURE_RE). Whole-line, so that a sentence about the marker --
@@ -168,11 +188,13 @@
 # fixtures it was written for is the failure the declaration exists to
 # remove. A fixture number that IS a real record's number and is left
 # undeclared is rewritten in the token and path classes and not in the
-# bare-argument one -- the pre-existing failure, reached only by omitting
-# the one line that prevents it, and visible as a spec whose setup and
-# command name different records. And a file in a language with no `#`
-# comment cannot declare itself; none of this tree's registry-building
-# fixtures is in one.
+# bare-argument one, and is visible as a spec whose setup and command name
+# different records: a declaration cannot be the repair for that one any
+# more -- naming a claimed number is itself refused -- so the repair is
+# the same as for a declared one, which is to number the fixture registry
+# where no record claims. And a file in a language with no `#` comment
+# cannot declare itself; none of this tree's registry-building fixtures is
+# in one.
 #
 # Style: Google Shell Style Guide.
 
