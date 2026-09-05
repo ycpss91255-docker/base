@@ -1105,7 +1105,7 @@ between them can be asserted at all.
 | `reclaim.sh --stale delegates the unowned classes to prune.sh with the same window` | - |
 | `reclaim.sh --stale never touches volumes` | - |
 
-### test/bats/unit/ci_spec.bats (131)
+### test/bats/unit/ci_spec.bats (133)
 
 | Test | Description |
 |------|-------------|
@@ -1116,6 +1116,8 @@ between them can be asserted at all.
 | `_run_lint_tool: names the tool and the signal when a driver dies of SIGPIPE (#898)` | 141 reported as tool + command + SIGPIPE |
 | `_run_lint_tool: names the tool when a driver fails without a signal (#898)` | Plain non-zero abort still names the tool |
 | `_run_lint_tool: a clean driver reports nothing and leaves no ERR trap armed (#898)` | Silent on success, trap disarmed after |
+| `_run_lint_tool: an errexit-suppressing caller is refused, not trusted (#1059)` | The single dispatch has the same call-site precondition the phase has, and it is reachable on its own -- `main --ci` calls it directly for LINT_ONLY with one named tool. Under a suppressing caller its ERR trap never fires (bash suppresses the trap for the same commands it suppresses errexit for), the driver runs on past its first failing command, and the dispatch returns the zero of its own last statement. Guarding only the plural would leave the narrower entry point reporting clean. |
+| `_refuse_suppressed_errexit: reads the call shape, not the errexit option (#1059)` | The refusal asks about the CALL, not about the option. `set +e` is a caller that has turned errexit off, which is harmless here -- the driver subshell arms its own -- while an `if` condition is a caller that has taken it away in a way no `set -e` can give back. A probe that confused the two would either refuse the whole gate or protect nothing. |
 | `_run_lint_tools: three failing drivers are all run and all named in one pass (#1059)` | Three independent violations must be enumerated by ONE run. This is the defect measured in base#1059: a lint phase that ran 17 drivers, died on changelog-entry and never reached any of the entries behind it -- changelog-layout through catalog-description -- so each cycle returned one bit, "this one is broken, and something unknown may be behind it". |
 | `_run_lint_tools: a failing driver still stops at its FIRST failing command (#1059)` | The collection must not be bought with the driver's own errexit. `( _run_lint_tool "${_tool}" ) \|\| _failed+=(...)` reads as the obvious shape and is wrong: bash suppresses errexit for the whole of a `\|\|` command, inside the subshell too, and a `set -e` in the subshell body does not bring it back. That is the exact failure _run_lint_tool's header refuses -- a driver sailing past its first failing command. |
 | `_run_lint_tools: an errexit-suppressing caller is refused, not trusted (#1059)` | The subshell's guarantee is a CALL-SITE precondition, and an unenforced precondition defaults to pass. bash suppresses errexit for every command of an `if` condition, a `&&` / `\|\|` list or a `!`, and the suppression reaches through this function into the standalone subshell too, so a caller who writes `if _run_lint_tools ...` gets back the exact defect the shape was chosen to refuse -- the driver sails past its first failing command, the subshell exits zero, and the phase reports a clean tree. No spelling of the subshell repairs it from the inside, so the phase probes for the suppression and refuses instead of measuring something it cannot measure. |

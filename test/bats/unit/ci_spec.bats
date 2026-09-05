@@ -185,6 +185,49 @@ teardown() {
   refute_output --partial "_lint_driver_failed"
 }
 
+# why: The single dispatch has the same call-site precondition the phase
+# has, and it is reachable on its own -- `main --ci` calls it directly for
+# LINT_ONLY with one named tool. Under a suppressing caller its ERR trap
+# never fires (bash suppresses the trap for the same commands it suppresses
+# errexit for), the driver runs on past its first failing command, and the
+# dispatch returns the zero of its own last statement. Guarding only the
+# plural would leave the narrower entry point reporting clean.
+@test "_run_lint_tool: an errexit-suppressing caller is refused, not trusted (#1059)" {
+  run env LOG_FORMAT=json bash -c '
+    source /source/script/test/test.sh
+    set -eo pipefail
+    _run_adr_numbering() { false; echo "SAILED PAST the first failure"; }
+    if _run_lint_tool adr-numbering; then echo "DISPATCH SAID CLEAN"; fi
+  '
+  assert_failure
+  refute_output --partial "SAILED PAST"
+  refute_output --partial "DISPATCH SAID CLEAN"
+  assert_output --partial "ci_lint_errexit_suppressed"
+}
+
+# why: The refusal asks about the CALL, not about the option. `set +e` is
+# a caller that has turned errexit off, which is harmless here -- the
+# driver subshell arms its own -- while an `if` condition is a caller that
+# has taken it away in a way no `set -e` can give back. A probe that
+# confused the two would either refuse the whole gate or protect nothing.
+@test "_refuse_suppressed_errexit: reads the call shape, not the errexit option (#1059)" {
+  run env LOG_FORMAT=json bash -c '
+    source /source/script/test/test.sh
+    set -eo pipefail
+    set +e
+    _refuse_suppressed_errexit "the option-off call"
+    echo "option off, plain statement: allowed"
+    set -e
+    if _refuse_suppressed_errexit "the suppressed call"; then
+      echo "SUPPRESSED CALL ALLOWED"
+    fi
+  '
+  assert_failure
+  assert_output --partial "option off, plain statement: allowed"
+  refute_output --partial "SUPPRESSED CALL ALLOWED"
+  assert_output --partial "ci_lint_errexit_suppressed"
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _run_lint_tools: the phase enumerates, the driver still stops
 #
