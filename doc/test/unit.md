@@ -1105,7 +1105,7 @@ between them can be asserted at all.
 | `reclaim.sh --stale delegates the unowned classes to prune.sh with the same window` | - |
 | `reclaim.sh --stale never touches volumes` | - |
 
-### test/bats/unit/ci_spec.bats (125)
+### test/bats/unit/ci_spec.bats (126)
 
 | Test | Description |
 |------|-------------|
@@ -1152,6 +1152,7 @@ between them can be asserted at all.
 | `_bats_args_with_label: an unknown jobs policy dies rather than defaulting (#1060)` | an unreadable policy must not resolve to a default that silently runs the wrong way round -- a typo'd `seriel` reaching the parallel branch is how the full suite would quietly start losing lines again. |
 | `_bats_args_with_label: an empty jobs policy dies rather than defaulting (#1060)` | an EMPTY policy is unreadable too, and it is the one a caller reaches by accident -- `_bats_args_with_label _a _l "${SOME_POLICY}"` with that variable unset. A `:-` default answers it with `parallel` before the guard can see it, which is the silent wrong answer the argument exists to refuse; only an OMITTED third argument is a default. |
 | `_run_coverage: a shard's wrapped bats takes its --jobs from the helper too (#1060)` | the shard path and the full-suite path are the same function, and the shard is the one CI runs eight of; a fix that reached only the full-suite branch would leave the measured critical path untouched. |
+| `_run_coverage: a shard that is the whole suite runs serial, like the suite (#1060)` | `1/1` is a shard by SYNTAX and the whole suite by CONTENT, and the certificate is derived from what ran, not from the argument -- so such a run stamps scope=full, the only scope the release badge publishes, off a parallel measurement the full-suite branch declares serial precisely because it under-reports. `just test coverage 1/1` reaches it, and so does vars.CI_SHARDS=1, which self-test.yaml turns into the matrix ["1/1"]. The policy must follow the walked set, so a slice that IS the suite is serial like the suite. |
 | `_run_coverage: with parallel absent a shard run is serial and says so (#1060)` | the helper exists because parallelism has a fallback -- GNU parallel absent means serial, said out loud, and the SHARD path is the one that asks. Proven by CONFINING PATH so parallel is genuinely gone, not by reading the helper: a hand-assembled command would keep working here and say nothing. |
 | `drivers/bats.sh: --jobs is written in exactly one place, the shared helper (#1060)` | the defect was never a missing flag, it was a second place to write one -- _run_coverage assembled its own bats command, so what the helper decides never reached it. A guard on the FLAG rather than on one call site is what keeps a third hand-rolled invocation from appearing: the driver may name --jobs exactly once, in the helper's own body. |
 | `_run_system: its bats takes --jobs and the label from the shared helper (#1060)` | the system runner was the driver's OTHER hand-rolled bats command -- its own nproc probe, no --recursive, and nothing said when parallel was missing. It is the second copy the one-writer guard refuses, so it takes its arguments from the helper like everything else. |

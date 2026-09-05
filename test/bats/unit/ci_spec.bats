@@ -1363,6 +1363,50 @@ SH
   assert_output --partial "--jobs 8"
 }
 
+# why: `1/1` is a shard by SYNTAX and the whole suite by CONTENT, and the
+# certificate is derived from what ran, not from the argument -- so such a
+# run stamps scope=full, the only scope the release badge publishes, off a
+# parallel measurement the full-suite branch declares serial precisely
+# because it under-reports. `just test coverage 1/1` reaches it, and so
+# does vars.CI_SHARDS=1, which self-test.yaml turns into the matrix
+# ["1/1"]. The policy must follow the walked set, so a slice that IS the
+# suite is serial like the suite.
+@test "_run_coverage: a shard that is the whole suite runs serial, like the suite (#1060)" {
+  local _log="${BATS_TEST_TMPDIR}/kcov.log"
+  mock_cmd "kcov" '
+    printf "%s\n" "$*" >> "'"${_log}"'"
+    exit 0'
+  # parallel IS present and nproc DOES answer: the run must still come out
+  # serial, or the whole-suite case is not being asked.
+  mock_cmd "parallel" 'exit 0'
+  mock_cmd "nproc" 'echo 8'
+
+  run bash -c '
+    REPO_ROOT="${BATS_TEST_TMPDIR}/repo"
+    mkdir -p "${REPO_ROOT}/coverage" "${REPO_ROOT}/test/bats/unit" \
+             "${REPO_ROOT}/test/bats/integration"
+    for _n in a b c d; do
+      printf "@test \"t1\" { :; }\n@test \"t2\" { :; }\n" \
+        > "${REPO_ROOT}/test/bats/unit/${_n}_spec.bats"
+    done
+    printf "@test \"t1\" { :; }\n" \
+      > "${REPO_ROOT}/test/bats/integration/i_spec.bats"
+    _die() { echo "DIE: $*"; exit 1; }
+    source /source/script/test/drivers/bats.sh
+    _run_coverage 1/1
+  '
+  assert_success
+  assert_output --partial "serial by policy"
+
+  run cat "${_log}"
+  assert_success
+  refute_output --partial "--jobs"
+  # Every spec of BOTH pools is in the run: this is the whole suite, which
+  # is why the policy had to change.
+  assert_output --partial "a_spec.bats"
+  assert_output --partial "i_spec.bats"
+}
+
 # why: the helper exists because parallelism has a fallback -- GNU
 # parallel absent means serial, said out loud, and the SHARD path is the
 # one that asks. Proven by CONFINING PATH so parallel is genuinely gone,
