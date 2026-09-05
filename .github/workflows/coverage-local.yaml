@@ -52,8 +52,18 @@ permissions:
 # One at a time on one machine. Two concurrent runs would each start nproc
 # kcov processes on the same host and measure each other's contention
 # rather than the mode.
+#
+# So the group interpolates NOTHING. A `${{ github.ref }}` in it would be
+# per-ref serialisation, which is not the property above: the normal use is
+# a dispatch on the branch under test beside one on `main`, and those are
+# two refs, two groups, and one runner. The machine is what is scarce here,
+# and nothing about the machine appears in the ref.
+#
+# Queue rather than cancel: a cancelled run leaves a half-written kcov tree
+# and orphaned compose artifacts on a shared workstation, and the run that
+# displaced it is measuring a machine that is still collecting.
 concurrency:
-  group: coverage-local-${{ github.ref }}
+  group: coverage-local
   cancel-in-progress: false
 
 jobs:
