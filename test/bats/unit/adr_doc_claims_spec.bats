@@ -157,16 +157,32 @@ _adr_claims_block() {
   # first block to describe a `workflow_dispatch`-only workflow got reported
   # for saying something true -- by a message demanding a trigger that
   # workflow does not have. A rule that cannot be satisfied by telling the
-  # truth teaches people to reword around it.
+  # truth teaches people to reword around it. What "stating" means is
+  # narrowed just below, because a hatch opened by any prose word is a
+  # hatch a workflow's own subject holds open.
   if grep -qiE 'trigger|tag push|push.*tags' <<< "${_text}"; then
-    local _real _t _stated
+    local _real _t _stated _spans
+    # The hatch is opened by STATING the trigger, and an event name is an
+    # ordinary English word -- `issues`, `schedule`, `push`. Matched against
+    # the block's whole prose, a workflow's own SUBJECT excuses a false
+    # claim about it: "which is how this repo labels issues" would wave
+    # through a tag claim over `triage-label.yaml`, whose only statable
+    # trigger is `issues`. So the name must appear AS CODE, which is how
+    # both shipped forms are written (`on: workflow_call`,
+    # `workflow_dispatch`) and how R3 below already reads a claim's
+    # subject.
+    #
+    # A span naming a FILE is dropped: `.github/workflows/schedule.yaml`
+    # says what the block is about, not what starts it, and admitting it
+    # would reopen the same hole one layer down.
+    _spans="$(grep -oE '`[^`]+`' <<< "${_text}" | grep -v '\.yaml`' || true)"
     for _wf in ${_named[*]-}; do
       _adr_wf_tag_triggered "${_repo}/.github/workflows/${_wf}" && continue
       _real="$(_adr_wf_statable_triggers "${_repo}/.github/workflows/${_wf}")"
       _stated=0
       while read -r _t; do
         [[ -n "${_t}" ]] || continue
-        grep -qF "${_t}" <<< "${_text}" && _stated=1
+        grep -qF "${_t}" <<< "${_spans}" && _stated=1
       done <<< "${_real}"
       [[ "${_stated}" -eq 1 ]] && continue
       # The message names the trigger the block SHOULD have stated, so the
@@ -407,6 +423,27 @@ _write_adr() {
     'which runs `on: issues` when one is opened.')"
   run _adr_claims "${_adr}" "${REPO}"
   assert_success
+}
+
+# why: the same hole one layer down, and the reason a code span alone is
+# not the rule. A FILE NAME is written as code too, so a workflow whose
+# name contains its own event -- `schedule.yaml` on `on: schedule` -- would
+# state its trigger merely by being named. Built here rather than found in
+# the tree, because the tree happens to carry no such workflow and the rule
+# must hold for the one somebody adds.
+@test "R1: a code span naming a file does not state a trigger (#726)" {
+  mkdir -p "${SCRATCH}/.github/workflows"
+  printf '%s\n' 'on:' '  schedule:' '    - cron: "0 0 * * *"' \
+    > "${SCRATCH}/.github/workflows/schedule.yaml"
+  local _adr
+  _adr="$(_write_adr filename_span.md \
+    '## Context' \
+    '' \
+    'A tag push triggers `.github/workflows/schedule.yaml`.')"
+  run _adr_claims "${_adr}" "${SCRATCH}"
+  assert_failure
+  assert_output --partial 'schedule.yaml'
+  assert_output --partial 'no tag trigger'
 }
 
 # why: the other half of that change, and the reason it does not weaken the

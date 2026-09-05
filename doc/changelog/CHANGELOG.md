@@ -80,10 +80,12 @@ by bracketing it with `<!-- changelog-entry-lint: allow-begin -- <why> -->` and
   `workflow_call` (#726)** -- the `adr_doc_claims` rule read its escape
   hatch as one literal string, so the first record to describe a
   `workflow_dispatch`-only workflow was reported for saying something true.
-  The accepted trigger is now read off the workflow's own `on:` block.
-  Affects anyone writing an ADR that names a workflow: state the trigger
-  the workflow has. `push` is still not accepted for a workflow with no
-  `tags:` filter, because a tag push is a push.
+  The accepted trigger is now read off the workflow's own `on:` block, and
+  must be stated AS CODE -- an event name is an ordinary word, so prose
+  about "issues" would otherwise excuse a claim about a workflow triggered
+  by `issues`. Affects anyone writing an ADR that names a workflow: state
+  the trigger the workflow has, in backticks. `push` is still not accepted
+  for a workflow with no `tags:` filter, because a tag push is a push.
 
 ## [v0.43.0-rc1] - 2026-09-04
 
