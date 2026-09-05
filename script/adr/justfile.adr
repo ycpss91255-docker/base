@@ -24,11 +24,13 @@ default:
 #
 # <record> is the number when one record claims it (`just adr renumber 30
 # 33`) and the filename when more than one does. The reference set is
-# DERIVED from the tree, not listed: the tracked files are swept for the
-# three reference forms, the ADR index's bare numbers are rewritten there
-# and nowhere else, and the generated documents under doc/test are
-# REGENERATED rather than edited -- a `@test` name carrying the number is
-# a row in one of them.
+# DERIVED from the tree, not listed: every file the tree does not DECLARE
+# derived is swept for the three reference forms -- tracked or not, so the
+# ADR you wrote this morning and have not `git add`ed is swept like any
+# other -- the ADR index's bare numbers are rewritten there and nowhere
+# else, and the generated documents under doc/test are REGENERATED rather
+# than edited, because a `@test` name carrying the number is a row in one
+# of them.
 #
 # It refuses, before writing anything, a target number somebody already
 # claims and a source number two records claim: with two claimants a bare
