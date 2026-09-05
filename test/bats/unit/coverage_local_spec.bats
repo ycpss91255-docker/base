@@ -652,16 +652,34 @@ _run_coverage_parallel 9"
 # why: the scope limit, asserted rather than promised. A trigger other
 # than `workflow_dispatch` would put a single shared workstation on the
 # path of an automatic run -- which is the SPOF this mode was scoped away
-# from.
+# from. Read as a SET rather than as refusals of the two names anyone
+# thought of: `push`, `repository_dispatch` and `workflow_call` are
+# automatic triggers too, and nothing else in the tree would catch one --
+# `self_hosted_guard.sh` reads a job's `if:`, never a workflow's `on:`.
 @test "coverage-local workflow: is manually triggered only" {
   local _wf=/source/.github/workflows/coverage-local.yaml
   assert [ -f "${_wf}" ]
 
-  run bash -c "sed -n '/^on:/,/^[a-z]/p' '${_wf}'"
+  # The EVENT keys of the `on:` block: the keys at the indentation of the
+  # first one, so a filter (`branches:`, `types:`, `tags:`) nested under an
+  # event is not read as an event of its own. The inline forms (`on: push`,
+  # `on: [push]`) yield no keys, so they fail this as an empty set rather
+  # than passing unread.
+  run awk '
+    /^on:/ { o = 1; next }
+    /^[^[:space:]#]/ { o = 0 }
+    o && $0 ~ /^[[:space:]]+[a-z_]+:/ {
+      match($0, /^[[:space:]]+/)
+      ind = RLENGTH
+      k = $0
+      sub(/^[[:space:]]+/, "", k)
+      sub(/:.*$/, "", k)
+      if (first == 0) { first = ind }
+      if (ind == first) { print k }
+    }
+  ' "${_wf}"
   assert_success
-  assert_output --partial "workflow_dispatch"
-  refute_output --partial "pull_request"
-  refute_output --partial "schedule"
+  assert_output "workflow_dispatch"
 }
 
 # why: the runner is the point -- an in-job parallel mode measured on a
