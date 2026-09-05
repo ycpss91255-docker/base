@@ -339,7 +339,6 @@ _driver_prelude() {
 # `_run_coverage`; under `--coverage-local` the inherited
 # COVERAGE_LOCAL_JOBS routed past the stub into the real parallel runner,
 # so a unit test launched 32 nested kcov processes and failed.
-#
 # The rule is therefore not "clear COVERAGE_LOCAL_JOBS" -- that is this
 # defect, not its class. It is: a block that drives the in-container
 # coverage entry PINS EVERY selector the dispatch forwards, set or
