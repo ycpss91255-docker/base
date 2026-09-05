@@ -343,6 +343,11 @@ _adr_ref_walk() {
 # inside a checkout without being one of its tracked directories would
 # otherwise come back as a tree with nothing in it.
 #
+# The other tier's empty answer is refused too, one level up: see
+# _adr_ref_population_refusal, which is where both tools say so, because
+# there the walk has already run and "cannot determine" is the final
+# answer rather than a reason to ask the next reader.
+#
 # That is the same rule project_reclaim.sh states for the same shape ("a
 # failed listing is not evidence that nothing is labelled"), and it fails
 # the same way if it goes: the probe succeeds anywhere inside a checkout,
@@ -420,6 +425,29 @@ _adr_ref_unreadable_ignores() {
     printf '%s\ta per-directory declaration; only the root one is read\n' \
       "${_rel}"
   done < <(_adr_ref_walk "${_root}")
+}
+
+# _adr_ref_population_refusal <root> -- the one sentence both tools say
+# when that population comes back EMPTY, so neither can describe the state
+# differently.
+#
+# The guard above, applied to the tier it was not applied to. An empty
+# answer from git is already refused -- a root inside a checkout that
+# lists nothing is not an empty tree -- and an empty answer from the WALK
+# was returned as the population, so every check over it ran on no files
+# and reported clean, and the verb renamed a record, swept nothing and
+# called that a complete sweep. Half the property is not the property: a
+# reader that cannot determine the population must refuse in BOTH tiers or
+# in neither.
+#
+# A root this is asked about carries a doc/adr/, so its population holds
+# at least the record itself. Nothing left to read is therefore a scan
+# that has stopped matching -- an ignore rule that covers the whole root,
+# a reader answering for a tree that is not there -- and it is
+# indistinguishable, in the output, from a tree with nothing wrong in it.
+_adr_ref_population_refusal() {
+  printf 'no file under %s can carry an ADR reference, so every reference check over it would pass by examining nothing. A tree carrying a doc/adr/ has at least the record itself to read, so this is a scan that has stopped matching -- most often an ignore rule that covers the whole root.\n' \
+    "$1"
 }
 
 # _adr_ref_files <root> -- every file under <root> that can carry a

@@ -378,6 +378,19 @@ _adr_renumber() {
     return 1
   fi
 
+  # The population, before the record moves. This tool's whole claim is
+  # that its reference set is DERIVED, so a population of no files is not
+  # a tree with no references in it -- it is the derivation having failed,
+  # and reporting "0 reference file(s) rewritten" over it is the one
+  # report this tool must never make wrongly. The record itself is in that
+  # population, so an empty answer cannot be right here.
+  local -a _population=()
+  mapfile -t _population < <(_adr_ref_files "${_root}")
+  if (( ${#_population[@]} == 0 )); then
+    _renumber_err "$(_adr_ref_population_refusal "${_root}") Nothing was changed."
+    return 1
+  fi
+
   # The rename goes FIRST, and that ordering is the whole of the header's
   # "a refusal leaves nothing half-renumbered". It is the one step that can
   # fail for a reason no precondition can check -- a concurrent

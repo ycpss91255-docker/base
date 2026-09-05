@@ -224,6 +224,19 @@ _adr_scan() {
 _adr_ref_findings() {
   local _root="$1"
   shift
+  # The population's own precondition, and it is checked BEFORE anything is
+  # read from it: every check below reports by finding a match, so over no
+  # files at all every one of them is silent and this lint prints "clean"
+  # after examining nothing. That is the one output a check may never
+  # produce, because it is identical to the output of a tree with nothing
+  # wrong in it. Reported and returned, rather than reported and continued:
+  # the checks that follow have no files to say anything about.
+  local -a _population=()
+  mapfile -t _population < <(_adr_ref_files "${_root}")
+  if (( ${#_population[@]} == 0 )); then
+    printf 'ADR numbering: %s' "$(_adr_ref_population_refusal "${_root}")"
+    return 0
+  fi
   local -A _known=()
   local _n
   for _n in "$@"; do
