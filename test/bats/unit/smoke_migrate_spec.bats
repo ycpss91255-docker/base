@@ -143,6 +143,71 @@ _seed_flat() {
   assert_output --partial 'ros_env.bats'
 }
 
+# ── coupling: never move files the Dockerfile rewrite cannot follow ─────────
+# The move and the COPY rewrite are two halves of one change. If the
+# Dockerfile names the retired tree in a shape the rewriter does not
+# recognise, moving the files anyway would leave a COPY pointing at a
+# directory that no longer exists -- turning a cosmetic layout drift into a
+# build that fails with "COPY source not found". Declining keeps the repo
+# consistent and says why.
+_src_both() {
+  printf 'source %s/_lib.sh; source %s/dockerfile_migrate.sh; source %s/smoke_migrate.sh' \
+    "${LIB}" "${LIB}" "${LIB}"
+}
+
+@test "_migrate_smoke_tree declines when the Dockerfile names the tree unrewritably (#1044)" {
+  _seed_flat ros_env
+  cat > "${TEMP_DIR}/Dockerfile" <<'EOF'
+FROM scratch AS devel-test
+COPY ["test/smoke/", "/smoke_test/"]
+EOF
+  run bash -c "$(_src_both); _migrate_smoke_tree '${TEMP_DIR}'"
+  assert_success
+  assert [ -f "${TEMP_DIR}/test/smoke/ros_env.bats" ]
+  assert [ ! -e "${TEMP_DIR}/test/bats/smoke/shared/ros_env.bats" ]
+  assert_output --partial 'test/smoke'
+}
+
+@test "_migrate_smoke_tree proceeds on the shape the rewriter handles (#1044)" {
+  _seed_flat ros_env
+  cat > "${TEMP_DIR}/Dockerfile" <<'EOF'
+FROM scratch AS devel-test
+COPY test/smoke/ /smoke_test/
+EOF
+  run bash -c "$(_src_both); _migrate_smoke_tree '${TEMP_DIR}'"
+  assert_success
+  assert [ -f "${TEMP_DIR}/test/bats/smoke/shared/ros_env.bats" ]
+}
+
+@test "_migrate_smoke_tree proceeds when the Dockerfile never names the tree (#1044)" {
+  _seed_flat ros_env
+  printf 'FROM scratch AS devel-test\n' > "${TEMP_DIR}/Dockerfile"
+  run bash -c "$(_src_both); _migrate_smoke_tree '${TEMP_DIR}'"
+  assert_success
+  assert [ -f "${TEMP_DIR}/test/bats/smoke/shared/ros_env.bats" ]
+}
+
+@test "_migrate_smoke_tree does not decline over base's own shipped path (#1044)" {
+  # The decline must key off the REPO's reference. A Dockerfile naming only
+  # .base/test/smoke -- smoke_copy's business, not this one -- would
+  # otherwise stop a move it has nothing to say about.
+  _seed_flat ros_env
+  cat > "${TEMP_DIR}/Dockerfile" <<'EOF'
+FROM scratch AS devel-test
+COPY .base/test/smoke/ /smoke_test/
+EOF
+  run bash -c "$(_src_both); _migrate_smoke_tree '${TEMP_DIR}'"
+  assert_success
+  assert [ -f "${TEMP_DIR}/test/bats/smoke/shared/ros_env.bats" ]
+}
+
+@test "_migrate_smoke_tree proceeds when there is no Dockerfile at all (#1044)" {
+  _seed_flat ros_env
+  run bash -c "$(_src_both); _migrate_smoke_tree '${TEMP_DIR}'"
+  assert_success
+  assert [ -f "${TEMP_DIR}/test/bats/smoke/shared/ros_env.bats" ]
+}
+
 # ── git: the move rides the caller's commit (refs #1036) ────────────────────
 
 @test "_migrate_smoke_tree stages the move when the repo is a git tree (#1044)" {

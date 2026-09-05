@@ -88,6 +88,30 @@ _migrate_smoke_tree() {
   # retired name -- test/smoke_helpers -- is not mistaken for it.
   [[ -d "${_flat}" ]] || return 0
 
+  # The move and the Dockerfile COPY rewrite are two halves of one change.
+  # If the repo's Dockerfile names the retired tree in a shape the
+  # rewriter does not recognise -- the JSON exec form, say -- then moving
+  # the files anyway would leave a COPY pointing at a directory that is
+  # gone, turning a cosmetic layout drift into a build that fails with
+  # "COPY source not found". Decline the whole thing instead, which is the
+  # same policy the Dockerfile migrations follow: an unanswered question
+  # leaves the file alone and says so.
+  #
+  # The reference is matched only where it is the repo's OWN: preceded by
+  # something that is not a path character, so the `.base/test/smoke`
+  # spelling -- which smoke_copy owns and which needs no decline here --
+  # cannot trigger one.
+  local _df="${_root%/}/Dockerfile"
+  if [[ -f "${_df}" ]] \
+     && declare -F _dfm_smoke_present >/dev/null 2>&1 \
+     && grep -qE '(^|[^[:alnum:]_./-])test/smoke' "${_df}" \
+     && ! _dfm_smoke_present "${_df}" 'test/smoke'; then
+    _log_warn init smoke_tree_migration_conflict \
+      "display=MIGRATION DECLINED: the smoke tree moved to test/bats/smoke/, but this repo's Dockerfile names test/smoke in a COPY shape the rewrite does not recognise, so moving the files would break the build with 'COPY source not found'. Nothing was moved. Put the COPY on the stock 'COPY test/smoke/ <dest>' shape and re-run \`just base init\`, or move the tree and update the COPY by hand." \
+      "path=${_df}"
+    return 0
+  fi
+
   mkdir -p "${_shared}"
 
   local _src _name _declined=0
