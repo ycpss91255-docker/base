@@ -1157,6 +1157,13 @@ _stamp_coverage_head() {
 # describes), a read-only checkout, an I/O error. The run stops before it
 # writes a single report under a certificate it could not invalidate.
 #
+# This refusal is the one the operator MEETS, so it is the one that has to
+# name the way out. The first of those cases is also what an interrupted
+# run leaves behind, and neither `rm` nor `trash-put` can clear it -- so
+# the message names `just test clean`, which reclaims the directory from
+# inside a container, rather than advice the reader cannot take
+# (base#1032).
+#
 # The RUN MANIFEST goes with it, and inherits the same rule, because the
 # scope on the certificate is now derived from the manifest: it is half
 # the certificate, so leaving it behind leaves half a certificate
@@ -1177,7 +1184,7 @@ _invalidate_coverage_head() {
     # writer), and presence is what the next stamp will be derived from.
     if [[ -e "${_path}" ]]; then
       _die ci_coverage_evidence_not_erased \
-        "cannot remove the stale coverage evidence ${_path}; a run that starts with it standing would write fresh partial reports under an earlier whole-suite certificate. Remove it (or fix the ownership of ${_root}/coverage) and re-run."
+        "cannot remove the stale coverage evidence ${_path}; a run that starts with it standing would write fresh partial reports under an earlier whole-suite certificate. The usual cause is a run that never handed the reports back -- an interrupt, a killed container -- which leaves ${_root}/coverage owned by the container that wrote it: unlinking a file needs write permission on the DIRECTORY holding it, so 'rm' and 'trash-put' both fail here and neither is advice you can act on. 'just test clean' takes the directory back from inside a container over the same mount; run that, then re-run."
     fi
   done
   return 0

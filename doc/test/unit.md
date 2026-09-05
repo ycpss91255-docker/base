@@ -1773,7 +1773,7 @@ the file's lines to the denominator.
 | `coverage_gate --merge-timings: merges per-shard timings keeping max seconds per basename (#733)` | - |
 | `coverage_gate --merge-timings: no input files yields an empty weights file (#733)` | - |
 
-### test/bats/unit/coverage_handback_spec.bats (13)
+### test/bats/unit/coverage_handback_spec.bats (14)
 
 The self-test containers run as root over a bind-mounted checkout, so every
 run OWES the invoking user the files it wrote there. Two halves of that debt
@@ -1794,6 +1794,7 @@ root. Both are base#1032.
 | `the handback never changes the run's exit status (base#1032)` | a handback that could change the verdict would be reporting on the run |
 | `a handback that failed is reported, and names the repair (base#1032)` | a silent chown failure is how the tree gets stuck with nobody told |
 | `a dispatch that never entered the container arms no handback (base#1032)` | a run that wrote nothing into the mount must not chown anything |
+| `the refusal that blocks the next run names the repair (base#1032)` | the refusal the operator actually meets is the one that must name the cure |
 | `just test clean: a checkout with no coverage/ succeeds and starts nothing (base#1032)` | the ordinary case -- nothing to clean must not cost a container |
 | `just test clean: the removal is done by the container over the mount (base#1032)` | the whole point -- the reclaim happens where root is, not on the host |
 | `just test clean: no host-side rm decides the outcome (base#1032)` | the failure this closes is a host rm that cannot unlink root's files |

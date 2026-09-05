@@ -76,14 +76,21 @@ teardown() {
   # The status belongs to the code under test. A chown reporting on it --
   # in either direction -- is the collector deciding the verdict, which is
   # the rule the end-of-run project sweep already follows.
+  #
+  # The marker is half the assertion and not decoration: a status of 7 is
+  # ALSO what a handler that never called the handback at all produces, so
+  # asserting the status alone passes on the tree this exists to fail on.
+  # The pair -- it ran, and the status is untouched -- is the claim.
+  local _log="${BATS_TEST_TMPDIR}/handback.log"
   run bash -c '
     source /source/script/test/test.sh
     _HANDBACK_ARMED=1
-    _fix_permissions() { return 1; }
+    _fix_permissions() { printf "HANDBACK\n" >> "'"${_log}"'"; return 1; }
     trap _test_exit_reclaim EXIT
     exit 7
   '
   [ "${status}" -eq 7 ]
+  assert [ -f "${_log}" ]
 }
 
 # why: a silent chown failure is how the tree gets stuck with nobody told
@@ -112,6 +119,29 @@ teardown() {
   '
   [ "${status}" -eq 0 ]
   refute_output --partial "HANDBACK"
+}
+
+# why: the refusal the operator actually meets is the one that must name the cure
+@test "the refusal that blocks the next run names the repair (base#1032)" {
+  # This is the message in the issue. The mechanism above stops the state
+  # from being CREATED by a red run and gives a way out of it, but the
+  # operator who is already in it -- an interrupt, a killed container --
+  # meets this refusal first, and it used to answer with "remove it (or fix
+  # the ownership)": the two things that cannot be done from the host,
+  # which is the whole defect. The verdict is not in question here; the
+  # advice is.
+  local _root="${BATS_TEST_TMPDIR}/stuck"
+  mkdir -p "${_root}/coverage/.head-sha/occupied"
+
+  # JSON, so the event name -- the stable half of a log line -- carries the
+  # identification and the assertion below is only about the advice.
+  run env LOG_FORMAT=json bash -c '
+    source /source/script/test/test.sh
+    _invalidate_coverage_head "'"${_root}"'"
+  '
+  assert_failure
+  assert_output --partial "ci_coverage_evidence_not_erased"
+  assert_output --partial "just test clean"
 }
 
 # ════════════════════════════════════════════════════════════════════
