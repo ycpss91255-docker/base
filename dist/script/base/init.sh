@@ -1251,6 +1251,8 @@ _stage_resync_output() {
   _init_drop_foreign_paths
   (( ${#_paths[@]} > 0 )) || return 0
   _init_git_can_stage || return 0
+  _init_drop_unmatchable_paths
+  (( ${#_paths[@]} > 0 )) || return 0
 
   # The retired wrappers are gone from disk, so only the index can say
   # which of them this repo was tracking. A name it never tracked must not
@@ -1391,6 +1393,53 @@ _init_drop_foreign_paths() {
 
   (( ${#_foreign[@]} > 0 )) \
     && _log_warn init init_progress "display=  not staging ${#_foreign[@]} path(s) written outside ${REPO_ROOT}: ${_foreign[*]} -- commit them by hand if they belong to this repo"
+
+  _paths=(${_kept[@]+"${_kept[@]}"})
+  return 0
+}
+
+# _init_drop_unmatchable_paths
+#   Remove from the caller's `_paths` any entry git has nothing to match --
+#   not on disk and not in the index -- naming what it dropped.
+#
+#   The SAME whole-batch refusal _init_drop_foreign_paths exists for, from
+#   inside the repo instead of outside it. `git add` fails its entire
+#   pathspec on a name that matches nothing, and "failing to stage" is
+#   deliberately non-fatal, so one such entry costs the commit the
+#   Dockerfile the run just rewrote and the run still closes by telling the
+#   user to push. That is base#1036 arriving through the code written to
+#   fix it, so the batch is filtered before `git add` sees it.
+#
+#   NOT an existence test. A path the run DELETED is still its output, and
+#   `git add -A` records the removal -- but only where git was tracking it,
+#   which is why the index is the second question rather than the whole
+#   answer being the first. `migrated_files` names exactly that shape
+#   today: `_dfm_reconcile_targets` records a target whose content changed
+#   in either direction, deletion included, and an untracked one is
+#   unreachable by any pathspec. The published-list half asks its own,
+#   stricter question before this one -- a file the resync guarantees but
+#   did not put there is not a deletion to commit under a release message
+#   -- so what actually reaches here is the migration record.
+#
+#   Operates on the caller's array by name for the reason
+#   _init_drop_foreign_paths does: a path may contain anything but a
+#   newline, and round-tripping it through a substitution is where that
+#   stops being true.
+_init_drop_unmatchable_paths() {
+  local -a _kept=() _unmatchable=()
+  local _candidate
+  for _candidate in ${_paths[@]+"${_paths[@]}"}; do
+    if [[ -e "${_candidate}" || -L "${_candidate}" ]] \
+      || git -C "${REPO_ROOT}" ls-files --error-unmatch -- "${_candidate}" \
+        > /dev/null 2>&1; then
+      _kept+=("${_candidate}")
+    else
+      _unmatchable+=("${_candidate}")
+    fi
+  done
+
+  (( ${#_unmatchable[@]} > 0 )) \
+    && _log_warn init init_progress "display=  not staging ${#_unmatchable[@]} path(s) git cannot match -- nothing there and nothing tracked: ${_unmatchable[*]}"
 
   _paths=(${_kept[@]+"${_kept[@]}"})
   return 0
