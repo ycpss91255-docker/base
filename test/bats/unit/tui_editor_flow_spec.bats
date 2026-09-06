@@ -941,10 +941,13 @@ stub_main_deps() {
 unreachable_functions() {
   local _f="${1}" _dist="${2}"
   local _flat="${BATS_TEST_TMPDIR}/dist_code"
-  # Callers, with whole-line comments dropped: a function named in prose
-  # is documentation, not a use, and that is exactly what hid one of the
-  # three.
-  grep -rh --include='*.sh' -vE '^[[:space:]]*#' "${_dist}" > "${_flat}"
+  # Callers, with comments dropped: a function named in prose is
+  # documentation, not a use, and that is exactly what hid one of the
+  # three. Whole-line comments go first; the sed then takes trailing
+  # ones, and it requires a blank on BOTH sides of the `#` so that
+  # `${_line#*|}` and `#!/usr/bin/env bash` are left alone.
+  grep -rh --include='*.sh' -vE '^[[:space:]]*#' "${_dist}" \
+    | sed -E 's/[[:blank:]]+#[[:blank:]].*$//' > "${_flat}"
   local -a _defs=() _prefixes=() _dead=()
   mapfile -t _defs < <(grep -oE '^[A-Za-z_][A-Za-z0-9_]*\(\)' "${_f}" \
     | sed 's/()$//')
@@ -956,9 +959,20 @@ unreachable_functions() {
   local _fn _p _hits _reachable
   for _fn in "${_defs[@]}"; do
     _reachable=0
-    for _p in "${_prefixes[@]}"; do
-      [[ "${_fn}" == "${_p}"* ]] && _reachable=1 && break
-    done
+    if [[ "${_fn}" == _edit_section_* ]]; then
+      # main's direct jump is `"_edit_section_${_subcmd}"`, and the names
+      # it can be handed are not "anything carrying this prefix" -- they
+      # are exactly what `_tui_known_subcommand` accepts. Asking the
+      # program is what keeps a dead editor visible: under a blanket
+      # prefix exemption, 14 of these -- every editor whose only caller
+      # IS that dispatch -- were checked by nothing at all, which is the
+      # class of hole base#1073 opened this work to close.
+      _tui_known_subcommand "${_fn#_edit_section_}" && _reachable=1
+    else
+      for _p in "${_prefixes[@]}"; do
+        [[ "${_fn}" == "${_p}"* ]] && _reachable=1 && break
+      done
+    fi
     (( _reachable )) && continue
     # One hit is the definition line itself; a caller is a second.
     _hits="$(grep -cE "(^|[^A-Za-z0-9_])${_fn}([^A-Za-z0-9_]|\$)" "${_flat}" \
@@ -1005,24 +1019,32 @@ unreachable_functions() {
 }
 
 # why: the guard above is only worth its runtime if it would go red on a
-# function that is dead TOMORROW, and the way it was first written it
-# would not: an `_edit_section_*` name was waved through on the prefix
-# alone, so a dead editor -- the majority of the file's functions by the
-# dispatch it uses -- was invisible to it. This plants one of each kind
-# in a scratch copy and requires the guard to name BOTH; the plain
-# helper is the control that proves the planting itself works.
-@test "the dead-code guard names a planted dead editor, not just a plain one" {
-  local _scratch="${BATS_TEST_TMPDIR}/setup_tui_planted.sh"
+# function that is dead TOMORROW, and as first written it would not have.
+# This plants three shapes in a scratch tree and requires the guard to
+# name all three: a plain dead helper (the control, which proves the
+# planting works at all); a dead `_edit_section_*`, which the blanket
+# prefix exemption waved through even though 14 of the file's editors
+# have no caller but that dispatch; and one whose only mention outside
+# its own definition is a trailing comment, which the whole-line-only
+# comment strip counted as a caller -- the very confusion of prose with
+# use that the guard's comment says hid one of base#1073's three.
+@test "the dead-code guard names every shape of dead function planted in a tree" {
+  local _dir="${BATS_TEST_TMPDIR}/planted_dist"
+  mkdir -p "${_dir}"
+  local _scratch="${_dir}/setup_tui.sh"
   cp /source/dist/script/docker/wrapper/setup_tui.sh "${_scratch}"
   {
-    printf '\n_edit_section_frobnicate() {\n  :\n}\n'
     printf '\n_plain_dead_helper() {\n  :\n}\n'
+    printf '\n_edit_section_frobnicate() {\n  :\n}\n'
+    printf '\n_dead_named_only_in_prose() {\n  :\n}\n'
+    printf 'true  # successor to _dead_named_only_in_prose\n'
   } >> "${_scratch}"
   local _got
-  _got="$(unreachable_functions "${_scratch}" /source/dist)"
+  _got="$(unreachable_functions "${_scratch}" "${_dir}")"
   printf 'planted run reported: %s\n' "${_got}" >&2
   [[ "${_got}" == *_plain_dead_helper* ]]
   [[ "${_got}" == *_edit_section_frobnicate* ]]
+  [[ "${_got}" == *_dead_named_only_in_prose* ]]
 }
 
 # ════════════════════════════════════════════════════════════════════

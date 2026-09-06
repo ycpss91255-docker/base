@@ -2773,6 +2773,18 @@ _warn_if_lang_rejected() {
 # argument parser as the single validity gate for `setup_tui.sh <name>`.
 _tui_known_subcommand() {
   local _arg="${1-}"
+  # A name is dispatchable only if the editor main jumps to actually
+  # exists. Being a schema section is not enough: `project` is one, with
+  # a deliberate no-editor opt-out (see schema.sh's SCHEMA_I18N note --
+  # the project name belongs in the gitignored .setup.conf.local, a
+  # layer the menu has no concept of), and accepting it on the section
+  # list alone sent main into `_edit_section_project`, a bash
+  # command-not-found raised after the backend probe and the seeding
+  # `setup.sh apply` run had already happened. Read off the function
+  # table rather than an exclusion list, so a section that gains or
+  # loses an editor needs no edit here.
+  declare -F "_edit_section_$(_tui_canonical_section "${_arg}")" >/dev/null \
+    || return 1
   _schema_is_section "${_arg}" && return 0
   [[ "${_arg}" == "ports" ]] && return 0
   [[ "${_arg}" == "gpu" ]] && return 0
@@ -2841,6 +2853,14 @@ main() {
           _subcmd_raw="${1}"
           _subcmd="$(_tui_canonical_section "${1}")"
           shift
+        elif _schema_is_section "${1}"; then
+          # A real section the TUI does not edit -- reported as itself
+          # rather than as an unknown argument, because the name IS
+          # valid everywhere else (`setup.sh set`, the conf file) and
+          # "unknown argument" would send the reader looking for a typo.
+          printf "[tui] %s has no TUI editor; set it with ./setup.sh set %s.<key> <value>\n" \
+            "${1}" "${1}" >&2
+          exit 2
         else
           printf "[tui] unknown argument: %s\n" "${1}" >&2
           usage
