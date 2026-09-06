@@ -982,6 +982,15 @@ unreachable_functions() {
   printf '%s\n' "${_dead[@]-}"
 }
 
+# why: base#1073 found three functions in setup_tui.sh with no caller, and
+# one of them had three specs -- so a test suite is not evidence that
+# production code is reachable. A hand-kept roster of "known dead" would
+# go stale the moment a caller is deleted, so the population is derived
+# from the file and the callers from the shipped tree. Dynamic dispatch
+# is resolved by asking the program which names it can dispatch, not by
+# waving a prefix through, which is how `_edit_section_resources` --
+# whose only caller is main's `setup_tui.sh resources` direct jump --
+# stays in while a dead editor does not.
 @test "setup_tui.sh: every function it defines is reachable from dist/" {
   local _got
   _got="$(unreachable_functions \
