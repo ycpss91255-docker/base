@@ -66,6 +66,8 @@ source "${TEMPLATE_DIR}/dist/script/docker/lib/template_guard.sh"
 source "${TEMPLATE_DIR}/dist/script/docker/lib/dockerfile_migrate.sh"
 # shellcheck disable=SC1091
 source "${TEMPLATE_DIR}/dist/script/docker/lib/smoke_migrate.sh"
+# shellcheck disable=SC1091
+source "${TEMPLATE_DIR}/dist/script/docker/lib/setup_conf_migrate.sh"
 
 _log() { _log_info init init_progress "display=$*"; }
 
@@ -893,6 +895,15 @@ _init_record_write() {
 #                                  hand-written -- so they are named here
 #                                  even though the migration that moves
 #                                  them lands separately.
+#     the setup.conf relocation    .setup.conf, the name it moves the
+#                                  override TO. The name it moves FROM is
+#                                  already covered by `config` above.
+#                                  Named for the same reason the .env pair
+#                                  is: a rollback that put config/ back
+#                                  while leaving the new root file in
+#                                  place would hand the consumer two
+#                                  copies of its own configuration and no
+#                                  way to tell which the tooling reads.
 #
 #   The retired root wrappers come from _init_retired_root_paths below,
 #   which is also what _create_symlinks deletes from and what the staging
@@ -906,6 +917,7 @@ justfile
 .dockerignore
 .env
 .env.local
+.setup.conf
 script
 config
 .github/workflows/base-version-monitor.yaml
@@ -1156,6 +1168,16 @@ _init_existing_repo() {
   # earliest point in the upgrade that runs current code. Nothing between
   # here and the user's next `just setup` writes `.env`.
   _migrate_env_to_local "${REPO_ROOT}"
+  # And, for the same reason one line up, the per-repo `setup.conf`
+  # override that moved out of `config/` to the repo-root dotfile. This is
+  # the only place it can run at all: the migration used to live in
+  # upgrade.sh, where the population still carrying the old path -- repos
+  # on v0.41.0 and earlier -- drives with a vendored copy that has never
+  # heard of it, so the upgrade exited 0 and left the repo running on the
+  # template defaults (base#1086). Must precede `_call_setup`, which is
+  # what SEEDS a default `.setup.conf` and so destroys the evidence that
+  # the repo ever had a configuration of its own.
+  _migrate_legacy_setup_conf "${REPO_ROOT}" "${TEMPLATE_DIR}/dist"
   _create_symlinks
   _sync_existing_gitignore
   # ensure the pre/post hook scaffolding exists. Idempotent;
@@ -1501,14 +1523,14 @@ _init_drop_unmatchable_paths() {
 #   add` itself inside REPO_ROOT's repo. Compared PHYSICALLY, because git
 #   answers with symlinks resolved and REPO_ROOT need not be spelled that
 #   way. "Cannot determine which repo this is" resolves to refusing.
+#   The predicate itself lives in lib/setup_conf_migrate.sh, which needs
+#   the same fence for the relocation it stages and takes the root as an
+#   argument rather than reading REPO_ROOT. Two copies of a rule about
+#   whose index a write lands in is exactly the drift this repo keeps
+#   paying for, so there is one; what stays here is the WARNING, which is
+#   init's to phrase.
 _init_git_can_stage() {
-  local _top _root
-  _top="$(git -C "${REPO_ROOT}" rev-parse --show-toplevel 2> /dev/null)"
-  if [[ -n "${_top}" ]]; then
-    _top="$(cd -P -- "${_top}" 2> /dev/null && pwd -P)"
-    _root="$(cd -P -- "${REPO_ROOT}" 2> /dev/null && pwd -P)"
-    [[ -n "${_root}" && "${_top}" == "${_root}" ]] && return 0
-  fi
+  _setup_conf_git_can_stage "${REPO_ROOT}" && return 0
   if [[ -e "${REPO_ROOT}/.git" || -L "${REPO_ROOT}/.git" ]]; then
     _log_warn init init_progress "display=  could not stage what the resync wrote: git cannot read ${REPO_ROOT} as a work tree -- stage and commit it by hand before pushing"
   fi

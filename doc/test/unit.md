@@ -6073,10 +6073,10 @@ Unit tests for `script/test/drivers/stale_setup_conf.sh`
 override and the template default now live at the repo-root `.setup.conf`
 dotfile, so a hardcoded legacy path in `dist/**/*.sh` reads a location that
 no longer exists and silently ignores the repo's knobs. The legacy-migration
-block in `dist/script/base/upgrade.sh` is the one legitimate consumer and
-opts out via explicit `allow-begin` / `allow-end` markers. Driven over
-throwaway fixture `dist/` trees, plus a real-tree guard that the live
-`dist/` passes today.
+lib `dist/script/docker/lib/setup_conf_migrate.sh` is the one legitimate
+consumer and opts out via explicit `allow-begin` / `allow-end` markers.
+Driven over throwaway fixture `dist/` trees, plus a real-tree guard that the
+live `dist/` passes today.
 
 | Test | Description |
 |------|-------------|

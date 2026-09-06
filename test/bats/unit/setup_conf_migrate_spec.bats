@@ -182,9 +182,14 @@ _git_init() {
   _seed_legacy
   printf '\n[volumes]\nmount_1 = ${WS_PATH}:/home/${USER_NAME}/work\n' \
     >> "${TEMP_DIR}/config/docker/setup.conf"
+  # The root file the way `setup.sh` actually leaves one: the template
+  # copied, then `mount_1` REWRITTEN in place by _upsert_conf_value. An
+  # appended second `[volumes]` would be a reopened section, which is a
+  # different file rather than a differently-seeded one.
   cp "${TPL_DIR}/.setup.conf" "${TEMP_DIR}/.setup.conf"
-  printf '\n[volumes]\nmount_1 = ${WS_PATH}:/home/${USER_NAME}/work\n' \
-    >> "${TEMP_DIR}/.setup.conf"
+  sed -i 's|^mount_1 =$|mount_1 = ${WS_PATH}:/home/${USER_NAME}/work|' \
+    "${TEMP_DIR}/.setup.conf"
+  grep -Fq 'mount_1 = ${WS_PATH}' "${TEMP_DIR}/.setup.conf"
   run bash -c "$(_src); _migrate_legacy_setup_conf '${TEMP_DIR}' '${TPL_DIR}'"
   assert_success
   assert [ ! -e "${TEMP_DIR}/config/docker/setup.conf" ]
