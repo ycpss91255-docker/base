@@ -129,7 +129,7 @@ a refusal as "do not release".
 | `abi-gate: refuses an unparseable upstream compat declaration` | A declaration the gate cannot parse is not a satisfied constraint. It is refused rather than dropped, which is what an ignored unreadable input amounts to. |
 | `abi-gate: a refusal prints nothing on stdout and names the dependency` | The fail-closed property the wiring rests on. A refusal that printed a partial decision would leave an output key for a later job to gate on. It writes to stderr only, so there is no `decision` key at all, and the dependency is named there for whoever reads the log. |
 
-### test/bats/unit/action_ref_agreement_lint_spec.bats (21)
+### test/bats/unit/action_ref_agreement_lint_spec.bats (20)
 
 | Test | Description |
 |------|-------------|
@@ -150,7 +150,6 @@ a refusal as "do not release".
 | `_run_action_ref_agreement: dies when .github/workflows/ is missing (#949)` | Nothing scanned is an error, not a pass |
 | `_run_action_ref_agreement: dies when the workflow directory holds no workflow (#949)` | Same, one level in |
 | `_run_action_ref_agreement: dies when no workflow names a versioned action (#949)` | A reader regression cannot report silence forever |
-| `_run_action_ref_agreement: reports the real workflow tree clean (#949)` | The lint agrees with the tree it ships with |
 | `action-ref-agreement: is a member of the lint phase's tool table (#949)` | A lint nobody runs is a comment |
 | `action-ref-agreement: has a lint-static CI join (#949)` | One plain-runner lint group, no docker |
 | `action-ref-agreement: its failure event id is registered (#949)` | An unregistered id is an anonymous exit |
@@ -188,7 +187,7 @@ a refusal as "do not release".
 | `R3: PASSES a verbatim claim about a file this repo carries (#927)` | - |
 | `R3: IGNORES verbatim used about behaviour rather than a quotation (#927)` | - |
 
-### test/bats/unit/adr_numbering_spec.bats (10)
+### test/bats/unit/adr_numbering_spec.bats (9)
 
 Unit tests for `script/test/drivers/adr_numbering.sh` (`_run_adr_numbering`,
 refs #808), the ADR-numbering lint. The registry is the filesystem
@@ -209,9 +208,8 @@ warned.
 | `_run_adr_numbering: does NOT flag a gap as a duplicate or malformed (#808)` | Gaps are advisory, not failures |
 | `_run_adr_numbering: an early-closing reader cannot abort the min/max scan (#898)` | No pipeline status owned by a departing reader |
 | `_run_adr_numbering: min/max stay correct with sort/head unusable (#898)` | In-shell range still bounds the gap scan |
-| `_run_adr_numbering: the REAL doc/adr/ passes today (00000009 gap warned) (#808)` | Live tree clean, 00000009 gap warned |
 
-### test/bats/unit/adr_structure_spec.bats (27)
+### test/bats/unit/adr_structure_spec.bats (26)
 
 | Test | Description |
 |------|-------------|
@@ -241,7 +239,6 @@ warned.
 | `_run_adr_structure: REFUSES when doc/adr/ holds no ADR at all (#994)` | - |
 | `_run_adr_structure: REFUSES when doc/adr/ holds ONLY the exempt README (#994)` | - |
 | `_run_adr_structure: REFUSES when doc/adr/ does not exist (#994)` | - |
-| `_run_adr_structure: the REAL doc/adr/ passes today (#994)` | - |
 
 ### test/bats/unit/alpine_eol_spec.bats (9)
 
@@ -286,7 +283,7 @@ arg. The forwarding half is test/bats/integration/apk_mirror_spec.bats'.
 | `APK_MIRROR: an empty override is refused by name, not turned into an empty host (#1008)` | An empty value is the one input that would REPRODUCE the bug this knob removes: rewriting the host to nothing hands back the same misleading `no such package`, now with a mirror set, which is the worst place to leave the reader. Refusing it by name is what separates a caller mistake from the original defect. |
 | `APK_MIRROR: every stage that installs packages inherits the mirror choice (#1008)` | The file runs apk in four stages, so a knob wired into one leaves the build dying in the next -- later, and with the same misleading message. This is the assertion that names a newly added alpine stage here, on any machine, rather than on the one host that cannot reach dl-cdn and would otherwise be the only place it shows up. |
 
-### test/bats/unit/arch_literal_lint_spec.bats (20)
+### test/bats/unit/arch_literal_lint_spec.bats (19)
 
 | Test | Description |
 |------|-------------|
@@ -309,7 +306,6 @@ arg. The forwarding half is test/bats/integration/apk_mirror_spec.bats'.
 | `_run_arch_literal: scans the repo-root dockerfile/ tree too (#939)` | - |
 | `_run_arch_literal: FAILS when a scan root is missing (#939)` | - |
 | `_run_arch_literal: FAILS when a scan root holds no Dockerfile (#939)` | - |
-| `_run_arch_literal: the REAL shipped Dockerfiles pass today (#939)` | - |
 
 ### test/bats/unit/base_docker_namespace_spec.bats (16)
 
@@ -370,7 +366,7 @@ empty API answer).
 | `run: a gh still listing titles cannot make the dedupe gate miss an open issue (#905)` | - |
 | `run: empty latest from API -> fails without creating an issue` | - |
 
-### test/bats/unit/bash_source_guard_lint_spec.bats (18)
+### test/bats/unit/bash_source_guard_lint_spec.bats (17)
 
 | Test | Description |
 |------|-------------|
@@ -391,7 +387,6 @@ empty API answer).
 | `_run_bash_source_guard: EXEMPTS a read inside an allow-begin/allow-end region (#869)` | - |
 | `_run_bash_source_guard: ignores non-.sh files and files outside the scanned trees (#869)` | - |
 | `_run_bash_source_guard: FAILS when a scan root is missing (no vacuous pass) (#869)` | - |
-| `_run_bash_source_guard: the REAL shipped + tooling trees pass today (#869)` | - |
 
 ### test/bats/unit/bashrc_spec.bats (15)
 
@@ -860,7 +855,7 @@ matching fails instead of reporting a clean scan
 | `build-worker.yaml: no job in the worker grants more than contents: read (#957)` | - |
 | `build-worker.yaml: the build job never cites the preflight as proof of a package grant (#957)` | - |
 
-### test/bats/unit/catalog_description_lint_spec.bats (11)
+### test/bats/unit/catalog_description_lint_spec.bats (10)
 
 The rule is base#922's and the first implementation was base#976's, which
 scanned the RENDERED catalogue. That made the rule opt-outable by table
@@ -890,7 +885,6 @@ independent of the live tree; a final case drives the REAL tree.
 | `_run_catalog_description: an unreadable '@test' line FAILS` | A `@test` line the canonical form cannot read is counted by the heading count and skipped by the reader, which would put the two out of step with every gate green. Failing closed here is what makes the refusal in spec-markers.sh reach a person. |
 | `_run_catalog_description: a spec-free scan root dies rather than passing vacuously` | A scan that finds nothing must DIE, not report clean. This is the failure mode the whole repo keeps paying for: a relocated tree, a lint that quietly covers zero files, and a green line that reads as a verdict over the suite. |
 | `_run_catalog_description: a nonexistent scan root dies, naming it` | The same non-vacuity in its other spelling -- a root that is not there at all. Reporting "0 undescribed" for a path that does not exist is the same false green with a different cause. |
-| `_run_catalog_description: the real tree passes, at or under the declared ceiling` | The one case that is about THIS tree rather than about a fixture: the ceiling in the driver has to match what the specs actually carry, or the number is a claim nobody checked. It also proves the lint passes on the tree it ships in, which no fixture can. |
 
 ### test/bats/unit/cd_guard_spec.bats (7)
 
@@ -912,7 +906,7 @@ Pure git + filesystem, no docker.
 | `cd-guard: accepts a clean tree on a tag (exit 0 + names the tag)` | - |
 | `cd-guard: the accept path reports the tag on stdout, refusals on stderr` | - |
 
-### test/bats/unit/changelog_entry_lint_spec.bats (62)
+### test/bats/unit/changelog_entry_lint_spec.bats (61)
 
 | Test | Description |
 |------|-------------|
@@ -976,10 +970,9 @@ Pure git + filesystem, no docker.
 | `_run_changelog_entry: PASSES every heading in the locked roster (#926)` | The complement that catches a roster typed twice: a lint refusing `Deprecated` because the driver's copy lost it fails on the honest entry, which is how a roster gets muted rather than fixed. Driven from the sourced array, so the case cannot drift from the definition it checks. |
 | `_run_changelog_entry: a released section's off-roster heading is never checked (#926)` | The roster governs what is written from now on. A shipped `### Tests` is a fact about what shipped, and a lint that could fail on it would be one nobody can make pass without falsifying the record. |
 | `_run_changelog_entry: FAILS when the documented roster disagrees with the code (#926)` | A roster written in two places drifts one place at a time, and the copy that drifts is the one contributors read. This is what keeps the single definition honest: the prose is a rendering, and a rendering that has stopped agreeing is a wrong answer delivered confidently to the person asking. |
-| `_run_changelog_entry: the real repo tree's [Unreleased] section is clean (#917)` | - |
 | `TEST.md's changelog-entry row names all four rules this lint enforces (#956)` | The row is where a reader learns what this lint refuses, and it has already drifted once -- a merge resolved it wholly to the older side and dropped two rules with nothing to notice. Narrow by design: it guards one row and the rules that row must name, not the whole table. |
 
-### test/bats/unit/changelog_index_spec.bats (7)
+### test/bats/unit/changelog_index_spec.bats (11)
 
 | Test | Description |
 |------|-------------|
@@ -990,8 +983,12 @@ Pure git + filesystem, no docker.
 | `changelog_index.sh: an empty series is not the row marked in progress (#926)` | doc/changelog/CHANGELOG.md tells the reader that a new entry goes into "the row below marked *in progress*", so the marker is a navigation instruction and its only evidence is `## [Unreleased]`. _ci_row returned on a zero version count before consulting the flag it was passed, so a stub cut for a series nobody has written into yet -- which is the state a series file is in for exactly as long as it takes to write the first entry, when the index is what a writer consults -- claimed the marker. |
 | `changelog_index.sh: the series carrying [Unreleased] is the row marked in progress (#926)` | The other half of the same marker, and the half that leaves the reader with no row to follow at all: a live series that has already cut a version rendered its date span and "(plus [Unreleased])", so nothing in the block said "in progress" -- the words the index's own prose sends the reader to look for. One property, both directions: the row marked in progress is the series carrying [Unreleased], whatever it has released. |
 | `changelog_index.sh: a released section with no date does not borrow the marker (#926)` | The third way into the marker, and the one that reaches it without any series file being unusual: a released heading carrying no ISO date leaves the row with no span to print, and the fallback for THAT was 'in progress' too. The layout lint reads a heading for its tag and never for its date, so a section written `## [v0.9.0]` is a shape the tree admits. A row is marked in progress because it carries [Unreleased], never because something about it could not be read. |
+| `changelog_index.sh: a BREAKING entry over the quote budget is truncated on a word boundary (#926)` | The quote is a budget, and a budget nothing tests is a number. An entry longer than it must come back SHORTER, ellipsed, and cut between words -- a quote that stops mid-word reads as a typo rather than as a truncation. |
+| `changelog_index.sh: a '## [' inside a fenced block is not a version (#926)` | A '## [' inside a fenced example is an example of a heading. Counting it inflates a series' version count, and nothing in the rendered row shows where the extra number came from -- the reader is simply told a series holds one more release than it does. |
+| `changelog_index.sh: a BREAKING entry's continuation lines are part of what it quotes (#926)` | The quote is taken over the ENTRY, not the lead LINE. Quoting the line ends the sentence wherever the author's wrapping happened to fall, which reads as a claim that stops mid-thought rather than as a shortened quote -- and every entry in this repo's changelog is wrapped. |
+| `changelog_index.sh: a series holding two dated releases renders the span (#926)` | A series holding more than one release spans dates, and a row that printed one of them would be answering "when was this cut" with the wrong date half the time. The one-date case is already the fixture everywhere else here, so only the span is unasserted. |
 
-### test/bats/unit/changelog_layout_lint_spec.bats (17)
+### test/bats/unit/changelog_layout_lint_spec.bats (16)
 
 | Test | Description |
 |------|-------------|
@@ -1011,7 +1008,6 @@ Pure git + filesystem, no docker.
 | `changelog layout: [Unreleased] in two files is refused` | Two live series is two places to write the next entry and two places a merge can keep, with the entry lint measuring whichever it reaches first. The assertion names the rule's own count rather than the word Unreleased, which the drift diff prints too. |
 | `changelog layout: no [Unreleased] anywhere is refused, not passed` | The same rule in the direction that fails open: with no live series every placement rule holds and the tree reports clean, while there is nowhere left to write the next entry. |
 | `changelog layout: a changelog directory with no series files DIES` | The vacuous pass this repo keeps paying for. With nothing to walk, every rule above holds and the lint prints a green line that means the scan found nothing, not that nothing is wrong. |
-| `changelog layout: the live changelog tree is clean` | Every other case drives a scratch fixture, so this is the only one that says the rules hold for the 43 series files that actually ship -- which is what makes the split's own landing a gated change rather than a claim. |
 
 ### test/bats/unit/check_test_md_drift_spec.bats (11)
 
@@ -2046,7 +2042,7 @@ refused before any build or bundle step.
 | `setup_tui --help names the distinction in all four locales (#879)` | - |
 | `setup.sh --help distinguishes the deploy subcommand from the section (#879)` | - |
 
-### test/bats/unit/derived_figures_lint_spec.bats (20)
+### test/bats/unit/derived_figures_lint_spec.bats (19)
 
 | Test | Description |
 |------|-------------|
@@ -2069,7 +2065,6 @@ refused before any build or bundle step.
 | `_run_derived_figures: FAILS when the section heading is absent (no vacuous pass) (#874)` | - |
 | `_run_derived_figures: FAILS when a required doc file is missing (no vacuous pass) (#874)` | - |
 | `_run_derived_figures: FAILS when the dist/ scan root is missing (no vacuous pass) (#874)` | - |
-| `_run_derived_figures: the REAL tree passes today (#874)` | - |
 
 ### test/bats/unit/doc_counts_spec.bats (26)
 
@@ -2301,7 +2296,7 @@ when the conf hash or GPU detection changes against a cached `.env`.
 | `_check_setup_drift returns non-zero when conf hash changes` | - |
 | `_check_setup_drift returns non-zero when GPU detection changes` | - |
 
-### test/bats/unit/early_close_reader_lint_spec.bats (20)
+### test/bats/unit/early_close_reader_lint_spec.bats (19)
 
 | Test | Description |
 |------|-------------|
@@ -2324,7 +2319,6 @@ when the conf hash or GPU detection changes against a cached `.env`.
 | `_run_early_close_reader: FAILS on an unterminated allow-begin region (#905)` | - |
 | `_run_early_close_reader: FAILS on an allow-end with no matching allow-begin (#905)` | - |
 | `_run_early_close_reader: FAILS when a scan root is missing (no vacuous pass) (#905)` | - |
-| `_run_early_close_reader: the REAL shipped + tooling trees pass today (#905)` | - |
 
 ### test/bats/unit/entrypoint_logging_spec.bats (12)
 
@@ -2429,7 +2423,7 @@ SSH X11 `XAUTHORITY` override #321) and `_scaffold_env_overlay` idempotency.
 | `no shipped surface calls a bare .env hand-authored or a workload overlay (#868)` | - |
 | `the shipped surfaces name .env.local as the override channel (#868)` | - |
 
-### test/bats/unit/errexit_bang_lint_spec.bats (96)
+### test/bats/unit/errexit_bang_lint_spec.bats (95)
 
 | Test | Description |
 |------|-------------|
@@ -2528,7 +2522,6 @@ SSH X11 `XAUTHORITY` override #321) and `_scaffold_env_overlay` idempotency.
 | `_run_errexit_bang: an allow region suppresses a folded-in '!' too (#956)` | - |
 | `_run_errexit_bang: an unterminated allow region fails (#956)` | - |
 | `_run_errexit_bang: an unmatched allow-end fails (#956)` | - |
-| `_run_errexit_bang: the real bats tree is clean (#956)` | - |
 
 ### test/bats/unit/exec_sh_spec.bats (61)
 
@@ -2628,7 +2621,7 @@ exit $?`; a failing pre-exec hook aborts before `compose exec` runs).
 | `exec.sh post-exec hook failure still overrides a non-zero container rc (#956)` | - |
 | `exec.sh aborts on a failing pre-exec hook and skips compose exec (#690)` | - |
 
-### test/bats/unit/generated_workflow_actions_lint_spec.bats (57)
+### test/bats/unit/generated_workflow_actions_lint_spec.bats (56)
 
 | Test | Description |
 |------|-------------|
@@ -2688,7 +2681,6 @@ exit $?`; a failing pre-exec hook aborts before `compose exec` runs).
 | `generated-workflow-actions: one reader -- a declared local resolves too (#987)` | The two lints disagreed about what an assignment is, so one marker on a local produced a record the watch read and this lint refused |
 | `generated-workflow-actions: a generator that is not named *.sh is scanned (#987)` | A *.sh glob is a roster of file shapes, and the non-vacuity backstop cannot notice the gap because the one known generator keeps the count at 1 |
 | `generated-workflow-actions: ignores an UNTRACKED generator (#987)` | This driver shares the pin registry's walk, so an untracked generator is outside its population too -- one population, not two that can drift (#987) |
-| `generated-workflow-actions: the real repo is in lockstep (#950)` | Drives the live tree, so the fixtures cannot drift away from what ships |
 
 ### test/bats/unit/ghcr_cleanup_yaml_spec.bats (22)
 
@@ -2846,7 +2838,7 @@ live in justfile_user_spec.bats.
 | `completions.sh --lang bogus warns and falls back to en (non-fatal)` | _sanitize_lang fallback |
 | `test.sh rejects --lang (test namespace is English-only, #655)` | machine/CI namespace, no i18n |
 
-### test/bats/unit/home_literal_lint_spec.bats (18)
+### test/bats/unit/home_literal_lint_spec.bats (17)
 
 Unit coverage for `script/test/drivers/home_literal.sh` -- the mechanical
 half of the "bake self-built artifacts at `/opt`, not under `$HOME`"
@@ -2878,7 +2870,6 @@ vacuously; and a final case drives the REAL shipped tree.
 | `_run_home_literal: EXEMPTS a literal inside an allow-begin/allow-end region (#799)` | - |
 | `_run_home_literal: ignores files OUTSIDE the shipped tree (#799)` | - |
 | `_run_home_literal: FAILS when a scan root is missing (no vacuous pass) (#799)` | - |
-| `_run_home_literal: the REAL shipped tree passes today (#799)` | - |
 
 ### test/bats/unit/hook_spec.bats (8)
 
@@ -2897,7 +2888,7 @@ forwarding for caller abort, and DRY_RUN skip.
 | `_run_pre_hook: DRY_RUN=true -> hook skipped silently (#440)` | DRY_RUN skip (pre) |
 | `_run_post_hook: DRY_RUN=true -> hook skipped silently (#440)` | DRY_RUN skip (post) |
 
-### test/bats/unit/i18n_orphan_lint_spec.bats (22)
+### test/bats/unit/i18n_orphan_lint_spec.bats (21)
 
 | Test | Description |
 |------|-------------|
@@ -2922,7 +2913,6 @@ forwarding for caller abort, and DRY_RUN skip.
 | `_run_i18n_orphan: DIES when no translation yields a single scanned token (#902)` | - |
 | `_run_i18n_orphan: catches the removed per-instance mechanism verbatim, as it stood before the hand fix (#902)` | - |
 | `_run_i18n_orphan: catches the retired argv shim verbatim, as it stood before the hand fix (#902)` | - |
-| `_run_i18n_orphan: the real repo tree carries no translation-only identifier (#902)` | - |
 
 ### test/bats/unit/init_existing_repo_signals_spec.bats (6)
 
@@ -3082,7 +3072,7 @@ are hard to trigger from a real `bash template/init.sh` invocation
 | `_ISSUEREF_AWK: flags the 2-digit and 4-digit accept boundaries under every awk engine (#692)` | #692 boundary parity across engines |
 | `_ISSUEREF_AWK: keeps the must-keep cases clean under every awk engine` | Exemption parity across busybox-awk / mawk / gawk |
 
-### test/bats/unit/just_provenance_lint_spec.bats (24)
+### test/bats/unit/just_provenance_lint_spec.bats (23)
 
 | Test | Description |
 |------|-------------|
@@ -3109,7 +3099,6 @@ are hard to trigger from a real `bash template/init.sh` invocation
 | `just provenance: a tree with no provenance site at all fails vacuously-closed (#948)` | - |
 | `just provenance: a tree where nothing is pinned fails vacuously-closed (#948)` | - |
 | `just provenance: pin evidence on a backslash continuation still counts (#948)` | - |
-| `just provenance: the live tree passes its own lint (#948)` | - |
 
 ### test/bats/unit/just_version_spec.bats (9)
 
@@ -3597,7 +3586,7 @@ list of job names.
 | `obtain: delegate mode leaves the build to its caller (#1010)` | The mirror. In delegate mode the build is a later workflow step gated on the output, so performing it here would build the image twice. |
 | `workflows: no job obtains the rolling test-tools tag by hand (#1010)` | The structural half of the same defect, and the half that stops it recurring. While the decision was shell pasted into each consuming job, nothing could tell a job that probes from a job that does not -- no single copy looked wrong, and the one without a probe read like the others. A job that reaches the rolling tag without going through the script is that copy, whoever writes it next. |
 
-### test/bats/unit/pin_coverage_lint_spec.bats (68)
+### test/bats/unit/pin_coverage_lint_spec.bats (67)
 
 | Test | Description |
 |------|-------------|
@@ -3666,7 +3655,6 @@ list of job names.
 | `_run_pin_coverage: FAILS on a v-prefixed major-only ref in a shell assignment` | The shell half of the same rule -- a major action ref hoisted for a marker is dotless by construction |
 | `_run_pin_coverage: a marked dotless version satisfies the detector` | The success path for the dotless rule, so the fix is a marker rather than an artificial dot |
 | `_run_pin_coverage: a bare integer is still not a version` | The stated cost of the v-prefix rule: a bare integer carries nothing that separates a release from a UID or a year |
-| `_run_pin_coverage: the real repo tree declares every version it names` | Drives the live tree, so the fixtures cannot drift away from the pins that actually ship |
 | `_run_pin_coverage: pin-coverage is in test.sh's _LINT_TOOLS table` | Membership in that table is what gives the lint a CI job; without it the lint would gate only a local run |
 | `_run_pin_coverage: --pin-coverage-only runs it host-direct` | The host-direct entry point is how a bump proposal's author checks coverage without building the image |
 
@@ -3967,7 +3955,7 @@ under the repo root, `dist/` or `script/`.
 | `README file table: every row names a path that exists (#957)` | Every row resolves under one of the three roots; a stale path is reported by name |
 | `README file table: the scan actually finds the rows (#957)` | Floor on the row count, so a renamed heading cannot silence the check above |
 
-### test/bats/unit/readme_sync_spec.bats (34)
+### test/bats/unit/readme_sync_spec.bats (33)
 
 Unit tests for the localized-README drift guard (refs #846, #873):
 `script/test/sync-readme-hashes.sh` (`_sync_readme_hashes`, the generator
@@ -4021,7 +4009,6 @@ the capture (#965).
 | `_run_readme_sync: FAILS when the translated prose changed since it was stamped (#873)` | UNRECORDED: the translation-side record must stay fresh |
 | `_run_readme_sync: FAILS when the English README is missing (#846)` | No vacuous pass without a source |
 | `_run_readme_sync: FAILS when no translation files are found (#846)` | No vacuous pass without translations |
-| `_run_readme_sync: the REAL doc/readme/ tree is stamped and clean today (#846)` | Live tree clean |
 | `_assert_same_tree: a failure names WHAT differed, not just that something did (#965)` | - |
 | `_sync_readme_hashes: is a no-op on the REAL tree (already stamped) (#846)` | Live tree already generator-exact |
 | `_capture_readme_baseline: a capture the source changed under is DISCARDED, not used (#965)` | A torn read must never become the baseline a verdict rests on |
@@ -4734,7 +4721,7 @@ alias / `network.network_name` / `devices.device_` / `security.cap_add_` /
 | `_schema_validate gates the [security] keys the resolver reads (#876)` | - |
 | `_schema_validate gates image.rule_N against the dispatch prefixes (#876)` | - |
 
-### test/bats/unit/self_hosted_guard_lint_spec.bats (25)
+### test/bats/unit/self_hosted_guard_lint_spec.bats (23)
 
 | Test | Description |
 |------|-------------|
@@ -4761,8 +4748,6 @@ alias / `network.network_name` / `devices.device_` / `security.cap_add_` /
 | `self-hosted guard: FAILS when the workflow directory holds no workflow` | - |
 | `self-hosted guard: FAILS when the workflows parse to zero jobs` | - |
 | `self-hosted guard: scans every workflow in the directory, not a named list` | - |
-| `self-hosted guard: the real repo tree has every eligible job guarded` | - |
-| `self-hosted guard: the real tree's eligible set is the three runtime-matrix worker jobs plus the one that names the runner outright` | - |
 
 ### test/bats/unit/self_test_yaml_spec.bats (116)
 
@@ -5811,6 +5796,50 @@ file and renders as nothing, and an orphan is what a rename leaves behind.
 | `_spec_markers_scan: a backslash-escaped name resolves to what bats reports` | A row's identity is the name bats reports, so a row can be pasted into `--filter`. The unescaping has to happen in the reader, because the reader is now the only thing that sees the raw `@test` line. |
 | `_spec_markers_scan: a spec with no markers yields tests, no blurb and no findings` | A file with no markers at all must come back empty rather than failing: the reader answers about one path, and only the CALLER knows whether an empty answer is vacuous. |
 
+### test/bats/unit/spec_repo_root_lint_spec.bats (18)
+
+The guard that keeps a whole-tree lint scan out of the coverage suite.
+base#1075 measured what one of them costs -- 331s of a 501s coverage shard,
+66% of the critical path of the entire coverage matrix, in a single test
+that no shard count can split -- and a roster of the twenty-one that existed
+would be right until the twenty-second, so the rule is derived from the
+coverage pools, the compose mount and the assignment shape instead.
+
+Unit tests for script/test/drivers/spec_repo_root.sh -- the "a spec's
+REPO_ROOT is a fixture, never the live checkout" lint.
+
+Every case here drives a scratch REPO_ROOT, and there is deliberately no
+real-tree case: this is the lint whose whole subject is that a spec must not
+run a driver over the live tree, so one here would be the thing it refuses.
+The live tree is asserted by the `lint-static` group that runs this driver,
+which is the placement the lint exists to enforce.
+
+The refused text is never spelled literally in this file. The detector reads
+`<name>REPO_ROOT=<live root>` and this spec IS one of the files it scans, so
+a fixture written as a literal would make the shipped tree fail its own
+lint. Every fixture composes the two halves at run time.
+
+| Test | Description |
+|------|-------------|
+| `_run_spec_repo_root: FAILS on a spec whose REPO_ROOT is the checkout mount, naming file and line` | The shape base#1075 measured: one assignment turns a fixture spec into a whole-tree lint run under kcov, and the report has to name the file and the line so the author can see which of the two it is |
+| `_run_spec_repo_root: FAILS on the quoted spelling too` | A quoted value is the same assignment; the tree today writes it both ways, and a detector that read only one spelling would report half a tree clean |
+| `_run_spec_repo_root: FAILS on a prefixed *_REPO_ROOT, not just the bare name` | The variable name is not the point -- pointing ANY tool's root at the checkout is. script/watch/pins.sh reads PIN_REPO_ROOT and walks the same tree for the same cost |
+| `_run_spec_repo_root: FAILS on a path UNDER the mount, not only the mount itself` | A subtree of the checkout is still the checkout: pointing a driver at dist/ walks real files at real cost, and an equality test would let the whole class through one character at a time |
+| `_run_spec_repo_root: FAILS on the live REPO_ROOT itself, not only the compose mount` | The mount is one spelling of the live tree and ${REPO_ROOT} is the other: a host-direct run of this lint reads a worktree path, and a rule that knew only the container's would pass on it |
+| `_run_spec_repo_root: scans every coverage pool, integration included` | The integration pool is half the coverage suite and costs the same under kcov; taking the pools from _COVERAGE_FULL_SUITE_POOLS is what makes a third pool covered the day it is added rather than the day someone notices |
+| `_run_spec_repo_root: reports EVERY offender, not the first` | Each offender has to be listed, because a report that stops at the first turns one clean-up into N cycles -- the defect base#1059 measured in the lint phase itself |
+| `_run_spec_repo_root: a fixture-rooted assignment is clean, and the count prints` | The fixture form every other spec in this tree uses has to stay legal, and the count has to print: slack nobody can see is slack nobody closes |
+| `_run_spec_repo_root: a whole-line comment spelling the bad form out is not a violation` | Every fix in this tree carries a comment spelling the bad form out -- this driver's own header does -- so prose about the rule must not be an accusation |
+| `_run_spec_repo_root: reading a file under the mount is not a violation` | Reading one file under the mount is cheap, common, and not what makes a shard slow; a rule wide enough to flag it would flag the hundreds of single-file reads this suite is built from, which is how a lint gets muted |
+| `_run_spec_repo_root: DIES when no spec carries a REPO_ROOT assignment at all` | The blind-detector case, and the one that matters most: a renamed variable or a changed quoting convention would leave the scan matching nothing and printing clean over a tree full of whole-tree scans |
+| `_run_spec_repo_root: DIES when a pool holds no spec file` | A relocated spec tree is the failure this repo keeps paying for: a lint that covers zero files and a green line that reads as a verdict over the suite |
+| `_run_spec_repo_root: DIES when a coverage pool is missing entirely` | The pools come from the coverage runner, so a pool it runs and this cannot find means the lint is scanning less than the suite runs -- silently, and in the safe-looking direction |
+| `_run_spec_repo_root: DIES when compose.yaml is gone` | The refused root is READ from compose.yaml rather than written down, so a missing file leaves the lint with no root to refuse -- which is a lint that accepts everything, not a lint with nothing to do |
+| `_run_spec_repo_root: DIES when compose.yaml binds no checkout` | The same hole with the file present: a compose file that no longer binds the checkout leaves the mount unknown, and an unknown mount is one the scan cannot refuse |
+| `spec-repo-root: is a member of the lint phase's tool table` | A lint nobody runs is a comment |
+| `spec-repo-root: has a lint-static CI join` | One plain-runner lint group, no docker -- and exactly one, because none gates nothing and two pays twice |
+| `spec-repo-root: its failure event id is registered` | An unregistered event id is an anonymous exit: the log line carries no name a reader can look up |
+
 ### test/bats/unit/spec_source_isolation_spec.bats (4)
 
 One repo-wide invariant over `test/bats/`: a spec may READ the live checkout
@@ -6027,7 +6056,7 @@ and asserts one verdict per site.
 | `_resolve_docker_flags: the legacy alias warns even when gpu_runtime shadows it (#876)` | - |
 | `_resolve_docker_flags: no legacy alias, no deprecation warning (#876)` | - |
 
-### test/bats/unit/stale_setup_conf_lint_spec.bats (11)
+### test/bats/unit/stale_setup_conf_lint_spec.bats (10)
 
 Unit tests for `script/test/drivers/stale_setup_conf.sh`
 (`_run_stale_setup_conf`, refs #845), the "no stale
@@ -6052,7 +6081,6 @@ throwaway fixture `dist/` trees, plus a real-tree guard that the live
 | `_run_stale_setup_conf: PASSES a dist/ tree that uses the repo-root dotfile (#845)` | `.setup.conf` tree clean |
 | `_run_stale_setup_conf: ignores non-.sh files under dist/ (#845)` | Docs out of the lint's scope |
 | `_run_stale_setup_conf: FAILS when the dist/ scan root is missing (no vacuous pass) (#845)` | Missing scan root fails, no vacuous pass |
-| `_run_stale_setup_conf: the REAL dist/ passes today (migration block allowlisted) (#845)` | Live tree clean |
 
 ### test/bats/unit/stop_sh_spec.bats (31)
 
@@ -6456,7 +6484,7 @@ is the smoke step, which iterates this same roster.
 | `tool pins reader: a table row is matched whole, not as a prefix of a longer series` | A row for 3.2 must not answer for 3.22, nor one for 13.22 |
 | `tool pins reader: an ALPINE_VERSION declared twice FAILS rather than picking one` | With two pins there is no single series for the image to agree with |
 
-### test/bats/unit/tool_pins_spec.bats (36)
+### test/bats/unit/tool_pins_spec.bats (33)
 
 | Test | Description |
 |------|-------------|
@@ -6491,9 +6519,6 @@ is the smoke step, which iterates this same roster.
 | `pins: a shell script that generates a file is a declaration site` | A uses: ref inside a heredoc is not a workflow file, so nothing but this watch can ever see the versions a generator writes |
 | `pins: an untracked tree contributes nothing` | Every version in a shipped release is supposed to be stale, so a bump inside .prev-release/ would be meaningless -- and nothing tracks it |
 | `pins: check.sh dispatches every resolver the registry declares` | A resolver the lint accepts and check.sh does not implement blesses a pin that then fails weeks later, unattended |
-| `pins: the real tree's markers all parse` | Drives the live tree, so a marker written today is parsed by the same reader the scheduled run uses |
-| `pins: just is PINNED in the real tree, not left to a package manager` | The defect this closes: four provenance paths for one tool, 37 minors apart, none of them naming a version in the image |
-| `pins: the just pin is the number the test-tools image installs` | The pin and the image must be one number, or the accessor answers for a just the image does not ship |
 | `pins: the CI just install reads the pin instead of repeating it` | Otherwise the workflow carries a fourth copy, and a bump moving only the Dockerfile leaves CI testing a different just than the image ships |
 | `pins: setup-just is no longer invoked without a just-version` | An unversioned setup-just installs whatever released most recently, so the e2e job turns red on a day nobody touched the repo |
 

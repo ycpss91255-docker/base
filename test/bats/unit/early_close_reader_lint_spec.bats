@@ -273,14 +273,3 @@ _write() {
   [ "${status}" -ne 0 ]
   [[ "${output}" == *"dist"* ]]
 }
-
-# ════════════════════════════════════════════════════════════════════
-# _run_early_close_reader: real tree guard
-# ════════════════════════════════════════════════════════════════════
-
-@test "_run_early_close_reader: the REAL shipped + tooling trees pass today (#905)" {
-  REPO_ROOT="/source"
-  run _run_early_close_reader
-  [ "${status}" -eq 0 ]
-  [[ "${output}" == *"clean"* ]]
-}

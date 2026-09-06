@@ -248,3 +248,125 @@ _committed_block() {
   [[ "${_undated}" != *'in progress'* ]] \
     || fail "an undated section claims the live-series marker: ${_undated}"
 }
+
+# ════════════════════════════════════════════════════════════════════
+# The print half's shape rules
+#
+# Four branches of the renderer that no fixture used to reach: the quote
+# budget, the fence, an entry's continuation lines, and a series spanning
+# more than one day. They were executed only because the layout lint ran
+# the generator over the LIVE doc/changelog/ -- 43 series files, which
+# between them happen to contain every one of these shapes -- and executed
+# is not asserted: that run diffs the block against a committed copy of
+# itself, so a renderer that truncated at the wrong place, or counted a
+# fenced example as a version, agreed with itself and passed.
+#
+# base#1075 removed the real-tree case (331s of a coverage shard for the
+# errexit-bang one of its kind, and the lint job makes the same
+# assertion), and these four are what its coverage was worth, turned into
+# fixtures that state the rule instead of running it.
+# ════════════════════════════════════════════════════════════════════
+
+# why: The quote is a budget, and a budget nothing tests is a number. An entry
+# longer than it must come back SHORTER, ellipsed, and cut between words --
+# a quote that stops mid-word reads as a typo rather than as a truncation.
+@test "changelog_index.sh: a BREAKING entry over the quote budget is truncated on a word boundary (#926)" {
+  local _long
+  _long="$(printf 'wordy %.0s' $(seq 1 40))"
+  _series v0.4 \
+    '# base changelog -- v0.4' \
+    '' \
+    '## [v0.4.0] - 2026-04-04' \
+    '' \
+    '### BREAKING' \
+    "- **the long thing** -- ${_long}" \
+    '' \
+    '[v0.4.0]: https://example.invalid/releases/tag/v0.4.0'
+  local _quote
+  _quote="$(bash "${GEN}" "${CL}" | grep -F 'the long thing' || true)"
+  [[ -n "${_quote}" ]] || fail "the fixture rendered no BREAKING one-liner"
+  [[ "${_quote}" == *'...' ]] \
+    || fail "an over-budget quote was not ellipsed: ${_quote}"
+  [[ "${_quote}" != *'wordy'?* || "${_quote}" == *'wordy...' ]] \
+    || fail "the quote was cut mid-word: ${_quote}"
+  # Shorter than what it quotes, or the budget did nothing.
+  [[ "${#_quote}" -lt "${#_long}" ]] \
+    || fail "the quote is no shorter than the entry: ${_quote}"
+}
+
+# why: A '## [' inside a fenced example is an example of a heading. Counting it
+# inflates a series' version count, and nothing in the rendered row shows
+# where the extra number came from -- the reader is simply told a series
+# holds one more release than it does.
+@test "changelog_index.sh: a '## [' inside a fenced block is not a version (#926)" {
+  _series v0.5 \
+    '# base changelog -- v0.5' \
+    '' \
+    '## [v0.5.0] - 2026-04-05' \
+    '' \
+    '### Added' \
+    '- the real thing (#1, PR #2)' \
+    '' \
+    'An example of a heading:' \
+    '' \
+    '```markdown' \
+    '## [v9.9.9] - 2099-01-01' \
+    '```' \
+    '' \
+    '[v0.5.0]: https://example.invalid/releases/tag/v0.5.0'
+  local _r
+  _r="$(_row v0.5)"
+  [[ "${_r}" == *'1 version'* ]] \
+    || fail "the fenced example was counted as a version: ${_r}"
+  [[ "${_r}" != *'2099'* ]] \
+    || fail "the fenced example's date reached the span: ${_r}"
+}
+
+# why: The quote is taken over the ENTRY, not the lead LINE. Quoting the line
+# ends the sentence wherever the author's wrapping happened to fall, which
+# reads as a claim that stops mid-thought rather than as a shortened quote --
+# and every entry in this repo's changelog is wrapped.
+@test "changelog_index.sh: a BREAKING entry's continuation lines are part of what it quotes (#926)" {
+  _series v0.6 \
+    '# base changelog -- v0.6' \
+    '' \
+    '## [v0.6.0] - 2026-04-06' \
+    '' \
+    '### BREAKING' \
+    '- **the wrapped thing** -- the first half of the sentence' \
+    '  and the second half, on its own line.' \
+    '' \
+    '[v0.6.0]: https://example.invalid/releases/tag/v0.6.0'
+  local _quote
+  _quote="$(bash "${GEN}" "${CL}" | grep -F 'the wrapped thing' || true)"
+  [[ -n "${_quote}" ]] || fail "the fixture rendered no BREAKING one-liner"
+  [[ "${_quote}" == *'and the second half'* ]] \
+    || fail "the continuation line was dropped from the quote: ${_quote}"
+}
+
+# why: A series holding more than one release spans dates, and a row that
+# printed one of them would be answering "when was this cut" with the wrong
+# date half the time. The one-date case is already the fixture everywhere
+# else here, so only the span is unasserted.
+@test "changelog_index.sh: a series holding two dated releases renders the span (#926)" {
+  _series v0.7 \
+    '# base changelog -- v0.7' \
+    '' \
+    '## [v0.7.1] - 2026-05-09' \
+    '' \
+    '### Fixed' \
+    '- the later thing (#3, PR #4)' \
+    '' \
+    '## [v0.7.0] - 2026-04-07' \
+    '' \
+    '### Added' \
+    '- the earlier thing (#1, PR #2)' \
+    '' \
+    '[v0.7.0]: https://example.invalid/releases/tag/v0.7.0'
+  local _r
+  _r="$(_row v0.7)"
+  [[ "${_r}" == *'2026-04-07 .. 2026-05-09'* ]] \
+    || fail "a two-date series did not render its span oldest-first: ${_r}"
+  [[ "${_r}" == *'2 versions'* ]] \
+    || fail "the fixture rendered the wrong version count: ${_r}"
+}

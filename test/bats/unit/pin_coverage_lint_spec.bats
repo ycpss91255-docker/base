@@ -1117,14 +1117,6 @@ _one_good_pin() {
 # The real tree
 # ════════════════════════════════════════════════════════════════════
 
-# why: Drives the live tree, so the fixtures cannot drift away from the pins that
-# actually ship
-@test "_run_pin_coverage: the real repo tree declares every version it names" {
-  REPO_ROOT=/source run _run_pin_coverage
-  assert_success
-  assert_output --partial 'pin-coverage lint: clean'
-}
-
 # why: Membership in that table is what gives the lint a CI job; without it the lint
 # would gate only a local run
 @test "_run_pin_coverage: pin-coverage is in test.sh's _LINT_TOOLS table" {
