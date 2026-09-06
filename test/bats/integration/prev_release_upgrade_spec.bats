@@ -38,6 +38,9 @@ setup() {
   # match the tree's own .version or the released upgrade.sh's post-pull
   # integrity check reports a version mismatch and rolls back.
   NEXT_VER="v99.0.0"
+  # A second synthetic release beyond it, so "upgrade again" below is a real
+  # forward move rather than a no-op the driver could shortcut.
+  NEXT_VER_2="v99.0.1"
 
   CUR_BARE="${BATS_TEST_TMPDIR}/current.git"
   OLD_BARE="${BATS_TEST_TMPDIR}/released.git"
@@ -108,8 +111,15 @@ _seed_current_remote() {
   git -C "${_work}" add -A
   git -C "${_work}" commit -q -m "${NEXT_VER}"
   git -C "${_work}" tag "${NEXT_VER}"
+  # ... and the release after it, identical but for the version file. An
+  # upstream a consumer can upgrade to twice is what lets the repeatability
+  # arm below drive a second REAL upgrade; every other arm names its target
+  # explicitly and never sees this tag.
+  printf '%s\n' "${NEXT_VER_2}" > "${_work}/.version"
+  git -C "${_work}" commit -q -a -m "${NEXT_VER_2}"
+  git -C "${_work}" tag "${NEXT_VER_2}"
   git init --bare -q "${CUR_BARE}"
-  git -C "${_work}" push -q "${CUR_BARE}" "${NEXT_VER}"
+  git -C "${_work}" push -q "${CUR_BARE}" "${NEXT_VER}" "${NEXT_VER_2}"
 }
 
 # _seed_released_remote <tag>
@@ -540,6 +550,87 @@ _assert_release_stages_migrated_files() {
   run git -C "${CONSUMER}" status --porcelain
   assert_output "?? NOTES.md
 ?? script/hooks/pre/build.sh"
+}
+
+# _assert_upgrade_leaves_an_upgradable_tree <tag>
+#   Upgrade, then upgrade AGAIN -- driving the second run with the SAME
+#   command that drove the first.
+#
+#   Every other arm in this file asks whether ONE upgrade succeeds, and
+#   answers it about the tree the upgrade STARTED from. A frozen path that
+#   is missing from the tree the upgrade PRODUCES is invisible to all of
+#   them: the run exits 0, `.version` is true, no symlink dangles, the
+#   Dockerfile builds -- and the next time the user types the command their
+#   release documented, it is gone. `.base/upgrade.sh` was absent for two
+#   release candidates with this suite green for exactly that reason -- the
+#   same blindness that let the v0.42.0 `init.sh` breakage ship, and the
+#   arm names below carry the issue refs.
+#
+#   The command is RE-RUN, never re-resolved. Re-resolving asks "does the
+#   new tree have SOME upgrade entry point", which is true of the broken
+#   tree too; what a consumer holds is the one path their own release told
+#   them to type. So this names no file of its own -- the path comes from
+#   the release under test -- and a roster of "files that must exist" is
+#   exactly what it refuses to be: it goes stale the day a third frozen
+#   path appears, which is the failure this repo keeps repeating. "The tree
+#   an upgrade produces can be upgraded from" covers the next one for free.
+#
+#   The support window is the scope, and that is a real limit rather than a
+#   property to be pleased about. `_release_tag` resolves from the repo's
+#   real tags and `PREV_RELEASE_WINDOW` is 2, so TODAY only the v0.41.0 arm
+#   exercises the repo-root `upgrade.sh` at all -- v0.42.0 already names the
+#   `dist/` path. When v0.43.0 is tagged the window becomes two `dist`-era
+#   releases and NO arm here names either root forwarder: both could be
+#   deleted with every arm still green.
+#
+#   That is not the same thing as ADR-00000006 releasing the forwarders. The
+#   ADR ties them to "as long as a release that names it is supported", and
+#   the window is a count of releases, not a statement about what consumers
+#   run -- base#919 made v0.42.0 a poisoned upgrade target, which is why
+#   consumers stayed on v0.41.0 in the first place. So the window going
+#   quiet is the guard losing sight of the path, and it has to be closed
+#   deliberately rather than read as permission. Tracked in base#1084.
+_assert_upgrade_leaves_an_upgradable_tree() {
+  local _tag="${1:?BUG: _assert_upgrade_leaves_an_upgradable_tree expects a tag}"
+
+  _seed_current_remote
+  _seed_released_remote "${_tag}"
+  _seed_consumer "${_tag}"
+
+  # Resolved ONCE, from the release the consumer is actually sitting on.
+  # Every invocation below is this same string.
+  local _upgrade
+  _upgrade="$(_released_entry upgrade.sh)"
+
+  cd "${CONSUMER}"
+  run env TEMPLATE_REMOTE="file://${CUR_BARE}" "${_upgrade}" "${NEXT_VER}"
+  assert_success
+
+  # The resync legitimately leaves review-able output behind (see the NOTE
+  # above), and `git subtree` refuses to start against a dirty tree. So the
+  # fixture does what the upgrade's own closing instructions tell the user
+  # to do before they carry on.
+  git -C "${CONSUMER}" add -A
+  git -C "${CONSUMER}" commit -q -m "chore: commit the resync" || true
+
+  # The same command, on the tree it just produced.
+  run env TEMPLATE_REMOTE="file://${CUR_BARE}" "${_upgrade}" "${NEXT_VER_2}"
+  assert_success
+  [ "$(cat "${CONSUMER}/.base/.version")" = "${NEXT_VER_2}" ]
+}
+
+# why: An upgrade that deletes the command that performed it passes every
+# other arm here -- one successful run over a tree nobody asks to upgrade
+# again -- and fails at the consumer's terminal on their next release
+@test "the newest released upgrade.sh leaves a tree its own command can upgrade again (#1077)" {
+  _assert_upgrade_leaves_an_upgradable_tree "$(_release_tag 1)"
+}
+
+# why: The newest release is already on the path the current tree ships, so
+# only the older driver names a path that has to be kept alive by a
+# forwarder; pinning both ends is what stops this narrowing to one tag
+@test "the previous released upgrade.sh leaves a tree its own command can upgrade again (N-1, #1077)" {
+  _assert_upgrade_leaves_an_upgradable_tree "$(_release_tag 2)"
 }
 
 # why: The commit is made by the consumer's OWN released upgrade.sh, so
