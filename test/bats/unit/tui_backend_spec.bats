@@ -21,8 +21,6 @@
 # - `_tui_menu` (computes item count, forwards tag/label pairs;
 # `TUI_EXTRA_LABEL` no-op after #178; `--no-tags`, `--ok-label`)
 #
-# - `_tui_radiolist` (forwards tag/label/state triples)
-#
 # - `_tui_checklist` (passes `--separate-output`)
 #
 # - `_tui_msgbox` / `_tui_yesno` (correct flags, propagates exit code)
@@ -301,21 +299,6 @@ EOF
   run cat "${TUI_LOG}"
   refute_output --partial "--ok-label"
   refute_output --partial "--cancel-label"
-}
-
-# ════════════════════════════════════════════════════════════════════
-# _tui_radiolist
-# ════════════════════════════════════════════════════════════════════
-
-@test "_tui_radiolist forwards tag/label/state triples" {
-  _install_stub dialog
-  TUI_BACKEND="dialog"
-  export TUI_STUB_RESPONSE="host"
-  run _tui_radiolist "Network" "Mode" host "Host mode" ON bridge "Bridge" off none "None" off
-  assert_success
-  assert_output "host"
-  run grep -cE '^(ON|off)$' "${TUI_LOG}"
-  assert_output "3"
 }
 
 # ════════════════════════════════════════════════════════════════════

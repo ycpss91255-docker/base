@@ -1539,10 +1539,11 @@ YAML
 }
 
 @test "self-test.yaml: shellcheck job runs test.sh --shellcheck-only on plain ubuntu-latest (#376)" {
-  # Goal: ~30s feedback on a shellcheck regression. Plain ubuntu-latest
-  # ships shellcheck pre-installed so no apt-install / no buildx /
-  # no test-tools image is needed — keeps the job cold-startup cost
-  # near zero.
+  # Goal: ~30s feedback on a shellcheck regression, which is why the job
+  # takes neither buildx nor the test-tools image -- it keeps the cold
+  # start near zero. It no longer takes the runner's pre-installed
+  # binary either (base#1080): the two tests below pin how it obtains
+  # the declared one instead, for one tarball's worth of time.
   run yaml_job_lines "${WF}" shellcheck
   assert_success
   assert_output --partial 'runs-on: ubuntu-latest'
@@ -1550,6 +1551,38 @@ YAML
   # No buildx setup / no docker pull / no compose run in this job.
   refute_output --partial 'docker/setup-buildx-action'
   refute_output --partial 'docker pull'
+}
+
+# why: base#1080. The job used to run whatever `ubuntu-latest` shipped
+# pre-installed, so the local gate -- which runs v0.11.0 out of the
+# test-tools image -- could not predict this required check in either
+# direction, and which of the two binaries was stricter changed with
+# GitHub's runner-image release schedule rather than with a commit here.
+@test "self-test.yaml: shellcheck job installs the pinned ShellCheck rather than the runner's (#1080)" {
+  run yaml_job_lines "${WF}" shellcheck
+  assert_success
+  assert_output --partial 'koalaman/shellcheck/releases/download'
+}
+
+# why: One declaration, not a second copy of the number. The version comes
+# out of dockerfile/Dockerfile.test-tools through the same accessor the
+# release smoke step reads, so a bump moves both with nothing to remember.
+@test "self-test.yaml: shellcheck job reads the version from the declaration, it does not restate it (#1080)" {
+  run yaml_job_lines "${WF}" shellcheck
+  assert_success
+  assert_output --partial 'script/ci/test-tools-pins.sh'
+  # No version literal anywhere in the job: a literal that agreed with the
+  # Dockerfile today is a second place to forget tomorrow.
+  refute_output --regexp 'v?[0-9]+\.[0-9]+\.[0-9]+'
+}
+
+# why: Installing a tarball proves a download happened, not that the
+# binary on PATH is the pinned one -- a pre-installed shellcheck earlier
+# in PATH would keep the job green while nothing changed.
+@test "self-test.yaml: shellcheck job asserts the installed binary IS the pin (#1080)" {
+  run yaml_job_lines "${WF}" shellcheck
+  assert_success
+  assert_output --partial 'check SHELLCHECK_VERSION'
 }
 
 @test "self-test.yaml: declares doc-counts job (#864)" {

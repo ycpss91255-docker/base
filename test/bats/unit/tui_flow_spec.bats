@@ -18,7 +18,7 @@
 #
 # why: Interactive-flow tests for `setup_tui.sh` (#189). Sources
 # `setup_tui.sh` directly and overrides `_tui_menu` / `_tui_select` /
-# `_tui_inputbox` / `_tui_yesno` / `_tui_msgbox` / `_tui_radiolist` /
+# `_tui_inputbox` / `_tui_yesno` / `_tui_msgbox` /
 # `_tui_checklist` with file-backed stubs (queue lines popped via `head -n
 # 1` + `sed -i 1d` so state survives the `$(...)` subshell calls). Each case
 # scripts the user's click path, calls one section editor, and asserts on
@@ -122,7 +122,6 @@ setup() {
   _tui_menu()      { _tui_pop; }
   _tui_select()    { _tui_pop; }
   _tui_inputbox()  { _tui_pop; }
-  _tui_radiolist() { _tui_pop; }
   _tui_checklist() { _tui_pop; }
   _tui_yesno()     {
     local _line
@@ -133,7 +132,7 @@ setup() {
   }
   _tui_msgbox()    { return 0; }
   export -f _tui_pop _tui_menu _tui_select _tui_inputbox \
-            _tui_radiolist _tui_checklist _tui_yesno _tui_msgbox
+            _tui_checklist _tui_yesno _tui_msgbox
   export _QFILE
 }
 
@@ -246,11 +245,20 @@ EOF
   assert_success
 }
 
-@test "_tui_known_subcommand accepts every SCHEMA_SECTIONS member (#561)" {
+@test "_tui_known_subcommand accepts a SCHEMA_SECTIONS member iff it has an editor (#561)" {
   local _s
   for _s in "${SCHEMA_SECTIONS[@]}"; do
     run _tui_known_subcommand "${_s}"
-    [ "${status}" -eq 0 ]
+    if declare -F "_edit_section_${_s}" >/dev/null; then
+      [ "${status}" -eq 0 ]
+    else
+      # Being on the registry is not enough to be dispatchable: main
+      # jumps straight to `"_edit_section_${_subcmd}"`, so accepting a
+      # section with no editor (today `project`, a deliberate opt-out)
+      # sent it into a command-not-found. This used to assert acceptance
+      # for every member, which is the assumption that hid it.
+      [ "${status}" -ne 0 ]
+    fi
   done
 }
 
@@ -266,6 +274,12 @@ EOF
 
 @test "_tui_known_subcommand derives from SCHEMA_SECTIONS (single source) (#561)" {
   SCHEMA_SECTIONS+=(brandnew)
+  # A section reaches the CLI by being registered AND having an editor;
+  # neither half is a list kept here. Registered with no editor is the
+  # `project` shape, and it must be refused rather than dispatched.
+  run _tui_known_subcommand brandnew
+  [ "${status}" -ne 0 ]
+  _edit_section_brandnew() { return 0; }
   run _tui_known_subcommand brandnew
   [ "${status}" -eq 0 ]
 }

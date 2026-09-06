@@ -47,9 +47,16 @@ setup() {
 #   A repo carrying the shapes the resync has migrations for, so the run
 #   both CREATES and DELETES: a pre-relocation root wrapper and Makefile
 #   that `_create_symlinks` removes on sight, a hand-written `.env` from
-#   before the name meant "ours", and the flat `test/smoke/` tree the
-#   per-stage migration moves. A fixture seeded with none of these would
-#   exercise only the create half and pass over every deletion.
+#   before the name meant "ours", the flat `test/smoke/` tree the
+#   per-stage migration moves, and a per-repo `setup.conf` at the path it
+#   sat before it moved to the repo root. A fixture seeded with none of
+#   these would exercise only the create half and pass over every
+#   deletion.
+#
+#   Each shape is here because a migration acts on it, and adding one is
+#   how this spec learns about a migration at all: the list of roots is
+#   never restated, so a migration whose input the fixture does not carry
+#   is a migration whose output nothing here asks about.
 _seed_consumer() {
   mkdir -p "${CONSUMER}/.base"
   git -C "${CONSUMER}" init -q -b main
@@ -67,6 +74,9 @@ EOF
   printf 'all:\n\t@true\n' > "${CONSUMER}/Makefile"
   mkdir -p "${CONSUMER}/test/smoke"
   printf '@test "env" { :; }\n' > "${CONSUMER}/test/smoke/env.bats"
+  mkdir -p "${CONSUMER}/config/docker"
+  printf '[image]\nrule_1 = string:seeded\n' \
+    > "${CONSUMER}/config/docker/setup.conf"
 
   git -C "${CONSUMER}" add -A
   git -C "${CONSUMER}" commit -q -m "consumer before resync"

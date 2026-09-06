@@ -154,15 +154,6 @@ _tui_menu() {
     "${_TUI_HEIGHT}" "${_TUI_WIDTH}" "${_n_items}" "$@"
 }
 
-# _tui_radiolist <title> <prompt> <tag1> <label1> <on1> [<tag2> <label2> <on2> ...]
-_tui_radiolist() {
-  _tui_guard || return $?
-  local _title="${1}" _prompt="${2}"; shift 2
-  local _n_items=$(( $# / 3 ))
-  _tui_run --title "${_title}" --radiolist "${_prompt}" \
-    "${_TUI_HEIGHT}" "${_TUI_WIDTH}" "${_n_items}" "$@"
-}
-
 # _tui_select <title> <prompt> <tag1> <label1> <on1> [<tag2> <label2> <on2> ...]
 #
 # Single-choice selector implemented via --menu so that pressing Enter

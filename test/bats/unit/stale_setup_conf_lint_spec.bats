@@ -5,9 +5,9 @@
 # The per-repo override and the template default now live at the repo-root
 # .setup.conf dotfile, so a hardcoded config/docker/setup.conf in dist/
 # runtime code reads a path that no longer exists and silently ignores the
-# repo's knobs. The legacy-migration block in dist/script/base/upgrade.sh is
-# the one legitimate consumer and opts out via explicit allow-begin /
-# allow-end markers. Detection runs against a controlled temp REPO_ROOT so
+# repo's knobs. The legacy-migration lib, dist/script/docker/lib/
+# setup_conf_migrate.sh, is the one legitimate consumer and opts out via
+# explicit allow-begin / allow-end markers. Detection runs against a controlled temp REPO_ROOT so
 # the spec is independent of the live tree's contents; a final case drives
 # the REAL dist/ to prove it passes today.
 #
@@ -17,9 +17,9 @@
 # override and the template default now live at the repo-root `.setup.conf`
 # dotfile, so a hardcoded legacy path in `dist/**/*.sh` reads a location
 # that no longer exists and silently ignores the repo's knobs. The
-# legacy-migration block in `dist/script/base/upgrade.sh` is the one
-# legitimate consumer and opts out via explicit `allow-begin` / `allow-end`
-# markers. Driven over throwaway fixture `dist/` trees, plus a real-tree
+# legacy-migration lib `dist/script/docker/lib/setup_conf_migrate.sh` is
+# the one legitimate consumer and opts out via explicit `allow-begin` /
+# `allow-end` markers. Driven over throwaway fixture `dist/` trees, plus a real-tree
 # guard that the live `dist/` passes today.
 
 setup() {

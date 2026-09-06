@@ -17,8 +17,6 @@
 # - `_validate_gpu_count` ('all', positive int, reject
 # 0/negative/non-numeric/empty)
 #
-# - `_validate_enum` (match, non-match, empty)
-#
 # - `_mount_host_path` (plain, with mode, with env-var host)
 #
 # - `_load_setup_conf_full` + `_write_setup_conf` (section order, kv,
@@ -109,6 +107,20 @@ teardown() {
 
 @test "_validate_mount rejects too many colons" {
   run _validate_mount "/a:/b:/c:/d"
+  [ "${status}" -ne 0 ]
+}
+
+# why: a space-bearing path word-splits in `docker run -v /my data:/work`
+# and corrupts the compose volumes list, so the refusal has to happen at
+# the validator, before the value can reach an emitter. Both sides of the
+# colon are guarded. Kept from tui_mount_assembler_spec.bats, which went
+# away with `_assemble_mount_value` (base#1073): the assembler is gone but
+# the value it used to build is still what a user can type into the mount
+# editor by hand.
+@test "_validate_mount rejects a space-bearing path on either side (#687)" {
+  run _validate_mount "/my data:/work"
+  [ "${status}" -ne 0 ]
+  run _validate_mount "/host:/my data"
   [ "${status}" -ne 0 ]
 }
 
@@ -690,24 +702,6 @@ teardown() {
 }
 
 # ════════════════════════════════════════════════════════════════════
-# _validate_enum
-# ════════════════════════════════════════════════════════════════════
-
-@test "_validate_enum accepts matching option" {
-  _validate_enum "host" "host" "bridge" "none"
-}
-
-@test "_validate_enum rejects non-matching value" {
-  run _validate_enum "overlay" "host" "bridge" "none"
-  [ "${status}" -ne 0 ]
-}
-
-@test "_validate_enum rejects empty value" {
-  run _validate_enum "" "a" "b"
-  [ "${status}" -ne 0 ]
-}
-
-# ════════════════════════════════════════════════════════════════════
 # _mount_host_path
 # ════════════════════════════════════════════════════════════════════
 
@@ -727,34 +721,6 @@ teardown() {
   local _host=""
   _mount_host_path '${WS_PATH}:/home/${USER_NAME}/work' _host
   assert_equal "${_host}" '${WS_PATH}'
-}
-
-# ════════════════════════════════════════════════════════════════════
-# _mount_container_path
-# ════════════════════════════════════════════════════════════════════
-
-@test "_mount_container_path extracts plain container path" {
-  local _cont=""
-  _mount_container_path "/data:/data" _cont
-  assert_equal "${_cont}" "/data"
-}
-
-@test "_mount_container_path extracts container path with mode" {
-  local _cont=""
-  _mount_container_path "/data:/data:ro" _cont
-  assert_equal "${_cont}" "/data"
-}
-
-@test "_mount_container_path extracts container path with env var" {
-  local _cont=""
-  _mount_container_path '${WS_PATH}:/home/${USER_NAME}/work' _cont
-  assert_equal "${_cont}" '/home/${USER_NAME}/work'
-}
-
-@test "_mount_container_path empty when input has no colon" {
-  local _cont="sentinel"
-  _mount_container_path "/standalone" _cont
-  assert_equal "${_cont}" ""
 }
 
 # ════════════════════════════════════════════════════════════════════

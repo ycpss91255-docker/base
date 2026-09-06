@@ -111,88 +111,6 @@ _require_clean_merge_state() {
   done
 }
 
-# stale-path-lint: allow-begin -- the legacy-migration block must name the
-# pre-relocation override path in order to relocate a downstream still
-# carrying it. Every other mention of that path in runtime code is a defect
-# (the override lives at the repo-root .setup.conf dotfile), so the opt-out
-# is scoped to this block and ends at the matching allow-end below.
-#
-# _migrate_legacy_setup_conf <repo_root>
-#
-# setup.conf is `just setup`-managed, not hand-edited, so it left the
-# hand-editable config/ surface: the per-repo override moved from
-# config/docker/setup.conf to the repo root as the .setup.conf dotfile.
-# Detect a downstream still carrying the legacy override and relocate it
-# so the upgrade never silently drops the user's config (same fail-loud
-# discipline the drift-warning family uses). Runs BEFORE the subtree
-# pull and commits the move, so the pull still sees a clean tree.
-#
-# Idempotent: no-op when there is no legacy file. When BOTH the legacy
-# and the new location exist, refuse to clobber — the root file wins,
-# the legacy file is kept, and the conflict is reported for manual
-# reconciliation.
-_migrate_legacy_setup_conf() {
-  local _root="${1:?"${FUNCNAME[0]}: missing repo_root"}"
-  local _legacy="${_root}/config/docker/setup.conf"
-  local _new="${_root}/.setup.conf"
-
-  [[ -f "${_legacy}" ]] || return 0   # nothing to migrate
-
-  if [[ -f "${_new}" ]]; then
-    _log ""
-    _log "WARNING: found BOTH a legacy config/docker/setup.conf and a"
-    _log "         repo-root .setup.conf. The root file wins; your legacy"
-    _log "         override was NOT merged and is left in place. Reconcile"
-    _log "         and drop the legacy file manually:"
-    _log ""
-    _log "           diff -u config/docker/setup.conf .setup.conf"
-    _log "           git rm config/docker/setup.conf"
-    return 0
-  fi
-
-  _log ""
-  _log "MIGRATION: relocating per-repo setup.conf override"
-  _log "           config/docker/setup.conf -> .setup.conf"
-  _log "           (setup.conf is tool-managed; it now lives at the repo"
-  _log "            root as a dotfile, out of the hand-editable config/"
-  _log "            surface)"
-
-  # git mv when the override is tracked; plain mv + git add otherwise.
-  # Either way the relocation lands as a committed change so the
-  # subsequent subtree pull operates on a clean tree.
-  #
-  # Collect the paths the migration actually touches so the commit below
-  # can be scoped to them. The legacy path is only nameable to `git
-  # commit` when git tracked it; in the untracked case it exists in
-  # neither HEAD nor the working tree and git rejects the pathspec.
-  local -a _commit_paths=(".setup.conf")
-  if git -C "${_root}" ls-files --error-unmatch "config/docker/setup.conf" \
-       >/dev/null 2>&1; then
-    git -C "${_root}" mv "config/docker/setup.conf" ".setup.conf"
-    _commit_paths+=("config/docker/setup.conf")
-  else
-    mv "${_legacy}" "${_new}"
-    git -C "${_root}" add ".setup.conf"
-  fi
-
-  # Clean up the now-empty legacy dir (git tracks no empty dirs; this is
-  # a working-tree tidy so config/docker/setup.conf still present checks
-  # stay accurate).
-  rmdir "${_root}/config/docker" 2>/dev/null || true
-  rmdir "${_root}/config" 2>/dev/null || true
-
-  # Scoped to the migrated paths: the pre-flight deliberately does not
-  # demand a clean index (only a clean merge state), so an unscoped
-  # commit would sweep a user's unrelated staged work into a commit
-  # labelled as the relocation. The pathspec form also leaves that
-  # staged work staged, exactly as the user left it.
-  git -C "${_root}" commit -q \
-    -m "chore: relocate setup.conf override to repo-root .setup.conf" \
-    -- "${_commit_paths[@]}" \
-    || _log "  (nothing staged for the setup.conf relocation)"
-}
-# stale-path-lint: allow-end
-
 # _migrate_lifecycle_restart_default <repo_root>
 #
 # `[lifecycle] restart` used to be a DEVEL-scoped key whose template
@@ -214,7 +132,7 @@ _migrate_legacy_setup_conf() {
 # `always`, ...) is never touched either.
 #
 # Runs BEFORE the subtree pull and commits the rewrite, so the pull still
-# sees a clean tree (same discipline as _migrate_legacy_setup_conf).
+# sees a clean tree.
 _migrate_lifecycle_restart_default() {
   local _root="${1:?"${FUNCNAME[0]}: missing repo_root"}"
   local _conf="${_root}/.setup.conf"
@@ -625,13 +543,6 @@ _upgrade() {
   _require_git_identity
   _require_clean_merge_state
 
-  # Relocate a legacy per-repo setup.conf override to the repo-root
-  # .setup.conf before anything else touches the tree, committing the
-  # move so the subtree pull below still sees a clean tree. The old path
-  # is spelled out in _migrate_legacy_setup_conf, the one block allowed to
-  # name it (see the stale-path-lint markers there).
-  _migrate_legacy_setup_conf "${REPO_ROOT}"
-
   # Retire the stale devel-scoped `[lifecycle] restart = no` the old
   # template seeded into every repo. Must run BEFORE the pull: the
   # pre-pull vendored template is what tells this migration whether the
@@ -646,9 +557,19 @@ _upgrade() {
   # the freshly pulled subtree, and it gates on the file's CONTENT rather
   # than on a version marker so it is inert everywhere else.
 
+  # NOTE: the relocation of a legacy per-repo `setup.conf` from under
+  # `config/` to the repo-root dotfile is not called
+  # from here either, for the same reason. It used to be, and that is
+  # base#1086: a repo still carrying the old path is exactly a repo on
+  # v0.41.0 or earlier, whose vendored driver has never heard of the
+  # migration -- so the call fired one release too late, against a tree
+  # whose configuration the missed hop had already replaced with the
+  # template defaults. It lives in lib/setup_conf_migrate.sh, called from
+  # the Step 3 resync below.
+
   # Snapshot HEAD so the post-pull integrity check can roll back if
-  # git-subtree corrupts the tree. Captured AFTER the setup.conf
-  # relocation commit so a rollback preserves the migration.
+  # git-subtree corrupts the tree. Captured AFTER the pre-pull migration
+  # commits, so a rollback preserves what they rewrote.
   local _pre_head
   _pre_head="$(git rev-parse HEAD)"
 

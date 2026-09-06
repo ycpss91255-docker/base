@@ -26,6 +26,7 @@
 #                             # --early-close-reader-only /
 #                             # --errexit-bang-only /
 #                             # --self-hosted-guard-only /
+#                             # --tool-provenance-only /
 #                             # --changelog-entry-only /
 #                             # --pin-coverage-only /
 #                             # --action-ref-agreement-only /
@@ -130,6 +131,8 @@ source "${SCRIPT_DIR}/drivers/derived_figures.sh"
 source "${SCRIPT_DIR}/drivers/i18n_orphan.sh"
 # shellcheck source=script/test/drivers/self_hosted_guard.sh
 source "${SCRIPT_DIR}/drivers/self_hosted_guard.sh"
+# shellcheck source=script/test/drivers/tool_provenance.sh
+source "${SCRIPT_DIR}/drivers/tool_provenance.sh"
 # shellcheck source=script/test/drivers/changelog_entry.sh
 source "${SCRIPT_DIR}/drivers/changelog_entry.sh"
 # shellcheck source=script/test/drivers/changelog_layout.sh
@@ -181,6 +184,7 @@ readonly _LINT_TOOLS=(
   derived-figures
   i18n-orphan
   self-hosted-guard
+  tool-provenance
   changelog-entry
   changelog-layout
   pin-coverage
@@ -222,10 +226,20 @@ readonly _LINT_TOOLS=(
 # argument nor the paragraph below it can move what the two guards lint.
 #
 # Every tool but hadolint is runnable host-direct (`--<tool>-only`): the
-# drivers are pure bash over the checkout, and shellcheck's binary ships
-# on ubuntu-latest. hadolint's binary exists only in the alpine
-# test-tools image, so its CI job runs the driver inside that image
-# (`--lint --hadolint`) instead of host-direct.
+# drivers are pure bash over the checkout, and shellcheck's is the one
+# exception that needs a binary a plain runner can be given -- its CI job
+# installs the pinned SHELLCHECK_VERSION from the release tarball before
+# calling the driver. It used to run whatever ubuntu-latest shipped
+# pre-installed, which is base#1080: the local gate runs the pin out of
+# the test-tools image, so the two could disagree about the same commit in
+# either direction, silently in the direction that matters. hadolint's
+# binary exists only in the alpine test-tools image and has no
+# install-it-on-the-runner form, so its CI job runs the driver inside that
+# image (`--lint --hadolint`) instead of host-direct.
+#
+# WHICH SIDE OF THAT LINE A NEW DRIVER FALLS ON IS LINTED, not remembered:
+# drivers/tool_provenance.sh asks, of every workflow job, whether every
+# pinned tool it reaches is one the job obtains.
 
 # ── The lint-static CI partition ─────────────────────────────────────────────
 
@@ -445,6 +459,7 @@ _run_lint_tool() {
     derived-figures)  _run_derived_figures ;;
     i18n-orphan)      _run_i18n_orphan ;;
     self-hosted-guard) _run_self_hosted_guard ;;
+    tool-provenance)  _run_tool_provenance ;;
     changelog-entry)  _run_changelog_entry ;;
     changelog-layout) _run_changelog_layout ;;
     pin-coverage)     _run_pin_coverage ;;
@@ -710,6 +725,16 @@ Options:
                           carry the same-repository condition, so fork-PR
                           code can never execute on the org's self-hosted
                           machine)
+  --tool-provenance       With --lint: run only the CI tool provenance
+                          lint (no workflow job may run a tool this repo
+                          pins -- the invocable entries of
+                          script/ci/test-tools-pins.sh's roster -- unless
+                          it obtains the pin, either from the tooling image
+                          or by installing the declared version itself. The
+                          demand is read from the job's own shell and,
+                          for a host-direct `test.sh --<lint>-only` /
+                          `--lint-group` selector, from the source of the
+                          driver it names)
   --changelog-entry       With --lint: run only the changelog entry lint
                           ([Unreleased] entries only: a category heading
                           drawn from the locked roster in
@@ -805,6 +830,7 @@ Options:
                             --derived-figures-only   pure bash
                             --i18n-orphan-only       pure bash
                             --self-hosted-guard-only pure bash
+                            --tool-provenance-only   pure bash
                             --changelog-entry-only   pure bash
                             --changelog-layout-only  pure bash
                             --pin-coverage-only      pure bash
@@ -954,6 +980,7 @@ Examples:
   ./test.sh --derived-figures-only # Direct derived-figure lint, no compose
   ./test.sh --i18n-orphan-only    # Direct translation-only identifier lint, no compose
   ./test.sh --self-hosted-guard-only # Direct self-hosted runner guard lint, no compose
+  ./test.sh --tool-provenance-only # Direct CI tool provenance lint, no compose
   ./test.sh --changelog-entry-only # Direct changelog entry lint, no compose
   ./test.sh --pin-coverage-only   # Direct tool-pin coverage lint, no compose
   ./test.sh --action-ref-agreement-only # Direct action ref agreement lint, no compose
@@ -2382,6 +2409,7 @@ main() {
       --derived-figures) lint_tool="derived-figures"; shift ;;
       --i18n-orphan) lint_tool="i18n-orphan"; shift ;;
       --self-hosted-guard) lint_tool="self-hosted-guard"; shift ;;
+      --tool-provenance) lint_tool="tool-provenance"; shift ;;
       --changelog-entry) lint_tool="changelog-entry"; shift ;;
       --changelog-layout) lint_tool="changelog-layout"; shift ;;
       --pin-coverage) lint_tool="pin-coverage"; shift ;;
@@ -2405,6 +2433,7 @@ main() {
       --derived-figures-only) host_lint="derived-figures"; shift ;;
       --i18n-orphan-only) host_lint="i18n-orphan"; shift ;;
       --self-hosted-guard-only) host_lint="self-hosted-guard"; shift ;;
+      --tool-provenance-only) host_lint="tool-provenance"; shift ;;
       --changelog-entry-only) host_lint="changelog-entry"; shift ;;
       --changelog-layout-only) host_lint="changelog-layout"; shift ;;
       --pin-coverage-only) host_lint="pin-coverage"; shift ;;
@@ -2505,7 +2534,8 @@ main() {
   # `--bash-source-guard-only`, `--derived-figures-only`,
   # `--i18n-orphan-only`, `--early-close-reader-only`,
   # `--errexit-bang-only`,
-  # `--self-hosted-guard-only`, `--changelog-entry-only`,
+  # `--self-hosted-guard-only`, `--tool-provenance-only`,
+  # `--changelog-entry-only`,
   # `--pin-coverage-only`, `--action-ref-agreement-only`) short-circuit
   # before any mode dispatch and run
   # ONE driver right here: no compose, no test-tools image, no
