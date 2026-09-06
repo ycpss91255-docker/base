@@ -1,6 +1,6 @@
 # base<->multi_run compose contract: per-instance isolation is an overlay, enforced by a guard
 
-> Serves: PRD invariant 3 (multi_run-expandable by construction) --
+> Serves: PRD invariant 3 (composable by construction) --
 > established by the overlay contract + guard; also invariant 2 (a loud
 > self-check).
 
@@ -282,7 +282,7 @@ see the 2026-08-26 amendment above; the field-deploy bundle keeps one.)
 
 **Forward invariant:** base's compose emission never emits a hardcoded
 per-instance literal over the interpolation-channel field set. base-
-generated stacks are multi_run-expandable *by construction*.
+generated stacks are composable *by construction*.
 
 **Guard:** `overlay_guard_spec.bats` emits a compose that exercises the
 per-instance fields and asserts each is an overlay interpolation, never a
