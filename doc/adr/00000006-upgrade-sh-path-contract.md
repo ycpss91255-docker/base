@@ -36,7 +36,10 @@
   was lockstep: Region B's `_warn_setup_conf_drift` blob-hash path
   re-points to `dist/.setup.conf`, and a new `_migrate_legacy_setup_conf`
   step `git mv`s a legacy override to the root and warns loudly (never
-  silently drops it). See the re-pointed frozen-path list note below.
+  silently drops it). (Superseded in part by the 2026-09-06 amendment
+  below: that step could not reach the downstreams it was written for from
+  `upgrade.sh`, and now runs from the `init.sh` resync.) See the
+  re-pointed frozen-path list note below.
   This reverses #262, which had nested setup.conf under `config/docker/`
   for layout uniformity.
 - **Amended:** 2026-08-25 by #915 -- the 2026-06-24 amendment above was
@@ -197,6 +200,47 @@
   paths that must exist goes stale the day a third frozen path appears,
   and "the tree an upgrade produces can be upgraded from" covers that one
   without an edit.
+- **Amended:** 2026-09-06 by #1086 -- the asymmetry a third time, on the
+  MIGRATIONS themselves. 2026-08-25 covered a path an already-released
+  caller names; 2026-09-04 covered work whose result it has to commit;
+  this covers work it has to PERFORM. `_migrate_legacy_setup_conf` was
+  added by the 2026-07-15 amendment above, in `upgrade.sh`, so that the
+  relocation of a per-repo `setup.conf` out of `config/` would never
+  silently drop a downstream's override. It ran in the one script the
+  affected downstream never executes: the population still carrying the
+  old path is exactly the population on `v0.41.0` or earlier, and their
+  vendored driver has never heard of the migration. So the upgrade exited
+  0, every gate stayed green, and the repo came out running on the
+  template defaults -- named after the directory it was cloned into, with
+  an empty `[environment]`. It also disarmed itself, because the hop it
+  missed seeds a default `.setup.conf`, and the next upgrade -- which does
+  carry the migration -- then saw BOTH files and declined to act.
+  **The addition to the contract:** a migration ACROSS a base layout
+  change belongs in `init.sh`, never in `upgrade.sh`. `upgrade.sh` may
+  only hold a rewrite whose discriminator is the PRE-PULL vendored tree
+  (`_migrate_lifecycle_restart_default` is the one such case), because
+  that is the one thing Step 3 can no longer see. Everything else runs
+  from the resync, which is also the only thing a repo that RE-ESTABLISHES
+  its subtree ever runs -- a path `upgrade.sh` cannot reach at all.
+
+  The BOTH-files case stops being a warning at the same time, and merges
+  per SECTION: a root section byte-identical to the shipped template's
+  says, under the chain's section-replace rule, exactly what leaving it
+  out says, so it was never a choice and the legacy file's wins; anything
+  else is the user's, both files are kept, and the message names the
+  sections. Refusing was the alternative and it is not available here:
+  neither `v0.41.0`'s nor `v0.42.0`'s `upgrade.sh` arms an EXIT trap, and
+  their one rollback hangs off the Step 2 integrity check, so a non-zero
+  exit at Step 3 leaves the subtree pull committed and the wrappers
+  restored to a layout the pull deleted -- #1077's shape, with the config
+  file kept as a souvenir.
+
+  The guard is behavioural and it is a NEW QUESTION, not a new path:
+  `prev_release_upgrade_spec.bats` now asks whether the upgraded consumer
+  still carries its own configuration, having only ever asked whether it
+  works. Measured on the unfixed tree, the oldest driver's arm fails with
+  `IMAGE_NAME=consumer` -- the fixture's directory name -- while every
+  other arm stays green.
 
 ## Context
 

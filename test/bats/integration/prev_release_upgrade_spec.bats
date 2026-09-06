@@ -462,6 +462,179 @@ _assert_release_migrates_env() {
   refute_output --partial "API_TOKEN=secret"
 }
 
+# ── The repo's own configuration ────────────────────────────────────────────
+
+# _seeded_repo_conf
+#   Repo-root-relative path of the per-repo setup.conf override the seeded
+#   release's OWN bootstrap wrote. Probed rather than named, the same way
+#   _released_entry probes the entry points and for the same reason: where
+#   that file lives is the release's business, and a release that moved it
+#   is exactly what this arm is here to survive. Root dotfile first (the
+#   post-relocation location), then the pre-relocation path under config/.
+_seeded_repo_conf() {
+  if [[ -f "${CONSUMER}/.setup.conf" ]]; then
+    printf '%s' ".setup.conf"
+  else
+    printf '%s' "config/docker/setup.conf"
+  fi
+}
+
+# _assert_release_carries_its_config <tag>
+#   The consumer arrives carrying ITS OWN configuration, and is still
+#   running on it afterwards.
+#
+#   Every other arm here asks whether the upgraded repo WORKS -- exit
+#   status, `.version`, dangling symlinks, `just --list`, the Dockerfile's
+#   COPY sources, and downstream the consumer's own suite. A repo whose
+#   image has renamed itself after the directory it was cloned into and
+#   whose `[environment]` block is empty answers yes to all of them. That
+#   is base#1086: `_migrate_legacy_setup_conf` shipped in `upgrade.sh`, a
+#   cross-version upgrade is driven by the CONSUMER'S vendored copy, and
+#   the population the migration exists for is the population whose copy
+#   has never heard of it. The upgrade exited 0 with the repo's config
+#   gone, and nothing in this file was asking.
+#
+#   The values are ones no default can produce: `string:` short-circuits
+#   the `[image]` rule chain, so IMAGE_NAME can read back as this ONLY if
+#   the repo's own file was in effect, and the shipped template's
+#   `[environment]` is empty, so any key at all there is the repo's.
+#
+#   The values are written IN PLACE, over the file the release's own
+#   bootstrap seeded, rather than as a two-section file replacing it.
+#   `[image]` already carries `rule_1` and the chain takes the first rule
+#   that matches, so an APPENDED second `rule_1` would never be reached --
+#   an arm asserting against the seeded default while believing it had
+#   asserted against its own value. Replacing the whole file would fix
+#   that and cost more: section-replace (lib/conf.sh `_conf_load_layers`)
+#   means a two-section file also DELETES every other section the repo
+#   had, so a migration that dropped `[volumes]`, `[deploy]` or
+#   `[network]` on the floor would still satisfy an arm that only ever
+#   wrote `[image]` and `[environment]`. An edit in place is the shape a
+#   real repo has, and it is what lets the workspace-bind assertion below
+#   ask whether the rest of the file came through too.
+# _give_consumer_its_own_config <tag>
+#   Rewrite the two keys in place, over the file the release's own
+#   bootstrap seeded, and commit. Both spellings are then asserted to have
+#   landed: a `sed` that matched nothing would leave the caller testing
+#   the seeded default under its own name.
+_give_consumer_its_own_config() {
+  local _tag="${1:?BUG: _give_consumer_its_own_config expects a tag}"
+  local _conf
+  _conf="$(_seeded_repo_conf)"
+  [[ -f "${CONSUMER}/${_conf}" ]] \
+    || fail "${_tag}: its own bootstrap seeded no per-repo setup.conf, so this arm has no configuration to carry"
+
+  sed -i 's|^rule_1 = prefix:docker_$|rule_1 = string:base1086-carried-config|' \
+    "${CONSUMER}/${_conf}"
+  awk '{ print } /^\[environment\]$/ { print "env_1 = BASE1086_MARKER=carried" }' \
+    "${CONSUMER}/${_conf}" > "${BATS_TEST_TMPDIR}/conf.edited"
+  mv "${BATS_TEST_TMPDIR}/conf.edited" "${CONSUMER}/${_conf}"
+  grep -Fqx 'rule_1 = string:base1086-carried-config' "${CONSUMER}/${_conf}" \
+    || fail "${_tag}: its seeded ${_conf} has no '[image] rule_1 = prefix:docker_' to rewrite, so this arm would assert against the shipped default"
+  grep -Fqx 'env_1 = BASE1086_MARKER=carried' "${CONSUMER}/${_conf}" \
+    || fail "${_tag}: its seeded ${_conf} has no '[environment]' section to add a key to, so this arm would assert against the shipped default"
+  git -C "${CONSUMER}" add -A
+  git -C "${CONSUMER}" commit -q -m "chore: the repo's own configuration" || true
+}
+
+# _assert_consumer_still_on_its_own_config
+#   The repo is running on the file it arrived with, at the one path the
+#   current tree reads.
+_assert_consumer_still_on_its_own_config() {
+  # The derived interpolation cache is what names the image, and the image
+  # naming itself after the checkout directory is the loudest symptom of
+  # the loss.
+  run cat "${CONSUMER}/.env.generated"
+  assert_output --partial "IMAGE_NAME=base1086-carried-config"
+
+  # An `[environment]` entry lands in the container env file rather than
+  # the cache -- compose ranks `environment:` above `env_file`, so the
+  # entries are emitted there (write_container_env). Same question, the
+  # other half of the emitted output.
+  run cat "${CONSUMER}/.env"
+  assert_output --partial "BASE1086_MARKER="
+  assert_output --partial "carried"
+
+  # And the REST of the file came through with them. `[volumes] mount_1`
+  # is the one the repo cannot work without and the one nothing in these
+  # arms wrote: the seeded override carries the portable
+  # `${WS_PATH}:/home/${USER_NAME}/work` form, so a migration that
+  # replaced the file with a subset -- or replaced the section with the
+  # shipped default, which is empty -- takes the workspace bind out of
+  # `compose.yaml` while every assertion above still passes.
+  run cat "${CONSUMER}/compose.yaml"
+  assert_output --partial '${WS_PATH}:/home/${USER_NAME}/work'
+
+  # And the override is at the one path the CURRENT tree reads, with no
+  # orphan left behind at the old one for the next reader to trust.
+  assert [ -f "${CONSUMER}/.setup.conf" ]
+  assert [ ! -e "${CONSUMER}/config/docker/setup.conf" ]
+}
+
+_assert_release_carries_its_config() {
+  local _tag="${1:?BUG: _assert_release_carries_its_config expects a tag}"
+
+  _seed_current_remote
+  _seed_released_remote "${_tag}"
+  _seed_consumer "${_tag}"
+  _give_consumer_its_own_config "${_tag}"
+
+  local _upgrade
+  _upgrade="$(_released_entry upgrade.sh)"
+  cd "${CONSUMER}"
+  run env TEMPLATE_REMOTE="file://${CUR_BARE}" "${_upgrade}" "${NEXT_VER}"
+  assert_success
+
+  _assert_consumer_still_on_its_own_config
+}
+
+# _assert_reestablished_subtree_carries_its_config <tag>
+#   The other way a repo arrives at this tree: drop `.base/`, `git subtree
+#   add` at the new tag, run the init.sh that comes with it. No released
+#   `upgrade.sh` is involved at any point, which is what makes this arm
+#   worth its own seeding.
+#
+#   Every other arm in this file asks its question THROUGH a released
+#   driver, so what it can still see depends on which releases the
+#   compatibility window reaches. base#1086 is invisible to a driver that
+#   carries its own copy of the relocation, and both drivers in the window
+#   will carry one as soon as the window stops reaching back past it
+#   (base#1084) -- at which point those arms pass whatever `init.sh` does.
+#   This one drives `init.sh` directly and cannot go quiet that way.
+#
+#   It is also the only coverage the re-establish path has. A repo that
+#   re-establishes its subtree never runs `upgrade.sh`, so a relocation
+#   living there could never help it -- which is half of why the migration
+#   moved.
+_assert_reestablished_subtree_carries_its_config() {
+  local _tag="${1:?BUG: _assert_reestablished_subtree_carries_its_config expects a tag}"
+
+  _seed_current_remote
+  _seed_released_remote "${_tag}"
+  _seed_consumer "${_tag}"
+  _give_consumer_its_own_config "${_tag}"
+
+  # The subtree goes away and comes back at the new tag. `git subtree add`
+  # refuses a prefix that already exists, so the removal is a real commit
+  # rather than an `rm -rf` the index still remembers.
+  git -C "${CONSUMER}" rm -r -q --cached .base
+  rm -rf "${CONSUMER:?}/.base"
+  git -C "${CONSUMER}" commit -q -m "chore: drop the vendored subtree"
+  git -C "${CONSUMER}" subtree add -q --prefix=.base \
+    "file://${CUR_BARE}" "${NEXT_VER}" --squash
+
+  # Probed rather than named, for the same reason the released entry
+  # points are: which path init.sh lives at is the TREE's business, and
+  # the tree under test here is the one whose layout is free to move.
+  local _init
+  _init="$(_released_entry init.sh)"
+  cd "${CONSUMER}"
+  run "${_init}"
+  assert_success
+
+  _assert_consumer_still_on_its_own_config
+}
+
 # _assert_release_stages_migrated_files <tag>
 #   The upgrade COMMITS what its migrations rewrote, and commits nothing
 #   else. The failure this arm exists for is not a broken tree: it is a
@@ -651,6 +824,31 @@ _assert_upgrade_leaves_an_upgradable_tree() {
 
 @test "a released upgrade.sh still migrates a hand-written .env to .env.local (#868)" {
   _assert_release_migrates_env "$(_release_tag 1)"
+}
+
+# why: The oldest driver predates the setup.conf relocation, so its own
+# copy carries no migration for it -- this is the arm that fails when the
+# fix lives anywhere the old driver cannot reach, and the upgrade it
+# describes exits 0 with the repo's configuration gone
+@test "the oldest supported upgrade.sh leaves the consumer running on its own configuration (#1086)" {
+  _assert_release_carries_its_config "$(_release_tag 2)"
+}
+
+# why: The newest driver reaches the relocation through its own pre-pull
+# copy, so it answers the same question by a different route; pinning both
+# ends is what stops the guard being read as "only the old driver has to
+# carry a repo's config through an upgrade"
+@test "the newest supported upgrade.sh leaves the consumer running on its own configuration (#1086)" {
+  _assert_release_carries_its_config "$(_release_tag 1)"
+}
+
+# why: The arms above ask through a released driver, so they stop being
+# able to see #1086 the moment the compatibility window no longer reaches
+# back past the relocation (base#1084); this one drives init.sh directly,
+# and it is the only coverage the re-establish path -- which never runs
+# upgrade.sh at all -- has
+@test "a re-established subtree leaves the consumer running on its own configuration (#1086)" {
+  _assert_reestablished_subtree_carries_its_config "$(_release_tag 2)"
 }
 
 @test "the newest released upgrade.sh drives the current tree to a working consumer" {

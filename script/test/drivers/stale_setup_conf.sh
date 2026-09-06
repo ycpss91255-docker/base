@@ -31,11 +31,12 @@
 #   # stale-path-lint: allow-begin -- <why>
 #   ...
 #   # stale-path-lint: allow-end
-# The one live region is the legacy-migration block in
-# dist/script/base/upgrade.sh, which must name the old path in order to
-# relocate a downstream still carrying it. Unbalanced markers (an
-# unterminated begin, an unmatched end) fail the lint -- a silently
-# swallowed region would re-open exactly the hole this guard closes.
+# The one live region is in dist/script/docker/lib/setup_conf_migrate.sh,
+# around the single accessor that spells the old path, because relocating
+# a downstream still carrying it is what that file is for. Unbalanced
+# markers (an unterminated begin, an unmatched end) fail the lint -- a
+# silently swallowed region would re-open exactly the hole this guard
+# closes.
 
 # ── Stale setup.conf path lint ───────────────────────────────────────────────
 
