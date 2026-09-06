@@ -174,8 +174,12 @@ _workflow() {
 # ════════════════════════════════════════════════════════════════════
 
 # why: The fix shape. The job reads the version from the one declaration
-# and installs it, so the binary it runs is the binary the gate runs.
-@test "tool provenance: PASSES a job that installs the tool from the declaration" {
+# rather than restating it, which is the evidence this lint asks for --
+# NAMING the declaration, not a proven install. The fixture is deliberately
+# the weakest form of it, because that is where the rule's edge is: what
+# separates a green here from a job still on the runner's binary is the
+# job's own version assertion, not this scan.
+@test "tool provenance: PASSES a job that names the declaration for the tool" {
   _workflow "wf.yaml" \
     'on:' \
     '  pull_request:' \
@@ -355,10 +359,13 @@ _workflow() {
   [[ "${output}" == *"job bad"* ]]
 }
 
-# why: The whole-tree floor only fires when NO file yielded a job, so one
-# file the reader cannot see is skipped in silence beside nine it can --
-# and the clean line still reports the file in its workflow count. Every
-# workflow declares `jobs:` (GitHub requires it), so a file that yielded
+# why: The reader commits to the two-space job key this repo's workflows
+# all use, because widening it starts reading a job's own nested keys as
+# jobs. The floor is what makes that commitment safe: a whole-TREE floor
+# only fires when NO file yielded a job, so one file written another way is
+# skipped in silence beside nine that are not -- while the clean line still
+# counts it among the workflows scanned, which reads as coverage it does
+# not have. Every GitHub workflow declares `jobs:`, so a file that yielded
 # none is a reader that stopped reading, not a workflow without work.
 @test "tool provenance: REFUSES a workflow file it could read no job out of" {
   _workflow "a.yaml" \
@@ -372,11 +379,11 @@ _workflow() {
   _workflow "z.yaml" \
     'on:' \
     '  pull_request:' \
-    'jobs:  # the key the reader cannot see' \
-    '  lint:' \
-    '    runs-on: ubuntu-latest' \
-    '    steps:' \
-    '      - run: shellcheck -x init.sh'
+    'jobs:' \
+    '    lint:' \
+    '        runs-on: ubuntu-latest' \
+    '        steps:' \
+    '          - run: shellcheck -x init.sh'
   run _run_tool_provenance
   [ "${status}" -ne 0 ]
   [[ "${output}" == *"z.yaml"* ]]

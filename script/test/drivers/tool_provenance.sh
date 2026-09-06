@@ -102,11 +102,45 @@
 # place to forget tomorrow, and just_provenance.sh already refuses that
 # shape for its own tool.
 #
+# Provenance is NAMING the declaration, not a proven install, and the
+# distinction is worth stating because it bounds what a green run means: a
+# job that merely echoed `SHELLCHECK_VERSION` beside the accessor would
+# satisfy this while still running the runner's binary. The reason it is
+# not tightened into "the job must be seen installing it" is that the one
+# job here obtaining a pinned tool from the declaration does so through a
+# setup ACTION (`extractions/setup-just` with a `just-version:` input), and
+# there is no install command in its shell to find. What the job then owes
+# its readers is the assertion the shellcheck job carries: ask the binary
+# on PATH its version and compare it to the pin. That is a property of the
+# job, not of this scan.
+#
 # ── Scope ───────────────────────────────────────────────────────────────────
 #
 # .github/workflows/ only. This lint is about what a CI JOB runs; a
 # developer host is not a job, and the Dockerfiles are where the pins are
 # declared rather than places they are consumed unpinned.
+#
+# Within that scope, what a job RUNS is read from its `run:` shell and
+# nowhere else. Three residual limits follow, stated rather than papered
+# over, each a false negative:
+#
+#   an action     a step that is only `uses:` runs whatever that action
+#                 runs, and its source is not in this tree. A marketplace
+#                 action carrying its own copy of a pinned tool reads as no
+#                 demand at all.
+#   indirection   a tool reached through a variable (`TOOL=shellcheck;
+#                 "${TOOL}" -x`) or from inside a quoted span (`eval "..."`,
+#                 a `"$(...)"` substitution) is not in command position for
+#                 the split below to find.
+#   a repo script demand through a repo script that is NOT test.sh --
+#                 `bash ./script/test/drivers/coverage_gate.sh` -- is not
+#                 followed. The obvious generalisation, one-level closure
+#                 into any repo script a job names, was tried and measured
+#                 wrong: test.sh's own `_LINT_TOOLS` array holds bare
+#                 `shellcheck` / `hadolint` elements, which read as command
+#                 position, so every job calling test.sh would demand every
+#                 tool. Demand has to be DECLARED per entry point for that
+#                 to work, which is a separate change.
 
 # ── The tool provenance lint ────────────────────────────────────────────────
 
@@ -179,7 +213,7 @@ readonly _TP_SEP=$'\x01'
 readonly _TP_AWK='
 function indent_of(s,   n) { match(s, /^[ \t]*/); return RLENGTH }
 BEGIN { injobs = 0; inrun = 0; runind = 0 }
-/^jobs:[ \t]*$/ { injobs = 1; inrun = 0; next }
+/^jobs:[ \t]*(#.*)?$/ { injobs = 1; inrun = 0; next }
 /^[^ \t#]/      { injobs = 0; inrun = 0; next }
 injobs != 1     { next }
 {
@@ -193,8 +227,8 @@ injobs != 1     { next }
   }
   if ($0 ~ /^[ \t]*#/) { next }
   if ($0 ~ /^[ \t]*$/) { next }
-  if ($0 ~ /^  [A-Za-z0-9_.-]+:[ \t]*$/) {
-    name = $0; sub(/^  /, "", name); sub(/:[ \t]*$/, "", name)
+  if ($0 ~ /^  [A-Za-z0-9_.-]+:[ \t]*(#.*)?$/) {
+    name = $0; sub(/^  /, "", name); sub(/:[ \t]*(#.*)?$/, "", name)
     print "JOB\t" name
     next
   }
@@ -246,12 +280,14 @@ readonly _TP_STRIP_AWK='
 # ── Counters ────────────────────────────────────────────────────────────────
 
 _TP_JOBS=0
+_TP_FILE_JOBS=0
 _TP_DEMANDS=0
 _TP_PROVIDED=0
 _TP_FINDINGS=0
 
 _tp_reset() {
   _TP_JOBS=0
+  _TP_FILE_JOBS=0
   _TP_DEMANDS=0
   _TP_PROVIDED=0
   _TP_FINDINGS=0
@@ -353,6 +389,37 @@ _tp_commands() {
   done
 }
 
+# _tp_fold <outarray> <line>... -- join backslash continuations.
+#
+# A wrapped command is ONE command, and every reader below works a line at
+# a time. Unfolded, both directions are wrong: `./script/test/test.sh \`
+# with its `--<lint>-only` on the next physical line loses the selector
+# entirely -- the demand base#1080 is made of -- and the second line of any
+# continued command reads as a command of its own, so a wrapped ARGUMENT
+# that spells a pinned tool reports a demand nothing makes.
+#
+# The fold is on the trailing backslash, which is shell syntax rather than
+# anything this repo chose, so it needs nothing kept in step. Its one
+# residual: a line ending in an ESCAPED backslash (`\\`) is not a
+# continuation and is folded anyway. That direction merges two commands
+# into one line, where the first word still wins -- a false negative on the
+# second, never a false positive.
+_tp_fold() {
+  local -n _tpf_out="${1}"; shift
+  _tpf_out=()
+  local _acc="" _line
+  for _line in "$@"; do
+    if [[ "${_line}" == *\\ ]]; then
+      _acc+="${_line%\\} "
+      continue
+    fi
+    _tpf_out+=("${_acc}${_line}")
+    _acc=""
+  done
+  # A trailing continuation with nothing after it is still a line of shell.
+  [[ -z "${_acc}" ]] || _tpf_out+=("${_acc}")
+}
+
 # _tp_tools_in_shell <outvar> <origin> <line>... -- the pinned tools
 # invoked by the given shell lines, as a space-delimited set in <outvar>.
 # <origin> is recorded for each tool this call is the first to find.
@@ -396,11 +463,12 @@ _tp_driver_tools() {
     return 1
   fi
   if [[ -z "${_TP_DRIVER_CACHE["${_file}"]+set}" ]]; then
-    local -a _lines=()
+    local -a _lines=() _folded=()
     local _found=""
     mapfile -t _lines < <(grep -v '^[[:space:]]*#' "${_abs}" || true)
     if [[ "${#_lines[@]}" -gt 0 ]]; then
-      _tp_tools_in_shell _found "${_file}" "${_lines[@]}"
+      _tp_fold _folded "${_lines[@]}"
+      _tp_tools_in_shell _found "${_file}" "${_folded[@]}"
     fi
     _TP_DRIVER_CACHE["${_file}"]="${_found}"
   fi
@@ -435,8 +503,12 @@ _tp_job_demand() {
   local -n _tpj_missing="${2}"
   shift 2
   local _line _lint
-  local -a _runs=("$@")
-  [[ "${#_runs[@]}" -gt 0 ]] || return 0
+  local -a _raw=("$@") _runs=()
+  [[ "${#_raw[@]}" -gt 0 ]] || return 0
+  # Folded first, and once: both scans below read a LOGICAL line, so the
+  # selector and the `test.sh` that carries it cannot be split apart by a
+  # line wrap, and a wrapped argument cannot pose as a command.
+  _tp_fold _runs "${_raw[@]}"
 
   _tp_tools_in_shell _tpj_out "the job's own shell" "${_runs[@]}"
 
@@ -506,6 +578,7 @@ _run_tool_provenance() {
   _tp_flush_job() {
     [[ -n "${_job}" ]] || return 0
     _TP_JOBS=$(( _TP_JOBS + 1 ))
+    _TP_FILE_JOBS=$(( _TP_FILE_JOBS + 1 ))
     _demand=""
     _missing=""
     _TP_ORIGIN=()
@@ -527,11 +600,13 @@ _run_tool_provenance() {
     _job=""
   }
 
+  local _unreadable=""
   for _file in "${_files[@]}"; do
     _rel="${_file#"${REPO_ROOT}"/}"
     _job=""
     _text=""
     _runs=()
+    _TP_FILE_JOBS=0
     while IFS=$'\t' read -r _tag _payload; do
       case "${_tag}" in
         JOB)
@@ -545,15 +620,21 @@ _run_tool_provenance() {
       esac
     done < <(awk "${_TP_AWK}" "${_file}")
     _tp_flush_job
+    [[ "${_TP_FILE_JOBS}" -gt 0 ]] || _unreadable+="${_rel} "
   done
   unset -f _tp_flush_job
 
-  # Non-vacuity. A reader regression that stopped recognising job blocks or
-  # run blocks would report compliance forever, in silence -- the same
-  # unnoticed green base#1080 itself was.
-  if [[ "${_TP_JOBS}" -eq 0 ]]; then
+  # Non-vacuity, asked of EVERY FILE rather than of the tree.
+  #
+  # A whole-tree floor only fires when no file at all yielded a job, so one
+  # file the reader cannot see is skipped in silence beside nine it can --
+  # and the clean line still counts that file among the workflows scanned,
+  # which reads as coverage it does not have. `jobs:` is required of every
+  # GitHub workflow, so a file that yielded none is a reader that stopped
+  # reading, not a workflow without work.
+  if [[ -n "${_unreadable}" ]]; then
     _die ci_tool_provenance \
-      "the ${#_files[@]} workflow(s) under '${_TP_WORKFLOW_DIR_REL}/' yielded no job at all -- nothing was classified, so the lint would pass vacuously. The record reader, not the workflows, is what to look at."
+      "no job could be read out of: ${_unreadable}-- nothing in those file(s) was classified, so the lint would pass vacuously over them while counting them as scanned. Every GitHub workflow declares 'jobs:', so the record reader, not the workflows, is what to look at: a job key it recognises is two spaces of indent, a name, a colon and nothing else but a comment."
     return 1
   fi
 
