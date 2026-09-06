@@ -266,12 +266,22 @@ jobs:
 
   shellcheck:
     # Dedicated ShellCheck job (#376). Still no buildx and no test-tools
-    # image -- one release tarball instead, which keeps the job's cost
-    # profile (43s measured) while making the binary a DECLARED one. A 30s
-    # shellcheck regression surfaces in ~45s wall time instead of waiting
-    # for the full bats suite inside the `test` job. The `test` job passes
-    # --bats-only so the shellcheck phase doesn't run twice; local
-    # `just test` keeps the full pipeline.
+    # image -- one release tarball instead, so the job keeps the SHAPE it
+    # was split out for: a plain runner, one checkout, nothing pulled.
+    #
+    # What that shape costs is 43-67s, median ~60, over the last 22 `main`
+    # runs of the job BEFORE this change; the tarball adds a 2.5 MB
+    # download and an install to that, and nobody has measured the sum,
+    # because this shape has not run in CI yet. The number is written as a
+    # range with its sample for the reason ADR-00000028 gives: quoting the
+    # fastest of those runs would be a tuned constant that reads as a
+    # promise. The claim being made is about the shape, not the clock.
+    #
+    # The point of the split is unchanged: a shellcheck regression
+    # surfaces in about a minute instead of waiting for the full bats
+    # suite inside the `test` job. The `test` job passes --bats-only so
+    # the shellcheck phase doesn't run twice; local `just test` keeps the
+    # full pipeline.
     #
     # THE BINARY USED TO BE THE RUNNER'S (base#1080). "shellcheck is
     # pre-installed, no image needed" was true and was the whole
