@@ -152,6 +152,15 @@ continues to work unchanged; that is ADR-00000022's table row.
 
 ### 6. Why this is not a reversal of #600
 
+> **Amended 2026-09-06 by ADR-00000036 (#1087).** The per-worktree / per-instance
+> line this section draws was a consequence of `.setup.conf.local` having exactly
+> one location: "another parameter set" could only mean "another checkout". The
+> file's path now becomes caller-supplied, and the same layer serves both axes --
+> a developer still gets the per-worktree file at the default path, an
+> orchestrator passes its own. The layer's semantics are unchanged:
+> section-replace, overrides any section, gitignored at the default path. What
+> changes is only that the address is an argument rather than a constant.
+
 #600 removed `--instance` / `INSTANCE_SUFFIX` / `config/instances/<name>`
 from base on layering grounds: base is `docker` (single instance),
 multi_run is `docker compose` (orchestration). That stands. A **named
