@@ -44,6 +44,25 @@ the lifecycle base owns (invariant 1), field delivery, and composability.
   parameters and write into a directory the caller names, so one repo can be
   instantiated more than once without being modified (ADR-00000036). base owns
   the API; it does not own the orchestration that calls it.
+
+**Completeness, and how it is judged.** Within that scope base must be able to
+express every compose field a single-container repo in this org **actually
+uses**. The target is deliberately not the whole Compose Specification: most of
+that surface is for applications base does not serve, and a repo cannot be
+better off for a field nobody needs.
+
+**The population is derived, never listed.** A field is in it when there is
+evidence of use: a hand-written compose file in the org, a `setup.conf` key a
+repo sets, a request in an issue, or a workaround achieving the capability by
+other means -- a raw `docker run` flag, an entrypoint doing the job. That last
+class matters most: it is the record of a need base failed to serve, and it is
+the one a maintained list would never contain.
+
+The figure is computed from that evidence when it is read, not written down here
+(invariant 10). What is recorded is the rule, and one consequence of it: an
+absent field cannot generate demand, so a first-principles argument for adding
+one is admissible -- but it is an argument, and it does not become evidence by
+being reasonable.
 - Host detection -> config resolution -> render, where one source
   (`setup.conf` + detection) fans out to every artifact (`compose.yaml`,
   `.env.generated`, the generated `.env`, `deploy.sh`, the baked runtime
