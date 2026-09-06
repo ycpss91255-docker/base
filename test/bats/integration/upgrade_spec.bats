@@ -18,9 +18,8 @@
 # `lib/dockerfile_migrate.sh` and running `apply_migrations` over the
 # repo-root Dockerfile + sibling `script/entrypoint.sh` (the per-migration
 # {detect, transform} units are unit-tested in
-# `dockerfile_migrate_spec.bats`), plus the pre-pull `.setup.conf`
-# migrations (legacy override relocation and the `[lifecycle] restart`
-# default retirement) observed through a real upgrade run.
+# `dockerfile_migrate_spec.bats`), plus the pre-pull `[lifecycle] restart`
+# default retirement observed through a real upgrade run.
 
 bats_require_minimum_version 1.5.0
 
@@ -339,100 +338,30 @@ _seed_entry() {
   assert_output --partial "Already up to date."
 }
 
-# ── Legacy setup.conf auto-migration ────────────────────────────────
-# setup.conf left the hand-editable config/ surface and now lives at the
-# repo root as .setup.conf. upgrade.sh must relocate a downstream's
-# legacy config/docker/setup.conf override so it is never silently
-# dropped (fail-loud), and must leave a repo already at the new location
-# untouched.
-
-# why: Legacy override auto-migrated (git mv + loud warning) so it is never
-# silently dropped
-@test "upgrade.sh relocates a legacy config/docker/setup.conf override to repo-root .setup.conf, loudly" {
-  cd "${DOWN_DIR}"
-  mkdir -p config/docker
-  printf '[gpu]\nmode = force\n' > config/docker/setup.conf
-  git add config/docker/setup.conf
-  git commit -q -m "add legacy setup.conf override"
-
-  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/dist/script/base/upgrade.sh v0.9.7
-  assert_success
-  # Loud, unmissable migration announcement.
-  assert_output --partial "relocating per-repo setup.conf override"
-  assert_output --partial "config/docker/setup.conf -> .setup.conf"
-
-  # Override relocated to the root dotfile, content preserved, legacy gone.
-  [ -f ".setup.conf" ]
-  [ ! -f "config/docker/setup.conf" ]
-  grep -Fq "mode = force" .setup.conf
-
-  # The relocation is committed, so the tree is clean afterwards (the
-  # subsequent subtree pull would have refused a dirty tree otherwise).
-  refute_output --partial "config/docker/setup.conf still present"
-}
-
-# why: Already-migrated repo: no move, no spurious announcement
-@test "upgrade.sh leaves a repo already at root .setup.conf untouched (no spurious migration)" {
-  cd "${DOWN_DIR}"
-  printf '[gpu]\nmode = force\n' > .setup.conf
-  git add .setup.conf
-  git commit -q -m "add root .setup.conf override"
-
-  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/dist/script/base/upgrade.sh v0.9.7
-  assert_success
-  refute_output --partial "relocating per-repo setup.conf override"
-  [ -f ".setup.conf" ]
-  [ ! -f "config/docker/setup.conf" ]
-  grep -Fq "mode = force" .setup.conf
-}
-
-# why: Conflict: root file wins, legacy kept, warned for manual
-# reconciliation
-@test "upgrade.sh warns but does not clobber when BOTH legacy and root setup.conf exist" {
-  cd "${DOWN_DIR}"
-  mkdir -p config/docker
-  printf '[gpu]\nmode = legacy\n' > config/docker/setup.conf
-  printf '[gpu]\nmode = root_wins\n' > .setup.conf
-  git add config/docker/setup.conf .setup.conf
-  git commit -q -m "add both legacy and root setup.conf"
-
-  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/dist/script/base/upgrade.sh v0.9.7
-  assert_success
-  # Fail-loud: warn about the conflict, keep BOTH, root file wins.
-  assert_output --partial "BOTH"
-  [ -f ".setup.conf" ]
-  [ -f "config/docker/setup.conf" ]
-  grep -Fq "mode = root_wins" .setup.conf
-}
-
-# why: Migration commit is pathspec-scoped; pre-staged user work stays
-# staged
-@test "upgrade.sh relocation commit carries only the moved paths, not unrelated staged work" {
-  cd "${DOWN_DIR}"
-  mkdir -p config/docker
-  printf '[gpu]\nmode = force\n' > config/docker/setup.conf
-  git add config/docker/setup.conf
-  git commit -q -m "add legacy setup.conf override"
-
-  # Work the user happened to stage before running the upgrade. The
-  # pre-flight does not require a clean index, so the relocation commit
-  # must scope itself instead of sweeping this in under its own label.
-  printf 'unrelated\n' > UNRELATED.txt
-  git add UNRELATED.txt
-
-  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/dist/script/base/upgrade.sh v0.9.7
-
-  local _sha
-  _sha="$(git log --format=%H --grep='relocate setup.conf override' -1)"
-  [ -n "${_sha}" ]
-  run git show --no-renames --name-only --format= "${_sha}"
-  assert_output --partial ".setup.conf"
-  refute_output --partial "UNRELATED.txt"
-
-  # The user's staged work survives untouched, still staged.
-  run git diff --cached --name-only
-  assert_output --partial "UNRELATED.txt"
-}
+# ── Legacy setup.conf auto-migration: NOT HERE any more ─────────────
+#
+# The relocation of a pre-relocation `config/docker/setup.conf` override
+# used to be four tests here, driving upgrade.sh's own pre-pull copy of
+# the migration. That copy is gone: it could only ever run for a consumer
+# ALREADY on a release that carries it, which is never a consumer still
+# carrying the old path (base#1086). The migration now runs from the Step
+# 3 resync, and this fixture's template ships a stub `init.sh` that exits
+# 0, so an arm here would assert against a resync that does not happen.
+#
+# Its coverage moved to where the code is:
+#   - test/bats/unit/setup_conf_migrate_spec.bats, for every branch of the
+#     relocation including the BOTH-files merge these tests only ever saw
+#     warn;
+#   - prev_release_upgrade_spec.bats's "leaves the consumer running on its
+#     own configuration" arms, which drive a REAL released upgrade.sh over
+#     a REAL init.sh and assert the emitted config, rather than asserting
+#     that a file moved.
+#
+# One property genuinely ended with the pre-pull copy: the relocation no
+# longer makes a scoped commit of its own, so it can no longer promise the
+# user's unrelated STAGED work stays out of it. The resync stages and the
+# caller commits (ADR-00000006), and that caller's closing commit has
+# always been unscoped.
 
 @test "upgrade.sh migrates the stale devel-scoped [lifecycle] restart = no to the shipped default" {
   cd "${DOWN_DIR}"

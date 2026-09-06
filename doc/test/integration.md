@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **176 tests**.
+Integration specs under `test/bats/integration/`: **175 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test levels and
@@ -315,7 +315,7 @@ costs this repo nothing.
 | `kcov --merge: the merged covered set is the UNION of the slices' (#726)` | the property the whole mode rests on. A line covered in ONE slice is covered in the merge -- exactly the union, neither more nor less. Asserted as set EQUALITY rather than as a count or a rate, because a merge that lost one slice's lines and gained an equal number of another's would match on any percentage and be wrong. |
 | `kcov --merge: the merged instrumented set is the union, not a sum (#726)` | the denominator half, and the one a SUM would break first. Each slice's kcov runs with the same `--include-path`, so both reports carry the whole instrumented file; adding their `lines-valid` would count every shared line once per slice and drive the rate down as the slice count rose. That is base#730's defect, on the other merge. The merged denominator must be the union -- here, identical to either slice's. |
 
-### test/bats/integration/prev_release_upgrade_spec.bats (7)
+### test/bats/integration/prev_release_upgrade_spec.bats (10)
 
 | Test | Description |
 |------|-------------|
@@ -324,6 +324,9 @@ costs this repo nothing.
 | `the oldest supported upgrade.sh commits what the migrations rewrote (#1036)` | The commit is made by the consumer's OWN released upgrade.sh, so the only proof that the migrated Dockerfile lands in it is to let that script drive; a unit test on the staging helper passes while the real upgrade still leaves the file behind |
 | `the newest supported upgrade.sh commits what the migrations rewrote (#1036)` | The oldest driver is the only one whose own Step 5 misses the Dockerfile, so an arm that ran only there would go quiet as the window slides forward and the fix could be deleted with the suite green; the newest driver still leaves the rest of the resync unstaged without it |
 | `a released upgrade.sh still migrates a hand-written .env to .env.local (#868)` | - |
+| `the oldest supported upgrade.sh leaves the consumer running on its own configuration (#1086)` | The oldest driver predates the setup.conf relocation, so its own copy carries no migration for it -- this is the arm that fails when the fix lives anywhere the old driver cannot reach, and the upgrade it describes exits 0 with the repo's configuration gone |
+| `the newest supported upgrade.sh leaves the consumer running on its own configuration (#1086)` | The newest driver reaches the relocation through its own pre-pull copy, so it answers the same question by a different route; pinning both ends is what stops the guard being read as "only the old driver has to carry a repo's config through an upgrade" |
+| `a re-established subtree leaves the consumer running on its own configuration (#1086)` | The arms above ask through a released driver, so they stop being able to see #1086 the moment the compatibility window no longer reaches back past the relocation (base#1084); this one drives init.sh directly, and it is the only coverage the re-establish path -- which never runs upgrade.sh at all -- has |
 | `the newest released upgrade.sh drives the current tree to a working consumer` | - |
 | `the previous released upgrade.sh drives the current tree to a working consumer (N-1)` | - |
 
@@ -380,7 +383,7 @@ not evidence that the version is right.
 |------|-------------|
 | `test-tools image: every pinned tool answers with the declared version (#1012)` | It iterates the roster rather than a list of tools, so a pin declared tomorrow is asserted tomorrow -- and a probe that cannot run at all is reported rather than read as agreement. |
 
-### test/bats/integration/upgrade_spec.bats (24)
+### test/bats/integration/upgrade_spec.bats (20)
 
 End-to-end verification for `upgrade.sh` driving a real subtree update
 against a fake template remote (bare repo with `v0.9.5` / `v0.9.7` tags on a
@@ -393,8 +396,8 @@ pass (#567 / #579) — sourcing `lib/dockerfile_migrate.sh` and running
 `apply_migrations` over the repo-root Dockerfile + sibling
 `script/entrypoint.sh` (the per-migration {detect, transform} units are
 unit-tested in `dockerfile_migrate_spec.bats`), plus the pre-pull
-`.setup.conf` migrations (legacy override relocation and the `[lifecycle]
-restart` default retirement) observed through a real upgrade run.
+`[lifecycle] restart` default retirement observed through a real upgrade
+run.
 
 | Test | Description |
 |------|-------------|
@@ -409,10 +412,6 @@ restart` default retirement) observed through a real upgrade run.
 | `upgrade.sh --check reports update available from v0.9.5 → v0.9.7` | --check flag |
 | `just base update (downstream entry): exit 0 when update available (#175, #546, #652)` | Regression #175: recipe wraps exit 1 (skips w/o just) |
 | `just base update (downstream entry): exit 0 when up-to-date (#546)` | Up-to-date path stays green (skips w/o just) |
-| `upgrade.sh relocates a legacy config/docker/setup.conf override to repo-root .setup.conf, loudly` | Legacy override auto-migrated (git mv + loud warning) so it is never silently dropped |
-| `upgrade.sh leaves a repo already at root .setup.conf untouched (no spurious migration)` | Already-migrated repo: no move, no spurious announcement |
-| `upgrade.sh warns but does not clobber when BOTH legacy and root setup.conf exist` | Conflict: root file wins, legacy kept, warned for manual reconciliation |
-| `upgrade.sh relocation commit carries only the moved paths, not unrelated staged work` | Migration commit is pathspec-scoped; pre-staged user work stays staged |
 | `upgrade.sh migrates the stale devel-scoped [lifecycle] restart = no to the shipped default` | - |
 | `upgrade.sh leaves a deliberately configured restart policy alone` | - |
 | `upgrade.sh fails fast when git identity is missing` | Pre-flight identity guard |
