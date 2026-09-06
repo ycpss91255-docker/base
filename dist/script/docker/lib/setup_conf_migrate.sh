@@ -243,6 +243,14 @@ _setup_conf_merge_blockers() {
 # index, and init.sh is also a repair command a user may run by hand --
 # where a commit it never asked for would be the surprise. Same contract
 # as `_stage_resync_output` (ADR-00000006, amended 2026-09-04).
+#
+# EVERY git call here is behind the same fence, not just the staging pair
+# at the end. `git -C <root>` answers for the nearest ENCLOSING work tree,
+# so on a hand-bootstrapped repo living inside somebody else's checkout an
+# unfenced `git mv` or `git rm` writes this relocation into a third
+# party's index -- which is the failure _setup_conf_git_can_stage was
+# written for, and it does not stop being that failure because the call
+# spelling it is `mv` rather than `add`.
 _relocate_legacy_setup_conf() {
   local _root="${1:?"${FUNCNAME[0]}: missing repo_root"}"
   local _legacy="${2:?"${FUNCNAME[0]}: missing legacy path"}"
@@ -250,25 +258,63 @@ _relocate_legacy_setup_conf() {
   local _rel
   _rel="$(_setup_conf_legacy_rel)"
 
+  local _can_stage=0
+  _setup_conf_git_can_stage "${_root}" && _can_stage=1
+
   # Any root file still here is one the blocker check has established is
   # a copy of the shipped default. Dropping it first makes the move a
   # plain rename in every git state, rather than depending on how `git mv`
   # treats a destination that exists but is not tracked.
-  if [[ -e "${_new}" ]]; then
-    git -C "${_root}" rm -f --quiet -- ".setup.conf" > /dev/null 2>&1 \
-      || rm -f -- "${_new}"
+  if [[ -e "${_new}" || -L "${_new}" ]]; then
+    if (( _can_stage )); then
+      git -C "${_root}" rm -f --quiet -- ".setup.conf" > /dev/null 2>&1 \
+        || rm -f -- "${_new}"
+    else
+      rm -f -- "${_new}"
+    fi
   fi
 
   local _moved=0
-  if git -C "${_root}" ls-files --error-unmatch -- "${_rel}" > /dev/null 2>&1; then
+  if [[ -L "${_legacy}" ]]; then
+    # A symlink is a POINTER, and a relative one is spelled against the
+    # directory it sits in. Moving the pointer from `config/docker/` to
+    # the repo root re-aims it two levels up, so `.setup.conf` arrives
+    # DANGLING: the repo reads no override at all and runs on the
+    # template defaults, under a log line saying its configuration was
+    # relocated. So the CONTENT moves. The file the link named is its
+    # owner's and is left exactly where they put it -- which is also why
+    # this cannot be a `git mv`: the pointer is what git tracks.
+    #
+    # Written via a temporary so a read that fails partway cannot leave a
+    # truncated `.setup.conf` standing in for the repo's configuration.
+    local _tmp="${_new}.migrating.$$"
+    if cp -L -- "${_legacy}" "${_tmp}" > /dev/null 2>&1; then
+      mv -f -- "${_tmp}" "${_new}"
+      if (( _can_stage )) \
+        && git -C "${_root}" ls-files --error-unmatch -- "${_rel}" > /dev/null 2>&1; then
+        git -C "${_root}" rm -f --quiet -- "${_rel}" > /dev/null 2>&1 \
+          || rm -f -- "${_legacy}"
+      else
+        rm -f -- "${_legacy}"
+      fi
+      _moved=1
+    else
+      rm -f -- "${_tmp}"
+      _log_warn init setup_conf_migration_conflict \
+        "display=The per-repo setup.conf override under config/ is a symlink whose target could not be read, so nothing was moved and BOTH paths were left exactly as they are. Copy the configuration to the repo-root .setup.conf by hand -- only that path is read." \
+        "path=${_legacy}"
+      return 0
+    fi
+  elif (( _can_stage )) \
+    && git -C "${_root}" ls-files --error-unmatch -- "${_rel}" > /dev/null 2>&1; then
     git -C "${_root}" mv -- "${_rel}" ".setup.conf" > /dev/null 2>&1 && _moved=1
   fi
   if (( _moved == 0 )); then
     mv -f -- "${_legacy}" "${_new}"
-    if _setup_conf_git_can_stage "${_root}"; then
-      git -C "${_root}" add -- ".setup.conf" > /dev/null 2>&1 || true
-      git -C "${_root}" rm --cached --quiet -- "${_rel}" > /dev/null 2>&1 || true
-    fi
+  fi
+  if (( _can_stage )); then
+    git -C "${_root}" add -- ".setup.conf" > /dev/null 2>&1 || true
+    git -C "${_root}" rm --cached --quiet -- "${_rel}" > /dev/null 2>&1 || true
   fi
 
   # Working-tree tidy: git tracks no empty directories, and a leftover
