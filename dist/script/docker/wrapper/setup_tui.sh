@@ -311,10 +311,6 @@ _TUI_MSG_EN[lang.invalid.body]=$'Invalid --lang value: \'%s\'\n\nFalling back to
 _TUI_MSG_EN[deploy.ambiguous.title]="Two meanings of 'deploy'"
 _TUI_MSG_EN[deploy.ambiguous.body]=$'You opened the [deploy] section editor.\n\n[deploy] configures GPU reservation ONLY -- the section is named after\nCompose\'s `deploy:` key, not after deployment.\n\nThe field-deploy bundle is a different command:\n  ./setup.sh deploy      (just docker setup deploy)\n\nThe unambiguous name for THIS editor is `gpu`:\n  ./setup_tui.sh gpu     (just docker setup-tui gpu)'
 _TUI_MSG_EN[saved]="Saved to %s. Regenerating .env / .env.generated / compose.yaml..."
-_TUI_MSG_EN[action.prompt]="Choose an action"
-_TUI_MSG_EN[action.edit]="Edit"
-_TUI_MSG_EN[action.remove]="Remove (delete entry)"
-_TUI_MSG_EN[action.back]="Back"
 
 
 declare -gA _TUI_MSG_ZH_TW=()
@@ -546,10 +542,6 @@ _TUI_MSG_ZH_TW[err.no_backend]="未安裝 dialog 或 whiptail，請執行：sudo
 _TUI_MSG_ZH_TW[deploy.ambiguous.title]="「deploy」的兩種意思"
 _TUI_MSG_ZH_TW[deploy.ambiguous.body]=$'你開啟的是 [deploy] section 編輯器。\n\n[deploy] 只設定 GPU 保留 —— 這個 section 名稱沿用 Compose 的\n`deploy:` key，與「部署」無關。\n\nfield-deploy bundle 是另一個指令：\n  ./setup.sh deploy      （just docker setup deploy）\n\n本編輯器沒有歧義的名稱是 `gpu`：\n  ./setup_tui.sh gpu     （just docker setup-tui gpu）'
 _TUI_MSG_ZH_TW[saved]="已儲存至 %s，正在重新產生 .env / .env.generated / compose.yaml..."
-_TUI_MSG_ZH_TW[action.prompt]="選擇動作"
-_TUI_MSG_ZH_TW[action.edit]="編輯"
-_TUI_MSG_ZH_TW[action.remove]="移除（刪除項目）"
-_TUI_MSG_ZH_TW[action.back]="返回"
 
 
 declare -gA _TUI_MSG_ZH_CN=()
@@ -776,10 +768,6 @@ _TUI_MSG_ZH_CN[err.no_backend]="未安装 dialog 或 whiptail，请执行：sudo
 _TUI_MSG_ZH_CN[deploy.ambiguous.title]="「deploy」的两种意思"
 _TUI_MSG_ZH_CN[deploy.ambiguous.body]=$'你打开的是 [deploy] section 编辑器。\n\n[deploy] 只设置 GPU 预留 —— 这个 section 名称沿用 Compose 的\n`deploy:` key，与「部署」无关。\n\nfield-deploy bundle 是另一个命令：\n  ./setup.sh deploy      （just docker setup deploy）\n\n本编辑器没有歧义的名称是 `gpu`：\n  ./setup_tui.sh gpu     （just docker setup-tui gpu）'
 _TUI_MSG_ZH_CN[saved]="已保存至 %s，正在重新生成 .env / .env.generated / compose.yaml..."
-_TUI_MSG_ZH_CN[action.prompt]="选择动作"
-_TUI_MSG_ZH_CN[action.edit]="编辑"
-_TUI_MSG_ZH_CN[action.remove]="移除（删除项目）"
-_TUI_MSG_ZH_CN[action.back]="返回"
 
 
 declare -gA _TUI_MSG_JA=()
@@ -1006,10 +994,6 @@ _TUI_MSG_JA[err.no_backend]="dialog または whiptail がインストールさ�
 _TUI_MSG_JA[deploy.ambiguous.title]="「deploy」の二つの意味"
 _TUI_MSG_JA[deploy.ambiguous.body]=$'開いたのは [deploy] セクションのエディタです。\n\n[deploy] が設定するのは GPU 予約だけです —— このセクション名は\nCompose の `deploy:` キーに由来し、デプロイとは関係ありません。\n\nfield-deploy バンドルは別のコマンドです:\n  ./setup.sh deploy      (just docker setup deploy)\n\nこのエディタの曖昧でない名前は `gpu` です:\n  ./setup_tui.sh gpu     (just docker setup-tui gpu)'
 _TUI_MSG_JA[saved]="%s に保存しました。.env / .env.generated / compose.yaml を再生成中..."
-_TUI_MSG_JA[action.prompt]="アクションを選択"
-_TUI_MSG_JA[action.edit]="編集"
-_TUI_MSG_JA[action.remove]="削除（項目を削除）"
-_TUI_MSG_JA[action.back]="戻る"
 
 
 # _tui_msg <key>
@@ -1156,16 +1140,6 @@ _mark_removed() {
     [[ "${_x}" == "${_nskey}" ]] && _found=1 && break
   done
   (( _found )) || _TUI_REMOVED+=("${_nskey}")
-}
-
-# Show an Edit / Remove / Back sub-menu for an existing list entry.
-# Echoes: __edit | __remove | __back (or empty on cancel)
-_item_action_menu() {
-  local _label="${1}"
-  _tui_menu "${_label}" "$(_tui_msg action.prompt)" \
-    __edit   "$(_tui_msg action.edit)" \
-    __remove "$(_tui_msg action.remove)" \
-    __back   "$(_tui_msg action.back)"
 }
 
 _override_set() {
@@ -1750,45 +1724,6 @@ _edit_section_gui() {
     off   "$(_tui_msg gui.mode.off)"   "$([[ "${_cur}" == off ]]   && echo ON || echo off)")" \
     || return 0
   _override_set "gui.mode" "${_v}"
-}
-
-# _prompt_mount_with_picker [initial] — mount mode picker
-#
-# Collects host, container, access mode, and propagation mode through
-# inputbox + radiolist primitives, then assembles via the pure
-# _assemble_mount_value helper. Lets users discover valid mode options
-# (rw, ro, rslave, rshared, etc.) without reading docs/CHANGELOG.
-#
-# Returns the assembled host:container[:mode] string on stdout.
-# Exit non-zero on cancel/Esc at any step.
-_prompt_mount_with_picker() {
-  local _initial="${1-}"
-  local _init_host="" _init_container="" _init_mode=""
-  if [[ -n "${_initial}" ]]; then
-    IFS=':' read -r _init_host _init_container _init_mode <<< "${_initial}"
-  fi
-  local _host _container _access _prop _mode_combined
-  _host="$(_tui_inputbox "Mount: host path" "Host path" "${_init_host}")"   || return 1
-  _container="$(_tui_inputbox "Mount: container path" "Container path" "${_init_container}")" || return 1
-  _access="$(_tui_radiolist "Access mode" "Pick access mode" \
-    none "no access constraint" on \
-    ro   "read-only"            off \
-    rw   "read-write"           off)" || return 1
-  _prop="$(_tui_radiolist "Propagation mode" "Pick mount propagation (Docker bind mount)" \
-    none     "no propagation flag (Docker default rprivate)" on \
-    rslave   "recursive slave (host events propagate in)"    off \
-    rshared  "recursive shared (bidirectional)"              off \
-    rprivate "recursive private (explicit Docker default)"   off \
-    slave    "non-recursive slave"                           off \
-    shared   "non-recursive shared"                          off \
-    private  "non-recursive private"                         off)" || return 1
-  _mode_combined=""
-  [[ "${_access}" != "none" ]] && _mode_combined="${_access}"
-  if [[ "${_prop}" != "none" ]]; then
-    [[ -n "${_mode_combined}" ]] && _mode_combined+=","
-    _mode_combined+="${_prop}"
-  fi
-  _assemble_mount_value "${_host}" "${_container}" "${_mode_combined}"
 }
 
 _edit_section_volumes() {
@@ -2838,6 +2773,18 @@ _warn_if_lang_rejected() {
 # argument parser as the single validity gate for `setup_tui.sh <name>`.
 _tui_known_subcommand() {
   local _arg="${1-}"
+  # A name is dispatchable only if the editor main jumps to actually
+  # exists. Being a schema section is not enough: `project` is one, with
+  # a deliberate no-editor opt-out (see schema.sh's SCHEMA_I18N note --
+  # the project name belongs in the gitignored .setup.conf.local, a
+  # layer the menu has no concept of), and accepting it on the section
+  # list alone sent main into `_edit_section_project`, a bash
+  # command-not-found raised after the backend probe and the seeding
+  # `setup.sh apply` run had already happened. Read off the function
+  # table rather than an exclusion list, so a section that gains or
+  # loses an editor needs no edit here.
+  declare -F "_edit_section_$(_tui_canonical_section "${_arg}")" >/dev/null \
+    || return 1
   _schema_is_section "${_arg}" && return 0
   [[ "${_arg}" == "ports" ]] && return 0
   [[ "${_arg}" == "gpu" ]] && return 0
@@ -2906,6 +2853,14 @@ main() {
           _subcmd_raw="${1}"
           _subcmd="$(_tui_canonical_section "${1}")"
           shift
+        elif _schema_is_section "${1}"; then
+          # A real section the TUI does not edit -- reported as itself
+          # rather than as an unknown argument, because the name IS
+          # valid everywhere else (`setup.sh set`, the conf file) and
+          # "unknown argument" would send the reader looking for a typo.
+          printf "[tui] %s has no TUI editor; set it with ./setup.sh set %s.<key> <value>\n" \
+            "${1}" "${1}" >&2
+          exit 2
         else
           printf "[tui] unknown argument: %s\n" "${1}" >&2
           usage

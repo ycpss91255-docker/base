@@ -73,22 +73,6 @@ _validate_mount() {
   return 0
 }
 
-# _assemble_mount_value <host> <container> [<mode>]
-#
-# Builds the host:container[:mode] string for [devices] device_* and
-# [volumes] mount_* entries. Lets the TUI collect pieces separately
-# (path inputbox + mode picker) and assemble them safely.
-_assemble_mount_value() {
-  local _host="${1:?_assemble_mount_value requires host}"
-  local _container="${2:?_assemble_mount_value requires container}"
-  local _mode_str="${3-}"
-  if [[ -n "${_mode_str}" ]]; then
-    printf '%s:%s:%s\n' "${_host}" "${_container}" "${_mode_str}"
-  else
-    printf '%s:%s\n' "${_host}" "${_container}"
-  fi
-}
-
 # _validate_gpu_count <value>
 #
 # Accepts "all" or a positive integer.
@@ -96,19 +80,6 @@ _validate_gpu_count() {
   local _v="${1-}"
   [[ "${_v}" == "all" ]] && return 0
   [[ "${_v}" =~ ^[1-9][0-9]*$ ]] && return 0
-  return 1
-}
-
-# _validate_enum <value> <opt1> [opt2...]
-#
-# Returns 0 if <value> matches any option exactly.
-_validate_enum() {
-  local _v="${1-}"; shift
-  [[ -z "${_v}" ]] && return 1
-  local _opt
-  for _opt in "$@"; do
-    [[ "${_v}" == "${_opt}" ]] && return 0
-  done
   return 1
 }
 
@@ -632,30 +603,6 @@ _mount_host_path() {
   local -n _mhp_out="${2:?}"
   _mhp_out="${_v%%:*}"
 }
-
-# _mount_container_path <mount_str> <outvar>
-#
-# Extracts the container-side path (the middle component between the
-# first ':' and the optional mode suffix).
-_mount_container_path() {
-  local _v="${1-}"
-  local -n _mcp_out="${2:?}"
-
-  local -a _parts=()
-  IFS=':' read -ra _parts <<< "${_v}"
-  _mcp_out="${_parts[1]:-}"
-}
-
-# ════════════════════════════════════════════════════════════════════
-# NVIDIA MIG detection
-#
-# MIG (Multi-Instance GPU, A100/H100+) splits one physical GPU into
-# isolated slices addressable by UUID. Docker's `count=N` reservation
-# targets whole GPUs, so to pin a specific slice users must set
-# NVIDIA_VISIBLE_DEVICES=<MIG-UUID> via [environment]. The TUI uses
-# these helpers to detect MIG mode and show the user the available
-# slice UUIDs before they edit the [deploy] count.
-# ════════════════════════════════════════════════════════════════════
 
 # _detect_mig
 #

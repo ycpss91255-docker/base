@@ -6735,7 +6735,7 @@ call begin + detach
 | `wiring: the 5 full verbs call _transcript_begin (#606)` | - |
 | `wiring: run/exec/setup_tui call both _transcript_begin and _transcript_detach (#608)` | - |
 
-### test/bats/unit/tui_backend_spec.bats (31)
+### test/bats/unit/tui_backend_spec.bats (30)
 
 Backend detection and wrapper-level arg forwarding. Uses a stub `dialog` /
 `whiptail` binary installed on PATH that logs argv and echoes a canned
@@ -6753,8 +6753,6 @@ propagates non-zero on cancel)
 
 - `_tui_menu` (computes item count, forwards tag/label pairs;
 `TUI_EXTRA_LABEL` no-op after #178; `--no-tags`, `--ok-label`)
-
-- `_tui_radiolist` (forwards tag/label/state triples)
 
 - `_tui_checklist` (passes `--separate-output`)
 
@@ -6784,7 +6782,6 @@ unification (#178: dialog also drops `--extra-button`)
 | `_tui_run forwards --ok-label / --cancel-label from env vars` | - |
 | `_tui_select with no ON item still forwards tags` | - |
 | `_tui_menu omits ok-label / cancel-label when env vars unset` | - |
-| `_tui_radiolist forwards tag/label/state triples` | - |
 | `_tui_checklist uses --separate-output` | - |
 | `_tui_msgbox invokes backend with --msgbox` | - |
 | `_tui_yesno passes --yesno and returns backend exit code` | - |
@@ -6798,17 +6795,173 @@ unification (#178: dialog also drops `--extra-button`)
 | `_tui_backend: an ambient TUI_OK_LABEL / TUI_CANCEL_LABEL does not reach the backend (#895)` | - |
 | `_tui_menu omits --extra-button / --extra-label on whiptail even when TUI_EXTRA_LABEL is set` | - |
 
+### test/bats/unit/tui_editor_flow_spec.bats (79)
+
+`tui_flow_spec.bats` proves the setup_tui.sh menus DISPATCH -- it spies on
+each section editor and asserts the right one was reached. What those
+editors then DO was the largest genuinely untested surface in the tree
+(base#1073 measured 307 untested bash lines in
+`dist/script/docker/wrapper/setup_tui.sh` with a real bash parser). This
+spec covers the bodies: what a menu row shows, which value a validator
+refuses, which namespaced key a write lands on, and what `main` /
+`_commit_and_setup` / `_do_reset` do to the world around them.
+
+It reuses the harness the flow spec established rather than inventing one:
+source setup_tui.sh, replace the `_tui_*` primitives with a file-backed
+scripted queue (a file, because the primitives are called inside `$(...)`
+and a variable-held cursor dies in the subshell), and assert on `_TUI_OVR_*`
+/ `_TUI_REMOVED` / `_TUI_CURRENT`. Two additions: `_tui_menu` records the
+rows it was asked to render, so a test can assert what the user is shown,
+and `_tui_msgbox` records its calls, so "warned" and "stayed silent" are
+both assertable.
+
+Two hazards this spec is written around, both load-bearing:
+
+- `FILE_PATH` is `readonly` and resolves to the sourced tree. Everything
+keyed on it is steered by replacing the function that reads it, or through
+`_TUI_SCRIPT_DIR` / `_TUI_TPL_DIR`, which are plain variables.
+
+- Nothing here writes under `FILE_PATH`. The suite runs many-way parallel
+over one shared source tree, so `_do_reset`'s `rm -f` is intercepted by a
+shell function (which also makes "reset deletes the per-repo conf"
+assertable) and `main`'s commit is a spy.
+
+Grouped by concern:
+
+- `_edit_section_build` (placeholder vs stored value, arg badge counts only
+populated slots, target_arch / network validation, Cancel returns to the
+menu instead of leaving)
+
+- `_edit_section_security` (privileged yes/no, per-list capability counts,
+cap_add / cap_drop / security_opt lists)
+
+- `_edit_logging_keys` (per-service namespacing, driver / max_size /
+max_file / local_path validation, compress boolean, inherit placeholder,
+missing-section refusal)
+
+- `_edit_section_resources` (the ipc=host advisory, still stores)
+
+- `_edit_section_devices` / `_edit_section_ports` (sub-list routing, the
+non-bridge ports advisory)
+
+- Per-stage editors (`_edit_section_per_stage`, `_edit_per_stage_one`,
+`_edit_stage_deploy`, `_edit_stage_network`, `_edit_stage_volumes`,
+`_edit_stage_environment`)
+
+- `_commit_and_setup` (baseline merged with overrides, removals dropped,
+setup.sh apply re-run against the repo's base path)
+
+- `_do_reset` (declined = untouched; confirmed = conf removed, template
+reloaded, pending edits cleared)
+
+- `main` (subcommand dispatch including the `resources` direct jump and the
+`gpu` alias, unknown argument, `--lang` fallback notice, missing backend,
+cancel saves nothing)
+
+- a dead-code guard: every function setup_tui.sh defines has to be reachable
+from `dist/`, with the population derived from the file and the callers from
+the shipped tree rather than kept as a roster
+
+- the editors and menu arms the flow suite only ever spied on
+(`_tui_init_lang`, `_mark_removed` dedupe, the re-prompt paths in
+`_edit_section_network` / `_edit_section_deploy`, `_edit_section_gui` /
+`_volumes` / `_tmpfs`, the Advanced and Runtime menu arms,
+`_edit_stage_list` on an entry already in the config, and
+`_list_dockerfile_stages_available` de-duplicating a repeated stage)
+
+| Test | Description |
+|------|-------------|
+| `_edit_section_build: unset arch and network render a named default, never a blank` | an unset target_arch / build network means "let BuildKit decide", not "empty". Rendering the raw value would print a row ending in a bare `=`, which reads as a broken menu rather than as a default. |
+| `_edit_section_build: the menu shows the stored target_arch and network` | the badge exists so the user can see the current pin without opening the editor; showing the stored value is the whole point of the row. |
+| `_edit_section_build: the args badge counts populated slots only` | a build arg the user cleared is an opt-out, not an entry. Counting it would show "(3)" over a list the editor renders with two rows. |
+| `_edit_section_build: an unknown architecture is refused and the old pin survives` | TARGETARCH reaches `docker build --platform`; an architecture BuildKit does not know fails the build long after the TUI closed, so the refusal belongs at the prompt and the previous pin must survive it. |
+| `_edit_section_build: a BuildKit architecture is accepted` | the accepting half of the same gate -- a registered architecture has to reach the override, or the editor refuses everything. |
+| `_edit_section_build: an empty architecture clears the pin` | clearing the field is how a user un-pins the architecture. Empty is a valid value here, not a validation failure, and it must be written rather than skipped -- setup.sh reads the empty key and omits TARGETARCH. |
+| `_edit_section_build: a network mode docker build would reject is refused` | `build.network` is passed straight to `docker build --network`; a value that flag rejects is a build failure, so it is refused here. |
+| `_edit_section_build: host is an accepted build network` | `host` is the documented workaround for hosts where bridge NAT is broken, so it has to survive the validator. |
+| `_edit_section_build: cancelling an input returns to the menu, not out of it` | Esc out of one field should return to the build menu, not leave the section -- otherwise a mistyped key drops the user back to the main menu and loses the rest of their edits. |
+| `_edit_section_build: args opens the shared list editor under [build]` | the args row is a doorway into the shared list editor; the entries it writes have to land in [build] as arg_N, not in the editor's own section. |
+| `_edit_section_build: Esc at the menu writes nothing` | Esc at the section menu is "I did not mean to open this"; it must leave without writing anything. |
+| `_edit_section_security: the privileged row shows the effective default` | privileged defaults to true in this tree, and the row is the only place the user sees that before deciding. A blank row would read as "not set" over a container that runs privileged. |
+| `_edit_section_security: answering yes writes privileged=true` | the yes/no answer is the whole decision; mapping it to a literal string is what compose reads. An inverted mapping silently grants privilege. |
+| `_edit_section_security: answering no writes privileged=false` | the other half of the same mapping -- declining must write the explicit false, not leave the key absent and inherit true. |
+| `_edit_section_security: each capability list counts only its own entries` | three separate lists share one menu, and their badges are counted in one pass over the same array. A prefix that matched too broadly would report cap_add's entries under cap_drop. |
+| `_edit_section_security: cap_add refuses a lower-case capability, accepts the canonical one` | Linux capability names are upper case; docker rejects the lower-case spelling, so the editor has to refuse it at the prompt and still accept the canonical one on the retry. |
+| `_edit_section_security: cap_drop and security_opt write under their own prefixes` | cap_drop and security_opt route through the same generic editor as cap_add; each has to land under its own prefix or two lists collapse into one. |
+| `_edit_logging_keys: a per-service edit lands in that service's section` | one editor serves [logging] and every [logging.<svc>]; the section it was opened for is the only thing that changes. Writing to the global key from the devel screen would silently retarget every service. |
+| `_edit_logging_keys: the per-service title names the service` | the screen title is the only thing telling the user which service they are editing, since every row below it is identical across services. |
+| `_edit_logging_keys: unset keys render as inherit, a set key renders its value` | an unset key inherits from the global block. Rendering it as blank would be indistinguishable from "set to empty", which is a different compose output. |
+| `_edit_logging_keys: a malformed driver name is refused` | the driver name reaches compose verbatim; a name with a leading digit or a space is not a driver docker can resolve, and the failure would surface at `docker compose up`, not here. |
+| `_edit_logging_keys: max_size without a unit is refused, then accepted with one` | `max-size` without a unit is not a size docker accepts; the editor has to send the user back and then take the corrected value. |
+| `_edit_logging_keys: max_file rejects zero and takes a positive count` | `max-file` is a count of rotated files; 0 would mean "keep no logs", which docker rejects outright. |
+| `_edit_logging_keys: compress writes the boolean the user answered` | compress is a compose boolean, so the yes/no answer has to become the literal `true` / `false` and not the shell's exit status. |
+| `_edit_logging_keys: a whitespace-only local_path is refused` | a whitespace-only path would be created by the apply step as a directory whose name is a space, and the emitted compose YAML would carry an empty bind source. |
+| `_edit_logging_keys: a real local_path is stored` | a real path has to get through, or the whole local_path feature is unreachable from the TUI. |
+| `_edit_logging_keys: refuses to open without a section` | the section is the namespace every write is keyed on. Defaulting it would write `.driver` into no section at all, so the editor refuses instead of guessing. |
+| `_edit_section_resources: warns that shm_size is inert under ipc=host, and still stores it` | with ipc=host the container shares the host's /dev/shm and shm_size does nothing. Saying so is the point of the advisory -- but the value is still stored, because the user may flip ipc later and expect it to be there. |
+| `_edit_section_resources: stays silent when ipc is not host` | the advisory must not fire when the setting does take effect, or it becomes noise the user learns to dismiss. |
+| `_edit_section_resources: cancelling leaves the stored size untouched` | Esc is not "set it to empty". Cancelling has to leave the stored size exactly as it was. |
+| `_edit_section_devices: device and cgroup_rule write to their own lists` | [devices] holds two unrelated lists behind one menu. A device entry filed as a cgroup rule (or the reverse) is emitted into the wrong compose key and the device never appears in the container. |
+| `_edit_section_ports: warns that a non-bridge mode will drop the mapping` | published ports are dropped by compose under network_mode host/none, so a user editing them there gets no error and no ports. The advisory is the only signal, and the entry is still accepted for when they switch to bridge. |
+| `_edit_section_ports: stays silent under bridge` | under bridge the mapping does take effect, so the warning must not fire. |
+| `_edit_section_per_stage: says so when the Dockerfile has no editable stage` | a Dockerfile with only baseline stages has nothing to override. The editor has to say so rather than open an empty menu the user can only back out of. |
+| `_edit_section_per_stage: labels a customised stage by count and an untouched one as inheriting` | the stage list is where a user finds out which stages they have already customised. A stage with overrides and one without must not read the same. |
+| `_edit_section_per_stage: clicking a stage opens that stage's editor` | clicking a stage row is how the per-stage editor is entered at all, and the stage name has to travel with the click. |
+| `_edit_per_stage_one: each row opens its own stage editor with the stage name` | five sections share one submenu and each has its own editor. A row wired to the wrong editor writes a correct-looking key into the wrong section of the stage. |
+| `_edit_stage_deploy: a picked key is written under the stage's deploy namespace` | a per-stage key only overrides its stage if it is written under the `stage:<name>.` namespace; the same key without it is a global change. |
+| `_edit_stage_deploy: unset keys show the inherit placeholder` | a stage with no override inherits the top-level value, and the row has to say that rather than show an empty cell. |
+| `_edit_stage_network: privileged is written into the stage's security section` | privileged is bundled into the stage's network screen for the user's convenience, but it lives in [security] in setup.conf. Writing it under `network.` would produce a key nothing reads. |
+| `_edit_stage_network: mode, ipc and network_name keep their own keys` | the three scalar rows share one dispatch arm; each has to keep its own dotted key or they overwrite one another. |
+| `_edit_stage_network: ports opens the stage's own port list` | the ports row is a sub-list, not a scalar; its entries have to land as numbered port_N keys inside the stage's network section. |
+| `_edit_stage_scalar: an empty value hands the key back to the top level` | an empty scalar is how a stage gives an override back; it must mark the key removed rather than store an empty string, which is a different compose result. |
+| `_edit_stage_volumes / _edit_stage_environment: each writes under its own section` | volumes and environment are the same list editor with different arguments; each must keep its own section and prefix. |
+| `_commit_and_setup: the edited value reaches the saved conf` | the value the user typed is the whole reason the TUI exists; it has to reach the file on disk, not just the in-memory override array. |
+| `_commit_and_setup: a key the user never touched survives the save` | the TUI edits one key at a time but saves the whole file. A baseline key the user never opened must survive the save, or every edit silently resets the rest of the config. |
+| `_commit_and_setup: re-runs setup.sh apply for the repo it saved` | .env.generated and compose.yaml are derived from setup.conf, so a save that does not re-run apply leaves the container running the previous configuration while the file says otherwise. |
+| `_commit_and_setup: reports the path it saved` | the saved path is the one thing the user needs after curses clears the screen; printing it is how they know where the edit went. |
+| `_do_reset: declining the confirmation changes nothing` | reset is destructive, so declining the confirmation has to change nothing at all -- no delete, no apply, no loss of the edits in progress. |
+| `_do_reset: confirmed, it drops the conf, re-applies and clears pending edits` | reset means "go back to the template". That is three things at once -- drop the per-repo file, re-seed it from the template, and throw away the pending edits -- and leaving any one of them out gives the user a menu that still shows values the file no longer has. |
+| `main: a section subcommand jumps straight to that section's editor` | `resources` is a SCHEMA_SECTIONS member, so `_tui_known_subcommand` accepts it and main dispatches straight to `_edit_section_<name>`. That CLI path is the section editor's only caller -- no menu row reaches it -- and this is the test that says so. |
+| `main: the gpu alias opens the deploy editor without the collision notice` | `deploy` is Compose's name for the GPU section and collides with `setup.sh deploy`; `gpu` is the unambiguous spelling of the same editor. The alias has to resolve to the same editor and stay silent about a collision the user has already avoided. |
+| `main: the deploy spelling opens the same editor and says which deploy it is` | the colliding spelling still works, but the user is told which of the two `deploy` commands they just got. Dropping the notice makes the two indistinguishable. |
+| `main: an argument that is not a section is reported` | an argument that is not a section is a typo, and silently opening the main menu would hide it. |
+| `main: an unknown --lang falls back and says so inside the TUI` | _sanitize_lang's stderr warning is wiped by curses before the user can read it, so the fallback has to be surfaced inside the TUI instead -- carrying the rejected value, or the user cannot tell what was wrong. |
+| `main: exits 2 when no dialog backend is installed` | without dialog or whiptail there is no TUI to run. Exiting 2 rather than 0 is what lets a wrapper tell "cancelled" from "cannot start". |
+| `main: cancelling the main menu saves nothing` | Cancel at the main menu means discard. Committing anyway would write the partial edits the user just backed out of. |
+| `main: Save & Exit commits and then runs the post hook` | Save & Exit is the only path that writes, and the post-tui hook fires after the write so a repo's hook sees the regenerated compose.yaml. |
+| `main: seeds the per-repo conf with an apply run when none exists` | on a repo that has never been set up there is no .setup.conf to load, so the menus would open on an empty config. main seeds it by running apply first; skipping that is how mount_1 detection went missing. |
+| `main: -h prints usage and does not open the menu` | -h must print usage rather than open the TUI, and it is the one path a user reaches when they do not know the subcommand names. |
+| `_tui_canonical_section: gpu resolves to deploy, other names are themselves` | `gpu` is an alias, not a section; everything else is its own name. Canonicalising the wrong way round would send `deploy` to a `_edit_section_gpu` that does not exist. |
+| `the TUI's shipped files define no function nothing can reach` | base#1073 found three functions in setup_tui.sh with no caller, and one of them had three specs -- so a test suite is not evidence that production code is reachable. A hand-kept roster of "known dead" would go stale the moment a caller is deleted, so the population is derived from the files and the callers from the shipped tree. Dynamic dispatch is resolved by asking the program which names it can dispatch, not by waving a prefix through, which is how `_edit_section_resources` -- whose only caller is main's `setup_tui.sh resources` direct jump -- stays in while a dead editor does not. The population is every shipped file of the TUI, not setup_tui.sh alone, because the dead code a TUI change leaves behind does not stay in one file. Deleting `_prompt_mount_with_picker` from the wrapper took with it the ONLY two call sites of `_tui_radiolist` in lib/_tui_backend.sh and the only caller of `_assemble_mount_value` in lib/_tui_conf.sh; a guard that reads the wrapper alone reports a clean tree while two primitives ship with nothing to call them. The glob is what makes that derived: a new `_tui_*.sh` joins the population by existing. |
+| `main: every schema section opens its editor or is refused by name` | main jumps straight to `"_edit_section_${_subcmd}"` for every name `_tui_known_subcommand` accepts, and that gate read the schema section list alone. `project` is on that list with a deliberate no-editor opt-out (schema.sh's SCHEMA_I18N note says the project name belongs in the gitignored .setup.conf.local, which the menu has no concept of), so `setup_tui.sh project` jumped to a function that does not exist -- a bash command-not-found, raised only after the backend probe and the seeding `setup.sh apply` run had already happened. Both directions are asserted over the whole SCHEMA_SECTIONS population, so a section that gains or loses an editor is covered without an edit here. |
+| `the dead-code guard names every shape of dead function planted in a tree` | the guard above is only worth its runtime if it would go red on a function that is dead TOMORROW, and every shape below is one it waved through at some point. Each is planted in a scratch tree and has to be named back. A plain dead helper is the control, which proves the planting works. A dead `_edit_section_*` is one a blanket prefix exemption waved through even though 14 of the file's editors have no caller but the `"_edit_section_${_subcmd}"` dispatch. One whose only mention outside its own definition is a trailing comment is one a whole-line-only comment strip counted as a caller. `rule_*` and `_TUI_MSG_*` are what harvesting every `"<name>_${` in the file as a dispatch prefix collects -- `image.rule_${_n}` and `_TUI_MSG_${_TUI_LANG_UPPER}`, a config-key prefix and an array-name prefix that dispatch no function at all -- and then exempts anything carrying them from the check entirely. A pair of dead functions that call each other survives mention-counting because each is the other's second mention, so a whole dead limb stays green. And one that names itself in its own `${1:?...}` message is its own second mention: not hypothetical, since that idiom appears 81 times in dist/, and it is why `_assemble_mount_value` outlived its only caller in lib/_tui_conf.sh without anything noticing. |
+| `_tui_init_lang: each supported locale selects its own message table` | every message lookup goes through the table _tui_init_lang selects, so a locale that maps to the wrong table (or falls through to English) makes the whole TUI monolingual for that user. Checked through _tui_msg rather than the index variable: the table is what the user reads. |
+| `_mark_removed: marking the same key twice lists it once` | the removal list is replayed key by key when the file is written, so a key marked twice would be processed twice. Clearing the same entry from two screens is ordinary use. |
+| `_edit_section_network: a rejected network_name re-prompts and then accepts` | an invalid network name has to send the user back to the SAME field with what they typed still in it -- re-prompting from the old value throws away the correction they were making. |
+| `_edit_section_network: a rejected shm_size re-prompts and then accepts` | the shm_size prompt only appears when ipc is not host, and its rejection path is the one a user hits by typing a size without a unit. |
+| `_edit_section_deploy: a rejected gpu_count re-prompts and then accepts` | gpu_count reaches compose's `count:`; a value that is neither `all` nor a positive integer is refused rather than written, and the loop asks again instead of leaving the section. |
+| `_edit_section_deploy: an unrecognised runtime is warned about, not written` | the runtime radio is the last step, and its rejection path does NOT loop -- it warns and leaves the key unwritten, so `runtime: nvidia` is never emitted from a value the resolver would not recognise. |
+| `_edit_section_lifecycle: an unrecognised restart policy is not written` | `restart:` goes into compose verbatim; a policy docker does not know fails the service at start, so an unrecognised one is refused here and the key is left alone. |
+| `_edit_section_gui: stores the picked mode, and nothing on Esc` | the GUI editor is a single radio and the flow suite only ever proved the menu reaches it. Its job is to store the picked mode -- and to store nothing when the user escapes. |
+| `_edit_section_volumes / _edit_section_tmpfs: each opens its own list` | volumes and tmpfs are one-line wrappers over the shared list editor, and the section/prefix pair they pass is the only thing that distinguishes them. A swapped pair files a bind mount as a tmpfs. |
+| `_render_main_menu: advanced opens the advanced sub-menu` | Advanced is the only route to security, named contexts and Reset, and the main menu is the only route to Advanced. |
+| `_render_runtime_menu: envinfo shows the guidance page and writes nothing` | the env-vars info page is guidance, not an editor -- the S2 invariant is that the TUI never writes .env. Reaching it must show the page and leave the config untouched. |
+| `_render_advanced_menu: offers per-stage when stages exist, and routes reset` | the per-stage row is conditional on the Dockerfile having a non-baseline stage, and Reset is the destructive entry. Both are dispatched from this menu and nowhere else. BOTH directions of the condition are asserted: offering per-stage on a Dockerfile with only a baseline stage opens an editor over an empty stage list, and asserting only the stages-exist branch leaves the condition itself untested -- making the row unconditional passed a suite that checked just the positive side. |
+| `_render_advanced_menu: no per-stage row when the Dockerfile has no extra stage` | the other half of that condition. A Dockerfile whose only stage is the baseline has nothing for the per-stage editor to edit, so the row must not be offered at all. |
+| `_edit_stage_list: an entry already in the config is offered and can be edited` | a stage list built only from pending overrides would not OFFER the entries already in setup.conf, and the user would have to retype a mount to change it. The row has to be rendered -- asserted here, because the queue would dispatch the click either way -- and editing it has to replace the value rather than append a second entry. |
+| `_list_dockerfile_stages_available: a stage named twice is offered once` | a Dockerfile that names one stage twice (a later `FROM ... AS extra` refining an earlier one) must offer that stage once; a duplicated row makes the per-stage menu look like there are two independent stages. |
+
 ### test/bats/unit/tui_flow_spec.bats (106)
 
 Interactive-flow tests for `setup_tui.sh` (#189). Sources `setup_tui.sh`
 directly and overrides `_tui_menu` / `_tui_select` / `_tui_inputbox` /
-`_tui_yesno` / `_tui_msgbox` / `_tui_radiolist` / `_tui_checklist` with
-file-backed stubs (queue lines popped via `head -n 1` + `sed -i 1d` so state
-survives the `$(...)` subshell calls). Each case scripts the user's click
-path, calls one section editor, and asserts on the resulting `_TUI_OVR_*` /
-`_TUI_REMOVED` / `_TUI_CURRENT` arrays — no real `dialog` / `whiptail` ever
-launches. Lifts `setup_tui.sh` per-file coverage from 18% to 83% by
-exercising the 5 high-value target areas the issue body called out.
+`_tui_yesno` / `_tui_msgbox` / `_tui_checklist` with file-backed stubs
+(queue lines popped via `head -n 1` + `sed -i 1d` so state survives the
+`$(...)` subshell calls). Each case scripts the user's click path, calls one
+section editor, and asserts on the resulting `_TUI_OVR_*` / `_TUI_REMOVED` /
+`_TUI_CURRENT` arrays — no real `dialog` / `whiptail` ever launches. Lifts
+`setup_tui.sh` per-file coverage from 18% to 83% by exercising the 5
+high-value target areas the issue body called out.
 
 Grouped by concern:
 
@@ -6876,7 +7029,7 @@ unknown args, tracks `SCHEMA_SECTIONS` additions)
 | `_render_main_menu: navigates into _edit_section_<choice> then Save` | - |
 | `_render_advanced_menu: __back exits the loop` | - |
 | `_render_advanced_menu: Cancel (rc!=0) exits via break` | - |
-| `_tui_known_subcommand accepts every SCHEMA_SECTIONS member (#561)` | - |
+| `_tui_known_subcommand accepts a SCHEMA_SECTIONS member iff it has an editor (#561)` | - |
 | `_tui_known_subcommand accepts the ports pseudo-section (#561)` | - |
 | `_tui_known_subcommand rejects an unknown argument (#561)` | - |
 | `_tui_known_subcommand derives from SCHEMA_SECTIONS (single source) (#561)` | - |
@@ -6974,26 +7127,7 @@ unknown args, tracks `SCHEMA_SECTIONS` additions)
 | `_render_advanced_menu: tmpfs entry no longer dispatches` | - |
 | `_render_advanced_menu: security still dispatches` | - |
 
-### test/bats/unit/tui_mount_assembler_spec.bats (9)
-
-Unit tests for the TUI mount-string assembler (`_assemble_mount_value` /
-`_prompt_mount_with_picker`, #461): host:container[:mode] composition,
-combined access/propagation modes, `_validate_mount` round-trip, and
-space-bearing path rejection (#687).
-
-| Test | Description |
-|------|-------------|
-| `_assemble_mount_value returns host:container when no mode (#461)` | Bare two-field mount |
-| `_assemble_mount_value returns host:container:mode for single mode (#461)` | Single-mode suffix |
-| `_assemble_mount_value accepts combined access,propagation (#461)` | Combined mode |
-| `_assemble_mount_value output validates via _validate_mount (#461)` | Round-trip validation |
-| `_assemble_mount_value empty mode means no suffix (#461)` | Empty-mode no suffix |
-| `_assemble_mount_value space-bearing path is rejected by _validate_mount (#687)` | Space-path rejection |
-| `_prompt_mount_with_picker assembles full mount string from picker steps (#461)` | Full picker assembly |
-| `_prompt_mount_with_picker no propagation gives just host:container:access (#461)` | Access-only picker |
-| `_prompt_mount_with_picker no access + no propagation gives just host:container (#461)` | Bare picker |
-
-### test/bats/unit/tui_spec.bats (140)
+### test/bats/unit/tui_spec.bats (134)
 
 Pure-logic unit tests for the TUI support libraries (`_tui_conf.sh`). No
 dialog/whiptail invocations here — strictly validators, mount-string
@@ -7006,8 +7140,6 @@ colons, invalid mode)
 
 - `_validate_gpu_count` ('all', positive int, reject
 0/negative/non-numeric/empty)
-
-- `_validate_enum` (match, non-match, empty)
 
 - `_mount_host_path` (plain, with mode, with env-var host)
 
@@ -7051,6 +7183,7 @@ overlay; writes no override)
 | `_validate_mount rejects missing colon` | - |
 | `_validate_mount rejects invalid mode` | - |
 | `_validate_mount rejects too many colons` | - |
+| `_validate_mount rejects a space-bearing path on either side (#687)` | a space-bearing path word-splits in `docker run -v /my data:/work` and corrupts the compose volumes list, so the refusal has to happen at the validator, before the value can reach an emitter. Both sides of the colon are guarded. Kept from tui_mount_assembler_spec.bats, which went away with `_assemble_mount_value` (base#1073): the assembler is gone but the value it used to build is still what a user can type into the mount editor by hand. |
 | `_validate_mount accepts propagation mode rslave (#450)` | - |
 | `_validate_mount accepts propagation mode rshared (#450)` | - |
 | `_validate_mount accepts propagation mode rprivate (#450)` | - |
@@ -7116,16 +7249,9 @@ overlay; writes no override)
 | `_validate_gpu_count rejects negative` | - |
 | `_validate_gpu_count rejects non-numeric` | - |
 | `_validate_gpu_count rejects empty` | - |
-| `_validate_enum accepts matching option` | - |
-| `_validate_enum rejects non-matching value` | - |
-| `_validate_enum rejects empty value` | - |
 | `_mount_host_path extracts plain host path` | - |
 | `_mount_host_path extracts host path with mode` | - |
 | `_mount_host_path extracts host path with env var` | - |
-| `_mount_container_path extracts plain container path` | - |
-| `_mount_container_path extracts container path with mode` | - |
-| `_mount_container_path extracts container path with env var` | - |
-| `_mount_container_path empty when input has no colon` | - |
 | `_load_setup_conf_full reads all sections preserving order` | - |
 | `_load_setup_conf_full reads key/value pairs` | - |
 | `_write_setup_conf preserves template comments and section order` | - |
