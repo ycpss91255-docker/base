@@ -6516,6 +6516,20 @@ is the smoke step, which iterates this same roster.
 | `main copies tmux.conf to config directory` | Config copy |
 | `script runs entry_point when executed directly` | Direct-run guard |
 
+### test/bats/unit/toml_bridge_spec.bats (9)
+
+| Test | Description |
+|------|-------------|
+| `toml-bridge: Dockerfile exists` | ADR-37 mandates a standalone toml-bridge image for containerised parsing |
+| `toml-bridge: Python version pinned with tool-pin marker` | reproducible builds require a pinned Python base with tool-pin marker |
+| `toml-bridge: tomli version pinned with tool-pin marker` | reproducible builds require a pinned tomli dependency with tool-pin marker |
+| `toml-bridge: Python bridge script exists in build context` | the Dockerfile COPY needs the script present in the build context |
+| `toml-bridge: bash shim exists and is sourceable` | the shim is the host-side entry point sourced by all TOML consumers |
+| `toml-bridge: shim converts TOML to JSON via docker run` | golden-path contract -- TOML in, JSON out, via docker run |
+| `toml-bridge: shim returns non-zero when docker run fails` | callers rely on non-zero exit to detect parse failures |
+| `toml-bridge: shim returns non-zero for missing file` | callers rely on non-zero exit for missing input before docker starts |
+| `toml-bridge: test-tools Dockerfile has COPY --from for toml-bridge` | downstream repos inherit the parser via test-tools without building toml-bridge |
+
 ### test/bats/unit/tool_pin_agreement_spec.bats (10)
 
 | Test | Description |

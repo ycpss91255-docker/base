@@ -83,6 +83,11 @@ ARG KCOV_VERSION=v43
 # leave the tag unchanged and silently reuse the previous image.
 # tool-pin: just github-release casey/just
 ARG JUST_VERSION=1.58.0
+# toml-bridge: the containerised TOML parser (ADR-37). The image is built
+# from dockerfile/Dockerfile.toml-bridge BEFORE this file; downstream repos
+# inherit the parser through the test-tools-stage COPY pattern. The ARG
+# lets the build script pass whatever tag it built toml-bridge under.
+ARG TOML_BRIDGE_IMAGE=toml-bridge:local
 
 # ── The alpine every package-installing stage below derives from ────────
 #
@@ -251,6 +256,9 @@ RUN apk add --no-cache \
     make -C /tmp/kcov/build -j"$(nproc)" && \
     make -C /tmp/kcov/build install
 
+# hadolint ignore=DL3006
+FROM ${TOML_BRIDGE_IMAGE} AS toml-bridge-src
+
 # Final stage: bash + bats + shellcheck + hadolint + bats-{support,assert,mock}
 # + parallel + git + ca-certificates + kcov.
 # bash is required because /opt/bats/bin/bats is a `#!/usr/bin/env bash` script
@@ -330,4 +338,5 @@ COPY --from=lint-tools /usr/local/bin/shellcheck /usr/local/bin/
 COPY --from=lint-tools /usr/local/bin/hadolint /usr/local/bin/
 COPY --from=kcov-builder /usr/local/bin/kcov /usr/local/bin/kcov
 COPY --from=just-runner /usr/local/bin/just /usr/local/bin/just
+COPY --from=toml-bridge-src /usr/local/bin/toml-bridge /usr/local/bin/toml-bridge
 RUN ln -s /opt/bats/bin/bats /usr/local/bin/bats
