@@ -158,14 +158,27 @@ is_removed() {
   return 1
 }
 
+# Both of these are called almost everywhere as `menu_row "$(_tui_msg
+# <key>)"` / `warned "$(_tui_msg <key>)"`, and an empty needle makes
+# grep match anything -- so blanking a message string in all four locale
+# tables left every assertion about it passing while the user got an
+# empty menu row or an empty warning box. A message that resolves to
+# nothing is a failure here, not a wildcard.
+
 # Was <row> one of the rows a menu was asked to render?
-menu_row() { grep -Fqx -- "${1}" "${_MFILE}"; }
+menu_row() {
+  [ -n "${1}" ] || return 1
+  grep -Fqx -- "${1}" "${_MFILE}"
+}
 
 # How many menus were rendered?
 menu_renders() { grep -c -- '^---$' "${_MFILE}"; }
 
 # Did any msgbox carry <text>?
-warned() { grep -Fq -- "${1}" "${_BOXFILE}"; }
+warned() {
+  [ -n "${1}" ] || return 1
+  grep -Fq -- "${1}" "${_BOXFILE}"
+}
 
 # Did nothing pop a msgbox at all?
 never_warned() { [[ ! -s "${_BOXFILE}" ]]; }
@@ -1322,7 +1335,11 @@ unreachable_functions() {
 
 # why: the per-stage row is conditional on the Dockerfile having a
 # non-baseline stage, and Reset is the destructive entry. Both are dispatched
-# from this menu and nowhere else.
+# from this menu and nowhere else. BOTH directions of the condition are
+# asserted: offering per-stage on a Dockerfile with only a baseline stage
+# opens an editor over an empty stage list, and asserting only the
+# stages-exist branch leaves the condition itself untested -- making the
+# row unconditional passed a suite that checked just the positive side.
 @test "_render_advanced_menu: offers per-stage when stages exist, and routes reset" {
   _list_dockerfile_stages_available() { local -n _o="${1}"; _o=(extra); }
   _SEEN="${BATS_TEST_TMPDIR}/seen"
@@ -1334,6 +1351,17 @@ unreachable_functions() {
   menu_row "$(_tui_msg advanced.per_stage)"
   grep -Fqx -- 'per_stage' "${_SEEN}"
   grep -Fqx -- 'reset' "${_SEEN}"
+}
+
+# why: the other half of that condition. A Dockerfile whose only stage is
+# the baseline has nothing for the per-stage editor to edit, so the row
+# must not be offered at all.
+@test "_render_advanced_menu: no per-stage row when the Dockerfile has no extra stage" {
+  _list_dockerfile_stages_available() { local -n _o="${1}"; _o=(); }
+  queue "0|__back"
+  _render_advanced_menu
+  run menu_row "$(_tui_msg advanced.per_stage)"
+  [ "${status}" -ne 0 ]
 }
 
 # why: a stage list built only from pending overrides would not OFFER the

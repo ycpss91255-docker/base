@@ -6724,7 +6724,7 @@ unification (#178: dialog also drops `--extra-button`)
 | `_tui_backend: an ambient TUI_OK_LABEL / TUI_CANCEL_LABEL does not reach the backend (#895)` | - |
 | `_tui_menu omits --extra-button / --extra-label on whiptail even when TUI_EXTRA_LABEL is set` | - |
 
-### test/bats/unit/tui_editor_flow_spec.bats (78)
+### test/bats/unit/tui_editor_flow_spec.bats (79)
 
 `tui_flow_spec.bats` proves the setup_tui.sh menus DISPATCH -- it spies on
 each section editor and asserts the right one was reached. What those
@@ -6875,7 +6875,8 @@ the shipped tree rather than kept as a roster
 | `_edit_section_volumes / _edit_section_tmpfs: each opens its own list` | volumes and tmpfs are one-line wrappers over the shared list editor, and the section/prefix pair they pass is the only thing that distinguishes them. A swapped pair files a bind mount as a tmpfs. |
 | `_render_main_menu: advanced opens the advanced sub-menu` | Advanced is the only route to security, named contexts and Reset, and the main menu is the only route to Advanced. |
 | `_render_runtime_menu: envinfo shows the guidance page and writes nothing` | the env-vars info page is guidance, not an editor -- the S2 invariant is that the TUI never writes .env. Reaching it must show the page and leave the config untouched. |
-| `_render_advanced_menu: offers per-stage when stages exist, and routes reset` | the per-stage row is conditional on the Dockerfile having a non-baseline stage, and Reset is the destructive entry. Both are dispatched from this menu and nowhere else. |
+| `_render_advanced_menu: offers per-stage when stages exist, and routes reset` | the per-stage row is conditional on the Dockerfile having a non-baseline stage, and Reset is the destructive entry. Both are dispatched from this menu and nowhere else. BOTH directions of the condition are asserted: offering per-stage on a Dockerfile with only a baseline stage opens an editor over an empty stage list, and asserting only the stages-exist branch leaves the condition itself untested -- making the row unconditional passed a suite that checked just the positive side. |
+| `_render_advanced_menu: no per-stage row when the Dockerfile has no extra stage` | the other half of that condition. A Dockerfile whose only stage is the baseline has nothing for the per-stage editor to edit, so the row must not be offered at all. |
 | `_edit_stage_list: an entry already in the config is offered and can be edited` | a stage list built only from pending overrides would not OFFER the entries already in setup.conf, and the user would have to retype a mount to change it. The row has to be rendered -- asserted here, because the queue would dispatch the click either way -- and editing it has to replace the value rather than append a second entry. |
 | `_list_dockerfile_stages_available: a stage named twice is offered once` | a Dockerfile that names one stage twice (a later `FROM ... AS extra` refining an earlier one) must offer that stage once; a duplicated row makes the per-stage menu look like there are two independent stages. |
 
