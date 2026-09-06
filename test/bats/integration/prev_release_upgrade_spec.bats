@@ -499,13 +499,19 @@ _seeded_repo_conf() {
 #   the repo's own file was in effect, and the shipped template's
 #   `[environment]` is empty, so any key at all there is the repo's.
 #
-#   The override is written WHOLESALE rather than appended to. `[image]`
-#   already carries `rule_1`, the chain takes the first rule that matches,
-#   and a second `rule_1` further down the file would never be reached --
-#   an arm that asserted against the seeded default while believing it had
-#   asserted against its own value. Section-replace (lib/conf.sh
-#   `_conf_load_layers`) makes a two-section override a legitimate shape:
-#   every other section still comes from the template.
+#   The values are written IN PLACE, over the file the release's own
+#   bootstrap seeded, rather than as a two-section file replacing it.
+#   `[image]` already carries `rule_1` and the chain takes the first rule
+#   that matches, so an APPENDED second `rule_1` would never be reached --
+#   an arm asserting against the seeded default while believing it had
+#   asserted against its own value. Replacing the whole file would fix
+#   that and cost more: section-replace (lib/conf.sh `_conf_load_layers`)
+#   means a two-section file also DELETES every other section the repo
+#   had, so a migration that dropped `[volumes]`, `[deploy]` or
+#   `[network]` on the floor would still satisfy an arm that only ever
+#   wrote `[image]` and `[environment]`. An edit in place is the shape a
+#   real repo has, and it is what lets the workspace-bind assertion below
+#   ask whether the rest of the file came through too.
 _assert_release_carries_its_config() {
   local _tag="${1:?BUG: _assert_release_carries_its_config expects a tag}"
 
@@ -518,13 +524,18 @@ _assert_release_carries_its_config() {
   [[ -f "${CONSUMER}/${_conf}" ]] \
     || fail "${_tag}: its own bootstrap seeded no per-repo setup.conf, so this arm has no configuration to carry"
 
-  cat > "${CONSUMER}/${_conf}" <<'EOF'
-[image]
-rule_1 = string:base1086-carried-config
-
-[environment]
-env_1 = BASE1086_MARKER=carried
-EOF
+  # Rewrite the two keys in place. Both spellings are asserted to have
+  # landed: a `sed` that matched nothing would leave the arm testing the
+  # seeded default under its own name.
+  sed -i 's|^rule_1 = prefix:docker_$|rule_1 = string:base1086-carried-config|' \
+    "${CONSUMER}/${_conf}"
+  awk '{ print } /^\[environment\]$/ { print "env_1 = BASE1086_MARKER=carried" }' \
+    "${CONSUMER}/${_conf}" > "${BATS_TEST_TMPDIR}/conf.edited"
+  mv "${BATS_TEST_TMPDIR}/conf.edited" "${CONSUMER}/${_conf}"
+  grep -Fqx 'rule_1 = string:base1086-carried-config' "${CONSUMER}/${_conf}" \
+    || fail "${_tag}: its seeded ${_conf} has no '[image] rule_1 = prefix:docker_' to rewrite, so this arm would assert against the shipped default"
+  grep -Fqx 'env_1 = BASE1086_MARKER=carried' "${CONSUMER}/${_conf}" \
+    || fail "${_tag}: its seeded ${_conf} has no '[environment]' section to add a key to, so this arm would assert against the shipped default"
   git -C "${CONSUMER}" add -A
   git -C "${CONSUMER}" commit -q -m "chore: the repo's own configuration" || true
 
@@ -547,6 +558,16 @@ EOF
   run cat "${CONSUMER}/.env"
   assert_output --partial "BASE1086_MARKER="
   assert_output --partial "carried"
+
+  # And the REST of the file came through with them. `[volumes] mount_1`
+  # is the one the repo cannot work without and the one nothing in this
+  # arm wrote: the seeded override carries the portable
+  # `${WS_PATH}:/home/${USER_NAME}/work` form, so a migration that
+  # replaced the file with a subset -- or replaced the section with the
+  # shipped default, which is empty -- takes the workspace bind out of
+  # `compose.yaml` while every assertion above still passes.
+  run cat "${CONSUMER}/compose.yaml"
+  assert_output --partial '${WS_PATH}:/home/${USER_NAME}/work'
 
   # And the override is at the one path the CURRENT tree reads, with no
   # orphan left behind at the old one for the next reader to trust.

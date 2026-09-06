@@ -285,3 +285,66 @@ _git_init() {
   assert [ -f "${TEMP_DIR}/.setup.conf" ]
   assert [ ! -e "${TEMP_DIR}/config/docker/setup.conf" ]
 }
+
+# why: The test above says "without staging" but stands in a directory no
+# repository contains, so it never asks the question. `git -C <root>`
+# answers for the nearest ENCLOSING work tree, and a hand-bootstrapped
+# repo living inside somebody else's checkout has one -- which is the
+# whole reason _setup_conf_git_can_stage exists (ADR-00000006). A `git
+# mv` reached without that fence writes the relocation into a third
+# party's index, and the person who ran `just base init` on their own
+# tree finds it in someone else's `git status`.
+@test "_migrate_legacy_setup_conf leaves a surrounding repository's index alone (#1086)" {
+  local _outer="${TEMP_DIR}/outer"
+  local _root="${_outer}/inner"
+  mkdir -p "${_root}/.base/dist" "${_root}/config/docker"
+  git -C "${_outer}" init -q -b main
+  git -C "${_outer}" config user.email t@t
+  git -C "${_outer}" config user.name t
+  TPL_DIR="${_root}/.base/dist" _seed_template
+  cat > "${_root}/config/docker/setup.conf" <<'CONF'
+[image]
+rule_1 = string:inside_someone_elses_checkout
+CONF
+  git -C "${_outer}" add -A
+  git -C "${_outer}" commit -q -m "the surrounding checkout, as its owner left it"
+
+  run bash -c "$(_src); _migrate_legacy_setup_conf '${_root}' '${_root}/.base/dist'"
+  assert_success
+  # The relocation itself still happens -- the repo gets its config back.
+  run cat "${_root}/.setup.conf"
+  assert_output --partial "rule_1 = string:inside_someone_elses_checkout"
+  # ... but nothing of it is written into the enclosing repository's
+  # index. Its owner's `git status` shows unstaged worktree changes at
+  # most, never a staged rename they did not make.
+  run git -C "${_outer}" diff --cached --name-only
+  assert_output ""
+}
+
+# why: A symlink is a POINTER, and a relative one is spelled against the
+# directory it sits in. `git mv`/`mv` move the pointer, so an override
+# reached through `config/docker/setup.conf -> setup.conf.real` arrives at
+# the repo root still naming `setup.conf.real` -- which is not there. The
+# repo ends up with a DANGLING `.setup.conf`, running on the template
+# defaults, under a log line announcing that its configuration was
+# relocated. So the CONTENT moves, and the file the link named is left
+# exactly where its owner put it.
+@test "_migrate_legacy_setup_conf relocates a symlinked override by content (#1086)" {
+  _seed_template
+  _seed_legacy
+  mv "${TEMP_DIR}/config/docker/setup.conf" \
+     "${TEMP_DIR}/config/docker/setup.conf.real"
+  ln -s "setup.conf.real" "${TEMP_DIR}/config/docker/setup.conf"
+
+  run bash -c "$(_src); _migrate_legacy_setup_conf '${TEMP_DIR}' '${TPL_DIR}'"
+  assert_success
+  assert [ -f "${TEMP_DIR}/.setup.conf" ]
+  assert [ ! -L "${TEMP_DIR}/.setup.conf" ]
+  run cat "${TEMP_DIR}/.setup.conf"
+  assert_output --partial "rule_1 = string:omniverse_web_viewer"
+  assert_output --partial "env_1 = SIGNALING_SERVER=localhost"
+  # The link is consumed; the file it named is not the migration's to
+  # touch.
+  assert [ ! -e "${TEMP_DIR}/config/docker/setup.conf" ]
+  assert [ -f "${TEMP_DIR}/config/docker/setup.conf.real" ]
+}
