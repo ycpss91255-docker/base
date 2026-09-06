@@ -426,6 +426,15 @@ jobs:
     #                     re-raises a version pair whose PR was closed --
     #                     which is how docker/build-push-action ran at v6
     #                     here and v7 everywhere else for months, green
+    #   spec-repo-root    no spec under the coverage pools points a
+    #                     `*REPO_ROOT` at the live checkout. A spec that
+    #                     does runs the LINT inside the coverage suite,
+    #                     under kcov, on the matrix's critical path --
+    #                     base#1075 measured one at 331s of a 501s shard,
+    #                     making the same assertion the driver's own
+    #                     lint-static group makes in 77s. The coverage
+    #                     suite tests a driver against fixtures; the tree
+    #                     is this phase's to assert
     #
     # GROUPED, not one job per driver, and not one job for the phase
     # (base#1071). One job per driver read best in the checks list -- the

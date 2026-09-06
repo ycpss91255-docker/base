@@ -30,10 +30,13 @@
 # So the rule is a placement rule, not a coverage one: the coverage suite
 # tests a driver against FIXTURES, and the lint jobs test the tree. The
 # driver's own behaviour -- what it flags, what it ignores, how it reports
-# -- is asserted by the cheap fixture cases beside the one this refuses,
-# and base#1075 measured that removing the real-tree cases from all
-# twenty-one of them changed the covered-line set of the suite by nothing
-# at all.
+# -- is asserted by the cheap fixture cases beside the one this refuses.
+# base#1075 measured the coverage cost of removing all twenty-three of
+# them before removing any: two full runs of the unchanged tree recorded
+# the same 8591 covered lines of 10195, and the tree with all twenty-three
+# gone -- plus the four fixtures that replace the one contribution they
+# had -- records the same 8591, with the symmetric difference empty in
+# both directions.
 #
 # ── Why this is derived and not a list ─────────────────────────────────────
 #
@@ -59,7 +62,7 @@
 # Three ways this could go green having checked nothing, each a _die: a
 # pool that resolves to no directory, a scan that finds no spec file, and a
 # scan that finds no `*REPO_ROOT=` assignment ANYWHERE. The third is the
-# one that matters: ~40 fixture-rooted assignments exist today, so zero
+# one that matters: 58 fixture-rooted assignments exist today, so zero
 # means the detector has gone blind (a renamed variable, a changed quoting
 # convention), and a blind detector reports a clean tree.
 #
@@ -68,11 +71,28 @@
 # A spec that reaches the live tree by some other spelling: reading a file
 # under the mount directly (`grep ... /source/justfile` -- cheap, common,
 # and deliberately allowed), or invoking a tool whose root DEFAULTS to the
-# checkout when the variable is unset (script/watch/pins.sh resolves its
-# own location's grandparent). The rule is about the one input that makes a
-# driver walk a tree, not about every path to the mount; a rule wide enough
-# to cover the second would flag the hundreds of cheap single-file reads
-# this suite is built out of, which is the noise that gets a lint muted.
+# checkout when the variable is unset. The rule is about the one input that
+# makes a driver walk a tree, not about every path to the mount; a rule wide
+# enough to cover the second would flag the hundreds of cheap single-file
+# reads this suite is built out of, which is the noise that gets a lint
+# muted.
+#
+# THAT REMAINDER IS MEASURED, not assumed, so the next reader does not have
+# to rediscover its size. On a warm 32-way `just test coverage-local` of
+# the tree this lint now passes, 174 tests in the pools invoke the live
+# `script/test/test.sh` and cost 157.5s of the suite's 2298.9s -- 6.8%,
+# and the largest remaining share of whole-tree work in the suite. The top
+# of that list is THIS SAME SHAPE reached through the host-direct lint
+# entry rather than through an assignment: `--pin-coverage-only` 27.6s,
+# `--ci LINT_TOOL=doc-counts` 17.3s, `--doc-counts-only` 16.4s,
+# `--readme-sync-only` 5.3s.
+#
+# They are not refused here, and the reason is a real obstacle rather than
+# a judgement call: they assert the ENTRY POINT -- that `--<tool>-only`
+# runs on the host with no compose -- and test.sh derives REPO_ROOT from
+# its OWN location, so there is no fixture root to point them at. Making
+# that derivation overridable is the change to make before widening this
+# rule, not after. Until then the cost is above, not implied.
 
 # ── The spec REPO_ROOT lint ────────────────────────────────────────────────
 
