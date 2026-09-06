@@ -265,12 +265,36 @@ jobs:
           fi
 
   shellcheck:
-    # Dedicated ShellCheck job (#376). Runs on plain ubuntu-latest where
-    # shellcheck is pre-installed, no buildx / test-tools image needed.
-    # A 30s shellcheck regression now surfaces in ~45s wall time instead
-    # of waiting for the full bats suite inside the `test` job. The
-    # `test` job passes --bats-only so the shellcheck phase doesn't run
-    # twice; local `just test` keeps the full pipeline.
+    # Dedicated ShellCheck job (#376). Still no buildx and no test-tools
+    # image -- one release tarball instead, so the job keeps the SHAPE it
+    # was split out for: a plain runner, one checkout, nothing pulled.
+    #
+    # What that shape costs is 43-67s, median ~60, over the last 22 `main`
+    # runs of the job BEFORE this change; the tarball adds a 2.5 MB
+    # download and an install to that, and nobody has measured the sum,
+    # because this shape has not run in CI yet. The number is written as a
+    # range with its sample for the reason ADR-00000028 gives: quoting the
+    # fastest of those runs would be a tuned constant that reads as a
+    # promise. The claim being made is about the shape, not the clock.
+    #
+    # The point of the split is unchanged: a shellcheck regression
+    # surfaces in about a minute instead of waiting for the full bats
+    # suite inside the `test` job. The `test` job passes --bats-only so
+    # the shellcheck phase doesn't run twice; local `just test` keeps the
+    # full pipeline.
+    #
+    # THE BINARY USED TO BE THE RUNNER'S (base#1080). "shellcheck is
+    # pre-installed, no image needed" was true and was the whole
+    # configuration, which made this required check the one place in the
+    # pipeline running a tool the tree never named. pin-coverage could not
+    # see it -- its question is "is every version this tree NAMES
+    # declared", and this job named none -- so the local gate, which runs
+    # v0.11.0 out of the test-tools image, could not predict CI in EITHER
+    # direction. The cheap direction is a red PR on a gate-green branch;
+    # the expensive one is silent, CI green on a finding the pinned
+    # version would have caught. And `ubuntu-latest` is rebuilt
+    # continuously, so which of the two is stricter changed with GitHub's
+    # release schedule rather than with a commit here.
     needs: [actionlint, classify]
     if: needs.classify.outputs.code_changed == 'true'
     runs-on: ubuntu-latest
@@ -278,6 +302,51 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
+      - name: Install the pinned ShellCheck
+        # The version is READ from the one declaration, never restated
+        # here: script/ci/test-tools-pins.sh reads every
+        # `ARG <NAME>_VERSION=` out of dockerfile/Dockerfile.test-tools,
+        # and the release smoke step of release-test-tools.yaml reads the
+        # same accessor. A literal in this file that agreed with the
+        # Dockerfile today would be a second place to forget tomorrow.
+        #
+        # An empty read is a hard failure rather than an empty-string
+        # interpolation: that is the state a renamed ARG or a moved file
+        # produces, and a `download/.../shellcheck-.linux.x86_64.tar.xz`
+        # 404 would report as a network problem instead of as the pin
+        # having gone missing.
+        #
+        # The architecture comes from `uname -m`, which speaks the same
+        # spelling the release assets use (x86_64 / aarch64), so this step
+        # follows the runner rather than assuming the one label the job
+        # names today.
+        run: |
+          set -euo pipefail
+          version="$(./script/ci/test-tools-pins.sh roster \
+                       | awk -F'\t' '$1 == "SHELLCHECK_VERSION" { print $2 }')"
+          if [[ -z "${version}" ]]; then
+            echo "could not read SHELLCHECK_VERSION from the pin roster. The ARG declaration moved, or the accessor did. Refusing to install an unnamed version." >&2
+            exit 1
+          fi
+          arch="$(uname -m)"
+          url="https://github.com/koalaman/shellcheck/releases/download/${version}/shellcheck-${version}.linux.${arch}.tar.xz"
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 "${url}" | tar -xJ -C /tmp
+          sudo install -m 0755 "/tmp/shellcheck-${version}/shellcheck" /usr/local/bin/shellcheck
+
+      - name: The binary on PATH must BE the pin
+        # Installing a tarball proves a download happened. It does not
+        # prove which shellcheck the next step resolves: the runner's
+        # pre-installed copy is still on this machine, and a PATH order or
+        # an install location that changed would put this job back on it
+        # with nothing red. So the question is asked of `shellcheck
+        # --version` itself, through the same comparison the published
+        # image is smoke-tested with.
+        run: |
+          set -euo pipefail
+          observed="$(shellcheck --version | sed -n 's/^version: /v/p')"
+          ./script/ci/test-tools-pins.sh check SHELLCHECK_VERSION "${observed}"
+          echo "shellcheck: ${observed}, which is the pin"
 
       - name: Run ShellCheck
         run: ./script/test/test.sh --shellcheck-only
