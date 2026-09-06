@@ -1,0 +1,883 @@
+<title>base 設定架構</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@400;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+:root {
+  --bg: #F5F3EF;
+  --surface: #FFFFFF;
+  --surface-2: #EDEAE4;
+  --text-1: #1C1917;
+  --text-2: #57534E;
+  --text-3: #A8A29E;
+  --border: #D6D3D1;
+  --infra: #1B4965;
+  --infra-soft: #D4E8F5;
+  --infra-fill: #EBF4FA;
+  --svc: #92400E;
+  --svc-soft: #FEF3C7;
+  --svc-fill: #FFFBEB;
+  --gen: #166534;
+  --gen-soft: #DCFCE7;
+  --gen-fill: #F0FDF4;
+  --overlay: #6D28D9;
+  --overlay-soft: #EDE9FE;
+  --overlay-fill: #F5F3FF;
+  --warn: #B91C1C;
+  --warn-soft: #FEE2E2;
+  --code-bg: #F0EDEA;
+  --arrow: #78716C;
+}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg: #1A1D23;
+  --surface: #22262E;
+  --surface-2: #2A2F38;
+  --text-1: #E7E5E4;
+  --text-2: #A8A29E;
+  --text-3: #6B6660;
+  --border: #3A3F48;
+  --infra: #7DD3FC;
+  --infra-soft: #0C3A5A;
+  --infra-fill: #0F2A3E;
+  --svc: #FCD34D;
+  --svc-soft: #452C08;
+  --svc-fill: #2A1D06;
+  --gen: #4ADE80;
+  --gen-soft: #0A3520;
+  --gen-fill: #071F14;
+  --overlay: #C4B5FD;
+  --overlay-soft: #2E1A60;
+  --overlay-fill: #1E1340;
+  --warn: #FCA5A5;
+  --warn-soft: #450A0A;
+  --code-bg: #1E2128;
+  --arrow: #78716C;
+}}
+:root[data-theme="dark"]{
+  --bg: #1A1D23;
+  --surface: #22262E;
+  --surface-2: #2A2F38;
+  --text-1: #E7E5E4;
+  --text-2: #A8A29E;
+  --text-3: #6B6660;
+  --border: #3A3F48;
+  --infra: #7DD3FC;
+  --infra-soft: #0C3A5A;
+  --infra-fill: #0F2A3E;
+  --svc: #FCD34D;
+  --svc-soft: #452C08;
+  --svc-fill: #2A1D06;
+  --gen: #4ADE80;
+  --gen-soft: #0A3520;
+  --gen-fill: #071F14;
+  --overlay: #C4B5FD;
+  --overlay-soft: #2E1A60;
+  --overlay-fill: #1E1340;
+  --warn: #FCA5A5;
+  --warn-soft: #450A0A;
+  --code-bg: #1E2128;
+  --arrow: #78716C;
+}
+
+body {
+  font-family: 'Inter', system-ui, sans-serif;
+  color: var(--text-1);
+  background: var(--bg);
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 2.5rem 1.5rem 5rem;
+  line-height: 1.7;
+}
+
+h1 {
+  font-family: 'Source Serif 4', Georgia, serif;
+  font-size: 1.65rem;
+  font-weight: 700;
+  margin: 0 0 0.15rem;
+  text-wrap: balance;
+}
+.subtitle {
+  color: var(--text-2);
+  font-size: 0.88rem;
+  margin-bottom: 0.3rem;
+}
+.ref {
+  font-size: 0.78rem;
+  color: var(--text-3);
+  margin-bottom: 2.8rem;
+}
+.ref a { color: var(--text-3); }
+
+h2 {
+  font-family: 'Source Serif 4', Georgia, serif;
+  font-size: 1.15rem;
+  font-weight: 600;
+  margin: 3rem 0 0.8rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1.5px solid var(--border);
+  letter-spacing: -0.01em;
+}
+h2 .num {
+  color: var(--text-3);
+  font-weight: 400;
+  margin-right: 0.3em;
+  font-variant-numeric: tabular-nums;
+}
+
+h3 {
+  font-size: 0.92rem;
+  font-weight: 600;
+  margin: 1.4rem 0 0.4rem;
+}
+
+p, .desc {
+  margin: 0.55rem 0;
+  max-width: 66ch;
+  font-size: 0.9rem;
+}
+
+code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.82em;
+  background: var(--code-bg);
+  padding: 0.1em 0.35em;
+  border-radius: 3px;
+}
+pre {
+  background: var(--code-bg);
+  padding: 0.9rem 1rem;
+  border-radius: 5px;
+  font-size: 0.8rem;
+  font-family: 'JetBrains Mono', monospace;
+  overflow-x: auto;
+  color: var(--text-1);
+  margin: 0.8rem 0;
+  line-height: 1.55;
+}
+
+figure { margin: 1.4rem 0; }
+figcaption {
+  font-size: 0.8rem;
+  color: var(--text-2);
+  margin-top: 0.5rem;
+  max-width: 66ch;
+  line-height: 1.5;
+}
+
+svg { max-width: 100%; height: auto; display: block; }
+svg text { font-family: 'JetBrains Mono', monospace; }
+
+.tbl-wrap { overflow-x: auto; margin: 1rem 0; }
+table { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
+th {
+  text-align: left;
+  padding: 0.5rem 0.7rem;
+  border-bottom: 2px solid var(--border);
+  font-weight: 600;
+  white-space: nowrap;
+  font-size: 0.8rem;
+  letter-spacing: 0.02em;
+}
+td {
+  padding: 0.45rem 0.7rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.badge {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 0.15em 0.55em;
+  border-radius: 3px;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+.badge-infra { background: var(--infra-soft); color: var(--infra); }
+.badge-svc { background: var(--svc-soft); color: var(--svc); }
+.badge-gen { background: var(--gen-soft); color: var(--gen); }
+.badge-overlay { background: var(--overlay-soft); color: var(--overlay); }
+.badge-warn { background: var(--warn-soft); color: var(--warn); }
+
+.callout {
+  border-left: 3px solid var(--infra);
+  padding: 0.7rem 1rem;
+  border-radius: 0 4px 4px 0;
+  margin: 1rem 0;
+  font-size: 0.86rem;
+  line-height: 1.55;
+}
+.callout-infra { background: var(--infra-fill); border-left-color: var(--infra); }
+.callout-svc { background: var(--svc-fill); border-left-color: var(--svc); }
+.callout-gen { background: var(--gen-fill); border-left-color: var(--gen); }
+.callout-overlay { background: var(--overlay-fill); border-left-color: var(--overlay); }
+.callout-warn { background: var(--warn-soft); border-left-color: var(--warn); }
+
+.side {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+@media(max-width: 640px) { .side { grid-template-columns: 1fr; } }
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 1rem 1.2rem;
+}
+</style>
+
+<h1>base 設定架構</h1>
+<p class="subtitle">ADR-00000037 TOML 設定格式統一 -- 架構參考圖</p>
+<p class="ref">ADR-37 | ADR-3 (env/workload 邊界) | ADR-25 (section-replace) | ADR-36 (參數化 generate API) | 2026-09-06</p>
+
+<!-- 1. Four-File Structure -->
+<h2><span class="num">1.</span> 四檔結構</h2>
+
+<p>所有人工編輯的 Docker config 統一為 TOML。四個檔案，按<strong>服務邊界</strong>分割：</p>
+
+<figure>
+<svg viewBox="0 0 880 320" role="img" aria-label="Four TOML files split by service boundary">
+<defs>
+  <marker id="ar" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="7" markerHeight="5.5" orient="auto"><path d="M0,0 L10,4 L0,8Z" fill="var(--arrow)" opacity="0.6"/></marker>
+</defs>
+
+<line x1="440" y1="20" x2="440" y2="300" stroke="var(--border)" stroke-width="1.5" stroke-dasharray="6 4"/>
+<rect x="408" y="0" width="64" height="18" rx="9" fill="var(--bg)" stroke="var(--border)" stroke-width="0.8"/>
+<text x="440" y="13" text-anchor="middle" font-size="8" font-weight="600" fill="var(--text-2)">BOUNDARY</text>
+
+<!-- LEFT: Docker Infrastructure -->
+<rect x="16" y="28" width="400" height="270" rx="6" fill="var(--infra-fill)" stroke="var(--infra)" stroke-width="1" opacity="0.5"/>
+<text x="32" y="50" font-size="11" font-weight="700" fill="var(--infra)">Docker 基礎建設</text>
+<text x="32" y="64" font-size="8" fill="var(--text-2)">容器如何組裝與執行</text>
+
+<rect x="36" y="80" width="170" height="58" rx="4" fill="var(--surface)" stroke="var(--infra)" stroke-width="1.2"/>
+<text x="121" y="98" text-anchor="middle" font-size="10.5" font-weight="600" fill="var(--text-1)">setup.toml</text>
+<text x="121" y="112" text-anchor="middle" font-size="7.5" fill="var(--infra)">已提交（repo 的）</text>
+<text x="121" y="124" text-anchor="middle" font-size="7" fill="var(--text-3)">image, build, deploy, gui, network,</text>
+<text x="121" y="133" text-anchor="middle" font-size="7" fill="var(--text-3)">security, volumes, devices, lifecycle...</text>
+
+<rect x="230" y="80" width="170" height="58" rx="4" fill="var(--surface)" stroke="var(--overlay)" stroke-width="1.2"/>
+<text x="315" y="98" text-anchor="middle" font-size="10.5" font-weight="600" fill="var(--text-1)">setup.local.toml</text>
+<text x="315" y="112" text-anchor="middle" font-size="7.5" fill="var(--overlay)">gitignored（操作者的）</text>
+<text x="315" y="124" text-anchor="middle" font-size="7" fill="var(--text-3)">每個 worktree / 每個 instance</text>
+<text x="315" y="133" text-anchor="middle" font-size="7" fill="var(--text-3)">覆蓋 setup.toml</text>
+
+<line x1="209" y1="109" x2="227" y2="109" stroke="var(--overlay)" stroke-width="1" marker-end="url(#ar)"/>
+<text x="218" y="103" text-anchor="middle" font-size="6" fill="var(--overlay)">overrides</text>
+
+<rect x="36" y="160" width="170" height="42" rx="4" fill="var(--surface-2)" stroke="var(--border)" stroke-width="0.8"/>
+<text x="121" y="178" text-anchor="middle" font-size="9" fill="var(--text-2)">dist/setup.toml</text>
+<text x="121" y="192" text-anchor="middle" font-size="7" fill="var(--text-3)">模板預設（base 出貨）</text>
+
+<line x1="121" y1="160" x2="121" y2="141" stroke="var(--arrow)" stroke-width="0.8" marker-end="url(#ar)"/>
+<text x="130" y="154" font-size="6" fill="var(--text-3)">base layer</text>
+
+<rect x="36" y="218" width="364" height="66" rx="4" fill="var(--surface)" stroke="var(--border)" stroke-width="0.7"/>
+<text x="50" y="236" font-size="8" font-weight="600" fill="var(--text-1)">Sections（來自 setup.conf 15 個 sections）：</text>
+<text x="50" y="250" font-size="7.5" fill="var(--text-2)">[project] [image] [build] [deploy] [lifecycle] [gui] [network]</text>
+<text x="50" y="262" font-size="7.5" fill="var(--text-2)">[security] [resources] [tmpfs] [devices] [volumes] [additional_contexts] [logging]</text>
+<text x="50" y="276" font-size="7" fill="var(--warn)">* [environment] section 遷出至 .env.toml</text>
+
+<!-- RIGHT: Container Service -->
+<rect x="464" y="28" width="400" height="270" rx="6" fill="var(--svc-fill)" stroke="var(--svc)" stroke-width="1" opacity="0.5"/>
+<text x="480" y="50" font-size="11" font-weight="700" fill="var(--svc)">容器服務 Runtime</text>
+<text x="480" y="64" font-size="8" fill="var(--text-2)">應用程式內部如何運作</text>
+
+<rect x="484" y="80" width="170" height="58" rx="4" fill="var(--surface)" stroke="var(--svc)" stroke-width="1.2"/>
+<text x="569" y="98" text-anchor="middle" font-size="10.5" font-weight="600" fill="var(--text-1)">.env.toml</text>
+<text x="569" y="112" text-anchor="middle" font-size="7.5" fill="var(--svc)">已提交（repo 的）</text>
+<text x="569" y="124" text-anchor="middle" font-size="7" fill="var(--text-3)">ROS_DOMAIN_ID, LOG_LEVEL,</text>
+<text x="569" y="133" text-anchor="middle" font-size="7" fill="var(--text-3)">WATCHDOG_ENABLED, app params...</text>
+
+<rect x="678" y="80" width="170" height="58" rx="4" fill="var(--surface)" stroke="var(--overlay)" stroke-width="1.2"/>
+<text x="763" y="98" text-anchor="middle" font-size="10.5" font-weight="600" fill="var(--text-1)">.env.local.toml</text>
+<text x="763" y="112" text-anchor="middle" font-size="7.5" fill="var(--overlay)">gitignored（操作者的）</text>
+<text x="763" y="124" text-anchor="middle" font-size="7" fill="var(--text-3)">每個 instance 的服務 env</text>
+<text x="763" y="133" text-anchor="middle" font-size="7" fill="var(--text-3)">overrides .env.toml</text>
+
+<line x1="657" y1="109" x2="675" y2="109" stroke="var(--overlay)" stroke-width="1" marker-end="url(#ar)"/>
+<text x="666" y="103" text-anchor="middle" font-size="6" fill="var(--overlay)">overrides</text>
+
+<rect x="484" y="160" width="170" height="42" rx="4" fill="var(--surface-2)" stroke="var(--border)" stroke-width="0.8"/>
+<text x="569" y="178" text-anchor="middle" font-size="9" fill="var(--text-2)">dist/.env.toml</text>
+<text x="569" y="192" text-anchor="middle" font-size="7" fill="var(--text-3)">模板預設（base 出貨）</text>
+
+<line x1="569" y1="160" x2="569" y2="141" stroke="var(--arrow)" stroke-width="0.8" marker-end="url(#ar)"/>
+<text x="578" y="154" font-size="6" fill="var(--text-3)">base layer</text>
+
+<rect x="484" y="218" width="364" height="66" rx="4" fill="var(--surface)" stroke="var(--border)" stroke-width="0.7"/>
+<text x="498" y="236" font-size="8" font-weight="600" fill="var(--text-1)">邊界判定準則（ADR-3 Axis A）：</text>
+<text x="498" y="252" font-size="7.5" fill="var(--text-2)">與機器綁定（換機器時會變嗎？）</text>
+<text x="498" y="264" font-size="7.5" fill="var(--infra)">會 -> setup.toml（Docker 基礎建設）</text>
+<text x="498" y="276" font-size="7.5" fill="var(--svc)">不會，任務易變 -> .env.toml（服務 runtime）</text>
+</svg>
+<figcaption>四檔結構。左半: Docker 基礎建設（容器如何組裝與執行）。右半: 容器服務 runtime（應用程式如何運作）。兩者<strong>零交集</strong>; 若發現重疊, <code>.env.toml</code> 優先。<code>[environment]</code> section 從 setup 遷出到 <code>.env.toml</code>。</figcaption>
+</figure>
+
+<div class="tbl-wrap">
+<table>
+<thead><tr><th>檔案</th><th>擁有者</th><th>關注點</th><th>分層</th></tr></thead>
+<tbody>
+<tr><td><code>setup.toml</code></td><td>repo（已提交）</td><td>Docker 基礎建設</td><td>template -> repo -> caller-supplied (ADR-36)</td></tr>
+<tr><td><code>setup.local.toml</code></td><td>操作者（gitignored）</td><td>每個 instance 的基礎建設覆蓋</td><td>覆蓋 setup.toml</td></tr>
+<tr><td><code>.env.toml</code></td><td>repo（已提交）</td><td>容器服務 runtime env</td><td>template -> repo</td></tr>
+<tr><td><code>.env.local.toml</code></td><td>操作者（gitignored）</td><td>每個 instance 的服務 env</td><td>覆蓋 .env.toml</td></tr>
+</tbody>
+</table>
+</div>
+
+<!-- 2. Type-Aware Merge Semantics -->
+<h2><span class="num">2.</span> 型別感知合併語意</h2>
+
+<p>TOML spec 不定義 merge。本專案的合併規則由型別決定，符合 6/8 業界系統的共識：</p>
+
+<figure>
+<svg viewBox="0 0 880 280" role="img" aria-label="Type-aware merge: scalar tables use key-level merge, array of tables uses array replace">
+
+<!-- SCALAR SIDE -->
+<rect x="16" y="10" width="410" height="260" rx="6" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="0.8" opacity="0.5"/>
+<text x="32" y="32" font-size="11" font-weight="700" fill="var(--gen)">[table] Scalar: Key-Level Merge</text>
+<text x="32" y="46" font-size="8" fill="var(--text-2)">上層只覆蓋它定義的 key；其餘繼承</text>
+
+<rect x="32" y="60" width="175" height="80" rx="3" fill="var(--surface)" stroke="var(--border)" stroke-width="0.8"/>
+<text x="42" y="76" font-size="8" font-weight="600" fill="var(--text-2)">setup.toml（底層）</text>
+<text x="42" y="92" font-size="8.5" fill="var(--text-1)">[gui]</text>
+<text x="42" y="105" font-size="8" fill="var(--text-1)">mode = "auto"</text>
+<text x="42" y="117" font-size="8" fill="var(--text-1)">scale = 1.0</text>
+<text x="42" y="129" font-size="8" fill="var(--text-1)">dpi = 96</text>
+
+<rect x="32" y="150" width="175" height="60" rx="3" fill="var(--surface)" stroke="var(--overlay)" stroke-width="0.8"/>
+<text x="42" y="166" font-size="8" font-weight="600" fill="var(--overlay)">setup.local.toml（覆蓋層）</text>
+<text x="42" y="182" font-size="8.5" fill="var(--text-1)">[gui]</text>
+<text x="42" y="195" font-size="8" fill="var(--overlay)">mode = "wayland"</text>
+
+<line x1="210" y1="140" x2="240" y2="140" stroke="var(--gen)" stroke-width="1.2" marker-end="url(#ar)"/>
+<text x="225" y="134" text-anchor="middle" font-size="7" fill="var(--gen)">merge</text>
+
+<rect x="245" y="70" width="170" height="90" rx="3" fill="var(--surface)" stroke="var(--gen)" stroke-width="1.2"/>
+<text x="255" y="86" font-size="8" font-weight="600" fill="var(--gen)">已解析</text>
+<text x="255" y="102" font-size="8.5" fill="var(--text-1)">[gui]</text>
+<text x="255" y="115" font-size="8" fill="var(--overlay)" font-weight="500">mode = "wayland"</text>
+<text x="370" y="115" font-size="6.5" fill="var(--overlay)">已覆蓋</text>
+<text x="255" y="128" font-size="8" fill="var(--text-1)">scale = 1.0</text>
+<text x="370" y="128" font-size="6.5" fill="var(--text-3)">繼承</text>
+<text x="255" y="141" font-size="8" fill="var(--text-1)">dpi = 96</text>
+<text x="370" y="141" font-size="6.5" fill="var(--text-3)">繼承</text>
+
+<rect x="245" y="175" width="170" height="32" rx="3" fill="var(--gen-soft)" stroke="var(--gen)" stroke-width="0.6"/>
+<text x="330" y="194" text-anchor="middle" font-size="7.5" font-weight="600" fill="var(--gen)">只需 1 個 key，不用整個 section</text>
+
+<text x="32" y="237" font-size="7.5" fill="var(--text-2)">之前（ADR-25 section-replace）：操作者只為了改 mode</text>
+<text x="32" y="249" font-size="7.5" fill="var(--text-2)">就必須複製整個 [gui] section。現在：只需一個 key。</text>
+
+<!-- ARRAY SIDE -->
+<rect x="454" y="10" width="410" height="260" rx="6" fill="var(--warn-soft)" stroke="var(--warn)" stroke-width="0.8" opacity="0.4"/>
+<text x="470" y="32" font-size="11" font-weight="700" fill="var(--warn)">[[array of tables]]: Array Replace</text>
+<text x="470" y="46" font-size="8" fill="var(--text-2)">上層的任何 entry 都會取代整個 array</text>
+
+<rect x="470" y="60" width="185" height="90" rx="3" fill="var(--surface)" stroke="var(--border)" stroke-width="0.8"/>
+<text x="480" y="76" font-size="8" font-weight="600" fill="var(--text-2)">setup.toml（底層）</text>
+<text x="480" y="92" font-size="8.5" fill="var(--text-1)">[[volumes]]</text>
+<text x="480" y="105" font-size="8" fill="var(--text-1)">source = "./src"</text>
+<text x="480" y="115" font-size="8" fill="var(--text-1)">target = "/opt/ws"</text>
+<text x="480" y="128" font-size="8.5" fill="var(--text-1)">[[volumes]]</text>
+<text x="480" y="141" font-size="8" fill="var(--text-1)">source = "/dev/shm"</text>
+
+<rect x="470" y="160" width="185" height="60" rx="3" fill="var(--surface)" stroke="var(--overlay)" stroke-width="0.8"/>
+<text x="480" y="176" font-size="8" font-weight="600" fill="var(--overlay)">setup.local.toml（覆蓋層）</text>
+<text x="480" y="192" font-size="8.5" fill="var(--text-1)">[[volumes]]</text>
+<text x="480" y="205" font-size="8" fill="var(--overlay)">source = "./my-data"</text>
+
+<line x1="658" y1="140" x2="688" y2="140" stroke="var(--warn)" stroke-width="1.2" marker-end="url(#ar)"/>
+<text x="673" y="134" text-anchor="middle" font-size="7" fill="var(--warn)">replace</text>
+
+<rect x="693" y="70" width="160" height="70" rx="3" fill="var(--surface)" stroke="var(--warn)" stroke-width="1.2"/>
+<text x="703" y="86" font-size="8" font-weight="600" fill="var(--warn)">已解析</text>
+<text x="703" y="102" font-size="8.5" fill="var(--text-1)">[[volumes]]</text>
+<text x="703" y="115" font-size="8" fill="var(--overlay)" font-weight="500">source = "./my-data"</text>
+<text x="703" y="130" font-size="7" fill="var(--warn)">底層 entries 消失</text>
+
+<rect x="693" y="155" width="160" height="48" rx="3" fill="var(--warn-soft)" stroke="var(--warn)" stroke-width="0.6"/>
+<text x="773" y="172" text-anchor="middle" font-size="7.5" font-weight="600" fill="var(--warn)">所見即所得</text>
+<text x="773" y="185" text-anchor="middle" font-size="7" fill="var(--text-2)">沒有隱藏的繼承 entries</text>
+<text x="773" y="196" text-anchor="middle" font-size="7" fill="var(--text-2)">沒有 append 的歧義</text>
+
+<text x="470" y="237" font-size="7.5" fill="var(--text-2)">業界共識（6/8 系統）：Podman、Helm、Ansible、</text>
+<text x="470" y="249" font-size="7.5" fill="var(--text-2)">Git config、toml-merge、Kustomize。Docker Compose/NixOS 用 append</text>
+<text x="470" y="261" font-size="7.5" fill="var(--text-2)">但兩者都需要逃脫機制（!reset、mkForce）。</text>
+</svg>
+<figcaption>左：scalar <code>[table]</code> key-level merge -- overlay 只寫想改的 key，其餘繼承。右：<code>[[array of tables]]</code> 整組替換 -- overlay 寫了任何一個 entry 就取代全部。修正了 ADR-25 sec.3 的 blanket section-replace（scalar section 不再受連累）。</figcaption>
+</figure>
+
+<div class="callout callout-overlay">
+<strong>修正 ADR-25 sec.3：</strong>Section-replace 不再是全面性的。合併規則現在由型別決定。ADR-25 sec.3 的推理（ordered list 不能 key-merge）仍然正確，成為 array-replace 那一半的基礎。
+</div>
+
+<!-- 3. Override Chain -->
+<h2><span class="num">3.</span> 覆蓋鏈</h2>
+
+<figure>
+<svg viewBox="0 0 880 180" role="img" aria-label="Three-layer override chain per file pair">
+
+<text x="16" y="18" font-size="10" font-weight="600" fill="var(--infra)">setup.toml chain</text>
+
+<rect x="16" y="28" width="150" height="40" rx="3" fill="var(--surface-2)" stroke="var(--border)" stroke-width="0.8"/>
+<text x="91" y="44" text-anchor="middle" font-size="9" fill="var(--text-2)">dist/setup.toml</text>
+<text x="91" y="58" text-anchor="middle" font-size="7" fill="var(--text-3)">模板預設</text>
+
+<line x1="169" y1="48" x2="195" y2="48" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ar)"/>
+<text x="182" y="42" text-anchor="middle" font-size="6" fill="var(--text-3)">low</text>
+
+<rect x="198" y="28" width="150" height="40" rx="3" fill="var(--surface)" stroke="var(--infra)" stroke-width="1"/>
+<text x="273" y="44" text-anchor="middle" font-size="9" fill="var(--text-1)">setup.toml</text>
+<text x="273" y="58" text-anchor="middle" font-size="7" fill="var(--infra)">repo 覆蓋</text>
+
+<line x1="351" y1="48" x2="377" y2="48" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ar)"/>
+
+<rect x="380" y="28" width="170" height="40" rx="3" fill="var(--surface)" stroke="var(--overlay)" stroke-width="1"/>
+<text x="465" y="44" text-anchor="middle" font-size="9" fill="var(--text-1)">setup.local.toml</text>
+<text x="465" y="58" text-anchor="middle" font-size="7" fill="var(--overlay)">操作者 / 呼叫者 (ADR-36)</text>
+
+<line x1="553" y1="48" x2="579" y2="48" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ar)"/>
+<text x="566" y="42" text-anchor="middle" font-size="6" fill="var(--text-3)">high</text>
+
+<rect x="582" y="28" width="140" height="40" rx="3" fill="var(--gen-soft)" stroke="var(--gen)" stroke-width="1"/>
+<text x="652" y="44" text-anchor="middle" font-size="9" font-weight="500" fill="var(--gen)">已解析 config</text>
+<text x="652" y="58" text-anchor="middle" font-size="7" fill="var(--gen)">型別感知合併</text>
+
+<text x="16" y="108" font-size="10" font-weight="600" fill="var(--svc)">.env.toml chain</text>
+
+<rect x="16" y="118" width="150" height="40" rx="3" fill="var(--surface-2)" stroke="var(--border)" stroke-width="0.8"/>
+<text x="91" y="134" text-anchor="middle" font-size="9" fill="var(--text-2)">dist/.env.toml</text>
+<text x="91" y="148" text-anchor="middle" font-size="7" fill="var(--text-3)">模板預設</text>
+
+<line x1="169" y1="138" x2="195" y2="138" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ar)"/>
+
+<rect x="198" y="118" width="150" height="40" rx="3" fill="var(--surface)" stroke="var(--svc)" stroke-width="1"/>
+<text x="273" y="134" text-anchor="middle" font-size="9" fill="var(--text-1)">.env.toml</text>
+<text x="273" y="148" text-anchor="middle" font-size="7" fill="var(--svc)">repo 覆蓋</text>
+
+<line x1="351" y1="138" x2="377" y2="138" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ar)"/>
+
+<rect x="380" y="118" width="170" height="40" rx="3" fill="var(--surface)" stroke="var(--overlay)" stroke-width="1"/>
+<text x="465" y="134" text-anchor="middle" font-size="9" fill="var(--text-1)">.env.local.toml</text>
+<text x="465" y="148" text-anchor="middle" font-size="7" fill="var(--overlay)">操作者</text>
+
+<line x1="553" y1="138" x2="579" y2="138" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ar)"/>
+
+<rect x="582" y="118" width="140" height="40" rx="3" fill="var(--gen-soft)" stroke="var(--gen)" stroke-width="1"/>
+<text x="652" y="134" text-anchor="middle" font-size="9" font-weight="500" fill="var(--gen)">已解析 env</text>
+<text x="652" y="148" text-anchor="middle" font-size="7" fill="var(--gen)">型別感知合併</text>
+
+<text x="770" y="48" font-size="8" fill="var(--text-3)">優先順序：右方勝出</text>
+<text x="770" y="138" font-size="8" fill="var(--text-3)">優先順序：右方勝出</text>
+</svg>
+<figcaption>每條鏈由低到高：模板預設 -> repo 覆蓋 -> 操作者/呼叫者。兩條鏈獨立解析，各自產生已解析 config 和已解析 env。</figcaption>
+</figure>
+
+<!-- 4. Generation Pipeline -->
+<h2><span class="num">4.</span> 生成 Pipeline</h2>
+
+<p>TOML 是輸入格式；生成的輸出維持 Docker-native 格式不變。</p>
+
+<figure>
+<svg viewBox="0 0 880 240" role="img" aria-label="TOML inputs flow through conf.sh to generate compose.yaml, .env, .env.local, .env.generated">
+<defs>
+  <marker id="ar2" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="7" markerHeight="5.5" orient="auto"><path d="M0,0 L10,4 L0,8Z" fill="var(--infra)" opacity="0.7"/></marker>
+  <marker id="ar3" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="7" markerHeight="5.5" orient="auto"><path d="M0,0 L10,4 L0,8Z" fill="var(--gen)" opacity="0.7"/></marker>
+</defs>
+
+<rect x="16" y="16" width="160" height="36" rx="3" fill="var(--infra-fill)" stroke="var(--infra)" stroke-width="1"/>
+<text x="96" y="31" text-anchor="middle" font-size="9.5" fill="var(--infra)" font-weight="500">setup.toml chain</text>
+<text x="96" y="44" text-anchor="middle" font-size="7" fill="var(--text-3)">三層已解析</text>
+
+<rect x="16" y="68" width="160" height="36" rx="3" fill="var(--svc-fill)" stroke="var(--svc)" stroke-width="1"/>
+<text x="96" y="83" text-anchor="middle" font-size="9.5" fill="var(--svc)" font-weight="500">.env.toml chain</text>
+<text x="96" y="96" text-anchor="middle" font-size="7" fill="var(--text-3)">三層已解析</text>
+
+<line x1="179" y1="34" x2="230" y2="68" stroke="var(--infra)" stroke-width="1" marker-end="url(#ar2)"/>
+<line x1="179" y1="86" x2="230" y2="86" stroke="var(--svc)" stroke-width="1" marker-end="url(#ar2)"/>
+
+<rect x="234" y="42" width="200" height="90" rx="4" fill="var(--surface)" stroke="var(--infra)" stroke-width="1.5"/>
+<text x="334" y="62" text-anchor="middle" font-size="11" fill="var(--text-1)" font-weight="600">TOML Parser</text>
+<text x="334" y="78" text-anchor="middle" font-size="8" fill="var(--text-2)">conf.sh（取代 _ini_tokenize）</text>
+<text x="334" y="92" text-anchor="middle" font-size="8" fill="var(--text-2)">型別感知合併</text>
+<text x="334" y="106" text-anchor="middle" font-size="8" fill="var(--text-2)">schema 驗證</text>
+<text x="334" y="122" text-anchor="middle" font-size="7" fill="var(--warn)">Host 工具：taplo / dasel / docker bootstrap（待決）</text>
+
+<line x1="437" y1="60" x2="492" y2="30" stroke="var(--gen)" stroke-width="1" marker-end="url(#ar3)"/>
+<line x1="437" y1="78" x2="492" y2="78" stroke="var(--gen)" stroke-width="1" marker-end="url(#ar3)"/>
+<line x1="437" y1="96" x2="492" y2="128" stroke="var(--gen)" stroke-width="1" marker-end="url(#ar3)"/>
+<line x1="437" y1="110" x2="492" y2="178" stroke="var(--gen)" stroke-width="1" marker-end="url(#ar3)"/>
+<text x="465" y="55" text-anchor="middle" font-size="7" fill="var(--gen)">emit</text>
+
+<rect x="496" y="12" width="180" height="36" rx="3" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="1"/>
+<text x="586" y="27" text-anchor="middle" font-size="9.5" fill="var(--gen)" font-weight="500">compose.yaml</text>
+<text x="586" y="40" text-anchor="middle" font-size="7" fill="var(--text-3)">來自 setup.toml（基礎建設）</text>
+
+<rect x="496" y="60" width="180" height="36" rx="3" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="1"/>
+<text x="586" y="75" text-anchor="middle" font-size="9.5" fill="var(--gen)" font-weight="500">.env</text>
+<text x="586" y="88" text-anchor="middle" font-size="7" fill="var(--text-3)">基礎建設 env + 服務 env 預設值</text>
+
+<rect x="496" y="110" width="180" height="36" rx="3" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="1"/>
+<text x="586" y="125" text-anchor="middle" font-size="9.5" fill="var(--gen)" font-weight="500">.env.local</text>
+<text x="586" y="138" text-anchor="middle" font-size="7" fill="var(--text-3)">來自 .env.local.toml</text>
+
+<rect x="496" y="160" width="180" height="36" rx="3" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="1"/>
+<text x="586" y="175" text-anchor="middle" font-size="9.5" fill="var(--gen)" font-weight="500">.env.generated</text>
+<text x="586" y="188" text-anchor="middle" font-size="7" fill="var(--text-3)">插值快取（僅 host 端）</text>
+
+<rect x="700" y="18" width="160" height="26" rx="3" fill="var(--surface)" stroke="var(--border)" stroke-width="0.6"/>
+<text x="780" y="35" text-anchor="middle" font-size="7.5" fill="var(--text-2)">驅動 docker compose up</text>
+
+<rect x="700" y="66" width="160" height="26" rx="3" fill="var(--surface)" stroke="var(--border)" stroke-width="0.6"/>
+<text x="780" y="83" text-anchor="middle" font-size="7.5" fill="var(--text-2)">env_file：進入容器</text>
+
+<rect x="700" y="116" width="160" height="26" rx="3" fill="var(--surface)" stroke="var(--border)" stroke-width="0.6"/>
+<text x="780" y="133" text-anchor="middle" font-size="7.5" fill="var(--text-2)">env_file：進入容器</text>
+
+<rect x="700" y="166" width="160" height="26" rx="3" fill="var(--surface)" stroke="var(--border)" stroke-width="0.6"/>
+<text x="780" y="183" text-anchor="middle" font-size="7.5" fill="var(--text-2)">留在 host 端（快取）</text>
+
+<rect x="234" y="150" width="200" height="46" rx="4" fill="var(--overlay-fill)" stroke="var(--overlay)" stroke-width="0.8"/>
+<text x="334" y="168" text-anchor="middle" font-size="8" font-weight="600" fill="var(--overlay)">ADR-36 API 邊界</text>
+<text x="334" y="180" text-anchor="middle" font-size="7.5" fill="var(--text-2)">Config format 是 generate API 內部的</text>
+<text x="334" y="192" text-anchor="middle" font-size="7.5" fill="var(--text-2)">Orchestrator 只看到輸出</text>
+
+<rect x="16" y="210" width="860" height="24" rx="12" fill="var(--surface-2)" stroke="var(--border)" stroke-width="0.6"/>
+<text x="446" y="226" text-anchor="middle" font-size="9" font-weight="600" fill="var(--text-2)">TOML 輸入 -> Shell KEY=VALUE + YAML 輸出（所有消費者的格式不變）</text>
+</svg>
+<figcaption>TOML 是人工編輯的輸入格式。生成的輸出（compose.yaml, .env, .env.local, .env.generated）維持 Docker-native 格式不變。ADR-36 將 config format 遷移限制在 generate API 邊界內。</figcaption>
+</figure>
+
+<!-- 5. Host / Container Boundary -->
+<h2><span class="num">5.</span> Host / Container 邊界</h2>
+
+<figure>
+<svg viewBox="0 0 880 270" role="img" aria-label="Host side must parse TOML before any container exists">
+
+<rect x="1" y="1" width="878" height="128" rx="5" fill="var(--infra-fill)" stroke="var(--infra)" stroke-width="1" stroke-dasharray="6 3" opacity="0.6"/>
+<text x="16" y="20" font-size="11" font-weight="700" fill="var(--infra)">HOST</text>
+<text x="64" y="20" font-size="8" fill="var(--text-2)">bash 4.4+ / awk / sed / just</text>
+
+<rect x="20" y="34" width="110" height="34" rx="3" fill="var(--surface)" stroke="var(--border)" stroke-width="0.7"/>
+<text x="75" y="48" text-anchor="middle" font-size="8.5" fill="var(--text-1)">just build/run</text>
+<text x="75" y="60" text-anchor="middle" font-size="7" fill="var(--text-3)">wrapper 入口</text>
+
+<line x1="133" y1="51" x2="152" y2="51" stroke="var(--arrow)" stroke-width="0.8" marker-end="url(#ar)"/>
+
+<rect x="155" y="34" width="110" height="34" rx="3" fill="var(--surface)" stroke="var(--border)" stroke-width="0.7"/>
+<text x="210" y="48" text-anchor="middle" font-size="8.5" fill="var(--text-1)">_lib.sh</text>
+<text x="210" y="60" text-anchor="middle" font-size="7" fill="var(--text-3)">載入模組</text>
+
+<line x1="268" y1="51" x2="287" y2="51" stroke="var(--arrow)" stroke-width="0.8" marker-end="url(#ar)"/>
+
+<rect x="290" y="28" width="180" height="48" rx="3" fill="var(--surface)" stroke="var(--infra)" stroke-width="1.3"/>
+<text x="380" y="44" text-anchor="middle" font-size="9" fill="var(--text-1)" font-weight="600">conf.sh + TOML parser</text>
+<text x="380" y="57" text-anchor="middle" font-size="7.5" fill="var(--infra)">解析 + 型別感知合併</text>
+<text x="380" y="68" text-anchor="middle" font-size="7" fill="var(--warn)">TOML 遷移點</text>
+
+<line x1="473" y1="52" x2="492" y2="52" stroke="var(--arrow)" stroke-width="0.8" marker-end="url(#ar)"/>
+
+<rect x="495" y="34" width="140" height="34" rx="3" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="0.7"/>
+<text x="565" y="48" text-anchor="middle" font-size="8.5" fill="var(--text-1)">emit + 生成</text>
+<text x="565" y="60" text-anchor="middle" font-size="7" fill="var(--gen)">env + compose</text>
+
+<line x1="638" y1="52" x2="657" y2="52" stroke="var(--arrow)" stroke-width="0.8" marker-end="url(#ar)"/>
+
+<rect x="660" y="28" width="95" height="18" rx="2" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="0.6"/>
+<text x="707" y="40" text-anchor="middle" font-size="7.5" fill="var(--gen)">.env</text>
+<rect x="660" y="50" width="95" height="18" rx="2" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="0.6"/>
+<text x="707" y="62" text-anchor="middle" font-size="7.5" fill="var(--gen)">compose.yaml</text>
+<rect x="660" y="72" width="95" height="18" rx="2" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="0.6"/>
+<text x="707" y="84" text-anchor="middle" font-size="7.5" fill="var(--gen)">.env.generated</text>
+
+<rect x="770" y="34" width="100" height="56" rx="3" fill="var(--warn-soft)" stroke="var(--warn)" stroke-width="0.7"/>
+<text x="820" y="52" text-anchor="middle" font-size="7.5" font-weight="600" fill="var(--warn)">雞生蛋問題</text>
+<text x="820" y="64" text-anchor="middle" font-size="7" fill="var(--text-2)">解析結果就是</text>
+<text x="820" y="74" text-anchor="middle" font-size="7" fill="var(--text-2)">docker compose up</text>
+<text x="820" y="84" text-anchor="middle" font-size="7" fill="var(--text-2)">的輸入</text>
+
+<rect x="20" y="96" width="80" height="24" rx="2" fill="var(--surface)" stroke="var(--border)" stroke-width="0.5"/>
+<text x="60" y="112" text-anchor="middle" font-size="7.5" fill="var(--text-1)">init.sh</text>
+<rect x="110" y="96" width="80" height="24" rx="2" fill="var(--surface)" stroke="var(--border)" stroke-width="0.5"/>
+<text x="150" y="112" text-anchor="middle" font-size="7.5" fill="var(--text-1)">upgrade.sh</text>
+
+<line x1="0" y1="144" x2="880" y2="144" stroke="var(--border)" stroke-width="2"/>
+<rect x="360" y="136" width="160" height="16" rx="8" fill="var(--bg)" stroke="var(--border)" stroke-width="0.8"/>
+<text x="440" y="147" text-anchor="middle" font-size="8" font-weight="600" fill="var(--text-2)">容器邊界</text>
+
+<rect x="1" y="158" width="878" height="108" rx="5" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="1" stroke-dasharray="6 3" opacity="0.6"/>
+<text x="16" y="178" font-size="11" font-weight="700" fill="var(--gen)">CONTAINER</text>
+<text x="110" y="178" font-size="8" fill="var(--text-2)">bash + Python 3.11+ + any CLI</text>
+
+<rect x="560" y="188" width="120" height="28" rx="2" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="0.6"/>
+<text x="620" y="206" text-anchor="middle" font-size="8.5" fill="var(--text-1)">.env (resolved)</text>
+
+<line x1="557" y1="202" x2="520" y2="202" stroke="var(--arrow)" stroke-width="0.8" marker-end="url(#ar)"/>
+
+<rect x="370" y="188" width="145" height="28" rx="3" fill="var(--surface)" stroke="var(--gen)" stroke-width="0.7"/>
+<text x="442" y="206" text-anchor="middle" font-size="8.5" fill="var(--text-1)">entrypoint.sh</text>
+
+<line x1="367" y1="202" x2="300" y2="202" stroke="var(--arrow)" stroke-width="0.6" marker-end="url(#ar)"/>
+<rect x="200" y="192" width="96" height="18" rx="2" fill="var(--gen-fill)" stroke="var(--border)" stroke-width="0.5"/>
+<text x="248" y="204" text-anchor="middle" font-size="7.5" fill="var(--text-1)">logging.sh</text>
+<rect x="200" y="214" width="96" height="18" rx="2" fill="var(--gen-fill)" stroke="var(--border)" stroke-width="0.5"/>
+<text x="248" y="226" text-anchor="middle" font-size="7.5" fill="var(--text-1)">watchdog.sh</text>
+
+<rect x="20" y="238" width="310" height="20" rx="2" fill="var(--gen-soft)" stroke="var(--gen)" stroke-width="0.6"/>
+<text x="175" y="252" text-anchor="middle" font-size="7.5" font-weight="600" fill="var(--gen)">Python tomllib / tomlq / taplo 在此可用</text>
+
+<rect x="370" y="238" width="300" height="20" rx="2" fill="var(--svc-soft)" stroke="var(--svc)" stroke-width="0.6"/>
+<text x="520" y="252" text-anchor="middle" font-size="7.5" fill="var(--svc)">但：不做 config 解析 -- 接收已解析的 .env</text>
+
+<line x1="707" y1="92" x2="707" y2="142" stroke="var(--gen)" stroke-width="1" stroke-dasharray="3 2"/>
+<line x1="620" y1="158" x2="620" y2="186" stroke="var(--gen)" stroke-width="1" stroke-dasharray="3 2"/>
+</svg>
+<figcaption>所有 config 解析在 host 端完成（container 啟動之前）。Container 內部有 TOML 工具（Python tomllib），但它不做設定解析 -- 只讀 resolved <code>.env</code>。</figcaption>
+</figure>
+
+<div class="callout callout-warn">
+<strong>Host TOML 解析工具（待決）:</strong> 候選方案: <code>taplo</code> (Rust static binary ~5MB)、<code>dasel</code>、或最小化 Docker bootstrap container。選擇是實作細節，不影響架構決策。
+</div>
+
+<!-- 6. ADR-36 Integration -->
+<h2><span class="num">6.</span> ADR-36 整合</h2>
+
+<p>ADR-36 將 generate 階段參數化為 API。TOML format 遷移被封裝在 API 內部。</p>
+
+<figure>
+<svg viewBox="0 0 880 200" role="img" aria-label="ADR-36: orchestrator calls generate API N times">
+
+<rect x="0" y="50" width="130" height="60" rx="4" fill="var(--overlay-fill)" stroke="var(--overlay)" stroke-width="1.2"/>
+<text x="65" y="70" text-anchor="middle" font-size="10.5" fill="var(--text-1)" font-weight="600">multi_run</text>
+<text x="65" y="84" text-anchor="middle" font-size="7.5" fill="var(--text-2)">協調器</text>
+<text x="65" y="96" text-anchor="middle" font-size="7" fill="var(--overlay)">TOML + tomllib</text>
+<text x="65" y="106" text-anchor="middle" font-size="6.5" fill="var(--text-3)">(multi_run#26 precedent)</text>
+
+<line x1="133" y1="66" x2="192" y2="30" stroke="var(--arrow)" stroke-width="0.8" marker-end="url(#ar)"/>
+<line x1="133" y1="80" x2="192" y2="80" stroke="var(--arrow)" stroke-width="0.8" marker-end="url(#ar)"/>
+<line x1="133" y1="94" x2="192" y2="130" stroke="var(--arrow)" stroke-width="0.8" marker-end="url(#ar)"/>
+<text x="162" y="58" text-anchor="middle" font-size="7" fill="var(--text-3)">N 次呼叫</text>
+
+<rect x="196" y="8" width="210" height="40" rx="3" fill="var(--surface)" stroke="var(--border)" stroke-width="0.7"/>
+<text x="301" y="24" text-anchor="middle" font-size="8.5" fill="var(--text-1)" font-weight="500">instance-1</text>
+<text x="301" y="36" text-anchor="middle" font-size="7" fill="var(--text-2)">setup.local.toml (caller-supplied) + --output out/1/</text>
+
+<rect x="196" y="58" width="210" height="40" rx="3" fill="var(--surface)" stroke="var(--border)" stroke-width="0.7"/>
+<text x="301" y="74" text-anchor="middle" font-size="8.5" fill="var(--text-1)" font-weight="500">instance-2</text>
+<text x="301" y="86" text-anchor="middle" font-size="7" fill="var(--text-2)">setup.local.toml (caller-supplied) + --output out/2/</text>
+
+<rect x="196" y="108" width="210" height="40" rx="3" fill="var(--surface)" stroke="var(--border)" stroke-width="0.7"/>
+<text x="301" y="124" text-anchor="middle" font-size="8.5" fill="var(--text-1)" font-weight="500">instance-N</text>
+<text x="301" y="136" text-anchor="middle" font-size="7" fill="var(--text-2)">setup.local.toml (caller-supplied) + --output out/N/</text>
+
+<line x1="409" y1="28" x2="438" y2="28" stroke="var(--arrow)" stroke-width="0.8" marker-end="url(#ar)"/>
+<line x1="409" y1="78" x2="438" y2="78" stroke="var(--arrow)" stroke-width="0.8" marker-end="url(#ar)"/>
+<line x1="409" y1="128" x2="438" y2="128" stroke="var(--arrow)" stroke-width="0.8" marker-end="url(#ar)"/>
+
+<rect x="442" y="24" width="180" height="66" rx="4" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="1.2"/>
+<text x="532" y="44" text-anchor="middle" font-size="10" fill="var(--gen)" font-weight="600">generate API</text>
+<text x="532" y="58" text-anchor="middle" font-size="7.5" fill="var(--text-2)">TOML 解析 + 合併 + 驗證</text>
+<text x="532" y="70" text-anchor="middle" font-size="7.5" fill="var(--text-2)">+ emit（每次呼叫）</text>
+<text x="532" y="82" text-anchor="middle" font-size="7" fill="var(--gen)">format 遷移在這裡</text>
+
+<line x1="625" y1="57" x2="660" y2="57" stroke="var(--gen)" stroke-width="1" marker-end="url(#ar3)"/>
+
+<rect x="664" y="14" width="200" height="52" rx="3" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="0.7"/>
+<text x="764" y="32" text-anchor="middle" font-size="8.5" fill="var(--gen)">out/instance-{1..N}/</text>
+<text x="764" y="46" text-anchor="middle" font-size="7.5" fill="var(--text-2)">.env + compose.yaml</text>
+<text x="764" y="58" text-anchor="middle" font-size="7" fill="var(--text-3)">完整、每個 instance 獨立</text>
+
+<rect x="442" y="108" width="422" height="56" rx="4" fill="var(--overlay-fill)" stroke="var(--overlay)" stroke-width="0.8"/>
+<text x="653" y="126" text-anchor="middle" font-size="9" font-weight="600" fill="var(--overlay)">ADR-36 限制 TOML 爆炸半徑</text>
+<text x="653" y="140" text-anchor="middle" font-size="7.5" fill="var(--text-1)">setup.local.toml 路徑由呼叫者提供（per ADR-36）</text>
+<text x="653" y="152" text-anchor="middle" font-size="7.5" fill="var(--text-1)">每次呼叫獨立解析。Orchestrator 只看到 .env + compose.yaml 輸出。</text>
+
+<rect x="16" y="170" width="848" height="24" rx="3" fill="var(--surface-2)" stroke="var(--border)" stroke-width="0.6"/>
+<text x="440" y="186" text-anchor="middle" font-size="8" fill="var(--text-2)">若 base 用 TOML，整條 config 鏈就是 TOML 輸入 / shell+YAML 輸出。否則 multi_run 需要一層 TOML-to-INI 轉換。</text>
+</svg>
+<figcaption>ADR-36 將 config format 變更限制在 generate API 內部。Orchestrator（multi_run）不需知道 base 用什麼 parser，只關心 output。</figcaption>
+</figure>
+
+<!-- 7. Format Comparison -->
+<h2><span class="num">7.</span> TOML 結構：前後對照</h2>
+
+<div class="side">
+<div class="card">
+<h3>Before: INI (.setup.conf) <span class="badge badge-warn">現行</span></h3>
+<pre><code>[project]
+name = my-robot
+
+[volumes]
+mount_1 = ./src:/home/user/ws/src
+mount_2 = ./data:/home/user/data
+mount_3 = /dev/shm:/dev/shm
+
+[gui]
+mode = wayland
+
+[devices]
+device_1 = /dev/video0
+
+[image]
+rule_1 = jetson*:l4t</code></pre>
+<p style="font-size: 0.8rem;color:var(--text-2)">編號 key（<code>mount_N</code>、<code>device_N</code>、<code>rule_N</code>）編碼有序清單。無型別系統、無驗證。新增/移除時需手動重新編號。</p>
+</div>
+<div class="card">
+<h3>After: TOML (setup.toml) <span class="badge badge-gen">ADR-37</span></h3>
+<pre><code>[project]
+name = "my-robot"
+
+[[volumes]]
+source = "./src"
+target = "/home/user/ws/src"
+mode = "rw"
+
+[[volumes]]
+source = "./data"
+target = "/home/user/data"
+
+[[volumes]]
+source = "/dev/shm"
+target = "/dev/shm"
+
+[gui]
+mode = "wayland"
+
+[[devices]]
+path = "/dev/video0"
+
+[[image.rules]]
+pattern = "jetson*"
+tag = "l4t"</code></pre>
+<p style="font-size: 0.8rem;color:var(--text-2)"><code>[[array of tables]]</code> 取代編號 key。有型別欄位。可用 IDE 工具 + schema 驗證。</p>
+</div>
+</div>
+
+<h3>.env.toml（服務 runtime）</h3>
+<div class="side">
+<div class="card">
+<h3>Before: .env.local <span class="badge badge-warn">現行</span></h3>
+<pre><code>ROS_DOMAIN_ID=42
+ROS_MASTER_URI=http://192.168.1.10:11311
+LOG_LEVEL=debug
+WATCHDOG_ENABLED=1</code></pre>
+<p style="font-size: 0.8rem;color:var(--text-2)">扁平 KEY=VALUE。無型別、無註解、無結構。</p>
+</div>
+<div class="card">
+<h3>After: .env.toml <span class="badge badge-gen">ADR-37</span></h3>
+<pre><code>[ros]
+domain_id = 42
+master_uri = "http://192.168.1.10:11311"
+
+[logging]
+level = "debug"
+
+[watchdog]
+enabled = true</code></pre>
+<p style="font-size: 0.8rem;color:var(--text-2)">有型別值（int、string、bool）。按關注點分組。允許註解。覆蓋層 key-level merge。</p>
+</div>
+</div>
+
+<!-- 8. Section Mapping -->
+<h2><span class="num">8.</span> Config Section 對應表</h2>
+
+<div class="tbl-wrap">
+<table>
+<thead><tr><th>INI Section</th><th>Key 模式</th><th>TOML 型別</th><th>合併規則</th><th>目標檔案</th></tr></thead>
+<tbody>
+<tr><td><code>[project]</code></td><td>scalar</td><td><code>[project]</code></td><td>key-level</td><td>setup.toml</td></tr>
+<tr><td><code>[image]</code></td><td>rule_N</td><td><code>[[image.rules]]</code></td><td>array replace</td><td>setup.toml</td></tr>
+<tr><td><code>[build]</code></td><td>scalar + arg_N</td><td><code>[build]</code> + <code>[[build.args]]</code></td><td>mixed</td><td>setup.toml</td></tr>
+<tr><td><code>[deploy]</code></td><td>scalar + label_N</td><td><code>[deploy]</code> + <code>[[deploy.labels]]</code></td><td>mixed</td><td>setup.toml</td></tr>
+<tr><td><code>[lifecycle]</code></td><td>scalar</td><td><code>[lifecycle]</code></td><td>key-level</td><td>setup.toml</td></tr>
+<tr><td><code>[gui]</code></td><td>scalar</td><td><code>[gui]</code></td><td>key-level</td><td>setup.toml</td></tr>
+<tr><td><code>[network]</code></td><td>port_N</td><td><code>[[network.ports]]</code></td><td>array replace</td><td>setup.toml</td></tr>
+<tr><td><code>[security]</code></td><td>scalar</td><td><code>[security]</code></td><td>key-level</td><td>setup.toml</td></tr>
+<tr><td><code>[resources]</code></td><td>scalar</td><td><code>[resources]</code></td><td>key-level</td><td>setup.toml</td></tr>
+<tr><td style="color:var(--warn)"><code>[environment]</code></td><td>env_N</td><td colspan="2" style="color:var(--warn)">遷移至 <code>.env.toml</code></td><td>.env.toml</td></tr>
+<tr><td><code>[tmpfs]</code></td><td>mount_N</td><td><code>[[tmpfs]]</code></td><td>array replace</td><td>setup.toml</td></tr>
+<tr><td><code>[devices]</code></td><td>device_N</td><td><code>[[devices]]</code></td><td>array replace</td><td>setup.toml</td></tr>
+<tr><td><code>[volumes]</code></td><td>mount_N</td><td><code>[[volumes]]</code></td><td>array replace</td><td>setup.toml</td></tr>
+<tr><td><code>[additional_contexts]</code></td><td>context_N</td><td><code>[[additional_contexts]]</code></td><td>array replace</td><td>setup.toml</td></tr>
+<tr><td><code>[logging]</code></td><td>scalar</td><td><code>[logging]</code></td><td>key-level</td><td>setup.toml</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><strong>7/15</strong> scalar sections -> key-level merge。<strong>8/15</strong> ordered-list sections -> <code>[[array of tables]]</code> + array replace。<code>[environment]</code> 整個遷出到 <code>.env.toml</code>。</p>
+
+<!-- 9. Migration Timeline -->
+<h2><span class="num">9.</span> 遷移時程</h2>
+
+<figure>
+<svg viewBox="0 0 880 120" role="img" aria-label="Migration phases">
+
+<line x1="30" y1="46" x2="850" y2="46" stroke="var(--border)" stroke-width="2"/>
+
+<rect x="30" y="16" width="250" height="24" rx="3" fill="var(--infra-fill)" stroke="var(--infra)" stroke-width="1"/>
+<text x="155" y="32" text-anchor="middle" font-size="9" fill="var(--infra)" font-weight="600">Phase 1：ADR-36 API 重構</text>
+
+<text x="155" y="66" text-anchor="middle" font-size="7.5" fill="var(--text-2)">generate API 參數化</text>
+<text x="155" y="78" text-anchor="middle" font-size="7.5" fill="var(--text-2)">setup.local.toml 由呼叫者提供</text>
+<text x="155" y="90" text-anchor="middle" font-size="7.5" fill="var(--text-3)">conf format 仍為 INI</text>
+
+<line x1="283" y1="28" x2="307" y2="28" stroke="var(--arrow)" stroke-width="1.2" marker-end="url(#ar)"/>
+
+<rect x="310" y="16" width="250" height="24" rx="3" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="1"/>
+<text x="435" y="32" text-anchor="middle" font-size="9" fill="var(--gen)" font-weight="600">Phase 2：TOML 遷移</text>
+
+<text x="435" y="66" text-anchor="middle" font-size="7.5" fill="var(--text-2)">_ini_tokenize -> TOML parser</text>
+<text x="435" y="78" text-anchor="middle" font-size="7.5" fill="var(--text-2)">setup.conf -> setup.toml</text>
+<text x="435" y="90" text-anchor="middle" font-size="7.5" fill="var(--text-2)">型別感知合併語意</text>
+
+<line x1="563" y1="28" x2="587" y2="28" stroke="var(--arrow)" stroke-width="1.2" marker-end="url(#ar)"/>
+
+<rect x="590" y="16" width="250" height="24" rx="3" fill="var(--overlay-fill)" stroke="var(--overlay)" stroke-width="1"/>
+<text x="715" y="32" text-anchor="middle" font-size="9" fill="var(--overlay)" font-weight="600">Phase 3：multi_run 整合</text>
+
+<text x="715" y="66" text-anchor="middle" font-size="7.5" fill="var(--text-2)">orchestrator TOML -> base TOML</text>
+<text x="715" y="78" text-anchor="middle" font-size="7.5" fill="var(--text-2)">消除 format 轉換</text>
+<text x="715" y="90" text-anchor="middle" font-size="7.5" fill="var(--text-2)">統一 config 工具鏈</text>
+
+<text x="297" y="112" text-anchor="middle" font-size="7.5" fill="var(--warn)">Phase 2 依賴 Phase 1</text>
+</svg>
+<figcaption>Phase 1 先做 API 重構（conf format 不變），Phase 2 在 API 邊界內換 parser，Phase 3 接上 multi_run。</figcaption>
+</figure>
+
+<!-- 10. TUI Freeze -->
+<h2><span class="num">10.</span> TUI 凍結</h2>
+
+<div class="callout callout-warn">
+<strong>setup_tui.sh 凍結至 TOML 遷移完成。</strong> TUI 的 INI-aware editor functions（<code>_edit_section_*</code>）無法操作 TOML 結構。不移除（下游 breaking change），等遷移完成後 rebuild 或由 config-manager Web UI 取代。
+</div>
+
+<div class="tbl-wrap">
+<table>
+<thead><tr><th>檔案</th><th>行數</th><th>測試</th><th>狀態</th></tr></thead>
+<tbody>
+<tr><td><code>setup_tui.sh</code></td><td>2,975</td><td>140 @test</td><td>凍結</td></tr>
+<tr><td><code>_tui_backend.sh</code></td><td>213</td><td>31 @test</td><td>凍結</td></tr>
+<tr><td><code>_tui_conf.sh</code></td><td>691</td><td>106 + 9 @test</td><td>凍結</td></tr>
+<tr><td colspan="2"><strong>合計：3,879 行</strong></td><td><strong>286 @test</strong></td><td></td></tr>
+</tbody>
+</table>
+</div>
+
+<!-- 11. ADR Cross-References -->
+<h2><span class="num">11.</span> ADR 交叉引用</h2>
+
+<div class="tbl-wrap">
+<table>
+<thead><tr><th>ADR</th><th>關係</th><th>影響</th></tr></thead>
+<tbody>
+<tr><td>ADR-1</td><td>修正</td><td>「section-replace 語意」精煉為型別感知合併</td></tr>
+<tr><td>ADR-3</td><td>基礎</td><td>服務邊界準則（Axis A）決定檔案分割</td></tr>
+<tr><td>ADR-25 sec.3</td><td>修正</td><td>Section-replace 不再全面性；array-replace 那一半保留推理</td></tr>
+<tr><td>ADR-36</td><td>啟用</td><td>參數化 API 限制 TOML 爆炸半徑</td></tr>
+<tr><td>ADR-37</td><td><strong>本設計</strong></td><td>統一所有人工編輯的 Docker config 為 TOML</td></tr>
+</tbody>
+</table>
+</div>
