@@ -1,6 +1,6 @@
 # base is a building block: both generate stages are parameterised APIs
 
-> Serves: PRD invariant 3 (multi_run-expandable by construction) -- restated.
+> Serves: PRD invariant 3 (composable by construction) -- restated.
 > The overlay contract ADR-00000022 built to serve that invariant turned out to
 > serve it only for values, not for shapes.
 

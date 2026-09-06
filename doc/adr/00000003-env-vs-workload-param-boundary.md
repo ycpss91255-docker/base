@@ -1,6 +1,6 @@
 # Environment vs runtime parameter boundary and field delivery model
 
-> Serves: PRD invariant 3 (multi_run-expandable) via the axis-A
+> Serves: PRD invariant 3 (composable by construction) via the axis-A
 > `.env`-overlay model; also the one-source -> many-render goal (field
 > delivery).
 

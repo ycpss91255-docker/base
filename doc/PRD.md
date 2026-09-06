@@ -13,13 +13,25 @@
 
 ## Purpose
 
-base is the single source of truth for containerised development-and-delivery
-scaffolding across the `ycpss91255-docker` organisation. It exists so that
-every downstream repo (ROS robotics, AI tooling, application deployment)
-inherits one consistent, correct, maintained container lifecycle -- build, run,
-test, and field-deliver -- instead of each repo re-implementing that lifecycle
-and drifting from every other. base is vendored into each downstream as a
-`.base/` subtree; the downstream stays a thin caller over base's shared logic.
+base exists to solve one problem: **every repo re-implementing the container
+lifecycle, and then drifting from every other.**
+
+What base produces is a **building block**. A block has two properties that must
+hold together:
+
+1. **Usable alone.** A downstream repo builds, runs, tests and field-delivers
+   without needing to know that any composing layer exists.
+2. **Composable.** Any number of blocks can be assembled -- **including several
+   instances of the same block**. Who assembles them, and how, is not base's
+   concern.
+
+The two are one code path, not two: **using a block alone is N=1, not a special
+case** (design principle P5). A block that only works alone is not a block, and
+a block that needs an assembler to work at all is not usable.
+
+Concretely, base replaces the hand-written `docker compose` configuration of a
+repo that runs a single container -- and adds what hand-writing cannot give:
+the lifecycle base owns (invariant 1), field delivery, and composability.
 
 ## Scope
 
@@ -28,6 +40,10 @@ and drifting from every other. base is vendored into each downstream as a
 - The lifecycle of a **single containerised service**: build (Dockerfile
   stages), run (compose generation + wrappers), test (self-test + shipped
   smoke), and field delivery (a self-contained deploy bundle).
+- **The generation API itself.** Both generate stages take the caller's
+  parameters and write into a directory the caller names, so one repo can be
+  instantiated more than once without being modified (ADR-00000036). base owns
+  the API; it does not own the orchestration that calls it.
 - Host detection -> config resolution -> render, where one source
   (`setup.conf` + detection) fans out to every artifact (`compose.yaml`,
   `.env.generated`, the generated `.env`, `deploy.sh`, the baked runtime
@@ -42,6 +58,10 @@ and drifting from every other. base is vendored into each downstream as a
 ### Deliberately out of scope
 
 - Multiple services inside one container (see invariant 1).
+- **Multi-container architectures.** More than one container is more than one
+  block: it is split into separate repos and composed by the layer above. That
+  splitting rule is what keeps invariant 1 a structural boundary rather than a
+  style preference.
 - Field orchestrators / manifests (k8s, balena, ...); the deploy bundle targets
   a single-host `docker run` first.
 - Non-NVIDIA GPU support (tracked separately).
@@ -96,20 +116,29 @@ propagates to every downstream undetected. Trustworthiness is the product.
 compose overlay guard (#716, ADR-00000022), the ADR-numbering guard (#808), the
 doc-count drift gate, the issue-ref / no-emoji lints.
 
-### 3. multi_run-expandable by construction
+### 3. Composable by construction
 
-base's emitted compose never contains a hardcoded per-instance literal: every
-field that can collide across instances is emitted as an overlay-overridable
-interpolation (`${VAR:-<default>}`). base-generated stacks can be expanded to
-many instances without first forcing a retroactive base change.
+**The property (invariant):** a base-generated stack can be instantiated more
+than once without a retroactive change to base. Anything base decides at build
+time or before the container starts is reachable by the caller; only what is
+internal to a running container is outside the contract.
 
-*Why it is fixed:* it is a forward guarantee. It exists so multi_run can expand
-later without hitting a wall; a decision that hardcoded a per-instance value
-would silently re-introduce that wall.
+**The mechanisms (swappable, not invariant):** a `.env` overlay carries fields
+whose value varies (ADR-00000022); a parameterised generate call carries fields
+whose *shape* varies, since an interpolation substitutes into lines that already
+exist and cannot add or remove them (ADR-00000036).
 
-*Serves / established by:* ADR-00000022 (+ its enforcing guard); the
-per-instance-isolation-via-env-overlay model (ADR-00000003 axis-A
-resolution; the overlay file is `.env.local`).
+*Why the property is fixed:* it is a forward guarantee. A decision that put a
+per-instance value out of the caller's reach would re-introduce the wall
+silently.
+
+*Why the mechanism is not:* this invariant previously named `${VAR:-<default>}`
+interpolation as the mechanism, and in 2026-09 a case arrived that no
+interpolation can express. The mechanism had to change; the promise did not.
+Invariant 7 already draws this line and this one now follows it.
+
+*Serves / established by:* ADR-00000022 and ADR-00000036, and the guard that
+enforces them.
 
 ### 4. Fail-safe defaults
 
@@ -171,16 +200,26 @@ policy as the case whose answer is scoped per stage); ADR-00000019 for
 the network default, which is the one OFF that is not Docker-native;
 generalised by invariant 11.
 
-### 6. base is a subtree; downstream is a thin caller
+### 6. One source, propagated; downstream is a thin caller
 
-base ships as a `.base/` subtree vendored into each downstream repo. The
-downstream's entrypoints (`main.yaml`, top-level justfile) are thin forwarders;
-the shared build/test/lifecycle logic lives in base. There is one source of
-truth, propagated -- not N copies maintained in parallel.
+**The property (invariant):** there is one source of truth for the shared
+build / test / lifecycle logic, propagated downward -- not N copies maintained
+in parallel. The downstream's entrypoints (`main.yaml`, top-level justfile) are
+thin forwarders.
 
-*Why it is fixed:* it is base's delivery shape and ownership contract. Pushing
-real logic down into each downstream (a fat caller) would fragment the single
-source of truth that base exists to be.
+**The mechanism (swappable, not invariant):** a `.base/` subtree vendored into
+each downstream repo, resynced by `init.sh` (ADR-00000010, ADR-00000011).
+
+*Why the property is fixed:* pushing real logic down into each downstream -- a
+fat caller -- would fragment the single source of truth base exists to be.
+
+*Why the mechanism is separated:* it was measured in 2026-09 rather than
+assumed. Across 18 vendoring repos, 2217 vendored files were compared by blob
+against the tag each repo claims: **one local edit, zero partial upgrades**. The
+vendored copy is working, and the alternatives were weighed against that
+evidence -- so subtree is a checked choice, not a default. Recording it as a
+mechanism keeps the choice reviewable; recording it as an invariant would have
+made re-examining it a violation.
 
 *Serves / established by:* ADR-00000010, ADR-00000011; the pull-based version
 monitor + `init.sh` resync propagation.
@@ -814,8 +853,9 @@ this document, not an ADR that picks a winner.
 
 ## Roadmap
 
-- **multi_run expansion.** Invariant 3 exists to unblock running many isolated
-  instances from one base-generated stack; multi_run is the consumer.
+- **Closing the composability gap.** Invariant 3's property is stated; the
+  parameterised generate API that delivers it for shape-varying fields is not
+  built yet (#1087). Who consumes it is not base's concern.
 - **Field-delivery maturity.** The `deploy.sh` bundle (ADR-00000003) grows a
   richer per-parameter confirmation surface (the graphical TUI page deferred
   from the #497 epic).
