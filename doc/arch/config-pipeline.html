@@ -501,10 +501,10 @@ td {
 
 <rect x="234" y="42" width="200" height="90" rx="4" fill="var(--surface)" stroke="var(--infra)" stroke-width="1.5"/>
 <text x="334" y="62" text-anchor="middle" font-size="11" fill="var(--text-1)" font-weight="600">TOML Parser</text>
-<text x="334" y="78" text-anchor="middle" font-size="8" fill="var(--text-2)">conf.sh（取代 _ini_tokenize）</text>
-<text x="334" y="92" text-anchor="middle" font-size="8" fill="var(--text-2)">型別感知合併</text>
-<text x="334" y="106" text-anchor="middle" font-size="8" fill="var(--text-2)">schema 驗證</text>
-<text x="334" y="122" text-anchor="middle" font-size="7" fill="var(--warn)">Host 工具：taplo / dasel / docker bootstrap（待決）</text>
+<text x="334" y="78" text-anchor="middle" font-size="8" fill="var(--text-2)">toml-bridge container</text>
+<text x="334" y="92" text-anchor="middle" font-size="8" fill="var(--text-2)">Python + vendored tomli（PEP 680）</text>
+<text x="334" y="106" text-anchor="middle" font-size="8" fill="var(--text-2)">型別感知合併（scalar key-level / array replace）</text>
+<text x="334" y="122" text-anchor="middle" font-size="7" fill="var(--infra)">docker run toml-bridge:pinned</text>
 
 <line x1="437" y1="60" x2="492" y2="30" stroke="var(--gen)" stroke-width="1" marker-end="url(#ar3)"/>
 <line x1="437" y1="78" x2="492" y2="78" stroke="var(--gen)" stroke-width="1" marker-end="url(#ar3)"/>
@@ -574,9 +574,9 @@ td {
 <line x1="268" y1="51" x2="287" y2="51" stroke="var(--arrow)" stroke-width="0.8" marker-end="url(#ar)"/>
 
 <rect x="290" y="28" width="180" height="48" rx="3" fill="var(--surface)" stroke="var(--infra)" stroke-width="1.3"/>
-<text x="380" y="44" text-anchor="middle" font-size="9" fill="var(--text-1)" font-weight="600">conf.sh + TOML parser</text>
-<text x="380" y="57" text-anchor="middle" font-size="7.5" fill="var(--infra)">解析 + 型別感知合併</text>
-<text x="380" y="68" text-anchor="middle" font-size="7" fill="var(--warn)">TOML 遷移點</text>
+<text x="380" y="44" text-anchor="middle" font-size="9" fill="var(--text-1)" font-weight="600">bash shim + docker run</text>
+<text x="380" y="57" text-anchor="middle" font-size="7.5" fill="var(--infra)">toml-bridge container</text>
+<text x="380" y="68" text-anchor="middle" font-size="7" fill="var(--infra)">解析 + 型別感知合併</text>
 
 <line x1="473" y1="52" x2="492" y2="52" stroke="var(--arrow)" stroke-width="0.8" marker-end="url(#ar)"/>
 
@@ -593,11 +593,11 @@ td {
 <rect x="660" y="72" width="95" height="18" rx="2" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="0.6"/>
 <text x="707" y="84" text-anchor="middle" font-size="7.5" fill="var(--gen)">.env.generated</text>
 
-<rect x="770" y="34" width="100" height="56" rx="3" fill="var(--warn-soft)" stroke="var(--warn)" stroke-width="0.7"/>
-<text x="820" y="52" text-anchor="middle" font-size="7.5" font-weight="600" fill="var(--warn)">雞生蛋問題</text>
-<text x="820" y="64" text-anchor="middle" font-size="7" fill="var(--text-2)">解析結果就是</text>
-<text x="820" y="74" text-anchor="middle" font-size="7" fill="var(--text-2)">docker compose up</text>
-<text x="820" y="84" text-anchor="middle" font-size="7" fill="var(--text-2)">的輸入</text>
+<rect x="770" y="34" width="100" height="56" rx="3" fill="var(--infra-fill)" stroke="var(--infra)" stroke-width="0.7"/>
+<text x="820" y="52" text-anchor="middle" font-size="7.5" font-weight="600" fill="var(--infra)">Host dep 契約</text>
+<text x="820" y="64" text-anchor="middle" font-size="7" fill="var(--text-2)">Docker + Git + just</text>
+<text x="820" y="74" text-anchor="middle" font-size="7" fill="var(--text-2)">解析跑在容器裡</text>
+<text x="820" y="84" text-anchor="middle" font-size="7" fill="var(--text-2)">不增加 host dep</text>
 
 <rect x="20" y="96" width="80" height="24" rx="2" fill="var(--surface)" stroke="var(--border)" stroke-width="0.5"/>
 <text x="60" y="112" text-anchor="middle" font-size="7.5" fill="var(--text-1)">init.sh</text>
@@ -610,7 +610,7 @@ td {
 
 <rect x="1" y="158" width="878" height="108" rx="5" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="1" stroke-dasharray="6 3" opacity="0.6"/>
 <text x="16" y="178" font-size="11" font-weight="700" fill="var(--gen)">CONTAINER</text>
-<text x="110" y="178" font-size="8" fill="var(--text-2)">bash + Python 3.11+ + any CLI</text>
+<text x="110" y="178" font-size="8" fill="var(--text-2)">bash + application runtime</text>
 
 <rect x="560" y="188" width="120" height="28" rx="2" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="0.6"/>
 <text x="620" y="206" text-anchor="middle" font-size="8.5" fill="var(--text-1)">.env (resolved)</text>
@@ -627,7 +627,7 @@ td {
 <text x="248" y="226" text-anchor="middle" font-size="7.5" fill="var(--text-1)">watchdog.sh</text>
 
 <rect x="20" y="238" width="310" height="20" rx="2" fill="var(--gen-soft)" stroke="var(--gen)" stroke-width="0.6"/>
-<text x="175" y="252" text-anchor="middle" font-size="7.5" font-weight="600" fill="var(--gen)">Python tomllib / tomlq / taplo 在此可用</text>
+<text x="175" y="252" text-anchor="middle" font-size="7.5" font-weight="600" fill="var(--gen)">Application runtime（不做 config 解析）</text>
 
 <rect x="370" y="238" width="300" height="20" rx="2" fill="var(--svc-soft)" stroke="var(--svc)" stroke-width="0.6"/>
 <text x="520" y="252" text-anchor="middle" font-size="7.5" fill="var(--svc)">但：不做 config 解析 -- 接收已解析的 .env</text>
@@ -635,15 +635,66 @@ td {
 <line x1="707" y1="92" x2="707" y2="142" stroke="var(--gen)" stroke-width="1" stroke-dasharray="3 2"/>
 <line x1="620" y1="158" x2="620" y2="186" stroke="var(--gen)" stroke-width="1" stroke-dasharray="3 2"/>
 </svg>
-<figcaption>所有 config 解析在 host 端完成（container 啟動之前）。Container 內部有 TOML 工具（Python tomllib），但它不做設定解析 -- 只讀 resolved <code>.env</code>。</figcaption>
+<figcaption>Config 解析在 <code>docker compose up</code> 之前完成。Host 的 bash shim 呼叫 <code>docker run toml-bridge:pinned</code> 完成 TOML 解析與合併，再將結果交給 emitter 生成 Docker-native 輸出。Application container 只讀 resolved <code>.env</code>，不做設定解析。</figcaption>
 </figure>
 
-<div class="callout callout-warn">
-<strong>Host TOML 解析工具（待決）:</strong> 候選方案: <code>taplo</code> (Rust static binary ~5MB)、<code>dasel</code>、或最小化 Docker bootstrap container。選擇是實作細節，不影響架構決策。
+<div class="callout callout-infra">
+<strong>TOML 解析工具（已決）:</strong> 獨立 <code>toml-bridge</code> container image（<code>dockerfile/Dockerfile.toml-bridge</code>），內含 alpine + Python 3 + vendored <code>tomli</code>（PEP 680 backport）。Host 不安裝 Python 或任何額外工具。<code>test-tools</code> 透過 <code>COPY --from</code> 取得 TOML 能力，downstream repo 經 <code>test-tools-stage</code> 繼承。
 </div>
 
-<!-- 6. ADR-36 Integration -->
-<h2><span class="num">6.</span> ADR-36 整合</h2>
+<!-- 6. Dockerfile Stageflow -->
+<h2><span class="num">6.</span> Dockerfile Stageflow</h2>
+
+<p>TOML 解析能力透過 image 繼承鏈傳遞到所有 repo。<code>toml-bridge</code> 是獨立的
+Dockerfile，<code>test-tools</code> 用 <code>COPY --from</code> 取得它的產物，downstream repo
+再透過既有的 <code>test-tools-stage</code> pattern 繼承全部工具。</p>
+
+<figure>
+<svg viewBox="0 0 880 220" role="img" aria-label="Dockerfile stageflow: toml-bridge → test-tools → downstream">
+<defs>
+<marker id="ar6" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="var(--arrow)"/></marker>
+</defs>
+
+<rect x="20" y="20" width="200" height="80" rx="4" fill="var(--infra-fill)" stroke="var(--infra)" stroke-width="1.5"/>
+<text x="120" y="42" text-anchor="middle" font-size="11" fill="var(--text-1)" font-weight="600">Dockerfile.toml-bridge</text>
+<text x="120" y="58" text-anchor="middle" font-size="8" fill="var(--text-2)">alpine + Python 3</text>
+<text x="120" y="72" text-anchor="middle" font-size="8" fill="var(--text-2)">vendored tomli（PEP 680）</text>
+<text x="120" y="86" text-anchor="middle" font-size="7" fill="var(--infra)">dockerfile/Dockerfile.toml-bridge</text>
+
+<line x1="223" y1="60" x2="318" y2="60" stroke="var(--arrow)" stroke-width="1.2" marker-end="url(#ar6)"/>
+<text x="270" y="52" text-anchor="middle" font-size="7" fill="var(--text-2)">COPY --from</text>
+
+<rect x="320" y="10" width="220" height="100" rx="4" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="1.5"/>
+<text x="430" y="32" text-anchor="middle" font-size="11" fill="var(--text-1)" font-weight="600">Dockerfile.test-tools</text>
+<text x="430" y="48" text-anchor="middle" font-size="8" fill="var(--text-2)">shellcheck + hadolint + bats</text>
+<text x="430" y="62" text-anchor="middle" font-size="8" fill="var(--text-2)">just + kcov + bats-extensions</text>
+<text x="430" y="76" text-anchor="middle" font-size="8" fill="var(--infra)">+ toml-bridge 產物</text>
+<text x="430" y="96" text-anchor="middle" font-size="7" fill="var(--gen)">dockerfile/Dockerfile.test-tools</text>
+
+<line x1="543" y1="60" x2="638" y2="60" stroke="var(--arrow)" stroke-width="1.2" marker-end="url(#ar6)"/>
+<text x="590" y="52" text-anchor="middle" font-size="7" fill="var(--text-2)">FROM ... AS</text>
+<text x="590" y="62" text-anchor="middle" font-size="7" fill="var(--text-2)">test-tools-stage</text>
+
+<rect x="640" y="10" width="220" height="100" rx="4" fill="var(--svc-fill)" stroke="var(--svc)" stroke-width="1.5"/>
+<text x="750" y="32" text-anchor="middle" font-size="11" fill="var(--text-1)" font-weight="600">Downstream Dockerfile</text>
+<text x="750" y="48" text-anchor="middle" font-size="8" fill="var(--text-2)">COPY --from=test-tools-stage</text>
+<text x="750" y="62" text-anchor="middle" font-size="8" fill="var(--text-2)">/usr/local/bin/shellcheck</text>
+<text x="750" y="76" text-anchor="middle" font-size="8" fill="var(--text-2)">/opt/bats, /usr/lib/bats ...</text>
+<text x="750" y="96" text-anchor="middle" font-size="7" fill="var(--svc)">dist/dockerfile/Dockerfile</text>
+
+<rect x="20" y="140" width="200" height="60" rx="4" fill="var(--overlay-fill)" stroke="var(--overlay)" stroke-width="1.2"/>
+<text x="120" y="162" text-anchor="middle" font-size="10" fill="var(--text-1)" font-weight="600">Host: conf.sh</text>
+<text x="120" y="178" text-anchor="middle" font-size="8" fill="var(--text-2)">docker run toml-bridge:pinned</text>
+<text x="120" y="192" text-anchor="middle" font-size="7" fill="var(--overlay)">config 解析入口</text>
+
+<line x1="120" y1="103" x2="120" y2="137" stroke="var(--infra)" stroke-width="1" stroke-dasharray="4 2"/>
+<text x="138" y="124" font-size="7" fill="var(--text-3)">同一 image</text>
+</svg>
+<figcaption><code>toml-bridge</code> 是獨立 Dockerfile，不混入 <code>test-tools</code>。Host 的 <code>conf.sh</code> 透過 <code>docker run</code> 使用同一 image 做 config 解析；<code>test-tools</code> 透過 <code>COPY --from</code> 取得工具，downstream repo 再透過 <code>test-tools-stage</code> pattern 繼承。</figcaption>
+</figure>
+
+<!-- 7. ADR-36 Integration -->
+<h2><span class="num">7.</span> ADR-36 整合</h2>
 
 <p>ADR-36 將 generate 階段參數化為 API。TOML format 遷移被封裝在 API 內部。</p>
 
@@ -701,8 +752,8 @@ td {
 <figcaption>ADR-36 將 config format 變更限制在 generate API 內部。Orchestrator（multi_run）不需知道 base 用什麼 parser，只關心 output。</figcaption>
 </figure>
 
-<!-- 7. Format Comparison -->
-<h2><span class="num">7.</span> TOML 結構：前後對照</h2>
+<!-- 8. Format Comparison -->
+<h2><span class="num">8.</span> TOML 結構：前後對照</h2>
 
 <div class="side">
 <div class="card">
@@ -781,8 +832,8 @@ enabled = true</code></pre>
 </div>
 </div>
 
-<!-- 8. Section Mapping -->
-<h2><span class="num">8.</span> Config Section 對應表</h2>
+<!-- 9. Section Mapping -->
+<h2><span class="num">9.</span> Config Section 對應表</h2>
 
 <div class="tbl-wrap">
 <table>
@@ -809,8 +860,8 @@ enabled = true</code></pre>
 
 <p><strong>7/15</strong> scalar sections -> key-level merge。<strong>8/15</strong> ordered-list sections -> <code>[[array of tables]]</code> + array replace。<code>[environment]</code> 整個遷出到 <code>.env.toml</code>。</p>
 
-<!-- 9. Migration Timeline -->
-<h2><span class="num">9.</span> 遷移時程</h2>
+<!-- 10. Migration Timeline -->
+<h2><span class="num">10.</span> 遷移時程</h2>
 
 <figure>
 <svg viewBox="0 0 880 120" role="img" aria-label="Migration phases">
@@ -847,8 +898,8 @@ enabled = true</code></pre>
 <figcaption>Phase 1 先做 API 重構（conf format 不變），Phase 2 在 API 邊界內換 parser，Phase 3 接上 multi_run。</figcaption>
 </figure>
 
-<!-- 10. TUI Freeze -->
-<h2><span class="num">10.</span> TUI 凍結</h2>
+<!-- 11. TUI Freeze -->
+<h2><span class="num">11.</span> TUI 凍結</h2>
 
 <div class="callout callout-warn">
 <strong>setup_tui.sh 凍結至 TOML 遷移完成。</strong> TUI 的 INI-aware editor functions（<code>_edit_section_*</code>）無法操作 TOML 結構。不移除（下游 breaking change），等遷移完成後 rebuild 或由 config-manager Web UI 取代。
@@ -866,8 +917,8 @@ enabled = true</code></pre>
 </table>
 </div>
 
-<!-- 11. ADR Cross-References -->
-<h2><span class="num">11.</span> ADR 交叉引用</h2>
+<!-- 12. ADR Cross-References -->
+<h2><span class="num">12.</span> ADR 交叉引用</h2>
 
 <div class="tbl-wrap">
 <table>
