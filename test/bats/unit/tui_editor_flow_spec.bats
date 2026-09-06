@@ -1088,7 +1088,6 @@ unreachable_functions() {
 # waving a prefix through, which is how `_edit_section_resources` --
 # whose only caller is main's `setup_tui.sh resources` direct jump --
 # stays in while a dead editor does not.
-#
 # The population is every shipped file of the TUI, not setup_tui.sh
 # alone, because the dead code a TUI change leaves behind does not stay
 # in one file. Deleting `_prompt_mount_with_picker` from the wrapper took
@@ -1145,30 +1144,23 @@ unreachable_functions() {
 # why: the guard above is only worth its runtime if it would go red on a
 # function that is dead TOMORROW, and every shape below is one it waved
 # through at some point. Each is planted in a scratch tree and has to be
-# named back:
-#
-# - a plain dead helper -- the control, which proves the planting works.
-#
-# - a dead `_edit_section_*`, which a blanket prefix exemption waved
-# through even though 14 of the file's editors have no caller but the
-# `"_edit_section_${_subcmd}"` dispatch.
-#
-# - one whose only mention outside its own definition is a trailing
-# comment, which a whole-line-only comment strip counted as a caller.
-#
-# - `rule_*` and `_TUI_MSG_*`. Harvesting every `"<name>_${` in the file
-# as a dispatch prefix collects `image.rule_${_n}` and
-# `_TUI_MSG_${_TUI_LANG_UPPER}` -- a config-key prefix and an array-name
+# named back. A plain dead helper is the control, which proves the
+# planting works. A dead `_edit_section_*` is one a blanket prefix
+# exemption waved through even though 14 of the file's editors have no
+# caller but the `"_edit_section_${_subcmd}"` dispatch. One whose only
+# mention outside its own definition is a trailing comment is one a
+# whole-line-only comment strip counted as a caller. `rule_*` and
+# `_TUI_MSG_*` are what harvesting every `"<name>_${` in the file as a
+# dispatch prefix collects -- `image.rule_${_n}` and
+# `_TUI_MSG_${_TUI_LANG_UPPER}`, a config-key prefix and an array-name
 # prefix that dispatch no function at all -- and then exempts anything
-# carrying them from the check entirely.
-#
-# - a pair of dead functions that call each other. Under mention-counting
-# each is the other's second mention, so a whole dead limb stays green.
-#
-# - one that names itself in its own `${1:?...}` message, which is its
-# own second mention. Not hypothetical: that idiom appears 81 times in
-# dist/, and it is why `_assemble_mount_value` outlived its only caller
-# in lib/_tui_conf.sh without anything noticing.
+# carrying them from the check entirely. A pair of dead functions that
+# call each other survives mention-counting because each is the other's
+# second mention, so a whole dead limb stays green. And one that names
+# itself in its own `${1:?...}` message is its own second mention: not
+# hypothetical, since that idiom appears 81 times in dist/, and it is why
+# `_assemble_mount_value` outlived its only caller in lib/_tui_conf.sh
+# without anything noticing.
 @test "the dead-code guard names every shape of dead function planted in a tree" {
   local _dir="${BATS_TEST_TMPDIR}/planted_dist"
   mkdir -p "${_dir}"
