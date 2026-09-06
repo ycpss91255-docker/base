@@ -47,10 +47,18 @@ setup() {
   REPO_ROOT="${SCRATCH}"
 
   # A roster stub in the accessor's own output shape: <ARG>\t<pin>\t<probe>.
-  # Two invocable pins and two that are not, so the derivation of "which
+  # Four invocable pins and two that are not, so the derivation of "which
   # roster entries are commands" is exercised rather than assumed.
+  #
+  # The invocable four are the real declaration's, name for name, because a
+  # fixture naming a tool this stub omits is inert whatever the driver
+  # does: the scan looks for the roster's members and nothing else, so a
+  # case written around `bats` against a two-entry roster passes on the
+  # roster rather than on the behaviour it is named after.
   cat > "${SCRATCH}/script/ci/test-tools-pins.sh" <<'ROSTER'
 #!/usr/bin/env bash
+printf 'BATS_VERSION\t1.13.0\tbats --version\n'
+printf 'KCOV_VERSION\tv43\tkcov --version\n'
 printf 'SHELLCHECK_VERSION\tv0.11.0\tshellcheck --version\n'
 printf 'HADOLINT_VERSION\tv2.15.1\thadolint --version\n'
 printf 'ALPINE_VERSION\t3.22\tcat /etc/alpine-release\n'
@@ -201,6 +209,28 @@ _workflow() {
   [ "${status}" -ne 0 ]
   [[ "${output}" == *"job probe"* ]]
   [[ "${output}" == *"shellcheck"* ]]
+}
+
+# why: The other half of that rule, and the half easier to get wrong. A
+# substitution ENDS at its closing paren, and the double quote resumes
+# there -- text after it is string again. Reading command context to the
+# end of the line instead would put this repo's prose back in command
+# position through the door the quote blanker exists to shut: an error
+# message carrying a `$(...)` and then a semicolon would report every tool
+# it names.
+@test "tool provenance: a substitution's closing paren returns the rest of the string to prose" {
+  _workflow "wf.yaml" \
+    'on:' \
+    '  pull_request:' \
+    'jobs:' \
+    '  probe:' \
+    '    runs-on: ubuntu-latest' \
+    '    steps:' \
+    '      - run: |' \
+    '          echo "built $(date); bats is not reliable on such a body"'
+  run _run_tool_provenance
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"clean"* ]]
 }
 
 # why: Provenance is read from what the job RUNS, and a comment runs

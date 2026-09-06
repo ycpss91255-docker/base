@@ -82,8 +82,11 @@
 # driver lands in which group would be the roster this file refuses to be.
 #
 # A selector naming a driver file that does not exist is REFUSED, not
-# skipped. An unresolvable demand read as no demand is the silent green
-# this whole driver exists to close.
+# skipped, and so is a dispatcher that will not name the members of a
+# group -- the same unresolvable demand arriving through the other door,
+# since a refusal and an empty partition read alike off a pipe. An
+# unresolvable demand read as no demand is the silent green this whole
+# driver exists to close.
 #
 # ── What counts as PROVENANCE ───────────────────────────────────────────────
 #
@@ -129,9 +132,12 @@
 #                 action carrying its own copy of a pinned tool reads as no
 #                 demand at all.
 #   indirection   a tool reached through a variable (`TOOL=shellcheck;
-#                 "${TOOL}" -x`) or from inside a quoted span (`eval "..."`,
-#                 a `"$(...)"` substitution) is not in command position for
-#                 the split below to find.
+#                 "${TOOL}" -x`) or from inside a quoted span that is not a
+#                 substitution (`eval "shellcheck ..."`) is not in command
+#                 position for the split below to find. A `"$(...)"` IS
+#                 read: double quotes do not end command context, and
+#                 capturing a tool's output is how a job asks a binary
+#                 anything.
 #   a repo script demand through a repo script that is NOT test.sh --
 #                 `bash ./script/test/drivers/coverage_gate.sh` -- is not
 #                 followed. The obvious generalisation, one-level closure
@@ -201,10 +207,25 @@ readonly _TP_SEP=$'\x01'
 #   RUN   <line>   one line of shell a step actually executes
 #   TEXT  <line>   any non-comment line inside the job, `uses:` and `with:`
 #                  included -- the surface provenance evidence is read from
+#   BAD   <line>   a line at JOB-LEVEL indent that is not a job key in the
+#                  spelling above. Under `jobs:` there is nothing else a
+#                  line at that indent can be, so this is the reader
+#                  saying it stopped reading -- and saying so is the
+#                  point: read as ordinary text, such a line does not
+#                  merely lose its own job, it accumulates the steps under
+#                  it into the job ABOVE, where an unobtained tool is
+#                  scored against somebody else's provenance. Refusing is
+#                  what keeps the two-space commitment honest without
+#                  widening the pattern, which would start reading a job's
+#                  own nested keys as jobs. The per-FILE floor below
+#                  cannot stand in for it: the file's other jobs read
+#                  fine, so the file is not vacuous.
 #
 # Comment lines are dropped from both: a comment installs nothing and runs
 # nothing, and the prose of this repo -- this header included -- names
-# every tool it reasons about.
+# every tool it reasons about. A comment TRAILING a line of shell is the
+# same comment; it survives into the record because the line does, and is
+# cut where the evidence is read (_TP_UNCOMMENT_AWK).
 #
 # Written for busybox-awk / mawk / gawk alike (the three the test-tools
 # image carries): no gensub, no three-argument match, no non-POSIX
@@ -232,6 +253,7 @@ injobs != 1     { next }
     print "JOB\t" name
     next
   }
+  if (indent_of($0) == 2) { print "BAD\t" $0; next }
   if ($0 ~ /^[ \t]*-?[ \t]*run:/) {
     rest = $0; sub(/^[ \t]*-?[ \t]*run:[ \t]*/, "", rest)
     runind = indent_of($0)
@@ -255,23 +277,80 @@ injobs != 1     { next }
 # unterminated quote blanks the rest of its line -- a string continued onto
 # the next line is string all the way to the end of this one.
 #
+# A double quote does NOT end command context, though: `$(` inside one
+# opens a substitution, and what follows it is shell the job runs --
+# `out="$(hadolint x)"` is how a job asks a binary anything. So the
+# blanker suspends the quote at a `$(` and RESUMES it at the matching
+# `)`, counting nesting on the way. Resuming is the half that matters:
+# suspending alone would read `"$(date); bats ..."` as running bats, which
+# puts the prose back in command position through a different door.
+#
 # The residual limit, stated rather than papered over: a command hidden
-# inside a quoted span (`eval "shellcheck ..."`, a `"$(...)"` substitution)
+# inside a quoted span that is not a substitution (`eval "shellcheck ..."`)
 # is not seen. That is a false NEGATIVE, which is the direction this stripper
 # adds; the false positives it removes are the ones that get a lint muted,
 # and a muted lint sees nothing at all.
 #
-# Written for busybox-awk / mawk / gawk alike: no gensub, no three-argument
-# match.
+# Written for busybox-awk / mawk / gawk alike (the three the test-tools
+# image carries): no gensub, no three-argument match, no non-POSIX
+# character classes.
 # shellcheck disable=SC2016 # awk program; $-vars are awk's, not the shell's.
 readonly _TP_STRIP_AWK='
 {
-  line = $0; out = ""; q = ""; n = length(line)
+  line = $0; out = ""; q = ""; n = length(line); depth = 0; saveq = ""
   for (i = 1; i <= n; i++) {
     c = substr(line, i, 1)
-    if (q != "") { if (c == q) { q = "" } ; continue }
+    if (q != "") {
+      if (q == "\042" && c == "$" && substr(line, i + 1, 1) == "(") {
+        saveq = q; q = ""; depth = 1; out = out " $("; i = i + 1; continue
+      }
+      if (c == q) { q = "" }
+      continue
+    }
+    if (depth > 0) {
+      if (c == "(") { depth = depth + 1 }
+      else if (c == ")") {
+        depth = depth - 1
+        if (depth == 0 && saveq != "") { q = saveq; saveq = ""; out = out " "; continue }
+      }
+    }
     if (c == "\047" || c == "\042") { q = c; out = out " "; continue }
     out = out c
+  }
+  print out
+}
+'
+
+# The comment stripper, for the PROVENANCE text.
+#
+# Whole-line comments never reach the record stream at all: a comment
+# installs nothing and runs nothing, which is why they are dropped. A
+# comment that TRAILS a line of shell is the same comment, and evidence
+# read out of one is evidence of nothing -- `- run: shellcheck x  #
+# script/ci/test-tools-pins.sh SHELLCHECK_VERSION` would otherwise read as
+# a job obtaining its pin. These workflows are comment-dense enough for
+# that mute to be written by accident.
+#
+# The `#` has to START a word to open a comment, in YAML and in shell
+# alike, so `${#arr[@]}` and `$#` are untouched; and it has to be
+# unquoted, so `sed "s/#//"` keeps its own. Quoted spans are KEPT here
+# rather than blanked, which is the opposite of what the split above
+# wants and right for the opposite reason: provenance evidence is
+# routinely inside one -- the pin key the shellcheck job reads arrives
+# inside an awk program, double-quoted inside single quotes.
+#
+# Written for busybox-awk / mawk / gawk alike: no gensub, no three-argument
+# match.
+# shellcheck disable=SC2016 # awk program; $-vars are awk's, not the shell's.
+readonly _TP_UNCOMMENT_AWK='
+{
+  line = $0; out = ""; q = ""; prev = " "; n = length(line)
+  for (i = 1; i <= n; i++) {
+    c = substr(line, i, 1)
+    if (q != "") { out = out c; if (c == q) { q = "" } ; prev = c; continue }
+    if (c == "#" && (prev == " " || prev == "\t")) { break }
+    if (c == "\047" || c == "\042") { q = c }
+    out = out c; prev = c
   }
   print out
 }
@@ -446,6 +525,16 @@ _tp_tools_in_shell() {
 
 # ── Driver resolution ───────────────────────────────────────────────────────
 
+# _tp_unresolved <missingvar> <entry> -- record that a demand could not be
+# resolved. Entries are `<kind>:<path>`, one whitespace-free token each so
+# the space-delimited set the caller iterates stays readable; the kind is
+# what lets the report say WHICH question went unanswered.
+_tp_unresolved() {
+  local -n _tpu_missing="${1}"
+  local _entry="${2}"
+  [[ " ${_tpu_missing} " == *" ${_entry} "* ]] || _tpu_missing+="${_entry} "
+}
+
 # _tp_driver_tools <lint-name> <toolsvar> <missingvar> -- add the tools
 # driver <lint-name> invokes to <toolsvar>. A driver whose source is not
 # there to be read is named in <missingvar> instead: what it runs cannot
@@ -457,9 +546,7 @@ _tp_driver_tools() {
   local _file="${_TP_DRIVER_DIR_REL}/${_lint//-/_}.sh"
   local _abs="${REPO_ROOT}/${_file}"
   if [[ ! -f "${_abs}" ]]; then
-    if [[ " ${_tpd_missing} " != *" ${_file} "* ]]; then
-      _tpd_missing+="${_file} "
-    fi
+    _tp_unresolved _tpd_missing "driver:${_file}"
     return 1
   fi
   if [[ -z "${_TP_DRIVER_CACHE["${_file}"]+set}" ]]; then
@@ -485,10 +572,20 @@ _tp_driver_tools() {
 # _tp_group_members -- the lints a `--lint-group` invocation can select,
 # asked of the dispatcher rather than listed here. `1/1` is the whole
 # partition, which is the union over every index a matrix could supply.
+#
+# NON-ANSWERS ARE FAILURES, not empty sets. A missing test.sh, a non-zero
+# exit, a renamed `--lint-group-members` -- each returns nothing, and
+# nothing read as no demand is exactly the silent green a missing driver
+# FILE is refused for. The partition is never legitimately empty either:
+# `--lint-group` selects out of _LINT_TOOLS, and a dispatcher offering no
+# lint at all has stopped answering the question.
 _tp_group_members() {
   local _abs="${REPO_ROOT}/${_TP_TEST_SH_REL}"
   [[ -f "${_abs}" ]] || return 1
-  bash "${_abs}" --lint-group-members 1/1 2>/dev/null
+  local _out
+  _out="$(bash "${_abs}" --lint-group-members 1/1 2>/dev/null)" || return 1
+  [[ -n "${_out}" ]] || return 1
+  printf '%s\n' "${_out}"
 }
 
 # ── Per-job classification ──────────────────────────────────────────────────
@@ -518,10 +615,18 @@ _tp_job_demand() {
       _tp_driver_tools "${BASH_REMATCH[1]}" _tpj_out _tpj_missing || true
     fi
     if [[ "${_line}" == *'--lint-group'* ]]; then
-      while IFS= read -r _lint; do
-        [[ -n "${_lint}" ]] || continue
-        _tp_driver_tools "${_lint}" _tpj_out _tpj_missing || true
-      done < <(_tp_group_members)
+      # Asked, and the answer CHECKED. Reading the members off a pipe
+      # cannot tell a refusal from an empty partition, and this is the one
+      # place a new driver joins CI without anybody choosing a job for it.
+      local _members=""
+      if _members="$(_tp_group_members)"; then
+        while IFS= read -r _lint; do
+          [[ -n "${_lint}" ]] || continue
+          _tp_driver_tools "${_lint}" _tpj_out _tpj_missing || true
+        done <<< "${_members}"
+      else
+        _tp_unresolved _tpj_missing "dispatcher:${_TP_TEST_SH_REL}"
+      fi
     fi
   done
   return 0
@@ -531,6 +636,10 @@ _tp_job_demand() {
 # declaration?
 _tp_provides() {
   local _tool="${1}" _text="${2}" _key
+  # Evidence is read from what the job RUNS, so a trailing comment is
+  # stripped first for the same reason a whole-line one never reached the
+  # record stream: a comment naming the accessor obtains nothing.
+  _text="$(printf '%s\n' "${_text}" | awk "${_TP_UNCOMMENT_AWK}")"
   if [[ "${_text}" =~ ${_TP_IMAGE_RE} ]]; then
     return 0
   fi
@@ -585,7 +694,14 @@ _run_tool_provenance() {
     _tp_job_demand _demand _missing "${_runs[@]}"
     local _entry _tool
     for _entry in ${_missing}; do
-      _report+="${_rel}: job ${_job}: selects a lint whose driver '${_entry}' is not there to be read, so what it runs cannot be resolved. An unresolvable demand is not an absent one."$'\n'
+      case "${_entry}" in
+        dispatcher:*)
+          _report+="${_rel}: job ${_job}: selects a lint GROUP, and '${_entry#dispatcher:} --lint-group-members 1/1' named none -- so which drivers the job runs cannot be resolved. An unresolvable demand is not an absent one."$'\n'
+          ;;
+        *)
+          _report+="${_rel}: job ${_job}: selects a lint whose driver '${_entry#driver:}' is not there to be read, so what it runs cannot be resolved. An unresolvable demand is not an absent one."$'\n'
+          ;;
+      esac
       _TP_FINDINGS=$(( _TP_FINDINGS + 1 ))
     done
     for _tool in ${_demand}; do
@@ -600,7 +716,7 @@ _run_tool_provenance() {
     _job=""
   }
 
-  local _unreadable=""
+  local _unreadable="" _unkeyed=""
   for _file in "${_files[@]}"; do
     _rel="${_file#"${REPO_ROOT}"/}"
     _job=""
@@ -617,12 +733,29 @@ _run_tool_provenance() {
           ;;
         RUN)  _runs+=("${_payload}") ;;
         TEXT) _text+="${_payload}"$'\n' ;;
+        BAD)  _unkeyed+="${_rel}: ${_payload}"$'\n' ;;
       esac
     done < <(awk "${_TP_AWK}" "${_file}")
     _tp_flush_job
     [[ "${_TP_FILE_JOBS}" -gt 0 ]] || _unreadable+="${_rel} "
   done
   unset -f _tp_flush_job
+
+  # A line at job-level indent that is not a job key.
+  #
+  # Refused before anything is reported, because it is the reader saying
+  # it stopped reading and every verdict downstream of it is drawn from a
+  # record stream that mis-attributed somebody's steps. The per-FILE floor
+  # below cannot stand in for this: the file's other jobs read fine, so
+  # the file is not vacuous -- one job of it is simply gone, its steps
+  # folded into the job above and its tools scored against provenance that
+  # belongs to a different job.
+  if [[ -n "${_unkeyed}" ]]; then
+    _die ci_tool_provenance \
+      "a line at job level is not a job key this reader can name:
+${_unkeyed}Under 'jobs:' there is nothing else a line at that indent can be, so this is the reader stopping rather than the workflow being unusual. A job key it recognises is two spaces of indent, a name of letters, digits, '_', '.' or '-', a colon, and nothing after it but a comment. Refusing is the direction that fails loudly: widening the pattern would start reading a job's own nested keys as jobs."
+    return 1
+  fi
 
   # Non-vacuity, asked of EVERY FILE rather than of the tree.
   #
