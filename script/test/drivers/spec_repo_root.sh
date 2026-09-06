@@ -71,7 +71,7 @@
 # table at all, a pool that resolves to no directory, a scan that finds no
 # spec file, a compose.yaml that is missing, one that binds no checkout,
 # and a scan that finds no `*REPO_ROOT=` assignment ANYWHERE. The last is
-# the one that matters: 58 fixture-rooted assignments exist today, so zero
+# the one that matters: 63 fixture-rooted assignments exist today, so zero
 # means the detector has gone blind (a renamed variable, a changed quoting
 # convention), and a blind detector reports a clean tree.
 #
@@ -103,21 +103,35 @@
 #      matter reach the tree far more cheaply than that.
 #
 # THAT REMAINDER IS MEASURED, not assumed, so the next reader does not have
-# to rediscover its size. On a warm 32-way `just test coverage-local` of
-# the tree this lint now passes, 174 tests in the pools invoke the live
-# `script/test/test.sh` and cost 157.5s of the suite's 2298.9s -- 6.8%,
-# and the largest remaining share of whole-tree work in the suite. The top
-# of that list is THIS SAME SHAPE reached through the host-direct lint
-# entry rather than through an assignment: `--pin-coverage-only` 27.6s,
-# `--ci LINT_TOOL=doc-counts` 17.3s, `--doc-counts-only` 16.4s,
-# `--readme-sync-only` 5.3s.
+# to rediscover its size. Read the SHARES and the identities below, not the
+# absolute seconds: two warm 32-way `just test coverage-local` runs of the
+# same tree on this machine put the same test 40% apart, so a second here
+# is a machine-load reading and a share is a property of the suite.
 #
-# They are not refused here, and the reason is a real obstacle rather than
-# a judgement call: they assert the ENTRY POINT -- that `--<tool>-only`
-# runs on the host with no compose -- and test.sh derives REPO_ROOT from
-# its OWN location, so there is no fixture root to point them at. Making
-# that derivation overridable is the change to make before widening this
-# rule, not after. Until then the cost is above, not implied.
+# One family is the host-direct lint entry, reaching THIS SAME SHAPE
+# through `--<tool>-only` rather than through an assignment:
+# `--pin-coverage-only`, `--ci LINT_TOOL=doc-counts`, `--doc-counts-only`,
+# `--readme-sync-only`. Measured at 174 tests and 6.8% of instrumented
+# time on the run that landed this lint.
+#
+# It is NOT the largest survivor, and the two that are carry no assignment
+# either: `_sync_readme_hashes: is a no-op on the REAL tree` in
+# readme_sync_spec.bats at 116.0s, and `doc/adr: every record's workflow
+# and quotation claims hold against the tree` in adr_doc_claims_spec.bats
+# at 115.3s. The first copies the live doc/readme/ tree and runs the
+# generator over the COPY -- a fixture root by the letter of this rule and
+# a whole-tree run by its purpose -- and the second reads doc/adr/
+# directly. Those two, not the entry-point family, are what now bounds the
+# partition: 116.0s against a 266.7s twelve-shard ideal, which is the
+# margin that makes the shard count a lever again.
+#
+# THE ENTRY-POINT CASES are not refused here, and the reason is a real
+# obstacle rather than a judgement call: they assert the ENTRY POINT --
+# that `--<tool>-only` runs on the host with no compose -- and test.sh
+# derives REPO_ROOT from its OWN location, so there is no fixture root to
+# point them at. Making that derivation overridable is the change to make
+# before widening this rule, not after. Until then the cost is above, not
+# implied.
 
 # ── The spec REPO_ROOT lint ────────────────────────────────────────────────
 
