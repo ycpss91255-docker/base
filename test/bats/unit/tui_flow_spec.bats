@@ -246,11 +246,20 @@ EOF
   assert_success
 }
 
-@test "_tui_known_subcommand accepts every SCHEMA_SECTIONS member (#561)" {
+@test "_tui_known_subcommand accepts a SCHEMA_SECTIONS member iff it has an editor (#561)" {
   local _s
   for _s in "${SCHEMA_SECTIONS[@]}"; do
     run _tui_known_subcommand "${_s}"
-    [ "${status}" -eq 0 ]
+    if declare -F "_edit_section_${_s}" >/dev/null; then
+      [ "${status}" -eq 0 ]
+    else
+      # Being on the registry is not enough to be dispatchable: main
+      # jumps straight to `"_edit_section_${_subcmd}"`, so accepting a
+      # section with no editor (today `project`, a deliberate opt-out)
+      # sent it into a command-not-found. This used to assert acceptance
+      # for every member, which is the assumption that hid it.
+      [ "${status}" -ne 0 ]
+    fi
   done
 }
 
@@ -266,6 +275,12 @@ EOF
 
 @test "_tui_known_subcommand derives from SCHEMA_SECTIONS (single source) (#561)" {
   SCHEMA_SECTIONS+=(brandnew)
+  # A section reaches the CLI by being registered AND having an editor;
+  # neither half is a list kept here. Registered with no editor is the
+  # `project` shape, and it must be refused rather than dispatched.
+  run _tui_known_subcommand brandnew
+  [ "${status}" -ne 0 ]
+  _edit_section_brandnew() { return 0; }
   run _tui_known_subcommand brandnew
   [ "${status}" -eq 0 ]
 }
