@@ -977,18 +977,36 @@ unreachable_functions() {
 # one of them had three specs -- so a test suite is not evidence that
 # production code is reachable. A hand-kept roster of "known dead" would
 # go stale the moment a caller is deleted, so the population is derived
-# from the file and the callers from the shipped tree. Dynamic dispatch
+# from the files and the callers from the shipped tree. Dynamic dispatch
 # is resolved by asking the program which names it can dispatch, not by
 # waving a prefix through, which is how `_edit_section_resources` --
 # whose only caller is main's `setup_tui.sh resources` direct jump --
 # stays in while a dead editor does not.
-@test "setup_tui.sh: every function it defines is reachable from dist/" {
-  local _got
-  _got="$(unreachable_functions \
-    /source/dist/script/docker/wrapper/setup_tui.sh /source/dist)"
-  _got="$(printf '%s' "${_got}" | tr -d '[:space:]')"
-  printf 'unreachable: %s\n' "${_got}" >&2
-  [ -z "${_got}" ]
+#
+# The population is every shipped file of the TUI, not setup_tui.sh
+# alone, because the dead code a TUI change leaves behind does not stay
+# in one file. Deleting `_prompt_mount_with_picker` from the wrapper took
+# with it the ONLY two call sites of `_tui_radiolist` in
+# lib/_tui_backend.sh and the only caller of `_assemble_mount_value` in
+# lib/_tui_conf.sh; a guard that reads the wrapper alone reports a clean
+# tree while two primitives ship with nothing to call them. The glob is
+# what makes that derived: a new `_tui_*.sh` joins the population by
+# existing.
+@test "the TUI's shipped files define no function nothing can reach" {
+  local -a _files=(
+    /source/dist/script/docker/wrapper/setup_tui.sh
+    /source/dist/script/docker/lib/_tui_*.sh
+  )
+  # The glob has to have matched the TUI's own libs, not silently nothing.
+  [ "${#_files[@]}" -ge 3 ]
+  local _f _got _all=""
+  for _f in "${_files[@]}"; do
+    _got="$(unreachable_functions "${_f}" /source/dist)"
+    _got="$(printf '%s' "${_got}" | tr -d '[:space:]')"
+    [ -z "${_got}" ] || _all+="${_f##*/}: ${_got}; "
+  done
+  printf 'unreachable: %s\n' "${_all}" >&2
+  [ -z "${_all}" ]
 }
 
 # why: main jumps straight to `"_edit_section_${_subcmd}"` for every name
@@ -1019,15 +1037,32 @@ unreachable_functions() {
 }
 
 # why: the guard above is only worth its runtime if it would go red on a
-# function that is dead TOMORROW, and as first written it would not have.
-# This plants three shapes in a scratch tree and requires the guard to
-# name all three: a plain dead helper (the control, which proves the
-# planting works at all); a dead `_edit_section_*`, which the blanket
-# prefix exemption waved through even though 14 of the file's editors
-# have no caller but that dispatch; and one whose only mention outside
-# its own definition is a trailing comment, which the whole-line-only
-# comment strip counted as a caller -- the very confusion of prose with
-# use that the guard's comment says hid one of base#1073's three.
+# function that is dead TOMORROW, and every shape below is one it waved
+# through at some point. Each is planted in a scratch tree and has to be
+# named back:
+#
+# - a plain dead helper -- the control, which proves the planting works.
+#
+# - a dead `_edit_section_*`, which a blanket prefix exemption waved
+# through even though 14 of the file's editors have no caller but the
+# `"_edit_section_${_subcmd}"` dispatch.
+#
+# - one whose only mention outside its own definition is a trailing
+# comment, which a whole-line-only comment strip counted as a caller.
+#
+# - `rule_*` and `_TUI_MSG_*`. Harvesting every `"<name>_${` in the file
+# as a dispatch prefix collects `image.rule_${_n}` and
+# `_TUI_MSG_${_TUI_LANG_UPPER}` -- a config-key prefix and an array-name
+# prefix that dispatch no function at all -- and then exempts anything
+# carrying them from the check entirely.
+#
+# - a pair of dead functions that call each other. Under mention-counting
+# each is the other's second mention, so a whole dead limb stays green.
+#
+# - one that names itself in its own `${1:?...}` message, which is its
+# own second mention. Not hypothetical: that idiom appears 81 times in
+# dist/, and it is why `_assemble_mount_value` outlived its only caller
+# in lib/_tui_conf.sh without anything noticing.
 @test "the dead-code guard names every shape of dead function planted in a tree" {
   local _dir="${BATS_TEST_TMPDIR}/planted_dist"
   mkdir -p "${_dir}"
@@ -1038,13 +1073,25 @@ unreachable_functions() {
     printf '\n_edit_section_frobnicate() {\n  :\n}\n'
     printf '\n_dead_named_only_in_prose() {\n  :\n}\n'
     printf 'true  # successor to _dead_named_only_in_prose\n'
+    printf '\nrule_dead_thing() {\n  :\n}\n'
+    printf '\n_TUI_MSG_dead_thing() {\n  :\n}\n'
+    printf '\n_dead_leaf() {\n  :\n}\n'
+    printf '\n_dead_caller_of_dead_leaf() {\n  _dead_leaf\n}\n'
+    printf '\n_dead_naming_itself() {\n'
+    printf '  local _x="${1:?_dead_naming_itself requires an argument}"\n'
+    printf '  printf %%s "${_x}"\n}\n'
   } >> "${_scratch}"
-  local _got
+  local _got _fn
   _got="$(unreachable_functions "${_scratch}" "${_dir}")"
   printf 'planted run reported: %s\n' "${_got}" >&2
-  [[ "${_got}" == *_plain_dead_helper* ]]
-  [[ "${_got}" == *_edit_section_frobnicate* ]]
-  [[ "${_got}" == *_dead_named_only_in_prose* ]]
+  for _fn in _plain_dead_helper _edit_section_frobnicate \
+    _dead_named_only_in_prose rule_dead_thing _TUI_MSG_dead_thing \
+    _dead_leaf _dead_caller_of_dead_leaf _dead_naming_itself; do
+    [[ "${_got}" == *"${_fn}"* ]] || {
+      printf 'the guard did not name planted dead function %s\n' "${_fn}" >&2
+      return 1
+    }
+  done
 }
 
 # ════════════════════════════════════════════════════════════════════
