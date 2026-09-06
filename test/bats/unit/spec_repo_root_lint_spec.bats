@@ -167,6 +167,56 @@ _assign() {
   [[ "${output}" == *"b_spec.bats"* ]]
 }
 
+# why: The spelling THIS FILE teaches. Every one of the twenty-three cases
+# base#1075 removed wrote the root as a literal, so a detector that reads
+# literals was right about the tree it was written against -- and the file
+# you are reading demonstrates the other spelling four lines at a time,
+# because a fixture cannot carry the refused text. One hop of indirection
+# is what the next author copies, and a value the same file resolves to the
+# mount is the same whole-tree scan at the same cost.
+@test "_run_spec_repo_root: FAILS when the root reaches the mount through a variable" {
+  _spec "test/bats/unit/x_spec.bats" \
+    '@test "the real tree is clean" {' \
+    "$(_assign LIVE "${MOUNT}")" \
+    '  REPO_ROOT="${LIVE}" run _run_thing' \
+    '}'
+  run _run_spec_repo_root
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"test/bats/unit/x_spec.bats:3"* ]]
+}
+
+# why: The same one character at a time as the literal case: a subtree of the
+# checkout reached through the variable walks real files at real cost
+@test "_run_spec_repo_root: FAILS on a path UNDER the mount reached through a variable" {
+  _spec "test/bats/unit/x_spec.bats" \
+    "$(_assign LIVE "${MOUNT}")" \
+    '@test "the real dist tree is clean" {' \
+    '  REPO_ROOT="${LIVE}/dist" run _run_thing' \
+    '}'
+  run _run_spec_repo_root
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"x_spec.bats:3"* ]]
+}
+
+# why: Resolution has to run in the file being scanned, not across the suite: a
+# name that means the mount in one spec means a scratch dir in the next, and
+# a rule that carried a name between files would accuse the second one
+@test "_run_spec_repo_root: does NOT carry a variable's value between files" {
+  _spec "test/bats/unit/a_spec.bats" \
+    "$(_assign LIVE "${MOUNT}")" \
+    '@test "reads one file" {' \
+    '  run cat "${LIVE}/justfile"' \
+    '}'
+  _spec "test/bats/unit/b_spec.bats" \
+    '@test "a driver over a fixture" {' \
+    '  LIVE="${SCRATCH}"' \
+    '  REPO_ROOT="${LIVE}" run _run_thing' \
+    '}'
+  run _run_spec_repo_root
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"clean"* ]]
+}
+
 # ════════════════════════════════════════════════════════════════════
 # What is not a violation
 # ════════════════════════════════════════════════════════════════════
@@ -232,11 +282,41 @@ _assign() {
 
 # why: A relocated spec tree is the failure this repo keeps paying for: a lint
 # that covers zero files and a green line that reads as a verdict over the
-# suite
+# suite. It asserts the DISTINGUISHING sentence and not the shared word:
+# every non-vacuity die here says "vacuously", so a case that asserted only
+# that stayed green with the guard it names deleted -- a different die fired
+# and the test could not tell the two apart.
 @test "_run_spec_repo_root: DIES when a pool holds no spec file" {
   run _run_spec_repo_root
   [ "${status}" -ne 0 ]
-  [[ "${output}" == *"vacuously"* ]]
+  [[ "${output}" == *"nothing was scanned"* ]]
+}
+
+# why: The sixth way in, and the one furthest upstream: the pool table is what
+# gives this lint its scope, so a rename in drivers/bats.sh that left it
+# unset would make the scan cover nothing at all -- and an unset array under
+# `set -u` reads as empty, not as an error
+@test "_run_spec_repo_root: DIES when the coverage pool table is unset" {
+  _spec "test/bats/unit/x_spec.bats" \
+    '@test "a driver over a fixture" {' \
+    '  REPO_ROOT="${SCRATCH}"' \
+    '}'
+  # A CHILD SHELL that never sources drivers/bats.sh, which is the only
+  # state in which the table is absent: it declares the array `readonly`,
+  # so nothing in this process can take it away again. That is also the
+  # real shape of the failure -- a rename or a split in bats.sh leaving
+  # this driver sourced with no table to read.
+  run bash -c '
+    set -uo pipefail
+    export LOG_FORMAT=text
+    source /source/dist/script/docker/lib/_lib.sh
+    _die() { local _ev="${1}"; shift; _log_err ci "${_ev}" "display=$*"; return 1; }
+    source /source/script/test/drivers/spec_repo_root.sh
+    REPO_ROOT="${1}"
+    _run_spec_repo_root
+  ' _ "${SCRATCH}"
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"_COVERAGE_FULL_SUITE_POOLS is unset"* ]]
 }
 
 # why: The pools come from the coverage runner, so a pool it runs and this cannot
@@ -264,7 +344,9 @@ _assign() {
     '}'
   run _run_spec_repo_root
   [ "${status}" -ne 0 ]
-  [[ "${output}" == *"compose.yaml"* ]]
+  # Again the distinguishing sentence: the missing-bind die below also
+  # names compose.yaml, so the filename alone did not separate them.
+  [[ "${output}" == *"every root would be accepted"* ]]
 }
 
 # why: The same hole with the file present: a compose file that no longer binds
