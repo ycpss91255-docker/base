@@ -38,7 +38,8 @@
   step `git mv`s a legacy override to the root and warns loudly (never
   silently drops it). (Superseded in part by the 2026-09-06 amendment
   below: that step could not reach the downstreams it was written for from
-  `upgrade.sh`, and now runs from the `init.sh` resync.) See the re-pointed frozen-path list note below.
+  `upgrade.sh`, and now runs from the `init.sh` resync.) See the
+  re-pointed frozen-path list note below.
   This reverses #262, which had nested setup.conf under `config/docker/`
   for layout uniformity.
 - **Amended:** 2026-08-25 by #915 -- the 2026-06-24 amendment above was
