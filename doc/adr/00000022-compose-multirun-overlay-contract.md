@@ -1,6 +1,6 @@
 # base<->multi_run compose contract: per-instance isolation is an overlay, enforced by a guard
 
-> Serves: PRD invariant 3 (multi_run-expandable by construction) --
+> Serves: PRD invariant 3 (composable by construction) --
 > established by the overlay contract + guard; also invariant 2 (a loud
 > self-check).
 
@@ -41,6 +41,18 @@ that stays green until someone downstream hits it.
 
 ### 1. Per-instance isolation is a `.env` overlay, never a compose regenerate
 
+> **Amended 2026-09-06 by ADR-00000036 (#1087).** The rejection of per-instance
+> regeneration is withdrawn, and the reason it was right has stopped applying.
+> It rested on generation being able to write only into the repo, so
+> regenerating meant mutating a shared checkout and two instances would fight
+> over one file. Once a call names its own output directory, that objection is
+> gone. Per-instance generation is now the supported path for parameters that
+> change the emitted file's SHAPE -- build args, image rules, conditional blocks
+> -- which an interpolation cannot reach at all: `${VAR}` substitutes into lines
+> that already exist. **The overlay is not withdrawn.** It remains correct and
+> cheaper for values that do not change the file's shape, and every channel in
+> section 3's table keeps working unchanged.
+
 An instance is isolated by supplying **overlay values**, not by
 regenerating `compose.yaml`. `compose.yaml` stays a single committed-shape
 artifact; the per-instance delta lives entirely in overlay inputs
@@ -69,6 +81,20 @@ grey zone for `ports` / `network_mode` and the rest: they are *both*, and
 the interpolation form is what lets one emission serve both roles.
 
 ### 3. Override channel by field kind
+
+> **Amended 2026-09-06 by ADR-00000036 (#1087).** The last row of this table --
+> GPU, `runtime` and `hostname` recorded as correctly shared -- is narrowed to a
+> statement about the host, not about the contract. Three co-located instances
+> do share one GPU device tree; it does not follow that they must claim it
+> identically, and an assembler may want instance 1 on GPU 0, instance 2 on
+> GPU 1 and instance 3 with none. These become caller-reachable. The row's
+> reasoning about the X11 cookie and the host's timezone is unaffected.
+>
+> The paragraph above this table -- "the audit is a starting point, not an
+> exhaustive allowlist" -- is superseded by a stronger rule: anything base
+> decides at build time or before the container starts must be reachable by the
+> caller, and only what is internal to a running container is outside the
+> contract.
 
 The audit is a **starting point, not an exhaustive allowlist** -- ANY
 field that can collide across instances must have an override path. The
@@ -256,7 +282,7 @@ see the 2026-08-26 amendment above; the field-deploy bundle keeps one.)
 
 **Forward invariant:** base's compose emission never emits a hardcoded
 per-instance literal over the interpolation-channel field set. base-
-generated stacks are multi_run-expandable *by construction*.
+generated stacks are composable *by construction*.
 
 **Guard:** `overlay_guard_spec.bats` emits a compose that exercises the
 per-instance fields and asserts each is an overlay interpolation, never a
