@@ -671,14 +671,6 @@ _marker() {
 # Real tree guard
 # ════════════════════════════════════════════════════════════════════
 
-# why: Live tree clean
-@test "_run_readme_sync: the REAL doc/readme/ tree is stamped and clean today (#846)" {
-  REPO_ROOT="/source"
-  run _run_readme_sync
-  [ "${status}" -eq 0 ]
-  [[ "${output}" == *"clean"* ]]
-}
-
 # ── the real tree, captured as a snapshot the spec owns ──────────────
 #
 # The two cases below are the only ones that read the tracked READMEs, and

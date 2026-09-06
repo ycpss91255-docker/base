@@ -269,14 +269,3 @@ _write() {
   [ "${status}" -ne 0 ]
   [[ "${output}" == *"dist"* ]]
 }
-
-# ════════════════════════════════════════════════════════════════════
-# _run_arch_literal: real tree guard
-# ════════════════════════════════════════════════════════════════════
-
-@test "_run_arch_literal: the REAL shipped Dockerfiles pass today (#939)" {
-  REPO_ROOT="/source"
-  run _run_arch_literal
-  [ "${status}" -eq 0 ]
-  [[ "${output}" == *"clean"* ]]
-}

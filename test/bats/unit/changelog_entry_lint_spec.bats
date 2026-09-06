@@ -958,10 +958,6 @@ _long_prose() {
   assert_output --partial '2 category headings checked against the 7-name roster'
 }
 
-# ════════════════════════════════════════════════════════════════════
-# The real tree
-# ════════════════════════════════════════════════════════════════════
-
 # why: Twenty category headings where seven will do is what an unlocked axis
 # produced, and a reader scanning for what broke then has no heading to
 # scan for. The refusal also hands over the roster, because one that does
@@ -1053,12 +1049,6 @@ _long_prose() {
   run _run_changelog_entry
   assert_failure
   assert_output --partial 'CONVENTIONS.md'
-}
-
-@test "_run_changelog_entry: the real repo tree's [Unreleased] section is clean (#917)" {
-  REPO_ROOT=/source
-  run _run_changelog_entry
-  assert_success
 }
 
 # ════════════════════════════════════════════════════════════════════

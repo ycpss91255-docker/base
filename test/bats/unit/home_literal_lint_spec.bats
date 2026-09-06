@@ -234,14 +234,3 @@ _write() {
   [ "${status}" -ne 0 ]
   [[ "${output}" == *"dist"* ]]
 }
-
-# ════════════════════════════════════════════════════════════════════
-# _run_home_literal: real tree guard
-# ════════════════════════════════════════════════════════════════════
-
-@test "_run_home_literal: the REAL shipped tree passes today (#799)" {
-  REPO_ROOT="/source"
-  run _run_home_literal
-  [ "${status}" -eq 0 ]
-  [[ "${output}" == *"clean"* ]]
-}

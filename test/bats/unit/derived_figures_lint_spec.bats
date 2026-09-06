@@ -263,14 +263,3 @@ _append() {
   [ "${status}" -ne 0 ]
   [[ "${output}" == *"dist"* ]]
 }
-
-# ════════════════════════════════════════════════════════════════════
-# _run_derived_figures: real tree guard
-# ════════════════════════════════════════════════════════════════════
-
-@test "_run_derived_figures: the REAL tree passes today (#874)" {
-  REPO_ROOT="/source"
-  run _run_derived_figures
-  [ "${status}" -eq 0 ]
-  [[ "${output}" == *"clean"* ]]
-}

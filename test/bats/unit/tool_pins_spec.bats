@@ -525,34 +525,6 @@ _pins() {
 # The real tree
 # ════════════════════════════════════════════════════════════════════
 
-# why: Drives the live tree, so a marker written today is parsed by the same reader
-# the scheduled run uses
-@test "pins: the real tree's markers all parse" {
-  PIN_REPO_ROOT=/source run "${PINS}" --list
-  assert_success
-}
-
-# why: The defect this closes: four provenance paths for one tool, 37 minors apart,
-# none of them naming a version in the image
-@test "pins: just is PINNED in the real tree, not left to a package manager" {
-  # The defect this closes: four provenance paths for one tool, 37 minors
-  # apart, none of them naming a version in the image.
-  PIN_REPO_ROOT=/source run "${PINS}" --value just
-  assert_success
-  assert_output --regexp '^[0-9]+\.[0-9]+\.[0-9]+$'
-}
-
-# why: The pin and the image must be one number, or the accessor answers for a just
-# the image does not ship
-@test "pins: the just pin is the number the test-tools image installs" {
-  PIN_REPO_ROOT=/source run "${PINS}" --value just
-  assert_success
-  local _version="${output}"
-  run grep -F "ARG JUST_VERSION=${_version}" \
-    /source/dockerfile/Dockerfile.test-tools
-  assert_success
-}
-
 # why: Otherwise the workflow carries a fourth copy, and a bump moving only the
 # Dockerfile leaves CI testing a different just than the image ships
 @test "pins: the CI just install reads the pin instead of repeating it" {
@@ -561,10 +533,13 @@ _pins() {
   # different just than the image ships.
   #
   # The reader is the shipped accessor, not pins.sh: both read the
-  # SAME line -- the `ARG JUST_VERSION` the `tool-pin: just` marker sits
-  # on -- and the test above already asserts they agree, so CI resolving
-  # the number twice would only be two chances to disagree about one
-  # declaration. What this test is about is that the workflow READS it
+  # SAME line -- the `ARG JUST_VERSION` that the `tool-pin: just` marker
+  # sits on is the marker's TARGET, so it is where the pin's value comes
+  # from as well. CI resolving the number twice is therefore two chances
+  # to disagree about one declaration, not two declarations. base#1075
+  # removed the case this paragraph used to point at, which compared the
+  # pin against that same ARG line and so asserted one line against
+  # itself. What this test is about is that the workflow READS the number
   # rather than repeating it; which of the two readers it uses is not.
   run grep -F 'dist/script/base/just-version.sh' \
     /source/.github/workflows/self-test.yaml

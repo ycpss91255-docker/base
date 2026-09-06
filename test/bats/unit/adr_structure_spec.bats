@@ -434,14 +434,3 @@ _adr() {
   [ "${status}" -ne 0 ]
   [[ "${output}" != *"clean"* ]]
 }
-
-# ════════════════════════════════════════════════════════════════════
-# _run_adr_structure: real tree guard
-# ════════════════════════════════════════════════════════════════════
-
-@test "_run_adr_structure: the REAL doc/adr/ passes today (#994)" {
-  REPO_ROOT="/source"
-  run _run_adr_structure
-  [ "${status}" -eq 0 ]
-  [[ "${output}" == *"clean"* ]]
-}

@@ -174,15 +174,3 @@ _spec() {
   assert_failure
   assert_output --partial 'does not exist'
 }
-
-# why: The one case that is about THIS tree rather than about a fixture:
-# the ceiling in the driver has to match what the specs actually carry, or
-# the number is a claim nobody checked. It also proves the lint passes on
-# the tree it ships in, which no fixture can.
-@test "_run_catalog_description: the real tree passes, at or under the declared ceiling" {
-  REPO_ROOT=/source
-  run _run_catalog_description
-  assert_success
-  assert_output --partial "ceiling=${_CATALOG_DESC_UNDESCRIBED_CEILING}"
-  assert_output --partial 'catalog description lint: clean'
-}

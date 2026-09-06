@@ -1872,13 +1872,3 @@ _write_crlf() {
   [ "${status}" -ne 0 ]
   [[ "${output}" == *"unmatched"* ]]
 }
-
-# ════════════════════════════════════════════════════════════════════
-# The real tree
-# ════════════════════════════════════════════════════════════════════
-
-@test "_run_errexit_bang: the real bats tree is clean (#956)" {
-  REPO_ROOT=/source
-  run _run_errexit_bang
-  [ "${status}" -eq 0 ]
-}

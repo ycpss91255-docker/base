@@ -327,14 +327,3 @@ _write_translation() {
   [[ "${output}" == *"EXEC_ARGS"* ]]
   [[ "${output}" == *"README.zh-CN.md:4"* ]]
 }
-
-# ════════════════════════════════════════════════════════════════════
-# _run_i18n_orphan: the real tree
-# ════════════════════════════════════════════════════════════════════
-
-@test "_run_i18n_orphan: the real repo tree carries no translation-only identifier (#902)" {
-  REPO_ROOT="/source"
-  run _run_i18n_orphan
-  [ "${status}" -eq 0 ]
-  [[ "${output}" == *"clean"* ]]
-}

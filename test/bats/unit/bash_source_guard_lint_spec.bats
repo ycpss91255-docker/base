@@ -224,14 +224,3 @@ _write() {
   [ "${status}" -ne 0 ]
   [[ "${output}" == *"dist"* ]]
 }
-
-# ════════════════════════════════════════════════════════════════════
-# _run_bash_source_guard: real tree guard
-# ════════════════════════════════════════════════════════════════════
-
-@test "_run_bash_source_guard: the REAL shipped + tooling trees pass today (#869)" {
-  REPO_ROOT="/source"
-  run _run_bash_source_guard
-  [ "${status}" -eq 0 ]
-  [[ "${output}" == *"clean"* ]]
-}

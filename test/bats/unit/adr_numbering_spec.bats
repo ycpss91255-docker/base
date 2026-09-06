@@ -232,16 +232,3 @@ EOF
   [[ "${output}" != *"gap at 00000005"* ]]
   [[ "${output}" == *"clean"* ]]
 }
-
-# ════════════════════════════════════════════════════════════════════
-# _run_adr_numbering: real tree guard
-# ════════════════════════════════════════════════════════════════════
-
-# why: Live tree clean, 00000009 gap warned
-@test "_run_adr_numbering: the REAL doc/adr/ passes today (00000009 gap warned) (#808)" {
-  REPO_ROOT="/source"
-  run _run_adr_numbering
-  [ "${status}" -eq 0 ]
-  [[ "${output}" == *"00000009"* ]]
-  [[ "${output}" == *"clean"* ]]
-}

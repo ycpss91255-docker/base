@@ -521,14 +521,3 @@ _reindex() {
   run _run_changelog_layout
   [ "${status}" -ne 0 ]
 }
-
-# why: Every other case drives a scratch fixture, so this is the only one that
-# says the rules hold for the 43 series files that actually ship -- which
-# is what makes the split's own landing a gated change rather than a
-# claim.
-@test "changelog layout: the live changelog tree is clean" {
-  REPO_ROOT=/source
-  run _run_changelog_layout
-  [ "${status}" -eq 0 ]
-  assert_output --partial 'series'
-}

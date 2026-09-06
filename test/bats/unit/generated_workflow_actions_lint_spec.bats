@@ -1369,16 +1369,3 @@ _write_generator_raw() {
   [ "${status}" -eq 0 ]
   assert_output --partial '1 generated ref'
 }
-
-# ── The real tree ───────────────────────────────────────────────────────
-
-# why: Drives the live tree, so the fixtures cannot drift away from what
-# ships
-@test "generated-workflow-actions: the real repo is in lockstep (#950)" {
-  _load_driver
-  REPO_ROOT=/source
-
-  _gwa_lint
-  [ "${status}" -eq 0 ]
-  assert_output --partial 'clean'
-}

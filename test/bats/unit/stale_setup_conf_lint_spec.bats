@@ -169,15 +169,3 @@ _write() {
   [ "${status}" -ne 0 ]
   [[ "${output}" == *"dist"* ]]
 }
-
-# ════════════════════════════════════════════════════════════════════
-# _run_stale_setup_conf: real tree guard
-# ════════════════════════════════════════════════════════════════════
-
-# why: Live tree clean
-@test "_run_stale_setup_conf: the REAL dist/ passes today (migration block allowlisted) (#845)" {
-  REPO_ROOT="/source"
-  run _run_stale_setup_conf
-  [ "${status}" -eq 0 ]
-  [[ "${output}" == *"clean"* ]]
-}

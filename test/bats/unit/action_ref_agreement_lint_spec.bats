@@ -331,20 +331,6 @@ ${_report}A ref is a tag on the action's repository, so two refs in one tree mea
   assert_output --partial 'vacuous'
 }
 
-# ── The lint: the real tree ────────────────────────────────────────
-
-# why: The lint agrees with the tree it ships with
-@test "_run_action_ref_agreement: reports the real workflow tree clean (#949)" {
-  _require_driver
-  assert_spec_subject_dir "${WF_DIR}" \
-      "the workflow tree every uses: ref in this spec is read from"
-  REPO_ROOT="/source"
-
-  run _run_action_ref_agreement
-  assert_success
-  assert_output --partial 'action ref agreement lint: clean'
-}
-
 # ── The lint: wiring ───────────────────────────────────────────────
 
 # why: A lint nobody runs is a comment

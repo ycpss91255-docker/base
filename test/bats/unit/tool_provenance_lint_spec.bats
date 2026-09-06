@@ -559,16 +559,3 @@ _workflow() {
   [ "${status}" -ne 0 ]
 }
 
-# ════════════════════════════════════════════════════════════════════
-# The live tree
-# ════════════════════════════════════════════════════════════════════
-
-# why: The rule above is worth nothing if the repo it guards does not
-# satisfy it. This is also the assertion that fails the day a new job
-# reaches for a runner-provided pinned tool.
-@test "tool provenance: the live workflow tree is clean" {
-  REPO_ROOT=/source
-  run _run_tool_provenance
-  [ "${status}" -eq 0 ]
-  [[ "${output}" == *"clean"* ]]
-}

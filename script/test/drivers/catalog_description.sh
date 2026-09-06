@@ -233,7 +233,15 @@ readonly _CATALOG_DESC_SCAN_GLOBS=(
 # Leaving the number where it stood would hand this branch fifteen notches
 # main earned, so it is recomputed from the merged tree like the three
 # before it.
-readonly _CATALOG_DESC_UNDESCRIBED_CEILING=2580
+#
+# 2566 on base#1075, and this one is not a merge. That branch DELETED
+# twenty-three whole-tree cases, twelve of them undescribed, which takes
+# the count 2578 -> 2566 without a description being written. Leaving 2580
+# would have turned a removal into twelve notches of slack -- twelve
+# undescribed tests that could land green afterwards -- which is the same
+# unearned-notch argument as the paragraph above, arriving by subtraction
+# instead of by merge. Recomputed from the tree, as every step here is.
+readonly _CATALOG_DESC_UNDESCRIBED_CEILING=2566
 
 # The written-out non-answers, matched case-insensitively on the whole
 # trimmed marker. `nil`, `none`, `tbd`, `todo` and `unknown` carry a

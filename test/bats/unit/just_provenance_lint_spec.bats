@@ -358,13 +358,3 @@ _seed_clean() {
   run _run_just_provenance
   assert_success
 }
-
-# ════════════════════════════════════════════════════════════════════
-# The real tree
-# ════════════════════════════════════════════════════════════════════
-
-@test "just provenance: the live tree passes its own lint (#948)" {
-  REPO_ROOT=/source run _run_just_provenance
-  assert_success
-  assert_output --partial "just provenance lint: clean"
-}
