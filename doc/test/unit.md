@@ -6569,7 +6569,7 @@ is the smoke step, which iterates this same roster.
 | `pins: the CI just install reads the pin instead of repeating it` | Otherwise the workflow carries a fourth copy, and a bump moving only the Dockerfile leaves CI testing a different just than the image ships |
 | `pins: setup-just is no longer invoked without a just-version` | An unversioned setup-just installs whatever released most recently, so the e2e job turns red on a day nobody touched the repo |
 
-### test/bats/unit/tool_provenance_lint_spec.bats (23)
+### test/bats/unit/tool_provenance_lint_spec.bats (22)
 
 | Test | Description |
 |------|-------------|
@@ -6595,7 +6595,6 @@ is the smoke step, which iterates this same roster.
 | `tool provenance: REFUSES a job-level line it cannot read as a job key` | The trailing comment above is one SPELLING of a job key the reader does not recognise, and the fix for it was written to that spelling. Any other -- a quoted key, a character outside the name pattern -- lands in the same place: the line is read as ordinary text, the steps under it accumulate into the PREVIOUS job, and an unobtained tool is scored against provenance belonging to a different job. The per-FILE floor cannot see it either, because the file's other jobs read fine. Under `jobs:`, a line at job-level indent is a job key or the reader has stopped reading, so the answer is a refusal rather than a wider pattern. |
 | `tool provenance: REFUSES a workflow file it could read no job out of` | The reader commits to the two-space job key this repo's workflows all use, because widening it starts reading a job's own nested keys as jobs. The floor is what makes that commitment safe: a whole-TREE floor only fires when NO file yielded a job, so one file written another way is skipped in silence beside nine that are not -- while the clean line still counts it among the workflows scanned, which reads as coverage it does not have. Every GitHub workflow declares `jobs:`, so a file that yielded none is a reader that stopped reading, not a workflow without work. |
 | `tool provenance: REFUSES an empty roster` | The roster is the population of tools. If the accessor stops answering, the scan has nothing to look for and passes having looked at nothing. |
-| `tool provenance: the live workflow tree is clean` | The rule above is worth nothing if the repo it guards does not satisfy it. This is also the assertion that fails the day a new job reaches for a runner-provided pinned tool. |
 
 ### test/bats/unit/tool_version_watch_yaml_spec.bats (23)
 
