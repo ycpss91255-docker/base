@@ -1,0 +1,1554 @@
+<title>base 架構總覽</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@400;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+:root {
+  --bg: #F5F3EF;
+  --surface: #FFFFFF;
+  --surface-2: #EDEAE4;
+  --text-1: #1C1917;
+  --text-2: #57534E;
+  --text-3: #A8A29E;
+  --border: #D6D3D1;
+  --infra: #1B4965;
+  --infra-soft: #D4E8F5;
+  --infra-fill: #EBF4FA;
+  --svc: #92400E;
+  --svc-soft: #FEF3C7;
+  --svc-fill: #FFFBEB;
+  --gen: #166534;
+  --gen-soft: #DCFCE7;
+  --gen-fill: #F0FDF4;
+  --overlay: #6D28D9;
+  --overlay-soft: #EDE9FE;
+  --overlay-fill: #F5F3FF;
+  --warn: #B91C1C;
+  --warn-soft: #FEE2E2;
+  --code-bg: #F0EDEA;
+  --arrow: #78716C;
+}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg: #1A1D23;
+  --surface: #22262E;
+  --surface-2: #2A2F38;
+  --text-1: #E7E5E4;
+  --text-2: #A8A29E;
+  --text-3: #6B6660;
+  --border: #3A3F48;
+  --infra: #7DD3FC;
+  --infra-soft: #0C3A5A;
+  --infra-fill: #0F2A3E;
+  --svc: #FCD34D;
+  --svc-soft: #452C08;
+  --svc-fill: #2A1D06;
+  --gen: #4ADE80;
+  --gen-soft: #0A3520;
+  --gen-fill: #071F14;
+  --overlay: #C4B5FD;
+  --overlay-soft: #2E1A60;
+  --overlay-fill: #1E1340;
+  --warn: #FCA5A5;
+  --warn-soft: #450A0A;
+  --code-bg: #1E2128;
+  --arrow: #78716C;
+}}
+:root[data-theme="dark"]{
+  --bg: #1A1D23;
+  --surface: #22262E;
+  --surface-2: #2A2F38;
+  --text-1: #E7E5E4;
+  --text-2: #A8A29E;
+  --text-3: #6B6660;
+  --border: #3A3F48;
+  --infra: #7DD3FC;
+  --infra-soft: #0C3A5A;
+  --infra-fill: #0F2A3E;
+  --svc: #FCD34D;
+  --svc-soft: #452C08;
+  --svc-fill: #2A1D06;
+  --gen: #4ADE80;
+  --gen-soft: #0A3520;
+  --gen-fill: #071F14;
+  --overlay: #C4B5FD;
+  --overlay-soft: #2E1A60;
+  --overlay-fill: #1E1340;
+  --warn: #FCA5A5;
+  --warn-soft: #450A0A;
+  --code-bg: #1E2128;
+  --arrow: #78716C;
+}
+
+body {
+  font-family: 'Inter', system-ui, sans-serif;
+  color: var(--text-1);
+  background: var(--bg);
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 2.5rem 1.5rem 5rem;
+  line-height: 1.7;
+}
+
+h1 {
+  font-family: 'Source Serif 4', Georgia, serif;
+  font-size: 1.65rem;
+  font-weight: 700;
+  margin: 0 0 0.15rem;
+  text-wrap: balance;
+}
+.subtitle {
+  color: var(--text-2);
+  font-size: 0.88rem;
+  margin-bottom: 0.3rem;
+}
+.ref {
+  font-size: 0.78rem;
+  color: var(--text-3);
+  margin-bottom: 2.8rem;
+}
+.ref a { color: var(--text-3); }
+
+h2 {
+  font-family: 'Source Serif 4', Georgia, serif;
+  font-size: 1.15rem;
+  font-weight: 600;
+  margin: 3rem 0 0.8rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1.5px solid var(--border);
+  letter-spacing: -0.01em;
+}
+h2 .num {
+  color: var(--text-3);
+  font-weight: 400;
+  margin-right: 0.3em;
+  font-variant-numeric: tabular-nums;
+}
+
+h3 {
+  font-size: 0.92rem;
+  font-weight: 600;
+  margin: 1.4rem 0 0.4rem;
+}
+
+p, .desc {
+  margin: 0.55rem 0;
+  font-size: 0.9rem;
+}
+
+code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.82em;
+  background: var(--code-bg);
+  padding: 0.1em 0.35em;
+  border-radius: 3px;
+}
+pre {
+  background: var(--code-bg);
+  padding: 0.9rem 1rem;
+  border-radius: 5px;
+  font-size: 0.8rem;
+  font-family: 'JetBrains Mono', monospace;
+  overflow-x: auto;
+  color: var(--text-1);
+  margin: 0.8rem 0;
+  line-height: 1.55;
+}
+
+figure { margin: 1.4rem 0; }
+figcaption {
+  font-size: 0.8rem;
+  color: var(--text-2);
+  margin-top: 0.5rem;
+  line-height: 1.5;
+}
+
+svg { max-width: 100%; height: auto; display: block; }
+svg text { font-family: 'JetBrains Mono', monospace; }
+
+.tbl-wrap { overflow-x: auto; margin: 1rem 0; }
+table { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
+th {
+  text-align: left;
+  padding: 0.5rem 0.7rem;
+  border-bottom: 2px solid var(--border);
+  font-weight: 600;
+  white-space: nowrap;
+  font-size: 0.8rem;
+  letter-spacing: 0.02em;
+}
+td {
+  padding: 0.45rem 0.7rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.badge {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 0.15em 0.55em;
+  border-radius: 3px;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+.badge-infra { background: var(--infra-soft); color: var(--infra); }
+.badge-svc { background: var(--svc-soft); color: var(--svc); }
+.badge-gen { background: var(--gen-soft); color: var(--gen); }
+.badge-overlay { background: var(--overlay-soft); color: var(--overlay); }
+.badge-warn { background: var(--warn-soft); color: var(--warn); }
+
+.callout {
+  border-left: 3px solid var(--infra);
+  padding: 0.7rem 1rem;
+  border-radius: 0 4px 4px 0;
+  margin: 1rem 0;
+  font-size: 0.86rem;
+  line-height: 1.55;
+}
+.callout-infra { background: var(--infra-fill); border-left-color: var(--infra); }
+.callout-svc { background: var(--svc-fill); border-left-color: var(--svc); }
+.callout-gen { background: var(--gen-fill); border-left-color: var(--gen); }
+.callout-overlay { background: var(--overlay-fill); border-left-color: var(--overlay); }
+.callout-warn { background: var(--warn-soft); border-left-color: var(--warn); }
+
+.side {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+@media(max-width: 640px) { .side { grid-template-columns: 1fr; } }
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 1rem 1.2rem;
+}
+</style>
+
+<h1>base 架構總覽</h1>
+<p class="subtitle">ADR-37 TOML 設定格式統一 · ADR-36 參數化 generate API · ADR-38 架構圖慣例</p>
+<p class="ref">ADR-37 | ADR-3 (env/workload 邊界) | ADR-25 (section-replace) | ADR-36 (參數化 generate API) | 2026-09-06</p>
+
+<!-- 1. Four-File Structure -->
+<h2><span class="num">1.</span> 四檔結構</h2>
+
+<p>所有人工編輯的 Docker config 統一為 TOML。四個檔案，按<strong>服務邊界</strong>分割：</p>
+
+<figure>
+<svg viewBox="0 0 880 320" role="img" aria-label="Four TOML files split by service boundary">
+<defs>
+  <marker id="ar" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="7" markerHeight="5.5" orient="auto"><path d="M0,0 L10,4 L0,8Z" fill="var(--arrow)" opacity="0.6"/></marker>
+</defs>
+
+<line x1="440" y1="20" x2="440" y2="300" stroke="var(--border)" stroke-width="1.5" stroke-dasharray="6 4"/>
+<rect x="408" y="0" width="64" height="18" rx="9" fill="var(--bg)" stroke="var(--border)" stroke-width="0.8"/>
+<text x="440" y="13" text-anchor="middle" font-size="8" font-weight="600" fill="var(--text-2)">BOUNDARY</text>
+
+<!-- LEFT: Docker Infrastructure -->
+<rect x="16" y="28" width="400" height="270" rx="6" fill="var(--infra-fill)" stroke="var(--infra)" stroke-width="1" opacity="0.5"/>
+<text x="32" y="50" font-size="11" font-weight="700" fill="var(--infra)">Docker 基礎建設</text>
+<text x="32" y="64" font-size="8" fill="var(--text-2)">容器如何組裝與執行</text>
+
+<rect x="36" y="80" width="170" height="58" rx="4" fill="var(--surface)" stroke="var(--infra)" stroke-width="1.2"/>
+<text x="121" y="98" text-anchor="middle" font-size="10.5" font-weight="600" fill="var(--text-1)">setup.toml</text>
+<text x="121" y="112" text-anchor="middle" font-size="7.5" fill="var(--infra)">已提交（repo 的）</text>
+<text x="121" y="124" text-anchor="middle" font-size="7" fill="var(--text-3)">image, build, deploy, gui, network,</text>
+<text x="121" y="133" text-anchor="middle" font-size="7" fill="var(--text-3)">security, volumes, devices, lifecycle...</text>
+
+<rect x="230" y="80" width="170" height="58" rx="4" fill="var(--surface)" stroke="var(--overlay)" stroke-width="1.2"/>
+<text x="315" y="98" text-anchor="middle" font-size="10.5" font-weight="600" fill="var(--text-1)">setup.local.toml</text>
+<text x="315" y="112" text-anchor="middle" font-size="7.5" fill="var(--overlay)">gitignored（操作者的）</text>
+<text x="315" y="124" text-anchor="middle" font-size="7" fill="var(--text-3)">每個 worktree / 每個 instance</text>
+<text x="315" y="133" text-anchor="middle" font-size="7" fill="var(--text-3)">覆蓋 setup.toml</text>
+
+<line x1="209" y1="109" x2="227" y2="109" stroke="var(--overlay)" stroke-width="1" marker-end="url(#ar)"/>
+<text x="218" y="103" text-anchor="middle" font-size="6" fill="var(--overlay)">overrides</text>
+
+<rect x="36" y="160" width="170" height="42" rx="4" fill="var(--surface-2)" stroke="var(--border)" stroke-width="0.8"/>
+<text x="121" y="178" text-anchor="middle" font-size="9" fill="var(--text-2)">dist/setup.toml</text>
+<text x="121" y="192" text-anchor="middle" font-size="7" fill="var(--text-3)">模板預設（base 出貨）</text>
+
+<line x1="121" y1="160" x2="121" y2="141" stroke="var(--arrow)" stroke-width="0.8" marker-end="url(#ar)"/>
+<text x="130" y="154" font-size="6" fill="var(--text-3)">base layer</text>
+
+<rect x="36" y="218" width="364" height="66" rx="4" fill="var(--surface)" stroke="var(--border)" stroke-width="0.7"/>
+<text x="50" y="236" font-size="8" font-weight="600" fill="var(--text-1)">Sections（來自 setup.conf 15 個 sections）：</text>
+<text x="50" y="250" font-size="7.5" fill="var(--text-2)">[project] [image] [build] [deploy] [lifecycle] [gui] [network]</text>
+<text x="50" y="262" font-size="7.5" fill="var(--text-2)">[security] [resources] [tmpfs] [devices] [volumes] [additional_contexts] [logging]</text>
+<text x="50" y="276" font-size="7" fill="var(--warn)">* [environment] section 遷出至 .env.toml</text>
+
+<!-- RIGHT: Container Service -->
+<rect x="464" y="28" width="400" height="270" rx="6" fill="var(--svc-fill)" stroke="var(--svc)" stroke-width="1" opacity="0.5"/>
+<text x="480" y="50" font-size="11" font-weight="700" fill="var(--svc)">容器服務 Runtime</text>
+<text x="480" y="64" font-size="8" fill="var(--text-2)">應用程式內部如何運作</text>
+
+<rect x="484" y="80" width="170" height="58" rx="4" fill="var(--surface)" stroke="var(--svc)" stroke-width="1.2"/>
+<text x="569" y="98" text-anchor="middle" font-size="10.5" font-weight="600" fill="var(--text-1)">.env.toml</text>
+<text x="569" y="112" text-anchor="middle" font-size="7.5" fill="var(--svc)">已提交（repo 的）</text>
+<text x="569" y="124" text-anchor="middle" font-size="7" fill="var(--text-3)">ROS_DOMAIN_ID, LOG_LEVEL,</text>
+<text x="569" y="133" text-anchor="middle" font-size="7" fill="var(--text-3)">WATCHDOG_ENABLED, app params...</text>
+
+<rect x="678" y="80" width="170" height="58" rx="4" fill="var(--surface)" stroke="var(--overlay)" stroke-width="1.2"/>
+<text x="763" y="98" text-anchor="middle" font-size="10.5" font-weight="600" fill="var(--text-1)">.env.local.toml</text>
+<text x="763" y="112" text-anchor="middle" font-size="7.5" fill="var(--overlay)">gitignored（操作者的）</text>
+<text x="763" y="124" text-anchor="middle" font-size="7" fill="var(--text-3)">每個 instance 的服務 env</text>
+<text x="763" y="133" text-anchor="middle" font-size="7" fill="var(--text-3)">overrides .env.toml</text>
+
+<line x1="657" y1="109" x2="675" y2="109" stroke="var(--overlay)" stroke-width="1" marker-end="url(#ar)"/>
+<text x="666" y="103" text-anchor="middle" font-size="6" fill="var(--overlay)">overrides</text>
+
+<rect x="484" y="160" width="170" height="42" rx="4" fill="var(--surface-2)" stroke="var(--border)" stroke-width="0.8"/>
+<text x="569" y="178" text-anchor="middle" font-size="9" fill="var(--text-2)">dist/.env.toml</text>
+<text x="569" y="192" text-anchor="middle" font-size="7" fill="var(--text-3)">模板預設（base 出貨）</text>
+
+<line x1="569" y1="160" x2="569" y2="141" stroke="var(--arrow)" stroke-width="0.8" marker-end="url(#ar)"/>
+<text x="578" y="154" font-size="6" fill="var(--text-3)">base layer</text>
+
+<rect x="484" y="218" width="364" height="66" rx="4" fill="var(--surface)" stroke="var(--border)" stroke-width="0.7"/>
+<text x="498" y="236" font-size="8" font-weight="600" fill="var(--text-1)">邊界判定準則（ADR-3 Axis A）：</text>
+<text x="498" y="252" font-size="7.5" fill="var(--text-2)">與機器綁定（換機器時會變嗎？）</text>
+<text x="498" y="264" font-size="7.5" fill="var(--infra)">會 -> setup.toml（Docker 基礎建設）</text>
+<text x="498" y="276" font-size="7.5" fill="var(--svc)">不會，任務易變 -> .env.toml（服務 runtime）</text>
+</svg>
+<figcaption>四檔結構。左半: Docker 基礎建設（容器如何組裝與執行）。右半: 容器服務 runtime（應用程式如何運作）。兩者<strong>零交集</strong>; 若發現重疊, <code>.env.toml</code> 優先。<code>[environment]</code> section 從 setup 遷出到 <code>.env.toml</code>。</figcaption>
+</figure>
+
+<div class="tbl-wrap">
+<table>
+<thead><tr><th>檔案</th><th>擁有者</th><th>關注點</th><th>分層</th></tr></thead>
+<tbody>
+<tr><td><code>setup.toml</code></td><td>repo（已提交）</td><td>Docker 基礎建設</td><td>template -> repo -> caller-supplied</td></tr>
+<tr><td><code>setup.local.toml</code></td><td>操作者（gitignored）</td><td>每個 instance 的基礎建設覆蓋</td><td>覆蓋 setup.toml</td></tr>
+<tr><td><code>.env.toml</code></td><td>repo（已提交）</td><td>容器服務 runtime env</td><td>template -> repo</td></tr>
+<tr><td><code>.env.local.toml</code></td><td>操作者（gitignored）</td><td>每個 instance 的服務 env</td><td>覆蓋 .env.toml</td></tr>
+</tbody>
+</table>
+</div>
+
+<!-- 2. Type-Aware Merge Semantics -->
+<h2><span class="num">2.</span> 型別感知合併語意</h2>
+
+<p>TOML spec 不定義 merge。本專案的合併規則由型別決定：</p>
+
+<figure>
+<svg viewBox="0 0 880 280" role="img" aria-label="Type-aware merge: scalar tables use key-level merge, array of tables uses array replace">
+
+<!-- SCALAR SIDE -->
+<rect x="16" y="10" width="410" height="260" rx="6" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="0.8" opacity="0.5"/>
+<text x="32" y="32" font-size="11" font-weight="700" fill="var(--gen)">[table] Scalar: Key-Level Merge</text>
+<text x="32" y="46" font-size="8" fill="var(--text-2)">上層只覆蓋它定義的 key；其餘繼承</text>
+
+<rect x="32" y="60" width="175" height="80" rx="3" fill="var(--surface)" stroke="var(--border)" stroke-width="0.8"/>
+<text x="42" y="76" font-size="8" font-weight="600" fill="var(--text-2)">setup.toml（底層）</text>
+<text x="42" y="92" font-size="8.5" fill="var(--text-1)">[gui]</text>
+<text x="42" y="105" font-size="8" fill="var(--text-1)">mode = "auto"</text>
+<text x="42" y="117" font-size="8" fill="var(--text-1)">scale = 1.0</text>
+<text x="42" y="129" font-size="8" fill="var(--text-1)">dpi = 96</text>
+
+<rect x="32" y="150" width="175" height="60" rx="3" fill="var(--surface)" stroke="var(--overlay)" stroke-width="0.8"/>
+<text x="42" y="166" font-size="8" font-weight="600" fill="var(--overlay)">setup.local.toml（覆蓋層）</text>
+<text x="42" y="182" font-size="8.5" fill="var(--text-1)">[gui]</text>
+<text x="42" y="195" font-size="8" fill="var(--overlay)">mode = "wayland"</text>
+
+<line x1="210" y1="140" x2="240" y2="140" stroke="var(--gen)" stroke-width="1.2" marker-end="url(#ar)"/>
+<text x="225" y="134" text-anchor="middle" font-size="7" fill="var(--gen)">merge</text>
+
+<rect x="245" y="70" width="170" height="90" rx="3" fill="var(--surface)" stroke="var(--gen)" stroke-width="1.2"/>
+<text x="255" y="86" font-size="8" font-weight="600" fill="var(--gen)">已解析</text>
+<text x="255" y="102" font-size="8.5" fill="var(--text-1)">[gui]</text>
+<text x="255" y="115" font-size="8" fill="var(--overlay)" font-weight="500">mode = "wayland"</text>
+<text x="370" y="115" font-size="6.5" fill="var(--overlay)">已覆蓋</text>
+<text x="255" y="128" font-size="8" fill="var(--text-1)">scale = 1.0</text>
+<text x="370" y="128" font-size="6.5" fill="var(--text-3)">繼承</text>
+<text x="255" y="141" font-size="8" fill="var(--text-1)">dpi = 96</text>
+<text x="370" y="141" font-size="6.5" fill="var(--text-3)">繼承</text>
+
+<rect x="245" y="175" width="170" height="32" rx="3" fill="var(--gen-soft)" stroke="var(--gen)" stroke-width="0.6"/>
+<text x="330" y="194" text-anchor="middle" font-size="7.5" font-weight="600" fill="var(--gen)">只需 1 個 key，不用整個 section</text>
+
+<text x="32" y="237" font-size="7.5" fill="var(--text-2)">之前（ADR-25 section-replace）：操作者只為了改 mode</text>
+<text x="32" y="249" font-size="7.5" fill="var(--text-2)">就必須複製整個 [gui] section。現在：只需一個 key。</text>
+
+<!-- ARRAY SIDE -->
+<rect x="454" y="10" width="410" height="260" rx="6" fill="var(--warn-soft)" stroke="var(--warn)" stroke-width="0.8" opacity="0.4"/>
+<text x="470" y="32" font-size="11" font-weight="700" fill="var(--warn)">[[array of tables]]: Array Replace</text>
+<text x="470" y="46" font-size="8" fill="var(--text-2)">上層的任何 entry 都會取代整個 array</text>
+
+<rect x="470" y="60" width="185" height="90" rx="3" fill="var(--surface)" stroke="var(--border)" stroke-width="0.8"/>
+<text x="480" y="76" font-size="8" font-weight="600" fill="var(--text-2)">setup.toml（底層）</text>
+<text x="480" y="92" font-size="8.5" fill="var(--text-1)">[[volumes]]</text>
+<text x="480" y="105" font-size="8" fill="var(--text-1)">source = "./src"</text>
+<text x="480" y="115" font-size="8" fill="var(--text-1)">target = "/opt/ws"</text>
+<text x="480" y="128" font-size="8.5" fill="var(--text-1)">[[volumes]]</text>
+<text x="480" y="141" font-size="8" fill="var(--text-1)">source = "/dev/shm"</text>
+
+<rect x="470" y="160" width="185" height="60" rx="3" fill="var(--surface)" stroke="var(--overlay)" stroke-width="0.8"/>
+<text x="480" y="176" font-size="8" font-weight="600" fill="var(--overlay)">setup.local.toml（覆蓋層）</text>
+<text x="480" y="192" font-size="8.5" fill="var(--text-1)">[[volumes]]</text>
+<text x="480" y="205" font-size="8" fill="var(--overlay)">source = "./my-data"</text>
+
+<line x1="658" y1="140" x2="688" y2="140" stroke="var(--warn)" stroke-width="1.2" marker-end="url(#ar)"/>
+<text x="673" y="134" text-anchor="middle" font-size="7" fill="var(--warn)">replace</text>
+
+<rect x="693" y="70" width="160" height="70" rx="3" fill="var(--surface)" stroke="var(--warn)" stroke-width="1.2"/>
+<text x="703" y="86" font-size="8" font-weight="600" fill="var(--warn)">已解析</text>
+<text x="703" y="102" font-size="8.5" fill="var(--text-1)">[[volumes]]</text>
+<text x="703" y="115" font-size="8" fill="var(--overlay)" font-weight="500">source = "./my-data"</text>
+<text x="703" y="130" font-size="7" fill="var(--warn)">底層 entries 消失</text>
+
+<rect x="693" y="155" width="160" height="48" rx="3" fill="var(--warn-soft)" stroke="var(--warn)" stroke-width="0.6"/>
+<text x="773" y="172" text-anchor="middle" font-size="7.5" font-weight="600" fill="var(--warn)">所見即所得</text>
+<text x="773" y="185" text-anchor="middle" font-size="7" fill="var(--text-2)">沒有隱藏的繼承 entries</text>
+<text x="773" y="196" text-anchor="middle" font-size="7" fill="var(--text-2)">沒有 append 的歧義</text>
+
+<text x="470" y="237" font-size="7.5" fill="var(--text-2)">Append 的問題：無法移除上層不要的項目。</text>
+<text x="470" y="249" font-size="7.5" fill="var(--text-2)">Replace 保證「所見即所得」—</text>
+<text x="470" y="261" font-size="7.5" fill="var(--text-2)">覆蓋層寫了什麼，最終結果就是什麼。</text>
+</svg>
+<figcaption>左：scalar <code>[table]</code> key-level merge — overlay 只寫想改的 key，其餘繼承。右：<code>[[array of tables]]</code> 整組替換 — overlay 寫了任何一個 entry 就取代全部。</figcaption>
+</figure>
+
+<div class="callout callout-overlay">
+<strong>修正 ADR-25 sec.3：</strong>Section-replace 不再是全面性的。合併規則現在由型別決定。ADR-25 sec.3 的推理（ordered list 不能 key-merge）仍然正確，成為 array-replace 那一半的基礎。
+</div>
+
+<!-- 3. Override Chain -->
+<h2><span class="num">3.</span> 覆蓋鏈</h2>
+
+<figure>
+<svg viewBox="0 0 880 180" role="img" aria-label="Three-layer override chain per file pair">
+
+<text x="16" y="18" font-size="10" font-weight="600" fill="var(--infra)">setup.toml chain</text>
+
+<rect x="16" y="28" width="150" height="40" rx="3" fill="var(--surface-2)" stroke="var(--border)" stroke-width="0.8"/>
+<text x="91" y="44" text-anchor="middle" font-size="9" fill="var(--text-2)">dist/setup.toml</text>
+<text x="91" y="58" text-anchor="middle" font-size="7" fill="var(--text-3)">模板預設</text>
+
+<line x1="169" y1="48" x2="195" y2="48" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ar)"/>
+<text x="182" y="42" text-anchor="middle" font-size="6" fill="var(--text-3)">low</text>
+
+<rect x="198" y="28" width="150" height="40" rx="3" fill="var(--surface)" stroke="var(--infra)" stroke-width="1"/>
+<text x="273" y="44" text-anchor="middle" font-size="9" fill="var(--text-1)">setup.toml</text>
+<text x="273" y="58" text-anchor="middle" font-size="7" fill="var(--infra)">repo 覆蓋</text>
+
+<line x1="351" y1="48" x2="377" y2="48" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ar)"/>
+
+<rect x="380" y="28" width="170" height="40" rx="3" fill="var(--surface)" stroke="var(--overlay)" stroke-width="1"/>
+<text x="465" y="44" text-anchor="middle" font-size="9" fill="var(--text-1)">setup.local.toml</text>
+<text x="465" y="58" text-anchor="middle" font-size="7" fill="var(--overlay)">操作者 / 呼叫者</text>
+
+<line x1="553" y1="48" x2="579" y2="48" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ar)"/>
+<text x="566" y="42" text-anchor="middle" font-size="6" fill="var(--text-3)">high</text>
+
+<rect x="582" y="28" width="140" height="40" rx="3" fill="var(--gen-soft)" stroke="var(--gen)" stroke-width="1"/>
+<text x="652" y="44" text-anchor="middle" font-size="9" font-weight="500" fill="var(--gen)">已解析 config</text>
+<text x="652" y="58" text-anchor="middle" font-size="7" fill="var(--gen)">型別感知合併</text>
+
+<text x="16" y="108" font-size="10" font-weight="600" fill="var(--svc)">.env.toml chain</text>
+
+<rect x="16" y="118" width="150" height="40" rx="3" fill="var(--surface-2)" stroke="var(--border)" stroke-width="0.8"/>
+<text x="91" y="134" text-anchor="middle" font-size="9" fill="var(--text-2)">dist/.env.toml</text>
+<text x="91" y="148" text-anchor="middle" font-size="7" fill="var(--text-3)">模板預設</text>
+
+<line x1="169" y1="138" x2="195" y2="138" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ar)"/>
+
+<rect x="198" y="118" width="150" height="40" rx="3" fill="var(--surface)" stroke="var(--svc)" stroke-width="1"/>
+<text x="273" y="134" text-anchor="middle" font-size="9" fill="var(--text-1)">.env.toml</text>
+<text x="273" y="148" text-anchor="middle" font-size="7" fill="var(--svc)">repo 覆蓋</text>
+
+<line x1="351" y1="138" x2="377" y2="138" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ar)"/>
+
+<rect x="380" y="118" width="170" height="40" rx="3" fill="var(--surface)" stroke="var(--overlay)" stroke-width="1"/>
+<text x="465" y="134" text-anchor="middle" font-size="9" fill="var(--text-1)">.env.local.toml</text>
+<text x="465" y="148" text-anchor="middle" font-size="7" fill="var(--overlay)">操作者</text>
+
+<line x1="553" y1="138" x2="579" y2="138" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ar)"/>
+
+<rect x="582" y="118" width="140" height="40" rx="3" fill="var(--gen-soft)" stroke="var(--gen)" stroke-width="1"/>
+<text x="652" y="134" text-anchor="middle" font-size="9" font-weight="500" fill="var(--gen)">已解析 env</text>
+<text x="652" y="148" text-anchor="middle" font-size="7" fill="var(--gen)">型別感知合併</text>
+
+<text x="770" y="48" font-size="8" fill="var(--text-3)">優先順序：右方勝出</text>
+<text x="770" y="138" font-size="8" fill="var(--text-3)">優先順序：右方勝出</text>
+</svg>
+<figcaption>每條鏈由低到高：模板預設 -> repo 覆蓋 -> 操作者/呼叫者。兩條鏈獨立解析，各自產生已解析 config 和已解析 env。</figcaption>
+</figure>
+
+<!-- 4. Generation Pipeline -->
+<h2><span class="num">4.</span> 生成 Pipeline</h2>
+
+<p>從人工編輯的 config 到 Docker-native 輸出的完整流程。觸發點：<code>just setup</code>、<code>init.sh</code>（見 sec. 7）或 <code>upgrade</code>（見 sec. 8）。</p>
+
+<figure>
+<svg viewBox="0 0 880 820" role="img" aria-label="Generation pipeline flowchart: standard symbols — terminal, process, decision, I/O">
+<defs>
+  <marker id="ar2" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="7" markerHeight="5.5" orient="auto"><path d="M0,0 L10,4 L0,8Z" fill="var(--arrow)" opacity="0.7"/></marker>
+  <marker id="ar3" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="7" markerHeight="5.5" orient="auto"><path d="M0,0 L10,4 L0,8Z" fill="var(--gen)" opacity="0.7"/></marker>
+</defs>
+
+<!-- ===== Phase labels (side) ===== -->
+<text x="12" y="30" font-size="9" font-weight="700" fill="var(--infra)" transform="rotate(90 12 30)">A. 輸入與偵測</text>
+<line x1="28" y1="10" x2="28" y2="250" stroke="var(--infra)" stroke-width="2" opacity="0.3"/>
+
+<text x="12" y="290" font-size="9" font-weight="700" fill="var(--gen)" transform="rotate(90 12 290)">B. 解析與合併</text>
+<line x1="28" y1="268" x2="28" y2="530" stroke="var(--gen)" stroke-width="2" opacity="0.3"/>
+
+<text x="12" y="570" font-size="9" font-weight="700" fill="var(--overlay)" transform="rotate(90 12 570)">C. 生成輸出</text>
+<line x1="28" y1="548" x2="28" y2="800" stroke="var(--overlay)" stroke-width="2" opacity="0.3"/>
+
+<!-- ===== 1. Terminal: Start ===== -->
+<rect x="340" y="10" width="200" height="36" rx="18" fill="var(--infra-fill)" stroke="var(--infra)" stroke-width="1.3"/>
+<text x="440" y="24" text-anchor="middle" font-size="9" fill="var(--infra)" font-weight="600">just setup / init.sh / upgrade</text>
+<text x="440" y="38" text-anchor="middle" font-size="7" fill="var(--text-3)">觸發入口</text>
+
+<line x1="440" y1="49" x2="440" y2="64" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ar2)"/>
+
+<!-- ===== 2. Process: setup.sh apply ===== -->
+<rect x="320" y="68" width="240" height="36" rx="3" fill="var(--surface)" stroke="var(--infra)" stroke-width="1.2"/>
+<text x="440" y="84" text-anchor="middle" font-size="9" fill="var(--text-1)" font-weight="600">setup.sh apply</text>
+<text x="440" y="96" text-anchor="middle" font-size="7" fill="var(--text-3)">lib/setup_cmd.sh:1017</text>
+
+<line x1="440" y1="107" x2="440" y2="122" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ar2)"/>
+
+<!-- ===== 3. Process: Load .env.generated ===== -->
+<rect x="310" y="126" width="260" height="36" rx="3" fill="var(--surface)" stroke="var(--border)" stroke-width="1"/>
+<text x="440" y="142" text-anchor="middle" font-size="9" fill="var(--text-1)" font-weight="600">Load .env.generated</text>
+<text x="440" y="154" text-anchor="middle" font-size="7" fill="var(--text-2)">prior state 快取（首次不存在）</text>
+
+<line x1="440" y1="165" x2="440" y2="180" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ar2)"/>
+
+<!-- ===== 4. Process: System Detection ===== -->
+<rect x="290" y="184" width="300" height="36" rx="3" fill="var(--surface)" stroke="var(--infra)" stroke-width="1.2"/>
+<text x="440" y="200" text-anchor="middle" font-size="9" fill="var(--text-1)" font-weight="600">System Detection</text>
+<text x="440" y="212" text-anchor="middle" font-size="7" fill="var(--text-2)">detect_user / detect_hardware / detect_gpu / detect_gui / detect_image</text>
+
+<line x1="440" y1="223" x2="440" y2="238" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ar2)"/>
+
+<!-- ===== 5. I/O: Read config layers (parallelogram) ===== -->
+<polygon points="370,242 860,242 840,278 350,278" fill="var(--infra-fill)" stroke="var(--infra)" stroke-width="1"/>
+<text x="610" y="256" text-anchor="middle" font-size="8" fill="var(--infra)" font-weight="500">讀取 config layers</text>
+<text x="610" y="270" text-anchor="middle" font-size="7" fill="var(--text-2)">template/.setup.conf → repo/.setup.conf → .setup.conf.local（遞增優先）</text>
+
+<!-- TOML annotation -->
+<rect x="50" y="242" width="270" height="36" rx="3" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="0.8" stroke-dasharray="3 2"/>
+<text x="185" y="256" text-anchor="middle" font-size="7.5" fill="var(--gen)">遷移後：setup.toml → setup.local.toml → .env.toml</text>
+<text x="185" y="270" text-anchor="middle" font-size="7" fill="var(--text-3)">format 換、layers 同概念</text>
+
+<line x1="440" y1="281" x2="440" y2="302" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ar2)"/>
+
+<!-- ===== 6. Decision: TOML migrated? (diamond) ===== -->
+<polygon points="440,306 540,350 440,394 340,350" fill="var(--surface)" stroke="var(--gen)" stroke-width="1.3"/>
+<text x="440" y="346" text-anchor="middle" font-size="8.5" fill="var(--gen)" font-weight="600">TOML</text>
+<text x="440" y="360" text-anchor="middle" font-size="8.5" fill="var(--gen)" font-weight="600">遷移?</text>
+
+<!-- Left branch: Not yet (current) -->
+<line x1="340" y1="350" x2="200" y2="350" stroke="var(--arrow)" stroke-width="1"/>
+<line x1="200" y1="350" x2="200" y2="410" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ar2)"/>
+<text x="264" y="342" text-anchor="middle" font-size="7.5" fill="var(--warn)" font-weight="600">尚未</text>
+
+<rect x="80" y="414" width="240" height="50" rx="3" fill="var(--surface)" stroke="var(--warn)" stroke-width="1.2"/>
+<text x="200" y="432" text-anchor="middle" font-size="9" fill="var(--text-1)" font-weight="600">_ini_tokenize</text>
+<text x="200" y="446" text-anchor="middle" font-size="7.5" fill="var(--text-2)">bash INI parser（conf.sh:69）</text>
+<text x="200" y="458" text-anchor="middle" font-size="7" fill="var(--warn)">section-replace merge</text>
+
+<!-- Right branch: Done (future) -->
+<line x1="540" y1="350" x2="680" y2="350" stroke="var(--arrow)" stroke-width="1"/>
+<line x1="680" y1="350" x2="680" y2="410" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ar2)"/>
+<text x="616" y="342" text-anchor="middle" font-size="7.5" fill="var(--gen)" font-weight="600">完成</text>
+
+<rect x="560" y="414" width="240" height="50" rx="3" fill="var(--surface)" stroke="var(--gen)" stroke-width="1.2"/>
+<text x="680" y="432" text-anchor="middle" font-size="9" fill="var(--text-1)" font-weight="600">toml-bridge</text>
+<text x="680" y="446" text-anchor="middle" font-size="7.5" fill="var(--text-2)">docker run toml-bridge:pinned（Python + tomli）</text>
+<text x="680" y="458" text-anchor="middle" font-size="7" fill="var(--gen)">type-aware merge（scalar key-level / array replace）</text>
+
+<!-- Converge -->
+<line x1="200" y1="467" x2="200" y2="492" stroke="var(--arrow)" stroke-width="1"/>
+<line x1="680" y1="467" x2="680" y2="492" stroke="var(--arrow)" stroke-width="1"/>
+<line x1="200" y1="492" x2="680" y2="492" stroke="var(--arrow)" stroke-width="0.8"/>
+<line x1="440" y1="492" x2="440" y2="508" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ar2)"/>
+
+<!-- ===== 7. Process: Resolved Conf Handle ===== -->
+<rect x="300" y="512" width="280" height="36" rx="3" fill="var(--surface)" stroke="var(--infra)" stroke-width="1.2"/>
+<text x="440" y="528" text-anchor="middle" font-size="9" fill="var(--text-1)" font-weight="600">Resolved Conf Handle</text>
+<text x="440" y="540" text-anchor="middle" font-size="7" fill="var(--text-2)">_conf_get_into / _conf_list_sorted（15 sections 合併完成）</text>
+
+<line x1="440" y1="551" x2="440" y2="566" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ar2)"/>
+
+<!-- ===== 8. Process: Resolve Deploy Context ===== -->
+<rect x="280" y="570" width="320" height="36" rx="3" fill="var(--surface)" stroke="var(--gen)" stroke-width="1.2"/>
+<text x="440" y="586" text-anchor="middle" font-size="9" fill="var(--text-1)" font-weight="600">Resolve Deploy Context</text>
+<text x="440" y="598" text-anchor="middle" font-size="7" fill="var(--text-2)">GPU / GUI / network / devices / env / tmpfs / ports → flat _dctx</text>
+
+<line x1="440" y1="609" x2="440" y2="624" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ar2)"/>
+
+<!-- ===== 9. Process: Emit ===== -->
+<rect x="340" y="628" width="200" height="30" rx="3" fill="var(--surface)" stroke="var(--overlay)" stroke-width="1.2"/>
+<text x="440" y="648" text-anchor="middle" font-size="9" fill="var(--overlay)" font-weight="600">Emit 4 輸出檔</text>
+
+<!-- Fan-out -->
+<line x1="360" y1="661" x2="130" y2="686" stroke="var(--overlay)" stroke-width="0.8" marker-end="url(#ar3)"/>
+<line x1="400" y1="661" x2="340" y2="686" stroke="var(--overlay)" stroke-width="0.8" marker-end="url(#ar3)"/>
+<line x1="480" y1="661" x2="550" y2="686" stroke="var(--overlay)" stroke-width="0.8" marker-end="url(#ar3)"/>
+<line x1="520" y1="661" x2="760" y2="686" stroke="var(--overlay)" stroke-width="0.8" marker-end="url(#ar3)"/>
+
+<!-- ===== 10. I/O: 4 output files (parallelograms) ===== -->
+<polygon points="60,690 240,690 226,722 46,722" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="1"/>
+<text x="146" y="704" text-anchor="middle" font-size="8.5" fill="var(--gen)" font-weight="600">.env.generated</text>
+<text x="146" y="716" text-anchor="middle" font-size="6.5" fill="var(--text-2)">插值快取 → 留在 host</text>
+
+<polygon points="268,690 448,690 434,722 254,722" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="1"/>
+<text x="354" y="704" text-anchor="middle" font-size="8.5" fill="var(--gen)" font-weight="600">.env</text>
+<text x="354" y="716" text-anchor="middle" font-size="6.5" fill="var(--text-2)">容器預設值 → env_file</text>
+
+<polygon points="476,690 656,690 642,722 462,722" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="1"/>
+<text x="562" y="704" text-anchor="middle" font-size="8.5" fill="var(--gen)" font-weight="600">.env.local</text>
+<text x="562" y="716" text-anchor="middle" font-size="6.5" fill="var(--text-2)">scaffold → env_file</text>
+
+<polygon points="684,690 864,690 850,722 670,722" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="1"/>
+<text x="770" y="704" text-anchor="middle" font-size="8.5" fill="var(--gen)" font-weight="600">compose.yaml</text>
+<text x="770" y="716" text-anchor="middle" font-size="6.5" fill="var(--text-2)">per-stage → docker compose</text>
+
+<!-- Converge to end -->
+<line x1="146" y1="725" x2="146" y2="745" stroke="var(--arrow)" stroke-width="0.6"/>
+<line x1="354" y1="725" x2="354" y2="745" stroke="var(--arrow)" stroke-width="0.6"/>
+<line x1="562" y1="725" x2="562" y2="745" stroke="var(--arrow)" stroke-width="0.6"/>
+<line x1="770" y1="725" x2="770" y2="745" stroke="var(--arrow)" stroke-width="0.6"/>
+<line x1="146" y1="745" x2="770" y2="745" stroke="var(--arrow)" stroke-width="0.6"/>
+<line x1="440" y1="745" x2="440" y2="762" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ar2)"/>
+
+<!-- ===== 11. Terminal: End ===== -->
+<rect x="350" y="766" width="180" height="32" rx="16" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="1.3"/>
+<text x="440" y="786" text-anchor="middle" font-size="9" fill="var(--gen)" font-weight="600">docker compose up</text>
+
+<!-- Legend -->
+<rect x="50" y="50" width="48" height="20" rx="10" fill="var(--surface-2)" stroke="var(--border)" stroke-width="0.6"/>
+<text x="118" y="64" font-size="6.5" fill="var(--text-3)">起止</text>
+<rect x="50" y="76" width="48" height="20" rx="2" fill="var(--surface-2)" stroke="var(--border)" stroke-width="0.6"/>
+<text x="118" y="90" font-size="6.5" fill="var(--text-3)">處理</text>
+<polygon points="64,102 88,102 84,118 60,118" fill="var(--surface-2)" stroke="var(--border)" stroke-width="0.6"/>
+<text x="118" y="114" font-size="6.5" fill="var(--text-3)">I/O</text>
+<polygon points="74,124 88,134 74,144 60,134" fill="var(--surface-2)" stroke="var(--border)" stroke-width="0.6"/>
+<text x="118" y="138" font-size="6.5" fill="var(--text-3)">判斷</text>
+</svg>
+<figcaption>完整生成流程圖。標準符號：圓角矩形=起止、矩形=處理、菱形=判斷、平行四邊形=I/O。TOML 遷移只影響菱形判斷後的解析路徑（Phase B），Phase A 和 Phase C 不變。</figcaption>
+</figure>
+
+<!-- 5. Host / Container Boundary -->
+<h2><span class="num">5.</span> Host / Container 邊界</h2>
+
+<figure>
+<svg viewBox="0 0 880 270" role="img" aria-label="Host side must parse TOML before any container exists">
+
+<rect x="1" y="1" width="878" height="128" rx="5" fill="var(--infra-fill)" stroke="var(--infra)" stroke-width="1" stroke-dasharray="6 3" opacity="0.6"/>
+<text x="16" y="20" font-size="11" font-weight="700" fill="var(--infra)">HOST</text>
+<text x="64" y="20" font-size="8" fill="var(--text-2)">bash 4.4+ / awk / sed / just</text>
+
+<rect x="20" y="34" width="110" height="34" rx="3" fill="var(--surface)" stroke="var(--border)" stroke-width="0.7"/>
+<text x="75" y="48" text-anchor="middle" font-size="8.5" fill="var(--text-1)">just build/run</text>
+<text x="75" y="60" text-anchor="middle" font-size="7" fill="var(--text-3)">wrapper 入口</text>
+
+<line x1="133" y1="51" x2="152" y2="51" stroke="var(--arrow)" stroke-width="0.8" marker-end="url(#ar)"/>
+
+<rect x="155" y="34" width="110" height="34" rx="3" fill="var(--surface)" stroke="var(--border)" stroke-width="0.7"/>
+<text x="210" y="48" text-anchor="middle" font-size="8.5" fill="var(--text-1)">_lib.sh</text>
+<text x="210" y="60" text-anchor="middle" font-size="7" fill="var(--text-3)">載入模組</text>
+
+<line x1="268" y1="51" x2="287" y2="51" stroke="var(--arrow)" stroke-width="0.8" marker-end="url(#ar)"/>
+
+<rect x="290" y="28" width="180" height="48" rx="3" fill="var(--surface)" stroke="var(--infra)" stroke-width="1.3"/>
+<text x="380" y="44" text-anchor="middle" font-size="9" fill="var(--text-1)" font-weight="600">bash shim + docker run</text>
+<text x="380" y="57" text-anchor="middle" font-size="7.5" fill="var(--infra)">toml-bridge container</text>
+<text x="380" y="68" text-anchor="middle" font-size="7" fill="var(--infra)">解析 + 型別感知合併</text>
+
+<line x1="473" y1="52" x2="492" y2="52" stroke="var(--arrow)" stroke-width="0.8" marker-end="url(#ar)"/>
+
+<rect x="495" y="34" width="140" height="34" rx="3" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="0.7"/>
+<text x="565" y="48" text-anchor="middle" font-size="8.5" fill="var(--text-1)">emit + 生成</text>
+<text x="565" y="60" text-anchor="middle" font-size="7" fill="var(--gen)">env + compose</text>
+
+<line x1="638" y1="52" x2="657" y2="52" stroke="var(--arrow)" stroke-width="0.8" marker-end="url(#ar)"/>
+
+<rect x="660" y="28" width="95" height="18" rx="2" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="0.6"/>
+<text x="707" y="40" text-anchor="middle" font-size="7.5" fill="var(--gen)">.env</text>
+<rect x="660" y="50" width="95" height="18" rx="2" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="0.6"/>
+<text x="707" y="62" text-anchor="middle" font-size="7.5" fill="var(--gen)">compose.yaml</text>
+<rect x="660" y="72" width="95" height="18" rx="2" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="0.6"/>
+<text x="707" y="84" text-anchor="middle" font-size="7.5" fill="var(--gen)">.env.generated</text>
+
+<rect x="770" y="34" width="100" height="56" rx="3" fill="var(--infra-fill)" stroke="var(--infra)" stroke-width="0.7"/>
+<text x="820" y="52" text-anchor="middle" font-size="7.5" font-weight="600" fill="var(--infra)">Host dep 契約</text>
+<text x="820" y="64" text-anchor="middle" font-size="7" fill="var(--text-2)">Docker + Git + just</text>
+<text x="820" y="74" text-anchor="middle" font-size="7" fill="var(--text-2)">解析跑在容器裡</text>
+<text x="820" y="84" text-anchor="middle" font-size="7" fill="var(--text-2)">不增加 host dep</text>
+
+<rect x="20" y="96" width="80" height="24" rx="2" fill="var(--surface)" stroke="var(--border)" stroke-width="0.5"/>
+<text x="60" y="112" text-anchor="middle" font-size="7.5" fill="var(--text-1)">init.sh</text>
+<rect x="110" y="96" width="80" height="24" rx="2" fill="var(--surface)" stroke="var(--border)" stroke-width="0.5"/>
+<text x="150" y="112" text-anchor="middle" font-size="7.5" fill="var(--text-1)">upgrade.sh</text>
+
+<line x1="0" y1="144" x2="880" y2="144" stroke="var(--border)" stroke-width="2"/>
+<rect x="360" y="136" width="160" height="16" rx="8" fill="var(--bg)" stroke="var(--border)" stroke-width="0.8"/>
+<text x="440" y="147" text-anchor="middle" font-size="8" font-weight="600" fill="var(--text-2)">容器邊界</text>
+
+<rect x="1" y="158" width="878" height="108" rx="5" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="1" stroke-dasharray="6 3" opacity="0.6"/>
+<text x="16" y="178" font-size="11" font-weight="700" fill="var(--gen)">CONTAINER</text>
+<text x="110" y="178" font-size="8" fill="var(--text-2)">bash + application runtime</text>
+
+<rect x="560" y="188" width="120" height="28" rx="2" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="0.6"/>
+<text x="620" y="206" text-anchor="middle" font-size="8.5" fill="var(--text-1)">.env (resolved)</text>
+
+<line x1="557" y1="202" x2="520" y2="202" stroke="var(--arrow)" stroke-width="0.8" marker-end="url(#ar)"/>
+
+<rect x="370" y="188" width="145" height="28" rx="3" fill="var(--surface)" stroke="var(--gen)" stroke-width="0.7"/>
+<text x="442" y="206" text-anchor="middle" font-size="8.5" fill="var(--text-1)">entrypoint.sh</text>
+
+<line x1="367" y1="202" x2="300" y2="202" stroke="var(--arrow)" stroke-width="0.6" marker-end="url(#ar)"/>
+<rect x="200" y="192" width="96" height="18" rx="2" fill="var(--gen-fill)" stroke="var(--border)" stroke-width="0.5"/>
+<text x="248" y="204" text-anchor="middle" font-size="7.5" fill="var(--text-1)">logging.sh</text>
+<rect x="200" y="214" width="96" height="18" rx="2" fill="var(--gen-fill)" stroke="var(--border)" stroke-width="0.5"/>
+<text x="248" y="226" text-anchor="middle" font-size="7.5" fill="var(--text-1)">watchdog.sh</text>
+
+<rect x="20" y="238" width="310" height="20" rx="2" fill="var(--gen-soft)" stroke="var(--gen)" stroke-width="0.6"/>
+<text x="175" y="252" text-anchor="middle" font-size="7.5" font-weight="600" fill="var(--gen)">Application runtime（不做 config 解析）</text>
+
+<rect x="370" y="238" width="300" height="20" rx="2" fill="var(--svc-soft)" stroke="var(--svc)" stroke-width="0.6"/>
+<text x="520" y="252" text-anchor="middle" font-size="7.5" fill="var(--svc)">但：不做 config 解析 -- 接收已解析的 .env</text>
+
+<line x1="707" y1="92" x2="707" y2="142" stroke="var(--gen)" stroke-width="1" stroke-dasharray="3 2"/>
+<line x1="620" y1="158" x2="620" y2="186" stroke="var(--gen)" stroke-width="1" stroke-dasharray="3 2"/>
+</svg>
+<figcaption>Config 解析在 <code>docker compose up</code> 之前完成。Host 的 bash shim 呼叫 <code>docker run toml-bridge:pinned</code> 完成 TOML 解析與合併，再將結果交給 emitter 生成 Docker-native 輸出。Application container 只讀 resolved <code>.env</code>，不做設定解析。</figcaption>
+</figure>
+
+<div class="callout callout-infra">
+<strong>TOML 解析工具（已決）:</strong> 獨立 <code>toml-bridge</code> container image（<code>dockerfile/Dockerfile.toml-bridge</code>），內含 alpine + Python 3 + vendored <code>tomli</code>（PEP 680 backport）。Host 不安裝 Python 或任何額外工具。<code>test-tools</code> 透過 <code>COPY --from</code> 取得 TOML 能力，downstream repo 經 <code>test-tools-stage</code> 繼承。
+</div>
+
+<!-- 6. Dockerfile Stageflow -->
+<h2><span class="num">6.</span> Dockerfile Stageflow</h2>
+
+<p>TOML 解析能力透過 image 繼承鏈傳遞到所有 repo。<code>toml-bridge</code> 是獨立的
+Dockerfile，<code>test-tools</code> 用 <code>COPY --from</code> 取得它的產物，downstream repo
+再透過既有的 <code>test-tools-stage</code> pattern 繼承全部工具。</p>
+
+<figure>
+<svg viewBox="0 0 880 220" role="img" aria-label="Dockerfile stageflow: toml-bridge → test-tools → downstream">
+<defs>
+<marker id="ar6" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="var(--arrow)"/></marker>
+</defs>
+
+<rect x="20" y="20" width="200" height="80" rx="4" fill="var(--infra-fill)" stroke="var(--infra)" stroke-width="1.5"/>
+<text x="120" y="42" text-anchor="middle" font-size="11" fill="var(--text-1)" font-weight="600">Dockerfile.toml-bridge</text>
+<text x="120" y="58" text-anchor="middle" font-size="8" fill="var(--text-2)">alpine + Python 3</text>
+<text x="120" y="72" text-anchor="middle" font-size="8" fill="var(--text-2)">vendored tomli（PEP 680）</text>
+<text x="120" y="86" text-anchor="middle" font-size="7" fill="var(--infra)">dockerfile/Dockerfile.toml-bridge</text>
+
+<line x1="223" y1="60" x2="318" y2="60" stroke="var(--arrow)" stroke-width="1.2" marker-end="url(#ar6)"/>
+<text x="270" y="52" text-anchor="middle" font-size="7" fill="var(--text-2)">COPY --from</text>
+
+<rect x="320" y="10" width="220" height="100" rx="4" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="1.5"/>
+<text x="430" y="32" text-anchor="middle" font-size="11" fill="var(--text-1)" font-weight="600">Dockerfile.test-tools</text>
+<text x="430" y="48" text-anchor="middle" font-size="8" fill="var(--text-2)">shellcheck + hadolint + bats</text>
+<text x="430" y="62" text-anchor="middle" font-size="8" fill="var(--text-2)">just + kcov + bats-extensions</text>
+<text x="430" y="76" text-anchor="middle" font-size="8" fill="var(--infra)">+ toml-bridge 產物</text>
+<text x="430" y="96" text-anchor="middle" font-size="7" fill="var(--gen)">dockerfile/Dockerfile.test-tools</text>
+
+<line x1="543" y1="60" x2="638" y2="60" stroke="var(--arrow)" stroke-width="1.2" marker-end="url(#ar6)"/>
+<text x="590" y="52" text-anchor="middle" font-size="7" fill="var(--text-2)">FROM ... AS</text>
+<text x="590" y="62" text-anchor="middle" font-size="7" fill="var(--text-2)">test-tools-stage</text>
+
+<rect x="640" y="10" width="220" height="100" rx="4" fill="var(--svc-fill)" stroke="var(--svc)" stroke-width="1.5"/>
+<text x="750" y="32" text-anchor="middle" font-size="11" fill="var(--text-1)" font-weight="600">Downstream Dockerfile</text>
+<text x="750" y="48" text-anchor="middle" font-size="8" fill="var(--text-2)">COPY --from=test-tools-stage</text>
+<text x="750" y="62" text-anchor="middle" font-size="8" fill="var(--text-2)">/usr/local/bin/shellcheck</text>
+<text x="750" y="76" text-anchor="middle" font-size="8" fill="var(--text-2)">/opt/bats, /usr/lib/bats ...</text>
+<text x="750" y="96" text-anchor="middle" font-size="7" fill="var(--svc)">dist/dockerfile/Dockerfile</text>
+
+<rect x="20" y="140" width="200" height="60" rx="4" fill="var(--overlay-fill)" stroke="var(--overlay)" stroke-width="1.2"/>
+<text x="120" y="162" text-anchor="middle" font-size="10" fill="var(--text-1)" font-weight="600">Host: conf.sh</text>
+<text x="120" y="178" text-anchor="middle" font-size="8" fill="var(--text-2)">docker run toml-bridge:pinned</text>
+<text x="120" y="192" text-anchor="middle" font-size="7" fill="var(--overlay)">config 解析入口</text>
+
+<line x1="120" y1="103" x2="120" y2="137" stroke="var(--infra)" stroke-width="1" stroke-dasharray="4 2"/>
+<text x="138" y="124" font-size="7" fill="var(--text-3)">同一 image</text>
+</svg>
+<figcaption><code>toml-bridge</code> 是獨立 Dockerfile，不混入 <code>test-tools</code>。Host 的 <code>conf.sh</code> 透過 <code>docker run</code> 使用同一 image 做 config 解析；<code>test-tools</code> 透過 <code>COPY --from</code> 取得工具，downstream repo 再透過 <code>test-tools-stage</code> pattern 繼承。</figcaption>
+</figure>
+
+<!-- 7. init.sh Flow -->
+<h2><span class="num">7.</span> init.sh 流程</h2>
+
+<p>Downstream repo 首次 bootstrap 或 <code>.base</code> 升級後 resync 的入口。觸發：<code>just setup</code>、<code>just base init</code>、upgrade Step 3。
+核心工作：偵測新/舊 repo → 執行 migration → 呼叫 sec. 4 的 generation pipeline。</p>
+
+<figure>
+<svg viewBox="0 0 880 600" role="img" aria-label="init.sh 流程圖：偵測 repo 類型、migration 步驟、生成 config">
+<defs>
+<marker id="ar7" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="var(--arrow)"/></marker>
+</defs>
+
+<!-- Terminal: 起點 -->
+<rect x="340" y="6" width="200" height="36" rx="18" fill="var(--infra-fill)" stroke="var(--infra)" stroke-width="1.3"/>
+<text x="440" y="20" text-anchor="middle" font-size="9.5" fill="var(--infra)" font-weight="600">init.sh</text>
+<text x="440" y="34" text-anchor="middle" font-size="7" fill="var(--text-3)">dist/script/base/init.sh:1877</text>
+
+<line x1="440" y1="45" x2="440" y2="58" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ar7)"/>
+
+<!-- Process: 解析參數 -->
+<rect x="310" y="62" width="260" height="28" rx="3" fill="var(--surface)" stroke="var(--border)" stroke-width="1"/>
+<text x="440" y="80" text-anchor="middle" font-size="8" fill="var(--text-1)">解析參數（--lang / --bootstrap-just / --gen-conf）</text>
+
+<line x1="440" y1="93" x2="440" y2="108" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ar7)"/>
+
+<!-- Decision: 既有 repo? (diamond) -->
+<polygon points="440,112 540,147 440,182 340,147" fill="var(--surface)" stroke="var(--overlay)" stroke-width="1.2"/>
+<text x="440" y="143" text-anchor="middle" font-size="8.5" fill="var(--overlay)" font-weight="600">既有 repo?</text>
+<text x="440" y="155" text-anchor="middle" font-size="7" fill="var(--text-3)">.setup.conf 存在</text>
+
+<!-- ===== Left branch: 是（_init_existing_repo，7 步） ===== -->
+<line x1="340" y1="147" x2="210" y2="147" stroke="var(--arrow)" stroke-width="1"/>
+<line x1="210" y1="147" x2="210" y2="168" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ar7)"/>
+<text x="270" y="140" text-anchor="middle" font-size="7.5" fill="var(--gen)" font-weight="600">是</text>
+
+<!-- existing: label -->
+<text x="210" y="180" text-anchor="middle" font-size="9" fill="var(--gen)" font-weight="700">_init_existing_repo</text>
+
+<!-- existing: Step 1 -->
+<rect x="60" y="190" width="300" height="28" rx="3" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="0.8"/>
+<text x="68" y="208" font-size="7.5" fill="var(--gen)" font-weight="600">1</text>
+<text x="84" y="208" font-size="7.5" fill="var(--text-1)">啟動 rollback 機制（失敗可還原）</text>
+
+<line x1="210" y1="221" x2="210" y2="230" stroke="var(--arrow)" stroke-width="0.8" marker-end="url(#ar7)"/>
+
+<!-- existing: Step 2 -->
+<rect x="60" y="234" width="300" height="28" rx="3" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="0.8"/>
+<text x="68" y="252" font-size="7.5" fill="var(--gen)" font-weight="600">2</text>
+<text x="84" y="252" font-size="7.5" fill="var(--text-1)">_migrate_env_to_local（.env → .env.local）</text>
+
+<line x1="210" y1="265" x2="210" y2="274" stroke="var(--arrow)" stroke-width="0.8" marker-end="url(#ar7)"/>
+
+<!-- existing: Step 3 -->
+<rect x="60" y="278" width="300" height="28" rx="3" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="0.8"/>
+<text x="68" y="296" font-size="7.5" fill="var(--gen)" font-weight="600">3</text>
+<text x="84" y="296" font-size="7.5" fill="var(--text-1)">_migrate_legacy_setup_conf（config/ → root）</text>
+
+<line x1="210" y1="309" x2="210" y2="318" stroke="var(--arrow)" stroke-width="0.8" marker-end="url(#ar7)"/>
+
+<!-- existing: Step 4 -->
+<rect x="60" y="322" width="300" height="28" rx="3" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="0.8"/>
+<text x="68" y="340" font-size="7.5" fill="var(--gen)" font-weight="600">4</text>
+<text x="84" y="340" font-size="7.5" fill="var(--text-1)">_create_symlinks（7 wrappers + justfile）</text>
+
+<line x1="210" y1="353" x2="210" y2="362" stroke="var(--arrow)" stroke-width="0.8" marker-end="url(#ar7)"/>
+
+<!-- existing: Step 5 -->
+<rect x="60" y="366" width="300" height="28" rx="3" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="0.8"/>
+<text x="68" y="384" font-size="7.5" fill="var(--gen)" font-weight="600">5</text>
+<text x="84" y="384" font-size="7.5" fill="var(--text-1)">同步 workflow + 建立 hook stubs</text>
+
+<line x1="210" y1="397" x2="210" y2="406" stroke="var(--arrow)" stroke-width="0.8" marker-end="url(#ar7)"/>
+
+<!-- existing: Step 6 -->
+<rect x="60" y="410" width="300" height="28" rx="3" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="0.8"/>
+<text x="68" y="428" font-size="7.5" fill="var(--gen)" font-weight="600">6</text>
+<text x="84" y="428" font-size="7.5" fill="var(--text-1)">_migrate_smoke_tree + _migrate_dockerfile</text>
+
+<line x1="210" y1="441" x2="210" y2="450" stroke="var(--arrow)" stroke-width="0.8" marker-end="url(#ar7)"/>
+
+<!-- existing: Step 7 (TOML migration) -->
+<rect x="60" y="454" width="300" height="36" rx="3" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="1.2"/>
+<text x="68" y="470" font-size="7.5" fill="var(--gen)" font-weight="600">7</text>
+<text x="84" y="470" font-size="7.5" fill="var(--text-1)" font-weight="500">TOML 遷移：.setup.conf → setup.toml</text>
+<text x="84" y="484" font-size="7" fill="var(--gen)">自動轉換（ADR-37）</text>
+
+<line x1="210" y1="493" x2="210" y2="502" stroke="var(--arrow)" stroke-width="0.8" marker-end="url(#ar7)"/>
+
+<!-- existing: disarm rollback -->
+<rect x="110" y="506" width="200" height="22" rx="3" fill="var(--surface)" stroke="var(--gen)" stroke-width="0.6"/>
+<text x="210" y="521" text-anchor="middle" font-size="7.5" fill="var(--gen)">解除 rollback</text>
+
+<!-- ===== Right branch: 否（_create_new_repo，3 步） ===== -->
+<line x1="540" y1="147" x2="670" y2="147" stroke="var(--arrow)" stroke-width="1"/>
+<line x1="670" y1="147" x2="670" y2="168" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ar7)"/>
+<text x="610" y="140" text-anchor="middle" font-size="7.5" fill="var(--warn)" font-weight="600">否</text>
+
+<!-- new: label -->
+<text x="670" y="180" text-anchor="middle" font-size="9" fill="var(--infra)" font-weight="700">_create_new_repo</text>
+
+<!-- new: Step 1 -->
+<rect x="520" y="190" width="300" height="36" rx="3" fill="var(--infra-fill)" stroke="var(--infra)" stroke-width="0.8"/>
+<text x="528" y="208" font-size="7.5" fill="var(--infra)" font-weight="600">1</text>
+<text x="544" y="208" font-size="7.5" fill="var(--text-1)">建立專案結構（Scaffold）</text>
+<text x="544" y="220" font-size="7" fill="var(--text-2)">Dockerfile / entrypoint / test/bats / README</text>
+
+<line x1="670" y1="229" x2="670" y2="238" stroke="var(--arrow)" stroke-width="0.8" marker-end="url(#ar7)"/>
+
+<!-- new: Step 2 -->
+<rect x="520" y="242" width="300" height="28" rx="3" fill="var(--infra-fill)" stroke="var(--infra)" stroke-width="0.8"/>
+<text x="528" y="260" font-size="7.5" fill="var(--infra)" font-weight="600">2</text>
+<text x="544" y="260" font-size="7.5" fill="var(--text-1)">_create_symlinks（7 wrappers + justfile）</text>
+
+<line x1="670" y1="273" x2="670" y2="282" stroke="var(--arrow)" stroke-width="0.8" marker-end="url(#ar7)"/>
+
+<!-- new: Step 3 -->
+<rect x="520" y="286" width="300" height="28" rx="3" fill="var(--infra-fill)" stroke="var(--infra)" stroke-width="0.8"/>
+<text x="528" y="304" font-size="7.5" fill="var(--infra)" font-weight="600">3</text>
+<text x="544" y="304" font-size="7.5" fill="var(--text-1)">建立 setup.toml（空白模板）</text>
+
+<!-- Converge -->
+<line x1="210" y1="531" x2="210" y2="548" stroke="var(--arrow)" stroke-width="1"/>
+<line x1="670" y1="317" x2="670" y2="548" stroke="var(--arrow)" stroke-width="1"/>
+<line x1="210" y1="548" x2="670" y2="548" stroke="var(--arrow)" stroke-width="0.8"/>
+<line x1="440" y1="548" x2="440" y2="562" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ar7)"/>
+
+<!-- Terminal: 終點 -->
+<rect x="260" y="566" width="360" height="30" rx="15" fill="var(--overlay-fill)" stroke="var(--overlay)" stroke-width="1.2"/>
+<text x="440" y="585" text-anchor="middle" font-size="9" fill="var(--overlay)" font-weight="600">_call_setup → setup.sh apply（sec. 4 生成 pipeline）</text>
+</svg>
+<figcaption><code>init.sh</code> 偵測既有/新 repo（菱形判斷）。左側既有 repo 路徑有 7 個步驟（含 TOML 自動轉換），右側新 repo 路徑有 3 個步驟。兩條路徑最終都呼叫 <code>setup.sh apply</code>。升級後 resync 走左側路徑。</figcaption>
+</figure>
+
+<!-- 8. upgrade Flow -->
+<h2><span class="num">8.</span> upgrade 流程</h2>
+
+<p>Downstream repo 升級 <code>.base</code> subtree 到新版本。觸發：<code>just base upgrade [vX.Y.Z]</code>。
+關鍵設計：Step 3 執行的是<strong>新拉下來的</strong> <code>init.sh</code>（不是舊版），所以所有 migration 和 config 重生都跑最新邏輯。</p>
+
+<figure>
+<svg viewBox="0 0 880 480" role="img" aria-label="upgrade 流程圖：subtree pull → verify → re-run init → update refs → migrations → commit">
+<defs>
+<marker id="ar8" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="var(--arrow)"/></marker>
+</defs>
+
+<!-- Terminal: 起點 -->
+<rect x="310" y="10" width="260" height="36" rx="18" fill="var(--infra-fill)" stroke="var(--infra)" stroke-width="1.3"/>
+<text x="440" y="26" text-anchor="middle" font-size="9.5" fill="var(--infra)" font-weight="600">just base upgrade [vX.Y.Z]</text>
+<text x="440" y="40" text-anchor="middle" font-size="7" fill="var(--text-3)">upgrade.sh:517</text>
+
+<line x1="440" y1="49" x2="440" y2="66" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ar8)"/>
+
+<!-- Process: Step 1 -->
+<rect x="300" y="70" width="280" height="40" rx="3" fill="var(--surface)" stroke="var(--infra)" stroke-width="1"/>
+<text x="440" y="86" text-anchor="middle" font-size="9" fill="var(--text-1)" font-weight="600">Step 1: git subtree pull</text>
+<text x="440" y="100" text-anchor="middle" font-size="7" fill="var(--text-2)">fetch + merge .base/ 新版到 repo</text>
+
+<line x1="440" y1="113" x2="440" y2="128" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ar8)"/>
+
+<!-- Process: Step 2 -->
+<rect x="300" y="132" width="280" height="40" rx="3" fill="var(--surface)" stroke="var(--border)" stroke-width="1"/>
+<text x="440" y="148" text-anchor="middle" font-size="9" fill="var(--text-1)" font-weight="600">Step 2: 驗證 subtree 完整</text>
+<text x="440" y="162" text-anchor="middle" font-size="7" fill="var(--text-2)">確認 .base/ 內容與 tag 一致</text>
+
+<line x1="440" y1="175" x2="440" y2="190" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ar8)"/>
+
+<!-- Process: Step 3 (KEY — highlighted) -->
+<rect x="260" y="194" width="360" height="56" rx="3" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="1.8"/>
+<text x="440" y="212" text-anchor="middle" font-size="10" fill="var(--gen)" font-weight="700">Step 3（關鍵）: 重新執行 init.sh</text>
+<text x="440" y="228" text-anchor="middle" font-size="7.5" fill="var(--text-2)">執行新拉下來的 init.sh → sec. 7 完整流程</text>
+<text x="440" y="242" text-anchor="middle" font-size="7" fill="var(--gen)">所有 migration + config 重生 + TOML 自動轉換都在這裡</text>
+
+<!-- Callout annotation next to Step 3 -->
+<rect x="30" y="198" width="210" height="48" rx="3" fill="var(--overlay-fill)" stroke="var(--overlay)" stroke-width="0.8"/>
+<text x="135" y="214" text-anchor="middle" font-size="7.5" font-weight="600" fill="var(--overlay)">最早執行到「現行程式碼」的地方</text>
+<text x="135" y="228" text-anchor="middle" font-size="7" fill="var(--text-2)">消費者跑的 upgrade.sh 是舊版</text>
+<text x="135" y="240" text-anchor="middle" font-size="7" fill="var(--text-2)">init.sh 是第一個跑新版的腳本</text>
+
+<line x1="243" y1="222" x2="257" y2="222" stroke="var(--overlay)" stroke-width="0.8" stroke-dasharray="3 2"/>
+
+<line x1="440" y1="253" x2="440" y2="268" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ar8)"/>
+
+<!-- Process: Step 4 -->
+<rect x="300" y="272" width="280" height="40" rx="3" fill="var(--surface)" stroke="var(--border)" stroke-width="1"/>
+<text x="440" y="288" text-anchor="middle" font-size="9" fill="var(--text-1)" font-weight="600">Step 4: 更新 @tag 參照</text>
+<text x="440" y="302" text-anchor="middle" font-size="7" fill="var(--text-2)">workflow 檔案中的版本 ref</text>
+
+<line x1="440" y1="315" x2="440" y2="330" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ar8)"/>
+
+<!-- Process: Step 5 -->
+<rect x="300" y="334" width="280" height="40" rx="3" fill="var(--surface)" stroke="var(--border)" stroke-width="1"/>
+<text x="440" y="350" text-anchor="middle" font-size="9" fill="var(--text-1)" font-weight="600">Step 5: Dockerfile migrations</text>
+<text x="440" y="364" text-anchor="middle" font-size="7" fill="var(--text-2)">自動遷移 Dockerfile 語法</text>
+
+<line x1="440" y1="377" x2="440" y2="392" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ar8)"/>
+
+<!-- Terminal: 終點 -->
+<rect x="310" y="396" width="260" height="32" rx="16" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="1.3"/>
+<text x="440" y="416" text-anchor="middle" font-size="9" fill="var(--gen)" font-weight="600">提交所有變更</text>
+
+<!-- Bottom annotation -->
+<rect x="60" y="444" width="760" height="28" rx="3" fill="var(--surface-2)" stroke="var(--border)" stroke-width="0.6"/>
+<text x="440" y="462" text-anchor="middle" font-size="7.5" fill="var(--text-2)">TOML 遷移：downstream 第一次升級到含 TOML 的 base 版本時，Step 3 的 init.sh 會自動將 .setup.conf → setup.toml</text>
+</svg>
+<figcaption>Upgrade 流程圖。Step 3 執行新版 <code>init.sh</code>（不是舊版），是所有 migration 和 config 重生的觸發點。TOML 自動轉換也發生在這裡。</figcaption>
+</figure>
+
+<!-- 9. ADR-36 Integration -->
+<h2><span class="num">9.</span> ADR-36 整合</h2>
+
+<p>ADR-36 將 sec. 4 的整個生成 pipeline 封裝為可被外部呼叫的 API。Orchestrator 不直接碰 config 檔案，只提供路徑和輸出目錄，呼叫 generate API，拿到 Docker-native 輸出。</p>
+
+<p>這個分層決定了 TOML 遷移的爆炸半徑：format 變更被限制在 generate API 內部，orchestrator 完全無感。</p>
+
+<h3>9.1 單次呼叫流程</h3>
+
+<figure>
+<svg viewBox="0 0 880 420" role="img" aria-label="ADR-36 single call flowchart: orchestrator prepares input, calls generate API, collects output">
+<defs>
+<marker id="ar9" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="var(--arrow)"/></marker>
+</defs>
+
+<!-- Terminal: Start -->
+<rect x="310" y="10" width="260" height="32" rx="16" fill="var(--overlay-fill)" stroke="var(--overlay)" stroke-width="1.2"/>
+<text x="440" y="30" text-anchor="middle" font-size="9" fill="var(--overlay)" font-weight="600">Orchestrator 啟動（multi_run）</text>
+
+<line x1="440" y1="45" x2="440" y2="60" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ar9)"/>
+
+<!-- Process: Read own config -->
+<rect x="300" y="64" width="280" height="36" rx="3" fill="var(--surface)" stroke="var(--overlay)" stroke-width="1"/>
+<text x="440" y="80" text-anchor="middle" font-size="9" fill="var(--text-1)" font-weight="600">讀取自身 TOML 設定</text>
+<text x="440" y="94" text-anchor="middle" font-size="7" fill="var(--text-2)">Python tomllib 解析 orchestrator config</text>
+
+<line x1="440" y1="103" x2="440" y2="118" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ar9)"/>
+
+<!-- Process: Prepare per-instance -->
+<rect x="280" y="122" width="320" height="36" rx="3" fill="var(--surface)" stroke="var(--overlay)" stroke-width="1"/>
+<text x="440" y="138" text-anchor="middle" font-size="9" fill="var(--text-1)" font-weight="600">準備 per-instance 輸入</text>
+<text x="440" y="152" text-anchor="middle" font-size="7" fill="var(--text-2)">產生 setup.local.toml + 指定 --output out/N/</text>
+
+<line x1="440" y1="161" x2="440" y2="176" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ar9)"/>
+
+<!-- Decision: More instances? (loop) -->
+<polygon points="440,180 530,214 440,248 350,214" fill="var(--surface)" stroke="var(--overlay)" stroke-width="1.2"/>
+<text x="440" y="210" text-anchor="middle" font-size="8" fill="var(--overlay)" font-weight="600">每個</text>
+<text x="440" y="222" text-anchor="middle" font-size="8" fill="var(--overlay)" font-weight="600">instance</text>
+
+<!-- Down: call generate API -->
+<line x1="440" y1="251" x2="440" y2="268" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ar9)"/>
+
+<!-- Process: Call generate API (the key step) -->
+<rect x="260" y="272" width="360" height="52" rx="3" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="1.5"/>
+<text x="440" y="290" text-anchor="middle" font-size="10" fill="var(--gen)" font-weight="700">呼叫 generate API</text>
+<text x="440" y="306" text-anchor="middle" font-size="7.5" fill="var(--text-2)">= sec. 4 完整 pipeline（Phase A → B → C）</text>
+<text x="440" y="318" text-anchor="middle" font-size="7" fill="var(--gen)">TOML 遷移在這裡面；呼叫者看不到 parser 實作</text>
+
+<!-- Loop back arrow -->
+<line x1="623" y1="298" x2="700" y2="298" stroke="var(--arrow)" stroke-width="0.8"/>
+<line x1="700" y1="298" x2="700" y2="214" stroke="var(--arrow)" stroke-width="0.8"/>
+<line x1="700" y1="214" x2="533" y2="214" stroke="var(--arrow)" stroke-width="0.8" marker-end="url(#ar9)"/>
+<text x="720" y="256" font-size="7" fill="var(--text-3)">N 次</text>
+
+<!-- I/O: Output -->
+<line x1="440" y1="327" x2="440" y2="342" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ar9)"/>
+
+<polygon points="310,346 570,346 556,374 296,374" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="1"/>
+<text x="436" y="358" text-anchor="middle" font-size="8.5" fill="var(--gen)" font-weight="600">收集輸出：out/N/.env + compose.yaml</text>
+<text x="436" y="370" text-anchor="middle" font-size="7" fill="var(--text-2)">每個 instance 獨立、完整的 Docker-native 檔案</text>
+
+<line x1="440" y1="377" x2="440" y2="392" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ar9)"/>
+
+<!-- Terminal: End -->
+<rect x="310" y="396" width="260" height="24" rx="12" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="1.2"/>
+<text x="440" y="412" text-anchor="middle" font-size="8.5" fill="var(--gen)" font-weight="600">docker compose up（per instance）</text>
+</svg>
+<figcaption>ADR-36 單次呼叫流程。Orchestrator 準備 per-instance 輸入，呼叫 generate API（= sec. 4 完整 pipeline），收集 Docker-native 輸出。</figcaption>
+</figure>
+
+<h3>9.2 架構總覽</h3>
+
+<figure>
+<svg viewBox="0 0 880 200" role="img" aria-label="ADR-36: orchestrator calls generate API N times">
+
+<rect x="0" y="50" width="130" height="60" rx="4" fill="var(--overlay-fill)" stroke="var(--overlay)" stroke-width="1.2"/>
+<text x="65" y="70" text-anchor="middle" font-size="10.5" fill="var(--text-1)" font-weight="600">multi_run</text>
+<text x="65" y="84" text-anchor="middle" font-size="7.5" fill="var(--text-2)">orchestrator</text>
+<text x="65" y="96" text-anchor="middle" font-size="7" fill="var(--overlay)">TOML + tomllib</text>
+<text x="65" y="106" text-anchor="middle" font-size="6.5" fill="var(--text-3)">(multi_run#26)</text>
+
+<line x1="133" y1="66" x2="192" y2="30" stroke="var(--arrow)" stroke-width="0.8" marker-end="url(#ar)"/>
+<line x1="133" y1="80" x2="192" y2="80" stroke="var(--arrow)" stroke-width="0.8" marker-end="url(#ar)"/>
+<line x1="133" y1="94" x2="192" y2="130" stroke="var(--arrow)" stroke-width="0.8" marker-end="url(#ar)"/>
+<text x="162" y="58" text-anchor="middle" font-size="7" fill="var(--text-3)">N 次呼叫</text>
+
+<rect x="196" y="8" width="210" height="40" rx="3" fill="var(--surface)" stroke="var(--border)" stroke-width="0.7"/>
+<text x="301" y="24" text-anchor="middle" font-size="8.5" fill="var(--text-1)" font-weight="500">instance-1</text>
+<text x="301" y="36" text-anchor="middle" font-size="7" fill="var(--text-2)">setup.local.toml + --output out/1/</text>
+
+<rect x="196" y="58" width="210" height="40" rx="3" fill="var(--surface)" stroke="var(--border)" stroke-width="0.7"/>
+<text x="301" y="74" text-anchor="middle" font-size="8.5" fill="var(--text-1)" font-weight="500">instance-2</text>
+<text x="301" y="86" text-anchor="middle" font-size="7" fill="var(--text-2)">setup.local.toml + --output out/2/</text>
+
+<rect x="196" y="108" width="210" height="40" rx="3" fill="var(--surface)" stroke="var(--border)" stroke-width="0.7"/>
+<text x="301" y="124" text-anchor="middle" font-size="8.5" fill="var(--text-1)" font-weight="500">instance-N</text>
+<text x="301" y="136" text-anchor="middle" font-size="7" fill="var(--text-2)">setup.local.toml + --output out/N/</text>
+
+<line x1="409" y1="28" x2="438" y2="28" stroke="var(--arrow)" stroke-width="0.8" marker-end="url(#ar)"/>
+<line x1="409" y1="78" x2="438" y2="78" stroke="var(--arrow)" stroke-width="0.8" marker-end="url(#ar)"/>
+<line x1="409" y1="128" x2="438" y2="128" stroke="var(--arrow)" stroke-width="0.8" marker-end="url(#ar)"/>
+
+<rect x="442" y="14" width="180" height="82" rx="4" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="1.2"/>
+<text x="532" y="34" text-anchor="middle" font-size="10" fill="var(--gen)" font-weight="600">generate API</text>
+<text x="532" y="50" text-anchor="middle" font-size="7.5" fill="var(--text-2)">sec. 4 完整 pipeline</text>
+<text x="532" y="64" text-anchor="middle" font-size="7.5" fill="var(--text-2)">Phase A → B → C</text>
+<text x="532" y="78" text-anchor="middle" font-size="7" fill="var(--gen)">TOML format 遷移在這裡面</text>
+<text x="532" y="90" text-anchor="middle" font-size="6.5" fill="var(--text-3)">外部看不到 parser 實作</text>
+
+<line x1="625" y1="55" x2="660" y2="55" stroke="var(--gen)" stroke-width="1" marker-end="url(#ar3)"/>
+
+<rect x="664" y="14" width="200" height="52" rx="3" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="0.7"/>
+<text x="764" y="32" text-anchor="middle" font-size="8.5" fill="var(--gen)">out/instance-{1..N}/</text>
+<text x="764" y="46" text-anchor="middle" font-size="7.5" fill="var(--text-2)">.env + compose.yaml</text>
+<text x="764" y="58" text-anchor="middle" font-size="7" fill="var(--text-3)">Docker-native，不變</text>
+
+<rect x="442" y="108" width="422" height="56" rx="4" fill="var(--overlay-fill)" stroke="var(--overlay)" stroke-width="0.8"/>
+<text x="653" y="126" text-anchor="middle" font-size="9" font-weight="600" fill="var(--overlay)">API 契約：路徑進、Docker-native 出</text>
+<text x="653" y="140" text-anchor="middle" font-size="7.5" fill="var(--text-1)">setup.local.toml 由呼叫者提供（per ADR-36）；每次呼叫獨立解析</text>
+<text x="653" y="152" text-anchor="middle" font-size="7.5" fill="var(--text-1)">Orchestrator 只看到 .env + compose.yaml — base 用什麼 parser 是 API 內部的事</text>
+
+<rect x="16" y="172" width="848" height="24" rx="3" fill="var(--surface-2)" stroke="var(--border)" stroke-width="0.6"/>
+<text x="440" y="188" text-anchor="middle" font-size="8" fill="var(--text-2)">base 換 TOML 後，整條鏈 = TOML 輸入 / Docker-native 輸出。Orchestrator 無感。</text>
+</svg>
+<figcaption>ADR-36 將 config format 變更限制在 generate API 內部。Orchestrator 提供 <code>setup.local.toml</code> 路徑、收到 <code>.env</code> + <code>compose.yaml</code>。Base 的 parser 從 <code>_ini_tokenize</code> 換成 <code>toml-bridge</code> 對 orchestrator 完全透明。</figcaption>
+</figure>
+
+<!-- 10. Module Overview -->
+<h2><span class="num">10.</span> 模組總覽</h2>
+
+<p>Base repo 的腳本分成兩大群組：<strong>出貨到下游</strong>（透過 <code>.base/</code> subtree 傳遞，約 27,100 行）和 <strong>base 專屬</strong>（測試、CI、版本監控、發版，約 23,100 行）。合計約 50,200 行 shell script，另有 90,400 行測試 spec（183 檔 bats：158 unit / 21 integration / 4 system）。出貨與 base 專屬比例約 54:46，測試密度 1.8 行 spec / 1 行 shipped code。</p>
+
+<p>出貨到下游的程式碼分四層：<strong>Wrapper</strong>（7 檔，使用者操作入口：build / run / setup / exec / stop / prune + 凍結中的 setup_tui）、<strong>Lib</strong>（31 檔，核心程式庫透過 <code>_lib.sh</code> 傘狀載入 21 模組）、<strong>Lifecycle</strong>（init.sh / upgrade.sh，獨立進入不經 wrapper）、<strong>Runtime</strong>（4 檔，容器內執行：entrypoint / watchdog / logging / logrotate）。</p>
+
+<p>Base 專屬的程式碼分四區：<strong>Test Framework</strong>（test.sh dispatcher + 28 driver lints）、<strong>CI</strong>（ci-and-stamp.sh + GitHub Actions workflows）、<strong>Watch</strong>（版本監控，pin 文法 + resolver）、<strong>Release</strong>（release-tag.sh + changelog.sh）。</p>
+
+<figure>
+<svg viewBox="0 0 880 420" role="img" aria-label="base repo 模組總覽：出貨到下游 vs base 專屬">
+<defs>
+<marker id="arm" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="var(--arrow)"/></marker>
+</defs>
+
+<!-- ===== 上半：出貨到下游 ===== -->
+<rect x="1" y="1" width="878" height="218" rx="6" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="1.2" opacity="0.5"/>
+<text x="16" y="22" font-size="12" font-weight="700" fill="var(--gen)">出貨到下游（dist/）</text>
+<text x="240" y="22" font-size="8" fill="var(--text-2)">透過 .base/ subtree 傳遞到所有 downstream repo</text>
+
+<!-- Wrapper layer -->
+<rect x="16" y="34" width="420" height="80" rx="4" fill="var(--surface)" stroke="var(--infra)" stroke-width="1"/>
+<text x="26" y="50" font-size="9" font-weight="600" fill="var(--infra)">Wrapper（使用者入口）</text>
+
+<rect x="26" y="58" width="74" height="20" rx="2" fill="var(--infra-fill)" stroke="var(--infra)" stroke-width="0.6"/>
+<text x="63" y="72" text-anchor="middle" font-size="7.5" fill="var(--text-1)">build.sh</text>
+
+<rect x="106" y="58" width="64" height="20" rx="2" fill="var(--infra-fill)" stroke="var(--infra)" stroke-width="0.6"/>
+<text x="138" y="72" text-anchor="middle" font-size="7.5" fill="var(--text-1)">run.sh</text>
+
+<rect x="176" y="58" width="70" height="20" rx="2" fill="var(--infra-fill)" stroke="var(--infra)" stroke-width="0.6"/>
+<text x="211" y="72" text-anchor="middle" font-size="7.5" fill="var(--text-1)">setup.sh</text>
+
+<rect x="252" y="58" width="64" height="20" rx="2" fill="var(--infra-fill)" stroke="var(--infra)" stroke-width="0.6"/>
+<text x="284" y="72" text-anchor="middle" font-size="7.5" fill="var(--text-1)">exec.sh</text>
+
+<rect x="322" y="58" width="64" height="20" rx="2" fill="var(--infra-fill)" stroke="var(--infra)" stroke-width="0.6"/>
+<text x="354" y="72" text-anchor="middle" font-size="7.5" fill="var(--text-1)">stop.sh</text>
+
+<rect x="26" y="84" width="74" height="20" rx="2" fill="var(--infra-fill)" stroke="var(--infra)" stroke-width="0.6"/>
+<text x="63" y="98" text-anchor="middle" font-size="7.5" fill="var(--text-1)">prune.sh</text>
+
+<rect x="106" y="84" width="140" height="20" rx="2" fill="var(--warn-soft)" stroke="var(--warn)" stroke-width="0.6"/>
+<text x="176" y="98" text-anchor="middle" font-size="7.5" fill="var(--warn)">setup_tui.sh（凍結）</text>
+
+<!-- Lib layer -->
+<rect x="16" y="122" width="420" height="90" rx="4" fill="var(--surface)" stroke="var(--gen)" stroke-width="1"/>
+<text x="26" y="138" font-size="9" font-weight="600" fill="var(--gen)">Lib（核心程式庫）</text>
+<text x="186" y="138" font-size="7" fill="var(--text-3)">_lib.sh 傘狀載入 21 模組</text>
+
+<rect x="26" y="146" width="100" height="20" rx="2" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="0.6"/>
+<text x="76" y="160" text-anchor="middle" font-size="7" fill="var(--text-1)">setup_cmd</text>
+
+<rect x="132" y="146" width="100" height="20" rx="2" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="0.6"/>
+<text x="182" y="160" text-anchor="middle" font-size="7" fill="var(--text-1)">dockerfile_migrate</text>
+
+<rect x="238" y="146" width="100" height="20" rx="2" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="0.6"/>
+<text x="288" y="160" text-anchor="middle" font-size="7" fill="var(--text-1)">compose_emit</text>
+
+<rect x="344" y="146" width="82" height="20" rx="2" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="0.6"/>
+<text x="385" y="160" text-anchor="middle" font-size="7" fill="var(--text-1)">deploy</text>
+
+<rect x="26" y="172" width="82" height="20" rx="2" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="0.6"/>
+<text x="67" y="186" text-anchor="middle" font-size="7" fill="var(--text-1)">conf</text>
+
+<rect x="114" y="172" width="100" height="20" rx="2" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="0.6"/>
+<text x="164" y="186" text-anchor="middle" font-size="7" fill="var(--text-1)">project_reclaim</text>
+
+<rect x="220" y="172" width="206" height="20" rx="2" fill="var(--surface-2)" stroke="var(--border)" stroke-width="0.5"/>
+<text x="323" y="186" text-anchor="middle" font-size="7" fill="var(--text-3)">env_emit, gpu, gui, i18n, image, network...</text>
+
+<!-- Dependency arrows: wrapper → lib -->
+<line x1="226" y1="114" x2="226" y2="120" stroke="var(--arrow)" stroke-width="0.8" marker-end="url(#arm)"/>
+<text x="236" y="120" font-size="6" fill="var(--text-3)">source</text>
+
+<!-- Lifecycle -->
+<rect x="450" y="34" width="200" height="80" rx="4" fill="var(--surface)" stroke="var(--overlay)" stroke-width="1"/>
+<text x="460" y="50" font-size="9" font-weight="600" fill="var(--overlay)">Lifecycle（生命週期）</text>
+
+<rect x="460" y="58" width="180" height="20" rx="2" fill="var(--overlay-fill)" stroke="var(--overlay)" stroke-width="0.6"/>
+<text x="550" y="72" text-anchor="middle" font-size="8" fill="var(--text-1)">init.sh（sec. 7）</text>
+
+<rect x="460" y="84" width="180" height="20" rx="2" fill="var(--overlay-fill)" stroke="var(--overlay)" stroke-width="0.6"/>
+<text x="550" y="98" text-anchor="middle" font-size="8" fill="var(--text-1)">upgrade.sh（sec. 8）</text>
+
+<!-- Runtime -->
+<rect x="450" y="122" width="200" height="90" rx="4" fill="var(--surface)" stroke="var(--svc)" stroke-width="1"/>
+<text x="460" y="138" font-size="9" font-weight="600" fill="var(--svc)">Runtime（容器內）</text>
+
+<rect x="460" y="146" width="180" height="20" rx="2" fill="var(--svc-fill)" stroke="var(--svc)" stroke-width="0.5"/>
+<text x="550" y="160" text-anchor="middle" font-size="7.5" fill="var(--text-1)">entrypoint.sh</text>
+
+<rect x="460" y="172" width="86" height="20" rx="2" fill="var(--svc-fill)" stroke="var(--svc)" stroke-width="0.5"/>
+<text x="503" y="186" text-anchor="middle" font-size="7.5" fill="var(--text-1)">watchdog</text>
+
+<rect x="554" y="172" width="86" height="20" rx="2" fill="var(--svc-fill)" stroke="var(--svc)" stroke-width="0.5"/>
+<text x="597" y="186" text-anchor="middle" font-size="7.5" fill="var(--text-1)">logging</text>
+
+<!-- Dockerfile -->
+<rect x="662" y="34" width="210" height="178" rx="4" fill="var(--surface)" stroke="var(--infra)" stroke-width="1"/>
+<text x="672" y="50" font-size="9" font-weight="600" fill="var(--infra)">Dockerfile（sec. 6）</text>
+
+<rect x="672" y="58" width="190" height="20" rx="2" fill="var(--infra-fill)" stroke="var(--infra)" stroke-width="0.5"/>
+<text x="767" y="72" text-anchor="middle" font-size="7.5" fill="var(--text-1)">Dockerfile（downstream 模板）</text>
+
+<rect x="672" y="84" width="190" height="20" rx="2" fill="var(--infra-fill)" stroke="var(--infra)" stroke-width="0.5"/>
+<text x="767" y="98" text-anchor="middle" font-size="7.5" fill="var(--text-1)">Dockerfile.test-tools</text>
+
+<rect x="672" y="110" width="190" height="20" rx="2" fill="var(--infra-fill)" stroke="var(--infra)" stroke-width="0.5"/>
+<text x="767" y="124" text-anchor="middle" font-size="7.5" fill="var(--text-1)">Dockerfile.toml-bridge</text>
+
+<rect x="672" y="142" width="190" height="24" rx="2" fill="var(--surface-2)" stroke="var(--border)" stroke-width="0.5"/>
+<text x="767" y="158" text-anchor="middle" font-size="7" fill="var(--text-2)">Justfile namespace</text>
+
+<rect x="672" y="172" width="190" height="24" rx="2" fill="var(--surface-2)" stroke="var(--border)" stroke-width="0.5"/>
+<text x="767" y="188" text-anchor="middle" font-size="7" fill="var(--text-2)">Consumer justfile</text>
+
+<!-- ===== 下半：Base 專屬 ===== -->
+<rect x="1" y="230" width="878" height="140" rx="6" fill="var(--overlay-fill)" stroke="var(--overlay)" stroke-width="1.2" opacity="0.5"/>
+<text x="16" y="252" font-size="12" font-weight="700" fill="var(--overlay)">Base 專屬</text>
+<text x="120" y="252" font-size="8" fill="var(--text-2)">不出貨 · 測試 / CI / 監控 / 發版</text>
+
+<!-- Test framework -->
+<rect x="16" y="264" width="260" height="56" rx="4" fill="var(--surface)" stroke="var(--overlay)" stroke-width="1"/>
+<text x="26" y="280" font-size="9" font-weight="600" fill="var(--overlay)">Test Framework</text>
+
+<rect x="26" y="288" width="110" height="20" rx="2" fill="var(--overlay-fill)" stroke="var(--overlay)" stroke-width="0.5"/>
+<text x="81" y="302" text-anchor="middle" font-size="7.5" fill="var(--text-1)">test.sh（dispatcher）</text>
+
+<rect x="142" y="288" width="124" height="20" rx="2" fill="var(--overlay-fill)" stroke="var(--overlay)" stroke-width="0.5"/>
+<text x="204" y="302" text-anchor="middle" font-size="7.5" fill="var(--text-1)">28 driver lints</text>
+
+<!-- Test specs -->
+<rect x="16" y="328" width="260" height="30" rx="4" fill="var(--surface)" stroke="var(--border)" stroke-width="0.8"/>
+<text x="26" y="348" font-size="8" fill="var(--text-2)">test/bats/（unit / integration / system）</text>
+
+<!-- CI -->
+<rect x="290" y="264" width="190" height="56" rx="4" fill="var(--surface)" stroke="var(--infra)" stroke-width="1"/>
+<text x="300" y="280" font-size="9" font-weight="600" fill="var(--infra)">CI</text>
+
+<rect x="300" y="288" width="170" height="20" rx="2" fill="var(--infra-fill)" stroke="var(--infra)" stroke-width="0.5"/>
+<text x="385" y="302" text-anchor="middle" font-size="7.5" fill="var(--text-1)">ci-and-stamp.sh</text>
+
+<rect x="290" y="328" width="190" height="30" rx="4" fill="var(--surface)" stroke="var(--border)" stroke-width="0.8"/>
+<text x="300" y="348" font-size="8" fill="var(--text-2)">.github/workflows/</text>
+
+<!-- Watch -->
+<rect x="494" y="264" width="180" height="56" rx="4" fill="var(--surface)" stroke="var(--svc)" stroke-width="1"/>
+<text x="504" y="280" font-size="9" font-weight="600" fill="var(--svc)">Watch（版本監控）</text>
+
+<rect x="504" y="288" width="76" height="20" rx="2" fill="var(--svc-fill)" stroke="var(--svc)" stroke-width="0.5"/>
+<text x="542" y="302" text-anchor="middle" font-size="7.5" fill="var(--text-1)">lib.sh</text>
+
+<rect x="586" y="288" width="78" height="20" rx="2" fill="var(--svc-fill)" stroke="var(--svc)" stroke-width="0.5"/>
+<text x="625" y="302" text-anchor="middle" font-size="7.5" fill="var(--text-1)">check.sh</text>
+
+<!-- Release -->
+<rect x="688" y="264" width="184" height="56" rx="4" fill="var(--surface)" stroke="var(--gen)" stroke-width="1"/>
+<text x="698" y="280" font-size="9" font-weight="600" fill="var(--gen)">Release（發版）</text>
+
+<rect x="698" y="288" width="82" height="20" rx="2" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="0.5"/>
+<text x="739" y="302" text-anchor="middle" font-size="7" fill="var(--text-1)">release-tag</text>
+
+<rect x="786" y="288" width="76" height="20" rx="2" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="0.5"/>
+<text x="824" y="302" text-anchor="middle" font-size="7" fill="var(--text-1)">changelog</text>
+
+<!-- Bootstrap path -->
+<rect x="16" y="380" width="856" height="32" rx="4" fill="var(--surface)" stroke="var(--border)" stroke-width="0.8"/>
+<text x="26" y="398" font-size="8" font-weight="600" fill="var(--text-1)">載入順序</text>
+<text x="110" y="398" font-size="7.5" fill="var(--text-2)">just &lt;verb&gt; → wrapper/&lt;verb&gt;.sh → bootstrap.sh → _lib.sh → 21 模組 → wrapper main</text>
+<text x="636" y="398" font-size="7.5" fill="var(--overlay)">| init.sh / upgrade.sh 獨立進入</text>
+</svg>
+<figcaption>Base repo 模組總覽。上半：出貨到下游的程式碼（透過 <code>.base/</code> subtree）。下半：base 自用的測試、CI、版本監控和發版工具。載入順序由 <code>just</code> → wrapper → <code>bootstrap.sh</code> → <code>_lib.sh</code> 串連；生命週期腳本獨立進入。</figcaption>
+</figure>
+
+<!-- 11. Directory Structure -->
+<h2><span class="num">11.</span> 目錄架構</h2>
+
+<p>Base repo 的檔案分兩大區：<strong><code>dist/</code></strong> 是出貨到下游的內容（透過 <code>.base/</code> subtree 傳遞），其餘為 base 自用。<code>dist/script/docker/</code> 下是容器操作的核心程式碼（wrapper → lib → runtime 三層）；<code>dist/script/base/</code> 是生命週期腳本（init / upgrade）。Base 專屬腳本在頂層 <code>script/</code>，測試 spec 在 <code>test/bats/</code>（按 ISTQB level 分目錄），文件在 <code>doc/</code>。</p>
+
+<figure>
+<svg viewBox="0 0 880 540" role="img" aria-label="base repo 目錄架構（2-3 層）">
+
+<!-- Legend -->
+<rect x="16" y="4" width="10" height="10" rx="2" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="0.8"/>
+<text x="30" y="13" font-size="7" fill="var(--text-2)">出貨到下游</text>
+<rect x="120" y="4" width="10" height="10" rx="2" fill="var(--overlay-fill)" stroke="var(--overlay)" stroke-width="0.8"/>
+<text x="134" y="13" font-size="7" fill="var(--text-2)">Base 專屬</text>
+<rect x="220" y="4" width="10" height="10" rx="2" fill="var(--surface)" stroke="var(--border)" stroke-width="0.8"/>
+<text x="234" y="13" font-size="7" fill="var(--text-2)">共用 / 基礎設施</text>
+
+<!-- Root -->
+<rect x="380" y="24" width="120" height="24" rx="12" fill="var(--surface)" stroke="var(--text-1)" stroke-width="1.2"/>
+<text x="440" y="40" text-anchor="middle" font-size="9" font-weight="700" fill="var(--text-1)">base/</text>
+
+<!-- Level 1 connectors from root -->
+<line x1="440" y1="48" x2="440" y2="60" stroke="var(--border)" stroke-width="0.8"/>
+<line x1="100" y1="60" x2="780" y2="60" stroke="var(--border)" stroke-width="0.8"/>
+<!-- Vertical drops -->
+<line x1="100" y1="60" x2="100" y2="70" stroke="var(--border)" stroke-width="0.8"/>
+<line x1="280" y1="60" x2="280" y2="70" stroke="var(--border)" stroke-width="0.8"/>
+<line x1="440" y1="60" x2="440" y2="70" stroke="var(--border)" stroke-width="0.8"/>
+<line x1="580" y1="60" x2="580" y2="70" stroke="var(--border)" stroke-width="0.8"/>
+<line x1="700" y1="60" x2="700" y2="70" stroke="var(--border)" stroke-width="0.8"/>
+<line x1="780" y1="60" x2="780" y2="70" stroke="var(--border)" stroke-width="0.8"/>
+
+<!-- ====== dist/ ====== -->
+<rect x="30" y="70" width="140" height="28" rx="4" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="1"/>
+<text x="44" y="86" font-size="9" font-weight="600" fill="var(--gen)">dist/</text>
+<text x="44" y="94" font-size="6" fill="var(--text-3)">出貨到下游的所有檔案</text>
+
+<!-- dist/ children connector -->
+<line x1="100" y1="98" x2="100" y2="110" stroke="var(--gen)" stroke-width="0.6"/>
+<line x1="36" y1="110" x2="164" y2="110" stroke="var(--gen)" stroke-width="0.6"/>
+<line x1="36" y1="110" x2="36" y2="118" stroke="var(--gen)" stroke-width="0.6"/>
+<line x1="100" y1="110" x2="100" y2="118" stroke="var(--gen)" stroke-width="0.6"/>
+<line x1="164" y1="110" x2="164" y2="118" stroke="var(--gen)" stroke-width="0.6"/>
+
+<!-- dist/config/ -->
+<rect x="16" y="118" width="56" height="22" rx="3" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="0.6"/>
+<text x="44" y="133" text-anchor="middle" font-size="7" fill="var(--text-1)">config/</text>
+
+<!-- dist/deploy/ -->
+<rect x="78" y="118" width="56" height="22" rx="3" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="0.6"/>
+<text x="106" y="133" text-anchor="middle" font-size="7" fill="var(--text-1)">deploy/</text>
+
+<!-- dist/dockerfile/ -->
+<rect x="140" y="118" width="56" height="22" rx="3" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="0.6"/>
+<text x="168" y="133" text-anchor="middle" font-size="7" fill="var(--text-1)">dockerfile/</text>
+
+<!-- dist/config desc -->
+<text x="44" y="150" text-anchor="middle" font-size="6" fill="var(--text-3)">shell 設定</text>
+<text x="44" y="158" text-anchor="middle" font-size="6" fill="var(--text-3)">bashrc.d</text>
+<!-- dist/deploy desc -->
+<text x="106" y="150" text-anchor="middle" font-size="6" fill="var(--text-3)">部署範本</text>
+<!-- dist/dockerfile desc -->
+<text x="168" y="150" text-anchor="middle" font-size="6" fill="var(--text-3)">Dockerfile</text>
+<text x="168" y="158" text-anchor="middle" font-size="6" fill="var(--text-3)">模板</text>
+
+<!-- ====== dist/script/ (big block) ====== -->
+<rect x="16" y="168" width="220" height="186" rx="4" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="1"/>
+<text x="26" y="184" font-size="8" font-weight="600" fill="var(--gen)">dist/script/</text>
+<text x="126" y="184" font-size="6" fill="var(--text-3)">所有出貨腳本</text>
+
+<!-- dist/script/base/ -->
+<rect x="26" y="192" width="96" height="30" rx="3" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="0.6"/>
+<text x="74" y="206" text-anchor="middle" font-size="7" font-weight="500" fill="var(--text-1)">base/</text>
+<text x="74" y="216" text-anchor="middle" font-size="6" fill="var(--text-3)">生命週期 init/upgrade</text>
+
+<!-- dist/script/docker/ group -->
+<rect x="26" y="228" width="200" height="118" rx="3" fill="var(--surface)" stroke="var(--gen)" stroke-width="0.6"/>
+<text x="36" y="242" font-size="7" font-weight="500" fill="var(--gen)">docker/</text>
+<text x="90" y="242" font-size="6" fill="var(--text-3)">容器操作核心</text>
+
+<!-- wrapper -->
+<rect x="36" y="250" width="82" height="28" rx="2" fill="var(--infra-fill)" stroke="var(--infra)" stroke-width="0.5"/>
+<text x="77" y="264" text-anchor="middle" font-size="7" font-weight="500" fill="var(--text-1)">wrapper/</text>
+<text x="77" y="274" text-anchor="middle" font-size="6" fill="var(--text-3)">使用者入口 (7)</text>
+
+<!-- lib -->
+<rect x="124" y="250" width="94" height="28" rx="2" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="0.5"/>
+<text x="171" y="264" text-anchor="middle" font-size="7" font-weight="500" fill="var(--text-1)">lib/</text>
+<text x="171" y="274" text-anchor="middle" font-size="6" fill="var(--text-3)">核心程式庫 (31)</text>
+
+<!-- runtime -->
+<rect x="36" y="284" width="82" height="28" rx="2" fill="var(--svc-fill)" stroke="var(--svc)" stroke-width="0.5"/>
+<text x="77" y="298" text-anchor="middle" font-size="7" font-weight="500" fill="var(--text-1)">runtime/</text>
+<text x="77" y="308" text-anchor="middle" font-size="6" fill="var(--text-3)">容器內 (4)</text>
+
+<!-- justfile.docker -->
+<rect x="124" y="284" width="94" height="28" rx="2" fill="var(--surface-2)" stroke="var(--border)" stroke-width="0.5"/>
+<text x="171" y="298" text-anchor="middle" font-size="7" fill="var(--text-2)">justfile.docker</text>
+<text x="171" y="308" text-anchor="middle" font-size="6" fill="var(--text-3)">docker namespace</text>
+
+<!-- dist/script/template/ -->
+<rect x="130" y="192" width="96" height="30" rx="3" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="0.6"/>
+<text x="178" y="206" text-anchor="middle" font-size="7" font-weight="500" fill="var(--text-1)">template/</text>
+<text x="178" y="216" text-anchor="middle" font-size="6" fill="var(--text-3)">新 repo 起始模板</text>
+
+<!-- dist/test/ -->
+<rect x="16" y="362" width="220" height="22" rx="3" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="0.6"/>
+<text x="126" y="377" text-anchor="middle" font-size="7" fill="var(--text-1)">dist/test/bats/ — 出貨測試 helper</text>
+
+<!-- ====== script/ (base-only) ====== -->
+<rect x="250" y="70" width="120" height="28" rx="4" fill="var(--overlay-fill)" stroke="var(--overlay)" stroke-width="1"/>
+<text x="264" y="86" font-size="9" font-weight="600" fill="var(--overlay)">script/</text>
+<text x="264" y="94" font-size="6" fill="var(--text-3)">Base 專屬腳本</text>
+
+<!-- script/ children connector -->
+<line x1="280" y1="98" x2="280" y2="110" stroke="var(--overlay)" stroke-width="0.6"/>
+<line x1="264" y1="110" x2="356" y2="110" stroke="var(--overlay)" stroke-width="0.6"/>
+<line x1="264" y1="110" x2="264" y2="118" stroke="var(--overlay)" stroke-width="0.6"/>
+<line x1="310" y1="110" x2="310" y2="118" stroke="var(--overlay)" stroke-width="0.6"/>
+<line x1="356" y1="110" x2="356" y2="118" stroke="var(--overlay)" stroke-width="0.6"/>
+
+<rect x="248" y="118" width="50" height="22" rx="3" fill="var(--overlay-fill)" stroke="var(--overlay)" stroke-width="0.6"/>
+<text x="273" y="133" text-anchor="middle" font-size="7" fill="var(--text-1)">ci/</text>
+
+<rect x="303" y="118" width="50" height="22" rx="3" fill="var(--overlay-fill)" stroke="var(--overlay)" stroke-width="0.6"/>
+<text x="328" y="133" text-anchor="middle" font-size="7" fill="var(--text-1)">test/</text>
+
+<rect x="358" y="118" width="50" height="22" rx="3" fill="var(--overlay-fill)" stroke="var(--overlay)" stroke-width="0.6"/>
+<text x="383" y="133" text-anchor="middle" font-size="7" fill="var(--text-1)">watch/</text>
+
+<text x="273" y="150" text-anchor="middle" font-size="6" fill="var(--text-3)">CI pipeline</text>
+<text x="328" y="150" text-anchor="middle" font-size="6" fill="var(--text-3)">測試框架</text>
+<text x="328" y="158" text-anchor="middle" font-size="6" fill="var(--text-3)">+ drivers</text>
+<text x="383" y="150" text-anchor="middle" font-size="6" fill="var(--text-3)">版本監控</text>
+
+<!-- script/release/ -->
+<line x1="280" y1="110" x2="280" y2="162" stroke="var(--overlay)" stroke-width="0.6"/>
+<rect x="248" y="162" width="50" height="22" rx="3" fill="var(--overlay-fill)" stroke="var(--overlay)" stroke-width="0.6"/>
+<text x="273" y="177" text-anchor="middle" font-size="7" fill="var(--text-1)">release/</text>
+<text x="273" y="194" text-anchor="middle" font-size="6" fill="var(--text-3)">發版工具</text>
+
+<!-- ====== test/ ====== -->
+<rect x="420" y="70" width="120" height="28" rx="4" fill="var(--overlay-fill)" stroke="var(--overlay)" stroke-width="1"/>
+<text x="434" y="86" font-size="9" font-weight="600" fill="var(--overlay)">test/</text>
+<text x="434" y="94" font-size="6" fill="var(--text-3)">測試 spec + fixtures</text>
+
+<!-- test/ children -->
+<line x1="440" y1="98" x2="440" y2="110" stroke="var(--overlay)" stroke-width="0.6"/>
+<line x1="440" y1="110" x2="520" y2="110" stroke="var(--overlay)" stroke-width="0.6"/>
+<line x1="440" y1="110" x2="440" y2="118" stroke="var(--overlay)" stroke-width="0.6"/>
+<line x1="520" y1="110" x2="520" y2="118" stroke="var(--overlay)" stroke-width="0.6"/>
+
+<rect x="420" y="118" width="56" height="22" rx="3" fill="var(--overlay-fill)" stroke="var(--overlay)" stroke-width="0.6"/>
+<text x="448" y="133" text-anchor="middle" font-size="7" fill="var(--text-1)">bats/</text>
+
+<rect x="482" y="118" width="56" height="22" rx="3" fill="var(--overlay-fill)" stroke="var(--overlay)" stroke-width="0.6"/>
+<text x="510" y="133" text-anchor="middle" font-size="7" fill="var(--text-1)">fixtures/</text>
+
+<!-- bats sub-dirs -->
+<line x1="448" y1="140" x2="448" y2="148" stroke="var(--overlay)" stroke-width="0.5"/>
+<rect x="420" y="148" width="110" height="38" rx="3" fill="var(--surface)" stroke="var(--overlay)" stroke-width="0.5"/>
+<text x="475" y="162" text-anchor="middle" font-size="6.5" fill="var(--text-2)">unit/</text>
+<text x="475" y="172" text-anchor="middle" font-size="6.5" fill="var(--text-2)">integration/ | system/</text>
+<text x="475" y="182" text-anchor="middle" font-size="6.5" fill="var(--text-2)">acceptance/</text>
+
+<text x="510" y="150" text-anchor="middle" font-size="6" fill="var(--text-3)">測試資料</text>
+
+<!-- ====== doc/ ====== -->
+<rect x="550" y="70" width="120" height="28" rx="4" fill="var(--surface)" stroke="var(--border)" stroke-width="1"/>
+<text x="564" y="86" font-size="9" font-weight="600" fill="var(--text-1)">doc/</text>
+<text x="564" y="94" font-size="6" fill="var(--text-3)">文件</text>
+
+<!-- doc/ children -->
+<line x1="580" y1="98" x2="580" y2="110" stroke="var(--border)" stroke-width="0.6"/>
+<line x1="556" y1="110" x2="656" y2="110" stroke="var(--border)" stroke-width="0.6"/>
+<line x1="556" y1="110" x2="556" y2="118" stroke="var(--border)" stroke-width="0.6"/>
+<line x1="590" y1="110" x2="590" y2="118" stroke="var(--border)" stroke-width="0.6"/>
+<line x1="624" y1="110" x2="624" y2="118" stroke="var(--border)" stroke-width="0.6"/>
+<line x1="656" y1="110" x2="656" y2="118" stroke="var(--border)" stroke-width="0.6"/>
+
+<rect x="540" y="118" width="44" height="22" rx="3" fill="var(--surface)" stroke="var(--border)" stroke-width="0.6"/>
+<text x="562" y="133" text-anchor="middle" font-size="7" fill="var(--text-1)">adr/</text>
+
+<rect x="590" y="118" width="44" height="22" rx="3" fill="var(--surface)" stroke="var(--border)" stroke-width="0.6"/>
+<text x="612" y="133" text-anchor="middle" font-size="7" fill="var(--text-1)">arch/</text>
+
+<rect x="640" y="118" width="44" height="22" rx="3" fill="var(--surface)" stroke="var(--border)" stroke-width="0.6"/>
+<text x="662" y="133" text-anchor="middle" font-size="7" fill="var(--text-1)">test/</text>
+
+<text x="562" y="150" text-anchor="middle" font-size="6" fill="var(--text-3)">架構決策</text>
+<text x="612" y="150" text-anchor="middle" font-size="6" fill="var(--text-3)">架構圖</text>
+<text x="662" y="150" text-anchor="middle" font-size="6" fill="var(--text-3)">TEST.md</text>
+
+<!-- additional doc/ children on a second row -->
+<line x1="580" y1="110" x2="580" y2="162" stroke="var(--border)" stroke-width="0.6"/>
+<line x1="556" y1="162" x2="624" y2="162" stroke="var(--border)" stroke-width="0.6"/>
+<line x1="556" y1="162" x2="556" y2="168" stroke="var(--border)" stroke-width="0.6"/>
+<line x1="624" y1="162" x2="624" y2="168" stroke="var(--border)" stroke-width="0.6"/>
+
+<rect x="540" y="168" width="50" height="22" rx="3" fill="var(--surface)" stroke="var(--border)" stroke-width="0.6"/>
+<text x="565" y="183" text-anchor="middle" font-size="7" fill="var(--text-1)">changelog/</text>
+
+<rect x="604" y="168" width="50" height="22" rx="3" fill="var(--surface)" stroke="var(--border)" stroke-width="0.6"/>
+<text x="629" y="183" text-anchor="middle" font-size="7" fill="var(--text-1)">readme/</text>
+
+<text x="565" y="200" text-anchor="middle" font-size="6" fill="var(--text-3)">變更日誌</text>
+<text x="629" y="200" text-anchor="middle" font-size="6" fill="var(--text-3)">README 來源</text>
+
+<!-- ====== dockerfile/ ====== -->
+<rect x="668" y="70" width="90" height="28" rx="4" fill="var(--overlay-fill)" stroke="var(--overlay)" stroke-width="1"/>
+<text x="682" y="86" font-size="9" font-weight="600" fill="var(--overlay)">dockerfile/</text>
+<text x="682" y="94" font-size="6" fill="var(--text-3)">Base Dockerfile</text>
+
+<line x1="700" y1="98" x2="700" y2="118" stroke="var(--overlay)" stroke-width="0.6"/>
+<rect x="668" y="118" width="90" height="36" rx="3" fill="var(--surface)" stroke="var(--overlay)" stroke-width="0.5"/>
+<text x="713" y="132" text-anchor="middle" font-size="6.5" fill="var(--text-2)">Dockerfile.test-tools</text>
+<text x="713" y="142" text-anchor="middle" font-size="6.5" fill="var(--text-2)">Dockerfile.smoke</text>
+<text x="713" y="152" text-anchor="middle" font-size="6.5" fill="var(--text-3)">(base CI 用)</text>
+
+<!-- ====== .github/ ====== -->
+<rect x="764" y="70" width="100" height="28" rx="4" fill="var(--surface)" stroke="var(--border)" stroke-width="1"/>
+<text x="778" y="86" font-size="9" font-weight="600" fill="var(--text-1)">.github/</text>
+<text x="778" y="94" font-size="6" fill="var(--text-3)">CI workflows</text>
+
+<line x1="780" y1="98" x2="780" y2="118" stroke="var(--border)" stroke-width="0.6"/>
+<rect x="764" y="118" width="100" height="36" rx="3" fill="var(--surface)" stroke="var(--border)" stroke-width="0.5"/>
+<text x="814" y="132" text-anchor="middle" font-size="6.5" fill="var(--text-2)">workflows/</text>
+<text x="814" y="142" text-anchor="middle" font-size="6.5" fill="var(--text-3)">self-test, coverage,</text>
+<text x="814" y="152" text-anchor="middle" font-size="6.5" fill="var(--text-3)">release, watch...</text>
+
+<!-- ====== Annotations ====== -->
+<!-- Arrow from dist/script/docker/wrapper → dist/script/docker/lib -->
+<line x1="118" y1="268" x2="122" y2="268" stroke="var(--arrow)" stroke-width="0.6" marker-end="url(#arm)"/>
+
+<!-- Annotation: wrapper source lib -->
+<rect x="248" y="396" width="390" height="44" rx="4" fill="var(--surface)" stroke="var(--border)" stroke-width="0.8"/>
+<text x="258" y="412" font-size="7.5" font-weight="600" fill="var(--text-1)">出貨路徑</text>
+<text x="258" y="426" font-size="7" fill="var(--text-2)">downstream repo 的 <tspan font-family="monospace" font-size="6.5">.base/</tspan> 目錄 = <tspan font-family="monospace" font-size="6.5">dist/</tspan> 的完整鏡像。<tspan font-family="monospace" font-size="6.5">just upgrade</tspan> 用 git subtree pull 同步。</text>
+<text x="258" y="438" font-size="7" fill="var(--text-2)">頂層 <tspan font-family="monospace" font-size="6.5">script/</tspan> 目錄（ci / test / watch / release）不出貨，只在 base 內使用。</text>
+
+<!-- Top-level standalone files annotation -->
+<rect x="248" y="450" width="390" height="54" rx="4" fill="var(--surface)" stroke="var(--border)" stroke-width="0.8"/>
+<text x="258" y="466" font-size="7.5" font-weight="600" fill="var(--text-1)">頂層重要檔案</text>
+<text x="258" y="480" font-size="7" fill="var(--text-2)"><tspan font-family="monospace" font-size="6.5">Justfile</tspan> — 所有 just 入口（import docker / test / release / base namespace）</text>
+<text x="258" y="492" font-size="7" fill="var(--text-2)"><tspan font-family="monospace" font-size="6.5">.version</tspan> — 目前版本（release-tag.sh 比對）| <tspan font-family="monospace" font-size="6.5">PRD.md</tspan> — 產品需求 | <tspan font-family="monospace" font-size="6.5">CONTEXT.md</tspan> — 領域詞彙</text>
+
+<!-- downstream mirror indicator -->
+<rect x="248" y="514" width="390" height="20" rx="4" fill="var(--gen-fill)" stroke="var(--gen)" stroke-width="0.6"/>
+<text x="443" y="528" text-anchor="middle" font-size="7" fill="var(--gen)">downstream .base/ = dist/ 的 git subtree 鏡像</text>
+</svg>
+<figcaption>Base repo 目錄架構。綠色為出貨到下游的程式碼（<code>dist/</code>），紫色為 base 專屬（<code>script/</code>、<code>test/</code>、<code>dockerfile/</code>），灰色為共用基礎設施（<code>doc/</code>、<code>.github/</code>）。</figcaption>
+</figure>
+
+<!-- 12. ADR Cross-References -->
+<h2><span class="num">12.</span> ADR 交叉引用</h2>
+
+<div class="tbl-wrap">
+<table>
+<thead><tr><th>ADR</th><th>關係</th><th>影響</th></tr></thead>
+<tbody>
+<tr><td>ADR-1</td><td>修正</td><td>「section-replace 語意」精煉為型別感知合併</td></tr>
+<tr><td>ADR-3</td><td>基礎</td><td>服務邊界準則（Axis A）決定檔案分割</td></tr>
+<tr><td>ADR-25 sec.3</td><td>修正</td><td>Section-replace 不再全面性；array-replace 那一半保留推理</td></tr>
+<tr><td>ADR-36</td><td>啟用</td><td>參數化 API 限制 TOML 爆炸半徑</td></tr>
+<tr><td>ADR-37</td><td><strong>本設計</strong></td><td>統一所有人工編輯的 Docker config 為 TOML</td></tr>
+</tbody>
+</table>
+</div>
