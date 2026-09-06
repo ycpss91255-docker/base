@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **174 tests**.
+Integration specs under `test/bats/integration/`: **175 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test levels and
@@ -315,7 +315,7 @@ costs this repo nothing.
 | `kcov --merge: the merged covered set is the UNION of the slices' (#726)` | the property the whole mode rests on. A line covered in ONE slice is covered in the merge -- exactly the union, neither more nor less. Asserted as set EQUALITY rather than as a count or a rate, because a merge that lost one slice's lines and gained an equal number of another's would match on any percentage and be wrong. |
 | `kcov --merge: the merged instrumented set is the union, not a sum (#726)` | the denominator half, and the one a SUM would break first. Each slice's kcov runs with the same `--include-path`, so both reports carry the whole instrumented file; adding their `lines-valid` would count every shared line once per slice and drive the rate down as the slice count rose. That is base#730's defect, on the other merge. The merged denominator must be the union -- here, identical to either slice's. |
 
-### test/bats/integration/prev_release_upgrade_spec.bats (9)
+### test/bats/integration/prev_release_upgrade_spec.bats (10)
 
 | Test | Description |
 |------|-------------|
@@ -326,6 +326,7 @@ costs this repo nothing.
 | `a released upgrade.sh still migrates a hand-written .env to .env.local (#868)` | - |
 | `the oldest supported upgrade.sh leaves the consumer running on its own configuration (#1086)` | The oldest driver predates the setup.conf relocation, so its own copy carries no migration for it -- this is the arm that fails when the fix lives anywhere the old driver cannot reach, and the upgrade it describes exits 0 with the repo's configuration gone |
 | `the newest supported upgrade.sh leaves the consumer running on its own configuration (#1086)` | The newest driver reaches the relocation through its own pre-pull copy, so it answers the same question by a different route; pinning both ends is what stops the guard being read as "only the old driver has to carry a repo's config through an upgrade" |
+| `a re-established subtree leaves the consumer running on its own configuration (#1086)` | The arms above ask through a released driver, so they stop being able to see #1086 the moment the compatibility window no longer reaches back past the relocation (base#1084); this one drives init.sh directly, and it is the only coverage the re-establish path -- which never runs upgrade.sh at all -- has |
 | `the newest released upgrade.sh drives the current tree to a working consumer` | - |
 | `the previous released upgrade.sh drives the current tree to a working consumer (N-1)` | - |
 
