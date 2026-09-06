@@ -5353,7 +5353,7 @@ isolated `_setup_known_section` / `SCHEMA_SECTIONS` (#561) unit checks.
 | `setup.sh apply aborts where a handler command fails mid-apply (#956)` | - |
 | `setup.sh finalizes the transcript when the post-setup hook fails (#956)` | - |
 
-### test/bats/unit/setup_conf_migrate_spec.bats (13)
+### test/bats/unit/setup_conf_migrate_spec.bats (15)
 
 Mirrors `lib/setup_conf_migrate.sh`. The per-repo `setup.conf` override
 moved out of the hand-editable `config/` surface to the repo-root
@@ -5390,6 +5390,8 @@ overwritten.
 | `_migrate_legacy_setup_conf stages the move when the legacy file was tracked (#1086)` | The consumer's own released upgrade.sh makes the commit and stages nothing of this by name, so a move left unstaged is a commit that describes a tree that does not exist (ADR-00000006) |
 | `_migrate_legacy_setup_conf stages the move when the legacy file was untracked (#1086)` | An untracked legacy override is just as much the user's config, and the file it becomes has to reach the same commit |
 | `_migrate_legacy_setup_conf relocates outside a git work tree without staging (#1086)` | The relocation has to work for a repo that is not a git repo at all -- `just base init` on a hand-bootstrapped tree -- and it must not reach into a surrounding repository's index to do it |
+| `_migrate_legacy_setup_conf leaves a surrounding repository's index alone (#1086)` | The test above says "without staging" but stands in a directory no repository contains, so it never asks the question. `git -C <root>` answers for the nearest ENCLOSING work tree, and a hand-bootstrapped repo living inside somebody else's checkout has one -- which is the whole reason _setup_conf_git_can_stage exists (ADR-00000006). A `git mv` reached without that fence writes the relocation into a third party's index, and the person who ran `just base init` on their own tree finds it in someone else's `git status`. |
+| `_migrate_legacy_setup_conf relocates a symlinked override by content (#1086)` | A symlink is a POINTER, and a relative one is spelled against the directory it sits in. `git mv`/`mv` move the pointer, so an override reached through `config/docker/setup.conf -> setup.conf.real` arrives at the repo root still naming `setup.conf.real` -- which is not there. The repo ends up with a DANGLING `.setup.conf`, running on the template defaults, under a log line announcing that its configuration was relocated. So the CONTENT moves, and the file the link named is left exactly where its owner put it. |
 
 ### test/bats/unit/setup_conf_spec.bats (33)
 
