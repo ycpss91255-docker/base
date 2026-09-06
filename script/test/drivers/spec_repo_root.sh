@@ -56,26 +56,51 @@
 #   - the ASSIGNMENTS come from the shape `<name>REPO_ROOT=<value>`, which
 #     is what a spec has to write to point a driver anywhere. PIN_REPO_ROOT
 #     (script/watch/pins.sh) matches the same shape for the same reason.
+#   - the VALUE is resolved one hop, inside the file being read: a name the
+#     same spec assigns a refused root to counts as that root. All
+#     twenty-three cases base#1075 removed wrote the literal, so a literal
+#     reader was right about the tree it was written against -- but this
+#     driver's own spec CANNOT write the literal (it is one of the files
+#     scanned), so the indirect form is the idiom the next author finds
+#     when they look for one. Resolution stays inside one file: a name
+#     means the mount in one spec and a scratch directory in the next.
 #
 # ── Non-vacuity ────────────────────────────────────────────────────────────
 #
-# Three ways this could go green having checked nothing, each a _die: a
-# pool that resolves to no directory, a scan that finds no spec file, and a
-# scan that finds no `*REPO_ROOT=` assignment ANYWHERE. The third is the
-# one that matters: 58 fixture-rooted assignments exist today, so zero
+# SIX ways this could go green having checked nothing, each a _die: no pool
+# table at all, a pool that resolves to no directory, a scan that finds no
+# spec file, a compose.yaml that is missing, one that binds no checkout,
+# and a scan that finds no `*REPO_ROOT=` assignment ANYWHERE. The last is
+# the one that matters: 58 fixture-rooted assignments exist today, so zero
 # means the detector has gone blind (a renamed variable, a changed quoting
 # convention), and a blind detector reports a clean tree.
 #
+# Each has a case in the spec, and each case asserts the sentence only ITS
+# die prints. That is not pedantry: every message here ends in "vacuously"
+# and two of them name compose.yaml, so a case that asserted the shared
+# word passed with the guard it named deleted -- a different die fired and
+# the assertion could not tell.
+#
 # ── What it does NOT see ───────────────────────────────────────────────────
 #
-# A spec that reaches the live tree by some other spelling: reading a file
-# under the mount directly (`grep ... /source/justfile` -- cheap, common,
-# and deliberately allowed), or invoking a tool whose root DEFAULTS to the
-# checkout when the variable is unset. The rule is about the one input that
-# makes a driver walk a tree, not about every path to the mount; a rule wide
-# enough to cover the second would flag the hundreds of cheap single-file
-# reads this suite is built out of, which is the noise that gets a lint
-# muted.
+# A spec that reaches the live tree by some other spelling. Three of them,
+# named rather than implied, because a blind spot with a shape is one the
+# next reader can decide about:
+#
+#   1. Reading a file under the mount directly (`grep ... /source/justfile`)
+#      -- cheap, common, and deliberately allowed. A rule wide enough to
+#      cover it would flag the hundreds of single-file reads this suite is
+#      built out of, which is the noise that gets a lint muted.
+#   2. Invoking a tool whose root DEFAULTS to the checkout when the
+#      variable is unset (costed below).
+#   3. A root the file does not resolve: a command substitution, a relative
+#      path, `${PWD}`, or a name assigned in ANOTHER file. One hop of
+#      in-file indirection is resolved (above); a value this driver would
+#      have to run a shell to know is not. test/bats/unit/upgrade_spec.bats
+#      is the live example -- `$(pwd -P)` after the caller has cd-ed into a
+#      fixture repo, which is correct there and invisible here either way.
+#      Reading it would mean modelling shell in awk, and the cases that
+#      matter reach the tree far more cheaply than that.
 #
 # THAT REMAINDER IS MEASURED, not assumed, so the next reader does not have
 # to rediscover its size. On a warm 32-way `just test coverage-local` of
@@ -148,51 +173,132 @@ _spec_repo_root_live_roots() {
   mapfile -t _SPEC_REPO_ROOT_LIVE_ROOTS < <(printf '%s\n' "${_roots[@]}" | sort -u)
 }
 
+# The scan program. A FILE-SCOPE constant and not a heredoc inside the
+# function, the shape drivers/self_hosted_guard.sh already uses for
+# _SHG_AWK: the reader is one program either way, and a function carrying
+# it is one function over the implementation-standard length (base#994).
+#
+# The file is read TWICE. Pass one records every name the file assigns a
+# refused root to; pass two resolves `${NAME}` / `$NAME` (with an optional
+# path suffix) through that table before deciding. Both passes skip
+# whole-line comments -- this driver's own header, and the prose in half
+# the specs, spells the refused form out.
+#
+# Written for POSIX awk: the ci image carries busybox awk, mawk and gawk,
+# and the issueref lint (base#872) is the standing reminder that a program
+# here runs under more than one of them.
+# shellcheck disable=SC2016 # awk program; $-vars are awk's, not the shell's.
+readonly _SPEC_REPO_ROOT_AWK='
+function _val(rest,   q, v, i) {
+  q = substr(rest, 1, 1)
+  if (q == "\"" || q == "\047") {
+    v = substr(rest, 2)
+    i = index(v, q)
+    if (i > 0) v = substr(v, 1, i - 1)
+  } else {
+    v = rest
+    sub(/[[:space:];)].*$/, "", v)
+  }
+  return v
+}
+function _refused(v,   r) {
+  for (r = 1; r <= n_roots; r++) {
+    if (roots[r] == "") continue
+    if (v == roots[r] || index(v, roots[r] "/") == 1) return 1
+  }
+  return 0
+}
+function _deref(v,   nm) {
+  if (substr(v, 1, 1) != "$") return v
+  if (match(v, /^[$][{][A-Za-z_][A-Za-z0-9_]*[}]/))
+    nm = substr(v, 3, RLENGTH - 3)
+  else if (match(v, /^[$][A-Za-z_][A-Za-z0-9_]*/))
+    nm = substr(v, 2, RLENGTH - 1)
+  else
+    return v
+  if (!(nm in lit)) return v
+  return lit[nm] substr(v, RLENGTH + 1)
+}
+BEGIN { n_roots = split(ROOTS, roots, "\n") }
+/^[[:space:]]*#/ { next }
+NR == FNR {
+  line = $0
+  while (match(line, /(^|[^A-Za-z0-9_])[A-Za-z_][A-Za-z0-9_]*=/)) {
+    tok = substr(line, RSTART, RLENGTH)
+    sub(/^[^A-Za-z0-9_]/, "", tok)
+    name = tok; sub(/=$/, "", name)
+    line = substr(line, RSTART + RLENGTH)
+    v = _val(line)
+    if (_refused(v)) lit[name] = v
+  }
+  next
+}
+{
+  line = $0
+  while (match(line, /(^|[^A-Za-z0-9_])[A-Za-z0-9_]*REPO_ROOT=/)) {
+    tok = substr(line, RSTART, RLENGTH)
+    sub(/^[^A-Za-z0-9_]/, "", tok)
+    name = tok; sub(/=$/, "", name)
+    rest = substr(line, RSTART + RLENGTH)
+    line = rest
+    seen++
+    raw = _val(rest)
+    v = _deref(raw)
+    if (_refused(v))
+      printf "%s:%d: %s=%s%s\n", REL, FNR, name, raw, \
+             (v == raw ? "" : " -> " v)
+  }
+}
+END { printf "SEEN=%d\n", seen }
+'
+
 # _spec_repo_root_scan <file> <root>...
 #
 # Print one `<file>:<line>: <name>=<value>` record per assignment of a
 # `*REPO_ROOT` variable to one of <root>... (or to a path under it), and a
 # final `SEEN=<n>` line counting EVERY `*REPO_ROOT=` assignment the file
 # carries, violation or not. The count is what the non-vacuity check reads.
-#
-# Whole-line comments are skipped: this driver's own header, and the prose
-# in half the specs, spells the refused form out.
+# A record whose value took a hop through a name carries the resolution,
+# so the report says why a line naming no path is on the list.
 _spec_repo_root_scan() {
   local _file="${1}"; shift
   local _roots
   _roots="$(printf '%s\n' "$@")"
-  awk -v ROOTS="${_roots}" -v REL="${_file}" '
-    BEGIN { n_roots = split(ROOTS, roots, "\n") }
-    /^[[:space:]]*#/ { next }
-    {
-      line = $0
-      while (match(line, /(^|[^A-Za-z0-9_])[A-Za-z0-9_]*REPO_ROOT=/)) {
-        tok = substr(line, RSTART, RLENGTH)
-        sub(/^[^A-Za-z0-9_]/, "", tok)
-        name = tok; sub(/=$/, "", name)
-        rest = substr(line, RSTART + RLENGTH)
-        line = rest
-        seen++
-        q = substr(rest, 1, 1)
-        if (q == "\"" || q == "\047") {
-          v = substr(rest, 2)
-          i = index(v, q)
-          if (i > 0) v = substr(v, 1, i - 1)
-        } else {
-          v = rest
-          sub(/[[:space:];)].*$/, "", v)
-        }
-        for (r = 1; r <= n_roots; r++) {
-          if (roots[r] == "") continue
-          if (v == roots[r] || index(v, roots[r] "/") == 1) {
-            printf "%s:%d: %s=%s\n", REL, FNR, name, v
-            break
-          }
-        }
-      }
-    }
-    END { printf "SEEN=%d\n", seen }
-  ' "${REPO_ROOT}/${_file}"
+  awk -v ROOTS="${_roots}" -v REL="${_file}" "${_SPEC_REPO_ROOT_AWK}" \
+    "${REPO_ROOT}/${_file}" "${REPO_ROOT}/${_file}"
+}
+
+# The scanned files, filled by _spec_repo_root_files and read by its
+# caller. Meaningless before it has run.
+_SPEC_REPO_ROOT_FILES=()
+
+# _spec_repo_root_files
+#
+# Fill _SPEC_REPO_ROOT_FILES with every *.bats under the coverage pools,
+# repo-relative and sorted. Dies when a pool resolves to no directory (the
+# lint would scan less than the suite runs) and when the walk finds no spec
+# at all. A GLOBAL rather than stdout, for the reason
+# _spec_repo_root_live_roots states at length: a _die inside a process
+# substitution refuses a subshell nobody is listening to.
+_spec_repo_root_files() {
+  _SPEC_REPO_ROOT_FILES=()
+  local _pool _file
+  for _pool in "${_COVERAGE_FULL_SUITE_POOLS[@]}"; do
+    if [[ ! -d "${REPO_ROOT}/${_pool}" ]]; then
+      _die ci_spec_repo_root \
+        "coverage pool '${_pool}/' not found under ${REPO_ROOT} -- the lint would scan less than the suite runs."
+      return 1
+    fi
+    while IFS= read -r -d '' _file; do
+      _SPEC_REPO_ROOT_FILES+=("${_file#"${REPO_ROOT}"/}")
+    done < <(find "${REPO_ROOT}/${_pool}" -type f -name '*.bats' -print0 \
+               2>/dev/null | sort -z)
+  done
+  if [[ "${#_SPEC_REPO_ROOT_FILES[@]}" -eq 0 ]]; then
+    _die ci_spec_repo_root \
+      "no *.bats under ${_COVERAGE_FULL_SUITE_POOLS[*]} -- nothing was scanned, so the lint would pass vacuously."
+    return 1
+  fi
 }
 
 _run_spec_repo_root() {
@@ -210,26 +316,10 @@ _run_spec_repo_root() {
   _spec_repo_root_live_roots || return 1
   local -a _roots=("${_SPEC_REPO_ROOT_LIVE_ROOTS[@]}")
 
-  local -a _files=()
-  local _pool _file
-  for _pool in "${_COVERAGE_FULL_SUITE_POOLS[@]}"; do
-    if [[ ! -d "${REPO_ROOT}/${_pool}" ]]; then
-      _die ci_spec_repo_root \
-        "coverage pool '${_pool}/' not found under ${REPO_ROOT} -- the lint would scan less than the suite runs."
-      return 1
-    fi
-    while IFS= read -r -d '' _file; do
-      _files+=("${_file#"${REPO_ROOT}"/}")
-    done < <(find "${REPO_ROOT}/${_pool}" -type f -name '*.bats' -print0 \
-               2>/dev/null | sort -z)
-  done
-  if [[ "${#_files[@]}" -eq 0 ]]; then
-    _die ci_spec_repo_root \
-      "no *.bats under ${_COVERAGE_FULL_SUITE_POOLS[*]} -- nothing was scanned, so the lint would pass vacuously."
-    return 1
-  fi
+  _spec_repo_root_files || return 1
+  local -a _files=("${_SPEC_REPO_ROOT_FILES[@]}")
 
-  local _violations=0 _seen=0 _line
+  local _violations=0 _seen=0 _line _file
   local -a _reports=()
   for _file in "${_files[@]}"; do
     while IFS= read -r _line; do
