@@ -931,20 +931,28 @@ stub_main_deps() {
 # file makes every `_prefix_*` function reachable, which is how
 # `_edit_section_resources` -- whose only caller is main's
 # `setup_tui.sh resources` direct jump -- stays in.
-@test "setup_tui.sh: every function it defines is reachable from dist/" {
-  local _f=/source/dist/script/docker/wrapper/setup_tui.sh
+# unreachable_functions <setup_tui.sh path> <dist dir>
+#
+# Prints, one per line, every function <path> defines that nothing under
+# <dist dir> can reach. Extracted from the guard so the guard can also be
+# pointed at a scratch copy carrying a function planted to be dead: a
+# check that only ever runs against a tree it passes on cannot say
+# whether it would notice a new one.
+unreachable_functions() {
+  local _f="${1}" _dist="${2}"
   local _flat="${BATS_TEST_TMPDIR}/dist_code"
-  # Callers, with whole-line comments dropped: a function named in prose is
-  # documentation, not a use, and that is exactly what hid one of the three.
-  grep -rh --include='*.sh' -vE '^[[:space:]]*#' /source/dist > "${_flat}"
+  # Callers, with whole-line comments dropped: a function named in prose
+  # is documentation, not a use, and that is exactly what hid one of the
+  # three.
+  grep -rh --include='*.sh' -vE '^[[:space:]]*#' "${_dist}" > "${_flat}"
   local -a _defs=() _prefixes=() _dead=()
   mapfile -t _defs < <(grep -oE '^[A-Za-z_][A-Za-z0-9_]*\(\)' "${_f}" \
     | sed 's/()$//')
   mapfile -t _prefixes < <(grep -oE '"[A-Za-z_][A-Za-z0-9_]*_\$\{' "${_f}" \
     | sed -e 's/^"//' -e 's/\${$//' | sort -u)
   # Non-vacuity: a scan that found nothing to check must fail, not pass.
-  [ "${#_defs[@]}" -gt 40 ]
-  [ "${#_prefixes[@]}" -gt 0 ]
+  [ "${#_defs[@]}" -gt 40 ] || return 1
+  [ "${#_prefixes[@]}" -gt 0 ] || return 1
   local _fn _p _hits _reachable
   for _fn in "${_defs[@]}"; do
     _reachable=0
@@ -957,8 +965,64 @@ stub_main_deps() {
       || true)"
     (( _hits <= 1 )) && _dead+=("${_fn}")
   done
-  printf 'unreachable: %s\n' "${_dead[*]-}" >&2
-  [ "${#_dead[@]}" -eq 0 ]
+  printf '%s\n' "${_dead[@]-}"
+}
+
+@test "setup_tui.sh: every function it defines is reachable from dist/" {
+  local _got
+  _got="$(unreachable_functions \
+    /source/dist/script/docker/wrapper/setup_tui.sh /source/dist)"
+  _got="$(printf '%s' "${_got}" | tr -d '[:space:]')"
+  printf 'unreachable: %s\n' "${_got}" >&2
+  [ -z "${_got}" ]
+}
+
+# why: main jumps straight to `"_edit_section_${_subcmd}"` for every name
+# `_tui_known_subcommand` accepts, and that gate read the schema section
+# list alone. `project` is on that list with a deliberate no-editor
+# opt-out (schema.sh's SCHEMA_I18N note says the project name belongs in
+# the gitignored .setup.conf.local, which the menu has no concept of), so
+# `setup_tui.sh project` jumped to a function that does not exist -- a
+# bash command-not-found, raised only after the backend probe and the
+# seeding `setup.sh apply` run had already happened. Both directions are
+# asserted over the whole SCHEMA_SECTIONS population, so a section that
+# gains or loses an editor is covered without an edit here.
+@test "main: every schema section opens its editor or is refused by name" {
+  local _s
+  for _s in "${SCHEMA_SECTIONS[@]}"; do
+    stub_main_deps
+    queue
+    run main "${_s}"
+    [[ "${output}" != *"command not found"* ]] || {
+      printf 'section %s dispatched into nothing: %s\n' "${_s}" "${output}" >&2
+      return 1
+    }
+    if ! declare -F "_edit_section_${_s}" >/dev/null; then
+      [ "${status}" -ne 0 ]
+      [[ "${output}" == *"${_s}"* ]]
+    fi
+  done
+}
+
+# why: the guard above is only worth its runtime if it would go red on a
+# function that is dead TOMORROW, and the way it was first written it
+# would not: an `_edit_section_*` name was waved through on the prefix
+# alone, so a dead editor -- the majority of the file's functions by the
+# dispatch it uses -- was invisible to it. This plants one of each kind
+# in a scratch copy and requires the guard to name BOTH; the plain
+# helper is the control that proves the planting itself works.
+@test "the dead-code guard names a planted dead editor, not just a plain one" {
+  local _scratch="${BATS_TEST_TMPDIR}/setup_tui_planted.sh"
+  cp /source/dist/script/docker/wrapper/setup_tui.sh "${_scratch}"
+  {
+    printf '\n_edit_section_frobnicate() {\n  :\n}\n'
+    printf '\n_plain_dead_helper() {\n  :\n}\n'
+  } >> "${_scratch}"
+  local _got
+  _got="$(unreachable_functions "${_scratch}" /source/dist)"
+  printf 'planted run reported: %s\n' "${_got}" >&2
+  [[ "${_got}" == *_plain_dead_helper* ]]
+  [[ "${_got}" == *_edit_section_frobnicate* ]]
 }
 
 # ════════════════════════════════════════════════════════════════════
