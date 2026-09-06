@@ -129,6 +129,29 @@ _workflow() {
   [[ "${output}" == *"needs_binary.sh"* ]]
 }
 
+# why: A backslash continuation is ONE command, and this repo's workflows
+# wrap: the install step base#1080 added wraps its own `curl`. Read line by
+# line, the selector and the `test.sh` that carries it land on different
+# lines, and the demand the flag names disappears -- the same silent green
+# as reading no selector at all.
+@test "tool provenance: FAILS on a host-direct selector split across a line continuation" {
+  _workflow "wf.yaml" \
+    'on:' \
+    '  pull_request:' \
+    'jobs:' \
+    '  lint:' \
+    '    runs-on: ubuntu-latest' \
+    '    steps:' \
+    '      - run: |' \
+    '          ./script/test/test.sh \' \
+    '            --needs-binary-only'
+  run _run_tool_provenance
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"job lint"* ]]
+  [[ "${output}" == *"shellcheck"* ]]
+  [[ "${output}" == *"needs_binary.sh"* ]]
+}
+
 # why: A selector naming a driver that does not exist cannot be resolved,
 # and an unresolvable demand must not read as no demand -- that is the
 # silent green this lint exists to refuse.
@@ -258,6 +281,26 @@ _workflow() {
   [ "${status}" -eq 0 ]
 }
 
+# why: The same fold, in the direction that costs a lint its readers.
+# Unfolded, the second physical line of a continued command reads as a
+# command of its own, so a wrapped ARGUMENT that happens to spell a pinned
+# tool reports a demand nothing makes -- and a lint answered by muting it
+# stops being read.
+@test "tool provenance: a wrapped argument is not an invocation" {
+  _workflow "wf.yaml" \
+    'on:' \
+    '  pull_request:' \
+    'jobs:' \
+    '  probe:' \
+    '    runs-on: ubuntu-latest' \
+    '    steps:' \
+    '      - run: |' \
+    '          echo "the linter here is" \' \
+    '            hadolint'
+  run _run_tool_provenance
+  [ "${status}" -eq 0 ]
+}
+
 # why: A job `name:` is a label in the checks list, not a command. The
 # bats jobs are named after the harness they run, so reading names as
 # demands would report every one of them.
@@ -286,6 +329,57 @@ _workflow() {
   _workflow "wf.yaml" 'on:' '  push:'
   run _run_tool_provenance
   [ "${status}" -ne 0 ]
+  [[ "${output}" == *"vacuous"* ]]
+}
+
+# why: A job key is a job key whether or not the line ends in a comment,
+# and this tree's workflows are comment-dense. Read as ordinary text, such
+# a key does not merely drop its job: the steps under it are accumulated
+# into the PREVIOUS job, so an unobtained tool is scored against provenance
+# that belongs to a different job and passes.
+@test "tool provenance: FAILS on a job whose key line carries a trailing comment" {
+  _workflow "wf.yaml" \
+    'on:' \
+    '  pull_request:' \
+    'jobs:' \
+    '  good:' \
+    '    runs-on: ubuntu-latest' \
+    '    steps:' \
+    '      - run: ./script/ci/obtain_test_tools.sh img' \
+    '  bad:  # the one that borrows the job above it' \
+    '    runs-on: ubuntu-latest' \
+    '    steps:' \
+    '      - run: shellcheck -x init.sh'
+  run _run_tool_provenance
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"job bad"* ]]
+}
+
+# why: The whole-tree floor only fires when NO file yielded a job, so one
+# file the reader cannot see is skipped in silence beside nine it can --
+# and the clean line still reports the file in its workflow count. Every
+# workflow declares `jobs:` (GitHub requires it), so a file that yielded
+# none is a reader that stopped reading, not a workflow without work.
+@test "tool provenance: REFUSES a workflow file it could read no job out of" {
+  _workflow "a.yaml" \
+    'on:' \
+    '  pull_request:' \
+    'jobs:' \
+    '  good:' \
+    '    runs-on: ubuntu-latest' \
+    '    steps:' \
+    '      - run: ./script/ci/obtain_test_tools.sh img'
+  _workflow "z.yaml" \
+    'on:' \
+    '  pull_request:' \
+    'jobs:  # the key the reader cannot see' \
+    '  lint:' \
+    '    runs-on: ubuntu-latest' \
+    '    steps:' \
+    '      - run: shellcheck -x init.sh'
+  run _run_tool_provenance
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"z.yaml"* ]]
   [[ "${output}" == *"vacuous"* ]]
 }
 
