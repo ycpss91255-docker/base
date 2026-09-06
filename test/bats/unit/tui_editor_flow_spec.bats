@@ -110,7 +110,6 @@ setup() {
   }
   _tui_select()    { _tui_pop; }
   _tui_inputbox()  { _tui_pop; }
-  _tui_radiolist() { _tui_pop; }
   _tui_checklist() { _tui_pop; }
   _tui_yesno()     {
     local _line
@@ -122,7 +121,7 @@ setup() {
   _tui_msgbox() { printf '%s\n' "$@" >> "${_BOXFILE}"; return 0; }
   _tui_clear()  { return 0; }
   export -f _tui_pop _tui_menu _tui_select _tui_inputbox \
-            _tui_radiolist _tui_checklist _tui_yesno _tui_msgbox _tui_clear
+            _tui_checklist _tui_yesno _tui_msgbox _tui_clear
   export _QFILE _MFILE _BOXFILE
 }
 
@@ -929,28 +928,121 @@ stub_main_deps() {
 # pointed at a scratch copy carrying a function planted to be dead: a
 # check that only ever runs against a tree it passes on cannot say
 # whether it would notice a new one.
+#
+# REACHABILITY, not mention-counting. <path> is split into its function
+# bodies plus the top-level remainder; the roots are the names something
+# mentions from OUTSIDE every one of those bodies -- the other files
+# under <dist dir>, and <path>'s own top-level code -- plus the names
+# main's `"_edit_section_${_subcmd}"` dispatch can actually be handed,
+# which is asked of `_tui_known_subcommand` rather than waved through on
+# the prefix. From those roots it walks body to body to a fixed point,
+# and whatever it never arrives at is dead.
+#
+# Counting mentions instead, which is how this guard was first written,
+# is wrong in three ways that the planted-shape test below now pins:
+#
+# - a function that names itself in its own `${1:?...}` message is its
+# own second mention and reads as called. That is not hypothetical: it
+# is why `_assemble_mount_value` sat in _tui_conf.sh with no caller.
+#
+# - a ring of dead functions that call each other keeps every link
+# alive, because each one has a mention that is not its definition.
+#
+# - every `"<name>_${` in the file became a prefix that blanket-exempted
+# any function carrying it. Two of the three it harvests -- `rule_` and
+# `_TUI_MSG_` -- are a config-key prefix and an array-name prefix that
+# dispatch no function at all, so `rule_anything` was unfalsifiable.
+# Under reachability there is no exemption list: a name is alive because
+# something reaches it, and the one real dynamic dispatch is resolved by
+# asking the program which names it can hand that jump.
 unreachable_functions() {
   local _f="${1}" _dist="${2}"
-  local _flat="${BATS_TEST_TMPDIR}/dist_code"
-  # Callers, with comments dropped: a function named in prose is
-  # documentation, not a use, and that is exactly what hid one of the
-  # three. Whole-line comments go first; the sed then takes trailing
-  # ones, and it requires a blank on BOTH sides of the `#` so that
-  # `${_line#*|}` and `#!/usr/bin/env bash` are left alone.
-  grep -rh --include='*.sh' -vE '^[[:space:]]*#' "${_dist}" \
-    | sed -E 's/[[:blank:]]+#[[:blank:]].*$//' > "${_flat}"
-  local -a _defs=() _prefixes=() _dead=()
+  local _work="${BATS_TEST_TMPDIR}/reach"
+  rm -rf "${_work}"
+  mkdir -p "${_work}/bodies"
+
+  # Split into one file per function body, plus everything outside them.
+  # `^name() {` ... `^}` is the layout throughout both this file and the
+  # scratch copies, and the split refuses to guess: the count it parsed
+  # is checked against the count grep sees, and an unterminated body is
+  # a hard failure rather than a body silently swallowing the rest.
+  awk -v out="${_work}" '
+    /^[A-Za-z_][A-Za-z0-9_]*\(\)[[:space:]]*\{$/ && !infn {
+      infn = 1
+      name = $1
+      sub(/\(\)$/, "", name)
+      parsed++
+      next
+    }
+    infn && /^\}$/ { infn = 0; next }
+    infn { print > (out "/bodies/" name); next }
+    { print > (out "/toplevel") }
+    END { print parsed+0 > (out "/parsed"); print infn+0 > (out "/open") }
+  ' "${_f}"
+
+  local -a _defs=()
   mapfile -t _defs < <(grep -oE '^[A-Za-z_][A-Za-z0-9_]*\(\)' "${_f}" \
     | sed 's/()$//')
-  mapfile -t _prefixes < <(grep -oE '"[A-Za-z_][A-Za-z0-9_]*_\$\{' "${_f}" \
-    | sed -e 's/^"//' -e 's/\${$//' | sort -u)
-  # Non-vacuity: a scan that found nothing to check must fail, not pass.
-  [ "${#_defs[@]}" -gt 40 ] || return 1
-  [ "${#_prefixes[@]}" -gt 0 ] || return 1
-  local _fn _p _hits _reachable
+  # Non-vacuity: a scan that mis-parsed the file, found nothing to check,
+  # or lost the dispatch oracle must fail, not pass. The population floor
+  # is one, not a census figure that would need re-tuning every time a
+  # function lands: the real evidence that extraction still works is that
+  # two DIFFERENT patterns agree on the count. awk requires `() {` at end
+  # of line and grep requires only `()` at line start, so a broken regex
+  # moves one of them and not the other.
+  [ "$(cat "${_work}/parsed")" = "${#_defs[@]}" ] || return 1
+  [ "$(cat "${_work}/open")" = "0" ] || return 1
+  [ "${#_defs[@]}" -ge 1 ] || return 1
+  declare -F _tui_known_subcommand >/dev/null || return 1
+
+  # Identifiers mentioned by each body and by the outside, with comments
+  # dropped: a function named in prose is documentation, not a use, and
+  # that is what hid one of base#1073's three. Whole-line comments go
+  # first; the sed then takes trailing ones, and it requires a blank on
+  # BOTH sides of the `#` so that `${_line#*|}` and `#!/usr/bin/env bash`
+  # are left alone.
+  local -A _seen=()
+  local _scope _id _path
+  _ids() {
+    grep -vE '^[[:space:]]*#' "${1}" \
+      | sed -E 's/[[:blank:]]+#[[:blank:]].*$//' \
+      | grep -oE '[A-Za-z_][A-Za-z0-9_]*' | sort -u
+  }
+  # The other shipped files, then this file's top-level code. The file
+  # under test drops out by exact path, NOT by `find -samefile`: the
+  # suite runs on busybox find, which has no such primary and fails the
+  # whole expression, so the corpus arrived empty and every name looked
+  # unreferenced. The removal is verified rather than assumed -- exactly
+  # one path has to disappear -- because the failure mode of getting it
+  # wrong in the other direction is the file counting as its own caller,
+  # which is silent.
+  find "${_dist}" -name '*.sh' -type f > "${_work}/all_files"
+  grep -vxF -- "${_f}" "${_work}/all_files" > "${_work}/other_files" || true
+  [ "$(wc -l < "${_work}/other_files")" \
+    -eq "$(( $(wc -l < "${_work}/all_files") - 1 ))" ] || return 1
+  : > "${_work}/outside"
+  if [ -s "${_work}/other_files" ]; then
+    xargs cat < "${_work}/other_files" >> "${_work}/outside"
+  fi
+  if [ -f "${_work}/toplevel" ]; then
+    cat "${_work}/toplevel" >> "${_work}/outside"
+  fi
+  while read -r _id; do _seen["OUTSIDE|${_id}"]=1; done < <(_ids "${_work}/outside")
+  for _scope in "${_defs[@]}"; do
+    _path="${_work}/bodies/${_scope}"
+    [ -f "${_path}" ] || continue
+    while read -r _id; do _seen["${_scope}|${_id}"]=1; done < <(_ids "${_path}")
+  done
+
+  local -A _reach=()
+  local -a _queue=()
+  local _fn
   for _fn in "${_defs[@]}"; do
-    _reachable=0
-    if [[ "${_fn}" == _edit_section_* ]]; then
+    if [[ -n "${_seen[OUTSIDE|${_fn}]-}" ]]; then
+      _reach["${_fn}"]=1
+      _queue+=("${_fn}")
+    elif [[ "${_fn}" == _edit_section_* ]] \
+      && _tui_known_subcommand "${_fn#_edit_section_}"; then
       # main's direct jump is `"_edit_section_${_subcmd}"`, and the names
       # it can be handed are not "anything carrying this prefix" -- they
       # are exactly what `_tui_known_subcommand` accepts. Asking the
@@ -958,17 +1050,31 @@ unreachable_functions() {
       # prefix exemption, 14 of these -- every editor whose only caller
       # IS that dispatch -- were checked by nothing at all, which is the
       # class of hole base#1073 opened this work to close.
-      _tui_known_subcommand "${_fn#_edit_section_}" && _reachable=1
-    else
-      for _p in "${_prefixes[@]}"; do
-        [[ "${_fn}" == "${_p}"* ]] && _reachable=1 && break
-      done
+      _reach["${_fn}"]=1
+      _queue+=("${_fn}")
     fi
-    (( _reachable )) && continue
-    # One hit is the definition line itself; a caller is a second.
-    _hits="$(grep -cE "(^|[^A-Za-z0-9_])${_fn}([^A-Za-z0-9_]|\$)" "${_flat}" \
-      || true)"
-    (( _hits <= 1 )) && _dead+=("${_fn}")
+  done
+  # A population with no roots at all is a broken scan, not a clean tree.
+  [ "${#_queue[@]}" -gt 0 ] || return 1
+
+  local _cur
+  while (( ${#_queue[@]} )); do
+    _cur="${_queue[0]}"
+    _queue=("${_queue[@]:1}")
+    for _fn in "${_defs[@]}"; do
+      [[ -n "${_reach[${_fn}]-}" ]] && continue
+      # Self-mention is not a call: a body only keeps a name alive once
+      # something else has reached that body.
+      [[ "${_fn}" == "${_cur}" ]] && continue
+      [[ -n "${_seen[${_cur}|${_fn}]-}" ]] || continue
+      _reach["${_fn}"]=1
+      _queue+=("${_fn}")
+    done
+  done
+
+  local -a _dead=()
+  for _fn in "${_defs[@]}"; do
+    [[ -n "${_reach[${_fn}]-}" ]] || _dead+=("${_fn}")
   done
   printf '%s\n' "${_dead[@]-}"
 }

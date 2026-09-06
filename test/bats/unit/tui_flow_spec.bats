@@ -18,7 +18,7 @@
 #
 # why: Interactive-flow tests for `setup_tui.sh` (#189). Sources
 # `setup_tui.sh` directly and overrides `_tui_menu` / `_tui_select` /
-# `_tui_inputbox` / `_tui_yesno` / `_tui_msgbox` / `_tui_radiolist` /
+# `_tui_inputbox` / `_tui_yesno` / `_tui_msgbox` /
 # `_tui_checklist` with file-backed stubs (queue lines popped via `head -n
 # 1` + `sed -i 1d` so state survives the `$(...)` subshell calls). Each case
 # scripts the user's click path, calls one section editor, and asserts on
@@ -122,7 +122,6 @@ setup() {
   _tui_menu()      { _tui_pop; }
   _tui_select()    { _tui_pop; }
   _tui_inputbox()  { _tui_pop; }
-  _tui_radiolist() { _tui_pop; }
   _tui_checklist() { _tui_pop; }
   _tui_yesno()     {
     local _line
@@ -133,7 +132,7 @@ setup() {
   }
   _tui_msgbox()    { return 0; }
   export -f _tui_pop _tui_menu _tui_select _tui_inputbox \
-            _tui_radiolist _tui_checklist _tui_yesno _tui_msgbox
+            _tui_checklist _tui_yesno _tui_msgbox
   export _QFILE
 }
 

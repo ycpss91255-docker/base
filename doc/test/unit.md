@@ -6664,7 +6664,7 @@ call begin + detach
 | `wiring: the 5 full verbs call _transcript_begin (#606)` | - |
 | `wiring: run/exec/setup_tui call both _transcript_begin and _transcript_detach (#608)` | - |
 
-### test/bats/unit/tui_backend_spec.bats (31)
+### test/bats/unit/tui_backend_spec.bats (30)
 
 Backend detection and wrapper-level arg forwarding. Uses a stub `dialog` /
 `whiptail` binary installed on PATH that logs argv and echoes a canned
@@ -6682,8 +6682,6 @@ propagates non-zero on cancel)
 
 - `_tui_menu` (computes item count, forwards tag/label pairs;
 `TUI_EXTRA_LABEL` no-op after #178; `--no-tags`, `--ok-label`)
-
-- `_tui_radiolist` (forwards tag/label/state triples)
 
 - `_tui_checklist` (passes `--separate-output`)
 
@@ -6713,7 +6711,6 @@ unification (#178: dialog also drops `--extra-button`)
 | `_tui_run forwards --ok-label / --cancel-label from env vars` | - |
 | `_tui_select with no ON item still forwards tags` | - |
 | `_tui_menu omits ok-label / cancel-label when env vars unset` | - |
-| `_tui_radiolist forwards tag/label/state triples` | - |
 | `_tui_checklist uses --separate-output` | - |
 | `_tui_msgbox invokes backend with --msgbox` | - |
 | `_tui_yesno passes --yesno and returns backend exit code` | - |
@@ -6864,9 +6861,9 @@ the shipped tree rather than kept as a roster
 | `main: seeds the per-repo conf with an apply run when none exists` | on a repo that has never been set up there is no .setup.conf to load, so the menus would open on an empty config. main seeds it by running apply first; skipping that is how mount_1 detection went missing. |
 | `main: -h prints usage and does not open the menu` | -h must print usage rather than open the TUI, and it is the one path a user reaches when they do not know the subcommand names. |
 | `_tui_canonical_section: gpu resolves to deploy, other names are themselves` | `gpu` is an alias, not a section; everything else is its own name. Canonicalising the wrong way round would send `deploy` to a `_edit_section_gpu` that does not exist. |
-| `setup_tui.sh: every function it defines is reachable from dist/` | base#1073 found three functions in setup_tui.sh with no caller, and one of them had three specs -- so a test suite is not evidence that production code is reachable. A hand-kept roster of "known dead" would go stale the moment a caller is deleted, so the population is derived from the file and the callers from the shipped tree. Dynamic dispatch is resolved by asking the program which names it can dispatch, not by waving a prefix through, which is how `_edit_section_resources` -- whose only caller is main's `setup_tui.sh resources` direct jump -- stays in while a dead editor does not. |
+| `the TUI's shipped files define no function nothing can reach` | base#1073 found three functions in setup_tui.sh with no caller, and one of them had three specs -- so a test suite is not evidence that production code is reachable. A hand-kept roster of "known dead" would go stale the moment a caller is deleted, so the population is derived from the files and the callers from the shipped tree. Dynamic dispatch is resolved by asking the program which names it can dispatch, not by waving a prefix through, which is how `_edit_section_resources` -- whose only caller is main's `setup_tui.sh resources` direct jump -- stays in while a dead editor does not. The population is every shipped file of the TUI, not setup_tui.sh alone, because the dead code a TUI change leaves behind does not stay in one file. Deleting `_prompt_mount_with_picker` from the wrapper took with it the ONLY two call sites of `_tui_radiolist` in lib/_tui_backend.sh and the only caller of `_assemble_mount_value` in lib/_tui_conf.sh; a guard that reads the wrapper alone reports a clean tree while two primitives ship with nothing to call them. The glob is what makes that derived: a new `_tui_*.sh` joins the population by existing. |
 | `main: every schema section opens its editor or is refused by name` | main jumps straight to `"_edit_section_${_subcmd}"` for every name `_tui_known_subcommand` accepts, and that gate read the schema section list alone. `project` is on that list with a deliberate no-editor opt-out (schema.sh's SCHEMA_I18N note says the project name belongs in the gitignored .setup.conf.local, which the menu has no concept of), so `setup_tui.sh project` jumped to a function that does not exist -- a bash command-not-found, raised only after the backend probe and the seeding `setup.sh apply` run had already happened. Both directions are asserted over the whole SCHEMA_SECTIONS population, so a section that gains or loses an editor is covered without an edit here. |
-| `the dead-code guard names every shape of dead function planted in a tree` | the guard above is only worth its runtime if it would go red on a function that is dead TOMORROW, and as first written it would not have. This plants three shapes in a scratch tree and requires the guard to name all three: a plain dead helper (the control, which proves the planting works at all); a dead `_edit_section_*`, which the blanket prefix exemption waved through even though 14 of the file's editors have no caller but that dispatch; and one whose only mention outside its own definition is a trailing comment, which the whole-line-only comment strip counted as a caller -- the very confusion of prose with use that the guard's comment says hid one of base#1073's three. |
+| `the dead-code guard names every shape of dead function planted in a tree` | the guard above is only worth its runtime if it would go red on a function that is dead TOMORROW, and every shape below is one it waved through at some point. Each is planted in a scratch tree and has to be named back: - a plain dead helper -- the control, which proves the planting works. - a dead `_edit_section_*`, which a blanket prefix exemption waved through even though 14 of the file's editors have no caller but the `"_edit_section_${_subcmd}"` dispatch. - one whose only mention outside its own definition is a trailing comment, which a whole-line-only comment strip counted as a caller. - `rule_*` and `_TUI_MSG_*`. Harvesting every `"<name>_${` in the file as a dispatch prefix collects `image.rule_${_n}` and `_TUI_MSG_${_TUI_LANG_UPPER}` -- a config-key prefix and an array-name prefix that dispatch no function at all -- and then exempts anything carrying them from the check entirely. - a pair of dead functions that call each other. Under mention-counting each is the other's second mention, so a whole dead limb stays green. - one that names itself in its own `${1:?...}` message, which is its own second mention. Not hypothetical: that idiom appears 81 times in dist/, and it is why `_assemble_mount_value` outlived its only caller in lib/_tui_conf.sh without anything noticing. |
 | `_tui_init_lang: each supported locale selects its own message table` | every message lookup goes through the table _tui_init_lang selects, so a locale that maps to the wrong table (or falls through to English) makes the whole TUI monolingual for that user. Checked through _tui_msg rather than the index variable: the table is what the user reads. |
 | `_mark_removed: marking the same key twice lists it once` | the removal list is replayed key by key when the file is written, so a key marked twice would be processed twice. Clearing the same entry from two screens is ordinary use. |
 | `_edit_section_network: a rejected network_name re-prompts and then accepts` | an invalid network name has to send the user back to the SAME field with what they typed still in it -- re-prompting from the old value throws away the correction they were making. |
@@ -6886,13 +6883,13 @@ the shipped tree rather than kept as a roster
 
 Interactive-flow tests for `setup_tui.sh` (#189). Sources `setup_tui.sh`
 directly and overrides `_tui_menu` / `_tui_select` / `_tui_inputbox` /
-`_tui_yesno` / `_tui_msgbox` / `_tui_radiolist` / `_tui_checklist` with
-file-backed stubs (queue lines popped via `head -n 1` + `sed -i 1d` so state
-survives the `$(...)` subshell calls). Each case scripts the user's click
-path, calls one section editor, and asserts on the resulting `_TUI_OVR_*` /
-`_TUI_REMOVED` / `_TUI_CURRENT` arrays — no real `dialog` / `whiptail` ever
-launches. Lifts `setup_tui.sh` per-file coverage from 18% to 83% by
-exercising the 5 high-value target areas the issue body called out.
+`_tui_yesno` / `_tui_msgbox` / `_tui_checklist` with file-backed stubs
+(queue lines popped via `head -n 1` + `sed -i 1d` so state survives the
+`$(...)` subshell calls). Each case scripts the user's click path, calls one
+section editor, and asserts on the resulting `_TUI_OVR_*` / `_TUI_REMOVED` /
+`_TUI_CURRENT` arrays — no real `dialog` / `whiptail` ever launches. Lifts
+`setup_tui.sh` per-file coverage from 18% to 83% by exercising the 5
+high-value target areas the issue body called out.
 
 Grouped by concern:
 
@@ -6960,7 +6957,7 @@ unknown args, tracks `SCHEMA_SECTIONS` additions)
 | `_render_main_menu: navigates into _edit_section_<choice> then Save` | - |
 | `_render_advanced_menu: __back exits the loop` | - |
 | `_render_advanced_menu: Cancel (rc!=0) exits via break` | - |
-| `_tui_known_subcommand accepts every SCHEMA_SECTIONS member (#561)` | - |
+| `_tui_known_subcommand accepts a SCHEMA_SECTIONS member iff it has an editor (#561)` | - |
 | `_tui_known_subcommand accepts the ports pseudo-section (#561)` | - |
 | `_tui_known_subcommand rejects an unknown argument (#561)` | - |
 | `_tui_known_subcommand derives from SCHEMA_SECTIONS (single source) (#561)` | - |
@@ -7058,26 +7055,7 @@ unknown args, tracks `SCHEMA_SECTIONS` additions)
 | `_render_advanced_menu: tmpfs entry no longer dispatches` | - |
 | `_render_advanced_menu: security still dispatches` | - |
 
-### test/bats/unit/tui_mount_assembler_spec.bats (6)
-
-Unit tests for the TUI mount-string assembler (`_assemble_mount_value`,
-#461): host:container[:mode] composition, combined access/propagation modes,
-`_validate_mount` round-trip, and space-bearing path rejection (#687). The
-picker cases that used to sit below these drove `_prompt_mount_with_picker`,
-which base#1073 found had no production caller -- the mount editors all
-route through `_edit_list_entry` -- so the function and its three specs are
-gone.
-
-| Test | Description |
-|------|-------------|
-| `_assemble_mount_value returns host:container when no mode (#461)` | Bare two-field mount |
-| `_assemble_mount_value returns host:container:mode for single mode (#461)` | Single-mode suffix |
-| `_assemble_mount_value accepts combined access,propagation (#461)` | Combined mode |
-| `_assemble_mount_value output validates via _validate_mount (#461)` | Round-trip validation |
-| `_assemble_mount_value empty mode means no suffix (#461)` | Empty-mode no suffix |
-| `_assemble_mount_value space-bearing path is rejected by _validate_mount (#687)` | Space-path rejection |
-
-### test/bats/unit/tui_spec.bats (140)
+### test/bats/unit/tui_spec.bats (134)
 
 Pure-logic unit tests for the TUI support libraries (`_tui_conf.sh`). No
 dialog/whiptail invocations here — strictly validators, mount-string
@@ -7090,8 +7068,6 @@ colons, invalid mode)
 
 - `_validate_gpu_count` ('all', positive int, reject
 0/negative/non-numeric/empty)
-
-- `_validate_enum` (match, non-match, empty)
 
 - `_mount_host_path` (plain, with mode, with env-var host)
 
@@ -7135,6 +7111,7 @@ overlay; writes no override)
 | `_validate_mount rejects missing colon` | - |
 | `_validate_mount rejects invalid mode` | - |
 | `_validate_mount rejects too many colons` | - |
+| `_validate_mount rejects a space-bearing path on either side (#687)` | a space-bearing path word-splits in `docker run -v /my data:/work` and corrupts the compose volumes list, so the refusal has to happen at the validator, before the value can reach an emitter. Both sides of the colon are guarded. Kept from tui_mount_assembler_spec.bats, which went away with `_assemble_mount_value` (base#1073): the assembler is gone but the value it used to build is still what a user can type into the mount editor by hand. |
 | `_validate_mount accepts propagation mode rslave (#450)` | - |
 | `_validate_mount accepts propagation mode rshared (#450)` | - |
 | `_validate_mount accepts propagation mode rprivate (#450)` | - |
@@ -7200,16 +7177,9 @@ overlay; writes no override)
 | `_validate_gpu_count rejects negative` | - |
 | `_validate_gpu_count rejects non-numeric` | - |
 | `_validate_gpu_count rejects empty` | - |
-| `_validate_enum accepts matching option` | - |
-| `_validate_enum rejects non-matching value` | - |
-| `_validate_enum rejects empty value` | - |
 | `_mount_host_path extracts plain host path` | - |
 | `_mount_host_path extracts host path with mode` | - |
 | `_mount_host_path extracts host path with env var` | - |
-| `_mount_container_path extracts plain container path` | - |
-| `_mount_container_path extracts container path with mode` | - |
-| `_mount_container_path extracts container path with env var` | - |
-| `_mount_container_path empty when input has no colon` | - |
 | `_load_setup_conf_full reads all sections preserving order` | - |
 | `_load_setup_conf_full reads key/value pairs` | - |
 | `_write_setup_conf preserves template comments and section order` | - |
