@@ -462,6 +462,98 @@ _assert_release_migrates_env() {
   refute_output --partial "API_TOKEN=secret"
 }
 
+# ── The repo's own configuration ────────────────────────────────────────────
+
+# _seeded_repo_conf
+#   Repo-root-relative path of the per-repo setup.conf override the seeded
+#   release's OWN bootstrap wrote. Probed rather than named, the same way
+#   _released_entry probes the entry points and for the same reason: where
+#   that file lives is the release's business, and a release that moved it
+#   is exactly what this arm is here to survive. Root dotfile first (the
+#   post-relocation location), then the pre-relocation path under config/.
+_seeded_repo_conf() {
+  if [[ -f "${CONSUMER}/.setup.conf" ]]; then
+    printf '%s' ".setup.conf"
+  else
+    printf '%s' "config/docker/setup.conf"
+  fi
+}
+
+# _assert_release_carries_its_config <tag>
+#   The consumer arrives carrying ITS OWN configuration, and is still
+#   running on it afterwards.
+#
+#   Every other arm here asks whether the upgraded repo WORKS -- exit
+#   status, `.version`, dangling symlinks, `just --list`, the Dockerfile's
+#   COPY sources, and downstream the consumer's own suite. A repo whose
+#   image has renamed itself after the directory it was cloned into and
+#   whose `[environment]` block is empty answers yes to all of them. That
+#   is base#1086: `_migrate_legacy_setup_conf` shipped in `upgrade.sh`, a
+#   cross-version upgrade is driven by the CONSUMER'S vendored copy, and
+#   the population the migration exists for is the population whose copy
+#   has never heard of it. The upgrade exited 0 with the repo's config
+#   gone, and nothing in this file was asking.
+#
+#   The values are ones no default can produce: `string:` short-circuits
+#   the `[image]` rule chain, so IMAGE_NAME can read back as this ONLY if
+#   the repo's own file was in effect, and the shipped template's
+#   `[environment]` is empty, so any key at all there is the repo's.
+#
+#   The override is written WHOLESALE rather than appended to. `[image]`
+#   already carries `rule_1`, the chain takes the first rule that matches,
+#   and a second `rule_1` further down the file would never be reached --
+#   an arm that asserted against the seeded default while believing it had
+#   asserted against its own value. Section-replace (lib/conf.sh
+#   `_conf_load_layers`) makes a two-section override a legitimate shape:
+#   every other section still comes from the template.
+_assert_release_carries_its_config() {
+  local _tag="${1:?BUG: _assert_release_carries_its_config expects a tag}"
+
+  _seed_current_remote
+  _seed_released_remote "${_tag}"
+  _seed_consumer "${_tag}"
+
+  local _conf
+  _conf="$(_seeded_repo_conf)"
+  [[ -f "${CONSUMER}/${_conf}" ]] \
+    || fail "${_tag}: its own bootstrap seeded no per-repo setup.conf, so this arm has no configuration to carry"
+
+  cat > "${CONSUMER}/${_conf}" <<'EOF'
+[image]
+rule_1 = string:base1086-carried-config
+
+[environment]
+env_1 = BASE1086_MARKER=carried
+EOF
+  git -C "${CONSUMER}" add -A
+  git -C "${CONSUMER}" commit -q -m "chore: the repo's own configuration" || true
+
+  local _upgrade
+  _upgrade="$(_released_entry upgrade.sh)"
+  cd "${CONSUMER}"
+  run env TEMPLATE_REMOTE="file://${CUR_BARE}" "${_upgrade}" "${NEXT_VER}"
+  assert_success
+
+  # The derived interpolation cache is what names the image, and the image
+  # naming itself after the checkout directory is the loudest symptom of
+  # the loss.
+  run cat "${CONSUMER}/.env.generated"
+  assert_output --partial "IMAGE_NAME=base1086-carried-config"
+
+  # An `[environment]` entry lands in the container env file rather than
+  # the cache -- compose ranks `environment:` above `env_file`, so the
+  # entries are emitted there (write_container_env). Same question, the
+  # other half of the emitted output.
+  run cat "${CONSUMER}/.env"
+  assert_output --partial "BASE1086_MARKER="
+  assert_output --partial "carried"
+
+  # And the override is at the one path the CURRENT tree reads, with no
+  # orphan left behind at the old one for the next reader to trust.
+  assert [ -f "${CONSUMER}/.setup.conf" ]
+  assert [ ! -e "${CONSUMER}/config/docker/setup.conf" ]
+}
+
 # _assert_release_stages_migrated_files <tag>
 #   The upgrade COMMITS what its migrations rewrote, and commits nothing
 #   else. The failure this arm exists for is not a broken tree: it is a
@@ -651,6 +743,22 @@ _assert_upgrade_leaves_an_upgradable_tree() {
 
 @test "a released upgrade.sh still migrates a hand-written .env to .env.local (#868)" {
   _assert_release_migrates_env "$(_release_tag 1)"
+}
+
+# why: The oldest driver predates the setup.conf relocation, so its own
+# copy carries no migration for it -- this is the arm that fails when the
+# fix lives anywhere the old driver cannot reach, and the upgrade it
+# describes exits 0 with the repo's configuration gone
+@test "the oldest supported upgrade.sh leaves the consumer running on its own configuration (#1086)" {
+  _assert_release_carries_its_config "$(_release_tag 2)"
+}
+
+# why: The newest driver reaches the relocation through its own pre-pull
+# copy, so it answers the same question by a different route; pinning both
+# ends is what stops the guard being read as "only the old driver has to
+# carry a repo's config through an upgrade"
+@test "the newest supported upgrade.sh leaves the consumer running on its own configuration (#1086)" {
+  _assert_release_carries_its_config "$(_release_tag 1)"
 }
 
 @test "the newest released upgrade.sh drives the current tree to a working consumer" {

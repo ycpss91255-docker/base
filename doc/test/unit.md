@@ -5353,6 +5353,44 @@ isolated `_setup_known_section` / `SCHEMA_SECTIONS` (#561) unit checks.
 | `setup.sh apply aborts where a handler command fails mid-apply (#956)` | - |
 | `setup.sh finalizes the transcript when the post-setup hook fails (#956)` | - |
 
+### test/bats/unit/setup_conf_migrate_spec.bats (13)
+
+Mirrors `lib/setup_conf_migrate.sh`. The per-repo `setup.conf` override
+moved out of the hand-editable `config/` surface to the repo-root
+`.setup.conf` dotfile, and the migration that relocates a downstream still
+carrying the old path shipped in `upgrade.sh` -- where the population it
+exists for can never run it, because a cross-version upgrade is driven by
+the CONSUMER'S OWN vendored copy (base#1086).
+
+These are the unit-level assertions about the relocation itself. The
+question they answer that the old implementation never had to face is what
+happens when BOTH files exist: the old code warned and proceeded with the
+wrong one, which is how a repo ended up named after the directory it was
+cloned into with an empty `[environment]`.
+
+The decision is per SECTION, because section-replace is the conf chain's one
+rule (lib/conf.sh `_conf_load_layers`): a layer that defines a section
+supplies it wholesale. A root section identical to the shipped template's
+asserts nothing the template does not already say, so the legacy file's
+section wins; a root section that differs is the user's and is never
+overwritten.
+
+| Test | Description |
+|------|-------------|
+| `_migrate_legacy_setup_conf relocates a legacy override to the repo root (#1086)` | The whole point: a repo carrying only the legacy override keeps its config, at the name the current tree reads |
+| `_migrate_legacy_setup_conf is inert when there is no legacy file (#1086)` | A repo already on the new layout must not be told it is being migrated -- the announcement is what a reader trusts |
+| `_migrate_legacy_setup_conf is a no-op on a second run (#1086)` | Idempotence: the resync runs on every hop, so a second pass over an already-migrated repo must change nothing |
+| `_migrate_legacy_setup_conf clears the emptied legacy directory (#1086)` | The emptied legacy directory is a working-tree tidy git cannot do for us, and a leftover `config/docker/` reads as "still there" |
+| `_migrate_legacy_setup_conf keeps a config/ that holds anything else (#1086)` | config/ is the repo's own hand-editable surface; emptying the one subdirectory the migration owns must never take a sibling with it |
+| `_migrate_legacy_setup_conf adopts the legacy file over a root file that is the shipped default (#1086)` | The recovery case. A repo damaged by the hop that skipped the migration has a root file it never wrote; without this it stays wrong forever, because every later upgrade sees BOTH and declines |
+| `_migrate_legacy_setup_conf adopts when the two files already agree on a non-default section (#1086)` | The tool writes `[volumes] mount_1` into every freshly seeded root file, so a section both files spell the same way must not be read as a choice the user made -- otherwise the recovery above never fires in practice |
+| `_migrate_legacy_setup_conf keeps both files when the root file carries an edited section (#1086)` | The line the merge must never cross. A root section the user edited is theirs; keeping BOTH files loses nothing, and the message is what tells them a decision is waiting |
+| `_migrate_legacy_setup_conf keeps both files when the root file alone defines an edited section (#1086)` | A section only the root file defines disappears when the legacy file replaces it; that is safe exactly when the template already says the same thing, and it is a silent loss when it does not |
+| `_migrate_legacy_setup_conf refuses to adopt when the template baseline is missing (#1086)` | Without the shipped baseline nothing can tell a default from a choice, so the fail-safe direction is to decide nothing and keep both |
+| `_migrate_legacy_setup_conf stages the move when the legacy file was tracked (#1086)` | The consumer's own released upgrade.sh makes the commit and stages nothing of this by name, so a move left unstaged is a commit that describes a tree that does not exist (ADR-00000006) |
+| `_migrate_legacy_setup_conf stages the move when the legacy file was untracked (#1086)` | An untracked legacy override is just as much the user's config, and the file it becomes has to reach the same commit |
+| `_migrate_legacy_setup_conf relocates outside a git work tree without staging (#1086)` | The relocation has to work for a repo that is not a git repo at all -- `just base init` on a hand-bootstrapped tree -- and it must not reach into a surrounding repository's index to do it |
+
 ### test/bats/unit/setup_conf_spec.bats (33)
 
 Mirrors `lib/setup_conf.sh`. setup.conf merging (`_load_setup_conf` replace
