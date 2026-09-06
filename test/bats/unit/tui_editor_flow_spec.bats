@@ -922,15 +922,6 @@ stub_main_deps() {
 # Dead-code guard
 # ════════════════════════════════════════════════════════════════════
 
-# why: base#1073 found three functions in setup_tui.sh with no caller, and
-# one of them had three specs -- so a test suite is not evidence that
-# production code is reachable. A hand-kept roster of "known dead" would go
-# stale the moment a caller is deleted, so the population is derived from
-# the file and the callers from the shipped tree. Dynamic dispatch is
-# honoured rather than special-cased: a `"_prefix_${var}"` construct in the
-# file makes every `_prefix_*` function reachable, which is how
-# `_edit_section_resources` -- whose only caller is main's
-# `setup_tui.sh resources` direct jump -- stays in.
 # unreachable_functions <setup_tui.sh path> <dist dir>
 #
 # Prints, one per line, every function <path> defines that nothing under
