@@ -85,10 +85,14 @@ lifecycle (build vs run):
   container behaves): `ROS_MASTER_URI`, `ROS_DOMAIN_ID`, `LOG_LEVEL`,
   `WATCHDOG_ENABLED`, application-level parameters.
 
-The two have **zero intersection**. If overlap is discovered, `.env.toml`
-takes precedence because its purpose is the container-internal service.
-The current `[environment]` section migrates OUT of `setup.toml` entirely
-and into `.env.toml`.
+The two have **zero intersection** at the service level. If overlap
+is discovered, `.env.toml` takes precedence because its purpose is
+the container-internal service. The current `[environment]` section
+splits along the service boundary: infrastructure env vars
+(`DISPLAY`, `NVIDIA_VISIBLE_DEVICES`, `PULSE_SERVER` -- host
+interfaces the container needs to function) stay in `setup.toml`;
+service runtime env vars (`ROS_MASTER_URI`, `LOG_LEVEL`,
+`WATCHDOG_ENABLED`) move to `.env.toml`.
 
 **TOML structure.** Scalar sections use standard `[table]` syntax;
 list-shaped sections use `[[array of tables]]`:
@@ -147,10 +151,12 @@ compose.yaml     <- from setup.toml (infrastructure)
 .env.generated   <- interpolation cache (unchanged)
 ```
 
-**Host parsing.** The host must parse TOML before containers exist
-(chicken-and-egg: parse results ARE `docker compose up` inputs). Tool
-selection is deferred to implementation; candidates: `taplo` (Rust
-static binary), `dasel`, or a minimal Docker bootstrap container.
+**Host parsing.** TOML is parsed on the host before containers
+exist -- the parse results ARE `docker compose up` inputs. This is
+the same architecture as the current bash `_ini_tokenize`: a
+host-side tool, not a circular dependency. Candidates: Python 3.11+
+`tomllib` (stdlib, zero-dependency), or `taplo` (Rust static binary,
+no Python required). Tool selection is deferred to implementation.
 
 ## Alternatives
 
@@ -195,8 +201,11 @@ static binary), `dasel`, or a minimal Docker bootstrap container.
 
 ## Consequences
 
-- The `[environment]` section moves from `setup.toml` to `.env.toml`.
-  `setup.toml` has zero application-level env vars.
+- The `[environment]` section splits along the service boundary:
+  infrastructure env vars (host interfaces like `DISPLAY`, GPU
+  visibility) stay in `setup.toml`; service runtime env vars
+  (application parameters) move to `.env.toml`. `setup.toml` has
+  zero application-level env vars.
 
 - Scalar-section overrides become lighter: an operator who wants only
   `[gui] mode = "wayland"` writes one key, not the entire section.

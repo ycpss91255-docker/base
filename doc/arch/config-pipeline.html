@@ -217,7 +217,7 @@ td {
   grid-template-columns: 1fr 1fr;
   gap: 1rem;
 }
-@media(max-width:640px) { .side { grid-template-columns: 1fr; } }
+@media(max-width: 640px) { .side { grid-template-columns: 1fr; } }
 
 .card {
   background: var(--surface);
@@ -723,7 +723,7 @@ device_1 = /dev/video0
 
 [image]
 rule_1 = jetson*:l4t</code></pre>
-<p style="font-size:0.8rem;color:var(--text-2)">編號 key（<code>mount_N</code>、<code>device_N</code>、<code>rule_N</code>）編碼有序清單。無型別系統、無驗證。新增/移除時需手動重新編號。</p>
+<p style="font-size: 0.8rem;color:var(--text-2)">編號 key（<code>mount_N</code>、<code>device_N</code>、<code>rule_N</code>）編碼有序清單。無型別系統、無驗證。新增/移除時需手動重新編號。</p>
 </div>
 <div class="card">
 <h3>After: TOML (setup.toml) <span class="badge badge-gen">ADR-37</span></h3>
@@ -752,7 +752,7 @@ path = "/dev/video0"
 [[image.rules]]
 pattern = "jetson*"
 tag = "l4t"</code></pre>
-<p style="font-size:0.8rem;color:var(--text-2)"><code>[[array of tables]]</code> 取代編號 key。有型別欄位。可用 IDE 工具 + schema 驗證。</p>
+<p style="font-size: 0.8rem;color:var(--text-2)"><code>[[array of tables]]</code> 取代編號 key。有型別欄位。可用 IDE 工具 + schema 驗證。</p>
 </div>
 </div>
 
@@ -764,7 +764,7 @@ tag = "l4t"</code></pre>
 ROS_MASTER_URI=http://192.168.1.10:11311
 LOG_LEVEL=debug
 WATCHDOG_ENABLED=1</code></pre>
-<p style="font-size:0.8rem;color:var(--text-2)">扁平 KEY=VALUE。無型別、無註解、無結構。</p>
+<p style="font-size: 0.8rem;color:var(--text-2)">扁平 KEY=VALUE。無型別、無註解、無結構。</p>
 </div>
 <div class="card">
 <h3>After: .env.toml <span class="badge badge-gen">ADR-37</span></h3>
@@ -777,7 +777,7 @@ level = "debug"
 
 [watchdog]
 enabled = true</code></pre>
-<p style="font-size:0.8rem;color:var(--text-2)">有型別值（int、string、bool）。按關注點分組。允許註解。覆蓋層 key-level merge。</p>
+<p style="font-size: 0.8rem;color:var(--text-2)">有型別值（int、string、bool）。按關注點分組。允許註解。覆蓋層 key-level merge。</p>
 </div>
 </div>
 

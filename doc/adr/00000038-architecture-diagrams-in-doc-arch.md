@@ -1,5 +1,9 @@
 # Architecture diagrams live in doc/arch/ as self-contained HTML
 
+> Serves: PRD invariant 10 (documentation is derived, not duplicated)
+> -- visual architecture artifacts parallel to prose ADRs, one
+> convention across all repos.
+
 - **Date:** 2026-09-06
 - **Status:** Accepted
 - **Relates to:** ADR-00000037 (toml-config-format-unification),
