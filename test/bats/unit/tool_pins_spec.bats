@@ -533,10 +533,13 @@ _pins() {
   # different just than the image ships.
   #
   # The reader is the shipped accessor, not pins.sh: both read the
-  # SAME line -- the `ARG JUST_VERSION` the `tool-pin: just` marker sits
-  # on -- and the test above already asserts they agree, so CI resolving
-  # the number twice would only be two chances to disagree about one
-  # declaration. What this test is about is that the workflow READS it
+  # SAME line -- the `ARG JUST_VERSION` that the `tool-pin: just` marker
+  # sits on is the marker's TARGET, so it is where the pin's value comes
+  # from as well. CI resolving the number twice is therefore two chances
+  # to disagree about one declaration, not two declarations. base#1075
+  # removed the case this paragraph used to point at, which compared the
+  # pin against that same ARG line and so asserted one line against
+  # itself. What this test is about is that the workflow READS the number
   # rather than repeating it; which of the two readers it uses is not.
   run grep -F 'dist/script/base/just-version.sh' \
     /source/.github/workflows/self-test.yaml
