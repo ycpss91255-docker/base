@@ -152,6 +152,77 @@ _workflow() {
   [[ "${output}" == *"needs_binary.sh"* ]]
 }
 
+# why: The `--lint-group` arm in the direction that costs something. The
+# grouped lint-static job is the one place a NEW driver lands without
+# anybody choosing a job for it, so "which side of the host-direct line a
+# new driver falls on is linted, not remembered" is a claim about THIS
+# shape. Only the clean direction was asked before, with a dispatcher
+# answering a pure-bash driver -- which a scan that never resolved
+# `--lint-group` at all would also pass. Deleting the whole resolution
+# left every other case in this file green; this is the one that goes red.
+@test "tool provenance: FAILS on a --lint-group whose partition holds a driver that needs a pinned binary" {
+  printf '%s\n' '#!/usr/bin/env bash' \
+    '[[ "${1:-}" == "--lint-group-members" ]] || exit 2' \
+    'printf "pure-lint\nneeds-binary\n"' > "${SCRATCH}/script/test/test.sh"
+  chmod +x "${SCRATCH}/script/test/test.sh"
+  _workflow "wf.yaml" \
+    'on:' \
+    '  pull_request:' \
+    'jobs:' \
+    '  lint-static:' \
+    '    runs-on: ubuntu-latest' \
+    '    steps:' \
+    '      - run: ./script/test/test.sh --lint-group "${LINT_GROUP}"'
+  run _run_tool_provenance
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"job lint-static"* ]]
+  [[ "${output}" == *"shellcheck"* ]]
+  [[ "${output}" == *"needs_binary.sh"* ]]
+}
+
+# why: A command substitution is command context, and double quotes do not
+# end it -- `out="$(hadolint x)"` runs hadolint. The quote blanker exists
+# to keep this repo's PROSE out of command position, and prose carries no
+# `$(`, so blanking a substitution buys the blanker nothing and costs the
+# scan an idiomatic shape: capturing a tool's output is how a job asks a
+# binary anything.
+@test "tool provenance: FAILS on a pinned tool inside a double-quoted command substitution" {
+  _workflow "wf.yaml" \
+    'on:' \
+    '  pull_request:' \
+    'jobs:' \
+    '  probe:' \
+    '    runs-on: ubuntu-latest' \
+    '    steps:' \
+    '      - run: |' \
+    '          out="$(shellcheck -f json init.sh)"' \
+    '          echo "${out}"'
+  run _run_tool_provenance
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"job probe"* ]]
+  [[ "${output}" == *"shellcheck"* ]]
+}
+
+# why: Provenance is read from what the job RUNS, and a comment runs
+# nothing -- the reason whole-line comments are dropped from the record
+# stream. A comment that trails a line of shell is the same comment, so
+# evidence found there is evidence of nothing; this repo's workflows are
+# comment-dense enough that a mute could be written by accident.
+@test "tool provenance: a trailing comment is not provenance" {
+  _workflow "wf.yaml" \
+    'on:' \
+    '  pull_request:' \
+    'jobs:' \
+    '  lint:' \
+    '    runs-on: ubuntu-latest' \
+    '    steps:' \
+    '      - run: shellcheck -x init.sh  # script/ci/test-tools-pins.sh SHELLCHECK_VERSION'
+  run _run_tool_provenance
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"job lint"* ]]
+  [[ "${output}" == *"shellcheck"* ]]
+}
+
 # why: A selector naming a driver that does not exist cannot be resolved,
 # and an unresolvable demand must not read as no demand -- that is the
 # silent green this lint exists to refuse.
@@ -167,6 +238,28 @@ _workflow() {
   run _run_tool_provenance
   [ "${status}" -ne 0 ]
   [[ "${output}" == *"no_such_lint.sh"* ]]
+}
+
+# why: The `--lint-group` union is resolved by ASKING the dispatcher, which
+# is the whole point -- a list here of which driver lands in which group
+# would be the roster this file refuses to be. But a dispatcher that will
+# not answer returns nothing, and nothing reads as no demand: the same
+# silent green a missing driver file is REFUSED for, arriving through the
+# other door.
+@test "tool provenance: REFUSES a --lint-group whose members the dispatcher will not name" {
+  printf '%s\n' '#!/usr/bin/env bash' 'exit 1' > "${SCRATCH}/script/test/test.sh"
+  chmod +x "${SCRATCH}/script/test/test.sh"
+  _workflow "wf.yaml" \
+    'on:' \
+    '  pull_request:' \
+    'jobs:' \
+    '  lint-static:' \
+    '    runs-on: ubuntu-latest' \
+    '    steps:' \
+    '      - run: ./script/test/test.sh --lint-group "${LINT_GROUP}"'
+  run _run_tool_provenance
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"--lint-group-members"* ]]
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -357,6 +450,34 @@ _workflow() {
   run _run_tool_provenance
   [ "${status}" -ne 0 ]
   [[ "${output}" == *"job bad"* ]]
+}
+
+# why: The trailing comment above is one SPELLING of a job key the reader
+# does not recognise, and the fix for it was written to that spelling. Any
+# other -- a quoted key, a character outside the name pattern -- lands in
+# the same place: the line is read as ordinary text, the steps under it
+# accumulate into the PREVIOUS job, and an unobtained tool is scored
+# against provenance belonging to a different job. The per-FILE floor
+# cannot see it either, because the file's other jobs read fine. Under
+# `jobs:`, a line at job-level indent is a job key or the reader has
+# stopped reading, so the answer is a refusal rather than a wider pattern.
+@test "tool provenance: REFUSES a job-level line it cannot read as a job key" {
+  _workflow "wf.yaml" \
+    'on:' \
+    '  pull_request:' \
+    'jobs:' \
+    '  good:' \
+    '    runs-on: ubuntu-latest' \
+    '    steps:' \
+    '      - run: ./script/ci/obtain_test_tools.sh img' \
+    '  "bad":' \
+    '    runs-on: ubuntu-latest' \
+    '    steps:' \
+    '      - run: shellcheck -x init.sh'
+  run _run_tool_provenance
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"wf.yaml"* ]]
+  [[ "${output}" == *'"bad"'* ]]
 }
 
 # why: The reader commits to the two-space job key this repo's workflows
