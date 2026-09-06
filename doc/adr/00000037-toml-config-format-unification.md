@@ -151,12 +151,22 @@ compose.yaml     <- from setup.toml (infrastructure)
 .env.generated   <- interpolation cache (unchanged)
 ```
 
-**Host parsing.** TOML is parsed on the host before containers
-exist -- the parse results ARE `docker compose up` inputs. This is
-the same architecture as the current bash `_ini_tokenize`: a
-host-side tool, not a circular dependency. Candidates: Python 3.11+
-`tomllib` (stdlib, zero-dependency), or `taplo` (Rust static binary,
-no Python required). Tool selection is deferred to implementation.
+**Containerised parsing.** TOML is parsed before `docker compose up`
+-- the parse results ARE its inputs. The parser runs in a dedicated
+container image (`toml-bridge`), not on the host: the host contract
+is Docker + Git + `just` and nothing else, and a host-side Python or
+binary would add a fourth dependency whose version the project cannot
+control across Ubuntu 16.04--24.04 machines. Docker is already
+required, so invoking the parser via `docker run` adds no new
+prerequisite. Inside the container the parser is Python with vendored
+`tomli` (the backport accepted into the stdlib as `tomllib` via
+PEP 680), which is zero-dependency, ~1000 lines, MIT-licensed, and
+supports Python 3.6+. The merge logic (type-aware: scalar key-level,
+array replace) also runs in Python where the type information is
+native (`dict` vs `list`). The `toml-bridge` image is a standalone
+Dockerfile (`dockerfile/Dockerfile.toml-bridge`); `test-tools` pulls
+from it via `COPY --from` so downstream repos inherit the capability
+through the existing `test-tools-stage` pattern.
 
 ## Alternatives
 
@@ -214,9 +224,10 @@ no Python required). Tool selection is deferred to implementation.
   replaces the full list, preserving the "what you see is what you
   get" property.
 
-- The `_ini_tokenize` bash parser is replaced by a TOML parser.
-  Host-side tool selection is an implementation detail, not an
-  architectural decision.
+- The `_ini_tokenize` bash parser is replaced by a containerised
+  TOML bridge (`toml-bridge` image). The bash shim calls
+  `docker run` and receives the merged result. The host contract
+  (Docker + Git + `just`) does not grow.
 
 - `setup_tui.sh` (2975 lines + 691-line backend) is frozen until the
   TOML migration completes. The TUI's INI-aware editor functions
@@ -243,6 +254,12 @@ no Python required). Tool selection is deferred to implementation.
   `.setup.conf`; generated outputs (`compose.yaml`, `.env`) are
   unchanged. ADR-36's parameterised API accepts `setup.local.toml` as
   the caller-supplied layer.
+
+- The 15 sections (`[project]`, `[gui]`, `[gpu]`, ...) keep their
+  current TUI-oriented structure in phase 1 (format migration). A
+  future phase restructures sections to align with the Docker Compose
+  spec, at which point the TUI owns its own grouping/view layer
+  instead of the config structure mirroring TUI screens.
 
 - JSON Schema validation of the parsed TOML structure (as practiced by
   the config-manager project, sec. 6.2) is a natural follow-up but not
