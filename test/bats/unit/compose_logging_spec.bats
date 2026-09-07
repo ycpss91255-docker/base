@@ -325,7 +325,7 @@ teardown() {
   # ships the helper into the image at /usr/local/lib/base/; the
   # comment must point there so the documented adoption path matches
   # the COPY in Dockerfile.example.
-  local _conf="/source/dist/.setup.conf"
+  local _conf="/source/dist/setup.toml"
   assert_spec_subject "${_conf}" \
       "the shipped default setup.conf this spec pins"
   run grep -F '/usr/local/lib/base/_entrypoint_logging.sh' "${_conf}"

@@ -122,7 +122,7 @@ setup() {
 # tree walk so a new surface is a deliberate addition, not an accident.
 _claim_surfaces() {
   cat <<'EOF'
-/source/dist/.setup.conf
+/source/dist/setup.toml
 /source/dist/script/docker/justfile.docker
 /source/dist/script/docker/lib/help.sh
 /source/dist/script/docker/lib/setup_cmd.sh
@@ -172,7 +172,7 @@ EOF
       /source/dist/script/docker/lib/env_emit.sh \
       /source/dist/script/docker/lib/compose_emit.sh \
       /source/dist/script/docker/wrapper/setup.sh \
-      /source/dist/.setup.conf; do
+      /source/dist/setup.toml; do
     run grep -F '.env.local' "${_file}"
     assert_success
   done

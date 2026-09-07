@@ -3,7 +3,7 @@
 # Unit tests for .base/dist/script/docker/lib/gitignore.sh.
 #
 # init.sh / upgrade.sh need to sync a canonical .gitignore set
-# (.env, .env.bak, compose.yaml, .setup.conf.bak, coverage/,
+# (.env, .env.bak, compose.yaml, setup.toml.bak, coverage/,
 # .Dockerfile.generated). The lib has three responsibilities:
 #   1. Emit the canonical list (single source of truth).
 #   2. Append-missing into a target .gitignore, idempotent, preserving
@@ -56,8 +56,8 @@ teardown() {
 .env.generated
 .env.bak
 compose.yaml
-.setup.conf.bak
-.setup.conf.local
+setup.toml.bak
+setup.local.toml
 coverage/
 .Dockerfile.generated
 .docker.xauth
@@ -66,20 +66,20 @@ log/
 EXPECTED
 }
 
-@test "_canonical_gitignore_entries: advertises .setup.conf.local again (#893)" {
+@test "_canonical_gitignore_entries: advertises setup.local.toml again (#893)" {
   # The line was retired while nothing read the file it named. The
   # per-worktree override layer restores the mechanism, so the line names a
   # real file again -- and it MUST be canonical, because the whole point of
   # the layer is that it never gets committed.
   run _canonical_gitignore_entries
   assert_success
-  assert_line ".setup.conf.local"
+  assert_line "setup.local.toml"
 }
 
 @test "no entry is both canonical and retired (#893)" {
   # The coherence guard. A line in both lists is a repo that deletes, on
   # every sync, the line it just added -- forever. This is what un-retiring
-  # .setup.conf.local had to get exactly right, and the guard is what keeps
+  # setup.local.toml had to get exactly right, and the guard is what keeps
   # the next retirement from getting it wrong.
   local -a _canon=() _retired=()
   mapfile -t _canon < <(_canonical_gitignore_entries)
@@ -95,7 +95,7 @@ EXPECTED
 }
 
 @test "_retired_gitignore_entries: retires nothing today (#893)" {
-  # .setup.conf.local was its only member and is canonical again. The
+  # setup.local.toml was its only member and is canonical again. The
   # retraction MECHANISM stays (the next retirement needs it); the LIST is
   # empty, which is what the coherence guard above is asserting against.
   run _retired_gitignore_entries
@@ -103,7 +103,7 @@ EXPECTED
   assert_output ""
 }
 
-@test "_sync_gitignore: a full sync leaves .setup.conf.local in the file, twice running (#893)" {
+@test "_sync_gitignore: a full sync leaves setup.local.toml in the file, twice running (#893)" {
   # The failure mode being guarded: prune-then-append, forever. Two syncs
   # must converge with the line present, not oscillate around it.
   local _f="${TMP_DIR}/.gitignore"
@@ -114,7 +114,7 @@ EXPECTED
   local _second; _second="$(cat "${_f}")"
   assert_equal "${_second}" "${_first}"
   run cat "${_f}"
-  assert_line ".setup.conf.local"
+  assert_line "setup.local.toml"
 }
 
 # The retraction mechanism is exercised against a STUBBED retired list: the
@@ -130,7 +130,7 @@ _stub_retired() {
 node_modules/
 # managed by template (do not remove)
 .env
-.setup.conf.bak
+setup.toml.bak
 legacy.retired
 EOF
   run _sync_gitignore "${_f}"
@@ -140,7 +140,7 @@ EOF
   # Everything else survives, user lines included.
   assert_line "node_modules/"
   assert_line ".env"
-  assert_line ".setup.conf.bak"
+  assert_line "setup.toml.bak"
 }
 
 @test "_sync_gitignore: leaves a retired entry the user put ABOVE the marker alone (#879)" {
@@ -239,7 +239,7 @@ EOF
   assert_line ".env.local"
   assert_line ".env.bak"
   assert_line "compose.yaml"
-  assert_line ".setup.conf.bak"
+  assert_line "setup.toml.bak"
   assert_line "coverage/"
   assert_line ".Dockerfile.generated"
 }
@@ -266,8 +266,8 @@ EOF
 .env.generated
 .env.bak
 compose.yaml
-.setup.conf.bak
-.setup.conf.local
+setup.toml.bak
+setup.local.toml
 coverage/
 .Dockerfile.generated
 .docker.xauth
@@ -458,10 +458,10 @@ _init_repo_with_tracked() {
 
 # why: Multi-entry sweep
 @test "_untrack_canonical_in_repo: untracks all canonical entries that match" {
-  _init_repo_with_tracked "${TMP_DIR}" compose.yaml .env .env.bak .setup.conf.bak
+  _init_repo_with_tracked "${TMP_DIR}" compose.yaml .env .env.bak setup.toml.bak
   run _untrack_canonical_in_repo "${TMP_DIR}"
   assert_success
-  run git -C "${TMP_DIR}" ls-files compose.yaml .env .env.bak .setup.conf.bak
+  run git -C "${TMP_DIR}" ls-files compose.yaml .env .env.bak setup.toml.bak
   assert_output ""
 }
 
@@ -476,7 +476,7 @@ _init_repo_with_tracked() {
 
 @test "_sync_logging_gitignore: tracer — relative local_path emitted in .gitignore (#402)" {
   mkdir -p "${TMP_DIR}"
-  cat > "${TMP_DIR}/.setup.conf" <<'CONF'
+  cat > "${TMP_DIR}/setup.toml" <<'CONF'
 [logging]
 local_path = ./logs/
 CONF
@@ -497,7 +497,7 @@ CONF
 
 _stage_logging_conf() {
   mkdir -p "${TMP_DIR}"
-  cat > "${TMP_DIR}/.setup.conf"
+  cat > "${TMP_DIR}/setup.toml"
 }
 
 @test "_sync_logging_gitignore appends relative local_path to .gitignore (#402, ex-#328)" {

@@ -688,7 +688,7 @@ stub_apply() {
 @test "_commit_and_setup: the edited value reaches the saved conf" {
   stub_apply
   local _tpl="${BATS_TEST_TMPDIR}/tpl.conf"
-  local _repo="${BATS_TEST_TMPDIR}/.setup.conf"
+  local _repo="${BATS_TEST_TMPDIR}/setup.toml"
   printf '[network]\nmode = host\n' > "${_tpl}"
   _load_current "${_repo}" "${_tpl}"
   _override_set network.mode bridge
@@ -702,7 +702,7 @@ stub_apply() {
 @test "_commit_and_setup: a key the user never touched survives the save" {
   stub_apply
   local _tpl="${BATS_TEST_TMPDIR}/tpl.conf"
-  local _repo="${BATS_TEST_TMPDIR}/.setup.conf"
+  local _repo="${BATS_TEST_TMPDIR}/setup.toml"
   printf '[network]\nmode = host\nipc = shareable\n' > "${_tpl}"
   _load_current "${_repo}" "${_tpl}"
   _override_set network.mode bridge
@@ -716,7 +716,7 @@ stub_apply() {
 @test "_commit_and_setup: re-runs setup.sh apply for the repo it saved" {
   stub_apply
   local _tpl="${BATS_TEST_TMPDIR}/tpl.conf"
-  local _repo="${BATS_TEST_TMPDIR}/.setup.conf"
+  local _repo="${BATS_TEST_TMPDIR}/setup.toml"
   printf '[network]\nmode = host\n' > "${_tpl}"
   _load_current "${_repo}" "${_tpl}"
   _commit_and_setup "${_repo}" "${_tpl}"
@@ -729,7 +729,7 @@ stub_apply() {
 @test "_commit_and_setup: reports the path it saved" {
   stub_apply
   local _tpl="${BATS_TEST_TMPDIR}/tpl.conf"
-  local _repo="${BATS_TEST_TMPDIR}/.setup.conf"
+  local _repo="${BATS_TEST_TMPDIR}/setup.toml"
   printf '[network]\nmode = host\n' > "${_tpl}"
   _load_current "${_repo}" "${_tpl}"
   run _commit_and_setup "${_repo}" "${_tpl}"
@@ -773,13 +773,13 @@ stub_rm() {
 @test "_do_reset: confirmed, it drops the conf, re-applies and clears pending edits" {
   stub_apply
   stub_rm
-  printf '[network]\nmode = none\n' > "${BATS_TEST_TMPDIR}/.setup.conf"
+  printf '[network]\nmode = none\n' > "${BATS_TEST_TMPDIR}/setup.toml"
   _override_set network.mode bridge
   _mark_removed network.ipc
   queue "0|"
   _do_reset
   unset -f rm
-  grep -q -- '.setup.conf' "${_RMLOG}"
+  grep -q -- 'setup.toml' "${_RMLOG}"
   grep -q -- 'apply' "${_APPLY}"
   [ "${#_TUI_OVR_KEYS[@]}" -eq 0 ]
   [ "${#_TUI_REMOVED[@]}" -eq 0 ]
@@ -900,7 +900,7 @@ stub_main_deps() {
   grep -Fqx -- 'post_hook' "${_MARK}"
 }
 
-# why: on a repo that has never been set up there is no .setup.conf to load,
+# why: on a repo that has never been set up there is no setup.toml to load,
 # so the menus would open on an empty config. main seeds it by running apply
 # first; skipping that is how mount_1 detection went missing.
 @test "main: seeds the per-repo conf with an apply run when none exists" {
@@ -1131,7 +1131,7 @@ unreachable_functions() {
 # `_tui_known_subcommand` accepts, and that gate read the schema section
 # list alone. `project` is on that list with a deliberate no-editor
 # opt-out (schema.sh's SCHEMA_I18N note says the project name belongs in
-# the gitignored .setup.conf.local, which the menu has no concept of), so
+# the gitignored setup.local.toml, which the menu has no concept of), so
 # `setup_tui.sh project` jumped to a function that does not exist -- a
 # bash command-not-found, raised only after the backend probe and the
 # seeding `setup.sh apply` run had already happened. Both directions are

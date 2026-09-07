@@ -158,21 +158,21 @@ teardown() { rm -rf "${TMP_DIR}"; }
 
 @test "_transcript_enabled: false when wrapper_transcript = false (#606)" {
   mkdir -p "${TMP_DIR}"
-  printf '[logging]\nwrapper_transcript = false\n' > "${TMP_DIR}/.setup.conf"
+  printf '[logging]\nwrapper_transcript = false\n' > "${TMP_DIR}/setup.toml"
   FILE_PATH="${TMP_DIR}" run _transcript_enabled
   assert_failure
 }
 
 @test "_transcript_enabled: WRAPPER_TRANSCRIPT=false env wins over conf=true (#622)" {
   mkdir -p "${TMP_DIR}"
-  printf '[logging]\nwrapper_transcript = true\n' > "${TMP_DIR}/.setup.conf"
+  printf '[logging]\nwrapper_transcript = true\n' > "${TMP_DIR}/setup.toml"
   WRAPPER_TRANSCRIPT=false FILE_PATH="${TMP_DIR}" run _transcript_enabled
   assert_failure
 }
 
 @test "_transcript_enabled: WRAPPER_TRANSCRIPT=true env wins over conf=false (#622)" {
   mkdir -p "${TMP_DIR}"
-  printf '[logging]\nwrapper_transcript = false\n' > "${TMP_DIR}/.setup.conf"
+  printf '[logging]\nwrapper_transcript = false\n' > "${TMP_DIR}/setup.toml"
   WRAPPER_TRANSCRIPT=true FILE_PATH="${TMP_DIR}" run _transcript_enabled
   assert_success
 }
@@ -183,7 +183,7 @@ teardown() { rm -rf "${TMP_DIR}"; }
   # key is the worst outcome: the user believes the environment won and
   # sees no sign that it did not. Refuse the run instead.
   mkdir -p "${TMP_DIR}"
-  printf '[logging]\nwrapper_transcript = true\n' > "${TMP_DIR}/.setup.conf"
+  printf '[logging]\nwrapper_transcript = true\n' > "${TMP_DIR}/setup.toml"
   WRAPPER_TRANSCRIPT=flase FILE_PATH="${TMP_DIR}" run _transcript_enabled
   assert_failure
   assert_output --partial "WRAPPER_TRANSCRIPT"
@@ -194,7 +194,7 @@ teardown() { rm -rf "${TMP_DIR}"; }
   # `WRAPPER_TRANSCRIPT=` is how a caller clears an inherited override, and
   # `env -u` is not always available to it. Empty defers to the conf key.
   mkdir -p "${TMP_DIR}"
-  printf '[logging]\nwrapper_transcript = false\n' > "${TMP_DIR}/.setup.conf"
+  printf '[logging]\nwrapper_transcript = false\n' > "${TMP_DIR}/setup.toml"
   WRAPPER_TRANSCRIPT= FILE_PATH="${TMP_DIR}" run _transcript_enabled
   assert_failure
   refute_output --partial "WRAPPER_TRANSCRIPT"
@@ -249,7 +249,7 @@ teardown() { rm -rf "${TMP_DIR}"; }
   # hand-edited setup.conf cannot drive prune with keep=0 (wipe-all).
   mkdir -p "${TMP_DIR}"
   printf '[logging]\nwrapper_transcript_keep = 0\n' \
-    > "${TMP_DIR}/.setup.conf"
+    > "${TMP_DIR}/setup.toml"
   run bash -c "
     export _WRAPPER_VERB=build FILE_PATH='${TMP_DIR}'
     source ${LOG_SH}; source ${TRANSCRIPT_SH}
@@ -391,7 +391,7 @@ _run_transcript_harness() {  # <verb> <extra-env...>
 
 @test "transcript: wrapper_transcript=false is a complete no-op (no file) (#606)" {
   mkdir -p "${TMP_DIR}"
-  printf '[logging]\nwrapper_transcript = false\n' > "${TMP_DIR}/.setup.conf"
+  printf '[logging]\nwrapper_transcript = false\n' > "${TMP_DIR}/setup.toml"
   _run_transcript_harness build
   assert_success
   assert_output --partial "plain stdout line"

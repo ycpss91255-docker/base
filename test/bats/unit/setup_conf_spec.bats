@@ -2,11 +2,11 @@
 #
 # why: Mirrors `lib/setup_conf.sh`. setup.conf merging (`_load_setup_conf`
 # replace strategy) resolving the per-repo override from the repo-root
-# `.setup.conf` dotfile (a legacy `config/docker/setup.conf` is no longer
+# `setup.toml` dotfile (a legacy `config/docker/setup.conf` is no longer
 # read), `_get_conf_value` / `_get_conf_list_sorted` (incl. empty-skip), and
 # the `_rule_basename` image-rule helper. Also guards the shipped `dist/`
 # prose against pre-relocation path names: the four `setup_tui.sh` usage
-# heredocs must advertise `.setup.conf`, and no shipped text may still say
+# heredocs must advertise `setup.toml`, and no shipped text may still say
 # `<repo>/setup.conf` or `.base/setup.conf` (#842).
 
 bats_require_minimum_version 1.5.0
@@ -180,7 +180,7 @@ EOF
 # ════════════════════════════════════════════════════════════════════
 # Post-relocation path names in user-facing help / comments
 # ════════════════════════════════════════════════════════════════════
-@test "setup_tui.sh usage names the repo-root .setup.conf in every language (#842)" {
+@test "setup_tui.sh usage names the repo-root setup.toml in every language (#842)" {
   # Help that names a path the user cannot find is worse than no help:
   # all four heredocs must advertise the dotfile the TUI actually edits.
   #
@@ -200,7 +200,7 @@ EOF
       _LANG='${_lang}' usage
     "
     assert_success
-    assert_output --partial ".setup.conf"
+    assert_output --partial "setup.toml"
     refute_output --partial "<repo>/setup.conf"
   done
 }
@@ -211,7 +211,7 @@ EOF
 }
 
 @test "no shipped dist/ text names the non-existent .base/setup.conf default (#842)" {
-  # The template baseline resolves to .base/dist/.setup.conf; the old
+  # The template baseline resolves to .base/dist/setup.toml; the old
   # shorthand points at a path that never existed post-relocation.
   run grep -rn '\.base/setup\.conf' /source/dist
   assert_failure
@@ -243,10 +243,10 @@ EOF
 }
 
 # ════════════════════════════════════════════════════════════════════
-# .setup.conf.local -- the gitignored per-worktree layer
+# setup.local.toml -- the gitignored per-worktree layer
 #
 # Third layer of the same chain, with the same section-replace rule:
-# template <- <repo>/.setup.conf <- <repo>/.setup.conf.local. It may
+# template <- <repo>/setup.toml <- <repo>/setup.local.toml. It may
 # override ANY section, because per-key merge over the eight `<prefix>_N`
 # ordered-list sections is not merely inconsistent but broken (an item
 # cannot be removed, and adding one needs the highest N of a layer the

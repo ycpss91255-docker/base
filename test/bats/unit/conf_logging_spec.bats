@@ -85,7 +85,7 @@ CONF
 # why: Global logging read
 @test "_collect_logging reads global [logging] from per-repo setup.conf" {
   mkdir -p "${TEMP_DIR}"
-  cat > "${TEMP_DIR}/.setup.conf" <<'CONF'
+  cat > "${TEMP_DIR}/setup.toml" <<'CONF'
 [logging]
 driver = local
 max_size = 20m
@@ -100,7 +100,7 @@ CONF
 # why: Per-service logging read
 @test "_collect_logging reads per-service [logging.<svc>] sections" {
   mkdir -p "${TEMP_DIR}"
-  cat > "${TEMP_DIR}/.setup.conf" <<'CONF'
+  cat > "${TEMP_DIR}/setup.toml" <<'CONF'
 [logging]
 driver = json-file
 
@@ -114,14 +114,14 @@ CONF
   [[ "${_p}" == *"runtime:compress=false"* ]]
 }
 
-@test "_collect_logging: .setup.conf.local replaces the [logging] section (#893)" {
+@test "_collect_logging: setup.local.toml replaces the [logging] section (#893)" {
   mkdir -p "${TEMP_DIR}"
-  cat > "${TEMP_DIR}/.setup.conf" <<'CONF'
+  cat > "${TEMP_DIR}/setup.toml" <<'CONF'
 [logging]
 driver = local
 max_size = 20m
 CONF
-  cat > "${TEMP_DIR}/.setup.conf.local" <<'CONF'
+  cat > "${TEMP_DIR}/setup.local.toml" <<'CONF'
 [logging]
 driver = journald
 CONF
@@ -131,13 +131,13 @@ CONF
   [[ "${_g}" != *"max_size=20m"* ]] || { echo "per-key merge leaked: ${_g}"; return 1; }
 }
 
-@test "_collect_logging: .setup.conf.local supplies a [logging.<svc>] override (#893)" {
+@test "_collect_logging: setup.local.toml supplies a [logging.<svc>] override (#893)" {
   mkdir -p "${TEMP_DIR}"
-  cat > "${TEMP_DIR}/.setup.conf" <<'CONF'
+  cat > "${TEMP_DIR}/setup.toml" <<'CONF'
 [logging]
 driver = json-file
 CONF
-  cat > "${TEMP_DIR}/.setup.conf.local" <<'CONF'
+  cat > "${TEMP_DIR}/setup.local.toml" <<'CONF'
 [logging.runtime]
 max_size = 100m
 CONF
@@ -148,7 +148,7 @@ CONF
 
 @test "_collect_logging ignores an ambient SETUP_CONF (#893 decision 7)" {
   mkdir -p "${TEMP_DIR}"
-  cat > "${TEMP_DIR}/.setup.conf" <<'CONF'
+  cat > "${TEMP_DIR}/setup.toml" <<'CONF'
 [logging]
 driver = local
 CONF
@@ -164,13 +164,13 @@ CONF
 # why: No-config empty
 @test "_collect_logging returns empty when no [logging] sections anywhere" {
   mkdir -p "${TEMP_DIR}"
-  cat > "${TEMP_DIR}/.setup.conf" <<'CONF'
+  cat > "${TEMP_DIR}/setup.toml" <<'CONF'
 [image]
 rule_1 = @basename
 CONF
   local _g="" _p=""
   # Force template fallback to also miss (point _SETUP_SCRIPT_DIR at a
-  # path whose ../../.setup.conf does not exist).
+  # path whose ../../setup.toml does not exist).
   local _save="${_SETUP_SCRIPT_DIR:-}"
   _SETUP_SCRIPT_DIR="${TEMP_DIR}/nonexistent/docker"
   _collect_logging "${TEMP_DIR}" _g _p

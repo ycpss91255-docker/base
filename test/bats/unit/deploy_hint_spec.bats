@@ -33,7 +33,7 @@ _write_hint_repo() {
   local _dir="${1}"
   mkdir -p "${_dir}"
   printf '%s\n' "[deploy]" "gpu_mode = off" "dri_groups = off" \
-    "[gui]" "mode = off" > "${_dir}/.setup.conf"
+    "[gui]" "mode = off" > "${_dir}/setup.toml"
   cat > "${_dir}/Dockerfile" <<'DOCK'
 FROM scratch AS sys
 FROM sys AS devel
