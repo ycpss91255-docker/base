@@ -645,7 +645,7 @@ setup() {
 }
 
 # why: the Python bridge must declare --merge mode so the shim can invoke it
-@test "toml-bridge: Python bridge script supports --merge mode" {
+@test "toml-bridge: Python bridge script declares --merge flag" {
   assert_spec_subject "${BRIDGE_PY}" \
     "the Python bridge script (--merge mode declaration)"
   run grep -- '--merge' "${BRIDGE_PY}"

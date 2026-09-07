@@ -6593,7 +6593,7 @@ is the smoke step, which iterates this same roster.
 | `toml-bridge: merge shim skips missing files silently` | absent layers must be silently skipped so callers can pass the whole chain unconditionally (matching _conf_load_layers convention) |
 | `toml-bridge: _conf_load_layers merges .toml files via bridge` | _conf_load_layers must dispatch to toml_bridge_merge when all files are .toml, producing type-aware merge (key-level for tables, array replace for arrays) instead of bash section-replace |
 | `toml-bridge: _conf_load_layers uses INI path for .conf files` | the INI section-replace path must survive so existing .conf callers keep working -- mixed .conf/.toml chains also fall through to INI |
-| `toml-bridge: Python bridge script supports --merge mode` | the Python bridge must declare --merge mode so the shim can invoke it |
+| `toml-bridge: Python bridge script declares --merge flag` | the Python bridge must declare --merge mode so the shim can invoke it |
 | `toml-bridge: Python _emit_kv has array serialization spec` | [[array of tables]] in TOML must become numbered-key KV lines (mount_1, arg_1, etc.) for backward compat with compose_emit.sh |
 | `toml-bridge: _emit_kv nested array produces numbered keys under parent section` | nested [[build.args]] array must serialize to arg_1, arg_2 lines under the parent section so compose_emit.sh sees the same format |
 | `toml-bridge: setup.toml template has all 15 sections` | the TOML template must mirror all 15 INI sections so the format migration is complete and no section is silently dropped |
