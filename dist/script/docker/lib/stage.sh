@@ -367,7 +367,7 @@ _parse_stage_sections() {
 # layer that defines `[stage:<stage>]` supplies all of it. In practice the
 # template carries no stage overrides (it does not know which Dockerfile
 # stages exist downstream), so the contest is between the repo's committed
-# override and the per-worktree `.setup.conf.local`. The local layer may
+# override and the per-worktree `setup.local.toml`. The local layer may
 # override ANY section -- a per-stage section is not a special case.
 _load_stage_overrides() {
   local _base="${1:?"${FUNCNAME[0]}: missing base_path"}"

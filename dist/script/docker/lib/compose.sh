@@ -235,7 +235,7 @@ _compute_project_name() {
 # _is_self_managed_repo <path>
 #
 # True when <path> is a checkout that manages its own compose.yaml: no
-# `.base/` subtree and no `.setup.conf` (ADR-00000011 sec.4). base itself
+# `.base/` subtree and no `setup.toml` (ADR-00000011 sec.4). base itself
 # is the shape -- it is the template SOURCE -- and so is any repo that
 # opted out of generated config. A consumer always carries both, so this
 # is false for every one of them.
@@ -248,7 +248,7 @@ _compute_project_name() {
 _is_self_managed_repo() {
   local _path="${1-}"
   [[ -n "${_path}" ]] || return 1
-  [[ ! -d "${_path}/.base" && ! -f "${_path}/.setup.conf" ]]
+  [[ ! -d "${_path}/.base" && ! -f "${_path}/setup.toml" ]]
 }
 
 # _export_self_managed_test_tools_image

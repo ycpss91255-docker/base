@@ -47,19 +47,19 @@ unset _setup_conf_lib_dir
 #
 # Three files, lowest precedence first:
 #
-#   <template>/.setup.conf        the shipped default (inside .base)
-#   <repo>/.setup.conf            the repo's committed override -- ours,
+#   <template>/setup.toml         the shipped default (inside .base)
+#   <repo>/setup.toml             the repo's committed override -- ours,
 #                                 shared, what CI and every other checkout
 #                                 of this repo uses
-#   <repo>/.setup.conf.local      the operator's per-worktree override --
+#   <repo>/setup.local.toml       the operator's per-worktree override --
 #                                 gitignored, never touched by tooling,
 #                                 visible only on this machine
 #
-# The `.local` suffix means exactly what the repo's file-naming convention
-# says it means: the standard name is ours, a suffix marks the operator's
-# local variant. `.setup.conf.local` is the local variant OF `.setup.conf`
-# and therefore shares its grammar -- same sections, same keys, same
-# section-replace rule -- rather than being a second schema.
+# The `local` infix means exactly what the repo's file-naming convention
+# says it means: the standard name is ours, the `.local.` infix marks the
+# operator's local variant. `setup.local.toml` is the local variant OF
+# `setup.toml` and therefore shares its grammar -- same tables, same keys,
+# same section-replace rule -- rather than being a second schema.
 #
 # It acts BEFORE compose.yaml is generated (one compose.yaml per worktree),
 # which is what distinguishes it from the ADR-00000022 runtime `.env`
@@ -98,10 +98,10 @@ _setup_conf_layers() {
   if [[ -z "${_scl_dist}" && -n "${_SETUP_SCRIPT_DIR:-}" ]]; then
     _scl_dist="${_SETUP_SCRIPT_DIR}/../../.."
   fi
-  [[ -n "${_scl_dist}" ]] && _scl_out+=("${_scl_dist}/.setup.conf")
+  [[ -n "${_scl_dist}" ]] && _scl_out+=("${_scl_dist}/setup.toml")
   _scl_out+=(
-    "${_base}/.setup.conf"
-    "${_base}/.setup.conf.local"
+    "${_base}/setup.toml"
+    "${_base}/setup.local.toml"
   )
 }
 
@@ -110,12 +110,12 @@ _setup_conf_layers() {
 # Echo the per-worktree override path. One spelling of the filename for
 # every caller that has to name it in a message.
 _setup_conf_local_path() {
-  printf '%s/.setup.conf.local' "${1:?"${FUNCNAME[0]}: missing base_path"}"
+  printf '%s/setup.local.toml' "${1:?"${FUNCNAME[0]}: missing base_path"}"
 }
 
 # _setup_conf_local_sections <base_path> <outarray>
 #
-# Fill <outarray> with the sections <base>/.setup.conf.local actually
+# Fill <outarray> with the sections <base>/setup.local.toml actually
 # DEFINES (>=1 entry), in file order; empty when the file is absent or
 # defines nothing. Under section-replace these are exactly the sections in
 # which the local layer wins, so this is the list every "your write is
@@ -131,8 +131,10 @@ _setup_conf_local_sections() {
   _local="$(_setup_conf_local_path "${_base}")"
   [[ -f "${_local}" ]] || return 0
 
-  local -a _scls_s=() _scls_es=() _scls_k=() _scls_v=()
-  _ini_tokenize "${_local}" _scls_s _scls_es _scls_k _scls_v
+  # _conf_load auto-dispatches: .toml -> _toml_tokenize, INI -> _ini_tokenize.
+  _conf_load "${_local}" _SCLS_LOCAL
+  local -n _scls_s=_SCLS_LOCAL__sects
+  local -n _scls_es=_SCLS_LOCAL__es
 
   local _sec _i _has
   for _sec in "${_scls_s[@]+"${_scls_s[@]}"}"; do
