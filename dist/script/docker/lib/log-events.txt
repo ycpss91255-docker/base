@@ -24,6 +24,7 @@ conf_unknown_arg
 conf_upsert_file_missing
 conf_local_created
 conf_write_shadowed
+conf_toml_merge_failed
 config_components_provisioned
 config_components_absent
 config_files_unprovisioned
