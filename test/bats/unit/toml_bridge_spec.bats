@@ -877,3 +877,26 @@ EOF
   assert_line "lifecycle	init	true"
   assert_line "lifecycle	tty	false"
 }
+
+# why: a bridge that fails prints nothing and says so with its exit status.
+#      Read through a process substitution that status is out of reach, and
+#      the caller is handed a handle with nothing in it -- indistinguishable
+#      from a config whose every value is the default. That is what turned a
+#      totally broken merge into a silent, plausible-looking run, so the
+#      status has to reach the caller.
+@test "toml-bridge: _conf_load_layers fails when the bridge exits non-zero" {
+  local conf_sh="${ROOT}/dist/script/docker/lib/conf.sh"
+  assert_spec_subject "${conf_sh}" \
+    "conf.sh _conf_load_layers (bridge failure propagation)"
+
+  local toml_file="${BATS_TEST_TMPDIR}/layer.toml"
+  printf '[gui]\nmode = "x11"\n' > "${toml_file}"
+
+  # shellcheck disable=SC1090
+  source "${conf_sh}"
+  # The exact failure shape the botched merge produced: exit 1, stdout empty.
+  toml_bridge_merge() { return 1; }
+
+  run _conf_load_layers FHDL "${toml_file}"
+  assert_failure
+}
