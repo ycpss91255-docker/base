@@ -59,6 +59,10 @@ def _emit_kv(data):
 
     Both nestings are arrays: `[[devices]]` arrives as a list at the
     section, `[[build.args]]` as a list under a key of one.
+
+    A scalar goes through _format_value, which is what keeps a TOML
+    boolean spelled the way the shell compares it -- `true`, not Python's
+    `True`, which every `== true` on the other side reads as false.
     """
     for section, entries in data.items():
         if isinstance(entries, list):
@@ -68,7 +72,7 @@ def _emit_kv(data):
                 if isinstance(value, list):
                     _emit_array(section, key, value)
                 else:
-                    print(f"{section}\t{key}\t{value}")
+                    print(f"{section}\t{key}\t{_format_value(value)}")
 
 
 def _merge_toml(paths):
