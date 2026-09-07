@@ -481,6 +481,7 @@ _conf_load_layers() {
     _cll_idx=$(( _cll_idx + 1 ))
   done
 
+  # shellcheck disable=SC2178  # namerefs to arrays, not scalar reassignment
   declare -g -a "${_h}__sects=()" "${_h}__es=()" "${_h}__keys=()" "${_h}__vals=()"
   local -n _cll_ms="${_h}__sects" _cll_mes="${_h}__es" _cll_mk="${_h}__keys" _cll_mv="${_h}__vals"
 

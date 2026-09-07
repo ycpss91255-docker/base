@@ -1688,8 +1688,8 @@ order, plain `[logging]` global handling, and empty-when-absent behaviour.
 | `_parse_logging_svc_sections returns empty when file does not exist` | Missing-file empty |
 | `_collect_logging reads global [logging] from per-repo setup.conf` | Global logging read |
 | `_collect_logging reads per-service [logging.<svc>] sections` | Per-service logging read |
-| `_collect_logging: .setup.conf.local replaces the [logging] section (#893)` | - |
-| `_collect_logging: .setup.conf.local supplies a [logging.<svc>] override (#893)` | - |
+| `_collect_logging: setup.local.toml replaces the [logging] section (#893)` | - |
+| `_collect_logging: setup.local.toml supplies a [logging.<svc>] override (#893)` | - |
 | `_collect_logging ignores an ambient SETUP_CONF (#893 decision 7)` | - |
 | `_collect_logging returns empty when no [logging] sections anywhere` | No-config empty |
 
@@ -2008,7 +2008,7 @@ refused before any build or bundle step.
 | `_generate_deploy_bundle: fails loud when the image bakes no file at a declared tunable path (#833)` | missing baked default |
 | `_setup_deploy: --dry-run previews the resolved compose + prints the build plan (#832)` | deploy dry-run |
 | `_setup_deploy: the preview shows each tunable bind at its declared access (#870)` | preview matches the bundle |
-| `_setup_deploy: refuses while .setup.conf.local is present (#893)` | - |
+| `_setup_deploy: refuses while setup.local.toml is present (#893)` | - |
 | `_setup_deploy: --allow-local-override proceeds and says what it accepted (#893)` | - |
 | `_setup_deploy: no refusal when there is no local override (#893)` | - |
 | `_render_deploy_readme: records the untracked sections a bundle was built from (#893)` | - |
@@ -2156,7 +2156,7 @@ force-rewrite).
 | `migration 2 (pip-helper): keeps a pip line that opens a continued RUN (#956)` | - |
 | `migration 2 (pip-helper): the standalone check refuses a Dockerfile it cannot READ (#956)` | - |
 | `migration 2 (pip-helper): keeps the line when the Dockerfile redirects CONFIG_SRC (#956)` | - |
-| `migration 2 (pip-helper): keeps the line when .setup.conf redirects CONFIG_SRC (#956)` | - |
+| `migration 2 (pip-helper): keeps the line when setup.toml redirects CONFIG_SRC (#956)` | - |
 | `migration 2 (pip-helper): keeps the line when the TEMPLATE conf layer redirects CONFIG_SRC (#956)` | - |
 | `migration 2 (pip-helper): keeps the line when the conf chain comes back truncated (#956)` | - |
 | `migration 2 (pip-helper): keeps the line when a conf layer cannot be scanned (#956)` | - |
@@ -2760,10 +2760,10 @@ Unit tests for `template/script/docker/lib/gitignore.sh` — the canonical
 | Test | Description |
 |------|-------------|
 | `_canonical_gitignore_entries: emits exactly the 13 canonical lines (#502, #507, #606, #832, #879, #893, #868, #1133)` | - |
-| `_canonical_gitignore_entries: advertises .setup.conf.local again (#893)` | - |
+| `_canonical_gitignore_entries: advertises setup.local.toml again (#893)` | - |
 | `no entry is both canonical and retired (#893)` | - |
 | `_retired_gitignore_entries: retires nothing today (#893)` | - |
-| `_sync_gitignore: a full sync leaves .setup.conf.local in the file, twice running (#893)` | - |
+| `_sync_gitignore: a full sync leaves setup.local.toml in the file, twice running (#893)` | - |
 | `_sync_gitignore: prunes a retired entry from the managed block (#879)` | - |
 | `_sync_gitignore: leaves a retired entry the user put ABOVE the marker alone (#879)` | - |
 | `_prune_retired_entries: an early-closing reader cannot lose the managed marker (#905)` | - |
@@ -3015,7 +3015,7 @@ are hard to trigger from a real `bash template/init.sh` invocation
 | `TEMPLATE_REL: auto-detects to '.base' when init.sh lives in .base/` | - |
 | `TEMPLATE_REL: re-sourcing init.sh from .base/ keeps detection stable` | - |
 | `_create_symlinks: targets follow TEMPLATE_REL through .base/ (#330 script/ subfolder)` | - |
-| `_create_new_repo: .gitignore includes .setup.conf.bak and .env.bak` | - |
+| `_create_new_repo: .gitignore includes setup.toml.bak and .env.bak` | - |
 | `_create_hook_stubs: creates script/hooks/{pre,post}/ with 14 stubs (#440)` | - |
 | `_create_hook_stubs: each stub starts with shebang and ends with exit 0 (#440)` | - |
 | `_create_hook_stubs: idempotent — preserves user-modified stub on re-run (#440)` | - |
@@ -3045,10 +3045,10 @@ are hard to trigger from a real `bash template/init.sh` invocation
 | `the resync: leaves an edited monitor workflow unstaged (#1036)` | the monitor workflow is generated once and then left alone on every later run, so a repo that has tuned its schedule owns the file the staging step would commit |
 | `the resync: leaves a customised .hadolint.yaml unstaged (#1036)` | _create_symlinks deliberately KEEPS a .hadolint.yaml that differs from the template rather than re-pointing it, and a file the run refused to touch is not the run's to commit |
 | `the resync: stages the hook stub it created this run (#1036)` | the half of the property that must NOT regress -- a stub this run created is the run's own output, and dropping the whole conditional class from the commit would put the branch's own defect back one file over |
-| `the resync: leaves a .setup.conf setup.sh did not touch unstaged (#1036)` | setup.sh leaves an existing .setup.conf alone on every run but a bootstrap or a stale-path rewrite, so what is in it is the repo's own tuning and staging it commits an edit the user had not finished |
-| `the resync: stages the .setup.conf setup.sh bootstrapped (#1036)` | the half that must not regress -- a first-time bootstrap writes the file, and leaving THAT out of the commit is the tree/commit disagreement the staging step exists to close |
-| `the resync: stages a .setup.conf setup.sh rewrote in place (#1036)` | the stale-mount_1 rewrite changes a file that was already there, so "did it exist before" is the wrong question and only the content answers |
-| `the resync: stages a .setup.conf rewritten only in its final newline (#1036)` | the one failure the trailing-newline sentinel exists for -- a write the record cannot see is a write that never reaches the commit, which is the tree/commit disagreement this staging closes |
+| `the resync: leaves a setup.toml setup.sh did not touch unstaged (#1036)` | setup.sh leaves an existing setup.toml alone on every run but a bootstrap or a stale-path rewrite, so what is in it is the repo's own tuning and staging it commits an edit the user had not finished |
+| `the resync: stages the setup.toml setup.sh bootstrapped (#1036)` | the half that must not regress -- a first-time bootstrap writes the file, and leaving THAT out of the commit is the tree/commit disagreement the staging step exists to close |
+| `the resync: stages a setup.toml setup.sh rewrote in place (#1036)` | the stale-mount_1 rewrite changes a file that was already there, so "did it exist before" is the wrong question and only the content answers |
+| `the resync: stages a setup.toml rewritten only in its final newline (#1036)` | the one failure the trailing-newline sentinel exists for -- a write the record cannot see is a write that never reaches the commit, which is the tree/commit disagreement this staging closes |
 | `the resync: leaves a .gitignore it did not write unstaged (#1036)` | the sync writes nothing when the file already carries every canonical entry, so on the ordinary upgrade .gitignore holds only the repo's own rules and staging it commits a rule the user had not finished |
 | `the resync: leaves a .dockerignore it did not write unstaged (#1036)` | the sibling half of the same list -- .dockerignore is synced by the same mechanism, from the same canonical set, and carries the same hand-maintained build-context region the sync never touches |
 | `the resync: stages the ignore files it wrote this run (#1036)` | the half that must not regress -- the run that actually creates the ignore files wrote them, and leaving THOSE out of the commit is the tree/commit disagreement the staging step exists to close |
@@ -3308,8 +3308,8 @@ the bump rather than moving the coverage number by a plausible margin.
 | `_dump_conf_section returns silent empty for unknown section` | Missing section |
 | `_dump_conf_section hides keys with empty values (using default)` | - |
 | `_print_config_summary prints files, identity, all populated sections, resolved` | Full config dump |
-| `_print_config_summary names an active .setup.conf.local and its sections (#893)` | - |
-| `_print_config_summary says nothing about a .setup.conf.local that is absent (#893)` | - |
+| `_print_config_summary names an active setup.local.toml and its sections (#893)` | - |
+| `_print_config_summary says nothing about a setup.local.toml that is absent (#893)` | - |
 | `_print_config_summary prints Variables block mapping setup.conf placeholders to detected values` | Variables block populated |
 | `_print_config_summary Variables block falls back to '-' for unset values` | Variables fallback |
 | `_print_config_summary hides sections that are empty in setup.conf` | Empty-section skip |
@@ -3985,11 +3985,11 @@ acquiring it, and to any other scope beside it
 The "What's included" table in `README.md` is a file INDEX, so every row
 names a real path -- and nothing checked that (#957). Item 3 of that issue
 was one such row: it still called the per-repo runtime config `setup.conf`
-long after the rename to `.setup.conf`, and the stale-path lint that would
+long after the rename to `setup.toml`, and the stale-path lint that would
 normally catch it (`script/test/drivers/stale_setup_conf.sh`) scans
 `dist/**/*.sh` only, so the row could be edited back to the old name with
 the suite green. Rows mix two vantage points on purpose -- base-relative
-paths and CONSUMER-relative ones (`build.sh`, `.setup.conf`, `config/`, what
+paths and CONSUMER-relative ones (`build.sh`, `setup.toml`, `config/`, what
 a downstream repo sees once init.sh has run) -- so a row counts as resolved
 under the repo root, `dist/` or `script/`.
 
@@ -5275,8 +5275,8 @@ isolated `_setup_known_section` / `SCHEMA_SECTIONS` (#561) unit checks.
 | `apply drops a pending name once the derivation agrees again (#920)` | - |
 | `apply takes a CONFIGURED rename at once and warns about the old project (#920, #893)` | - |
 | `the shipped template ships [project] name empty, so an upgrade changes nothing (#893)` | - |
-| `set --local writes .setup.conf.local and leaves .setup.conf alone (#893)` | - |
-| `set without --local still writes .setup.conf (#893)` | - |
+| `set --local writes setup.local.toml and leaves setup.toml alone (#893)` | - |
+| `set without --local still writes setup.toml (#893)` | - |
 | `set --local reports the gitignored file it created (#893)` | - |
 | `set warns, names the section and points at --local when .local shadows it (#893)` | - |
 | `set does not warn about a section the local layer does not define (#893)` | - |
@@ -5429,12 +5429,12 @@ overwritten.
 ### test/bats/unit/setup_conf_spec.bats (33)
 
 Mirrors `lib/setup_conf.sh`. setup.conf merging (`_load_setup_conf` replace
-strategy) resolving the per-repo override from the repo-root `.setup.conf`
+strategy) resolving the per-repo override from the repo-root `setup.toml`
 dotfile (a legacy `config/docker/setup.conf` is no longer read),
 `_get_conf_value` / `_get_conf_list_sorted` (incl. empty-skip), and the
 `_rule_basename` image-rule helper. Also guards the shipped `dist/` prose
 against pre-relocation path names: the four `setup_tui.sh` usage heredocs
-must advertise `.setup.conf`, and no shipped text may still say
+must advertise `setup.toml`, and no shipped text may still say
 `<repo>/setup.conf` or `.base/setup.conf` (#842).
 
 | Test | Description |
@@ -5450,7 +5450,7 @@ must advertise `.setup.conf`, and no shipped text may still say
 | `_load_setup_conf uses per-repo setup.toml when section present` | The TOML migration must not break the primary config-load path. |
 | `_load_setup_conf reads the per-repo override from repo-root setup.toml` | The repo-root setup.toml is the committed override layer; loading from the wrong path silently falls back to the template. |
 | `_load_setup_conf ignores a legacy config/docker/setup.conf override` | - |
-| `setup_tui.sh usage names the repo-root .setup.conf in every language (#842)` | - |
+| `setup_tui.sh usage names the repo-root setup.toml in every language (#842)` | - |
 | `no shipped dist/ text still points at the pre-relocation <repo>/setup.conf (#842)` | - |
 | `no shipped dist/ text names the non-existent .base/setup.conf default (#842)` | - |
 | `_load_setup_conf falls back to template when section absent per-repo` | - |
@@ -6425,7 +6425,7 @@ Unit tests for the repo-local command-group scaffolder
 | `the top-level walk is read on its own, not off the roster (#951)` | The roster is two walks unioned; asking the roster for a single-component path shows the top-level walk ran only while every sweep root is a directory, so the walk is asked directly and each path it returns must reach the roster |
 | `the flattener closes only a block it opened (#951)` | An `end` marker with no `begin` above it closed the vocabulary carve-out and took its own line with it, so prose sharing that line left the sweep; the flattener now closes only what it opened, while a real block is still excised |
 | `the claim sweep refuses a pattern it could not read (#951)` | grep's exit 2 -- a pattern it could not evaluate -- shared an `if` branch with exit 1, so a sweep that never ran reported the file clean; `_df_claim_hits` returns that third answer and the caller fails loudly on it |
-| `the note gives one [build] arg slot per key (#951)` | Derived from the note's own `arg_N = KEY=` lines: two paragraphs handing one slot to different keys is silent, because a `[build]` section in `.setup.conf.local` replaces the whole section |
+| `the note gives one [build] arg slot per key (#951)` | Derived from the note's own `arg_N = KEY=` lines: two paragraphs handing one slot to different keys is silent, because a `[build]` section in `setup.local.toml` replaces the whole section |
 | `the apt-layer guard sees the install shapes this template writes (#951)` | Reach and restraint of `_DF_APT_INSTALL_RE`: an option taking a separate argument (`-o Dpkg::Options::=` before the subcommand) is an install layer, while `apt-get clean` chains and `pip install` are not |
 | `Dockerfile.example states the moving-BASE_IMAGE reproducibility trade-off (#951)` | read from the note's own comment window above `ARG BASE_IMAGE=`, since every path it names is also spelled in the code that implements it: the moving default, the recorded manifest and the digest escape hatch are stated where a downstream author edits |
 | `Dockerfile.example states what the UNPINNED default does not record (#951)` | read from the note's own window: the digest half AC1 asks for is empty in the shipped default, the note says so, and the recipe it gives strips to `sha256:<hex>` so both routes record the same shape |
@@ -6455,7 +6455,7 @@ Unit tests for the repo-local command-group scaffolder
 | `release-test-tools.yaml declares packages:write permission` | ghcr auth scope |
 | `release-test-tools.yaml builds multi-arch (amd64 + arm64)` | arch coverage |
 | `release-test-tools.yaml uses template-repo-local Dockerfile path` | no subtree path confusion |
-| `release archive payload declares no derived per-host artifact` | no compose.yaml / .setup.conf in the manifest |
+| `release archive payload declares no derived per-host artifact` | no compose.yaml / setup.toml in the manifest |
 | `release archive payload still declares Dockerfile + script/ + .base/` | positive payload guard (no over-prune) |
 | `release archive payload guard is not satisfied by another entry's description` | The `.base/` guard reads the paths column, not a neighbour's prose |
 | `run.sh contains XDG_SESSION_TYPE check` | X11/Wayland branch |
@@ -7087,11 +7087,11 @@ the shipped tree rather than kept as a roster
 | `main: exits 2 when no dialog backend is installed` | without dialog or whiptail there is no TUI to run. Exiting 2 rather than 0 is what lets a wrapper tell "cancelled" from "cannot start". |
 | `main: cancelling the main menu saves nothing` | Cancel at the main menu means discard. Committing anyway would write the partial edits the user just backed out of. |
 | `main: Save & Exit commits and then runs the post hook` | Save & Exit is the only path that writes, and the post-tui hook fires after the write so a repo's hook sees the regenerated compose.yaml. |
-| `main: seeds the per-repo conf with an apply run when none exists` | on a repo that has never been set up there is no .setup.conf to load, so the menus would open on an empty config. main seeds it by running apply first; skipping that is how mount_1 detection went missing. |
+| `main: seeds the per-repo conf with an apply run when none exists` | on a repo that has never been set up there is no setup.toml to load, so the menus would open on an empty config. main seeds it by running apply first; skipping that is how mount_1 detection went missing. |
 | `main: -h prints usage and does not open the menu` | -h must print usage rather than open the TUI, and it is the one path a user reaches when they do not know the subcommand names. |
 | `_tui_canonical_section: gpu resolves to deploy, other names are themselves` | `gpu` is an alias, not a section; everything else is its own name. Canonicalising the wrong way round would send `deploy` to a `_edit_section_gpu` that does not exist. |
 | `the TUI's shipped files define no function nothing can reach` | base#1073 found three functions in setup_tui.sh with no caller, and one of them had three specs -- so a test suite is not evidence that production code is reachable. A hand-kept roster of "known dead" would go stale the moment a caller is deleted, so the population is derived from the files and the callers from the shipped tree. Dynamic dispatch is resolved by asking the program which names it can dispatch, not by waving a prefix through, which is how `_edit_section_resources` -- whose only caller is main's `setup_tui.sh resources` direct jump -- stays in while a dead editor does not. The population is every shipped file of the TUI, not setup_tui.sh alone, because the dead code a TUI change leaves behind does not stay in one file. Deleting `_prompt_mount_with_picker` from the wrapper took with it the ONLY two call sites of `_tui_radiolist` in lib/_tui_backend.sh and the only caller of `_assemble_mount_value` in lib/_tui_conf.sh; a guard that reads the wrapper alone reports a clean tree while two primitives ship with nothing to call them. The glob is what makes that derived: a new `_tui_*.sh` joins the population by existing. |
-| `main: every schema section opens its editor or is refused by name` | main jumps straight to `"_edit_section_${_subcmd}"` for every name `_tui_known_subcommand` accepts, and that gate read the schema section list alone. `project` is on that list with a deliberate no-editor opt-out (schema.sh's SCHEMA_I18N note says the project name belongs in the gitignored .setup.conf.local, which the menu has no concept of), so `setup_tui.sh project` jumped to a function that does not exist -- a bash command-not-found, raised only after the backend probe and the seeding `setup.sh apply` run had already happened. Both directions are asserted over the whole SCHEMA_SECTIONS population, so a section that gains or loses an editor is covered without an edit here. |
+| `main: every schema section opens its editor or is refused by name` | main jumps straight to `"_edit_section_${_subcmd}"` for every name `_tui_known_subcommand` accepts, and that gate read the schema section list alone. `project` is on that list with a deliberate no-editor opt-out (schema.sh's SCHEMA_I18N note says the project name belongs in the gitignored setup.local.toml, which the menu has no concept of), so `setup_tui.sh project` jumped to a function that does not exist -- a bash command-not-found, raised only after the backend probe and the seeding `setup.sh apply` run had already happened. Both directions are asserted over the whole SCHEMA_SECTIONS population, so a section that gains or loses an editor is covered without an edit here. |
 | `the dead-code guard names every shape of dead function planted in a tree` | the guard above is only worth its runtime if it would go red on a function that is dead TOMORROW, and every shape below is one it waved through at some point. Each is planted in a scratch tree and has to be named back. A plain dead helper is the control, which proves the planting works. A dead `_edit_section_*` is one a blanket prefix exemption waved through even though 14 of the file's editors have no caller but the `"_edit_section_${_subcmd}"` dispatch. One whose only mention outside its own definition is a trailing comment is one a whole-line-only comment strip counted as a caller. `rule_*` and `_TUI_MSG_*` are what harvesting every `"<name>_${` in the file as a dispatch prefix collects -- `image.rule_${_n}` and `_TUI_MSG_${_TUI_LANG_UPPER}`, a config-key prefix and an array-name prefix that dispatch no function at all -- and then exempts anything carrying them from the check entirely. A pair of dead functions that call each other survives mention-counting because each is the other's second mention, so a whole dead limb stays green. And one that names itself in its own `${1:?...}` message is its own second mention: not hypothetical, since that idiom appears 81 times in dist/, and it is why `_assemble_mount_value` outlived its only caller in lib/_tui_conf.sh without anything noticing. |
 | `_tui_init_lang: each supported locale selects its own message table` | every message lookup goes through the table _tui_init_lang selects, so a locale that maps to the wrong table (or falls through to English) makes the whole TUI monolingual for that user. Checked through _tui_msg rather than the index variable: the table is what the user reads. |
 | `_mark_removed: marking the same key twice lists it once` | the removal list is replayed key by key when the file is written, so a key marked twice would be processed twice. Clearing the same entry from two screens is ordinary use. |
@@ -7541,7 +7541,7 @@ policy is never rewritten).
 | `_migrate_lifecycle_restart_default leaves a deliberately chosen policy alone` | - |
 | `_migrate_lifecycle_restart_default is inert once the vendored template ships the new default` | - |
 | `_migrate_lifecycle_restart_default ignores a restart key outside [lifecycle]` | - |
-| `_migrate_lifecycle_restart_default is a no-op without a repo .setup.conf` | - |
+| `_migrate_lifecycle_restart_default is a no-op without a repo setup.toml` | - |
 | `_migrate_lifecycle_restart_default is a no-op without a vendored template baseline` | - |
 
 ### test/bats/unit/upstream_spec.bats (9)

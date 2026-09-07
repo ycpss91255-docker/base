@@ -81,10 +81,10 @@ because the text is not what decides which image a run pulls.
 ### test/bats/integration/deploy_bundle_flow_spec.bats (7)
 
 The field-deploy generator end-to-end across components (ADR-00000023): a
-fixture repo (repo-root `.setup.conf`, a Dockerfile with a `runtime` stage,
-a `config/<component>/deploy.manifest` declaring one tunable path) drives
-the real `_setup_deploy` -> `_generate_deploy_bundle` flow with a docker +
-xz PATH-shim (no real daemon), and asserts the produced output folder
+fixture repo (repo-root `setup.toml`, a Dockerfile with a `runtime` stage, a
+`config/<component>/deploy.manifest` declaring one tunable path) drives the
+real `_setup_deploy` -> `_generate_deploy_bundle` flow with a docker + xz
+PATH-shim (no real daemon), and asserts the produced output folder
 `deploy/<repo>-<stage>-<version>/` is correct. Distinct from the
 isolated-function unit specs: this exercises the manifest -> resolve ->
 resolved-compose -> bundle-files wiring as a flow.
@@ -198,7 +198,7 @@ the unit `tui_spec`.
 | `init.sh detects empty dir and creates new repo skeleton` | Smoke |
 | `new repo: Dockerfile is copied from template` | Dockerfile gen |
 | `new repo: compose.yaml exists and references the repo name` | compose gen |
-| `new repo: .env.example is NOT generated (image name via setup.conf rules)` | setup.conf rules drive IMAGE_NAME |
+| `new repo: .env.example is NOT generated (image name via setup.toml rules)` | setup.toml rules drive IMAGE_NAME |
 | `new repo: script/entrypoint.sh exists and is executable` | entrypoint gen |
 | `new repo: the seeded entrypoint is a clean bringup under base's orchestrator (refs #364)` | the seeded entrypoint carries no base plumbing and no exec, the Dockerfile names the orchestrator, and the orchestrator is vendored -- the [logging] UX guarantee of #364 now held by base's half instead of by a repo-owned copy that a subtree pull could never reach. Also keeps the v0.30.0 regression guards: no ${USER}, no /home/ in the seeded file. |
 | `new repo: smoke test skeleton exists for the repo` | smoke skeleton |
@@ -244,14 +244,14 @@ the unit `tui_spec`.
 | `new repo: stop.sh -h works against the generated symlink` | smoke script/stop.sh |
 | `new repo: setup.sh symlink under script/ → ../.base/dist/script/docker/wrapper/setup.sh` | - |
 | `new repo: setup.sh -h works against the generated symlink` | smoke script/setup.sh |
-| `init.sh --gen-conf copies setup.conf to repo root` | setup.conf gen |
-| `init.sh --gen-conf refuses to overwrite existing setup.conf` | overwrite safety |
+| `init.sh --gen-conf copies setup.toml to repo root` | setup.toml gen |
+| `init.sh --gen-conf refuses to overwrite existing setup.toml` | overwrite safety |
 | `new repo: .gitignore contains compose.yaml (derived artifact)` | gitignore compose.yaml |
 | `new repo: .gitignore contains .env (derived artifact)` | gitignore .env |
 | `new repo: compose.yaml has AUTO-GENERATED header (produced by setup.sh)` | setup.sh generated compose.yaml |
 | `new repo: compose.yaml omits devices block by default (#466 opt-in)` | - |
-| `new repo: setup.conf mount_1 is NOT empty after first init (workspace detected + written)` | workspace writeback non-empty |
-| `new repo: per-repo setup.conf auto-created on first init (workspace writeback)` | #201 — bootstrap writes WS_PATH back |
+| `new repo: setup.toml mount_1 is NOT empty after first init (workspace detected + written)` | workspace writeback non-empty |
+| `new repo: per-repo setup.toml auto-created on first init (workspace writeback)` | #201 — bootstrap writes WS_PATH back |
 | `new repo: init warns + exits 0 + still creates symlinks when just is absent (#607)` | Missing runner -> non-fatal WARN, symlinks still laid down |
 | `new repo: init is silent about just when the runner is present (#607)` | Runner present -> no warning |
 | `init.sh refuses to run when the subtree root carries .git (base template source)` | Self-run guard (ADR-00000011 sec.8): .git at subtree root -> refuse, no scaffold |
@@ -474,7 +474,7 @@ Docker invocation).
 | `run.sh foreground --dry-run installs cleanup that downs with --remove-orphans` | EXIT-trap cleanup |
 | `no wrapper dispatches compose without -p (bypass regression)` | bypass catcher |
 | `the -p project name and compose.yaml's name: are one value, not two computations` | - |
-| `[project] name in .setup.conf.local moves BOTH the -p and the emitted name:` | - |
+| `[project] name in setup.local.toml moves BOTH the -p and the emitted name:` | - |
 | `two checkouts of one repo dispatch different projects after a local override` | - |
 | `an unchanged repo keeps the project name it resolved before [project] existed` | - |
 
