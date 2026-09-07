@@ -632,21 +632,49 @@ EOF
   [[ "${#_stages[@]}" -eq 0 ]] || { echo "expected 0 stages, got ${#_stages[@]}: ${_stages[*]}"; return 1; }
 }
 
+# why: TOML quotes table names that contain a colon, so [stage:foo] in
+# INI becomes ["stage:foo"] in TOML. The regex must match both forms
+# or the emitter silently drops every per-stage override.
+@test "_parse_stage_sections: extracts TOML [\"stage:NAME\"] sections (ADR-37)" {
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+[gui]
+mode = "auto"
+
+["stage:headless"]
+"gui.mode" = "off"
+
+[network]
+mode = "host"
+
+["stage:gui"]
+"gui.mode" = "auto"
+
+["stage:web"]
+"network.mode" = "bridge"
+EOF
+  local -a _stages=()
+  _parse_stage_sections "${TEMP_DIR}/setup.toml" _stages
+  [[ "${#_stages[@]}" -eq 3 ]] || { echo "expected 3 stages, got ${#_stages[@]}: ${_stages[*]}"; return 1; }
+  [[ "${_stages[0]}" == "headless" ]] || { echo "expected headless first, got ${_stages[0]}"; return 1; }
+  [[ "${_stages[1]}" == "gui" ]] || { echo "expected gui second, got ${_stages[1]}"; return 1; }
+  [[ "${_stages[2]}" == "web" ]] || { echo "expected web third, got ${_stages[2]}"; return 1; }
+}
+
 # ─── _load_stage_overrides ────────────────────────────────────────
 
-@test "_load_stage_overrides: returns the keys+values under [stage:NAME]" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+@test "_load_stage_overrides: returns the keys+values under [stage:NAME] (TOML)" {
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [gui]
-mode = auto
+mode = "auto"
 
-[stage:headless]
-gui.mode = off
-network.mode = bridge
-network.port_1 = 8080:80
-volumes.mount_1 = /tmp/cache:/cache
+["stage:headless"]
+"gui.mode" = "off"
+"network.mode" = "bridge"
+"network.port_1" = "8080:80"
+"volumes.mount_1" = "/tmp/cache:/cache"
 
-[stage:gui]
-gui.mode = auto
+["stage:gui"]
+"gui.mode" = "auto"
 EOF
   local -a _keys=() _values=()
   _load_stage_overrides "${TEMP_DIR}" "headless" _keys _values
@@ -657,17 +685,17 @@ EOF
   [[ "${_keys[3]}" == "volumes.mount_1" && "${_values[3]}" == "/tmp/cache:/cache" ]] || return 1
 }
 
-@test "_load_stage_overrides: .setup.conf.local replaces a [stage:NAME] section (#893)" {
+@test "_load_stage_overrides: setup.local.toml replaces a [stage:NAME] section (#893)" {
   # The local layer overrides ANY section, not a whitelist -- and a stage
   # section is exactly the shape a second worktree needs to vary.
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
-[stage:headless]
-gui.mode = off
-network.port_1 = 8080:80
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+["stage:headless"]
+"gui.mode" = "off"
+"network.port_1" = "8080:80"
 EOF
-  cat > "${TEMP_DIR}/.setup.conf.local" <<'EOF'
-[stage:headless]
-network.port_1 = 18080:80
+  cat > "${TEMP_DIR}/setup.local.toml" <<'EOF'
+["stage:headless"]
+"network.port_1" = "18080:80"
 EOF
   local -a _keys=() _values=()
   _load_stage_overrides "${TEMP_DIR}" "headless" _keys _values
@@ -676,13 +704,13 @@ EOF
 }
 
 @test "_load_stage_overrides: a [stage:NAME] the local layer omits keeps the repo's (#893)" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
-[stage:headless]
-gui.mode = off
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+["stage:headless"]
+"gui.mode" = "off"
 EOF
-  cat > "${TEMP_DIR}/.setup.conf.local" <<'EOF'
-[stage:gui]
-gui.mode = force
+  cat > "${TEMP_DIR}/setup.local.toml" <<'EOF'
+["stage:gui"]
+"gui.mode" = "force"
 EOF
   local -a _keys=() _values=()
   _load_stage_overrides "${TEMP_DIR}" "headless" _keys _values
@@ -692,34 +720,34 @@ EOF
 @test "_load_stage_overrides: ignores an ambient SETUP_CONF (#893 decision 7)" {
   # An ambient value used to REPLACE the file this reads, so a leftover
   # export silently swapped every per-stage override for another file's.
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
-[stage:headless]
-gui.mode = off
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+["stage:headless"]
+"gui.mode" = "off"
 EOF
-  cat > "${TEMP_DIR}/elsewhere.conf" <<'EOF'
-[stage:headless]
-gui.mode = force
+  cat > "${TEMP_DIR}/elsewhere.toml" <<'EOF'
+["stage:headless"]
+"gui.mode" = "force"
 EOF
   local -a _keys=() _values=()
-  SETUP_CONF="${TEMP_DIR}/elsewhere.conf" \
+  SETUP_CONF="${TEMP_DIR}/elsewhere.toml" \
     _load_stage_overrides "${TEMP_DIR}" "headless" _keys _values
   [[ "${_values[0]}" == "off" ]] || { echo "got: ${_values[0]-}"; return 1; }
 }
 
-@test "_load_stage_overrides: missing setup.conf → empty arrays" {
+@test "_load_stage_overrides: missing setup.toml → empty arrays" {
   local -a _keys=() _values=()
   _load_stage_overrides "${TEMP_DIR}" "headless" _keys _values
   [[ "${#_keys[@]}" -eq 0 ]] || { echo "expected 0 keys, got ${#_keys[@]}: ${_keys[*]}"; return 1; }
   [[ "${#_values[@]}" -eq 0 ]] || return 1
 }
 
-@test "_load_stage_overrides: stage absent from setup.conf → empty arrays" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+@test "_load_stage_overrides: stage absent from setup.toml → empty arrays" {
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [gui]
-mode = auto
+mode = "auto"
 
-[stage:headless]
-gui.mode = off
+["stage:headless"]
+"gui.mode" = "off"
 EOF
   local -a _keys=() _values=()
   _load_stage_overrides "${TEMP_DIR}" "gui" _keys _values
@@ -934,15 +962,16 @@ FROM sys AS base
 FROM base AS devel
 FROM devel AS headless
 EOF
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [gui]
-mode = force
+mode = "force"
 
-[stage:headless]
-gui.mode = off
+["stage:headless"]
+"gui.mode" = "off"
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
+    toml_bridge_parse() { local f=\"\${1:?}\"; shift; [[ -f \"\${f}\" ]] || return 1; /usr/local/bin/toml-bridge \"\$@\" < \"\${f}\"; }
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
   "
   assert_success
@@ -950,7 +979,7 @@ EOF
   # next service header).
   run bash -c "awk '/^  headless:\$/{f=1; next} /^  [a-z][a-z0-9_-]*:\$/{f=0} f' '${TEMP_DIR}/compose.yaml'"
   assert_success
-  # CRITICAL: NO `extends:` line — standalone emit so compose does
+  # CRITICAL: NO `extends:` line -- standalone emit so compose does
   # not merge devel's X11 list back in.
   refute_output --partial "extends:"
   refute_output --partial "service: devel"
@@ -973,16 +1002,17 @@ FROM sys AS base
 FROM base AS devel
 FROM devel AS headless
 EOF
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [network]
-mode = host
+mode = "host"
 
-[stage:headless]
-network.mode = bridge
-network.port_1 = 8080:80
+["stage:headless"]
+"network.mode" = "bridge"
+"network.port_1" = "8080:80"
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
+    toml_bridge_parse() { local f=\"\${1:?}\"; shift; [[ -f \"\${f}\" ]] || return 1; /usr/local/bin/toml-bridge \"\$@\" < \"\${f}\"; }
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
   "
   assert_success
@@ -1005,18 +1035,19 @@ FROM sys AS base
 FROM base AS devel
 FROM devel AS headless
 EOF
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [volumes]
-mount_1 =
-mount_2 = /etc/localtime:/etc/localtime:ro
-mount_3 = /data:/data
+mount_1 = ""
+mount_2 = "/etc/localtime:/etc/localtime:ro"
+mount_3 = "/data:/data"
 
-[stage:headless]
-volumes.mount_inherit = false
-volumes.mount_1 = /only:/only
+["stage:headless"]
+"volumes.mount_inherit" = "false"
+"volumes.mount_1" = "/only:/only"
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
+    toml_bridge_parse() { local f=\"\${1:?}\"; shift; [[ -f \"\${f}\" ]] || return 1; /usr/local/bin/toml-bridge \"\$@\" < \"\${f}\"; }
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
   "
   assert_success
@@ -1045,20 +1076,21 @@ FROM sys AS base
 FROM base AS devel
 FROM devel AS headless
 EOF
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [gui]
-mode = force
+mode = "force"
 
 [security]
-privileged = true
-cap_add_1 = SYS_ADMIN
-cap_add_2 = NET_ADMIN
+privileged = "true"
+cap_add_1 = "SYS_ADMIN"
+cap_add_2 = "NET_ADMIN"
 
-[stage:headless]
-gui.mode = off
+["stage:headless"]
+"gui.mode" = "off"
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
+    toml_bridge_parse() { local f=\"\${1:?}\"; shift; [[ -f \"\${f}\" ]] || return 1; /usr/local/bin/toml-bridge \"\$@\" < \"\${f}\"; }
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
   "
   assert_success
@@ -1080,15 +1112,16 @@ FROM sys AS base
 FROM base AS devel
 FROM devel AS headless
 EOF
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
-[stage:headless]
-gui.mode = off
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+["stage:headless"]
+"gui.mode" = "off"
 
-[stage:foo]
-gui.mode = off
+["stage:foo"]
+"gui.mode" = "off"
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
+    toml_bridge_parse() { local f=\"\${1:?}\"; shift; [[ -f \"\${f}\" ]] || return 1; /usr/local/bin/toml-bridge \"\$@\" < \"\${f}\"; }
     main apply --base-path '${TEMP_DIR}' 2>&1 >/dev/null
   "
   assert_success
@@ -1104,32 +1137,34 @@ FROM sys AS base
 FROM base AS devel
 FROM devel AS headless
 EOF
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
-[stage:headless]
-gui.mode = off
-image.rule_1 = prefix:bogus_
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+["stage:headless"]
+"gui.mode" = "off"
+"image.rule_1" = "prefix:bogus_"
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
+    toml_bridge_parse() { local f=\"\${1:?}\"; shift; [[ -f \"\${f}\" ]] || return 1; /usr/local/bin/toml-bridge \"\$@\" < \"\${f}\"; }
     main apply --base-path '${TEMP_DIR}' 2>&1 >/dev/null
   "
   assert_success
   assert_output --partial "image.rule_1"
 }
 
-@test "stage-override: [stage:sys] in setup.conf is hard-error (baseline collision)" {
+@test "stage-override: [stage:sys] in setup.toml is hard-error (baseline collision)" {
   cat > "${TEMP_DIR}/Dockerfile" <<'EOF'
 FROM scratch AS sys
 FROM sys AS base
 FROM base AS devel
 FROM devel AS headless
 EOF
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
-[stage:sys]
-gui.mode = off
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+["stage:sys"]
+"gui.mode" = "off"
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
+    toml_bridge_parse() { local f=\"\${1:?}\"; shift; [[ -f \"\${f}\" ]] || return 1; /usr/local/bin/toml-bridge \"\$@\" < \"\${f}\"; }
     main apply --base-path '${TEMP_DIR}' 2>&1 >/dev/null
   "
   assert_failure
@@ -1154,12 +1189,13 @@ FROM sys AS devel-base
 FROM devel-base AS devel
 FROM devel AS devel-test
 EOF
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
-[stage:devel-test]
-deploy.gpu_mode = force
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+["stage:devel-test"]
+"deploy.gpu_mode" = "force"
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
+    toml_bridge_parse() { local f=\"\${1:?}\"; shift; [[ -f \"\${f}\" ]] || return 1; /usr/local/bin/toml-bridge \"\$@\" < \"\${f}\"; }
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
   "
   assert_success

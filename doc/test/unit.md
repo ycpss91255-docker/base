@@ -2371,7 +2371,7 @@ the file's bottom guard and are pinned separately.
 | `the orchestrator ships with the executable bit set (#945)` | Its four runtime siblings are 644 because they are sourced; this one is executed. The Dockerfile's `COPY --chmod=0755` hides a committed 644, so nothing in a normal build goes red -- the file is simply not runnable from the subtree, and any consumer path that stops going through that COPY inherits an exit 126 |
 | `the shared smoke baseline asserts the orchestrator's in-image path (#945)` | Joins the two files nothing else joins -- it reads the ENTRYPOINT out of the shipped Dockerfile and requires the shared build-time baseline to name that same path. Without it the half the container actually starts is asserted by nothing, and a dropped runtime-directory COPY stays invisible until a real container fails to come up |
 
-### test/bats/unit/env_emit_spec.bats (27)
+### test/bats/unit/env_emit_spec.bats (30)
 
 Mirrors `lib/env_emit.sh`. `write_env` (.env contents + SETUP_* metadata,
 SSH X11 `XAUTHORITY` override #321) and `_scaffold_env_overlay` idempotency.
@@ -2399,6 +2399,9 @@ SSH X11 `XAUTHORITY` override #321) and `_scaffold_env_overlay` idempotency.
 | `write_container_env passes a double quote and a backslash through (#868)` | - |
 | `write_container_env escapes the delimiter inside a value (#868)` | - |
 | `write_container_env keeps $ literal, unexpanded (#868)` | - |
+| `write_container_env emits .env.toml [environment] entries under a service env header (#1135)` | ADR-37 splits service runtime env into .env.toml. The emitter must produce a headed section so the operator can see which file each block came from, and each key must land single-quoted (the same format _emit_env_file_line uses for setup.toml entries). |
+| `write_container_env omits the service env section when the parameter is empty (#1135)` | An empty service_env_str means the repo carries no .env.toml entries. The section header must not appear -- a headed empty block misleads the operator into thinking the file was read but had nothing. |
+| `write_container_env emits both infra and service env sections (#1135)` | The two env sources (setup.toml infra + .env.toml service) and the watchdog block must coexist in one .env file. A merge bug would drop one source or intermingle their headers. |
 | `_migrate_env_to_local renames a hand-written .env to .env.local (#868)` | - |
 | `_migrate_env_to_local is inert on a second run (#868)` | - |
 | `_migrate_env_to_local leaves a generated .env alone (#868)` | - |
@@ -5404,20 +5407,20 @@ must advertise `.setup.conf`, and no shipped text may still say
 | `_load_setup_conf does not resolve to an empty config when an ambient SETUP_CONF path is absent` | - |
 | `_setup_conf_handle ignores an ambient SETUP_CONF` | - |
 | `_compute_conf_hash ignores an ambient SETUP_CONF` | - |
-| `_load_setup_conf uses per-repo setup.conf when section present` | - |
-| `_load_setup_conf reads the per-repo override from repo-root .setup.conf` | - |
+| `_load_setup_conf uses per-repo setup.toml when section present` | - |
+| `_load_setup_conf reads the per-repo override from repo-root setup.toml` | - |
 | `_load_setup_conf ignores a legacy config/docker/setup.conf override` | - |
 | `setup_tui.sh usage names the repo-root .setup.conf in every language (#842)` | - |
 | `no shipped dist/ text still points at the pre-relocation <repo>/setup.conf (#842)` | - |
 | `no shipped dist/ text names the non-existent .base/setup.conf default (#842)` | - |
 | `_load_setup_conf falls back to template when section absent per-repo` | - |
 | `_load_setup_conf replace strategy: per-repo section fully replaces template section` | - |
-| `_load_setup_conf: .setup.conf.local overrides the per-repo section` | - |
-| `_load_setup_conf: .setup.conf.local overrides the template for a section the repo omits` | - |
-| `_load_setup_conf: .setup.conf.local replaces a section wholesale, never per-key` | - |
-| `_load_setup_conf: sections .setup.conf.local omits keep the layer below` | - |
-| `_setup_conf_handle: .setup.conf.local wins over the per-repo layer` | - |
-| `_compute_conf_hash: editing .setup.conf.local is drift` | - |
+| `_load_setup_conf: setup.local.toml overrides the per-repo section` | - |
+| `_load_setup_conf: setup.local.toml overrides the template for a section the repo omits` | - |
+| `_load_setup_conf: setup.local.toml replaces a section wholesale, never per-key` | - |
+| `_load_setup_conf: sections setup.local.toml omits keep the layer below` | - |
+| `_setup_conf_handle: setup.local.toml wins over the per-repo layer` | - |
+| `_compute_conf_hash: editing setup.local.toml is drift` | - |
 | `_setup_effective_full: show/list read the local layer too` | - |
 | `_setup_conf_local_sections: names the sections the local layer shadows` | - |
 | `_setup_conf_local_sections: empty when no local layer is present` | - |
@@ -5975,7 +5978,7 @@ the test that produces it, each case writes a one-test spec into
 | `the fail-open guard scan sees each spelling of the check it claims to cover` | The invariant must be green because no guard exists, not because its pattern is blind |
 | `the fail-open guard scan is an over-approximation, not a closed set` | A sample of what it misses, so the disclosure is never wider than the pattern |
 
-### test/bats/unit/stage_spec.bats (104)
+### test/bats/unit/stage_spec.bats (105)
 
 Mirrors `lib/stage.sh`. The per-stage engine: `_validate_stage_name` (#215),
 `_parse_dockerfile_stages`, `_compute_dockerfile_hash`, `main apply`
@@ -6034,12 +6037,13 @@ and asserts one verdict per site.
 | `_parse_stage_sections: missing file → empty output (no error)` | - |
 | `_parse_stage_sections: extracts [stage:NAME] sections in file order` | - |
 | `_parse_stage_sections: ignores plain sections that are not [stage:...]` | - |
-| `_load_stage_overrides: returns the keys+values under [stage:NAME]` | - |
-| `_load_stage_overrides: .setup.conf.local replaces a [stage:NAME] section (#893)` | - |
+| `_parse_stage_sections: extracts TOML ["stage:NAME"] sections (ADR-37)` | TOML quotes table names that contain a colon, so [stage:foo] in INI becomes ["stage:foo"] in TOML. The regex must match both forms or the emitter silently drops every per-stage override. |
+| `_load_stage_overrides: returns the keys+values under [stage:NAME] (TOML)` | - |
+| `_load_stage_overrides: setup.local.toml replaces a [stage:NAME] section (#893)` | - |
 | `_load_stage_overrides: a [stage:NAME] the local layer omits keeps the repo's (#893)` | - |
 | `_load_stage_overrides: ignores an ambient SETUP_CONF (#893 decision 7)` | - |
-| `_load_stage_overrides: missing setup.conf → empty arrays` | - |
-| `_load_stage_overrides: stage absent from setup.conf → empty arrays` | - |
+| `_load_stage_overrides: missing setup.toml → empty arrays` | - |
+| `_load_stage_overrides: stage absent from setup.toml → empty arrays` | - |
 | `_validate_stage_override_key: accepts allowlisted scalars` | - |
 | `_validate_stage_override_key: accepts list-item keys with numeric suffix` | - |
 | `_validate_stage_override_key: accepts inherit meta-keys` | - |
@@ -6060,7 +6064,7 @@ and asserts one verdict per site.
 | `stage-override: standalone emit re-emits cap_add + privileged inherited from devel` | - |
 | `stage-override: orphan [stage:foo] (no foo in Dockerfile) prints WARN, does not abort` | - |
 | `stage-override: disallowed override key (image.rule_1) prints WARN and skips that key` | - |
-| `stage-override: [stage:sys] in setup.conf is hard-error (baseline collision)` | - |
+| `stage-override: [stage:sys] in setup.toml is hard-error (baseline collision)` | - |
 | `stage-override(#493): [stage:devel-test] deploy.gpu_mode=force emits GPU deploy block on the test service` | - |
 | `_resolve_docker_flags: no overrides => inherits all parent values (#505)` | - |
 | `_resolve_docker_flags: gui.mode=off overrides parent gui=true (#505)` | - |
@@ -6544,6 +6548,46 @@ is the smoke step, which iterates this same roster.
 | `merge: missing section in upper inherits from lower` | a section defined only in the lower layer must survive untouched -- the upper layer's silence about a section is not a deletion |
 | `merge: _conf_load_layers dispatches to TOML merge for .toml layers` | _conf_load_layers with all-TOML layers must dispatch to the containerised merge so the accessor API reads the merged result |
 | `toml-bridge: test-tools Dockerfile has COPY --from for toml-bridge` | downstream repos inherit the parser via test-tools without building toml-bridge |
+
+### test/bats/unit/toml_config_template_spec.bats (20)
+
+| Test | Description |
+|------|-------------|
+| `setup.toml: template exists` | ADR-37 mandates a TOML template alongside the INI template |
+| `setup.toml: has [project] table` | [project] owns the compose project name |
+| `setup.toml: has image section via [[image.rules]]` | [image] detection rules are list-shaped -> [[image.rules]] |
+| `setup.toml: has [build] table` | [build] owns build args + arch + network |
+| `setup.toml: has build args via [[build.args]]` | build args are list-shaped -> [[build.args]] |
+| `setup.toml: has [deploy] table` | [deploy] owns GPU reservation |
+| `setup.toml: has [lifecycle] table` | [lifecycle] owns restart policy, init, watchdog |
+| `setup.toml: has [gui] table` | [gui] owns display mode |
+| `setup.toml: has [network] table` | [network] owns network mode, IPC, PID, port mappings |
+| `setup.toml: has [security] table` | [security] owns privilege, capabilities, security_opt |
+| `setup.toml: has [resources] table` | [resources] owns container resource limits (shm_size) |
+| `setup.toml: has [environment] table for infrastructure env` | [environment] for INFRASTRUCTURE env (DISPLAY, NVIDIA_*); service runtime env belongs in .env.toml, not here |
+| `setup.toml: has [logging] table` | [logging] owns Docker logging driver + rotation + transcripts |
+| `setup.toml: documents tmpfs section` | - |
+| `setup.toml: documents devices section` | - |
+| `setup.toml: documents volumes section` | - |
+| `setup.toml: documents additional_contexts section` | - |
+| `.env.toml: template exists` | ADR-37 splits service runtime env into .env.toml |
+| `.env.toml: has [environment] table for service runtime env` | .env.toml must carry its own [environment] section for service vars |
+| `boundary: setup.toml and .env.toml have no overlapping env keys` | ADR-37 mandates zero intersection between setup.toml infra env and .env.toml service runtime env; an overlapping key would mean a variable is owned by both files, violating the service boundary. Both sections ship with commented-out examples; the test extracts those example key names and verifies they are disjoint. |
+
+### test/bats/unit/toml_config_wiring_spec.bats (10)
+
+| Test | Description |
+|------|-------------|
+| `_setup_conf_layers returns setup.toml layer chain` | - |
+| `_setup_conf_layers with explicit template_dist uses that dir's setup.toml` | - |
+| `_setup_conf_layers omits template when no _SETUP_SCRIPT_DIR and no explicit dist` | - |
+| `_setup_conf_local_path returns setup.local.toml` | - |
+| `_scaffold_env_local creates .env.local.toml when absent` | - |
+| `_scaffold_env_local does not overwrite existing .env.local.toml` | - |
+| `canonical gitignore entries include setup.local.toml` | - |
+| `canonical gitignore entries include .env.local.toml` | - |
+| `_is_self_managed_repo is false when setup.toml exists` | - |
+| `_is_self_managed_repo is true when neither .base nor setup.toml exist` | - |
 
 ### test/bats/unit/tool_pin_agreement_spec.bats (10)
 
