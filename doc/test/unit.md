@@ -6562,7 +6562,7 @@ is the smoke step, which iterates this same roster.
 | `main copies tmux.conf to config directory` | Config copy |
 | `script runs entry_point when executed directly` | Direct-run guard |
 
-### test/bats/unit/toml_bridge_spec.bats (33)
+### test/bats/unit/toml_bridge_spec.bats (36)
 
 | Test | Description |
 |------|-------------|
@@ -6599,6 +6599,9 @@ is the smoke step, which iterates this same roster.
 | `toml-bridge: setup.toml template has all 15 sections` | the TOML template must mirror all 15 INI sections so the format migration is complete and no section is silently dropped |
 | `toml-bridge: setup.toml has zero numbered-key patterns` | D1 acceptance criterion -- numbered-key patterns (_N =) must be eliminated, replaced by [[array of tables]] |
 | `toml-bridge: _conf_load_layers reads array-produced numbered keys from TOML` | when toml_bridge_merge --kv emits numbered keys from [[array of tables]], _conf_load_layers must populate the accessor arrays so compose_emit.sh sees the same format as from INI numbered keys |
+| `toml-bridge: --merge --kv merges layers into the numbered-key shape` | the merge is the whole contract the shell layer reads -- a table's keys merge key-level while an array of tables is replaced wholesale, and the winner arrives as the numbered keys _conf_list_sorted matches. Asserting that against a mocked answer proves none of it. |
+| `toml-bridge: --kv renders a TOML boolean lowercase` | a TOML boolean reaches the shell as the string the shell compares against, and Python's str(True) is `True`. Every `== true` on the shell side reads that as false, so the setting arrives inverted and says nothing about it -- the one failure mode a type-aware bridge exists to prevent. |
+| `toml-bridge: _conf_load_layers fails when the bridge exits non-zero` | a bridge that fails prints nothing and says so with its exit status. Read through a process substitution that status is out of reach, and the caller is handed a handle with nothing in it -- indistinguishable from a config whose every value is the default. That is what turned a totally broken merge into a silent, plausible-looking run, so the status has to reach the caller. |
 
 ### test/bats/unit/toml_config_template_spec.bats (20)
 
