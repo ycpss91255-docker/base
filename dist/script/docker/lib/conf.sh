@@ -435,6 +435,20 @@ _conf_load_layers() {
     local -n _cll_ts="${_h}__sects" _cll_tes="${_h}__es" _cll_tk="${_h}__keys" _cll_tv="${_h}__vals"
     local _cll_sect _cll_key _cll_val
     local -A _cll_tseen=()
+    # The bridge reports a failed merge with its exit status and an empty
+    # stdout, and a process substitution puts that status out of reach: the
+    # loop would read nothing, the handle would come back empty, and every
+    # value would fall back to its default with nothing said -- a total
+    # config failure wearing the shape of a config that says nothing.
+    # Collecting the output first is what puts the status where it can be
+    # acted on. An empty stdout from a SUCCESSFUL merge is still a success:
+    # the herestring's single blank line is dropped by the guard below.
+    local _cll_kv
+    if ! _cll_kv="$(toml_bridge_merge --kv "${_cll_existing[@]}")"; then
+      _log_err conf conf_toml_merge_failed \
+        "display=_conf_load_layers: the TOML merge of ${_cll_existing[*]} failed; refusing to report an empty configuration as a loaded one"
+      return 1
+    fi
     while IFS=$'\t' read -r _cll_sect _cll_key _cll_val; do
       [[ -z "${_cll_sect}" ]] && continue
       if [[ -z "${_cll_tseen[${_cll_sect}]:-}" ]]; then
@@ -444,7 +458,7 @@ _conf_load_layers() {
       _cll_tes+=("${_cll_sect}")
       _cll_tk+=("${_cll_key}")
       _cll_tv+=("${_cll_val}")
-    done < <(toml_bridge_merge --kv "${_cll_existing[@]}")
+    done <<< "${_cll_kv}"
     return 0
   fi
 
