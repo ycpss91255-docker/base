@@ -223,7 +223,7 @@ _run_setup_sync() {
   local R="${TEMP_DIR}/repo2"
   _make_setup_sandbox "${R}"
   # Pre-seed all three artifacts so the only reason setup runs is RUN_SETUP.
-  echo "x" > "${R}/.setup.conf"
+  echo "x" > "${R}/setup.toml"
   echo "USER_NAME=a" > "${R}/.env.generated"
   echo "# c" > "${R}/compose.yaml"
   RUN_SETUP=true _run_setup_sync "${R}" run
@@ -235,7 +235,7 @@ _run_setup_sync() {
 @test "_wrapper_setup_sync drift-check clean path does NOT re-apply (#565)" {
   local R="${TEMP_DIR}/repo3"
   _make_setup_sandbox "${R}"
-  echo "x" > "${R}/.setup.conf"
+  echo "x" > "${R}/setup.toml"
   echo "USER_NAME=a" > "${R}/.env.generated"
   echo "# c" > "${R}/compose.yaml"
   MOCK_DRIFT_RC=0 _run_setup_sync "${R}" build
@@ -248,7 +248,7 @@ _run_setup_sync() {
 @test "_wrapper_setup_sync regenerates on drift (check-drift non-zero) (#565)" {
   local R="${TEMP_DIR}/repo4"
   _make_setup_sandbox "${R}"
-  echo "x" > "${R}/.setup.conf"
+  echo "x" > "${R}/setup.toml"
   echo "USER_NAME=a" > "${R}/.env.generated"
   echo "# c" > "${R}/compose.yaml"
   MOCK_DRIFT_RC=1 _run_setup_sync "${R}" run
@@ -327,7 +327,7 @@ EOS
   # _run_interactive branch that reads the array.
   local R="${TEMP_DIR}/repo_noargs"
   _make_setup_sandbox "${R}"
-  echo "x" > "${R}/.setup.conf"
+  echo "x" > "${R}/setup.toml"
   echo "USER_NAME=a" > "${R}/.env.generated"
   echo "# c" > "${R}/compose.yaml"
   run bash -c "
@@ -440,7 +440,7 @@ EOS
 _seed_recorded_repo() {
   local _root="$1" _project="$2" _pending="${3-}"
   _make_setup_sandbox "${_root}"
-  echo "x" > "${_root}/.setup.conf"
+  echo "x" > "${_root}/setup.toml"
   {
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=mockimg"
