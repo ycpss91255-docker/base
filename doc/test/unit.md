@@ -6563,6 +6563,7 @@ is the smoke step, which iterates this same roster.
 | `script runs entry_point when executed directly` | Direct-run guard |
 
 ### test/bats/unit/toml_bridge_spec.bats (22)
+### test/bats/unit/toml_bridge_spec.bats (25)
 
 | Test | Description |
 |------|-------------|
@@ -6588,6 +6589,17 @@ is the smoke step, which iterates this same roster.
 | `merge: missing section in upper inherits from lower` | a section defined only in the lower layer must survive untouched -- the upper layer's silence about a section is not a deletion |
 | `merge: _conf_load_layers dispatches to TOML merge for .toml layers` | _conf_load_layers with all-TOML layers must dispatch to the containerised merge so the accessor API reads the merged result |
 | `toml-bridge: test-tools Dockerfile has COPY --from for toml-bridge` | downstream repos inherit the parser via test-tools without building toml-bridge |
+| `toml-bridge: merge shim scalar key-level merge via --kv` | type-aware merge is the D4 core contract -- scalar keys within a [table] get key-level merge: upper layer overrides only the keys it defines, unmentioned keys inherit from the lower layer |
+| `toml-bridge: merge shim array replace for [[array of tables]]` | [[array of tables]] must be replaced wholesale by the upper layer -- per-element merge of ordered lists is broken (ADR-25 sec.3 rationale) |
+| `toml-bridge: merge shim skips missing files silently` | absent layers must be silently skipped so callers can pass the whole chain unconditionally (matching _conf_load_layers convention) |
+| `toml-bridge: _conf_load_layers merges .toml files via bridge` | _conf_load_layers must dispatch to toml_bridge_merge when all files are .toml, producing type-aware merge (key-level for tables, array replace for arrays) instead of bash section-replace |
+| `toml-bridge: _conf_load_layers uses INI path for .conf files` | the INI section-replace path must survive so existing .conf callers keep working -- mixed .conf/.toml chains also fall through to INI |
+| `toml-bridge: Python bridge script supports --merge mode` | the Python bridge must declare --merge mode so the shim can invoke it |
+| `toml-bridge: Python _emit_kv has array serialization spec` | [[array of tables]] in TOML must become numbered-key KV lines (mount_1, arg_1, etc.) for backward compat with compose_emit.sh |
+| `toml-bridge: _emit_kv nested array produces numbered keys under parent section` | nested [[build.args]] array must serialize to arg_1, arg_2 lines under the parent section so compose_emit.sh sees the same format |
+| `toml-bridge: setup.toml template has all 15 sections` | the TOML template must mirror all 15 INI sections so the format migration is complete and no section is silently dropped |
+| `toml-bridge: setup.toml has zero numbered-key patterns` | D1 acceptance criterion -- numbered-key patterns (_N =) must be eliminated, replaced by [[array of tables]] |
+| `toml-bridge: _conf_load_layers reads array-produced numbered keys from TOML` | when toml_bridge_merge --kv emits numbered keys from [[array of tables]], _conf_load_layers must populate the accessor arrays so compose_emit.sh sees the same format as from INI numbered keys |
 
 ### test/bats/unit/toml_config_template_spec.bats (20)
 
