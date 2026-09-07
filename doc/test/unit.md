@@ -6518,7 +6518,7 @@ is the smoke step, which iterates this same roster.
 | `main copies tmux.conf to config directory` | Config copy |
 | `script runs entry_point when executed directly` | Direct-run guard |
 
-### test/bats/unit/toml_bridge_spec.bats (20)
+### test/bats/unit/toml_bridge_spec.bats (25)
 
 | Test | Description |
 |------|-------------|
@@ -6542,6 +6542,11 @@ is the smoke step, which iterates this same roster.
 | `toml-bridge: _conf_load_layers merges .toml files via bridge` | _conf_load_layers must dispatch to toml_bridge_merge when all files are .toml, producing type-aware merge (key-level for tables, array replace for arrays) instead of bash section-replace |
 | `toml-bridge: _conf_load_layers uses INI path for .conf files` | the INI section-replace path must survive so existing .conf callers keep working -- mixed .conf/.toml chains also fall through to INI |
 | `toml-bridge: Python bridge script supports --merge mode` | the Python bridge must declare --merge mode so the shim can invoke it |
+| `toml-bridge: Python _emit_kv has array serialization spec` | [[array of tables]] in TOML must become numbered-key KV lines (mount_1, arg_1, etc.) for backward compat with compose_emit.sh |
+| `toml-bridge: _emit_kv nested array produces numbered keys under parent section` | nested [[build.args]] array must serialize to arg_1, arg_2 lines under the parent section so compose_emit.sh sees the same format |
+| `toml-bridge: setup.toml template has all 15 sections` | the TOML template must mirror all 15 INI sections so the format migration is complete and no section is silently dropped |
+| `toml-bridge: setup.toml has zero numbered-key patterns` | D1 acceptance criterion -- numbered-key patterns (_N =) must be eliminated, replaced by [[array of tables]] |
+| `toml-bridge: _conf_load_layers reads array-produced numbered keys from TOML` | when toml_bridge_merge --kv emits numbered keys from [[array of tables]], _conf_load_layers must populate the accessor arrays so compose_emit.sh sees the same format as from INI numbered keys |
 
 ### test/bats/unit/tool_pin_agreement_spec.bats (10)
 
