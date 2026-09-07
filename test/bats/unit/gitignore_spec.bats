@@ -46,12 +46,13 @@ teardown() {
 # _canonical_gitignore_entries
 # ════════════════════════════════════════════════════════════════════
 
-@test "_canonical_gitignore_entries: emits exactly the 12 canonical lines (#502, #507, #606, #832, #879, #893, #868)" {
+@test "_canonical_gitignore_entries: emits exactly the 13 canonical lines (#502, #507, #606, #832, #879, #893, #868, #1133)" {
   run _canonical_gitignore_entries
   assert_success
   assert_output - <<'EXPECTED'
 .env
 .env.local
+.env.local.toml
 .env.generated
 .env.bak
 compose.yaml
@@ -261,6 +262,7 @@ EOF
   cat > "${_f}" <<'EOF'
 .env
 .env.local
+.env.local.toml
 .env.generated
 .env.bak
 compose.yaml

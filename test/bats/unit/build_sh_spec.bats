@@ -18,7 +18,7 @@
 # copied) so kcov attributes coverage to the real source file.
 #
 # Covers: `--help` (en/zh/zh-CN/ja), `--setup`/`-s`, auto-bootstrap on
-# missing `.env` / `setup.conf` / `compose.yaml`, drift-check path when all
+# missing `.env` / `setup.toml` / `compose.yaml`, drift-check path when all
 # three are present, bootstrap staying non-interactive (setup.sh direct, not
 # `setup_tui.sh`), defensive guard when setup produces no `.env`, TARGETARCH
 # build-arg forwarding, `--no-cache`, `--clean-tools`, positional `TARGET`,
@@ -166,14 +166,14 @@ teardown() {
 @test "build.sh auto-regens .env / compose.yaml when drift detected" {
   # Regression (v0.9.5): drift used to be warn-only, leaving the stale
   # .env in place. Users had to remember `./build.sh --setup` after
-  # every git pull / setup.conf edit. Now the drift branch regens
+  # every git pull / setup.toml edit. Now the drift branch regens
   # automatically since .env / compose.yaml are derived artifacts.
   {
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env.generated"
-  : > "${SANDBOX}/.setup.conf"
+  : > "${SANDBOX}/setup.toml"
   : > "${SANDBOX}/compose.yaml"
   # Patch the mock so check-drift subcommand reports drift (exit 1).
   cat > "${SANDBOX}/.base/dist/script/docker/wrapper/setup.sh" <<'EOS'
@@ -217,7 +217,7 @@ EOS
   assert_output --partial "setup.sh invoked --base-path ${SANDBOX}"
 }
 
-@test "build.sh skips setup.sh when .env AND setup.conf AND compose.yaml exist (drift-check path)" {
+@test "build.sh skips setup.sh when .env AND setup.toml AND compose.yaml exist (drift-check path)" {
   # Pre-create all three derived files → build.sh must NOT execute
   # setup.sh, only source it for drift detection.
   {
@@ -225,7 +225,7 @@ EOS
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env.generated"
-  : > "${SANDBOX}/.setup.conf"
+  : > "${SANDBOX}/setup.toml"
   : > "${SANDBOX}/compose.yaml"
   run bash "${SANDBOX}/build.sh" --dry-run
   assert_success
@@ -233,17 +233,17 @@ EOS
   assert [ ! -f "${MOCK_SETUP_LOG}" ]
 }
 
-@test "build.sh bootstraps setup.sh when setup.conf is missing (even if .env exists)" {
+@test "build.sh bootstraps setup.sh when setup.toml is missing (even if .env exists)" {
   # Regression: previously build.sh only checked .env. If the user
-  # manually deleted setup.conf to reset to defaults, .env alone is
-  # stale and build would skip the bootstrap. Now missing setup.conf
+  # manually deleted setup.toml to reset to defaults, .env alone is
+  # stale and build would skip the bootstrap. Now missing setup.toml
   # also triggers the bootstrap path.
   {
     echo "USER_NAME=tester"
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env.generated"
-  rm -f "${SANDBOX}/.setup.conf"
+  rm -f "${SANDBOX}/setup.toml"
   run bash "${SANDBOX}/build.sh" --dry-run
   assert_success
   assert_output --partial "First run"
@@ -252,9 +252,9 @@ EOS
 
 @test "build.sh bootstraps setup.sh when compose.yaml is missing (fresh clone)" {
   # Regression (v0.9.2): v0.9.0 started gitignoring compose.yaml, so
-  # a fresh clone has .env.example absent + setup.conf tracked +
+  # a fresh clone has .env.example absent + setup.toml tracked +
   # compose.yaml missing. Prior bootstrap check only looked at .env /
-  # setup.conf and skipped to the drift path, which then blew up in
+  # setup.toml and skipped to the drift path, which then blew up in
   # _load_env because .env also wasn't there. Missing compose.yaml
   # must now trigger the bootstrap path on its own.
   {
@@ -262,7 +262,7 @@ EOS
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env.generated"
-  : > "${SANDBOX}/.setup.conf"
+  : > "${SANDBOX}/setup.toml"
   rm -f "${SANDBOX}/compose.yaml"
   run bash "${SANDBOX}/build.sh" --dry-run
   assert_success
@@ -372,7 +372,7 @@ EOS
     echo "DOCKER_HUB_USER=mockuser"
     echo "TARGET_ARCH=arm64"
   } > "${SANDBOX}/.env.generated"
-  : > "${SANDBOX}/.setup.conf"
+  : > "${SANDBOX}/setup.toml"
   : > "${SANDBOX}/compose.yaml"
   run bash "${SANDBOX}/build.sh" --dry-run
   assert_success
@@ -387,7 +387,7 @@ EOS
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env.generated"
-  : > "${SANDBOX}/.setup.conf"
+  : > "${SANDBOX}/setup.toml"
   : > "${SANDBOX}/compose.yaml"
   run bash "${SANDBOX}/build.sh" --dry-run
   assert_success
@@ -405,7 +405,7 @@ EOS
     echo "DOCKER_HUB_USER=mockuser"
     echo "BUILD_NETWORK=host"
   } > "${SANDBOX}/.env.generated"
-  : > "${SANDBOX}/.setup.conf"
+  : > "${SANDBOX}/setup.toml"
   : > "${SANDBOX}/compose.yaml"
   run bash "${SANDBOX}/build.sh" --dry-run
   assert_success
@@ -420,7 +420,7 @@ EOS
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env.generated"
-  : > "${SANDBOX}/.setup.conf"
+  : > "${SANDBOX}/setup.toml"
   : > "${SANDBOX}/compose.yaml"
   run bash "${SANDBOX}/build.sh" --dry-run
   assert_success
@@ -681,7 +681,7 @@ EOS
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env.generated"
-  : > "${SANDBOX}/.setup.conf"
+  : > "${SANDBOX}/setup.toml"
   : > "${SANDBOX}/compose.yaml"
   cat > "${SANDBOX}/.base/dist/script/docker/wrapper/setup.sh" <<'EOS'
 #!/usr/bin/env bash
@@ -751,7 +751,7 @@ EOS
   # -y skips the interactive prompt; --dry-run makes the init.sh call
   # a printf instead of an exec so we can assert it without sandbox
   # side effects.
-  echo "old" > "${SANDBOX}/.setup.conf"
+  echo "old" > "${SANDBOX}/setup.toml"
   run bash "${SANDBOX}/build.sh" --reset-conf --yes --dry-run
   assert_success
   assert_output --partial "[dry-run]"
@@ -762,26 +762,26 @@ EOS
   run bash "${SANDBOX}/build.sh" --help
   assert_success
   assert_output --partial "--reset-conf"
-  assert_output --partial ".setup.conf.bak"
+  assert_output --partial "setup.toml.bak"
 }
 
-@test "build.sh --reset-conf with no existing setup.conf / .env skips prompt" {
+@test "build.sh --reset-conf with no existing setup.toml / .env skips prompt" {
   # Nothing to overwrite → no confirmation needed, --dry-run just prints
   # the init.sh call and exits cleanly.
-  rm -f "${SANDBOX}/.setup.conf" "${SANDBOX}/.env.generated"
+  rm -f "${SANDBOX}/setup.toml" "${SANDBOX}/.env.generated"
   run bash "${SANDBOX}/build.sh" --reset-conf --dry-run
   assert_success
   refute_output --partial "proceed?"
 }
 
 @test "build.sh --reset-conf without -y on closed stdin aborts cleanly, no set-e crash (#702, #700)" {
-  # EOF path: an existing setup.conf forces the interactive confirm. With
+  # EOF path: an existing setup.toml forces the interactive confirm. With
   # no --yes and a closed stdin, `read` returns non-zero on EOF. Pre-fix,
   # the bare `read _reply` under `set -e` aborted at the read line BEFORE
   # the case could map empty->abort, so a piped/CI invocation died with NO
   # '[build] aborted.' diagnostic. Post-fix, EOF maps to an empty reply
   # which the default case treats as an explicit abort.
-  echo "old" > "${SANDBOX}/.setup.conf"
+  echo "old" > "${SANDBOX}/setup.toml"
   run bash "${SANDBOX}/build.sh" --reset-conf </dev/null
   assert_failure 1
   assert_output --partial "[build] aborted."
@@ -907,7 +907,7 @@ EOS
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env.generated"
-  : > "${SANDBOX}/.setup.conf"
+  : > "${SANDBOX}/setup.toml"
   : > "${SANDBOX}/compose.yaml"
   mkdir -p "${SANDBOX}/script/hooks/pre"
   cat > "${SANDBOX}/script/hooks/pre/build.sh" <<'HOOK'

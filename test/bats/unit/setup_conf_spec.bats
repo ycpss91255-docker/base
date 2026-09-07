@@ -140,6 +140,7 @@ EOF
   assert_equal "${_ambient}" "${_plain}"
 }
 
+# why: The TOML migration must not break the primary config-load path.
 @test "_load_setup_conf uses per-repo setup.toml when section present" {
   cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [gpu]
@@ -150,6 +151,7 @@ EOF
   assert_equal "${_v[0]}" "force"
 }
 
+# why: The repo-root setup.toml is the committed override layer; loading from the wrong path silently falls back to the template.
 @test "_load_setup_conf reads the per-repo override from repo-root setup.toml" {
   # The tool-managed override lives at the repo root.
   cat > "${TEMP_DIR}/setup.toml" <<'EOF'
@@ -250,6 +252,7 @@ EOF
 # cannot be removed, and adding one needs the highest N of a layer the
 # user cannot see).
 # ════════════════════════════════════════════════════════════════════
+# why: The local layer is the operator's per-worktree override; if it does not win, every worktree shares one config.
 @test "_load_setup_conf: setup.local.toml overrides the per-repo section" {
   cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [gui]
@@ -264,6 +267,7 @@ EOF
   assert_equal "${_v[0]}" "off"
 }
 
+# why: A repo that skips a section still needs local override to reach through to the template default.
 @test "_load_setup_conf: setup.local.toml overrides the template for a section the repo omits" {
   cat > "${TEMP_DIR}/setup.local.toml" <<'EOF'
 [gui]
@@ -274,6 +278,7 @@ EOF
   assert_equal "${_v[0]}" "off"
 }
 
+# why: Section-replace semantics are ADR-37 D4; per-key merge here would leak keys from the layer below into the resolved config.
 @test "_load_setup_conf: setup.local.toml replaces a section wholesale, never per-key" {
   cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [network]
@@ -297,6 +302,7 @@ EOF
   assert_equal "${_v[1]}" "18080:80"
 }
 
+# why: A local layer that mentions one section must not blank out every other section in the resolved config.
 @test "_load_setup_conf: sections setup.local.toml omits keep the layer below" {
   cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [gpu]
@@ -311,6 +317,7 @@ EOF
   assert_equal "${_v[0]}" "force"
 }
 
+# why: _setup_conf_handle is the single entry point the wrappers use; if its layering disagrees with _load_setup_conf, every wrapper reads stale config.
 @test "_setup_conf_handle: setup.local.toml wins over the per-repo layer" {
   cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [gui]
@@ -326,6 +333,7 @@ EOF
   assert_output "off"
 }
 
+# why: A local-layer edit that leaves the hash unchanged means the wrapper reuses artifacts built from a different config.
 @test "_compute_conf_hash: editing setup.local.toml is drift" {
   # The hash must describe the config that was actually resolved -- a
   # layer that changes the resolved value and leaves the hash alone means

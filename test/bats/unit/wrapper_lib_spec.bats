@@ -64,13 +64,13 @@ teardown() {
 }
 
 @test "_msg errors when category is missing (#565)" {
-  run bash -c "source ${LIB}/_lib.sh; source ${LIB}/wrapper.sh; _msg"
+  run -127 bash -c "source ${LIB}/_lib.sh; source ${LIB}/wrapper.sh; _msg"
   assert_failure
   assert_output --partial "requires category"
 }
 
 @test "_msg errors when key is missing (#565)" {
-  run bash -c "source ${LIB}/_lib.sh; source ${LIB}/wrapper.sh; _msg errors"
+  run -127 bash -c "source ${LIB}/_lib.sh; source ${LIB}/wrapper.sh; _msg errors"
   assert_failure
   assert_output --partial "requires key"
 }
@@ -124,7 +124,7 @@ teardown() {
 }
 
 @test "_wrapper_lang_prepass requires a verb argument (#565)" {
-  run bash -c "source ${LIB}/_lib.sh; source ${LIB}/wrapper.sh; _wrapper_lang_prepass"
+  run -127 bash -c "source ${LIB}/_lib.sh; source ${LIB}/wrapper.sh; _wrapper_lang_prepass"
   assert_failure
   assert_output --partial "requires verb"
 }
@@ -312,7 +312,7 @@ EOS
 }
 
 @test "_wrapper_setup_sync requires a verb argument (#565)" {
-  run bash -c "
+  run -127 bash -c "
     source ${LIB}/_lib.sh; source ${LIB}/wrapper.sh
     FILE_PATH='${TEMP_DIR}'
     _wrapper_setup_sync

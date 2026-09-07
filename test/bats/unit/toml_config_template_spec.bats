@@ -31,8 +31,8 @@ setup() {
     "the setup.toml template (ADR-37 TOML config unification)"
 }
 
-# why: the 15 INI sections must all be represented in the TOML template;
-#      scalar sections use [table] headers
+# Section coverage: the 15 INI sections must all be represented in the TOML template;
+# scalar sections use [table] headers
 
 # why: [project] owns the compose project name
 @test "setup.toml: has [project] table" {
@@ -107,25 +107,29 @@ setup() {
   assert_success
 }
 
-# why: tmpfs, devices, volumes, additional_contexts are list-shaped
-#      sections that may ship empty; verify they are at least documented
-#      (as comments or active [[array of tables]])
+# List-shaped sections: tmpfs, devices, volumes, additional_contexts are list-shaped
+# sections that may ship empty; verify they are at least documented
+# (as comments or active [[array of tables]])
 
+# why: A list-shaped section may ship empty; without at least a comment, an operator has no guidance to add entries.
 @test "setup.toml: documents tmpfs section" {
   run grep -i 'tmpfs' "${SETUP_TOML}"
   assert_success
 }
 
+# why: Host device bindings are list-shaped and empty by default; missing documentation means undiscoverable config.
 @test "setup.toml: documents devices section" {
   run grep -i 'devices' "${SETUP_TOML}"
   assert_success
 }
 
+# why: Volume mounts are list-shaped and empty by default; a missing section leaves no way to discover the syntax.
 @test "setup.toml: documents volumes section" {
   run grep -i 'volumes' "${SETUP_TOML}"
   assert_success
 }
 
+# why: Extra build contexts are list-shaped and empty by default; undocumented means undiscoverable.
 @test "setup.toml: documents additional_contexts section" {
   run grep -i 'additional_contexts' "${SETUP_TOML}"
   assert_success

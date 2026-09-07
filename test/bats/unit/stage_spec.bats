@@ -662,6 +662,7 @@ EOF
 
 # ─── _load_stage_overrides ────────────────────────────────────────
 
+# why: Stage overrides are the per-stage tuning mechanism; failing to load them means every stage gets the same config.
 @test "_load_stage_overrides: returns the keys+values under [stage:NAME] (TOML)" {
   cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [gui]
@@ -685,6 +686,7 @@ EOF
   [[ "${_keys[3]}" == "volumes.mount_1" && "${_values[3]}" == "/tmp/cache:/cache" ]] || return 1
 }
 
+# why: A second worktree needs its own stage overrides; if the local layer cannot shadow stage sections, worktrees share one tuning.
 @test "_load_stage_overrides: setup.local.toml replaces a [stage:NAME] section (#893)" {
   # The local layer overrides ANY section, not a whitelist -- and a stage
   # section is exactly the shape a second worktree needs to vary.
@@ -734,6 +736,7 @@ EOF
   [[ "${_values[0]}" == "off" ]] || { echo "got: ${_values[0]-}"; return 1; }
 }
 
+# why: A repo with no setup.toml at all must not crash the stage-override loader.
 @test "_load_stage_overrides: missing setup.toml → empty arrays" {
   local -a _keys=() _values=()
   _load_stage_overrides "${TEMP_DIR}" "headless" _keys _values
@@ -741,6 +744,7 @@ EOF
   [[ "${#_values[@]}" -eq 0 ]] || return 1
 }
 
+# why: Requesting a stage that has no override block must degrade to empty, not to the whole file or an error.
 @test "_load_stage_overrides: stage absent from setup.toml → empty arrays" {
   cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [gui]
@@ -1151,6 +1155,7 @@ EOF
   assert_output --partial "image.rule_1"
 }
 
+# why: Overriding a baseline stage (sys/base) silently mutates every downstream stage that inherits from it; a hard error prevents that.
 @test "stage-override: [stage:sys] in setup.toml is hard-error (baseline collision)" {
   cat > "${TEMP_DIR}/Dockerfile" <<'EOF'
 FROM scratch AS sys

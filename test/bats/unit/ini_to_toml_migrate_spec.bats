@@ -94,6 +94,7 @@ EOF
   assert_output --partial 'rule = "@basename"'
 }
 
+# why: build arg_N splits on = and emits key/value AoT; wrong split loses the value
 @test "_migrate_ini_to_toml converts build arg_N to [[build.args]] (#1137)" {
   cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [build]
@@ -116,6 +117,7 @@ EOF
   assert_output --partial 'value = "Asia/Taipei"'
 }
 
+# why: Volume paths contain colons; the converter must not split on them
 @test "_migrate_ini_to_toml converts volumes mount_N to [[volumes]] (#1137)" {
   cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [volumes]
@@ -128,6 +130,7 @@ EOF
   assert_output --partial 'path = "/home/user/work:/home/docker/work:rw"'
 }
 
+# why: Two distinct AoT shapes live under one INI section; wrong dispatch conflates them
 @test "_migrate_ini_to_toml converts security cap/opt to [[security.*]] (#1137)" {
   cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [security]
@@ -148,6 +151,7 @@ EOF
   assert_output --partial 'opt = "seccomp:unconfined"'
 }
 
+# why: Port mappings split into host/container integers; wrong type breaks compose
 @test "_migrate_ini_to_toml converts network port_N to [[network.ports]] (#1137)" {
   cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [network]
@@ -165,6 +169,7 @@ EOF
   assert_output --partial 'container = 80'
 }
 
+# why: Device paths look like volume paths; the converter must pick the right AoT key
 @test "_migrate_ini_to_toml converts devices device_N to [[devices]] (#1137)" {
   cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [devices]
@@ -177,6 +182,7 @@ EOF
   assert_output --partial 'path = "/dev:/dev"'
 }
 
+# why: tmpfs entries carry size options after a colon; the value must stay whole
 @test "_migrate_ini_to_toml converts tmpfs tmpfs_N to [[tmpfs]] (#1137)" {
   cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [tmpfs]
@@ -189,6 +195,7 @@ EOF
   assert_output --partial 'path = "/tmp:size=64m"'
 }
 
+# why: Context entries split on = into name/source; wrong split drops the build context path
 @test "_migrate_ini_to_toml converts additional_contexts context_N to [[additional_contexts]] (#1137)" {
   cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [additional_contexts]
@@ -289,6 +296,7 @@ EOF
   assert_output --partial 'mode = auto'
 }
 
+# why: The local override must also be backed up so the user can verify the conversion
 @test "_migrate_ini_to_toml backs up .setup.conf.local (#1137)" {
   cat > "${TEMP_DIR}/.setup.conf.local" <<'EOF'
 [gui]
@@ -348,6 +356,7 @@ EOF
   assert_output --partial 'LOG_LEVEL = "debug"'
 }
 
+# why: The env override must be backed up; without this the user loses their original file
 @test "_migrate_env_local_to_toml backs up .env.local to .env.local.bak (#1137)" {
   printf 'KEY=VALUE\n' > "${TEMP_DIR}/.env.local"
   run bash -c "$(_src); _migrate_env_local_to_toml '${TEMP_DIR}'"
@@ -356,6 +365,7 @@ EOF
   assert [ -f "${TEMP_DIR}/.env.local.bak" ]
 }
 
+# why: A second init cycle must not overwrite an operator's already-converted env overrides
 @test "_migrate_env_local_to_toml is idempotent when .env.local.toml exists (#1137)" {
   printf 'KEY=VALUE\n' > "${TEMP_DIR}/.env.local"
   printf 'existing\n' > "${TEMP_DIR}/.env.local.toml"
@@ -367,6 +377,7 @@ EOF
   assert [ -f "${TEMP_DIR}/.env.local" ]
 }
 
+# why: Comments and blanks from flat env are noise in TOML; carrying them pollutes the output
 @test "_migrate_env_local_to_toml skips comments and blank lines (#1137)" {
   cat > "${TEMP_DIR}/.env.local" <<'EOF'
 # comment
@@ -383,6 +394,7 @@ EOF
   refute_output --partial '# comment'
 }
 
+# why: A repo with no .env.local must not produce a phantom .env.local.toml
 @test "_migrate_env_local_to_toml is inert when there is no .env.local (#1137)" {
   run bash -c "$(_src); _migrate_env_local_to_toml '${TEMP_DIR}'"
   assert_success
