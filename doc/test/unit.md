@@ -6518,7 +6518,7 @@ is the smoke step, which iterates this same roster.
 | `main copies tmux.conf to config directory` | Config copy |
 | `script runs entry_point when executed directly` | Direct-run guard |
 
-### test/bats/unit/toml_bridge_spec.bats (14)
+### test/bats/unit/toml_bridge_spec.bats (22)
 
 | Test | Description |
 |------|-------------|
@@ -6535,6 +6535,14 @@ is the smoke step, which iterates this same roster.
 | `toml-bridge: _toml_tokenize fills sections/keys/values from KV output` | _toml_tokenize is the drop-in replacement for _ini_tokenize -- it must fill the same 4 parallel arrays from bridge KV output |
 | `toml-bridge: _conf_load dispatches to _toml_tokenize for .toml files` | _conf_load must auto-dispatch to TOML for .toml files so the accessor API works without callers changing their code |
 | `toml-bridge: _conf_load still uses _ini_tokenize for .conf files` | the INI path must survive so callers using .conf files keep working |
+| `toml-bridge: Python bridge script supports --merge mode` | ADR-37 mandates type-aware merge: tables key-level, arrays replace; the Python bridge must accept --merge to drive this from bash |
+| `toml-bridge: bash shim defines toml_bridge_merge function` | the bash shim must expose a merge entry point for conf.sh layers |
+| `merge: scalar key-level merge overrides only defined keys` | key-level merge for tables -- upper overrides only what it defines; keys absent from the upper layer must inherit from the lower layer |
+| `merge: array of tables replaced entirely by upper layer` | array-of-tables replace -- the entire array from the highest layer that defines it wins (ADR-37 sec. Merge semantics) |
+| `merge: mixed file with both table and array sections` | a real config has both table and array sections; the merge must apply the correct rule to each (key-level for tables, replace for arrays) in the same invocation |
+| `merge: empty upper layer preserves all lower keys` | an empty override layer (e.g. a local.toml with no sections) must not clobber the baseline -- every key from the lower layer survives |
+| `merge: missing section in upper inherits from lower` | a section defined only in the lower layer must survive untouched -- the upper layer's silence about a section is not a deletion |
+| `merge: _conf_load_layers dispatches to TOML merge for .toml layers` | _conf_load_layers with all-TOML layers must dispatch to the containerised merge so the accessor API reads the merged result |
 | `toml-bridge: test-tools Dockerfile has COPY --from for toml-bridge` | downstream repos inherit the parser via test-tools without building toml-bridge |
 
 ### test/bats/unit/tool_pin_agreement_spec.bats (10)

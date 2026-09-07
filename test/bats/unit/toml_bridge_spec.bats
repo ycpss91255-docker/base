@@ -260,6 +260,226 @@ setup() {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# Seam 6: toml_bridge_merge (type-aware multi-file merge, ADR-37)
+# ════════════════════════════════════════════════════════════════════
+
+# why: ADR-37 mandates type-aware merge: tables key-level, arrays replace;
+#      the Python bridge must accept --merge to drive this from bash
+@test "toml-bridge: Python bridge script supports --merge mode" {
+  assert_spec_subject "${BRIDGE_PY}" \
+    "the Python bridge script (merge mode for multi-file layers)"
+  run grep -- '--merge' "${BRIDGE_PY}"
+  assert_success
+  run grep '_merge_toml' "${BRIDGE_PY}"
+  assert_success
+}
+
+# why: the bash shim must expose a merge entry point for conf.sh layers
+@test "toml-bridge: bash shim defines toml_bridge_merge function" {
+  assert_spec_subject "${SHIM}" \
+    "the toml_bridge.sh bash shim (merge function)"
+  run grep 'toml_bridge_merge' "${SHIM}"
+  assert_success
+}
+
+# why: key-level merge for tables -- upper overrides only what it defines;
+#      keys absent from the upper layer must inherit from the lower layer
+@test "merge: scalar key-level merge overrides only defined keys" {
+  assert_spec_subject "${SHIM}" \
+    "the toml_bridge.sh bash shim (merge)"
+
+  local lower="${BATS_TEST_TMPDIR}/lower.toml"
+  local upper="${BATS_TEST_TMPDIR}/upper.toml"
+  printf '[gui]\nmode = "auto"\nresolution = "1080p"\n' > "${lower}"
+  printf '[gui]\nmode = "wayland"\n' > "${upper}"
+
+  create_mock_dir
+  mock_cmd "docker" \
+    'if [[ " $* " == *" --merge "* ]] && [[ " $* " == *" --kv "* ]]; then
+       printf "gui\tmode\twayland\ngui\tresolution\t1080p\n"
+     else
+       echo "EXPECTED --merge --kv" >&2; exit 1
+     fi'
+
+  # shellcheck disable=SC1090
+  source "${SHIM}"
+  run toml_bridge_merge --kv "${lower}" "${upper}"
+  assert_success
+  assert_line --index 0 $'gui\tmode\twayland'
+  assert_line --index 1 $'gui\tresolution\t1080p'
+
+  cleanup_mock_dir
+}
+
+# why: array-of-tables replace -- the entire array from the highest layer
+#      that defines it wins (ADR-37 sec. Merge semantics)
+@test "merge: array of tables replaced entirely by upper layer" {
+  assert_spec_subject "${SHIM}" \
+    "the toml_bridge.sh bash shim (merge)"
+
+  local lower="${BATS_TEST_TMPDIR}/lower.toml"
+  local upper="${BATS_TEST_TMPDIR}/upper.toml"
+  printf '[[volumes]]\nsource = "/a"\ntarget = "/b"\n\n[[volumes]]\nsource = "/c"\ntarget = "/d"\n' > "${lower}"
+  printf '[[volumes]]\nsource = "/x"\ntarget = "/y"\n' > "${upper}"
+
+  create_mock_dir
+  mock_cmd "docker" \
+    'if [[ " $* " == *" --merge "* ]] && [[ " $* " == *" --kv "* ]]; then
+       printf "volumes\tsource\t/x\nvolumes\ttarget\t/y\n"
+     else
+       echo "EXPECTED --merge --kv" >&2; exit 1
+     fi'
+
+  # shellcheck disable=SC1090
+  source "${SHIM}"
+  run toml_bridge_merge --kv "${lower}" "${upper}"
+  assert_success
+  assert_line --index 0 $'volumes\tsource\t/x'
+  assert_line --index 1 $'volumes\ttarget\t/y'
+  assert_equal "${#lines[@]}" 2
+
+  cleanup_mock_dir
+}
+
+# why: a real config has both table and array sections; the merge must
+#      apply the correct rule to each (key-level for tables, replace for
+#      arrays) in the same invocation
+@test "merge: mixed file with both table and array sections" {
+  assert_spec_subject "${SHIM}" \
+    "the toml_bridge.sh bash shim (merge)"
+
+  local lower="${BATS_TEST_TMPDIR}/lower.toml"
+  local upper="${BATS_TEST_TMPDIR}/upper.toml"
+  printf '[gui]\nmode = "auto"\nresolution = "1080p"\n\n[[volumes]]\nsource = "/a"\ntarget = "/b"\n' > "${lower}"
+  printf '[gui]\nmode = "wayland"\n\n[[volumes]]\nsource = "/x"\ntarget = "/y"\n' > "${upper}"
+
+  create_mock_dir
+  mock_cmd "docker" \
+    'if [[ " $* " == *" --merge "* ]] && [[ " $* " == *" --kv "* ]]; then
+       printf "gui\tmode\twayland\ngui\tresolution\t1080p\nvolumes\tsource\t/x\nvolumes\ttarget\t/y\n"
+     else
+       echo "EXPECTED --merge --kv" >&2; exit 1
+     fi'
+
+  # shellcheck disable=SC1090
+  source "${SHIM}"
+  run toml_bridge_merge --kv "${lower}" "${upper}"
+  assert_success
+  assert_line --index 0 $'gui\tmode\twayland'
+  assert_line --index 1 $'gui\tresolution\t1080p'
+  assert_line --index 2 $'volumes\tsource\t/x'
+  assert_line --index 3 $'volumes\ttarget\t/y'
+  assert_equal "${#lines[@]}" 4
+
+  cleanup_mock_dir
+}
+
+# why: an empty override layer (e.g. a local.toml with no sections) must
+#      not clobber the baseline -- every key from the lower layer survives
+@test "merge: empty upper layer preserves all lower keys" {
+  assert_spec_subject "${SHIM}" \
+    "the toml_bridge.sh bash shim (merge)"
+
+  local lower="${BATS_TEST_TMPDIR}/lower.toml"
+  local upper="${BATS_TEST_TMPDIR}/upper.toml"
+  printf '[gui]\nmode = "auto"\nresolution = "1080p"\n' > "${lower}"
+  printf '' > "${upper}"
+
+  create_mock_dir
+  mock_cmd "docker" \
+    'if [[ " $* " == *" --merge "* ]] && [[ " $* " == *" --kv "* ]]; then
+       printf "gui\tmode\tauto\ngui\tresolution\t1080p\n"
+     else
+       echo "EXPECTED --merge --kv" >&2; exit 1
+     fi'
+
+  # shellcheck disable=SC1090
+  source "${SHIM}"
+  run toml_bridge_merge --kv "${lower}" "${upper}"
+  assert_success
+  assert_line --index 0 $'gui\tmode\tauto'
+  assert_line --index 1 $'gui\tresolution\t1080p'
+  assert_equal "${#lines[@]}" 2
+
+  cleanup_mock_dir
+}
+
+# why: a section defined only in the lower layer must survive untouched --
+#      the upper layer's silence about a section is not a deletion
+@test "merge: missing section in upper inherits from lower" {
+  assert_spec_subject "${SHIM}" \
+    "the toml_bridge.sh bash shim (merge)"
+
+  local lower="${BATS_TEST_TMPDIR}/lower.toml"
+  local upper="${BATS_TEST_TMPDIR}/upper.toml"
+  printf '[gui]\nmode = "auto"\n\n[network]\nnet = "host"\nipc = "host"\n' > "${lower}"
+  printf '[gui]\nmode = "wayland"\n' > "${upper}"
+
+  create_mock_dir
+  mock_cmd "docker" \
+    'if [[ " $* " == *" --merge "* ]] && [[ " $* " == *" --kv "* ]]; then
+       printf "gui\tmode\twayland\nnetwork\tnet\thost\nnetwork\tipc\thost\n"
+     else
+       echo "EXPECTED --merge --kv" >&2; exit 1
+     fi'
+
+  # shellcheck disable=SC1090
+  source "${SHIM}"
+  run toml_bridge_merge --kv "${lower}" "${upper}"
+  assert_success
+  assert_line --index 0 $'gui\tmode\twayland'
+  assert_line --index 1 $'network\tnet\thost'
+  assert_line --index 2 $'network\tipc\thost'
+  assert_equal "${#lines[@]}" 3
+
+  cleanup_mock_dir
+}
+
+# why: _conf_load_layers with all-TOML layers must dispatch to the
+#      containerised merge so the accessor API reads the merged result
+@test "merge: _conf_load_layers dispatches to TOML merge for .toml layers" {
+  local conf_sh="${ROOT}/dist/script/docker/lib/conf.sh"
+  assert_spec_subject "${conf_sh}" \
+    "conf.sh _conf_load_layers TOML merge dispatch"
+
+  local lower="${BATS_TEST_TMPDIR}/lower.toml"
+  local upper="${BATS_TEST_TMPDIR}/upper.toml"
+  printf '[gui]\nmode = "auto"\nresolution = "1080p"\n\n[network]\nnet = "host"\n' > "${lower}"
+  printf '[gui]\nmode = "wayland"\n' > "${upper}"
+
+  create_mock_dir
+  mock_cmd "docker" \
+    'if [[ " $* " == *" --merge "* ]] && [[ " $* " == *" --kv "* ]]; then
+       printf "gui\tmode\twayland\ngui\tresolution\t1080p\nnetwork\tnet\thost\n"
+     else
+       echo "EXPECTED --merge --kv" >&2; exit 1
+     fi'
+
+  # shellcheck disable=SC1090
+  source "${conf_sh}"
+  _conf_load_layers MHDL "${lower}" "${upper}"
+
+  run _conf_get MHDL gui mode
+  assert_success
+  assert_output "wayland"
+
+  run _conf_get MHDL gui resolution
+  assert_success
+  assert_output "1080p"
+
+  run _conf_get MHDL network net
+  assert_success
+  assert_output "host"
+
+  run _conf_sections MHDL
+  assert_success
+  assert_line --index 0 "gui"
+  assert_line --index 1 "network"
+
+  cleanup_mock_dir
+}
+
+# ════════════════════════════════════════════════════════════════════
 # Seam 3: test-tools COPY --from integration
 # ════════════════════════════════════════════════════════════════════
 

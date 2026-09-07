@@ -380,6 +380,39 @@ _conf_load_layers() {
   shift
   (( $# > 0 )) || { declare -g -a "${_h}__sects=()" "${_h}__es=()" "${_h}__keys=()" "${_h}__vals=()"; return 0; }
 
+  # ── TOML path: type-aware merge via containerised bridge ──────────
+  #
+  # When every existing layer file is TOML, the merge (table key-level,
+  # array-of-tables replace) runs in Python where the type information
+  # is native (dict vs list).  ADR-37 sec. Merge semantics.
+  local -a _cll_existing=()
+  local _cll_all_toml=1
+  local _cll_f
+  for _cll_f in "$@"; do
+    [[ -f "${_cll_f}" ]] || continue
+    _cll_existing+=("${_cll_f}")
+    [[ "${_cll_f}" == *.toml ]] || _cll_all_toml=0
+  done
+  if (( ${#_cll_existing[@]} > 0 && _cll_all_toml )); then
+    declare -g -a "${_h}__sects=()" "${_h}__es=()" "${_h}__keys=()" "${_h}__vals=()"
+    local -n _cll_ts="${_h}__sects" _cll_tes="${_h}__es" _cll_tk="${_h}__keys" _cll_tv="${_h}__vals"
+    local _cll_sect _cll_key _cll_val
+    local -A _cll_tseen=()
+    while IFS=$'\t' read -r _cll_sect _cll_key _cll_val; do
+      [[ -z "${_cll_sect}" ]] && continue
+      if [[ -z "${_cll_tseen[${_cll_sect}]:-}" ]]; then
+        _cll_ts+=("${_cll_sect}")
+        _cll_tseen[${_cll_sect}]=1
+      fi
+      _cll_tes+=("${_cll_sect}")
+      _cll_tk+=("${_cll_key}")
+      _cll_tv+=("${_cll_val}")
+    done < <(toml_bridge_merge --kv "${_cll_existing[@]}")
+    return 0
+  fi
+
+  # ── INI path: section-replace merge (existing logic) ──────────────
+
   # Tokenize every layer up front into flat, layer-tagged arrays: the
   # per-layer arrays cannot be kept as separate named arrays without
   # eval, so each entry carries its layer index instead.

@@ -283,6 +283,10 @@ project_rename_probe_failed
 # a defect, not a default.
 tui_list_labels_missing
 
+# toml_bridge.sh (containerised TOML parser shim)
+no_such_file
+merge_no_files
+
 # general
 dry_run_cmd
 summary_line
