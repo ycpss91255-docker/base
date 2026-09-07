@@ -28,33 +28,37 @@ toml_bridge_parse() {
 }
 
 # toml_bridge_merge [--kv] <toml-file>...
-#   Type-aware merge of multiple TOML layers (lowest precedence first).
-#   Scalar keys within a [table] get key-level merge; [[array of tables]]
-#   get array replace. Missing files are silently skipped.
-#   Default: JSON on stdout.  --kv: section\tkey\tvalue TSV lines.
-#   Returns non-zero if parsing or merging fails.
+#   Merge multiple TOML files via the containerised bridge with
+#   type-aware semantics (table key-level merge, array-of-tables replace).
+#   Files are given in INCREASING precedence (baseline first, override last).
+#   Default: merged JSON on stdout.  --kv: section\tkey\tvalue TSV lines.
+#   Returns non-zero if any file does not exist or merging fails.
 toml_bridge_merge() {
-  local _kv=""
+  local _kv_flag=""
   if [[ "${1:-}" == "--kv" ]]; then
-    _kv="--kv"
+    _kv_flag="--kv"
     shift
   fi
-
+  (( $# > 0 )) || {
+    _log_err toml_bridge merge_no_files \
+      "toml_bridge_merge: no files given"
+    return 1
+  }
   local _image="${TOML_BRIDGE_IMAGE:-toml-bridge:local}"
-  local -a _mount_args=() _container_paths=()
-  local _f _abs
+  local -a _docker_args=("run" "--rm")
+  local -a _bridge_args=("--merge")
+  [[ -n "${_kv_flag}" ]] && _bridge_args+=("--kv")
 
-  for _f in "$@"; do
-    [[ -f "${_f}" ]] || continue
-    _abs="$(cd -- "$(dirname -- "${_f}")" && pwd -P)/$(basename -- "${_f}")"
-    _mount_args+=(-v "${_abs}:${_abs}:ro")
-    _container_paths+=("${_abs}")
+  local _file
+  for _file in "$@"; do
+    if [[ ! -f "${_file}" ]]; then
+      _log_err toml_bridge no_such_file \
+        "toml_bridge_merge: no such file: ${_file}"
+      return 1
+    fi
+    _docker_args+=("-v" "${_file}:${_file}:ro")
+    _bridge_args+=("${_file}")
   done
 
-  if (( ${#_container_paths[@]} == 0 )); then
-    return 0
-  fi
-
-  docker run --rm "${_mount_args[@]}" "${_image}" \
-    --merge ${_kv} "${_container_paths[@]}"
+  docker "${_docker_args[@]}" "${_image}" "${_bridge_args[@]}"
 }
