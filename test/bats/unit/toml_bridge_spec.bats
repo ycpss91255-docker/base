@@ -859,3 +859,21 @@ EOF
   # layer's silence about it is not a deletion.
   assert_line "devices	device_1	/dev/dri"
 }
+
+# why: a TOML boolean reaches the shell as the string the shell compares
+#      against, and Python's str(True) is `True`. Every `== true` on the
+#      shell side reads that as false, so the setting arrives inverted and
+#      says nothing about it -- the one failure mode a type-aware bridge
+#      exists to prevent.
+@test "toml-bridge: --kv renders a TOML boolean lowercase" {
+  assert_spec_subject "${BRIDGE_PY}" \
+    "the Python bridge script (boolean KV rendering)"
+
+  local toml_file="${BATS_TEST_TMPDIR}/lifecycle.toml"
+  printf '[lifecycle]\ninit = true\ntty = false\n' > "${toml_file}"
+
+  run python3 "${BRIDGE_PY}" --kv < "${toml_file}"
+  assert_success
+  assert_line "lifecycle	init	true"
+  assert_line "lifecycle	tty	false"
+}
