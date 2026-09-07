@@ -6518,7 +6518,7 @@ is the smoke step, which iterates this same roster.
 | `main copies tmux.conf to config directory` | Config copy |
 | `script runs entry_point when executed directly` | Direct-run guard |
 
-### test/bats/unit/toml_bridge_spec.bats (9)
+### test/bats/unit/toml_bridge_spec.bats (14)
 
 | Test | Description |
 |------|-------------|
@@ -6530,6 +6530,11 @@ is the smoke step, which iterates this same roster.
 | `toml-bridge: shim converts TOML to JSON via docker run` | golden-path contract -- TOML in, JSON out, via docker run |
 | `toml-bridge: shim returns non-zero when docker run fails` | callers rely on non-zero exit to detect parse failures |
 | `toml-bridge: shim returns non-zero for missing file` | callers rely on non-zero exit for missing input before docker starts |
+| `toml-bridge: Python bridge script supports --kv output mode` | conf.sh needs line-oriented output to fill bash parallel arrays; JSON requires jq (not on host), so --kv emits section/key/value TSV |
+| `toml-bridge: shim KV mode passes --kv to docker run` | the shim must pass --kv to docker run so bash callers get TSV |
+| `toml-bridge: _toml_tokenize fills sections/keys/values from KV output` | _toml_tokenize is the drop-in replacement for _ini_tokenize -- it must fill the same 4 parallel arrays from bridge KV output |
+| `toml-bridge: _conf_load dispatches to _toml_tokenize for .toml files` | _conf_load must auto-dispatch to TOML for .toml files so the accessor API works without callers changing their code |
+| `toml-bridge: _conf_load still uses _ini_tokenize for .conf files` | the INI path must survive so callers using .conf files keep working |
 | `toml-bridge: test-tools Dockerfile has COPY --from for toml-bridge` | downstream repos inherit the parser via test-tools without building toml-bridge |
 
 ### test/bats/unit/tool_pin_agreement_spec.bats (10)
