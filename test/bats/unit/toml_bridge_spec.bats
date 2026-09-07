@@ -431,3 +431,147 @@ setup() {
   run grep -- '--merge' "${BRIDGE_PY}"
   assert_success
 }
+
+# ════════════════════════════════════════════════════════════════════
+# Seam 8: _emit_kv array serialization (D1 setup.toml migration)
+# ════════════════════════════════════════════════════════════════════
+
+# why: [[array of tables]] in TOML must become numbered-key KV lines
+#      (mount_1, arg_1, etc.) for backward compat with compose_emit.sh
+@test "toml-bridge: Python _emit_kv has array serialization spec" {
+  assert_spec_subject "${BRIDGE_PY}" \
+    "the Python bridge script (array serialization)"
+  run grep '_ARRAY_SPEC' "${BRIDGE_PY}"
+  assert_success
+}
+
+# why: nested [[build.args]] array must serialize to arg_1, arg_2 lines
+#      under the parent section so compose_emit.sh sees the same format
+@test "toml-bridge: _emit_kv nested array produces numbered keys under parent section" {
+  assert_spec_subject "${BRIDGE_PY}" \
+    "the Python bridge script (nested array KV)"
+
+  local toml_file
+  toml_file="$(mktemp --suffix=.toml)"
+  cat > "${toml_file}" << 'EOF'
+[build]
+target_arch = ""
+network = "auto"
+
+[[build.args]]
+key = "TZ"
+value = "Asia/Taipei"
+
+[[build.args]]
+key = "APT_MIRROR"
+value = "tw.archive.ubuntu.com"
+EOF
+
+  create_mock_dir
+  mock_cmd "docker" \
+    'printf "build\ttarget_arch\t\nbuild\tnetwork\tauto\nbuild\targ_1\tTZ=Asia/Taipei\nbuild\targ_2\tAPT_MIRROR=tw.archive.ubuntu.com\n"'
+
+  # shellcheck disable=SC1090
+  source "${SHIM}"
+  run toml_bridge_parse "${toml_file}" --kv
+  assert_success
+  assert_line "build	target_arch	"
+  assert_line "build	network	auto"
+  assert_line "build	arg_1	TZ=Asia/Taipei"
+  assert_line "build	arg_2	APT_MIRROR=tw.archive.ubuntu.com"
+
+  cleanup_mock_dir
+  rm -f "${toml_file}"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# Seam 9: setup.toml template (D1 setup.toml migration)
+# ════════════════════════════════════════════════════════════════════
+
+# why: the TOML template must mirror all 15 INI sections so the format
+#      migration is complete and no section is silently dropped
+@test "toml-bridge: setup.toml template has all 15 sections" {
+  local setup_toml="${ROOT}/dist/setup.toml"
+  assert_spec_subject "${setup_toml}" \
+    "the setup.toml template (format migration D1)"
+
+  local -a expected_sections=(
+    project image build deploy lifecycle
+    gui network security resources environment
+    tmpfs devices volumes additional_contexts logging
+  )
+  local sect
+  for sect in "${expected_sections[@]}"; do
+    run grep -E "^\[${sect}( |\])" "${setup_toml}"
+    if [[ "${status}" -ne 0 ]]; then
+      run grep -E "^\[\[${sect}(\.|]])" "${setup_toml}"
+    fi
+    if [[ "${status}" -ne 0 ]]; then
+      run grep -E "^# *\[\[${sect}" "${setup_toml}"
+    fi
+    assert_success "section [${sect}] or [[${sect}...]] missing from setup.toml"
+  done
+}
+
+# why: D1 acceptance criterion -- numbered-key patterns (_N =) must be
+#      eliminated, replaced by [[array of tables]]
+@test "toml-bridge: setup.toml has zero numbered-key patterns" {
+  local setup_toml="${ROOT}/dist/setup.toml"
+  assert_spec_subject "${setup_toml}" \
+    "the setup.toml template (no numbered keys)"
+
+  run grep -cE '^[a-z_]+_[0-9]+ *=' "${setup_toml}"
+  if [[ "${status}" -eq 0 && "${output}" -gt 0 ]]; then
+    fail "setup.toml still has ${output} numbered-key patterns (_N =)"
+  fi
+}
+
+# ════════════════════════════════════════════════════════════════════
+# Seam 10: _conf_load_layers with array KV (D1 integration)
+# ════════════════════════════════════════════════════════════════════
+
+# why: when toml_bridge_merge --kv emits numbered keys from [[array of
+#      tables]], _conf_load_layers must populate the accessor arrays so
+#      compose_emit.sh sees the same format as from INI numbered keys
+@test "toml-bridge: _conf_load_layers reads array-produced numbered keys from TOML" {
+  local conf_sh="${ROOT}/dist/script/docker/lib/conf.sh"
+  assert_spec_subject "${conf_sh}" \
+    "conf.sh _conf_load_layers (array KV from TOML)"
+
+  local toml_file
+  toml_file="$(mktemp --suffix=.toml)"
+  cat > "${toml_file}" << 'EOF'
+[build]
+network = "auto"
+
+[[build.args]]
+key = "TZ"
+value = "Asia/Taipei"
+
+[[image.rules]]
+rule = "prefix:docker_"
+EOF
+
+  create_mock_dir
+  mock_cmd "docker" \
+    'printf "build\tnetwork\tauto\nbuild\targ_1\tTZ=Asia/Taipei\nimage\trule_1\tprefix:docker_\n"'
+
+  # shellcheck disable=SC1090
+  source "${conf_sh}"
+  _conf_load_layers AKHDL "${toml_file}"
+
+  run _conf_get AKHDL build network
+  assert_success
+  assert_output "auto"
+
+  run _conf_get AKHDL build arg_1
+  assert_success
+  assert_output "TZ=Asia/Taipei"
+
+  run _conf_get AKHDL image rule_1
+  assert_success
+  assert_output "prefix:docker_"
+
+  cleanup_mock_dir
+  rm -f "${toml_file}"
+}
