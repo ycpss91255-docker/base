@@ -83,6 +83,15 @@ ARG KCOV_VERSION=v43
 # leave the tag unchanged and silently reuse the previous image.
 # tool-pin: just github-release casey/just
 ARG JUST_VERSION=1.58.0
+# toml-bridge Python base: the containerised TOML parser (ADR-37). Built
+# inline as a stage below (same pattern as lint-tools, just-runner, etc.)
+# so CI needs no pre-built toml-bridge image. Pin names differ from the
+# standalone Dockerfile.toml-bridge (tt- prefix) to satisfy the unique-name
+# constraint; both track the same upstreams.
+# tool-pin: tt-toml-bridge-python dockerhub library/python pattern=^3\.13\.[0-9]+-alpine3\.22$
+ARG TOML_BRIDGE_PYTHON=3.13.13-alpine3.22
+# tool-pin: tt-toml-bridge-tomli github-release hukkin/tomli
+ARG TOML_BRIDGE_TOMLI=2.4.1
 
 # ── The alpine every package-installing stage below derives from ────────
 #
@@ -251,6 +260,13 @@ RUN apk add --no-cache \
     make -C /tmp/kcov/build -j"$(nproc)" && \
     make -C /tmp/kcov/build install
 
+# ── toml-bridge: containerised TOML parser (ADR-37) ─────────────────
+FROM python:${TOML_BRIDGE_PYTHON} AS toml-bridge-src
+ARG TOML_BRIDGE_TOMLI
+RUN pip install --no-cache-dir "tomli==${TOML_BRIDGE_TOMLI}"
+COPY dockerfile/toml_bridge.py /usr/local/bin/toml-bridge
+RUN chmod +x /usr/local/bin/toml-bridge
+
 # Final stage: bash + bats + shellcheck + hadolint + bats-{support,assert,mock}
 # + parallel + git + ca-certificates + kcov.
 # bash is required because /opt/bats/bin/bats is a `#!/usr/bin/env bash` script
@@ -330,4 +346,5 @@ COPY --from=lint-tools /usr/local/bin/shellcheck /usr/local/bin/
 COPY --from=lint-tools /usr/local/bin/hadolint /usr/local/bin/
 COPY --from=kcov-builder /usr/local/bin/kcov /usr/local/bin/kcov
 COPY --from=just-runner /usr/local/bin/just /usr/local/bin/just
+COPY --from=toml-bridge-src /usr/local/bin/toml-bridge /usr/local/bin/toml-bridge
 RUN ln -s /opt/bats/bin/bats /usr/local/bin/bats

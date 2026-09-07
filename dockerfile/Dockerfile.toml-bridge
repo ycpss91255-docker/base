@@ -1,0 +1,31 @@
+# Dockerfile.toml-bridge -- containerised TOML parser (ADR-37).
+#
+# Reads TOML from stdin, writes JSON to stdout. The host contract is
+# Docker + Git + just; this image keeps it that way by running the parser
+# inside a container rather than requiring host-side Python.
+#
+# Usage (from repo root):
+#   docker build -t toml-bridge:local -f dockerfile/Dockerfile.toml-bridge .
+#   printf '[gui]\nmode = "wayland"\n' | docker run --rm -i toml-bridge:local
+#
+# The image is also consumed by Dockerfile.test-tools via COPY --from,
+# so downstream repos inherit the parser through the test-tools-stage
+# pattern without building toml-bridge themselves.
+
+# tool-pin: toml-bridge-python dockerhub library/python pattern=^3\.13\.[0-9]+-alpine3\.22$
+ARG PYTHON_VERSION=3.13.13-alpine3.22
+FROM python:${PYTHON_VERSION}
+
+# Vendored tomli: the backport of stdlib tomllib (PEP 680), MIT-licensed,
+# ~1000 lines, zero transitive dependencies. Python 3.11+ uses the stdlib
+# tomllib; tomli is the fallback for older runtimes (3.6+). Both are
+# installed so the bridge script works on any Python >= 3.6 without
+# conditional pip logic.
+# tool-pin: tomli github-release hukkin/tomli
+ARG TOMLI_VERSION=2.4.1
+RUN pip install --no-cache-dir "tomli==${TOMLI_VERSION}"
+
+COPY dockerfile/toml_bridge.py /usr/local/bin/toml-bridge
+RUN chmod +x /usr/local/bin/toml-bridge
+
+ENTRYPOINT ["python3", "/usr/local/bin/toml-bridge"]
