@@ -17,9 +17,19 @@ setup() {
 
   create_mock_dir
   TEMP_DIR="$(mktemp -d)"
-  # The per-repo setup.conf override is a repo-root dotfile
-  # (${BASE_PATH}/.setup.conf), so sandbox fixtures write straight to
-  # ${TEMP_DIR}/.setup.conf with no nested parent dir to pre-create.
+  # The per-repo config is setup.toml (ADR-37), so sandbox fixtures
+  # write straight to ${TEMP_DIR}/setup.toml with no nested parent dir
+  # to pre-create.
+
+  # Override toml_bridge_parse to use the in-container bridge directly
+  # instead of docker run (the test container has the bridge installed
+  # at /usr/local/bin/toml-bridge via Dockerfile.test-tools).
+  toml_bridge_parse() {
+    local _file="${1:?missing file}"
+    shift
+    [[ -f "${_file}" ]] || { echo "toml_bridge_parse: file not found: ${_file}" >&2; return 1; }
+    /usr/local/bin/toml-bridge "$@" < "${_file}"
+  }
 }
 
 teardown() {

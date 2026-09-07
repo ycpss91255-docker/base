@@ -213,12 +213,12 @@ EOF
 }
 
 # ════════════════════════════════════════════════════════════════════
-# write_container_env <out> <env_str> <watchdog_env_str> [<cache_file>]
+# write_container_env <out> <env_str> <watchdog_env_str> [<cache_file>] [<service_env_str>]
 #
 # Write `.env`: the container-bound defaults this repo ships. OURS --
 # regenerated from setup.toml on every apply, so a hand edit here is lost
-# by design. The operator's values go in `.env.local`, which compose loads
-# after this file.
+# by design. The operator's values go in `.env.local.toml`, which compose
+# loads after this file.
 #
 # What lands here is everything the container is meant to receive as a
 # DEFAULT and that an operator may want to retune without a rebuild:
@@ -228,6 +228,9 @@ EOF
 #                       emitters take).
 #   <watchdog_env_str>  the `[lifecycle] watchdog_*` block as WATCHDOG_*
 #                       entries, empty when the watchdog is disarmed.
+#   <service_env_str>   the `.env.toml [environment]` entries (ADR-37
+#                       service runtime env), newline-separated KEY=VALUE.
+#                       Empty when the file has no entries.
 #
 # Both used to be emitted straight into the service `environment:` list.
 # They cannot stay there: compose ranks `environment:` ABOVE `env_file`, so
@@ -292,6 +295,7 @@ write_container_env() {
   local _env_str="${2-}"
   local _watchdog_env_str="${3-}"
   local _cache_file="${4-}"
+  local _service_env_str="${5-}"
 
   # Cache entries first: _expand_env_cross_refs resolves each value against
   # the siblings BEFORE it, so seeding the cache makes every cache key
@@ -342,6 +346,14 @@ EOF
         [[ -z "${_wl}" ]] && continue
         _emit_env_file_line "${_wl}"
       done <<< "${_watchdog_env_str}"
+    fi
+    if [[ -n "${_service_env_str}" ]]; then
+      printf '\n# ── [environment] (from .env.toml) ──\n'
+      local _sl
+      while IFS= read -r _sl; do
+        [[ -z "${_sl}" ]] && continue
+        _emit_env_file_line "${_sl}"
+      done <<< "${_service_env_str}"
     fi
   } > "${_out}"
 }

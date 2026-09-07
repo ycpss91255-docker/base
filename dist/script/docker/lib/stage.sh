@@ -343,8 +343,9 @@ _generate_runtime_dockerfile() {
 
 # _parse_stage_sections <file> <out_array_var>
 #
-# Scans <file> for `^\[stage:NAME\]$` headers, returns NAME list in
-# file order. Stage names matching `[a-z][a-z0-9_-]*` are collected;
+# Scans <file> for `[stage:NAME]` or `["stage:NAME"]` headers (INI and
+# TOML forms), returns NAME list in file order. Stage names matching
+# `[a-z][a-z0-9_-]*` are collected;
 # malformed names are silently skipped here (caller surfaces them
 # via _validate_stage_name). Empty / missing file → empty output.
 _parse_stage_sections() {
@@ -354,7 +355,7 @@ _parse_stage_sections() {
   [[ -f "${_file}" ]] || return 0
   local _line
   while IFS= read -r _line || [[ -n "${_line}" ]]; do
-    if [[ "${_line}" =~ ^\[stage:([a-z][a-z0-9_-]*)\][[:space:]]*$ ]]; then
+    if [[ "${_line}" =~ ^\[\"?stage:([a-z][a-z0-9_-]*)\"?\][[:space:]]*$ ]]; then
       _pss_out+=("${BASH_REMATCH[1]}")
     fi
   done < "${_file}"
