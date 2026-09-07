@@ -800,3 +800,62 @@ EOF
   cleanup_mock_dir
   rm -f "${toml_file}"
 }
+
+# ════════════════════════════════════════════════════════════════════
+# Seam 11: the bridge's own CLI, run for real
+# ════════════════════════════════════════════════════════════════════
+#
+# Every merge / KV case above mocks `docker` with a printf of the answer
+# the bridge is supposed to give, so it asserts the shim's plumbing and
+# nothing about the parser -- a bridge that exits 1 without printing a
+# byte passes all of them. The cases below run the tracked script in THIS
+# checkout through the interpreter the test-tools image ships (ADR-37: the
+# bridge is Python, and Dockerfile.test-tools installs python3 for it), so
+# the TOML going in and the TSV coming out are the bridge's own.
+
+# why: the merge is the whole contract the shell layer reads -- a table's
+#      keys merge key-level while an array of tables is replaced wholesale,
+#      and the winner arrives as the numbered keys _conf_list_sorted
+#      matches. Asserting that against a mocked answer proves none of it.
+@test "toml-bridge: --merge --kv merges layers into the numbered-key shape" {
+  assert_spec_subject "${BRIDGE_PY}" \
+    "the Python bridge script (--merge --kv contract)"
+
+  local lower="${BATS_TEST_TMPDIR}/lower.toml"
+  local upper="${BATS_TEST_TMPDIR}/upper.toml"
+  cat > "${lower}" << 'EOF'
+[gui]
+mode = "x11"
+theme = "dark"
+
+[[image.rules]]
+rule = "prefix:stale_"
+
+[[devices]]
+path = "/dev/dri"
+EOF
+  cat > "${upper}" << 'EOF'
+[gui]
+mode = "wayland"
+
+[[image.rules]]
+rule = "prefix:docker_"
+
+[[image.rules]]
+rule = "@basename"
+EOF
+
+  run python3 "${BRIDGE_PY}" --merge --kv "${lower}" "${upper}"
+  assert_success
+  # Table: key-level. The upper layer moves `mode` and says nothing about
+  # `theme`, which therefore survives from the lower layer.
+  assert_line "gui	mode	wayland"
+  assert_line "gui	theme	dark"
+  # Array of tables: replaced wholesale, numbered from the winning layer.
+  assert_line "image	rule_1	prefix:docker_"
+  assert_line "image	rule_2	@basename"
+  refute_output --partial "prefix:stale_"
+  # A top-level array of tables is numbered the same way, and the upper
+  # layer's silence about it is not a deletion.
+  assert_line "devices	device_1	/dev/dri"
+}
