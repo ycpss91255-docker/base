@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **175 tests**.
+Integration specs under `test/bats/integration/`: **181 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test levels and
@@ -421,6 +421,36 @@ run.
 | `upgrade.sh rolls back the whole upgrade when a post-pull step fails` | - |
 | `upgrade.sh (#654 relocated): git subtree pull uses --prefix=.base, not --prefix=base` | Walk-up self-location resolves the subtree prefix to `.base` after the deep relocation; real subtree pull lands with no stray `base/` dir |
 | `upgrade.sh refuses to run when the subtree root carries .git (base template source, #721)` | - |
+
+### test/bats/integration/verify_tag_on_main_spec.bats (6)
+
+Tests for `script/ci/verify-tag-on-main.sh`, the guard the release worker
+runs before cutting a Release. The org's tag rulesets (base#1124) admit any
+commit that passed CI, including one that went green inside a PR that was
+never merged, because a tag ruleset can only ask whether the target commit
+passed its checks -- not whether it is on main. This guard asserts the one
+thing the ruleset cannot: the commit under release is an ancestor of the
+remote's main (base#1143). It is deliberately ONE rule for both of the
+worker's entry paths -- a pushed tag and the direct auto-release call whose
+commit is main's own tip -- so these drive a real git graph: a historical
+main commit and the tip pass, a commit on an unmerged branch is refused, and
+every unreadable case (no GITHUB_SHA, an unfetched main ref) fails CLOSED
+with a message rather than passing, since failing to know where main is is
+not evidence the commit is on it. The refusal writes to stderr only, so a
+caller cannot mistake it for a pass.
+
+Level: integration -- the subject's whole job is a `git merge-base
+--is-ancestor` query, so the fixtures are real repositories rather than
+stubs.
+
+| Test | Description |
+|------|-------------|
+| `verify-tag-on-main: a commit on main is admitted` | A historical main commit (not the tip) is on main and must pass -- the guard tests reachability, not equality with the tip, so releasing an older main commit is admitted. |
+| `verify-tag-on-main: main's own tip is admitted (the auto-release path)` | The direct auto-release path (release-version.sh's `version` input) runs on a push to main, so GITHUB_SHA is main's tip. The single rule admits it with no special case -- this pins that the tip passes. |
+| `verify-tag-on-main: a commit that is not on main is refused, naming it` | The whole point. A commit on a branch that was never merged is exactly what the tag ruleset admits (it passed CI) and what this refuses, naming the commit so the failure says which tag to delete. |
+| `verify-tag-on-main: an unset GITHUB_SHA is refused` | No commit to check is a caller-contract error, not a pass. The release job always has GITHUB_SHA; its absence means this was wired wrong, and guessing "on main" would defeat the guard. |
+| `verify-tag-on-main: an unresolvable main ref is refused, not treated as off-main` | The fail-closed property. If main was never fetched the ref does not resolve, and "not an ancestor of nothing" must NOT read as off-main -- it is refused by name so a missing fetch step fails loudly rather than quietly blocking every release or, worse, passing one it never checked. |
+| `verify-tag-on-main: a refusal prints nothing on stdout` | The release step must never mistake a refusal for a pass. A refusal writes to stderr and prints nothing on stdout, so no wiring that keys off this step's stdout can misread it. |
 
 ### test/bats/integration/wrapper_compose_dispatch_spec.bats (10)
 
