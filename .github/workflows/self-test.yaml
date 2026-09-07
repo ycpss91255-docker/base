@@ -1148,7 +1148,7 @@ jobs:
         # exist before the scaffolded repo is created.
         run: |
           docker build -t toml-bridge:local \
-            -f dockerfile/Dockerfile.toml-bridge dockerfile/
+            -f dockerfile/Dockerfile.toml-bridge .
 
       - name: Create temp repo and run init.sh
         run: |

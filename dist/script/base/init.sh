@@ -1181,7 +1181,7 @@ _init_existing_repo() {
   # the repo ever had a configuration of its own.
   _migrate_legacy_setup_conf "${REPO_ROOT}" "${TEMPLATE_DIR}/dist"
   # INI-to-TOML format migration (ADR-00000037). Runs AFTER the legacy
-  # setup.conf relocation above (which ensures .setup.conf is at the
+  # setup.conf relocation above (which ensures the INI file is at the
   # repo root) and AFTER _migrate_env_to_local (which creates .env.local
   # from the old .env). Both converters are gated on the source existing
   # and the target NOT existing, so they are no-ops on a repo that

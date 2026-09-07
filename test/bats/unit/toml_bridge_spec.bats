@@ -16,6 +16,11 @@ setup() {
   export LOG_FORMAT=text
   load "${BATS_TEST_DIRNAME}/test_helper"
 
+  # Force the docker path so mock_cmd "docker" is exercised; the native
+  # toml-bridge binary IS available in the test-tools container but
+  # these tests specifically verify the containerised fallback.
+  export TOML_BRIDGE_FORCE_DOCKER=1
+
   ROOT=/source
   DOCKERFILE="${ROOT}/dockerfile/Dockerfile.toml-bridge"
   BRIDGE_PY="${ROOT}/dockerfile/toml_bridge.py"

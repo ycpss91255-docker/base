@@ -434,7 +434,7 @@ REMOTE
   _source_init
   run _gen_setup_conf "false"
   assert_failure
-  assert_output --partial "Template setup.conf not found"
+  assert_output --partial "Template setup.toml not found"
 }
 
 @test "_gen_setup_conf --force on clean repo does not create spurious .bak" {
@@ -1588,7 +1588,7 @@ _stage_missing_template_conf() {
   LOG_FORMAT=text run _gen_setup_conf "false"
   assert_failure
   assert_output --partial '[init] ERROR'
-  assert_output --partial 'Template setup.conf not found'
+  assert_output --partial 'Template setup.toml not found'
   refute_output --partial 'log-events.txt'
 }
 
@@ -1596,7 +1596,7 @@ _stage_missing_template_conf() {
   _stage_missing_template_conf
   LOG_FORMAT=json run _gen_setup_conf "false"
   assert_failure
-  assert_output --partial '"display":"Template setup.conf not found'
+  assert_output --partial '"display":"Template setup.toml not found'
 }
 
 # ════════════════════════════════════════════════════════════════════

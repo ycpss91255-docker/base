@@ -109,22 +109,28 @@ _seed_stale_setup_conf() {
 
 # why: Happy path round-trip
 @test "fresh clone with portable \${WS_PATH} mount_1: no warning, .env gets local path" {
-  # Same shape as above but with a repo whose committed setup.conf
+  # Same shape as above but with a repo whose committed setup.toml
   # already uses the portable form (the happy case after v0.9.4+).
   mkdir -p "${REPO_DIR}"
   cp "${REPO_DIR}/.base/dist/setup.toml" "${REPO_DIR}/setup.toml"
+  # Append a [volumes] section with the portable mount_1 form.
+  # TOML table (not array-of-tables) matches what _upsert_conf_value
+  # writes for the workspace bind.
   # shellcheck disable=SC2016  # literal ${WS_PATH} / ${USER_NAME} intentional
-  sed -i 's|^mount_1 =.*|mount_1 = ${WS_PATH}:/home/${USER_NAME}/work|' \
-    "${REPO_DIR}/setup.toml"
+  cat >> "${REPO_DIR}/setup.toml" <<'TOML'
+
+[volumes]
+mount_1 = "${WS_PATH}:/home/${USER_NAME}/work"
+TOML
 
   run bash "${REPO_DIR}/build.sh" --dry-run
   assert_success
   # No stale-path warning.
   refute_output --partial "WARNING"
 
-  # mount_1 stays as the portable form.
+  # mount_1 stays as the portable form in setup.toml.
   run grep '^mount_1' "${REPO_DIR}/setup.toml"
-  assert_output --partial 'mount_1 = ${WS_PATH}:/home/${USER_NAME}/work'
+  assert_output --partial 'mount_1 = "${WS_PATH}:/home/${USER_NAME}/work"'
 
   # .env populated with this machine's WS_PATH (non-empty, absolute).
   run grep '^WS_PATH=' "${REPO_DIR}/.env.generated"
