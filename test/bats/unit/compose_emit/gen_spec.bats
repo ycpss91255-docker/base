@@ -34,14 +34,22 @@ FROM sys AS devel-base
 FROM devel-base AS devel
 FROM devel AS devel-test
 EOF
-  # Override toml_bridge_parse to use the in-container bridge directly
-  # instead of docker run (the test container has the bridge installed
-  # at /usr/local/bin/toml-bridge via Dockerfile.test-tools).
+  # Override toml_bridge_{parse,merge} to use the in-container bridge
+  # directly instead of docker run (the test container has the bridge
+  # installed at /usr/local/bin/toml-bridge via Dockerfile.test-tools).
   toml_bridge_parse() {
     local _file="${1:?missing file}"
     shift
     [[ -f "${_file}" ]] || { echo "toml_bridge_parse: file not found: ${_file}" >&2; return 1; }
     /usr/local/bin/toml-bridge "$@" < "${_file}"
+  }
+  toml_bridge_merge() {
+    local _kv_flag=""
+    if [[ "${1:-}" == "--kv" ]]; then _kv_flag="--kv"; shift; fi
+    local -a _args=("--merge")
+    [[ -n "${_kv_flag}" ]] && _args+=("--kv")
+    _args+=("$@")
+    /usr/local/bin/toml-bridge "${_args[@]}"
   }
 }
 
