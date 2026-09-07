@@ -50,7 +50,8 @@ toml_bridge_parse() {
 #   merge, array-of-tables replace).
 #   Files are given in INCREASING precedence (baseline first, override last).
 #   Default: merged JSON on stdout.  --kv: section\tkey\tvalue TSV lines.
-#   Returns non-zero if any file does not exist or merging fails.
+#   A layer that does not exist contributes nothing; naming no layer at all
+#   is refused.  Returns non-zero if merging fails.
 toml_bridge_merge() {
   local _kv_flag=""
   if [[ "${1:-}" == "--kv" ]]; then
@@ -63,20 +64,25 @@ toml_bridge_merge() {
     return 1
   }
 
+  # An absent layer contributes nothing rather than failing the merge: the
+  # caller passes the whole chain unconditionally, which is the rule
+  # _conf_load_layers states on this side of the call and the bridge's own
+  # _merge_toml implements on the other. A layer that IS there and cannot
+  # be read still fails, inside the bridge, naming the file. Naming no
+  # layer at all is a different mistake and is refused above.
   local _file
+  local -a _layers=()
   for _file in "$@"; do
-    if [[ ! -f "${_file}" ]]; then
-      _log_err toml_bridge no_such_file \
-        "toml_bridge_merge: no such file: ${_file}"
-      return 1
-    fi
+    [[ -f "${_file}" ]] || continue
+    _layers+=("${_file}")
   done
+  (( ${#_layers[@]} > 0 )) || return 0
 
   # Native path: call the bridge binary directly.
   if _toml_bridge_use_native; then
     local -a _args=("--merge")
     [[ -n "${_kv_flag}" ]] && _args+=("--kv")
-    _args+=("$@")
+    _args+=("${_layers[@]}")
     toml-bridge "${_args[@]}"
     return
   fi
@@ -87,7 +93,7 @@ toml_bridge_merge() {
   local -a _bridge_args=("--merge")
   [[ -n "${_kv_flag}" ]] && _bridge_args+=("--kv")
 
-  for _file in "$@"; do
+  for _file in "${_layers[@]}"; do
     _docker_args+=("-v" "${_file}:${_file}:ro")
     _bridge_args+=("${_file}")
   done
