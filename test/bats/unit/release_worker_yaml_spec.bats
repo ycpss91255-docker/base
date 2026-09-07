@@ -224,3 +224,30 @@ release: contents: write'
   run code_grep -F 'contains(github.ref_name' "${WF}"
   assert_failure
 }
+
+# ── the released commit must be on main (base#1143) ──────────────────────────
+
+# why: The tag ruleset (base#1124) admits any commit that passed CI, including
+# one that went green in a PR that was never merged; a Release cut from such a
+# commit ships code that never reached main. The guard that refuses it is a
+# tested script, not an expression -- the same split as the version resolver
+# and the archive assembler -- and the release job delegates to it here.
+@test "release-worker.yaml: a release step verifies the commit is on main (base#1143)" {
+  run code_grep -F '.release-base/script/ci/verify-tag-on-main.sh' "${WF}"
+  assert_success
+}
+
+# why: The guard runs a git query and does not fetch; the release job's
+# checkout is shallow and carries no remote main, so the workflow must bring
+# origin/main before the guard runs or the query fails closed on every
+# release. Lock the fetch into the same step so neither can be removed alone.
+@test "release-worker.yaml: the on-main guard fetches origin main before checking (base#1143)" {
+  local _body
+  _body="$(RW_STEP='Verify the tagged commit is on main' yq -r \
+      '.jobs.release.steps[] | select(.name == strenv(RW_STEP)) | .run' \
+      "${WF}")"
+  [[ -n "${_body}" && "${_body}" != 'null' ]] || fail \
+    "${WF} has no 'Verify the tagged commit is on main' step in its release job -- it was renamed, and this assertion had nothing to read."
+  run grep -F 'refs/heads/main:refs/remotes/origin/main' <<< "${_body}"
+  assert_success
+}
