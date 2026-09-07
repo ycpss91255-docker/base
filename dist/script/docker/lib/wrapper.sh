@@ -91,13 +91,13 @@ _wrapper_msg() {
     # %s: the RECORDED project name, then the RESOLVED one. Volumes only:
     # `stop` will NOT clear this one, so it must not be advertised.
     zh-TW:project_rename_deferred_volumes)
-      echo "compose 專案 '%s' 底下仍有具名 volume,此 checkout 先維持該名稱。改用解析出的新名稱 '%s' 會讓那些 volume 變成沒有任何 wrapper 找得到的孤兒,而 './stop.sh' 不會刪除它們;請先用 'docker volume ls --filter label=com.docker.compose.project=%s' 檢視並搬移或刪除,或以 setup.conf 的 [project] name 固定目前名稱。" ;;
+      echo "compose 專案 '%s' 底下仍有具名 volume,此 checkout 先維持該名稱。改用解析出的新名稱 '%s' 會讓那些 volume 變成沒有任何 wrapper 找得到的孤兒,而 './stop.sh' 不會刪除它們;請先用 'docker volume ls --filter label=com.docker.compose.project=%s' 檢視並搬移或刪除,或以 setup.toml 的 [project] name 固定目前名稱。" ;;
     zh-CN:project_rename_deferred_volumes)
-      echo "compose 项目 '%s' 下仍有具名 volume,此 checkout 先维持该名称。改用解析出的新名称 '%s' 会让那些 volume 变成没有任何 wrapper 找得到的孤儿,而 './stop.sh' 不会删除它们;请先用 'docker volume ls --filter label=com.docker.compose.project=%s' 查看并搬移或删除,或以 setup.conf 的 [project] name 固定目前名称。" ;;
+      echo "compose 项目 '%s' 下仍有具名 volume,此 checkout 先维持该名称。改用解析出的新名称 '%s' 会让那些 volume 变成没有任何 wrapper 找得到的孤儿,而 './stop.sh' 不会删除它们;请先用 'docker volume ls --filter label=com.docker.compose.project=%s' 查看并搬移或删除,或以 setup.toml 的 [project] name 固定目前名称。" ;;
     ja:project_rename_deferred_volumes)
-      echo "compose プロジェクト '%s' に名前付きボリュームが残っているため、この checkout は同じ名前のままにします。解決された新しい名前 '%s' に切り替えると、それらはどの wrapper からも辿れない孤児になり、'./stop.sh' では削除されません。'docker volume ls --filter label=com.docker.compose.project=%s' で確認して移動または削除するか、setup.conf の [project] name で現在の名前を固定してください。" ;;
+      echo "compose プロジェクト '%s' に名前付きボリュームが残っているため、この checkout は同じ名前のままにします。解決された新しい名前 '%s' に切り替えると、それらはどの wrapper からも辿れない孤児になり、'./stop.sh' では削除されません。'docker volume ls --filter label=com.docker.compose.project=%s' で確認して移動または削除するか、setup.toml の [project] name で現在の名前を固定してください。" ;;
     *:project_rename_deferred_volumes)
-      echo "Compose project '%s' still holds named volumes, so this checkout stays on that name. Adopting the resolved name '%s' would leave them as orphans no wrapper addresses, and './stop.sh' does not remove them: list them with 'docker volume ls --filter label=com.docker.compose.project=%s', then move or remove them -- or pin the current name with [project] name in setup.conf." ;;
+      echo "Compose project '%s' still holds named volumes, so this checkout stays on that name. Adopting the resolved name '%s' would leave them as orphans no wrapper addresses, and './stop.sh' does not remove them: list them with 'docker volume ls --filter label=com.docker.compose.project=%s', then move or remove them -- or pin the current name with [project] name in setup.toml." ;;
     zh-TW:project_rename_probe_failed)
       echo "無法向 daemon 查詢 compose 專案 '%s' 底下的容器，因此延後改名為 '%s'。" ;;
     zh-CN:project_rename_probe_failed)
@@ -546,7 +546,7 @@ ${_probe_err}"
 #
 # Phase decision (unchanged from the build/run inline blocks):
 #   - RUN_SETUP=true                          -> interactive run
-#   - missing .env / setup.conf / compose.yaml -> non-interactive bootstrap
+#   - missing .env / setup.toml / compose.yaml -> non-interactive bootstrap
 #   - otherwise                                -> drift-check, regen on drift
 #
 # Bootstrap MUST stay non-interactive: compose.yaml is gitignored since
@@ -568,9 +568,9 @@ _wrapper_setup_sync() {
 
   # Self-managed compose (base self-use): base is the template SOURCE
   # -- it has no `.base/` subtree and ships a hand-authored compose.yaml, so
-  # there is no setup.conf to generate from and regenerating would clobber
+  # there is no setup.toml to generate from and regenerating would clobber
   # it. Skip the whole setup-sync lifecycle. This is the general
-  # "no .base/ subtree + no setup.conf -> the repo manages its own compose"
+  # "no .base/ subtree + no setup.toml -> the repo manages its own compose"
   # rule (ADR-00000011 sec.4), not a base special-case; consumers always
   # carry a `.base/` subtree so this never fires for them.
   #
@@ -596,7 +596,7 @@ _wrapper_setup_sync() {
   # symlink is executable; otherwise non-interactive setup.sh.
   # per-invocation overrides (--gui / --no-x11-cookie) accumulate in
   # SETUP_FORWARD_ARGS and short-circuit through setup.sh apply -- the
-  # TUI Save would persist them to setup.conf, the wrong semantics for a
+  # TUI Save would persist them to setup.toml, the wrong semantics for a
   # debug knob.
   _run_interactive() {
     if (( "${#_forward_args[@]}" > 0 )); then

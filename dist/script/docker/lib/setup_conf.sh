@@ -74,11 +74,11 @@ unset _setup_conf_lib_dir
 # nothing, and every reader passes the whole chain unconditionally so the
 # precedence lives in exactly one place.
 #
-# The template layer sits at <template_dist>/.setup.conf. Its directory is
+# The template layer sits at <template_dist>/setup.toml. Its directory is
 # taken from the optional third argument, else from _SETUP_SCRIPT_DIR (the
 # shipped wrapper dir, three levels below dist/), and the layer is OMITTED
 # when neither is available. Omitted rather than left to resolve: an empty
-# prefix would make the path `/../../../.setup.conf`, i.e. `/.setup.conf`
+# prefix would make the path `/../../../setup.toml`, i.e. `/setup.toml`
 # -- a real, readable path that has nothing to do with this repo.
 #
 # The third argument exists for the callers that reach the readers WITHOUT
@@ -186,7 +186,7 @@ _load_setup_conf() {
 
 # _setup_conf_handle <base> <handle>
 #
-# Load the effective setup.conf into an opaque conf.sh <handle>: the whole
+# Load the effective setup.toml into an opaque conf.sh <handle>: the whole
 # layer chain, section-replace (same precedence as _load_setup_conf, but as
 # one queryable handle for the _conf_get / _conf_list_sorted accessors).
 _setup_conf_handle() {

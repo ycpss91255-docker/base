@@ -329,7 +329,7 @@ _generate_runtime_dockerfile() {
 # ════════════════════════════════════════════════════════════════════
 # Per-stage overrides
 #
-# `[stage:<name>]` sections in <repo>/.setup.conf override top-level
+# `[stage:<name>]` sections in <repo>/setup.toml override top-level
 # settings on a per-stage basis. Only the v1 allowlist (gui.mode, the
 # whole [deploy] / [network] blocks, security.privileged, [volumes]
 # mounts, [environment] env_*) is honored — anything else is WARN'd
@@ -462,7 +462,7 @@ _resolve_stage_scalar() {
 #                          trailing newline)
 #
 # Default (inherit unspecified or anything ≠ "false"): top-level entries
-# come first, stage entries appended afterward in setup.conf order.
+# come first, stage entries appended afterward in setup.toml order.
 # Replace mode (inherit=false): only stage entries appear; top-level
 # is dropped. The opt-out lets a stage opt out of inherited mounts
 # entirely (e.g. headless that wants no host-side ssh keys, regardless
@@ -486,7 +486,7 @@ _resolve_stage_list() {
     fi
   done
 
-  # Collect stage's own list entries in setup.conf order. Match only
+  # Collect stage's own list entries in setup.toml order. Match only
   # `<prefix><digits>` so meta-keys like `mount_inherit` (which share
   # the prefix) are not pulled in.
   local -a _stage_entries=()

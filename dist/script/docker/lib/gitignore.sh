@@ -243,7 +243,7 @@ _sync_dockerignore() {
 # _sync_logging_gitignore <base_path>
 #
 # Ensure the per-repo .gitignore covers every relative `local_path`
-# declared in setup.conf [logging] / [logging.<svc>], so users don't
+# declared in setup.toml [logging] / [logging.<svc>], so users don't
 # accidentally commit container logs. Absolute paths and `~/...` are
 # skipped -- gitignore patterns apply only inside the repo.
 #
@@ -282,7 +282,7 @@ _sync_dockerignore() {
 # (PR-B). The runtime sync used to fire on every setup.sh apply call;
 # the new lifecycle ties .gitignore updates to init.sh / upgrade.sh
 # so the file stays consistent across template versions without
-# needing a wrapper invocation between setup.conf edit and the next
+# needing a wrapper invocation between setup.toml edit and the next
 # build.
 _sync_logging_gitignore() {
   local _base="${1:?}"

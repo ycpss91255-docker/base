@@ -222,7 +222,7 @@ _compute_project_name() {
       "file=${_generated}"
   elif [[ -n "${FILE_PATH:-}" ]] && ! _is_self_managed_repo "${FILE_PATH}"; then
     _log_err compose project_name_unrecorded \
-      "display=${_generated} is missing, and this checkout is configured (it carries a .base/ subtree or a .setup.conf), so it has a recorded project name that this run cannot read. Refusing to derive one: the derived name is not the name this checkout ran under, and on a shared host it can be another checkout's. Run 'just setup' (or any build / run, which regenerates on drift) to restore it, or pass PROJECT_NAME to name the project explicitly." \
+      "display=${_generated} is missing, and this checkout is configured (it carries a .base/ subtree or a setup.toml), so it has a recorded project name that this run cannot read. Refusing to derive one: the derived name is not the name this checkout ran under, and on a shared host it can be another checkout's. Run 'just setup' (or any build / run, which regenerates on drift) to restore it, or pass PROJECT_NAME to name the project explicitly." \
       "file=${_generated}"
     exit 1
   fi
