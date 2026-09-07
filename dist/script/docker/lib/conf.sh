@@ -23,6 +23,10 @@ if [[ -n "${_DOCKER_LIB_CONF_SOURCED:-}" ]]; then
 fi
 _DOCKER_LIB_CONF_SOURCED=1
 
+_conf_sh_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
+# shellcheck source=dist/script/docker/lib/toml_bridge.sh
+source "${_conf_sh_dir}/toml_bridge.sh"
+
 # _dump_conf_section <file> <section>
 #
 # Emit key=value lines from the named INI section of <file>, skipping
@@ -114,6 +118,38 @@ _ini_tokenize() {
     _it_keys+=("${__it_k}")
     _it_values+=("${__it_v}")
   done < "${_file}"
+}
+
+# _toml_tokenize <file> <sections_out> <entry_sections_out> <keys_out> <values_out>
+#
+# TOML counterpart of _ini_tokenize. Calls the containerised bridge
+# (toml_bridge_parse --kv) and populates the same four parallel arrays.
+# Drop-in replacement for _ini_tokenize when the source is TOML.
+_toml_tokenize() {
+  local _file="${1:?"${FUNCNAME[0]}: missing file"}"
+  local -n _tt_sections="${2:?"${FUNCNAME[0]}: missing sections outvar"}"
+  local -n _tt_entry_sects="${3:?"${FUNCNAME[0]}: missing entry-sections outvar"}"
+  local -n _tt_keys="${4:?"${FUNCNAME[0]}: missing keys outvar"}"
+  local -n _tt_values="${5:?"${FUNCNAME[0]}: missing values outvar"}"
+
+  _tt_sections=()
+  _tt_entry_sects=()
+  _tt_keys=()
+  _tt_values=()
+  [[ -f "${_file}" ]] || return 0
+
+  local _tt_sect _tt_key _tt_val
+  local -A _tt_seen=()
+  while IFS=$'\t' read -r _tt_sect _tt_key _tt_val; do
+    [[ -z "${_tt_sect}" ]] && continue
+    if [[ -z "${_tt_seen[${_tt_sect}]:-}" ]]; then
+      _tt_sections+=("${_tt_sect}")
+      _tt_seen[${_tt_sect}]=1
+    fi
+    _tt_entry_sects+=("${_tt_sect}")
+    _tt_keys+=("${_tt_key}")
+    _tt_values+=("${_tt_val}")
+  done < <(toml_bridge_parse "${_file}" --kv)
 }
 
 # _load_setup_conf_full <file> <sections_outvar> <keys_outvar> <values_outvar>
@@ -244,7 +280,11 @@ _conf_load() {
   local _h="${2:?"${FUNCNAME[0]}: missing handle"}"
   declare -g -a "${_h}__sects=()" "${_h}__es=()" "${_h}__keys=()" "${_h}__vals=()"
   local -n _cl_s="${_h}__sects" _cl_es="${_h}__es" _cl_k="${_h}__keys" _cl_v="${_h}__vals"
-  _ini_tokenize "${_file}" _cl_s _cl_es _cl_k _cl_v
+  if [[ "${_file}" == *.toml ]]; then
+    _toml_tokenize "${_file}" _cl_s _cl_es _cl_k _cl_v
+  else
+    _ini_tokenize "${_file}" _cl_s _cl_es _cl_k _cl_v
+  fi
 }
 
 # _conf_get <handle> <section> <key> [default]

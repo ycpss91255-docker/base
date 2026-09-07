@@ -9,11 +9,13 @@ _toml_bridge_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
 # shellcheck source=dist/script/docker/lib/log.sh
 source "${_toml_bridge_dir}/log.sh"
 
-# toml_bridge_parse <toml-file>
-#   Parse a TOML file and output JSON on stdout.
+# toml_bridge_parse <toml-file> [--kv]
+#   Parse a TOML file via the containerised bridge.
+#   Default: JSON on stdout.  --kv: section\tkey\tvalue TSV lines.
 #   Returns non-zero if the file does not exist or parsing fails.
 toml_bridge_parse() {
   local _file="${1:?toml_bridge_parse expects a TOML file path}"
+  shift
   local _image="${TOML_BRIDGE_IMAGE:-toml-bridge:local}"
 
   if [[ ! -f "${_file}" ]]; then
@@ -22,5 +24,5 @@ toml_bridge_parse() {
     return 1
   fi
 
-  docker run --rm -i "${_image}" < "${_file}"
+  docker run --rm -i "${_image}" "$@" < "${_file}"
 }
