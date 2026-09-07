@@ -51,22 +51,27 @@ def _emit_array(section, key, items):
 def _emit_kv(data):
     """Emit section/key/value tab-separated lines for bash consumption.
 
-    Tables (dict values) emit one line per key.  Arrays of tables (list
-    values) emit one line per key of each element dict, preserving the
-    element order -- the same shape a reopened INI section produces.
+    An array of tables goes through _emit_array, which numbers it
+    (`rule_1`, `arg_2`, `device_1`) -- the `<prefix><digits>` shape
+    `_conf_list_sorted` matches and every ordered-list reader on the shell
+    side requires. Emitting one line per element key instead loses the
+    order, and emitting the Python list loses the list.
+
+    Both nestings are arrays: `[[devices]]` arrives as a list at the
+    section, `[[build.args]]` as a list under a key of one.
     """
     for section, entries in data.items():
-        if isinstance(entries, dict):
+        if isinstance(entries, list):
+            _emit_array(section, section, entries)
+        elif isinstance(entries, dict):
             for key, value in entries.items():
-                print(f"{section}\t{key}\t{value}")
-        elif isinstance(entries, list):
-            for item in entries:
-                if isinstance(item, dict):
-                    for key, value in item.items():
-                        print(f"{section}\t{key}\t{value}")
+                if isinstance(value, list):
+                    _emit_array(section, key, value)
+                else:
+                    print(f"{section}\t{key}\t{value}")
 
 
-def _merge_toml(files):
+def _merge_toml(paths):
     """Merge multiple TOML files with type-aware semantics.
 
     Files are read in increasing-precedence order (baseline first, the
@@ -78,39 +83,11 @@ def _merge_toml(files):
     Arrays of tables (list): replace -- the entire array from the highest
     layer that defines it wins.
 
+    A path that does not exist contributes nothing rather than failing:
+    callers pass the whole layer chain unconditionally, which is the rule
+    conf.sh's _conf_load_layers documents on the other side.
+
     ADR-37 sec. Merge semantics.
-    """
-    merged = {}
-    for path in files:
-        with open(path, "rb") as f:
-            data = tomllib.load(f)
-        for key, value in data.items():
-            if isinstance(value, list):
-                # Array of tables: replace entirely.
-                merged[key] = value
-            elif isinstance(value, dict):
-                # Table: key-level merge.
-                if key not in merged or not isinstance(merged[key], dict):
-                    merged[key] = {}
-                merged[key].update(value)
-            else:
-                # Top-level scalar: override.
-                merged[key] = value
-        if isinstance(entries, list):
-            _emit_array(section, section, entries)
-        elif isinstance(entries, dict):
-            for key, value in entries.items():
-                if isinstance(value, list):
-                    _emit_array(section, key, value)
-                else:
-                    print(f"{section}\t{key}\t{_format_value(value)}")
-
-
-def _merge_layers(paths):
-    """Type-aware merge of TOML layers (lowest precedence first).
-
-    Tables: key-level merge (upper overrides only keys it defines).
-    Arrays: replace (upper replaces entire array).
     """
     merged = {}
     for path in paths:
@@ -124,15 +101,20 @@ def _merge_layers(paths):
             raise SystemExit(1)
         for section, entries in layer.items():
             if isinstance(entries, dict):
+                # Table: key-level merge.
                 if section not in merged or not isinstance(merged[section], dict):
                     merged[section] = {}
                 merged[section].update(entries)
             else:
+                # Array of tables, or a top-level scalar: replace.
                 merged[section] = entries
     return merged
 
 
 def main():
+    # The flags are REMOVED from the argument list rather than filtered by
+    # a leading dash, so a file path is never mistaken for a flag and a
+    # flag is never mistaken for a file.
     args = list(sys.argv[1:])
     kv_mode = "--kv" in args
     merge_mode = "--merge" in args
@@ -147,17 +129,7 @@ def main():
             print("toml-bridge: --merge requires at least one file",
                   file=sys.stderr)
             raise SystemExit(1)
-        try:
-            data = _merge_toml(args)
-        except Exception as exc:
-            print(f"toml-bridge: {exc}", file=sys.stderr)
-            raise SystemExit(1)
-    argv = [a for a in sys.argv[1:] if not a.startswith("-")]
-    kv_mode = "--kv" in sys.argv
-    merge_mode = "--merge" in sys.argv
-
-    if merge_mode:
-        data = _merge_layers(argv)
+        data = _merge_toml(args)
     else:
         raw = sys.stdin.buffer.read()
         try:
