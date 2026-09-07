@@ -102,6 +102,19 @@ the GPU keys -- so a partial override produces incoherent combinations.
 
 The layer below already worked this way. One rule for the whole chain.
 
+**Amendment (ADR-37 D4 #1130, 2026-09-07): type-aware merge for TOML
+layers.** The ordered-list argument above remains correct and is the
+basis for the array-replace half of the TOML merge rule. When the
+chain is `.setup.toml` (TOML format), the merge becomes type-aware:
+scalar keys within a `[table]` get key-level merge (upper layer
+overrides only the keys it defines; unmentioned keys inherit from the
+lower layer), while `[[array of tables]]` get array replace (the
+entire array comes from the highest layer that defines it). This
+resolves the "eight ordered-list sections" concern by replacing only
+whole arrays, while allowing scalar sections (e.g. `[gui]`, `[deploy]`)
+to benefit from key-level override. The INI `.setup.conf` chain retains
+blanket section-replace unchanged.
+
 ### 4. `[project] name`, and one resolved project name
 
 `[project]` is a real section of the shipped template with one key,

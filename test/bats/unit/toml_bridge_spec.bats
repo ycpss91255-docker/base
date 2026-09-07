@@ -270,3 +270,164 @@ setup() {
   run grep 'COPY --from=.*toml-bridge' "${TEST_TOOLS}"
   assert_success
 }
+
+# ════════════════════════════════════════════════════════════════════
+# Seam 6: toml_bridge_merge shim (D4 ADR-37 type-aware merge)
+# ════════════════════════════════════════════════════════════════════
+
+# why: type-aware merge is the D4 core contract -- scalar keys within a
+#      [table] get key-level merge: upper layer overrides only the keys it
+#      defines, unmentioned keys inherit from the lower layer
+@test "toml-bridge: merge shim scalar key-level merge via --kv" {
+  assert_spec_subject "${SHIM}" \
+    "the toml_bridge.sh bash shim (merge mode)"
+
+  local base_toml upper_toml
+  base_toml="$(mktemp --suffix=.toml)"
+  upper_toml="$(mktemp --suffix=.toml)"
+  printf '[gui]\nmode = "x11"\ntheme = "dark"\n' > "${base_toml}"
+  printf '[gui]\nmode = "wayland"\n' > "${upper_toml}"
+
+  create_mock_dir
+  mock_cmd "docker" \
+    'printf "gui\tmode\twayland\ngui\ttheme\tdark\n"'
+
+  # shellcheck disable=SC1090
+  source "${SHIM}"
+  run toml_bridge_merge --kv "${base_toml}" "${upper_toml}"
+  assert_success
+  assert_line "gui	mode	wayland"
+  assert_line "gui	theme	dark"
+
+  cleanup_mock_dir
+  rm -f "${base_toml}" "${upper_toml}"
+}
+
+# why: [[array of tables]] must be replaced wholesale by the upper layer --
+#      per-element merge of ordered lists is broken (ADR-25 sec.3 rationale)
+@test "toml-bridge: merge shim array replace for [[array of tables]]" {
+  assert_spec_subject "${SHIM}" \
+    "the toml_bridge.sh bash shim (merge array replace)"
+
+  local base_toml upper_toml
+  base_toml="$(mktemp --suffix=.toml)"
+  upper_toml="$(mktemp --suffix=.toml)"
+  printf '[[volumes]]\nmount = "/data"\n\n[[volumes]]\nmount = "/log"\n' > "${base_toml}"
+  printf '[[volumes]]\nmount = "/scratch"\n' > "${upper_toml}"
+
+  create_mock_dir
+  mock_cmd "docker" \
+    'printf "volumes\tmount\t/scratch\n"'
+
+  # shellcheck disable=SC1090
+  source "${SHIM}"
+  run toml_bridge_merge --kv "${base_toml}" "${upper_toml}"
+  assert_success
+  assert_output "volumes	mount	/scratch"
+
+  cleanup_mock_dir
+  rm -f "${base_toml}" "${upper_toml}"
+}
+
+# why: absent layers must be silently skipped so callers can pass the
+#      whole chain unconditionally (matching _conf_load_layers convention)
+@test "toml-bridge: merge shim skips missing files silently" {
+  assert_spec_subject "${SHIM}" \
+    "the toml_bridge.sh bash shim (merge missing-file skip)"
+
+  local base_toml
+  base_toml="$(mktemp --suffix=.toml)"
+  printf '[gui]\nmode = "x11"\n' > "${base_toml}"
+
+  create_mock_dir
+  mock_cmd "docker" \
+    'printf "gui\tmode\tx11\n"'
+
+  # shellcheck disable=SC1090
+  source "${SHIM}"
+  run toml_bridge_merge --kv "${base_toml}" "/nonexistent/upper.toml"
+  assert_success
+  assert_output "gui	mode	x11"
+
+  cleanup_mock_dir
+  rm -f "${base_toml}"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# Seam 7: _conf_load_layers TOML dispatch (D4 type-aware merge)
+# ════════════════════════════════════════════════════════════════════
+
+# why: _conf_load_layers must dispatch to toml_bridge_merge when all files
+#      are .toml, producing type-aware merge (key-level for tables, array
+#      replace for arrays) instead of bash section-replace
+@test "toml-bridge: _conf_load_layers merges .toml files via bridge" {
+  local conf_sh="${ROOT}/dist/script/docker/lib/conf.sh"
+  assert_spec_subject "${conf_sh}" \
+    "conf.sh _conf_load_layers TOML dispatch"
+
+  local base_toml upper_toml
+  base_toml="$(mktemp --suffix=.toml)"
+  upper_toml="$(mktemp --suffix=.toml)"
+  printf '[gui]\nmode = "x11"\ntheme = "dark"\n[network]\nnet = "bridge"\n' > "${base_toml}"
+  printf '[gui]\nmode = "wayland"\n' > "${upper_toml}"
+
+  create_mock_dir
+  mock_cmd "docker" \
+    'printf "gui\tmode\twayland\ngui\ttheme\tdark\nnetwork\tnet\tbridge\n"'
+
+  # shellcheck disable=SC1090
+  source "${conf_sh}"
+  _conf_load_layers MHDL "${base_toml}" "${upper_toml}"
+
+  run _conf_get MHDL gui mode
+  assert_success
+  assert_output "wayland"
+
+  run _conf_get MHDL gui theme
+  assert_success
+  assert_output "dark"
+
+  run _conf_get MHDL network net
+  assert_success
+  assert_output "bridge"
+
+  cleanup_mock_dir
+  rm -f "${base_toml}" "${upper_toml}"
+}
+
+# why: the INI section-replace path must survive so existing .conf callers
+#      keep working -- mixed .conf/.toml chains also fall through to INI
+@test "toml-bridge: _conf_load_layers uses INI path for .conf files" {
+  local conf_sh="${ROOT}/dist/script/docker/lib/conf.sh"
+  assert_spec_subject "${conf_sh}" \
+    "conf.sh _conf_load_layers INI backward compat"
+
+  local base_conf upper_conf
+  base_conf="$(mktemp --suffix=.conf)"
+  upper_conf="$(mktemp --suffix=.conf)"
+  printf '[gui]\nmode = x11\ntheme = dark\n' > "${base_conf}"
+  printf '[gui]\nmode = wayland\n' > "${upper_conf}"
+
+  # shellcheck disable=SC1090
+  source "${conf_sh}"
+  _conf_load_layers IHDL "${base_conf}" "${upper_conf}"
+
+  run _conf_get IHDL gui mode
+  assert_success
+  assert_output "wayland"
+
+  # section-replace: theme from base is gone because upper defined [gui]
+  run _conf_get IHDL gui theme ""
+  assert_success
+  assert_output ""
+
+  rm -f "${base_conf}" "${upper_conf}"
+}
+
+# why: the Python bridge must declare --merge mode so the shim can invoke it
+@test "toml-bridge: Python bridge script supports --merge mode" {
+  assert_spec_subject "${BRIDGE_PY}" \
+    "the Python bridge script (--merge mode declaration)"
+  run grep -- '--merge' "${BRIDGE_PY}"
+  assert_success
+}

@@ -23,14 +23,47 @@ def _emit_kv(data):
             print(f"{section}\t{key}\t{value}")
 
 
+def _merge_layers(paths):
+    """Type-aware merge of TOML layers (lowest precedence first).
+
+    Tables: key-level merge (upper overrides only keys it defines).
+    Arrays: replace (upper replaces entire array).
+    """
+    merged = {}
+    for path in paths:
+        try:
+            with open(path, "rb") as fh:
+                layer = tomllib.loads(fh.read().decode())
+        except FileNotFoundError:
+            continue
+        except Exception as exc:
+            print(f"toml-bridge: {path}: {exc}", file=sys.stderr)
+            raise SystemExit(1)
+        for section, entries in layer.items():
+            if isinstance(entries, dict):
+                if section not in merged or not isinstance(merged[section], dict):
+                    merged[section] = {}
+                merged[section].update(entries)
+            else:
+                merged[section] = entries
+    return merged
+
+
 def main():
+    argv = [a for a in sys.argv[1:] if not a.startswith("-")]
     kv_mode = "--kv" in sys.argv
-    raw = sys.stdin.buffer.read()
-    try:
-        data = tomllib.loads(raw.decode())
-    except Exception as exc:
-        print(f"toml-bridge: {exc}", file=sys.stderr)
-        raise SystemExit(1)
+    merge_mode = "--merge" in sys.argv
+
+    if merge_mode:
+        data = _merge_layers(argv)
+    else:
+        raw = sys.stdin.buffer.read()
+        try:
+            data = tomllib.loads(raw.decode())
+        except Exception as exc:
+            print(f"toml-bridge: {exc}", file=sys.stderr)
+            raise SystemExit(1)
+
     if kv_mode:
         _emit_kv(data)
     else:
