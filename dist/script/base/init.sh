@@ -68,6 +68,8 @@ source "${TEMPLATE_DIR}/dist/script/docker/lib/dockerfile_migrate.sh"
 source "${TEMPLATE_DIR}/dist/script/docker/lib/smoke_migrate.sh"
 # shellcheck disable=SC1091
 source "${TEMPLATE_DIR}/dist/script/docker/lib/setup_conf_migrate.sh"
+# shellcheck disable=SC1091
+source "${TEMPLATE_DIR}/dist/script/docker/lib/ini_to_toml_migrate.sh"
 
 _log() { _log_info init init_progress "display=$*"; }
 
@@ -1178,6 +1180,14 @@ _init_existing_repo() {
   # what SEEDS a default `setup.toml` and so destroys the evidence that
   # the repo ever had a configuration of its own.
   _migrate_legacy_setup_conf "${REPO_ROOT}" "${TEMPLATE_DIR}/dist"
+  # INI-to-TOML format migration (ADR-00000037). Runs AFTER the legacy
+  # setup.conf relocation above (which ensures .setup.conf is at the
+  # repo root) and AFTER _migrate_env_to_local (which creates .env.local
+  # from the old .env). Both converters are gated on the source existing
+  # and the target NOT existing, so they are no-ops on a repo that
+  # already carries setup.toml / .env.local.toml.
+  _migrate_ini_to_toml "${REPO_ROOT}"
+  _migrate_env_local_to_toml "${REPO_ROOT}"
   _create_symlinks
   _sync_existing_gitignore
   # ensure the pre/post hook scaffolding exists. Idempotent;
