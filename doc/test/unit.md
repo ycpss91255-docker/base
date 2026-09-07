@@ -6562,8 +6562,7 @@ is the smoke step, which iterates this same roster.
 | `main copies tmux.conf to config directory` | Config copy |
 | `script runs entry_point when executed directly` | Direct-run guard |
 
-### test/bats/unit/toml_bridge_spec.bats (22)
-### test/bats/unit/toml_bridge_spec.bats (25)
+### test/bats/unit/toml_bridge_spec.bats (33)
 
 | Test | Description |
 |------|-------------|
