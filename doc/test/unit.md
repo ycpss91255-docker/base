@@ -4252,7 +4252,7 @@ false.
 | `release-version: refuses when neither input nor ref is supplied` | Neither source supplied is the caller-contract error, and it must be named as such rather than producing an empty version. |
 | `release-version: a refusal prints nothing on stdout` | The fail-closed property the whole design rests on. The workflow appends this script's stdout to GITHUB_OUTPUT; a refusal that printed a partial `version=` line would leave a value for a later step to release under. A refusal writes to stderr only, so there is no output key and every `if:` reading it is false. |
 
-### test/bats/unit/release_worker_yaml_spec.bats (14)
+### test/bats/unit/release_worker_yaml_spec.bats (16)
 
 Structural assertions for `.github/workflows/release-worker.yaml`'s archive
 step. The step used to hardcode the payload as operands of one `cp -r`; `cp`
@@ -4301,6 +4301,8 @@ tag ref to read (#829)
 | `release-worker.yaml: the release is cut for the resolved version (#829)` | Without an explicit tag_name the release action falls back to the ref that started the run, so a direct call would try to publish a release for a BRANCH. The tag is the resolved version, whichever source it came from (#829). |
 | `release-worker.yaml: the archive is named from the resolved version (#829)` | The archive name and the release tag must be the one value. The step used to build the name from GITHUB_REF_NAME, which on a direct call is a branch name -- an archive called `<repo>-main` attached to a release tagged vX.Y.Z (#829). |
 | `release-worker.yaml: prerelease is derived from the resolved version, not the ref (#829)` | The #1012 shape: a decision about a version read off a ref that does not carry one. `contains(github.ref_name, "-")` is false for every branch, so a direct call cutting an RC would publish it as a full release -- and `publish-worker` defaults consumers to whatever the newest full release left. The flag comes from the resolver, which derived it from the version actually being released (#829, refs #1012). |
+| `release-worker.yaml: a release step verifies the commit is on main (base#1143)` | The tag ruleset (base#1124) admits any commit that passed CI, including one that went green in a PR that was never merged; a Release cut from such a commit ships code that never reached main. The guard that refuses it is a tested script, not an expression -- the same split as the version resolver and the archive assembler -- and the release job delegates to it here. |
+| `release-worker.yaml: the on-main guard fetches origin main before checking (base#1143)` | The guard runs a git query and does not fetch; the release job's checkout is shallow and carries no remote main, so the workflow must bring origin/main before the guard runs or the query fails closed on every release. Lock the fetch into the same step so neither can be removed alone. |
 
 ### test/bats/unit/residue_guard_spec.bats (22)
 

@@ -81,6 +81,22 @@ jobs:
           ref: ${{ github.job_workflow_sha }}
           path: .release-base
 
+      # base#1143: the org's tag rulesets (base#1124) admit any commit that
+      # passed CI, including one that went green in a PR that was never merged
+      # -- a tag ruleset can ask whether the tagged commit passed its checks
+      # but not whether it is on main. This is the check the ruleset cannot
+      # express: the commit under release must be an ancestor of origin/main,
+      # or no Release is cut. The release job's checkout is shallow and carries
+      # no remote main, so main is fetched here (wiring) and the git ancestry
+      # decision lives in verify-tag-on-main.sh (host-tested under `just test`)
+      # -- the same split the resolve and archive steps use. It reads
+      # GITHUB_SHA from the ambient env; nothing caller-controlled reaches it.
+      - name: Verify the tagged commit is on main
+        run: |
+          git fetch --no-tags --prune origin \
+            '+refs/heads/main:refs/remotes/origin/main'
+          bash .release-base/script/ci/verify-tag-on-main.sh
+
       # WHICH version this release cuts is resolved by a script, not by an
       # expression: github.ref_name carries a version only on a tag push, and
       # the direct-call path this worker now supports has a branch there. The
