@@ -26,3 +26,35 @@ toml_bridge_parse() {
 
   docker run --rm -i "${_image}" "$@" < "${_file}"
 }
+
+# toml_bridge_merge [--kv] <toml-file>...
+#   Type-aware merge of multiple TOML layers (lowest precedence first).
+#   Scalar keys within a [table] get key-level merge; [[array of tables]]
+#   get array replace. Missing files are silently skipped.
+#   Default: JSON on stdout.  --kv: section\tkey\tvalue TSV lines.
+#   Returns non-zero if parsing or merging fails.
+toml_bridge_merge() {
+  local _kv=""
+  if [[ "${1:-}" == "--kv" ]]; then
+    _kv="--kv"
+    shift
+  fi
+
+  local _image="${TOML_BRIDGE_IMAGE:-toml-bridge:local}"
+  local -a _mount_args=() _container_paths=()
+  local _f _abs
+
+  for _f in "$@"; do
+    [[ -f "${_f}" ]] || continue
+    _abs="$(cd -- "$(dirname -- "${_f}")" && pwd -P)/$(basename -- "${_f}")"
+    _mount_args+=(-v "${_abs}:${_abs}:ro")
+    _container_paths+=("${_abs}")
+  done
+
+  if (( ${#_container_paths[@]} == 0 )); then
+    return 0
+  fi
+
+  docker run --rm "${_mount_args[@]}" "${_image}" \
+    --merge ${_kv} "${_container_paths[@]}"
+}

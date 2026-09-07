@@ -6516,7 +6516,7 @@ is the smoke step, which iterates this same roster.
 | `main copies tmux.conf to config directory` | Config copy |
 | `script runs entry_point when executed directly` | Direct-run guard |
 
-### test/bats/unit/toml_bridge_spec.bats (14)
+### test/bats/unit/toml_bridge_spec.bats (20)
 
 | Test | Description |
 |------|-------------|
@@ -6534,6 +6534,12 @@ is the smoke step, which iterates this same roster.
 | `toml-bridge: _conf_load dispatches to _toml_tokenize for .toml files` | _conf_load must auto-dispatch to TOML for .toml files so the accessor API works without callers changing their code |
 | `toml-bridge: _conf_load still uses _ini_tokenize for .conf files` | the INI path must survive so callers using .conf files keep working |
 | `toml-bridge: test-tools Dockerfile has COPY --from for toml-bridge` | downstream repos inherit the parser via test-tools without building toml-bridge |
+| `toml-bridge: merge shim scalar key-level merge via --kv` | type-aware merge is the D4 core contract -- scalar keys within a [table] get key-level merge: upper layer overrides only the keys it defines, unmentioned keys inherit from the lower layer |
+| `toml-bridge: merge shim array replace for [[array of tables]]` | [[array of tables]] must be replaced wholesale by the upper layer -- per-element merge of ordered lists is broken (ADR-25 sec.3 rationale) |
+| `toml-bridge: merge shim skips missing files silently` | absent layers must be silently skipped so callers can pass the whole chain unconditionally (matching _conf_load_layers convention) |
+| `toml-bridge: _conf_load_layers merges .toml files via bridge` | _conf_load_layers must dispatch to toml_bridge_merge when all files are .toml, producing type-aware merge (key-level for tables, array replace for arrays) instead of bash section-replace |
+| `toml-bridge: _conf_load_layers uses INI path for .conf files` | the INI section-replace path must survive so existing .conf callers keep working -- mixed .conf/.toml chains also fall through to INI |
+| `toml-bridge: Python bridge script supports --merge mode` | the Python bridge must declare --merge mode so the shim can invoke it |
 
 ### test/bats/unit/tool_pin_agreement_spec.bats (10)
 
