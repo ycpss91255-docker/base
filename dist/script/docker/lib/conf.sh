@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# conf.sh - INI read/write primitives for setup.conf.
+# conf.sh - INI read/write primitives for setup.toml.
 #
-# The single shared home for setup.conf I/O:
+# The single shared home for setup.toml I/O:
 #   _dump_conf_section    - emit key=value lines from one section
 #   _load_setup_conf_full - parse every section into namespaced arrays
 #   _conf_split_nskey     - split a namespaced key back into its halves
@@ -257,6 +257,42 @@ _parse_ini_section() {
     [[ "${__pis_es[__pis_i]}" == "${_section}" ]] || continue
     _pis_keys+=("${__pis_k[__pis_i]}")
     _pis_values+=("${__pis_v[__pis_i]}")
+  done
+}
+
+# _parse_conf_section <file> <section> <keys_outvar> <values_outvar>
+#
+# Format-dispatching wrapper: TOML (.toml) files go through the
+# containerised bridge (_toml_tokenize), everything else through the
+# INI tokenizer (_ini_tokenize). Same output contract as
+# _parse_ini_section -- parallel flat arrays of keys and values for
+# the requested section.
+#
+# This is the function callers that need to read ONE section from a
+# file of UNKNOWN format should use. _parse_ini_section stays for
+# callers that know they have INI.
+_parse_conf_section() {
+  local _file="${1:?"${FUNCNAME[0]}: missing file"}"
+  local _section="${2:?"${FUNCNAME[0]}: missing section"}"
+  local -n _pcs_keys="${3:?"${FUNCNAME[0]}: missing keys outvar"}"
+  local -n _pcs_values="${4:?"${FUNCNAME[0]}: missing values outvar"}"
+
+  _pcs_keys=()
+  _pcs_values=()
+  [[ -f "${_file}" ]] || return 0
+
+  local -a __pcs_s=() __pcs_es=() __pcs_k=() __pcs_v=()
+  if [[ "${_file}" == *.toml ]]; then
+    _toml_tokenize "${_file}" __pcs_s __pcs_es __pcs_k __pcs_v
+  else
+    _ini_tokenize "${_file}" __pcs_s __pcs_es __pcs_k __pcs_v
+  fi
+
+  local __pcs_i
+  for (( __pcs_i = 0; __pcs_i < ${#__pcs_k[@]}; __pcs_i++ )); do
+    [[ "${__pcs_es[__pcs_i]}" == "${_section}" ]] || continue
+    _pcs_keys+=("${__pcs_k[__pcs_i]}")
+    _pcs_values+=("${__pcs_v[__pcs_i]}")
   done
 }
 
@@ -563,7 +599,7 @@ _write_setup_conf() {
   # Write to a sibling temp file and atomically `mv` it over _dst at the
   # very end. The previous in-place `: > "${_dst}"` truncated the user's
   # config FIRST, opening a data-loss window: any append failing after the
-  # truncate (disk full / mid-write error) left setup.conf truncated with
+  # truncate (disk full / mid-write error) left setup.toml truncated with
   # no rollback. The temp+mv pattern means a mid-write failure leaves the
   # original _dst untouched. Guard mktemp so a failed temp creation
   # (read-only dir / no inodes) bails before touching _dst.
@@ -640,7 +676,7 @@ _write_setup_conf() {
   # Append NEW sections — overrides whose `<section>.<key>` namespace
   # references a section never seen in the template. Per-stage
   # `[stage:NAME]` sections are the typical case: template's
-  # setup.conf carries no per-repo stage overrides, so the first time
+  # setup.toml carries no per-repo stage overrides, so the first time
   # a user adds `[stage:headless]` via TUI Save the section is brand
   # new and would otherwise be silently dropped here.
   #

@@ -40,6 +40,7 @@ _canonical_gitignore_entries() {
 .env.bak
 compose.yaml
 .setup.conf.bak
+setup.toml.bak
 .setup.conf.local
 setup.local.toml
 coverage/

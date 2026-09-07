@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 #
-# setup_conf.sh - setup.conf accessors (template+repo section-replace merge).
+# setup_conf.sh - setup.toml accessors (template+repo section-replace merge).
 #
 # The readers setup.sh and the other libs use to query the effective
-# setup.conf: the per-section merge loader (_load_setup_conf), the parse-once
+# setup.toml: the per-section merge loader (_load_setup_conf), the parse-once
 # handle model (_setup_conf_handle / _setup_effective_full) feeding the
 # _conf_get / _conf_list_sorted accessors in lib/conf.sh, the convenience
 # scalar/list getters (_get_conf_value / _get_conf_list_sorted), and the
@@ -12,7 +12,7 @@
 #
 # Extracted from setup.sh (ADR-00000014, epic decompose-setup-sh). The low-level
 # _parse_ini_section + the handle accessors live in lib/conf.sh; this file is the
-# setup.conf-path-resolving layer above them. Calls into _SETUP_SCRIPT_DIR +
+# setup.toml-path-resolving layer above them. Calls into _SETUP_SCRIPT_DIR +
 # _parse_ini_section + the conf.sh accessors, all resolved at call-time via the
 # _lib.sh load order.
 
@@ -34,7 +34,7 @@ source "${_setup_conf_lib_dir}/conf.sh"
 unset _setup_conf_lib_dir
 
 # ════════════════════════════════════════════════════════════════════
-# INI parser for setup.conf
+# INI parser for setup.toml
 #
 # _parse_ini_section moved to lib/conf.sh in (PR-B) so init.sh
 # can reach it via _lib.sh without sourcing setup.sh. The function
@@ -174,7 +174,7 @@ _load_setup_conf() {
   for (( _i = ${#_lsc_layers[@]} - 1; _i >= 0; _i-- )); do
     [[ -f "${_lsc_layers[_i]}" ]] || continue
     local -a __lsc_k=() __lsc_v=()
-    _parse_ini_section "${_lsc_layers[_i]}" "${_section}" __lsc_k __lsc_v
+    _parse_conf_section "${_lsc_layers[_i]}" "${_section}" __lsc_k __lsc_v
     if (( ${#__lsc_k[@]} > 0 )); then
       _lsc_keys=("${__lsc_k[@]}")
       _lsc_values=("${__lsc_v[@]}")

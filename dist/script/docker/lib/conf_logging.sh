@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # conf_logging.sh -- shared parsers for the [logging] / [logging.<svc>]
-# sections of setup.conf.
+# sections of setup.toml.
 #
 # Extracted from script/docker/wrapper/setup.sh during the
 # lifecycle refactor (PR-A). Both setup.sh's compose generator and
@@ -16,7 +16,7 @@
 #
 #   _collect_logging <base_path> <global_out> <per_svc_out>
 #     Resolve effective [logging] and each per-service [logging.<svc>]
-#     through the setup.conf layer chain (section-replace) into two
+#     through the setup.toml layer chain (section-replace) into two
 #     newline-joined strings.
 
 # Guard against double-sourcing -- setup.sh sources us, and so does
@@ -27,7 +27,7 @@ fi
 _DOCKER_LIB_CONF_LOGGING_SOURCED=1
 
 # Self-source the dependencies (Part A): _collect_logging resolves through
-# the setup.conf layer chain (lib/setup_conf.sh's _setup_conf_layers /
+# the setup.toml layer chain (lib/setup_conf.sh's _setup_conf_layers /
 # _load_setup_conf), which in turn builds on lib/conf.sh's INI primitives.
 # Pull both in directly -- idempotent via their own double-source guards --
 # so _lib.sh load order is not load-bearing and a caller sourcing
