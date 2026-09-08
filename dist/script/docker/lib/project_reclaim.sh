@@ -253,6 +253,12 @@ _reclaim_tool_context_root() {
 # earlier stage rather than of the checkout). <where> is `<file>:<line>`,
 # quoted back in every refusal so the reader is sent to the line rather
 # than to this function.
+#
+# "Every verb but COPY reads no context" holds for two of them only
+# because they are refused here rather than passed over: ADD reads the
+# context directly, and ONBUILD carries an instruction that may be a
+# context COPY. Passing over either is the silent under-hash the whole
+# derivation exists to stop.
 _reclaim_tool_copy_srcs() {
   local _where="${1:?_reclaim_tool_copy_srcs requires <where>}" _instr="${2-}"
   local -a _tok=()
@@ -263,6 +269,11 @@ _reclaim_tool_copy_srcs() {
     ADD)
       _log_err reclaim reclaim_tool_input_unparsed \
         "display=${_where}: ADD reads the build context and this derivation does not model it; refusing a digest that would omit whatever it copies." \
+        "instruction=${_instr}"
+      return 1 ;;
+    ONBUILD)
+      _log_err reclaim reclaim_tool_input_unparsed \
+        "display=${_where}: ONBUILD carries another instruction, which may be a context COPY; passing over it would under-hash in silence, so it is refused instead." \
         "instruction=${_instr}"
       return 1 ;;
     *) return 0 ;;
