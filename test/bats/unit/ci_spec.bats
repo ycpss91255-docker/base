@@ -4012,6 +4012,28 @@ AWK
   [[ "${output}" =~ ^test-tools:[0-9a-f]{12}$ ]]
 }
 
+# why: #1166 an instruction that defers a COPY must not be read as context-free
+@test "_resolve_test_tools_image: refuses ONBUILD, which can defer a context COPY (#1166)" {
+  # Every verb but COPY is read as reading no context. ONBUILD is the one
+  # that breaks that reading: it carries another instruction, which may be
+  # a COPY, so passing over it is exactly the silent under-hash this
+  # derivation exists to stop.
+  local _root="${BATS_TEST_TMPDIR}/onbuild"
+  mkdir -p "${_root}/dockerfile"
+  printf 'FROM alpine:3.21\nONBUILD COPY dockerfile/tool.py /usr/local/bin/tool\n' \
+    > "${_root}/dockerfile/Dockerfile.test-tools"
+  printf 'one\n' > "${_root}/dockerfile/tool.py"
+
+  run bash -c '
+    source /source/script/test/test.sh
+    unset TEST_TOOLS_IMAGE
+    _resolve_test_tools_image "'"${_root}"'/dockerfile/Dockerfile.test-tools"
+  '
+  assert_failure
+  assert_output --partial "Dockerfile.test-tools:2"
+  assert_output --partial "ONBUILD"
+}
+
 # why: #891 one entry point for build + consumers
 @test "main --test-tools-image: prints the resolved tag for the justfile (#891)" {
   # The single entry point the `just test system` recipe reads, so the
