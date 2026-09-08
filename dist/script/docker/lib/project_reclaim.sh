@@ -192,17 +192,248 @@ _reclaim_is_compose_project_name() {
   [[ "${1-}" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]]
 }
 
-# _reclaim_tool_dockerfile_hash <dockerfile>
+# ── The tooling image's build inputs ─────────────────────────────────────
 #
-# Prints the full content digest of the tooling Dockerfile, or nothing at
-# all when the file is absent. Redirected stdin, never `sha256sum <file>`,
-# so the PATH never enters the digest: the same content in two checkouts
-# must resolve to ONE tag, which is the property that makes the tag
-# shareable and the reason images are not collected by project label.
+# The digest below answers ONE question: is this the same image? So it has
+# to cover everything a layer of that image can be built from, and the
+# Dockerfile is not all of it.
+#
+# It used to be. The rule was licensed by a premise written into
+# script/test/test.sh -- every COPY in the tooling Dockerfile is
+# `COPY --from=<stage>`, whose source is pinned by a version literal in
+# the Dockerfile text, so no file of the checkout can reach a layer -- and
+# that premise stopped holding the day the toml-bridge stage arrived with
+# a plain `COPY dockerfile/toml_bridge.py`. Editing that file left the tag
+# where it was, the resolver's consumer saw the tag already present and
+# skipped the rebuild, and the suite ran a bridge from before the edit and
+# reported its verdict as this tree's. Nothing warned; the answer was
+# simply wrong, and finding out cost hours.
+#
+# So the set of context inputs is DERIVED FROM THE DOCKERFILE, never
+# listed here. A list is what goes stale the day someone adds a second
+# context COPY -- the same shape of defect as the premise it replaces,
+# one indirection further away. Read off the COPY lines, a new one is
+# covered the moment it is written and one converted to `--from=` drops
+# out of the digest by itself.
+#
+# What is still NOT covered, unchanged and stated so nobody assumes
+# otherwise: upstream drift behind a floating reference (`apk add`
+# package versions, the alpine tag). That is not what collides between
+# two concurrent checkouts, which is what the tag exists to separate.
+#
+# THE DIRECTION OF EVERY FAILURE HERE IS LOUD. A COPY line this cannot
+# resolve to a definite set of paths, or a path it cannot read, refuses
+# the whole digest instead of returning one computed from the rest.
+# Under-hashing is a silent wrong answer that costs an afternoon;
+# over-hashing, or refusing, costs one rebuild and says why.
+
+# _reclaim_tool_context_root <dockerfile>
+#
+# The build context <dockerfile>'s context COPY paths are relative to.
+# compose.yaml passes `context: .` -- the checkout root -- and the
+# Dockerfile sits at the fixed _RECLAIM_TOOL_DOCKERFILE_REL below it, so
+# the root is what is left when that suffix is stripped. A Dockerfile
+# somewhere else (a spec writes one into a temp directory) has no checkout
+# above it, and its own directory is then the only defensible answer.
+_reclaim_tool_context_root() {
+  local _dockerfile="${1:?_reclaim_tool_context_root requires <dockerfile>}"
+  if [[ "${_dockerfile}" == */"${_RECLAIM_TOOL_DOCKERFILE_REL}" ]]; then
+    printf '%s\n' "${_dockerfile%/"${_RECLAIM_TOOL_DOCKERFILE_REL}"}"
+    return 0
+  fi
+  [[ "${_dockerfile}" == */* ]] || { printf '.\n'; return 0; }
+  printf '%s\n' "${_dockerfile%/*}"
+}
+
+# _reclaim_tool_copy_srcs <where> <instruction>
+#
+# Prints the build-context sources of ONE Dockerfile instruction, one per
+# line, and nothing at all for an instruction that reads no context (every
+# verb but COPY, and a `COPY --from=<stage>`, whose source is a path of an
+# earlier stage rather than of the checkout). <where> is `<file>:<line>`,
+# quoted back in every refusal so the reader is sent to the line rather
+# than to this function.
+#
+# "Every verb but COPY reads no context" holds for two of them only
+# because they are refused here rather than passed over: ADD reads the
+# context directly, and ONBUILD carries an instruction that may be a
+# context COPY. Passing over either is the silent under-hash the whole
+# derivation exists to stop.
+_reclaim_tool_copy_srcs() {
+  local _where="${1:?_reclaim_tool_copy_srcs requires <where>}" _instr="${2-}"
+  local -a _tok=()
+  read -r -a _tok <<< "${_instr}"
+  [[ ${#_tok[@]} -gt 0 ]] || return 0
+  case "${_tok[0]^^}" in
+    COPY) ;;
+    ADD)
+      _log_err reclaim reclaim_tool_input_unparsed \
+        "display=${_where}: ADD reads the build context and this derivation does not model it; refusing a digest that would omit whatever it copies." \
+        "instruction=${_instr}"
+      return 1 ;;
+    ONBUILD)
+      _log_err reclaim reclaim_tool_input_unparsed \
+        "display=${_where}: ONBUILD carries another instruction, which may be a context COPY; passing over it would under-hash in silence, so it is refused instead." \
+        "instruction=${_instr}"
+      return 1 ;;
+    *) return 0 ;;
+  esac
+  local _i=1
+  while [[ ${_i} -lt ${#_tok[@]} && "${_tok[${_i}]}" == --* ]]; do
+    case "${_tok[${_i}]}" in
+      --from=*) return 0 ;;
+      --chown=*|--chmod=*|--link|--link=*) _i=$((_i + 1)) ;;
+      *)
+        _log_err reclaim reclaim_tool_input_unparsed \
+          "display=${_where}: COPY flag '${_tok[${_i}]}' can change WHICH files are copied and this derivation does not model it." \
+          "instruction=${_instr}"
+        return 1 ;;
+    esac
+  done
+  local -a _rest=("${_tok[@]:${_i}}")
+  if [[ ${#_rest[@]} -lt 2 ]]; then
+    _log_err reclaim reclaim_tool_input_unparsed \
+      "display=${_where}: COPY needs at least one source and a destination; this line yields no source to hash." \
+      "instruction=${_instr}"
+    return 1
+  fi
+  _reclaim_tool_emit_srcs "${_where}" "${_instr}" "${_rest[@]:0:$((${#_rest[@]} - 1))}"
+}
+
+# _reclaim_tool_emit_srcs <where> <instruction> <src>...
+#
+# The source half of the COPY above, checked and printed. A token this
+# cannot resolve WITHOUT running docker's own parser -- a glob, a variable,
+# a quoted path, the JSON array form, a heredoc -- is refused rather than
+# guessed at, because a guess is how a file silently leaves the digest.
+_reclaim_tool_emit_srcs() {
+  local _where="${1:?_reclaim_tool_emit_srcs requires <where>}" _instr="${2-}"
+  shift 2
+  local _s
+  for _s in "$@"; do
+    case "${_s}" in
+      *[][*?\$\"\'\<]*)
+        _log_err reclaim reclaim_tool_input_unparsed \
+          "display=${_where}: COPY source '${_s}' is a glob, a variable, a quoted path or a JSON/heredoc form; this derivation cannot resolve it to a definite set of files." \
+          "instruction=${_instr}"
+        return 1 ;;
+    esac
+    printf '%s\n' "${_s#/}"
+  done
+}
+
+# _reclaim_tool_context_sources <dockerfile>
+#
+# Every build-context path <dockerfile> COPYs, one per line, in the order
+# the file names them -- which is deterministic without a sort, since the
+# Dockerfile's own bytes are in the digest beside them.
+#
+# Line continuations are joined and comments dropped before an instruction
+# is looked at, the way docker's own frontend reads the file: a COPY split
+# across two lines is one instruction, not two unparseable ones.
+_reclaim_tool_context_sources() {
+  local _dockerfile="${1:?_reclaim_tool_context_sources requires <dockerfile>}"
+  local _line _acc="" _n=0 _start=0
+  while IFS= read -r _line || [[ -n "${_line}" ]]; do
+    _n=$((_n + 1))
+    [[ "${_line}" =~ ^[[:space:]]*(#|$) ]] && continue
+    [[ -n "${_acc}" ]] || _start="${_n}"
+    if [[ "${_line}" == *\\ ]]; then
+      _acc+="${_line%\\} "
+      continue
+    fi
+    _acc+="${_line}"
+    _reclaim_tool_copy_srcs "${_dockerfile}:${_start}" "${_acc}" || return 1
+    _acc=""
+  done < "${_dockerfile}"
+  [[ -z "${_acc}" ]] || _reclaim_tool_copy_srcs "${_dockerfile}:${_start}" "${_acc}"
+}
+
+# _reclaim_tool_context_files <context_root> <relpath>
+#
+# The regular files <relpath> names, relative to <context_root>, one per
+# line. A directory expands to everything under it, in C collation so two
+# hosts under different locales still order it the same way. An absent or
+# unreadable path is a refusal: a file that cannot be read cannot be
+# hashed, and a digest that skips it would claim an image it does not
+# describe.
+_reclaim_tool_context_files() {
+  local _root="${1:?_reclaim_tool_context_files requires <context_root>}"
+  local _rel="${2:?_reclaim_tool_context_files requires <relpath>}"
+  local _abs="${_root%/}/${_rel}"
+  if [[ -f "${_abs}" && -r "${_abs}" ]]; then
+    printf '%s\n' "${_rel}"
+    return 0
+  fi
+  if [[ ! -d "${_abs}" || ! -r "${_abs}" ]]; then
+    _log_err reclaim reclaim_tool_input_unreadable \
+      "display=${_root%/}/${_rel} is COPYed from the build context but cannot be read; refusing a digest that would leave it out." \
+      "path=${_abs}"
+    return 1
+  fi
+  local LC_ALL=C _f _saved
+  _saved="$(shopt -p nullglob dotglob globstar)"
+  shopt -s nullglob dotglob globstar
+  for _f in "${_abs%/}"/**; do
+    [[ -f "${_f}" ]] || continue
+    printf '%s\n' "${_rel%/}/${_f#"${_abs%/}"/}"
+  done
+  eval "${_saved}"
+}
+
+# _reclaim_tool_dockerfile_hash <dockerfile> [context_root]
+#
+# Prints the content digest of the tooling Dockerfile TOGETHER WITH every
+# file it COPYs from the build context, or nothing at all when the
+# Dockerfile is absent; returns non-zero, having said which line or path,
+# when an input cannot be resolved or read.
+#
+# Redirected stdin, never `sha256sum <file>`, so no PATH enters the
+# digest: the same content in two checkouts must resolve to ONE tag, which
+# is the property that makes the tag shareable and the reason images are
+# not collected by project label. Each context file contributes its
+# CONTEXT-RELATIVE path and its bytes for the same reason -- the path
+# inside the image is a build input, the checkout it came from is not.
+#
+# With no context COPY at all the stream is the Dockerfile's bytes and
+# nothing else, so a tooling Dockerfile that reads no context keeps
+# exactly the tag it resolved before this rule existed.
 _reclaim_tool_dockerfile_hash() {
   local _dockerfile="${1:?_reclaim_tool_dockerfile_hash requires <dockerfile>}"
+  local _context="${2-}"
   [[ -f "${_dockerfile}" ]] || return 0
-  sha256sum < "${_dockerfile}" 2>/dev/null | cut -d' ' -f1
+  [[ -n "${_context}" ]] || _context="$(_reclaim_tool_context_root "${_dockerfile}")"
+  local _srcs _files="" _out
+  _srcs="$(_reclaim_tool_context_sources "${_dockerfile}")" || return 1
+  local -a _list=()
+  [[ -z "${_srcs}" ]] || mapfile -t _list <<< "${_srcs}"
+  local _s
+  for _s in "${_list[@]}"; do
+    _out="$(_reclaim_tool_context_files "${_context}" "${_s}")" || return 1
+    [[ -z "${_out}" ]] || _files+="${_out}"$'\n'
+  done
+  _reclaim_tool_digest_stream "${_dockerfile}" "${_context}" "${_files}" \
+    | sha256sum 2>/dev/null | cut -d' ' -f1
+}
+
+# _reclaim_tool_digest_stream <dockerfile> <context_root> <relpaths>
+#
+# The exact byte stream the digest is taken over: the Dockerfile, then
+# each context file's path and content, NUL-delimited so no content can
+# impersonate a path boundary. <relpaths> is one path per line -- empty
+# for a Dockerfile that reads no context, which is what makes that case
+# byte-identical to hashing the Dockerfile alone.
+_reclaim_tool_digest_stream() {
+  local _dockerfile="${1:?_reclaim_tool_digest_stream requires <dockerfile>}"
+  local _context="${2:?_reclaim_tool_digest_stream requires <context_root>}"
+  local _relpaths="${3-}"
+  cat -- "${_dockerfile}"
+  local _r
+  while IFS= read -r _r; do
+    [[ -n "${_r}" ]] || continue
+    printf '\0%s\0' "${_r}"
+    cat -- "${_context%/}/${_r}"
+  done <<< "${_relpaths}"
 }
 
 # _reclaim_tool_tag_for_path <repo_root>
@@ -217,7 +448,8 @@ _reclaim_tool_dockerfile_hash() {
 _reclaim_tool_tag_for_path() {
   local _root="${1:?_reclaim_tool_tag_for_path requires <repo_root>}"
   local _hash
-  _hash="$(_reclaim_tool_dockerfile_hash "${_root%/}/${_RECLAIM_TOOL_DOCKERFILE_REL}")"
+  _hash="$(_reclaim_tool_dockerfile_hash \
+    "${_root%/}/${_RECLAIM_TOOL_DOCKERFILE_REL}" "${_root%/}")" || return 1
   [[ "${_hash}" =~ ^[0-9a-f]{12} ]] || return 1
   printf '%s:%s\n' "${_RECLAIM_TOOL_REPO}" "${_hash:0:12}"
 }

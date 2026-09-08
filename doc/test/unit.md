@@ -1112,7 +1112,7 @@ between them can be asserted at all.
 | `reclaim.sh --stale delegates the unowned classes to prune.sh with the same window` | - |
 | `reclaim.sh --stale never touches volumes` | - |
 
-### test/bats/unit/ci_spec.bats (158)
+### test/bats/unit/ci_spec.bats (168)
 
 | Test | Description |
 |------|-------------|
@@ -1259,6 +1259,16 @@ between them can be asserted at all.
 | `_resolve_test_tools_image: identical inputs at different paths resolve to the same tag (#891)` | #891 same inputs -> cache hit, not a rebuild |
 | `_resolve_test_tools_image: TEST_TOOLS_IMAGE wins verbatim (#891)` | #891 CI's pinned published tags untouched |
 | `_resolve_test_tools_image: fails loud when the tooling Dockerfile is missing (#891)` | #891 no silent bare-literal fallback |
+| `_resolve_test_tools_image: a file the Dockerfile COPYs from the context moves the tag (#1166)` | #1166 a build-context COPY is an input; the tag must move with it |
+| `_resolve_test_tools_image: refuses ONBUILD, which can defer a context COPY (#1166)` | #1166 an instruction that defers a COPY must not be read as context-free |
+| `_resolve_test_tools_image: a file the Dockerfile does NOT COPY leaves the tag alone (#1166)` | #1166 the tag must not become a hash of the whole checkout |
+| `_resolve_test_tools_image: a COPY --from= source is never looked for in the context (#1166)` | #1166 a stage source is not a checkout path and must not be looked for |
+| `_resolve_test_tools_image: refuses a COPY flag it does not model, naming the line (#1166)` | #1166 a flag that changes WHICH files are copied cannot be guessed at |
+| `_resolve_test_tools_image: refuses a COPY source it cannot resolve to files (#1166)` | #1166 a source that needs docker's own parser is refused, not guessed |
+| `_resolve_test_tools_image: refuses when a COPYed context path cannot be read (#1166)` | #1166 a partial digest names an image it does not describe |
+| `_resolve_test_tools_image: reads a COPY split across a line continuation (#1166)` | #1166 a continued COPY is one instruction, not two unparseable ones |
+| `_resolve_test_tools_image: agrees with the retention derivation on a context COPY (#1166)` | #1166 the retention rule must retire exactly what the resolver mints |
+| `_resolve_test_tools_image: a Dockerfile with no context COPY keeps its old tag (#1166)` | #1166 a tooling Dockerfile reading no context keeps the tag it had |
 | `main --test-tools-image: prints the resolved tag for the justfile (#891)` | #891 one entry point for build + consumers |
 | `_compute_compose_project_name: two checkouts sharing a basename get different names (#891)` | #891 path-keyed, not directory-basename |
 | `_compute_compose_project_name: the same checkout path is stable across calls (#891)` | #891 one project per checkout, no per-commit churn |

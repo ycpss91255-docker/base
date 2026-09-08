@@ -181,6 +181,14 @@ setup() {
 #   included. Copying script/test/ alone produced a checkout where the one
 #   producer of the tooling tag died on a missing file, which is a fixture
 #   defect wearing the costume of the bug these tests are about.
+#
+#   dockerfile/ comes over WHOLE for the same reason, and copying only
+#   Dockerfile.test-tools out of it was the same defect a second time: the
+#   tag is a digest of that file AND of every path it COPYs from the build
+#   context, so a checkout carrying the recipe without what it copies is
+#   one the producer refuses outright. Naming those paths here would be a
+#   list that goes stale at the next context COPY -- precisely what the
+#   derivation itself declines to keep.
 _base_shaped_checkout() {
   local _dir="${1:?_base_shaped_checkout requires a dir}"
   mkdir -p "${_dir}/dist/script/docker/lib" "${_dir}/dist/script/docker/wrapper" \
@@ -188,7 +196,7 @@ _base_shaped_checkout() {
   cp /source/dist/script/docker/lib/* "${_dir}/dist/script/docker/lib/"
   cp /source/dist/script/docker/wrapper/*.sh "${_dir}/dist/script/docker/wrapper/"
   cp /source/compose.yaml "${_dir}/compose.yaml"
-  cp /source/dockerfile/Dockerfile.test-tools "${_dir}/dockerfile/"
+  cp -r /source/dockerfile/. "${_dir}/dockerfile/"
   cp -r /source/script/test "${_dir}/script/test"
   cp -r /source/script/watch "${_dir}/script/watch"
   local _w

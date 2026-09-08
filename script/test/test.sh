@@ -910,7 +910,9 @@ Options:
                           --bats-path (#887)
   --test-tools-image      Print the local test-tools tag this checkout
                           resolves (a content hash of
-                          dockerfile/Dockerfile.test-tools) and exit.
+                          dockerfile/Dockerfile.test-tools together with
+                          every file it COPYs from the build context) and
+                          exit.
                           TEST_TOOLS_IMAGE, when set, is echoed verbatim.
   --await-project         Wait for the previous run's container to let go
                           of this checkout's compose project network, then
@@ -1527,30 +1529,41 @@ _clean_coverage() {
 # inputs resolve to ONE tag (a build-cache hit, not a rebuild) and any
 # difference resolves to a tag that cannot clobber the other.
 
-# The tooling Dockerfile is the only build input of the test-tools image.
-# The compose service passes `context: .`, but the Dockerfile never reads
-# it: every COPY in it is `COPY --from=<stage>` (bats-src /
-# bats-extensions / lint-tools / kcov-builder) and it has no ADD, so no
-# file of the checkout can reach a layer. Hashing the context would make
-# the tag churn on every unrelated source edit -- defeating the build
-# cache -- while changing nothing about the image. The tool versions
-# (BATS_VERSION / ALPINE_VERSION / KCOV_VERSION, the pinned shellcheck and
-# hadolint release URLs) all live INSIDE this file, so an upgrade does move
-# the tag. What the digest cannot see is upstream drift behind a floating
-# reference (`apk add` package versions, the alpine tag) -- unchanged from
-# the old literal, and not the thing that collides between two concurrent
-# checkouts.
+# The build inputs of the test-tools image are the tooling Dockerfile AND
+# every file it COPYs from the build context, and the tag is a digest of
+# both. It was the Dockerfile alone until base#1166, on a premise written
+# here that no longer holds: that every COPY is `COPY --from=<stage>`, so
+# nothing of the checkout can reach a layer. The toml-bridge stage COPYs
+# `dockerfile/toml_bridge.py` straight out of the context, and while that
+# premise stood, editing that file left the tag where it was --
+# _ensure_test_tools_image saw the tag present, skipped the rebuild, and
+# the suite reported a verdict about a bridge from before the edit.
+#
+# The context files are DERIVED from the COPY lines, never listed: a list
+# is what goes stale when a second context COPY is added. The rest of the
+# context is still not hashed, which is the point -- the tag must not
+# churn on an unrelated source edit, or it defeats the build cache while
+# changing nothing about the image. The tool versions (BATS_VERSION /
+# ALPINE_VERSION / KCOV_VERSION, the pinned shellcheck and hadolint
+# release URLs) all live INSIDE the Dockerfile, so an upgrade does move
+# the tag. What the digest still cannot see is upstream drift behind a
+# floating reference (`apk add` package versions, the alpine tag) --
+# unchanged from the old literal, and not the thing that collides between
+# two concurrent checkouts.
 readonly _TEST_TOOLS_DOCKERFILE_REL="dockerfile/Dockerfile.test-tools"
 
 # _compute_test_tools_hash <dockerfile> <outvar>
 #
-# sha256 of the WHOLE tooling Dockerfile. Deliberately not the stage-list
-# projection dist/script/docker/lib/stage.sh's _compute_dockerfile_hash
-# takes: that hash answers "did the set of compose services change?" and so
-# must ignore RUN lines, while this one answers "is this the same image?"
-# -- and a RUN line is exactly what dropped kcov out of the image.
+# sha256 of the WHOLE tooling Dockerfile plus every file it COPYs from the
+# build context. Deliberately not the stage-list projection
+# dist/script/docker/lib/stage.sh's _compute_dockerfile_hash takes: that
+# hash answers "did the set of compose services change?" and so must
+# ignore RUN lines, while this one answers "is this the same image?" -- and
+# a RUN line is exactly what dropped kcov out of the image.
 #
-# Empty output if the Dockerfile is missing (caller decides what to do).
+# Empty output if the Dockerfile is missing; non-zero, having said which
+# line or path, when an input cannot be resolved or read (caller decides
+# what to do about either).
 _compute_test_tools_hash() {
   local _dockerfile="${1:?_compute_test_tools_hash requires <dockerfile>}"
   local -n _ctth_out="${2:?_compute_test_tools_hash requires <outvar>}"
@@ -1560,7 +1573,7 @@ _compute_test_tools_hash() {
   # computes, and two implementations of one rule is how they come to
   # disagree. Absent Dockerfile still yields the empty string here (the
   # caller decides what to do about it).
-  _ctth_out="$(_reclaim_tool_dockerfile_hash "${_dockerfile}")"
+  _ctth_out="$(_reclaim_tool_dockerfile_hash "${_dockerfile}")" || return 1
   return 0
 }
 
@@ -1585,7 +1598,10 @@ _resolve_test_tools_image() {
   fi
   local _dockerfile="${1:-${REPO_ROOT}/${_TEST_TOOLS_DOCKERFILE_REL}}"
   local _hash=""
-  _compute_test_tools_hash "${_dockerfile}" _hash
+  if ! _compute_test_tools_hash "${_dockerfile}" _hash; then
+    _die ci_test_tools_inputs_unreadable \
+      "cannot derive the local test-tools tag: a build input of '${_dockerfile}' could not be resolved or read (the refusal above names it). A digest taken over the rest would name an image it does not describe."
+  fi
   if [[ -z "${_hash}" ]]; then
     _die ci_test_tools_dockerfile_missing \
       "cannot derive the local test-tools tag: '${_dockerfile}' is missing (no bare test-tools:local fallback)."
@@ -1621,7 +1637,7 @@ _ensure_test_tools_image() {
   if docker image inspect "${_image}" >/dev/null 2>&1; then
     return 0
   fi
-  echo "--- Building the tooling image ${_image} (content hash of ${_TEST_TOOLS_DOCKERFILE_REL}) ---"
+  echo "--- Building the tooling image ${_image} (content hash of ${_TEST_TOOLS_DOCKERFILE_REL} and what it COPYs) ---"
   TEST_TOOLS_IMAGE="${_image}" docker compose -p "${_project}" \
     -f "${REPO_ROOT}/compose.yaml" build test-tools
 }
