@@ -3978,6 +3978,40 @@ AWK
   assert_output --partial "absent.Dockerfile"
 }
 
+# why: #1166 a build-context COPY is an input; the tag must move with it
+@test "_resolve_test_tools_image: a file the Dockerfile COPYs from the context moves the tag (#1166)" {
+  # The premise this derivation was written on -- "every COPY is
+  # --from=<stage>, so no file of the checkout can reach a layer" -- stopped
+  # holding when the toml-bridge stage arrived. A tag that does not move
+  # when a copied file changes makes _ensure_test_tools_image skip the
+  # rebuild, and the suite then reports a verdict about code that is not in
+  # the tree.
+  local _root="${BATS_TEST_TMPDIR}/moves"
+  mkdir -p "${_root}/dockerfile"
+  printf 'FROM alpine:3.21\nCOPY dockerfile/tool.py /usr/local/bin/tool\n' \
+    > "${_root}/dockerfile/Dockerfile.test-tools"
+  printf 'one\n' > "${_root}/dockerfile/tool.py"
+
+  run bash -c '
+    source /source/script/test/test.sh
+    unset TEST_TOOLS_IMAGE
+    _resolve_test_tools_image "'"${_root}"'/dockerfile/Dockerfile.test-tools"
+  '
+  assert_success
+  local _before="${output}"
+  [[ "${_before}" =~ ^test-tools:[0-9a-f]{12}$ ]]
+
+  printf 'two\n' > "${_root}/dockerfile/tool.py"
+  run bash -c '
+    source /source/script/test/test.sh
+    unset TEST_TOOLS_IMAGE
+    _resolve_test_tools_image "'"${_root}"'/dockerfile/Dockerfile.test-tools"
+  '
+  assert_success
+  assert [ "${output}" != "${_before}" ]
+  [[ "${output}" =~ ^test-tools:[0-9a-f]{12}$ ]]
+}
+
 # why: #891 one entry point for build + consumers
 @test "main --test-tools-image: prints the resolved tag for the justfile (#891)" {
   # The single entry point the `just test system` recipe reads, so the
