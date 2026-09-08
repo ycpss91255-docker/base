@@ -2741,6 +2741,30 @@ party can move under a job holding `packages: write`.
 | `ghcr-cleanup.yaml: declares packages: write and no broader write scope` | Enough to delete package versions, no more |
 | `ghcr-cleanup.yaml: serialises runs and never cancels one mid-delete` | Two actors mutating the package concurrently, or a killed delete, is not a state to design for |
 
+### test/bats/unit/ghcr_publish_surface_spec.bats (7)
+
+the set of GHCR packages this repo's workflows PUBLISH to, derived from
+`.github/workflows/` rather than listed anywhere, held equal to the packages
+this repo owns. A publisher for somebody else's package is not a broken
+build here -- it is green, and it moves a floating tag on a package another
+repo ships. `release-toml-bridge.yaml` was exactly that (base#1180): an
+unfiltered `tags: ['v*']` arm plus an `else tags="${tags},${IMAGE}:latest"`
+branch, on a package `ycpss91255-docker/toml-bridge` now owns and has
+published `v0.1.0` of, so the next non-RC tag cut here would have
+republished the name and moved `:latest` off the image that repo shipped.
+Nothing in the tree could have said so: that workflow carried no spec at
+all.
+
+| Test | Description |
+|------|-------------|
+| `publish surface: a workflow declaring somebody else's package is reported` | the rule bites, demonstrated over a fixture rather than over the live tree -- the only occurrence in this repo is the workflow base#1180 deletes, so without a fixture this spec would go green by having nothing left to look at and could never go red again if the match stopped working. |
+| `publish surface: this repo's own package is a target and is allowed` | the other half of a usable rule -- what this repo is SUPPOSED to publish has to read as clean, or the guard says stop without saying what to write instead. |
+| `publish surface: a tagged consumer reference is not a publish target` | the deliberate narrowing, pinned as behaviour rather than left in prose. base#1176 items 1 and 2 repoint this repo at the PUBLISHED toml-bridge image; a rule that read a pull as a push would fail that work, and the guard meant to protect the migration would block it. |
+| `publish surface: a comment naming a package is not a declaration` | a workflow's own prose explains what it pushes, and this spec's header quotes the retired declaration it exists because of. A scan that could not tell prose from code would make both unwritable and push authors to delete the reasoning to get the lint green. |
+| `every GHCR package this repo publishes is one this repo owns` | the rule applied to the live tree, over a population derived from the directory rather than listed here -- which is what makes a publisher added tomorrow scanned the day it lands instead of the day somebody remembers this file exists. Set EQUALITY, so a publisher for a package this repo does not own fails, and so does losing the publisher for one it does. |
+| `no workflow here publishes the toml-bridge package, which another repo owns` | the named hazard, kept as its own case so the failure says WHY and not merely that a set differs. `ycpss91255-docker/toml-bridge` owns this package and has shipped v0.1.0 of it; a publisher here with an unfiltered `v*` arm moves `:latest` off that image on the next non-RC tag cut from main, silently and green (base#1180). |
+| `the scan really walked this repo's workflows and still sees the real publisher` | the non-vacuity case, and the one that keeps the two above honest. An expected set satisfies them whether the scan read every workflow or none of them, and the narrow match above is worth exactly as much as its ability to still see this repo's one real publisher: the day `release-test-tools.yaml` stops declaring its target as a bare `IMAGE:` scalar, this fails and says so rather than reporting a clean surface it no longer looks at. |
+
 ### test/bats/unit/gitattributes_spec.bats (3)
 
 | Test | Description |
