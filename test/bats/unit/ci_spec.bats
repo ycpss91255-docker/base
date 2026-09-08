@@ -4034,6 +4034,182 @@ AWK
   assert_output --partial "ONBUILD"
 }
 
+# why: #1166 the tag must not become a hash of the whole checkout
+@test "_resolve_test_tools_image: a file the Dockerfile does NOT COPY leaves the tag alone (#1166)" {
+  # The other half of the rule. Hashing the whole context would move the
+  # tag on every unrelated source edit -- a rebuild of the tooling image on
+  # every commit, and the build cache defeated -- while changing nothing
+  # about the image.
+  local _root="${BATS_TEST_TMPDIR}/unrelated"
+  mkdir -p "${_root}/dockerfile" "${_root}/script"
+  printf 'FROM alpine:3.21\nCOPY dockerfile/tool.py /usr/local/bin/tool\n' \
+    > "${_root}/dockerfile/Dockerfile.test-tools"
+  printf 'one\n' > "${_root}/dockerfile/tool.py"
+  printf 'echo one\n' > "${_root}/script/unrelated.sh"
+
+  run bash -c '
+    source /source/script/test/test.sh
+    unset TEST_TOOLS_IMAGE
+    _resolve_test_tools_image "'"${_root}"'/dockerfile/Dockerfile.test-tools"
+  '
+  assert_success
+  local _before="${output}"
+
+  printf 'echo two\n' > "${_root}/script/unrelated.sh"
+  run bash -c '
+    source /source/script/test/test.sh
+    unset TEST_TOOLS_IMAGE
+    _resolve_test_tools_image "'"${_root}"'/dockerfile/Dockerfile.test-tools"
+  '
+  assert_success
+  assert_output "${_before}"
+}
+
+# why: #1166 a stage source is not a checkout path and must not be looked for
+@test "_resolve_test_tools_image: a COPY --from= source is never looked for in the context (#1166)" {
+  # Every other COPY in the tooling Dockerfile is one of these. If the
+  # derivation went looking for /usr/local/bin/kcov under the checkout it
+  # would refuse every tree it is asked about.
+  local _root="${BATS_TEST_TMPDIR}/staged"
+  mkdir -p "${_root}/dockerfile"
+  printf 'FROM alpine:3.21 AS builder\nFROM alpine:3.21\nCOPY --from=builder /usr/local/bin/kcov /usr/local/bin/kcov\n' \
+    > "${_root}/dockerfile/Dockerfile.test-tools"
+
+  run bash -c '
+    source /source/script/test/test.sh
+    unset TEST_TOOLS_IMAGE
+    _resolve_test_tools_image "'"${_root}"'/dockerfile/Dockerfile.test-tools"
+  '
+  assert_success
+  [[ "${output}" =~ ^test-tools:[0-9a-f]{12}$ ]]
+}
+
+# why: #1166 a flag that changes WHICH files are copied cannot be guessed at
+@test "_resolve_test_tools_image: refuses a COPY flag it does not model, naming the line (#1166)" {
+  local _root="${BATS_TEST_TMPDIR}/badflag"
+  mkdir -p "${_root}/dockerfile"
+  printf 'FROM alpine:3.21\nCOPY --exclude=*.pyc dockerfile/tool.py /usr/local/bin/tool\n' \
+    > "${_root}/dockerfile/Dockerfile.test-tools"
+  printf 'one\n' > "${_root}/dockerfile/tool.py"
+
+  run bash -c '
+    source /source/script/test/test.sh
+    unset TEST_TOOLS_IMAGE
+    _resolve_test_tools_image "'"${_root}"'/dockerfile/Dockerfile.test-tools"
+  '
+  assert_failure
+  assert_output --partial "Dockerfile.test-tools:2"
+  assert_output --partial "--exclude"
+}
+
+# why: #1166 a source that needs docker's own parser is refused, not guessed
+@test "_resolve_test_tools_image: refuses a COPY source it cannot resolve to files (#1166)" {
+  local _root="${BATS_TEST_TMPDIR}/glob"
+  mkdir -p "${_root}/dockerfile"
+  printf 'FROM alpine:3.21\nCOPY dockerfile/*.py /usr/local/bin/\n' \
+    > "${_root}/dockerfile/Dockerfile.test-tools"
+  printf 'one\n' > "${_root}/dockerfile/tool.py"
+
+  run bash -c '
+    source /source/script/test/test.sh
+    unset TEST_TOOLS_IMAGE
+    _resolve_test_tools_image "'"${_root}"'/dockerfile/Dockerfile.test-tools"
+  '
+  assert_failure
+  assert_output --partial "Dockerfile.test-tools:2"
+  assert_output --partial "dockerfile/*.py"
+}
+
+# why: #1166 a partial digest names an image it does not describe
+@test "_resolve_test_tools_image: refuses when a COPYed context path cannot be read (#1166)" {
+  # The loud direction, chosen deliberately: a digest taken over the inputs
+  # that happened to be readable would resolve to a tag that says "this
+  # image" about an image built from something else.
+  local _root="${BATS_TEST_TMPDIR}/absent"
+  mkdir -p "${_root}/dockerfile"
+  printf 'FROM alpine:3.21\nCOPY dockerfile/gone.py /usr/local/bin/tool\n' \
+    > "${_root}/dockerfile/Dockerfile.test-tools"
+
+  run bash -c '
+    source /source/script/test/test.sh
+    unset TEST_TOOLS_IMAGE
+    _resolve_test_tools_image "'"${_root}"'/dockerfile/Dockerfile.test-tools"
+  '
+  assert_failure
+  assert_output --partial "dockerfile/gone.py"
+}
+
+# why: #1166 a continued COPY is one instruction, not two unparseable ones
+@test "_resolve_test_tools_image: reads a COPY split across a line continuation (#1166)" {
+  local _root="${BATS_TEST_TMPDIR}/cont"
+  mkdir -p "${_root}/dockerfile"
+  printf 'FROM alpine:3.21\nCOPY dockerfile/tool.py \\\n    /usr/local/bin/tool\n' \
+    > "${_root}/dockerfile/Dockerfile.test-tools"
+  printf 'one\n' > "${_root}/dockerfile/tool.py"
+
+  run bash -c '
+    source /source/script/test/test.sh
+    unset TEST_TOOLS_IMAGE
+    _resolve_test_tools_image "'"${_root}"'/dockerfile/Dockerfile.test-tools"
+  '
+  assert_success
+  local _before="${output}"
+
+  printf 'two\n' > "${_root}/dockerfile/tool.py"
+  run bash -c '
+    source /source/script/test/test.sh
+    unset TEST_TOOLS_IMAGE
+    _resolve_test_tools_image "'"${_root}"'/dockerfile/Dockerfile.test-tools"
+  '
+  assert_success
+  assert [ "${output}" != "${_before}" ]
+}
+
+# why: #1166 the retention rule must retire exactly what the resolver mints
+@test "_resolve_test_tools_image: agrees with the retention derivation on a context COPY (#1166)" {
+  # The reason the derivation is shared rather than written twice: the
+  # retention policy keeps every tag a live checkout still resolves, which
+  # it can only do by computing what the producer computed. Two
+  # implementations of one rule is how they come to disagree, and the
+  # disagreement deletes an image a live run is using.
+  local _root="${BATS_TEST_TMPDIR}/agree"
+  mkdir -p "${_root}/dockerfile"
+  printf 'FROM alpine:3.21\nCOPY dockerfile/tool.py /usr/local/bin/tool\n' \
+    > "${_root}/dockerfile/Dockerfile.test-tools"
+  printf 'one\n' > "${_root}/dockerfile/tool.py"
+
+  run bash -c '
+    source /source/script/test/test.sh
+    unset TEST_TOOLS_IMAGE
+    _resolve_test_tools_image "'"${_root}"'/dockerfile/Dockerfile.test-tools"
+    _reclaim_tool_tag_for_path "'"${_root}"'"
+  '
+  assert_success
+  assert [ "${lines[0]}" = "${lines[1]}" ]
+  [[ "${lines[0]}" =~ ^test-tools:[0-9a-f]{12}$ ]]
+}
+
+# why: #1166 a tooling Dockerfile reading no context keeps the tag it had
+@test "_resolve_test_tools_image: a Dockerfile with no context COPY keeps its old tag (#1166)" {
+  # The digest of a Dockerfile that COPYs nothing from the context is the
+  # digest of its bytes and nothing else, exactly as before this rule. The
+  # expected value is the sha256 of that literal content, taken
+  # independently -- not recomputed the way the code does -- so a change of
+  # composition that orphans every image already on the host fails here.
+  local _root="${BATS_TEST_TMPDIR}/nocontext"
+  mkdir -p "${_root}/dockerfile"
+  printf 'FROM alpine:3.21\nRUN apk add --no-cache kcov\n' \
+    > "${_root}/dockerfile/Dockerfile.test-tools"
+
+  run bash -c '
+    source /source/script/test/test.sh
+    unset TEST_TOOLS_IMAGE
+    _resolve_test_tools_image "'"${_root}"'/dockerfile/Dockerfile.test-tools"
+  '
+  assert_success
+  assert_output "test-tools:4f7deb31757c"
+}
+
 # why: #891 one entry point for build + consumers
 @test "main --test-tools-image: prints the resolved tag for the justfile (#891)" {
   # The single entry point the `just test system` recipe reads, so the
