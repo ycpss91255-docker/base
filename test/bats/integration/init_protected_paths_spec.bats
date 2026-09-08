@@ -163,9 +163,7 @@ _uncovered() {
   assert [ -s "${_changed}" ]
   assert [ -f "${CONSUMER}/test/bats/smoke/shared/env.bats" ]
   assert [ ! -e "${CONSUMER}/test/smoke" ]
-  # After INI-to-TOML migration (ADR-37), .env.local is converted to
-  # .env.local.toml (the original backed up to .env.local.bak).
-  assert [ -f "${CONSUMER}/.env.local.toml" ]
+  assert [ -f "${CONSUMER}/.env.local" ]
 
   run bash -c "source '${CONSUMER}/${INIT#./}' && _init_protected_paths"
   assert_success

@@ -1180,14 +1180,23 @@ _init_existing_repo() {
   # what SEEDS a default `setup.toml` and so destroys the evidence that
   # the repo ever had a configuration of its own.
   _migrate_legacy_setup_conf "${REPO_ROOT}" "${TEMPLATE_DIR}/dist"
-  # INI-to-TOML format migration (ADR-00000037). Runs AFTER the legacy
-  # setup.conf relocation above (which ensures the INI file is at the
-  # repo root) and AFTER _migrate_env_to_local (which creates .env.local
-  # from the old .env). Both converters are gated on the source existing
-  # and the target NOT existing, so they are no-ops on a repo that
-  # already carries setup.toml / .env.local.toml.
+  # INI-to-TOML format migration of the repo's OWN configuration
+  # (ADR-00000037). Runs AFTER the legacy setup.conf relocation above,
+  # which is what ensures the INI file is at the repo root. Gated on the
+  # source existing and the target NOT existing, so it is a no-op on a
+  # repo that already carries setup.toml.
   _migrate_ini_to_toml "${REPO_ROOT}"
-  _migrate_env_local_to_toml "${REPO_ROOT}"
+  # The sibling converter `_migrate_env_local_to_toml` is deliberately
+  # NOT called here yet (base#1163). It moves the operator's `.env.local`
+  # aside to `.env.local.bak` and writes `.env.local.toml` -- but nothing
+  # reads `.env.local.toml`: compose still loads `.env` plus `.env.local`
+  # (compose_emit.sh), and the `setup apply` that follows re-scaffolds
+  # `.env.local` as a comment-only file. Calling it from here therefore
+  # discards the operator's overrides during `just upgrade`'s Step 3
+  # resync while logging that they "were converted", which reads as
+  # "still in effect" and is not. Restore the call in the same change
+  # that lands the `.env.toml` / `.env.toml.local` readers (base#1168),
+  # never before.
   _create_symlinks
   _sync_existing_gitignore
   # ensure the pre/post hook scaffolding exists. Idempotent;
