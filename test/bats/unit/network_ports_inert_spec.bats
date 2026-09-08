@@ -35,7 +35,7 @@ teardown() {
 _write_conf() {
   local _dir="${1}"; shift
   mkdir -p "${_dir}"
-  printf '%s\n' "$@" > "${_dir}/.setup.conf"
+  printf '%s\n' "$@" > "${_dir}/setup.toml"
 }
 
 # The stable English fragment every fire point shares.

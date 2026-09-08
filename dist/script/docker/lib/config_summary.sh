@@ -58,7 +58,7 @@ _summary_print() {
 #
 # Translated: section headings + descriptive labels. Left untranslated
 # (technical terms / identifiers users recognise across locales): file
-# names (setup.conf / .env / compose.yaml), INI section names in [ ],
+# names (setup.toml / .env / compose.yaml), INI section names in [ ],
 # .env variable names (TZ, APT_MIRROR_*, IPC, CAPS), command strings
 # in "Customize" hint.
 _lib_msg() {
@@ -132,14 +132,14 @@ _lib_msg() {
     ja:privileged)           echo "特権" ;;
     *:privileged)            echo "privileged" ;;
     # Hints / errors
-    zh-TW:conf_missing)      echo "(找不到 setup.conf — 執行 ./setup_tui.sh 或 ./%s.sh --setup)" ;;
-    zh-CN:conf_missing)      echo "(找不到 setup.conf — 运行 ./setup_tui.sh 或 ./%s.sh --setup)" ;;
-    ja:conf_missing)         echo "(setup.conf が見つかりません — ./setup_tui.sh または ./%s.sh --setup を実行してください)" ;;
-    *:conf_missing)          echo "(setup.conf not found — run ./setup_tui.sh or ./%s.sh --setup)" ;;
-    zh-TW:conf_empty)        echo "(setup.conf 沒有 section 覆寫 — 全部使用模板預設值；./setup_tui.sh 或 edit setup.conf)" ;;
-    zh-CN:conf_empty)        echo "(setup.conf 没有 section 覆写 — 全部使用模板默认值；./setup_tui.sh 或 edit setup.conf)" ;;
-    ja:conf_empty)           echo "(setup.conf にセクション上書きがありません — 全てテンプレート既定値を使用；./setup_tui.sh または edit setup.conf)" ;;
-    *:conf_empty)            echo "(setup.conf has no section overrides — using template defaults; run ./setup_tui.sh or edit setup.conf)" ;;
+    zh-TW:conf_missing)      echo "(找不到 setup.toml — 執行 ./setup_tui.sh 或 ./%s.sh --setup)" ;;
+    zh-CN:conf_missing)      echo "(找不到 setup.toml — 运行 ./setup_tui.sh 或 ./%s.sh --setup)" ;;
+    ja:conf_missing)         echo "(setup.toml が見つかりません — ./setup_tui.sh または ./%s.sh --setup を実行してください)" ;;
+    *:conf_missing)          echo "(setup.toml not found — run ./setup_tui.sh or ./%s.sh --setup)" ;;
+    zh-TW:conf_empty)        echo "(setup.toml 沒有 section 覆寫 — 全部使用模板預設值；./setup_tui.sh 或 edit setup.toml)" ;;
+    zh-CN:conf_empty)        echo "(setup.toml 没有 section 覆写 — 全部使用模板默认值；./setup_tui.sh 或 edit setup.toml)" ;;
+    ja:conf_empty)           echo "(setup.toml にセクション上書きがありません — 全てテンプレート既定値を使用；./setup_tui.sh または edit setup.toml)" ;;
+    *:conf_empty)            echo "(setup.toml has no section overrides — using template defaults; run ./setup_tui.sh or edit setup.toml)" ;;
     zh-TW:customize)         echo "自訂" ;;
     zh-CN:customize)         echo "自定义" ;;
     ja:customize)            echo "カスタマイズ" ;;
@@ -154,7 +154,7 @@ _lib_msg() {
 # this run will consume — file paths, .env-derived identity/hardware,
 # and the complete [image]/[build]/[deploy]/[gui]/[network]/
 # [security]/[resources]/[environment]/[tmpfs]/[devices]/[volumes]
-# section contents from setup.conf — without having to diff `.env`
+# section contents from setup.toml — without having to diff `.env`
 # or run `docker compose config`.
 #
 # Expects FILE_PATH + standard .env variables already in scope
@@ -168,7 +168,7 @@ _lib_msg() {
 _print_config_summary() {
   local _tag="${1:?_print_config_summary requires a log tag}"
   local _fp="${FILE_PATH:-.}"
-  local _conf="${_fp}/.setup.conf"
+  local _conf="${_fp}/setup.toml"
   local _line="────────────────────────────────────────────────────────────"
   local _img="${DOCKER_HUB_USER:-local}/${IMAGE_NAME:-unknown}"
   # Report what -p will actually be, never a re-derivation of it: the
@@ -179,7 +179,7 @@ _print_config_summary() {
 
   _summary_print "${_tag}" dim  "${_line}"
   _summary_print "${_tag}" bold "$(_lib_msg files)"
-  printf "[%s]   setup.conf   : %s\n"   "${_tag}" "${_conf}"
+  printf "[%s]   setup.toml   : %s\n"   "${_tag}" "${_conf}"
   # A config layer nobody else can see must not be invisible in the run that
   # uses it. Printed only when it actually supplies sections, and it names
   # WHICH -- under section-replace those are precisely the sections whose
@@ -189,7 +189,7 @@ _print_config_summary() {
   if (( ${#_pcs_local[@]} > 0 )); then
     local _pcs_list="${_pcs_local[*]}"
     printf "[%s]   local override: %s (replaces: %s)\n" \
-      "${_tag}" "${_fp}/.setup.conf.local" "${_pcs_list// /, }"
+      "${_tag}" "${_fp}/setup.local.toml" "${_pcs_list// /, }"
   fi
   printf "[%s]   .env         : %s\n"   "${_tag}" "${_fp}/.env"
   printf "[%s]   compose.yaml : %s\n"   "${_tag}" "${_fp}/compose.yaml"
@@ -202,7 +202,7 @@ _print_config_summary() {
   printf "[%s]   %-12s : %s\n" "${_tag}" "$(_lib_msg project)" "${_proj}"
   printf "[%s]   %-12s : %s\n" "${_tag}" "$(_lib_msg workspace)" "${WS_PATH:--}"
 
-  # Variables block: explicit map from setup.conf placeholders to the
+  # Variables block: explicit map from setup.toml placeholders to the
   # detected runtime values. Identity prints the resolved values with
   # i18n labels (e.g. "使用者 : alice"); the [volumes] dump prints raw
   # `${USER_NAME}` / `${WS_PATH}` placeholders. This block bridges the
@@ -215,11 +215,11 @@ _print_config_summary() {
   printf "[%s]   \${USER_GID}  = %s\n"  "${_tag}" "${USER_GID:--}"
   printf "[%s]   \${WS_PATH}   = %s\n"  "${_tag}" "${WS_PATH:--}"
 
-  # setup.conf section-by-section dump. Each section prints only if
+  # setup.toml section-by-section dump. Each section prints only if
   # non-empty to stay readable. Order matches the TUI main menu so
   # the printout and setup_tui.sh layout mirror each other.
   if [[ -f "${_conf}" ]]; then
-    _summary_print "${_tag}" bold "setup.conf"
+    _summary_print "${_tag}" bold "setup.toml"
     # When the file exists but contains no [section] headers (empty file
     # / comments-only / whitespace-only), every section silently falls
     # back to template defaults. Surface a parallel hint to the
@@ -245,7 +245,7 @@ _print_config_summary() {
     printf "[%s]   $(_lib_msg conf_missing)\n" "${_tag}" "${_tag}"
   fi
 
-  # Resolved post-merge flags that the user can't infer from setup.conf
+  # Resolved post-merge flags that the user can't infer from setup.toml
   # alone (GPU/GUI depend on host detection in addition to mode=auto).
   _summary_print "${_tag}" bold "$(_lib_msg resolved)"
   printf "[%s]   %s : %s  count=%s  caps=%s\n" "${_tag}" \
@@ -258,7 +258,7 @@ _print_config_summary() {
   printf "[%s]   TZ=%s  apt_ubuntu=%s  apt_debian=%s\n" "${_tag}" \
     "${TZ:--}" "${APT_MIRROR_UBUNTU:--}" "${APT_MIRROR_DEBIAN:--}"
 
-  printf "[%s] %s: ./setup_tui.sh  |  ./%s.sh --setup  |  edit setup.conf\n" \
+  printf "[%s] %s: ./setup_tui.sh  |  ./%s.sh --setup  |  edit setup.toml\n" \
     "${_tag}" "$(_lib_msg customize)" "${_tag}"
   _summary_print "${_tag}" dim "${_line}"
 }

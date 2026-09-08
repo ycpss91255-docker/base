@@ -153,8 +153,8 @@ setup() {
 # ── base self-use has no .env.generated, and never will ──────────────────
 #
 # `.env.generated` is a CONFIGURED CONSUMER's interpolation cache, written
-# by `setup apply` from a `.setup.conf`. base is the template SOURCE: it
-# ships a hand-authored compose.yaml, has no `.setup.conf` and no `.base/`
+# by `setup apply` from a `setup.toml`. base is the template SOURCE: it
+# ships a hand-authored compose.yaml, has no `setup.toml` and no `.base/`
 # subtree, and _wrapper_setup_sync deliberately returns early for exactly
 # that shape -- so nothing in a base checkout ever writes the file.
 #
@@ -173,7 +173,7 @@ setup() {
 #   symlinks under script/, its own test entry (the one producer of the
 #   tooling tag its hand-authored compose.yaml interpolates) and the
 #   tooling Dockerfile that tag is a content hash of; no .base/, no
-#   .setup.conf, no .env.generated.
+#   setup.toml, no .env.generated.
 #
 #   script/watch/ comes along because script/test/ reaches into it:
 #   drivers/pin_coverage.sh sources ../watch/lib.sh, and test.sh sources
@@ -196,7 +196,7 @@ _base_shaped_checkout() {
     ln -s "../dist/script/docker/wrapper/${_w}.sh" "${_dir}/script/${_w}.sh"
   done
   assert [ ! -e "${_dir}/.base" ]
-  assert [ ! -e "${_dir}/.setup.conf" ]
+  assert [ ! -e "${_dir}/setup.toml" ]
   assert [ ! -e "${_dir}/.env.generated" ]
 }
 

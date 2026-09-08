@@ -42,7 +42,7 @@ setup() {
 _write_conf() {
   local _dir="${1}"; shift
   mkdir -p "${_dir}"
-  printf '%s\n' "$@" > "${_dir}/.setup.conf"
+  printf '%s\n' "$@" > "${_dir}/setup.toml"
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -780,7 +780,7 @@ _write_deploy_repo() {
   mkdir -p "${_dir}"
   printf '%s\n' "[deploy]" "gpu_mode = off" "dri_groups = off" "[gui]" "mode = off" \
     "[environment]" "env_1 = ROS_DOMAIN_ID=42" \
-    "[security]" "privileged = true" > "${_dir}/.setup.conf"
+    "[security]" "privileged = true" > "${_dir}/setup.toml"
   cat > "${_dir}/Dockerfile" <<'DOCK'
 FROM scratch AS sys
 FROM sys AS devel
@@ -925,7 +925,7 @@ SH
 }
 
 # ════════════════════════════════════════════════════════════════════
-# .setup.conf.local and the field bundle (PRD invariant: an artifact
+# setup.local.toml and the field bundle (PRD invariant: an artifact
 # built for the field must not silently depend on a config layer that is
 # not under version control)
 #
@@ -936,13 +936,13 @@ SH
 # builds; what it must never be is quiet.
 # ════════════════════════════════════════════════════════════════════
 
-@test "_setup_deploy: refuses while .setup.conf.local is present (#893)" {
+@test "_setup_deploy: refuses while setup.local.toml is present (#893)" {
   local _d; _d="$(mktemp -d)"
   _write_deploy_repo "${_d}"
-  printf '[gui]\nmode = force\n' > "${_d}/.setup.conf.local"
+  printf '[gui]\nmode = force\n' > "${_d}/setup.local.toml"
   SETUP_DETECT_DRI_GROUPS="" run _setup_deploy --base-path "${_d}" --dry-run
   assert_failure
-  assert_output --partial ".setup.conf.local"
+  assert_output --partial "setup.local.toml"
   assert_output --partial "gui"
   assert_output --partial "--allow-local-override"
   rm -rf "${_d}"
@@ -951,12 +951,12 @@ SH
 @test "_setup_deploy: --allow-local-override proceeds and says what it accepted (#893)" {
   local _d; _d="$(mktemp -d)"
   _write_deploy_repo "${_d}"
-  printf '[gui]\nmode = force\n' > "${_d}/.setup.conf.local"
+  printf '[gui]\nmode = force\n' > "${_d}/setup.local.toml"
   SETUP_DETECT_DRI_GROUPS="" run _setup_deploy --base-path "${_d}" --dry-run \
     --allow-local-override
   assert_success
   assert_output --partial "deploy plan: stage=runtime"
-  assert_output --partial ".setup.conf.local"
+  assert_output --partial "setup.local.toml"
   rm -rf "${_d}"
 }
 
@@ -965,7 +965,7 @@ SH
   _write_deploy_repo "${_d}"
   SETUP_DETECT_DRI_GROUPS="" run _setup_deploy --base-path "${_d}" --dry-run
   assert_success
-  refute_output --partial ".setup.conf.local"
+  refute_output --partial "setup.local.toml"
   rm -rf "${_d}"
 }
 
@@ -974,7 +974,7 @@ SH
   _render_deploy_readme "${_d}/README" myrepo runtime myrepo:runtime-v1 "gui network"
   run cat "${_d}/README"
   assert_success
-  assert_output --partial ".setup.conf.local"
+  assert_output --partial "setup.local.toml"
   assert_output --partial "gui, network"
   rm -rf "${_d}"
 }
@@ -984,7 +984,7 @@ SH
   _render_deploy_readme "${_d}/README" myrepo runtime myrepo:runtime-v1 ""
   run cat "${_d}/README"
   assert_success
-  refute_output --partial ".setup.conf.local"
+  refute_output --partial "setup.local.toml"
   rm -rf "${_d}"
 }
 
@@ -996,7 +996,7 @@ SH
   local _d; _d="$(mktemp -d)"
   _write_deploy_repo "${_d}"
   printf '[gui]\nmode = force\n[network]\nmode = bridge\n' \
-    > "${_d}/.setup.conf.local"
+    > "${_d}/setup.local.toml"
   README_PROBE="${_d}/readme-sections"
   _render_deploy_readme() { printf '%s\n' "${5-}" > "${README_PROBE}"; : > "${1}"; }
   export DRY_RUN=true
@@ -1022,7 +1022,7 @@ SH
 @test "_setup_deploy: errors when the repo has no Dockerfile (#832)" {
   local _d; _d="$(mktemp -d)"
   mkdir -p "${_d}"
-  printf '%s\n' "[deploy]" "gpu_mode = off" > "${_d}/.setup.conf"
+  printf '%s\n' "[deploy]" "gpu_mode = off" > "${_d}/setup.toml"
   SETUP_DETECT_DRI_GROUPS="" run _setup_deploy --base-path "${_d}" --dry-run
   assert_failure
   assert_output --partial "no Dockerfile"

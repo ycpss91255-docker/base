@@ -47,11 +47,11 @@ setup() {
     ln -s ".base/dist/script/docker/wrapper/${_w}.sh" "${REPO_DIR}/${_w}.sh"
   done
 
-  # Seed a per-repo setup.conf from the template so apply renders .env +
+  # Seed a per-repo setup.toml from the template so apply renders .env +
   # compose.yaml deterministically.
   mkdir -p "${REPO_DIR}"
-  cp "${REPO_DIR}/.base/dist/.setup.conf" \
-     "${REPO_DIR}/.setup.conf"
+  cp "${REPO_DIR}/.base/dist/setup.toml" \
+     "${REPO_DIR}/setup.toml"
 
   cd "${REPO_DIR}"
 
@@ -152,9 +152,9 @@ teardown() {
   assert_output --partial "docker compose -p ${_recorded}"
 }
 
-@test "[project] name in .setup.conf.local moves BOTH the -p and the emitted name:" {
+@test "[project] name in setup.local.toml moves BOTH the -p and the emitted name:" {
   printf '[project]\nname = %s\n' "myapp-worktree-2" \
-    > "${REPO_DIR}/.setup.conf.local"
+    > "${REPO_DIR}/setup.local.toml"
   run bash "${REPO_DIR}/build.sh" --dry-run
   assert_success
   assert_output --partial "docker compose -p myapp-worktree-2"
@@ -175,7 +175,7 @@ teardown() {
   local _second="${TMP_ROOT}/${REPO_NAME}-2"
   cp -a "${REPO_DIR}" "${_second}"
   printf '[project]\nname = %s\n' "myapp-worktree-2" \
-    > "${_second}/.setup.conf.local"
+    > "${_second}/setup.local.toml"
 
   run bash "${REPO_DIR}/build.sh" --dry-run
   assert_success

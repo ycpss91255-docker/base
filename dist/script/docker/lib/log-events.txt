@@ -24,6 +24,7 @@ conf_unknown_arg
 conf_upsert_file_missing
 conf_local_created
 conf_write_shadowed
+conf_toml_merge_failed
 config_components_provisioned
 config_components_absent
 config_files_unprovisioned
@@ -173,6 +174,12 @@ init_failed
 init_rollback
 init_rollback_failed
 
+# ini_to_toml_migrate.sh (INI-to-TOML format migration; emitted under
+# the init service because init.sh is the only caller)
+ini_to_toml_migrated
+ini_to_toml_local_migrated
+env_local_to_toml_migrated
+
 # smoke_migrate.sh (repo-owned smoke tree layout; emitted under the init
 # service because init.sh is the only caller)
 smoke_tree_migrated
@@ -282,6 +289,10 @@ project_rename_probe_failed
 # are a table keyed by (section, prefix); a list with no complete row is
 # a defect, not a default.
 tui_list_labels_missing
+
+# toml_bridge.sh (containerised TOML parser shim)
+no_such_file
+merge_no_files
 
 # general
 dry_run_cmd

@@ -4,6 +4,10 @@
 Reads TOML from stdin, writes JSON to stdout. Uses tomllib (stdlib 3.11+)
 with vendored tomli as fallback (Python 3.6+). ADR-37 sec. Containerised
 parsing.
+
+--merge mode: reads multiple TOML files by path (not stdin), merges with
+type-aware semantics (table key-level merge, array-of-tables replace),
+outputs merged result.  ADR-37 sec. Merge semantics.
 """
 import json
 import sys
@@ -45,7 +49,21 @@ def _emit_array(section, key, items):
 
 
 def _emit_kv(data):
-    """Emit section/key/value tab-separated lines for bash consumption."""
+    """Emit section/key/value tab-separated lines for bash consumption.
+
+    An array of tables goes through _emit_array, which numbers it
+    (`rule_1`, `arg_2`, `device_1`) -- the `<prefix><digits>` shape
+    `_conf_list_sorted` matches and every ordered-list reader on the shell
+    side requires. Emitting one line per element key instead loses the
+    order, and emitting the Python list loses the list.
+
+    Both nestings are arrays: `[[devices]]` arrives as a list at the
+    section, `[[build.args]]` as a list under a key of one.
+
+    A scalar goes through _format_value, which is what keeps a TOML
+    boolean spelled the way the shell compares it -- `true`, not Python's
+    `True`, which every `== true` on the other side reads as false.
+    """
     for section, entries in data.items():
         if isinstance(entries, list):
             _emit_array(section, section, entries)
@@ -57,11 +75,23 @@ def _emit_kv(data):
                     print(f"{section}\t{key}\t{_format_value(value)}")
 
 
-def _merge_layers(paths):
-    """Type-aware merge of TOML layers (lowest precedence first).
+def _merge_toml(paths):
+    """Merge multiple TOML files with type-aware semantics.
 
-    Tables: key-level merge (upper overrides only keys it defines).
-    Arrays: replace (upper replaces entire array).
+    Files are read in increasing-precedence order (baseline first, the
+    most local override last).
+
+    Tables (dict): key-level merge -- the upper layer overrides only the
+    keys it defines; unmentioned keys inherit from the lower layer.
+
+    Arrays of tables (list): replace -- the entire array from the highest
+    layer that defines it wins.
+
+    A path that does not exist contributes nothing rather than failing:
+    callers pass the whole layer chain unconditionally, which is the rule
+    conf.sh's _conf_load_layers documents on the other side.
+
+    ADR-37 sec. Merge semantics.
     """
     merged = {}
     for path in paths:
@@ -75,21 +105,35 @@ def _merge_layers(paths):
             raise SystemExit(1)
         for section, entries in layer.items():
             if isinstance(entries, dict):
+                # Table: key-level merge.
                 if section not in merged or not isinstance(merged[section], dict):
                     merged[section] = {}
                 merged[section].update(entries)
             else:
+                # Array of tables, or a top-level scalar: replace.
                 merged[section] = entries
     return merged
 
 
 def main():
-    argv = [a for a in sys.argv[1:] if not a.startswith("-")]
-    kv_mode = "--kv" in sys.argv
-    merge_mode = "--merge" in sys.argv
+    # The flags are REMOVED from the argument list rather than filtered by
+    # a leading dash, so a file path is never mistaken for a flag and a
+    # flag is never mistaken for a file.
+    args = list(sys.argv[1:])
+    kv_mode = "--kv" in args
+    merge_mode = "--merge" in args
+
+    if kv_mode:
+        args.remove("--kv")
+    if merge_mode:
+        args.remove("--merge")
 
     if merge_mode:
-        data = _merge_layers(argv)
+        if not args:
+            print("toml-bridge: --merge requires at least one file",
+                  file=sys.stderr)
+            raise SystemExit(1)
+        data = _merge_toml(args)
     else:
         raw = sys.stdin.buffer.read()
         try:

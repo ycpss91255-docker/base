@@ -34,6 +34,23 @@ FROM sys AS devel-base
 FROM devel-base AS devel
 FROM devel AS devel-test
 EOF
+  # Override toml_bridge_{parse,merge} to use the in-container bridge
+  # directly instead of docker run (the test container has the bridge
+  # installed at /usr/local/bin/toml-bridge via Dockerfile.test-tools).
+  toml_bridge_parse() {
+    local _file="${1:?missing file}"
+    shift
+    [[ -f "${_file}" ]] || { echo "toml_bridge_parse: file not found: ${_file}" >&2; return 1; }
+    /usr/local/bin/toml-bridge "$@" < "${_file}"
+  }
+  toml_bridge_merge() {
+    local _kv_flag=""
+    if [[ "${1:-}" == "--kv" ]]; then _kv_flag="--kv"; shift; fi
+    local -a _args=("--merge")
+    [[ -n "${_kv_flag}" ]] && _args+=("--kv")
+    _args+=("$@")
+    /usr/local/bin/toml-bridge "${_args[@]}"
+  }
 }
 
 teardown() {
@@ -345,7 +362,7 @@ teardown() {
   # A `[stage:*]` that APPENDS its own env_N is the append-mode case: the
   # shared prefix stays in `.env` (where write_container_env expands
   # it) and only this stage's own tail is restated inline. That tail
-  # skipped the expansion entirely, so the SAME setup.conf produced two
+  # skipped the expansion entirely, so the SAME setup.toml produced two
   # different container envs -- `.env` carried the resolved value and the
   # stage service a literal `${VAR}` compose cannot resolve, because its
   # substitution layer never sees sibling env entries. Expansion has to
@@ -359,9 +376,9 @@ FROM devel AS devel-test
 FROM devel AS probe
 DOCK
   mkdir -p "${TEMP_DIR}"
-  cat > "${TEMP_DIR}/.setup.conf" <<'CONF'
-[stage:probe]
-environment.env_1 = LD_LIBRARY_PATH=/foo/${BUILD_TARGET}/lib
+  cat > "${TEMP_DIR}/setup.toml" <<'CONF'
+["stage:probe"]
+"environment.env_1" = "LD_LIBRARY_PATH=/foo/${BUILD_TARGET}/lib"
 CONF
   local _extras=()
   local _env="BUILD_TARGET=production"
@@ -389,11 +406,11 @@ FROM devel AS devel-test
 FROM devel AS probe
 DOCK
   mkdir -p "${TEMP_DIR}"
-  cat > "${TEMP_DIR}/.setup.conf" <<'CONF'
-[stage:probe]
-environment.env_inherit = false
-environment.env_1 = ROOT=/opt
-environment.env_2 = BASE=${ROOT}/lib
+  cat > "${TEMP_DIR}/setup.toml" <<'CONF'
+["stage:probe"]
+"environment.env_inherit" = "false"
+"environment.env_1" = "ROOT=/opt"
+"environment.env_2" = "BASE=${ROOT}/lib"
 CONF
   local _extras=()
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
@@ -435,7 +452,7 @@ CONF
   assert_success
   # Ports are overlay-overridable ${PORT_N:-default} interpolations, not
   # baked literals, so a multi_run .env overlay can remap the host port
-  # per instance (ADR-00000022). The setup.conf value is the :- default;
+  # per instance (ADR-00000022). The setup.toml value is the :- default;
   # the index is 1-based (PORT_1 = first port) matching base's indexed-key
   # convention (port_1 / mount_1 / arg_1).
   run grep -F -- '- "${PORT_1:-8080:80}"' "${COMPOSE_OUT}"
@@ -519,10 +536,10 @@ FROM devel AS devel-test
 FROM devel AS probe
 DOCK
   mkdir -p "${TEMP_DIR}"
-  cat > "${TEMP_DIR}/.setup.conf" <<'CONF'
-[stage:probe]
-security.cap_add_inherit = false
-security.security_opt_inherit = false
+  cat > "${TEMP_DIR}/setup.toml" <<'CONF'
+["stage:probe"]
+"security.cap_add_inherit" = "false"
+"security.security_opt_inherit" = "false"
 CONF
   local _extras=()
   local _cap_add _sec_opt
@@ -550,9 +567,9 @@ FROM devel AS devel-test
 FROM devel AS flash
 DOCK
   mkdir -p "${TEMP_DIR}"
-  cat > "${TEMP_DIR}/.setup.conf" <<'CONF'
-[stage:flash]
-security.cap_add_1 = MKNOD
+  cat > "${TEMP_DIR}/setup.toml" <<'CONF'
+["stage:flash"]
+"security.cap_add_1" = "MKNOD"
 CONF
   local _extras=()
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
@@ -1211,9 +1228,9 @@ FROM scratch AS sys
 FROM sys AS devel
 FROM devel AS headless
 DOCK
-  cat > "${TEMP_DIR}/.setup.conf" <<'CONF'
-[stage:headless]
-gui.mode = off
+  cat > "${TEMP_DIR}/setup.toml" <<'CONF'
+["stage:headless"]
+"gui.mode" = "off"
 CONF
   _gen_restart "unless-stopped"
   run grep -cE '^    restart: unless-stopped$' "${COMPOSE_OUT}"
@@ -1283,17 +1300,17 @@ FROM devel AS devel-test
 FROM devel AS headless
 DOCK
   mkdir -p "${TEMP_DIR}"
-  cat > "${TEMP_DIR}/.setup.conf" <<'CONF'
-[stage:headless]
-gui.mode = off
-deploy.gpu_mode = off
-network.ipc = private
-security.privileged = true
-volumes.mount_inherit = false
-volumes.mount_1 = ./hl-data:/data
-environment.env_inherit = false
-environment.env_1 = HEADLESS=1
-network.port_1 = 8080:80
+  cat > "${TEMP_DIR}/setup.toml" <<'CONF'
+["stage:headless"]
+"gui.mode" = "off"
+"deploy.gpu_mode" = "off"
+"network.ipc" = "private"
+"security.privileged" = "true"
+"volumes.mount_inherit" = "false"
+"volumes.mount_1" = "./hl-data:/data"
+"environment.env_inherit" = "false"
+"environment.env_1" = "HEADLESS=1"
+"network.port_1" = "8080:80"
 CONF
   local _extras=('./ws:/workspace' 'state_vol:/srv/state')
   generate_compose_yaml "${COMPOSE_OUT}" "myrepo" \
@@ -1315,7 +1332,7 @@ CONF
     ""
   cat > "${TEMP_DIR}/expected.yaml" <<'GOLDEN'
 # AUTO-GENERATED BY setup.sh — DO NOT EDIT.
-# Edit setup.conf instead. Regenerate via ./build.sh --setup or ./run.sh --setup.
+# Edit setup.toml instead. Regenerate via ./build.sh --setup or ./run.sh --setup.
 name: ${PROJECT_NAME}
 services:
   devel:

@@ -212,7 +212,7 @@ _setup_ssh_x11_cookie() {
 # ════════════════════════════════════════════════════════════════════
 # detect_image_name
 #
-# Reads [image] rules from setup.conf (per-repo or template default).
+# Reads [image] rules from setup.toml (per-repo or template default).
 # rules is a comma-separated ordered list; first match wins.
 #
 # Usage: detect_image_name <outvar> <path>
@@ -346,7 +346,7 @@ detect_ws_path() {
 # Mutates <vol_keys>/<vol_values> in place (reloaded after any mount_1
 # rewrite so the caller's extra_volumes pickup sees the new value) and
 # writes the resolved absolute path into <ws_path> (seeded by the caller
-# from ${WS_PATH:-}). setup.conf is written only on bootstrap / stale
+# from ${WS_PATH:-}). setup.toml is written only on bootstrap / stale
 # rewrite. The detection-dependent steps reuse detect_ws_path, same as
 # apply, so behaviour is identical to the prior inline block.
 # ════════════════════════════════════════════════════════════════════
@@ -361,13 +361,13 @@ _reconcile_workspace_path() {
   _get_conf_value _rwp_vk _rwp_vv "mount_1" "" _mount_1
 
   # SC2016: literal ${WS_PATH} / ${USER_NAME} are intentional — this
-  # string is written into setup.conf and expanded by docker-compose
+  # string is written into setup.toml and expanded by docker-compose
   # (via .env) at container start time, not by shell here.
   # shellcheck disable=SC2016
   local _ws_portable_form='${WS_PATH}:/home/${USER_NAME}/work'
 
   if [[ ! -f "${_rwp_repo_conf}" ]]; then
-    # First-time bootstrap: create per-repo setup.conf from template.
+    # First-time bootstrap: create per-repo setup.toml from template.
     # Write mount_1 as the portable ${WS_PATH} form so the committed
     # file stays machine-agnostic; .env carries the detected absolute
     # path for docker-compose to expand.
@@ -376,7 +376,7 @@ _reconcile_workspace_path() {
     fi
     [[ -d "${_rwp_ws}" ]] && _rwp_ws="$(cd "${_rwp_ws}" && pwd -P)"
     local _tpl_conf
-    _tpl_conf="${_SETUP_SCRIPT_DIR}/../../../.setup.conf"
+    _tpl_conf="${_SETUP_SCRIPT_DIR}/../../../setup.toml"
     if [[ -f "${_tpl_conf}" ]]; then
       cp "${_tpl_conf}" "${_rwp_repo_conf}"
       _upsert_conf_value "${_rwp_repo_conf}" "volumes" "mount_1" \
@@ -395,7 +395,7 @@ _reconcile_workspace_path() {
     local _mount_1_host=""
     _mount_host_path "${_mount_1}" _mount_1_host
     # SC2016: literal ${WS_PATH} / $WS_PATH substrings are intentional
-    # — we are matching the variable reference stored in setup.conf,
+    # — we are matching the variable reference stored in setup.toml,
     # not expanding it.
     # shellcheck disable=SC2016
     if [[ "${_mount_1_host}" == *'${WS_PATH}'* ]] \
@@ -412,7 +412,7 @@ _reconcile_workspace_path() {
       # a stale bake from another contributor's clone. Warn loudly so
       # the user understands the rewrite, then migrate mount_1 back to
       # the portable form.
-      _log_warn setup conf_mount_stale_path "display=[volumes] mount_1 host path '${_mount_1_host}' does not exist on this machine. This is usually a stale absolute path committed from a different machine. Rewriting mount_1 to the portable '\${WS_PATH}:/home/\${USER_NAME}/work' form and re-detecting WS_PATH locally. Commit the updated setup.conf to share." "path=${_mount_1_host}"
+      _log_warn setup conf_mount_stale_path "display=[volumes] mount_1 host path '${_mount_1_host}' does not exist on this machine. This is usually a stale absolute path committed from a different machine. Rewriting mount_1 to the portable '\${WS_PATH}:/home/\${USER_NAME}/work' form and re-detecting WS_PATH locally. Commit the updated setup.toml to share." "path=${_mount_1_host}"
       _rwp_ws=""
       detect_ws_path _rwp_ws "${_rwp_base}"
       [[ -d "${_rwp_ws}" ]] && _rwp_ws="$(cd "${_rwp_ws}" && pwd -P)"
@@ -425,8 +425,8 @@ _reconcile_workspace_path() {
       _get_conf_value _rwp_vk _rwp_vv "mount_1" "" _mount_1
     fi
   else
-    # setup.conf exists but user cleared mount_1: best-effort detection
-    # for WS_PATH only; do not touch setup.conf.
+    # setup.toml exists but user cleared mount_1: best-effort detection
+    # for WS_PATH only; do not touch setup.toml.
     if [[ -z "${_rwp_ws}" ]] || [[ ! -d "${_rwp_ws}" ]]; then
       detect_ws_path _rwp_ws "${_rwp_base}"
     fi

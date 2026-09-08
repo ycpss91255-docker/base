@@ -2,8 +2,8 @@
 # setup.sh - Auto-detect system parameters and generate .env.generated +
 # compose.yaml
 #
-# Reads the per-repo <repo>/.setup.conf override (falling back to the
-# .base/dist/.setup.conf template default) for the repo's runtime
+# Reads the per-repo <repo>/setup.toml override (falling back to the
+# .base/dist/setup.toml template default) for the repo's runtime
 # configuration ([image] rules, [build] apt_mirror, [deploy] GPU,
 # [gui], [network], [volumes]), runs system detection (UID/GID, hardware,
 # docker hub user, GPU, GUI, workspace path), then emits:
@@ -17,8 +17,8 @@
 # operator's override layer, loaded after .env so its keys win.
 #
 # All generated files are derived artifacts (gitignored). Source of truth is
-# setup.conf + system detection. WS_PATH is detected once and written back
-# to <repo>/.setup.conf [volumes] mount_1; subsequent runs read mount_1.
+# setup.toml + system detection. WS_PATH is detected once and written back
+# to <repo>/setup.toml [volumes] mount_1; subsequent runs read mount_1.
 #
 # Usage: setup.sh [-h|--help] [--base-path <path>] [--lang en|zh-TW|zh-CN|ja]
 
@@ -97,14 +97,14 @@ _setup_msg_errors() {
 
 _setup_msg_warnings() {
   case "${_LANG}:${1:?}" in
-    zh-TW:no_repo_conf)    echo "未找到 repo 自有的 setup.conf — 全部 section 將使用模板預設值" ;;
-    zh-CN:no_repo_conf)    echo "未找到 repo 自有的 setup.conf — 全部 section 将使用模板默认值" ;;
-    ja:no_repo_conf)       echo "repo 固有の setup.conf が見つかりません — 全ての section でテンプレートのデフォルト値を使用します" ;;
-    *:no_repo_conf)        echo "no per-repo setup.conf — using template defaults for all sections" ;;
-    zh-TW:empty_repo_conf) echo "repo 的 setup.conf 沒有任何 section 覆寫 — 全部 section 將使用模板預設值" ;;
-    zh-CN:empty_repo_conf) echo "repo 的 setup.conf 没有任何 section 覆写 — 全部 section 将使用模板默认值" ;;
-    ja:empty_repo_conf)    echo "repo の setup.conf にセクション上書きがありません — 全ての section でテンプレートのデフォルト値を使用します" ;;
-    *:empty_repo_conf)     echo "per-repo setup.conf has no section overrides — using template defaults for all sections" ;;
+    zh-TW:no_repo_conf)    echo "未找到 repo 自有的 setup.toml — 全部 section 將使用模板預設值" ;;
+    zh-CN:no_repo_conf)    echo "未找到 repo 自有的 setup.toml — 全部 section 将使用模板默认值" ;;
+    ja:no_repo_conf)       echo "repo 固有の setup.toml が見つかりません — 全ての section でテンプレートのデフォルト値を使用します" ;;
+    *:no_repo_conf)        echo "no per-repo setup.toml — using template defaults for all sections" ;;
+    zh-TW:empty_repo_conf) echo "repo 的 setup.toml 沒有任何 section 覆寫 — 全部 section 將使用模板預設值" ;;
+    zh-CN:empty_repo_conf) echo "repo 的 setup.toml 没有任何 section 覆写 — 全部 section 将使用模板默认值" ;;
+    ja:empty_repo_conf)    echo "repo の setup.toml にセクション上書きがありません — 全ての section でテンプレートのデフォルト値を使用します" ;;
+    *:empty_repo_conf)     echo "per-repo setup.toml has no section overrides — using template defaults for all sections" ;;
   esac
 }
 
@@ -137,18 +137,18 @@ _setup_msg_usage() {
 
 _setup_msg_reset() {
   case "${_LANG}:${1:?}" in
-    zh-TW:confirm)   echo "將以模板預設值覆寫 setup.conf（舊檔備份為 .setup.conf.bak / .env.bak）。繼續嗎？" ;;
-    zh-CN:confirm)   echo "将以模板默认值覆写 setup.conf（旧文件备份为 .setup.conf.bak / .env.bak）。继续吗？" ;;
-    ja:confirm)      echo "テンプレートのデフォルト値で setup.conf を上書きします（旧ファイルは .setup.conf.bak / .env.bak にバックアップ）。続行しますか？" ;;
-    *:confirm)       echo "Overwrite setup.conf with template default? (prior setup.conf → .bak, prior .env → .env.bak)" ;;
+    zh-TW:confirm)   echo "將以模板預設值覆寫 setup.toml（舊檔備份為 setup.toml.bak / .env.bak）。繼續嗎？" ;;
+    zh-CN:confirm)   echo "将以模板默认值覆写 setup.toml（旧文件备份为 setup.toml.bak / .env.bak）。继续吗？" ;;
+    ja:confirm)      echo "テンプレートのデフォルト値で setup.toml を上書きします（旧ファイルは setup.toml.bak / .env.bak にバックアップ）。続行しますか？" ;;
+    *:confirm)       echo "Overwrite setup.toml with template default? (prior setup.toml → .bak, prior .env → .env.bak)" ;;
     zh-TW:aborted)   echo "已取消，未變更任何檔案" ;;
     zh-CN:aborted)   echo "已取消，未更改任何文件" ;;
     ja:aborted)      echo "中断されました。ファイルは変更されていません" ;;
     *:aborted)       echo "Aborted; no files changed" ;;
-    zh-TW:done)      echo "setup.conf 已重設為模板預設值（先前內容備份於 .bak）" ;;
-    zh-CN:done)      echo "setup.conf 已重置为模板默认值（之前内容备份至 .bak）" ;;
-    ja:done)         echo "setup.conf をテンプレートのデフォルトにリセットしました（旧内容は .bak に保存）" ;;
-    *:done)          echo "setup.conf reset to template default (prior contents saved to .bak)" ;;
+    zh-TW:done)      echo "setup.toml 已重設為模板預設值（先前內容備份於 .bak）" ;;
+    zh-CN:done)      echo "setup.toml 已重置为模板默认值（之前内容备份至 .bak）" ;;
+    ja:done)         echo "setup.toml をテンプレートのデフォルトにリセットしました（旧内容は .bak に保存）" ;;
+    *:done)          echo "setup.toml reset to template default (prior contents saved to .bak)" ;;
     zh-TW:needs_yes) echo "非互動模式：請加 --yes 才會執行 reset（避免誤刪）" ;;
     zh-CN:needs_yes) echo "非交互模式：请加 --yes 才会执行 reset（避免误删）" ;;
     ja:needs_yes)    echo "非対話モード: --yes を指定しないと reset は実行されません（誤削除防止）" ;;
@@ -179,10 +179,10 @@ _setup_msg_stage() {
     zh-CN:reserved_tag)             echo "Dockerfile stage 名称使用 template 控制的 image tag namespace，请改名" ;;
     ja:reserved_tag)                echo "Dockerfile stage 名が template が管理する image tag namespace を使用しています。改名してください" ;;
     *:reserved_tag)                 echo "Dockerfile stage name uses a template-controlled image tag namespace; rename it" ;;
-    zh-TW:unknown_referenced)       echo "setup.conf 內 [stage:...] 對應的 stage 在 Dockerfile 中不存在，已忽略該區段" ;;
-    zh-CN:unknown_referenced)       echo "setup.conf 内 [stage:...] 对应的 stage 在 Dockerfile 中不存在，已忽略该区段" ;;
-    ja:unknown_referenced)          echo "setup.conf 内の [stage:...] が指す stage が Dockerfile に存在しません。該当セクションは無視されます" ;;
-    *:unknown_referenced)           echo "setup.conf [stage:...] references a stage missing from the Dockerfile; section ignored" ;;
+    zh-TW:unknown_referenced)       echo "setup.toml 內 [stage:...] 對應的 stage 在 Dockerfile 中不存在，已忽略該區段" ;;
+    zh-CN:unknown_referenced)       echo "setup.toml 内 [stage:...] 对应的 stage 在 Dockerfile 中不存在，已忽略该区段" ;;
+    ja:unknown_referenced)          echo "setup.toml 内の [stage:...] が指す stage が Dockerfile に存在しません。該当セクションは無視されます" ;;
+    *:unknown_referenced)           echo "setup.toml [stage:...] references a stage missing from the Dockerfile; section ignored" ;;
     zh-TW:override_key_not_allowed) echo "[stage:...] 區段內含不在 per-stage 允許清單內的 key，已忽略該 key" ;;
     zh-CN:override_key_not_allowed) echo "[stage:...] 区段内含不在 per-stage 允许清单内的 key，已忽略该 key" ;;
     ja:override_key_not_allowed)    echo "[stage:...] セクション内に per-stage 許可リスト外の key が含まれています。該当 key は無視されます" ;;
@@ -223,7 +223,7 @@ usage() {
       cat >&2 <<'EOF'
 Usage: ./setup.sh [<subcommand>] [-h|--help] [--base-path <path>] [--lang <en|zh-TW|zh-CN|ja>]
 
-Regenerate .env / .env.generated / compose.yaml from setup.conf + system
+Regenerate .env / .env.generated / compose.yaml from setup.toml + system
 detection. The standard name is ours, a suffix marks a local variant:
 `.env` is regenerated here, and `.env.local` is yours -- scaffolded once,
 never rewritten, and loaded after `.env` so its keys win.
@@ -234,23 +234,23 @@ Subcommands:
   apply         (default) Regenerate .env / .env.generated / compose.yaml.
                 No-arg
                 invocation falls back to apply for backward compat.
-  check-drift   Compare current system / setup.conf against
+  check-drift   Compare current system / setup.toml against
                 .env.generated's SETUP_* metadata. Exit 0 when in sync,
                 exit 1 (with drift descriptions on stderr) when a regen
                 is needed.
                 Used by build.sh / run.sh to decide auto-regen.
   set <section>.<key> <value> [--local]
-                Write a single value into <base-path>/.setup.conf
+                Write a single value into <base-path>/setup.toml
                 (creates the section / key if missing). Validates
                 known typed keys (deploy.gpu_count / volumes.mount_*
                 / devices.cgroup_rule_* / network.port_* /
                 environment.env_* / resources.shm_size). Does NOT
                 regenerate .env / .env.generated — run `apply`
                 afterwards if needed.
-                --local writes <base-path>/.setup.conf.local instead:
+                --local writes <base-path>/setup.local.toml instead:
                 the gitignored per-worktree layer, whose sections
                 REPLACE the committed file's on this machine only.
-                Without --local, a write to a section .setup.conf.local
+                Without --local, a write to a section setup.local.toml
                 already defines is warned about by name -- it is still
                 the value CI and other checkouts use, but it will not
                 change anything here.
@@ -260,7 +260,7 @@ Subcommands:
                 when the section / key is absent.
   list [<section>]
                 Without an arg: print every section header + key in
-                setup.conf. With an arg: equivalent to `show <section>`.
+                setup.toml. With an arg: equivalent to `show <section>`.
   add <section>.<list> <value> [--local]
                 Append a value to a list-style section. Picks the next
                 free numeric suffix (max+1) and writes `<list>_N = <value>`.
@@ -269,16 +269,16 @@ Subcommands:
   remove <section>.<key> [--local]            Delete the exact key.
   remove <section>.<list> <value> [--local]   Delete the first key under
                 the section matching `<list>_*` whose value equals <value>.
-                --local operates on .setup.conf.local instead.
+                --local operates on setup.local.toml instead.
   reset [-y|--yes]
-                Overwrite setup.conf with the template default. Prior
-                setup.conf / .env are saved to .setup.conf.bak / .env.bak.
+                Overwrite setup.toml with the template default. Prior
+                setup.toml / .env are saved to setup.toml.bak / .env.bak.
                 Without --yes, prompts for confirmation; non-tty
                 without --yes refuses to proceed.
   deploy [--stage S] [--output D] [--dry-run] [-y|--yes]
          [--allow-local-override]
                 Ships an image to the field. This is
-                NOT the [deploy] section of setup.conf, which configures
+                NOT the [deploy] section of setup.toml, which configures
                 GPU reservation only and is named after Compose's
                 `deploy:` key -- edit that with `./setup_tui.sh gpu`
                 (`deploy` there is a kept alias).
@@ -286,7 +286,7 @@ Subcommands:
                 (default runtime): docker build --target S tagged
                 <name>:<stage>-<version>, docker save | xz, a fully-
                 resolved self-contained compose.yaml (no variable
-                interpolation, no setup.conf/.env dep, dev-host binds
+                interpolation, no setup.toml/.env dep, dev-host binds
                 stripped, restart added, tunable-manifest config bound),
                 a thin up/down/logs deploy.sh, editable config/, and a
                 README. Previews the resolved compose (every resolved
@@ -294,7 +294,7 @@ Subcommands:
                 plan only; -y skips the prompt. Default output is
                 <base-path>/deploy/<name>-<stage>-<version>/. Field flow:
                 copy the folder to the target, ./deploy.sh up.
-                REFUSES while <base-path>/.setup.conf.local exists: that
+                REFUSES while <base-path>/setup.local.toml exists: that
                 file is gitignored, so a bundle built from it cannot be
                 reproduced from a clean checkout.
                 --allow-local-override builds anyway and records the
@@ -315,7 +315,7 @@ Options:
 
 Apply-only options (#338):
   --gui auto|force|off  Per-invocation override for [gui] mode. Wins
-                        over $SETUP_GUI env var and setup.conf. Useful
+                        over $SETUP_GUI env var and setup.toml. Useful
                         for debugging X11 or one-off headless runs on
                         a GUI repo. Equivalent forms: `--gui=auto`.
   --no-x11-cookie       Skip the SSH X11 cookie rewrite even when
@@ -353,8 +353,8 @@ Outputs (apply only — both derived artifacts, gitignored):
   <base-path>/compose.yaml  Full compose with baseline + conditional
                             blocks (GPU / GUI / extra volumes / etc.)
 
-Source of truth is setup.conf (template default + optional per-repo
-override via section-replace). Edit setup.conf, not the derived files.
+Source of truth is setup.toml (template default + optional per-repo
+override via section-replace). Edit setup.toml, not the derived files.
 EOF
       ;;
   esac

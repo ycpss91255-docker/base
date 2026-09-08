@@ -477,7 +477,7 @@ EOF
 @test "_compute_project_name refuses to derive for a configured checkout with no cache (#1015)" {
   local _repo
   _repo="$(mktemp -d)"
-  printf '[image]\nname = myrepo\n' > "${_repo}/.setup.conf"
+  printf '[image]\nname = myrepo\n' > "${_repo}/setup.toml"
   run bash -c "
     source ${LIB}
     unset PROJECT_NAME
@@ -730,7 +730,7 @@ EOF
 # why: Full config dump
 @test "_print_config_summary prints files, identity, all populated sections, resolved" {
   local _fp="${BATS_TEST_TMPDIR}"
-  _write_sample_conf "${_fp}/.setup.conf"
+  _write_sample_conf "${_fp}/setup.toml"
   run bash -c "
     source ${LIB}
     FILE_PATH='${_fp}'
@@ -746,7 +746,7 @@ EOF
   "
   assert_success
   # File paths
-  assert_output --partial "setup.conf   : ${_fp}/.setup.conf"
+  assert_output --partial "setup.toml   : ${_fp}/setup.toml"
   assert_output --partial ".env         : ${_fp}/.env"
   assert_output --partial "compose.yaml : ${_fp}/compose.yaml"
   # Identity
@@ -771,14 +771,14 @@ EOF
   assert_output --partial "./setup_tui.sh"
 }
 
-@test "_print_config_summary names an active .setup.conf.local and its sections (#893)" {
+@test "_print_config_summary names an active setup.local.toml and its sections (#893)" {
   # A config layer nobody else can see must never be invisible in the run
   # that uses it: the summary is the one place the user is told which files
   # this invocation resolved from.
   local _fp="${BATS_TEST_TMPDIR}/withlocal"
   mkdir -p "${_fp}"
-  _write_sample_conf "${_fp}/.setup.conf"
-  printf '[gui]\nmode = off\n[network]\nmode = bridge\n' > "${_fp}/.setup.conf.local"
+  _write_sample_conf "${_fp}/setup.toml"
+  printf '[gui]\nmode = off\n[network]\nmode = bridge\n' > "${_fp}/setup.local.toml"
   run bash -c "
     source ${LIB}
     FILE_PATH='${_fp}'
@@ -787,14 +787,14 @@ EOF
     _print_config_summary build
   "
   assert_success
-  assert_output --partial "${_fp}/.setup.conf.local"
+  assert_output --partial "${_fp}/setup.local.toml"
   assert_output --partial "gui, network"
 }
 
-@test "_print_config_summary says nothing about a .setup.conf.local that is absent (#893)" {
+@test "_print_config_summary says nothing about a setup.local.toml that is absent (#893)" {
   local _fp="${BATS_TEST_TMPDIR}/nolocal"
   mkdir -p "${_fp}"
-  _write_sample_conf "${_fp}/.setup.conf"
+  _write_sample_conf "${_fp}/setup.toml"
   run bash -c "
     source ${LIB}
     FILE_PATH='${_fp}'
@@ -803,18 +803,18 @@ EOF
     _print_config_summary build
   "
   assert_success
-  refute_output --partial ".setup.conf.local"
+  refute_output --partial "setup.local.toml"
 }
 
 # why: Variables block populated
 @test "_print_config_summary prints Variables block mapping setup.conf placeholders to detected values" {
   # The Identity block already shows resolved user/workspace, but the
-  # setup.conf [volumes] dump prints raw `${WS_PATH}` / `${USER_NAME}`
+  # setup.toml [volumes] dump prints raw `${WS_PATH}` / `${USER_NAME}`
   # placeholders. Variables block bridges the gap so users can map the
   # placeholder to the value at a glance without re-deriving from
   # Identity field labels.
   local _fp="${BATS_TEST_TMPDIR}"
-  _write_sample_conf "${_fp}/.setup.conf"
+  _write_sample_conf "${_fp}/setup.toml"
   run bash -c "
     source ${LIB}
     FILE_PATH='${_fp}'
@@ -840,7 +840,7 @@ EOF
 # why: Variables fallback
 @test "_print_config_summary Variables block falls back to '-' for unset values" {
   local _fp="${BATS_TEST_TMPDIR}"
-  _write_sample_conf "${_fp}/.setup.conf"
+  _write_sample_conf "${_fp}/setup.toml"
   run bash -c "
     source ${LIB}
     FILE_PATH='${_fp}'
@@ -856,7 +856,7 @@ EOF
 @test "_print_config_summary hides sections that are empty in setup.conf" {
   local _fp="${BATS_TEST_TMPDIR}"
   # Minimal conf with only [image]; expect no [build]/[volumes] headers
-  mkdir -p "${_fp}" && cat > "${_fp}/.setup.conf" <<'EOF'
+  mkdir -p "${_fp}" && cat > "${_fp}/setup.toml" <<'EOF'
 [image]
 rule_1 = @basename
 EOF
@@ -873,14 +873,14 @@ EOF
   mkdir -p "${_fp}"
   run bash -c "source ${LIB}; FILE_PATH='${_fp}'; _print_config_summary build"
   assert_success
-  assert_output --partial "setup.conf not found"
+  assert_output --partial "setup.toml not found"
   assert_output --partial "./setup_tui.sh"
 }
 
 # why: Color migration via _log_plain
 @test "_print_config_summary wraps dividers + section headers in ANSI when FORCE_COLOR=1 (#309)" {
   local _fp="${BATS_TEST_TMPDIR}"
-  _write_sample_conf "${_fp}/.setup.conf"
+  _write_sample_conf "${_fp}/setup.toml"
   run bash -c "
     FORCE_COLOR=1 source ${LIB}
     FORCE_COLOR=1
@@ -894,17 +894,17 @@ EOF
   assert_output --partial $'\033[1mFiles\033[0m'
   assert_output --partial $'\033[1mIdentity\033[0m'
   assert_output --partial $'\033[1mVariables\033[0m'
-  assert_output --partial $'\033[1msetup.conf\033[0m'
+  assert_output --partial $'\033[1msetup.toml\033[0m'
   assert_output --partial $'\033[1mResolved\033[0m'
   # Indented value lines stay un-styled
-  refute_output --partial $'\033[1m  setup.conf'
-  refute_output --partial $'\033[2m  setup.conf'
+  refute_output --partial $'\033[1m  setup.toml'
+  refute_output --partial $'\033[2m  setup.toml'
 }
 
 # why: NO_COLOR precedence on summary
 @test "_print_config_summary omits ANSI when NO_COLOR=1 overrides FORCE_COLOR=1 (#309)" {
   local _fp="${BATS_TEST_TMPDIR}"
-  _write_sample_conf "${_fp}/.setup.conf"
+  _write_sample_conf "${_fp}/setup.toml"
   run bash -c "
     NO_COLOR=1 FORCE_COLOR=1 source ${LIB}
     NO_COLOR=1 FORCE_COLOR=1
@@ -928,7 +928,7 @@ EOF
   # branch so downstream `build.sh` users see the warning.
   local _fp="${BATS_TEST_TMPDIR}/empty_conf"
   mkdir -p "${_fp}"
-  mkdir -p "${_fp}" && cat > "${_fp}/.setup.conf" <<'EOF'
+  mkdir -p "${_fp}" && cat > "${_fp}/setup.toml" <<'EOF'
 # only comments, no [section] headers
 EOF
   run bash -c "source ${LIB}; FILE_PATH='${_fp}'; _print_config_summary build"
@@ -992,7 +992,7 @@ EOF
 
 @test "_print_config_summary uses zh-TW labels when _LANG=zh-TW" {
   local _fp="${BATS_TEST_TMPDIR}"
-  _write_sample_conf "${_fp}/.setup.conf"
+  _write_sample_conf "${_fp}/setup.toml"
   run bash -c "
     source ${LIB}
     _LANG=zh-TW
@@ -1029,7 +1029,7 @@ EOF
 
 @test "_print_config_summary uses ja labels when _LANG=ja" {
   local _fp="${BATS_TEST_TMPDIR}"
-  _write_sample_conf "${_fp}/.setup.conf"
+  _write_sample_conf "${_fp}/setup.toml"
   run bash -c "
     source ${LIB}
     _LANG=ja
@@ -1056,6 +1056,6 @@ EOF
   mkdir -p "${_fp}"
   run bash -c "source ${LIB}; _LANG=zh-TW; FILE_PATH='${_fp}'; _print_config_summary build"
   assert_success
-  assert_output --partial "找不到 setup.conf"
+  assert_output --partial "找不到 setup.toml"
   assert_output --partial "./build.sh --setup"
 }

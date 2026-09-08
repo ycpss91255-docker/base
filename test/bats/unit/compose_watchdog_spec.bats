@@ -70,7 +70,7 @@ _gcy_wd() {
 }
 
 @test "a stage that replaced the inherited env list re-states WATCHDOG_* inline (#868)" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'CONF'
+  cat > "${TEMP_DIR}/setup.toml" <<'CONF'
 [stage:devel-test]
 environment.env_inherit = false
 environment.env_1 = ONLY_MINE=1
@@ -88,7 +88,7 @@ CONF
 }
 
 @test "a stage that APPENDS to the inherited env list keeps the shared .env (#868)" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'CONF'
+  cat > "${TEMP_DIR}/setup.toml" <<'CONF'
 [stage:devel-test]
 environment.env_1 = EXTRA=1
 CONF
@@ -108,7 +108,7 @@ CONF
 # ════════════════════════════════════════════════════════════════════
 
 _write_conf() {
-  cat > "${TEMP_DIR}/.setup.conf"
+  cat > "${TEMP_DIR}/setup.toml"
 }
 
 @test "_resolve_deploy_context yields empty watchdog_env_str when check unset (#797)" {

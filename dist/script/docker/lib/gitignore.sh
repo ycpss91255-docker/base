@@ -22,23 +22,27 @@ unset _gitignore_lib_dir
 #   stable so consumers can diff outputs across versions.
 #
 #   Add new entries here when the template introduces another derived or
-#   machine-local artifact, then bump the next release. `.setup.conf.local`
-#   and `.env.local` are the members that are NOT derived: they are the
-#   operator's per-worktree config override and per-machine env override,
-#   hand-authored and never regenerated, and they are here because they
-#   must never be committed -- an untracked layer that got committed would
-#   silently become everyone's config. Downstreams pick it up via
-#   `just base upgrade` -> ./.base/dist/script/base/upgrade.sh ->
-#   init.sh resync chain.
+#   machine-local artifact, then bump the next release. `setup.local.toml`
+#   and `.env.local.toml` (plus their legacy INI counterparts
+#   `.setup.conf.local` / `.env.local`) are the members that are NOT
+#   derived: they are the operator's per-worktree config override and
+#   per-machine env override, hand-authored and never regenerated, and they
+#   are here because they must never be committed -- an untracked layer
+#   that got committed would silently become everyone's config. Downstreams
+#   pick it up via `just base upgrade` -> ./.base/dist/script/base/
+#   upgrade.sh -> init.sh resync chain.
 _canonical_gitignore_entries() {
   cat <<'EOF'
 .env
 .env.local
+.env.local.toml
 .env.generated
 .env.bak
 compose.yaml
 .setup.conf.bak
+setup.toml.bak
 .setup.conf.local
+setup.local.toml
 coverage/
 .Dockerfile.generated
 .docker.xauth
@@ -240,7 +244,7 @@ _sync_dockerignore() {
 # _sync_logging_gitignore <base_path>
 #
 # Ensure the per-repo .gitignore covers every relative `local_path`
-# declared in setup.conf [logging] / [logging.<svc>], so users don't
+# declared in setup.toml [logging] / [logging.<svc>], so users don't
 # accidentally commit container logs. Absolute paths and `~/...` are
 # skipped -- gitignore patterns apply only inside the repo.
 #
@@ -279,7 +283,7 @@ _sync_dockerignore() {
 # (PR-B). The runtime sync used to fire on every setup.sh apply call;
 # the new lifecycle ties .gitignore updates to init.sh / upgrade.sh
 # so the file stays consistent across template versions without
-# needing a wrapper invocation between setup.conf edit and the next
+# needing a wrapper invocation between setup.toml edit and the next
 # build.
 _sync_logging_gitignore() {
   local _base="${1:?}"

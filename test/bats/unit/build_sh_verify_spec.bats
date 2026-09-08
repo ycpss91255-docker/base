@@ -54,7 +54,7 @@ setup() {
   # Symlink (not copy) so kcov attributes coverage to the real wrapper.
   ln -s /source/dist/script/docker/wrapper/build.sh "${SANDBOX}/build.sh"
 
-  # A resolved .env.generated + compose.yaml + .setup.conf keep the run on
+  # A resolved .env.generated + compose.yaml + setup.toml keep the run on
   # the drift-check path, so setup.sh is never invoked and the build is the
   # only thing under test.
   {
@@ -62,7 +62,7 @@ setup() {
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env.generated"
-  : > "${SANDBOX}/.setup.conf"
+  : > "${SANDBOX}/setup.toml"
   echo "# mock compose" > "${SANDBOX}/compose.yaml"
 
   cat > "${SANDBOX}/.base/dist/script/docker/wrapper/setup.sh" <<'EOS'

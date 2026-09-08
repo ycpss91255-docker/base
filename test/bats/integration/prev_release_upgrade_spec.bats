@@ -472,7 +472,9 @@ _assert_release_migrates_env() {
 #   is exactly what this arm is here to survive. Root dotfile first (the
 #   post-relocation location), then the pre-relocation path under config/.
 _seeded_repo_conf() {
-  if [[ -f "${CONSUMER}/.setup.conf" ]]; then
+  if [[ -f "${CONSUMER}/setup.toml" ]]; then
+    printf '%s' "setup.toml"
+  elif [[ -f "${CONSUMER}/.setup.conf" ]]; then
     printf '%s' ".setup.conf"
   else
     printf '%s' "config/docker/setup.conf"
@@ -567,7 +569,7 @@ _assert_consumer_still_on_its_own_config() {
 
   # And the override is at the one path the CURRENT tree reads, with no
   # orphan left behind at the old one for the next reader to trust.
-  assert [ -f "${CONSUMER}/.setup.conf" ]
+  assert [ -f "${CONSUMER}/setup.toml" ]
   assert [ ! -e "${CONSUMER}/config/docker/setup.conf" ]
 }
 

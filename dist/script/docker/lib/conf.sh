@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# conf.sh - INI read/write primitives for setup.conf.
+# conf.sh - INI read/write primitives for setup.toml.
 #
-# The single shared home for setup.conf I/O:
+# The single shared home for setup.toml I/O:
 #   _dump_conf_section    - emit key=value lines from one section
 #   _load_setup_conf_full - parse every section into namespaced arrays
 #   _conf_split_nskey     - split a namespaced key back into its halves
@@ -260,6 +260,42 @@ _parse_ini_section() {
   done
 }
 
+# _parse_conf_section <file> <section> <keys_outvar> <values_outvar>
+#
+# Format-dispatching wrapper: TOML (.toml) files go through the
+# containerised bridge (_toml_tokenize), everything else through the
+# INI tokenizer (_ini_tokenize). Same output contract as
+# _parse_ini_section -- parallel flat arrays of keys and values for
+# the requested section.
+#
+# This is the function callers that need to read ONE section from a
+# file of UNKNOWN format should use. _parse_ini_section stays for
+# callers that know they have INI.
+_parse_conf_section() {
+  local _file="${1:?"${FUNCNAME[0]}: missing file"}"
+  local _section="${2:?"${FUNCNAME[0]}: missing section"}"
+  local -n _pcs_keys="${3:?"${FUNCNAME[0]}: missing keys outvar"}"
+  local -n _pcs_values="${4:?"${FUNCNAME[0]}: missing values outvar"}"
+
+  _pcs_keys=()
+  _pcs_values=()
+  [[ -f "${_file}" ]] || return 0
+
+  local -a __pcs_s=() __pcs_es=() __pcs_k=() __pcs_v=()
+  if [[ "${_file}" == *.toml ]]; then
+    _toml_tokenize "${_file}" __pcs_s __pcs_es __pcs_k __pcs_v
+  else
+    _ini_tokenize "${_file}" __pcs_s __pcs_es __pcs_k __pcs_v
+  fi
+
+  local __pcs_i
+  for (( __pcs_i = 0; __pcs_i < ${#__pcs_k[@]}; __pcs_i++ )); do
+    [[ "${__pcs_es[__pcs_i]}" == "${_section}" ]] || continue
+    _pcs_keys+=("${__pcs_k[__pcs_i]}")
+    _pcs_values+=("${__pcs_v[__pcs_i]}")
+  done
+}
+
 # ════════════════════════════════════════════════════════════════════
 # Opaque accessor interface
 # ════════════════════════════════════════════════════════════════════
@@ -380,19 +416,39 @@ _conf_load_layers() {
   shift
   (( $# > 0 )) || { declare -g -a "${_h}__sects=()" "${_h}__es=()" "${_h}__keys=()" "${_h}__vals=()"; return 0; }
 
-  # TOML fast path: when every existing file is .toml, delegate to
-  # toml_bridge_merge which performs type-aware merge in Python
-  # (scalar key-level, array replace) in a single docker run.
-  local _cll_all_toml=true _cll_f
+  # ── TOML path: type-aware merge via containerised bridge ──────────
+  #
+  # When every existing layer file is TOML, the merge (table key-level,
+  # array-of-tables replace) runs in Python where the type information
+  # is native (dict vs list).  ADR-37 sec. Merge semantics.
+  local -a _cll_existing=()
+  local _cll_all_toml=1
+  local _cll_f
   for _cll_f in "$@"; do
-    [[ ! -f "${_cll_f}" ]] && continue
-    [[ "${_cll_f}" == *.toml ]] || { _cll_all_toml=false; break; }
+    [[ -f "${_cll_f}" ]] || continue
+    _cll_existing+=("${_cll_f}")
+    [[ "${_cll_f}" == *.toml ]] || _cll_all_toml=0
   done
-  if [[ "${_cll_all_toml}" == true ]]; then
+  if (( ${#_cll_existing[@]} > 0 && _cll_all_toml )); then
     declare -g -a "${_h}__sects=()" "${_h}__es=()" "${_h}__keys=()" "${_h}__vals=()"
+    # shellcheck disable=SC2178  # namerefs to arrays, not scalar reassignment
     local -n _cll_ts="${_h}__sects" _cll_tes="${_h}__es" _cll_tk="${_h}__keys" _cll_tv="${_h}__vals"
     local _cll_sect _cll_key _cll_val
     local -A _cll_tseen=()
+    # The bridge reports a failed merge with its exit status and an empty
+    # stdout, and a process substitution puts that status out of reach: the
+    # loop would read nothing, the handle would come back empty, and every
+    # value would fall back to its default with nothing said -- a total
+    # config failure wearing the shape of a config that says nothing.
+    # Collecting the output first is what puts the status where it can be
+    # acted on. An empty stdout from a SUCCESSFUL merge is still a success:
+    # the herestring's single blank line is dropped by the guard below.
+    local _cll_kv
+    if ! _cll_kv="$(toml_bridge_merge --kv "${_cll_existing[@]}")"; then
+      _log_err conf conf_toml_merge_failed \
+        "display=_conf_load_layers: the TOML merge of ${_cll_existing[*]} failed; refusing to report an empty configuration as a loaded one"
+      return 1
+    fi
     while IFS=$'\t' read -r _cll_sect _cll_key _cll_val; do
       [[ -z "${_cll_sect}" ]] && continue
       if [[ -z "${_cll_tseen[${_cll_sect}]:-}" ]]; then
@@ -402,9 +458,11 @@ _conf_load_layers() {
       _cll_tes+=("${_cll_sect}")
       _cll_tk+=("${_cll_key}")
       _cll_tv+=("${_cll_val}")
-    done < <(toml_bridge_merge --kv "$@")
+    done <<< "${_cll_kv}"
     return 0
   fi
+
+  # ── INI path: section-replace merge (existing logic) ──────────────
 
   # INI path: tokenize every layer up front into flat, layer-tagged arrays.
   # The per-layer arrays cannot be kept as separate named arrays without
@@ -437,6 +495,7 @@ _conf_load_layers() {
     _cll_idx=$(( _cll_idx + 1 ))
   done
 
+  # shellcheck disable=SC2178  # namerefs to arrays, not scalar reassignment
   declare -g -a "${_h}__sects=()" "${_h}__es=()" "${_h}__keys=()" "${_h}__vals=()"
   local -n _cll_ms="${_h}__sects" _cll_mes="${_h}__es" _cll_mk="${_h}__keys" _cll_mv="${_h}__vals"
 
@@ -556,7 +615,7 @@ _write_setup_conf() {
   # Write to a sibling temp file and atomically `mv` it over _dst at the
   # very end. The previous in-place `: > "${_dst}"` truncated the user's
   # config FIRST, opening a data-loss window: any append failing after the
-  # truncate (disk full / mid-write error) left setup.conf truncated with
+  # truncate (disk full / mid-write error) left setup.toml truncated with
   # no rollback. The temp+mv pattern means a mid-write failure leaves the
   # original _dst untouched. Guard mktemp so a failed temp creation
   # (read-only dir / no inodes) bails before touching _dst.
@@ -633,7 +692,7 @@ _write_setup_conf() {
   # Append NEW sections — overrides whose `<section>.<key>` namespace
   # references a section never seen in the template. Per-stage
   # `[stage:NAME]` sections are the typical case: template's
-  # setup.conf carries no per-repo stage overrides, so the first time
+  # setup.toml carries no per-repo stage overrides, so the first time
   # a user adds `[stage:headless]` via TUI Save the section is brand
   # new and would otherwise be silently dropped here.
   #

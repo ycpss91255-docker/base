@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 #
-# setup_conf.sh - setup.conf accessors (template+repo section-replace merge).
+# setup_conf.sh - setup.toml accessors (template+repo section-replace merge).
 #
 # The readers setup.sh and the other libs use to query the effective
-# setup.conf: the per-section merge loader (_load_setup_conf), the parse-once
+# setup.toml: the per-section merge loader (_load_setup_conf), the parse-once
 # handle model (_setup_conf_handle / _setup_effective_full) feeding the
 # _conf_get / _conf_list_sorted accessors in lib/conf.sh, the convenience
 # scalar/list getters (_get_conf_value / _get_conf_list_sorted), and the
@@ -12,7 +12,7 @@
 #
 # Extracted from setup.sh (ADR-00000014, epic decompose-setup-sh). The low-level
 # _parse_ini_section + the handle accessors live in lib/conf.sh; this file is the
-# setup.conf-path-resolving layer above them. Calls into _SETUP_SCRIPT_DIR +
+# setup.toml-path-resolving layer above them. Calls into _SETUP_SCRIPT_DIR +
 # _parse_ini_section + the conf.sh accessors, all resolved at call-time via the
 # _lib.sh load order.
 
@@ -34,7 +34,7 @@ source "${_setup_conf_lib_dir}/conf.sh"
 unset _setup_conf_lib_dir
 
 # ════════════════════════════════════════════════════════════════════
-# INI parser for setup.conf
+# INI parser for setup.toml
 #
 # _parse_ini_section moved to lib/conf.sh in (PR-B) so init.sh
 # can reach it via _lib.sh without sourcing setup.sh. The function
@@ -47,19 +47,19 @@ unset _setup_conf_lib_dir
 #
 # Three files, lowest precedence first:
 #
-#   <template>/.setup.conf        the shipped default (inside .base)
-#   <repo>/.setup.conf            the repo's committed override -- ours,
+#   <template>/setup.toml         the shipped default (inside .base)
+#   <repo>/setup.toml             the repo's committed override -- ours,
 #                                 shared, what CI and every other checkout
 #                                 of this repo uses
-#   <repo>/.setup.conf.local      the operator's per-worktree override --
+#   <repo>/setup.local.toml       the operator's per-worktree override --
 #                                 gitignored, never touched by tooling,
 #                                 visible only on this machine
 #
-# The `.local` suffix means exactly what the repo's file-naming convention
-# says it means: the standard name is ours, a suffix marks the operator's
-# local variant. `.setup.conf.local` is the local variant OF `.setup.conf`
-# and therefore shares its grammar -- same sections, same keys, same
-# section-replace rule -- rather than being a second schema.
+# The `local` infix means exactly what the repo's file-naming convention
+# says it means: the standard name is ours, the `.local.` infix marks the
+# operator's local variant. `setup.local.toml` is the local variant OF
+# `setup.toml` and therefore shares its grammar -- same tables, same keys,
+# same section-replace rule -- rather than being a second schema.
 #
 # It acts BEFORE compose.yaml is generated (one compose.yaml per worktree),
 # which is what distinguishes it from the ADR-00000022 runtime `.env`
@@ -74,11 +74,11 @@ unset _setup_conf_lib_dir
 # nothing, and every reader passes the whole chain unconditionally so the
 # precedence lives in exactly one place.
 #
-# The template layer sits at <template_dist>/.setup.conf. Its directory is
+# The template layer sits at <template_dist>/setup.toml. Its directory is
 # taken from the optional third argument, else from _SETUP_SCRIPT_DIR (the
 # shipped wrapper dir, three levels below dist/), and the layer is OMITTED
 # when neither is available. Omitted rather than left to resolve: an empty
-# prefix would make the path `/../../../.setup.conf`, i.e. `/.setup.conf`
+# prefix would make the path `/../../../setup.toml`, i.e. `/setup.toml`
 # -- a real, readable path that has nothing to do with this repo.
 #
 # The third argument exists for the callers that reach the readers WITHOUT
@@ -98,10 +98,10 @@ _setup_conf_layers() {
   if [[ -z "${_scl_dist}" && -n "${_SETUP_SCRIPT_DIR:-}" ]]; then
     _scl_dist="${_SETUP_SCRIPT_DIR}/../../.."
   fi
-  [[ -n "${_scl_dist}" ]] && _scl_out+=("${_scl_dist}/.setup.conf")
+  [[ -n "${_scl_dist}" ]] && _scl_out+=("${_scl_dist}/setup.toml")
   _scl_out+=(
-    "${_base}/.setup.conf"
-    "${_base}/.setup.conf.local"
+    "${_base}/setup.toml"
+    "${_base}/setup.local.toml"
   )
 }
 
@@ -110,12 +110,12 @@ _setup_conf_layers() {
 # Echo the per-worktree override path. One spelling of the filename for
 # every caller that has to name it in a message.
 _setup_conf_local_path() {
-  printf '%s/.setup.conf.local' "${1:?"${FUNCNAME[0]}: missing base_path"}"
+  printf '%s/setup.local.toml' "${1:?"${FUNCNAME[0]}: missing base_path"}"
 }
 
 # _setup_conf_local_sections <base_path> <outarray>
 #
-# Fill <outarray> with the sections <base>/.setup.conf.local actually
+# Fill <outarray> with the sections <base>/setup.local.toml actually
 # DEFINES (>=1 entry), in file order; empty when the file is absent or
 # defines nothing. Under section-replace these are exactly the sections in
 # which the local layer wins, so this is the list every "your write is
@@ -131,8 +131,10 @@ _setup_conf_local_sections() {
   _local="$(_setup_conf_local_path "${_base}")"
   [[ -f "${_local}" ]] || return 0
 
-  local -a _scls_s=() _scls_es=() _scls_k=() _scls_v=()
-  _ini_tokenize "${_local}" _scls_s _scls_es _scls_k _scls_v
+  # _conf_load auto-dispatches: .toml -> _toml_tokenize, INI -> _ini_tokenize.
+  _conf_load "${_local}" _SCLS_LOCAL
+  local -n _scls_s=_SCLS_LOCAL__sects
+  local -n _scls_es=_SCLS_LOCAL__es
 
   local _sec _i _has
   for _sec in "${_scls_s[@]+"${_scls_s[@]}"}"; do
@@ -172,7 +174,7 @@ _load_setup_conf() {
   for (( _i = ${#_lsc_layers[@]} - 1; _i >= 0; _i-- )); do
     [[ -f "${_lsc_layers[_i]}" ]] || continue
     local -a __lsc_k=() __lsc_v=()
-    _parse_ini_section "${_lsc_layers[_i]}" "${_section}" __lsc_k __lsc_v
+    _parse_conf_section "${_lsc_layers[_i]}" "${_section}" __lsc_k __lsc_v
     if (( ${#__lsc_k[@]} > 0 )); then
       _lsc_keys=("${__lsc_k[@]}")
       _lsc_values=("${__lsc_v[@]}")
@@ -184,7 +186,7 @@ _load_setup_conf() {
 
 # _setup_conf_handle <base> <handle>
 #
-# Load the effective setup.conf into an opaque conf.sh <handle>: the whole
+# Load the effective setup.toml into an opaque conf.sh <handle>: the whole
 # layer chain, section-replace (same precedence as _load_setup_conf, but as
 # one queryable handle for the _conf_get / _conf_list_sorted accessors).
 _setup_conf_handle() {
