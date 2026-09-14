@@ -136,6 +136,8 @@ reclaim_image_scan
 reclaim_image_dry_run
 reclaim_image_removed
 reclaim_image_rm_failed
+reclaim_tool_input_unparsed
+reclaim_tool_input_unreadable
 reclaim_tool_tags_scan
 reclaim_tool_tags_dry_run
 reclaim_tool_tag_retired
@@ -247,6 +249,7 @@ ci_lint_driver_failed
 ci_lint_phase_failed
 ci_lint_errexit_suppressed
 ci_test_tools_dockerfile_missing
+ci_test_tools_inputs_unreadable
 ci_project_name_digest_failed
 ci_host_id_not_numeric
 ci_handback_failed
