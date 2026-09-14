@@ -4139,6 +4139,85 @@ AWK
   assert_output --partial "dockerfile/gone.py"
 }
 
+# _tag_as_nobody <dockerfile>
+#
+# Resolves the tag in a shell that has no privilege to override file
+# modes, and sets $output/$status the way `run` does. The suite runs as
+# root inside the tooling container, where a mode-000 file is still
+# readable, so "unreadable" can only be staged by dropping privilege --
+# every directory from the test tmpdir down has to be traversable for
+# that user, or the probe fails on the way in and the test proves
+# nothing about the derivation.
+_tag_as_nobody() {
+  local _df="${1:?_tag_as_nobody requires <dockerfile>}"
+  local _probe="${BATS_TEST_TMPDIR}/probe.sh"
+  printf '%s\n' '#!/usr/bin/env bash' \
+    'source /source/script/test/test.sh' \
+    'unset TEST_TOOLS_IMAGE' \
+    '_resolve_test_tools_image "$1"' > "${_probe}"
+  chmod 755 "${_probe}"
+  local _p="${BATS_TEST_TMPDIR}"
+  while [[ "${_p}" == /* && "${_p}" != "/" ]]; do
+    chmod o+rx "${_p}"
+    _p="$(dirname "${_p}")"
+  done
+  if [[ "$(id -u)" -eq 0 ]]; then
+    run su -s /bin/bash nobody -c "${_probe} ${_df}"
+  else
+    run "${_probe}" "${_df}"
+  fi
+}
+
+# why: #1166 an unreadable Dockerfile hashed the empty string into a real tag
+@test "_resolve_test_tools_image: refuses a tooling Dockerfile it cannot read (#1166)" {
+  # The Dockerfile was the one input that skipped the readability rule its
+  # own COPY sources are held to: the guard tested existence only, so an
+  # unreadable file fell through to `cat`, which wrote to stderr and left
+  # sha256sum hashing an EMPTY stream. Every host that hit it resolved the
+  # SAME tag -- e3b0c44298fc, the digest of the empty string -- and said
+  # nothing, because the pipeline's status was `cut`'s.
+  local _root="${BATS_TEST_TMPDIR}/unreadable"
+  mkdir -p "${_root}/dockerfile"
+  local _df="${_root}/dockerfile/Dockerfile.test-tools"
+  printf 'FROM alpine:3.21\nRUN apk add --no-cache kcov\n' > "${_df}"
+  chmod -R o+rX "${_root}"
+  chmod 000 "${_df}"
+
+  _tag_as_nobody "${_df}"
+  assert_failure
+  # The specific shape of the regression: a tag at all, and that tag in
+  # particular, is the thing that must never come back.
+  refute_output --partial "test-tools:e3b0c44298fc"
+  refute_output --regexp 'test-tools:[0-9a-f]{12}'
+  assert_output --partial "Dockerfile.test-tools"
+}
+
+# why: #1166 a failing producer must not surface as a green partial digest
+@test "_resolve_test_tools_image: refuses a directory COPY holding a file it cannot read (#1166)" {
+  # Not subsumed by the Dockerfile case above, and the reason is the
+  # asymmetry: _reclaim_tool_context_files tests -r on the DIRECTORY and
+  # then globs it, so an unreadable member never meets a guard at all. Its
+  # `cat` fails inside the digest stream and the bytes simply go missing,
+  # leaving a digest that is not empty -- so no e3b0c44298fc to notice --
+  # but partial, naming an image it does not describe.
+  #
+  # The tell, and what makes this a defect rather than a lossy hash: two
+  # different contents of the unreadable member resolved to ONE tag.
+  local _root="${BATS_TEST_TMPDIR}/dirmember"
+  mkdir -p "${_root}/dockerfile/tools"
+  local _df="${_root}/dockerfile/Dockerfile.test-tools"
+  printf 'FROM alpine:3.21\nCOPY dockerfile/tools /opt/tools\n' > "${_df}"
+  printf 'readable\n' > "${_root}/dockerfile/tools/b.py"
+  printf 'one\n' > "${_root}/dockerfile/tools/a.py"
+  chmod -R o+rX "${_root}"
+  chmod 000 "${_root}/dockerfile/tools/a.py"
+
+  _tag_as_nobody "${_df}"
+  assert_failure
+  refute_output --regexp 'test-tools:[0-9a-f]{12}'
+  assert_output --partial "a.py"
+}
+
 # why: #1166 a continued COPY is one instruction, not two unparseable ones
 @test "_resolve_test_tools_image: reads a COPY split across a line continuation (#1166)" {
   local _root="${BATS_TEST_TMPDIR}/cont"

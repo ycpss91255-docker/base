@@ -1112,7 +1112,7 @@ between them can be asserted at all.
 | `reclaim.sh --stale delegates the unowned classes to prune.sh with the same window` | - |
 | `reclaim.sh --stale never touches volumes` | - |
 
-### test/bats/unit/ci_spec.bats (168)
+### test/bats/unit/ci_spec.bats (170)
 
 | Test | Description |
 |------|-------------|
@@ -1266,6 +1266,8 @@ between them can be asserted at all.
 | `_resolve_test_tools_image: refuses a COPY flag it does not model, naming the line (#1166)` | #1166 a flag that changes WHICH files are copied cannot be guessed at |
 | `_resolve_test_tools_image: refuses a COPY source it cannot resolve to files (#1166)` | #1166 a source that needs docker's own parser is refused, not guessed |
 | `_resolve_test_tools_image: refuses when a COPYed context path cannot be read (#1166)` | #1166 a partial digest names an image it does not describe |
+| `_resolve_test_tools_image: refuses a tooling Dockerfile it cannot read (#1166)` | #1166 an unreadable Dockerfile hashed the empty string into a real tag |
+| `_resolve_test_tools_image: refuses a directory COPY holding a file it cannot read (#1166)` | #1166 a failing producer must not surface as a green partial digest |
 | `_resolve_test_tools_image: reads a COPY split across a line continuation (#1166)` | #1166 a continued COPY is one instruction, not two unparseable ones |
 | `_resolve_test_tools_image: agrees with the retention derivation on a context COPY (#1166)` | #1166 the retention rule must retire exactly what the resolver mints |
 | `_resolve_test_tools_image: a Dockerfile with no context COPY keeps its old tag (#1166)` | #1166 a tooling Dockerfile reading no context keeps the tag it had |

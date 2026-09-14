@@ -388,6 +388,16 @@ _reclaim_tool_context_files() {
 # Dockerfile is absent; returns non-zero, having said which line or path,
 # when an input cannot be resolved or read.
 #
+# ABSENT and UNREADABLE are different answers. Absent is the caller's to
+# interpret -- empty output, status 0 -- because a checkout that has no
+# tooling Dockerfile is a fact about the tree, not a failure. Unreadable
+# is a refusal, on the same rule _reclaim_tool_context_files holds every
+# COPY source to: the Dockerfile is an input like any other, and it was
+# the one input that skipped the rule. Existence alone let an unreadable
+# file fall through to a `cat` that wrote to stderr and left sha256sum
+# hashing an EMPTY stream, so every host resolved the one tag
+# e3b0c44298fc -- the digest of the empty string -- and said nothing.
+#
 # Redirected stdin, never `sha256sum <file>`, so no PATH enters the
 # digest: the same content in two checkouts must resolve to ONE tag, which
 # is the property that makes the tag shareable and the reason images are
@@ -402,6 +412,12 @@ _reclaim_tool_dockerfile_hash() {
   local _dockerfile="${1:?_reclaim_tool_dockerfile_hash requires <dockerfile>}"
   local _context="${2-}"
   [[ -f "${_dockerfile}" ]] || return 0
+  if [[ ! -r "${_dockerfile}" ]]; then
+    _log_err reclaim reclaim_tool_input_unreadable \
+      "display=${_dockerfile} is the tooling Dockerfile but cannot be read; refusing a digest that would be taken over nothing at all." \
+      "path=${_dockerfile}"
+    return 1
+  fi
   [[ -n "${_context}" ]] || _context="$(_reclaim_tool_context_root "${_dockerfile}")"
   local _srcs _files="" _out
   _srcs="$(_reclaim_tool_context_sources "${_dockerfile}")" || return 1
@@ -412,8 +428,17 @@ _reclaim_tool_dockerfile_hash() {
     _out="$(_reclaim_tool_context_files "${_context}" "${_s}")" || return 1
     [[ -z "${_out}" ]] || _files+="${_out}"$'\n'
   done
-  _reclaim_tool_digest_stream "${_dockerfile}" "${_context}" "${_files}" \
-    | sha256sum 2>/dev/null | cut -d' ' -f1
+  # pipefail, in a subshell so the setting cannot leak into a caller that
+  # did not ask for it: without it the pipeline's status is `cut`'s, and a
+  # producer that read nothing at all still leaves a well-formed digest of
+  # the empty stream. That is the structural half of the rule -- guarding
+  # this one call site would still let any OTHER unreadable input through
+  # as a partial digest, which names an image it does not describe.
+  (
+    set -o pipefail
+    _reclaim_tool_digest_stream "${_dockerfile}" "${_context}" "${_files}" \
+      | sha256sum 2>/dev/null | cut -d' ' -f1
+  )
 }
 
 # _reclaim_tool_digest_stream <dockerfile> <context_root> <relpaths>
@@ -423,16 +448,28 @@ _reclaim_tool_dockerfile_hash() {
 # impersonate a path boundary. <relpaths> is one path per line -- empty
 # for a Dockerfile that reads no context, which is what makes that case
 # byte-identical to hashing the Dockerfile alone.
+#
+# Any `cat` that cannot be completed ends the stream non-zero rather than
+# skipping the bytes. A directory COPY is why this is not redundant with
+# the caller's guards: _reclaim_tool_context_files tests -r on the
+# DIRECTORY and then globs it, so an unreadable member never meets a
+# guard at all, and its bytes would simply go missing from a digest that
+# still looked perfectly ordinary.
 _reclaim_tool_digest_stream() {
   local _dockerfile="${1:?_reclaim_tool_digest_stream requires <dockerfile>}"
   local _context="${2:?_reclaim_tool_digest_stream requires <context_root>}"
   local _relpaths="${3-}"
-  cat -- "${_dockerfile}"
+  cat -- "${_dockerfile}" || return 1
   local _r
   while IFS= read -r _r; do
     [[ -n "${_r}" ]] || continue
     printf '\0%s\0' "${_r}"
-    cat -- "${_context%/}/${_r}"
+    if ! cat -- "${_context%/}/${_r}"; then
+      _log_err reclaim reclaim_tool_input_unreadable \
+        "display=${_context%/}/${_r} is COPYed from the build context but its bytes could not be read; refusing a digest that would leave it out." \
+        "path=${_context%/}/${_r}"
+      return 1
+    fi
   done <<< "${_relpaths}"
 }
 
