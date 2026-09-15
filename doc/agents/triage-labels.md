@@ -67,26 +67,37 @@ Three other axes exist, and none of them substitutes for a state label.
 - **`bug` / `documentation` / `enhancement` are the org kind axis.** Exactly one per issue, in parallel with exactly one state label. `/triage`'s two category roles map to `bug` and `enhancement`; `documentation` is the third kind the org uses for docs-only work.
 - **`dependencies` and `github_actions` belong to Dependabot**, which applies them to its own pull requests. They are not triage vocabulary and `/triage` should ignore them.
 
-## Live drift: this table is the target, not the current state
+## Live state: the table matches GitHub; the stock-default cleanup is pending
 
-**The labels in the table above do not all exist on GitHub yet.** This file
-describes where `ycpss91255-docker/base` is going; the tracker has not been
-migrated. Read it as a spec, and check the live set before relying on a label
-being applicable:
+**Every label in the table above exists on `ycpss91255-docker/base`** with
+the colour and description shown. The tracker was migrated on 2026-09-09.
+Verified against the live set with:
 
 ```
 $ gh label list -R ycpss91255-docker/base
+$ gh issue list -R ycpss91255-docker/base --label needs-triage --state all
 ```
 
-Where each row stands today:
+What was applied:
 
-- **`ready-for-agent` and `wontfix` already match** — name, colour and description as in the table. Nothing to do.
-- **`triage` is `needs-triage` under a non-canonical name.** It carries the intake role and is applied to roughly 30 issues. It must be **renamed in place**, `gh label edit triage --name needs-triage -R ycpss91255-docker/base`, never deleted and recreated: `gh label delete` drops the label off every issue that carries it, and those ~30 assignments are not recoverable afterwards. A rename keeps them.
-- **`needs-info`, `ready-for-human` and `needs-decision` do not exist yet** and have to be created with the exact colours and descriptions in the table above.
+- **`triage` was renamed in place to `needs-triage`** with `gh label edit triage --name needs-triage`, not deleted and recreated, so every issue that carried `triage` still carries the intake role under its canonical name. The live count is **32 issues** across open and closed. No label named `triage` remains.
+- **`needs-info`, `ready-for-human` and `needs-decision` were created** with the exact colours and descriptions in the table.
+- **`needs-decision` is byte-identical to the two reference repos**: name, colour `006b75` and description match `ycpss91255-docker/agent_harness` and `ycpss91255-research/vendor_kit` exactly, so an agent naming the role in any of the three repos lands on the same label.
+- **`ready-for-agent` and `wontfix` already matched** and were not touched.
 
-The work is tracked by two issues: `ycpss91255-docker/base#1182` covers the
-five canonical roles, and `ycpss91255-docker/base#1183` covers
-`needs-decision`.
+That is the label half of `ycpss91255-docker/base#1182` (the five canonical
+roles) and of `ycpss91255-docker/base#1183` (`needs-decision`). Whether
+either issue is closed on the strength of it is the maintainer's call; the
+labels are live regardless.
+
+### Still pending from #1182: the stock defaults
+
+The other half of `ycpss91255-docker/base#1182` has not been done. The
+tracker still carries five of GitHub's stock default labels, none of them
+part of this vocabulary:
+
+- **`duplicate`, `invalid`, `good first issue` and `help wanted`** have never been applied to an issue or a pull request here (checked live with `gh issue list --label "<name>" --state all` and the `gh pr list` equivalent) and are to be deleted outright, re-checking usage immediately before each delete.
+- **`question`** needs an explicit decision, not a blind delete: it is on one closed issue, #765, so deleting it strips the label from that issue.
 
 ### `question` is not `needs-info`
 
@@ -95,9 +106,10 @@ default labels, with GitHub's own stock description. It is an **undeleted
 default, not a deliberate `needs-info` synonym**, and it must **not** be
 renamed into `needs-info`: doing so would silently relabel every issue that
 happens to carry the default as "waiting on the reporter", which is a claim
-nobody has made about any of them. Create `needs-info` fresh, and decide the
-fate of `question` separately.
+nobody has made about any of them. `needs-info` was created fresh for exactly
+this reason; the fate of `question` is decided separately.
 
-Until `needs-info` exists, an issue waiting on its reporter is not
-distinguishable by label in this repo, and seeing `question` on an issue tells
-you nothing about that.
+While `question` remains, it shares colour `d876e3` with `needs-info`, so the
+two look alike in the sidebar and the name is the only thing telling them
+apart. `needs-info` is a state in this vocabulary; `question` on an issue says
+nothing about who is being waited on.
