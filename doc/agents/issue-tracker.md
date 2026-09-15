@@ -42,8 +42,8 @@ document wins for which command to run.
 ## Labels
 
 Which label to apply, and what the state labels mean, is
-[triage-labels.md](triage-labels.md). Note that the six state labels are not
-all live on GitHub yet; that file records the drift.
+[triage-labels.md](triage-labels.md). All six state labels are live on GitHub
+as of 2026-09-09; that file also records what remains from #1182.
 
 ## When a skill says "publish to the issue tracker"
 
