@@ -495,18 +495,29 @@ _reclaim_tool_digest_stream() {
 
 # _reclaim_tool_tag_for_path <repo_root>
 #
-# Prints `test-tools:<12hex>` for the checkout at <repo_root>; exits
-# non-zero, printing nothing, when that checkout has no tooling Dockerfile
-# or no usable digest. THE producer of the tooling tag -- test.sh's
-# _resolve_test_tools_image delegates here -- and, unlike the project name,
-# it IS consumed below: the retention rule keeps every tag a checkout that
-# still exists resolves to, which means computing exactly what the producer
-# computed.
+# Prints `test-tools:<12hex>` for the checkout at <repo_root>. THE producer
+# of the tooling tag -- test.sh's _resolve_test_tools_image delegates here
+# -- and, unlike the project name, it IS consumed below: the retention rule
+# keeps every tag a checkout that still exists resolves to, which means
+# computing exactly what the producer computed.
+#
+# Exit status, printing nothing on either non-zero:
+#   0 -- the tag was printed.
+#   2 -- ABSENT: that checkout has no tooling Dockerfile, so it needs no
+#        tooling image and resolves no tag. A fact about the tree.
+#   1 -- REFUSED: it has one, and an input of it could not be resolved or
+#        read (the refusal above names it), so the tag it needs is
+#        UNKNOWN. Kept apart from absent on purpose: a caller that keeps
+#        tags by "a live checkout resolves it" may skip the first and must
+#        stop on the second, because a refusal read as absent drops the
+#        pin, and the image it protected is retired with the checkout
+#        still live.
 _reclaim_tool_tag_for_path() {
   local _root="${1:?_reclaim_tool_tag_for_path requires <repo_root>}"
   local _hash
   _hash="$(_reclaim_tool_dockerfile_hash \
     "${_root%/}/${_RECLAIM_TOOL_DOCKERFILE_REL}" "${_root%/}")" || return 1
+  [[ -n "${_hash}" ]] || return 2
   [[ "${_hash}" =~ ^[0-9a-f]{12} ]] || return 1
   printf '%s:%s\n' "${_RECLAIM_TOOL_REPO}" "${_hash:0:12}"
 }
@@ -1010,19 +1021,43 @@ _reclaim_live_checkouts() {
 # The tags no rebuild should ever be paid for: the one <repo_root> resolves
 # to, plus the one every live checkout resolves to. A live checkout needing
 # an image is a proof of use, where "it looks unused" is not.
+#
+# Returns non-zero, having said why, when the set CANNOT BE COMPLETED:
+# the artifacts that name the live checkouts could not be listed, or a
+# live checkout's tag could not be resolved. Every caller turns that into
+# an abort, because an incomplete pinned set looks exactly like a complete
+# one, only shorter, and the tag it is missing is the one that then gets
+# retired. A checkout with no tooling Dockerfile at all is a different
+# answer and not a failure: it needs no tooling image, pins none, and the
+# set is complete without it. The producer keeps the two apart by exit
+# status (see _reclaim_tool_tag_for_path), so an empty answer never has
+# to be guessed at here.
 _reclaim_pinned_tool_tags() {
   local _root="${1:?_reclaim_pinned_tool_tags requires <repo_root>}"
   local -n _rptt_out="${2:?_reclaim_pinned_tool_tags requires <outvar>}"
   _rptt_out=()
   local -a _paths=()
-  _reclaim_live_checkouts _paths || return 1
+  if ! _reclaim_live_checkouts _paths; then
+    _log_err reclaim reclaim_artifacts_unreadable \
+      "display=cannot list the networks that record which checkouts are live; retiring no tooling tags."
+    return 1
+  fi
   # The invoking tree first and unconditionally. It is the one checkout an
   # invocation can prove is in use without asking anything, and on a first
   # run it has no network yet to be found by.
   _paths=("${_root}" "${_paths[@]+"${_paths[@]}"}")
-  local _p _tag
+  local _p _tag _rc
   for _p in "${_paths[@]}"; do
-    _tag="$(_reclaim_tool_tag_for_path "${_p}")" || continue
+    _rc=0
+    _tag="$(_reclaim_tool_tag_for_path "${_p}")" || _rc=$?
+    if (( _rc == 2 )); then
+      continue
+    elif (( _rc != 0 )); then
+      _log_err reclaim reclaim_tool_pin_unresolved \
+        "display=cannot tell which tooling tag the live checkout ${_p} resolves: an input of its tooling Dockerfile could not be resolved or read (the refusal above names it); retiring no tooling tags." \
+        "checkout=${_p}"
+      return 1
+    fi
     _reclaim_in_list "${_tag}" "${_rptt_out[@]+"${_rptt_out[@]}"}" || _rptt_out+=("${_tag}")
   done
   return 0
@@ -1098,16 +1133,17 @@ _reclaim_keep_window() {
 # registry-qualified tag, `test-tools:local`, a tag whose suffix is not 12
 # hex digits, and an image whose creation time cannot be read. A docker
 # read that FAILED aborts before a single removal, for the same reason it
-# does in the project rule.
+# does in the project rule, and so does a live checkout whose tooling tag
+# CANNOT BE RESOLVED: "unknown" is not "unpinned", and the pin it would
+# have carried is exactly the one the sweep would otherwise retire.
 _reclaim_tool_tags() {
   local _root="${1:?_reclaim_tool_tags requires <repo_root>}"
 
+  # The collector has said why when it fails, naming the checkout whose
+  # tag it could not resolve or the listing it could not read; nothing is
+  # left to add but the abort.
   local -a _pinned=()
-  if ! _reclaim_pinned_tool_tags "${_root}" _pinned; then
-    _log_err reclaim reclaim_artifacts_unreadable \
-      "display=cannot list the networks that record which checkouts are live; retiring no tooling tags."
-    return 1
-  fi
+  _reclaim_pinned_tool_tags "${_root}" _pinned || return 1
 
   local _keep="${2-}"
   if [[ -z "${_keep}" ]]; then

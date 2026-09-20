@@ -138,6 +138,7 @@ reclaim_image_removed
 reclaim_image_rm_failed
 reclaim_tool_input_unparsed
 reclaim_tool_input_unreadable
+reclaim_tool_pin_unresolved
 reclaim_tool_tags_scan
 reclaim_tool_tags_dry_run
 reclaim_tool_tag_retired

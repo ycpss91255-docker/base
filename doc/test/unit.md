@@ -3732,7 +3732,7 @@ here with no daemon.
 | `probe: end to end, an image reporting a STALE version is refused (#947)` | The whole point of the probe, asserted end to end: present but out of date is a refusal, not a pass |
 | `probe: the Dockerfile defaults to this checkout's, not the caller's cwd (#947)` | A cwd change must not silently turn the comparison into an unreadable-pin refusal |
 
-### test/bats/unit/project_reclaim_spec.bats (42)
+### test/bats/unit/project_reclaim_spec.bats (44)
 
 | Test | Description |
 |------|-------------|
@@ -3768,6 +3768,8 @@ here with no daemon.
 | `the retained-tag count is derived from the live checkouts, not a buried literal` | - |
 | `the retained-tag count is overridable by the environment` | - |
 | `the pinned tag set is the invoking tree plus every live checkout` | - |
+| `tag retention ABORTS when a live checkout's tooling inputs cannot be resolved` | a pin it cannot compute is unknown, not absent, and unknown must not become a reason to delete |
+| `a live checkout with no tooling Dockerfile pins nothing and does not stop the retention` | the answer the abort above must stay distinguishable from: no Dockerfile is no pin, not an unknown one |
 | `an image whose checkout is gone is retired` | the case the whole image rule exists for: 275MB per dead checkout that ran `just test smoke`, which no verb could reclaim before. |
 | `an image whose checkout still exists is kept` | the sparing side. A rule that collected a live checkout's image would cost a 275MB rebuild in the middle of someone's work. |
 | `an image inside the grace window is kept` | the window covers a path that is momentarily absent because something is moving or recreating it while its run is in flight -- the one case the existence test cannot see. |
