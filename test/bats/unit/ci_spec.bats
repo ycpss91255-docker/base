@@ -4218,6 +4218,33 @@ _tag_as_nobody() {
   assert_output --partial "a.py"
 }
 
+# why: #1166 a subdirectory nothing can enter leaves the digest silently partial
+@test "_resolve_test_tools_image: refuses a directory COPY holding a subdirectory it cannot enter (#1166)" {
+  # The third shape of the one defect, and the one the member case above
+  # cannot see. There the unreadable thing is a FILE: globstar lists it,
+  # its `cat` fails inside the digest stream, and pipefail turns that into
+  # a refusal. Here the unreadable thing is a DIRECTORY: globstar never
+  # enumerates what is under it, so no member of it reaches the stream,
+  # no `cat` is ever attempted, and the pipefail guard has nothing to
+  # fire on. The directory entry itself is dropped by the -f filter. The
+  # digest completes, status 0, over a tree that is missing everything
+  # under `private/` -- and, the tell again, two different contents of
+  # `private/a.py` resolve to ONE tag.
+  local _root="${BATS_TEST_TMPDIR}/dirsub"
+  mkdir -p "${_root}/dockerfile/tools/private"
+  local _df="${_root}/dockerfile/Dockerfile.test-tools"
+  printf 'FROM alpine:3.21\nCOPY dockerfile/tools /opt/tools\n' > "${_df}"
+  printf 'readable\n' > "${_root}/dockerfile/tools/b.py"
+  printf 'one\n' > "${_root}/dockerfile/tools/private/a.py"
+  chmod -R o+rX "${_root}"
+  chmod 000 "${_root}/dockerfile/tools/private"
+
+  _tag_as_nobody "${_df}"
+  assert_failure
+  refute_output --regexp 'test-tools:[0-9a-f]{12}'
+  assert_output --partial "private"
+}
+
 # why: #1166 a continued COPY is one instruction, not two unparseable ones
 @test "_resolve_test_tools_image: reads a COPY split across a line continuation (#1166)" {
   local _root="${BATS_TEST_TMPDIR}/cont"

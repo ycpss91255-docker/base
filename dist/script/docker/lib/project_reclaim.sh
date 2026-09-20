@@ -357,6 +357,19 @@ _reclaim_tool_context_sources() {
 # unreadable path is a refusal: a file that cannot be read cannot be
 # hashed, and a digest that skips it would claim an image it does not
 # describe.
+#
+# The same refusal is made of every directory the expansion meets, not
+# only the one named. globstar lists a subdirectory it cannot enter as an
+# entry and then walks past it in silence: nothing under it is ever
+# enumerated, so nothing under it ever reaches a `cat` for the digest
+# stream's own guard to fail on, and the -f filter drops the entry
+# itself. The digest completes, status 0, over a tree that is missing a
+# whole subtree. So a directory that cannot be read, or cannot be
+# entered, is refused here, at the entry globstar does list, before the
+# file list is accepted -- and inside the one walk that produces the
+# list, rather than by a second traversal, so the ORDER of that list,
+# which is part of the digest, is exactly what it was before this rule
+# existed.
 _reclaim_tool_context_files() {
   local _root="${1:?_reclaim_tool_context_files requires <context_root>}"
   local _rel="${2:?_reclaim_tool_context_files requires <relpath>}"
@@ -375,6 +388,13 @@ _reclaim_tool_context_files() {
   _saved="$(shopt -p nullglob dotglob globstar)"
   shopt -s nullglob dotglob globstar
   for _f in "${_abs%/}"/**; do
+    if [[ -d "${_f}" && ( ! -r "${_f}" || ! -x "${_f}" ) ]]; then
+      _log_err reclaim reclaim_tool_input_unreadable \
+        "display=${_f%/} is a directory under a COPYed build-context path but cannot be entered; refusing a digest that would leave everything under it out." \
+        "path=${_f%/}"
+      eval "${_saved}"
+      return 1
+    fi
     [[ -f "${_f}" ]] || continue
     printf '%s\n' "${_rel%/}/${_f#"${_abs%/}"/}"
   done
