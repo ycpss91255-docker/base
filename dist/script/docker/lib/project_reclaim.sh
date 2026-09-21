@@ -192,32 +192,332 @@ _reclaim_is_compose_project_name() {
   [[ "${1-}" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]]
 }
 
-# _reclaim_tool_dockerfile_hash <dockerfile>
+# ── The tooling image's build inputs ─────────────────────────────────────
 #
-# Prints the full content digest of the tooling Dockerfile, or nothing at
-# all when the file is absent. Redirected stdin, never `sha256sum <file>`,
-# so the PATH never enters the digest: the same content in two checkouts
-# must resolve to ONE tag, which is the property that makes the tag
-# shareable and the reason images are not collected by project label.
+# The digest below answers ONE question: is this the same image? So it has
+# to cover everything a layer of that image can be built from, and the
+# Dockerfile is not all of it.
+#
+# It used to be. The rule was licensed by a premise written into
+# script/test/test.sh -- every COPY in the tooling Dockerfile is
+# `COPY --from=<stage>`, whose source is pinned by a version literal in
+# the Dockerfile text, so no file of the checkout can reach a layer -- and
+# that premise stopped holding the day the toml-bridge stage arrived with
+# a plain `COPY dockerfile/toml_bridge.py`. Editing that file left the tag
+# where it was, the resolver's consumer saw the tag already present and
+# skipped the rebuild, and the suite ran a bridge from before the edit and
+# reported its verdict as this tree's. Nothing warned; the answer was
+# simply wrong, and finding out cost hours.
+#
+# So the set of context inputs is DERIVED FROM THE DOCKERFILE, never
+# listed here. A list is what goes stale the day someone adds a second
+# context COPY -- the same shape of defect as the premise it replaces,
+# one indirection further away. Read off the COPY lines, a new one is
+# covered the moment it is written and one converted to `--from=` drops
+# out of the digest by itself.
+#
+# What is still NOT covered, unchanged and stated so nobody assumes
+# otherwise: upstream drift behind a floating reference (`apk add`
+# package versions, the alpine tag). That is not what collides between
+# two concurrent checkouts, which is what the tag exists to separate.
+#
+# THE DIRECTION OF EVERY FAILURE HERE IS LOUD. A COPY line this cannot
+# resolve to a definite set of paths, or a path it cannot read, refuses
+# the whole digest instead of returning one computed from the rest.
+# Under-hashing is a silent wrong answer that costs an afternoon;
+# over-hashing, or refusing, costs one rebuild and says why.
+
+# _reclaim_tool_context_root <dockerfile>
+#
+# The build context <dockerfile>'s context COPY paths are relative to.
+# compose.yaml passes `context: .` -- the checkout root -- and the
+# Dockerfile sits at the fixed _RECLAIM_TOOL_DOCKERFILE_REL below it, so
+# the root is what is left when that suffix is stripped. A Dockerfile
+# somewhere else (a spec writes one into a temp directory) has no checkout
+# above it, and its own directory is then the only defensible answer.
+_reclaim_tool_context_root() {
+  local _dockerfile="${1:?_reclaim_tool_context_root requires <dockerfile>}"
+  if [[ "${_dockerfile}" == */"${_RECLAIM_TOOL_DOCKERFILE_REL}" ]]; then
+    printf '%s\n' "${_dockerfile%/"${_RECLAIM_TOOL_DOCKERFILE_REL}"}"
+    return 0
+  fi
+  [[ "${_dockerfile}" == */* ]] || { printf '.\n'; return 0; }
+  printf '%s\n' "${_dockerfile%/*}"
+}
+
+# _reclaim_tool_copy_srcs <where> <instruction>
+#
+# Prints the build-context sources of ONE Dockerfile instruction, one per
+# line, and nothing at all for an instruction that reads no context (every
+# verb but COPY, and a `COPY --from=<stage>`, whose source is a path of an
+# earlier stage rather than of the checkout). <where> is `<file>:<line>`,
+# quoted back in every refusal so the reader is sent to the line rather
+# than to this function.
+#
+# "Every verb but COPY reads no context" holds for two of them only
+# because they are refused here rather than passed over: ADD reads the
+# context directly, and ONBUILD carries an instruction that may be a
+# context COPY. Passing over either is the silent under-hash the whole
+# derivation exists to stop.
+_reclaim_tool_copy_srcs() {
+  local _where="${1:?_reclaim_tool_copy_srcs requires <where>}" _instr="${2-}"
+  local -a _tok=()
+  read -r -a _tok <<< "${_instr}"
+  [[ ${#_tok[@]} -gt 0 ]] || return 0
+  case "${_tok[0]^^}" in
+    COPY) ;;
+    ADD)
+      _log_err reclaim reclaim_tool_input_unparsed \
+        "display=${_where}: ADD reads the build context and this derivation does not model it; refusing a digest that would omit whatever it copies." \
+        "instruction=${_instr}"
+      return 1 ;;
+    ONBUILD)
+      _log_err reclaim reclaim_tool_input_unparsed \
+        "display=${_where}: ONBUILD carries another instruction, which may be a context COPY; passing over it would under-hash in silence, so it is refused instead." \
+        "instruction=${_instr}"
+      return 1 ;;
+    *) return 0 ;;
+  esac
+  local _i=1
+  while [[ ${_i} -lt ${#_tok[@]} && "${_tok[${_i}]}" == --* ]]; do
+    case "${_tok[${_i}]}" in
+      --from=*) return 0 ;;
+      --chown=*|--chmod=*|--link|--link=*) _i=$((_i + 1)) ;;
+      *)
+        _log_err reclaim reclaim_tool_input_unparsed \
+          "display=${_where}: COPY flag '${_tok[${_i}]}' can change WHICH files are copied and this derivation does not model it." \
+          "instruction=${_instr}"
+        return 1 ;;
+    esac
+  done
+  local -a _rest=("${_tok[@]:${_i}}")
+  if [[ ${#_rest[@]} -lt 2 ]]; then
+    _log_err reclaim reclaim_tool_input_unparsed \
+      "display=${_where}: COPY needs at least one source and a destination; this line yields no source to hash." \
+      "instruction=${_instr}"
+    return 1
+  fi
+  _reclaim_tool_emit_srcs "${_where}" "${_instr}" "${_rest[@]:0:$((${#_rest[@]} - 1))}"
+}
+
+# _reclaim_tool_emit_srcs <where> <instruction> <src>...
+#
+# The source half of the COPY above, checked and printed. A token this
+# cannot resolve WITHOUT running docker's own parser -- a glob, a variable,
+# a quoted path, the JSON array form, a heredoc -- is refused rather than
+# guessed at, because a guess is how a file silently leaves the digest.
+_reclaim_tool_emit_srcs() {
+  local _where="${1:?_reclaim_tool_emit_srcs requires <where>}" _instr="${2-}"
+  shift 2
+  local _s
+  for _s in "$@"; do
+    case "${_s}" in
+      *[][*?\$\"\'\<]*)
+        _log_err reclaim reclaim_tool_input_unparsed \
+          "display=${_where}: COPY source '${_s}' is a glob, a variable, a quoted path or a JSON/heredoc form; this derivation cannot resolve it to a definite set of files." \
+          "instruction=${_instr}"
+        return 1 ;;
+    esac
+    printf '%s\n' "${_s#/}"
+  done
+}
+
+# _reclaim_tool_context_sources <dockerfile>
+#
+# Every build-context path <dockerfile> COPYs, one per line, in the order
+# the file names them -- which is deterministic without a sort, since the
+# Dockerfile's own bytes are in the digest beside them.
+#
+# Line continuations are joined and comments dropped before an instruction
+# is looked at, the way docker's own frontend reads the file: a COPY split
+# across two lines is one instruction, not two unparseable ones.
+_reclaim_tool_context_sources() {
+  local _dockerfile="${1:?_reclaim_tool_context_sources requires <dockerfile>}"
+  local _line _acc="" _n=0 _start=0
+  while IFS= read -r _line || [[ -n "${_line}" ]]; do
+    _n=$((_n + 1))
+    [[ "${_line}" =~ ^[[:space:]]*(#|$) ]] && continue
+    [[ -n "${_acc}" ]] || _start="${_n}"
+    if [[ "${_line}" == *\\ ]]; then
+      _acc+="${_line%\\} "
+      continue
+    fi
+    _acc+="${_line}"
+    _reclaim_tool_copy_srcs "${_dockerfile}:${_start}" "${_acc}" || return 1
+    _acc=""
+  done < "${_dockerfile}"
+  [[ -z "${_acc}" ]] || _reclaim_tool_copy_srcs "${_dockerfile}:${_start}" "${_acc}"
+}
+
+# _reclaim_tool_context_files <context_root> <relpath>
+#
+# The regular files <relpath> names, relative to <context_root>, one per
+# line. A directory expands to everything under it, in C collation so two
+# hosts under different locales still order it the same way. An absent or
+# unreadable path is a refusal: a file that cannot be read cannot be
+# hashed, and a digest that skips it would claim an image it does not
+# describe.
+#
+# The same refusal is made of every directory the expansion meets, not
+# only the one named. globstar lists a subdirectory it cannot enter as an
+# entry and then walks past it in silence: nothing under it is ever
+# enumerated, so nothing under it ever reaches a `cat` for the digest
+# stream's own guard to fail on, and the -f filter drops the entry
+# itself. The digest completes, status 0, over a tree that is missing a
+# whole subtree. So a directory that cannot be read, or cannot be
+# entered, is refused here, at the entry globstar does list, before the
+# file list is accepted -- and inside the one walk that produces the
+# list, rather than by a second traversal, so the ORDER of that list,
+# which is part of the digest, is exactly what it was before this rule
+# existed.
+_reclaim_tool_context_files() {
+  local _root="${1:?_reclaim_tool_context_files requires <context_root>}"
+  local _rel="${2:?_reclaim_tool_context_files requires <relpath>}"
+  local _abs="${_root%/}/${_rel}"
+  if [[ -f "${_abs}" && -r "${_abs}" ]]; then
+    printf '%s\n' "${_rel}"
+    return 0
+  fi
+  if [[ ! -d "${_abs}" || ! -r "${_abs}" ]]; then
+    _log_err reclaim reclaim_tool_input_unreadable \
+      "display=${_root%/}/${_rel} is COPYed from the build context but cannot be read; refusing a digest that would leave it out." \
+      "path=${_abs}"
+    return 1
+  fi
+  local LC_ALL=C _f _saved
+  _saved="$(shopt -p nullglob dotglob globstar)"
+  shopt -s nullglob dotglob globstar
+  for _f in "${_abs%/}"/**; do
+    if [[ -d "${_f}" && ( ! -r "${_f}" || ! -x "${_f}" ) ]]; then
+      _log_err reclaim reclaim_tool_input_unreadable \
+        "display=${_f%/} is a directory under a COPYed build-context path but cannot be entered; refusing a digest that would leave everything under it out." \
+        "path=${_f%/}"
+      eval "${_saved}"
+      return 1
+    fi
+    [[ -f "${_f}" ]] || continue
+    printf '%s\n' "${_rel%/}/${_f#"${_abs%/}"/}"
+  done
+  eval "${_saved}"
+}
+
+# _reclaim_tool_dockerfile_hash <dockerfile> [context_root]
+#
+# Prints the content digest of the tooling Dockerfile TOGETHER WITH every
+# file it COPYs from the build context, or nothing at all when the
+# Dockerfile is absent; returns non-zero, having said which line or path,
+# when an input cannot be resolved or read.
+#
+# ABSENT and UNREADABLE are different answers. Absent is the caller's to
+# interpret -- empty output, status 0 -- because a checkout that has no
+# tooling Dockerfile is a fact about the tree, not a failure. Unreadable
+# is a refusal, on the same rule _reclaim_tool_context_files holds every
+# COPY source to: the Dockerfile is an input like any other, and it was
+# the one input that skipped the rule. Existence alone let an unreadable
+# file fall through to a `cat` that wrote to stderr and left sha256sum
+# hashing an EMPTY stream, so every host resolved the one tag
+# e3b0c44298fc -- the digest of the empty string -- and said nothing.
+#
+# Redirected stdin, never `sha256sum <file>`, so no PATH enters the
+# digest: the same content in two checkouts must resolve to ONE tag, which
+# is the property that makes the tag shareable and the reason images are
+# not collected by project label. Each context file contributes its
+# CONTEXT-RELATIVE path and its bytes for the same reason -- the path
+# inside the image is a build input, the checkout it came from is not.
+#
+# With no context COPY at all the stream is the Dockerfile's bytes and
+# nothing else, so a tooling Dockerfile that reads no context keeps
+# exactly the tag it resolved before this rule existed.
 _reclaim_tool_dockerfile_hash() {
   local _dockerfile="${1:?_reclaim_tool_dockerfile_hash requires <dockerfile>}"
+  local _context="${2-}"
   [[ -f "${_dockerfile}" ]] || return 0
-  sha256sum < "${_dockerfile}" 2>/dev/null | cut -d' ' -f1
+  if [[ ! -r "${_dockerfile}" ]]; then
+    _log_err reclaim reclaim_tool_input_unreadable \
+      "display=${_dockerfile} is the tooling Dockerfile but cannot be read; refusing a digest that would be taken over nothing at all." \
+      "path=${_dockerfile}"
+    return 1
+  fi
+  [[ -n "${_context}" ]] || _context="$(_reclaim_tool_context_root "${_dockerfile}")"
+  local _srcs _files="" _out
+  _srcs="$(_reclaim_tool_context_sources "${_dockerfile}")" || return 1
+  local -a _list=()
+  [[ -z "${_srcs}" ]] || mapfile -t _list <<< "${_srcs}"
+  local _s
+  for _s in "${_list[@]}"; do
+    _out="$(_reclaim_tool_context_files "${_context}" "${_s}")" || return 1
+    [[ -z "${_out}" ]] || _files+="${_out}"$'\n'
+  done
+  # pipefail, in a subshell so the setting cannot leak into a caller that
+  # did not ask for it: without it the pipeline's status is `cut`'s, and a
+  # producer that read nothing at all still leaves a well-formed digest of
+  # the empty stream. That is the structural half of the rule -- guarding
+  # this one call site would still let any OTHER unreadable input through
+  # as a partial digest, which names an image it does not describe.
+  (
+    set -o pipefail
+    _reclaim_tool_digest_stream "${_dockerfile}" "${_context}" "${_files}" \
+      | sha256sum 2>/dev/null | cut -d' ' -f1
+  )
+}
+
+# _reclaim_tool_digest_stream <dockerfile> <context_root> <relpaths>
+#
+# The exact byte stream the digest is taken over: the Dockerfile, then
+# each context file's path and content, NUL-delimited so no content can
+# impersonate a path boundary. <relpaths> is one path per line -- empty
+# for a Dockerfile that reads no context, which is what makes that case
+# byte-identical to hashing the Dockerfile alone.
+#
+# Any `cat` that cannot be completed ends the stream non-zero rather than
+# skipping the bytes. A directory COPY is why this is not redundant with
+# the caller's guards: _reclaim_tool_context_files tests -r on the
+# DIRECTORY and then globs it, so an unreadable member never meets a
+# guard at all, and its bytes would simply go missing from a digest that
+# still looked perfectly ordinary.
+_reclaim_tool_digest_stream() {
+  local _dockerfile="${1:?_reclaim_tool_digest_stream requires <dockerfile>}"
+  local _context="${2:?_reclaim_tool_digest_stream requires <context_root>}"
+  local _relpaths="${3-}"
+  cat -- "${_dockerfile}" || return 1
+  local _r
+  while IFS= read -r _r; do
+    [[ -n "${_r}" ]] || continue
+    printf '\0%s\0' "${_r}"
+    if ! cat -- "${_context%/}/${_r}"; then
+      _log_err reclaim reclaim_tool_input_unreadable \
+        "display=${_context%/}/${_r} is COPYed from the build context but its bytes could not be read; refusing a digest that would leave it out." \
+        "path=${_context%/}/${_r}"
+      return 1
+    fi
+  done <<< "${_relpaths}"
 }
 
 # _reclaim_tool_tag_for_path <repo_root>
 #
-# Prints `test-tools:<12hex>` for the checkout at <repo_root>; exits
-# non-zero, printing nothing, when that checkout has no tooling Dockerfile
-# or no usable digest. THE producer of the tooling tag -- test.sh's
-# _resolve_test_tools_image delegates here -- and, unlike the project name,
-# it IS consumed below: the retention rule keeps every tag a checkout that
-# still exists resolves to, which means computing exactly what the producer
-# computed.
+# Prints `test-tools:<12hex>` for the checkout at <repo_root>. THE producer
+# of the tooling tag -- test.sh's _resolve_test_tools_image delegates here
+# -- and, unlike the project name, it IS consumed below: the retention rule
+# keeps every tag a checkout that still exists resolves to, which means
+# computing exactly what the producer computed.
+#
+# Exit status, printing nothing on either non-zero:
+#   0 -- the tag was printed.
+#   2 -- ABSENT: that checkout has no tooling Dockerfile, so it needs no
+#        tooling image and resolves no tag. A fact about the tree.
+#   1 -- REFUSED: it has one, and an input of it could not be resolved or
+#        read (the refusal above names it), so the tag it needs is
+#        UNKNOWN. Kept apart from absent on purpose: a caller that keeps
+#        tags by "a live checkout resolves it" may skip the first and must
+#        stop on the second, because a refusal read as absent drops the
+#        pin, and the image it protected is retired with the checkout
+#        still live.
 _reclaim_tool_tag_for_path() {
   local _root="${1:?_reclaim_tool_tag_for_path requires <repo_root>}"
   local _hash
-  _hash="$(_reclaim_tool_dockerfile_hash "${_root%/}/${_RECLAIM_TOOL_DOCKERFILE_REL}")"
+  _hash="$(_reclaim_tool_dockerfile_hash \
+    "${_root%/}/${_RECLAIM_TOOL_DOCKERFILE_REL}" "${_root%/}")" || return 1
+  [[ -n "${_hash}" ]] || return 2
   [[ "${_hash}" =~ ^[0-9a-f]{12} ]] || return 1
   printf '%s:%s\n' "${_RECLAIM_TOOL_REPO}" "${_hash:0:12}"
 }
@@ -721,19 +1021,54 @@ _reclaim_live_checkouts() {
 # The tags no rebuild should ever be paid for: the one <repo_root> resolves
 # to, plus the one every live checkout resolves to. A live checkout needing
 # an image is a proof of use, where "it looks unused" is not.
+#
+# Returns non-zero, having said why, when the set CANNOT BE COMPLETED:
+# the artifacts that name the live checkouts could not be listed, or a
+# live checkout's tag could not be resolved. Every caller turns that into
+# an abort, because an incomplete pinned set looks exactly like a complete
+# one, only shorter, and the tag it is missing is the one that then gets
+# retired. A checkout with no tooling Dockerfile at all is a different
+# answer and not a failure: it needs no tooling image, pins none, and the
+# set is complete without it. The producer keeps the two apart by exit
+# status (see _reclaim_tool_tag_for_path), so an empty answer never has
+# to be guessed at here.
+#
+# One pin this knowingly does not carry: a live checkout whose scripts
+# predate the context-inclusive digest resolves the Dockerfile-only tag
+# for its tree, while this resolver pins the context-inclusive one for
+# the same path. Only the `--keep` window then holds its actual tag; once
+# that tag ages out it is retired, and the checkout rebuilds its tooling
+# image once: a rebuild, never lost data or a wrong verdict. Pinning both
+# digests for a transition would be permanent code for a transient state;
+# asking which resolver a checkout runs would read another checkout's
+# scripts, which is fragile. The move from the literal `test-tools:local`
+# to a digest cost the same rebuild.
 _reclaim_pinned_tool_tags() {
   local _root="${1:?_reclaim_pinned_tool_tags requires <repo_root>}"
   local -n _rptt_out="${2:?_reclaim_pinned_tool_tags requires <outvar>}"
   _rptt_out=()
   local -a _paths=()
-  _reclaim_live_checkouts _paths || return 1
+  if ! _reclaim_live_checkouts _paths; then
+    _log_err reclaim reclaim_artifacts_unreadable \
+      "display=cannot list the networks that record which checkouts are live; retiring no tooling tags."
+    return 1
+  fi
   # The invoking tree first and unconditionally. It is the one checkout an
   # invocation can prove is in use without asking anything, and on a first
   # run it has no network yet to be found by.
   _paths=("${_root}" "${_paths[@]+"${_paths[@]}"}")
-  local _p _tag
+  local _p _tag _rc
   for _p in "${_paths[@]}"; do
-    _tag="$(_reclaim_tool_tag_for_path "${_p}")" || continue
+    _rc=0
+    _tag="$(_reclaim_tool_tag_for_path "${_p}")" || _rc=$?
+    if (( _rc == 2 )); then
+      continue
+    elif (( _rc != 0 )); then
+      _log_err reclaim reclaim_tool_pin_unresolved \
+        "display=cannot tell which tooling tag the live checkout ${_p} resolves: an input of its tooling Dockerfile could not be resolved or read (the refusal above names it); retiring no tooling tags." \
+        "checkout=${_p}"
+      return 1
+    fi
     _reclaim_in_list "${_tag}" "${_rptt_out[@]+"${_rptt_out[@]}"}" || _rptt_out+=("${_tag}")
   done
   return 0
@@ -809,16 +1144,17 @@ _reclaim_keep_window() {
 # registry-qualified tag, `test-tools:local`, a tag whose suffix is not 12
 # hex digits, and an image whose creation time cannot be read. A docker
 # read that FAILED aborts before a single removal, for the same reason it
-# does in the project rule.
+# does in the project rule, and so does a live checkout whose tooling tag
+# CANNOT BE RESOLVED: "unknown" is not "unpinned", and the pin it would
+# have carried is exactly the one the sweep would otherwise retire.
 _reclaim_tool_tags() {
   local _root="${1:?_reclaim_tool_tags requires <repo_root>}"
 
+  # The collector has said why when it fails, naming the checkout whose
+  # tag it could not resolve or the listing it could not read; nothing is
+  # left to add but the abort.
   local -a _pinned=()
-  if ! _reclaim_pinned_tool_tags "${_root}" _pinned; then
-    _log_err reclaim reclaim_artifacts_unreadable \
-      "display=cannot list the networks that record which checkouts are live; retiring no tooling tags."
-    return 1
-  fi
+  _reclaim_pinned_tool_tags "${_root}" _pinned || return 1
 
   local _keep="${2-}"
   if [[ -z "${_keep}" ]]; then

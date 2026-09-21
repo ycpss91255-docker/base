@@ -1112,7 +1112,7 @@ between them can be asserted at all.
 | `reclaim.sh --stale delegates the unowned classes to prune.sh with the same window` | - |
 | `reclaim.sh --stale never touches volumes` | - |
 
-### test/bats/unit/ci_spec.bats (158)
+### test/bats/unit/ci_spec.bats (171)
 
 | Test | Description |
 |------|-------------|
@@ -1259,6 +1259,19 @@ between them can be asserted at all.
 | `_resolve_test_tools_image: identical inputs at different paths resolve to the same tag (#891)` | #891 same inputs -> cache hit, not a rebuild |
 | `_resolve_test_tools_image: TEST_TOOLS_IMAGE wins verbatim (#891)` | #891 CI's pinned published tags untouched |
 | `_resolve_test_tools_image: fails loud when the tooling Dockerfile is missing (#891)` | #891 no silent bare-literal fallback |
+| `_resolve_test_tools_image: a file the Dockerfile COPYs from the context moves the tag (#1166)` | #1166 a build-context COPY is an input; the tag must move with it |
+| `_resolve_test_tools_image: refuses ONBUILD, which can defer a context COPY (#1166)` | #1166 an instruction that defers a COPY must not be read as context-free |
+| `_resolve_test_tools_image: a file the Dockerfile does NOT COPY leaves the tag alone (#1166)` | #1166 the tag must not become a hash of the whole checkout |
+| `_resolve_test_tools_image: a COPY --from= source is never looked for in the context (#1166)` | #1166 a stage source is not a checkout path and must not be looked for |
+| `_resolve_test_tools_image: refuses a COPY flag it does not model, naming the line (#1166)` | #1166 a flag that changes WHICH files are copied cannot be guessed at |
+| `_resolve_test_tools_image: refuses a COPY source it cannot resolve to files (#1166)` | #1166 a source that needs docker's own parser is refused, not guessed |
+| `_resolve_test_tools_image: refuses when a COPYed context path cannot be read (#1166)` | #1166 a partial digest names an image it does not describe |
+| `_resolve_test_tools_image: refuses a tooling Dockerfile it cannot read (#1166)` | #1166 an unreadable Dockerfile hashed the empty string into a real tag |
+| `_resolve_test_tools_image: refuses a directory COPY holding a file it cannot read (#1166)` | #1166 a failing producer must not surface as a green partial digest |
+| `_resolve_test_tools_image: refuses a directory COPY holding a subdirectory it cannot enter (#1166)` | #1166 a subdirectory nothing can enter leaves the digest silently partial |
+| `_resolve_test_tools_image: reads a COPY split across a line continuation (#1166)` | #1166 a continued COPY is one instruction, not two unparseable ones |
+| `_resolve_test_tools_image: agrees with the retention derivation on a context COPY (#1166)` | #1166 the retention rule must retire exactly what the resolver mints |
+| `_resolve_test_tools_image: a Dockerfile with no context COPY keeps its old tag (#1166)` | #1166 a tooling Dockerfile reading no context keeps the tag it had |
 | `main --test-tools-image: prints the resolved tag for the justfile (#891)` | #891 one entry point for build + consumers |
 | `_compute_compose_project_name: two checkouts sharing a basename get different names (#891)` | #891 path-keyed, not directory-basename |
 | `_compute_compose_project_name: the same checkout path is stable across calls (#891)` | #891 one project per checkout, no per-commit churn |
@@ -3743,7 +3756,7 @@ here with no daemon.
 | `probe: end to end, an image reporting a STALE version is refused (#947)` | The whole point of the probe, asserted end to end: present but out of date is a refusal, not a pass |
 | `probe: the Dockerfile defaults to this checkout's, not the caller's cwd (#947)` | A cwd change must not silently turn the comparison into an unreadable-pin refusal |
 
-### test/bats/unit/project_reclaim_spec.bats (42)
+### test/bats/unit/project_reclaim_spec.bats (44)
 
 | Test | Description |
 |------|-------------|
@@ -3779,6 +3792,8 @@ here with no daemon.
 | `the retained-tag count is derived from the live checkouts, not a buried literal` | - |
 | `the retained-tag count is overridable by the environment` | - |
 | `the pinned tag set is the invoking tree plus every live checkout` | - |
+| `tag retention ABORTS when a live checkout's tooling inputs cannot be resolved` | a pin it cannot compute is unknown, not absent, and unknown must not become a reason to delete |
+| `a live checkout with no tooling Dockerfile pins nothing and does not stop the retention` | the answer the abort above must stay distinguishable from: no Dockerfile is no pin, not an unknown one |
 | `an image whose checkout is gone is retired` | the case the whole image rule exists for: 275MB per dead checkout that ran `just test smoke`, which no verb could reclaim before. |
 | `an image whose checkout still exists is kept` | the sparing side. A rule that collected a live checkout's image would cost a 275MB rebuild in the middle of someone's work. |
 | `an image inside the grace window is kept` | the window covers a path that is momentarily absent because something is moving or recreating it while its run is in flight -- the one case the existence test cannot see. |

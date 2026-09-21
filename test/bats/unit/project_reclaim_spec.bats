@@ -625,6 +625,59 @@ _tag() {
 ')"
 }
 
+# why: a pin it cannot compute is unknown, not absent, and unknown must not become a reason to delete
+@test "tag retention ABORTS when a live checkout's tooling inputs cannot be resolved" {
+  # The resolver refuses an input it cannot read, so a live checkout whose
+  # tooling Dockerfile COPYs a missing file resolves NO tag.
+  # Read as "this checkout has no tooling Dockerfile", that refusal drops
+  # the checkout's pin, and with the recency window emptied the retention
+  # retires an image that checkout may be about to ask for. The only
+  # honest answer to "which tag does it need?" is "cannot tell", and the
+  # collector must stop on it rather than delete around it.
+  local _other="${TEMP_DIR}/other"
+  mkdir -p "${_other}/dockerfile"
+  printf 'FROM debian\nCOPY dockerfile/gone.py /usr/local/bin/tool\n' \
+    > "${_other}/dockerfile/Dockerfile.test-tools"
+  local _cur
+  _cur="$(_tag 'FROM alpine
+')"
+  {
+    _net n1 "${_other}" 86400
+    printf 'image|i0|%s||10|\n'  "${_cur}"
+    printf 'image|i2|test-tools:222222222222||8888|\n'
+  } > "${DOCKER_STATE}"
+  run bash -c "source ${LIB}; _reclaim_tool_tags '${ROOT}' 0"
+  assert_failure
+  assert_output --partial "${_other}"
+  assert_output --partial "gone.py"
+  run cat "${DOCKER_REMOVED}"
+  assert_output ""
+}
+
+# why: the answer the abort above must stay distinguishable from: no Dockerfile is no pin, not an unknown one
+@test "a live checkout with no tooling Dockerfile pins nothing and does not stop the retention" {
+  # A downstream consumer's checkout, or a base checkout mid-clone, has a
+  # network naming it and no dockerfile/Dockerfile.test-tools. That is a
+  # fact about the tree, not a failure: it needs no tooling image, so it
+  # pins none, and the sweep goes on to retire what nothing resolves.
+  local _other="${TEMP_DIR}/other"
+  mkdir -p "${_other}"
+  local _cur
+  _cur="$(_tag 'FROM alpine
+')"
+  {
+    _net n1 "${_other}" 86400
+    printf 'image|i0|%s||10|\n'  "${_cur}"
+    printf 'image|i2|test-tools:222222222222||8888|\n'
+  } > "${DOCKER_STATE}"
+  run bash -c "source ${LIB}; _reclaim_tool_tags '${ROOT}' 0"
+  assert_success
+  refute_output --partial "${_other}"
+  run cat "${DOCKER_REMOVED}"
+  refute_output --partial "${_cur}"
+  assert_output --partial "test-tools:222222222222"
+}
+
 # ── the per-checkout BUILD image ──────────────────────────────────────────
 #
 # The survey behind this found one artifact class that no verb reclaimed:
