@@ -5,15 +5,17 @@
 #
 # ── What counts as a publish target, and why it is drawn this narrowly ──
 #
-# A PUBLISH TARGET is a bare `<key>: ghcr.io/<org>/<package>` YAML scalar
-# on a code line -- no tag, no quotes, nothing after the package name.
-# That is this repo's publisher idiom, and both publishers written to date
-# use it: `release-test-tools.yaml:77` and, until base#1180, the retired
-# `release-toml-bridge.yaml:49`, each declaring one workflow-level
-# `env: IMAGE:` and pushing `${IMAGE}` everywhere below.
+# A PUBLISH TARGET is an untagged `<key>: ghcr.io/<org>/<package>` YAML
+# scalar on a code line -- no tag, nothing after the package name, with
+# or without a matching pair of quotes around it. Both publishers written
+# to date declare it bare: `release-test-tools.yaml:77` and, until
+# base#1180, the retired `release-toml-bridge.yaml:49`, each with one
+# workflow-level `env: IMAGE:` and `${IMAGE}` pushed everywhere below.
+# The quoted spellings are the same value to YAML, and the guard is here
+# to catch a publisher added by accident, so it reads them too.
 #
 # A CONSUMER reference is deliberately NOT a publish target. Consumers
-# carry a tag and usually quotes -- `TEST_TOOLS_IMAGE:
+# carry a tag -- `TEST_TOOLS_IMAGE:
 # "ghcr.io/ycpss91255-docker/test-tools:${{ inputs.test_tools_version }}"`
 # in `build-worker.yaml`, the same as a build arg in a `run:` block. base
 # is expected to grow more of these: base#1176 items 1 and 2 repoint this
@@ -75,7 +77,8 @@ teardown() {
 # _publish_targets <dir>
 #   Every GHCR package, under any org, that a workflow in <dir> declares
 #   as a publish target, as `<org>/<package>` one per line, deduplicated
-#   and sorted.
+#   and sorted. A matching pair of quotes around the image is accepted
+#   and stripped; a tag after the package name means it is not a target.
 #
 #   Comment lines are dropped before the match: this header, and the
 #   changelog-style prose a workflow carries about what it pushes, must
@@ -83,15 +86,20 @@ teardown() {
 #   becomes unwritable.
 _publish_targets() {
   local _dir="${1}" _f _code
+  # An untagged image: org and package, nothing after. Quoted forms must
+  # pair up, so the alternation lists them rather than making each quote
+  # optional on its own.
+  local _img='ghcr\.io/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+'
+  local _re="^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*:[[:space:]]+(\"${_img}\"|'${_img}'|${_img})[[:space:]]*\$"
   {
     while IFS= read -r _f; do
       [[ -n "${_f}" ]] || continue
       _code="$(grep -v '^[[:space:]]*#' -- "${_f}")" || :
       printf '%s\n' "${_code}" \
-        | grep -oE '^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*:[[:space:]]+ghcr\.io/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+[[:space:]]*$' \
+        | grep -oE "${_re}" \
         || :
     done <<< "$(workflow_files "${_dir}")"
-  } | sed -E 's@^.*ghcr\.io/@@; s@[[:space:]]*$@@' | sort -u
+  } | sed -E 's@^.*ghcr\.io/@@; s@["'"'"'[:space:]]*$@@' | sort -u
 }
 
 # _wf <name> <line>... -- a workflow fixture, written verbatim.
@@ -134,6 +142,29 @@ _wf() {
   run _publish_targets "${SCRATCH}/wf"
   assert_success
   assert_output 'another-org/toml-bridge'
+}
+
+# why: a quoted scalar is an ordinary YAML spelling of the same value, and
+# the guard exists to catch a publisher added by accident, not one written
+# in the idiom the guard happened to expect.
+@test "publish surface: a double-quoted untagged image is a publish target" {
+  _wf quoted \
+    'env:' \
+    '  IMAGE: "ghcr.io/another-org/package"'
+  run _publish_targets "${SCRATCH}/wf"
+  assert_success
+  assert_output 'another-org/package'
+}
+
+# why: the other quote style, pinned on its own so the match cannot
+# quietly accept one and miss the other.
+@test "publish surface: a single-quoted untagged image is a publish target" {
+  _wf squoted \
+    'env:' \
+    "  IMAGE: 'ghcr.io/another-org/package'"
+  run _publish_targets "${SCRATCH}/wf"
+  assert_success
+  assert_output 'another-org/package'
 }
 
 # why: the other half of a usable rule -- what this repo is SUPPOSED to
