@@ -887,18 +887,23 @@ EOF
 
 # ════════════════════════════════════════════════════════════════════
 # _upsert_conf_value — in-place edit of a single key (for setup.sh writeback)
+#
+# These pin the INI-mode behaviour of the writer, which is the mode the
+# frozen TUI's own file still gets: the writer picks its format from the
+# destination's name, so the fixtures here are INI files under an INI
+# name. The TOML mode is specified in conf_toml_writer_spec.bats.
 # ════════════════════════════════════════════════════════════════════
 
 @test "_upsert_conf_value updates existing key value" {
-  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [volumes]
 mount_1 =
 mount_2 = /dev:/dev
 EOF
-  _upsert_conf_value "${TEMP_DIR}/setup.toml" "volumes" "mount_1" \
+  _upsert_conf_value "${TEMP_DIR}/.setup.conf" "volumes" "mount_1" \
     '/host:/home/${USER_NAME}/work'
 
-  run grep '^mount_1' "${TEMP_DIR}/setup.toml"
+  run grep '^mount_1' "${TEMP_DIR}/.setup.conf"
   [[ "${output}" == "mount_1 = /host:/home/\${USER_NAME}/work" ]]
 }
 
@@ -956,13 +961,13 @@ EOF
 @test "_upsert_conf_value creates section + key when section absent" {
   # Coverage gap: `Section not found at all → append new section + key`
   # branch at the tail of _upsert_conf_value was never exercised.
-  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [image]
 rule_1 = @default:foo
 EOF
-  _upsert_conf_value "${TEMP_DIR}/setup.toml" "volumes" "mount_1" "/a:/b"
+  _upsert_conf_value "${TEMP_DIR}/.setup.conf" "volumes" "mount_1" "/a:/b"
 
-  run cat "${TEMP_DIR}/setup.toml"
+  run cat "${TEMP_DIR}/.setup.conf"
   assert_output --partial "[volumes]"
   assert_output --partial "mount_1 = /a:/b"
   # Pre-existing section untouched
@@ -972,16 +977,16 @@ EOF
 @test "_upsert_conf_value appends key at EOF when section is the last one without target key" {
   # Coverage gap: "Still in target section at EOF and key not matched →
   # append" branch of _upsert_conf_value.
-  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [image]
 rule_1 = @default:foo
 
 [volumes]
 mount_1 = /a:/a
 EOF
-  _upsert_conf_value "${TEMP_DIR}/setup.toml" "volumes" "mount_2" "/b:/b"
+  _upsert_conf_value "${TEMP_DIR}/.setup.conf" "volumes" "mount_2" "/b:/b"
 
-  run cat "${TEMP_DIR}/setup.toml"
+  run cat "${TEMP_DIR}/.setup.conf"
   assert_output --partial "mount_1 = /a:/a"
   assert_output --partial "mount_2 = /b:/b"
 }
@@ -1037,20 +1042,20 @@ EOF
   # a shell command carrying a comment is a legitimate value. The writer
   # must agree with the reader: match the existing line and replace it,
   # never append a second one.
-  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [lifecycle]
 watchdog_check = curl http://h/x #ping
 restart = no
 EOF
-  _upsert_conf_value "${TEMP_DIR}/setup.toml" "lifecycle" "watchdog_check" \
+  _upsert_conf_value "${TEMP_DIR}/.setup.conf" "lifecycle" "watchdog_check" \
     'curl http://h/y #pong'
 
-  run grep -c '^watchdog_check' "${TEMP_DIR}/setup.toml"
+  run grep -c '^watchdog_check' "${TEMP_DIR}/.setup.conf"
   assert_output "1"
-  run grep '^watchdog_check' "${TEMP_DIR}/setup.toml"
+  run grep '^watchdog_check' "${TEMP_DIR}/.setup.conf"
   assert_output 'watchdog_check = curl http://h/y #pong'
   # The rest of the section survives the rewrite.
-  run grep '^restart' "${TEMP_DIR}/setup.toml"
+  run grep '^restart' "${TEMP_DIR}/.setup.conf"
   assert_output 'restart = no'
 }
 

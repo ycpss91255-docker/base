@@ -665,10 +665,15 @@ _setup_add() {
   # back to max+1 when every populated slot has content. Reads the
   # merged effective view (template ← repo override) so the new index
   # lands past any inherited template slot the user hasn't yet bumped.
+  # The read goes through the format-dispatching reader: on a TOML file
+  # the numbered keys are `[[array of tables]]` blocks the bridge numbers
+  # back, which the INI tokenizer cannot see, and a slot computed from
+  # an empty view is always 1 -- every `add` would overwrite the first
+  # entry instead of appending.
   local -a _sects=() _keys=() _vals=()
   local -a _local_k=() _local_v=()
   local _tpl_conf="${_SETUP_SCRIPT_DIR}/../../../setup.toml"
-  _parse_ini_section "${_conf}" "${_section}" _local_k _local_v
+  _parse_conf_section "${_conf}" "${_section}" _local_k _local_v
   if (( ${#_local_k[@]} > 0 )); then
     # Override section present — replace strategy: only .local entries
     # exist for this section.
@@ -681,7 +686,7 @@ _setup_add() {
     # Fall back to template baseline so max-suffix matches what the
     # merged view would produce.
     local -a _tpl_k=() _tpl_v=()
-    _parse_ini_section "${_tpl_conf}" "${_section}" _tpl_k _tpl_v
+    _parse_conf_section "${_tpl_conf}" "${_section}" _tpl_k _tpl_v
     local _ti
     for (( _ti=0; _ti<${#_tpl_k[@]}; _ti++ )); do
       _keys+=("${_section}.${_tpl_k[_ti]}")

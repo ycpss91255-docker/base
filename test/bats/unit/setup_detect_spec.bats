@@ -514,10 +514,12 @@ EOF
   local -a _vk=() _vv=()
   local _ws=""
   _reconcile_workspace_path "${_base}" "${_repo_conf}" _vk _vv _ws
-  # template was copied into place + mount_1 written portable.
+  # template was copied into place + mount_1 written portable, as a
+  # `[[volumes]]` entry the bridge numbers back.
   assert [ -f "${_repo_conf}" ]
-  run cat "${_repo_conf}"
-  assert_output --partial 'mount_1 = ${WS_PATH}:/home/${USER_NAME}/work'
+  run toml_bridge_parse "${_repo_conf}" --kv
+  assert_success
+  assert_line 'volumes	mount_1	${WS_PATH}:/home/${USER_NAME}/work'
   assert_equal "${_ws}" "$(cd "${_base}" && pwd -P)"
 }
 

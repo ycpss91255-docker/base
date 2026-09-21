@@ -688,7 +688,9 @@ stub_apply() {
 @test "_commit_and_setup: the edited value reaches the saved conf" {
   stub_apply
   local _tpl="${BATS_TEST_TMPDIR}/tpl.conf"
-  local _repo="${BATS_TEST_TMPDIR}/setup.toml"
+  # The frozen TUI writes INI into .setup.conf; the writers pick their
+  # format from the destination's name.
+  local _repo="${BATS_TEST_TMPDIR}/.setup.conf"
   printf '[network]\nmode = host\n' > "${_tpl}"
   _load_current "${_repo}" "${_tpl}"
   _override_set network.mode bridge
@@ -702,7 +704,7 @@ stub_apply() {
 @test "_commit_and_setup: a key the user never touched survives the save" {
   stub_apply
   local _tpl="${BATS_TEST_TMPDIR}/tpl.conf"
-  local _repo="${BATS_TEST_TMPDIR}/setup.toml"
+  local _repo="${BATS_TEST_TMPDIR}/.setup.conf"
   printf '[network]\nmode = host\nipc = shareable\n' > "${_tpl}"
   _load_current "${_repo}" "${_tpl}"
   _override_set network.mode bridge

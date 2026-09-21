@@ -1242,8 +1242,10 @@ EOF
   "
   assert_success
   assert [ -f "${_repo}/setup.toml" ]
-  run grep '^mount_1' "${_repo}/setup.toml"
-  assert_output --partial '${WS_PATH}:/home/${USER_NAME}/work'
+  # The write is a `[[volumes]]` entry; the bridge numbers it back.
+  run toml_bridge_parse "${_repo}/setup.toml" --kv
+  assert_success
+  assert_line 'volumes	mount_1	${WS_PATH}:/home/${USER_NAME}/work'
 }
 
 @test "workspace second-run: \${WS_PATH} form re-detects per machine" {
@@ -1259,15 +1261,16 @@ EOF
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${_repo}' 2>&1
     grep '^WS_PATH=' '${_repo}/.env.generated'
-    grep '^mount_1' '${_repo}/setup.toml'
+    toml_bridge_parse '${_repo}/setup.toml' --kv | grep 'mount_1'
   "
   assert_success
   # WS_PATH is a non-empty absolute path — exact value depends on the
   # sandbox, but it must not be the literal variable string.
   refute_output --partial 'WS_PATH=${WS_PATH}'
   assert_output --regexp 'WS_PATH=/[^[:space:]]+'
-  # mount_1 stays as the portable variable form.
-  assert_output --partial 'mount_1 = ${WS_PATH}:/home/${USER_NAME}/work'
+  # mount_1 stays as the portable variable form (read back through the
+  # bridge: the file carries it as a `[[volumes]]` entry).
+  assert_output --partial 'mount_1	${WS_PATH}:/home/${USER_NAME}/work'
 }
 
 @test "workspace second-run: respects user-pinned absolute path via setup.conf (#174)" {
@@ -1347,13 +1350,15 @@ EOF
   mkdir -p "${_repo}"
   bash -c "source /source/dist/script/docker/wrapper/setup.sh; main apply --base-path '${_repo}'" \
     >/dev/null 2>&1
-  # User clears mount_1 (opt-out)
-  sed -i 's|^mount_1.*|mount_1 =|' "${_repo}/setup.toml"
+  # User clears mount_1 (opt-out): the bootstrap wrote it as a
+  # `[[volumes]]` block, so clearing it is emptying that block's fields.
+  sed -i 's|^source = .*|source = ""|; s|^target = .*|target = ""|' "${_repo}/setup.toml"
   bash -c "source /source/dist/script/docker/wrapper/setup.sh; main apply --base-path '${_repo}'" \
     >/dev/null 2>&1
   # mount_1 stays empty (not re-populated)
-  run grep '^mount_1' "${_repo}/setup.toml"
-  assert_equal "${output}" "mount_1 ="
+  run toml_bridge_parse "${_repo}/setup.toml" --kv
+  assert_success
+  assert_line 'volumes	mount_1	'
   # compose.yaml has no workspace mount
   run grep ':/home/${USER_NAME}/work' "${_repo}/compose.yaml"
   assert_failure
@@ -1396,9 +1401,12 @@ EOF
     source /source/dist/script/docker/wrapper/setup.sh
     main set --quiet --base-path '${TEMP_DIR}' build.arg_4 ROS2_DISTRO=jazzy
   "
-  run cat "${TEMP_DIR}/setup.toml"
+  # A numbered key is a `[[build.args]]` entry; the bridge numbers it
+  # back in file order, and this file had none before, so the entry
+  # written as arg_4 is the array's first.
+  run toml_bridge_parse "${TEMP_DIR}/setup.toml" --kv
   assert_success
-  assert_output --partial "arg_4 = ROS2_DISTRO=jazzy"
+  assert_line 'build	arg_1	ROS2_DISTRO=jazzy'
 }
 
 @test "setup.sh add: prints 3-line confirmation by default" {

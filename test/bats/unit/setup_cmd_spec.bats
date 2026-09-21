@@ -463,9 +463,9 @@ EOF
   cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   run main set --local project.name myrepo-wt2 --base-path "${TEMP_DIR}"
   assert_success
-  run grep -Ex 'name = myrepo-wt2' "${TEMP_DIR}/setup.local.toml"
+  run grep -Fx 'name = "myrepo-wt2"' "${TEMP_DIR}/setup.local.toml"
   assert_success
-  run grep -Ex 'name = myrepo-wt2' "${TEMP_DIR}/setup.toml"
+  run grep -Fx 'name = "myrepo-wt2"' "${TEMP_DIR}/setup.toml"
   assert_failure
 }
 
@@ -473,7 +473,7 @@ EOF
   cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   run main set project.name myrepo --base-path "${TEMP_DIR}"
   assert_success
-  run grep -Ex 'name = myrepo' "${TEMP_DIR}/setup.toml"
+  run grep -Fx 'name = "myrepo"' "${TEMP_DIR}/setup.toml"
   assert_success
   [[ ! -e "${TEMP_DIR}/setup.local.toml" ]] \
     || fail "a plain set created the local override file"
@@ -520,9 +520,12 @@ EOF
   cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   run main add --local volumes.mount /tmp/wt2:/data --base-path "${TEMP_DIR}"
   assert_success
-  run grep -F '/tmp/wt2:/data' "${TEMP_DIR}/setup.local.toml"
+  # The entry is a `[[volumes]]` block (source / target); the bridge
+  # joins it back into the mount the user typed.
+  run toml_bridge_parse "${TEMP_DIR}/setup.local.toml" --kv
   assert_success
-  run grep -F '/tmp/wt2:/data' "${TEMP_DIR}/setup.toml"
+  assert_line 'volumes	mount_1	/tmp/wt2:/data'
+  run grep -F '/tmp/wt2' "${TEMP_DIR}/setup.toml"
   assert_failure
 }
 
