@@ -2754,7 +2754,7 @@ party can move under a job holding `packages: write`.
 | `ghcr-cleanup.yaml: declares packages: write and no broader write scope` | Enough to delete package versions, no more |
 | `ghcr-cleanup.yaml: serialises runs and never cancels one mid-delete` | Two actors mutating the package concurrently, or a killed delete, is not a state to design for |
 
-### test/bats/unit/ghcr_publish_surface_spec.bats (7)
+### test/bats/unit/ghcr_publish_surface_spec.bats (8)
 
 the set of GHCR packages this repo's workflows PUBLISH to, derived from
 `.github/workflows/` rather than listed anywhere, held equal to the packages
@@ -2771,6 +2771,7 @@ all.
 | Test | Description |
 |------|-------------|
 | `publish surface: a workflow declaring somebody else's package is reported` | the rule bites, demonstrated over a fixture rather than over the live tree -- the only occurrence in this repo is the workflow base#1180 deletes, so without a fixture this spec would go green by having nothing left to look at and could never go red again if the match stopped working. |
+| `publish surface: a package in another org is reported, org included` | a package under a different org is somebody else's by construction, and a guard anchored to this repo's org would look straight past it: `IMAGE: ghcr.io/another-org/toml-bridge` would produce nothing, and the live equality check would stay green. So the scan reports every bare GHCR target it sees, org included, and the owned set is spelled fully qualified to match. |
 | `publish surface: this repo's own package is a target and is allowed` | the other half of a usable rule -- what this repo is SUPPOSED to publish has to read as clean, or the guard says stop without saying what to write instead. |
 | `publish surface: a tagged consumer reference is not a publish target` | the deliberate narrowing, pinned as behaviour rather than left in prose. base#1176 items 1 and 2 repoint this repo at the PUBLISHED toml-bridge image; a rule that read a pull as a push would fail that work, and the guard meant to protect the migration would block it. |
 | `publish surface: a comment naming a package is not a declaration` | a workflow's own prose explains what it pushes, and this spec's header quotes the retired declaration it exists because of. A scan that could not tell prose from code would make both unwritable and push authors to delete the reasoning to get the lint green. |

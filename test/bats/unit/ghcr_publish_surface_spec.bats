@@ -46,15 +46,18 @@
 
 bats_require_minimum_version 1.5.0
 
-# The org whose packages this repo may publish. A different org's package
-# is somebody else's by construction.
+# The org this repo's packages live under. It names the fixtures and the
+# owned set below; it does NOT narrow the scan, which reports a bare GHCR
+# target under any org -- a different org's package is somebody else's by
+# construction, and a scan that only looked here would look past it.
 readonly _ORG='ycpss91255-docker'
 
-# The GHCR packages this repo owns and publishes, one per line. base
-# publishes `test-tools` (`release-test-tools.yaml`) and, since base#1180,
-# nothing else: `toml-bridge` moved to `ycpss91255-docker/toml-bridge`,
-# which owns the package and publishes it from there.
-readonly _OWNED_PACKAGES='test-tools'
+# The GHCR packages this repo owns and publishes, fully qualified as
+# `<org>/<package>`, one per line. base publishes `test-tools`
+# (`release-test-tools.yaml`) and, since base#1180, nothing else:
+# `toml-bridge` moved to `ycpss91255-docker/toml-bridge`, which owns the
+# package and publishes it from there.
+readonly _OWNED_PACKAGES="${_ORG}/test-tools"
 
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
@@ -70,8 +73,9 @@ teardown() {
 }
 
 # _publish_targets <dir>
-#   Every GHCR package under ${_ORG} that a workflow in <dir> declares as
-#   a publish target, one per line, deduplicated and sorted.
+#   Every GHCR package, under any org, that a workflow in <dir> declares
+#   as a publish target, as `<org>/<package>` one per line, deduplicated
+#   and sorted.
 #
 #   Comment lines are dropped before the match: this header, and the
 #   changelog-style prose a workflow carries about what it pushes, must
@@ -84,10 +88,10 @@ _publish_targets() {
       [[ -n "${_f}" ]] || continue
       _code="$(grep -v '^[[:space:]]*#' -- "${_f}")" || :
       printf '%s\n' "${_code}" \
-        | grep -oE "^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*:[[:space:]]+ghcr\.io/${_ORG}/[A-Za-z0-9._-]+[[:space:]]*$" \
+        | grep -oE '^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*:[[:space:]]+ghcr\.io/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+[[:space:]]*$' \
         || :
     done <<< "$(workflow_files "${_dir}")"
-  } | sed -E "s@^.*ghcr\.io/${_ORG}/@@; s@[[:space:]]*\$@@" | sort -u
+  } | sed -E 's@^.*ghcr\.io/@@; s@[[:space:]]*$@@' | sort -u
 }
 
 # _wf <name> <line>... -- a workflow fixture, written verbatim.
@@ -113,7 +117,23 @@ _wf() {
     "  IMAGE: ghcr.io/${_ORG}/toml-bridge"
   run _publish_targets "${SCRATCH}/wf"
   assert_success
-  assert_output 'toml-bridge'
+  assert_output "${_ORG}/toml-bridge"
+}
+
+# why: a package under a different org is somebody else's by construction,
+# and a guard anchored to this repo's org would look straight past it:
+# `IMAGE: ghcr.io/another-org/toml-bridge` would produce nothing, and the
+# live equality check would stay green. So the scan reports every bare
+# GHCR target it sees, org included, and the owned set is spelled fully
+# qualified to match.
+@test "publish surface: a package in another org is reported, org included" {
+  _wf elsewhere \
+    'name: Release somebody else'"'"'s image to GHCR' \
+    'env:' \
+    '  IMAGE: ghcr.io/another-org/toml-bridge'
+  run _publish_targets "${SCRATCH}/wf"
+  assert_success
+  assert_output 'another-org/toml-bridge'
 }
 
 # why: the other half of a usable rule -- what this repo is SUPPOSED to
@@ -126,7 +146,7 @@ _wf() {
     "  IMAGE: ghcr.io/${_ORG}/test-tools"
   run _publish_targets "${SCRATCH}/wf"
   assert_success
-  assert_output 'test-tools'
+  assert_output "${_ORG}/test-tools"
 }
 
 # why: the deliberate narrowing, pinned as behaviour rather than left in
