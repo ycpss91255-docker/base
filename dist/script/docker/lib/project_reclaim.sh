@@ -1032,6 +1032,17 @@ _reclaim_live_checkouts() {
 # set is complete without it. The producer keeps the two apart by exit
 # status (see _reclaim_tool_tag_for_path), so an empty answer never has
 # to be guessed at here.
+#
+# One pin this knowingly does not carry: a live checkout whose scripts
+# predate the context-inclusive digest resolves the Dockerfile-only tag
+# for its tree, while this resolver pins the context-inclusive one for
+# the same path. Only the `--keep` window then holds its actual tag; once
+# that tag ages out it is retired, and the checkout rebuilds its tooling
+# image once: a rebuild, never lost data or a wrong verdict. Pinning both
+# digests for a transition would be permanent code for a transient state;
+# asking which resolver a checkout runs would read another checkout's
+# scripts, which is fragile. The move from the literal `test-tools:local`
+# to a digest cost the same rebuild.
 _reclaim_pinned_tool_tags() {
   local _root="${1:?_reclaim_pinned_tool_tags requires <repo_root>}"
   local -n _rptt_out="${2:?_reclaim_pinned_tool_tags requires <outvar>}"
