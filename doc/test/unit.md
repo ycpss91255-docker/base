@@ -2754,6 +2754,37 @@ party can move under a job holding `packages: write`.
 | `ghcr-cleanup.yaml: declares packages: write and no broader write scope` | Enough to delete package versions, no more |
 | `ghcr-cleanup.yaml: serialises runs and never cancels one mid-delete` | Two actors mutating the package concurrently, or a killed delete, is not a state to design for |
 
+### test/bats/unit/ghcr_publish_surface_spec.bats (14)
+
+the set of GHCR packages this repo's workflows PUBLISH to, derived from
+`.github/workflows/` rather than listed anywhere, held equal to the packages
+this repo owns. A publisher for somebody else's package is not a broken
+build here -- it is green, and it moves a floating tag on a package another
+repo ships. `release-toml-bridge.yaml` was exactly that (base#1180): an
+unfiltered `tags: ['v*']` arm plus an `else tags="${tags},${IMAGE}:latest"`
+branch, on a package `ycpss91255-docker/toml-bridge` now owns and has
+published `v0.1.0` of, so the next non-RC tag cut here would have
+republished the name and moved `:latest` off the image that repo shipped.
+Nothing in the tree could have said so: that workflow carried no spec at
+all.
+
+| Test | Description |
+|------|-------------|
+| `publish surface: a workflow declaring somebody else's package is reported` | the rule bites, demonstrated over a fixture rather than over the live tree -- the only occurrence in this repo is the workflow base#1180 deletes, so without a fixture this spec would go green by having nothing left to look at and could never go red again if the match stopped working. |
+| `publish surface: a package in another org is reported, org included` | a package under a different org is somebody else's by construction, and a guard anchored to this repo's org would look straight past it: `IMAGE: ghcr.io/another-org/toml-bridge` would produce nothing, and the live equality check would stay green. So the scan reports every GHCR target it sees, org included, and the owned set is spelled fully qualified to match. |
+| `publish surface: a double-quoted untagged image is a publish target` | a quoted scalar is an ordinary YAML spelling of the same value, and the guard exists to catch a publisher added by accident, not one written in the idiom the guard happened to expect. The operation decides; the spelling around the reference is dropped. |
+| `publish surface: a single-quoted untagged image is a publish target` | the other quote style, pinned on its own so the match cannot quietly accept one and miss the other. |
+| `publish surface: this repo's own package is a target and is allowed` | the other half of a usable rule -- what this repo is SUPPOSED to publish has to read as clean, or the guard says stop without saying what to write instead. |
+| `publish surface: a tagged consumer reference is not a publish target` | the consumer shape this repo already has, pinned as behaviour rather than left in prose: tagged references in a file that never pushes. base#1176 items 1 and 2 repoint this repo at the PUBLISHED toml-bridge image; a rule that read a pull as a push would fail that work, and the guard meant to protect the migration would block it. |
+| `publish surface: a comment naming a package is not a declaration` | a workflow's own prose explains what it pushes, and this spec's header quotes the retired declaration it exists because of. A scan that could not tell prose from code would make both unwritable and push authors to delete the reasoning to get the lint green. The fixture is a real publisher, so this also shows a comment cannot name a target. |
+| `publish surface: a tagged image in a file that pushes is a publish target` | a tagged image fed to a push is exactly the hazard this guard is for. A publisher that declared `IMAGE: ghcr.io/another-org/package:latest` and pushed it would move that repo's floating tag, and a scan that read the tag as "consumer" would wave it through. |
+| `publish surface: a tagged image in a file that never pushes is not a target` | the same tagged reference in a file that never pushes anything is a pull, and contributes nothing. This is what keeps the base#1176 repoint (this repo consuming the published toml-bridge image) clean. |
+| `publish surface: build-push-action with push true makes its tagged ref a target` | build-push-action is the other way this repo pushes, and its `push: true` input is the operation. A tagged ref in that file is a target whatever the tag says. |
+| `publish surface: build-push-action with push false contributes nothing` | the same action with `push: false` builds and keeps the result local; no package moves, so the file is a consumer and contributes nothing. build-worker.yaml is this shape. |
+| `every GHCR package this repo publishes is one this repo owns` | the rule applied to the live tree, over a population derived from the directory rather than listed here -- which is what makes a publisher added tomorrow scanned the day it lands instead of the day somebody remembers this file exists. Set EQUALITY, so a publisher for a package this repo does not own fails, and so does losing the publisher for one it does. |
+| `no workflow here publishes the toml-bridge package, which another repo owns` | the named hazard, kept as its own case so the failure says WHY and not merely that a set differs. `ycpss91255-docker/toml-bridge` owns this package and has shipped v0.1.0 of it; a publisher here with an unfiltered `v*` arm moves `:latest` off that image on the next non-RC tag cut from main, silently and green (base#1180). |
+| `the scan really walked this repo's workflows and still sees the real publisher` | the non-vacuity case, and the one that keeps the two above honest. An expected set satisfies them whether the scan read every workflow or none of them, and the match above is worth exactly as much as its ability to still see this repo's real publisher: the day `release-test-tools.yaml` stops pushing through an operation the scan knows, or stops naming its target as a literal, this fails and says so rather than reporting a clean surface it no longer looks at. |
+
 ### test/bats/unit/gitattributes_spec.bats (3)
 
 | Test | Description |
