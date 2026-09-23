@@ -338,7 +338,7 @@ FROM alpine-apk
 # downstream contract is written in -- moved to a pinned upstream release
 # in the just-runner stage above.
 RUN apk add --no-cache bash parallel git git-subtree ca-certificates grep coreutils yq-go docker-cli docker-cli-buildx docker-cli-compose xz mawk gawk \
-        libstdc++ libcurl libdw libelf zlib libgcc
+        libstdc++ libcurl libdw libelf zlib libgcc python3
 COPY --from=bats-src /opt/bats /opt/bats
 COPY --from=bats-src /usr/lib/bats /usr/lib/bats
 COPY --from=bats-extensions /bats /usr/lib/bats

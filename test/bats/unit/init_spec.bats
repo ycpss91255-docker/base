@@ -384,9 +384,9 @@ REMOTE
 
 @test "_gen_setup_conf default refuses to overwrite existing setup.conf" {
   mkdir -p "${TMP_REPO}/.base/dist"
-  printf "[image]\nrules = @basename\n" > "${TMP_REPO}/.base/dist/.setup.conf"
+  printf "[image]\nrules = @basename\n" > "${TMP_REPO}/.base/dist/setup.toml"
   mkdir -p "${TMP_REPO}"
-  echo "existing user config" > "${TMP_REPO}/.setup.conf"
+  echo "existing user config" > "${TMP_REPO}/setup.toml"
   _source_init
   run _gen_setup_conf "false"
   assert_failure
@@ -395,26 +395,26 @@ REMOTE
 
 @test "_gen_setup_conf --force overwrites and backs up existing setup.conf" {
   mkdir -p "${TMP_REPO}/.base/dist"
-  printf "[image]\nrules = @basename\n" > "${TMP_REPO}/.base/dist/.setup.conf"
+  printf "[image]\nrules = @basename\n" > "${TMP_REPO}/.base/dist/setup.toml"
   mkdir -p "${TMP_REPO}"
-  echo "old user conf" > "${TMP_REPO}/.setup.conf"
+  echo "old user conf" > "${TMP_REPO}/setup.toml"
   _source_init
   run _gen_setup_conf "true"
   assert_success
   # new setup.conf must come from template
-  run cat "${TMP_REPO}/.setup.conf"
+  run cat "${TMP_REPO}/setup.toml"
   assert_output --partial "rules = @basename"
   # backup must contain the pre-overwrite user content
-  assert [ -f "${TMP_REPO}/.setup.conf.bak" ]
-  run cat "${TMP_REPO}/.setup.conf.bak"
+  assert [ -f "${TMP_REPO}/setup.toml.bak" ]
+  run cat "${TMP_REPO}/setup.toml.bak"
   assert_output "old user conf"
 }
 
 @test "_gen_setup_conf --force also backs up .env to .env.bak" {
   mkdir -p "${TMP_REPO}/.base/dist"
-  printf "[image]\nrules = @basename\n" > "${TMP_REPO}/.base/dist/.setup.conf"
+  printf "[image]\nrules = @basename\n" > "${TMP_REPO}/.base/dist/setup.toml"
   mkdir -p "${TMP_REPO}"
-  echo "user conf" > "${TMP_REPO}/.setup.conf"
+  echo "user conf" > "${TMP_REPO}/setup.toml"
   echo "USER_NAME=existing" > "${TMP_REPO}/.env"
   _source_init
   run _gen_setup_conf "true"
@@ -429,23 +429,23 @@ REMOTE
   # A broken/partial subtree has no template setup.conf -- the exact
   # scenario --gen-conf is meant to diagnose. _gen_setup_conf must fail
   # loudly rather than copy a non-existent source.
-  rm -f "${TMP_REPO}/.base/dist/.setup.conf"
-  rm -f "${TMP_REPO}/.setup.conf"
+  rm -f "${TMP_REPO}/.base/dist/setup.toml"
+  rm -f "${TMP_REPO}/setup.toml"
   _source_init
   run _gen_setup_conf "false"
   assert_failure
-  assert_output --partial "Template setup.conf not found"
+  assert_output --partial "Template setup.toml not found"
 }
 
 @test "_gen_setup_conf --force on clean repo does not create spurious .bak" {
   # No pre-existing setup.conf → first-time provision, nothing to back up.
   mkdir -p "${TMP_REPO}/.base/dist"
-  printf "[image]\nrules = @basename\n" > "${TMP_REPO}/.base/dist/.setup.conf"
-  rm -f "${TMP_REPO}/.setup.conf" "${TMP_REPO}/.env"
+  printf "[image]\nrules = @basename\n" > "${TMP_REPO}/.base/dist/setup.toml"
+  rm -f "${TMP_REPO}/setup.toml" "${TMP_REPO}/.env"
   _source_init
   run _gen_setup_conf "true"
   assert_success
-  assert [ ! -f "${TMP_REPO}/.setup.conf.bak" ]
+  assert [ ! -f "${TMP_REPO}/setup.toml.bak" ]
   assert [ ! -f "${TMP_REPO}/.env.bak" ]
 }
 
@@ -491,10 +491,10 @@ REMOTE
 # _create_new_repo .gitignore covers the *.bak siblings
 # ════════════════════════════════════════════════════════════════════
 
-@test "_create_new_repo: .gitignore includes .setup.conf.bak and .env.bak" {
+@test "_create_new_repo: .gitignore includes setup.toml.bak and .env.bak" {
   _source_init
   _create_new_repo "main"
-  run grep -Fxq .setup.conf.bak "${TMP_REPO}/.gitignore"
+  run grep -Fxq setup.toml.bak "${TMP_REPO}/.gitignore"
   assert_success
   run grep -Fxq .env.bak "${TMP_REPO}/.gitignore"
   assert_success
@@ -655,7 +655,7 @@ _git_seed_consumer() {
 # _resync_and_stage
 #   The existing-repo half of init.sh's `main`, in main's order: resync,
 #   then stage what it wrote. Staging is a step of `main` rather than of
-#   `_init_existing_repo` because `.setup.conf` is written between the two
+#   `_init_existing_repo` because `setup.toml` is written between the two
 #   (by `_call_setup`, which these unit arms do not run -- it shells out to
 #   the real setup.sh; the integration arm covers that file). Calling both
 #   here rather than asserting against `_init_existing_repo` alone is what
@@ -878,7 +878,7 @@ EOF
 # written only under a condition and otherwise left exactly as they were
 # found -- the 14 hook stubs, the script/local/ starter pair,
 # config/.gitkeep, the monitor workflow, a .hadolint.yaml the user has
-# customised, .gitignore, .dockerignore and .setup.conf. Staging the list
+# customised, .gitignore, .dockerignore and setup.toml. Staging the list
 # wholesale therefore stages the user's own content in those files and, on
 # the real upgrade path, commits it. The arms below name each writer,
 # because a fix that reaches only the one that was reported leaves the
@@ -983,57 +983,57 @@ _fake_setup_sh() {
     > "${TMP_REPO}/.base/dist/script/docker/wrapper/setup.sh"
 }
 
-# .setup.conf is the one path of this shape whose writer is in another
+# setup.toml is the one path of this shape whose writer is in another
 # PROCESS: setup.sh writes it, on bootstrap or on a stale mount_1 rewrite,
 # and leaves it alone on every other run. No in-process record reaches
 # across that, so the content across the call is what says whether this run
 # wrote the file.
 
-# why: setup.sh leaves an existing .setup.conf alone on every run but a
+# why: setup.sh leaves an existing setup.toml alone on every run but a
 # bootstrap or a stale-path rewrite, so what is in it is the repo's own
 # tuning and staging it commits an edit the user had not finished
-@test "the resync: leaves a .setup.conf setup.sh did not touch unstaged (#1036)" {
+@test "the resync: leaves a setup.toml setup.sh did not touch unstaged (#1036)" {
   _source_init
   : > "${TMP_REPO}/Dockerfile"
-  printf '[project]\nname = mine\n' > "${TMP_REPO}/.setup.conf"
+  printf '[project]\nname = mine\n' > "${TMP_REPO}/setup.toml"
   _fake_setup_sh 'exit 0'
   _git_seed_consumer
-  printf '# my half-finished tuning\n' >> "${TMP_REPO}/.setup.conf"
+  printf '# my half-finished tuning\n' >> "${TMP_REPO}/setup.toml"
   _init_existing_repo
   _call_setup
   _stage_resync_output
   run git -C "${TMP_REPO}" diff --cached --name-only
-  refute_output --partial ".setup.conf"
+  refute_output --partial "setup.toml"
 }
 
 # why: the half that must not regress -- a first-time bootstrap writes the
 # file, and leaving THAT out of the commit is the tree/commit disagreement
 # the staging step exists to close
-@test "the resync: stages the .setup.conf setup.sh bootstrapped (#1036)" {
+@test "the resync: stages the setup.toml setup.sh bootstrapped (#1036)" {
   _source_init
   : > "${TMP_REPO}/Dockerfile"
-  _fake_setup_sh 'printf "[project]\nname = seeded\n" > "${3}/.setup.conf"'
+  _fake_setup_sh 'printf "[project]\nname = seeded\n" > "${3}/setup.toml"'
   _git_seed_consumer
   _init_existing_repo
   _call_setup
   _stage_resync_output
   run git -C "${TMP_REPO}" diff --cached --name-only
-  assert_line ".setup.conf"
+  assert_line "setup.toml"
 }
 
 # why: the stale-mount_1 rewrite changes a file that was already there, so
 # "did it exist before" is the wrong question and only the content answers
-@test "the resync: stages a .setup.conf setup.sh rewrote in place (#1036)" {
+@test "the resync: stages a setup.toml setup.sh rewrote in place (#1036)" {
   _source_init
   : > "${TMP_REPO}/Dockerfile"
-  printf '[volumes]\nmount_1 = /gone:/work\n' > "${TMP_REPO}/.setup.conf"
-  _fake_setup_sh 'printf "[volumes]\nmount_1 = portable\n" > "${3}/.setup.conf"'
+  printf '[volumes]\nmount_1 = /gone:/work\n' > "${TMP_REPO}/setup.toml"
+  _fake_setup_sh 'printf "[volumes]\nmount_1 = portable\n" > "${3}/setup.toml"'
   _git_seed_consumer
   _init_existing_repo
   _call_setup
   _stage_resync_output
   run git -C "${TMP_REPO}" diff --cached --name-only
-  assert_line ".setup.conf"
+  assert_line "setup.toml"
 }
 
 # The record is a comparison of the file's content across the call, and a
@@ -1046,18 +1046,18 @@ _fake_setup_sh() {
 # why: the one failure the trailing-newline sentinel exists for -- a write
 # the record cannot see is a write that never reaches the commit, which is
 # the tree/commit disagreement this staging closes
-@test "the resync: stages a .setup.conf rewritten only in its final newline (#1036)" {
+@test "the resync: stages a setup.toml rewritten only in its final newline (#1036)" {
   _source_init
   : > "${TMP_REPO}/Dockerfile"
-  printf '[project]\nname = mine\n' > "${TMP_REPO}/.setup.conf"
+  printf '[project]\nname = mine\n' > "${TMP_REPO}/setup.toml"
   # Byte-identical but for the newline setup.sh drops off the end.
-  _fake_setup_sh 'printf "[project]\nname = mine" > "${3}/.setup.conf"'
+  _fake_setup_sh 'printf "[project]\nname = mine" > "${3}/setup.toml"'
   _git_seed_consumer
   _init_existing_repo
   _call_setup
   _stage_resync_output
   run git -C "${TMP_REPO}" diff --cached --name-only
-  assert_line ".setup.conf"
+  assert_line "setup.toml"
 }
 
 # .gitignore and .dockerignore are the seventh and eighth paths of this
@@ -1131,7 +1131,7 @@ fixtures/
   : > "${TMP_REPO}/Dockerfile"
   # A relative [logging] local_path is what puts a managed block in
   # .gitignore, and the block is what the second pass below re-emits.
-  printf '[logging]\nlocal_path = log\n' > "${TMP_REPO}/.setup.conf"
+  printf '[logging]\nlocal_path = log\n' > "${TMP_REPO}/setup.toml"
   _git_seed_consumer
   _init_existing_repo
   # A hand edit that drops the final byte, committed: every canonical entry
@@ -1570,8 +1570,8 @@ EOF
 # ────────────────────────────────────────────────────────────────────
 
 _stage_missing_template_conf() {
-  rm -f "${TMP_REPO}/.base/dist/.setup.conf"
-  rm -f "${TMP_REPO}/.setup.conf"
+  rm -f "${TMP_REPO}/.base/dist/setup.toml"
+  rm -f "${TMP_REPO}/setup.toml"
   _source_init
 }
 
@@ -1588,7 +1588,7 @@ _stage_missing_template_conf() {
   LOG_FORMAT=text run _gen_setup_conf "false"
   assert_failure
   assert_output --partial '[init] ERROR'
-  assert_output --partial 'Template setup.conf not found'
+  assert_output --partial 'Template setup.toml not found'
   refute_output --partial 'log-events.txt'
 }
 
@@ -1596,7 +1596,7 @@ _stage_missing_template_conf() {
   _stage_missing_template_conf
   LOG_FORMAT=json run _gen_setup_conf "false"
   assert_failure
-  assert_output --partial '"display":"Template setup.conf not found'
+  assert_output --partial '"display":"Template setup.toml not found'
 }
 
 # ════════════════════════════════════════════════════════════════════

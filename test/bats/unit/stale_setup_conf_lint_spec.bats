@@ -3,7 +3,7 @@
 # Unit tests for script/test/drivers/stale_setup_conf.sh -- the
 # "no stale config/docker/setup.conf path in runtime shell code" lint.
 # The per-repo override and the template default now live at the repo-root
-# .setup.conf dotfile, so a hardcoded config/docker/setup.conf in dist/
+# setup.toml file, so a hardcoded config/docker/setup.conf in dist/
 # runtime code reads a path that no longer exists and silently ignores the
 # repo's knobs. The legacy-migration lib, dist/script/docker/lib/
 # setup_conf_migrate.sh, is the one legitimate consumer and opts out via
@@ -14,8 +14,8 @@
 # why: Unit tests for `script/test/drivers/stale_setup_conf.sh`
 # (`_run_stale_setup_conf`, refs #845), the "no stale
 # `config/docker/setup.conf` path in runtime shell code" lint. The per-repo
-# override and the template default now live at the repo-root `.setup.conf`
-# dotfile, so a hardcoded legacy path in `dist/**/*.sh` reads a location
+# override and the template default now live at the repo-root `setup.toml`
+# file, so a hardcoded legacy path in `dist/**/*.sh` reads a location
 # that no longer exists and silently ignores the repo's knobs. The
 # legacy-migration lib `dist/script/docker/lib/setup_conf_migrate.sh` is
 # the one legitimate consumer and opts out via explicit `allow-begin` /
@@ -70,13 +70,13 @@ _write() {
   [[ "${output}" == *"dist/script/docker/lib/sample.sh:2"* ]]
 }
 
-# why: Message points at `.setup.conf`
+# why: Message points at `setup.toml`
 @test "_run_stale_setup_conf: names the replacement path in the failure message (#845)" {
   _write "dist/script/docker/lib/sample.sh" \
     "_conf=\"\${_root}/${STALE}\""
   run _run_stale_setup_conf
   [ "${status}" -ne 0 ]
-  [[ "${output}" == *".setup.conf"* ]]
+  [[ "${output}" == *"setup.toml"* ]]
 }
 
 # why: Comments are in scope, not exempt
@@ -136,11 +136,11 @@ _write() {
   [[ "${output}" == *"clean"* ]]
 }
 
-# why: `.setup.conf` tree clean
-@test "_run_stale_setup_conf: PASSES a dist/ tree that uses the repo-root dotfile (#845)" {
+# why: `setup.toml` tree clean
+@test "_run_stale_setup_conf: PASSES a dist/ tree that uses the repo-root config (#845)" {
   _write "dist/script/docker/lib/sample.sh" \
     '#!/usr/bin/env bash' \
-    '_conf="${_root}/.setup.conf"'
+    '_conf="${_root}/setup.toml"'
   run _run_stale_setup_conf
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"clean"* ]]

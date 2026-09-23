@@ -797,7 +797,7 @@ _one_good_pin() {
   # one no earlier version of this lint looked at. An unrecognised context
   # must raise the question rather than pass.
   _one_good_pin
-  printf 'fallback_image=alpine:3.21\n' > "${SCRATCH}/dist.setup.conf"
+  printf 'fallback_image=alpine:3.21\n' > "${SCRATCH}/distsetup.toml"
   _lint
   assert_failure
   assert_output --partial 'alpine:3.21'

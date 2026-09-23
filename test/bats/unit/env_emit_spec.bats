@@ -285,6 +285,51 @@ load "${BATS_TEST_DIRNAME}/setup_spec_helper"
 }
 
 # ════════════════════════════════════════════════════════════════════
+# write_container_env -- service env from .env.toml (ADR-37 D6)
+# ════════════════════════════════════════════════════════════════════
+# why: ADR-37 splits service runtime env into .env.toml. The emitter
+# must produce a headed section so the operator can see which file each
+# block came from, and each key must land single-quoted (the same
+# format _emit_env_file_line uses for setup.toml entries).
+@test "write_container_env emits .env.toml [environment] entries under a service env header (#1135)" {
+  local _out="${TEMP_DIR}/.env"
+  write_container_env "${_out}" "" "" "" $'ROS_DOMAIN_ID=42\nLOG_LEVEL=debug'
+  run grep -F '# ── [environment] (from .env.toml) ──' "${_out}"
+  assert_success
+  run grep -xF "ROS_DOMAIN_ID='42'" "${_out}"
+  assert_success
+  run grep -xF "LOG_LEVEL='debug'" "${_out}"
+  assert_success
+}
+
+# why: An empty service_env_str means the repo carries no .env.toml
+# entries. The section header must not appear -- a headed empty block
+# misleads the operator into thinking the file was read but had nothing.
+@test "write_container_env omits the service env section when the parameter is empty (#1135)" {
+  local _out="${TEMP_DIR}/.env"
+  write_container_env "${_out}" "" "" "" ""
+  run grep -F '.env.toml' "${_out}"
+  assert_failure
+}
+
+# why: The two env sources (setup.toml infra + .env.toml service) and
+# the watchdog block must coexist in one .env file. A merge bug would
+# drop one source or intermingle their headers.
+@test "write_container_env emits both infra and service env sections (#1135)" {
+  local _out="${TEMP_DIR}/.env"
+  write_container_env "${_out}" 'BUILD_TARGET=release' 'WATCHDOG_ENABLED=true' "" 'ROS_DOMAIN_ID=7'
+  # Infra env from setup.toml
+  run grep -xF "BUILD_TARGET='release'" "${_out}"
+  assert_success
+  # Watchdog
+  run grep -xF "WATCHDOG_ENABLED='true'" "${_out}"
+  assert_success
+  # Service env from .env.toml
+  run grep -xF "ROS_DOMAIN_ID='7'" "${_out}"
+  assert_success
+}
+
+# ════════════════════════════════════════════════════════════════════
 # _migrate_env_to_local -- a hand-written .env predates the naming rule
 # ════════════════════════════════════════════════════════════════════
 @test "_migrate_env_to_local renames a hand-written .env to .env.local (#868)" {

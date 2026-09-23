@@ -61,7 +61,7 @@ setup() {
 
   create_mock_dir
   TEMP_DIR="$(mktemp -d)"
-  # path: setup.conf lives at .setup.conf
+  # path: setup.conf lives at setup.toml
   mkdir -p "${TEMP_DIR}"
 }
 
@@ -728,7 +728,7 @@ teardown() {
 # ════════════════════════════════════════════════════════════════════
 
 @test "_load_setup_conf_full reads all sections preserving order" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [image]
 rules = @default:foo
 
@@ -741,7 +741,7 @@ mount_1 = /a:/a
 mount_2 = /b:/b
 EOF
   local -a _sections=() _keys=() _values=()
-  _load_setup_conf_full "${TEMP_DIR}/.setup.conf" _sections _keys _values
+  _load_setup_conf_full "${TEMP_DIR}/setup.toml" _sections _keys _values
 
   assert_equal "${_sections[0]}" "image"
   assert_equal "${_sections[1]}" "build"
@@ -749,13 +749,13 @@ EOF
 }
 
 @test "_load_setup_conf_full reads key/value pairs" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [deploy]
 gpu_mode = auto
 gpu_count = 2
 EOF
   local -a _sections=() _keys=() _values=()
-  _load_setup_conf_full "${TEMP_DIR}/.setup.conf" _sections _keys _values
+  _load_setup_conf_full "${TEMP_DIR}/setup.toml" _sections _keys _values
 
   # Entries are section-scoped key=value; format is
   #   _keys[i]="<section>.<key>", _values[i]="<value>"
@@ -887,6 +887,11 @@ EOF
 
 # ════════════════════════════════════════════════════════════════════
 # _upsert_conf_value — in-place edit of a single key (for setup.sh writeback)
+#
+# These pin the INI-mode behaviour of the writer, which is the mode the
+# frozen TUI's own file still gets: the writer picks its format from the
+# destination's name, so the fixtures here are INI files under an INI
+# name. The TOML mode is specified in conf_toml_writer_spec.bats.
 # ════════════════════════════════════════════════════════════════════
 
 @test "_upsert_conf_value updates existing key value" {
@@ -940,16 +945,16 @@ EOF
 }
 
 @test "_upsert_conf_value leaves other sections untouched" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [image]
 rules = @default:foo
 
 [volumes]
 mount_1 =
 EOF
-  _upsert_conf_value "${TEMP_DIR}/.setup.conf" "volumes" "mount_1" "/a:/b"
+  _upsert_conf_value "${TEMP_DIR}/setup.toml" "volumes" "mount_1" "/a:/b"
 
-  run grep '^rules' "${TEMP_DIR}/.setup.conf"
+  run grep '^rules' "${TEMP_DIR}/setup.toml"
   [[ "${output}" == "rules = @default:foo" ]]
 }
 
@@ -1725,7 +1730,7 @@ _b_remove_setup() {
 # ════════════════════════════════════════════════════════════════════
 
 @test "_load_setup_conf_full reads [stage:NAME] sections with namespaced keys" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [gui]
 mode = auto
 
@@ -1738,7 +1743,7 @@ network.port_1 = 8080:80
 gui.mode = auto
 EOF
   local -a _sections=() _keys=() _values=()
-  _load_setup_conf_full "${TEMP_DIR}/.setup.conf" _sections _keys _values
+  _load_setup_conf_full "${TEMP_DIR}/setup.toml" _sections _keys _values
 
   # Sections: gui, stage:headless, stage:gui in file order
   [[ "${_sections[0]}" == "gui" ]] || { echo "expected gui, got ${_sections[0]}"; return 1; }

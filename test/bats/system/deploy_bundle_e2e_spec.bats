@@ -115,7 +115,7 @@ setup_file() {
     'env_4 = APP_QB=a"b\c' \
     "env_5 = APP_APOS=it's fine" \
     "[lifecycle]" "watchdog_check = true" "watchdog_interval = 30" \
-    > "${REPO}/.setup.conf"
+    > "${REPO}/setup.toml"
 
   cat > "${REPO}/Dockerfile" <<'DOCK'
 FROM alpine:3.20 AS sys

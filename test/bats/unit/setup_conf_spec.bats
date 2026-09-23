@@ -2,11 +2,11 @@
 #
 # why: Mirrors `lib/setup_conf.sh`. setup.conf merging (`_load_setup_conf`
 # replace strategy) resolving the per-repo override from the repo-root
-# `.setup.conf` dotfile (a legacy `config/docker/setup.conf` is no longer
+# `setup.toml` dotfile (a legacy `config/docker/setup.conf` is no longer
 # read), `_get_conf_value` / `_get_conf_list_sorted` (incl. empty-skip), and
 # the `_rule_basename` image-rule helper. Also guards the shipped `dist/`
 # prose against pre-relocation path names: the four `setup_tui.sh` usage
-# heredocs must advertise `.setup.conf`, and no shipped text may still say
+# heredocs must advertise `setup.toml`, and no shipped text may still say
 # `<repo>/setup.conf` or `.base/setup.conf` (#842).
 
 bats_require_minimum_version 1.5.0
@@ -29,9 +29,9 @@ load "${BATS_TEST_DIRNAME}/setup_spec_helper"
   local -a _l=()
   _setup_conf_layers "${TEMP_DIR}" _l "${TEMP_DIR}/.base/dist"
   assert_equal "${#_l[@]}" "3"
-  assert_equal "${_l[0]}" "${TEMP_DIR}/.base/dist/.setup.conf"
-  assert_equal "${_l[1]}" "${TEMP_DIR}/.setup.conf"
-  assert_equal "${_l[2]}" "${TEMP_DIR}/.setup.conf.local"
+  assert_equal "${_l[0]}" "${TEMP_DIR}/.base/dist/setup.toml"
+  assert_equal "${_l[1]}" "${TEMP_DIR}/setup.toml"
+  assert_equal "${_l[2]}" "${TEMP_DIR}/setup.local.toml"
 }
 
 @test "_setup_conf_layers: _SETUP_SCRIPT_DIR still places the template layer when no dist dir is given (#956)" {
@@ -39,10 +39,10 @@ load "${BATS_TEST_DIRNAME}/setup_spec_helper"
   _setup_conf_layers "${TEMP_DIR}" _l
   assert_equal "${#_l[@]}" "3"
   # setup_spec_helper sources wrapper/setup.sh, so _SETUP_SCRIPT_DIR is
-  # the shipped wrapper dir and the template layer is dist/.setup.conf.
-  [[ "${_l[0]}" == *"/.setup.conf" ]]
+  # the shipped wrapper dir and the template layer is dist/setup.toml.
+  [[ "${_l[0]}" == */setup.toml ]]
   [[ "${_l[0]}" != "${_l[1]}" ]]
-  assert_equal "${_l[1]}" "${TEMP_DIR}/.setup.conf"
+  assert_equal "${_l[1]}" "${TEMP_DIR}/setup.toml"
 }
 
 @test "_setup_conf_layers: no _SETUP_SCRIPT_DIR and no dist dir omits the template layer (#956)" {
@@ -53,7 +53,7 @@ load "${BATS_TEST_DIRNAME}/setup_spec_helper"
   local _SETUP_SCRIPT_DIR=""
   _setup_conf_layers "${TEMP_DIR}" _l
   assert_equal "${#_l[@]}" "2"
-  assert_equal "${_l[0]}" "${TEMP_DIR}/.setup.conf"
+  assert_equal "${_l[0]}" "${TEMP_DIR}/setup.toml"
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -62,10 +62,10 @@ load "${BATS_TEST_DIRNAME}/setup_spec_helper"
 @test "_load_setup_conf returns every entry of the per-repo section" {
   # Was the SETUP_CONF fixture seam; the conf surface is the fixed pair of
   # real files, so the fixture is a real file at the path the resolver reads.
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [gpu]
-mode = off
-count = 0
+mode = "off"
+count = "0"
 EOF
   local -a _k=() _v=()
   _load_setup_conf "${TEMP_DIR}" "gpu" _k _v
@@ -83,40 +83,40 @@ EOF
 # a silent failure, which invariant 2 forbids.
 # ════════════════════════════════════════════════════════════════════
 @test "_load_setup_conf ignores an ambient SETUP_CONF pointing at another file" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [gui]
-mode = force
+mode = "force"
 EOF
-  cat > "${TEMP_DIR}/elsewhere.conf" <<'EOF'
+  cat > "${TEMP_DIR}/elsewhere.toml" <<'EOF'
 [gui]
-mode = off
+mode = "off"
 EOF
   local -a _k=() _v=()
-  SETUP_CONF="${TEMP_DIR}/elsewhere.conf" _load_setup_conf "${TEMP_DIR}" "gui" _k _v
+  SETUP_CONF="${TEMP_DIR}/elsewhere.toml" _load_setup_conf "${TEMP_DIR}" "gui" _k _v
   assert_equal "${_v[0]}" "force"
 }
 
 @test "_load_setup_conf does not resolve to an empty config when an ambient SETUP_CONF path is absent" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [gui]
-mode = force
+mode = "force"
 EOF
   local -a _k=() _v=()
-  SETUP_CONF="${TEMP_DIR}/typo-nowhere.conf" _load_setup_conf "${TEMP_DIR}" "gui" _k _v
+  SETUP_CONF="${TEMP_DIR}/typo-nowhere.toml" _load_setup_conf "${TEMP_DIR}" "gui" _k _v
   assert_equal "${#_k[@]}" "1"
   assert_equal "${_v[0]}" "force"
 }
 
 @test "_setup_conf_handle ignores an ambient SETUP_CONF" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [gui]
-mode = force
+mode = "force"
 EOF
-  cat > "${TEMP_DIR}/elsewhere.conf" <<'EOF'
+  cat > "${TEMP_DIR}/elsewhere.toml" <<'EOF'
 [gui]
-mode = off
+mode = "off"
 EOF
-  SETUP_CONF="${TEMP_DIR}/elsewhere.conf" _setup_conf_handle "${TEMP_DIR}" _SCH
+  SETUP_CONF="${TEMP_DIR}/elsewhere.toml" _setup_conf_handle "${TEMP_DIR}" _SCH
   run _conf_get _SCH gui mode
   assert_success
   assert_output "force"
@@ -126,36 +126,37 @@ EOF
   # The hash names the config that was actually resolved. Folding a file
   # resolution never read into it makes the drift signal describe something
   # else entirely.
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [gui]
-mode = force
+mode = "force"
 EOF
-  cat > "${TEMP_DIR}/elsewhere.conf" <<'EOF'
+  cat > "${TEMP_DIR}/elsewhere.toml" <<'EOF'
 [gui]
-mode = off
+mode = "off"
 EOF
   local _plain="" _ambient=""
   _compute_conf_hash "${TEMP_DIR}" _plain
-  SETUP_CONF="${TEMP_DIR}/elsewhere.conf" _compute_conf_hash "${TEMP_DIR}" _ambient
+  SETUP_CONF="${TEMP_DIR}/elsewhere.toml" _compute_conf_hash "${TEMP_DIR}" _ambient
   assert_equal "${_ambient}" "${_plain}"
 }
 
-@test "_load_setup_conf uses per-repo setup.conf when section present" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+# why: The TOML migration must not break the primary config-load path.
+@test "_load_setup_conf uses per-repo setup.toml when section present" {
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [gpu]
-mode = force
+mode = "force"
 EOF
   local -a _k=() _v=()
   _load_setup_conf "${TEMP_DIR}" "gpu" _k _v
   assert_equal "${_v[0]}" "force"
 }
 
-@test "_load_setup_conf reads the per-repo override from repo-root .setup.conf" {
-  # The tool-managed override lives at the repo root as a dotfile,
-  # out of the hand-editable config/ surface.
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+# why: The repo-root setup.toml is the committed override layer; loading from the wrong path silently falls back to the template.
+@test "_load_setup_conf reads the per-repo override from repo-root setup.toml" {
+  # The tool-managed override lives at the repo root.
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [gpu]
-mode = force
+mode = "force"
 EOF
   local -a _k=() _v=()
   _load_setup_conf "${TEMP_DIR}" "gpu" _k _v
@@ -179,7 +180,7 @@ EOF
 # ════════════════════════════════════════════════════════════════════
 # Post-relocation path names in user-facing help / comments
 # ════════════════════════════════════════════════════════════════════
-@test "setup_tui.sh usage names the repo-root .setup.conf in every language (#842)" {
+@test "setup_tui.sh usage names the repo-root setup.toml in every language (#842)" {
   # Help that names a path the user cannot find is worse than no help:
   # all four heredocs must advertise the dotfile the TUI actually edits.
   #
@@ -199,7 +200,7 @@ EOF
       _LANG='${_lang}' usage
     "
     assert_success
-    assert_output --partial ".setup.conf"
+    assert_output --partial "setup.toml"
     refute_output --partial "<repo>/setup.conf"
   done
 }
@@ -210,17 +211,17 @@ EOF
 }
 
 @test "no shipped dist/ text names the non-existent .base/setup.conf default (#842)" {
-  # The template baseline resolves to .base/dist/.setup.conf; the old
+  # The template baseline resolves to .base/dist/setup.toml; the old
   # shorthand points at a path that never existed post-relocation.
   run grep -rn '\.base/setup\.conf' /source/dist
   assert_failure
 }
 
 @test "_load_setup_conf falls back to template when section absent per-repo" {
-  # Per-repo setup.conf has [gpu] but NOT [gui]
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  # Per-repo setup.toml has [gpu] but NOT [gui]
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [gpu]
-mode = force
+mode = "force"
 EOF
   local -a _k=() _v=()
   _load_setup_conf "${TEMP_DIR}" "gui" _k _v
@@ -230,63 +231,66 @@ EOF
 
 @test "_load_setup_conf replace strategy: per-repo section fully replaces template section" {
   # Template [gpu] has mode+count+capabilities; per-repo only sets mode=off
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [gpu]
-mode = off
+mode = "off"
 EOF
   local -a _k=() _v=()
   _load_setup_conf "${TEMP_DIR}" "gpu" _k _v
-  # Replace strategy: only "mode" — no count, no capabilities inherited
+  # Replace strategy: only "mode" -- no count, no capabilities inherited
   assert_equal "${#_k[@]}" "1"
   assert_equal "${_k[0]}" "mode"
 }
 
 # ════════════════════════════════════════════════════════════════════
-# .setup.conf.local -- the gitignored per-worktree layer
+# setup.local.toml -- the gitignored per-worktree layer
 #
 # Third layer of the same chain, with the same section-replace rule:
-# template <- <repo>/.setup.conf <- <repo>/.setup.conf.local. It may
+# template <- <repo>/setup.toml <- <repo>/setup.local.toml. It may
 # override ANY section, because per-key merge over the eight `<prefix>_N`
 # ordered-list sections is not merely inconsistent but broken (an item
 # cannot be removed, and adding one needs the highest N of a layer the
 # user cannot see).
 # ════════════════════════════════════════════════════════════════════
-@test "_load_setup_conf: .setup.conf.local overrides the per-repo section" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+# why: The local layer is the operator's per-worktree override; if it does not win, every worktree shares one config.
+@test "_load_setup_conf: setup.local.toml overrides the per-repo section" {
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [gui]
-mode = force
+mode = "force"
 EOF
-  cat > "${TEMP_DIR}/.setup.conf.local" <<'EOF'
+  cat > "${TEMP_DIR}/setup.local.toml" <<'EOF'
 [gui]
-mode = off
+mode = "off"
 EOF
   local -a _k=() _v=()
   _load_setup_conf "${TEMP_DIR}" "gui" _k _v
   assert_equal "${_v[0]}" "off"
 }
 
-@test "_load_setup_conf: .setup.conf.local overrides the template for a section the repo omits" {
-  cat > "${TEMP_DIR}/.setup.conf.local" <<'EOF'
+# why: A repo that skips a section still needs local override to reach through to the template default.
+@test "_load_setup_conf: setup.local.toml overrides the template for a section the repo omits" {
+  cat > "${TEMP_DIR}/setup.local.toml" <<'EOF'
 [gui]
-mode = off
+mode = "off"
 EOF
   local -a _k=() _v=()
   _load_setup_conf "${TEMP_DIR}" "gui" _k _v
   assert_equal "${_v[0]}" "off"
 }
 
-@test "_load_setup_conf: .setup.conf.local replaces a section wholesale, never per-key" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+# why: Section-replace semantics are ADR-37 D4; per-key merge here would leak keys from the layer below into the resolved config.
+@test "_load_setup_conf: setup.local.toml replaces a section wholesale, never per-key" {
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [network]
-mode = bridge
-ipc = private
-port_1 = 8080:80
-port_2 = 9090:90
+mode = "bridge"
+ipc = "private"
+port_1 = "8080:80"
+port_2 = "9090:90"
 EOF
-  cat > "${TEMP_DIR}/.setup.conf.local" <<'EOF'
+  cat > "${TEMP_DIR}/setup.local.toml" <<'EOF'
 [network]
-mode = bridge
-port_1 = 18080:80
+mode = "bridge"
+port_1 = "18080:80"
 EOF
   local -a _k=() _v=()
   _load_setup_conf "${TEMP_DIR}" "network" _k _v
@@ -298,28 +302,30 @@ EOF
   assert_equal "${_v[1]}" "18080:80"
 }
 
-@test "_load_setup_conf: sections .setup.conf.local omits keep the layer below" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+# why: A local layer that mentions one section must not blank out every other section in the resolved config.
+@test "_load_setup_conf: sections setup.local.toml omits keep the layer below" {
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [gpu]
-mode = force
+mode = "force"
 EOF
-  cat > "${TEMP_DIR}/.setup.conf.local" <<'EOF'
+  cat > "${TEMP_DIR}/setup.local.toml" <<'EOF'
 [gui]
-mode = off
+mode = "off"
 EOF
   local -a _k=() _v=()
   _load_setup_conf "${TEMP_DIR}" "gpu" _k _v
   assert_equal "${_v[0]}" "force"
 }
 
-@test "_setup_conf_handle: .setup.conf.local wins over the per-repo layer" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+# why: _setup_conf_handle is the single entry point the wrappers use; if its layering disagrees with _load_setup_conf, every wrapper reads stale config.
+@test "_setup_conf_handle: setup.local.toml wins over the per-repo layer" {
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [gui]
-mode = force
+mode = "force"
 EOF
-  cat > "${TEMP_DIR}/.setup.conf.local" <<'EOF'
+  cat > "${TEMP_DIR}/setup.local.toml" <<'EOF'
 [gui]
-mode = off
+mode = "off"
 EOF
   _setup_conf_handle "${TEMP_DIR}" _LOCAL_H
   run _conf_get _LOCAL_H gui mode
@@ -327,28 +333,29 @@ EOF
   assert_output "off"
 }
 
-@test "_compute_conf_hash: editing .setup.conf.local is drift" {
+# why: A local-layer edit that leaves the hash unchanged means the wrapper reuses artifacts built from a different config.
+@test "_compute_conf_hash: editing setup.local.toml is drift" {
   # The hash must describe the config that was actually resolved -- a
   # layer that changes the resolved value and leaves the hash alone means
   # the wrapper reuses artifacts generated from something else.
   local _before="" _after=""
   _compute_conf_hash "${TEMP_DIR}" _before
-  cat > "${TEMP_DIR}/.setup.conf.local" <<'EOF'
+  cat > "${TEMP_DIR}/setup.local.toml" <<'EOF'
 [gui]
-mode = off
+mode = "off"
 EOF
   _compute_conf_hash "${TEMP_DIR}" _after
   [[ "${_before}" != "${_after}" ]] || { echo "hash unchanged: ${_before}"; return 1; }
 }
 
 @test "_setup_effective_full: show/list read the local layer too" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [gui]
-mode = force
+mode = "force"
 EOF
-  cat > "${TEMP_DIR}/.setup.conf.local" <<'EOF'
+  cat > "${TEMP_DIR}/setup.local.toml" <<'EOF'
 [gui]
-mode = off
+mode = "off"
 EOF
   local -a _s=() _k=() _v=()
   _setup_effective_full "${TEMP_DIR}" _s _k _v
@@ -362,12 +369,12 @@ EOF
 @test "_setup_conf_local_sections: names the sections the local layer shadows" {
   # Nothing may be silently shadowed: the callers that warn / announce need
   # the section list, not just a boolean.
-  cat > "${TEMP_DIR}/.setup.conf.local" <<'EOF'
+  cat > "${TEMP_DIR}/setup.local.toml" <<'EOF'
 [gui]
-mode = off
+mode = "off"
 
 [network]
-mode = bridge
+mode = "bridge"
 EOF
   local -a _sects=()
   _setup_conf_local_sections "${TEMP_DIR}" _sects

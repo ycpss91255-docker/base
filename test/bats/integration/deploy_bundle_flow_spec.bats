@@ -3,7 +3,7 @@
 # Integration test: the field-deploy generator end-to-end across components
 # (ADR-00000023; ISTQB Integration level, ADR-00000018). Drives the REAL
 # _setup_deploy -> _generate_deploy_bundle flow over the filesystem against a
-# fixture repo (a repo-root .setup.conf, a Dockerfile with a runtime stage,
+# fixture repo (a repo-root setup.toml, a Dockerfile with a runtime stage,
 # a config/<component>/deploy.manifest declaring one operator-tunable path)
 # and asserts the produced OUTPUT FOLDER is correct:
 # deploy/<repo>-<stage>-<version>/ with deploy.sh, a self-contained
@@ -18,7 +18,7 @@
 # (test/bats/system/deploy_bundle_e2e_spec.bats), which needs host docker.
 #
 # why: The field-deploy generator end-to-end across components
-# (ADR-00000023): a fixture repo (repo-root `.setup.conf`, a Dockerfile with
+# (ADR-00000023): a fixture repo (repo-root `setup.toml`, a Dockerfile with
 # a `runtime` stage, a `config/<component>/deploy.manifest` declaring one
 # tunable path) drives the real `_setup_deploy` -> `_generate_deploy_bundle`
 # flow with a docker + xz PATH-shim (no real daemon), and asserts the
@@ -41,11 +41,11 @@ setup() {
   git -C "${REPO}" config user.email t@t
   git -C "${REPO}" config user.name t
 
-  # Repo-root .setup.conf (post-relocation location).
+  # Repo-root setup.toml (post-relocation location).
   printf '%s\n' \
     "[deploy]" "gpu_mode = off" "dri_groups = off" \
     "[gui]" "mode = off" \
-    > "${REPO}/.setup.conf"
+    > "${REPO}/setup.toml"
 
   cat > "${REPO}/Dockerfile" <<'DOCK'
 FROM scratch AS sys
@@ -167,7 +167,7 @@ teardown() {
     "[environment]" "env_1 = APP_MODE=default" \
     "[lifecycle]" "restart = on-failure:5" "watchdog_check = pgrep -f my_node" \
     "watchdog_interval = 30" \
-    > "${REPO}/.setup.conf"
+    > "${REPO}/setup.toml"
   run _setup_deploy --base-path "${REPO}" --stage runtime -y
   assert_success
   # The tree is now dirty, so the version stamp gains the -dirty suffix.
@@ -224,7 +224,7 @@ DOCK
     "[deploy]" "gpu_mode = off" "dri_groups = off" \
     "[gui]" "mode = off" \
     "[environment]" "env_1 = ROS_DOMAIN_ID=42" \
-    > "${REPO}/.setup.conf"
+    > "${REPO}/setup.toml"
   # The manifest declares runtime paths only; scope it to the new stage so
   # the bundle's config extraction still has something to do.
   printf '%s\n' "[field]" "/etc/app/camera.yaml" \

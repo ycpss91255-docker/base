@@ -1141,6 +1141,15 @@ jobs:
         # cannot serve it, and that driver has no GHA cache to lose.
         run: ./script/ci/obtain_test_tools.sh "${TEST_TOOLS_IMAGE}" --platform ${{ matrix.platform }} --local-build inline
 
+      - name: Build toml-bridge image (TOML config unification)
+        # The wrappers delegate TOML parsing to a containerised bridge
+        # (ADR-37, docker run toml-bridge:local).  Both init.sh and the
+        # wrapper setup-sync path call toml_bridge_merge, so the image must
+        # exist before the scaffolded repo is created.
+        run: |
+          docker build -t toml-bridge:local \
+            -f dockerfile/Dockerfile.toml-bridge .
+
       - name: Create temp repo and run init.sh
         run: |
           set -euo pipefail
@@ -1175,7 +1184,7 @@ jobs:
             && test -L script/exec.sh && test -L script/stop.sh
           test -L script/setup_tui.sh
           test -L justfile
-          test -f Dockerfile && test -f compose.yaml && test -f .setup.conf
+          test -f Dockerfile && test -f compose.yaml && test -f setup.toml
 
           echo "REPO_DIR=${REPO_DIR}" >> "${GITHUB_ENV}"
           echo "REPO_NAME=${REPO_NAME}" >> "${GITHUB_ENV}"

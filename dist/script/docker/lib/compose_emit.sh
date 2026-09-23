@@ -2,7 +2,7 @@
 #
 # compose_emit.sh - compose.yaml emission (the renderer).
 #
-# Generates the project compose.yaml from the resolved setup.conf: the
+# Generates the project compose.yaml from the resolved setup.toml: the
 # per-field `_emit_*_block` / `_emit_*_line` helpers, the volume/device
 # classifiers (_classify_volume_lhs, _collect_named_volumes, _yaml_dq, ...),
 # the per-stage service block (_emit_stage_service), and the top-level
@@ -253,7 +253,7 @@ _emit_runtime_line() {
 _emit_restart_line() {
   local _restart="${1-}"
   [[ "${_restart}" == "no" ]] && return 0
-  # apply does no schema revalidation, so a hand-edited setup.conf can feed
+  # apply does no schema revalidation, so a hand-edited setup.toml can feed
   # a malformed policy here. Drop anything _validate_restart rejects rather
   # than emit an invalid `restart:` that breaks `docker compose up` with a
   # cryptic error (apply-time trust-boundary guard).
@@ -271,7 +271,7 @@ _emit_restart_line() {
 # standalone block re-emits it (no extends to inherit from).
 _emit_init_line() {
   local _init="${1-true}"
-  # apply does no schema revalidation, so a hand-edited setup.conf can feed
+  # apply does no schema revalidation, so a hand-edited setup.toml can feed
   # a non-boolean here. Drop anything _validate_init rejects rather than
   # emit a malformed init: field (apply-time trust-boundary guard, mirrors
   # _emit_restart_line).
@@ -302,7 +302,7 @@ _emit_watchdog_env() {
 
 # env_file emitter: the container's env layers, in precedence order.
 #
-#   .env        the defaults we generate from .setup.conf (ours)
+#   .env        the defaults we generate from setup.toml (ours)
 #   .env.local  the operator's overrides (theirs, never rewritten)
 #
 # compose applies env_file entries in order and lets a later file win, so
@@ -488,7 +488,7 @@ _logging_svc_kv() {
 # _emit_logging_block <svc> <global_str> <per_svc_str>
 #
 # Emit compose `logging:` mapping for service <svc>. Maps four
-# setup.conf keys (driver / max_size / max_file / compress) to the
+# setup.toml keys (driver / max_size / max_file / compress) to the
 # corresponding Docker compose option names (driver as scalar;
 # max-size / max-file / compress as `options:` sub-keys, dash-named
 # per Docker docs). The 5th key, `local_path`, is **not** a Docker
@@ -553,7 +553,7 @@ _logging_svc_local_path_mount() {
   # ~ expansion at front only (not embedded — same restriction as
   # POSIX sh). The pattern uses single-char literal match (\~) and
   # case so shellcheck SC2088 doesn't flag it; we're matching the
-  # user's *literal* `~/foo` setup.conf value and rewriting it to
+  # user's *literal* `~/foo` setup.toml value and rewriting it to
   # ${HOME}/foo.
   case "${_raw}" in
     \~/*)
@@ -585,7 +585,7 @@ _logging_svc_local_path_mount() {
 # non-positive hand-edit back to the default (mirrors transcript.sh +
 # runtime/logging.sh). Emitted as CONTAINER_LOG_KEEP / CONTAINER_LOG_DAYS
 # env alongside LOG_FILE_PATH so the in-image tee's shared logrotate
-# prune honors setup.conf across the container boundary.
+# prune honors setup.toml across the container boundary.
 _logging_svc_retention() {
   local _svc="$1"
   local -n _keep_out="$2"
@@ -880,7 +880,7 @@ YAML
     if [[ -n "${_stage_env_own}" ]]; then
       # Expand `${KEY}` cross-references against earlier siblings first,
       # exactly as the devel env block does. Skipping it here made the
-      # SAME setup.conf produce two different container envs: devel saw
+      # SAME setup.toml produce two different container envs: devel saw
       # the expanded value and the stage service saw a literal `${KEY}`
       # that compose's own substitution layer cannot resolve, because it
       # never sees sibling env entries.
@@ -925,7 +925,7 @@ YAML
   # ${PORT_<n>:-<default>} interpolation, not a baked literal, so a
   # multi_run runtime overlay can remap the host port per instance without a
   # regenerate (ADR-00000022 forward invariant). Unset -> compose
-  # substitutes the setup.conf default (identical single-run behaviour).
+  # substitutes the setup.toml default (identical single-run behaviour).
   # The index is 1-based (PORT_1 = first port) to match base's 1-based
   # indexed-key convention (port_1 / mount_1 / arg_1).
   _warn_ports_inert "${_eff_ports}" "${_eff_net_mode}"
@@ -1038,7 +1038,7 @@ generate_compose_yaml() {
   local _additional_contexts_str="${25:-}"
   local _logging_global_str="${26:-}"
   local _logging_per_svc_str="${27:-}"
-  # Matches the template .setup.conf default (like _init below), so an
+  # Matches the template setup.toml default (like _init below), so an
   # arg-less caller renders what a stock conf renders.
   local _restart="${28:-unless-stopped}"
   local _dri_groups_str="${29:-}"
@@ -1089,7 +1089,7 @@ generate_compose_yaml() {
     esac
   done < <(_parse_dockerfile_stages "${_dockerfile}")
 
-  # Per-stage overrides — validate setup.conf [stage:*] sections.
+  # Per-stage overrides — validate setup.toml [stage:*] sections.
   #
   #   sys / base / test       → hard error (baseline collision)
   #   latest / v[0-9]*        → hard error (reserved tag namespace)
@@ -1101,7 +1101,7 @@ generate_compose_yaml() {
   # already filters them; that's an acceptable v1 silent-drop since
   # the TUI is the primary write path and validates names upfront.
   local -a _conf_stages=()
-  _parse_stage_sections "${_setup_base}/.setup.conf" _conf_stages
+  _parse_stage_sections "${_setup_base}/setup.toml" _conf_stages
   local _cs
   for _cs in "${_conf_stages[@]}"; do
     case "${_cs}" in
@@ -1146,7 +1146,7 @@ generate_compose_yaml() {
   {
     cat <<'HEADER'
 # AUTO-GENERATED BY setup.sh — DO NOT EDIT.
-# Edit setup.conf instead. Regenerate via ./build.sh --setup or ./run.sh --setup.
+# Edit setup.toml instead. Regenerate via ./build.sh --setup or ./run.sh --setup.
 HEADER
     # top-level name: so non-wrapper tools (lazydocker / docker compose
     # ps / IDE panels) resolve the same project name the wrapper pins via
@@ -1258,7 +1258,7 @@ YAML
     # ${PORT_<n>:-<default>} interpolation, not a baked literal, so a
     # multi_run runtime overlay can remap the host port per instance without a
     # regenerate (ADR-00000022 forward invariant). Unset -> compose
-    # substitutes the setup.conf default (identical single-run behaviour).
+    # substitutes the setup.toml default (identical single-run behaviour).
     # The index is 1-based (PORT_1 = first port) to match base's 1-based
     # indexed-key convention (port_1 / mount_1 / arg_1).
     _warn_ports_inert "${_ports_str}" "${_net_mode}"

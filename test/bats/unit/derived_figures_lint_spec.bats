@@ -193,7 +193,7 @@ _append() {
 
 @test "_run_derived_figures: ignores a \${VAR} expansion that is not a stage set (#874)" {
   _append "dist/script/docker/lib/sample.sh" \
-    '_conf="${_root}/.setup.conf"' \
+    '_conf="${_root}/setup.toml"' \
     'printf "%s" "${_stage}"'
   run _run_derived_figures
   [ "${status}" -eq 0 ]

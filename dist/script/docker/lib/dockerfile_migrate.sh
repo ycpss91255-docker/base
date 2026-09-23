@@ -361,7 +361,7 @@ _migrate_wrapper_copy_apply() {
 # "config/, always" would narrow the silent package loss rather than close
 # it. CONFIG_SRC is a build ARG: a repo can redeclare it in its own
 # Dockerfile, or set it as a compose build arg via a
-# `[build] arg_N = CONFIG_SRC=...` entry in .setup.conf. Either way
+# `[build] arg_N = CONFIG_SRC=...` entry in setup.toml. Either way
 # ${CONFIG_DIR} is overlaid from <repo>/<something-else>, config/ holds
 # nothing the RUN line reads, and reading it anyway would report "not
 # populated" over a real dependency list. So the source directory has to
@@ -477,7 +477,7 @@ _dfm_conf_declares_redirect() {
 #   three ways the answer stops being a provable <repo>/config: something
 #   redirects CONFIG_SRC (an `ARG CONFIG_SRC=<non-default>` in the
 #   Dockerfile itself, or a `[build] arg_N = CONFIG_SRC=...` in ANY layer
-#   of the setup.conf chain, which reaches the build as a compose build
+#   of the setup.toml chain, which reaches the build as a compose build
 #   arg); the default directory is not next to the Dockerfile at all; or
 #   some layer of the chain could not be READ, which is not the same as a
 #   layer that says nothing. A bare `ARG CONFIG_SRC` with no `=` is a
@@ -485,7 +485,7 @@ _dfm_conf_declares_redirect() {
 #
 #   The conf layers are DERIVED from _setup_conf_layers rather than listed
 #   here. The chain is three files, not the two per-repo ones: the lowest
-#   is the template's own .setup.conf inside .base/dist, and the build
+#   is the template's own setup.toml inside .base/dist, and the build
 #   reads all three (setup_cmd.sh -> _setup_conf_handle ->
 #   _setup_conf_layers). A repo that never ran `init.sh --gen-conf` has no
 #   per-repo conf at all and runs on template defaults, so a hand-listed

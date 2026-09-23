@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# schema.sh — setup.conf validation registry + dispatcher (epic).
+# schema.sh — setup.toml validation registry + dispatcher (epic).
 #
 # Single source of truth for "is this <section>.<key> = <value> valid?".
 # Both setup.sh (the `set` / `add` subcommands, via _setup_validate_kv)
@@ -95,10 +95,10 @@ declare -gA SCHEMA_VALIDATOR=(
 )
 
 # ════════════════════════════════════════════════════════════════════
-# SCHEMA_SECTIONS — the ordered list of setup.conf sections.
+# SCHEMA_SECTIONS — the ordered list of setup.toml sections.
 #
 # Single source for "which sections exist, in what order" (the order
-# matches the setup.conf template headers). Consumers derive from this
+# matches the setup.toml template headers). Consumers derive from this
 # instead of hand-maintaining parallel section lists:
 #   - setup.sh's _setup_known_section (via _schema_is_section)
 #   - the TUI menu dispatch + CLI subcommand recognition
@@ -139,8 +139,8 @@ declare -ga SCHEMA_SECTIONS=(
 declare -gA SCHEMA_I18N=(
   # ── scalar keys ──────────────────────────────────────────────────
   # project.name: config-file / CLI only. The TUI edits the COMMITTED
-  # .setup.conf, while the per-worktree name belongs in the gitignored
-  # .setup.conf.local that `setup.sh set --local project.name <x>` writes
+  # setup.toml, while the per-worktree name belongs in the gitignored
+  # setup.local.toml that `setup.sh set --local project.name <x>` writes
   # -- a layer the menu has no concept of. Surfacing a project-name row
   # there would edit the wrong file by default, so this is a deliberate
   # no-editor opt-out, not a missing translation.
@@ -220,7 +220,7 @@ declare -gA SCHEMA_EMPTY=(
 # nothing else: the next key added to the template reopens it, which is
 # exactly how gui.mode / deploy.gpu_mode / gpu_capabilities / dri_groups
 # / security_opt_ / image.rule_ / security.privileged slipped through.
-# schema_coverage_spec asserts that EVERY key the shipped setup.conf
+# schema_coverage_spec asserts that EVERY key the shipped setup.toml
 # declares -- live line or commented example -- resolves to a
 # SCHEMA_VALIDATOR entry or appears here, so "unregistered key with a
 # fixed value set" is a CI failure rather than a runtime surprise.

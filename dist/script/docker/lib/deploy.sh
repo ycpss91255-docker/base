@@ -6,7 +6,7 @@
 #   _parse_deploy_manifest    : per-stage tunable-config path declarations
 #   _collect_deploy_binds     : aggregate a stage's tunable paths by basename
 #   _resolve_deploy_version   : git-describe bundle stamp (image identity)
-#   _resolve_deploy_context   : setup.conf -> the conf-derived resolution shared
+#   _resolve_deploy_context   : setup.toml -> the conf-derived resolution shared
 #                               by `apply` (compose) and the deploy generator
 #   _generate_resolved_compose: write the self-contained, fully-resolved compose
 #   _generate_deploy_launcher : write the thin up/down/logs deploy.sh
@@ -223,13 +223,13 @@ _resolve_deploy_version() {
 #
 # S6b ofthe single conf-derived resolution layer shared by
 # `apply` (the compose renderer) and the deploy generator. Loads the
-# relevant setup.conf sections from <base_path> and resolves the
+# relevant setup.toml sections from <base_path> and resolves the
 # scalar modes + aggregated list strings that both paths consume, into
 # <out_assoc>. This is the global counterpart to the per-stage
 # _resolve_docker_flags (S5): apply unpacks the record into its existing
 # locals, and the deploy generator (S6b-gen) feeds it as the parent for
 # the runtime stage. Keeping one resolver means the field deploy can
-# never drift from what `apply` would produce for the same setup.conf.
+# never drift from what `apply` would produce for the same setup.toml.
 #
 # Pure resolution: it does NOT apply the `--gui` CLI / SETUP_GUI env
 # override (apply layers that on top of the returned gui_mode), it does
@@ -368,7 +368,7 @@ _resolve_deploy_context() {
   _conf_list_sorted _RDC_CONF security "cap_drop_"     _cap_drop_arr
   _conf_list_sorted _RDC_CONF security "security_opt_" _sec_opt_arr
   local _tpl_setup_conf
-  _tpl_setup_conf="${_SETUP_SCRIPT_DIR}/../../../.setup.conf"
+  _tpl_setup_conf="${_SETUP_SCRIPT_DIR}/../../../setup.toml"
   local -a _tpl_sec_k=() _tpl_sec_v=()
   [[ -f "${_tpl_setup_conf}" ]] \
     && _parse_ini_section "${_tpl_setup_conf}" "security" _tpl_sec_k _tpl_sec_v
@@ -397,7 +397,7 @@ _resolve_deploy_context() {
 # Write the self-contained, FULLY-RESOLVED field compose.yaml (ADR-00000023
 # sec.3, amending ADR-00000003's "compose does not travel"). Unlike the
 # dev compose (generate_compose_yaml), this carries literal resolved values
-# -- NO `${VAR}` interpolation, NO setup.conf / .env.generated dependency,
+# -- NO `${VAR}` interpolation, NO setup.toml / .env.generated dependency,
 # NO build section (the image is pre-built + docker-loaded), and NO
 # dev-host workspace bind -- so it runs on a field host that never had
 # base's toolchain. The one `env_file:` it carries names two files that
@@ -548,7 +548,7 @@ _generate_resolved_compose() {
 
   {
     printf '# AUTO-GENERATED self-contained field deploy compose. DO NOT EDIT.\n'
-    printf '# Fully resolved (no variable interpolation, no setup.conf/.env dep);\n'
+    printf '# Fully resolved (no variable interpolation, no setup.toml/.env dep);\n'
     printf '# run via ./deploy.sh up|down|logs. Regenerate: just docker setup deploy --stage %s\n' "${_stage}"
     printf 'name: %s\n' "${_container}"
     printf 'services:\n'
@@ -781,7 +781,7 @@ _render_deploy_readme() {
   local _stage="${3:?"${FUNCNAME[0]}: missing stage"}"
   local _image="${4:?"${FUNCNAME[0]}: missing image_ref"}"
   # Space-separated sections that came from the build host's untracked
-  # .setup.conf.local (empty for the normal case). Recorded in the README
+  # setup.local.toml (empty for the normal case). Recorded in the README
   # because an escape hatch that leaves no trace in the artifact is exactly
   # the silent dependency the refusal exists to prevent: the person holding
   # this bundle in the field is not the person who chose to bypass the gate.
@@ -847,12 +847,12 @@ _append_local_override_note() {
 ## Built with an untracked config override
 
 This bundle was generated with \`--allow-local-override\` while the build
-host had a \`.setup.conf.local\`. These setup.conf sections were taken from
+host had a \`setup.local.toml\`. These setup.toml sections were taken from
 that file rather than from the repository:
 
     ${_sections// /, }
 
-\`.setup.conf.local\` is gitignored. Its contents are not in the repository,
+\`setup.local.toml\` is gitignored. Its contents are not in the repository,
 so this bundle CANNOT be reproduced from a clean checkout -- reproducing it
 requires that same file. Treat the values above as unversioned.
 EOF
@@ -1137,7 +1137,7 @@ _bake_config_copy() {
 # <out_dir> (the caller's `deploy/<repo>-<stage>-<version>/`):
 #   image.tar.xz   the image (deploy.sh docker-loads it), tagged
 #                  <repo>:<stage>-<version> so field versions never collide
-#   compose.yaml   fully-resolved, self-contained (no ${VAR} / setup.conf dep)
+#   compose.yaml   fully-resolved, self-contained (no ${VAR} / setup.toml dep)
 #   config/        editable copies of each tunable file (baked default, the
 #                  compose binds them mount-wins), from _collect_deploy_binds
 #   deploy.sh      thin up/down/logs launcher
@@ -1281,7 +1281,7 @@ _generate_deploy_bundle() {
 # <base_path>, calls _collect_logging itself). Sync runs at
 # init.sh / upgrade.sh time instead of every setup.sh apply, so
 # the file stays in step across template versions even when no
-# wrapper has fired since the last setup.conf edit.
+# wrapper has fired since the last setup.toml edit.
 
 # ════════════════════════════════════════════════════════════════════
 # generate_compose_yaml <out> <repo_name> <gui_enabled> <gpu_enabled>

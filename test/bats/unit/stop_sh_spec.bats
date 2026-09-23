@@ -368,7 +368,7 @@ HOOK
 
 # _self_managed_sandbox <dir>
 #   A checkout that owns its own compose.yaml: no `.base/` subtree, no
-#   `.setup.conf`, and therefore no `.env.generated` anyone could have
+#   `setup.toml`, and therefore no `.env.generated` anyone could have
 #   written. base's own shape.
 _self_managed_sandbox() {
   local _dir="${1:?_self_managed_sandbox requires a dir}"
@@ -376,7 +376,7 @@ _self_managed_sandbox() {
   cp /source/dist/script/docker/lib/* "${_dir}/dist/script/docker/lib/"
   ln -s /source/dist/script/docker/wrapper/stop.sh "${_dir}/stop.sh"
   assert [ ! -e "${_dir}/.base" ]
-  assert [ ! -e "${_dir}/.setup.conf" ]
+  assert [ ! -e "${_dir}/setup.toml" ]
   assert [ ! -e "${_dir}/.env.generated" ]
 }
 

@@ -231,7 +231,7 @@ teardown() {
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env.generated"
-  : > "${SANDBOX}/.setup.conf"
+  : > "${SANDBOX}/setup.toml"
   : > "${SANDBOX}/compose.yaml"
   cat > "${SANDBOX}/.base/dist/script/docker/wrapper/setup.sh" <<'EOS'
 #!/usr/bin/env bash
@@ -278,7 +278,7 @@ EOS
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env.generated"
-  : > "${SANDBOX}/.setup.conf"
+  : > "${SANDBOX}/setup.toml"
   : > "${SANDBOX}/compose.yaml"
   run bash "${SANDBOX}/run.sh" --dry-run
   assert_success
@@ -292,7 +292,7 @@ EOS
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env.generated"
-  rm -f "${SANDBOX}/.setup.conf"
+  rm -f "${SANDBOX}/setup.toml"
   run bash "${SANDBOX}/run.sh" --dry-run
   assert_success
   assert_output --partial "First run"
@@ -308,7 +308,7 @@ EOS
     echo "IMAGE_NAME=mockimg"
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env.generated"
-  : > "${SANDBOX}/.setup.conf"
+  : > "${SANDBOX}/setup.toml"
   rm -f "${SANDBOX}/compose.yaml"
   run bash "${SANDBOX}/run.sh" --dry-run
   assert_success
@@ -364,7 +364,7 @@ EOS
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env.generated"
   echo "# mock" > "${SANDBOX}/compose.yaml"
-  echo "# stub" > "${SANDBOX}/.setup.conf"
+  echo "# stub" > "${SANDBOX}/setup.toml"
   export DOCKER_IMAGE_PRESENT=true
   mkdir -p "${SANDBOX}/script/hooks/post"
   cat > "${SANDBOX}/script/hooks/post/run.sh" <<'HOOK'
@@ -553,7 +553,7 @@ HOOK
   # Both present so the bootstrap does not regenerate .env.generated over
   # the resolved project name this test is about.
   echo "# mock" > "${SANDBOX}/compose.yaml"
-  echo "# stub" > "${SANDBOX}/.setup.conf"
+  echo "# stub" > "${SANDBOX}/setup.toml"
   # devel IS up -- in the neighbouring project. Only a probe carrying
   # `-p mockuser-mockimg` sees it, and this run carries -p mockimg-wt2.
   echo "mockuser-mockimg/devel" > "${COMPOSE_PS_FILE}"
@@ -576,7 +576,7 @@ HOOK
     echo "PROJECT_NAME=mockimg-wt2"
   } > "${SANDBOX}/.env.generated"
   echo "# mock" > "${SANDBOX}/compose.yaml"
-  echo "# stub" > "${SANDBOX}/.setup.conf"
+  echo "# stub" > "${SANDBOX}/setup.toml"
   echo "mockimg-wt2/devel" > "${COMPOSE_PS_FILE}"
 
   run bash "${SANDBOX}/run.sh"
@@ -754,7 +754,7 @@ HOOK
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env.generated"
   echo "# mock" > "${SANDBOX}/compose.yaml"
-  echo "# stub" > "${SANDBOX}/.setup.conf"
+  echo "# stub" > "${SANDBOX}/setup.toml"
   export DOCKER_IMAGE_PRESENT=true
   run bash -c "exec 2>&1; bash '${SANDBOX}/run.sh' --detach"
   assert_success
@@ -770,7 +770,7 @@ HOOK
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env.generated"
   echo "# mock" > "${SANDBOX}/compose.yaml"
-  echo "# stub" > "${SANDBOX}/.setup.conf"
+  echo "# stub" > "${SANDBOX}/setup.toml"
   export DOCKER_IMAGE_PRESENT=false
   run bash -c "exec 2>&1; bash '${SANDBOX}/run.sh' --detach"
   assert_success
@@ -787,7 +787,7 @@ HOOK
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env.generated"
   echo "# mock" > "${SANDBOX}/compose.yaml"
-  echo "# stub" > "${SANDBOX}/.setup.conf"
+  echo "# stub" > "${SANDBOX}/setup.toml"
   export DOCKER_IMAGE_PRESENT=false
   run bash "${SANDBOX}/run.sh" --detach -t runtime
   assert_success
@@ -802,7 +802,7 @@ HOOK
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env.generated"
   echo "# mock" > "${SANDBOX}/compose.yaml"
-  echo "# stub" > "${SANDBOX}/.setup.conf"
+  echo "# stub" > "${SANDBOX}/setup.toml"
   export DOCKER_IMAGE_PRESENT=false
   cat > "${SANDBOX}/build.sh" <<'EOS'
 #!/usr/bin/env bash
@@ -821,7 +821,7 @@ EOS
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env.generated"
   echo "# mock" > "${SANDBOX}/compose.yaml"
-  echo "# stub" > "${SANDBOX}/.setup.conf"
+  echo "# stub" > "${SANDBOX}/setup.toml"
   cat > "${BIN_DIR}/docker" <<'EOS'
 #!/usr/bin/env bash
 {
@@ -860,7 +860,7 @@ EOS
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env.generated"
   echo "# mock" > "${SANDBOX}/compose.yaml"
-  echo "# stub" > "${SANDBOX}/.setup.conf"
+  echo "# stub" > "${SANDBOX}/setup.toml"
   export DOCKER_IMAGE_PRESENT=true
   run bash "${SANDBOX}/run.sh" --build --detach
   assert_success
@@ -875,7 +875,7 @@ EOS
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env.generated"
   echo "# mock" > "${SANDBOX}/compose.yaml"
-  echo "# stub" > "${SANDBOX}/.setup.conf"
+  echo "# stub" > "${SANDBOX}/setup.toml"
   export DOCKER_IMAGE_PRESENT=true
   run bash "${SANDBOX}/run.sh" --build --detach
   assert_success
@@ -894,7 +894,7 @@ EOS
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env.generated"
   echo "# mock" > "${SANDBOX}/compose.yaml"
-  echo "# stub" > "${SANDBOX}/.setup.conf"
+  echo "# stub" > "${SANDBOX}/setup.toml"
 
   # Replace mock setup.sh with one that logs to a shared timeline.
   EVENT_LOG="${TEMP_DIR}/timeline.log"
@@ -1037,7 +1037,7 @@ _exit_code_fixture() {
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env.generated"
   echo "# mock" > "${SANDBOX}/compose.yaml"
-  echo "# stub" > "${SANDBOX}/.setup.conf"
+  echo "# stub" > "${SANDBOX}/setup.toml"
   export DOCKER_IMAGE_PRESENT=true
   cat > "${BIN_DIR}/docker" <<'EOS'
 #!/usr/bin/env bash
@@ -1124,7 +1124,7 @@ _hook_fixture() {
     echo "DOCKER_HUB_USER=mockuser"
   } > "${SANDBOX}/.env.generated"
   echo "# mock" > "${SANDBOX}/compose.yaml"
-  echo "# stub" > "${SANDBOX}/.setup.conf"
+  echo "# stub" > "${SANDBOX}/setup.toml"
   export DOCKER_IMAGE_PRESENT=true
 }
 

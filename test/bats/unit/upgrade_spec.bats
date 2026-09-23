@@ -82,17 +82,17 @@ EOS
 }
 
 # _seed_restart_repo <dir> <vendored_template_restart> <repo_restart_block...>
-#   A downstream git repo carrying a vendored template `.setup.conf`
+#   A downstream git repo carrying a vendored template `setup.toml`
 #   (the pre-pull baseline the migration reads to decide whether this
-#   upgrade crosses the rescope) plus its own committed `.setup.conf`.
+#   upgrade crosses the rescope) plus its own committed `setup.toml`.
 _seed_restart_repo() {
   local _dir="$1" _tpl_restart="$2"; shift 2
   mkdir -p "${_dir}/.base/dist"
   git -C "${_dir}" init -q -b main
   git -C "${_dir}" config user.email t@t
   git -C "${_dir}" config user.name t
-  printf '[lifecycle]\n%s\n' "${_tpl_restart}" > "${_dir}/.base/dist/.setup.conf"
-  printf '%s\n' "$@" > "${_dir}/.setup.conf"
+  printf '[lifecycle]\n%s\n' "${_tpl_restart}" > "${_dir}/.base/dist/setup.toml"
+  printf '%s\n' "$@" > "${_dir}/setup.toml"
   git -C "${_dir}" add -A
   git -C "${_dir}" commit -q -m seed
 }
@@ -781,10 +781,10 @@ EOS
   assert_output --partial "MIGRATION"
   assert_output --partial "restart = unless-stopped"
 
-  run grep -Fx "restart = unless-stopped" "${_r}/.setup.conf"
+  run grep -Fx "restart = unless-stopped" "${_r}/setup.toml"
   assert_success
   # Unrelated keys survive untouched.
-  run grep -Fx "init = true" "${_r}/.setup.conf"
+  run grep -Fx "init = true" "${_r}/setup.toml"
   assert_success
   # The rewrite is committed, so the subsequent subtree pull sees a clean tree.
   run git -C "${_r}" status --porcelain
@@ -798,7 +798,7 @@ EOS
   run bash -c "source '${HARNESS}' && _migrate_lifecycle_restart_default '${_r}'"
   assert_success
   refute_output --partial "MIGRATION"
-  run grep -Fx "restart = on-failure:5" "${_r}/.setup.conf"
+  run grep -Fx "restart = on-failure:5" "${_r}/setup.toml"
   assert_success
 }
 
@@ -811,7 +811,7 @@ EOS
   run bash -c "source '${HARNESS}' && _migrate_lifecycle_restart_default '${_r}'"
   assert_success
   refute_output --partial "MIGRATION"
-  run grep -Fx "restart = no" "${_r}/.setup.conf"
+  run grep -Fx "restart = no" "${_r}/setup.toml"
   assert_success
 }
 
@@ -822,14 +822,14 @@ EOS
   run bash -c "source '${HARNESS}' && _migrate_lifecycle_restart_default '${_r}'"
   assert_success
   refute_output --partial "MIGRATION"
-  run grep -Fx "restart = no" "${_r}/.setup.conf"
+  run grep -Fx "restart = no" "${_r}/setup.toml"
   assert_success
 }
 
-@test "_migrate_lifecycle_restart_default is a no-op without a repo .setup.conf" {
+@test "_migrate_lifecycle_restart_default is a no-op without a repo setup.toml" {
   local _r="${TEMP_DIR}/noconf"
   mkdir -p "${_r}/.base/dist"
-  printf '[lifecycle]\nrestart = no\n' > "${_r}/.base/dist/.setup.conf"
+  printf '[lifecycle]\nrestart = no\n' > "${_r}/.base/dist/setup.toml"
 
   run bash -c "source '${HARNESS}' && _migrate_lifecycle_restart_default '${_r}'"
   assert_success
@@ -840,11 +840,11 @@ EOS
   # Cannot tell whether this upgrade crosses the rescope -> touch nothing.
   local _r="${TEMP_DIR}/notpl"
   mkdir -p "${_r}"
-  printf '[lifecycle]\nrestart = no\n' > "${_r}/.setup.conf"
+  printf '[lifecycle]\nrestart = no\n' > "${_r}/setup.toml"
 
   run bash -c "source '${HARNESS}' && _migrate_lifecycle_restart_default '${_r}'"
   assert_success
   refute_output --partial "MIGRATION"
-  run grep -Fx "restart = no" "${_r}/.setup.conf"
+  run grep -Fx "restart = no" "${_r}/setup.toml"
   assert_success
 }

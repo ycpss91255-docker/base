@@ -76,7 +76,7 @@ DOCK
   printf '%s\n' \
     "[deploy]" "gpu_mode = off" "dri_groups = off" \
     "[gui]" "mode = off" \
-    > "${REPO}/.setup.conf"
+    > "${REPO}/setup.toml"
 
   local _apply_out=""
   if ! _apply_out="$(main apply --base-path "${REPO}" 2>&1)"; then

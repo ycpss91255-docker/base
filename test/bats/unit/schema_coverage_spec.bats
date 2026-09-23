@@ -60,7 +60,7 @@ _load_locale_tables() {
   # equal the [section] headers in the shipped template, in file order. A
   # section added to the template but not the registry (or vice versa)
   # fails here.
-  local _tpl="/source/dist/.setup.conf"
+  local _tpl="/source/dist/setup.toml"
   local -a _hdrs=()
   local _line
   while IFS= read -r _line; do
@@ -190,7 +190,7 @@ _load_locale_tables() {
 # live `key = value` lines plus commented `# key = value` examples, which
 # are documented knobs users uncomment.
 _template_keys() {
-  local _tpl="/source/dist/.setup.conf"
+  local _tpl="/source/dist/setup.toml"
   local _section="" _line _key
   while IFS= read -r _line; do
     if [[ "${_line}" =~ ^\[([a-z_]+)\]$ ]]; then

@@ -43,10 +43,10 @@ _msg_bootstrap() {
 
 _msg_drift() {
   case "${_LANG}:${1:?}" in
-    zh-TW:regen)  echo "重新產生 .env.generated / compose.yaml（setup.conf 已變更）" ;;
-    zh-CN:regen)  echo "重新生成 .env.generated / compose.yaml（setup.conf 已变更）" ;;
-    ja:regen)     echo ".env.generated / compose.yaml を再生成中（setup.conf が変更されました）" ;;
-    *:regen)      echo "regenerating .env.generated / compose.yaml (setup.conf drifted)" ;;
+    zh-TW:regen)  echo "重新產生 .env.generated / compose.yaml（setup.toml 已變更）" ;;
+    zh-CN:regen)  echo "重新生成 .env.generated / compose.yaml（setup.toml 已变更）" ;;
+    ja:regen)     echo ".env.generated / compose.yaml を再生成中（setup.toml が変更されました）" ;;
+    *:regen)      echo "regenerating .env.generated / compose.yaml (setup.toml drifted)" ;;
   esac
 }
 
@@ -121,7 +121,7 @@ usage() {
                     ./exec.sh 重連或檢查 log。-d 本來就由使用者管理 lifecycle，
                     本旗標對 -d 無作用。
   -s, --setup       強制重跑 setup.sh（互動式 TTY 開 TUI，否則非互動式 apply）。
-                    預設（無此旗標）：當 setup.conf / Dockerfile stages / GPU /
+                    預設（無此旗標）：當 setup.toml / Dockerfile stages / GPU /
                     GUI / USER_UID 漂移時，.env / .env.generated / compose.yaml 自動重新生成 (#88)。
   --build           在 compose up 前先跑 ./build.sh test（lint + smoke），
                     取得本機 / CI 一致驗證；預設行為依賴 compose auto-build
@@ -164,7 +164,7 @@ EOF
                     ./exec.sh 重连或检查 log。-d 本来就由使用者管理 lifecycle，
                     本旗标对 -d 无作用。
   -s, --setup       强制重跑 setup.sh（交互式 TTY 开 TUI，否则非交互式 apply）。
-                    默认（无此旗标）：当 setup.conf / Dockerfile stages / GPU /
+                    默认（无此旗标）：当 setup.toml / Dockerfile stages / GPU /
                     GUI / USER_UID 漂移时，.env / .env.generated / compose.yaml 自动重新生成 (#88)。
   --build           在 compose up 前先跑 ./build.sh test（lint + smoke），
                     取得本机 / CI 一致验证；默认行为依赖 compose auto-build
@@ -210,7 +210,7 @@ EOF
                     ユーザがライフサイクル管理する想定なので、この旗標は -d に
                     は影響しません。
   -s, --setup       setup.sh を強制実行（インタラクティブ TTY なら TUI、それ以外
-                    は非インタラクティブ apply）。デフォルト（フラグ無し）：setup.conf
+                    は非インタラクティブ apply）。デフォルト（フラグ無し）：setup.toml
                     / Dockerfile stages / GPU / GUI / USER_UID が drift した時、
                     .env / .env.generated / compose.yaml が自動再生成されます (#88)。
   --build           compose up の前に ./build.sh test（lint + smoke）を実行し、
@@ -260,7 +260,7 @@ Options:
                     in detached mode.
   -s, --setup       Force rerun setup.sh (opens the TUI on an interactive TTY,
                     otherwise non-interactive apply). Default (no flag):
-                    auto-regenerate .env / .env.generated / compose.yaml when setup.conf /
+                    auto-regenerate .env / .env.generated / compose.yaml when setup.toml /
                     Dockerfile stages / GPU / GUI / USER_UID drift (#88).
   --build           Run ./build.sh test (lint + smoke) before compose up
                     so local matches CI; default path relies on Compose
