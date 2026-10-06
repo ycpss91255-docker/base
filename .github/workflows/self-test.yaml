@@ -796,17 +796,29 @@ jobs:
         run: ./script/ci/reclaim.sh --run "${CI_RUN_KEY}" --stale 12h
 
   bats-fragile:
-    # The kcov-fragile unit specs, run in PLAIN mode (no COVERAGE), as a
-    # SINGLE job (#677). After #686 unified the coverage job onto the same
+    # The kcov-fragile unit spec FILES, run in PLAIN mode (no COVERAGE), as
+    # a SINGLE job (#677). After #686 unified the coverage job onto the same
     # alpine test-tools image, the old 4-shard `bats-unit` matrix and the
-    # 4-shard `coverage` matrix ran the SAME ~1991 unit specs twice per PR
-    # (8 parallel jobs), differing only by COVERAGE=1. The coverage matrix
-    # is now the PRIMARY unit gate (kcov over every non-fragile test); the
-    # only delta it cannot cover is the handful of tests it SKIPS via
+    # 4-shard `coverage` matrix ran the WHOLE unit suite twice per PR (8
+    # parallel jobs), differing only by COVERAGE=1. The coverage matrix is
+    # now the PRIMARY unit gate (kcov over every non-fragile test); the only
+    # delta it cannot cover is the tests it SKIPS via
     # `[ "${COVERAGE:-0}" = 1 ] && skip` because kcov's ptrace wrapper
-    # perturbs them. This job runs exactly those fragile specs in plain
-    # mode, so the delta is preserved with ZERO double-run: every unit test
-    # runs SOMEWHERE (non-fragile under coverage/kcov, fragile here).
+    # perturbs them.
+    #
+    # What this job preserves is that every unit test runs SOMEWHERE
+    # (non-fragile under coverage/kcov, fragile here) -- not that nothing is
+    # executed more than once. The selection is by FILE: drivers/bats.sh
+    # greps `-rl` for that guard and hands bats whole filenames, and
+    # `_COVERAGE_FULL_SUITE_POOLS` puts `test/bats/unit` in the coverage pool
+    # with no exclusion for them, so the tests in a selected file that carry
+    # no guard of their own run in both legs. That residual is deliberate: it
+    # is CI's only remaining plain-mode unit signal, and kcov perturbation
+    # has been diagnosed in this repo four times. It is also off the critical
+    # path -- this job is tens of seconds while the slowest coverage shard is
+    # minutes. The size of it is DERIVED from the driver's selector by
+    # self_test_yaml_spec.bats, which is also what keeps this paragraph from
+    # drifting back into a promise the mechanism cannot keep.
     #
     # The fragile set is computed at RUNTIME (test.sh --bats-fragile ->
     # _fragile_unit_files greps for the skip guard), so a new fragile-skip

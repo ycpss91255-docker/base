@@ -4925,7 +4925,7 @@ alias / `network.network_name` / `devices.device_` / `security.cap_add_` /
 | `self-hosted guard: FAILS when the workflows parse to zero jobs` | - |
 | `self-hosted guard: scans every workflow in the directory, not a named list` | - |
 
-### test/bats/unit/self_test_yaml_spec.bats (127)
+### test/bats/unit/self_test_yaml_spec.bats (129)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks fourteen
 cumulative invariants:
@@ -5112,14 +5112,18 @@ rolling tag at all, asserted in obtain_test_tools_spec.bats.
 13. **#677 CI double-run restructure (coverage = primary unit gate,
 weight-balanced shards, single `bats-fragile` job)** — after #686 unified
 the coverage job onto the same Alpine test-tools image, the 4-shard
-`bats-unit` matrix and the 4-shard `coverage` matrix ran the SAME ~1991 unit
-specs twice per PR (8 parallel jobs), differing only by `COVERAGE=1`. The
+`bats-unit` matrix and the 4-shard `coverage` matrix ran the WHOLE unit
+suite twice per PR (8 parallel jobs), differing only by `COVERAGE=1`. The
 restructure: (a) the `coverage` matrix stays the PRIMARY unit gate (kcov
 over every non-fragile test; codecov upload + the #615/ADR-00000008 project
 gate untouched); (b) the `bats-unit` matrix is replaced by a SINGLE
-`bats-fragile` job that runs ONLY the kcov-fragile specs the coverage matrix
-skips via `[ "${COVERAGE:-0}" = 1 ] && skip` — in PLAIN mode, so the delta
-is preserved with zero double-run. The fragile set is computed at RUNTIME
+`bats-fragile` job that runs ONLY the spec FILES holding the tests the
+coverage matrix skips via `[ "${COVERAGE:-0}" = 1 ] && skip` — in PLAIN
+mode, so none of those tests goes unrun. Selection is by file (`grep -rl`),
+not by test, so the unguarded tests in a selected file run in both legs;
+that residual is deliberate (plain-mode signal, off the critical path) and
+its size is derived from the selector by the two guards at the end of this
+file rather than restated in prose. The fragile set is computed at RUNTIME
 (`test.sh --bats-fragile` -> `_fragile_unit_files` greps a line-anchored
 skip guard), so a new fragile-skip in a 10th file is picked up
 automatically; (c) `_shard_unit_files` replaces round-robin with greedy
@@ -5127,7 +5131,7 @@ bin-packing by per-spec `@test` count (heaviest-first into the lightest
 shard) so the slowest coverage shard approaches `total/N`. `ci-rollup
 needs:` and `release needs:` swap `bats-unit` -> `bats-fragile`; `coverage`
 joins the `release` chain (it is now the primary unit gate). Every unit test
-still runs SOMEWHERE: non-fragile under coverage/kcov, the fragile files
+still runs SOMEWHERE: non-fragile under coverage/kcov, the selected files
 under `bats-fragile` (plain).
 
 14. **#1009 the gate rosters are DERIVED from the job graph** — every
@@ -5370,6 +5374,8 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: the age-based backstop uses a CI window, not the local defaults (#900)` | - |
 | `TEST.md: the static-lint table lists exactly the lints _LINT_TOOLS runs (base#1121)` | TEST.md says its table lists the tools _LINT_TOOLS runs; it listed 15 of 26, and nothing re-derived the set, so the sentence the section opens with was false for a whole release cycle |
 | `TEST.md: every CI job the static-lint table cites is a job self-test.yaml declares (base#1121)` | One row named the CI job lint-static (i18n-orphan), which exists in no workflow -- lint-static is a group matrix, so the row sent a reader looking for a check that is not in the list |
+| `self-test.yaml: no bats-fragile rationale asserts away an overlap the file-granular selection has (base#1117)` | The comment said "ZERO double execution" and "runs exactly those fragile specs", both claims about tests, while the selector hands bats whole files; a reader sizing the suite stops at that sentence |
+| `self-test.yaml: no bats-fragile rationale carries a hand-written unit-suite size (base#1117)` | The same comment carried "~1991 unit specs" as the suite it compared against, a figure nothing re-derived; the tree held more than twice that when this landed, so the one number a reader could take away was wrong |
 
 ### test/bats/unit/setup_cmd_spec.bats (136)
 
