@@ -98,6 +98,14 @@ _seed_template_remote() {
 #   --prefix=.base ... v0.9.5 --squash`: a committed README, a
 #   main.yaml with @v0.9.5 references ready to be bumped, and .base/ as
 #   a proper subtree.
+#
+#   The main.yaml calls EVERY reusable worker base ships, and the list is
+#   derived from `.github/workflows/` rather than written out here. A fixture
+#   carrying only the workers Step 4 happened to name cannot tell "the
+#   rewrite covered everything" from "the rewrite covered the two it was
+#   told about", which is how a consumer sat 21 minors behind on
+#   publish-worker. DOWN_WORKERS carries the derived list to the arms below
+#   so they assert over the same population.
 _seed_downstream_repo() {
   mkdir -p "${DOWN_DIR}/.github/workflows"
   git -C "${DOWN_DIR}" init -q -b main
@@ -105,13 +113,29 @@ _seed_downstream_repo() {
   git -C "${DOWN_DIR}" config user.name t
 
   echo "DOWNSTREAM" > "${DOWN_DIR}/README.md"
-  cat > "${DOWN_DIR}/.github/workflows/main.yaml" <<'YAML'
-jobs:
-  build:
-    uses: ycpss91255-docker/base/.github/workflows/build-worker.yaml@v0.9.5
-  release:
-    uses: ycpss91255-docker/base/.github/workflows/release-worker.yaml@v0.9.5
-YAML
+
+  # shellcheck disable=SC1091
+  source /source/dist/script/base/upstream.sh
+  DOWN_WORKERS=()
+  local _wf
+  for _wf in /source/.github/workflows/*.yaml /source/.github/workflows/*.yml; do
+    [[ -f "${_wf}" ]] || continue
+    grep -qE '^[[:space:]]*workflow_call:' "${_wf}" || continue
+    DOWN_WORKERS+=("$(basename "${_wf}")")
+  done
+  (( ${#DOWN_WORKERS[@]} > 0 )) \
+    || fail "no workflow under .github/workflows/ declares workflow_call, so this fixture would call no worker at all"
+
+  {
+    printf 'jobs:\n'
+    local _n=0
+    for _wf in "${DOWN_WORKERS[@]}"; do
+      _n=$(( _n + 1 ))
+      printf '  call-%s:\n    uses: %s/.github/workflows/%s@v0.9.5\n' \
+        "${_n}" "${BASE_UPSTREAM_SLUG}" "${_wf}"
+    done
+  } > "${DOWN_DIR}/.github/workflows/main.yaml"
+
   git -C "${DOWN_DIR}" add -A
   git -C "${DOWN_DIR}" commit -q -m "initial downstream"
 
@@ -133,11 +157,55 @@ YAML
   [ "$(cat .base/.version)" = "v0.9.7" ]
   # New file from v0.9.7 arrived under the subtree prefix
   [ -f ".base/script/docker/new_script.sh" ]
-  # main.yaml @tag references bumped to v0.9.7
-  grep -Fq "build-worker.yaml@v0.9.7" .github/workflows/main.yaml
-  grep -Fq "release-worker.yaml@v0.9.7" .github/workflows/main.yaml
+  # EVERY shipped worker's @tag reference bumped to v0.9.7 -- the population
+  # is the one _seed_downstream_repo derived, so a worker added to base later
+  # is asserted over here without this arm being edited.
+  local _worker
+  local -a _stale=()
+  for _worker in "${DOWN_WORKERS[@]}"; do
+    grep -Fq "/${_worker}@v0.9.7" .github/workflows/main.yaml \
+      || _stale+=("${_worker}")
+  done
+  (( ${#_stale[@]} == 0 )) \
+    || fail "the upgrade left these shipped workers' @ref at v0.9.5: ${_stale[*]}"
   # README.md and other downstream content untouched
   [ "$(cat README.md)" = "DOWNSTREAM" ]
+}
+
+# why: The commit message used to assert a general rule, and it was false on
+# exactly the repos whose unnamed worker ref it had just left behind (#1112)
+@test "upgrade.sh v0.9.7: the upgrade commit names the refs it actually rewrote (#1112)" {
+  cd "${DOWN_DIR}"
+  (( ${#DOWN_WORKERS[@]} >= 2 )) \
+    || skip "base ships one reusable worker; this arm needs two to tell a rewritten ref from an untouched one"
+
+  # One worker is ALREADY at the target, so the run has both kinds of ref in
+  # front of it. The old message said "workflow @tag updated to <ver>"
+  # whatever happened, so it could not tell the two apart -- which is how it
+  # claimed credit for a ref no sed had ever touched.
+  local _current="${DOWN_WORKERS[0]}"
+  sed -i "s|/${_current}@v0.9.5|/${_current}@v0.9.7|" .github/workflows/main.yaml
+  git add .github/workflows/main.yaml
+  git commit -q -m "pin ${_current} at the target already"
+
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/dist/script/base/upgrade.sh v0.9.7
+  assert_success
+
+  # The claim is read off the one line that makes it. Membership is tested
+  # space-delimited rather than as a substring: `build-worker.yaml` is a
+  # substring of `multi-distro-build-worker.yaml`, and a substring test would
+  # read the second as a mention of the first.
+  local _claim _worker
+  _claim="$(git log -1 --format=%B | grep -m1 '^- main\.yaml:')" \
+    || fail "the upgrade commit says nothing about main.yaml: $(git log -1 --format=%B)"
+  _claim=" ${_claim} "
+
+  for _worker in "${DOWN_WORKERS[@]:1}"; do
+    [[ "${_claim}" == *" ${_worker} "* ]] \
+      || fail "the upgrade commit does not name ${_worker}, whose @ref it rewrote:${_claim}"
+  done
+  [[ "${_claim}" != *" ${_current} "* ]] \
+    || fail "the upgrade commit claims it rewrote ${_current}, which was already at the target:${_claim}"
 }
 
 # ── Step 5: declarative Dockerfile/entrypoint migrations ───────

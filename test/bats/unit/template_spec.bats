@@ -1424,6 +1424,58 @@ _stage_lint_layout() {
   assert_output --partial "--gen-conf"
 }
 
+# _apply_main_yaml_rewrite <main.yaml> <target version>
+#
+# Run upgrade.sh's Step-4 `main.yaml` @ref rewrite over <main.yaml>, as the
+# shipped script runs it: the `sed -i` lines it aims at `main_yaml` are
+# EXTRACTED from upgrade.sh and evaluated here, so what gets exercised is
+# the production substitution rather than a copy of it that can drift.
+#
+# Narrowed to main_yaml-targeted lines: upgrade.sh's other sed sites aim at
+# other files, and the substitution below only knows how to fill in
+# `main_yaml` + `target_ver` -- a Dockerfile sed fed through here would
+# `eval sed -i ... ""` on an empty filename.
+#
+# The upstream slug is sourced from the one file that declares it, exactly
+# the way upgrade.sh does, because the rewrite is ANCHORED on that slug.
+# Left unset it would expand to the empty string, the pattern would still
+# match on the path tail, and every arm below would pass for the wrong
+# reason.
+#
+# Fails loudly on an empty extract: a rewrite that moved out of a `sed -i`
+# line leaves nothing to run, and "no sed found" must not read as "every
+# ref was rewritten".
+_apply_main_yaml_rewrite() {
+  local _yaml="${1}" _target="${2}" _seds _line
+  # shellcheck disable=SC1091
+  source /source/dist/script/base/upstream.sh
+  _seds="$(grep -E '^[[:space:]]*sed -i.*main_yaml' \
+    /source/dist/script/base/upgrade.sh)" \
+    || fail "upgrade.sh has no main.yaml sed for this to exercise"
+  while IFS= read -r _line; do
+    _line="${_line//'${main_yaml}'/${_yaml}}"
+    _line="${_line//'${target_ver}'/${_target}}"
+    eval "${_line}"
+  done <<< "${_seds}"
+}
+
+# _shipped_reusable_workers -- the basename of every workflow THIS repo
+# ships that a downstream `main.yaml` can call, one per line.
+#
+# Derived from `.github/workflows/`, never listed. The set a consumer can
+# call is the set declaring `workflow_call`, and reading it off the
+# directory is what makes a worker added tomorrow part of the population
+# the day it lands -- a test that names today's workers cannot fail for the
+# one it does not know about, which is the whole defect here.
+_shipped_reusable_workers() {
+  local _wf
+  for _wf in /source/.github/workflows/*.yaml /source/.github/workflows/*.yml; do
+    [[ -f "${_wf}" ]] || continue
+    grep -qE '^[[:space:]]*workflow_call:' "${_wf}" || continue
+    basename "${_wf}"
+  done
+}
+
 # why: sed regression
 @test "upgrade.sh updates main.yaml @tag without clobbering release-worker.yaml" {
   # Regression: a greedy sed pattern .*@v[0-9.]* matched both build-worker
@@ -1439,21 +1491,7 @@ jobs:
   call-release:
     uses: ycpss91255-docker/base/.github/workflows/release-worker.yaml@v0.5.0
 EOF
-  # Source upgrade.sh and exercise just the sed block by inlining the
-  # production sed commands here, mirroring what upgrade.sh does.
-  # We do this by extracting and running the sed commands from upgrade.sh.
-  local _seds
-  # Narrow the sed extract to main_yaml-targeted lines. upgrade.sh also
-  # only mutates main_yaml directly via sed (Step-5 Dockerfile healing now
-  # lives in lib/dockerfile_migrate.sh,); the substitution
-  # below only knows how to fill in main_yaml + target_ver, so feeding it
-  # a Dockerfile sed would `eval sed -i ... ""` with an empty filename.
-  _seds="$(grep -E '^[[:space:]]*sed -i.*main_yaml' /source/dist/script/base/upgrade.sh)"
-  while IFS= read -r _line; do
-    # shellcheck disable=SC2001
-    _line="$(echo "${_line}" | sed "s|\${main_yaml}|${_yaml}|g; s|\${target_ver}|v0.6.4|g")"
-    eval "${_line}"
-  done <<< "${_seds}"
+  _apply_main_yaml_rewrite "${_yaml}" v0.6.4
 
   run grep "build-worker.yaml@v0.6.4" "${_yaml}"
   assert_success
@@ -1482,18 +1520,7 @@ jobs:
   call-release:
     uses: ycpss91255-docker/base/.github/workflows/release-worker.yaml@v0.10.0-rc1
 EOF
-  local _seds
-  # Narrow the sed extract to main_yaml-targeted lines. upgrade.sh also
-  # only mutates main_yaml directly via sed (Step-5 Dockerfile healing now
-  # lives in lib/dockerfile_migrate.sh,); the substitution
-  # below only knows how to fill in main_yaml + target_ver, so feeding it
-  # a Dockerfile sed would `eval sed -i ... ""` with an empty filename.
-  _seds="$(grep -E '^[[:space:]]*sed -i.*main_yaml' /source/dist/script/base/upgrade.sh)"
-  while IFS= read -r _line; do
-    # shellcheck disable=SC2001
-    _line="$(echo "${_line}" | sed "s|\${main_yaml}|${_yaml}|g; s|\${target_ver}|v0.10.0-rc2|g")"
-    eval "${_line}"
-  done <<< "${_seds}"
+  _apply_main_yaml_rewrite "${_yaml}" v0.10.0-rc2
 
   # Must produce the clean new tag — no leftover `-rc1` suffix.
   run grep -c 'build-worker.yaml@v0.10.0-rc2$' "${_yaml}"
@@ -1521,18 +1548,7 @@ jobs:
   call-release:
     uses: ycpss91255-docker/base/.github/workflows/release-worker.yaml@v0.9.9
 EOF
-  local _seds
-  # Narrow the sed extract to main_yaml-targeted lines. upgrade.sh also
-  # only mutates main_yaml directly via sed (Step-5 Dockerfile healing now
-  # lives in lib/dockerfile_migrate.sh,); the substitution
-  # below only knows how to fill in main_yaml + target_ver, so feeding it
-  # a Dockerfile sed would `eval sed -i ... ""` with an empty filename.
-  _seds="$(grep -E '^[[:space:]]*sed -i.*main_yaml' /source/dist/script/base/upgrade.sh)"
-  while IFS= read -r _line; do
-    # shellcheck disable=SC2001
-    _line="$(echo "${_line}" | sed "s|\${main_yaml}|${_yaml}|g; s|\${target_ver}|v0.10.0|g")"
-    eval "${_line}"
-  done <<< "${_seds}"
+  _apply_main_yaml_rewrite "${_yaml}" v0.10.0
 
   run grep -c 'build-worker.yaml@v0.10.0$' "${_yaml}"
   assert_output "1"
@@ -1541,6 +1557,85 @@ EOF
   # Must not leave stale -rc2 anywhere in the file.
   run grep -c 'rc2' "${_yaml}"
   assert_output "0"
+
+  rm -rf "${_tmp}"
+}
+
+# why: The rewrite's population has to be the workers base ships, not a roster
+# the sed names -- a named roster cannot see the worker it omits (#1112)
+@test "upgrade.sh rewrites the @ref of every reusable worker base ships (#1112)" {
+  # The defect this closes. Step 4 named two workers -- build-worker and
+  # release-worker -- while base ships four workflows a downstream
+  # `main.yaml` can call. The other two were rewritten by nothing: the
+  # consumer's ref never moved, so a repo sat 21 minors behind on
+  # publish-worker across every upgrade, and base's own lockstep lint had
+  # exempted that class of ref on the grounds that upgrade.sh rewrites it.
+  #
+  # The population is DERIVED, which is the part that matters. A fixture
+  # listing today's workers is the same declared roster one layer up: it
+  # cannot fail for a fifth worker added later, which is exactly how the
+  # omission survived. Read off `.github/workflows/`, the new worker is in
+  # the population the commit it lands in.
+  local _tmp _yaml _worker
+  _tmp="$(mktemp -d)"
+  _yaml="${_tmp}/main.yaml"
+
+  # shellcheck disable=SC1091
+  source /source/dist/script/base/upstream.sh
+
+  local -a _workers=()
+  mapfile -t _workers < <(_shipped_reusable_workers)
+  (( ${#_workers[@]} > 0 )) || fail \
+    "no workflow under .github/workflows/ declares workflow_call, so this guard read an empty population and would pass over anything"
+
+  # A consumer main.yaml calling every worker base ships, each pinned at the
+  # tag the upgrade moves away from.
+  {
+    printf 'jobs:\n'
+    local _n=0
+    for _worker in "${_workers[@]}"; do
+      _n=$(( _n + 1 ))
+      printf '  call-%s:\n    uses: %s/.github/workflows/%s@v0.5.0\n' \
+        "${_n}" "${BASE_UPSTREAM_SLUG}" "${_worker}"
+    done
+  } > "${_yaml}"
+
+  _apply_main_yaml_rewrite "${_yaml}" v0.6.4
+
+  local -a _stale=()
+  for _worker in "${_workers[@]}"; do
+    grep -Fq "/${_worker}@v0.6.4" "${_yaml}" || _stale+=("${_worker}")
+  done
+  (( ${#_stale[@]} == 0 )) || fail \
+    "upgrade.sh leaves these shipped workers' downstream @ref at the old tag, so no upgrade ever advances them: ${_stale[*]}"
+
+  rm -rf "${_tmp}"
+}
+
+# why: Name-independent must not become owner-independent -- the rewrite
+# rewrites OUR refs, and a stranger's worker is not ours to bump (#1112)
+@test "upgrade.sh main.yaml rewrite leaves a third party's worker ref alone (#1112)" {
+  # The cheap way to stop naming workers is to drop the owner too, and that
+  # is a different defect with the same shape: a downstream main.yaml may
+  # call somebody else's reusable workflow, whose tags have nothing to do
+  # with the base version being installed. Rewriting it to a base tag
+  # points the job at a ref that repo may not even have.
+  local _tmp _yaml
+  _tmp="$(mktemp -d)"
+  _yaml="${_tmp}/main.yaml"
+  cat > "${_yaml}" <<'EOF'
+jobs:
+  call-docker-build:
+    uses: ycpss91255-docker/base/.github/workflows/build-worker.yaml@v0.5.0
+  call-vendor:
+    uses: someone/elsewhere/.github/workflows/build-worker.yaml@v0.5.0
+EOF
+  _apply_main_yaml_rewrite "${_yaml}" v0.6.4
+
+  run grep -Fc 'ycpss91255-docker/base/.github/workflows/build-worker.yaml@v0.6.4' "${_yaml}"
+  assert_output "1"
+  run grep -Fc 'someone/elsewhere/.github/workflows/build-worker.yaml@v0.5.0' "${_yaml}"
+  assert_output "1"
 
   rm -rf "${_tmp}"
 }
