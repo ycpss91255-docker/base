@@ -990,14 +990,31 @@ _init_snapshot() {
 #   paths the resync removes from the index, via `git rm --cached`. A staged
 #   deletion left behind by an aborted run is a change the consumer never
 #   made and cannot see in the working tree. No-op outside a git repo.
+#
+#   Aborts the run when git refuses a pathspec, like its siblings above:
+#   this is still the moment before the first mutation, where failing is
+#   free, and an empty snapshot here is indistinguishable from a repo that
+#   tracked none of the entries -- the one state in which an aborted resync
+#   silently restores nothing.
 _init_snapshot_index() {
   : > "${_INIT_ROLLBACK_DIR}/index"
   git -C "${REPO_ROOT}" rev-parse --git-dir >/dev/null 2>&1 || return 0
-  local _entry
+  local _entry _pathspec
   while IFS= read -r _entry; do
     [[ -n "${_entry}" ]] || continue
-    git -C "${REPO_ROOT}" ls-files -s -z -- "${_entry%/}" \
-      >> "${_INIT_ROLLBACK_DIR}/index" 2>/dev/null || true
+    # ONE translation, shared with the untrack sweep this snapshot exists to
+    # undo: a snapshot that skips an entry the sweep removes cannot put it
+    # back. An entry with no pathspec is skipped by both -- the reason is at
+    # _canonical_entry_pathspec in lib/gitignore.sh.
+    _pathspec="$(_canonical_entry_pathspec "${_entry}")" || continue
+    # ls-files exits 0 even when the pathspec matches nothing, so a non-zero
+    # status is git refusing the pathspec, never an entry that is absent.
+    # Under the `2>/dev/null || true` this carried, a refusal recorded an
+    # empty snapshot of the very index the resync is about to stage
+    # deletions into.
+    git -C "${REPO_ROOT}" ls-files -s -z -- "${_pathspec}" \
+      >> "${_INIT_ROLLBACK_DIR}/index" \
+      || _error "cannot record the index entries of '${_pathspec}' (from canonical .gitignore entry '${_entry}') before the resync: git ls-files refused the pathspec, or the snapshot could not be written"
   done < <(_canonical_gitignore_entries)
 }
 
