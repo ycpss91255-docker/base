@@ -46,7 +46,15 @@ teardown() {
 # _canonical_gitignore_entries
 # ════════════════════════════════════════════════════════════════════
 
-@test "_canonical_gitignore_entries: emits exactly the 13 canonical lines (#502, #507, #606, #832, #879, #893, #868, #1133)" {
+@test "_canonical_gitignore_entries: emits exactly the 15 canonical lines (#502, #507, #606, #832, #879, #893, #868, #1133)" {
+  # Fifteen, not thirteen: the TOML names were ADDED alongside the legacy
+  # INI ones, not substituted for them. `.setup.conf.local` is the old
+  # per-worktree override layer, which a repo part-way through the format
+  # migration still has on disk, and the whole reason the line is canonical
+  # is that such a layer must never be committed -- dropping the line is how
+  # one machine's override silently becomes everyone's config. The
+  # retraction mechanism for a line that really is dead is
+  # _retired_gitignore_entries, and nothing is in it.
   run _canonical_gitignore_entries
   assert_success
   assert_output - <<'EXPECTED'
@@ -56,7 +64,9 @@ teardown() {
 .env.generated
 .env.bak
 compose.yaml
+.setup.conf.bak
 setup.toml.bak
+.setup.conf.local
 setup.local.toml
 coverage/
 .Dockerfile.generated
@@ -266,7 +276,9 @@ EOF
 .env.generated
 .env.bak
 compose.yaml
+.setup.conf.bak
 setup.toml.bak
+.setup.conf.local
 setup.local.toml
 coverage/
 .Dockerfile.generated

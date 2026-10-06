@@ -148,8 +148,14 @@ shm_size = ""
 # Holds env vars that are HOST INTERFACES the container needs to
 # function. These are infrastructure, not application behavior.
 #
-# Service runtime env vars (ROS_MASTER_URI, LOG_LEVEL, etc.)
-# belong in .env.toml, not here. See ADR-37 service boundary.
+# Service runtime env vars (ROS_MASTER_URI, LOG_LEVEL, etc.) are not
+# infrastructure and do not belong here. ADR-37 gives them .env.toml /
+# .env.local.toml; until those readers land, the channel that acts is the
+# gitignored .env.local, which takes effect with `just run` alone -- no
+# regenerate, no drift, no git churn. Note the naming rule either way:
+# .env is OURS, generated from this file and where the entries below land
+# so the container receives them, and .env.local is YOURS and is never
+# rewritten.
 [environment]
 # DISPLAY = ""
 # NVIDIA_VISIBLE_DEVICES = "all"

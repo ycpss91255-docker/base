@@ -34,7 +34,7 @@ setup() {
 @test "just docker help: en setup summary names .env + .env.generated (#868)" {
   run bash "${HELP_SH}" docker --lang en
   assert_success
-  assert_output --partial "Regenerate .env / .env.generated / compose.yaml from setup.conf"
+  assert_output --partial "Regenerate .env / .env.generated / compose.yaml from setup.toml"
 }
 
 @test "just docker help: zh-TW setup summary names .env + .env.generated (#868)" {

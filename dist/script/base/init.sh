@@ -730,7 +730,6 @@ _init_installed_paths() {
 .github/workflows/base-version-monitor.yaml
 .gitignore
 .hadolint.yaml
-setup.toml
 config/.gitkeep
 justfile
 script/base/completions.sh
@@ -763,6 +762,7 @@ script/stop.sh
 script/template/justfile.template
 script/template/new.sh
 script/template/skel
+setup.toml
 EOF
 }
 
@@ -822,7 +822,6 @@ _init_conditional_paths() {
 .github/workflows/base-version-monitor.yaml
 .gitignore
 .hadolint.yaml
-setup.toml
 config/.gitkeep
 script/hooks/post/build.sh
 script/hooks/post/exec.sh
@@ -840,6 +839,7 @@ script/hooks/pre/setup_tui.sh
 script/hooks/pre/stop.sh
 script/local/justfile.local
 script/local/local.sh
+setup.toml
 EOF
 }
 
