@@ -538,6 +538,20 @@ jobs:
     #                     lint-static group makes in 77s. The coverage
     #                     suite tests a driver against fixtures; the tree
     #                     is this phase's to assert
+    #   test-name-backtick
+    #                     no `@test` name in any *.bats file carries an
+    #                     unescaped backtick. bats eval's a test name when
+    #                     it REGISTERS the test ("use eval to resolve
+    #                     variable references in test names"), so a live
+    #                     backtick there is command substitution it runs
+    #                     once per registration -- with no test selected,
+    #                     in every run and in every coverage shard -- and
+    #                     the name it then reports is the substitution's
+    #                     OUTPUT, which puts the TAP output and doc/test/
+    #                     out of agreement. Quoting is not the fix: bats
+    #                     supplies its own, so a single-quoted name is
+    #                     expanded too; a backslash-escaped backtick is a
+    #                     literal one and the catalogue already unescapes it
     #
     # GROUPED, not one job per driver, and not one job for the phase
     # (base#1071). One job per driver read best in the checks list -- the

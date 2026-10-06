@@ -6559,6 +6559,50 @@ Unit tests for the repo-local command-group scaffolder
 | `main calls chown with correct user and group` | Permissions |
 | `script runs entry_point when executed directly` | Direct-run guard |
 
+### test/bats/unit/test_name_backtick_lint_spec.bats (11)
+
+The guard over the one string in a spec file that bats EVALUATES. base#1200
+measured what a live backtick in a name costs on this tree's two offenders:
+one run of a single 124-test spec emitted 125 copies of each of two shell
+errors, and printed both names with their backticked span replaced by the
+substitution's empty stdout, so the TAP output and the catalogue under
+doc/test/ disagreed about what the suite contains. The noise and the
+divergence are the measured cost; arbitrary command execution at collection
+time, with no test selected, is the mechanism.
+
+Unit tests for script/test/drivers/test_name_backtick.sh -- the "a `@test`
+name is a literal, not a command" lint.
+
+Two properties drive the case list, and both were measured on bats 1.13.0
+rather than assumed. FIRST, the author's quoting does not matter: bats's
+preprocessor strips the quotes the source wrote and its registration site
+supplies its own double quotes around the name before eval'ing it, so a
+single-quoted name is expanded exactly like a double-quoted one -- which is
+why the driver judges the whole @test line and parses no quoting, and why
+single-quoting is not a fix for this defect even though it reads like one.
+
+SECOND, a backslash-escaped backtick is a literal one, and the catalogue
+generator already unescapes it back to a plain backtick when it renders a
+row, so the escaped spelling is the fix that keeps a code span in a name.
+
+Detection runs against a controlled temp REPO_ROOT, never the live checkout:
+the tree is asserted by the `lint-static` group that runs this driver, which
+is where a whole-tree scan belongs (base#1075).
+
+| Test | Description |
+|------|-------------|
+| `_run_test_name_backtick: FAILS on a live backtick in a name, naming file, line and column` | The exact shape base#1200 found twice. The report has to name the file, the line and the column, because the author is looking for a character inside a long sentence |
+| `_run_test_name_backtick: FAILS on a single-quoted name too, because bats expands it as well` | The load-bearing case for the rule's shape. bats supplies its own quotes around the name, so a single-quoted one is expanded too -- measured, a single-quoted name whose backticks held an echo registered with the echo's output in place of them. A lint that exempted single quotes would bless the one spelling that reads most like the fix |
+| `_run_test_name_backtick: FAILS when an EVEN backslash run leaves the backtick live` | An even-length backslash run leaves the backtick live -- the run escapes itself, not the character after it -- and reading one character back instead of counting the run would call this clean |
+| `_run_test_name_backtick: reports EVERY offending name, not the first` | Reporting the first offender and stopping makes the lint take as many runs to clear as the tree has names; base#1200's own tree had two, in one file |
+| `_run_test_name_backtick: scans the shipped smoke specs under dist/, not only test/bats/` | The population is the whole tree and not test/bats/. The shipped smoke specs under dist/ are vendored into every downstream repo by the .base subtree, so a name executed there is executed in seventeen other checkouts, and a scan rooted at the base-own spec tree would never see it |
+| `_run_test_name_backtick: PASSES a backslash-escaped backtick, which is the recommended fix` | The fix the failure message tells the author to make. If the escaped spelling were a finding too there would be no way to keep a code span in a name, and the lint would be pushing people to reword 4848 names |
+| `_run_test_name_backtick: PASSES a backtick that is not on a '@test' line` | Only the NAME is eval'd at registration. A backtick in a body is ordinary shell the test author meant to run, and a lint that flagged it would be unsatisfiable in half the specs here |
+| `_run_test_name_backtick: a clean tree passes and the counts print` | The clean line is the audit trail: it says how many names were read and over how many files, so a reader of a green CI log can tell a scan that checked the tree from one that checked nothing |
+| `_run_test_name_backtick: DIES when the walk for spec files fails` | A walk that died part way through hands the lint a short list, which reads exactly like a tree with less in it. The three dies below are the only ways this lint can report clean having read nothing, and each asserts the sentence only ITS die prints |
+| `_run_test_name_backtick: DIES when the tree holds no spec file at all` | An empty population is the shape that goes green by construction: the specs moved, the lint reads nothing and reports a clean tree |
+| `_run_test_name_backtick: DIES when the spec files carry no '@test' line` | The blind-detector case, and the one that matters most: 4848 '@test' lines exist today, so zero means the anchor stopped matching -- a renamed keyword, a changed convention -- and a blind detector reports every name clean |
+
 ### test/bats/unit/test_tools_pins_spec.bats (13)
 
 The release smoke step ran fifteen probes against the image it had just
