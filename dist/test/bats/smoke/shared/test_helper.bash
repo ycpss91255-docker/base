@@ -84,14 +84,22 @@ assert_cmd_runs() {
 # devel-test stage puts it at `/lint/Dockerfile` for its hadolint run, and
 # that copy is what gets asked.
 #
-# COMMENT LINES ARE DROPPED, and only a REDIRECTION INTO one of the paths
-# counts. Both narrowings exist for the same reason: the shipped template
-# names these paths in prose -- its header documents them, and its optional
-# runtime-test block is a commented-out copy of a stage that writes them --
-# so a consumer carrying that prose and nothing else would be read as
-# having adopted the record, and an upgrade would become a broken build
+# COMMENT LINES ARE DROPPED, and only a REDIRECTION WHOSE TARGET IS one of
+# the paths counts. Both narrowings exist for the same reason: the shipped
+# template names these paths in prose -- its header documents them, and its
+# optional runtime-test block is a commented-out copy of a stage that writes
+# them -- so a consumer carrying that prose and nothing else would be read
+# as having adopted the record, and an upgrade would become a broken build
 # over a record the repo never kept. That is the outcome the skip exists to
-# prevent, and widening the match would reintroduce it.
+# prevent, and widening the match reintroduces it.
+#
+# The TARGET, specifically, and not the rest of the line: every `>` or `>>`
+# on a code line is taken with the word that follows it, quotes stripped,
+# and that word must EQUAL a path. Reading "the path appears somewhere after
+# a `>`" called `echo ready > /tmp/status && echo <path>` a write, and
+# matching a path as a substring called `<path>.backup` one -- each a false
+# adoption, each costing an unported repo its skip and handing it a broken
+# build instead.
 #
 # The residual cost is stated rather than hidden: a repo that puts the
 # record there by some other route -- a `COPY --from=` out of a builder
@@ -117,9 +125,16 @@ reproducibility_manifest_state() {
         /^[[:space:]]*#/ { next }
         {
           line = $0
-          sub(/^[^>]*/, "", line)
-          if (line == "") { next }
-          if (index(line, env_path) || index(line, pkgs_path)) { found = 1; exit }
+          # Every redirection on the line, with the word it writes to.
+          # The word ends at whitespace or at a shell operator, so a
+          # continued RUN chain ( `> path && \` ) yields `path`.
+          while (match(line, />>?[[:space:]]*[^[:space:];&|)<>]+/)) {
+            tok = substr(line, RSTART, RLENGTH)
+            sub(/^>>?[[:space:]]*/, "", tok)
+            gsub(/["'"'"']/, "", tok)
+            if (tok == env_path || tok == pkgs_path) { found = 1; exit }
+            line = substr(line, RSTART + RLENGTH)
+          }
         }
         END { exit (found ? 0 : 1) }
       ' "${_dockerfile}"; then

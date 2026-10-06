@@ -5824,7 +5824,7 @@ duplicate-target guards, and S7 `runtime.env` retirement (#507).
 | `the harness has no compose image name to displace a sibling checkout's (#891)` | - |
 | `runtime-test ships no specs, which is why the harness covers devel-test only` | - |
 
-### test/bats/unit/smoke_helper_spec.bats (40)
+### test/bats/unit/smoke_helper_spec.bats (43)
 
 Exercises the runtime assertion helpers shipped in
 `dist/test/bats/smoke/shared/test_helper.bash` (used by downstream-repo
@@ -5872,6 +5872,9 @@ smoke specs via `load "${BATS_TEST_DIRNAME}/test_helper"`).
 | `reproducibility_manifest_state: naming a path without redirecting into it is not a write` | Reading one of the paths is not writing it. A stage that copies the record out, or diffs it, has not adopted anything, and a match that ignored the redirection would read it as having |
 | `reproducibility_manifest_state: no Dockerfile in the image is unknowable` | The state nothing in the image can answer -- no manifest and no Dockerfile to ask -- is named rather than folded into one of the answers, so the caller can say that is why it skipped |
 | `reproducibility_manifest_state: errors when an argument is missing` | The caller-error case, separated from the honest answers above: a missing argument must say so rather than resolve to a verdict |
+| `reproducibility_manifest_state: a path after an unrelated redirect is not a write` | The redirection's TARGET is the write, not the rest of the line. A reader that took any occurrence of the path after the first `>` read `echo ready > /tmp/status && echo <path>` as a write, so an unported repo that merely names the path after an unrelated redirect lost its skip and got a broken build instead |
+| `reproducibility_manifest_state: a path the manifest's is a prefix of is not a write` | A longer path that merely STARTS with the manifest's is a different file. Substring matching read a backup copy as the record itself, which is the same false adoption one character further along |
+| `reproducibility_manifest_state: a quoted target in a continued RUN is a write` | The write the template really makes, spelled the way the template spells it -- a quoted target inside a continued RUN chain -- still reads as a write, so tightening the match above did not narrow it past the shape it exists to recognise |
 
 ### test/bats/unit/smoke_migrate_spec.bats (17)
 

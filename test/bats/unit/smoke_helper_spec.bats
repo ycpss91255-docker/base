@@ -449,3 +449,42 @@ RUN apt-get update')"
   assert_failure
   assert_output --partial "missing pkgs path"
 }
+
+# why: The redirection's TARGET is the write, not the rest of the line. A
+# reader that took any occurrence of the path after the first `>` read
+# `echo ready > /tmp/status && echo <path>` as a write, so an unported repo
+# that merely names the path after an unrelated redirect lost its skip and
+# got a broken build instead
+@test "reproducibility_manifest_state: a path after an unrelated redirect is not a write" {
+  run reproducibility_manifest_state \
+    "${TEMP_DIR}/base-image.env" "${TEMP_DIR}/packages.txt" \
+    "$(_seed_dockerfile 'RUN echo ready > /tmp/status && echo '"${TEMP_DIR}"'/base-image.env')"
+  assert_success
+  assert_output "unported"
+}
+
+# why: A longer path that merely STARTS with the manifest's is a different
+# file. Substring matching read a backup copy as the record itself, which is
+# the same false adoption one character further along
+@test "reproducibility_manifest_state: a path the manifest's is a prefix of is not a write" {
+  run reproducibility_manifest_state \
+    "${TEMP_DIR}/base-image.env" "${TEMP_DIR}/packages.txt" \
+    "$(_seed_dockerfile 'RUN cp /etc/os-release > '"${TEMP_DIR}"'/base-image.env.backup')"
+  assert_success
+  assert_output "unported"
+}
+
+# why: The write the template really makes, spelled the way the template
+# spells it -- a quoted target inside a continued RUN chain -- still reads as
+# a write, so tightening the match above did not narrow it past the shape it
+# exists to recognise
+@test "reproducibility_manifest_state: a quoted target in a continued RUN is a write" {
+  local _df
+  _df="$(_seed_dockerfile 'RUN mkdir -p '"${TEMP_DIR}"' && \
+    { echo "base_image_ref=x"; } > "'"${TEMP_DIR}"'/base-image.env" && \
+    echo done')"
+  run reproducibility_manifest_state \
+    "${TEMP_DIR}/base-image.env" "${TEMP_DIR}/packages.txt" "${_df}"
+  assert_success
+  assert_output "missing"
+}
