@@ -791,3 +791,25 @@ _append() {
   [[ "${output}" == *"coverage 0"* ]]
   [[ "${output}" == *"shellcheck alone"* ]]
 }
+
+# why: An annotation that spells out WHICH checks coverage skips is the most
+# useful one a reader can get, and rejecting it for containing the tool name
+# would push the docs back to saying less than they know
+@test "_run_derived_figures: a coverage annotation may name the linters it denies (base#1121)" {
+  _write_readme '```bash' \
+    'just test coverage   # Bats under kcov; no ShellCheck or Hadolint' '```'
+  run _run_derived_figures
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"clean"* ]]
+}
+
+# why: The negation reaches one clause, not the whole annotation -- a tool
+# named after the clause break is a claim again, which is what keeps the
+# allowance from being a way to wave the rule through
+@test "_run_derived_figures: a negation does not carry past the clause break (base#1121)" {
+  _write_readme '```bash' \
+    'just test coverage   # kcov, no ShellCheck, Hadolint runs too' '```'
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"no linter runs"* ]]
+}

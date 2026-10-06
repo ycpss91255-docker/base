@@ -2075,7 +2075,7 @@ refused before any build or bundle step.
 | `setup_tui --help names the distinction in all four locales (#879)` | - |
 | `setup.sh --help distinguishes the deploy subcommand from the section (#879)` | - |
 
-### test/bats/unit/derived_figures_lint_spec.bats (59)
+### test/bats/unit/derived_figures_lint_spec.bats (61)
 
 | Test | Description |
 |------|-------------|
@@ -2138,6 +2138,8 @@ refused before any build or bundle step.
 | `_run_derived_figures: the coverage FLAG spelling is the same claim (base#1121)` | The flag spelling reaches the same dispatch, so it must be the same question -- otherwise the rule covers the README and misses the help text |
 | `_run_derived_figures: a coverage annotation that claims no linter is clean (base#1121)` | The corrected wording has to pass, and the rule has to retire itself if the guard ever stops excluding coverage |
 | `_run_derived_figures: an indented example in a comment block is judged (base#1121)` | A worked example in a header block is indented under its own comment marker; an invocation that has to reach the first character of the body would leave every such block folded into the prose line above it and entirely unjudged |
+| `_run_derived_figures: a coverage annotation may name the linters it denies (base#1121)` | An annotation that spells out WHICH checks coverage skips is the most useful one a reader can get, and rejecting it for containing the tool name would push the docs back to saying less than they know |
+| `_run_derived_figures: a negation does not carry past the clause break (base#1121)` | The negation reaches one clause, not the whole annotation -- a tool named after the clause break is a claim again, which is what keeps the allowance from being a way to wave the rule through |
 
 ### test/bats/unit/doc_counts_spec.bats (26)
 

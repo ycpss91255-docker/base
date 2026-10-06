@@ -391,11 +391,21 @@ readonly _DERIVED_FIGURES_CMD_FILES=(
 # to both, so there is one regex rather than two that have to agree.
 readonly _DERIVED_FIGURES_INVOCATION_RE='^(just[[:space:]]+test|[.]/test[.]sh|[.]/script/test/test[.]sh)([[:space:]]+(.*))?$'
 
-# An annotation that explicitly says coverage is NOT measured. ASCII, and
-# the same spelling in every locale: the translations write the tool list in
-# Latin script already, so the negation travels with it and this driver
+# The negation that turns a tool name from "this runs" into a statement about
+# what does NOT run. One prefix, with the tool appended by the caller, so kcov
+# and the linters are judged by the same rule rather than by two that have to
+# agree.
+#
+# ASCII, and the same spelling in every locale: the translations write the tool
+# list in Latin script already, so the negation travels with it and this driver
 # needs no localized pattern.
-readonly _DERIVED_FIGURES_NO_KCOV_RE='(^|[^[:alnum:]])(no|without)[[:space:]]+kcov'
+#
+# `.`, `;` and `,` end the clause the negation reaches. That bound is the whole
+# point: without it "no kcov, ShellCheck + Hadolint run" would read as a denial
+# of ShellCheck, and the allowance would become a way to wave the rule through
+# by putting a negation anywhere in the line. An annotation whose second clause
+# claims a tool is judged on that clause.
+readonly _DERIVED_FIGURES_NEGATION_RE='(^|[^[:alnum:]])(no|without|skip|skips|skipped|skipping)[^.;,]{0,40}'
 
 # _derived_default_coverage <out_var> -- 1 when the compose dispatch measures
 # coverage, 0 when it does not. Read off the coverage argument of every
@@ -620,7 +630,7 @@ _derived_scan_cmd_annotations() {
     _claims_kcov=0
     [[ "${_annot}" =~ [Kk][Cc][Oo][Vv] ]] && _names_kcov=1
     if (( _names_kcov )) \
-      && [[ ! "${_annot,,}" =~ ${_DERIVED_FIGURES_NO_KCOV_RE} ]]; then
+      && [[ ! "${_annot,,}" =~ ${_DERIVED_FIGURES_NEGATION_RE}kcov ]]; then
       _claims_kcov=1
     fi
 
@@ -664,9 +674,18 @@ _derived_scan_cmd_annotations() {
     # Hadolint passed when neither ran.
     if (( _coverage_skips_lint )) && _derived_is_coverage_entry "${_toks[0]}" \
       && (( _has_shellcheck || _has_hadolint )); then
-      if [[ "${_annot,,}" == *shellcheck* || "${_annot,,}" == *hadolint* ]]; then
-        printf '%s:%s: a coverage run sets COVERAGE=1, which is the flag the lint phase guard excludes, so no linter runs -- this annotation names one\n' \
-          "${_rel}" "${_lineno}"
+      # Per tool, and a NEGATED mention is not a claim: an annotation that
+      # spells out which checks coverage skips is the most useful one a
+      # reader can get, and must not be refused for containing the name.
+      local _claimed=''
+      for _tool in shellcheck hadolint; do
+        [[ "${_annot,,}" == *"${_tool}"* ]] || continue
+        [[ "${_annot,,}" =~ ${_DERIVED_FIGURES_NEGATION_RE}${_tool} ]] && continue
+        _claimed+=" ${_tool}"
+      done
+      if [[ -n "${_claimed}" ]]; then
+        printf '%s:%s: a coverage run sets COVERAGE=1, which is the flag the lint phase guard excludes, so no linter runs -- this annotation names%s as running. Say the lint phase is skipped, or negate the name ("no shellcheck")\n' \
+          "${_rel}" "${_lineno}" "${_claimed}"
         _violations=$(( _violations + 1 ))
       fi
       continue
