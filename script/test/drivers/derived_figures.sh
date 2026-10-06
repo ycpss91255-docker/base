@@ -942,6 +942,264 @@ _derived_check_drift_keys() {
   return "${_violations}"
 }
 
+# ── Figure 5: the command a shipped message tells a consumer to type ────────
+#
+# The fifth figure is a VOCABULARY: which `just` invocations the layering a
+# consumer gets actually dispatches. Four `next:` hints -- printed at the
+# exact moment a user has finished changing configuration and is asking how
+# to apply it -- named `just build`, and the shipped entry justfile registers
+# every action as a NAMESPACE (ADR-00000011, zero special case), so there is
+# no top-level `build` recipe to reach. The instruction answered itself with
+# `error: justfile does not contain recipe 'build'`, which reads as a broken
+# install rather than a stale string, and it shipped to every downstream.
+#
+# Two reasons a remembered list would not have caught it. The four hints were
+# pinned verbatim by four assertions, so the suite was green BECAUSE the
+# string was wrong; and the same class had already been fixed twice by hand
+# (base#1111's generated monitor workflow, base#1121's `just upgrade`), which
+# is what a drift with no gate looks like.
+#
+# What is derived, and how:
+#
+#   - the NAMESPACES from the entry justfile's own `mod` / `mod?` lines, and
+#     the recipes of each from the module file that line names. A namespace
+#     added tomorrow is understood the day it lands.
+#   - the TOP-LEVEL recipes from the entry's own recipe lines, which today is
+#     `default` alone. That is the whole of the one-word vocabulary, and it is
+#     read rather than asserted, so flattening the layering lifts the rule
+#     instead of breaking it.
+#   - the consumer's repo root from the entry's own location: the entry is
+#     symlinked in as <repo>/script/justfile, so its mod paths resolve
+#     against the directory ABOVE its own. Here that is dist/, derived, not
+#     spelled.
+#
+# An `import`ed registry contributes nothing on purpose. script/local/
+# justfile.local is repo-owned -- seeded with comments only by init.sh and
+# never clobbered -- so what it defines is unknowable from base's tree, and a
+# shipped message must not tell a user to run a recipe only their own repo
+# might have.
+#
+# Scope, and the residual limits, stated rather than papered over:
+#
+#   - only dist/**/*.sh. That is the tree that ships, and the entry justfile
+#     it ships beside it is the layering being derived; base's own root
+#     justfile is a different one (it carries the `test` namespace), so
+#     README.md and CONTEXT.md are deliberately not judged by this figure.
+#   - only a SINGLE-QUOTED literal, and only on a line that is not a comment.
+#     That pairing is what separates an instruction from prose about one: a
+#     single-quoted command inside a message string is this tree's spelling
+#     for "type this" (`'just --list'`, `'./stop.sh'`), while a comment is
+#     maintainer prose -- the entry justfile's own docstring says there is no
+#     top-level `just build`, and a rule that judged comments would fail on
+#     the file that documents the hazard. A command spelled some other way
+#     (backticked inside running prose, bare inside a usage heredoc) is NOT
+#     detected; every one of the four live defects is single-quoted.
+#   - retired ROOT WRAPPER paths (`./setup.sh`, `./stop.sh`) are a separate
+#     question with a separate population -- the names init.sh deletes on
+#     sight -- and they are not derived here.
+readonly _DERIVED_FIGURES_ENTRY_JUSTFILE='dist/script/justfile'
+
+# A single-quoted `just` invocation inside a message string.
+readonly _DERIVED_FIGURES_JUST_LITERAL_RE="'(just([[:space:]]+[^']*)?)'"
+
+# A token standing in for whatever the reader substitutes, rather than naming
+# a recipe. `just <verb> [args...]` is a shape, not an invocation, and
+# `{{args}}` / `${_ver}` are expanded before anybody reads them.
+readonly _DERIVED_FIGURES_PLACEHOLDER_RE='[<>{}$%*[]'
+
+# _derived_justfile_recipes <file> -- the recipe names a justfile defines,
+# one per line, aliases included.
+#
+# A recipe line is at column 0, opens with the name, may carry parameters
+# and dependencies, and reaches a colon. `set x := y` is a SETTING and
+# `alias h := help` is an alias, so a `:=` line is never read as a recipe --
+# the alias is picked up by its own rule instead, because `just docker h` is
+# as dispatchable as `just docker help`. `mod` / `import` lines define no
+# recipe of their own and are read by the caller.
+_derived_justfile_recipes() {
+  awk '
+    /:=/ {
+      if ($1 == "alias") { print $2 }
+      next
+    }
+    /^(mod|mod\?|import|import\?)[[:space:]]/ { next }
+    /^[a-z_][a-zA-Z0-9_-]*([[:space:]][^:]*)?:/ {
+      name = $1
+      sub(/:.*$/, "", name)
+      if (name != "") { print name }
+    }
+  ' "$1"
+}
+
+# _derived_entry_modules <file> -- one `<namespace> <module-path>` line per
+# `mod` / `mod?` line of the entry justfile. The path is repo-root-relative
+# in the consumer, which is how the caller resolves it.
+_derived_entry_modules() {
+  awk "
+    /^(mod|mod\?)[[:space:]]/ {
+      path = \$0
+      if (sub(/^[^']*'/, \"\", path) && sub(/'.*\$/, \"\", path)) {
+        print \$2, path
+      } else {
+        print \$2
+      }
+    }
+  " "$1"
+}
+
+# _derived_consumer_just_commands <out_var> -- every invocation prefix the
+# consumer's layering dispatches, one per element: each top-level recipe of
+# the entry, each namespace on its own (which lists it), and each
+# `<namespace> <recipe>` pair. Returns non-zero when the entry is missing or
+# names a module file that is not there, because a command set derived from
+# half a layering would report the shipped tree rather than the gap.
+_derived_consumer_just_commands() {
+  local -n _cmds_out="$1"
+  _cmds_out=()
+
+  local _entry="${REPO_ROOT}/${_DERIVED_FIGURES_ENTRY_JUSTFILE}"
+  [[ -f "${_entry}" ]] || return 1
+
+  # The consumer repo root the mod paths resolve against: the entry is
+  # symlinked in as <repo>/script/justfile, so it is the directory above the
+  # entry's own.
+  local _consumer_root
+  _consumer_root="$(dirname "$(dirname "${_entry}")")"
+
+  local _recipe
+  while IFS= read -r _recipe; do
+    [[ -n "${_recipe}" ]] && _cmds_out+=( "${_recipe}" )
+  done < <(_derived_justfile_recipes "${_entry}")
+
+  local _ns _path _module
+  while read -r _ns _path; do
+    [[ -n "${_ns}" ]] || continue
+    [[ -n "${_path}" ]] || return 2
+    _module="${_consumer_root}/${_path}"
+    [[ -f "${_module}" ]] || return 2
+    _cmds_out+=( "${_ns}" )
+    while IFS= read -r _recipe; do
+      [[ -n "${_recipe}" ]] && _cmds_out+=( "${_ns} ${_recipe}" )
+    done < <(_derived_justfile_recipes "${_module}")
+  done < <(_derived_entry_modules "${_entry}")
+
+  [[ "${#_cmds_out[@]}" -gt 0 ]] || return 3
+  return 0
+}
+
+# Every helper below takes the command array by NAME and binds it to a
+# nameref of its own distinct spelling. One shared spelling would be a
+# CIRCULAR name reference the moment a helper passed the array on to a
+# sibling: bash resolves `local -n x="x"` to nothing, silently, so the
+# namespace lookup answered "not a namespace" for every token and the
+# correct namespaced spelling was reported as the violation.
+#
+# _derived_is_known_command <candidate> <commands_var>
+_derived_is_known_command() {
+  local _cand="$1"
+  local -n _dkc_cmds="$2"
+  local _known
+  for _known in "${_dkc_cmds[@]}"; do
+    [[ "${_known}" == "${_cand}" ]] && return 0
+  done
+  return 1
+}
+
+# _derived_is_namespace <token> <commands_var> -- does this token open a
+# two-word invocation? True when some derived command is "<token> <recipe>".
+_derived_is_namespace() {
+  local _tok="$1"
+  local -n _dins_cmds="$2"
+  local _known
+  for _known in "${_dins_cmds[@]}"; do
+    [[ "${_known}" == "${_tok} "* ]] && return 0
+  done
+  return 1
+}
+
+# _derived_namespaced_spellings <verb> <commands_var> -- every
+# `<namespace> <verb>` the layering does dispatch, comma-joined. The repair
+# for the live defect is exactly this, so the message hands it over rather
+# than leaving the reader to read two justfiles.
+_derived_namespaced_spellings() {
+  local _verb="$1"
+  local -n _dns_cmds="$2"
+  local -a _hits=()
+  local _known
+  for _known in "${_dns_cmds[@]}"; do
+    [[ "${_known}" == *" ${_verb}" ]] && _hits+=( "just ${_known}" )
+  done
+  [[ "${#_hits[@]}" -gt 0 ]] && _derived_join_comma "${_hits[@]}"
+}
+
+# _derived_just_candidate <invocation> <commands_var_name> <out_var> -- the
+# invocation prefix to judge, or empty when there is nothing to judge.
+#
+# Bare `just` runs the default recipe. A leading dash is one of the runner's
+# own options, not a recipe. A placeholder is a shape. Otherwise the first
+# token is the candidate, widened to two words when it is a namespace and a
+# real second token follows -- so `just docker build test` is judged as
+# `docker build` and its trailing arguments are not read as recipe names.
+_derived_just_candidate() {
+  local _cmds_name="$2"
+  local -n _djc_out="$3"
+  _djc_out=''
+
+  local -a _tok=()
+  read -r -a _tok <<< "$1"
+  local _first="${_tok[1]:-}" _second="${_tok[2]:-}"
+  [[ -n "${_first}" ]] || return 0
+  [[ "${_first}" == -* ]] && return 0
+  [[ "${_first}" =~ ${_DERIVED_FIGURES_PLACEHOLDER_RE} ]] && return 0
+
+  _djc_out="${_first}"
+  if _derived_is_namespace "${_first}" "${_cmds_name}" \
+    && [[ -n "${_second}" && "${_second}" != -* ]] \
+    && [[ ! "${_second}" =~ ${_DERIVED_FIGURES_PLACEHOLDER_RE} ]]; then
+    _djc_out="${_first} ${_second}"
+  fi
+  return 0
+}
+
+# _derived_scan_just_literals <file> <rel> <commands_var_name>
+#
+# Report every single-quoted `just` invocation in <file> that the consumer's
+# layering does not dispatch. Prints one violation per hit and returns the
+# count.
+_derived_scan_just_literals() {
+  local _file="$1" _rel="$2" _cmds_name="$3"
+  local _violations=0
+
+  local _lineno=0 _line _rest _match _invocation _cand _repair
+  while IFS= read -r _line || [[ -n "${_line}" ]]; do
+    _lineno=$(( _lineno + 1 ))
+    [[ "${_line}" =~ ^[[:space:]]*# ]] && continue
+    _rest="${_line}"
+    while [[ "${_rest}" =~ ${_DERIVED_FIGURES_JUST_LITERAL_RE} ]]; do
+      _match="${BASH_REMATCH[0]}"
+      _invocation="${BASH_REMATCH[1]}"
+      _rest="${_rest#*"${_match}"}"
+
+      _cand=''
+      _derived_just_candidate "${_invocation}" "${_cmds_name}" _cand
+      [[ -n "${_cand}" ]] || continue
+      _derived_is_known_command "${_cand}" "${_cmds_name}" && continue
+
+      _repair="$(_derived_namespaced_spellings "${_cand}" "${_cmds_name}")"
+      if [[ -n "${_repair}" ]]; then
+        _repair=" -- the layering dispatches ${_repair}"
+      else
+        _repair=''
+      fi
+      printf "%s:%s: tells the user to run '%s', and the consumer's layering has no '%s'%s\n" \
+        "${_rel}" "${_lineno}" "${_invocation}" "${_cand}" "${_repair}"
+      _violations=$(( _violations + 1 ))
+    done
+  done < "${_file}"
+
+  return "${_violations}"
+}
+
 _run_derived_figures() {
   echo "--- Running derived-figure lint ---"
 
@@ -1028,9 +1286,14 @@ _run_derived_figures() {
       "scan root '${_DERIVED_FIGURES_CODE_ROOT}/' not found under ${REPO_ROOT} -- the lint would pass vacuously. Point it at the shipped runtime tree."
     return 1
   fi
+  # Figure 5 judges the SHIPPED tree alone: its entry justfile is the
+  # layering being derived, while base's own root justfile carries a `test`
+  # namespace no consumer gets. Collected here so one find serves both.
+  local -a _shipped_surfaces=()
   local _file
   while IFS= read -r -d '' _file; do
     _files+=( "${_file}" )
+    _shipped_surfaces+=( "${_file}" )
   done < <(find "${_code_root}" -name '*.sh' -type f -print0 2>/dev/null \
     | sort -z)
 
@@ -1125,12 +1388,45 @@ _run_derived_figures() {
     _violations=$(( _violations + _hits ))
   done
 
+  # Figure 5. The command vocabulary refuses loudly rather than reporting
+  # every instruction in the shipped tree: an empty or half-read layering
+  # makes each correct hint look wrong, which buries the one missing file
+  # under its own consequences.
+  local -a _just_cmds=()
+  local _cmds_rc=0
+  _derived_consumer_just_commands _just_cmds || _cmds_rc=$?
+  case "${_cmds_rc}" in
+    0) ;;
+    1)
+      _die ci_derived_figures \
+        "'${_DERIVED_FIGURES_ENTRY_JUSTFILE}' not found under ${REPO_ROOT} -- which 'just' commands a consumer has cannot be derived, and a lint that cannot derive them must not pass. Point it at the shipped entry justfile."
+      return 1
+      ;;
+    2)
+      _die ci_derived_figures \
+        "a 'mod' line in ${_DERIVED_FIGURES_ENTRY_JUSTFILE} names a module file that is not there (or names none) -- the command vocabulary would be missing that whole namespace, and every correct instruction naming it would be reported."
+      return 1
+      ;;
+    *)
+      _die ci_derived_figures \
+        "read no recipes and no namespaces out of ${_DERIVED_FIGURES_ENTRY_JUSTFILE} -- every documented 'just' command would then be a violation."
+      return 1
+      ;;
+  esac
+
+  for _file in "${_shipped_surfaces[@]}"; do
+    _hits=0
+    _derived_scan_just_literals \
+      "${_file}" "${_file#"${REPO_ROOT}"/}" _just_cmds || _hits=$?
+    _violations=$(( _violations + _hits ))
+  done
+
   if [[ "${_violations}" -gt 0 ]]; then
     # _die exits in the dispatcher; the explicit return keeps the
     # not-reached "clean" echo unreachable even where a caller stubs _die
     # to return instead of exit (e.g. the unit harness).
     _die ci_derived_figures \
-      "${_violations} document figure(s) disagree with the code that defines them. The baseline stage blocklist is whatever _validate_stage_name returns 2 for -- currently $(_derived_join_comma "${_renderings[@]}") -- and 'devel-test' is NOT in it (it is emitted as the 'test' service). The setup.conf section list and its count are SCHEMA_SECTIONS. What a bare 'just test' measures is the coverage argument of _run_via_compose ci, and what a bare 'just test lint' runs is the whole _LINT_TOOLS table. The drift key set is whatever _check_setup_drift reads back. Fix the prose, not the predicate."
+      "${_violations} document figure(s) disagree with the code that defines them. The baseline stage blocklist is whatever _validate_stage_name returns 2 for -- currently $(_derived_join_comma "${_renderings[@]}") -- and 'devel-test' is NOT in it (it is emitted as the 'test' service). The setup.conf section list and its count are SCHEMA_SECTIONS. What a bare 'just test' measures is the coverage argument of _run_via_compose ci, and what a bare 'just test lint' runs is the whole _LINT_TOOLS table. The drift key set is whatever _check_setup_drift reads back. The 'just' commands a consumer has are the entry justfile's own recipes plus one per '<namespace> <recipe>' pair its mod lines reach. Fix the prose, not the predicate."
     return 1
   fi
   echo "derived-figure lint: clean"
