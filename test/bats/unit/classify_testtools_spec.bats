@@ -67,6 +67,57 @@ _classify_push() {
   _classify_event push "${1:?BUG: _classify_push expects a path}"
 }
 
+# _classify_pr <repo-relative-path>
+#   The pull-request arm of the same step, which is the arm every PR's
+#   image jobs read. The base ref is planted as `refs/remotes/origin/main`
+#   because that is the name the step resolves; its own `git fetch` has no
+#   remote to reach and is already tolerated by the step's `|| true`.
+_classify_pr() {
+  local _p="${1:?BUG: _classify_pr expects a path}"
+  local _d="${BATS_TEST_TMPDIR}/pr"
+  rm -rf "${_d}"
+  mkdir -p "${_d}/$(dirname "${_p}")" "${_d}/doc"
+  ln -s /source/script "${_d}/script"
+  printf 'seed\n' > "${_d}/doc/seed.md"
+  printf 'a\n' > "${_d}/${_p}"
+  git -C "${_d}" init -q -b main
+  git -C "${_d}" config user.email ci@example.invalid
+  git -C "${_d}" config user.name ci
+  git -C "${_d}" add -A
+  git -C "${_d}" commit -q -m base
+  git -C "${_d}" update-ref refs/remotes/origin/main HEAD
+  printf 'b\n' >> "${_d}/${_p}"
+  git -C "${_d}" commit -q -a -m change
+  yaml_step_run "${SELF_WF}" classify diff > "${_d}/step.sh"
+  [ -s "${_d}/step.sh" ] || return 2
+  : > "${_d}/out"
+  (
+    cd "${_d}" || return 2
+    env EVENT_NAME=pull_request BASE_REF=main GITHUB_OUTPUT="${_d}/out" \
+        bash step.sh
+  ) >/dev/null 2>&1
+  cat "${_d}/out"
+}
+
+# _context_copy_paths
+#   Every build-context path the tooling Dockerfile COPYs, read off the
+#   DOCKERFILE through the shared reader rather than through the signal
+#   under test: a population computed by the subject would certify the
+#   subject against itself.
+#
+#   Filtered to paths that exist in this checkout, because each one is
+#   driven by committing a change to it. The shapes the reader cannot
+#   resolve -- a glob, a variable, a line continuation -- are the
+#   derivation's own business and are asserted where it lives, in
+#   testtools_paths_spec.bats.
+_context_copy_paths() {
+  local _p
+  dockerfile_context_copy_srcs /source/dockerfile/Dockerfile.test-tools \
+    | while IFS= read -r _p; do
+        [[ -n "${_p}" && -e "/source/${_p}" ]] && printf '%s\n' "${_p}"
+      done
+}
+
 # why: The reported case. A push to main that changes the test-tools
 # Dockerfile is exactly the push for which the rolling tag is stale --
 # the republish that would refresh it is racing this very run -- and it
@@ -115,6 +166,64 @@ _classify_push() {
 # green against the dispatch case alone.
 @test "classify: a push with no parent to diff still rebuilds (#1010)" {
   run _classify_event push doc/guide.md --root
+  assert_success
+  assert_line 'testtools_changed=true'
+}
+
+# ── the inputs that are not the Dockerfile ────────────────────────────
+
+# why: The defect this spec was extended for. The signal named one path,
+# and the tooling image has more inputs than that: a plain build-context
+# COPY bakes a file of the checkout into the image, so editing that file
+# alone leaves a `:main` that no longer describes the tree while the
+# classifier reports the image unchanged. The population is read off the
+# Dockerfile, so the next COPY anyone adds brings its own case with it
+# instead of waiting for someone to remember this list.
+@test "classify: a push that changes a file the Dockerfile COPYs rebuilds it (#1171)" {
+  local _p _missed=""
+  while IFS= read -r _p; do
+    [[ -n "${_p}" ]] || continue
+    run _classify_push "${_p}"
+    assert_success
+    grep -qx 'testtools_changed=true' <<< "${output}" \
+      || _missed="${_missed}${_p}"$'\n'
+  done < <(_context_copy_paths)
+  [[ -z "${_missed}" ]] || fail \
+      "the tooling Dockerfile COPYs these paths out of the build context, and a push that changes one reports the image unchanged:"$'\n'"${_missed}"
+}
+
+# why: The same miss on the arm every pull request takes, which is the
+# expensive one: the PR arm's `false` sends `obtain_test_tools.sh` down its
+# layer-2 path, so the whole suite runs inside the rolling `:main` -- an
+# image built before the edit, and one nothing on the PR path refreshes.
+@test "classify: a PR that changes a file the Dockerfile COPYs rebuilds it (#1171)" {
+  local _p _missed=""
+  while IFS= read -r _p; do
+    [[ -n "${_p}" ]] || continue
+    run _classify_pr "${_p}"
+    assert_success
+    grep -qx 'testtools_changed=true' <<< "${output}" \
+      || _missed="${_missed}${_p}"$'\n'
+  done < <(_context_copy_paths)
+  [[ -z "${_missed}" ]] || fail \
+      "the tooling Dockerfile COPYs these paths out of the build context, and a PR that changes one runs inside the stale rolling tag:"$'\n'"${_missed}"
+}
+
+# why: The guard that keeps the two cases above from being bought by
+# answering `true` to everything. "Anything changed" would rebuild the
+# tooling image on every pull request and throw away the pull path the
+# rolling tag exists for.
+@test "classify: a PR that changes nothing the image reads still pulls (#1171)" {
+  run _classify_pr doc/guide.md
+  assert_success
+  assert_line 'testtools_changed=false'
+}
+
+# why: The Dockerfile's own case on the PR arm, pinned alongside the two
+# above so a rewrite that reaches for the derivation cannot drop the one
+# input the signal already had.
+@test "classify: a PR that changes the test-tools Dockerfile rebuilds it (#1171)" {
+  run _classify_pr dockerfile/Dockerfile.test-tools
   assert_success
   assert_line 'testtools_changed=true'
 }

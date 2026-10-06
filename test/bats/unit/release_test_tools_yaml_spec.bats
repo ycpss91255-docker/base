@@ -18,10 +18,12 @@
 #
 # 2. **Main push** (P2) — multi-arch `:main` rolling tag. The
 #    template's own self-test.yaml pulls this in its Obtain step to
-#    skip a from-source rebuild on every PR. The paths filter
-#    restricts the trigger to commits that actually touched
-#    Dockerfile.test-tools or this workflow, so most main-branch
-#    merges don't churn GHCR.
+#    skip a from-source rebuild on every PR. The paths filter holds back
+#    the merges that change nothing the image is built from, and the last
+#    section of this file holds the filter to the set
+#    `script/ci/testtools_paths.sh` derives from the Dockerfile's COPY
+#    lines -- a filter naming only the Dockerfile is why a merge touching
+#    only a COPYed file never reached GHCR at all.
 #
 # 3. **workflow_dispatch** — no tag set of its own: it resolves by the
 #    ref it was dispatched FROM (main takes the `:main` arm, a `v*` tag
@@ -45,9 +47,9 @@
 # prerelease tag must leave it alone.
 #
 # 2. **Main push** (P2) -- multi-arch `:main` rolling tag, pulled by
-# self-test.yaml's Obtain step to skip from-source rebuilds. The paths
-# filter (gotcha 3) restricts it to commits that touched
-# `dockerfile/Dockerfile.test-tools` or this workflow.
+# self-test.yaml's Obtain step to skip from-source rebuilds. Its paths filter
+# holds back the merges that change nothing the image is built from, and is
+# itself held to the set derived from the Dockerfile's own COPY lines.
 #
 # 3. **workflow_dispatch** -- no tag set of its own: it resolves by the ref
 # it was dispatched from (main takes the `:main` arm, a `v*` tag takes the
@@ -199,11 +201,15 @@ _spec_prose() {
   assert_output --partial 'branches: [main]'
 }
 
-@test "release-test-tools.yaml: main push trigger has paths filter limiting to Dockerfile.test-tools + workflow self (#317 P2 gotcha-3)" {
+# why: The main push trigger is filtered at all, which is what keeps every
+# non-doc merge from republishing the same image content under a new manifest
+# digest. WHAT the filter has to contain is asserted against the derivation,
+# in both directions, in the last section of this file -- the two cases there
+# are the ones that fail when a context COPY is added without extending it.
+@test "release-test-tools.yaml: main push trigger carries a paths filter (#317 P2 gotcha-3)" {
   run yaml_top_lines "${WF}" on
   assert_success
   assert_output --partial 'paths:'
-  assert_output --partial "'dockerfile/Dockerfile.test-tools'"
   assert_output --partial "'.github/workflows/release-test-tools.yaml'"
 }
 
@@ -540,4 +546,87 @@ _spec_prose() {
   # A grep that matched nothing must not compare "" against "" and call it
   # agreement. The step names the empty case explicitly.
   assert_output --partial 'could not read'
+}
+
+# ── The trigger's path filter, read against the image it is about ─────
+
+# _trigger_paths -- the `paths:` entries of the push trigger, one per line.
+# Read out of the YAML so the two cases below cannot drift from the file.
+_trigger_paths() {
+  local _out _status=0
+  _out="$(yq -r '.on.push.paths[]' "${WF}" 2>&1)" || _status=$?
+  if [[ "${_status}" -ne 0 || -z "${_out}" || "${_out}" == 'null' ]]; then
+    printf 'BUG: %s declares no push paths filter (yq said: %s)\n' \
+        "${WF}" "$(printf '%s' "${_out}" | tr '\n' ' ')"
+    return 2
+  fi
+  printf '%s\n' "${_out}"
+}
+
+# _filter_selects <path>
+#   Does any `paths:` entry match <path>, by GitHub's filter-pattern rules?
+#   `**` matches any characters including `/`; a plain entry has to name the
+#   path outright. A pattern this does not model is reported as a BUG rather
+#   than read as "no match": a filter form nobody here understands must not
+#   be certified by a matcher that quietly answers for it.
+_filter_selects() {
+  local _path="${1:?BUG: _filter_selects expects a path}" _e
+  while IFS= read -r _e; do
+    [[ -n "${_e}" ]] || continue
+    case "${_e}" in
+      BUG:*) printf '%s\n' "${_e}"; return 2 ;;
+      '**') return 0 ;;
+      */\*\*) case "${_path}/" in "${_e%\*\*}"*) return 0 ;; esac ;;
+      *[*?!+\[]*)
+        printf 'BUG: %s uses a filter pattern this matcher does not model\n' \
+            "${_e}"
+        return 2 ;;
+      *) [[ "${_path}" == "${_e}" ]] && return 0 ;;
+    esac
+  done < <(_trigger_paths)
+  return 1
+}
+
+# why: The reported defect, on the half that compounds the other. The tag a
+# pull request falls back to when the rebuild signal says "unchanged" is a tag
+# nothing refreshed: this trigger named the Dockerfile and this workflow, and
+# the image has more inputs than that, so a merge touching only a file the
+# Dockerfile COPYs out of the build context never started the publisher at
+# all. `paths:` is static YAML GitHub evaluates before any job runs, so it
+# cannot derive the set -- but it can be HELD to it. The expected set is read
+# from the derivation, so the next context COPY anyone adds fails here, on the
+# pull request that adds it, naming the path the filter does not cover.
+@test "release-test-tools.yaml: the push filter covers every input of the tooling image (#1171)" {
+  local _p _missing="" _status
+  while IFS= read -r _p; do
+    [[ -n "${_p}" ]] || continue
+    _status=0
+    _filter_selects "${_p}" || _status=$?
+    case "${_status}" in
+      0) ;;
+      1) _missing="${_missing}${_p}"$'\n' ;;
+      *) fail "could not read the filter: $(_filter_selects "${_p}")" ;;
+    esac
+  done < <(bash /source/script/ci/testtools_paths.sh)
+  [[ -z "${_missing}" ]] || fail \
+      "these paths can change what the tooling image contains, and no entry of this workflow's push filter selects them, so a merge touching only one of them never republishes :main:"$'\n'"${_missing}"
+  _filter_selects '.github/workflows/release-test-tools.yaml' || fail \
+      "the filter no longer names this workflow, so a change to how the tag is resolved or smoke-tested never goes out"
+}
+
+# why: The direction the filter exists for, and the reason it is a filter at
+# all rather than `'**'` plus a job that decides. Every non-doc merge pushes
+# to main; a filter that matches all of them would burn a multi-arch build per
+# merge -- and, worse, put a run that will NOT publish into the workflow's
+# concurrency group, where GitHub keeps only ONE pending run: a doc-only merge
+# could then evict a queued publish and decline to publish in its place,
+# leaving `:main` without the change it was queued for. So every run this
+# trigger starts has a reason to publish, and the publish is unconditional.
+@test "release-test-tools.yaml: the push filter does not start on what the image never reads (#1171)" {
+  local _p
+  for _p in doc/guide.md README.md test/bats/unit/example_spec.bats \
+            dist/script/docker/wrapper/build.sh; do
+    ! _filter_selects "${_p}" || fail \
+        "this workflow's push filter selects ${_p}, which cannot change what the tooling image contains: every merge would republish :main, and a run that publishes nothing can evict a queued one from the concurrency group"
+  done
 }
