@@ -2793,7 +2793,7 @@ all.
 | `.gitattributes: the generated changelog index merges by union (#926)` | The original scope of the rule, kept rather than assumed: the index is derived and the layout lint re-derives it, so a union duplicate there is reported instead of shipped. |
 | `.gitattributes: CONVENTIONS.md is NOT union-merged (#926)` | The boundary the widened glob nearly crossed. A gitattributes `*` does not cross `/`, so `doc/changelog/*.md` would have covered hand-written prose -- where union merging keeps both copies of a rewritten paragraph in silence, and no gate in this repo reads that file outside its marker block. |
 
-### test/bats/unit/gitignore_spec.bats (47)
+### test/bats/unit/gitignore_spec.bats (53)
 
 Unit tests for `template/script/docker/lib/gitignore.sh` — the canonical
 `.gitignore` set + sync/untrack helpers introduced for issue #172.
@@ -2824,7 +2824,13 @@ Unit tests for `template/script/docker/lib/gitignore.sh` — the canonical
 | `_untrack_canonical_in_repo: no-op when no canonical files tracked` | Healthy-repo no-op |
 | `_untrack_canonical_in_repo: handles tracked coverage/ directory` | Directory entry |
 | `_untrack_canonical_in_repo: idempotent — second run succeeds without error` | Re-run safety |
-| `_untrack_canonical_in_repo: untracks all canonical entries that match` | Multi-entry sweep |
+| `_untrack_canonical_in_repo: untracks all canonical entries that match` | Multi-entry sweep over the WHOLE canonical set (#1119). The title used to name four entries by hand, all of them ones the sweep handles, so it stayed green while three of twelve were handled wrong. The population is now derived from _canonical_gitignore_entries, and the one class the sweep deliberately passes over -- an anchored entry, whose pathspec is the blocked decision -- is asserted as passed over rather than left unvisited. |
+| `_untrack_canonical_in_repo: leaves a nested copy of an unanchored entry tracked (#1119)` | `log/` and `coverage/` are UNANCHORED gitignore patterns, so they ignore `sub/log/` too, but the pathspec derived from them matches from the repo root only and leaves the nested copy in the index (#1119). Pinned, not fixed: widening the pathspec is the same blocked decision as the anchored entry, and a divergence nothing states is the one that gets re-discovered. |
+| `_canonical_entry_pathspec: a directory entry loses its trailing slash (#1119)` | The translation seam (#1119). A trailing slash marks a directory in a gitignore pattern and means nothing in a pathspec, so it is dropped. |
+| `_canonical_entry_pathspec: an anchored entry has no pathspec yet (#1119)` | A leading slash anchors a gitignore pattern at the repo root; handed to git verbatim it is an absolute filesystem path and git refuses it outright (#1119). The translation reports "no pathspec" so the sweeps skip the entry by a stated rule, which is what the swallowed fatal used to do by accident. |
+| `_canonical_entry_pathspec: every pathspec it returns is one git accepts (#1119)` | The property the whole fix is about (#1119): a gitignore pattern is not a pathspec, so every pathspec this translation DOES hand out has to be one git accepts. Asserted against the real canonical set in a real repo, so a future entry whose shape git refuses fails here and not in a consumer's unattended upgrade. |
+| `_untrack_canonical_in_repo: reports a git ls-files failure instead of skipping the entry (#1119)` | The swallowed fatal (#1119). `git ls-files` prints the tracked paths a pathspec matches and exits 0 even when it matches nothing, so a NON-ZERO status is never "nothing to untrack" -- it is git refusing the pathspec. Routing its stderr to /dev/null and reading only `[[ -n "$(...)" ]]` turned that refusal into an entry skipped with no trace, and a sweep that reported success over it. |
+| `_untrack_canonical_in_repo: reports a git rm failure instead of ignoring it (#1119)` | The second swallow in the same loop (#1119). `git rm --cached` ran under `\|\| true` with both streams discarded, so an entry ls-files had just reported as tracked could fail to leave the index and the sweep would still return success -- and the resync would then stage a .gitignore claiming the file is ignored while the index still carries it. |
 | `_sync_logging_gitignore: tracer — relative local_path emitted in .gitignore (#402)` | - |
 | `_sync_logging_gitignore appends relative local_path to .gitignore (#402, ex-#328)` | - |
 | `_sync_logging_gitignore skips absolute paths (#402, ex-#328)` | - |
@@ -2980,7 +2986,7 @@ forwarding for caller abort, and DRY_RUN skip.
 | `init.sh --list-installed-paths output is sorted and free of duplicates` | - |
 | `init.sh --list-installed-paths mutates nothing and never leaves its cwd` | - |
 
-### test/bats/unit/init_spec.bats (99)
+### test/bats/unit/init_spec.bats (101)
 
 Unit coverage for `init.sh` helpers that previous rounds exercised only
 through the Level-1 integration test. Complements
@@ -3086,6 +3092,8 @@ are hard to trigger from a real `bash template/init.sh` invocation
 | `_init_restore_tree: removes what the resync created (#937)` | - |
 | `_init_restore_tree: restores a rewritten file byte for byte (#937)` | - |
 | `_init_restore_tree: refuses to delete when its snapshot copy is missing (#937)` | - |
+| `_init_snapshot_index: reports a git ls-files failure instead of recording nothing (#1119)` | The rollback index snapshot carried the same swallowed fatal as the untrack sweep it protects (#1119): `git ls-files -s -z -- "${entry%/}"` appending under `2>/dev/null \|\| true`. ls-files exits 0 even when a pathspec matches nothing, so a non-zero status is git refusing the pathspec, and discarding it recorded an EMPTY snapshot of the index the resync is about to stage deletions into. An aborted run would then put nothing back. |
+| `_init_snapshot_index: a repo tracking the anchored canonical entry still snapshots (#1119)` | The snapshot and the untrack sweep must translate a canonical entry into a pathspec the SAME way (#1119); they were two copies of `${entry%/}`, and a snapshot that skips what the sweep removes cannot put it back. Now that a refused pathspec is a hard failure, a repo tracking the anchored entry is the case that catches this call site going back to its own translation. |
 | `_init_existing_repo: hands back the caller's EXIT trap on success (#937)` | - |
 | `_populate_config: the seeded placeholder names the config/<component>/ channel` | the seeded text names the structured channel |
 | `_populate_config: the seeded placeholder still names the build-time overlay` | the seeded text keeps the build-time channel |
