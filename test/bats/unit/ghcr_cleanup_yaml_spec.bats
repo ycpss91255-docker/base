@@ -157,7 +157,13 @@ readonly _DELETION_ACTION="uses:[[:space:]]*['\"]?[A-Za-z0-9._-]+/(delete-packag
 # precedes the endpoint is therefore required to be a non-path character, so
 # `superusers/x/packages/` is not read as `users/x/packages/`.
 readonly _DELETION_API_PATH='(^|[^A-Za-z0-9._/-])/?(user|users/[^/[:space:]]+|orgs/[^/[:space:]]+)/packages/'
-readonly _DELETION_API_VERB='(--method|-X)[[:space:]]+DELETE|method:[[:space:]]*.?DELETE'
+# The separator between the flag and its value is NOT part of the operation:
+# `--method DELETE`, `--method=DELETE` and `-XDELETE` are one flag written
+# three ways, and a pattern keyed on the whitespace reads the third as no
+# deletion at all. Zero or more of space and `=` is deliberately permissive —
+# over-matching a verb costs nothing, since a file is a surface only when it
+# also carries the packages path.
+readonly _DELETION_API_VERB='(--method|-X)[[:space:]=]*DELETE|method:[[:space:]]*.?DELETE'
 
 # The footgun, named in two parts: the action, and the input that makes it
 # destructive. Named separately so a swap back is caught even if either
@@ -401,6 +407,49 @@ _exclude_tags() {
   run _deletion_surfaces "${SCRATCH}/wf"
   assert_success
   assert_output "${SCRATCH}/wf/slashless.yaml"
+}
+
+# why: `--method=DELETE` is the same flag as `--method DELETE`, and a
+# classifier keyed on the separator is keyed on nothing that matters
+@test "GHCR deletion surface: an --method=DELETE packages call is a surface (#1089)" {
+  # The attached-value spelling of the same flag, and the refusal it has to
+  # produce: beside the one gated surface it makes the population two, which
+  # is the state that must be reported rather than passed over.
+  _wf cleanup \
+    '      - uses: dataaxiom/ghcr-cleanup-action@d52806a0dc70b430571a37da1fde39733ffd640f # v1.2.2'
+  _wf attached \
+    'jobs:' \
+    '  prune:' \
+    '    steps:' \
+    '      - run: gh api --method=DELETE orgs/ycpss91255-docker/packages/container/test-tools/versions/123'
+  run _deletion_surfaces "${SCRATCH}/wf"
+  assert_success
+  assert_output --partial "${SCRATCH}/wf/attached.yaml"
+  run _deletion_surface_verdict "${SCRATCH}/wf"
+  assert_failure
+  assert_output --partial '2 workflows in'
+  assert_output --partial 'attached.yaml'
+}
+
+# why: `-XDELETE` is how the short flag is normally written, value attached
+# with no separator at all
+@test "GHCR deletion surface: an -XDELETE packages call is a surface (#1089)" {
+  # The short flag with its value attached -- the spelling curl taught
+  # everyone and the one a hand-rolled deleter is most likely to carry.
+  _wf cleanup \
+    '      - uses: dataaxiom/ghcr-cleanup-action@d52806a0dc70b430571a37da1fde39733ffd640f # v1.2.2'
+  _wf short \
+    'jobs:' \
+    '  prune:' \
+    '    steps:' \
+    '      - run: gh api -XDELETE orgs/ycpss91255-docker/packages/container/test-tools/versions/123'
+  run _deletion_surfaces "${SCRATCH}/wf"
+  assert_success
+  assert_output --partial "${SCRATCH}/wf/short.yaml"
+  run _deletion_surface_verdict "${SCRATCH}/wf"
+  assert_failure
+  assert_output --partial '2 workflows in'
+  assert_output --partial 'short.yaml'
 }
 
 # why: A quoted `uses:` is an ordinary YAML spelling of the same call, and a
