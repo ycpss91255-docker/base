@@ -5191,7 +5191,7 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: acceptance asserts the runnability contract (#579)` | - |
 | `self-test.yaml: acceptance pins the entry point the shipped Dockerfile wires (#945)` | The acceptance job's `.Path` check is a runnability assertion only while the literal it compares against is the one the template's ENTRYPOINT names. Reading BOTH here, rather than remembering one, is what makes a move of the entry point fail in the local gate instead of on the CI-only acceptance matrix that `just test` cannot see |
 | `self-test.yaml: acceptance exercises the remaining downstream just commands for real (#769)` | - |
-| ``self-test.yaml: acceptance drives `just template new` end-to-end and asserts the consumer artifact (#785)`` | - |
+| `self-test.yaml: acceptance drives 'just template new' end-to-end and asserts the consumer artifact (#785)` | - |
 | `self-test.yaml: acceptance documents setup-tui as intentionally out of scope (#769)` | - |
 | `self-test.yaml: acceptance runs as a native-runner matrix over amd64 + arm64 (#603)` | - |
 | `self-test.yaml: acceptance shards run on the matrix runner (#603)` | - |
@@ -5199,7 +5199,7 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: system job declares needs on actionlint AND classify (#317)` | - |
 | `self-test.yaml: bats-fragile job-level if: gates on code_changed (#677)` | - |
 | `self-test.yaml: bats-integration job-level if: gates on code_changed (#377)` | - |
-| ``self-test.yaml: no monolithic `test:` job remains after #377 split`` | - |
+| `self-test.yaml: no monolithic 'test:' job remains after #377 split` | - |
 | `self-test.yaml: acceptance job-level if: gates on code_changed (#317)` | - |
 | `self-test.yaml: system job-level if: gates on system_relevant (#317 P3)` | - |
 | `self-test.yaml: bats-fragile job uses docker/build-push-action with GHA cache scope=test-tools (#677)` | - |
@@ -6563,6 +6563,58 @@ Unit tests for the repo-local command-group scaffolder
 | `main copies terminator config file` | Config copy |
 | `main calls chown with correct user and group` | Permissions |
 | `script runs entry_point when executed directly` | Direct-run guard |
+
+### test/bats/unit/test_name_backtick_lint_spec.bats (15)
+
+The guard over the one string in a spec file that bats EVALUATES. base#1200
+measured what a live backtick in a name costs on this tree's two offenders:
+one run of a single 124-test spec emitted 125 copies of each of two shell
+errors, and printed both names with their backticked span replaced by the
+substitution's empty stdout, so the TAP output and the catalogue under
+doc/test/ disagreed about what the suite contains. The noise and the
+divergence are the measured cost; arbitrary command execution at collection
+time, with no test selected, is the mechanism.
+
+Unit tests for script/test/drivers/test_name_backtick.sh -- the "a `@test`
+name is a literal, not a command" lint.
+
+Two properties drive the case list, and both were measured on bats 1.13.0
+rather than assumed. FIRST, the author's quoting does not matter: bats's
+preprocessor strips the quotes the source wrote and its registration site
+supplies its own double quotes around the name before eval'ing it, so a
+single-quoted name is expanded exactly like a double-quoted one -- which is
+why the driver judges the whole @test line and parses no quoting, and why
+single-quoting is not a fix for this defect even though it reads like one.
+
+SECOND, a backslash-escaped backtick is a literal one: the catalogue
+generator unescapes it back to a plain backtick when it renders a row, so
+nothing is executed and this lint reports nothing. It is still not the fix
+base#1200 took, because `--filter` is matched against the name as the SOURCE
+writes it, so the backslashes stay in the one string the filter sees. The
+fix is to drop the backticks and write the code span in single quotes inside
+the name, which 178 of this tree's names already do.
+
+Detection runs against a controlled temp REPO_ROOT, never the live checkout:
+the tree is asserted by the `lint-static` group that runs this driver, which
+is where a whole-tree scan belongs (base#1075).
+
+| Test | Description |
+|------|-------------|
+| `_run_test_name_backtick: FAILS on a live backtick in a name, naming file, line and column` | The exact shape base#1200 found twice. The report has to name the file, the line and the column, because the author is looking for a character inside a long sentence |
+| `_run_test_name_backtick: FAILS on a single-quoted name too, because bats expands it as well` | The load-bearing case for the rule's shape. bats supplies its own quotes around the name, so a single-quoted one is expanded too -- measured, a single-quoted name whose backticks held an echo registered with the echo's output in place of them. A lint that exempted single quotes would bless the one spelling that reads most like the fix |
+| `_run_test_name_backtick: FAILS when an EVEN backslash run leaves the backtick live` | An even-length backslash run leaves the backtick live -- the run escapes itself, not the character after it -- and reading one character back instead of counting the run would call this clean |
+| `_run_test_name_backtick: reports EVERY offending name, not the first` | Reporting the first offender and stopping makes the lint take as many runs to clear as the tree has names; base#1200's own tree had two, in one file |
+| `_run_test_name_backtick: scans the shipped smoke specs under dist/, not only test/bats/` | The population is the whole tree and not test/bats/. The shipped smoke specs under dist/ are vendored into every downstream repo by the .base subtree, so a name executed there is executed in seventeen other checkouts, and a scan rooted at the base-own spec tree would never see it |
+| `_run_test_name_backtick: FAILS on an INDENTED name, which bats registers too` | bats's preprocessor accepts leading blanks before '@test' and registers the test, backticks and all -- measured, an indented name whose backticks held an echo registered as the echo's output. An anchor pinned to column 0 would skip it while bats still ran it, and the non-empty-population check would not notice because the file's other tests satisfy it |
+| `_run_test_name_backtick: reports an indented name inside a heredoc, the accepted over-report` | The over-report this lint accepts, pinned so it cannot change shape unnoticed. An indented '@test' inside a quoted heredoc is fixture TEXT: the preprocessor rewrites it (it is a line filter with no heredoc model) but the enclosing shell never registers it, so nothing is executed there. It is reported anyway, because a scan over text cannot tell that line from a declaration -- and the fixture is often written out and run by an inner bats, where the name IS registered. Over-reporting is the refusing direction; 21 such lines exist in this tree today and none carries a backtick |
+| `_run_test_name_backtick: FAILS on a '@test' line bats's own pattern cannot read` | A '@test' line bats's own pattern cannot read is a line this lint cannot judge, and an unreadable line is a failure rather than a skip -- the same rule the walk failure below follows. Silently skipping it would take the name out of the rule's reach with the gate green |
+| `_run_test_name_backtick: PASSES a backslash-escaped backtick, which bats leaves alone` | The boundary of the rule. An escaped backtick is a literal one, so there is nothing to execute and nothing to report; a lint that flagged it would be refusing a name bats leaves alone, and would read as licence to widen until it refused every backtick |
+| `_run_test_name_backtick: PASSES a backtick that is not on a '@test' line` | Only the NAME is eval'd at registration. A backtick in a body is ordinary shell the test author meant to run, and a lint that flagged it would be unsatisfiable in half the specs here |
+| `_run_test_name_backtick: PASSES a backtick in a comment AFTER the opening brace` | Everything after the opening brace is the BODY, not the name: bats takes its description from the text BEFORE the brace and makes the rest the body's first line, so a backtick in a trailing comment is never eval'd at registration -- measured, such a name registers clean. 26 '@test' lines here carry text after the brace, so judging the whole line would fail the gate on names bats leaves alone |
+| `_run_test_name_backtick: a clean tree passes and the counts print` | The clean line is the audit trail: it says how many names were read and over how many files, so a reader of a green CI log can tell a scan that checked the tree from one that checked nothing |
+| `_run_test_name_backtick: DIES when the walk for spec files fails` | A walk that died part way through hands the lint a short list, which reads exactly like a tree with less in it. The three dies below are the only ways this lint can report clean having read nothing, and each asserts the sentence only ITS die prints |
+| `_run_test_name_backtick: DIES when the tree holds no spec file at all` | An empty population is the shape that goes green by construction: the specs moved, the lint reads nothing and reports a clean tree |
+| `_run_test_name_backtick: DIES when the spec files carry no '@test' line` | The blind-detector case, and the one that matters most: 4848 '@test' lines exist today, so zero means the anchor stopped matching -- a renamed keyword, a changed convention -- and a blind detector reports every name clean |
 
 ### test/bats/unit/test_tools_pins_spec.bats (13)
 
