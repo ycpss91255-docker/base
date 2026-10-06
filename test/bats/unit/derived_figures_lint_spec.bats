@@ -38,7 +38,7 @@ setup() {
 
   SCRATCH="$(mktemp -d)"
   mkdir -p "${SCRATCH}/dist/script/docker/lib" "${SCRATCH}/doc/readme" \
-    "${SCRATCH}/script/test"
+    "${SCRATCH}/script/test" "${SCRATCH}/dist/script/docker"
   REPO_ROOT="${SCRATCH}"
 
   # A tree that passes, so each case perturbs exactly one thing.
@@ -46,6 +46,7 @@ setup() {
   _write_readme
   _write_runner
   _write_test_justfile
+  _write_consumer_justfiles
   printf '%s\n' '# CONTEXT' > "${SCRATCH}/CONTEXT.md"
   printf '%s\n' '#!/usr/bin/env bash' \
     > "${SCRATCH}/dist/script/docker/lib/sample.sh"
@@ -167,6 +168,32 @@ _write_test_justfile() {
     'lint *args:' '    ./script/test/test.sh --lint' \
     "coverage shard='':" '    ./script/test/test.sh --coverage' \
     > "${SCRATCH}/script/test/justfile.test"
+}
+
+# _write_consumer_justfiles [namespace] -- the layering a consumer gets: the
+# shipped entry justfile, which owns only `default` and registers each action
+# as a namespace, plus the one module whose recipes figure 5 reads. The
+# namespace is a parameter so a case can prove the set is read off the `mod?`
+# line rather than remembered.
+_write_consumer_justfiles() {
+  local _ns="${1:-docker}"
+  printf '%s\n' \
+    "mod? ${_ns} 'script/docker/justfile.docker'" \
+    "import? 'script/local/justfile.local'" \
+    'default:' \
+    '    @just --list' \
+    > "${SCRATCH}/dist/script/justfile"
+  printf '%s\n' \
+    'default:' \
+    '    @just --list' \
+    'alias h := help' \
+    'help *args:' \
+    '    ./script/help.sh' \
+    'build *args:' \
+    '    ./script/build.sh {{args}}' \
+    'setup *args:' \
+    '    ./script/setup.sh {{args}}' \
+    > "${SCRATCH}/dist/script/docker/justfile.docker"
 }
 
 # _append <relative-path> <line>... -- add prose to a scratch file.
@@ -854,4 +881,88 @@ _append() {
     'just test lint   # Every linter, ShellCheck and Hadolint included' '```'
   run _run_derived_figures
   [ "${status}" -eq 0 ]
+}
+
+# ════════════════════════════════════════════════════════════════════
+# Figure 5: the `just` command a shipped message tells a consumer to type
+# ════════════════════════════════════════════════════════════════════
+
+# why: This is the shipped defect: the hint printed the moment a user asks how
+# to apply a config change named a top-level recipe, and the entry justfile
+# registers every action as a namespace, so the instruction answered itself
+# with `error: justfile does not contain recipe`
+@test "_run_derived_figures: FAILS on a shipped message naming a top-level recipe the consumer entry does not define (base#1118)" {
+  _append 'dist/script/docker/lib/sample.sh' \
+    '    printf "[setup] next: run '"'"'just build'"'"' to regenerate\\n"'
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/sample.sh:"* ]]
+  [[ "${output}" == *"just build"* ]]
+}
+
+# why: The namespaced spelling is the one a consumer can type, so a gate that
+# cannot tell it from the broken one would force the prose back to the error
+@test "_run_derived_figures: PASSES on the namespaced spelling of the same verb (base#1118)" {
+  _append 'dist/script/docker/lib/sample.sh' \
+    '    printf "[setup] next: run '"'"'just docker build'"'"' to regenerate\\n"'
+  run _run_derived_figures
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"clean"* ]]
+}
+
+# why: `just --list` is an option of the runner, not a recipe it dispatches, so
+# reading the first token as a recipe name would report the one hint in the
+# shipped help text that is already correct
+@test "_run_derived_figures: a literal naming a just OPTION is not a recipe claim (base#1118)" {
+  _append 'dist/script/docker/lib/sample.sh' \
+    "    echo \"Tip: 'just --list' shows the native English listing.\""
+  run _run_derived_figures
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"clean"* ]]
+}
+
+# why: A real namespace with a verb the module never defines fails the same way
+# at the terminal, so stopping at the namespace would let the second half of
+# every two-word instruction go unchecked
+@test "_run_derived_figures: FAILS on a namespace whose module does not define that recipe (base#1118)" {
+  _append 'dist/script/docker/lib/sample.sh' \
+    '    printf "run '"'"'just docker deploy'"'"' next\\n"'
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"just docker deploy"* ]]
+}
+
+# why: Bidirectional, and the proof that the set is read off the entry's `mod?`
+# lines rather than remembered: rename the namespace and the spelling that was
+# correct becomes the violation, with no edit to this driver
+@test "_run_derived_figures: renaming the namespace in the entry makes the old spelling the violation (base#1118)" {
+  _write_consumer_justfiles 'container'
+  _append 'dist/script/docker/lib/sample.sh' \
+    '    printf "run '"'"'just docker build'"'"' next\\n"'
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"just docker build"* ]]
+  [[ "${output}" == *"no 'docker'"* ]]
+}
+
+# why: A comment is maintainer prose about the layering -- the entry's own
+# docstring says "no top-level `just build`" -- while the rule is about what a
+# consumer is TOLD TO TYPE; judging comments would make the file that documents
+# the hazard the first thing to fail
+@test "_run_derived_figures: a command named in a source comment is not an instruction (base#1118)" {
+  _append 'dist/script/docker/lib/sample.sh' \
+    "# ADR-00000011 zero-special-case: there is no top-level 'just build'."
+  run _run_derived_figures
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"clean"* ]]
+}
+
+# why: With no entry justfile the command set is empty, every instruction looks
+# wrong and the lint would report the whole shipped tree; refusing names the
+# one missing file instead of burying it under its consequences
+@test "_run_derived_figures: DIES when the consumer entry justfile is missing rather than failing everything (base#1118)" {
+  rm -f "${SCRATCH}/dist/script/justfile"
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/justfile"* ]]
 }

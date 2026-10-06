@@ -2102,7 +2102,7 @@ refused before any build or bundle step.
 | `setup_tui --help names the distinction in all four locales (#879)` | - |
 | `setup.sh --help distinguishes the deploy subcommand from the section (#879)` | - |
 
-### test/bats/unit/derived_figures_lint_spec.bats (65)
+### test/bats/unit/derived_figures_lint_spec.bats (72)
 
 | Test | Description |
 |------|-------------|
@@ -2171,6 +2171,13 @@ refused before any build or bundle step.
 | `_run_derived_figures: the bare target is derived, not the literal word default (base#1121)` | Which recipe a bare invocation runs is just's rule, not the word "default" -- a file with no `default` recipe hands it to the first one, and the guard has to follow that or it exempts the bare run under another name |
 | `_run_derived_figures: FAILS on a hadolint-only lint annotation too (base#1121)` | The lint phase runs both binaries, so "Hadolint only" is exactly as wrong as "ShellCheck only"; catching one spelling and not the other enforces the invariant in one direction and invites the other |
 | `_run_derived_figures: a lint annotation naming both, one negated, is clean (base#1121)` | A negated mention is not a claim here either, or the rule would refuse an annotation that correctly says which binary a narrowed phase leaves out |
+| `_run_derived_figures: FAILS on a shipped message naming a top-level recipe the consumer entry does not define (base#1118)` | This is the shipped defect: the hint printed the moment a user asks how to apply a config change named a top-level recipe, and the entry justfile registers every action as a namespace, so the instruction answered itself with `error: justfile does not contain recipe` |
+| `_run_derived_figures: PASSES on the namespaced spelling of the same verb (base#1118)` | The namespaced spelling is the one a consumer can type, so a gate that cannot tell it from the broken one would force the prose back to the error |
+| `_run_derived_figures: a literal naming a just OPTION is not a recipe claim (base#1118)` | `just --list` is an option of the runner, not a recipe it dispatches, so reading the first token as a recipe name would report the one hint in the shipped help text that is already correct |
+| `_run_derived_figures: FAILS on a namespace whose module does not define that recipe (base#1118)` | A real namespace with a verb the module never defines fails the same way at the terminal, so stopping at the namespace would let the second half of every two-word instruction go unchecked |
+| `_run_derived_figures: renaming the namespace in the entry makes the old spelling the violation (base#1118)` | Bidirectional, and the proof that the set is read off the entry's `mod?` lines rather than remembered: rename the namespace and the spelling that was correct becomes the violation, with no edit to this driver |
+| `_run_derived_figures: a command named in a source comment is not an instruction (base#1118)` | A comment is maintainer prose about the layering -- the entry's own docstring says "no top-level `just build`" -- while the rule is about what a consumer is TOLD TO TYPE; judging comments would make the file that documents the hazard the first thing to fail |
+| `_run_derived_figures: DIES when the consumer entry justfile is missing rather than failing everything (base#1118)` | With no entry justfile the command set is empty, every instruction looks wrong and the lint would report the whole shipped tree; refusing names the one missing file instead of burying it under its consequences |
 
 ### test/bats/unit/doc_counts_spec.bats (26)
 

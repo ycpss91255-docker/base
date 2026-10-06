@@ -1370,7 +1370,7 @@ EOF
   assert_success
   assert_output --partial "[setup] set [build] arg_4 = ROS2_DISTRO=jazzy"
   assert_output --partial "[setup] file:"
-  assert_output --partial "[setup] next: run 'just build' (auto-applies) or './setup.sh apply'"
+  assert_output --partial "[setup] next: run 'just docker build' (auto-applies) or 'just docker setup apply'"
 }
 
 @test "setup.sh set --quiet: produces empty stdout" {
@@ -1409,7 +1409,7 @@ EOF
   assert_success
   assert_output --partial "[setup] add [build] arg_"
   assert_output --partial "[setup] file:"
-  assert_output --partial "[setup] next: run 'just build' (auto-applies) or './setup.sh apply'"
+  assert_output --partial "[setup] next: run 'just docker build' (auto-applies) or 'just docker setup apply'"
 }
 
 @test "setup.sh add --quiet: produces empty stdout" {
@@ -1433,7 +1433,7 @@ EOC
   assert_success
   assert_output --partial "[setup] remove [build] arg_1"
   assert_output --partial "[setup] file:"
-  assert_output --partial "[setup] next: run 'just build' (auto-applies) or './setup.sh apply'"
+  assert_output --partial "[setup] next: run 'just docker build' (auto-applies) or 'just docker setup apply'"
 }
 
 @test "setup.sh remove --quiet: produces empty stdout" {
@@ -1458,7 +1458,7 @@ EOC
   assert_success
   assert_output --partial "[setup]"
   assert_output --partial "[setup] file:"
-  assert_output --partial "[setup] next: run 'just build' (auto-applies) or './setup.sh apply'"
+  assert_output --partial "[setup] next: run 'just docker build' (auto-applies) or 'just docker setup apply'"
 }
 
 @test "setup.sh reset --yes --quiet: produces empty stdout" {
