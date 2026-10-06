@@ -2711,24 +2711,30 @@ exit $?`; a failing pre-exec hook aborts before `compose exec` runs).
 | `generated-workflow-actions: a generator that is not named *.sh is scanned (#987)` | A *.sh glob is a roster of file shapes, and the non-vacuity backstop cannot notice the gap because the one known generator keeps the count at 1 |
 | `generated-workflow-actions: ignores an UNTRACKED generator (#987)` | This driver shares the pin registry's walk, so an untracked generator is outside its population too -- one population, not two that can drift (#987) |
 
-### test/bats/unit/ghcr_cleanup_yaml_spec.bats (22)
+### test/bats/unit/ghcr_cleanup_yaml_spec.bats (44)
 
-Structural assertions for `.github/workflows/ghcr-cleanup.yaml`, the weekly
-job that prunes untagged orphan digests from the base-owned `test-tools`
-package on GHCR.
+Structural assertions for this repo's GHCR package-DELETION surface, DERIVED
+from `.github/workflows/` by the deletion operation a workflow performs
+rather than read from a path written here — the same classify-by-operation
+shape `ghcr_publish_surface_spec.bats` uses for publishers. A scheduled job
+against a real registry cannot be exercised from here, so the spec pins the
+SHAPE, on the theory that the ways this goes catastrophically wrong are all
+edits to a workflow:
 
-A scheduled job against a real registry cannot be exercised from here —
-there is no local GHCR, and a real run's only honest test is a real run. So
-the spec pins the workflow's SHAPE instead, on the theory that the ways this
-goes catastrophically wrong are all edits to the file:
+- **The population.** A declared path scoped every assertion here to one
+FILENAME while the hazard belongs to the OPERATION: on 26ce9f9 a second
+workflow carrying the base#813 footgun verbatim left the unit suite at 4552
+ok, 0 not ok (base#1089). The scan now reports every workflow that deletes
+package versions, and REFUSES both an empty population (a gate over nothing
+is no gate) and a second surface (the cases here read one file, and two
+deletion workflows do not serialise against each other).
 
 - **The footgun.** `actions/delete-package-versions` with
 `delete-only-untagged-versions` calls anything the packages API reports as
 untagged a candidate without opening a manifest, so it deletes the per-arch
-children of a LIVE tag and `docker pull` starts 404ing. The spec asserts
-neither the action nor that input appears in the file's code (the header
-comment names both on purpose, to say why they are absent, so the assertions
-run over comment-stripped lines).
+children of a LIVE tag and `docker pull` starts 404ing. The ban is
+repo-wide; comment lines are dropped first, because the workflow's own
+header names both on purpose, to say why they are absent.
 
 - **The safety inputs.** `delete-untagged` is the only delete rule enabled,
 `older-than` keeps a retention window, `exclude-tags` preserves the tags
@@ -2747,8 +2753,30 @@ party can move under a job holding `packages: write`.
 
 | Test | Description |
 |------|-------------|
-| `ghcr-cleanup.yaml: never uses actions/delete-package-versions` | The unsafe action never returns: its untagged filter never opens a manifest |
-| `ghcr-cleanup.yaml: never sets delete-only-untagged-versions` | The specific input that breaks live tags, named separately from the action |
+| `GHCR deletion surface: a workflow calling the footgun action is a surface (#1089)` | The footgun in a workflow this spec never named is the live fail-open base#1089 measured: a declared path left it green |
+| `GHCR deletion surface: the manifest-aware cleanup action is a surface (#1089)` | The action this repo actually uses has to classify as a surface, or the live gate reads an empty population |
+| `GHCR deletion surface: a hand-rolled packages-API DELETE is a surface (#1089)` | A hand-rolled packages-API DELETE deletes just as hard as an action does, and needs no third party to recognise |
+| `GHCR deletion surface: a packages-API DELETE with no leading slash is a surface (#1089)` | `gh api` takes the endpoint with or without a leading slash, and the slashless spelling is the one in GitHub's own examples |
+| `GHCR deletion surface: an expression-valued owner is still the route (#1089)` | An owner written as a GitHub expression is a literal route by the time the step runs, and the owner was never the part that identifies the route |
+| `GHCR deletion surface: a curl --request DELETE is a surface (#1089)` | curl spells the same flag `--request`, and a pattern that enumerates flag names is a roster of the ways somebody might have typed it |
+| `GHCR deletion surface: a quoted DELETE method value is a surface (#1089)` | A quoted verb is the same verb, and the quoting is no more part of the operation than the flag name is |
+| `GHCR deletion surface: a lowercase delete word is not the HTTP verb (#1089)` | The bound on reading the verb rather than the flag: `delete-untagged` is an input name, not an HTTP method |
+| `GHCR deletion surface: an absolute api.github.com DELETE is a surface (#1089)` | A `curl` against the absolute api.github.com URL deletes exactly what a `gh api` relative endpoint deletes, and needs no `gh` on the runner |
+| `GHCR deletion surface: a word ending in users is not the users route (#1089)` | The boundary that keeps the path match honest: a longer word ending in `users` is not the `users` route |
+| `GHCR deletion surface: an --method=DELETE packages call is a surface (#1089)` | `--method=DELETE` is the same flag as `--method DELETE`, and a classifier keyed on the separator is keyed on nothing that matters |
+| `GHCR deletion surface: an -XDELETE packages call is a surface (#1089)` | `-XDELETE` is how the short flag is normally written, value attached with no separator at all |
+| `GHCR deletion surface: a double-quoted action reference is a surface (#1089)` | A quoted `uses:` is an ordinary YAML spelling of the same call, and a classifier that reads one quote style is a classifier with a hole |
+| `GHCR deletion surface: a single-quoted action reference is a surface (#1089)` | The other quote style, pinned on its own so the match cannot quietly accept one and miss the other |
+| `GHCR deletion surface: reading the packages API is not a deletion (#1089)` | The packages path alone is a READ; classifying it as a deletion surface would make listing versions a hazard |
+| `GHCR deletion surface: a comment naming a pruner is not a call to it (#1089)` | The cleanup workflow's header NAMES the footgun to say why it is absent; prose must not read as the operation it describes |
+| `GHCR deletion surface: a workflow that only pulls is not a surface (#1089)` | A consumer contributes no surface, or every workflow naming the package would be gated as a deleter |
+| `GHCR deletion surface: an empty population is refused, never passed (#1089)` | The load-bearing case: deleting the subject must be red, and under a declared path it was 22 green skips |
+| `GHCR deletion surface: a second deletion surface is refused (#1089)` | A second deleter would inherit a gate nobody applied to it, and two of them do not serialise against each other |
+| `GHCR deletion surface: exactly one surface resolves to that file (#1089)` | One surface is what a correct tree looks like, and the verdict has to name it rather than merely accept it |
+| `GHCR deletion surface: the scan walked this repo and found the real one (#1089)` | The non-vacuity case: an empty scan satisfies every refute here, so the population and the subject it resolved to are asserted |
+| `GHCR deletion: no workflow here uses actions/delete-package-versions (#1089)` | The unsafe action never returns: its untagged filter never opens a manifest, and a declared path left the ban scoped to one file |
+| `GHCR deletion: no workflow here sets delete-only-untagged-versions (#1089)` | The specific input that breaks live tags, named separately from the action and banned just as widely |
+| `GHCR deletion: the footgun scan reports the workflow and the line (#1089)` | The repo-wide ban is worth exactly its ability to still see the footgun, and the live tree is clean so only a fixture can show it |
 | `ghcr-cleanup.yaml: uses the manifest-aware dataaxiom/ghcr-cleanup-action` | The action that resolves manifest references is the one in use |
 | `ghcr-cleanup.yaml: pins the cleanup action to an immutable commit SHA` | A moved tag would hand deletion rights over our package to unreviewed code |
 | `ghcr-cleanup.yaml: records the pinned action's version in a trailing comment` | Keeps the SHA readable; the form Dependabot rewrites on bump |
