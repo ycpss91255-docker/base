@@ -446,7 +446,9 @@ EOF
   # only ever appeared in .local would be a second schema.
   run grep -Fx '[project]' /source/dist/setup.toml
   assert_success
-  run grep -E '^name =[[:space:]]*$' /source/dist/setup.toml
+  # The TOML empty string is `""`, not an empty right-hand side: a bare
+  # `name =` would make the whole file unparseable.
+  run grep -E '^name = ""$' /source/dist/setup.toml
   assert_success
 }
 

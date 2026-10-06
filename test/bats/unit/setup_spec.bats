@@ -22,12 +22,18 @@ load "${BATS_TEST_DIRNAME}/setup_spec_helper"
 # ════════════════════════════════════════════════════════════════════
 # detect_gpu_count
 # ════════════════════════════════════════════════════════════════════
-@test "template setup.conf devices opt-in (#466): device_1 is a commented example, not a default" {
+@test "template setup.toml devices opt-in (#466): /dev:/dev is a commented example, not a default" {
   # F2: /dev:/dev is no longer bound by default -- repos that need
   # device access uncomment it or add via `setup.sh add devices.device`.
-  run grep -E '^device_1 = /dev:/dev$' /source/dist/setup.toml
+  #
+  # In TOML a device entry is a `[[devices]]` block, so "not a default"
+  # means the template declares no real block at all, and the example it
+  # documents is the commented pair.
+  run grep -E '^\[\[devices\]\]$' /source/dist/setup.toml
   assert_failure
-  run grep -E '^# device_1 = /dev:/dev$' /source/dist/setup.toml
+  run grep -E '^# \[\[devices\]\]$' /source/dist/setup.toml
+  assert_success
+  run grep -E '^# path = "/dev:/dev"$' /source/dist/setup.toml
   assert_success
 }
 
@@ -44,12 +50,12 @@ EOF
   assert_failure
 }
 
-@test "template setup.conf [deploy] enables ALL GPU capabilities by default" {
+@test "template setup.toml [deploy] enables ALL GPU capabilities by default" {
   # Dev-friendly: reserve every GPU capability so new repos get
   # compute + utility + graphics out of the box (no need to tick boxes
   # in TUI). Users narrow it down via ./setup_tui.sh deploy if they want
   # a minimal reservation.
-  run grep -E '^gpu_capabilities = gpu compute utility graphics$' /source/dist/setup.toml
+  run grep -E '^gpu_capabilities = "gpu compute utility graphics"$' /source/dist/setup.toml
   assert_success
 }
 
@@ -144,12 +150,12 @@ DOCK
   assert_success
 }
 
-@test "template setup.conf ships [lifecycle] restart = unless-stopped (#478, #840)" {
+@test "template setup.toml ships [lifecycle] restart = unless-stopped (#478, #840)" {
   # The default is ON and written LITERALLY so an operator can see it:
   # a deployable stage / field bundle is meant to run forever, including
   # across a host reboot. Scoping (never devel, never *-test) is what
   # keeps the default safe, not an absent key.
-  run grep -E '^restart = unless-stopped$' /source/dist/setup.toml
+  run grep -E '^restart = "unless-stopped"$' /source/dist/setup.toml
   assert_success
 }
 
@@ -269,8 +275,8 @@ DOCK
   assert_failure
 }
 
-@test "template setup.conf ships [deploy] dri_groups = auto (#496)" {
-  run grep -E '^dri_groups = auto$' /source/dist/setup.toml
+@test "template setup.toml ships [deploy] dri_groups = auto (#496)" {
+  run grep -E '^dri_groups = "auto"$' /source/dist/setup.toml
   assert_success
 }
 
@@ -315,8 +321,8 @@ DOCK
   assert_success
 }
 
-@test "template setup.conf ships [deploy] gpu_runtime = auto (#481)" {
-  run grep -E '^gpu_runtime = auto$' /source/dist/setup.toml
+@test "template setup.toml ships [deploy] gpu_runtime = auto (#481)" {
+  run grep -E '^gpu_runtime = "auto"$' /source/dist/setup.toml
   assert_success
   run grep -E '^runtime = ' /source/dist/setup.toml
   assert_failure

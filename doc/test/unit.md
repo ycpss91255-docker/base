@@ -5625,15 +5625,15 @@ duplicate-target guards, and S7 `runtime.env` retirement (#507).
 
 | Test | Description |
 |------|-------------|
-| `template setup.conf devices opt-in (#466): device_1 is a commented example, not a default` | - |
+| `template setup.toml devices opt-in (#466): /dev:/dev is a commented example, not a default` | - |
 | `[devices] opt-in (#466): empty section + slim template emits no devices block` | - |
-| `template setup.conf [deploy] enables ALL GPU capabilities by default` | - |
+| `template setup.toml [deploy] enables ALL GPU capabilities by default` | - |
 | `setup.sh apply emits top-level name: in compose.yaml (#472)` | - |
 | `[lifecycle] restart = always lands on the deployable stage, never on devel (#478, #840)` | - |
 | `[lifecycle] restart = always emits nothing when no stage is deployable (#840)` | - |
 | `[lifecycle] restart = no emits no restart: field (#478)` | - |
 | `[lifecycle] restart = on-failure:3 emits quoted value (#478)` | - |
-| `template setup.conf ships [lifecycle] restart = unless-stopped (#478, #840)` | - |
+| `template setup.toml ships [lifecycle] restart = unless-stopped (#478, #840)` | - |
 | `setup.sh set lifecycle.restart rejects an invalid policy (#478)` | - |
 | `[lifecycle] init defaults ON: emits init: true under devel (#792)` | - |
 | `[lifecycle] init = false omits init: field (#792)` | - |
@@ -5644,11 +5644,11 @@ duplicate-target guards, and S7 `runtime.env` retirement (#507).
 | `[deploy] dri_groups = auto with no /dev/dri emits no group_add (#496)` | - |
 | `[deploy] dri_groups = off emits no group_add even with GUI (#496)` | - |
 | `[deploy] dri_groups = auto without GUI emits no group_add (GUI-gated) (#496)` | - |
-| `template setup.conf ships [deploy] dri_groups = auto (#496)` | - |
+| `template setup.toml ships [deploy] dri_groups = auto (#496)` | - |
 | `[deploy] gpu_runtime primary key emits runtime: nvidia (#481)` | - |
 | `[deploy] legacy runtime key still works + warns (#481 W3 alias)` | - |
 | `[deploy] gpu_runtime wins when both keys present (#481)` | - |
-| `template setup.conf ships [deploy] gpu_runtime = auto (#481)` | - |
+| `template setup.toml ships [deploy] gpu_runtime = auto (#481)` | - |
 | `per-stage override accepts deploy.gpu_runtime (#481)` | - |
 | `per-stage override still accepts legacy deploy.runtime (#481 alias)` | - |
 | `[security] cap_add opt-in (#466): empty section + slim template emits no cap_add` | - |
