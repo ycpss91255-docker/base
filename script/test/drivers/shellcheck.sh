@@ -16,18 +16,28 @@
 
 _run_shellcheck() {
   echo "--- Running ShellCheck ---"
-  find "${REPO_ROOT}/dist/script/docker/wrapper" -name "*.sh" -print0 | xargs -0 shellcheck -x
-  find "${REPO_ROOT}/dist/script/docker/lib" -name "*.sh" -print0 | xargs -0 shellcheck -x
-  find "${REPO_ROOT}/dist/script/docker/runtime" -name "*.sh" -print0 | xargs -0 shellcheck -x
-  # The two shipped scripts that are NOT under script/: the seeded
-  # entrypoint template next to the Dockerfile it is seeded with, and the
-  # runtime-test install-check helper in the shipped smoke tree. Named
-  # explicitly because both directories otherwise hold no *.sh, so a find
-  # root would be a directory this pass walks for one file.
-  shellcheck -x "${REPO_ROOT}/dist/dockerfile/entrypoint.sh"
-  shellcheck -x "${REPO_ROOT}/dist/test/bats/smoke/smoke.sh"
-  find "${REPO_ROOT}/dist/script/template" -name "*.sh" -print0 | xargs -0 shellcheck -x
-  find "${REPO_ROOT}/dist/script/base" -name "*.sh" -print0 | xargs -0 shellcheck -x
+  # THE SHIPPED TREE IS THE POPULATION, read in one find. This used to be
+  # a list of roots -- script/docker/{wrapper,lib,runtime},
+  # script/template, script/base, two config/shell setup scripts, plus
+  # dockerfile/entrypoint.sh and test/bats/smoke/smoke.sh by name -- and
+  # the tree grew two scripts outside every one of them:
+  # deploy/cd-guard.sh, which downstream CD invokes before a deploy, and
+  # config/shell/bashrc.d/30-name-host-groups.sh, which the Dockerfile
+  # copies into ~/.bashrc.d and every interactive shell sources. An
+  # unquoted expansion in either was read by no pass, and
+  # --shellcheck-only still exited 0. A root list cannot report the root
+  # it is missing; the tree can, so the tree is asked -- the same move the
+  # script/ half below has already made twice.
+  #
+  # NO EXEMPTION LIST, deliberately. Every *.sh dist/ ships is lintable
+  # where it sits, and a sourced fragment with no shebang carries its own
+  # `# shellcheck shell=bash` directive rather than being excused here: a
+  # file excused from the pass is a file whose next edit is unchecked,
+  # which is the defect this find replaces. -type f so nothing but a
+  # regular file is handed to shellcheck. -x so source-following resolves
+  # the lib/ references the way the shipped scripts do.
+  find "${REPO_ROOT}/dist" -name "*.sh" -type f -print0 \
+    | xargs -0 shellcheck -x
 
   # local==CI parity: the consumer Dockerfile devel-test stage lints
   # the SHIPPED wrappers + libs with `shellcheck -S warning` and WITHOUT -x,
@@ -65,8 +75,4 @@ _run_shellcheck() {
   # itself exists to close. A glob is the derivation: whatever sits at the
   # top level is linted, this one and the next.
   shellcheck -x "${REPO_ROOT}"/*.sh
-  shellcheck -x "${REPO_ROOT}/dist/script/base/init.sh"
-  shellcheck -x "${REPO_ROOT}/dist/script/base/upgrade.sh"
-  shellcheck -x "${REPO_ROOT}/dist/config/shell/terminator/setup.sh"
-  shellcheck -x "${REPO_ROOT}/dist/config/shell/tmux/setup.sh"
 }
