@@ -137,7 +137,7 @@ flowchart LR
     release_worker -->|"tar.gz + zip"| release["GitHub Release"]
 ```
 
-<!-- sync: whats-included 15d472ab822b 77e2a7e702de -->
+<!-- sync: whats-included e5eb3626b529 4bbc8f488297 -->
 ### 包含內容
 
 | 檔案 | 說明 |
@@ -178,14 +178,6 @@ flowchart LR
 | `test/bats/integration/` | base 自身測試，init/upgrade 端對端 |
 | `test/bats/system/` | base 自身測試，System 層／Regression（runtime smoke gate，opt-in） |
 | `test/bats/acceptance/` | base 自身測試，Acceptance 層（UAT/OAT；保留，S5 #785） |
-
-測試內容採 **tool-first** 配置 -- spec 走 `test/<tool>/<category>/`
-（例如 `test/bats/unit/`）、linter 走 `test/lint/<tool>/` --
-新增一個工具就是開一個新資料夾，而非新增一個指令面。見
-[ADR-00000012](../adr/00000012-tool-first-test-layout.md)（取代 category-first
-的 ADR-00000004）。consumer 出貨自己的 `test/bats/smoke/`；base 出貨自己的
-`test/bats/{unit,integration,system,acceptance}/`。
-
 | `.hadolint.yaml` | 共用 Hadolint 規則 |
 | `justfile`（→ `script/justfile`） | Repo 指令入口 — 分層 namespace recipe（`just docker build`、`just docker run`、`just test`、`just base upgrade` 等）。Sub-cmd 與 flag 透過 `{{args}}` 直接傳遞（`just docker build --no-cache --stage test-tools`）；無參的 `just` 列出所有 namespace。 |
 | `dist/script/docker/justfile.docker` | `docker` namespace — 容器操作（`just docker build/run/exec/stop/prune/setup/setup-tui`）。 |
@@ -198,6 +190,13 @@ flowchart LR
 | `dist/dockerfile/Dockerfile` | 新 repo 的多階段 Dockerfile 範本 |
 | `dockerfile/Dockerfile.test-tools` | 預建置 lint/test 工具 image（shellcheck、hadolint、bats、bats-mock） |
 | `.github/workflows/` | 可重用 CI workflows（build + release） |
+
+測試內容採 **tool-first** 配置 -- spec 走 `test/<tool>/<category>/`
+（例如 `test/bats/unit/`）、linter 走 `test/lint/<tool>/` --
+新增一個工具就是開一個新資料夾，而非新增一個指令面。見
+[ADR-00000012](../adr/00000012-tool-first-test-layout.md)（取代 category-first
+的 ADR-00000004）。consumer 出貨自己的 `test/bats/smoke/`；base 出貨自己的
+`test/bats/{unit,integration,system,acceptance}/`。
 
 <!-- sync: dockerfile-stages-convention e8e20b69013a 1281757a60af -->
 ### Dockerfile 分層（慣例）

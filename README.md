@@ -175,17 +175,6 @@ flowchart LR
 | `test/bats/integration/` | base self-tests, Integration level (init/upgrade end-to-end) |
 | `test/bats/system/` | base self-tests, System level / Regression (runtime smoke gate, opt-in) |
 | `test/bats/acceptance/` | base self-tests, Acceptance level (UAT/OAT; reserved, S5 #785) |
-
-Test content is laid out **tool-first** -- `test/<tool>/<category>/`
-for specs (e.g. `test/bats/unit/`) and `test/lint/<tool>/` for linters --
-so adding a tool is a new folder, not a new command surface. The category
-vocabulary is ISTQB-aligned (levels Unit / Integration / System /
-Acceptance + the Smoke type); see
-[ADR-00000018](doc/adr/00000018-istqb-test-taxonomy.md) and
-[ADR-00000012](doc/adr/00000012-tool-first-test-layout.md) (supersedes the
-category-first ADR-00000004). A consumer ships its own `test/bats/smoke/`; base
-ships its own `test/bats/{unit,integration,system,acceptance}/`.
-
 | `.hadolint.yaml` | Shared Hadolint rules |
 | `justfile` (→ `script/justfile`) | Repo entry — layered namespaced recipes (`just docker build`, `just docker run`, `just test`, `just base upgrade`, etc.). Sub-cmds and flags pass straight through as `{{args}}` (`just docker build --no-cache --stage test-tools`); bare `just` lists all namespaces. |
 | `dist/script/docker/justfile.docker` | `docker` namespace — container ops (`just docker build/run/exec/stop/prune/setup/setup-tui`). |
@@ -198,6 +187,16 @@ ships its own `test/bats/{unit,integration,system,acceptance}/`.
 | `dist/dockerfile/Dockerfile` | Multi-stage Dockerfile template for new repos |
 | `dockerfile/Dockerfile.test-tools` | Pre-built lint/test tools image (shellcheck, hadolint, bats, bats-mock) |
 | `.github/workflows/` | Reusable CI workflows (build + release) |
+
+Test content is laid out **tool-first** -- `test/<tool>/<category>/`
+for specs (e.g. `test/bats/unit/`) and `test/lint/<tool>/` for linters --
+so adding a tool is a new folder, not a new command surface. The category
+vocabulary is ISTQB-aligned (levels Unit / Integration / System /
+Acceptance + the Smoke type); see
+[ADR-00000018](doc/adr/00000018-istqb-test-taxonomy.md) and
+[ADR-00000012](doc/adr/00000012-tool-first-test-layout.md) (supersedes the
+category-first ADR-00000004). A consumer ships its own `test/bats/smoke/`; base
+ships its own `test/bats/{unit,integration,system,acceptance}/`.
 
 ### Getting help (namespace vs recipe)
 

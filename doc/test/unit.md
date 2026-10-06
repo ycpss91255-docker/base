@@ -4038,7 +4038,7 @@ acquiring it, and to any other scope beside it
 | `publish-worker.yaml: every job's grant is pinned as an exact set (#957)` | - |
 | `publish-worker.yaml: the publish job carries the same-repo guard (#766)` | - |
 
-### test/bats/unit/readme_file_table_spec.bats (2)
+### test/bats/unit/readme_file_table_spec.bats (4)
 
 The "What's included" table in `README.md` is a file INDEX, so every row
 names a real path -- and nothing checked that (#957). Item 3 of that issue
@@ -4055,6 +4055,8 @@ under the repo root, `dist/` or `script/`.
 |------|-------------|
 | `README file table: every row names a path that exists (#957)` | Every row resolves under one of the three roots; a stale path is reported by name |
 | `README file table: the scan actually finds the rows (#957)` | Floor on the row count, so a renamed heading cannot silence the check above |
+| `README tables: no row block renders as literal pipes (base#1121)` | Every table in the four README files renders AS a table -- a run of rows whose second line is not the delimiter row is a paragraph of literal pipes, which is how twelve rows of the file index stopped being read |
+| `README tables: the scan actually finds tables to check (base#1121)` | Floor on the number of table runs the scan actually walks, so a reformat that leaves no recognisable table cannot silence the guard above |
 
 ### test/bats/unit/readme_sync_spec.bats (33)
 

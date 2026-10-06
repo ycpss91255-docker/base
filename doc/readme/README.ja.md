@@ -141,7 +141,7 @@ flowchart LR
     release_worker -->|"tar.gz + zip"| release["GitHub Release"]
 ```
 
-<!-- sync: whats-included 15d472ab822b fe13e3fcdb36 -->
+<!-- sync: whats-included e5eb3626b529 8711cfbed932 -->
 ### 含まれるもの
 
 | ファイル | 説明 |
@@ -179,15 +179,6 @@ flowchart LR
 | `test/bats/integration/` | base 自己テスト、init/upgrade の end-to-end |
 | `test/bats/system/` | base 自己テスト、System レベル／Regression（runtime smoke gate、opt-in） |
 | `test/bats/acceptance/` | base 自己テスト、Acceptance レベル（UAT/OAT；予約、S5 #785） |
-
-テスト内容は **tool-first** で配置します — spec は `test/<tool>/<category>/`
-（例：`test/bats/unit/`）、linter は `test/lint/<tool>/` — そのため
-ツールの追加は新しいフォルダの追加であり、新しいコマンド面の追加では
-ありません。[ADR-00000012](../adr/00000012-tool-first-test-layout.md)
-（category-first の ADR-00000004 を置き換え）参照。consumer は自身の
-`test/bats/smoke/` を出荷し、base は自身の
-`test/bats/{unit,integration,system,acceptance}/` を出荷します。
-
 | `.hadolint.yaml` | 共有 Hadolint ルール |
 | `justfile`（→ `script/justfile`） | Repo コマンドエントリ — 階層化された namespace recipe（`just docker build`、`just docker run`、`just test`、`just base upgrade` 等）。サブコマンドと flag は `{{args}}` でそのまま渡されます（`just docker build --no-cache --stage test-tools`）。引数なしの `just` で全 namespace を一覧表示。 |
 | `dist/script/docker/justfile.docker` | `docker` namespace — コンテナ操作（`just docker build/run/exec/stop/prune/setup/setup-tui`）。 |
@@ -203,6 +194,14 @@ flowchart LR
 | `dist/dockerfile/Dockerfile` | 新 repo のマルチステージ Dockerfile テンプレート |
 | `dockerfile/Dockerfile.test-tools` | プリビルド lint/test ツール image（shellcheck、hadolint、bats、bats-mock） |
 | `.github/workflows/` | 再利用可能な CI workflows（build + release） |
+
+テスト内容は **tool-first** で配置します — spec は `test/<tool>/<category>/`
+（例：`test/bats/unit/`）、linter は `test/lint/<tool>/` — そのため
+ツールの追加は新しいフォルダの追加であり、新しいコマンド面の追加では
+ありません。[ADR-00000012](../adr/00000012-tool-first-test-layout.md)
+（category-first の ADR-00000004 を置き換え）参照。consumer は自身の
+`test/bats/smoke/` を出荷し、base は自身の
+`test/bats/{unit,integration,system,acceptance}/` を出荷します。
 
 <!-- sync: dockerfile-stages-convention e8e20b69013a d28560a09120 -->
 ### Dockerfile ステージ（規約）
