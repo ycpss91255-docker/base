@@ -24,22 +24,27 @@
 #
 # ── Numbered-key -> array-of-tables mapping ────────────────────────
 #
-# The 8 INI numbered-key patterns become TOML arrays of tables:
+# A numbered INI key becomes the `[[array of tables]]` block the SHIPPED
+# WRITER puts it in, and the conversion is DERIVED from that writer rather
+# than listed here: _conf_toml_aot_slot says which array path a
+# `<section>.<key>` belongs to, and _conf_toml_aot_fields renders the one
+# block's body. Those are the same two functions `setup.sh set` / `add`
+# write through, and the bridge's array spec is the other side of them.
 #
-#   [image]    rule_N = V          -> [[image.rules]]        rule = "V"
-#   [build]    arg_N  = K=V        -> [[build.args]]         key/value split
-#   [volumes]  mount_N = V         -> [[volumes]]            path = "V"
-#   [tmpfs]    tmpfs_N = V         -> [[tmpfs]]              path = "V"
-#   [devices]  device_N = V        -> [[devices]]            path = "V"
-#   [network]  port_N  = H:C      -> [[network.ports]]      host/container
-#   [security] cap_add_N = V       -> [[security.cap_add]]   cap = "V"
-#              cap_drop_N = V      -> [[security.cap_drop]]  cap = "V"
-#              security_opt_N = V  -> [[security.security_opt]] opt = "V"
-#   [additional_contexts]
-#              context_N = N=S     -> [[additional_contexts]] name/source
+# Why derived and not a table of its own. A converted file is read back by
+# the bridge, and a field name only the converter knows reads back as an
+# empty entry: a `[[volumes]]` block carrying `path` -- which is what a
+# hand-written table here said -- loses every mount on the upgrade that
+# converts the repo, silently, with the INI already renamed to .bak. The
+# same holds for a numbered key with NO array home at all.
 #
-# Plus the special case:
-#   [environment] env_N = K=V      -> [environment]          K = "V"
+# What has no array home stays a quoted scalar under its own table, which
+# is again what the writer does and what the runtime readers look for:
+# `[environment] env_N`, `[security] cap_drop_N`, `[devices]
+# cgroup_rule_N`. The direct-key `[environment] KEY = "V"` form the
+# template documents is the D5 / D6 destination; until those readers land,
+# `_conf_list_sorted ... environment env_` is what reads the section, so
+# unpacking here would drop the variable.
 
 # Guard against double-sourcing.
 if [[ -n "${_DOCKER_LIB_INI_TO_TOML_MIGRATE_SOURCED:-}" ]]; then
@@ -56,107 +61,66 @@ unset _ini_to_toml_migrate_lib_dir
 
 # _ini_to_toml_format_value <value>
 #
-# Format a value for TOML output. Booleans and integers are emitted
-# bare (matching the TOML template's style); everything else is
-# double-quoted. Empty values become "".
+# Format a value as the TOML scalar that reads back to the same bash
+# string, by delegating to conf.sh's _conf_toml_scalar -- the renderer the
+# shipped writers already use.
+#
+# Not a second implementation: this one escaped a double quote and nothing
+# else, so an ordinary INI value carrying a backslash (a watchdog `pgrep`
+# pattern, a Windows-style path) came out as an undefined TOML escape and
+# made the WHOLE converted file unparseable -- after the INI had been
+# renamed to .bak, so the only copy of the configuration was the broken
+# one. _conf_toml_scalar escapes backslash, double quote and tab, keeps a
+# boolean and an integer bare, and refuses to render a leading-zero
+# number as a bare integer TOML would reject.
 _ini_to_toml_format_value() {
-  local _v="$1"
-  case "${_v}" in
-    true|false) printf '%s' "${_v}" ;;
-    '')         printf '""' ;;
-    *[!0-9]*)
-      # Escape embedded double quotes so the TOML stays valid.
-      _v="${_v//\"/\\\"}"
-      printf '"%s"' "${_v}"
-      ;;
-    *)          printf '%s' "${_v}" ;;
-  esac
+  local _fv_out=""
+  _conf_toml_scalar "${1-}" _fv_out
+  printf '%s' "${_fv_out}"
 }
 
 # ── Numbered-key detection ─────────────────────────────────────────────
 
 # _ini_to_toml_is_numbered <section> <key>
 #
-# Return 0 if <key> is a numbered-key pattern for <section>.
+# Return 0 when <key> is a numbered key that HAS an array-of-tables home,
+# asked of the shipped writer rather than re-matched here. A numbered key
+# with no array home (`env_N`, `cap_drop_N`, `cgroup_rule_N`) answers 1 and
+# is carried over as a scalar, which is where every reader looks for it.
+#
+# The out-variable names are prefixed, like every nameref target in this
+# tree: _conf_toml_aot_slot has locals of its own called `_path` and
+# `_idx`, and a nameref pointing at either of those names resolves to the
+# callee's local instead of ours -- it comes back empty, and the key then
+# reads as one with no array home.
 _ini_to_toml_is_numbered() {
-  local _s="$1" _k="$2"
-  case "${_s}" in
-    image)               [[ "${_k}" =~ ^rule_[0-9]+$ ]] ;;
-    build)               [[ "${_k}" =~ ^arg_[0-9]+$ ]] ;;
-    volumes)             [[ "${_k}" =~ ^mount_[0-9]+$ ]] ;;
-    tmpfs)               [[ "${_k}" =~ ^tmpfs_[0-9]+$ ]] ;;
-    devices)             [[ "${_k}" =~ ^device_[0-9]+$ ]] ;;
-    network)             [[ "${_k}" =~ ^port_[0-9]+$ ]] ;;
-    security)            [[ "${_k}" =~ ^(cap_add|cap_drop|security_opt)_[0-9]+$ ]] ;;
-    additional_contexts) [[ "${_k}" =~ ^context_[0-9]+$ ]] ;;
-    environment)         [[ "${_k}" =~ ^env_[0-9]+$ ]] ;;
-    *) return 1 ;;
-  esac
+  local _itn_path="" _itn_idx=""
+  _conf_toml_aot_slot "${1-}" "${2-}" _itn_path _itn_idx
 }
 
 # ── Numbered-key -> AoT emission ──────────────────────────────────────
 
 # _ini_to_toml_emit_aot <section> <key> <value> <outvar>
 #
-# Append a TOML array-of-tables entry for a numbered key to <outvar>.
+# Append the one `[[array of tables]]` block a numbered key becomes to
+# <outvar>. The path and the body both come from the shipped writer
+# (_conf_toml_aot_slot / _conf_toml_aot_fields), so the field names are the
+# ones the bridge's array spec reads back and there is no second spelling
+# to drift.
+#
 # Empty values (opt-out slots) are silently skipped.
 _ini_to_toml_emit_aot() {
   local _s="$1" _k="$2" _v="$3"
   local -n _aot_out="$4"
   [[ -n "${_v}" ]] || return 0
 
-  local _split_k _split_v
-  case "${_s}" in
-    image)
-      _aot_out+=$'[[image.rules]]\n'
-      _aot_out+="rule = \"${_v}\""$'\n\n'
-      ;;
-    build)
-      _split_k="${_v%%=*}"
-      _split_v="${_v#*=}"
-      _aot_out+=$'[[build.args]]\n'
-      _aot_out+="key = \"${_split_k}\""$'\n'
-      _aot_out+="value = \"${_split_v}\""$'\n\n'
-      ;;
-    volumes)
-      _aot_out+=$'[[volumes]]\n'
-      _aot_out+="path = \"${_v}\""$'\n\n'
-      ;;
-    tmpfs)
-      _aot_out+=$'[[tmpfs]]\n'
-      _aot_out+="path = \"${_v}\""$'\n\n'
-      ;;
-    devices)
-      _aot_out+=$'[[devices]]\n'
-      _aot_out+="path = \"${_v}\""$'\n\n'
-      ;;
-    network)
-      _split_k="${_v%%:*}"
-      _split_v="${_v#*:}"
-      _aot_out+=$'[[network.ports]]\n'
-      _aot_out+="host = ${_split_k}"$'\n'
-      _aot_out+="container = ${_split_v}"$'\n\n'
-      ;;
-    security)
-      if [[ "${_k}" =~ ^cap_add_ ]]; then
-        _aot_out+=$'[[security.cap_add]]\n'
-        _aot_out+="cap = \"${_v}\""$'\n\n'
-      elif [[ "${_k}" =~ ^cap_drop_ ]]; then
-        _aot_out+=$'[[security.cap_drop]]\n'
-        _aot_out+="cap = \"${_v}\""$'\n\n'
-      elif [[ "${_k}" =~ ^security_opt_ ]]; then
-        _aot_out+=$'[[security.security_opt]]\n'
-        _aot_out+="opt = \"${_v}\""$'\n\n'
-      fi
-      ;;
-    additional_contexts)
-      _split_k="${_v%%=*}"
-      _split_v="${_v#*=}"
-      _aot_out+=$'[[additional_contexts]]\n'
-      _aot_out+="name = \"${_split_k}\""$'\n'
-      _aot_out+="source = \"${_split_v}\""$'\n\n'
-      ;;
-  esac
+  local _eao_path="" _eao_idx="" _eao_fields=""
+  _conf_toml_aot_slot "${_s}" "${_k}" _eao_path _eao_idx || return 0
+  _conf_toml_aot_fields "${_eao_path}" "${_v}" _eao_fields
+  [[ -n "${_eao_fields}" ]] || return 0
+
+  _aot_out+="[[${_eao_path}]]"$'\n'
+  _aot_out+="${_eao_fields}"$'\n\n'
 }
 
 # ── Core converter ────────────────────────────────────────────────────
@@ -183,14 +147,7 @@ _ini_to_toml_convert() {
     for (( _i = 0; _i < ${#_keys[@]}; _i++ )); do
       [[ "${_es[_i]}" == "${_s}" ]] || continue
       if _ini_to_toml_is_numbered "${_s}" "${_keys[_i]}"; then
-        if [[ "${_s}" == "environment" ]]; then
-          # env_N = K=V unpacks to direct KEY = "VALUE"
-          [[ -n "${_vals[_i]}" ]] || continue
-          _sc_keys+=("${_vals[_i]%%=*}")
-          _sc_vals+=("${_vals[_i]#*=}")
-        else
-          _ini_to_toml_emit_aot "${_s}" "${_keys[_i]}" "${_vals[_i]}" _aot_buf
-        fi
+        _ini_to_toml_emit_aot "${_s}" "${_keys[_i]}" "${_vals[_i]}" _aot_buf
       else
         _sc_keys+=("${_keys[_i]}")
         _sc_vals+=("${_vals[_i]}")

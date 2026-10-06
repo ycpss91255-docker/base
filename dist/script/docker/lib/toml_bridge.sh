@@ -70,10 +70,22 @@ toml_bridge_merge() {
   # _merge_toml implements on the other. A layer that IS there and cannot
   # be read still fails, inside the bridge, naming the file. Naming no
   # layer at all is a different mistake and is refused above.
-  local _file
+  #
+  # A layer that IS there is collected by its ABSOLUTE path, because the
+  # docker path below mounts each file at its own name and `docker run -v`
+  # refuses a destination that is not absolute. The chain carries relative
+  # paths whenever the caller passed a relative --base-path, so without
+  # this the containerised merge fails on a file sitting right there -- and
+  # only on the hosts that have no bridge binary, which are the hosts the
+  # docker path exists for.
+  local _file _dir
   local -a _layers=()
   for _file in "$@"; do
     [[ -f "${_file}" ]] || continue
+    if [[ "${_file}" != /* ]]; then
+      _dir="$(cd -- "$(dirname -- "${_file}")" && pwd -P)" || return 1
+      _file="${_dir}/$(basename -- "${_file}")"
+    fi
     _layers+=("${_file}")
   done
   (( ${#_layers[@]} > 0 )) || return 0

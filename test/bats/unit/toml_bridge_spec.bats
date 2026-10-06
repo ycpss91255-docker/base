@@ -964,3 +964,32 @@ EOF
   assert_line "security	cap_add_2	NET_ADMIN"
   assert_line "security	security_opt_1	seccomp:unconfined"
 }
+
+# why: `docker run -v <src>:<dst>` refuses a destination that is not
+#      absolute, so a layer named relatively -- which is what the chain
+#      carries whenever the caller passed a relative --base-path -- made the
+#      containerised merge fail on a file that was right there. The native
+#      path never saw it, so the failure only appeared on hosts without the
+#      bridge binary: exactly the hosts the docker path exists for.
+@test "toml-bridge: merge shim mounts a relatively named layer by absolute path" {
+  assert_spec_subject "${SHIM}" \
+    "the toml_bridge.sh bash shim (merge mount paths)"
+
+  local _dir="${BATS_TEST_TMPDIR}/rel"
+  mkdir -p "${_dir}"
+  printf '[gui]\nmode = "x11"\n' > "${_dir}/setup.toml"
+
+  create_mock_dir
+  # Echo the -v arguments back so the mount spec itself is the assertion.
+  mock_cmd "docker" \
+    'while (( $# )); do if [[ "$1" == "-v" ]]; then printf "MOUNT=%s\n" "$2"; shift 2; else shift; fi; done'
+
+  # shellcheck disable=SC1090
+  source "${SHIM}"
+  run bash -c "cd '${_dir}' && source '${SHIM}' && toml_bridge_merge --kv setup.toml"
+  assert_success
+  assert_line "MOUNT=${_dir}/setup.toml:${_dir}/setup.toml:ro"
+  refute_line "MOUNT=setup.toml:setup.toml:ro"
+
+  cleanup_mock_dir
+}

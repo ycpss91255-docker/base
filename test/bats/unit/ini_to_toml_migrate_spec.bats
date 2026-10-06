@@ -127,7 +127,12 @@ EOF
   assert_success
   run cat "${TEMP_DIR}/setup.toml"
   assert_output --partial '[[volumes]]'
-  assert_output --partial 'path = "/home/user/work:/home/docker/work:rw"'
+  # source / target / mode, which is what the bridge's array spec reads a
+  # `[[volumes]]` entry back from and what the shipped writer emits. A
+  # single `path` field reads back as an empty mount.
+  assert_output --partial 'source = "/home/user/work"'
+  assert_output --partial 'target = "/home/docker/work"'
+  assert_output --partial 'mode = "rw"'
 }
 
 # why: Two distinct AoT shapes live under one INI section; wrong dispatch conflates them
@@ -211,8 +216,12 @@ EOF
 
 # ── environment env_N unpack ───────────────────────────────────────────
 
-# why: env_N entries unpack to direct KEY = "VALUE" pairs, not AoT
-@test "_migrate_ini_to_toml unpacks environment env_N to direct key-value (#1137)" {
+# why: `[environment] env_N` has no array-of-tables home, so it is carried
+# over as the scalar it was. The direct-key `KEY = "VALUE"` form the
+# template documents is where D5 / D6 take the section; until those readers
+# land, `_conf_list_sorted ... environment env_` is what reads it, so
+# unpacking here drops the variable from `.env` and from the container.
+@test "_migrate_ini_to_toml carries environment env_N over as a scalar (#1137)" {
   cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [environment]
 env_1 = SIGNALING_SERVER=localhost
@@ -222,8 +231,8 @@ EOF
   assert_success
   run cat "${TEMP_DIR}/setup.toml"
   assert_output --partial '[environment]'
-  assert_output --partial 'SIGNALING_SERVER = "localhost"'
-  assert_output --partial 'LOG_LEVEL = "debug"'
+  assert_output --partial 'env_1 = "SIGNALING_SERVER=localhost"'
+  assert_output --partial 'env_2 = "LOG_LEVEL=debug"'
   # Must NOT produce [[environment.*]]
   refute_output --partial '[[environment'
 }
@@ -245,7 +254,8 @@ EOF
   local _count
   _count="$(grep -c '^\[\[volumes\]\]' "${TEMP_DIR}/setup.toml")"
   [ "${_count}" -eq 1 ]
-  [[ "${_out}" == *'path = "/data:/data"'* ]]
+  [[ "${_out}" == *'source = "/data"'* ]]
+  [[ "${_out}" == *'target = "/data"'* ]]
 }
 
 # ── idempotency ────────────────────────────────────────────────────────
@@ -326,7 +336,8 @@ EOF
   assert_output --partial '[gui]'
   assert_output --partial 'mode = "wayland"'
   assert_output --partial '[[volumes]]'
-  assert_output --partial 'path = "/my/path:/container/path"'
+  assert_output --partial 'source = "/my/path"'
+  assert_output --partial 'target = "/container/path"'
 }
 
 # ── inertness ──────────────────────────────────────────────────────────
@@ -423,4 +434,65 @@ EOF
   run cat "${TEMP_DIR}/setup.toml"
   assert_output --partial '["stage:headless"]'
   assert_output --partial '"gui.mode" = "off"'
+}
+
+# ── Round trip: what the converter writes is what the bridge reads ─────
+#
+# Every case above asserts the TEXT the converter emits. None of them asks
+# the shipped reader what that text means, so a field name the bridge does
+# not know, a key the runtime readers do not look for, and a value that is
+# not valid TOML all pass. The cases below convert an INI file and then
+# hand the result to the bridge in this checkout, so the assertion is the
+# configuration the shell side gets back.
+
+BRIDGE_PY="/source/dockerfile/toml_bridge.py"
+
+# why: a migration that loses a mount, an env var or a dropped capability is
+#      worse than one that refuses: the repo comes back up with the
+#      workspace unmounted, the variable gone and a capability the operator
+#      removed restored, and the only record of what it used to be is a
+#      .bak file nothing reads.
+@test "_migrate_ini_to_toml: the converted file reads back as the same configuration (#1137)" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[volumes]
+mount_1 = /home/user/work:/home/docker/work:rw
+mount_2 = /data:/data
+[environment]
+env_1 = ROS_DOMAIN_ID=42
+[security]
+cap_add_1 = SYS_ADMIN
+cap_drop_1 = NET_RAW
+security_opt_1 = seccomp:unconfined
+EOF
+  run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
+  assert_success
+
+  run python3 "${BRIDGE_PY}" --kv < "${TEMP_DIR}/setup.toml"
+  assert_success
+  assert_line "volumes	mount_1	/home/user/work:/home/docker/work:rw"
+  assert_line "volumes	mount_2	/data:/data"
+  assert_line "environment	env_1	ROS_DOMAIN_ID=42"
+  assert_line "security	cap_add_1	SYS_ADMIN"
+  assert_line "security	cap_drop_1	NET_RAW"
+  assert_line "security	security_opt_1	seccomp:unconfined"
+}
+
+# why: the converter renames the INI out of the way, so a value it renders
+#      as invalid TOML takes the only copy of the configuration with it.
+#      A double quote inside a build arg and a backslash inside a watchdog
+#      command are both ordinary INI values.
+@test "_migrate_ini_to_toml: a quote or a backslash in a value survives (#1137)" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[build]
+arg_1 = APP_FLAGS=--label="hello"
+[lifecycle]
+watchdog_check = pgrep -f a\bc
+EOF
+  run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
+  assert_success
+
+  run python3 "${BRIDGE_PY}" --kv < "${TEMP_DIR}/setup.toml"
+  assert_success
+  assert_line 'build	arg_1	APP_FLAGS=--label="hello"'
+  assert_line 'lifecycle	watchdog_check	pgrep -f a\bc'
 }

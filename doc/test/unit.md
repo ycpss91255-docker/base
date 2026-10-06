@@ -2993,7 +2993,7 @@ forwarding for caller abort, and DRY_RUN skip.
 | `_run_i18n_orphan: catches the removed per-instance mechanism verbatim, as it stood before the hand fix (#902)` | - |
 | `_run_i18n_orphan: catches the retired argv shim verbatim, as it stood before the hand fix (#902)` | - |
 
-### test/bats/unit/ini_to_toml_migrate_spec.bats (25)
+### test/bats/unit/ini_to_toml_migrate_spec.bats (27)
 
 Mirrors `lib/ini_to_toml_migrate.sh`. Downstream repos upgrading to the TOML
 config format (ADR-00000037) need their existing INI files (.setup.conf,
@@ -3017,7 +3017,7 @@ exists) - backup (.bak suffix) - env_N unpack (environment.env_N = K=V ->
 | `_migrate_ini_to_toml converts devices device_N to [[devices]] (#1137)` | Device paths look like volume paths; the converter must pick the right AoT key |
 | `_migrate_ini_to_toml converts tmpfs tmpfs_N to [[tmpfs]] (#1137)` | tmpfs entries carry size options after a colon; the value must stay whole |
 | `_migrate_ini_to_toml converts additional_contexts context_N to [[additional_contexts]] (#1137)` | Context entries split on = into name/source; wrong split drops the build context path |
-| `_migrate_ini_to_toml unpacks environment env_N to direct key-value (#1137)` | env_N entries unpack to direct KEY = "VALUE" pairs, not AoT |
+| `_migrate_ini_to_toml carries environment env_N over as a scalar (#1137)` | `[environment] env_N` has no array-of-tables home, so it is carried over as the scalar it was. The direct-key `KEY = "VALUE"` form the template documents is where D5 / D6 take the section; until those readers land, `_conf_list_sorted ... environment env_` is what reads it, so unpacking here drops the variable from `.env` and from the container. |
 | `_migrate_ini_to_toml skips empty numbered-key slots (#1137)` | An empty mount_1 = is an opt-out slot, not a volume to emit |
 | `_migrate_ini_to_toml is idempotent when setup.toml exists (#1137)` | A repo that already has setup.toml must not be re-converted |
 | `_migrate_ini_to_toml is idempotent when setup.local.toml exists (#1137)` | A repo that already has setup.local.toml must not be re-converted |
@@ -3032,6 +3032,8 @@ exists) - backup (.bak suffix) - env_N unpack (environment.env_N = K=V ->
 | `_migrate_env_local_to_toml is inert when there is no .env.local (#1137)` | A repo with no .env.local must not produce a phantom .env.local.toml |
 | `_migrate_env_local_to_toml handles values containing = (#1137)` | Values with = in them split on the FIRST = only |
 | `_migrate_ini_to_toml quotes section names containing colon (#1137)` | A section name containing : needs TOML quoting |
+| `_migrate_ini_to_toml: the converted file reads back as the same configuration (#1137)` | a migration that loses a mount, an env var or a dropped capability is worse than one that refuses: the repo comes back up with the workspace unmounted, the variable gone and a capability the operator removed restored, and the only record of what it used to be is a .bak file nothing reads. |
+| `_migrate_ini_to_toml: a quote or a backslash in a value survives (#1137)` | the converter renames the INI out of the way, so a value it renders as invalid TOML takes the only copy of the configuration with it. A double quote inside a build arg and a backslash inside a watchdog command are both ordinary INI values. |
 
 ### test/bats/unit/init_existing_repo_signals_spec.bats (6)
 
@@ -6640,7 +6642,7 @@ is the smoke step, which iterates this same roster.
 | `main copies tmux.conf to config directory` | Config copy |
 | `script runs entry_point when executed directly` | Direct-run guard |
 
-### test/bats/unit/toml_bridge_spec.bats (38)
+### test/bats/unit/toml_bridge_spec.bats (39)
 
 | Test | Description |
 |------|-------------|
@@ -6682,6 +6684,7 @@ is the smoke step, which iterates this same roster.
 | `toml-bridge: _conf_load_layers fails when the bridge exits non-zero` | a bridge that fails prints nothing and says so with its exit status. Read through a process substitution that status is out of reach, and the caller is handed a handle with nothing in it -- indistinguishable from a config whose every value is the default. That is what turned a totally broken merge into a silent, plausible-looking run, so the status has to reach the caller. |
 | `toml-bridge: --kv flattens a nested table into its own dotted section` | the shell view has no nesting -- a section is one flat name -- and `[logging.web]` is the per-service spelling the template documents and `_conf_toml_header` writes. str()-ing the dict hands the shell `logging<TAB>web<TAB>{'driver': 'local'}`: the section `logging.web` never exists, so `_load_setup_conf <base> logging.web` reads nothing, and the global `[logging]` gains a key whose value is a Python repr. |
 | `toml-bridge: --kv reads the cap / opt fields the writers emit` | `[[security.cap_add]]` / `[[security.security_opt]]` are written with the field names the shipped template documents and both writers emit (`cap` / `opt`) -- the INI-to-TOML converter writes the same. Reading a `name` field finds nothing, so every capability a repo opts into arrives as an empty numbered key and the container runs without it. |
+| `toml-bridge: merge shim mounts a relatively named layer by absolute path` | `docker run -v <src>:<dst>` refuses a destination that is not absolute, so a layer named relatively -- which is what the chain carries whenever the caller passed a relative --base-path -- made the containerised merge fail on a file that was right there. The native path never saw it, so the failure only appeared on hosts without the bridge binary: exactly the hosts the docker path exists for. |
 
 ### test/bats/unit/toml_config_template_spec.bats (20)
 
