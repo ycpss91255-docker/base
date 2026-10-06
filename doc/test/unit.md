@@ -7600,7 +7600,7 @@ overlay; writes no override)
 | `_show_runtime_env_info shows an info msgbox about .env and writes nothing (#497)` | - |
 | `_edit_section_deploy writes the canonical gpu_runtime key (#517)` | - |
 
-### test/bats/unit/upgrade_spec.bats (48)
+### test/bats/unit/upgrade_spec.bats (53)
 
 Unit tests for `upgrade.sh` helpers. Uses the sed-range pattern to extract
 one function at a time into a minimal harness (with `_log` / `_error`
@@ -7675,6 +7675,11 @@ policy is never rewritten).
 | `_migrate_lifecycle_restart_default ignores a restart key outside [lifecycle]` | - |
 | `_migrate_lifecycle_restart_default is a no-op without a repo .setup.conf` | - |
 | `_migrate_lifecycle_restart_default is a no-op without a vendored template baseline` | - |
+| `_collect_subtree_local_drift finds an edit to a vendored path (#1092)` | The silence base#1092 is about -- an edit to a path upstream left alone -- is invisible to the merge, so the only thing that can report it is a tree comparison; this is the arm that proves the comparison finds the edit at all, from the metadata the pull itself recorded |
+| `_collect_subtree_local_drift finds nothing on a byte-exact vendored tree (#1092)` | A clean tree has to produce an EMPTY finding set, because a report that fires on every upgrade names nothing; this arm fails if the comparison ever picks up the subtree prefix itself or the consumer files that live outside it |
+| `_collect_subtree_local_drift is inert when the range holds no subtree squash (#1092)` | The range can hold no subtree squash at all (an upgrade whose pull brought nothing, a history rewritten under the consumer), and the reporter must then say nothing rather than compare the vendored tree against an unresolved revision -- which is a loud git error in the middle of a successful upgrade |
+| `_warn_subtree_local_drift names each drifted path repo-relative (#1092)` | Naming the files is the whole requirement -- a count with no paths leaves the consumer exactly where the silence did -- and the path has to be repo-relative, which is what they type at the prompt, not the subtree-relative form the comparison works in |
+| `_warn_subtree_local_drift says nothing when no drift was recorded (#1092)` | Silence on a clean tree is the behaviour every consumer sees on every upgrade, so it is the one the reporter has to get right even though it prints nothing |
 
 ### test/bats/unit/upstream_spec.bats (9)
 
