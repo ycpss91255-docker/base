@@ -654,3 +654,59 @@ _append() {
   [ "${status}" -ne 0 ]
   [[ "${output}" == *"read no read-back keys"* ]]
 }
+
+# why: A recipe doc comment wraps, and a per-line scan inspects only the
+# first line -- the tool list and the negation on the continuation sit
+# outside the guard, which is where the real justfile.test annotation lives
+@test "_run_derived_figures: folds a wrapped recipe comment into one annotation (base#1121)" {
+  _append 'script/test/justfile.test' \
+    '# just test -> run the whole self-test: every linter of the' \
+    '# _LINT_TOOLS table and then Bats + Kcov.'
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"justfile.test:"* ]]
+  [[ "${output}" == *"coverage 0"* ]]
+}
+
+# why: The negation may live on the continuation too, so the fold has to
+# carry it or the corrected wording reads as a bare claim
+@test "_run_derived_figures: a negation on the continuation line still counts (base#1121)" {
+  _append 'script/test/justfile.test' \
+    '# just test -> run the whole self-test: every linter of the' \
+    '# _LINT_TOOLS table and then Bats, no kcov.'
+  run _run_derived_figures
+  [ "${status}" -eq 0 ]
+}
+
+# why: Folding must stop somewhere or an unrelated paragraph below an
+# example gets read as part of its claim; a bare comment line is the
+# separator this repo already uses for exactly that
+@test "_run_derived_figures: a bare comment line detaches the continuation (base#1121)" {
+  _append 'script/test/justfile.test' \
+    '# just test -> run the whole self-test, no kcov.' \
+    '#' \
+    '# Kcov is reached through the coverage recipes instead.'
+  run _run_derived_figures
+  [ "${status}" -eq 0 ]
+}
+
+# why: With coverage ENABLED, an annotation that explicitly denies kcov is
+# the contradiction -- reading the negation only in the disabled branch let
+# the corrected wording survive a coverage migration unchanged
+@test "_run_derived_figures: FAILS on a denied kcov claim when coverage is enabled (base#1121)" {
+  _write_runner 1
+  _write_readme '```bash' 'just test   # ShellCheck + Hadolint + Bats (no kcov)' '```'
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"does not say so"* ]]
+}
+
+# why: The other spelling of the same negation, so the enabled branch is not
+# fixed for one word and broken for the next
+@test "_run_derived_figures: the without-kcov spelling is denied too when coverage is enabled (base#1121)" {
+  _write_runner 1
+  _write_readme '```bash' 'just test   # ShellCheck + Hadolint + Bats, without kcov' '```'
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"does not say so"* ]]
+}

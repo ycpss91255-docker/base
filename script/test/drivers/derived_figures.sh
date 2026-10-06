@@ -383,7 +383,13 @@ readonly _DERIVED_FIGURES_CMD_FILES=(
 # Anchored at the start of the command region, so a mention inside running
 # prose (`bare 'just test' already runs bats in parallel`) is not read as an
 # annotated example.
-readonly _DERIVED_FIGURES_INVOCATION_RE='^(just[[:space:]]+test|\./test\.sh|\./script/test/test\.sh)([[:space:]]+(.*))?$'
+#
+# The literal dots are bracketed rather than backslash-escaped because this
+# one constant is handed to BOTH engines -- bash's `[[ =~ ]]` here and awk's
+# `~` in the folding pre-pass below -- and awk reads a backslash in a `-v`
+# value as a string escape, warns, and drops it. `[.]` means the same thing
+# to both, so there is one regex rather than two that have to agree.
+readonly _DERIVED_FIGURES_INVOCATION_RE='^(just[[:space:]]+test|[.]/test[.]sh|[.]/script/test/test[.]sh)([[:space:]]+(.*))?$'
 
 # An annotation that explicitly says coverage is NOT measured. ASCII, and
 # the same spelling in every locale: the translations write the tool list in
@@ -496,6 +502,55 @@ _derived_cmd_annotation() {
   return 0
 }
 
+# _derived_fold_annotations <file> -- emit `<line-number><TAB><text>`, one
+# record per LOGICAL line, with a wrapped comment folded into one.
+#
+# A recipe doc comment wraps, and the claim is spread over the wrap:
+# justfile.test's own default-recipe comment names the tool set on its first
+# line and says "no kcov" on its second. Reading a file a physical line at a
+# time inspects neither half properly -- the continuation is not an invocation,
+# so it is skipped, and the opening line carries only as much of the claim as
+# fit on it.
+#
+# Folding rules, in the order they are applied:
+#
+#   - a bare `#` line DETACHES. It is the paragraph separator this repo
+#     already treats that way (the `# why:` markers the catalogue reads use
+#     the same rule), so the paragraph below an example is not read as part
+#     of that example's claim.
+#   - a comment line whose body itself opens an invocation STARTS a new
+#     annotation, so a block of worked examples stays a block of separate
+#     claims rather than collapsing into the first one.
+#   - any other comment line CONTINUES the one above it.
+#   - a non-comment line is its own logical line: there the annotation is the
+#     trailing `#` comment, which cannot wrap.
+#
+# The record keeps the line number the annotation OPENS on, which is where a
+# reader fixes it.
+_derived_fold_annotations() {
+  awk -v inv="${_DERIVED_FIGURES_INVOCATION_RE}" '
+    function flush() {
+      if (open) { printf "%d\t#%s\n", start, buf; open = 0; buf = "" }
+    }
+    /^[[:space:]]*#[[:space:]]*$/ { flush(); next }
+    /^[[:space:]]*#/ {
+      body = $0
+      sub(/^[[:space:]]*#[[:space:]]?/, "", body)
+      if (!open || body ~ inv) {
+        flush()
+        start = FNR
+        buf = " " body
+        open = 1
+      } else {
+        buf = buf " " body
+      }
+      next
+    }
+    { flush(); printf "%d\t%s\n", FNR, $0 }
+    END { flush() }
+  ' "${1}"
+}
+
 # _derived_scan_cmd_annotations <file> <rel> <coverage> <subcmds_var>
 #                              <lint_tools_var>
 #
@@ -512,15 +567,23 @@ _derived_scan_cmd_annotations() {
     [[ "${_tool}" == 'hadolint' ]] && _has_hadolint=1
   done
 
-  local _violations=0 _lineno=0 _line _args _annot _names_kcov
+  local _violations=0 _lineno='' _line _args _annot _names_kcov _claims_kcov
   local -a _toks=()
-  while IFS= read -r _line || [[ -n "${_line}" ]]; do
-    _lineno=$(( _lineno + 1 ))
+  while IFS=$'\t' read -r _lineno _line; do
     _derived_cmd_annotation "${_line}" _args _annot || continue
     read -r -a _toks <<< "${_args}"
 
+    # A CLAIM that coverage is measured: the word, not negated. Read the
+    # same way whichever way the flag points -- an annotation that denies
+    # kcov contradicts a dispatch that measures it just as plainly as one
+    # that asserts kcov contradicts a dispatch that does not.
     _names_kcov=0
+    _claims_kcov=0
     [[ "${_annot}" =~ [Kk][Cc][Oo][Vv] ]] && _names_kcov=1
+    if (( _names_kcov )) \
+      && [[ ! "${_annot,,}" =~ ${_DERIVED_FIGURES_NO_KCOV_RE} ]]; then
+      _claims_kcov=1
+    fi
 
     # Does this example describe the DEFAULT run? No arguments does. So
     # does an argument that is neither a flag nor one of justfile.test's own
@@ -543,13 +606,12 @@ _derived_scan_cmd_annotations() {
 
     if (( _is_default )); then
       if [[ "${_coverage}" == '0' ]]; then
-        if (( _names_kcov )) \
-          && [[ ! "${_annot,,}" =~ ${_DERIVED_FIGURES_NO_KCOV_RE} ]]; then
+        if (( _claims_kcov )); then
           printf '%s:%s: the default self-test is documented as measuring coverage, but every _run_via_compose ci call passes coverage %s -- kcov is reachable only through the --coverage entries\n' \
             "${_rel}" "${_lineno}" "${_coverage}"
           _violations=$(( _violations + 1 ))
         fi
-      elif (( ! _names_kcov )); then
+      elif (( ! _claims_kcov )); then
         printf '%s:%s: the default self-test measures coverage (_run_via_compose ci passes %s) and this annotation does not say so\n' \
           "${_rel}" "${_lineno}" "${_coverage}"
         _violations=$(( _violations + 1 ))
@@ -568,7 +630,7 @@ _derived_scan_cmd_annotations() {
         _violations=$(( _violations + 1 ))
       fi
     fi
-  done < "${_file}"
+  done < <(_derived_fold_annotations "${_file}")
 
   return "${_violations}"
 }

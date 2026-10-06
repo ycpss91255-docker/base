@@ -2075,7 +2075,7 @@ refused before any build or bundle step.
 | `setup_tui --help names the distinction in all four locales (#879)` | - |
 | `setup.sh --help distinguishes the deploy subcommand from the section (#879)` | - |
 
-### test/bats/unit/derived_figures_lint_spec.bats (48)
+### test/bats/unit/derived_figures_lint_spec.bats (53)
 
 | Test | Description |
 |------|-------------|
@@ -2127,6 +2127,11 @@ refused before any build or bundle step.
 | `_run_derived_figures: addresses a translated section by its sync id (base#1121)` | The id is how a section is found in a language the driver cannot read; without it the three translations are outside the gate |
 | `_run_derived_figures: FAILS on a translation whose drift section omits a key (base#1121)` | A fix that lands in one locale is not a fix -- the three translations carried the same three names for as long as the English did |
 | `_run_derived_figures: FAILS when the drift lib yields no keys (no vacuous pass) (base#1121)` | An empty compared set passes the completeness rule over every locale at once, which is the failure mode this spec is most exposed to |
+| `_run_derived_figures: folds a wrapped recipe comment into one annotation (base#1121)` | A recipe doc comment wraps, and a per-line scan inspects only the first line -- the tool list and the negation on the continuation sit outside the guard, which is where the real justfile.test annotation lives |
+| `_run_derived_figures: a negation on the continuation line still counts (base#1121)` | The negation may live on the continuation too, so the fold has to carry it or the corrected wording reads as a bare claim |
+| `_run_derived_figures: a bare comment line detaches the continuation (base#1121)` | Folding must stop somewhere or an unrelated paragraph below an example gets read as part of its claim; a bare comment line is the separator this repo already uses for exactly that |
+| `_run_derived_figures: FAILS on a denied kcov claim when coverage is enabled (base#1121)` | With coverage ENABLED, an annotation that explicitly denies kcov is the contradiction -- reading the negation only in the disabled branch let the corrected wording survive a coverage migration unchanged |
+| `_run_derived_figures: the without-kcov spelling is denied too when coverage is enabled (base#1121)` | The other spelling of the same negation, so the enabled branch is not fixed for one word and broken for the next |
 
 ### test/bats/unit/doc_counts_spec.bats (26)
 
