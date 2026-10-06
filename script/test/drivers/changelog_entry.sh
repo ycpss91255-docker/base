@@ -1141,14 +1141,29 @@ _changelog_entry_fold_write() {
   if [[ -s "${_fw_path}" ]] && [[ -n "$(tail -c 1 "${_fw_path}")" ]]; then
     _fw_nl=0
   fi
+  # The temp sits BESIDE the file, not in TMPDIR, so the rename cannot cross
+  # a filesystem and degrade into a copy somebody can interrupt half-written.
+  # The cost of that choice is litter in a tracked directory, so both failure
+  # paths sweep it: `if ! cmd` rather than `cmd || ...`, because an `||` list
+  # suppresses errexit for everything inside it (see _run_lint_tool's header).
   _fw_tmp="$(mktemp "${_fw_path}.fold.XXXXXX")" || return 1
-  _changelog_entry_fold_spill _fw_out "${_fw_nl}" > "${_fw_tmp}"
+  if ! _changelog_entry_fold_spill _fw_out "${_fw_nl}" > "${_fw_tmp}"; then
+    rm -f -- "${_fw_tmp}"
+    _die ci_changelog_entry_fix \
+      "'${_CHANGELOG_ENTRY_FILE}': could not write the folded section. Nothing was changed."
+    return 1
+  fi
   # mktemp creates 0600. Without this the fold leaves the changelog
   # owner-only-readable in the working tree, on a bit git does not track --
   # so nothing downstream reports it and the next reader cannot tell what
   # changed the mode.
   chmod --reference="${_fw_path}" "${_fw_tmp}" 2> /dev/null || true
-  mv -- "${_fw_tmp}" "${_fw_path}"
+  if ! mv -- "${_fw_tmp}" "${_fw_path}"; then
+    rm -f -- "${_fw_tmp}"
+    _die ci_changelog_entry_fix \
+      "'${_CHANGELOG_ENTRY_FILE}': could not replace the file with the folded section. Nothing was changed."
+    return 1
+  fi
 }
 
 # _changelog_entry_fold_spill <lines-array-name> <final-newline> -- the lines
@@ -1190,6 +1205,20 @@ _run_changelog_entry_fix() {
     echo "changelog fold: no category heading opens twice in '${_CHANGELOG_ENTRY_HEADING}' (${#_CHANGELOG_FOLD_HEADS[@]} compared in '${_CHANGELOG_ENTRY_FILE}') -- nothing folded, nothing written"
     return 0
   fi
+  local _folded_count="${_CHANGELOG_FOLD_DUPS}"
+  local _category_count="${#_CHANGELOG_FOLD_ORDER[@]}"
   _changelog_entry_fold_write _folded || return 1
-  echo "changelog fold: folded ${_CHANGELOG_FOLD_DUPS} repeated category heading(s) into ${#_CHANGELOG_FOLD_ORDER[@]} section(s) of '${_CHANGELOG_ENTRY_HEADING}' in '${_CHANGELOG_ENTRY_FILE}'. Entry text is unchanged; review the diff and commit it."
+  # The postcondition, RE-DERIVED from what landed on disk rather than
+  # reported from what was assembled in memory. A repair whose only evidence
+  # is its own success message is one that leaves a half-folded file when it
+  # is wrong, and the author cannot see that from here -- the next reader is
+  # the lint, on the next gate cycle. Cheap: the same two readers again.
+  _changelog_entry_fold_load || return 1
+  _changelog_entry_fold_group > /dev/null
+  if [[ "${_CHANGELOG_FOLD_DUPS}" -ne 0 ]]; then
+    _die ci_changelog_entry_fix \
+      "'${_CHANGELOG_ENTRY_FILE}': the file on disk STILL carries ${_CHANGELOG_FOLD_DUPS} repeated category heading(s) in '${_CHANGELOG_ENTRY_HEADING}' after folding. That is a defect in the fold, not in the file; 'git diff' shows what it did. Report it rather than re-running."
+    return 1
+  fi
+  echo "changelog fold: folded ${_folded_count} repeated category heading(s) in '${_CHANGELOG_ENTRY_HEADING}' of '${_CHANGELOG_ENTRY_FILE}', leaving ${_category_count} category section(s); the written file was re-read and carries no repeat. Entry text is unchanged -- review the diff and commit it."
 }

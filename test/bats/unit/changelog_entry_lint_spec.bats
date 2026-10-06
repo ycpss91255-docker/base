@@ -1516,6 +1516,23 @@ _entry_text() {
   [[ "${output}" -ge 1 ]]
 }
 
+# why: The guard that stops the repair reporting its own success. Driven by
+# neutralising the write, because a write that did not take is the one failure
+# the fold cannot see from the array it assembled -- the file on disk is what
+# the next reader gets, and the next reader is the lint on the next cycle.
+@test "_run_changelog_entry_fix: a write that did not take is REFUSED, not reported as done (#1103)" {
+  _write_changelog \
+    '### Fixed' '' '- **one** (PR #1) -- first.' '' \
+    '### Fixed' '' '- **two** (PR #2) -- second.'
+  # Only for this test's shell: the fold still builds the folded section, and
+  # the postcondition still reads the file, which has not changed.
+  _changelog_entry_fold_write() { return 0; }
+  run _run_changelog_entry_fix
+  assert_failure
+  assert_output --partial 'STILL carries'
+  assert_equal "$(_headings '### Fixed')" 2
+}
+
 # why: The refusal is where somebody meets this problem, so it is the only place
 # the repair can be documented without being remembered. A message that names
 # the defect and not the verb is the chore this issue is about.
