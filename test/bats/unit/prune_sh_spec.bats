@@ -111,16 +111,30 @@ teardown() {
   assert_output --partial "prune.sh"
 }
 
+# why: Both Chinese usage heredocs open with the same two characters
+# meaning "Usage", so asserting that shared token could not tell
+# Traditional from Simplified: pointing the zh-CN arm at the Traditional
+# block left every locale test green. The token asserted here is the
+# help-flag description line in its Traditional spelling, which the
+# Simplified block cannot contain, and the refute names the Simplified
+# spelling that must not appear -- so the pair is red in both directions.
 @test "prune.sh --lang zh-TW prints Traditional Chinese usage text" {
   run bash "${SANDBOX}/prune.sh" --lang zh-TW --help
   assert_success
-  assert_output --partial "用法"
+  assert_output --partial "顯示此說明"
+  refute_output --partial "显示此说明"
 }
 
+# why: The Simplified half of the same decision. The shared "Usage" token
+# this used to assert is byte-identical in both Chinese heredocs, so a
+# zh-CN arm rendering the Traditional block read green. The token asserted
+# here is the help-flag description line in its Simplified spelling, which
+# the Traditional block cannot contain.
 @test "prune.sh --lang zh-CN prints Simplified Chinese usage text" {
   run bash "${SANDBOX}/prune.sh" --lang zh-CN --help
   assert_success
-  assert_output --partial "用法"
+  assert_output --partial "显示此说明"
+  refute_output --partial "顯示此說明"
 }
 
 @test "prune.sh --lang ja prints Japanese usage text" {

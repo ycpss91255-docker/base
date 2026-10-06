@@ -529,9 +529,9 @@ runs).
 | `build.sh omits --build-arg TARGETARCH when TARGET_ARCH absent from .env` | - |
 | `build.sh passes --network <value> to docker build when BUILD_NETWORK set in .env` | - |
 | `build.sh omits --network when BUILD_NETWORK absent from .env` | - |
-| `build.sh --lang zh-TW prints Chinese usage text` | - |
+| `build.sh --lang zh-TW prints Traditional Chinese usage text` | Both Chinese usage heredocs open with the same two characters meaning "Usage", so asserting that shared token could not tell Traditional from Simplified: pointing the zh-CN arm at the Traditional block left every locale test green. The token asserted here is the help-flag description line in its Traditional spelling, which the Simplified block cannot contain, and the refute names the Simplified spelling that must not appear -- so the pair is red in both directions. |
 | `build.sh --lang requires a value` | - |
-| `build.sh --lang zh-CN prints Simplified Chinese usage text` | - |
+| `build.sh --lang zh-CN prints Simplified Chinese usage text` | The Simplified half of the same decision. The shared "Usage" token this used to assert is byte-identical in both Chinese heredocs, so a zh-CN arm rendering the Traditional block read green. The token asserted here is the help-flag description line in its Simplified spelling, which the Traditional block cannot contain. |
 | `build.sh --lang ja prints Japanese usage text` | - |
 | `build.sh --help documents QUIET in every locale (#895)` | - |
 | `build.sh in /lint/ layout maps zh_TW.UTF-8 to zh-TW` | - |
@@ -2645,8 +2645,8 @@ exit $?`; a failing pre-exec hook aborts before `compose exec` runs).
 | Test | Description |
 |------|-------------|
 | `exec.sh --help exits 0 and shows usage` | - |
-| `exec.sh --lang zh-TW prints Chinese usage text` | - |
-| `exec.sh --lang zh-CN prints Simplified Chinese usage text` | - |
+| `exec.sh --lang zh-TW prints Traditional Chinese usage text` | Both Chinese usage heredocs open with the same two characters meaning "Usage", so asserting that shared token could not tell Traditional from Simplified: pointing the zh-CN arm at the Traditional block left every locale test green. The token asserted here is the help-flag description line in its Traditional spelling, which the Simplified block cannot contain, and the refute names the Simplified spelling that must not appear -- so the pair is red in both directions. |
+| `exec.sh --lang zh-CN prints Simplified Chinese usage text` | The Simplified half of the same decision. The shared "Usage" token this used to assert is byte-identical in both Chinese heredocs, so a zh-CN arm rendering the Traditional block read green. The token asserted here is the help-flag description line in its Simplified spelling, which the Traditional block cannot contain. |
 | `exec.sh --lang ja prints Japanese usage text` | - |
 | `exec.sh --lang requires a value` | - |
 | `exec.sh --target requires a value` | - |
@@ -4001,8 +4001,8 @@ fallback is present.
 | Test | Description |
 |------|-------------|
 | `prune.sh --help exits 0 and shows usage` | - |
-| `prune.sh --lang zh-TW prints Traditional Chinese usage text` | - |
-| `prune.sh --lang zh-CN prints Simplified Chinese usage text` | - |
+| `prune.sh --lang zh-TW prints Traditional Chinese usage text` | Both Chinese usage heredocs open with the same two characters meaning "Usage", so asserting that shared token could not tell Traditional from Simplified: pointing the zh-CN arm at the Traditional block left every locale test green. The token asserted here is the help-flag description line in its Traditional spelling, which the Simplified block cannot contain, and the refute names the Simplified spelling that must not appear -- so the pair is red in both directions. |
+| `prune.sh --lang zh-CN prints Simplified Chinese usage text` | The Simplified half of the same decision. The shared "Usage" token this used to assert is byte-identical in both Chinese heredocs, so a zh-CN arm rendering the Traditional block read green. The token asserted here is the help-flag description line in its Simplified spelling, which the Traditional block cannot contain. |
 | `prune.sh --lang ja prints Japanese usage text` | - |
 | `prune.sh with no target exits 2 with hint` | - |
 | `prune.sh --until without a value exits non-zero` | - |
@@ -4772,9 +4772,9 @@ down --remove-orphans` still runs).
 | `run.sh: a service running in ANOTHER project does not block this one (#920)` | - |
 | `run.sh: the SAME project's running service still blocks (#920)` | - |
 | `run.sh: a probe still writing cannot make the guard miss a running service (#905)` | - |
-| `run.sh --lang zh-TW prints Chinese usage text` | - |
+| `run.sh --lang zh-TW prints Traditional Chinese usage text` | Both Chinese usage heredocs open with the same two characters meaning "Usage", so asserting that shared token could not tell Traditional from Simplified: pointing the zh-CN arm at the Traditional block left every locale test green. The token asserted here is the help-flag description line in its Traditional spelling, which the Simplified block cannot contain, and the refute names the Simplified spelling that must not appear -- so the pair is red in both directions. |
 | `run.sh --lang requires a value` | - |
-| `run.sh --lang zh-CN prints Simplified Chinese usage text` | - |
+| `run.sh --lang zh-CN prints Simplified Chinese usage text` | The Simplified half of the same decision. The shared "Usage" token this used to assert is byte-identical in both Chinese heredocs, so a zh-CN arm rendering the Traditional block read green. The token asserted here is the help-flag description line in its Simplified spelling, which the Traditional block cannot contain. |
 | `run.sh --lang ja prints Japanese usage text` | - |
 | `run.sh --help documents QUIET in every locale (#895)` | - |
 | `run.sh uses xhost +SI:localuser under Wayland session` | - |
@@ -6355,8 +6355,8 @@ runs).
 | Test | Description |
 |------|-------------|
 | `stop.sh --help exits 0 and shows usage` | - |
-| `stop.sh --lang zh-TW prints Chinese usage text` | - |
-| `stop.sh --lang zh-CN prints Simplified Chinese usage text` | - |
+| `stop.sh --lang zh-TW prints Traditional Chinese usage text` | Both Chinese usage heredocs open with the same two characters meaning "Usage", so asserting that shared token could not tell Traditional from Simplified: pointing the zh-CN arm at the Traditional block left every locale test green. The token asserted here is the help-flag description line in its Traditional spelling, which the Simplified block cannot contain, and the refute names the Simplified spelling that must not appear -- so the pair is red in both directions. |
+| `stop.sh --lang zh-CN prints Simplified Chinese usage text` | The Simplified half of the same decision. The shared "Usage" token this used to assert is byte-identical in both Chinese heredocs, so a zh-CN arm rendering the Traditional block read green. The token asserted here is the help-flag description line in its Simplified spelling, which the Traditional block cannot contain. |
 | `stop.sh --lang ja prints Japanese usage text` | - |
 | `stop.sh --lang requires a value` | - |
 | `stop.sh stops the single project via docker compose down` | - |
