@@ -127,7 +127,7 @@ _write() {
   [[ "${output}" == *"x_spec.bats:1"* ]]
   [[ "${output}" == *"x_spec.bats:4"* ]]
   [[ "${output}" == *"y_spec.bats:1"* ]]
-  [[ "${output}" == *"3 '@test' name(s)"* ]]
+  [[ "${output}" == *"3 finding(s)"* ]]
 }
 
 # why: The population is the whole tree and not test/bats/. The shipped smoke
@@ -141,6 +141,59 @@ _write() {
   run _run_test_name_backtick
   [ "${status}" -ne 0 ]
   [[ "${output}" == *"dist/test/bats/smoke/z.bats:1"* ]]
+}
+
+# why: bats's preprocessor accepts leading blanks before '@test' and registers
+# the test, backticks and all -- measured, an indented name whose backticks
+# held an echo registered as the echo's output. An anchor pinned to column 0
+# would skip it while bats still ran it, and the non-empty-population check
+# would not notice because the file's other tests satisfy it
+@test "_run_test_name_backtick: FAILS on an INDENTED name, which bats registers too" {
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "a clean name" {' \
+    '}' \
+    '  @test "indented `echo IND` name" {' \
+    '  }'
+  run _run_test_name_backtick
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"x_spec.bats:3"* ]]
+}
+
+# why: The over-report this lint accepts, pinned so it cannot change shape
+# unnoticed. An indented '@test' inside a quoted heredoc is fixture TEXT: the
+# preprocessor rewrites it (it is a line filter with no heredoc model) but the
+# enclosing shell never registers it, so nothing is executed there. It is
+# reported anyway, because a scan over text cannot tell that line from a
+# declaration -- and the fixture is often written out and run by an inner
+# bats, where the name IS registered. Over-reporting is the refusing
+# direction; 21 such lines exist in this tree today and none carries a
+# backtick
+@test "_run_test_name_backtick: reports an indented name inside a heredoc, the accepted over-report" {
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "a clean name" {' \
+    '  cat <<SPEC' \
+    '  @test "fixture `echo HI` name" {' \
+    '  }' \
+    'SPEC' \
+    '}'
+  run _run_test_name_backtick
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"x_spec.bats:3"* ]]
+}
+
+# why: A '@test' line bats's own pattern cannot read is a line this lint cannot
+# judge, and an unreadable line is a failure rather than a skip -- the same
+# rule the walk failure below follows. Silently skipping it would take the
+# name out of the rule's reach with the gate green
+@test "_run_test_name_backtick: FAILS on a '@test' line bats's own pattern cannot read" {
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "no opening brace on this line"' \
+    '{' \
+    '}'
+  run _run_test_name_backtick
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"x_spec.bats:1"* ]]
+  [[ "${output}" == *"cannot read"* ]]
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -169,6 +222,21 @@ _write() {
     '@test "a clean name" {' \
     '  local _now' \
     '  _now="`date`"' \
+    '  assert_success' \
+    '}'
+  run _run_test_name_backtick
+  [ "${status}" -eq 0 ]
+}
+
+# why: Everything after the opening brace is the BODY, not the name: bats takes
+# its description from the text BEFORE the brace and makes the rest the body's
+# first line, so a backtick in a trailing comment is never eval'd at
+# registration -- measured, such a name registers clean. 26 '@test' lines here
+# carry text after the brace, so judging the whole line would fail the gate on
+# names bats leaves alone
+@test "_run_test_name_backtick: PASSES a backtick in a comment AFTER the opening brace" {
+  _write "test/bats/unit/x_spec.bats" \
+    '@test "a clean name" { # see `just template new`' \
     '  assert_success' \
     '}'
   run _run_test_name_backtick

@@ -107,6 +107,23 @@
 # forms would have nothing to find. base#1200's bound is the backtick; the
 # escape-aware reader below is the half that would be reused.
 #
+# ── What is not modelled, and which way each errs ───────────────────────
+#
+# OVER-reports, which is the refusing direction. An indented `@test` inside
+# a quoted heredoc is fixture TEXT, and it is reported. bats's preprocessor
+# rewrites it -- it is a line filter with no heredoc model, so the fixture's
+# own text is rewritten in place -- but the enclosing shell then reads that
+# as heredoc content and registers nothing, so nothing is executed there.
+# A scan over text cannot tell that line from a declaration, and the
+# fixture is often written out and run by an inner bats, where the name IS
+# registered. 21 such lines exist in this tree today and none carries a
+# backtick.
+#
+# UNDER-reports. bats's second declaration form, BATS_TEST_PATTERN_COMMENT
+# (`some_function() { # @test`), is not read: there the name is a FUNCTION
+# name, which cannot hold a space, so a backticked command is not a shape
+# it can carry. This tree uses the form zero times.
+#
 # ── Non-vacuity ─────────────────────────────────────────────────────────
 #
 # THREE ways this could go green having checked nothing, each a _die: a
@@ -122,11 +139,35 @@
 # nothing else is skipped.
 readonly _TNB_PRUNE_DIRS=('.git' '.prev-release')
 
-# The anchor. `^@test` plus one whitespace character is what bats's
-# preprocessor itself requires of a test-opening line, and it is the same
-# opening anchor script/test/spec-markers.sh counts with, so the
-# population this lint judges is the population the catalogue renders.
-readonly _TNB_TEST_ANCHOR_RE='^@test[[:space:]]'
+# What looks like a test declaration, and what bats makes of one. BOTH are
+# bats's own, copied from libexec/bats-core/bats-preprocess rather than
+# written here, because the string this lint judges has to be the string
+# bats eval's and nothing else.
+#
+# The anchor is BATS_TEST_PATTERN's opening, so a declaration INDENTED by
+# spaces or tabs is in the population: bats accepts one and registers the
+# test, backticks and all. An anchor pinned to column 0 skipped them while
+# bats still ran them, and the non-empty-population check below could not
+# notice, because a file's other tests satisfy it.
+#
+# _TNB_DESCRIPTION_RE is BATS_TEST_PATTERN itself with ONE change -- the
+# leading blanks and `@test` are captured as group 1, so the length of that
+# prefix gives the description's column offset in the line. Group 2 is
+# bats's description group: everything BEFORE the final ` {`. The
+# preprocessor then takes `body="${BASH_REMATCH[2]}"` -- everything after
+# the brace -- as the body's first line, so a trailing comment there is
+# body and never reaches the eval. Judging the whole line reported those as
+# findings; 26 `@test` lines in this tree carry text after the brace.
+#
+# This population is NOT the catalogue's. script/test/spec-markers.sh
+# anchors on `^@test` at column 0, as does the `grep -cE '^@test'` the
+# per-spec counts use, so an indented declaration is a test bats runs and
+# the catalogue cannot see. Zero exist today. That gap is a defect in the
+# catalogue's reader rather than in this lint, and it is outside
+# base#1200's bound; what matters here is that this lint judges every name
+# bats registers, which is the superset.
+readonly _TNB_TEST_ANCHOR_RE='^[[:blank:]]*@test[[:blank:]]'
+readonly _TNB_DESCRIPTION_RE='^([[:blank:]]*@test[[:blank:]]+)(.*[^[:blank:]])[[:blank:]]+\{(.*)$'
 
 # _tnb_collect <files_outvar>
 #   Fill <files_outvar> with every *.bats in the repo, sorted, pruning the
@@ -192,15 +233,21 @@ _tnb_live_backtick_col() {
 }
 
 # _tnb_scan_file <path> <rel> <rows_outvar> <names_outvar>
-#   Append one row per offending `@test` line in <path>, and add the
-#   number of `@test` lines READ to <names_outvar>. One row per line and
-#   not per backtick: the author fixes the name, not a character, and the
-#   column names where to start looking.
+#   Append one row per offending `@test` line in <path>, and add the number
+#   of names READ to <names_outvar>. One row per line and not per backtick:
+#   the author fixes the name, not a character, and the column names where
+#   to start looking.
+#
+#   A line the anchor matches but bats's own pattern cannot read is a row
+#   too, with its own sentence. It is a line this lint cannot judge, and an
+#   unreadable line is a failure rather than a skip -- the same rule the
+#   failed walk follows: skipping it would take the name out of the rule's
+#   reach with the gate green.
 _tnb_scan_file() {
   local _path="${1}" _rel="${2}"
   local -n _tnbs_rows="${3}"
   local -n _tnbs_names="${4}"
-  local _line _col _lineno=0
+  local _line _col _desc _prefix _lineno=0
 
   # `|| [[ -n ... ]]`: a final line with no trailing newline is still a
   # line, and a spec file is exactly the kind of file an editor leaves
@@ -208,9 +255,15 @@ _tnb_scan_file() {
   while IFS= read -r _line || [[ -n "${_line}" ]]; do
     _lineno=$(( _lineno + 1 ))
     [[ "${_line}" =~ ${_TNB_TEST_ANCHOR_RE} ]] || continue
+    if [[ ! "${_line}" =~ ${_TNB_DESCRIPTION_RE} ]]; then
+      _tnbs_rows+=("${_rel}:${_lineno}: a '@test' line bats's own pattern cannot read -- ${_line}")
+      continue
+    fi
+    _prefix="${BASH_REMATCH[1]}"
+    _desc="${BASH_REMATCH[2]}"
     _tnbs_names=$(( _tnbs_names + 1 ))
-    if _col="$(_tnb_live_backtick_col "${_line}")"; then
-      _tnbs_rows+=("${_rel}:${_lineno}:${_col}: ${_line}")
+    if _col="$(_tnb_live_backtick_col "${_desc}")"; then
+      _tnbs_rows+=("${_rel}:${_lineno}:$(( ${#_prefix} + _col )): ${_line}")
     fi
   done < "${_path}"
 }
@@ -239,7 +292,7 @@ _run_test_name_backtick() {
     _tnb_scan_file "${_file}" "${_rel}" _rows _names
   done
 
-  if [[ "${_names}" -eq 0 ]]; then
+  if [[ "${_names}" -eq 0 && "${#_rows[@]}" -eq 0 ]]; then
     _die ci_test_name_backtick \
       "no '@test' line in any of the ${#_files[@]} *.bats file(s) under ${REPO_ROOT} -- the anchor read nothing, so every name would be clean vacuously. Either the specs declare their tests some other way now, or this lint's anchor has gone blind."
     return 1
@@ -251,7 +304,7 @@ _run_test_name_backtick() {
     # not-reached "clean" echo unreachable even where a caller stubs _die
     # to return instead of exit (e.g. the unit harness).
     _die ci_test_name_backtick \
-      "${#_rows[@]} '@test' name(s) carrying an unescaped backtick, across the ${#_files[@]} *.bats file(s) in this repo. bats eval's a test name when it REGISTERS the test (lib/bats-core/test_functions.bash, \"use eval to resolve variable references in test names\"), so a live backtick there is command substitution that runs once per registration -- with no test selected, in every run and in every coverage shard -- and the name bats then reports is the substitution's OUTPUT, not the name in the source, which puts the TAP output and doc/test/ out of agreement. Changing the SHELL quoting is not the fix: bats supplies its own quotes, so a single-quoted name is expanded too. Drop the backticks and write the span the way 178 names here already do, in single quotes inside the name -- 'just template new' -- which leaves the name identical in the source, in the TAP output and in the catalogue row. A backslash-escaped backtick is inert too and this lint does not report it, but --filter is matched against the name as the SOURCE writes it, so the backslashes stay in the one string the filter sees and the catalogue row stops being pasteable into it."
+      "${#_rows[@]} finding(s) across the ${#_files[@]} *.bats file(s) in this repo: a '@test' name carrying an unescaped backtick, or a '@test' line bats's own pattern cannot read. bats eval's a test name when it REGISTERS the test (lib/bats-core/test_functions.bash, \"use eval to resolve variable references in test names\"), so a live backtick there is command substitution that runs once per registration -- with no test selected, in every run and in every coverage shard -- and the name bats then reports is the substitution's OUTPUT, not the name in the source, which puts the TAP output and doc/test/ out of agreement. Changing the SHELL quoting is not the fix: bats supplies its own quotes, so a single-quoted name is expanded too. Drop the backticks and write the span the way 178 names here already do, in single quotes inside the name -- 'just template new' -- which leaves the name identical in the source, in the TAP output and in the catalogue row. A backslash-escaped backtick is inert too and this lint does not report it, but --filter is matched against the name as the SOURCE writes it, so the backslashes stay in the one string the filter sees and the catalogue row stops being pasteable into it."
     return 1
   fi
   echo "@test name backtick lint: clean (${_names} test name(s) across ${#_files[@]} spec file(s))"
