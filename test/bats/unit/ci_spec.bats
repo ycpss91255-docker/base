@@ -1851,6 +1851,183 @@ SH
   fi
 }
 
+# ════════════════════════════════════════════════════════════════════
+# The union of the shard slices is a partition only under ONE weight source
+#
+# Greedy-LPT partitions the pool PER WEIGHT SOURCE. Each coverage shard
+# used to look the weights blob up for itself, so the twelve slices were
+# computed from twelve independent reads, and their union was a partition
+# only if all twelve reads returned the same bytes. Nothing in CI could
+# see otherwise: every slice is non-empty (so the empty-shard guard never
+# fires), the merge keys on basename (so a spec measured twice reads as
+# one entry), and a spec measured NOWHERE leaves no entry at all.
+#
+# _coverage_union_gap is the detector. It compares the MERGED run
+# manifest -- what the shards between them reported running -- against
+# the inventory of what a full run covers, and names the specs no shard
+# reported. The structural half (one lookup, done once in compute-shards)
+# lives in self-test.yaml and is asserted in self_test_yaml_spec.bats.
+# ════════════════════════════════════════════════════════════════════
+
+# _divergent_union_program
+#   Echo the shell program that drives the real partitioner over a
+#   six-spec fixture pool, ONE SHARD PER PROCESS, and merges the slices
+#   into one run manifest the way the coverage-gate job does. SHARD_SOURCES
+#   carries one token per shard: `w` = that shard reads the seconds file,
+#   `-` = that shard finds no weights file and falls back to @test counts.
+#   A mixed value reproduces the independent-lookup divergence; a uniform
+#   one is the single-source control.
+#
+#   A process per shard is the load-bearing detail. Slices evaluated in
+#   ONE shell against ONE weight source agree by construction, which is
+#   why the exhaustive-and-disjoint case above cannot see this at all.
+#
+#   The two sources genuinely disagree on this fixture: every spec carries
+#   one @test, so the fallback weighs them all 1 and greedy fills the bins
+#   in name order (a,b,c then d,e,f), while the seconds file ranks them
+#   10..5 strictly descending so greedy fills the lightest bin instead.
+#   Shard 3 is {c,d} under seconds and {c,f} under counts.
+_divergent_union_program() {
+  cat <<'PROGRAM'
+_root="${BATS_TEST_TMPDIR}/repo"
+mkdir -p "${_root}/test/bats/unit" "${_root}/test/bats/integration"
+for _n in a b c d e f; do
+  printf '@test "%s" { :; }\n' "${_n}" \
+    > "${_root}/test/bats/unit/${_n}_spec.bats"
+done
+_wf="${BATS_TEST_TMPDIR}/seconds.tsv"
+printf '%s\n' "10 a_spec.bats" "9 b_spec.bats" "8 c_spec.bats" \
+              "7 d_spec.bats" "6 e_spec.bats" "5 f_spec.bats" > "${_wf}"
+
+# One shard per PROCESS, each reading the weight source it was handed --
+# the independent per-shard cache lookups, in miniature.
+_i=0
+for _src in ${SHARD_SOURCES}; do
+  _i=$(( _i + 1 ))
+  _use="${BATS_TEST_TMPDIR}/no-such-weights"
+  [[ "${_src}" == w ]] && _use="${_wf}"
+  env REPO_ROOT="${_root}" SHARD_WEIGHTS_FILE="${_use}" bash -c '
+      _die() { echo "DIE: $*"; exit 1; }
+      source /source/script/test/drivers/bats.sh
+      _shard_unit_files "${1}"
+    ' _ "${_i}/3" \
+    | sed 's|.*/|1 |' > "${BATS_TEST_TMPDIR}/timings-${_i}.tsv"
+  printf 'shard %s (%s): %s\n' "${_i}" "${_src}" \
+    "$(tr '\n' ' ' < "${BATS_TEST_TMPDIR}/timings-${_i}.tsv")"
+done
+
+# The coverage-gate job's own merge, over the per-shard manifests.
+bash /source/script/test/drivers/coverage_gate.sh --merge-timings \
+  "${BATS_TEST_TMPDIR}/merged.tsv" "${BATS_TEST_TMPDIR}"/timings-*.tsv
+
+source /source/script/test/test.sh
+echo "GAP:"
+_coverage_union_gap "${BATS_TEST_TMPDIR}/merged.tsv" "${_root}" || true
+echo "END"
+PROGRAM
+}
+
+# why: The load-bearing case, and the observable base#1114 measured on the
+# real tree: two weight sources across shard processes leave specs in NO
+# shard, every slice still non-empty, and this is the only check that can
+# say which specs went unrun.
+@test "_coverage_union_gap: names the specs no shard ran when the shards disagree about the weights (#1114)" {
+  SHARD_SOURCES="w w -" run bash -c "$(_divergent_union_program)"
+  assert_success
+  # Shard 3 read the counts and took {c,f}; shards 1-2 read the seconds
+  # and left d to the shard 3 that only a seconds-weighted partition has.
+  assert_output --partial "GAP:
+d_spec.bats
+END"
+}
+
+# why: The control that makes the case above mean something. Same fixture,
+# same six specs, same partitioner -- one weight source, and the union is
+# the whole pool. Without it, a detector that always reported a gap would
+# pass the case above.
+@test "_coverage_union_gap: one weight source across every shard leaves no spec behind (#1114)" {
+  SHARD_SOURCES="w w w" run bash -c "$(_divergent_union_program)"
+  assert_success
+  assert_output --partial "GAP:
+END"
+}
+
+# why: The @test-count fallback is a weight SOURCE, not the absence of
+# one: shards that ALL miss the cache still partition the pool. Without
+# this case a green gate could be read as "the weights were there" rather
+# than "the weights agreed", and the fix would look like a cache-hit
+# problem instead of a consistency one.
+@test "_coverage_union_gap: a cache miss on every shard is still one source, so still a partition (#1114)" {
+  SHARD_SOURCES="- - -" run bash -c "$(_divergent_union_program)"
+  assert_success
+  assert_output --partial "GAP:
+END"
+}
+
+# why: No evidence must not read as a clean bill of health. An unreadable
+# manifest, a missing one, and an inventory that enumerated nothing would
+# each make a gap of zero mean nothing -- which is how this gate goes
+# vacuous while still printing a pass.
+@test "_coverage_union_gap: refuses rather than reporting an empty gap when there is nothing to compare (#1114)" {
+  run bash -c '
+    source /source/script/test/test.sh
+    _root="${BATS_TEST_TMPDIR}/repo"
+    mkdir -p "${_root}/test/bats/unit"
+    printf "@test \"a\" { :; }\n" > "${_root}/test/bats/unit/a_spec.bats"
+    : > "${BATS_TEST_TMPDIR}/empty.tsv"
+    printf "%s\n" "1 a_spec.bats" > "${BATS_TEST_TMPDIR}/full.tsv"
+    _coverage_union_gap "${BATS_TEST_TMPDIR}/empty.tsv" "${_root}" \
+      && { echo "EMPTY-MANIFEST-ACCEPTED"; exit 1; }
+    _coverage_union_gap "${BATS_TEST_TMPDIR}/missing.tsv" "${_root}" \
+      && { echo "MISSING-MANIFEST-ACCEPTED"; exit 1; }
+    _coverage_union_gap "${BATS_TEST_TMPDIR}/full.tsv" \
+      "${BATS_TEST_TMPDIR}/nowhere" \
+      && { echo "NO-INVENTORY-ACCEPTED"; exit 1; }
+    echo OK
+  '
+  assert_success
+  assert_output --partial "OK"
+}
+
+# why: The entry point the coverage-gate job runs. The function answers
+# with data; this turns a gap into a non-zero exit that NAMES the specs,
+# which is the whole of what a red CI job has to tell its reader.
+@test "main --coverage-union-check: refuses, naming the specs no shard ran (#1114)" {
+  run bash -c '
+    source /source/script/test/test.sh
+    _coverage_spec_inventory "${REPO_ROOT}" \
+      | sed "1d" | sed "s/^/1 /" > "${BATS_TEST_TMPDIR}/short.tsv"
+    _coverage_spec_inventory "${REPO_ROOT}" | sed -n "1p"
+  '
+  assert_success
+  local _dropped="${output}"
+  [ -n "${_dropped}" ]
+
+  run bash /source/script/test/test.sh \
+    --coverage-union-check "${BATS_TEST_TMPDIR}/short.tsv"
+  assert_failure
+  assert_output --partial "${_dropped}"
+}
+
+# why: The pass direction of the same entry point, over the live
+# inventory. A manifest naming every spec is what a healthy coverage
+# matrix produces, so refusing it would make the gate unshippable -- and
+# it is the half that proves the refusal above is about the gap and not
+# about the flag.
+@test "main --coverage-union-check: accepts a manifest naming every spec in the inventory (#1114)" {
+  run bash -c '
+    source /source/script/test/test.sh
+    _coverage_spec_inventory "${REPO_ROOT}" | sed "s/^/1 /" \
+      > "${BATS_TEST_TMPDIR}/whole.tsv"
+  '
+  assert_success
+
+  run bash /source/script/test/test.sh \
+    --coverage-union-check "${BATS_TEST_TMPDIR}/whole.tsv"
+  assert_success
+  assert_output --partial "exhaustive"
+}
+
 @test "_shard_unit_files: integration specs are partitioned into the pool, not pinned to one shard (#724)" {
   # Previously ALL integration specs ran on the last shard (count-era). They
   # are now folded into the time-balanced pool so an integration spec lands
