@@ -5823,7 +5823,7 @@ duplicate-target guards, and S7 `runtime.env` retirement (#507).
 | `the harness has no compose image name to displace a sibling checkout's (#891)` | - |
 | `runtime-test ships no specs, which is why the harness covers devel-test only` | - |
 
-### test/bats/unit/smoke_helper_spec.bats (33)
+### test/bats/unit/smoke_helper_spec.bats (40)
 
 Exercises the runtime assertion helpers shipped in
 `dist/test/bats/smoke/shared/test_helper.bash` (used by downstream-repo
@@ -5864,6 +5864,13 @@ smoke specs via `load "${BATS_TEST_DIRNAME}/test_helper"`).
 | `entrypoint_is_single_file: a commented exec is not an exec` | The seeded bringup template TALKS about the exec it must not have, and a repo that migrated by commenting the line out has migrated. A substring match on `exec` reads both as the old model and would skip the assertion on every correctly migrated repo -- the same code-versus-comment distinction dockerfile_migrate.sh's notice makes |
 | `entrypoint_is_single_file: false when the path does not exist` | An image with no bringup at all is not on the old model, so the orchestrator assertion must still run there. Answering true on a missing path would silently exempt exactly the image most likely to be missing the orchestrator too |
 | `entrypoint_is_single_file: errors when the path arg is missing` | The caller-error case, separated from the honest false above: a no-argument call must say so rather than answer "not the old model", which is the answer that turns a typo in a spec into a silent skip |
+| `reproducibility_manifest_state: one half present reads as adopted` | One half present is enough to put every assertion about the record in scope -- including the one about the half that is missing, which is the "adopted and broken" case the spec must not skip past |
+| `reproducibility_manifest_state: a writing Dockerfile over no manifest is missing, not unported` | The regression the old precondition could not see. The Dockerfile that built the image WRITES the manifest and the image has neither file, so the record was adopted and is gone -- and that is a failure, not a skip |
+| `reproducibility_manifest_state: a Dockerfile that writes nothing is unported` | The case the skip exists for, and the one that must survive: a repo whose Dockerfile does not write the record never claimed to keep it, and failing there turns an upgrade into a broken build |
+| `reproducibility_manifest_state: the paths named in a comment are not a write` | The narrowing that keeps the skip honest. The shipped template NAMES these paths in prose -- its header documents them and its optional runtime-test block is a commented-out stage that writes them -- so a repo carrying only that prose must still read as unported, or the upgrade that delivered the prose becomes the build that breaks |
+| `reproducibility_manifest_state: naming a path without redirecting into it is not a write` | Reading one of the paths is not writing it. A stage that copies the record out, or diffs it, has not adopted anything, and a match that ignored the redirection would read it as having |
+| `reproducibility_manifest_state: no Dockerfile in the image is unknowable` | The state nothing in the image can answer -- no manifest and no Dockerfile to ask -- is named rather than folded into one of the answers, so the caller can say that is why it skipped |
+| `reproducibility_manifest_state: errors when an argument is missing` | The caller-error case, separated from the honest answers above: a missing argument must say so rather than resolve to a verdict |
 
 ### test/bats/unit/smoke_migrate_spec.bats (17)
 

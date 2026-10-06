@@ -349,3 +349,103 @@ _WRAPPER_UNDER_TEST=/source/dist/script/docker/wrapper/run.sh
   assert_failure
   assert_output --partial "missing path"
 }
+
+# ════════════════════════════════════════════════════════════════════
+# reproducibility_manifest_state
+#
+# The adoption question smoke/shared/reproducibility.bats gates on. It used
+# to be answered by the absence of that spec's own subject, which made "this
+# repo has not ported the record yet" and "this repo ported it and has lost
+# it" one state -- so the second one, the live regression, reported four
+# green skips and a zero exit. The question is answered by the consumer's
+# own Dockerfile now, and these cases are the four answers.
+# ════════════════════════════════════════════════════════════════════
+
+# _seed_dockerfile <body> -- a Dockerfile fixture, path printed.
+_seed_dockerfile() {
+  printf '%s\n' "${1}" > "${TEMP_DIR}/Dockerfile"
+  printf '%s\n' "${TEMP_DIR}/Dockerfile"
+}
+
+# why: One half present is enough to put every assertion about the record in
+# scope -- including the one about the half that is missing, which is the
+# "adopted and broken" case the spec must not skip past
+@test "reproducibility_manifest_state: one half present reads as adopted" {
+  : > "${TEMP_DIR}/base-image.env"
+  run reproducibility_manifest_state \
+    "${TEMP_DIR}/base-image.env" "${TEMP_DIR}/packages.txt" \
+    "$(_seed_dockerfile 'FROM scratch')"
+  assert_success
+  assert_output "adopted"
+}
+
+# why: The regression the old precondition could not see. The Dockerfile that
+# built the image WRITES the manifest and the image has neither file, so the
+# record was adopted and is gone -- and that is a failure, not a skip
+@test "reproducibility_manifest_state: a writing Dockerfile over no manifest is missing, not unported" {
+  local _df
+  _df="$(_seed_dockerfile 'RUN mkdir -p /usr/local/share/base && \
+    { echo "base_image_ref=${BASE_IMAGE}"; } > '"${TEMP_DIR}"'/base-image.env && \
+    dpkg-query -W > '"${TEMP_DIR}"'/packages.txt')"
+  run reproducibility_manifest_state \
+    "${TEMP_DIR}/base-image.env" "${TEMP_DIR}/packages.txt" "${_df}"
+  assert_success
+  assert_output "missing"
+}
+
+# why: The case the skip exists for, and the one that must survive: a repo
+# whose Dockerfile does not write the record never claimed to keep it, and
+# failing there turns an upgrade into a broken build
+@test "reproducibility_manifest_state: a Dockerfile that writes nothing is unported" {
+  run reproducibility_manifest_state \
+    "${TEMP_DIR}/base-image.env" "${TEMP_DIR}/packages.txt" \
+    "$(_seed_dockerfile 'FROM ubuntu:24.04
+RUN apt-get update')"
+  assert_success
+  assert_output "unported"
+}
+
+# why: The narrowing that keeps the skip honest. The shipped template NAMES
+# these paths in prose -- its header documents them and its optional
+# runtime-test block is a commented-out stage that writes them -- so a repo
+# carrying only that prose must still read as unported, or the upgrade that
+# delivered the prose becomes the build that breaks
+@test "reproducibility_manifest_state: the paths named in a comment are not a write" {
+  run reproducibility_manifest_state \
+    "${TEMP_DIR}/base-image.env" "${TEMP_DIR}/packages.txt" \
+    "$(_seed_dockerfile 'FROM ubuntu:24.04
+#     dpkg-query -W > '"${TEMP_DIR}"'/packages.txt
+#   } > '"${TEMP_DIR}"'/base-image.env && \')"
+  assert_success
+  assert_output "unported"
+}
+
+# why: Reading one of the paths is not writing it. A stage that copies the
+# record out, or diffs it, has not adopted anything, and a match that
+# ignored the redirection would read it as having
+@test "reproducibility_manifest_state: naming a path without redirecting into it is not a write" {
+  run reproducibility_manifest_state \
+    "${TEMP_DIR}/base-image.env" "${TEMP_DIR}/packages.txt" \
+    "$(_seed_dockerfile 'RUN cat '"${TEMP_DIR}"'/base-image.env > /dev/null')"
+  assert_success
+  assert_output "unported"
+}
+
+# why: The state nothing in the image can answer -- no manifest and no
+# Dockerfile to ask -- is named rather than folded into one of the answers,
+# so the caller can say that is why it skipped
+@test "reproducibility_manifest_state: no Dockerfile in the image is unknowable" {
+  run reproducibility_manifest_state \
+    "${TEMP_DIR}/base-image.env" "${TEMP_DIR}/packages.txt" \
+    "${TEMP_DIR}/no_such_Dockerfile"
+  assert_success
+  assert_output "unknowable"
+}
+
+# why: The caller-error case, separated from the honest answers above: a
+# missing argument must say so rather than resolve to a verdict
+@test "reproducibility_manifest_state: errors when an argument is missing" {
+  run reproducibility_manifest_state "${TEMP_DIR}/base-image.env"
+  assert_failure
+  assert_output --partial "missing pkgs path"
+}

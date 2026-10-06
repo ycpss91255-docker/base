@@ -55,6 +55,81 @@ assert_cmd_runs() {
   fi
 }
 
+# ── The reproducibility manifest's adoption state ───────────────────────────
+
+# reproducibility_manifest_state <env-path> <pkgs-path> <dockerfile-path>
+#
+# Print one word saying whether the image under test is supposed to carry
+# the reproducibility manifest, so a spec over that manifest can tell "this
+# repo has not ported the record yet" from "this repo ported it and the
+# record is gone". Those two look identical from the manifest's own absence,
+# which is why the absence is not what decides.
+#
+#   adopted     at least one half of the manifest is present, so every
+#               assertion about the record is in scope -- including one
+#               about the half that is missing.
+#   missing     neither half is present, and the Dockerfile that BUILT this
+#               image writes them. The record was adopted and has been lost.
+#   unported    neither half is present, and that Dockerfile does not write
+#               them. The repo never claimed to keep the record.
+#   unknowable  neither half is present and there is no Dockerfile in the
+#               image to ask.
+#
+# WHY THE DOCKERFILE DECIDES. The manifest is written by the consumer's own
+# hand-edited Dockerfile, while this helper and the spec that calls it
+# arrive through `.base/dist/`, which `just upgrade` refreshes. So the spec
+# is always current and the Dockerfile is the thing that lags -- and the
+# question "is this record expected here?" is a question about that
+# Dockerfile, not about the files the spec came to read. The shipped
+# devel-test stage puts it at `/lint/Dockerfile` for its hadolint run, and
+# that copy is what gets asked.
+#
+# COMMENT LINES ARE DROPPED, and only a REDIRECTION INTO one of the paths
+# counts. Both narrowings exist for the same reason: the shipped template
+# names these paths in prose -- its header documents them, and its optional
+# runtime-test block is a commented-out copy of a stage that writes them --
+# so a consumer carrying that prose and nothing else would be read as
+# having adopted the record, and an upgrade would become a broken build
+# over a record the repo never kept. That is the outcome the skip exists to
+# prevent, and widening the match would reintroduce it.
+#
+# The residual cost is stated rather than hidden: a repo that puts the
+# record there by some other route -- a `COPY --from=` out of a builder
+# stage, a script the Dockerfile runs -- is read as `unported` and gets the
+# same skip it gets today. That is no worse than the behaviour this
+# replaces, and it is the direction the error has to fall.
+#
+# Usage: reproducibility_manifest_state <env-path> <pkgs-path> <dockerfile-path>
+reproducibility_manifest_state() {
+  local _env="${1:?reproducibility_manifest_state: missing env path}"
+  local _pkgs="${2:?reproducibility_manifest_state: missing pkgs path}"
+  local _dockerfile="${3:?reproducibility_manifest_state: missing dockerfile path}"
+
+  if [[ -e "${_env}" || -e "${_pkgs}" ]]; then
+    printf 'adopted\n'
+    return 0
+  fi
+  if [[ ! -f "${_dockerfile}" ]]; then
+    printf 'unknowable\n'
+    return 0
+  fi
+  if awk -v env_path="${_env}" -v pkgs_path="${_pkgs}" '
+        /^[[:space:]]*#/ { next }
+        {
+          line = $0
+          sub(/^[^>]*/, "", line)
+          if (line == "") { next }
+          if (index(line, env_path) || index(line, pkgs_path)) { found = 1; exit }
+        }
+        END { exit (found ? 0 : 1) }
+      ' "${_dockerfile}"; then
+    printf 'missing\n'
+  else
+    printf 'unported\n'
+  fi
+  return 0
+}
+
 # Fail the test unless <path> exists and is a regular file.
 #
 # Usage: assert_file_exists <path>

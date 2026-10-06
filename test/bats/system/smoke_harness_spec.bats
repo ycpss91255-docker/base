@@ -153,10 +153,13 @@ teardown() {
   # ... and no spec may have SKIPPED. A plan counts specs that ran, not
   # specs that asserted: with the manifest RUN deleted from the harness,
   # smoke/shared/reproducibility.bats hits its own
-  # `_skip_unless_manifest_adopted` guard and this build still exits 0
+  # `_require_manifest_adopted` guard and this build still exits 0
   # printing `1..N` with three `ok N # skip` -- a green case over a run
-  # that observed nothing. Every shipped spec is meant to run HERE; a spec
-  # that legitimately cannot must be given a home, not skipped past.
+  # that observed nothing. That guard asks the consumer's Dockerfile at
+  # /lint/Dockerfile, which the harness does not carry, so its answer here
+  # is `unknowable` and it skips: this refusal is the tier that covers that
+  # one state. Every shipped spec is meant to run HERE; a spec that
+  # legitimately cannot must be given a home, not skipped past.
   ! echo "${output}" | grep -q '# skip'
 }
 
