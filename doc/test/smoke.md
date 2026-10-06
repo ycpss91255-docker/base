@@ -227,15 +227,20 @@ when the runtime split is enabled) writes: `base-image.env` and
 the template as TEXT, which cannot see the failure this file exists for — a
 manifest written from a stage where `${BASE_IMAGE}` expanded to the empty
 string, so the file lands with an empty record and every static grep stays
-green. Skips (rather than fails) when NEITHER file is present: this spec
-reaches a consumer through `.base/dist/`, which `just upgrade` refreshes,
-while the Dockerfile that writes the manifest is the consumer's own and
-hand-edited. The upgrade can rewrite that file — `init.sh` and `upgrade.sh`
-both run `apply_migrations` — but no migration was written for this record,
-because it splices into the middle of the sys stage's continued `RUN` chain
-rather than onto an anchorable whole line, so the port is by hand. A repo
-that writes one file and not the other, or writes an empty record, has
-adopted the manifest and broken it, and fails.
+green. Skips (rather than fails) when the repo has not ported the record
+yet: this spec reaches a consumer through `.base/dist/`, which `just
+upgrade` refreshes, while the Dockerfile that writes the manifest is the
+consumer's own and hand-edited. The upgrade can rewrite that file —
+`init.sh` and `upgrade.sh` both run `apply_migrations` — but no migration
+was written for this record, because it splices into the middle of the sys
+stage's continued `RUN` chain rather than onto an anchorable whole line, so
+the port is by hand. What decides that is the IMAGE, not the absence of the
+files this spec came to read: the record's own directory
+`/usr/local/share/base` is created by the instruction that writes them, so
+the directory standing there with neither file in it is a record that was
+adopted and lost, and it FAILS. A repo that writes one file and not the
+other, or writes an empty record, has adopted the manifest and broken it,
+and fails too.
 
 | Test | Description |
 |------|-------------|

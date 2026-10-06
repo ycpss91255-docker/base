@@ -27,7 +27,7 @@ stage -- is test/bats/unit/apk_mirror_spec.bats'.
 
 | Test | Description |
 |------|-------------|
-| `compose.yaml: with APK_MIRROR unset the tooling build receives no mirror arg (#1008)` | Unset has to mean "the Dockerfile's default", not "an empty override the Dockerfile then has to defend itself against". This is the case every machine that can reach dl-cdn is in, so an unconditional forward would put an empty `--build-arg` in front of the image's own default everywhere and be noticed nowhere. |
+| `compose.yaml: with APK_MIRROR unset the tooling build receives no mirror arg (#1008)` | Unset has to mean "the Dockerfile's default", not "an empty override the Dockerfile then has to defend itself against". This is the case every machine that can reach dl-cdn is in, so an unconditional forward would put an empty `--build-arg` in front of the image's own default everywhere and be noticed nowhere -- and the refutation is preceded by the bare `build.args` declaration that keeps it from being satisfied by a service that forwards the arg in no state at all. |
 | `compose.yaml: the caller's APK_MIRROR reaches the tooling build (#1008)` | The other direction, and what makes the case above non-vacuous: a `build.args` entry deleted outright would also forward nothing when unset. Both halves together are what says the bare `- APK_MIRROR` form is doing its job -- override through, nothing through otherwise. |
 
 ### test/bats/integration/ci_preflight_contract_spec.bats (6)

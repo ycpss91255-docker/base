@@ -136,6 +136,29 @@ _alpine_bases_off_the_arg() {
   ' "${DOCKERFILE}"
 }
 
+# _files_naming_upstream <file>... -- the files that spell the upstream CDN
+# host on a CODE line, one path per line, input order preserved.
+#
+# Comment lines are dropped, the same `/^[[:space:]]*#/` reading the
+# helpers below use and for the same reason: both files discuss the host in
+# prose far more often than they name it as a value, and this file's own
+# subject is a Dockerfile whose header explains the hazard by naming it. A
+# match in prose is not a declaration.
+_files_naming_upstream() {
+  local _f
+  for _f in "$@"; do
+    awk -v want="${UPSTREAM_CDN}" '
+      /^[[:space:]]*#/ { next }
+      index($0, want) { found = 1; exit }
+      END { exit (found ? 0 : 1) }
+    ' "${_f}" && printf '%s\n' "${_f}"
+  done
+  # An empty set is an answer, not an error: the caller compares the set
+  # and says what the emptiness means. Returning awk's status instead would
+  # abort the caller before it could.
+  return 0
+}
+
 # _stages_off_the_mirror <stage> -- every stage that runs `apk add`
 # without being FROM <stage>. Comment lines are skipped: this file
 # discusses `apk add` in prose more often than it runs it, and prose is
@@ -204,16 +227,36 @@ _stages_off_the_mirror() {
 # `${APK_MIRROR:-dl-cdn.alpinelinux.org}` in compose.yaml would move the
 # upstream host's declaration into a file the Dockerfile cannot see, so
 # the Dockerfile could no longer change it -- the failure the APT_MIRROR_*
-# pair already has in the emitted downstream compose.
+# pair already has in the emitted downstream compose. "Once" is a count
+# over a SET of files, so the set is derived from the build and compared by
+# equality: a refutation on compose alone was satisfied by the whole knob
+# being gone, which is the defect base#1090 is about. Measured on 1c9ccb2,
+# with `ARG APK_MIRROR` and its RUN deleted from the Dockerfile and the
+# `build.args` entry deleted from compose: six of the seven cases here went
+# red and this one reported ok, because a file that declares nothing names
+# no mirror either.
 @test "APK_MIRROR: the build path names no alpine mirror of its own (#1008)" {
-  # The default lives in the Dockerfile and nowhere else. A
-  # `\${APK_MIRROR:-dl-cdn.alpinelinux.org}` in compose would be a second
-  # declaration of the upstream host that the Dockerfile could no longer
-  # move -- the failure the APT_MIRROR_* pair already has in the emitted
-  # downstream compose, and not one to repeat here.
-  run grep -n "${UPSTREAM_CDN}" "${COMPOSE}"
-  assert_failure
-  [ "${status}" -eq 1 ] || fail "grep errored (${status}), it did not merely fail to match"
+  # The build path, derived rather than listed: compose is what decides
+  # which Dockerfile builds the tooling image, so the path is read out of
+  # it. A spec that spelled the path itself would go on asserting over a
+  # file the build had stopped using.
+  local _declared
+  _declared="$(yq -r '.services."test-tools".build.dockerfile // ""' "${COMPOSE}")"
+  [ -n "${_declared}" ] \
+    || fail "compose.yaml names no build.dockerfile for the test-tools service, so the build path cannot be derived and nothing below is scoped to the real build"
+  assert_equal "/source/${_declared}" "${DOCKERFILE}"
+
+  # Exactly ONE file of that path spells the upstream host on a code line,
+  # and it is the Dockerfile. Set equality, so it fails in both
+  # directions: compose gaining a `${APK_MIRROR:-dl-cdn.alpinelinux.org}`
+  # is a second declaration the Dockerfile could no longer move -- the
+  # failure the APT_MIRROR_* pair already has in the emitted downstream
+  # compose -- and the Dockerfile losing its own is the knob disappearing,
+  # which a bare refutation reads as a pass.
+  local _naming
+  _naming="$(_files_naming_upstream "${COMPOSE}" "${DOCKERFILE}")"
+  [ "${_naming}" = "${DOCKERFILE}" ] \
+    || fail "the files of the tooling build path that name ${UPSTREAM_CDN} on a code line are '${_naming}'; exactly one may, and it is ${DOCKERFILE} -- an empty set means the knob is gone, and a second file means the upstream host has a declaration the Dockerfile can no longer move"
 }
 
 # ════════════════════════════════════════════════════════════════════

@@ -139,8 +139,8 @@ a refusal as "do not release".
 | `_run_action_ref_agreement: PASSES when every call site agrees (#949)` | The fixed state is green |
 | `_run_action_ref_agreement: FAILS when two entry points of ONE action repo disagree (#949)` | A ref is a tag on the repo, so the sub-path is dropped |
 | `_run_action_ref_agreement: reads the block uses: form, not only the compact one (#949)` | Both step spellings are call sites |
-| `_run_action_ref_agreement: ignores a local ./ call, which carries no ref (#949)` | The callee is this tree, at this commit |
-| `_run_action_ref_agreement: ignores a commented-out uses line (#949)` | A comment is not a call site |
+| `_run_action_ref_agreement: ignores a local ./ call, which carries no ref (#949)` | The callee is this tree, at this commit. The clean REPORT is read, not just the exit status: "passes" is also what a lint that compares nothing says, so the counts are what distinguish ignoring the local call from ignoring the tree (base#1090) |
+| `_run_action_ref_agreement: ignores a commented-out uses line (#949)` | A comment is not a call site. The clean REPORT is read, not just the exit status: a lint that compared nothing would also exit 0 over this fixture, so the count is what says the live line was read and the commented one was not (base#1090) |
 | `_run_action_ref_agreement: strips a trailing comment, so an annotated sha pin still compares (#949)` | Otherwise every annotated pin is its own version |
 | `_run_action_ref_agreement: FAILS when a sha pin and a tag name the same action (#949)` | Two ways of saying which code runs still disagree |
 | `_run_action_ref_agreement: an allow marker carrying a reason excludes that call site (#949)` | A hold-back is recorded where it happens |
@@ -158,8 +158,8 @@ a refusal as "do not release".
 
 | Test | Description |
 |------|-------------|
-| `doc/adr: every record's workflow and quotation claims hold against the tree (#927)` | - |
-| `doc/adr: the scan is not vacuous -- ADR-00000027 is read and holds blocks (#927)` | - |
+| `doc/adr: every record's workflow and quotation claims hold against the tree (#927)` | The gate over the live records. Its population is the tree's own `doc/adr/*.md` and it is refused when empty: a scan of no records reports every record clean, which is the shape base#1090 names. The directory is a tracked subject, so its absence is a rename nobody noticed, not a pass |
+| `doc/adr: the scan is not vacuous -- the rules examine claims this tree makes (#927)` | The non-vacuity half, derived. "The checker read something" is not answered by a violation count -- zero violations is also what reading nothing produces -- so the claims the rules EXAMINED are recorded as they are examined, and this case holds that set non-empty. It used to name one ADR by filename, which made the whole non-vacuity claim a property of `00000027-release-cadence-and-fanout-trigger.md` rather than of the tree |
 | `release-worker.yaml is workflow_call-only, so no base tag reaches it (#927)` | - |
 | `self-test.yaml IS tag-triggered, so it is what a base tag runs (#927)` | - |
 | `R1: FAILS a tag claim that names a workflow with no tag trigger (#927)` | - |
@@ -277,7 +277,7 @@ arg. The forwarding half is test/bats/integration/apk_mirror_spec.bats'.
 |------|-------------|
 | `APK_MIRROR: declared exactly once, defaulting to the upstream CDN (#1008)` | The upstream host is declared in exactly ONE place, so nothing else has to be kept in agreement with it. A second ARG, or a default spelled elsewhere, is how the two start disagreeing silently -- and the default has to BE the CDN, or a machine that named no mirror gets one. |
 | `APK_MIRROR: the mirror stage's alpine is the pinned ARG, and so is every other (#1008)` | The tree's ONLY tie between a tooling stage's alpine and ARG ALPINE_VERSION, after template_spec's kcov-builder assertion had to give it up (that stage is `FROM alpine-apk` now). Nothing else in the gate catches a divergent one: hadolint refuses `:latest` but not a `FROM alpine:3.20` sitting next to `ARG ALPINE_VERSION=3.21`, which builds green and ships tooling on a release the file does not declare. |
-| `APK_MIRROR: the build path names no alpine mirror of its own (#1008)` | What keeps "declared once" true across FILES. A `${APK_MIRROR:-dl-cdn.alpinelinux.org}` in compose.yaml would move the upstream host's declaration into a file the Dockerfile cannot see, so the Dockerfile could no longer change it -- the failure the APT_MIRROR_* pair already has in the emitted downstream compose. |
+| `APK_MIRROR: the build path names no alpine mirror of its own (#1008)` | What keeps "declared once" true across FILES. A `${APK_MIRROR:-dl-cdn.alpinelinux.org}` in compose.yaml would move the upstream host's declaration into a file the Dockerfile cannot see, so the Dockerfile could no longer change it -- the failure the APT_MIRROR_* pair already has in the emitted downstream compose. "Once" is a count over a SET of files, so the set is derived from the build and compared by equality: a refutation on compose alone was satisfied by the whole knob being gone, which is the defect base#1090 is about. Measured on 1c9ccb2, with `ARG APK_MIRROR` and its RUN deleted from the Dockerfile and the `build.args` entry deleted from compose: six of the seven cases here went red and this one reported ok, because a file that declares nothing names no mirror either. |
 | `APK_MIRROR: at the default the repositories file is not touched at all (#1008)` | The load-bearing case, and the one a byte comparison cannot make. Dropping the guard leaves a sed that replaces the host with ITSELF -- the exact rule the guard prevents -- and its output is byte-identical, so bytes green-light it. Identity (inode, mtime) is what says the rewrite never ran, and that is what buys reach: a mistake in the rule can then only be reached by a caller who asked for a mirror. |
 | `APK_MIRROR: an override repoints every repository line (#1008)` | EVERY line moves, not just the first. The seed file carries two repositories because that is the shape alpine ships, and a rule that stops after `main` leaves `community` pointing at the host the caller cannot reach -- a build that then dies halfway through, on the mirror that was supposed to have fixed it. |
 | `APK_MIRROR: an empty override is refused by name, not turned into an empty host (#1008)` | An empty value is the one input that would REPRODUCE the bug this knob removes: rewriting the host to nothing hands back the same misleading `no such package`, now with a mirror set, which is the worst place to leave the reader. Refusing it by name is what separates a caller mistake from the original defect. |
@@ -1151,7 +1151,7 @@ between them can be asserted at all.
 | `lint groups: every grouped lint lands in exactly one group, at any group count (base#1071)` | The property the whole shape rests on. A grouped CI job is only as trustworthy as "every lint is in exactly one group": a lint in no group runs nowhere and gates nothing while CI stays green, and a lint in two groups pays for itself twice. It is asserted at SEVERAL totals, not at the one the workflow happens to use, because the partition is arithmetic over the table's positions -- a total that divides the table evenly and one that does not are different cases, and the workflow's count is free to change. |
 | `lint groups: a lint added to the table lands in a group with nothing else edited (base#1071)` | The half a test over today's table cannot reach. The roster this replaces was not wrong when it was written -- it was wrong on the day the NEXT driver was added, and the tree at that moment is not the tree this suite reads. So the addition is performed: a driver the table does not carry is appended to a copy of it, and the partition of that copy must place it, with no workflow and no group list edited. A partition that could only place the names it already knew would pass every other test in this file. |
 | `lint groups: every lint excluded from the groups is a lint of the table (base#1071)` | The exclusion list is the one hand-written thing left, so it is held to the only rule that matters: a name is excluded from the groups BECAUSE it has a job of its own. A name in it that the table does not carry excludes nothing and is a typo that reads as a decision -- and the lint it meant to name keeps running in a group, so nothing else notices. |
-| `lint groups: a group spec that is not <n>/<total> in range is refused (base#1071)` | A group spec the dispatcher cannot read must not resolve to an empty group. Every refusal here is a way a CI job could run zero drivers and report success, which is the same green-while-gating-nothing failure the grouping itself is built to avoid -- so the spec is validated rather than trusted, and an index outside its own total is refused with the malformed ones. |
+| `lint groups: a group spec that is not <n>/<total> in range is refused (base#1071)` | A group spec the dispatcher cannot read must not resolve to an empty group. Every refusal here is a way a CI job could run zero drivers and report success, which is the same green-while-gating-nothing failure the grouping itself is built to avoid -- so the spec is validated rather than trusted, an index outside its own total is refused with the malformed ones, and each refusal is framed by the positive that keeps it from being satisfied by the option not existing. |
 | `lint groups: running a group with no lints in it is refused (base#1071)` | The other empty group, and the one arithmetic produces on its own: more groups than there are lints leaves the tail groups with nothing to run. Listing nothing is a fair answer to a question about membership; RUNNING nothing and exiting 0 is a job that gates nothing while its check goes green, so the runner refuses what the lister may print. |
 | `lint groups: a malformed spec is refused for BEING malformed, not for being empty (base#1071)` | A refusal has to name what it refused for, and this one did not. `--lint-group` reads the membership through a process substitution, so a `_die` inside the lister kills the SUBSHELL only: the runner saw an empty list and blamed the empty group, reporting "contains no lint" for a spec that never parsed. The wrong reason is the visible half. The invisible half is worse -- the runner was treating the lister's OUTPUT as its verdict, so a lister that ever printed one member before dying would hand back a truncated group and run it to a green exit. So the runner validates the spec in its OWN shell, and the lister's refusal is a backstop it no longer depends on. |
 | `lint groups: a zero-padded spec is read as decimal, not as octal (base#1071)` | The one shape the digits-only regex accepts and bash arithmetic rejects. `1/08` is a well-formed spec by every rule stated above and an INVALID OCTAL CONSTANT to `(( ))`, so the range checks printed a raw "value too great for base" from the shell itself and then refused for a reason that was not the reason -- a padded index reported as "outside its own total", a padded total as "asks for 08 groups". A spec is read in the base it is written in, and a padded one names the same group as its bare twin. |
@@ -1847,7 +1847,7 @@ root. Both are base#1032.
 | `the refusal that blocks the next run names the repair (base#1032)` | the refusal the operator actually meets is the one that must name the cure |
 | `just test clean: a checkout with no coverage/ succeeds and starts nothing (base#1032)` | the ordinary case -- nothing to clean must not cost a container |
 | `just test clean: the removal is done by the container over the mount (base#1032)` | the whole point -- the reclaim happens where root is, not on the host |
-| `just test clean: no host-side rm decides the outcome (base#1032)` | the failure this closes is a host rm that cannot unlink root's files |
+| `just test clean: no host-side rm decides the outcome (base#1032)` | the failure this closes is a host rm that cannot unlink root's files, read together with the two positives that keep the survival from being satisfied by there being no clean at all |
 | `just test clean: a coverage/ still standing afterwards is a loud failure (base#1032)` | a clean that half-works recreates the stuck state one run later |
 | `just test clean: the target the container is given cannot be redirected (base#1032)` | `rm -rf` as root inside a mounted checkout must have no reachable variable |
 | `just test clean: /source is the checkout's mount point in the service it drives (base#1032)` | the literal is only right while /source is where the checkout is mounted |
@@ -4754,7 +4754,7 @@ the ldd-skip + accumulate-all behaviour (#692).
 | `smoke.sh: documented behaviour -- a .so whose ldd exits non-zero is skipped (#692)` | ldd-fail skip |
 | `smoke.sh: accumulates _exit=1 and reports every bad .so (#692)` | Accumulate-all reporting |
 
-### test/bats/unit/schema_coverage_spec.bats (11)
+### test/bats/unit/schema_coverage_spec.bats (12)
 
 Registry drift guards (#562, schema epic #559 phase 3): the registry must
 stay internally consistent and in sync with the `setup.conf` template, so
@@ -4773,6 +4773,7 @@ translation in any locale fails CI.
 | `every SCHEMA_VALIDATOR key has a SCHEMA_I18N index entry (#591)` | i18n-index is complete (#591) |
 | `every SCHEMA_I18N key is a registered SCHEMA_VALIDATOR key (#591)` | no orphan index rows (#591) |
 | `every SCHEMA_I18N message key exists in all four locale tables (#591)` | no missing translation in any locale (#591) |
+| `every _TUI_MSG_EN key exists in all three translated tables (#591)` | The parity population is _TUI_MSG_EN, the table that DECIDES which messages exist, rather than the schema index which only knows the 31 messages a registered key points at. An English-only key added to the EN table now fails here instead of reporting nothing |
 | `_schema_i18n_key resolves scalar + list keys, falls back when free-form (#591)` | accessor the TUI routes through (#591) |
 | `every shipped setup.conf key is registered or an explicit free-form opt-out (#876)` | - |
 | `every SCHEMA_FREEFORM entry carries a written reason (#876)` | - |
@@ -4806,8 +4807,8 @@ alias / `network.network_name` / `devices.device_` / `security.cap_add_` /
 | `_schema_validate allows empty logging.driver (empty policy = allow)` | empty default |
 | `_schema_validate normalises logging.<svc> to the logging key set (reject)` | - |
 | `_schema_validate normalises logging.<svc> to the logging key set (accept)` | - |
-| `_schema_validate accepts every registered key's valid sample` | union coverage (accept) |
-| `_schema_validate rejects every registered key's invalid sample` | union coverage (reject) |
+| `_schema_validate accepts every registered key's valid sample` | union coverage (accept), with the population DERIVED. The title claims every registered key, and the claim is now checked: the keys the rows reach are held equal to `SCHEMA_VALIDATOR`'s own key set, so a key registered without a sample fails here instead of being covered by a sentence |
+| `_schema_validate rejects every registered key's invalid sample` | union coverage (reject), with the population DERIVED for the same reason the accept table's is: the title claims every registered key, so the keys the rows reach are held equal to the registry's own key set |
 | `_schema_validate rejects embedded-newline values (YAML injection) (#687)` | - |
 | `_schema_validate numeric validators are shape-only, not range-bound (#687)` | - |
 | `_schema_validate allows empty (clear) for every list + clearable scalar key` | clear-key semantics |
@@ -5826,7 +5827,7 @@ duplicate-target guards, and S7 `runtime.env` retirement (#507).
 | `the harness has no compose image name to displace a sibling checkout's (#891)` | - |
 | `runtime-test ships no specs, which is why the harness covers devel-test only` | - |
 
-### test/bats/unit/smoke_helper_spec.bats (33)
+### test/bats/unit/smoke_helper_spec.bats (40)
 
 Exercises the runtime assertion helpers shipped in
 `dist/test/bats/smoke/shared/test_helper.bash` (used by downstream-repo
@@ -5867,6 +5868,13 @@ smoke specs via `load "${BATS_TEST_DIRNAME}/test_helper"`).
 | `entrypoint_is_single_file: a commented exec is not an exec` | The seeded bringup template TALKS about the exec it must not have, and a repo that migrated by commenting the line out has migrated. A substring match on `exec` reads both as the old model and would skip the assertion on every correctly migrated repo -- the same code-versus-comment distinction dockerfile_migrate.sh's notice makes |
 | `entrypoint_is_single_file: false when the path does not exist` | An image with no bringup at all is not on the old model, so the orchestrator assertion must still run there. Answering true on a missing path would silently exempt exactly the image most likely to be missing the orchestrator too |
 | `entrypoint_is_single_file: errors when the path arg is missing` | The caller-error case, separated from the honest false above: a no-argument call must say so rather than answer "not the old model", which is the answer that turns a typo in a spec into a silent skip |
+| `reproducibility_manifest_state: one half present reads as adopted` | One half present is enough to put every assertion about the record in scope -- including the one about the half that is missing, which is the "adopted and broken" case the spec must not skip past |
+| `reproducibility_manifest_state: the other half present also reads as adopted` | EITHER half, not a named one. A half-written record is the "adopted and broken" case whichever half survived, so the reading must not key on the first path alone -- that would send the other half's loss to the skip the directory check exists to prevent |
+| `reproducibility_manifest_state: the directory without the record is missing, not unported` | The regression the old precondition could not see. The directory the writing instruction creates is in the image and the record is not, so the record was adopted and is gone -- a failure, not a skip |
+| `reproducibility_manifest_state: no directory at all is unported` | The case the skip exists for, and the one that must survive: an image with no footprint of the record never claimed to keep it, and failing there turns a consumer's upgrade into a broken build |
+| `reproducibility_manifest_state: a file at the directory's path is unported` | A FILE where the directory belongs is not the record's directory. `-d` rather than `-e` keeps a path that changed type from reading as the footprint it is not -- the same distinction assert_spec_subject_dir makes |
+| `reproducibility_manifest_state: errors when an argument is missing` | The caller-error case, separated from the honest answers above: a missing argument must say so rather than resolve to a verdict |
+| `reproducibility_manifest_state: errors when the directory arg is missing` | The third argument is as load-bearing as the other two -- it is what separates "adopted and lost" from "never ported" -- so a call that omits it says so rather than defaulting to one of those answers |
 
 ### test/bats/unit/smoke_migrate_spec.bats (17)
 
@@ -6501,7 +6509,7 @@ Unit tests for the repo-local command-group scaffolder
 | `_df_apt_run_blocks sees a BuildKit heredoc apt layer (#951)` | pins the helper behind that relation against a scratch fixture: `RUN <<EOF` / `<<-'EOF'` carries no backslash continuations, so the block must be closed by its delimiter -- live and commented, order enforced inside it, and `<<<` opening nothing |
 | `Dockerfile.example commented runtime-base records its own manifest (#951)` | read from that stage's own window, since the same commented lines appear in devel's and builder's blocks: the optional fresh-`${BASE_IMAGE}` stage stays correct when uncommented |
 | `.hadolint.yaml DL3008 ignore names its compensating control (#951)` | read from DL3008's own rationale block, and it must name the downstream repos the symlinked config reaches whose Dockerfile predates the manifest |
-| `the shipped smoke spec demands the manifest's VALUE and fails closed on half of one (#951)` | the shipped spec asserts a non-empty `base_image_ref` and a `sha256:<hex>`-shaped digest, and its skip fires only when NEITHER manifest file exists |
+| `the shipped smoke spec demands the manifest's VALUE and fails closed on half of one (#951)` | the shipped spec asserts a non-empty `base_image_ref` and a `sha256:<hex>`-shaped digest, and its precondition reads the Dockerfile that decides adoption rather than its own subject's absence |
 | `build-worker.yaml: runtime-test build forwards TEST_TOOLS_IMAGE (#647 prerequisite)` | runtime-test COPY --from=test-tools-stage needs the pinned image too |
 | `Dockerfile.example runtime-test uses bash -c wrapper (regression: #243 word-split + #57 dash-source bugs)` | - |
 | `Dockerfile.example runtime-test does NOT use bare RUN ${RUNTIME_SMOKE_CMD} (v0.21.0 word-split regression guard)` | - |

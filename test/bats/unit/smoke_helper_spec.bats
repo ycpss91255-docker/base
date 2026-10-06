@@ -349,3 +349,104 @@ _WRAPPER_UNDER_TEST=/source/dist/script/docker/wrapper/run.sh
   assert_failure
   assert_output --partial "missing path"
 }
+
+# ════════════════════════════════════════════════════════════════════
+# reproducibility_manifest_state
+#
+# The adoption question smoke/shared/reproducibility.bats gates on. It used
+# to be answered by the absence of that spec's own subject, which made "this
+# repo has not ported the record yet" and "this repo ported it and has lost
+# it" one state -- so the second one, the live regression, reported four
+# green skips and a zero exit.
+#
+# What answers it now is the record's own DIRECTORY in the image under test,
+# created by the one instruction that writes the two files. The reading in
+# between -- scanning the consumer's Dockerfile for a redirection into one of
+# the paths -- is recorded in the helper's header and was given up for a
+# reason: a shell question answered in awk, and codex review found a false
+# positive in it twice (a redirection inside quoted text, and a write in a
+# stage the image under test does not descend from). Every miss of that kind
+# falls the wrong way, costing an un-ported repo the skip and handing it a
+# broken build. The directory asks nothing about shell and nothing about
+# stages.
+# ════════════════════════════════════════════════════════════════════
+
+# why: One half present is enough to put every assertion about the record in
+# scope -- including the one about the half that is missing, which is the
+# "adopted and broken" case the spec must not skip past
+@test "reproducibility_manifest_state: one half present reads as adopted" {
+  mkdir -p "${TEMP_DIR}/share"
+  : > "${TEMP_DIR}/share/base-image.env"
+  run reproducibility_manifest_state \
+    "${TEMP_DIR}/share/base-image.env" "${TEMP_DIR}/share/packages.txt" \
+    "${TEMP_DIR}/share"
+  assert_success
+  assert_output "adopted"
+}
+
+# why: EITHER half, not a named one. A half-written record is the "adopted
+# and broken" case whichever half survived, so the reading must not key on
+# the first path alone -- that would send the other half's loss to the skip
+# the directory check exists to prevent
+@test "reproducibility_manifest_state: the other half present also reads as adopted" {
+  mkdir -p "${TEMP_DIR}/share"
+  : > "${TEMP_DIR}/share/packages.txt"
+  run reproducibility_manifest_state \
+    "${TEMP_DIR}/share/base-image.env" "${TEMP_DIR}/share/packages.txt" \
+    "${TEMP_DIR}/share"
+  assert_success
+  assert_output "adopted"
+}
+
+# why: The regression the old precondition could not see. The directory the
+# writing instruction creates is in the image and the record is not, so the
+# record was adopted and is gone -- a failure, not a skip
+@test "reproducibility_manifest_state: the directory without the record is missing, not unported" {
+  mkdir -p "${TEMP_DIR}/share"
+  run reproducibility_manifest_state \
+    "${TEMP_DIR}/share/base-image.env" "${TEMP_DIR}/share/packages.txt" \
+    "${TEMP_DIR}/share"
+  assert_success
+  assert_output "missing"
+}
+
+# why: The case the skip exists for, and the one that must survive: an image
+# with no footprint of the record never claimed to keep it, and failing there
+# turns a consumer's upgrade into a broken build
+@test "reproducibility_manifest_state: no directory at all is unported" {
+  run reproducibility_manifest_state \
+    "${TEMP_DIR}/share/base-image.env" "${TEMP_DIR}/share/packages.txt" \
+    "${TEMP_DIR}/share"
+  assert_success
+  assert_output "unported"
+}
+
+# why: A FILE where the directory belongs is not the record's directory. `-d`
+# rather than `-e` keeps a path that changed type from reading as the
+# footprint it is not -- the same distinction assert_spec_subject_dir makes
+@test "reproducibility_manifest_state: a file at the directory's path is unported" {
+  : > "${TEMP_DIR}/share"
+  run reproducibility_manifest_state \
+    "${TEMP_DIR}/share/base-image.env" "${TEMP_DIR}/share/packages.txt" \
+    "${TEMP_DIR}/share"
+  assert_success
+  assert_output "unported"
+}
+
+# why: The caller-error case, separated from the honest answers above: a
+# missing argument must say so rather than resolve to a verdict
+@test "reproducibility_manifest_state: errors when an argument is missing" {
+  run reproducibility_manifest_state "${TEMP_DIR}/base-image.env"
+  assert_failure
+  assert_output --partial "missing pkgs path"
+}
+
+# why: The third argument is as load-bearing as the other two -- it is what
+# separates "adopted and lost" from "never ported" -- so a call that omits it
+# says so rather than defaulting to one of those answers
+@test "reproducibility_manifest_state: errors when the directory arg is missing" {
+  run reproducibility_manifest_state \
+    "${TEMP_DIR}/base-image.env" "${TEMP_DIR}/packages.txt"
+  assert_failure
+  assert_output --partial "missing dir path"
+}
