@@ -165,6 +165,8 @@ upgrade_version_bumped
 upgrade_version_mismatch
 upgrade_rollback
 upgrade_rollback_failed
+upgrade_subtree_local_drift
+upgrade_subtree_local_drift_detail
 
 # init.sh
 init_started
