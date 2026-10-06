@@ -202,6 +202,20 @@ readonly _CHANGELOG_ENTRY_ROSTER_END='changelog-categories: end'
 # message below can still name a real file and line.
 _CHANGELOG_ENTRY_FILE=''
 
+# Resolved by _changelog_entry_bounds: the first line INSIDE the section and
+# one past its last line. Globals rather than return values because both the
+# lint and the folder below read them, and a second copy of the boundary rule
+# is a second answer to "where does [Unreleased] end".
+_CHANGELOG_ENTRY_START=-1
+_CHANGELOG_ENTRY_END=0
+
+# Recorded by _changelog_entry_allow_map: the 1-based line of every malformed
+# allow marker it met, and of an unterminated allow-begin (0 for none). The
+# lint prints them as findings; the folder refuses on them.
+declare -ga _CHANGELOG_ENTRY_MARKER_BOTH=()
+declare -ga _CHANGELOG_ENTRY_MARKER_STRAY_END=()
+_CHANGELOG_ENTRY_MARKER_UNTERMINATED=0
+
 # The cap, in characters of the whitespace-collapsed entry. See the header
 # for how this number was arrived at; it is a constant, not an env
 # override, so local and CI cannot disagree and nobody can raise it without
@@ -441,6 +455,129 @@ _changelog_entry_in_roster() {
   return 1
 }
 
+# _changelog_entry_bounds <lines-array-name> <fenced-array-name> -- resolve
+# the section into _CHANGELOG_ENTRY_START (the first line INSIDE it) and
+# _CHANGELOG_ENTRY_END (one past its last line). Dies when the heading is
+# gone, because a lint with no section passes vacuously.
+#
+# Shared with the folder below rather than copied into it. The folder
+# REWRITES the range this lint measures, so a boundary the two disagreed
+# about is either a folder that edits a released section or a lint that
+# reports clean over lines the folder moved. One reader, one answer.
+#
+# Walking past the boundary into a released section is THE failure mode
+# here, so the end is found explicitly rather than by falling off the end of
+# the file.
+_changelog_entry_bounds() {
+  local -n _cb_lines="${1}"
+  local -n _cb_fenced="${2}"
+  local _cb_i
+  _CHANGELOG_ENTRY_START=-1
+  _CHANGELOG_ENTRY_END="${#_cb_lines[@]}"
+  for (( _cb_i = 0; _cb_i < ${#_cb_lines[@]}; _cb_i++ )); do
+    if [[ -n "${_cb_fenced[${_cb_i}]:-}" ]]; then
+      continue
+    fi
+    if [[ "${_cb_lines[_cb_i]}" == "${_CHANGELOG_ENTRY_HEADING}"* ]]; then
+      _CHANGELOG_ENTRY_START=$(( _cb_i + 1 ))
+      break
+    fi
+  done
+  if [[ "${_CHANGELOG_ENTRY_START}" -lt 0 ]]; then
+    _die ci_changelog_entry \
+      "'${_CHANGELOG_ENTRY_FILE}' has no '${_CHANGELOG_ENTRY_HEADING}' heading -- the lint would pass vacuously. The file's shape changed; fix the heading or the lint."
+    return 1
+  fi
+  for (( _cb_i = _CHANGELOG_ENTRY_START; _cb_i < ${#_cb_lines[@]}; _cb_i++ )); do
+    if [[ -n "${_cb_fenced[${_cb_i}]:-}" ]]; then
+      continue
+    fi
+    if [[ "${_cb_lines[_cb_i]}" == '## ['* ]]; then
+      _CHANGELOG_ENTRY_END="${_cb_i}"
+      break
+    fi
+    # The compare-link block ends the section too. In a series file
+    # [Unreleased] is the LAST section, so a boundary that only knows about
+    # the next '## [' runs to end of file and swallows the link
+    # definitions -- every one of which is then a line no entry measures,
+    # reported as unrecognised content. A link definition is reference
+    # data, not an entry.
+    if [[ "${_cb_lines[_cb_i]}" =~ ^\[[^]]+\]:[[:space:]] ]]; then
+      _CHANGELOG_ENTRY_END="${_cb_i}"
+      break
+    fi
+  done
+}
+
+# _changelog_entry_allow_map <skip-array-name> <lines-array-name>
+# <fenced-array-name> -- fill the named associative array with the index of
+# every line an allow region makes invisible, over the range
+# _changelog_entry_bounds resolved. Marker lines are themselves in the map,
+# so a region never becomes part of an entry.
+#
+# It REPORTS nothing. The three ways the markers can be malformed are
+# recorded in _CHANGELOG_ENTRY_MARKER_BOTH and
+# _CHANGELOG_ENTRY_MARKER_STRAY_END (1-based line numbers) and
+# _CHANGELOG_ENTRY_MARKER_UNTERMINATED (a 1-based line number, or 0), and
+# the two callers do different things with them: the lint turns each into a
+# finding, the folder refuses outright, because a region whose extent is
+# ambiguous is a region a rewriter must not guess at.
+_changelog_entry_allow_map() {
+  local -n _am_skip="${1}"
+  local -n _am_lines="${2}"
+  local -n _am_fenced="${3}"
+  local _am_i _am_in=0 _am_begin_line=0 _am_marker _am_idx
+  local -a _am_open=() _am_hidden=()
+  _am_skip=()
+  _CHANGELOG_ENTRY_MARKER_BOTH=()
+  _CHANGELOG_ENTRY_MARKER_STRAY_END=()
+  _CHANGELOG_ENTRY_MARKER_UNTERMINATED=0
+  for (( _am_i = _CHANGELOG_ENTRY_START; _am_i < _CHANGELOG_ENTRY_END; _am_i++ )); do
+    if [[ -n "${_am_fenced[${_am_i}]:-}" ]]; then
+      continue
+    fi
+    _am_marker="$(_changelog_entry_marker "${_am_lines[_am_i]}")"
+    case "${_am_marker}" in
+      both)
+        _CHANGELOG_ENTRY_MARKER_BOTH+=( "$(( _am_i + 1 ))" )
+        _am_hidden+=( "${_am_i}" )
+        continue
+        ;;
+      begin)
+        _am_in=1
+        _am_begin_line=$(( _am_i + 1 ))
+        _am_open=()
+        _am_hidden+=( "${_am_i}" )
+        continue
+        ;;
+      end)
+        if [[ "${_am_in}" -eq 0 ]]; then
+          _CHANGELOG_ENTRY_MARKER_STRAY_END+=( "$(( _am_i + 1 ))" )
+        fi
+        _am_in=0
+        _am_hidden+=( "${_am_open[@]}" "${_am_i}" )
+        _am_open=()
+        continue
+        ;;
+    esac
+    if [[ "${_am_in}" -eq 1 ]]; then
+      _am_open+=( "${_am_i}" )
+    fi
+  done
+  # An unterminated begin swallowed the whole rest of the section. Hand
+  # those lines back -- _am_open is dropped rather than merged -- because a
+  # dangling marker is one thing to report, not a licence to stop measuring,
+  # and an author who has to fix the marker before the entries even become
+  # visible pays for the same mistake twice. The marker line itself stays
+  # hidden: whatever else it is, it is not an entry.
+  if [[ "${_am_in}" -eq 1 ]]; then
+    _CHANGELOG_ENTRY_MARKER_UNTERMINATED="${_am_begin_line}"
+  fi
+  for _am_idx in "${_am_hidden[@]}"; do
+    _am_skip["${_am_idx}"]=1
+  done
+}
+
 _run_changelog_entry() {
   echo "--- Running changelog entry lint (length / duplicates / categories) ---"
 
@@ -471,99 +608,33 @@ _run_changelog_entry() {
   local -A _fenced=()
   _changelog_entry_fences _fenced "${_lines[@]}"
 
-  # Locate the section: from the heading to the next '## [' heading (or
-  # EOF). Walking past that boundary into a released section is THE failure
-  # mode this lint has to avoid, so the end is found explicitly rather than
-  # by falling off the end of the file.
-  local _i _start=-1 _end="${#_lines[@]}"
-  for (( _i = 0; _i < ${#_lines[@]}; _i++ )); do
-    if [[ -n "${_fenced[${_i}]:-}" ]]; then
-      continue
-    fi
-    if [[ "${_lines[_i]}" == "${_CHANGELOG_ENTRY_HEADING}"* ]]; then
-      _start=$(( _i + 1 ))
-      break
-    fi
-  done
-  if [[ "${_start}" -lt 0 ]]; then
-    _die ci_changelog_entry \
-      "'${_CHANGELOG_ENTRY_FILE}' has no '${_CHANGELOG_ENTRY_HEADING}' heading -- the lint would pass vacuously. The file's shape changed; fix the heading or the lint."
-    return 1
-  fi
-  for (( _i = _start; _i < ${#_lines[@]}; _i++ )); do
-    if [[ -n "${_fenced[${_i}]:-}" ]]; then
-      continue
-    fi
-    if [[ "${_lines[_i]}" == '## ['* ]]; then
-      _end="${_i}"
-      break
-    fi
-    # The compare-link block ends the section too. In a series file
-    # [Unreleased] is the LAST section, so a boundary that only knows about
-    # the next '## [' runs to end of file and swallows the link
-    # definitions -- every one of which is then a line no entry measures,
-    # reported as unrecognised content. A link definition is reference
-    # data, not an entry.
-    if [[ "${_lines[_i]}" =~ ^\[[^]]+\]:[[:space:]] ]]; then
-      _end="${_i}"
-      break
-    fi
-  done
+  # Locate the section. The reader is shared with the folder below, which
+  # rewrites exactly the range measured here.
+  _changelog_entry_bounds _lines _fenced || return 1
+  local _i _start="${_CHANGELOG_ENTRY_START}" _end="${_CHANGELOG_ENTRY_END}"
 
   local _violations=0
 
-  # Pass 1: the allow regions. Collect the in-region line indices and
-  # validate the markers' balance. Marker lines are themselves excluded, so
-  # a region never becomes part of an entry.
+  # Pass 1: the allow regions. The map is built by the reader the folder
+  # shares, so the two cannot disagree about which lines are exempt; what
+  # differs is the verdict, and this is the half that reports.
   local -A _skip=()
-  local _in_allow=0 _begin_line=0 _begin_idx=-1 _marker
-  for (( _i = _start; _i < _end; _i++ )); do
-    if [[ -n "${_fenced[${_i}]:-}" ]]; then
-      continue
-    fi
-    _marker="$(_changelog_entry_marker "${_lines[_i]}")"
-    case "${_marker}" in
-      both)
-        printf '%s:%d: malformed allow marker (allow-begin and allow-end in one comment)\n' \
-          "${_CHANGELOG_ENTRY_FILE}" "$(( _i + 1 ))"
-        _violations=$(( _violations + 1 ))
-        _skip["${_i}"]=1
-        continue
-        ;;
-      begin)
-        _in_allow=1
-        _begin_line=$(( _i + 1 ))
-        _begin_idx="${_i}"
-        _skip["${_i}"]=1
-        continue
-        ;;
-      end)
-        if [[ "${_in_allow}" -eq 0 ]]; then
-          printf '%s:%d: unmatched allow-end (no open allow-begin)\n' \
-            "${_CHANGELOG_ENTRY_FILE}" "$(( _i + 1 ))"
-          _violations=$(( _violations + 1 ))
-        fi
-        _in_allow=0
-        _skip["${_i}"]=1
-        continue
-        ;;
-    esac
-    if [[ "${_in_allow}" -eq 1 ]]; then
-      _skip["${_i}"]=1
-    fi
-  done
-  if [[ "${_in_allow}" -eq 1 ]]; then
-    printf '%s:%d: unterminated allow-begin (no closing allow-end)\n' \
-      "${_CHANGELOG_ENTRY_FILE}" "${_begin_line}"
+  _changelog_entry_allow_map _skip _lines _fenced
+  local _marker_line
+  for _marker_line in "${_CHANGELOG_ENTRY_MARKER_BOTH[@]}"; do
+    printf '%s:%d: malformed allow marker (allow-begin and allow-end in one comment)\n' \
+      "${_CHANGELOG_ENTRY_FILE}" "${_marker_line}"
     _violations=$(( _violations + 1 ))
-    # The region never closed, so it swallowed the whole rest of the
-    # section. Hand those lines back: a dangling marker is one violation to
-    # report, not a licence to stop measuring, and an author who has to fix
-    # the marker before the entries even become visible pays for the same
-    # mistake twice.
-    for (( _i = _begin_idx + 1; _i < _end; _i++ )); do
-      unset "_skip[${_i}]"
-    done
+  done
+  for _marker_line in "${_CHANGELOG_ENTRY_MARKER_STRAY_END[@]}"; do
+    printf '%s:%d: unmatched allow-end (no open allow-begin)\n' \
+      "${_CHANGELOG_ENTRY_FILE}" "${_marker_line}"
+    _violations=$(( _violations + 1 ))
+  done
+  if [[ "${_CHANGELOG_ENTRY_MARKER_UNTERMINATED}" -gt 0 ]]; then
+    printf '%s:%d: unterminated allow-begin (no closing allow-end)\n' \
+      "${_CHANGELOG_ENTRY_FILE}" "${_CHANGELOG_ENTRY_MARKER_UNTERMINATED}"
+    _violations=$(( _violations + 1 ))
   fi
 
   # How many entries the regions took off the table. Reported alongside the
@@ -776,7 +847,7 @@ _run_changelog_entry() {
     # not-reached "clean" echo unreachable even where a caller stubs _die
     # to return instead of exit (e.g. the unit harness).
     _die ci_changelog_entry \
-      "${_violations} over-long entry / duplicate entry / repeated category heading / orphaned wrap line / unbalanced allow marker / unrecognised line in '${_CHANGELOG_ENTRY_HEADING}'. An entry is a top-level '- ' bullet at column 0 plus everything under it -- a '*' or '+' bullet, or an indented one, is content no entry measures and is refused rather than skipped. An entry answers what changed and whether it affects the reader, in at most ${_CHANGELOG_ENTRY_MAX} characters measured over the whole entry with whitespace collapsed -- so rewrapping it or splitting it into sub-bullets does not help. The reasoning, the alternatives and the measurements belong in the PR the entry already links to. A lead bullet repeating another word for word, and a '### <category>' heading opening twice in one release block, are refused naming BOTH lines: merging origin/main into a branch that appended to '${_CHANGELOG_ENTRY_HEADING}' keeps both sides without conflicting, so a duplicate lands with nothing to review -- fold the second copy into the first. A single word left alone on a continuation line above the rest of its paragraph is an entry that was edited and not re-wrapped -- re-flow it. A '### <category>' heading names one of ${CHANGELOG_CATEGORIES[*]} and nothing else -- twenty variants is what an unlocked axis produced, and migration instructions belong INSIDE the BREAKING entry they serve rather than in a parallel section a reader can miss; the roster is defined once in '${_CHANGELOG_ENTRY_ROSTER}' and printed for contributors in '${_CHANGELOG_ENTRY_CONVENTIONS}', and the two must agree. A genuinely exceptional entry opts out by bracketing it with '<!-- ${_CHANGELOG_ENTRY_ALLOW_BEGIN} -- <why> -->' / '<!-- ${_CHANGELOG_ENTRY_ALLOW_END} -->'."
+      "${_violations} over-long entry / duplicate entry / repeated category heading / orphaned wrap line / unbalanced allow marker / unrecognised line in '${_CHANGELOG_ENTRY_HEADING}'. An entry is a top-level '- ' bullet at column 0 plus everything under it -- a '*' or '+' bullet, or an indented one, is content no entry measures and is refused rather than skipped. An entry answers what changed and whether it affects the reader, in at most ${_CHANGELOG_ENTRY_MAX} characters measured over the whole entry with whitespace collapsed -- so rewrapping it or splitting it into sub-bullets does not help. The reasoning, the alternatives and the measurements belong in the PR the entry already links to. A lead bullet repeating another word for word, and a '### <category>' heading opening twice in one release block, are refused naming BOTH lines: merging origin/main into a branch that appended to '${_CHANGELOG_ENTRY_HEADING}' keeps both sides without conflicting, so a duplicate lands with nothing to review. A repeated CATEGORY HEADING is mechanical to repair and 'just test changelog-fix' (./script/test/test.sh --changelog-entry-fix) does it: each category is emitted once in roster order with its entries byte-for-byte, and a section with nothing to fold is not rewritten. A duplicate ENTRY is not folded for you -- which of two near-identical entries survives is a judgement about text. A single word left alone on a continuation line above the rest of its paragraph is an entry that was edited and not re-wrapped -- re-flow it. A '### <category>' heading names one of ${CHANGELOG_CATEGORIES[*]} and nothing else -- twenty variants is what an unlocked axis produced, and migration instructions belong INSIDE the BREAKING entry they serve rather than in a parallel section a reader can miss; the roster is defined once in '${_CHANGELOG_ENTRY_ROSTER}' and printed for contributors in '${_CHANGELOG_ENTRY_CONVENTIONS}', and the two must agree. A genuinely exceptional entry opts out by bracketing it with '<!-- ${_CHANGELOG_ENTRY_ALLOW_BEGIN} -- <why> -->' / '<!-- ${_CHANGELOG_ENTRY_ALLOW_END} -->'."
     return 1
   fi
 
@@ -793,4 +864,332 @@ _run_changelog_entry() {
     return 0
   fi
   echo "changelog entry lint: clean (${_entries} entries checked for length and for duplication, ${_headings} category headings checked against the ${#CHANGELOG_CATEGORIES[@]}-name roster, ${_suppressed} suppressed by an allow region, max ${_CHANGELOG_ENTRY_MAX} chars)"
+}
+
+# ── Folding a repeated category heading ──────────────────────────────────────
+#
+# The lint above refuses a '### <category>' heading that opens twice in
+# [Unreleased], and it is right to: two '### Fixed' blocks in one release
+# block mean a reader scanning for what was fixed finds half of it, and the
+# release-notes assembler has no reason to prefer one over the other. What
+# was missing is that the repair is deterministic and nobody did it
+# automatically, so every branch in a serial queue paid a full gate cycle to
+# be told something a script can fix.
+#
+# WHERE THE DUPLICATE COMES FROM, measured rather than assumed.
+# doc/changelog/v[0-9]*.md carries `merge=union` (.gitattributes). Two
+# branches each appending a '### Fixed' block at the SAME anchor do NOT
+# produce a duplicate: git refines the conflict, the two identical heading
+# lines line up, and only the entry bullets are concatenated. The duplicate
+# arrives when the two blocks land at DIFFERENT anchors -- one branch forked
+# before the category now above it existed, so its block sits higher in the
+# section -- because then the two hunks do not overlap, both are applied
+# verbatim, and the file ends with two headings separated by somebody else's
+# category. Under the default three-way merge that same pair is a CONFLICT a
+# human resolves; `merge=union` resolves it silently, which is what makes the
+# duplicate arrive with nothing to review.
+#
+# THE RULE, in full:
+#
+#   - Scope is [Unreleased], read through the same bounds, the same fence map
+#     and the same allow map the lint uses. A released section is a
+#     historical record and a duplicate that shipped is a fact about what
+#     shipped.
+#   - Each category is emitted ONCE, in the order the roster declares
+#     (script/release/changelog_categories.sh), with any heading the roster
+#     does not name emitted after them in first-seen order. That is exactly
+#     the order script/release/release_notes.sh already assembles a release
+#     page in, so the file and the page it becomes stop differing by one.
+#   - Entry text moves BYTE FOR BYTE. Nothing is reworded, re-wrapped,
+#     re-indented, merged with a similar entry or dropped, and within a
+#     category the entries keep their file order: the first occurrence's,
+#     then the second's. Only the edge blank lines of a block are touched,
+#     because they are what joins two blocks into one list; a blank line
+#     INSIDE an entry is part of the entry.
+#   - A section with no repeated heading is NOT REWRITTEN AT ALL. The file is
+#     left byte-identical rather than re-emitted in canonical shape, which is
+#     what makes this idempotent in the strong sense: folding twice changes
+#     nothing, and a file nobody broke is never reformatted by a command
+#     somebody ran for a different reason.
+#   - A duplicate ENTRY -- the same lead bullet twice -- is NOT folded.
+#     Which of two near-identical entries survives is a judgement about text,
+#     and the lint goes on refusing it.
+#   - An allow region whose markers do not balance makes the section's extent
+#     ambiguous, so the fold REFUSES rather than guess which lines the author
+#     meant to exempt.
+#
+# WHERE IT HANGS. On the gate that refuses, as `--changelog-entry-fix`
+# (`just test changelog-fix`), named by the refusal itself. The alternative
+# considered was `just test sync-docs`, which already regenerates derived doc
+# content; it was rejected because that recipe's generator is scoped to
+# doc/test/*.md and its drift validator runs that same generator against a
+# throwaway copy, so a changelog rewrite hung there would be a tracked file
+# edited by a verb whose checker cannot see it. CI keeps refusing exactly as
+# it does now -- this writes, it never validates.
+
+# Read once by the fold, which needs the whole file in memory to move a block
+# and has to agree with the lint about every map in it.
+#
+# `-g` is load-bearing on every one of these, not decoration. This file is
+# sourced at top level by script/test/test.sh but INSIDE a function by the
+# unit spec's setup(), and a bare `declare -A` in a function declares a LOCAL:
+# the declaration would vanish before the test body ran, the first `=()` would
+# mint a plain INDEXED array instead, and every string key would then index
+# element 0 -- so one category's entries were emitted under all seven roster
+# headings. Measured, not hypothesised; the specs below caught it.
+declare -ga _CHANGELOG_FOLD_LINES=()
+declare -gA _CHANGELOG_FOLD_FENCED=()
+declare -gA _CHANGELOG_FOLD_SKIP=()
+# The index of every category heading the fold may move, in file order.
+declare -ga _CHANGELOG_FOLD_HEADS=()
+# The categories the section carries, in first-seen order, and each one's
+# accumulated entry lines.
+declare -ga _CHANGELOG_FOLD_ORDER=()
+declare -gA _CHANGELOG_FOLD_BODY=()
+# How many headings folded away -- zero means the file is not touched.
+_CHANGELOG_FOLD_DUPS=0
+
+# _changelog_entry_fold_load -- the resolved series file and every map the
+# fold reads, or a refusal. Nothing is written here.
+_changelog_entry_fold_load() {
+  _changelog_entry_locate || return 1
+  _CHANGELOG_FOLD_LINES=()
+  mapfile -t _CHANGELOG_FOLD_LINES < "${REPO_ROOT}/${_CHANGELOG_ENTRY_FILE}"
+  _CHANGELOG_FOLD_FENCED=()
+  _changelog_entry_fences _CHANGELOG_FOLD_FENCED "${_CHANGELOG_FOLD_LINES[@]}"
+  _changelog_entry_bounds _CHANGELOG_FOLD_LINES _CHANGELOG_FOLD_FENCED || return 1
+  _CHANGELOG_FOLD_SKIP=()
+  _changelog_entry_allow_map _CHANGELOG_FOLD_SKIP _CHANGELOG_FOLD_LINES \
+    _CHANGELOG_FOLD_FENCED
+  if [[ "${#_CHANGELOG_ENTRY_MARKER_BOTH[@]}" -gt 0 ]] \
+    || [[ "${#_CHANGELOG_ENTRY_MARKER_STRAY_END[@]}" -gt 0 ]] \
+    || [[ "${_CHANGELOG_ENTRY_MARKER_UNTERMINATED}" -gt 0 ]]; then
+    _die ci_changelog_entry_fix \
+      "'${_CHANGELOG_ENTRY_FILE}': the allow markers in '${_CHANGELOG_ENTRY_HEADING}' do not balance, so which lines are exempt is ambiguous and a rewriter must not guess at it. The entry lint names every offending line; fix the markers, then fold."
+    return 1
+  fi
+}
+
+# _changelog_entry_fold_body <head-index> <block-end> -- the block's lines
+# with its leading and trailing blank lines removed, one per line.
+#
+# Only the EDGES. A blank line inside an entry is part of the entry -- a
+# loose sub-list, a fenced example, a second paragraph -- and dropping it
+# would be rewording. The edges are what two concatenated blocks would
+# otherwise leave as a blank line in the middle of one bullet list.
+_changelog_entry_fold_body() {
+  local _fb_to="${2}" _fb_i _fb_first=-1 _fb_last=-1
+  local _fb_from=$(( ${1} + 1 ))
+  for (( _fb_i = _fb_from; _fb_i < _fb_to; _fb_i++ )); do
+    if [[ -z "${_CHANGELOG_FOLD_LINES[_fb_i]// }" ]]; then
+      continue
+    fi
+    if [[ "${_fb_first}" -lt 0 ]]; then
+      _fb_first="${_fb_i}"
+    fi
+    _fb_last="${_fb_i}"
+  done
+  if [[ "${_fb_first}" -lt 0 ]]; then
+    return 0
+  fi
+  for (( _fb_i = _fb_first; _fb_i <= _fb_last; _fb_i++ )); do
+    printf '%s\n' "${_CHANGELOG_FOLD_LINES[_fb_i]}"
+  done
+}
+
+# _changelog_entry_fold_group -- group every block in the section under its
+# category and report each heading that folds away, naming BOTH lines for the
+# same reason the lint's refusal does: the fix is a comparison of two places.
+#
+# The population is the heading set the lint's category pass compares --
+# outside a fenced example, outside an allow region. A heading the set
+# excludes does not split a block either, so it travels with the entries
+# around it rather than becoming a block of its own.
+_changelog_entry_fold_group() {
+  local _fg_i _fg_h _fg_end _fg_key _fg_cat _fg_text
+  local -A _fg_first=()
+  _CHANGELOG_FOLD_HEADS=()
+  _CHANGELOG_FOLD_ORDER=()
+  _CHANGELOG_FOLD_BODY=()
+  _CHANGELOG_FOLD_DUPS=0
+  for (( _fg_i = _CHANGELOG_ENTRY_START; _fg_i < _CHANGELOG_ENTRY_END; _fg_i++ )); do
+    [[ -n "${_CHANGELOG_FOLD_FENCED[${_fg_i}]:-}" ]] && continue
+    [[ -n "${_CHANGELOG_FOLD_SKIP[${_fg_i}]:-}" ]] && continue
+    [[ "${_CHANGELOG_FOLD_LINES[_fg_i]}" == '### '* ]] || continue
+    _CHANGELOG_FOLD_HEADS+=( "${_fg_i}" )
+  done
+  for (( _fg_i = 0; _fg_i < ${#_CHANGELOG_FOLD_HEADS[@]}; _fg_i++ )); do
+    _fg_h="${_CHANGELOG_FOLD_HEADS[_fg_i]}"
+    _fg_end="${_CHANGELOG_ENTRY_END}"
+    if [[ $(( _fg_i + 1 )) -lt "${#_CHANGELOG_FOLD_HEADS[@]}" ]]; then
+      _fg_end="${_CHANGELOG_FOLD_HEADS[_fg_i + 1]}"
+    fi
+    # The same key the lint compares, so the two cannot disagree about which
+    # headings are the same heading.
+    _fg_key="$(_changelog_entry_collapse "${_CHANGELOG_FOLD_LINES[_fg_h]}")"
+    _fg_cat="${_fg_key#\#\#\# }"
+    if [[ -z "${_CHANGELOG_FOLD_BODY["${_fg_cat}"]+set}" ]]; then
+      _CHANGELOG_FOLD_BODY["${_fg_cat}"]=''
+      _CHANGELOG_FOLD_ORDER+=( "${_fg_cat}" )
+      _fg_first["${_fg_cat}"]=$(( _fg_h + 1 ))
+    else
+      _CHANGELOG_FOLD_DUPS=$(( _CHANGELOG_FOLD_DUPS + 1 ))
+      printf '%s:%d: folded -- %s into the block %s:%s opened\n' \
+        "${_CHANGELOG_ENTRY_FILE}" "$(( _fg_h + 1 ))" "${_fg_key}" \
+        "${_CHANGELOG_ENTRY_FILE}" "${_fg_first["${_fg_cat}"]}"
+    fi
+    # Joined with a single newline, never a blank line: two blocks of one
+    # category are one bullet list, and a blank line between them is the
+    # loose-list shape nobody wrote.
+    _fg_text="$(_changelog_entry_fold_body "${_fg_h}" "${_fg_end}")"
+    if [[ -n "${_fg_text}" ]]; then
+      if [[ -n "${_CHANGELOG_FOLD_BODY["${_fg_cat}"]}" ]]; then
+        _CHANGELOG_FOLD_BODY["${_fg_cat}"]+=$'\n'
+      fi
+      _CHANGELOG_FOLD_BODY["${_fg_cat}"]+="${_fg_text}"
+    fi
+  done
+}
+
+# _changelog_entry_fold_emit <out-array-name> <category> <body> -- append one
+# heading, a blank line, the body and a blank line to the named array. The
+# shape script/release/release_notes.sh emits a merged category in, which is
+# the shape the file already has.
+_changelog_entry_fold_emit() {
+  local -n _fe_out="${1}"
+  local _fe_cat="${2}" _fe_body="${3}" _fe_line
+  _fe_out+=( "### ${_fe_cat}" '' )
+  if [[ -z "${_fe_body}" ]]; then
+    return 0
+  fi
+  while IFS= read -r _fe_line; do
+    _fe_out+=( "${_fe_line}" )
+  done <<< "${_fe_body}"
+  _fe_out+=( '' )
+}
+
+# _changelog_entry_fold_section <out-array-name> -- the folded section into
+# the named array. Returns 1 when there is nothing to fold, which is the
+# signal to leave the file alone entirely.
+_changelog_entry_fold_section() {
+  local -n _fs_out="${1}"
+  local _fs_i _fs_cat
+  local -A _fs_done=()
+  _changelog_entry_fold_group
+  if [[ "${_CHANGELOG_FOLD_DUPS}" -eq 0 ]]; then
+    return 1
+  fi
+  _fs_out=()
+  # Everything above the first heading is the section's lead prose, and an
+  # entry sitting under no heading at all is somebody's entry: both stay
+  # exactly where they are.
+  for (( _fs_i = _CHANGELOG_ENTRY_START; _fs_i < _CHANGELOG_FOLD_HEADS[0]; _fs_i++ )); do
+    _fs_out+=( "${_CHANGELOG_FOLD_LINES[_fs_i]}" )
+  done
+  for _fs_cat in "${CHANGELOG_CATEGORIES[@]}"; do
+    [[ -n "${_CHANGELOG_FOLD_BODY["${_fs_cat}"]+set}" ]] || continue
+    _changelog_entry_fold_emit _fs_out "${_fs_cat}" \
+      "${_CHANGELOG_FOLD_BODY["${_fs_cat}"]}"
+    _fs_done["${_fs_cat}"]=1
+  done
+  # A heading the roster does not name is history, not a defect (the lint
+  # refuses one in [Unreleased] on its own account). Emitted after the roster
+  # ones, in first-seen order, exactly as the release assembler does.
+  for _fs_cat in "${_CHANGELOG_FOLD_ORDER[@]}"; do
+    [[ -n "${_fs_done["${_fs_cat}"]:-}" ]] && continue
+    _changelog_entry_fold_emit _fs_out "${_fs_cat}" \
+      "${_CHANGELOG_FOLD_BODY["${_fs_cat}"]}"
+    _fs_done["${_fs_cat}"]=1
+  done
+  return 0
+}
+
+# _changelog_entry_fold_write <section-array-name> -- replace the section in
+# the file on disk with the given lines.
+#
+# The section's trailing blank-line budget is PRESERVED rather than assumed:
+# one blank line separates it from the released section below it, and no
+# blank line follows it when [Unreleased] ends the file. A missing final
+# newline is preserved for the same reason -- a rewriter that is about the
+# heading level has no business adding a byte at end of file.
+_changelog_entry_fold_write() {
+  local -n _fw_section="${1}"
+  local _fw_path="${REPO_ROOT}/${_CHANGELOG_ENTRY_FILE}"
+  local _fw_i _fw_tail=0 _fw_keep="${#_fw_section[@]}" _fw_tmp _fw_nl=1
+  local -a _fw_out=()
+  for (( _fw_i = _CHANGELOG_ENTRY_END - 1; _fw_i >= _CHANGELOG_ENTRY_START; _fw_i-- )); do
+    if [[ -n "${_CHANGELOG_FOLD_LINES[_fw_i]// }" ]]; then
+      break
+    fi
+    _fw_tail=$(( _fw_tail + 1 ))
+  done
+  while [[ "${_fw_keep}" -gt 0 ]] && [[ -z "${_fw_section[_fw_keep - 1]// }" ]]; do
+    _fw_keep=$(( _fw_keep - 1 ))
+  done
+  for (( _fw_i = 0; _fw_i < _CHANGELOG_ENTRY_START; _fw_i++ )); do
+    _fw_out+=( "${_CHANGELOG_FOLD_LINES[_fw_i]}" )
+  done
+  for (( _fw_i = 0; _fw_i < _fw_keep; _fw_i++ )); do
+    _fw_out+=( "${_fw_section[_fw_i]}" )
+  done
+  for (( _fw_i = 0; _fw_i < _fw_tail; _fw_i++ )); do
+    _fw_out+=( '' )
+  done
+  for (( _fw_i = _CHANGELOG_ENTRY_END; _fw_i < ${#_CHANGELOG_FOLD_LINES[@]}; _fw_i++ )); do
+    _fw_out+=( "${_CHANGELOG_FOLD_LINES[_fw_i]}" )
+  done
+  if [[ -s "${_fw_path}" ]] && [[ -n "$(tail -c 1 "${_fw_path}")" ]]; then
+    _fw_nl=0
+  fi
+  _fw_tmp="$(mktemp "${_fw_path}.fold.XXXXXX")" || return 1
+  _changelog_entry_fold_spill _fw_out "${_fw_nl}" > "${_fw_tmp}"
+  # mktemp creates 0600. Without this the fold leaves the changelog
+  # owner-only-readable in the working tree, on a bit git does not track --
+  # so nothing downstream reports it and the next reader cannot tell what
+  # changed the mode.
+  chmod --reference="${_fw_path}" "${_fw_tmp}" 2> /dev/null || true
+  mv -- "${_fw_tmp}" "${_fw_path}"
+}
+
+# _changelog_entry_fold_spill <lines-array-name> <final-newline> -- the lines
+# on stdout, with a trailing newline on the last one only when the second
+# argument is 1.
+_changelog_entry_fold_spill() {
+  local -n _sp_lines="${1}"
+  local _sp_nl="${2}" _sp_n="${#_sp_lines[@]}"
+  if [[ "${_sp_n}" -eq 0 ]]; then
+    return 0
+  fi
+  if [[ "${_sp_n}" -gt 1 ]]; then
+    printf '%s\n' "${_sp_lines[@]:0:_sp_n - 1}"
+  fi
+  if [[ "${_sp_nl}" -eq 1 ]]; then
+    printf '%s\n' "${_sp_lines[_sp_n - 1]}"
+  else
+    printf '%s' "${_sp_lines[_sp_n - 1]}"
+  fi
+}
+
+# _run_changelog_entry_fix -- the repair behind `--changelog-entry-fix`.
+# Folds every repeated category heading in [Unreleased] into that category's
+# first occurrence and rewrites the file, or says the section was already
+# clean and writes nothing at all.
+_run_changelog_entry_fix() {
+  echo "--- Folding repeated [Unreleased] category headings ---"
+  local _roster_abs="${REPO_ROOT}/${_CHANGELOG_ENTRY_ROSTER}"
+  if [[ ! -f "${_roster_abs}" ]]; then
+    _die ci_changelog_entry_fix \
+      "'${_CHANGELOG_ENTRY_ROSTER}' not found under ${REPO_ROOT} -- the category order a folded section is emitted in is defined there, so without it the fold would be inventing one."
+    return 1
+  fi
+  # shellcheck source=script/release/changelog_categories.sh
+  source "${_roster_abs}"
+  _changelog_entry_fold_load || return 1
+  local -a _folded=()
+  if ! _changelog_entry_fold_section _folded; then
+    echo "changelog fold: no category heading opens twice in '${_CHANGELOG_ENTRY_HEADING}' (${#_CHANGELOG_FOLD_HEADS[@]} compared in '${_CHANGELOG_ENTRY_FILE}') -- nothing folded, nothing written"
+    return 0
+  fi
+  _changelog_entry_fold_write _folded || return 1
+  echo "changelog fold: folded ${_CHANGELOG_FOLD_DUPS} repeated category heading(s) into ${#_CHANGELOG_FOLD_ORDER[@]} section(s) of '${_CHANGELOG_ENTRY_HEADING}' in '${_CHANGELOG_ENTRY_FILE}'. Entry text is unchanged; review the diff and commit it."
 }
