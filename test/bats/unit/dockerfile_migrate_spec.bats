@@ -496,7 +496,7 @@ EOF
 # while CONFIG_SRC still holds its default. It is a build ARG
 # (dist/dockerfile/Dockerfile `ARG CONFIG_SRC="config"`, consumed by the
 # layer-2 `COPY "${CONFIG_SRC}" "${CONFIG_DIR}"`), and a
-# `[build] arg_N = CONFIG_SRC=...` entry in setup.toml reaches the build as
+# `[[build.args]]` entry whose `key` is CONFIG_SRC reaches the build as
 # a compose build arg, so a repo can legitimately overlay ${CONFIG_DIR} from
 # some other directory. Reading `config/` regardless would report "not
 # populated" for a repo whose real dependency list lives elsewhere and delete
@@ -528,18 +528,14 @@ EOF
   _seed_requirements "# install python dep"
   mkdir -p "${TEMP_DIR}/myconfig/pip"
   printf 'numpy==1.26.4\n' > "${TEMP_DIR}/myconfig/pip/requirements.txt"
-  # toml-fixture-lint: allow the matcher under test is INI-only
-  # _DFM_CONF_REDIRECT_RE in dist/script/docker/lib/dockerfile_migrate.sh
-  # greps a single line for `arg_N = CONFIG_SRC=`, which NO TOML spelling
-  # can satisfy: the value has to be quoted, which puts a `"` where the
-  # pattern needs the name. A TOML body here makes the probe report "no
-  # redirect" and migration 2 delete a working pip line, so this fixture
-  # stays INI until that reader is fixed -- and that the shipped matcher
-  # cannot read a real setup.toml is a live defect in its own right.
   cat > "${TEMP_DIR}/setup.toml" <<'EOF'
-[build]
-arg_1 = TZ=Asia/Taipei
-arg_2 = CONFIG_SRC=myconfig
+[[build.args]]
+key = "TZ"
+value = "Asia/Taipei"
+
+[[build.args]]
+key = "CONFIG_SRC"
+value = "myconfig"
 EOF
   cat > "${DF}" <<'EOF'
 FROM busybox AS sys
@@ -570,18 +566,14 @@ EOF
 @test "migration 2 (pip-helper): keeps the line when the TEMPLATE conf layer redirects CONFIG_SRC (#956)" {
   local _lib
   _lib="$(_stage_template_tree)"
-  # toml-fixture-lint: allow the matcher under test is INI-only
-  # _DFM_CONF_REDIRECT_RE in dist/script/docker/lib/dockerfile_migrate.sh
-  # greps a single line for `arg_N = CONFIG_SRC=`, which NO TOML spelling
-  # can satisfy: the value has to be quoted, which puts a `"` where the
-  # pattern needs the name. A TOML body here makes the probe report "no
-  # redirect" and migration 2 delete a working pip line, so this fixture
-  # stays INI until that reader is fixed -- and that the shipped matcher
-  # cannot read a real setup.toml is a live defect in its own right.
   cat > "${TEMP_DIR}/.base/dist/setup.toml" <<'EOF'
-[build]
-arg_1 = TZ=Asia/Taipei
-arg_2 = CONFIG_SRC=myconfig
+[[build.args]]
+key = "TZ"
+value = "Asia/Taipei"
+
+[[build.args]]
+key = "CONFIG_SRC"
+value = "myconfig"
 EOF
   # The repo writes no setup.toml at all -- template defaults for every
   # section, which is the state `setup.sh` warns about rather than forbids.

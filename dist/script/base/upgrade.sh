@@ -155,8 +155,9 @@ _migrate_lifecycle_restart_default() {
       _section="${_trimmed#\[}"
       _section="${_section%\]}"
     elif [[ "${_section}" == "lifecycle" ]] \
-         && [[ "${_trimmed}" =~ ^restart[[:space:]]*=[[:space:]]*no$ ]]; then
-      _line="restart = unless-stopped"
+         && [[ "${_trimmed}" =~ ^restart[[:space:]]*=[[:space:]]*(.*)$ ]] \
+         && [[ "$(_unquote_scalar "${BASH_REMATCH[1]}")" == "no" ]]; then
+      _line='restart = "unless-stopped"'
     fi
     printf '%s\n' "${_line}" >> "${_tmp}"
   done < "${_conf}"
@@ -190,10 +191,32 @@ _trim_ws() {
   printf '%s' "${_s%"${_s##*[![:space:]]}"}"
 }
 
+# _unquote_scalar <text>
+#   Echo <text> trimmed, with one matching pair of surrounding string
+#   quotes removed: `"no"` -> `no`, `'no'` -> `no`, `no` -> `no`.
+#
+#   setup.toml is TOML, where a string value is ALWAYS quoted, so a reader
+#   that compares the raw text after the `=` is comparing the spelling and
+#   not the value -- `restart = "no"` reads back as `"no"` and never equals
+#   `no`. Both basic and literal strings are accepted, and so is the bare
+#   INI spelling the format replaced, so a file written before the
+#   conversion still reads.
+_unquote_scalar() {
+  local _s
+  _s="$(_trim_ws "${1-}")"
+  if (( ${#_s} >= 2 )); then
+    case "${_s}" in
+      '"'*'"'|"'"*"'") _s="${_s:1:${#_s}-2}" ;;
+    esac
+  fi
+  printf '%s' "${_s}"
+}
+
 # _lifecycle_restart_is <conf_path> <value>
 #   True when <conf_path> carries `restart = <value>` inside its
-#   `[lifecycle]` section. Section-scoped on purpose: a `[stage:*]`
-#   section may legitimately carry its own `restart` key.
+#   `[lifecycle]` section, whatever TOML spelling the value is written in.
+#   Section-scoped on purpose: a `[stage:*]` section may legitimately carry
+#   its own `restart` key.
 _lifecycle_restart_is() {
   local _path="${1:?}" _want="${2:?}"
   local _line _trimmed _section=""
@@ -206,7 +229,7 @@ _lifecycle_restart_is() {
     fi
     [[ "${_section}" == "lifecycle" ]] || continue
     [[ "${_trimmed}" =~ ^restart[[:space:]]*=[[:space:]]*(.*)$ ]] || continue
-    [[ "$(_trim_ws "${BASH_REMATCH[1]}")" == "${_want}" ]] && return 0
+    [[ "$(_unquote_scalar "${BASH_REMATCH[1]}")" == "${_want}" ]] && return 0
   done < "${_path}"
   return 1
 }

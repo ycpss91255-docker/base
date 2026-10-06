@@ -368,16 +368,8 @@ _seed_entry() {
   # The vendored template still carries the OLD default, so this upgrade is
   # the one that crosses the devel -> deploy rescope of the key.
   mkdir -p .base/dist
-  # toml-fixture-lint: allow the migration under test is INI-only
-  # _lifecycle_restart_is in dist/script/base/upgrade.sh compares the raw
-  # text after the `=`, so a TOML `restart = "no"` reads back as `"no"`
-  # with its quotes and never equals `no`. A TOML body makes the whole
-  # migration inert and every case below vacuous, so the fixture stays INI
-  # until that reader strips the quotes -- which also means the shipped
-  # migration cannot act on a real setup.toml, a live defect of its own.
-  printf '[lifecycle]\nrestart = no\n' > .base/dist/setup.toml
-  # toml-fixture-lint: allow same INI-only migration as the line above
-  printf '[lifecycle]\nrestart = no\ninit = true\n' > setup.toml
+  printf '[lifecycle]\nrestart = "no"\n' > .base/dist/setup.toml
+  printf '[lifecycle]\nrestart = "no"\ninit = true\n' > setup.toml
   git add -A
   git commit -q -m "seed a stale devel-scoped restart default"
 
@@ -386,7 +378,7 @@ _seed_entry() {
   assert_output --partial "MIGRATION"
   assert_output --partial "restart = unless-stopped"
 
-  grep -Fxq "restart = unless-stopped" setup.toml
+  grep -Fxq 'restart = "unless-stopped"' setup.toml
   grep -Fxq "init = true" setup.toml
   # Committed, so the subtree pull that follows it still saw a clean tree.
   refute_output --partial "dirty"
@@ -395,22 +387,14 @@ _seed_entry() {
 @test "upgrade.sh leaves a deliberately configured restart policy alone" {
   cd "${DOWN_DIR}"
   mkdir -p .base/dist
-  # toml-fixture-lint: allow the migration under test is INI-only
-  # _lifecycle_restart_is in dist/script/base/upgrade.sh compares the raw
-  # text after the `=`, so a TOML `restart = "no"` reads back as `"no"`
-  # with its quotes and never equals `no`. A TOML body makes the whole
-  # migration inert and every case below vacuous, so the fixture stays INI
-  # until that reader strips the quotes -- which also means the shipped
-  # migration cannot act on a real setup.toml, a live defect of its own.
-  printf '[lifecycle]\nrestart = no\n' > .base/dist/setup.toml
-  # toml-fixture-lint: allow same INI-only migration as the line above
-  printf '[lifecycle]\nrestart = on-failure:5\n' > setup.toml
+  printf '[lifecycle]\nrestart = "no"\n' > .base/dist/setup.toml
+  printf '[lifecycle]\nrestart = "on-failure:5"\n' > setup.toml
   git add -A
   git commit -q -m "seed a deliberate restart policy"
 
   run env TEMPLATE_REMOTE="file://${TMPL_BARE}" ./.base/dist/script/base/upgrade.sh v0.9.7
   assert_success
-  grep -Fxq "restart = on-failure:5" setup.toml
+  grep -Fxq 'restart = "on-failure:5"' setup.toml
 }
 
 # ── Pre-flight guards ───────────────────────────────────────────────────────

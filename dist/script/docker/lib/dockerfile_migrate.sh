@@ -392,10 +392,22 @@ readonly _DFM_LINE_CONTINUES_RE='\\[[:space:]]*$'
 # layer-2 `COPY "${CONFIG_SRC}" "${CONFIG_DIR}"` overlays onto ${CONFIG_DIR}.
 readonly _DFM_CONFIG_SRC_DEFAULT='config'
 
-# The conf keys that redirect the overlay, as one pattern. A build arg is
-# `arg_N = CONFIG_SRC=<dir>` under [build]; the section is not matched
-# because a key of this shape means nothing outside it.
-readonly _DFM_CONF_REDIRECT_RE='^[[:space:]]*arg_[0-9]+[[:space:]]*=[[:space:]]*CONFIG_SRC='
+# The conf keys that redirect the overlay, as one pattern, in both
+# spellings of a build arg.
+#
+# TOML is the shipped format: a build arg is an `[[build.args]]` block
+# whose `key` is CONFIG_SRC, and the name is a quoted string there -- the
+# `key = "CONFIG_SRC"` alternative is what makes this probe able to read a
+# real setup.toml at all. The bare `arg_N = CONFIG_SRC=<dir>` under
+# `[build]` is the INI spelling it replaced, kept so a layer written before
+# the conversion still answers. Neither alternative matches a section,
+# because a key of either shape means nothing outside its own.
+#
+# Grepping the layer rather than resolving the conf chain is deliberate:
+# the caller needs the per-layer three-answer status below (a layer that
+# says no is not a layer that could not be read), which a whole-chain merge
+# collapses into one.
+readonly _DFM_CONF_REDIRECT_RE=$'^[[:space:]]*(arg_[0-9]+[[:space:]]*=[[:space:]]*CONFIG_SRC=|key[[:space:]]*=[[:space:]]*[\'"]CONFIG_SRC[\'"][[:space:]]*$)'
 readonly _DFM_ARG_REDIRECT_RE='^[[:space:]]*ARG[[:space:]]+CONFIG_SRC='
 
 # The floor the conf chain must clear. _setup_conf_layers documents three
