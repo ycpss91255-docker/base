@@ -210,7 +210,17 @@ jobs:
           set -euo pipefail
           mkdir -p /tmp/digests
           digest="${{ steps.build.outputs.digest }}"
-          touch "/tmp/digests/${digest#sha256:}"
+          # The file is NAMED by the digest, which is what the manifest
+          # create reads, and it now CARRIES the platform it was built for.
+          # The merge job verifies the image before it lets any tag name it,
+          # and the only way to verify an image is to RUN it -- which a
+          # runner can do for its own architecture and no other. So that job
+          # has to tell which of the downloaded digests it can execute, and
+          # this file is the only place the answer survives:
+          # `merge-multiple: true` flattens the per-arch artifact NAMES away
+          # before the merge job ever sees them.
+          printf '%s\n' '${{ matrix.platform }}' \
+            > "/tmp/digests/${digest#sha256:}"
 
       - name: Upload digest
         uses: actions/upload-artifact@v7
@@ -220,8 +230,24 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  # Assemble the tagged multi-arch manifest from the per-arch digests,
-  # then smoke-test the published tag.
+  # Verify the per-arch digests the build shards pushed, and only then
+  # assemble the tagged multi-arch manifest that makes them reachable by
+  # name.
+  #
+  # THAT ORDER IS THE WHOLE POINT, and it is the one thing here a reader
+  # must not "tidy". The smoke step is the only check this image has: no
+  # job of this workflow needs self-test.yaml, and no tag push waits for
+  # one. It used to run AFTER `imagetools create`, so `:latest` -- the tag
+  # 15 of the 19 org repos that call a worker take by default -- already
+  # named the new content by the time anything had run it, and there is no
+  # `failure()` arm, no rollback and no `imagetools rm` anywhere in this
+  # file to put it back. On the measured v0.42.0 tag it moved 5m58s before
+  # that commit had a test verdict of any kind.
+  #
+  # The repair is this job's order, not a cross-workflow `needs:`: a
+  # digest-only push is reachable by content and by nothing else, so the
+  # window between "pushed" and "verified" belongs to no consumer. The tag
+  # is what consumers read, and it is attached last.
   merge:
     needs: build
     runs-on: ubuntu-latest
@@ -325,39 +351,63 @@ jobs:
           printf 'smoke=%s\n' "${smoke}" >> "${GITHUB_OUTPUT}"
           echo "Computed tags: ${tags}"
 
-      - name: Create multi-arch manifest
+      - name: Select the digest to verify
+        id: verify
         working-directory: /tmp/digests
         shell: bash
-        # Build `-t <tag>` flags from the comma-separated tag list and
-        # source refs from each per-arch digest filename, then create the
-        # manifest list. This is what makes the published tag a true
-        # multi-arch image instead of a last-shard-wins single arch.
+        # The smoke step below RUNS the image, and a runner can only run its
+        # own architecture. Each build shard wrote the platform it built into
+        # its digest file (the build job's Export digest step), so the arch
+        # is read out of the artifact rather than assumed from `runs-on:` --
+        # move this job to an arm64 runner and the selection follows it.
+        #
+        # A digest this runner cannot execute is not skipped, it is a hard
+        # failure: an empty selection would leave the smoke step with nothing
+        # to pull and the manifest create with nothing in front of it, which
+        # is precisely the state the step order here exists to remove. The
+        # read of each file is assigned rather than tested inline, because a
+        # command substitution that FAILS inside `[[ ]]` does not trip
+        # errexit -- an unreadable file would read as "not this arch".
         run: |
           set -euo pipefail
-          tag_args=()
-          IFS=',' read -ra _tags <<< "${{ steps.tags.outputs.tags }}"
-          for _t in "${_tags[@]}"; do
-            tag_args+=("-t" "${_t}")
-          done
-          src=()
+          host="linux/$(docker version --format '{{.Server.Arch}}')"
+          ref=''
           for _d in *; do
-            src+=("${IMAGE}@sha256:${_d}")
+            built="$(cat "${_d}")"
+            if [[ "${built}" == "${host}" ]]; then
+              ref="${IMAGE}@sha256:${_d}"
+              break
+            fi
           done
-          docker buildx imagetools create "${tag_args[@]}" "${src[@]}"
+          if [[ -z "${ref}" ]]; then
+            echo "::error::none of the digests this run pushed was built" \
+              "for ${host}, so this runner can execute none of them. The" \
+              "build matrix and this job's runner have diverged; refusing" \
+              "to tag an image nothing verified." >&2
+            exit 1
+          fi
+          printf 'ref=%s\n' "${ref}" >> "${GITHUB_OUTPUT}"
+          echo "Verifying ${ref} before any tag names it"
 
       - name: Smoke test pushed image
         # Regression guard for the v0.12.1 publish (issue #165): the alpine
         # final stage shipped without bash and without /usr/local/bin/bats,
         # so the image had bats-* files on disk but `bats` was unrunnable.
-        # Pull the just-pushed manifest and exercise each tool end-to-end
-        # so a similar break never reaches downstream consumers silently.
-        # The smoke target tracks `steps.tags.outputs.smoke` so we always
-        # verify the image the current trigger produced (incl. :main on
-        # main push, not the stale :latest left from the previous tag).
+        # Pull the just-pushed image and exercise each tool end-to-end so a
+        # similar break never reaches downstream consumers silently.
+        #
+        # THE TARGET IS A DIGEST, and no tag exists for this content yet.
+        # That is what makes this step a gate rather than a report: it reads
+        # `steps.verify.outputs.ref`, the digest a shard pushed, and the
+        # manifest create below attaches the tags to those same digests
+        # afterwards. Reading a TAG here, as this step used to, required the
+        # create to have run first -- so the check that could fail ran after
+        # the publish it was supposed to authorise, and a red smoke left the
+        # moved tag exactly where it was.
         shell: bash
         run: |
           set -euo pipefail
-          image="${{ steps.tags.outputs.smoke }}"
+          image="${{ steps.verify.outputs.ref }}"
           docker pull "${image}"
           # bats and kcov are NOT probed here: both are pinned by an ARG,
           # so the roster loop below asserts them by version, which is
@@ -493,3 +543,59 @@ jobs:
           # can no longer go missing. Alpine ships it as `yq-go`; the
           # binary on PATH is `yq`, which is what this probe pins.
           docker run --rm "${image}" yq --version
+
+      - name: Create multi-arch manifest
+        working-directory: /tmp/digests
+        shell: bash
+        # Build `-t <tag>` flags from the comma-separated tag list and
+        # source refs from each per-arch digest filename, then create the
+        # manifest list. This is what makes the published tag a true
+        # multi-arch image instead of a last-shard-wins single arch.
+        #
+        # LAST, after the smoke step above, and not for tidiness: every tag
+        # this attaches is reachable by name the instant it exists, nothing
+        # in this file can detach one again, and `:latest` is what the
+        # unpinned majority of the org builds its lint stage from. The
+        # content it names has already been run.
+        run: |
+          set -euo pipefail
+          tag_args=()
+          IFS=',' read -ra _tags <<< "${{ steps.tags.outputs.tags }}"
+          for _t in "${_tags[@]}"; do
+            tag_args+=("-t" "${_t}")
+          done
+          src=()
+          for _d in *; do
+            src+=("${IMAGE}@sha256:${_d}")
+          done
+          docker buildx imagetools create "${tag_args[@]}" "${src[@]}"
+
+      - name: Confirm the published tag names the verified digests
+        working-directory: /tmp/digests
+        shell: bash
+        # The one thing that cannot be checked before the tag exists: that
+        # the tag RESOLVES, and resolves to this run's content. The smoke
+        # step above answers "does the image work"; this answers "did the
+        # create attach the tags to it", which is the only failure mode the
+        # reordering leaves on this side of the publish.
+        #
+        # `steps.tags.outputs.smoke` is the single tag the current trigger
+        # treats as primary (`:<ver>` for a tag push, `:main` for a main
+        # push), so this reads the tag this run produced and never a stale
+        # one left by the previous publish. The expectation is the digest set
+        # that was just verified, read from the artifact directory rather
+        # than written here, so an arch added to the build matrix is checked
+        # without this step being edited.
+        run: |
+          set -euo pipefail
+          image="${{ steps.tags.outputs.smoke }}"
+          manifest="$(docker buildx imagetools inspect --raw "${image}")"
+          for _d in *; do
+            if ! printf '%s' "${manifest}" | grep -qF "sha256:${_d}"; then
+              echo "::error::${image} does not include sha256:${_d}, one of" \
+                "the digests this run built and verified. The manifest the" \
+                "tag resolves to is not the one this job assembled." >&2
+              exit 1
+            fi
+            echo "${image} includes the verified digest sha256:${_d}"
+          done
