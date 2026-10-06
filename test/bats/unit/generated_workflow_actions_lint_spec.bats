@@ -53,7 +53,18 @@ setup() {
   # container's host-computed handoff is left in place: it is keyed to
   # /source and cannot reach a scratch tree, and the real-tree case at the
   # bottom of this file reads it.
-  SCRATCH="$(mktemp -d)"
+  # The scratch REPO_ROOT is NAMED so that it holds every single-digit
+  # version token, rather than leaving that to chance. This driver prints
+  # ${REPO_ROOT} verbatim in two of its refusals, so the path reaches
+  # ${output} -- and a plain `mktemp -d` suffix held `v1` once
+  # (/tmp/tmp.fFby7v1xul), which satisfied a whole-output
+  # `refute_output --partial 'v1'` on the PATH instead of on an emitted
+  # ref: a red gate about nothing, roughly one run in 214 (base#1099).
+  # Forcing the suffix makes that outcome certain instead of rare, so a
+  # version refutation written against the whole output cannot be
+  # committed here -- it is red on its first run, and the fix is to anchor
+  # it to the `<action>@<ref>` it actually means.
+  SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/gwa.v0v1v2v3v4v5v6v7v8v9.XXXXXXXX")"
   git -C "${SCRATCH}" init -q
   mkdir -p "${SCRATCH}/.github/workflows" "${SCRATCH}/dist"
   REPO_ROOT="${SCRATCH}"
@@ -431,9 +442,13 @@ _write_generator_raw() {
   _gwa_lint
   [ "${status}" -ne 0 ]
   # Fails because the tree holds NO generated ref at all, not because it
-  # read either comment as one.
-  refute_output --partial 'v1'
-  refute_output --partial 'v2'
+  # read either comment as one. The refutation names the WHOLE ref rather
+  # than the version alone: this lint prints ${REPO_ROOT} verbatim in that
+  # refusal, so a bare `v1` is satisfiable by a scratch path component and
+  # says nothing about what the scan read (base#1099). `actions/checkout@v1`
+  # is a shape only an emitted ref has.
+  refute_output --partial 'actions/checkout@v1'
+  refute_output --partial 'actions/checkout@v2'
 }
 
 # ── Unrecognised input must fail, not be skipped ────────────────────────
@@ -721,7 +736,9 @@ _write_generator_raw() {
   [ "${status}" -ne 0 ]
   assert_output --partial 'not a versioned action reference'
   assert_output --partial '_MONITOR_REF'
-  refute_output --partial 'v7'
+  # Anchored to the whole ref, not to `v7` alone: see setup() on why a
+  # version token by itself is satisfiable by the scratch path.
+  refute_output --partial 'actions/checkout@v7'
 }
 
 # why: The variable need not be the whole value; actions/checkout@${_V} is the same
@@ -1268,7 +1285,9 @@ _write_generator_raw() {
 
   _gwa_lint
   [ "${status}" -ne 0 ]
-  refute_output --partial 'v7'
+  # Anchored to the whole ref, not to `v7` alone: see setup() on why a
+  # version token by itself is satisfiable by the scratch path.
+  refute_output --partial 'actions/checkout@v7'
 }
 
 # why: The whole trade in one case: file-scope, unconditional, column 0, above the
