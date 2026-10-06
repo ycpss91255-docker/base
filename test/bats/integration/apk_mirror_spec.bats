@@ -78,12 +78,6 @@ _forwarded_args() {
     | yq '.services.test-tools.build.args // {} | to_entries | .[] | .key + "=" + (.value // "")' -
 }
 
-# why: Unset has to mean "the Dockerfile's default", not "an empty
-# override the Dockerfile then has to defend itself against". This is the
-# case every machine that can reach dl-cdn is in, so an unconditional
-# forward would put an empty `--build-arg` in front of the image's own
-# default everywhere and be noticed nowhere.
-#
 # "Forwards nothing" is also what a service that forwards NOTHING AT ALL
 # does, which is the defect base#1090 is about: measured on 1c9ccb2, with
 # the `build.args` entry deleted from compose, this case reported ok and
@@ -94,6 +88,14 @@ _forwarded_args() {
 # otherwise". The mapping form -- `APK_MIRROR: ${APK_MIRROR:-...}` -- fails
 # it too, and should: that is the second declaration of the upstream host
 # this file exists to keep out.
+
+# why: Unset has to mean "the Dockerfile's default", not "an empty
+# override the Dockerfile then has to defend itself against". This is the
+# case every machine that can reach dl-cdn is in, so an unconditional
+# forward would put an empty `--build-arg` in front of the image's own
+# default everywhere and be noticed nowhere -- and the refutation is
+# preceded by the bare `build.args` declaration that keeps it from being
+# satisfied by a service that forwards the arg in no state at all.
 @test "compose.yaml: with APK_MIRROR unset the tooling build receives no mirror arg (#1008)" {
   # The declaration, derived from compose's own build.args rather than
   # asserted as text: a bare sequence entry equal to the arg's name.

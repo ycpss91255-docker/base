@@ -2921,8 +2921,8 @@ FIXTURE
 }
 
 # why: the shipped spec asserts a non-empty `base_image_ref` and a
-# `sha256:<hex>`-shaped digest, and its skip fires only when NEITHER
-# manifest file exists
+# `sha256:<hex>`-shaped digest, and its precondition reads the Dockerfile
+# that decides adoption rather than its own subject's absence
 @test "the shipped smoke spec demands the manifest's VALUE and fails closed on half of one (#951)" {
   local _spec="/source/dist/test/bats/smoke/shared/reproducibility.bats"
   # This test is TEXT about a spec, and it is named for what text can
@@ -2959,12 +2959,34 @@ FIXTURE
   # it. It is the `-test` stage's job to say so.
   run grep -F 'does not contradict' "${_spec}"
   assert_success
-  # The skip is narrow by construction: it fires only when NEITHER file
-  # exists, so a repo that writes one and not the other, or writes an
-  # empty record, has adopted the manifest and broken it -- and that
-  # fails. A guard widened to "either is missing" would turn every real
-  # regression this file exists for into a green skip.
-  run grep -F '[[ ! -e "${REPRO_ENV}" && ! -e "${REPRO_PKGS}" ]]' "${_spec}"
+  # The skip is narrow by construction, and ITS PRECONDITION IS DERIVED.
+  # EITHER file present means the record was adopted, so a repo that writes
+  # one and not the other, or writes an empty record, has adopted the
+  # manifest and broken it -- and that fails. A guard widened to "either is
+  # missing" would turn every real regression this file exists for into a
+  # green skip.
+  #
+  # With neither file present, what the spec reads is the consumer's own
+  # Dockerfile -- the artifact that DECIDES whether the record is expected
+  # -- not the absence of the files it came to read. Reading its own
+  # subject's absence as consent made "not ported yet" and "ported and
+  # lost" one state (base#1090), and the second is the live regression. The
+  # three-way answer lives in the shared helper so base's own unit specs
+  # can execute it over fixtures; those cases are in
+  # test/bats/unit/smoke_helper_spec.bats, and what text can say here is
+  # that the spec routes through it and supplies the Dockerfile path.
+  local _helper="/source/dist/test/bats/smoke/shared/test_helper.bash"
+  assert_spec_subject "${_helper}" \
+      "the shared smoke helper carrying the manifest's adoption reading"
+  run grep -F '[[ -e "${_env}" || -e "${_pkgs}" ]]' "${_helper}"
+  assert_success
+  run grep -F 'REPRO_DOCKERFILE="/lint/Dockerfile"' "${_spec}"
+  assert_success
+  run grep -F 'reproducibility_manifest_state' "${_spec}"
+  assert_success
+  # ... and the state that says the record was adopted and lost is a
+  # FAILURE in the spec, not a third kind of skip.
+  run grep -E 'missing\)$' "${_spec}"
   assert_success
   # The skip's stated REASON has to match the wiring. `just upgrade` does
   # rewrite a consumer Dockerfile -- init.sh and upgrade.sh both call

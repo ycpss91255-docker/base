@@ -861,13 +861,6 @@ _all_group_members() {
   done
 }
 
-# why: A group spec the dispatcher cannot read must not resolve to an
-# empty group. Every refusal here is a way a CI job could run zero
-# drivers and report success, which is the same green-while-gating-nothing
-# failure the grouping itself is built to avoid -- so the spec is
-# validated rather than trusted, and an index outside its own total is
-# refused with the malformed ones.
-#
 # A refusal-only case is satisfied by the feature's ABSENCE, which is the
 # defect base#1090 is about: with the `--lint-group-members` arm deleted
 # from the option parser, every spec below -- good and bad alike -- fell
@@ -876,6 +869,14 @@ _all_group_members() {
 # spec is ACCEPTED and lists the whole table, and no refusal below is
 # allowed to be the parser's. Together those say the option is present,
 # reads a spec, and refuses only the specs it should.
+
+# why: A group spec the dispatcher cannot read must not resolve to an
+# empty group. Every refusal here is a way a CI job could run zero
+# drivers and report success, which is the same green-while-gating-nothing
+# failure the grouping itself is built to avoid -- so the spec is
+# validated rather than trusted, an index outside its own total is refused
+# with the malformed ones, and each refusal is framed by the positive that
+# keeps it from being satisfied by the option not existing.
 @test "lint groups: a group spec that is not <n>/<total> in range is refused (base#1071)" {
   # Present and behaving. The accepted spec and the expected listing are
   # both derived from the lint tables, so this half moves with them: at

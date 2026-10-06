@@ -206,8 +206,6 @@ _PINS='export TEST_TOOLS_IMAGE=test-tools:spec; export COMPOSE_PROJECT_NAME=base
   assert_output --partial "rm -rf /source/coverage"
 }
 
-# why: the failure this closes is a host rm that cannot unlink root's files
-#
 # The claim is "the host did not do it", and a claim of that shape is
 # satisfied by there being no clean at all -- the defect base#1090 is
 # about. Measured on 1c9ccb2, with `_clean_coverage` renamed away: the
@@ -216,6 +214,10 @@ _PINS='export TEST_TOOLS_IMAGE=test-tools:spec; export COMPOSE_PROJECT_NAME=base
 # ok 1 of 1. So the survival is read together with two positives -- the
 # clean RAN and delegated to a container, and the failure is its own
 # refusal by event name -- and none of the three can be had by absence.
+
+# why: the failure this closes is a host rm that cannot unlink root's
+# files, read together with the two positives that keep the survival from
+# being satisfied by there being no clean at all
 @test "just test clean: no host-side rm decides the outcome (base#1032)" {
   # A host `rm` is exactly what could not do this job: unlinking a file
   # needs write permission on the DIRECTORY holding it, and that directory
