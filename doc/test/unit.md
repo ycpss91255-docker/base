@@ -1119,13 +1119,14 @@ between them can be asserted at all.
 | `reclaim.sh --stale delegates the unowned classes to prune.sh with the same window` | - |
 | `reclaim.sh --stale never touches volumes` | - |
 
-### test/bats/unit/ci_spec.bats (177)
+### test/bats/unit/ci_spec.bats (180)
 
 | Test | Description |
 |------|-------------|
 | `_run_shellcheck: invokes shellcheck against every expected script` | Wired-file regression guard |
 | `_run_shellcheck: picks up every .sh file in script/docker/` | `find` covers new scripts |
 | `_run_shellcheck: picks up every .sh file in script/test/ (#876)` | - |
+| `_run_shellcheck: lints every *.sh the dist/ tree ships (base#1113)` | base#1113 the dist/ half named its find roots, and the tree grew two scripts outside every one of them |
 | `_run_shellcheck: exits non-zero when shellcheck fails on any script` | Strict-mode propagation |
 | `_run_lint_tool: names the tool and the signal when a driver dies of SIGPIPE (#898)` | 141 reported as tool + command + SIGPIPE |
 | `_run_lint_tool: names the tool when a driver fails without a signal (#898)` | Plain non-zero abort still names the tool |
@@ -1255,7 +1256,9 @@ between them can be asserted at all.
 | `_run_bats_path: BATS_FILE runs bats on that path; BATS_FILTER appends -f` | #523 single-path runner |
 | `_run_bats_path: filter-only runs bats across unit + integration` | #523 filter-only runner |
 | `drivers: bats.sh, shellcheck.sh and hadolint.sh driver files exist` | #650 driver files present (incl. hadolint) |
-| `drivers: test.sh sources all per-tool drivers` | #650 dispatcher sources every driver |
+| `drivers: test.sh sources every driver file in drivers/ (base#1113)` | base#1113 three source lines were checked against a directory of twenty-nine driver files |
+| `_LINT_TOOLS: every lint entry point under drivers/ is in the table or stated exempt (base#1113)` | base#1113 a driver never added to the table is in no lint phase and no CI group, and the guards all read the table |
+| `_LINT_TOOLS: each stated exemption names something real and nothing the table carries (base#1113)` | base#1113 an exemption array is the one hand-written thing left, so it is held to the rule that each entry excuses something real |
 | `drivers: the bats runners live in drivers/bats.sh, not test.sh` | #650 bats runners moved out |
 | `drivers: _run_shellcheck lives in drivers/shellcheck.sh, not test.sh` | #650 shellcheck moved out |
 | `drivers: _run_hadolint lives in drivers/hadolint.sh, not test.sh (#650)` | #650 hadolint in its driver |
