@@ -504,8 +504,8 @@ _track_every_canonical_entry() {
     if [[ "${_entry}" == /* ]]; then
       # An anchored entry has no pathspec yet, so its tracked copy stays.
       # Whether base may untrack a consumer's hand-written one during an
-      # unattended resync commit is the open decision in #1119; until it is
-      # taken, leaving the file in the index is the recoverable direction.
+      # unattended resync commit is an open decision; until it is taken,
+      # leaving the file in the index is the recoverable direction.
       assert [ -n "${_left}" ]
     else
       assert [ -z "${_left}" ]
