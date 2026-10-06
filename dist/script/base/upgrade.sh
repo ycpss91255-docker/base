@@ -637,15 +637,67 @@ _upgrade() {
   # Step 4: update main.yaml @tag references
   _log "Step 4/5: update workflow @tag references"
   local main_yaml="${REPO_ROOT}/.github/workflows/main.yaml"
+  local _ref_note="not present, so there was no workflow @ref to update"
   if [[ -f "${main_yaml}" ]]; then
-    # Replace @vX.Y.Z(-prerelease)? with new version in reusable workflow
-    # references. Match each worker file by name to avoid greedy patterns
-    # clobbering siblings. The `-E` regex anchors on a full semver shape
-    # (optional pre-release per §9) — the prior `[0-9.]*` stopped at the
-    # first `-`, so upgrading from an RC tag (e.g. v0.10.0-rc1 → -rc2)
-    # left the old suffix in place and produced `@v0.10.0-rc2-rc1`.
-    sed -i -E "s|build-worker\.yaml@v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?|build-worker.yaml@${target_ver}|g" "${main_yaml}"
-    sed -i -E "s|release-worker\.yaml@v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?|release-worker.yaml@${target_ver}|g" "${main_yaml}"
+    # Replace @vX.Y.Z(-prerelease)? with the new version in every ref into
+    # one of base's OWN reusable workflows, matched by SHAPE and never by
+    # worker name.
+    #
+    # Naming the workers was a roster, and a roster omits. base ships four
+    # workflows a downstream main.yaml can call; this named two, so
+    # publish-worker's ref in a consumer was advanced by nothing at all --
+    # the consumer's copy never moved, no later upgrade repaired it, and the
+    # commit message below claimed it had. `build-worker.yaml` is also a
+    # SUBSTRING of `multi-distro-build-worker.yaml`, so the fourth worker was
+    # carried along by an accident of spelling rather than by the rule.
+    #
+    # Anchored on the upstream slug, because name-independent must not become
+    # owner-independent: a downstream main.yaml may call somebody else's
+    # reusable workflow, whose tags have nothing to do with the base version
+    # being installed, and the unanchored pattern rewrote those too. The
+    # slug's dots are escaped so the anchor is a literal rather than a
+    # wildcard.
+    #
+    # The `-E` regex anchors on a full semver shape (optional pre-release per
+    # §9) — the prior `[0-9.]*` stopped at the first `-`, so upgrading from an
+    # RC tag (e.g. v0.10.0-rc1 → -rc2) left the old suffix in place and
+    # produced `@v0.10.0-rc2-rc1`.
+    #
+    # The whole pattern sits ON the sed line rather than in variables above
+    # it: template_spec.bats exercises the production substitution by
+    # extracting this line out of this file, so a pattern assembled from
+    # names that line does not carry would be exercised empty.
+    #
+    # THE @tag IS THE ONLY VERSION THIS WRITES, and a second one must not be
+    # added beside it. The tooling image a worker builds from used to be a
+    # `test_tools_version` input a caller set next to this ref, which made the
+    # tooling version a thing an upgrade had to keep in step with the ref by
+    # rewriting both. It is derived from the `.version` of the base checkout
+    # the worker takes at the ref this line moves (base#1122), so moving the
+    # ref moves it: a version written into main.yaml here would be a second
+    # source of it again. A spec holds the workers to declaring no such input.
+    local _before
+    _before="$(cat "${main_yaml}")"
+    sed -i -E "s|(${BASE_UPSTREAM_SLUG//./\\.}/\.github/workflows/[A-Za-z0-9._-]+\.ya?ml)@v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?|\1@${target_ver}|g" "${main_yaml}"
+    # What the commit message says is read off what CHANGED, not restated
+    # from the rule above. The old message asserted "workflow @tag updated to
+    # <ver>" unconditionally, which was false on exactly the repos whose
+    # unnamed worker ref it had just left behind -- and a line that cannot be
+    # wrong reports nothing.
+    #
+    # The comparison is `grep -Fxv -f` (the lines present now that were not
+    # present before) rather than `diff`, because diff's OUTPUT FORMAT is not
+    # a contract: GNU diff defaults to normal format (`> new`) and busybox
+    # diff -- what a consumer on Alpine has -- defaults to unified (`+new`).
+    # Reading `> ` out of it worked on the author's host and reported "nothing
+    # changed" over a file it had just rewritten four lines of.
+    local _moved
+    _moved="$(grep -Fxv -f <(printf '%s\n' "${_before}") "${main_yaml}" \
+      | sed -nE 's|^.*/([A-Za-z0-9._-]+\.ya?ml)@.*$|\1|p' \
+      | sort -u | tr '\n' ' ' || true)"
+    _moved="${_moved% }"
+    _ref_note="no base workflow @ref needed updating"
+    [[ -n "${_moved}" ]] && _ref_note="@ref updated to ${target_ver} for ${_moved}"
     git add "${main_yaml}"
   fi
 
@@ -681,7 +733,7 @@ _upgrade() {
   git commit -m "$(cat <<COMMIT
 chore: update template references to ${target_ver}
 
-- main.yaml: workflow @tag updated to ${target_ver}
+- main.yaml: ${_ref_note}
 - .gitignore: synced canonical entries (template lib/gitignore.sh)
 - untracked any derived artifacts now covered by .gitignore
 COMMIT

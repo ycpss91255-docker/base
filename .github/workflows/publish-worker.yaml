@@ -26,9 +26,12 @@ name: Publish Docker Image
 #   ghcr.io/<org>/<image_name>:v0.1.0-minimal
 #
 # The reused inputs (build_args / context_path / dockerfile_path /
-# build_contexts / platforms / test_tools_version) mirror
-# build-worker.yaml so callers can share matrix definitions across
-# build + publish jobs.
+# build_contexts / platforms) mirror build-worker.yaml so callers can
+# share matrix definitions across build + publish jobs. The tooling image
+# the test stage is built FROM is NOT among them: it is derived from the
+# version-matched base checkout the way build-worker.yaml derives it
+# (#1122), because an input for it is a second source of a value the
+# caller's `@vX.Y.Z` pin already names.
 
 on:
   workflow_call:
@@ -124,17 +127,6 @@ on:
           Optional newline-separated `<name>=<location>` pairs (mirrors
           build-worker.yaml). Forwarded to docker/build-push-action's
           build-contexts.
-      test_tools_version:
-        required: false
-        type: string
-        default: "latest"
-        description: |
-          Tag of `ghcr.io/ycpss91255-docker/test-tools:<tag>`. The
-          downstream Dockerfile reads this as a build-arg even when
-          publishing the devel/runtime stage (the test stage is
-          declared FROM ${TEST_TOOLS_IMAGE} for the lint pass);
-          callers should pin to the template release they upgraded
-          from for reproducibility.
 
 jobs:
   # ────────────────────────────────────────────────────────────────
@@ -222,6 +214,36 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      # base-owned worker logic is fetched at the worker's OWN ref
+      # (github.job_workflow_sha) into a dedicated path so it can never
+      # drift from the worker and never collides with the caller checkout
+      # above. Same version-match pattern build-worker.yaml's resolvers
+      # use (#802).
+      - name: Checkout base worker source (version-matched via job_workflow_sha)
+        uses: actions/checkout@v7
+        with:
+          repository: ycpss91255-docker/base
+          ref: ${{ github.job_workflow_sha }}
+          path: .worker-base
+
+      # #1122 -- WHICH tooling image this build consumes, read from the
+      # version-matched checkout above rather than from an input.
+      #
+      # The published image is built FROM the test stage's tooling image
+      # too (that stage is `FROM ${TEST_TOOLS_IMAGE}` for the lint pass),
+      # and this used to be a `test_tools_version` input defaulting to the
+      # rolling `latest`: a release could be published having linted
+      # against binaries no version names. `.worker-base/.version` is the
+      # release this worker IS, and the tag release-test-tools.yaml
+      # publishes the tooling image under, so the published tag and the
+      # consumed tag are one string from one file.
+      - name: Resolve the tooling image (version-matched)
+        id: testtools
+        run: |
+          set -euo pipefail
+          image="$(bash .worker-base/script/ci/testtools_image.sh)"
+          printf 'image=%s\n' "${image}" >> "${GITHUB_OUTPUT}"
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
@@ -266,7 +288,7 @@ jobs:
             USER_UID=1000
             USER_GID=1000
             HARDWARE=${{ matrix.hardware }}
-            TEST_TOOLS_IMAGE=ghcr.io/ycpss91255-docker/test-tools:${{ inputs.test_tools_version }}
+            TEST_TOOLS_IMAGE=${{ steps.testtools.outputs.image }}
             ${{ inputs.build_args }}
 
       - name: Export digest

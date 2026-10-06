@@ -271,10 +271,13 @@ jobs:
         # statically pulling :latest and missing :main bootstrapping
         # bugs).
         #
-        # `:latest` is the tag the whole org consumes: publish-worker.yaml
-        # DEFAULTS `test_tools_version` to it, so every downstream repo
-        # that has not pinned builds its lint stage from whatever :latest
-        # currently is. Both rules below are about protecting it.
+        # `:latest` is the rolling convenience tag -- a human's `docker
+        # pull`, never a worker's build. NO WORKER CONSUMES IT ANY MORE:
+        # build-worker.yaml and publish-worker.yaml derive the image they
+        # build from out of `.version` in the base checkout they take at
+        # their own ref (#1122), which is `:<ver>` below. Both rules here
+        # still hold, because `:latest` is published from this step and a
+        # tag published wrong is wrong for whoever pulls it.
         #
         # A PRERELEASE tag publishes `:<ver>` and stops there. The `v*`
         # trigger matches `v0.42.0-rc4` as readily as `v0.42.0`, and rc1

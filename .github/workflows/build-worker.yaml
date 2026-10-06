@@ -31,23 +31,6 @@ on:
           deliberately does not want them built in CI. A Dockerfile that
           declares one half of the pair fails the resolve step naming both
           stages, rather than deep inside buildx.
-      test_tools_version:
-        required: false
-        type: string
-        default: "latest"
-        description: |
-          Tag for the `ghcr.io/ycpss91255-docker/test-tools:<tag>` image
-          consumed as a build-arg by the downstream Dockerfile's test
-          stage. Caller should pin this to the template release they
-          upgraded from (e.g. `test_tools_version: v0.10.1`) for
-          reproducibility; default `latest` works but loses
-          determinism against an in-flight template release.
-
-          Replaces the earlier GITHUB_WORKFLOW_REF parsing, which was
-          read the caller's own tag ref (e.g. a downstream repo's
-          `v1.5.0`) rather than the template's pinned @tag, so
-          downstream tag pushes would try to pull
-          `ghcr.io/.../test-tools:<downstream-tag>` which never exists.
       platforms:
         required: false
         type: string
@@ -452,6 +435,32 @@ jobs:
           ref: ${{ github.job_workflow_sha }}
           path: .worker-base
 
+      # #1122 -- WHICH tooling image this build consumes, read from the
+      # version-matched checkout above rather than from an input.
+      #
+      # It used to be a `test_tools_version` input defaulting to `latest`,
+      # so the caller's `uses: ...@vX.Y.Z` pinned the worker's CODE and left
+      # the image its lint stage is built FROM rolling: the same downstream
+      # commit linted against different binaries on different days, and
+      # during an RC window against whatever the last finished release had
+      # left on `:latest`. Two things named one image and they were never
+      # the same string.
+      #
+      # `.worker-base/.version` is the release this worker IS, and the tag
+      # release-test-tools.yaml publishes the tooling image under -- so the
+      # published tag and the consumed tag are now one string from one file,
+      # with no release step keeping them in step. Reached through the SAME
+      # `.worker-base` checkout as the cache-scope, runtime-stage and
+      # stage-name resolvers, and the script refuses rather than falling
+      # back to `latest`: the rolling tag must not also be what an
+      # unreadable version resolves to.
+      - name: Resolve the tooling image (version-matched)
+        id: testtools
+        run: |
+          set -euo pipefail
+          image="$(bash .worker-base/script/ci/testtools_image.sh)"
+          printf 'image=%s\n' "${image}" >> "${GITHUB_OUTPUT}"
+
       # #470 — Opt-in pre-build cleanup for large BASE_IMAGE repos. Runs
       # before Set up Docker Buildx so buildx's overlayfs snapshot dir
       # lands on the freed space; tool-cache: true also wipes
@@ -565,14 +574,12 @@ jobs:
         # needed here. Public visibility of the GHCR package means
         # anonymous pull works, keeping the build-args simple.
         #
-        # `inputs.test_tools_version` lets the caller pin the
-        # test-tools image tag to whichever template release they
-        # upgraded from (e.g. `test_tools_version: v0.10.1`). Default
-        # `latest` tracks whatever the most recent template release
-        # published — fine for non-tagged CI, but downstream repos
-        # cutting their own release should pin explicitly for
-        # reproducibility (the earlier GITHUB_WORKFLOW_REF auto-parse
-        # was wrong: that ref is the caller's own tag, not template's).
+        # The reference itself is not written here: the Resolve the tooling
+        # image step above derives it from the version-matched base
+        # checkout, so this build and the two below name one value read from
+        # one file (#1122). It was an input defaulting to the rolling
+        # `latest`, which left the tooling half of the caller's `@vX.Y.Z`
+        # pin unpinned.
         #
         # Stage rename note (#243): target was `test` prior to v0.21.0;
         # renamed to `devel-test` for symmetry with the new
@@ -595,7 +602,7 @@ jobs:
             USER_UID=1000
             USER_GID=1000
             HARDWARE=${{ matrix.hardware }}
-            TEST_TOOLS_IMAGE=ghcr.io/ycpss91255-docker/test-tools:${{ inputs.test_tools_version }}
+            TEST_TOOLS_IMAGE=${{ steps.testtools.outputs.image }}
             ${{ inputs.build_args }}
 
       - name: Build devel stage
@@ -674,7 +681,7 @@ jobs:
             USER_GROUP=ci
             USER_UID=1000
             USER_GID=1000
-            TEST_TOOLS_IMAGE=ghcr.io/ycpss91255-docker/test-tools:${{ inputs.test_tools_version }}
+            TEST_TOOLS_IMAGE=${{ steps.testtools.outputs.image }}
             ${{ inputs.build_args }}
 
       - name: Build runtime stage
@@ -728,7 +735,7 @@ jobs:
           BUILD_ARGS_INPUT: ${{ inputs.build_args }}
           PLATFORM: ${{ matrix.platform }}
           HARDWARE: ${{ matrix.hardware }}
-          TEST_TOOLS_IMAGE: "ghcr.io/ycpss91255-docker/test-tools:${{ inputs.test_tools_version }}"
+          TEST_TOOLS_IMAGE: ${{ steps.testtools.outputs.image }}
         run: |
           set -euo pipefail
 

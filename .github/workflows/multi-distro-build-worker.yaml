@@ -63,10 +63,6 @@ on:
         required: false
         type: boolean
         default: true
-      test_tools_version:
-        required: false
-        type: string
-        default: "latest"
       platforms:
         required: false
         type: string
@@ -146,7 +142,6 @@ jobs:
       # docker/build-push-action.
       build_args: ${{ matrix.build_args }}
       build_runtime: ${{ inputs.build_runtime }}
-      test_tools_version: ${{ inputs.test_tools_version }}
       platforms: ${{ inputs.platforms }}
       context_path: ${{ inputs.context_path }}
       dockerfile_path: ${{ inputs.dockerfile_path }}

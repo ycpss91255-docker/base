@@ -1121,7 +1121,7 @@ jobs:
       archive_name_prefix: my_app
 ```
 
-<!-- sync: build-workeryaml-inputs 56e79469bb9e 20e4d316406d -->
+<!-- sync: build-workeryaml-inputs 40409afe0592 124e225bddef -->
 ### build-worker.yaml 參數
 
 | 參數 | 類型 | 必填 | 預設值 | 說明 |
@@ -1130,7 +1130,12 @@ jobs:
 | `build_args` | string | 否 | `""` | 多行 KEY=VALUE 建置參數 |
 | `build_runtime` | boolean | 否 | `true` | 退出 runtime 建置(`false`)。stage 是否存在改由 Dockerfile 決定:有宣告 `runtime` / `runtime-test` 才建置,沒有就跳過,所以沒有 runtime stage 的 repo 不必改這一項 |
 | `platforms` | string | 否 | `"linux/amd64"` | 逗號分隔的目標平台；每個會在原生 runner 上平行跑（`linux/amd64` → ubuntu-latest、`linux/arm64` → ubuntu-24.04-arm） |
-| `test_tools_version` | string | 否 | `"latest"` | `ghcr.io/ycpss91255-docker/test-tools:<tag>` 的 tag，下游可釘到所升級的 template release 以保證可重現 |
+
+`devel-test` / `runtime-test` stage 建置時 FROM 的工具映像不是參數。它由
+worker 以自身 ref 取出的 base checkout 中的 `.version` 推導而來，那也是
+`release-test-tools.yaml` 發佈該映像所用的 tag——所以你釘住 worker 的
+`@vX.Y.Z`，同時也釘住了工具映像。這件事以前由 `test_tools_version` 參數
+承載，預設是滾動的 `latest`；仍在傳該參數的呼叫端必須移除那一行。
 
 <!-- sync: release-workeryaml-inputs 76c6974e7c8c 59f2d7db8667 -->
 ### release-worker.yaml 參數
