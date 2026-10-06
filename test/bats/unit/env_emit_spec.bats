@@ -86,6 +86,87 @@ load "${BATS_TEST_DIRNAME}/setup_spec_helper"
 }
 
 # ════════════════════════════════════════════════════════════════════
+# write_env: the population is the EMITTED compose document's, not a roster
+# ════════════════════════════════════════════════════════════════════
+
+# why: Every USER_GID / USER_GROUP assertion in the tree is a CONSUMER
+# carrying its own hand-written fixture (lib_spec writes its own .env,
+# gen_spec asserts the compose text), so expectation and subject never share
+# the producer and the producer was free to stop producing. Deleting both
+# lines from write_env's heredoc left the whole unit and integration tiers
+# green, while a real consumer gets USER_GID="" overriding the Dockerfile's
+# ARG default and `groupadd: invalid group ID ''`, exit 3. The one gate that
+# does catch it is the dual-arch acceptance job, the most expensive in CI
+@test "write_env writes every key the emitted compose.yaml interpolates with no fallback (#1115)" {
+  # The population is DERIVED from the emitter's own output rather than
+  # written down here, so it moves when the emitter moves instead of rotting.
+  #
+  # The split is the emitter's own and needs no list: `${KEY}` has nowhere
+  # else to come from, so .env.generated must carry it; `${KEY:-default}`
+  # states its own fallback and legitimately comes from the host environment
+  # (DISPLAY, XAUTHORITY, XDG_RUNTIME_DIR, WAYLAND_DISPLAY) or from the
+  # default itself (PORT_n, TZ, the apt mirrors, DOCKER_HUB_USER).
+  local _compose="${TEMP_DIR}/compose.yaml"
+  local _env="${TEMP_DIR}/.env.generated"
+  # generate_compose_yaml reads the Dockerfile beside its output path to
+  # discover the stages it emits services for.
+  cat > "${TEMP_DIR}/Dockerfile" <<'EOF'
+FROM scratch AS sys
+FROM sys AS devel-base
+FROM devel-base AS devel
+FROM devel AS devel-test
+EOF
+  # The WIDEST shape the emitter has -- GUI on, GPU on, a bridge network, a
+  # published port -- so every fallback-carrying key is actually in the
+  # document. On a narrow fixture the exclusion below would pass by absence
+  # rather than by doing anything, and the premise assertion further down is
+  # what says so.
+  local _extras=()
+  generate_compose_yaml "${_compose}" "myrepo" \
+    true true all "gpu compute" _extras \
+    "" "" "" "" "8080:80" "" bridge host host
+
+  write_env "${_env}" \
+    "testuser" "testgroup" "1001" "1001" \
+    "x86_64" "dockerhub" "true" \
+    "myrepo" "/workspace" \
+    "tw.archive.ubuntu.com" "mirror.twds.com.tw" "Asia/Taipei" \
+    "bridge" "host" "host" "true" \
+    "all" "gpu compute" \
+    "true" "abc123" "df456" \
+    "mynet" "" "" "" "" "local-myrepo"
+
+  local -a _required=() _defaulted=()
+  mapfile -t _required < <(grep -oE '\$\{[A-Z_][A-Z0-9_]*\}' "${_compose}" \
+    | tr -d '${}' | sort -u)
+  mapfile -t _defaulted < <(grep -oE '\$\{[A-Z_][A-Z0-9_]*:-' "${_compose}" \
+    | sed -E 's/^\$\{//; s/:-$//' | sort -u)
+
+  # Two premises, because a derived population that silently became empty
+  # would turn the loop below into a pass that observed nothing -- a derived
+  # guard's own failure mode, and the one a sibling audit was filed about.
+  (( ${#_required[@]} > 0 )) || fail \
+    "the emitted compose.yaml interpolates no key without a fallback, so this case asserts nothing about what write_env must write. Either the emitter stopped interpolating or the scan stopped matching it"
+  (( ${#_defaulted[@]} > 0 )) || fail \
+    "the emitted compose.yaml carries no \${KEY:-default} at all, so the fallback exclusion is untested by this fixture and the rule it rests on is unobserved"
+
+  local _k _excluded=0
+  for _k in "${_defaulted[@]}"; do
+    printf '%s\n' "${_required[@]}" | grep -qxF "${_k}" || _excluded=$(( _excluded + 1 ))
+  done
+  # The third premise: the fallback split EXCLUDED something. Without this,
+  # a scan that happened to collapse into "every key in the document" would
+  # read as a stricter guard while being an unsatisfiable one.
+  (( _excluded > 0 )) || fail \
+    "every \${KEY:-default} in the document is also interpolated bare somewhere, so the fallback rule excluded nothing and this case cannot distinguish the two halves it is built on"
+
+  for _k in "${_required[@]}"; do
+    grep -qE "^${_k}=" "${_env}" || fail \
+      "the emitted compose.yaml interpolates \${${_k}} with no fallback and .env.generated does not write it, so compose resolves it to the empty string and silently OVERRIDES the Dockerfile ARG default. write_env is the only producer: add it to the heredoc. Required: ${_required[*]}"
+  done
+}
+
+# ════════════════════════════════════════════════════════════════════
 # .env.local -- the operator's override file (never touched by tooling)
 # ════════════════════════════════════════════════════════════════════
 @test "_scaffold_env_local is idempotent (never overwrites) (#868)" {
