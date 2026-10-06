@@ -281,6 +281,86 @@
   unless the list below names that path, so a rename inside base that
   updates every code reference still goes red -- the only way to satisfy it
   is to decide, in this file, that the contract has changed.
+- **Amended:** 2026-10-06 by #1097 -- the 2026-09-06 amendment settled WHERE
+  a migration across a base layout change belongs: the `init.sh` resync,
+  never `upgrade.sh`. It did not say how such a migration knows whether it
+  still applies, and the answer in practice was that each one works it out
+  from the shape of the tree. Three consumer-facing failures this cycle
+  (#919, #1077, #1086) were each fixed by moving one more thing into the
+  resync and writing one more shape test, which means the next one is
+  discovered the same way: by a consumer.
+
+  The pair a release-bound migration needs is already in the consumer's
+  repository. `git subtree pull --squash` lands a TWO-PARENT merge commit
+  whose first parent is the pre-upgrade state, so at Step 3 -- after the pull
+  has committed and before anything has regenerated -- `from` is
+  `<prefix>/.version` at `HEAD^1` and `to` is the one on disk. Verified on a
+  real consumer: `ros2_distro`'s upgrade commit reads `v0.34.0` at its first
+  parent and `v0.41.0` at itself. `lib/version_migrate.sh` reads that pair
+  and runs the declared migrations in `from < V <= to`.
+
+  **The addition to the contract:** the consumer's own git history is the
+  migration ledger, and base cannot rewrite it. Two things follow and both
+  are permanent. First, the SHAPE: every released `upgrade.sh` already
+  produces the merge this reads, so the derivation must keep agreeing with
+  histories that have already been written -- a later release may not decide
+  that `from` means something else. Second, the PAIRING: once a release ships
+  declaring a migration at version V, which consumers get it is fixed by
+  their histories, so re-pointing a shipped migration at a different version
+  silently changes its population. A migration's version is append-only in
+  exactly the way an Alembic revision is.
+
+  This adds no path to the frozen list below. Nothing is generated into a
+  consumer and nothing new is named by an already-released caller: the
+  registry and the runner live inside `init.sh`'s own subtree, which the pull
+  replaces wholesale, so the window is `init.sh`'s and no wider.
+
+  Keeping a ledger of applied migrations in the consumer was the alternative
+  and is rejected: it would be a new file base writes into someone else's
+  repo and then has to keep reading forever -- the unbounded window the
+  2026-10-06 amendment above was written about -- to buy a property the
+  history already gives. The cost is that a resync re-entered before the pull
+  is committed selects the same interval again, so idempotence is each
+  migration's own obligation; that is the same obligation every heal in the
+  family already carries.
+
+  One consequence of the frozen caller shows up here and has to be recorded
+  with it. Every released `upgrade.sh` COMMITS at its own Step 4, after the
+  Step-3 resync, so an interval whose migrations were skipped -- a migration
+  that failed, a from-version nothing could read -- has stopped being readable
+  off HEAD before the user has finished reading the warning about it. No later
+  upgrade recovers it either: that interval starts at the version this one
+  installed, so the skipped work is below it. "Fix the cause and re-run the
+  resync" is therefore advice that cannot be followed on any release, which is
+  why `BASE_MIGRATION_FROM` exists: it supplies the `from` half instead of
+  deriving it, and it is the only retry path the frozen driver leaves
+  available. An override that is not a version is refused rather than fallen
+  back from -- an operator who names a pair and silently gets a different one
+  would believe the owed migrations had run.
+
+  One more thing the 2026-09-05 amendments left half-done shows up here. They
+  settled that the staged set is what THIS RUN WROTE, and that the record
+  (`_INIT_WROTE`) is the right shape because it is populated where the
+  condition is still known. But the record was only ever READ as a filter
+  over two closed lists, so a write to a path on neither was recorded and then
+  dropped. That was invisible while every writer was one of the resync's own
+  steps and every such path was on a list. A version-bound migration exists
+  for a base change that has not happened yet, so its output cannot be on a
+  list written today, and leaving it out reproduces exactly the defect the
+  2026-09-04 amendment closed: the caller's commit describing a tree it does
+  not carry. `_stage_resync_output` now stages every recorded path, which is
+  the rule those amendments state applied to the general case. It is still not
+  a sweep -- nothing enters the record except through a writer calling
+  `_init_record_write` as it writes, so a file the resync merely found stays
+  untracked, and the existing fences (outside the repo, unmatchable by any
+  pathspec, gitignored by the user) still drop an entry each.
+
+  The guard is behavioural. `prev_release_upgrade_spec.bats` declares a
+  migration bound to a version inside the interval in the release being
+  installed, drives the real released `upgrade.sh`, and asserts that one ran,
+  that the ones outside the interval did not, and that what it wrote is in the
+  commit the driver made. Measured on the unfixed tree it cannot even seed:
+  nothing in the published release declares one.
 
 ## Context
 

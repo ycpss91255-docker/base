@@ -68,6 +68,8 @@ source "${TEMPLATE_DIR}/dist/script/docker/lib/dockerfile_migrate.sh"
 source "${TEMPLATE_DIR}/dist/script/docker/lib/smoke_migrate.sh"
 # shellcheck disable=SC1091
 source "${TEMPLATE_DIR}/dist/script/docker/lib/setup_conf_migrate.sh"
+# shellcheck disable=SC1091
+source "${TEMPLATE_DIR}/dist/script/docker/lib/version_migrate.sh"
 
 _log() { _log_info init init_progress "display=$*"; }
 
@@ -1173,6 +1175,7 @@ _init_disarm_rollback() {
 # ── Existing repo initialization ────────────────────────────────────────────
 
 _init_existing_repo() {
+  local _installed_version="${1:-}"
   _INIT_WROTE=()
   _init_arm_rollback
   _log "Existing repo detected (Dockerfile found)"
@@ -1195,6 +1198,19 @@ _init_existing_repo() {
   # what SEEDS a default `.setup.conf` and so destroys the evidence that
   # the repo ever had a configuration of its own.
   _migrate_legacy_setup_conf "${REPO_ROOT}" "${TEMPLATE_DIR}/dist"
+  # And then the migrations that are bound to a RELEASE rather than to a
+  # shape in the tree. The two above infer for themselves whether they still
+  # apply, which is what makes them repairs a repo can re-run at any time;
+  # the set this runs instead asks what version interval this commit crossed
+  # -- the version the subtree-pull merge's first parent carried, up to the
+  # one now on disk -- and selects on that. Placed in the same band as the
+  # two above, and for the same reason: it is the earliest point in an
+  # upgrade that runs current code, and nothing has regenerated yet.
+  #
+  # Nothing runs where there is no interval to cross, which is every
+  # invocation that is not an upgrade: a standalone `just base init`, a
+  # bootstrap, a re-established subtree. See the runner's own notes.
+  run_interval_migrations "${REPO_ROOT}" "${TEMPLATE_REL}" "${_installed_version}"
   _create_symlinks
   _sync_existing_gitignore
   # ensure the pre/post hook scaffolding exists. Idempotent;
@@ -1311,6 +1327,36 @@ _stage_resync_output() {
     fi
     _paths+=("${REPO_ROOT}/${_path}")
   done < <(_init_installed_paths)
+
+  # Every OTHER path this run recorded writing. The two lists above are
+  # closed sets written in advance, and the record was being read only as a
+  # filter over them -- so a write to a path on neither was recorded and
+  # then dropped. That is fine while every writer is one of the resync's
+  # own steps, and it stops being fine with the version-bound migrations:
+  # one of those exists for a base change that has not happened yet, so its
+  # output cannot be on a list written today, and leaving it out reproduces
+  # the defect ADR-00000006's 2026-09-04 amendment closed -- the caller's
+  # commit describing a tree it does not carry.
+  #
+  # This is the SAME rule those amendments state, applied to the general
+  # case: the staged set is what this run wrote. It is not a sweep, because
+  # nothing reaches the record except by a writer calling
+  # _init_record_write at the moment it writes; a file the resync merely
+  # found is on no list and in no record, and stays untracked. The fences
+  # below still apply to every entry -- outside the repo, unmatchable by
+  # any pathspec, or gitignored by the user, and it is dropped.
+  local -A _already=()
+  for _path in ${_paths[@]+"${_paths[@]}"}; do
+    _already["${_path}"]=1
+  done
+  if (( ${#_INIT_WROTE[@]} > 0 )); then
+    for _path in "${!_INIT_WROTE[@]}"; do
+      [[ -n "${_path}" ]] || continue
+      [[ -z "${_already[${REPO_ROOT}/${_path}]:-}" ]] || continue
+      _paths+=("${REPO_ROOT}/${_path}")
+      _already["${REPO_ROOT}/${_path}"]=1
+    done
+  fi
 
   _init_drop_foreign_paths
   (( ${#_paths[@]} > 0 )) || return 0
@@ -2041,7 +2087,10 @@ EOF
 
   local _resynced=false
   if _init_repo_is_existing; then
-    _init_existing_repo
+    # The version on disk is the `to` half of the upgrade pair the resync's
+    # version-bound migrations select on; it is resolved here because that is
+    # where it is already read.
+    _init_existing_repo "${template_version}"
     _resynced=true
   else
     _create_new_repo "${template_version:-main}"

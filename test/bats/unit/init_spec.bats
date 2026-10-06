@@ -729,6 +729,45 @@ EOF
   assert_line "Dockerfile"
 }
 
+# A version-bound migration may write anything -- it exists for the next base
+# change, which is by definition not on any list written today. The record is
+# what makes a write ours to commit: it is populated at the moment of the
+# write, the only time the condition that decided it is still known
+# (ADR-00000006, 2026-09-05). Until base#1097 the record was read only as a
+# FILTER over two closed lists, so a path on neither was recorded and then
+# dropped, and the migration's output stayed untracked behind a run that
+# reported success.
+
+# why: A migration that writes and records its output still had that output
+# left out of the commit the released driver makes -- base#1036's defect, for
+# any path the published list does not already name. A version-bound
+# migration's output never is on that list, because the list is written
+# before the migration exists
+@test "the resync: stages a path a migration wrote and recorded that no list names (base#1097)" {
+  _source_init
+  : > "${TMP_REPO}/Dockerfile"
+  _git_seed_consumer
+  printf 'migrated\n' > "${TMP_REPO}/migration-output"
+  _init_record_write "migration-output"
+  _stage_resync_output
+  run git -C "${TMP_REPO}" diff --cached --name-only
+  assert_line "migration-output"
+}
+
+# why: Recording is what makes a path the run's output, so an unrecorded file
+# stays out however new it is. Otherwise the arm above is satisfied by a
+# sweep over whatever the user happened to leave in the tree -- the thing
+# ADR-00000006 forbids, and the reason the record exists at all
+@test "the resync: leaves an unrecorded file a migration wrote unstaged (base#1097)" {
+  _source_init
+  : > "${TMP_REPO}/Dockerfile"
+  _git_seed_consumer
+  printf 'mine\n' > "${TMP_REPO}/migration-output"
+  _stage_resync_output
+  run git -C "${TMP_REPO}" diff --cached --name-only
+  refute_output --partial "migration-output"
+}
+
 # why: A user's half-finished edit is not the resync's to commit, which is
 # what a `git add -A` sweep would make it
 @test "the resync: leaves a file no migration touched unstaged (#1036)" {

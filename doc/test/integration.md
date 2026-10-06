@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **185 tests**.
+Integration specs under `test/bats/integration/`: **188 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test levels and
@@ -315,7 +315,7 @@ costs this repo nothing.
 | `kcov --merge: the merged covered set is the UNION of the slices' (#726)` | the property the whole mode rests on. A line covered in ONE slice is covered in the merge -- exactly the union, neither more nor less. Asserted as set EQUALITY rather than as a count or a rate, because a merge that lost one slice's lines and gained an equal number of another's would match on any percentage and be wrong. |
 | `kcov --merge: the merged instrumented set is the union, not a sum (#726)` | the denominator half, and the one a SUM would break first. Each slice's kcov runs with the same `--include-path`, so both reports carry the whole instrumented file; adding their `lines-valid` would count every shared line once per slice and drive the rate down as the slice count rose. That is base#730's defect, on the other merge. The merged denominator must be the union -- here, identical to either slice's. |
 
-### test/bats/integration/prev_release_upgrade_spec.bats (10)
+### test/bats/integration/prev_release_upgrade_spec.bats (13)
 
 | Test | Description |
 |------|-------------|
@@ -329,6 +329,9 @@ costs this repo nothing.
 | `a re-established subtree leaves the consumer running on its own configuration (#1086)` | The arms above ask through a released driver, so they stop being able to see #1086 the moment the compatibility window no longer reaches back past the relocation (base#1084); this one drives init.sh directly, and it is the only coverage the re-establish path -- which never runs upgrade.sh at all -- has |
 | `the newest released upgrade.sh drives the current tree to a working consumer` | - |
 | `the previous released upgrade.sh drives the current tree to a working consumer (N-1)` | - |
+| `a released upgrade.sh runs the migration the version interval covers, and only that one (base#1097)` | The interval is the whole mechanism, and the oldest supported driver is the population it exists for -- its vendored copy knows nothing about any migration, so the only code that can select one is the init.sh the pull just landed. Measured on the unfixed tree the arm cannot even seed: nothing in the published release declares a version-bound migration |
+| `neither a standalone resync nor the next release re-runs a migration the interval already covered (base#1097)` | Running once is half the contract. Base cannot stop the consumer re-running `just base init`, and it cannot stop them taking the next release; both re-enter the same runner, and a mechanism that applied everything it had on either would re-run work already done -- the double-apply the declared-interval shape exists to make impossible |
+| `an interval the history can no longer supply can be named by hand and re-run (base#1097)` | Every warning this runner emits leaves a consumer owed work, and until the interval can be named by hand none of them could be acted on: the released driver commits at Step 4, so the merge the interval was read from is gone before the user has seen the message. The arm drives the recovery through `just base init`, which is what the message tells them to run, on a tree where the automatic path has already correctly declined |
 
 ### test/bats/integration/release_archive_contract_spec.bats (11)
 
