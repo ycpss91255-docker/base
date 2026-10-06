@@ -3497,28 +3497,6 @@ _manifest_declares() {
 }
 
 # ════════════════════════════════════════════════════════════════════
-# run.sh: XDG_SESSION_TYPE branching
-# ════════════════════════════════════════════════════════════════════
-
-# why: X11/Wayland branch
-@test "run.sh contains XDG_SESSION_TYPE check" {
-  run grep "XDG_SESSION_TYPE" /source/dist/script/docker/wrapper/run.sh
-  assert_success
-}
-
-# why: Wayland xhost
-@test "run.sh contains xhost +SI:localuser for wayland" {
-  run grep 'xhost "+SI:localuser' /source/dist/script/docker/wrapper/run.sh
-  assert_success
-}
-
-# why: X11 xhost
-@test "run.sh contains xhost +local: for X11" {
-  run grep 'xhost +local:' /source/dist/script/docker/wrapper/run.sh
-  assert_success
-}
-
-# ════════════════════════════════════════════════════════════════════
 # setup.sh: default _base_path goes up 1 level (not 2)
 # ════════════════════════════════════════════════════════════════════
 

@@ -4686,7 +4686,7 @@ certified B, which two of today's four workers sit one line away from.
 | `reusable workers: no job inherits the caller's grant (#957)` | Names `<workflow>: <job>` for every job with no permission entry of its own -- no block, or an inline `permissions: read-all` that names no scope. Such a job runs under whatever the calling repo granted its calling job: a `contents: write` held to cut a release, a `packages: write` held to publish |
 | `reusable workers: every one of them has a spec reading its permission surface (#957)` | The class-level half: a worker whose jobs all declare `contents: write` passes both tests above, so every derived worker must also have a spec that APPLIES `yaml_permission_surface` to it. Call sites are derived by `find` over the spec tree and resolved through each call's own argument, then matched against the worker's full path exactly, and the scan is floored at the derived worker count. Named for READING a surface, not for pinning a grant: whether the reader asserts the exact scope set is a property of the assertion, which no scan over call sites can see. This file is excluded because it reads every worker's surface to assert the complementary property (that a grant is declared, not which) |
 
-### test/bats/unit/run_sh_spec.bats (69)
+### test/bats/unit/run_sh_spec.bats (68)
 
 Unit tests for `run.sh`. Mirrors the build_sh_spec.bats harness; the `docker
 compose ... ps` probe reads from a controllable stub file (one running
@@ -4699,25 +4699,24 @@ Covers: `--help` (en/zh/zh-CN/ja), `--setup`/`-s`, bootstrap on missing
 `.env` / `setup.conf` / `compose.yaml`, drift-check path, bootstrap staying
 non-interactive (setup.sh, not TUI), defensive guard when setup produces no
 `.env`, `--detach`, devel vs non-devel TARGET routing, already-running
-guard, Wayland xhost path, `--lang` argument validation, fallback
-`_detect_lang` branches, **runtime log-line i18n** (bootstrap +
-already-running error translate in all four languages via the local `_msg()`
-table), **#216/#429 auto-build gate** (image present → silent + no build,
-image absent → auto-delegates to `./build.sh TARGET`, non-devel target
-forwarded, build failure aborts run, per-target image inspect, `--build`
-invokes `./build.sh test` before compose up, `--build` after check-drift),
-and **`-C` / `--chdir` flag** (docker_harness#53: redirect FILE_PATH, short
-+ long form, value-required and directory guards, usage help mention), and
-**`-v` / `--verbose` / `-vv` / `--very-verbose` flag** (#311: same export +
-trace pattern as build.sh, parity across wrappers), and **#386 foreground
-exit auto compose-down** (default-on for devel + one-shot non-devel targets,
-`--no-rm` opts out, `-d` suppresses the trap; the trap fires `down
---remove-orphans` to mirror stop.sh and close the
-worktree-removed-before-stop network leak), and **#448 `--` CMD separator**
-(`--` stops flag parsing so CMD flags like `--target` don't collide;
-positional CMD also stops parsing; usage documents `--`), and **#580
-interactive exit-code normalization** (`_normalize_interactive_rc` maps
-clean-exit codes 0 and 130 to 0 on the no-CMD foreground paths -- devel
+guard, `--lang` argument validation, fallback `_detect_lang` branches,
+**runtime log-line i18n** (bootstrap + already-running error translate in
+all four languages via the local `_msg()` table), **#216/#429 auto-build
+gate** (image present → silent + no build, image absent → auto-delegates to
+`./build.sh TARGET`, non-devel target forwarded, build failure aborts run,
+per-target image inspect, `--build` invokes `./build.sh test` before compose
+up, `--build` after check-drift), and **`-C` / `--chdir` flag**
+(docker_harness#53: redirect FILE_PATH, short + long form, value-required
+and directory guards, usage help mention), and **`-v` / `--verbose` / `-vv`
+/ `--very-verbose` flag** (#311: same export + trace pattern as build.sh,
+parity across wrappers), and **#386 foreground exit auto compose-down**
+(default-on for devel + one-shot non-devel targets, `--no-rm` opts out, `-d`
+suppresses the trap; the trap fires `down --remove-orphans` to mirror
+stop.sh and close the worktree-removed-before-stop network leak), and **#448
+`--` CMD separator** (`--` stops flag parsing so CMD flags like `--target`
+don't collide; positional CMD also stops parsing; usage documents `--`), and
+**#580 interactive exit-code normalization** (`_normalize_interactive_rc`
+maps clean-exit codes 0 and 130 to 0 on the no-CMD foreground paths -- devel
 attached shell and one-shot stage `compose up` -- so a Ctrl-C-cleared line
 carried out on exit isn't a recipe failure, while a genuine non-clean code
 like 127 still propagates and command mode `just run <cmd>` keeps the real
@@ -4773,7 +4772,6 @@ down --remove-orphans` still runs).
 | `run.sh --lang zh-CN prints Simplified Chinese usage text` | The Simplified half of the same decision. The shared "Usage" token this used to assert is byte-identical in both Chinese heredocs, so a zh-CN arm rendering the Traditional block read green. The token asserted here is the help-flag description line in its Simplified spelling, which the Traditional block cannot contain. |
 | `run.sh --lang ja prints Japanese usage text` | - |
 | `run.sh --help documents QUIET in every locale (#895)` | - |
-| `run.sh uses xhost +SI:localuser under Wayland session` | - |
 | `run.sh in /lint/ layout maps zh_TW.UTF-8 to zh-TW` | The flat layout has no `template/` beside the wrapper, so the wrapper's own bootstrap has to find `lib/i18n.sh` next to it and let `_resolve_lang` pick the heredoc. That composition is the property only a test in this file can pin, and one locale pins it. The zh_CN and ja twins were folded away because the halves they added are pinned closer to the source: the LANG-to-code mapping at the function seam in lib_spec.bats (`_resolve_lang sets 'zh-CN' for zh_CN.UTF-8`, `... for zh_SG`, `... 'ja' for ja_JP.UTF-8`) and each usage() arm by the `--lang` tests above. Measured on the whole unit tier: pointing `_detect_lang`'s `zh_CN*\|zh_SG*` and `ja*` arms at "en" turned 14 of 4726 tests red with the twins present and 6 with them gone -- the three `_resolve_lang` tests, the two `_sanitize_lang` locale tests, and justfile_user_spec's Japanese recipe summaries (base#1117). |
 | `run.sh --lang zh-TW prints Chinese bootstrap log` | - |
 | `run.sh --lang zh-CN prints Simplified Chinese bootstrap log` | - |
@@ -6441,7 +6439,7 @@ Unit tests for the repo-local command-group scaffolder
 | `new.sh registers a real mod? line even when the seed registry only COMMENTS that name (#785)` | - |
 | `new.sh source ships with the executable bit set (recipe invokes it directly) (#785)` | - |
 
-### test/bats/unit/template_spec.bats (172)
+### test/bats/unit/template_spec.bats (169)
 
 | Test | Description |
 |------|-------------|
@@ -6607,9 +6605,6 @@ Unit tests for the repo-local command-group scaffolder
 | `release archive payload declares no derived per-host artifact` | no compose.yaml / .setup.conf in the manifest |
 | `release archive payload still declares Dockerfile + script/ + .base/` | positive payload guard (no over-prune) |
 | `release archive payload guard is not satisfied by another entry's description` | The `.base/` guard reads the paths column, not a neighbour's prose |
-| `run.sh contains XDG_SESSION_TYPE check` | X11/Wayland branch |
-| `run.sh contains xhost +SI:localuser for wayland` | Wayland xhost |
-| `run.sh contains xhost +local: for X11` | X11 xhost |
 | `setup.sh default _base_path uses /..` | Path resolution |
 | `setup.sh default _base_path uses double parent traversal` | Repo root traversal |
 | `all 7 wrappers call _run_pre_hook with their own name (#440)` | - |

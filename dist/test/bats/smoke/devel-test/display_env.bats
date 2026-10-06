@@ -19,6 +19,15 @@
 # xhost host-ACL branch, driven for real via run_wrapper_xhost (shared
 # test_helper) rather than re-stated inline and asserted against itself.
 #
+# Scope note -- why this overlaps base's own test/bats/unit/smoke_helper_spec
+# deliberately. That spec drives the same helper against the wrapper at its
+# SOURCE path, which is the stronger assertion and the one base's gate runs.
+# The property only this file can carry is that the wrapper actually LANDED
+# at /lint/run.sh in the consumer image that was just built, and still
+# answers there: an installation this stage got wrong is invisible to any
+# spec reading the source tree. Kept for that reason, not as a second
+# opinion on the branch itself.
+#
 # why: Asserts the `xhost` host-ACL branch of the `run.sh` the stage
 # installs at `/lint/run.sh`, by **executing** it: `run_wrapper_xhost`
 # (shared `test_helper`) drives the real wrapper through `--dry-run` with a

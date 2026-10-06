@@ -16,7 +16,7 @@
 # `.env` / `setup.conf` / `compose.yaml`, drift-check path, bootstrap
 # staying non-interactive (setup.sh, not TUI), defensive guard when setup
 # produces no `.env`, `--detach`, devel vs non-devel TARGET routing,
-# already-running guard, Wayland xhost path, `--lang` argument validation,
+# already-running guard, `--lang` argument validation,
 # fallback `_detect_lang` branches, **runtime log-line i18n** (bootstrap +
 # already-running error translate in all four languages via the local
 # `_msg()` table), **#216/#429 auto-build gate** (image present → silent +
@@ -678,11 +678,6 @@ HOOK
     assert_success
     assert_output --partial "QUIET=1"
   done
-}
-
-@test "run.sh uses xhost +SI:localuser under Wayland session" {
-  run env XDG_SESSION_TYPE=wayland bash "${SANDBOX}/run.sh" --dry-run
-  assert_success
 }
 
 # ── /lint/-layout _resolve_lang (flat dir with _lib.sh + i18n.sh) ─────
