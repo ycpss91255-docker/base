@@ -1328,9 +1328,9 @@ _coverage_union_gap() {
 # _gate_coverage_union <manifest> [root] -- the coverage matrix's partition
 # invariant, read back off the evidence instead of assumed.
 #
-# ADR-00000008 merges the shard reports on the strength of "every slice
-# runs exactly once, guaranteed by an exhaustive + disjoint partition", and
-# until base#1114 nothing downstream re-derived that. It has to be
+# ADR-00000008 merges the shard reports on the strength of every slice
+# running exactly once, guaranteed by an exhaustive and disjoint partition,
+# and until base#1114 nothing downstream re-derived that. It has to be
 # re-derived because the consequences of its being false are invisible in
 # the direction that matters: a spec that ran in no shard cannot turn the
 # PRIMARY unit gate red, and because the floor is a ratio, dropping a

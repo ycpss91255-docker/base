@@ -1129,7 +1129,7 @@ jobs:
           bash ./script/test/drivers/coverage_gate.sh --merge-timings \
             test/bats/.shard-weights ./coverage-shards/*/timings.tsv
 
-      - name: Every spec ran in exactly one shard
+      - name: Every spec ran in some shard
         # The merged weights file is also the matrix's RUN MANIFEST: it
         # names every spec some shard reported running. Comparing it against
         # the inventory of what a full coverage run covers is the only check
@@ -1138,6 +1138,14 @@ jobs:
         # of a ratio, and dropping a well-covered one makes the reported
         # rate go UP. This step used to echo the union's SIZE and compare it
         # against nothing.
+        #
+        # EXHAUSTIVE is what it checks, and that is the half that decides
+        # the figure. Disjointness is not observable here -- the merge keys
+        # on basename, so a spec two shards both ran reads back as one
+        # entry -- and it does not need to be: the reports are merged by
+        # per-line UNION, so a line two shards both covered is counted
+        # once. A spec that ran TWICE costs runtime; a spec that ran NOWHERE
+        # costs the gate its meaning.
         #
         # It runs after the merge, which writes the file it reads, and ahead
         # of the cache save, so a partition that did not cover the suite

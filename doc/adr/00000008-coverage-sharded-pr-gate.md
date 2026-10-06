@@ -1016,11 +1016,13 @@ direction for a run whose output is a line set.
 
 - **Date:** 2026-10-06
 - **Amendment status:** Accepted -- prices a precondition Decision 2 states
-  without qualification. "Every slice runs exactly once (guaranteed by the
-  exhaustive + disjoint partition)" is true of ONE partition; the matrix
-  holds twelve slices, and they are slices of one partition only while
-  every shard partitioned by the same weights. Nothing else in this ADR
-  changes: the sharding, the per-line union merge, the one-writer cache
+  without qualification. Decision 2 reads "only that every slice runs
+  exactly once (guaranteed by the exhaustive + disjoint round-robin
+  partition)" -- the `round-robin` was superseded by the #724 amendment's
+  greedy-LPT, the guarantee was not. It is true of ONE partition; the
+  matrix holds twelve slices, and they are slices of one partition only
+  while every shard partitioned by the same weights. Nothing else in this
+  ADR changes: the sharding, the per-line union merge, the one-writer cache
   rule and the `1/1`-is-the-suite rule all stand.
   **Relates:** #724 (greedy-LPT by weight), #733 (the cached weights the
   #733 amendment introduced and priced only for poisoning), #730 (the
@@ -1093,6 +1095,14 @@ derived against -- and refuses, NAMING every absent spec, when they differ.
 It replaces an `echo` of the union's size that was compared against
 nothing, and it runs ahead of the cache save so a partition that missed
 the suite cannot seed the next run's weights.
+
+**4. Exhaustiveness is the half worth checking, and the only half
+observable.** `--merge-timings` keys on basename, so a spec two shards both
+ran reads back as one entry and no check downstream of the merge can count
+it twice. It does not need to: Decision 2's merge is a per-line UNION, so a
+line two shards both covered is counted once and a double-run costs runtime
+rather than correctness. A spec that ran NOWHERE is the one that costs the
+figure its meaning, and that is what is refused.
 
 ### Consequences (amendment)
 
