@@ -4751,7 +4751,7 @@ the ldd-skip + accumulate-all behaviour (#692).
 | `smoke.sh: documented behaviour -- a .so whose ldd exits non-zero is skipped (#692)` | ldd-fail skip |
 | `smoke.sh: accumulates _exit=1 and reports every bad .so (#692)` | Accumulate-all reporting |
 
-### test/bats/unit/schema_coverage_spec.bats (11)
+### test/bats/unit/schema_coverage_spec.bats (12)
 
 Registry drift guards (#562, schema epic #559 phase 3): the registry must
 stay internally consistent and in sync with the `setup.conf` template, so
@@ -4770,6 +4770,7 @@ translation in any locale fails CI.
 | `every SCHEMA_VALIDATOR key has a SCHEMA_I18N index entry (#591)` | i18n-index is complete (#591) |
 | `every SCHEMA_I18N key is a registered SCHEMA_VALIDATOR key (#591)` | no orphan index rows (#591) |
 | `every SCHEMA_I18N message key exists in all four locale tables (#591)` | no missing translation in any locale (#591) |
+| `every _TUI_MSG_EN key exists in all three translated tables (#591)` | The parity population is _TUI_MSG_EN, the table that DECIDES which messages exist, rather than the schema index which only knows the 31 messages a registered key points at. An English-only key added to the EN table now fails here instead of reporting nothing |
 | `_schema_i18n_key resolves scalar + list keys, falls back when free-form (#591)` | accessor the TUI routes through (#591) |
 | `every shipped setup.conf key is registered or an explicit free-form opt-out (#876)` | - |
 | `every SCHEMA_FREEFORM entry carries a written reason (#876)` | - |
@@ -4803,8 +4804,8 @@ alias / `network.network_name` / `devices.device_` / `security.cap_add_` /
 | `_schema_validate allows empty logging.driver (empty policy = allow)` | empty default |
 | `_schema_validate normalises logging.<svc> to the logging key set (reject)` | - |
 | `_schema_validate normalises logging.<svc> to the logging key set (accept)` | - |
-| `_schema_validate accepts every registered key's valid sample` | union coverage (accept) |
-| `_schema_validate rejects every registered key's invalid sample` | union coverage (reject) |
+| `_schema_validate accepts every registered key's valid sample` | union coverage (accept), with the population DERIVED. The title claims every registered key, and the claim is now checked: the keys the rows reach are held equal to `SCHEMA_VALIDATOR`'s own key set, so a key registered without a sample fails here instead of being covered by a sentence |
+| `_schema_validate rejects every registered key's invalid sample` | union coverage (reject), with the population DERIVED for the same reason the accept table's is: the title claims every registered key, so the keys the rows reach are held equal to the registry's own key set |
 | `_schema_validate rejects embedded-newline values (YAML injection) (#687)` | - |
 | `_schema_validate numeric validators are shape-only, not range-bound (#687)` | - |
 | `_schema_validate allows empty (clear) for every list + clearable scalar key` | clear-key semantics |

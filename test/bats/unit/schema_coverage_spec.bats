@@ -143,6 +143,131 @@ _load_locale_tables() {
   [ -z "${_missing}" ] || { echo "i18n keys missing from a locale:${_missing}"; false; }
 }
 
+# ════════════════════════════════════════════════════════════════════
+# Whole-table locale parity
+#
+# The case above asks a narrower question than its neighbours assume, and
+# its own header says so: it walks SCHEMA_I18N, which is the index from
+# REGISTERED SCHEMA KEYS to TUI message keys. What decides which messages
+# exist is _TUI_MSG_EN, and the two populations are nowhere near the same
+# size -- measured on 1c9ccb2, SCHEMA_I18N has 47 rows of which 31 are
+# non-empty, against _TUI_MSG_EN's 227 keys, so that case covers 14% of the
+# table it reads as parity. Injecting `_TUI_MSG_EN[probe.only_english]` and
+# touching no other table left this file at 11 ok / 0 not ok.
+#
+# A tree-wide grep for `_TUI_MSG` finds no whole-table parity guard
+# anywhere: no lint driver, no workflow, no other spec. What exists beyond
+# the 31 is hand-picked -- tui_flow_spec asserts three `main.*` keys across
+# the four tables and deploy_word_collision_spec loops the `deploy.ambiguous.*`
+# family -- which is this repo's recorded anti-pattern rather than coverage.
+#
+# So the population below is _TUI_MSG_EN itself, and the degradation it
+# catches is silent by construction: `_tui_msg` falls back to
+# `${_TUI_MSG_EN[$key]:-$key}`, so an operator running under ja or zh-CN
+# gets an English message box and no warning at all.
+# ════════════════════════════════════════════════════════════════════
+
+# Keys that are English BY CONSTRUCTION, with the reason. Not a list of
+# keys nobody got round to -- that is the recorded lag below, kept separate
+# on purpose.
+#
+# `_warn_if_lang_rejected` runs only AFTER `_sanitize_lang` has already
+# fallen back to en, so the message box that reports a rejected --lang
+# value is rendered in English whatever was asked for: a translated
+# `lang.invalid.*` is unreachable code, and shipping one would read as a
+# promise the dispatch cannot keep.
+#
+# Each entry is floored twice below: it must be a real EN key, and it must
+# be ABSENT from all three translated tables. So this list cannot be used
+# to quiet a key that someone HAS translated -- the day one is, the opt-out
+# fails and has to go.
+_TUI_MSG_ENGLISH_ONLY=(
+  lang.invalid.title
+  lang.invalid.body
+)
+
+# The recorded lag: `<LOCALE>|<key>` pairs that have no translation yet.
+#
+# This is a DEFICIT, not an exemption. All four tables received these keys'
+# English and zh-TW text in one commit and zh-CN and ja simply did not
+# follow; zh-TW is complete. They are written down because the gate above
+# them is now over the WHOLE table, and a gate that reported this lag would
+# be red on arrival -- so the lag is named, with every entry held to being a
+# real one, and ANY key that goes untranslated from here on fails.
+#
+# Each entry is floored three ways below: its key must be a real EN key, it
+# must still be missing from that locale, and it must not also claim to be
+# English-only. So the list cannot go stale in either direction -- closing
+# one of these gaps without deleting its line fails, and so does listing a
+# gap that does not exist.
+_TUI_MSG_UNTRANSLATED=(
+  "ZH_CN|err.invalid_capability"
+  "ZH_CN|err.invalid_env_kv"
+  "ZH_CN|err.invalid_network_name"
+  "ZH_CN|err.invalid_port_mapping"
+  "ZH_CN|err.invalid_shm_size"
+  "JA|err.invalid_capability"
+  "JA|err.invalid_env_kv"
+  "JA|err.invalid_network_name"
+  "JA|err.invalid_port_mapping"
+  "JA|err.invalid_shm_size"
+)
+
+# why: The parity population is _TUI_MSG_EN, the table that DECIDES which
+# messages exist, rather than the schema index which only knows the 31
+# messages a registered key points at. An English-only key added to the EN
+# table now fails here instead of reporting nothing
+@test "every _TUI_MSG_EN key exists in all three translated tables (#591)" {
+  _load_locale_tables
+
+  local -n _t_en=_TUI_MSG_EN
+  # Non-vacuity: a reader that loaded no table would find nothing missing
+  # from nothing, which is the pass this case exists to refuse. The floor is
+  # well under the live count and is a floor, not a transcription of it.
+  [ "${#_t_en[@]}" -ge 150 ]     || fail "_TUI_MSG_EN holds ${#_t_en[@]} keys; the tables did not load, so every comparison below is between two empty sets"
+
+  local _k _loc _pair _why=""
+
+  # Floor on the English-only opt-outs: a real EN key, translated nowhere.
+  for _k in "${_TUI_MSG_ENGLISH_ONLY[@]}"; do
+    [[ -v "_t_en[${_k}]" ]]       || _why+="  ${_k} is opted out of translation but is not an EN key at all"$'\n'
+    for _loc in ZH_TW ZH_CN JA; do
+      local -n _t="_TUI_MSG_${_loc}"
+      [[ -v "_t[${_k}]" ]]         && _why+="  ${_k} is opted out of translation and ${_loc} translates it: delete the opt-out"$'\n'
+      unset -n _t
+    done
+  done
+
+  # Floor on the recorded lag: a real EN key, really still missing, and not
+  # also claiming to be English-only.
+  for _pair in "${_TUI_MSG_UNTRANSLATED[@]}"; do
+    _loc="${_pair%%|*}"
+    _k="${_pair#*|}"
+    [[ -v "_t_en[${_k}]" ]]       || _why+="  recorded lag ${_pair} names no EN key"$'\n'
+    local -n _t="_TUI_MSG_${_loc}"
+    [[ -v "_t[${_k}]" ]]       && _why+="  recorded lag ${_pair} is closed: ${_loc} has it now, so delete the line"$'\n'
+    unset -n _t
+    printf '%s\n' "${_TUI_MSG_ENGLISH_ONLY[@]}" | grep -qxF -- "${_k}"       && _why+="  ${_k} is both English-only and a recorded lag; it is one or the other"$'\n'
+  done
+
+  # The gate itself, over the derived population.
+  local _missing=""
+  for _k in "${!_t_en[@]}"; do
+    printf '%s\n' "${_TUI_MSG_ENGLISH_ONLY[@]}" | grep -qxF -- "${_k}" && continue
+    for _loc in ZH_TW ZH_CN JA; do
+      local -n _t="_TUI_MSG_${_loc}"
+      if [[ ! -v "_t[${_k}]" ]]; then
+        printf '%s\n' "${_TUI_MSG_UNTRANSLATED[@]}" | grep -qxF -- "${_loc}|${_k}" \
+          || _missing+="  ${_loc} has no ${_k}"$'\n'
+      fi
+      unset -n _t
+    done
+  done
+
+  [[ -z "${_why}" && -z "${_missing}" ]] || fail "locale parity over _TUI_MSG_EN (${#_t_en[@]} keys):
+${_why}${_missing}A key reached under ja or zh-CN with no row there renders in English and says nothing about it -- _tui_msg falls back to \${_TUI_MSG_EN[\$key]}. Either translate it, record it in _TUI_MSG_UNTRANSLATED with the locale, or declare it English-only with the reason."
+}
+
 # why: accessor the TUI routes through (#591)
 @test "_schema_i18n_key resolves scalar + list keys, falls back when free-form (#591)" {
   # The accessor the TUI routes through. Scalar + numbered-list keys resolve

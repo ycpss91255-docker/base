@@ -107,9 +107,39 @@ setup() {
 # BOTH paths — the divergence closes.
 # ════════════════════════════════════════════════════════════════════
 
-# Helper: assert _schema_validate verdict for one row.
+# The canonical registry keys the rows of one table actually exercised,
+# recorded by _assert_schema as it runs, one per line.
+#
+# Two tables below are titled "every registered key", and that was a claim
+# about a TRANSCRIBED list: on 1c9ccb2 the accept table named 40 of the 47
+# rows of `SCHEMA_VALIDATOR` and the reject table 39, and registering a
+# forty-eighth key with no sample at all left this file at 30 ok / 0 not ok
+# -- both of those tests among them. A title that asserts exhaustiveness
+# over a hand-listed population is the defect base#1090 is about, in its
+# strongest form, because the title is the thing a reader trusts.
+#
+# So the rows stay (they carry the samples, including the several a key with
+# more than one accepted spelling needs, and values no table syntax could
+# hold -- an embedded newline among them) and the POPULATION is derived: the
+# set of keys the rows reached is held EQUAL to the registry's own key set,
+# by _assert_schema_covers_registry below. A key registered without a sample
+# now fails the table that claims to cover it.
+_SCHEMA_COVERED=""
+
+# Helper: assert _schema_validate verdict for one row, and record which
+# registry key the row reached.
+#
+# The key is resolved through the production normaliser rather than
+# assembled here, so a row written as `network port_1` records
+# `network.port_` and a row written as `logging.devel driver` records
+# `logging.driver` -- the same readings the gate itself makes. A row whose
+# key is free-form resolves to the empty string and records nothing, which
+# is correct: it covers no registry row.
 _assert_schema() {
   local _section="$1" _key="$2" _value="$3" _expect="$4"
+  local _canon=""
+  _schema_canonical_key "${_section}" "${_key}" _canon
+  [[ -n "${_canon}" ]] && _SCHEMA_COVERED+="${_canon}"$'\n'
   if _schema_validate "${_section}" "${_key}" "${_value}"; then
     [[ "${_expect}" == "ok" ]] \
       || { echo "expected FAIL but ACCEPTED: ${_section}.${_key} = '${_value}'"; return 1; }
@@ -119,8 +149,43 @@ _assert_schema() {
   fi
 }
 
-# why: union coverage (accept)
+# _assert_schema_covers_registry <what> -- the recorded set equals the
+# registry's key set, or say which keys are unsampled.
+#
+# One direction is all there is to check: _schema_canonical_key only ever
+# resolves to a key the registry carries, so the recorded set cannot hold a
+# name the registry does not. The other direction is the one that rots, and
+# an empty recorded set fails it loudly -- every registered key reported
+# missing -- rather than passing as "nothing to compare".
+_assert_schema_covers_registry() {
+  local _what="${1:?_assert_schema_covers_registry: missing table name}"
+  local _registered _covered _missing
+  _registered="$(printf '%s\n' "${!SCHEMA_VALIDATOR[@]}" | sort -u)"
+  _covered="$(printf '%s' "${_SCHEMA_COVERED}" | sed '/^$/d' | sort -u)"
+  _missing="$(comm -23 <(printf '%s\n' "${_registered}") <(printf '%s\n' "${_covered}"))"
+  [[ -z "${_missing}" ]] || {
+    echo "the ${_what} table reached $(printf '%s\n' "${_covered}" | sed '/^$/d' | wc -l) of the registry's $(printf '%s\n' "${_registered}" | wc -l) keys, and its name says every one. Registered with no ${_what} sample:"
+    printf '  %s\n' ${_missing}
+    return 1
+  }
+}
+
+# why: union coverage (accept), with the population DERIVED. The title
+# claims every registered key, and the claim is now checked: the keys the
+# rows reach are held equal to `SCHEMA_VALIDATOR`'s own key set, so a key
+# registered without a sample fails here instead of being covered by a
+# sentence
 @test "_schema_validate accepts every registered key's valid sample" {
+  _SCHEMA_COVERED=""
+  _assert_schema project name "my-project" ok
+  _assert_schema deploy gpu_count "all" ok
+  _assert_schema deploy gpu_count "2" ok
+  _assert_schema network port_1 "8080:80" ok
+  _assert_schema logging driver "json-file" ok
+  _assert_schema logging wrapper_transcript "true" ok
+  _assert_schema logging wrapper_transcript "false" ok
+  _assert_schema logging wrapper_transcript_keep "20" ok
+  _assert_schema logging wrapper_transcript_days "14" ok
   _assert_schema resources shm_size "2gb" ok
   _assert_schema lifecycle restart "unless-stopped" ok
   _assert_schema lifecycle init "true" ok
@@ -167,10 +232,23 @@ _assert_schema() {
   _assert_schema security cap_drop_1 "NET_RAW" ok
   _assert_schema security privileged "false" ok
   _assert_schema security security_opt_1 "seccomp:unconfined" ok
+
+  _assert_schema_covers_registry "accept"
 }
 
-# why: union coverage (reject)
+# why: union coverage (reject), with the population DERIVED for the same
+# reason the accept table's is: the title claims every registered key, so
+# the keys the rows reach are held equal to the registry's own key set
 @test "_schema_validate rejects every registered key's invalid sample" {
+  _SCHEMA_COVERED=""
+  _assert_schema project name "My.Project" fail
+  _assert_schema deploy gpu_count "-1" fail
+  _assert_schema network port_1 "not-a-port" fail
+  _assert_schema logging driver "bad driver!" fail
+  _assert_schema logging wrapper_transcript "maybe" fail
+  _assert_schema logging wrapper_transcript_keep "0" fail
+  _assert_schema logging wrapper_transcript_days "abc" fail
+  _assert_schema lifecycle watchdog_notify $'has\nnewline' fail
   _assert_schema resources shm_size "huge" fail
   _assert_schema lifecycle restart "sometimes" fail
   _assert_schema lifecycle init "garbage" fail
@@ -213,6 +291,8 @@ _assert_schema() {
   _assert_schema security cap_drop_1 "has space" fail
   _assert_schema security privileged "yes" fail
   _assert_schema security security_opt_1 "anything goes" fail
+
+  _assert_schema_covers_registry "reject"
 }
 
 # Embedded-newline values must be rejected by every value-bearing
