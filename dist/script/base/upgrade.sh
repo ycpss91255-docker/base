@@ -644,6 +644,16 @@ _upgrade() {
     # (optional pre-release per §9) — the prior `[0-9.]*` stopped at the
     # first `-`, so upgrading from an RC tag (e.g. v0.10.0-rc1 → -rc2)
     # left the old suffix in place and produced `@v0.10.0-rc2-rc1`.
+    #
+    # THE @tag IS THE ONLY VERSION THIS REWRITES, and a second one must
+    # not be added here. The tooling image the worker builds from used to
+    # be a `test_tools_version` input a caller set beside this ref, which
+    # made the tooling version something an upgrade had to keep in step
+    # with the ref by rewriting both. It is now derived from the
+    # `.version` of the base checkout the worker takes at the ref below
+    # (base#1122), so the one substitution here moves it: a version this
+    # step writes into main.yaml would be a second source of it again.
+    # A spec holds the workers to declaring no such input.
     sed -i -E "s|build-worker\.yaml@v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?|build-worker.yaml@${target_ver}|g" "${main_yaml}"
     sed -i -E "s|release-worker\.yaml@v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?|release-worker.yaml@${target_ver}|g" "${main_yaml}"
     git add "${main_yaml}"

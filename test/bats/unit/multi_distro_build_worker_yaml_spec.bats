@@ -78,9 +78,10 @@
 #
 # - `tag_matrix` description documents required `name` + `build_args` fields
 #
-# - Passthrough inputs mirror build-worker (build_runtime /
-# test_tools_version / platforms / context_path / dockerfile_path /
-# build_contexts)
+# - Passthrough inputs mirror build-worker (build_runtime / platforms /
+# context_path / dockerfile_path / build_contexts). The tooling image is
+# NOT among them: build-worker derives it from its own version-matched
+# checkout, so there is nothing for a dispatcher to forward (closes #1122)
 #
 # - `resolve-matrix` emits `matrix` output (include-shape)
 #
@@ -169,11 +170,14 @@ _input_block() {
   assert_output --partial 'build_args'
 }
 
-@test "multi-distro-build-worker.yaml: passthrough inputs mirror build-worker (build_runtime / test_tools_version / platforms / context_path / dockerfile_path / build_contexts) (#325 B-1)" {
+@test "multi-distro-build-worker.yaml: passthrough inputs mirror build-worker (build_runtime / platforms / context_path / dockerfile_path / build_contexts) (closes #1122)" {
   run _on_block
   assert_success
   assert_output --partial 'build_runtime:'
-  assert_output --partial 'test_tools_version:'
+  # test_tools_version is deliberately absent: build-worker derives the
+  # tooling image from its own version-matched checkout, so a dispatcher
+  # forwarding a version would be reintroducing the second source.
+  refute_output --partial 'test_tools_version:'
   assert_output --partial 'platforms:'
   assert_output --partial 'context_path:'
   assert_output --partial 'dockerfile_path:'

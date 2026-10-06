@@ -20,10 +20,9 @@
 # quotes are dropped. The operation decides, not the spelling. A tagged
 # image is not a pull because it carries a tag -- fed to a push it is
 # exactly the hazard this guard exists for -- and a consumer's tagged
-# reference (`TEST_TOOLS_IMAGE: "ghcr.io/ycpss91255-docker/test-tools:${{
-# inputs.test_tools_version }}"` in `build-worker.yaml`, which sets
-# `push: false` throughout) is not a target because nothing in that file
-# pushes. base is expected to grow more consumers: base#1176 items 1 and 2
+# reference (`TEST_TOOLS_IMAGE: ${{ steps.testtools.outputs.image }}` in
+# `build-worker.yaml`, which sets `push: false` throughout) is not a target
+# because nothing in that file pushes. base is expected to grow more consumers: base#1176 items 1 and 2
 # repoint this repo AT the published toml-bridge image, and this rule
 # leaves that work alone.
 #

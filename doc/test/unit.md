@@ -3587,8 +3587,10 @@ Grouped by concern:
 
 - `tag_matrix` description documents required `name` + `build_args` fields
 
-- Passthrough inputs mirror build-worker (build_runtime / test_tools_version
-/ platforms / context_path / dockerfile_path / build_contexts)
+- Passthrough inputs mirror build-worker (build_runtime / platforms /
+context_path / dockerfile_path / build_contexts). The tooling image is NOT
+among them: build-worker derives it from its own version-matched checkout,
+so there is nothing for a dispatcher to forward (closes #1122)
 
 - `resolve-matrix` emits `matrix` output (include-shape)
 
@@ -3623,7 +3625,7 @@ builds nothing and pushes nothing)
 | `multi-distro-build-worker.yaml: legacy 1D inputs are gone (no pr_distros / tag_distros / distro_input_name / extra_build_args) (#344 BREAKING)` | - |
 | `multi-distro-build-worker.yaml: pr_matrix description mentions required name + build_args fields per entry (#344)` | - |
 | `multi-distro-build-worker.yaml: tag_matrix description mentions required name + build_args fields per entry (#344)` | - |
-| `multi-distro-build-worker.yaml: passthrough inputs mirror build-worker (build_runtime / test_tools_version / platforms / context_path / dockerfile_path / build_contexts) (#325 B-1)` | - |
+| `multi-distro-build-worker.yaml: passthrough inputs mirror build-worker (build_runtime / platforms / context_path / dockerfile_path / build_contexts) (closes #1122)` | - |
 | `multi-distro-build-worker.yaml: resolve-matrix job emits matrix output (#344 include-shape)` | - |
 | `multi-distro-build-worker.yaml: resolve-matrix branches on github.event_name == pull_request (#344)` | - |
 | `multi-distro-build-worker.yaml: call-build uses local build-worker via ./.github/workflows/build-worker.yaml (#325 B-1)` | - |
@@ -4217,11 +4219,11 @@ naming the path and what its absence costs.
 
 "Is this tag a prerelease?" decides whether a GitHub Release is marked
 prerelease (`release-worker.yaml` for downstream repos, `self-test.yaml` for
-base) and whether `release-test-tools.yaml` moves `test-tools:latest` -- the
-image every repo that has not pinned `test_tools_version` builds its lint
-stage from, that input's default being `latest`. Two sites spelled the test
-themselves and the third did not ask, which is how `v0.42.0-rc1` through
-`-rc4` each moved `:latest`.
+base) and whether `release-test-tools.yaml` moves `test-tools:latest`, the
+rolling tag a human pulls -- and, back then, the image every repo that had
+not pinned built its lint stage from. Two sites spelled the test themselves
+and the third did not ask, which is how `v0.42.0-rc1` through `-rc4` each
+moved `:latest`.
 
 `script/ci/release-ref.sh` is the one home for that rule ON A GIT REF;
 `release-worker.yaml` now classifies a VERSION input instead, and
@@ -4260,9 +4262,10 @@ ${TEST_TOOLS_IMAGE} AS test-tools-stage` depends on. The workflow has three
 triggers and two tag sets -- the first two triggers each resolve one:
 
 1. **Tag push (`v*`)** -- multi-arch `:<version>`, and `:latest` only when
-the tag is not a prerelease. Cuts the release downstream consumers pin via
-`inputs.test_tools_version`, whose default IS `latest`, which is why a
-prerelease tag must leave it alone.
+the tag is not a prerelease. `:<version>` is the one the workers build FROM,
+derived from the base checkout's own `.version` (base#1122); `:latest` is
+the rolling tag a human pulls, which is why a prerelease tag must leave it
+alone.
 
 2. **Main push** (P2) -- multi-arch `:main` rolling tag, pulled by
 self-test.yaml's Obtain step to skip from-source rebuilds. Its paths filter
@@ -4291,7 +4294,7 @@ them stayed green through four RC tags that each moved `:latest`.
 | `release-test-tools.yaml: Resolve tags step handles main push -> :main rolling tag (#317 P2)` | - |
 | `release-test-tools.yaml: Resolve tags step emits a smoke output tracking the current trigger's tag (#317 P2)` | - |
 | `release-test-tools.yaml: a release tag publishes :<ver> and moves :latest` | The arm the four text-reading cases above only READ. It is the one ref shape allowed to move the tag every unpinned downstream builds its lint stage from. |
-| `release-test-tools.yaml: an RC tag publishes :<ver> and leaves :latest where it was (#1012)` | The load-bearing case: `v0.42.0-rc1` through `-rc4` each matched the `v*` trigger and each moved the tag whose default every unpinned downstream inherits, for the length of an RC window. |
+| `release-test-tools.yaml: an RC tag publishes :<ver> and leaves :latest where it was (#1012)` | The load-bearing case: `v0.42.0-rc1` through `-rc4` each matched the `v*` trigger and each moved the rolling tag, for the length of an RC window, to a release candidate. |
 | `release-test-tools.yaml: a main push publishes the :main rolling tag only` | The rolling tag self-test.yaml pulls to skip a from-source rebuild; it must not reach `:latest` either. |
 | `release-test-tools.yaml: a ref the resolver does not recognise is refused, never resolved to :latest (#1012)` | `workflow_dispatch` is unrestricted by ref, so this arm is reachable from any feature branch: resolving it to the production tag made the unrecognised input the most destructive one. |
 | `release-test-tools.yaml: the header and the resolver step's own prose describe the tag rules it applies (#1012)` | A header describing a branch the code cannot reach is a defect with the same shape as the code one, and it is what a later reader believes over the code. |
@@ -6473,9 +6476,9 @@ Unit tests for the repo-local command-group scaffolder
 | `upgrade.sh main.yaml sed handles semver pre-release tags (RC → RC)` | `-rcN-rcN` regression |
 | `upgrade.sh main.yaml sed handles stable → stable + RC → stable transitions` | RC → stable cleanup |
 | `build-worker.yaml: no legacy in-job test-tools build step` | v0.9.13 GHCR migration |
-| `build-worker.yaml: declares test_tools_version input` | v0.10.1 input replaces GITHUB_WORKFLOW_REF parse |
+| `build-worker.yaml: derives the tooling image from the version-matched checkout (closes #1122)` | the tooling image is derived from the version-matched checkout, not taken as an input (closes #1122) |
 | `build-worker.yaml: does not resurrect the GITHUB_WORKFLOW_REF parse step` | regression guard |
-| `build-worker.yaml: devel-test build passes TEST_TOOLS_IMAGE from inputs` | - |
+| `build-worker.yaml: devel-test build passes TEST_TOOLS_IMAGE from the resolver step` | - |
 | `Dockerfile.example has ARG TEST_TOOLS_IMAGE with no bare test-tools:local default` | version-scoped tag: no bare-tag ARG default (#828) |
 | `Dockerfile.example FROM ${TEST_TOOLS_IMAGE} AS test-tools-stage` | named stage alias |
 | `Dockerfile.example test stage copies from test-tools-stage, not test-tools:local` | stage rename migration |
@@ -6592,6 +6595,24 @@ is the smoke step, which iterates this same roster.
 | `test-tools pins: check refuses an ARG that is not on the roster (#1012)` | There is nothing to compare against, so it refuses rather than passing over it. |
 | `test-tools pins: an unrecognised subcommand is refused and names what it does answer (#1012)` | It must not fall through to the roster, because a roster is an answer the caller would then act on. |
 | `test-tools pins: roster and check read a quoted declaration the same way (#1012)` | Quoting a build arg's default is legal, and the two halves of one accessor disagreeing about it fails a CORRECT image while naming a pin nobody could satisfy. |
+
+### test/bats/unit/testtools_image_spec.bats (13)
+
+| Test | Description |
+|------|-------------|
+| `testtools_image: the reference is the published package at the checkout's own release (closes #1122)` | The reference is the published package at the release the checkout names, assembled here rather than by each consumer so the registry path has one home as well as the tag. |
+| `testtools_image: a different release in the checkout consumes a different image (closes #1122)` | The pair that is the whole point: the consumed tag MOVES with the release the worker's checkout is at. Nothing noticed when it did not. |
+| `testtools_image: a prerelease checkout consumes its own prerelease image (closes #1122)` | An RC publishes `:<ver>` and leaves `:latest` where it was, so an RC worker must consume its OWN prerelease image -- the window during which `latest` was a different release entirely. |
+| `testtools_image: surrounding whitespace in the version file is not part of the tag (closes #1122)` | Trailing whitespace is how a version file arrives from an editor; a tag with a newline in it names no image. |
+| `testtools_image: an absent version file is refused, never answered latest (closes #1122)` | The fallback that suggests itself for an unreadable version is `latest`, the one reference this exists to stop a pinned worker consuming. Refusing with nothing on stdout is the only direction that fails where it is used instead of linting against unchosen tools. |
+| `testtools_image: an unreadable version file is refused (closes #1122)` | Present-but-unreadable is the state an existence check passes and a reader then answers with nothing. Here that nothing would reach the version owner as "no version was supplied to release", so the refusal has to come from the readability test and name this file. |
+| `testtools_image: an empty version file is refused, naming the file (closes #1122)` | An empty version reaching the version owner would be reported as "nothing was supplied to release", a message about a release that never names this file. |
+| `testtools_image: content that is not a release version is refused, naming it (closes #1122)` | The published tooling tag IS the git tag, so a value that could not become a tag names no image. The shape rule has one owner and is not re-answered here. |
+| `testtools_image: with no argument it reads the checkout it lives in (closes #1122)` | CI passes no argument and must get the checkout the script lives in -- the base source at the worker's own ref. The expectation is read from the version file by a second reader, so it is the FILE CHOSEN that is under test and not the format. |
+| `testtools_image: no workflow spells a registry-qualified tooling image tag (closes #1122)` | A second spelling of the reference is a second source of it. The population is the workflow tree rather than the three files that carried one, so the fourth site is covered the day it lands. |
+| `testtools_image: no reusable worker declares a test_tools_version input (closes #1122)` | The input is the second source this removed. Declared again -- with any default, `latest` or not -- it is a value a caller can set to something the `@ref` pin does not name, which is the whole defect. |
+| `testtools_image: no shipped script writes a tooling version into a caller's workflow (closes #1122)` | The upgrade is the one place that edits every downstream repo, so a tooling version written into a caller's workflow from there would reintroduce the second source across the whole org at once. |
+| `testtools_image: every TEST_TOOLS_IMAGE a reusable worker passes comes from the derivation (closes #1122)` | The load-bearing positive half. Without it a worker could stop passing the arg at all and both negative scans above would report clean. Every hop is derived: the workers from the tree, the step from the expression the value is, the script from that step's own body. |
 
 ### test/bats/unit/testtools_paths_spec.bats (10)
 
