@@ -7675,7 +7675,7 @@ overlay; writes no override)
 | `_show_runtime_env_info shows an info msgbox about .env and writes nothing (#497)` | - |
 | `_edit_section_deploy writes the canonical gpu_runtime key (#517)` | - |
 
-### test/bats/unit/upgrade_spec.bats (48)
+### test/bats/unit/upgrade_spec.bats (55)
 
 Unit tests for `upgrade.sh` helpers. Uses the sed-range pattern to extract
 one function at a time into a minimal harness (with `_log` / `_error`
@@ -7750,6 +7750,13 @@ policy is never rewritten).
 | `_migrate_lifecycle_restart_default ignores a restart key outside [lifecycle]` | - |
 | `_migrate_lifecycle_restart_default is a no-op without a repo .setup.conf` | - |
 | `_migrate_lifecycle_restart_default is a no-op without a vendored template baseline` | - |
+| `_collect_subtree_local_drift finds an edit to a vendored path (#1092)` | The silence base#1092 is about -- an edit to a path upstream left alone -- is invisible to the merge, so the only thing that can report it is a tree comparison; this is the arm that proves the comparison finds the edit at all, from the metadata the pull itself recorded |
+| `_collect_subtree_local_drift finds nothing on a byte-exact vendored tree (#1092)` | A clean tree has to produce an EMPTY finding set, because a report that fires on every upgrade names nothing; this arm fails if the comparison ever picks up the subtree prefix itself or the consumer files that live outside it |
+| `_collect_subtree_local_drift records why it could not compare when the range holds no subtree squash (#1092)` | A comparison that cannot find the release to compare against reports the same zero findings as a clean tree, and that is the shape of silence base#1092 is about -- so the reason is recorded rather than the absence being left to read as agreement |
+| `_collect_subtree_local_drift records why it could not compare when the recorded upstream commit is absent (#1092)` | The other way the comparison can fail to run -- the squash names an upstream commit this object store does not hold, so the tree to compare against cannot be resolved. A zero here would be the check reporting a clean tree it never looked at |
+| `_warn_subtree_local_drift says the comparison could not run rather than nothing (#1092)` | Recording the reason is only half of it -- the consumer has to be told, because an upgrade that printed nothing is exactly what they saw before this check existed |
+| `_warn_subtree_local_drift names each drifted path repo-relative (#1092)` | Naming the files is the whole requirement -- a count with no paths leaves the consumer exactly where the silence did -- and the path has to be repo-relative, which is what they type at the prompt, not the subtree-relative form the comparison works in |
+| `_warn_subtree_local_drift says nothing when no drift was recorded (#1092)` | Silence on a clean tree is the behaviour every consumer sees on every upgrade, so it is the one the reporter has to get right even though it prints nothing |
 
 ### test/bats/unit/upstream_spec.bats (9)
 

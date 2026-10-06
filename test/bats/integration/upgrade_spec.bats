@@ -728,3 +728,117 @@ STUB
   # Pre-flight aborted before subtree pull ran: version untouched.
   [ "$(cat .base/.version)" = "v0.9.5" ]
 }
+
+# ════════════════════════════════════════════════════════════════════
+# A local edit to a path upstream did not touch
+# ════════════════════════════════════════════════════════════════════
+#
+# `git subtree pull --squash` raises a conflict only where BOTH sides
+# changed the same path. For a path base shipped identically across the
+# interval the merge sees a change on the local side and none upstream, so
+# it keeps the local version with no conflict and no message -- and the
+# upgrade's own output is then indistinguishable from one that landed a
+# byte-exact tree. A byte-exact census of every vendored tree in the org
+# found exactly one such edit, which had ridden through an upgrade
+# untouched; what the census could not find was any run, check or output
+# that would have reported it.
+#
+# The subject of the first arm is DERIVED from the fixture's two tags
+# rather than written down here. A named path stops being "shipped
+# identically across the interval" the moment the fixture changes that
+# file, and the arm would then quietly pass by exercising the conflict path
+# it exists to avoid.
+
+# _path_unchanged_between_tags
+#   Print one subtree-relative *.sh path whose blob the fixture ships
+#   identically at BOTH tags. `comm -23` over the sorted path list and the
+#   sorted changed-path list is the whole derivation. Restricted to *.sh so
+#   the edit below can be a trailing comment, which every shell file in the
+#   fixture tolerates -- these arms are about what the upgrade REPORTS, not
+#   about breaking the tree it reports on.
+_path_unchanged_between_tags() {
+  local _all="${BATS_TEST_TMPDIR}/tag_paths.txt"
+  local _changed="${BATS_TEST_TMPDIR}/tag_changed.txt"
+  git -C "${TMPL_WORK}" ls-tree -r --name-only v0.9.5 | sort > "${_all}"
+  git -C "${TMPL_WORK}" diff-tree -r --name-only v0.9.5 v0.9.7 | sort > "${_changed}"
+  comm -23 "${_all}" "${_changed}" | grep -E '\.sh$' | head -n 1
+}
+
+# why: A squashed subtree pull reports a hand edit only where upstream
+# touched the same path, so an edit to a path base shipped identically
+# across the interval rides through the upgrade with no conflict and no
+# message; the one real instance in the org sat in a vendored tree across
+# seven releases and an upgrade before a byte-exact census found it, and
+# silence is what invariant 2 exists to forbid
+@test "upgrade.sh names a vendored edit on a path upstream did not touch (#1092)" {
+  cd "${DOWN_DIR}"
+
+  local _subject
+  _subject="$(_path_unchanged_between_tags)"
+  [ -n "${_subject}" ] \
+    || fail "the fixture ships no *.sh path identically at both tags, so this arm cannot pose the case it names"
+
+  printf '# an edit the consumer made inside the vendored tree\n' >> ".base/${_subject}"
+  git add ".base/${_subject}"
+  git commit -q -m "local edit inside the vendored tree"
+
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" \
+      ./.base/dist/script/base/upgrade.sh v0.9.7
+  assert_success
+  assert_output --partial "${_subject}"
+
+  # The direction base chose: the consumer's edit is KEPT and reported, not
+  # silently replaced by upstream's copy. Losing it is the other failure,
+  # and this is the half a report-only fix must not drift into.
+  grep -Fq '# an edit the consumer made inside the vendored tree' ".base/${_subject}"
+}
+
+# why: The edited-path case and the extra-file case reach the report by
+# different sides of the tree comparison, and a check built only on the
+# first reads a file the consumer added into the vendored tree as upstream's
+# own; that is the shape the census counted separately as only-in-consumer
+@test "upgrade.sh names a file the consumer added inside the vendored tree (#1092)" {
+  cd "${DOWN_DIR}"
+
+  local _extra="dist/script/base/consumer_added.sh"
+  # Absence upstream is asserted, not assumed: a fixture that grew this
+  # path would turn the arm into a test of the ordinary payload compare.
+  refute git -C "${TMPL_WORK}" cat-file -e "v0.9.5:${_extra}"
+  refute git -C "${TMPL_WORK}" cat-file -e "v0.9.7:${_extra}"
+
+  printf '#!/usr/bin/env bash\nexit 0\n' > ".base/${_extra}"
+  git add ".base/${_extra}"
+  git commit -q -m "add a repo-local file inside the vendored tree"
+
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" \
+      ./.base/dist/script/base/upgrade.sh v0.9.7
+  assert_success
+  assert_output --partial "${_extra}"
+  [ -f ".base/${_extra}" ]
+}
+
+# why: The negative control for the two arms above. A report that fires on
+# every upgrade names nothing, and the census that motivated this check
+# reported zero partial upgrades across 2217 files -- so a clean pull has to
+# stay quiet, and this is the arm that fails if the comparison picks up the
+# resync's own work rather than the consumer's
+@test "upgrade.sh reports no vendored drift when the pull lands byte-exact (#1092)" {
+  cd "${DOWN_DIR}"
+
+  run env TEMPLATE_REMOTE="file://${TMPL_BARE}" \
+      ./.base/dist/script/base/upgrade.sh v0.9.7
+  assert_success
+  refute_output --partial "do not match what base shipped"
+  # And it was actually checked. "nothing to report" and "could not look" are
+  # the same silence from the terminal, which is the whole complaint.
+  refute_output --partial "could not be checked"
+
+  # And the tree really is byte-exact, so "quiet" is not quiet-because-blind.
+  # The upstream commit is read off git-subtree's own recorded metadata, the
+  # same source the check under test reads, so the two cannot disagree about
+  # which release the tree is being held to.
+  local _split
+  _split="$(git log --format=%B -5 | sed -n 's/^git-subtree-split: //p' | head -n 1)"
+  [ -n "${_split}" ]
+  assert_equal "$(git rev-parse "${_split}^{tree}")" "$(git rev-parse 'HEAD:.base')"
+}

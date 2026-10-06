@@ -71,6 +71,17 @@ _error() { _log_err upgrade upgrade_rollback "display=$*"; exit 1; }
 _UPGRADE_PRE_HEAD=""
 _UPGRADE_UNTRACKED_SNAPSHOT=()
 
+# Vendored-drift findings, collected the moment the pull has landed and
+# reported after the upgrade has finished. Each entry is "<status>\t<path>".
+# Declared here so `set -u` tolerates the empty case, which is the normal
+# one.
+_UPGRADE_DRIFT=()
+_UPGRADE_DRIFT_SPLIT=""
+# Why the comparison could not be made, when it could not. Empty means it ran.
+# A check that cannot run reports the same zero findings as a clean tree, so
+# the absence is never left to read as agreement.
+_UPGRADE_DRIFT_UNVERIFIED=""
+
 # ── Safety guards ────────────────────────────────────────────────────────────
 #
 # git-subtree pull is known to misbehave on some versions (reports of
@@ -627,6 +638,12 @@ _upgrade() {
   _log "Step 2/5: verify ${TEMPLATE_REL}/ subtree integrity"
   _verify_subtree_intact "${_pre_head}" "${target_ver}"
 
+  # Record how far the vendored tree diverges from the release that was just
+  # pulled, while the tree is still exactly what the pull produced. Reported
+  # at the end with the other advisory findings, not here, so it is not
+  # scrolled off by Steps 3-5.
+  _collect_subtree_local_drift "${_pre_head}"
+
   # Step 3: re-run init.sh to sync symlinks (in case template structure changed)
   _log "Step 3/5: re-run init.sh to sync symlinks"
   # when upgrading from <v0.30.0, init.sh's stale-removal loop
@@ -758,11 +775,144 @@ COMMIT
   # they can opt in.
   _warn_setup_conf_drift "${_pre_setup_conf_hash}"
 
+  # Last of the three, because it is the one that names repo paths the user
+  # has to act on rather than a diff they may want to read.
+  _warn_subtree_local_drift
+
   _log "Done! Upgraded to ${target_ver}"
   _log ""
   _log "Next steps:"
   _log "  1. Run ./build.sh test to verify"
   _log "  2. git push"
+}
+
+# ── Vendored-tree drift against the release that was pulled ──────────────────
+#
+# `git subtree pull --squash` raises a conflict only where BOTH sides changed
+# the same path. For a path base shipped identically across the interval the
+# merge sees a change on the local side and none upstream, so it keeps the
+# local version with no conflict and no message -- and the run's output is
+# then indistinguishable from one that landed a byte-exact tree. A byte-exact
+# census of every vendored tree in the org found one such edit, which had
+# already ridden through an upgrade; what it could not find was any run,
+# check or output that would have reported it. Silence is what PRD invariant
+# 2 forbids, so the upgrade now names every vendored path that does not match
+# the release it just pulled.
+#
+# It REPORTS and never rewrites. The consumer's edit is the only copy of
+# whatever it carries, so losing it is the worse of the two failures; the
+# upgrade has also already committed by the time this runs, and an advisory
+# finding must not undo a pull that succeeded. Deciding where a FAILING gate
+# over this same comparison belongs -- a downstream CI job, the per-repo
+# version monitor, a verb the consumer runs -- is a separate decision, and is
+# deliberately not made here.
+
+# _subtree_split_of <commit>
+#   The upstream commit a squash commit for THIS subtree prefix was built
+#   from, read off git-subtree's own recorded trailers. Returns 1 when
+#   <commit> is not such a squash commit.
+#
+#   `git-subtree-dir:` / `git-subtree-split:` are git-subtree's own metadata
+#   -- it writes them on every squash and parses them back on the next pull
+#   to find where the last one stopped -- so they are a contract rather than
+#   a rendering. Deliberately not `FETCH_HEAD`, which is a side effect of how
+#   git-subtree happens to fetch today, and deliberately not a second network
+#   call: every object needed here is already local, because the pull that
+#   just ran fetched it.
+_subtree_split_of() {
+  local _commit="${1:?"${FUNCNAME[0]}: missing commit"}"
+  local _line _dir_seen=0 _split=""
+  while IFS= read -r _line || [[ -n "${_line}" ]]; do
+    [[ "${_line}" == "git-subtree-dir: ${TEMPLATE_REL}" ]] && _dir_seen=1
+    [[ "${_line}" == "git-subtree-split: "* ]] && _split="${_line#git-subtree-split: }"
+  done < <(git log -1 --format=%B "${_commit}" 2>/dev/null)
+  (( _dir_seen )) || return 1
+  [[ -n "${_split}" ]] || return 1
+  printf '%s' "${_split}"
+}
+
+# _subtree_split_sha <rev_range>
+#   The newest subtree squash in <rev_range>, as the upstream commit it
+#   recorded. Returns 1 when the range holds no squash for this prefix.
+_subtree_split_sha() {
+  local _range="${1:?"${FUNCNAME[0]}: missing rev range"}"
+  local _commit _split
+  while IFS= read -r _commit || [[ -n "${_commit}" ]]; do
+    _split="$(_subtree_split_of "${_commit}")" || continue
+    printf '%s' "${_split}"
+    return 0
+  done < <(git rev-list "${_range}" 2>/dev/null)
+  return 1
+}
+
+# _collect_subtree_local_drift <pre_pull_head>
+#   Compare the vendored tree the pull produced against the upstream root
+#   tree it was pulled from, and record every path that differs into
+#   _UPGRADE_DRIFT. Called the moment the pull has landed, BEFORE the resync
+#   steps run, so nothing this upgrade does afterwards can be mistaken for
+#   the consumer's own divergence.
+#
+#   `git diff-tree` rather than `diff(1)`: the comparison is between two git
+#   trees, so it is blob SHA plus mode and nothing is parsed out of a
+#   rendered diff -- `/usr/bin/diff` in a consumer may be busybox, whose
+#   default output format is not GNU's.
+_collect_subtree_local_drift() {
+  local _pre_head="${1:?"${FUNCNAME[0]}: missing pre-pull HEAD"}"
+  _UPGRADE_DRIFT=()
+  _UPGRADE_DRIFT_SPLIT=""
+  _UPGRADE_DRIFT_UNVERIFIED=""
+  local _split
+  _split="$(_subtree_split_sha "${_pre_head}..HEAD")" || {
+    _UPGRADE_DRIFT_UNVERIFIED="no ${TEMPLATE_REL} subtree squash commit in ${_pre_head:0:12}..HEAD"
+    return 0
+  }
+  _UPGRADE_DRIFT_SPLIT="${_split}"
+  # The recorded upstream commit is reachable here only because the pull just
+  # fetched it. Resolve it explicitly rather than letting an unresolvable
+  # revision read as an empty diff, which is the clean-tree answer.
+  if ! git rev-parse --verify --quiet "${_split}^{tree}" >/dev/null 2>&1; then
+    _UPGRADE_DRIFT_UNVERIFIED="upstream commit ${_split:0:12} is not in this repo's object store"
+    return 0
+  fi
+  local _status _path
+  while IFS= read -r -d '' _status && IFS= read -r -d '' _path; do
+    _UPGRADE_DRIFT+=("${_status}"$'\t'"${_path}")
+  done < <(git diff-tree -r --name-status -z \
+    "${_split}^{tree}" "HEAD:${TEMPLATE_REL}" 2>/dev/null)
+}
+
+# _warn_subtree_local_drift
+#   Name every finding _collect_subtree_local_drift recorded. Silent when
+#   the pull landed byte-exact, which is the normal case.
+_warn_subtree_local_drift() {
+  if [[ -n "${_UPGRADE_DRIFT_UNVERIFIED}" ]]; then
+    _log_warn upgrade upgrade_subtree_local_drift \
+      "display=WARNING: whether ${TEMPLATE_REL}/ still matches what base shipped could not be checked: ${_UPGRADE_DRIFT_UNVERIFIED}." \
+      "reason=${_UPGRADE_DRIFT_UNVERIFIED}"
+  fi
+  (( ${#_UPGRADE_DRIFT[@]} > 0 )) || return 0
+  _log_warn upgrade upgrade_subtree_local_drift \
+    "display=WARNING: ${#_UPGRADE_DRIFT[@]} path(s) under ${TEMPLATE_REL}/ do not match what base shipped at the release just pulled." \
+    "count=${#_UPGRADE_DRIFT[@]}"
+  _log_warn upgrade upgrade_subtree_local_drift \
+    "display=         ${TEMPLATE_REL}/ is upstream-managed, and a squashed subtree pull reports a local edit only where upstream changed the same path -- so these were kept with no conflict and no message. Move anything you mean to keep OUT of ${TEMPLATE_REL}/."
+  local _entry _status _path _what
+  for _entry in "${_UPGRADE_DRIFT[@]}"; do
+    _status="${_entry%%$'\t'*}"
+    _path="${_entry#*$'\t'}"
+    case "${_status:0:1}" in
+      A) _what="only in this repo" ;;
+      D) _what="missing from this repo" ;;
+      *) _what="differs from upstream" ;;
+    esac
+    # Printed repo-relative, which is what the user has to type at the
+    # prompt; the comparison itself is subtree-relative.
+    _log_warn upgrade upgrade_subtree_local_drift_detail \
+      "display=           ${TEMPLATE_REL}/${_path} (${_what})" \
+      "path=${TEMPLATE_REL}/${_path}" "state=${_what}"
+  done
+  _log_warn upgrade upgrade_subtree_local_drift \
+    "display=         Review the whole divergence with:  git diff ${_UPGRADE_DRIFT_SPLIT:0:12} HEAD:${TEMPLATE_REL}"
 }
 
 # _warn_config_drift <pre_pull_tree_hash>

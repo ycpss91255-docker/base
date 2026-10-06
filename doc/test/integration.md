@@ -386,7 +386,7 @@ not evidence that the version is right.
 |------|-------------|
 | `test-tools image: every pinned tool answers with the declared version (#1012)` | It iterates the roster rather than a list of tools, so a pin declared tomorrow is asserted tomorrow -- and a probe that cannot run at all is reported rather than read as agreement. |
 
-### test/bats/integration/upgrade_spec.bats (21)
+### test/bats/integration/upgrade_spec.bats (24)
 
 End-to-end verification for `upgrade.sh` driving a real subtree update
 against a fake template remote (bare repo with `v0.9.5` / `v0.9.7` tags on a
@@ -425,6 +425,9 @@ run.
 | `upgrade.sh rolls back the whole upgrade when a post-pull step fails` | - |
 | `upgrade.sh (#654 relocated): git subtree pull uses --prefix=.base, not --prefix=base` | Walk-up self-location resolves the subtree prefix to `.base` after the deep relocation; real subtree pull lands with no stray `base/` dir |
 | `upgrade.sh refuses to run when the subtree root carries .git (base template source, #721)` | - |
+| `upgrade.sh names a vendored edit on a path upstream did not touch (#1092)` | A squashed subtree pull reports a hand edit only where upstream touched the same path, so an edit to a path base shipped identically across the interval rides through the upgrade with no conflict and no message; the one real instance in the org sat in a vendored tree across seven releases and an upgrade before a byte-exact census found it, and silence is what invariant 2 exists to forbid |
+| `upgrade.sh names a file the consumer added inside the vendored tree (#1092)` | The edited-path case and the extra-file case reach the report by different sides of the tree comparison, and a check built only on the first reads a file the consumer added into the vendored tree as upstream's own; that is the shape the census counted separately as only-in-consumer |
+| `upgrade.sh reports no vendored drift when the pull lands byte-exact (#1092)` | The negative control for the two arms above. A report that fires on every upgrade names nothing, and the census that motivated this check reported zero partial upgrades across 2217 files -- so a clean pull has to stay quiet, and this is the arm that fails if the comparison picks up the resync's own work rather than the consumer's |
 
 ### test/bats/integration/verify_tag_on_main_spec.bats (6)
 
