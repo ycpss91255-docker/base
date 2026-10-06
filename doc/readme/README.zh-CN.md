@@ -188,7 +188,7 @@ flowchart LR
 | `script/release/justfile.release` | base `release` namespace（release / publish 工具）。 |
 | `script/watch/justfile.watch` | base `watch` namespace — 上游发布监控（`just watch`、`just watch pins`、`just watch bump <name> <version>`）。 |
 | `dist/dockerfile/Dockerfile` | 新 repo 的多阶段 Dockerfile 模板 |
-| `dockerfile/Dockerfile.test-tools` | 预构建 lint/test 工具 image（shellcheck、hadolint、bats、bats-mock） |
+| `dockerfile/Dockerfile.test-tools` | 预构建 lint/test 工具 image（shellcheck、hadolint、bats、kcov） |
 | `.github/workflows/` | 可重用 CI workflows（build + release） |
 
 测试内容采用 **tool-first** 布局 — spec 放 `test/<tool>/<category>/`

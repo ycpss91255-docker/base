@@ -192,7 +192,7 @@ flowchart LR
 | `script/test/drivers/` | ツールごとに 1 つの driver — `bats.sh` / `shellcheck.sh` / `hadolint.sh` |
 | `script/test/lint_bare_stderr.sh` | 素の stderr 出力 lint チェッカ |
 | `dist/dockerfile/Dockerfile` | 新 repo のマルチステージ Dockerfile テンプレート |
-| `dockerfile/Dockerfile.test-tools` | プリビルド lint/test ツール image（shellcheck、hadolint、bats、bats-mock） |
+| `dockerfile/Dockerfile.test-tools` | プリビルド lint/test ツール image（shellcheck、hadolint、bats、kcov） |
 | `.github/workflows/` | 再利用可能な CI workflows（build + release） |
 
 テスト内容は **tool-first** で配置します — spec は `test/<tool>/<category>/`

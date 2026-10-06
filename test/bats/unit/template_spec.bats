@@ -770,12 +770,6 @@ EOF
   assert [ -f /source/dist/script/docker/lib/i18n.sh ]
 }
 
-# why: bats-mock available in test image
-@test "Dockerfile.test-tools includes bats-mock" {
-  run grep 'bats-mock' /source/dockerfile/Dockerfile.test-tools
-  assert_success
-}
-
 @test "Dockerfile.test-tools installs just from the PINNED release (#948)" {
   # The test-tools image must carry `just` so justfile_user_spec /
   # upgrade-check can exercise the entry point for real -- and it must

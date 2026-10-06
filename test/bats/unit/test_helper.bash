@@ -4,19 +4,11 @@
 bats_load_library "bats-support"
 bats_load_library "bats-assert"
 
-# bats-mock: for stubbing system commands (id, uname, docker, dpkg-query)
-# Installed via git in compose.yaml
-load "${BATS_LIB_PATH}/bats-mock/stub"
-
-# bash_test_helper (via git subtree):
-#   git subtree add --prefix test/bash_test_helper \
-#       https://github.com/ycpss91255/bash_test_helper main --squash
-_BTH="${BATS_TEST_DIRNAME}/bash_test_helper/src"
-if [[ -f "${_BTH}/test_helper.bash" ]]; then
-    # shellcheck disable=SC1090
-    source "${_BTH}/test_helper.bash"
-fi
-unset _BTH
+# Stubbing is this file's own mock_cmd / create_mock_dir below. bats-mock
+# was loaded here for every spec and called by none, and a
+# bash_test_helper subtree was announced here and never vendored; both are
+# gone. A reader who goes looking for a helper library named in this file
+# now finds one.
 
 # ── Test utilities ────────────────────────────────────────────────────────────
 
