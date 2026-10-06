@@ -400,7 +400,7 @@ EOF
 [security]
 
 [[security.cap_add]]
-name = "SYS_ADMIN"
+cap = "SYS_ADMIN"
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -416,18 +416,18 @@ EOF
   # security.cap_add SYS_ADMIN` or the TUI). The slim template only
   # changes the DEFAULT -- an explicit cap_add must still emit.
   #
-  # The entries carry `name =` because this fixture is READER input: the
-  # bridge's array spec reads a `[[security.cap_add]]` /
-  # `[[security.security_opt]]` entry back by its `name` field.
+  # The entries carry `cap =` / `opt =` -- the field names the shipped
+  # template documents, both writers emit and the INI-to-TOML converter
+  # produces, which is what the bridge's array spec reads them back by.
   cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [security]
 privileged = false
 
 [[security.cap_add]]
-name = "SYS_ADMIN"
+cap = "SYS_ADMIN"
 
 [[security.security_opt]]
-name = "seccomp:unconfined"
+opt = "seccomp:unconfined"
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -758,14 +758,14 @@ EOF
 @test "[security] cap_add_* explicit override: user-provided list is honored (no template fallback)" {
   # User set cap_add_1=ALL explicitly: compose should use THAT, not the
   # template's SYS_ADMIN/NET_ADMIN/MKNOD.
-  # `name =` because this fixture is READER input: the bridge's array
-  # spec reads a `[[security.cap_add]]` entry back by its `name` field.
+  # `cap =` is the field name the shipped template documents and both
+  # writers emit, and the one the bridge's array spec reads back.
   cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [security]
 privileged = false
 
 [[security.cap_add]]
-name = "ALL"
+cap = "ALL"
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh

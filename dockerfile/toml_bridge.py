@@ -22,8 +22,8 @@ _ARRAY_SPEC = {
     "rules": ("rule", lambda e: e.get("rule", "")),
     "args": ("arg", lambda e: "%s=%s" % (e["key"], e["value"]) if "key" in e else ""),
     "ports": ("port", lambda e: "%s:%s" % (e["host"], e["container"]) if "host" in e else ""),
-    "cap_add": ("cap_add", lambda e: e.get("name", "")),
-    "security_opt": ("security_opt", lambda e: e.get("name", "")),
+    "cap_add": ("cap_add", lambda e: e.get("cap", "")),
+    "security_opt": ("security_opt", lambda e: e.get("opt", "")),
     "volumes": ("mount", lambda e: ":".join(v for v in [e.get("source", ""), e.get("target", ""), e.get("mode", "")] if v)),
     "tmpfs": ("tmpfs", lambda e: e.get("path", "")),
     "devices": ("device", lambda e: e.get("path", "")),
@@ -48,6 +48,30 @@ def _emit_array(section, key, items):
         print(f"{section}\t{prefix}_{i}\t{serializer(elem)}")
 
 
+def _emit_table(section, entries):
+    """Emit one table's keys under <section>, recursing into a sub-table.
+
+    The shell view has no nesting: a section is one flat name, and the
+    name a nested table is known by there is the dotted path
+    (`[logging.web]` -> section `logging.web`), which is exactly what
+    conf.sh's _conf_toml_header writes and _load_setup_conf reads back.
+    Printing the dict instead hands the shell a Python repr as the value
+    of a key named after the sub-table: the section never exists, and the
+    parent gains a key no reader can use.
+
+    An array value goes through _emit_array whatever the depth, so
+    `[[build.args]]` numbers under `build` and a nested one would number
+    under its own dotted section.
+    """
+    for key, value in entries.items():
+        if isinstance(value, list):
+            _emit_array(section, key, value)
+        elif isinstance(value, dict):
+            _emit_table(f"{section}.{key}", value)
+        else:
+            print(f"{section}\t{key}\t{_format_value(value)}")
+
+
 def _emit_kv(data):
     """Emit section/key/value tab-separated lines for bash consumption.
 
@@ -63,16 +87,15 @@ def _emit_kv(data):
     A scalar goes through _format_value, which is what keeps a TOML
     boolean spelled the way the shell compares it -- `true`, not Python's
     `True`, which every `== true` on the other side reads as false.
+
+    A table goes through _emit_table, which flattens a nested one into
+    its own dotted section.
     """
     for section, entries in data.items():
         if isinstance(entries, list):
             _emit_array(section, section, entries)
         elif isinstance(entries, dict):
-            for key, value in entries.items():
-                if isinstance(value, list):
-                    _emit_array(section, key, value)
-                else:
-                    print(f"{section}\t{key}\t{_format_value(value)}")
+            _emit_table(section, entries)
 
 
 def _merge_toml(paths):

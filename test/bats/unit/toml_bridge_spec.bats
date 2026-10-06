@@ -900,3 +900,67 @@ EOF
   run _conf_load_layers FHDL "${toml_file}"
   assert_failure
 }
+
+# why: the shell view has no nesting -- a section is one flat name -- and
+#      `[logging.web]` is the per-service spelling the template documents and
+#      `_conf_toml_header` writes. str()-ing the dict hands the shell
+#      `logging<TAB>web<TAB>{'driver': 'local'}`: the section `logging.web`
+#      never exists, so `_load_setup_conf <base> logging.web` reads nothing,
+#      and the global `[logging]` gains a key whose value is a Python repr.
+@test "toml-bridge: --kv flattens a nested table into its own dotted section" {
+  assert_spec_subject "${BRIDGE_PY}" \
+    "the Python bridge script (nested table flattening)"
+
+  local toml_file="${BATS_TEST_TMPDIR}/logging.toml"
+  cat > "${toml_file}" << 'EOF'
+[logging]
+driver = "json-file"
+max_size = "10m"
+
+[logging.web]
+driver = "local"
+local_path = "./log/web"
+EOF
+
+  run python3 "${BRIDGE_PY}" --kv < "${toml_file}"
+  assert_success
+  assert_line "logging	driver	json-file"
+  assert_line "logging	max_size	10m"
+  assert_line "logging.web	driver	local"
+  assert_line "logging.web	local_path	./log/web"
+  # The nested table is NOT also a key of its parent, and never a repr.
+  refute_output --partial "{"
+  refute_line --regexp $'^logging\tweb\t'
+}
+
+# why: `[[security.cap_add]]` / `[[security.security_opt]]` are written with
+#      the field names the shipped template documents and both writers emit
+#      (`cap` / `opt`) -- the INI-to-TOML converter writes the same. Reading
+#      a `name` field finds nothing, so every capability a repo opts into
+#      arrives as an empty numbered key and the container runs without it.
+@test "toml-bridge: --kv reads the cap / opt fields the writers emit" {
+  assert_spec_subject "${BRIDGE_PY}" \
+    "the Python bridge script (security array field names)"
+
+  local toml_file="${BATS_TEST_TMPDIR}/security.toml"
+  cat > "${toml_file}" << 'EOF'
+[security]
+privileged = false
+
+[[security.cap_add]]
+cap = "SYS_ADMIN"
+
+[[security.cap_add]]
+cap = "NET_ADMIN"
+
+[[security.security_opt]]
+opt = "seccomp:unconfined"
+EOF
+
+  run python3 "${BRIDGE_PY}" --kv < "${toml_file}"
+  assert_success
+  assert_line "security	privileged	false"
+  assert_line "security	cap_add_1	SYS_ADMIN"
+  assert_line "security	cap_add_2	NET_ADMIN"
+  assert_line "security	security_opt_1	seccomp:unconfined"
+}
