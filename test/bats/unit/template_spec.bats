@@ -1656,24 +1656,24 @@ EOF
   assert_output "0"
 }
 
-# why: v0.10.1 input replaces GITHUB_WORKFLOW_REF parse
-@test "build-worker.yaml: declares test_tools_version input" {
-  # Replaces the v0.10.0 GITHUB_WORKFLOW_REF auto-parse, which read the
-  # caller's own tag ref (e.g. a downstream repo's v1.5.0) rather than
-  # template's pinned @tag, so downstream tag pushes tried to pull
-  # `ghcr.io/.../test-tools:<downstream-tag>` and failed 404.
+# why: the tooling image is derived from the version-matched checkout, not
+# taken as an input (closes #1122)
+@test "build-worker.yaml: derives the tooling image from the version-matched checkout (closes #1122)" {
+  # The v0.10.1 `test_tools_version` input replaced a GITHUB_WORKFLOW_REF
+  # auto-parse that read the CALLER's tag, and defaulted to `latest` --
+  # so the caller's `@vX.Y.Z` pinned the worker's code and left the image
+  # its lint stage is built FROM rolling. The value now comes from the
+  # base checkout the worker takes at its own ref, which is also the tag
+  # release-test-tools.yaml publishes that image under. The derivation
+  # itself, and the scan holding every worker to it, are
+  # testtools_image_spec.bats's; this case pins the wiring in THIS file.
   local _yaml="/source/.github/workflows/build-worker.yaml"
   assert_spec_subject "${_yaml}" \
       "the reusable build worker this spec pins"
-  run grep -F 'test_tools_version:' "${_yaml}"
+  run code_grep -E '^[[:space:]]+test_tools_version:' "${_yaml}"
+  assert_failure
+  run code_grep -F 'script/ci/testtools_image.sh' "${_yaml}"
   assert_success
-  # Default must be `latest` so unpinned callers still work.
-  run awk '
-    /test_tools_version:/ { inside = 1 }
-    inside && /^[[:space:]]+default:/ { print; exit }
-  ' "${_yaml}"
-  assert_success
-  assert_output --partial '"latest"'
 }
 
 # why: regression guard
@@ -1687,7 +1687,7 @@ EOF
   assert_output "0"
 }
 
-@test "build-worker.yaml: devel-test build passes TEST_TOOLS_IMAGE from inputs" {
+@test "build-worker.yaml: devel-test build passes TEST_TOOLS_IMAGE from the resolver step" {
   local _yaml="/source/.github/workflows/build-worker.yaml"
   assert_spec_subject "${_yaml}" \
       "the reusable build worker this spec pins"
@@ -1700,8 +1700,8 @@ EOF
     inside { print }
   ' "${_yaml}"
   assert_success
-  # build-arg must wire inputs.test_tools_version into the ghcr tag
-  assert_output --partial 'TEST_TOOLS_IMAGE=ghcr.io/ycpss91255-docker/test-tools:${{ inputs.test_tools_version }}'
+  # build-arg must wire the derived reference in, not a tag spelled here
+  assert_output --partial 'TEST_TOOLS_IMAGE=${{ steps.testtools.outputs.image }}'
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -3082,7 +3082,7 @@ FIXTURE
   assert_spec_subject "${_wf}" \
       "the reusable build worker this spec pins"
   # Two forwards expected: devel-test and runtime-test build steps.
-  run grep -cE '^            TEST_TOOLS_IMAGE=ghcr\.io/ycpss91255-docker/test-tools:\$\{\{ inputs\.test_tools_version \}\}$' "${_wf}"
+  run grep -cE '^            TEST_TOOLS_IMAGE=\$\{\{ steps\.testtools\.outputs\.image \}\}$' "${_wf}"
   assert_output "2"
 }
 

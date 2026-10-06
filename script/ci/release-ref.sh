@@ -18,10 +18,13 @@
 #   self-test.yaml            downstream repo -- or for base itself -- is
 #                             marked prerelease
 #   release-test-tools.yaml   whether the published tooling image moves
-#                             `test-tools:latest`, which is the image
-#                             every repo that has not pinned
-#                             `test_tools_version` builds its lint stage
-#                             from, that input's default being "latest"
+#                             `test-tools:latest`, the rolling tag a human
+#                             pulls. No worker builds from it any more
+#                             (base#1122: they derive the image from the
+#                             `.version` of the base checkout they take at
+#                             their own ref), but a release candidate
+#                             published there is still wrong for whoever
+#                             pulls it.
 #
 # The first two spelled it `contains(github.ref_name, '-')`. The third
 # did not ask at all and moved `:latest` on v0.42.0-rc1 through -rc4, so

@@ -5,6 +5,10 @@
 
 - **Date:** 2026-05-29
 - **Status:** Accepted
+- **Amended:** 2026-10-06 -- the output-image exemption is scoped to the
+  images a repo PUBLISHES. The tooling image, which the workers CONSUME,
+  is a build-time dependency ref and falls under the pin rule like any
+  other. See "The exemption was about publishing, not consuming" below.
 
 ## Context
 
@@ -37,8 +41,39 @@ physical `latest` tag, and nothing in the repo creates one.
 Note this decision is scoped to `base`'s **own version tags** —
 i.e. build-time dependency refs. It is deliberately distinct from the
 **output Docker images** downstream repos publish, where a rolling
-`:latest` (`is_latest` input) and `test-tools:main` are intentionally
-supported for opt-in consumers.
+`:latest` (`is_latest` input) is intentionally supported for opt-in
+consumers.
+
+### The exemption was about publishing, not consuming
+
+*(amendment, 2026-10-06)*
+
+This ADR's original wording put `test-tools:main` beside `is_latest` in
+the output-image exemption, and that conflated two sides of a rolling
+tag. `is_latest` is a tag a repo **publishes** for whoever wants the
+newest build; a mutable tag is the whole point of it, and nothing in the
+repo's own CI builds from it.
+
+The tooling image is the other side. `ghcr.io/.../test-tools:<tag>` is
+what every downstream Dockerfile's test stage is declared `FROM`, so the
+worker **consumes** it during the build — which makes it a build-time
+dependency ref, exactly the thing the Decision below pins. Under the
+exemption it was reached through a `test_tools_version` input defaulting
+to the rolling `latest`, and the consequence is the one this ADR already
+argues for mutable refs: the same downstream commit linted and tested
+against different binaries on different days, with zero downstream diff
+and no record of which tooling a build ran against. Four RC tags moving
+`:latest` made that concrete.
+
+So the exemption stands for published tags and does not extend to
+consumption. The reference a worker builds from is derived from
+`.version` in the base checkout it takes at its own ref — which is the
+tag `release-test-tools.yaml` publishes the image under, so the worker's
+`@vX.Y.Z` pin now covers its tooling too (base#1122). `test-tools:main`
+and `test-tools:latest` continue to be published: `:main` is what base's
+OWN self-test pulls to skip a from-source rebuild, inside one repo at one
+commit, and `:latest` is a human's `docker pull`. Neither is a reference
+any worker builds from.
 
 ## Decision
 
@@ -101,6 +136,16 @@ ref, and these remain the only supported paths:
   changes. Future contributors proposing a `latest` tag for `base`
   should treat this as the standing rejection and supersede it only
   with a new ADR if the trade-offs change.
-- The separately-supported rolling tags for **output images**
-  (`is_latest` → `:latest`, `test-tools:main`) are unaffected; this
-  decision does not constrain them.
+- The separately-supported rolling tag for **published output images**
+  (`is_latest` → `:latest`) is unaffected; this decision does not
+  constrain what a repo publishes.
+- **What a worker CONSUMES is constrained** (amendment, 2026-10-06). The
+  tooling image a build is declared `FROM` is a build-time dependency
+  ref, so it is derived from `.version` in the version-matched base
+  checkout rather than taken as an input defaulting to a rolling tag. The
+  cost accepted is that a downstream build fails loudly in the window
+  between a base tag being pushed and `release-test-tools.yaml`
+  publishing the image under it — which is the fail-closed direction: the
+  alternative was a green run against tooling nothing had chosen.
+  `test-tools:main` and `test-tools:latest` stay published, and neither
+  is consumed by a worker.

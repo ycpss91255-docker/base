@@ -667,6 +667,15 @@ _upgrade() {
     # it: template_spec.bats exercises the production substitution by
     # extracting this line out of this file, so a pattern assembled from
     # names that line does not carry would be exercised empty.
+    #
+    # THE @tag IS THE ONLY VERSION THIS WRITES, and a second one must not be
+    # added beside it. The tooling image a worker builds from used to be a
+    # `test_tools_version` input a caller set next to this ref, which made the
+    # tooling version a thing an upgrade had to keep in step with the ref by
+    # rewriting both. It is derived from the `.version` of the base checkout
+    # the worker takes at the ref this line moves (base#1122), so moving the
+    # ref moves it: a version written into main.yaml here would be a second
+    # source of it again. A spec holds the workers to declaring no such input.
     local _before
     _before="$(cat "${main_yaml}")"
     sed -i -E "s|(${BASE_UPSTREAM_SLUG//./\\.}/\.github/workflows/[A-Za-z0-9._-]+\.ya?ml)@v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?|\1@${target_ver}|g" "${main_yaml}"

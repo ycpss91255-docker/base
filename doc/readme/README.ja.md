@@ -1208,7 +1208,7 @@ jobs:
       archive_name_prefix: my_app
 ```
 
-<!-- sync: build-workeryaml-inputs 56e79469bb9e 6d5a8c1ecbb7 -->
+<!-- sync: build-workeryaml-inputs 40409afe0592 3a2a4ba7239a -->
 ### build-worker.yaml パラメータ
 
 | パラメータ | 型 | 必須 | デフォルト | 説明 |
@@ -1217,7 +1217,14 @@ jobs:
 | `build_args` | string | いいえ | `""` | 複数行 KEY=VALUE ビルド引数 |
 | `build_runtime` | boolean | いいえ | `true` | runtime ビルドのオプトアウト(`false`)。stage の有無は Dockerfile から読み取る: `runtime` / `runtime-test` を宣言していればビルドし、なければスキップするので、runtime stage を持たない repo はここを変更する必要がない |
 | `platforms` | string | いいえ | `"linux/amd64"` | カンマ区切りのターゲットプラットフォーム；各プラットフォームがネイティブ runner 上で並列実行（`linux/amd64` → ubuntu-latest、`linux/arm64` → ubuntu-24.04-arm） |
-| `test_tools_version` | string | いいえ | `"latest"` | `ghcr.io/ycpss91255-docker/test-tools:<tag>` のタグ。下流側は採用した template release にピン留めすると再現性が確保できる |
+
+`devel-test` / `runtime-test` stage が FROM するツールイメージは入力では
+ない。worker が自身の ref で取得する base checkout の `.version` から導出
+され、それは `release-test-tools.yaml` がそのイメージを公開するタグでも
+ある —— つまり worker をピン留めした `@vX.Y.Z` がツールイメージもピン留め
+する。以前は `test_tools_version` 入力が担っており、デフォルトはローリング
+な `latest` だった。まだこの入力を渡している呼び出し側は、その行を削除する
+必要がある。
 
 <!-- sync: release-workeryaml-inputs 76c6974e7c8c 05ff0e4a6010 -->
 ### release-worker.yaml パラメータ

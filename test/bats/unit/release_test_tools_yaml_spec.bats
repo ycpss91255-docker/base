@@ -10,11 +10,12 @@
 # downstream CI depends on:
 #
 # 1. **Tag push (`v*`)** — multi-arch `:<version>`, plus `:latest` only
-#    when the tag is NOT a prerelease. Cuts the release downstream
-#    consumers pin via `inputs.test_tools_version` on build-worker /
-#    publish-worker — whose default IS `latest`, which is why an RC tag
-#    must leave it alone. `v0.42.0-rc1` through `-rc4` each matched the
-#    `v*` trigger and each moved it.
+#    when the tag is NOT a prerelease. `:<version>` is what build-worker
+#    and publish-worker build FROM, derived from the `.version` of the
+#    base checkout they take at their own ref (base#1122); `:latest` is
+#    the rolling tag a human pulls, which is why an RC tag must leave it
+#    alone. `v0.42.0-rc1` through `-rc4` each matched the `v*` trigger and
+#    each moved it.
 #
 # 2. **Main push** (P2) — multi-arch `:main` rolling tag. The
 #    template's own self-test.yaml pulls this in its Obtain step to
@@ -42,9 +43,10 @@
 # sets -- the first two triggers each resolve one:
 #
 # 1. **Tag push (`v*`)** -- multi-arch `:<version>`, and `:latest` only when
-# the tag is not a prerelease. Cuts the release downstream consumers pin via
-# `inputs.test_tools_version`, whose default IS `latest`, which is why a
-# prerelease tag must leave it alone.
+# the tag is not a prerelease. `:<version>` is the one the workers build
+# FROM, derived from the base checkout's own `.version` (base#1122);
+# `:latest` is the rolling tag a human pulls, which is why a prerelease tag
+# must leave it alone.
 #
 # 2. **Main push** (P2) -- multi-arch `:main` rolling tag, pulled by
 # self-test.yaml's Obtain step to skip from-source rebuilds. Its paths filter
@@ -258,13 +260,13 @@ _spec_prose() {
 }
 
 # why: The load-bearing case: `v0.42.0-rc1` through `-rc4` each matched the
-# `v*` trigger and each moved the tag whose default every unpinned
-# downstream inherits, for the length of an RC window.
+# `v*` trigger and each moved the rolling tag, for the length of an RC
+# window, to a release candidate.
 @test "release-test-tools.yaml: an RC tag publishes :<ver> and leaves :latest where it was (#1012)" {
   # v0.42.0-rc1..rc4 each matched the `v*` trigger and each moved
-  # `:latest`, so every downstream repo that does not pin
-  # `test_tools_version` (its default IS "latest") built its lint stage
-  # from an RC image for the whole RC window.
+  # `:latest`, so for the whole RC window the rolling tag named a release
+  # candidate -- and back then every downstream repo that had not pinned
+  # built its lint stage from it.
   run _resolve_tags_for refs/tags/v0.42.0-rc4
   assert_success
   assert_output --partial 'tags=ghcr.io/ycpss91255-docker/test-tools:v0.42.0-rc4'
