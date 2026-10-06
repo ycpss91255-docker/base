@@ -153,7 +153,7 @@ teardown() {
 }
 
 @test "[project] name in setup.local.toml moves BOTH the -p and the emitted name:" {
-  printf '[project]\nname = %s\n' "myapp-worktree-2" \
+  printf '[project]\nname = "%s"\n' "myapp-worktree-2" \
     > "${REPO_DIR}/setup.local.toml"
   run bash "${REPO_DIR}/build.sh" --dry-run
   assert_success
@@ -174,7 +174,7 @@ teardown() {
   # hand-edited derived artifact and no environment variable.
   local _second="${TMP_ROOT}/${REPO_NAME}-2"
   cp -a "${REPO_DIR}" "${_second}"
-  printf '[project]\nname = %s\n' "myapp-worktree-2" \
+  printf '[project]\nname = "%s"\n' "myapp-worktree-2" \
     > "${_second}/setup.local.toml"
 
   run bash "${REPO_DIR}/build.sh" --dry-run

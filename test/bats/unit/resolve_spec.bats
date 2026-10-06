@@ -199,7 +199,7 @@ load "${BATS_TEST_DIRNAME}/setup_spec_helper"
   _compute_conf_hash "${TEMP_DIR}" _h1
   cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [gpu]
-mode = off
+mode = "off"
 EOF
   _compute_conf_hash "${TEMP_DIR}" _h2
   [[ "${_h1}" != "${_h2}" ]]

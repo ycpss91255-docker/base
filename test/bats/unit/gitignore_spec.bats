@@ -478,7 +478,7 @@ _init_repo_with_tracked() {
   mkdir -p "${TMP_DIR}"
   cat > "${TMP_DIR}/setup.toml" <<'CONF'
 [logging]
-local_path = ./logs/
+local_path = "./logs/"
 CONF
   run _sync_logging_gitignore "${TMP_DIR}"
   assert_success
@@ -503,7 +503,7 @@ _stage_logging_conf() {
 @test "_sync_logging_gitignore appends relative local_path to .gitignore (#402, ex-#328)" {
   _stage_logging_conf <<'CONF'
 [logging]
-local_path = ./logs/
+local_path = "./logs/"
 CONF
   : > "${TMP_DIR}/.gitignore"
   _sync_logging_gitignore "${TMP_DIR}"
@@ -516,7 +516,7 @@ CONF
 @test "_sync_logging_gitignore skips absolute paths (#402, ex-#328)" {
   _stage_logging_conf <<'CONF'
 [logging]
-local_path = /srv/logs/
+local_path = "/srv/logs/"
 CONF
   : > "${TMP_DIR}/.gitignore"
   _sync_logging_gitignore "${TMP_DIR}"
@@ -527,7 +527,7 @@ CONF
 @test "_sync_logging_gitignore skips ~ paths (#402, ex-#328)" {
   _stage_logging_conf <<'CONF'
 [logging]
-local_path = ~/logs/
+local_path = "~/logs/"
 CONF
   : > "${TMP_DIR}/.gitignore"
   _sync_logging_gitignore "${TMP_DIR}"
@@ -538,7 +538,7 @@ CONF
 @test "_sync_logging_gitignore is idempotent (#402, ex-#328)" {
   _stage_logging_conf <<'CONF'
 [logging]
-local_path = ./logs/
+local_path = "./logs/"
 CONF
   : > "${TMP_DIR}/.gitignore"
   _sync_logging_gitignore "${TMP_DIR}"
@@ -556,7 +556,7 @@ CONF
   # behaviour; a future input-validation pass would skip/reject it instead.
   _stage_logging_conf <<'CONF'
 [logging]
-local_path = ../escape/
+local_path = "../escape/"
 CONF
   : > "${TMP_DIR}/.gitignore"
   _sync_logging_gitignore "${TMP_DIR}"
@@ -570,7 +570,7 @@ CONF
   # Pins the current behaviour; a future sanitiser would reject or quote it.
   _stage_logging_conf <<'CONF'
 [logging]
-local_path = my logs/
+local_path = "my logs/"
 CONF
   : > "${TMP_DIR}/.gitignore"
   _sync_logging_gitignore "${TMP_DIR}"
@@ -581,13 +581,13 @@ CONF
 @test "_sync_logging_gitignore collects from both global + per-svc (#402, ex-#328)" {
   _stage_logging_conf <<'CONF'
 [logging]
-local_path = ./global-logs/
+local_path = "./global-logs/"
 
 [logging.devel]
-local_path = ./devel-logs/
+local_path = "./devel-logs/"
 
 [logging.test]
-local_path = ./test-logs/
+local_path = "./test-logs/"
 CONF
   : > "${TMP_DIR}/.gitignore"
   _sync_logging_gitignore "${TMP_DIR}"
@@ -602,7 +602,7 @@ CONF
 @test "_sync_logging_gitignore is no-op when no local_path keys (#402, ex-#328)" {
   _stage_logging_conf <<'CONF'
 [logging]
-driver = json-file
+driver = "json-file"
 CONF
   : > "${TMP_DIR}/.gitignore"
   _sync_logging_gitignore "${TMP_DIR}"
@@ -616,7 +616,7 @@ CONF
 @test "_sync_logging_gitignore prunes stale managed entries on value change (#402, ex-#390)" {
   _stage_logging_conf <<'CONF'
 [logging]
-local_path = ./logs/
+local_path = "./logs/"
 CONF
   : > "${TMP_DIR}/.gitignore"
   _sync_logging_gitignore "${TMP_DIR}"
@@ -625,7 +625,7 @@ CONF
   # Rename: /logs/ pruned, /log/ added.
   _stage_logging_conf <<'CONF'
 [logging]
-local_path = ./log/
+local_path = "./log/"
 CONF
   _sync_logging_gitignore "${TMP_DIR}"
   run grep -xF "/logs/" "${TMP_DIR}/.gitignore"
@@ -637,7 +637,7 @@ CONF
 @test "_sync_logging_gitignore drops marker + entries when candidates become empty (#402, ex-#390)" {
   _stage_logging_conf <<'CONF'
 [logging]
-local_path = ./logs/
+local_path = "./logs/"
 CONF
   : > "${TMP_DIR}/.gitignore"
   _sync_logging_gitignore "${TMP_DIR}"
@@ -646,7 +646,7 @@ CONF
   # Feature turned off: marker + entries removed.
   _stage_logging_conf <<'CONF'
 [logging]
-local_path =
+local_path = ""
 CONF
   _sync_logging_gitignore "${TMP_DIR}"
   run grep -xF "/logs/" "${TMP_DIR}/.gitignore"
@@ -661,7 +661,7 @@ CONF
   printf '%s\n' "# user ignores" "/logs/" "" > "${TMP_DIR}/.gitignore"
   _stage_logging_conf <<'CONF'
 [logging]
-local_path = ./log/
+local_path = "./log/"
 CONF
   _sync_logging_gitignore "${TMP_DIR}"
   run grep -xF "/logs/" "${TMP_DIR}/.gitignore"
@@ -671,7 +671,7 @@ CONF
   # Turning the feature off prunes managed /log/ but leaves user /logs/.
   _stage_logging_conf <<'CONF'
 [logging]
-local_path =
+local_path = ""
 CONF
   _sync_logging_gitignore "${TMP_DIR}"
   run grep -xF "/logs/" "${TMP_DIR}/.gitignore"
@@ -706,7 +706,7 @@ _LOGGING_LEGACY='# managed by template: [logging] local_path (do not remove)'
 @test "_sync_logging_gitignore: emits an explicit end marker bounding the block (#876)" {
   _stage_logging_conf <<'CONF'
 [logging]
-local_path = ./log/
+local_path = "./log/"
 CONF
   : > "${TMP_DIR}/.gitignore"
   _sync_logging_gitignore "${TMP_DIR}"
@@ -719,7 +719,7 @@ CONF
 @test "_sync_logging_gitignore: preserves a user entry BELOW the managed block (#876)" {
   _stage_logging_conf <<'CONF'
 [logging]
-local_path = ./log/
+local_path = "./log/"
 CONF
   : > "${TMP_DIR}/.gitignore"
   _sync_logging_gitignore "${TMP_DIR}"
@@ -737,14 +737,14 @@ CONF
 @test "_sync_logging_gitignore: user entry below the block survives a value change (#876)" {
   _stage_logging_conf <<'CONF'
 [logging]
-local_path = ./log/
+local_path = "./log/"
 CONF
   : > "${TMP_DIR}/.gitignore"
   _sync_logging_gitignore "${TMP_DIR}"
   printf '/build/\n' >> "${TMP_DIR}/.gitignore"
   _stage_logging_conf <<'CONF'
 [logging]
-local_path = ./logs/
+local_path = "./logs/"
 CONF
   run _sync_logging_gitignore "${TMP_DIR}"
   assert_success
@@ -760,7 +760,7 @@ CONF
 @test "_sync_logging_gitignore: an unterminated managed block is an error (#876)" {
   _stage_logging_conf <<'CONF'
 [logging]
-local_path = ./log/
+local_path = "./log/"
 CONF
   # A begin marker whose end marker was deleted: the block has no
   # bound, so the sync must refuse rather than guess where it stops.
@@ -777,7 +777,7 @@ CONF
 @test "_sync_logging_gitignore: an end marker with no begin marker is an error (#876)" {
   _stage_logging_conf <<'CONF'
 [logging]
-local_path = ./log/
+local_path = "./log/"
 CONF
   printf '%s\n' "/build/" "${_LOGGING_END}" > "${TMP_DIR}/.gitignore"
   run _sync_logging_gitignore "${TMP_DIR}"
@@ -788,7 +788,7 @@ CONF
 @test "_sync_logging_gitignore: migrates a legacy begin-marker-only block (#876)" {
   _stage_logging_conf <<'CONF'
 [logging]
-local_path = ./log/
+local_path = "./log/"
 CONF
   # What an older template left on disk: begin marker, no end marker.
   printf '%s\n' "# user ignores" "${_LOGGING_LEGACY}" "/log/" \
@@ -810,7 +810,7 @@ CONF
 @test "_sync_logging_gitignore: legacy migration keeps a following canonical entry (#876)" {
   _stage_logging_conf <<'CONF'
 [logging]
-local_path = ./log/
+local_path = "./log/"
 CONF
   # The canonical /deploy/ entry appended right below a legacy block,
   # with no blank line between them: the migration must not consume it.
@@ -826,7 +826,7 @@ CONF
 @test "_sync_logging_gitignore: legacy migration reports orphaned entries (#876)" {
   _stage_logging_conf <<'CONF'
 [logging]
-local_path = ./log/
+local_path = "./log/"
 CONF
   printf '%s\n' "${_LOGGING_LEGACY}" "/log/" "/stale/" \
     > "${TMP_DIR}/.gitignore"
@@ -853,7 +853,7 @@ CONF
   # both be present and stable, with no duplicates.
   _stage_logging_conf <<'CONF'
 [logging]
-local_path = ./log/
+local_path = "./log/"
 CONF
   printf '%s\n' ".env" "compose.yaml" "${_LOGGING_LEGACY}" "/log/" \
     > "${TMP_DIR}/.gitignore"

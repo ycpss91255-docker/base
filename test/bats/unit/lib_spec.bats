@@ -477,7 +477,7 @@ EOF
 @test "_compute_project_name refuses to derive for a configured checkout with no cache (#1015)" {
   local _repo
   _repo="$(mktemp -d)"
-  printf '[image]\nname = myrepo\n' > "${_repo}/setup.toml"
+  printf '[image]\nname = "myrepo"\n' > "${_repo}/setup.toml"
   run bash -c "
     source ${LIB}
     unset PROJECT_NAME
@@ -778,7 +778,7 @@ EOF
   local _fp="${BATS_TEST_TMPDIR}/withlocal"
   mkdir -p "${_fp}"
   _write_sample_conf "${_fp}/setup.toml"
-  printf '[gui]\nmode = off\n[network]\nmode = bridge\n' > "${_fp}/setup.local.toml"
+  printf '[gui]\nmode = "off"\n[network]\nmode = "bridge"\n' > "${_fp}/setup.local.toml"
   run bash -c "
     source ${LIB}
     FILE_PATH='${_fp}'
@@ -858,7 +858,7 @@ EOF
   # Minimal conf with only [image]; expect no [build]/[volumes] headers
   mkdir -p "${_fp}" && cat > "${_fp}/setup.toml" <<'EOF'
 [image]
-rule_1 = @basename
+rule_1 = "@basename"
 EOF
   run bash -c "source ${LIB}; FILE_PATH='${_fp}'; _print_config_summary build"
   assert_success

@@ -384,9 +384,9 @@ REMOTE
 
 @test "_gen_setup_conf default refuses to overwrite existing setup.conf" {
   mkdir -p "${TMP_REPO}/.base/dist"
-  printf "[image]\nrules = @basename\n" > "${TMP_REPO}/.base/dist/setup.toml"
+  printf '[[image.rules]]\nrule = "@basename"\n' > "${TMP_REPO}/.base/dist/setup.toml"
   mkdir -p "${TMP_REPO}"
-  echo "existing user config" > "${TMP_REPO}/setup.toml"
+  echo "# existing user config" > "${TMP_REPO}/setup.toml"
   _source_init
   run _gen_setup_conf "false"
   assert_failure
@@ -395,26 +395,26 @@ REMOTE
 
 @test "_gen_setup_conf --force overwrites and backs up existing setup.conf" {
   mkdir -p "${TMP_REPO}/.base/dist"
-  printf "[image]\nrules = @basename\n" > "${TMP_REPO}/.base/dist/setup.toml"
+  printf '[[image.rules]]\nrule = "@basename"\n' > "${TMP_REPO}/.base/dist/setup.toml"
   mkdir -p "${TMP_REPO}"
-  echo "old user conf" > "${TMP_REPO}/setup.toml"
+  echo "# old user conf" > "${TMP_REPO}/setup.toml"
   _source_init
   run _gen_setup_conf "true"
   assert_success
   # new setup.conf must come from template
   run cat "${TMP_REPO}/setup.toml"
-  assert_output --partial "rules = @basename"
+  assert_output --partial 'rule = "@basename"'
   # backup must contain the pre-overwrite user content
   assert [ -f "${TMP_REPO}/setup.toml.bak" ]
   run cat "${TMP_REPO}/setup.toml.bak"
-  assert_output "old user conf"
+  assert_output "# old user conf"
 }
 
 @test "_gen_setup_conf --force also backs up .env to .env.bak" {
   mkdir -p "${TMP_REPO}/.base/dist"
-  printf "[image]\nrules = @basename\n" > "${TMP_REPO}/.base/dist/setup.toml"
+  printf '[[image.rules]]\nrule = "@basename"\n' > "${TMP_REPO}/.base/dist/setup.toml"
   mkdir -p "${TMP_REPO}"
-  echo "user conf" > "${TMP_REPO}/setup.toml"
+  echo "# user conf" > "${TMP_REPO}/setup.toml"
   echo "USER_NAME=existing" > "${TMP_REPO}/.env"
   _source_init
   run _gen_setup_conf "true"
@@ -440,7 +440,7 @@ REMOTE
 @test "_gen_setup_conf --force on clean repo does not create spurious .bak" {
   # No pre-existing setup.conf → first-time provision, nothing to back up.
   mkdir -p "${TMP_REPO}/.base/dist"
-  printf "[image]\nrules = @basename\n" > "${TMP_REPO}/.base/dist/setup.toml"
+  printf '[[image.rules]]\nrule = "@basename"\n' > "${TMP_REPO}/.base/dist/setup.toml"
   rm -f "${TMP_REPO}/setup.toml" "${TMP_REPO}/.env"
   _source_init
   run _gen_setup_conf "true"
@@ -995,7 +995,7 @@ _fake_setup_sh() {
 @test "the resync: leaves a setup.toml setup.sh did not touch unstaged (#1036)" {
   _source_init
   : > "${TMP_REPO}/Dockerfile"
-  printf '[project]\nname = mine\n' > "${TMP_REPO}/setup.toml"
+  printf '[project]\nname = "mine"\n' > "${TMP_REPO}/setup.toml"
   _fake_setup_sh 'exit 0'
   _git_seed_consumer
   printf '# my half-finished tuning\n' >> "${TMP_REPO}/setup.toml"
@@ -1012,7 +1012,7 @@ _fake_setup_sh() {
 @test "the resync: stages the setup.toml setup.sh bootstrapped (#1036)" {
   _source_init
   : > "${TMP_REPO}/Dockerfile"
-  _fake_setup_sh 'printf "[project]\nname = seeded\n" > "${3}/setup.toml"'
+  _fake_setup_sh 'printf "[project]\nname = \"seeded\"\n" > "${3}/setup.toml"'
   _git_seed_consumer
   _init_existing_repo
   _call_setup
@@ -1026,8 +1026,8 @@ _fake_setup_sh() {
 @test "the resync: stages a setup.toml setup.sh rewrote in place (#1036)" {
   _source_init
   : > "${TMP_REPO}/Dockerfile"
-  printf '[volumes]\nmount_1 = /gone:/work\n' > "${TMP_REPO}/setup.toml"
-  _fake_setup_sh 'printf "[volumes]\nmount_1 = portable\n" > "${3}/setup.toml"'
+  printf '[[volumes]]\nsource = "/gone"\ntarget = "/work"\n' > "${TMP_REPO}/setup.toml"
+  _fake_setup_sh 'printf "[[volumes]]\nsource = \"/portable\"\ntarget = \"/work\"\n" > "${3}/setup.toml"'
   _git_seed_consumer
   _init_existing_repo
   _call_setup
@@ -1049,9 +1049,9 @@ _fake_setup_sh() {
 @test "the resync: stages a setup.toml rewritten only in its final newline (#1036)" {
   _source_init
   : > "${TMP_REPO}/Dockerfile"
-  printf '[project]\nname = mine\n' > "${TMP_REPO}/setup.toml"
+  printf '[project]\nname = "mine"\n' > "${TMP_REPO}/setup.toml"
   # Byte-identical but for the newline setup.sh drops off the end.
-  _fake_setup_sh 'printf "[project]\nname = mine" > "${3}/setup.toml"'
+  _fake_setup_sh 'printf "[project]\nname = \"mine\"" > "${3}/setup.toml"'
   _git_seed_consumer
   _init_existing_repo
   _call_setup
@@ -1131,7 +1131,7 @@ fixtures/
   : > "${TMP_REPO}/Dockerfile"
   # A relative [logging] local_path is what puts a managed block in
   # .gitignore, and the block is what the second pass below re-emits.
-  printf '[logging]\nlocal_path = log\n' > "${TMP_REPO}/setup.toml"
+  printf '[logging]\nlocal_path = "log"\n' > "${TMP_REPO}/setup.toml"
   _git_seed_consumer
   _init_existing_repo
   # A hand edit that drops the final byte, committed: every canonical entry

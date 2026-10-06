@@ -71,9 +71,9 @@ _gcy_wd() {
 
 @test "a stage that replaced the inherited env list re-states WATCHDOG_* inline (#868)" {
   cat > "${TEMP_DIR}/setup.toml" <<'CONF'
-[stage:devel-test]
-environment.env_inherit = false
-environment.env_1 = ONLY_MINE=1
+["stage:devel-test"]
+"environment.env_inherit" = false
+"environment.env_1" = "ONLY_MINE=1"
 CONF
   _gcy_wd "WATCHDOG_CHECK=true" "TOP_ENV=1"
   # That stage cannot consume the shared .env (it would put back the very
@@ -89,8 +89,8 @@ CONF
 
 @test "a stage that APPENDS to the inherited env list keeps the shared .env (#868)" {
   cat > "${TEMP_DIR}/setup.toml" <<'CONF'
-[stage:devel-test]
-environment.env_1 = EXTRA=1
+["stage:devel-test"]
+"environment.env_1" = "EXTRA=1"
 CONF
   _gcy_wd "WATCHDOG_CHECK=true" "TOP_ENV=1"
   # The shared .env already carries TOP_ENV and the watchdog, so the stage
@@ -115,7 +115,7 @@ _write_conf() {
   mkdir -p "${TEMP_DIR}"
   _write_conf <<'EOF'
 [lifecycle]
-restart = no
+restart = "no"
 init = true
 EOF
   local -A _ctx=()
@@ -141,11 +141,11 @@ _refute_env() {
   mkdir -p "${TEMP_DIR}"
   _write_conf <<'EOF'
 [lifecycle]
-restart = on-failure
+restart = "on-failure"
 init = true
-watchdog_check = curl -fsS localhost:8080/health
+watchdog_check = "curl -fsS localhost:8080/health"
 watchdog_failures = 5
-watchdog_on_fail = restart-service
+watchdog_on_fail = "restart-service"
 EOF
   local -A _ctx=()
   _resolve_deploy_context "${TEMP_DIR}" _ctx

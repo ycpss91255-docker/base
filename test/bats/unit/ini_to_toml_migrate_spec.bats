@@ -256,11 +256,11 @@ EOF
 [gui]
 mode = off
 EOF
-  printf 'existing content\n' > "${TEMP_DIR}/setup.toml"
+  printf '# existing content\n' > "${TEMP_DIR}/setup.toml"
   run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
   assert_success
   run cat "${TEMP_DIR}/setup.toml"
-  assert_output "existing content"
+  assert_output "# existing content"
   # INI file is NOT backed up (nothing happened)
   assert [ -f "${TEMP_DIR}/.setup.conf" ]
   assert [ ! -f "${TEMP_DIR}/.setup.conf.bak" ]
@@ -272,11 +272,11 @@ EOF
 [gui]
 mode = wayland
 EOF
-  printf 'existing local\n' > "${TEMP_DIR}/setup.local.toml"
+  printf '# existing local\n' > "${TEMP_DIR}/setup.local.toml"
   run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
   assert_success
   run cat "${TEMP_DIR}/setup.local.toml"
-  assert_output "existing local"
+  assert_output "# existing local"
   assert [ -f "${TEMP_DIR}/.setup.conf.local" ]
 }
 
@@ -368,11 +368,11 @@ EOF
 # why: A second init cycle must not overwrite an operator's already-converted env overrides
 @test "_migrate_env_local_to_toml is idempotent when .env.local.toml exists (#1137)" {
   printf 'KEY=VALUE\n' > "${TEMP_DIR}/.env.local"
-  printf 'existing\n' > "${TEMP_DIR}/.env.local.toml"
+  printf '# existing\n' > "${TEMP_DIR}/.env.local.toml"
   run bash -c "$(_src); _migrate_env_local_to_toml '${TEMP_DIR}'"
   assert_success
   run cat "${TEMP_DIR}/.env.local.toml"
-  assert_output "existing"
+  assert_output "# existing"
   # Original not backed up (nothing happened)
   assert [ -f "${TEMP_DIR}/.env.local" ]
 }

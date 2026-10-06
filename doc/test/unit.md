@@ -6722,6 +6722,55 @@ is the smoke step, which iterates this same roster.
 |------|-------------|
 | `dist/ has zero .setup.conf references outside migration + TUI + gitignore (#1136)` | no stale `.setup.conf` in dist/ runtime code |
 
+### test/bats/unit/toml_fixture_lint_spec.bats (26)
+
+The gate that keeps a file named `.toml` from holding INI. A body the bridge
+refuses leaves an EMPTY config handle, so every value falls back to its
+schema default -- and a test asserting that default goes green without its
+fixture ever being read. 152 such bodies were measured across 17 spec files
+and nothing in the tree could tell the difference, which is why the rule is
+a gate and not a convention.
+
+Unit tests for script/test/drivers/toml_fixture.sh and the engine it names,
+script/test/toml_fixture_lint.sh.
+
+Every case drives a SCRATCH scan root holding synthetic spec files. The
+synthetic specs are built line by line with printf, never with a heredoc,
+for the same reason this file carries no `cat > x.toml` heredoc of its own:
+this spec is itself scanned by the gate, and a fixture written here as a
+literal would make the shipped tree fail its own lint. Building the lines at
+run time keeps the refused shapes out of the scanned text while still
+handing the extractor exactly them.
+
+| Test | Description |
+|------|-------------|
+| `_toml_fixture_lint: refuses an INI body written to a .toml path` | The defect itself -- an INI body under a TOML name |
+| `_toml_fixture_lint: passes a TOML body written to a .toml path` | The control group -- a correct fixture must not be reported |
+| `_toml_fixture_lint: checks an appended body on its own` | An append fragment has to stand alone, because it is appended to a file that already parses |
+| `_toml_fixture_lint: strips the leading tabs of a <<- body` | `<<-` indents the body with tabs the shell strips, and so must the gate |
+| `_toml_fixture_lint: a quoted variable reference parses` | An unquoted heredoc expands at test time, so a quoted reference is a string and must not be reported |
+| `_toml_fixture_lint: an unquoted variable reference is refused` | A BARE reference is refused for the same reason the real file would be |
+| `_toml_fixture_lint: refuses an INI body written with printf` | The second form the tree uses; 26 of the measured bodies were written this way |
+| `_toml_fixture_lint: passes a TOML body written with printf` | The printf control group -- the format string is honoured, not guessed at |
+| `_toml_fixture_lint: refuses a printf body it would have to run a command for` | A gate that runs what it reads takes instructions from the text it is auditing; it must refuse instead |
+| `_toml_fixture_lint: reads a heredoc redirected through a .toml variable` | The form that holds two of the eleven tests this issue was measured by |
+| `_toml_fixture_lint: a name reassigned in its own block is not a .toml target` | One spec spells the same name as a .toml literal in one test and $(mktemp) in another; a file-wide verdict would read the second test's unrelated heredoc as a fixture |
+| `_toml_fixture_lint: reads a heredoc fed to a spec-local .toml writer` | A heredoc fed to a spec-local writer helper is as much a fixture as a direct redirect |
+| `_toml_fixture_lint: a .toml write inside another heredoc is not a fixture` | A spec that writes a SCRIPT which writes a setup.toml must not have the inner line read as a fixture of the spec -- it writes nothing at scan time |
+| `_toml_fixture_lint: an allow marker with a reason exempts the body` | A spec whose SUBJECT is the refusal of a malformed file needs a malformed file, and needs to say so |
+| `_toml_fixture_lint: an allow marker with no reason is itself a failure` | An opt-out nobody has to justify is the shape every such hole starts as |
+| `_toml_fixture_lint: an allow marker does not leak to the next fixture` | A marker must reach the fixture below it and no further, or one exemption would silently cover the next body too |
+| `_toml_fixture_lint: refuses a spec tree holding no fixture at all` | A gate over nothing is green for the wrong reason -- the exact failure mode this gate exists to name |
+| `_toml_fixture_lint: refuses a root with no test/bats` | A missing spec tree is a rename nobody noticed, not a clean tree |
+| `_toml_fixture_lint: refuses a scan root that is not a directory` | A path that is not a directory is a caller bug, and a silent pass would hide it |
+| `_run_toml_fixture: fails and names the remedy on a bad fixture` | The dispatcher entry point has to fail the branch, not just print, and has to say what to do about it |
+| `_run_toml_fixture: reports clean when every body parses` | And has to stay quiet on a clean tree, or the gate is noise |
+| `toml_fixture_lint.sh: exits 0 and reports on a clean tree, run as a command` | The engine is runnable on its own, and standalone it arms `set -euo pipefail` -- which a sourced case never sees. A clean tree counts zero failures, `grep -c` exits 1 on a count of zero, and the run ended with status 1 and not one line of output. Only an exec case can catch that, so there is one. |
+| `toml_fixture_lint.sh: exits 1 and names the body, run as a command` | And exits 1 WITH the offending body named, rather than dying mute |
+| `toml-fixture: is a member of the lint phase's tool table` | A lint nobody runs is a comment |
+| `toml-fixture: has a lint-static CI join` | One plain-runner lint group, no docker -- and exactly one, because none gates nothing and two pays twice |
+| `toml-fixture: its failure event id is registered` | An unregistered event id is an anonymous exit: the log line carries no name a reader can look up |
+
 ### test/bats/unit/tool_pin_agreement_spec.bats (10)
 
 | Test | Description |

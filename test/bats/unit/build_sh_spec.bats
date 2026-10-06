@@ -751,7 +751,7 @@ EOS
   # -y skips the interactive prompt; --dry-run makes the init.sh call
   # a printf instead of an exec so we can assert it without sandbox
   # side effects.
-  echo "old" > "${SANDBOX}/setup.toml"
+  echo "# old" > "${SANDBOX}/setup.toml"
   run bash "${SANDBOX}/build.sh" --reset-conf --yes --dry-run
   assert_success
   assert_output --partial "[dry-run]"
@@ -781,7 +781,7 @@ EOS
   # the case could map empty->abort, so a piped/CI invocation died with NO
   # '[build] aborted.' diagnostic. Post-fix, EOF maps to an empty reply
   # which the default case treats as an explicit abort.
-  echo "old" > "${SANDBOX}/setup.toml"
+  echo "# old" > "${SANDBOX}/setup.toml"
   run bash "${SANDBOX}/build.sh" --reset-conf </dev/null
   assert_failure 1
   assert_output --partial "[build] aborted."

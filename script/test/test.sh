@@ -149,6 +149,8 @@ source "${SCRIPT_DIR}/drivers/just_provenance.sh"
 source "${SCRIPT_DIR}/drivers/catalog_description.sh"
 # shellcheck source=script/test/drivers/spec_repo_root.sh
 source "${SCRIPT_DIR}/drivers/spec_repo_root.sh"
+# shellcheck source=script/test/drivers/toml_fixture.sh
+source "${SCRIPT_DIR}/drivers/toml_fixture.sh"
 # shellcheck source=script/test/drivers/shell_metrics.sh
 source "${SCRIPT_DIR}/drivers/shell_metrics.sh"
 
@@ -193,6 +195,7 @@ readonly _LINT_TOOLS=(
   just-provenance
   catalog-description
   spec-repo-root
+  toml-fixture
 )
 
 # ORDER IS NOT A FAIL-FAST LEVER. It reads like one -- put the cheap
@@ -468,6 +471,7 @@ _run_lint_tool() {
     just-provenance)  _run_just_provenance ;;
     catalog-description) _run_catalog_description ;;
     spec-repo-root)   _run_spec_repo_root ;;
+    toml-fixture)     _run_toml_fixture ;;
     # The three implementation-standard metric lints and their combined
     # report (base#994 phase 2). Dispatchable here -- this is the one
     # place a lint driver is run, and the ERR trap above is what names
@@ -793,6 +797,12 @@ Options:
                           matrix's critical path -- base#1075 measured one
                           at 331s of a 501s shard -- duplicating the
                           lint-static job that already asserts the tree)
+  --toml-fixture          With --lint: run only the TOML fixture body
+                          gate (every fixture body a spec writes to a
+                          `*.toml` path parses as TOML; a body the bridge
+                          refuses leaves an empty config handle, so a test
+                          asserting a schema default passes without its
+                          fixture ever being read)
   --just-provenance       With --lint: run only the just provenance pin
                           lint (every site under dockerfile/,
                           .github/workflows/, dist/ or script/ that
@@ -971,6 +981,7 @@ Examples:
   just test lint --just-provenance # just provenance pin lint only
   just test lint --catalog-description # test description marker lint only
   just test lint --spec-repo-root # spec repo-root lint only
+  just test lint --toml-fixture   # TOML fixture body gate only
   ./test.sh --shellcheck-only     # Direct shellcheck, no compose
   ./test.sh --doc-counts-only     # Direct doc/test count drift gate, no compose
   ./test.sh --readme-sync-only    # Direct localized README sync lint, no compose
@@ -990,6 +1001,7 @@ Examples:
   ./test.sh --just-provenance-only # Direct just provenance pin lint, no compose
   ./test.sh --catalog-description-only # Direct test description marker lint, no compose
   ./test.sh --spec-repo-root-only # Direct spec repo-root lint, no compose
+  ./test.sh --toml-fixture-only   # Direct TOML fixture body gate, no compose
   ./test.sh --hadolint-only       # Hadolint only (inside ci container)
   ./test.sh --bats-only           # Compose-bats only, skip ShellCheck
   ./test.sh --bats-unit-shard 1/2 # Compose-bats unit shard 1 of 2
@@ -2434,6 +2446,7 @@ main() {
       --just-provenance) lint_tool="just-provenance"; shift ;;
       --catalog-description) lint_tool="catalog-description"; shift ;;
       --spec-repo-root) lint_tool="spec-repo-root"; shift ;;
+      --toml-fixture) lint_tool="toml-fixture"; shift ;;
       --shellcheck-only) host_lint="shellcheck"; shift ;;
       --issueref-only) host_lint="issueref"; shift ;;
       --adr-numbering-only) host_lint="adr-numbering"; shift ;;
@@ -2458,6 +2471,7 @@ main() {
       --just-provenance-only) host_lint="just-provenance"; shift ;;
       --catalog-description-only) host_lint="catalog-description"; shift ;;
       --spec-repo-root-only) host_lint="spec-repo-root"; shift ;;
+      --toml-fixture-only) host_lint="toml-fixture"; shift ;;
       --nesting-depth-only) host_lint="nesting-depth"; shift ;;
       --function-length-only) host_lint="function-length"; shift ;;
       --positional-params-only) host_lint="positional-params"; shift ;;

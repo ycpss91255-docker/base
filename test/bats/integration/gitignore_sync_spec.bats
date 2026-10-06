@@ -149,9 +149,11 @@ EOF
   mkdir -p "${REPO_DIR}"
   cat > "${REPO_DIR}/setup.toml" <<'EOF'
 [network]
-mode = bridge
-[volumes]
-mount_1 = ${WS_PATH}:/home/${USER_NAME}/work
+mode = "bridge"
+
+[[volumes]]
+source = "${WS_PATH}"
+target = "/home/${USER_NAME}/work"
 EOF
   git -C "${REPO_DIR}" add setup.toml
   git -C "${REPO_DIR}" commit -q -m "track setup.conf"
@@ -162,7 +164,7 @@ EOF
   run git -C "${REPO_DIR}" ls-files setup.toml
   assert_output "setup.toml"
   # Content unchanged
-  run grep -F 'mode = bridge' "${REPO_DIR}/setup.toml"
+  run grep -F 'mode = "bridge"' "${REPO_DIR}/setup.toml"
   assert_success
   # Not in .gitignore
   run grep -E '^setup\.conf$' "${REPO_DIR}/.gitignore"

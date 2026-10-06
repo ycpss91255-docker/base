@@ -87,8 +87,8 @@ CONF
   mkdir -p "${TEMP_DIR}"
   cat > "${TEMP_DIR}/setup.toml" <<'CONF'
 [logging]
-driver = local
-max_size = 20m
+driver = "local"
+max_size = "20m"
 CONF
   local _g="" _p=""
   _collect_logging "${TEMP_DIR}" _g _p
@@ -102,10 +102,10 @@ CONF
   mkdir -p "${TEMP_DIR}"
   cat > "${TEMP_DIR}/setup.toml" <<'CONF'
 [logging]
-driver = json-file
+driver = "json-file"
 
 [logging.runtime]
-max_size = 100m
+max_size = "100m"
 compress = false
 CONF
   local _g="" _p=""
@@ -118,12 +118,12 @@ CONF
   mkdir -p "${TEMP_DIR}"
   cat > "${TEMP_DIR}/setup.toml" <<'CONF'
 [logging]
-driver = local
-max_size = 20m
+driver = "local"
+max_size = "20m"
 CONF
   cat > "${TEMP_DIR}/setup.local.toml" <<'CONF'
 [logging]
-driver = journald
+driver = "journald"
 CONF
   local _g="" _p=""
   _collect_logging "${TEMP_DIR}" _g _p
@@ -135,11 +135,11 @@ CONF
   mkdir -p "${TEMP_DIR}"
   cat > "${TEMP_DIR}/setup.toml" <<'CONF'
 [logging]
-driver = json-file
+driver = "json-file"
 CONF
   cat > "${TEMP_DIR}/setup.local.toml" <<'CONF'
 [logging.runtime]
-max_size = 100m
+max_size = "100m"
 CONF
   local _g="" _p=""
   _collect_logging "${TEMP_DIR}" _g _p
@@ -150,7 +150,7 @@ CONF
   mkdir -p "${TEMP_DIR}"
   cat > "${TEMP_DIR}/setup.toml" <<'CONF'
 [logging]
-driver = local
+driver = "local"
 CONF
   cat > "${TEMP_DIR}/elsewhere.conf" <<'CONF'
 [logging]
@@ -164,9 +164,13 @@ CONF
 # why: No-config empty
 @test "_collect_logging returns empty when no [logging] sections anywhere" {
   mkdir -p "${TEMP_DIR}"
+  # A per-repo setup.toml that configures something OTHER than logging.
+  # Now that the body is real TOML the bridge accepts the file, so the
+  # empty result below is the reader genuinely finding no [logging]
+  # anywhere -- not the reader bailing out on a file it cannot parse.
   cat > "${TEMP_DIR}/setup.toml" <<'CONF'
-[image]
-rule_1 = @basename
+[[image.rules]]
+rule = "@basename"
 CONF
   local _g="" _p=""
   # Force template fallback to also miss (point _SETUP_SCRIPT_DIR at a

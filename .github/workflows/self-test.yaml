@@ -504,6 +504,14 @@ jobs:
     #                     lint-static group makes in 77s. The coverage
     #                     suite tests a driver against fixtures; the tree
     #                     is this phase's to assert
+    #   toml-fixture      every fixture body a spec writes to a `*.toml`
+    #                     path parses as TOML. A body the bridge refuses
+    #                     leaves an EMPTY config handle, so the test
+    #                     asserting a schema default goes green without its
+    #                     fixture ever being read -- 152 such bodies were
+    #                     measured across 17 spec files and nothing in the
+    #                     tree could tell the difference. Whole-tree, so it
+    #                     belongs to this phase rather than to a spec
     #
     # GROUPED, not one job per driver, and not one job for the phase
     # (base#1071). One job per driver read best in the checks list -- the

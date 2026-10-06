@@ -74,8 +74,8 @@ DOCK
   # reservation and no X11 volumes, which is what keeps this fixture
   # host-independent.
   printf '%s\n' \
-    "[deploy]" "gpu_mode = off" "dri_groups = off" \
-    "[gui]" "mode = off" \
+    "[deploy]" 'gpu_mode = "off"' 'dri_groups = "off"' \
+    "[gui]" 'mode = "off"' \
     > "${REPO}/setup.toml"
 
   local _apply_out=""

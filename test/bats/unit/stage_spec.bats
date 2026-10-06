@@ -593,8 +593,11 @@ EOF
   [[ "${#_stages[@]}" -eq 0 ]] || { echo "expected 0 stages, got ${#_stages[@]}: ${_stages[*]}"; return 1; }
 }
 
+# This arm pins the BARE header form a legacy INI `.setup.conf` carries,
+# so the fixture lives at an INI path; the quoted TOML form has its own
+# arm below. The scanner must keep reading both.
 @test "_parse_stage_sections: extracts [stage:NAME] sections in file order" {
-  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [gui]
 mode = auto
 
@@ -611,7 +614,7 @@ gui.mode = auto
 network.mode = bridge
 EOF
   local -a _stages=()
-  _parse_stage_sections "${TEMP_DIR}/setup.toml" _stages
+  _parse_stage_sections "${TEMP_DIR}/.setup.conf" _stages
   [[ "${#_stages[@]}" -eq 3 ]] || { echo "expected 3 stages, got ${#_stages[@]}: ${_stages[*]}"; return 1; }
   [[ "${_stages[0]}" == "headless" ]] || { echo "expected headless first, got ${_stages[0]}"; return 1; }
   [[ "${_stages[1]}" == "gui" ]] || { echo "expected gui second, got ${_stages[1]}"; return 1; }
@@ -621,11 +624,12 @@ EOF
 @test "_parse_stage_sections: ignores plain sections that are not [stage:...]" {
   cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [gui]
-mode = auto
+mode = "auto"
 [network]
-mode = host
-[volumes]
-mount_1 = /etc/localtime:/etc/localtime
+mode = "host"
+[[volumes]]
+source = "/etc/localtime"
+target = "/etc/localtime"
 EOF
   local -a _stages=()
   _parse_stage_sections "${TEMP_DIR}/setup.toml" _stages

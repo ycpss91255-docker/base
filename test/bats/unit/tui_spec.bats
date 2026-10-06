@@ -730,15 +730,19 @@ teardown() {
 @test "_load_setup_conf_full reads all sections preserving order" {
   cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [image]
-rules = @default:foo
+rules = "@default:foo"
 
 [build]
-apt_mirror_ubuntu = tw.example.com
-apt_mirror_debian = debian.example.com
+apt_mirror_ubuntu = "tw.example.com"
+apt_mirror_debian = "debian.example.com"
 
-[volumes]
-mount_1 = /a:/a
-mount_2 = /b:/b
+[[volumes]]
+source = "/a"
+target = "/a"
+
+[[volumes]]
+source = "/b"
+target = "/b"
 EOF
   local -a _sections=() _keys=() _values=()
   _load_setup_conf_full "${TEMP_DIR}/setup.toml" _sections _keys _values
@@ -751,7 +755,7 @@ EOF
 @test "_load_setup_conf_full reads key/value pairs" {
   cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [deploy]
-gpu_mode = auto
+gpu_mode = "auto"
 gpu_count = 2
 EOF
   local -a _sections=() _keys=() _values=()
@@ -947,15 +951,16 @@ EOF
 @test "_upsert_conf_value leaves other sections untouched" {
   cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [image]
-rules = @default:foo
+rules = "@default:foo"
 
-[volumes]
-mount_1 =
+[[volumes]]
+source = ""
+target = ""
 EOF
   _upsert_conf_value "${TEMP_DIR}/setup.toml" "volumes" "mount_1" "/a:/b"
 
   run grep '^rules' "${TEMP_DIR}/setup.toml"
-  [[ "${output}" == "rules = @default:foo" ]]
+  [[ "${output}" == 'rules = "@default:foo"' ]]
 }
 
 @test "_upsert_conf_value creates section + key when section absent" {
@@ -1732,15 +1737,15 @@ _b_remove_setup() {
 @test "_load_setup_conf_full reads [stage:NAME] sections with namespaced keys" {
   cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [gui]
-mode = auto
+mode = "auto"
 
-[stage:headless]
-gui.mode = off
-network.mode = bridge
-network.port_1 = 8080:80
+["stage:headless"]
+"gui.mode" = "off"
+"network.mode" = "bridge"
+"network.port_1" = "8080:80"
 
-[stage:gui]
-gui.mode = auto
+["stage:gui"]
+"gui.mode" = "auto"
 EOF
   local -a _sections=() _keys=() _values=()
   _load_setup_conf_full "${TEMP_DIR}/setup.toml" _sections _keys _values

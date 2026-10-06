@@ -43,8 +43,8 @@ setup() {
 
   # Repo-root setup.toml (post-relocation location).
   printf '%s\n' \
-    "[deploy]" "gpu_mode = off" "dri_groups = off" \
-    "[gui]" "mode = off" \
+    "[deploy]" 'gpu_mode = "off"' 'dri_groups = "off"' \
+    "[gui]" 'mode = "off"' \
     > "${REPO}/setup.toml"
 
   cat > "${REPO}/Dockerfile" <<'DOCK'
@@ -162,10 +162,11 @@ teardown() {
   # resolve -> resolved-compose -> bundle wiring is exercised, not just the
   # isolated emitter.
   printf '%s\n' \
-    "[deploy]" "gpu_mode = off" "dri_groups = off" \
-    "[gui]" "mode = off" \
-    "[environment]" "env_1 = APP_MODE=default" \
-    "[lifecycle]" "restart = on-failure:5" "watchdog_check = pgrep -f my_node" \
+    "[deploy]" 'gpu_mode = "off"' 'dri_groups = "off"' \
+    "[gui]" 'mode = "off"' \
+    "[environment]" 'env_1 = "APP_MODE=default"' \
+    "[lifecycle]" 'restart = "on-failure:5"' \
+    'watchdog_check = "pgrep -f my_node"' \
     "watchdog_interval = 30" \
     > "${REPO}/setup.toml"
   run _setup_deploy --base-path "${REPO}" --stage runtime -y
@@ -221,9 +222,9 @@ FROM sys AS field
 CMD ["/app"]
 DOCK
   printf '%s\n' \
-    "[deploy]" "gpu_mode = off" "dri_groups = off" \
-    "[gui]" "mode = off" \
-    "[environment]" "env_1 = ROS_DOMAIN_ID=42" \
+    "[deploy]" 'gpu_mode = "off"' 'dri_groups = "off"' \
+    "[gui]" 'mode = "off"' \
+    "[environment]" 'env_1 = "ROS_DOMAIN_ID=42"' \
     > "${REPO}/setup.toml"
   # The manifest declares runtime paths only; scope it to the new stage so
   # the bundle's config extraction still has something to do.

@@ -775,7 +775,7 @@ stub_rm() {
 @test "_do_reset: confirmed, it drops the conf, re-applies and clears pending edits" {
   stub_apply
   stub_rm
-  printf '[network]\nmode = none\n' > "${BATS_TEST_TMPDIR}/setup.toml"
+  printf '[network]\nmode = "none"\n' > "${BATS_TEST_TMPDIR}/setup.toml"
   _override_set network.mode bridge
   _mark_removed network.ipc
   queue "0|"

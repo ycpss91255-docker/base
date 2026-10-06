@@ -774,6 +774,13 @@ EOS
 
 @test "_migrate_lifecycle_restart_default rewrites the stale template default, loudly" {
   local _r="${TEMP_DIR}/stale"
+  # toml-fixture-lint: allow the migration under test is INI-only
+  # _lifecycle_restart_is in dist/script/base/upgrade.sh compares the raw
+  # text after the `=`, so a TOML `restart = "no"` reads back as `"no"`
+  # with its quotes and never equals `no`. A TOML body makes the
+  # migration inert and this case vacuous, so the fixture stays INI until
+  # that reader strips the quotes -- which also means the shipped
+  # migration cannot act on a real setup.toml, a live defect of its own.
   _seed_restart_repo "${_r}" "restart = no" "[lifecycle]" "restart = no" "init = true"
 
   run bash -c "source '${HARNESS}' && _migrate_lifecycle_restart_default '${_r}'"
@@ -793,6 +800,13 @@ EOS
 
 @test "_migrate_lifecycle_restart_default leaves a deliberately chosen policy alone" {
   local _r="${TEMP_DIR}/chosen"
+  # toml-fixture-lint: allow the migration under test is INI-only
+  # _lifecycle_restart_is in dist/script/base/upgrade.sh compares the raw
+  # text after the `=`, so a TOML `restart = "no"` reads back as `"no"`
+  # with its quotes and never equals `no`. A TOML body makes the
+  # migration inert and this case vacuous, so the fixture stays INI until
+  # that reader strips the quotes -- which also means the shipped
+  # migration cannot act on a real setup.toml, a live defect of its own.
   _seed_restart_repo "${_r}" "restart = no" "[lifecycle]" "restart = on-failure:5"
 
   run bash -c "source '${HARNESS}' && _migrate_lifecycle_restart_default '${_r}'"
@@ -806,6 +820,13 @@ EOS
   # Post-rescope the repo owns its `no`; a later deliberate choice of `no`
   # must never be rewritten again.
   local _r="${TEMP_DIR}/post"
+  # toml-fixture-lint: allow the migration under test is INI-only
+  # _lifecycle_restart_is in dist/script/base/upgrade.sh compares the raw
+  # text after the `=`, so a TOML `restart = "no"` reads back as `"no"`
+  # with its quotes and never equals `no`. A TOML body makes the
+  # migration inert and this case vacuous, so the fixture stays INI until
+  # that reader strips the quotes -- which also means the shipped
+  # migration cannot act on a real setup.toml, a live defect of its own.
   _seed_restart_repo "${_r}" "restart = unless-stopped" "[lifecycle]" "restart = no"
 
   run bash -c "source '${HARNESS}' && _migrate_lifecycle_restart_default '${_r}'"
@@ -817,6 +838,13 @@ EOS
 
 @test "_migrate_lifecycle_restart_default ignores a restart key outside [lifecycle]" {
   local _r="${TEMP_DIR}/othersection"
+  # toml-fixture-lint: allow the migration under test is INI-only
+  # _lifecycle_restart_is in dist/script/base/upgrade.sh compares the raw
+  # text after the `=`, so a TOML `restart = "no"` reads back as `"no"`
+  # with its quotes and never equals `no`. A TOML body makes the
+  # migration inert and this case vacuous, so the fixture stays INI until
+  # that reader strips the quotes -- which also means the shipped
+  # migration cannot act on a real setup.toml, a live defect of its own.
   _seed_restart_repo "${_r}" "restart = no" "[stage:runtime]" "restart = no"
 
   run bash -c "source '${HARNESS}' && _migrate_lifecycle_restart_default '${_r}'"
@@ -829,7 +857,7 @@ EOS
 @test "_migrate_lifecycle_restart_default is a no-op without a repo setup.toml" {
   local _r="${TEMP_DIR}/noconf"
   mkdir -p "${_r}/.base/dist"
-  printf '[lifecycle]\nrestart = no\n' > "${_r}/.base/dist/setup.toml"
+  printf '[lifecycle]\nrestart = "no"\n' > "${_r}/.base/dist/setup.toml"
 
   run bash -c "source '${HARNESS}' && _migrate_lifecycle_restart_default '${_r}'"
   assert_success
@@ -840,11 +868,11 @@ EOS
   # Cannot tell whether this upgrade crosses the rescope -> touch nothing.
   local _r="${TEMP_DIR}/notpl"
   mkdir -p "${_r}"
-  printf '[lifecycle]\nrestart = no\n' > "${_r}/setup.toml"
+  printf '[lifecycle]\nrestart = "no"\n' > "${_r}/setup.toml"
 
   run bash -c "source '${HARNESS}' && _migrate_lifecycle_restart_default '${_r}'"
   assert_success
   refute_output --partial "MIGRATION"
-  run grep -Fx "restart = no" "${_r}/setup.toml"
+  run grep -Fx 'restart = "no"' "${_r}/setup.toml"
   assert_success
 }
