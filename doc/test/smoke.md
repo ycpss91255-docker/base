@@ -234,12 +234,13 @@ consumer's own and hand-edited. The upgrade can rewrite that file —
 `init.sh` and `upgrade.sh` both run `apply_migrations` — but no migration
 was written for this record, because it splices into the middle of the sys
 stage's continued `RUN` chain rather than onto an anchorable whole line, so
-the port is by hand. What decides that is the consumer's own Dockerfile at
-`/lint/Dockerfile`, not the absence of the files this spec came to read: a
-Dockerfile that writes the manifest over an image that has neither file is a
-record that was adopted and lost, and it FAILS. A repo that writes one file
-and not the other, or writes an empty record, has adopted the manifest and
-broken it, and fails too.
+the port is by hand. What decides that is the IMAGE, not the absence of the
+files this spec came to read: the record's own directory
+`/usr/local/share/base` is created by the instruction that writes them, so
+the directory standing there with neither file in it is a record that was
+adopted and lost, and it FAILS. A repo that writes one file and not the
+other, or writes an empty record, has adopted the manifest and broken it,
+and fails too.
 
 | Test | Description |
 |------|-------------|

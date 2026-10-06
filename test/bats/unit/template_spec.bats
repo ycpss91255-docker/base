@@ -2966,26 +2966,28 @@ FIXTURE
   # missing" would turn every real regression this file exists for into a
   # green skip.
   #
-  # With neither file present, what the spec reads is the consumer's own
-  # Dockerfile -- the artifact that DECIDES whether the record is expected
-  # -- not the absence of the files it came to read. Reading its own
-  # subject's absence as consent made "not ported yet" and "ported and
+  # With neither file present, what the spec reads is the record's own
+  # DIRECTORY in the image -- created by the one instruction that writes the
+  # two files -- not the absence of the files it came to read. Reading its
+  # own subject's absence as consent made "not ported yet" and "ported and
   # lost" one state (base#1090), and the second is the live regression. The
-  # three-way answer lives in the shared helper so base's own unit specs
-  # can execute it over fixtures; those cases are in
-  # test/bats/unit/smoke_helper_spec.bats, and what text can say here is
-  # that the spec routes through it and supplies the Dockerfile path.
+  # three-way answer lives in the shared helper so base's own unit specs can
+  # execute it over fixtures; those cases are in
+  # test/bats/unit/smoke_helper_spec.bats, and what text can say here is that
+  # the spec routes through it and hands it the directory.
   local _helper="/source/dist/test/bats/smoke/shared/test_helper.bash"
   assert_spec_subject "${_helper}" \
       "the shared smoke helper carrying the manifest's adoption reading"
   run grep -F '[[ -e "${_env}" || -e "${_pkgs}" ]]' "${_helper}"
   assert_success
-  run grep -F 'REPRO_DOCKERFILE="/lint/Dockerfile"' "${_spec}"
+  run grep -F '[[ -d "${_dir}" ]]' "${_helper}"
   assert_success
-  run grep -F 'reproducibility_manifest_state' "${_spec}"
+  run grep -F 'REPRO_DIR="/usr/local/share/base"' "${_spec}"
+  assert_success
+  run grep -F '"${REPRO_ENV}" "${REPRO_PKGS}" "${REPRO_DIR}"' "${_spec}"
   assert_success
   # ... and the state that says the record was adopted and lost is a
-  # FAILURE in the spec, not a third kind of skip.
+  # FAILURE in the spec, not a second kind of skip.
   run grep -E 'missing\)$' "${_spec}"
   assert_success
   # The skip's stated REASON has to match the wiring. `just upgrade` does

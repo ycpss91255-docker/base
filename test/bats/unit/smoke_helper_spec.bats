@@ -357,89 +357,80 @@ _WRAPPER_UNDER_TEST=/source/dist/script/docker/wrapper/run.sh
 # to be answered by the absence of that spec's own subject, which made "this
 # repo has not ported the record yet" and "this repo ported it and has lost
 # it" one state -- so the second one, the live regression, reported four
-# green skips and a zero exit. The question is answered by the consumer's
-# own Dockerfile now, and these cases are the four answers.
+# green skips and a zero exit.
+#
+# What answers it now is the record's own DIRECTORY in the image under test,
+# created by the one instruction that writes the two files. The reading in
+# between -- scanning the consumer's Dockerfile for a redirection into one of
+# the paths -- is recorded in the helper's header and was given up for a
+# reason: a shell question answered in awk, and codex review found a false
+# positive in it twice (a redirection inside quoted text, and a write in a
+# stage the image under test does not descend from). Every miss of that kind
+# falls the wrong way, costing an un-ported repo the skip and handing it a
+# broken build. The directory asks nothing about shell and nothing about
+# stages.
 # ════════════════════════════════════════════════════════════════════
-
-# _seed_dockerfile <body> -- a Dockerfile fixture, path printed.
-_seed_dockerfile() {
-  printf '%s\n' "${1}" > "${TEMP_DIR}/Dockerfile"
-  printf '%s\n' "${TEMP_DIR}/Dockerfile"
-}
 
 # why: One half present is enough to put every assertion about the record in
 # scope -- including the one about the half that is missing, which is the
 # "adopted and broken" case the spec must not skip past
 @test "reproducibility_manifest_state: one half present reads as adopted" {
-  : > "${TEMP_DIR}/base-image.env"
+  mkdir -p "${TEMP_DIR}/share"
+  : > "${TEMP_DIR}/share/base-image.env"
   run reproducibility_manifest_state \
-    "${TEMP_DIR}/base-image.env" "${TEMP_DIR}/packages.txt" \
-    "$(_seed_dockerfile 'FROM scratch')"
+    "${TEMP_DIR}/share/base-image.env" "${TEMP_DIR}/share/packages.txt" \
+    "${TEMP_DIR}/share"
   assert_success
   assert_output "adopted"
 }
 
-# why: The regression the old precondition could not see. The Dockerfile that
-# built the image WRITES the manifest and the image has neither file, so the
-# record was adopted and is gone -- and that is a failure, not a skip
-@test "reproducibility_manifest_state: a writing Dockerfile over no manifest is missing, not unported" {
-  local _df
-  _df="$(_seed_dockerfile 'RUN mkdir -p /usr/local/share/base && \
-    { echo "base_image_ref=${BASE_IMAGE}"; } > '"${TEMP_DIR}"'/base-image.env && \
-    dpkg-query -W > '"${TEMP_DIR}"'/packages.txt')"
+# why: EITHER half, not a named one. A half-written record is the "adopted
+# and broken" case whichever half survived, so the reading must not key on
+# the first path alone -- that would send the other half's loss to the skip
+# the directory check exists to prevent
+@test "reproducibility_manifest_state: the other half present also reads as adopted" {
+  mkdir -p "${TEMP_DIR}/share"
+  : > "${TEMP_DIR}/share/packages.txt"
   run reproducibility_manifest_state \
-    "${TEMP_DIR}/base-image.env" "${TEMP_DIR}/packages.txt" "${_df}"
+    "${TEMP_DIR}/share/base-image.env" "${TEMP_DIR}/share/packages.txt" \
+    "${TEMP_DIR}/share"
+  assert_success
+  assert_output "adopted"
+}
+
+# why: The regression the old precondition could not see. The directory the
+# writing instruction creates is in the image and the record is not, so the
+# record was adopted and is gone -- a failure, not a skip
+@test "reproducibility_manifest_state: the directory without the record is missing, not unported" {
+  mkdir -p "${TEMP_DIR}/share"
+  run reproducibility_manifest_state \
+    "${TEMP_DIR}/share/base-image.env" "${TEMP_DIR}/share/packages.txt" \
+    "${TEMP_DIR}/share"
   assert_success
   assert_output "missing"
 }
 
-# why: The case the skip exists for, and the one that must survive: a repo
-# whose Dockerfile does not write the record never claimed to keep it, and
-# failing there turns an upgrade into a broken build
-@test "reproducibility_manifest_state: a Dockerfile that writes nothing is unported" {
+# why: The case the skip exists for, and the one that must survive: an image
+# with no footprint of the record never claimed to keep it, and failing there
+# turns a consumer's upgrade into a broken build
+@test "reproducibility_manifest_state: no directory at all is unported" {
   run reproducibility_manifest_state \
-    "${TEMP_DIR}/base-image.env" "${TEMP_DIR}/packages.txt" \
-    "$(_seed_dockerfile 'FROM ubuntu:24.04
-RUN apt-get update')"
+    "${TEMP_DIR}/share/base-image.env" "${TEMP_DIR}/share/packages.txt" \
+    "${TEMP_DIR}/share"
   assert_success
   assert_output "unported"
 }
 
-# why: The narrowing that keeps the skip honest. The shipped template NAMES
-# these paths in prose -- its header documents them and its optional
-# runtime-test block is a commented-out stage that writes them -- so a repo
-# carrying only that prose must still read as unported, or the upgrade that
-# delivered the prose becomes the build that breaks
-@test "reproducibility_manifest_state: the paths named in a comment are not a write" {
+# why: A FILE where the directory belongs is not the record's directory. `-d`
+# rather than `-e` keeps a path that changed type from reading as the
+# footprint it is not -- the same distinction assert_spec_subject_dir makes
+@test "reproducibility_manifest_state: a file at the directory's path is unported" {
+  : > "${TEMP_DIR}/share"
   run reproducibility_manifest_state \
-    "${TEMP_DIR}/base-image.env" "${TEMP_DIR}/packages.txt" \
-    "$(_seed_dockerfile 'FROM ubuntu:24.04
-#     dpkg-query -W > '"${TEMP_DIR}"'/packages.txt
-#   } > '"${TEMP_DIR}"'/base-image.env && \')"
+    "${TEMP_DIR}/share/base-image.env" "${TEMP_DIR}/share/packages.txt" \
+    "${TEMP_DIR}/share"
   assert_success
   assert_output "unported"
-}
-
-# why: Reading one of the paths is not writing it. A stage that copies the
-# record out, or diffs it, has not adopted anything, and a match that
-# ignored the redirection would read it as having
-@test "reproducibility_manifest_state: naming a path without redirecting into it is not a write" {
-  run reproducibility_manifest_state \
-    "${TEMP_DIR}/base-image.env" "${TEMP_DIR}/packages.txt" \
-    "$(_seed_dockerfile 'RUN cat '"${TEMP_DIR}"'/base-image.env > /dev/null')"
-  assert_success
-  assert_output "unported"
-}
-
-# why: The state nothing in the image can answer -- no manifest and no
-# Dockerfile to ask -- is named rather than folded into one of the answers,
-# so the caller can say that is why it skipped
-@test "reproducibility_manifest_state: no Dockerfile in the image is unknowable" {
-  run reproducibility_manifest_state \
-    "${TEMP_DIR}/base-image.env" "${TEMP_DIR}/packages.txt" \
-    "${TEMP_DIR}/no_such_Dockerfile"
-  assert_success
-  assert_output "unknowable"
 }
 
 # why: The caller-error case, separated from the honest answers above: a
@@ -450,41 +441,12 @@ RUN apt-get update')"
   assert_output --partial "missing pkgs path"
 }
 
-# why: The redirection's TARGET is the write, not the rest of the line. A
-# reader that took any occurrence of the path after the first `>` read
-# `echo ready > /tmp/status && echo <path>` as a write, so an unported repo
-# that merely names the path after an unrelated redirect lost its skip and
-# got a broken build instead
-@test "reproducibility_manifest_state: a path after an unrelated redirect is not a write" {
+# why: The third argument is as load-bearing as the other two -- it is what
+# separates "adopted and lost" from "never ported" -- so a call that omits it
+# says so rather than defaulting to one of those answers
+@test "reproducibility_manifest_state: errors when the directory arg is missing" {
   run reproducibility_manifest_state \
-    "${TEMP_DIR}/base-image.env" "${TEMP_DIR}/packages.txt" \
-    "$(_seed_dockerfile 'RUN echo ready > /tmp/status && echo '"${TEMP_DIR}"'/base-image.env')"
-  assert_success
-  assert_output "unported"
-}
-
-# why: A longer path that merely STARTS with the manifest's is a different
-# file. Substring matching read a backup copy as the record itself, which is
-# the same false adoption one character further along
-@test "reproducibility_manifest_state: a path the manifest's is a prefix of is not a write" {
-  run reproducibility_manifest_state \
-    "${TEMP_DIR}/base-image.env" "${TEMP_DIR}/packages.txt" \
-    "$(_seed_dockerfile 'RUN cp /etc/os-release > '"${TEMP_DIR}"'/base-image.env.backup')"
-  assert_success
-  assert_output "unported"
-}
-
-# why: The write the template really makes, spelled the way the template
-# spells it -- a quoted target inside a continued RUN chain -- still reads as
-# a write, so tightening the match above did not narrow it past the shape it
-# exists to recognise
-@test "reproducibility_manifest_state: a quoted target in a continued RUN is a write" {
-  local _df
-  _df="$(_seed_dockerfile 'RUN mkdir -p '"${TEMP_DIR}"' && \
-    { echo "base_image_ref=x"; } > "'"${TEMP_DIR}"'/base-image.env" && \
-    echo done')"
-  run reproducibility_manifest_state \
-    "${TEMP_DIR}/base-image.env" "${TEMP_DIR}/packages.txt" "${_df}"
-  assert_success
-  assert_output "missing"
+    "${TEMP_DIR}/base-image.env" "${TEMP_DIR}/packages.txt"
+  assert_failure
+  assert_output --partial "missing dir path"
 }

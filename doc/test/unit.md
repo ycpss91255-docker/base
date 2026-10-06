@@ -5824,7 +5824,7 @@ duplicate-target guards, and S7 `runtime.env` retirement (#507).
 | `the harness has no compose image name to displace a sibling checkout's (#891)` | - |
 | `runtime-test ships no specs, which is why the harness covers devel-test only` | - |
 
-### test/bats/unit/smoke_helper_spec.bats (43)
+### test/bats/unit/smoke_helper_spec.bats (40)
 
 Exercises the runtime assertion helpers shipped in
 `dist/test/bats/smoke/shared/test_helper.bash` (used by downstream-repo
@@ -5866,15 +5866,12 @@ smoke specs via `load "${BATS_TEST_DIRNAME}/test_helper"`).
 | `entrypoint_is_single_file: false when the path does not exist` | An image with no bringup at all is not on the old model, so the orchestrator assertion must still run there. Answering true on a missing path would silently exempt exactly the image most likely to be missing the orchestrator too |
 | `entrypoint_is_single_file: errors when the path arg is missing` | The caller-error case, separated from the honest false above: a no-argument call must say so rather than answer "not the old model", which is the answer that turns a typo in a spec into a silent skip |
 | `reproducibility_manifest_state: one half present reads as adopted` | One half present is enough to put every assertion about the record in scope -- including the one about the half that is missing, which is the "adopted and broken" case the spec must not skip past |
-| `reproducibility_manifest_state: a writing Dockerfile over no manifest is missing, not unported` | The regression the old precondition could not see. The Dockerfile that built the image WRITES the manifest and the image has neither file, so the record was adopted and is gone -- and that is a failure, not a skip |
-| `reproducibility_manifest_state: a Dockerfile that writes nothing is unported` | The case the skip exists for, and the one that must survive: a repo whose Dockerfile does not write the record never claimed to keep it, and failing there turns an upgrade into a broken build |
-| `reproducibility_manifest_state: the paths named in a comment are not a write` | The narrowing that keeps the skip honest. The shipped template NAMES these paths in prose -- its header documents them and its optional runtime-test block is a commented-out stage that writes them -- so a repo carrying only that prose must still read as unported, or the upgrade that delivered the prose becomes the build that breaks |
-| `reproducibility_manifest_state: naming a path without redirecting into it is not a write` | Reading one of the paths is not writing it. A stage that copies the record out, or diffs it, has not adopted anything, and a match that ignored the redirection would read it as having |
-| `reproducibility_manifest_state: no Dockerfile in the image is unknowable` | The state nothing in the image can answer -- no manifest and no Dockerfile to ask -- is named rather than folded into one of the answers, so the caller can say that is why it skipped |
+| `reproducibility_manifest_state: the other half present also reads as adopted` | EITHER half, not a named one. A half-written record is the "adopted and broken" case whichever half survived, so the reading must not key on the first path alone -- that would send the other half's loss to the skip the directory check exists to prevent |
+| `reproducibility_manifest_state: the directory without the record is missing, not unported` | The regression the old precondition could not see. The directory the writing instruction creates is in the image and the record is not, so the record was adopted and is gone -- a failure, not a skip |
+| `reproducibility_manifest_state: no directory at all is unported` | The case the skip exists for, and the one that must survive: an image with no footprint of the record never claimed to keep it, and failing there turns a consumer's upgrade into a broken build |
+| `reproducibility_manifest_state: a file at the directory's path is unported` | A FILE where the directory belongs is not the record's directory. `-d` rather than `-e` keeps a path that changed type from reading as the footprint it is not -- the same distinction assert_spec_subject_dir makes |
 | `reproducibility_manifest_state: errors when an argument is missing` | The caller-error case, separated from the honest answers above: a missing argument must say so rather than resolve to a verdict |
-| `reproducibility_manifest_state: a path after an unrelated redirect is not a write` | The redirection's TARGET is the write, not the rest of the line. A reader that took any occurrence of the path after the first `>` read `echo ready > /tmp/status && echo <path>` as a write, so an unported repo that merely names the path after an unrelated redirect lost its skip and got a broken build instead |
-| `reproducibility_manifest_state: a path the manifest's is a prefix of is not a write` | A longer path that merely STARTS with the manifest's is a different file. Substring matching read a backup copy as the record itself, which is the same false adoption one character further along |
-| `reproducibility_manifest_state: a quoted target in a continued RUN is a write` | The write the template really makes, spelled the way the template spells it -- a quoted target inside a continued RUN chain -- still reads as a write, so tightening the match above did not narrow it past the shape it exists to recognise |
+| `reproducibility_manifest_state: errors when the directory arg is missing` | The third argument is as load-bearing as the other two -- it is what separates "adopted and lost" from "never ported" -- so a call that omits it says so rather than defaulting to one of those answers |
 
 ### test/bats/unit/smoke_migrate_spec.bats (17)
 

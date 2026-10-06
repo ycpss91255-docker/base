@@ -34,23 +34,24 @@
 # precondition was the absence of the spec's own subject, so "this repo has
 # not ported the record yet" and "this repo ported the record and has lost
 # it" were one state, and the second one is the live regression. Measured
-# on 1c9ccb2, over a consumer-shaped image whose own Dockerfile writes both
-# files and whose manifest was then left out: `1..4`, four `ok N # skip`,
-# build exit 0.
+# on 1c9ccb2, over a consumer-shaped image that writes both files and whose
+# manifest was then left out: `1..4`, four `ok N # skip`, build exit 0.
 #
 # So the precondition is DERIVED from the artifact that DECIDES the
-# property rather than from the one under assertion: the consumer's own
-# Dockerfile, which the shipped devel-test stage puts at /lint/Dockerfile
-# for its hadolint run. reproducibility_manifest_state in the shared helper
-# reads it -- comment lines dropped, and only a redirection into one of the
-# two paths counted, because the template names them in prose and a repo
-# carrying only the prose must still get the skip. A Dockerfile that writes
-# the manifest over an image that has neither file now FAILS, by name.
+# property rather than from the one under assertion -- and the artifact is
+# the IMAGE, which is what this spec can read directly. The two files live
+# in a directory of their own, `/usr/local/share/base`, created by the very
+# instruction that writes them (`mkdir -p <dir> && ... > <env> && ... >
+# <pkgs>`, in the template's sys stage and again in its runtime re-emit) and
+# by nothing else in the shipped tree. So: the directory present with
+# neither file in it is a record that was adopted and LOST, and it fails by
+# name; no directory at all is an image carrying no footprint of the record,
+# and it skips. reproducibility_manifest_state in the shared helper is the
+# one reading, and its header records why the Dockerfile's TEXT is not it.
 #
-# The state no artifact in the image can answer -- neither file, and no
-# Dockerfile either, which is the runtime-test stage and base's own smoke
-# harness -- still skips, and says so. base's half of that is gated one tier
-# up: test/bats/system/smoke_harness_spec.bats builds the harness and
+# The residual is stated: an edit that removes that whole RUN leaves no
+# footprint and skips. base's own harness is covered from the other side,
+# one tier up -- test/bats/system/smoke_harness_spec.bats builds it and
 # refuses any `# skip` in its output.
 #
 # A repo that writes one file and not the other, or writes an empty record,
@@ -70,41 +71,34 @@
 # — but no migration was written for this record, because it splices into
 # the middle of the sys stage's continued `RUN` chain rather than onto an
 # anchorable whole line, so the port is by hand. What decides that is the
-# consumer's own Dockerfile at `/lint/Dockerfile`, not the absence of the
-# files this spec came to read: a Dockerfile that writes the manifest over an
-# image that has neither file is a record that was adopted and lost, and it
-# FAILS. A repo that writes one file and not the other, or writes an empty
-# record, has adopted the manifest and broken it, and fails too.
+# IMAGE, not the absence of the files this spec came to read: the record's own
+# directory `/usr/local/share/base` is created by the instruction that writes
+# them, so the directory standing there with neither file in it is a record
+# that was adopted and lost, and it FAILS. A repo that writes one file and not
+# the other, or writes an empty record, has adopted the manifest and broken
+# it, and fails too.
 
 setup() {
   load "${BATS_TEST_DIRNAME}/test_helper"
 }
 
-REPRO_ENV="/usr/local/share/base/base-image.env"
-REPRO_PKGS="/usr/local/share/base/packages.txt"
-# The consumer's own Dockerfile, as the shipped devel-test stage places it
-# (`COPY Dockerfile /lint/Dockerfile`, for that stage's hadolint run). It is
-# the artifact that decides whether this image is supposed to carry the
-# manifest at all, which is why the precondition below asks it instead of
-# reading its own subject's absence as an answer.
-REPRO_DOCKERFILE="/lint/Dockerfile"
+REPRO_DIR="/usr/local/share/base"
+REPRO_ENV="${REPRO_DIR}/base-image.env"
+REPRO_PKGS="${REPRO_DIR}/packages.txt"
 
 # Gate the calling test on the manifest's adoption state. Asserts when the
-# record is there, FAILS when the Dockerfile writes it and the image has it
-# not, and skips -- saying which of the two unanswerable states it is in --
-# otherwise.
+# record is there, FAILS when the record's own directory is there and the
+# record is not, and skips when the image carries no footprint of it.
 _require_manifest_adopted() {
   local _state
   _state="$(reproducibility_manifest_state \
-    "${REPRO_ENV}" "${REPRO_PKGS}" "${REPRO_DOCKERFILE}")"
+    "${REPRO_ENV}" "${REPRO_PKGS}" "${REPRO_DIR}")"
   case "${_state}" in
     adopted) return 0 ;;
     missing)
-      fail "${REPRO_DOCKERFILE} writes the reproducibility manifest, and this image has neither ${REPRO_ENV} nor ${REPRO_PKGS}: the record was adopted and has been lost, so the stage that writes it no longer runs or no longer writes there. This is not the un-ported case -- that one skips." ;;
-    unported)
-      skip "${REPRO_DOCKERFILE} does not write the manifest, so this repo has not ported the record yet (run 'just upgrade', then re-apply .base/dist/dockerfile/Dockerfile)" ;;
+      fail "${REPRO_DIR} is in this image and holds neither ${REPRO_ENV} nor ${REPRO_PKGS}: that directory is created by the instruction that writes the record, so the record was adopted and has been LOST -- the stage no longer runs, or no longer writes there. This is not the un-ported case; that one skips." ;;
     *)
-      skip "no manifest, and no ${REPRO_DOCKERFILE} in this image to ask whether one is expected -- the state this spec cannot report over. base's own smoke harness is gated one tier up, by test/bats/system/smoke_harness_spec.bats refusing any skip in its output" ;;
+      skip "no ${REPRO_DIR} in this image, so nothing here has ever written the manifest: this repo has not ported the record yet (run 'just upgrade', then re-apply .base/dist/dockerfile/Dockerfile)" ;;
   esac
 }
 

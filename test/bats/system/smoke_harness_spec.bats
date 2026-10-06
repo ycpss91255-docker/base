@@ -155,11 +155,12 @@ teardown() {
   # smoke/shared/reproducibility.bats hits its own
   # `_require_manifest_adopted` guard and this build still exits 0
   # printing `1..N` with three `ok N # skip` -- a green case over a run
-  # that observed nothing. That guard asks the consumer's Dockerfile at
-  # /lint/Dockerfile, which the harness does not carry, so its answer here
-  # is `unknowable` and it skips: this refusal is the tier that covers that
-  # one state. Every shipped spec is meant to run HERE; a spec that
-  # legitimately cannot must be given a home, not skipped past.
+  # that observed nothing. That guard asks whether the record's own directory
+  # /usr/local/share/base is in the image, and deleting the manifest RUN
+  # deletes the mkdir that creates it, so its answer here is `unported` and
+  # it skips: this refusal is the tier that covers that one state. Every
+  # shipped spec is meant to run HERE; a spec that legitimately cannot must
+  # be given a home, not skipped past.
   ! echo "${output}" | grep -q '# skip'
 }
 
