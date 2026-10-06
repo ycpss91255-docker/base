@@ -944,16 +944,62 @@ _job_comments() {
 
 # ── self-maintaining shard-weights cache (time-balanced partition) ──
 
-@test "self-test.yaml: coverage shards restore the shard-weights cache before partitioning (#733)" {
-  # The greedy-LPT partition weights specs by recorded kcov seconds; each
-  # shard restores the cached weights to the in-repo path _spec_weight reads
-  # by default, so every shard computes the identical (exhaustive + disjoint)
-  # partition. A cache miss degrades to the @test-count fallback.
-  run yaml_job_lines "${WF}" coverage
+# why: The producer half of the single-source rule. A partition is a
+# partition of the suite only when every shard weighed the specs the same
+# way, so there is exactly ONE place the weights blob is fetched -- the job
+# every shard already waits on. A second lookup anywhere is a second
+# opportunity for the matrix to read two different blobs.
+@test "self-test.yaml: compute-shards restores the shard-weights cache ONCE for the whole matrix (#733, #1114)" {
+  run yaml_job_lines "${WF}" compute-shards
   assert_success
   assert_output --partial 'actions/cache/restore'
   assert_output --partial 'test/bats/.shard-weights'
   assert_output --partial 'shard-weights-'
+}
+
+# why: The lookup being single is worth nothing unless its RESULT is what
+# the shards partition by, so the restored blob leaves compute-shards as a
+# declared job output. Undeclared, the expression below it resolves to the
+# empty string and all twelve shards silently fall back to @test counts.
+@test "self-test.yaml: compute-shards publishes the restored weights as a job output (#1114)" {
+  run yaml_job_lines "${WF}" compute-shards
+  assert_success
+  assert_output --partial 'weights: ${{ steps.weights.outputs.blob }}'
+}
+
+# why: The load-bearing case of base#1114. Twelve shards each looking the
+# cache up for itself is twelve reads of a key whose newest entry changes
+# on every main push: the exact key cannot hit while the shards run, so
+# every shard fell through to the `shard-weights-` prefix, and a shard
+# re-run after a later merge partitions against a NEWER blob than its
+# siblings used. Each then keeps its slice of a different partition, every
+# slice non-empty, and a spec can land in none of them.
+@test "self-test.yaml: no coverage shard looks the weights cache up for itself (#1114)" {
+  run yaml_job_lines "${WF}" coverage
+  assert_success
+  refute_output --partial 'actions/cache'
+  assert_output --partial 'needs.compute-shards.outputs.weights'
+  assert_output --partial 'test/bats/.shard-weights'
+}
+
+# why: The detector half, and the one that would have caught the defect
+# from the outside: coverage-gate already holds every shard's timings, so
+# it can say whether the twelve slices covered the suite it just published
+# a rate for. It must read the file the merge step wrote, so the order of
+# the two steps is part of the assertion.
+@test "self-test.yaml: coverage-gate refuses a matrix that did not cover the suite (#1114)" {
+  run yaml_job_lines "${WF}" coverage-gate
+  assert_success
+  assert_output --partial '--coverage-union-check test/bats/.shard-weights'
+
+  local _merge _check
+  _merge="$(printf '%s\n' "${output}" \
+    | awk '/--merge-timings/ { print NR; exit }')"
+  _check="$(printf '%s\n' "${output}" \
+    | awk '/--coverage-union-check/ { print NR; exit }')"
+  [ -n "${_merge}" ]
+  [ -n "${_check}" ]
+  [ "${_check}" -gt "${_merge}" ]
 }
 
 @test "self-test.yaml: coverage-gate merges shard timings into the weights file (#733)" {

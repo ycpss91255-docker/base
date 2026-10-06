@@ -1347,13 +1347,13 @@ _gate_coverage_union() {
   local _gap _total _absent
   if ! _gap="$(_coverage_union_gap "${_manifest}" "${_root}")"; then
     _die ci_coverage_union_unevidenced \
-      "display=no shard-union evidence to check: ${_manifest} names no spec, or ${_root} enumerates no coverage pool. A gap of zero measured over no evidence is not a partition, so this refuses rather than reporting one."
+      "no shard-union evidence to check: ${_manifest} names no spec, or ${_root} enumerates no coverage pool. A gap of zero measured over no evidence is not a partition, so this refuses rather than reporting one."
   fi
   _total="$(_coverage_spec_inventory "${_root}" | grep -c .)"
   if [[ -n "${_gap}" ]]; then
     _absent="$(printf '%s\n' "${_gap}" | tr '\n' ' ')"
     _die ci_coverage_union_incomplete \
-      "display=$(printf '%s' "${_gap}" | grep -c .) spec(s) of ${_total} ran in NO coverage shard, so the matrix did not cover the suite it reported a rate for: ${_absent}-- the slices are a partition only when every shard partitioned by the SAME weights, and a shard that read a different test/bats/.shard-weights (a re-run against a newer cache entry, or a per-shard lookup) keeps its slice of a different partition. The merged rate and the floor verdict above it are measured over the specs that DID run."
+      "$(printf '%s' "${_gap}" | grep -c .) spec(s) of ${_total} ran in NO coverage shard, so the matrix did not cover the suite it reported a rate for: ${_absent}-- the slices are a partition only when every shard partitioned by the SAME weights, and a shard that read a different test/bats/.shard-weights (a re-run against a newer cache entry, or a per-shard lookup) keeps its slice of a different partition. The merged rate and the floor verdict above it are measured over the specs that DID run."
   fi
   printf 'coverage shard union: %s/%s specs, exhaustive\n' "${_total}" "${_total}"
 }
