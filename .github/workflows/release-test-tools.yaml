@@ -117,17 +117,27 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
         with:
-          # HEAD and its parent: the diff this job takes is of the push's own
-          # commit. The repo squash-merges, so one commit is the whole merge.
+          # HEAD and its parents, which is what the push's own range needs:
+          # `github.event.before` is the parent for a squash merge and the
+          # first parent for a merge commit, and those are the two shapes a
+          # protected main receives. A range this does not reach is not
+          # fetched deeper, it is answered by publishing -- see the step.
           fetch-depth: 2
 
       - id: inputs
+        env:
+          # The commit main was at before this push. Read from the event
+          # rather than assumed to be `HEAD^`, because the `paths:` filter
+          # this replaces was evaluated by GitHub over EVERY commit of the
+          # push: a diff of the head commit alone reads less than the filter
+          # did, and would report commits it never looked at as unchanged.
+          BEFORE: ${{ github.event.before }}
         # `-e` is intentionally omitted, and the default is `true`. Every
-        # unknown here -- an unreadable tree, a derivation that refused, a
-        # `HEAD^` that does not resolve -- has to fall to the side that
-        # PUBLISHES: a needless multi-arch build costs minutes, while the
-        # other side leaves the rolling tag describing a tree that is gone,
-        # and every pull request opened afterwards runs its suite inside it.
+        # unknown here -- a derivation that refused, a push range this
+        # checkout does not hold -- has to fall to the side that PUBLISHES:
+        # a needless multi-arch build costs minutes, while the other side
+        # leaves the rolling tag describing a tree that is gone, and every
+        # pull request opened afterwards runs its suite inside it.
         run: |
           set -uo pipefail
           publish=true
@@ -151,6 +161,15 @@ jobs:
               echo "::warning::could not derive the tooling image's inputs;" \
                    "publishing the rolling tag rather than assuming it is" \
                    "still current"
+            elif ! git cat-file -e "${BEFORE:-}^{commit}" 2>/dev/null; then
+              # The all-zero sha of a first push, and any range a depth-2
+              # fetch does not hold -- several commits pushed straight to
+              # main, say. A range that cannot be read is not evidence that
+              # nothing in it changed.
+              echo "::warning::this push starts from ${BEFORE:-an unknown" \
+                   "commit}, which is not in this checkout, so the range it" \
+                   "covers cannot be diffed; publishing the rolling tag" \
+                   "rather than reporting unexamined commits as harmless"
             else
               # This workflow is an input of the PUBLISH, not of the image:
               # a change to how the tag is resolved or smoke-tested has to
@@ -158,7 +177,7 @@ jobs:
               # literal because it is this file's own path -- the one entry
               # that cannot drift away from what it names.
               paths+=('.github/workflows/release-test-tools.yaml')
-              if git diff --quiet HEAD^ HEAD -- "${paths[@]}"; then
+              if git diff --quiet "${BEFORE}" HEAD -- "${paths[@]}"; then
                 publish=false
               fi
             fi

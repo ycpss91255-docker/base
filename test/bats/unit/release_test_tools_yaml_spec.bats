@@ -561,10 +561,15 @@ _spec_prose() {
 #
 #   The scratch repo carries `script` as a symlink into this checkout, so
 #   the step reaches the same derivation the real run does.
+#   <before> is what the push event reports as the commit the branch was at,
+#   defaulted to the parent the way a squash merge leaves it. A caller
+#   passing something the checkout does not hold stages the range the job
+#   cannot read.
 _decide() {
   local _e="${1:?BUG: _decide expects an event}"
   local _ref="${2:?BUG: _decide expects a ref}"
   local _p="${3:?BUG: _decide expects a path}"
+  local _before="${4-}"
   local _d="${BATS_TEST_TMPDIR}/decide"
   rm -rf "${_d}"
   mkdir -p "${_d}/$(dirname "${_p}")" "${_d}/doc"
@@ -578,12 +583,13 @@ _decide() {
   git -C "${_d}" commit -q -m base
   printf 'b\n' >> "${_d}/${_p}"
   git -C "${_d}" commit -q -a -m change
+  [[ -n "${_before}" ]] || _before="$(git -C "${_d}" rev-parse HEAD^)"
   yaml_step_run "${WF}" decide inputs > "${_d}/step.sh"
   [ -s "${_d}/step.sh" ] || return 2
   : > "${_d}/out"
   (
     cd "${_d}" || return 2
-    env GITHUB_EVENT_NAME="${_e}" GITHUB_REF="${_ref}" \
+    env GITHUB_EVENT_NAME="${_e}" GITHUB_REF="${_ref}" BEFORE="${_before}" \
         GITHUB_OUTPUT="${_d}/out" bash step.sh
   ) >/dev/null 2>&1
   cat "${_d}/out"
@@ -667,4 +673,23 @@ _main_push() {
   run yaml_job_needs "${WF}" compute-matrix
   assert_success
   assert_output --partial 'decide'
+}
+
+# why: The one direction this job must never fail in, and the one a two-commit
+# diff can reach. The `paths:` filter it replaces was evaluated by GitHub over
+# EVERY commit of the push; a `git diff` of the head commit alone reads less
+# than that, and a push whose reported range is not in the checkout -- several
+# commits pushed straight to main, a range the shallow fetch does not hold --
+# would answer "nothing changed" about commits it never looked at. That is the
+# fail-CLOSED direction: it leaves the rolling tag describing a tree that is
+# gone. A range the job cannot read is not evidence, so it publishes.
+@test "release-test-tools.yaml: a main push whose range it cannot read publishes :main (#1171)" {
+  run _decide push refs/heads/main doc/guide.md \
+      0000000000000000000000000000000000000000
+  assert_success
+  assert_line 'publish=true'
+  run _decide push refs/heads/main doc/guide.md \
+      1111111111111111111111111111111111111111
+  assert_success
+  assert_line 'publish=true'
 }
