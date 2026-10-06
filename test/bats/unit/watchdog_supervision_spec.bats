@@ -401,10 +401,10 @@ _assert_armed() {
   _assert_armed monitor supervise
 }
 
-# why: The other arm, and the one the loops' own tests cannot reach: the
-# supervisor is driven directly at :341 and :365 without anything deciding
-# to call it, so `: _watchdog_supervise "$@"` turned supervision off with
-# every one of those cases still green
+# why: The other arm, and the one the loops' own tests cannot reach: every
+# case below calls _watchdog_supervise or _watchdog_monitor directly, with
+# nothing deciding whether to, so `: _watchdog_supervise "$@"` turned
+# supervision off with all of them still green
 @test "_watchdog_main hands over to the supervisor when ON_FAIL is restart-service (#1115)" {
   [ "${COVERAGE:-0}" = 1 ] && skip "signal/process-timing spec runs plain under bats-fragile (#613)"
   _run_arming "WATCHDOG_ON_FAIL=restart-service"
