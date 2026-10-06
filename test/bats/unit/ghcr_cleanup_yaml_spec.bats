@@ -159,7 +159,13 @@ readonly _DELETION_ACTION="uses:[[:space:]]*['\"]?[A-Za-z0-9._-]+/(delete-packag
 # no `gh` on the runner at all. The boundary is what keeps the match honest:
 # the segment may be preceded by start-of-line, a separator, or a `/`, so
 # `superusers/x/packages/` is not read as the `users` route.
-readonly _DELETION_API_PATH='(^|[^A-Za-z0-9._-])(user|users/[^/[:space:]]+|orgs/[^/[:space:]]+)/packages/'
+#
+# The owner segment is anything but a slash, spaces included, because
+# `/orgs/${{ github.repository_owner }}/packages/` is a literal route by the
+# time the step runs. Constraining that segment was itself a roster of the
+# ways an owner can be written; what identifies the route is `orgs` / `users`
+# and `packages`, never what sits between them.
+readonly _DELETION_API_PATH='(^|[^A-Za-z0-9._-])(user|users/[^/]+|orgs/[^/]+)/packages/'
 # The VERB, not the flag that carries it. `-X DELETE`, `--method DELETE`,
 # `--request DELETE`, `--method=DELETE`, `--method "DELETE"`, `-XDELETE` and
 # a YAML `method: DELETE` are one operation written seven ways, and every
@@ -417,6 +423,29 @@ _exclude_tags() {
   run _deletion_surfaces "${SCRATCH}/wf"
   assert_success
   assert_output "${SCRATCH}/wf/slashless.yaml"
+}
+
+# why: An owner written as a GitHub expression is a literal route by the time
+# the step runs, and the owner was never the part that identifies the route
+@test "GHCR deletion surface: an expression-valued owner is still the route (#1089)" {
+  # `${{ github.repository_owner }}` expands before the step runs, so this is
+  # a literal packages route with an interpolated segment -- not an endpoint
+  # assembled out of expressions, which is the case this scan does not claim
+  # to see. The segment may hold anything but a slash.
+  _wf cleanup \
+    '      - uses: dataaxiom/ghcr-cleanup-action@d52806a0dc70b430571a37da1fde39733ffd640f # v1.2.2'
+  _wf expr \
+    'jobs:' \
+    '  prune:' \
+    '    steps:' \
+    '      - run: gh api --method DELETE "/orgs/${{ github.repository_owner }}/packages/container/test-tools/versions/${id}"'
+  run _deletion_surfaces "${SCRATCH}/wf"
+  assert_success
+  assert_output --partial "${SCRATCH}/wf/expr.yaml"
+  run _deletion_surface_verdict "${SCRATCH}/wf"
+  assert_failure
+  assert_output --partial '2 workflows in'
+  assert_output --partial 'expr.yaml'
 }
 
 # why: curl spells the same flag `--request`, and a pattern that enumerates
