@@ -377,6 +377,24 @@ HOOK
   assert_output --partial "POST_RUN_HOOK_FIRED"
 }
 
+# why: The detach branch is the one place the wrapper hands compose a target
+# and nothing read it back. The foreground paths are pinned at argv level
+# ("up test"), and the two existing detached cases assert a post-run hook
+# fired and what reached the build.sh stub -- all three stay green when the
+# compose target is replaced by a literal `devel`. The consequence under PRD
+# invariant 8 is not a loud one: `just docker run -d -t runtime` would start
+# devel, swapping baked config for a source bind mount on a running machine
+# with nothing saying so
+@test "run.sh -d hands compose the requested target, not devel (#1115)" {
+  run bash "${SANDBOX}/run.sh" --dry-run -t runtime -d
+  assert_success
+  # The positive form of the refutation two cases below already use
+  # (refute_output --partial "up -d runtime"): a refutation on its own is
+  # satisfied by a wrapper that dispatches nothing at all.
+  assert_compose_verb_target "up -d" runtime
+  refute_output --partial "up -d devel"
+}
+
 @test "run.sh devel target routes to 'compose up -d' + 'compose exec'" {
   run bash "${SANDBOX}/run.sh" --dry-run
   assert_success

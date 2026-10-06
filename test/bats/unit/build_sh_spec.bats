@@ -318,21 +318,26 @@ EOS
 }
 
 @test "build.sh accepts positional TARGET argument" {
+  # Asserted on compose's ARGV, not on the transcript. The whole-transcript
+  # form this replaced was satisfied by the prune hint
+  # (`[dry-run] docker rmi <old-id-of mockuser/mockimg:test if displaced>`)
+  # and by the config summary, so pinning the compose target to a literal
+  # `devel` left this and the four cases below green.
   run bash "${SANDBOX}/build.sh" --dry-run test
   assert_success
-  assert_output --partial "test"
+  assert_compose_verb_target build test
 }
 
 @test "build.sh -t TARGET (short form) selects the build target (#280)" {
   run bash "${SANDBOX}/build.sh" --dry-run -t test
   assert_success
-  assert_output --partial "test"
+  assert_compose_verb_target build test
 }
 
 @test "build.sh --target TARGET (long form) selects the build target (#280)" {
   run bash "${SANDBOX}/build.sh" --dry-run --target test
   assert_success
-  assert_output --partial "test"
+  assert_compose_verb_target build test
 }
 
 @test "build.sh -t + positional: last positional wins (#280)" {
@@ -340,14 +345,15 @@ EOS
   # argument wins regardless of which style it was given in.
   run bash "${SANDBOX}/build.sh" --dry-run -t test runtime
   assert_success
-  # `runtime` was the last token, so it should be the active TARGET
-  assert_output --partial "runtime"
+  # `runtime` was the last token, so it should be the TARGET compose is
+  # handed -- and the loser must not be what compose got.
+  assert_compose_verb_target build runtime
 }
 
 @test "build.sh positional + -t: last -t wins (#280)" {
   run bash "${SANDBOX}/build.sh" --dry-run test -t runtime
   assert_success
-  assert_output --partial "runtime"
+  assert_compose_verb_target build runtime
 }
 
 @test "build.sh -t with no value errors clearly (#280)" {

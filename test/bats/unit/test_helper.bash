@@ -966,6 +966,47 @@ spec_permission_surface_subjects() {
     done <<< "${_calls}"
 }
 
+# ── the argv a wrapper hands docker compose ───────────────────────────────────
+#
+# A wrapper's --dry-run transcript is not an argv. It also carries the config
+# summary, the planned `docker build` of the tooling image and the prune hint,
+# and the words printed there include the target's own name -- so
+# `assert_output --partial "runtime"` over the whole transcript is satisfied by
+# `[dry-run] docker rmi <old-id-of user/img:runtime if displaced>` while the
+# compose command names a different service entirely. Measured, not
+# hypothetical: pinning build.sh's compose target to a literal `devel` left all
+# five of build_sh_spec's target-selection cases green.
+#
+# assert_compose_verb_target <verb> <service>
+#   The service name the wrapper handed `docker compose <verb>`, read off the
+#   planned (or stubbed) command line rather than off the transcript around it.
+#   Reads `${lines[@]}`, so it follows a `run` -- either of the wrapper under
+#   --dry-run, or of a `cat` over a docker stub's argv log.
+#
+#   The service is compose's LAST argument, which is what makes this immune to
+#   the flags that sit between the verb and it (`build --build-arg
+#   TEST_TOOLS_IMAGE=<tag> <service>`), and the verb is matched on a leading
+#   space so `--build-arg` is not read as the `build` verb. <verb> may itself
+#   carry its flags (`up -d`), since the wrapper prints them as one word run.
+#
+#   Exactly one line may match. A transcript carrying the verb twice has two
+#   answers, and silently taking one of them is how a guard starts asserting
+#   about a command other than the one it names.
+assert_compose_verb_target() {
+    local _verb="${1:?BUG: assert_compose_verb_target expects a compose verb}"
+    local _service="${2:?BUG: assert_compose_verb_target expects a service name}"
+    local _matched _count
+    _matched="$(printf '%s\n' "${lines[@]+"${lines[@]}"}" \
+        | grep -F 'docker compose ' \
+        | grep -E "[[:space:]]${_verb}([[:space:]]|\$)" || true)"
+    [[ -n "${_matched}" ]] || fail \
+        "no 'docker compose ... ${_verb}' command in this output, so nothing here says which service the wrapper handed compose -- the case would otherwise pass on an absence. Output was: ${output}"
+    _count="$(printf '%s\n' "${_matched}" | grep -c . || true)"
+    [[ "${_count}" -eq 1 ]] || fail \
+        "${_count} 'docker compose ... ${_verb}' commands, not 1: the service this reads off would be whichever one sorted last. Matched: ${_matched}"
+    assert_equal "${_matched##* }" "${_service}"
+}
+
 # ── spec subject presence ─────────────────────────────────────────────────────
 #
 # Many specs assert on the CONTENT of one tracked artifact -- a workflow
