@@ -4915,7 +4915,7 @@ alias / `network.network_name` / `devices.device_` / `security.cap_add_` /
 | `self-hosted guard: FAILS when the workflows parse to zero jobs` | - |
 | `self-hosted guard: scans every workflow in the directory, not a named list` | - |
 
-### test/bats/unit/self_test_yaml_spec.bats (126)
+### test/bats/unit/self_test_yaml_spec.bats (127)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks fourteen
 cumulative invariants:
@@ -5271,6 +5271,7 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: acceptance job obtains inline, with the TEST_TOOLS_IMAGE passthrough (#317 P2)` | - |
 | `self-test.yaml: acceptance job keeps buildx driver: docker for host-daemon visibility (#317 P2)` | - |
 | `self-test.yaml: system job has an Obtain step reaching the one obtain path (#317 P2)` | - |
+| `self-test.yaml: a runner-side builder is set up only where its consumer runs (#1116)` | Five jobs set up a docker-container builder before anything has decided whether one is wanted, and the only step that wants one is skipped on every hot-path run. Measured on one run: nineteen jobs spent 111 seconds in `Set up Docker Buildx`, 101 of them in the sixteen jobs whose build step was skipped every time -- the action pulls `moby/buildkit:buildx-stable-1` and starts a container, and the post step then removes a builder nothing touched. base is public, so the unit that matters is not a bill but the roughly twenty concurrent slots ADR-00000017 names as the throughput constraint. The ordering half of this guard is the hazard the fix itself introduces: a condition reading `steps.<id>.outputs` from a step that has not run yet is empty, so the setup is skipped on EVERY run and the consumer it was paired with builds with no builder behind it -- a failure that reads as a cache error rather than as a misplaced step. |
 | `self-test.yaml: coverage Obtain reaches the probe-and-rebuild path (#697, #947)` | The coverage shards are the ones that actually raced -- the kcov-not-found fast-fail is the incident this guard was written after -- and they are also the job whose numbers a wrong alpine series quietly changes, so their obtain step is pinned on its own |
 | `self-test.yaml: the probe is ONE script, not a loop copied into every job (#947)` | Keeps the copies from growing back: five inline copies of the loop is how the presence-only blind spot survived, because no single copy looked wrong, and a re-inlined loop is invisible to the probe's own spec |
 | `self-test.yaml: every job that consumes the image obtains it the one way (#697, #1010)` | - |
@@ -7893,18 +7894,22 @@ than by the caller who follows it.
 | `release-worker.yaml: preflight runs preflight.sh with the release manifest (#800)` | - |
 | `release-worker.yaml: preflight exports archive_name_prefix into the manifest env var (#800)` | - |
 
-### test/bats/unit/workflow_failure_surface_spec.bats (11)
+### test/bats/unit/workflow_failure_surface_spec.bats (12)
 
-Four properties of the workflow tree, each one about what a reader learns
-from a failed run. A cleanup sweep that reddens a build which succeeded, and
-a fork PR whose required check is red with no text distinguishing "we refuse
-to build fork code" from "the build broke", are both failures that carry no
-information -- and a reader who meets enough of them stops reading the ones
-that do. The rollup's silence on a doc-only run is the same defect inverted:
-an undifferentiated GREEN for "everything passed" and for "almost nothing
-ran". The absences are the fourth: nothing serialises the publishes that
-race for one rolling tag, nothing cancels a superseded PR's eight-shard
-matrix, and nothing bounds a hung buildx below GitHub's six-hour default.
+Five properties of the workflow tree, four of them about what a reader
+learns from a failed run and the fifth about what the tree itself records. A
+cleanup sweep that reddens a build which succeeded, and a fork PR whose
+required check is red with no text distinguishing "we refuse to build fork
+code" from "the build broke", are both failures that carry no information --
+and a reader who meets enough of them stops reading the ones that do. The
+rollup's silence on a doc-only run is the same defect inverted: an
+undifferentiated GREEN for "everything passed" and for "almost nothing ran".
+The absences are the fourth: nothing serialises the publishes that race for
+one rolling tag, nothing cancels a superseded PR's eight-shard matrix, and
+nothing bounds a hung buildx below GitHub's six-hour default. The fifth is
+an absence of a different kind: the default token grant of a workflow that
+declares none is a setting on a web page, so the tree carries no record of
+the posture its jobs run under and no diff can change it.
 
 Every population here is DERIVED from the tree -- the workflow list from the
 directory, the reusable workers from `on: workflow_call`, the cleanup steps
@@ -7925,6 +7930,7 @@ before reading an empty result as a clean one.
 | `workflows: every workflow a trigger can start declares a concurrency group (#1014)` | Nothing in the tree orders anything. Every push to a PR branch starts a fresh eight-shard coverage matrix beside the one still running, and two main merges touching the test-tools Dockerfile run two unserialised publishes whose last writer is decided by arm64 queue time rather than by commit order -- which is how a rolling tag ends up pointing at the older build. |
 | `workflows: no concurrency group cancels a run whose verdict is the record (#1014)` | Cancellation is only free where the cancelled run's verdict no longer matters. On a PR branch a superseded push replaces it; on a main push or a tag the run IS the record, and on the publish path a cancelled `imagetools create` is how a rolling tag loses an arch. So a group may cancel a pull_request and nothing else -- and an `if: always()` aggregator turns whatever it cancels into a red required check. |
 | `workflows: every job that runs steps bounds them (#1014)` | A hung buildx burns GitHub's six-hour default before anyone sees it. The population is every workflow file, not the reusable workers alone: the workers were bounded first because a worker spends the CALLER's minutes, but the jobs that actually run a build here are self-test's eight-shard coverage matrix and its two-arch `acceptance` matrix, both self-hosted-eligible and both unbounded -- so the hazard the rule names lived entirely outside the set the rule scanned. The bound is per job rather than per workflow because that is the only place GitHub accepts one, and the roster is derived from the directory so the ninth workflow cannot land unbounded. |
+| `workflows: every workflow a trigger can start declares its own default permission (#1116)` | The posture is correct and nothing in the tree says so. Both the repo and the org report `default_workflow_permissions: read`, so the fourteen jobs of base's own CI workflow that declare no block of their own are read-only -- held entirely by a checkbox on a settings page, which no diff, no review and no spec can see. Flip it and those jobs get write on contents, packages, actions, issues and pull-requests, on a workflow that checks out fourteen times with a persisted token and then runs the whole suite and scaffolds a repo. The caller-token question is a different one, asked of the reusable workers in reusable_worker_permissions_spec.bats over exactly the complement of this population; this is the repository default, so it is asked here, of the workflows a trigger can start. Five of the six already declare one, so the exception was a house convention nothing enforced. |
 
 ### test/bats/unit/workflow_unchecked_producer_spec.bats (6)
 
