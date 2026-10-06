@@ -1118,7 +1118,7 @@ between them can be asserted at all.
 | `reclaim.sh --stale delegates the unowned classes to prune.sh with the same window` | - |
 | `reclaim.sh --stale never touches volumes` | - |
 
-### test/bats/unit/ci_spec.bats (171)
+### test/bats/unit/ci_spec.bats (177)
 
 | Test | Description |
 |------|-------------|
@@ -1183,6 +1183,12 @@ between them can be asserted at all.
 | `_run_coverage: writes coverage/timings.tsv from the bats junit report (#733)` | - |
 | `_run_coverage: a full-suite run names every spec file, subfolders included (#952)` | - |
 | `_run_coverage: the full run covers the pools the inventory reads (#952)` | - |
+| `_coverage_union_gap: names the specs no shard ran when the shards disagree about the weights (#1114)` | The load-bearing case, and the observable base#1114 measured on the real tree: two weight sources across shard processes leave specs in NO shard, every slice still non-empty, and this is the only check that can say which specs went unrun. |
+| `_coverage_union_gap: one weight source across every shard leaves no spec behind (#1114)` | The control that makes the case above mean something. Same fixture, same six specs, same partitioner -- one weight source, and the union is the whole pool. Without it, a detector that always reported a gap would pass the case above. |
+| `_coverage_union_gap: a cache miss on every shard is still one source, so still a partition (#1114)` | The @test-count fallback is a weight SOURCE, not the absence of one: shards that ALL miss the cache still partition the pool. Without this case a green gate could be read as "the weights were there" rather than "the weights agreed", and the fix would look like a cache-hit problem instead of a consistency one. |
+| `_coverage_union_gap: refuses rather than reporting an empty gap when there is nothing to compare (#1114)` | No evidence must not read as a clean bill of health. An unreadable manifest, a missing one, and an inventory that enumerated nothing would each make a gap of zero mean nothing -- which is how this gate goes vacuous while still printing a pass. |
+| `main --coverage-union-check: refuses, naming the specs no shard ran (#1114)` | The entry point the coverage-gate job runs. The function answers with data; this turns a gap into a non-zero exit that NAMES the specs, which is the whole of what a red CI job has to tell its reader. |
+| `main --coverage-union-check: accepts a manifest naming every spec in the inventory (#1114)` | The pass direction of the same entry point, over the live inventory. A manifest naming every spec is what a healthy coverage matrix produces, so refusing it would make the gate unshippable -- and it is the half that proves the refusal above is about the gap and not about the flag. |
 | `_shard_unit_files: integration specs are partitioned into the pool, not pinned to one shard (#724)` | - |
 | `_run_coverage: shard N/T kcov's only that unit slice, not the whole tree (#615)` | #615 sharded kcov targets |
 | `_run_coverage: shard targets are individual spec files, never the whole integration dir (#724)` | - |
@@ -4818,7 +4824,7 @@ alias / `network.network_name` / `devices.device_` / `security.cap_add_` /
 | `self-hosted guard: FAILS when the workflows parse to zero jobs` | - |
 | `self-hosted guard: scans every workflow in the directory, not a named list` | - |
 
-### test/bats/unit/self_test_yaml_spec.bats (121)
+### test/bats/unit/self_test_yaml_spec.bats (124)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks fourteen
 cumulative invariants:
@@ -5183,7 +5189,10 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: classify reads the tooling image's inputs, it does not restate them (#1171)` | The tooling image's inputs are READ, not restated. The step named one pathspec, the Dockerfile's, and the image has more inputs than that: a stage that COPYs a file out of the build context bakes that file's content in, so a PR editing only it took the pull path and ran the suite inside an image built before the edit. What each path DECIDES is asserted by driving the step in classify_testtools_spec.bats; what this test owns is that the step keeps no second roster of its own -- a pathspec quoted back into it is a list that is correct the day it is written and wrong the next time someone adds a COPY. |
 | `self-test.yaml: classify fails open when it cannot derive those inputs (#1171)` | An unreadable or refused input list must not read as "nothing the tooling image is built from changed", and must not reach `git diff` as an EMPTY pathspec list either -- that compares the whole diff and reports every PR as touching the image. The two failures are silent in opposite directions, so the empty case is answered before the diff and says so. |
 | `self-test.yaml: image jobs gate the rebuild on classify's testtools_changed (#734)` | - |
-| `self-test.yaml: coverage shards restore the shard-weights cache before partitioning (#733)` | - |
+| `self-test.yaml: compute-shards restores the shard-weights cache ONCE for the whole matrix (#733, #1114)` | The producer half of the single-source rule. A partition is a partition of the suite only when every shard weighed the specs the same way, so there is exactly ONE place the weights blob is fetched -- the job every shard already waits on. A second lookup anywhere is a second opportunity for the matrix to read two different blobs. |
+| `self-test.yaml: compute-shards publishes the restored weights as a job output (#1114)` | The lookup being single is worth nothing unless its RESULT is what the shards partition by, so the restored blob leaves compute-shards as a declared job output. Undeclared, the expression below it resolves to the empty string and all twelve shards silently fall back to @test counts. |
+| `self-test.yaml: no coverage shard looks the weights cache up for itself (#1114)` | The load-bearing case of base#1114. Twelve shards each looking the cache up for itself is twelve reads of a key whose newest entry changes on every main push: the exact key cannot hit while the shards run, so every shard fell through to the `shard-weights-` prefix, and a shard re-run after a later merge partitions against a NEWER blob than its siblings used. Each then keeps its slice of a different partition, every slice non-empty, and a spec can land in none of them. |
+| `self-test.yaml: coverage-gate refuses a matrix that did not cover the suite (#1114)` | The detector half, and the one that would have caught the defect from the outside: coverage-gate already holds every shard's timings, so it can say whether the twelve slices covered the suite it just published a rate for. It must read the file the merge step wrote, so the order of the two steps is part of the assertion. |
 | `self-test.yaml: coverage-gate merges shard timings into the weights file (#733)` | - |
 | `self-test.yaml: coverage-gate saves the shard-weights cache only on push (#733)` | - |
 | `self-test.yaml: declares ci-rollup job (#337)` | - |

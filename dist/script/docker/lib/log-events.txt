@@ -213,6 +213,8 @@ ci_invalid_coverage_jobs
 ci_coverage_parallel_empty_slice
 ci_coverage_slice_no_report
 ci_coverage_merge_failed
+ci_coverage_union_unevidenced
+ci_coverage_union_incomplete
 ci_coverage_clean_absent
 ci_coverage_cleaned
 ci_coverage_not_reclaimed

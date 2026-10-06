@@ -887,6 +887,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       shards: ${{ steps.gen.outputs.shards }}
+      weights: ${{ steps.weights.outputs.blob }}
     steps:
       - id: gen
         env:
@@ -900,6 +901,68 @@ jobs:
           shards="$(seq 1 "${n}" | sed "s|.*|\"&/${n}\"|" | paste -sd, -)"
           echo "shards=[${shards}]" >> "${GITHUB_OUTPUT}"
           echo "coverage shard count = ${n}: [${shards}]"
+
+      # The restore target, created up front so the step below reads a
+      # definite answer: present-and-non-empty means a hit, absent means a
+      # miss. The cache action creates the path itself on a hit; what this
+      # removes is the third state where the directory's absence is the
+      # only difference between the two.
+      - name: Make room for the restored weights
+        run: mkdir -p test/bats
+
+      - name: Restore shard-weights cache (ONCE, for the whole matrix)
+        # ONE lookup for the whole coverage matrix, and this job is where
+        # it belongs: every shard already waits on it for the shard list.
+        #
+        # It used to be a lookup PER SHARD, and that cannot be made safe by
+        # retrying it. The exact key carries this run's id and is written
+        # only by coverage-gate on a main push, i.e. after the shards have
+        # run, so it can never hit while they execute; all of them fall
+        # through to the `shard-weights-` prefix, which resolves to
+        # whatever the newest entry is AT THE MOMENT EACH JOB STARTS. A
+        # shard re-run after a later merge therefore reads a different blob
+        # from the siblings that already passed. _spec_weight feeds
+        # _shard_unit_files' greedy-LPT partition, so a different blob is a
+        # different partition, and each shard keeps its own slice of it:
+        # the twelve slices stop being exhaustive and disjoint, every slice
+        # still non-empty so the empty-shard guard stays quiet, and a spec
+        # can run in no shard at all.
+        #
+        # Read-only here; coverage-gate refreshes it on main pushes.
+        uses: actions/cache/restore@v6
+        with:
+          path: test/bats/.shard-weights
+          key: shard-weights-${{ github.run_id }}
+          restore-keys: |
+            shard-weights-
+
+      - name: Publish the weights blob to every shard
+        id: weights
+        # The blob travels as a job output rather than being looked up
+        # again: base64 so a job output carries it verbatim, and one output
+        # so there is nothing per-shard left to diverge. Size is not a
+        # concern at this scale -- one line of `<seconds> <basename>` per
+        # spec in the suite, a few KB base64'd against the 1 MB an output
+        # takes -- and a blob too large or too damaged to decode fails the
+        # shard loudly instead of quietly re-partitioning it.
+        #
+        # A MISS IS A SOURCE TOO. An empty output means every shard weighs
+        # every spec by its `@test` count, which is still ONE weight source
+        # and so still a partition; what was never safe was half the matrix
+        # reading seconds while the other half counted tests.
+        run: |
+          set -euo pipefail
+          if [[ -s test/bats/.shard-weights ]]; then
+            {
+              printf 'blob='
+              base64 -w0 < test/bats/.shard-weights
+              printf '\n'
+            } >> "${GITHUB_OUTPUT}"
+            echo "shard weights: $(grep -c . test/bats/.shard-weights) spec timings, one blob for all shards"
+          else
+            printf 'blob=\n' >> "${GITHUB_OUTPUT}"
+            echo "shard weights: cache miss -- every shard partitions by @test count, from the same absent source"
+          fi
 
   coverage:
     # Sharded kcov coverage -- the PRIMARY unit gate and an ENFORCED PR gate
@@ -985,20 +1048,29 @@ jobs:
           cache-from: type=gha,scope=test-tools
           cache-to: type=gha,scope=test-tools,mode=max
 
-      - name: Restore shard-weights cache (time-balanced partition)
+      - name: Write the single-sourced shard weights (time-balanced partition)
         # The greedy-LPT partition (_shard_unit_files / _spec_weight) weights
-        # specs by recorded kcov seconds. Restore the cached weights to the
-        # in-repo path _spec_weight reads by default, so the in-container
-        # coverage run (the repo is mounted at /source) picks them up with no
-        # -e plumbing and every shard computes the identical exhaustive +
-        # disjoint partition. A miss leaves no file -> @test-count fallback.
-        # Read-only here; coverage-gate refreshes it on main pushes.
-        uses: actions/cache/restore@v6
-        with:
-          path: test/bats/.shard-weights
-          key: shard-weights-${{ github.run_id }}
-          restore-keys: |
-            shard-weights-
+        # specs by recorded kcov seconds, and it is a partition of the suite
+        # only if every shard weighs them identically. So the blob is not
+        # looked up here: compute-shards restored it ONCE and handed it to
+        # the whole matrix, and this writes that one blob to the in-repo path
+        # _spec_weight reads by default -- the repo is mounted at /source, so
+        # the in-container coverage run picks it up with no -e plumbing.
+        #
+        # An empty output is the cache-miss case and is not an error: every
+        # shard then weighs by `@test` count, from the same absent source, so
+        # the partition still holds.
+        env:
+          SHARD_WEIGHTS_BLOB: ${{ needs.compute-shards.outputs.weights }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${SHARD_WEIGHTS_BLOB}" ]]; then
+            echo "no shard weights this run: partitioning by @test count, as every other shard does"
+            exit 0
+          fi
+          mkdir -p test/bats
+          printf '%s' "${SHARD_WEIGHTS_BLOB}" | base64 -d > test/bats/.shard-weights
+          echo "shard weights: $(grep -c . test/bats/.shard-weights) spec timings from compute-shards"
 
       - name: Run kcov coverage shard ${{ matrix.shard }}
         run: ./script/test/test.sh --coverage-shard ${{ matrix.shard }}
@@ -1090,7 +1162,29 @@ jobs:
           shopt -s nullglob
           bash ./script/test/drivers/coverage_gate.sh --merge-timings \
             test/bats/.shard-weights ./coverage-shards/*/timings.tsv
-          echo "merged $(grep -c . test/bats/.shard-weights || true) spec timings"
+
+      - name: Every spec ran in some shard
+        # The merged weights file is also the matrix's RUN MANIFEST: it
+        # names every spec some shard reported running. Comparing it against
+        # the inventory of what a full coverage run covers is the only check
+        # that can see a spec that ran NOWHERE -- the floor gate above
+        # cannot, because a missing spec contributes no lines to either side
+        # of a ratio, and dropping a well-covered one makes the reported
+        # rate go UP. This step used to echo the union's SIZE and compare it
+        # against nothing.
+        #
+        # EXHAUSTIVE is what it checks, and that is the half that decides
+        # the figure. Disjointness is not observable here -- the merge keys
+        # on basename, so a spec two shards both ran reads back as one
+        # entry -- and it does not need to be: the reports are merged by
+        # per-line UNION, so a line two shards both covered is counted
+        # once. A spec that ran TWICE costs runtime; a spec that ran NOWHERE
+        # costs the gate its meaning.
+        #
+        # It runs after the merge, which writes the file it reads, and ahead
+        # of the cache save, so a partition that did not cover the suite
+        # fails the job instead of seeding the next run's weights.
+        run: ./script/test/test.sh --coverage-union-check test/bats/.shard-weights
 
       - name: Save shard-weights cache (main-push only)
         # Only authoritative main-branch pushes refresh the shared weights;
