@@ -707,9 +707,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
       - name: Obtain the run-scoped test-tools image (#317 P2 3-layer fallback)
         id: obtain
         env:
@@ -723,9 +720,24 @@ jobs:
         # not: a paste is something a person has to remember to do, and no
         # single copy looked wrong.
         #
-        # `delegate` because the buildx step below carries the GHA layer
-        # cache and gates on this step's `build_local` output.
+        # `delegate` because the Build step below carries the GHA layer
+        # cache and gates on this step's `build_local` output -- as does
+        # the builder setup that step needs, which is why both sit after
+        # this one.
         run: ./script/ci/obtain_test_tools.sh "${TEST_TOOLS_IMAGE}" --platform linux/amd64 --local-build delegate
+
+      - name: Set up Docker Buildx
+        # Gated on the same output as the Build step below, because that
+        # step is the only thing in this job that wants a builder: it is
+        # the one carrying `cache-to: type=gha`, which needs the
+        # docker-container driver this action creates. On the hot path both
+        # are skipped, so the job stops pulling moby/buildkit and starting
+        # a container only for the post step to remove it. AFTER `obtain`
+        # and not before it, because the condition reads that step's
+        # output: placed earlier it reads an empty string, is skipped on
+        # every run, and leaves the Build step with no builder behind it.
+        if: steps.obtain.outputs.build_local == 'true'
+        uses: docker/setup-buildx-action@v4
 
       - name: Build the run-scoped test-tools image (with GHA cache)
         if: steps.obtain.outputs.build_local == 'true'
@@ -809,9 +821,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
       - name: Obtain the run-scoped test-tools image (#317 P2 3-layer fallback)
         id: obtain
         env:
@@ -833,9 +842,24 @@ jobs:
         # not: a paste is something a person has to remember to do, and no
         # single copy looked wrong.
         #
-        # `delegate` because the buildx step below carries the GHA layer
-        # cache and gates on this step's `build_local` output.
+        # `delegate` because the Build step below carries the GHA layer
+        # cache and gates on this step's `build_local` output -- as does
+        # the builder setup that step needs, which is why both sit after
+        # this one.
         run: ./script/ci/obtain_test_tools.sh "${TEST_TOOLS_IMAGE}" --platform linux/amd64 --local-build delegate
+
+      - name: Set up Docker Buildx
+        # Gated on the same output as the Build step below, because that
+        # step is the only thing in this job that wants a builder: it is
+        # the one carrying `cache-to: type=gha`, which needs the
+        # docker-container driver this action creates. On the hot path both
+        # are skipped, so the job stops pulling moby/buildkit and starting
+        # a container only for the post step to remove it. AFTER `obtain`
+        # and not before it, because the condition reads that step's
+        # output: placed earlier it reads an empty string, is skipped on
+        # every run, and leaves the Build step with no builder behind it.
+        if: steps.obtain.outputs.build_local == 'true'
+        uses: docker/setup-buildx-action@v4
 
       - name: Build the run-scoped test-tools image (with GHA cache)
         if: steps.obtain.outputs.build_local == 'true'
@@ -876,9 +900,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
       - name: Obtain the run-scoped test-tools image (#317 P2 3-layer fallback)
         id: obtain
         env:
@@ -892,9 +913,24 @@ jobs:
         # not: a paste is something a person has to remember to do, and no
         # single copy looked wrong.
         #
-        # `delegate` because the buildx step below carries the GHA layer
-        # cache and gates on this step's `build_local` output.
+        # `delegate` because the Build step below carries the GHA layer
+        # cache and gates on this step's `build_local` output -- as does
+        # the builder setup that step needs, which is why both sit after
+        # this one.
         run: ./script/ci/obtain_test_tools.sh "${TEST_TOOLS_IMAGE}" --platform linux/amd64 --local-build delegate
+
+      - name: Set up Docker Buildx
+        # Gated on the same output as the Build step below, because that
+        # step is the only thing in this job that wants a builder: it is
+        # the one carrying `cache-to: type=gha`, which needs the
+        # docker-container driver this action creates. On the hot path both
+        # are skipped, so the job stops pulling moby/buildkit and starting
+        # a container only for the post step to remove it. AFTER `obtain`
+        # and not before it, because the condition reads that step's
+        # output: placed earlier it reads an empty string, is skipped on
+        # every run, and leaves the Build step with no builder behind it.
+        if: steps.obtain.outputs.build_local == 'true'
+        uses: docker/setup-buildx-action@v4
 
       - name: Build the run-scoped test-tools image (with GHA cache)
         if: steps.obtain.outputs.build_local == 'true'
@@ -1053,9 +1089,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
       - name: Obtain the run-scoped test-tools image (#317 P2 3-layer fallback)
         id: obtain
         env:
@@ -1077,9 +1110,24 @@ jobs:
         # not: a paste is something a person has to remember to do, and no
         # single copy looked wrong.
         #
-        # `delegate` because the buildx step below carries the GHA layer
-        # cache and gates on this step's `build_local` output.
+        # `delegate` because the Build step below carries the GHA layer
+        # cache and gates on this step's `build_local` output -- as does
+        # the builder setup that step needs, which is why both sit after
+        # this one.
         run: ./script/ci/obtain_test_tools.sh "${TEST_TOOLS_IMAGE}" --platform linux/amd64 --local-build delegate
+
+      - name: Set up Docker Buildx
+        # Gated on the same output as the Build step below, because that
+        # step is the only thing in this job that wants a builder: it is
+        # the one carrying `cache-to: type=gha`, which needs the
+        # docker-container driver this action creates. On the hot path both
+        # are skipped, so the job stops pulling moby/buildkit and starting
+        # a container only for the post step to remove it. AFTER `obtain`
+        # and not before it, because the condition reads that step's
+        # output: placed earlier it reads an empty string, is skipped on
+        # every run, and leaves the Build step with no builder behind it.
+        if: steps.obtain.outputs.build_local == 'true'
+        uses: docker/setup-buildx-action@v4
 
       - name: Build the run-scoped test-tools image (with GHA cache)
         if: steps.obtain.outputs.build_local == 'true'
@@ -1747,9 +1795,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
       - name: Obtain the run-scoped test-tools image (#317 P2 3-layer fallback)
         id: obtain
         env:
@@ -1763,9 +1808,24 @@ jobs:
         # not: a paste is something a person has to remember to do, and no
         # single copy looked wrong.
         #
-        # `delegate` because the buildx step below carries the GHA layer
-        # cache and gates on this step's `build_local` output.
+        # `delegate` because the Build step below carries the GHA layer
+        # cache and gates on this step's `build_local` output -- as does
+        # the builder setup that step needs, which is why both sit after
+        # this one.
         run: ./script/ci/obtain_test_tools.sh "${TEST_TOOLS_IMAGE}" --platform linux/amd64 --local-build delegate
+
+      - name: Set up Docker Buildx
+        # Gated on the same output as the Build step below, because that
+        # step is the only thing in this job that wants a builder: it is
+        # the one carrying `cache-to: type=gha`, which needs the
+        # docker-container driver this action creates. On the hot path both
+        # are skipped, so the job stops pulling moby/buildkit and starting
+        # a container only for the post step to remove it. AFTER `obtain`
+        # and not before it, because the condition reads that step's
+        # output: placed earlier it reads an empty string, is skipped on
+        # every run, and leaves the Build step with no builder behind it.
+        if: ${{ steps.obtain.outputs.build_local == 'true' }}
+        uses: docker/setup-buildx-action@v4
 
       - name: Build the run-scoped test-tools image (with GHA cache)
         if: ${{ steps.obtain.outputs.build_local == 'true' }}

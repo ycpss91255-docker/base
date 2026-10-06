@@ -813,6 +813,155 @@ _job_comments() {
   assert_output --partial '--local-build delegate'
 }
 
+# ── a runner-side builder is created only where its consumer runs ──────
+#
+# Two steps, one decision. `docker/setup-buildx-action` creates a
+# docker-container builder on the runner -- it pulls `moby/buildkit` and
+# starts a container -- and in this workflow the only thing that asks for
+# one is the `docker/build-push-action` step that builds the tooling image
+# with the GHA layer cache. That step is gated: it runs only when the
+# obtain path could not hand the job a usable image. So the setup carries
+# the same gate, and the pairing is DERIVED -- a job is in this scan
+# because it holds both steps, not because a roster here names it. The
+# `acceptance` job sets up a `driver: docker` builder with no
+# build-push-action behind it: its consumer is `./build.sh test` ->
+# `docker compose build`, which runs unconditionally, so the job is outside
+# the population by construction rather than by exemption.
+#
+# ADR-00000033 is the standing tension: this is another per-job copy of one
+# `build_local` decision, and that ADR is about the copies. It is paired
+# with the gate assertions above it for exactly that reason -- two
+# conditions that must agree, on a cold path nobody walks, rot separately
+# unless something reads them together.
+
+# _builder_setup_pairs <file>
+#   `<job>\t<setups>\t<consumers>\t<setup index>\t[<setup if>]\t[<consumer if>]`
+#   for every job of <file> that BOTH sets up a runner-side builder and
+#   carries a step that consumes one. Tab-separated because a condition may
+#   contain any `|`-joined record's separator (`a || b`) and cannot contain
+#   a tab -- and each condition is BRACKETED because a tab is IFS
+#   whitespace, so `read` collapses a run of them and an EMPTY condition
+#   field would silently shift every field after it. The brackets are
+#   stripped where the record is read; a bracket inside the condition
+#   survives, since only one leading and one trailing character go.
+_builder_setup_pairs() {
+    _yaml_eval "${1}" '
+        .jobs | to_entries | .[] | .key as $job
+          | ((.value.steps // []) | to_entries) as $steps
+          | ($steps | map(select((.value.uses // "")
+                | test("docker/setup-buildx-action")))) as $setups
+          | ($steps | map(select((.value.uses // "")
+                | test("docker/build-push-action")))) as $consumers
+          | select(($setups | length) > 0 and ($consumers | length) > 0)
+          | [$job,
+             ($setups | length | tostring),
+             ($consumers | length | tostring),
+             ($setups[0].key | tostring),
+             ("[" + (($setups[0].value.if // "") | tostring) + "]"),
+             ("[" + (($consumers[0].value.if // "") | tostring) + "]")]
+            | @tsv'
+}
+
+# _step_ids <file>
+#   `<job>\t<id>\t<index>` for every step of <file> that declares an `id:`
+#   -- what a condition reading `steps.<id>.outputs.*` has to be placed
+#   against.
+_step_ids() {
+    _yaml_eval "${1}" '
+        .jobs | to_entries | .[] | .key as $job
+          | (.value.steps // []) | to_entries | .[]
+          | select(((.value.id // "") | tostring) != "")
+          | [$job, (.value.id | tostring), (.key | tostring)] | @tsv'
+}
+
+# _normalise_condition <if>
+#   One step condition with the optional `${{ ... }}` wrapper and any
+#   surrounding whitespace removed, so the two legal spellings of one
+#   condition compare equal and the comparison below is about the
+#   condition rather than about how it was typed.
+_normalise_condition() {
+    printf '%s\n' "${1}" \
+        | sed -e 's|^[[:space:]]*\${{[[:space:]]*||' \
+              -e 's|[[:space:]]*}}[[:space:]]*$||' \
+              -e 's|^[[:space:]]*||' -e 's|[[:space:]]*$||'
+}
+
+# _report_one_builder_setup <job> <setup index> <setup if> <consumer if> <ids>
+#   The two ways one job's builder setup can be out of step with the step
+#   that consumes it: a different condition, or the same condition read
+#   before the step that decides it has run. A setup placed ahead of that
+#   step reads an empty output, so it is skipped on every run and its
+#   consumer is left without the builder it was gated with.
+_report_one_builder_setup() {
+    local _job="${1}" _idx="${2}" _setup="${3}" _consumer="${4}" _ids="${5}"
+    local _want _have _id _at
+    _want="$(_normalise_condition "${_setup}")"
+    _have="$(_normalise_condition "${_consumer}")"
+    if [[ "${_want}" != "${_have}" ]]; then
+        printf '%s sets up a runner-side builder on [%s] while the step that consumes it runs on [%s]\n' \
+            "${_job}" "${_setup}" "${_consumer}"
+        return 0
+    fi
+    [[ -n "${_want}" ]] || return 0
+    local -a _reads=()
+    mapfile -t _reads < <(printf '%s\n' "${_want}" \
+        | grep -o 'steps\.[A-Za-z0-9_-]*\.outputs' | cut -d. -f2 | sort -u)
+    for _id in "${_reads[@]}"; do
+        _at="$(printf '%s\n' "${_ids}" | awk -F'\t' -v _j="${_job}" \
+            -v _i="${_id}" '$1 == _j && $2 == _i { print $3 }')"
+        [[ -n "${_at}" ]] || { printf '%s gates its builder setup on the output of a step id %s it carries none of\n' "${_job}" "${_id}" ; continue ; }
+        [[ "${_at}" -lt "${_idx}" ]] || printf '%s sets up its builder at step %s, at or before the step id %s at %s whose output decides whether one is wanted\n' \
+            "${_job}" "${_idx}" "${_id}" "${_at}"
+    done
+}
+
+# _builder_setups_out_of_step_with_their_consumer <file>
+#   One line per disagreement across the derived population.
+_builder_setups_out_of_step_with_their_consumer() {
+    local _file="${1}" _ids _job _ns _nc _idx _setup _consumer _status=0
+    _ids="$(_step_ids "${_file}")" || _status=$?
+    if [[ "${_status}" -ne 0 ]]; then
+        printf '%s\n' "${_ids}"
+        return 0
+    fi
+    while IFS=$'\t' read -r _job _ns _nc _idx _setup _consumer; do
+        [[ -n "${_job}" ]] || continue
+        case "${_job}" in BUG:*) printf '%s\n' "${_job}" ; continue ;; esac
+        _setup="${_setup#"["}" ; _setup="${_setup%"]"}"
+        _consumer="${_consumer#"["}" ; _consumer="${_consumer%"]"}"
+        if [[ "${_ns}" != 1 || "${_nc}" != 1 ]]; then
+            printf '%s carries %s builder setup(s) and %s consumer(s); this scan pairs one with one\n' \
+                "${_job}" "${_ns}" "${_nc}"
+            continue
+        fi
+        _report_one_builder_setup "${_job}" "${_idx}" "${_setup}" "${_consumer}" "${_ids}"
+    done < <(_builder_setup_pairs "${_file}")
+}
+
+# why: Five jobs set up a docker-container builder before anything has
+# decided whether one is wanted, and the only step that wants one is
+# skipped on every hot-path run. Measured on one run: nineteen jobs spent
+# 111 seconds in `Set up Docker Buildx`, 101 of them in the sixteen jobs
+# whose build step was skipped every time -- the action pulls
+# `moby/buildkit:buildx-stable-1` and starts a container, and the post step
+# then removes a builder nothing touched. base is public, so the unit that
+# matters is not a bill but the roughly twenty concurrent slots
+# ADR-00000017 names as the throughput constraint. The ordering half of
+# this guard is the hazard the fix itself introduces: a condition reading
+# `steps.<id>.outputs` from a step that has not run yet is empty, so the
+# setup is skipped on EVERY run and the consumer it was paired with builds
+# with no builder behind it -- a failure that reads as a cache error rather
+# than as a misplaced step.
+@test "self-test.yaml: a runner-side builder is set up only where its consumer runs (#1116)" {
+  local _n
+  _n="$(_builder_setup_pairs "${WF}" | awk 'NF { _n++ } END { print _n + 0 }')"
+  [[ "${_n}" -ge 5 ]] || fail \
+    "derived ${_n} job(s) that both set up a builder and consume one; expected at least the five that build the tooling image -- the scan below would have read an empty set as a clean one"
+  run _builder_setups_out_of_step_with_their_consumer "${WF}"
+  assert_success
+  assert_output ''
+}
+
 # ── Probe-and-rebuild against a stale / racing :main ────────────
 
 # why: The coverage shards are the ones that actually raced -- the
