@@ -2094,35 +2094,35 @@ refused before any build or bundle step.
 | `_run_derived_figures: FAILS when the section heading is absent (no vacuous pass) (#874)` | - |
 | `_run_derived_figures: FAILS when a required doc file is missing (no vacuous pass) (#874)` | - |
 | `_run_derived_figures: FAILS when the dist/ scan root is missing (no vacuous pass) (#874)` | - |
-| `_derived_default_coverage: reads the flag off the _run_via_compose ci calls (base#1121)` | - |
-| `_derived_default_coverage: REFUSES when the calls disagree (base#1121)` | - |
-| `_derived_test_subcommands: derives the vocabulary from the recipe lines (base#1121)` | - |
-| `_run_derived_figures: FAILS when a bare just test is documented as running kcov (base#1121)` | - |
-| `_run_derived_figures: PASSES when the annotation says the default has no kcov (base#1121)` | - |
-| `_run_derived_figures: FAILS when the default DOES measure coverage and the annotation omits it (base#1121)` | - |
-| `_run_derived_figures: a documented subcommand is not the default run (base#1121)` | - |
-| `_run_derived_figures: a flag is not the default run either (base#1121)` | - |
-| `_run_derived_figures: reads the recipe-comment shape too (base#1121)` | - |
-| `_run_derived_figures: a mention inside running prose is not an annotation (base#1121)` | - |
-| `_run_derived_figures: FAILS when the bare lint phase is documented as ShellCheck alone (base#1121)` | - |
-| `_run_derived_figures: PASSES when the lint annotation names both binaries (base#1121)` | - |
-| `_run_derived_figures: a narrowed lint run may name one linter (base#1121)` | - |
-| `_run_derived_figures: FAILS when the recipe file is missing (no vacuous pass) (base#1121)` | - |
-| `_run_derived_figures: FAILS when the _LINT_TOOLS table cannot be read (no vacuous pass) (base#1121)` | - |
-| `_run_derived_figures: a token that is not a recipe is still the default run (base#1121)` | - |
-| `_derived_drift_keys: derives the compared set from the read-back patterns (base#1121)` | - |
-| `_derived_setup_metadata_keys: derives the written namespace from env_emit (base#1121)` | - |
-| `_derived_wrapper_drift_subcommand: reads the name out of the wrapper (base#1121)` | - |
-| `_derived_wrapper_drift_subcommand: REFUSES when the wrapper names two (base#1121)` | - |
-| `_run_derived_figures: FAILS when the drift section omits a compared key (base#1121)` | - |
-| `_run_derived_figures: FAILS when the drift section names a key nothing compares (base#1121)` | - |
-| `_run_derived_figures: a key added to the comparison moves the requirement (base#1121)` | - |
-| `_run_derived_figures: FAILS when the trigger list omits the drift path (base#1121)` | - |
-| `_run_derived_figures: the trigger-list rule goes inert when the wrapper stops drift-checking (base#1121)` | - |
-| `_run_derived_figures: FAILS when the drift section is absent (no vacuous pass) (base#1121)` | - |
-| `_run_derived_figures: addresses a translated section by its sync id (base#1121)` | - |
-| `_run_derived_figures: FAILS on a translation whose drift section omits a key (base#1121)` | - |
-| `_run_derived_figures: FAILS when the drift lib yields no keys (no vacuous pass) (base#1121)` | - |
+| `_derived_default_coverage: reads the flag off the _run_via_compose ci calls (base#1121)` | The figure itself. Read it wrong and every rule built on it is wrong in the same direction, silently -- so the derivation is pinned in both states of the code, not just the one the tree is in today |
+| `_derived_default_coverage: REFUSES when the calls disagree (base#1121)` | An ambiguous figure must refuse. Picking a side would hold prose to a guess, which is worse than holding it to nothing |
+| `_derived_test_subcommands: derives the vocabulary from the recipe lines (base#1121)` | The vocabulary decides which examples are ABOUT the default run; a recipe the parser misses turns a narrowed example into a false positive |
+| `_run_derived_figures: FAILS when a bare just test is documented as running kcov (base#1121)` | The defect this figure exists for -- eight annotations on the repo's most-read page claimed a coverage run the dispatch cannot reach |
+| `_run_derived_figures: PASSES when the annotation says the default has no kcov (base#1121)` | The corrected wording has to be expressible. A rule that banned the word would force the docs to drop the one fact a reader wants |
+| `_run_derived_figures: FAILS when the default DOES measure coverage and the annotation omits it (base#1121)` | The rule is the figure, not a ban on a word: flipping the code must flip which prose is wrong, or this is a hardcoded string check wearing a derivation |
+| `_run_derived_figures: a documented subcommand is not the default run (base#1121)` | The load-bearing exclusion. `just test coverage` SHOULD say Kcov, and a rule that flagged it would be reverted within a day |
+| `_run_derived_figures: a flag is not the default run either (base#1121)` | Same exclusion through the other channel the runner is narrowed by, so the dispatcher's own --coverage examples stay legal |
+| `_run_derived_figures: reads the recipe-comment shape too (base#1121)` | The second shape the repo documents commands with. Covering only the fenced-example shape would leave every `just --list` description ungated |
+| `_run_derived_figures: a mention inside running prose is not an annotation (base#1121)` | The anchor, and the reason there is one: the dispatcher's --jobs refusal names kcov and `just test` in one sentence while claiming neither |
+| `_run_derived_figures: FAILS when the bare lint phase is documented as ShellCheck alone (base#1121)` | The second half of the same drift -- the lint phase runs the whole table, and an annotation naming one binary describes a narrowed run |
+| `_run_derived_figures: PASSES when the lint annotation names both binaries (base#1121)` | The corrected wording again, so the rule cannot be satisfied only by deleting the tool names |
+| `_run_derived_figures: a narrowed lint run may name one linter (base#1121)` | `just test lint --shellcheck` legitimately IS ShellCheck only; flagging it would make the rule wrong about the one case it is right about |
+| `_run_derived_figures: FAILS when the recipe file is missing (no vacuous pass) (base#1121)` | Without the recipe file the vocabulary is empty and every documented subcommand reads as the default run -- the lint must refuse, not scan |
+| `_run_derived_figures: FAILS when the _LINT_TOOLS table cannot be read (no vacuous pass) (base#1121)` | An unparsed table makes the lint-phase rule inert while reporting clean, which is how a guard quietly stops guarding |
+| `_run_derived_figures: a token that is not a recipe is still the default run (base#1121)` | The rule must not be steppable-out-of: adding a word justfile.test does not define dispatches nowhere, so the example still describes the bare run |
+| `_derived_drift_keys: derives the compared set from the read-back patterns (base#1121)` | The set the completeness rule is built on, including the negative half -- a key written but never read back must not come through as compared |
+| `_derived_setup_metadata_keys: derives the written namespace from env_emit (base#1121)` | The candidate set for the soundness rule; empty, and naming an inert key in a section about comparison would go unreported |
+| `_derived_wrapper_drift_subcommand: reads the name out of the wrapper (base#1121)` | The name is read, not stored, so renaming the subcommand moves what the trigger list has to say instead of leaving a stale word behind |
+| `_derived_wrapper_drift_subcommand: REFUSES when the wrapper names two (base#1121)` | Two candidates means the name to document is undecidable, and a guess would pin prose to the wrong one |
+| `_run_derived_figures: FAILS when the drift section omits a compared key (base#1121)` | The defect: the section named three of five, so the trigger a maintainer adding a stage comes looking for was not there |
+| `_run_derived_figures: FAILS when the drift section names a key nothing compares (base#1121)` | The soundness half. An inert key listed among the compared ones is read as compared, which is how the section claimed a timestamp was a trigger |
+| `_run_derived_figures: a key added to the comparison moves the requirement (base#1121)` | Proves the rule follows the code rather than a transcription of it: teaching drift.sh a sixth key makes clean prose the violation |
+| `_run_derived_figures: FAILS when the trigger list omits the drift path (base#1121)` | The section next door listed four triggers and left out the one that fires with nobody typing anything |
+| `_run_derived_figures: the trigger-list rule goes inert when the wrapper stops drift-checking (base#1121)` | The rule must retire itself. If the wrappers stop drift-checking the old claim is true again, and a lint still demanding the bullet is the bug |
+| `_run_derived_figures: FAILS when the drift section is absent (no vacuous pass) (base#1121)` | A renamed heading would otherwise silence both rules at once, over every locale, while reporting clean |
+| `_run_derived_figures: addresses a translated section by its sync id (base#1121)` | The id is how a section is found in a language the driver cannot read; without it the three translations are outside the gate |
+| `_run_derived_figures: FAILS on a translation whose drift section omits a key (base#1121)` | A fix that lands in one locale is not a fix -- the three translations carried the same three names for as long as the English did |
+| `_run_derived_figures: FAILS when the drift lib yields no keys (no vacuous pass) (base#1121)` | An empty compared set passes the completeness rule over every locale at once, which is the failure mode this spec is most exposed to |
 
 ### test/bats/unit/doc_counts_spec.bats (26)
 
@@ -4887,7 +4887,7 @@ alias / `network.network_name` / `devices.device_` / `security.cap_add_` /
 | `self-hosted guard: FAILS when the workflows parse to zero jobs` | - |
 | `self-hosted guard: scans every workflow in the directory, not a named list` | - |
 
-### test/bats/unit/self_test_yaml_spec.bats (124)
+### test/bats/unit/self_test_yaml_spec.bats (126)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks fourteen
 cumulative invariants:
@@ -5329,6 +5329,8 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: teardown runs on failure too, not just on success (#900)` | - |
 | `self-test.yaml: cleanup is ownership-scoped, never a blanket prune (#900)` | - |
 | `self-test.yaml: the age-based backstop uses a CI window, not the local defaults (#900)` | - |
+| `TEST.md: the static-lint table lists exactly the lints _LINT_TOOLS runs (base#1121)` | TEST.md says its table lists the tools _LINT_TOOLS runs; it listed 15 of 26, and nothing re-derived the set, so the sentence the section opens with was false for a whole release cycle |
+| `TEST.md: every CI job the static-lint table cites is a job self-test.yaml declares (base#1121)` | One row named the CI job lint-static (i18n-orphan), which exists in no workflow -- lint-static is a group matrix, so the row sent a reader looking for a check that is not in the list |
 
 ### test/bats/unit/setup_cmd_spec.bats (136)
 
