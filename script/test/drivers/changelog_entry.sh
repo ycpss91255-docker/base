@@ -900,6 +900,11 @@ _run_changelog_entry() {
 #     does not name emitted after them in first-seen order. That is exactly
 #     the order script/release/release_notes.sh already assembles a release
 #     page in, so the file and the page it becomes stop differing by one.
+#     The surviving heading is written in the canonical '### <category>' form
+#     rather than copied from the first occurrence. The lint already compares
+#     headings with whitespace collapsed, so '###  Fixed' and '### Fixed' are
+#     one category to it and folding them is the point; emitting either raw
+#     spelling would leave the file carrying a difference nothing reads.
 #   - Entry text moves BYTE FOR BYTE. Nothing is reworded, re-wrapped,
 #     re-indented, merged with a similar entry or dropped, and within a
 #     category the entries keep their file order: the first occurrence's,

@@ -1516,6 +1516,22 @@ _entry_text() {
   [[ "${output}" -ge 1 ]]
 }
 
+# why: Two spellings of one heading are one category to the lint, which compares
+# them with whitespace collapsed -- so they are a duplicate, and the survivor has
+# to be written in one spelling or the file keeps a difference nothing reads.
+@test "_run_changelog_entry_fix: two spellings of one heading fold to the canonical one (#1103)" {
+  _write_changelog \
+    '###  Fixed' '' '- **one** (PR #1) -- under the loose spelling.' '' \
+    '### Fixed' '' '- **two** (PR #2) -- under the canonical one.'
+  run _run_changelog_entry_fix
+  assert_success
+  assert_equal "$(_headings '### Fixed')" 1
+  assert_equal "$(_headings '###  Fixed')" 0
+  assert_equal "$(_bullets | wc -l)" 2
+  run _run_changelog_entry
+  assert_success
+}
+
 # why: The guard that stops the repair reporting its own success. Driven by
 # neutralising the write, because a write that did not take is the one failure
 # the fold cannot see from the array it assembled -- the file on disk is what

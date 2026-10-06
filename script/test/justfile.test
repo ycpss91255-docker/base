@@ -416,6 +416,12 @@ stop *args:
 clean:
     ./script/test/test.sh --clean-coverage
 
+# lifecycle: NOTHING TO RECLAIM, and reclaimed anyway. The repair is
+# host-direct -- pure bash over the checkout, short-circuited before any mode
+# dispatch -- so it starts no container and mints no compose project. The
+# runner's EXIT trap still sweeps on the way out, because the repair `exit`s
+# through it like every other dispatch.
+#
 # just test changelog-fix -> fold a repeated '### <category>' heading in
 # doc/changelog's '## [Unreleased]' into that category's first occurrence.
 # The verb the changelog-entry lint's refusal names, because the moment

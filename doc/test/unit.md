@@ -917,7 +917,7 @@ Pure git + filesystem, no docker.
 | `cd-guard: accepts a clean tree on a tag (exit 0 + names the tag)` | - |
 | `cd-guard: the accept path reports the tag on stdout, refusals on stderr` | - |
 
-### test/bats/unit/changelog_entry_lint_spec.bats (81)
+### test/bats/unit/changelog_entry_lint_spec.bats (82)
 
 | Test | Description |
 |------|-------------|
@@ -1000,6 +1000,7 @@ Pure git + filesystem, no docker.
 | `_run_changelog_entry_fix: the compare-link block is left below the section (#1103)` | The compare-link block ends the section, and a fold that ran past it would move link definitions into the entry list -- which the entry lint then reports as content no entry measures. |
 | `_run_changelog_entry_fix: a file with no final newline keeps none (#1103)` | A rewriter whose job is the heading level has no business adding a byte at end of file. Caught here because nothing downstream would report it and the next reader could not tell what added it. |
 | `_run_changelog_entry_fix: the runner and the justfile both reach the repair (#1103)` | The repair is only handled if a verb reaches it. Asserted against the runner and the justfile because a function nothing dispatches is a repair nobody can run, however well it folds. |
+| `_run_changelog_entry_fix: two spellings of one heading fold to the canonical one (#1103)` | Two spellings of one heading are one category to the lint, which compares them with whitespace collapsed -- so they are a duplicate, and the survivor has to be written in one spelling or the file keeps a difference nothing reads. |
 | `_run_changelog_entry_fix: a write that did not take is REFUSED, not reported as done (#1103)` | The guard that stops the repair reporting its own success. Driven by neutralising the write, because a write that did not take is the one failure the fold cannot see from the array it assembled -- the file on disk is what the next reader gets, and the next reader is the lint on the next cycle. |
 | `_run_changelog_entry: the refusal names the command that folds the duplicate (#1103)` | The refusal is where somebody meets this problem, so it is the only place the repair can be documented without being remembered. A message that names the defect and not the verb is the chore this issue is about. |
 
