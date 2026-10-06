@@ -108,13 +108,17 @@ jobs:
           set -euo pipefail
           # `-ignore` suppresses a known false positive: `github.job_workflow_sha`
           # is a valid GitHub Actions context property (the commit SHA of a
-          # reusable-workflow file), used by build-worker.yaml / release-worker.yaml
-          # to pin the preflight checkout to the worker's own version. actionlint
-          # is missing this property from its github-context type and wrongly
-          # reports `property "job_workflow_sha" is not defined`. `-ignore` takes a
+          # reusable-workflow file), used by build-worker.yaml /
+          # publish-worker.yaml / release-worker.yaml to version-match a checkout
+          # to the worker's own ref. actionlint is missing this property from its
+          # github-context type and wrongly reports
+          # `property "job_workflow_sha" is not defined`. `-ignore` takes a
           # regex matched against the error message. Still absent as of 1.7.12
-          # (measured: the run without `-ignore` reports it at five call sites),
-          # so remove this only once actionlint ships the property in its type.
+          # (measured: without `-ignore` the run reports it once per call site of
+          # that property and reports nothing else), so remove this only once
+          # actionlint ships the property in its type. No count is written here:
+          # it moves with every worker that version-matches a checkout, and a
+          # figure nothing re-derives goes stale on the next one.
           docker run --rm \
             -v "${GITHUB_WORKSPACE}:/repo:ro" \
             -w /repo \
@@ -538,6 +542,26 @@ jobs:
     #                     lint-static group makes in 77s. The coverage
     #                     suite tests a driver against fixtures; the tree
     #                     is this phase's to assert
+    #   test-name-backtick
+    #                     no `@test` name in any *.bats file carries an
+    #                     unescaped backtick. bats eval's a test name when
+    #                     it REGISTERS the test ("use eval to resolve
+    #                     variable references in test names"), so a live
+    #                     backtick there is command substitution it runs
+    #                     once per registration -- with no test selected,
+    #                     in every run and in every coverage shard -- and
+    #                     the name it then reports is the substitution's
+    #                     OUTPUT, which puts the TAP output and doc/test/
+    #                     out of agreement. Changing the SHELL quoting is
+    #                     not the fix: bats supplies its own, so a
+    #                     single-quoted name is expanded too. Write the code
+    #                     span in single quotes INSIDE the name, as 178
+    #                     names here already do, which keeps it the same
+    #                     bytes in the source, the TAP output and the
+    #                     catalogue row -- an escaped backtick is inert too
+    #                     and goes unreported, but `--filter` matches the
+    #                     SOURCE, so its backslashes stop the catalogue row
+    #                     being pasteable into one
     #
     # GROUPED, not one job per driver, and not one job for the phase
     # (base#1071). One job per driver read best in the checks list -- the

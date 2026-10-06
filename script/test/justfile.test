@@ -57,6 +57,7 @@ default:
 # / `just test lint --just-provenance`
 # / `just test lint --catalog-description`
 # / `just test lint --spec-repo-root`
+# / `just test lint --test-name-backtick`
 # (ADR-00000011 sec.3 min->max). Every narrowing flag runs in-container so
 # the behaviour matches the bare `lint`; the GHA lint jobs use the host-only
 # `test.sh --<tool>-only` primitives instead (shellcheck, doc-counts, and

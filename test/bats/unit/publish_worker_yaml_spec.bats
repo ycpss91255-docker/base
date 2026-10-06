@@ -83,7 +83,7 @@ _merge_onward() {
 }
 
 @test "publish-worker.yaml: preserves the registry-parameterised inputs" {
-  for _in in image_name tag_suffix is_latest registry target build_args platforms context_path dockerfile_path build_contexts test_tools_version; do
+  for _in in image_name tag_suffix is_latest registry target build_args platforms context_path dockerfile_path build_contexts; do
     run code_grep -E "^      ${_in}:" "${WF}"
     assert_success
   done

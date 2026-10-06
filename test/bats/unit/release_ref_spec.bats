@@ -13,10 +13,10 @@
 #                          downstream repo is marked prerelease
 #   self-test.yaml         the same, for base's own release
 #   release-test-tools.yaml whether the published image moves
-#                          `test-tools:latest` -- the tag every repo that
-#                          has not pinned `test_tools_version` builds its
-#                          lint stage from, because that input's DEFAULT
-#                          is "latest"
+#                          `test-tools:latest` -- the rolling tag a human
+#                          pulls. No worker builds from it any more
+#                          (base#1122), but a release candidate published
+#                          there is still wrong for whoever does
 #
 # The first two spelled the test `contains(github.ref_name, '-')`. The
 # third did not ask at all, and moved `:latest` on v0.42.0-rc1 through
@@ -81,10 +81,10 @@
 # why: "Is this tag a prerelease?" decides whether a GitHub Release is
 # marked prerelease (`release-worker.yaml` for downstream repos,
 # `self-test.yaml` for base) and whether `release-test-tools.yaml` moves
-# `test-tools:latest` -- the image every repo that has not pinned
-# `test_tools_version` builds its lint stage from, that input's default
-# being `latest`. Two sites spelled the test themselves and the third did
-# not ask, which is how `v0.42.0-rc1` through `-rc4` each moved `:latest`.
+# `test-tools:latest`, the rolling tag a human pulls -- and, back then, the
+# image every repo that had not pinned built its lint stage from. Two sites
+# spelled the test themselves and the third did not ask, which is how
+# `v0.42.0-rc1` through `-rc4` each moved `:latest`.
 #
 # `script/ci/release-ref.sh` is the one home for that rule ON A GIT REF;
 # `release-worker.yaml` now classifies a VERSION input instead, and

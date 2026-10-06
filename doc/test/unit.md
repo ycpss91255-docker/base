@@ -3587,8 +3587,10 @@ Grouped by concern:
 
 - `tag_matrix` description documents required `name` + `build_args` fields
 
-- Passthrough inputs mirror build-worker (build_runtime / test_tools_version
-/ platforms / context_path / dockerfile_path / build_contexts)
+- Passthrough inputs mirror build-worker (build_runtime / platforms /
+context_path / dockerfile_path / build_contexts). The tooling image is NOT
+among them: build-worker derives it from its own version-matched checkout,
+so there is nothing for a dispatcher to forward (closes #1122)
 
 - `resolve-matrix` emits `matrix` output (include-shape)
 
@@ -3623,7 +3625,7 @@ builds nothing and pushes nothing)
 | `multi-distro-build-worker.yaml: legacy 1D inputs are gone (no pr_distros / tag_distros / distro_input_name / extra_build_args) (#344 BREAKING)` | - |
 | `multi-distro-build-worker.yaml: pr_matrix description mentions required name + build_args fields per entry (#344)` | - |
 | `multi-distro-build-worker.yaml: tag_matrix description mentions required name + build_args fields per entry (#344)` | - |
-| `multi-distro-build-worker.yaml: passthrough inputs mirror build-worker (build_runtime / test_tools_version / platforms / context_path / dockerfile_path / build_contexts) (#325 B-1)` | - |
+| `multi-distro-build-worker.yaml: passthrough inputs mirror build-worker (build_runtime / platforms / context_path / dockerfile_path / build_contexts) (closes #1122)` | - |
 | `multi-distro-build-worker.yaml: resolve-matrix job emits matrix output (#344 include-shape)` | - |
 | `multi-distro-build-worker.yaml: resolve-matrix branches on github.event_name == pull_request (#344)` | - |
 | `multi-distro-build-worker.yaml: call-build uses local build-worker via ./.github/workflows/build-worker.yaml (#325 B-1)` | - |
@@ -4217,11 +4219,11 @@ naming the path and what its absence costs.
 
 "Is this tag a prerelease?" decides whether a GitHub Release is marked
 prerelease (`release-worker.yaml` for downstream repos, `self-test.yaml` for
-base) and whether `release-test-tools.yaml` moves `test-tools:latest` -- the
-image every repo that has not pinned `test_tools_version` builds its lint
-stage from, that input's default being `latest`. Two sites spelled the test
-themselves and the third did not ask, which is how `v0.42.0-rc1` through
-`-rc4` each moved `:latest`.
+base) and whether `release-test-tools.yaml` moves `test-tools:latest`, the
+rolling tag a human pulls -- and, back then, the image every repo that had
+not pinned built its lint stage from. Two sites spelled the test themselves
+and the third did not ask, which is how `v0.42.0-rc1` through `-rc4` each
+moved `:latest`.
 
 `script/ci/release-ref.sh` is the one home for that rule ON A GIT REF;
 `release-worker.yaml` now classifies a VERSION input instead, and
@@ -4260,9 +4262,10 @@ ${TEST_TOOLS_IMAGE} AS test-tools-stage` depends on. The workflow has three
 triggers and two tag sets -- the first two triggers each resolve one:
 
 1. **Tag push (`v*`)** -- multi-arch `:<version>`, and `:latest` only when
-the tag is not a prerelease. Cuts the release downstream consumers pin via
-`inputs.test_tools_version`, whose default IS `latest`, which is why a
-prerelease tag must leave it alone.
+the tag is not a prerelease. `:<version>` is the one the workers build FROM,
+derived from the base checkout's own `.version` (base#1122); `:latest` is
+the rolling tag a human pulls, which is why a prerelease tag must leave it
+alone.
 
 2. **Main push** (P2) -- multi-arch `:main` rolling tag, pulled by
 self-test.yaml's Obtain step to skip from-source rebuilds. Its paths filter
@@ -4291,7 +4294,7 @@ them stayed green through four RC tags that each moved `:latest`.
 | `release-test-tools.yaml: Resolve tags step handles main push -> :main rolling tag (#317 P2)` | - |
 | `release-test-tools.yaml: Resolve tags step emits a smoke output tracking the current trigger's tag (#317 P2)` | - |
 | `release-test-tools.yaml: a release tag publishes :<ver> and moves :latest` | The arm the four text-reading cases above only READ. It is the one ref shape allowed to move the tag every unpinned downstream builds its lint stage from. |
-| `release-test-tools.yaml: an RC tag publishes :<ver> and leaves :latest where it was (#1012)` | The load-bearing case: `v0.42.0-rc1` through `-rc4` each matched the `v*` trigger and each moved the tag whose default every unpinned downstream inherits, for the length of an RC window. |
+| `release-test-tools.yaml: an RC tag publishes :<ver> and leaves :latest where it was (#1012)` | The load-bearing case: `v0.42.0-rc1` through `-rc4` each matched the `v*` trigger and each moved the rolling tag, for the length of an RC window, to a release candidate. |
 | `release-test-tools.yaml: a main push publishes the :main rolling tag only` | The rolling tag self-test.yaml pulls to skip a from-source rebuild; it must not reach `:latest` either. |
 | `release-test-tools.yaml: a ref the resolver does not recognise is refused, never resolved to :latest (#1012)` | `workflow_dispatch` is unrestricted by ref, so this arm is reachable from any feature branch: resolving it to the production tag made the unrecognised input the most destructive one. |
 | `release-test-tools.yaml: the header and the resolver step's own prose describe the tag rules it applies (#1012)` | A header describing a branch the code cannot reach is a defect with the same shape as the code one, and it is what a later reader believes over the code. |
@@ -5189,7 +5192,7 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: acceptance asserts the runnability contract (#579)` | - |
 | `self-test.yaml: acceptance pins the entry point the shipped Dockerfile wires (#945)` | The acceptance job's `.Path` check is a runnability assertion only while the literal it compares against is the one the template's ENTRYPOINT names. Reading BOTH here, rather than remembering one, is what makes a move of the entry point fail in the local gate instead of on the CI-only acceptance matrix that `just test` cannot see |
 | `self-test.yaml: acceptance exercises the remaining downstream just commands for real (#769)` | - |
-| ``self-test.yaml: acceptance drives `just template new` end-to-end and asserts the consumer artifact (#785)`` | - |
+| `self-test.yaml: acceptance drives 'just template new' end-to-end and asserts the consumer artifact (#785)` | - |
 | `self-test.yaml: acceptance documents setup-tui as intentionally out of scope (#769)` | - |
 | `self-test.yaml: acceptance runs as a native-runner matrix over amd64 + arm64 (#603)` | - |
 | `self-test.yaml: acceptance shards run on the matrix runner (#603)` | - |
@@ -5197,7 +5200,7 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: system job declares needs on actionlint AND classify (#317)` | - |
 | `self-test.yaml: bats-fragile job-level if: gates on code_changed (#677)` | - |
 | `self-test.yaml: bats-integration job-level if: gates on code_changed (#377)` | - |
-| ``self-test.yaml: no monolithic `test:` job remains after #377 split`` | - |
+| `self-test.yaml: no monolithic 'test:' job remains after #377 split` | - |
 | `self-test.yaml: acceptance job-level if: gates on code_changed (#317)` | - |
 | `self-test.yaml: system job-level if: gates on system_relevant (#317 P3)` | - |
 | `self-test.yaml: bats-fragile job uses docker/build-push-action with GHA cache scope=test-tools (#677)` | - |
@@ -6364,7 +6367,7 @@ Unit tests for the repo-local command-group scaffolder
 | `new.sh registers a real mod? line even when the seed registry only COMMENTS that name (#785)` | - |
 | `new.sh source ships with the executable bit set (recipe invokes it directly) (#785)` | - |
 
-### test/bats/unit/template_spec.bats (170)
+### test/bats/unit/template_spec.bats (172)
 
 | Test | Description |
 |------|-------------|
@@ -6480,10 +6483,12 @@ Unit tests for the repo-local command-group scaffolder
 | `upgrade.sh updates main.yaml @tag without clobbering release-worker.yaml` | sed regression |
 | `upgrade.sh main.yaml sed handles semver pre-release tags (RC → RC)` | `-rcN-rcN` regression |
 | `upgrade.sh main.yaml sed handles stable → stable + RC → stable transitions` | RC → stable cleanup |
+| `upgrade.sh rewrites the @ref of every reusable worker base ships (#1112)` | The rewrite's population has to be the workers base ships, not a roster the sed names -- a named roster cannot see the worker it omits (#1112) |
+| `upgrade.sh main.yaml rewrite leaves a third party's worker ref alone (#1112)` | Name-independent must not become owner-independent -- the rewrite rewrites OUR refs, and a stranger's worker is not ours to bump (#1112) |
 | `build-worker.yaml: no legacy in-job test-tools build step` | v0.9.13 GHCR migration |
-| `build-worker.yaml: declares test_tools_version input` | v0.10.1 input replaces GITHUB_WORKFLOW_REF parse |
+| `build-worker.yaml: derives the tooling image from the version-matched checkout (closes #1122)` | the tooling image is derived from the version-matched checkout, not taken as an input (closes #1122) |
 | `build-worker.yaml: does not resurrect the GITHUB_WORKFLOW_REF parse step` | regression guard |
-| `build-worker.yaml: devel-test build passes TEST_TOOLS_IMAGE from inputs` | - |
+| `build-worker.yaml: devel-test build passes TEST_TOOLS_IMAGE from the resolver step` | - |
 | `Dockerfile.example has ARG TEST_TOOLS_IMAGE with no bare test-tools:local default` | version-scoped tag: no bare-tag ARG default (#828) |
 | `Dockerfile.example FROM ${TEST_TOOLS_IMAGE} AS test-tools-stage` | named stage alias |
 | `Dockerfile.example test stage copies from test-tools-stage, not test-tools:local` | stage rename migration |
@@ -6567,6 +6572,58 @@ Unit tests for the repo-local command-group scaffolder
 | `main calls chown with correct user and group` | Permissions |
 | `script runs entry_point when executed directly` | Direct-run guard |
 
+### test/bats/unit/test_name_backtick_lint_spec.bats (15)
+
+The guard over the one string in a spec file that bats EVALUATES. base#1200
+measured what a live backtick in a name costs on this tree's two offenders:
+one run of a single 124-test spec emitted 125 copies of each of two shell
+errors, and printed both names with their backticked span replaced by the
+substitution's empty stdout, so the TAP output and the catalogue under
+doc/test/ disagreed about what the suite contains. The noise and the
+divergence are the measured cost; arbitrary command execution at collection
+time, with no test selected, is the mechanism.
+
+Unit tests for script/test/drivers/test_name_backtick.sh -- the "a `@test`
+name is a literal, not a command" lint.
+
+Two properties drive the case list, and both were measured on bats 1.13.0
+rather than assumed. FIRST, the author's quoting does not matter: bats's
+preprocessor strips the quotes the source wrote and its registration site
+supplies its own double quotes around the name before eval'ing it, so a
+single-quoted name is expanded exactly like a double-quoted one -- which is
+why the driver judges the whole @test line and parses no quoting, and why
+single-quoting is not a fix for this defect even though it reads like one.
+
+SECOND, a backslash-escaped backtick is a literal one: the catalogue
+generator unescapes it back to a plain backtick when it renders a row, so
+nothing is executed and this lint reports nothing. It is still not the fix
+base#1200 took, because `--filter` is matched against the name as the SOURCE
+writes it, so the backslashes stay in the one string the filter sees. The
+fix is to drop the backticks and write the code span in single quotes inside
+the name, which 178 of this tree's names already do.
+
+Detection runs against a controlled temp REPO_ROOT, never the live checkout:
+the tree is asserted by the `lint-static` group that runs this driver, which
+is where a whole-tree scan belongs (base#1075).
+
+| Test | Description |
+|------|-------------|
+| `_run_test_name_backtick: FAILS on a live backtick in a name, naming file, line and column` | The exact shape base#1200 found twice. The report has to name the file, the line and the column, because the author is looking for a character inside a long sentence |
+| `_run_test_name_backtick: FAILS on a single-quoted name too, because bats expands it as well` | The load-bearing case for the rule's shape. bats supplies its own quotes around the name, so a single-quoted one is expanded too -- measured, a single-quoted name whose backticks held an echo registered with the echo's output in place of them. A lint that exempted single quotes would bless the one spelling that reads most like the fix |
+| `_run_test_name_backtick: FAILS when an EVEN backslash run leaves the backtick live` | An even-length backslash run leaves the backtick live -- the run escapes itself, not the character after it -- and reading one character back instead of counting the run would call this clean |
+| `_run_test_name_backtick: reports EVERY offending name, not the first` | Reporting the first offender and stopping makes the lint take as many runs to clear as the tree has names; base#1200's own tree had two, in one file |
+| `_run_test_name_backtick: scans the shipped smoke specs under dist/, not only test/bats/` | The population is the whole tree and not test/bats/. The shipped smoke specs under dist/ are vendored into every downstream repo by the .base subtree, so a name executed there is executed in seventeen other checkouts, and a scan rooted at the base-own spec tree would never see it |
+| `_run_test_name_backtick: FAILS on an INDENTED name, which bats registers too` | bats's preprocessor accepts leading blanks before '@test' and registers the test, backticks and all -- measured, an indented name whose backticks held an echo registered as the echo's output. An anchor pinned to column 0 would skip it while bats still ran it, and the non-empty-population check would not notice because the file's other tests satisfy it |
+| `_run_test_name_backtick: reports an indented name inside a heredoc, the accepted over-report` | The over-report this lint accepts, pinned so it cannot change shape unnoticed. An indented '@test' inside a quoted heredoc is fixture TEXT: the preprocessor rewrites it (it is a line filter with no heredoc model) but the enclosing shell never registers it, so nothing is executed there. It is reported anyway, because a scan over text cannot tell that line from a declaration -- and the fixture is often written out and run by an inner bats, where the name IS registered. Over-reporting is the refusing direction; 21 such lines exist in this tree today and none carries a backtick |
+| `_run_test_name_backtick: FAILS on a '@test' line bats's own pattern cannot read` | A '@test' line bats's own pattern cannot read is a line this lint cannot judge, and an unreadable line is a failure rather than a skip -- the same rule the walk failure below follows. Silently skipping it would take the name out of the rule's reach with the gate green |
+| `_run_test_name_backtick: PASSES a backslash-escaped backtick, which bats leaves alone` | The boundary of the rule. An escaped backtick is a literal one, so there is nothing to execute and nothing to report; a lint that flagged it would be refusing a name bats leaves alone, and would read as licence to widen until it refused every backtick |
+| `_run_test_name_backtick: PASSES a backtick that is not on a '@test' line` | Only the NAME is eval'd at registration. A backtick in a body is ordinary shell the test author meant to run, and a lint that flagged it would be unsatisfiable in half the specs here |
+| `_run_test_name_backtick: PASSES a backtick in a comment AFTER the opening brace` | Everything after the opening brace is the BODY, not the name: bats takes its description from the text BEFORE the brace and makes the rest the body's first line, so a backtick in a trailing comment is never eval'd at registration -- measured, such a name registers clean. 26 '@test' lines here carry text after the brace, so judging the whole line would fail the gate on names bats leaves alone |
+| `_run_test_name_backtick: a clean tree passes and the counts print` | The clean line is the audit trail: it says how many names were read and over how many files, so a reader of a green CI log can tell a scan that checked the tree from one that checked nothing |
+| `_run_test_name_backtick: DIES when the walk for spec files fails` | A walk that died part way through hands the lint a short list, which reads exactly like a tree with less in it. The three dies below are the only ways this lint can report clean having read nothing, and each asserts the sentence only ITS die prints |
+| `_run_test_name_backtick: DIES when the tree holds no spec file at all` | An empty population is the shape that goes green by construction: the specs moved, the lint reads nothing and reports a clean tree |
+| `_run_test_name_backtick: DIES when the spec files carry no '@test' line` | The blind-detector case, and the one that matters most: 4848 '@test' lines exist today, so zero means the anchor stopped matching -- a renamed keyword, a changed convention -- and a blind detector reports every name clean |
+
 ### test/bats/unit/test_tools_pins_spec.bats (13)
 
 The release smoke step ran fifteen probes against the image it had just
@@ -6600,6 +6657,24 @@ is the smoke step, which iterates this same roster.
 | `test-tools pins: check refuses an ARG that is not on the roster (#1012)` | There is nothing to compare against, so it refuses rather than passing over it. |
 | `test-tools pins: an unrecognised subcommand is refused and names what it does answer (#1012)` | It must not fall through to the roster, because a roster is an answer the caller would then act on. |
 | `test-tools pins: roster and check read a quoted declaration the same way (#1012)` | Quoting a build arg's default is legal, and the two halves of one accessor disagreeing about it fails a CORRECT image while naming a pin nobody could satisfy. |
+
+### test/bats/unit/testtools_image_spec.bats (13)
+
+| Test | Description |
+|------|-------------|
+| `testtools_image: the reference is the published package at the checkout's own release (closes #1122)` | The reference is the published package at the release the checkout names, assembled here rather than by each consumer so the registry path has one home as well as the tag. |
+| `testtools_image: a different release in the checkout consumes a different image (closes #1122)` | The pair that is the whole point: the consumed tag MOVES with the release the worker's checkout is at. Nothing noticed when it did not. |
+| `testtools_image: a prerelease checkout consumes its own prerelease image (closes #1122)` | An RC publishes `:<ver>` and leaves `:latest` where it was, so an RC worker must consume its OWN prerelease image -- the window during which `latest` was a different release entirely. |
+| `testtools_image: surrounding whitespace in the version file is not part of the tag (closes #1122)` | Trailing whitespace is how a version file arrives from an editor; a tag with a newline in it names no image. |
+| `testtools_image: an absent version file is refused, never answered latest (closes #1122)` | The fallback that suggests itself for an unreadable version is `latest`, the one reference this exists to stop a pinned worker consuming. Refusing with nothing on stdout is the only direction that fails where it is used instead of linting against unchosen tools. |
+| `testtools_image: an unreadable version file is refused (closes #1122)` | Present-but-unreadable is the state an existence check passes and a reader then answers with nothing. Here that nothing would reach the version owner as "no version was supplied to release", so the refusal has to come from the readability test and name this file. |
+| `testtools_image: an empty version file is refused, naming the file (closes #1122)` | An empty version reaching the version owner would be reported as "nothing was supplied to release", a message about a release that never names this file. |
+| `testtools_image: content that is not a release version is refused, naming it (closes #1122)` | The published tooling tag IS the git tag, so a value that could not become a tag names no image. The shape rule has one owner and is not re-answered here. |
+| `testtools_image: with no argument it reads the checkout it lives in (closes #1122)` | CI passes no argument and must get the checkout the script lives in -- the base source at the worker's own ref. The expectation is read from the version file by a second reader, so it is the FILE CHOSEN that is under test and not the format. |
+| `testtools_image: no workflow spells a registry-qualified tooling image tag (closes #1122)` | A second spelling of the reference is a second source of it. The population is the workflow tree rather than the three files that carried one, so the fourth site is covered the day it lands. |
+| `testtools_image: no reusable worker declares a test_tools_version input (closes #1122)` | The input is the second source this removed. Declared again -- with any default, `latest` or not -- it is a value a caller can set to something the `@ref` pin does not name, which is the whole defect. |
+| `testtools_image: no shipped script writes a tooling version into a caller's workflow (closes #1122)` | The upgrade is the one place that edits every downstream repo, so a tooling version written into a caller's workflow from there would reintroduce the second source across the whole org at once. |
+| `testtools_image: every TEST_TOOLS_IMAGE a reusable worker passes comes from the derivation (closes #1122)` | The load-bearing positive half. Without it a worker could stop passing the arg at all and both negative scans above would report clean. Every hop is derived: the workers from the tree, the step from the expression the value is, the script from that step's own body. |
 
 ### test/bats/unit/testtools_paths_spec.bats (10)
 
