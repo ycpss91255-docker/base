@@ -101,21 +101,18 @@ _classify_pr() {
 
 # _context_copy_paths
 #   Every build-context path the tooling Dockerfile COPYs, read off the
-#   DOCKERFILE here rather than through the signal under test: a population
-#   computed by the subject would certify the subject against itself.
+#   DOCKERFILE through the shared reader rather than through the signal
+#   under test: a population computed by the subject would certify the
+#   subject against itself.
 #
-#   Read with a four-line grep that understands only the plain `COPY <src>
-#   <dst>` form, and filtered to tokens that exist in this checkout. The
-#   exotic shapes -- a glob, a variable, a line continuation, a JSON array
-#   -- are the derivation's own business and are asserted where it lives,
-#   in testtools_paths_spec.bats; what this one needs is a path it can
-#   actually commit a change to.
+#   Filtered to paths that exist in this checkout, because each one is
+#   driven by committing a change to it. The shapes the reader cannot
+#   resolve -- a glob, a variable, a line continuation -- are the
+#   derivation's own business and are asserted where it lives, in
+#   testtools_paths_spec.bats.
 _context_copy_paths() {
   local _p
-  grep -E '^[[:space:]]*COPY[[:space:]]' \
-      /source/dockerfile/Dockerfile.test-tools \
-    | grep -v -- '--from=' \
-    | awk '{ for (i = 2; i < NF; i++) if (substr($i, 1, 2) != "--") print $i }' \
+  dockerfile_context_copy_srcs /source/dockerfile/Dockerfile.test-tools \
     | while IFS= read -r _p; do
         [[ -n "${_p}" && -e "/source/${_p}" ]] && printf '%s\n' "${_p}"
       done

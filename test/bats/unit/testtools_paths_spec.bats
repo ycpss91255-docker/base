@@ -48,19 +48,6 @@ _tree() {
   printf '%s\n' "${_root}"
 }
 
-# _copy_srcs_of <dockerfile>
-#   The build-context sources of <dockerfile>, read HERE with a four-line
-#   grep rather than through the derivation under test: an expected value
-#   the subject computed is an expected value that can never disagree with
-#   it. Understands only the plain `COPY <src> <dst>` form, which is what
-#   the real Dockerfile uses; the forms it cannot read are refused by the
-#   derivation and asserted as refusals below.
-_copy_srcs_of() {
-  grep -E '^[[:space:]]*COPY[[:space:]]' "${1}" \
-    | grep -v -- '--from=' \
-    | awk '{ for (i = 2; i < NF; i++) if (substr($i, 1, 2) != "--") print $i }'
-}
-
 # ── the real tree, both directions ─────────────────────────────────────
 
 # why: The first direction, and the defect itself: a file the real
@@ -75,7 +62,7 @@ _copy_srcs_of() {
   while IFS= read -r _s; do
     [[ -n "${_s}" ]] || continue
     grep -qxF "${_s}" <<< "${output}" || _missing="${_missing}${_s}"$'\n'
-  done < <(_copy_srcs_of "${DOCKERFILE}")
+  done < <(dockerfile_context_copy_srcs "${DOCKERFILE}")
   [[ -z "${_missing}" ]] || fail \
       "the tooling Dockerfile COPYs these paths out of the build context and the derivation leaves them out:"$'\n'"${_missing}"
   grep -qxF 'dockerfile/Dockerfile.test-tools' <<< "${output}" || fail \
@@ -92,7 +79,7 @@ _copy_srcs_of() {
   assert_success
   local _expected
   _expected="$( { printf 'dockerfile/Dockerfile.test-tools\n'; \
-                  _copy_srcs_of "${DOCKERFILE}"; } | sort -u)"
+                  dockerfile_context_copy_srcs "${DOCKERFILE}"; } | sort -u)"
   local _p _extra=""
   while IFS= read -r _p; do
     [[ -n "${_p}" ]] || continue

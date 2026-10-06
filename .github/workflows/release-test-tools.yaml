@@ -14,7 +14,7 @@ name: Release test-tools image to GHCR
 #                           NOT a prerelease. That question has one
 #                           answer in this repo -- script/ci/release-ref.sh
 #                           -- and release-worker.yaml asks the same one.
-#   push to main (Dockerfile.test-tools or this workflow changed)
+#   push to main (an input of the tooling image, or this workflow, changed)
 #                        -> pushes :main rolling tag (#317 P2)
 #   workflow_dispatch    -> resolves by the ref it was dispatched FROM:
 #                           main takes the :main arm, a v* tag takes the
@@ -22,12 +22,27 @@ name: Release test-tools image to GHCR
 #                           than published -- see the tag resolver step
 #                           in the merge job.
 #
-# Why the paths filter on main push: every non-doc PR merge triggers
-# a push to main, but most don't touch Dockerfile.test-tools. Without
-# the filter, every merge would burn build minutes republishing the same
-# image content under a new manifest digest. Restrict the main trigger to
-# commits that actually change the test-tools recipe; tag-push trigger
-# stays unfiltered because tag pushes are explicit publish intents.
+# Why a main push does not publish by itself: every non-doc PR merge
+# triggers one, and most change nothing the tooling image is built from.
+# Without a gate, every merge would burn build minutes pushing the same
+# image content under a new manifest digest. A tag push is never gated:
+# tag pushes are explicit publish intents.
+#
+# WHY THE GATE IS A JOB AND NOT THE `paths:` FILTER. It was the filter, and
+# the filter named two literals: the Dockerfile and this file. That was the
+# whole input set while every tool the image installs was pinned by a
+# literal inside the Dockerfile's own text -- and it stopped being the input
+# set when a stage arrived that COPYs a file straight out of the build
+# context. That file's CONTENT is baked in while the Dockerfile does not
+# move, so a merge touching only it did not start this workflow at all, and
+# `:main` went on describing the tree from before it. GitHub evaluates
+# `paths:` as static YAML before any job runs, so it cannot be told to read
+# the Dockerfile; extending the list would be the same defect one
+# indirection further away, correct the day it was written and wrong the
+# next time somebody adds a COPY. So the filter is widened to START the
+# workflow and the `decide` job below answers the question, from the
+# Dockerfile's own COPY lines, through the same derivation the local
+# content-hash tag uses. What that costs is one ~20s job per push to main.
 #
 # Multi-arch build model (#587): each architecture builds on its NATIVE
 # runner (linux/amd64 -> ubuntu-latest, linux/arm64 -> ubuntu-24.04-arm),
@@ -45,9 +60,12 @@ name: Release test-tools image to GHCR
 on:
   push:
     branches: [main]
+    # Deliberately not a list of the image's inputs -- see the header. The
+    # filter is kept, and kept permissive, rather than removed: it is what
+    # GitHub evaluates for a TAG push too, and widening it is strictly more
+    # permissive than today where removing the key would also change that.
     paths:
-      - 'dockerfile/Dockerfile.test-tools'
-      - '.github/workflows/release-test-tools.yaml'
+      - '**'
     tags:
       - 'v*'
   workflow_dispatch:
@@ -77,12 +95,83 @@ env:
   IMAGE: ghcr.io/ycpss91255-docker/test-tools
 
 jobs:
+  # Does this run have anything to publish? The question the `paths:` filter
+  # used to answer with two literals, moved to where it can be DERIVED --
+  # see the header for why that move is not optional.
+  decide:
+    runs-on: ubuntu-latest
+    # Every job in the tree bounds itself; GitHub's default is six hours.
+    # This one is a checkout and a diff.
+    timeout-minutes: 5
+    outputs:
+      publish: ${{ steps.inputs.outputs.publish }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          # HEAD and its parent: the diff this job takes is of the push's own
+          # commit. The repo squash-merges, so one commit is the whole merge.
+          fetch-depth: 2
+
+      - id: inputs
+        # `-e` is intentionally omitted, and the default is `true`. Every
+        # unknown here -- an unreadable tree, a derivation that refused, a
+        # `HEAD^` that does not resolve -- has to fall to the side that
+        # PUBLISHES: a needless multi-arch build costs minutes, while the
+        # other side leaves the rolling tag describing a tree that is gone,
+        # and every pull request opened afterwards runs its suite inside it.
+        run: |
+          set -uo pipefail
+          publish=true
+          if [[ "${GITHUB_EVENT_NAME}" == "push" \
+                && "${GITHUB_REF}" == "refs/heads/main" ]]; then
+            # The paths that can change what the tooling image CONTAINS,
+            # derived from the Dockerfile's own COPY lines. The same script
+            # self-test.yaml's classifier reads, so the two decisions cannot
+            # answer different questions about one image.
+            paths=()
+            if tt_out="$(bash ./script/ci/testtools_paths.sh)"; then
+              while IFS= read -r p; do
+                [[ -n "${p}" ]] && paths+=("${p}")
+              done <<< "${tt_out}"
+            fi
+            if [[ "${#paths[@]}" -eq 0 ]]; then
+              # Never reaches the diff: an empty pathspec list compares the
+              # whole diff, which would answer `true` here by accident
+              # instead of on purpose, and `false` the day the shape of the
+              # list changed.
+              echo "::warning::could not derive the tooling image's inputs;" \
+                   "publishing the rolling tag rather than assuming it is" \
+                   "still current"
+            else
+              # This workflow is an input of the PUBLISH, not of the image:
+              # a change to how the tag is resolved or smoke-tested has to
+              # go out even when the image's content is identical. It is a
+              # literal because it is this file's own path -- the one entry
+              # that cannot drift away from what it names.
+              paths+=('.github/workflows/release-test-tools.yaml')
+              if git diff --quiet HEAD^ HEAD -- "${paths[@]}"; then
+                publish=false
+              fi
+            fi
+          fi
+          printf 'publish=%s\n' "${publish}" >> "${GITHUB_OUTPUT}"
+          echo "publish=${publish}"
+
   # Parse the target platforms into a native-runner matrix, mirroring
   # build-worker.yaml / publish-worker.yaml's compute-matrix convention.
   # The platform list is fixed here (this is a fixed multi-arch
   # publisher with no `platforms` input); factoring the parser into a
   # single source shared across all three workflows is a follow-up.
   compute-matrix:
+    needs: decide
+    # The gate sits on the FIRST job of the publish chain, so `build` and
+    # `merge` are skipped by their own `needs` rather than by a condition
+    # repeated three times -- a repeated condition is three places for the
+    # next edit to disagree with itself, and `merge` assembling a manifest
+    # from an artifact set no shard uploaded is the way that disagreement
+    # would show up.
+    if: needs.decide.outputs.publish == 'true'
     runs-on: ubuntu-latest
     # Every job in the tree bounds itself; GitHub's default is six hours
     # and applies per matrix shard. This one only writes an output.
