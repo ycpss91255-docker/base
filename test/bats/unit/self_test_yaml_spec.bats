@@ -931,7 +931,35 @@ _job_comments() {
   run yaml_job_lines "${WF}" classify
   assert_success
   assert_output --partial 'testtools_changed:'
-  assert_output --partial "-- 'dockerfile/Dockerfile.test-tools'"
+  assert_output --partial 'testtools_paths[@]'
+}
+
+# why: The tooling image's inputs are READ, not restated. The step named one
+# pathspec, the Dockerfile's, and the image has more inputs than that: a
+# stage that COPYs a file out of the build context bakes that file's content
+# in, so a PR editing only it took the pull path and ran the suite inside an
+# image built before the edit. What each path DECIDES is asserted by driving
+# the step in classify_testtools_spec.bats; what this test owns is that the
+# step keeps no second roster of its own -- a pathspec quoted back into it is
+# a list that is correct the day it is written and wrong the next time
+# someone adds a COPY.
+@test "self-test.yaml: classify reads the tooling image's inputs, it does not restate them (#1171)" {
+  run yaml_job_lines "${WF}" classify
+  assert_success
+  assert_output --partial 'script/ci/testtools_paths.sh'
+  refute_output --partial "-- 'dockerfile/Dockerfile.test-tools'"
+}
+
+# why: An unreadable or refused input list must not read as "nothing the
+# tooling image is built from changed", and must not reach `git diff` as an
+# EMPTY pathspec list either -- that compares the whole diff and reports
+# every PR as touching the image. The two failures are silent in opposite
+# directions, so the empty case is answered before the diff and says so.
+@test "self-test.yaml: classify fails open when it cannot derive those inputs (#1171)" {
+  run yaml_job_lines "${WF}" classify
+  assert_success
+  assert_output --partial '"${#testtools_paths[@]}" -eq 0'
+  assert_output --partial 'could not derive the tooling image'
 }
 
 @test "self-test.yaml: image jobs gate the rebuild on classify's testtools_changed (#734)" {

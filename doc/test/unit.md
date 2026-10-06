@@ -1300,7 +1300,7 @@ between them can be asserted at all.
 | `_run_via_compose: the real ids are in the environment compose interpolates (#895)` | - |
 | `_fix_permissions: refuses a non-numeric id instead of handing it to chown (#895)` | - |
 
-### test/bats/unit/classify_testtools_spec.bats (5)
+### test/bats/unit/classify_testtools_spec.bats (9)
 
 `testtools_changed` tells every image-consuming job whether to rebuild the
 tooling image from source instead of pulling the rolling `:main`. On a pull
@@ -1322,6 +1322,10 @@ reads the output the step writes.
 | `classify: a push is still code-changed and system-relevant (#1010)` | A non-PR event still runs the full suite. The flag being computable now must not narrow what a push runs. |
 | `classify: an event that cannot be diffed still rebuilds (#1010)` | The fail-safe direction the step's own comment promises and did not take. `workflow_dispatch` has no previous commit to diff against, so the classifier cannot know whether the rolling tag corresponds to this ref -- and it answered `false`, which is the side that USES an image it could not check. The path here is deliberately not the Dockerfile, so a `true` can only come from the default and never from a diff. |
 | `classify: a push with no parent to diff still rebuilds (#1010)` | The other half of the same promise, and the half that already held: a push whose `HEAD^` does not resolve is a diff that cannot be taken, not an answer of "unchanged". Pinned because the fix above rewrites the branch that decides it, and a rewrite that inverted this one would look green against the dispatch case alone. |
+| `classify: a push that changes a file the Dockerfile COPYs rebuilds it (#1171)` | The defect this spec was extended for. The signal named one path, and the tooling image has more inputs than that: a plain build-context COPY bakes a file of the checkout into the image, so editing that file alone leaves a `:main` that no longer describes the tree while the classifier reports the image unchanged. The population is read off the Dockerfile, so the next COPY anyone adds brings its own case with it instead of waiting for someone to remember this list. |
+| `classify: a PR that changes a file the Dockerfile COPYs rebuilds it (#1171)` | The same miss on the arm every pull request takes, which is the expensive one: the PR arm's `false` sends `obtain_test_tools.sh` down its layer-2 path, so the whole suite runs inside the rolling `:main` -- an image built before the edit, and one nothing on the PR path refreshes. |
+| `classify: a PR that changes nothing the image reads still pulls (#1171)` | The guard that keeps the two cases above from being bought by answering `true` to everything. "Anything changed" would rebuild the tooling image on every pull request and throw away the pull path the rolling tag exists for. |
+| `classify: a PR that changes the test-tools Dockerfile rebuilds it (#1171)` | The Dockerfile's own case on the PR arm, pinned alongside the two above so a rewrite that reaches for the derivation cannot drop the one input the signal already had. |
 
 ### test/bats/unit/code_lines_spec.bats (46)
 
@@ -4212,7 +4216,7 @@ rule with nothing comparing them is the #1012 shape with one fewer copy.
 | `release-ref: every prerelease classifier under script/ci is one this spec can ask (#1012)` | "One home per classified thing" is only true while the homes agree wherever their inputs overlap. #1012's own reasoning is that three hand-kept copies of a rule are a defect BECAUSE nothing in the tree compared any pair of them; two hand-kept copies with nothing comparing them is the same shape with one fewer copy. The owner list is derived by the same predicate the site scan uses, so a third classifier lands here the day it lands in script/ci/ -- and it fails until someone states how to ask it, because an interface is the one thing a scan cannot derive. |
 | `release-ref: no two prerelease classifiers disagree where both answer (#1012)` | The two owners accept different grammars on purpose -- a released VERSION must carry the `v` a downstream repo pins, a git REF may be a full `refs/tags/...` -- so each refuses inputs the other reads. What must never happen is the pair ANSWERING a shared input differently: one of them would be marking a Release final or moving the org's `test-tools:latest` for a tag the other calls a release candidate. Only inputs both owners accept are compared; a refusal is not a disagreement. |
 
-### test/bats/unit/release_test_tools_yaml_spec.bats (30)
+### test/bats/unit/release_test_tools_yaml_spec.bats (32)
 
 Structural assertions for `.github/workflows/release-test-tools.yaml`. Locks
 the publish surface that downstream Dockerfile.example's `FROM
@@ -4225,9 +4229,9 @@ the tag is not a prerelease. Cuts the release downstream consumers pin via
 prerelease tag must leave it alone.
 
 2. **Main push** (P2) -- multi-arch `:main` rolling tag, pulled by
-self-test.yaml's Obtain step to skip from-source rebuilds. The paths filter
-(gotcha 3) restricts it to commits that touched
-`dockerfile/Dockerfile.test-tools` or this workflow.
+self-test.yaml's Obtain step to skip from-source rebuilds. Its paths filter
+holds back the merges that change nothing the image is built from, and is
+itself held to the set derived from the Dockerfile's own COPY lines.
 
 3. **workflow_dispatch** -- no tag set of its own: it resolves by the ref it
 was dispatched from (main takes the `:main` arm, a `v*` tag takes the tag
@@ -4245,7 +4249,7 @@ them stayed green through four RC tags that each moved `:latest`.
 |------|-------------|
 | `release-test-tools.yaml: triggers on tag push v* (existing)` | - |
 | `release-test-tools.yaml: triggers on main push (#317 P2)` | - |
-| `release-test-tools.yaml: main push trigger has paths filter limiting to Dockerfile.test-tools + workflow self (#317 P2 gotcha-3)` | - |
+| `release-test-tools.yaml: main push trigger carries a paths filter (#317 P2 gotcha-3)` | The main push trigger is filtered at all, which is what keeps every non-doc merge from republishing the same image content under a new manifest digest. WHAT the filter has to contain is asserted against the derivation, in both directions, in the last section of this file -- the two cases there are the ones that fail when a context COPY is added without extending it. |
 | `release-test-tools.yaml: triggers on workflow_dispatch (existing)` | - |
 | `release-test-tools.yaml: Resolve tags step handles v* tag push -> :<ver>, and :latest for a finished release` | - |
 | `release-test-tools.yaml: Resolve tags step handles main push -> :main rolling tag (#317 P2)` | - |
@@ -4273,6 +4277,8 @@ them stayed green through four RC tags that each moved `:latest`.
 | `release-test-tools.yaml: smoke step COMPARES the reported versions, not just exit 0 (#947)` | Reading two numbers is not comparing them: holding the pin and running `<tool> --version` still passes for an image whose linters are years old, which is exactly the state that shipped |
 | `release-test-tools.yaml: smoke step fails loudly when a pin and a binary disagree (#947)` | A comparison whose mismatch branch only warns is not a gate -- the publish would go out with the wrong linters and a green log |
 | `release-test-tools.yaml: smoke step refuses an unreadable pin rather than passing (#947)` | The failure mode a moved release URL produces: an empty expectation compared against an empty reading agrees with itself, which is the shape of pass the whole step exists to refuse |
+| `release-test-tools.yaml: the push filter covers every input of the tooling image (#1171)` | The reported defect, on the half that compounds the other. The tag a pull request falls back to when the rebuild signal says "unchanged" is a tag nothing refreshed: this trigger named the Dockerfile and this workflow, and the image has more inputs than that, so a merge touching only a file the Dockerfile COPYs out of the build context never started the publisher at all. `paths:` is static YAML GitHub evaluates before any job runs, so it cannot derive the set -- but it can be HELD to it. The expected set is read from the derivation, so the next context COPY anyone adds fails here, on the pull request that adds it, naming the path the filter does not cover. |
+| `release-test-tools.yaml: the push filter does not start on what the image never reads (#1171)` | The direction the filter exists for, and the reason it is a filter at all rather than `'**'` plus a job that decides. Every non-doc merge pushes to main; a filter that matches all of them would burn a multi-arch build per merge -- and, worse, put a run that will NOT publish into the workflow's concurrency group, where GitHub keeps only ONE pending run: a doc-only merge could then evict a queued publish and decline to publish in its place, leaving `:main` without the change it was queued for. So every run this trigger starts has a reason to publish, and the publish is unconditional. |
 
 ### test/bats/unit/release_version_spec.bats (12)
 
@@ -4810,7 +4816,7 @@ alias / `network.network_name` / `devices.device_` / `security.cap_add_` /
 | `self-hosted guard: FAILS when the workflows parse to zero jobs` | - |
 | `self-hosted guard: scans every workflow in the directory, not a named list` | - |
 
-### test/bats/unit/self_test_yaml_spec.bats (122)
+### test/bats/unit/self_test_yaml_spec.bats (124)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks fourteen
 cumulative invariants:
@@ -5172,6 +5178,8 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: every job that probes :main compares the runner VERSION, not just presence (#948)` | Presence is the dimension the tool roster can express and the version is not, so a `:main` published before a bump carries every required tool AND the wrong runner; the population is derived from the workflow so the sixth probing job cannot land outside the rule |
 | `self-test.yaml: only classify fetches the base ref; image jobs read its testtools_changed output (#734)` | - |
 | `self-test.yaml: classify emits testtools_changed from a full-history diff (#734)` | - |
+| `self-test.yaml: classify reads the tooling image's inputs, it does not restate them (#1171)` | The tooling image's inputs are READ, not restated. The step named one pathspec, the Dockerfile's, and the image has more inputs than that: a stage that COPYs a file out of the build context bakes that file's content in, so a PR editing only it took the pull path and ran the suite inside an image built before the edit. What each path DECIDES is asserted by driving the step in classify_testtools_spec.bats; what this test owns is that the step keeps no second roster of its own -- a pathspec quoted back into it is a list that is correct the day it is written and wrong the next time someone adds a COPY. |
+| `self-test.yaml: classify fails open when it cannot derive those inputs (#1171)` | An unreadable or refused input list must not read as "nothing the tooling image is built from changed", and must not reach `git diff` as an EMPTY pathspec list either -- that compares the whole diff and reports every PR as touching the image. The two failures are silent in opposite directions, so the empty case is answered before the diff and says so. |
 | `self-test.yaml: image jobs gate the rebuild on classify's testtools_changed (#734)` | - |
 | `self-test.yaml: compute-shards restores the shard-weights cache ONCE for the whole matrix (#733, #1114)` | The producer half of the single-source rule. A partition is a partition of the suite only when every shard weighed the specs the same way, so there is exactly ONE place the weights blob is fetched -- the job every shard already waits on. A second lookup anywhere is a second opportunity for the matrix to read two different blobs. |
 | `self-test.yaml: compute-shards publishes the restored weights as a job output (#1114)` | The lookup being single is worth nothing unless its RESULT is what the shards partition by, so the restored blob leaves compute-shards as a declared job output. Undeclared, the expression below it resolves to the empty string and all twelve shards silently fall back to @test counts. |
@@ -6548,6 +6556,38 @@ is the smoke step, which iterates this same roster.
 | `test-tools pins: check refuses an ARG that is not on the roster (#1012)` | There is nothing to compare against, so it refuses rather than passing over it. |
 | `test-tools pins: an unrecognised subcommand is refused and names what it does answer (#1012)` | It must not fall through to the roster, because a roster is an answer the caller would then act on. |
 | `test-tools pins: roster and check read a quoted declaration the same way (#1012)` | Quoting a build arg's default is legal, and the two halves of one accessor disagreeing about it fails a CORRECT image while naming a pin nobody could satisfy. |
+
+### test/bats/unit/testtools_paths_spec.bats (10)
+
+Two CI decisions -- `testtools_changed` in self-test.yaml's classify job,
+and whether a push to main republishes the rolling `:main` tag -- answered
+that question with one quoted literal, the Dockerfile's own path. A stage
+that COPYs a file out of the build context bakes that file's CONTENT into
+the image while the Dockerfile does not move, so a commit touching only that
+file left both decisions answering "unchanged": the PR ran its whole suite
+inside an image built before the edit, and the merge that followed did not
+refresh the tag it had fallen back to.
+
+`script/ci/testtools_paths.sh` answers it by DERIVATION instead, through the
+same code that decides which files the local content-hash tag hashes. The
+cases below are mostly synthetic trees, because the property is about
+Dockerfiles this repo does not have yet: the second context COPY someone
+adds, the glob nobody can resolve, the `--from=` stage path that is not a
+checkout path at all. Two cases read the real Dockerfile, in both
+directions, so the derivation cannot drift away from the tree it is about.
+
+| Test | Description |
+|------|-------------|
+| `testtools paths: every context COPY of the real Dockerfile is an input (#1171)` | The first direction, and the defect itself: a file the real Dockerfile COPYs out of the build context is an input of the image, and the signal has to name it. Read off the Dockerfile independently, so the COPY somebody adds tomorrow brings its own requirement with it instead of waiting for this spec to be edited. |
+| `testtools paths: it emits nothing the real Dockerfile does not read (#1171)` | The opposite direction, and the reason this is a derivation rather than "hash the checkout": a signal that answers "everything is an input" passes every case above, rebuilds the tooling image on every pull request and throws away the pull path the rolling tag exists for. Every path it emits has to be one the Dockerfile actually reads. |
+| `testtools paths: a second context COPY is covered with no list edited (#1171)` | The load-bearing case. The alternative to deriving was a second literal in each filter, which is correct on the day it is written and wrong the next time somebody adds a COPY -- with nothing that notices, which is how this defect existed at all. A SECOND context COPY has to be covered without anything being edited anywhere. |
+| `testtools paths: a directory COPY is emitted as the directory (#1171)` | A COPY of a DIRECTORY is one pathspec covering a subtree that may grow files after this runs. Emitting the directory keeps the signal honest about the file added under it tomorrow; expanding it to today's members would be a list again, one indirection further in. |
+| `testtools paths: a COPY --from= source is not a checkout path (#1171)` | Every other COPY in the real Dockerfile is one of these. A `--from=<stage>` source is a path inside an earlier STAGE, not in the checkout, so emitting it would hand `git diff` a pathspec matching nothing -- and, worse, read as coverage while covering nothing. |
+| `testtools paths: a COPY it cannot resolve refuses, naming the line (#1171)` | A COPY source needing docker's own parser cannot be resolved to a definite set of paths, and a guess is how a file silently leaves the signal. The refusal has to name the line, and it has to leave stdout EMPTY: a partial list is the one answer that looks like an answer, and the consumer would diff against it and report the image unchanged. |
+| `testtools paths: a verb it does not model refuses rather than skips (#1171)` | ADD reads the build context and ONBUILD can defer a COPY into it. Both are verbs this derivation does not model, and passing over either is exactly the silent omission it exists to stop -- so each is a refusal the consumer turns into a rebuild, not a shorter list. |
+| `testtools paths: an absent tooling Dockerfile refuses, printing nothing (#1171)` | A tree with no tooling Dockerfile has no derivable input set, and the empty list is the one thing it must not print: an empty pathspec list handed to `git diff` compares the WHOLE diff, so "there is no tooling Dockerfile" would read as "every path is an input of it". Refusing lets the consumer fail open on purpose instead of by accident. |
+| `testtools paths: an unreadable tooling Dockerfile refuses, not a short list (#1171)` | The same silent partial answer the local tag's derivation was fixed for, in the one input that used to skip the readability rule its own COPY sources are held to. A guard that tests EXISTENCE alone lets an unreadable Dockerfile fall through to a reader that writes to stderr and yields no instruction at all, so the derivation prints the Dockerfile's own path, exits 0, and reports a tooling image with no context inputs. A consumer reading stdout sees a well-formed list, diffs against it, and reports the image unchanged -- which is this issue, reintroduced by the thing fixing it. |
+| `testtools paths: its set is the set the local tag hashes (#1171)` | The criterion the shared derivation exists for: the set CI treats as inputs has to be the set the LOCAL tag hashes. Asserted behaviourally rather than by both calling the same function -- every path the signal emits moves the tag when its bytes change, and a path it does not emit leaves the tag alone. Two rules for one question is how they come to disagree, and the disagreement is a CI run that pulls an image the local derivation would have rebuilt. |
 
 ### test/bats/unit/tmux_conf_spec.bats (12)
 

@@ -3,8 +3,8 @@
 # obtain_test_tools.sh -- get this run the tooling image it runs inside.
 #
 # Six jobs of self-test.yaml need `test-tools`, and there are three ways to
-# have it. The PR changed the Dockerfile, so the rolling `:main` is stale
-# for it by definition and the image is built from source. Or `:main`
+# have it. The PR changed an input of the image, so the rolling `:main` is
+# stale for it by definition and it is built from source. Or `:main`
 # corresponds to this checkout and is pulled, re-tagged under the run's own
 # name, and used -- the hot path, and the reason a PR that touches nothing
 # related does not pay for a multi-arch build. Or it does not correspond,
@@ -42,11 +42,13 @@
 #   and that driver has no GHA cache to lose.
 #
 # Env:
-#   TESTTOOLS_CHANGED   `true` when THIS PR changes the test-tools
-#                       Dockerfile. Computed by the classify job, which has
-#                       the full-depth checkout the three-dot diff needs;
-#                       computing it in these jobs (fetch-depth: 1)
-#                       misfired and rebuilt on every PR.
+#   TESTTOOLS_CHANGED   `true` when THIS PR changes anything the test-tools
+#                       image is built FROM -- its Dockerfile, and every
+#                       path that Dockerfile COPYs out of the build context,
+#                       derived by script/ci/testtools_paths.sh. Computed by
+#                       the classify job, which has the full-depth checkout
+#                       the three-dot diff needs; computing it in these jobs
+#                       (fetch-depth: 1) misfired and rebuilt on every PR.
 #   CI_RUN_KEY          the run identity stamped as the ownership label, so
 #                       a sweep can tell whose image this is.
 #   GITHUB_OUTPUT       where `build_local=true|false` is written, when set.

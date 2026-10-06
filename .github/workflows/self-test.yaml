@@ -166,13 +166,38 @@ jobs:
         # cheaper than wedging the merge queue.
         run: |
           set -uo pipefail
+          # testtools_paths: the paths that can change what the tooling
+          # image CONTAINS, read from script/ci/testtools_paths.sh, which
+          # derives them from the Dockerfile's own COPY lines. Both arms
+          # below diff against this one set, so neither can answer a
+          # narrower question than the other.
+          #
+          # Fails OPEN, and the array is the thing that decides it: a
+          # derivation that refused -- an absent Dockerfile, a COPY line it
+          # will not guess at -- leaves the array EMPTY, and an empty
+          # pathspec list handed to `git diff` compares the whole diff,
+          # which would report every PR as touching the tooling image. So
+          # an empty array short-circuits to `true` instead of reaching the
+          # diff at all: "cannot tell" must not mean "the image is fine",
+          # and it must not mean "rebuild on every PR forever" in silence
+          # either, hence the warning.
+          testtools_paths=()
+          if tt_out="$(bash ./script/ci/testtools_paths.sh)"; then
+            while IFS= read -r p; do
+              [[ -n "${p}" ]] && testtools_paths+=("${p}")
+            done <<< "${tt_out}"
+          fi
+          if [[ "${#testtools_paths[@]}" -eq 0 ]]; then
+            echo "::warning::could not derive the tooling image's inputs;" \
+                 "rebuilding the test-tools image from source"
+          fi
           if [[ "${EVENT_NAME}" != "pull_request" ]]; then
             # push to main / tag push / workflow_dispatch -- full suite.
             #
             # testtools_changed used to be the literal false here, on every
             # non-PR event including the ONE that can answer it: a push
-            # whose commit changes the test-tools Dockerfile is exactly the
-            # push for which the rolling tag is stale, because the
+            # whose commit changes an input of the tooling image is exactly
+            # the push for which the rolling tag is stale, because the
             # republish that would refresh it is racing this very run. So
             # the merge that added a tool ran the whole post-merge suite
             # inside the image from before it.
@@ -190,9 +215,9 @@ jobs:
             # falls to the side that uses an image nothing checked, which
             # is the side this whole paragraph exists to refuse.
             testtools=true
-            if [[ "${EVENT_NAME}" == "push" ]]; then
-              if git diff --quiet HEAD^ HEAD \
-                   -- 'dockerfile/Dockerfile.test-tools'; then
+            if [[ "${EVENT_NAME}" == "push" \
+                  && "${#testtools_paths[@]}" -gt 0 ]]; then
+              if git diff --quiet HEAD^ HEAD -- "${testtools_paths[@]}"; then
                 testtools=false
               fi
             fi
@@ -251,14 +276,23 @@ jobs:
           else
             echo "system_relevant=true" >> "${GITHUB_OUTPUT}"
           fi
-          # testtools_changed: does THIS PR modify the test-tools Dockerfile?
-          # The image jobs rebuild from source when it does (:main is stale for
-          # the PR). Computed here, where the checkout is fetch-depth: 0, so the
-          # three-dot merge-base resolves; the image jobs use a shallow
-          # (fetch-depth: 1) checkout where that diff misfires and reports every
-          # file as changed -> a spurious rebuild on every PR.
-          if git diff --quiet "${BASE}"...HEAD \
-               -- 'dockerfile/Dockerfile.test-tools'; then
+          # testtools_changed: does THIS PR change anything the tooling image
+          # is built FROM? The image jobs rebuild from source when it does
+          # (:main is stale for the PR). Computed here, where the checkout is
+          # fetch-depth: 0, so the three-dot merge-base resolves; the image
+          # jobs use a shallow (fetch-depth: 1) checkout where that diff
+          # misfires and reports every file as changed -> a spurious rebuild
+          # on every PR.
+          #
+          # The pathspecs are the derived set above, not the Dockerfile's path
+          # alone. The Dockerfile is not the image's only input: a stage that
+          # COPYs a file out of the build context bakes that file's CONTENT
+          # in, so a PR editing only that file took the pull path and ran its
+          # whole suite inside an image built before the edit.
+          if [[ "${#testtools_paths[@]}" -eq 0 ]]; then
+            echo "testtools_changed=true" >> "${GITHUB_OUTPUT}"
+          elif git diff --quiet "${BASE}"...HEAD \
+                 -- "${testtools_paths[@]}"; then
             echo "testtools_changed=false" >> "${GITHUB_OUTPUT}"
           else
             echo "testtools_changed=true" >> "${GITHUB_OUTPUT}"
@@ -629,8 +663,8 @@ jobs:
         id: obtain
         env:
           TESTTOOLS_CHANGED: ${{ needs.classify.outputs.testtools_changed }}
-        # The whole decision -- rebuild because this PR changed the
-        # Dockerfile, use the rolling tag because it corresponds to this
+        # The whole decision -- rebuild because this PR changed an input of
+        # the image, use the rolling tag because it corresponds to this
         # checkout, or rebuild because it does not or could not be pulled
         # -- lives in script/ci/obtain_test_tools.sh, one copy for all six
         # consumers. It used to be this block, pasted into each of them,
@@ -731,16 +765,16 @@ jobs:
         id: obtain
         env:
           TESTTOOLS_CHANGED: ${{ needs.classify.outputs.testtools_changed }}
-        # Layer 1: PR touched Dockerfile.test-tools -> must rebuild from
-        # source (the :main rolling tag still reflects the pre-PR state).
-        # Layer 2: try pulling the rolling :main tag and re-tag locally;
-        # avoids a buildx run on the hot path (every non-Dockerfile-test-
-        # tools PR).
+        # Layer 1: PR touched an input of the tooling image -> must rebuild
+        # from source (the :main rolling tag still reflects the pre-PR
+        # state). Layer 2: try pulling the rolling :main tag and re-tag
+        # locally; avoids a buildx run on the hot path (every PR that
+        # changes nothing the image is built from).
         # Layer 3: pull failed (first bootstrap of :main, network, GHCR
         # auth gap) -> emit build_local=true and let the buildx step
         # below take over with GHA cache.
-        # The whole decision -- rebuild because this PR changed the
-        # Dockerfile, use the rolling tag because it corresponds to this
+        # The whole decision -- rebuild because this PR changed an input of
+        # the image, use the rolling tag because it corresponds to this
         # checkout, or rebuild because it does not or could not be pulled
         # -- lives in script/ci/obtain_test_tools.sh, one copy for all six
         # consumers. It used to be this block, pasted into each of them,
@@ -798,8 +832,8 @@ jobs:
         id: obtain
         env:
           TESTTOOLS_CHANGED: ${{ needs.classify.outputs.testtools_changed }}
-        # The whole decision -- rebuild because this PR changed the
-        # Dockerfile, use the rolling tag because it corresponds to this
+        # The whole decision -- rebuild because this PR changed an input of
+        # the image, use the rolling tag because it corresponds to this
         # checkout, or rebuild because it does not or could not be pulled
         # -- lives in script/ci/obtain_test_tools.sh, one copy for all six
         # consumers. It used to be this block, pasted into each of them,
@@ -980,11 +1014,11 @@ jobs:
         # this job obtains it via the identical 3-layer fallback the
         # bats-unit / bats-integration jobs use — no more debian kcov/kcov
         # image, no per-shard apt-install, no APT_MIRROR_DEBIAN. Layer 1:
-        # PR touched Dockerfile.test-tools -> rebuild from source. Layer 2:
+        # PR touched an input of the tooling image -> rebuild. Layer 2:
         # pull the rolling :main tag and re-tag locally (hot path). Layer
         # 3: pull failed -> build below with GHA cache.
-        # The whole decision -- rebuild because this PR changed the
-        # Dockerfile, use the rolling tag because it corresponds to this
+        # The whole decision -- rebuild because this PR changed an input of
+        # the image, use the rolling tag because it corresponds to this
         # checkout, or rebuild because it does not or could not be pulled
         # -- lives in script/ci/obtain_test_tools.sh, one copy for all six
         # consumers. It used to be this block, pasted into each of them,
@@ -1669,8 +1703,8 @@ jobs:
         id: obtain
         env:
           TESTTOOLS_CHANGED: ${{ needs.classify.outputs.testtools_changed }}
-        # The whole decision -- rebuild because this PR changed the
-        # Dockerfile, use the rolling tag because it corresponds to this
+        # The whole decision -- rebuild because this PR changed an input of
+        # the image, use the rolling tag because it corresponds to this
         # checkout, or rebuild because it does not or could not be pulled
         # -- lives in script/ci/obtain_test_tools.sh, one copy for all six
         # consumers. It used to be this block, pasted into each of them,
