@@ -554,16 +554,16 @@ itself, and the file `init.sh` seeded before this release sets none. Sourced
 by the orchestrator it now runs under `set -euo pipefail`, so the same line
 aborts on ROS's unbound `AMENT_TRACE_SETUP_FILES` and the container dies
 before your workload ever starts. Bracket it in the SAME commit as the other
-two edits. `just upgrade` writes the bracket too, but only on the upgrade
-AFTER the flip — the flip commit itself has to carry it.
+two edits. `just base upgrade` writes the bracket too, but only on the
+upgrade AFTER the flip — the flip commit itself has to carry it.
 
 Flipping the `ENTRYPOINT` first breaks the container (the un-removed `exec`
 pre-empts the watchdog); cleaning the bringup first is merely inert. Until
 you do both, **nothing changes** — your repo keeps its own `ENTRYPOINT`,
 runs exactly as before, and simply does not get base's later plumbing
-changes. `just upgrade` prints a one-line notice until it is migrated, and
-never edits either file: only you can tell your bringup from base's
-plumbing in a file you have been hand-editing.
+changes. `just base upgrade` prints a one-line notice until it is
+migrated, and never edits either file: only you can tell your bringup
+from base's plumbing in a file you have been hand-editing.
 
 ## Per-repo runtime configuration
 
