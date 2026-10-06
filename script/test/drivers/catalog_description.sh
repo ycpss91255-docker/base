@@ -241,7 +241,18 @@ readonly _CATALOG_DESC_SCAN_GLOBS=(
 # undescribed tests that could land green afterwards -- which is the same
 # unearned-notch argument as the paragraph above, arriving by subtraction
 # instead of by merge. Recomputed from the tree, as every step here is.
-readonly _CATALOG_DESC_UNDESCRIBED_CEILING=2566
+#
+# 2530 on base#1117, the same subtraction case as the paragraph above and
+# the same answer. That branch deleted thirteen whole-tree cases, NINE of
+# them undescribed -- eight per-locale `/lint/`-layout twins and a wrapper
+# test whose body asserted nothing -- and wrote markers for fourteen cases
+# that had none. Leaving 2566 would have banked the nine as slack, which is
+# the unearned-notch argument; banking only the fourteen would have left a
+# figure no measurement produced. So it is the merged tree's count again,
+# measured after the origin/main merge rather than before it, and the slack
+# goes back to 0 -- the steady state this header argues for, where the only
+# branch that edits this line is one adding an undescribed test.
+readonly _CATALOG_DESC_UNDESCRIBED_CEILING=2530
 
 # The written-out non-answers, matched case-insensitively on the whole
 # trimmed marker. `nil`, `none`, `tbd`, `todo` and `unknown` carry a

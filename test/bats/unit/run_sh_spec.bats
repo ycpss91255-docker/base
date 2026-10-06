@@ -16,7 +16,7 @@
 # `.env` / `setup.conf` / `compose.yaml`, drift-check path, bootstrap
 # staying non-interactive (setup.sh, not TUI), defensive guard when setup
 # produces no `.env`, `--detach`, devel vs non-devel TARGET routing,
-# already-running guard, Wayland xhost path, `--lang` argument validation,
+# already-running guard, `--lang` argument validation,
 # fallback `_detect_lang` branches, **runtime log-line i18n** (bootstrap +
 # already-running error translate in all four languages via the local
 # `_msg()` table), **#216/#429 auto-build gate** (image present → silent +
@@ -631,10 +631,18 @@ HOOK
   assert_output --partial "already running"
 }
 
-@test "run.sh --lang zh-TW prints Chinese usage text" {
+# why: Both Chinese usage heredocs open with the same two characters
+# meaning "Usage", so asserting that shared token could not tell
+# Traditional from Simplified: pointing the zh-CN arm at the Traditional
+# block left every locale test green. The token asserted here is the
+# help-flag description line in its Traditional spelling, which the
+# Simplified block cannot contain, and the refute names the Simplified
+# spelling that must not appear -- so the pair is red in both directions.
+@test "run.sh --lang zh-TW prints Traditional Chinese usage text" {
   run bash "${SANDBOX}/run.sh" --lang zh-TW --help
   assert_success
-  assert_output --partial "用法"
+  assert_output --partial "顯示此說明"
+  refute_output --partial "显示此说明"
 }
 
 @test "run.sh --lang requires a value" {
@@ -643,10 +651,16 @@ HOOK
 }
 
 
+# why: The Simplified half of the same decision. The shared "Usage" token
+# this used to assert is byte-identical in both Chinese heredocs, so a
+# zh-CN arm rendering the Traditional block read green. The token asserted
+# here is the help-flag description line in its Simplified spelling, which
+# the Traditional block cannot contain.
 @test "run.sh --lang zh-CN prints Simplified Chinese usage text" {
   run bash "${SANDBOX}/run.sh" --lang zh-CN --help
   assert_success
-  assert_output --partial "用法"
+  assert_output --partial "显示此说明"
+  refute_output --partial "顯示此說明"
 }
 
 @test "run.sh --lang ja prints Japanese usage text" {
@@ -666,13 +680,21 @@ HOOK
   done
 }
 
-@test "run.sh uses xhost +SI:localuser under Wayland session" {
-  run env XDG_SESSION_TYPE=wayland bash "${SANDBOX}/run.sh" --dry-run
-  assert_success
-}
+# ── /lint/-layout _resolve_lang (flat dir with _lib.sh + i18n.sh) ─────
 
-# ── /lint/-layout _detect_lang (flat dir with _lib.sh + i18n.sh,) ─────
-
+# why: The flat layout has no `template/` beside the wrapper, so the
+# wrapper's own bootstrap has to find `lib/i18n.sh` next to it and let
+# `_resolve_lang` pick the heredoc. That composition is the property only a
+# test in this file can pin, and one locale pins it. The zh_CN and ja twins
+# were folded away because the halves they added are pinned closer to the
+# source: the LANG-to-code mapping at the function seam in lib_spec.bats
+# (`_resolve_lang sets 'zh-CN' for zh_CN.UTF-8`, `... for zh_SG`, `... 'ja'
+# for ja_JP.UTF-8`) and each usage() arm by the `--lang` tests above.
+# Measured on the whole unit tier: pointing `_detect_lang`'s `zh_CN*|zh_SG*`
+# and `ja*` arms at "en" turned 14 of 4726 tests red with the twins present
+# and 6 with them gone -- the three `_resolve_lang` tests, the two
+# `_sanitize_lang` locale tests, and justfile_user_spec's Japanese recipe
+# summaries (base#1117).
 @test "run.sh in /lint/ layout maps zh_TW.UTF-8 to zh-TW" {
   local _tmp
   _tmp="$(mktemp -d)"
@@ -681,31 +703,8 @@ HOOK
   cp /source/dist/script/docker/lib/* "${_tmp}/lib/"
   LANG=zh_TW.UTF-8 run bash "${_tmp}/run.sh" -h
   assert_success
-  assert_output --partial "用法"
-  rm -rf "${_tmp}"
-}
-
-@test "run.sh in /lint/ layout maps zh_CN.UTF-8 to zh-CN" {
-  local _tmp
-  _tmp="$(mktemp -d)"
-  ln -s /source/dist/script/docker/wrapper/run.sh "${_tmp}/run.sh"
-  mkdir -p "${_tmp}/lib"
-  cp /source/dist/script/docker/lib/* "${_tmp}/lib/"
-  LANG=zh_CN.UTF-8 run bash "${_tmp}/run.sh" -h
-  assert_success
-  assert_output --partial "用法"
-  rm -rf "${_tmp}"
-}
-
-@test "run.sh in /lint/ layout maps ja_JP.UTF-8 to ja" {
-  local _tmp
-  _tmp="$(mktemp -d)"
-  ln -s /source/dist/script/docker/wrapper/run.sh "${_tmp}/run.sh"
-  mkdir -p "${_tmp}/lib"
-  cp /source/dist/script/docker/lib/* "${_tmp}/lib/"
-  LANG=ja_JP.UTF-8 run bash "${_tmp}/run.sh" -h
-  assert_success
-  assert_output --partial "使用法"
+  assert_output --partial "顯示此說明"
+  refute_output --partial "显示此说明"
   rm -rf "${_tmp}"
 }
 

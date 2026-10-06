@@ -78,7 +78,7 @@ _TTP_DECL_REL='dockerfile/Dockerfile.test-tools'
 # fails, and a tool that answers nothing yields nothing, which the check
 # already refuses as "a probe that did not run".
 #
-# The three bats helper libraries have no `--version` at all: they are
+# The bats helper libraries have no `--version` at all: they are
 # shell libraries, cloned at a tag. The tag is still IN the image -- the
 # clone's `.git` is copied with them -- so `git describe --tags` is the
 # library's own answer about which release it is, in the pin's own
@@ -93,7 +93,6 @@ _TTP_ARG=(
   'HADOLINT_VERSION'
   'BATS_SUPPORT_VERSION'
   'BATS_ASSERT_VERSION'
-  'BATS_MOCK_VERSION'
 )
 _TTP_PROBE=(
   'bats --version'
@@ -104,7 +103,6 @@ _TTP_PROBE=(
   'hadolint --version | sed -n "s/.*Linter /v/p"'
   'git -C /usr/lib/bats/bats-support describe --tags'
   'git -C /usr/lib/bats/bats-assert describe --tags'
-  'git -C /usr/lib/bats/bats-mock describe --tags'
 )
 
 # _ttp_root -- the repo root, derived from this file's own location
