@@ -185,7 +185,7 @@ flowchart LR
 | `script/release/justfile.release` | base `release` namespace (release / publish tooling). |
 | `script/watch/justfile.watch` | base `watch` namespace — upstream-release watch (`just watch`, `just watch pins`, `just watch bump <name> <version>`). |
 | `dist/dockerfile/Dockerfile` | Multi-stage Dockerfile template for new repos |
-| `dockerfile/Dockerfile.test-tools` | Pre-built lint/test tools image (shellcheck, hadolint, bats, bats-mock) |
+| `dockerfile/Dockerfile.test-tools` | Pre-built lint/test tools image (shellcheck, hadolint, bats, kcov) |
 | `.github/workflows/` | Reusable CI workflows (build + release) |
 
 Test content is laid out **tool-first** -- `test/<tool>/<category>/`

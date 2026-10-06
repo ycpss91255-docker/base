@@ -209,6 +209,15 @@ teardown() {
 # `-test` image. Driving the same helper against the wrapper at its source
 # path puts the real xhost branch under base's own gate, so a deletion or
 # an inversion goes red here and not only in a consumer's build.
+#
+# These four tests are now base's whole unit-side gate on that branch. The
+# three `template_spec` greps over run.sh and a run_sh_spec test named for
+# the Wayland ACL were deleted (base#1117), measured: inverting the branch
+# left all four of them green and turned tests 20-22 here red; emptying the
+# branch entirely (`grep -c xhost run.sh` == 0) left the run_sh_spec test
+# green and turned 20-23 here red; and a behaviour-preserving hoist of the
+# ACL into a variable kept these green while two of the greps went red, so
+# they were anti-correlated with the property as well as weaker than it.
 # ════════════════════════════════════════════════════════════════════
 
 _WRAPPER_UNDER_TEST=/source/dist/script/docker/wrapper/run.sh

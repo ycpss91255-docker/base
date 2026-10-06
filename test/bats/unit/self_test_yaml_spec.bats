@@ -215,14 +215,18 @@
 # 13. **#677 CI double-run restructure (coverage = primary unit gate,
 # weight-balanced shards, single `bats-fragile` job)** — after #686 unified
 # the coverage job onto the same Alpine test-tools image, the 4-shard
-# `bats-unit` matrix and the 4-shard `coverage` matrix ran the SAME ~1991
-# unit specs twice per PR (8 parallel jobs), differing only by `COVERAGE=1`.
+# `bats-unit` matrix and the 4-shard `coverage` matrix ran the WHOLE unit
+# suite twice per PR (8 parallel jobs), differing only by `COVERAGE=1`.
 # The restructure: (a) the `coverage` matrix stays the PRIMARY unit gate
 # (kcov over every non-fragile test; codecov upload + the #615/ADR-00000008
 # project gate untouched); (b) the `bats-unit` matrix is replaced by a
-# SINGLE `bats-fragile` job that runs ONLY the kcov-fragile specs the
-# coverage matrix skips via `[ "${COVERAGE:-0}" = 1 ] && skip` — in PLAIN
-# mode, so the delta is preserved with zero double-run. The fragile set is
+# SINGLE `bats-fragile` job that runs ONLY the spec FILES holding the tests
+# the coverage matrix skips via `[ "${COVERAGE:-0}" = 1 ] && skip` — in
+# PLAIN mode, so none of those tests goes unrun. Selection is by file
+# (`grep -rl`), not by test, so the unguarded tests in a selected file run
+# in both legs; that residual is deliberate (plain-mode signal, off the
+# critical path) and its size is derived from the selector by the two guards
+# at the end of this file rather than restated in prose. The fragile set is
 # computed at RUNTIME (`test.sh --bats-fragile` -> `_fragile_unit_files`
 # greps a line-anchored skip guard), so a new fragile-skip in a 10th file is
 # picked up automatically; (c) `_shard_unit_files` replaces round-robin with
@@ -231,7 +235,7 @@
 # `ci-rollup needs:` and `release needs:` swap `bats-unit` ->
 # `bats-fragile`; `coverage` joins the `release` chain (it is now the
 # primary unit gate). Every unit test still runs SOMEWHERE: non-fragile
-# under coverage/kcov, the fragile files under `bats-fragile` (plain).
+# under coverage/kcov, the selected files under `bats-fragile` (plain).
 #
 # 14. **#1009 the gate rosters are DERIVED from the job graph** — every
 # assertion above about a `needs:` list named the roster it checked, so the
@@ -2586,4 +2590,148 @@ _lint_tools_table() {
   done
   [[ -z "${_bad}" ]] \
     || fail "TEST.md cites CI job names that do not exist in ${WF}:${_bad} -- a reader looking for that check in the checks list will not find it"
+}
+
+# ── The bats-fragile job's account of what it preserves ──────────────────────
+#
+# The job's own comment stated the design intent as "this job runs exactly
+# those fragile specs, so the difference is preserved and there is ZERO
+# double execution: every unit test runs somewhere (non-fragile in
+# coverage/kcov, fragile here)". Both halves are claims about TESTS. The
+# mechanism selects whole FILES: drivers/bats.sh greps `-rl` for the kcov-skip
+# guard and hands bats the filenames, and `_COVERAGE_FULL_SUITE_POOLS` puts
+# `test/bats/unit` in the coverage pool with no exclusion for them. So every
+# test in a selected file that carries no guard of its own runs in both legs,
+# and the two jobs share an `if:`, so it happens on every code PR.
+#
+# Measured when this landed: 9 selected files, 377 `@test` declarations in
+# them, 27 carrying the guard -- all 27 inside individual test bodies, none in
+# a `setup_file` -- so 350 ran in both legs, against 4722 `@test`
+# declarations under `test/bats/unit`. The residual overlap is kept on purpose
+# (this is CI's only remaining plain-mode unit signal, and kcov perturbation
+# has been diagnosed here four times), and its cost is ~41s of bats inside a
+# 54s job while the slowest coverage shard ran 534s. What was wrong was only
+# the account of it, mirrored into three authored places plus the generated
+# doc/test/unit.md, each of which the next person sizing the suite reads
+# before they read the driver.
+#
+# The baseline figure in the same comment had rotted the same way: it said
+# "~1991 unit specs" against a tree more than twice that, which is the other
+# thing a reader takes from it. These two guards derive both figures from the
+# driver's own selector instead of letting any site restate them.
+
+BATS_DRIVER='/source/script/test/drivers/bats.sh'
+SELF_SPEC='/source/test/bats/unit/self_test_yaml_spec.bats'
+
+# The driver's own kcov-skip regex, read out of the driver rather than
+# respelled here: a second copy of it is the two-sources-of-truth shape the
+# runtime-computed fragile set was built to avoid.
+_fragile_guard_re() {
+  sed -n "s/^readonly _FRAGILE_GUARD_RE='\(.*\)'\$/\1/p" "${BATS_DRIVER}"
+}
+
+# The spec files bats-fragile selects, by the driver's own rule.
+_fragile_selected_files() {
+  local _re
+  _re="$(_fragile_guard_re)"
+  [[ -n "${_re}" ]] || return 1
+  grep -rlE "${_re}" /source/test/bats/unit | LC_ALL=C sort
+}
+
+# `<tests> <guards>`: `@test` declarations in the selected files, and how many
+# of them carry the kcov-skip guard. The difference is what runs in BOTH legs.
+_fragile_overlap_counts() {
+  local _re _f _tests=0 _guards=0
+  _re="$(_fragile_guard_re)"
+  [[ -n "${_re}" ]] || return 1
+  while IFS= read -r _f; do
+    [[ -n "${_f}" ]] || continue
+    _tests=$(( _tests + $(grep -c '^@test' "${_f}") ))
+    _guards=$(( _guards + $(grep -cE "${_re}" "${_f}") ))
+  done < <(_fragile_selected_files)
+  printf '%s %s\n' "${_tests}" "${_guards}"
+}
+
+# Every authored line that explains the bats-fragile mechanism, from the three
+# places that carry one. doc/test/unit.md is NOT a fourth: it is generated
+# from this file's header and held to it by the doc-count drift gate, so
+# fixing the header fixes it. Derived per site, so a block that grows a
+# paragraph is still covered.
+_fragile_rationale_lines() {
+  _job_comments bats-fragile
+  grep -E '^[[:space:]]*#.*[Ff]ragile' "${BATS_DRIVER}"
+  # This file's header only -- the prose above an individual test is that
+  # test's catalogue entry, not a second account of the mechanism.
+  awk 'index($0, "@test") == 1 { exit } /^#/ && /[Ff]ragile/' "${SELF_SPEC}"
+}
+
+# why: The comment said "ZERO double execution" and "runs exactly those
+# fragile specs", both claims about tests, while the selector hands bats whole
+# files; a reader sizing the suite stops at that sentence
+@test "self-test.yaml: no bats-fragile rationale asserts away an overlap the file-granular selection has (base#1117)" {
+  assert_spec_subject "${BATS_DRIVER}" \
+      "the driver whose selector decides what bats-fragile runs"
+  assert_spec_subject "${SELF_SPEC}" "this spec, one of the three rationale sites"
+
+  # The selected files have to be in the coverage pool for an overlap to
+  # exist at all, so that is read from the driver too rather than assumed.
+  run grep -E '^readonly _COVERAGE_FULL_SUITE_POOLS=\(.*test/bats/unit' \
+      "${BATS_DRIVER}"
+  assert_success
+
+  local _counts _tests _guards _overlap
+  _counts="$(_fragile_overlap_counts)" \
+    || fail "could not read _FRAGILE_GUARD_RE out of ${BATS_DRIVER}"
+  _tests="${_counts%% *}"
+  _guards="${_counts##* }"
+  [ "${_tests}" -ge 100 ] \
+    || fail "counted ${_tests} @test declarations in the fragile files; the selector did not resolve and the check below would be vacuous"
+  _overlap=$(( _tests - _guards ))
+
+  local -a _lines=()
+  mapfile -t _lines < <(_fragile_rationale_lines)
+  [ "${#_lines[@]}" -ge 10 ] \
+    || fail "read ${#_lines[@]} rationale lines across the three sites; the sites moved and this guard would be vacuous"
+
+  # Only forbidden while the overlap is real: a selector that became a true
+  # partition may say so, and the granularity guard below is what would then
+  # require the rest of the wording to follow.
+  [ "${_overlap}" -gt 0 ] || return 0
+
+  local -a _claims=( 'zero double' 'no double-run' 'no double run' \
+      'without double-run' 'runs exactly those fragile specs' )
+  local _line _claim _bad=''
+  for _line in "${_lines[@]}"; do
+    for _claim in "${_claims[@]}"; do
+      [[ "${_line,,}" == *"${_claim}"* ]] && _bad+="${_line}"$'\n'
+    done
+  done
+  [[ -z "${_bad}" ]] || fail \
+      "a bats-fragile rationale denies a double run that the selector has: ${_guards} of ${_tests} @test declarations in the selected files carry the kcov-skip guard, so ${_overlap} run under kcov in the coverage matrix AND plain here. Offending line(s):
+${_bad}"
+}
+
+# why: The same comment carried "~1991 unit specs" as the suite it compared
+# against, a figure nothing re-derived; the tree held more than twice that
+# when this landed, so the one number a reader could take away was wrong
+@test "self-test.yaml: no bats-fragile rationale carries a hand-written unit-suite size (base#1117)" {
+  local -a _lines=()
+  mapfile -t _lines < <(_fragile_rationale_lines)
+  [ "${#_lines[@]}" -ge 10 ] \
+    || fail "read ${#_lines[@]} rationale lines across the three sites; the sites moved"
+
+  local _here
+  _here="$(grep -rc '^@test' /source/test/bats/unit --include='*.bats' \
+      | cut -d: -f2 | paste -sd+ - | bc)"
+  [ "${_here}" -ge 1000 ] \
+    || fail "counted ${_here} @test declarations under test/bats/unit; the count did not resolve"
+
+  local _line _bad=''
+  for _line in "${_lines[@]}"; do
+    [[ "${_line}" =~ ~?[0-9]{3,5}[[:space:]]+unit[[:space:]]+spec ]] \
+      && _bad+="${_line}"$'\n'
+  done
+  [[ -z "${_bad}" ]] || fail \
+      "a bats-fragile rationale states the unit-suite size as a literal; it is ${_here} @test declarations today and nothing re-derives the text. Say what the figure is derived from, or drop it. Offending line(s):
+${_bad}"
 }

@@ -389,12 +389,15 @@ readonly _FRAGILE_GUARD_RE='^[[:space:]]*\[ "\$\{COVERAGE:-0\}" = 1 \] &&[[:spac
 
 _fragile_unit_files() {
   # Echo the newline-separated set of test/bats/unit/*_spec.bats files that
-  # contain at least one kcov-fragile test — those guarded at the start of
-  # a test body by `[ "${COVERAGE:-0}" = 1 ] && skip ...`. The coverage
-  # matrix SKIPS these tests (they perturb the kcov ptrace wrapper), so the
-  # plain bats-fragile job runs exactly this set with COVERAGE unset to
-  # preserve the delta. Computed at runtime by grepping for the skip guard
-  # so it self-maintains: a NEW fragile-skip in a 10th file is picked up
+  # contain at least one kcov-fragile test — those guarded inside a test
+  # body by `[ "${COVERAGE:-0}" = 1 ] && skip ...`. The coverage matrix
+  # SKIPS those tests (they perturb the kcov ptrace wrapper), so the plain
+  # bats-fragile job runs this set of FILES with COVERAGE unset, which is
+  # what keeps the skipped tests from going unrun. `-l` is the whole of the
+  # granularity: a file is selected for one guarded test and bats then runs
+  # all of it, so the unguarded tests in it run here as well as under kcov.
+  # Computed at runtime by grepping for the skip guard so it self-maintains:
+  # a NEW fragile-skip in a 10th file is picked up
   # automatically (a spec asserts the set). The regex is line-anchored on
   # leading whitespace + the literal bracket so a COMMENT that merely
   # mentions the guard (e.g. this driver's own spec) is NOT matched.
@@ -410,12 +413,15 @@ _fragile_unit_files() {
 }
 
 _run_bats_fragile() {
-  # Run ONLY the kcov-fragile unit specs in PLAIN mode (COVERAGE unset),
-  # for the GHA bats-fragile job. These are the exact tests the coverage
-  # matrix skips, so running them here preserves full unit coverage with
-  # zero double-run: non-fragile tests run under kcov (coverage matrix),
-  # fragile tests run plain here. Selection is runtime-computed
-  # (_fragile_unit_files) so the set self-maintains.
+  # Run ONLY the kcov-fragile unit spec FILES in PLAIN mode (COVERAGE
+  # unset), for the GHA bats-fragile job. Those files hold the tests the
+  # coverage matrix skips, so running them here is what leaves no unit test
+  # unrun: the skipped tests run plain here, every other unit test runs
+  # under kcov in the coverage matrix. It is not a partition -- selection is
+  # by file (_fragile_unit_files), so the unguarded tests in a selected file
+  # run in both legs. Runtime-computed, so the set self-maintains; the size
+  # of the overlap is derived in self_test_yaml_spec.bats rather than
+  # restated here.
   local _files
   _files="$(_fragile_unit_files)"
   local -a _bats_args
