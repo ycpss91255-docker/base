@@ -178,8 +178,21 @@ teardown() {
   refute_output --partial "No containers found for project"
 }
 
-# ── /lint/-layout _detect_lang (flat dir with _lib.sh + i18n.sh,) ─────
+# ── /lint/-layout _resolve_lang (flat dir with _lib.sh + i18n.sh) ─────
 
+# why: The flat layout has no `template/` beside the wrapper, so the
+# wrapper's own bootstrap has to find `lib/i18n.sh` next to it and let
+# `_resolve_lang` pick the heredoc. That composition is the property only a
+# test in this file can pin, and one locale pins it. The zh_CN and ja twins
+# were folded away because the halves they added are pinned closer to the
+# source: the LANG-to-code mapping at the function seam in lib_spec.bats
+# (`_resolve_lang sets 'zh-CN' for zh_CN.UTF-8`, `... for zh_SG`, `... 'ja'
+# for ja_JP.UTF-8`) and each usage() arm by the `--lang` tests above.
+# Measured on the whole unit tier: pointing `_detect_lang`'s `zh_CN*|zh_SG*`
+# and `ja*` arms at "en" turned 14 of 4726 tests red with the twins present
+# and 6 with them gone -- the three `_resolve_lang` tests, the two
+# `_sanitize_lang` locale tests, and justfile_user_spec's Japanese recipe
+# summaries (base#1117).
 @test "stop.sh in /lint/ layout maps zh_TW.UTF-8 to zh-TW" {
   local _tmp
   _tmp="$(mktemp -d)"
@@ -190,31 +203,6 @@ teardown() {
   assert_success
   assert_output --partial "顯示此說明"
   refute_output --partial "显示此说明"
-  rm -rf "${_tmp}"
-}
-
-@test "stop.sh in /lint/ layout maps zh_CN.UTF-8 to zh-CN" {
-  local _tmp
-  _tmp="$(mktemp -d)"
-  ln -s /source/dist/script/docker/wrapper/stop.sh "${_tmp}/stop.sh"
-  mkdir -p "${_tmp}/lib"
-  cp /source/dist/script/docker/lib/* "${_tmp}/lib/"
-  LANG=zh_CN.UTF-8 run bash "${_tmp}/stop.sh" -h
-  assert_success
-  assert_output --partial "显示此说明"
-  refute_output --partial "顯示此說明"
-  rm -rf "${_tmp}"
-}
-
-@test "stop.sh in /lint/ layout maps ja_JP.UTF-8 to ja" {
-  local _tmp
-  _tmp="$(mktemp -d)"
-  ln -s /source/dist/script/docker/wrapper/stop.sh "${_tmp}/stop.sh"
-  mkdir -p "${_tmp}/lib"
-  cp /source/dist/script/docker/lib/* "${_tmp}/lib/"
-  LANG=ja_JP.UTF-8 run bash "${_tmp}/stop.sh" -h
-  assert_success
-  assert_output --partial "使用法"
   rm -rf "${_tmp}"
 }
 

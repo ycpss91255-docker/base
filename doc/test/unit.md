@@ -459,7 +459,7 @@ mentions the `--no-prune` flag.
 | `build.sh --dry-run prints planned prune step + does not rmi` | - |
 | `build.sh --help mentions --no-prune (#387)` | - |
 
-### test/bats/unit/build_sh_spec.bats (63)
+### test/bats/unit/build_sh_spec.bats (61)
 
 Unit tests for `build.sh` argument handling and control flow. Uses a sandbox
 tree mirroring the expected layout (build.sh + `template/` subtree with real
@@ -534,9 +534,7 @@ runs).
 | `build.sh --lang zh-CN prints Simplified Chinese usage text` | The Simplified half of the same decision. The shared "Usage" token this used to assert is byte-identical in both Chinese heredocs, so a zh-CN arm rendering the Traditional block read green. The token asserted here is the help-flag description line in its Simplified spelling, which the Traditional block cannot contain. |
 | `build.sh --lang ja prints Japanese usage text` | - |
 | `build.sh --help documents QUIET in every locale (#895)` | - |
-| `build.sh in /lint/ layout maps zh_TW.UTF-8 to zh-TW` | - |
-| `build.sh in /lint/ layout maps zh_CN.UTF-8 to zh-CN` | - |
-| `build.sh in /lint/ layout maps ja_JP.UTF-8 to ja` | - |
+| `build.sh in /lint/ layout maps zh_TW.UTF-8 to zh-TW` | The flat layout has no `template/` beside the wrapper, so the wrapper's own bootstrap has to find `lib/i18n.sh` next to it and let `_resolve_lang` pick the heredoc. That composition is the property only a test in this file can pin, and one locale pins it. The zh_CN and ja twins were folded away because the halves they added are pinned closer to the source: the LANG-to-code mapping at the function seam in lib_spec.bats (`_resolve_lang sets 'zh-CN' for zh_CN.UTF-8`, `... for zh_SG`, `... 'ja' for ja_JP.UTF-8`) and each usage() arm by the `--lang` tests above. Measured on the whole unit tier: pointing `_detect_lang`'s `zh_CN*\|zh_SG*` and `ja*` arms at "en" turned 14 of 4726 tests red with the twins present and 6 with them gone -- the three `_resolve_lang` tests, the two `_sanitize_lang` locale tests, and justfile_user_spec's Japanese recipe summaries (base#1117). |
 | `build.sh calls real docker build when --dry-run is not set` | - |
 | `build.sh fails loud when .base/.version is missing (no bare test-tools:local fallback)` | - |
 | `build.sh skips internal test-tools build when TEST_TOOLS_IMAGE is set (#317 P2)` | - |
@@ -2608,7 +2606,7 @@ SSH X11 `XAUTHORITY` override #321) and `_scaffold_env_overlay` idempotency.
 | `_run_errexit_bang: an unterminated allow region fails (#956)` | - |
 | `_run_errexit_bang: an unmatched allow-end fails (#956)` | - |
 
-### test/bats/unit/exec_sh_spec.bats (61)
+### test/bats/unit/exec_sh_spec.bats (59)
 
 Unit tests for `exec.sh` argument parsing, the container-running precheck,
 and i18n. Sandbox tree mirrors build_sh_spec.bats; `docker ps` reads from a
@@ -2669,9 +2667,7 @@ exit $?`; a failing pre-exec hook aborts before `compose exec` runs).
 | `exec.sh -- separator: works after -t TARGET (run.sh parity, #289)` | - |
 | `exec.sh: no -- still works for positional CMD (backward compat, #289)` | - |
 | `exec.sh --help mentions the -- separator (#289)` | - |
-| `exec.sh in /lint/ layout maps zh_TW.UTF-8 to zh-TW` | - |
-| `exec.sh in /lint/ layout maps zh_CN.UTF-8 to zh-CN` | - |
-| `exec.sh in /lint/ layout maps ja_JP.UTF-8 to ja` | - |
+| `exec.sh in /lint/ layout maps zh_TW.UTF-8 to zh-TW` | The flat layout has no `template/` beside the wrapper, so the wrapper's own bootstrap has to find `lib/i18n.sh` next to it and let `_resolve_lang` pick the heredoc. That composition is the property only a test in this file can pin, and one locale pins it. The zh_CN and ja twins were folded away because the halves they added are pinned closer to the source: the LANG-to-code mapping at the function seam in lib_spec.bats (`_resolve_lang sets 'zh-CN' for zh_CN.UTF-8`, `... for zh_SG`, `... 'ja' for ja_JP.UTF-8`) and each usage() arm by the `--lang` tests above. Measured on the whole unit tier: pointing `_detect_lang`'s `zh_CN*\|zh_SG*` and `ja*` arms at "en" turned 14 of 4726 tests red with the twins present and 6 with them gone -- the three `_resolve_lang` tests, the two `_sanitize_lang` locale tests, and justfile_user_spec's Japanese recipe summaries (base#1117). |
 | `exec.sh -C <dir> redirects FILE_PATH to <dir>` | - |
 | `exec.sh --chdir <dir> long form is equivalent to -C` | - |
 | `exec.sh -C without a value exits 2` | - |
@@ -4690,7 +4686,7 @@ certified B, which two of today's four workers sit one line away from.
 | `reusable workers: no job inherits the caller's grant (#957)` | Names `<workflow>: <job>` for every job with no permission entry of its own -- no block, or an inline `permissions: read-all` that names no scope. Such a job runs under whatever the calling repo granted its calling job: a `contents: write` held to cut a release, a `packages: write` held to publish |
 | `reusable workers: every one of them has a spec reading its permission surface (#957)` | The class-level half: a worker whose jobs all declare `contents: write` passes both tests above, so every derived worker must also have a spec that APPLIES `yaml_permission_surface` to it. Call sites are derived by `find` over the spec tree and resolved through each call's own argument, then matched against the worker's full path exactly, and the scan is floored at the derived worker count. Named for READING a surface, not for pinning a grant: whether the reader asserts the exact scope set is a property of the assertion, which no scan over call sites can see. This file is excluded because it reads every worker's surface to assert the complementary property (that a grant is declared, not which) |
 
-### test/bats/unit/run_sh_spec.bats (71)
+### test/bats/unit/run_sh_spec.bats (69)
 
 Unit tests for `run.sh`. Mirrors the build_sh_spec.bats harness; the `docker
 compose ... ps` probe reads from a controllable stub file (one running
@@ -4778,9 +4774,7 @@ down --remove-orphans` still runs).
 | `run.sh --lang ja prints Japanese usage text` | - |
 | `run.sh --help documents QUIET in every locale (#895)` | - |
 | `run.sh uses xhost +SI:localuser under Wayland session` | - |
-| `run.sh in /lint/ layout maps zh_TW.UTF-8 to zh-TW` | - |
-| `run.sh in /lint/ layout maps zh_CN.UTF-8 to zh-CN` | - |
-| `run.sh in /lint/ layout maps ja_JP.UTF-8 to ja` | - |
+| `run.sh in /lint/ layout maps zh_TW.UTF-8 to zh-TW` | The flat layout has no `template/` beside the wrapper, so the wrapper's own bootstrap has to find `lib/i18n.sh` next to it and let `_resolve_lang` pick the heredoc. That composition is the property only a test in this file can pin, and one locale pins it. The zh_CN and ja twins were folded away because the halves they added are pinned closer to the source: the LANG-to-code mapping at the function seam in lib_spec.bats (`_resolve_lang sets 'zh-CN' for zh_CN.UTF-8`, `... for zh_SG`, `... 'ja' for ja_JP.UTF-8`) and each usage() arm by the `--lang` tests above. Measured on the whole unit tier: pointing `_detect_lang`'s `zh_CN*\|zh_SG*` and `ja*` arms at "en" turned 14 of 4726 tests red with the twins present and 6 with them gone -- the three `_resolve_lang` tests, the two `_sanitize_lang` locale tests, and justfile_user_spec's Japanese recipe summaries (base#1117). |
 | `run.sh --lang zh-TW prints Chinese bootstrap log` | - |
 | `run.sh --lang zh-CN prints Simplified Chinese bootstrap log` | - |
 | `run.sh --lang ja prints Japanese bootstrap log` | - |
@@ -6330,7 +6324,7 @@ live `dist/` passes today.
 | `_run_stale_setup_conf: ignores non-.sh files under dist/ (#845)` | Docs out of the lint's scope |
 | `_run_stale_setup_conf: FAILS when the dist/ scan root is missing (no vacuous pass) (#845)` | Missing scan root fails, no vacuous pass |
 
-### test/bats/unit/stop_sh_spec.bats (31)
+### test/bats/unit/stop_sh_spec.bats (29)
 
 Unit tests for `stop.sh` argument parsing, the single-project teardown, and
 i18n. `docker ps -a` output is PATH-shimmed via `${DOCKER_PS_A_FILE}` so
@@ -6365,9 +6359,7 @@ runs).
 | `stop.sh -v with no matching containers prints empty-project hint (#345)` | - |
 | `stop.sh without -v does NOT emit the verbose container listing (#345 default)` | - |
 | `stop.sh: an ambient VERBOSE does not reach the flag's behaviour (#895)` | - |
-| `stop.sh in /lint/ layout maps zh_TW.UTF-8 to zh-TW` | - |
-| `stop.sh in /lint/ layout maps zh_CN.UTF-8 to zh-CN` | - |
-| `stop.sh in /lint/ layout maps ja_JP.UTF-8 to ja` | - |
+| `stop.sh in /lint/ layout maps zh_TW.UTF-8 to zh-TW` | The flat layout has no `template/` beside the wrapper, so the wrapper's own bootstrap has to find `lib/i18n.sh` next to it and let `_resolve_lang` pick the heredoc. That composition is the property only a test in this file can pin, and one locale pins it. The zh_CN and ja twins were folded away because the halves they added are pinned closer to the source: the LANG-to-code mapping at the function seam in lib_spec.bats (`_resolve_lang sets 'zh-CN' for zh_CN.UTF-8`, `... for zh_SG`, `... 'ja' for ja_JP.UTF-8`) and each usage() arm by the `--lang` tests above. Measured on the whole unit tier: pointing `_detect_lang`'s `zh_CN*\|zh_SG*` and `ja*` arms at "en" turned 14 of 4726 tests red with the twins present and 6 with them gone -- the three `_resolve_lang` tests, the two `_sanitize_lang` locale tests, and justfile_user_spec's Japanese recipe summaries (base#1117). |
 | `stop.sh -C <dir> redirects FILE_PATH to <dir>` | - |
 | `stop.sh --chdir <dir> long form is equivalent to -C` | - |
 | `stop.sh -C without a value exits 2` | - |
