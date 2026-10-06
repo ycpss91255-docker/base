@@ -103,6 +103,45 @@ teardown() {
   [ -z "${_missing}" ] || { echo "script/test scripts never linted:${_missing}"; false; }
 }
 
+# why: base#1113 the dist/ half named its find roots, and the tree grew two
+# scripts outside every one of them
+@test "_run_shellcheck: lints every *.sh the dist/ tree ships (base#1113)" {
+  # The script/ half has asked the tree since base#876; the dist/ half kept
+  # a list of roots, and a list of roots cannot say which root is missing.
+  # dist/deploy/cd-guard.sh (downstream CD runs it before a deploy) and
+  # dist/config/shell/bashrc.d/30-name-host-groups.sh (the Dockerfile copies
+  # it into ~/.bashrc.d and every interactive shell sources it) sat outside
+  # all of them: an SC2086 added to both left --shellcheck-only printing
+  # "--- Running ShellCheck ---" and exiting 0, while the same line in
+  # dist/script/docker/lib/hook.sh failed the run. The population is the
+  # shipped tree, so the driver asks the shipped tree.
+  local _log="${BATS_TEST_TMPDIR}/shellcheck.log"
+  mock_cmd "shellcheck" '
+    printf "%s\n" "$*" >> "'"${_log}"'"
+    exit 0'
+  run bash -c '
+    source /source/script/test/test.sh
+    _run_shellcheck
+  '
+  assert_success
+  assert [ -f "${_log}" ]
+
+  local -a _shipped=()
+  mapfile -t _shipped < <(find /source/dist -name '*.sh' -type f | sort)
+  # Refuse the no-evidence state. A find that matched nothing makes every
+  # comparison below a comparison against an empty population, so the guard
+  # would report clean having read no files at all.
+  [ "${#_shipped[@]}" -ge 50 ] \
+    || fail "find over dist/ yielded ${#_shipped[@]} scripts; the population did not parse"
+
+  local _f _missing=""
+  for _f in "${_shipped[@]}"; do
+    grep -qF "${_f}" "${_log}" || _missing+=" ${_f}"
+  done
+  [ -z "${_missing}" ] \
+    || fail "shipped dist/ scripts in no ShellCheck pass:${_missing} -- a shipped script no pass names is a script whose next edit is unchecked"
+}
+
 # why: Strict-mode propagation
 @test "_run_shellcheck: exits non-zero when shellcheck fails on any script" {
   # Simulate a lint violation on init.sh specifically.
@@ -3903,7 +3942,115 @@ AWK
 # driver libraries under script/test/drivers/. These guards pin the
 # split so a future refactor can't silently re-inline a tool or drop a
 # `source` line.
+#
+# THE DIRECTORY IS THE POPULATION (base#1113). The guards below used to
+# name three driver files -- shellcheck, hadolint, bats -- against a
+# directory holding twenty-nine, and _LINT_TOOLS' completeness was asked
+# only of _LINT_TOOLS itself: both the lint-static partition and
+# self_test_yaml_spec's CI-join guard shard that same table, so a driver
+# never added to it is in no group, and nothing has anything to say.
+# Measured on 3f20ffe: a drivers/probe_lint.sh defining _run_probe_lint,
+# with _LINT_TOOLS untouched, left `--bats-path
+# test/bats/unit/self_test_yaml_spec.bats --filter lint` at 20/20 and
+# `--bats-path test/bats/unit/ci_spec.bats --filter driver` at 14/14,
+# both exit 0. So the population is read from drivers/, and the
+# hand-written part is reduced to the exemptions below, each of which has
+# to say why.
 # ════════════════════════════════════════════════════════════════════
+
+# Driver files that hold no lint entry point, each with the reason.
+# Anything NOT listed here has every `_run_*` it defines held to
+# _LINT_TOOLS -- that is what makes a new driver file fail these specs
+# instead of quietly running nowhere.
+_NON_LINT_DRIVER_FILES=(
+  # The suite's test tiers: unit / integration / system, the shards, the
+  # fragile set and the coverage legs. main's own option parser
+  # dispatches them as phases; _run_lint_tool never sees them, and
+  # _LINT_TOOLS is the lint phase's table.
+  bats.sh
+  # The coverage-floor gate. A phase, not a lint, and CI runs it as a
+  # standalone CLI (`bash script/test/drivers/coverage_gate.sh
+  # <cobertura>...`) with no dispatcher in the picture.
+  coverage_gate.sh
+)
+
+# Driver files test.sh deliberately does not `source`, each with the
+# reason. Anything NOT listed here must have a source line, so a driver
+# file added without one fails instead of leaving its `_run_*` undefined
+# at dispatch.
+_UNSOURCED_DRIVER_FILES=(
+  # Executed, not sourced: the file's own tail runs _coverage_gate_run
+  # when invoked directly, which is how both CI and the kcov legs call
+  # it. Sourcing it into the dispatcher would buy nothing -- no
+  # _LINT_TOOLS entry and no option arm reach _run_coverage_gate.
+  coverage_gate.sh
+)
+
+# Lint entry points _LINT_TOOLS deliberately does not carry, each with
+# the reason. Anything NOT listed here must be in the table, so a lint
+# driver written and spec'd but never registered fails instead of
+# gating nothing while its own specs stay green.
+#
+# TRANSITIONAL, ALL FOUR. _run_lint_tool dispatches them and the reason
+# they are out of the table is written at that dispatch point:
+# _LINT_TOOLS runs INSIDE the ci container, while these judge by an
+# adoption ceiling read from the git index, and a `git worktree`
+# checkout's .git is a file pointing outside the bind mount. base#994
+# phase 4 gives the lint phase a host-direct leg and folds them in --
+# and the guard below refuses an entry that the table has meanwhile
+# grown, so this array cannot outlive that.
+_UNTABLED_LINT_ENTRY_POINTS=(
+  nesting-depth
+  function-length
+  positional-params
+  shell-metrics
+)
+
+# Whether <needle> is one of the remaining arguments.
+_in_set() {
+  local _needle="${1}" _item
+  shift
+  for _item in "$@"; do
+    [[ "${_item}" != "${_needle}" ]] || return 0
+  done
+  return 1
+}
+
+# The driver file names the drivers directory holds, one per line.
+_driver_files() {
+  local _path
+  for _path in /source/script/test/drivers/*.sh; do
+    printf '%s\n' "${_path##*/}"
+  done
+}
+
+# The `_run_<name>` entry points one driver file defines, spelled the way
+# _LINT_TOOLS spells a tool (underscores become dashes).
+#
+# The entry points, not the file names: bats.sh defines ten and
+# shell_metrics.sh four, so "each drivers/<name>.sh defines _run_<name>"
+# is not a rule this tree follows, and a population built on it would
+# miss every lint that shares a file.
+_entry_points_of() {
+  local _def _name
+  while IFS= read -r _def; do
+    _name="${_def#_run_}"
+    _name="${_name%%(*}"
+    printf '%s\n' "${_name//_/-}"
+  done < <(grep -oE '^_run_[a-z0-9_]+\(\) \{' "${1}")
+}
+
+# Every lint entry point the drivers directory defines: the `_run_*` of
+# every driver file not declared non-lint above.
+_lint_entry_points() {
+  local _file
+  while IFS= read -r _file; do
+    if _in_set "${_file}" "${_NON_LINT_DRIVER_FILES[@]}"; then
+      continue
+    fi
+    _entry_points_of "/source/script/test/drivers/${_file}"
+  done < <(_driver_files)
+}
 
 # why: #650 driver files present (incl. hadolint)
 @test "drivers: bats.sh, shellcheck.sh and hadolint.sh driver files exist" {
@@ -3914,14 +4061,116 @@ AWK
   assert [ -f /source/script/test/drivers/hadolint.sh ]
 }
 
-# why: #650 dispatcher sources every driver
-@test "drivers: test.sh sources all per-tool drivers" {
-  run grep -F 'source "${SCRIPT_DIR}/drivers/shellcheck.sh"' /source/script/test/test.sh
-  assert_success
-  run grep -F 'source "${SCRIPT_DIR}/drivers/hadolint.sh"' /source/script/test/test.sh
-  assert_success
-  run grep -F 'source "${SCRIPT_DIR}/drivers/bats.sh"' /source/script/test/test.sh
-  assert_success
+# why: base#1113 three source lines were checked against a directory of
+# twenty-nine driver files
+@test "drivers: test.sh sources every driver file in drivers/ (base#1113)" {
+  # This used to grep the shellcheck / hadolint / bats source lines and be
+  # titled "all per-tool drivers". A driver file that arrived with no
+  # source line was named by nothing: its `_run_*` is undefined when the
+  # dispatcher reaches it, and the failure surfaces as a missing command
+  # on the day the lint is supposed to be doing its job.
+  local -a _files=()
+  mapfile -t _files < <(_driver_files)
+  # Refuse the no-evidence state: an unreadable directory would leave the
+  # loop below with nothing to check and this guard reporting clean.
+  [ "${#_files[@]}" -ge 20 ] \
+    || fail "drivers/ yielded ${#_files[@]} files; the population did not parse"
+
+  local _file _missing=""
+  for _file in "${_files[@]}"; do
+    if _in_set "${_file}" "${_UNSOURCED_DRIVER_FILES[@]}"; then
+      continue
+    fi
+    if grep -qF "source \"\${SCRIPT_DIR}/drivers/${_file}\"" \
+        /source/script/test/test.sh; then
+      continue
+    fi
+    _missing+=" ${_file}"
+  done
+  [ -z "${_missing}" ] \
+    || fail "driver file(s) test.sh neither sources nor declares unsourced:${_missing}"
+}
+
+# why: base#1113 a driver never added to the table is in no lint phase and
+# no CI group, and the guards all read the table
+@test "_LINT_TOOLS: every lint entry point under drivers/ is in the table or stated exempt (base#1113)" {
+  local -a _found=() _table=()
+  mapfile -t _found < <(_lint_entry_points | sort -u)
+  mapfile -t _table < <(_declared_array _LINT_TOOLS)
+
+  # Non-vacuity, both sides. A scan that matched nothing and a table that
+  # did not parse both reduce the comparison below to two empty sets, and
+  # an empty derived population is not a passing gate -- it is the gate
+  # reporting clean having read nothing.
+  [ "${#_found[@]}" -ge 20 ] \
+    || fail "drivers/ yielded ${#_found[@]} lint entry points; the scan did not parse"
+  [ "${#_table[@]}" -ge 20 ] \
+    || fail "_LINT_TOOLS yielded ${#_table[@]} entries; the table did not parse"
+  _in_set shellcheck "${_found[@]}" \
+    || fail "the scan found no 'shellcheck' entry point; it is reading something other than the drivers"
+
+  local _entry _orphan=""
+  for _entry in "${_found[@]}"; do
+    if _in_set "${_entry}" "${_table[@]}"; then
+      continue
+    fi
+    if _in_set "${_entry}" "${_UNTABLED_LINT_ENTRY_POINTS[@]}"; then
+      continue
+    fi
+    _orphan+=" ${_entry}"
+  done
+  [ -z "${_orphan}" ] \
+    || fail "lint entry point(s) in neither _LINT_TOOLS nor the stated exemptions:${_orphan} -- a lint the table does not carry is run by no lint phase and lands in no lint-static group, while its own unit specs stay green"
+}
+
+# why: base#1113 an exemption array is the one hand-written thing left, so
+# it is held to the rule that each entry excuses something real
+@test "_LINT_TOOLS: each stated exemption names something real and nothing the table carries (base#1113)" {
+  local -a _found=() _table=() _files=()
+  mapfile -t _found < <(_lint_entry_points | sort -u)
+  mapfile -t _table < <(_declared_array _LINT_TOOLS)
+  mapfile -t _files < <(_driver_files)
+  [ "${#_found[@]}" -ge 20 ] \
+    || fail "drivers/ yielded ${#_found[@]} lint entry points; the scan did not parse"
+  [ "${#_table[@]}" -ge 20 ] \
+    || fail "_LINT_TOOLS yielded ${#_table[@]} entries; the table did not parse"
+
+  # A name exempted from the table must still BE an entry point -- an
+  # exemption that names nothing excuses an entry point of that name
+  # arriving later, on sight -- and must not meanwhile be in the table,
+  # which is how base#994 phase 4 folding these in forces the array to
+  # shrink with it instead of silently widening the guard.
+  local _entry
+  for _entry in "${_UNTABLED_LINT_ENTRY_POINTS[@]}"; do
+    _in_set "${_entry}" "${_found[@]}" \
+      || fail "'${_entry}' is exempted from _LINT_TOOLS but no lint driver defines its entry point -- the exemption excuses nothing today and anything of that name tomorrow"
+    if _in_set "${_entry}" "${_table[@]}"; then
+      fail "'${_entry}' is in _LINT_TOOLS and still exempted from it -- the table has grown it, so the exemption entry has to go with it"
+    fi
+  done
+
+  # A file-level exemption is the same fail-open one level up if the file
+  # it excuses turns out to hold lints, so each one must exist, must hold
+  # entry points at all, and must hold none the table carries.
+  local _file
+  for _file in "${_NON_LINT_DRIVER_FILES[@]}"; do
+    _in_set "${_file}" "${_files[@]}" \
+      || fail "'${_file}' is declared a non-lint driver file but drivers/ has no such file -- the exemption excuses nothing"
+    local -a _own=()
+    mapfile -t _own < <(_entry_points_of "/source/script/test/drivers/${_file}")
+    [ "${#_own[@]}" -ge 1 ] \
+      || fail "'${_file}' is declared a non-lint driver file but defines no _run_* entry point, so it needs no exemption"
+    for _entry in "${_own[@]}"; do
+      if _in_set "${_entry}" "${_table[@]}"; then
+        fail "'${_file}' is excused as a non-lint driver file yet defines '${_entry}', which _LINT_TOOLS carries -- the file-level exemption is hiding lint entry points"
+      fi
+    done
+  done
+
+  for _file in "${_UNSOURCED_DRIVER_FILES[@]}"; do
+    _in_set "${_file}" "${_files[@]}" \
+      || fail "'${_file}' is declared unsourced by test.sh but drivers/ has no such file -- the exemption excuses nothing"
+  done
 }
 
 # why: #650 bats runners moved out

@@ -565,7 +565,7 @@ runs).
 | `build.sh -vv --dry-run enables bash trace (set -x output on stderr) (#311)` | - |
 | `build.sh aborts on a failing pre-build hook and skips docker build (#690)` | - |
 
-### test/bats/unit/build_sh_verify_spec.bats (17)
+### test/bats/unit/build_sh_verify_spec.bats (18)
 
 | Test | Description |
 |------|-------------|
@@ -582,6 +582,7 @@ runs).
 | `build.sh test: build output with no BuildKit progress lines fails the build` | The mechanism failing is the one thing still worth a non-zero exit |
 | `build.sh test: a step with no CACHED/DONE state fails the build` | An unresolved step proves neither branch, so neither is claimed |
 | `build.sh test: pins BUILDKIT_PROGRESS=plain for a verification target` | The parsed progress mode is pinned, not inherited from the caller |
+| `build.sh test: the verification branch builds the stage it was asked for (#1115)` | The verification branch is a SECOND compose dispatch, and the only one a --dry-run case can never reach: the branch is taken only when a real build runs, so every target assertion in build_sh_spec lands on the other arm. Replacing this arm's target with a literal `devel` builds and tags devel, reports on devel's steps, and leaves all 17 cases here green -- the report is derived from the stage name the wrapper was GIVEN, not from the one it handed compose |
 | `build.sh devel: a non-verification target gets no verification report` | Scope: a plain devel build is unchanged |
 | `build.sh --target test-tools: the tooling image build is not a verification target` | The tooling image `just test` builds first runs no checks |
 | `build.sh smoke: base's own smoke harness IS a verification target` | base's `just test smoke` had the identical hole |
@@ -1122,13 +1123,14 @@ between them can be asserted at all.
 | `reclaim.sh --stale delegates the unowned classes to prune.sh with the same window` | - |
 | `reclaim.sh --stale never touches volumes` | - |
 
-### test/bats/unit/ci_spec.bats (177)
+### test/bats/unit/ci_spec.bats (180)
 
 | Test | Description |
 |------|-------------|
 | `_run_shellcheck: invokes shellcheck against every expected script` | Wired-file regression guard |
 | `_run_shellcheck: picks up every .sh file in script/docker/` | `find` covers new scripts |
 | `_run_shellcheck: picks up every .sh file in script/test/ (#876)` | - |
+| `_run_shellcheck: lints every *.sh the dist/ tree ships (base#1113)` | base#1113 the dist/ half named its find roots, and the tree grew two scripts outside every one of them |
 | `_run_shellcheck: exits non-zero when shellcheck fails on any script` | Strict-mode propagation |
 | `_run_lint_tool: names the tool and the signal when a driver dies of SIGPIPE (#898)` | 141 reported as tool + command + SIGPIPE |
 | `_run_lint_tool: names the tool when a driver fails without a signal (#898)` | Plain non-zero abort still names the tool |
@@ -1258,7 +1260,9 @@ between them can be asserted at all.
 | `_run_bats_path: BATS_FILE runs bats on that path; BATS_FILTER appends -f` | #523 single-path runner |
 | `_run_bats_path: filter-only runs bats across unit + integration` | #523 filter-only runner |
 | `drivers: bats.sh, shellcheck.sh and hadolint.sh driver files exist` | #650 driver files present (incl. hadolint) |
-| `drivers: test.sh sources all per-tool drivers` | #650 dispatcher sources every driver |
+| `drivers: test.sh sources every driver file in drivers/ (base#1113)` | base#1113 three source lines were checked against a directory of twenty-nine driver files |
+| `_LINT_TOOLS: every lint entry point under drivers/ is in the table or stated exempt (base#1113)` | base#1113 a driver never added to the table is in no lint phase and no CI group, and the guards all read the table |
+| `_LINT_TOOLS: each stated exemption names something real and nothing the table carries (base#1113)` | base#1113 an exemption array is the one hand-written thing left, so it is held to the rule that each entry excuses something real |
 | `drivers: the bats runners live in drivers/bats.sh, not test.sh` | #650 bats runners moved out |
 | `drivers: _run_shellcheck lives in drivers/shellcheck.sh, not test.sh` | #650 shellcheck moved out |
 | `drivers: _run_hadolint lives in drivers/hadolint.sh, not test.sh (#650)` | #650 hadolint in its driver |
@@ -2423,7 +2427,7 @@ subshells and assert both the host file content and the inherited stdout
 | `entrypoint_logging warns 'cannot create' + continues when parent dir is unmakeable (#691)` | mkdir-fail branch (parent is a regular file) |
 | `entrypoint_logging warns 'tee binary missing' + continues when tee absent (#691)` | tee-missing branch (stub PATH) |
 
-### test/bats/unit/entrypoint_spec.bats (10)
+### test/bats/unit/entrypoint_spec.bats (11)
 
 base's container ENTRYPOINT orchestrator, the base-owned half of the
 two-file entrypoint model (ADR-00000032). It ships from `.base/dist/`, lands
@@ -2445,12 +2449,13 @@ the file's bottom guard and are pinned separately.
 | `a non-executable bringup still runs, because it is sourced (#945)` | Nothing in the contract depends on the mode bit, and pinning that is what stops a later "just exec it" simplification from passing its own tests -- the shipped file happens to be COPY'd 0755, so the exec variant would look correct everywhere except a repo that ships its bringup 0644 |
 | `a missing bringup and missing helpers still start the workload cleanly (#945)` | The shape most existing repos are actually in -- the runtime helper COPY is opt-in and a repo need not carry a bringup at all. Asserted with stderr separated and under the orchestrator's own strict mode, because the interesting failures here are a stray diagnostic and a nounset abort, neither of which changes the workload's exit status |
 | `the workload's argv survives verbatim, spaces included (#945)` | The orchestrator sits between docker and CMD, so an unquoted `$@` anywhere in it re-splits the command a user typed. The embedded space is the only argument shape that catches that; a single-word workload passes through every wrong spelling |
-| `executed directly with nothing installed, it still execs the workload (#945)` | The bottom guard driven for real instead of grepped. Every other test here calls the dispatcher with scratch paths, so nothing else exercises the frozen literals or the strict mode the shipped file turns on for itself -- and an image with none of the three installed is the ordinary pre-adoption shape, not a hypothetical |
+| `the workload runs as the orchestrator's own process, not as a child of it (#945, #1115)` | The invariant the file states about itself at entrypoint.sh:50-53 ("this function never returns -- it ends in the workload's exec"), and the one thing nothing here observed. Drop the `exec` and every other case in this file stays green: stdout, argv and exit status are identical under exec and under fork. What differs is the process, so the process is what this asks about. Without exec the workload is a GRANDCHILD of tini, which the emitter defaults on (compose_emit.sh init: true), and tini forwards a stop signal only to its single child -- so `just docker stop` and `docker compose down` tear the container down without the workload ever seeing SIGTERM |
+| `executed directly with nothing installed, the frozen guard runs clean under its own strict mode (#945)` | The bottom guard driven for real instead of grepped. Every other test here calls the dispatcher with scratch paths, so nothing else exercises the frozen literals or the strict mode the shipped file turns on for itself -- and an image with none of the three installed is the ordinary pre-adoption shape, not a hypothetical. It is NOT the exec check its old title claimed: assert_success, the output and an empty stderr all read the same under exec and under fork, so the process replacement is asserted by the case above instead |
 | `executed directly, the orchestrator drives the in-image paths (#945)` | The Dockerfile contract in the one place it is spelled. The test above proves the guard RUNS but passes just as happily on a helper directory the Dockerfile never populates, so the two literals need pinning on their own: change one and the Dockerfile has to change with it |
 | `the orchestrator ships with the executable bit set (#945)` | Its four runtime siblings are 644 because they are sourced; this one is executed. The Dockerfile's `COPY --chmod=0755` hides a committed 644, so nothing in a normal build goes red -- the file is simply not runnable from the subtree, and any consumer path that stops going through that COPY inherits an exit 126 |
 | `the shared smoke baseline asserts the orchestrator's in-image path (#945)` | Joins the two files nothing else joins -- it reads the ENTRYPOINT out of the shipped Dockerfile and requires the shared build-time baseline to name that same path. Without it the half the container actually starts is asserted by nothing, and a dropped runtime-directory COPY stays invisible until a real container fails to come up |
 
-### test/bats/unit/env_emit_spec.bats (27)
+### test/bats/unit/env_emit_spec.bats (28)
 
 Mirrors `lib/env_emit.sh`. `write_env` (.env contents + SETUP_* metadata,
 SSH X11 `XAUTHORITY` override #321) and `_scaffold_env_overlay` idempotency.
@@ -2460,6 +2465,7 @@ SSH X11 `XAUTHORITY` override #321) and `_scaffold_env_overlay` idempotency.
 | `write_env emits XAUTHORITY=<rewritten> when _ssh_x11_xauth arg is set (#321)` | - |
 | `write_env does NOT emit XAUTHORITY override when _ssh_x11_xauth arg is empty (#321)` | - |
 | `write_env creates .env with all required variables and SETUP_* metadata` | - |
+| `write_env writes every key the emitted compose.yaml interpolates with no fallback (#1115)` | Every USER_GID / USER_GROUP assertion in the tree is a CONSUMER carrying its own hand-written fixture (lib_spec writes its own .env, gen_spec asserts the compose text), so expectation and subject never share the producer and the producer was free to stop producing. Deleting both lines from write_env's heredoc left the whole unit and integration tiers green, while a real consumer gets USER_GID="" overriding the Dockerfile's ARG default and `groupadd: invalid group ID ''`, exit 3. The one gate that does catch it is the dual-arch acceptance job, the most expensive in CI |
 | `_scaffold_env_local is idempotent (never overwrites) (#868)` | - |
 | `write_env emits PROJECT_NAME_PENDING only when a rename is deferred (#920)` | - |
 | `_scaffold_env_local creates a comment-only override file naming .env (#868)` | - |
@@ -4666,7 +4672,7 @@ certified B, which two of today's four workers sit one line away from.
 | `reusable workers: no job inherits the caller's grant (#957)` | Names `<workflow>: <job>` for every job with no permission entry of its own -- no block, or an inline `permissions: read-all` that names no scope. Such a job runs under whatever the calling repo granted its calling job: a `contents: write` held to cut a release, a `packages: write` held to publish |
 | `reusable workers: every one of them has a spec reading its permission surface (#957)` | The class-level half: a worker whose jobs all declare `contents: write` passes both tests above, so every derived worker must also have a spec that APPLIES `yaml_permission_surface` to it. Call sites are derived by `find` over the spec tree and resolved through each call's own argument, then matched against the worker's full path exactly, and the scan is floored at the derived worker count. Named for READING a surface, not for pinning a grant: whether the reader asserts the exact scope set is a property of the assertion, which no scan over call sites can see. This file is excluded because it reads every worker's surface to assert the complementary property (that a grant is declared, not which) |
 
-### test/bats/unit/run_sh_spec.bats (70)
+### test/bats/unit/run_sh_spec.bats (71)
 
 Unit tests for `run.sh`. Mirrors the build_sh_spec.bats harness; the `docker
 compose ... ps` probe reads from a controllable stub file (one running
@@ -4729,6 +4735,7 @@ down --remove-orphans` still runs).
 | `run.sh fails with clear error if setup.sh produced no .env` | - |
 | `run.sh --detach routes to 'compose up -d'` | - |
 | `run.sh -d runs the repo-local post/run hook (#537)` | - |
+| `run.sh -d hands compose the requested target, not devel (#1115)` | The detach branch is the one place the wrapper hands compose a target and nothing read it back. The foreground paths are pinned at argv level ("up test"), and the two existing detached cases assert a post-run hook fired and what reached the build.sh stub -- all three stay green when the compose target is replaced by a literal `devel`. The consequence under PRD invariant 8 is not a loud one: `just docker run -d -t runtime` would start devel, swapping baked config for a source bind mount on a running machine with nothing saying so |
 | `run.sh devel target routes to 'compose up -d' + 'compose exec'` | - |
 | `run.sh non-devel target without CMD uses 'compose up' foreground (#458)` | - |
 | `run.sh non-devel target WITH CMD uses 'compose run --rm' (#679)` | - |
@@ -5881,7 +5888,7 @@ duplicate-target guards, and S7 `runtime.env` retirement (#507).
 | `the harness has no compose image name to displace a sibling checkout's (#891)` | - |
 | `runtime-test ships no specs, which is why the harness covers devel-test only` | - |
 
-### test/bats/unit/smoke_helper_spec.bats (40)
+### test/bats/unit/smoke_helper_spec.bats (42)
 
 Exercises the runtime assertion helpers shipped in
 `dist/test/bats/smoke/shared/test_helper.bash` (used by downstream-repo
@@ -5922,6 +5929,8 @@ smoke specs via `load "${BATS_TEST_DIRNAME}/test_helper"`).
 | `entrypoint_is_single_file: a commented exec is not an exec` | The seeded bringup template TALKS about the exec it must not have, and a repo that migrated by commenting the line out has migrated. A substring match on `exec` reads both as the old model and would skip the assertion on every correctly migrated repo -- the same code-versus-comment distinction dockerfile_migrate.sh's notice makes |
 | `entrypoint_is_single_file: false when the path does not exist` | An image with no bringup at all is not on the old model, so the orchestrator assertion must still run there. Answering true on a missing path would silently exempt exactly the image most likely to be missing the orchestrator too |
 | `entrypoint_is_single_file: errors when the path arg is missing` | The caller-error case, separated from the honest false above: a no-argument call must say so rather than answer "not the old model", which is the answer that turns a typo in a spec into a silent skip |
+| `entrypoint_is_single_file: the indented exec in base's orchestrator is an exec (#945)` | The exec the two-file model moved into base's half, read off the real file rather than a fixture. It sits indented inside a function, a shape no fixture above has, so a probe narrowed to a column-zero exec passes every one of them and still misreads a real bringup that execs |
+| `entrypoint_is_single_file: the bringup template base seeds is not the retired model (#945)` | The property ADR-00000032 shipped, asked of the file that shipped it: the bringup init.sh seeds does not exec, so the shared baseline must not read a repo on the new model as being on the retired one. Putting exec "${@}" back in that file turns this red |
 | `reproducibility_manifest_state: one half present reads as adopted` | One half present is enough to put every assertion about the record in scope -- including the one about the half that is missing, which is the "adopted and broken" case the spec must not skip past |
 | `reproducibility_manifest_state: the other half present also reads as adopted` | EITHER half, not a named one. A half-written record is the "adopted and broken" case whichever half survived, so the reading must not key on the first path alone -- that would send the other half's loss to the skip the directory check exists to prevent |
 | `reproducibility_manifest_state: the directory without the record is missing, not unported` | The regression the old precondition could not see. The directory the writing instruction creates is in the image and the record is not, so the record was adopted and is gone -- a failure, not a skip |
@@ -7771,7 +7780,7 @@ process-level supervision loops + signal paths live in
 | `watchdog log setup writes a per-start file + stable symlink under watchdog/ (#797, #805)` | - |
 | `watchdog log is stderr-only (no file) when no log dir is configured (#797)` | - |
 
-### test/bats/unit/watchdog_supervision_spec.bats (16)
+### test/bats/unit/watchdog_supervision_spec.bats (20)
 
 Process-level supervision tests for the watchdog (#797): the
 `restart-container` monitor loop, the `restart-service` supervisor, and the
@@ -7833,6 +7842,10 @@ guard; it runs plain under `bats-fragile`, ADR-00000008 / #613 / #677).
 
 | Test | Description |
 |------|-------------|
+| `_watchdog_main arms the restart-container monitor when ON_FAIL is unset (#1115)` | The arming the operator actually gets. A consumer who sets only `[lifecycle] watchdog_check` leaves WATCHDOG_ON_FAIL unset, which _watchdog_load_config resolves to restart-container -- so this is the default path, and `: _watchdog_monitor &` left all 34 existing cases in both watchdog specs green. It is not falsifiable from outside either: the INFO line that says "monitoring health" is printed BEFORE the fork, so an operator reads it and gets no supervision |
+| `_watchdog_main arms the restart-container monitor on a malformed ON_FAIL (#1115)` | The same fallback reached the other way. _watchdog_load_config's case statement routes every unrecognised value to restart-container, and a hand-edited setup.conf is the ordinary way to produce one -- so the fallback has to arm, not just resolve to a string |
+| `_watchdog_main arms the restart-container monitor when ON_FAIL names it (#1115)` | The branch stated explicitly rather than reached by fallback. Without it the two cases above would both pass against a dispatcher that ignored ON_FAIL entirely and always took the else arm |
+| `_watchdog_main hands over to the supervisor when ON_FAIL is restart-service (#1115)` | The other arm, and the one the loops' own tests cannot reach: every case below calls _watchdog_supervise or _watchdog_monitor directly, with nothing deciding whether to, so `: _watchdog_supervise "$@"` turned supervision off with all of them still green |
 | `restart-container monitor DEFERS checks during the start period (#797)` | - |
 | `restart-container monitor EXITS the container after consecutive failures (#797)` | - |
 | `_watchdog_start_service group-signals even when the pgid is read before setsid takes (#797)` | - |
@@ -8067,6 +8080,16 @@ Fixtures are written to a scratch directory, never to the checkout: these
 are tests OF the extractor, so they need shapes the real workflows do not
 have. The fixtures' own `@test` headers are indented one space, because the
 doc count generator counts a spec's tests with `grep -c '^@test'`.
+
+Fixture-only is the point, and it means nothing here can fail on the
+`permissions:` blocks that landed with this file. The witness for those is
+reusable_worker_permissions_spec.bats, which applies these same derivations
+to the REAL reusable workers, names every job that declares no grant of its
+own, and asserts a population floor first so a scan over nothing cannot pass
+by saying nothing. Deleting one worker job's block is red there and green
+here, by construction. This file's job is the one that spec cannot do for
+itself: make the derivations fail on a shape a correct tree does not
+contain.
 
 | Test | Description |
 |------|-------------|

@@ -314,6 +314,103 @@ _replay_harness_log() {
   fi
 }
 
+# ── the dispatcher: WHICH loop gets armed ────────────────────────────
+#
+# _run_arming <on-fail-assignment> -- drive the real _watchdog_main once,
+# ARMED, and report every loop it actually started.
+#
+# The source-then-stub order is forced by the product: watchdog.sh ends in
+# `_watchdog_main "$@"`, so the file is sourced with WATCHDOG_CHECK unset --
+# the documented no-op -- and the stubs are installed afterwards, over the
+# real functions. Arming then happens on an explicit call. That matters more
+# than it looks: every existing case in both watchdog specs sets
+# WATCHDOG_CHECK AFTER the source, so the source-time call was a no-op in
+# all of them and the dispatcher had never once run armed.
+#
+# The stubs RECORD rather than act: one word per call appended to a single
+# file, so one observation answers all three questions a branch test has to
+# answer -- the expected loop ran, the other one did not, and exactly one of
+# them ran. The last is what a bare refutation cannot say: reducing BOTH
+# branches to no-ops satisfies "supervise did not run" just as well as the
+# correct restart-container path does.
+#
+# restart-container forks its monitor, so the record is awaited rather than
+# read straight away; restart-service is called in the foreground and the
+# await returns at once.
+_run_arming() {
+  local _on_fail="${1-}"
+  _run_bounded 20 "
+    unset WATCHDOG_CHECK WATCHDOG_ON_FAIL LOG_FILE_PATH
+    . '${WD}'
+    _watchdog_monitor()   { echo monitor   >> '${TMP_DIR}/calls'; }
+    _watchdog_supervise() { echo supervise >> '${TMP_DIR}/calls'; }
+    export WATCHDOG_CHECK='true' ${_on_fail}
+    _watchdog_main true
+    _await_file '${TMP_DIR}/calls' 100 || true
+    sed 's/^/CALLED:/' '${TMP_DIR}/calls' 2>/dev/null || true
+    _n=\$(wc -l 2>/dev/null < '${TMP_DIR}/calls' || echo 0)
+    echo \"CALLS=\$(( _n + 0 ))\"
+    echo DONE
+  "
+}
+
+# _assert_armed <expected-loop> <other-loop> -- the verdict every arming
+# case settles on. Positive first: the named loop RAN. A refutation on its
+# own is satisfied by absence, and absence is exactly what the mutation
+# produces, so the negative on the sibling only ever reads as a second
+# claim on top of a loop that is known to have started.
+_assert_armed() {
+  local _want="${1:?BUG: _assert_armed expects the loop that must run}"
+  local _other="${2:?BUG: _assert_armed expects the loop that must not}"
+  assert_success
+  assert_output --partial "DONE"
+  assert_output --partial "CALLED:${_want}"
+  refute_output --partial "CALLED:${_other}"
+  assert_output --partial "CALLS=1"
+}
+
+# why: The arming the operator actually gets. A consumer who sets only
+# `[lifecycle] watchdog_check` leaves WATCHDOG_ON_FAIL unset, which
+# _watchdog_load_config resolves to restart-container -- so this is the
+# default path, and `: _watchdog_monitor &` left all 34 existing cases in
+# both watchdog specs green. It is not falsifiable from outside either: the
+# INFO line that says "monitoring health" is printed BEFORE the fork, so an
+# operator reads it and gets no supervision
+@test "_watchdog_main arms the restart-container monitor when ON_FAIL is unset (#1115)" {
+  [ "${COVERAGE:-0}" = 1 ] && skip "signal/process-timing spec runs plain under bats-fragile (#613)"
+  _run_arming ""
+  _assert_armed monitor supervise
+}
+
+# why: The same fallback reached the other way. _watchdog_load_config's case
+# statement routes every unrecognised value to restart-container, and a
+# hand-edited setup.conf is the ordinary way to produce one -- so the
+# fallback has to arm, not just resolve to a string
+@test "_watchdog_main arms the restart-container monitor on a malformed ON_FAIL (#1115)" {
+  [ "${COVERAGE:-0}" = 1 ] && skip "signal/process-timing spec runs plain under bats-fragile (#613)"
+  _run_arming "WATCHDOG_ON_FAIL=bogus"
+  _assert_armed monitor supervise
+}
+
+# why: The branch stated explicitly rather than reached by fallback. Without
+# it the two cases above would both pass against a dispatcher that ignored
+# ON_FAIL entirely and always took the else arm
+@test "_watchdog_main arms the restart-container monitor when ON_FAIL names it (#1115)" {
+  [ "${COVERAGE:-0}" = 1 ] && skip "signal/process-timing spec runs plain under bats-fragile (#613)"
+  _run_arming "WATCHDOG_ON_FAIL=restart-container"
+  _assert_armed monitor supervise
+}
+
+# why: The other arm, and the one the loops' own tests cannot reach: every
+# case below calls _watchdog_supervise or _watchdog_monitor directly, with
+# nothing deciding whether to, so `: _watchdog_supervise "$@"` turned
+# supervision off with all of them still green
+@test "_watchdog_main hands over to the supervisor when ON_FAIL is restart-service (#1115)" {
+  [ "${COVERAGE:-0}" = 1 ] && skip "signal/process-timing spec runs plain under bats-fragile (#613)"
+  _run_arming "WATCHDOG_ON_FAIL=restart-service"
+  _assert_armed supervise monitor
+}
+
 # ── restart-container monitor loop ───────────────────────────────────
 
 @test "restart-container monitor DEFERS checks during the start period (#797)" {
