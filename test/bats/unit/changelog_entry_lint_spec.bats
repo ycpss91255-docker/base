@@ -1597,6 +1597,43 @@ _entry_text() {
   assert_success
 }
 
+# why: Reproduced damage, not a hypothetical: an open fence in the LAST category
+# moves ahead of the others under roster order and swallows their headings and
+# entries as code. Measured 3 entries checked before the fold and 1 after, with
+# the lint reporting clean -- the repair hiding two entries from the gate.
+@test "_run_changelog_entry_fix: REFUSES a section carrying an unterminated fence (#1103)" {
+  _write_changelog \
+    '### Fixed' '' '- **one** (PR #1) -- first.' '' \
+    '### Fixed' '' '- **two** (PR #2) -- second.' '' \
+    '### Added' '' '- **three** (PR #3) -- with an example that never closes.' '' \
+    '  ```markdown' \
+    '  ### Fixed'
+  cp "${CHANGELOG}" "${SCRATCH}/untouched.md"
+  run _run_changelog_entry_fix
+  assert_failure
+  assert_output --partial 'fenced'
+  run diff -- "${SCRATCH}/untouched.md" "${CHANGELOG}"
+  assert_success
+}
+
+# why: The general net behind that one refusal. A fold that LOSES an entry leaves
+# the headings perfectly fine, so the heading postcondition cannot see it; what
+# the fold must not change is how many entries the lint can see. Driven by a
+# stub that drops one, because no input reaches this once the fence is refused.
+@test "_run_changelog_entry_fix: REFUSES when the fold would hide an entry from the lint (#1103)" {
+  _write_changelog \
+    '### Fixed' '' '- **one** (PR #1) -- first.' '' \
+    '### Fixed' '' '- **two** (PR #2) -- second.'
+  _changelog_entry_fold_section() {
+    local -n _stub_out="${1}"
+    _stub_out=( '' '### Fixed' '' '- **one** (PR #1) -- first.' '' )
+    return 0
+  }
+  run _run_changelog_entry_fix
+  assert_failure
+  assert_output --partial 'the lint can see'
+}
+
 # why: The guard that stops the repair reporting its own success. Driven by
 # neutralising the write, because a write that did not take is the one failure
 # the fold cannot see from the array it assembled -- the file on disk is what

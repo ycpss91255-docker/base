@@ -216,6 +216,10 @@ declare -ga _CHANGELOG_ENTRY_MARKER_BOTH=()
 declare -ga _CHANGELOG_ENTRY_MARKER_STRAY_END=()
 _CHANGELOG_ENTRY_MARKER_UNTERMINATED=0
 
+# Recorded by _changelog_entry_fences: the index of a fenced block that never
+# closes, or -1. Read by the folder only (see that function's note).
+_CHANGELOG_ENTRY_FENCE_UNCLOSED=-1
+
 # The cap, in characters of the whitespace-collapsed entry. See the header
 # for how this number was arrived at; it is a constant, not an env
 # override, so local and CI cannot disagree and nobody can raise it without
@@ -338,17 +342,27 @@ _changelog_entry_marker() {
 # associative array with the index of every line a fenced code block makes
 # structurally inert: the ``` / ~~~ delimiters and everything between them.
 # An unterminated fence runs to the end of the file, as CommonMark says.
+#
+# It also records WHERE a still-open fence started, in
+# _CHANGELOG_ENTRY_FENCE_UNCLOSED (-1 for none). The lint does not read it: an
+# unterminated fence makes everything below it inert and the lint measures less,
+# which is CommonMark and not a defect it invented. The FOLDER reads it, because
+# moving an open fence is how a rewriter turns somebody else's entries into
+# code -- and one reader is what keeps the two from disagreeing about where a
+# fence is.
 _changelog_entry_fences() {
   local -n _fm_out="${1}"
   shift
   local -a _fm_lines=("$@")
-  local _fm_i _fm_trimmed _fm_open=''
+  local _fm_i _fm_trimmed _fm_open='' _fm_open_at=-1
   _fm_out=()
+  _CHANGELOG_ENTRY_FENCE_UNCLOSED=-1
   for (( _fm_i = 0; _fm_i < ${#_fm_lines[@]}; _fm_i++ )); do
     _fm_trimmed="$(_changelog_entry_trim "${_fm_lines[_fm_i]}")"
     if [[ -z "${_fm_open}" ]]; then
       if [[ "${_fm_trimmed}" =~ ^(\`\`\`+|~~~+) ]]; then
         _fm_open="${BASH_REMATCH[1]}"
+        _fm_open_at="${_fm_i}"
         _fm_out["${_fm_i}"]=1
       fi
       continue
@@ -360,8 +374,12 @@ _changelog_entry_fences() {
       && [[ "${BASH_REMATCH[1]:0:1}" == "${_fm_open:0:1}" ]] \
       && [[ "${#BASH_REMATCH[1]}" -ge "${#_fm_open}" ]]; then
       _fm_open=''
+      _fm_open_at=-1
     fi
   done
+  if [[ -n "${_fm_open}" ]]; then
+    _CHANGELOG_ENTRY_FENCE_UNCLOSED="${_fm_open_at}"
+  fi
 }
 
 # _changelog_entry_carries_heading <file> -- does the file carry the
@@ -985,6 +1003,37 @@ _changelog_entry_fold_load() {
       "'${_CHANGELOG_ENTRY_FILE}': the allow markers in '${_CHANGELOG_ENTRY_HEADING}' do not balance, so which lines are exempt is ambiguous and a rewriter must not guess at it. The entry lint names every offending line; fix the markers, then fold."
     return 1
   fi
+  # An unterminated fence is the one shape where MOVING a block changes what
+  # the lines below it mean. Reproduced: an open fence in the last category,
+  # emitted first under roster order, swallowed the two blocks behind it as
+  # code -- three entries measured before the fold, one after, and the lint
+  # reporting clean over a section two entries had vanished from. The fence
+  # itself is CommonMark and the lint is right to read it; what cannot be done
+  # is reorder around it, so this refuses before anything is written.
+  if [[ "${_CHANGELOG_ENTRY_FENCE_UNCLOSED}" -ge "${_CHANGELOG_ENTRY_START}" ]] \
+    && [[ "${_CHANGELOG_ENTRY_FENCE_UNCLOSED}" -lt "${_CHANGELOG_ENTRY_END}" ]]; then
+    _die ci_changelog_entry_fix \
+      "'${_CHANGELOG_ENTRY_FILE}':$(( _CHANGELOG_ENTRY_FENCE_UNCLOSED + 1 )): a fenced block opens here and never closes, so every line below it is code. Moving it would turn the blocks behind it into code too, and the lint would then report clean over entries it can no longer see. Close the fence, then fold."
+    return 1
+  fi
+}
+
+# _changelog_entry_fold_visible -- how many lead bullets in the section the lint
+# can SEE: at column 0, outside a fenced example, outside an allow region.
+#
+# The number the fold must not change, and the general form of the refusal
+# above. A fold that loses an entry, or buries one in somebody else's fence,
+# leaves the headings perfectly well formed, so the heading postcondition cannot
+# see it; this is what the written file is checked against.
+_changelog_entry_fold_visible() {
+  local _fv_i _fv_n=0
+  for (( _fv_i = _CHANGELOG_ENTRY_START; _fv_i < _CHANGELOG_ENTRY_END; _fv_i++ )); do
+    [[ -n "${_CHANGELOG_FOLD_FENCED[${_fv_i}]:-}" ]] && continue
+    [[ -n "${_CHANGELOG_FOLD_SKIP[${_fv_i}]:-}" ]] && continue
+    [[ "${_CHANGELOG_FOLD_LINES[_fv_i]}" =~ ^-\  ]] || continue
+    _fv_n=$(( _fv_n + 1 ))
+  done
+  printf '%s' "${_fv_n}"
 }
 
 # _changelog_entry_fold_body <head-index> <block-end> -- the block's lines
@@ -1224,6 +1273,8 @@ _run_changelog_entry_fix() {
   fi
   local _folded_count="${_CHANGELOG_FOLD_DUPS}"
   local _category_count="${#_CHANGELOG_FOLD_ORDER[@]}"
+  local _visible_before
+  _visible_before="$(_changelog_entry_fold_visible)"
   _changelog_entry_fold_write _folded || return 1
   # The postcondition, RE-DERIVED from what landed on disk rather than
   # reported from what was assembled in memory. A repair whose only evidence
@@ -1231,6 +1282,13 @@ _run_changelog_entry_fix() {
   # is wrong, and the author cannot see that from here -- the next reader is
   # the lint, on the next gate cycle. Cheap: the same two readers again.
   _changelog_entry_fold_load || return 1
+  local _visible_after
+  _visible_after="$(_changelog_entry_fold_visible)"
+  if [[ "${_visible_after}" -ne "${_visible_before}" ]]; then
+    _die ci_changelog_entry_fix \
+      "'${_CHANGELOG_ENTRY_FILE}': the fold changed how many entries the lint can see in '${_CHANGELOG_ENTRY_HEADING}' -- ${_visible_before} before, ${_visible_after} after. The heading level is the whole job, so that is a defect in the fold; 'git diff' shows what it did. Report it rather than re-running."
+    return 1
+  fi
   _changelog_entry_fold_group > /dev/null
   if [[ "${_CHANGELOG_FOLD_DUPS}" -ne 0 ]]; then
     _die ci_changelog_entry_fix \
