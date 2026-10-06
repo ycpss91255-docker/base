@@ -3,8 +3,9 @@
 # workflow_failure_surface_spec.bats -- "a red check names the thing that
 # is wrong, and nothing else turns red".
 #
-# why: Four properties of the workflow tree, each one about what a reader
-# learns from a failed run. A cleanup sweep that reddens a build which
+# why: Five properties of the workflow tree, four of them about what a
+# reader learns from a failed run and the fifth about what the tree itself
+# records. A cleanup sweep that reddens a build which
 # succeeded, and a fork PR whose required check is red with no text
 # distinguishing "we refuse to build fork code" from "the build broke",
 # are both failures that carry no information -- and a reader who meets
@@ -13,7 +14,10 @@
 # "everything passed" and for "almost nothing ran". The absences are the
 # fourth: nothing serialises the publishes that race for one rolling tag,
 # nothing cancels a superseded PR's eight-shard matrix, and nothing bounds
-# a hung buildx below GitHub's six-hour default.
+# a hung buildx below GitHub's six-hour default. The fifth is an absence of
+# a different kind: the default token grant of a workflow that declares
+# none is a setting on a web page, so the tree carries no record of the
+# posture its jobs run under and no diff can change it.
 #
 # Every population here is DERIVED from the tree -- the workflow list from
 # the directory, the reusable workers from `on: workflow_call`, the
@@ -362,6 +366,57 @@ _step_jobs_without_a_timeout() {
   [[ "${_n}" -ge 8 ]] || fail \
       "expected the tree's workflows, derived ${_n} -- the scan below would have read an empty set as a clean one"
   run _step_jobs_without_a_timeout
+  assert_success
+  assert_output ''
+}
+
+# ── 5. the repository default is not what holds the posture ───────────
+
+# _triggerable_workflows_without_a_declared_default
+#   One line per triggerable workflow whose top level declares no
+#   `permissions:` MAPPING -- the workflows whose every job runs on
+#   whatever the repository's Settings page currently says.
+#
+#   A mapping and not merely a present key: a blanket scalar is the same
+#   shape whether it reads `read-all` or `write-all`, so a presence check
+#   certifies nothing about the grant. The enumerated form is also the only
+#   one the tree's other permission guards can read per scope.
+_triggerable_workflows_without_a_declared_default() {
+    local _f _tag _status
+    while IFS= read -r _f; do
+        [[ -n "${_f}" ]] || continue
+        case "${_f}" in BUG:*) printf '%s\n' "${_f}" ; continue ;; esac
+        _status=0
+        _tag="$(_yaml_eval "${_f}" '.permissions | tag')" || _status=$?
+        if [[ "${_status}" -ne 0 ]]; then
+            printf '%s\n' "${_tag}"
+            continue
+        fi
+        [[ "${_tag}" == '!!map' ]] || printf \
+            '%s declares no top-level permissions mapping (its permissions key reads as %s), so every job in it that declares none of its own takes the repository default\n' \
+            "${_f}" "${_tag}"
+    done < <(_triggerable_workflows)
+}
+
+# why: The posture is correct and nothing in the tree says so. Both the
+# repo and the org report `default_workflow_permissions: read`, so the
+# fourteen jobs of base's own CI workflow that declare no block of their
+# own are read-only -- held entirely by a checkbox on a settings page,
+# which no diff, no review and no spec can see. Flip it and those jobs get
+# write on contents, packages, actions, issues and pull-requests, on a
+# workflow that checks out fourteen times with a persisted token and then
+# runs the whole suite and scaffolds a repo. The caller-token question is
+# a different one, asked of the reusable workers in
+# reusable_worker_permissions_spec.bats over exactly the complement of this
+# population; this is the repository default, so it is asked here, of the
+# workflows a trigger can start. Five of the six already declare one, so
+# the exception was a house convention nothing enforced.
+@test "workflows: every workflow a trigger can start declares its own default permission (#1116)" {
+  local _n
+  _n="$(_triggerable_workflows | awk 'END { print NR }')"
+  [[ "${_n}" -ge 6 ]] || fail \
+      "expected the tree's triggerable workflows, derived ${_n} -- the scan below would have read an empty set as a clean one"
+  run _triggerable_workflows_without_a_declared_default
   assert_success
   assert_output ''
 }

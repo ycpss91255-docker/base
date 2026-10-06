@@ -29,7 +29,7 @@
 
 ---
 
-<!-- sync: tldr b4f9c41522da 25d908de79c9 -->
+<!-- sync: tldr ba8c00105790 e1c4e80d329f -->
 ## TL;DR
 
 ```bash
@@ -46,7 +46,7 @@ just base update   # 確認
 just base upgrade         # pull + バージョンファイル + workflow tag 更新
 
 # CI 実行
-just test   # ShellCheck + Bats + Kcov
+just test   # ShellCheck + Hadolint + Bats（no kcov、カバレッジは just test coverage）
 just                       # 全 recipe 表示
 ```
 
@@ -141,7 +141,7 @@ flowchart LR
     release_worker -->|"tar.gz + zip"| release["GitHub Release"]
 ```
 
-<!-- sync: whats-included 15d472ab822b fe13e3fcdb36 -->
+<!-- sync: whats-included e5eb3626b529 8711cfbed932 -->
 ### 含まれるもの
 
 | ファイル | 説明 |
@@ -179,15 +179,6 @@ flowchart LR
 | `test/bats/integration/` | base 自己テスト、init/upgrade の end-to-end |
 | `test/bats/system/` | base 自己テスト、System レベル／Regression（runtime smoke gate、opt-in） |
 | `test/bats/acceptance/` | base 自己テスト、Acceptance レベル（UAT/OAT；予約、S5 #785） |
-
-テスト内容は **tool-first** で配置します — spec は `test/<tool>/<category>/`
-（例：`test/bats/unit/`）、linter は `test/lint/<tool>/` — そのため
-ツールの追加は新しいフォルダの追加であり、新しいコマンド面の追加では
-ありません。[ADR-00000012](../adr/00000012-tool-first-test-layout.md)
-（category-first の ADR-00000004 を置き換え）参照。consumer は自身の
-`test/bats/smoke/` を出荷し、base は自身の
-`test/bats/{unit,integration,system,acceptance}/` を出荷します。
-
 | `.hadolint.yaml` | 共有 Hadolint ルール |
 | `justfile`（→ `script/justfile`） | Repo コマンドエントリ — 階層化された namespace recipe（`just docker build`、`just docker run`、`just test`、`just base upgrade` 等）。サブコマンドと flag は `{{args}}` でそのまま渡されます（`just docker build --no-cache --stage test-tools`）。引数なしの `just` で全 namespace を一覧表示。 |
 | `dist/script/docker/justfile.docker` | `docker` namespace — コンテナ操作（`just docker build/run/exec/stop/prune/setup/setup-tui`）。 |
@@ -203,6 +194,14 @@ flowchart LR
 | `dist/dockerfile/Dockerfile` | 新 repo のマルチステージ Dockerfile テンプレート |
 | `dockerfile/Dockerfile.test-tools` | プリビルド lint/test ツール image（shellcheck、hadolint、bats、bats-mock） |
 | `.github/workflows/` | 再利用可能な CI workflows（build + release） |
+
+テスト内容は **tool-first** で配置します — spec は `test/<tool>/<category>/`
+（例：`test/bats/unit/`）、linter は `test/lint/<tool>/` — そのため
+ツールの追加は新しいフォルダの追加であり、新しいコマンド面の追加では
+ありません。[ADR-00000012](../adr/00000012-tool-first-test-layout.md)
+（category-first の ADR-00000004 を置き換え）参照。consumer は自身の
+`test/bats/smoke/` を出荷し、base は自身の
+`test/bats/{unit,integration,system,acceptance}/` を出荷します。
 
 <!-- sync: dockerfile-stages-convention e8e20b69013a d28560a09120 -->
 ### Dockerfile ステージ（規約）
@@ -672,11 +671,11 @@ Main
 `./setup_tui.sh <section>` は引き続き任意の section エディタへ
 直接ジャンプできます（例：`./setup_tui.sh volumes`）。
 
-<!-- sync: when-setupsh-runs ecdbadb6a9f1 8938c8290072 -->
+<!-- sync: when-setupsh-runs 4b98ca4c7af4 c0041424d19e -->
 ### setup.sh の実行タイミング
 
-`setup.sh` は明示的にトリガーされた時のみ実行されます — build / run
-の度に再実行されることはありません：
+`setup.sh` は build / run の度に再実行されることはありませんが、名前を
+指定して頼んだ時だけ走るわけでもありません — 次がトリガーです：
 
 - **`just base init` / `./.base/dist/script/base/init.sh`** がスケルトン生成後に 1 回自動実行
 - **`just base upgrade` / `./.base/dist/script/base/upgrade.sh`** が subtree pull の後に
@@ -689,6 +688,9 @@ Main
 - **初回 bootstrap**：`./build.sh` / `./run.sh` は `.env.generated` が無い
   初回実行（CI の新規 clone 等）では、同じ TTY-aware フローを自動で
   通ります。`--setup` 指定は不要
+- **Drift**：`./build.sh` / `./run.sh` は毎回まず `setup.sh check-drift` を
+  実行し、drift が報告されたら `setup.sh apply` を自動で再実行します
+  （`--setup` は不要）— 下のドリフト検出を参照
 
 > **Fresh-clone の lint カバレッジ（#216）**：image がローカルに
 > キャッシュされていない `./run.sh` は Compose auto-build を起動
@@ -711,19 +713,27 @@ Main
 `APT_MIRROR_DEBIAN` は保持されるため、手動で調整した workspace パスや
 apt mirror はアップグレードで上書きされません。
 
-<!-- sync: drift-detection 423fc5dbfe75 3f58e39fed45 -->
+<!-- sync: drift-detection 2ebab6909c30 e7066444f97b -->
 ### ドリフト検出
 
-`setup.sh` は `.env.generated` に `SETUP_CONF_HASH` /
-`SETUP_GUI_DETECTED` / `SETUP_TIMESTAMP` を書き込みます。`./build.sh` / `./run.sh` は毎回
-エントリ時点で現行の `setup.conf` ハッシュ + システム検出値と比較し、
-以下のいずれかが変化した場合に `[WARNING]` を出力（実行は継続）：
+`setup.sh apply` は `.env.generated` に 5 つの値を記録します：
+`SETUP_CONF_HASH` / `SETUP_DOCKERFILE_HASH` / `SETUP_GUI_DETECTED` /
+`GPU_ENABLED` / `USER_UID`。`./build.sh` / `./run.sh` は毎回これらを現在の
+tree と host と比較し、前回の setup から変化したものごとに `[WARNING]`
+を出力します（実行は継続）：
 
-- `setup.conf` の内容（conf hash）
-- GPU / GUI の検出結果
+- `setup.conf` の内容（`SETUP_CONF_HASH`）
+- Dockerfile の stage 一覧（`SETUP_DOCKERFILE_HASH`）— `FROM ... AS <stage>`
+  の追加・削除
+- GPU 検出結果（`GPU_ENABLED`）
+- GUI 検出結果（`SETUP_GUI_DETECTED`）
 - `USER_UID`（ユーザ ID の変化）
 
-`--setup` を付けて再実行すれば `.env.generated` + `compose.yaml` を再生成できます。
+手動で再実行する必要はありません：次の `just docker build` /
+`just docker run` が `setup.sh check-drift` を実行し、drift が報告されたら
+`.env` / `.env.generated` / `compose.yaml` を自動で再生成します — いずれも
+派生物でありユーザのデータを持たないため、drift 時の再生成は常に安全です。
+`--setup` はその場で再生成を強制し、TTY では `setup_tui.sh` を先に開きます。
 
 <!-- sync: field-deployment-just-docker-setup-deploy 9112a5c7eaaa 93fb0bfe1ba5 -->
 ### フィールド配備（`just docker setup deploy`）
@@ -1235,13 +1245,14 @@ jobs:
 | `extra_files` | string | いいえ | `""` | 追加ファイル（スペース区切り） |
 | `version` | string | いいえ | `""` | リリースするバージョン（`vX.Y.Z`）。tag 経由の経路では未設定のままにすると、push された tag から読み取られる。tag 以外の run からこの worker を直接呼ぶ場合に渡す：既定の `GITHUB_TOKEN` で作成されたイベントは新しい workflow run を開始しないため、マージ済みの変更を自動リリースする repo は tag を push しても到達できない。`vX.Y.Z[-suffix]` でない値はリリースされず拒否される |
 
-<!-- sync: running-template-tests 4e411d749017 2fa910a54d4b -->
+<!-- sync: running-template-tests d17e2a643fbc cfbe6f1fa628 -->
 ## ローカルテスト実行
 
 `script/test/justfile.test`（template ルートから）を使用：
 ```bash
-just test        # フル CI（ShellCheck + Bats + Kcov）docker compose 経由
-just test lint        # ShellCheck のみ
+just test        # 高速 CI（ShellCheck + Hadolint + Bats、no kcov）docker compose 経由
+just test coverage    # Bats 全体を kcov 配下で実行；lint フェーズは無し
+just test lint        # lint フェーズの全 linter（ShellCheck + Hadolint とその他）
 just test clean       # カバレッジレポート削除
 just test stop        # この checkout の自己テストコンテナを停止
 just             # repo recipe 一覧表示
@@ -1250,7 +1261,7 @@ just --list  # CI ターゲット表示
 
 直接実行：
 ```bash
-./script/test/test.sh          # フル CI（docker compose 経由）
+./script/test/test.sh          # 高速 CI（docker compose 経由、no kcov）
 ./script/test/test.sh --ci     # コンテナ内で実行（compose から呼び出し）
 ```
 

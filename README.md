@@ -43,7 +43,7 @@ just base update   # check
 just base upgrade         # pull + update version + workflow tag
 
 # Run CI
-just test   # ShellCheck + Bats + Kcov
+just test   # ShellCheck + Hadolint + Bats (no kcov; coverage: just test coverage)
 just                       # show all recipes
 ```
 
@@ -175,17 +175,6 @@ flowchart LR
 | `test/bats/integration/` | base self-tests, Integration level (init/upgrade end-to-end) |
 | `test/bats/system/` | base self-tests, System level / Regression (runtime smoke gate, opt-in) |
 | `test/bats/acceptance/` | base self-tests, Acceptance level (UAT/OAT; reserved, S5 #785) |
-
-Test content is laid out **tool-first** -- `test/<tool>/<category>/`
-for specs (e.g. `test/bats/unit/`) and `test/lint/<tool>/` for linters --
-so adding a tool is a new folder, not a new command surface. The category
-vocabulary is ISTQB-aligned (levels Unit / Integration / System /
-Acceptance + the Smoke type); see
-[ADR-00000018](doc/adr/00000018-istqb-test-taxonomy.md) and
-[ADR-00000012](doc/adr/00000012-tool-first-test-layout.md) (supersedes the
-category-first ADR-00000004). A consumer ships its own `test/bats/smoke/`; base
-ships its own `test/bats/{unit,integration,system,acceptance}/`.
-
 | `.hadolint.yaml` | Shared Hadolint rules |
 | `justfile` (→ `script/justfile`) | Repo entry — layered namespaced recipes (`just docker build`, `just docker run`, `just test`, `just base upgrade`, etc.). Sub-cmds and flags pass straight through as `{{args}}` (`just docker build --no-cache --stage test-tools`); bare `just` lists all namespaces. |
 | `dist/script/docker/justfile.docker` | `docker` namespace — container ops (`just docker build/run/exec/stop/prune/setup/setup-tui`). |
@@ -198,6 +187,16 @@ ships its own `test/bats/{unit,integration,system,acceptance}/`.
 | `dist/dockerfile/Dockerfile` | Multi-stage Dockerfile template for new repos |
 | `dockerfile/Dockerfile.test-tools` | Pre-built lint/test tools image (shellcheck, hadolint, bats, bats-mock) |
 | `.github/workflows/` | Reusable CI workflows (build + release) |
+
+Test content is laid out **tool-first** -- `test/<tool>/<category>/`
+for specs (e.g. `test/bats/unit/`) and `test/lint/<tool>/` for linters --
+so adding a tool is a new folder, not a new command surface. The category
+vocabulary is ISTQB-aligned (levels Unit / Integration / System /
+Acceptance + the Smoke type); see
+[ADR-00000018](doc/adr/00000018-istqb-test-taxonomy.md) and
+[ADR-00000012](doc/adr/00000012-tool-first-test-layout.md) (supersedes the
+category-first ADR-00000004). A consumer ships its own `test/bats/smoke/`; base
+ships its own `test/bats/{unit,integration,system,acceptance}/`.
 
 ### Getting help (namespace vs recipe)
 
@@ -1163,8 +1162,8 @@ Main
 
 ### When setup.sh runs
 
-`setup.sh` runs only when explicitly triggered — it is not re-run on
-every build or launch:
+`setup.sh` is not re-run on every build or launch, and it is not run only
+when you ask for it by name either — these trigger it:
 
 - **`just base init` / `./.base/dist/script/base/init.sh`** runs it once after the skeleton lands
 - **`just base upgrade` / `./.base/dist/script/base/upgrade.sh`** re-runs it via init.sh
@@ -1174,6 +1173,9 @@ every build or launch:
 - **First-time bootstrap**: `./build.sh` / `./run.sh` auto-run setup.sh
   the very first time (when `.env.generated` is missing, e.g. after a
   fresh CI clone) — no manual `--setup` needed
+- **Drift**: every `./build.sh` / `./run.sh` runs `setup.sh check-drift`
+  first and re-runs `setup.sh apply` when it reports drift, with no
+  `--setup` typed — see [Drift detection](#drift-detection) below
 
 > **Fresh-clone lint coverage (#216)**: `./run.sh` on a clone with no
 > image cached locally triggers Compose's auto-build, which only walks
@@ -1197,17 +1199,25 @@ survives upgrades.
 
 ### Drift detection
 
-`setup.sh` stores `SETUP_CONF_HASH`, `SETUP_GUI_DETECTED`, and
-`SETUP_TIMESTAMP` in `.env.generated`. On every `./build.sh` / `./run.sh`,
-stored values are compared against the current setup.conf hash + system
-detection; a `[WARNING]` is printed (non-blocking) when any of the
-following changed since last setup:
+`setup.sh apply` records five values in `.env.generated` —
+`SETUP_CONF_HASH`, `SETUP_DOCKERFILE_HASH`, `SETUP_GUI_DETECTED`,
+`GPU_ENABLED` and `USER_UID`. On every `./build.sh` / `./run.sh` each is
+compared against the current tree and host, and a `[WARNING]` is printed
+(non-blocking) for every one that changed since last setup:
 
-- `setup.conf` contents (conf hash)
-- GPU / GUI detection
+- `setup.conf` contents (`SETUP_CONF_HASH`)
+- the Dockerfile stage list (`SETUP_DOCKERFILE_HASH`) — a
+  `FROM ... AS <stage>` added or removed
+- GPU detection (`GPU_ENABLED`)
+- GUI detection (`SETUP_GUI_DETECTED`)
 - `USER_UID` (user identity change)
 
-Re-run with `--setup` to regenerate `.env.generated` + `compose.yaml`.
+Nothing has to be re-run by hand: the next `just docker build` /
+`just docker run` runs `setup.sh check-drift`, and regenerates `.env` /
+`.env.generated` / `compose.yaml` itself when it reports drift — derived
+artifacts carry no user-owned data, so regenerating on drift is always safe.
+`--setup` forces the regeneration now, and on a TTY opens `setup_tui.sh`
+first.
 
 ### Host-detection overrides
 
@@ -1747,8 +1757,9 @@ is a curated deliverable rather than a snapshot of the source.
 
 Using `script/test/justfile.test` (from template root):
 ```bash
-just test        # Full CI (ShellCheck + Bats + Kcov) via docker compose
-just test lint        # ShellCheck only
+just test        # Fast CI (ShellCheck + Hadolint + Bats, no kcov) via docker compose
+just test coverage    # The Bats suite under kcov; no lint phase
+just test lint        # Every linter the lint phase runs (ShellCheck + Hadolint + the rest)
 just test clean       # Remove coverage reports
 just test stop        # Stop this checkout's self-test containers
 just                      # Show repo recipes
@@ -1757,7 +1768,7 @@ just --list  # List CI recipes
 
 Or directly:
 ```bash
-./script/test/test.sh          # Full CI via docker compose
+./script/test/test.sh          # Fast CI via docker compose (no kcov)
 ./script/test/test.sh --ci     # Run inside container (used by compose)
 ```
 
