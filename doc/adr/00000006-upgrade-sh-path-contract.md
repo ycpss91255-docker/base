@@ -324,6 +324,20 @@
   migration's own obligation; that is the same obligation every heal in the
   family already carries.
 
+  One consequence of the frozen caller shows up here and has to be recorded
+  with it. Every released `upgrade.sh` COMMITS at its own Step 4, after the
+  Step-3 resync, so an interval whose migrations were skipped -- a migration
+  that failed, a from-version nothing could read -- has stopped being readable
+  off HEAD before the user has finished reading the warning about it. No later
+  upgrade recovers it either: that interval starts at the version this one
+  installed, so the skipped work is below it. "Fix the cause and re-run the
+  resync" is therefore advice that cannot be followed on any release, which is
+  why `BASE_MIGRATION_FROM` exists: it supplies the `from` half instead of
+  deriving it, and it is the only retry path the frozen driver leaves
+  available. An override that is not a version is refused rather than fallen
+  back from -- an operator who names a pair and silently gets a different one
+  would believe the owed migrations had run.
+
   The guard is behavioural. `prev_release_upgrade_spec.bats` declares a
   migration bound to a version inside the interval in the release being
   installed, drives the real released `upgrade.sh`, and asserts that one ran

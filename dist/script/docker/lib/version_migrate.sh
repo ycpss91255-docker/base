@@ -68,6 +68,23 @@
 # `interval_migration_window` for "no interval exists",
 # `interval_migration_unreadable` for "one does and could not be read".
 #
+# ── Why the interval can also be named by hand ──────────────────────────────
+#
+# `BASE_MIGRATION_FROM=<version>` supplies the from half instead of reading
+# it, and it is what makes every warning above actionable.
+#
+# Without it they are not. The resync runs at Step 3 and every released
+# `upgrade.sh` COMMITS at Step 4, so the subtree-pull merge the interval is
+# derived from has stopped being HEAD before the user has read the warning --
+# "fix it and re-run the resync" then resolves to `not-a-merge` and selects
+# nothing, on every release, forever. Nor does a later upgrade recover it:
+# its own interval starts at the version this one installed, so the skipped
+# work is below it.
+#
+# An override that is not a version is REFUSED rather than fallen back from.
+# An operator who names a pair and silently gets a different one would
+# believe the owed migrations had run.
+#
 # Style: Google Shell Style Guide.
 
 # Guard against double-sourcing.
@@ -276,14 +293,19 @@ interval_migrations() {
 #   Resolve the interval this repo just crossed and apply the migrations
 #   inside it, in order. Always exits 0: it runs inside the resync of an
 #   upgrade whose driver arms no rollback around it.
+#
+#   `BASE_MIGRATION_FROM` names the from half instead of reading it; see the
+#   header for why that escape hatch is what makes the warnings below mean
+#   anything.
 run_interval_migrations() {
   local _root="${1:?"${FUNCNAME[0]}: missing repo_root"}"
   local _prefix="${2:?"${FUNCNAME[0]}: missing subtree_prefix"}"
   local _to="${3:-}"
+  local _retry_hint="Name the interval by hand to run them: BASE_MIGRATION_FROM=<the version this repo came from> just base init."
 
   if ! _vm_is_semver "${_to}"; then
     _log_warn init interval_migration_unreadable \
-      "display=  the installed base version reads '${_to}', which cannot be ordered against anything, so no version-bound migration ran. Check ${_prefix}/.version." \
+      "display=  the installed base version reads '${_to}', which cannot be ordered against anything, so no version-bound migration ran. Check ${_prefix}/.version. ${_retry_hint}" \
       "reason=to-not-semver" "to=${_to}"
     return 0
   fi
@@ -292,7 +314,19 @@ run_interval_migrations() {
   # code says which.
   local _from=""
   local _rc=0
-  _from="$(_vm_from_version "${_root}" "${_prefix}")" || _rc=$?
+  local _from_source="history"
+  if [[ -n "${BASE_MIGRATION_FROM:-}" ]]; then
+    _from_source="override"
+    _from="${BASE_MIGRATION_FROM}"
+    if ! _vm_is_semver "${_from}"; then
+      _log_warn init interval_migration_unreadable \
+        "display=  BASE_MIGRATION_FROM is set to '${_from}', which cannot be ordered against anything, so no version-bound migration ran. It must be a version such as v0.41.0. Nothing was derived from the history instead -- an interval you did not name is not the one you asked for." \
+        "reason=from-override-not-semver" "from=${_from}" "to=${_to}"
+      return 0
+    fi
+  else
+    _from="$(_vm_from_version "${_root}" "${_prefix}")" || _rc=$?
+  fi
   if (( _rc == 1 )); then
     _log_info init interval_migration_window \
       "display=  no base version interval at HEAD (${_from}) -- no version-bound migration to run" \
@@ -301,7 +335,7 @@ run_interval_migrations() {
   fi
   if (( _rc != 0 )); then
     _log_warn init interval_migration_unreadable \
-      "display=  this commit crosses a base version but the version it came FROM cannot be read (${_from}), so no version-bound migration ran. Any that this upgrade owed you has been skipped -- re-run \`just base init\` once ${_prefix}/.version is readable in the commit before it, or apply them by hand." \
+      "display=  this commit crosses a base version but the version it came FROM cannot be read (${_from}), so no version-bound migration ran. Whatever this upgrade owed you has been skipped. ${_retry_hint}" \
       "reason=${_from}" "to=${_to}"
     return 0
   fi
@@ -312,7 +346,7 @@ run_interval_migrations() {
   if (( 10#${_key_from} > 10#${_key_to} )); then
     _log_warn init interval_migration_unreadable \
       "display=  the base version went BACKWARDS here, ${_from} -> ${_to}. Version-bound migrations only run forwards, so none ran; a downgrade is not something they can undo." \
-      "reason=backwards" "from=${_from}" "to=${_to}"
+      "reason=backwards" "from=${_from}" "to=${_to}" "from_source=${_from_source}"
     return 0
   fi
 
@@ -320,8 +354,8 @@ run_interval_migrations() {
   mapfile -t _selected < <(interval_migrations "${_from}" "${_to}")
 
   _log_info init interval_migration_window \
-    "display=  base version interval ${_from} -> ${_to}: ${#_selected[@]} version-bound migration(s) to run" \
-    "from=${_from}" "to=${_to}" "count=${#_selected[@]}"
+    "display=  base version interval ${_from} -> ${_to} (${_from_source}): ${#_selected[@]} version-bound migration(s) to run" \
+    "from=${_from}" "to=${_to}" "from_source=${_from_source}" "count=${#_selected[@]}"
 
   local _row _version _name _apply_rc
   for _row in ${_selected[@]+"${_selected[@]}"}; do
@@ -331,8 +365,8 @@ run_interval_migrations() {
     "_vmigrate_${_name}_apply" "${_root}" || _apply_rc=$?
     if (( _apply_rc != 0 )); then
       _log_warn init interval_migration_unreadable \
-        "display=  MIGRATION FAILED: ${_name} (lands in ${_version}) exited ${_apply_rc}. The upgrade itself is not rolled back, and the migrations after it were SKIPPED so none of them runs on a half-migrated repo. Fix the cause and re-run \`just base init\`." \
-        "reason=apply-failed" "migration=${_name}" "version=${_version}" "code=${_apply_rc}"
+        "display=  MIGRATION FAILED: ${_name} (lands in ${_version}) exited ${_apply_rc}. The upgrade itself is not rolled back, and the migrations ordered after it were SKIPPED so none of them runs on a half-migrated repo. Fix the cause, then: BASE_MIGRATION_FROM=${_from} just base init. Re-running without it selects nothing once this upgrade has been committed." \
+        "reason=apply-failed" "migration=${_name}" "version=${_version}" "code=${_apply_rc}" "from=${_from}" "to=${_to}"
       return 0
     fi
     _log_info init interval_migration_applied \

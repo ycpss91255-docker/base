@@ -1055,3 +1055,54 @@ _assert_interval_migration_not_repeated() {
 @test "neither a standalone resync nor the next release re-runs a migration the interval already covered (base#1097)" {
   _assert_interval_migration_not_repeated "$(_release_tag 1)"
 }
+
+# _assert_interval_can_be_named_by_hand <tag>
+#   The recovery path, driven the way a consumer would have to drive it. The
+#   released driver commits at its own Step 4, so an interval whose migrations
+#   were skipped -- a migration that failed, a from-version that could not be
+#   read -- is already gone from HEAD by the time the user reads the warning
+#   about it. Naming the pair by hand is the only second chance there is, and
+#   it has to work through `init.sh` rather than through the runner, because
+#   `just base init` is what the warning tells the user to run.
+_assert_interval_can_be_named_by_hand() {
+  local _tag="${1:?BUG: _assert_interval_can_be_named_by_hand expects a tag}"
+
+  _register_interval_migration v98.0.0 owed
+
+  _seed_current_remote
+  _seed_released_remote "${_tag}"
+  _seed_consumer "${_tag}"
+
+  local _upgrade
+  _upgrade="$(_released_entry upgrade.sh)"
+  cd "${CONSUMER}"
+  run env TEMPLATE_REMOTE="file://${CUR_BARE}" "${_upgrade}" "${NEXT_VER}"
+  assert_success
+  run _probe_runs owed
+  assert_output "1"
+
+  # Put the consumer where the released driver's Step 4 leaves them: the
+  # interval is no longer readable off HEAD.
+  git -C "${CONSUMER}" add -A
+  git -C "${CONSUMER}" commit -q --allow-empty -m "chore: commit the resync"
+  run ./.base/dist/script/base/init.sh
+  assert_success
+  run _probe_runs owed
+  assert_output "1"
+
+  # The second chance: the operator names the pair the history no longer has.
+  run env BASE_MIGRATION_FROM="${_tag}" ./.base/dist/script/base/init.sh
+  assert_success
+  run _probe_runs owed
+  assert_output "2"
+}
+
+# why: Every warning this runner emits leaves a consumer owed work, and until
+# the interval can be named by hand none of them could be acted on: the
+# released driver commits at Step 4, so the merge the interval was read from
+# is gone before the user has seen the message. The arm drives the recovery
+# through `just base init`, which is what the message tells them to run, on a
+# tree where the automatic path has already correctly declined
+@test "an interval the history can no longer supply can be named by hand and re-run (base#1097)" {
+  _assert_interval_can_be_named_by_hand "$(_release_tag 2)"
+}

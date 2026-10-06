@@ -313,6 +313,91 @@ EOF
   assert_output "good"
 }
 
+# ── Naming the interval when the history no longer can ──────────────────────
+#
+# Every one of the warnings above leaves a consumer owed work, and until the
+# override below existed none of them could be acted on. The reason is Step 4:
+# every released upgrade.sh COMMITS after the resync, so by the time the user
+# reads a Step-3 warning HEAD is no longer the subtree-pull merge and the
+# interval it was derived from is gone. "Fix it and re-run the resync" was
+# therefore advice that could not be followed on any release.
+
+# why: The retry path, and it is the one codex reproduced as missing. A
+# migration that fails, or an interval that could not be read, leaves work
+# owed -- and the upgrade's own Step 4 commit destroys the merge the interval
+# came from before the user has read the warning. Without a way to name the
+# pair by hand there is no second chance on any release, and the warning is
+# telling them to do something impossible
+@test "run_interval_migrations takes the from-version from BASE_MIGRATION_FROM when the history no longer has it (base#1097)" {
+  _git_repo "${REPO}"
+  mkdir -p "${REPO}/${PREFIX}"
+  printf 'v0.43.0\n' > "${REPO}/${PREFIX}/.version"
+  git -C "${REPO}" add -A
+  git -C "${REPO}" commit -q -m "a plain commit, the interval long gone"
+  local _decl
+  _decl="$(_declarations v0.42.0 inside v0.44.0 outside)"
+  run bash -c "$(_src); source '${_decl}'; BASE_MIGRATION_FROM=v0.41.0 run_interval_migrations '${REPO}' '${PREFIX}' v0.43.0"
+  assert_success
+  assert_output --partial '"from":"v0.41.0"'
+  assert_output --partial '"from_source":"override"'
+  run _probe
+  assert_output "inside"
+}
+
+# why: An override that is wrong must not quietly become something else. A
+# silent fall back to the history would hand the operator a different
+# interval from the one they named, which is worse than refusing: they would
+# believe the owed migrations had run
+@test "run_interval_migrations refuses an unorderable BASE_MIGRATION_FROM rather than deriving one instead (base#1097)" {
+  _crossing v0.41.0 v0.43.0
+  local _decl
+  _decl="$(_declarations v0.42.0 inside)"
+  run bash -c "$(_src); source '${_decl}'; BASE_MIGRATION_FROM=main run_interval_migrations '${REPO}' '${PREFIX}' v0.43.0"
+  assert_success
+  assert_output --partial '"body":"interval_migration_unreadable"'
+  assert_output --partial '"reason":"from-override-not-semver"'
+  refute_output --partial '"from":"v0.41.0"'
+  run _probe
+  assert_output ""
+}
+
+# why: codex's reproduction, end to end: a migration fails, the upgrade
+# commits anyway, the cause is fixed, and the entries the failure skipped are
+# still owed. This is the sequence the failure warning has to be able to
+# promise a way out of
+@test "run_interval_migrations recovers the entries a failed migration skipped after the upgrade has committed (base#1097)" {
+  _crossing v0.41.0 v0.43.0
+  local _decl
+  _decl="$(_declarations v0.43.0 later)"
+  cat >> "${_decl}" <<EOF
+_VERSION_MIGRATIONS+=("v0.42.0 doomed")
+_vmigrate_doomed_apply() {
+  [[ -f "\${1}/cause-fixed" ]] || return 3
+  printf '%s\n' doomed >> "\${1}/${PROBE}"
+}
+EOF
+  run bash -c "$(_src); source '${_decl}'; run_interval_migrations '${REPO}' '${PREFIX}' v0.43.0"
+  assert_success
+  assert_output --partial '"reason":"apply-failed"'
+  # The warning has to name the way out, or it is the advice codex found
+  # could not be followed.
+  assert_output --partial 'BASE_MIGRATION_FROM'
+  run _probe
+  assert_output ""
+
+  # What the released driver does next, in every release: Step 4 commits.
+  printf 'resync\n' > "${REPO}/resync"
+  git -C "${REPO}" add -A
+  git -C "${REPO}" commit -q -m "chore: upgrade to v0.43.0"
+
+  printf 'fixed\n' > "${REPO}/cause-fixed"
+  run bash -c "$(_src); source '${_decl}'; BASE_MIGRATION_FROM=v0.41.0 run_interval_migrations '${REPO}' '${PREFIX}' v0.43.0"
+  assert_success
+  run _probe
+  assert_output "doomed
+later"
+}
+
 # ── Where there is no interval, and where there is one nobody can read ──────
 
 # why: The standalone resync. `just base init` is a repair command a user
