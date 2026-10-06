@@ -1011,3 +1011,112 @@ direction for a run whose output is a line set.
   runner is a whole VM), so this is a boundary of the policy and not a
   live defect; a self-hosted runner that meters CPU by quota would make
   it one.
+
+## Amendment (#1114): the partition is a partition only under ONE weight source, and the union is checked
+
+- **Date:** 2026-10-06
+- **Amendment status:** Accepted -- prices a precondition Decision 2 states
+  without qualification. "Every slice runs exactly once (guaranteed by the
+  exhaustive + disjoint partition)" is true of ONE partition; the matrix
+  holds twelve slices, and they are slices of one partition only while
+  every shard partitioned by the same weights. Nothing else in this ADR
+  changes: the sharding, the per-line union merge, the one-writer cache
+  rule and the `1/1`-is-the-suite rule all stand.
+  **Relates:** #724 (greedy-LPT by weight), #733 (the cached weights the
+  #733 amendment introduced and priced only for poisoning), #730 (the
+  merge the guarantee justifies).
+
+### What the #733 amendment did not price
+
+It made the weights a shared, cached artifact and asked the right question
+about WRITING it -- PR runs stay read-only so runner noise cannot poison
+the shared blob -- and no question at all about READING it. Every coverage
+shard carried its own `actions/cache/restore`, so the matrix performed one
+lookup per shard against a key whose newest entry changes on every main
+push.
+
+The exact key (`shard-weights-<run_id>`) can never hit while a run's own
+shards execute: coverage-gate writes it after coverage has run, and only
+on a main push. So every shard fell through to the `shard-weights-`
+restore-keys prefix, which resolves to whatever the newest entry is AT THE
+MOMENT THAT JOB STARTS -- a different answer for a shard that starts after
+a later merge than for its siblings.
+
+`_spec_weight` feeds `_shard_unit_files`, which recomputes the WHOLE
+greedy-LPT partition on every call and prints only the slice it was asked
+for. A different weight source is a different partition, and each shard
+keeps its own slice of it. The union of twelve such slices is neither
+exhaustive nor disjoint.
+
+Nothing could see it. Every slice of either partition is non-empty, so
+`_die ci_empty_shard` never fires; `--merge-timings` keys on basename, so a
+spec two shards both ran reads back as one entry; and the only trace left
+by a spec that ran in NO shard is the absence of its entry. Measured on
+the real tree and the real functions: shards 1-6 with no weights file and
+shards 7-12 with a synthetic seconds file, over 176 spec files, produce a
+union of 127 distinct specs -- 49 in no shard, 49 in two, and a green
+gate. The gate is a RATIO, so dropping a well-covered spec can move the
+reported rate UP.
+
+It has never happened on main. The echo this amendment replaces printed
+the union's size, and against the inventory at each run's headSha the last
+ten main pushes read 171/171, 171/171, 171/171, 171/171, 171/171, 170/170,
+170/170, 168/168, 168/168, 168/168 -- exhaustive every time. The live
+trigger is not a race but **"Re-run failed jobs" after any main merge**: a
+re-run shard partitions against a newer entry than the shards that already
+passed, and the spec that made the run red can land in a slice nobody
+re-ran. Red becomes green with that spec never executed.
+
+### Decision
+
+**1. One lookup, in `compute-shards`.** The job every shard already waits
+on for its shard list restores `test/bats/.shard-weights` once and
+publishes it to the matrix as a base64 job output. Each shard writes that
+one blob to the path `_spec_weight` reads by default and looks nothing up
+for itself. A job output rather than an artifact because the blob is one
+line per spec (single-digit KB base64'd, against the 1 MB an output takes)
+and the matrix already consumes an output from this job, so it costs no
+upload, no download and no new step in the shard.
+
+**2. A cache MISS is a weight source too.** An empty output means every
+shard weighs every spec by its `@test` count -- still one source, so still
+a partition. What was never safe was half the matrix reading seconds while
+the other half counted tests, which is precisely the configuration the
+measurement above reproduces.
+
+**3. The union is CHECKED, not assumed.** `coverage-gate` already
+downloads every shard's `coverage/timings.tsv` and merges them, so the
+merged file IS the matrix's run manifest: the specs the shards between
+them reported running. `test.sh --coverage-union-check` compares it against
+`_coverage_spec_inventory` -- the roster the release certificate's scope is
+derived against -- and refuses, NAMING every absent spec, when they differ.
+It replaces an `echo` of the union's size that was compared against
+nothing, and it runs ahead of the cache save so a partition that missed
+the suite cannot seed the next run's weights.
+
+### Consequences (amendment)
+
+- The guarantee Decision 2 rests on is now enforced by something other
+  than reading the workflow. Both halves are needed and neither subsumes
+  the other: the single source removes the cause, and the union check is
+  what notices if any future input -- another selector, another lookup, a
+  shard whose junit report comes back empty -- narrows the matrix again.
+- A shard that uploads a cobertura report but an empty `timings.tsv` now
+  fails the gate rather than passing silently. That is the intended
+  direction: the gate's claim is about the suite, and a shard that cannot
+  say what it ran has not evidenced its share of it.
+- The check refuses on NO evidence as loudly as on a gap. An unreadable
+  manifest, a manifest naming no spec, and an inventory that enumerates
+  nothing would each make a gap of zero mean nothing -- the shape in which
+  this gate would go vacuously green.
+- The existing exhaustive-and-disjoint spec could not have caught this and
+  still cannot: its four slices are evaluated in ONE bash process against
+  ONE weight source, so they agree by construction. The new case drives
+  the real partitioner one shard PER PROCESS, which is the only way the
+  divergence is observable from inside a test.
+- Scope was always narrower than 176: integration specs are re-run in full
+  by `bats-integration` and the kcov-fragile unit specs by `bats-fragile`,
+  so the population that could genuinely go unrun is roughly 141
+  non-fragile unit specs. A main push re-partitions with consistent
+  weights, so a spec that slipped past a PR gate goes red on the merge
+  commit -- the escape was a PR gate that lies once, not a durable hole.
