@@ -152,11 +152,14 @@ readonly _DELETION_ACTION="uses:[[:space:]]*['\"]?[A-Za-z0-9._-]+/(delete-packag
 # lines. Generic by design — a bespoke deleter does not have to be a known
 # action to be reported.
 #
-# The leading slash is OPTIONAL: `gh api orgs/<org>/packages/...` is as valid
-# as `gh api /orgs/...` and is the spelling GitHub's own examples use. What
-# precedes the endpoint is therefore required to be a non-path character, so
-# `superusers/x/packages/` is not read as `users/x/packages/`.
-readonly _DELETION_API_PATH='(^|[^A-Za-z0-9._/-])/?(user|users/[^/[:space:]]+|orgs/[^/[:space:]]+)/packages/'
+# The route is recognised at a PATH-SEGMENT boundary rather than after a
+# leading slash or a space, because all three reach the same endpoint:
+# `gh api orgs/<org>/packages/...` (the spelling GitHub's own examples use),
+# `gh api /orgs/...`, and `curl https://api.github.com/orgs/...`, which needs
+# no `gh` on the runner at all. The boundary is what keeps the match honest:
+# the segment may be preceded by start-of-line, a separator, or a `/`, so
+# `superusers/x/packages/` is not read as the `users` route.
+readonly _DELETION_API_PATH='(^|[^A-Za-z0-9._-])(user|users/[^/[:space:]]+|orgs/[^/[:space:]]+)/packages/'
 # The separator between the flag and its value is NOT part of the operation:
 # `--method DELETE`, `--method=DELETE` and `-XDELETE` are one flag written
 # three ways, and a pattern keyed on the whitespace reads the third as no
@@ -407,6 +410,45 @@ _exclude_tags() {
   run _deletion_surfaces "${SCRATCH}/wf"
   assert_success
   assert_output "${SCRATCH}/wf/slashless.yaml"
+}
+
+# why: A `curl` against the absolute api.github.com URL deletes exactly what
+# a `gh api` relative endpoint deletes, and needs no `gh` on the runner
+@test "GHCR deletion surface: an absolute api.github.com DELETE is a surface (#1089)" {
+  # The REST form without `gh`. The endpoint reaches the same route through a
+  # hostname, so the segment has to be recognised at a path boundary rather
+  # than only after a space -- and beside the one gated surface it has to
+  # produce the refusal, not a clean verdict.
+  _wf cleanup \
+    '      - uses: dataaxiom/ghcr-cleanup-action@d52806a0dc70b430571a37da1fde39733ffd640f # v1.2.2'
+  _wf absolute \
+    'jobs:' \
+    '  prune:' \
+    '    steps:' \
+    '      - run: curl -X DELETE https://api.github.com/orgs/ycpss91255-docker/packages/container/test-tools/versions/123'
+  run _deletion_surfaces "${SCRATCH}/wf"
+  assert_success
+  assert_output --partial "${SCRATCH}/wf/absolute.yaml"
+  run _deletion_surface_verdict "${SCRATCH}/wf"
+  assert_failure
+  assert_output --partial '2 workflows in'
+  assert_output --partial 'absolute.yaml'
+}
+
+# why: The boundary that keeps the path match honest: a longer word ending in
+# `users` is not the `users` route
+@test "GHCR deletion surface: a word ending in users is not the users route (#1089)" {
+  # The cost of recognising the segment at a path boundary rather than after
+  # whitespace alone: without the boundary `superusers/x/packages/` would read
+  # as the route, and an unrelated workflow would be gated as a deleter.
+  _wf lookalike \
+    'jobs:' \
+    '  prune:' \
+    '    steps:' \
+    '      - run: curl -X DELETE https://example.com/superusers/bob/packages/container/x/versions/1'
+  run _deletion_surfaces "${SCRATCH}/wf"
+  assert_success
+  assert_output ''
 }
 
 # why: `--method=DELETE` is the same flag as `--method DELETE`, and a
