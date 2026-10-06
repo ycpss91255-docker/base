@@ -6359,7 +6359,7 @@ Unit tests for the repo-local command-group scaffolder
 | `new.sh registers a real mod? line even when the seed registry only COMMENTS that name (#785)` | - |
 | `new.sh source ships with the executable bit set (recipe invokes it directly) (#785)` | - |
 
-### test/bats/unit/template_spec.bats (170)
+### test/bats/unit/template_spec.bats (172)
 
 | Test | Description |
 |------|-------------|
@@ -6475,6 +6475,8 @@ Unit tests for the repo-local command-group scaffolder
 | `upgrade.sh updates main.yaml @tag without clobbering release-worker.yaml` | sed regression |
 | `upgrade.sh main.yaml sed handles semver pre-release tags (RC → RC)` | `-rcN-rcN` regression |
 | `upgrade.sh main.yaml sed handles stable → stable + RC → stable transitions` | RC → stable cleanup |
+| `upgrade.sh rewrites the @ref of every reusable worker base ships (#1112)` | The rewrite's population has to be the workers base ships, not a roster the sed names -- a named roster cannot see the worker it omits (#1112) |
+| `upgrade.sh main.yaml rewrite leaves a third party's worker ref alone (#1112)` | Name-independent must not become owner-independent -- the rewrite rewrites OUR refs, and a stranger's worker is not ours to bump (#1112) |
 | `build-worker.yaml: no legacy in-job test-tools build step` | v0.9.13 GHCR migration |
 | `build-worker.yaml: derives the tooling image from the version-matched checkout (closes #1122)` | the tooling image is derived from the version-matched checkout, not taken as an input (closes #1122) |
 | `build-worker.yaml: does not resurrect the GITHUB_WORKFLOW_REF parse step` | regression guard |
