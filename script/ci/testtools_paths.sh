@@ -36,9 +36,9 @@
 # which as a pathspec selects everything under it.
 #
 # Exit: 0 and the list; non-zero and NOTHING on stdout when the set cannot
-# be established -- an absent Dockerfile, or a COPY line the derivation
-# refuses to guess at (a glob, a variable, ADD, ONBUILD; it says which
-# line). Both consumers must read a non-zero as "assume it changed": a
+# be established -- an absent or unreadable Dockerfile, or a COPY line the
+# derivation refuses to guess at (a glob, a variable, ADD, ONBUILD; it says
+# which line). Both consumers must read a non-zero as "assume it changed": a
 # needless rebuild costs minutes, and the alternative is a suite reporting
 # a verdict about code that is not in the image it ran in.
 #
@@ -76,8 +76,18 @@ main() {
   # diff, so "there is no tooling Dockerfile" would read as "everything is
   # an input of it". Saying so and letting the consumer fail open is the
   # only direction that is wrong in the cheap way.
-  if [[ ! -f "${_dockerfile}" ]]; then
-    printf 'testtools_paths: no tooling Dockerfile at %s, so the paths that can change the tooling image cannot be derived\n' \
+  #
+  # UNREADABLE is refused by the same test, deliberately, and not by a
+  # separate branch that reports it differently: the Dockerfile is an input
+  # like any other and it was the one input that skipped the rule its own
+  # COPY sources are held to. Existence alone let it fall through to a reader
+  # whose redirection failed, which yields no instruction at all rather than
+  # an error -- so the list came back as the Dockerfile's own path, exit 0,
+  # describing an image with no context inputs. That is a well-formed answer
+  # to a consumer reading stdout, and it is the defect this script exists to
+  # remove.
+  if [[ ! -f "${_dockerfile}" || ! -r "${_dockerfile}" ]]; then
+    printf 'testtools_paths: no readable tooling Dockerfile at %s, so the paths that can change the tooling image cannot be derived\n' \
       "${_dockerfile}" >&2
     return 1
   fi

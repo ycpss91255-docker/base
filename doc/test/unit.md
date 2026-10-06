@@ -6546,7 +6546,7 @@ is the smoke step, which iterates this same roster.
 | `test-tools pins: an unrecognised subcommand is refused and names what it does answer (#1012)` | It must not fall through to the roster, because a roster is an answer the caller would then act on. |
 | `test-tools pins: roster and check read a quoted declaration the same way (#1012)` | Quoting a build arg's default is legal, and the two halves of one accessor disagreeing about it fails a CORRECT image while naming a pin nobody could satisfy. |
 
-### test/bats/unit/testtools_paths_spec.bats (9)
+### test/bats/unit/testtools_paths_spec.bats (10)
 
 Two CI decisions -- `testtools_changed` in self-test.yaml's classify job,
 and whether a push to main republishes the rolling `:main` tag -- answered
@@ -6575,6 +6575,7 @@ directions, so the derivation cannot drift away from the tree it is about.
 | `testtools paths: a COPY it cannot resolve refuses, naming the line (#1171)` | A COPY source needing docker's own parser cannot be resolved to a definite set of paths, and a guess is how a file silently leaves the signal. The refusal has to name the line, and it has to leave stdout EMPTY: a partial list is the one answer that looks like an answer, and the consumer would diff against it and report the image unchanged. |
 | `testtools paths: a verb it does not model refuses rather than skips (#1171)` | ADD reads the build context and ONBUILD can defer a COPY into it. Both are verbs this derivation does not model, and passing over either is exactly the silent omission it exists to stop -- so each is a refusal the consumer turns into a rebuild, not a shorter list. |
 | `testtools paths: an absent tooling Dockerfile refuses, printing nothing (#1171)` | A tree with no tooling Dockerfile has no derivable input set, and the empty list is the one thing it must not print: an empty pathspec list handed to `git diff` compares the WHOLE diff, so "there is no tooling Dockerfile" would read as "every path is an input of it". Refusing lets the consumer fail open on purpose instead of by accident. |
+| `testtools paths: an unreadable tooling Dockerfile refuses, not a short list (#1171)` | The same silent partial answer the local tag's derivation was fixed for, in the one input that used to skip the readability rule its own COPY sources are held to. A guard that tests EXISTENCE alone lets an unreadable Dockerfile fall through to a reader that writes to stderr and yields no instruction at all, so the derivation prints the Dockerfile's own path, exits 0, and reports a tooling image with no context inputs. A consumer reading stdout sees a well-formed list, diffs against it, and reports the image unchanged -- which is this issue, reintroduced by the thing fixing it. |
 | `testtools paths: its set is the set the local tag hashes (#1171)` | The criterion the shared derivation exists for: the set CI treats as inputs has to be the set the LOCAL tag hashes. Asserted behaviourally rather than by both calling the same function -- every path the signal emits moves the tag when its bytes change, and a path it does not emit leaves the tag alone. Two rules for one question is how they come to disagree, and the disagreement is a CI run that pulls an image the local derivation would have rebuilt. |
 
 ### test/bats/unit/tmux_conf_spec.bats (12)

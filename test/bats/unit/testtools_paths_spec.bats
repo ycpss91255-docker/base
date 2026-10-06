@@ -48,6 +48,30 @@ _tree() {
   printf '%s\n' "${_root}"
 }
 
+# _paths_as_nobody <repo-root>
+#   Derives the set in a shell with no privilege to override file modes, and
+#   sets $output/$status the way `run` does. The suite runs as root inside
+#   the tooling container, where a mode-000 file is still readable, so
+#   "unreadable" can only be staged by dropping privilege -- and every
+#   directory from the test tmpdir down has to be traversable for that user,
+#   or the probe fails on the way in and proves nothing about the subject.
+#
+#   Shape borrowed from ci_spec.bats's _tag_as_nobody, which stages the same
+#   condition for the local tag's derivation.
+_paths_as_nobody() {
+  local _root="${1:?BUG: _paths_as_nobody requires <repo-root>}"
+  local _p="${BATS_TEST_TMPDIR}"
+  while [[ "${_p}" == /* && "${_p}" != "/" ]]; do
+    chmod o+rx "${_p}"
+    _p="$(dirname "${_p}")"
+  done
+  if [[ "$(id -u)" -eq 0 ]]; then
+    run --separate-stderr su -s /bin/bash nobody       -c "bash ${PATHS_SH} ${_root}"
+  else
+    run --separate-stderr bash "${PATHS_SH}" "${_root}"
+  fi
+}
+
 # ── the real tree, both directions ─────────────────────────────────────
 
 # why: The first direction, and the defect itself: a file the real
@@ -192,6 +216,31 @@ _tree() {
   assert_output ''
   [[ "${stderr}" == *'Dockerfile.test-tools'* ]] || fail \
       "the refusal does not say which file was missing: ${stderr}"
+}
+
+# why: The same silent partial answer the local tag's derivation was fixed
+# for, in the one input that used to skip the readability rule its own COPY
+# sources are held to. A guard that tests EXISTENCE alone lets an unreadable
+# Dockerfile fall through to a reader that writes to stderr and yields no
+# instruction at all, so the derivation prints the Dockerfile's own path,
+# exits 0, and reports a tooling image with no context inputs. A consumer
+# reading stdout sees a well-formed list, diffs against it, and reports the
+# image unchanged -- which is this issue, reintroduced by the thing fixing it.
+@test "testtools paths: an unreadable tooling Dockerfile refuses, not a short list (#1171)" {
+  local _root
+  _root="$(_tree dockerfile/first.py)"
+  local _df="${_root}/dockerfile/Dockerfile.test-tools"
+  printf 'FROM alpine:3.21\nCOPY dockerfile/first.py /usr/local/bin/first\n' \
+    > "${_df}"
+  chmod -R o+rX "${_root}"
+  chmod 000 "${_df}"
+
+  _paths_as_nobody "${_root}"
+  assert_failure
+  # The exact shape of the regression: a list at all, and that list in
+  # particular -- the Dockerfile's own path with no context input beside it.
+  assert_output ''
+  [[ "${stderr}" == *'Dockerfile.test-tools'* ]] || fail       "the refusal does not say which file could not be read: ${stderr}"
 }
 
 # ── agreement with the local content-hash tag ─────────────────────────
