@@ -454,7 +454,7 @@ mentions the `--no-prune` flag.
 | `build.sh --dry-run prints planned prune step + does not rmi` | - |
 | `build.sh --help mentions --no-prune (#387)` | - |
 
-### test/bats/unit/build_sh_spec.bats (58)
+### test/bats/unit/build_sh_spec.bats (63)
 
 Unit tests for `build.sh` argument handling and control flow. Uses a sandbox
 tree mirroring the expected layout (build.sh + `template/` subtree with real
@@ -514,6 +514,11 @@ runs).
 | `build.sh -t + positional: last positional wins (#280)` | - |
 | `build.sh positional + -t: last -t wins (#280)` | - |
 | `build.sh -t with no value errors clearly (#280)` | - |
+| `build.sh refuses a mistyped flag instead of building it as a target (#1120)` | the reported defect, in its plainest form -- before this guard the wrapper exited 0 and the only complaint came from compose, naming a service the caller never typed. |
+| `build.sh refuses an unimplemented flag even when a target follows it (#1120)` | the worst shape of the defect and the one a happy-path assertion cannot tell apart from a correct run: the swallowed flag was overwritten by the next token, so a wrong invocation produced the right build and said nothing. |
+| `build.sh refuses a valueless unimplemented flag rather than naming it as the service (#1120)` | the flag used to reach BOTH docker compose build (as the service name) and docker rmi (as the image tag), so a refusal has to happen before either -- not merely be reported after. |
+| `build.sh still accepts a bare positional TARGET after the dash guard (#1120)` | the load-bearing control case. The guard would be a regression if it cost the positional TARGET the README documents, so this is what keeps the fix from turning into a blanket refusal of the positional form. |
+| `build.sh refuses a dash-prefixed spelling of a real target (#1120)` | pins the boundary from the other side -- the token names a target that really exists, so the leading dash is the only thing that may refuse it. |
 | `build.sh --help mentions -t / --target (#280)` | - |
 | `build.sh passes --build-arg TARGETARCH=<value> when TARGET_ARCH set in .env` | - |
 | `build.sh omits --build-arg TARGETARCH when TARGET_ARCH absent from .env` | - |

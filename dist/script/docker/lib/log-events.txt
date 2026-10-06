@@ -85,6 +85,7 @@ build_verify_no_steps
 build_verify_all_cached
 build_verify_partly_cached
 build_verify_all_ran
+build_unknown_flag
 
 # run.sh
 run_started
