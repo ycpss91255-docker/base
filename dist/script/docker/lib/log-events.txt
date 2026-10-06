@@ -187,6 +187,8 @@ smoke_tree_migration_conflict
 gitignore_managed_block_invalid
 gitignore_managed_block_migrated
 gitignore_managed_block_orphans
+gitignore_untrack_ls_files_failed
+gitignore_untrack_rm_failed
 
 # template_guard.sh (init/upgrade self-run guard)
 base_self_run_refused
