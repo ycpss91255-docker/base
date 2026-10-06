@@ -154,7 +154,7 @@ a refusal as "do not release".
 | `action-ref-agreement: has a lint-static CI join (#949)` | One plain-runner lint group, no docker |
 | `action-ref-agreement: its failure event id is registered (#949)` | An unregistered id is an anonymous exit |
 
-### test/bats/unit/adr_doc_claims_spec.bats (28)
+### test/bats/unit/adr_doc_claims_spec.bats (32)
 
 | Test | Description |
 |------|-------------|
@@ -186,6 +186,10 @@ a refusal as "do not release".
 | `R3: FAILS a verbatim claim about a file outside this repo (#927)` | - |
 | `R3: PASSES a verbatim claim about a file this repo carries (#927)` | - |
 | `R3: IGNORES verbatim used about behaviour rather than a quotation (#927)` | - |
+| `adr index: the audit table's row set is the ADR files on disk (base#1121)` | R4 population. The index declares itself the consolidated view of every ADR, and both ADR lints exempt it by filename, so the one file in the registry directory with no gate was the one enumerating the registry -- it sat three rows short |
+| `adr index: the audit rows are in ascending ADR order (base#1121)` | Hand-appending is what produced the 29, 35, 36, 32, 31, 30 tail, and an unsorted table is where a duplicate or a missing row hides |
+| `adr index: each conclusion tally equals what the verdict column says (base#1121)` | R5 tally. The conclusion's counts are derivable from column 2 and were stored instead, which is the P2 violation PRD cites this very file as the example of -- it claimed 18 keep against 21 and 9 elevates-invariant against 10, and filed 00000022 under a verdict its own row contradicts |
+| `adr index: every verdict cell is one the vocabulary table defines (base#1121)` | A verdict cell outside the vocabulary is a word the index defines nowhere, and it would make the tally above pass by never being counted |
 
 ### test/bats/unit/adr_numbering_spec.bats (9)
 
@@ -2075,7 +2079,7 @@ refused before any build or bundle step.
 | `setup_tui --help names the distinction in all four locales (#879)` | - |
 | `setup.sh --help distinguishes the deploy subcommand from the section (#879)` | - |
 
-### test/bats/unit/derived_figures_lint_spec.bats (19)
+### test/bats/unit/derived_figures_lint_spec.bats (65)
 
 | Test | Description |
 |------|-------------|
@@ -2098,6 +2102,52 @@ refused before any build or bundle step.
 | `_run_derived_figures: FAILS when the section heading is absent (no vacuous pass) (#874)` | - |
 | `_run_derived_figures: FAILS when a required doc file is missing (no vacuous pass) (#874)` | - |
 | `_run_derived_figures: FAILS when the dist/ scan root is missing (no vacuous pass) (#874)` | - |
+| `_derived_default_coverage: reads the flag off the _run_via_compose ci calls (base#1121)` | The figure itself. Read it wrong and every rule built on it is wrong in the same direction, silently -- so the derivation is pinned in both states of the code, not just the one the tree is in today |
+| `_derived_default_coverage: REFUSES when the calls disagree (base#1121)` | An ambiguous figure must refuse. Picking a side would hold prose to a guess, which is worse than holding it to nothing |
+| `_derived_test_subcommands: derives the vocabulary from the recipe lines (base#1121)` | The vocabulary decides which examples are ABOUT the default run; a recipe the parser misses turns a narrowed example into a false positive |
+| `_run_derived_figures: FAILS when a bare just test is documented as running kcov (base#1121)` | The defect this figure exists for -- eight annotations on the repo's most-read page claimed a coverage run the dispatch cannot reach |
+| `_run_derived_figures: PASSES when the annotation says the default has no kcov (base#1121)` | The corrected wording has to be expressible. A rule that banned the word would force the docs to drop the one fact a reader wants |
+| `_run_derived_figures: FAILS when the default DOES measure coverage and the annotation omits it (base#1121)` | The rule is the figure, not a ban on a word: flipping the code must flip which prose is wrong, or this is a hardcoded string check wearing a derivation |
+| `_run_derived_figures: a documented subcommand is not the default run (base#1121)` | The load-bearing exclusion. `just test coverage` SHOULD say Kcov, and a rule that flagged it would be reverted within a day |
+| `_run_derived_figures: a flag is not the default run either (base#1121)` | Same exclusion through the other channel the runner is narrowed by, so the dispatcher's own --coverage examples stay legal |
+| `_run_derived_figures: reads the recipe-comment shape too (base#1121)` | The second shape the repo documents commands with. Covering only the fenced-example shape would leave every `just --list` description ungated |
+| `_run_derived_figures: a mention inside running prose is not an annotation (base#1121)` | The anchor, and the reason there is one: the dispatcher's --jobs refusal names kcov and `just test` in one sentence while claiming neither |
+| `_run_derived_figures: FAILS when the bare lint phase is documented as ShellCheck alone (base#1121)` | The second half of the same drift -- the lint phase runs the whole table, and an annotation naming one binary describes a narrowed run |
+| `_run_derived_figures: PASSES when the lint annotation names both binaries (base#1121)` | The corrected wording again, so the rule cannot be satisfied only by deleting the tool names |
+| `_run_derived_figures: a narrowed lint run may name one linter (base#1121)` | `just test lint --shellcheck` legitimately IS ShellCheck only; flagging it would make the rule wrong about the one case it is right about |
+| `_run_derived_figures: FAILS when the recipe file is missing (no vacuous pass) (base#1121)` | Without the recipe file the vocabulary is empty and every documented subcommand reads as the default run -- the lint must refuse, not scan |
+| `_run_derived_figures: FAILS when the _LINT_TOOLS table cannot be read (no vacuous pass) (base#1121)` | An unparsed table makes the lint-phase rule inert while reporting clean, which is how a guard quietly stops guarding |
+| `_run_derived_figures: a token that is not a recipe is still the default run (base#1121)` | The rule must not be steppable-out-of: adding a word justfile.test does not define dispatches nowhere, so the example still describes the bare run |
+| `_derived_drift_keys: derives the compared set from the read-back patterns (base#1121)` | The set the completeness rule is built on, including the negative half -- a key written but never read back must not come through as compared |
+| `_derived_setup_metadata_keys: derives the written namespace from env_emit (base#1121)` | The candidate set for the soundness rule; empty, and naming an inert key in a section about comparison would go unreported |
+| `_derived_wrapper_drift_subcommand: reads the name out of the wrapper (base#1121)` | The name is read, not stored, so renaming the subcommand moves what the trigger list has to say instead of leaving a stale word behind |
+| `_derived_wrapper_drift_subcommand: REFUSES when the wrapper names two (base#1121)` | Two candidates means the name to document is undecidable, and a guess would pin prose to the wrong one |
+| `_run_derived_figures: FAILS when the drift section omits a compared key (base#1121)` | The defect: the section named three of five, so the trigger a maintainer adding a stage comes looking for was not there |
+| `_run_derived_figures: FAILS when the drift section names a key nothing compares (base#1121)` | The soundness half. An inert key listed among the compared ones is read as compared, which is how the section claimed a timestamp was a trigger |
+| `_run_derived_figures: a key added to the comparison moves the requirement (base#1121)` | Proves the rule follows the code rather than a transcription of it: teaching drift.sh a sixth key makes clean prose the violation |
+| `_run_derived_figures: FAILS when the trigger list omits the drift path (base#1121)` | The section next door listed four triggers and left out the one that fires with nobody typing anything |
+| `_run_derived_figures: the trigger-list rule goes inert when the wrapper stops drift-checking (base#1121)` | The rule must retire itself. If the wrappers stop drift-checking the old claim is true again, and a lint still demanding the bullet is the bug |
+| `_run_derived_figures: FAILS when the drift section is absent (no vacuous pass) (base#1121)` | A renamed heading would otherwise silence both rules at once, over every locale, while reporting clean |
+| `_run_derived_figures: addresses a translated section by its sync id (base#1121)` | The id is how a section is found in a language the driver cannot read; without it the three translations are outside the gate |
+| `_run_derived_figures: FAILS on a translation whose drift section omits a key (base#1121)` | A fix that lands in one locale is not a fix -- the three translations carried the same three names for as long as the English did |
+| `_run_derived_figures: FAILS when the drift lib yields no keys (no vacuous pass) (base#1121)` | An empty compared set passes the completeness rule over every locale at once, which is the failure mode this spec is most exposed to |
+| `_run_derived_figures: folds a wrapped recipe comment into one annotation (base#1121)` | A recipe doc comment wraps, and a per-line scan inspects only the first line -- the tool list and the negation on the continuation sit outside the guard, which is where the real justfile.test annotation lives |
+| `_run_derived_figures: a negation on the continuation line still counts (base#1121)` | The negation may live on the continuation too, so the fold has to carry it or the corrected wording reads as a bare claim |
+| `_run_derived_figures: a bare comment line detaches the continuation (base#1121)` | Folding must stop somewhere or an unrelated paragraph below an example gets read as part of its claim; a bare comment line is the separator this repo already uses for exactly that |
+| `_run_derived_figures: FAILS on a denied kcov claim when coverage is enabled (base#1121)` | With coverage ENABLED, an annotation that explicitly denies kcov is the contradiction -- reading the negation only in the disabled branch let the corrected wording survive a coverage migration unchanged |
+| `_run_derived_figures: the without-kcov spelling is denied too when coverage is enabled (base#1121)` | The other spelling of the same negation, so the enabled branch is not fixed for one word and broken for the next |
+| `_derived_coverage_skips_lint: reads the guard around the lint phase call (base#1121)` | The predicate behind the coverage-entry rule, in both states of the guard -- read it wrong and the rule either never fires or fires on prose that is correct |
+| `_derived_coverage_skips_lint: REFUSES when no guarded call site exists (base#1121)` | With no call site the question is unanswerable, and a lint that answers it anyway would hold prose to an assumption |
+| `_run_derived_figures: FAILS when a coverage entry is documented as running a linter (base#1121)` | A coverage run sets the one flag the lint phase guard excludes, so an annotation naming a linter there reports checks nothing performed -- the dispatcher's own help had said "ShellCheck + Hadolint + Bats + Kcov" |
+| `_run_derived_figures: the coverage FLAG spelling is the same claim (base#1121)` | The flag spelling reaches the same dispatch, so it must be the same question -- otherwise the rule covers the README and misses the help text |
+| `_run_derived_figures: a coverage annotation that claims no linter is clean (base#1121)` | The corrected wording has to pass, and the rule has to retire itself if the guard ever stops excluding coverage |
+| `_run_derived_figures: an indented example in a comment block is judged (base#1121)` | A worked example in a header block is indented under its own comment marker; an invocation that has to reach the first character of the body would leave every such block folded into the prose line above it and entirely unjudged |
+| `_run_derived_figures: a coverage annotation may name the linters it denies (base#1121)` | An annotation that spells out WHICH checks coverage skips is the most useful one a reader can get, and rejecting it for containing the tool name would push the docs back to saying less than they know |
+| `_run_derived_figures: a negation does not carry past the clause break (base#1121)` | The negation reaches one clause, not the whole annotation -- a tool named after the clause break is a claim again, which is what keeps the allowance from being a way to wave the rule through |
+| `_run_derived_figures: naming the default recipe is still the default run (base#1121)` | `just test default` dispatches to the very recipe bare `just test` dispatches to, so reading the name as a narrowing subcommand exempts the default run from the rule about the default run |
+| `_run_derived_figures: the bare target is derived, not the literal word default (base#1121)` | Which recipe a bare invocation runs is just's rule, not the word "default" -- a file with no `default` recipe hands it to the first one, and the guard has to follow that or it exempts the bare run under another name |
+| `_run_derived_figures: FAILS on a hadolint-only lint annotation too (base#1121)` | The lint phase runs both binaries, so "Hadolint only" is exactly as wrong as "ShellCheck only"; catching one spelling and not the other enforces the invariant in one direction and invites the other |
+| `_run_derived_figures: a lint annotation naming both, one negated, is clean (base#1121)` | A negated mention is not a claim here either, or the rule would refuse an annotation that correctly says which binary a narrowed phase leaves out |
 
 ### test/bats/unit/doc_counts_spec.bats (26)
 
@@ -4044,7 +4094,7 @@ acquiring it, and to any other scope beside it
 | `publish-worker.yaml: every job's grant is pinned as an exact set (#957)` | - |
 | `publish-worker.yaml: the publish job carries the same-repo guard (#766)` | - |
 
-### test/bats/unit/readme_file_table_spec.bats (2)
+### test/bats/unit/readme_file_table_spec.bats (4)
 
 The "What's included" table in `README.md` is a file INDEX, so every row
 names a real path -- and nothing checked that (#957). Item 3 of that issue
@@ -4061,6 +4111,8 @@ under the repo root, `dist/` or `script/`.
 |------|-------------|
 | `README file table: every row names a path that exists (#957)` | Every row resolves under one of the three roots; a stale path is reported by name |
 | `README file table: the scan actually finds the rows (#957)` | Floor on the row count, so a renamed heading cannot silence the check above |
+| `README tables: no row block renders as literal pipes (base#1121)` | Every table in the four README files renders AS a table -- a run of rows whose second line is not the delimiter row is a paragraph of literal pipes, which is how twelve rows of the file index stopped being read |
+| `README tables: the scan actually finds tables to check (base#1121)` | Floor on the number of table runs the scan actually walks, so a reformat that leaves no recognisable table cannot silence the guard above |
 
 ### test/bats/unit/readme_sync_spec.bats (33)
 
@@ -4260,7 +4312,7 @@ rule with nothing comparing them is the #1012 shape with one fewer copy.
 | `release-ref: every prerelease classifier under script/ci is one this spec can ask (#1012)` | "One home per classified thing" is only true while the homes agree wherever their inputs overlap. #1012's own reasoning is that three hand-kept copies of a rule are a defect BECAUSE nothing in the tree compared any pair of them; two hand-kept copies with nothing comparing them is the same shape with one fewer copy. The owner list is derived by the same predicate the site scan uses, so a third classifier lands here the day it lands in script/ci/ -- and it fails until someone states how to ask it, because an interface is the one thing a scan cannot derive. |
 | `release-ref: no two prerelease classifiers disagree where both answer (#1012)` | The two owners accept different grammars on purpose -- a released VERSION must carry the `v` a downstream repo pins, a git REF may be a full `refs/tags/...` -- so each refuses inputs the other reads. What must never happen is the pair ANSWERING a shared input differently: one of them would be marking a Release final or moving the org's `test-tools:latest` for a tag the other calls a release candidate. Only inputs both owners accept are compared; a refusal is not a disagreement. |
 
-### test/bats/unit/release_test_tools_yaml_spec.bats (32)
+### test/bats/unit/release_test_tools_yaml_spec.bats (42)
 
 Structural assertions for `.github/workflows/release-test-tools.yaml`. Locks
 the publish surface that downstream Dockerfile.example's `FROM
@@ -4283,12 +4335,20 @@ was dispatched from (main takes the `:main` arm, a `v*` tag takes the tag
 rules). Any other ref is refused, so an unrecognised input publishes nothing
 rather than overwriting `:latest`.
 
-The smoke step uses `steps.tags.outputs.smoke`, so it always pulls the tag
-the current trigger produced rather than statically pulling `:latest` and
-leaving a freshly-pushed `:main` unverified. Four of the cases below RUN the
-resolver rather than reading it: the step's own `run:` body is extracted
-with yq and executed against each ref shape. The text-reading cases above
-them stayed green through four RC tags that each moved `:latest`.
+The merge job's ORDER is pinned here too, over a population read off the
+workflow's own jobs and steps: no step may let a registry tag name content
+that no step of that job has run yet. The smoke step -- the only check this
+image has, since no job of this workflow needs self-test.yaml -- used to
+verify a tag, which cannot exist before the manifest create, so it ran after
+the publish it was supposed to authorise and a red verdict left the moved
+tag standing. It verifies a digest now; the tag's own resolution is checked
+by the step after the create, which is the only assertion that needs the tag
+to exist.
+
+Four of the cases below RUN the resolver rather than reading it: the step's
+own `run:` body is extracted with yq and executed against each ref shape.
+The text-reading cases above them stayed green through four RC tags that
+each moved `:latest`.
 
 | Test | Description |
 |------|-------------|
@@ -4305,10 +4365,20 @@ them stayed green through four RC tags that each moved `:latest`.
 | `release-test-tools.yaml: a ref the resolver does not recognise is refused, never resolved to :latest (#1012)` | `workflow_dispatch` is unrestricted by ref, so this arm is reachable from any feature branch: resolving it to the production tag made the unrecognised input the most destructive one. |
 | `release-test-tools.yaml: the header and the resolver step's own prose describe the tag rules it applies (#1012)` | A header describing a branch the code cannot reach is a defect with the same shape as the code one, and it is what a later reader believes over the code. |
 | `release-test-tools.yaml: this spec's own prose -- header, dividers and case names -- describes the surface it pins (#1012)` | What keeps the correction from being half made: a case NAME is what the TAP line prints, so a stale one reports the new behaviour under the old description on every green run. |
-| `release-test-tools.yaml: smoke step pulls the trigger's tag (not statically :latest) (#317 P2)` | - |
+| `release-test-tools.yaml: smoke step verifies the digest it is about to tag, not a tag name (#1109)` | A step that verifies a TAG cannot run until the tag exists, so reading one here is what forced the only check on this image to run after the publish it was supposed to authorise (#1109). It verifies the digest a build shard pushed instead, which exists before any tag names it. |
+| `release-test-tools.yaml: the tag confirmation reads the trigger's own tag, never a stale one (#317 P2)` | The trigger's own tag still has to be the one checked, which was the property the old smoke target carried: a main push publishes `:main` and must not report on the stale `:latest` from the previous release. It moved to the only step that can hold it, the one that runs after the tag exists. |
+| `release-test-tools.yaml: the tag confirmation passes an ordinary publish, whose shard digests are flattened away (#1109)` | An ordinary publish of this image must PASS the confirmation, and the first version of it could not: each shard pushes an index (provenance is on by default), imagetools create flattens those into the published index, so the shard digests the step compared against were never in it. Every successful release would have reported failure -- after the tags moved. |
+| `release-test-tools.yaml: the tag confirmation fails when the tag resolves to content nothing verified (#1109)` | The property the step exists for: a tag that resolves to content other than what was verified is the one thing the reordering leaves checkable only after the publish, so a confirmation that cannot fail on it checks nothing. |
+| `release-test-tools.yaml: the tag confirmation fails when the published manifest drops an arch the matrix built (#1109)` | The other half of what the published tag has to be: a manifest list covering every arch the matrix built. A tag that lost an arch is the last-shard-wins failure the whole push-by-digest design exists to prevent, and the expected platform list is read from the artifacts, not written here. |
 | `release-test-tools.yaml: the smoke step derives its version assertions from the pin roster (#1012)` | One loop over the pins the Dockerfile declares, rather than fourteen hand-written comparisons that leave the next tool unasserted the day it is pinned. |
 | `release-test-tools.yaml: the smoke step refuses an empty pin roster (#1012)` | A loop fed by a command that failed simply gets no input and passes, which is fail-open for a step whose whole assertion is that the versions were checked. |
 | `release-test-tools.yaml: the merge job's checkout rationale names what the smoke step reads (#1012)` | That sentence is what a reader follows to the file doing the comparison, and it still named the accessor the step had stopped opening. |
+| `release-test-tools.yaml: no job attaches a registry tag ahead of the step that runs the image (#1109)` | The rolling tag moved first and the only check on the image ran after it, with nothing anywhere in the file that could put it back -- so a red smoke left the moved tag standing, and on the measured v0.42.0 tag the tag moved 5m58s before that commit's tests had any verdict at all (#1109). The ordering is read off the workflow's own jobs and steps, so the job that publishes does not have to be remembered here and a fourth one is in the population the day it lands. |
+| `release-test-tools.yaml: the ordering scan read every job and found the publish it ordered (#1109)` | An empty violation list satisfies the case above whether the scan read every job and found the ordering right, or read nothing and classified nothing. So the population it walked and the pair it ordered are asserted, not assumed. |
+| `publish ordering: a job that attaches a tag with nothing running the image is reported (#1109)` | The live tree cannot exercise this shape -- a publish with no check at all -- and must never be able to, so without a fixture the classifier could stop reporting it and nothing would notice. |
+| `publish ordering: a verified publish is clean, and a job after it is still read (#1109)` | The other half of a usable rule -- the prescribed order has to pass -- plus the property that makes the population derived rather than remembered: the walk does not stop at the first job, so the job somebody adds tomorrow is scanned the day it lands. |
+| `publish ordering: an action handed a tags input attaches a tag, a digest-only push does not (#1109)` | A tag can also be attached by an action handed a tags input, which is the shape this very workflow would take if its build shards ever stopped pushing by digest -- and no run block would mention a tag at all. The digest-only push the shards do today is the negative half: it names nothing, so it is reachable by content alone and needs no check in front of it. |
+| `publish ordering: a workflow the scan cannot read is a BUG, never a clean ordering (#1109)` | A scan that cannot read a workflow must say so, not report it clean: the fail-open direction here is a workflow whose publish ordering nothing checked, passing the live-tree case for the wrong reason. |
 | `release-test-tools.yaml: drops docker/setup-qemu-action (native arm64 runner, #587)` | - |
 | `release-test-tools.yaml: compute-matrix job maps platforms to native runners (#587)` | - |
 | `release-test-tools.yaml: build shards run on the matrix runner (#587)` | - |
@@ -4863,7 +4933,7 @@ alias / `network.network_name` / `devices.device_` / `security.cap_add_` /
 | `self-hosted guard: FAILS when the workflows parse to zero jobs` | - |
 | `self-hosted guard: scans every workflow in the directory, not a named list` | - |
 
-### test/bats/unit/self_test_yaml_spec.bats (124)
+### test/bats/unit/self_test_yaml_spec.bats (127)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks fourteen
 cumulative invariants:
@@ -5219,6 +5289,7 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: acceptance job obtains inline, with the TEST_TOOLS_IMAGE passthrough (#317 P2)` | - |
 | `self-test.yaml: acceptance job keeps buildx driver: docker for host-daemon visibility (#317 P2)` | - |
 | `self-test.yaml: system job has an Obtain step reaching the one obtain path (#317 P2)` | - |
+| `self-test.yaml: a runner-side builder is set up only where its consumer runs (#1116)` | Five jobs set up a docker-container builder before anything has decided whether one is wanted, and the only step that wants one is skipped on every hot-path run. Measured on one run: nineteen jobs spent 111 seconds in `Set up Docker Buildx`, 101 of them in the sixteen jobs whose build step was skipped every time -- the action pulls `moby/buildkit:buildx-stable-1` and starts a container, and the post step then removes a builder nothing touched. base is public, so the unit that matters is not a bill but the roughly twenty concurrent slots ADR-00000017 names as the throughput constraint. The ordering half of this guard is the hazard the fix itself introduces: a condition reading `steps.<id>.outputs` from a step that has not run yet is empty, so the setup is skipped on EVERY run and the consumer it was paired with builds with no builder behind it -- a failure that reads as a cache error rather than as a misplaced step. |
 | `self-test.yaml: coverage Obtain reaches the probe-and-rebuild path (#697, #947)` | The coverage shards are the ones that actually raced -- the kcov-not-found fast-fail is the incident this guard was written after -- and they are also the job whose numbers a wrong alpine series quietly changes, so their obtain step is pinned on its own |
 | `self-test.yaml: the probe is ONE script, not a loop copied into every job (#947)` | Keeps the copies from growing back: five inline copies of the loop is how the presence-only blind spot survived, because no single copy looked wrong, and a re-inlined loop is invisible to the probe's own spec |
 | `self-test.yaml: every job that consumes the image obtains it the one way (#697, #1010)` | - |
@@ -5305,6 +5376,8 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: teardown runs on failure too, not just on success (#900)` | - |
 | `self-test.yaml: cleanup is ownership-scoped, never a blanket prune (#900)` | - |
 | `self-test.yaml: the age-based backstop uses a CI window, not the local defaults (#900)` | - |
+| `TEST.md: the static-lint table lists exactly the lints _LINT_TOOLS runs (base#1121)` | TEST.md says its table lists the tools _LINT_TOOLS runs; it listed 15 of 26, and nothing re-derived the set, so the sentence the section opens with was false for a whole release cycle |
+| `TEST.md: every CI job the static-lint table cites is a job self-test.yaml declares (base#1121)` | One row named the CI job lint-static (i18n-orphan), which exists in no workflow -- lint-static is a group matrix, so the row sent a reader looking for a check that is not in the list |
 
 ### test/bats/unit/setup_cmd_spec.bats (136)
 
@@ -7846,18 +7919,22 @@ than by the caller who follows it.
 | `release-worker.yaml: preflight runs preflight.sh with the release manifest (#800)` | - |
 | `release-worker.yaml: preflight exports archive_name_prefix into the manifest env var (#800)` | - |
 
-### test/bats/unit/workflow_failure_surface_spec.bats (11)
+### test/bats/unit/workflow_failure_surface_spec.bats (12)
 
-Four properties of the workflow tree, each one about what a reader learns
-from a failed run. A cleanup sweep that reddens a build which succeeded, and
-a fork PR whose required check is red with no text distinguishing "we refuse
-to build fork code" from "the build broke", are both failures that carry no
-information -- and a reader who meets enough of them stops reading the ones
-that do. The rollup's silence on a doc-only run is the same defect inverted:
-an undifferentiated GREEN for "everything passed" and for "almost nothing
-ran". The absences are the fourth: nothing serialises the publishes that
-race for one rolling tag, nothing cancels a superseded PR's eight-shard
-matrix, and nothing bounds a hung buildx below GitHub's six-hour default.
+Five properties of the workflow tree, four of them about what a reader
+learns from a failed run and the fifth about what the tree itself records. A
+cleanup sweep that reddens a build which succeeded, and a fork PR whose
+required check is red with no text distinguishing "we refuse to build fork
+code" from "the build broke", are both failures that carry no information --
+and a reader who meets enough of them stops reading the ones that do. The
+rollup's silence on a doc-only run is the same defect inverted: an
+undifferentiated GREEN for "everything passed" and for "almost nothing ran".
+The absences are the fourth: nothing serialises the publishes that race for
+one rolling tag, nothing cancels a superseded PR's eight-shard matrix, and
+nothing bounds a hung buildx below GitHub's six-hour default. The fifth is
+an absence of a different kind: the default token grant of a workflow that
+declares none is a setting on a web page, so the tree carries no record of
+the posture its jobs run under and no diff can change it.
 
 Every population here is DERIVED from the tree -- the workflow list from the
 directory, the reusable workers from `on: workflow_call`, the cleanup steps
@@ -7878,6 +7955,7 @@ before reading an empty result as a clean one.
 | `workflows: every workflow a trigger can start declares a concurrency group (#1014)` | Nothing in the tree orders anything. Every push to a PR branch starts a fresh eight-shard coverage matrix beside the one still running, and two main merges touching the test-tools Dockerfile run two unserialised publishes whose last writer is decided by arm64 queue time rather than by commit order -- which is how a rolling tag ends up pointing at the older build. |
 | `workflows: no concurrency group cancels a run whose verdict is the record (#1014)` | Cancellation is only free where the cancelled run's verdict no longer matters. On a PR branch a superseded push replaces it; on a main push or a tag the run IS the record, and on the publish path a cancelled `imagetools create` is how a rolling tag loses an arch. So a group may cancel a pull_request and nothing else -- and an `if: always()` aggregator turns whatever it cancels into a red required check. |
 | `workflows: every job that runs steps bounds them (#1014)` | A hung buildx burns GitHub's six-hour default before anyone sees it. The population is every workflow file, not the reusable workers alone: the workers were bounded first because a worker spends the CALLER's minutes, but the jobs that actually run a build here are self-test's eight-shard coverage matrix and its two-arch `acceptance` matrix, both self-hosted-eligible and both unbounded -- so the hazard the rule names lived entirely outside the set the rule scanned. The bound is per job rather than per workflow because that is the only place GitHub accepts one, and the roster is derived from the directory so the ninth workflow cannot land unbounded. |
+| `workflows: every workflow a trigger can start declares its own default permission (#1116)` | The posture is correct and nothing in the tree says so. Both the repo and the org report `default_workflow_permissions: read`, so the fourteen jobs of base's own CI workflow that declare no block of their own are read-only -- held entirely by a checkbox on a settings page, which no diff, no review and no spec can see. Flip it and those jobs get write on contents, packages, actions, issues and pull-requests, on a workflow that checks out fourteen times with a persisted token and then runs the whole suite and scaffolds a repo. The caller-token question is a different one, asked of the reusable workers in reusable_worker_permissions_spec.bats over exactly the complement of this population; this is the repository default, so it is asked here, of the workflows a trigger can start. Five of the six already declare one, so the exception was a house convention nothing enforced. |
 
 ### test/bats/unit/workflow_unchecked_producer_spec.bats (6)
 

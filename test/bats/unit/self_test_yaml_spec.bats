@@ -813,6 +813,155 @@ _job_comments() {
   assert_output --partial '--local-build delegate'
 }
 
+# ── a runner-side builder is created only where its consumer runs ──────
+#
+# Two steps, one decision. `docker/setup-buildx-action` creates a
+# docker-container builder on the runner -- it pulls `moby/buildkit` and
+# starts a container -- and in this workflow the only thing that asks for
+# one is the `docker/build-push-action` step that builds the tooling image
+# with the GHA layer cache. That step is gated: it runs only when the
+# obtain path could not hand the job a usable image. So the setup carries
+# the same gate, and the pairing is DERIVED -- a job is in this scan
+# because it holds both steps, not because a roster here names it. The
+# `acceptance` job sets up a `driver: docker` builder with no
+# build-push-action behind it: its consumer is `./build.sh test` ->
+# `docker compose build`, which runs unconditionally, so the job is outside
+# the population by construction rather than by exemption.
+#
+# ADR-00000033 is the standing tension: this is another per-job copy of one
+# `build_local` decision, and that ADR is about the copies. It is paired
+# with the gate assertions above it for exactly that reason -- two
+# conditions that must agree, on a cold path nobody walks, rot separately
+# unless something reads them together.
+
+# _builder_setup_pairs <file>
+#   `<job>\t<setups>\t<consumers>\t<setup index>\t[<setup if>]\t[<consumer if>]`
+#   for every job of <file> that BOTH sets up a runner-side builder and
+#   carries a step that consumes one. Tab-separated because a condition may
+#   contain any `|`-joined record's separator (`a || b`) and cannot contain
+#   a tab -- and each condition is BRACKETED because a tab is IFS
+#   whitespace, so `read` collapses a run of them and an EMPTY condition
+#   field would silently shift every field after it. The brackets are
+#   stripped where the record is read; a bracket inside the condition
+#   survives, since only one leading and one trailing character go.
+_builder_setup_pairs() {
+    _yaml_eval "${1}" '
+        .jobs | to_entries | .[] | .key as $job
+          | ((.value.steps // []) | to_entries) as $steps
+          | ($steps | map(select((.value.uses // "")
+                | test("docker/setup-buildx-action")))) as $setups
+          | ($steps | map(select((.value.uses // "")
+                | test("docker/build-push-action")))) as $consumers
+          | select(($setups | length) > 0 and ($consumers | length) > 0)
+          | [$job,
+             ($setups | length | tostring),
+             ($consumers | length | tostring),
+             ($setups[0].key | tostring),
+             ("[" + (($setups[0].value.if // "") | tostring) + "]"),
+             ("[" + (($consumers[0].value.if // "") | tostring) + "]")]
+            | @tsv'
+}
+
+# _step_ids <file>
+#   `<job>\t<id>\t<index>` for every step of <file> that declares an `id:`
+#   -- what a condition reading `steps.<id>.outputs.*` has to be placed
+#   against.
+_step_ids() {
+    _yaml_eval "${1}" '
+        .jobs | to_entries | .[] | .key as $job
+          | (.value.steps // []) | to_entries | .[]
+          | select(((.value.id // "") | tostring) != "")
+          | [$job, (.value.id | tostring), (.key | tostring)] | @tsv'
+}
+
+# _normalise_condition <if>
+#   One step condition with the optional `${{ ... }}` wrapper and any
+#   surrounding whitespace removed, so the two legal spellings of one
+#   condition compare equal and the comparison below is about the
+#   condition rather than about how it was typed.
+_normalise_condition() {
+    printf '%s\n' "${1}" \
+        | sed -e 's|^[[:space:]]*\${{[[:space:]]*||' \
+              -e 's|[[:space:]]*}}[[:space:]]*$||' \
+              -e 's|^[[:space:]]*||' -e 's|[[:space:]]*$||'
+}
+
+# _report_one_builder_setup <job> <setup index> <setup if> <consumer if> <ids>
+#   The two ways one job's builder setup can be out of step with the step
+#   that consumes it: a different condition, or the same condition read
+#   before the step that decides it has run. A setup placed ahead of that
+#   step reads an empty output, so it is skipped on every run and its
+#   consumer is left without the builder it was gated with.
+_report_one_builder_setup() {
+    local _job="${1}" _idx="${2}" _setup="${3}" _consumer="${4}" _ids="${5}"
+    local _want _have _id _at
+    _want="$(_normalise_condition "${_setup}")"
+    _have="$(_normalise_condition "${_consumer}")"
+    if [[ "${_want}" != "${_have}" ]]; then
+        printf '%s sets up a runner-side builder on [%s] while the step that consumes it runs on [%s]\n' \
+            "${_job}" "${_setup}" "${_consumer}"
+        return 0
+    fi
+    [[ -n "${_want}" ]] || return 0
+    local -a _reads=()
+    mapfile -t _reads < <(printf '%s\n' "${_want}" \
+        | grep -o 'steps\.[A-Za-z0-9_-]*\.outputs' | cut -d. -f2 | sort -u)
+    for _id in "${_reads[@]}"; do
+        _at="$(printf '%s\n' "${_ids}" | awk -F'\t' -v _j="${_job}" \
+            -v _i="${_id}" '$1 == _j && $2 == _i { print $3 }')"
+        [[ -n "${_at}" ]] || { printf '%s gates its builder setup on the output of a step id %s it carries none of\n' "${_job}" "${_id}" ; continue ; }
+        [[ "${_at}" -lt "${_idx}" ]] || printf '%s sets up its builder at step %s, at or before the step id %s at %s whose output decides whether one is wanted\n' \
+            "${_job}" "${_idx}" "${_id}" "${_at}"
+    done
+}
+
+# _builder_setups_out_of_step_with_their_consumer <file>
+#   One line per disagreement across the derived population.
+_builder_setups_out_of_step_with_their_consumer() {
+    local _file="${1}" _ids _job _ns _nc _idx _setup _consumer _status=0
+    _ids="$(_step_ids "${_file}")" || _status=$?
+    if [[ "${_status}" -ne 0 ]]; then
+        printf '%s\n' "${_ids}"
+        return 0
+    fi
+    while IFS=$'\t' read -r _job _ns _nc _idx _setup _consumer; do
+        [[ -n "${_job}" ]] || continue
+        case "${_job}" in BUG:*) printf '%s\n' "${_job}" ; continue ;; esac
+        _setup="${_setup#"["}" ; _setup="${_setup%"]"}"
+        _consumer="${_consumer#"["}" ; _consumer="${_consumer%"]"}"
+        if [[ "${_ns}" != 1 || "${_nc}" != 1 ]]; then
+            printf '%s carries %s builder setup(s) and %s consumer(s); this scan pairs one with one\n' \
+                "${_job}" "${_ns}" "${_nc}"
+            continue
+        fi
+        _report_one_builder_setup "${_job}" "${_idx}" "${_setup}" "${_consumer}" "${_ids}"
+    done < <(_builder_setup_pairs "${_file}")
+}
+
+# why: Five jobs set up a docker-container builder before anything has
+# decided whether one is wanted, and the only step that wants one is
+# skipped on every hot-path run. Measured on one run: nineteen jobs spent
+# 111 seconds in `Set up Docker Buildx`, 101 of them in the sixteen jobs
+# whose build step was skipped every time -- the action pulls
+# `moby/buildkit:buildx-stable-1` and starts a container, and the post step
+# then removes a builder nothing touched. base is public, so the unit that
+# matters is not a bill but the roughly twenty concurrent slots
+# ADR-00000017 names as the throughput constraint. The ordering half of
+# this guard is the hazard the fix itself introduces: a condition reading
+# `steps.<id>.outputs` from a step that has not run yet is empty, so the
+# setup is skipped on EVERY run and the consumer it was paired with builds
+# with no builder behind it -- a failure that reads as a cache error rather
+# than as a misplaced step.
+@test "self-test.yaml: a runner-side builder is set up only where its consumer runs (#1116)" {
+  local _n
+  _n="$(_builder_setup_pairs "${WF}" | awk 'NF { _n++ } END { print _n + 0 }')"
+  [[ "${_n}" -ge 5 ]] || fail \
+    "derived ${_n} job(s) that both set up a builder and consume one; expected at least the five that build the tooling image -- the scan below would have read an empty set as a clean one"
+  run _builder_setups_out_of_step_with_their_consumer "${WF}"
+  assert_success
+  assert_output ''
+}
+
 # ── Probe-and-rebuild against a stale / racing :main ────────────
 
 # why: The coverage shards are the ones that actually raced -- the
@@ -2311,4 +2460,130 @@ YAML
   assert_success
   [ "${output}" -ge 6 ] \
     || fail "expected the CI-specific stale window on every reclaim step, found ${output}"
+}
+
+# ── doc/test/TEST.md's static-lint table ─────────────────────────────────────
+#
+# TEST.md opens the section with "The just test lint phase runs the tools
+# listed in script/test/test.sh's _LINT_TOOLS table" and then draws that
+# table. It drew 15 of the 26 rows, and gave one of them a CI job name that
+# exists nowhere in self-test.yaml -- lint-static is a GROUP matrix, so
+# `lint-static (i18n-orphan)` was a row pointing at a check a reader would
+# never find in the checks list. The row dates from when the matrix key was
+# still a per-lint `tool:`; the group conversion left it behind.
+#
+# TEST.md is the one file in doc/test/ with no generated block (the doc-count
+# generator's TEST.md pass was removed), so nothing re-derived either half.
+# These two guards do, from the same table this spec already reads for the
+# CI-join completeness check: the row SET is _LINT_TOOLS, and every job name
+# the table cites is a job self-test.yaml actually declares. The "Enforces"
+# column stays authored -- it is prose a person writes, not a figure.
+
+TEST_MD='/source/doc/test/TEST.md'
+
+# Print `<lint><TAB><ci-job>` for each row of the static-lint table. The job
+# is the first code span of the CI-job cell, taken whole: a row naming a job
+# that does not exist is exactly the defect, so the cell is not trimmed down
+# to something that happens to resolve. `\|` inside a cell is an escaped
+# pipe, not a column break (the errexit-bang cell carries several), so it is
+# protected before the split.
+_test_md_lint_rows() {
+  awk '
+    /^\| Lint \| Enforces \| CI job \| Gated\? \|/ { inside = 1; next }
+    inside && !/^\|/ { inside = 0 }
+    !inside { next }
+    /^\|[[:space:]]*:?-/ { next }
+    {
+      line = $0
+      gsub(/\\\|/, "\001", line)
+      split(line, cell, "|")
+      lint = cell[2]
+      job  = cell[4]
+      gsub(/`/, "", lint)
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", lint)
+      jobname = ""
+      if (match(job, /`[^`]*`/)) {
+        jobname = substr(job, RSTART + 1, RLENGTH - 2)
+      }
+      if (lint != "") { print lint "\t" jobname }
+    }
+  ' "${TEST_MD}"
+}
+
+# The lint table in test.sh, parsed rather than sourced for the same reason
+# the CI-join guard above parses it.
+_lint_tools_table() {
+  awk '
+    /^readonly _LINT_TOOLS=\(/ { inside = 1; next }
+    inside && /^\)/            { inside = 0 }
+    inside {
+      sub(/#.*/, "")
+      gsub(/[[:space:]]+/, "")
+      if ($0 != "") print
+    }
+  ' "/source/script/test/test.sh"
+}
+
+# why: TEST.md says its table lists the tools _LINT_TOOLS runs; it listed 15
+# of 26, and nothing re-derived the set, so the sentence the section opens
+# with was false for a whole release cycle
+@test "TEST.md: the static-lint table lists exactly the lints _LINT_TOOLS runs (base#1121)" {
+  assert_spec_subject "${TEST_MD}" "the test index whose lint table this spec pins"
+  local _test_sh="/source/script/test/test.sh"
+  assert_spec_subject "${_test_sh}" "the dispatcher whose lint table TEST.md redraws"
+
+  local -a _tools=() _rows=()
+  mapfile -t _tools < <(_lint_tools_table)
+  mapfile -t _rows < <(_test_md_lint_rows)
+  [ "${#_tools[@]}" -ge 13 ] \
+    || fail "_LINT_TOOLS yielded ${#_tools[@]} entries; the table did not parse"
+  [ "${#_rows[@]}" -ge 13 ] \
+    || fail "TEST.md yielded ${#_rows[@]} table rows; the table did not parse, and the comparison below would be vacuous"
+
+  local -a _listed=()
+  local _row
+  for _row in "${_rows[@]}"; do
+    _listed+=( "${_row%%$'\t'*}" )
+  done
+
+  local _t _missing='' _extra=''
+  for _t in "${_tools[@]}"; do
+    printf '%s\n' "${_listed[@]}" | grep -qx -- "${_t}" \
+      || _missing+=" ${_t}"
+  done
+  for _t in "${_listed[@]}"; do
+    printf '%s\n' "${_tools[@]}" | grep -qx -- "${_t}" \
+      || _extra+=" ${_t}"
+  done
+  [[ -z "${_missing}" ]] \
+    || fail "TEST.md's static-lint table is missing a row for:${_missing} -- the section opens by claiming it lists the tools _LINT_TOOLS runs"
+  [[ -z "${_extra}" ]] \
+    || fail "TEST.md's static-lint table has a row for:${_extra} -- not in _LINT_TOOLS, so the lint phase does not run it"
+}
+
+# why: One row named the CI job lint-static (i18n-orphan), which exists in no
+# workflow -- lint-static is a group matrix, so the row sent a reader looking
+# for a check that is not in the list
+@test "TEST.md: every CI job the static-lint table cites is a job self-test.yaml declares (base#1121)" {
+  local -a _jobs=()
+  mapfile -t _jobs < <(yaml_job_names "${WF}")
+  [ "${#_jobs[@]}" -ge 5 ] \
+    || fail "read ${#_jobs[@]} job names out of ${WF}; the check below would be vacuous"
+
+  local -a _rows=()
+  mapfile -t _rows < <(_test_md_lint_rows)
+  [ "${#_rows[@]}" -ge 13 ] \
+    || fail "TEST.md yielded ${#_rows[@]} table rows; the table did not parse"
+
+  local _row _lint _job _bad=''
+  for _row in "${_rows[@]}"; do
+    _lint="${_row%%$'\t'*}"
+    _job="${_row#*$'\t'}"
+    [[ -n "${_job}" ]] \
+      || fail "TEST.md's row for '${_lint}' names no CI job at all"
+    printf '%s\n' "${_jobs[@]}" | grep -qx -- "${_job}" \
+      || _bad+=" ${_lint}=>${_job}"
+  done
+  [[ -z "${_bad}" ]] \
+    || fail "TEST.md cites CI job names that do not exist in ${WF}:${_bad} -- a reader looking for that check in the checks list will not find it"
 }

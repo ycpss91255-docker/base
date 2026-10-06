@@ -26,7 +26,8 @@ set working-directory := '../..'
 # runner is also what CI invokes directly -- a copy here would cover the
 # `just` path only.
 #
-# just test -> run the whole self-test (ShellCheck + Bats, no kcov: fast)
+# just test -> run the whole self-test: every linter of the _LINT_TOOLS
+# table (ShellCheck and Hadolint among them) and then Bats, no kcov.
 default:
     ./script/test/test.sh
 
