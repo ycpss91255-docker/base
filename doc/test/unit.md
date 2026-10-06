@@ -342,7 +342,7 @@ write one tag while the run read another.
 | `just docker stop hands compose the tooling tag its compose.yaml demands (#1015)` | the verb that ENDS the flow has to hand compose the one value its compose.yaml refuses to be read without, and it has to be the value the checkout's own resolver produces -- a second derivation would agree today and drift tomorrow. |
 | `just docker exec hands compose the tooling tag its compose.yaml demands (#1015)` | exec asks the same file the same way (its running-service precheck is a `compose ps`), so fixing only stop would leave the flow broken one verb earlier. |
 
-### test/bats/unit/base_version_monitor_spec.bats (13)
+### test/bats/unit/base_version_monitor_spec.bats (14)
 
 Version-compare + issue-open logic of the pull-based base version monitor:
 semver ordering (numeric, not lexical), a missing leading `v`, and the `run`
@@ -364,6 +364,7 @@ empty API answer).
 | `run: up to date -> no issue created` | - |
 | `run: existing open issue for the target -> skip (dedup)` | - |
 | `run: a gh still listing titles cannot make the dedupe gate miss an open issue (#905)` | - |
+| `run: the filed issue names an upgrade command a consumer's justfile defines (#1111)` | the command the monitor tells a human to run has to be a recipe |
 | `run: empty latest from API -> fails without creating an issue` | - |
 
 ### test/bats/unit/bash_source_guard_lint_spec.bats (17)
@@ -2991,7 +2992,7 @@ forwarding for caller abort, and DRY_RUN skip.
 | `init.sh --list-installed-paths output is sorted and free of duplicates` | - |
 | `init.sh --list-installed-paths mutates nothing and never leaves its cwd` | - |
 
-### test/bats/unit/init_spec.bats (99)
+### test/bats/unit/init_spec.bats (100)
 
 Unit coverage for `init.sh` helpers that previous rounds exercised only
 through the Level-1 integration test. Complements
@@ -3037,6 +3038,7 @@ are hard to trigger from a real `bash template/init.sh` invocation
 | `_sync_base_monitor_workflow: schedules weekly + manual dispatch` | - |
 | `_sync_base_monitor_workflow: grants issues: write` | - |
 | `_sync_base_monitor_workflow: runs the subtree-shipped checker via prefix` | - |
+| `_sync_base_monitor_workflow: the run: path it freezes is declared protocol-stable (#1111)` | the path the generated workflow freezes is a contract, not a base-internal detail |
 | `_sync_base_monitor_workflow: idempotent — never clobbers a user-tuned file` | - |
 | `_create_new_repo: also generates base-version-monitor.yaml` | - |
 | `_init_existing_repo: heals a Dockerfile still naming the pre-dist layout (#915)` | - |
