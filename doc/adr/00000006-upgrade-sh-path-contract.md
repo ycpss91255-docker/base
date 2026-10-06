@@ -241,6 +241,46 @@
   works. Measured on the unfixed tree, the oldest driver's arm fails with
   `IMAGE_NAME=consumer` -- the fixture's directory name -- while every
   other arm stays green.
+- **Amended:** 2026-10-06 by #1111 -- every amendment above is about a
+  caller whose window CLOSES. A released `upgrade.sh` names a path, does
+  work whose result it must commit, or performs a migration; the set of
+  releases that do any of those is finite, so the forwarder or the heal can
+  eventually be retired. This adds the first caller whose window never
+  closes, and the contract had no vocabulary for it.
+
+  `init.sh`'s `_sync_base_monitor_workflow` writes
+  `.github/workflows/base-version-monitor.yaml` into the consumer's own
+  repo and returns early on every later run, so the file is written once and
+  never rewritten -- deliberately, because a consumer may tune its schedule,
+  and `init_spec.bats` pins exactly that. The `run:` line it bakes names
+  `.base/dist/script/base/check-base-version.sh`, which was base-internal:
+  on this record's own reading it was free to move. It is not. The caller is
+  not a release, it is a file base put in someone else's repo under a
+  promise not to touch it again, so no release goes out of support and no
+  upgrade repairs the name. One rename inside base turns a weekly scheduled
+  workflow red in every repo that has ever been bootstrapped, in the repo of
+  someone who by definition is not watching base releases.
+  `ycpss91255-docker/isaac` already carries the baked line.
+
+  **The addition to the contract:** a path named by an artifact base
+  GENERATES into a consumer and then never rewrites has an **unbounded**
+  window, and is protocol-stable for as long as that artifact exists.
+  Lockstep is not available to it in any form -- updating every reference
+  inside base updates the GENERATOR, which only changes what the NEXT
+  bootstrap writes, while every repo bootstrapped before the change keeps
+  the old line verbatim and forever.
+
+  Repointing the generated `run:` at `upgrade.sh --check` was the
+  alternative and is rejected on three counts: it repairs no repo that
+  already carries the baked line, `--check` does not file the deduped
+  upgrade-reminder issue that is the monitor's entire output, and it leaves
+  `check-base-version.sh` with no caller at all.
+
+  The guard reads this record. `init_spec.bats` derives the `run:` path from
+  the file the generator actually writes for a consumer layout and fails
+  unless the list below names that path, so a rename inside base that
+  updates every code reference still goes red -- the only way to satisfy it
+  is to decide, in this file, that the contract has changed.
 
 ## Context
 
@@ -334,6 +374,14 @@ re-checking #492's trigger checklist):
   config. #714 first moved these under `dist/`.)*
 - `.base/script/docker/lib/` and the `.base/script/docker/*.sh` umbrella
   loaders -- targeted by Region C's Dockerfile auto-patch.
+- `.base/dist/script/base/check-base-version.sh` -- named by the `run:`
+  line of the `base-version-monitor.yaml` workflow `init.sh` generates into
+  each consumer and never rewrites. *(Added 2026-10-06 by #1111.)* Its
+  window is **unbounded**, which makes it the one entry here that lockstep
+  cannot cover: the frozen caller is a file already sitting in repos base
+  cannot reach, so while the generated workflow exists this path may not
+  move without leaving a forwarder behind, and the guard in
+  `init_spec.bats` is what forces that decision to be taken here.
 
 "Protocol-stable" means: these are not free-to-refactor implementation
 details. A reorg may still move them, but only as a deliberate,

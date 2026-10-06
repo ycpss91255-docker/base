@@ -9,8 +9,17 @@
 #   2. Query the upstream base repo's latest STABLE release
 #      (releases/latest skips prereleases / RC tags).
 #   3. If the repo is behind, open a tracking issue in THIS repo so a
-#      human can run `just upgrade`. Pull-based, files into itself with
-#      the default GITHUB_TOKEN -- no PAT, no central repo list.
+#      human can run `just base upgrade`. Pull-based, files into itself
+#      with the default GITHUB_TOKEN -- no PAT, no central repo list.
+#
+# THIS PATH IS PROTOCOL-STABLE, with an UNBOUNDED window -- see
+# doc/adr/00000006-upgrade-sh-path-contract.md. The workflow above is
+# generated into a consumer repo once and then never rewritten, so its
+# `run:` line names this file forever in every repo that has ever been
+# bootstrapped. There is no release whose support can lapse and no upgrade
+# that repairs the name, so moving or renaming this file means leaving a
+# forwarder at the old location -- updating base's own references reaches
+# only the next bootstrap.
 #
 # Dedupe: at most one open `base-upgrade`-labelled issue per target
 # version. A newer target opens a fresh issue; stale ones are closed by
@@ -157,7 +166,7 @@ cmd_run() {
 Upgrade the subtree with:
 
 \`\`\`bash
-just upgrade ${_latest}
+just base upgrade ${_latest}
 \`\`\`
 
 Release notes: https://github.com/${BASE_REPO}/releases/tag/${_latest}

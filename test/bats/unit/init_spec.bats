@@ -596,6 +596,49 @@ REMOTE
   assert_success
 }
 
+# why: the path the generated workflow freezes is a contract, not a
+# base-internal detail
+@test "_sync_base_monitor_workflow: the run: path it freezes is declared protocol-stable (#1111)" {
+  # This file is written ONCE into a consumer repo and never rewritten (the
+  # idempotency arm below is what guarantees that), so the path its `run:`
+  # line names is frozen in every repo that has ever been bootstrapped.
+  # Unlike the paths an already-released upgrade.sh names, this caller has
+  # no supported-release window at all -- it is a file base put in someone
+  # else's repo and promised not to touch -- so the window never closes and
+  # a rename inside base strands every consumer. A path in that position
+  # belongs on ADR-00000006's protocol-stable list, which is the one place
+  # this repo records that a `.base/` interior path may not move freely.
+  #
+  # Both halves are DERIVED from the generated file rather than restated,
+  # so a repoint has to carry the record with it: a `run:` line that names
+  # some other path is checked against the record for THAT path.
+  _source_init
+  _sync_base_monitor_workflow
+  local _wf="${TMP_REPO}/.github/workflows/base-version-monitor.yaml"
+
+  local _cmd
+  _cmd="$(sed -nE 's#^[[:space:]]*run: \./(.+)$#\1#p' "${_wf}" | head -n1)"
+  [[ -n "${_cmd}" ]] \
+    || { echo "the generated workflow carries no './' run: command"; return 1; }
+
+  # Consumer layout: the command is anchored at the subtree prefix, so what
+  # the frozen caller names is the path INSIDE the subtree.
+  local _script="${_cmd%% *}"
+  [[ "${_script}" == "${TEMPLATE_REL}/"* ]] \
+    || { echo "run: is not anchored at the subtree prefix: ${_script}"; return 1; }
+  local _interior="${_script#"${TEMPLATE_REL}/"}"
+
+  # The subtree really ships it, so the generated command resolves in a
+  # consumer tree ...
+  [[ -f "/source/${_interior}" ]] \
+    || { echo "the subtree ships no ${_interior}"; return 1; }
+  # ... and the contract record names it, so moving it inside base is a
+  # deliberate contract change rather than a refactor.
+  run grep -F -- "${_interior}" \
+    /source/doc/adr/00000006-upgrade-sh-path-contract.md
+  assert_success
+}
+
 @test "_sync_base_monitor_workflow: idempotent — never clobbers a user-tuned file" {
   _source_init
   mkdir -p "${TMP_REPO}/.github/workflows"

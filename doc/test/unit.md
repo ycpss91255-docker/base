@@ -342,7 +342,7 @@ write one tag while the run read another.
 | `just docker stop hands compose the tooling tag its compose.yaml demands (#1015)` | the verb that ENDS the flow has to hand compose the one value its compose.yaml refuses to be read without, and it has to be the value the checkout's own resolver produces -- a second derivation would agree today and drift tomorrow. |
 | `just docker exec hands compose the tooling tag its compose.yaml demands (#1015)` | exec asks the same file the same way (its running-service precheck is a `compose ps`), so fixing only stop would leave the flow broken one verb earlier. |
 
-### test/bats/unit/base_version_monitor_spec.bats (13)
+### test/bats/unit/base_version_monitor_spec.bats (14)
 
 Version-compare + issue-open logic of the pull-based base version monitor:
 semver ordering (numeric, not lexical), a missing leading `v`, and the `run`
@@ -364,6 +364,7 @@ empty API answer).
 | `run: up to date -> no issue created` | - |
 | `run: existing open issue for the target -> skip (dedup)` | - |
 | `run: a gh still listing titles cannot make the dedupe gate miss an open issue (#905)` | - |
+| `run: the filed issue names an upgrade command a consumer's justfile defines (#1111)` | the command the monitor tells a human to run has to be a recipe |
 | `run: empty latest from API -> fails without creating an issue` | - |
 
 ### test/bats/unit/bash_source_guard_lint_spec.bats (17)
@@ -454,7 +455,7 @@ mentions the `--no-prune` flag.
 | `build.sh --dry-run prints planned prune step + does not rmi` | - |
 | `build.sh --help mentions --no-prune (#387)` | - |
 
-### test/bats/unit/build_sh_spec.bats (58)
+### test/bats/unit/build_sh_spec.bats (63)
 
 Unit tests for `build.sh` argument handling and control flow. Uses a sandbox
 tree mirroring the expected layout (build.sh + `template/` subtree with real
@@ -514,6 +515,11 @@ runs).
 | `build.sh -t + positional: last positional wins (#280)` | - |
 | `build.sh positional + -t: last -t wins (#280)` | - |
 | `build.sh -t with no value errors clearly (#280)` | - |
+| `build.sh refuses a mistyped flag instead of building it as a target (#1120)` | the reported defect, in its plainest form -- before this guard the wrapper exited 0 and the only complaint came from compose, naming a service the caller never typed. |
+| `build.sh refuses an unimplemented flag even when a target follows it (#1120)` | the worst shape of the defect and the one a happy-path assertion cannot tell apart from a correct run: the swallowed flag was overwritten by the next token, so a wrong invocation produced the right build and said nothing. |
+| `build.sh refuses a valueless unimplemented flag rather than naming it as the service (#1120)` | the flag used to reach BOTH docker compose build (as the service name) and docker rmi (as the image tag), so a refusal has to happen before either -- not merely be reported after. |
+| `build.sh still accepts a bare positional TARGET after the dash guard (#1120)` | the load-bearing control case. The guard would be a regression if it cost the positional TARGET the README documents, so this is what keeps the fix from turning into a blanket refusal of the positional form. |
+| `build.sh refuses a dash-prefixed spelling of a real target (#1120)` | pins the boundary from the other side -- the token names a target that really exists, so the leading dash is the only thing that may refuse it. |
 | `build.sh --help mentions -t / --target (#280)` | - |
 | `build.sh passes --build-arg TARGETARCH=<value> when TARGET_ARCH set in .env` | - |
 | `build.sh omits --build-arg TARGETARCH when TARGET_ARCH absent from .env` | - |
@@ -2984,7 +2990,7 @@ forwarding for caller abort, and DRY_RUN skip.
 | `init.sh --list-installed-paths output is sorted and free of duplicates` | - |
 | `init.sh --list-installed-paths mutates nothing and never leaves its cwd` | - |
 
-### test/bats/unit/init_spec.bats (99)
+### test/bats/unit/init_spec.bats (100)
 
 Unit coverage for `init.sh` helpers that previous rounds exercised only
 through the Level-1 integration test. Complements
@@ -3030,6 +3036,7 @@ are hard to trigger from a real `bash template/init.sh` invocation
 | `_sync_base_monitor_workflow: schedules weekly + manual dispatch` | - |
 | `_sync_base_monitor_workflow: grants issues: write` | - |
 | `_sync_base_monitor_workflow: runs the subtree-shipped checker via prefix` | - |
+| `_sync_base_monitor_workflow: the run: path it freezes is declared protocol-stable (#1111)` | the path the generated workflow freezes is a contract, not a base-internal detail |
 | `_sync_base_monitor_workflow: idempotent — never clobbers a user-tuned file` | - |
 | `_create_new_repo: also generates base-version-monitor.yaml` | - |
 | `_init_existing_repo: heals a Dockerfile still naming the pre-dist layout (#915)` | - |
