@@ -360,6 +360,9 @@ EOS
 # Unrecognised leading-dash token is a usage error, not a target
 # ════════════════════════════════════════════════════════════════════
 
+# why: the reported defect, in its plainest form -- before this guard the
+# wrapper exited 0 and the only complaint came from compose, naming a service
+# the caller never typed.
 @test "build.sh refuses a mistyped flag instead of building it as a target (#1120)" {
   run bash "${SANDBOX}/build.sh" --dry-run --no-cahce
   assert_failure 2
@@ -367,16 +370,21 @@ EOS
   refute_output --partial "build --no-cahce"
 }
 
+# why: the worst shape of the defect and the one a happy-path assertion cannot
+# tell apart from a correct run: the swallowed flag was overwritten by the next
+# token, so a wrong invocation produced the right build and said nothing.
 @test "build.sh refuses an unimplemented flag even when a target follows it (#1120)" {
-  # `--stage` is designed in ADR-00000011 but not implemented by the
-  # wrapper. Swallowing it as TARGET and letting the next token overwrite it
-  # made a wrong invocation look right; the flag must be named and refused.
+  # `--stage` is designed in ADR-00000011 and not implemented by the wrapper,
+  # which is why a caller plausibly types it.
   run bash "${SANDBOX}/build.sh" --dry-run --stage test-tools
   assert_failure 2
   assert_output --partial "--stage"
   refute_output --partial "build test-tools"
 }
 
+# why: the flag used to reach BOTH docker compose build (as the service name)
+# and docker rmi (as the image tag), so a refusal has to happen before either
+# -- not merely be reported after.
 @test "build.sh refuses a valueless unimplemented flag rather than naming it as the service (#1120)" {
   run bash "${SANDBOX}/build.sh" --dry-run --stage
   assert_failure 2
@@ -384,14 +392,17 @@ EOS
   refute_output --partial "build --stage"
 }
 
+# why: the load-bearing control case. The guard would be a regression if it
+# cost the positional TARGET the README documents, so this is what keeps the
+# fix from turning into a blanket refusal of the positional form.
 @test "build.sh still accepts a bare positional TARGET after the dash guard (#1120)" {
-  # The guard keys on the leading dash alone, so the documented positional
-  # TARGET survives: `runtime` is a target, `--runtime` is not.
   run bash "${SANDBOX}/build.sh" --dry-run runtime
   assert_success
   assert_output --partial "runtime"
 }
 
+# why: pins the boundary from the other side -- the token names a target that
+# really exists, so the leading dash is the only thing that may refuse it.
 @test "build.sh refuses a dash-prefixed spelling of a real target (#1120)" {
   run bash "${SANDBOX}/build.sh" --dry-run --runtime
   assert_failure 2
