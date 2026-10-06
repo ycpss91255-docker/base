@@ -890,3 +890,235 @@ YAML
   run _adr_claims "${_adr}" "${REPO}"
   assert_success
 }
+
+# ── The registry index's claims about the registry ──────────────────────────
+#
+# doc/adr/README.md is the one conventional non-ADR file in doc/adr/, and both
+# ADR lints exempt it by filename -- adr_numbering.sh and adr_structure.sh
+# each call it exactly that. So the file that declares "the filesystem is the
+# ADR registry" was the only file in the directory with no gate at all, and it
+# carried a hand-enumerated table plus a hand-run tally. Both were wrong: 33
+# rows against 34 ADR files on disk (00000033 missing), later 36; the
+# conclusion claimed 18 `keep` where the column said 21 and 9
+# `elevates-invariant` where it said 10; it listed 00000022 under
+# elevates-invariant while the row's own cell read `keep (amended by
+# 00000025)`; and it carried 00000030 twice with two different invariants.
+#
+# doc/PRD.md cites this file -- quoting that registry declaration verbatim --
+# as one of the three places design principle P2 is written down ("Derive the
+# population; never enumerate it ... a hand list is wrong from the moment the
+# first entry is added elsewhere, and silently so"). The file PRD points at as
+# the example was the violation.
+#
+# Two rules, in the same shape as R1-R3: derived from the tree, not restated
+# from it.
+#
+#   R4 -- population. The table's row set is `doc/adr/NNNNNNNN-*.md`, in
+#         ascending order. Both directions: a missing row and a row for an ADR
+#         that is not on disk are each named. The order matters because
+#         hand-appending is what produced the 29, 35, 36, 32, 31, 30 tail.
+#   R5 -- tally. Every verdict of the vocabulary table carries exactly one
+#         conclusion bullet, whose count and whose enumerated numbers both
+#         equal what column 2 of the table says. The verdict vocabulary is
+#         read from the vocabulary table, not kept here.
+#
+# What stays authored is the Note column and the prose under the tally: a
+# verdict distribution is derivable and is held to the table; why an ADR was
+# given its verdict is not.
+
+ADR_INDEX_REL='doc/adr/README.md'
+
+# The ADR numbers on disk, which is the registry.
+_adr_numbers_on_disk() {
+  local _f
+  for _f in "${ADR_DIR}"/[0-9]*.md; do
+    [[ -f "${_f}" ]] || continue
+    printf '%s\n' "$(basename -- "${_f}")" | grep -oE '^[0-9]{8}'
+  done
+}
+
+# The ADR numbers the audit table carries, in table order.
+_adr_index_rows() {
+  grep -oE '^\| [0-9]{8} ' "${ADR_DIR}/README.md" | tr -d '| '
+}
+
+# `<number><TAB><verdict-word>` per table row: column 2 up to its first space,
+# which is the verdict; the qualifier in brackets after it is the Note
+# column's business.
+_adr_index_verdicts() {
+  awk -F'|' '
+    /^\| [0-9]{8} / {
+      num = $2
+      verdict = $3
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", num)
+      sub(/[[:space:]].*/, "", num)
+      gsub(/^[[:space:]]+/, "", verdict)
+      sub(/[[:space:]].*/, "", verdict)
+      print num "\t" verdict
+    }
+  ' "${ADR_DIR}/README.md"
+}
+
+# The verdict words the vocabulary table defines.
+_adr_verdict_vocabulary() {
+  awk -F'|' '
+    /^\| Verdict \| Meaning \|/ { inside = 1; next }
+    inside && !/^\|/            { inside = 0 }
+    !inside                     { next }
+    /^\|[[:space:]]*:?-/        { next }
+    {
+      v = $2
+      gsub(/`/, "", v)
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", v)
+      if (v != "") print v
+    }
+  ' "${ADR_DIR}/README.md"
+}
+
+# `<verdict><TAB><count><TAB><space-separated numbers>` per conclusion bullet.
+# Continuation lines are folded first, because the enumeration wraps.
+_adr_conclusion_tallies() {
+  awk '
+    /^## Audit conclusion/ { inside = 1; next }
+    inside && /^## /       { inside = 0 }
+    !inside                { next }
+    /^- / {
+      if (buf != "") print buf
+      buf = $0
+      next
+    }
+    /^[[:space:]]+[^[:space:]]/ {
+      if (buf != "") {
+        line = $0
+        gsub(/^[[:space:]]+/, "", line)
+        buf = buf " " line
+      }
+      next
+    }
+    { if (buf != "") { print buf; buf = "" } }
+    END { if (buf != "") print buf }
+  ' "${ADR_DIR}/README.md" \
+    | sed -n 's/^- \*\*\([a-z-]*\):\*\* \([0-9]*\)\(.*\)$/\1\t\2\t\3/p' \
+    | awk -F'\t' '{
+        rest = $3
+        nums = ""
+        if (match(rest, /\([0-9][0-9, ]*\)/)) {
+          nums = substr(rest, RSTART + 1, RLENGTH - 2)
+          gsub(/,/, " ", nums)
+          gsub(/[[:space:]]+/, " ", nums)
+          gsub(/^ | $/, "", nums)
+        }
+        print $1 "\t" $2 "\t" nums
+      }'
+}
+
+# why: R4 population. The index declares itself the consolidated view of every
+# ADR, and both ADR lints exempt it by filename, so the one file in the
+# registry directory with no gate was the one enumerating the registry -- it
+# sat three rows short
+@test "adr index: the audit table's row set is the ADR files on disk (base#1121)" {
+  assert_spec_subject "${ADR_DIR}/README.md" \
+      "the ADR index whose population this spec derives"
+  assert_spec_subject_dir "${ADR_DIR}" "the registry the index claims to list"
+
+  local -a _disk=() _rows=()
+  mapfile -t _disk < <(_adr_numbers_on_disk)
+  mapfile -t _rows < <(_adr_index_rows)
+  [ "${#_disk[@]}" -ge 20 ] \
+    || fail "found ${#_disk[@]} ADR files; the registry did not enumerate, and the comparison would be vacuous"
+  [ "${#_rows[@]}" -ge 20 ] \
+    || fail "parsed ${#_rows[@]} rows out of the audit table; the table did not parse"
+
+  local _n _missing='' _extra=''
+  for _n in "${_disk[@]}"; do
+    printf '%s\n' "${_rows[@]}" | grep -qx -- "${_n}" || _missing+=" ${_n}"
+  done
+  for _n in "${_rows[@]}"; do
+    printf '%s\n' "${_disk[@]}" | grep -qx -- "${_n}" || _extra+=" ${_n}"
+  done
+  [[ -z "${_missing}" ]] \
+    || fail "${ADR_INDEX_REL} has no audit row for:${_missing} -- it declares itself the consolidated view of every ADR"
+  [[ -z "${_extra}" ]] \
+    || fail "${ADR_INDEX_REL} has an audit row for:${_extra} -- no such file in ${ADR_DIR}, so the row describes nothing"
+}
+
+# why: Hand-appending is what produced the 29, 35, 36, 32, 31, 30 tail, and an
+# unsorted table is where a duplicate or a missing row hides
+@test "adr index: the audit rows are in ascending ADR order (base#1121)" {
+  local -a _rows=()
+  mapfile -t _rows < <(_adr_index_rows)
+  [ "${#_rows[@]}" -ge 20 ] \
+    || fail "parsed ${#_rows[@]} rows out of the audit table; the table did not parse"
+  local _sorted=''
+  _sorted="$(printf '%s\n' "${_rows[@]}" | sort)"
+  [[ "${_sorted}" == "$(printf '%s\n' "${_rows[@]}")" ]] \
+    || fail "the audit table is not in ascending ADR order -- rows appear as $(printf '%s ' "${_rows[@]}")"
+}
+
+# why: R5 tally. The conclusion's counts are derivable from column 2 and were
+# stored instead, which is the P2 violation PRD cites this very file as the
+# example of -- it claimed 18 keep against 21 and 9 elevates-invariant
+# against 10, and filed 00000022 under a verdict its own row contradicts
+@test "adr index: each conclusion tally equals what the verdict column says (base#1121)" {
+  local -a _vocab=() _verdicts=() _tallies=()
+  mapfile -t _vocab < <(_adr_verdict_vocabulary)
+  mapfile -t _verdicts < <(_adr_index_verdicts)
+  mapfile -t _tallies < <(_adr_conclusion_tallies)
+  [ "${#_vocab[@]}" -ge 4 ] \
+    || fail "parsed ${#_vocab[@]} verdicts out of the vocabulary table; the vocabulary did not parse"
+  [ "${#_verdicts[@]}" -ge 20 ] \
+    || fail "parsed ${#_verdicts[@]} verdict cells out of the audit table"
+  [ "${#_tallies[@]}" -ge 4 ] \
+    || fail "parsed ${#_tallies[@]} tally bullets out of the audit conclusion; the conclusion did not parse"
+
+  local _v _row _tally _claimed _claimed_nums _actual_nums _count _hits
+  for _v in "${_vocab[@]}"; do
+    # Every verdict of the vocabulary carries exactly one bullet, so dropping
+    # one cannot quietly stop it being checked.
+    _hits="$(printf '%s\n' "${_tallies[@]}" | grep -c "^${_v}"$'\t' || true)"
+    [ "${_hits}" -eq 1 ] \
+      || fail "the audit conclusion carries ${_hits} tally bullets for verdict '${_v}'; it must carry exactly one"
+
+    _actual_nums=''
+    _count=0
+    for _row in "${_verdicts[@]}"; do
+      [[ "${_row#*$'\t'}" == "${_v}" ]] || continue
+      _actual_nums+="${_row%%$'\t'*} "
+      _count=$(( _count + 1 ))
+    done
+    _actual_nums="${_actual_nums% }"
+
+    _tally="$(printf '%s\n' "${_tallies[@]}" | grep "^${_v}"$'\t')"
+    _claimed="$(printf '%s' "${_tally}" | cut -f2)"
+    _claimed_nums="$(printf '%s' "${_tally}" | cut -f3)"
+
+    [ "${_claimed}" -eq "${_count}" ] \
+      || fail "the audit conclusion claims ${_claimed} '${_v}' rows; column 2 of the table says ${_count}"
+    if [[ -n "${_claimed_nums}" ]]; then
+      [[ "${_claimed_nums}" == "${_actual_nums}" ]] \
+        || fail "the audit conclusion lists '${_v}' as [${_claimed_nums}]; column 2 of the table says [${_actual_nums}]"
+    else
+      [ "${_count}" -eq 0 ] \
+        || fail "the audit conclusion gives '${_v}' a count of ${_claimed} and no numbers, while the table has ${_count} such rows"
+    fi
+  done
+}
+
+# why: A verdict cell outside the vocabulary is a word the index defines
+# nowhere, and it would make the tally above pass by never being counted
+@test "adr index: every verdict cell is one the vocabulary table defines (base#1121)" {
+  local -a _vocab=() _verdicts=()
+  mapfile -t _vocab < <(_adr_verdict_vocabulary)
+  mapfile -t _verdicts < <(_adr_index_verdicts)
+  [ "${#_vocab[@]}" -ge 4 ] || fail "the vocabulary table did not parse"
+  [ "${#_verdicts[@]}" -ge 20 ] || fail "the audit table did not parse"
+
+  local _row _v _bad=''
+  for _row in "${_verdicts[@]}"; do
+    _v="${_row#*$'\t'}"
+    printf '%s\n' "${_vocab[@]}" | grep -qx -- "${_v}" \
+      || _bad+=" ${_row%%$'\t'*}=>${_v}"
+  done
+  [[ -z "${_bad}" ]] \
+    || fail "${ADR_INDEX_REL} uses verdicts its own vocabulary table does not define:${_bad}"
+}

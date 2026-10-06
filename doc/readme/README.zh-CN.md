@@ -29,7 +29,7 @@
 
 ---
 
-<!-- sync: tldr b4f9c41522da c6783a1b0113 -->
+<!-- sync: tldr ba8c00105790 7f0d44de466e -->
 ## TL;DR
 
 ```bash
@@ -46,7 +46,7 @@ just base update   # 检查
 just base upgrade         # pull + 更新版本文件 + workflow tag
 
 # 运行 CI
-just test   # ShellCheck + Bats + Kcov
+just test   # ShellCheck + Hadolint + Bats（no kcov；覆盖率请用 just test coverage）
 just                       # 列出所有 recipe
 ```
 
@@ -137,7 +137,7 @@ flowchart LR
     release_worker -->|"tar.gz + zip"| release["GitHub Release"]
 ```
 
-<!-- sync: whats-included 15d472ab822b 30099a98a613 -->
+<!-- sync: whats-included e5eb3626b529 5d4062428afb -->
 ### 包含内容
 
 | 文件 | 说明 |
@@ -178,14 +178,6 @@ flowchart LR
 | `test/bats/integration/` | base 自测，init/upgrade 端到端 |
 | `test/bats/system/` | base 自测，System 层／Regression（runtime smoke gate，opt-in） |
 | `test/bats/acceptance/` | base 自测，Acceptance 层（UAT/OAT；保留，S5 #785） |
-
-测试内容采用 **tool-first** 布局 — spec 放 `test/<tool>/<category>/`
-（如 `test/bats/unit/`），linter 放 `test/lint/<tool>/` — 加一个工具就
-是新增一个目录，而不是新增一个命令面。见
-[ADR-00000012](../adr/00000012-tool-first-test-layout.md)（取代 category-first
-的 ADR-00000004）。consumer 出货自己的 `test/bats/smoke/`；base 出货自己的
-`test/bats/{unit,integration,system,acceptance}/`。
-
 | `.hadolint.yaml` | 共用 Hadolint 规则 |
 | `justfile`（→ `script/justfile`） | Repo 命令入口 — 分层 namespace recipe（`just docker build`、`just docker run`、`just test`、`just base upgrade` 等）。sub-cmd 与 flag 透过 `{{args}}` 直接透传（`just docker build --no-cache --stage test-tools`）；裸 `just` 列出所有 namespace。 |
 | `dist/script/docker/justfile.docker` | `docker` namespace — 容器操作（`just docker build/run/exec/stop/prune/setup/setup-tui`）。 |
@@ -198,6 +190,13 @@ flowchart LR
 | `dist/dockerfile/Dockerfile` | 新 repo 的多阶段 Dockerfile 模板 |
 | `dockerfile/Dockerfile.test-tools` | 预构建 lint/test 工具 image（shellcheck、hadolint、bats、bats-mock） |
 | `.github/workflows/` | 可重用 CI workflows（build + release） |
+
+测试内容采用 **tool-first** 布局 — spec 放 `test/<tool>/<category>/`
+（如 `test/bats/unit/`），linter 放 `test/lint/<tool>/` — 加一个工具就
+是新增一个目录，而不是新增一个命令面。见
+[ADR-00000012](../adr/00000012-tool-first-test-layout.md)（取代 category-first
+的 ADR-00000004）。consumer 出货自己的 `test/bats/smoke/`；base 出货自己的
+`test/bats/{unit,integration,system,acceptance}/`。
 
 <!-- sync: dockerfile-stages-convention e8e20b69013a 66b69b96c536 -->
 ### Dockerfile 分层（约定）
@@ -626,10 +625,11 @@ Main
 `./setup_tui.sh <section>` 仍可直接跳到任意 section 的编辑器
 （如 `./setup_tui.sh volumes`），不必走主菜单。
 
-<!-- sync: when-setupsh-runs ecdbadb6a9f1 8c3d92108989 -->
+<!-- sync: when-setupsh-runs 4b98ca4c7af4 5c63b5a3d4c1 -->
 ### setup.sh 什么时候运行
 
-`setup.sh` 仅在显式触发时才执行 — 并不会在每次 build / run 都重跑：
+`setup.sh` 不会在每次 build / run 都重跑，但也不是只有你显式要求时才
+跑 — 以下都会触发它：
 
 - **`just base init` / `./.base/dist/script/base/init.sh`** 建完骨架自动运行一次
 - **`just base upgrade` / `./.base/dist/script/base/upgrade.sh`** subtree pull 后通过 init.sh
@@ -640,6 +640,9 @@ Main
 - **首次 bootstrap**：`./build.sh` / `./run.sh` 首次执行（`.env.generated`
   尚未存在，例如 CI 新 clone）会自动走相同的 TTY-aware 流程，不用带
   `--setup`
+- **Drift**：每次 `./build.sh` / `./run.sh` 都会先跑 `setup.sh check-drift`，
+  报出 drift 时自行重跑 `setup.sh apply`，不用打 `--setup` — 见下方
+  Drift 检测
 
 > **Fresh-clone lint 覆盖率（#216）**：`./run.sh` 在本机没 image
 > cached 时会走 Compose auto-build — 但 auto-build **只 build
@@ -660,18 +663,26 @@ Main
 `APT_MIRROR_DEBIAN`，所以手动调过的 workspace 路径或 apt mirror 升级时
 不会被覆盖。
 
-<!-- sync: drift-detection 423fc5dbfe75 7b438f79c7df -->
+<!-- sync: drift-detection 2ebab6909c30 57e591cdf382 -->
 ### Drift 检测
 
-`setup.sh` 把 `SETUP_CONF_HASH`、`SETUP_GUI_DETECTED`、`SETUP_TIMESTAMP`
-写到 `.env.generated`。每次 `./build.sh` / `./run.sh` 进入时会比对 `setup.conf`
-当前 hash + 系统检测值，以下任一项改变时打印 `[WARNING]`（但不阻止执行）：
+`setup.sh apply` 会把五个值写进 `.env.generated`：`SETUP_CONF_HASH`、
+`SETUP_DOCKERFILE_HASH`、`SETUP_GUI_DETECTED`、`GPU_ENABLED`、`USER_UID`。
+每次 `./build.sh` / `./run.sh` 都会拿这些值跟当前的 tree 与 host 比对，
+任一项自上次 setup 后改变就打印 `[WARNING]`（不阻止执行）：
 
-- `setup.conf` 内容（conf hash）
-- GPU / GUI 检测结果
-- `USER_UID`（用户身份）
+- `setup.conf` 内容（`SETUP_CONF_HASH`）
+- Dockerfile stage 清单（`SETUP_DOCKERFILE_HASH`）— 新增或移除
+  `FROM ... AS <stage>`
+- GPU 检测结果（`GPU_ENABLED`）
+- GUI 检测结果（`SETUP_GUI_DETECTED`）
+- `USER_UID`（用户身份改变）
 
-带 `--setup` 重跑以重新生成 `.env.generated` + `compose.yaml`。
+不需要手动重跑：下一次 `just docker build` / `just docker run` 会跑
+`setup.sh check-drift`，报出 drift 时自行重新生成 `.env` /
+`.env.generated` / `compose.yaml` — 这些都是派生文件，不含用户数据，
+重生永远安全。带 `--setup` 可以立即强制重生，在 TTY 下会先开
+`setup_tui.sh`。
 
 <!-- sync: field-deployment-just-docker-setup-deploy 9112a5c7eaaa 51e3749d109d -->
 ### Field 部署（`just docker setup deploy`）
@@ -1146,13 +1157,14 @@ worker 以自身 ref 取出的 base checkout 中的 `.version` 推导而来，�
 | `extra_files` | string | 否 | `""` | 额外文件（空格分隔） |
 | `version` | string | 否 | `""` | 要发布的版本（`vX.Y.Z`）。走 tag 触发路径时留空，版本会从所推的 tag 读出。若要从非 tag 的 run 直接调用这个 worker 就传入它：用默认 `GITHUB_TOKEN` 产生的事件不会启动新的 workflow run，所以要自动发布已合并变更的 repo，靠推 tag 到不了这里。不是 `vX.Y.Z[-suffix]` 的值会被拒绝，而不是照样拿来发布 |
 
-<!-- sync: running-template-tests 4e411d749017 9e717f2fcbfe -->
+<!-- sync: running-template-tests d17e2a643fbc 52e3c3eb0eb1 -->
 ## 本地运行测试
 
 base 自测入口 `just test`：
 ```bash
-just test        # 完整 CI（ShellCheck + Bats + Kcov）通过 docker compose
-just test lint        # 只运行 ShellCheck
+just test        # 快速 CI（ShellCheck + Hadolint + Bats，no kcov）通过 docker compose
+just test coverage    # Bats 全套跑在 kcov 下；不跑 lint 阶段
+just test lint        # lint 阶段的全部 linter（ShellCheck + Hadolint 及其余）
 just test clean       # 清除覆盖率报告
 just test stop        # 停掉本 checkout 自测的容器
 just                            # 显示 repo 命令
@@ -1161,7 +1173,7 @@ just --list        # 显示 CI 命令
 
 或直接运行：
 ```bash
-./script/test/test.sh          # 完整 CI（通过 docker compose）
+./script/test/test.sh          # 快速 CI（通过 docker compose，no kcov）
 ./script/test/test.sh --ci     # 在容器内运行（由 compose 调用）
 ```
 

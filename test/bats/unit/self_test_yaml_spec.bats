@@ -2461,3 +2461,129 @@ YAML
   [ "${output}" -ge 6 ] \
     || fail "expected the CI-specific stale window on every reclaim step, found ${output}"
 }
+
+# ── doc/test/TEST.md's static-lint table ─────────────────────────────────────
+#
+# TEST.md opens the section with "The just test lint phase runs the tools
+# listed in script/test/test.sh's _LINT_TOOLS table" and then draws that
+# table. It drew 15 of the 26 rows, and gave one of them a CI job name that
+# exists nowhere in self-test.yaml -- lint-static is a GROUP matrix, so
+# `lint-static (i18n-orphan)` was a row pointing at a check a reader would
+# never find in the checks list. The row dates from when the matrix key was
+# still a per-lint `tool:`; the group conversion left it behind.
+#
+# TEST.md is the one file in doc/test/ with no generated block (the doc-count
+# generator's TEST.md pass was removed), so nothing re-derived either half.
+# These two guards do, from the same table this spec already reads for the
+# CI-join completeness check: the row SET is _LINT_TOOLS, and every job name
+# the table cites is a job self-test.yaml actually declares. The "Enforces"
+# column stays authored -- it is prose a person writes, not a figure.
+
+TEST_MD='/source/doc/test/TEST.md'
+
+# Print `<lint><TAB><ci-job>` for each row of the static-lint table. The job
+# is the first code span of the CI-job cell, taken whole: a row naming a job
+# that does not exist is exactly the defect, so the cell is not trimmed down
+# to something that happens to resolve. `\|` inside a cell is an escaped
+# pipe, not a column break (the errexit-bang cell carries several), so it is
+# protected before the split.
+_test_md_lint_rows() {
+  awk '
+    /^\| Lint \| Enforces \| CI job \| Gated\? \|/ { inside = 1; next }
+    inside && !/^\|/ { inside = 0 }
+    !inside { next }
+    /^\|[[:space:]]*:?-/ { next }
+    {
+      line = $0
+      gsub(/\\\|/, "\001", line)
+      split(line, cell, "|")
+      lint = cell[2]
+      job  = cell[4]
+      gsub(/`/, "", lint)
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", lint)
+      jobname = ""
+      if (match(job, /`[^`]*`/)) {
+        jobname = substr(job, RSTART + 1, RLENGTH - 2)
+      }
+      if (lint != "") { print lint "\t" jobname }
+    }
+  ' "${TEST_MD}"
+}
+
+# The lint table in test.sh, parsed rather than sourced for the same reason
+# the CI-join guard above parses it.
+_lint_tools_table() {
+  awk '
+    /^readonly _LINT_TOOLS=\(/ { inside = 1; next }
+    inside && /^\)/            { inside = 0 }
+    inside {
+      sub(/#.*/, "")
+      gsub(/[[:space:]]+/, "")
+      if ($0 != "") print
+    }
+  ' "/source/script/test/test.sh"
+}
+
+# why: TEST.md says its table lists the tools _LINT_TOOLS runs; it listed 15
+# of 26, and nothing re-derived the set, so the sentence the section opens
+# with was false for a whole release cycle
+@test "TEST.md: the static-lint table lists exactly the lints _LINT_TOOLS runs (base#1121)" {
+  assert_spec_subject "${TEST_MD}" "the test index whose lint table this spec pins"
+  local _test_sh="/source/script/test/test.sh"
+  assert_spec_subject "${_test_sh}" "the dispatcher whose lint table TEST.md redraws"
+
+  local -a _tools=() _rows=()
+  mapfile -t _tools < <(_lint_tools_table)
+  mapfile -t _rows < <(_test_md_lint_rows)
+  [ "${#_tools[@]}" -ge 13 ] \
+    || fail "_LINT_TOOLS yielded ${#_tools[@]} entries; the table did not parse"
+  [ "${#_rows[@]}" -ge 13 ] \
+    || fail "TEST.md yielded ${#_rows[@]} table rows; the table did not parse, and the comparison below would be vacuous"
+
+  local -a _listed=()
+  local _row
+  for _row in "${_rows[@]}"; do
+    _listed+=( "${_row%%$'\t'*}" )
+  done
+
+  local _t _missing='' _extra=''
+  for _t in "${_tools[@]}"; do
+    printf '%s\n' "${_listed[@]}" | grep -qx -- "${_t}" \
+      || _missing+=" ${_t}"
+  done
+  for _t in "${_listed[@]}"; do
+    printf '%s\n' "${_tools[@]}" | grep -qx -- "${_t}" \
+      || _extra+=" ${_t}"
+  done
+  [[ -z "${_missing}" ]] \
+    || fail "TEST.md's static-lint table is missing a row for:${_missing} -- the section opens by claiming it lists the tools _LINT_TOOLS runs"
+  [[ -z "${_extra}" ]] \
+    || fail "TEST.md's static-lint table has a row for:${_extra} -- not in _LINT_TOOLS, so the lint phase does not run it"
+}
+
+# why: One row named the CI job lint-static (i18n-orphan), which exists in no
+# workflow -- lint-static is a group matrix, so the row sent a reader looking
+# for a check that is not in the list
+@test "TEST.md: every CI job the static-lint table cites is a job self-test.yaml declares (base#1121)" {
+  local -a _jobs=()
+  mapfile -t _jobs < <(yaml_job_names "${WF}")
+  [ "${#_jobs[@]}" -ge 5 ] \
+    || fail "read ${#_jobs[@]} job names out of ${WF}; the check below would be vacuous"
+
+  local -a _rows=()
+  mapfile -t _rows < <(_test_md_lint_rows)
+  [ "${#_rows[@]}" -ge 13 ] \
+    || fail "TEST.md yielded ${#_rows[@]} table rows; the table did not parse"
+
+  local _row _lint _job _bad=''
+  for _row in "${_rows[@]}"; do
+    _lint="${_row%%$'\t'*}"
+    _job="${_row#*$'\t'}"
+    [[ -n "${_job}" ]] \
+      || fail "TEST.md's row for '${_lint}' names no CI job at all"
+    printf '%s\n' "${_jobs[@]}" | grep -qx -- "${_job}" \
+      || _bad+=" ${_lint}=>${_job}"
+  done
+  [[ -z "${_bad}" ]] \
+    || fail "TEST.md cites CI job names that do not exist in ${WF}:${_bad} -- a reader looking for that check in the checks list will not find it"
+}
