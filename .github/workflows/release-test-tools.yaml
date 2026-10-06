@@ -42,7 +42,15 @@ name: Release test-tools image to GHCR
 # next time somebody adds a COPY. So the filter is widened to START the
 # workflow and the `decide` job below answers the question, from the
 # Dockerfile's own COPY lines, through the same derivation the local
-# content-hash tag uses. What that costs is one ~20s job per push to main.
+# content-hash tag uses.
+#
+# What that costs, stated here rather than discovered later: one extra job
+# -- a two-commit checkout and a `git diff` -- on every push to main,
+# including the doc-only ones the filter used to drop before any runner was
+# claimed. It also takes that push's turn in the concurrency group below,
+# which serialises the rolling tag's writers; the turn is a checkout and a
+# diff rather than a multi-arch build, and the group exists precisely so
+# that the order of those turns is commit order.
 #
 # Multi-arch build model (#587): each architecture builds on its NATIVE
 # runner (linux/amd64 -> ubuntu-latest, linux/arm64 -> ubuntu-24.04-arm),
