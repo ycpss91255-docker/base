@@ -1598,6 +1598,16 @@ HOOK
 #   the generated workflow is a thin weekly scheduler. Called from both
 #   the new-repo path and the existing-repo (upgrade) path so every repo
 #   converges on it.
+#
+#   Never-overwrite is what makes the `run:` path below a CONTRACT rather
+#   than an implementation detail: the file is written once into a repo base
+#   cannot reach again, so the path it names is frozen there for good, with
+#   no release whose support can lapse and no upgrade that repairs it.
+#   Updating every reference inside base would move only what the NEXT
+#   bootstrap writes. The path is therefore protocol-stable with an
+#   unbounded window and may not move without a forwarder --
+#   doc/adr/00000006-upgrade-sh-path-contract.md carries the list, and
+#   init_spec.bats fails unless the generated path appears on it.
 # The actions/checkout ref baked into the workflow below. Hoisted out of
 # the heredoc so it has a declaration site a `tool-pin:` marker can sit on:
 # written inline it was a `uses:` ref that NOTHING could advance -- this

@@ -206,6 +206,36 @@ code_grep() {
     fi
 }
 
+# dockerfile_context_copy_srcs <dockerfile>
+#   The build-context sources <dockerfile> COPYs, one per line: the paths
+#   whose CONTENT is baked into the image while the Dockerfile itself does
+#   not move. A `COPY --from=<stage>` source is a path of an earlier stage
+#   rather than of the checkout and is left out.
+#
+#   This exists so a spec about which paths CI treats as inputs of an image
+#   can get its expected set from the DOCKERFILE rather than from the
+#   derivation under test -- an expectation the subject computed is one that
+#   can never disagree with it. Written once here rather than in each spec
+#   for the same reason the derivation itself is: three independent readers
+#   drift into three different questions.
+#
+#   Deliberately naive, and that is the whole contract: it reads the plain
+#   `COPY <src>... <dst>` form and nothing else. A glob, a variable, a line
+#   continuation or the JSON array form is REFUSED by the production
+#   derivation, which is where those shapes are asserted; a caller that
+#   needs a path it can commit a change to must filter this to paths that
+#   exist in the tree.
+dockerfile_context_copy_srcs() {
+    local _df="${1:?BUG: dockerfile_context_copy_srcs expects a dockerfile}"
+    if [[ ! -f "${_df}" || ! -r "${_df}" ]]; then
+        printf 'BUG: dockerfile_context_copy_srcs cannot read %s\n' "${_df}"
+        return 2
+    fi
+    grep -E '^[[:space:]]*COPY[[:space:]]' "${_df}" \
+        | grep -v -- '--from=' \
+        | awk '{ for (i = 2; i < NF; i++) if (substr($i, 1, 2) != "--") print $i }'
+}
+
 # yaml_job_text <file> <job>
 #   One top-level `jobs:` entry of <file>, VERBATIM -- from `  <job>:` up to
 #   the next two-space-indented key. Comments included, so pair it with
