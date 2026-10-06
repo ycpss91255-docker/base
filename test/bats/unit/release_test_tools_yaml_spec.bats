@@ -18,11 +18,12 @@
 #
 # 2. **Main push** (P2) — multi-arch `:main` rolling tag. The
 #    template's own self-test.yaml pulls this in its Obtain step to
-#    skip a from-source rebuild on every PR. Most main-branch merges
-#    change nothing the image is built from, so the `decide` job holds
-#    them back; it answers from the Dockerfile's own COPY lines rather
-#    than from a list, which is what the `paths:` filter was and why a
-#    merge touching only a COPYed file never reached GHCR at all.
+#    skip a from-source rebuild on every PR. The paths filter holds back
+#    the merges that change nothing the image is built from, and the last
+#    section of this file holds the filter to the set
+#    `script/ci/testtools_paths.sh` derives from the Dockerfile's COPY
+#    lines -- a filter naming only the Dockerfile is why a merge touching
+#    only a COPYed file never reached GHCR at all.
 #
 # 3. **workflow_dispatch** — no tag set of its own: it resolves by the
 #    ref it was dispatched FROM (main takes the `:main` arm, a `v*` tag
@@ -46,9 +47,9 @@
 # prerelease tag must leave it alone.
 #
 # 2. **Main push** (P2) -- multi-arch `:main` rolling tag, pulled by
-# self-test.yaml's Obtain step to skip from-source rebuilds. The `decide`
-# job holds back the merges that change nothing the image is built from,
-# and derives that set from the Dockerfile rather than listing it.
+# self-test.yaml's Obtain step to skip from-source rebuilds. Its paths filter
+# holds back the merges that change nothing the image is built from, and is
+# itself held to the set derived from the Dockerfile's own COPY lines.
 #
 # 3. **workflow_dispatch** -- no tag set of its own: it resolves by the ref
 # it was dispatched from (main takes the `:main` arm, a `v*` tag takes the
@@ -200,20 +201,16 @@ _spec_prose() {
   assert_output --partial 'branches: [main]'
 }
 
-# why: The filter used to BE the answer, and it named one input: the tooling
-# Dockerfile. GitHub evaluates `paths:` as static YAML before any job runs,
-# so it cannot derive anything -- which makes it the wrong place to decide
-# rather than a list to extend. A commit touching only a file the Dockerfile
-# COPYs out of the build context did not start this workflow at all, so the
-# rolling tag every pull request falls back to was never refreshed. The
-# filter is widened to START the workflow; the `decide` job answers whether
-# to publish, from the Dockerfile's own COPY lines.
-@test "release-test-tools.yaml: the main push trigger does not decide from a list of inputs (#1171)" {
+# why: The main push trigger is filtered at all, which is what keeps every
+# non-doc merge from republishing the same image content under a new manifest
+# digest. WHAT the filter has to contain is asserted against the derivation,
+# in both directions, in the last section of this file -- the two cases there
+# are the ones that fail when a context COPY is added without extending it.
+@test "release-test-tools.yaml: main push trigger carries a paths filter (#317 P2 gotcha-3)" {
   run yaml_top_lines "${WF}" on
   assert_success
   assert_output --partial 'paths:'
-  assert_output --partial "'**'"
-  refute_output --partial "'dockerfile/Dockerfile.test-tools'"
+  assert_output --partial "'.github/workflows/release-test-tools.yaml'"
 }
 
 @test "release-test-tools.yaml: triggers on workflow_dispatch (existing)" {
@@ -551,145 +548,85 @@ _spec_prose() {
   assert_output --partial 'could not read'
 }
 
-# ── The publish decision, driven ─────────────────────────────────────
+# ── The trigger's path filter, read against the image it is about ─────
 
-# _decide <event> <ref> <repo-relative-path>
-#   Runs the workflow's OWN decide step -- lifted out of the YAML, not a
-#   copy of it -- against a synthetic history whose head commit changes
-#   <path> and nothing else, reported as <event> on <ref>. Prints the
-#   GITHUB_OUTPUT the step wrote.
-#
-#   The scratch repo carries `script` as a symlink into this checkout, so
-#   the step reaches the same derivation the real run does.
-#   <before> is what the push event reports as the commit the branch was at,
-#   defaulted to the parent the way a squash merge leaves it. A caller
-#   passing something the checkout does not hold stages the range the job
-#   cannot read.
-_decide() {
-  local _e="${1:?BUG: _decide expects an event}"
-  local _ref="${2:?BUG: _decide expects a ref}"
-  local _p="${3:?BUG: _decide expects a path}"
-  local _before="${4-}"
-  local _d="${BATS_TEST_TMPDIR}/decide"
-  rm -rf "${_d}"
-  mkdir -p "${_d}/$(dirname "${_p}")" "${_d}/doc"
-  ln -s /source/script "${_d}/script"
-  printf 'seed\n' > "${_d}/doc/seed.md"
-  printf 'a\n' > "${_d}/${_p}"
-  git -C "${_d}" init -q -b main
-  git -C "${_d}" config user.email ci@example.invalid
-  git -C "${_d}" config user.name ci
-  git -C "${_d}" add -A
-  git -C "${_d}" commit -q -m base
-  printf 'b\n' >> "${_d}/${_p}"
-  git -C "${_d}" commit -q -a -m change
-  [[ -n "${_before}" ]] || _before="$(git -C "${_d}" rev-parse HEAD^)"
-  yaml_step_run "${WF}" decide inputs > "${_d}/step.sh"
-  [ -s "${_d}/step.sh" ] || return 2
-  : > "${_d}/out"
-  (
-    cd "${_d}" || return 2
-    env GITHUB_EVENT_NAME="${_e}" GITHUB_REF="${_ref}" BEFORE="${_before}" \
-        GITHUB_OUTPUT="${_d}/out" bash step.sh
-  ) >/dev/null 2>&1
-  cat "${_d}/out"
+# _trigger_paths -- the `paths:` entries of the push trigger, one per line.
+# Read out of the YAML so the two cases below cannot drift from the file.
+_trigger_paths() {
+  local _out _status=0
+  _out="$(yq -r '.on.push.paths[]' "${WF}" 2>&1)" || _status=$?
+  if [[ "${_status}" -ne 0 || -z "${_out}" || "${_out}" == 'null' ]]; then
+    printf 'BUG: %s declares no push paths filter (yq said: %s)\n' \
+        "${WF}" "$(printf '%s' "${_out}" | tr '\n' ' ')"
+    return 2
+  fi
+  printf '%s\n' "${_out}"
 }
 
-# _main_push <repo-relative-path> -- the arm the filter used to decide.
-_main_push() {
-  _decide push refs/heads/main "${1:?BUG: _main_push expects a path}"
+# _filter_selects <path>
+#   Does any `paths:` entry match <path>, by GitHub's filter-pattern rules?
+#   `**` matches any characters including `/`; a plain entry has to name the
+#   path outright. A pattern this does not model is reported as a BUG rather
+#   than read as "no match": a filter form nobody here understands must not
+#   be certified by a matcher that quietly answers for it.
+_filter_selects() {
+  local _path="${1:?BUG: _filter_selects expects a path}" _e
+  while IFS= read -r _e; do
+    [[ -n "${_e}" ]] || continue
+    case "${_e}" in
+      BUG:*) printf '%s\n' "${_e}"; return 2 ;;
+      '**') return 0 ;;
+      */\*\*) case "${_path}/" in "${_e%\*\*}"*) return 0 ;; esac ;;
+      *[*?!+\[]*)
+        printf 'BUG: %s uses a filter pattern this matcher does not model\n' \
+            "${_e}"
+        return 2 ;;
+      *) [[ "${_path}" == "${_e}" ]] && return 0 ;;
+    esac
+  done < <(_trigger_paths)
+  return 1
 }
 
-# why: The reported defect, on the half that compounds the other: the tag a
-# pull request falls back to when the signal says "unchanged" is a tag
-# nothing refreshed, because the trigger that would refresh it named only
-# the Dockerfile. A merge touching only a file the Dockerfile COPYs out of
-# the build context left `:main` describing the tree from before it, for
-# every pull request opened afterwards. The population is read off the
-# Dockerfile, so the next COPY brings its own case with it.
-@test "release-test-tools.yaml: a main push changing a file the Dockerfile COPYs publishes :main (#1171)" {
-  local _p _missed=""
+# why: The reported defect, on the half that compounds the other. The tag a
+# pull request falls back to when the rebuild signal says "unchanged" is a tag
+# nothing refreshed: this trigger named the Dockerfile and this workflow, and
+# the image has more inputs than that, so a merge touching only a file the
+# Dockerfile COPYs out of the build context never started the publisher at
+# all. `paths:` is static YAML GitHub evaluates before any job runs, so it
+# cannot derive the set -- but it can be HELD to it. The expected set is read
+# from the derivation, so the next context COPY anyone adds fails here, on the
+# pull request that adds it, naming the path the filter does not cover.
+@test "release-test-tools.yaml: the push filter covers every input of the tooling image (#1171)" {
+  local _p _missing="" _status
   while IFS= read -r _p; do
-    [[ -n "${_p}" && -e "/source/${_p}" ]] || continue
-    run _main_push "${_p}"
-    assert_success
-    grep -qx 'publish=true' <<< "${output}" || _missed="${_missed}${_p}"$'\n'
-  done < <(dockerfile_context_copy_srcs /source/dockerfile/Dockerfile.test-tools)
-  [[ -z "${_missed}" ]] || fail \
-      "the tooling Dockerfile COPYs these paths out of the build context, and a main push that changes one leaves the rolling tag as it was:"$'\n'"${_missed}"
+    [[ -n "${_p}" ]] || continue
+    _status=0
+    _filter_selects "${_p}" || _status=$?
+    case "${_status}" in
+      0) ;;
+      1) _missing="${_missing}${_p}"$'\n' ;;
+      *) fail "could not read the filter: $(_filter_selects "${_p}")" ;;
+    esac
+  done < <(bash /source/script/ci/testtools_paths.sh)
+  [[ -z "${_missing}" ]] || fail \
+      "these paths can change what the tooling image contains, and no entry of this workflow's push filter selects them, so a merge touching only one of them never republishes :main:"$'\n'"${_missing}"
+  _filter_selects '.github/workflows/release-test-tools.yaml' || fail \
+      "the filter no longer names this workflow, so a change to how the tag is resolved or smoke-tested never goes out"
 }
 
-# why: The Dockerfile's own case, which the trigger already had. Pinned
-# beside the one above so a rewrite that reaches for the derivation cannot
-# drop the input the decision started with.
-@test "release-test-tools.yaml: a main push changing the tooling Dockerfile publishes :main (#1171)" {
-  run _main_push dockerfile/Dockerfile.test-tools
-  assert_success
-  assert_line 'publish=true'
-}
-
-# why: The workflow is an input of the PUBLISH rather than of the image: a
-# change to how the tag is resolved or smoke-tested has to go out even when
-# the image's content is identical. It was in the trigger's list and has to
-# survive the list going away.
-@test "release-test-tools.yaml: a main push changing this workflow publishes :main (#1171)" {
-  run _main_push .github/workflows/release-test-tools.yaml
-  assert_success
-  assert_line 'publish=true'
-}
-
-# why: The optimisation the decision exists for, and the whole reason the
-# trigger carried a filter. Every non-doc merge pushes to main; answering
-# `true` to all of them burns a multi-arch build per merge to produce the
-# same image content under a new manifest digest.
-@test "release-test-tools.yaml: a main push changing nothing the image reads publishes nothing (#1171)" {
-  run _main_push doc/guide.md
-  assert_success
-  assert_line 'publish=false'
-}
-
-# why: A tag push is an explicit publish intent and carries no question for
-# the derivation to answer -- the trigger never filtered it, and the
-# decision must not start filtering it now. `workflow_dispatch` is the same
-# reading one step further: it is a human asking, and its ref is resolved by
-# the merge job, not here.
-@test "release-test-tools.yaml: a tag push and a dispatch are never filtered out (#1171)" {
-  run _decide push refs/tags/v9.9.9 doc/guide.md
-  assert_success
-  assert_line 'publish=true'
-  run _decide workflow_dispatch refs/heads/main doc/guide.md
-  assert_success
-  assert_line 'publish=true'
-}
-
-# why: The build and the manifest assembly are what the decision is there to
-# skip, so each has to be gated on it. A gate on the matrix job alone would
-# still leave `merge` free to assemble a manifest from an artifact set that
-# was never uploaded.
-@test "release-test-tools.yaml: the publish jobs are gated on that decision (#1171)" {
-  run yaml_job_lines "${WF}" compute-matrix
-  assert_success
-  assert_output --partial "needs.decide.outputs.publish == 'true'"
-  run yaml_job_needs "${WF}" compute-matrix
-  assert_success
-  assert_output --partial 'decide'
-}
-
-# why: The one direction this job must never fail in, and the one a two-commit
-# diff can reach. The `paths:` filter it replaces was evaluated by GitHub over
-# EVERY commit of the push; a `git diff` of the head commit alone reads less
-# than that, and a push whose reported range is not in the checkout -- several
-# commits pushed straight to main, a range the shallow fetch does not hold --
-# would answer "nothing changed" about commits it never looked at. That is the
-# fail-CLOSED direction: it leaves the rolling tag describing a tree that is
-# gone. A range the job cannot read is not evidence, so it publishes.
-@test "release-test-tools.yaml: a main push whose range it cannot read publishes :main (#1171)" {
-  run _decide push refs/heads/main doc/guide.md \
-      0000000000000000000000000000000000000000
-  assert_success
-  assert_line 'publish=true'
-  run _decide push refs/heads/main doc/guide.md \
-      1111111111111111111111111111111111111111
-  assert_success
-  assert_line 'publish=true'
+# why: The direction the filter exists for, and the reason it is a filter at
+# all rather than `'**'` plus a job that decides. Every non-doc merge pushes
+# to main; a filter that matches all of them would burn a multi-arch build per
+# merge -- and, worse, put a run that will NOT publish into the workflow's
+# concurrency group, where GitHub keeps only ONE pending run: a doc-only merge
+# could then evict a queued publish and decline to publish in its place,
+# leaving `:main` without the change it was queued for. So every run this
+# trigger starts has a reason to publish, and the publish is unconditional.
+@test "release-test-tools.yaml: the push filter does not start on what the image never reads (#1171)" {
+  local _p
+  for _p in doc/guide.md README.md test/bats/unit/example_spec.bats \
+            dist/script/docker/wrapper/build.sh; do
+    ! _filter_selects "${_p}" || fail \
+        "this workflow's push filter selects ${_p}, which cannot change what the tooling image contains: every merge would republish :main, and a run that publishes nothing can evict a queued one from the concurrency group"
+  done
 }
