@@ -63,6 +63,9 @@ _error()  { _log_err upgrade "$*"; exit 1; }
 # the sweep refuses to run without it rather than deleting from /.
 _UPGRADE_PRE_HEAD=""
 _UPGRADE_UNTRACKED_SNAPSHOT=()
+_UPGRADE_DRIFT=()
+_UPGRADE_DRIFT_SPLIT=""
+_UPGRADE_DRIFT_UNVERIFIED=""
 REPO_ROOT="$(pwd -P)"
 EOS
   sed -n '/^_warn_config_drift() {$/,/^}$/p' "${UPGRADE}" >> "${HARNESS}"
@@ -945,12 +948,11 @@ EOS
   assert_output "count=0 split=resolved"
 }
 
-# why: The range can hold no subtree squash at all (an upgrade whose pull
-# brought nothing, a history rewritten under the consumer), and the reporter
-# must then say nothing rather than compare the vendored tree against an
-# unresolved revision -- which is a loud git error in the middle of a
-# successful upgrade
-@test "_collect_subtree_local_drift is inert when the range holds no subtree squash (#1092)" {
+# why: A comparison that cannot find the release to compare against reports
+# the same zero findings as a clean tree, and that is the shape of silence
+# base#1092 is about -- so the reason is recorded rather than the absence
+# being left to read as agreement
+@test "_collect_subtree_local_drift records why it could not compare when the range holds no subtree squash (#1092)" {
   local _r="${TEMP_DIR}/nosquash"
   mkdir -p "${_r}"
   git -C "${_r}" init -q -b main
@@ -964,10 +966,48 @@ EOS
     cd '${_r}'
     source '${HARNESS}'
     _collect_subtree_local_drift \"\$(git rev-parse HEAD)\"
-    printf 'count=%s split=%s\n' \"\${#_UPGRADE_DRIFT[@]}\" \"\${_UPGRADE_DRIFT_SPLIT}\"
+    printf 'count=%s split=%s reason=%s\n' \"\${#_UPGRADE_DRIFT[@]}\" \"\${_UPGRADE_DRIFT_SPLIT}\" \"\${_UPGRADE_DRIFT_UNVERIFIED}\"
   "
   assert_success
-  assert_output --partial "count=0 split="
+  assert_output --regexp '^count=0 split= reason=.+$'
+}
+
+# why: The other way the comparison can fail to run -- the squash names an
+# upstream commit this object store does not hold, so the tree to compare
+# against cannot be resolved. A zero here would be the check reporting a clean
+# tree it never looked at
+@test "_collect_subtree_local_drift records why it could not compare when the recorded upstream commit is absent (#1092)" {
+  local _r="${TEMP_DIR}/noobject" _pre
+  _pre="$(_seed_squashed_subtree "${_r}")"
+
+  # A well-formed sha this repo does not hold is what a pruned or
+  # never-fetched upstream commit looks like from here. Injected by overriding
+  # the resolver, so the case is about what the comparison does with an
+  # unresolvable answer rather than about how it got one.
+  run bash -c "
+    cd '${_r}'
+    source '${HARNESS}'
+    _subtree_split_sha() { printf '%s' 0123456789abcdef0123456789abcdef01234567; }
+    _collect_subtree_local_drift '${_pre}'
+    printf 'count=%s reason=%s\n' \"\${#_UPGRADE_DRIFT[@]}\" \"\${_UPGRADE_DRIFT_UNVERIFIED}\"
+  "
+  assert_success
+  assert_output --regexp '^count=0 reason=.+$'
+}
+
+# why: Recording the reason is only half of it -- the consumer has to be told,
+# because an upgrade that printed nothing is exactly what they saw before this
+# check existed
+@test "_warn_subtree_local_drift says the comparison could not run rather than nothing (#1092)" {
+  run bash -c "
+    source '${HARNESS}'
+    _UPGRADE_DRIFT=()
+    _UPGRADE_DRIFT_UNVERIFIED='no subtree squash in deadbeef..HEAD'
+    _warn_subtree_local_drift
+  " 2>&1
+  assert_success
+  assert_output --partial "could not be checked"
+  assert_output --partial "no subtree squash in deadbeef..HEAD"
 }
 
 # why: Naming the files is the whole requirement -- a count with no paths
@@ -996,6 +1036,7 @@ EOS
   run bash -c "
     source '${HARNESS}'
     _UPGRADE_DRIFT=()
+    _UPGRADE_DRIFT_UNVERIFIED=""
     _warn_subtree_local_drift
   " 2>&1
   assert_success

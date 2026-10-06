@@ -829,6 +829,9 @@ _path_unchanged_between_tags() {
       ./.base/dist/script/base/upgrade.sh v0.9.7
   assert_success
   refute_output --partial "do not match what base shipped"
+  # And it was actually checked. "nothing to report" and "could not look" are
+  # the same silence from the terminal, which is the whole complaint.
+  refute_output --partial "could not be checked"
 
   # And the tree really is byte-exact, so "quiet" is not quiet-because-blind.
   # The upstream commit is read off git-subtree's own recorded metadata, the

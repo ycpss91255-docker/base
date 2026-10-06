@@ -77,6 +77,10 @@ _UPGRADE_UNTRACKED_SNAPSHOT=()
 # one.
 _UPGRADE_DRIFT=()
 _UPGRADE_DRIFT_SPLIT=""
+# Why the comparison could not be made, when it could not. Empty means it ran.
+# A check that cannot run reports the same zero findings as a clean tree, so
+# the absence is never left to read as agreement.
+_UPGRADE_DRIFT_UNVERIFIED=""
 
 # ── Safety guards ────────────────────────────────────────────────────────────
 #
@@ -800,7 +804,8 @@ COMMIT
 # upgrade has also already committed by the time this runs, and an advisory
 # finding must not undo a pull that succeeded. Deciding where a FAILING gate
 # over this same comparison belongs -- a downstream CI job, the per-repo
-# version monitor, a verb the consumer runs -- is open and tracked upstream.
+# version monitor, a verb the consumer runs -- is a separate decision, and is
+# deliberately not made here.
 
 # _subtree_split_of <commit>
 #   The upstream commit a squash commit for THIS subtree prefix was built
@@ -855,9 +860,20 @@ _collect_subtree_local_drift() {
   local _pre_head="${1:?"${FUNCNAME[0]}: missing pre-pull HEAD"}"
   _UPGRADE_DRIFT=()
   _UPGRADE_DRIFT_SPLIT=""
+  _UPGRADE_DRIFT_UNVERIFIED=""
   local _split
-  _split="$(_subtree_split_sha "${_pre_head}..HEAD")" || return 0
+  _split="$(_subtree_split_sha "${_pre_head}..HEAD")" || {
+    _UPGRADE_DRIFT_UNVERIFIED="no ${TEMPLATE_REL} subtree squash commit in ${_pre_head:0:12}..HEAD"
+    return 0
+  }
   _UPGRADE_DRIFT_SPLIT="${_split}"
+  # The recorded upstream commit is reachable here only because the pull just
+  # fetched it. Resolve it explicitly rather than letting an unresolvable
+  # revision read as an empty diff, which is the clean-tree answer.
+  if ! git rev-parse --verify --quiet "${_split}^{tree}" >/dev/null 2>&1; then
+    _UPGRADE_DRIFT_UNVERIFIED="upstream commit ${_split:0:12} is not in this repo's object store"
+    return 0
+  fi
   local _status _path
   while IFS= read -r -d '' _status && IFS= read -r -d '' _path; do
     _UPGRADE_DRIFT+=("${_status}"$'\t'"${_path}")
@@ -869,6 +885,11 @@ _collect_subtree_local_drift() {
 #   Name every finding _collect_subtree_local_drift recorded. Silent when
 #   the pull landed byte-exact, which is the normal case.
 _warn_subtree_local_drift() {
+  if [[ -n "${_UPGRADE_DRIFT_UNVERIFIED}" ]]; then
+    _log_warn upgrade upgrade_subtree_local_drift \
+      "display=WARNING: whether ${TEMPLATE_REL}/ still matches what base shipped could not be checked: ${_UPGRADE_DRIFT_UNVERIFIED}." \
+      "reason=${_UPGRADE_DRIFT_UNVERIFIED}"
+  fi
   (( ${#_UPGRADE_DRIFT[@]} > 0 )) || return 0
   _log_warn upgrade upgrade_subtree_local_drift \
     "display=WARNING: ${#_UPGRADE_DRIFT[@]} path(s) under ${TEMPLATE_REL}/ do not match what base shipped at the release just pulled." \
