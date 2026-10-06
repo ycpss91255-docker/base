@@ -154,7 +154,7 @@ a refusal as "do not release".
 | `action-ref-agreement: has a lint-static CI join (#949)` | One plain-runner lint group, no docker |
 | `action-ref-agreement: its failure event id is registered (#949)` | An unregistered id is an anonymous exit |
 
-### test/bats/unit/adr_doc_claims_spec.bats (28)
+### test/bats/unit/adr_doc_claims_spec.bats (32)
 
 | Test | Description |
 |------|-------------|
@@ -186,6 +186,10 @@ a refusal as "do not release".
 | `R3: FAILS a verbatim claim about a file outside this repo (#927)` | - |
 | `R3: PASSES a verbatim claim about a file this repo carries (#927)` | - |
 | `R3: IGNORES verbatim used about behaviour rather than a quotation (#927)` | - |
+| `adr index: the audit table's row set is the ADR files on disk (base#1121)` | R4 population. The index declares itself the consolidated view of every ADR, and both ADR lints exempt it by filename, so the one file in the registry directory with no gate was the one enumerating the registry -- it sat three rows short |
+| `adr index: the audit rows are in ascending ADR order (base#1121)` | Hand-appending is what produced the 29, 35, 36, 32, 31, 30 tail, and an unsorted table is where a duplicate or a missing row hides |
+| `adr index: each conclusion tally equals what the verdict column says (base#1121)` | R5 tally. The conclusion's counts are derivable from column 2 and were stored instead, which is the P2 violation PRD cites this very file as the example of -- it claimed 18 keep against 21 and 9 elevates-invariant against 10, and filed 00000022 under a verdict its own row contradicts |
+| `adr index: every verdict cell is one the vocabulary table defines (base#1121)` | A verdict cell outside the vocabulary is a word the index defines nowhere, and it would make the tally above pass by never being counted |
 
 ### test/bats/unit/adr_numbering_spec.bats (9)
 
