@@ -3086,7 +3086,7 @@ forwarding for caller abort, and DRY_RUN skip.
 | `init.sh --list-installed-paths output is sorted and free of duplicates` | - |
 | `init.sh --list-installed-paths mutates nothing and never leaves its cwd` | - |
 
-### test/bats/unit/init_spec.bats (102)
+### test/bats/unit/init_spec.bats (104)
 
 Unit coverage for `init.sh` helpers that previous rounds exercised only
 through the Level-1 integration test. Complements
@@ -3138,6 +3138,8 @@ are hard to trigger from a real `bash template/init.sh` invocation
 | `_init_existing_repo: heals a Dockerfile still naming the pre-dist layout (#915)` | - |
 | `_init_existing_repo: leaves an already-migrated Dockerfile untouched (#915)` | - |
 | `the resync: stages the Dockerfile its migrations rewrote (#1036)` | The committing caller is a released script that cannot be changed; the run that rewrites the file is the only one that can stage it |
+| `the resync: stages a path a migration wrote and recorded that no list names (base#1097)` | A migration that writes and records its output still had that output left out of the commit the released driver makes -- base#1036's defect, for any path the published list does not already name. A version-bound migration's output never is on that list, because the list is written before the migration exists |
+| `the resync: leaves an unrecorded file a migration wrote unstaged (base#1097)` | Recording is what makes a path the run's output, so an unrecorded file stays out however new it is. Otherwise the arm above is satisfied by a sweep over whatever the user happened to leave in the tree -- the thing ADR-00000006 forbids, and the reason the record exists at all |
 | `the resync: leaves a file no migration touched unstaged (#1036)` | A user's half-finished edit is not the resync's to commit, which is what a `git add -A` sweep would make it |
 | `the resync: stages the wrappers it installed (#1036)` | The wrappers are output of the same mechanical run as the Dockerfile, so leaving them out of the commit leaves the tree disagreeing with the release the commit claims |
 | `the resync: stages the retired root wrapper it removed (#1036)` | The resync DELETES the pre-relocation root wrappers, and a deletion left out of the commit is the same tree/commit disagreement one direction over |

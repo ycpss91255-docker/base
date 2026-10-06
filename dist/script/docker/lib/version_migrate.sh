@@ -54,9 +54,13 @@
 #     the pull committed and the repo half-upgraded. The failure is reported
 #     loudly and the migrations AFTER it are skipped -- an ordered set may
 #     have a later entry that assumes an earlier one finished.
-#   - A migration that writes a path the resync publishes records it with
+#   - A migration that writes a path the caller must commit records it with
 #     init.sh's `_init_record_write`, the same way every other conditional
-#     write does, or the caller's commit will not carry it.
+#     write does. The resync stages what the record names -- including a path
+#     no published list mentions, which a version-bound migration's output
+#     never can be, since the lists are written before the migration exists.
+#     Without the record the write is untracked and the release commit
+#     describes a tree it does not carry.
 #
 # ── Where there is no interval, and where there is one nobody can read ──────
 #

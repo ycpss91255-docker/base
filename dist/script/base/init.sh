@@ -1328,6 +1328,36 @@ _stage_resync_output() {
     _paths+=("${REPO_ROOT}/${_path}")
   done < <(_init_installed_paths)
 
+  # Every OTHER path this run recorded writing. The two lists above are
+  # closed sets written in advance, and the record was being read only as a
+  # filter over them -- so a write to a path on neither was recorded and
+  # then dropped. That is fine while every writer is one of the resync's
+  # own steps, and it stops being fine with the version-bound migrations:
+  # one of those exists for a base change that has not happened yet, so its
+  # output cannot be on a list written today, and leaving it out reproduces
+  # the defect ADR-00000006's 2026-09-04 amendment closed -- the caller's
+  # commit describing a tree it does not carry.
+  #
+  # This is the SAME rule those amendments state, applied to the general
+  # case: the staged set is what this run wrote. It is not a sweep, because
+  # nothing reaches the record except by a writer calling
+  # _init_record_write at the moment it writes; a file the resync merely
+  # found is on no list and in no record, and stays untracked. The fences
+  # below still apply to every entry -- outside the repo, unmatchable by
+  # any pathspec, or gitignored by the user, and it is dropped.
+  local -A _already=()
+  for _path in ${_paths[@]+"${_paths[@]}"}; do
+    _already["${_path}"]=1
+  done
+  if (( ${#_INIT_WROTE[@]} > 0 )); then
+    for _path in "${!_INIT_WROTE[@]}"; do
+      [[ -n "${_path}" ]] || continue
+      [[ -z "${_already[${REPO_ROOT}/${_path}]:-}" ]] || continue
+      _paths+=("${REPO_ROOT}/${_path}")
+      _already["${REPO_ROOT}/${_path}"]=1
+    done
+  fi
+
   _init_drop_foreign_paths
   (( ${#_paths[@]} > 0 )) || return 0
   _init_git_can_stage || return 0

@@ -105,10 +105,17 @@ _declare_interval_migrations() {
     # being upgraded wherever init.sh was invoked from. It APPENDS, so a
     # migration that ran twice is distinguishable from one that ran once --
     # the distinction the repeat arms below are made of.
+    # The record call is what a real migration has to make for its output to
+    # reach the caller's commit, so the fixture makes it: the probe is then
+    # also the answer to "did the resync stage what the migration wrote".
+    # Guarded, because the unit spec sources this registry without init.sh.
     cat >> "${_lib}" <<EOF
 _VERSION_MIGRATIONS+=("${_version} ${_marker}")
 _vmigrate_${_marker}_apply() {
   printf '%s\n' "${_marker}" >> "\${1}/${_PROBE}"
+  if declare -F _init_record_write >/dev/null 2>&1; then
+    _init_record_write "${_PROBE}"
+  fi
 }
 EOF
   done
@@ -977,6 +984,14 @@ _assert_interval_selection() {
   assert_output "0"
   run _probe_runs above_the_interval
   assert_output "0"
+
+  # And what the migration wrote is in the commit the released driver just
+  # made. The resync is the only run that can stage it (ADR-00000006,
+  # 2026-09-04), and a migration's output is on no list written before the
+  # migration existed -- so the record it made is the whole of what put it
+  # there.
+  run git -C "${CONSUMER}" ls-files --error-unmatch -- "${_PROBE}"
+  assert_success
 }
 
 # _assert_interval_migration_not_repeated <tag>

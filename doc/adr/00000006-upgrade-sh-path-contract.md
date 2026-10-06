@@ -338,11 +338,29 @@
   back from -- an operator who names a pair and silently gets a different one
   would believe the owed migrations had run.
 
+  One more thing the 2026-09-05 amendments left half-done shows up here. They
+  settled that the staged set is what THIS RUN WROTE, and that the record
+  (`_INIT_WROTE`) is the right shape because it is populated where the
+  condition is still known. But the record was only ever READ as a filter
+  over two closed lists, so a write to a path on neither was recorded and then
+  dropped. That was invisible while every writer was one of the resync's own
+  steps and every such path was on a list. A version-bound migration exists
+  for a base change that has not happened yet, so its output cannot be on a
+  list written today, and leaving it out reproduces exactly the defect the
+  2026-09-04 amendment closed: the caller's commit describing a tree it does
+  not carry. `_stage_resync_output` now stages every recorded path, which is
+  the rule those amendments state applied to the general case. It is still not
+  a sweep -- nothing enters the record except through a writer calling
+  `_init_record_write` as it writes, so a file the resync merely found stays
+  untracked, and the existing fences (outside the repo, unmatchable by any
+  pathspec, gitignored by the user) still drop an entry each.
+
   The guard is behavioural. `prev_release_upgrade_spec.bats` declares a
   migration bound to a version inside the interval in the release being
-  installed, drives the real released `upgrade.sh`, and asserts that one ran
-  and that the ones outside the interval did not. Measured on the unfixed
-  tree it cannot even seed: nothing in the published release declares one.
+  installed, drives the real released `upgrade.sh`, and asserts that one ran,
+  that the ones outside the interval did not, and that what it wrote is in the
+  commit the driver made. Measured on the unfixed tree it cannot even seed:
+  nothing in the published release declares one.
 
 ## Context
 
