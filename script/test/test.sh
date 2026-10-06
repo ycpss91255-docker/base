@@ -2863,8 +2863,9 @@ main() {
       fi
       # LINT_ONLY: `just test lint [--shellcheck | --hadolint]`
       # routes here with LINT_ONLY=1; run the requested linter(s) and skip
-      # bats entirely. LINT_TOOL empty = all linters (shellcheck +
-      # hadolint), matching bare `just test lint`. The test-tools image
+      # bats entirely. LINT_TOOL empty = every entry of the _LINT_TOOLS
+      # table, matching bare `just test lint`; naming one narrows to it.
+      # The test-tools image
       # already ships every tool (bats / shellcheck / hadolint / kcov), so
       # nothing is installed at runtime on any path.
       if [[ "${LINT_ONLY:-0}" == "1" ]]; then

@@ -2071,7 +2071,7 @@ refused before any build or bundle step.
 | `setup_tui --help names the distinction in all four locales (#879)` | - |
 | `setup.sh --help distinguishes the deploy subcommand from the section (#879)` | - |
 
-### test/bats/unit/derived_figures_lint_spec.bats (19)
+### test/bats/unit/derived_figures_lint_spec.bats (35)
 
 | Test | Description |
 |------|-------------|
@@ -2094,6 +2094,22 @@ refused before any build or bundle step.
 | `_run_derived_figures: FAILS when the section heading is absent (no vacuous pass) (#874)` | - |
 | `_run_derived_figures: FAILS when a required doc file is missing (no vacuous pass) (#874)` | - |
 | `_run_derived_figures: FAILS when the dist/ scan root is missing (no vacuous pass) (#874)` | - |
+| `_derived_default_coverage: reads the flag off the _run_via_compose ci calls (base#1121)` | - |
+| `_derived_default_coverage: REFUSES when the calls disagree (base#1121)` | - |
+| `_derived_test_subcommands: derives the vocabulary from the recipe lines (base#1121)` | - |
+| `_run_derived_figures: FAILS when a bare just test is documented as running kcov (base#1121)` | - |
+| `_run_derived_figures: PASSES when the annotation says the default has no kcov (base#1121)` | - |
+| `_run_derived_figures: FAILS when the default DOES measure coverage and the annotation omits it (base#1121)` | - |
+| `_run_derived_figures: a documented subcommand is not the default run (base#1121)` | - |
+| `_run_derived_figures: a flag is not the default run either (base#1121)` | - |
+| `_run_derived_figures: reads the recipe-comment shape too (base#1121)` | - |
+| `_run_derived_figures: a mention inside running prose is not an annotation (base#1121)` | - |
+| `_run_derived_figures: FAILS when the bare lint phase is documented as ShellCheck alone (base#1121)` | - |
+| `_run_derived_figures: PASSES when the lint annotation names both binaries (base#1121)` | - |
+| `_run_derived_figures: a narrowed lint run may name one linter (base#1121)` | - |
+| `_run_derived_figures: FAILS when the recipe file is missing (no vacuous pass) (base#1121)` | - |
+| `_run_derived_figures: FAILS when the _LINT_TOOLS table cannot be read (no vacuous pass) (base#1121)` | - |
+| `_run_derived_figures: a token that is not a recipe is still the default run (base#1121)` | - |
 
 ### test/bats/unit/doc_counts_spec.bats (26)
 

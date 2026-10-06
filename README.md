@@ -43,7 +43,7 @@ just base update   # check
 just base upgrade         # pull + update version + workflow tag
 
 # Run CI
-just test   # ShellCheck + Bats + Kcov
+just test   # ShellCheck + Hadolint + Bats (no kcov; coverage: just test coverage)
 just                       # show all recipes
 ```
 
@@ -1746,8 +1746,9 @@ is a curated deliverable rather than a snapshot of the source.
 
 Using `script/test/justfile.test` (from template root):
 ```bash
-just test        # Full CI (ShellCheck + Bats + Kcov) via docker compose
-just test lint        # ShellCheck only
+just test        # Fast CI (ShellCheck + Hadolint + Bats, no kcov) via docker compose
+just test coverage    # Full CI (the same, under kcov)
+just test lint        # Every linter the lint phase runs (ShellCheck + Hadolint + the rest)
 just test clean       # Remove coverage reports
 just test stop        # Stop this checkout's self-test containers
 just                      # Show repo recipes
@@ -1756,7 +1757,7 @@ just --list  # List CI recipes
 
 Or directly:
 ```bash
-./script/test/test.sh          # Full CI via docker compose
+./script/test/test.sh          # Fast CI via docker compose (no kcov)
 ./script/test/test.sh --ci     # Run inside container (used by compose)
 ```
 

@@ -29,7 +29,7 @@
 
 ---
 
-<!-- sync: tldr b4f9c41522da c6783a1b0113 -->
+<!-- sync: tldr ba8c00105790 7f0d44de466e -->
 ## TL;DR
 
 ```bash
@@ -46,7 +46,7 @@ just base update   # 检查
 just base upgrade         # pull + 更新版本文件 + workflow tag
 
 # 运行 CI
-just test   # ShellCheck + Bats + Kcov
+just test   # ShellCheck + Hadolint + Bats（no kcov；覆盖率请用 just test coverage）
 just                       # 列出所有 recipe
 ```
 
@@ -1145,13 +1145,14 @@ worker 以自身 ref 取出的 base checkout 中的 `.version` 推导而来，�
 | `extra_files` | string | 否 | `""` | 额外文件（空格分隔） |
 | `version` | string | 否 | `""` | 要发布的版本（`vX.Y.Z`）。走 tag 触发路径时留空，版本会从所推的 tag 读出。若要从非 tag 的 run 直接调用这个 worker 就传入它：用默认 `GITHUB_TOKEN` 产生的事件不会启动新的 workflow run，所以要自动发布已合并变更的 repo，靠推 tag 到不了这里。不是 `vX.Y.Z[-suffix]` 的值会被拒绝，而不是照样拿来发布 |
 
-<!-- sync: running-template-tests 4e411d749017 9e717f2fcbfe -->
+<!-- sync: running-template-tests 99915e065e54 b05ea9048cdb -->
 ## 本地运行测试
 
 base 自测入口 `just test`：
 ```bash
-just test        # 完整 CI（ShellCheck + Bats + Kcov）通过 docker compose
-just test lint        # 只运行 ShellCheck
+just test        # 快速 CI（ShellCheck + Hadolint + Bats，no kcov）通过 docker compose
+just test coverage    # 完整 CI（同上，加上 kcov）
+just test lint        # lint 阶段的全部 linter（ShellCheck + Hadolint 及其余）
 just test clean       # 清除覆盖率报告
 just test stop        # 停掉本 checkout 自测的容器
 just                            # 显示 repo 命令
@@ -1160,7 +1161,7 @@ just --list        # 显示 CI 命令
 
 或直接运行：
 ```bash
-./script/test/test.sh          # 完整 CI（通过 docker compose）
+./script/test/test.sh          # 快速 CI（通过 docker compose，no kcov）
 ./script/test/test.sh --ci     # 在容器内运行（由 compose 调用）
 ```
 

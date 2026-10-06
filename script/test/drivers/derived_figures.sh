@@ -335,6 +335,244 @@ _derived_check_conf_sections() {
   return "${_violations}"
 }
 
+# ── Figure 3: what the DEFAULT self-test runs ────────────────────────────────
+#
+# The third figure is a FLAG, not a list: whether a bare `just test` measures
+# coverage. It is decided in exactly one place -- the coverage argument every
+# `_run_via_compose ci` call passes -- and it is repeated on every surface a
+# person reaches for before running anything: the README quick-start, the
+# "Running Template Tests" block, the three translations of both, the
+# dispatcher's own `--help` examples and the recipe doc comments `just --list`
+# renders.
+#
+# Eight of those said "ShellCheck + Bats + Kcov". The compose path provably
+# cannot reach kcov: every `_run_via_compose ci` call passes coverage 0, the
+# in-container `ci` branch skips kcov for speed, and kcov is reachable only
+# through the explicit `--coverage*` entries. The cost is a wasted CI round
+# trip for whoever believed the default was the full gate, and a wrong first
+# impression on the repo's most-read page.
+#
+# The claim and the subcommand vocabulary are both DERIVED, so a migration
+# lifts the rule instead of breaking it:
+#
+#   - the flag from the coverage argument of `_run_via_compose ci`. If those
+#     calls ever disagree with each other the figure is ambiguous and the
+#     lint refuses rather than guessing;
+#   - which words after `just test` are a SUBCOMMAND (and so describe
+#     something other than the default) from justfile.test's own recipe
+#     names, never a list kept here;
+#   - whether `shellcheck` and `hadolint` both run in the lint phase from
+#     the `_LINT_TOOLS` table, which is what makes "ShellCheck only" a
+#     false description of a bare `just test lint`.
+#
+# What is NOT gated, deliberately: the `mod? test` doc comment in the root
+# justfile. `just --list` renders it as the NAMESPACE's label, not as the
+# default recipe's description, and its parenthesis already names `coverage`
+# as a subcommand -- so it is prose about a namespace rather than an
+# annotation on an invocation, and the two shapes below do not reach it.
+
+# The dispatcher that decides the figure, and the recipe file whose doc
+# comments `just --list` renders. Both are scanned and both are required.
+readonly _DERIVED_FIGURES_RUNNER='script/test/test.sh'
+readonly _DERIVED_FIGURES_CMD_FILES=(
+  'script/test/test.sh'
+  'script/test/justfile.test'
+)
+
+# The invocations of the self-test that a documented example opens with.
+# Anchored at the start of the command region, so a mention inside running
+# prose (`bare 'just test' already runs bats in parallel`) is not read as an
+# annotated example.
+readonly _DERIVED_FIGURES_INVOCATION_RE='^(just[[:space:]]+test|\./test\.sh|\./script/test/test\.sh)([[:space:]]+(.*))?$'
+
+# An annotation that explicitly says coverage is NOT measured. ASCII, and
+# the same spelling in every locale: the translations write the tool list in
+# Latin script already, so the negation travels with it and this driver
+# needs no localized pattern.
+readonly _DERIVED_FIGURES_NO_KCOV_RE='(^|[^[:alnum:]])(no|without)[[:space:]]+kcov'
+
+# _derived_default_coverage <out_var> -- 1 when the compose dispatch measures
+# coverage, 0 when it does not. Read off the coverage argument of every
+# `_run_via_compose ci` call: that parameter IS the figure, and the `ci`
+# service is the only thing a bare invocation reaches. Returns non-zero when
+# the calls disagree, because a figure that cannot be derived must refuse
+# rather than pick a side.
+_derived_default_coverage() {
+  local -n _cov_out="$1"
+  _cov_out=''
+  local -a _flags=()
+  mapfile -t _flags < <(
+    grep -oE '_run_via_compose[[:space:]]+ci[[:space:]]+[0-9]+' \
+      "${REPO_ROOT}/${_DERIVED_FIGURES_RUNNER}" 2>/dev/null \
+      | awk '{ print $NF }' | sort -u
+  )
+  [[ "${#_flags[@]}" -eq 1 ]] || return 1
+  _cov_out="${_flags[0]}"
+  return 0
+}
+
+# _derived_test_subcommands -- the recipe names `just test <name>` dispatches
+# to, one per line, read out of justfile.test. A recipe line is a column-0
+# name, optional parameters, then a colon ending the line; the name is the
+# first word. Derived so a new recipe is understood the day it lands.
+_derived_test_subcommands() {
+  awk '
+    /^[a-z][a-z0-9-]*([[:space:]][^:]*)?:$/ {
+      name = $1
+      sub(/:$/, "", name)
+      print name
+    }
+  ' "${REPO_ROOT}/script/test/justfile.test"
+}
+
+# _derived_lint_tools -- the entries of test.sh's _LINT_TOOLS table, one per
+# line. PARSED, never sourced: the table is a literal in a file this driver
+# only reads, and sourcing the dispatcher would drag in its whole lib chain.
+_derived_lint_tools() {
+  awk '
+    /^readonly _LINT_TOOLS=\(/ { inside = 1; next }
+    inside && /^\)/            { inside = 0 }
+    inside {
+      sub(/#.*/, "")
+      gsub(/[[:space:]]+/, "")
+      if ($0 != "") print
+    }
+  ' "${REPO_ROOT}/${_DERIVED_FIGURES_RUNNER}"
+}
+
+# _derived_cmd_annotation <line> <args_var> <annot_var> -- recognise a
+# DOCUMENTED invocation of the self-test and split it into the arguments it
+# passes and the annotation that describes them.
+#
+# Two shapes, which are the two this repo documents a command with:
+#
+#   just test        # Full CI via docker compose
+#   # just test -> run the whole self-test
+#
+# A comment line is unwrapped first, then whichever of `#` / `->` comes
+# first opens the annotation. Returns non-zero when the line is neither.
+_derived_cmd_annotation() {
+  local _line="$1"
+  local -n _args_out="$2"
+  local -n _annot_out="$3"
+  _args_out=''
+  _annot_out=''
+
+  local _body="${_line}"
+  if [[ "${_body}" =~ ^[[:space:]]*#[[:space:]]*(.*)$ ]]; then
+    _body="${BASH_REMATCH[1]}"
+  else
+    _body="${_body#"${_body%%[![:space:]]*}"}"
+  fi
+
+  [[ "${_body}" =~ ${_DERIVED_FIGURES_INVOCATION_RE} ]] || return 1
+  local _rest="${BASH_REMATCH[3]}"
+
+  # Whichever separator appears first opens the annotation. A `#` inside a
+  # markdown fence and a `->` in a recipe doc comment are the same thing
+  # here: everything left of it is what the example RUNS, everything right
+  # of it is what the example CLAIMS.
+  local _hash_at=-1 _arrow_at=-1 _head
+  if [[ "${_rest}" == *'#'* ]]; then
+    _head="${_rest%%'#'*}"
+    _hash_at="${#_head}"
+  fi
+  if [[ "${_rest}" == *'->'* ]]; then
+    _head="${_rest%%'->'*}"
+    _arrow_at="${#_head}"
+  fi
+
+  local _sep=''
+  if (( _hash_at >= 0 )) && { (( _arrow_at < 0 )) || (( _hash_at < _arrow_at )); }; then
+    _sep='#'
+  elif (( _arrow_at >= 0 )); then
+    _sep='->'
+  else
+    return 1
+  fi
+
+  _annot_out="${_rest#*"${_sep}"}"
+  _args_out="${_rest%%"${_sep}"*}"
+  return 0
+}
+
+# _derived_scan_cmd_annotations <file> <rel> <coverage> <subcmds_var>
+#                              <lint_tools_var>
+#
+# Report every documented invocation whose annotation disagrees with the
+# code. Prints one violation per hit and returns the count.
+_derived_scan_cmd_annotations() {
+  local _file="$1" _rel="$2" _coverage="$3"
+  local -n _subcmds_in="$4"
+  local -n _lint_tools_in="$5"
+
+  local _has_shellcheck=0 _has_hadolint=0 _tool
+  for _tool in "${_lint_tools_in[@]}"; do
+    [[ "${_tool}" == 'shellcheck' ]] && _has_shellcheck=1
+    [[ "${_tool}" == 'hadolint' ]] && _has_hadolint=1
+  done
+
+  local _violations=0 _lineno=0 _line _args _annot _names_kcov
+  local -a _toks=()
+  while IFS= read -r _line || [[ -n "${_line}" ]]; do
+    _lineno=$(( _lineno + 1 ))
+    _derived_cmd_annotation "${_line}" _args _annot || continue
+    read -r -a _toks <<< "${_args}"
+
+    _names_kcov=0
+    [[ "${_annot}" =~ [Kk][Cc][Oo][Vv] ]] && _names_kcov=1
+
+    # Does this example describe the DEFAULT run? No arguments does. So
+    # does an argument that is neither a flag nor one of justfile.test's own
+    # recipe names: `just test <that>` dispatches nowhere, so the example is
+    # still talking about the bare run -- and a bogus token cannot be used
+    # to step out from under the rule.
+    local _is_default=1 _subcmd
+    if [[ "${#_toks[@]}" -gt 0 ]]; then
+      if [[ "${_toks[0]}" == -* ]]; then
+        _is_default=0
+      else
+        for _subcmd in "${_subcmds_in[@]}"; do
+          if [[ "${_toks[0]}" == "${_subcmd}" ]]; then
+            _is_default=0
+            break
+          fi
+        done
+      fi
+    fi
+
+    if (( _is_default )); then
+      if [[ "${_coverage}" == '0' ]]; then
+        if (( _names_kcov )) \
+          && [[ ! "${_annot,,}" =~ ${_DERIVED_FIGURES_NO_KCOV_RE} ]]; then
+          printf '%s:%s: the default self-test is documented as measuring coverage, but every _run_via_compose ci call passes coverage %s -- kcov is reachable only through the --coverage entries\n' \
+            "${_rel}" "${_lineno}" "${_coverage}"
+          _violations=$(( _violations + 1 ))
+        fi
+      elif (( ! _names_kcov )); then
+        printf '%s:%s: the default self-test measures coverage (_run_via_compose ci passes %s) and this annotation does not say so\n' \
+          "${_rel}" "${_lineno}" "${_coverage}"
+        _violations=$(( _violations + 1 ))
+      fi
+      continue
+    fi
+
+    # The bare lint phase: `lint` and nothing narrowing it. It runs the
+    # whole _LINT_TOOLS table, so an annotation that names one of the two
+    # binary linters and not the other describes a narrowed run.
+    if [[ "${#_toks[@]}" -eq 1 && "${_toks[0]}" == 'lint' ]] \
+      && (( _has_shellcheck && _has_hadolint )); then
+      if [[ "${_annot,,}" == *shellcheck* && "${_annot,,}" != *hadolint* ]]; then
+        printf '%s:%s: the bare lint phase runs all %s entries of _LINT_TOOLS, shellcheck and hadolint among them, but this annotation names shellcheck alone\n' \
+          "${_rel}" "${_lineno}" "${#_lint_tools_in[@]}"
+        _violations=$(( _violations + 1 ))
+      fi
+    fi
+  done < "${_file}"
+
+  return "${_violations}"
+}
+
 _run_derived_figures() {
   echo "--- Running derived-figure lint ---"
 
@@ -392,6 +630,20 @@ _run_derived_figures() {
   done
   [[ "${_nullglob_was_set}" -eq 1 ]] || shopt -u nullglob
 
+  # The prose surfaces, before the shipped tree is appended: figure 3 is
+  # about documented COMMANDS, which live in the prose and in the two files
+  # that document the runner, not in the container runtime.
+  local -a _cmd_surfaces=( "${_files[@]}" )
+  for _rel in "${_DERIVED_FIGURES_CMD_FILES[@]}"; do
+    _abs="${REPO_ROOT}/${_rel}"
+    if [[ ! -f "${_abs}" ]]; then
+      _die ci_derived_figures \
+        "'${_rel}' not found under ${REPO_ROOT} -- the documented-command figure would pass vacuously. Point it at the dispatcher and the recipe file that document the default run."
+      return 1
+    fi
+    _cmd_surfaces+=( "${_abs}" )
+  done
+
   local _code_root="${REPO_ROOT}/${_DERIVED_FIGURES_CODE_ROOT}"
   if [[ ! -d "${_code_root}" ]]; then
     _die ci_derived_figures \
@@ -416,12 +668,44 @@ _run_derived_figures() {
   _derived_check_conf_sections || _hits=$?
   _violations=$(( _violations + _hits ))
 
+  # Figure 3. Derive the flag, the subcommand vocabulary and the lint table
+  # first; each of them refuses loudly rather than letting the scan run on a
+  # guess.
+  local _coverage=''
+  if ! _derived_default_coverage _coverage; then
+    _die ci_derived_figures \
+      "the _run_via_compose ci calls in ${_DERIVED_FIGURES_RUNNER} do not agree on one coverage argument -- what a bare 'just test' measures is then undefined, and prose cannot be held to it."
+    return 1
+  fi
+
+  local -a _subcmds=() _lint_tools=()
+  mapfile -t _subcmds < <(_derived_test_subcommands)
+  if [[ "${#_subcmds[@]}" -eq 0 ]]; then
+    _die ci_derived_figures \
+      "read no recipe names out of script/test/justfile.test -- every documented 'just test <recipe>' would be judged as the default run."
+    return 1
+  fi
+  mapfile -t _lint_tools < <(_derived_lint_tools)
+  if [[ "${#_lint_tools[@]}" -eq 0 ]]; then
+    _die ci_derived_figures \
+      "read no entries out of the _LINT_TOOLS table in ${_DERIVED_FIGURES_RUNNER} -- what the bare lint phase runs is then unknown."
+    return 1
+  fi
+
+  for _file in "${_cmd_surfaces[@]}"; do
+    _hits=0
+    _derived_scan_cmd_annotations \
+      "${_file}" "${_file#"${REPO_ROOT}"/}" "${_coverage}" _subcmds \
+      _lint_tools || _hits=$?
+    _violations=$(( _violations + _hits ))
+  done
+
   if [[ "${_violations}" -gt 0 ]]; then
     # _die exits in the dispatcher; the explicit return keeps the
     # not-reached "clean" echo unreachable even where a caller stubs _die
     # to return instead of exit (e.g. the unit harness).
     _die ci_derived_figures \
-      "${_violations} document figure(s) disagree with the code that defines them. The baseline stage blocklist is whatever _validate_stage_name returns 2 for -- currently $(_derived_join_comma "${_renderings[@]}") -- and 'devel-test' is NOT in it (it is emitted as the 'test' service). The setup.conf section list and its count are SCHEMA_SECTIONS. Fix the prose, not the predicate."
+      "${_violations} document figure(s) disagree with the code that defines them. The baseline stage blocklist is whatever _validate_stage_name returns 2 for -- currently $(_derived_join_comma "${_renderings[@]}") -- and 'devel-test' is NOT in it (it is emitted as the 'test' service). The setup.conf section list and its count are SCHEMA_SECTIONS. What a bare 'just test' measures is the coverage argument of _run_via_compose ci, and what a bare 'just test lint' runs is the whole _LINT_TOOLS table. Fix the prose, not the predicate."
     return 1
   fi
   echo "derived-figure lint: clean"

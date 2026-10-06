@@ -37,11 +37,14 @@ setup() {
   source /source/script/test/drivers/derived_figures.sh
 
   SCRATCH="$(mktemp -d)"
-  mkdir -p "${SCRATCH}/dist/script/docker/lib" "${SCRATCH}/doc/readme"
+  mkdir -p "${SCRATCH}/dist/script/docker/lib" "${SCRATCH}/doc/readme" \
+    "${SCRATCH}/script/test"
   REPO_ROOT="${SCRATCH}"
 
   # A tree that passes, so each case perturbs exactly one thing.
   _write_readme
+  _write_runner
+  _write_test_justfile
   printf '%s\n' '# CONTEXT' > "${SCRATCH}/CONTEXT.md"
   printf '%s\n' '#!/usr/bin/env bash' \
     > "${SCRATCH}/dist/script/docker/lib/sample.sh"
@@ -66,6 +69,27 @@ _write_readme() {
       printf '%s\n' "$@"
     fi
   } > "${SCRATCH}/README.md"
+}
+
+# _write_runner [coverage-flag] -- a scratch script/test/test.sh carrying the
+# two things figure 3 derives from it: the coverage argument every
+# `_run_via_compose ci` call passes, and the _LINT_TOOLS table.
+_write_runner() {
+  local _cov="${1:-0}"
+  {
+    printf '%s\n' '#!/usr/bin/env bash' 'readonly _LINT_TOOLS=('
+    printf '%s\n' '  shellcheck' '  hadolint' '  issueref' ')'
+    printf '  _run_via_compose ci %s\n' "${_cov}"
+  } > "${SCRATCH}/script/test/test.sh"
+}
+
+# _write_test_justfile -- a scratch script/test/justfile.test whose recipe
+# lines are the subcommand vocabulary figure 3 reads.
+_write_test_justfile() {
+  printf '%s\n' 'default:' '    ./script/test/test.sh' \
+    'lint *args:' '    ./script/test/test.sh --lint' \
+    "coverage shard='':" '    ./script/test/test.sh --coverage' \
+    > "${SCRATCH}/script/test/justfile.test"
 }
 
 # _append <relative-path> <line>... -- add prose to a scratch file.
@@ -262,4 +286,133 @@ _append() {
   run _run_derived_figures
   [ "${status}" -ne 0 ]
   [[ "${output}" == *"dist"* ]]
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _run_derived_figures: what the DEFAULT self-test runs (figure 3)
+# ════════════════════════════════════════════════════════════════════
+
+@test "_derived_default_coverage: reads the flag off the _run_via_compose ci calls (base#1121)" {
+  local _cov=''
+  _derived_default_coverage _cov
+  [ "${_cov}" = "0" ]
+  _write_runner 1
+  _derived_default_coverage _cov
+  [ "${_cov}" = "1" ]
+}
+
+@test "_derived_default_coverage: REFUSES when the calls disagree (base#1121)" {
+  # An ambiguous figure must refuse rather than pick a side -- prose held to
+  # a guess is worse than prose held to nothing.
+  printf '  _run_via_compose ci 1\n' >> "${SCRATCH}/script/test/test.sh"
+  local _cov=''
+  run _derived_default_coverage _cov
+  [ "${status}" -ne 0 ]
+}
+
+@test "_derived_test_subcommands: derives the vocabulary from the recipe lines (base#1121)" {
+  run _derived_test_subcommands
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"default"* ]]
+  [[ "${output}" == *"lint"* ]]
+  [[ "${output}" == *"coverage"* ]]
+}
+
+@test "_run_derived_figures: FAILS when a bare just test is documented as running kcov (base#1121)" {
+  _write_readme '```bash' 'just test   # ShellCheck + Bats + Kcov' '```'
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"README.md:"* ]]
+  [[ "${output}" == *"coverage 0"* ]]
+}
+
+@test "_run_derived_figures: PASSES when the annotation says the default has no kcov (base#1121)" {
+  _write_readme '```bash' 'just test   # ShellCheck + Hadolint + Bats (no kcov)' '```'
+  run _run_derived_figures
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"clean"* ]]
+}
+
+@test "_run_derived_figures: FAILS when the default DOES measure coverage and the annotation omits it (base#1121)" {
+  # The rule is the figure, not a ban on the word: flip the code and the
+  # same prose becomes the violation.
+  _write_runner 1
+  _write_readme '```bash' 'just test   # ShellCheck + Hadolint + Bats' '```'
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"does not say so"* ]]
+}
+
+@test "_run_derived_figures: a documented subcommand is not the default run (base#1121)" {
+  _write_readme '```bash' 'just test coverage   # Full run, under Kcov' '```'
+  run _run_derived_figures
+  [ "${status}" -eq 0 ]
+}
+
+@test "_run_derived_figures: a flag is not the default run either (base#1121)" {
+  _write_readme '```bash' './test.sh --coverage   # ShellCheck + Bats + Kcov' '```'
+  run _run_derived_figures
+  [ "${status}" -eq 0 ]
+}
+
+@test "_run_derived_figures: reads the recipe-comment shape too (base#1121)" {
+  _append 'script/test/justfile.test' \
+    '# just test -> run the whole self-test (ShellCheck + Bats + Kcov)'
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"justfile.test:"* ]]
+}
+
+@test "_run_derived_figures: a mention inside running prose is not an annotation (base#1121)" {
+  # The anchor is what keeps the rule off sentences that merely talk about
+  # the command -- the dispatcher's own --jobs refusal is one.
+  _write_readme \
+    'The kcov process count means nothing on its own: bare `just test`' \
+    'already runs bats in parallel.'
+  run _run_derived_figures
+  [ "${status}" -eq 0 ]
+}
+
+@test "_run_derived_figures: FAILS when the bare lint phase is documented as ShellCheck alone (base#1121)" {
+  _write_readme '```bash' 'just test lint   # ShellCheck only' '```'
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"shellcheck alone"* ]]
+}
+
+@test "_run_derived_figures: PASSES when the lint annotation names both binaries (base#1121)" {
+  _write_readme '```bash' 'just test lint   # Every linter (ShellCheck + Hadolint + the rest)' '```'
+  run _run_derived_figures
+  [ "${status}" -eq 0 ]
+}
+
+@test "_run_derived_figures: a narrowed lint run may name one linter (base#1121)" {
+  _write_readme '```bash' 'just test lint --shellcheck   # ShellCheck only' '```'
+  run _run_derived_figures
+  [ "${status}" -eq 0 ]
+}
+
+@test "_run_derived_figures: FAILS when the recipe file is missing (no vacuous pass) (base#1121)" {
+  rm -f "${SCRATCH}/script/test/justfile.test"
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"justfile.test"* ]]
+}
+
+@test "_run_derived_figures: FAILS when the _LINT_TOOLS table cannot be read (no vacuous pass) (base#1121)" {
+  printf '%s\n' '#!/usr/bin/env bash' '  _run_via_compose ci 0' \
+    > "${SCRATCH}/script/test/test.sh"
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"_LINT_TOOLS"* ]]
+}
+
+@test "_run_derived_figures: a token that is not a recipe is still the default run (base#1121)" {
+  # The vocabulary is what stops the rule from being stepped out from under:
+  # `just test` plus a word justfile.test does not define dispatches
+  # nowhere, so the example is still describing the bare run.
+  _write_readme '```bash' 'just test nosuchrecipe   # ShellCheck + Bats + Kcov' '```'
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"coverage 0"* ]]
 }

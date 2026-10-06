@@ -29,7 +29,7 @@
 
 ---
 
-<!-- sync: tldr b4f9c41522da 25d908de79c9 -->
+<!-- sync: tldr ba8c00105790 e1c4e80d329f -->
 ## TL;DR
 
 ```bash
@@ -46,7 +46,7 @@ just base update   # 確認
 just base upgrade         # pull + バージョンファイル + workflow tag 更新
 
 # CI 実行
-just test   # ShellCheck + Bats + Kcov
+just test   # ShellCheck + Hadolint + Bats（no kcov、カバレッジは just test coverage）
 just                       # 全 recipe 表示
 ```
 
@@ -1234,13 +1234,14 @@ jobs:
 | `extra_files` | string | いいえ | `""` | 追加ファイル（スペース区切り） |
 | `version` | string | いいえ | `""` | リリースするバージョン（`vX.Y.Z`）。tag 経由の経路では未設定のままにすると、push された tag から読み取られる。tag 以外の run からこの worker を直接呼ぶ場合に渡す：既定の `GITHUB_TOKEN` で作成されたイベントは新しい workflow run を開始しないため、マージ済みの変更を自動リリースする repo は tag を push しても到達できない。`vX.Y.Z[-suffix]` でない値はリリースされず拒否される |
 
-<!-- sync: running-template-tests 4e411d749017 2fa910a54d4b -->
+<!-- sync: running-template-tests 99915e065e54 ca811a89e1d9 -->
 ## ローカルテスト実行
 
 `script/test/justfile.test`（template ルートから）を使用：
 ```bash
-just test        # フル CI（ShellCheck + Bats + Kcov）docker compose 経由
-just test lint        # ShellCheck のみ
+just test        # 高速 CI（ShellCheck + Hadolint + Bats、no kcov）docker compose 経由
+just test coverage    # フル CI（同じ内容を kcov 付きで）
+just test lint        # lint フェーズの全 linter（ShellCheck + Hadolint とその他）
 just test clean       # カバレッジレポート削除
 just test stop        # この checkout の自己テストコンテナを停止
 just             # repo recipe 一覧表示
@@ -1249,7 +1250,7 @@ just --list  # CI ターゲット表示
 
 直接実行：
 ```bash
-./script/test/test.sh          # フル CI（docker compose 経由）
+./script/test/test.sh          # 高速 CI（docker compose 経由、no kcov）
 ./script/test/test.sh --ci     # コンテナ内で実行（compose から呼び出し）
 ```
 
