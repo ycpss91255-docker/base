@@ -663,8 +663,8 @@ jobs:
         id: obtain
         env:
           TESTTOOLS_CHANGED: ${{ needs.classify.outputs.testtools_changed }}
-        # The whole decision -- rebuild because this PR changed the
-        # Dockerfile, use the rolling tag because it corresponds to this
+        # The whole decision -- rebuild because this PR changed an input of
+        # the image, use the rolling tag because it corresponds to this
         # checkout, or rebuild because it does not or could not be pulled
         # -- lives in script/ci/obtain_test_tools.sh, one copy for all six
         # consumers. It used to be this block, pasted into each of them,
@@ -765,16 +765,16 @@ jobs:
         id: obtain
         env:
           TESTTOOLS_CHANGED: ${{ needs.classify.outputs.testtools_changed }}
-        # Layer 1: PR touched Dockerfile.test-tools -> must rebuild from
-        # source (the :main rolling tag still reflects the pre-PR state).
-        # Layer 2: try pulling the rolling :main tag and re-tag locally;
-        # avoids a buildx run on the hot path (every non-Dockerfile-test-
-        # tools PR).
+        # Layer 1: PR touched an input of the tooling image -> must rebuild
+        # from source (the :main rolling tag still reflects the pre-PR
+        # state). Layer 2: try pulling the rolling :main tag and re-tag
+        # locally; avoids a buildx run on the hot path (every PR that
+        # changes nothing the image is built from).
         # Layer 3: pull failed (first bootstrap of :main, network, GHCR
         # auth gap) -> emit build_local=true and let the buildx step
         # below take over with GHA cache.
-        # The whole decision -- rebuild because this PR changed the
-        # Dockerfile, use the rolling tag because it corresponds to this
+        # The whole decision -- rebuild because this PR changed an input of
+        # the image, use the rolling tag because it corresponds to this
         # checkout, or rebuild because it does not or could not be pulled
         # -- lives in script/ci/obtain_test_tools.sh, one copy for all six
         # consumers. It used to be this block, pasted into each of them,
@@ -832,8 +832,8 @@ jobs:
         id: obtain
         env:
           TESTTOOLS_CHANGED: ${{ needs.classify.outputs.testtools_changed }}
-        # The whole decision -- rebuild because this PR changed the
-        # Dockerfile, use the rolling tag because it corresponds to this
+        # The whole decision -- rebuild because this PR changed an input of
+        # the image, use the rolling tag because it corresponds to this
         # checkout, or rebuild because it does not or could not be pulled
         # -- lives in script/ci/obtain_test_tools.sh, one copy for all six
         # consumers. It used to be this block, pasted into each of them,
@@ -951,11 +951,11 @@ jobs:
         # this job obtains it via the identical 3-layer fallback the
         # bats-unit / bats-integration jobs use — no more debian kcov/kcov
         # image, no per-shard apt-install, no APT_MIRROR_DEBIAN. Layer 1:
-        # PR touched Dockerfile.test-tools -> rebuild from source. Layer 2:
+        # PR touched an input of the tooling image -> rebuild. Layer 2:
         # pull the rolling :main tag and re-tag locally (hot path). Layer
         # 3: pull failed -> build below with GHA cache.
-        # The whole decision -- rebuild because this PR changed the
-        # Dockerfile, use the rolling tag because it corresponds to this
+        # The whole decision -- rebuild because this PR changed an input of
+        # the image, use the rolling tag because it corresponds to this
         # checkout, or rebuild because it does not or could not be pulled
         # -- lives in script/ci/obtain_test_tools.sh, one copy for all six
         # consumers. It used to be this block, pasted into each of them,
@@ -1609,8 +1609,8 @@ jobs:
         id: obtain
         env:
           TESTTOOLS_CHANGED: ${{ needs.classify.outputs.testtools_changed }}
-        # The whole decision -- rebuild because this PR changed the
-        # Dockerfile, use the rolling tag because it corresponds to this
+        # The whole decision -- rebuild because this PR changed an input of
+        # the image, use the rolling tag because it corresponds to this
         # checkout, or rebuild because it does not or could not be pulled
         # -- lives in script/ci/obtain_test_tools.sh, one copy for all six
         # consumers. It used to be this block, pasted into each of them,
