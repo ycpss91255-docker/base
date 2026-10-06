@@ -917,7 +917,7 @@ Pure git + filesystem, no docker.
 | `cd-guard: accepts a clean tree on a tag (exit 0 + names the tag)` | - |
 | `cd-guard: the accept path reports the tag on stdout, refusals on stderr` | - |
 
-### test/bats/unit/changelog_entry_lint_spec.bats (82)
+### test/bats/unit/changelog_entry_lint_spec.bats (86)
 
 | Test | Description |
 |------|-------------|
@@ -1000,7 +1000,11 @@ Pure git + filesystem, no docker.
 | `_run_changelog_entry_fix: the compare-link block is left below the section (#1103)` | The compare-link block ends the section, and a fold that ran past it would move link definitions into the entry list -- which the entry lint then reports as content no entry measures. |
 | `_run_changelog_entry_fix: a file with no final newline keeps none (#1103)` | A rewriter whose job is the heading level has no business adding a byte at end of file. Caught here because nothing downstream would report it and the next reader could not tell what added it. |
 | `_run_changelog_entry_fix: the runner and the justfile both reach the repair (#1103)` | The repair is only handled if a verb reaches it. Asserted against the runner and the justfile because a function nothing dispatches is a repair nobody can run, however well it folds. |
+| `_run_changelog_entry: a second allow-begin does not expose the lines before it (#1103)` | The refactor that gave the folder the lint's allow map had to be behaviour-preserving, and this is the case it was not: the inline pass set the skip map as it walked, so a second allow-begin left the first region's lines hidden. Measured at 2 suppressed before, 1 after -- a line the lint had stopped measuring with nothing to say so. |
+| `_run_changelog_entry_fix: a nested allow region travels as one piece (#1103)` | What the exposure above cost the rewriter, reproduced: an exempted '### Added' became a block the fold felt free to move, so it reordered lines out of a region and left the outer begin marker dangling over somebody else's entry -- a file the lint then refuses, written by the command run to fix it. The two Fixed blocks around the region ARE a duplicate and do fold; the region has to travel inside the survivor as one piece. |
 | `_run_changelog_entry_fix: two spellings of one heading fold to the canonical one (#1103)` | Two spellings of one heading are one category to the lint, which compares them with whitespace collapsed -- so they are a duplicate, and the survivor has to be written in one spelling or the file keeps a difference nothing reads. |
+| `_run_changelog_entry_fix: REFUSES a section carrying an unterminated fence (#1103)` | Reproduced damage, not a hypothetical: an open fence in the LAST category moves ahead of the others under roster order and swallows their headings and entries as code. Measured 3 entries checked before the fold and 1 after, with the lint reporting clean -- the repair hiding two entries from the gate. |
+| `_run_changelog_entry_fix: REFUSES when the fold would hide an entry from the lint (#1103)` | The general net behind that one refusal. A fold that LOSES an entry leaves the headings perfectly fine, so the heading postcondition cannot see it; what the fold must not change is how many entries the lint can see. Driven by a stub that drops one, because no input reaches this once the fence is refused. |
 | `_run_changelog_entry_fix: a write that did not take is REFUSED, not reported as done (#1103)` | The guard that stops the repair reporting its own success. Driven by neutralising the write, because a write that did not take is the one failure the fold cannot see from the array it assembled -- the file on disk is what the next reader gets, and the next reader is the lint on the next cycle. |
 | `_run_changelog_entry: the refusal names the command that folds the duplicate (#1103)` | The refusal is where somebody meets this problem, so it is the only place the repair can be documented without being remembered. A message that names the defect and not the verb is the chore this issue is about. |
 
