@@ -573,6 +573,197 @@ _derived_scan_cmd_annotations() {
   return "${_violations}"
 }
 
+# ── Figure 4: the drift-detection key set ───────────────────────────────────
+#
+# The fourth figure is a SET again: which `.env.generated` values
+# `_check_setup_drift` reads back and compares. It reads five
+# (`SETUP_CONF_HASH`, `SETUP_DOCKERFILE_HASH`, `SETUP_GUI_DETECTED`,
+# `GPU_ENABLED`, `USER_UID`); the README's "Drift detection" section named
+# three, one of which -- `SETUP_TIMESTAMP` -- is written and never compared
+# by anything, and omitted the Dockerfile stage list, which is the one
+# trigger a maintainer adding a `FROM ... AS <stage>` would come looking for.
+# All three translations carried the same three names.
+#
+# Two rules, both derived:
+#
+#   - COMPLETENESS. Every key the function reads back has to be named in the
+#     section. Derived from the read-back patterns in lib/drift.sh.
+#   - SOUNDNESS. A `SETUP_*` key that setup.sh WRITES but drift never reads
+#     back must not appear in the section at all. `SETUP_*` is the
+#     drift-metadata namespace env_emit.sh writes, so the candidate set is
+#     derived too, and an inert key named in a section about comparison is
+#     read as compared.
+#
+# And one rule on the section next door. "When setup.sh runs" listed four
+# triggers and opened with "setup.sh runs only when explicitly triggered",
+# while the wrappers run `setup.sh check-drift` on every build and launch and
+# re-run `setup.sh apply` when it fails -- so the list was missing the
+# trigger that fires without anybody typing anything. The subcommand NAME is
+# read out of the wrapper rather than written here, and the rule goes inert
+# if the wrapper ever stops drift-checking, because the claim would then be
+# true.
+
+# The code that defines figure 4, and the two README sections that repeat it.
+# A section is addressed by its English heading and by the `sync:` id the
+# localized files carry above the translated heading -- the same id
+# sync-readme-hashes.sh stamps -- so one lookup serves all four locales.
+readonly _DERIVED_FIGURES_DRIFT_LIB='dist/script/docker/lib/drift.sh'
+readonly _DERIVED_FIGURES_ENV_EMIT_LIB='dist/script/docker/lib/env_emit.sh'
+readonly _DERIVED_FIGURES_WRAPPER_LIB='dist/script/docker/lib/wrapper.sh'
+readonly _DERIVED_FIGURES_DRIFT_HEADING='### Drift detection'
+readonly _DERIVED_FIGURES_DRIFT_ID='drift-detection'
+readonly _DERIVED_FIGURES_RUNS_HEADING='### When setup.sh runs'
+readonly _DERIVED_FIGURES_RUNS_ID='when-setupsh-runs'
+
+# _derived_drift_keys -- the `.env.generated` keys _check_setup_drift reads
+# back, one per line. Read off its own `'^KEY=\K...'` extraction patterns:
+# that is where the set is decided, so a key added to the comparison appears
+# here without anybody editing this driver.
+_derived_drift_keys() {
+  grep -oE "'\\^[A-Z][A-Z0-9_]*=" "${REPO_ROOT}/${_DERIVED_FIGURES_DRIFT_LIB}" \
+    | tr -d "'^=" | sort -u
+}
+
+# _derived_setup_metadata_keys -- the `SETUP_*` keys env_emit.sh writes into
+# `.env.generated`, one per line. The drift-metadata namespace: the candidate
+# set for the soundness rule.
+_derived_setup_metadata_keys() {
+  grep -oE '^SETUP_[A-Z0-9_]*=' "${REPO_ROOT}/${_DERIVED_FIGURES_ENV_EMIT_LIB}" \
+    | tr -d '=' | sort -u
+}
+
+# _derived_wrapper_drift_subcommand <out_var> -- the setup.sh subcommand the
+# wrappers run on every build / launch to decide whether to regenerate.
+# Empty when the wrappers no longer drift-check at all, which makes the
+# trigger-list rule inert rather than wrong. Returns non-zero when more than
+# one such subcommand exists, because then the name to document is ambiguous.
+_derived_wrapper_drift_subcommand() {
+  local -n _sub_out="$1"
+  _sub_out=''
+  local -a _subs=()
+  mapfile -t _subs < <(
+    grep -oE '[a-z]+-drift' "${REPO_ROOT}/${_DERIVED_FIGURES_WRAPPER_LIB}" \
+      2>/dev/null | sort -u
+  )
+  [[ "${#_subs[@]}" -le 1 ]] || return 1
+  [[ "${#_subs[@]}" -eq 1 ]] && _sub_out="${_subs[0]}"
+  return 0
+}
+
+# _derived_section <file> <heading> <sync-id> <out_var> -- the body of one
+# README section, one line per element.
+#
+# A localized README carries `<!-- sync: <id> ... -->` above its translated
+# heading, so the id addresses the section in every language; the English
+# original carries no markers, so there the heading itself does. Which of the
+# two a file is, is read off the file (does it carry any marker at all),
+# never off its name. The body ends at the next marker, or at the next
+# markdown heading when there are none.
+_derived_section() {
+  local _file="$1" _heading="$2" _id="$3"
+  local -n _body_out="$4"
+  _body_out=()
+
+  local _localized=0
+  grep -qE '^<!-- sync: ' "${_file}" && _localized=1
+
+  local -a _lines=()
+  mapfile -t _lines < "${_file}"
+
+  local _i _start=-1
+  for (( _i = 0; _i < ${#_lines[@]}; _i++ )); do
+    if (( _localized )); then
+      [[ "${_lines[_i]}" == "<!-- sync: ${_id} "* ]] || continue
+    else
+      [[ "${_lines[_i]}" == "${_heading}" ]] || continue
+    fi
+    _start="${_i}"
+    break
+  done
+  (( _start >= 0 )) || return 1
+
+  for (( _i = _start + 1; _i < ${#_lines[@]}; _i++ )); do
+    if (( _localized )); then
+      [[ "${_lines[_i]}" == '<!-- sync: '* ]] && break
+    else
+      [[ "${_lines[_i]}" =~ ^#{1,6}[[:space:]] ]] && break
+    fi
+    _body_out+=( "${_lines[_i]}" )
+  done
+  return 0
+}
+
+# _derived_check_drift_keys <file> <rel> <drift_keys_var> <inert_keys_var>
+#                          <drift_subcommand>
+#
+# Hold one locale's two sections to figure 4. Prints each violation and
+# returns the count; a missing section is a violation too, named as one,
+# because a renamed heading would otherwise silence the whole rule.
+_derived_check_drift_keys() {
+  local _file="$1" _rel="$2"
+  local -n _keys_in="$3"
+  local -n _inert_in="$4"
+  local _drift_sub="$5"
+
+  local _violations=0
+  local -a _body=()
+  local _text='' _line _key
+
+  if ! _derived_section "${_file}" "${_DERIVED_FIGURES_DRIFT_HEADING}" \
+      "${_DERIVED_FIGURES_DRIFT_ID}" _body; then
+    printf "%s: no '%s' section (sync id '%s') -- the drift key set has nowhere to be pinned. Restore the section (the keys are %s) or move the pin in drivers/derived_figures.sh.\\n" \
+      "${_rel}" "${_DERIVED_FIGURES_DRIFT_HEADING}" \
+      "${_DERIVED_FIGURES_DRIFT_ID}" "$(_derived_join_comma "${_keys_in[@]}")"
+    return 1
+  fi
+
+  _text=''
+  for _line in "${_body[@]}"; do
+    _text+="${_line} "
+  done
+
+  for _key in "${_keys_in[@]}"; do
+    if [[ "${_text}" != *"${_key}"* ]]; then
+      printf '%s: the drift section does not name %s, which _check_setup_drift reads back and compares (it compares %s)\n' \
+        "${_rel}" "${_key}" "$(_derived_join_comma "${_keys_in[@]}")"
+      _violations=$(( _violations + 1 ))
+    fi
+  done
+
+  for _key in "${_inert_in[@]}"; do
+    if [[ "${_text}" == *"${_key}"* ]]; then
+      printf '%s: the drift section names %s, which setup.sh writes and nothing compares -- in a section about comparison it reads as compared\n' \
+        "${_rel}" "${_key}"
+      _violations=$(( _violations + 1 ))
+    fi
+  done
+
+  # The trigger list next door. Inert when the wrappers no longer
+  # drift-check, because the claim would then be true.
+  [[ -n "${_drift_sub}" ]] || return "${_violations}"
+
+  _body=()
+  if ! _derived_section "${_file}" "${_DERIVED_FIGURES_RUNS_HEADING}" \
+      "${_DERIVED_FIGURES_RUNS_ID}" _body; then
+    printf "%s: no '%s' section (sync id '%s') -- the trigger list has nowhere to be pinned. Restore the section or move the pin in drivers/derived_figures.sh.\\n" \
+      "${_rel}" "${_DERIVED_FIGURES_RUNS_HEADING}" \
+      "${_DERIVED_FIGURES_RUNS_ID}"
+    return $(( _violations + 1 ))
+  fi
+
+  _text=''
+  for _line in "${_body[@]}"; do
+    _text+="${_line} "
+  done
+  if [[ "${_text}" != *"${_drift_sub}"* ]]; then
+    printf '%s: the trigger list does not name %s, which the wrappers run on every build and launch and regenerate on -- a trigger that fires without anybody typing anything\n' \
+      "${_rel}" "${_drift_sub}"
+    _violations=$(( _violations + 1 ))
+  fi
+
+  return "${_violations}"
+}
+
 _run_derived_figures() {
   echo "--- Running derived-figure lint ---"
 
@@ -620,6 +811,14 @@ _run_derived_figures() {
     _files+=( "${_abs}" )
   done
 
+  # Figure 4's sections live in the READMEs only -- CONTEXT.md is the
+  # architecture note and carries neither. The English original plus every
+  # localized file, each required: a locale that drops a section is a
+  # reported violation, not a silent pass. Collected INSIDE the nullglob
+  # region with the other surfaces, so a tree with no translations yet
+  # yields no surface rather than the unexpanded glob.
+  local -a _doc_surfaces=( "${REPO_ROOT}/${_DERIVED_FIGURES_README}" )
+
   local _nullglob_was_set=0
   shopt -q nullglob && _nullglob_was_set=1
   shopt -s nullglob
@@ -627,6 +826,7 @@ _run_derived_figures() {
   for _localized in \
     "${REPO_ROOT}/${_DERIVED_FIGURES_DOC_DIR}"/${_DERIVED_FIGURES_DOC_GLOB}; do
     _files+=( "${_localized}" )
+    _doc_surfaces+=( "${_localized}" )
   done
   [[ "${_nullglob_was_set}" -eq 1 ]] || shopt -u nullglob
 
@@ -700,12 +900,52 @@ _run_derived_figures() {
     _violations=$(( _violations + _hits ))
   done
 
+  # Figure 4. The key sets come out of the shipped libs; each refuses loudly
+  # when the lib it reads is not there, because an empty set would make the
+  # completeness rule pass over every locale at once.
+  local -a _drift_keys=() _meta_keys=() _inert_keys=()
+  mapfile -t _drift_keys < <(_derived_drift_keys)
+  if [[ "${#_drift_keys[@]}" -eq 0 ]]; then
+    _die ci_derived_figures \
+      "read no read-back keys out of ${_DERIVED_FIGURES_DRIFT_LIB} -- what drift detection compares is then unknown, and the prose that lists it would pass unchecked."
+    return 1
+  fi
+  mapfile -t _meta_keys < <(_derived_setup_metadata_keys)
+  if [[ "${#_meta_keys[@]}" -eq 0 ]]; then
+    _die ci_derived_figures \
+      "read no SETUP_* keys out of ${_DERIVED_FIGURES_ENV_EMIT_LIB} -- the drift metadata namespace is then unknown."
+    return 1
+  fi
+  local _meta _drift_key _is_compared
+  for _meta in "${_meta_keys[@]}"; do
+    _is_compared=0
+    for _drift_key in "${_drift_keys[@]}"; do
+      [[ "${_meta}" == "${_drift_key}" ]] && _is_compared=1 && break
+    done
+    (( _is_compared )) || _inert_keys+=( "${_meta}" )
+  done
+
+  local _drift_sub=''
+  if ! _derived_wrapper_drift_subcommand _drift_sub; then
+    _die ci_derived_figures \
+      "${_DERIVED_FIGURES_WRAPPER_LIB} names more than one *-drift subcommand -- which one the trigger list must document is then ambiguous."
+    return 1
+  fi
+
+  for _file in "${_doc_surfaces[@]}"; do
+    _hits=0
+    _derived_check_drift_keys \
+      "${_file}" "${_file#"${REPO_ROOT}"/}" _drift_keys _inert_keys \
+      "${_drift_sub}" || _hits=$?
+    _violations=$(( _violations + _hits ))
+  done
+
   if [[ "${_violations}" -gt 0 ]]; then
     # _die exits in the dispatcher; the explicit return keeps the
     # not-reached "clean" echo unreachable even where a caller stubs _die
     # to return instead of exit (e.g. the unit harness).
     _die ci_derived_figures \
-      "${_violations} document figure(s) disagree with the code that defines them. The baseline stage blocklist is whatever _validate_stage_name returns 2 for -- currently $(_derived_join_comma "${_renderings[@]}") -- and 'devel-test' is NOT in it (it is emitted as the 'test' service). The setup.conf section list and its count are SCHEMA_SECTIONS. What a bare 'just test' measures is the coverage argument of _run_via_compose ci, and what a bare 'just test lint' runs is the whole _LINT_TOOLS table. Fix the prose, not the predicate."
+      "${_violations} document figure(s) disagree with the code that defines them. The baseline stage blocklist is whatever _validate_stage_name returns 2 for -- currently $(_derived_join_comma "${_renderings[@]}") -- and 'devel-test' is NOT in it (it is emitted as the 'test' service). The setup.conf section list and its count are SCHEMA_SECTIONS. What a bare 'just test' measures is the coverage argument of _run_via_compose ci, and what a bare 'just test lint' runs is the whole _LINT_TOOLS table. The drift key set is whatever _check_setup_drift reads back. Fix the prose, not the predicate."
     return 1
   fi
   echo "derived-figure lint: clean"

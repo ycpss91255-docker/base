@@ -42,6 +42,7 @@ setup() {
   REPO_ROOT="${SCRATCH}"
 
   # A tree that passes, so each case perturbs exactly one thing.
+  _write_drift_libs
   _write_readme
   _write_runner
   _write_test_justfile
@@ -68,7 +69,72 @@ _write_readme() {
     if [[ $# -gt 0 ]]; then
       printf '%s\n' "$@"
     fi
+    printf '\n%s\n' "$(_drift_sections)"
   } > "${SCRATCH}/README.md"
+}
+
+# _drift_sections [stored-keys-sentence] -- the two sections figure 4 pins,
+# in the English original's shape (headings, no sync markers). The default
+# body agrees with the scratch libs _write_drift_libs writes.
+_drift_sections() {
+  local _stored="${1:-Stores \`SETUP_CONF_HASH\` and \`SETUP_GUI_DETECTED\`.}"
+  printf '%s\n' \
+    '### When setup.sh runs' \
+    '' \
+    '- **Drift**: every build runs `setup.sh check-drift` first.' \
+    '' \
+    '### Drift detection' \
+    '' \
+    "${_stored}" \
+    '' \
+    '### Next section'
+}
+
+# _write_localized <locale> [stored-keys-sentence] -- a localized README in
+# the shape readme-sync stamps: a `<!-- sync: <id> ... -->` marker above each
+# translated heading, which is how figure 4 addresses a section in a language
+# it cannot read.
+_write_localized() {
+  local _loc="${1}"
+  local _stored="${2:-Stores \`SETUP_CONF_HASH\` and \`SETUP_GUI_DETECTED\`.}"
+  printf '%s\n' \
+    '<!-- sync: base aaaaaaaaaaaa bbbbbbbbbbbb -->' \
+    '# base' \
+    '' \
+    '<!-- sync: when-setupsh-runs aaaaaaaaaaaa bbbbbbbbbbbb -->' \
+    '### translated trigger list' \
+    '' \
+    '- **Drift**: `setup.sh check-drift`' \
+    '' \
+    '<!-- sync: drift-detection aaaaaaaaaaaa bbbbbbbbbbbb -->' \
+    '### translated drift heading' \
+    '' \
+    "${_stored}" \
+    '' \
+    '<!-- sync: tests aaaaaaaaaaaa bbbbbbbbbbbb -->' \
+    '## translated tests' \
+    > "${SCRATCH}/doc/readme/README.${_loc}.md"
+}
+
+# _write_drift_libs -- the three shipped libs figure 4 derives from: the
+# read-back patterns that decide the compared set, the SETUP_* writes that
+# decide the inert candidates, and the wrapper's drift subcommand.
+_write_drift_libs() {
+  local _lib="${SCRATCH}/dist/script/docker/lib"
+  {
+    printf '%s\n' '#!/usr/bin/env bash' '_check_setup_drift() {'
+    printf '%s\n' \
+      '  _stored_hash="$(grep -oP '"'"'^SETUP_CONF_HASH=\K.*'"'"' "${_env}")"' \
+      '  _stored_gui="$(grep -oP '"'"'^SETUP_GUI_DETECTED=\K.*'"'"' "${_env}")"' \
+      '}'
+  } > "${_lib}/drift.sh"
+  {
+    printf '%s\n' '#!/usr/bin/env bash' 'write_env() {' '  cat <<EOF' \
+      'SETUP_CONF_HASH=${_h}' 'SETUP_GUI_DETECTED=${_g}' \
+      'SETUP_TIMESTAMP=${_t}' 'EOF' '}'
+  } > "${_lib}/env_emit.sh"
+  printf '%s\n' '#!/usr/bin/env bash' \
+    '  "${_setup}" check-drift --base-path "${_p}"' > "${_lib}/wrapper.sh"
 }
 
 # _write_runner [coverage-flag] -- a scratch script/test/test.sh carrying the
@@ -415,4 +481,116 @@ _append() {
   run _run_derived_figures
   [ "${status}" -ne 0 ]
   [[ "${output}" == *"coverage 0"* ]]
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _run_derived_figures: the drift-detection key set (figure 4)
+# ════════════════════════════════════════════════════════════════════
+
+@test "_derived_drift_keys: derives the compared set from the read-back patterns (base#1121)" {
+  run _derived_drift_keys
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"SETUP_CONF_HASH"* ]]
+  [[ "${output}" == *"SETUP_GUI_DETECTED"* ]]
+  [[ "${output}" != *"SETUP_TIMESTAMP"* ]]
+}
+
+@test "_derived_setup_metadata_keys: derives the written namespace from env_emit (base#1121)" {
+  run _derived_setup_metadata_keys
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"SETUP_TIMESTAMP"* ]]
+}
+
+@test "_derived_wrapper_drift_subcommand: reads the name out of the wrapper (base#1121)" {
+  local _sub=''
+  _derived_wrapper_drift_subcommand _sub
+  [ "${_sub}" = "check-drift" ]
+}
+
+@test "_derived_wrapper_drift_subcommand: REFUSES when the wrapper names two (base#1121)" {
+  printf '%s\n' '  "${_setup}" probe-drift' \
+    >> "${SCRATCH}/dist/script/docker/lib/wrapper.sh"
+  local _sub=''
+  run _derived_wrapper_drift_subcommand _sub
+  [ "${status}" -ne 0 ]
+}
+
+@test "_run_derived_figures: FAILS when the drift section omits a compared key (base#1121)" {
+  _write_readme
+  sed -i 's/^Stores `SETUP_CONF_HASH` and `SETUP_GUI_DETECTED`\.$/Stores `SETUP_CONF_HASH`./' \
+    "${SCRATCH}/README.md"
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"SETUP_GUI_DETECTED"* ]]
+  [[ "${output}" == *"reads back and compares"* ]]
+}
+
+@test "_run_derived_figures: FAILS when the drift section names a key nothing compares (base#1121)" {
+  # SETUP_TIMESTAMP is written and never read back; in a section about
+  # comparison it reads as compared.
+  _write_readme
+  sed -i 's/^Stores `SETUP_CONF_HASH` and `SETUP_GUI_DETECTED`\.$/Stores `SETUP_CONF_HASH`, `SETUP_GUI_DETECTED` and `SETUP_TIMESTAMP`./' \
+    "${SCRATCH}/README.md"
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"nothing compares"* ]]
+}
+
+@test "_run_derived_figures: a key added to the comparison moves the requirement (base#1121)" {
+  # The rule follows the code: teach drift.sh to read a third key and the
+  # prose that was clean becomes the violation.
+  printf '%s\n' \
+    '  _stored_uid="$(grep -oP '"'"'^USER_UID=\K.*'"'"' "${_env}")"' \
+    >> "${SCRATCH}/dist/script/docker/lib/drift.sh"
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"USER_UID"* ]]
+}
+
+@test "_run_derived_figures: FAILS when the trigger list omits the drift path (base#1121)" {
+  _write_readme
+  sed -i '/check-drift/d' "${SCRATCH}/README.md"
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"check-drift"* ]]
+}
+
+@test "_run_derived_figures: the trigger-list rule goes inert when the wrapper stops drift-checking (base#1121)" {
+  # If the wrappers no longer drift-check, "setup.sh runs only when you ask"
+  # is true again, and a lint that still demanded the bullet would be wrong.
+  printf '%s\n' '#!/usr/bin/env bash' > "${SCRATCH}/dist/script/docker/lib/wrapper.sh"
+  _write_readme
+  sed -i '/check-drift/d' "${SCRATCH}/README.md"
+  run _run_derived_figures
+  [ "${status}" -eq 0 ]
+}
+
+@test "_run_derived_figures: FAILS when the drift section is absent (no vacuous pass) (base#1121)" {
+  _write_readme
+  sed -i '/^### Drift detection$/d' "${SCRATCH}/README.md"
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"Drift detection"* ]]
+}
+
+@test "_run_derived_figures: addresses a translated section by its sync id (base#1121)" {
+  _write_localized 'zh-TW'
+  run _run_derived_figures
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"clean"* ]]
+}
+
+@test "_run_derived_figures: FAILS on a translation whose drift section omits a key (base#1121)" {
+  _write_localized 'zh-TW' 'Stores `SETUP_CONF_HASH`.'
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"README.zh-TW.md"* ]]
+  [[ "${output}" == *"SETUP_GUI_DETECTED"* ]]
+}
+
+@test "_run_derived_figures: FAILS when the drift lib yields no keys (no vacuous pass) (base#1121)" {
+  printf '%s\n' '#!/usr/bin/env bash' > "${SCRATCH}/dist/script/docker/lib/drift.sh"
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"read no read-back keys"* ]]
 }

@@ -1162,8 +1162,8 @@ Main
 
 ### When setup.sh runs
 
-`setup.sh` runs only when explicitly triggered — it is not re-run on
-every build or launch:
+`setup.sh` is not re-run on every build or launch, and it is not run only
+when you ask for it by name either — these trigger it:
 
 - **`just base init` / `./.base/dist/script/base/init.sh`** runs it once after the skeleton lands
 - **`just base upgrade` / `./.base/dist/script/base/upgrade.sh`** re-runs it via init.sh
@@ -1173,6 +1173,9 @@ every build or launch:
 - **First-time bootstrap**: `./build.sh` / `./run.sh` auto-run setup.sh
   the very first time (when `.env.generated` is missing, e.g. after a
   fresh CI clone) — no manual `--setup` needed
+- **Drift**: every `./build.sh` / `./run.sh` runs `setup.sh check-drift`
+  first and re-runs `setup.sh apply` when it reports drift, with no
+  `--setup` typed — see [Drift detection](#drift-detection) below
 
 > **Fresh-clone lint coverage (#216)**: `./run.sh` on a clone with no
 > image cached locally triggers Compose's auto-build, which only walks
@@ -1196,17 +1199,25 @@ survives upgrades.
 
 ### Drift detection
 
-`setup.sh` stores `SETUP_CONF_HASH`, `SETUP_GUI_DETECTED`, and
-`SETUP_TIMESTAMP` in `.env.generated`. On every `./build.sh` / `./run.sh`,
-stored values are compared against the current setup.conf hash + system
-detection; a `[WARNING]` is printed (non-blocking) when any of the
-following changed since last setup:
+`setup.sh apply` records five values in `.env.generated` —
+`SETUP_CONF_HASH`, `SETUP_DOCKERFILE_HASH`, `SETUP_GUI_DETECTED`,
+`GPU_ENABLED` and `USER_UID`. On every `./build.sh` / `./run.sh` each is
+compared against the current tree and host, and a `[WARNING]` is printed
+(non-blocking) for every one that changed since last setup:
 
-- `setup.conf` contents (conf hash)
-- GPU / GUI detection
+- `setup.conf` contents (`SETUP_CONF_HASH`)
+- the Dockerfile stage list (`SETUP_DOCKERFILE_HASH`) — a
+  `FROM ... AS <stage>` added or removed
+- GPU detection (`GPU_ENABLED`)
+- GUI detection (`SETUP_GUI_DETECTED`)
 - `USER_UID` (user identity change)
 
-Re-run with `--setup` to regenerate `.env.generated` + `compose.yaml`.
+Nothing has to be re-run by hand: the next `just docker build` /
+`just docker run` runs `setup.sh check-drift`, and regenerates `.env` /
+`.env.generated` / `compose.yaml` itself when it reports drift — derived
+artifacts carry no user-owned data, so regenerating on drift is always safe.
+`--setup` forces the regeneration now, and on a TTY opens `setup_tui.sh`
+first.
 
 ### Host-detection overrides
 

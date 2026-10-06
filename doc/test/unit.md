@@ -2071,7 +2071,7 @@ refused before any build or bundle step.
 | `setup_tui --help names the distinction in all four locales (#879)` | - |
 | `setup.sh --help distinguishes the deploy subcommand from the section (#879)` | - |
 
-### test/bats/unit/derived_figures_lint_spec.bats (35)
+### test/bats/unit/derived_figures_lint_spec.bats (48)
 
 | Test | Description |
 |------|-------------|
@@ -2110,6 +2110,19 @@ refused before any build or bundle step.
 | `_run_derived_figures: FAILS when the recipe file is missing (no vacuous pass) (base#1121)` | - |
 | `_run_derived_figures: FAILS when the _LINT_TOOLS table cannot be read (no vacuous pass) (base#1121)` | - |
 | `_run_derived_figures: a token that is not a recipe is still the default run (base#1121)` | - |
+| `_derived_drift_keys: derives the compared set from the read-back patterns (base#1121)` | - |
+| `_derived_setup_metadata_keys: derives the written namespace from env_emit (base#1121)` | - |
+| `_derived_wrapper_drift_subcommand: reads the name out of the wrapper (base#1121)` | - |
+| `_derived_wrapper_drift_subcommand: REFUSES when the wrapper names two (base#1121)` | - |
+| `_run_derived_figures: FAILS when the drift section omits a compared key (base#1121)` | - |
+| `_run_derived_figures: FAILS when the drift section names a key nothing compares (base#1121)` | - |
+| `_run_derived_figures: a key added to the comparison moves the requirement (base#1121)` | - |
+| `_run_derived_figures: FAILS when the trigger list omits the drift path (base#1121)` | - |
+| `_run_derived_figures: the trigger-list rule goes inert when the wrapper stops drift-checking (base#1121)` | - |
+| `_run_derived_figures: FAILS when the drift section is absent (no vacuous pass) (base#1121)` | - |
+| `_run_derived_figures: addresses a translated section by its sync id (base#1121)` | - |
+| `_run_derived_figures: FAILS on a translation whose drift section omits a key (base#1121)` | - |
+| `_run_derived_figures: FAILS when the drift lib yields no keys (no vacuous pass) (base#1121)` | - |
 
 ### test/bats/unit/doc_counts_spec.bats (26)
 

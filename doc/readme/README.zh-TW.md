@@ -625,10 +625,11 @@ Main
 `./setup_tui.sh <section>` 仍可直接跳到任意 section 的編輯器
 （如 `./setup_tui.sh volumes`），不必走主選單。
 
-<!-- sync: when-setupsh-runs ecdbadb6a9f1 0c6021fce51a -->
+<!-- sync: when-setupsh-runs 4b98ca4c7af4 db91b8fba656 -->
 ### setup.sh 什麼時候跑
 
-`setup.sh` 只在明確觸發時才執行 — 並不會在每次 build / run 都重跑：
+`setup.sh` 不會在每次 build / run 都重跑，但也不是只有你明確要求時才
+跑 — 以下都會觸發它：
 
 - **`just base init` / `./.base/dist/script/base/init.sh`** 建完骨架自動跑一次
 - **`just base upgrade` / `./.base/dist/script/base/upgrade.sh`** subtree pull 後透過 init.sh
@@ -639,6 +640,9 @@ Main
 - **首次 bootstrap**：`./build.sh` / `./run.sh` 首次執行（`.env.generated`
   尚未存在，例如 CI 新 clone）會自動走相同的 TTY-aware 流程，不用帶
   `--setup`
+- **Drift**：每次 `./build.sh` / `./run.sh` 都會先跑 `setup.sh check-drift`，
+  報出 drift 時自行重跑 `setup.sh apply`，不用打 `--setup` — 見下方
+  Drift 偵測
 
 > **Fresh-clone lint 覆蓋率（#216）**：`./run.sh` 在本機沒 image
 > cached 時會走 Compose auto-build — 但 auto-build **只 build
@@ -659,18 +663,26 @@ Main
 `APT_MIRROR_DEBIAN`，所以手動調過的 workspace 路徑或 apt mirror 升級時
 不會被蓋掉。
 
-<!-- sync: drift-detection 423fc5dbfe75 e1b3a2d04210 -->
+<!-- sync: drift-detection 2ebab6909c30 c1b582b7df01 -->
 ### Drift 偵測
 
-`setup.sh` 把 `SETUP_CONF_HASH`、`SETUP_GUI_DETECTED`、`SETUP_TIMESTAMP`
-寫到 `.env.generated`。每次 `./build.sh` / `./run.sh` 進入時會比對 `setup.conf`
-當前 hash + 系統偵測值，以下任一項改變時印 `[WARNING]`（但不阻擋執行）：
+`setup.sh apply` 會把五個值寫進 `.env.generated`：`SETUP_CONF_HASH`、
+`SETUP_DOCKERFILE_HASH`、`SETUP_GUI_DETECTED`、`GPU_ENABLED`、`USER_UID`。
+每次 `./build.sh` / `./run.sh` 都會拿這些值跟當前的 tree 與 host 比對，
+任一項自上次 setup 後改變就印 `[WARNING]`（不阻擋執行）：
 
-- `setup.conf` 內容（conf hash）
-- GPU / GUI 偵測結果
-- `USER_UID`（使用者身份）
+- `setup.conf` 內容（`SETUP_CONF_HASH`）
+- Dockerfile stage 清單（`SETUP_DOCKERFILE_HASH`）— 新增或移除
+  `FROM ... AS <stage>`
+- GPU 偵測結果（`GPU_ENABLED`）
+- GUI 偵測結果（`SETUP_GUI_DETECTED`）
+- `USER_UID`（使用者身份改變）
 
-帶 `--setup` 重跑以重新產 `.env.generated` + `compose.yaml`。
+不需要手動重跑：下一次 `just docker build` / `just docker run` 會跑
+`setup.sh check-drift`，報出 drift 時自行重新產生 `.env` /
+`.env.generated` / `compose.yaml` — 這些都是衍生檔，不含使用者資料，
+重生永遠安全。帶 `--setup` 可以立刻強制重生，在 TTY 下會先開
+`setup_tui.sh`。
 
 <!-- sync: field-deployment-just-docker-setup-deploy 9112a5c7eaaa a7a48df3b067 -->
 ### Field 部署（`just docker setup deploy`）

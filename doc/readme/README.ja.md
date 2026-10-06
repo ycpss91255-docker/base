@@ -671,11 +671,11 @@ Main
 `./setup_tui.sh <section>` は引き続き任意の section エディタへ
 直接ジャンプできます（例：`./setup_tui.sh volumes`）。
 
-<!-- sync: when-setupsh-runs ecdbadb6a9f1 8938c8290072 -->
+<!-- sync: when-setupsh-runs 4b98ca4c7af4 c0041424d19e -->
 ### setup.sh の実行タイミング
 
-`setup.sh` は明示的にトリガーされた時のみ実行されます — build / run
-の度に再実行されることはありません：
+`setup.sh` は build / run の度に再実行されることはありませんが、名前を
+指定して頼んだ時だけ走るわけでもありません — 次がトリガーです：
 
 - **`just base init` / `./.base/dist/script/base/init.sh`** がスケルトン生成後に 1 回自動実行
 - **`just base upgrade` / `./.base/dist/script/base/upgrade.sh`** が subtree pull の後に
@@ -688,6 +688,9 @@ Main
 - **初回 bootstrap**：`./build.sh` / `./run.sh` は `.env.generated` が無い
   初回実行（CI の新規 clone 等）では、同じ TTY-aware フローを自動で
   通ります。`--setup` 指定は不要
+- **Drift**：`./build.sh` / `./run.sh` は毎回まず `setup.sh check-drift` を
+  実行し、drift が報告されたら `setup.sh apply` を自動で再実行します
+  （`--setup` は不要）— 下のドリフト検出を参照
 
 > **Fresh-clone の lint カバレッジ（#216）**：image がローカルに
 > キャッシュされていない `./run.sh` は Compose auto-build を起動
@@ -710,19 +713,27 @@ Main
 `APT_MIRROR_DEBIAN` は保持されるため、手動で調整した workspace パスや
 apt mirror はアップグレードで上書きされません。
 
-<!-- sync: drift-detection 423fc5dbfe75 3f58e39fed45 -->
+<!-- sync: drift-detection 2ebab6909c30 e7066444f97b -->
 ### ドリフト検出
 
-`setup.sh` は `.env.generated` に `SETUP_CONF_HASH` /
-`SETUP_GUI_DETECTED` / `SETUP_TIMESTAMP` を書き込みます。`./build.sh` / `./run.sh` は毎回
-エントリ時点で現行の `setup.conf` ハッシュ + システム検出値と比較し、
-以下のいずれかが変化した場合に `[WARNING]` を出力（実行は継続）：
+`setup.sh apply` は `.env.generated` に 5 つの値を記録します：
+`SETUP_CONF_HASH` / `SETUP_DOCKERFILE_HASH` / `SETUP_GUI_DETECTED` /
+`GPU_ENABLED` / `USER_UID`。`./build.sh` / `./run.sh` は毎回これらを現在の
+tree と host と比較し、前回の setup から変化したものごとに `[WARNING]`
+を出力します（実行は継続）：
 
-- `setup.conf` の内容（conf hash）
-- GPU / GUI の検出結果
+- `setup.conf` の内容（`SETUP_CONF_HASH`）
+- Dockerfile の stage 一覧（`SETUP_DOCKERFILE_HASH`）— `FROM ... AS <stage>`
+  の追加・削除
+- GPU 検出結果（`GPU_ENABLED`）
+- GUI 検出結果（`SETUP_GUI_DETECTED`）
 - `USER_UID`（ユーザ ID の変化）
 
-`--setup` を付けて再実行すれば `.env.generated` + `compose.yaml` を再生成できます。
+手動で再実行する必要はありません：次の `just docker build` /
+`just docker run` が `setup.sh check-drift` を実行し、drift が報告されたら
+`.env` / `.env.generated` / `compose.yaml` を自動で再生成します — いずれも
+派生物でありユーザのデータを持たないため、drift 時の再生成は常に安全です。
+`--setup` はその場で再生成を強制し、TTY では `setup_tui.sh` を先に開きます。
 
 <!-- sync: field-deployment-just-docker-setup-deploy 9112a5c7eaaa 93fb0bfe1ba5 -->
 ### フィールド配備（`just docker setup deploy`）
