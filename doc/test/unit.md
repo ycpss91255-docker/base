@@ -4312,7 +4312,7 @@ rule with nothing comparing them is the #1012 shape with one fewer copy.
 | `release-ref: every prerelease classifier under script/ci is one this spec can ask (#1012)` | "One home per classified thing" is only true while the homes agree wherever their inputs overlap. #1012's own reasoning is that three hand-kept copies of a rule are a defect BECAUSE nothing in the tree compared any pair of them; two hand-kept copies with nothing comparing them is the same shape with one fewer copy. The owner list is derived by the same predicate the site scan uses, so a third classifier lands here the day it lands in script/ci/ -- and it fails until someone states how to ask it, because an interface is the one thing a scan cannot derive. |
 | `release-ref: no two prerelease classifiers disagree where both answer (#1012)` | The two owners accept different grammars on purpose -- a released VERSION must carry the `v` a downstream repo pins, a git REF may be a full `refs/tags/...` -- so each refuses inputs the other reads. What must never happen is the pair ANSWERING a shared input differently: one of them would be marking a Release final or moving the org's `test-tools:latest` for a tag the other calls a release candidate. Only inputs both owners accept are compared; a refusal is not a disagreement. |
 
-### test/bats/unit/release_test_tools_yaml_spec.bats (32)
+### test/bats/unit/release_test_tools_yaml_spec.bats (42)
 
 Structural assertions for `.github/workflows/release-test-tools.yaml`. Locks
 the publish surface that downstream Dockerfile.example's `FROM
@@ -4335,12 +4335,20 @@ was dispatched from (main takes the `:main` arm, a `v*` tag takes the tag
 rules). Any other ref is refused, so an unrecognised input publishes nothing
 rather than overwriting `:latest`.
 
-The smoke step uses `steps.tags.outputs.smoke`, so it always pulls the tag
-the current trigger produced rather than statically pulling `:latest` and
-leaving a freshly-pushed `:main` unverified. Four of the cases below RUN the
-resolver rather than reading it: the step's own `run:` body is extracted
-with yq and executed against each ref shape. The text-reading cases above
-them stayed green through four RC tags that each moved `:latest`.
+The merge job's ORDER is pinned here too, over a population read off the
+workflow's own jobs and steps: no step may let a registry tag name content
+that no step of that job has run yet. The smoke step -- the only check this
+image has, since no job of this workflow needs self-test.yaml -- used to
+verify a tag, which cannot exist before the manifest create, so it ran after
+the publish it was supposed to authorise and a red verdict left the moved
+tag standing. It verifies a digest now; the tag's own resolution is checked
+by the step after the create, which is the only assertion that needs the tag
+to exist.
+
+Four of the cases below RUN the resolver rather than reading it: the step's
+own `run:` body is extracted with yq and executed against each ref shape.
+The text-reading cases above them stayed green through four RC tags that
+each moved `:latest`.
 
 | Test | Description |
 |------|-------------|
@@ -4357,10 +4365,20 @@ them stayed green through four RC tags that each moved `:latest`.
 | `release-test-tools.yaml: a ref the resolver does not recognise is refused, never resolved to :latest (#1012)` | `workflow_dispatch` is unrestricted by ref, so this arm is reachable from any feature branch: resolving it to the production tag made the unrecognised input the most destructive one. |
 | `release-test-tools.yaml: the header and the resolver step's own prose describe the tag rules it applies (#1012)` | A header describing a branch the code cannot reach is a defect with the same shape as the code one, and it is what a later reader believes over the code. |
 | `release-test-tools.yaml: this spec's own prose -- header, dividers and case names -- describes the surface it pins (#1012)` | What keeps the correction from being half made: a case NAME is what the TAP line prints, so a stale one reports the new behaviour under the old description on every green run. |
-| `release-test-tools.yaml: smoke step pulls the trigger's tag (not statically :latest) (#317 P2)` | - |
+| `release-test-tools.yaml: smoke step verifies the digest it is about to tag, not a tag name (#1109)` | A step that verifies a TAG cannot run until the tag exists, so reading one here is what forced the only check on this image to run after the publish it was supposed to authorise (#1109). It verifies the digest a build shard pushed instead, which exists before any tag names it. |
+| `release-test-tools.yaml: the tag confirmation reads the trigger's own tag, never a stale one (#317 P2)` | The trigger's own tag still has to be the one checked, which was the property the old smoke target carried: a main push publishes `:main` and must not report on the stale `:latest` from the previous release. It moved to the only step that can hold it, the one that runs after the tag exists. |
+| `release-test-tools.yaml: the tag confirmation passes an ordinary publish, whose shard digests are flattened away (#1109)` | An ordinary publish of this image must PASS the confirmation, and the first version of it could not: each shard pushes an index (provenance is on by default), imagetools create flattens those into the published index, so the shard digests the step compared against were never in it. Every successful release would have reported failure -- after the tags moved. |
+| `release-test-tools.yaml: the tag confirmation fails when the tag resolves to content nothing verified (#1109)` | The property the step exists for: a tag that resolves to content other than what was verified is the one thing the reordering leaves checkable only after the publish, so a confirmation that cannot fail on it checks nothing. |
+| `release-test-tools.yaml: the tag confirmation fails when the published manifest drops an arch the matrix built (#1109)` | The other half of what the published tag has to be: a manifest list covering every arch the matrix built. A tag that lost an arch is the last-shard-wins failure the whole push-by-digest design exists to prevent, and the expected platform list is read from the artifacts, not written here. |
 | `release-test-tools.yaml: the smoke step derives its version assertions from the pin roster (#1012)` | One loop over the pins the Dockerfile declares, rather than fourteen hand-written comparisons that leave the next tool unasserted the day it is pinned. |
 | `release-test-tools.yaml: the smoke step refuses an empty pin roster (#1012)` | A loop fed by a command that failed simply gets no input and passes, which is fail-open for a step whose whole assertion is that the versions were checked. |
 | `release-test-tools.yaml: the merge job's checkout rationale names what the smoke step reads (#1012)` | That sentence is what a reader follows to the file doing the comparison, and it still named the accessor the step had stopped opening. |
+| `release-test-tools.yaml: no job attaches a registry tag ahead of the step that runs the image (#1109)` | The rolling tag moved first and the only check on the image ran after it, with nothing anywhere in the file that could put it back -- so a red smoke left the moved tag standing, and on the measured v0.42.0 tag the tag moved 5m58s before that commit's tests had any verdict at all (#1109). The ordering is read off the workflow's own jobs and steps, so the job that publishes does not have to be remembered here and a fourth one is in the population the day it lands. |
+| `release-test-tools.yaml: the ordering scan read every job and found the publish it ordered (#1109)` | An empty violation list satisfies the case above whether the scan read every job and found the ordering right, or read nothing and classified nothing. So the population it walked and the pair it ordered are asserted, not assumed. |
+| `publish ordering: a job that attaches a tag with nothing running the image is reported (#1109)` | The live tree cannot exercise this shape -- a publish with no check at all -- and must never be able to, so without a fixture the classifier could stop reporting it and nothing would notice. |
+| `publish ordering: a verified publish is clean, and a job after it is still read (#1109)` | The other half of a usable rule -- the prescribed order has to pass -- plus the property that makes the population derived rather than remembered: the walk does not stop at the first job, so the job somebody adds tomorrow is scanned the day it lands. |
+| `publish ordering: an action handed a tags input attaches a tag, a digest-only push does not (#1109)` | A tag can also be attached by an action handed a tags input, which is the shape this very workflow would take if its build shards ever stopped pushing by digest -- and no run block would mention a tag at all. The digest-only push the shards do today is the negative half: it names nothing, so it is reachable by content alone and needs no check in front of it. |
+| `publish ordering: a workflow the scan cannot read is a BUG, never a clean ordering (#1109)` | A scan that cannot read a workflow must say so, not report it clean: the fail-open direction here is a workflow whose publish ordering nothing checked, passing the live-tree case for the wrong reason. |
 | `release-test-tools.yaml: drops docker/setup-qemu-action (native arm64 runner, #587)` | - |
 | `release-test-tools.yaml: compute-matrix job maps platforms to native runners (#587)` | - |
 | `release-test-tools.yaml: build shards run on the matrix runner (#587)` | - |
