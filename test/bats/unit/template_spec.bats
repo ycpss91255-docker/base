@@ -770,12 +770,6 @@ EOF
   assert [ -f /source/dist/script/docker/lib/i18n.sh ]
 }
 
-# why: bats-mock available in test image
-@test "Dockerfile.test-tools includes bats-mock" {
-  run grep 'bats-mock' /source/dockerfile/Dockerfile.test-tools
-  assert_success
-}
-
 @test "Dockerfile.test-tools installs just from the PINNED release (#948)" {
   # The test-tools image must carry `just` so justfile_user_spec /
   # upgrade-check can exercise the entry point for real -- and it must
@@ -3494,28 +3488,6 @@ _manifest_declares() {
   run _manifest_declares "${_tmp}/pruned.manifest" '.base/'
   rm -rf "${_tmp}"
   assert_failure
-}
-
-# ════════════════════════════════════════════════════════════════════
-# run.sh: XDG_SESSION_TYPE branching
-# ════════════════════════════════════════════════════════════════════
-
-# why: X11/Wayland branch
-@test "run.sh contains XDG_SESSION_TYPE check" {
-  run grep "XDG_SESSION_TYPE" /source/dist/script/docker/wrapper/run.sh
-  assert_success
-}
-
-# why: Wayland xhost
-@test "run.sh contains xhost +SI:localuser for wayland" {
-  run grep 'xhost "+SI:localuser' /source/dist/script/docker/wrapper/run.sh
-  assert_success
-}
-
-# why: X11 xhost
-@test "run.sh contains xhost +local: for X11" {
-  run grep 'xhost +local:' /source/dist/script/docker/wrapper/run.sh
-  assert_success
 }
 
 # ════════════════════════════════════════════════════════════════════

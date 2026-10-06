@@ -459,7 +459,7 @@ mentions the `--no-prune` flag.
 | `build.sh --dry-run prints planned prune step + does not rmi` | - |
 | `build.sh --help mentions --no-prune (#387)` | - |
 
-### test/bats/unit/build_sh_spec.bats (63)
+### test/bats/unit/build_sh_spec.bats (61)
 
 Unit tests for `build.sh` argument handling and control flow. Uses a sandbox
 tree mirroring the expected layout (build.sh + `template/` subtree with real
@@ -529,14 +529,12 @@ runs).
 | `build.sh omits --build-arg TARGETARCH when TARGET_ARCH absent from .env` | - |
 | `build.sh passes --network <value> to docker build when BUILD_NETWORK set in .env` | - |
 | `build.sh omits --network when BUILD_NETWORK absent from .env` | - |
-| `build.sh --lang zh-TW prints Chinese usage text` | - |
+| `build.sh --lang zh-TW prints Traditional Chinese usage text` | Both Chinese usage heredocs open with the same two characters meaning "Usage", so asserting that shared token could not tell Traditional from Simplified: pointing the zh-CN arm at the Traditional block left every locale test green. The token asserted here is the help-flag description line in its Traditional spelling, which the Simplified block cannot contain, and the refute names the Simplified spelling that must not appear -- so the pair is red in both directions. |
 | `build.sh --lang requires a value` | - |
-| `build.sh --lang zh-CN prints Simplified Chinese usage text` | - |
+| `build.sh --lang zh-CN prints Simplified Chinese usage text` | The Simplified half of the same decision. The shared "Usage" token this used to assert is byte-identical in both Chinese heredocs, so a zh-CN arm rendering the Traditional block read green. The token asserted here is the help-flag description line in its Simplified spelling, which the Traditional block cannot contain. |
 | `build.sh --lang ja prints Japanese usage text` | - |
 | `build.sh --help documents QUIET in every locale (#895)` | - |
-| `build.sh in /lint/ layout maps zh_TW.UTF-8 to zh-TW` | - |
-| `build.sh in /lint/ layout maps zh_CN.UTF-8 to zh-CN` | - |
-| `build.sh in /lint/ layout maps ja_JP.UTF-8 to ja` | - |
+| `build.sh in /lint/ layout maps zh_TW.UTF-8 to zh-TW` | The flat layout has no `template/` beside the wrapper, so the wrapper's own bootstrap has to find `lib/i18n.sh` next to it and let `_resolve_lang` pick the heredoc. That composition is the property only a test in this file can pin, and one locale pins it. The zh_CN and ja twins were folded away because the halves they added are pinned closer to the source: the LANG-to-code mapping at the function seam in lib_spec.bats (`_resolve_lang sets 'zh-CN' for zh_CN.UTF-8`, `... for zh_SG`, `... 'ja' for ja_JP.UTF-8`) and each usage() arm by the `--lang` tests above. Measured on the whole unit tier: pointing `_detect_lang`'s `zh_CN*\|zh_SG*` and `ja*` arms at "en" turned 14 of 4726 tests red with the twins present and 6 with them gone -- the three `_resolve_lang` tests, the two `_sanitize_lang` locale tests, and justfile_user_spec's Japanese recipe summaries (base#1117). |
 | `build.sh calls real docker build when --dry-run is not set` | - |
 | `build.sh fails loud when .base/.version is missing (no bare test-tools:local fallback)` | - |
 | `build.sh skips internal test-tools build when TEST_TOOLS_IMAGE is set (#317 P2)` | - |
@@ -2608,7 +2606,7 @@ SSH X11 `XAUTHORITY` override #321) and `_scaffold_env_overlay` idempotency.
 | `_run_errexit_bang: an unterminated allow region fails (#956)` | - |
 | `_run_errexit_bang: an unmatched allow-end fails (#956)` | - |
 
-### test/bats/unit/exec_sh_spec.bats (61)
+### test/bats/unit/exec_sh_spec.bats (59)
 
 Unit tests for `exec.sh` argument parsing, the container-running precheck,
 and i18n. Sandbox tree mirrors build_sh_spec.bats; `docker ps` reads from a
@@ -2645,8 +2643,8 @@ exit $?`; a failing pre-exec hook aborts before `compose exec` runs).
 | Test | Description |
 |------|-------------|
 | `exec.sh --help exits 0 and shows usage` | - |
-| `exec.sh --lang zh-TW prints Chinese usage text` | - |
-| `exec.sh --lang zh-CN prints Simplified Chinese usage text` | - |
+| `exec.sh --lang zh-TW prints Traditional Chinese usage text` | Both Chinese usage heredocs open with the same two characters meaning "Usage", so asserting that shared token could not tell Traditional from Simplified: pointing the zh-CN arm at the Traditional block left every locale test green. The token asserted here is the help-flag description line in its Traditional spelling, which the Simplified block cannot contain, and the refute names the Simplified spelling that must not appear -- so the pair is red in both directions. |
+| `exec.sh --lang zh-CN prints Simplified Chinese usage text` | The Simplified half of the same decision. The shared "Usage" token this used to assert is byte-identical in both Chinese heredocs, so a zh-CN arm rendering the Traditional block read green. The token asserted here is the help-flag description line in its Simplified spelling, which the Traditional block cannot contain. |
 | `exec.sh --lang ja prints Japanese usage text` | - |
 | `exec.sh --lang requires a value` | - |
 | `exec.sh --target requires a value` | - |
@@ -2669,9 +2667,7 @@ exit $?`; a failing pre-exec hook aborts before `compose exec` runs).
 | `exec.sh -- separator: works after -t TARGET (run.sh parity, #289)` | - |
 | `exec.sh: no -- still works for positional CMD (backward compat, #289)` | - |
 | `exec.sh --help mentions the -- separator (#289)` | - |
-| `exec.sh in /lint/ layout maps zh_TW.UTF-8 to zh-TW` | - |
-| `exec.sh in /lint/ layout maps zh_CN.UTF-8 to zh-CN` | - |
-| `exec.sh in /lint/ layout maps ja_JP.UTF-8 to ja` | - |
+| `exec.sh in /lint/ layout maps zh_TW.UTF-8 to zh-TW` | The flat layout has no `template/` beside the wrapper, so the wrapper's own bootstrap has to find `lib/i18n.sh` next to it and let `_resolve_lang` pick the heredoc. That composition is the property only a test in this file can pin, and one locale pins it. The zh_CN and ja twins were folded away because the halves they added are pinned closer to the source: the LANG-to-code mapping at the function seam in lib_spec.bats (`_resolve_lang sets 'zh-CN' for zh_CN.UTF-8`, `... for zh_SG`, `... 'ja' for ja_JP.UTF-8`) and each usage() arm by the `--lang` tests above. Measured on the whole unit tier: pointing `_detect_lang`'s `zh_CN*\|zh_SG*` and `ja*` arms at "en" turned 14 of 4726 tests red with the twins present and 6 with them gone -- the three `_resolve_lang` tests, the two `_sanitize_lang` locale tests, and justfile_user_spec's Japanese recipe summaries (base#1117). |
 | `exec.sh -C <dir> redirects FILE_PATH to <dir>` | - |
 | `exec.sh --chdir <dir> long form is equivalent to -C` | - |
 | `exec.sh -C without a value exits 2` | - |
@@ -4001,8 +3997,8 @@ fallback is present.
 | Test | Description |
 |------|-------------|
 | `prune.sh --help exits 0 and shows usage` | - |
-| `prune.sh --lang zh-TW prints Traditional Chinese usage text` | - |
-| `prune.sh --lang zh-CN prints Simplified Chinese usage text` | - |
+| `prune.sh --lang zh-TW prints Traditional Chinese usage text` | Both Chinese usage heredocs open with the same two characters meaning "Usage", so asserting that shared token could not tell Traditional from Simplified: pointing the zh-CN arm at the Traditional block left every locale test green. The token asserted here is the help-flag description line in its Traditional spelling, which the Simplified block cannot contain, and the refute names the Simplified spelling that must not appear -- so the pair is red in both directions. |
+| `prune.sh --lang zh-CN prints Simplified Chinese usage text` | The Simplified half of the same decision. The shared "Usage" token this used to assert is byte-identical in both Chinese heredocs, so a zh-CN arm rendering the Traditional block read green. The token asserted here is the help-flag description line in its Simplified spelling, which the Traditional block cannot contain. |
 | `prune.sh --lang ja prints Japanese usage text` | - |
 | `prune.sh with no target exits 2 with hint` | - |
 | `prune.sh --until without a value exits non-zero` | - |
@@ -4690,7 +4686,7 @@ certified B, which two of today's four workers sit one line away from.
 | `reusable workers: no job inherits the caller's grant (#957)` | Names `<workflow>: <job>` for every job with no permission entry of its own -- no block, or an inline `permissions: read-all` that names no scope. Such a job runs under whatever the calling repo granted its calling job: a `contents: write` held to cut a release, a `packages: write` held to publish |
 | `reusable workers: every one of them has a spec reading its permission surface (#957)` | The class-level half: a worker whose jobs all declare `contents: write` passes both tests above, so every derived worker must also have a spec that APPLIES `yaml_permission_surface` to it. Call sites are derived by `find` over the spec tree and resolved through each call's own argument, then matched against the worker's full path exactly, and the scan is floored at the derived worker count. Named for READING a surface, not for pinning a grant: whether the reader asserts the exact scope set is a property of the assertion, which no scan over call sites can see. This file is excluded because it reads every worker's surface to assert the complementary property (that a grant is declared, not which) |
 
-### test/bats/unit/run_sh_spec.bats (71)
+### test/bats/unit/run_sh_spec.bats (68)
 
 Unit tests for `run.sh`. Mirrors the build_sh_spec.bats harness; the `docker
 compose ... ps` probe reads from a controllable stub file (one running
@@ -4703,25 +4699,24 @@ Covers: `--help` (en/zh/zh-CN/ja), `--setup`/`-s`, bootstrap on missing
 `.env` / `setup.conf` / `compose.yaml`, drift-check path, bootstrap staying
 non-interactive (setup.sh, not TUI), defensive guard when setup produces no
 `.env`, `--detach`, devel vs non-devel TARGET routing, already-running
-guard, Wayland xhost path, `--lang` argument validation, fallback
-`_detect_lang` branches, **runtime log-line i18n** (bootstrap +
-already-running error translate in all four languages via the local `_msg()`
-table), **#216/#429 auto-build gate** (image present → silent + no build,
-image absent → auto-delegates to `./build.sh TARGET`, non-devel target
-forwarded, build failure aborts run, per-target image inspect, `--build`
-invokes `./build.sh test` before compose up, `--build` after check-drift),
-and **`-C` / `--chdir` flag** (docker_harness#53: redirect FILE_PATH, short
-+ long form, value-required and directory guards, usage help mention), and
-**`-v` / `--verbose` / `-vv` / `--very-verbose` flag** (#311: same export +
-trace pattern as build.sh, parity across wrappers), and **#386 foreground
-exit auto compose-down** (default-on for devel + one-shot non-devel targets,
-`--no-rm` opts out, `-d` suppresses the trap; the trap fires `down
---remove-orphans` to mirror stop.sh and close the
-worktree-removed-before-stop network leak), and **#448 `--` CMD separator**
-(`--` stops flag parsing so CMD flags like `--target` don't collide;
-positional CMD also stops parsing; usage documents `--`), and **#580
-interactive exit-code normalization** (`_normalize_interactive_rc` maps
-clean-exit codes 0 and 130 to 0 on the no-CMD foreground paths -- devel
+guard, `--lang` argument validation, fallback `_detect_lang` branches,
+**runtime log-line i18n** (bootstrap + already-running error translate in
+all four languages via the local `_msg()` table), **#216/#429 auto-build
+gate** (image present → silent + no build, image absent → auto-delegates to
+`./build.sh TARGET`, non-devel target forwarded, build failure aborts run,
+per-target image inspect, `--build` invokes `./build.sh test` before compose
+up, `--build` after check-drift), and **`-C` / `--chdir` flag**
+(docker_harness#53: redirect FILE_PATH, short + long form, value-required
+and directory guards, usage help mention), and **`-v` / `--verbose` / `-vv`
+/ `--very-verbose` flag** (#311: same export + trace pattern as build.sh,
+parity across wrappers), and **#386 foreground exit auto compose-down**
+(default-on for devel + one-shot non-devel targets, `--no-rm` opts out, `-d`
+suppresses the trap; the trap fires `down --remove-orphans` to mirror
+stop.sh and close the worktree-removed-before-stop network leak), and **#448
+`--` CMD separator** (`--` stops flag parsing so CMD flags like `--target`
+don't collide; positional CMD also stops parsing; usage documents `--`), and
+**#580 interactive exit-code normalization** (`_normalize_interactive_rc`
+maps clean-exit codes 0 and 130 to 0 on the no-CMD foreground paths -- devel
 attached shell and one-shot stage `compose up` -- so a Ctrl-C-cleared line
 carried out on exit isn't a recipe failure, while a genuine non-clean code
 like 127 still propagates and command mode `just run <cmd>` keeps the real
@@ -4772,15 +4767,12 @@ down --remove-orphans` still runs).
 | `run.sh: a service running in ANOTHER project does not block this one (#920)` | - |
 | `run.sh: the SAME project's running service still blocks (#920)` | - |
 | `run.sh: a probe still writing cannot make the guard miss a running service (#905)` | - |
-| `run.sh --lang zh-TW prints Chinese usage text` | - |
+| `run.sh --lang zh-TW prints Traditional Chinese usage text` | Both Chinese usage heredocs open with the same two characters meaning "Usage", so asserting that shared token could not tell Traditional from Simplified: pointing the zh-CN arm at the Traditional block left every locale test green. The token asserted here is the help-flag description line in its Traditional spelling, which the Simplified block cannot contain, and the refute names the Simplified spelling that must not appear -- so the pair is red in both directions. |
 | `run.sh --lang requires a value` | - |
-| `run.sh --lang zh-CN prints Simplified Chinese usage text` | - |
+| `run.sh --lang zh-CN prints Simplified Chinese usage text` | The Simplified half of the same decision. The shared "Usage" token this used to assert is byte-identical in both Chinese heredocs, so a zh-CN arm rendering the Traditional block read green. The token asserted here is the help-flag description line in its Simplified spelling, which the Traditional block cannot contain. |
 | `run.sh --lang ja prints Japanese usage text` | - |
 | `run.sh --help documents QUIET in every locale (#895)` | - |
-| `run.sh uses xhost +SI:localuser under Wayland session` | - |
-| `run.sh in /lint/ layout maps zh_TW.UTF-8 to zh-TW` | - |
-| `run.sh in /lint/ layout maps zh_CN.UTF-8 to zh-CN` | - |
-| `run.sh in /lint/ layout maps ja_JP.UTF-8 to ja` | - |
+| `run.sh in /lint/ layout maps zh_TW.UTF-8 to zh-TW` | The flat layout has no `template/` beside the wrapper, so the wrapper's own bootstrap has to find `lib/i18n.sh` next to it and let `_resolve_lang` pick the heredoc. That composition is the property only a test in this file can pin, and one locale pins it. The zh_CN and ja twins were folded away because the halves they added are pinned closer to the source: the LANG-to-code mapping at the function seam in lib_spec.bats (`_resolve_lang sets 'zh-CN' for zh_CN.UTF-8`, `... for zh_SG`, `... 'ja' for ja_JP.UTF-8`) and each usage() arm by the `--lang` tests above. Measured on the whole unit tier: pointing `_detect_lang`'s `zh_CN*\|zh_SG*` and `ja*` arms at "en" turned 14 of 4726 tests red with the twins present and 6 with them gone -- the three `_resolve_lang` tests, the two `_sanitize_lang` locale tests, and justfile_user_spec's Japanese recipe summaries (base#1117). |
 | `run.sh --lang zh-TW prints Chinese bootstrap log` | - |
 | `run.sh --lang zh-CN prints Simplified Chinese bootstrap log` | - |
 | `run.sh --lang ja prints Japanese bootstrap log` | - |
@@ -4933,7 +4925,7 @@ alias / `network.network_name` / `devices.device_` / `security.cap_add_` /
 | `self-hosted guard: FAILS when the workflows parse to zero jobs` | - |
 | `self-hosted guard: scans every workflow in the directory, not a named list` | - |
 
-### test/bats/unit/self_test_yaml_spec.bats (127)
+### test/bats/unit/self_test_yaml_spec.bats (129)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks fourteen
 cumulative invariants:
@@ -5120,14 +5112,18 @@ rolling tag at all, asserted in obtain_test_tools_spec.bats.
 13. **#677 CI double-run restructure (coverage = primary unit gate,
 weight-balanced shards, single `bats-fragile` job)** — after #686 unified
 the coverage job onto the same Alpine test-tools image, the 4-shard
-`bats-unit` matrix and the 4-shard `coverage` matrix ran the SAME ~1991 unit
-specs twice per PR (8 parallel jobs), differing only by `COVERAGE=1`. The
+`bats-unit` matrix and the 4-shard `coverage` matrix ran the WHOLE unit
+suite twice per PR (8 parallel jobs), differing only by `COVERAGE=1`. The
 restructure: (a) the `coverage` matrix stays the PRIMARY unit gate (kcov
 over every non-fragile test; codecov upload + the #615/ADR-00000008 project
 gate untouched); (b) the `bats-unit` matrix is replaced by a SINGLE
-`bats-fragile` job that runs ONLY the kcov-fragile specs the coverage matrix
-skips via `[ "${COVERAGE:-0}" = 1 ] && skip` — in PLAIN mode, so the delta
-is preserved with zero double-run. The fragile set is computed at RUNTIME
+`bats-fragile` job that runs ONLY the spec FILES holding the tests the
+coverage matrix skips via `[ "${COVERAGE:-0}" = 1 ] && skip` — in PLAIN
+mode, so none of those tests goes unrun. Selection is by file (`grep -rl`),
+not by test, so the unguarded tests in a selected file run in both legs;
+that residual is deliberate (plain-mode signal, off the critical path) and
+its size is derived from the selector by the two guards at the end of this
+file rather than restated in prose. The fragile set is computed at RUNTIME
 (`test.sh --bats-fragile` -> `_fragile_unit_files` greps a line-anchored
 skip guard), so a new fragile-skip in a 10th file is picked up
 automatically; (c) `_shard_unit_files` replaces round-robin with greedy
@@ -5135,7 +5131,7 @@ bin-packing by per-spec `@test` count (heaviest-first into the lightest
 shard) so the slowest coverage shard approaches `total/N`. `ci-rollup
 needs:` and `release needs:` swap `bats-unit` -> `bats-fragile`; `coverage`
 joins the `release` chain (it is now the primary unit gate). Every unit test
-still runs SOMEWHERE: non-fragile under coverage/kcov, the fragile files
+still runs SOMEWHERE: non-fragile under coverage/kcov, the selected files
 under `bats-fragile` (plain).
 
 14. **#1009 the gate rosters are DERIVED from the job graph** — every
@@ -5378,6 +5374,8 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: the age-based backstop uses a CI window, not the local defaults (#900)` | - |
 | `TEST.md: the static-lint table lists exactly the lints _LINT_TOOLS runs (base#1121)` | TEST.md says its table lists the tools _LINT_TOOLS runs; it listed 15 of 26, and nothing re-derived the set, so the sentence the section opens with was false for a whole release cycle |
 | `TEST.md: every CI job the static-lint table cites is a job self-test.yaml declares (base#1121)` | One row named the CI job lint-static (i18n-orphan), which exists in no workflow -- lint-static is a group matrix, so the row sent a reader looking for a check that is not in the list |
+| `self-test.yaml: no bats-fragile rationale asserts away an overlap the file-granular selection has (base#1117)` | The comment said "ZERO double execution" and "runs exactly those fragile specs", both claims about tests, while the selector hands bats whole files; a reader sizing the suite stops at that sentence |
+| `self-test.yaml: no bats-fragile rationale carries a hand-written unit-suite size (base#1117)` | The same comment carried "~1991 unit specs" as the suite it compared against, a figure nothing re-derived; the tree held more than twice that when this landed, so the one number a reader could take away was wrong |
 
 ### test/bats/unit/setup_cmd_spec.bats (136)
 
@@ -6330,7 +6328,7 @@ live `dist/` passes today.
 | `_run_stale_setup_conf: ignores non-.sh files under dist/ (#845)` | Docs out of the lint's scope |
 | `_run_stale_setup_conf: FAILS when the dist/ scan root is missing (no vacuous pass) (#845)` | Missing scan root fails, no vacuous pass |
 
-### test/bats/unit/stop_sh_spec.bats (31)
+### test/bats/unit/stop_sh_spec.bats (29)
 
 Unit tests for `stop.sh` argument parsing, the single-project teardown, and
 i18n. `docker ps -a` output is PATH-shimmed via `${DOCKER_PS_A_FILE}` so
@@ -6355,8 +6353,8 @@ runs).
 | Test | Description |
 |------|-------------|
 | `stop.sh --help exits 0 and shows usage` | - |
-| `stop.sh --lang zh-TW prints Chinese usage text` | - |
-| `stop.sh --lang zh-CN prints Simplified Chinese usage text` | - |
+| `stop.sh --lang zh-TW prints Traditional Chinese usage text` | Both Chinese usage heredocs open with the same two characters meaning "Usage", so asserting that shared token could not tell Traditional from Simplified: pointing the zh-CN arm at the Traditional block left every locale test green. The token asserted here is the help-flag description line in its Traditional spelling, which the Simplified block cannot contain, and the refute names the Simplified spelling that must not appear -- so the pair is red in both directions. |
+| `stop.sh --lang zh-CN prints Simplified Chinese usage text` | The Simplified half of the same decision. The shared "Usage" token this used to assert is byte-identical in both Chinese heredocs, so a zh-CN arm rendering the Traditional block read green. The token asserted here is the help-flag description line in its Simplified spelling, which the Traditional block cannot contain. |
 | `stop.sh --lang ja prints Japanese usage text` | - |
 | `stop.sh --lang requires a value` | - |
 | `stop.sh stops the single project via docker compose down` | - |
@@ -6365,9 +6363,7 @@ runs).
 | `stop.sh -v with no matching containers prints empty-project hint (#345)` | - |
 | `stop.sh without -v does NOT emit the verbose container listing (#345 default)` | - |
 | `stop.sh: an ambient VERBOSE does not reach the flag's behaviour (#895)` | - |
-| `stop.sh in /lint/ layout maps zh_TW.UTF-8 to zh-TW` | - |
-| `stop.sh in /lint/ layout maps zh_CN.UTF-8 to zh-CN` | - |
-| `stop.sh in /lint/ layout maps ja_JP.UTF-8 to ja` | - |
+| `stop.sh in /lint/ layout maps zh_TW.UTF-8 to zh-TW` | The flat layout has no `template/` beside the wrapper, so the wrapper's own bootstrap has to find `lib/i18n.sh` next to it and let `_resolve_lang` pick the heredoc. That composition is the property only a test in this file can pin, and one locale pins it. The zh_CN and ja twins were folded away because the halves they added are pinned closer to the source: the LANG-to-code mapping at the function seam in lib_spec.bats (`_resolve_lang sets 'zh-CN' for zh_CN.UTF-8`, `... for zh_SG`, `... 'ja' for ja_JP.UTF-8`) and each usage() arm by the `--lang` tests above. Measured on the whole unit tier: pointing `_detect_lang`'s `zh_CN*\|zh_SG*` and `ja*` arms at "en" turned 14 of 4726 tests red with the twins present and 6 with them gone -- the three `_resolve_lang` tests, the two `_sanitize_lang` locale tests, and justfile_user_spec's Japanese recipe summaries (base#1117). |
 | `stop.sh -C <dir> redirects FILE_PATH to <dir>` | - |
 | `stop.sh --chdir <dir> long form is equivalent to -C` | - |
 | `stop.sh -C without a value exits 2` | - |
@@ -6449,7 +6445,7 @@ Unit tests for the repo-local command-group scaffolder
 | `new.sh registers a real mod? line even when the seed registry only COMMENTS that name (#785)` | - |
 | `new.sh source ships with the executable bit set (recipe invokes it directly) (#785)` | - |
 
-### test/bats/unit/template_spec.bats (172)
+### test/bats/unit/template_spec.bats (168)
 
 | Test | Description |
 |------|-------------|
@@ -6514,7 +6510,6 @@ Unit tests for the repo-local command-group scaffolder
 | `exec.sh exits non-zero with friendly hint when container not running` | precheck e2e |
 | `exec.sh --dry-run skips precheck and prints compose command` | dry-run e2e |
 | `dist/script/docker/lib/i18n.sh exists` | - |
-| `Dockerfile.test-tools includes bats-mock` | bats-mock available in test image |
 | `Dockerfile.test-tools installs just from the PINNED release (#948)` | - |
 | `Dockerfile.test-tools installs the docker compose plugin (docker-cli-compose)` | The fail-closed half of compose_host_identity_spec's runtime `docker compose version` skip |
 | `Dockerfile.test-tools COPYs shellcheck + hadolint into the final image` | The fail-closed half of deploy_spec's runtime `command -v shellcheck` skip |
@@ -6615,9 +6610,6 @@ Unit tests for the repo-local command-group scaffolder
 | `release archive payload declares no derived per-host artifact` | no compose.yaml / .setup.conf in the manifest |
 | `release archive payload still declares Dockerfile + script/ + .base/` | positive payload guard (no over-prune) |
 | `release archive payload guard is not satisfied by another entry's description` | The `.base/` guard reads the paths column, not a neighbour's prose |
-| `run.sh contains XDG_SESSION_TYPE check` | X11/Wayland branch |
-| `run.sh contains xhost +SI:localuser for wayland` | Wayland xhost |
-| `run.sh contains xhost +local: for X11` | X11 xhost |
 | `setup.sh default _base_path uses /..` | Path resolution |
 | `setup.sh default _base_path uses double parent traversal` | Repo root traversal |
 | `all 7 wrappers call _run_pre_hook with their own name (#440)` | - |
