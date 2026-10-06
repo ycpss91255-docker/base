@@ -813,3 +813,45 @@ _append() {
   [ "${status}" -ne 0 ]
   [[ "${output}" == *"no linter runs"* ]]
 }
+
+# why: `just test default` dispatches to the very recipe bare `just test`
+# dispatches to, so reading the name as a narrowing subcommand exempts the
+# default run from the rule about the default run
+@test "_run_derived_figures: naming the default recipe is still the default run (base#1121)" {
+  _write_readme '```bash' 'just test default   # ShellCheck + Bats + Kcov' '```'
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"coverage 0"* ]]
+}
+
+# why: Which recipe a bare invocation runs is just's rule, not the word
+# "default" -- a file with no `default` recipe hands it to the first one, and
+# the guard has to follow that or it exempts the bare run under another name
+@test "_run_derived_figures: the bare target is derived, not the literal word default (base#1121)" {
+  printf '%s\n' 'everything:' '    ./script/test/test.sh' \
+    'lint *args:' '    ./script/test/test.sh --lint' \
+    > "${SCRATCH}/script/test/justfile.test"
+  _write_readme '```bash' 'just test everything   # ShellCheck + Bats + Kcov' '```'
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"coverage 0"* ]]
+}
+
+# why: The lint phase runs both binaries, so "Hadolint only" is exactly as
+# wrong as "ShellCheck only"; catching one spelling and not the other enforces
+# the invariant in one direction and invites the other
+@test "_run_derived_figures: FAILS on a hadolint-only lint annotation too (base#1121)" {
+  _write_readme '```bash' 'just test lint   # Hadolint only' '```'
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"hadolint"* ]]
+}
+
+# why: A negated mention is not a claim here either, or the rule would refuse
+# an annotation that correctly says which binary a narrowed phase leaves out
+@test "_run_derived_figures: a lint annotation naming both, one negated, is clean (base#1121)" {
+  _write_readme '```bash' \
+    'just test lint   # Every linter, ShellCheck and Hadolint included' '```'
+  run _run_derived_figures
+  [ "${status}" -eq 0 ]
+}

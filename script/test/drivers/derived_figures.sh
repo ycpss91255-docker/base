@@ -489,6 +489,40 @@ _derived_lint_tools() {
   ' "${REPO_ROOT}/${_DERIVED_FIGURES_RUNNER}"
 }
 
+# _derived_default_recipe <subcmds_var> <out_var> -- the recipe a BARE
+# invocation runs. `just` dispatches a bare invocation to the recipe named
+# `default` when the file defines one, and otherwise to the FIRST recipe in the
+# file. So `just test <that name>` and bare `just test` are one dispatch, and an
+# example that spells the name out has to be judged as the default run -- read
+# as a narrowing subcommand it would exempt the default run from the rule about
+# the default run. Derived from the recipe list, never the literal word.
+_derived_default_recipe() {
+  local -n _subs_in="$1"
+  local -n _recipe_out="$2"
+  _recipe_out=''
+  [[ "${#_subs_in[@]}" -gt 0 ]] || return 1
+  local _s
+  for _s in "${_subs_in[@]}"; do
+    if [[ "${_s}" == 'default' ]]; then
+      _recipe_out='default'
+      return 0
+    fi
+  done
+  _recipe_out="${_subs_in[0]}"
+  return 0
+}
+
+# _derived_tool_claimed <annotation> <tool> -- does this annotation claim that
+# tool RUNS? It has to name it, and the mention must not be negated. An
+# annotation that spells out which checks a dispatch skips is the most useful
+# one a reader can get, so a denial is never read as a claim.
+_derived_tool_claimed() {
+  local _annot="${1,,}" _tool="${2,,}"
+  [[ "${_annot}" == *"${_tool}"* ]] || return 1
+  [[ "${_annot}" =~ ${_DERIVED_FIGURES_NEGATION_RE}${_tool} ]] && return 1
+  return 0
+}
+
 # _derived_cmd_annotation <line> <args_var> <annot_var> -- recognise a
 # DOCUMENTED invocation of the self-test and split it into the arguments it
 # passes and the annotation that describes them.
@@ -610,13 +644,20 @@ _derived_scan_cmd_annotations() {
   local -n _lint_tools_in="$5"
   local _coverage_skips_lint="$6"
 
+  local _default_recipe=''
+  if ! _derived_default_recipe _subcmds_in _default_recipe; then
+    printf '%s: no recipe names were read, so which recipe a bare invocation runs is unknown\n' \
+      "${_rel}"
+    return 1
+  fi
+
   local _has_shellcheck=0 _has_hadolint=0 _tool
   for _tool in "${_lint_tools_in[@]}"; do
     [[ "${_tool}" == 'shellcheck' ]] && _has_shellcheck=1
     [[ "${_tool}" == 'hadolint' ]] && _has_hadolint=1
   done
 
-  local _violations=0 _lineno='' _line _args _annot _names_kcov _claims_kcov
+  local _violations=0 _lineno='' _line _args _annot _claims_kcov
   local -a _toks=()
   while IFS=$'\t' read -r _lineno _line; do
     _derived_cmd_annotation "${_line}" _args _annot || continue
@@ -626,13 +667,8 @@ _derived_scan_cmd_annotations() {
     # same way whichever way the flag points -- an annotation that denies
     # kcov contradicts a dispatch that measures it just as plainly as one
     # that asserts kcov contradicts a dispatch that does not.
-    _names_kcov=0
     _claims_kcov=0
-    [[ "${_annot}" =~ [Kk][Cc][Oo][Vv] ]] && _names_kcov=1
-    if (( _names_kcov )) \
-      && [[ ! "${_annot,,}" =~ ${_DERIVED_FIGURES_NEGATION_RE}kcov ]]; then
-      _claims_kcov=1
-    fi
+    _derived_tool_claimed "${_annot}" 'kcov' && _claims_kcov=1
 
     # Does this example describe the DEFAULT run? No arguments does. So
     # does an argument that is neither a flag nor one of justfile.test's own
@@ -640,7 +676,9 @@ _derived_scan_cmd_annotations() {
     # still talking about the bare run -- and a bogus token cannot be used
     # to step out from under the rule.
     local _is_default=1 _subcmd
-    if [[ "${#_toks[@]}" -gt 0 ]]; then
+    if [[ "${#_toks[@]}" -eq 1 && "${_toks[0]}" == "${_default_recipe}" ]]; then
+      _is_default=1
+    elif [[ "${#_toks[@]}" -gt 0 ]]; then
       if [[ "${_toks[0]}" == -* ]]; then
         _is_default=0
       else
@@ -679,9 +717,7 @@ _derived_scan_cmd_annotations() {
       # reader can get, and must not be refused for containing the name.
       local _claimed=''
       for _tool in shellcheck hadolint; do
-        [[ "${_annot,,}" == *"${_tool}"* ]] || continue
-        [[ "${_annot,,}" =~ ${_DERIVED_FIGURES_NEGATION_RE}${_tool} ]] && continue
-        _claimed+=" ${_tool}"
+        _derived_tool_claimed "${_annot}" "${_tool}" && _claimed+=" ${_tool}"
       done
       if [[ -n "${_claimed}" ]]; then
         printf '%s:%s: a coverage run sets COVERAGE=1, which is the flag the lint phase guard excludes, so no linter runs -- this annotation names%s as running. Say the lint phase is skipped, or negate the name ("no shellcheck")\n' \
@@ -696,9 +732,17 @@ _derived_scan_cmd_annotations() {
     # binary linters and not the other describes a narrowed run.
     if [[ "${#_toks[@]}" -eq 1 && "${_toks[0]}" == 'lint' ]] \
       && (( _has_shellcheck && _has_hadolint )); then
-      if [[ "${_annot,,}" == *shellcheck* && "${_annot,,}" != *hadolint* ]]; then
-        printf '%s:%s: the bare lint phase runs all %s entries of _LINT_TOOLS, shellcheck and hadolint among them, but this annotation names shellcheck alone\n' \
-          "${_rel}" "${_lineno}" "${#_lint_tools_in[@]}"
+      # SYMMETRIC. Both binaries run, so naming either one alone describes a
+      # narrowed phase; catching one spelling and not the other enforces the
+      # invariant in one direction and invites the other.
+      local _sc_claimed=0 _hd_claimed=0
+      _derived_tool_claimed "${_annot}" 'shellcheck' && _sc_claimed=1
+      _derived_tool_claimed "${_annot}" 'hadolint' && _hd_claimed=1
+      if (( _sc_claimed != _hd_claimed )); then
+        local _named='hadolint'
+        (( _sc_claimed )) && _named='shellcheck'
+        printf '%s:%s: the bare lint phase runs all %s entries of _LINT_TOOLS, shellcheck and hadolint among them, but this annotation names %s alone\n' \
+          "${_rel}" "${_lineno}" "${#_lint_tools_in[@]}" "${_named}"
         _violations=$(( _violations + 1 ))
       fi
     fi

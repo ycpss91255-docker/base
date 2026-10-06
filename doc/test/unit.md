@@ -2075,7 +2075,7 @@ refused before any build or bundle step.
 | `setup_tui --help names the distinction in all four locales (#879)` | - |
 | `setup.sh --help distinguishes the deploy subcommand from the section (#879)` | - |
 
-### test/bats/unit/derived_figures_lint_spec.bats (61)
+### test/bats/unit/derived_figures_lint_spec.bats (65)
 
 | Test | Description |
 |------|-------------|
@@ -2140,6 +2140,10 @@ refused before any build or bundle step.
 | `_run_derived_figures: an indented example in a comment block is judged (base#1121)` | A worked example in a header block is indented under its own comment marker; an invocation that has to reach the first character of the body would leave every such block folded into the prose line above it and entirely unjudged |
 | `_run_derived_figures: a coverage annotation may name the linters it denies (base#1121)` | An annotation that spells out WHICH checks coverage skips is the most useful one a reader can get, and rejecting it for containing the tool name would push the docs back to saying less than they know |
 | `_run_derived_figures: a negation does not carry past the clause break (base#1121)` | The negation reaches one clause, not the whole annotation -- a tool named after the clause break is a claim again, which is what keeps the allowance from being a way to wave the rule through |
+| `_run_derived_figures: naming the default recipe is still the default run (base#1121)` | `just test default` dispatches to the very recipe bare `just test` dispatches to, so reading the name as a narrowing subcommand exempts the default run from the rule about the default run |
+| `_run_derived_figures: the bare target is derived, not the literal word default (base#1121)` | Which recipe a bare invocation runs is just's rule, not the word "default" -- a file with no `default` recipe hands it to the first one, and the guard has to follow that or it exempts the bare run under another name |
+| `_run_derived_figures: FAILS on a hadolint-only lint annotation too (base#1121)` | The lint phase runs both binaries, so "Hadolint only" is exactly as wrong as "ShellCheck only"; catching one spelling and not the other enforces the invariant in one direction and invites the other |
+| `_run_derived_figures: a lint annotation naming both, one negated, is clean (base#1121)` | A negated mention is not a claim here either, or the rule would refuse an annotation that correctly says which binary a narrowed phase leaves out |
 
 ### test/bats/unit/doc_counts_spec.bats (26)
 
