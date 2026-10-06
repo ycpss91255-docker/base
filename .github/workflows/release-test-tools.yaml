@@ -570,7 +570,7 @@ jobs:
           done
           docker buildx imagetools create "${tag_args[@]}" "${src[@]}"
 
-      - name: Confirm the published tag names the verified digests
+      - name: Confirm the published tag names the verified content
         working-directory: /tmp/digests
         shell: bash
         # The one thing that cannot be checked before the tag exists: that
@@ -579,23 +579,53 @@ jobs:
         # create attach the tags to it", which is the only failure mode the
         # reordering leaves on this side of the publish.
         #
-        # `steps.tags.outputs.smoke` is the single tag the current trigger
-        # treats as primary (`:<ver>` for a tag push, `:main` for a main
-        # push), so this reads the tag this run produced and never a stale
-        # one left by the previous publish. The expectation is the digest set
-        # that was just verified, read from the artifact directory rather
-        # than written here, so an arch added to the build matrix is checked
-        # without this step being edited.
+        # The two references arrive through `env:` rather than inline, so the
+        # body is shell a spec can RUN with the environment supplied --
+        # release_test_tools_yaml_spec.bats drives it over three registry
+        # states with `docker` stubbed. IMAGE_TAG is the single tag the
+        # current trigger treats as primary (`:<ver>` for a tag push, `:main`
+        # for a main push), so this reads the tag this run produced and never
+        # a stale one left by the previous publish.
+        env:
+          IMAGE_TAG: ${{ steps.tags.outputs.smoke }}
+          VERIFIED_REF: ${{ steps.verify.outputs.ref }}
         run: |
           set -euo pipefail
-          image="${{ steps.tags.outputs.smoke }}"
-          manifest="$(docker buildx imagetools inspect --raw "${image}")"
+          # The tag resolves, and the manifest under it carries every platform
+          # this run built. The expected platform list is the digest
+          # artifacts' own, so an arch added to the build matrix is checked
+          # without this step being edited. The shape read is buildx's own
+          # `Platform:  <os>/<arch>` listing, which the spec's stub mirrors.
+          listing="$(docker buildx imagetools inspect "${IMAGE_TAG}")"
           for _d in *; do
-            if ! printf '%s' "${manifest}" | grep -qF "sha256:${_d}"; then
-              echo "::error::${image} does not include sha256:${_d}, one of" \
-                "the digests this run built and verified. The manifest the" \
-                "tag resolves to is not the one this job assembled." >&2
+            built="$(cat "${_d}")"
+            if ! grep -qE "Platform:[[:space:]]+${built}[[:space:]]*$" \
+                <<< "${listing}"; then
+              echo "::error::${IMAGE_TAG} carries no manifest for ${built}," \
+                "which this run built. The tag is not the multi-arch list" \
+                "this job assembled." >&2
               exit 1
             fi
-            echo "${image} includes the verified digest sha256:${_d}"
+            echo "${IMAGE_TAG} carries a manifest for ${built}"
           done
+          # And for THIS runner's platform the tag resolves to the very image
+          # the smoke step ran. Compared by CONFIG digest -- docker's image id
+          # -- rather than by manifest digest, and that is not a stylistic
+          # choice: provenance is on by default in docker/build-push-action,
+          # so each shard's `outputs.digest` names an INDEX carrying the
+          # platform image plus its attestation, and `imagetools create`
+          # FLATTENS those indexes into the published one. The shard digests
+          # the artifact files are named by are therefore absent from the
+          # published manifest, and a digest-set comparison would fail every
+          # ordinary publish -- after the tags had moved. The config digest
+          # survives both the flattening and the tag resolution.
+          docker pull "${IMAGE_TAG}"
+          want="$(docker image inspect --format '{{.Id}}' "${VERIFIED_REF}")"
+          got="$(docker image inspect --format '{{.Id}}' "${IMAGE_TAG}")"
+          if [[ "${want}" != "${got}" ]]; then
+            echo "::error::${IMAGE_TAG} resolves to ${got}, but the image" \
+              "this job verified is ${want}. The tags were attached to" \
+              "content the smoke step never ran." >&2
+            exit 1
+          fi
+          echo "${IMAGE_TAG} resolves to the verified image (${got})"

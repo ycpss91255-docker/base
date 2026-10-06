@@ -210,6 +210,121 @@ _publish_order_violations() {
   done <<< "${_census}"
 }
 
+# _docker_stub -- put a `docker` on PATH that answers for ONE registry state,
+# so the tag-confirmation step can be RUN rather than read.
+#
+# It models the shape a real publish of this image leaves behind, which is the
+# shape the first version of that step got wrong. Each build shard pushes an
+# INDEX, not a bare image manifest: provenance is on by default in
+# docker/build-push-action, so a shard's `outputs.digest` names an index
+# carrying the platform image and its attestation. `imagetools create`
+# FLATTENS those indexes into the published one, so what the tag resolves to
+# lists their CHILDREN and none of the shard digests themselves. A step that
+# looked for the shard digests in the published manifest therefore failed
+# every ordinary publish -- after the tags had already moved.
+#
+# STUB_MODE picks which state is answered; see _confirm_step_for.
+_docker_stub() {
+  mkdir -p "${SCRATCH}/bin"
+  cat > "${SCRATCH}/bin/docker" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+_last="${*: -1}"
+case "${1:-}" in
+  buildx)
+    # `docker buildx imagetools inspect [--raw] <tag>`: the published index,
+    # whose descriptors are the CHILDREN of each shard's index. The shard
+    # digests the artifact directory is named by appear nowhere in it.
+    printf 'Name:      %s\n' "${_last}"
+    printf 'MediaType: application/vnd.oci.image.index.v1+json\n'
+    printf 'Digest:    sha256:9999\n\n'
+    printf 'Manifests: \n'
+    printf '  Name:        %s@sha256:c0de01\n' "${_last}"
+    printf '  Platform:    linux/amd64\n\n'
+    if [[ "${STUB_MODE}" != 'platform' ]]; then
+      printf '  Name:        %s@sha256:c0de02\n' "${_last}"
+      printf '  Platform:    linux/arm64\n\n'
+    fi
+    printf '  Name:        %s@sha256:c0de03\n' "${_last}"
+    printf '  Platform:    unknown/unknown\n'
+    ;;
+  pull)
+    ;;
+  image)
+    # `docker image inspect --format {{.Id}} <ref>`: the config digest, which
+    # is what survives both the index flattening and the tag resolution.
+    if [[ "${_last}" == "${VERIFIED_REF}" ]]; then
+      printf 'sha256:aaaa\n'
+    elif [[ "${STUB_MODE}" == 'content' ]]; then
+      printf 'sha256:bbbb\n'
+    else
+      printf 'sha256:aaaa\n'
+    fi
+    ;;
+  *)
+    printf 'stub: unexpected docker invocation: %s\n' "${*}" >&2
+    exit 90
+    ;;
+esac
+SH
+  chmod +x "${SCRATCH}/bin/docker"
+}
+
+# _confirm_step_node -- the WHOLE tag-confirmation step, its `env:` mapping
+# included. The two references that step reads arrive through `env:` so the
+# `run:` body is shell a spec can execute, which means the assertions about
+# WHICH references it reads have to look at the step and not only at its body.
+_confirm_step_node() {
+  RTT_STEP='Confirm the published tag names the verified content' yq -r \
+      '.jobs.merge.steps[] | select(.name == strenv(RTT_STEP))' "${WF}"
+}
+
+# _confirm_step_for <mode> -- RUN the merge job's tag-confirmation step
+# against one registry state and return the step's OWN exit status, printing
+# whatever it printed.
+#
+# The body is read OUT OF THE WORKFLOW with yq instead of restated here, for
+# the reason the resolver cases below are: a spec carrying its own copy of a
+# check agrees with itself while the workflow drifts.
+#
+# <mode>:
+#   agree     an ordinary publish -- the tag carries every platform the
+#             matrix built and resolves, for this runner's arch, to the
+#             config digest the smoke step ran.
+#   content   the tag resolves to different content than was verified.
+#   platform  the published manifest is missing an arch the matrix built.
+_confirm_step_for() {
+  local _mode="${1}" _body _dir _status=0
+  _body="$(yaml_step_run "${WF}" merge \
+      'Confirm the published tag names the verified content')" || {
+    printf 'BUG: yq could not read the confirmation step of %s\n' "${WF}"
+    return 2
+  }
+  if [[ -z "${_body}" || "${_body}" == 'null' ]]; then
+    printf 'BUG: %s declares no tag-confirmation step in its merge job\n' \
+        "${WF}"
+    return 2
+  fi
+  _dir="${SCRATCH}/confirm"
+  mkdir -p "${_dir}/digests"
+  printf '%s\n' "${_body}" > "${_dir}/step.sh"
+  # The artifact directory the step reads: one file per arch the matrix
+  # built, named by that shard's digest and carrying the platform it built.
+  printf 'linux/amd64\n' > "${_dir}/digests/aa11"
+  printf 'linux/arm64\n' > "${_dir}/digests/bb22"
+  _docker_stub
+  (
+    cd -- "${_dir}/digests" || exit 2
+    PATH="${SCRATCH}/bin:${PATH}" \
+    STUB_MODE="${_mode}" \
+    IMAGE='ghcr.io/ycpss91255-docker/test-tools' \
+    IMAGE_TAG='ghcr.io/ycpss91255-docker/test-tools:main' \
+    VERIFIED_REF='ghcr.io/ycpss91255-docker/test-tools@sha256:aa11' \
+      bash "${_dir}/step.sh" 2>&1
+  ) || _status=$?
+  return "${_status}"
+}
+
 # _repo_root -- the checkout this spec reads, derived from the spec's own
 # location rather than restated, so the helpers below and ${WF} above cannot
 # disagree about which tree is under test.
@@ -494,11 +609,42 @@ _spec_prose() {
   # reports on the stale :latest left by the previous tag. This is also the
   # one assertion that cannot be made before the publish: that the tag
   # RESOLVES, and resolves to the digests this run verified.
-  run yaml_step_run "${WF}" merge \
-      'Confirm the published tag names the verified digests'
+  run _confirm_step_node
   assert_success
   assert_output --partial 'steps.tags.outputs.smoke'
   assert_output --partial 'imagetools inspect'
+}
+
+# why: An ordinary publish of this image must PASS the confirmation, and the
+# first version of it could not: each shard pushes an index (provenance is on
+# by default), imagetools create flattens those into the published index, so
+# the shard digests the step compared against were never in it. Every
+# successful release would have reported failure -- after the tags moved.
+@test "release-test-tools.yaml: the tag confirmation passes an ordinary publish, whose shard digests are flattened away (#1109)" {
+  # The published index lists the CHILDREN of each shard's index -- the
+  # platform image and its provenance attestation -- and none of the shard
+  # digests the digest artifacts are named by.
+  run _confirm_step_for agree
+  assert_success
+}
+
+# why: The property the step exists for: a tag that resolves to content other
+# than what was verified is the one thing the reordering leaves checkable only
+# after the publish, so a confirmation that cannot fail on it checks nothing.
+@test "release-test-tools.yaml: the tag confirmation fails when the tag resolves to content nothing verified (#1109)" {
+  run _confirm_step_for content
+  assert_failure
+  assert_output --partial '::error::'
+}
+
+# why: The other half of what the published tag has to be: a manifest list
+# covering every arch the matrix built. A tag that lost an arch is the
+# last-shard-wins failure the whole push-by-digest design exists to prevent,
+# and the expected platform list is read from the artifacts, not written here.
+@test "release-test-tools.yaml: the tag confirmation fails when the published manifest drops an arch the matrix built (#1109)" {
+  run _confirm_step_for platform
+  assert_failure
+  assert_output --partial '::error::'
 }
 
 # why: One loop over the pins the Dockerfile declares, rather than fourteen
