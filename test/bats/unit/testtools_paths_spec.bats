@@ -66,7 +66,8 @@ _paths_as_nobody() {
     _p="$(dirname "${_p}")"
   done
   if [[ "$(id -u)" -eq 0 ]]; then
-    run --separate-stderr su -s /bin/bash nobody       -c "bash ${PATHS_SH} ${_root}"
+    run --separate-stderr su -s /bin/bash nobody \
+      -c "bash ${PATHS_SH} ${_root}"
   else
     run --separate-stderr bash "${PATHS_SH}" "${_root}"
   fi
