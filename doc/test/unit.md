@@ -1615,7 +1615,7 @@ helpers `_parse_logging_svc_sections` + `_collect_logging`.
 | `local_path absolute path is passed through verbatim (#328)` | Absolute path |
 | `local_path is NOT emitted as a logging.options key (driver-only options) (#328)` | local_path NOT a docker option |
 | `local_path on test service emits standalone volumes block + env (#328)` | test service |
-| `setup.conf [logging] comment block references in-image helper path (/usr/local/lib/base/, #368)` | Documented adoption path matches in-image COPY |
+| `setup.toml [logging] comment block references in-image helper path (/usr/local/lib/base/, #368)` | Documented adoption path matches in-image COPY |
 | `generate_compose_yaml emits per-stage LOG_FILE_PATH on extends:devel stage when [logging] local_path is set (#367)` | Per-svc LOG_FILE_PATH on auto-emitted extends-only stage |
 | `generate_compose_yaml emits per-stage volume mount on extends:devel stage when [logging] local_path is set (#367)` | Per-svc volume mount on auto-emitted extends-only stage |
 | `generate_compose_yaml does NOT emit LOG_FILE_PATH on extends:devel stage when [logging] local_path is unset (#367 back-compat)` | Zero-diff back-compat when feature unset |
@@ -4779,14 +4779,14 @@ translation in any locale fails CI.
 | Test | Description |
 |------|-------------|
 | `every SCHEMA_VALIDATOR validator name resolves to a defined function (#562)` | no ghost validators (#562) |
-| `SCHEMA_SECTIONS matches the setup.conf template headers in file order (#562)` | registry/template drift (#562) |
+| `SCHEMA_SECTIONS matches the setup.toml template headers in file order (#562)` | registry/template drift (#562) |
 | `every SCHEMA_EMPTY key is a registered SCHEMA_VALIDATOR key (#562)` | no dead empty-policy entries (#562) |
 | `every registered key is reachable via SCHEMA_SECTIONS (#562)` | no key stranded under an unlisted section (#562) |
 | `every SCHEMA_VALIDATOR key has a SCHEMA_I18N index entry (#591)` | i18n-index is complete (#591) |
 | `every SCHEMA_I18N key is a registered SCHEMA_VALIDATOR key (#591)` | no orphan index rows (#591) |
 | `every SCHEMA_I18N message key exists in all four locale tables (#591)` | no missing translation in any locale (#591) |
 | `_schema_i18n_key resolves scalar + list keys, falls back when free-form (#591)` | accessor the TUI routes through (#591) |
-| `every shipped setup.conf key is registered or an explicit free-form opt-out (#876)` | - |
+| `every shipped setup.toml key is registered or an explicit free-form opt-out (#876)` | - |
 | `every SCHEMA_FREEFORM entry carries a written reason (#876)` | - |
 | `no key is both SCHEMA_VALIDATOR-registered and SCHEMA_FREEFORM-opted-out (#876)` | - |
 
@@ -5329,10 +5329,10 @@ isolated `_setup_known_section` / `SCHEMA_SECTIONS` (#561) unit checks.
 | `main check-drift returns 0 when .env missing (no-op)` | - |
 | `main check-drift returns 0 when nothing changed` | - |
 | `main check-drift returns non-zero when conf hash drifts` | - |
-| `check-drift prints WARN when per-repo setup.conf is missing (#186)` | - |
-| `check-drift prints WARN when per-repo setup.conf has no section headers (#186)` | - |
-| `check-drift stays silent when per-repo setup.conf has at least one section` | - |
-| `check-drift --lang zh-TW prints WARN in Traditional Chinese when setup.conf missing (#186)` | - |
+| `check-drift prints WARN when per-repo setup.toml is missing (#186)` | - |
+| `check-drift prints WARN when per-repo setup.toml has no section headers (#186)` | - |
+| `check-drift stays silent when per-repo setup.toml has at least one section` | - |
+| `check-drift --lang zh-TW prints WARN in Traditional Chinese when setup.toml missing (#186)` | - |
 | `main check-drift rejects unknown flag` | - |
 | `setup.sh check-drift via subprocess emits stderr + non-zero exit on drift` | - |
 | `set writes a value into an existing section, round-trip via show` | - |
@@ -5678,10 +5678,10 @@ duplicate-target guards, and S7 `runtime.env` retirement (#507).
 | `apply subcommand returns error when --base-path value is missing` | - |
 | `apply subcommand returns error when --lang value is missing` | - |
 | `apply --lang zh-TW sets Chinese messages for full run` | - |
-| `apply prints WARN when per-repo setup.conf is missing (#186)` | - |
-| `apply prints WARN when per-repo setup.conf has no section headers (#186)` | - |
-| `apply stays silent when per-repo setup.conf has at least one section` | - |
-| `apply --lang zh-TW prints WARN in Traditional Chinese when setup.conf missing (#186)` | - |
+| `apply prints WARN when per-repo setup.toml is missing (#186)` | - |
+| `apply prints WARN when per-repo setup.toml has no section headers (#186)` | - |
+| `apply stays silent when per-repo setup.toml has at least one section` | - |
+| `apply --lang zh-TW prints WARN in Traditional Chinese when setup.toml missing (#186)` | - |
 | `apply resolves default _base_path via BASH_SOURCE when --base-path omitted` | - |
 | `apply writes the derived cache to .env.generated (not .env)` | - |
 | `apply scaffolds .env.local when absent (#868)` | - |

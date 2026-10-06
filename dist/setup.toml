@@ -200,6 +200,20 @@ shm_size = ""
 # Applied uniformly to every compose service. Optional per-service
 # override is [logging.<service>] (key-level merge on top of
 # [logging]).
+#
+# local_path: when non-empty, setup.sh emits a per-service host bind
+# mount <resolved>:/var/log/<repo> so container stdout can be tee'd to
+# a host-side file. The helper that performs the tee is shipped into
+# every image at the stable in-image path
+# /usr/local/lib/base/_entrypoint_logging.sh, and the repo's
+# script/entrypoint.sh sources it with one unguarded line:
+#   . /usr/local/lib/base/_entrypoint_logging.sh
+# The helper is a no-op while LOG_FILE_PATH is unset, so that line is
+# safe unconditionally. Path semantics for the value:
+#   "./log/"      relative to the repo root
+#   "/abs/path/"  absolute, used verbatim
+#   "~/dir/"      ~ expanded to $HOME
+#   ""            the feature is off
 [logging]
 driver = "json-file"
 max_size = "10m"

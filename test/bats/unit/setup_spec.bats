@@ -809,8 +809,8 @@ EOF
   assert_output --partial "更新完成"
 }
 
-# ── Per-repo setup.conf missing / empty INFO ────────────────
-@test "apply prints WARN when per-repo setup.conf is missing (#186)" {
+# ── Per-repo setup.toml missing / empty INFO ────────────────
+@test "apply prints WARN when per-repo setup.toml is missing (#186)" {
   # No TEMP_DIR/setup.toml created — apply should fall back to template
   # default and announce it once on stderr at WARN level.
   run bash -c "
@@ -819,14 +819,14 @@ EOF
   "
   assert_success
   assert_output --partial "[setup] WARN :"
-  assert_output --partial "no per-repo setup.conf"
+  assert_output --partial "no per-repo setup.toml"
   # regression guard: the heads-up must NOT be demoted to INFO
   # (where it would scroll past). The env_done line legitimately uses
   # INFO level, so scope the refute to the warning's body.
-  refute_output --partial "[setup] INFO: no per-repo setup.conf"
+  refute_output --partial "[setup] INFO: no per-repo setup.toml"
 }
 
-@test "apply prints WARN when per-repo setup.conf has no section headers (#186)" {
+@test "apply prints WARN when per-repo setup.toml has no section headers (#186)" {
   # Comments-only file counts as effectively empty: nothing to override.
   cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 # only comments, no [section] headers
@@ -838,10 +838,10 @@ EOF
   "
   assert_success
   assert_output --partial "[setup] WARN :"
-  assert_output --partial "per-repo setup.conf has no section"
+  assert_output --partial "per-repo setup.toml has no section overrides"
 }
 
-@test "apply stays silent when per-repo setup.conf has at least one section" {
+@test "apply stays silent when per-repo setup.toml has at least one section" {
   # Partial override is normal usage — don't INFO-spam users who edited
   # only one section.
   cat > "${TEMP_DIR}/setup.toml" <<'EOF'
@@ -853,11 +853,11 @@ EOF
     main apply --base-path '${TEMP_DIR}' 2>&1
   "
   assert_success
-  refute_output --partial "no per-repo setup.conf"
-  refute_output --partial "per-repo setup.conf has no section"
+  refute_output --partial "no per-repo setup.toml"
+  refute_output --partial "per-repo setup.toml has no section overrides"
 }
 
-@test "apply --lang zh-TW prints WARN in Traditional Chinese when setup.conf missing (#186)" {
+@test "apply --lang zh-TW prints WARN in Traditional Chinese when setup.toml missing (#186)" {
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' --lang zh-TW 2>&1

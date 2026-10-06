@@ -34,6 +34,10 @@ setup() {
 
   # shellcheck disable=SC1091
   source /source/dist/script/docker/lib/schema.sh
+  # _conf_toml_aot_nskey: the shipped array-path -> numbered-key mapping
+  # _template_keys reads instead of re-listing it.
+  # shellcheck disable=SC1091
+  source /source/dist/script/docker/lib/conf.sh
 }
 
 # Source setup_tui.sh to populate the per-locale _TUI_MSG_* tables. The
@@ -55,18 +59,33 @@ _load_locale_tables() {
 }
 
 # why: registry/template drift (#562)
-@test "SCHEMA_SECTIONS matches the setup.conf template headers in file order (#562)" {
+@test "SCHEMA_SECTIONS matches the setup.toml template headers in file order (#562)" {
   # Registry / template drift guard: the ordered SCHEMA_SECTIONS list must
-  # equal the [section] headers in the shipped template, in file order. A
+  # equal the sections the shipped template declares, in file order. A
   # section added to the template but not the registry (or vice versa)
   # fails here.
+  #
+  # A section is named by any header form TOML gives it, and five of the
+  # fifteen are reachable by no other: `image` exists only as
+  # `[[image.rules]]`, and `tmpfs` / `devices` / `volumes` /
+  # `additional_contexts` are opt-in arrays with no default entry, so the
+  # template declares them as a commented-out `# [[<name>]]` example.
+  # Matching `^[section]` alone finds ten and reads the other five as
+  # registry entries with no template section -- which is why the first
+  # dotted component of every header, real or commented, is what counts,
+  # deduplicated by first appearance.
   local _tpl="/source/dist/setup.toml"
   local -a _hdrs=()
   local _line
   while IFS= read -r _line; do
     _hdrs+=("${_line}")
-  done < <(grep -oE '^\[[a-z_]+\]' "${_tpl}" | tr -d '[]')
-  [ "${SCHEMA_SECTIONS[*]}" = "${_hdrs[*]}" ]
+  done < <(grep -oE '^#? *\[\[?[a-z_]+' "${_tpl}" \
+             | sed -E 's/^#? *\[+//' | awk '!seen[$0]++')
+  [ "${SCHEMA_SECTIONS[*]}" = "${_hdrs[*]}" ] || {
+    echo "SCHEMA_SECTIONS: ${SCHEMA_SECTIONS[*]}"
+    echo "template:        ${_hdrs[*]}"
+    false
+  }
 }
 
 # why: no dead empty-policy entries (#562)
@@ -191,8 +210,25 @@ _load_locale_tables() {
 # are documented knobs users uncomment.
 _template_keys() {
   local _tpl="/source/dist/setup.toml"
-  local _section="" _line _key
+  local _section="" _line _key _nskey
   while IFS= read -r _line; do
+    # An `[[array of tables]]` header opens a scope whose lines are the
+    # ELEMENT FIELDS (`key` / `value`, `source` / `target` / `mode`), not
+    # config keys: the bridge numbers the whole block back as one
+    # `<section>.<prefix>_N`, and that numbered key is what the registry
+    # holds. Reporting the fields instead attributes them to whatever plain
+    # section happened to precede the array -- `project.rule`,
+    # `environment.path` -- names that exist nowhere. The array path's
+    # numbered key is derived from the shipped mapping that owns it rather
+    # than re-listed here, and a commented-out example block counts, the
+    # same way a commented `# device_1 =` key always has.
+    if [[ "${_line}" =~ ^#?[[:space:]]*\[\[([a-z_.]+)\]\][[:space:]]*$ ]]; then
+      _section=""
+      if _conf_toml_aot_nskey "${BASH_REMATCH[1]}" 1 _nskey; then
+        printf '%s %s\n' "${_nskey%%.*}" "${_nskey#*.}"
+      fi
+      continue
+    fi
     if [[ "${_line}" =~ ^\[([a-z_]+)\]$ ]]; then
       _section="${BASH_REMATCH[1]}"
       continue
@@ -214,7 +250,7 @@ _is_freeform() {
   [[ -v "SCHEMA_FREEFORM[${1}]" ]]
 }
 
-@test "every shipped setup.conf key is registered or an explicit free-form opt-out (#876)" {
+@test "every shipped setup.toml key is registered or an explicit free-form opt-out (#876)" {
   local _section _key _canon _pfx _missing=""
   while read -r _section _key; do
     _schema_canonical_key "${_section}" "${_key}" _canon

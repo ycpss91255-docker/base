@@ -107,7 +107,7 @@ EOF
   assert_output --partial "drift detected"
 }
 
-@test "check-drift prints WARN when per-repo setup.conf is missing (#186)" {
+@test "check-drift prints WARN when per-repo setup.toml is missing (#186)" {
   # No TEMP_DIR/setup.toml created — check-drift should announce the
   # template-default fallback the same way `apply` does, so users
   # running the build.sh drift-check path see the heads-up too.
@@ -116,10 +116,10 @@ EOF
     main check-drift --base-path '${TEMP_DIR}' 2>&1
   "
   assert_output --partial "[setup] WARN :"
-  assert_output --partial "no per-repo setup.conf"
+  assert_output --partial "no per-repo setup.toml"
 }
 
-@test "check-drift prints WARN when per-repo setup.conf has no section headers (#186)" {
+@test "check-drift prints WARN when per-repo setup.toml has no section headers (#186)" {
   cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 # only comments, no [section] headers
 EOF
@@ -128,10 +128,10 @@ EOF
     main check-drift --base-path '${TEMP_DIR}' 2>&1
   "
   assert_output --partial "[setup] WARN :"
-  assert_output --partial "per-repo setup.conf has no section"
+  assert_output --partial "per-repo setup.toml has no section overrides"
 }
 
-@test "check-drift stays silent when per-repo setup.conf has at least one section" {
+@test "check-drift stays silent when per-repo setup.toml has at least one section" {
   cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [gpu]
 mode = "auto"
@@ -140,11 +140,11 @@ EOF
     source /source/dist/script/docker/wrapper/setup.sh
     main check-drift --base-path '${TEMP_DIR}' 2>&1
   "
-  refute_output --partial "no per-repo setup.conf"
-  refute_output --partial "per-repo setup.conf has no section"
+  refute_output --partial "no per-repo setup.toml"
+  refute_output --partial "per-repo setup.toml has no section overrides"
 }
 
-@test "check-drift --lang zh-TW prints WARN in Traditional Chinese when setup.conf missing (#186)" {
+@test "check-drift --lang zh-TW prints WARN in Traditional Chinese when setup.toml missing (#186)" {
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main check-drift --base-path '${TEMP_DIR}' --lang zh-TW 2>&1

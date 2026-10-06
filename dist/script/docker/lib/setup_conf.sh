@@ -78,8 +78,9 @@ unset _setup_conf_lib_dir
 # taken from the optional third argument, else from _SETUP_SCRIPT_DIR (the
 # shipped wrapper dir, three levels below dist/), and the layer is OMITTED
 # when neither is available. Omitted rather than left to resolve: an empty
-# prefix would make the path `/../../../setup.toml`, i.e. `/setup.toml`
-# -- a real, readable path that has nothing to do with this repo.
+# prefix would leave nothing to drop three levels from, and the path would
+# come out as a bare `setup.toml` relative to whatever the caller's cwd
+# happens to be.
 #
 # The third argument exists for the callers that reach the readers WITHOUT
 # setup.sh and therefore without _SETUP_SCRIPT_DIR (init.sh / upgrade.sh,
@@ -96,7 +97,14 @@ _setup_conf_layers() {
   local _scl_dist="${3:-}"
   _scl_out=()
   if [[ -z "${_scl_dist}" && -n "${_SETUP_SCRIPT_DIR:-}" ]]; then
-    _scl_dist="${_SETUP_SCRIPT_DIR}/../../.."
+    # Three levels up, taken by dropping the three trailing components
+    # rather than appending `/../../..`. The same directory, spelled once:
+    # these paths are what every "a local layer is in effect" message names
+    # and what the bridge is handed as its mount sources, and a caller
+    # comparing one layer path against another is comparing strings.
+    # Resolving through the filesystem instead would follow base's own
+    # origin symlinks and name dist/ a second time.
+    _scl_dist="${_SETUP_SCRIPT_DIR%/*/*/*}"
   fi
   [[ -n "${_scl_dist}" ]] && _scl_out+=("${_scl_dist}/setup.toml")
   _scl_out+=(

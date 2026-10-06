@@ -230,13 +230,13 @@ declare -gA SCHEMA_EMPTY=(
 # accepts arbitrary input; an empty reason fails the coverage spec.
 # Opting out is a deliberate, reviewable statement -- not a default.
 #
-# Currently empty: every shipped key has a value set worth enforcing.
-#
 # Declarative data, read by schema_coverage_spec's completeness gate
 # rather than by any function in this lib -- so the unused-variable
 # warning is expected here and nowhere else in the file.
 # shellcheck disable=SC2034
-declare -gA SCHEMA_FREEFORM=()
+declare -gA SCHEMA_FREEFORM=(
+  [tmpfs.tmpfs_]="a tmpfs entry is a mount point with no fixed value set: any path the kernel accepts is valid, and the section note above has always called tmpfs free-form"
+)
 
 # ════════════════════════════════════════════════════════════════════
 # _schema_is_section <section>
