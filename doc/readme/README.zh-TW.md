@@ -137,7 +137,7 @@ flowchart LR
     release_worker -->|"tar.gz + zip"| release["GitHub Release"]
 ```
 
-<!-- sync: whats-included e5eb3626b529 4bbc8f488297 -->
+<!-- sync: whats-included bdad83a9cb63 d1f36dca5b46 -->
 ### 包含內容
 
 | 檔案 | 說明 |

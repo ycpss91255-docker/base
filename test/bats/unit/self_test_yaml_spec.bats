@@ -2606,7 +2606,7 @@ _lint_tools_table() {
 #
 # Measured when this landed: 9 selected files, 377 `@test` declarations in
 # them, 27 carrying the guard -- all 27 inside individual test bodies, none in
-# a `setup_file` -- so 350 ran in both legs, against 4717 `@test`
+# a `setup_file` -- so 350 ran in both legs, against 4722 `@test`
 # declarations under `test/bats/unit`. The residual overlap is kept on purpose
 # (this is CI's only remaining plain-mode unit signal, and kcov perturbation
 # has been diagnosed here four times), and its cost is ~41s of bats inside a

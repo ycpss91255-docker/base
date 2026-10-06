@@ -396,8 +396,8 @@ _fragile_unit_files() {
   # what keeps the skipped tests from going unrun. `-l` is the whole of the
   # granularity: a file is selected for one guarded test and bats then runs
   # all of it, so the unguarded tests in it run here as well as under kcov.
-  # Computed at runtime by grepping for the skip guard
-  # so it self-maintains: a NEW fragile-skip in a 10th file is picked up
+  # Computed at runtime by grepping for the skip guard so it self-maintains:
+  # a NEW fragile-skip in a 10th file is picked up
   # automatically (a spec asserts the set). The regex is line-anchored on
   # leading whitespace + the literal bracket so a COMMENT that merely
   # mentions the guard (e.g. this driver's own spec) is NOT matched.
