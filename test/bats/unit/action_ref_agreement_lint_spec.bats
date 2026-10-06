@@ -184,7 +184,10 @@ ${_report}A ref is a tag on the action's repository, so two refs in one tree mea
   assert_output --partial 'docker/build-push-action'
 }
 
-# why: The callee is this tree, at this commit
+# why: The callee is this tree, at this commit. The clean REPORT is read,
+# not just the exit status: "passes" is also what a lint that compares
+# nothing says, so the counts are what distinguish ignoring the local call
+# from ignoring the tree (base#1090)
 @test "_run_action_ref_agreement: ignores a local ./ call, which carries no ref (#949)" {
   _require_driver
   _workflow a.yaml 'jobs:' '  a:' '    uses: ./.github/workflows/build-worker.yaml'
@@ -192,9 +195,15 @@ ${_report}A ref is a tag on the action's repository, so two refs in one tree mea
 
   run _run_action_ref_agreement
   assert_success
+  # The local call is not a call site, and the versioned one still is. A
+  # driver that read neither would also exit 0 here.
+  assert_output --partial '1 versioned call site(s) across 2 workflow(s)'
 }
 
-# why: A comment is not a call site
+# why: A comment is not a call site. The clean REPORT is read, not just the
+# exit status: a lint that compared nothing would also exit 0 over this
+# fixture, so the count is what says the live line was read and the
+# commented one was not (base#1090)
 @test "_run_action_ref_agreement: ignores a commented-out uses line (#949)" {
   _require_driver
   _workflow a.yaml 'jobs:' '  a:' '    steps:' \
@@ -203,6 +212,7 @@ ${_report}A ref is a tag on the action's repository, so two refs in one tree mea
 
   run _run_action_ref_agreement
   assert_success
+  assert_output --partial '1 versioned call site(s) across 1 workflow(s)'
 }
 
 # why: Otherwise every annotated pin is its own version
@@ -218,6 +228,9 @@ ${_report}A ref is a tag on the action's repository, so two refs in one tree mea
 
   run _run_action_ref_agreement
   assert_success
+  # Both pins are call sites and both reduce to the same ref. The count is
+  # what separates that from a driver that read neither (base#1090).
+  assert_output --partial '2 versioned call site(s) across 2 workflow(s)'
 }
 
 # why: Two ways of saying which code runs still disagree
@@ -279,6 +292,9 @@ ${_report}A ref is a tag on the action's repository, so two refs in one tree mea
 
   run _run_action_ref_agreement
   assert_success
+  # The marker EXCLUDED a call site it had read; a driver that read nothing
+  # would report no allowance and still exit 0 (base#1090).
+  assert_output --partial '1 allowed by marker'
 }
 
 # why: One recorded divergence licenses no others

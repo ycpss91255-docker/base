@@ -139,8 +139,8 @@ a refusal as "do not release".
 | `_run_action_ref_agreement: PASSES when every call site agrees (#949)` | The fixed state is green |
 | `_run_action_ref_agreement: FAILS when two entry points of ONE action repo disagree (#949)` | A ref is a tag on the repo, so the sub-path is dropped |
 | `_run_action_ref_agreement: reads the block uses: form, not only the compact one (#949)` | Both step spellings are call sites |
-| `_run_action_ref_agreement: ignores a local ./ call, which carries no ref (#949)` | The callee is this tree, at this commit |
-| `_run_action_ref_agreement: ignores a commented-out uses line (#949)` | A comment is not a call site |
+| `_run_action_ref_agreement: ignores a local ./ call, which carries no ref (#949)` | The callee is this tree, at this commit. The clean REPORT is read, not just the exit status: "passes" is also what a lint that compares nothing says, so the counts are what distinguish ignoring the local call from ignoring the tree (base#1090) |
+| `_run_action_ref_agreement: ignores a commented-out uses line (#949)` | A comment is not a call site. The clean REPORT is read, not just the exit status: a lint that compared nothing would also exit 0 over this fixture, so the count is what says the live line was read and the commented one was not (base#1090) |
 | `_run_action_ref_agreement: strips a trailing comment, so an annotated sha pin still compares (#949)` | Otherwise every annotated pin is its own version |
 | `_run_action_ref_agreement: FAILS when a sha pin and a tag name the same action (#949)` | Two ways of saying which code runs still disagree |
 | `_run_action_ref_agreement: an allow marker carrying a reason excludes that call site (#949)` | A hold-back is recorded where it happens |
@@ -158,8 +158,8 @@ a refusal as "do not release".
 
 | Test | Description |
 |------|-------------|
-| `doc/adr: every record's workflow and quotation claims hold against the tree (#927)` | - |
-| `doc/adr: the scan is not vacuous -- ADR-00000027 is read and holds blocks (#927)` | - |
+| `doc/adr: every record's workflow and quotation claims hold against the tree (#927)` | The gate over the live records. Its population is the tree's own `doc/adr/*.md` and it is refused when empty: a scan of no records reports every record clean, which is the shape base#1090 names. The directory is a tracked subject, so its absence is a rename nobody noticed, not a pass |
+| `doc/adr: the scan is not vacuous -- the rules examine claims this tree makes (#927)` | The non-vacuity half, derived. "The checker read something" is not answered by a violation count -- zero violations is also what reading nothing produces -- so the claims the rules EXAMINED are recorded as they are examined, and this case holds that set non-empty. It used to name one ADR by filename, which made the whole non-vacuity claim a property of `00000027-release-cadence-and-fanout-trigger.md` rather than of the tree |
 | `release-worker.yaml is workflow_call-only, so no base tag reaches it (#927)` | - |
 | `self-test.yaml IS tag-triggered, so it is what a base tag runs (#927)` | - |
 | `R1: FAILS a tag claim that names a workflow with no tag trigger (#927)` | - |
