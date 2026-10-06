@@ -45,6 +45,33 @@ on:
 # `github` expression is spelled once per name rather than once per job
 # because a workflow-level `env:` block cannot read the `env` context --
 # GitHub resolves the whole block against `github` only.
+# ── The default grant, written down ───────────────────────────────────
+#
+# Of the jobs below, two declare a `permissions:` block of their own
+# (`release` needs `contents: write` to publish a tag's release, and
+# `worker-selftest` hands the reusable worker a read-only token). Every
+# other job used to take whatever the repository's Settings page said, and
+# the page says read -- so the posture was right and no reader of this tree
+# could tell, because a checkbox leaves no diff and no spec can assert it.
+# This block is that setting, stated here, where it is reviewed with the
+# workflow that depends on it (#1116).
+#
+# `contents: read` and nothing else is the whole demand. Nothing here
+# authenticates to a registry (the rolling tooling image is pulled
+# anonymously), nothing reads `secrets.*`, and nothing calls the API: the
+# actions in use are `checkout` (contents), `cache` and `*-artifact` (the
+# run's own runtime token, not this one) and the two docker actions (the
+# GHA cache, same token). So every scope other than `contents` is dropped
+# rather than left at the default's read.
+#
+# A job-level block REPLACES this one rather than intersecting with it, so
+# `release`'s `contents: write` still wins. Asserted in
+# test/bats/unit/workflow_failure_surface_spec.bats over every workflow a
+# trigger can start, which is the complement of the population
+# reusable_worker_permissions_spec.bats asks the caller-token question of.
+permissions:
+  contents: read
+
 # ── Ordering: one run per ref, and cancellation only where the verdict
 # stops mattering ─────────────────────────────────────────────────────
 #
