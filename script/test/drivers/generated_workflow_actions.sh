@@ -154,16 +154,28 @@
 #     repository tag, with no `<owner>/<repo>` reading to compare;
 #   - a call to a reusable workflow THIS repo ships, FROM this repo: a
 #     generated `main.yaml` calling build-worker.yaml at the pinned subtree
-#     version. That ref has an owner -- upgrade.sh rewrites
-#     `<worker>.yaml@vX.Y.Z` in every downstream main.yaml on every upgrade
-#     -- and it is not a marketplace action, so `.github/workflows/` holds
-#     no comparable ref for it: this repo calls the same worker LOCALLY, as
-#     `./`. BOTH halves of the callee are read: the file has to be one this
-#     repo ships, and the `<owner>/<repo>` half has to be this repo's own
-#     slug. Keyed on the file alone the exclusion was as wide as the
-#     basenames this repo happens to ship -- nine of them, several generic
-#     -- and somebody else's `build-worker.yaml` was exempted for being
-#     spelled like one of ours.
+#     version. That ref has an owner -- upgrade.sh's Step 4 rewrites every
+#     `<slug>/.github/workflows/<file>.yaml@vX.Y.Z` in a downstream
+#     main.yaml on every upgrade, matched by SHAPE -- and it is not a
+#     marketplace action, so `.github/workflows/` holds no comparable ref
+#     for it: this repo calls the same worker LOCALLY, as `./`. BOTH halves
+#     of the callee are read: the file has to be one this repo ships, and
+#     the `<owner>/<repo>` half has to be this repo's own slug. Keyed on the
+#     file alone the exclusion was as wide as the basenames this repo
+#     happens to ship -- nine of them, several generic -- and somebody
+#     else's `build-worker.yaml` was exempted for being spelled like one of
+#     ours.
+#
+#     The premise was once narrower than the exclusion, and that gap is
+#     base#1112. Step 4 named two workers while base shipped four workflows
+#     a downstream main.yaml can call, so publish-worker's ref was advanced
+#     by nothing at all -- and this exclusion had let it out of the
+#     population on the grounds that it was. The premise is now matched by
+#     shape rather than by a roster, and `template_spec.bats`'s "rewrites
+#     the @ref of every reusable worker base ships" derives its population
+#     from `.github/workflows/` and fails unless Step 4 moves every one of
+#     them, so a fifth worker cannot re-open the gap. An exclusion whose
+#     justification nothing holds is how this one went false in silence.
 #   - a `${{ ... }}` GitHub Actions expression. It is the one `$` spelling
 #     a `uses:` value can carry that is not a shell reference at all:
 #     GitHub resolves it, at run time, out of a context this tree cannot
@@ -593,9 +605,15 @@ _gwa_owner_is_self() {
 # the basenames this repo happens to ship: nine generic names, several of
 # them ones anybody would pick, and a call to somebody else's
 # `build-worker.yaml` was exempted because ours is spelled the same. The
-# reason for the exclusion -- upgrade.sh rewrites `<worker>.yaml@vX.Y.Z`
-# in every downstream main.yaml on every upgrade, so the ref has an owner
-# -- only holds when that owner is us.
+# reason for the exclusion -- upgrade.sh's Step 4 rewrites every
+# `<slug>/.github/workflows/<file>.yaml@vX.Y.Z` in a downstream main.yaml on
+# every upgrade, so the ref has an owner -- only holds when that owner is
+# us, and only while that rewrite is matched by SHAPE. It named two workers
+# out of four once (base#1112), which left this exclusion standing on a
+# premise that was false for half its population;
+# `template_spec.bats`'s "rewrites the @ref of every reusable worker base
+# ships" is what now holds it true, over a population derived from
+# `.github/workflows/` rather than listed.
 _gwa_ships_workflow() {
   local _callee="${1%%@*}" _owner _base
   [[ "${_callee}" == */.github/workflows/* ]] || return 1
