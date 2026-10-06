@@ -49,8 +49,9 @@
 #                                  # ShellCheck + unit). Used by the
 #                                  # bats-integration job in self-test.yaml
 #                                  #
-#   ./test.sh --coverage        # Run ShellCheck + Bats + Kcov coverage
-#                             # (full suite; local `just test coverage`)
+#   ./test.sh --coverage        # Run the full Bats suite under Kcov. The
+#                             # lint phase is SKIPPED on every coverage
+#                             # path (local `just test coverage`)
 #   ./test.sh --coverage-local [--jobs N]
 #                             # Full suite under kcov as N parallel kcov
 #                             # processes (default nproc), merged into one
@@ -58,7 +59,7 @@
 #                             # single fat runner where the CI shard matrix
 #                             # does not help
 #   ./test.sh --coverage-shard N/T  # Run kcov over coverage shard N of T
-#                                  # (skip ShellCheck). Used by the coverage
+#                                  # (no lint phase). Used by the coverage
 #                                  # matrix in self-test.yaml. Codecov
 #                                  # merges the per-shard uploads.
 #   ./test.sh --coverage-path PATH  # Run ONE spec under kcov (instrumented
@@ -986,7 +987,7 @@ is inert outside a git checkout (a released tarball).
 Examples:
   ./test.sh                       # Fast: ShellCheck + Hadolint + Bats (no kcov)
   just test      # Same as above
-  ./test.sh --coverage            # Full: ShellCheck + Hadolint + Bats + Kcov
+  ./test.sh --coverage            # Full Bats suite under Kcov; no lint phase
   just test coverage  # Same as above
   just test lint      # All linters (ShellCheck + Hadolint)
   just test lint --shellcheck     # ShellCheck only
@@ -2863,8 +2864,9 @@ main() {
       fi
       # LINT_ONLY: `just test lint [--shellcheck | --hadolint]`
       # routes here with LINT_ONLY=1; run the requested linter(s) and skip
-      # bats entirely. LINT_TOOL empty = all linters (shellcheck +
-      # hadolint), matching bare `just test lint`. The test-tools image
+      # bats entirely. LINT_TOOL empty = every entry of the _LINT_TOOLS
+      # table, matching bare `just test lint`; naming one narrows to it.
+      # The test-tools image
       # already ships every tool (bats / shellcheck / hadolint / kcov), so
       # nothing is installed at runtime on any path.
       if [[ "${LINT_ONLY:-0}" == "1" ]]; then
