@@ -46,6 +46,27 @@
 # misreads fails them at the moment of the bump, loudly, instead of moving
 # the coverage number by a plausible-looking margin.
 #
+# ── what these two tests are NOT the witness for ──────────────────────
+#
+# "At the moment of the bump" is true because the tooling tag a local run
+# resolves is a content hash of this Dockerfile and what it COPYs, so a pin
+# edit builds a new image before these tests read it. Under a caller-pinned
+# TEST_TOOLS_IMAGE -- which CI uses, and which a published tag may lag --
+# the image need not correspond to the pin at all, and the correspondence
+# is asserted by tool_pin_agreement_spec.bats ("the alpine this image runs
+# on is the series the Dockerfile pins", "the bash this image ships is the
+# series the pin's table records"), not here. Against a pinned image, a pin
+# moved to 3.24 leaves these two green and fails there instead.
+#
+# They are also not a witness for the series bump that LANDED with them,
+# 3.21 -> 3.22. Both of those ship bash 5.2.37, which is the whole reason
+# 3.22 was chosen, so no honest assertion in this file can tell the two
+# apart and reverting the pin leaves these green. That bump's own witnesses
+# are alpine_eol_spec.bats (the recorded expiry marker agrees with the pin)
+# and tool_pin_agreement_spec.bats (the image and its bash agree with it).
+# What this file is the acceptance for is the BOUNDARY: a pin that crosses
+# it cannot be measured green once the image under test is built from it.
+#
 # The two cases are the two directions the reading can be wrong in. The
 # first is the bug: an ANSI-C `\'` must not flip the parity. The second is
 # its mirror -- inside a plain `'...'` a backslash is literal to the shell,

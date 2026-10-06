@@ -8016,6 +8016,16 @@ are tests OF the extractor, so they need shapes the real workflows do not
 have. The fixtures' own `@test` headers are indented one space, because the
 doc count generator counts a spec's tests with `grep -c '^@test'`.
 
+Fixture-only is the point, and it means nothing here can fail on the
+`permissions:` blocks that landed with this file. The witness for those is
+reusable_worker_permissions_spec.bats, which applies these same derivations
+to the REAL reusable workers, names every job that declares no grant of its
+own, and asserts a population floor first so a scan over nothing cannot pass
+by saying nothing. Deleting one worker job's block is red there and green
+here, by construction. This file's job is the one that spec cannot do for
+itself: make the derivations fail on a shape a correct tree does not
+contain.
+
 | Test | Description |
 |------|-------------|
 | `yaml_job_names: a trailing comment on the job key does not hide the job (#957)` | `sign-artifacts: # signs the images` is a job. The old key pattern was anchored at end of line, so it was not one -- and its `packages: write` was scanned by nothing |
