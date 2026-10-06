@@ -416,6 +416,28 @@ stop *args:
 clean:
     ./script/test/test.sh --clean-coverage
 
+# lifecycle: NOTHING TO RECLAIM, and reclaimed anyway. The repair is
+# host-direct -- pure bash over the checkout, short-circuited before any mode
+# dispatch -- so it starts no container and mints no compose project. The
+# runner's EXIT trap still sweeps on the way out, because the repair `exit`s
+# through it like every other dispatch.
+#
+# just test changelog-fix -> fold a repeated '### <category>' heading in
+# doc/changelog's '## [Unreleased]' into that category's first occurrence.
+# The verb the changelog-entry lint's refusal names, because the moment
+# somebody meets that refusal is the moment they need the repair.
+#
+# A REPAIR, not a validator: it writes and it never judges, so CI goes on
+# refusing the duplicate. The series files carry `merge=union`
+# (.gitattributes), so two branches whose category blocks landed at
+# different anchors both survive with nothing for a reviewer to resolve.
+# Each category is emitted once in roster order with its entry text
+# byte-for-byte; a section with nothing to fold is not rewritten at all, so
+# running this twice changes nothing and running it on a clean file changes
+# nothing. Review the diff and commit it.
+changelog-fix:
+    ./script/test/test.sh --changelog-entry-fix
+
 # Base-management recipes (init / upgrade / upgrade-check) were removed:
 # ADR-00000011 §8 relocated init.sh / upgrade.sh to dist/script/base/ and
 # the `base` namespace supersedes them -- use `just base init`,

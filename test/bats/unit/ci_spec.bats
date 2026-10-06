@@ -3991,7 +3991,7 @@ _UNSOURCED_DRIVER_FILES=(
 # driver written and spec'd but never registered fails instead of
 # gating nothing while its own specs stay green.
 #
-# TRANSITIONAL, ALL FOUR. _run_lint_tool dispatches them and the reason
+# TRANSITIONAL, THE FIRST FOUR. _run_lint_tool dispatches them and the reason
 # they are out of the table is written at that dispatch point:
 # _LINT_TOOLS runs INSIDE the ci container, while these judge by an
 # adoption ceiling read from the git index, and a `git worktree`
@@ -3999,11 +3999,21 @@ _UNSOURCED_DRIVER_FILES=(
 # phase 4 gives the lint phase a host-direct leg and folds them in --
 # and the guard below refuses an entry that the table has meanwhile
 # grown, so this array cannot outlive that.
+#
+# PERMANENT, THE FIFTH. changelog-entry-fix is not a lint. It is the REPAIR
+# behind `--changelog-entry-fix`, which WRITES doc/changelog's [Unreleased]
+# section and judges nothing, dispatched through the `repair` seam beside
+# `--clean-coverage` and never through _run_lint_tool. Putting a writer in the
+# table the lint phase loops over would have CI rewriting the tree it is there
+# to check. The scan finds it because it is a `_run_*` in a drivers/ file, and
+# an exemption saying so is the honest answer -- renaming the function to slip
+# past the scan would be the dishonest one.
 _UNTABLED_LINT_ENTRY_POINTS=(
   nesting-depth
   function-length
   positional-params
   shell-metrics
+  changelog-entry-fix
 )
 
 # Whether <needle> is one of the remaining arguments.

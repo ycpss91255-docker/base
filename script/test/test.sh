@@ -954,6 +954,23 @@ Options:
                           drive compose themselves (`just test system` /
                           `just test smoke`); the ordinary dispatch asks on
                           its own
+  --changelog-entry-fix   Fold every repeated '### <category>' heading in
+                          doc/changelog's '## [Unreleased]' into that
+                          category's first occurrence, rewrite the file and
+                          exit. A REPAIR, not a lint: it writes and never
+                          validates, so CI goes on refusing the duplicate
+                          exactly as it does now. The series files carry
+                          `merge=union` (.gitattributes), so two branches
+                          whose category blocks landed at different anchors
+                          both survive with nothing for a reviewer to
+                          resolve, and this is the deterministic repair of
+                          that. Each category is emitted once in the order
+                          script/release/changelog_categories.sh declares,
+                          entry text byte-for-byte and in file order; a
+                          section with no repeated heading is NOT rewritten,
+                          which is what makes folding twice a no-op.
+                          Released sections are never touched. What
+                          `just test changelog-fix` runs
   --clean-coverage        Remove this checkout's coverage/ reports and
                           exit. The removal is done by a container over
                           the same bind mount that wrote them, because the
@@ -1016,6 +1033,7 @@ Examples:
   ./test.sh --self-hosted-guard-only # Direct self-hosted runner guard lint, no compose
   ./test.sh --tool-provenance-only # Direct CI tool provenance lint, no compose
   ./test.sh --changelog-entry-only # Direct changelog entry lint, no compose
+  ./test.sh --changelog-entry-fix  # Fold a repeated [Unreleased] category heading
   ./test.sh --pin-coverage-only   # Direct tool-pin coverage lint, no compose
   ./test.sh --action-ref-agreement-only # Direct action ref agreement lint, no compose
   ./test.sh --generated-workflow-actions-only # Direct generated-workflow action ref lint, no compose
@@ -2519,6 +2537,7 @@ main() {
       --lint) lint=1; shift ;;
       --await-project) name_query="await-project"; shift ;;
       --clean-coverage) repair="clean-coverage"; shift ;;
+      --changelog-entry-fix) repair="changelog-entry-fix"; shift ;;
       --shellcheck) lint_tool="shellcheck"; shift ;;
       --hadolint) lint_tool="hadolint"; shift ;;
       --issueref) lint_tool="issueref"; shift ;;
@@ -2653,6 +2672,7 @@ main() {
   if [[ -n "${repair}" ]]; then
     case "${repair}" in
       clean-coverage) _clean_coverage "${REPO_ROOT}"; exit $? ;;
+      changelog-entry-fix) _run_changelog_entry_fix; exit $? ;;
     esac
   fi
 

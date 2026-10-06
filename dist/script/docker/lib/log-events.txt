@@ -240,6 +240,7 @@ ci_i18n_orphan
 ci_self_hosted_guard
 ci_tool_provenance
 ci_changelog_entry
+ci_changelog_entry_fix
 ci_changelog_layout
 ci_pin_coverage
 ci_action_ref_agreement
