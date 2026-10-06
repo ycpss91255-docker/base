@@ -5830,7 +5830,7 @@ duplicate-target guards, and S7 `runtime.env` retirement (#507).
 | `the harness has no compose image name to displace a sibling checkout's (#891)` | - |
 | `runtime-test ships no specs, which is why the harness covers devel-test only` | - |
 
-### test/bats/unit/smoke_helper_spec.bats (40)
+### test/bats/unit/smoke_helper_spec.bats (42)
 
 Exercises the runtime assertion helpers shipped in
 `dist/test/bats/smoke/shared/test_helper.bash` (used by downstream-repo
@@ -5871,6 +5871,8 @@ smoke specs via `load "${BATS_TEST_DIRNAME}/test_helper"`).
 | `entrypoint_is_single_file: a commented exec is not an exec` | The seeded bringup template TALKS about the exec it must not have, and a repo that migrated by commenting the line out has migrated. A substring match on `exec` reads both as the old model and would skip the assertion on every correctly migrated repo -- the same code-versus-comment distinction dockerfile_migrate.sh's notice makes |
 | `entrypoint_is_single_file: false when the path does not exist` | An image with no bringup at all is not on the old model, so the orchestrator assertion must still run there. Answering true on a missing path would silently exempt exactly the image most likely to be missing the orchestrator too |
 | `entrypoint_is_single_file: errors when the path arg is missing` | The caller-error case, separated from the honest false above: a no-argument call must say so rather than answer "not the old model", which is the answer that turns a typo in a spec into a silent skip |
+| `entrypoint_is_single_file: the indented exec in base's orchestrator is an exec (#945)` | The exec the two-file model moved into base's half, read off the real file rather than a fixture. It sits indented inside a function, a shape no fixture above has, so a probe narrowed to a column-zero exec passes every one of them and still misreads a real bringup that execs |
+| `entrypoint_is_single_file: the bringup template base seeds is not the retired model (#945)` | The property ADR-00000032 shipped, asked of the file that shipped it: the bringup init.sh seeds does not exec, so the shared baseline must not read a repo on the new model as being on the retired one. Putting exec "${@}" back in that file turns this red |
 | `reproducibility_manifest_state: one half present reads as adopted` | One half present is enough to put every assertion about the record in scope -- including the one about the half that is missing, which is the "adopted and broken" case the spec must not skip past |
 | `reproducibility_manifest_state: the other half present also reads as adopted` | EITHER half, not a named one. A half-written record is the "adopted and broken" case whichever half survived, so the reading must not key on the first path alone -- that would send the other half's loss to the skip the directory check exists to prevent |
 | `reproducibility_manifest_state: the directory without the record is missing, not unported` | The regression the old precondition could not see. The directory the writing instruction creates is in the image and the record is not, so the record was adopted and is gone -- a failure, not a skip |
@@ -8016,6 +8018,16 @@ Fixtures are written to a scratch directory, never to the checkout: these
 are tests OF the extractor, so they need shapes the real workflows do not
 have. The fixtures' own `@test` headers are indented one space, because the
 doc count generator counts a spec's tests with `grep -c '^@test'`.
+
+Fixture-only is the point, and it means nothing here can fail on the
+`permissions:` blocks that landed with this file. The witness for those is
+reusable_worker_permissions_spec.bats, which applies these same derivations
+to the REAL reusable workers, names every job that declares no grant of its
+own, and asserts a population floor first so a scan over nothing cannot pass
+by saying nothing. Deleting one worker job's block is red there and green
+here, by construction. This file's job is the one that spec cannot do for
+itself: make the derivations fail on a shape a correct tree does not
+contain.
 
 | Test | Description |
 |------|-------------|

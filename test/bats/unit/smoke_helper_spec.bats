@@ -350,6 +350,56 @@ _WRAPPER_UNDER_TEST=/source/dist/script/docker/wrapper/run.sh
   assert_output --partial "missing path"
 }
 
+# ── the probe against the two halves base actually ships ─────────────
+#
+# The five cases above drive the probe over FIXTURES, which is the only way
+# to write a shape a correct tree does not have. What no fixture can say is
+# whether the probe still answers correctly about the two REAL files the
+# split put it between, and that is the only question the shared baseline
+# ever asks it: once per downstream image, about a file nobody here wrote.
+#
+# Both directions are read, because either one alone is satisfiable by
+# accident. A probe that answered false for everything would pass the
+# refutation below while skipping the orchestrator assertion in every
+# consumer; one that answered true for everything would pass the positive
+# while asserting the retired model everywhere.
+#
+# The positive half is the one the fixtures cannot reach. The orchestrator's
+# exec is INDENTED, inside _base_entrypoint_main, while every fixture above
+# writes its exec at column zero -- so a probe narrowed to a column-zero
+# exec passes all five of them and then reads a real indented exec as "not
+# an exec", which is the direction that costs a consumer a broken build.
+#
+# The shipped bringup is also pinned by template_spec.bats, which asserts
+# the FILE carries no exec with a wider pattern than the probe's. That is a
+# different reading of a different subject: this one is the probe, and the
+# two can disagree without either file noticing.
+
+_SHIPPED_BRINGUP=/source/dist/dockerfile/entrypoint.sh
+_SHIPPED_ORCHESTRATOR=/source/dist/script/docker/runtime/entrypoint.sh
+
+# why: The exec the two-file model moved into base's half, read off the real
+# file rather than a fixture. It sits indented inside a function, a shape no
+# fixture above has, so a probe narrowed to a column-zero exec passes every
+# one of them and still misreads a real bringup that execs
+@test "entrypoint_is_single_file: the indented exec in base's orchestrator is an exec (#945)" {
+  assert_spec_subject "${_SHIPPED_ORCHESTRATOR}" \
+    "base's entry-point orchestrator, the half the two-file model gives the exec to"
+  run entrypoint_is_single_file "${_SHIPPED_ORCHESTRATOR}"
+  assert_success
+}
+
+# why: The property ADR-00000032 shipped, asked of the file that shipped it:
+# the bringup init.sh seeds does not exec, so the shared baseline must not
+# read a repo on the new model as being on the retired one. Putting
+# exec "${@}" back in that file turns this red
+@test "entrypoint_is_single_file: the bringup template base seeds is not the retired model (#945)" {
+  assert_spec_subject "${_SHIPPED_BRINGUP}" \
+    "the bringup template init.sh seeds as a repo's own /entrypoint.sh"
+  run entrypoint_is_single_file "${_SHIPPED_BRINGUP}"
+  assert_failure
+}
+
 # ════════════════════════════════════════════════════════════════════
 # reproducibility_manifest_state
 #

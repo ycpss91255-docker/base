@@ -557,6 +557,17 @@ _job_comments() {
   # halves are read here rather than one of them remembered: base owns the
   # entry point (ADR-00000032), so moving it has to fail in the local gate
   # instead of on the acceptance matrix, which `just test` cannot see.
+  #
+  # What this is, and is not. It is an AGREEMENT guard between two
+  # documents, so it is red when ONE of them moves -- measured both ways:
+  # editing only this job's literal, and editing only the Dockerfile's
+  # ENTRYPOINT, each fail it. It is green when both move together, which is
+  # what reverting the two-file model looks like, so it is not the witness
+  # for the model CHOICE. That choice -- the ENTRYPOINT is base's
+  # orchestrator under /usr/local/lib/base/, the repo's bringup is COPY'd to
+  # /entrypoint.sh and never named as an entry point -- is pinned by
+  # template_spec.bats, which asserts the retired line absent as well as the
+  # new one present.
   local _wired
   _wired="$(sed -nE 's/^ENTRYPOINT \["([^"]+)".*/\1/p' \
     /source/dist/dockerfile/Dockerfile | head -n1)"
@@ -701,6 +712,14 @@ _job_comments() {
 # not name are how the tree ended up running v6 and v7 at once. Which
 # ref they carry is the action-ref-agreement lint's question now, asked
 # over every call site at once.
+#
+# So the ref bump that moved these three off `@v6` has no witness in this
+# file, deliberately, and the deferral names where it does have one:
+# script/test/drivers/action_ref_agreement.sh, run over the real
+# `.github/workflows/` by `just test --lint` and pinned by
+# test/bats/unit/action_ref_agreement_lint_spec.bats. Measured: putting
+# this workflow's five call sites back on the older ref is red in that spec
+# and in that lint, and green across all of this file's tests.
 
 @test "self-test.yaml: bats-fragile job uses docker/build-push-action with GHA cache scope=test-tools (#677)" {
   run yaml_job_lines "${WF}" bats-fragile
