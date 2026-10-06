@@ -103,6 +103,45 @@ teardown() {
   [ -z "${_missing}" ] || { echo "script/test scripts never linted:${_missing}"; false; }
 }
 
+# why: base#1113 the dist/ half named its find roots, and the tree grew two
+# scripts outside every one of them
+@test "_run_shellcheck: lints every *.sh the dist/ tree ships (base#1113)" {
+  # The script/ half has asked the tree since base#876; the dist/ half kept
+  # a list of roots, and a list of roots cannot say which root is missing.
+  # dist/deploy/cd-guard.sh (downstream CD runs it before a deploy) and
+  # dist/config/shell/bashrc.d/30-name-host-groups.sh (the Dockerfile copies
+  # it into ~/.bashrc.d and every interactive shell sources it) sat outside
+  # all of them: an SC2086 added to both left --shellcheck-only printing
+  # "--- Running ShellCheck ---" and exiting 0, while the same line in
+  # dist/script/docker/lib/hook.sh failed the run. The population is the
+  # shipped tree, so the driver asks the shipped tree.
+  local _log="${BATS_TEST_TMPDIR}/shellcheck.log"
+  mock_cmd "shellcheck" '
+    printf "%s\n" "$*" >> "'"${_log}"'"
+    exit 0'
+  run bash -c '
+    source /source/script/test/test.sh
+    _run_shellcheck
+  '
+  assert_success
+  assert [ -f "${_log}" ]
+
+  local -a _shipped=()
+  mapfile -t _shipped < <(find /source/dist -name '*.sh' -type f | sort)
+  # Refuse the no-evidence state. A find that matched nothing makes every
+  # comparison below a comparison against an empty population, so the guard
+  # would report clean having read no files at all.
+  [ "${#_shipped[@]}" -ge 50 ] \
+    || fail "find over dist/ yielded ${#_shipped[@]} scripts; the population did not parse"
+
+  local _f _missing=""
+  for _f in "${_shipped[@]}"; do
+    grep -qF "${_f}" "${_log}" || _missing+=" ${_f}"
+  done
+  [ -z "${_missing}" ] \
+    || fail "shipped dist/ scripts in no ShellCheck pass:${_missing} -- a shipped script no pass names is a script whose next edit is unchecked"
+}
+
 # why: Strict-mode propagation
 @test "_run_shellcheck: exits non-zero when shellcheck fails on any script" {
   # Simulate a lint violation on init.sh specifically.
