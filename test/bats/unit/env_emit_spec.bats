@@ -143,8 +143,8 @@ EOF
     | sed -E 's/^\$\{//; s/:-$//' | sort -u)
 
   # Two premises, because a derived population that silently became empty
-  # would turn the loop below into a pass that observed nothing -- the exact
-  # shape this issue's sibling (#1090) was filed about.
+  # would turn the loop below into a pass that observed nothing -- a derived
+  # guard's own failure mode, and the one a sibling audit was filed about.
   (( ${#_required[@]} > 0 )) || fail \
     "the emitted compose.yaml interpolates no key without a fallback, so this case asserts nothing about what write_env must write. Either the emitter stopped interpolating or the scan stopped matching it"
   (( ${#_defaulted[@]} > 0 )) || fail \
