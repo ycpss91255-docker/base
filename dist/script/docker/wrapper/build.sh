@@ -61,6 +61,10 @@ _msg_errors() {
     zh-CN:rerun_setup)  echo "请改以 './build.sh --setup' 重新运行以打开编辑器。" ;;
     ja:rerun_setup)     echo "'./build.sh --setup' で再実行してエディタを開いてください。" ;;
     *:rerun_setup)      echo "Re-run with './build.sh --setup' to open the editor." ;;
+    zh-TW:unknown_flag) echo "無法識別的選項（目標名稱不以 - 開頭；可用選項見 --help）" ;;
+    zh-CN:unknown_flag) echo "无法识别的选项（目标名称不以 - 开头；可用选项见 --help）" ;;
+    ja:unknown_flag)    echo "認識できないオプション（ターゲット名は - で始まりません。オプション一覧は --help）" ;;
+    *:unknown_flag)     echo "unrecognised option (a TARGET name does not start with '-'; see --help for the options)" ;;
   esac
 }
 
@@ -412,6 +416,20 @@ main() {
         # repeating either form alone.
         TARGET="${2:?"-t/--target requires a value (e.g. devel, test, runtime)"}"
         shift 2
+        ;;
+      -*)
+        # A leading-dash token that reached the fallthrough is a typo or an
+        # option this wrapper does not implement -- never a target. Capturing
+        # it as the positional TARGET (what this branch used to do) turned
+        # `--no-cahce` into a request to build a service by that literal name:
+        # the wrapper exited 0, and the only complaint came one layer later
+        # from compose, naming a service the caller never typed. Refuse here
+        # instead, naming the token. The bare positional TARGET is untouched
+        # -- the guard keys on the dash alone, so `runtime` is still a target
+        # and `--runtime` is not.
+        _log_err build build_unknown_flag \
+          "display=$(_msg errors unknown_flag): $1" "flag=$1"
+        exit 2
         ;;
       *)
         TARGET="$1"

@@ -356,6 +356,48 @@ EOS
   assert_output --partial "-t/--target requires a value"
 }
 
+# ════════════════════════════════════════════════════════════════════
+# Unrecognised leading-dash token is a usage error, not a target
+# ════════════════════════════════════════════════════════════════════
+
+@test "build.sh refuses a mistyped flag instead of building it as a target (#1120)" {
+  run bash "${SANDBOX}/build.sh" --dry-run --no-cahce
+  assert_failure 2
+  assert_output --partial "--no-cahce"
+  refute_output --partial "build --no-cahce"
+}
+
+@test "build.sh refuses an unimplemented flag even when a target follows it (#1120)" {
+  # `--stage` is designed in ADR-00000011 but not implemented by the
+  # wrapper. Swallowing it as TARGET and letting the next token overwrite it
+  # made a wrong invocation look right; the flag must be named and refused.
+  run bash "${SANDBOX}/build.sh" --dry-run --stage test-tools
+  assert_failure 2
+  assert_output --partial "--stage"
+  refute_output --partial "build test-tools"
+}
+
+@test "build.sh refuses a valueless unimplemented flag rather than naming it as the service (#1120)" {
+  run bash "${SANDBOX}/build.sh" --dry-run --stage
+  assert_failure 2
+  assert_output --partial "--stage"
+  refute_output --partial "build --stage"
+}
+
+@test "build.sh still accepts a bare positional TARGET after the dash guard (#1120)" {
+  # The guard keys on the leading dash alone, so the documented positional
+  # TARGET survives: `runtime` is a target, `--runtime` is not.
+  run bash "${SANDBOX}/build.sh" --dry-run runtime
+  assert_success
+  assert_output --partial "runtime"
+}
+
+@test "build.sh refuses a dash-prefixed spelling of a real target (#1120)" {
+  run bash "${SANDBOX}/build.sh" --dry-run --runtime
+  assert_failure 2
+  assert_output --partial "--runtime"
+}
+
 @test "build.sh --help mentions -t / --target (#280)" {
   run bash "${SANDBOX}/build.sh" --help
   assert_success
