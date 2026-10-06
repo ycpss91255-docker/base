@@ -66,8 +66,8 @@ name: GHCR test-tools cleanup
 # own self-test pulls `:main` on every non-doc PR, so a bad `:main`
 # surfaces within days. Two weeks covers a quiet stretch with margin.
 #
-# Generations -- the `:main` trigger is paths-filtered to commits that
-# touch Dockerfile.test-tools or its publisher, so 14 days typically
+# Generations -- the `:main` publish is gated on commits that change an
+# input of the tooling image, or its publisher, so 14 days typically
 # holds the last one to three orphan generations rather than exactly one.
 #
 # Backstop -- GitHub restores a deleted package version for 30 days, and
