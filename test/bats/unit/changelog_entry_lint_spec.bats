@@ -1090,3 +1090,575 @@ _long_prose() {
   [[ "${_row}" == *"heading opening twice"* ]]
   [[ "${_row}" == *"changelog_categories.sh"* ]]
 }
+
+# ════════════════════════════════════════════════════════════════════
+# _run_changelog_entry_fix: folding what the union merge produces
+# ════════════════════════════════════════════════════════════════════
+
+# _git_scratch <args>... -- git with an identity and a default branch, so a
+# scratch repository can commit without depending on the runner's config.
+_git_scratch() {
+  git -c init.defaultBranch=main -c user.email=spec@example.invalid \
+      -c user.name=spec "$@"
+}
+
+# _merge_duplicate_heading -- produce the duplicate the way a real merge
+# produces it, and leave the merged series file at ${CHANGELOG}.
+#
+# Built with git, not typed. The claim under test is about what the
+# `merge=union` driver in this repo's own .gitattributes does to two
+# branches that each appended to [Unreleased], and a hand-written fixture
+# asserts the author's belief about that instead of the driver's behaviour.
+#
+# The anchors differ ON PURPOSE. Two blocks appended at the SAME anchor do
+# NOT duplicate: git refines the conflict, the identical '### Fixed' lines
+# line up, and only the bullets are concatenated. The branch here forks
+# before the '### Changed' block that main later grew, so the two '### Fixed'
+# blocks land at different anchors, the hunks do not overlap, both are
+# applied verbatim -- and the result is two headings with somebody else's
+# category between them.
+_merge_duplicate_heading() {
+  local _repo="${SCRATCH}/merge"
+  mkdir -p "${_repo}/doc/changelog"
+  local _series="${_repo}/doc/changelog/v0.43.md"
+  _git_scratch init -q "${_repo}"
+  cp /source/.gitattributes "${_repo}/.gitattributes"
+  _series_file 'base' > "${_series}"
+  _git_scratch -C "${_repo}" add -A
+  _git_scratch -C "${_repo}" commit -q -m base
+  _git_scratch -C "${_repo}" checkout -q -b topic
+  _series_file 'topic' > "${_series}"
+  _git_scratch -C "${_repo}" commit -q -a -m topic
+  _git_scratch -C "${_repo}" checkout -q main
+  _series_file 'main' > "${_series}"
+  _git_scratch -C "${_repo}" commit -q -a -m main
+  _git_scratch -C "${_repo}" checkout -q topic
+  _git_scratch -C "${_repo}" merge --no-edit main > /dev/null
+  cp "${_series}" "${CHANGELOG}"
+}
+
+# _series_file <side> -- one of the three states the merge is built from.
+# 'base' is what both sides forked from, 'topic' appends a Fixed block to it,
+# and 'main' appends a Changed block and a Fixed block of its own.
+_series_file() {
+  printf '# base changelog -- v0.43\n\n'
+  printf '## [Unreleased]\n\n'
+  printf '### Added\n\n'
+  printf -- '- **an entry already on main** (PR #1) -- it is here in every\n'
+  printf '  state, so nothing in the merge is about it.\n\n'
+  if [[ "${1}" == 'main' ]]; then
+    printf '### Changed\n\n'
+    printf -- '- **main changed a thing** (PR #2) -- the block the topic\n'
+    printf '  branch forked before, which is what moves the anchor.\n\n'
+  fi
+  if [[ "${1}" == 'topic' ]]; then
+    printf '### Fixed\n\n'
+    printf -- '- **the topic branch fixed a thing** (PR #3) -- appended at\n'
+    printf '  the end of the section the branch could see.\n\n'
+  fi
+  if [[ "${1}" == 'main' ]]; then
+    printf '### Fixed\n\n'
+    printf -- '- **main fixed a different thing** (PR #4) -- appended at the\n'
+    printf '  end of the section main could see.\n\n'
+  fi
+  printf '## [v0.42.0] - 2026-09-01\n\n'
+  printf '### Added\n\n'
+  printf -- '- the first release\n'
+}
+
+# _headings <text> -- how many times the given heading opens anywhere in
+# ${CHANGELOG}, released sections included: the released block is what the
+# "never touched" case has to count.
+_headings() {
+  grep -c -x -F -- "${1}" "${CHANGELOG}" || true
+}
+
+# _unreleased -- the [Unreleased] section's body, its own heading excluded and
+# stopping at the next '## [' exactly as the driver's boundary does. Scoped,
+# because a released section's bullets are not what any of this moves.
+_unreleased() {
+  sed -n '/^## \[Unreleased\]/,$p' "${CHANGELOG}" | sed -n '2,$p' \
+    | sed '/^## \[/,$d'
+}
+
+# _bullets -- the lead bullets of [Unreleased], in file order.
+_bullets() {
+  _unreleased | grep -x -E -- '- .*' || true
+}
+
+# _entry_text -- every line of [Unreleased] that is neither blank nor a
+# category heading, SORTED. The multiset of entry text, which is what "moves
+# byte-for-byte" means: emitting the categories in roster order legitimately
+# moves a whole block, so file order is a separate claim with its own case.
+_entry_text() {
+  _unreleased | grep -v -E '^[[:space:]]*$' | grep -v -E '^### ' | sort
+}
+
+# why: The red case, and the reason this whole repair exists: the duplicate is
+# not a shape somebody typed, it is what `merge=union` hands back without
+# conflicting. Built by git so the fixture cannot drift from the driver.
+@test "_run_changelog_entry: the union merge driver produces a duplicate heading the lint REFUSES (#1103)" {
+  _merge_duplicate_heading
+  assert_equal "$(_headings '### Fixed')" 2
+  run _run_changelog_entry
+  assert_failure
+  assert_output --partial 'repeated category heading'
+}
+
+# why: The whole point. The gate that refused now has a repair, and the proof
+# that the repair is the right one is that the gate accepts its output.
+@test "_run_changelog_entry_fix: the merge-produced duplicate becomes a file the lint ACCEPTS (#1103)" {
+  _merge_duplicate_heading
+  run _run_changelog_entry_fix
+  assert_success
+  assert_equal "$(_headings '### Fixed')" 1
+  run _run_changelog_entry
+  assert_success
+}
+
+# why: The load-bearing promise. A normaliser that may reword, re-wrap or drop
+# an entry is one nobody can run unsupervised, and then the chore is still a
+# chore. Compared as a byte stream of every entry LINE -- continuation lines
+# included, so a re-wrap would show -- and as a multiset, because roster order
+# moves whole blocks on purpose.
+@test "_run_changelog_entry_fix: every entry line survives byte-for-byte (#1103)" {
+  _merge_duplicate_heading
+  local _before
+  _before="$(_entry_text)"
+  # A fixture that measured nothing would pass this trivially: four entries,
+  # two lines each, so a comparison over fewer than eight lines is not
+  # comparing the continuation lines a re-wrap would show up in.
+  assert_equal "$(printf '%s\n' "${_before}" | wc -l)" 8
+  run _run_changelog_entry_fix
+  assert_success
+  assert_equal "$(_entry_text)" "${_before}"
+}
+
+# why: Idempotence in the strong sense, which is what makes it safe to put on a
+# verb somebody presses for another reason: the second run finds nothing to
+# fold and writes nothing, so the file cannot drift by being folded twice.
+@test "_run_changelog_entry_fix: folding twice leaves the file byte-identical (#1103)" {
+  _merge_duplicate_heading
+  run _run_changelog_entry_fix
+  assert_success
+  cp "${CHANGELOG}" "${SCRATCH}/once.md"
+  run _run_changelog_entry_fix
+  assert_success
+  assert_output --partial 'nothing folded, nothing written'
+  run diff -- "${SCRATCH}/once.md" "${CHANGELOG}"
+  assert_success
+}
+
+# why: The other half of idempotence, and the one that decides whether this can
+# hang off a shared verb: a file nobody broke must not be reformatted by a
+# command somebody ran for a different reason.
+@test "_run_changelog_entry_fix: a section with no duplicate is not rewritten at all (#1103)" {
+  _write_changelog \
+    '### Fixed' \
+    '' \
+    '- **a fix** (PR #1) -- one category, no duplicate.' \
+    '' \
+    '### Added' \
+    '' \
+    '- **an addition** (PR #2) -- out of roster order, and left that way.'
+  cp "${CHANGELOG}" "${SCRATCH}/untouched.md"
+  run _run_changelog_entry_fix
+  assert_success
+  run diff -- "${SCRATCH}/untouched.md" "${CHANGELOG}"
+  assert_success
+}
+
+# why: The order a folded section is emitted in is the roster's, which is the
+# order script/release/release_notes.sh already assembles a release page in --
+# so the file and the page it becomes stop differing by one.
+@test "_run_changelog_entry_fix: a folded section is emitted in roster order (#1103)" {
+  _merge_duplicate_heading
+  run _run_changelog_entry_fix
+  assert_success
+  local _order
+  _order="$(grep -E -- '^### ' "${CHANGELOG}" | head -n 3 | tr '\n' ' ')"
+  assert_equal "${_order}" '### Added ### Changed ### Fixed '
+}
+
+# why: Within a category nothing is reordered: the first block's entries, then
+# the second's. Reordering entries is the one thing the issue forbade outright,
+# and the merge's own order is the only order anybody reviewed.
+@test "_run_changelog_entry_fix: entries keep their file order within a folded category (#1103)" {
+  _merge_duplicate_heading
+  run _run_changelog_entry_fix
+  assert_success
+  local _topic _other
+  _topic="$(grep -n -F -- 'the topic branch fixed a thing' "${CHANGELOG}" | cut -d: -f1)"
+  _other="$(grep -n -F -- 'main fixed a different thing' "${CHANGELOG}" | cut -d: -f1)"
+  [[ "${_topic}" -lt "${_other}" ]]
+}
+
+# why: The duplicate a real merge produces is NOT adjacent -- somebody else's
+# category sits between the two blocks -- so a fold that only collapses
+# neighbours would fix none of the cases this exists for.
+@test "_run_changelog_entry_fix: folds a duplicate with another category between the two blocks (#1103)" {
+  _write_changelog \
+    '### Fixed' \
+    '' \
+    '- **the first fix** (PR #1) -- the block that survives.' \
+    '' \
+    '### Changed' \
+    '' \
+    '- **a change** (PR #2) -- what sits between the two Fixed blocks.' \
+    '' \
+    '### Fixed' \
+    '' \
+    '- **the second fix** (PR #3) -- the block that folds up into the first.'
+  run _run_changelog_entry_fix
+  assert_success
+  assert_equal "$(_headings '### Fixed')" 1
+  assert_equal "$(_headings '### Changed')" 1
+  run _run_changelog_entry
+  assert_success
+}
+
+# why: Three is not two. A serial queue lands more than two branches, and a
+# fold that pairs occurrences rather than grouping them would leave the third.
+@test "_run_changelog_entry_fix: folds three occurrences of one category into one (#1103)" {
+  _write_changelog \
+    '### Fixed' '' '- **one** (PR #1) -- first.' '' \
+    '### Fixed' '' '- **two** (PR #2) -- second.' '' \
+    '### Fixed' '' '- **three** (PR #3) -- third.'
+  run _run_changelog_entry_fix
+  assert_success
+  assert_equal "$(_headings '### Fixed')" 1
+  assert_equal "$(_bullets | wc -l)" 3
+}
+
+# why: A released section is a historical record and a duplicate that shipped is
+# a fact about what shipped. Rewriting it falsifies the record, so the released
+# block is the boundary this rewriter must never cross.
+@test "_run_changelog_entry_fix: a duplicate in a RELEASED section is never touched (#1103)" {
+  {
+    printf '# Changelog\n\n'
+    printf '## [Unreleased]\n\n'
+    printf '### Fixed\n\n'
+    printf -- '- **a fix** (PR #1) -- the only live entry.\n\n'
+    printf '## [v0.1.0] - 2026-03-28\n\n'
+    printf '### Added\n\n'
+    printf -- '- initial release\n\n'
+    printf '### Added\n\n'
+    printf -- '- a duplicate that shipped\n'
+  } > "${CHANGELOG}"
+  run _run_changelog_entry_fix
+  assert_success
+  assert_output --partial 'nothing folded, nothing written'
+  assert_equal "$(_headings '### Added')" 2
+}
+
+# why: Every other scan in this driver treats a fence as inert, and this one has
+# to agree: a '### Fixed' shown inside a ```markdown example is an example, and
+# moving it would edit somebody's code block.
+@test "_run_changelog_entry_fix: a heading inside a fenced example is not a second occurrence (#1103)" {
+  _write_changelog \
+    '### Fixed' \
+    '' \
+    '- **a fix** (PR #1) -- with an example under it.' \
+    '' \
+    '  ```markdown' \
+    '  ### Fixed' \
+    '' \
+    '  - what an entry looks like' \
+    '  ```'
+  cp "${CHANGELOG}" "${SCRATCH}/untouched.md"
+  run _run_changelog_entry_fix
+  assert_success
+  assert_output --partial 'nothing folded, nothing written'
+  run diff -- "${SCRATCH}/untouched.md" "${CHANGELOG}"
+  assert_success
+}
+
+# why: An allow region is somebody's explicit "this second copy is deliberate".
+# The lint honours it, so the rewriter must too, or the fold silently reverses a
+# decision that was written down.
+@test "_run_changelog_entry_fix: a heading inside an allow region is left alone (#1103)" {
+  _write_changelog \
+    '### Fixed' \
+    '' \
+    '- **a fix** (PR #1) -- the live block.' \
+    '' \
+    '<!-- changelog-entry-lint: allow-begin -- a deliberate second copy -->' \
+    '### Fixed' \
+    '' \
+    '- **a deliberate second copy** (PR #2) -- exempted on purpose.' \
+    '<!-- changelog-entry-lint: allow-end -->'
+  cp "${CHANGELOG}" "${SCRATCH}/untouched.md"
+  run _run_changelog_entry_fix
+  assert_success
+  assert_output --partial 'nothing folded, nothing written'
+  run diff -- "${SCRATCH}/untouched.md" "${CHANGELOG}"
+  assert_success
+}
+
+# why: The refusal that keeps the rewriter honest. With an unbalanced marker
+# nobody can say which lines are exempt, and a rewriter that guesses at that
+# moves an entry out of a region somebody wrote on purpose.
+@test "_run_changelog_entry_fix: REFUSES on an unbalanced allow marker and writes nothing (#1103)" {
+  _write_changelog \
+    '### Fixed' \
+    '' \
+    '- **a fix** (PR #1) -- before the dangling marker.' \
+    '' \
+    '<!-- changelog-entry-lint: allow-begin -- never closed -->' \
+    '### Fixed' \
+    '' \
+    '- **a second block** (PR #2) -- after it.'
+  cp "${CHANGELOG}" "${SCRATCH}/untouched.md"
+  run _run_changelog_entry_fix
+  assert_failure
+  assert_output --partial 'do not balance'
+  run diff -- "${SCRATCH}/untouched.md" "${CHANGELOG}"
+  assert_success
+}
+
+# why: The scope line. Which of two near-identical entries survives is a
+# judgement about text, so the fold does not make it -- and the lint has to go
+# on refusing the duplicate entry afterwards, or the repair would have hidden
+# it.
+@test "_run_changelog_entry_fix: a duplicate ENTRY is not folded, and still fails the lint (#1103)" {
+  _write_changelog \
+    '### Fixed' \
+    '' \
+    '- **the same fix** (PR #1) -- one copy.' \
+    '' \
+    '### Fixed' \
+    '' \
+    '- **the same fix** (PR #1) -- one copy.'
+  run _run_changelog_entry_fix
+  assert_success
+  assert_equal "$(_headings '### Fixed')" 1
+  assert_equal "$(_bullets | wc -l)" 2
+  run _run_changelog_entry
+  assert_failure
+  assert_output --partial 'duplicate entry'
+}
+
+# why: Prose above the first category heading is the section's lead, and an
+# entry under no heading is still somebody's entry. Both are outside the part
+# being regrouped, so both stay exactly where they were.
+@test "_run_changelog_entry_fix: the prose above the first heading stays in place (#1103)" {
+  _write_changelog \
+    'A lead paragraph nobody asked this command to move.' \
+    '' \
+    '### Fixed' \
+    '' \
+    '- **a fix** (PR #1) -- first block.' \
+    '' \
+    '### Fixed' \
+    '' \
+    '- **another fix** (PR #2) -- second block.'
+  run _run_changelog_entry_fix
+  assert_success
+  local _lead _first
+  _lead="$(grep -n -F -- 'A lead paragraph' "${CHANGELOG}" | cut -d: -f1)"
+  _first="$(grep -n -x -F -- '### Fixed' "${CHANGELOG}" | cut -d: -f1)"
+  [[ "${_lead}" -lt "${_first}" ]]
+}
+
+# why: The compare-link block ends the section, and a fold that ran past it
+# would move link definitions into the entry list -- which the entry lint then
+# reports as content no entry measures.
+@test "_run_changelog_entry_fix: the compare-link block is left below the section (#1103)" {
+  {
+    printf '# base changelog -- v0.43\n\n'
+    printf '## [Unreleased]\n\n'
+    printf '### Fixed\n\n'
+    printf -- '- **a fix** (PR #1) -- first block.\n\n'
+    printf '### Fixed\n\n'
+    printf -- '- **another fix** (PR #2) -- second block.\n\n'
+    printf '[Unreleased]: https://example.invalid/compare/v0.43.0...HEAD\n'
+  } > "${CHANGELOG}"
+  run _run_changelog_entry_fix
+  assert_success
+  assert_equal "$(tail -n 1 "${CHANGELOG}")" \
+    '[Unreleased]: https://example.invalid/compare/v0.43.0...HEAD'
+  run _run_changelog_entry
+  assert_success
+}
+
+# why: A rewriter whose job is the heading level has no business adding a byte at
+# end of file. Caught here because nothing downstream would report it and the
+# next reader could not tell what added it.
+@test "_run_changelog_entry_fix: a file with no final newline keeps none (#1103)" {
+  printf '# Changelog\n\n## [Unreleased]\n\n### Fixed\n\n- **a fix** (PR #1) -- one.\n\n### Fixed\n\n- **another** (PR #2) -- two.' \
+    > "${CHANGELOG}"
+  run _run_changelog_entry_fix
+  assert_success
+  assert_equal "$(_headings '### Fixed')" 1
+  # `$(...)` strips trailing newlines, so a non-empty last byte means the
+  # file does not end with one -- which is the state it started in.
+  [[ -n "$(tail -c 1 "${CHANGELOG}")" ]]
+}
+
+# why: The repair is only handled if a verb reaches it. Asserted against the
+# runner and the justfile because a function nothing dispatches is a repair
+# nobody can run, however well it folds.
+@test "_run_changelog_entry_fix: the runner and the justfile both reach the repair (#1103)" {
+  local _testsh=/source/script/test/test.sh
+  local _justfile=/source/script/test/justfile.test
+  assert_spec_subject "${_testsh}" "the runner that dispatches the repair"
+  assert_spec_subject "${_justfile}" "the recipe surface the refusal names"
+  run code_grep -F -- '--changelog-entry-fix) repair="changelog-entry-fix"' "${_testsh}"
+  assert_success
+  run code_grep -F -- 'changelog-entry-fix) _run_changelog_entry_fix' "${_testsh}"
+  assert_success
+  run code_grep -F -- './script/test/test.sh --changelog-entry-fix' "${_justfile}"
+  assert_success
+  # usage() has to name it, or the only way to find the repair is to read
+  # the argument parser.
+  run bash -c "sed -n '/^usage()/,/^}/p' '${_testsh}' | grep -cF -- '--changelog-entry-fix'"
+  assert_success
+  [[ "${output}" -ge 1 ]]
+}
+
+# why: The refactor that gave the folder the lint's allow map had to be
+# behaviour-preserving, and this is the case it was not: the inline pass set the
+# skip map as it walked, so a second allow-begin left the first region's lines
+# hidden. Measured at 2 suppressed before, 1 after -- a line the lint had
+# stopped measuring with nothing to say so.
+@test "_run_changelog_entry: a second allow-begin does not expose the lines before it (#1103)" {
+  _write_changelog \
+    '### Fixed' \
+    '' \
+    '- **one** (PR #1) -- the live block.' \
+    '' \
+    '<!-- changelog-entry-lint: allow-begin -- outer -->' \
+    '- **exempt** (PR #2) -- inside the outer region.' \
+    '<!-- changelog-entry-lint: allow-begin -- inner -->' \
+    '- **also exempt** (PR #3) -- inside the inner one.' \
+    '<!-- changelog-entry-lint: allow-end -->'
+  run _run_changelog_entry
+  assert_success
+  # Both exempted entries, not just the one after the second marker.
+  assert_output --partial '2 suppressed by an allow region'
+}
+
+# why: What the exposure above cost the rewriter, reproduced: an exempted
+# '### Added' became a block the fold felt free to move, so it reordered lines
+# out of a region and left the outer begin marker dangling over somebody else's
+# entry -- a file the lint then refuses, written by the command run to fix it.
+# The two Fixed blocks around the region ARE a duplicate and do fold; the
+# region has to travel inside the survivor as one piece.
+@test "_run_changelog_entry_fix: a nested allow region travels as one piece (#1103)" {
+  _write_changelog \
+    '### Fixed' \
+    '' \
+    '- **one** (PR #1) -- the live block.' \
+    '' \
+    '<!-- changelog-entry-lint: allow-begin -- outer -->' \
+    '### Added' \
+    '' \
+    '- **exempt** (PR #2) -- inside the outer region.' \
+    '<!-- changelog-entry-lint: allow-begin -- inner -->' \
+    '- **also exempt** (PR #3) -- inside the inner one.' \
+    '<!-- changelog-entry-lint: allow-end -->' \
+    '### Fixed' \
+    '' \
+    '- **two** (PR #4) -- the second live block.'
+  run _run_changelog_entry_fix
+  assert_success
+  assert_equal "$(_headings '### Fixed')" 1
+  # The region's own lines keep their order and their nesting: outer begin,
+  # the exempted heading, the inner begin, the end. A fold that moved the
+  # heading out put it ABOVE the outer marker, which is how the marker came to
+  # dangle.
+  local _outer _added _inner _end
+  _outer="$(grep -n -F -- 'allow-begin -- outer' "${CHANGELOG}" | cut -d: -f1)"
+  _added="$(grep -n -x -F -- '### Added' "${CHANGELOG}" | head -n 1 | cut -d: -f1)"
+  _inner="$(grep -n -F -- 'allow-begin -- inner' "${CHANGELOG}" | cut -d: -f1)"
+  _end="$(grep -n -F -- 'allow-end' "${CHANGELOG}" | cut -d: -f1)"
+  [[ "${_outer}" -lt "${_added}" ]]
+  [[ "${_added}" -lt "${_inner}" ]]
+  [[ "${_inner}" -lt "${_end}" ]]
+  # And the lint accepts it, still seeing both exempted entries as exempt.
+  run _run_changelog_entry
+  assert_success
+  assert_output --partial '2 suppressed by an allow region'
+}
+
+# why: Two spellings of one heading are one category to the lint, which compares
+# them with whitespace collapsed -- so they are a duplicate, and the survivor has
+# to be written in one spelling or the file keeps a difference nothing reads.
+@test "_run_changelog_entry_fix: two spellings of one heading fold to the canonical one (#1103)" {
+  _write_changelog \
+    '###  Fixed' '' '- **one** (PR #1) -- under the loose spelling.' '' \
+    '### Fixed' '' '- **two** (PR #2) -- under the canonical one.'
+  run _run_changelog_entry_fix
+  assert_success
+  assert_equal "$(_headings '### Fixed')" 1
+  assert_equal "$(_headings '###  Fixed')" 0
+  assert_equal "$(_bullets | wc -l)" 2
+  run _run_changelog_entry
+  assert_success
+}
+
+# why: Reproduced damage, not a hypothetical: an open fence in the LAST category
+# moves ahead of the others under roster order and swallows their headings and
+# entries as code. Measured 3 entries checked before the fold and 1 after, with
+# the lint reporting clean -- the repair hiding two entries from the gate.
+@test "_run_changelog_entry_fix: REFUSES a section carrying an unterminated fence (#1103)" {
+  _write_changelog \
+    '### Fixed' '' '- **one** (PR #1) -- first.' '' \
+    '### Fixed' '' '- **two** (PR #2) -- second.' '' \
+    '### Added' '' '- **three** (PR #3) -- with an example that never closes.' '' \
+    '  ```markdown' \
+    '  ### Fixed'
+  cp "${CHANGELOG}" "${SCRATCH}/untouched.md"
+  run _run_changelog_entry_fix
+  assert_failure
+  assert_output --partial 'fenced'
+  run diff -- "${SCRATCH}/untouched.md" "${CHANGELOG}"
+  assert_success
+}
+
+# why: The general net behind that one refusal. A fold that LOSES an entry leaves
+# the headings perfectly fine, so the heading postcondition cannot see it; what
+# the fold must not change is how many entries the lint can see. Driven by a
+# stub that drops one, because no input reaches this once the fence is refused.
+@test "_run_changelog_entry_fix: REFUSES when the fold would hide an entry from the lint (#1103)" {
+  _write_changelog \
+    '### Fixed' '' '- **one** (PR #1) -- first.' '' \
+    '### Fixed' '' '- **two** (PR #2) -- second.'
+  _changelog_entry_fold_section() {
+    local -n _stub_out="${1}"
+    _stub_out=( '' '### Fixed' '' '- **one** (PR #1) -- first.' '' )
+    return 0
+  }
+  run _run_changelog_entry_fix
+  assert_failure
+  assert_output --partial 'the lint can see'
+}
+
+# why: The guard that stops the repair reporting its own success. Driven by
+# neutralising the write, because a write that did not take is the one failure
+# the fold cannot see from the array it assembled -- the file on disk is what
+# the next reader gets, and the next reader is the lint on the next cycle.
+@test "_run_changelog_entry_fix: a write that did not take is REFUSED, not reported as done (#1103)" {
+  _write_changelog \
+    '### Fixed' '' '- **one** (PR #1) -- first.' '' \
+    '### Fixed' '' '- **two** (PR #2) -- second.'
+  # Only for this test's shell: the fold still builds the folded section, and
+  # the postcondition still reads the file, which has not changed.
+  _changelog_entry_fold_write() { return 0; }
+  run _run_changelog_entry_fix
+  assert_failure
+  assert_output --partial 'STILL carries'
+  assert_equal "$(_headings '### Fixed')" 2
+}
+
+# why: The refusal is where somebody meets this problem, so it is the only place
+# the repair can be documented without being remembered. A message that names
+# the defect and not the verb is the chore this issue is about.
+@test "_run_changelog_entry: the refusal names the command that folds the duplicate (#1103)" {
+  _write_changelog \
+    '### Fixed' '' '- **one** (PR #1) -- first.' '' \
+    '### Fixed' '' '- **two** (PR #2) -- second.'
+  run _run_changelog_entry
+  assert_failure
+  assert_output --partial 'just test changelog-fix'
+}
