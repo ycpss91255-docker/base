@@ -48,8 +48,7 @@ export BASE_CHECKOUT_PATH := justfile_directory()
 
 # Container-ops (self-use): build / run / exec / stop / prune / setup / setup-tui
 mod? docker 'script/docker/justfile.docker'
-# Self-test: every linter of the lint phase + bats; kcov only under
-# `just test coverage` (just test [lint|coverage|system|...])
+# Self-test: every linter + bats (just test [lint|coverage|system|...])
 mod? test 'script/test/justfile.test'
 # Release / publish tooling (just release <recipe>)
 mod? release 'script/release/justfile.release'
