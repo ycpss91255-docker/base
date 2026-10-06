@@ -867,11 +867,45 @@ _all_group_members() {
 # failure the grouping itself is built to avoid -- so the spec is
 # validated rather than trusted, and an index outside its own total is
 # refused with the malformed ones.
+#
+# A refusal-only case is satisfied by the feature's ABSENCE, which is the
+# defect base#1090 is about: with the `--lint-group-members` arm deleted
+# from the option parser, every spec below -- good and bad alike -- fell
+# to `Unknown option` and this case still reported `ok 1` of 1, measured
+# on 1c9ccb2. So the refusals are framed by two positives: an in-range
+# spec is ACCEPTED and lists the whole table, and no refusal below is
+# allowed to be the parser's. Together those say the option is present,
+# reads a spec, and refuses only the specs it should.
 @test "lint groups: a group spec that is not <n>/<total> in range is refused (base#1071)" {
+  # Present and behaving. The accepted spec and the expected listing are
+  # both derived from the lint tables, so this half moves with them: at
+  # one group the partition IS the table, and one group is also the only
+  # total that is in range whatever the table's size.
+  local -a _expected=()
+  mapfile -t _expected < <(_grouped_lints)
+  [ "${#_expected[@]}" -ge 13 ] \
+    || fail "the lint tables yielded ${#_expected[@]} grouped lints; they did not parse"
+
+  run /source/script/test/test.sh --lint-group-members 1/1
+  assert_success
+  local _listed
+  _listed="$(printf '%s\n' "${_expected[@]}")"
+  [ "${output}" = "${_listed}" ] \
+    || fail "--lint-group-members 1/1 listed '${output}' where the table's ${#_expected[@]} grouped lints are '${_listed}'; an in-range spec has to be ACCEPTED, or the refusals below are satisfied by the option not existing"
+
+  # And the last index of a partition as wide as the table: in range by
+  # derivation rather than by a number written here.
+  run /source/script/test/test.sh --lint-group-members "${#_expected[@]}/${#_expected[@]}"
+  assert_success
+
   local _spec
   for _spec in "" "4" "0/4" "5/4" "1/0" "one/four" "1/4/4" "-1/4"; do
     run /source/script/test/test.sh --lint-group-members "${_spec}"
     assert_failure
+    # The refusal has to be the spec validator's, not the option parser
+    # having never heard of the flag. Both refuse; only one of them means
+    # what this case claims.
+    refute_output --partial "Unknown option"
   done
 }
 
@@ -3383,14 +3417,31 @@ AWK
   assert_output --partial "COVERAGE_PATH=test/bats/unit/ci_spec.bats"
   assert_output --partial "BATS_FILTER=shard"
   assert_output --partial "BATS_ONLY=1"
-  # Never a shard: the mode names its target, it does not partition.
-  refute_output --regexp 'COVERAGE_SHARD=[0-9]'
-  # And never a job count. This mode runs ONE spec; a forwarded
-  # COVERAGE_LOCAL_JOBS is a whole-suite parallel run's selector, and it is
-  # ignored here only because the in-container dispatch happens to read
+  # Never a shard: the mode names its target, it does not partition. And
+  # never a job count: this mode runs ONE spec, while a forwarded
+  # COVERAGE_LOCAL_JOBS is a whole-suite parallel run's selector, ignored
+  # here only because the in-container dispatch happens to read
   # COVERAGE_PATH first. An ignored value carried into the container is the
-  # value that a later reordering turns into a read one -- which is the
-  # argument this dispatch's own comment makes about COVERAGE_SHARD.
+  # value a later reordering turns into a read one.
+  #
+  # Each refutation is paired with the positive that makes it mean
+  # something, because a refutation on its own is satisfied by the
+  # forwarder not carrying the selector AT ALL -- the defect base#1090 is
+  # about. Measured on 1c9ccb2: with both `-e COVERAGE_SHARD=` and
+  # `-e COVERAGE_LOCAL_JOBS=` deleted from `_run_via_compose`'s dispatch,
+  # this case still reported `ok 1` of 1.
+  #
+  # The pairing is also the real contract rather than a prop for the
+  # refutation. The mode CLEARS these selectors; it does not omit them. An
+  # omitted `-e` leaves the container to take the name from the service
+  # definition instead of from the dispatch, so the one place that decides
+  # what this mode runs would no longer be the dispatch -- which is why
+  # `_run_via_compose` forwards each as `-e NAME="${NAME:-}"` and why
+  # coverage_local_spec's roster guard reads that shape off this very
+  # dispatch.
+  assert_output --partial "COVERAGE_SHARD="
+  refute_output --regexp 'COVERAGE_SHARD=[0-9]'
+  assert_output --partial "COVERAGE_LOCAL_JOBS="
   refute_output --regexp 'COVERAGE_LOCAL_JOBS=[0-9]'
 }
 
