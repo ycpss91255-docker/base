@@ -21,9 +21,13 @@
 # why single-quoting is not a fix for this defect even though it reads like
 # one.
 #
-# SECOND, a backslash-escaped backtick is a literal one, and the catalogue
-# generator already unescapes it back to a plain backtick when it renders a
-# row, so the escaped spelling is the fix that keeps a code span in a name.
+# SECOND, a backslash-escaped backtick is a literal one: the catalogue
+# generator unescapes it back to a plain backtick when it renders a row, so
+# nothing is executed and this lint reports nothing. It is still not the fix
+# base#1200 took, because `--filter` is matched against the name as the SOURCE
+# writes it, so the backslashes stay in the one string the filter sees. The
+# fix is to drop the backticks and write the code span in single quotes
+# inside the name, which 178 of this tree's names already do.
 #
 # Detection runs against a controlled temp REPO_ROOT, never the live
 # checkout: the tree is asserted by the `lint-static` group that runs this
@@ -143,10 +147,11 @@ _write() {
 # _run_test_name_backtick: must-keep (no false positives)
 # ════════════════════════════════════════════════════════════════════
 
-# why: The fix the failure message tells the author to make. If the escaped
-# spelling were a finding too there would be no way to keep a code span in
-# a name, and the lint would be pushing people to reword 4848 names
-@test "_run_test_name_backtick: PASSES a backslash-escaped backtick, which is the recommended fix" {
+# why: The boundary of the rule. An escaped backtick is a literal one, so there
+# is nothing to execute and nothing to report; a lint that flagged it would
+# be refusing a name bats leaves alone, and would read as licence to widen
+# until it refused every backtick
+@test "_run_test_name_backtick: PASSES a backslash-escaped backtick, which bats leaves alone" {
   _write "test/bats/unit/x_spec.bats" \
     '@test "acceptance drives \`just template new\` end-to-end" {' \
     '}'

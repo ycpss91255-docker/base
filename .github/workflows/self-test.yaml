@@ -548,10 +548,16 @@ jobs:
     #                     in every run and in every coverage shard -- and
     #                     the name it then reports is the substitution's
     #                     OUTPUT, which puts the TAP output and doc/test/
-    #                     out of agreement. Quoting is not the fix: bats
-    #                     supplies its own, so a single-quoted name is
-    #                     expanded too; a backslash-escaped backtick is a
-    #                     literal one and the catalogue already unescapes it
+    #                     out of agreement. Changing the SHELL quoting is
+    #                     not the fix: bats supplies its own, so a
+    #                     single-quoted name is expanded too. Write the code
+    #                     span in single quotes INSIDE the name, as 178
+    #                     names here already do, which keeps it the same
+    #                     bytes in the source, the TAP output and the
+    #                     catalogue row -- an escaped backtick is inert too
+    #                     and goes unreported, but `--filter` matches the
+    #                     SOURCE, so its backslashes stop the catalogue row
+    #                     being pasteable into one
     #
     # GROUPED, not one job per driver, and not one job for the phase
     # (base#1071). One job per driver read best in the checks list -- the

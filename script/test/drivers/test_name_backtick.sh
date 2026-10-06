@@ -60,14 +60,32 @@
 # single-quoting is not a fix for this defect even though it reads like
 # one.
 #
-# What IS a fix is the backslash. An escaped backtick is a literal one --
-# row 3 above -- and the catalogue generator already collapses `\`` to a
-# bare backtick when it renders a row (_spec_marker_unescape_into in
+# ── What a fix looks like, and why the backslash is not the first one ───
+#
+# TWO spellings leave nothing to execute, and they are not equivalent.
+#
+# DROP the backticks, and write the code span the way 178 of this tree's
+# names already write one -- in single quotes inside the double-quoted
+# name, 'just template new'. The name is then the same bytes in the
+# source, in the TAP output and in the catalogue row.
+#
+# ESCAPE them. An escaped backtick is a literal one -- row 3 above -- and
+# the catalogue generator collapses it back to a bare backtick when it
+# renders a row (_spec_marker_unescape_into in
 # script/test/spec-markers.sh, there "so a row can be pasted straight into
-# --filter"). So a name that wants a code span writes `\`...\``: bats
-# registers the backticks, the catalogue prints the same characters, and
-# nothing is executed. That is what base#1200 changed its two names to, and
-# it is why an escaped backtick is deliberately NOT a finding here.
+# --filter"). So bats registers the backticks and the catalogue prints
+# them, and nothing runs. It is NOT a finding here, because there is
+# nothing to find.
+#
+# base#1200 took the first, on a third measured fact: `--filter` is matched
+# against the name as the SOURCE writes it, not against the name bats
+# registers. bats-gather-tests takes its `description` straight from the
+# preprocessed line and never eval's it, so an escaped source keeps its
+# backslashes in the only string the filter sees -- `--filter` on the
+# catalogue row stops matching, which is the property the unescaping above
+# exists to provide. The tree's twenty-odd backslash-escaped `$` names are
+# already in that state; two more is the wrong direction, and single
+# quotes are what the tree reaches for anyway.
 #
 # ── Scope ───────────────────────────────────────────────────────────────
 #
@@ -233,7 +251,7 @@ _run_test_name_backtick() {
     # not-reached "clean" echo unreachable even where a caller stubs _die
     # to return instead of exit (e.g. the unit harness).
     _die ci_test_name_backtick \
-      "${#_rows[@]} '@test' name(s) carrying an unescaped backtick, across the ${#_files[@]} *.bats file(s) in this repo. bats eval's a test name when it REGISTERS the test (lib/bats-core/test_functions.bash, \"use eval to resolve variable references in test names\"), so a live backtick there is command substitution that runs once per registration -- with no test selected, in every run and in every coverage shard -- and the name bats then reports is the substitution's OUTPUT, not the name in the source, which puts the TAP output and doc/test/ out of agreement. Quoting is not the fix: bats supplies its own quotes, so a single-quoted name is expanded too. Escape it -- '\\\`just template new\\\`' -- which the catalogue generator already unescapes back to a plain backtick, or drop the backticks from the name."
+      "${#_rows[@]} '@test' name(s) carrying an unescaped backtick, across the ${#_files[@]} *.bats file(s) in this repo. bats eval's a test name when it REGISTERS the test (lib/bats-core/test_functions.bash, \"use eval to resolve variable references in test names\"), so a live backtick there is command substitution that runs once per registration -- with no test selected, in every run and in every coverage shard -- and the name bats then reports is the substitution's OUTPUT, not the name in the source, which puts the TAP output and doc/test/ out of agreement. Changing the SHELL quoting is not the fix: bats supplies its own quotes, so a single-quoted name is expanded too. Drop the backticks and write the span the way 178 names here already do, in single quotes inside the name -- 'just template new' -- which leaves the name identical in the source, in the TAP output and in the catalogue row. A backslash-escaped backtick is inert too and this lint does not report it, but --filter is matched against the name as the SOURCE writes it, so the backslashes stay in the one string the filter sees and the catalogue row stops being pasteable into it."
     return 1
   fi
   echo "@test name backtick lint: clean (${_names} test name(s) across ${#_files[@]} spec file(s))"

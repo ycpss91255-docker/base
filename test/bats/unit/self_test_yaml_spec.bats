@@ -581,7 +581,7 @@ _job_comments() {
   assert_output --partial 'just base completions install'
 }
 
-@test "self-test.yaml: acceptance drives `just template new` end-to-end and asserts the consumer artifact (#785)" {
+@test "self-test.yaml: acceptance drives 'just template new' end-to-end and asserts the consumer artifact (#785)" {
   # Coverage gap: new.sh is unit-tested in isolation,
   # but the `just template new <name>` RECIPE -- the template module
   # wiring + the consumer symlink chain that resolves it -- is exercised
@@ -667,7 +667,7 @@ _job_comments() {
   assert_output --partial "if: needs.classify.outputs.code_changed == 'true'"
 }
 
-@test "self-test.yaml: no monolithic `test:` job remains after #377 split" {
+@test "self-test.yaml: no monolithic 'test:' job remains after #377 split" {
   # a `test` job ran shellcheck + bats sequentially.
   # peeled shellcheck out, splits the rest into bats-unit
   # (matrix) + bats-integration. The old job is fully removed.

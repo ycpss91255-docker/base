@@ -804,9 +804,9 @@ Options:
                           is command substitution it runs once per
                           registration with no test selected, and the name
                           it then reports is the substitution's output
-                          rather than the name in the source. Write each
-                          backtick backslash-escaped, which the catalogue
-                          generator unescapes back to a plain one)
+                          rather than the name in the source. Write the
+                          code span in single quotes inside the name, as
+                          178 names here already do)
   --just-provenance       With --lint: run only the just provenance pin
                           lint (every site under dockerfile/,
                           .github/workflows/, dist/ or script/ that
