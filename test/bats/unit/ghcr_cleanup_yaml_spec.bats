@@ -160,13 +160,20 @@ readonly _DELETION_ACTION="uses:[[:space:]]*['\"]?[A-Za-z0-9._-]+/(delete-packag
 # the segment may be preceded by start-of-line, a separator, or a `/`, so
 # `superusers/x/packages/` is not read as the `users` route.
 readonly _DELETION_API_PATH='(^|[^A-Za-z0-9._-])(user|users/[^/[:space:]]+|orgs/[^/[:space:]]+)/packages/'
-# The separator between the flag and its value is NOT part of the operation:
-# `--method DELETE`, `--method=DELETE` and `-XDELETE` are one flag written
-# three ways, and a pattern keyed on the whitespace reads the third as no
-# deletion at all. Zero or more of space and `=` is deliberately permissive —
-# over-matching a verb costs nothing, since a file is a surface only when it
-# also carries the packages path.
-readonly _DELETION_API_VERB='(--method|-X)[[:space:]=]*DELETE|method:[[:space:]]*.?DELETE'
+# The VERB, not the flag that carries it. `-X DELETE`, `--method DELETE`,
+# `--request DELETE`, `--method=DELETE`, `--method "DELETE"`, `-XDELETE` and
+# a YAML `method: DELETE` are one operation written seven ways, and every
+# pattern that enumerated the flag spellings was a roster one more spelling
+# walked past. So the method token itself is what is read: an uppercase
+# `DELETE` standing on its own, plus the `-X`-attached form, which is the one
+# spelling with no boundary in front of it.
+#
+# The cost, stated rather than hidden: a code line that merely says the word
+# `DELETE` in a file that also names the packages route reads as a deletion.
+# That is the safe direction for a destructive operation -- it asks, loudly,
+# instead of assuming -- and the bound is the case below: an input name like
+# `delete-untagged` is lowercase and is not the method.
+readonly _DELETION_API_VERB='(^|[^A-Za-z0-9_]|-X)DELETE([^A-Za-z0-9_]|$)'
 
 # The footgun, named in two parts: the action, and the input that makes it
 # destructive. Named separately so a swap back is caught even if either
@@ -410,6 +417,66 @@ _exclude_tags() {
   run _deletion_surfaces "${SCRATCH}/wf"
   assert_success
   assert_output "${SCRATCH}/wf/slashless.yaml"
+}
+
+# why: curl spells the same flag `--request`, and a pattern that enumerates
+# flag names is a roster of the ways somebody might have typed it
+@test "GHCR deletion surface: a curl --request DELETE is a surface (#1089)" {
+  # The flag NAME is not the operation. `--request DELETE` is `-X DELETE` is
+  # `--method DELETE`; the verb is what deletes, so the verb is what the
+  # pattern reads.
+  _wf cleanup \
+    '      - uses: dataaxiom/ghcr-cleanup-action@d52806a0dc70b430571a37da1fde39733ffd640f # v1.2.2'
+  _wf request \
+    'jobs:' \
+    '  prune:' \
+    '    steps:' \
+    '      - run: curl --request DELETE https://api.github.com/orgs/ycpss91255-docker/packages/container/test-tools/versions/123'
+  run _deletion_surfaces "${SCRATCH}/wf"
+  assert_success
+  assert_output --partial "${SCRATCH}/wf/request.yaml"
+  run _deletion_surface_verdict "${SCRATCH}/wf"
+  assert_failure
+  assert_output --partial '2 workflows in'
+  assert_output --partial 'request.yaml'
+}
+
+# why: A quoted verb is the same verb, and the quoting is no more part of the
+# operation than the flag name is
+@test "GHCR deletion surface: a quoted DELETE method value is a surface (#1089)" {
+  _wf cleanup \
+    '      - uses: dataaxiom/ghcr-cleanup-action@d52806a0dc70b430571a37da1fde39733ffd640f # v1.2.2'
+  _wf quotedverb \
+    'jobs:' \
+    '  prune:' \
+    '    steps:' \
+    '      - run: gh api --method "DELETE" orgs/ycpss91255-docker/packages/container/test-tools/versions/123'
+  run _deletion_surfaces "${SCRATCH}/wf"
+  assert_success
+  assert_output --partial "${SCRATCH}/wf/quotedverb.yaml"
+  run _deletion_surface_verdict "${SCRATCH}/wf"
+  assert_failure
+  assert_output --partial '2 workflows in'
+  assert_output --partial 'quotedverb.yaml'
+}
+
+# why: The bound on reading the verb rather than the flag: `delete-untagged`
+# is an input name, not an HTTP method
+@test "GHCR deletion surface: a lowercase delete word is not the HTTP verb (#1089)" {
+  # Reading the VERB instead of a flag roster needs a bound, or every
+  # `delete-untagged` / `delete-tags` input name beside a packages path would
+  # read as a REST deletion. The method is the uppercase token; an input name
+  # is not one.
+  _wf lowercase \
+    'jobs:' \
+    '  report:' \
+    '    steps:' \
+    '      - run: |' \
+    '          delete_rule="delete-untagged"' \
+    '          gh api "/orgs/ycpss91255-docker/packages/container/test-tools/versions"'
+  run _deletion_surfaces "${SCRATCH}/wf"
+  assert_success
+  assert_output ''
 }
 
 # why: A `curl` against the absolute api.github.com URL deletes exactly what

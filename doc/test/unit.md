@@ -2701,7 +2701,7 @@ exit $?`; a failing pre-exec hook aborts before `compose exec` runs).
 | `generated-workflow-actions: a generator that is not named *.sh is scanned (#987)` | A *.sh glob is a roster of file shapes, and the non-vacuity backstop cannot notice the gap because the one known generator keeps the count at 1 |
 | `generated-workflow-actions: ignores an UNTRACKED generator (#987)` | This driver shares the pin registry's walk, so an untracked generator is outside its population too -- one population, not two that can drift (#987) |
 
-### test/bats/unit/ghcr_cleanup_yaml_spec.bats (40)
+### test/bats/unit/ghcr_cleanup_yaml_spec.bats (43)
 
 Structural assertions for this repo's GHCR package-DELETION surface, DERIVED
 from `.github/workflows/` by the deletion operation a workflow performs
@@ -2747,6 +2747,9 @@ party can move under a job holding `packages: write`.
 | `GHCR deletion surface: the manifest-aware cleanup action is a surface (#1089)` | The action this repo actually uses has to classify as a surface, or the live gate reads an empty population |
 | `GHCR deletion surface: a hand-rolled packages-API DELETE is a surface (#1089)` | A hand-rolled packages-API DELETE deletes just as hard as an action does, and needs no third party to recognise |
 | `GHCR deletion surface: a packages-API DELETE with no leading slash is a surface (#1089)` | `gh api` takes the endpoint with or without a leading slash, and the slashless spelling is the one in GitHub's own examples |
+| `GHCR deletion surface: a curl --request DELETE is a surface (#1089)` | curl spells the same flag `--request`, and a pattern that enumerates flag names is a roster of the ways somebody might have typed it |
+| `GHCR deletion surface: a quoted DELETE method value is a surface (#1089)` | A quoted verb is the same verb, and the quoting is no more part of the operation than the flag name is |
+| `GHCR deletion surface: a lowercase delete word is not the HTTP verb (#1089)` | The bound on reading the verb rather than the flag: `delete-untagged` is an input name, not an HTTP method |
 | `GHCR deletion surface: an absolute api.github.com DELETE is a surface (#1089)` | A `curl` against the absolute api.github.com URL deletes exactly what a `gh api` relative endpoint deletes, and needs no `gh` on the runner |
 | `GHCR deletion surface: a word ending in users is not the users route (#1089)` | The boundary that keeps the path match honest: a longer word ending in `users` is not the `users` route |
 | `GHCR deletion surface: an --method=DELETE packages call is a surface (#1089)` | `--method=DELETE` is the same flag as `--method DELETE`, and a classifier keyed on the separator is keyed on nothing that matters |
