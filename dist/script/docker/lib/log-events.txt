@@ -182,6 +182,16 @@ init_rollback_failed
 smoke_tree_migrated
 smoke_tree_migration_conflict
 
+# version_migrate.sh (migrations bound to the release they land in; emitted
+# under the init service because the resync is the only caller). The window
+# body and the unreadable body are deliberately separate: "there was no
+# interval to cross" and "there was one and it could not be read" are
+# different situations, and only the second is one a consumer must act on.
+interval_migration_window
+interval_migration_applied
+interval_migration_unreadable
+interval_migration_declined
+
 # gitignore.sh (managed .gitignore blocks; emitted under the init service
 # because init.sh / upgrade.sh are the only callers)
 gitignore_managed_block_invalid

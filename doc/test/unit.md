@@ -7763,6 +7763,38 @@ policy is never rewritten).
 | `check-base-version.sh still resolves its default with no override set (#895)` | - |
 | `a caller's TEMPLATE_REMOTE still wins over the shared default (#895)` | - |
 
+### test/bats/unit/version_migrate_spec.bats (17)
+
+The version interval an upgrade crossed is what selects a version-bound
+migration, and every way of failing to read that interval ends in the same
+observable place -- no migration ran. The integration arm can only produce
+the clean upgrade; these craft the histories that are not one (bootstrap,
+standalone resync, shallow clone, a vendored tree carrying no version) and
+pin that each reports itself differently, because only some of them mean a
+consumer was silently owed work. Selection order, boundaries, an unusable
+declaration and a failing migration are here for the same reason: a real
+upgrade shows one interval, not the arithmetic.
+
+| Test | Description |
+|------|-------------|
+| `interval_migrations excludes the version arrived from and includes the version arrived at (base#1097)` | The interval is half-open and both ends are a decision. The from-version's migrations ran when the consumer arrived there, so re-running them is the double-apply this shape exists to prevent; the to-version's are the release being installed right now, so dropping them is the whole job not done. A closed or open-at-the-wrong-end interval passes any arm that only checks the middle |
+| `interval_migrations orders by version ascending, not by declaration order (base#1097)` | Declaration order is where an author appends, and version order is what a migration set means -- an entry for an older release must run before one for a newer release even when it was written later. Those agree until the first out-of-order append, which is exactly when nobody is looking |
+| `interval_migrations breaks a same-version tie by declaration order (base#1097)` | Two migrations landing in one release have no version to order them by, so something else has to be the answer and it has to be stable. Declaration order is the only thing an author controls |
+| `interval_migrations treats a release candidate as the release it is a candidate for (base#1097)` | A release candidate of a release carries that release's migrations. Ordering the rc below the release it belongs to would run them on the rc and then again on the release -- harmless only because they are idempotent, and wrong in the log both times |
+| `interval_migrations reports a declaration it cannot select and keeps the rest (base#1097)` | An entry that can never be selected is base's own bug, and the only symptom is a migration that silently never runs. Reporting it on every upgrade rather than on the ones that would have selected it is the difference between finding it here and finding it at a consumer |
+| `interval_migrations reports a declaration whose apply function is missing (base#1097)` | A declared name with no apply behind it is the same silence by a different route -- the selection is correct and nothing happens. It is the shape a rename inside the lib produces |
+| `run_interval_migrations applies what the crossed interval covers and reports the interval (base#1097)` | The clean upgrade through the resolver rather than through a released driver. It is what makes every negative arm below mean something: without it they are all satisfied by a runner that never runs anything |
+| `run_interval_migrations keeps no record, so a second run over the same interval applies again (base#1097)` | There is no ledger of what has run, deliberately, so the second entry into the same interval applies the same migrations again. That IS the contract -- idempotence is the migration's job -- and a reader who assumes otherwise writes a migration that doubles. The arm exists to make the absence of the ledger a stated property rather than an oversight |
+| `run_interval_migrations reports a failing migration, skips the rest, and does not fail the resync (base#1097)` | A failing migration inside an ordered set has two wrong answers. Let it abort and the resync dies at upgrade Step 3, where no released driver up to v0.42.0 arms a rollback -- the pull stays committed and the repo is left half-upgraded. Carry on and the next migration runs over a tree the failed one left half-written |
+| `run_interval_migrations runs nothing when HEAD is not a merge (base#1097)` | The standalone resync. `just base init` is a repair command a user runs whenever they like, and on a committed tree HEAD is no merge at all -- so there is no pair to select on and nothing is owed. A runner that read the installed version alone would re-apply every migration ever declared on every invocation |
+| `run_interval_migrations runs nothing outside a git repo (base#1097)` | The documented bootstrap. A repo is set up by hand before `git` is even in the picture, and init.sh is the first thing to run in it -- the path that must not be a warning, because nothing is wrong |
+| `run_interval_migrations runs nothing when the first parent predates the subtree (base#1097)` | `git subtree add --squash` also lands a two-parent merge, so "HEAD is a merge" is not the question -- whether the first parent had the subtree is. A first bootstrap has crossed nothing, and the arm below is the same git shape with the opposite answer |
+| `run_interval_migrations warns, rather than reporting no interval, when the version it came from is missing (base#1097)` | The pair this mechanism's worst failure is made of. A vendored subtree with no version in it is NOT a bootstrap: a version interval was crossed, its migrations were skipped, and the repo looks exactly like the arm above unless the two report differently. Guessing is not available either -- there is no floor version to run everything from without knowing what the repo is |
+| `run_interval_migrations warns when the version it came from cannot be ordered (base#1097)` | The same class through the other door -- a version file that is present and says something nothing can order. A hand-edited `.version`, a merge conflict left in it, a branch name |
+| `run_interval_migrations warns when a shallow history has grafted the first parent away (base#1097)` | A shallow clone is the one case git itself erases: it GRAFTS the parents away, so a subtree-pull merge on the shallow boundary reads back as a root commit and is byte-identical to the standalone-resync arm above. Reading the parent count alone therefore reports "nothing was crossed" about a repo that crossed a release -- the one answer that looks healthy and is wrong. It is also CI's default checkout |
+| `run_interval_migrations warns when the installed version cannot be ordered (base#1097)` | The other half of the pair can be unreadable too, and it is the half the caller supplies. An empty or junk installed version would otherwise compare as 0.0.0 and select nothing at all -- silently, which is the shape every arm here exists to refuse |
+| `run_interval_migrations warns when the version moved backwards (base#1097)` | A re-established subtree or a hand-pinned downgrade moves the version backwards, which makes the interval empty rather than wrong -- but silence there would mean the one case where a migration genuinely cannot help is indistinguishable from a bug in the selection |
+
 ### test/bats/unit/watchdog_spec.bats (18)
 
 Pure-logic (kcov-safe) unit tests for

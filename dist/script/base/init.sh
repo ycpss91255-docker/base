@@ -68,6 +68,8 @@ source "${TEMPLATE_DIR}/dist/script/docker/lib/dockerfile_migrate.sh"
 source "${TEMPLATE_DIR}/dist/script/docker/lib/smoke_migrate.sh"
 # shellcheck disable=SC1091
 source "${TEMPLATE_DIR}/dist/script/docker/lib/setup_conf_migrate.sh"
+# shellcheck disable=SC1091
+source "${TEMPLATE_DIR}/dist/script/docker/lib/version_migrate.sh"
 
 _log() { _log_info init init_progress "display=$*"; }
 
@@ -1173,6 +1175,7 @@ _init_disarm_rollback() {
 # ── Existing repo initialization ────────────────────────────────────────────
 
 _init_existing_repo() {
+  local _installed_version="${1:-}"
   _INIT_WROTE=()
   _init_arm_rollback
   _log "Existing repo detected (Dockerfile found)"
@@ -1195,6 +1198,19 @@ _init_existing_repo() {
   # what SEEDS a default `.setup.conf` and so destroys the evidence that
   # the repo ever had a configuration of its own.
   _migrate_legacy_setup_conf "${REPO_ROOT}" "${TEMPLATE_DIR}/dist"
+  # And then the migrations that are bound to a RELEASE rather than to a
+  # shape in the tree. The two above infer for themselves whether they still
+  # apply, which is what makes them repairs a repo can re-run at any time;
+  # the set this runs instead asks what version interval this commit crossed
+  # -- the version the subtree-pull merge's first parent carried, up to the
+  # one now on disk -- and selects on that. Placed in the same band as the
+  # two above, and for the same reason: it is the earliest point in an
+  # upgrade that runs current code, and nothing has regenerated yet.
+  #
+  # Nothing runs where there is no interval to cross, which is every
+  # invocation that is not an upgrade: a standalone `just base init`, a
+  # bootstrap, a re-established subtree. See the runner's own notes.
+  run_interval_migrations "${REPO_ROOT}" "${TEMPLATE_REL}" "${_installed_version}"
   _create_symlinks
   _sync_existing_gitignore
   # ensure the pre/post hook scaffolding exists. Idempotent;
@@ -2041,7 +2057,10 @@ EOF
 
   local _resynced=false
   if _init_repo_is_existing; then
-    _init_existing_repo
+    # The version on disk is the `to` half of the upgrade pair the resync's
+    # version-bound migrations select on; it is resolved here because that is
+    # where it is already read.
+    _init_existing_repo "${template_version}"
     _resynced=true
   else
     _create_new_repo "${template_version:-main}"

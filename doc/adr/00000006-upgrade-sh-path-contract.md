@@ -281,6 +281,54 @@
   unless the list below names that path, so a rename inside base that
   updates every code reference still goes red -- the only way to satisfy it
   is to decide, in this file, that the contract has changed.
+- **Amended:** 2026-10-06 by #1097 -- the 2026-09-06 amendment settled WHERE
+  a migration across a base layout change belongs: the `init.sh` resync,
+  never `upgrade.sh`. It did not say how such a migration knows whether it
+  still applies, and the answer in practice was that each one works it out
+  from the shape of the tree. Three consumer-facing failures this cycle
+  (#919, #1077, #1086) were each fixed by moving one more thing into the
+  resync and writing one more shape test, which means the next one is
+  discovered the same way: by a consumer.
+
+  The pair a release-bound migration needs is already in the consumer's
+  repository. `git subtree pull --squash` lands a TWO-PARENT merge commit
+  whose first parent is the pre-upgrade state, so at Step 3 -- after the pull
+  has committed and before anything has regenerated -- `from` is
+  `<prefix>/.version` at `HEAD^1` and `to` is the one on disk. Verified on a
+  real consumer: `ros2_distro`'s upgrade commit reads `v0.34.0` at its first
+  parent and `v0.41.0` at itself. `lib/version_migrate.sh` reads that pair
+  and runs the declared migrations in `from < V <= to`.
+
+  **The addition to the contract:** the consumer's own git history is the
+  migration ledger, and base cannot rewrite it. Two things follow and both
+  are permanent. First, the SHAPE: every released `upgrade.sh` already
+  produces the merge this reads, so the derivation must keep agreeing with
+  histories that have already been written -- a later release may not decide
+  that `from` means something else. Second, the PAIRING: once a release ships
+  declaring a migration at version V, which consumers get it is fixed by
+  their histories, so re-pointing a shipped migration at a different version
+  silently changes its population. A migration's version is append-only in
+  exactly the way an Alembic revision is.
+
+  This adds no path to the frozen list below. Nothing is generated into a
+  consumer and nothing new is named by an already-released caller: the
+  registry and the runner live inside `init.sh`'s own subtree, which the pull
+  replaces wholesale, so the window is `init.sh`'s and no wider.
+
+  Keeping a ledger of applied migrations in the consumer was the alternative
+  and is rejected: it would be a new file base writes into someone else's
+  repo and then has to keep reading forever -- the unbounded window the
+  2026-10-06 amendment above was written about -- to buy a property the
+  history already gives. The cost is that a resync re-entered before the pull
+  is committed selects the same interval again, so idempotence is each
+  migration's own obligation; that is the same obligation every heal in the
+  family already carries.
+
+  The guard is behavioural. `prev_release_upgrade_spec.bats` declares a
+  migration bound to a version inside the interval in the release being
+  installed, drives the real released `upgrade.sh`, and asserts that one ran
+  and that the ones outside the interval did not. Measured on the unfixed
+  tree it cannot even seed: nothing in the published release declares one.
 
 ## Context
 
