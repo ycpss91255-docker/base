@@ -2701,7 +2701,7 @@ exit $?`; a failing pre-exec hook aborts before `compose exec` runs).
 | `generated-workflow-actions: a generator that is not named *.sh is scanned (#987)` | A *.sh glob is a roster of file shapes, and the non-vacuity backstop cannot notice the gap because the one known generator keeps the count at 1 |
 | `generated-workflow-actions: ignores an UNTRACKED generator (#987)` | This driver shares the pin registry's walk, so an untracked generator is outside its population too -- one population, not two that can drift (#987) |
 
-### test/bats/unit/ghcr_cleanup_yaml_spec.bats (33)
+### test/bats/unit/ghcr_cleanup_yaml_spec.bats (36)
 
 Structural assertions for this repo's GHCR package-DELETION surface, DERIVED
 from `.github/workflows/` by the deletion operation a workflow performs
@@ -2746,6 +2746,9 @@ party can move under a job holding `packages: write`.
 | `GHCR deletion surface: a workflow calling the footgun action is a surface (#1089)` | The footgun in a workflow this spec never named is the live fail-open base#1089 measured: a declared path left it green |
 | `GHCR deletion surface: the manifest-aware cleanup action is a surface (#1089)` | The action this repo actually uses has to classify as a surface, or the live gate reads an empty population |
 | `GHCR deletion surface: a hand-rolled packages-API DELETE is a surface (#1089)` | A hand-rolled packages-API DELETE deletes just as hard as an action does, and needs no third party to recognise |
+| `GHCR deletion surface: a packages-API DELETE with no leading slash is a surface (#1089)` | `gh api` takes the endpoint with or without a leading slash, and the slashless spelling is the one in GitHub's own examples |
+| `GHCR deletion surface: a double-quoted action reference is a surface (#1089)` | A quoted `uses:` is an ordinary YAML spelling of the same call, and a classifier that reads one quote style is a classifier with a hole |
+| `GHCR deletion surface: a single-quoted action reference is a surface (#1089)` | The other quote style, pinned on its own so the match cannot quietly accept one and miss the other |
 | `GHCR deletion surface: reading the packages API is not a deletion (#1089)` | The packages path alone is a READ; classifying it as a deletion surface would make listing versions a hazard |
 | `GHCR deletion surface: a comment naming a pruner is not a call to it (#1089)` | The cleanup workflow's header NAMES the footgun to say why it is absent; prose must not read as the operation it describes |
 | `GHCR deletion surface: a workflow that only pulls is not a surface (#1089)` | A consumer contributes no surface, or every workflow naming the package would be gated as a deleter |

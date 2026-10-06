@@ -139,15 +139,24 @@ bats_require_minimum_version 1.5.0
 #                                obvious substitution is seen too.
 #
 # The owner is matched loosely (`<anything>/<name>@`) on purpose: a fork of
-# the footgun deletes exactly what the original does.
-readonly _DELETION_ACTION='uses:[[:space:]]*[A-Za-z0-9._-]+/(delete-package-versions|ghcr-cleanup-action|container-retention-policy)@'
+# the footgun deletes exactly what the original does. An optional quote
+# after `uses:` is accepted in both styles, because a quoted scalar is an
+# ordinary YAML spelling of the same call and the guard exists to catch a
+# deleter added by accident, not one written in the idiom the guard happened
+# to expect.
+readonly _DELETION_ACTION="uses:[[:space:]]*['\"]?[A-Za-z0-9._-]+/(delete-package-versions|ghcr-cleanup-action|container-retention-policy)@"
 
 # The hand-rolled form: a `DELETE` against the packages API. Matched as two
 # independent per-FILE conditions rather than one per-line pattern, because
 # a `gh api` call spreads the verb and the path over separate continued
 # lines. Generic by design — a bespoke deleter does not have to be a known
 # action to be reported.
-readonly _DELETION_API_PATH='/(user|users/[^/[:space:]]+|orgs/[^/[:space:]]+)/packages/'
+#
+# The leading slash is OPTIONAL: `gh api orgs/<org>/packages/...` is as valid
+# as `gh api /orgs/...` and is the spelling GitHub's own examples use. What
+# precedes the endpoint is therefore required to be a non-path character, so
+# `superusers/x/packages/` is not read as `users/x/packages/`.
+readonly _DELETION_API_PATH='(^|[^A-Za-z0-9._/-])/?(user|users/[^/[:space:]]+|orgs/[^/[:space:]]+)/packages/'
 readonly _DELETION_API_VERB='(--method|-X)[[:space:]]+DELETE|method:[[:space:]]*.?DELETE'
 
 # The footgun, named in two parts: the action, and the input that makes it
@@ -376,6 +385,53 @@ _exclude_tags() {
   run _deletion_surfaces "${SCRATCH}/wf"
   assert_success
   assert_output "${SCRATCH}/wf/bespoke.yaml"
+}
+
+# why: `gh api` takes the endpoint with or without a leading slash, and the
+# slashless spelling is the one in GitHub's own examples
+@test "GHCR deletion surface: a packages-API DELETE with no leading slash is a surface (#1089)" {
+  # `gh api orgs/...` is as valid as `gh api /orgs/...` and is what GitHub's
+  # own documentation writes. A pattern that required the slash left the
+  # slashless deleter out of the population entirely.
+  _wf slashless \
+    'jobs:' \
+    '  prune:' \
+    '    steps:' \
+    '      - run: gh api --method DELETE orgs/ycpss91255-docker/packages/container/test-tools/versions/123'
+  run _deletion_surfaces "${SCRATCH}/wf"
+  assert_success
+  assert_output "${SCRATCH}/wf/slashless.yaml"
+}
+
+# why: A quoted `uses:` is an ordinary YAML spelling of the same call, and a
+# classifier that reads one quote style is a classifier with a hole
+@test "GHCR deletion surface: a double-quoted action reference is a surface (#1089)" {
+  # The guard exists to catch a deleter added by accident, not one written
+  # in the idiom the guard happened to expect. The OPERATION decides; the
+  # quoting around the reference is not part of it.
+  _wf quoted \
+    'jobs:' \
+    '  cleanup:' \
+    '    steps:' \
+    '      - uses: "dataaxiom/ghcr-cleanup-action@d52806a0dc70b430571a37da1fde39733ffd640f"' \
+    '        with:' \
+    '          delete-tags: "*"'
+  run _deletion_surfaces "${SCRATCH}/wf"
+  assert_success
+  assert_output "${SCRATCH}/wf/quoted.yaml"
+}
+
+# why: The other quote style, pinned on its own so the match cannot quietly
+# accept one and miss the other
+@test "GHCR deletion surface: a single-quoted action reference is a surface (#1089)" {
+  _wf squoted \
+    'jobs:' \
+    '  purge:' \
+    '    steps:' \
+    "      - uses: 'actions/delete-package-versions@e5bc658cc4c965c472efe991f8beea3981499c55'"
+  run _deletion_surfaces "${SCRATCH}/wf"
+  assert_success
+  assert_output "${SCRATCH}/wf/squoted.yaml"
 }
 
 # why: The packages path alone is a READ; classifying it as a deletion
