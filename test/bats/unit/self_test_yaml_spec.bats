@@ -931,7 +931,35 @@ _job_comments() {
   run yaml_job_lines "${WF}" classify
   assert_success
   assert_output --partial 'testtools_changed:'
-  assert_output --partial "-- 'dockerfile/Dockerfile.test-tools'"
+  assert_output --partial 'testtools_paths[@]'
+}
+
+# why: The tooling image's inputs are READ, not restated. The step named one
+# pathspec, the Dockerfile's, and the image has more inputs than that: a
+# stage that COPYs a file out of the build context bakes that file's content
+# in, so a PR editing only it took the pull path and ran the suite inside an
+# image built before the edit. What each path DECIDES is asserted by driving
+# the step in classify_testtools_spec.bats; what this test owns is that the
+# step keeps no second roster of its own -- a pathspec quoted back into it is
+# a list that is correct the day it is written and wrong the next time
+# someone adds a COPY.
+@test "self-test.yaml: classify reads the tooling image's inputs, it does not restate them (#1171)" {
+  run yaml_job_lines "${WF}" classify
+  assert_success
+  assert_output --partial 'script/ci/testtools_paths.sh'
+  refute_output --partial "-- 'dockerfile/Dockerfile.test-tools'"
+}
+
+# why: An unreadable or refused input list must not read as "nothing the
+# tooling image is built from changed", and must not reach `git diff` as an
+# EMPTY pathspec list either -- that compares the whole diff and reports
+# every PR as touching the image. The two failures are silent in opposite
+# directions, so the empty case is answered before the diff and says so.
+@test "self-test.yaml: classify fails open when it cannot derive those inputs (#1171)" {
+  run yaml_job_lines "${WF}" classify
+  assert_success
+  assert_output --partial '"${#testtools_paths[@]}" -eq 0'
+  assert_output --partial 'could not derive the tooling image'
 }
 
 @test "self-test.yaml: image jobs gate the rebuild on classify's testtools_changed (#734)" {
@@ -944,16 +972,62 @@ _job_comments() {
 
 # ── self-maintaining shard-weights cache (time-balanced partition) ──
 
-@test "self-test.yaml: coverage shards restore the shard-weights cache before partitioning (#733)" {
-  # The greedy-LPT partition weights specs by recorded kcov seconds; each
-  # shard restores the cached weights to the in-repo path _spec_weight reads
-  # by default, so every shard computes the identical (exhaustive + disjoint)
-  # partition. A cache miss degrades to the @test-count fallback.
-  run yaml_job_lines "${WF}" coverage
+# why: The producer half of the single-source rule. A partition is a
+# partition of the suite only when every shard weighed the specs the same
+# way, so there is exactly ONE place the weights blob is fetched -- the job
+# every shard already waits on. A second lookup anywhere is a second
+# opportunity for the matrix to read two different blobs.
+@test "self-test.yaml: compute-shards restores the shard-weights cache ONCE for the whole matrix (#733, #1114)" {
+  run yaml_job_lines "${WF}" compute-shards
   assert_success
   assert_output --partial 'actions/cache/restore'
   assert_output --partial 'test/bats/.shard-weights'
   assert_output --partial 'shard-weights-'
+}
+
+# why: The lookup being single is worth nothing unless its RESULT is what
+# the shards partition by, so the restored blob leaves compute-shards as a
+# declared job output. Undeclared, the expression below it resolves to the
+# empty string and all twelve shards silently fall back to @test counts.
+@test "self-test.yaml: compute-shards publishes the restored weights as a job output (#1114)" {
+  run yaml_job_lines "${WF}" compute-shards
+  assert_success
+  assert_output --partial 'weights: ${{ steps.weights.outputs.blob }}'
+}
+
+# why: The load-bearing case of base#1114. Twelve shards each looking the
+# cache up for itself is twelve reads of a key whose newest entry changes
+# on every main push: the exact key cannot hit while the shards run, so
+# every shard fell through to the `shard-weights-` prefix, and a shard
+# re-run after a later merge partitions against a NEWER blob than its
+# siblings used. Each then keeps its slice of a different partition, every
+# slice non-empty, and a spec can land in none of them.
+@test "self-test.yaml: no coverage shard looks the weights cache up for itself (#1114)" {
+  run yaml_job_lines "${WF}" coverage
+  assert_success
+  refute_output --partial 'actions/cache'
+  assert_output --partial 'needs.compute-shards.outputs.weights'
+  assert_output --partial 'test/bats/.shard-weights'
+}
+
+# why: The detector half, and the one that would have caught the defect
+# from the outside: coverage-gate already holds every shard's timings, so
+# it can say whether the twelve slices covered the suite it just published
+# a rate for. It must read the file the merge step wrote, so the order of
+# the two steps is part of the assertion.
+@test "self-test.yaml: coverage-gate refuses a matrix that did not cover the suite (#1114)" {
+  run yaml_job_lines "${WF}" coverage-gate
+  assert_success
+  assert_output --partial '--coverage-union-check test/bats/.shard-weights'
+
+  local _merge _check
+  _merge="$(printf '%s\n' "${output}" \
+    | awk '/--merge-timings/ { print NR; exit }')"
+  _check="$(printf '%s\n' "${output}" \
+    | awk '/--coverage-union-check/ { print NR; exit }')"
+  [ -n "${_merge}" ]
+  [ -n "${_check}" ]
+  [ "${_check}" -gt "${_merge}" ]
 }
 
 @test "self-test.yaml: coverage-gate merges shard timings into the weights file (#733)" {

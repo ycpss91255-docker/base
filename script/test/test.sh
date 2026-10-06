@@ -908,6 +908,22 @@ Options:
                           local run and CI) cannot change what runs.
                           Rejected with --coverage / --coverage-shard /
                           --bats-path (#887)
+  --coverage-union-check FILE
+                          Check the MERGED per-shard run manifest FILE
+                          (`<seconds> <basename>`, the file
+                          `coverage_gate.sh --merge-timings` writes from
+                          every coverage shard's coverage/timings.tsv)
+                          against the inventory of what a full coverage
+                          run covers, and exit non-zero NAMING every spec
+                          that ran in no shard. Answers on this host and
+                          stops: no compose, no test-tools image. The
+                          matrix's slices are a partition of the suite
+                          only while every shard partitioned by the same
+                          weights, and a spec that ran nowhere cannot
+                          turn the coverage gate red by itself -- with a
+                          ratio for a floor, dropping a well-covered spec
+                          can push the reported rate UP. What the
+                          coverage-gate job runs after the merge
   --test-tools-image      Print the local test-tools tag this checkout
                           resolves (a content hash of
                           dockerfile/Dockerfile.test-tools together with
@@ -1267,6 +1283,79 @@ _measured_coverage_scope() {
     <(printf '%s\n' "${_inventory}") <(printf '%s\n' "${_measured}") \
     | grep -c . || true)"
   printf 'partial %s/%s specs\n' "${_matched}" "${_total}"
+}
+
+# _coverage_union_gap <manifest> [root] -- print, one per line, the specs
+# the inventory names and <manifest> does NOT.
+#
+# <manifest> is the UNION of the coverage matrix's per-shard run manifests:
+# the file `coverage_gate.sh --merge-timings` writes from every shard's
+# coverage/timings.tsv, which is also the weights file the NEXT partition
+# reads. Same key space as _measured_coverage_scope above (`<seconds>
+# <basename>`), asked a different question -- that one reports how much of
+# the suite ONE run measured, this one names what the matrix as a whole
+# left out.
+#
+# WHY THE MATRIX CAN LEAVE A SPEC OUT. Greedy-LPT partitions the pool PER
+# WEIGHT SOURCE: each shard computes the whole partition and keeps its own
+# slice, so the slices are a partition of the suite only if every shard
+# weighed the specs identically. Shards that read different weights each
+# hold a slice of a DIFFERENT partition, and their union is neither
+# exhaustive nor disjoint. Nothing else in the matrix can tell: a slice of
+# either partition is non-empty, so _shard_unit_files' empty-shard guard
+# stays quiet; the merge keys on basename, so a spec two shards both ran
+# reads as one entry; and the only trace left by a spec that ran NOWHERE is
+# the absence of its entry, which is what this prints.
+#
+# Empty output means every spec a full run covers was reported by some
+# shard. Returns 1, printing nothing, when there is nothing to compare --
+# an unreadable manifest, a manifest naming no spec, or an inventory that
+# enumerated nothing would each make a gap of zero mean nothing.
+_coverage_union_gap() {
+  local _manifest="${1:?BUG: _coverage_union_gap expects a manifest path}"
+  local _root="${2:-${REPO_ROOT}}"
+  [[ -s "${_manifest}" ]] || return 1
+  local _inventory _measured
+  _inventory="$(_coverage_spec_inventory "${_root}")" || return 1
+  [[ -n "${_inventory}" ]] || return 1
+  _measured="$(awk '($2 != "") { print $2 }' "${_manifest}" \
+    | LC_ALL=C sort -u)"
+  [[ -n "${_measured}" ]] || return 1
+  LC_ALL=C comm -23 \
+    <(printf '%s\n' "${_inventory}") <(printf '%s\n' "${_measured}")
+}
+
+# _gate_coverage_union <manifest> [root] -- the coverage matrix's partition
+# invariant, read back off the evidence instead of assumed.
+#
+# ADR-00000008 merges the shard reports on the strength of every slice
+# running exactly once, guaranteed by an exhaustive and disjoint partition,
+# and until base#1114 nothing downstream re-derived that. It has to be
+# re-derived because the consequences of its being false are invisible in
+# the direction that matters: a spec that ran in no shard cannot turn the
+# PRIMARY unit gate red, and because the floor is a ratio, dropping a
+# well-covered spec can push the reported rate UP.
+#
+# The coverage-gate job already holds the evidence -- it downloads every
+# shard's timings and merges them -- so this costs a comparison and no new
+# plumbing. Prints the union size and returns 0 when the manifest names
+# every spec in the inventory; _die's, NAMING the absent specs, when it
+# does not.
+_gate_coverage_union() {
+  local _manifest="${1:?BUG: _gate_coverage_union expects a manifest path}"
+  local _root="${2:-${REPO_ROOT}}"
+  local _gap _total _absent
+  if ! _gap="$(_coverage_union_gap "${_manifest}" "${_root}")"; then
+    _die ci_coverage_union_unevidenced \
+      "no shard-union evidence to check: ${_manifest} names no spec, or ${_root} enumerates no coverage pool. A gap of zero measured over no evidence is not a partition, so this refuses rather than reporting one."
+  fi
+  _total="$(_coverage_spec_inventory "${_root}" | grep -c .)"
+  if [[ -n "${_gap}" ]]; then
+    _absent="$(printf '%s\n' "${_gap}" | tr '\n' ' ')"
+    _die ci_coverage_union_incomplete \
+      "$(printf '%s' "${_gap}" | grep -c .) spec(s) of ${_total} ran in NO coverage shard, so the matrix did not cover the suite it reported a rate for: ${_absent}-- the slices are a partition only when every shard partitioned by the SAME weights, and a shard that read a different test/bats/.shard-weights (a re-run against a newer cache entry, or a per-shard lookup) keeps its slice of a different partition. The merged rate and the floor verdict above it are measured over the specs that DID run."
+  fi
+  printf 'coverage shard union: %s/%s specs, exhaustive\n' "${_total}" "${_total}"
 }
 
 # _stamp_coverage_head [root] -- record, next to the reports, the sha they
@@ -2401,6 +2490,10 @@ main() {
   # `--await-project`. Recorded rather than answered on the spot: see the
   # dispatch below the flag-combination guards.
   local name_query="" repair=""
+  # Neither a query nor a repair: a CHECK over a file the caller names.
+  # Recorded rather than answered on the spot, for the same reason the
+  # queries are -- see the dispatch below the flag-combination guards.
+  local union_check=""
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -2476,6 +2569,7 @@ main() {
       --coverage-local) mode="coverage"; coverage_local=1; shift ;;
       --jobs) coverage_jobs="${2:?--jobs expects <n>}"; shift 2 ;;
       --coverage-shard) mode="coverage"; coverage_shard="${2:?--coverage-shard expects <n>/<total>}"; shift 2 ;;
+      --coverage-union-check) union_check="${2:?--coverage-union-check expects <manifest-file>}"; shift 2 ;;
       --system) system=1; shift ;;
       --test-tools-image) name_query="test-tools-image"; shift ;;
       --compose-project-name) name_query="compose-project-name"; shift ;;
@@ -2541,6 +2635,18 @@ main() {
     case "${repair}" in
       clean-coverage) _clean_coverage "${REPO_ROOT}"; exit $? ;;
     esac
+  fi
+
+  # A CHECK over a file, not a query and not a run: it reads the merged
+  # per-shard manifest the coverage-gate job just built and refuses when
+  # the matrix did not cover the suite. Deferred to here for the reason
+  # above it -- a mid-loop exit would take the verdict before the guards
+  # had run and before the rest of the command line had been read, so a
+  # misspelt flag after it would never be reported. `return`, not `exit`:
+  # it mints nothing for the EXIT handler to sweep.
+  if [[ -n "${union_check}" ]]; then
+    _gate_coverage_union "${union_check}"
+    return 0
   fi
 
   # The host-direct lint primitives (`--shellcheck-only`,

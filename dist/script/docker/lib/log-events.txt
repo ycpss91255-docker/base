@@ -187,6 +187,8 @@ smoke_tree_migration_conflict
 gitignore_managed_block_invalid
 gitignore_managed_block_migrated
 gitignore_managed_block_orphans
+gitignore_untrack_ls_files_failed
+gitignore_untrack_rm_failed
 
 # template_guard.sh (init/upgrade self-run guard)
 base_self_run_refused
@@ -211,6 +213,8 @@ ci_invalid_coverage_jobs
 ci_coverage_parallel_empty_slice
 ci_coverage_slice_no_report
 ci_coverage_merge_failed
+ci_coverage_union_unevidenced
+ci_coverage_union_incomplete
 ci_coverage_clean_absent
 ci_coverage_cleaned
 ci_coverage_not_reclaimed
