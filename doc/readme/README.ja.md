@@ -1245,13 +1245,13 @@ jobs:
 | `extra_files` | string | いいえ | `""` | 追加ファイル（スペース区切り） |
 | `version` | string | いいえ | `""` | リリースするバージョン（`vX.Y.Z`）。tag 経由の経路では未設定のままにすると、push された tag から読み取られる。tag 以外の run からこの worker を直接呼ぶ場合に渡す：既定の `GITHUB_TOKEN` で作成されたイベントは新しい workflow run を開始しないため、マージ済みの変更を自動リリースする repo は tag を push しても到達できない。`vX.Y.Z[-suffix]` でない値はリリースされず拒否される |
 
-<!-- sync: running-template-tests 99915e065e54 ca811a89e1d9 -->
+<!-- sync: running-template-tests d17e2a643fbc cfbe6f1fa628 -->
 ## ローカルテスト実行
 
 `script/test/justfile.test`（template ルートから）を使用：
 ```bash
 just test        # 高速 CI（ShellCheck + Hadolint + Bats、no kcov）docker compose 経由
-just test coverage    # フル CI（同じ内容を kcov 付きで）
+just test coverage    # Bats 全体を kcov 配下で実行；lint フェーズは無し
 just test lint        # lint フェーズの全 linter（ShellCheck + Hadolint とその他）
 just test clean       # カバレッジレポート削除
 just test stop        # この checkout の自己テストコンテナを停止

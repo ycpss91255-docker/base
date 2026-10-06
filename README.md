@@ -1758,7 +1758,7 @@ is a curated deliverable rather than a snapshot of the source.
 Using `script/test/justfile.test` (from template root):
 ```bash
 just test        # Fast CI (ShellCheck + Hadolint + Bats, no kcov) via docker compose
-just test coverage    # Full CI (the same, under kcov)
+just test coverage    # The Bats suite under kcov; no lint phase
 just test lint        # Every linter the lint phase runs (ShellCheck + Hadolint + the rest)
 just test clean       # Remove coverage reports
 just test stop        # Stop this checkout's self-test containers

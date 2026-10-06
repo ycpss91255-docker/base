@@ -142,10 +142,21 @@ _write_drift_libs() {
 # `_run_via_compose ci` call passes, and the _LINT_TOOLS table.
 _write_runner() {
   local _cov="${1:-0}"
+  local _lint_under_coverage="${2:-0}"
   {
     printf '%s\n' '#!/usr/bin/env bash' 'readonly _LINT_TOOLS=('
     printf '%s\n' '  shellcheck' '  hadolint' '  issueref' ')'
     printf '  _run_via_compose ci %s\n' "${_cov}"
+    # The guard the coverage-entry rule reads: COVERAGE named in the
+    # condition around the phase call is what makes a coverage run skip it.
+    if [[ "${_lint_under_coverage}" == '1' ]]; then
+      printf '%s\n' 'if [[ "${BATS_ONLY:-0}" != "1" ]]; then' \
+        '  _run_all_lint_tools' 'fi'
+    else
+      printf '%s\n' \
+        'if [[ "${BATS_ONLY:-0}" != "1" && "${COVERAGE:-0}" != "1" ]]; then' \
+        '  _run_all_lint_tools' 'fi'
+    fi
   } > "${SCRATCH}/script/test/test.sh"
 }
 
@@ -434,7 +445,9 @@ _append() {
 # why: Same exclusion through the other channel the runner is narrowed by, so
 #       the dispatcher's own --coverage examples stay legal
 @test "_run_derived_figures: a flag is not the default run either (base#1121)" {
-  _write_readme '```bash' './test.sh --coverage   # ShellCheck + Bats + Kcov' '```'
+  # Named without a linter, because the coverage-entry rule below has its own
+  # case: this one is only about the default-run question.
+  _write_readme '```bash' './test.sh --coverage   # Bats under kcov' '```'
   run _run_derived_figures
   [ "${status}" -eq 0 ]
 }
@@ -709,4 +722,72 @@ _append() {
   run _run_derived_figures
   [ "${status}" -ne 0 ]
   [[ "${output}" == *"does not say so"* ]]
+}
+
+# why: The predicate behind the coverage-entry rule, in both states of the
+# guard -- read it wrong and the rule either never fires or fires on prose
+# that is correct
+@test "_derived_coverage_skips_lint: reads the guard around the lint phase call (base#1121)" {
+  local _skip=''
+  _derived_coverage_skips_lint _skip
+  [ "${_skip}" = "1" ]
+  _write_runner 0 1
+  _derived_coverage_skips_lint _skip
+  [ "${_skip}" = "0" ]
+}
+
+# why: With no call site the question is unanswerable, and a lint that
+# answers it anyway would hold prose to an assumption
+@test "_derived_coverage_skips_lint: REFUSES when no guarded call site exists (base#1121)" {
+  printf '%s\n' '#!/usr/bin/env bash' '  _run_via_compose ci 0' \
+    > "${SCRATCH}/script/test/test.sh"
+  local _skip=''
+  run _derived_coverage_skips_lint _skip
+  [ "${status}" -ne 0 ]
+}
+
+# why: A coverage run sets the one flag the lint phase guard excludes, so an
+# annotation naming a linter there reports checks nothing performed -- the
+# dispatcher's own help had said "ShellCheck + Hadolint + Bats + Kcov"
+@test "_run_derived_figures: FAILS when a coverage entry is documented as running a linter (base#1121)" {
+  _write_readme '```bash' 'just test coverage   # ShellCheck + Hadolint + Bats + Kcov' '```'
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"no linter runs"* ]]
+}
+
+# why: The flag spelling reaches the same dispatch, so it must be the same
+# question -- otherwise the rule covers the README and misses the help text
+@test "_run_derived_figures: the coverage FLAG spelling is the same claim (base#1121)" {
+  _write_readme '```bash' './test.sh --coverage-shard N/T   # kcov plus ShellCheck' '```'
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"no linter runs"* ]]
+}
+
+# why: The corrected wording has to pass, and the rule has to retire itself if
+# the guard ever stops excluding coverage
+@test "_run_derived_figures: a coverage annotation that claims no linter is clean (base#1121)" {
+  _write_readme '```bash' 'just test coverage   # Bats under kcov (the lint phase is skipped)' '```'
+  run _run_derived_figures
+  [ "${status}" -eq 0 ]
+  _write_runner 0 1
+  _write_readme '```bash' 'just test coverage   # ShellCheck + Hadolint + Bats + Kcov' '```'
+  run _run_derived_figures
+  [ "${status}" -eq 0 ]
+}
+
+# why: A worked example in a header block is indented under its own comment
+# marker; an invocation that has to reach the first character of the body
+# would leave every such block folded into the prose line above it and
+# entirely unjudged
+@test "_run_derived_figures: an indented example in a comment block is judged (base#1121)" {
+  _append 'script/test/justfile.test' \
+    '# Examples:' \
+    '#   just test   # ShellCheck + Bats + Kcov' \
+    '#   just test lint   # ShellCheck only'
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"coverage 0"* ]]
+  [[ "${output}" == *"shellcheck alone"* ]]
 }

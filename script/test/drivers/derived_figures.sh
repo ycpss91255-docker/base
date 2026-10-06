@@ -431,6 +431,39 @@ _derived_test_subcommands() {
   ' "${REPO_ROOT}/script/test/justfile.test"
 }
 
+# _derived_coverage_skips_lint <out_var> -- 1 when a coverage dispatch does NOT
+# run the lint phase, 0 when it does. Read off the guard around the full
+# pipeline's `_run_all_lint_tools` call: `COVERAGE` named in that condition is
+# what makes the phase skipped under coverage, so a documented coverage run
+# that claims the linters ran is naming checks nothing performed. Returns
+# non-zero when no call site is found at all -- the question is then
+# unanswerable and the lint must refuse rather than assume.
+_derived_coverage_skips_lint() {
+  local -n _skip_out="$1"
+  _skip_out=0
+  local -a _conds=()
+  mapfile -t _conds < <(awk '
+    /^[[:space:]]*if \[\[/   { cond = $0 }
+    /_run_all_lint_tools/     { if (cond != "") print cond }
+  ' "${REPO_ROOT}/${_DERIVED_FIGURES_RUNNER}")
+  [[ "${#_conds[@]}" -gt 0 ]] || return 1
+  local _c
+  for _c in "${_conds[@]}"; do
+    [[ "${_c}" == *COVERAGE* ]] && _skip_out=1
+  done
+  return 0
+}
+
+# _derived_is_coverage_entry <token> -- does this argument name one of the
+# instrumented entries? Leading dashes are stripped, so the subcommand
+# (`coverage`, `coverage-local`, `coverage-path`) and the flag spelling of the
+# same thing (`--coverage`, `--coverage-shard`) are one question.
+_derived_is_coverage_entry() {
+  local _tok="${1#--}"
+  _tok="${_tok#-}"
+  [[ "${_tok}" == 'coverage' || "${_tok}" == coverage-* ]]
+}
+
 # _derived_lint_tools -- the entries of test.sh's _LINT_TOOLS table, one per
 # line. PARSED, never sourced: the table is a literal in a file this driver
 # only reads, and sourcing the dispatcher would drag in its whole lib chain.
@@ -535,7 +568,12 @@ _derived_fold_annotations() {
     /^[[:space:]]*#[[:space:]]*$/ { flush(); next }
     /^[[:space:]]*#/ {
       body = $0
-      sub(/^[[:space:]]*#[[:space:]]?/, "", body)
+      # ALL leading whitespace goes, not one space: a worked example in a
+      # header block is indented under its `#`, and an invocation that does
+      # not reach the start of the body opens no annotation -- which would
+      # fold every example in the block into the prose line above it and
+      # leave the whole block unjudged.
+      sub(/^[[:space:]]*#[[:space:]]*/, "", body)
       if (!open || body ~ inv) {
         flush()
         start = FNR
@@ -552,7 +590,7 @@ _derived_fold_annotations() {
 }
 
 # _derived_scan_cmd_annotations <file> <rel> <coverage> <subcmds_var>
-#                              <lint_tools_var>
+#                              <lint_tools_var> <coverage_skips_lint>
 #
 # Report every documented invocation whose annotation disagrees with the
 # code. Prints one violation per hit and returns the count.
@@ -560,6 +598,7 @@ _derived_scan_cmd_annotations() {
   local _file="$1" _rel="$2" _coverage="$3"
   local -n _subcmds_in="$4"
   local -n _lint_tools_in="$5"
+  local _coverage_skips_lint="$6"
 
   local _has_shellcheck=0 _has_hadolint=0 _tool
   for _tool in "${_lint_tools_in[@]}"; do
@@ -614,6 +653,20 @@ _derived_scan_cmd_annotations() {
       elif (( ! _claims_kcov )); then
         printf '%s:%s: the default self-test measures coverage (_run_via_compose ci passes %s) and this annotation does not say so\n' \
           "${_rel}" "${_lineno}" "${_coverage}"
+        _violations=$(( _violations + 1 ))
+      fi
+      continue
+    fi
+
+    # An instrumented entry. The coverage dispatch sets COVERAGE=1, which is
+    # exactly the flag the full pipeline's lint-phase guard excludes, so an
+    # annotation that names a linter there tells a reader ShellCheck and
+    # Hadolint passed when neither ran.
+    if (( _coverage_skips_lint )) && _derived_is_coverage_entry "${_toks[0]}" \
+      && (( _has_shellcheck || _has_hadolint )); then
+      if [[ "${_annot,,}" == *shellcheck* || "${_annot,,}" == *hadolint* ]]; then
+        printf '%s:%s: a coverage run sets COVERAGE=1, which is the flag the lint phase guard excludes, so no linter runs -- this annotation names one\n' \
+          "${_rel}" "${_lineno}"
         _violations=$(( _violations + 1 ))
       fi
       continue
@@ -954,11 +1007,18 @@ _run_derived_figures() {
     return 1
   fi
 
+  local _coverage_skips_lint=''
+  if ! _derived_coverage_skips_lint _coverage_skips_lint; then
+    _die ci_derived_figures \
+      "found no _run_all_lint_tools call under an if in ${_DERIVED_FIGURES_RUNNER} -- whether a coverage run reaches the lint phase is then unanswerable, and prose about it cannot be judged."
+    return 1
+  fi
+
   for _file in "${_cmd_surfaces[@]}"; do
     _hits=0
     _derived_scan_cmd_annotations \
       "${_file}" "${_file#"${REPO_ROOT}"/}" "${_coverage}" _subcmds \
-      _lint_tools || _hits=$?
+      _lint_tools "${_coverage_skips_lint}" || _hits=$?
     _violations=$(( _violations + _hits ))
   done
 

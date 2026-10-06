@@ -1157,13 +1157,13 @@ worker 以自身 ref 取出的 base checkout 中的 `.version` 推導而來，�
 | `extra_files` | string | 否 | `""` | 額外檔案（空格分隔） |
 | `version` | string | 否 | `""` | 要發布的版本（`vX.Y.Z`）。走 tag 觸發路徑時留空，版本會從所推的 tag 讀出。若要從非 tag 的 run 直接呼叫這個 worker 就傳入它：用預設 `GITHUB_TOKEN` 產生的事件不會啟動新的 workflow run，所以要自動發布已合併變更的 repo，靠推 tag 到不了這裡。不是 `vX.Y.Z[-suffix]` 的值會被拒絕，而不是照樣拿來發布 |
 
-<!-- sync: running-template-tests 99915e065e54 cc9e5a5c3e29 -->
+<!-- sync: running-template-tests d17e2a643fbc 191f355dcf03 -->
 ## 本地執行測試
 
 base 自身測試入口是 `just test`（由 `script/test/justfile.test` 提供）：
 ```bash
 just test        # 快速 CI（ShellCheck + Hadolint + Bats，no kcov）透過 docker compose
-just test coverage    # 完整 CI（同上，加上 kcov）
+just test coverage    # Bats 全套跑在 kcov 下；不跑 lint 階段
 just test lint        # lint 階段的全部 linter（ShellCheck + Hadolint 及其餘）
 just test clean       # 清除覆蓋率報表
 just test stop        # 停掉本 checkout 自我測試的容器

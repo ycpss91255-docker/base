@@ -2075,7 +2075,7 @@ refused before any build or bundle step.
 | `setup_tui --help names the distinction in all four locales (#879)` | - |
 | `setup.sh --help distinguishes the deploy subcommand from the section (#879)` | - |
 
-### test/bats/unit/derived_figures_lint_spec.bats (53)
+### test/bats/unit/derived_figures_lint_spec.bats (59)
 
 | Test | Description |
 |------|-------------|
@@ -2132,6 +2132,12 @@ refused before any build or bundle step.
 | `_run_derived_figures: a bare comment line detaches the continuation (base#1121)` | Folding must stop somewhere or an unrelated paragraph below an example gets read as part of its claim; a bare comment line is the separator this repo already uses for exactly that |
 | `_run_derived_figures: FAILS on a denied kcov claim when coverage is enabled (base#1121)` | With coverage ENABLED, an annotation that explicitly denies kcov is the contradiction -- reading the negation only in the disabled branch let the corrected wording survive a coverage migration unchanged |
 | `_run_derived_figures: the without-kcov spelling is denied too when coverage is enabled (base#1121)` | The other spelling of the same negation, so the enabled branch is not fixed for one word and broken for the next |
+| `_derived_coverage_skips_lint: reads the guard around the lint phase call (base#1121)` | The predicate behind the coverage-entry rule, in both states of the guard -- read it wrong and the rule either never fires or fires on prose that is correct |
+| `_derived_coverage_skips_lint: REFUSES when no guarded call site exists (base#1121)` | With no call site the question is unanswerable, and a lint that answers it anyway would hold prose to an assumption |
+| `_run_derived_figures: FAILS when a coverage entry is documented as running a linter (base#1121)` | A coverage run sets the one flag the lint phase guard excludes, so an annotation naming a linter there reports checks nothing performed -- the dispatcher's own help had said "ShellCheck + Hadolint + Bats + Kcov" |
+| `_run_derived_figures: the coverage FLAG spelling is the same claim (base#1121)` | The flag spelling reaches the same dispatch, so it must be the same question -- otherwise the rule covers the README and misses the help text |
+| `_run_derived_figures: a coverage annotation that claims no linter is clean (base#1121)` | The corrected wording has to pass, and the rule has to retire itself if the guard ever stops excluding coverage |
+| `_run_derived_figures: an indented example in a comment block is judged (base#1121)` | A worked example in a header block is indented under its own comment marker; an invocation that has to reach the first character of the body would leave every such block folded into the prose line above it and entirely unjudged |
 
 ### test/bats/unit/doc_counts_spec.bats (26)
 
