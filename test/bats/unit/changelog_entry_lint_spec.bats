@@ -1516,6 +1516,71 @@ _entry_text() {
   [[ "${output}" -ge 1 ]]
 }
 
+# why: The refactor that gave the folder the lint's allow map had to be
+# behaviour-preserving, and this is the case it was not: the inline pass set the
+# skip map as it walked, so a second allow-begin left the first region's lines
+# hidden. Measured at 2 suppressed before, 1 after -- a line the lint had
+# stopped measuring with nothing to say so.
+@test "_run_changelog_entry: a second allow-begin does not expose the lines before it (#1103)" {
+  _write_changelog \
+    '### Fixed' \
+    '' \
+    '- **one** (PR #1) -- the live block.' \
+    '' \
+    '<!-- changelog-entry-lint: allow-begin -- outer -->' \
+    '- **exempt** (PR #2) -- inside the outer region.' \
+    '<!-- changelog-entry-lint: allow-begin -- inner -->' \
+    '- **also exempt** (PR #3) -- inside the inner one.' \
+    '<!-- changelog-entry-lint: allow-end -->'
+  run _run_changelog_entry
+  assert_success
+  # Both exempted entries, not just the one after the second marker.
+  assert_output --partial '2 suppressed by an allow region'
+}
+
+# why: What the exposure above cost the rewriter, reproduced: an exempted
+# '### Added' became a block the fold felt free to move, so it reordered lines
+# out of a region and left the outer begin marker dangling over somebody else's
+# entry -- a file the lint then refuses, written by the command run to fix it.
+# The two Fixed blocks around the region ARE a duplicate and do fold; the
+# region has to travel inside the survivor as one piece.
+@test "_run_changelog_entry_fix: a nested allow region travels as one piece (#1103)" {
+  _write_changelog \
+    '### Fixed' \
+    '' \
+    '- **one** (PR #1) -- the live block.' \
+    '' \
+    '<!-- changelog-entry-lint: allow-begin -- outer -->' \
+    '### Added' \
+    '' \
+    '- **exempt** (PR #2) -- inside the outer region.' \
+    '<!-- changelog-entry-lint: allow-begin -- inner -->' \
+    '- **also exempt** (PR #3) -- inside the inner one.' \
+    '<!-- changelog-entry-lint: allow-end -->' \
+    '### Fixed' \
+    '' \
+    '- **two** (PR #4) -- the second live block.'
+  run _run_changelog_entry_fix
+  assert_success
+  assert_equal "$(_headings '### Fixed')" 1
+  # The region's own lines keep their order and their nesting: outer begin,
+  # the exempted heading, the inner begin, the end. A fold that moved the
+  # heading out put it ABOVE the outer marker, which is how the marker came to
+  # dangle.
+  local _outer _added _inner _end
+  _outer="$(grep -n -F -- 'allow-begin -- outer' "${CHANGELOG}" | cut -d: -f1)"
+  _added="$(grep -n -x -F -- '### Added' "${CHANGELOG}" | head -n 1 | cut -d: -f1)"
+  _inner="$(grep -n -F -- 'allow-begin -- inner' "${CHANGELOG}" | cut -d: -f1)"
+  _end="$(grep -n -F -- 'allow-end' "${CHANGELOG}" | cut -d: -f1)"
+  [[ "${_outer}" -lt "${_added}" ]]
+  [[ "${_added}" -lt "${_inner}" ]]
+  [[ "${_inner}" -lt "${_end}" ]]
+  # And the lint accepts it, still seeing both exempted entries as exempt.
+  run _run_changelog_entry
+  assert_success
+  assert_output --partial '2 suppressed by an allow region'
+}
+
 # why: Two spellings of one heading are one category to the lint, which compares
 # them with whitespace collapsed -- so they are a duplicate, and the survivor has
 # to be written in one spelling or the file keeps a difference nothing reads.

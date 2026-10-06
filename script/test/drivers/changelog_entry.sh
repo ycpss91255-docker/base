@@ -544,6 +544,18 @@ _changelog_entry_allow_map() {
         continue
         ;;
       begin)
+        # A SECOND begin inside an open region does not reopen it from
+        # scratch. The inline pass this replaced set the skip map as it
+        # walked, so the lines the first begin had already hidden stayed
+        # hidden; buffering them and then clearing the buffer exposed them
+        # instead -- measured as two suppressed entries becoming one, with
+        # nothing to say so, and the rewriter then free to move an exempted
+        # heading out of the region and leave its marker dangling. Only the
+        # lines since the LATEST begin are the ones an unterminated region
+        # hands back, so flush before resetting.
+        if [[ "${_am_in}" -eq 1 ]] && [[ "${#_am_open[@]}" -gt 0 ]]; then
+          _am_hidden+=( "${_am_open[@]}" )
+        fi
         _am_in=1
         _am_begin_line=$(( _am_i + 1 ))
         _am_open=()
