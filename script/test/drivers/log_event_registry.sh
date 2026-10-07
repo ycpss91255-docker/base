@@ -198,7 +198,18 @@ readonly _LER_AWK='
 # any other unregistered id -- and is exactly the typo this lint should
 # catch. The only thing the scan cannot resolve is a body carrying an
 # EXPANSION, so that is the only thing it declines.
-function _is_literal(t) { return (t != "" && t !~ /[$`]/) }
+function _is_literal(t) { return (t !~ /[$`]/) }
+# The record separator is a tab, and a body can CONTAIN one: `$'\t'`
+# decodes to it. Written verbatim the record splits and the reader takes
+# a different word as the body. Encoded on the way out, decoded for the
+# membership test, and shown encoded in the report so a finding stays
+# one readable line.
+function _enc(t) {
+  gsub(/%/, "%25", t)
+  gsub(/\t/, "%09", t)
+  gsub(/\n/, "%0A", t)
+  return t
+}
 # A redirection operator, and the descriptor-duplication half of one.
 function _is_redir(t) { return (t ~ /^(<|>|<<|>>|<>)$/) }
 # The ARGUMENTS of the command at index <ci>, by token index, in order.
@@ -500,13 +511,13 @@ function _scan(line, ln,   n, i, m, d, K, T, Q, A, SUB, cmd, skip, subs, k) {
       m = _args(K, T, n, i, A)
       if (m >= 2) {
         direct++
-        if (_is_literal(T[A[2]])) printf "ID\t%s\t%s\t%d\n", T[A[2]], FILENAME, ln
+        if (_is_literal(T[A[2]])) printf "ID" US "%s" US "%s" US "%d\n", _enc(T[A[2]]), FILENAME, ln
       }
     } else if ((T[i] in fwd) && !((FILENAME "|" T[i]) in shadow)) {
       m = _args(K, T, n, i, A)
       if (m >= 1) {
         wrapped++
-        if (_is_literal(T[A[1]])) printf "ID\t%s\t%s\t%d\n", T[A[1]], FILENAME, ln
+        if (_is_literal(T[A[1]])) printf "ID" US "%s" US "%s" US "%d\n", _enc(T[A[1]]), FILENAME, ln
       }
     }
     cmd = 0
@@ -686,6 +697,11 @@ function _candidate(line) {
   return (fwdre != "" && line ~ fwdre)
 }
 BEGIN {
+  # The ID / SEEN records are separated by a UNIT SEPARATOR, not a tab.
+  # A tab is IFS whitespace, so the reading shell collapses a run of
+  # them and drops an empty field -- which is exactly the empty-body
+  # case, and a body can carry a tab of its own as well.
+  US = sprintf("%c", 31)
   n = split(FWDS, a, "\n")
   for (i = 1; i <= n; i++) if (a[i] != "") {
     fwd[a[i]] = 1
@@ -758,7 +774,7 @@ PHASE == "emit" {
 END {
   if (PHASE == "emit") {
     if (buf != "" && (_ARR_DEPTH > 0 || _candidate(buf))) _scan(buf, startln)
-    printf "SEEN\t%d\t%d\n", direct + 0, wrapped + 0
+    printf "SEEN" US "%d" US "%d\n", direct + 0, wrapped + 0
   }
 }
 '
@@ -921,8 +937,10 @@ _run_log_event_registry() {
   _emit="$(awk -v PHASE=emit -v FWDS="${_fwds}" -v SHADOWS="${_shadows}" \
              "${_LER_AWK}" "${_LER_FILES[@]}")"
 
+  local _us=$'\037'
   local _seen_line _direct=0 _wrapped=0
-  _seen_line="$(printf '%s\n' "${_emit}" | awk -F'\t' '$1=="SEEN"{print $2" "$3}')"
+  _seen_line="$(printf '%s\n' "${_emit}" \
+    | awk -v FS="${_us}" '$1=="SEEN"{print $2" "$3}')"
   read -r _direct _wrapped <<<"${_seen_line:-0 0}"
   if [[ "${_direct:-0}" -eq 0 ]]; then
     _die ci_log_event_registry \
@@ -940,13 +958,23 @@ _run_log_event_registry() {
     return 1
   fi
 
+  # An EMPTY id is NOT skipped. It is a body with nothing left to
+  # resolve, and log.sh refuses it like any other the registry does not
+  # carry -- so the one call whose body is provably wrong must not be
+  # the one that goes unexamined. It is shown as `(empty)`, because a
+  # row naming nothing cannot be read.
   local -a _rows=()
-  local _kind _id _loc _lineno _ids_total=0
-  while IFS=$'\t' read -r _kind _id _loc _lineno; do
-    [[ "${_kind}" == "ID" && -n "${_id}" ]] || continue
+  local _kind _id _plain _loc _lineno _ids_total=0
+  while IFS="${_us}" read -r _kind _id _loc _lineno; do
+    [[ "${_kind}" == "ID" ]] || continue
     _ids_total=$(( _ids_total + 1 ))
-    if [[ -z "${_registered_set[${_id}]:-}" ]]; then
-      _rows+=("${_loc#"${REPO_ROOT}"/}:${_lineno}: ${_id}")
+    # Decoded for the lookup, in the reverse order of the encoding so a
+    # literal `%25` in a body cannot be read as an escape.
+    _plain="${_id//%09/$'\t'}"
+    _plain="${_plain//%0A/$'\n'}"
+    _plain="${_plain//%25/%}"
+    if [[ -z "${_registered_set[${_plain}]:-}" ]]; then
+      _rows+=("${_loc#"${REPO_ROOT}"/}:${_lineno}: ${_id:-(empty)}")
     fi
   done < <(printf '%s\n' "${_emit}")
 

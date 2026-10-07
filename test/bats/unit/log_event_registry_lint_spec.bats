@@ -718,6 +718,37 @@ _seed() {
   [[ "${output}" == *"dist/script/docker/lib/btml.sh:1: btick_ml_missing"* ]]
 }
 
+# why: An EMPTY body is fully known -- there is nothing left to resolve -- and
+# log.sh refuses it like any other id the registry does not carry. It was
+# dropped from the population by a guard meant to skip unresolvable
+# bodies, so the one call whose body is provably wrong was the one not
+# looked at. It is reported as `(empty)`, because a row naming nothing
+# cannot be read
+@test "_run_log_event_registry: FAILS on an empty literal body" {
+  _seed
+  _write "dist/script/docker/lib/empty.sh" \
+    '_log_err conf "" "display=oops"'
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/empty.sh:1: (empty)"* ]]
+}
+
+# why: The scan hands its findings to the shell as tab-separated records, and a
+# body can CONTAIN a tab -- `$'\tseed_ok'` decodes to one. Written
+# verbatim it split the record, so the reader took the registered
+# `seed_ok` as the body and called the tree clean on a call log.sh
+# refuses. The id is encoded on the way out and decoded for the
+# membership test; the report shows the encoded form so a finding stays
+# one readable line
+@test "_run_log_event_registry: FAILS on a literal body carrying a tab" {
+  _seed seed_ok
+  _write "dist/script/docker/lib/tab.sh" \
+    "_log_err conf \$'\\tseed_ok' \"display=boom\""
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/tab.sh:1: %09seed_ok"* ]]
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _run_log_event_registry: what it leaves alone
 # ════════════════════════════════════════════════════════════════════
