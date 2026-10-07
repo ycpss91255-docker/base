@@ -286,7 +286,9 @@ undeclared file destroyed by the step whose only job is to put things back. The
 same applies one directory up, so every ancestor is checked to be a real
 directory -- both when a subject is **declared**, because a subject reached
 through a link could otherwise be mutated and then not restored, and again
-before the restore writes.
+before the restore writes. The checkout **root** is checked by device and
+inode rather than by its path, because swapping it (`mv tree tree-saved;
+ln -s outside tree`) is precisely the move that keeps the path.
 
 Two inputs are refused before anything is touched. A **symlink** subject: an
 in-place editor replaces a link with a regular file, and a restore that put the
@@ -309,10 +311,13 @@ them, which is what deleting a dispatch from a driver does), and the narrow
 green above. A **red** is held to none of these: something observed the wrong
 answer, and that stands however much else ran.
 
-An interrupt stops the runner's whole process group and waits for it, under a
-bounded grace period before escalating to `KILL` -- a runner that ignores
-`TERM` would otherwise leave the probe waiting forever with the tree still
-mutated, which is worse than either a stuck suite or a mutated tree alone.
+An interrupt stops the current child's whole process group and waits for it,
+under a bounded grace period before escalating to `KILL` -- a child that
+ignores `TERM` would otherwise leave the probe waiting forever with the tree
+still mutated, which is worse than either a stuck suite or a mutated tree
+alone. The **mutation** is such a child too, and for the same reason: bash
+defers a trap until the foreground command finishes, so a mutation that hangs
+after editing the subject would hold the handler off indefinitely.
 
 **The mutation is yours, because only you know what the behaviour is.** Five
 shapes earned their place during the audit: `return 0` at the top of a driver

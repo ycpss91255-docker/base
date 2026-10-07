@@ -911,3 +911,56 @@ MUT
   assert_failure
   assert_output --partial "which it did not declare"
 }
+
+# ── round-seven review findings, each reproduced before it was fixed ─────────
+
+# why: the ancestor walk starts BELOW the root, so it could not see the root
+# itself being swapped. `mv tree tree-saved; ln -s outside tree` left every
+# later check passing while every write landed in `outside` -- the restore
+# overwriting unrelated data and reporting success.
+@test "_mutation_probe: refuses to restore when the ROOT itself was replaced" {
+  local _root _runner _outside="${BATS_TEST_TMPDIR}/outside"
+  _root="$(_probe_fixture)"
+  mkdir -p "${_outside}"
+  printf '%s\n' 'a file that has nothing to do with this' \
+    > "${_outside}/subject.sh"
+  _runner="$(_probe_runner_observing red '  printf "not ok 1 the witness\n"')"
+  run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject subject.sh --mutate 'printf wrong > subject.sh; cd ..; mv tree tree-saved; ln -s outside tree'"
+  assert_failure
+  run cat "${_outside}/subject.sh"
+  assert_output "a file that has nothing to do with this"
+}
+
+# why: bash defers a trap until the foreground command finishes, so a mutation
+# that hangs after editing the subject held the handler off indefinitely while
+# the subject sat mutated -- and its pid was recorded nowhere, so nothing could
+# stop it either.
+@test "_mutation_probe: an interrupt during a HUNG mutation still restores" {
+  local _root _runner _out="${BATS_TEST_TMPDIR}/hung-out"
+  _root="$(_probe_fixture)"
+  _runner="$(_probe_runner_observing green '  printf "ok 1 one\n"')"
+  env _MUTATION_PROBE_SHUTDOWN_GRACE=1 MUTATION_PROBE_RUNNER="${_runner}" \
+    bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject subject.sh --mutate 'printf wrong > subject.sh; sleep 60'" \
+    > "${_out}" 2>&1 &
+  local _pid=$! _i=0
+  while (( _i < 1000 )); do
+    grep -F wrong "${_root}/subject.sh" >/dev/null 2>&1 && break
+    sleep 0.02
+    _i=$(( _i + 1 ))
+  done
+  run grep -cF wrong "${_root}/subject.sh"
+  assert_output "1"
+  kill -TERM "${_pid}" 2>/dev/null || true
+  local _j=0
+  while (( _j < 600 )); do
+    grep -F "so there is NO verdict" "${_out}" >/dev/null 2>&1 && break
+    sleep 0.02
+    _j=$(( _j + 1 ))
+  done
+  kill -KILL "${_pid}" 2>/dev/null || true
+  wait "${_pid}" 2>/dev/null || true
+  run cat "${_out}"
+  assert_output --partial "so there is NO verdict"
+  run git -C "${_root}" status --porcelain
+  assert_output ""
+}

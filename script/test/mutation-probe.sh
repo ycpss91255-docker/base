@@ -156,11 +156,19 @@ _MUTATION_PROBE_RECORD_DIR=''
 _MUTATION_PROBE_ROOT=''
 _MUTATION_PROBE_SUBJECTS=()
 
-# The runner's pid while it is running, and the status it exited with. The pid
-# is what a signal handler needs in order to STOP the suite rather than leave
-# it running against a tree that is about to be restored under it.
-_MUTATION_PROBE_RUNNER_PID=''
+# The pid of whichever child is running right now -- the mutation command or
+# the suite -- and the status the last run exited with. The pid is what a
+# signal handler needs in order to STOP that child rather than leave it
+# working against a tree that is about to be restored under it, and BOTH
+# children go through it because both can hang: a mutation that sleeps blocks
+# the handler just as a suite that sleeps does.
+_MUTATION_PROBE_CHILD_PID=''
 _MUTATION_PROBE_RUN_STATUS=0
+
+# The checkout root's identity, recorded before anything is touched: the
+# originals belong to THAT directory, and a restore into a different one is
+# not a restore.
+_MUTATION_PROBE_ROOT_ID=''
 
 # Seconds a runner is given to come down after a TERM before the group is
 # KILLed. Overridable so the case that pins the bound does not spend the
@@ -204,6 +212,26 @@ _mutation_probe_record() {
 # _mutation_probe_restore <record-dir> <root> <subject>... -- copy each
 # recorded original back. Recreates a subject the mutation deleted, and
 # carries the mode with it.
+# _mutation_probe_root_id <root> -- the root's device and inode, or empty.
+_mutation_probe_root_id() {
+  stat -c '%d:%i' -- "${1}" 2>/dev/null || printf ''
+}
+
+# _mutation_probe_root_ok <root> -- 0 when <root> is still the very directory
+# the originals were recorded from.
+#
+# The ancestor walk starts BELOW the root, so it cannot see the root itself
+# being swapped: `mv tree tree-saved; ln -s outside tree` left every later
+# check passing while every write landed in `outside`. Identity, not the path
+# string, because the path is exactly what such a swap keeps.
+_mutation_probe_root_ok() {
+  local _root="${1}"
+  [[ -n "${_MUTATION_PROBE_ROOT_ID}" ]] || return 0
+  [[ -L "${_root}" ]] && return 1
+  [[ -d "${_root}" ]] || return 1
+  [[ "$(_mutation_probe_root_id "${_root}")" == "${_MUTATION_PROBE_ROOT_ID}" ]]
+}
+
 # _mutation_probe_bad_ancestor <root> <subject> -- print the first ancestor of
 # <subject> that is not a plain directory under <root>, and return 0; return 1
 # when every ancestor is one. The CALLERS phrase the message, because the same
@@ -239,6 +267,10 @@ _mutation_probe_bad_ancestor() {
 _mutation_probe_restore() {
   local _rec="${1}" _root="${2}"
   shift 2
+  if ! _mutation_probe_root_ok "${_root}"; then
+    _mutation_probe_err "will not restore anything: ${_root} is no longer the directory the originals were recorded from. Every write would land somewhere else under the same path."
+    return 1
+  fi
   local _s _rc=0
   for _s in "$@"; do
     local _bad
@@ -320,7 +352,7 @@ _mutation_probe_emergency_restore() {
 # restored under it is worse than either outcome alone.
 _mutation_probe_signal_restore() {
   trap - EXIT INT TERM
-  _mutation_probe_stop_runner
+  _mutation_probe_stop_child
   _mutation_probe_emergency_restore || true
   _mutation_probe_err "interrupted, so there is NO verdict: a measurement over a suite that was stopped partway cannot be told apart from a finished one."
   exit 3
@@ -495,11 +527,11 @@ _mutation_probe_run() {
     _mutation_probe_clear_selectors
     exec "${_cmd[@]}"
   ) > "${_out}" 2>&1 &
-  _MUTATION_PROBE_RUNNER_PID="$!"
+  _MUTATION_PROBE_CHILD_PID="$!"
   (( _jobctl )) || set +m
   local _st=0
-  wait "${_MUTATION_PROBE_RUNNER_PID}" || _st=$?
-  _MUTATION_PROBE_RUNNER_PID=''
+  wait "${_MUTATION_PROBE_CHILD_PID}" || _st=$?
+  _MUTATION_PROBE_CHILD_PID=''
   _MUTATION_PROBE_RUN_STATUS="${_st}"
   return 0
 }
@@ -542,12 +574,12 @@ _mutation_probe_own_group() {
   [[ "${_pgrp}" == "${_pid}" ]]
 }
 
-# _mutation_probe_stop_runner -- stop the suite and WAIT for it, before any
+# _mutation_probe_stop_child -- stop the suite and WAIT for it, before any
 # restore touches the tree it is reading.
-_mutation_probe_stop_runner() {
-  local _pid="${_MUTATION_PROBE_RUNNER_PID}"
+_mutation_probe_stop_child() {
+  local _pid="${_MUTATION_PROBE_CHILD_PID}"
   [[ -n "${_pid}" ]] || return 0
-  _MUTATION_PROBE_RUNNER_PID=''
+  _MUTATION_PROBE_CHILD_PID=''
   # The wait is BOUNDED by a watchdog, because a plain `wait` after a TERM
   # never returns for a runner that ignores the signal or hangs in its own
   # shutdown handler -- and the probe would then sit there with the tree still
@@ -576,6 +608,29 @@ _mutation_probe_stop_runner() {
   # Anything still in the group outlived the leader. A group KILL is bounded
   # and reaches it; on an empty group it fails harmlessly.
   (( _group )) && { kill -KILL -- "-${_pid}" 2>/dev/null || true; }
+  return 0
+}
+
+# _mutation_probe_apply <root> <mutate> -- run the mutation command as a
+# tracked child in its own process group.
+#
+# Not a foreground subshell. Bash defers a trap until the foreground command
+# finishes, so a mutation that hangs -- `printf wrong > subject.sh; sleep 60`
+# -- held the handler off while the subject sat mutated, and its pid was
+# recorded nowhere so nothing could stop it. It goes through the same global
+# and the same bounded stop as the suite, because both children can hang for
+# the same reasons.
+_mutation_probe_apply() {
+  local _root="${1}" _mutate="${2}"
+  local _jobctl=0
+  case "$-" in *m*) _jobctl=1 ;; esac
+  set -m
+  ( cd -- "${_root}" || exit 127
+    eval "${_mutate}" ) &
+  _MUTATION_PROBE_CHILD_PID="$!"
+  (( _jobctl )) || set +m
+  wait "${_MUTATION_PROBE_CHILD_PID}" 2>/dev/null || true
+  _MUTATION_PROBE_CHILD_PID=''
   return 0
 }
 
@@ -658,6 +713,8 @@ _mutation_probe() {
     _mutation_probe_err "root '${_root_arg}' does not exist or is not a directory -- nothing would be recorded, so nothing could be restored."
     return 3
   fi
+
+  _MUTATION_PROBE_ROOT_ID="$(_mutation_probe_root_id "${_root}")"
 
   local -a _subjects=()
   local _mutate='' _spec=''
@@ -805,7 +862,7 @@ _mutation_probe() {
   _mutation_probe_say "mutation=${_mutate}"
 
   _mutation_probe_tree_state "${_root}" "${_work}/before"
-  ( cd -- "${_root}" && eval "${_mutate}" ) || true
+  _mutation_probe_apply "${_root}" "${_mutate}"
   _mutation_probe_tree_state "${_root}" "${_work}/after"
 
   # _probe_put_back -- stop the runner if it is still up, restore, and PROVE
@@ -818,7 +875,7 @@ _mutation_probe() {
   # PINNED and exit 0 with the mutation still in the tree.
   _probe_put_back() {
     trap - EXIT INT TERM
-    _mutation_probe_stop_runner
+    _mutation_probe_stop_child
     if ! _mutation_probe_restore "${_rec}" "${_root}" "${_subjects[@]}"; then
       _mutation_probe_err "the restore itself failed. The recorded originals are kept in ${_rec} -- copy them back before anything else reads this checkout."
       return 3
