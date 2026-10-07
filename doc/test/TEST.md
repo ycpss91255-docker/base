@@ -199,6 +199,89 @@ cycle, and carried a `lint-static (i18n-orphan)` row pointing at a check that
 has not existed since the matrix became a partition of groups. Only the
 "Enforces" column is authored: it is prose a person writes, not a figure.
 
+## Breaking the behaviour on purpose: `just test mutation-probe`
+
+```bash
+just test mutation-probe --subject script/test/drivers/thing.sh \
+  --mutate 'sed -i "/^_run_thing() {/a   return 0" script/test/drivers/thing.sh'
+```
+
+A green suite says every assertion ran. It does not say any of them would
+notice a **wrong answer**, and those two statements are further apart than
+they look. The v0.43 retrospective audited the cycle by REMOVING each PR's
+production change and re-running its tests -- which finds a test that does not
+notice absence, and cannot find a test that notices absence and would miss a
+wrong answer. A guard that only greps for a string still turns red when the
+file carrying that string is deleted, so under a revert it scores identically
+to a behavioural guard. Four assertion groups shipped in that blind spot, and
+ten more PRs' tests failed on revert only with `command not found` or
+`No such file`.
+
+So the probe puts the production code back and breaks its **behaviour** in
+place. A test that survives that was never pinning the behaviour; a test that
+fails names itself as the one that was, which is the line to quote when
+saying what a change is covered by.
+
+**Measured on the tree that shipped this recipe.** Deleting
+`dist/script/docker/wrapper/build.sh` -- the subject of
+`reclaim_wiring_spec.bats`'s "the verbs that BEGIN a flow do not reclaim" --
+leaves that spec at 32 ok / 0 not ok, because the assertion is a refutation
+and a refutation over a file that is not there is satisfied by its absence.
+The same mutation at tier scope is 4667 ok / 109 not ok, with the witnesses in
+`build_sh_spec.bats`.
+
+**How much ran decides what a green may be called, and that is the whole
+reason this is a recipe rather than a habit.** The audit's follow-up
+(base#1108) asked the question per file: revert the production change, re-run
+THE ONE SPEC THAT PR EDITED, call the change untested if that spec is green.
+Six changes were named on that basis. Measured afterwards, five of the six had
+a failing witness in a **sibling** spec from the same PR, one was a genuine
+gap, and one did not reproduce at all -- so the defect in the five was the
+coverage accounting, not the coverage. A spec that stays green under a
+mutation has answered about itself; only a tier-wide run can say the suite
+does not pin a behaviour. The probe therefore reports:
+
+| | a red | a green |
+|---|---|---|
+| tier scope (default) | `PINNED`, naming every witness | `NOT PINNED` -- the finding |
+| `--spec <path>` | `PINNED`; a red needs no scope | `INCONCLUSIVE`, never `NOT PINNED` |
+
+Run the whole tier, then ask which spec should have been the one to notice.
+
+**It cannot leave the tree mutated.** Every declared `--subject` is recorded
+(bytes and mode) before anything is touched and restored from that record --
+not from git, which cannot see an uncommitted edit you are in the middle of.
+The restoration is then **verified** against the record, and a failure is
+loud, names the file, keeps the record directory and exits refused; an
+`EXIT` / `INT` / `TERM` trap runs the same restore for a ctrl-c or a dead
+daemon. The tree is also compared before and after the mutation, by git: a
+mutation command that edited a file it did not declare is refused there,
+before a multi-minute suite carries that edit past the point anyone is
+watching.
+
+**Three measurements it refuses to report as verdicts**, because each one's
+number is the number a sound suite prints too: a mutation that left every
+subject byte-identical (the green is the baseline, so the sed expression
+matched nothing), a run that reported no test results at all (a broken runner,
+not a finding about the tests), and the narrow green above.
+
+**The mutation is yours, because only you know what the behaviour is.** Five
+shapes earned their place during the audit: `return 0` at the top of a driver
+(the cheapest, and the one validated twice); deleting a step from a workflow;
+renaming a function away from its callers; inverting a branch; and a
+behaviour-**preserving** refactor, which is the one the others cannot replace.
+Every destructive mutation turns a text-matching guard red, so all four make a
+grep look behavioural. A refactor that preserves behaviour must leave the
+suite GREEN, and a red there means the test is pinned to the text. Three greps
+audited on base#1117 were anti-correlated exactly that way: green through a
+total inversion of the branch, green with the subject removed entirely, and
+red on a behaviour-preserving refactor.
+
+Exit status: 0 `PINNED`, 1 `NOT PINNED`, 2 `INCONCLUSIVE`, 3 refused. The
+recipe is wired into no gate and no CI job: it is an on-demand loop like
+`just test coverage-path`, and whether running it is required before a change
+lands is a policy question this recipe does not answer.
+
 ## Maintaining these docs
 
 Every figure and every catalogue section in this directory is derived from the

@@ -1,0 +1,530 @@
+#!/usr/bin/env bash
+#
+# mutation-probe.sh - break the behaviour once, to prove the test was
+# pinning it.
+#
+# Usage:
+#   ./script/test/mutation-probe.sh --subject <path> --mutate '<command>'
+#   ./script/test/mutation-probe.sh --subject <path> --mutate '<command>' \
+#       --spec test/bats/unit/<name>_spec.bats
+#   ./script/test/mutation-probe.sh --root <dir> ...        # default: this checkout
+#
+# Exit status: 0 = PINNED (something went red), 1 = NOT PINNED (the tier
+# stayed green under a real mutation), 2 = INCONCLUSIVE (a narrow run stayed
+# green, which answers about that spec and not about the suite), 3 = refused
+# (an unusable input, or a measurement that could only be read vacuously).
+#
+# Style: Google Shell Style Guide.
+#
+# ── What this answers that a revert does not ────────────────────────────────
+#
+# The v0.43 retrospective audited every PR of the cycle by REMOVING the
+# production change and re-running its tests. That move finds a test that
+# does not notice absence. It cannot find a test that notices absence and
+# would miss a WRONG ANSWER: a guard that only greps for a string still turns
+# red when the file carrying that string is deleted, so under a revert it
+# scores identically to a behavioural guard. Four assertion groups shipped in
+# that blind spot, and ten more PRs' tests failed on revert only with
+# `command not found` or `No such file` -- one refactor away from fail-open.
+#
+# So the probe puts the production code BACK and breaks its behaviour in
+# place. A test that survives that was never pinning the behaviour; a test
+# that fails names itself as the one that was.
+#
+# Measured on this tree before this file existed. Deleting
+# dist/script/docker/wrapper/build.sh -- the subject of
+# reclaim_wiring_spec.bats's "the verbs that BEGIN a flow do not reclaim" --
+# leaves that spec at 32 ok / 0 not ok, because the assertion is a refutation
+# and a refutation over a file that is not there is satisfied by its absence.
+# The same mutation at tier scope is 4667 ok / 109 not ok, with the witnesses
+# in build_sh_spec.bats.
+#
+# ── Why the SCOPE decides what a green may be called ───────────────────────
+#
+# That pair of numbers is the whole reason this is a script and not a
+# paragraph. base#1108 ran the audit per-file -- revert the production
+# change, re-run THE ONE SPEC THAT PR EDITED, call the change untested if
+# that spec is green -- and named six changes on that basis. Measured
+# afterwards, five of the six had a failing witness in a SIBLING spec from
+# the same PR, one was a genuine gap, and one did not reproduce at all. The
+# defect in the five was the coverage ACCOUNTING, not the coverage.
+#
+# A spec that stays green under a mutation has answered about ITSELF. Only a
+# tier-wide run can say the suite does not pin a behaviour. So a narrow green
+# is reported as INCONCLUSIVE and never as NOT PINNED, and the verdict always
+# states the scope it was measured at -- the figure nobody recorded the first
+# time. A RED needs no such qualification: something observed the wrong
+# answer, which is sound at any scope.
+#
+# ── Why the restoration is proven rather than assumed ──────────────────────
+#
+# A harness that leaves a half-mutated tree is worse than no harness: the
+# next run measures a tree nobody described, and the author's next commit
+# ships the mutation. Three controls, in this order:
+#
+#   1. Every declared subject is RECORDED (bytes and mode) before anything is
+#      touched, and restored from that record -- not from git, which cannot
+#      see an uncommitted edit the author is in the middle of.
+#   2. The tree is compared BEFORE and AFTER the mutation, by git. A mutation
+#      command that edited a file it did not declare is refused there, before
+#      a multi-minute suite carries the undeclared edit past the point anyone
+#      is still watching. Only the declared subjects were recorded, so an
+#      undeclared edit is one this script could not undo.
+#   3. The restoration is VERIFIED -- bytes and mode, against the record --
+#      and a failure is loud, names the file, keeps the record directory, and
+#      exits refused. An EXIT / INT / TERM trap runs the same restore for the
+#      paths the explicit one cannot reach (a ctrl-c, a dead daemon).
+#
+# ── Three measurements that must not be read as verdicts ───────────────────
+#
+# base#1089's rule, applied to a probe instead of a gate: both no-evidence
+# states are refused by name.
+#
+#   - A mutation that left every declared subject byte-identical. The tree the
+#     suite then passes over is the tree it already passed over, so the green
+#     is the baseline. Read as a verdict it certifies a test as behavioural on
+#     the strength of a sed expression that matched nothing.
+#   - A run that reported no test results at all. Zero reds is the number a
+#     fully behavioural suite prints too, so reading it as NOT PINNED turns a
+#     broken runner into a finding about the tests.
+#   - A narrow green, per the scope section above.
+#
+# ── What it does NOT decide ────────────────────────────────────────────────
+#
+# Whether running the probe is required before a change lands is a policy
+# question and is not answered here: this file is the loop, available on
+# demand, like `just test coverage-path`. It is wired into no gate and no CI
+# job, and it fails nothing that does not ask for it.
+#
+# ── The mutations worth reaching for ───────────────────────────────────────
+#
+# The mutation is the caller's, because only the caller knows what the
+# behaviour IS. Five shapes earned their place during the v0.43 audit, and
+# the last one catches what the others miss:
+#
+#   --mutate 'sed -i "/^_run_thing()/a return 0" script/test/drivers/thing.sh'
+#       The cheapest: the driver reports clean without looking. Validated
+#       twice during the audit; on one driver it turned 11 of 20 cases red and
+#       left four "ignores X" cases green, because a lint that compares
+#       nothing also exits 0.
+#   --mutate 'sed -i "/- name: the step/,+3d" .github/workflows/w.yaml'
+#       Delete a step from a workflow.
+#   --mutate 'sed -i "s/_the_function/_the_functionX/g" path/to/lib.sh'
+#       Rename a function away from its callers.
+#   --mutate 'sed -i "s/-eq 0/-ne 0/" path/to/file.sh'
+#       Invert a branch.
+#   --mutate '<a behaviour-PRESERVING refactor>'
+#       Rename a local, reorder two independent lines, change a quoting
+#       style. Everything above is destructive, so a test that merely greps
+#       for text goes red on all of them and looks behavioural. A refactor
+#       that preserves behaviour must leave the suite GREEN -- a red here
+#       means the test is pinned to the text and not to the behaviour. Three
+#       greps audited on base#1117 were anti-correlated exactly this way:
+#       green through a total inversion of the branch, green with the subject
+#       removed entirely, and red on a behaviour-preserving refactor.
+
+if [[ "${BASH_SOURCE[0]:-}" == "${0:-}" ]]; then
+  set -euo pipefail
+fi
+
+_MUTATION_PROBE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
+
+# Trap state. Globals, because an EXIT / INT / TERM handler takes no
+# arguments and the handler is the half that has to work when nothing else
+# did.
+_MUTATION_PROBE_RECORD_DIR=''
+_MUTATION_PROBE_ROOT=''
+_MUTATION_PROBE_SUBJECTS=()
+
+# _mutation_probe_err <message> -- diagnostic to stderr. Block-redirected
+# rather than a bare `printf ... >&2` because this is a standalone,
+# log.sh-free host-side tool (the same rationale class as
+# drivers/coverage_gate.sh) and the bare-stderr lint scans script/test/.
+_mutation_probe_err() {
+  {
+    printf 'mutation probe: %s\n' "${1}"
+  } >&2
+}
+
+# _mutation_probe_say <message> -- the report, on stdout. The caller pastes
+# these lines into a PR body, so they are the product and not a log.
+_mutation_probe_say() {
+  printf 'mutation probe: %s\n' "${1}"
+}
+
+# ── the record / restore / verify spine ─────────────────────────────────────
+
+# _mutation_probe_record <record-dir> <root> <subject>... -- copy each
+# subject's bytes and mode aside. `cp -p` rather than a git object read: the
+# subject may carry an uncommitted edit, and a probe that silently measured
+# the committed version instead would report on a tree the author does not
+# have.
+_mutation_probe_record() {
+  local _rec="${1}" _root="${2}"
+  shift 2
+  local _s
+  for _s in "$@"; do
+    mkdir -p -- "${_rec}/$(dirname -- "${_s}")" || return 1
+    cp -p -- "${_root}/${_s}" "${_rec}/${_s}" || return 1
+  done
+  return 0
+}
+
+# _mutation_probe_restore <record-dir> <root> <subject>... -- copy each
+# recorded original back. Recreates a subject the mutation deleted, and
+# carries the mode with it.
+_mutation_probe_restore() {
+  local _rec="${1}" _root="${2}"
+  shift 2
+  local _s _rc=0
+  for _s in "$@"; do
+    mkdir -p -- "$(dirname -- "${_root}/${_s}")" || _rc=1
+    cp -p -- "${_rec}/${_s}" "${_root}/${_s}" || _rc=1
+  done
+  return "${_rc}"
+}
+
+# _mutation_probe_verify_restored <record-dir> <root> <subject>... -- 0 when
+# every subject is byte-identical AND mode-identical to its record, non-zero
+# naming each that is not.
+#
+# The mode is checked as well as the bytes because restoring an executable
+# without its bit leaves a tree that reads clean to a diff and is broken to
+# everything that runs it.
+_mutation_probe_verify_restored() {
+  local _rec="${1}" _root="${2}"
+  shift 2
+  local _s _rc=0 _want _got
+  for _s in "$@"; do
+    if ! cmp -s -- "${_rec}/${_s}" "${_root}/${_s}"; then
+      _mutation_probe_err "RESTORATION FAILED: ${_s} is not byte-identical to the recorded original."
+      _rc=1
+      continue
+    fi
+    _want="$(stat -c '%a' -- "${_rec}/${_s}" 2>/dev/null || printf 'unknown')"
+    _got="$(stat -c '%a' -- "${_root}/${_s}" 2>/dev/null || printf 'unknown')"
+    if [[ "${_want}" != "${_got}" ]]; then
+      _mutation_probe_err "RESTORATION FAILED: ${_s} came back with mode ${_got}, recorded as ${_want}."
+      _rc=1
+    fi
+  done
+  return "${_rc}"
+}
+
+# _mutation_probe_emergency_restore -- the trap payload. Restores from the
+# globals and says so loudly if it could not, because the one thing worse
+# than a mutated tree is a mutated tree nobody was told about.
+_mutation_probe_emergency_restore() {
+  [[ -n "${_MUTATION_PROBE_RECORD_DIR}" ]] || return 0
+  (( ${#_MUTATION_PROBE_SUBJECTS[@]} > 0 )) || return 0
+  _mutation_probe_restore "${_MUTATION_PROBE_RECORD_DIR}" "${_MUTATION_PROBE_ROOT}" \
+    "${_MUTATION_PROBE_SUBJECTS[@]}" || true
+  if ! _mutation_probe_verify_restored "${_MUTATION_PROBE_RECORD_DIR}" \
+      "${_MUTATION_PROBE_ROOT}" "${_MUTATION_PROBE_SUBJECTS[@]}"; then
+    _mutation_probe_err "the tree may still be mutated. The recorded originals are kept in ${_MUTATION_PROBE_RECORD_DIR} -- copy them back before anything else reads this checkout."
+    return 1
+  fi
+  _mutation_probe_err "the run was interrupted; the subjects were restored from the record."
+  return 0
+}
+
+# ── the leak check: git answers what the mutation touched ───────────────────
+
+# _mutation_probe_tree_state <root> <out-file> -- the tree's dirty set, NUL
+# separated, as git reports it. `-z` rather than the line form because git
+# quotes a path with a space or a newline in it and a quoted path is not the
+# path the record was keyed on.
+_mutation_probe_tree_state() {
+  git -C "${1}" status --porcelain -z --untracked-files=all --no-renames \
+    > "${2}" 2>/dev/null
+}
+
+# _mutation_probe_changed_paths <before-file> <after-file> -- every path whose
+# status differs between the two snapshots, one per line. A path that gained,
+# lost or changed a status code all count: a mutation that deletes a file and
+# one that edits it are both the mutation's work.
+_mutation_probe_changed_paths() {
+  local -A _before=() _after=()
+  local -a _records=()
+  local _rec _path
+  mapfile -d '' -t _records < "${1}"
+  for _rec in "${_records[@]}"; do
+    [[ ${#_rec} -gt 3 ]] || continue
+    _before["${_rec:3}"]="${_rec:0:2}"
+  done
+  _records=()
+  mapfile -d '' -t _records < "${2}"
+  for _rec in "${_records[@]}"; do
+    [[ ${#_rec} -gt 3 ]] || continue
+    _after["${_rec:3}"]="${_rec:0:2}"
+  done
+  for _path in "${!_after[@]}"; do
+    [[ "${_before["${_path}"]:-}" == "${_after["${_path}"]}" ]] && continue
+    printf '%s\n' "${_path}"
+  done
+  for _path in "${!_before[@]}"; do
+    [[ -n "${_after["${_path}"]:-}" ]] && continue
+    printf '%s\n' "${_path}"
+  done
+}
+
+# ── reading the run ────────────────────────────────────────────────────────
+
+# _mutation_probe_run <root> <spec-or-empty> <out-file> -- run the suite and
+# capture everything it said.
+#
+# MUTATION_PROBE_RUNNER overrides the command, which is what lets this loop be
+# tested without a docker build inside every case. It receives the root and
+# the spec (empty for a tier run) as its last two arguments.
+#
+# The runner's exit status is deliberately discarded: a red suite exits
+# non-zero and a red suite is the answer this tool is looking for.
+_mutation_probe_run() {
+  local _root="${1}" _spec="${2}" _out="${3}"
+  local -a _cmd=()
+  if [[ -n "${MUTATION_PROBE_RUNNER:-}" ]]; then
+    read -r -a _cmd <<< "${MUTATION_PROBE_RUNNER}"
+    _cmd+=( "${_root}" "${_spec}" )
+  elif [[ -n "${_spec}" ]]; then
+    _cmd=( "${_root}/script/test/test.sh" --bats-path "${_spec}" )
+  else
+    _cmd=( "${_root}/script/test/test.sh" --bats-only )
+  fi
+  ( cd -- "${_root}" && "${_cmd[@]}" ) > "${_out}" 2>&1 || true
+  return 0
+}
+
+# _mutation_probe_tap_counts <out-file> -- "<ok> <not-ok>" off the TAP stream.
+# Read from the FILE rather than through a pipe: an early-closing reader
+# strands its writer, which the tree lints against.
+_mutation_probe_tap_counts() {
+  local _ok _not
+  _ok="$(grep -cE '^ok ' -- "${1}" || true)"
+  _not="$(grep -cE '^not ok ' -- "${1}" || true)"
+  printf '%s %s\n' "${_ok}" "${_not}"
+}
+
+# _mutation_probe_witnesses <out-file> -- the `not ok` lines, which are the
+# assertions that were pinning the behaviour. The issue asks for these in the
+# PR body, so they are printed in full rather than counted.
+_mutation_probe_witnesses() {
+  grep -E '^not ok ' -- "${1}" || true
+}
+
+# ── the loop ───────────────────────────────────────────────────────────────
+
+_mutation_probe_usage() {
+  {
+    printf 'Usage: mutation-probe.sh [--root <dir>] --subject <path> [--subject <path>]... \\\n'
+    printf '                         --mutate <command> [--spec <path>]\n'
+    printf '\n'
+    printf '  --root     repo root to probe (default: this checkout)\n'
+    printf '  --subject  a production file the mutation may touch, root-relative;\n'
+    printf '             repeatable, at least one required\n'
+    printf '  --mutate   shell command that breaks the behaviour, run with the\n'
+    printf '             root as its working directory\n'
+    printf '  --spec     narrow the run to one spec. A green then reports\n'
+    printf '             INCONCLUSIVE, not NOT PINNED\n'
+  } >&2
+}
+
+# _mutation_probe <root> [--subject <path>]... --mutate <command> [--spec <path>]
+#
+# The whole loop. See the file header for why each refusal is a refusal.
+_mutation_probe() {
+  local _root_arg="${1:-}"
+  [[ $# -gt 0 ]] && shift
+
+  local _root
+  if ! _root="$(cd -- "${_root_arg}" 2>/dev/null && pwd -P)"; then
+    _mutation_probe_err "root '${_root_arg}' does not exist or is not a directory -- nothing would be recorded, so nothing could be restored."
+    return 3
+  fi
+
+  local -a _subjects=()
+  local _mutate='' _spec=''
+  while (( $# > 0 )); do
+    case "${1}" in
+      --subject|--mutate|--spec)
+        if (( $# < 2 )); then
+          _mutation_probe_err "${1} needs a value."
+          return 3
+        fi
+        case "${1}" in
+          --subject) _subjects+=( "${2}" ) ;;
+          --mutate) _mutate="${2}" ;;
+          --spec) _spec="${2}" ;;
+        esac
+        shift 2
+        ;;
+      *)
+        _mutation_probe_err "unknown argument '${1}'."
+        return 3
+        ;;
+    esac
+  done
+
+  # git is the leak check. Without a work tree there is no before/after
+  # comparison, and the one control standing between this tool and a
+  # half-mutated checkout would be silently absent.
+  if ! git -C "${_root}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    _mutation_probe_err "root '${_root}' is not a git work tree. The probe compares the tree before and after the mutation to catch a mutation that touched a file it did not declare, and git is what answers that."
+    return 3
+  fi
+
+  if (( ${#_subjects[@]} == 0 )); then
+    _mutation_probe_err "no --subject declared. A subject is what gets recorded and restored, and what the leak check is measured against."
+    return 3
+  fi
+
+  local _s
+  for _s in "${_subjects[@]}"; do
+    if [[ ! -f "${_root}/${_s}" ]]; then
+      _mutation_probe_err "subject '${_s}' is not a regular file under ${_root} -- a probe of a file that is not there measures nothing. Check whether the path moved."
+      return 3
+    fi
+  done
+
+  if [[ -z "${_mutate}" ]]; then
+    _mutation_probe_err "no --mutate command. Without one this is just the suite, which was already green, and reporting that as a probe result certifies every test on no evidence."
+    return 3
+  fi
+
+  local _scope='tier'
+  [[ -n "${_spec}" ]] && _scope="spec:${_spec}"
+
+  local _work
+  _work="$(mktemp -d)" || return 3
+  local _rec="${_work}/record"
+  mkdir -p "${_rec}"
+
+  if ! _mutation_probe_record "${_rec}" "${_root}" "${_subjects[@]}"; then
+    _mutation_probe_err "could not record the originals of ${_subjects[*]} -- refusing to mutate a tree it cannot put back."
+    rm -rf "${_work}"
+    return 3
+  fi
+
+  _MUTATION_PROBE_RECORD_DIR="${_rec}"
+  _MUTATION_PROBE_ROOT="${_root}"
+  _MUTATION_PROBE_SUBJECTS=( "${_subjects[@]}" )
+  trap _mutation_probe_emergency_restore EXIT INT TERM
+
+  _mutation_probe_say "subjects=${_subjects[*]} scope=${_scope}"
+  _mutation_probe_say "mutation=${_mutate}"
+
+  _mutation_probe_tree_state "${_root}" "${_work}/before"
+  ( cd -- "${_root}" && eval "${_mutate}" ) || true
+  _mutation_probe_tree_state "${_root}" "${_work}/after"
+
+  # _probe_end <exit-code> <message-or-empty> -- restore, verify, and hand back
+  # the code. Every exit below the mutation goes through it, so there is no
+  # path that returns without having proven the tree is back.
+  _probe_end() {
+    local _code="${1}" _msg="${2:-}"
+    trap - EXIT INT TERM
+    if ! _mutation_probe_restore "${_rec}" "${_root}" "${_subjects[@]}"; then
+      _mutation_probe_err "the restore itself failed. The recorded originals are kept in ${_rec} -- copy them back before anything else reads this checkout."
+      return 3
+    fi
+    if ! _mutation_probe_verify_restored "${_rec}" "${_root}" "${_subjects[@]}"; then
+      _mutation_probe_err "the recorded originals are kept in ${_rec} -- copy them back before anything else reads this checkout."
+      return 3
+    fi
+    _MUTATION_PROBE_RECORD_DIR=''
+    _MUTATION_PROBE_SUBJECTS=()
+    rm -rf "${_work}"
+    [[ -n "${_msg}" ]] && _mutation_probe_err "${_msg}"
+    return "${_code}"
+  }
+
+  local -a _changed=()
+  mapfile -t _changed < <(_mutation_probe_changed_paths \
+    "${_work}/before" "${_work}/after")
+
+  local -a _undeclared=()
+  local _path _declared
+  for _path in "${_changed[@]}"; do
+    _declared=0
+    for _s in "${_subjects[@]}"; do
+      [[ "${_path}" == "${_s}" ]] && _declared=1
+    done
+    (( _declared )) || _undeclared+=( "${_path}" )
+  done
+  if (( ${#_undeclared[@]} > 0 )); then
+    _probe_end 3 "the mutation touched ${_undeclared[*]}, which it did not declare as a subject. Only declared subjects were recorded, so that edit is one this script cannot undo -- declare it with --subject, or narrow the mutation. The declared subjects have been restored."
+    return 3
+  fi
+
+  local _moved=0
+  for _s in "${_subjects[@]}"; do
+    cmp -s -- "${_rec}/${_s}" "${_root}/${_s}" || _moved=1
+  done
+  if (( _moved == 0 )); then
+    _probe_end 3 "the mutation left every subject byte-identical. The tree the suite would pass over is the tree it already passed over, so the green would be the baseline and not a measurement. Check the mutation command."
+    return 3
+  fi
+
+  _mutation_probe_run "${_root}" "${_spec}" "${_work}/run"
+
+  local _counts _ok _not
+  _counts="$(_mutation_probe_tap_counts "${_work}/run")"
+  _ok="${_counts%% *}"
+  _not="${_counts##* }"
+
+  if (( _ok + _not == 0 )); then
+    _probe_end 3 "the run reported no test results at all. Zero reds is the number a fully behavioural suite prints too, so this cannot be read as a verdict about the tests -- it is a broken runner. Its output: $(cat "${_work}/run")"
+    return 3
+  fi
+
+  _mutation_probe_say "${_ok} ok / ${_not} not ok at scope=${_scope}"
+
+  if (( _not > 0 )); then
+    _mutation_probe_say "PINNED. The assertions that noticed, at scope=${_scope}:"
+    _mutation_probe_witnesses "${_work}/run"
+    _probe_end 0
+    return 0
+  fi
+
+  if [[ -n "${_spec}" ]]; then
+    _mutation_probe_say "INCONCLUSIVE at scope=${_scope}. That spec does not pin the behaviour; the suite may still. Measured on base#1108, five of six per-file greens had their failing witness in a sibling spec from the same PR -- re-run without --spec and then ask which spec should have been the one to notice."
+    _probe_end 2
+    return 2
+  fi
+
+  _mutation_probe_say "NOT PINNED at scope=${_scope}. The behaviour can be wrong and ${_ok} assertions still pass. Nothing in the tier observed it."
+  _probe_end 1
+  return 1
+}
+
+main() {
+  local _root=''
+  local -a _rest=()
+  while (( $# > 0 )); do
+    case "${1}" in
+      -h|--help)
+        _mutation_probe_usage
+        return 0
+        ;;
+      --root)
+        if (( $# < 2 )); then
+          _mutation_probe_err "--root needs a value."
+          return 3
+        fi
+        _root="${2}"
+        shift 2
+        ;;
+      *)
+        _rest+=( "${1}" )
+        shift
+        ;;
+    esac
+  done
+  if [[ -z "${_root}" ]]; then
+    _root="$(cd -- "${_MUTATION_PROBE_DIR}/../.." && pwd -P)"
+  fi
+  _mutation_probe "${_root}" "${_rest[@]+"${_rest[@]}"}"
+}
+
+if [[ "${BASH_SOURCE[0]:-}" == "${0:-}" ]]; then
+  main "$@"
+fi

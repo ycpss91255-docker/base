@@ -3724,6 +3724,67 @@ builds nothing and pushes nothing)
 | `multi-distro-build-worker.yaml: ci-passed job has explicit name: ci-passed (matches existing multi-distro rollup contract) (#325 B-1)` | - |
 | `multi-distro-build-worker.yaml: every job's grant is pinned as an exact set (#957)` | - |
 
+### test/bats/unit/mutation_probe_spec.bats (20)
+
+A green suite says every assertion ran. It does not say any of them would
+have noticed a wrong answer, and the v0.43 retrospective measured how far
+apart those two statements are: a guard that only greps for a string turns
+red when the file carrying that string is deleted, so under a revert it
+scores identically to a behavioural guard. The probe asks the question a
+revert cannot -- put the production code back, break its BEHAVIOUR in place,
+and see what fails.
+
+The subject under test here is the LOOP, not any one mutation: record the
+original, apply the mutation, run, restore, prove the restoration, and
+report a verdict that cannot be read off an empty measurement. Every vacuous
+answer the retrospective hit is refused by name below.
+
+The narrow-scope refusal is base#1108's measured correction and the reason
+this file exists rather than a paragraph of prose. That audit asked "is this
+change covered in the spec the PR edited", and on six changes five of the
+greens it produced had a failing witness in a SIBLING spec from the same PR.
+A spec that stays green under a mutation has answered about itself; it has
+not answered about the suite. So the probe reports INCONCLUSIVE for a narrow
+green instead of NOT PINNED, and only a tier-wide run can say a behaviour is
+unpinned.
+
+Measured on this tree before the loop was built, which is this repo's bar
+for a new rule. Deleting dist/script/docker/wrapper/build.sh -- the subject
+of reclaim_wiring_spec.bats's "the verbs that BEGIN a flow do not reclaim"
+-- leaves that spec at 32 ok / 0 not ok, because a refutation over a file
+that is not there is satisfied by its absence. The same mutation at tier
+scope is 4667 ok / 109 not ok, and the witnesses name build_sh_spec.bats.
+Narrow scope answered "not pinned"; the tier answered "pinned, by
+build_sh_spec".
+
+The fixtures are real git work trees, not scratch directories, because the
+probe's leak check IS git: it compares the tree before and after the
+mutation to catch a mutation command that touched a file it did not declare.
+Faking that comparison would test a control this repo does not ship.
+
+| Test | Description |
+|------|-------------|
+| `_mutation_probe: refuses a root that does not exist` | the probe's first act is to record the originals, and a root it cannot resolve means it recorded nothing -- so every later step would be operating on a tree it never read. Refusing here is what keeps a typo in a path from being reported as a test-suite verdict. |
+| `_mutation_probe: refuses a root that is not a git work tree` | the probe compares the tree before and after the mutation to catch a mutation that touched an undeclared file, and git is what answers that comparison. A root that is not a work tree would silently lose the leak check, which is the one control standing between this tool and a half-mutated checkout. |
+| `_mutation_probe: refuses a run with no subject declared` | with no subject declared there is nothing to record and nothing to restore, so the loop could not put the tree back even if it wanted to. The declaration is also what the leak check measures against. |
+| `_mutation_probe: refuses a subject that does not exist under the root` | a probe of a file that is not there measures nothing, and this is the exact shape the retrospective kept hitting -- a guard whose subject had moved stayed green because the absence satisfied it. Naming the path in the refusal is what tells the author the path moved rather than the test being weak. |
+| `_mutation_probe: refuses a run with no mutation declared` | without a mutation the run is just the suite, and the suite was already green -- reporting that as a probe result would certify every test in the tree as behavioural on no evidence at all. |
+| `_mutation_probe: refuses a mutation that left every subject byte-identical` | THE load-bearing refusal. A mutation command that matched nothing leaves the tree exactly as the suite already passed over, so the green that follows is the baseline and not a measurement -- and read as a verdict it certifies the test as behavioural on the strength of a typo in a sed expression. |
+| `_mutation_probe: refuses a mutation that touched a file it did not declare` | a mutation that edits a file it did not declare is a mutation the loop cannot undo, because only the declared subjects were recorded. Catching it between the mutation and the run is what keeps the undeclared edit from being carried through a multi-minute suite and then left behind. |
+| `_mutation_probe: restores the declared subject even when it refuses for a leak` | the subject it DID declare still has to come back. A leak refusal that left the declared mutation in place would turn the safest control in the loop into the thing that strands the tree. The marker is the positive the refutation needs: without it this case passes on a probe that never ran at all, which is the defect the whole change is about. |
+| `_mutation_probe: refuses a run that reported no test results at all` | base#1089's rule, applied to a probe instead of a gate: both no-evidence states are refused by name. A run that reported no test results at all has zero reds, and zero reds is the same number a fully behavioural suite would print -- so reading it as NOT PINNED turns a broken runner into a finding about the tests. |
+| `_mutation_probe: reports PINNED and names the witness when the mutation turns something red` | the answer the probe exists to produce, and the reason the issue asks for the witness in the PR body: a red names WHICH assertion was pinning the behaviour, which is the half a pass/fail verdict throws away. |
+| `_mutation_probe: reports NOT PINNED on a tier-wide run that stays green` | a tier-wide green under a real mutation is the finding -- the behaviour can be wrong and the whole suite still passes. It exits non-zero so the probe can sit in a loop that stops on it. |
+| `_mutation_probe: a narrow green is INCONCLUSIVE, never NOT PINNED` | base#1108's correction, which is the whole reason this file is a mechanism and not a paragraph. Asked per-file, that audit called six changes untested; five of the six had their failing witness in a sibling spec from the same PR. A narrow green is a statement about one spec, so the probe refuses to spell it NOT PINNED. |
+| `_mutation_probe: a narrow RED is still PINNED, because a red needs no scope` | the asymmetry is the point and it is easy to get backwards. A red answers soundly at any scope -- something observed the wrong answer -- while only a green has to be qualified by how much ran. |
+| `_mutation_probe: every verdict states the scope it was measured at` | the scope is what makes a verdict readable a week later, and the retrospective's false positives are exactly the case where nobody recorded how much had run. Printing it on every verdict is what stops the next reader from having to assume. |
+| `_mutation_probe: restores the subject byte-for-byte after a completed run` | the whole reason a probe is safe to recommend. A harness that leaves a half-mutated tree is worse than no harness, so the restoration is proven on the happy path rather than assumed from the absence of a complaint. |
+| `_mutation_probe: restores the subject's mode, not only its bytes` | the mode is part of the file. Restoring the bytes of an executable as a non-executable leaves a tree that reads clean to a diff and is broken to everything that runs it. |
+| `_mutation_probe: restores the subject when the runner dies without finishing` | the failure mode that matters most -- a runner that dies mid-suite is the ordinary case (a ctrl-c, a docker daemon hiccup), and that is exactly when a tree gets stranded. The marker is the positive: a clean tree proves nothing unless the mutation reached it and the runner started, so without it this case passes on a probe that never ran. |
+| `_mutation_probe_verify_restored: fails and names the file when a subject did not come back` | the restoration is only a guarantee if something checks it, and the check has to be able to say no. Asserted directly rather than through the loop, because the loop is built so this never fires -- a control nothing exercises is a control nobody knows works. |
+| `_mutation_probe_verify_restored: passes when the subject is byte-identical to the record` | the other direction of the same control. A verifier that always failed would make the loop refuse every clean run, and a verifier that always passed is the one that strands a tree -- so both answers are pinned. |
+| `_mutation_probe_emergency_restore: puts the recorded subject back from the trap path` | the trap is what covers the paths the explicit restore cannot reach, and a trap handler nothing ever calls is the classic dead control. Driving the payload directly is the only way to see it put a file back. |
+
 ### test/bats/unit/network_ports_inert_spec.bats (15)
 
 | Test | Description |
