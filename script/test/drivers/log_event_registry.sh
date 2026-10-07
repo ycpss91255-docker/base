@@ -335,7 +335,7 @@ function _args(kind, text, qs, adj, n, ci, out,   j, m, skip) {
 # first positional to a _log_* body slot? Either directly ("${1}") or
 # through a name the same definition assigns "${1}" to, which is how
 # test.sh spells it (`local _ev="${1}"; ... _log_err ci "${_ev}"`).
-function _forwards(text,   n, i, k, m, d, K, T, Q, EX, AJ, A, SUB, cmd, cond, skip, subs, assignctx, shifted, tok, nm, alias) {
+function _forwards(text,   n, i, k, m, d, ad, K, T, Q, EX, AJ, A, SUB, cmd, cond, skip, subs, assignctx, shifted, tok, nm, alias) {
   n = _tokenize(text, K, T, Q, EX, AJ)
   # Captured immediately: the recursion at the end calls _tokenize again.
   subs = _TOK_SUBS
@@ -366,13 +366,21 @@ function _forwards(text,   n, i, k, m, d, K, T, Q, EX, AJ, A, SUB, cmd, cond, sk
       continue
     }
     if (!cond && cmd && K[i] == "W" && !Q[i] && T[i] == "[[") { cond = 1; cmd = 0; continue }
-    if (!cond && K[i] == "O" && T[i] == "((") { cond = 2; cmd = 0; continue }
+    if (!cond && K[i] == "O" && T[i] == "((") { cond = 2; ad = 0; cmd = 0; continue }
     if (cond == 1) {
       if (K[i] == "W" && !Q[i] && T[i] == "]]") cond = 0
       continue
     }
+    # ARITHMETIC NESTS, and the inner closing pair must not end the
+    # expression: after it did, the `&&` behind it opened a command
+    # position inside what is still arithmetic, and the operator after a
+    # variable sharing a wrapper name became an event id.
     if (cond == 2) {
-      if (K[i] == "O" && T[i] == "))") cond = 0
+      if (K[i] == "O" && T[i] == "((") ad++
+      else if (K[i] == "O" && T[i] == "))") {
+        if (ad > 0) ad--
+        else cond = 0
+      }
       continue
     }
     if (K[i] == "O" && _is_redir(T[i])) {
@@ -728,6 +736,12 @@ function _tokenize(line, kind, text, qs, ex, adj,   n, i, c, e, cur, has, j, L, 
       continue
     }
     if (c == "$" && _expands(line, i)) hasex = 1
+    # An unquoted `*`, `?` or `[` is a PATHNAME pattern: what the command
+    # receives depends on what is on disk, so the body is not knowable
+    # from the source. Declined like the brace expansion above; quoting
+    # or escaping is what stops the expansion, and both reach `cur` by a
+    # path that never gets here.
+    if (c == "*" || c == "?" || c == "[") hasex = 1
     cur = cur c; has = 1; i++
   }
   if (has) { n++; kind[n] = "W"; text[n] = cur; qs[n] = qst; ex[n] = hasex; adj[n] = (wgap ? 0 : 1) }
@@ -762,7 +776,7 @@ function _opens_another(text, qs, i) {
 # One folded line: count the emit sites it holds and print the literal
 # ids among them. <ln> is the FIRST physical line of the fold, which is
 # the line a reader of the report opens.
-function _scan(line, ln,   n, i, m, d, K, T, Q, EX, AJ, A, SUB, cmd, cond, skip, subs, k) {
+function _scan(line, ln,   n, i, m, d, ad, K, T, Q, EX, AJ, A, SUB, cmd, cond, skip, subs, k) {
   n = _tokenize(line, K, T, Q, EX, AJ)
   # Captured IMMEDIATELY: _tokenize publishes the substitution list in a
   # global, and the recursion below calls _tokenize again.
@@ -798,13 +812,21 @@ function _scan(line, ln,   n, i, m, d, K, T, Q, EX, AJ, A, SUB, cmd, cond, skip,
     # position. A standalone `((` operator token only ever means
     # arithmetic -- a substitution is captured into a word, not exposed
     # as this token.
-    if (!cond && K[i] == "O" && T[i] == "((") { cond = 2; cmd = 0; continue }
+    if (!cond && K[i] == "O" && T[i] == "((") { cond = 2; ad = 0; cmd = 0; continue }
     if (cond == 1) {
       if (K[i] == "W" && !Q[i] && T[i] == "]]") cond = 0
       continue
     }
+    # ARITHMETIC NESTS, and the inner closing pair must not end the
+    # expression: after it did, the `&&` behind it opened a command
+    # position inside what is still arithmetic, and the operator after a
+    # variable sharing a wrapper name became an event id.
     if (cond == 2) {
-      if (K[i] == "O" && T[i] == "))") cond = 0
+      if (K[i] == "O" && T[i] == "((") ad++
+      else if (K[i] == "O" && T[i] == "))") {
+        if (ad > 0) ad--
+        else cond = 0
+      }
       continue
     }
     # `function name { ... }` puts the NAME where a command would stand,

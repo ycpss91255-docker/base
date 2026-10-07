@@ -1075,6 +1075,37 @@ _seed() {
   [[ "${output}" == *"log event registry lint: clean"* ]]
 }
 
+# why: Arithmetic nests, and the INNER closing pair ended the expression --
+# after which the `&&` behind it opened a command position inside what is
+# still an arithmetic expression, and the operator after a variable
+# sharing a wrapper name became an event id. Depth is tracked now, so only
+# the outer pair closes it
+@test "_run_log_event_registry: PASSES nested arithmetic naming a wrapper" {
+  _seed
+  _write "dist/script/docker/lib/arith4.sh" \
+    '(( x = ((1)) && _die + not_an_event ))'
+  run _run_log_event_registry
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"log event registry lint: clean"* ]]
+}
+
+# why: An unquoted `seed_*` is a PATHNAME pattern: what the logger receives
+# depends on what is on disk, so the body is not knowable from the source.
+# Recording it as the literal `seed_*` demanded the registration of an id
+# no shell ever logs. It is declined like the brace expansion beside it --
+# and the second line keeps a QUOTED pattern literal, because quoting is
+# what stops the expansion
+@test "_run_log_event_registry: PASSES an unquoted pathname pattern and checks a quoted one" {
+  _seed seed_ok
+  _write "dist/script/docker/lib/glob.sh" \
+    '_log_err conf seed_* "display=boom"' \
+    '_log_err conf "glob_missing_*" "display=boom"'
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" != *"seed_*"* ]]
+  [[ "${output}" == *'glob.sh:2: glob_missing_*'* ]]
+}
+
 # why: A descriptor prefix can be NAMED -- `{fd}>file` asks bash to allocate one
 # and put its number in `fd` -- and only the numeric spelling was
 # recognised, so the brace word took the command position and hid the
