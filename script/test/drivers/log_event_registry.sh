@@ -391,9 +391,11 @@ function _tokenize(line, kind, text, qs, ex,   n, i, c, e, cur, has, j, L, sq, q
         if (c == "$" && substr(line, i + 1, 1) == "(") {
           j = _subst_end(line, i + 1)
           if (j > 0) {
-            _TOK_SUBS = _TOK_SUBS substr(line, i + 2, j - i - 2) "\034"
+            # Arithmetic again; see the unquoted branch below.
+            if (substr(line, i + 2, 1) != "(") {
+              _TOK_SUBS = _TOK_SUBS substr(line, i + 2, j - i - 2) "\034"
+            }
             hasex = 1
-        hasex = 1
             cur = cur substr(line, i, j - i + 1)
             i = j + 1
             continue
@@ -404,7 +406,6 @@ function _tokenize(line, kind, text, qs, ex,   n, i, c, e, cur, has, j, L, sq, q
           if (j > 0) {
             _TOK_SUBS = _TOK_SUBS substr(line, i + 1, j - i - 1) "\034"
             hasex = 1
-        hasex = 1
             cur = cur substr(line, i, j - i + 1)
             i = j + 1
             continue
@@ -426,7 +427,16 @@ function _tokenize(line, kind, text, qs, ex,   n, i, c, e, cur, has, j, L, sq, q
     if (c == "$" && substr(line, i + 1, 1) == "(") {
       j = _subst_end(line, i + 1)
       if (j > 0) {
-        _TOK_SUBS = _TOK_SUBS substr(line, i + 2, j - i - 2) "\034"
+        # `$((...))` is ARITHMETIC: it reads variables and runs no
+        # command, so its expression is not scanned as shell -- a
+        # variable sharing a name with a wrapper would otherwise make
+        # the operator after it an event id. It is still an expansion,
+        # so a body carrying one is declined. Told apart by the two
+        # parentheses being adjacent, which is how it is written; a
+        # space between them is the subshell instead.
+        if (substr(line, i + 2, 1) != "(") {
+          _TOK_SUBS = _TOK_SUBS substr(line, i + 2, j - i - 2) "\034"
+        }
         hasex = 1
         cur = cur substr(line, i, j - i + 1)
         has = 1
@@ -510,9 +520,14 @@ function _scan(line, ln,   n, i, m, d, K, T, Q, EX, A, SUB, cmd, cond, skip, sub
     # comparison naming a wrapper reports its right-hand side as an
     # event id. A substitution inside the expression still runs, and the
     # descent below still reads it.
-    if (K[i] == "W" && T[i] == "[[") { cond = 1; cmd = 0; continue }
+    # UNQUOTED, and at a command position. A quoted `[[` is an argument,
+    # and taking it for the opener puts this state on and leaves it on,
+    # suppressing every call for the rest of the file while the clean
+    # line reads normally -- the state that fixes a false finding must
+    # not be able to create a silent miss.
+    if (!cond && cmd && K[i] == "W" && !Q[i] && T[i] == "[[") { cond = 1; cmd = 0; continue }
     if (cond) {
-      if (K[i] == "W" && T[i] == "]]") cond = 0
+      if (K[i] == "W" && !Q[i] && T[i] == "]]") cond = 0
       continue
     }
     # A REDIRECTION is not a separator and its operand is a FILENAME.

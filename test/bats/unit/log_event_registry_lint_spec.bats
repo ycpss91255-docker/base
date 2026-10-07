@@ -872,6 +872,37 @@ _seed() {
   [[ "${output}" == *"log event registry lint: clean"* ]]
 }
 
+# why: `[[` opens a conditional only where the shell reads it as one: unquoted,
+# at a command position. A QUOTED one is an argument, and treating it as
+# the opener put the conditional state on and left it on -- suppressing
+# every call for the rest of the file, with the clean line reading
+# normally. The state that fixes a false finding must not be able to
+# create a silent miss
+@test "_run_log_event_registry: FAILS after a quoted conditional delimiter" {
+  _seed
+  _write "dist/script/docker/lib/qbrack.sh" \
+    "printf '%s' '[['" \
+    '_log_err conf after_literal_bracket "display=boom"'
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/qbrack.sh:2: after_literal_bracket"* ]]
+}
+
+# why: `$((...))` is ARITHMETIC: it reads variables and runs no command. The
+# substitution branch took it for `$( ... )` and scanned its expression
+# as shell, so a variable sharing a name with a wrapper made the operator
+# after it an event id. Arithmetic is an expansion like any other -- the
+# body carrying it is declined -- but nothing inside it is a call
+@test "_run_log_event_registry: PASSES an arithmetic expansion naming a wrapper" {
+  _seed
+  _write "dist/script/docker/lib/arith.sh" \
+    'n=$((_die + 1))' \
+    'printf "%s" "$((_die + 2))"'
+  run _run_log_event_registry
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"log event registry lint: clean"* ]]
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _run_log_event_registry: what it leaves alone
 # ════════════════════════════════════════════════════════════════════
