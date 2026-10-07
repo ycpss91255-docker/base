@@ -544,6 +544,41 @@ _seed() {
   [[ "${output}" == *"log event registry lint: clean"* ]]
 }
 
+# why: An initialiser spread over several lines is still one initialiser. The
+# fold closed the logical line at the first newline, so the skip lost its
+# nesting and the next line was scanned as a command -- the array shape
+# the case above pins, in the spelling every long argument list in this
+# tree actually uses. A logical line is not complete while a parenthesis
+# is open
+@test "_run_log_event_registry: PASSES words stored in a multi-line array initialiser" {
+  _seed
+  _write "dist/script/docker/lib/marr.sh" \
+    'args=(' \
+    '  _log_err conf not_an_event' \
+    ')'
+  run _run_log_event_registry
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"log event registry lint: clean"* ]]
+}
+
+# why: An unquoted substitution belongs to the WORD it sits in, and its closing
+# parenthesis is not a command separator. Exposing it as one put the next
+# argument of an ordinary command at a command position, so `printf "%s"
+# $(printf text) _log_err conf x` reported x. The span is taken whole and
+# scanned on its own now -- the same path the quoted spelling takes, which
+# is what keeps the call INSIDE one findable while the word around it
+# stays an argument
+@test "_run_log_event_registry: reads inside an unquoted substitution without losing the word around it" {
+  _seed
+  _write "dist/script/docker/lib/usub.sh" \
+    'result=$(_log_err conf unquoted_subst_missing "display=boom")' \
+    'printf "%s" $(printf text) _log_err conf not_an_event'
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/usub.sh:1: unquoted_subst_missing"* ]]
+  [[ "${output}" != *"not_an_event"* ]]
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _run_log_event_registry: what it leaves alone
 # ════════════════════════════════════════════════════════════════════

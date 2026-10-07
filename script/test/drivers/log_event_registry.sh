@@ -342,6 +342,21 @@ function _tokenize(line, kind, text, qs,   n, i, c, e, cur, has, j, L, sq, qst, 
       continue
     }
     if (c == "\\" && i < L) { cur = cur substr(line, i + 1, 1); has = 1; i += 2; continue }
+    # An UNQUOTED substitution belongs to the word it sits in, and its
+    # closing parenthesis is not a command separator -- exposing it as
+    # one puts the next argument of an ordinary command at a command
+    # position. Taken whole and recorded, exactly as the double-quoted
+    # spelling is, so the call INSIDE it is still found.
+    if (c == "$" && substr(line, i + 1, 1) == "(") {
+      j = _subst_end(line, i + 1)
+      if (j > 0) {
+        _TOK_SUBS = _TOK_SUBS substr(line, i + 2, j - i - 2) "\034"
+        cur = cur substr(line, i, j - i + 1)
+        has = 1
+        i = j + 1
+        continue
+      }
+    }
     if (index(";&|()<>\n", c) > 0) {
       if (has) { n++; kind[n] = "W"; text[n] = cur; qs[n] = qst; cur = ""; has = 0; qst = 0 }
       n++; kind[n] = "O"; qs[n] = 0
@@ -381,6 +396,7 @@ function _scan(line, ln,   n, i, m, d, K, T, Q, A, SUB, cmd, skip, subs, k) {
   # one token could not tell `VAR=x _log_err ...` (a call) from an
   # argument, nor a quoted `then` from the keyword.
   cmd = 1
+  d = _ARR_DEPTH
   for (i = 1; i <= n; i++) {
     # A REDIRECTION is not a separator and its operand is a FILENAME.
     # Consuming the whole thing leaves the command position where it was:
@@ -402,16 +418,20 @@ function _scan(line, ln,   n, i, m, d, K, T, Q, A, SUB, cmd, skip, subs, k) {
     # not commands. It is told from a subshell by the assignment in front
     # of the parenthesis, which the tokeniser leaves as its own word
     # because `(` is an operator.
-    if (K[i] == "O" && T[i] == "(" && i > 1 && K[i - 1] == "W" \
+    if (d == 0 && K[i] == "O" && T[i] == "(" && i > 1 && K[i - 1] == "W" \
         && T[i - 1] ~ /^[A-Za-z_][A-Za-z0-9_]*(\[[^]]*\])?\+?=$/) {
       d = 1
-      while (++i <= n && d > 0) {
-        if (K[i] != "O") continue
-        if (T[i] == "(") d++
-        else if (T[i] == ")") d--
-      }
-      i--
       cmd = 0
+      continue
+    }
+    # Inside one, and NOT by folding the file: an initialiser spread over
+    # several lines is still one initialiser, so the depth is carried from
+    # line to line. Counting parentheses only INSIDE an initialiser is
+    # what keeps that safe -- a `(` anywhere else, in a heredoc body or a
+    # glob, would otherwise swallow the rest of the file.
+    if (d > 0) {
+      if (K[i] == "O" && T[i] == "(") d++
+      else if (K[i] == "O" && T[i] == ")") d--
       continue
     }
     if (K[i] == "O") { cmd = 1; continue }
@@ -446,9 +466,17 @@ function _scan(line, ln,   n, i, m, d, K, T, Q, A, SUB, cmd, skip, subs, k) {
   # single quotes, or escaped inside double ones -- both of them the
   # documented way to SHOW one without running it, and both of them in
   # shipped help text -- read exactly like the real thing.
+  _ARR_DEPTH = d
   k = split(subs, SUB, "\034")
   for (i = 1; i <= k; i++) {
-    if (SUB[i] != "") _scan(SUB[i], ln)
+    if (SUB[i] != "") {
+      # The recursion runs its own walk, so the carried depth is put back
+      # afterwards: a substitution inside an initialiser does not end it.
+      d = _ARR_DEPTH
+      _ARR_DEPTH = 0
+      _scan(SUB[i], ln)
+      _ARR_DEPTH = d
+    }
   }
 }
 # _subst_end(<text>, <index of the opening parenthesis>) -> index of its
@@ -541,6 +569,9 @@ function _lex_state(line, st,   i, L, c, sq, pv) {
 # second place a name is written down.
 function _candidate(line) {
   if (line ~ /_log_(debug|info|warn|err|fatal)/) return 1
+  # An array initialiser OPENS on a line that may hold no call at all,
+  # and the depth it starts has to be carried to the lines that do.
+  if (line ~ /=\(/) return 1
   return (fwdre != "" && line ~ fwdre)
 }
 BEGIN {
@@ -562,7 +593,7 @@ PHASE == "def" {
   next
 }
 PHASE == "emit" {
-  if (FNR == 1) { buf = ""; startln = 0; qst = 0 }
+  if (FNR == 1) { buf = ""; startln = 0; qst = 0; _ARR_DEPTH = 0 }
   if (buf == "") startln = FNR
   qst = _lex_state($0, qst)
   # A quote still open at the newline holds ONE word across the lines, so
@@ -588,12 +619,14 @@ PHASE == "emit" {
   if (_LEX_CONT) { buf = buf substr($0, 1, length($0) - 1); next }
   line = buf $0
   buf = ""
-  if (_candidate(line)) _scan(line, startln)
+  # Inside an initialiser every line is scanned, call or not: that is
+  # where its closing parenthesis is.
+  if (_ARR_DEPTH > 0 || _candidate(line)) _scan(line, startln)
   next
 }
 END {
   if (PHASE == "emit") {
-    if (buf != "" && _candidate(buf)) _scan(buf, startln)
+    if (buf != "" && (_ARR_DEPTH > 0 || _candidate(buf))) _scan(buf, startln)
     printf "SEEN\t%d\t%d\n", direct + 0, wrapped + 0
   }
 }
