@@ -1543,6 +1543,21 @@ _seed() {
   [[ "${output}" == *"dist/script/docker/lib/substorder.sh:2: subst_order_missing"* ]]
 }
 
+# why: _candidate reads the RAW line to decide whether tokenising is worth the
+# per-character walk, and it asked for the logger name spelled out in
+# full. Quoting splits a command name the tokeniser would rejoin, so a
+# call written `_log_""err` was never read and its unregistered body left
+# the population -- a MISS, and the filter exists only for speed
+# (base#1228)
+@test "_run_log_event_registry: FAILS on a logger name split by quoting" {
+  _seed
+  _write "dist/script/docker/lib/splitname.sh" \
+    '_log_""err ci quoted_name_missing "display=boom"'
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/splitname.sh:1: quoted_name_missing"* ]]
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _run_log_event_registry: what it leaves alone
 # ════════════════════════════════════════════════════════════════════

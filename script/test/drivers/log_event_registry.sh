@@ -77,13 +77,20 @@
 # substitution, and the measurement stays so the next reader does not try
 # the general version again.
 #
-# THE KNOWN IMPRECISE SET IS base#1228, filed rather than fixed because
-# none of it can block anything while this gates nothing: a substitution
-# judged with the definition END state instead of the state where it runs,
-# forwarding discovery reading past the function closing brace, and a
-# command name split by quoting (`_log_""err`) lost in the raw-text
-# candidate filter. If a finding here looks wrong, read that issue before
-# re-deriving it.
+# THE KNOWN IMPRECISE SET WAS base#1228, and its three are now FIXED: a
+# substitution judged with the definition END state instead of the state
+# where it runs, forwarding discovery reading past the function closing
+# brace, and a command name split by quoting (`_log_""err`) lost in the
+# raw-text candidate filter. Each has its case in the spec. The HALF of
+# the third that is not fixed is a bound rather than a defect and is
+# named in the reach list below: a WRAPPER name split by quoting stays
+# out of reach, because a wrapper name has no invariant prefix for the
+# raw-text filter to fall back on the way `_log_` is for the direct half.
+#
+# THREE FIXES ARE NOT A FINISHED READER. That set was the shapes the
+# review rounds happened to try, and the curve never flattened -- so
+# fixing a named set changes nothing about the condition below, which is
+# the only thing that promotes this lint.
 #
 # PROMOTION HAS ONE CONDITION: a release cycle clean against a moving
 # tree. NOT a clean review round -- round thirty-four was clean and seven
@@ -159,7 +166,7 @@
 # `unregistered body causes fatal exit` case in log_spec.bats is exactly
 # that), so scanning it would report the lint's own evidence as a defect.
 #
-# Five shapes are out of the scan's reach, named rather than implied,
+# Six shapes are out of the scan's reach, named rather than implied,
 # with the direction each errs in:
 #
 #   1. A body that is not a literal -- `_log_err conf "${_ev}"` at a site
@@ -188,6 +195,17 @@
 #      finding that is not a defect is what gets a gate muted. The tree
 #      holds no such line today; if one lands, the fix is to register
 #      nothing and teach the reader the redirection, not to mute it.
+#
+#   6. A FORWARDING WRAPPER NAME split by quoting -- `_d""ie seed_ok`.
+#      The raw-text candidate filter asks for the derived wrapper names
+#      as they are spelled, and a quoted name matches none of them, so
+#      the line is never tokenised and the id behind it is MISSED. The
+#      direct half of that filter asks only for the `_log_` prefix,
+#      which nothing can split without also splitting the prefix; a
+#      wrapper name has no such invariant prefix to fall back on, and
+#      asking the question from the tokenised command names instead
+#      would tokenise every line in the tree. So this one is a bound and
+#      not a defect, and it errs in the missing direction.
 #
 # ── Non-vacuity ─────────────────────────────────────────────────────────────
 #
@@ -1388,7 +1406,16 @@ function _lex_state(line, ctx,   i, L, c, sq, pv, st, k) {
 # derived wrapper set, so this filter widens with it rather than being a
 # second place a name is written down.
 function _candidate(line) {
-  if (line ~ /_log_(debug|info|warn|err|fatal)/) return 1
+  # The PREFIX alone, and not the level name behind it. QUOTING splits a
+  # command name that the tokeniser rejoins once the quotes come off, so
+  # a call written `_log_""err ci missing` matched no spelling of
+  # `_log_<level>` in the raw text and was never tokenised -- its
+  # unregistered body left the population, which is a MISS and the one
+  # direction this filter can produce. Nothing splits `_log_` without
+  # also splitting the prefix, so this is as narrow as the raw text lets
+  # the question be asked. It costs runtime and nothing else: the filter
+  # exists only for speed.
+  if (line ~ /_log_/) return 1
   # An array initialiser OPENS on a line that may hold no call at all,
   # and the depth it starts has to be carried to the lines that do.
   if (line ~ /=\(/) return 1
