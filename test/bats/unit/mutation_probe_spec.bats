@@ -1044,3 +1044,40 @@ STUB
   run bash -c "source '${PROBE}'; _MUTATION_PROBE_DEFAULT_RUNNER=0; _mutation_probe_await_daemon /nonexistent-root"
   assert_success
 }
+
+# ── round-nine review finding, reproduced before it was fixed ───────────────
+
+# why: the working tree is not the whole state a checkout carries. A mutation
+# that stages what it wrote left the mutation in git's index after the bytes had
+# been put back, with the probe reporting a restored tree -- and the next commit
+# would have shipped it.
+@test "_mutation_probe: refuses a mutation that STAGED what it wrote" {
+  local _root _runner
+  _root="$(_probe_fixture)"
+  _runner="$(_probe_runner_observing red '  printf "not ok 1 the witness\n"')"
+  run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject subject.sh --mutate 'sed -i s/right/wrong/ subject.sh; git add subject.sh'"
+  assert_failure
+  assert_output --partial "STAGED what it wrote"
+  refute_output --partial "PINNED"
+  # The bytes come back regardless; the index is what the author has to clear.
+  run grep -cF 'right' "${_root}/subject.sh"
+  assert_output "1"
+}
+
+# why: the restoration verdict has to be able to say no about the index as well.
+# A verifier that only compared bytes would report a restored tree over an index
+# still carrying the mutation, which is the half that gets committed.
+@test "_mutation_probe_verify_restored: fails when the INDEX moved even though the bytes match" {
+  local _root="${BATS_TEST_TMPDIR}/ix" _rec="${BATS_TEST_TMPDIR}/ixrec"
+  mkdir -p "${_root}" "${_rec}"
+  printf 'original\n' > "${_rec}/subject.sh"
+  printf 'original\n' > "${_root}/subject.sh"
+  git -C "${_root}" init -q
+  run bash -c "
+    source '${PROBE}'
+    _MUTATION_PROBE_INDEX_STATE=a-state-the-index-is-not-in
+    _mutation_probe_verify_restored '${_rec}' '${_root}' subject.sh
+  "
+  assert_failure
+  assert_output --partial "RESTORATION INCOMPLETE"
+}

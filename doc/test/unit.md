@@ -3724,7 +3724,7 @@ builds nothing and pushes nothing)
 | `multi-distro-build-worker.yaml: ci-passed job has explicit name: ci-passed (matches existing multi-distro rollup contract) (#325 B-1)` | - |
 | `multi-distro-build-worker.yaml: every job's grant is pinned as an exact set (#957)` | - |
 
-### test/bats/unit/mutation_probe_spec.bats (52)
+### test/bats/unit/mutation_probe_spec.bats (54)
 
 A green suite says every assertion ran. It does not say any of them would
 have noticed a wrong answer, and the v0.43 retrospective measured how far
@@ -3816,6 +3816,8 @@ Faking that comparison would test a control this repo does not ship.
 | `_mutation_probe: a SKIP does not count towards the executed population` | the partial version of the same erasure, which arrives with a plausible count. Skips have to be excluded from the population comparison as well, or a mutation that skips half the suite reports a tier-wide green. |
 | `_mutation_probe: says so when a container still held the checkout at restore time` | killing the child's process group does not reach a CONTAINER. The suite runs through `docker compose run`, whose container belongs to the daemon, keeps the checkout bind-mounted, and can overwrite the restored files afterwards -- so the restore must not be the last word while the project is still held. |
 | `_mutation_probe_await_daemon: asks nothing when the built-in runner did not run` | the question is only meaningful for the built-in runner. A caller-supplied runner has no compose project, and asking anyway would make every such probe depend on a daemon it never used. |
+| `_mutation_probe: refuses a mutation that STAGED what it wrote` | the working tree is not the whole state a checkout carries. A mutation that stages what it wrote left the mutation in git's index after the bytes had been put back, with the probe reporting a restored tree -- and the next commit would have shipped it. |
+| `_mutation_probe_verify_restored: fails when the INDEX moved even though the bytes match` | the restoration verdict has to be able to say no about the index as well. A verifier that only compared bytes would report a restored tree over an index still carrying the mutation, which is the half that gets committed. |
 
 ### test/bats/unit/network_ports_inert_spec.bats (15)
 

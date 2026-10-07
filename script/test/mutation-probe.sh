@@ -176,6 +176,12 @@ _MUTATION_PROBE_ROOT_ID=''
 # compose project for the daemon question below to be about.
 _MUTATION_PROBE_DEFAULT_RUNNER=0
 
+# git's INDEX as it stood before the mutation. The working tree is not the
+# whole state a checkout carries: a mutation that stages what it wrote --
+# `git add`, `git apply --index` -- leaves the mutation in the index after the
+# bytes have been put back, where the next commit ships it.
+_MUTATION_PROBE_INDEX_STATE=''
+
 # Seconds a runner is given to come down after a TERM before the group is
 # KILLed. Overridable so the case that pins the bound does not spend the
 # default on every run.
@@ -218,6 +224,16 @@ _mutation_probe_record() {
 # _mutation_probe_restore <record-dir> <root> <subject>... -- copy each
 # recorded original back. Recreates a subject the mutation deleted, and
 # carries the mode with it.
+# _mutation_probe_index_state <root> -- a fingerprint of the index as it stands
+# against HEAD. `--raw` carries the blob ids, so this moves when what is
+# STAGED changes and not when the working tree does.
+_mutation_probe_index_state() {
+  local _raw _hash
+  _raw="$(git -C "${1}" diff --cached --raw -z 2>/dev/null | sha256sum)"
+  _hash="${_raw%% *}"
+  printf '%s' "${_hash}"
+}
+
 # _mutation_probe_root_id <root> -- the root's device and inode, or empty.
 _mutation_probe_root_id() {
   stat -c '%d:%i' -- "${1}" 2>/dev/null || printf ''
@@ -327,6 +343,17 @@ _mutation_probe_verify_restored() {
       _rc=1
     fi
   done
+  # The index is part of what was there before, and putting bytes back does
+  # not unstage anything. A probe that reported success here while
+  # `git diff --cached` still held the mutation would have the next commit
+  # ship it.
+  if [[ -n "${_MUTATION_PROBE_INDEX_STATE}" ]] \
+    && [[ "$(_mutation_probe_index_state "${_root}")" \
+          != "${_MUTATION_PROBE_INDEX_STATE}" ]]
+  then
+    _mutation_probe_err "RESTORATION INCOMPLETE: the working tree is back but git's INDEX is not -- the mutation staged what it wrote. Unstage it (git restore --staged .) and check git diff --cached before committing anything. The probe does not rewrite an index it did not write."
+    _rc=1
+  fi
   return "${_rc}"
 }
 
@@ -897,9 +924,11 @@ _mutation_probe() {
   _mutation_probe_say "subjects=${_subjects[*]} scope=${_scope}"
   _mutation_probe_say "mutation=${_mutate}"
 
+  _MUTATION_PROBE_INDEX_STATE="$(_mutation_probe_index_state "${_root}")"
   _mutation_probe_tree_state "${_root}" "${_work}/before"
   _mutation_probe_apply "${_root}" "${_mutate}"
   _mutation_probe_tree_state "${_root}" "${_work}/after"
+
 
   # _probe_put_back -- stop the runner if it is still up, restore, and PROVE
   # the restoration. 0 when the tree is back, 3 when it is not.
@@ -924,6 +953,7 @@ _mutation_probe() {
     fi
     _MUTATION_PROBE_RECORD_DIR=''
     _MUTATION_PROBE_SUBJECTS=()
+    _MUTATION_PROBE_INDEX_STATE=''
     rm -rf "${_work}"
     if (( _held )); then
       _mutation_probe_err "a container was still holding this checkout when the subjects were restored -- the refusal above names it and the verb that clears it. The tree HAS been restored and verified, but a container with the checkout bind-mounted can write to it afterwards: clear it, then check git status."
@@ -940,6 +970,15 @@ _mutation_probe() {
     _mutation_probe_err "${1}"
     return 3
   }
+
+  # Asked separately from the path comparison rather than as a pseudo-path in
+  # it, because any key standing for "the index" could also be a filename.
+  if [[ "$(_mutation_probe_index_state "${_root}")" \
+        != "${_MUTATION_PROBE_INDEX_STATE}" ]]
+  then
+    _probe_refuse "the mutation STAGED what it wrote. Putting the bytes back does not unstage anything, so the mutation would survive in git's index and the next commit would ship it -- and the probe does not rewrite an index it did not write. The working tree has been restored; unstage with git restore --staged . and probe again with a mutation that only edits files."
+    return 3
+  fi
 
   local -a _changed=()
   mapfile -d '' -t _changed < <(_mutation_probe_changed_paths \

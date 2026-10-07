@@ -290,6 +290,13 @@ before the restore writes. The checkout **root** is checked by device and
 inode rather than by its path, because swapping it (`mv tree tree-saved;
 ln -s outside tree`) is precisely the move that keeps the path.
 
+A mutation may not **stage** what it writes. The working tree is not the whole
+state a checkout carries: `git add` leaves the mutation in the index after the
+bytes are back, where the next commit ships it. That is refused by name, and the
+restoration verdict can say no about the index as well -- the probe does not
+rewrite an index it did not write, so it restores the files, names
+`git restore --staged` and exits refused.
+
 Two inputs are refused before anything is touched. A **symlink** subject: an
 in-place editor replaces a link with a regular file, and a restore that put the
 bytes back would leave a file where a link was and call it restored, so the
