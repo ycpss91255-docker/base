@@ -543,6 +543,30 @@ jobs:
           # can no longer go missing. Alpine ships it as `yq-go`; the
           # binary on PATH is `yq`, which is what this probe pins.
           docker run --rm "${image}" yq --version
+          # toml-bridge (#1222): the ADR-37 TOML parser this image bundles
+          # so a downstream repo inherits it through the test-tools-stage
+          # pattern without building the standalone image. It shipped for
+          # four published tags as a `#!/usr/bin/env python3` script in a
+          # stage that installed no python3 -- an inert file -- and this
+          # step probed every other bundled tool and not that one.
+          #
+          # It reads the PARSE and not the exit status, which is the same
+          # distinction the roster above draws for a version: a missing
+          # interpreter and a successful parse both end the process, and
+          # only what was printed says which happened. The failure is
+          # captured rather than left to errexit so the message can quote
+          # what the image actually answered.
+          bridge_out="$(printf '[gui]\nmode = "wayland"\n' \
+            | docker run --rm -i "${image}" /usr/local/bin/toml-bridge 2>&1 \
+            || true)"
+          if [ "${bridge_out}" != '{"gui": {"mode": "wayland"}}' ]; then
+            echo "::error::the bundled toml-bridge in ${image} answered" \
+              "'${bridge_out}' where the parsed JSON was expected." \
+              "dockerfile/Dockerfile.test-tools COPYs the parser in; a" \
+              "final stage without its interpreter makes that copy inert." >&2
+            exit 1
+          fi
+          echo "toml-bridge: the bundled parser answers with parsed JSON"
 
       - name: Create multi-arch manifest
         working-directory: /tmp/digests

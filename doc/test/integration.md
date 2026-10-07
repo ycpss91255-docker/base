@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **188 tests**.
+Integration specs under `test/bats/integration/`: **191 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test levels and
@@ -385,6 +385,34 @@ not evidence that the version is right.
 | Test | Description |
 |------|-------------|
 | `test-tools image: every pinned tool answers with the declared version (#1012)` | It iterates the roster rather than a list of tools, so a pin declared tomorrow is asserted tomorrow -- and a probe that cannot run at all is reported rather than read as agreement. |
+
+### test/bats/integration/test_tools_toml_bridge_spec.bats (3)
+
+The suite runs INSIDE the test-tools image, so `/usr/local/bin/toml-bridge`
+on this filesystem is the copy every downstream repo inherits through the
+test-tools-stage pattern. What stood for that seam was a grep for the `COPY
+--from=` line in the Dockerfile, and a grep cannot tell a parser from a
+file: the final stage installed no interpreter, so the bundled bridge
+answered `env: 'python3': No such file or directory` on four published tags
+while the grep stayed green and the ADR went on saying the capability was
+there.
+
+So these cases RUN it and read what it printed. An exit status alone would
+not have separated the two states either: the shebang's failure and a parse
+are both "the process ended", and only the parsed output says which one
+happened. The last case drives the bridge to a non-zero exit on purpose, so
+a probe that could not fail cannot be mistaken for one that passed.
+
+DELIBERATELY FAIL-CLOSED, for the reason its pin sibling states
+(test/bats/integration/test_tools_pins_spec.bats): an image that cannot run
+the parser it ships is exactly the drift this exists to report, and a skip
+would restore the silence.
+
+| Test | Description |
+|------|-------------|
+| `test-tools image: the bundled toml-bridge parses TOML from stdin to JSON (#1222)` | The JSON contract is what the shim's non-KV mode returns to its callers, and the expectation is a worked example rather than a second parse of the same input -- a bridge that echoed its stdin, or one whose interpreter was missing, answers neither. |
+| `test-tools image: the bundled toml-bridge emits the KV lines conf.sh reads (#1222)` | KV is the mode conf.sh actually loads a config through, and it is the one that carries a TYPE decision across the boundary: an unquoted TOML integer has to arrive as the bare digits bash compares, not as a quoted string or a Python repr. |
+| `test-tools image: the bundled toml-bridge refuses malformed TOML under its own name (#1222)` | The case that keeps the two above from being satisfied by anything that merely produces bytes. A real parser REFUSES malformed input and says so under its own name; an interpreter that never started fails too, which is why the message is read and not just the status. |
 
 ### test/bats/integration/upgrade_spec.bats (24)
 
