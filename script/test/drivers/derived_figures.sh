@@ -1015,6 +1015,7 @@ readonly _DERIVED_FIGURES_ENTRY_JUSTFILE='dist/script/justfile'
 # instead of `build` (losing the namespaced repair) and reported the already
 # correct \`just base init\` as a violation.
 readonly _DERIVED_FIGURES_JUST_LITERAL_RE="'(just([[:space:]]+[^']*)?)'"
+# shellcheck disable=SC2016 # an ERE matching a backtick; nothing expands.
 readonly _DERIVED_FIGURES_JUST_BACKTICK_RE='`(just([[:space:]]+[^`\]*)?)\\?`'
 
 # A token standing in for whatever the reader substitutes, rather than naming
