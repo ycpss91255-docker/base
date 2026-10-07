@@ -60,6 +60,10 @@ _probe_fixture() {
     > "${_root}/subject.sh"
   chmod +x "${_root}/subject.sh"
   printf '%s\n' 'untouched' > "${_root}/bystander.txt"
+  # An IGNORED file, because the files this repo ignores are the generated
+  # config the suite under measurement reads.
+  printf '%s\n' '.env' > "${_root}/.gitignore"
+  printf '%s\n' 'generated' > "${_root}/.env"
   git -C "${_root}" init -q
   git -C "${_root}" -c user.email=probe@example.invalid -c user.name=probe \
     add -A
@@ -699,4 +703,78 @@ mutated"
   wait "${_pid}" 2>/dev/null || true
   run bash -c "kill -0 \"$(cat "${_childpid}")\" 2>/dev/null"
   assert_failure
+}
+
+# ── round-four review findings, each reproduced before it was fixed ──────────
+
+# why: removing the final component is not enough. A mutation that replaced the
+# subject's PARENT with a symlink had both the remove and the copy resolve
+# through that link, so the restore destroyed a file outside the tree and then
+# reported success -- the safety guarantee inverted one directory higher up.
+@test "_mutation_probe: refuses to restore through a parent that became a symlink" {
+  local _root _runner _outside="${BATS_TEST_TMPDIR}/outside"
+  _root="$(_probe_fixture)"
+  mkdir -p "${_root}/dir" "${_outside}"
+  printf '%s\n' 'right' > "${_root}/dir/held.sh"
+  printf '%s\n' 'a file that has nothing to do with this' \
+    > "${_outside}/held.sh"
+  git -C "${_root}" -c user.email=probe@example.invalid -c user.name=probe add -A
+  git -C "${_root}" -c user.email=probe@example.invalid -c user.name=probe \
+    commit -qm dir
+  _runner="$(_probe_runner_observing red '  printf "not ok 1 the witness\n"')"
+  run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject dir/held.sh --mutate 'rm -rf dir; ln -s ../outside dir'"
+  assert_failure
+  run cat "${_outside}/held.sh"
+  assert_output "a file that has nothing to do with this"
+}
+
+# why: git records only the executable bit, so `chmod 600` on a CLEAN tracked
+# file moves neither its status nor its hash. The dirty set is therefore not the
+# population the leak check needs; every tracked path is.
+@test "_mutation_probe: refuses a mutation that changed a CLEAN tracked file's mode" {
+  local _root _runner
+  _root="$(_probe_fixture)"
+  _runner="$(_probe_runner_observing green '  printf "ok 1 one\n"')"
+  run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject subject.sh --mutate 'sed -i s/right/wrong/ subject.sh; chmod 600 bystander.txt'"
+  assert_failure
+  assert_output --partial "touched bystander.txt, which it did not declare"
+}
+
+# why: an ignored file is invisible to `git status` by definition, and the files
+# this repo ignores are the generated config the suite under measurement reads
+# -- so a mutation that corrupted one would change what the probe is measuring
+# and be left behind as well.
+@test "_mutation_probe: refuses a mutation that edited a gitignored file" {
+  local _root _runner
+  _root="$(_probe_fixture)"
+  _runner="$(_probe_runner_observing green '  printf "ok 1 one\n"')"
+  run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject subject.sh --mutate 'sed -i s/right/wrong/ subject.sh; printf corrupted > .env'"
+  assert_failure
+  assert_output --partial "touched .env, which it did not declare"
+}
+
+# why: the handler used to be armed AFTER the baseline, and the runner is forked
+# into its own process group -- so an interrupt during the baseline killed the
+# probe and left the suite, a docker compose run in the real case, alive with
+# nobody waiting on it.
+@test "_mutation_probe: an interrupt during the BASELINE still stops the runner" {
+  local _root _runner _marker="${BATS_TEST_TMPDIR}/base-entered"
+  local _out="${BATS_TEST_TMPDIR}/base-out" _pidf="${BATS_TEST_TMPDIR}/base-pid"
+  _root="$(_probe_fixture)"
+  _runner="$(_probe_runner baselineslow "printf 'ok 1 one\n'; printf '%s\n' \"\$\$\" > ${_pidf}; : > ${_marker}; sleep 30")"
+  env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject subject.sh --mutate 'sed -i s/right/wrong/ subject.sh'" > "${_out}" 2>&1 &
+  local _pid=$! _i=0
+  while (( _i < 500 )); do
+    [[ -s "${_pidf}" ]] && break
+    sleep 0.02
+    _i=$(( _i + 1 ))
+  done
+  run test -s "${_pidf}"
+  assert_success
+  kill -TERM "${_pid}" 2>/dev/null || true
+  wait "${_pid}" 2>/dev/null || true
+  run bash -c "kill -0 \"$(cat "${_pidf}")\" 2>/dev/null"
+  assert_failure
+  run cat "${_out}"
+  assert_output --partial "so there is NO verdict"
 }

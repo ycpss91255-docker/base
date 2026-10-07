@@ -265,17 +265,25 @@ loud, names the file, keeps the record directory and exits refused; an
 `INT` / `TERM` stops the runner, restores, and exits **without reporting
 anything** -- a measurement over a suite killed partway cannot be told apart
 from a finished one's -- and an `EXIT` trap covers the rest. The tree is also
-compared before and after the mutation, by git: status code **and** content
-hash for every path in the dirty set, because a file that was already dirty
-stays ` M` through a second edit and a code-only comparison misses exactly the
-case an author working mid-change is always in. A mutation command that edited
-a file it did not declare is refused there, before a multi-minute suite carries
-that edit past the point anyone is watching.
+compared before and after the mutation: a fingerprint -- content, type, mode
+and link target -- for **every tracked path** plus everything git reports as
+untracked or ignored. The dirty set alone is not enough, and neither is a
+status code: a file that was already dirty stays ` M` through a second edit,
+`chmod 600` on a clean tracked file moves nothing git records, and an ignored
+file is invisible to `git status` by definition -- which matters because the
+files this repo ignores include the generated config the suite under
+measurement reads. A mutation command that edited a path it did not declare is
+refused there, before a multi-minute suite carries that edit past the point
+anyone is watching. Nothing outside the checkout is covered, and no snapshot of
+a checkout could be: a mutation command is arbitrary shell.
 
 The restore removes the destination before writing, which is not tidiness:
 `cp` writes *through* a destination symlink, so a mutation that replaced the
 subject with a link would have the restore overwrite that link's target -- an
-undeclared file destroyed by the step whose only job is to put things back.
+undeclared file destroyed by the step whose only job is to put things back. The
+same applies one directory up, so every ancestor is checked to be a real
+directory first and a restore through a changed one is refused rather than
+attempted.
 
 Two inputs are refused before anything is touched. A **symlink** subject: an
 in-place editor replaces a link with a regular file, and a restore that put the

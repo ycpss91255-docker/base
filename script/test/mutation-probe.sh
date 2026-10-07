@@ -192,11 +192,43 @@ _mutation_probe_record() {
 # _mutation_probe_restore <record-dir> <root> <subject>... -- copy each
 # recorded original back. Recreates a subject the mutation deleted, and
 # carries the mode with it.
+# _mutation_probe_dest_ok <root> <subject> -- 0 when every ancestor of the
+# subject inside the root is still a real directory.
+#
+# Removing the final component is not enough. If the mutation replaced a PARENT
+# with a symlink -- `mv dir olddir; ln -s ../outside dir` -- then both the `rm`
+# and the `cp` resolve THROUGH that link and act on a file outside the tree, so
+# the restore destroys an unrelated file and then reports success. An ancestor
+# that is no longer a plain directory means the path the record was taken from
+# no longer exists, and the only safe answer is to write nothing and say so.
+_mutation_probe_dest_ok() {
+  local _root="${1}" _s="${2}" _prefix='' _seg
+  local _rest="${_s}"
+  while [[ "${_rest}" == */* ]]; do
+    _seg="${_rest%%/*}"
+    _rest="${_rest#*/}"
+    _prefix="${_prefix:+${_prefix}/}${_seg}"
+    if [[ -L "${_root}/${_prefix}" ]]; then
+      _mutation_probe_err "will not restore ${_s}: its parent '${_prefix}' is now a symlink, so a write there would land outside the path the original was recorded from."
+      return 1
+    fi
+    if [[ -e "${_root}/${_prefix}" && ! -d "${_root}/${_prefix}" ]]; then
+      _mutation_probe_err "will not restore ${_s}: its parent '${_prefix}' is no longer a directory."
+      return 1
+    fi
+  done
+  return 0
+}
+
 _mutation_probe_restore() {
   local _rec="${1}" _root="${2}"
   shift 2
   local _s _rc=0
   for _s in "$@"; do
+    if ! _mutation_probe_dest_ok "${_root}" "${_s}"; then
+      _rc=1
+      continue
+    fi
     # The destination is REMOVED first, and that is not tidiness. `cp` follows
     # a destination symlink and writes through it, so a mutation that replaced
     # the subject with a link -- `unlink x; ln -s bystander x` -- would have
@@ -284,18 +316,29 @@ _mutation_probe_signal_restore() {
 # `-z` rather than the line form because git quotes a path with a space or a
 # newline in it, and a quoted path is not the path the record was keyed on.
 #
-# The FINGERPRINT is what makes the comparison a comparison. A status code
-# alone answers only whether a file is dirty, and the commonest real case is a
-# file that was ALREADY dirty: editing it again leaves it ` M` before and
-# after, so a code-only snapshot reports no change, the suite runs, and the
-# undeclared edit is left behind with nothing said. An already-untracked file
-# is `??` either way and has the same hole.
+# The FINGERPRINT is what makes the comparison a comparison, and the POPULATION
+# is what makes it complete. Both took three attempts, so both are argued here.
 #
-# Type, MODE and link target are in it as well as the bytes, because git's
-# status does not move for every change that matters: a `chmod +x` on a file
-# that was already content-dirty leaves both the code and the hash where they
-# were. Computing it is cheap because the population is the DIRTY set, not the
-# tree.
+# A status code alone answers only whether a file is dirty, and a file that was
+# ALREADY dirty stays ` M` through a second edit -- so a code-only snapshot
+# reported no change, the suite ran, and the undeclared edit was left behind
+# with nothing said. Type, MODE and link target are in the fingerprint as well
+# as the bytes, because git's status does not move for every change that
+# matters either: a `chmod +x` on an already-dirty file leaves both the code and
+# the hash where they were.
+#
+# And the dirty set is not the population. `chmod 600` on a CLEAN tracked file
+# is invisible to `git status` -- git records only the executable bit -- and an
+# IGNORED file is invisible to it by definition, which matters here because the
+# files this repo ignores include the generated config (`.env`,
+# `.setup.conf.local`) that the suite being measured reads. So the population is
+# every tracked path plus everything git reports as untracked or ignored, and
+# each one is fingerprinted.
+#
+# That is 480-odd paths on this tree, twice, and it is measured in seconds
+# against a probe that runs the suite twice. Nothing outside the checkout is
+# covered, and no snapshot of a checkout could be: a mutation command is
+# arbitrary shell.
 _mutation_probe_fingerprint() {
   local _p="${1}" _hash
   if [[ -L "${_p}" ]]; then
@@ -313,15 +356,23 @@ _mutation_probe_fingerprint() {
 
 _mutation_probe_tree_state() {
   local _root="${1}" _out="${2}"
+  local -A _paths=()
   local -a _records=()
   local _rec _path
   : > "${_out}"
+  mapfile -d '' -t _records < <(git -C "${_root}" ls-files -z 2>/dev/null)
+  for _rec in "${_records[@]}"; do
+    [[ -n "${_rec}" ]] && _paths["${_rec}"]=1
+  done
+  _records=()
   mapfile -d '' -t _records < <(git -C "${_root}" status --porcelain -z \
-    --untracked-files=all --no-renames 2>/dev/null)
+    --untracked-files=all --ignored=matching --no-renames 2>/dev/null)
   for _rec in "${_records[@]}"; do
     [[ ${#_rec} -gt 3 ]] || continue
-    _path="${_rec:3}"
-    printf '%s\t%s\t%s\0' "${_rec:0:2}" \
+    _paths["${_rec:3}"]=1
+  done
+  for _path in "${!_paths[@]}"; do
+    printf '%s\t%s\0' \
       "$(_mutation_probe_fingerprint "${_root}/${_path}")" "${_path}" \
       >> "${_out}"
   done
@@ -335,23 +386,19 @@ _mutation_probe_tree_state() {
 _mutation_probe_changed_paths() {
   local -A _before=() _after=()
   local -a _records=()
-  local _rec _rest _path
-  # Fields are taken off the FRONT, so a path carrying a tab stays whole: the
-  # status and the hash cannot contain one, the path is whatever is left.
+  local _rec _path
+  # The fingerprint is taken off the FRONT and the path is whatever is left, so
+  # a path carrying a tab stays whole: a fingerprint cannot contain one.
   mapfile -d '' -t _records < "${1}"
   for _rec in "${_records[@]}"; do
     [[ -n "${_rec}" ]] || continue
-    _rest="${_rec#*$'\t'}"
-    _path="${_rest#*$'\t'}"
-    _before["${_path}"]="${_rec%%$'\t'*}${_rest%%$'\t'*}"
+    _before["${_rec#*$'\t'}"]="${_rec%%$'\t'*}"
   done
   _records=()
   mapfile -d '' -t _records < "${2}"
   for _rec in "${_records[@]}"; do
     [[ -n "${_rec}" ]] || continue
-    _rest="${_rec#*$'\t'}"
-    _path="${_rest#*$'\t'}"
-    _after["${_path}"]="${_rec%%$'\t'*}${_rest%%$'\t'*}"
+    _after["${_rec#*$'\t'}"]="${_rec%%$'\t'*}"
   done
   for _path in "${!_after[@]}"; do
     [[ "${_before["${_path}"]:-}" == "${_after["${_path}"]}" ]] && continue
@@ -644,6 +691,16 @@ _mutation_probe() {
   # suite whose failures nobody has explained, and the whole method presumes
   # the suite was green before the behaviour was broken. The cost is two runs
   # per probe rather than one, and that is stated rather than rounded down.
+  # Armed BEFORE the baseline, not after it. The runner is forked into its own
+  # process group, so an interrupt that arrives while the BASELINE is running
+  # would kill the probe and leave that group -- a docker compose run, in the
+  # real case -- alive with nobody waiting on it. There is nothing to restore
+  # yet, and the handler knows that: with no record taken it stops the runner
+  # and exits.
+  _MUTATION_PROBE_ROOT="${_root}"
+  trap _mutation_probe_emergency_restore EXIT
+  trap _mutation_probe_signal_restore INT TERM
+
   _mutation_probe_say "baseline: running scope=${_scope} unmutated"
   _mutation_probe_run "${_root}" "${_spec}" "${_work}/baseline"
   local _base_counts _base_ok _base_not
@@ -652,16 +709,19 @@ _mutation_probe() {
   _base_not="${_base_counts##* }"
   if (( _base_ok + _base_not == 0 )); then
     _mutation_probe_err "the baseline run reported no test results at all, so there is nothing to compare a mutated run against. Its output: $(cat "${_work}/baseline")"
+    trap - EXIT INT TERM
     rm -rf "${_work}"
     return 3
   fi
   if (( _base_not > 0 )); then
     _mutation_probe_err "the baseline is already red: ${_base_ok} ok / ${_base_not} not ok at scope=${_scope}, before any mutation. A red under the mutation could not be attributed to it, so there is no verdict to give. Get the scope green first, or narrow it with --spec. The reds: $(_mutation_probe_witnesses "${_work}/baseline")"
+    trap - EXIT INT TERM
     rm -rf "${_work}"
     return 3
   fi
   if (( _MUTATION_PROBE_RUN_STATUS != 0 )); then
     _mutation_probe_err "the baseline runner did not finish: ${_base_ok} ok / 0 not ok and then exit ${_MUTATION_PROBE_RUN_STATUS}. A baseline over a population that never ran is not a baseline."
+    trap - EXIT INT TERM
     rm -rf "${_work}"
     return 3
   fi
@@ -669,15 +729,13 @@ _mutation_probe() {
 
   if ! _mutation_probe_record "${_rec}" "${_root}" "${_subjects[@]}"; then
     _mutation_probe_err "could not record the originals of ${_subjects[*]} -- refusing to mutate a tree it cannot put back."
+    trap - EXIT INT TERM
     rm -rf "${_work}"
     return 3
   fi
 
   _MUTATION_PROBE_RECORD_DIR="${_rec}"
-  _MUTATION_PROBE_ROOT="${_root}"
   _MUTATION_PROBE_SUBJECTS=( "${_subjects[@]}" )
-  trap _mutation_probe_emergency_restore EXIT
-  trap _mutation_probe_signal_restore INT TERM
 
   _mutation_probe_say "subjects=${_subjects[*]} scope=${_scope}"
   _mutation_probe_say "mutation=${_mutate}"

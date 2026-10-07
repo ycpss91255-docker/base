@@ -3724,7 +3724,7 @@ builds nothing and pushes nothing)
 | `multi-distro-build-worker.yaml: ci-passed job has explicit name: ci-passed (matches existing multi-distro rollup contract) (#325 B-1)` | - |
 | `multi-distro-build-worker.yaml: every job's grant is pinned as an exact set (#957)` | - |
 
-### test/bats/unit/mutation_probe_spec.bats (37)
+### test/bats/unit/mutation_probe_spec.bats (41)
 
 A green suite says every assertion ran. It does not say any of them would
 have noticed a wrong answer, and the v0.43 retrospective measured how far
@@ -3801,6 +3801,10 @@ Faking that comparison would test a control this repo does not ship.
 | `_mutation_probe: refuses a subject that walks out of the root` | the other direction of normalisation. A subject outside the root is one the leak check cannot see and the restore has no business writing to, so it is refused by name rather than normalised into something plausible. |
 | `_mutation_probe: refuses a mutation that only changed an already-dirty file's MODE` | git's status does not move for every change that matters. A `chmod +x` on a file that was ALREADY content-dirty leaves both its status code and its content hash where they were, so the undeclared permission change passed the leak check and was left behind. |
 | `_mutation_probe: a signal stops the runner's children too, not just the runner` | a TERM to the runner's pid alone leaves its children running -- and the real runner is test.sh waiting on `docker compose run`, so the container would keep reading a tree the probe is restoring under it. |
+| `_mutation_probe: refuses to restore through a parent that became a symlink` | removing the final component is not enough. A mutation that replaced the subject's PARENT with a symlink had both the remove and the copy resolve through that link, so the restore destroyed a file outside the tree and then reported success -- the safety guarantee inverted one directory higher up. |
+| `_mutation_probe: refuses a mutation that changed a CLEAN tracked file's mode` | git records only the executable bit, so `chmod 600` on a CLEAN tracked file moves neither its status nor its hash. The dirty set is therefore not the population the leak check needs; every tracked path is. |
+| `_mutation_probe: refuses a mutation that edited a gitignored file` | an ignored file is invisible to `git status` by definition, and the files this repo ignores are the generated config the suite under measurement reads -- so a mutation that corrupted one would change what the probe is measuring and be left behind as well. |
+| `_mutation_probe: an interrupt during the BASELINE still stops the runner` | the handler used to be armed AFTER the baseline, and the runner is forked into its own process group -- so an interrupt during the baseline killed the probe and left the suite, a docker compose run in the real case, alive with nobody waiting on it. |
 
 ### test/bats/unit/network_ports_inert_spec.bats (15)
 
