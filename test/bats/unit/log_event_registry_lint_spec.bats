@@ -1528,6 +1528,21 @@ _seed() {
   [[ "${output}" == *"dist/script/docker/lib/noclob.sh:1: noclobber_missing"* ]]
 }
 
+# why: A substitution RUNS where it sits, and every span was judged after the
+# whole definition had been walked, with its FINAL positional state. A
+# wrapper that logs its first argument inside a substitution and shifts
+# afterwards therefore read as non-forwarding, and every call of it left
+# the population unchecked -- the miss direction of base#1228
+@test "_run_log_event_registry: FAILS on an id through a wrapper that shifts after its substitution" {
+  _seed
+  _write "dist/script/docker/lib/substorder.sh" \
+    'w() { printf "%s" "$(_log_err ci "$1")"; shift; }' \
+    'w subst_order_missing'
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/substorder.sh:2: subst_order_missing"* ]]
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _run_log_event_registry: what it leaves alone
 # ════════════════════════════════════════════════════════════════════
@@ -1629,6 +1644,22 @@ _seed() {
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"log event registry lint: clean"* ]]
   [[ "${output}" == *"through a wrapper"* ]]
+}
+
+# why: The same end-state judgement errs the other way round. A name assigned
+# the first positional AFTER a substitution was already in the alias set
+# when the span was judged, so a function whose substitution logs a value
+# it does not yet hold read as a forwarding wrapper -- and a wrongly
+# declared wrapper turns every ordinary call of it into a reported id,
+# which is the false-finding direction that gets a lint muted (base#1228)
+@test "_run_log_event_registry: PASSES a definition whose alias is assigned after its substitution" {
+  _seed
+  _write "dist/script/docker/lib/substlate.sh" \
+    'x() { printf "%s" "$(_log_err ci "$ev")"; local ev="$1"; }' \
+    'x not_an_event'
+  run _run_log_event_registry
+  [ "${status}" -eq 0 ]
+  [[ "${output}" != *"not_an_event"* ]]
 }
 
 # ════════════════════════════════════════════════════════════════════

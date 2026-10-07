@@ -312,6 +312,19 @@ function _expands(line, i,   c) {
   if (c ~ /^[A-Za-z0-9_{(@*?#!$-]$/) return 1
   return 0
 }
+# A recorded substitution span is <token index> SPANSEP <text>. These read
+# the two halves back. SPANSEP is built with sprintf and found with index
+# rather than matched, so no escape has to be trusted inside a regular
+# expression -- the three awks this runs under do not agree on what an
+# octal escape means in one.
+function _span_idx(s,   j) {
+  j = index(s, SPANSEP)
+  return (j > 0) ? substr(s, 1, j - 1) + 0 : 0
+}
+function _span_txt(s,   j) {
+  j = index(s, SPANSEP)
+  return (j > 0) ? substr(s, j + 1) : s
+}
 function _enc(t) {
   gsub(/%/, "%25", t)
   gsub(/\t/, "%09", t)
@@ -361,11 +374,21 @@ function _args(kind, text, qs, adj, n, ci, out,   j, m, skip) {
 # in effect where it RUNS: a fresh context forgot a `shift` in front of it
 # and read the `$1` inside as the caller first argument again. Both are
 # empty at the top level, which is what a definition starts with.
-function _forwards(text, sh0, al,   n, i, k, m, d, ad, K, T, Q, EX, AJ, A, SUB, cmd, cond, skip, subs, assignctx, shifted, tok, nm) {
+function _forwards(text, sh0, al,   n, i, k, m, sn, d, ad, K, T, Q, EX, AJ, A, SUB, SI, ST, SJ, ALC, kk, cmd, cond, skip, subs, assignctx, shifted, tok, nm) {
   shifted = sh0
   n = _tokenize(text, K, T, Q, EX, AJ)
-  # Captured immediately: the recursion at the end calls _tokenize again.
+  # Captured immediately: the recursion below calls _tokenize again.
   subs = _TOK_SUBS
+  # Each span arrives carrying the index of the token it sits in, and is
+  # judged THERE in the walk below. Judging them all afterwards with the
+  # definition end state was wrong in both directions: a wrapper that
+  # logs its first argument inside a substitution and shifts afterwards
+  # read as non-forwarding, so every call of it went unchecked; and a
+  # name assigned the first positional AFTER a substitution was in the
+  # alias set when the span was judged, so a fixed-body function read as
+  # a wrapper and every ordinary call of it was reported.
+  sn = split(subs, SUB, "\034")
+  for (k = 1; k <= sn; k++) { SI[k] = _span_idx(SUB[k]); ST[k] = _span_txt(SUB[k]) }
   # ONE walk, in order. The alias set -- names this definition assigns
   # its own first positional to -- is updated as the commands go past,
   # so each `_log_*` call is judged against only the assignments in
@@ -375,6 +398,20 @@ function _forwards(text, sh0, al,   n, i, k, m, d, ad, K, T, Q, EX, AJ, A, SUB, 
   # not.
   cmd = 1
   for (i = 1; i <= n; i++) {
+    # A substitution RUNS where it sits, so a definition whose logger
+    # call is inside one forwards just as surely -- and it is judged with
+    # the positional state and alias set as they stand HERE, which is the
+    # state the shell will be in when it runs.
+    for (k = 1; k <= sn; k++) {
+      if (ST[k] == "" || SI[k] != i) continue
+      SJ[k] = 1
+      # A COPY of the alias set. The recursion assigns into the array it
+      # is handed, and a name a substitution sets is not a name the
+      # definition around it goes on holding.
+      split("", ALC)
+      for (kk in al) ALC[kk] = al[kk]
+      if (_forwards(ST[k], shifted, ALC)) return 1
+    }
     # THE SAME GRAMMAR THE EMIT SCAN USES, because the two have to agree.
     # An array initialiser stores words, an expression runs no command and
     # a redirection operand is a filename, so none of them is a logger
@@ -508,15 +545,13 @@ function _forwards(text, sh0, al,   n, i, k, m, d, ad, K, T, Q, EX, AJ, A, SUB, 
     }
     cmd = 0
   }
-  # A substitution RUNS, so a definition whose logger call sits inside one
-  # forwards just as surely. Discovery never looked at the spans the
-  # tokeniser had captured, so such a wrapper went unfound and every call
-  # of it unchecked -- silently, because another wrapper satisfies the
-  # empty-wrapper refusal. Each span is judged on its own, which declines
-  # an alias the outer definition set rather than guessing at it.
-  m = split(subs, SUB, "\034")
-  for (i = 1; i <= m; i++) {
-    if (SUB[i] != "" && _forwards(SUB[i], shifted, al)) return 1
+  # A span whose token the walk never reached -- an index past the tokens
+  # it saw, which is the shape a record with no index at all also takes.
+  # Judged with the end state, which is where every span used to be
+  # judged, so a span the walk cannot place is still read rather than
+  # dropped.
+  for (k = 1; k <= sn; k++) {
+    if (ST[k] != "" && !SJ[k] && _forwards(ST[k], shifted, al)) return 1
   }
   return 0
 }
@@ -532,6 +567,15 @@ function _tokenize(line, kind, text, qs, ex, adj,   n, i, c, e, cur, raw, has, j
   n = 0; cur = ""; has = 0; qst = 0; hasex = 0; gap = 1; wgap = 1; L = length(line); i = 1; sq = sprintf("%c", 39)
   _TOK_SUBS = ""
   while (i <= L) {
+    # The token a substitution found from here BELONGS to. The word being
+    # accumulated is flushed as token n + 1, so a span is recorded with
+    # the position of the command whose argument carries it, and
+    # _forwards can judge it where it RUNS instead of with the end state
+    # of the whole definition. Set at the top of the OUTER loop, which is
+    # the iteration a quoted word opens on, so a span found by the
+    # double-quote reader carries the index of that word and not of the
+    # one before it.
+    _TOK_CUR = n + 1
     c = substr(line, i, 1)
     # Adjacency: a token that STARTS where the one before it ended. The
     # descriptor prefix of a redirection is the only thing that needs
@@ -629,7 +673,7 @@ function _tokenize(line, kind, text, qs, ex, adj,   n, i, c, e, cur, raw, has, j
           if (j > 0) {
             # Arithmetic again; see the unquoted branch below.
             if (substr(line, i + 2, 1) == "(") _harvest(substr(line, i + 2, j - i - 2), 1)
-            else _TOK_SUBS = _TOK_SUBS substr(line, i + 2, j - i - 2) "\034"
+            else _TOK_SUBS = _TOK_SUBS _TOK_CUR SPANSEP substr(line, i + 2, j - i - 2) "\034"
             hasex = 1
             cur = cur substr(line, i, j - i + 1)
             i = j + 1
@@ -639,7 +683,7 @@ function _tokenize(line, kind, text, qs, ex, adj,   n, i, c, e, cur, raw, has, j
         if (c == "`") {
           j = _btick_end(line, i)
           if (j > 0) {
-            _TOK_SUBS = _TOK_SUBS substr(line, i + 1, j - i - 1) "\034"
+            _TOK_SUBS = _TOK_SUBS _TOK_CUR SPANSEP substr(line, i + 1, j - i - 1) "\034"
             hasex = 1
             cur = cur substr(line, i, j - i + 1)
             i = j + 1
@@ -739,7 +783,7 @@ function _tokenize(line, kind, text, qs, ex, adj,   n, i, c, e, cur, raw, has, j
         # parentheses being adjacent, which is how it is written; a
         # space between them is the subshell instead.
         if (substr(line, i + 2, 1) == "(") _harvest(substr(line, i + 2, j - i - 2), 0)
-        else _TOK_SUBS = _TOK_SUBS substr(line, i + 2, j - i - 2) "\034"
+        else _TOK_SUBS = _TOK_SUBS _TOK_CUR SPANSEP substr(line, i + 2, j - i - 2) "\034"
         hasex = 1
         cur = cur substr(line, i, j - i + 1)
         has = 1
@@ -750,7 +794,7 @@ function _tokenize(line, kind, text, qs, ex, adj,   n, i, c, e, cur, raw, has, j
     if (c == "`") {
       j = _btick_end(line, i)
       if (j > 0) {
-        _TOK_SUBS = _TOK_SUBS substr(line, i + 1, j - i - 1) "\034"
+        _TOK_SUBS = _TOK_SUBS _TOK_CUR SPANSEP substr(line, i + 1, j - i - 1) "\034"
         hasex = 1
         cur = cur substr(line, i, j - i + 1)
         has = 1
@@ -765,7 +809,7 @@ function _tokenize(line, kind, text, qs, ex, adj,   n, i, c, e, cur, raw, has, j
     if ((c == "<" || c == ">") && substr(line, i + 1, 1) == "(") {
       j = _subst_end(line, i + 1)
       if (j > 0) {
-        _TOK_SUBS = _TOK_SUBS substr(line, i + 2, j - i - 2) "\034"
+        _TOK_SUBS = _TOK_SUBS _TOK_CUR SPANSEP substr(line, i + 2, j - i - 2) "\034"
         hasex = 1
         cur = cur substr(line, i, j - i + 1)
         has = 1
@@ -1020,6 +1064,9 @@ function _scan(line, ln,   n, i, m, d, ad, K, T, Q, EX, AJ, A, SUB, cmd, cond, s
   _ADEPTH = ad
   k = split(subs, SUB, "\034")
   for (i = 1; i <= k; i++) {
+    # The emit descent reads every span wherever it sits, so the token
+    # index _forwards judges spans at is not wanted here and comes off.
+    SUB[i] = _span_txt(SUB[i])
     if (SUB[i] != "") {
       # The recursion runs its own walk, so the carried depth is put back
       # afterwards: a substitution inside an initialiser does not end it.
@@ -1058,7 +1105,7 @@ function _harvest(t, dq,   L, i, c, sq, j) {
       j = _subst_end(t, i + 1)
       if (j > 0) {
         if (substr(t, i + 2, 1) == "(") _harvest(substr(t, i + 2, j - i - 2), dq)
-        else _TOK_SUBS = _TOK_SUBS substr(t, i + 2, j - i - 2) "\034"
+        else _TOK_SUBS = _TOK_SUBS _TOK_CUR SPANSEP substr(t, i + 2, j - i - 2) "\034"
         i = j + 1
         continue
       }
@@ -1066,7 +1113,7 @@ function _harvest(t, dq,   L, i, c, sq, j) {
     if (c == "`") {
       j = _btick_end(t, i)
       if (j > 0) {
-        _TOK_SUBS = _TOK_SUBS substr(t, i + 1, j - i - 1) "\034"
+        _TOK_SUBS = _TOK_SUBS _TOK_CUR SPANSEP substr(t, i + 1, j - i - 1) "\034"
         i = j + 1
         continue
       }
@@ -1356,6 +1403,10 @@ BEGIN {
   # them and drops an empty field -- which is exactly the empty-body
   # case, and a body can carry a tab of its own as well.
   US = sprintf("%c", 31)
+  # The separator between a substitution span and the token index it was
+  # found in. A GROUP separator, so it is distinct from the record
+  # separator the span list itself uses.
+  SPANSEP = sprintf("%c", 29)
   n = split(FWDS, a, "\n")
   for (i = 1; i <= n; i++) if (a[i] != "") {
     fwd[a[i]] = 1
