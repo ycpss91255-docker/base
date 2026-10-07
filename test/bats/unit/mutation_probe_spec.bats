@@ -79,6 +79,29 @@ _probe_runner() {
   printf '%s\n' "${_p}"
 }
 
+# _probe_runner_observing <name> <tap-when-mutated> -- a stub that READS the
+# subject before answering: green while it still says "right", and
+# <tap-when-mutated> once the mutation has made it say "wrong".
+#
+# The probe runs the scope TWICE -- once unmutated, for the baseline that makes
+# a red attributable, and once mutated -- so a stub that answered the same way
+# both times would make every baseline red and turn every case below into a
+# refusal. An observing stub is also the honest stand-in: a test that cannot
+# see the subject is exactly what this tool exists to find.
+_probe_runner_observing() {
+  local _p="${BATS_TEST_TMPDIR}/runner-${1}"
+  {
+    printf '%s\n' '#!/usr/bin/env bash'
+    printf '%s\n' 'if grep -F wrong "${1}/subject.sh" >/dev/null 2>&1; then'
+    printf '%s\n' "${2}"
+    printf '%s\n' 'else'
+    printf '%s\n' '  printf "ok 1 the baseline is green\n"'
+    printf '%s\n' 'fi'
+  } > "${_p}"
+  chmod +x "${_p}"
+  printf '%s\n' "${_p}"
+}
+
 # ── what the loop refuses before it touches anything ────────────────────────
 
 # why: the probe's first act is to record the originals, and a root it cannot
@@ -227,7 +250,7 @@ _probe_runner() {
 @test "_mutation_probe: refuses a run that reported no test results at all" {
   local _root _runner
   _root="$(_probe_fixture)"
-  _runner="$(_probe_runner silent 'printf "the runner died before collection\n"; exit 1')"
+  _runner="$(_probe_runner_observing silent '  printf "the runner died before collection\n"; exit 1')"
   run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject subject.sh --mutate 'sed -i s/right/wrong/ subject.sh'"
   assert_failure
   assert_output --partial "no test results"
@@ -240,7 +263,7 @@ _probe_runner() {
 @test "_mutation_probe: refuses a green whose runner did not finish" {
   local _root _runner
   _root="$(_probe_fixture)"
-  _runner="$(_probe_runner partial 'printf "ok 1 one\nok 2 two\n"; exit 143')"
+  _runner="$(_probe_runner_observing partial '  printf "ok 1 one\nok 2 two\n"; exit 143')"
   run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject subject.sh --mutate 'sed -i s/right/wrong/ subject.sh'"
   assert_failure
   refute_output --partial "PINNED"
@@ -253,7 +276,7 @@ _probe_runner() {
 @test "_mutation_probe: a red runner exit is PINNED, not an unfinished run" {
   local _root _runner
   _root="$(_probe_fixture)"
-  _runner="$(_probe_runner redexit 'printf "ok 1 one\nnot ok 2 the witness\n"; exit 1')"
+  _runner="$(_probe_runner_observing redexit '  printf "ok 1 one\nnot ok 2 the witness\n"; exit 1')"
   run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject subject.sh --mutate 'sed -i s/right/wrong/ subject.sh'"
   assert_success
   assert_output --partial "PINNED"
@@ -267,7 +290,7 @@ _probe_runner() {
 @test "_mutation_probe: reports PINNED and names the witness when the mutation turns something red" {
   local _root _runner
   _root="$(_probe_fixture)"
-  _runner="$(_probe_runner red 'printf "ok 1 one\nnot ok 2 the_behaviour returns the right answer\nok 3 three\n"')"
+  _runner="$(_probe_runner_observing red '  printf "ok 1 one\nnot ok 2 the_behaviour returns the right answer\nok 3 three\n"')"
   run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject subject.sh --mutate 'sed -i s/right/wrong/ subject.sh'"
   assert_success
   assert_output --partial "PINNED"
@@ -307,7 +330,7 @@ _probe_runner() {
 @test "_mutation_probe: a narrow RED is still PINNED, because a red needs no scope" {
   local _root _runner
   _root="$(_probe_fixture)"
-  _runner="$(_probe_runner red 'printf "not ok 1 the narrow spec noticed\n"')"
+  _runner="$(_probe_runner_observing red '  printf "not ok 1 the narrow spec noticed\n"')"
   run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject subject.sh --spec test/bats/unit/x_spec.bats --mutate 'sed -i s/right/wrong/ subject.sh'"
   assert_success
   assert_output --partial "PINNED"
@@ -320,7 +343,7 @@ _probe_runner() {
 @test "_mutation_probe: every verdict states the scope it was measured at" {
   local _root _runner
   _root="$(_probe_fixture)"
-  _runner="$(_probe_runner red 'printf "not ok 1 witness\n"')"
+  _runner="$(_probe_runner_observing red '  printf "not ok 1 witness\n"')"
   run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject subject.sh --mutate 'sed -i s/right/wrong/ subject.sh'"
   assert_success
   assert_output --partial "scope=tier"
@@ -334,7 +357,7 @@ _probe_runner() {
 @test "_mutation_probe: restores the subject byte-for-byte after a completed run" {
   local _root _runner
   _root="$(_probe_fixture)"
-  _runner="$(_probe_runner red 'printf "not ok 1 witness\n"')"
+  _runner="$(_probe_runner_observing red '  printf "not ok 1 witness\n"')"
   run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject subject.sh --mutate 'sed -i s/right/wrong/ subject.sh'"
   assert_success
   run git -C "${_root}" status --porcelain
@@ -347,7 +370,7 @@ _probe_runner() {
 @test "_mutation_probe: restores the subject's mode, not only its bytes" {
   local _root _runner
   _root="$(_probe_fixture)"
-  _runner="$(_probe_runner red 'printf "not ok 1 witness\n"')"
+  _runner="$(_probe_runner_observing red '  printf "not ok 1 witness\n"')"
   run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject subject.sh --mutate 'chmod -x subject.sh; sed -i s/right/wrong/ subject.sh'"
   assert_success
   run test -x "${_root}/subject.sh"
@@ -362,7 +385,7 @@ _probe_runner() {
 @test "_mutation_probe: restores the subject when the runner dies without finishing" {
   local _root _runner _ran="${BATS_TEST_TMPDIR}/runner-started"
   _root="$(_probe_fixture)"
-  _runner="$(_probe_runner crash "printf 'ok 1 one\n'; : > ${_ran}; kill -TERM \$\$")"
+  _runner="$(_probe_runner_observing crash "  printf 'ok 1 one\n'; : > ${_ran}; kill -TERM \$\$")"
   run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject subject.sh --mutate 'sed -i s/right/wrong/ subject.sh'"
   assert_failure
   run test -f "${_ran}"
@@ -406,7 +429,7 @@ _probe_runner() {
   local _out="${BATS_TEST_TMPDIR}/signal-out"
   local _runner_pid="${BATS_TEST_TMPDIR}/runner-pid"
   _root="$(_probe_fixture)"
-  _runner="$(_probe_runner slow "printf 'ok 1 one\n'; printf '%s\n' \"\$\$\" > ${_runner_pid}; : > ${_marker}; sleep 30")"
+  _runner="$(_probe_runner_observing slow "  printf 'ok 1 one\n'; printf '%s\n' \"\$\$\" > ${_runner_pid}; : > ${_marker}; sleep 30")"
   env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject subject.sh --mutate 'sed -i s/right/wrong/ subject.sh'" > "${_out}" 2>&1 &
   local _pid=$! _i=0
   while (( _i < 500 )); do
@@ -550,24 +573,108 @@ STUB
 # discarded by an unconditional return, so a RED run whose restore had failed
 # reported PINNED and exit 0 with the mutation still in the tree. The
 # restoration failure is the more important news and has to be the only news.
-# The mutation replaces the subject with a DIRECTORY, which no `cp` can
-# overwrite; a permission-based failure was tried first and does not work,
-# because `cp` onto an existing file needs write on the FILE, so chmod on the
-# parent changes nothing and chmod on the file is a no-op under a root
-# container. This one fails for every uid.
+# The restore is stubbed to fail rather than provoked into failing: the
+# provoked versions all turned out to be uid-dependent or to be caught by an
+# earlier control, and what this case is about is the ORDER, not any one way
+# of breaking a copy.
 @test "_mutation_probe: publishes NO verdict when the restoration failed" {
   local _root _runner
   _root="$(_probe_fixture)"
-  mkdir -p "${_root}/sub"
-  printf '%s\n' 'right' > "${_root}/sub/held.sh"
-  git -C "${_root}" -c user.email=probe@example.invalid -c user.name=probe add -A
-  git -C "${_root}" -c user.email=probe@example.invalid -c user.name=probe \
-    commit -qm held
-  _runner="$(_probe_runner red 'printf "not ok 1 the witness\n"')"
-  run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject sub/held.sh --mutate 'sed -i s/right/wrong/ sub/held.sh; rm -f sub/held.sh; mkdir sub/held.sh'"
+  _runner="$(_probe_runner_observing red '  printf "not ok 1 the witness\n"')"
+  run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "
+    source '${PROBE}'
+    _mutation_probe_restore() { return 1; }
+    _mutation_probe '${_root}' --subject subject.sh --mutate 'sed -i s/right/wrong/ subject.sh'
+  "
   assert_failure
   assert_output --partial "copy them back before anything else reads this checkout"
   refute_output --partial "PINNED"
+}
+
+# why: THE central safety guarantee, inverted. `cp` writes THROUGH a destination
+# symlink, so a mutation that replaced the subject with a link had the restore
+# overwrite the link's target -- an undeclared file destroyed by the step whose
+# only job is to put things back. Verification refused afterwards, by which
+# time the data was gone.
+@test "_mutation_probe: a mutation that makes the subject a symlink does not clobber its target" {
+  local _root _runner
+  _root="$(_probe_fixture)"
+  _runner="$(_probe_runner_observing red '  printf "not ok 1 the witness\n"')"
+  run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject subject.sh --mutate 'sed -i s/right/wrong/ subject.sh; rm -f subject.sh; ln -s bystander.txt subject.sh'"
+  # The bystander is the file that must still be itself.
+  run cat "${_root}/bystander.txt"
+  assert_output "untouched"
+}
+
+# why: without a baseline the probe cannot say anything TURNED red. On a
+# checkout that already has a failing test -- the normal state of the tree this
+# tool is reached from, mid-change -- every mutation reported PINNED and named
+# that pre-existing failure as its witness.
+@test "_mutation_probe: refuses to report a verdict when the baseline is already red" {
+  local _root _runner
+  _root="$(_probe_fixture)"
+  _runner="$(_probe_runner alwaysred 'printf "ok 1 one\nnot ok 2 a failure that has nothing to do with the subject\n"')"
+  run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject subject.sh --mutate 'sed -i s/right/wrong/ subject.sh'"
+  assert_failure
+  assert_output --partial "the baseline is already red"
+  refute_output --partial "PINNED"
+}
+
+# why: the ordering the baseline depends on. The unmutated run has to come
+# FIRST and the mutated one second; a probe that ran the scope once, or ran it
+# twice over the same tree, would report the same verdict and be wrong for the
+# same reason.
+@test "_mutation_probe: runs the scope unmutated FIRST, then mutated" {
+  local _root _runner _log="${BATS_TEST_TMPDIR}/run-log"
+  _root="$(_probe_fixture)"
+  _runner="$(_probe_runner order 'if grep -F wrong "${1}/subject.sh" >/dev/null 2>&1; then printf "mutated\n" >> '"${_log}"'; printf "not ok 1 the witness\n"; else printf "baseline\n" >> '"${_log}"'; printf "ok 1 green\n"; fi')"
+  run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject subject.sh --mutate 'sed -i s/right/wrong/ subject.sh'"
+  assert_success
+  run cat "${_log}"
+  assert_output "baseline
+mutated"
+}
+
+# why: `--subject ./subject.sh` is a valid thing to type. It was recorded under
+# that spelling and then refused as an undeclared edit, because git reports the
+# path as `subject.sh` and the comparison is string equality -- so the probe
+# refused the one input it had just accepted.
+@test "_mutation_probe: accepts a subject spelled with a leading './'" {
+  local _root _runner
+  _root="$(_probe_fixture)"
+  _runner="$(_probe_runner_observing red '  printf "not ok 1 the witness\n"')"
+  run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject ./subject.sh --mutate 'sed -i s/right/wrong/ subject.sh'"
+  assert_success
+  assert_output --partial "PINNED"
+  refute_output --partial "did not declare"
+}
+
+# why: the other direction of normalisation. A subject outside the root is one
+# the leak check cannot see and the restore has no business writing to, so it
+# is refused by name rather than normalised into something plausible.
+@test "_mutation_probe: refuses a subject that walks out of the root" {
+  local _root
+  _root="$(_probe_fixture)"
+  run bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject ../outside.sh --mutate true"
+  assert_failure
+  assert_output --partial "walks out of the root"
+  run bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject /etc/hosts --mutate true"
+  assert_failure
+  assert_output --partial "is absolute"
+}
+
+# why: git's status does not move for every change that matters. A `chmod +x` on
+# a file that was ALREADY content-dirty leaves both its status code and its
+# content hash where they were, so the undeclared permission change passed the
+# leak check and was left behind.
+@test "_mutation_probe: refuses a mutation that only changed an already-dirty file's MODE" {
+  local _root _runner
+  _root="$(_probe_fixture)"
+  printf '%s\n' 'an edit the author had already made' > "${_root}/bystander.txt"
+  _runner="$(_probe_runner_observing green '  printf "ok 1 one\n"')"
+  run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject subject.sh --mutate 'sed -i s/right/wrong/ subject.sh; chmod +x bystander.txt'"
+  assert_failure
+  assert_output --partial "touched bystander.txt, which it did not declare"
 }
 
 # why: a TERM to the runner's pid alone leaves its children running -- and the
@@ -578,7 +685,7 @@ STUB
   local _out="${BATS_TEST_TMPDIR}/grp-out"
   local _childpid="${BATS_TEST_TMPDIR}/grp-childpid"
   _root="$(_probe_fixture)"
-  _runner="$(_probe_runner group "printf 'ok 1 one\n'; sleep 30 & printf '%s\n' \"\$!\" > ${_childpid}; : > ${_marker}; wait")"
+  _runner="$(_probe_runner_observing group "  printf 'ok 1 one\n'; sleep 30 & printf '%s\n' \"\$!\" > ${_childpid}; : > ${_marker}; wait")"
   env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject subject.sh --mutate 'sed -i s/right/wrong/ subject.sh'" > "${_out}" 2>&1 &
   local _pid=$! _i=0
   while (( _i < 500 )); do

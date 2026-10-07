@@ -197,6 +197,18 @@ _mutation_probe_restore() {
   shift 2
   local _s _rc=0
   for _s in "$@"; do
+    # The destination is REMOVED first, and that is not tidiness. `cp` follows
+    # a destination symlink and writes through it, so a mutation that replaced
+    # the subject with a link -- `unlink x; ln -s bystander x` -- would have
+    # the restore overwrite the LINK'S TARGET with the recorded bytes: an
+    # undeclared file destroyed by the step whose whole job is to put things
+    # back. Removing first also covers a subject replaced by a directory.
+    # `:?` on both halves, not a style note: an empty root or an empty subject
+    # would make this `rm -rf -- /`, and a tool whose contract is that it cannot
+    # damage the tree does not get to rely on its callers for that.
+    if [[ -e "${_root}/${_s}" || -L "${_root}/${_s}" ]]; then
+      rm -rf -- "${_root:?}/${_s:?}" || _rc=1
+    fi
     mkdir -p -- "$(dirname -- "${_root}/${_s}")" || _rc=1
     cp -p -- "${_rec}/${_s}" "${_root}/${_s}" || _rc=1
   done
@@ -272,29 +284,46 @@ _mutation_probe_signal_restore() {
 # `-z` rather than the line form because git quotes a path with a space or a
 # newline in it, and a quoted path is not the path the record was keyed on.
 #
-# The HASH is what makes the comparison a comparison. A status code alone
-# answers only whether a file is dirty, and the commonest real case is a file
-# that was ALREADY dirty: editing it again leaves it ` M` before and after, so
-# a code-only snapshot reports no change, the suite runs, and the undeclared
-# edit is left behind with nothing said. An already-untracked file is `??`
-# either way and has the same hole. Hashing is cheap here because the set is
-# the DIRTY set, not the tree.
+# The FINGERPRINT is what makes the comparison a comparison. A status code
+# alone answers only whether a file is dirty, and the commonest real case is a
+# file that was ALREADY dirty: editing it again leaves it ` M` before and
+# after, so a code-only snapshot reports no change, the suite runs, and the
+# undeclared edit is left behind with nothing said. An already-untracked file
+# is `??` either way and has the same hole.
+#
+# Type, MODE and link target are in it as well as the bytes, because git's
+# status does not move for every change that matters: a `chmod +x` on a file
+# that was already content-dirty leaves both the code and the hash where they
+# were. Computing it is cheap because the population is the DIRTY set, not the
+# tree.
+_mutation_probe_fingerprint() {
+  local _p="${1}" _hash
+  if [[ -L "${_p}" ]]; then
+    printf 'L:%s' "$(readlink -- "${_p}" 2>/dev/null || printf '?')"
+  elif [[ -d "${_p}" ]]; then
+    printf 'D:%s' "$(stat -c '%a' -- "${_p}" 2>/dev/null || printf '?')"
+  elif [[ -f "${_p}" ]]; then
+    _hash="$(sha256sum -- "${_p}" 2>/dev/null || printf '? ')"
+    printf 'F:%s:%s' "$(stat -c '%a' -- "${_p}" 2>/dev/null || printf '?')" \
+      "${_hash%% *}"
+  else
+    printf 'X:absent'
+  fi
+}
+
 _mutation_probe_tree_state() {
   local _root="${1}" _out="${2}"
   local -a _records=()
-  local _rec _path _hash
+  local _rec _path
   : > "${_out}"
   mapfile -d '' -t _records < <(git -C "${_root}" status --porcelain -z \
     --untracked-files=all --no-renames 2>/dev/null)
   for _rec in "${_records[@]}"; do
     [[ ${#_rec} -gt 3 ]] || continue
     _path="${_rec:3}"
-    _hash='-'
-    if [[ -f "${_root}/${_path}" ]]; then
-      _hash="$(sha256sum -- "${_root}/${_path}")"
-      _hash="${_hash%% *}"
-    fi
-    printf '%s\t%s\t%s\0' "${_rec:0:2}" "${_hash}" "${_path}" >> "${_out}"
+    printf '%s\t%s\t%s\0' "${_rec:0:2}" \
+      "$(_mutation_probe_fingerprint "${_root}/${_path}")" "${_path}" \
+      >> "${_out}"
   done
 }
 
@@ -461,6 +490,39 @@ _mutation_probe_witnesses() {
   grep -E '^not ok ' -- "${1}" || true
 }
 
+# _mutation_probe_normalise <path> -- print <path> as git would spell it,
+# relative to the root; fail when it is not a path inside the root.
+#
+# `--subject ./subject.sh` is a valid thing to type and was accepted, recorded
+# and then refused as an UNDECLARED edit, because git reports the changed path
+# as `subject.sh` and the comparison is string equality. The declaration and
+# git's answer have to be spelled the same way, so the declaration is
+# normalised rather than the comparison loosened -- a looser comparison would
+# also start matching paths that merely look alike.
+_mutation_probe_normalise() {
+  local _p="${1}"
+  if [[ "${_p}" == /* ]]; then
+    _mutation_probe_err "subject '${_p}' is absolute. Subjects are root-relative, so that the path recorded is the path git reports."
+    return 1
+  fi
+  while [[ "${_p}" == *//* ]]; do _p="${_p//\/\//\/}"; done
+  while [[ "${_p}" == ./* ]]; do _p="${_p#./}"; done
+  while [[ "${_p}" == */./* ]]; do _p="${_p//\/.\//\/}"; done
+  _p="${_p%/}"
+  _p="${_p%/.}"
+  case "${_p}" in
+    ..|../*|*/../*|*/..)
+      _mutation_probe_err "subject '${1}' walks out of the root with '..'. A subject outside the tree is one the leak check cannot see and the restore has no business writing to."
+      return 1
+      ;;
+  esac
+  if [[ -z "${_p}" ]]; then
+    _mutation_probe_err "subject '${1}' names no path."
+    return 1
+  fi
+  printf '%s\n' "${_p}"
+}
+
 # ── the loop ───────────────────────────────────────────────────────────────
 
 _mutation_probe_usage() {
@@ -514,6 +576,16 @@ _mutation_probe() {
     esac
   done
 
+  # Normalised BEFORE anything else reads them, so the path recorded, the path
+  # restored and the path git reports are one spelling.
+  local -a _normalised=()
+  local _n
+  for _n in "${_subjects[@]+"${_subjects[@]}"}"; do
+    _n="$(_mutation_probe_normalise "${_n}")" || return 3
+    _normalised+=( "${_n}" )
+  done
+  _subjects=( "${_normalised[@]+"${_normalised[@]}"}" )
+
   # git is the leak check. Without a work tree there is no before/after
   # comparison, and the one control standing between this tool and a
   # half-mutated checkout would be silently absent.
@@ -558,6 +630,42 @@ _mutation_probe() {
   _work="$(mktemp -d)" || return 3
   local _rec="${_work}/record"
   mkdir -p "${_rec}"
+
+  # ── the BASELINE, which is what makes a red attributable ────────────────
+  #
+  # Running only the mutated tree cannot establish that anything TURNED red. On
+  # a checkout that already has a failing test, every mutation reports PINNED
+  # and names that pre-existing failure as its witness -- a confident answer
+  # about an assertion that never looked at the subject. And a dirty checkout
+  # is the normal case for this tool, because it is reached mid-change.
+  #
+  # So the scope is run first, unmutated, and a baseline that is not clean is
+  # REFUSED rather than subtracted. Subtracting would let the probe report on a
+  # suite whose failures nobody has explained, and the whole method presumes
+  # the suite was green before the behaviour was broken. The cost is two runs
+  # per probe rather than one, and that is stated rather than rounded down.
+  _mutation_probe_say "baseline: running scope=${_scope} unmutated"
+  _mutation_probe_run "${_root}" "${_spec}" "${_work}/baseline"
+  local _base_counts _base_ok _base_not
+  _base_counts="$(_mutation_probe_tap_counts "${_work}/baseline")"
+  _base_ok="${_base_counts%% *}"
+  _base_not="${_base_counts##* }"
+  if (( _base_ok + _base_not == 0 )); then
+    _mutation_probe_err "the baseline run reported no test results at all, so there is nothing to compare a mutated run against. Its output: $(cat "${_work}/baseline")"
+    rm -rf "${_work}"
+    return 3
+  fi
+  if (( _base_not > 0 )); then
+    _mutation_probe_err "the baseline is already red: ${_base_ok} ok / ${_base_not} not ok at scope=${_scope}, before any mutation. A red under the mutation could not be attributed to it, so there is no verdict to give. Get the scope green first, or narrow it with --spec. The reds: $(_mutation_probe_witnesses "${_work}/baseline")"
+    rm -rf "${_work}"
+    return 3
+  fi
+  if (( _MUTATION_PROBE_RUN_STATUS != 0 )); then
+    _mutation_probe_err "the baseline runner did not finish: ${_base_ok} ok / 0 not ok and then exit ${_MUTATION_PROBE_RUN_STATUS}. A baseline over a population that never ran is not a baseline."
+    rm -rf "${_work}"
+    return 3
+  fi
+  _mutation_probe_say "baseline: ${_base_ok} ok / 0 not ok -- clean, so a red below is the mutation's"
 
   if ! _mutation_probe_record "${_rec}" "${_root}" "${_subjects[@]}"; then
     _mutation_probe_err "could not record the originals of ${_subjects[*]} -- refusing to mutate a tree it cannot put back."

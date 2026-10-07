@@ -243,11 +243,13 @@ coverage-path spec *args:
 # string turns red when the file carrying it is deleted. So this puts the
 # code back and breaks the behaviour in place.
 #
-# It records each declared subject, applies the mutation, runs, restores from
-# the record and PROVES the restoration before reporting, so there is no path
-# that leaves the tree mutated. A mutation that touched a file it did not
-# declare is refused before the run, because only declared subjects were
-# recorded.
+# It runs the scope UNMUTATED first -- without that baseline a red cannot be
+# attributed to the mutation, and a tree that is already red would have every
+# mutation report PINNED. Then it records each declared subject, applies the
+# mutation, runs, restores from the record and PROVES the restoration before
+# reporting, so there is no path that leaves the tree mutated. A mutation that
+# touched a file it did not declare is refused before the run, because only
+# declared subjects were recorded. Two runs per probe, not one.
 #
 # A red names the assertion that was pinning the behaviour, which is the line
 # to quote. A green is qualified by how much ran: narrowing to one spec can

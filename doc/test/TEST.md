@@ -248,6 +248,15 @@ does not pin a behaviour. The probe therefore reports:
 
 Run the whole tier, then ask which spec should have been the one to notice.
 
+**It runs the scope twice, and that is the price of an attributable red.** The
+first run is the chosen scope **unmutated**: without it the probe cannot say
+anything *turned* red, and on a checkout that already has a failing test -- the
+normal state of a tree reached mid-change -- every mutation would report
+`PINNED` and name that pre-existing failure as its witness. A baseline that is
+not clean is **refused** rather than subtracted, because the method presumes the
+suite was green before the behaviour was broken, and a subtraction would let the
+probe report over failures nobody has explained.
+
 **It cannot leave the tree mutated.** Every declared `--subject` is recorded
 (bytes and mode) before anything is touched and restored from that record --
 not from git, which cannot see an uncommitted edit you are in the middle of.
@@ -262,6 +271,11 @@ stays ` M` through a second edit and a code-only comparison misses exactly the
 case an author working mid-change is always in. A mutation command that edited
 a file it did not declare is refused there, before a multi-minute suite carries
 that edit past the point anyone is watching.
+
+The restore removes the destination before writing, which is not tidiness:
+`cp` writes *through* a destination symlink, so a mutation that replaced the
+subject with a link would have the restore overwrite that link's target -- an
+undeclared file destroyed by the step whose only job is to put things back.
 
 Two inputs are refused before anything is touched. A **symlink** subject: an
 in-place editor replaces a link with a regular file, and a restore that put the
