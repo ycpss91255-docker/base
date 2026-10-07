@@ -4012,13 +4012,12 @@ _UNSOURCED_DRIVER_FILES=(
 # it found all four unregistered ids base#1220 was filed for, two of them
 # through a forwarding wrapper nothing else can see. It is out of the table
 # because of its READER, not its rule. Its first spelling was a regex over
-# the raw line; it is now a shell word splitter, and codex found a
-# reproduced parser defect in thirty-four consecutive rounds without the
-# curve flattening -- eleven of those were FALSE POSITIVES on valid shell
-# (array initialisers, `(( ))` and `for (( ))`, `function name { }`,
-# `time -p`, `{fd}>`, a quoted `[[`, `case` as an argument, brace
-# expansions, parameter-expansion text, assignment-shaped arguments,
-# `set -e` read as a positional change). In the table, each of those would
+# the raw line; it is now a shell word splitter, and review found a
+# reproduced parser defect in forty-one consecutive rounds -- twenty-five
+# of them FALSE POSITIVES on valid shell. Round thirty-four came back
+# clean and the seven rounds after it found sixteen more, the last four at
+# once, so a clean round says nothing about the reader being finished. In
+# the table, each of those would
 # have blocked a PR whose logging was correct, and the author's only
 # recourse would have been to read fourteen hundred lines of awk to tell a
 # parser bug from a finding. A gate that does that once gets muted, and a

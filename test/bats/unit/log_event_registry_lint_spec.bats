@@ -1166,6 +1166,65 @@ _seed() {
   [[ "${output}" != *"ordinary_message"* ]]
 }
 
+# why: The recursion into a substitution started a FRESH forwarding context, so
+# a `shift` before it was forgotten and the `$1` inside read as the
+# caller first argument again. The substitution has to be judged with the
+# positional state in effect where it runs, which means carrying both the
+# shift flag and the alias set into the recursion
+@test "_run_log_event_registry: PASSES a substitution that logs a shifted positional" {
+  _seed seed_ok
+  _write "dist/script/docker/lib/substshift.sh" \
+    'f() { shift; echo "$(_log_err ci "$1")"; }' \
+    'f not_an_event seed_ok'
+  run _run_log_event_registry
+  [ "${status}" -eq 0 ]
+  [[ "${output}" != *"not_an_event"* ]]
+}
+
+# why: The emit scan declines a call whose service argument expands unquoted,
+# because the body is then not the token in that slot -- and wrapper
+# DISCOVERY did not, so `_log_err {ci,seed_ok} "$1"` read as forwarding
+# when the brace expansion puts seed_ok in the body slot instead. The same
+# guard, asked by both halves
+@test "_run_log_event_registry: PASSES a definition whose service argument expands" {
+  _seed
+  _write "dist/script/docker/lib/defcard.sh" \
+    'g() { _log_err {ci,seed_ok} "$1"; }' \
+    'g not_an_event'
+  run _run_log_event_registry
+  [ "${status}" -eq 0 ]
+  [[ "${output}" != *"not_an_event"* ]]
+}
+
+# why: `unset` REMOVES a name, so a body logging it after one is empty -- which
+# log.sh does not check at all. Leaving the name in the alias set declared
+# the function a wrapper and reported the argument of every call
+@test "_run_log_event_registry: PASSES a function that unsets its positional alias" {
+  _seed
+  _write "dist/script/docker/lib/unsetalias.sh" \
+    'h() { local ev="$1"; unset ev; _log_err ci "$ev"; }' \
+    'h not_an_event'
+  run _run_log_event_registry
+  [ "${status}" -eq 0 ]
+  [[ "${output}" != *"not_an_event"* ]]
+}
+
+# why: An unquoted leading `~` is TILDE expansion: the shell replaces it with a
+# home directory, so the body is a fact about the machine and not about the
+# source. Reading `~root` as a literal recommended registering a spelling
+# the call never emits. Declined like the other environment-dependent
+# expansions, and the second line keeps a quoted tilde literal
+@test "_run_log_event_registry: PASSES an unquoted tilde body and checks a quoted one" {
+  _seed
+  _write "dist/script/docker/lib/tilde.sh" \
+    '_log_err conf ~root "display=boom"' \
+    '_log_err conf "~tilde_missing" "display=boom"'
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" != *"~root"* ]]
+  [[ "${output}" == *'tilde.sh:2: ~tilde_missing'* ]]
+}
+
 # why: A definition can put its opening brace on the NEXT line, and discovery
 # required it on the same one -- so such a definition was recorded
 # nowhere and could not SHADOW. A file defining its own `_die` that way

@@ -215,10 +215,11 @@ clean tree having read nothing.
 
 It is not in `_LINT_TOOLS`, so `--lint` and CI do not run it. That is about its
 READER, not its rule: the reader is a hand-written shell word splitter, and
-thirty-four consecutive review rounds each found a reproduced parser defect
-without the curve flattening -- eleven of them false positives on valid shell.
-In the table every one of those would have blocked a PR whose logging was
-correct. The driver header carries the full argument and the one condition for
+forty-one consecutive review rounds each found a reproduced parser defect --
+twenty-five of them false positives on valid shell. Round thirty-four came back
+clean and the seven rounds after it found sixteen more, so a clean round is not
+evidence the reader is finished. In the table every one of those false positives
+would have blocked a PR whose logging was correct. The driver header carries the full argument and the one condition for
 promotion: a release cycle clean against a moving tree.
 
 Run it with `./script/test/test.sh --log-event-registry-only` (host-direct, no

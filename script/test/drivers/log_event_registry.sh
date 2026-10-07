@@ -31,17 +31,28 @@
 # forms with their own context inside a substitution, command position
 # carried rather than inferred, redirections resolved before the
 # arguments, folds over continuations and open constructs, the expression
-# grammars held inert -- and getting there took THIRTY-FOUR CONSECUTIVE
-# review rounds, each of which found a reproduced defect. The curve did
-# not flatten: rounds thirty, thirty-two and thirty-three still found one
-# or two each.
+# grammars held inert, positional state tracked through shift / set /
+# unset -- and getting there took FORTY-ONE CONSECUTIVE review rounds and
+# roughly ninety reproduced defects.
 #
-# ELEVEN of those were FALSE POSITIVES on valid shell: array initialisers
-# single- and multi-line, `(( ))` and `for (( ))` headers, `function name
-# { }` definitions, `time -p`, named-descriptor redirections `{fd}>`, a
-# quoted `[[`, `case` used as an argument, brace expansions,
-# parameter-expansion replacement text, assignment-shaped arguments to
-# ordinary commands, and `set -e` read as a change to the positionals.
+# THE CURVE NEVER FLATTENED, and that is the finding. Round thirty-four
+# came back clean, the lint was taken out of _LINT_TOOLS on the strength
+# of the argument below, and the SEVEN rounds after that found sixteen
+# more -- the last of them four, more than any round in the twenties. A
+# clean round is not evidence of a finished reader; it is evidence about
+# the shapes that round happened to try.
+#
+# TWENTY-FIVE of those were FALSE POSITIVES on valid shell: array
+# initialisers single- and multi-line, `(( ))` / `for (( ))` headers and
+# their nesting across lines, `function name { }` definitions and ones
+# whose brace is on the next line, `time -p`, named-descriptor
+# redirections `{fd}>`, a quoted `[[`, `case` used as an argument, brace
+# expansions, unquoted globs and tildes, parameter-expansion replacement
+# text, locale-translated quoting, assignment-shaped arguments to ordinary
+# commands, assignment PREFIXES read as persistent aliases (with and
+# without a redirection between), `set -e` and `set -e --` read alike,
+# `unset` ignored, a service argument that expands, and a substitution
+# judged without the positional state in force where it runs.
 #
 # IN THE TABLE, EVERY ONE OF THOSE WOULD HAVE BLOCKED A PR whose logging
 # was entirely correct, and the author's only recourse would have been to
@@ -67,11 +78,13 @@
 # the general version again.
 #
 # PROMOTION HAS ONE CONDITION: a release cycle clean against a moving
-# tree. Then add the name to _LINT_TOOLS and delete its entry from
-# _UNTABLED_LINT_ENTRY_POINTS in test/bats/unit/ci_spec.bats -- base#1113's
-# hygiene guard refuses a name that is in both, so the two moves cannot
-# come apart. Do not promote it on the strength of this file reading
-# finished. It read finished at round four.
+# tree. NOT a clean review round -- round thirty-four was clean and seven
+# more rounds found sixteen defects after it. Then add the name to
+# _LINT_TOOLS and delete its entry from _UNTABLED_LINT_ENTRY_POINTS in
+# test/bats/unit/ci_spec.bats -- base#1113's hygiene guard refuses a name
+# that is in both, so the two moves cannot come apart. Do not promote it
+# on the strength of this file reading finished. It read finished at round
+# four, and at round thirty-four.
 #
 # ── The asymmetry this closes ───────────────────────────────────────────────
 #
@@ -335,7 +348,13 @@ function _args(kind, text, qs, adj, n, ci, out,   j, m, skip) {
 # first positional to a _log_* body slot? Either directly ("${1}") or
 # through a name the same definition assigns "${1}" to, which is how
 # test.sh spells it (`local _ev="${1}"; ... _log_err ci "${_ev}"`).
-function _forwards(text,   n, i, k, m, d, ad, K, T, Q, EX, AJ, A, SUB, cmd, cond, skip, subs, assignctx, shifted, tok, nm, alias) {
+# <sh0> and <al> carry the positional state and the alias set INTO a
+# recursive call, because a substitution has to be judged with the state
+# in effect where it RUNS: a fresh context forgot a `shift` in front of it
+# and read the `$1` inside as the caller first argument again. Both are
+# empty at the top level, which is what a definition starts with.
+function _forwards(text, sh0, al,   n, i, k, m, d, ad, K, T, Q, EX, AJ, A, SUB, cmd, cond, skip, subs, assignctx, shifted, tok, nm) {
+  shifted = sh0
   n = _tokenize(text, K, T, Q, EX, AJ)
   # Captured immediately: the recursion at the end calls _tokenize again.
   subs = _TOK_SUBS
@@ -421,8 +440,8 @@ function _forwards(text,   n, i, k, m, d, ad, K, T, Q, EX, AJ, A, SUB, cmd, cond
       # the lint check the wrong argument of every call -- reporting
       # ordinary message text and missing the real id beside it. One
       # captured BEFORE the shift still forwards.
-      if (!shifted && EX[i] && T[i] ~ /^[A-Za-z_][A-Za-z0-9_]*=[$][{]?1[}]?$/) alias[nm] = 1
-      else delete alias[nm]
+      if (!shifted && EX[i] && T[i] ~ /^[A-Za-z_][A-Za-z0-9_]*=[$][{]?1[}]?$/) al[nm] = 1
+      else delete al[nm]
     }
     if (!cmd) continue
     if (_opens_another(T, Q, i)) continue
@@ -437,6 +456,15 @@ function _forwards(text,   n, i, k, m, d, ad, K, T, Q, EX, AJ, A, SUB, cmd, cond
     # tree own `_die` working: it captures `${1}` into a local BEFORE
     # shifting, and an alias taken before the shift still forwards.
     if (!Q[i] && T[i] == "shift") { shifted = 1; cmd = 0; continue }
+    # `unset` REMOVES a name, so a body logging it afterwards is empty --
+    # which log.sh does not check at all. Leaving the name in the set
+    # declared the function a wrapper and reported every call argument.
+    if (!Q[i] && T[i] == "unset") {
+      m = _args(K, T, Q, AJ, n, i, A)
+      for (k = 1; k <= m; k++) delete al[T[A[k]]]
+      cmd = 0
+      continue
+    }
     # `set -e` changes shell OPTIONS and leaves the positionals alone.
     # Only `set --`, or a `set` whose first argument is not an option,
     # replaces them -- treating every `set` as a change declined a real
@@ -458,12 +486,16 @@ function _forwards(text,   n, i, k, m, d, ad, K, T, Q, EX, AJ, A, SUB, cmd, cond
       continue
     }
     if (T[i] ~ /^_log_(debug|info|warn|err|fatal)$/ && _args(K, T, Q, AJ, n, i, A) >= 2) {
+      # The same guard the emit scan uses: a service argument that expands
+      # UNQUOTED moves the body out of its slot, so `_log_err {ci,id}
+      # "$1"` does not forward -- the brace expansion puts id there.
+      if (EX[A[1]] && Q[A[1]] == 0) { cmd = 0; continue }
       if (!EX[A[2]]) { cmd = 0; continue }
       tok = T[A[2]]
       if (!shifted && (tok == "${1}" || tok == "$1")) return 1
       if (match(tok, /^[$][{]?[A-Za-z_][A-Za-z0-9_]*[}]?$/)) {
         nm = tok; gsub(/[$={}]/, "", nm)
-        if (nm in alias) return 1
+        if (nm in al) return 1
       }
     }
     cmd = 0
@@ -476,7 +508,7 @@ function _forwards(text,   n, i, k, m, d, ad, K, T, Q, EX, AJ, A, SUB, cmd, cond
   # an alias the outer definition set rather than guessing at it.
   m = split(subs, SUB, "\034")
   for (i = 1; i <= m; i++) {
-    if (SUB[i] != "" && _forwards(SUB[i])) return 1
+    if (SUB[i] != "" && _forwards(SUB[i], shifted, al)) return 1
   }
   return 0
 }
@@ -757,6 +789,11 @@ function _tokenize(line, kind, text, qs, ex, adj,   n, i, c, e, cur, raw, has, j
     # or escaping is what stops the expansion, and both reach `cur` by a
     # path that never gets here.
     if (c == "*" || c == "?" || c == "[") hasex = 1
+    # A leading unquoted `~` is TILDE expansion: the shell replaces it
+    # with a home directory, so the body is a fact about the machine and
+    # not about the source. Only at the START of a word, which is where
+    # bash expands it.
+    if (c == "~" && !has) hasex = 1
     cur = cur c; has = 1; i++
   }
   if (has) { n++; kind[n] = "W"; text[n] = cur; qs[n] = qst; ex[n] = hasex; adj[n] = (wgap ? 0 : 1) }
