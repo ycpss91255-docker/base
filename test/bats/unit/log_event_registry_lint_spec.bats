@@ -682,6 +682,22 @@ _seed() {
   [[ "${output}" == *"log event registry lint: clean"* ]]
 }
 
+# why: The same question asked in the other order. A body that logs its alias
+# and only THEN overwrites it does forward -- the call happens first --
+# and a set collected over the whole definition before any of it was read
+# said the opposite, so a real wrapper was declined and its call sites
+# went unchecked. Alias state is now updated while the commands are
+# walked, so each call sees only the assignments in front of it
+@test "_run_log_event_registry: FAILS on a wrapper that overwrites its alias AFTER logging" {
+  _seed seed_ok
+  _write "dist/script/docker/lib/order.sh" \
+    'forward() { local ev="$1"; _log_err ci "$ev"; ev=seed_ok; }' \
+    'forward order_missing "boom"'
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/order.sh:2: order_missing"* ]]
+}
+
 # why: A comment ends at the NEXT NEWLINE, and a logical line now holds several
 # of them -- a substitution written over several lines is one logical
 # line. Ending the whole read at the first `#` therefore discarded every

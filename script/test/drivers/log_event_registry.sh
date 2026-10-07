@@ -270,28 +270,27 @@ function _args(kind, text, qs, adj, n, ci, out,   j, m, skip) {
 # test.sh spells it (`local _ev="${1}"; ... _log_err ci "${_ev}"`).
 function _forwards(text,   n, i, K, T, Q, EX, AJ, A, cmd, tok, nm, alias) {
   n = _tokenize(text, K, T, Q, EX, AJ)
-  # Names this definition assigns its own first positional to. The
-  # tokeniser has removed the quotes, so `local _ev="${1}"` arrives as the
-  # word `_ev=${1}` whichever way it was written.
-  for (i = 1; i <= n; i++) {
-    if (K[i] != "W") continue
-    # EX, not just the text. A SINGLE-QUOTED `${1}` is five characters,
-    # not the first argument, so a body logging it emits one FIXED id
-    # and forwards nothing -- and a wrongly declared wrapper turns every
-    # ordinary call of that function into a reported id, which is the
-    # noise that gets a lint muted.
-    if (T[i] !~ /^[A-Za-z_][A-Za-z0-9_]*=/) continue
-    nm = T[i]; sub(/=.*$/, "", nm)
-    # In ORDER, and a reassignment REMOVES the name. A body that takes
-    # `${1}` into a local and then overwrites it logs a fixed id and
-    # forwards nothing, so declaring it a wrapper would turn every
-    # ordinary call of the function into a reported id.
-    if (EX[i] && T[i] ~ /^[A-Za-z_][A-Za-z0-9_]*=[$][{]?1[}]?$/) alias[nm] = 1
-    else delete alias[nm]
-  }
+  # ONE walk, in order. The alias set -- names this definition assigns
+  # its own first positional to -- is updated as the commands go past,
+  # so each `_log_*` call is judged against only the assignments in
+  # FRONT of it. Collecting the set over the whole definition first gets
+  # both orders wrong: a body that logs its alias and then overwrites it
+  # does forward, and one that logs a fixed id before assigning does
+  # not.
   cmd = 1
   for (i = 1; i <= n; i++) {
     if (K[i] == "O") { cmd = 1; continue }
+    # Any word of assignment shape counts, at a command position or not:
+    # `local ev="${1}"` is an ARGUMENT of `local`, not a prefix. The
+    # tokeniser has removed the quoting, so it arrives as `ev=${1}`
+    # however it was written -- and EX is what says the `${1}` was a
+    # real expansion rather than five single-quoted characters, which
+    # would be a fixed id and no forward at all.
+    if (T[i] ~ /^[A-Za-z_][A-Za-z0-9_]*=/ && (Q[i] == 0 || index(T[i], "=") < Q[i])) {
+      nm = T[i]; sub(/=.*$/, "", nm)
+      if (EX[i] && T[i] ~ /^[A-Za-z_][A-Za-z0-9_]*=[$][{]?1[}]?$/) alias[nm] = 1
+      else delete alias[nm]
+    }
     if (!cmd) continue
     if (_opens_another(T, Q, i)) continue
     if (T[i] ~ /^_log_(debug|info|warn|err|fatal)$/ && _args(K, T, Q, AJ, n, i, A) >= 2) {
