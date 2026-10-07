@@ -236,6 +236,54 @@ _seed() {
   [[ "${output}" == *"log event registry lint: clean"* ]]
 }
 
+# why: The command-position rule was applied to the wrapper half and not to the
+# direct half, so `printf "%s\n" _log_err conf not_an_event` -- the logger
+# name as an ARGUMENT, three words of text -- was read as a call and its
+# third word reported. Being at a command position is what makes a word a
+# call, and that is true of `_log_err` for exactly the reason it is true
+# of `_die`; one rule applied to one half is a rule that disagrees with
+# itself
+@test "_run_log_event_registry: PASSES a logger name used as an argument" {
+  _seed
+  _write "dist/script/docker/lib/arg.sh" \
+    'printf "%s\n" _log_err conf not_an_event'
+  run _run_log_event_registry
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"log event registry lint: clean"* ]]
+}
+
+# why: `if`, `while` and `until` open a command exactly as `then` and `do` do,
+# and a wrapper that dies inside a condition emits its id like any other
+# call. They were missing from the keyword set, so `if _die id; then`
+# recorded no wrapper call at all and the id went unchecked -- the miss
+# shape, in the half where two of base#1220's four were hiding
+@test "_run_log_event_registry: FAILS on a wrapper call opening a condition" {
+  _seed
+  _write "dist/script/docker/lib/cond.sh" \
+    'if _die cond_missing "boom"; then :; fi' \
+    'until _die until_missing "boom"; do :; done'
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/cond.sh:1: cond_missing"* ]]
+  [[ "${output}" == *"dist/script/docker/lib/cond.sh:2: until_missing"* ]]
+}
+
+# why: bash removes a backslash-newline and joins what sits on either side with
+# NOTHING between them, so a word may be split across the fold and still
+# be one word. The fold put a space there, which turns `split_` + `missing`
+# into two words and hands the body slot a truncated id -- a scan that can
+# both miss an unregistered id and report a registered one as missing,
+# which is the worst of the two directions at once
+@test "_run_log_event_registry: FAILS on a body split across a continuation" {
+  _seed
+  _write "dist/script/docker/lib/split.sh" \
+    '_log_err conf split_\' \
+    'missing "display=boom"'
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/split.sh:1: split_missing"* ]]
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _run_log_event_registry: what it leaves alone
 # ════════════════════════════════════════════════════════════════════

@@ -268,12 +268,17 @@ function _tokenize(line, kind, text,   n, i, c, cur, has, j, L, sq) {
 }
 # Is token i where a COMMAND name can stand? Start of the line, after an
 # operator, or after one of the keywords that open one. Without this a
-# wrapper name used as an ARGUMENT -- `grep _die file` -- would have the
-# word after it reported as an event id.
+# name used as an ARGUMENT -- `grep _die file`, or `printf %s _log_err
+# conf x` -- would have the word after it reported as an event id.
+#
+# BOTH halves ask this, the direct one as well as the wrapper one. Being
+# at a command position is what makes a word a call, and that is as true
+# of _log_err as it is of a wrapper; one rule applied to one half is a
+# rule that disagrees with itself.
 function _cmd_pos(kind, text, i) {
   if (i == 1) return 1
   if (kind[i - 1] == "O") return 1
-  return (text[i - 1] ~ /^(then|do|else|elif|\{|!|time|exec|eval)$/)
+  return (text[i - 1] ~ /^(if|while|until|then|do|else|elif|\{|!|time|exec|eval)$/)
 }
 # One folded line: count the emit sites it holds and print the literal
 # ids among them. <ln> is the FIRST physical line of the fold, which is
@@ -283,7 +288,7 @@ function _scan(line, ln,   n, i, K, T) {
   for (i = 1; i <= n; i++) {
     if (K[i] != "W") continue
     if (T[i] ~ /^_log_(debug|info|warn|err|fatal)$/) {
-      if (i + 2 <= n && K[i + 1] == "W" && K[i + 2] == "W") {
+      if (_cmd_pos(K, T, i) && i + 2 <= n && K[i + 1] == "W" && K[i + 2] == "W") {
         direct++
         if (_is_id(T[i + 2])) printf "ID\t%s\t%s\t%d\n", T[i + 2], FILENAME, ln
       }
@@ -327,7 +332,12 @@ PHASE == "def" {
 PHASE == "emit" {
   if (FNR == 1) { buf = ""; startln = 0 }
   if (buf == "") startln = FNR
-  if ($0 ~ /\\$/) { buf = buf substr($0, 1, length($0) - 1) " "; next }
+  # Joined with NOTHING between the halves, which is what bash does: a
+  # backslash-newline is removed, so a word may be split across the fold
+  # and still be one word. A space here would turn `split_` + `missing`
+  # into two words and hand the body slot a truncated id -- a scan that
+  # can both miss an unregistered id and report a registered one.
+  if ($0 ~ /\\$/) { buf = buf substr($0, 1, length($0) - 1); next }
   line = buf $0
   buf = ""
   if (_candidate(line)) _scan(line, startln)
