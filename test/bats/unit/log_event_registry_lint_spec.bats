@@ -745,6 +745,36 @@ _seed() {
   [[ "${output}" == *"dist/script/docker/lib/setopt.sh:2: setopt_missing"* ]]
 }
 
+# why: `set --` is the spelling that REPLACES the positionals, and the test for
+# an option argument matched it -- a dash followed by a dash. So the one
+# `set` that does change them read as the one kind that does not, and the
+# function was declared a wrapper forwarding an argument it no longer has
+@test "_run_log_event_registry: PASSES a wrapper that replaces its positionals with set --" {
+  _seed seed_ok
+  _write "dist/script/docker/lib/setdd.sh" \
+    'report() { set -- seed_ok; _log_err ci "$1"; }' \
+    'report ordinary_message'
+  run _run_log_event_registry
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"log event registry lint: clean"* ]]
+}
+
+# why: An assignment-SHAPED argument to an ordinary command assigns nothing.
+# `printf "%s" ev="$1"` prints four characters and a value; it does not
+# make `ev` the first argument. Tracking every such word declared a
+# function a wrapper on the strength of text handed to printf. An
+# assignment counts at a command POSITION, where it is a prefix, or as an
+# argument of a builtin that assigns -- `local` and its family
+@test "_run_log_event_registry: PASSES a function whose assignment shape is only an argument" {
+  _seed seed_ok
+  _write "dist/script/docker/lib/pseudo.sh" \
+    'report3() { local ev=seed_ok; printf "%s" ev="$1"; _log_err ci "$ev"; }' \
+    'report3 ordinary_message'
+  run _run_log_event_registry
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"log event registry lint: clean"* ]]
+}
+
 # why: A backslash QUOTES the character after it, so `\time` is the external
 # command and not the shell keyword. The escape was removed without
 # recording that the word had been quoted, so the word read as the

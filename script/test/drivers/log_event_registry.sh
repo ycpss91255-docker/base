@@ -268,7 +268,7 @@ function _args(kind, text, qs, adj, n, ci, out,   j, m, skip) {
 # first positional to a _log_* body slot? Either directly ("${1}") or
 # through a name the same definition assigns "${1}" to, which is how
 # test.sh spells it (`local _ev="${1}"; ... _log_err ci "${_ev}"`).
-function _forwards(text,   n, i, K, T, Q, EX, AJ, A, cmd, shifted, tok, nm, alias) {
+function _forwards(text,   n, i, K, T, Q, EX, AJ, A, cmd, assignctx, shifted, tok, nm, alias) {
   n = _tokenize(text, K, T, Q, EX, AJ)
   # ONE walk, in order. The alias set -- names this definition assigns
   # its own first positional to -- is updated as the commands go past,
@@ -279,14 +279,21 @@ function _forwards(text,   n, i, K, T, Q, EX, AJ, A, cmd, shifted, tok, nm, alia
   # not.
   cmd = 1
   for (i = 1; i <= n; i++) {
-    if (K[i] == "O") { cmd = 1; continue }
+    if (K[i] == "O") { cmd = 1; assignctx = 0; continue }
     # Any word of assignment shape counts, at a command position or not:
     # `local ev="${1}"` is an ARGUMENT of `local`, not a prefix. The
     # tokeniser has removed the quoting, so it arrives as `ev=${1}`
     # however it was written -- and EX is what says the `${1}` was a
     # real expansion rather than five single-quoted characters, which
     # would be a fixed id and no forward at all.
-    if (T[i] ~ /^[A-Za-z_][A-Za-z0-9_]*=/ && (Q[i] == 0 || index(T[i], "=") < Q[i])) {
+    # An assignment counts at a command POSITION, where it is a prefix,
+    # or as an ARGUMENT of a builtin that assigns -- `local` and its
+    # family. An assignment-SHAPED argument to an ordinary command
+    # assigns nothing: `printf "%s" ev="$1"` prints a value, it does not
+    # make `ev` the first argument, and tracking every such word declared
+    # a function a wrapper on the strength of text handed to printf.
+    if ((cmd || assignctx) \
+        && T[i] ~ /^[A-Za-z_][A-Za-z0-9_]*=/ && (Q[i] == 0 || index(T[i], "=") < Q[i])) {
       nm = T[i]; sub(/=.*$/, "", nm)
       # `!shifted`: a name assigned `${1}` AFTER a shift holds the
       # second argument, so recording it as an alias of the first makes
@@ -298,6 +305,11 @@ function _forwards(text,   n, i, K, T, Q, EX, AJ, A, cmd, shifted, tok, nm, alia
     }
     if (!cmd) continue
     if (_opens_another(T, Q, i)) continue
+    if (!Q[i] && T[i] ~ /^(local|declare|typeset|export|readonly)$/) {
+      assignctx = 1
+      cmd = 0
+      continue
+    }
     # `shift` and `set --` move the POSITIONALS, so a `$1` logged after
     # one is not the caller first argument. The flag is on the
     # positionals and not on the definition, which is what keeps the
@@ -309,7 +321,10 @@ function _forwards(text,   n, i, K, T, Q, EX, AJ, A, cmd, shifted, tok, nm, alia
     # replaces them -- treating every `set` as a change declined a real
     # wrapper and took all its call sites out of the population.
     if (!Q[i] && T[i] == "set") {
-      if (_args(K, T, Q, AJ, n, i, A) >= 1 && T[A[1]] !~ /^[-+]./) shifted = 1
+      # `--` is the spelling that REPLACES them, and it matches an
+      # option test (a dash followed by a dash), so the one `set` that
+      # does change the positionals read as the kind that does not.
+      if (_args(K, T, Q, AJ, n, i, A) >= 1 && (T[A[1]] == "--" || T[A[1]] !~ /^[-+]./)) shifted = 1
       cmd = 0
       continue
     }
