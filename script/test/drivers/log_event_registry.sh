@@ -236,7 +236,7 @@ function _enc(t) {
   return t
 }
 # A redirection operator, and the descriptor-duplication half of one.
-function _is_redir(t) { return (t ~ /^(<|>|<<|>>|<>)$/) }
+function _is_redir(t) { return (t ~ /^(<|>|<<|>>|<>|>[|])$/) }
 # The ARGUMENTS of the command at index <ci>, by token index, in order.
 # bash removes a redirection BEFORE it hands a command its positionals,
 # so `_log_err 2>/dev/null conf id` passes id in the body slot exactly as
@@ -400,9 +400,8 @@ function _tokenize(line, kind, text, qs, ex, adj,   n, i, c, e, cur, has, j, L, 
           j = _subst_end(line, i + 1)
           if (j > 0) {
             # Arithmetic again; see the unquoted branch below.
-            if (substr(line, i + 2, 1) != "(") {
-              _TOK_SUBS = _TOK_SUBS substr(line, i + 2, j - i - 2) "\034"
-            }
+            if (substr(line, i + 2, 1) == "(") _harvest(substr(line, i + 2, j - i - 2))
+            else _TOK_SUBS = _TOK_SUBS substr(line, i + 2, j - i - 2) "\034"
             hasex = 1
             cur = cur substr(line, i, j - i + 1)
             i = j + 1
@@ -442,9 +441,8 @@ function _tokenize(line, kind, text, qs, ex, adj,   n, i, c, e, cur, has, j, L, 
         # so a body carrying one is declined. Told apart by the two
         # parentheses being adjacent, which is how it is written; a
         # space between them is the subshell instead.
-        if (substr(line, i + 2, 1) != "(") {
-          _TOK_SUBS = _TOK_SUBS substr(line, i + 2, j - i - 2) "\034"
-        }
+        if (substr(line, i + 2, 1) == "(") _harvest(substr(line, i + 2, j - i - 2))
+        else _TOK_SUBS = _TOK_SUBS substr(line, i + 2, j - i - 2) "\034"
         hasex = 1
         cur = cur substr(line, i, j - i + 1)
         has = 1
@@ -486,7 +484,12 @@ function _tokenize(line, kind, text, qs, ex, adj,   n, i, c, e, cur, has, j, L, 
         ao = 1
       }
       n++; kind[n] = "O"; qs[n] = 0; ex[n] = 0; adj[n] = ao
-      if (substr(line, i + 1, 1) == c) { text[n] = c c; i += 2 } else { text[n] = c; i++ }
+      # `>|` is ONE operator -- the noclobber override -- and splitting
+      # it leaves a bare pipe, which ends the command and takes the body
+      # after it out of reach.
+      if (c == ">" && substr(line, i + 1, 1) == "|") { text[n] = ">|"; i += 2 }
+      else if (substr(line, i + 1, 1) == c) { text[n] = c c; i += 2 }
+      else { text[n] = c; i++ }
       gap = 0
       continue
     }
@@ -647,6 +650,42 @@ function _scan(line, ln,   n, i, m, d, K, T, Q, EX, AJ, A, SUB, cmd, cond, skip,
 #   match, or 0. Backticks are the older spelling of a command
 #   substitution and run the same command; inside one a backslash escapes
 #   the next character.
+# _harvest(<text>) -- record every command substitution <text> carries,
+#   without reading <text> itself as commands. Arithmetic reads
+#   variables and runs nothing -- except that a substitution written
+#   inside it DOES run, so declining the whole expansion to keep its
+#   identifiers inert would throw the nested call away with it.
+function _harvest(t,   L, i, c, sq, j) {
+  L = length(t); sq = sprintf("%c", 39); i = 1
+  while (i <= L) {
+    c = substr(t, i, 1)
+    if (c == sq) {
+      j = index(substr(t, i + 1), sq)
+      if (j == 0) break
+      i = i + j + 1
+      continue
+    }
+    if (c == "\\" && i < L) { i += 2; continue }
+    if (c == "$" && substr(t, i + 1, 1) == "(") {
+      j = _subst_end(t, i + 1)
+      if (j > 0) {
+        if (substr(t, i + 2, 1) == "(") _harvest(substr(t, i + 2, j - i - 2))
+        else _TOK_SUBS = _TOK_SUBS substr(t, i + 2, j - i - 2) "\034"
+        i = j + 1
+        continue
+      }
+    }
+    if (c == "`") {
+      j = _btick_end(t, i)
+      if (j > 0) {
+        _TOK_SUBS = _TOK_SUBS substr(t, i + 1, j - i - 1) "\034"
+        i = j + 1
+        continue
+      }
+    }
+    i++
+  }
+}
 function _btick_end(text, i,   L, c) {
   L = length(text); i++
   while (i <= L) {

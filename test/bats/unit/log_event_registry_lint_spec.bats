@@ -954,6 +954,33 @@ _seed() {
   [[ "${output}" == *"log event registry lint: clean"* ]]
 }
 
+# why: Arithmetic reads variables and runs nothing -- except that a command
+# SUBSTITUTION written inside it does run. Declining the whole expansion
+# to keep its identifiers inert threw the nested call away with it, so a
+# literal unregistered body inside one went unseen. The identifiers stay
+# inert; the substitutions in among them are harvested and scanned
+@test "_run_log_event_registry: FAILS on a body in a substitution inside arithmetic" {
+  _seed
+  _write "dist/script/docker/lib/arith3.sh" \
+    'n=$(( $(_log_err conf arith_subst_missing "display=boom") + 1 ))'
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/arith3.sh:1: arith_subst_missing"* ]]
+}
+
+# why: `>|` is ONE redirection operator -- the noclobber override -- and
+# splitting it left a bare pipe, which ends the command. The body after
+# it was never looked at, so a literal unregistered id passed. A pipe
+# that is half of a redirection is not a pipeline
+@test "_run_log_event_registry: FAILS on a body behind a noclobber redirection" {
+  _seed
+  _write "dist/script/docker/lib/noclob.sh" \
+    '_log_err >| /tmp/log conf noclobber_missing "display=boom"'
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/noclob.sh:1: noclobber_missing"* ]]
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _run_log_event_registry: what it leaves alone
 # ════════════════════════════════════════════════════════════════════
