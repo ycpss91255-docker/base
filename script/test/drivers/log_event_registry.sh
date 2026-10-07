@@ -77,6 +77,14 @@
 # substitution, and the measurement stays so the next reader does not try
 # the general version again.
 #
+# THE KNOWN IMPRECISE SET IS base#1228, filed rather than fixed because
+# none of it can block anything while this gates nothing: a substitution
+# judged with the definition END state instead of the state where it runs,
+# forwarding discovery reading past the function closing brace, and a
+# command name split by quoting (`_log_""err`) lost in the raw-text
+# candidate filter. If a finding here looks wrong, read that issue before
+# re-deriving it.
+#
 # PROMOTION HAS ONE CONDITION: a release cycle clean against a moving
 # tree. NOT a clean review round -- round thirty-four was clean and seven
 # more rounds found sixteen defects after it. Then add the name to
