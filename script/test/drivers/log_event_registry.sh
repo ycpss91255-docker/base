@@ -219,6 +219,16 @@ readonly _LER_AWK='
 # a different word as the body. Encoded on the way out, decoded for the
 # membership test, and shown encoded in the report so a finding stays
 # one readable line.
+# Does a dollar sign at <i> start an EXPANSION? Only when what follows
+# introduces one. A trailing dollar -- `"missing$"`, or the unquoted
+# spelling -- is kept literally by bash, so marking every dollar as an
+# expansion declines a body that is both fully known and unregistered.
+function _expands(line, i,   c) {
+  if (i >= length(line)) return 0
+  c = substr(line, i + 1, 1)
+  if (c ~ /^[A-Za-z0-9_{(@*?#!$-]$/) return 1
+  return 0
+}
 function _enc(t) {
   gsub(/%/, "%25", t)
   gsub(/\t/, "%09", t)
@@ -395,7 +405,7 @@ function _tokenize(line, kind, text, qs, ex,   n, i, c, e, cur, has, j, L, sq, q
           }
         }
         if (c == "\"") { i++; break }
-        if (c == "$" && i < L) hasex = 1
+        if (c == "$" && _expands(line, i)) hasex = 1
         cur = cur c; i++
       }
       has = 1
@@ -450,7 +460,7 @@ function _tokenize(line, kind, text, qs, ex,   n, i, c, e, cur, has, j, L, sq, q
       if (substr(line, i + 1, 1) == c) { text[n] = c c; i += 2 } else { text[n] = c; i++ }
       continue
     }
-    if (c == "$" && i < L) hasex = 1
+    if (c == "$" && _expands(line, i)) hasex = 1
     cur = cur c; has = 1; i++
   }
   if (has) { n++; kind[n] = "W"; text[n] = cur; qs[n] = qst; ex[n] = hasex }
@@ -474,7 +484,7 @@ function _opens_another(text, qs, i) {
 # One folded line: count the emit sites it holds and print the literal
 # ids among them. <ln> is the FIRST physical line of the fold, which is
 # the line a reader of the report opens.
-function _scan(line, ln,   n, i, m, d, K, T, Q, EX, A, SUB, cmd, skip, subs, k) {
+function _scan(line, ln,   n, i, m, d, K, T, Q, EX, A, SUB, cmd, cond, skip, subs, k) {
   n = _tokenize(line, K, T, Q, EX)
   # Captured IMMEDIATELY: _tokenize publishes the substitution list in a
   # global, and the recursion below calls _tokenize again.
@@ -487,6 +497,17 @@ function _scan(line, ln,   n, i, m, d, K, T, Q, EX, A, SUB, cmd, skip, subs, k) 
   cmd = 1
   d = _ARR_DEPTH
   for (i = 1; i <= n; i++) {
+    # Inside `[[ ... ]]` the operators are the CONDITIONAL grammar: `&&`
+    # there joins two tests and opens no command position. Reading it as
+    # one makes the word after it a command, so an ordinary string
+    # comparison naming a wrapper reports its right-hand side as an
+    # event id. A substitution inside the expression still runs, and the
+    # descent below still reads it.
+    if (K[i] == "W" && T[i] == "[[") { cond = 1; cmd = 0; continue }
+    if (cond) {
+      if (K[i] == "W" && T[i] == "]]") cond = 0
+      continue
+    }
     # A REDIRECTION is not a separator and its operand is a FILENAME.
     # Consuming the whole thing leaves the command position where it was:
     # otherwise `>/dev/null _log_err ...` lets the filename take the

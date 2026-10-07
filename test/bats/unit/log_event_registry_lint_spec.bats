@@ -808,6 +808,37 @@ _seed() {
   [[ "${output}" == *'dollar.sh:2: escaped_dollar$'* ]]
 }
 
+# why: A dollar sign only starts an expansion when what follows it introduces
+# one. Marking EVERY one as an expansion declined a trailing dollar --
+# `"missing$"`, and the unquoted spelling -- which bash keeps literally
+# and log.sh then refuses. The wrong direction twice over: the body is
+# fully known AND unregistered, and the lint said nothing
+@test "_run_log_event_registry: FAILS on a literal body whose dollar starts nothing" {
+  _seed
+  _write "dist/script/docker/lib/trail.sh" \
+    '_log_err conf "trailing_dollar$" "display=boom"' \
+    '_log_err conf bare_dollar$ "display=boom"'
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *'trail.sh:1: trailing_dollar$'* ]]
+  [[ "${output}" == *'trail.sh:2: bare_dollar$'* ]]
+}
+
+# why: Inside `[[ ... ]]` the operators are the CONDITIONAL grammar, not the
+# command grammar: `&&` there joins two tests and opens no command
+# position. Treating it as one made the word after it a command, so an
+# ordinary string comparison naming a wrapper reported its right-hand
+# side as an event id. A substitution inside the expression still runs,
+# and is still descended into
+@test "_run_log_event_registry: PASSES a wrapper name compared inside a conditional" {
+  _seed
+  _write "dist/script/docker/lib/cond2.sh" \
+    '[[ foo == foo && _die == not_an_event ]] || true'
+  run _run_log_event_registry
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"log event registry lint: clean"* ]]
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _run_log_event_registry: what it leaves alone
 # ════════════════════════════════════════════════════════════════════
