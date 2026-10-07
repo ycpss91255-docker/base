@@ -235,6 +235,11 @@ function _enc(t) {
   gsub(/\n/, "%0A", t)
   return t
 }
+# A descriptor PREFIX: a number, or the bash named form `{name}`, which
+# allocates a descriptor and puts its number in that variable. Only the
+# numeric spelling was recognised, so the brace word took the command
+# position and hid the logger behind it.
+function _is_fd(t) { return (t ~ /^[0-9]+$/ || t ~ /^[{][A-Za-z_][A-Za-z0-9_]*[}]$/) }
 # A redirection operator, and the descriptor-duplication half of one.
 function _is_redir(t) { return (t ~ /^(<|>|<<|>>|<>|>[|])$/) }
 # The ARGUMENTS of the command at index <ci>, by token index, in order.
@@ -257,7 +262,7 @@ function _args(kind, text, qs, adj, n, ci, out,   j, m, skip) {
       break
     }
     if (skip) { skip = 0; j++; continue }
-    if (text[j] ~ /^[0-9]+$/ && !qs[j] && j < n && kind[j + 1] == "O" && adj[j + 1] \
+    if (_is_fd(text[j]) && !qs[j] && j < n && kind[j + 1] == "O" && adj[j + 1] \
         && _is_redir(text[j + 1])) { j++; continue }
     m++; out[m] = j
     j++
@@ -647,7 +652,12 @@ function _scan(line, ln,   n, i, m, d, K, T, Q, EX, AJ, A, SUB, cmd, cond, skip,
     # operator after it an event id. Both carry across lines, because an
     # expression spread over several is still one expression.
     if (!cond && cmd && K[i] == "W" && !Q[i] && T[i] == "[[") { cond = 1; cmd = 0; continue }
-    if (!cond && cmd && K[i] == "O" && T[i] == "((") { cond = 2; cmd = 0; continue }
+    # No `cmd` condition on `((`: `for (( ... ))` puts a keyword in front
+    # of the same arithmetic grammar, and the keyword consumes the
+    # position. A standalone `((` operator token only ever means
+    # arithmetic -- a substitution is captured into a word, not exposed
+    # as this token.
+    if (!cond && K[i] == "O" && T[i] == "((") { cond = 2; cmd = 0; continue }
     if (cond == 1) {
       if (K[i] == "W" && !Q[i] && T[i] == "]]") cond = 0
       continue
@@ -703,7 +713,7 @@ function _scan(line, ln,   n, i, m, d, K, T, Q, EX, AJ, A, SUB, cmd, cond, skip,
     if (skip) { skip = 0; continue }
     # An fd prefix belongs to the redirection behind it, not to the
     # command position: `2>/dev/null` is one redirection.
-    if (T[i] ~ /^[0-9]+$/ && !Q[i] && i < n && K[i + 1] == "O" && AJ[i + 1] \
+    if (_is_fd(T[i]) && !Q[i] && i < n && K[i + 1] == "O" && AJ[i + 1] \
         && _is_redir(T[i + 1])) continue
     if (!cmd) continue
     if (_opens_another(T, Q, i)) continue

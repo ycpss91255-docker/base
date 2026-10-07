@@ -977,6 +977,35 @@ _seed() {
   [[ "${output}" == *"log event registry lint: clean"* ]]
 }
 
+# why: `for (( ... ))` is the same arithmetic grammar with a keyword in front,
+# and the keyword consumed the command position so the `((` behind it
+# never opened arithmetic mode. The semicolons inside the header then read
+# as command separators and a variable sharing a name with a wrapper made
+# the operator after it an event id. `((` opens the mode wherever it
+# appears: it is an operator token only where the shell means arithmetic
+@test "_run_log_event_registry: PASSES an arithmetic for-loop header naming a wrapper" {
+  _seed
+  _write "dist/script/docker/lib/forarith.sh" \
+    'for (( i=0; _die + 1; i++ )); do break; done'
+  run _run_log_event_registry
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"log event registry lint: clean"* ]]
+}
+
+# why: A descriptor prefix can be NAMED -- `{fd}>file` asks bash to allocate one
+# and put its number in `fd` -- and only the numeric spelling was
+# recognised, so the brace word took the command position and hid the
+# logger behind it. The same rule, with the same adjacency and quoting
+# conditions, covers both spellings
+@test "_run_log_event_registry: FAILS on a body behind a named descriptor redirection" {
+  _seed
+  _write "dist/script/docker/lib/namedfd.sh" \
+    '{fd}>/dev/null _log_err conf named_fd_missing "display=boom"'
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/namedfd.sh:1: named_fd_missing"* ]]
+}
+
 # why: A backtick substitution can span lines like any other, and the fold
 # tracked quotes and `$(` but not backticks -- so each physical line
 # reached the span finder incomplete, no span was found, and the call
