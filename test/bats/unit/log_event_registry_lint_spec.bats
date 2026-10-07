@@ -124,6 +124,42 @@ _seed() {
   [[ "${output}" == *"dist/script/docker/lib/a.sh:2: beta_missing"* ]]
 }
 
+# why: A body is a literal whether bash reads it through double quotes, single
+# quotes or none, and lib/log.sh compares what the shell hands it -- so
+# `_log_err ci 'missing' ...` is exactly as fatal as the double-quoted
+# spelling. The first unquoting rule stripped only the double quote, which
+# left the single-quoted token starting with a character no id starts
+# with, so the shape was DISCARDED rather than reported and a tree holding
+# it read clean. A reader of that clean line cannot tell a quoting style
+# the scan does not see from a tree that has none of it
+@test "_run_log_event_registry: FAILS on a single-quoted body the registry does not carry" {
+  _seed
+  _write "dist/script/docker/lib/q.sh" \
+    "_log_err conf squote_missing \"display=a\"" \
+    "_log_err conf 'squote_literal' \"display=b\""
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/q.sh:2: squote_literal"* ]]
+}
+
+# why: A wrapper call is a command, and a command sits wherever bash allows one
+# -- after `then`, after `do`, after `&&`. The wrapper scan walked the line
+# token pair by token pair and, on a pair whose first half was NOT a
+# wrapper, skipped past BOTH halves; `then _die` therefore consumed the
+# `_die` that followed it and the id after that was never looked at. The
+# shipped tree hides the bug because its wrapper calls open their own
+# lines, so only a fixture can hold the rule still: a non-wrapper match now
+# advances past its own name alone, leaving the next token free to be read
+# as the command it is
+@test "_run_log_event_registry: FAILS on a wrapper call that is not the first word of its line" {
+  _seed
+  _write "dist/script/docker/lib/inline.sh" \
+    'if true; then _die inline_missing "boom"; fi'
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/inline.sh:1: inline_missing"* ]]
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _run_log_event_registry: what it leaves alone
 # ════════════════════════════════════════════════════════════════════

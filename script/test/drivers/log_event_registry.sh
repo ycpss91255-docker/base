@@ -146,7 +146,24 @@ readonly _LER_REGISTRY_ASSIGN_RE='_LOG_EVENTS_FILE=.*/([A-Za-z0-9_.-]+)"'
 # under more than one of them.
 # shellcheck disable=SC2016 # awk program; $-vars are awk's, not the shell's.
 readonly _LER_AWK='
-function _unquote(t) { gsub(/^"|"$/, "", t); return t }
+# Strip ONE balanced pair of quotes, double or single. A body is a literal
+# whichever of the three spellings bash reads it through, and log.sh
+# compares what the shell handed it, so a single-quoted id is the same
+# event as a double-quoted one. BALANCED, and never a lone leading quote:
+# a single-quoted body carrying a space reaches this as a token holding
+# only its opening quote, under the whitespace-delimited match above, and
+# stripping that quote would turn half a display string into a reported
+# id. The quote character itself is built with sprintf rather than
+# written: this whole program is one shell single-quoted string, so an
+# apostrophe anywhere in it -- a comment included -- ends that string.
+function _unquote(t,   q, a, z) {
+  if (length(t) < 2) return t
+  q = sprintf("%c", 39)
+  a = substr(t, 1, 1); z = substr(t, length(t), 1)
+  if ((a == "\"" && z == "\"") || (a == q && z == q))
+    return substr(t, 2, length(t) - 2)
+  return t
+}
 function _is_id(t) { return (t ~ /^[A-Za-z][A-Za-z0-9_]*$/) }
 # Does <text>, the whole of a one-line function definition, hand its own
 # first positional to a _log_* body slot? Either directly ("${1}") or
@@ -194,11 +211,21 @@ PHASE == "emit" {
   rest = line
   while (match(rest, /(^|[^A-Za-z0-9_$.\/-])[A-Za-z_][A-Za-z0-9_]*[[:space:]]+[^[:space:]]+/)) {
     seg = substr(rest, RSTART, RLENGTH)
-    rest = substr(rest, RSTART + RLENGTH)
+    bo = (seg ~ /^[^A-Za-z0-9_]/) ? 1 : 0
     sub(/^[^A-Za-z0-9_]/, "", seg)
     split(seg, q, /[[:space:]]+/)
-    if (!(q[1] in fwd)) continue
-    if ((FILENAME "|" q[1]) in shadow) continue
+    # A NON-wrapper match advances past its own NAME only, not past the
+    # argument it matched. A wrapper call is a command and sits wherever
+    # bash allows one -- `if true; then _die id "boom"; fi` matches as the
+    # pair `then` + `_die`, and consuming both would eat the `_die` that
+    # is the actual command. Advancing by the name alone leaves the next
+    # token free to be read as the command it is. length(q[1]) >= 1, so
+    # the loop still makes progress on every iteration.
+    if (!(q[1] in fwd) || ((FILENAME "|" q[1]) in shadow)) {
+      rest = substr(rest, RSTART + bo + length(q[1]))
+      continue
+    }
+    rest = substr(rest, RSTART + RLENGTH)
     wrapped++
     t = _unquote(q[2])
     if (_is_id(t)) printf "ID\t%s\t%s\t%d\n", t, FILENAME, FNR
