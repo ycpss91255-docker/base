@@ -745,6 +745,41 @@ _seed() {
   [[ "${output}" == *"dist/script/docker/lib/setopt.sh:2: setopt_missing"* ]]
 }
 
+# why: `set` takes OPTIONS AND THEN POSITIONALS, so only reading its first
+# argument answered the wrong question: `set -e -- seed_ok` both sets an
+# option and replaces them, and reading `-e` alone called the function a
+# wrapper forwarding an argument it no longer has. Every argument is
+# walked now, with `-o` and `+o` consuming the one after them -- the
+# second line keeps `set -o pipefail` forwarding, so the fix cannot be a
+# retreat into declining every `set`
+@test "_run_log_event_registry: reads set options and positional replacement apart" {
+  _seed seed_ok
+  _write "dist/script/docker/lib/setmix.sh" \
+    'notify() { set -e -- seed_ok; _log_err ci "$1"; }' \
+    'notify ordinary_text' \
+    'keep() { set -o pipefail; _log_err ci "${1}"; }' \
+    'keep pipefail_missing "boom"'
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" != *"ordinary_text"* ]]
+  [[ "${output}" == *"dist/script/docker/lib/setmix.sh:4: pipefail_missing"* ]]
+}
+
+# why: `$"..."` is LOCALE-TRANSLATED quoting: what the shell passes depends on
+# the message catalogue in force, so the body is knowable only under a
+# known locale. The tokeniser kept the dollar and checked `$seed_ok`,
+# reporting a body no shell ever logs. It is declined as unresolved --
+# which is what the driver says it does with anything it cannot resolve,
+# and the honest answer when the answer depends on the environment
+@test "_run_log_event_registry: PASSES a body in locale-translated quoting" {
+  _seed seed_ok
+  _write "dist/script/docker/lib/locale.sh" \
+    '_log_err conf $"seed_ok" "display=boom"'
+  run _run_log_event_registry
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"log event registry lint: clean"* ]]
+}
+
 # why: `set --` is the spelling that REPLACES the positionals, and the test for
 # an option argument matched it -- a dash followed by a dash. So the one
 # `set` that does change them read as the one kind that does not, and the

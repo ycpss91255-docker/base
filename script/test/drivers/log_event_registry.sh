@@ -335,7 +335,7 @@ function _args(kind, text, qs, adj, n, ci, out,   j, m, skip) {
 # first positional to a _log_* body slot? Either directly ("${1}") or
 # through a name the same definition assigns "${1}" to, which is how
 # test.sh spells it (`local _ev="${1}"; ... _log_err ci "${_ev}"`).
-function _forwards(text,   n, i, K, T, Q, EX, AJ, A, cmd, assignctx, shifted, tok, nm, alias) {
+function _forwards(text,   n, i, k, m, K, T, Q, EX, AJ, A, cmd, assignctx, shifted, tok, nm, alias) {
   n = _tokenize(text, K, T, Q, EX, AJ)
   # ONE walk, in order. The alias set -- names this definition assigns
   # its own first positional to -- is updated as the commands go past,
@@ -388,10 +388,18 @@ function _forwards(text,   n, i, K, T, Q, EX, AJ, A, cmd, assignctx, shifted, to
     # replaces them -- treating every `set` as a change declined a real
     # wrapper and took all its call sites out of the population.
     if (!Q[i] && T[i] == "set") {
-      # `--` is the spelling that REPLACES them, and it matches an
-      # option test (a dash followed by a dash), so the one `set` that
-      # does change the positionals read as the kind that does not.
-      if (_args(K, T, Q, AJ, n, i, A) >= 1 && (T[A[1]] == "--" || T[A[1]] !~ /^[-+]./)) shifted = 1
+      # EVERY argument, not just the first. `set` takes options and THEN
+      # positionals, so `set -e -- seed_ok` both sets an option and
+      # replaces them: reading `-e` alone answered the wrong question.
+      # `--` is the explicit spelling and matches an option test (a dash
+      # followed by a dash); `-o` and `+o` consume the name after them,
+      # so `set -o pipefail` changes no positional.
+      m = _args(K, T, Q, AJ, n, i, A)
+      for (k = 1; k <= m; k++) {
+        if (T[A[k]] == "--") { shifted = 1; break }
+        if (T[A[k]] == "-o" || T[A[k]] == "+o") { k++; continue }
+        if (T[A[k]] !~ /^[-+]./) { shifted = 1; break }
+      }
       cmd = 0
       continue
     }
@@ -548,6 +556,26 @@ function _tokenize(line, kind, text, qs, ex, adj,   n, i, c, e, cur, has, j, L, 
     if (c == "\\" && i < L) {
       if (!qst) qst = length(cur) + 1
       cur = cur substr(line, i + 1, 1); has = 1; i += 2
+      continue
+    }
+    # `$"..."` is LOCALE-TRANSLATED quoting: what the shell passes
+    # depends on the message catalogue in force, so the body is knowable
+    # only under a known locale. Read as a double-quoted run and marked
+    # UNRESOLVED, which is the honest answer when the answer depends on
+    # the environment -- keeping the dollar instead reported a body no
+    # shell ever logs. UNQUOTED only: INSIDE double quotes a `$` before
+    # the closing quote is a literal dollar, which its own case pins.
+    if (c == "$" && substr(line, i + 1, 1) == "\"") {
+      if (!qst) qst = length(cur) + 1
+      hasex = 1
+      i += 2
+      while (i <= L) {
+        c = substr(line, i, 1)
+        if (c == "\\" && i < L) { cur = cur substr(line, i + 1, 1); i += 2; continue }
+        if (c == "\"") { i++; break }
+        cur = cur c; i++
+      }
+      has = 1
       continue
     }
     # A PARAMETER EXPANSION carries its replacement text, and that text
