@@ -181,11 +181,20 @@ _publish_order_census() {
   while IFS= read -r _job; do
     [[ -n "${_job}" ]] || continue
     _status=0
+    # Each `with:` input arrives FOLDED ONTO ITS MARKER LINE. `tags:` and
+    # `outputs:` are both ordinarily block scalars -- one tag per line, one
+    # exporter per line -- and an unfolded value put every line but the first
+    # outside the marker, so `push=true` on a later exporter was read as part
+    # of the step's shell and missed. A pushing step then classified as
+    # attaching nothing.
     _steps="$(RTT_JOB="${_job}" yq -r '
         (.jobs[strenv(RTT_JOB)].steps // []) | .[]
-        | ("@@TAGS@@" + ((.with.tags // "") | tostring))
-          + "\n@@PUSH@@" + ((.with.push // "") | tostring)
-          + "\n@@OUTPUTS@@" + ((.with.outputs // "") | tostring)
+        | ("@@TAGS@@"
+            + ((.with.tags // "") | tostring | split("\n") | join(" ")))
+          + "\n@@PUSH@@"
+            + ((.with.push // "") | tostring | split("\n") | join(" "))
+          + "\n@@OUTPUTS@@"
+            + ((.with.outputs // "") | tostring | split("\n") | join(" "))
           + "\n" + ((.run // "") | tostring) + "\n@@STEP@@"' \
         "${_wf}" 2>&1)" || _status=$?
     if [[ "${_status}" -ne 0 ]]; then
@@ -949,6 +958,36 @@ YAML
   run _publish_order_violations "${SCRATCH}/local-tags.yaml"
   assert_success
   assert_output ""
+}
+
+# why: `tags:` and `outputs:` are both ordinarily written as BLOCK scalars --
+# a tag list has one tag per line, and a build that wants a local export
+# beside its registry push has one exporter per line. A classifier reading
+# only the first line of either value misses `push=true` on any later one, so
+# a tagged pushing step reads as attaching nothing and an unverified publish
+# passes the directory-wide scan with the guard looking straight at it
+# (#1214).
+@test "publish ordering: a multiline tags list and a pushing exporter on a later line still attach (#1214)" {
+  cat > "${SCRATCH}/multiline.yaml" <<'YAML'
+name: fixture
+on: [push]
+jobs:
+  late-exporter:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: docker/build-push-action@v7
+        with:
+          tags: |
+            img:latest
+            img:v1
+          outputs: |
+            type=local,dest=/tmp/export
+            type=image,push=true
+YAML
+  run _publish_order_violations "${SCRATCH}/multiline.yaml"
+  assert_success
+  assert_output --partial 'job late-exporter attaches a registry tag at step 0'
+  assert_output --partial 'no step of that job ever runs the image'
 }
 
 # why: A scan that cannot read a workflow must say so, not report it clean:
