@@ -192,30 +192,37 @@ readonly _LER_AWK='
 # single-quoted string, so no apostrophe appears anywhere in it, comments
 # included -- the single quote character is built with sprintf where the
 # tokeniser needs it.
-function _unquote(t,   q, a, z) {
-  if (length(t) < 2) return t
-  q = sprintf("%c", 39)
-  a = substr(t, 1, 1); z = substr(t, length(t), 1)
-  if ((a == "\"" && z == "\"") || (a == q && z == q))
-    return substr(t, 2, length(t) - 2)
-  return t
-}
 function _is_id(t) { return (t ~ /^[A-Za-z][A-Za-z0-9_]*$/) }
 # Does <text>, the whole of a one-line function definition, hand its own
 # first positional to a _log_* body slot? Either directly ("${1}") or
 # through a name the same definition assigns "${1}" to, which is how
 # test.sh spells it (`local _ev="${1}"; ... _log_err ci "${_ev}"`).
-function _forwards(text,   seg, p, tok, alias) {
-  if (!match(text, /_log_(debug|info|warn|err|fatal)[[:space:]]+[^[:space:]]+[[:space:]]+[^[:space:]]+/))
-    return 0
-  seg = substr(text, RSTART, RLENGTH)
-  split(seg, p, /[[:space:]]+/)
-  tok = _unquote(p[3])
-  if (tok == "${1}" || tok == "$1") return 1
-  if (match(tok, /^[$][{]?[A-Za-z_][A-Za-z0-9_]*[}]?$/)) {
-    alias = tok
-    gsub(/[$={}]/, "", alias)
-    if (text ~ ("(^|[^A-Za-z0-9_])" alias "=\"?[$][{]?1[}]?\"?")) return 1
+function _forwards(text,   n, i, K, T, Q, cmd, tok, nm, alias) {
+  n = _tokenize(text, K, T, Q)
+  # Names this definition assigns its own first positional to. The
+  # tokeniser has removed the quotes, so `local _ev="${1}"` arrives as the
+  # word `_ev=${1}` whichever way it was written.
+  for (i = 1; i <= n; i++) {
+    if (K[i] != "W") continue
+    if (T[i] ~ /^[A-Za-z_][A-Za-z0-9_]*=[$][{]?1[}]?$/) {
+      nm = T[i]; sub(/=.*$/, "", nm); alias[nm] = 1
+    }
+  }
+  cmd = 1
+  for (i = 1; i <= n; i++) {
+    if (K[i] == "O") { cmd = 1; continue }
+    if (!cmd) continue
+    if (_opens_another(T, Q, i)) continue
+    if (T[i] ~ /^_log_(debug|info|warn|err|fatal)$/ \
+        && i + 2 <= n && K[i + 1] == "W" && K[i + 2] == "W") {
+      tok = T[i + 2]
+      if (tok == "${1}" || tok == "$1") return 1
+      if (match(tok, /^[$][{]?[A-Za-z_][A-Za-z0-9_]*[}]?$/)) {
+        nm = tok; gsub(/[$={}]/, "", nm)
+        if (nm in alias) return 1
+      }
+    }
+    cmd = 0
   }
   return 0
 }
@@ -227,23 +234,25 @@ function _forwards(text,   seg, p, tok, alias) {
 #
 #   A bare `#` at a word boundary ends the line, which is what the shell
 #   does and what makes a trailing comment inert here.
-function _tokenize(line, kind, text,   n, i, c, cur, has, j, L, sq) {
-  n = 0; cur = ""; has = 0; L = length(line); i = 1; sq = sprintf("%c", 39)
+function _tokenize(line, kind, text, qs,   n, i, c, cur, has, j, L, sq, qst) {
+  n = 0; cur = ""; has = 0; qst = 0; L = length(line); i = 1; sq = sprintf("%c", 39)
   while (i <= L) {
     c = substr(line, i, 1)
     if (c == " " || c == "\t") {
-      if (has) { n++; kind[n] = "W"; text[n] = cur; cur = ""; has = 0 }
+      if (has) { n++; kind[n] = "W"; text[n] = cur; qs[n] = qst; cur = ""; has = 0; qst = 0 }
       i++
       continue
     }
     if (c == "#" && !has) break
     if (c == sq) {
+      if (!has) qst = 1
       j = index(substr(line, i + 1), sq)
       if (j == 0) { cur = cur substr(line, i + 1); has = 1; break }
       cur = cur substr(line, i + 1, j - 1); has = 1; i = i + j + 1
       continue
     }
     if (c == "\"") {
+      if (!has) qst = 1
       i++
       while (i <= L) {
         c = substr(line, i, 1)
@@ -256,51 +265,57 @@ function _tokenize(line, kind, text,   n, i, c, cur, has, j, L, sq) {
     }
     if (c == "\\" && i < L) { cur = cur substr(line, i + 1, 1); has = 1; i += 2; continue }
     if (index(";&|()<>", c) > 0) {
-      if (has) { n++; kind[n] = "W"; text[n] = cur; cur = ""; has = 0 }
-      n++; kind[n] = "O"
+      if (has) { n++; kind[n] = "W"; text[n] = cur; qs[n] = qst; cur = ""; has = 0; qst = 0 }
+      n++; kind[n] = "O"; qs[n] = 0
       if (substr(line, i + 1, 1) == c) { text[n] = c c; i += 2 } else { text[n] = c; i++ }
       continue
     }
     cur = cur c; has = 1; i++
   }
-  if (has) { n++; kind[n] = "W"; text[n] = cur }
+  if (has) { n++; kind[n] = "W"; text[n] = cur; qs[n] = qst }
   return n
 }
-# Is token i where a COMMAND name can stand? Start of the line, after an
-# operator, or after one of the keywords that open one. Without this a
-# name used as an ARGUMENT -- `grep _die file`, or `printf %s _log_err
-# conf x` -- would have the word after it reported as an event id.
+# Does word i STAY at a command position rather than being the command
+# itself -- a keyword that opens another command, or an assignment prefix
+# in front of one?
 #
-# BOTH halves ask this, the direct one as well as the wrapper one. Being
-# at a command position is what makes a word a call, and that is as true
-# of _log_err as it is of a wrapper; one rule applied to one half is a
-# rule that disagrees with itself.
-function _cmd_pos(kind, text, i) {
-  if (i == 1) return 1
-  if (kind[i - 1] == "O") return 1
-  return (text[i - 1] ~ /^(if|while|until|then|do|else|elif|\{|!|time|exec|eval)$/)
+# UNQUOTED only. A keyword is a keyword because the shell reads it as one,
+# and a quoted `then` is an ordinary word: `printf "%s" "then" _log_err
+# conf x` runs no logger. The tokeniser has already removed the quotes by
+# the time this is asked, which is why it also records whether the word
+# OPENED with one.
+function _opens_another(text, qs, i) {
+  if (qs[i]) return 0
+  if (text[i] ~ /^(if|while|until|then|do|else|elif|\{|\}|!|time|exec|eval|command|builtin)$/) return 1
+  return (text[i] ~ /^[A-Za-z_][A-Za-z0-9_]*=/)
 }
 # One folded line: count the emit sites it holds and print the literal
 # ids among them. <ln> is the FIRST physical line of the fold, which is
 # the line a reader of the report opens.
-function _scan(line, ln,   n, i, K, T) {
-  n = _tokenize(line, K, T)
+function _scan(line, ln,   n, i, K, T, Q, cmd) {
+  n = _tokenize(line, K, T, Q)
+  # The command position is CARRIED, not inferred from the token behind:
+  # it starts true, every operator restores it, a keyword or an assignment
+  # prefix keeps it, and the first ordinary word consumes it. Looking back
+  # one token could not tell `VAR=x _log_err ...` (a call) from an
+  # argument, nor a quoted `then` from the keyword.
+  cmd = 1
   for (i = 1; i <= n; i++) {
-    if (K[i] != "W") continue
+    if (K[i] == "O") { cmd = 1; continue }
+    if (!cmd) continue
+    if (_opens_another(T, Q, i)) continue
     if (T[i] ~ /^_log_(debug|info|warn|err|fatal)$/) {
-      if (_cmd_pos(K, T, i) && i + 2 <= n && K[i + 1] == "W" && K[i + 2] == "W") {
+      if (i + 2 <= n && K[i + 1] == "W" && K[i + 2] == "W") {
         direct++
         if (_is_id(T[i + 2])) printf "ID\t%s\t%s\t%d\n", T[i + 2], FILENAME, ln
       }
-      continue
+    } else if ((T[i] in fwd) && !((FILENAME "|" T[i]) in shadow)) {
+      if (i + 1 <= n && K[i + 1] == "W") {
+        wrapped++
+        if (_is_id(T[i + 1])) printf "ID\t%s\t%s\t%d\n", T[i + 1], FILENAME, ln
+      }
     }
-    if (!(T[i] in fwd)) continue
-    if ((FILENAME "|" T[i]) in shadow) continue
-    if (!_cmd_pos(K, T, i)) continue
-    if (i + 1 <= n && K[i + 1] == "W") {
-      wrapped++
-      if (_is_id(T[i + 1])) printf "ID\t%s\t%s\t%d\n", T[i + 1], FILENAME, ln
-    }
+    cmd = 0
   }
 }
 # Worth tokenising? Tokenising is per character, and all but a few

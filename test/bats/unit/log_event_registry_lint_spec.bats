@@ -284,6 +284,52 @@ _seed() {
   [[ "${output}" == *"dist/script/docker/lib/split.sh:1: split_missing"* ]]
 }
 
+# why: A keyword is a keyword only when the shell reads it as one, and a QUOTED
+# `then` is an ordinary word. Deciding command position by looking back at
+# the previous token and matching its TEXT lost that distinction, because
+# the tokeniser has already removed the quotes -- so `printf "then"
+# _log_err conf x` reported x. Position is now carried forward as the
+# walk goes, and a word that opened with a quote can never be a keyword
+@test "_run_log_event_registry: PASSES a quoted keyword in front of a logger name" {
+  _seed
+  _write "dist/script/docker/lib/kw.sh" \
+    'printf "%s\n" "then" _log_err conf ordinary_text'
+  run _run_log_event_registry
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"log event registry lint: clean"* ]]
+}
+
+# why: `VAR=value cmd ...` runs cmd, and the assignment in front of it does not
+# stop being a command position. Reading only the previous token saw a
+# word that was not a keyword and concluded the logger was an argument,
+# so the call was skipped entirely -- an emit site the scan reports
+# nothing about while the shell runs it
+@test "_run_log_event_registry: FAILS on a call behind an assignment prefix" {
+  _seed
+  _write "dist/script/docker/lib/pfx.sh" \
+    'LOG_FORMAT=text _log_err conf assign_missing "display=boom"'
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/pfx.sh:1: assign_missing"* ]]
+}
+
+# why: The wrapper-detection half read its definition line by splitting on
+# whitespace, which is the coarseness the emit half had already stopped
+# using. A one-line wrapper closing with `; }` left the semicolon attached
+# to the body slot, so the definition read as NON-forwarding and every one
+# of its call sites went unchecked -- silently, because the seed wrapper
+# still exists and the empty-wrapper refusal therefore does not fire. Both
+# halves read the tree the same way now
+@test "_run_log_event_registry: FAILS on an id through a wrapper whose definition ends in '; }'" {
+  _seed
+  _write "dist/script/docker/lib/abort.sh" \
+    '_abort() { _log_err ci "$1"; }' \
+    '_abort abort_missing "boom"'
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/abort.sh:2: abort_missing"* ]]
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _run_log_event_registry: what it leaves alone
 # ════════════════════════════════════════════════════════════════════
