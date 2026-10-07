@@ -253,17 +253,23 @@ Run the whole tier, then ask which spec should have been the one to notice.
 not from git, which cannot see an uncommitted edit you are in the middle of.
 The restoration is then **verified** against the record, and a failure is
 loud, names the file, keeps the record directory and exits refused; an
-`EXIT` / `INT` / `TERM` trap runs the same restore for a ctrl-c or a dead
-daemon. The tree is also compared before and after the mutation, by git: a
-mutation command that edited a file it did not declare is refused there,
-before a multi-minute suite carries that edit past the point anyone is
-watching.
+`INT` / `TERM` stops the runner, restores, and exits **without reporting
+anything** -- a measurement over a suite killed partway cannot be told apart
+from a finished one's -- and an `EXIT` trap covers the rest. The tree is also
+compared before and after the mutation, by git: status code **and** content
+hash for every path in the dirty set, because a file that was already dirty
+stays ` M` through a second edit and a code-only comparison misses exactly the
+case an author working mid-change is always in. A mutation command that edited
+a file it did not declare is refused there, before a multi-minute suite carries
+that edit past the point anyone is watching.
 
-**Three measurements it refuses to report as verdicts**, because each one's
+**Four measurements it refuses to report as verdicts**, because each one's
 number is the number a sound suite prints too: a mutation that left every
 subject byte-identical (the green is the baseline, so the sed expression
 matched nothing), a run that reported no test results at all (a broken runner,
-not a finding about the tests), and the narrow green above.
+not a finding about the tests), a run that reported some passes and then died
+(the same hole with a plausible number on it -- the runner's exit status is
+what tells them apart), and the narrow green above.
 
 **The mutation is yours, because only you know what the behaviour is.** Five
 shapes earned their place during the audit: `return 0` at the top of a driver

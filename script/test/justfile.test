@@ -19,6 +19,16 @@
 # (script/test), i.e. the repo root.
 set working-directory := '../..'
 
+# Arguments reach a recipe body as "$@", not as an unquoted {{args}}
+# interpolation. `mutation-probe` takes a shell command as one argument, and
+# `{{args}}` hands the recipe's own shell a command to re-split: a mutation
+# carrying a space becomes several arguments and the probe refuses it, while
+# one carrying a `>` or a `;` is EXECUTED by the recipe shell -- outside the
+# record-and-restore loop, writing a file the probe never recorded and so can
+# never put back. No recipe here reads $0 / $1 / $@ for anything else, so the
+# setting is free.
+set positional-arguments := true
+
 # lifecycle: RECLAIMED BY THE RUNNER. script/test/test.sh installs an EXIT
 # trap that sweeps orphaned compose projects on every dispatch it arms,
 # pass or fail, and asks whether the previous run has let go of this
@@ -247,7 +257,7 @@ coverage-path spec *args:
 #   just test mutation-probe --subject script/test/drivers/thing.sh \
 #     --mutate 'sed -i "/^_run_thing() {/a   return 0" script/test/drivers/thing.sh'
 mutation-probe *args:
-    ./script/test/mutation-probe.sh {{args}}
+    ./script/test/mutation-probe.sh "$@"
 
 # Both `system` and `smoke` drive compose directly rather than through
 # test.sh's dispatcher, so neither is covered by test.sh's own end-of-run

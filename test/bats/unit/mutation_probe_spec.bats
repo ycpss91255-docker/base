@@ -88,6 +88,7 @@ _probe_runner() {
 @test "_mutation_probe: refuses a root that does not exist" {
   run bash -c "source '${PROBE}'; _mutation_probe '${BATS_TEST_TMPDIR}/nope' --subject a.sh --mutate true"
   assert_failure
+  assert_output --partial "does not exist or is not a directory"
   assert_output --partial "nope"
 }
 
@@ -102,7 +103,7 @@ _probe_runner() {
   printf 'x\n' > "${_root}/subject.sh"
   run bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject subject.sh --mutate true"
   assert_failure
-  assert_output --partial "git"
+  assert_output --partial "is not a git work tree"
 }
 
 # why: with no subject declared there is nothing to record and nothing to
@@ -113,7 +114,7 @@ _probe_runner() {
   _root="$(_probe_fixture)"
   run bash -c "source '${PROBE}'; _mutation_probe '${_root}' --mutate true"
   assert_failure
-  assert_output --partial "--subject"
+  assert_output --partial "no --subject declared"
 }
 
 # why: a probe of a file that is not there measures nothing, and this is the
@@ -126,7 +127,7 @@ _probe_runner() {
   _root="$(_probe_fixture)"
   run bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject gone.sh --mutate true"
   assert_failure
-  assert_output --partial "gone.sh"
+  assert_output --partial "subject 'gone.sh' is not a regular file"
 }
 
 # why: without a mutation the run is just the suite, and the suite was already
@@ -137,7 +138,7 @@ _probe_runner() {
   _root="$(_probe_fixture)"
   run bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject subject.sh"
   assert_failure
-  assert_output --partial "--mutate"
+  assert_output --partial "no --mutate command"
 }
 
 # ── the non-vacuity refusals: a green that means nothing ─────────────────────
@@ -158,6 +159,35 @@ _probe_runner() {
   assert_success
 }
 
+# why: the leak check compares the tree before and after, and comparing only
+# git's status CODES misses the commonest real case: a file that was already
+# dirty stays ` M` through a second edit, so the probe would run the suite and
+# leave the undeclared mutation behind with nothing said. An author running
+# this mid-change always has dirty files.
+@test "_mutation_probe: refuses a mutation that edited a file that was ALREADY dirty" {
+  local _root _runner
+  _root="$(_probe_fixture)"
+  printf '%s\n' 'an edit the author had already made' > "${_root}/bystander.txt"
+  _runner="$(_probe_runner green 'printf "ok 1 one\n"')"
+  run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject subject.sh --mutate 'sed -i s/right/wrong/ subject.sh; printf leaked > bystander.txt'"
+  assert_failure
+  assert_output --partial "touched bystander.txt, which it did not declare"
+}
+
+# why: the same hole with the other status code. An untracked file is `??`
+# before and after, so a mutation that rewrites one is invisible to a
+# code-only comparison -- and an untracked file is exactly what a half-built
+# fixture or a scratch script is.
+@test "_mutation_probe: refuses a mutation that edited a file that was ALREADY untracked" {
+  local _root _runner
+  _root="$(_probe_fixture)"
+  printf '%s\n' 'scratch' > "${_root}/scratch.txt"
+  _runner="$(_probe_runner green 'printf "ok 1 one\n"')"
+  run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject subject.sh --mutate 'sed -i s/right/wrong/ subject.sh; printf leaked > scratch.txt'"
+  assert_failure
+  assert_output --partial "touched scratch.txt, which it did not declare"
+}
+
 # why: a mutation that edits a file it did not declare is a mutation the loop
 # cannot undo, because only the declared subjects were recorded. Catching it
 # between the mutation and the run is what keeps the undeclared edit from
@@ -168,7 +198,7 @@ _probe_runner() {
   _runner="$(_probe_runner green 'printf "ok 1 one\n"')"
   run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject subject.sh --mutate 'sed -i s/right/wrong/ subject.sh; printf leaked > bystander.txt'"
   assert_failure
-  assert_output --partial "bystander.txt"
+  assert_output --partial "touched bystander.txt, which it did not declare"
 }
 
 # why: the subject it DID declare still has to come back. A leak refusal that
@@ -182,6 +212,7 @@ _probe_runner() {
   _runner="$(_probe_runner green 'printf "ok 1 one\n"')"
   run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject subject.sh --mutate 'sed -i s/right/wrong/ subject.sh; printf leaked > bystander.txt; : > ${_ran}'"
   assert_failure
+  assert_output --partial "touched bystander.txt, which it did not declare"
   run test -f "${_ran}"
   assert_success
   run grep -cF 'right' "${_root}/subject.sh"
@@ -200,6 +231,32 @@ _probe_runner() {
   run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject subject.sh --mutate 'sed -i s/right/wrong/ subject.sh'"
   assert_failure
   assert_output --partial "no test results"
+}
+
+# why: the halfway version of the same hole, and the dangerous one, because it
+# arrives with a plausible number. A runner that prints some passes and then
+# dies has zero reds over a population that never finished, so counting
+# results alone reports NOT PINNED about assertions that did not run.
+@test "_mutation_probe: refuses a green whose runner did not finish" {
+  local _root _runner
+  _root="$(_probe_fixture)"
+  _runner="$(_probe_runner partial 'printf "ok 1 one\nok 2 two\n"; exit 143')"
+  run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject subject.sh --mutate 'sed -i s/right/wrong/ subject.sh'"
+  assert_failure
+  refute_output --partial "PINNED"
+  assert_output --partial "did not finish"
+}
+
+# why: a red is still a red when the runner exits non-zero, because that is how
+# every failing suite exits. A completion check written without this case
+# would refuse the probe's entire reason for existing.
+@test "_mutation_probe: a red runner exit is PINNED, not an unfinished run" {
+  local _root _runner
+  _root="$(_probe_fixture)"
+  _runner="$(_probe_runner redexit 'printf "ok 1 one\nnot ok 2 the witness\n"; exit 1')"
+  run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject subject.sh --mutate 'sed -i s/right/wrong/ subject.sh'"
+  assert_success
+  assert_output --partial "PINNED"
 }
 
 # ── the verdicts ────────────────────────────────────────────────────────────
@@ -340,6 +397,43 @@ _probe_runner() {
   assert_success
 }
 
+# why: a ctrl-c has to STOP the probe, not just tidy up behind it. A handler
+# that restores and then returns lets the loop fall through to its verdict
+# and report a measurement taken over a suite that was killed partway --
+# which is a number nobody can tell apart from a finished run's.
+@test "_mutation_probe: a signal stops the run instead of reporting a verdict" {
+  local _root _runner _marker="${BATS_TEST_TMPDIR}/runner-entered"
+  local _out="${BATS_TEST_TMPDIR}/signal-out"
+  local _runner_pid="${BATS_TEST_TMPDIR}/runner-pid"
+  _root="$(_probe_fixture)"
+  _runner="$(_probe_runner slow "printf 'ok 1 one\n'; printf '%s\n' \"\$\$\" > ${_runner_pid}; : > ${_marker}; sleep 30")"
+  env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject subject.sh --mutate 'sed -i s/right/wrong/ subject.sh'" > "${_out}" 2>&1 &
+  local _pid=$! _i=0
+  while (( _i < 500 )); do
+    [[ -f "${_marker}" ]] && break
+    sleep 0.02
+    _i=$(( _i + 1 ))
+  done
+  run test -f "${_marker}"
+  assert_success
+  kill -TERM "${_pid}" 2>/dev/null || true
+  wait "${_pid}" 2>/dev/null || true
+  run cat "${_out}"
+  # The discriminating line. A handler that merely restored and returned would
+  # fall through to the completion refusal instead, which also says
+  # "interrupted" and also withholds a verdict -- so refuting PINNED alone
+  # cannot tell the two apart, and did not.
+  assert_output --partial "so there is NO verdict"
+  refute_output --partial "PINNED"
+  # The suite must be STOPPED, not left running against a tree that is being
+  # restored under it. The runner sleeps 30s, so a live pid here is a kill
+  # that did not happen.
+  run bash -c "kill -0 \"$(cat "${_runner_pid}")\" 2>/dev/null"
+  assert_failure
+  run git -C "${_root}" status --porcelain
+  assert_output ""
+}
+
 # why: the trap is what covers the paths the explicit restore cannot reach, and
 # a trap handler nothing ever calls is the classic dead control. Driving the
 # payload directly is the only way to see it put a file back.
@@ -357,4 +451,67 @@ _probe_runner() {
   "
   run cat "${_root}/subject.sh"
   assert_output "original"
+}
+
+# ── the documented entry point hands the mutation over intact ───────────────
+#
+# The recipe is a seam, and a seam is what a grep cannot check. `just test
+# mutation-probe --mutate 'printf x > y'` interpolated unquoted is split by
+# the recipe's own shell: the probe sees `printf`, and the `>` redirection
+# runs OUTSIDE the record-and-restore loop, writing a file nothing will put
+# back. So the forwarding is driven for real, over a sandbox that copies the
+# justfiles and stubs the script.
+
+# _probe_just_sandbox <dir> -- the two justfiles plus a mutation-probe stub
+# that prints its argv one element per line.
+_probe_just_sandbox() {
+  local _dir="${1:?_probe_just_sandbox requires a dir}"
+  mkdir -p "${_dir}/script/test"
+  cp /source/justfile "${_dir}/justfile"
+  cp /source/script/test/justfile.test "${_dir}/script/test/justfile.test"
+  cat > "${_dir}/script/test/mutation-probe.sh" <<'STUB'
+#!/usr/bin/env bash
+for _a in "$@"; do printf 'ARG[%s]\n' "${_a}"; done
+STUB
+  chmod +x "${_dir}/script/test/mutation-probe.sh"
+}
+
+# why: the defect the review reproduced. A mutation is one argument containing
+# spaces, quotes, a redirection and a semicolon; split by the recipe shell it
+# becomes an unknown-argument refusal at best and an edit made outside the
+# restore loop at worst.
+@test "just test mutation-probe hands the mutation over as ONE argument" {
+  command -v just >/dev/null 2>&1 \
+    || skip "this test-tools image has no just (older pinned TEST_TOOLS_IMAGE)"
+  local _tmp
+  _tmp="$(mktemp -d)"
+  _probe_just_sandbox "${_tmp}"
+  run just --justfile "${_tmp}/justfile" --working-directory "${_tmp}" \
+    test mutation-probe --subject s.sh --mutate 'printf wrong > s.sh; true'
+  local _s="${status}" _o="${output}"
+  rm -rf "${_tmp}"
+  status="${_s}"; output="${_o}"
+  assert_success
+  assert_output --partial 'ARG[--mutate]'
+  assert_output --partial 'ARG[printf wrong > s.sh; true]'
+}
+
+# why: the other half of the same seam. The redirection inside the mutation
+# must not be performed by the recipe's shell, because a file it wrote is a
+# file the probe never recorded and so can never restore.
+@test "just test mutation-probe does not execute the mutation's redirection itself" {
+  command -v just >/dev/null 2>&1 \
+    || skip "this test-tools image has no just (older pinned TEST_TOOLS_IMAGE)"
+  local _tmp
+  _tmp="$(mktemp -d)"
+  _probe_just_sandbox "${_tmp}"
+  run just --justfile "${_tmp}/justfile" --working-directory "${_tmp}" \
+    test mutation-probe --subject s.sh --mutate 'printf wrong > leaked.txt'
+  local _s="${status}" _leaked=0
+  [[ -f "${_tmp}/leaked.txt" ]] && _leaked=1
+  rm -rf "${_tmp}"
+  status="${_s}"
+  assert_success
+  [[ "${_leaked}" -eq 0 ]] \
+    || fail "the recipe shell performed the mutation's redirection itself"
 }
