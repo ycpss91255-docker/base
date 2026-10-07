@@ -318,6 +318,45 @@ function _scan(line, ln,   n, i, K, T, Q, cmd) {
     cmd = 0
   }
 }
+# _lex_state(<physical line>, <state in>) -> <state out>
+#   The fold needs two facts the tokeniser cannot give it, because the
+#   tokeniser runs on a line that is already complete: whether a quote is
+#   still open at the newline (0 none, 1 single, 2 double), and whether
+#   the line ends in a continuation backslash. The second is published in
+#   _LEX_CONT rather than returned, awk having one return value.
+#
+#   A COMMENT ends the line for both purposes. bash does not continue a
+#   comment over a backslash, so a trailing one there continues nothing
+#   and folding on it would glue the next line of CODE onto a line the
+#   tokeniser discards whole.
+function _lex_state(line, st,   i, L, c, sq, pv) {
+  L = length(line); sq = sprintf("%c", 39); i = 1; _LEX_CONT = 0
+  while (i <= L) {
+    c = substr(line, i, 1)
+    if (st == 1) { if (c == sq) st = 0; i++; continue }
+    if (st == 2) {
+      if (c == "\\" && i < L) { i += 2; continue }
+      if (c == "\"") st = 0
+      i++
+      continue
+    }
+    if (c == "#") {
+      pv = (i == 1) ? " " : substr(line, i - 1, 1)
+      if (pv == " " || pv == "\t" || index(";&|()<>", pv) > 0) return 0
+      i++
+      continue
+    }
+    if (c == sq) { st = 1; i++; continue }
+    if (c == "\"") { st = 2; i++; continue }
+    if (c == "\\") {
+      if (i == L) { _LEX_CONT = 1; return 0 }
+      i += 2
+      continue
+    }
+    i++
+  }
+  return st
+}
 # Worth tokenising? Tokenising is per character, and all but a few
 # thousand of the tree lines can hold no call at all. The names are the
 # derived wrapper set, so this filter widens with it rather than being a
@@ -345,14 +384,22 @@ PHASE == "def" {
   next
 }
 PHASE == "emit" {
-  if (FNR == 1) { buf = ""; startln = 0 }
+  if (FNR == 1) { buf = ""; startln = 0; qst = 0 }
   if (buf == "") startln = FNR
-  # Joined with NOTHING between the halves, which is what bash does: a
-  # backslash-newline is removed, so a word may be split across the fold
-  # and still be one word. A space here would turn `split_` + `missing`
-  # into two words and hand the body slot a truncated id -- a scan that
-  # can both miss an unregistered id and report a registered one.
-  if ($0 ~ /\\$/) { buf = buf substr($0, 1, length($0) - 1); next }
+  qst = _lex_state($0, qst)
+  # A quote still open at the newline holds ONE word across the lines, so
+  # the fold continues until it closes. Help text spanning several lines
+  # is the ordinary way a shipped script spells its usage, and an inner
+  # line of it reads exactly like a call.
+  if (qst != 0) { buf = buf $0 " "; next }
+  # A trailing backslash OUTSIDE a comment continues the line, and the
+  # halves are joined with NOTHING between them, which is what bash does:
+  # a word may be split across the fold and still be one word. A space
+  # would turn `split_` + `missing` into two words and hand the body slot
+  # a truncated id. Inside a comment there is nothing to continue -- bash
+  # ends the comment at the newline -- and folding there would glue the
+  # next line of CODE onto a line the tokeniser then discards whole.
+  if (_LEX_CONT) { buf = buf substr($0, 1, length($0) - 1); next }
   line = buf $0
   buf = ""
   if (_candidate(line)) _scan(line, startln)

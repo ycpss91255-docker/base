@@ -330,6 +330,40 @@ _seed() {
   [[ "${output}" == *"dist/script/docker/lib/abort.sh:2: abort_missing"* ]]
 }
 
+# why: A quote that opens on one line and closes on another holds ONE word
+# across both, and help text spanning several lines is the ordinary way a
+# shipped script spells its usage. Tokenising each physical line on its
+# own lost the open quote at the line end, so an inner line reading like a
+# call was read as one and its next word reported. The quote state is
+# carried across the fold now -- the over-reporting direction again, which
+# is the one that gets a gate muted
+@test "_run_log_event_registry: PASSES a wrapper name inside a multi-line quoted string" {
+  _seed
+  _write "dist/script/docker/lib/ml.sh" \
+    "printf '%s\\n' 'Usage:" \
+    "  _die ml_prose on failure" \
+    "done'"
+  run _run_log_event_registry
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"log event registry lint: clean"* ]]
+}
+
+# why: bash does not continue a COMMENT over a backslash -- the comment ends at
+# the newline and the next line is code. Folding on any trailing backslash
+# glued the real call onto the comment, and the fold then began with a
+# `#`, so the whole logical line was discarded and the emit site vanished.
+# A miss produced by the fold itself, which is the one place a reader has
+# no way to notice: the counts simply come out one lower
+@test "_run_log_event_registry: FAILS on a call under a comment that ends in a backslash" {
+  _seed
+  _write "dist/script/docker/lib/cmt.sh" \
+    '# an example: _log_err conf something \' \
+    '_log_err conf after_comment_missing "display=boom"'
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/cmt.sh:2: after_comment_missing"* ]]
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _run_log_event_registry: what it leaves alone
 # ════════════════════════════════════════════════════════════════════
