@@ -490,6 +490,24 @@ _seed() {
   [[ "${output}" == *"dist/script/docker/lib/redirarg.sh:2: wrapper_arg_missing"* ]]
 }
 
+# why: A file descriptor prefix is part of the redirection it touches, and
+# `2>` is one token because the two characters are ADJACENT. A number
+# separated from the operator by a space is an ordinary argument -- so
+# `_log_err conf 123 > /dev/null` passes 123 in the body slot -- and
+# discarding it as a descriptor dropped a fully known unregistered body.
+# The second line keeps the real prefix working, so the fix cannot be a
+# retreat from reading them
+@test "_run_log_event_registry: FAILS on a numeric body a space separates from a redirection" {
+  _seed
+  _write "dist/script/docker/lib/fd.sh" \
+    '_log_err conf 123 > /dev/null' \
+    '2>/dev/null _log_err conf adjacent_missing "display=boom"'
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/fd.sh:1: 123"* ]]
+  [[ "${output}" == *"dist/script/docker/lib/fd.sh:2: adjacent_missing"* ]]
+}
+
 # why: lib/log.sh compares the body against the registry line for line and
 # imposes no shape on it, so a body with a hyphen in it is refused at
 # runtime like any other unregistered one -- and a hyphen where an

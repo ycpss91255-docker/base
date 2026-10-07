@@ -241,7 +241,7 @@ function _is_redir(t) { return (t ~ /^(<|>|<<|>>|<>)$/) }
 # bash removes a redirection BEFORE it hands a command its positionals,
 # so `_log_err 2>/dev/null conf id` passes id in the body slot exactly as
 # the unredirected spelling does. A real separator ends the command.
-function _args(kind, text, n, ci, out,   j, m, skip) {
+function _args(kind, text, qs, adj, n, ci, out,   j, m, skip) {
   m = 0; j = ci + 1; skip = 0
   while (j <= n) {
     if (kind[j] == "O") {
@@ -257,7 +257,8 @@ function _args(kind, text, n, ci, out,   j, m, skip) {
       break
     }
     if (skip) { skip = 0; j++; continue }
-    if (text[j] ~ /^[0-9]+$/ && j < n && kind[j + 1] == "O" && _is_redir(text[j + 1])) { j++; continue }
+    if (text[j] ~ /^[0-9]+$/ && !qs[j] && j < n && kind[j + 1] == "O" && adj[j + 1] \
+        && _is_redir(text[j + 1])) { j++; continue }
     m++; out[m] = j
     j++
   }
@@ -267,8 +268,8 @@ function _args(kind, text, n, ci, out,   j, m, skip) {
 # first positional to a _log_* body slot? Either directly ("${1}") or
 # through a name the same definition assigns "${1}" to, which is how
 # test.sh spells it (`local _ev="${1}"; ... _log_err ci "${_ev}"`).
-function _forwards(text,   n, i, K, T, Q, EX, A, cmd, tok, nm, alias) {
-  n = _tokenize(text, K, T, Q, EX)
+function _forwards(text,   n, i, K, T, Q, EX, AJ, A, cmd, tok, nm, alias) {
+  n = _tokenize(text, K, T, Q, EX, AJ)
   # Names this definition assigns its own first positional to. The
   # tokeniser has removed the quotes, so `local _ev="${1}"` arrives as the
   # word `_ev=${1}` whichever way it was written.
@@ -288,7 +289,7 @@ function _forwards(text,   n, i, K, T, Q, EX, A, cmd, tok, nm, alias) {
     if (K[i] == "O") { cmd = 1; continue }
     if (!cmd) continue
     if (_opens_another(T, Q, i)) continue
-    if (T[i] ~ /^_log_(debug|info|warn|err|fatal)$/ && _args(K, T, n, i, A) >= 2) {
+    if (T[i] ~ /^_log_(debug|info|warn|err|fatal)$/ && _args(K, T, Q, AJ, n, i, A) >= 2) {
       if (!EX[A[2]]) { cmd = 0; continue }
       tok = T[A[2]]
       if (tok == "${1}" || tok == "$1") return 1
@@ -309,13 +310,20 @@ function _forwards(text,   n, i, K, T, Q, EX, A, cmd, tok, nm, alias) {
 #
 #   A bare `#` at a word boundary ends the line, which is what the shell
 #   does and what makes a trailing comment inert here.
-function _tokenize(line, kind, text, qs, ex,   n, i, c, e, cur, has, j, L, sq, qst, hasex) {
-  n = 0; cur = ""; has = 0; qst = 0; hasex = 0; L = length(line); i = 1; sq = sprintf("%c", 39)
+function _tokenize(line, kind, text, qs, ex, adj,   n, i, c, e, cur, has, j, L, sq, qst, hasex, gap, wgap, ao) {
+  n = 0; cur = ""; has = 0; qst = 0; hasex = 0; gap = 1; wgap = 1; L = length(line); i = 1; sq = sprintf("%c", 39)
   _TOK_SUBS = ""
   while (i <= L) {
     c = substr(line, i, 1)
+    # Adjacency: a token that STARTS where the one before it ended. The
+    # descriptor prefix of a redirection is the only thing that needs
+    # it, and it needs it absolutely -- `2>` is one redirection because
+    # the two characters touch, while `_log_err conf 123 > /dev/null`
+    # passes 123 in the BODY slot.
+    if (!has) wgap = gap
     if (c == " " || c == "\t") {
-      if (has) { n++; kind[n] = "W"; text[n] = cur; qs[n] = qst; ex[n] = hasex; cur = ""; has = 0; qst = 0; hasex = 0 }
+      if (has) { n++; kind[n] = "W"; text[n] = cur; qs[n] = qst; ex[n] = hasex; adj[n] = (wgap ? 0 : 1); cur = ""; has = 0; qst = 0; hasex = 0 }
+      gap = 1
       i++
       continue
     }
@@ -471,15 +479,21 @@ function _tokenize(line, kind, text, qs, ex,   n, i, c, e, cur, has, j, L, sq, q
       }
     }
     if (index(";&|()<>\n", c) > 0) {
-      if (has) { n++; kind[n] = "W"; text[n] = cur; qs[n] = qst; ex[n] = hasex; cur = ""; has = 0; qst = 0; hasex = 0 }
-      n++; kind[n] = "O"; qs[n] = 0; ex[n] = 0
+      ao = (gap ? 0 : 1)
+      if (has) {
+        n++; kind[n] = "W"; text[n] = cur; qs[n] = qst; ex[n] = hasex; adj[n] = (wgap ? 0 : 1)
+        cur = ""; has = 0; qst = 0; hasex = 0
+        ao = 1
+      }
+      n++; kind[n] = "O"; qs[n] = 0; ex[n] = 0; adj[n] = ao
       if (substr(line, i + 1, 1) == c) { text[n] = c c; i += 2 } else { text[n] = c; i++ }
+      gap = 0
       continue
     }
     if (c == "$" && _expands(line, i)) hasex = 1
     cur = cur c; has = 1; i++
   }
-  if (has) { n++; kind[n] = "W"; text[n] = cur; qs[n] = qst; ex[n] = hasex }
+  if (has) { n++; kind[n] = "W"; text[n] = cur; qs[n] = qst; ex[n] = hasex; adj[n] = (wgap ? 0 : 1) }
   return n
 }
 # Does word i STAY at a command position rather than being the command
@@ -500,8 +514,8 @@ function _opens_another(text, qs, i) {
 # One folded line: count the emit sites it holds and print the literal
 # ids among them. <ln> is the FIRST physical line of the fold, which is
 # the line a reader of the report opens.
-function _scan(line, ln,   n, i, m, d, K, T, Q, EX, A, SUB, cmd, cond, skip, subs, k) {
-  n = _tokenize(line, K, T, Q, EX)
+function _scan(line, ln,   n, i, m, d, K, T, Q, EX, AJ, A, SUB, cmd, cond, skip, subs, k) {
+  n = _tokenize(line, K, T, Q, EX, AJ)
   # Captured IMMEDIATELY: _tokenize publishes the substitution list in a
   # global, and the recursion below calls _tokenize again.
   subs = _TOK_SUBS
@@ -570,17 +584,18 @@ function _scan(line, ln,   n, i, m, d, K, T, Q, EX, A, SUB, cmd, cond, skip, sub
     if (skip) { skip = 0; continue }
     # An fd prefix belongs to the redirection behind it, not to the
     # command position: `2>/dev/null` is one redirection.
-    if (T[i] ~ /^[0-9]+$/ && i < n && K[i + 1] == "O" && _is_redir(T[i + 1])) continue
+    if (T[i] ~ /^[0-9]+$/ && !Q[i] && i < n && K[i + 1] == "O" && AJ[i + 1] \
+        && _is_redir(T[i + 1])) continue
     if (!cmd) continue
     if (_opens_another(T, Q, i)) continue
     if (T[i] ~ /^_log_(debug|info|warn|err|fatal)$/) {
-      m = _args(K, T, n, i, A)
+      m = _args(K, T, Q, AJ, n, i, A)
       if (m >= 2) {
         direct++
         if (!EX[A[2]]) printf "ID" US "%s" US "%s" US "%d\n", _enc(T[A[2]]), FILENAME, ln
       }
     } else if ((T[i] in fwd) && !((FILENAME "|" T[i]) in shadow)) {
-      m = _args(K, T, n, i, A)
+      m = _args(K, T, Q, AJ, n, i, A)
       if (m >= 1) {
         wrapped++
         if (!EX[A[1]]) printf "ID" US "%s" US "%s" US "%d\n", _enc(T[A[1]]), FILENAME, ln
