@@ -19,6 +19,16 @@
 # (script/test), i.e. the repo root.
 set working-directory := '../..'
 
+# Arguments reach a recipe body as "$@", not as an unquoted {{args}}
+# interpolation. `mutation-probe` takes a shell command as one argument, and
+# `{{args}}` hands the recipe's own shell a command to re-split: a mutation
+# carrying a space becomes several arguments and the probe refuses it, while
+# one carrying a `>` or a `;` is EXECUTED by the recipe shell -- outside the
+# record-and-restore loop, writing a file the probe never recorded and so can
+# never put back. No recipe here reads $0 / $1 / $@ for anything else, so the
+# setting is free.
+set positional-arguments := true
+
 # lifecycle: RECLAIMED BY THE RUNNER. script/test/test.sh installs an EXIT
 # trap that sweeps orphaned compose projects on every dispatch it arms,
 # pass or fail, and asks whether the previous run has let go of this
@@ -221,6 +231,35 @@ coverage-local jobs='':
 #   just test coverage-path test/bats/unit/lib_spec.bats --filter 'nounset'
 coverage-path spec *args:
     ./script/test/test.sh --coverage-path '{{spec}}' {{args}}
+
+# lifecycle: RECLAIMED BY THE RUNNER. The probe drives the suite through
+# script/test/test.sh, which installs its own EXIT-trap sweep on every
+# dispatch it arms, so this recipe adds no second one.
+#
+# just test mutation-probe -> break a behaviour once and find out whether
+# anything was pinning it. A green suite says every assertion ran; it does
+# not say any of them would notice a WRONG answer, and removing the
+# production code cannot tell those apart -- a guard that only greps for a
+# string turns red when the file carrying it is deleted. So this puts the
+# code back and breaks the behaviour in place.
+#
+# It runs the scope UNMUTATED first -- without that baseline a red cannot be
+# attributed to the mutation, and a tree that is already red would have every
+# mutation report PINNED. Then it records each declared subject, applies the
+# mutation, runs, restores from the record and PROVES the restoration before
+# reporting, so there is no path that leaves the tree mutated. A mutation that
+# touched a file it did not declare is refused before the run, because only
+# declared subjects were recorded. Two runs per probe, not one.
+#
+# A red names the assertion that was pinning the behaviour, which is the line
+# to quote. A green is qualified by how much ran: narrowing to one spec can
+# only report INCONCLUSIVE, never that the behaviour is unpinned. See
+# doc/test/TEST.md, "Breaking the behaviour on purpose".
+#
+#   just test mutation-probe --subject script/test/drivers/thing.sh \
+#     --mutate 'sed -i "/^_run_thing() {/a   return 0" script/test/drivers/thing.sh'
+mutation-probe *args:
+    ./script/test/mutation-probe.sh "$@"
 
 # Both `system` and `smoke` drive compose directly rather than through
 # test.sh's dispatcher, so neither is covered by test.sh's own end-of-run
