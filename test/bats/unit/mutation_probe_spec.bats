@@ -261,7 +261,7 @@ _probe_runner_observing() {
   _runner="$(_probe_runner_observing silent '  printf "the runner died before collection\n"; exit 1')"
   run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject subject.sh --mutate 'sed -i s/right/wrong/ subject.sh'"
   assert_failure
-  assert_output --partial "no test results"
+  assert_output --partial "executed no tests at all"
 }
 
 # why: the halfway version of the same hole, and the dangerous one, because it
@@ -963,4 +963,84 @@ MUT
   assert_output --partial "so there is NO verdict"
   run git -C "${_root}" status --porcelain
   assert_output ""
+}
+
+# ── round-eight review findings, each reproduced before it was fixed ─────────
+
+# why: bats reports a skip as `ok N name # skip <reason>`, so counting it as a
+# pass is how a mutation erases the evidence against itself and still looks
+# measured -- a subject the spec can no longer find turns its cases into skips,
+# and a run of nothing but skips read as 1 ok / 0 not ok slipped past both the
+# no-evidence refusal and the population comparison.
+@test "_mutation_probe: a run of nothing but SKIPS is no evidence, not a green" {
+  local _root _runner
+  _root="$(_probe_fixture)"
+  _runner="$(_probe_runner_observing skipped '  printf "ok 1 the case # skip subject unavailable\n"')"
+  run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject subject.sh --mutate 'sed -i s/right/wrong/ subject.sh'"
+  assert_failure
+  assert_output --partial "executed no tests at all"
+  refute_output --partial "PINNED"
+}
+
+# why: the partial version of the same erasure, which arrives with a plausible
+# count. Skips have to be excluded from the population comparison as well, or a
+# mutation that skips half the suite reports a tier-wide green.
+@test "_mutation_probe: a SKIP does not count towards the executed population" {
+  local _root _runner
+  _root="$(_probe_fixture)"
+  _runner="$(_probe_runner_observing halfskipped '  printf "ok 1 ran\nok 2 the case # skip subject unavailable\n"')"
+  run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "
+    source '${PROBE}'
+    _mutation_probe_run() {
+      local _out=\"\${3}\"
+      if grep -F wrong '${_root}/subject.sh' >/dev/null 2>&1; then
+        printf 'ok 1 ran\nok 2 the case # skip subject unavailable\n' > \"\${_out}\"
+      else
+        printf 'ok 1 ran\nok 2 also ran\n' > \"\${_out}\"
+      fi
+      _MUTATION_PROBE_RUN_STATUS=0
+      return 0
+    }
+    _mutation_probe '${_root}' --subject subject.sh --mutate 'sed -i s/right/wrong/ subject.sh'
+  "
+  assert_failure
+  assert_output --partial "executed 1 assertions where the baseline ran 2"
+}
+
+# why: killing the child's process group does not reach a CONTAINER. The suite
+# runs through `docker compose run`, whose container belongs to the daemon, keeps
+# the checkout bind-mounted, and can overwrite the restored files afterwards --
+# so the restore must not be the last word while the project is still held.
+@test "_mutation_probe: says so when a container still held the checkout at restore time" {
+  local _root _runner
+  _root="$(_probe_fixture)"
+  mkdir -p "${_root}/script/test"
+  cat > "${_root}/script/test/test.sh" <<'STUB'
+#!/usr/bin/env bash
+printf 'project still held by container base-x-ci-run-1; clear it with: just test stop\n' >&2
+exit 1
+STUB
+  chmod +x "${_root}/script/test/test.sh"
+  git -C "${_root}" -c user.email=probe@example.invalid -c user.name=probe add -A
+  git -C "${_root}" -c user.email=probe@example.invalid -c user.name=probe \
+    commit -qm stub
+  _runner="$(_probe_runner_observing red '  printf "not ok 1 the witness\n"')"
+  run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "
+    source '${PROBE}'
+    _MUTATION_PROBE_DEFAULT_RUNNER=1
+    _mutation_probe '${_root}' --subject subject.sh --mutate 'sed -i s/right/wrong/ subject.sh'
+  "
+  assert_failure
+  assert_output --partial "still holding this checkout when the subjects were restored"
+  # Restored all the same: a tree left mutated would be the worse of the two.
+  run git -C "${_root}" status --porcelain
+  assert_output ""
+}
+
+# why: the question is only meaningful for the built-in runner. A caller-supplied
+# runner has no compose project, and asking anyway would make every such probe
+# depend on a daemon it never used.
+@test "_mutation_probe_await_daemon: asks nothing when the built-in runner did not run" {
+  run bash -c "source '${PROBE}'; _MUTATION_PROBE_DEFAULT_RUNNER=0; _mutation_probe_await_daemon /nonexistent-root"
+  assert_success
 }

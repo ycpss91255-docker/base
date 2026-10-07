@@ -3724,7 +3724,7 @@ builds nothing and pushes nothing)
 | `multi-distro-build-worker.yaml: ci-passed job has explicit name: ci-passed (matches existing multi-distro rollup contract) (#325 B-1)` | - |
 | `multi-distro-build-worker.yaml: every job's grant is pinned as an exact set (#957)` | - |
 
-### test/bats/unit/mutation_probe_spec.bats (48)
+### test/bats/unit/mutation_probe_spec.bats (52)
 
 A green suite says every assertion ran. It does not say any of them would
 have noticed a wrong answer, and the v0.43 retrospective measured how far
@@ -3812,6 +3812,10 @@ Faking that comparison would test a control this repo does not ship.
 | `_mutation_probe: a newline in an undeclared file's name does not bypass the leak check` | the changed-path list was newline-delimited while the snapshots it reads are NUL-delimited, so a file named `a.sh<newline>b.sh` was read back as the two paths `a.sh` and `b.sh` -- and when both of those are declared subjects, an undeclared edit reads as two declared ones and the leak check waves it through. |
 | `_mutation_probe: refuses to restore when the ROOT itself was replaced` | the ancestor walk starts BELOW the root, so it could not see the root itself being swapped. `mv tree tree-saved; ln -s outside tree` left every later check passing while every write landed in `outside` -- the restore overwriting unrelated data and reporting success. |
 | `_mutation_probe: an interrupt during a HUNG mutation still restores` | bash defers a trap until the foreground command finishes, so a mutation that hangs after editing the subject held the handler off indefinitely while the subject sat mutated -- and its pid was recorded nowhere, so nothing could stop it either. |
+| `_mutation_probe: a run of nothing but SKIPS is no evidence, not a green` | bats reports a skip as `ok N name # skip <reason>`, so counting it as a pass is how a mutation erases the evidence against itself and still looks measured -- a subject the spec can no longer find turns its cases into skips, and a run of nothing but skips read as 1 ok / 0 not ok slipped past both the no-evidence refusal and the population comparison. |
+| `_mutation_probe: a SKIP does not count towards the executed population` | the partial version of the same erasure, which arrives with a plausible count. Skips have to be excluded from the population comparison as well, or a mutation that skips half the suite reports a tier-wide green. |
+| `_mutation_probe: says so when a container still held the checkout at restore time` | killing the child's process group does not reach a CONTAINER. The suite runs through `docker compose run`, whose container belongs to the daemon, keeps the checkout bind-mounted, and can overwrite the restored files afterwards -- so the restore must not be the last word while the project is still held. |
+| `_mutation_probe_await_daemon: asks nothing when the built-in runner did not run` | the question is only meaningful for the built-in runner. A caller-supplied runner has no compose project, and asking anyway would make every such probe depend on a daemon it never used. |
 
 ### test/bats/unit/network_ports_inert_spec.bats (15)
 

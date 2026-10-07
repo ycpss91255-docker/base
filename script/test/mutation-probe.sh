@@ -89,9 +89,11 @@
 #     suite then passes over is the tree it already passed over, so the green
 #     is the baseline. Read as a verdict it certifies a test as behavioural on
 #     the strength of a sed expression that matched nothing.
-#   - A run that reported no test results at all. Zero reds is the number a
-#     fully behavioural suite prints too, so reading it as NOT PINNED turns a
-#     broken runner into a finding about the tests.
+#   - A run that EXECUTED no tests at all. Zero reds is the number a fully
+#     behavioural suite prints too, so reading it as NOT PINNED turns a broken
+#     runner into a finding about the tests. A skip is not an execution: bats
+#     reports one as `ok N name # skip ...`, and counting it lets a mutation
+#     erase the evidence against itself and still look measured.
 #   - A run that reported SOME passes and then died. Same hole, arriving with a
 #     plausible number attached: zero reds over a population that never ran.
 #     The runner's exit status is what tells the two apart, so it is kept.
@@ -169,6 +171,10 @@ _MUTATION_PROBE_RUN_STATUS=0
 # originals belong to THAT directory, and a restore into a different one is
 # not a restore.
 _MUTATION_PROBE_ROOT_ID=''
+
+# Whether the run went through the BUILT-IN runner. Only then is there a
+# compose project for the daemon question below to be about.
+_MUTATION_PROBE_DEFAULT_RUNNER=0
 
 # Seconds a runner is given to come down after a TERM before the group is
 # KILLed. Overridable so the case that pins the bound does not spend the
@@ -353,6 +359,7 @@ _mutation_probe_emergency_restore() {
 _mutation_probe_signal_restore() {
   trap - EXIT INT TERM
   _mutation_probe_stop_child
+  _mutation_probe_await_daemon "${_MUTATION_PROBE_ROOT}" || true
   _mutation_probe_emergency_restore || true
   _mutation_probe_err "interrupted, so there is NO verdict: a measurement over a suite that was stopped partway cannot be told apart from a finished one."
   exit 3
@@ -510,10 +517,13 @@ _mutation_probe_run() {
   if [[ -n "${MUTATION_PROBE_RUNNER:-}" ]]; then
     read -r -a _cmd <<< "${MUTATION_PROBE_RUNNER}"
     _cmd+=( "${_root}" "${_spec}" )
-  elif [[ -n "${_spec}" ]]; then
-    _cmd=( "${_root}/script/test/test.sh" --bats-path "${_spec}" )
   else
-    _cmd=( "${_root}/script/test/test.sh" --bats-only )
+    _MUTATION_PROBE_DEFAULT_RUNNER=1
+    if [[ -n "${_spec}" ]]; then
+      _cmd=( "${_root}/script/test/test.sh" --bats-path "${_spec}" )
+    else
+      _cmd=( "${_root}/script/test/test.sh" --bats-only )
+    fi
   fi
   # Job control on for the fork, so the child is its own process-group leader
   # and a signal handler can reach the WHOLE suite -- test.sh waits on
@@ -572,6 +582,26 @@ _mutation_probe_own_group() {
   _rest="${_raw##*') '}"
   read -r _ignored _ignored _pgrp _ignored <<< "${_rest}"
   [[ "${_pgrp}" == "${_pid}" ]]
+}
+
+# _mutation_probe_await_daemon <root> -- wait until the daemon has let go of
+# this checkout's compose project, so nothing is writing into the tree the
+# restore is about to rewrite.
+#
+# Killing the child's process group is not enough when the suite runs in a
+# container: `docker compose run` starts a container that belongs to the
+# DAEMON, not to any process group this script can signal, and it keeps the
+# checkout bind-mounted. So a probe that restored right after the kill could
+# have its restored files overwritten by a container nobody was waiting on.
+#
+# The question is asked with the runner's own primitive rather than with
+# compose knowledge copied in here: `test.sh --await-project` waits for the
+# project network to be released and, when it is not, refuses by naming the
+# container and the verb that clears it. Only asked when the BUILT-IN runner
+# ran, because a caller-supplied runner has no project this could be about.
+_mutation_probe_await_daemon() {
+  (( _MUTATION_PROBE_DEFAULT_RUNNER )) || return 0
+  "${1}/script/test/test.sh" --await-project
 }
 
 # _mutation_probe_stop_child -- stop the suite and WAIT for it, before any
@@ -634,14 +664,21 @@ _mutation_probe_apply() {
   return 0
 }
 
-# _mutation_probe_tap_counts <out-file> -- "<ok> <not-ok>" off the TAP stream.
-# Read from the FILE rather than through a pipe: an early-closing reader
-# strands its writer, which the tree lints against.
+# _mutation_probe_tap_counts <out-file> -- "<executed-ok> <not-ok> <skipped>"
+# off the TAP stream. Read from the FILE rather than through a pipe: an
+# early-closing reader strands its writer, which the tree lints against.
+#
+# A SKIP is reported by bats as `ok N name # skip <reason>`, and counting it as
+# a pass is how a mutation can erase the evidence against it and still look
+# measured: a subject the spec can no longer find turns its cases into skips,
+# and a run of nothing-but-skips read as 1 ok / 0 not ok slipped past both the
+# no-evidence refusal and the population comparison. Executed means ran.
 _mutation_probe_tap_counts() {
-  local _ok _not
+  local _ok _not _skip
   _ok="$(grep -cE '^ok ' -- "${1}" || true)"
   _not="$(grep -cE '^not ok ' -- "${1}" || true)"
-  printf '%s %s\n' "${_ok}" "${_not}"
+  _skip="$(grep -ciE '^ok .*#[[:space:]]*skip' -- "${1}" || true)"
+  printf '%s %s %s\n' "$(( _ok - _skip ))" "${_not}" "${_skip}"
 }
 
 # _mutation_probe_witnesses <out-file> -- the `not ok` lines, which are the
@@ -824,10 +861,9 @@ _mutation_probe() {
 
   _mutation_probe_say "baseline: running scope=${_scope} unmutated"
   _mutation_probe_run "${_root}" "${_spec}" "${_work}/baseline"
-  local _base_counts _base_ok _base_not
-  _base_counts="$(_mutation_probe_tap_counts "${_work}/baseline")"
-  _base_ok="${_base_counts%% *}"
-  _base_not="${_base_counts##* }"
+  local _base_ok _base_not _base_skip
+  read -r _base_ok _base_not _base_skip \
+    < <(_mutation_probe_tap_counts "${_work}/baseline")
   if (( _base_ok + _base_not == 0 )); then
     _mutation_probe_err "the baseline run reported no test results at all, so there is nothing to compare a mutated run against. Its output: $(cat "${_work}/baseline")"
     trap - EXIT INT TERM
@@ -846,7 +882,7 @@ _mutation_probe() {
     rm -rf "${_work}"
     return 3
   fi
-  _mutation_probe_say "baseline: ${_base_ok} ok / 0 not ok -- clean, so a red below is the mutation's"
+  _mutation_probe_say "baseline: ${_base_ok} executed / 0 not ok / ${_base_skip} skipped -- clean, so a red below is the mutation's"
 
   if ! _mutation_probe_record "${_rec}" "${_root}" "${_subjects[@]}"; then
     _mutation_probe_err "could not record the originals of ${_subjects[*]} -- refusing to mutate a tree it cannot put back."
@@ -876,6 +912,8 @@ _mutation_probe() {
   _probe_put_back() {
     trap - EXIT INT TERM
     _mutation_probe_stop_child
+    local _held=0
+    _mutation_probe_await_daemon "${_root}" || _held=1
     if ! _mutation_probe_restore "${_rec}" "${_root}" "${_subjects[@]}"; then
       _mutation_probe_err "the restore itself failed. The recorded originals are kept in ${_rec} -- copy them back before anything else reads this checkout."
       return 3
@@ -887,6 +925,10 @@ _mutation_probe() {
     _MUTATION_PROBE_RECORD_DIR=''
     _MUTATION_PROBE_SUBJECTS=()
     rm -rf "${_work}"
+    if (( _held )); then
+      _mutation_probe_err "a container was still holding this checkout when the subjects were restored -- the refusal above names it and the verb that clears it. The tree HAS been restored and verified, but a container with the checkout bind-mounted can write to it afterwards: clear it, then check git status."
+      return 3
+    fi
     return 0
   }
 
@@ -928,13 +970,11 @@ _mutation_probe() {
 
   _mutation_probe_run "${_root}" "${_spec}" "${_work}/run"
 
-  local _counts _ok _not
-  _counts="$(_mutation_probe_tap_counts "${_work}/run")"
-  _ok="${_counts%% *}"
-  _not="${_counts##* }"
+  local _ok _not _skip
+  read -r _ok _not _skip < <(_mutation_probe_tap_counts "${_work}/run")
 
   if (( _ok + _not == 0 )); then
-    _probe_refuse "the run reported no test results at all. Zero reds is the number a fully behavioural suite prints too, so this cannot be read as a verdict about the tests -- it is a broken runner. Its output: $(cat "${_work}/run")"
+    _probe_refuse "the run executed no tests at all (${_skip} skipped). Zero reds is the number a fully behavioural suite prints too, so this cannot be read as a verdict about the tests -- it is a broken runner. Its output: $(cat "${_work}/run")"
     return 3
   fi
 
@@ -979,7 +1019,7 @@ _mutation_probe() {
 
   _probe_put_back || return 3
 
-  _mutation_probe_say "${_ok} ok / ${_not} not ok at scope=${_scope}"
+  _mutation_probe_say "${_ok} executed / ${_not} not ok / ${_skip} skipped at scope=${_scope}"
   # The verdict carries the report prefix; the witness lines below it stay raw
   # TAP, so `grep "^not ok "` over this output still finds them.
   _mutation_probe_say "${_verdict[0]}"

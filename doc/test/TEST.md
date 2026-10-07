@@ -302,13 +302,15 @@ the prefix is the rule, so a sixth selector is covered the day it is added.
 **Five measurements it refuses to report as verdicts**, because each one's
 number is the number a sound suite prints too: a mutation that left every
 subject byte-identical (the green is the baseline, so the sed expression
-matched nothing), a run that reported no test results at all (a broken runner,
-not a finding about the tests), a run that reported some passes and then died
-(the same hole with a plausible number on it -- the runner's exit status is
-what tells them apart), a green that executed **fewer** assertions than the
-baseline (the mutation removed the assertions instead of being observed by
-them, which is what deleting a dispatch from a driver does), and the narrow
-green above. A **red** is held to none of these: something observed the wrong
+matched nothing), a run that executed no tests at all (a broken runner, not a
+finding about the tests), a run that reported some passes and then died (the
+same hole with a plausible number on it -- the runner's exit status is what
+tells them apart), a green that executed **fewer** assertions than the baseline
+(the mutation removed the assertions instead of being observed by them, which
+is what deleting a dispatch from a driver does), and the narrow green above. A
+**skip** is not an execution: bats reports one as `ok N name # skip ...`, and
+counting it would let a mutation erase the evidence against itself and still
+look measured. A **red** is held to none of these: something observed the wrong
 answer, and that stands however much else ran.
 
 An interrupt stops the current child's whole process group and waits for it,
@@ -318,6 +320,15 @@ still mutated, which is worse than either a stuck suite or a mutated tree
 alone. The **mutation** is such a child too, and for the same reason: bash
 defers a trap until the foreground command finishes, so a mutation that hangs
 after editing the subject would hold the handler off indefinitely.
+
+Signalling a process group does not reach a **container**, though, and the
+suite runs in one: `docker compose run` starts a container that belongs to the
+daemon and keeps the checkout bind-mounted, so it could overwrite the restored
+files afterwards. Before restoring, the probe therefore asks the runner's own
+`test.sh --await-project` -- which waits for the project to be released and, if
+it is not, names the container and the verb that clears it. The restore happens
+either way, because a tree left mutated is the worse of the two, and the probe
+then exits refused saying a container was still holding the checkout.
 
 **The mutation is yours, because only you know what the behaviour is.** Five
 shapes earned their place during the audit: `return 0` at the top of a driver
