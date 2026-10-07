@@ -410,6 +410,11 @@ function _forwards(text,   n, i, k, m, d, ad, K, T, Q, EX, AJ, A, SUB, cmd, cond
     # a function a wrapper on the strength of text handed to printf.
     if ((cmd || assignctx) \
         && T[i] ~ /^[A-Za-z_][A-Za-z0-9_]*=/ && (Q[i] == 0 || index(T[i], "=") < Q[i])) {
+      # A PREFIX is skipped entirely -- not recorded, and not deleted
+      # either, because it does not change the variable the shell is
+      # holding. Recording one declared a function a wrapper on the
+      # strength of a value it never holds.
+      if (cmd && !assignctx && !_assign_persists(K, T, Q, n, i)) continue
       nm = T[i]; sub(/=.*$/, "", nm)
       # `!shifted`: a name assigned `${1}` AFTER a shift holds the
       # second argument, so recording it as an alias of the first makes
@@ -766,6 +771,19 @@ function _tokenize(line, kind, text, qs, ex, adj,   n, i, c, e, cur, raw, has, j
 # conf x` runs no logger. The tokeniser has already removed the quotes by
 # the time this is asked, which is why it also records whether the word
 # OPENED with one.
+# Does the assignment at <i> PERSIST past its command? A standalone
+# assignment does; a PREFIX -- `ev="$1" true` -- changes only the
+# environment of the command it sits in front of and leaves the shell own
+# variable alone, so it is an alias for nothing after it. Told apart by
+# whether a command word follows in the same simple command.
+function _assign_persists(kind, text, qs, n, i,   j) {
+  for (j = i + 1; j <= n; j++) {
+    if (kind[j] == "O") return 1
+    if (text[j] ~ /^[A-Za-z_][A-Za-z0-9_]*=/ && (qs[j] == 0 || index(text[j], "=") < qs[j])) continue
+    return 0
+  }
+  return 1
+}
 function _opens_another(text, qs, i) {
   # A KEYWORD has to be wholly unquoted -- `then""` is the word, not the
   # keyword -- and `command`, `builtin` and `exec` are deliberately NOT
@@ -799,6 +817,11 @@ function _scan(line, ln,   n, i, m, d, ad, K, T, Q, EX, AJ, A, SUB, cmd, cond, s
   cmd = 1
   d = _ARR_DEPTH
   cond = _COND
+  # The nesting depth is carried with the state it belongs to. Carrying
+  # one without the other is worse than carrying neither: it looks like
+  # the multi-line case is handled, and a nested expression spread over
+  # two lines has its INNER closing pair end the expression.
+  ad = _ADEPTH
   for (i = 1; i <= n; i++) {
     # Inside `[[ ... ]]` the operators are the CONDITIONAL grammar: `&&`
     # there joins two tests and opens no command position. Reading it as
@@ -930,15 +953,16 @@ function _scan(line, ln,   n, i, m, d, ad, K, T, Q, EX, AJ, A, SUB, cmd, cond, s
   # shipped help text -- read exactly like the real thing.
   _ARR_DEPTH = d
   _COND = cond
+  _ADEPTH = ad
   k = split(subs, SUB, "\034")
   for (i = 1; i <= k; i++) {
     if (SUB[i] != "") {
       # The recursion runs its own walk, so the carried depth is put back
       # afterwards: a substitution inside an initialiser does not end it.
-      d = _ARR_DEPTH; cond = _COND
-      _ARR_DEPTH = 0; _COND = 0
+      d = _ARR_DEPTH; cond = _COND; ad = _ADEPTH
+      _ARR_DEPTH = 0; _COND = 0; _ADEPTH = 0
       _scan(SUB[i], ln)
-      _ARR_DEPTH = d; _COND = cond
+      _ARR_DEPTH = d; _COND = cond; _ADEPTH = ad
     }
   }
 }
@@ -1315,7 +1339,7 @@ PHASE == "emit" {
     # satisfy every non-vacuity check and the clean line reads normally.
     # Reported, and refused by the caller.
     if (buf != "") printf "OPEN" US "%s" US "%d\n", prevfile, startln
-    buf = ""; startln = 0; ctx = "T0"; _ARR_DEPTH = 0; _COND = 0
+    buf = ""; startln = 0; ctx = "T0"; _ARR_DEPTH = 0; _COND = 0; _ADEPTH = 0
   }
   prevfile = FILENAME
   if (buf == "") startln = FNR

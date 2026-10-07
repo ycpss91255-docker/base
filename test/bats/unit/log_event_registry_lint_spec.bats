@@ -1118,6 +1118,39 @@ _seed() {
   [[ "${output}" == *"log event registry lint: clean"* ]]
 }
 
+# why: The arithmetic state was carried across lines but its NESTING DEPTH was
+# not, so a nested expression spread over two lines had its inner closing
+# pair end the expression -- and the `&&` behind that opened a command
+# position inside arithmetic again. Half a carried state is worse than
+# none: it looks like the multi-line case is handled
+@test "_run_log_event_registry: PASSES nested arithmetic spanning two lines" {
+  _seed
+  _write "dist/script/docker/lib/arith5.sh" \
+    '(( ((1' \
+    ')) && _die == arithmetic_data ))'
+  run _run_log_event_registry
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"log event registry lint: clean"* ]]
+}
+
+# why: An assignment PREFIX changes only the environment of the command it sits
+# in front of -- `ev="$1" true` leaves the shell`s own `ev` alone -- so it
+# is not an alias for anything after it. Keeping it as one declared a
+# function a wrapper on the strength of a value it never holds, and every
+# ordinary call of it had its first argument reported. A standalone
+# assignment persists; a prefix does not, and the two are told apart by
+# whether a command word follows in the same simple command
+@test "_run_log_event_registry: PASSES a function whose alias is only a command prefix" {
+  _seed seed_ok
+  _write "dist/script/docker/lib/prefixalias.sh" \
+    'ev=seed_ok' \
+    'wrap() { ev="$1" true; _log_err ci "$ev"; }' \
+    'wrap not_an_event'
+  run _run_log_event_registry
+  [ "${status}" -eq 0 ]
+  [[ "${output}" != *"not_an_event"* ]]
+}
+
 # why: An unquoted `seed_*` is a PATHNAME pattern: what the logger receives
 # depends on what is on disk, so the body is not knowable from the source.
 # Recording it as the literal `seed_*` demanded the registration of an id
