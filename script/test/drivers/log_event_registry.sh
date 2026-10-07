@@ -199,8 +199,9 @@ readonly _LER_AWK='
 # catch. The only thing the scan cannot resolve is a body carrying an
 # EXPANSION, so that is the only thing it declines.
 function _is_literal(t) { return (t !~ /[$`]/) }
-# The record separator is a tab, and a body can CONTAIN one: `$'\t'`
-# decodes to it. Written verbatim the record splits and the reader takes
+# The record separator is a tab, and a body can CONTAIN one: an
+# ANSI-C quoted backslash-t decodes to one. Written verbatim the record
+# splits, and the reader then takes
 # a different word as the body. Encoded on the way out, decoded for the
 # membership test, and shown encoded in the report so a finding stays
 # one readable line.
@@ -298,8 +299,9 @@ function _tokenize(line, kind, text, qs,   n, i, c, e, cur, has, j, L, sq, qst, 
       i = i + j - 1
       continue
     }
-    # `$'...'`: a run where a backslash escapes the next character,
-    # apostrophe included. Copied with the escapes resolved; what matters
+    # An ANSI-C quoted run -- dollar, apostrophe, text, apostrophe --
+    # where a backslash escapes the next character, an apostrophe
+    # included. Copied with the escapes resolved; what matters
     # here is that it ENDS where the shell says it does.
     if (c == "$" && substr(line, i + 1, 1) == sq) {
       if (!has) qst = 1
@@ -622,8 +624,9 @@ function _lex_state(line, st, dep,   i, L, c, sq, pv) {
   L = length(line); sq = sprintf("%c", 39); i = 1; _LEX_CONT = 0; _LEX_SUB = dep
   while (i <= L) {
     c = substr(line, i, 1)
-    # `$'...'` is a THIRD quoting form, and the one place a backslash
-    # escapes an apostrophe. Read as an ordinary single-quoted run it
+    # The ANSI-C form -- dollar, apostrophe, text, apostrophe -- is a
+    # THIRD quoting form, and the one place a backslash escapes an
+    # apostrophe. Read as an ordinary single-quoted run it
     # closes at the escaped apostrophe and the real closing one OPENS a
     # quote that never ends -- which folds the whole rest of the file
     # into one word and empties it of call sites, silently.
