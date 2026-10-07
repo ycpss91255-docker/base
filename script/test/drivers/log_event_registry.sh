@@ -335,8 +335,10 @@ function _args(kind, text, qs, adj, n, ci, out,   j, m, skip) {
 # first positional to a _log_* body slot? Either directly ("${1}") or
 # through a name the same definition assigns "${1}" to, which is how
 # test.sh spells it (`local _ev="${1}"; ... _log_err ci "${_ev}"`).
-function _forwards(text,   n, i, k, m, K, T, Q, EX, AJ, A, cmd, assignctx, shifted, tok, nm, alias) {
+function _forwards(text,   n, i, k, m, d, K, T, Q, EX, AJ, A, SUB, cmd, cond, skip, subs, assignctx, shifted, tok, nm, alias) {
   n = _tokenize(text, K, T, Q, EX, AJ)
+  # Captured immediately: the recursion at the end calls _tokenize again.
+  subs = _TOK_SUBS
   # ONE walk, in order. The alias set -- names this definition assigns
   # its own first positional to -- is updated as the commands go past,
   # so each `_log_*` call is judged against only the assignments in
@@ -346,7 +348,46 @@ function _forwards(text,   n, i, k, m, K, T, Q, EX, AJ, A, cmd, assignctx, shift
   # not.
   cmd = 1
   for (i = 1; i <= n; i++) {
+    # THE SAME GRAMMAR THE EMIT SCAN USES, because the two have to agree.
+    # An array initialiser stores words, an expression runs no command and
+    # a redirection operand is a filename, so none of them is a logger
+    # call -- and a walk that reset the command position at every operator
+    # read all three as one, declaring a function that logs nothing a
+    # wrapper and turning its every ordinary call into a reported id.
+    if (d == 0 && K[i] == "O" && T[i] == "(" && i > 1 && K[i - 1] == "W" \
+        && T[i - 1] ~ /^[A-Za-z_][A-Za-z0-9_]*(\[[^]]*\])?\+?=$/) {
+      d = 1
+      cmd = 0
+      continue
+    }
+    if (d > 0) {
+      if (K[i] == "O" && T[i] == "(") d++
+      else if (K[i] == "O" && T[i] == ")") d--
+      continue
+    }
+    if (!cond && cmd && K[i] == "W" && !Q[i] && T[i] == "[[") { cond = 1; cmd = 0; continue }
+    if (!cond && K[i] == "O" && T[i] == "((") { cond = 2; cmd = 0; continue }
+    if (cond == 1) {
+      if (K[i] == "W" && !Q[i] && T[i] == "]]") cond = 0
+      continue
+    }
+    if (cond == 2) {
+      if (K[i] == "O" && T[i] == "))") cond = 0
+      continue
+    }
+    if (K[i] == "O" && _is_redir(T[i])) {
+      if (i < n && K[i + 1] == "O" && T[i + 1] == "&") i++
+      skip = 1
+      continue
+    }
+    if (K[i] == "O" && T[i] == "&" && i < n && K[i + 1] == "O" && T[i + 1] ~ /^(>|>>)$/) {
+      i++; skip = 1
+      continue
+    }
     if (K[i] == "O") { cmd = 1; assignctx = 0; continue }
+    if (skip) { skip = 0; continue }
+    if (_is_fd(T[i]) && !Q[i] && i < n && K[i + 1] == "O" && AJ[i + 1] \
+        && _is_redir(T[i + 1])) continue
     # Any word of assignment shape counts, at a command position or not:
     # `local ev="${1}"` is an ARGUMENT of `local`, not a prefix. The
     # tokeniser has removed the quoting, so it arrives as `ev=${1}`
@@ -413,6 +454,16 @@ function _forwards(text,   n, i, k, m, K, T, Q, EX, AJ, A, cmd, assignctx, shift
       }
     }
     cmd = 0
+  }
+  # A substitution RUNS, so a definition whose logger call sits inside one
+  # forwards just as surely. Discovery never looked at the spans the
+  # tokeniser had captured, so such a wrapper went unfound and every call
+  # of it unchecked -- silently, because another wrapper satisfies the
+  # empty-wrapper refusal. Each span is judged on its own, which declines
+  # an alias the outer definition set rather than guessing at it.
+  m = split(subs, SUB, "\034")
+  for (i = 1; i <= m; i++) {
+    if (SUB[i] != "" && _forwards(SUB[i])) return 1
   }
   return 0
 }

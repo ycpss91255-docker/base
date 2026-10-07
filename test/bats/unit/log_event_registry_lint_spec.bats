@@ -810,6 +810,40 @@ _seed() {
   [[ "${output}" == *"log event registry lint: clean"* ]]
 }
 
+# why: Wrapper DISCOVERY read the definition with a coarser grammar than the
+# emit scan used, and the two have to agree: an array initialiser stores
+# words and a redirection operand is a filename, so neither is a logger
+# call -- but the discovery walk reset the command position at every
+# operator and read both as one. A function that logs nothing was
+# declared a wrapper, which turns its every ordinary call into a reported
+# id. One grammar, asked by both halves
+@test "_run_log_event_registry: PASSES a definition whose logger name is inert" {
+  _seed
+  _write "dist/script/docker/lib/inertdef.sh" \
+    'fake() { local args=(_log_err conf "$1"); printf "%s" "${args[0]}"; }' \
+    'fake message' \
+    'fake2() { printf "%s" > _log_err conf "$1"; }' \
+    'fake2 message'
+  run _run_log_event_registry
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"log event registry lint: clean"* ]]
+}
+
+# why: A substitution RUNS, so a definition whose logger call sits inside one
+# forwards just as surely -- and discovery never looked at the spans the
+# tokeniser had captured, so such a wrapper was not found and every call
+# of it went unchecked. Silently, because another wrapper exists and the
+# empty-wrapper refusal therefore does not fire
+@test "_run_log_event_registry: FAILS on an id through a wrapper that logs inside a substitution" {
+  _seed
+  _write "dist/script/docker/lib/substfwd.sh" \
+    'forward() { out=$(_log_err conf "$1"); }' \
+    'forward subst_fwd_missing "boom"'
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/substfwd.sh:2: subst_fwd_missing"* ]]
+}
+
 # why: Definition discovery read PHYSICAL lines with no idea of quoting, so a
 # `_die() { ... }` written inside a multi-line STRING counted as a real
 # definition -- and a non-forwarding one, which SHADOWS the wrapper for
