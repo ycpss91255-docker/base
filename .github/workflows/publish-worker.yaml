@@ -341,8 +341,37 @@ jobs:
   # and it is attached last.
   # ────────────────────────────────────────────────────────────────
   merge:
-    needs: publish
-    runs-on: ubuntu-latest
+    # `compute-matrix` is needed for its matrix, not for its ordering:
+    # `runs-on` below reads it. `publish` is the real predecessor.
+    needs: [compute-matrix, publish]
+    # DERIVED FROM THE MATRIX, not pinned to a hosted label. This job now
+    # RUNS an image, and a runner can only run its own architecture, so
+    # `ubuntu-latest` silently made the whole worker amd64-only: a caller
+    # passing `platforms: linux/arm64` -- which this worker supports, and
+    # which a multi-arch base image repo uses -- builds and pushes on
+    # `ubuntu-24.04-arm`, and an amd64 merge runner can execute none of the
+    # digests that run produced. The selection step below would refuse, no
+    # tag would be attached, and a configuration that published fine before
+    # the gate existed would stop publishing at all.
+    #
+    # The first matrix entry is the first platform the caller named, and
+    # `compute-matrix` pairs every platform with its own native runner, so
+    # that runner can always execute that entry. The other architectures are
+    # not executed here -- one runner cannot -- but the confirmation step
+    # asserts the published tag carries a manifest for every one of them.
+    # That is the same trade-off release-test-tools.yaml takes.
+    runs-on: >-
+      ${{ fromJSON(needs.compute-matrix.outputs.matrix).include[0].runner }}
+    # Same-repository guard. `runs-on` is a runtime-computed expression, so
+    # this job is self-hosted-eligible by the static rule and must carry it
+    # (see the `publish` job for the full rationale). Operationally inert:
+    # it is the guard `publish` already declares, and this job cannot run
+    # unless `publish` did. It is a JOB-level guard on who may supply the
+    # runner, not a condition on whether to publish -- nothing here lets a
+    # run reach the end having published nothing (#1171).
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
     # Registry calls and no build, as before -- plus a pull and a run of
     # ONE architecture's image, which for a devel-stage publish is the
     # largest thing this job touches. Only the verified digest is pulled,

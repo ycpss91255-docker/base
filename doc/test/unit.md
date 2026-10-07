@@ -4072,7 +4072,7 @@ fallback is present.
 | `prune.sh --help mentions --worktree-orphans (#388)` | - |
 | `prune.sh aborts on a failing pre-prune hook and skips docker prune (#690)` | - |
 
-### test/bats/unit/publish_worker_yaml_spec.bats (18)
+### test/bats/unit/publish_worker_yaml_spec.bats (20)
 
 Structural assertions for the `.github/workflows/publish-worker.yaml`
 reusable `call-publish` workflow (foundational image repos push their
@@ -4128,7 +4128,9 @@ acquiring it, and to any other scope beside it
 | `publish-worker.yaml: the tag confirmation passes an ordinary publish, whose shard digests are flattened away (#1214)` | The load-bearing case, and the one a structural read cannot make. With provenance on by default each shard's exported digest names an INDEX, and `imagetools create` flattens those into the published one -- so the shard digests the artifact files are named by are absent from the published manifest and a digest-set comparison fails every SUCCESSFUL publish, after the tags have moved. Running the step over that state is what says it compares the constituent manifests instead (#1214). |
 | `publish-worker.yaml: the tag confirmation fails when a tag resolves to content nothing verified (#1214)` | The failure this check exists for and the only one the reordering leaves on this side of the publish: the create attached a tag to content the smoke step never ran. A confirmation that cannot report it is a step that only ever agrees (#1214). |
 | `publish-worker.yaml: the tag confirmation fails when the published manifest drops an arch the matrix built (#1214)` | The other half: a published index that silently lost an arch the matrix built leaves the losing architecture's downstream consumers unable to pull the tag at all, which is the defect the per-shard digest push exists to prevent (#1214). |
-| `publish-worker.yaml: no step of the merge job is conditional (#1171)` | base#1171's invariant, stated as behaviour rather than left in prose: every run the trigger starts has a reason to publish and the publish is unconditional. An `if:` on any merge step would let a run reach the end having published nothing while still holding its concurrency slot, which is the eviction that issue removed. |
+| `publish-worker.yaml: the merge job's runner follows the publish matrix, not a fixed arch (#1214)` | An arm64-only caller -- `platforms: linux/arm64`, which this worker supports and which a multi-arch base image repo uses -- builds and pushes on `ubuntu-24.04-arm`. A merge job pinned to `ubuntu-latest` can execute none of the digests that run produced, so the selection refuses, no tag is attached, and a supported configuration stops publishing altogether. The runner has to follow the matrix the caller asked for (#1214). |
+| `publish-worker.yaml: an arm64-only call verifies on an arm64 runner (#1214)` | The structural half above says the runner is derived; this says the derivation lands on a runner that can RUN what the caller asked for. An arm64-only call must put the merge job on the arm64 runner, or the smoke step has nothing it can execute and the publish fails for a configuration that worked before the gate existed (#1214). |
+| `publish-worker.yaml: nothing in the merge job conditions whether it publishes (#1171)` | base#1171's invariant, stated as behaviour rather than left in prose: every run the trigger starts has a reason to publish and the publish is unconditional. An `if:` on any merge step would let a run reach the end having published nothing while still holding its concurrency slot, which is the eviction that issue removed. The job's own `if:` is held to the same-repo guard the self-hosted rule requires of its derived runner and to nothing else, so a condition on WHETHER to publish cannot arrive there either. |
 
 ### test/bats/unit/readme_file_table_spec.bats (4)
 

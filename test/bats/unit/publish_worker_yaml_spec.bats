@@ -97,6 +97,32 @@ _smoke_step() {
 # so the helpers below and the assertions cannot drift apart over a rename.
 readonly _CONFIRM_STEP='Confirm the published tags name the verified content'
 
+# _compute_matrix_for <platforms> -- RUN the compute-matrix job's own step
+# against one `platforms` input and print the matrix JSON it wrote to
+# GITHUB_OUTPUT.
+#
+# The body is read out of the workflow rather than restated, so the pairing a
+# caller actually gets is what is asserted: the merge job's runner is the first
+# entry's, and whether that runner can execute that entry's platform is the
+# whole question an arm64-only call asks.
+_compute_matrix_for() {
+  local _platforms="${1}" _body _dir _status=0
+  _body="$(yaml_step_run "${WF}" compute-matrix set)" || _status=$?
+  if [[ "${_status}" -ne 0 || -z "${_body}" || "${_body}" == 'null' ]]; then
+    printf 'BUG: could not read the compute-matrix step of %s\n' "${WF}"
+    return 2
+  fi
+  _dir="${SCRATCH}/matrix"
+  mkdir -p "${_dir}"
+  printf '%s\n' "${_body}" > "${_dir}/step.sh"
+  : > "${_dir}/output"
+  (
+    PLATFORMS="${_platforms}" GITHUB_OUTPUT="${_dir}/output" \
+      bash "${_dir}/step.sh" >/dev/null
+  ) || return 1
+  sed -n 's/^matrix=//p' "${_dir}/output"
+}
+
 # _docker_stub -- put a `docker` on PATH that answers for ONE registry state,
 # so the tag-confirmation step can be RUN rather than read.
 #
@@ -407,13 +433,62 @@ merge: packages: write'
   assert_output --partial 'carries no manifest for linux/arm64'
 }
 
+# why: An arm64-only caller -- `platforms: linux/arm64`, which this worker
+# supports and which a multi-arch base image repo uses -- builds and pushes on
+# `ubuntu-24.04-arm`. A merge job pinned to `ubuntu-latest` can execute none of
+# the digests that run produced, so the selection refuses, no tag is attached,
+# and a supported configuration stops publishing altogether. The runner has to
+# follow the matrix the caller asked for (#1214).
+@test "publish-worker.yaml: the merge job's runner follows the publish matrix, not a fixed arch (#1214)" {
+  run yq -r '.jobs.merge."runs-on"' "${WF}"
+  assert_success
+  refute_output 'ubuntu-latest'
+  assert_output --partial 'needs.compute-matrix.outputs.matrix'
+  # And the job declares the dependency that expression reads, so the runner
+  # is resolved from the matrix rather than from an empty context.
+  run yaml_job_needs "${WF}" merge
+  assert_success
+  assert_output --partial 'compute-matrix'
+  assert_output --partial 'publish'
+}
+
+# why: The structural half above says the runner is derived; this says the
+# derivation lands on a runner that can RUN what the caller asked for. An
+# arm64-only call must put the merge job on the arm64 runner, or the smoke
+# step has nothing it can execute and the publish fails for a configuration
+# that worked before the gate existed (#1214).
+@test "publish-worker.yaml: an arm64-only call verifies on an arm64 runner (#1214)" {
+  local _matrix _entry
+  _matrix="$(_compute_matrix_for 'linux/arm64')"
+  # The first entry is what the merge job's runs-on expression selects.
+  _entry="$(printf '%s' "${_matrix}" | yq -r -o=json '.include[0]')"
+  run yq -r -o=json '.runner' <<< "${_entry}"
+  assert_success
+  assert_output 'ubuntu-24.04-arm'
+  run yq -r -o=json '.platform' <<< "${_entry}"
+  assert_success
+  assert_output 'linux/arm64'
+}
+
 # why: base#1171's invariant, stated as behaviour rather than left in prose:
 # every run the trigger starts has a reason to publish and the publish is
 # unconditional. An `if:` on any merge step would let a run reach the end
 # having published nothing while still holding its concurrency slot, which is
-# the eviction that issue removed.
-@test "publish-worker.yaml: no step of the merge job is conditional (#1171)" {
+# the eviction that issue removed. The job's own `if:` is held to the
+# same-repo guard the self-hosted rule requires of its derived runner and to
+# nothing else, so a condition on WHETHER to publish cannot arrive there
+# either.
+@test "publish-worker.yaml: nothing in the merge job conditions whether it publishes (#1171)" {
   run yq -r '[.jobs.merge.steps[] | select(has("if"))] | length' "${WF}"
   assert_success
   assert_output '0'
+  run yq -r '.jobs.merge."if"' "${WF}"
+  assert_success
+  assert_output --partial "github.event_name != 'pull_request' ||"
+  assert_output --partial 'github.event.pull_request.head.repo.full_name == github.repository'
+  # Nothing else: no second disjunct, no `inputs.*` or `steps.*` read that
+  # could make a run decline to publish.
+  refute_output --partial 'inputs.'
+  refute_output --partial 'steps.'
+  refute_output --partial '&&'
 }
