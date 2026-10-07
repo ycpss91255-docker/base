@@ -228,9 +228,17 @@ _ler_collect() {
   local -a _dirs=()
   local _root
   for _root in "${_LER_ROOTS[@]}"; do
-    [[ -d "${REPO_ROOT}/${_root}" ]] && _dirs+=("${REPO_ROOT}/${_root}")
+    if [[ -d "${REPO_ROOT}/${_root}" ]]; then
+      _dirs+=("${REPO_ROOT}/${_root}")
+    fi
   done
-  [[ "${#_dirs[@]}" -eq 0 ]] && return 0
+  # Spelled as an `if` and not `[[ ... ]] && return 0`, here and below: a
+  # false `[[ ]]` is the compound's status, and under the errexit the lint
+  # phase runs its drivers with, a trailing `&&` that did not fire is a
+  # function returning 1 -- which this caller reads as a FAILED WALK.
+  if [[ "${#_dirs[@]}" -eq 0 ]]; then
+    return 0
+  fi
 
   local _tmp _st=0
   _tmp="$(mktemp)" || return 1
@@ -271,7 +279,9 @@ _ler_registry_path() {
       [[ "${_line}" =~ ${_LER_REGISTRY_ASSIGN_RE} ]] || continue
       _dir="$(dirname -- "${_file}")"
       _cand="${_dir}/${BASH_REMATCH[1]}"
-      [[ -f "${_cand}" ]] && _lerrp_out+=("${_cand}")
+      if [[ -f "${_cand}" ]]; then
+        _lerrp_out+=("${_cand}")
+      fi
     done < <(grep -h '_LOG_EVENTS_FILE=' "${_file}" 2>/dev/null || true)
   done
   if [[ "${#_lerrp_out[@]}" -gt 1 ]]; then
@@ -309,17 +319,32 @@ _run_log_event_registry() {
   fi
   local _registry="${_registries[0]}"
 
+  # The allowed set, read the way _log_is_registered reads it: a whole
+  # non-comment, non-blank line. Kept as an ASSOCIATIVE ARRAY and not
+  # re-grepped per emit site -- the membership test runs once per call
+  # site, and `printf '%s\n' "${_registered[@]}" | grep -Fxq` is the
+  # early-closing-reader shape this repo has a lint for. That spelling
+  # was written here first and the lint caught it: `-q` exits on the
+  # match, printf takes SIGPIPE, pipefail promotes the 141 over grep's
+  # 0, and a SUCCESSFUL lookup reads as "not registered". Host-direct,
+  # with no pipefail, it reported a clean tree; inside the lint phase
+  # the same scan reported 29 registered ids as findings.
+  # No -f guard: the resolution above only yields a file that exists, so
+  # one here would be a branch nothing can take.
   local -a _registered=()
-  if [[ -f "${_registry}" ]]; then
-    mapfile -t _registered < <(
-      grep -vE '^[[:space:]]*(#|$)' "${_registry}" 2>/dev/null | sort -u
-    )
-  fi
+  mapfile -t _registered < <(
+    grep -vE '^[[:space:]]*(#|$)' "${_registry}" 2>/dev/null | sort -u
+  )
   if [[ "${#_registered[@]}" -eq 0 ]]; then
     _die ci_log_event_registry \
       "the registry ${_registry#"${REPO_ROOT}"/} carries no event id -- an empty registry makes every emitted id unregistered at runtime, so reading it as the allowed set would be reading nothing."
     return 1
   fi
+  local -A _registered_set=()
+  local _rid
+  for _rid in "${_registered[@]}"; do
+    _registered_set["${_rid}"]=1
+  done
 
   # Pass one: which function names forward their first positional into a
   # _log_* body slot, and which files define one of those names WITHOUT
@@ -362,13 +387,14 @@ _run_log_event_registry() {
   fi
 
   local -a _rows=()
-  local _id _loc _ids_total=0
-  while IFS=$'\t' read -r _ _id _loc _lineno; do
-    [[ -n "${_id}" ]] || continue
+  local _kind _id _loc _lineno _ids_total=0
+  while IFS=$'\t' read -r _kind _id _loc _lineno; do
+    [[ "${_kind}" == "ID" && -n "${_id}" ]] || continue
     _ids_total=$(( _ids_total + 1 ))
-    printf '%s\n' "${_registered[@]}" | grep -Fxq -- "${_id}" && continue
-    _rows+=("${_loc#"${REPO_ROOT}"/}:${_lineno}: ${_id}")
-  done < <(printf '%s\n' "${_emit}" | awk -F'\t' '$1=="ID"')
+    if [[ -z "${_registered_set[${_id}]:-}" ]]; then
+      _rows+=("${_loc#"${REPO_ROOT}"/}:${_lineno}: ${_id}")
+    fi
+  done < <(printf '%s\n' "${_emit}")
 
   if [[ "${#_rows[@]}" -gt 0 ]]; then
     printf '%s\n' "${_rows[@]}" | sort -u

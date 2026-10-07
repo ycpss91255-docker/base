@@ -3486,6 +3486,59 @@ actually walks the populated `dist/script/docker` tree.
 | `does NOT flag bare stderr in the standalone coverage_gate.sh CI tool (#710)` | standalone log.sh-free CI tool excluded |
 | `the real repo tree (default root) is clean (#692)` | live-tree guard against path drift |
 
+### test/bats/unit/log_event_registry_lint_spec.bats (17)
+
+The guard over the direction the registry check never covered. lib/log.sh is
+STRICT -- it refuses a body log-events.txt does not carry and prints 'FATAL:
+unregistered log body' INSTEAD of the message -- so an unregistered id is
+not a missing label but the diagnostic being replaced by the registry's own
+complaint, at the moment something had already gone wrong. The tree asserted
+only the other direction, one site at a time: a driver's spec says the id
+ITS driver dies with is registered. That is a per-site habit and not a
+population, so four unregistered ids accumulated unseen (base#1220).
+
+Unit tests for script/test/drivers/log_event_registry.sh -- the "every event
+id a shipped script EMITS is registered" lint.
+
+Two properties drive the case list. FIRST, the emitted set is not just the
+direct '_log_<level> <service> <body>' sites: two of base#1220's four were
+emitted as the first argument of script/test/test.sh's one-line _die, which
+hands that argument to _log_err's body slot. A scan without that hop sees
+thirty-odd lint drivers emit nothing at all, so the forwarding wrapper is
+derived from the tree and the case list pins both the hop and its shadowing
+rule.
+
+SECOND, nothing here is a roster: the registry's own path is read out of the
+_LOG_EVENTS_FILE assignment in the scanned tree, and a resolution that
+points at no file is not a candidate. That existence rule is not a
+convenience -- this driver spells '_LOG_EVENTS_FILE=' in the pattern it
+matches with and is itself in the population, so the naive rule resolved to
+two registries on its first run.
+
+Detection runs against a controlled temp REPO_ROOT, never the live checkout:
+the tree is asserted by the 'lint-static' group that runs this driver, which
+is where a whole-tree scan belongs (base#1075).
+
+| Test | Description |
+|------|-------------|
+| `_run_log_event_registry: FAILS on a direct _log_ body the registry does not carry` | The plain shape base#1220 found in setup_cmd.sh and toml_bridge.sh. The report has to name the file, the line and the id, because the author is looking for one argument among hundreds of call sites |
+| `_run_log_event_registry: FAILS on an id emitted through a forwarding wrapper` | The load-bearing case. Two of base#1220's four were emitted as the first argument of test.sh's _die, not at a _log_ call site at all, so a scan that read only the direct sites would have reported the lint drivers clean while thirty-odd of them die with ids nothing checks |
+| `_run_log_event_registry: reports EVERY offending site, not the first` | Reporting the first offender and stopping makes the lint take as many runs to clear as the tree has emit sites; base#1220's own tree had thirteen sites over five ids, in four files |
+| `_run_log_event_registry: PASSES an id the registry carries` | The boundary of the rule and the whole of the fix base#1220 took: an id the registry carries is a message the operator actually reads, so there is nothing to report |
+| `_run_log_event_registry: PASSES a same-named function a file defines without forwarding` | A name is not global. script/ci/reclaim.sh defines its own _die that prints to stderr and never logs, so 'not a duration: 5x' is a MESSAGE, not an event id. Without the shadowing rule every such argument would be reported unregistered, which is the false finding that gets a lint muted |
+| `_run_log_event_registry: PASSES a body that is not a literal` | The stated blind spot, pinned so it cannot change shape unnoticed. A body this driver would have to run a shell to know is not resolved: exactly one hop -- the forwarding wrapper -- is, and anything further is out of reach rather than quietly guessed at |
+| `_run_log_event_registry: PASSES a _log_ call inside a whole-line comment` | Half the prose in these drivers spells a _log_ call out to explain one, and this driver's own header names four unregistered ids verbatim. A scan that read commented-out code would report its own documentation |
+| `_run_log_event_registry: reads the registry the tree names, not a path of its own` | The registry's path is read out of the tree's own _LOG_EVENTS_FILE assignment rather than written down in the driver, so moving or renaming the registry moves this lint with it instead of emptying it. A literal path here would keep agreeing with itself after lib/log.sh stopped |
+| `_run_log_event_registry: a registered id stays registered under pipefail` | The lint phase runs its drivers under `set -o pipefail`, and the first spelling of the membership test was `printf '%s\n' "${registered[@]}" \| grep -Fxq`. grep -q exits on the match, printf takes SIGPIPE, pipefail promotes that 141 over grep's 0, and a SUCCESSFUL lookup reads as "not registered" -- host-direct, with no pipefail, the same scan called the tree clean while the lint phase reported 29 registered ids as findings. The ids here are seeded so a match lands before the last line, which is what makes the early close happen at all |
+| `_run_log_event_registry: a clean tree passes and the counts print` | The clean line is the audit trail: it says how many emit sites were read, how many came through a wrapper and how many ids the registry carries, so a reader of a green CI log can tell a scan that checked the tree from one that checked nothing |
+| `_run_log_event_registry: DIES when the walk for *.sh fails` | A walk that died part way through hands the lint a short list, which reads exactly like a tree with less in it. Captured rather than piped, because a status read through `\| sort` belongs to sort |
+| `_run_log_event_registry: DIES when the tree holds no *.sh at all` | An empty population is the shape that goes green by construction: the shipped scripts moved, the lint reads nothing and reports that every id is registered |
+| `_run_log_event_registry: DIES when nothing names a registry that exists` | Without the assignment the registry's location is unknown, and an unknown allowed set accepts everything. It is also the existence half of the rule: this driver spells the assignment in its own matching pattern, so a resolution that points at no file has to be no candidate |
+| `_run_log_event_registry: DIES when two different registries are implied` | Two registries is not two allowed sets to union: picking either would make the other's ids look unregistered, so the lint would report findings that are not defects and hide the ones that are |
+| `_run_log_event_registry: DIES when the registry carries no id` | An empty registry makes EVERY emitted id unregistered at runtime, so reading it as the allowed set is reading nothing. A comment-only file is the shape that matters: the header is still there, so the file looks populated to anything that only checks its size |
+| `_run_log_event_registry: DIES when no _log_ call site is read anywhere` | The blind-detector case, and the one that matters most: 272 direct call sites exist today, so zero means the detector stopped matching -- a renamed helper, a changed argument order -- and a blind detector reports every id registered |
+| `_run_log_event_registry: DIES when nothing forwards its first argument into a body slot` | The wrapper half is where two of base#1220's four hid, and it is the half that can vanish silently: with no forwarding wrapper found the scan shrinks to the direct call sites and the thirty-odd lint drivers' events leave the population without anything saying so |
+
 ### test/bats/unit/log_spec.bats (69)
 
 OTel-aligned logger (#423, #438). Single-sink tty-detect dispatch,
@@ -5535,7 +5588,7 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: no bats-fragile rationale asserts away an overlap the file-granular selection has (base#1117)` | The comment said "ZERO double execution" and "runs exactly those fragile specs", both claims about tests, while the selector hands bats whole files; a reader sizing the suite stops at that sentence |
 | `self-test.yaml: no bats-fragile rationale carries a hand-written unit-suite size (base#1117)` | The same comment carried "~1991 unit specs" as the suite it compared against, a figure nothing re-derived; the tree held more than twice that when this landed, so the one number a reader could take away was wrong |
 
-### test/bats/unit/setup_cmd_spec.bats (136)
+### test/bats/unit/setup_cmd_spec.bats (137)
 
 Mirrors `lib/setup_cmd.sh`. The git-style subcommand dispatcher and its
 mutating verbs (#49): dispatch (Phase B-1), `set` / `show` / `list` (Phase
@@ -5601,6 +5654,7 @@ isolated `_setup_known_section` / `SCHEMA_SECTIONS` (#561) unit checks.
 | `add rejects an invalid capability (#560 schema unification)` | - |
 | `set rejects a malformed dotted key (no dot)` | - |
 | `set rejects a newline-bearing value rather than corrupting setup.conf (#688)` | - |
+| `set reports the write failure for a key validation does not intercept` | The only case that reaches `set`'s conf_write_failed branch, and the reason base#1220 found that branch emitting an unregistered id. A FREE-FORM key is the shape that gets there: it is not in the schema registry, so _schema_validate accepts any value and the newline refusal happens at the writer sink instead. The case above names the same defect and cannot see it -- its key is typed, so validation intercepts the value first and that case stays green with the writer's guard deleted. What is asserted here is POSITIVE and not only a refusal: the operator must READ the writer's complaint and `set`'s own diagnostic naming the key. An unregistered body makes lib/log.sh print its 'unregistered log body' refusal in their place, so the refutation beside them is what pins the registry half |
 | `set with no arguments fails clean (no shell error)` | - |
 | `set does NOT regenerate .env (mtime unchanged after set)` | - |
 | `show prints the value of a single key` | - |

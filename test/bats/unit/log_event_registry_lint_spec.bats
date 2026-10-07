@@ -195,6 +195,26 @@ _seed() {
     || [[ "${output}" == *"2 id(s) registered"* ]]
 }
 
+# why: The lint phase runs its drivers under `set -o pipefail`, and the first
+# spelling of the membership test was `printf '%s\n' "${registered[@]}" |
+# grep -Fxq`. grep -q exits on the match, printf takes SIGPIPE, pipefail
+# promotes that 141 over grep's 0, and a SUCCESSFUL lookup reads as "not
+# registered" -- host-direct, with no pipefail, the same scan called the tree
+# clean while the lint phase reported 29 registered ids as findings. The ids
+# here are seeded so a match lands before the last line, which is what makes
+# the early close happen at all
+@test "_run_log_event_registry: a registered id stays registered under pipefail" {
+  _seed early_hit middle_hit late_hit
+  _write "dist/script/docker/lib/d.sh" \
+    '_log_err conf early_hit "display=a"' \
+    '_log_warn conf middle_hit "display=b"'
+  set -o pipefail
+  run _run_log_event_registry
+  set +o pipefail
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"log event registry lint: clean"* ]]
+}
+
 # why: The clean line is the audit trail: it says how many emit sites were read,
 # how many came through a wrapper and how many ids the registry carries, so
 # a reader of a green CI log can tell a scan that checked the tree from one
