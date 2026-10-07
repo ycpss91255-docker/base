@@ -638,6 +638,41 @@ _seed() {
   [[ "${output}" != *"backtick_prose"* ]]
 }
 
+# why: An UNQUOTED substitution spread over several lines is one substitution,
+# and the fold knew only about quotes. Each line finished on its own, so
+# the closing parenthesis arrived as a bare operator and restored the
+# command position -- making the next argument of an ordinary command
+# look like a command. Substitution nesting is carried across the fold
+# now, and only that nesting: counting EVERY parenthesis was tried
+# against the real tree and folded whole files, a glob or a heredoc body
+# holding one that never closes
+@test "_run_log_event_registry: PASSES an argument after a multi-line unquoted substitution" {
+  _seed
+  _write "dist/script/docker/lib/mlusub.sh" \
+    'printf "%s" $(' \
+    '  printf text' \
+    ') _log_err conf not_an_event'
+  run _run_log_event_registry
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"log event registry lint: clean"* ]]
+}
+
+# why: A parenthesis inside a COMMENT closes nothing. The span finder counted
+# it, so a substitution holding a commented `)` ended early and every
+# command after it fell back into the quoted word around it and vanished
+# -- the id is gone from the population and the clean line still counts
+# the call before it, so nothing looks wrong
+@test "_run_log_event_registry: FAILS past a commented parenthesis inside a substitution" {
+  _seed seed_ok
+  _write "dist/script/docker/lib/cparen.sh" \
+    'value="$(_log_err conf seed_ok # )' \
+    '_log_err conf comment_paren_missing "display=boom"' \
+    ')"'
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/cparen.sh:1: comment_paren_missing"* ]]
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _run_log_event_registry: what it leaves alone
 # ════════════════════════════════════════════════════════════════════

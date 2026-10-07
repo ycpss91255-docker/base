@@ -567,6 +567,16 @@ function _subst_end(text, i,   L, d, c, k, sq, st) {
     if (c == "$" && substr(text, i + 1, 1) == sq) { st = 3; i += 2; continue }
     if (c == sq) { st = 1; i++; continue }
     if (c == "\"") { st = 2; i++; continue }
+    # A parenthesis inside a COMMENT closes nothing, and an escaped one
+    # is a character. Counting either ends the span early, and every
+    # command after it falls back into the word around it and vanishes.
+    if (c == "#" && d > 0 && (i == 1 || substr(text, i - 1, 1) ~ /[[:space:]]/)) {
+      k = index(substr(text, i), "\n")
+      if (k == 0) return 0
+      i = i + k
+      continue
+    }
+    if (c == "\\" && i < L) { i += 2; continue }
     if (c == "(") { d++; i++; continue }
     if (c == ")") { d--; if (d == 0) return i; i++; continue }
     i++
@@ -584,8 +594,8 @@ function _subst_end(text, i,   L, d, c, k, sq, st) {
 #   comment over a backslash, so a trailing one there continues nothing
 #   and folding on it would glue the next line of CODE onto a line the
 #   tokeniser discards whole.
-function _lex_state(line, st,   i, L, c, sq, pv) {
-  L = length(line); sq = sprintf("%c", 39); i = 1; _LEX_CONT = 0
+function _lex_state(line, st, dep,   i, L, c, sq, pv) {
+  L = length(line); sq = sprintf("%c", 39); i = 1; _LEX_CONT = 0; _LEX_SUB = dep
   while (i <= L) {
     c = substr(line, i, 1)
     # `$'...'` is a THIRD quoting form, and the one place a backslash
@@ -605,14 +615,14 @@ function _lex_state(line, st,   i, L, c, sq, pv) {
       # Inside double quotes bash removes a backslash-newline too, so this
       # is a continuation like any other -- and the body it splits is
       # still one literal id.
-      if (c == "\\") { _LEX_CONT = 1; return st }
+      if (c == "\\") { _LEX_CONT = 1; _LEX_SUB = dep; return st }
       if (c == "\"") st = 0
       i++
       continue
     }
     if (c == "#") {
       pv = (i == 1) ? " " : substr(line, i - 1, 1)
-      if (pv == " " || pv == "\t" || index(";&|()<>", pv) > 0) return 0
+      if (pv == " " || pv == "\t" || index(";&|()<>", pv) > 0) { _LEX_SUB = dep; return 0 }
       i++
       continue
     }
@@ -620,12 +630,25 @@ function _lex_state(line, st,   i, L, c, sq, pv) {
     if (c == sq) { st = 1; i++; continue }
     if (c == "\"") { st = 2; i++; continue }
     if (c == "\\") {
-      if (i == L) { _LEX_CONT = 1; return 0 }
+      if (i == L) { _LEX_CONT = 1; _LEX_SUB = dep; return 0 }
       i += 2
       continue
     }
+    # SUBSTITUTION nesting, and nothing else. An unquoted `$(`, `<(` or
+    # `>(` still open at the newline means the logical line is not over.
+    # Counting EVERY parenthesis instead was tried against the real tree
+    # and folded whole files -- init.sh, 827 lines into one -- because a
+    # `(` in a heredoc body or a glob never closes; it cost 16 real emit
+    # sites. These three are two-character openers, so an unbalanced one
+    # outside a quote or a comment does not occur.
+    if ((c == "$" || c == "<" || c == ">") && substr(line, i + 1, 1) == "(") {
+      dep++; i += 2
+      continue
+    }
+    if (c == ")") { if (dep > 0) dep--; i++; continue }
     i++
   }
+  _LEX_SUB = dep
   return st
 }
 # Worth tokenising? Tokenising is per character, and all but a few
@@ -658,14 +681,15 @@ PHASE == "def" {
   next
 }
 PHASE == "emit" {
-  if (FNR == 1) { buf = ""; startln = 0; qst = 0; _ARR_DEPTH = 0 }
+  if (FNR == 1) { buf = ""; startln = 0; qst = 0; sdep = 0; _ARR_DEPTH = 0 }
   if (buf == "") startln = FNR
-  qst = _lex_state($0, qst)
+  qst = _lex_state($0, qst, sdep)
+  sdep = _LEX_SUB
   # A quote still open at the newline holds ONE word across the lines, so
   # the fold continues until it closes. Help text spanning several lines
   # is the ordinary way a shipped script spells its usage, and an inner
   # line of it reads exactly like a call.
-  if (qst != 0) {
+  if (qst != 0 || sdep > 0) {
     if (_LEX_CONT) { buf = buf substr($0, 1, length($0) - 1) }
     # A NEWLINE, not a space. Inside a quoted message the newline stays
     # part of the one word either way, but a substitution written over
