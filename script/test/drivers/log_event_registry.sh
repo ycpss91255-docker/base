@@ -280,9 +280,14 @@ function _forwards(text,   n, i, K, T, Q, EX, AJ, A, cmd, tok, nm, alias) {
     # and forwards nothing -- and a wrongly declared wrapper turns every
     # ordinary call of that function into a reported id, which is the
     # noise that gets a lint muted.
-    if (EX[i] && T[i] ~ /^[A-Za-z_][A-Za-z0-9_]*=[$][{]?1[}]?$/) {
-      nm = T[i]; sub(/=.*$/, "", nm); alias[nm] = 1
-    }
+    if (T[i] !~ /^[A-Za-z_][A-Za-z0-9_]*=/) continue
+    nm = T[i]; sub(/=.*$/, "", nm)
+    # In ORDER, and a reassignment REMOVES the name. A body that takes
+    # `${1}` into a local and then overwrites it logs a fixed id and
+    # forwards nothing, so declaring it a wrapper would turn every
+    # ordinary call of the function into a reported id.
+    if (EX[i] && T[i] ~ /^[A-Za-z_][A-Za-z0-9_]*=[$][{]?1[}]?$/) alias[nm] = 1
+    else delete alias[nm]
   }
   cmd = 1
   for (i = 1; i <= n; i++) {
@@ -719,6 +724,27 @@ function _is_word_at(t, i, len,   b, a) {
   if (a ~ /[A-Za-z0-9_.\/-]/) return 0
   return 1
 }
+# Could a COMMAND start at <i>? Looking back over whitespace to the
+# start of the text, a separator, or a keyword that opens one. `case` is
+# a keyword only here: as an ARGUMENT it is four letters, and opening a
+# case frame for one left a frame nothing closes, so the substitution
+# around it never closed either.
+function _cmd_pos_at(t, i,   j, c) {
+  j = i - 1
+  while (j >= 1) {
+    c = substr(t, j, 1)
+    if (c == " " || c == "\t") { j--; continue }
+    break
+  }
+  if (j < 1) return 1
+  c = substr(t, j, 1)
+  if (index(";&|()<>{}!\n", c) > 0) return 1
+  if (j >= 4 && substr(t, j - 3, 4) == "then" && _is_word_at(t, j - 3, 4)) return 1
+  if (j >= 4 && substr(t, j - 3, 4) == "else" && _is_word_at(t, j - 3, 4)) return 1
+  if (j >= 2 && substr(t, j - 1, 2) == "do" && _is_word_at(t, j - 1, 2)) return 1
+  if (j >= 2 && substr(t, j - 1, 2) == "in" && _is_word_at(t, j - 1, 2)) return 1
+  return 0
+}
 function _subst_end(text, i,   L, d, c, k, sq, st, cs) {
   L = length(text); sq = sprintf("%c", 39); d = 0; st = 0
   while (i <= L) {
@@ -761,8 +787,8 @@ function _subst_end(text, i,   L, d, c, k, sq, st, cs) {
     # A `case` PATTERN ends with a `)` that closes nothing. Counted per
     # depth, so a `case` in one substitution does not excuse a
     # parenthesis in another.
-    if (substr(text, i, 4) == "case" && _is_word_at(text, i, 4)) { cs[d]++; i += 4; continue }
-    if (substr(text, i, 4) == "esac" && _is_word_at(text, i, 4)) {
+    if (substr(text, i, 4) == "case" && _is_word_at(text, i, 4) && _cmd_pos_at(text, i)) { cs[d]++; i += 4; continue }
+    if (substr(text, i, 4) == "esac" && _is_word_at(text, i, 4) && _cmd_pos_at(text, i)) {
       if (cs[d] > 0) cs[d]--
       i += 4
       continue
@@ -894,8 +920,8 @@ function _lex_state(line, ctx,   i, L, c, sq, pv, st, k) {
     # that closes nothing -- cannot pop the substitution around it,
     # while a `$( ... )` written inside an arm still closes normally
     # because it pushes its own frame on top.
-    if (substr(line, i, 4) == "case" && _is_word_at(line, i, 4)) { ctx = _push(ctx, "C"); i += 4; continue }
-    if (substr(line, i, 4) == "esac" && _is_word_at(line, i, 4)) {
+    if (substr(line, i, 4) == "case" && _is_word_at(line, i, 4) && _cmd_pos_at(line, i)) { ctx = _push(ctx, "C"); i += 4; continue }
+    if (substr(line, i, 4) == "esac" && _is_word_at(line, i, 4) && _cmd_pos_at(line, i)) {
       if (k == "C") ctx = _pop(ctx)
       i += 4
       continue

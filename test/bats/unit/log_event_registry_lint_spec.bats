@@ -649,6 +649,39 @@ _seed() {
   [[ "${output}" == *"dist/script/docker/lib/caseq.sh:1: case_arm_missing"* ]]
 }
 
+# why: `case` is a keyword only where a command can stand. As an ARGUMENT it is
+# the four letters, and opening a case frame for it left a frame nothing
+# closes -- so the substitution around it never closed either and the
+# eighth refusal fired on a valid file. The construct that keeps a
+# pattern terminator from closing a substitution must not be able to stop
+# one closing at all
+@test "_run_log_event_registry: PASSES the word case used as an argument" {
+  _seed
+  _write "dist/script/docker/lib/casearg.sh" \
+    'x=$(printf "%s" case)' \
+    '_log_err conf seed_ok "display=ok"'
+  run _run_log_event_registry
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"log event registry lint: clean"* ]]
+}
+
+# why: An alias is only the first argument until something else is assigned to
+# it. A body that takes `${1}` into a local and then OVERWRITES it logs a
+# fixed id and forwards nothing, so declaring it a wrapper turned every
+# ordinary call of the function into a reported id. The alias set is
+# built in order and a reassignment removes the name: where the reader
+# cannot be sure, it declines the wrapper rather than inventing call
+# sites for it
+@test "_run_log_event_registry: PASSES a function that overwrites its positional alias" {
+  _seed seed_ok
+  _write "dist/script/docker/lib/reassign.sh" \
+    'fixed() { local _ev="${1}"; _ev=seed_ok; _log_err ci "${_ev}"; }' \
+    'fixed ordinary_message'
+  run _run_log_event_registry
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"log event registry lint: clean"* ]]
+}
+
 # why: A comment ends at the NEXT NEWLINE, and a logical line now holds several
 # of them -- a substitution written over several lines is one logical
 # line. Ending the whole read at the first `#` therefore discarded every
