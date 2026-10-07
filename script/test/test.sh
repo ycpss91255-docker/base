@@ -199,7 +199,6 @@ readonly _LINT_TOOLS=(
   catalog-description
   spec-repo-root
   test-name-backtick
-  log-event-registry
 )
 
 # ORDER IS NOT A FAIL-FAST LEVER. It reads like one -- put the cheap
@@ -820,7 +819,11 @@ Options:
                           log-events.txt. _log_* is STRICT, so an
                           unregistered body prints the registry's refusal
                           INSTEAD of the message. Both sides are derived
-                          from the tree: no roster, no exemption list)
+                          from the tree: no roster, no exemption list.
+                          NOT in _LINT_TOOLS: a bare --lint does NOT run
+                          it and no CI job does -- it is dispatchable
+                          only. The driver header says why and names the
+                          one condition for promoting it)
   --just-provenance       With --lint: run only the just provenance pin
                           lint (every site under dockerfile/,
                           .github/workflows/, dist/ or script/ that

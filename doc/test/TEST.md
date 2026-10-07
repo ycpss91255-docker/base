@@ -166,7 +166,6 @@ tool therefore needs its own join to `.github/workflows/self-test.yaml`:
 | `catalog-description` | every `@test` says why its case matters, in the `# why:` marker the catalogues render | `lint-static` (one group) | ungated |
 | `spec-repo-root` | a spec's `REPO_ROOT` is a fixture, never the live checkout | `lint-static` (one group) | ungated |
 | `test-name-backtick` | a `@test` name is a literal -- a backtick in one is executed by bats at collection time | `lint-static` (one group) | ungated |
-| `log-event-registry` | every event id a `*.sh` under `dist/` or `script/` emits through `_log_*` is carried by `dist/script/docker/lib/log-events.txt`. `_log_*` is STRICT, so an unregistered body prints the registry's own refusal INSTEAD of the message, at the moment something had already gone wrong. Both sides are derived from the tree: the registry's path is read out of the `_LOG_EVENTS_FILE` assignment that resolves to a file that exists, and the emitted ids are every `_log_*` literal body plus the first argument of each call to a forwarding wrapper -- a function whose definition hands its own first positional to a body slot, derived rather than named, which is how `test.sh`'s `_die` carries the lint drivers' events. No roster and no exemption list | `lint-static` (one group) | ungated |
 
 `lint-static` is a matrix of GROUPS, not of lints (base#1071): each entry is a
 position (`1/4` ... `4/4`) and `test.sh --lint-group N/T` computes which lints
@@ -199,6 +198,34 @@ both directions, another requires every CI job name cited above to be a job
 cycle, and carried a `lint-static (i18n-orphan)` row pointing at a check that
 has not existed since the matrix became a partition of groups. Only the
 "Enforces" column is authored: it is prose a person writes, not a figure.
+
+### One lint is deliberately not in that table
+
+`log-event-registry` asks whether every event id a `*.sh` under `dist/` or
+`script/` emits through `_log_*` is carried by
+`dist/script/docker/lib/log-events.txt`. `_log_*` is STRICT: `lib/log.sh`
+refuses an unregistered body and prints its own refusal INSTEAD of the message,
+so the operator reads the registry's complaint rather than the diagnostic, at
+the moment something had already gone wrong. Both sides are derived from the
+tree -- the registry's own path out of the `_LOG_EVENTS_FILE` assignment that
+resolves to a file that exists, the emitted ids from every `_log_*` literal body
+plus the first argument of each call to a forwarding wrapper, itself derived
+rather than named -- and eight refusals cover the ways the scan could report a
+clean tree having read nothing.
+
+It is not in `_LINT_TOOLS`, so `--lint` and CI do not run it. That is about its
+READER, not its rule: the reader is a hand-written shell word splitter, and
+thirty-four consecutive review rounds each found a reproduced parser defect
+without the curve flattening -- eleven of them false positives on valid shell.
+In the table every one of those would have blocked a PR whose logging was
+correct. The driver header carries the full argument and the one condition for
+promotion: a release cycle clean against a moving tree.
+
+Run it with `./script/test/test.sh --log-event-registry-only` (host-direct, no
+compose) or `just test lint --log-event-registry` (in-container). It is in
+`_UNTABLED_LINT_ENTRY_POINTS` in `test/bats/unit/ci_spec.bats` with that reason,
+which is what keeps base#1113's completeness guard honest rather than silent:
+a lint in neither the table nor the stated exemptions fails that guard.
 
 ## Breaking the behaviour on purpose: `just test mutation-probe`
 

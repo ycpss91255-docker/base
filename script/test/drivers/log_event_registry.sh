@@ -6,10 +6,72 @@
 # _lib.sh, so the _log_* / _die helpers are available. Provides
 # _run_log_event_registry.
 #
-# Contract: runs INSIDE the ci (test-tools) container where test.sh
-# invokes it. References ${REPO_ROOT} (a global exported by test.sh).
+# Contract: runs wherever test.sh dispatches it -- inside the ci
+# (test-tools) container for `just test lint --log-event-registry`, or
+# host-direct for `--log-event-registry-only`. References ${REPO_ROOT} (a
+# global exported by test.sh).
 # Follows drivers/test_name_backtick.sh conventions (sourced lib, uses
 # ${REPO_ROOT}, _log_* / _die, no main).
+#
+# ── NOT IN _LINT_TOOLS, AND THIS IS WHY ─────────────────────────────────────
+#
+# This lint gates nothing. `--lint` does not run it and no CI job does.
+# It is dispatchable and nothing more:
+#
+#   ./script/test/test.sh --log-event-registry-only   (host-direct, 0.5s)
+#   just test lint --log-event-registry               (in-container)
+#
+# It is NOT in _LINT_TOOLS because of its READER, not its rule. The rule is
+# finished and it works: it found all four ids base#1220 was filed for,
+# including one the issue did not name, and two of those were emitted
+# through a forwarding wrapper that nothing else in this tree can see.
+#
+# The reader is the problem. Its first spelling was a regex over the raw
+# line. It is now a hand-written shell word splitter -- all three quoting
+# forms with their own context inside a substitution, command position
+# carried rather than inferred, redirections resolved before the
+# arguments, folds over continuations and open constructs, the expression
+# grammars held inert -- and getting there took THIRTY-FOUR CONSECUTIVE
+# review rounds, each of which found a reproduced defect. The curve did
+# not flatten: rounds thirty, thirty-two and thirty-three still found one
+# or two each.
+#
+# ELEVEN of those were FALSE POSITIVES on valid shell: array initialisers
+# single- and multi-line, `(( ))` and `for (( ))` headers, `function name
+# { }` definitions, `time -p`, named-descriptor redirections `{fd}>`, a
+# quoted `[[`, `case` used as an argument, brace expansions,
+# parameter-expansion replacement text, assignment-shaped arguments to
+# ordinary commands, and `set -e` read as a change to the positionals.
+#
+# IN THE TABLE, EVERY ONE OF THOSE WOULD HAVE BLOCKED A PR whose logging
+# was entirely correct, and the author's only recourse would have been to
+# read fourteen hundred lines of awk to tell a parser bug from a real
+# finding. A gate that does that once gets muted. A muted gate is worse
+# than no gate, because it still carries the claim that the question is
+# being asked.
+#
+# The reverse direction is cheap by comparison. A missed id stays
+# unregistered until someone runs the scan -- which is precisely the state
+# base#1220 describes, and a manual run closes it. The two errors are not
+# symmetric, so the gate is not armed.
+#
+# ONE MEASUREMENT IS THE WHOLE ARGUMENT, and it is kept here because it
+# was nearly shipped. Folding the logical line while ANY parenthesis stood
+# open looks like the clean general version of the array-initialiser rule.
+# Against the real tree it folded init.sh 827 LINES INTO ONE, because a
+# `(` in a heredoc body or a glob never closes, and the scan lost 16 real
+# emit sites -- 432 ids down to 416 -- WHILE STILL PRINTING A CLEAN LINE.
+# It was caught only because those counts were being watched by hand. In
+# CI nobody watches them. Parentheses are now counted only inside a
+# substitution, and the measurement stays so the next reader does not try
+# the general version again.
+#
+# PROMOTION HAS ONE CONDITION: a release cycle clean against a moving
+# tree. Then add the name to _LINT_TOOLS and delete its entry from
+# _UNTABLED_LINT_ENTRY_POINTS in test/bats/unit/ci_spec.bats -- base#1113's
+# hygiene guard refuses a name that is in both, so the two moves cannot
+# come apart. Do not promote it on the strength of this file reading
+# finished. It read finished at round four.
 #
 # ── The asymmetry this closes ───────────────────────────────────────────────
 #
