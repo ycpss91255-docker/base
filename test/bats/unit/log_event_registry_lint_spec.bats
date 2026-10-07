@@ -778,19 +778,53 @@ _seed() {
   [[ "${output}" == *"dist/script/docker/lib/btml.sh:1: btick_ml_missing"* ]]
 }
 
-# why: An EMPTY body is fully known -- there is nothing left to resolve -- and
-# log.sh refuses it like any other id the registry does not carry. It was
-# dropped from the population by a guard meant to skip unresolvable
-# bodies, so the one call whose body is provably wrong was the one not
-# looked at. It is reported as `(empty)`, because a row naming nothing
-# cannot be read
-@test "_run_log_event_registry: FAILS on an empty literal body" {
+# why: The lint mirrors lib/log.sh, and log.sh does not check an EMPTY body:
+# _log_dispatch guards its registry test with `[[ -n "${body}" ]]`, so
+# such a call prints its diagnostic and returns zero. This case was
+# asserted the other way round first, on the reasoning that an empty
+# body is fully known and therefore checkable -- which is true, and
+# beside the point: the gate exists because an unregistered body
+# REPLACES the message, and this one does not. Reading the runtime is
+# what settles it, and base#1220 bounds this work against changing it
+@test "_run_log_event_registry: PASSES an empty body, as the logger does" {
   _seed
   _write "dist/script/docker/lib/empty.sh" \
     '_log_err conf "" "display=oops"'
   run _run_log_event_registry
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"log event registry lint: clean"* ]]
+}
+
+# why: `command`, `builtin` and `exec` BYPASS shell functions -- that is what
+# they are for -- so none of them can invoke `_log_err`, which is one.
+# Reading them as transparent openers made the name behind them a
+# logger call and reported an id no shell ever logs
+@test "_run_log_event_registry: PASSES a logger name behind a function-bypassing prefix" {
+  _seed
+  _write "dist/script/docker/lib/bypass.sh" \
+    'command _log_err conf not_a_function_call' \
+    'builtin _log_err conf also_not_one'
+  run _run_log_event_registry
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"log event registry lint: clean"* ]]
+}
+
+# why: Quoting that starts PART WAY THROUGH a word still quotes the word.
+# `12""` is the argument `12`, not a file descriptor, so bash passes it
+# in the body slot and log.sh refuses it -- but the record said quoted
+# only when a word OPENED with a quote, so the descriptor rule took it
+# and threw a fatal call away. What is recorded now is where the first
+# quote fell, which the assignment-prefix rule needs too: the name in
+# front of the `=` must be unquoted, the value need not be
+@test "_run_log_event_registry: FAILS on a numeric body quoted part way through" {
+  _seed
+  _write "dist/script/docker/lib/pq.sh" \
+    '_log_err conf 12"">/dev/null' \
+    'LOG_FORMAT="text" _log_err conf prefix_still_missing "display=boom"'
+  run _run_log_event_registry
   [ "${status}" -ne 0 ]
-  [[ "${output}" == *"dist/script/docker/lib/empty.sh:1: (empty)"* ]]
+  [[ "${output}" == *"dist/script/docker/lib/pq.sh:1: 12"* ]]
+  [[ "${output}" == *"dist/script/docker/lib/pq.sh:2: prefix_still_missing"* ]]
 }
 
 # why: The scan hands its findings to the shell as tab-separated records, and a

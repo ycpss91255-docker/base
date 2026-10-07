@@ -342,7 +342,7 @@ function _tokenize(line, kind, text, qs, ex, adj,   n, i, c, e, cur, has, j, L, 
     # included. Copied with the escapes resolved; what matters
     # here is that it ENDS where the shell says it does.
     if (c == "$" && substr(line, i + 1, 1) == sq) {
-      if (!has) qst = 1
+      if (!qst) qst = length(cur) + 1
       i += 2
       while (i <= L) {
         c = substr(line, i, 1)
@@ -368,14 +368,14 @@ function _tokenize(line, kind, text, qs, ex, adj,   n, i, c, e, cur, has, j, L, 
       continue
     }
     if (c == sq) {
-      if (!has) qst = 1
+      if (!qst) qst = length(cur) + 1
       j = index(substr(line, i + 1), sq)
       if (j == 0) { cur = cur substr(line, i + 1); has = 1; break }
       cur = cur substr(line, i + 1, j - 1); has = 1; i = i + j + 1
       continue
     }
     if (c == "\"") {
-      if (!has) qst = 1
+      if (!qst) qst = length(cur) + 1
       i++
       while (i <= L) {
         c = substr(line, i, 1)
@@ -509,9 +509,18 @@ function _tokenize(line, kind, text, qs, ex, adj,   n, i, c, e, cur, has, j, L, 
 # the time this is asked, which is why it also records whether the word
 # OPENED with one.
 function _opens_another(text, qs, i) {
-  if (qs[i]) return 0
-  if (text[i] ~ /^(if|while|until|then|do|else|elif|\{|\}|!|time|exec|eval|command|builtin)$/) return 1
-  return (text[i] ~ /^[A-Za-z_][A-Za-z0-9_]*=/)
+  # A KEYWORD has to be wholly unquoted -- `then""` is the word, not the
+  # keyword -- and `command`, `builtin` and `exec` are deliberately NOT
+  # in the set: they BYPASS shell functions, which is what they are for,
+  # so none of them can invoke `_log_err` or a wrapper. Reading them as
+  # transparent openers made the name behind one a call and reported an
+  # id no shell ever logs.
+  if (!qs[i] && text[i] ~ /^(if|while|until|then|do|else|elif|\{|\}|!|time|eval)$/) return 1
+  # An ASSIGNMENT PREFIX needs only its NAME unquoted: `VAR="x" cmd` is
+  # one, `"VAR=x" cmd` is not. qs says where the first quote fell, so
+  # the test is whether the `=` came before it.
+  if (text[i] !~ /^[A-Za-z_][A-Za-z0-9_]*=/) return 0
+  return (qs[i] == 0 || index(text[i], "=") < qs[i])
 }
 # One folded line: count the emit sites it holds and print the literal
 # ids among them. <ln> is the FIRST physical line of the fold, which is
@@ -1117,11 +1126,6 @@ _run_log_event_registry() {
     return 1
   fi
 
-  # An EMPTY id is NOT skipped. It is a body with nothing left to
-  # resolve, and log.sh refuses it like any other the registry does not
-  # carry -- so the one call whose body is provably wrong must not be
-  # the one that goes unexamined. It is shown as `(empty)`, because a
-  # row naming nothing cannot be read.
   # An EIGHTH refusal. A file whose last logical line never closed was
   # read only up to that point, and the rest of it is gone from the
   # population with nothing saying so -- the other files still satisfy
@@ -1146,8 +1150,14 @@ _run_log_event_registry() {
     _plain="${_id//%09/$'\t'}"
     _plain="${_plain//%0A/$'\n'}"
     _plain="${_plain//%25/%}"
+    # An EMPTY body is counted as a site read and NOT checked, because
+    # lib/log.sh does not check one: _log_dispatch guards its registry
+    # test with a nonempty-body condition, so such a call prints its
+    # diagnostic and returns zero. What this lint reports is a body
+    # that REPLACES the message, and an empty one does not.
+    [[ -n "${_plain}" ]] || continue
     if [[ -z "${_registered_set[${_plain}]:-}" ]]; then
-      _rows+=("${_loc#"${REPO_ROOT}"/}:${_lineno}: ${_id:-(empty)}")
+      _rows+=("${_loc#"${REPO_ROOT}"/}:${_lineno}: ${_id}")
     fi
   done < <(printf '%s\n' "${_emit}")
 
