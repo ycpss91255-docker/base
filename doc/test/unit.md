@@ -5535,7 +5535,7 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: no bats-fragile rationale asserts away an overlap the file-granular selection has (base#1117)` | The comment said "ZERO double execution" and "runs exactly those fragile specs", both claims about tests, while the selector hands bats whole files; a reader sizing the suite stops at that sentence |
 | `self-test.yaml: no bats-fragile rationale carries a hand-written unit-suite size (base#1117)` | The same comment carried "~1991 unit specs" as the suite it compared against, a figure nothing re-derived; the tree held more than twice that when this landed, so the one number a reader could take away was wrong |
 
-### test/bats/unit/setup_cmd_spec.bats (136)
+### test/bats/unit/setup_cmd_spec.bats (137)
 
 Mirrors `lib/setup_cmd.sh`. The git-style subcommand dispatcher and its
 mutating verbs (#49): dispatch (Phase B-1), `set` / `show` / `list` (Phase
@@ -5601,6 +5601,7 @@ isolated `_setup_known_section` / `SCHEMA_SECTIONS` (#561) unit checks.
 | `add rejects an invalid capability (#560 schema unification)` | - |
 | `set rejects a malformed dotted key (no dot)` | - |
 | `set rejects a newline-bearing value rather than corrupting setup.conf (#688)` | - |
+| `set reports the write failure for a key validation does not intercept` | The only case that reaches `set`'s conf_write_failed branch, and the reason base#1220 found that branch emitting an unregistered id. A FREE-FORM key is the shape that gets there: it is not in the schema registry, so _schema_validate accepts any value and the newline refusal happens at the writer sink instead. The case above names the same defect and cannot see it -- its key is typed, so validation intercepts the value first and that case stays green with the writer's guard deleted. What is asserted here is POSITIVE and not only a refusal: the operator must READ the writer's complaint and `set`'s own diagnostic naming the key. An unregistered body makes lib/log.sh print its 'unregistered log body' refusal in their place, so the refutation beside them is what pins the registry half |
 | `set with no arguments fails clean (no shell error)` | - |
 | `set does NOT regenerate .env (mtime unchanged after set)` | - |
 | `show prints the value of a single key` | - |
