@@ -277,7 +277,16 @@ function _tokenize(line, kind, text, qs,   n, i, c, e, cur, has, j, L, sq, qst, 
       i++
       continue
     }
-    if (c == "#" && !has) break
+    # A comment ends at the NEXT NEWLINE, and a logical line holds
+    # several of them: a substitution written over several lines is one
+    # logical line. Ending the whole read here would discard every
+    # command after a comment inside one.
+    if (c == "#" && !has) {
+      j = index(substr(line, i), "\n")
+      if (j == 0) break
+      i = i + j - 1
+      continue
+    }
     # `$'...'`: a run where a backslash escapes the next character,
     # apostrophe included. Copied with the escapes resolved; what matters
     # here is that it ENDS where the shell says it does.
@@ -335,6 +344,15 @@ function _tokenize(line, kind, text, qs,   n, i, c, e, cur, has, j, L, sq, qst, 
             continue
           }
         }
+        if (c == "`") {
+          j = _btick_end(line, i)
+          if (j > 0) {
+            _TOK_SUBS = _TOK_SUBS substr(line, i + 1, j - i - 1) "\034"
+            cur = cur substr(line, i, j - i + 1)
+            i = j + 1
+            continue
+          }
+        }
         if (c == "\"") { i++; break }
         cur = cur c; i++
       }
@@ -351,6 +369,16 @@ function _tokenize(line, kind, text, qs,   n, i, c, e, cur, has, j, L, sq, qst, 
       j = _subst_end(line, i + 1)
       if (j > 0) {
         _TOK_SUBS = _TOK_SUBS substr(line, i + 2, j - i - 2) "\034"
+        cur = cur substr(line, i, j - i + 1)
+        has = 1
+        i = j + 1
+        continue
+      }
+    }
+    if (c == "`") {
+      j = _btick_end(line, i)
+      if (j > 0) {
+        _TOK_SUBS = _TOK_SUBS substr(line, i + 1, j - i - 1) "\034"
         cur = cur substr(line, i, j - i + 1)
         has = 1
         i = j + 1
@@ -492,6 +520,20 @@ function _scan(line, ln,   n, i, m, d, K, T, Q, A, SUB, cmd, skip, subs, k) {
       _ARR_DEPTH = d
     }
   }
+}
+# _btick_end(<text>, <index of the opening backtick>) -> index of its
+#   match, or 0. Backticks are the older spelling of a command
+#   substitution and run the same command; inside one a backslash escapes
+#   the next character.
+function _btick_end(text, i,   L, c) {
+  L = length(text); i++
+  while (i <= L) {
+    c = substr(text, i, 1)
+    if (c == "\\" && i < L) { i += 2; continue }
+    if (c == "`") return i
+    i++
+  }
+  return 0
 }
 # _subst_end(<text>, <index of the opening parenthesis>) -> index of its
 #   match, or 0. Counts nesting and skips quoted runs, so the span of a

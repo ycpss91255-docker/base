@@ -608,6 +608,36 @@ _seed() {
   [[ "${output}" == *"dist/script/docker/lib/nest.sh:1: nested_missing"* ]]
 }
 
+# why: A comment ends at the NEXT NEWLINE, and a logical line now holds several
+# of them -- a substitution written over several lines is one logical
+# line. Ending the whole read at the first `#` therefore discarded every
+# command after a comment inside one, not just the rest of that line
+@test "_run_log_event_registry: FAILS on a call after a comment inside a substitution" {
+  _seed
+  _write "dist/script/docker/lib/csub.sh" \
+    'value="$(printf hello # an aside' \
+    '_log_err conf after_comment_in_subst "display=boom")"'
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/csub.sh:1: after_comment_in_subst"* ]]
+}
+
+# why: Backticks are the older spelling of a command substitution and they run
+# the same command. Only the `$( )` form was descended into, so the
+# backtick one emitted a literal id nothing checked. Inside SINGLE quotes
+# a backtick is text, which the second line pins: the span is only taken
+# where the shell would run it
+@test "_run_log_event_registry: FAILS on a body inside a backtick substitution" {
+  _seed
+  _write "dist/script/docker/lib/btick.sh" \
+    'value=`_log_err conf backtick_missing "display=boom"`' \
+    "printf '%s' '\`_log_err conf backtick_prose\`'"
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/btick.sh:1: backtick_missing"* ]]
+  [[ "${output}" != *"backtick_prose"* ]]
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _run_log_event_registry: what it leaves alone
 # ════════════════════════════════════════════════════════════════════
