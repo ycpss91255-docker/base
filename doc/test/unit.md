@@ -3724,7 +3724,7 @@ builds nothing and pushes nothing)
 | `multi-distro-build-worker.yaml: ci-passed job has explicit name: ci-passed (matches existing multi-distro rollup contract) (#325 B-1)` | - |
 | `multi-distro-build-worker.yaml: every job's grant is pinned as an exact set (#957)` | - |
 
-### test/bats/unit/mutation_probe_spec.bats (27)
+### test/bats/unit/mutation_probe_spec.bats (31)
 
 A green suite says every assertion ran. It does not say any of them would
 have noticed a wrong answer, and the v0.43 retrospective measured how far
@@ -3791,6 +3791,10 @@ Faking that comparison would test a control this repo does not ship.
 | `_mutation_probe_emergency_restore: puts the recorded subject back from the trap path` | the trap is what covers the paths the explicit restore cannot reach, and a trap handler nothing ever calls is the classic dead control. Driving the payload directly is the only way to see it put a file back. |
 | `just test mutation-probe hands the mutation over as ONE argument` | the defect the review reproduced. A mutation is one argument containing spaces, quotes, a redirection and a semicolon; split by the recipe shell it becomes an unknown-argument refusal at best and an edit made outside the restore loop at worst. |
 | `just test mutation-probe does not execute the mutation's redirection itself` | the other half of the same seam. The redirection inside the mutation must not be performed by the recipe's shell, because a file it wrote is a file the probe never recorded and so can never restore. |
+| `_mutation_probe: refuses a symlink subject and names its target` | a symlink passes the regular-file test, and `cp -p` then records the TARGET's bytes. An in-place editor replaces the link with a regular file, the restore writes the bytes back, verification reports success, and git calls the result `T`. This repo ships such links. |
+| `_mutation_probe: no inherited BATS_ selector reaches the runner on a tier run` | the probe reads a BATS_* selector out of its own environment and hands it to the runner, so `--bats-only` can run one spec while the verdict says scope=tier -- a claim about sibling tests that never ran, which is the exact false positive the scope rule exists to prevent. |
+| `_mutation_probe: publishes NO verdict when the restoration failed` | the verdict used to be printed first and the restore's status then discarded by an unconditional return, so a RED run whose restore had failed reported PINNED and exit 0 with the mutation still in the tree. The restoration failure is the more important news and has to be the only news. The mutation replaces the subject with a DIRECTORY, which no `cp` can overwrite; a permission-based failure was tried first and does not work, because `cp` onto an existing file needs write on the FILE, so chmod on the parent changes nothing and chmod on the file is a no-op under a root container. This one fails for every uid. |
+| `_mutation_probe: a signal stops the runner's children too, not just the runner` | a TERM to the runner's pid alone leaves its children running -- and the real runner is test.sh waiting on `docker compose run`, so the container would keep reading a tree the probe is restoring under it. |
 
 ### test/bats/unit/network_ports_inert_spec.bats (15)
 

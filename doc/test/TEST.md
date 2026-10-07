@@ -263,6 +263,15 @@ case an author working mid-change is always in. A mutation command that edited
 a file it did not declare is refused there, before a multi-minute suite carries
 that edit past the point anyone is watching.
 
+Two inputs are refused before anything is touched. A **symlink** subject: an
+in-place editor replaces a link with a regular file, and a restore that put the
+bytes back would leave a file where a link was and call it restored, so the
+refusal names the target instead -- which is where the behaviour lives anyway.
+And every inherited `BATS_*` selector is **cleared** from the runner's
+environment, because `--bats-only` with an exported `BATS_FILE` or
+`BATS_FILTER` runs a subset while the verdict would still say `scope=tier`:
+the prefix is the rule, so a sixth selector is covered the day it is added.
+
 **Four measurements it refuses to report as verdicts**, because each one's
 number is the number a sound suite prints too: a mutation that left every
 subject byte-identical (the green is the baseline, so the sed expression
@@ -282,6 +291,10 @@ suite GREEN, and a red there means the test is pinned to the text. Three greps
 audited on base#1117 were anti-correlated exactly that way: green through a
 total inversion of the branch, green with the subject removed entirely, and
 red on a behaviour-preserving refactor.
+
+The verdict is published only after the tree is proven back, and never
+instead of a restoration failure: that failure is the more important news, and
+a verdict printed above it reads as the answer.
 
 Exit status: 0 `PINNED`, 1 `NOT PINNED`, 2 `INCONCLUSIVE`, 3 refused. The
 recipe is wired into no gate and no CI job: it is an on-demand loop like

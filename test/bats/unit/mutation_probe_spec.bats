@@ -515,3 +515,81 @@ STUB
   [[ "${_leaked}" -eq 0 ]] \
     || fail "the recipe shell performed the mutation's redirection itself"
 }
+
+# ── round-two review findings, each reproduced before it was fixed ───────────
+
+# why: a symlink passes the regular-file test, and `cp -p` then records the
+# TARGET's bytes. An in-place editor replaces the link with a regular file,
+# the restore writes the bytes back, verification reports success, and git
+# calls the result `T`. This repo ships such links.
+@test "_mutation_probe: refuses a symlink subject and names its target" {
+  local _root
+  _root="$(_probe_fixture)"
+  ln -s subject.sh "${_root}/link.sh"
+  run bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject link.sh --mutate true"
+  assert_failure
+  assert_output --partial "is a symlink to 'subject.sh'"
+}
+
+# why: the probe reads a BATS_* selector out of its own environment and hands it
+# to the runner, so `--bats-only` can run one spec while the verdict says
+# scope=tier -- a claim about sibling tests that never ran, which is the exact
+# false positive the scope rule exists to prevent.
+@test "_mutation_probe: no inherited BATS_ selector reaches the runner on a tier run" {
+  local _root _runner
+  _root="$(_probe_fixture)"
+  _runner="$(_probe_runner selectors 'if [[ -n "${BATS_FILE:-}${BATS_FILTER:-}${BATS_UNIT_SHARD:-}" ]]; then printf "not ok 1 a narrowing selector reached the runner\n"; else printf "ok 1 the runner saw no selector\n"; fi')"
+  run env BATS_FILE=test/bats/unit/x_spec.bats BATS_FILTER=nothing \
+    MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject subject.sh --mutate 'sed -i s/right/wrong/ subject.sh'"
+  assert_failure
+  refute_output --partial "a narrowing selector reached the runner"
+  assert_output --partial "NOT PINNED at scope=tier"
+}
+
+# why: the verdict used to be printed first and the restore's status then
+# discarded by an unconditional return, so a RED run whose restore had failed
+# reported PINNED and exit 0 with the mutation still in the tree. The
+# restoration failure is the more important news and has to be the only news.
+# The mutation replaces the subject with a DIRECTORY, which no `cp` can
+# overwrite; a permission-based failure was tried first and does not work,
+# because `cp` onto an existing file needs write on the FILE, so chmod on the
+# parent changes nothing and chmod on the file is a no-op under a root
+# container. This one fails for every uid.
+@test "_mutation_probe: publishes NO verdict when the restoration failed" {
+  local _root _runner
+  _root="$(_probe_fixture)"
+  mkdir -p "${_root}/sub"
+  printf '%s\n' 'right' > "${_root}/sub/held.sh"
+  git -C "${_root}" -c user.email=probe@example.invalid -c user.name=probe add -A
+  git -C "${_root}" -c user.email=probe@example.invalid -c user.name=probe \
+    commit -qm held
+  _runner="$(_probe_runner red 'printf "not ok 1 the witness\n"')"
+  run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject sub/held.sh --mutate 'sed -i s/right/wrong/ sub/held.sh; rm -f sub/held.sh; mkdir sub/held.sh'"
+  assert_failure
+  assert_output --partial "copy them back before anything else reads this checkout"
+  refute_output --partial "PINNED"
+}
+
+# why: a TERM to the runner's pid alone leaves its children running -- and the
+# real runner is test.sh waiting on `docker compose run`, so the container
+# would keep reading a tree the probe is restoring under it.
+@test "_mutation_probe: a signal stops the runner's children too, not just the runner" {
+  local _root _runner _marker="${BATS_TEST_TMPDIR}/grp-entered"
+  local _out="${BATS_TEST_TMPDIR}/grp-out"
+  local _childpid="${BATS_TEST_TMPDIR}/grp-childpid"
+  _root="$(_probe_fixture)"
+  _runner="$(_probe_runner group "printf 'ok 1 one\n'; sleep 30 & printf '%s\n' \"\$!\" > ${_childpid}; : > ${_marker}; wait")"
+  env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject subject.sh --mutate 'sed -i s/right/wrong/ subject.sh'" > "${_out}" 2>&1 &
+  local _pid=$! _i=0
+  while (( _i < 500 )); do
+    [[ -s "${_childpid}" ]] && break
+    sleep 0.02
+    _i=$(( _i + 1 ))
+  done
+  run test -s "${_childpid}"
+  assert_success
+  kill -TERM "${_pid}" 2>/dev/null || true
+  wait "${_pid}" 2>/dev/null || true
+  run bash -c "kill -0 \"$(cat "${_childpid}")\" 2>/dev/null"
+  assert_failure
+}

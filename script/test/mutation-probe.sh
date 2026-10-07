@@ -258,9 +258,7 @@ _mutation_probe_emergency_restore() {
 # restored under it is worse than either outcome alone.
 _mutation_probe_signal_restore() {
   trap - EXIT INT TERM
-  if [[ -n "${_MUTATION_PROBE_RUNNER_PID}" ]]; then
-    kill -TERM "${_MUTATION_PROBE_RUNNER_PID}" 2>/dev/null || true
-  fi
+  _mutation_probe_stop_runner
   _mutation_probe_emergency_restore || true
   _mutation_probe_err "interrupted, so there is NO verdict: a measurement over a suite that was stopped partway cannot be told apart from a finished one."
   exit 3
@@ -368,12 +366,81 @@ _mutation_probe_run() {
   else
     _cmd=( "${_root}/script/test/test.sh" --bats-only )
   fi
-  ( cd -- "${_root}" && exec "${_cmd[@]}" ) > "${_out}" 2>&1 &
+  # Job control on for the fork, so the child is its own process-group leader
+  # and a signal handler can reach the WHOLE suite -- test.sh waits on
+  # `docker compose run`, so signalling the shell alone leaves a container
+  # running against a tree that is about to be restored under it.
+  local _jobctl=0
+  case "$-" in *m*) _jobctl=1 ;; esac
+  set -m
+  (
+    cd -- "${_root}" || exit 127
+    _mutation_probe_clear_selectors
+    exec "${_cmd[@]}"
+  ) > "${_out}" 2>&1 &
   _MUTATION_PROBE_RUNNER_PID="$!"
+  (( _jobctl )) || set +m
   local _st=0
   wait "${_MUTATION_PROBE_RUNNER_PID}" || _st=$?
   _MUTATION_PROBE_RUNNER_PID=''
   _MUTATION_PROBE_RUN_STATUS="${_st}"
+  return 0
+}
+
+# _mutation_probe_clear_selectors -- drop every inherited BATS_* variable from
+# the runner's environment. Called INSIDE the runner subshell, so the probe's
+# own shell keeps whatever it had.
+#
+# `test.sh --bats-only` is not by itself a whole-tier run: an exported
+# BATS_FILE, BATS_FILTER, BATS_UNIT_SHARD, BATS_FRAGILE or BATS_INTEGRATION is
+# forwarded into the container and narrows the dispatch, so a green subset
+# would be published as `NOT PINNED at scope=tier` -- a claim about sibling
+# tests that never ran, which is the one thing this tool exists to stop. The
+# PREFIX is the rule rather than that list of five: a sixth selector added to
+# the dispatch is cleared here the day it is added.
+_mutation_probe_clear_selectors() {
+  local -a _vars=()
+  local _v
+  mapfile -t _vars < <(compgen -v)
+  for _v in "${_vars[@]}"; do
+    case "${_v}" in
+      BATS_*) unset -v "${_v}" 2>/dev/null || true ;;
+    esac
+  done
+}
+
+# _mutation_probe_own_group <pid> -- 0 when <pid> leads its own process group.
+#
+# Asked before any group signal, because `kill -- -<pid>` against a pid that is
+# NOT a group leader addresses whatever group that number names -- which can be
+# the probe's own. Read from /proc rather than ps: the comm field can contain
+# spaces and parentheses, so the fields are taken after the last `) `, where
+# they are state, ppid, pgrp.
+_mutation_probe_own_group() {
+  local _pid="${1}" _raw _rest _pgrp _ignored
+  _raw="$(cat "/proc/${_pid}/stat" 2>/dev/null || printf '')"
+  [[ -n "${_raw}" ]] || return 1
+  _rest="${_raw##*') '}"
+  read -r _ignored _ignored _pgrp _ignored <<< "${_rest}"
+  [[ "${_pgrp}" == "${_pid}" ]]
+}
+
+# _mutation_probe_stop_runner -- stop the suite and WAIT for it, before any
+# restore touches the tree it is reading.
+_mutation_probe_stop_runner() {
+  local _pid="${_MUTATION_PROBE_RUNNER_PID}"
+  [[ -n "${_pid}" ]] || return 0
+  _MUTATION_PROBE_RUNNER_PID=''
+  if _mutation_probe_own_group "${_pid}"; then
+    kill -TERM -- "-${_pid}" 2>/dev/null || true
+    wait "${_pid}" 2>/dev/null || true
+    # Anything still in the group outlived the leader. A group KILL is bounded
+    # and reaches it; on an empty group it fails harmlessly.
+    kill -KILL -- "-${_pid}" 2>/dev/null || true
+  else
+    kill -TERM "${_pid}" 2>/dev/null || true
+    wait "${_pid}" 2>/dev/null || true
+  fi
   return 0
 }
 
@@ -466,6 +533,17 @@ _mutation_probe() {
       _mutation_probe_err "subject '${_s}' is not a regular file under ${_root} -- a probe of a file that is not there measures nothing. Check whether the path moved."
       return 3
     fi
+    # A SYMLINK passes the -f test above, and that is the trap. `cp -p` would
+    # record the TARGET's bytes, an in-place editor replaces the link with a
+    # regular file, and the restore then writes a regular file whose bytes
+    # match -- so verification reports success over a tree git calls `T`. This
+    # repo ships such links (script/build.sh among them). Refusing and naming
+    # the target is also the better interface: the behaviour lives in the
+    # target, which is what the caller meant.
+    if [[ -L "${_root}/${_s}" ]]; then
+      _mutation_probe_err "subject '${_s}' is a symlink to '$(readlink -- "${_root}/${_s}")'. Probe the target instead: an in-place editor replaces a link with a regular file, and a restore that puts the bytes back would leave a file where a link was, which this script would report as restored. The behaviour you mean to break lives in the target."
+      return 3
+    fi
   done
 
   if [[ -z "${_mutate}" ]]; then
@@ -500,12 +578,17 @@ _mutation_probe() {
   ( cd -- "${_root}" && eval "${_mutate}" ) || true
   _mutation_probe_tree_state "${_root}" "${_work}/after"
 
-  # _probe_end <exit-code> <message-or-empty> -- restore, verify, and hand back
-  # the code. Every exit below the mutation goes through it, so there is no
-  # path that returns without having proven the tree is back.
-  _probe_end() {
-    local _code="${1}" _msg="${2:-}"
+  # _probe_put_back -- stop the runner if it is still up, restore, and PROVE
+  # the restoration. 0 when the tree is back, 3 when it is not.
+  #
+  # It returns only those two, and never a verdict code, because the caller has
+  # to be able to tell "the tree is back" from "the measurement says 1". The
+  # earlier shape folded the two together and then discarded the result with an
+  # unconditional `return`, so a red run whose restore had failed reported
+  # PINNED and exit 0 with the mutation still in the tree.
+  _probe_put_back() {
     trap - EXIT INT TERM
+    _mutation_probe_stop_runner
     if ! _mutation_probe_restore "${_rec}" "${_root}" "${_subjects[@]}"; then
       _mutation_probe_err "the restore itself failed. The recorded originals are kept in ${_rec} -- copy them back before anything else reads this checkout."
       return 3
@@ -517,8 +600,16 @@ _mutation_probe() {
     _MUTATION_PROBE_RECORD_DIR=''
     _MUTATION_PROBE_SUBJECTS=()
     rm -rf "${_work}"
-    [[ -n "${_msg}" ]] && _mutation_probe_err "${_msg}"
-    return "${_code}"
+    return 0
+  }
+
+  # _probe_refuse <message> -- put the tree back, then say why there is no
+  # verdict. Always 3: a refusal whose restore also failed is still a refusal,
+  # and both diagnostics are printed.
+  _probe_refuse() {
+    _probe_put_back || true
+    _mutation_probe_err "${1}"
+    return 3
   }
 
   local -a _changed=()
@@ -535,7 +626,7 @@ _mutation_probe() {
     (( _declared )) || _undeclared+=( "${_path}" )
   done
   if (( ${#_undeclared[@]} > 0 )); then
-    _probe_end 3 "the mutation touched ${_undeclared[*]}, which it did not declare as a subject. Only declared subjects were recorded, so that edit is one this script cannot undo -- declare it with --subject, or narrow the mutation. The declared subjects have been restored."
+    _probe_refuse "the mutation touched ${_undeclared[*]}, which it did not declare as a subject. Only declared subjects were recorded, so that edit is one this script cannot undo -- declare it with --subject, or narrow the mutation. The declared subjects have been restored."
     return 3
   fi
 
@@ -544,7 +635,7 @@ _mutation_probe() {
     cmp -s -- "${_rec}/${_s}" "${_root}/${_s}" || _moved=1
   done
   if (( _moved == 0 )); then
-    _probe_end 3 "the mutation left every subject byte-identical. The tree the suite would pass over is the tree it already passed over, so the green would be the baseline and not a measurement. Check the mutation command."
+    _probe_refuse "the mutation left every subject byte-identical. The tree the suite would pass over is the tree it already passed over, so the green would be the baseline and not a measurement. Check the mutation command."
     return 3
   fi
 
@@ -556,7 +647,7 @@ _mutation_probe() {
   _not="${_counts##* }"
 
   if (( _ok + _not == 0 )); then
-    _probe_end 3 "the run reported no test results at all. Zero reds is the number a fully behavioural suite prints too, so this cannot be read as a verdict about the tests -- it is a broken runner. Its output: $(cat "${_work}/run")"
+    _probe_refuse "the run reported no test results at all. Zero reds is the number a fully behavioural suite prints too, so this cannot be read as a verdict about the tests -- it is a broken runner. Its output: $(cat "${_work}/run")"
     return 3
   fi
 
@@ -564,28 +655,40 @@ _mutation_probe() {
   # reds it means exactly what it should: a failing suite exits non-zero, and
   # that is the answer this tool wants.
   if (( _not == 0 && _MUTATION_PROBE_RUN_STATUS != 0 )); then
-    _probe_end 3 "the runner did not finish: ${_ok} ok / 0 not ok and then exit ${_MUTATION_PROBE_RUN_STATUS}. Zero reds over a population that never ran is not a green -- it is the same unsupported figure as a run with no results, wearing a plausible number. Fix the runner and probe again."
+    _probe_refuse "the runner did not finish: ${_ok} ok / 0 not ok and then exit ${_MUTATION_PROBE_RUN_STATUS}. Zero reds over a population that never ran is not a green -- it is the same unsupported figure as a run with no results, wearing a plausible number. Fix the runner and probe again."
     return 3
   fi
 
-  _mutation_probe_say "${_ok} ok / ${_not} not ok at scope=${_scope}"
-
+  # The verdict is COMPOSED here and published after the tree is proven back.
+  # Printing it first would hand the reader a verdict that a restoration
+  # failure then contradicts, and the failure is the more important news.
+  local _code=0
+  local -a _verdict=()
   if (( _not > 0 )); then
-    _mutation_probe_say "PINNED. The assertions that noticed, at scope=${_scope}:"
-    _mutation_probe_witnesses "${_work}/run"
-    _probe_end 0
-    return 0
+    _code=0
+    _verdict=( "PINNED. The assertions that noticed, at scope=${_scope}:" )
+    local -a _witnesses=()
+    mapfile -t _witnesses < <(_mutation_probe_witnesses "${_work}/run")
+    _verdict+=( "${_witnesses[@]+"${_witnesses[@]}"}" )
+  elif [[ -n "${_spec}" ]]; then
+    _code=2
+    _verdict=( "INCONCLUSIVE at scope=${_scope}. That spec does not pin the behaviour; the suite may still. Measured on base#1108, five of six per-file greens had their failing witness in a sibling spec from the same PR -- re-run without --spec and then ask which spec should have been the one to notice." )
+  else
+    _code=1
+    _verdict=( "NOT PINNED at scope=${_scope}. The behaviour can be wrong and ${_ok} assertions still pass. Nothing in the tier observed it." )
   fi
 
-  if [[ -n "${_spec}" ]]; then
-    _mutation_probe_say "INCONCLUSIVE at scope=${_scope}. That spec does not pin the behaviour; the suite may still. Measured on base#1108, five of six per-file greens had their failing witness in a sibling spec from the same PR -- re-run without --spec and then ask which spec should have been the one to notice."
-    _probe_end 2
-    return 2
-  fi
+  _probe_put_back || return 3
 
-  _mutation_probe_say "NOT PINNED at scope=${_scope}. The behaviour can be wrong and ${_ok} assertions still pass. Nothing in the tier observed it."
-  _probe_end 1
-  return 1
+  _mutation_probe_say "${_ok} ok / ${_not} not ok at scope=${_scope}"
+  # The verdict carries the report prefix; the witness lines below it stay raw
+  # TAP, so `grep "^not ok "` over this output still finds them.
+  _mutation_probe_say "${_verdict[0]}"
+  local _i
+  for (( _i = 1; _i < ${#_verdict[@]}; _i++ )); do
+    printf '%s\n' "${_verdict[_i]}"
+  done
+  return "${_code}"
 }
 
 main() {
