@@ -2102,7 +2102,7 @@ refused before any build or bundle step.
 | `setup_tui --help names the distinction in all four locales (#879)` | - |
 | `setup.sh --help distinguishes the deploy subcommand from the section (#879)` | - |
 
-### test/bats/unit/derived_figures_lint_spec.bats (72)
+### test/bats/unit/derived_figures_lint_spec.bats (80)
 
 | Test | Description |
 |------|-------------|
@@ -2178,6 +2178,14 @@ refused before any build or bundle step.
 | `_run_derived_figures: renaming the namespace in the entry makes the old spelling the violation (base#1118)` | Bidirectional, and the proof that the set is read off the entry's `mod?` lines rather than remembered: rename the namespace and the spelling that was correct becomes the violation, with no edit to this driver |
 | `_run_derived_figures: a command named in a source comment is not an instruction (base#1118)` | A comment is maintainer prose about the layering -- the entry's own docstring says "no top-level `just build`" -- while the rule is about what a consumer is TOLD TO TYPE; judging comments would make the file that documents the hazard the first thing to fail |
 | `_run_derived_figures: DIES when the consumer entry justfile is missing rather than failing everything (base#1118)` | With no entry justfile the command set is empty, every instruction looks wrong and the lint would report the whole shipped tree; refusing names the one missing file instead of burying it under its consequences |
+| `_run_derived_figures: FAILS on a BACKTICKED top-level recipe the consumer entry does not define (base#1221)` | The same defect in the other spelling this tree uses for "type this": a backticked `just build` in a shipped message answers itself with `error: justfile does not contain recipe` exactly as the single-quoted one does, and the first scope deliberately could not see it |
+| `_run_derived_figures: PASSES on the backticked namespaced spelling of the same verb (base#1221)` | The repair has to be reachable: a gate that reported the backticked namespaced spelling too would leave no spelling that passes, and the prose would have nowhere to go |
+| `_run_derived_figures: renaming the namespace makes the backticked old spelling the violation (base#1221)` | Bidirectional for the widened spelling as well, and the proof the set is still read off the entry's `mod?` lines: rename the namespace and the backticked spelling that was correct becomes the violation |
+| `_run_derived_figures: a backticked command in a source comment is not an instruction (base#1221)` | Comments stay out of scope in the widened spelling too -- backticks are how this tree writes a command inside maintainer prose, so judging them would report every docstring that explains the namespace layering |
+| `_run_derived_figures: reports BOTH backticked literals on one line (base#1221)` | The live usage text names two undispatchable commands on one line, so a scan that stopped at the first match per line would under-report the very population this widening exists for |
+| `_run_derived_figures: a backticked placeholder shape is not a recipe claim (base#1221)` | A backticked placeholder is a shape the reader substitutes into, not an invocation, and the shipped init.sh warning spells it exactly that way -- so the widened scope must not turn that correct line into a violation |
+| `_run_derived_figures: reads the recipe out of an ESCAPED backtick span (base#1221)` | Inside a double-quoted shell string the shipped code must escape the delimiter, so the live defect is spelled `\`just build\``; reading the escaping backslash as part of the recipe name reports `build\` and loses the namespaced repair the message exists to hand over |
+| `_run_derived_figures: an ESCAPED backtick span naming a dispatchable command is clean (base#1221)` | The false positive the same mis-read causes, and the load-bearing half: an escaped backtick span naming a command the layering DOES dispatch must stay silent, or the widening reports correct shipped prose |
 
 ### test/bats/unit/doc_counts_spec.bats (26)
 

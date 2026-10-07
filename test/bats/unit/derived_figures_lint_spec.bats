@@ -966,3 +966,98 @@ _append() {
   [ "${status}" -ne 0 ]
   [[ "${output}" == *"dist/script/justfile"* ]]
 }
+
+# why: The same defect in the other spelling this tree uses for "type this": a
+# backticked `just build` in a shipped message answers itself with `error:
+# justfile does not contain recipe` exactly as the single-quoted one does, and
+# the first scope deliberately could not see it
+@test "_run_derived_figures: FAILS on a BACKTICKED top-level recipe the consumer entry does not define (base#1221)" {
+  _append 'dist/script/docker/lib/sample.sh' \
+    '    printf "[setup] next: run `just build` to regenerate\\n"'
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/sample.sh:"* ]]
+  [[ "${output}" == *"just build"* ]]
+}
+
+# why: The repair has to be reachable: a gate that reported the backticked
+# namespaced spelling too would leave no spelling that passes, and the prose
+# would have nowhere to go
+@test "_run_derived_figures: PASSES on the backticked namespaced spelling of the same verb (base#1221)" {
+  _append 'dist/script/docker/lib/sample.sh' \
+    '    printf "[setup] next: run `just docker build` to regenerate\\n"'
+  run _run_derived_figures
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"clean"* ]]
+}
+
+# why: Bidirectional for the widened spelling as well, and the proof the set is
+# still read off the entry's `mod?` lines: rename the namespace and the
+# backticked spelling that was correct becomes the violation
+@test "_run_derived_figures: renaming the namespace makes the backticked old spelling the violation (base#1221)" {
+  _write_consumer_justfiles 'container'
+  _append 'dist/script/docker/lib/sample.sh' \
+    '    printf "run `just docker build` next\\n"'
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"just docker build"* ]]
+  [[ "${output}" == *"no 'docker'"* ]]
+}
+
+# why: Comments stay out of scope in the widened spelling too -- backticks are
+# how this tree writes a command inside maintainer prose, so judging them would
+# report every docstring that explains the namespace layering
+@test "_run_derived_figures: a backticked command in a source comment is not an instruction (base#1221)" {
+  _append 'dist/script/docker/lib/sample.sh' \
+    '# ADR-00000011 zero-special-case: there is no top-level `just build`.'
+  run _run_derived_figures
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"clean"* ]]
+}
+
+# why: The live usage text names two undispatchable commands on one line, so a
+# scan that stopped at the first match per line would under-report the very
+# population this widening exists for
+@test "_run_derived_figures: reports BOTH backticked literals on one line (base#1221)" {
+  _append 'dist/script/docker/lib/sample.sh' \
+    '    printf "runs after `just stop` and `just deploy`\\n"'
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"just stop"* ]]
+  [[ "${output}" == *"just deploy"* ]]
+}
+
+# why: A backticked placeholder is a shape the reader substitutes into, not an
+# invocation, and the shipped init.sh warning spells it exactly that way -- so
+# the widened scope must not turn that correct line into a violation
+@test "_run_derived_figures: a backticked placeholder shape is not a recipe claim (base#1221)" {
+  _append 'dist/script/docker/lib/sample.sh' \
+    '    printf "the repo'"'"'s `just <ns> <verb>` commands will not run\\n"'
+  run _run_derived_figures
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"clean"* ]]
+}
+
+# why: Inside a double-quoted shell string the shipped code must escape the
+# delimiter, so the live defect is spelled `\`just build\``; reading the
+# escaping backslash as part of the recipe name reports `build\` and loses the
+# namespaced repair the message exists to hand over
+@test "_run_derived_figures: reads the recipe out of an ESCAPED backtick span (base#1221)" {
+  _append 'dist/script/docker/lib/sample.sh' \
+    '    _log_err ci x "display=regenerate with \`just build\` first"'
+  run _run_derived_figures
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"no 'build'"* ]]
+  [[ "${output}" == *"just docker build"* ]]
+}
+
+# why: The false positive the same mis-read causes, and the load-bearing half:
+# an escaped backtick span naming a command the layering DOES dispatch must
+# stay silent, or the widening reports correct shipped prose
+@test "_run_derived_figures: an ESCAPED backtick span naming a dispatchable command is clean (base#1221)" {
+  _append 'dist/script/docker/lib/sample.sh' \
+    '    _log_err ci x "display=re-run \`just docker setup\` to finish"'
+  run _run_derived_figures
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"clean"* ]]
+}
