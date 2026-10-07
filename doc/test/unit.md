@@ -3486,7 +3486,7 @@ actually walks the populated `dist/script/docker` tree.
 | `does NOT flag bare stderr in the standalone coverage_gate.sh CI tool (#710)` | standalone log.sh-free CI tool excluded |
 | `the real repo tree (default root) is clean (#692)` | live-tree guard against path drift |
 
-### test/bats/unit/log_event_registry_lint_spec.bats (19)
+### test/bats/unit/log_event_registry_lint_spec.bats (23)
 
 The guard over the direction the registry check never covered. lib/log.sh is
 STRICT -- it refuses a body log-events.txt does not carry and prints 'FATAL:
@@ -3519,6 +3519,16 @@ Detection runs against a controlled temp REPO_ROOT, never the live checkout:
 the tree is asserted by the 'lint-static' group that runs this driver, which
 is where a whole-tree scan belongs (base#1075).
 
+THIRD, the reader is a word splitter and not a regex over the raw line, and
+four cases are the reason. Two are MISSES -- a body wrapped onto a
+continuation line, and a body an operator terminates without a space -- and
+two are FALSE FINDINGS: a call spelled out in a trailing comment, and a
+wrapper name inside a message. The false findings are the half that decides
+whether the gate survives, because an author told to register an id no shell
+will ever log is an author who mutes the lint, and this driver spells
+several such calls in its own header while sitting in the population it
+scans.
+
 | Test | Description |
 |------|-------------|
 | `_run_log_event_registry: FAILS on a direct _log_ body the registry does not carry` | The plain shape base#1220 found in setup_cmd.sh and toml_bridge.sh. The report has to name the file, the line and the id, because the author is looking for one argument among hundreds of call sites |
@@ -3526,6 +3536,10 @@ is where a whole-tree scan belongs (base#1075).
 | `_run_log_event_registry: reports EVERY offending site, not the first` | Reporting the first offender and stopping makes the lint take as many runs to clear as the tree has emit sites; base#1220's own tree had thirteen sites over five ids, in four files |
 | `_run_log_event_registry: FAILS on a single-quoted body the registry does not carry` | A body is a literal whether bash reads it through double quotes, single quotes or none, and lib/log.sh compares what the shell hands it -- so `_log_err ci 'missing' ...` is exactly as fatal as the double-quoted spelling. The first unquoting rule stripped only the double quote, which left the single-quoted token starting with a character no id starts with, so the shape was DISCARDED rather than reported and a tree holding it read clean. A reader of that clean line cannot tell a quoting style the scan does not see from a tree that has none of it |
 | `_run_log_event_registry: FAILS on a wrapper call that is not the first word of its line` | A wrapper call is a command, and a command sits wherever bash allows one -- after `then`, after `do`, after `&&`. The wrapper scan walked the line token pair by token pair and, on a pair whose first half was NOT a wrapper, skipped past BOTH halves; `then _die` therefore consumed the `_die` that followed it and the id after that was never looked at. The shipped tree hides the bug because its wrapper calls open their own lines, so only a fixture can hold the rule still: a non-wrapper match now advances past its own name alone, leaving the next token free to be read as the command it is |
+| `_run_log_event_registry: FAILS on a body on a continuation line` | bash reads a backslash-newline as nothing at all, so a call wrapped over two physical lines is one command and its body is as fatal as any other. A per-physical-line scan sees `_log_err conf \` -- service `\`, no body -- and the real id on the line below with no call in front of it, so the site is skipped and the lint says clean. A reader cannot tell that from a tree with no such site, which is the vacuity this driver refuses everywhere else |
+| `_run_log_event_registry: FAILS on a body a shell operator terminates` | An argument ends where the shell says it does, and `;` `&&` `\|` `)` end one without a space. Splitting the line on whitespace alone made `missing;` the body, which is not id-shaped, so the site was DISCARDED rather than reported -- a miss produced by the scan being coarser than the language it reads, and the shape every one-line `then ... ; fi` guard in this tree is written in |
+| `_run_log_event_registry: PASSES a _log_ call in a trailing comment` | The over-reporting half, and the one that decides whether this lint survives. A `#` after code opens a comment exactly as one at column 0 does, so prose that spells a call out to explain it emits nothing -- and this driver, whose own header spells several, is in the population it scans. Only WHOLE-line comments were excluded, so a trailing one was read as code and the author was told to register an id no shell will ever log. A finding that is not a defect is what gets a gate muted |
+| `_run_log_event_registry: PASSES a wrapper name inside a quoted string` | The other over-report. A wrapper name inside a STRING is a word in a message, not a command -- `printf "use _die <id> for failures"` is help text -- and the scan read the token after it as an event id. The fix is the same one tokenising gives the case above: a quote that opens a word makes the whole quoted run ONE argument, so a name buried inside it is never at a command position and never consulted |
 | `_run_log_event_registry: PASSES an id the registry carries` | The boundary of the rule and the whole of the fix base#1220 took: an id the registry carries is a message the operator actually reads, so there is nothing to report |
 | `_run_log_event_registry: PASSES a same-named function a file defines without forwarding` | A name is not global. script/ci/reclaim.sh defines its own _die that prints to stderr and never logs, so 'not a duration: 5x' is a MESSAGE, not an event id. Without the shadowing rule every such argument would be reported unregistered, which is the false finding that gets a lint muted |
 | `_run_log_event_registry: PASSES a body that is not a literal` | The stated blind spot, pinned so it cannot change shape unnoticed. A body this driver would have to run a shell to know is not resolved: exactly one hop -- the forwarding wrapper -- is, and anything further is out of reach rather than quietly guessed at |
@@ -3538,7 +3552,7 @@ is where a whole-tree scan belongs (base#1075).
 | `_run_log_event_registry: DIES when nothing names a registry that exists` | Without the assignment the registry's location is unknown, and an unknown allowed set accepts everything. It is also the existence half of the rule: this driver spells the assignment in its own matching pattern, so a resolution that points at no file has to be no candidate |
 | `_run_log_event_registry: DIES when two different registries are implied` | Two registries is not two allowed sets to union: picking either would make the other's ids look unregistered, so the lint would report findings that are not defects and hide the ones that are |
 | `_run_log_event_registry: DIES when the registry carries no id` | An empty registry makes EVERY emitted id unregistered at runtime, so reading it as the allowed set is reading nothing. A comment-only file is the shape that matters: the header is still there, so the file looks populated to anything that only checks its size |
-| `_run_log_event_registry: DIES when no _log_ call site is read anywhere` | The blind-detector case, and the one that matters most: 272 direct call sites exist today, so zero means the detector stopped matching -- a renamed helper, a changed argument order -- and a blind detector reports every id registered |
+| `_run_log_event_registry: DIES when no _log_ call site is read anywhere` | The blind-detector case, and the one that matters most: 271 direct call sites exist today, so zero means the detector stopped matching -- a renamed helper, a changed argument order -- and a blind detector reports every id registered |
 | `_run_log_event_registry: DIES when nothing forwards its first argument into a body slot` | The wrapper half is where two of base#1220's four hid, and it is the half that can vanish silently: with no forwarding wrapper found the scan shrinks to the direct call sites and the thirty-odd lint drivers' events leave the population without anything saying so |
 
 ### test/bats/unit/log_spec.bats (69)

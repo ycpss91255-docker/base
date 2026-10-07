@@ -76,7 +76,8 @@
 # `unregistered body causes fatal exit` case in log_spec.bats is exactly
 # that), so scanning it would report the lint's own evidence as a defect.
 #
-# Three shapes are out of the scan's reach, named rather than implied:
+# Five shapes are out of the scan's reach, named rather than implied,
+# with the direction each errs in:
 #
 #   1. A body that is not a literal -- `_log_err conf "${_ev}"` at a site
 #      whose value this driver would have to run a shell to know. Only the
@@ -97,6 +98,14 @@
 #      below is what keeps this bound visible: if the one-liner shape ever
 #      goes away, the lint says so instead of shrinking quietly.
 #
+#   5. A HEREDOC body. The reader knows shell words, not shell
+#      redirection, so a line of heredoc text that happens to read like a
+#      call is read as one. That OVER-reports, which is the refusing
+#      direction -- and it is the direction worth naming, because a
+#      finding that is not a defect is what gets a gate muted. The tree
+#      holds no such line today; if one lands, the fix is to register
+#      nothing and teach the reader the redirection, not to mute it.
+#
 # ── Non-vacuity ─────────────────────────────────────────────────────────────
 #
 # SIX ways this could go green having checked nothing, each a _die with its
@@ -106,7 +115,7 @@
 # one such assignment resolving to different files (ambiguous), a registry
 # that carries no id, and a scan that read no `_log_*` call site anywhere.
 #
-# The last is the one that matters: 272 direct call sites exist today, so
+# The last is the one that matters: 271 direct call sites exist today, so
 # zero means the detector has gone blind -- a renamed helper, a changed
 # argument order -- and a blind detector reports a clean tree.
 #
@@ -146,16 +155,43 @@ readonly _LER_REGISTRY_ASSIGN_RE='_LOG_EVENTS_FILE=.*/([A-Za-z0-9_.-]+)"'
 # under more than one of them.
 # shellcheck disable=SC2016 # awk program; $-vars are awk's, not the shell's.
 readonly _LER_AWK='
-# Strip ONE balanced pair of quotes, double or single. A body is a literal
-# whichever of the three spellings bash reads it through, and log.sh
-# compares what the shell handed it, so a single-quoted id is the same
-# event as a double-quoted one. BALANCED, and never a lone leading quote:
-# a single-quoted body carrying a space reaches this as a token holding
-# only its opening quote, under the whitespace-delimited match above, and
-# stripping that quote would turn half a display string into a reported
-# id. The quote character itself is built with sprintf rather than
-# written: this whole program is one shell single-quoted string, so an
-# apostrophe anywhere in it -- a comment included -- ends that string.
+# ── The reader ──────────────────────────────────────────────────────────────
+#
+# TOKENS, not a regex over the raw line. The first spelling matched
+# `_log_<level> <service> <body>` and a wrapper name followed by a word
+# anywhere in the text, and split what it found on whitespace. Four shapes
+# broke that, two in each direction, and all four are pinned as cases:
+#
+#   - a body wrapped onto a continuation line was never seen, because the
+#     backslash was read as the body and the real id had no call in front
+#     of it. bash reads backslash-newline as nothing, so the lines are
+#     FOLDED here before anything looks at them.
+#   - a body an operator terminates -- `_log_err conf id; true` -- was
+#     DISCARDED, because `id;` is not id-shaped. An argument ends where
+#     the shell says it does.
+#   - a call spelled out in a TRAILING comment was reported. Only a whole
+#     line comment was skipped, and this driver is in the population it
+#     scans.
+#   - a wrapper name inside a STRING -- help text naming `_die` -- was
+#     read as a call, and the next word reported as an event id.
+#
+# The last two are the direction that matters most: a finding that is not
+# a defect is what gets a gate muted. Narrowing the pattern a fourth time
+# is the move base#1090 refused; what the shapes have in common is that
+# they are facts about SHELL WORDS, so the reader is a word splitter.
+#
+# It is a small one, and deliberately: enough of the grammar to say where
+# a word starts and ends, which quotes make one word out of several, and
+# where a command position is. It does not expand anything, and a
+# substitution inside double quotes stays part of its word -- which is
+# what makes a non-literal body fall out on its own rather than by a rule.
+#
+# Written for POSIX awk: the ci image carries busybox awk, mawk and gawk,
+# and the issueref lint is the standing reminder that a program here runs
+# under more than one of them. The whole program is ONE shell
+# single-quoted string, so no apostrophe appears anywhere in it, comments
+# included -- the single quote character is built with sprintf where the
+# tokeniser needs it.
 function _unquote(t,   q, a, z) {
   if (length(t) < 2) return t
   q = sprintf("%c", 39)
@@ -183,9 +219,100 @@ function _forwards(text,   seg, p, tok, alias) {
   }
   return 0
 }
+# _tokenize(<folded line>, kind[], text[]) -> count
+#   Split one logical line into shell-ish tokens. kind[i] is "W" for a
+#   word and "O" for an operator; text[i] is the word with one level of
+#   quoting removed, so a quoted run is ONE word and a name inside a
+#   message is part of that word rather than a command.
+#
+#   A bare `#` at a word boundary ends the line, which is what the shell
+#   does and what makes a trailing comment inert here.
+function _tokenize(line, kind, text,   n, i, c, cur, has, j, L, sq) {
+  n = 0; cur = ""; has = 0; L = length(line); i = 1; sq = sprintf("%c", 39)
+  while (i <= L) {
+    c = substr(line, i, 1)
+    if (c == " " || c == "\t") {
+      if (has) { n++; kind[n] = "W"; text[n] = cur; cur = ""; has = 0 }
+      i++
+      continue
+    }
+    if (c == "#" && !has) break
+    if (c == sq) {
+      j = index(substr(line, i + 1), sq)
+      if (j == 0) { cur = cur substr(line, i + 1); has = 1; break }
+      cur = cur substr(line, i + 1, j - 1); has = 1; i = i + j + 1
+      continue
+    }
+    if (c == "\"") {
+      i++
+      while (i <= L) {
+        c = substr(line, i, 1)
+        if (c == "\\" && i < L) { cur = cur substr(line, i + 1, 1); i += 2; continue }
+        if (c == "\"") { i++; break }
+        cur = cur c; i++
+      }
+      has = 1
+      continue
+    }
+    if (c == "\\" && i < L) { cur = cur substr(line, i + 1, 1); has = 1; i += 2; continue }
+    if (index(";&|()<>", c) > 0) {
+      if (has) { n++; kind[n] = "W"; text[n] = cur; cur = ""; has = 0 }
+      n++; kind[n] = "O"
+      if (substr(line, i + 1, 1) == c) { text[n] = c c; i += 2 } else { text[n] = c; i++ }
+      continue
+    }
+    cur = cur c; has = 1; i++
+  }
+  if (has) { n++; kind[n] = "W"; text[n] = cur }
+  return n
+}
+# Is token i where a COMMAND name can stand? Start of the line, after an
+# operator, or after one of the keywords that open one. Without this a
+# wrapper name used as an ARGUMENT -- `grep _die file` -- would have the
+# word after it reported as an event id.
+function _cmd_pos(kind, text, i) {
+  if (i == 1) return 1
+  if (kind[i - 1] == "O") return 1
+  return (text[i - 1] ~ /^(then|do|else|elif|\{|!|time|exec|eval)$/)
+}
+# One folded line: count the emit sites it holds and print the literal
+# ids among them. <ln> is the FIRST physical line of the fold, which is
+# the line a reader of the report opens.
+function _scan(line, ln,   n, i, K, T) {
+  n = _tokenize(line, K, T)
+  for (i = 1; i <= n; i++) {
+    if (K[i] != "W") continue
+    if (T[i] ~ /^_log_(debug|info|warn|err|fatal)$/) {
+      if (i + 2 <= n && K[i + 1] == "W" && K[i + 2] == "W") {
+        direct++
+        if (_is_id(T[i + 2])) printf "ID\t%s\t%s\t%d\n", T[i + 2], FILENAME, ln
+      }
+      continue
+    }
+    if (!(T[i] in fwd)) continue
+    if ((FILENAME "|" T[i]) in shadow) continue
+    if (!_cmd_pos(K, T, i)) continue
+    if (i + 1 <= n && K[i + 1] == "W") {
+      wrapped++
+      if (_is_id(T[i + 1])) printf "ID\t%s\t%s\t%d\n", T[i + 1], FILENAME, ln
+    }
+  }
+}
+# Worth tokenising? Tokenising is per character, and all but a few
+# thousand of the tree lines can hold no call at all. The names are the
+# derived wrapper set, so this filter widens with it rather than being a
+# second place a name is written down.
+function _candidate(line) {
+  if (line ~ /_log_(debug|info|warn|err|fatal)/) return 1
+  return (fwdre != "" && line ~ fwdre)
+}
 BEGIN {
   n = split(FWDS, a, "\n")
-  for (i = 1; i <= n; i++) if (a[i] != "") fwd[a[i]] = 1
+  for (i = 1; i <= n; i++) if (a[i] != "") {
+    fwd[a[i]] = 1
+    fwdre = (fwdre == "" ? a[i] : fwdre "|" a[i])
+  }
+  if (fwdre != "") fwdre = "(^|[^A-Za-z0-9_])(" fwdre ")([^A-Za-z0-9_]|$)"
   n = split(SHADOWS, b, "\n")
   for (i = 1; i <= n; i++) if (b[i] != "") shadow[b[i]] = 1
 }
@@ -198,42 +325,20 @@ PHASE == "def" {
   next
 }
 PHASE == "emit" {
-  line = $0
-  if (line ~ /^[[:space:]]*#/) next
-  rest = line
-  while (match(rest, /_log_(debug|info|warn|err|fatal)[[:space:]]+[^[:space:]]+[[:space:]]+[^[:space:]]+/)) {
-    seg = substr(rest, RSTART, RLENGTH)
-    rest = substr(rest, RSTART + RLENGTH)
-    direct++
-    t = _unquote(p3(seg))
-    if (_is_id(t)) printf "ID\t%s\t%s\t%d\n", t, FILENAME, FNR
-  }
-  rest = line
-  while (match(rest, /(^|[^A-Za-z0-9_$.\/-])[A-Za-z_][A-Za-z0-9_]*[[:space:]]+[^[:space:]]+/)) {
-    seg = substr(rest, RSTART, RLENGTH)
-    bo = (seg ~ /^[^A-Za-z0-9_]/) ? 1 : 0
-    sub(/^[^A-Za-z0-9_]/, "", seg)
-    split(seg, q, /[[:space:]]+/)
-    # A NON-wrapper match advances past its own NAME only, not past the
-    # argument it matched. A wrapper call is a command and sits wherever
-    # bash allows one -- `if true; then _die id "boom"; fi` matches as the
-    # pair `then` + `_die`, and consuming both would eat the `_die` that
-    # is the actual command. Advancing by the name alone leaves the next
-    # token free to be read as the command it is. length(q[1]) >= 1, so
-    # the loop still makes progress on every iteration.
-    if (!(q[1] in fwd) || ((FILENAME "|" q[1]) in shadow)) {
-      rest = substr(rest, RSTART + bo + length(q[1]))
-      continue
-    }
-    rest = substr(rest, RSTART + RLENGTH)
-    wrapped++
-    t = _unquote(q[2])
-    if (_is_id(t)) printf "ID\t%s\t%s\t%d\n", t, FILENAME, FNR
-  }
+  if (FNR == 1) { buf = ""; startln = 0 }
+  if (buf == "") startln = FNR
+  if ($0 ~ /\\$/) { buf = buf substr($0, 1, length($0) - 1) " "; next }
+  line = buf $0
+  buf = ""
+  if (_candidate(line)) _scan(line, startln)
   next
 }
-function p3(seg,   p) { split(seg, p, /[[:space:]]+/); return p[3] }
-END { if (PHASE == "emit") printf "SEEN\t%d\t%d\n", direct + 0, wrapped + 0 }
+END {
+  if (PHASE == "emit") {
+    if (buf != "" && _candidate(buf)) _scan(buf, startln)
+    printf "SEEN\t%d\t%d\n", direct + 0, wrapped + 0
+  }
+}
 '
 
 # The scanned files, filled by _ler_collect and read by its caller.

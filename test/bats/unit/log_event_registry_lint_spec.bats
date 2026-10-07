@@ -31,6 +31,17 @@
 # Detection runs against a controlled temp REPO_ROOT, never the live
 # checkout: the tree is asserted by the 'lint-static' group that runs this
 # driver, which is where a whole-tree scan belongs (base#1075).
+#
+# THIRD, the reader is a word splitter and not a regex over the raw line,
+# and four cases are the reason. Two are MISSES -- a body wrapped onto a
+# continuation line, and a body an operator terminates without a space --
+# and two are FALSE FINDINGS: a call spelled out in a trailing comment,
+# and a wrapper name inside a message. The false findings are the half
+# that decides whether the gate survives, because an author told to
+# register an id no shell will ever log is an author who mutes the lint,
+# and this driver spells several such calls in its own header while
+# sitting in the population it scans.
+
 
 setup() {
   export LOG_FORMAT=text
@@ -158,6 +169,71 @@ _seed() {
   run _run_log_event_registry
   [ "${status}" -ne 0 ]
   [[ "${output}" == *"dist/script/docker/lib/inline.sh:1: inline_missing"* ]]
+}
+
+# why: bash reads a backslash-newline as nothing at all, so a call wrapped over
+# two physical lines is one command and its body is as fatal as any other.
+# A per-physical-line scan sees `_log_err conf \` -- service `\`, no body --
+# and the real id on the line below with no call in front of it, so the
+# site is skipped and the lint says clean. A reader cannot tell that from
+# a tree with no such site, which is the vacuity this driver refuses
+# everywhere else
+@test "_run_log_event_registry: FAILS on a body on a continuation line" {
+  _seed
+  _write "dist/script/docker/lib/cont.sh" \
+    '_log_err conf \' \
+    '  continued_missing "display=boom"'
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/cont.sh:1: continued_missing"* ]]
+}
+
+# why: An argument ends where the shell says it does, and `;` `&&` `|` `)` end
+# one without a space. Splitting the line on whitespace alone made
+# `missing;` the body, which is not id-shaped, so the site was DISCARDED
+# rather than reported -- a miss produced by the scan being coarser than
+# the language it reads, and the shape every one-line `then ... ; fi`
+# guard in this tree is written in
+@test "_run_log_event_registry: FAILS on a body a shell operator terminates" {
+  _seed
+  _write "dist/script/docker/lib/op.sh" \
+    '_log_err conf semi_missing; true' \
+    '(_die amp_missing "boom") &'
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/op.sh:1: semi_missing"* ]]
+  [[ "${output}" == *"dist/script/docker/lib/op.sh:2: amp_missing"* ]]
+}
+
+# why: The over-reporting half, and the one that decides whether this lint
+# survives. A `#` after code opens a comment exactly as one at column 0
+# does, so prose that spells a call out to explain it emits nothing --
+# and this driver, whose own header spells several, is in the population
+# it scans. Only WHOLE-line comments were excluded, so a trailing one was
+# read as code and the author was told to register an id no shell will
+# ever log. A finding that is not a defect is what gets a gate muted
+@test "_run_log_event_registry: PASSES a _log_ call in a trailing comment" {
+  _seed
+  _write "dist/script/docker/lib/trail.sh" \
+    'true # _log_err conf trailing_prose "display=boom"'
+  run _run_log_event_registry
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"log event registry lint: clean"* ]]
+}
+
+# why: The other over-report. A wrapper name inside a STRING is a word in a
+# message, not a command -- `printf "use _die <id> for failures"` is help
+# text -- and the scan read the token after it as an event id. The fix is
+# the same one tokenising gives the case above: a quote that opens a word
+# makes the whole quoted run ONE argument, so a name buried inside it is
+# never at a command position and never consulted
+@test "_run_log_event_registry: PASSES a wrapper name inside a quoted string" {
+  _seed
+  _write "dist/script/docker/lib/prose.sh" \
+    'printf "%s\n" "use _die quoted_prose for failures"'
+  run _run_log_event_registry
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"log event registry lint: clean"* ]]
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -334,7 +410,7 @@ _seed() {
   [[ "${output}" == *"carries no event id"* ]]
 }
 
-# why: The blind-detector case, and the one that matters most: 272 direct call
+# why: The blind-detector case, and the one that matters most: 271 direct call
 # sites exist today, so zero means the detector stopped matching -- a
 # renamed helper, a changed argument order -- and a blind detector reports
 # every id registered
