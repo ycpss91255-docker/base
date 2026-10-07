@@ -331,11 +331,22 @@ after editing the subject would hold the handler off indefinitely.
 Signalling a process group does not reach a **container**, though, and the
 suite runs in one: `docker compose run` starts a container that belongs to the
 daemon and keeps the checkout bind-mounted, so it could overwrite the restored
-files afterwards. Before restoring, the probe therefore asks the runner's own
-`test.sh --await-project` -- which waits for the project to be released and, if
-it is not, names the container and the verb that clears it. The restore happens
-either way, because a tree left mutated is the worse of the two, and the probe
-then exits refused saying a container was still holding the checkout.
+files afterwards. Before restoring, the probe therefore waits until no container
+of this checkout's compose project is running -- the project name from the single
+producer that mints it, the containers from the label compose stamps. A daemon it
+cannot ask counts as **held**: "I could not find out" and "nothing is running"
+are not the same answer. (`test.sh --await-project` was tried first and is the
+wrong primitive, which is worth knowing because it reads like the right one: its
+blocker list skips a `running` container on purpose, because its question is
+whether a *previous* run has let go of the network.) The restore happens either
+way, because a tree left mutated is the worse of the two, and the probe then
+exits refused saying a container was still holding the checkout.
+
+The restoration traps stay armed across all of that -- the stop, the wait and the
+restore -- and come off only once the outcome is known, because the wait can take
+half a minute and a ctrl-c inside it used to kill the probe with the subjects
+still mutated. A signal during the wait does not restart it: that is the operator
+saying stop, and the restore is what they are waiting for.
 
 **The mutation is yours, because only you know what the behaviour is.** Five
 shapes earned their place during the audit: `return 0` at the top of a driver

@@ -1017,20 +1017,21 @@ MUT
   mkdir -p "${_root}/script/test"
   cat > "${_root}/script/test/test.sh" <<'STUB'
 #!/usr/bin/env bash
-printf 'project still held by container base-x-ci-run-1; clear it with: just test stop\n' >&2
-exit 1
+printf 'base-fixtureproject\n'
 STUB
   chmod +x "${_root}/script/test/test.sh"
   git -C "${_root}" -c user.email=probe@example.invalid -c user.name=probe add -A
   git -C "${_root}" -c user.email=probe@example.invalid -c user.name=probe \
     commit -qm stub
   _runner="$(_probe_runner_observing red '  printf "not ok 1 the witness\n"')"
-  run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "
+  run env _MUTATION_PROBE_DAEMON_TRIES=1 MUTATION_PROBE_RUNNER="${_runner}" bash -c "
     source '${PROBE}'
     _MUTATION_PROBE_DEFAULT_RUNNER=1
+    _mutation_probe_project_containers() { printf 'c0ffee\nbadbeef\n'; }
     _mutation_probe '${_root}' --subject subject.sh --mutate 'sed -i s/right/wrong/ subject.sh'
   "
   assert_failure
+  assert_output --partial "are still RUNNING"
   assert_output --partial "still holding this checkout when the subjects were restored"
   # Restored all the same: a tree left mutated would be the worse of the two.
   run git -C "${_root}" status --porcelain
@@ -1080,4 +1081,106 @@ STUB
   "
   assert_failure
   assert_output --partial "RESTORATION INCOMPLETE"
+}
+
+# ── round-ten review findings, each reproduced before it was fixed ───────────
+
+# why: "I could not find out" and "nothing is running" are not the same answer,
+# and only one of them is safe. A daemon that cannot be asked has to count as
+# held, or the probe approves a restore into a checkout it knows nothing about.
+@test "_mutation_probe_await_daemon: a daemon it cannot ask counts as HELD" {
+  local _root
+  _root="$(_probe_fixture)"
+  mkdir -p "${_root}/script/test"
+  printf '%s\n%s\n' '#!/usr/bin/env bash' "printf 'base-fixtureproject\n'" \
+    > "${_root}/script/test/test.sh"
+  chmod +x "${_root}/script/test/test.sh"
+  run bash -c "
+    source '${PROBE}'
+    _MUTATION_PROBE_DEFAULT_RUNNER=1
+    _mutation_probe_project_containers() { return 1; }
+    _mutation_probe_await_daemon '${_root}'
+  "
+  assert_failure
+  assert_output --partial "cannot be established"
+}
+
+# why: the other direction, so the check cannot be satisfied by always refusing.
+# A project with nothing running is released, and the restore proceeds.
+@test "_mutation_probe_await_daemon: a project with nothing running is released" {
+  local _root
+  _root="$(_probe_fixture)"
+  mkdir -p "${_root}/script/test"
+  printf '%s\n%s\n' '#!/usr/bin/env bash' "printf 'base-fixtureproject\n'" \
+    > "${_root}/script/test/test.sh"
+  chmod +x "${_root}/script/test/test.sh"
+  run bash -c "
+    source '${PROBE}'
+    _MUTATION_PROBE_DEFAULT_RUNNER=1
+    _mutation_probe_project_containers() { printf ''; }
+    _mutation_probe_await_daemon '${_root}'
+  "
+  assert_success
+}
+
+# why: a project name the probe cannot resolve is the same class of answer as a
+# daemon it cannot ask -- it has not established that nothing is running.
+@test "_mutation_probe_await_daemon: an unresolvable project name counts as HELD" {
+  local _root
+  _root="$(_probe_fixture)"
+  mkdir -p "${_root}/script/test"
+  printf '%s\n%s\n' '#!/usr/bin/env bash' 'exit 1' \
+    > "${_root}/script/test/test.sh"
+  chmod +x "${_root}/script/test/test.sh"
+  run bash -c "
+    source '${PROBE}'
+    _MUTATION_PROBE_DEFAULT_RUNNER=1
+    _mutation_probe_await_daemon '${_root}'
+  "
+  assert_failure
+  assert_output --partial "cannot be established"
+}
+
+# why: the daemon wait can take half a minute, and the traps used to come off
+# BEFORE it. A ctrl-c in that window killed the probe with the subjects still
+# mutated and nothing left to put them back.
+@test "_mutation_probe: a signal during the DAEMON WAIT still restores" {
+  local _root _runner _out="${BATS_TEST_TMPDIR}/wait-out"
+  local _marker="${BATS_TEST_TMPDIR}/wait-entered"
+  _root="$(_probe_fixture)"
+  mkdir -p "${_root}/script/test"
+  printf '%s\n%s\n' '#!/usr/bin/env bash' "printf 'base-fixtureproject\n'" \
+    > "${_root}/script/test/test.sh"
+  chmod +x "${_root}/script/test/test.sh"
+  git -C "${_root}" -c user.email=probe@example.invalid -c user.name=probe add -A
+  git -C "${_root}" -c user.email=probe@example.invalid -c user.name=probe \
+    commit -qm stub
+  _runner="$(_probe_runner_observing red '  printf "not ok 1 the witness\n"')"
+  env MUTATION_PROBE_RUNNER="${_runner}" bash -c "
+    source '${PROBE}'
+    _MUTATION_PROBE_DEFAULT_RUNNER=1
+    _mutation_probe_project_containers() { : > ${_marker}; printf 'c0ffee\n'; }
+    _mutation_probe '${_root}' --subject subject.sh --mutate 'sed -i s/right/wrong/ subject.sh'
+  " > "${_out}" 2>&1 &
+  local _pid=$! _i=0
+  while (( _i < 1000 )); do
+    [[ -f "${_marker}" ]] && break
+    sleep 0.02
+    _i=$(( _i + 1 ))
+  done
+  run test -f "${_marker}"
+  assert_success
+  kill -TERM "${_pid}" 2>/dev/null || true
+  local _j=0
+  while (( _j < 600 )); do
+    grep -F "so there is NO verdict" "${_out}" >/dev/null 2>&1 && break
+    sleep 0.02
+    _j=$(( _j + 1 ))
+  done
+  kill -KILL "${_pid}" 2>/dev/null || true
+  wait "${_pid}" 2>/dev/null || true
+  run cat "${_out}"
+  assert_output --partial "so there is NO verdict"
+  run git -C "${_root}" status --porcelain
+  assert_output ""
 }

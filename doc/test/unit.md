@@ -3724,7 +3724,7 @@ builds nothing and pushes nothing)
 | `multi-distro-build-worker.yaml: ci-passed job has explicit name: ci-passed (matches existing multi-distro rollup contract) (#325 B-1)` | - |
 | `multi-distro-build-worker.yaml: every job's grant is pinned as an exact set (#957)` | - |
 
-### test/bats/unit/mutation_probe_spec.bats (54)
+### test/bats/unit/mutation_probe_spec.bats (58)
 
 A green suite says every assertion ran. It does not say any of them would
 have noticed a wrong answer, and the v0.43 retrospective measured how far
@@ -3818,6 +3818,10 @@ Faking that comparison would test a control this repo does not ship.
 | `_mutation_probe_await_daemon: asks nothing when the built-in runner did not run` | the question is only meaningful for the built-in runner. A caller-supplied runner has no compose project, and asking anyway would make every such probe depend on a daemon it never used. |
 | `_mutation_probe: refuses a mutation that STAGED what it wrote` | the working tree is not the whole state a checkout carries. A mutation that stages what it wrote left the mutation in git's index after the bytes had been put back, with the probe reporting a restored tree -- and the next commit would have shipped it. |
 | `_mutation_probe_verify_restored: fails when the INDEX moved even though the bytes match` | the restoration verdict has to be able to say no about the index as well. A verifier that only compared bytes would report a restored tree over an index still carrying the mutation, which is the half that gets committed. |
+| `_mutation_probe_await_daemon: a daemon it cannot ask counts as HELD` | "I could not find out" and "nothing is running" are not the same answer, and only one of them is safe. A daemon that cannot be asked has to count as held, or the probe approves a restore into a checkout it knows nothing about. |
+| `_mutation_probe_await_daemon: a project with nothing running is released` | the other direction, so the check cannot be satisfied by always refusing. A project with nothing running is released, and the restore proceeds. |
+| `_mutation_probe_await_daemon: an unresolvable project name counts as HELD` | a project name the probe cannot resolve is the same class of answer as a daemon it cannot ask -- it has not established that nothing is running. |
+| `_mutation_probe: a signal during the DAEMON WAIT still restores` | the daemon wait can take half a minute, and the traps used to come off BEFORE it. A ctrl-c in that window killed the probe with the subjects still mutated and nothing left to put them back. |
 
 ### test/bats/unit/network_ports_inert_spec.bats (15)
 

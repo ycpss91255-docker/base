@@ -386,7 +386,11 @@ _mutation_probe_emergency_restore() {
 _mutation_probe_signal_restore() {
   trap - EXIT INT TERM
   _mutation_probe_stop_child
-  _mutation_probe_await_daemon "${_MUTATION_PROBE_ROOT}" || true
+  # Not repeated. A signal that arrives DURING the wait is the operator saying
+  # stop, and asking the same question again for another half a minute is the
+  # opposite of that -- the restore is what they are waiting for.
+  (( _MUTATION_PROBE_AWAITED )) \
+    || _mutation_probe_await_daemon "${_MUTATION_PROBE_ROOT}" || true
   _mutation_probe_emergency_restore || true
   _mutation_probe_err "interrupted, so there is NO verdict: a measurement over a suite that was stopped partway cannot be told apart from a finished one."
   exit 3
@@ -611,24 +615,72 @@ _mutation_probe_own_group() {
   [[ "${_pgrp}" == "${_pid}" ]]
 }
 
-# _mutation_probe_await_daemon <root> -- wait until the daemon has let go of
-# this checkout's compose project, so nothing is writing into the tree the
-# restore is about to rewrite.
+# Seconds the daemon is given to let go of the project before the probe calls it
+# held. One second per try.
+: "${_MUTATION_PROBE_DAEMON_TRIES:=30}"
+
+# Whether the daemon question has already been put. A signal handler must not
+# repeat a wait the signal interrupted: the operator asked for this to stop.
+_MUTATION_PROBE_AWAITED=0
+
+# _mutation_probe_project_containers <project> -- the ids of RUNNING containers
+# belonging to <project>, one per line; non-zero when the daemon could not be
+# asked. Its own function so it can be stubbed: the probe's behaviour on each
+# answer is what matters, and a case must not depend on a live daemon.
 #
-# Killing the child's process group is not enough when the suite runs in a
-# container: `docker compose run` starts a container that belongs to the
-# DAEMON, not to any process group this script can signal, and it keeps the
-# checkout bind-mounted. So a probe that restored right after the kill could
-# have its restored files overwritten by a container nobody was waiting on.
+# Running only, because an exited or created container cannot write. The label
+# is the one compose stamps and the one this tree already addresses projects by.
+_mutation_probe_project_containers() {
+  docker ps --quiet \
+    --filter "label=com.docker.compose.project=${1}" 2>/dev/null
+}
+
+# _mutation_probe_await_daemon <root> -- 0 once no container of this checkout's
+# compose project is running; non-zero, having said why, otherwise.
 #
-# The question is asked with the runner's own primitive rather than with
-# compose knowledge copied in here: `test.sh --await-project` waits for the
-# project network to be released and, when it is not, refuses by naming the
-# container and the verb that clears it. Only asked when the BUILT-IN runner
-# ran, because a caller-supplied runner has no project this could be about.
+# Killing the child's process group does not reach a CONTAINER. The suite runs
+# through `docker compose run`, whose container belongs to the DAEMON, not to
+# any process group this script can signal, and it keeps the checkout
+# bind-mounted -- so a probe that restored right after the kill could have its
+# restored files overwritten by a container nobody was waiting on.
+#
+# `test.sh --await-project` was tried first and is the WRONG primitive, which is
+# worth recording because it reads like the right one. Its blocker list skips a
+# container in the `running` state on purpose -- its question is whether a
+# PREVIOUS run has let go of the network, not whether a current one has stopped
+# writing -- so it would have approved the restore in exactly the case this
+# check exists for. What is reused instead is the project NAME, from the single
+# producer that mints it.
+#
+# A daemon that cannot be asked counts as HELD. "I could not find out" and
+# "nothing is running" are not the same answer, and only one of them is safe.
+#
+# Only asked when the BUILT-IN runner ran: a caller-supplied runner has no
+# compose project this could be about.
 _mutation_probe_await_daemon() {
+  local _root="${1}" _name _ids _i=0
   (( _MUTATION_PROBE_DEFAULT_RUNNER )) || return 0
-  "${1}/script/test/test.sh" --await-project
+  _MUTATION_PROBE_AWAITED=1
+  if ! _name="$("${_root}/script/test/test.sh" --compose-project-name 2>/dev/null)"
+  then
+    _mutation_probe_err "could not resolve this checkout's compose project name, so whether a container is still holding the checkout cannot be established -- treating it as held."
+    return 1
+  fi
+  if [[ -z "${_name}" ]]; then
+    _mutation_probe_err "this checkout's compose project name came back empty, so whether a container is still holding the checkout cannot be established -- treating it as held."
+    return 1
+  fi
+  while (( _i < _MUTATION_PROBE_DAEMON_TRIES )); do
+    if ! _ids="$(_mutation_probe_project_containers "${_name}")"; then
+      _mutation_probe_err "the daemon could not be asked which containers of project ${_name} are running, so whether one is still holding the checkout cannot be established -- treating it as held."
+      return 1
+    fi
+    [[ -z "${_ids}" ]] && return 0
+    sleep 1
+    _i=$(( _i + 1 ))
+  done
+  _mutation_probe_err "containers of compose project ${_name} are still RUNNING after ${_MUTATION_PROBE_DAEMON_TRIES}s: ${_ids//$'\n'/ }. One of them has this checkout bind-mounted. Clear it with: just test stop"
+  return 1
 }
 
 # _mutation_probe_stop_child -- stop the suite and WAIT for it, before any
@@ -939,18 +991,26 @@ _mutation_probe() {
   # unconditional `return`, so a red run whose restore had failed reported
   # PINNED and exit 0 with the mutation still in the tree.
   _probe_put_back() {
-    trap - EXIT INT TERM
+    # The traps stay ARMED across the stop, the daemon wait and the restore,
+    # and come off only once the outcome is known. Disarming first left a
+    # signal during the wait -- which can be half a minute -- killing the
+    # probe with the subjects still mutated and nothing left to put them
+    # back. The handler disarms itself on entry, so it cannot re-enter, and
+    # the restore it does is the same idempotent copy as the one here.
     _mutation_probe_stop_child
     local _held=0
     _mutation_probe_await_daemon "${_root}" || _held=1
     if ! _mutation_probe_restore "${_rec}" "${_root}" "${_subjects[@]}"; then
+      trap - EXIT INT TERM
       _mutation_probe_err "the restore itself failed. The recorded originals are kept in ${_rec} -- copy them back before anything else reads this checkout."
       return 3
     fi
     if ! _mutation_probe_verify_restored "${_rec}" "${_root}" "${_subjects[@]}"; then
+      trap - EXIT INT TERM
       _mutation_probe_err "the recorded originals are kept in ${_rec} -- copy them back before anything else reads this checkout."
       return 3
     fi
+    trap - EXIT INT TERM
     _MUTATION_PROBE_RECORD_DIR=''
     _MUTATION_PROBE_SUBJECTS=()
     _MUTATION_PROBE_INDEX_STATE=''
