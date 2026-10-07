@@ -268,7 +268,7 @@ function _args(kind, text, qs, adj, n, ci, out,   j, m, skip) {
 # first positional to a _log_* body slot? Either directly ("${1}") or
 # through a name the same definition assigns "${1}" to, which is how
 # test.sh spells it (`local _ev="${1}"; ... _log_err ci "${_ev}"`).
-function _forwards(text,   n, i, K, T, Q, EX, AJ, A, cmd, tok, nm, alias) {
+function _forwards(text,   n, i, K, T, Q, EX, AJ, A, cmd, shifted, tok, nm, alias) {
   n = _tokenize(text, K, T, Q, EX, AJ)
   # ONE walk, in order. The alias set -- names this definition assigns
   # its own first positional to -- is updated as the commands go past,
@@ -293,10 +293,16 @@ function _forwards(text,   n, i, K, T, Q, EX, AJ, A, cmd, tok, nm, alias) {
     }
     if (!cmd) continue
     if (_opens_another(T, Q, i)) continue
+    # `shift` and `set --` move the POSITIONALS, so a `$1` logged after
+    # one is not the caller first argument. The flag is on the
+    # positionals and not on the definition, which is what keeps the
+    # tree own `_die` working: it captures `${1}` into a local BEFORE
+    # shifting, and an alias taken before the shift still forwards.
+    if (!Q[i] && (T[i] == "shift" || T[i] == "set")) { shifted = 1; cmd = 0; continue }
     if (T[i] ~ /^_log_(debug|info|warn|err|fatal)$/ && _args(K, T, Q, AJ, n, i, A) >= 2) {
       if (!EX[A[2]]) { cmd = 0; continue }
       tok = T[A[2]]
-      if (tok == "${1}" || tok == "$1") return 1
+      if (!shifted && (tok == "${1}" || tok == "$1")) return 1
       if (match(tok, /^[$][{]?[A-Za-z_][A-Za-z0-9_]*[}]?$/)) {
         nm = tok; gsub(/[$={}]/, "", nm)
         if (nm in alias) return 1
@@ -429,7 +435,15 @@ function _tokenize(line, kind, text, qs, ex, adj,   n, i, c, e, cur, has, j, L, 
       has = 1
       continue
     }
-    if (c == "\\" && i < L) { cur = cur substr(line, i + 1, 1); has = 1; i += 2; continue }
+    # A BACKSLASH QUOTES the character after it, so `\time` is the
+    # external command and not the shell keyword. Recorded like any other
+    # quoting: without it the word read as the keyword, kept the command
+    # position open, and made the name behind it a call.
+    if (c == "\\" && i < L) {
+      if (!qst) qst = length(cur) + 1
+      cur = cur substr(line, i + 1, 1); has = 1; i += 2
+      continue
+    }
     # An UNQUOTED substitution belongs to the word it sits in, and its
     # closing parenthesis is not a command separator -- exposing it as
     # one puts the next argument of an ordinary command at a command

@@ -698,6 +698,36 @@ _seed() {
   [[ "${output}" == *"dist/script/docker/lib/order.sh:2: order_missing"* ]]
 }
 
+# why: `shift` moves the positionals, so a `$1` logged after one is not the
+# caller's first argument. Declaring such a function a wrapper reports
+# the wrong argument of every call of it -- and hides the right one. The
+# flag is on the POSITIONALS and not on the definition, which is what
+# keeps the tree's own `_die` working: it captures `${1}` into a local
+# BEFORE shifting, and an alias taken before the shift still forwards
+@test "_run_log_event_registry: PASSES a function that shifts before logging its positional" {
+  _seed seed_ok
+  _write "dist/script/docker/lib/shifted.sh" \
+    'second() { shift; _log_err ci "$1"; }' \
+    'second not_an_event seed_ok'
+  run _run_log_event_registry
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"log event registry lint: clean"* ]]
+}
+
+# why: A backslash QUOTES the character after it, so `\time` is the external
+# command and not the shell keyword. The escape was removed without
+# recording that the word had been quoted, so the word read as the
+# keyword, kept the command position open, and made the name behind it a
+# call
+@test "_run_log_event_registry: PASSES a backslash-escaped keyword in front of a logger name" {
+  _seed
+  _write "dist/script/docker/lib/esckw.sh" \
+    '\time _log_err conf not_an_event'
+  run _run_log_event_registry
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"log event registry lint: clean"* ]]
+}
+
 # why: A comment ends at the NEXT NEWLINE, and a logical line now holds several
 # of them -- a substitution written over several lines is one logical
 # line. Ending the whole read at the first `#` therefore discarded every
