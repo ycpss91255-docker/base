@@ -199,6 +199,191 @@ cycle, and carried a `lint-static (i18n-orphan)` row pointing at a check that
 has not existed since the matrix became a partition of groups. Only the
 "Enforces" column is authored: it is prose a person writes, not a figure.
 
+## Breaking the behaviour on purpose: `just test mutation-probe`
+
+```bash
+just test mutation-probe --subject script/test/drivers/thing.sh \
+  --mutate 'sed -i "/^_run_thing() {/a   return 0" script/test/drivers/thing.sh'
+```
+
+A green suite says every assertion ran. It does not say any of them would
+notice a **wrong answer**, and those two statements are further apart than
+they look. The v0.43 retrospective audited the cycle by REMOVING each PR's
+production change and re-running its tests -- which finds a test that does not
+notice absence, and cannot find a test that notices absence and would miss a
+wrong answer. A guard that only greps for a string still turns red when the
+file carrying that string is deleted, so under a revert it scores identically
+to a behavioural guard. Four assertion groups shipped in that blind spot, and
+ten more PRs' tests failed on revert only with `command not found` or
+`No such file`.
+
+So the probe puts the production code back and breaks its **behaviour** in
+place. A test that survives that was never pinning the behaviour; a test that
+fails names itself as the one that was, which is the line to quote when
+saying what a change is covered by.
+
+**Measured on the tree that shipped this recipe.** Deleting
+`dist/script/docker/wrapper/build.sh` -- the subject of
+`reclaim_wiring_spec.bats`'s "the verbs that BEGIN a flow do not reclaim" --
+leaves that spec at 32 ok / 0 not ok, because the assertion is a refutation
+and a refutation over a file that is not there is satisfied by its absence.
+The same mutation at tier scope is 4667 ok / 109 not ok, with the witnesses in
+`build_sh_spec.bats`.
+
+**How much ran decides what a green may be called, and that is the whole
+reason this is a recipe rather than a habit.** The audit's follow-up
+(base#1108) asked the question per file: revert the production change, re-run
+THE ONE SPEC THAT PR EDITED, call the change untested if that spec is green.
+Six changes were named on that basis. Measured afterwards, five of the six had
+a failing witness in a **sibling** spec from the same PR, one was a genuine
+gap, and one did not reproduce at all -- so the defect in the five was the
+coverage accounting, not the coverage. A spec that stays green under a
+mutation has answered about itself; only a tier-wide run can say the suite
+does not pin a behaviour. The probe therefore reports:
+
+| | a red | a green |
+|---|---|---|
+| tier scope (default) | `PINNED`, naming every witness | `NOT PINNED` -- the finding |
+| `--spec <path>` | `PINNED`; a red needs no scope | `INCONCLUSIVE`, never `NOT PINNED` |
+
+Run the whole tier, then ask which spec should have been the one to notice.
+
+**It runs the scope twice, and that is the price of an attributable red.** The
+first run is the chosen scope **unmutated**: without it the probe cannot say
+anything *turned* red, and on a checkout that already has a failing test -- the
+normal state of a tree reached mid-change -- every mutation would report
+`PINNED` and name that pre-existing failure as its witness. A baseline that is
+not clean is **refused** rather than subtracted, because the method presumes the
+suite was green before the behaviour was broken, and a subtraction would let the
+probe report over failures nobody has explained.
+
+**It cannot leave the tree mutated.** Every declared `--subject` is recorded
+(bytes and mode) before anything is touched and restored from that record --
+not from git, which cannot see an uncommitted edit you are in the middle of.
+The restoration is then **verified** against the record, and a failure is
+loud, names the file, keeps the record directory and exits refused; an
+`INT` / `TERM` stops the runner, restores, and exits **without reporting
+anything** -- a measurement over a suite killed partway cannot be told apart
+from a finished one's -- and an `EXIT` trap covers the rest. The tree is also
+compared before and after the mutation: a fingerprint -- content, type, mode
+and link target -- for **every tracked path** plus everything git reports as
+untracked or ignored. The dirty set alone is not enough, and neither is a
+status code: a file that was already dirty stays ` M` through a second edit,
+`chmod 600` on a clean tracked file moves nothing git records, and an ignored
+file is invisible to `git status` by definition -- which matters because the
+files this repo ignores include the generated config the suite under
+measurement reads. An ignore pattern naming a *directory*, as `coverage/` and
+`log/` do, is reported by git as that directory, so its contents are enumerated
+and the directory entry itself dropped -- git prints the directory while the
+rule stands and the individual files once it goes, and a snapshot keeping both
+spellings refused a mutation of `.gitignore` over a directory nobody touched.
+The cost, stated: a directory's own mode is not watched. The root must be the
+**top** of its work tree, because git's two listings answer relative to
+different places otherwise and a declared subject comes back as an undeclared
+edit. A mutation command that edited a path it did not declare is
+refused there, before a multi-minute suite carries that edit past the point
+anyone is watching. Nothing outside the checkout is covered, and no snapshot of
+a checkout could be: a mutation command is arbitrary shell.
+
+The restore removes the destination before writing, which is not tidiness:
+`cp` writes *through* a destination symlink, so a mutation that replaced the
+subject with a link would have the restore overwrite that link's target -- an
+undeclared file destroyed by the step whose only job is to put things back. The
+same applies one directory up, so every ancestor is checked to be a real
+directory -- both when a subject is **declared**, because a subject reached
+through a link could otherwise be mutated and then not restored, and again
+before the restore writes. The checkout **root** is checked by device and
+inode rather than by its path, because swapping it (`mv tree tree-saved;
+ln -s outside tree`) is precisely the move that keeps the path.
+
+A mutation may not **stage or commit** what it writes. The working tree is not
+the whole state a checkout carries: `git add` leaves the mutation in the index
+after the bytes are back, where the next commit ships it, and `git commit` has
+shipped it already. What git records -- the index entries and HEAD, hashed as
+themselves rather than as a difference from a HEAD the mutation can move -- is
+compared before the suite runs and again as part of the restoration verdict.
+It is refused, not undone: the probe does not rewrite an index or a history it
+did not write, so it restores the files, names `git restore --staged` and exits
+refused.
+
+A background process a mutation or a suite spawned cannot outlive it either.
+Waiting for a child's shell does not wait for what that shell backgrounded, so
+the probe reaps the whole process group the moment the leader is reaped -- at
+the fork site, where the pid is one it reaped microseconds ago rather than a
+number the kernel may since have handed to someone else.
+
+Two inputs are refused before anything is touched. A **symlink** subject: an
+in-place editor replaces a link with a regular file, and a restore that put the
+bytes back would leave a file where a link was and call it restored, so the
+refusal names the target instead -- which is where the behaviour lives anyway.
+And every inherited `BATS_*` selector is **cleared** from the runner's
+environment, because `--bats-only` with an exported `BATS_FILE` or
+`BATS_FILTER` runs a subset while the verdict would still say `scope=tier`:
+the prefix is the rule, so a sixth selector is covered the day it is added.
+
+**Five measurements it refuses to report as verdicts**, because each one's
+number is the number a sound suite prints too: a mutation that left every
+subject byte-identical (the green is the baseline, so the sed expression
+matched nothing), a run that executed no tests at all (a broken runner, not a
+finding about the tests), a run that reported some passes and then died (the
+same hole with a plausible number on it -- the runner's exit status is what
+tells them apart), a green that executed **fewer** assertions than the baseline
+(the mutation removed the assertions instead of being observed by them, which
+is what deleting a dispatch from a driver does), and the narrow green above. A
+**skip** is not an execution: bats reports one as `ok N name # skip ...`, and
+counting it would let a mutation erase the evidence against itself and still
+look measured. A **red** is held to none of these: something observed the wrong
+answer, and that stands however much else ran.
+
+An interrupt stops the current child's whole process group and waits for it,
+under a bounded grace period before escalating to `KILL` -- a child that
+ignores `TERM` would otherwise leave the probe waiting forever with the tree
+still mutated, which is worse than either a stuck suite or a mutated tree
+alone. The **mutation** is such a child too, and for the same reason: bash
+defers a trap until the foreground command finishes, so a mutation that hangs
+after editing the subject would hold the handler off indefinitely.
+
+Signalling a process group does not reach a **container**, though, and the
+suite runs in one: `docker compose run` starts a container that belongs to the
+daemon and keeps the checkout bind-mounted, so it could overwrite the restored
+files afterwards. Before restoring, the probe therefore waits until no container
+of this checkout's compose project is running -- the project name from the single
+producer that mints it, the containers from the label compose stamps. A daemon it
+cannot ask counts as **held**: "I could not find out" and "nothing is running"
+are not the same answer. (`test.sh --await-project` was tried first and is the
+wrong primitive, which is worth knowing because it reads like the right one: its
+blocker list skips a `running` container on purpose, because its question is
+whether a *previous* run has let go of the network.) The restore happens either
+way, because a tree left mutated is the worse of the two, and the probe then
+exits refused saying a container was still holding the checkout.
+
+The restoration traps stay armed across all of that -- the stop, the wait and the
+restore -- and come off only once the outcome is known, because the wait can take
+half a minute and a ctrl-c inside it used to kill the probe with the subjects
+still mutated. A signal during the wait does not restart it: that is the operator
+saying stop, and the restore is what they are waiting for.
+
+**The mutation is yours, because only you know what the behaviour is.** Five
+shapes earned their place during the audit: `return 0` at the top of a driver
+(the cheapest, and the one validated twice); deleting a step from a workflow;
+renaming a function away from its callers; inverting a branch; and a
+behaviour-**preserving** refactor, which is the one the others cannot replace.
+Every destructive mutation turns a text-matching guard red, so all four make a
+grep look behavioural. A refactor that preserves behaviour must leave the
+suite GREEN, and a red there means the test is pinned to the text. Three greps
+audited on base#1117 were anti-correlated exactly that way: green through a
+total inversion of the branch, green with the subject removed entirely, and
+red on a behaviour-preserving refactor.
+
+The verdict is published only after the tree is proven back, and never
+instead of a restoration failure: that failure is the more important news, and
+a verdict printed above it reads as the answer.
+
+Exit status: 0 `PINNED`, 1 `NOT PINNED`, 2 `INCONCLUSIVE`, 3 refused. The
+recipe is wired into no gate and no CI job: it is an on-demand loop like
+`just test coverage-path`, and whether running it is required before a change
+lands is a policy question this recipe does not answer.
+
 ## Maintaining these docs
 
 Every figure and every catalogue section in this directory is derived from the
