@@ -257,6 +257,14 @@ function _tokenize(line, kind, text, qs,   n, i, c, cur, has, j, L, sq, qst) {
       while (i <= L) {
         c = substr(line, i, 1)
         if (c == "\\" && i < L) { cur = cur substr(line, i + 1, 1); i += 2; continue }
+        # A command substitution RUNS what is inside it, and double quotes
+        # do not stop that. Its span is kept VERBATIM, inner quotes
+        # included, so _scan can descend into it; dissolving the quotes
+        # here would leave a fragment no reader could make sense of.
+        if (c == "$" && substr(line, i + 1, 1) == "(") {
+          j = _subst_end(line, i + 1)
+          if (j > 0) { cur = cur substr(line, i, j - i + 1); i = j + 1; continue }
+        }
         if (c == "\"") { i++; break }
         cur = cur c; i++
       }
@@ -292,7 +300,7 @@ function _opens_another(text, qs, i) {
 # One folded line: count the emit sites it holds and print the literal
 # ids among them. <ln> is the FIRST physical line of the fold, which is
 # the line a reader of the report opens.
-function _scan(line, ln,   n, i, K, T, Q, cmd) {
+function _scan(line, ln,   n, i, K, T, Q, cmd, skip, w, k, e) {
   n = _tokenize(line, K, T, Q)
   # The command position is CARRIED, not inferred from the token behind:
   # it starts true, every operator restores it, a keyword or an assignment
@@ -301,7 +309,17 @@ function _scan(line, ln,   n, i, K, T, Q, cmd) {
   # argument, nor a quoted `then` from the keyword.
   cmd = 1
   for (i = 1; i <= n; i++) {
+    # A REDIRECTION is not a separator and its operand is a FILENAME.
+    # Consuming the pair together leaves the command position where it
+    # was: otherwise `>/dev/null _log_err ...` lets the filename take the
+    # position and the logger behind it is never read, while `> _die x`
+    # makes a filename look like a wrapper call.
+    if (K[i] == "O" && T[i] ~ /^(<|>|<<|>>|<>)$/) { skip = 1; continue }
     if (K[i] == "O") { cmd = 1; continue }
+    if (skip) { skip = 0; continue }
+    # An fd prefix belongs to the redirection behind it, not to the
+    # command position: `2>/dev/null` is one redirection.
+    if (T[i] ~ /^[0-9]+$/ && i < n && K[i + 1] == "O" && T[i + 1] ~ /^(<|>|<<|>>|<>)$/) continue
     if (!cmd) continue
     if (_opens_another(T, Q, i)) continue
     if (T[i] ~ /^_log_(debug|info|warn|err|fatal)$/) {
@@ -317,6 +335,42 @@ function _scan(line, ln,   n, i, K, T, Q, cmd) {
     }
     cmd = 0
   }
+  # Descend into every command substitution a word still carries. An
+  # UNQUOTED one was split on its parentheses above and is already read;
+  # this is the quoted kind the tokeniser kept whole. Each inner text is
+  # strictly shorter than the word holding it, so the recursion ends.
+  for (i = 1; i <= n; i++) {
+    if (K[i] != "W") continue
+    w = T[i]
+    while ((k = index(w, "$(")) > 0) {
+      e = _subst_end(w, k + 1)
+      if (e == 0) break
+      _scan(substr(w, k + 2, e - k - 2), ln)
+      w = substr(w, e + 1)
+    }
+  }
+}
+# _subst_end(<text>, <index of the opening parenthesis>) -> index of its
+#   match, or 0. Counts nesting and skips quoted runs, so the span of a
+#   command substitution can be taken whole.
+function _subst_end(text, i,   L, d, c, sq, st) {
+  L = length(text); sq = sprintf("%c", 39); d = 0; st = 0
+  while (i <= L) {
+    c = substr(text, i, 1)
+    if (st == 1) { if (c == sq) st = 0; i++; continue }
+    if (st == 2) {
+      if (c == "\\" && i < L) { i += 2; continue }
+      if (c == "\"") st = 0
+      i++
+      continue
+    }
+    if (c == sq) { st = 1; i++; continue }
+    if (c == "\"") { st = 2; i++; continue }
+    if (c == "(") { d++; i++; continue }
+    if (c == ")") { d--; if (d == 0) return i; i++; continue }
+    i++
+  }
+  return 0
 }
 # _lex_state(<physical line>, <state in>) -> <state out>
 #   The fold needs two facts the tokeniser cannot give it, because the
@@ -336,6 +390,10 @@ function _lex_state(line, st,   i, L, c, sq, pv) {
     if (st == 1) { if (c == sq) st = 0; i++; continue }
     if (st == 2) {
       if (c == "\\" && i < L) { i += 2; continue }
+      # Inside double quotes bash removes a backslash-newline too, so this
+      # is a continuation like any other -- and the body it splits is
+      # still one literal id.
+      if (c == "\\") { _LEX_CONT = 1; return st }
       if (c == "\"") st = 0
       i++
       continue
@@ -391,7 +449,11 @@ PHASE == "emit" {
   # the fold continues until it closes. Help text spanning several lines
   # is the ordinary way a shipped script spells its usage, and an inner
   # line of it reads exactly like a call.
-  if (qst != 0) { buf = buf $0 " "; next }
+  if (qst != 0) {
+    if (_LEX_CONT) { buf = buf substr($0, 1, length($0) - 1) }
+    else { buf = buf $0 " " }
+    next
+  }
   # A trailing backslash OUTSIDE a comment continues the line, and the
   # halves are joined with NOTHING between them, which is what bash does:
   # a word may be split across the fold and still be one word. A space

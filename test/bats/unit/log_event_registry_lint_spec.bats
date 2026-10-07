@@ -364,6 +364,56 @@ _seed() {
   [[ "${output}" == *"dist/script/docker/lib/cmt.sh:2: after_comment_missing"* ]]
 }
 
+# why: Inside DOUBLE quotes bash removes a backslash-newline too, so a body may
+# be split across one and still be a single literal id. The fold joined
+# with a space there and kept the backslash, because the zero-character
+# join was only reached when no quote was open -- so the body slot got a
+# word no id matches and the site fell out silently. Two folding rules for
+# one shell rule is one rule too many
+@test "_run_log_event_registry: FAILS on a quoted body split across a continuation" {
+  _seed
+  _write "dist/script/docker/lib/qsplit.sh" \
+    '_log_err conf "qsplit_\' \
+    'missing" "display=boom"'
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/qsplit.sh:1: qsplit_missing"* ]]
+}
+
+# why: A REDIRECTION is not a command separator, and its operand is a filename
+# rather than a command. Treating `<` and `>` like `;` broke it both ways
+# at once: a leading `>/dev/null` let the FILENAME take the command
+# position so the logger behind it was never read, and a `> _die` made a
+# filename look like a wrapper call and reported the next word. The
+# operator and its operand are consumed together now, leaving the position
+# where they found it
+@test "_run_log_event_registry: reads a call behind a redirection and ignores a redirection target" {
+  _seed
+  _write "dist/script/docker/lib/redir.sh" \
+    '>/dev/null _log_err conf redir_missing "display=boom"' \
+    'printf "%s\n" > _die not_an_event'
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/redir.sh:1: redir_missing"* ]]
+  [[ "${output}" != *"not_an_event"* ]]
+}
+
+# why: A command substitution RUNS what is inside it, quoted or not. Unquoted
+# the tokeniser already split on the parentheses and read the call; inside
+# double quotes the whole substitution was absorbed into one word, so
+# `x="$(_log_err conf id)"` emitted a literal id nothing checked. The body
+# here is not the unresolvable kind this driver declines -- it is written
+# out in the source -- so the scan descends into the substitution instead,
+# while ordinary quoted message text stays one inert word
+@test "_run_log_event_registry: FAILS on a body inside a quoted command substitution" {
+  _seed
+  _write "dist/script/docker/lib/subst.sh" \
+    'result="$(_log_err conf subst_missing "display=boom")"'
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/subst.sh:1: subst_missing"* ]]
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _run_log_event_registry: what it leaves alone
 # ════════════════════════════════════════════════════════════════════
