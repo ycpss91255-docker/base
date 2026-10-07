@@ -62,14 +62,25 @@
 # nothing rather than overwriting `:latest`.
 #
 # The merge job's ORDER is pinned here too, over a population read off the
-# workflow's own jobs and steps: no step may let a registry tag name content
-# that no step of that job has run yet. The smoke step -- the only check this
-# image has, since no job of this workflow needs self-test.yaml -- used to
-# verify a tag, which cannot exist before the manifest create, so it ran
-# after the publish it was supposed to authorise and a red verdict left the
-# moved tag standing. It verifies a digest now; the tag's own resolution is
-# checked by the step after the create, which is the only assertion that
-# needs the tag to exist.
+# workflow files themselves -- every file of `.github/workflows/`, every job
+# of its `jobs:` mapping, every step of each job's `steps:` list: no step may
+# let a registry tag name content that no step of that job has run yet. The
+# smoke step -- the only check this image has, since no job of this workflow
+# needs self-test.yaml -- used to verify a tag, which cannot exist before the
+# manifest create, so it ran after the publish it was supposed to authorise
+# and a red verdict left the moved tag standing. It verifies a digest now; the
+# tag's own resolution is checked by the step after the create, which is the
+# only assertion that needs the tag to exist.
+#
+# That scan is DIRECTORY-WIDE and not about this file alone, which is why it
+# lives under its own divider below rather than among the cases above. A tag
+# naming content nothing ran is the same defect whichever workflow publishes
+# it, and this one was merely where it was found first: `publish-worker.yaml`
+# carried it one file over, with a `merge` job whose only check after the
+# manifest create was an `imagetools inspect` asking the registry whether a
+# manifest existed (#1214). Each publishing workflow's own shape is pinned by
+# its own spec; what is pinned here is the order, over whatever files the
+# directory holds.
 #
 # Four of the cases below RUN the resolver rather than reading it: the step's
 # own `run:` body is extracted with yq and executed against each ref shape.
@@ -83,6 +94,12 @@ setup() {
   WF="/source/.github/workflows/release-test-tools.yaml"
   assert_spec_subject "${WF}" \
       "the test-tools release workflow this spec pins"
+  # The publish-ordering scan below reads the whole directory, not one file:
+  # its subject is the population, so a renamed or moved workflow tree has to
+  # fail here rather than shrink the scan to nothing.
+  WF_DIR="/source/.github/workflows"
+  assert_spec_subject_dir "${WF_DIR}" \
+      "the workflow directory whose publish ordering this spec scans"
   # Scratch for the workflow FIXTURES the publish-ordering cases need. Three
   # of the shapes that scan has to classify are ones the real workflow must
   # never contain, so they can only be exercised over a file written here --
@@ -132,11 +149,25 @@ _smoke_step() {
 # would have had to remember.
 #
 # A step ATTACHES a tag when its shell runs `imagetools create` or `docker
-# push`, or when it hands an action a non-empty `tags:` input -- the three
-# ways a tag in this registry comes to name a digest. A step VERIFIES when it
-# runs the image: `docker run` is the only thing in this workflow that
-# executes what was built, so it is the only thing whose success says the
-# content works. `docker pull` is not verification; it is a download.
+# push`, or when it hands an action a non-empty `tags:` input AND that same
+# action pushes -- the three ways a tag in a registry comes to name a digest.
+#
+# The push half of that third way is load-bearing, not decoration. A `tags:`
+# input on a build that never pushes names an image in the runner's OWN image
+# store: no consumer can reach it and no registry tag moves for it.
+# self-test.yaml builds its run-scoped tooling image exactly that way in five
+# jobs, so reading the tag input alone reports five publishes nothing
+# verified the moment this scan looks at more than one file. The push is read
+# in both spellings build-push-action takes -- `push:` under `with:`, and
+# `push=true` inside its `outputs:` string, which is how the digest-only
+# shards here write it -- and a `push:` that is neither empty nor `false`
+# counts, so an expression-valued one is read as a push rather than waved
+# through.
+#
+# A step VERIFIES when it runs the image: `docker run` is the only thing these
+# workflows do that executes what was built, so it is the only thing whose
+# success says the content works. `docker pull` is not verification; it is a
+# download.
 #
 # An unreadable job is a `BUG:` line and a non-zero status, never a job with
 # no publish in it: a census that fails open reports perfect ordering for a
@@ -150,9 +181,20 @@ _publish_order_census() {
   while IFS= read -r _job; do
     [[ -n "${_job}" ]] || continue
     _status=0
+    # Each `with:` input arrives FOLDED ONTO ITS MARKER LINE. `tags:` and
+    # `outputs:` are both ordinarily block scalars -- one tag per line, one
+    # exporter per line -- and an unfolded value put every line but the first
+    # outside the marker, so `push=true` on a later exporter was read as part
+    # of the step's shell and missed. A pushing step then classified as
+    # attaching nothing.
     _steps="$(RTT_JOB="${_job}" yq -r '
         (.jobs[strenv(RTT_JOB)].steps // []) | .[]
-        | ("@@TAGS@@" + ((.with.tags // "") | tostring))
+        | ("@@TAGS@@"
+            + ((.with.tags // "") | tostring | split("\n") | join(" ")))
+          + "\n@@PUSH@@"
+            + ((.with.push // "") | tostring | split("\n") | join(" "))
+          + "\n@@OUTPUTS@@"
+            + ((.with.outputs // "") | tostring | split("\n") | join(" "))
           + "\n" + ((.run // "") | tostring) + "\n@@STEP@@"' \
         "${_wf}" 2>&1)" || _status=$?
     if [[ "${_status}" -ne 0 ]]; then
@@ -162,12 +204,34 @@ _publish_order_census() {
       return 1
     fi
     printf '%s\n' "${_steps}" | awk -v _job="${_job}" '
-      BEGIN { idx = 0; attach = -1; verify = -1 }
-      $0 == "@@STEP@@" { idx++; next }
+      BEGIN { idx = 0; attach = -1; verify = -1; tags = 0; pushes = 0 }
+      # The step ends here, which is where the two halves of the action rule
+      # are read together: both markers precede every line of the step they
+      # belong to, and idx still names this step until the increment below.
+      $0 == "@@STEP@@" {
+        if (attach < 0 && tags && pushes) { attach = idx }
+        idx++
+        tags = 0
+        pushes = 0
+        next
+      }
       /^@@TAGS@@/ {
         _v = $0
         sub(/^@@TAGS@@/, "", _v)
-        if (attach < 0 && _v ~ /[^[:space:]]/) { attach = idx }
+        if (_v ~ /[^[:space:]]/) { tags = 1 }
+        next
+      }
+      /^@@PUSH@@/ {
+        _v = $0
+        sub(/^@@PUSH@@/, "", _v)
+        gsub(/[[:space:]]/, "", _v)
+        if (_v != "" && _v != "false") { pushes = 1 }
+        next
+      }
+      /^@@OUTPUTS@@/ {
+        _v = $0
+        sub(/^@@OUTPUTS@@/, "", _v)
+        if (_v ~ /push=true/) { pushes = 1 }
         next
       }
       /^[[:space:]]*#/ { next }
@@ -208,6 +272,36 @@ _publish_order_violations() {
       printf ' step that runs the image at step %s\n' "${_verify}"
     fi
   done <<< "${_census}"
+}
+
+# _publish_order_violations_in <dir> -- the same report over every workflow
+# file of <dir>.
+#
+# The DIRECTORY is the population the rule is about. A registry tag naming
+# content nothing ran is the same defect whichever workflow attaches it, and
+# the file this scan was written against was only where it was found first:
+# `publish-worker.yaml` held the identical shape one file over, unscanned,
+# because the walk started at a path rather than at the directory. Derived
+# from the tree, so the third publishing workflow is covered the day it lands
+# instead of the day somebody remembers this scan exists.
+#
+# A file the census cannot read fails the whole walk, as it does for one file.
+# The remaining files are still reported rather than abandoned: one unparsable
+# workflow must not hide the violations standing in the others.
+_publish_order_violations_in() {
+  local _dir="${1}" _f _out _rc=0 _status
+  while IFS= read -r _f; do
+    [[ -n "${_f}" ]] || continue
+    _status=0
+    _out="$(_publish_order_violations "${_f}")" || _status=$?
+    if [[ "${_status}" -ne 0 ]]; then
+      _rc=1
+    fi
+    if [[ -n "${_out}" ]]; then
+      printf '%s\n' "${_out}"
+    fi
+  done < <(workflow_files "${_dir}")
+  return "${_rc}"
 }
 
 # _docker_stub -- put a `docker` on PATH that answers for ONE registry state,
@@ -698,40 +792,59 @@ _spec_prose() {
 # it, with nothing anywhere in the file that could put it back -- so a red
 # smoke left the moved tag standing, and on the measured v0.42.0 tag the tag
 # moved 5m58s before that commit's tests had any verdict at all (#1109). The
-# ordering is read off the workflow's own jobs and steps, so the job that
-# publishes does not have to be remembered here and a fourth one is in the
-# population the day it lands.
-@test "release-test-tools.yaml: no job attaches a registry tag ahead of the step that runs the image (#1109)" {
+# population is the workflow DIRECTORY, not the file that defect was found
+# in: `publish-worker.yaml` carried the identical shape one file over and was
+# scanned by nothing, because the walk started at a path (#1214). Jobs and
+# steps are read off each file, so neither the publishing workflow nor the
+# publishing job has to be remembered here.
+@test "publish ordering: no job of any workflow attaches a registry tag ahead of the step that runs the image (#1214)" {
   # The step that attaches the tags ran BEFORE the only step that executes
   # the image, and `failure()` / rollback / `imagetools rm` appear nowhere in
-  # the file -- so a failing smoke reported red with the tag already moved.
-  run _publish_order_violations "${WF}"
+  # either publishing workflow -- so a failing check reported red with the tag
+  # already moved.
+  run _publish_order_violations_in "${WF_DIR}"
   assert_success
   assert_output ""
 }
 
 # why: An empty violation list satisfies the case above whether the scan read
-# every job and found the ordering right, or read nothing and classified
-# nothing. So the population it walked and the pair it ordered are asserted,
-# not assumed.
-@test "release-test-tools.yaml: the ordering scan read every job and found the publish it ordered (#1109)" {
-  local _census _jobs _job
-  _census="$(_publish_order_census "${WF}")"
-  _jobs="$(yaml_job_names "${WF}")"
-  # One census line per job of the workflow, counted off the file's own jobs
-  # mapping, so a job outside the scan's population is a failure here.
-  assert_equal "$(printf '%s\n' "${_jobs}" | grep -c '')" \
-      "$(printf '%s\n' "${_census}" | grep -c '')"
-  while IFS= read -r _job; do
-    [[ -n "${_job}" ]] || continue
-    printf '%s\n' "${_census}" \
-      | grep -qE "^${_job} attach=-?[0-9]+ verify=-?[0-9]+$"
-  done <<< "${_jobs}"
-  # And some job really does both, so the clean result above is an ordering
-  # that was observed rather than a scan that recognised neither end of it.
-  run grep -cE ' attach=[0-9]+ verify=[0-9]+$' <<< "${_census}"
-  assert_success
-  [ "${output}" -ge 1 ]
+# every job of every workflow and found the ordering right, or read nothing
+# and classified nothing. So the files it walked, the jobs it read in each and
+# the pairs it ordered are asserted, not assumed -- and the ordered count is
+# held at two, because a single verified publish is what the directory looked
+# like while the second one went unchecked.
+@test "publish ordering: the scan read every job of every workflow and found the publishes it ordered (#1214)" {
+  local _files=0 _ordered=0 _f _census _jobs _job _both
+  while IFS= read -r _f; do
+    [[ -n "${_f}" ]] || continue
+    _files=$(( _files + 1 ))
+    _census="$(_publish_order_census "${_f}")"
+    _jobs="$(yaml_job_names "${_f}")"
+    # One census line per job of the file, counted off its own jobs mapping,
+    # so a job outside the scan's population is a failure here.
+    assert_equal "$(printf '%s\n' "${_jobs}" | grep -c '')" \
+        "$(printf '%s\n' "${_census}" | grep -c '')"
+    while IFS= read -r _job; do
+      [[ -n "${_job}" ]] || continue
+      printf '%s\n' "${_census}" \
+        | grep -qE "^${_job} attach=-?[0-9]+ verify=-?[0-9]+$"
+    done <<< "${_jobs}"
+    _both="$(grep -cE ' attach=[0-9]+ verify=[0-9]+$' <<< "${_census}" \
+        || true)"
+    _ordered=$(( _ordered + _both ))
+  done < <(workflow_files "${WF_DIR}")
+  # The directory really was walked, not a single file of it.
+  [ "${_files}" -ge 5 ] || {
+    echo "only ${_files} workflow file(s) walked"
+    return 1
+  }
+  # And BOTH publishing workflows really do both ends of the pair, so the
+  # clean result above is an ordering that was observed twice rather than a
+  # scan that recognised neither end of the second one.
+  [ "${_ordered}" -ge 2 ] || {
+    echo "only ${_ordered} job(s) both attach a tag and run the image"
+    return 1
+  }
 }
 
 # why: The live tree cannot exercise this shape -- a publish with no check at
@@ -813,6 +926,68 @@ YAML
   assert_success
   assert_output --partial 'job tagging attaches a registry tag at step 0'
   refute_output --partial 'job digest-only'
+}
+
+# why: A `tags:` input on a build that never pushes names an image in the
+# runner's OWN image store, which no consumer can reach and no registry tag
+# moves for. self-test.yaml builds its run-scoped tooling image exactly that
+# way in five jobs, so a rule reading the tag input without the push reports
+# five non-defects the moment this scan looks at more than one workflow -- and
+# the only way back from that is excluding them by name, which is the roster
+# this scan exists to avoid.
+@test "publish ordering: a tags input on a build that never pushes attaches nothing (#1214)" {
+  cat > "${SCRATCH}/local-tags.yaml" <<'YAML'
+name: fixture
+on: [push]
+jobs:
+  loaded-locally:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: docker/build-push-action@v7
+        with:
+          load: true
+          tags: test-tools:run-scoped
+  push-false:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: docker/build-push-action@v7
+        with:
+          push: false
+          tags: img:latest
+YAML
+  run _publish_order_violations "${SCRATCH}/local-tags.yaml"
+  assert_success
+  assert_output ""
+}
+
+# why: `tags:` and `outputs:` are both ordinarily written as BLOCK scalars --
+# a tag list has one tag per line, and a build that wants a local export
+# beside its registry push has one exporter per line. A classifier reading
+# only the first line of either value misses `push=true` on any later one, so
+# a tagged pushing step reads as attaching nothing and an unverified publish
+# passes the directory-wide scan with the guard looking straight at it
+# (#1214).
+@test "publish ordering: a multiline tags list and a pushing exporter on a later line still attach (#1214)" {
+  cat > "${SCRATCH}/multiline.yaml" <<'YAML'
+name: fixture
+on: [push]
+jobs:
+  late-exporter:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: docker/build-push-action@v7
+        with:
+          tags: |
+            img:latest
+            img:v1
+          outputs: |
+            type=local,dest=/tmp/export
+            type=image,push=true
+YAML
+  run _publish_order_violations "${SCRATCH}/multiline.yaml"
+  assert_success
+  assert_output --partial 'job late-exporter attaches a registry tag at step 0'
+  assert_output --partial 'no step of that job ever runs the image'
 }
 
 # why: A scan that cannot read a workflow must say so, not report it clean:
