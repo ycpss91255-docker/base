@@ -33,7 +33,7 @@
 # driver, which is where a whole-tree scan belongs (base#1075).
 #
 # THIRD, the reader is a word splitter and not a regex over the raw line,
-# and four cases are the reason. Two are MISSES -- a body wrapped onto a
+# and four cases were the reason to begin with. Two are MISSES -- a body wrapped onto a
 # continuation line, and a body an operator terminates without a space --
 # and two are FALSE FINDINGS: a call spelled out in a trailing comment,
 # and a wrapper name inside a message. The false findings are the half
@@ -41,6 +41,15 @@
 # register an id no shell will ever log is an author who mutes the lint,
 # and this driver spells several such calls in its own header while
 # sitting in the population it scans.
+#
+# The case list grew from there, one reproduced shape at a time, and what
+# it adds up to is a small shell word splitter: quoting of all three
+# kinds and its own context inside a substitution, redirections and their
+# operands, command position carried rather than guessed, folds over
+# continuations, open quotes, open substitutions and array initialisers.
+# Nothing here is a general shell parser and it does not claim to be --
+# where the reader cannot resolve a body it DECLINES, and where it cannot
+# finish reading a file it REFUSES rather than reporting what it managed.
 
 
 setup() {
@@ -747,6 +756,56 @@ _seed() {
   run _run_log_event_registry
   [ "${status}" -ne 0 ]
   [[ "${output}" == *"dist/script/docker/lib/tab.sh:1: %09seed_ok"* ]]
+}
+
+# why: QUOTING INSIDE A SUBSTITUTION IS ITS OWN. The fold kept one quote state
+# across the boundary, so a double quote inside a its own
+# single-quoted argument closed the quote OUTSIDE it -- and the fold then
+# never closed, so every line after it stayed in a buffer that is thrown
+# away at the next file. The rest of the file leaves the population with
+# nothing said about it, which is the silent shrink this driver refuses
+# everywhere else
+@test "_run_log_event_registry: FAILS after a substitution holding a quote of its own" {
+  _seed
+  _write "dist/script/docker/lib/subq.sh" \
+    "value=\"\$(printf '%s' '\"')\"" \
+    '_log_err conf after_subst_missing "display=boom"'
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/subq.sh:2: after_subst_missing"* ]]
+}
+
+# why: And when the fold does not close, the lint must SAY SO. A buffer still
+# open at the end of a file is the rest of that file leaving the
+# population, and the run before this one proved it goes unnoticed: the
+# other files satisfy every non-vacuity check and the clean line reads
+# normally. A reader cannot tell a tree with less in it from a scan that
+# stopped reading, so this is refused rather than counted
+@test "_run_log_event_registry: DIES when a file ends with a logical line still open" {
+  _seed
+  _write "dist/script/docker/lib/open.sh" \
+    '_log_err conf seed_ok "display=boom"' \
+    'value="never closed'
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/open.sh"* ]]
+  [[ "${output}" == *"ends with a logical line still open"* ]]
+}
+
+# why: A dollar sign is not an expansion when the shell never treats it as one.
+# `'"'"'missing$'"'"'` and `"missing\$"` are fully known literals, and the test
+# for an unresolved body ran on the text AFTER the quoting was removed,
+# where the two are indistinguishable -- so both were dropped. Whether an
+# expansion actually occurred is recorded while it can still be seen
+@test "_run_log_event_registry: FAILS on a literal body ending in a dollar sign" {
+  _seed
+  _write "dist/script/docker/lib/dollar.sh" \
+    "_log_err conf 'quoted_dollar\$' \"display=boom\"" \
+    '_log_err conf "escaped_dollar\$" "display=boom"'
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *'dollar.sh:1: quoted_dollar$'* ]]
+  [[ "${output}" == *'dollar.sh:2: escaped_dollar$'* ]]
 }
 
 # ════════════════════════════════════════════════════════════════════

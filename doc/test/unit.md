@@ -3486,7 +3486,7 @@ actually walks the populated `dist/script/docker` tree.
 | `does NOT flag bare stderr in the standalone coverage_gate.sh CI tool (#710)` | standalone log.sh-free CI tool excluded |
 | `the real repo tree (default root) is clean (#692)` | live-tree guard against path drift |
 
-### test/bats/unit/log_event_registry_lint_spec.bats (55)
+### test/bats/unit/log_event_registry_lint_spec.bats (58)
 
 The guard over the direction the registry check never covered. lib/log.sh is
 STRICT -- it refuses a body log-events.txt does not carry and prints 'FATAL:
@@ -3520,14 +3520,23 @@ the tree is asserted by the 'lint-static' group that runs this driver, which
 is where a whole-tree scan belongs (base#1075).
 
 THIRD, the reader is a word splitter and not a regex over the raw line, and
-four cases are the reason. Two are MISSES -- a body wrapped onto a
-continuation line, and a body an operator terminates without a space -- and
-two are FALSE FINDINGS: a call spelled out in a trailing comment, and a
-wrapper name inside a message. The false findings are the half that decides
-whether the gate survives, because an author told to register an id no shell
-will ever log is an author who mutes the lint, and this driver spells
-several such calls in its own header while sitting in the population it
-scans.
+four cases were the reason to begin with. Two are MISSES -- a body wrapped
+onto a continuation line, and a body an operator terminates without a space
+-- and two are FALSE FINDINGS: a call spelled out in a trailing comment, and
+a wrapper name inside a message. The false findings are the half that
+decides whether the gate survives, because an author told to register an id
+no shell will ever log is an author who mutes the lint, and this driver
+spells several such calls in its own header while sitting in the population
+it scans.
+
+The case list grew from there, one reproduced shape at a time, and what it
+adds up to is a small shell word splitter: quoting of all three kinds and
+its own context inside a substitution, redirections and their operands,
+command position carried rather than guessed, folds over continuations, open
+quotes, open substitutions and array initialisers. Nothing here is a general
+shell parser and it does not claim to be -- where the reader cannot resolve
+a body it DECLINES, and where it cannot finish reading a file it REFUSES
+rather than reporting what it managed.
 
 | Test | Description |
 |------|-------------|
@@ -3572,6 +3581,9 @@ scans.
 | `_run_log_event_registry: FAILS on a body in a multi-line backtick substitution` | A backtick substitution can span lines like any other, and the fold tracked quotes and `$(` but not backticks -- so each physical line reached the span finder incomplete, no span was found, and the call inside left the population |
 | `_run_log_event_registry: FAILS on an empty literal body` | An EMPTY body is fully known -- there is nothing left to resolve -- and log.sh refuses it like any other id the registry does not carry. It was dropped from the population by a guard meant to skip unresolvable bodies, so the one call whose body is provably wrong was the one not looked at. It is reported as `(empty)`, because a row naming nothing cannot be read |
 | `_run_log_event_registry: FAILS on a literal body carrying a tab` | The scan hands its findings to the shell as tab-separated records, and a body can CONTAIN a tab -- `$'\tseed_ok'` decodes to one. Written verbatim it split the record, so the reader took the registered `seed_ok` as the body and called the tree clean on a call log.sh refuses. The id is encoded on the way out and decoded for the membership test; the report shows the encoded form so a finding stays one readable line |
+| `_run_log_event_registry: FAILS after a substitution holding a quote of its own` | QUOTING INSIDE A SUBSTITUTION IS ITS OWN. The fold kept one quote state across the boundary, so a double quote inside a its own single-quoted argument closed the quote OUTSIDE it -- and the fold then never closed, so every line after it stayed in a buffer that is thrown away at the next file. The rest of the file leaves the population with nothing said about it, which is the silent shrink this driver refuses everywhere else |
+| `_run_log_event_registry: DIES when a file ends with a logical line still open` | And when the fold does not close, the lint must SAY SO. A buffer still open at the end of a file is the rest of that file leaving the population, and the run before this one proved it goes unnoticed: the other files satisfy every non-vacuity check and the clean line reads normally. A reader cannot tell a tree with less in it from a scan that stopped reading, so this is refused rather than counted |
+| `_run_log_event_registry: FAILS on a literal body ending in a dollar sign` | A dollar sign is not an expansion when the shell never treats it as one. `'"'"'missing$'"'"'` and `"missing\$"` are fully known literals, and the test for an unresolved body ran on the text AFTER the quoting was removed, where the two are indistinguishable -- so both were dropped. Whether an expansion actually occurred is recorded while it can still be seen |
 | `_run_log_event_registry: PASSES an id the registry carries` | The boundary of the rule and the whole of the fix base#1220 took: an id the registry carries is a message the operator actually reads, so there is nothing to report |
 | `_run_log_event_registry: PASSES a same-named function a file defines without forwarding` | A name is not global. script/ci/reclaim.sh defines its own _die that prints to stderr and never logs, so 'not a duration: 5x' is a MESSAGE, not an event id. Without the shadowing rule every such argument would be reported unregistered, which is the false finding that gets a lint muted |
 | `_run_log_event_registry: PASSES a body that is not a literal` | The stated blind spot, pinned so it cannot change shape unnoticed. A body this driver would have to run a shell to know is not resolved: exactly one hop -- the forwarding wrapper -- is, and anything further is out of reach rather than quietly guessed at |

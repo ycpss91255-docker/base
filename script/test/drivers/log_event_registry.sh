@@ -123,6 +123,15 @@
 # the population defines no forwarding wrapper AT ALL, the `_die
 # ci_<something>` family is out of reach and this lint silently shrinks to
 # the direct call sites. That is refused too, by its own sentence.
+#
+# An EIGHTH is about the reader rather than the tree: a file whose last
+# logical line never closed -- an unterminated quote, substitution or
+# backtick -- was read only up to that point, and the rest of it is gone
+# from the population. Nothing else notices, because the other files
+# still satisfy all seven checks above and the clean line reads exactly
+# as it would over a tree that genuinely had less in it. If the file is
+# in fact well formed, that refusal is reporting a defect in THIS driver,
+# and says so.
 
 # ── The emitted-id registry lint ────────────────────────────────────────────
 
@@ -198,7 +207,12 @@ readonly _LER_AWK='
 # any other unregistered id -- and is exactly the typo this lint should
 # catch. The only thing the scan cannot resolve is a body carrying an
 # EXPANSION, so that is the only thing it declines.
-function _is_literal(t) { return (t !~ /[$`]/) }
+# A dollar sign is not an expansion when the shell never treats it as
+# one: a single-quoted `missing$` and a double-quoted `missing\$` are
+# fully known literals, and after the quoting is removed the two are
+# indistinguishable from a real one. So the tokeniser RECORDS whether an
+# expansion occurred, while that can still be seen, and this reads the
+# record rather than the text.
 # The record separator is a tab, and a body can CONTAIN one: an
 # ANSI-C quoted backslash-t decodes to one. Written verbatim the record
 # splits, and the reader then takes
@@ -243,8 +257,8 @@ function _args(kind, text, n, ci, out,   j, m, skip) {
 # first positional to a _log_* body slot? Either directly ("${1}") or
 # through a name the same definition assigns "${1}" to, which is how
 # test.sh spells it (`local _ev="${1}"; ... _log_err ci "${_ev}"`).
-function _forwards(text,   n, i, K, T, Q, A, cmd, tok, nm, alias) {
-  n = _tokenize(text, K, T, Q)
+function _forwards(text,   n, i, K, T, Q, EX, A, cmd, tok, nm, alias) {
+  n = _tokenize(text, K, T, Q, EX)
   # Names this definition assigns its own first positional to. The
   # tokeniser has removed the quotes, so `local _ev="${1}"` arrives as the
   # word `_ev=${1}` whichever way it was written.
@@ -279,13 +293,13 @@ function _forwards(text,   n, i, K, T, Q, A, cmd, tok, nm, alias) {
 #
 #   A bare `#` at a word boundary ends the line, which is what the shell
 #   does and what makes a trailing comment inert here.
-function _tokenize(line, kind, text, qs,   n, i, c, e, cur, has, j, L, sq, qst, unres) {
-  n = 0; cur = ""; has = 0; qst = 0; L = length(line); i = 1; sq = sprintf("%c", 39)
+function _tokenize(line, kind, text, qs, ex,   n, i, c, e, cur, has, j, L, sq, qst, hasex) {
+  n = 0; cur = ""; has = 0; qst = 0; hasex = 0; L = length(line); i = 1; sq = sprintf("%c", 39)
   _TOK_SUBS = ""
   while (i <= L) {
     c = substr(line, i, 1)
     if (c == " " || c == "\t") {
-      if (has) { n++; kind[n] = "W"; text[n] = cur; qs[n] = qst; cur = ""; has = 0; qst = 0 }
+      if (has) { n++; kind[n] = "W"; text[n] = cur; qs[n] = qst; ex[n] = hasex; cur = ""; has = 0; qst = 0; hasex = 0 }
       i++
       continue
     }
@@ -306,7 +320,6 @@ function _tokenize(line, kind, text, qs,   n, i, c, e, cur, has, j, L, sq, qst, 
     if (c == "$" && substr(line, i + 1, 1) == sq) {
       if (!has) qst = 1
       i += 2
-      unres = 0
       while (i <= L) {
         c = substr(line, i, 1)
         if (c == "\\" && i < L) {
@@ -320,14 +333,13 @@ function _tokenize(line, kind, text, qs,   n, i, c, e, cur, has, j, L, sq, qst, 
           # finding that is not a defect. Anything this does not decode
           # makes the body UNRESOLVED, which is the one thing the scan
           # declines and says so about.
-          else unres = 1
+          else hasex = 1
           i += 2
           continue
         }
         if (c == sq) { i++; break }
         cur = cur c; i++
       }
-      if (unres) cur = "$" cur
       has = 1
       continue
     }
@@ -364,6 +376,8 @@ function _tokenize(line, kind, text, qs,   n, i, c, e, cur, has, j, L, sq, qst, 
           j = _subst_end(line, i + 1)
           if (j > 0) {
             _TOK_SUBS = _TOK_SUBS substr(line, i + 2, j - i - 2) "\034"
+            hasex = 1
+        hasex = 1
             cur = cur substr(line, i, j - i + 1)
             i = j + 1
             continue
@@ -373,12 +387,15 @@ function _tokenize(line, kind, text, qs,   n, i, c, e, cur, has, j, L, sq, qst, 
           j = _btick_end(line, i)
           if (j > 0) {
             _TOK_SUBS = _TOK_SUBS substr(line, i + 1, j - i - 1) "\034"
+            hasex = 1
+        hasex = 1
             cur = cur substr(line, i, j - i + 1)
             i = j + 1
             continue
           }
         }
         if (c == "\"") { i++; break }
+        if (c == "$" && i < L) hasex = 1
         cur = cur c; i++
       }
       has = 1
@@ -394,6 +411,7 @@ function _tokenize(line, kind, text, qs,   n, i, c, e, cur, has, j, L, sq, qst, 
       j = _subst_end(line, i + 1)
       if (j > 0) {
         _TOK_SUBS = _TOK_SUBS substr(line, i + 2, j - i - 2) "\034"
+        hasex = 1
         cur = cur substr(line, i, j - i + 1)
         has = 1
         i = j + 1
@@ -404,6 +422,7 @@ function _tokenize(line, kind, text, qs,   n, i, c, e, cur, has, j, L, sq, qst, 
       j = _btick_end(line, i)
       if (j > 0) {
         _TOK_SUBS = _TOK_SUBS substr(line, i + 1, j - i - 1) "\034"
+        hasex = 1
         cur = cur substr(line, i, j - i + 1)
         has = 1
         i = j + 1
@@ -418,6 +437,7 @@ function _tokenize(line, kind, text, qs,   n, i, c, e, cur, has, j, L, sq, qst, 
       j = _subst_end(line, i + 1)
       if (j > 0) {
         _TOK_SUBS = _TOK_SUBS substr(line, i + 2, j - i - 2) "\034"
+        hasex = 1
         cur = cur substr(line, i, j - i + 1)
         has = 1
         i = j + 1
@@ -425,14 +445,15 @@ function _tokenize(line, kind, text, qs,   n, i, c, e, cur, has, j, L, sq, qst, 
       }
     }
     if (index(";&|()<>\n", c) > 0) {
-      if (has) { n++; kind[n] = "W"; text[n] = cur; qs[n] = qst; cur = ""; has = 0; qst = 0 }
-      n++; kind[n] = "O"; qs[n] = 0
+      if (has) { n++; kind[n] = "W"; text[n] = cur; qs[n] = qst; ex[n] = hasex; cur = ""; has = 0; qst = 0; hasex = 0 }
+      n++; kind[n] = "O"; qs[n] = 0; ex[n] = 0
       if (substr(line, i + 1, 1) == c) { text[n] = c c; i += 2 } else { text[n] = c; i++ }
       continue
     }
+    if (c == "$" && i < L) hasex = 1
     cur = cur c; has = 1; i++
   }
-  if (has) { n++; kind[n] = "W"; text[n] = cur; qs[n] = qst }
+  if (has) { n++; kind[n] = "W"; text[n] = cur; qs[n] = qst; ex[n] = hasex }
   return n
 }
 # Does word i STAY at a command position rather than being the command
@@ -453,8 +474,8 @@ function _opens_another(text, qs, i) {
 # One folded line: count the emit sites it holds and print the literal
 # ids among them. <ln> is the FIRST physical line of the fold, which is
 # the line a reader of the report opens.
-function _scan(line, ln,   n, i, m, d, K, T, Q, A, SUB, cmd, skip, subs, k) {
-  n = _tokenize(line, K, T, Q)
+function _scan(line, ln,   n, i, m, d, K, T, Q, EX, A, SUB, cmd, skip, subs, k) {
+  n = _tokenize(line, K, T, Q, EX)
   # Captured IMMEDIATELY: _tokenize publishes the substitution list in a
   # global, and the recursion below calls _tokenize again.
   subs = _TOK_SUBS
@@ -513,13 +534,13 @@ function _scan(line, ln,   n, i, m, d, K, T, Q, A, SUB, cmd, skip, subs, k) {
       m = _args(K, T, n, i, A)
       if (m >= 2) {
         direct++
-        if (_is_literal(T[A[2]])) printf "ID" US "%s" US "%s" US "%d\n", _enc(T[A[2]]), FILENAME, ln
+        if (!EX[A[2]]) printf "ID" US "%s" US "%s" US "%d\n", _enc(T[A[2]]), FILENAME, ln
       }
     } else if ((T[i] in fwd) && !((FILENAME "|" T[i]) in shadow)) {
       m = _args(K, T, n, i, A)
       if (m >= 1) {
         wrapped++
-        if (_is_literal(T[A[1]])) printf "ID" US "%s" US "%s" US "%d\n", _enc(T[A[1]]), FILENAME, ln
+        if (!EX[A[1]]) printf "ID" US "%s" US "%s" US "%d\n", _enc(T[A[1]]), FILENAME, ln
       }
     }
     cmd = 0
@@ -620,73 +641,84 @@ function _subst_end(text, i,   L, d, c, k, sq, st) {
 #   comment over a backslash, so a trailing one there continues nothing
 #   and folding on it would glue the next line of CODE onto a line the
 #   tokeniser discards whole.
-function _lex_state(line, st, dep,   i, L, c, sq, pv) {
-  L = length(line); sq = sprintf("%c", 39); i = 1; _LEX_CONT = 0; _LEX_SUB = dep
+function _top_st(ctx) { return substr(ctx, length(ctx), 1) + 0 }
+function _top_kind(ctx) { return substr(ctx, length(ctx) - 1, 1) }
+function _set_st(ctx, v) { return substr(ctx, 1, length(ctx) - 1) v }
+function _push(ctx, kind) { return ctx kind "0" }
+function _pop(ctx) { return (length(ctx) > 2) ? substr(ctx, 1, length(ctx) - 2) : ctx }
+# _lex_state(<physical line>, <context in>) -> <context out>
+#   Where the fold stands at the newline. The context is a STACK of
+#   frames, two characters each: a kind -- T the top level, P a `$(`,
+#   `<(` or `>(` substitution, G a plain group inside one, B a backtick
+#   -- and the quote state inside that frame (0 none, 1 single, 2
+#   double, 3 the ANSI-C form). The logical line is complete when the
+#   context is back to T0.
+#
+#   A STACK, because QUOTING INSIDE A SUBSTITUTION IS ITS OWN. One
+#   shared state cannot say that: a double quote inside a substitution
+#   single-quoted argument would close the quote OUTSIDE it, the fold
+#   would never close, and every line after it would sit in a buffer
+#   that the next file discards -- the rest of a file leaving the
+#   population with nothing said about it.
+#
+#   A plain `(` is pushed only INSIDE a substitution. At the top level
+#   it is ignored, because a `(` in a heredoc body or a glob never
+#   closes: counting those was measured against the real tree earlier in
+#   this branch and folded init.sh 827 lines into one.
+#
+#   _LEX_CONT is published beside the return: the line ended in a
+#   continuation backslash, which joins with nothing between the halves.
+function _lex_state(line, ctx,   i, L, c, sq, pv, st, k) {
+  if (ctx == "") ctx = "T0"
+  L = length(line); sq = sprintf("%c", 39); i = 1; _LEX_CONT = 0
   while (i <= L) {
+    st = _top_st(ctx); k = _top_kind(ctx)
     c = substr(line, i, 1)
-    # The ANSI-C form -- dollar, apostrophe, text, apostrophe -- is a
-    # THIRD quoting form, and the one place a backslash escapes an
-    # apostrophe. Read as an ordinary single-quoted run it
-    # closes at the escaped apostrophe and the real closing one OPENS a
-    # quote that never ends -- which folds the whole rest of the file
-    # into one word and empties it of call sites, silently.
     if (st == 3) {
       if (c == "\\" && i < L) { i += 2; continue }
-      if (c == sq) st = 0
+      if (c == sq) ctx = _set_st(ctx, 0)
       i++
       continue
     }
-    # An open BACKTICK is a substitution spanning lines like any other.
-    # Tracked only outside the other quotings: inside double quotes the
-    # quote itself already keeps the fold open.
-    if (st == 4) {
-      if (c == "\\" && i < L) { i += 2; continue }
-      if (c == "`") st = 0
-      i++
-      continue
-    }
-    if (st == 1) { if (c == sq) st = 0; i++; continue }
+    if (st == 1) { if (c == sq) ctx = _set_st(ctx, 0); i++; continue }
     if (st == 2) {
       if (c == "\\" && i < L) { i += 2; continue }
-      # Inside double quotes bash removes a backslash-newline too, so this
-      # is a continuation like any other -- and the body it splits is
-      # still one literal id.
-      if (c == "\\") { _LEX_CONT = 1; _LEX_SUB = dep; return st }
-      if (c == "\"") st = 0
+      if (c == "\\") { _LEX_CONT = 1; break }
+      if (c == "$" && substr(line, i + 1, 1) == "(") { ctx = _push(ctx, "P"); i += 2; continue }
+      if (c == "`") { ctx = _push(ctx, "B"); i++; continue }
+      if (c == "\"") ctx = _set_st(ctx, 0)
       i++
       continue
     }
     if (c == "#") {
       pv = (i == 1) ? " " : substr(line, i - 1, 1)
-      if (pv == " " || pv == "\t" || index(";&|()<>", pv) > 0) { _LEX_SUB = dep; return 0 }
+      if (pv == " " || pv == "\t" || index(";&|()<>", pv) > 0) break
       i++
       continue
     }
-    if (c == "$" && substr(line, i + 1, 1) == sq) { st = 3; i += 2; continue }
-    if (c == "`") { st = 4; i++; continue }
-    if (c == sq) { st = 1; i++; continue }
-    if (c == "\"") { st = 2; i++; continue }
+    if (c == "$" && substr(line, i + 1, 1) == sq) { ctx = _set_st(ctx, 3); i += 2; continue }
+    if (c == "`") {
+      if (k == "B") ctx = _pop(ctx)
+      else ctx = _push(ctx, "B")
+      i++
+      continue
+    }
+    if (c == sq) { ctx = _set_st(ctx, 1); i++; continue }
+    if (c == "\"") { ctx = _set_st(ctx, 2); i++; continue }
     if (c == "\\") {
-      if (i == L) { _LEX_CONT = 1; _LEX_SUB = dep; return 0 }
+      if (i == L) { _LEX_CONT = 1; break }
       i += 2
       continue
     }
-    # SUBSTITUTION nesting, and nothing else. An unquoted `$(`, `<(` or
-    # `>(` still open at the newline means the logical line is not over.
-    # Counting EVERY parenthesis instead was tried against the real tree
-    # and folded whole files -- init.sh, 827 lines into one -- because a
-    # `(` in a heredoc body or a glob never closes; it cost 16 real emit
-    # sites. These three are two-character openers, so an unbalanced one
-    # outside a quote or a comment does not occur.
     if ((c == "$" || c == "<" || c == ">") && substr(line, i + 1, 1) == "(") {
-      dep++; i += 2
+      ctx = _push(ctx, "P"); i += 2
       continue
     }
-    if (c == ")") { if (dep > 0) dep--; i++; continue }
+    if (c == "(") { if (length(ctx) > 2) ctx = _push(ctx, "G"); i++; continue }
+    if (c == ")") { if (k == "P" || k == "G") ctx = _pop(ctx); i++; continue }
     i++
   }
-  _LEX_SUB = dep
-  return st
+  return ctx
 }
 # Worth tokenising? Tokenising is per character, and all but a few
 # thousand of the tree lines can hold no call at all. The names are the
@@ -742,15 +774,22 @@ PHASE == "def" {
   next
 }
 PHASE == "emit" {
-  if (FNR == 1) { buf = ""; startln = 0; qst = 0; sdep = 0; _ARR_DEPTH = 0 }
+  if (FNR == 1) {
+    # A buffer still open where a file ended is the REST OF THAT FILE
+    # leaving the population, and it goes unnoticed: the other files
+    # satisfy every non-vacuity check and the clean line reads normally.
+    # Reported, and refused by the caller.
+    if (buf != "") printf "OPEN" US "%s" US "%d\n", prevfile, startln
+    buf = ""; startln = 0; ctx = "T0"; _ARR_DEPTH = 0
+  }
+  prevfile = FILENAME
   if (buf == "") startln = FNR
-  qst = _lex_state($0, qst, sdep)
-  sdep = _LEX_SUB
+  ctx = _lex_state($0, ctx)
   # A quote still open at the newline holds ONE word across the lines, so
   # the fold continues until it closes. Help text spanning several lines
   # is the ordinary way a shipped script spells its usage, and an inner
   # line of it reads exactly like a call.
-  if (qst != 0 || sdep > 0) {
+  if (ctx != "T0") {
     if (_LEX_CONT) { buf = buf substr($0, 1, length($0) - 1) }
     # A NEWLINE, not a space. Inside a quoted message the newline stays
     # part of the one word either way, but a substitution written over
@@ -776,7 +815,7 @@ PHASE == "emit" {
 }
 END {
   if (PHASE == "emit") {
-    if (buf != "" && (_ARR_DEPTH > 0 || _candidate(buf))) _scan(buf, startln)
+    if (buf != "") printf "OPEN" US "%s" US "%d\n", prevfile, startln
     printf "SEEN" US "%d" US "%d\n", direct + 0, wrapped + 0
   }
 }
@@ -966,6 +1005,20 @@ _run_log_event_registry() {
   # carry -- so the one call whose body is provably wrong must not be
   # the one that goes unexamined. It is shown as `(empty)`, because a
   # row naming nothing cannot be read.
+  # An EIGHTH refusal. A file whose last logical line never closed was
+  # read only up to that point, and the rest of it is gone from the
+  # population with nothing saying so -- the other files still satisfy
+  # every check above, so the clean line reads exactly as it would over
+  # a tree that genuinely had less in it.
+  local _open
+  _open="$(printf '%s\n' "${_emit}" \
+    | awk -v FS="${_us}" '$1=="OPEN"{print $2":"$3}' | sort -u | paste -sd' ' -)"
+  if [[ -n "${_open}" ]]; then
+    _die ci_log_event_registry \
+      "${_open} ends with a logical line still open -- an unterminated quote, substitution or backtick. Everything after it was never read, and a scan that stopped part way through a file reports the same clean line as one that read all of it. Close the construct, or if it IS closed, the reader disagrees with the shell about where: that is a defect in this driver, not in the file."
+    return 1
+  fi
+
   local -a _rows=()
   local _kind _id _plain _loc _lineno _ids_total=0
   while IFS="${_us}" read -r _kind _id _loc _lineno; do
