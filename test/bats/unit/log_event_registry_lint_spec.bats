@@ -839,6 +839,39 @@ _seed() {
   [[ "${output}" == *"log event registry lint: clean"* ]]
 }
 
+# why: A conditional spread over several lines is still one conditional, and
+# the state saying so was local to a line. Worse, the line that OPENS it
+# may hold no name the candidate filter looks for, so the opening `[[`
+# was not even read. The state is carried from line to line, and a line
+# inside a conditional is scanned whether or not it looks interesting
+@test "_run_log_event_registry: PASSES a wrapper name compared inside a multi-line conditional" {
+  _seed
+  _write "dist/script/docker/lib/cond3.sh" \
+    '[[ foo == foo &&' \
+    '   _die == not_an_event ]] || true'
+  run _run_log_event_registry
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"log event registry lint: clean"* ]]
+}
+
+# why: A SINGLE-QUOTED `${1}` is the five characters, not the first argument,
+# so a function whose body logs it emits one FIXED id and forwards
+# nothing. Comparing the unquoted text alone could not tell that from the
+# real thing, so the function was declared a wrapper and every ordinary
+# call of it had its first argument reported. A wrongly declared wrapper
+# is the noise that gets a lint muted -- the shadowing rule exists for
+# exactly this -- so forwarding now requires a REAL positional expansion,
+# for the alias as well as for the body slot
+@test "_run_log_event_registry: PASSES a function whose body only looks like a forward" {
+  _seed '${1}'
+  _write "dist/script/docker/lib/fixed.sh" \
+    "fixed() { _log_err ci '\${1}'; }" \
+    'fixed ordinary_message'
+  run _run_log_event_registry
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"log event registry lint: clean"* ]]
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _run_log_event_registry: what it leaves alone
 # ════════════════════════════════════════════════════════════════════

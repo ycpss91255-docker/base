@@ -274,7 +274,12 @@ function _forwards(text,   n, i, K, T, Q, EX, A, cmd, tok, nm, alias) {
   # word `_ev=${1}` whichever way it was written.
   for (i = 1; i <= n; i++) {
     if (K[i] != "W") continue
-    if (T[i] ~ /^[A-Za-z_][A-Za-z0-9_]*=[$][{]?1[}]?$/) {
+    # EX, not just the text. A SINGLE-QUOTED `${1}` is five characters,
+    # not the first argument, so a body logging it emits one FIXED id
+    # and forwards nothing -- and a wrongly declared wrapper turns every
+    # ordinary call of that function into a reported id, which is the
+    # noise that gets a lint muted.
+    if (EX[i] && T[i] ~ /^[A-Za-z_][A-Za-z0-9_]*=[$][{]?1[}]?$/) {
       nm = T[i]; sub(/=.*$/, "", nm); alias[nm] = 1
     }
   }
@@ -284,6 +289,7 @@ function _forwards(text,   n, i, K, T, Q, EX, A, cmd, tok, nm, alias) {
     if (!cmd) continue
     if (_opens_another(T, Q, i)) continue
     if (T[i] ~ /^_log_(debug|info|warn|err|fatal)$/ && _args(K, T, n, i, A) >= 2) {
+      if (!EX[A[2]]) { cmd = 0; continue }
       tok = T[A[2]]
       if (tok == "${1}" || tok == "$1") return 1
       if (match(tok, /^[$][{]?[A-Za-z_][A-Za-z0-9_]*[}]?$/)) {
@@ -496,6 +502,7 @@ function _scan(line, ln,   n, i, m, d, K, T, Q, EX, A, SUB, cmd, cond, skip, sub
   # argument, nor a quoted `then` from the keyword.
   cmd = 1
   d = _ARR_DEPTH
+  cond = _COND
   for (i = 1; i <= n; i++) {
     # Inside `[[ ... ]]` the operators are the CONDITIONAL grammar: `&&`
     # there joins two tests and opens no command position. Reading it as
@@ -577,15 +584,16 @@ function _scan(line, ln,   n, i, m, d, K, T, Q, EX, A, SUB, cmd, cond, skip, sub
   # documented way to SHOW one without running it, and both of them in
   # shipped help text -- read exactly like the real thing.
   _ARR_DEPTH = d
+  _COND = cond
   k = split(subs, SUB, "\034")
   for (i = 1; i <= k; i++) {
     if (SUB[i] != "") {
       # The recursion runs its own walk, so the carried depth is put back
       # afterwards: a substitution inside an initialiser does not end it.
-      d = _ARR_DEPTH
-      _ARR_DEPTH = 0
+      d = _ARR_DEPTH; cond = _COND
+      _ARR_DEPTH = 0; _COND = 0
       _scan(SUB[i], ln)
-      _ARR_DEPTH = d
+      _ARR_DEPTH = d; _COND = cond
     }
   }
 }
@@ -750,6 +758,9 @@ function _candidate(line) {
   # An array initialiser OPENS on a line that may hold no call at all,
   # and the depth it starts has to be carried to the lines that do.
   if (line ~ /=\(/) return 1
+  # A conditional OPENS on a line that may hold no call at all, and the
+  # state it starts has to reach the lines that do.
+  if (line ~ /\[\[|\]\]/) return 1
   return (fwdre != "" && line ~ fwdre)
 }
 BEGIN {
@@ -801,7 +812,7 @@ PHASE == "emit" {
     # satisfy every non-vacuity check and the clean line reads normally.
     # Reported, and refused by the caller.
     if (buf != "") printf "OPEN" US "%s" US "%d\n", prevfile, startln
-    buf = ""; startln = 0; ctx = "T0"; _ARR_DEPTH = 0
+    buf = ""; startln = 0; ctx = "T0"; _ARR_DEPTH = 0; _COND = 0
   }
   prevfile = FILENAME
   if (buf == "") startln = FNR
@@ -831,7 +842,7 @@ PHASE == "emit" {
   buf = ""
   # Inside an initialiser every line is scanned, call or not: that is
   # where its closing parenthesis is.
-  if (_ARR_DEPTH > 0 || _candidate(line)) _scan(line, startln)
+  if (_ARR_DEPTH > 0 || _COND > 0 || _candidate(line)) _scan(line, startln)
   next
 }
 END {
