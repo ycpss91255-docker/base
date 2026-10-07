@@ -431,6 +431,16 @@ function _tokenize(line, kind, text, qs, ex, adj,   n, i, c, e, cur, has, j, L, 
           i += 2
           continue
         }
+        if (c == "$" && substr(line, i + 1, 1) == "{") {
+          j = _brace_end(line, i + 1)
+          if (j > 0) {
+            _harvest(substr(line, i + 2, j - i - 2))
+            hasex = 1
+            cur = cur substr(line, i, j - i + 1)
+            i = j + 1
+            continue
+          }
+        }
         # A command substitution RUNS what is inside it, and double quotes
         # do not stop that. Its span is kept VERBATIM, inner quotes
         # included, so _scan can descend into it; dissolving the quotes
@@ -472,6 +482,37 @@ function _tokenize(line, kind, text, qs, ex, adj,   n, i, c, e, cur, has, j, L, 
       if (!qst) qst = length(cur) + 1
       cur = cur substr(line, i + 1, 1); has = 1; i += 2
       continue
+    }
+    # A PARAMETER EXPANSION carries its replacement text, and that text
+    # is not shell to run -- in `${x:-; _die id}` the semicolon and the
+    # name are characters inside one expansion. Taken whole, with the
+    # substitutions that DO execute inside it harvested.
+    if (c == "$" && substr(line, i + 1, 1) == "{") {
+      j = _brace_end(line, i + 1)
+      if (j > 0) {
+        _harvest(substr(line, i + 2, j - i - 2))
+        hasex = 1
+        cur = cur substr(line, i, j - i + 1)
+        has = 1
+        i = j + 1
+        continue
+      }
+    }
+    # An unquoted BRACE EXPANSION is resolved by the shell before the
+    # logger sees it: `{a,b}` becomes two arguments. Checking the braced
+    # text against the registry would report a body no shell ever logs,
+    # so it is DECLINED like any other expansion. A group command is told
+    # apart by its whitespace -- `{ cmd; }` has some, an expansion none.
+    if (c == "{") {
+      j = _brace_end(line, i)
+      if (j > 0 && substr(line, i, j - i + 1) !~ /[[:space:]]/ \
+          && substr(line, i + 1, j - i - 1) ~ /,|\.\./) {
+        hasex = 1
+        cur = cur substr(line, i, j - i + 1)
+        has = 1
+        i = j + 1
+        continue
+      }
     }
     # An UNQUOTED substitution belongs to the word it sits in, and its
     # closing parenthesis is not a command separator -- exposing it as
@@ -742,6 +783,30 @@ function _harvest(t,   L, i, c, sq, j) {
     i++
   }
 }
+# _brace_end(<text>, <index of the opening brace>) -> index of its match,
+#   or 0. Counts nesting and skips quoted runs, so a parameter expansion
+#   can be taken whole: its replacement text is CHARACTERS, not shell to
+#   run, and exposing a separator inside one puts the word after it at a
+#   command position.
+function _brace_end(t, i,   L, d, c, sq, st) {
+  L = length(t); sq = sprintf("%c", 39); d = 0; st = 0
+  while (i <= L) {
+    c = substr(t, i, 1)
+    if (st == 1) { if (c == sq) st = 0; i++; continue }
+    if (st == 2) {
+      if (c == "\\" && i < L) { i += 2; continue }
+      if (c == "\"") st = 0
+      i++
+      continue
+    }
+    if (c == sq) { st = 1; i++; continue }
+    if (c == "\"") { st = 2; i++; continue }
+    if (c == "{") { d++; i++; continue }
+    if (c == "}") { d--; if (d == 0) return i; i++; continue }
+    i++
+  }
+  return 0
+}
 function _btick_end(text, i,   L, c) {
   L = length(text); i++
   while (i <= L) {
@@ -881,6 +946,12 @@ function _in_subst(ctx,   i, L, kk) {
   }
   return 0
 }
+# Is the top frame inside a quote? Definition discovery asks, because a
+# `name() { ... }` written inside a multi-line STRING is not a
+# definition -- and taken for a non-forwarding one it SHADOWS the wrapper
+# for the whole file, which turns the rule that prevents false findings
+# into one that manufactures silent misses.
+function _in_quote(ctx) { return (_top_st(ctx) != 0) }
 function _fold_open(ctx,   i, L, kk) {
   if (_top_st(ctx) != 0) return 1
   L = length(ctx)
@@ -1004,6 +1075,10 @@ BEGIN {
   for (i = 1; i <= n; i++) if (b[i] != "") shadow[b[i]] = 1
 }
 PHASE == "def" {
+  if (FNR == 1) dctx = "T0"
+  dinq = _in_quote(dctx)
+  dctx = _lex_state($0, dctx)
+  if (dinq) next
   # Two spellings, and the second has no parentheses in it at all. A
   # wrapper written `function name { ... }` was never discovered, so its
   # call sites went unchecked -- and silently, because another wrapper

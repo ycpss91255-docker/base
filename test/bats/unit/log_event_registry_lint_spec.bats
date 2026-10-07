@@ -775,6 +775,52 @@ _seed() {
   [[ "${output}" == *"log event registry lint: clean"* ]]
 }
 
+# why: Definition discovery read PHYSICAL lines with no idea of quoting, so a
+# `_die() { ... }` written inside a multi-line STRING counted as a real
+# definition -- and a non-forwarding one, which SHADOWS the wrapper for
+# that whole file and suppressed the genuine calls in it. The shadowing
+# rule exists to stop false findings; read this way it manufactures
+# silent misses instead
+@test "_run_log_event_registry: FAILS past a definition written inside a string" {
+  _seed
+  _write "dist/script/docker/lib/qdef.sh" \
+    "printf '%s' 'example:" \
+    "_die() { printf hello; }" \
+    "end'" \
+    '_die quoted_def_missing "boom"'
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/qdef.sh:4: quoted_def_missing"* ]]
+}
+
+# why: A PARAMETER EXPANSION carries its replacement text, and that text is not
+# shell to run: in `${x:-; _die id}` the semicolon and the name are
+# characters inside one expansion. Exposing the semicolon as a separator
+# put the name at a command position and reported the word after it
+@test "_run_log_event_registry: PASSES a wrapper name inside a parameter expansion" {
+  _seed
+  _write "dist/script/docker/lib/pexp.sh" \
+    'printf "%s" ${x:-; _die not_an_event}'
+  run _run_log_event_registry
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"log event registry lint: clean"* ]]
+}
+
+# why: An unquoted BRACE EXPANSION is resolved by the shell before the logger
+# sees it: `{seed_ok,other}` becomes two arguments and the body is
+# `seed_ok`. Checking the braced text against the registry reported a
+# body no shell ever logs. It is an expansion like any other, so the
+# honest answer is to DECLINE the body -- which is what the driver says
+# it does with anything it cannot resolve
+@test "_run_log_event_registry: PASSES a body written as a brace expansion" {
+  _seed seed_ok
+  _write "dist/script/docker/lib/brace.sh" \
+    '_log_err conf {seed_ok,other} "display=test"'
+  run _run_log_event_registry
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"log event registry lint: clean"* ]]
+}
+
 # why: A backslash QUOTES the character after it, so `\time` is the external
 # command and not the shell keyword. The escape was removed without
 # recording that the word had been quoted, so the word read as the
