@@ -449,6 +449,55 @@ _seed() {
   [[ "${output}" == *"dist/script/docker/lib/ansi.sh:2: hidden_missing"* ]]
 }
 
+# why: `2>&1` is one redirection written in three tokens, and the `&` in the
+# middle is not the `&` that backgrounds a command. Resetting the command
+# position on it made the word after an ordinary output redirection look
+# like a command, so `printf "%s" 2>&1 _die x` reported x. Descriptor
+# duplication is consumed whole now, position untouched
+@test "_run_log_event_registry: PASSES a word after a descriptor-duplicating redirection" {
+  _seed
+  _write "dist/script/docker/lib/dup.sh" \
+    'printf "%s" 2>&1 _die not_an_event'
+  run _run_log_event_registry
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"log event registry lint: clean"* ]]
+}
+
+# why: bash removes a redirection BEFORE it hands a command its positional
+# arguments, so `_log_err 2>/dev/null conf id` passes id in the body slot
+# exactly as the unredirected spelling does. Reading the body as the
+# token two along required the words to be adjacent, so the redirection
+# pushed the body out of the slot and the site was counted but never
+# checked. The arguments are resolved after the redirections now, for
+# wrapper calls as well
+@test "_run_log_event_registry: FAILS on a body behind a redirection in the argument list" {
+  _seed
+  _write "dist/script/docker/lib/redirarg.sh" \
+    '_log_err 2>/dev/null conf redir_arg_missing "display=boom"' \
+    '_die >/dev/null wrapper_arg_missing "boom"'
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/redirarg.sh:1: redir_arg_missing"* ]]
+  [[ "${output}" == *"dist/script/docker/lib/redirarg.sh:2: wrapper_arg_missing"* ]]
+}
+
+# why: lib/log.sh compares the body against the registry line for line and
+# imposes no shape on it, so a body with a hyphen in it is refused at
+# runtime like any other unregistered one -- and a hyphen where an
+# underscore belongs is exactly the typo this lint should catch. Requiring
+# the identifier shape before checking membership threw those away
+# silently: the site was COUNTED, so the clean line said it had been read,
+# and nothing had been asked about it. What the scan cannot resolve is a
+# body carrying an expansion, and that is now the only thing it declines
+@test "_run_log_event_registry: FAILS on a literal body that is not identifier-shaped" {
+  _seed
+  _write "dist/script/docker/lib/hyph.sh" \
+    '_log_err conf missing-event "display=boom"'
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/hyph.sh:1: missing-event"* ]]
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _run_log_event_registry: what it leaves alone
 # ════════════════════════════════════════════════════════════════════

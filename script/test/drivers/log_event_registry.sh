@@ -192,12 +192,46 @@ readonly _LER_AWK='
 # single-quoted string, so no apostrophe appears anywhere in it, comments
 # included -- the single quote character is built with sprintf where the
 # tokeniser needs it.
-function _is_id(t) { return (t ~ /^[A-Za-z][A-Za-z0-9_]*$/) }
+# Can this body be compared against the registry at all? lib/log.sh
+# compares the body to the registry line for line and imposes no shape on
+# it, so a hyphen where an underscore belongs is refused at runtime like
+# any other unregistered id -- and is exactly the typo this lint should
+# catch. The only thing the scan cannot resolve is a body carrying an
+# EXPANSION, so that is the only thing it declines.
+function _is_literal(t) { return (t != "" && t !~ /[$`]/) }
+# A redirection operator, and the descriptor-duplication half of one.
+function _is_redir(t) { return (t ~ /^(<|>|<<|>>|<>)$/) }
+# The ARGUMENTS of the command at index <ci>, by token index, in order.
+# bash removes a redirection BEFORE it hands a command its positionals,
+# so `_log_err 2>/dev/null conf id` passes id in the body slot exactly as
+# the unredirected spelling does. A real separator ends the command.
+function _args(kind, text, n, ci, out,   j, m, skip) {
+  m = 0; j = ci + 1; skip = 0
+  while (j <= n) {
+    if (kind[j] == "O") {
+      if (_is_redir(text[j])) {
+        if (j < n && kind[j + 1] == "O" && text[j + 1] == "&") j++
+        skip = 1; j++
+        continue
+      }
+      if (text[j] == "&" && j < n && kind[j + 1] == "O" && text[j + 1] ~ /^(>|>>)$/) {
+        j += 2; skip = 1
+        continue
+      }
+      break
+    }
+    if (skip) { skip = 0; j++; continue }
+    if (text[j] ~ /^[0-9]+$/ && j < n && kind[j + 1] == "O" && _is_redir(text[j + 1])) { j++; continue }
+    m++; out[m] = j
+    j++
+  }
+  return m
+}
 # Does <text>, the whole of a one-line function definition, hand its own
 # first positional to a _log_* body slot? Either directly ("${1}") or
 # through a name the same definition assigns "${1}" to, which is how
 # test.sh spells it (`local _ev="${1}"; ... _log_err ci "${_ev}"`).
-function _forwards(text,   n, i, K, T, Q, cmd, tok, nm, alias) {
+function _forwards(text,   n, i, K, T, Q, A, cmd, tok, nm, alias) {
   n = _tokenize(text, K, T, Q)
   # Names this definition assigns its own first positional to. The
   # tokeniser has removed the quotes, so `local _ev="${1}"` arrives as the
@@ -213,9 +247,8 @@ function _forwards(text,   n, i, K, T, Q, cmd, tok, nm, alias) {
     if (K[i] == "O") { cmd = 1; continue }
     if (!cmd) continue
     if (_opens_another(T, Q, i)) continue
-    if (T[i] ~ /^_log_(debug|info|warn|err|fatal)$/ \
-        && i + 2 <= n && K[i + 1] == "W" && K[i + 2] == "W") {
-      tok = T[i + 2]
+    if (T[i] ~ /^_log_(debug|info|warn|err|fatal)$/ && _args(K, T, n, i, A) >= 2) {
+      tok = T[A[2]]
       if (tok == "${1}" || tok == "$1") return 1
       if (match(tok, /^[$][{]?[A-Za-z_][A-Za-z0-9_]*[}]?$/)) {
         nm = tok; gsub(/[$={}]/, "", nm)
@@ -321,7 +354,7 @@ function _opens_another(text, qs, i) {
 # One folded line: count the emit sites it holds and print the literal
 # ids among them. <ln> is the FIRST physical line of the fold, which is
 # the line a reader of the report opens.
-function _scan(line, ln,   n, i, K, T, Q, SUB, cmd, skip, subs, k) {
+function _scan(line, ln,   n, i, m, K, T, Q, A, SUB, cmd, skip, subs, k) {
   n = _tokenize(line, K, T, Q)
   # Captured IMMEDIATELY: _tokenize publishes the substitution list in a
   # global, and the recursion below calls _tokenize again.
@@ -334,27 +367,39 @@ function _scan(line, ln,   n, i, K, T, Q, SUB, cmd, skip, subs, k) {
   cmd = 1
   for (i = 1; i <= n; i++) {
     # A REDIRECTION is not a separator and its operand is a FILENAME.
-    # Consuming the pair together leaves the command position where it
-    # was: otherwise `>/dev/null _log_err ...` lets the filename take the
+    # Consuming the whole thing leaves the command position where it was:
+    # otherwise `>/dev/null _log_err ...` lets the filename take the
     # position and the logger behind it is never read, while `> _die x`
-    # makes a filename look like a wrapper call.
-    if (K[i] == "O" && T[i] ~ /^(<|>|<<|>>|<>)$/) { skip = 1; continue }
+    # makes a filename look like a wrapper call. `2>&1` is ONE such
+    # redirection written in three tokens, and the `&` in the middle is
+    # not the `&` that backgrounds a command.
+    if (K[i] == "O" && _is_redir(T[i])) {
+      if (i < n && K[i + 1] == "O" && T[i + 1] == "&") i++
+      skip = 1
+      continue
+    }
+    if (K[i] == "O" && T[i] == "&" && i < n && K[i + 1] == "O" && T[i + 1] ~ /^(>|>>)$/) {
+      i++; skip = 1
+      continue
+    }
     if (K[i] == "O") { cmd = 1; continue }
     if (skip) { skip = 0; continue }
     # An fd prefix belongs to the redirection behind it, not to the
     # command position: `2>/dev/null` is one redirection.
-    if (T[i] ~ /^[0-9]+$/ && i < n && K[i + 1] == "O" && T[i + 1] ~ /^(<|>|<<|>>|<>)$/) continue
+    if (T[i] ~ /^[0-9]+$/ && i < n && K[i + 1] == "O" && _is_redir(T[i + 1])) continue
     if (!cmd) continue
     if (_opens_another(T, Q, i)) continue
     if (T[i] ~ /^_log_(debug|info|warn|err|fatal)$/) {
-      if (i + 2 <= n && K[i + 1] == "W" && K[i + 2] == "W") {
+      m = _args(K, T, n, i, A)
+      if (m >= 2) {
         direct++
-        if (_is_id(T[i + 2])) printf "ID\t%s\t%s\t%d\n", T[i + 2], FILENAME, ln
+        if (_is_literal(T[A[2]])) printf "ID\t%s\t%s\t%d\n", T[A[2]], FILENAME, ln
       }
     } else if ((T[i] in fwd) && !((FILENAME "|" T[i]) in shadow)) {
-      if (i + 1 <= n && K[i + 1] == "W") {
+      m = _args(K, T, n, i, A)
+      if (m >= 1) {
         wrapped++
-        if (_is_id(T[i + 1])) printf "ID\t%s\t%s\t%d\n", T[i + 1], FILENAME, ln
+        if (_is_literal(T[A[1]])) printf "ID\t%s\t%s\t%d\n", T[A[1]], FILENAME, ln
       }
     }
     cmd = 0
