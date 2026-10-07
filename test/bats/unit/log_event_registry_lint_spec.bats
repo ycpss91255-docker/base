@@ -835,6 +835,19 @@ _seed() {
   [[ "${output}" == *"log event registry lint: clean"* ]]
 }
 
+# why: `time` keeps the command position open and `-p` is its own flag, not the
+# command -- so `time -p _log_err ...` runs the logger and the flag was
+# consuming the position instead. The keyword is read as one that opens
+# another command; its optional flag has to be read the same way
+@test "_run_log_event_registry: FAILS on a body behind a timed command flag" {
+  _seed
+  _write "dist/script/docker/lib/timed.sh" \
+    'time -p _log_err conf timed_missing "display=boom"'
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/timed.sh:1: timed_missing"* ]]
+}
+
 # why: A comment ends at the NEXT NEWLINE, and a logical line now holds several
 # of them -- a substitution written over several lines is one logical
 # line. Ending the whole read at the first `#` therefore discarded every

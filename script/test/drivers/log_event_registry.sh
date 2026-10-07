@@ -604,6 +604,9 @@ function _opens_another(text, qs, i) {
   # transparent openers made the name behind one a call and reported an
   # id no shell ever logs.
   if (!qs[i] && text[i] ~ /^(if|while|until|then|do|else|elif|\{|\}|!|time|eval)$/) return 1
+  # `time` keeps the command position open and `-p` is its own flag, not
+  # the command, so the flag has to be read the same way the keyword is.
+  if (!qs[i] && text[i] == "-p" && i > 1 && !qs[i - 1] && text[i - 1] == "time") return 1
   # An ASSIGNMENT PREFIX needs only its NAME unquoted: `VAR="x" cmd` is
   # one, `"VAR=x" cmd` is not. qs says where the first quote fell, so
   # the test is whether the `=` came before it.
