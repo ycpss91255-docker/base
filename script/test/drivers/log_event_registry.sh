@@ -414,7 +414,7 @@ function _forwards(text,   n, i, k, m, d, ad, K, T, Q, EX, AJ, A, SUB, cmd, cond
       # either, because it does not change the variable the shell is
       # holding. Recording one declared a function a wrapper on the
       # strength of a value it never holds.
-      if (cmd && !assignctx && !_assign_persists(K, T, Q, n, i)) continue
+      if (cmd && !assignctx && !_assign_persists(K, T, Q, AJ, n, i)) continue
       nm = T[i]; sub(/=.*$/, "", nm)
       # `!shifted`: a name assigned `${1}` AFTER a shift holds the
       # second argument, so recording it as an alias of the first makes
@@ -776,9 +776,28 @@ function _tokenize(line, kind, text, qs, ex, adj,   n, i, c, e, cur, raw, has, j
 # environment of the command it sits in front of and leaves the shell own
 # variable alone, so it is an alias for nothing after it. Told apart by
 # whether a command word follows in the same simple command.
-function _assign_persists(kind, text, qs, n, i,   j) {
+function _assign_persists(kind, text, qs, adj, n, i,   j, skip) {
+  skip = 0
   for (j = i + 1; j <= n; j++) {
-    if (kind[j] == "O") return 1
+    if (kind[j] == "O") {
+      # A REDIRECTION sits between a prefix and the command it belongs
+      # to, so stopping at the first operator read `ev=x >/dev/null cmd`
+      # as a standalone assignment. Consumed the way the argument walk
+      # consumes it; any other operator really does end the command.
+      if (_is_redir(text[j])) {
+        if (j < n && kind[j + 1] == "O" && text[j + 1] == "&") j++
+        skip = 1
+        continue
+      }
+      if (text[j] == "&" && j < n && kind[j + 1] == "O" && text[j + 1] ~ /^(>|>>)$/) {
+        j += 2; skip = 1
+        continue
+      }
+      return 1
+    }
+    if (skip) { skip = 0; continue }
+    if (_is_fd(text[j]) && !qs[j] && j < n && kind[j + 1] == "O" && adj[j + 1] \
+        && _is_redir(text[j + 1])) continue
     if (text[j] ~ /^[A-Za-z_][A-Za-z0-9_]*=/ && (qs[j] == 0 || index(text[j], "=") < qs[j])) continue
     return 0
   }
@@ -1320,6 +1339,25 @@ PHASE == "def" {
     nm = $0
     sub(/^[[:space:]]*function[[:space:]]+/, "", nm)
     sub(/[[:space:]]*\{.*$/, "", nm)
+  } else if ($0 ~ /^[[:space:]]*(function[[:space:]]+)?[A-Za-z_][A-Za-z0-9_]*[[:space:]]*\(\)[[:space:]]*$/) {
+    # The opening brace on the NEXT line. Recorded as PLAIN without
+    # reading a body, which is the refusing direction and agrees with the
+    # stated limit that a multi-line definition is not read for
+    # forwarding: what matters here is that the NAME exists, so the
+    # definition can SHADOW. Without it a file defining its own `_die`
+    # this way had every call of it read as another file forwarding
+    # wrapper, and its ordinary arguments reported as event ids.
+    match($0, /[A-Za-z_][A-Za-z0-9_]*[[:space:]]*\(\)/)
+    nm = substr($0, RSTART, RLENGTH)
+    sub(/[[:space:]]*\(\)$/, "", nm)
+    printf "%s\t%s\t%s\n", "PLAIN", FILENAME, nm
+    next
+  } else if ($0 ~ /^[[:space:]]*function[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]*$/) {
+    nm = $0
+    sub(/^[[:space:]]*function[[:space:]]+/, "", nm)
+    sub(/[[:space:]]*$/, "", nm)
+    printf "%s\t%s\t%s\n", "PLAIN", FILENAME, nm
+    next
   } else {
     next
   }

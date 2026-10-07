@@ -1151,6 +1151,42 @@ _seed() {
   [[ "${output}" != *"not_an_event"* ]]
 }
 
+# why: A REDIRECTION sits between a prefix assignment and the command it
+# belongs to, and the persistence test stopped at the first operator --
+# so `ev="$1" >/dev/null true` read as a standalone assignment and
+# became an alias. The test skips redirections and their operands before
+# deciding, the same way the argument walk does
+@test "_run_log_event_registry: PASSES a prefix assignment behind a redirection" {
+  _seed seed_ok
+  _write "dist/script/docker/lib/prefixredir.sh" \
+    'plain() { local ev=seed_ok; ev="$1" >/dev/null true; _log_err ci "$ev"; }' \
+    'plain ordinary_message'
+  run _run_log_event_registry
+  [ "${status}" -eq 0 ]
+  [[ "${output}" != *"ordinary_message"* ]]
+}
+
+# why: A definition can put its opening brace on the NEXT line, and discovery
+# required it on the same one -- so such a definition was recorded
+# nowhere and could not SHADOW. A file defining its own `_die` that way
+# then had every call of it read as the other file`s forwarding wrapper,
+# and its ordinary arguments reported as event ids. The name is recorded
+# as a PLAIN definition, which is the refusing direction and agrees with
+# the stated limit that a multi-line definition is not read for forwarding
+@test "_run_log_event_registry: PASSES a shadowing definition whose brace is on the next line" {
+  _seed
+  _write "dist/script/docker/lib/nextbrace.sh" \
+    '_die()' \
+    '{' \
+    '  printf "%s\n" "${1}" >&2' \
+    '  exit 1' \
+    '}' \
+    '_die not_an_event'
+  run _run_log_event_registry
+  [ "${status}" -eq 0 ]
+  [[ "${output}" != *"not_an_event"* ]]
+}
+
 # why: An unquoted `seed_*` is a PATHNAME pattern: what the logger receives
 # depends on what is on disk, so the body is not knowable from the source.
 # Recording it as the literal `seed_*` demanded the registration of an id
