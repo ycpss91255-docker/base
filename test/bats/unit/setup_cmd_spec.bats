@@ -641,12 +641,17 @@ EOF
 }
 
 @test "set rejects a newline-bearing value rather than corrupting setup.conf (#688)" {
-  # _validate_env_kv accepts an embedded newline (regex `.*$` matches up
-  # to a newline), so a value like $'A=b\nstray' passes validation. Left
-  # unguarded, _upsert_conf_value's `printf '%s = %s\n'` would write the
-  # stray second line as an orphan, un-keyed entry that corrupts the INI
-  # on the next read. The writer must refuse such a value loudly; the
-  # file must keep exactly one env_1 line and gain no orphan line.
+  # A value like $'A=b\nstray' would, written unguarded by
+  # _upsert_conf_value's `printf '%s = %s\n'`, leave the stray second
+  # line as an orphan, un-keyed entry that corrupts the INI on the next
+  # read. `set` must refuse it; the file must keep exactly one env_1 line
+  # and gain no orphan line.
+  #
+  # WHICH guard refuses it is no longer this case's to say. `environment`
+  # is a TYPED key, so _validate_env_kv rejects the newline first and the
+  # writer is never reached -- the comment here used to claim the
+  # opposite, and the case passed unchanged with the writer's own refusal
+  # deleted. The case below is the one that reaches the writer.
   cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [environment]
 env_1 = A=b
@@ -658,6 +663,34 @@ EOF
   assert_output "0"
   # The original clean value is untouched.
   run grep -c '^env_1 = A=b$' "${TEMP_DIR}/.setup.conf"
+  assert_output "1"
+}
+
+# why: The only case that reaches `set`'s conf_write_failed branch, and the
+# reason base#1220 found that branch emitting an unregistered id. A FREE-FORM
+# key is the shape that gets there: it is not in the schema registry, so
+# _schema_validate accepts any value and the newline refusal happens at the
+# writer sink instead. The case above names the same defect and cannot see
+# it -- its key is typed, so validation intercepts the value first and that
+# case stays green with the writer's guard deleted. What is asserted here is
+# POSITIVE and not only a refusal: the operator must READ the writer's
+# complaint and `set`'s own diagnostic naming the key. An unregistered body
+# makes lib/log.sh print its 'unregistered log body' refusal in their place,
+# so the refutation beside them is what pins the registry half
+@test "set reports the write failure for a key validation does not intercept" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[network]
+freeform_note = clean
+EOF
+  run main set network.freeform_note $'a\nb' --base-path "${TEMP_DIR}"
+  assert_failure
+  # The writer's refusal, and the set-level diagnostic naming the key --
+  # both are what the registry's own complaint would have replaced.
+  assert_output --partial "refusing newline-bearing key/value"
+  assert_output --partial "network.freeform_note"
+  refute_output --partial "unregistered log body"
+  # The original clean value is untouched and no orphan line was written.
+  run grep -c '^freeform_note = clean$' "${TEMP_DIR}/.setup.conf"
   assert_output "1"
 }
 
