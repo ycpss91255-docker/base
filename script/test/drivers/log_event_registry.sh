@@ -357,6 +357,20 @@ function _tokenize(line, kind, text, qs,   n, i, c, e, cur, has, j, L, sq, qst, 
         continue
       }
     }
+    # `<(...)` and `>(...)` are PROCESS substitutions: a command runs
+    # where a filename is expected. Read as a plain redirection the
+    # command inside becomes the operand and is skipped whole, which is
+    # a miss in the one construct whose point is that it is not a file.
+    if ((c == "<" || c == ">") && substr(line, i + 1, 1) == "(") {
+      j = _subst_end(line, i + 1)
+      if (j > 0) {
+        _TOK_SUBS = _TOK_SUBS substr(line, i + 2, j - i - 2) "\034"
+        cur = cur substr(line, i, j - i + 1)
+        has = 1
+        i = j + 1
+        continue
+      }
+    }
     if (index(";&|()<>\n", c) > 0) {
       if (has) { n++; kind[n] = "W"; text[n] = cur; qs[n] = qst; cur = ""; has = 0; qst = 0 }
       n++; kind[n] = "O"; qs[n] = 0
@@ -482,7 +496,7 @@ function _scan(line, ln,   n, i, m, d, K, T, Q, A, SUB, cmd, skip, subs, k) {
 # _subst_end(<text>, <index of the opening parenthesis>) -> index of its
 #   match, or 0. Counts nesting and skips quoted runs, so the span of a
 #   command substitution can be taken whole.
-function _subst_end(text, i,   L, d, c, sq, st) {
+function _subst_end(text, i,   L, d, c, k, sq, st) {
   L = length(text); sq = sprintf("%c", 39); d = 0; st = 0
   while (i <= L) {
     c = substr(text, i, 1)
@@ -495,6 +509,15 @@ function _subst_end(text, i,   L, d, c, sq, st) {
     if (st == 1) { if (c == sq) st = 0; i++; continue }
     if (st == 2) {
       if (c == "\\" && i < L) { i += 2; continue }
+      # Quoting RESTARTS inside a substitution, so a nested one opened
+      # while this one is quoted gets its own span and its own quote
+      # state. Sharing one state across the boundary let the first
+      # literal `)` in a display string look like the end of the whole
+      # thing.
+      if (c == "$" && substr(text, i + 1, 1) == "(") {
+        k = _subst_end(text, i + 1)
+        if (k > 0) { i = k + 1; continue }
+      }
       if (c == "\"") st = 0
       i++
       continue

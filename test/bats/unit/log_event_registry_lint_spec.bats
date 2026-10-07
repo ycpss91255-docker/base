@@ -579,6 +579,35 @@ _seed() {
   [[ "${output}" != *"not_an_event"* ]]
 }
 
+# why: `<(...)` is a PROCESS substitution: it runs a command and hands the
+# reader a path to its output. Reading the `<` as a plain redirection
+# made the command inside it the filename operand, so it was skipped
+# whole and its id never checked -- a miss, in the one construct whose
+# whole point is that a command runs where a filename is expected
+@test "_run_log_event_registry: FAILS on a body inside a process substitution" {
+  _seed
+  _write "dist/script/docker/lib/psub.sh" \
+    'cat <(_log_err conf process_missing "display=boom")'
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/psub.sh:1: process_missing"* ]]
+}
+
+# why: Quoting RESTARTS inside a substitution, so a double quote within one is
+# not the close of the quote outside it. The span finder shared one quote
+# state across the boundary, so an inner substitution opened while the
+# outer one was quoted did not count as nesting -- and the first literal
+# `)` in a display string then looked like the end of the whole thing,
+# truncating the command before its body was ever read
+@test "_run_log_event_registry: FAILS on a body in a nested quoted substitution" {
+  _seed
+  _write "dist/script/docker/lib/nest.sh" \
+    'out="$(printf "%s" "$(_log_err conf nested_missing "display=oops)")")"'
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/nest.sh:1: nested_missing"* ]]
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _run_log_event_registry: what it leaves alone
 # ════════════════════════════════════════════════════════════════════
