@@ -589,6 +589,25 @@ jobs:
     #                     and goes unreported, but `--filter` matches the
     #                     SOURCE, so its backslashes stop the catalogue row
     #                     being pasteable into one
+    #   log-event-registry
+    #                     every event id a *.sh under dist/ or script/
+    #                     emits through _log_* is carried by
+    #                     dist/script/docker/lib/log-events.txt. _log_*
+    #                     is STRICT: lib/log.sh refuses an unregistered
+    #                     body and prints its own `FATAL: unregistered
+    #                     log body` INSTEAD of the message, so the
+    #                     operator reads the registry's complaint rather
+    #                     than the diagnostic, at the moment something
+    #                     had already gone wrong. The tree asserted only
+    #                     the other direction -- a driver's spec says the
+    #                     id ITS driver dies with is registered -- which
+    #                     is a per-site habit and not a population, so
+    #                     four accumulated. Both sides are derived from
+    #                     the tree: the registry's own path is read out
+    #                     of the _LOG_EVENTS_FILE assignment, and the
+    #                     wrapper shape that forwards its first argument
+    #                     into the body slot (test.sh's _die) is derived
+    #                     rather than named
     #
     # GROUPED, not one job per driver, and not one job for the phase
     # (base#1071). One job per driver read best in the checks list -- the
