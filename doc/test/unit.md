@@ -4175,7 +4175,7 @@ fallback is present.
 | `prune.sh --help mentions --worktree-orphans (#388)` | - |
 | `prune.sh aborts on a failing pre-prune hook and skips docker prune (#690)` | - |
 
-### test/bats/unit/publish_worker_yaml_spec.bats (12)
+### test/bats/unit/publish_worker_yaml_spec.bats (20)
 
 Structural assertions for the `.github/workflows/publish-worker.yaml`
 reusable `call-publish` workflow (foundational image repos push their
@@ -4226,6 +4226,14 @@ acquiring it, and to any other scope beside it
 | `publish-worker.yaml: merge login uses the parameterised registry (not hardcoded ghcr.io)` | - |
 | `publish-worker.yaml: every job's grant is pinned as an exact set (#957)` | - |
 | `publish-worker.yaml: the publish job carries the same-repo guard (#766)` | - |
+| `publish-worker.yaml: the smoke step verifies the digest it is about to tag, not a tag name (#1214)` | A step that verifies a TAG cannot run until the tag exists, so reading one is what kept the only check in this job running after the publish it was supposed to authorise -- and nothing in this file can detach a tag again. It reads the digest a publish shard pushed instead, which exists before any tag names it (#1214). |
+| `publish-worker.yaml: each shard records the platform it built in its digest file (#1214)` | Verification has to RUN the image and a runner can only run its own architecture, so the merge job must tell which downloaded digest it can execute. `merge-multiple: true` flattens the per-arch artifact NAMES away before that job sees them, so the digest FILE is the only place the answer survives -- a `touch`ed empty file leaves the selection with nothing to read and the manifest create with nothing in front of it (#1214). |
+| `publish-worker.yaml: the tag confirmation passes an ordinary publish, whose shard digests are flattened away (#1214)` | The load-bearing case, and the one a structural read cannot make. With provenance on by default each shard's exported digest names an INDEX, and `imagetools create` flattens those into the published one -- so the shard digests the artifact files are named by are absent from the published manifest and a digest-set comparison fails every SUCCESSFUL publish, after the tags have moved. Running the step over that state is what says it compares the constituent manifests instead (#1214). |
+| `publish-worker.yaml: the tag confirmation fails when a tag resolves to content nothing verified (#1214)` | The failure this check exists for and the only one the reordering leaves on this side of the publish: the create attached a tag to content the smoke step never ran. A confirmation that cannot report it is a step that only ever agrees (#1214). |
+| `publish-worker.yaml: the tag confirmation fails when the published manifest drops an arch the matrix built (#1214)` | The other half: a published index that silently lost an arch the matrix built leaves the losing architecture's downstream consumers unable to pull the tag at all, which is the defect the per-shard digest push exists to prevent (#1214). |
+| `publish-worker.yaml: the merge job's runner follows the publish matrix, not a fixed arch (#1214)` | An arm64-only caller -- `platforms: linux/arm64`, which this worker supports and which a multi-arch base image repo uses -- builds and pushes on `ubuntu-24.04-arm`. A merge job pinned to `ubuntu-latest` can execute none of the digests that run produced, so the selection refuses, no tag is attached, and a supported configuration stops publishing altogether. The runner has to follow the matrix the caller asked for (#1214). |
+| `publish-worker.yaml: an arm64-only call verifies on an arm64 runner (#1214)` | The structural half above says the runner is derived; this says the derivation lands on a runner that can RUN what the caller asked for. An arm64-only call must put the merge job on the arm64 runner, or the smoke step has nothing it can execute and the publish fails for a configuration that worked before the gate existed (#1214). |
+| `publish-worker.yaml: nothing in the merge job conditions whether it publishes (#1171)` | base#1171's invariant, stated as behaviour rather than left in prose: every run the trigger starts has a reason to publish and the publish is unconditional. An `if:` on any merge step would let a run reach the end having published nothing while still holding its concurrency slot, which is the eviction that issue removed. The job's own `if:` is held to the same-repo guard the self-hosted rule requires of its derived runner and to nothing else, so a condition on WHETHER to publish cannot arrive there either. |
 
 ### test/bats/unit/readme_file_table_spec.bats (4)
 
@@ -4445,7 +4453,7 @@ rule with nothing comparing them is the #1012 shape with one fewer copy.
 | `release-ref: every prerelease classifier under script/ci is one this spec can ask (#1012)` | "One home per classified thing" is only true while the homes agree wherever their inputs overlap. #1012's own reasoning is that three hand-kept copies of a rule are a defect BECAUSE nothing in the tree compared any pair of them; two hand-kept copies with nothing comparing them is the same shape with one fewer copy. The owner list is derived by the same predicate the site scan uses, so a third classifier lands here the day it lands in script/ci/ -- and it fails until someone states how to ask it, because an interface is the one thing a scan cannot derive. |
 | `release-ref: no two prerelease classifiers disagree where both answer (#1012)` | The two owners accept different grammars on purpose -- a released VERSION must carry the `v` a downstream repo pins, a git REF may be a full `refs/tags/...` -- so each refuses inputs the other reads. What must never happen is the pair ANSWERING a shared input differently: one of them would be marking a Release final or moving the org's `test-tools:latest` for a tag the other calls a release candidate. Only inputs both owners accept are compared; a refusal is not a disagreement. |
 
-### test/bats/unit/release_test_tools_yaml_spec.bats (42)
+### test/bats/unit/release_test_tools_yaml_spec.bats (44)
 
 Structural assertions for `.github/workflows/release-test-tools.yaml`. Locks
 the publish surface that downstream Dockerfile.example's `FROM
@@ -4469,14 +4477,25 @@ rules). Any other ref is refused, so an unrecognised input publishes nothing
 rather than overwriting `:latest`.
 
 The merge job's ORDER is pinned here too, over a population read off the
-workflow's own jobs and steps: no step may let a registry tag name content
-that no step of that job has run yet. The smoke step -- the only check this
-image has, since no job of this workflow needs self-test.yaml -- used to
-verify a tag, which cannot exist before the manifest create, so it ran after
-the publish it was supposed to authorise and a red verdict left the moved
-tag standing. It verifies a digest now; the tag's own resolution is checked
-by the step after the create, which is the only assertion that needs the tag
-to exist.
+workflow files themselves -- every file of `.github/workflows/`, every job
+of its `jobs:` mapping, every step of each job's `steps:` list: no step may
+let a registry tag name content that no step of that job has run yet. The
+smoke step -- the only check this image has, since no job of this workflow
+needs self-test.yaml -- used to verify a tag, which cannot exist before the
+manifest create, so it ran after the publish it was supposed to authorise
+and a red verdict left the moved tag standing. It verifies a digest now; the
+tag's own resolution is checked by the step after the create, which is the
+only assertion that needs the tag to exist.
+
+That scan is DIRECTORY-WIDE and not about this file alone, which is why it
+lives under its own divider below rather than among the cases above. A tag
+naming content nothing ran is the same defect whichever workflow publishes
+it, and this one was merely where it was found first: `publish-worker.yaml`
+carried it one file over, with a `merge` job whose only check after the
+manifest create was an `imagetools inspect` asking the registry whether a
+manifest existed (#1214). Each publishing workflow's own shape is pinned by
+its own spec; what is pinned here is the order, over whatever files the
+directory holds.
 
 Four of the cases below RUN the resolver rather than reading it: the step's
 own `run:` body is extracted with yq and executed against each ref shape.
@@ -4506,11 +4525,13 @@ each moved `:latest`.
 | `release-test-tools.yaml: the smoke step derives its version assertions from the pin roster (#1012)` | One loop over the pins the Dockerfile declares, rather than fourteen hand-written comparisons that leave the next tool unasserted the day it is pinned. |
 | `release-test-tools.yaml: the smoke step refuses an empty pin roster (#1012)` | A loop fed by a command that failed simply gets no input and passes, which is fail-open for a step whose whole assertion is that the versions were checked. |
 | `release-test-tools.yaml: the merge job's checkout rationale names what the smoke step reads (#1012)` | That sentence is what a reader follows to the file doing the comparison, and it still named the accessor the step had stopped opening. |
-| `release-test-tools.yaml: no job attaches a registry tag ahead of the step that runs the image (#1109)` | The rolling tag moved first and the only check on the image ran after it, with nothing anywhere in the file that could put it back -- so a red smoke left the moved tag standing, and on the measured v0.42.0 tag the tag moved 5m58s before that commit's tests had any verdict at all (#1109). The ordering is read off the workflow's own jobs and steps, so the job that publishes does not have to be remembered here and a fourth one is in the population the day it lands. |
-| `release-test-tools.yaml: the ordering scan read every job and found the publish it ordered (#1109)` | An empty violation list satisfies the case above whether the scan read every job and found the ordering right, or read nothing and classified nothing. So the population it walked and the pair it ordered are asserted, not assumed. |
+| `publish ordering: no job of any workflow attaches a registry tag ahead of the step that runs the image (#1214)` | The rolling tag moved first and the only check on the image ran after it, with nothing anywhere in the file that could put it back -- so a red smoke left the moved tag standing, and on the measured v0.42.0 tag the tag moved 5m58s before that commit's tests had any verdict at all (#1109). The population is the workflow DIRECTORY, not the file that defect was found in: `publish-worker.yaml` carried the identical shape one file over and was scanned by nothing, because the walk started at a path (#1214). Jobs and steps are read off each file, so neither the publishing workflow nor the publishing job has to be remembered here. |
+| `publish ordering: the scan read every job of every workflow and found the publishes it ordered (#1214)` | An empty violation list satisfies the case above whether the scan read every job of every workflow and found the ordering right, or read nothing and classified nothing. So the files it walked, the jobs it read in each and the pairs it ordered are asserted, not assumed -- and the ordered count is held at two, because a single verified publish is what the directory looked like while the second one went unchecked. |
 | `publish ordering: a job that attaches a tag with nothing running the image is reported (#1109)` | The live tree cannot exercise this shape -- a publish with no check at all -- and must never be able to, so without a fixture the classifier could stop reporting it and nothing would notice. |
 | `publish ordering: a verified publish is clean, and a job after it is still read (#1109)` | The other half of a usable rule -- the prescribed order has to pass -- plus the property that makes the population derived rather than remembered: the walk does not stop at the first job, so the job somebody adds tomorrow is scanned the day it lands. |
 | `publish ordering: an action handed a tags input attaches a tag, a digest-only push does not (#1109)` | A tag can also be attached by an action handed a tags input, which is the shape this very workflow would take if its build shards ever stopped pushing by digest -- and no run block would mention a tag at all. The digest-only push the shards do today is the negative half: it names nothing, so it is reachable by content alone and needs no check in front of it. |
+| `publish ordering: a tags input on a build that never pushes attaches nothing (#1214)` | A `tags:` input on a build that never pushes names an image in the runner's OWN image store, which no consumer can reach and no registry tag moves for. self-test.yaml builds its run-scoped tooling image exactly that way in five jobs, so a rule reading the tag input without the push reports five non-defects the moment this scan looks at more than one workflow -- and the only way back from that is excluding them by name, which is the roster this scan exists to avoid. |
+| `publish ordering: a multiline tags list and a pushing exporter on a later line still attach (#1214)` | `tags:` and `outputs:` are both ordinarily written as BLOCK scalars -- a tag list has one tag per line, and a build that wants a local export beside its registry push has one exporter per line. A classifier reading only the first line of either value misses `push=true` on any later one, so a tagged pushing step reads as attaching nothing and an unverified publish passes the directory-wide scan with the guard looking straight at it (#1214). |
 | `publish ordering: a workflow the scan cannot read is a BUG, never a clean ordering (#1109)` | A scan that cannot read a workflow must say so, not report it clean: the fail-open direction here is a workflow whose publish ordering nothing checked, passing the live-tree case for the wrong reason. |
 | `release-test-tools.yaml: drops docker/setup-qemu-action (native arm64 runner, #587)` | - |
 | `release-test-tools.yaml: compute-matrix job maps platforms to native runners (#587)` | - |
