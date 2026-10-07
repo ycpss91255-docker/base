@@ -62,14 +62,25 @@
 # nothing rather than overwriting `:latest`.
 #
 # The merge job's ORDER is pinned here too, over a population read off the
-# workflow's own jobs and steps: no step may let a registry tag name content
-# that no step of that job has run yet. The smoke step -- the only check this
-# image has, since no job of this workflow needs self-test.yaml -- used to
-# verify a tag, which cannot exist before the manifest create, so it ran
-# after the publish it was supposed to authorise and a red verdict left the
-# moved tag standing. It verifies a digest now; the tag's own resolution is
-# checked by the step after the create, which is the only assertion that
-# needs the tag to exist.
+# workflow files themselves -- every file of `.github/workflows/`, every job
+# of its `jobs:` mapping, every step of each job's `steps:` list: no step may
+# let a registry tag name content that no step of that job has run yet. The
+# smoke step -- the only check this image has, since no job of this workflow
+# needs self-test.yaml -- used to verify a tag, which cannot exist before the
+# manifest create, so it ran after the publish it was supposed to authorise
+# and a red verdict left the moved tag standing. It verifies a digest now; the
+# tag's own resolution is checked by the step after the create, which is the
+# only assertion that needs the tag to exist.
+#
+# That scan is DIRECTORY-WIDE and not about this file alone, which is why it
+# lives under its own divider below rather than among the cases above. A tag
+# naming content nothing ran is the same defect whichever workflow publishes
+# it, and this one was merely where it was found first: `publish-worker.yaml`
+# carried it one file over, with a `merge` job whose only check after the
+# manifest create was an `imagetools inspect` asking the registry whether a
+# manifest existed (#1214). Each publishing workflow's own shape is pinned by
+# its own spec; what is pinned here is the order, over whatever files the
+# directory holds.
 #
 # Four of the cases below RUN the resolver rather than reading it: the step's
 # own `run:` body is extracted with yq and executed against each ref shape.
@@ -83,6 +94,12 @@ setup() {
   WF="/source/.github/workflows/release-test-tools.yaml"
   assert_spec_subject "${WF}" \
       "the test-tools release workflow this spec pins"
+  # The publish-ordering scan below reads the whole directory, not one file:
+  # its subject is the population, so a renamed or moved workflow tree has to
+  # fail here rather than shrink the scan to nothing.
+  WF_DIR="/source/.github/workflows"
+  assert_spec_subject_dir "${WF_DIR}" \
+      "the workflow directory whose publish ordering this spec scans"
   # Scratch for the workflow FIXTURES the publish-ordering cases need. Three
   # of the shapes that scan has to classify are ones the real workflow must
   # never contain, so they can only be exercised over a file written here --
@@ -246,6 +263,36 @@ _publish_order_violations() {
       printf ' step that runs the image at step %s\n' "${_verify}"
     fi
   done <<< "${_census}"
+}
+
+# _publish_order_violations_in <dir> -- the same report over every workflow
+# file of <dir>.
+#
+# The DIRECTORY is the population the rule is about. A registry tag naming
+# content nothing ran is the same defect whichever workflow attaches it, and
+# the file this scan was written against was only where it was found first:
+# `publish-worker.yaml` held the identical shape one file over, unscanned,
+# because the walk started at a path rather than at the directory. Derived
+# from the tree, so the third publishing workflow is covered the day it lands
+# instead of the day somebody remembers this scan exists.
+#
+# A file the census cannot read fails the whole walk, as it does for one file.
+# The remaining files are still reported rather than abandoned: one unparsable
+# workflow must not hide the violations standing in the others.
+_publish_order_violations_in() {
+  local _dir="${1}" _f _out _rc=0 _status
+  while IFS= read -r _f; do
+    [[ -n "${_f}" ]] || continue
+    _status=0
+    _out="$(_publish_order_violations "${_f}")" || _status=$?
+    if [[ "${_status}" -ne 0 ]]; then
+      _rc=1
+    fi
+    if [[ -n "${_out}" ]]; then
+      printf '%s\n' "${_out}"
+    fi
+  done < <(workflow_files "${_dir}")
+  return "${_rc}"
 }
 
 # _docker_stub -- put a `docker` on PATH that answers for ONE registry state,
@@ -736,40 +783,59 @@ _spec_prose() {
 # it, with nothing anywhere in the file that could put it back -- so a red
 # smoke left the moved tag standing, and on the measured v0.42.0 tag the tag
 # moved 5m58s before that commit's tests had any verdict at all (#1109). The
-# ordering is read off the workflow's own jobs and steps, so the job that
-# publishes does not have to be remembered here and a fourth one is in the
-# population the day it lands.
-@test "release-test-tools.yaml: no job attaches a registry tag ahead of the step that runs the image (#1109)" {
+# population is the workflow DIRECTORY, not the file that defect was found
+# in: `publish-worker.yaml` carried the identical shape one file over and was
+# scanned by nothing, because the walk started at a path (#1214). Jobs and
+# steps are read off each file, so neither the publishing workflow nor the
+# publishing job has to be remembered here.
+@test "publish ordering: no job of any workflow attaches a registry tag ahead of the step that runs the image (#1214)" {
   # The step that attaches the tags ran BEFORE the only step that executes
   # the image, and `failure()` / rollback / `imagetools rm` appear nowhere in
-  # the file -- so a failing smoke reported red with the tag already moved.
-  run _publish_order_violations "${WF}"
+  # either publishing workflow -- so a failing check reported red with the tag
+  # already moved.
+  run _publish_order_violations_in "${WF_DIR}"
   assert_success
   assert_output ""
 }
 
 # why: An empty violation list satisfies the case above whether the scan read
-# every job and found the ordering right, or read nothing and classified
-# nothing. So the population it walked and the pair it ordered are asserted,
-# not assumed.
-@test "release-test-tools.yaml: the ordering scan read every job and found the publish it ordered (#1109)" {
-  local _census _jobs _job
-  _census="$(_publish_order_census "${WF}")"
-  _jobs="$(yaml_job_names "${WF}")"
-  # One census line per job of the workflow, counted off the file's own jobs
-  # mapping, so a job outside the scan's population is a failure here.
-  assert_equal "$(printf '%s\n' "${_jobs}" | grep -c '')" \
-      "$(printf '%s\n' "${_census}" | grep -c '')"
-  while IFS= read -r _job; do
-    [[ -n "${_job}" ]] || continue
-    printf '%s\n' "${_census}" \
-      | grep -qE "^${_job} attach=-?[0-9]+ verify=-?[0-9]+$"
-  done <<< "${_jobs}"
-  # And some job really does both, so the clean result above is an ordering
-  # that was observed rather than a scan that recognised neither end of it.
-  run grep -cE ' attach=[0-9]+ verify=[0-9]+$' <<< "${_census}"
-  assert_success
-  [ "${output}" -ge 1 ]
+# every job of every workflow and found the ordering right, or read nothing
+# and classified nothing. So the files it walked, the jobs it read in each and
+# the pairs it ordered are asserted, not assumed -- and the ordered count is
+# held at two, because a single verified publish is what the directory looked
+# like while the second one went unchecked.
+@test "publish ordering: the scan read every job of every workflow and found the publishes it ordered (#1214)" {
+  local _files=0 _ordered=0 _f _census _jobs _job _both
+  while IFS= read -r _f; do
+    [[ -n "${_f}" ]] || continue
+    _files=$(( _files + 1 ))
+    _census="$(_publish_order_census "${_f}")"
+    _jobs="$(yaml_job_names "${_f}")"
+    # One census line per job of the file, counted off its own jobs mapping,
+    # so a job outside the scan's population is a failure here.
+    assert_equal "$(printf '%s\n' "${_jobs}" | grep -c '')" \
+        "$(printf '%s\n' "${_census}" | grep -c '')"
+    while IFS= read -r _job; do
+      [[ -n "${_job}" ]] || continue
+      printf '%s\n' "${_census}" \
+        | grep -qE "^${_job} attach=-?[0-9]+ verify=-?[0-9]+$"
+    done <<< "${_jobs}"
+    _both="$(grep -cE ' attach=[0-9]+ verify=[0-9]+$' <<< "${_census}" \
+        || true)"
+    _ordered=$(( _ordered + _both ))
+  done < <(workflow_files "${WF_DIR}")
+  # The directory really was walked, not a single file of it.
+  [ "${_files}" -ge 5 ] || {
+    echo "only ${_files} workflow file(s) walked"
+    return 1
+  }
+  # And BOTH publishing workflows really do both ends of the pair, so the
+  # clean result above is an ordering that was observed twice rather than a
+  # scan that recognised neither end of the second one.
+  [ "${_ordered}" -ge 2 ] || {
+    echo "only ${_ordered} job(s) both attach a tag and run the image"
+    return 1
+  }
 }
 
 # why: The live tree cannot exercise this shape -- a publish with no check at
