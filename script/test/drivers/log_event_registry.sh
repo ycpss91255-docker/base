@@ -1463,6 +1463,21 @@ PHASE == "def" {
   # position the body needs.
   body = $0
   sub(/^[^{]*\{/, "", body)
+  # And it ENDS at its matching closing brace. Stripping the prologue
+  # alone left whatever followed the function on the same line inside the
+  # text read as its body, so `w() { printf "%s" "$1"; }; _log_err ci
+  # "$1"` declared a fixed-body function a forwarding wrapper -- and a
+  # wrongly declared wrapper reports every ordinary call of that
+  # function, not one site, which is the worst false finding this scan
+  # has. _brace_end counts quote-aware and wants the opening brace, so it
+  # is asked about the body with that brace put back in front, so every
+  # index it returns is one higher than the same character in the body,
+  # and the closing brace itself is not part of the body.
+  bend = _brace_end("{" body, 1)
+  # Zero means the brace never closed on this line. That is the
+  # multi-line definition the reach list already declines, and the body
+  # is left as it stands rather than truncated to nothing.
+  if (bend > 0) body = substr(body, 1, bend - 2)
   printf "%s\t%s\t%s\n", (_forwards(body) ? "FWD" : "PLAIN"), FILENAME, nm
   next
 }

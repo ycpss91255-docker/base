@@ -1662,6 +1662,22 @@ _seed() {
   [[ "${output}" != *"not_an_event"* ]]
 }
 
+# why: Stripping the definition prologue left whatever followed the function
+# on the SAME LINE inside the text read as its body, so a fixed-body
+# function with a logger call after its closing brace read as forwarding.
+# That is the worst false finding this scan has: a wrongly declared
+# wrapper reports every ordinary call of the function and not one site
+# (base#1228)
+@test "_run_log_event_registry: PASSES a definition followed by a logger call on the same line" {
+  _seed
+  _write "dist/script/docker/lib/pastbrace.sh" \
+    'y() { printf "%s" "$1"; }; _log_err ci "$1"' \
+    'y not_an_event'
+  run _run_log_event_registry
+  [ "${status}" -eq 0 ]
+  [[ "${output}" != *"not_an_event"* ]]
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _run_log_event_registry: the refusals
 #
