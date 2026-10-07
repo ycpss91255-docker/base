@@ -714,6 +714,37 @@ _seed() {
   [[ "${output}" == *"log event registry lint: clean"* ]]
 }
 
+# why: The flag has to reach the ALIAS too. A name assigned `${1}` AFTER a shift
+# holds the second argument, so recording it as an alias of the first
+# makes the lint check the wrong argument of every call -- reporting
+# ordinary message text and missing the real event id beside it. An alias
+# captured BEFORE the shift still forwards, which is the tree own `_die`
+@test "_run_log_event_registry: PASSES a function that captures its alias after a shift" {
+  _seed seed_ok
+  _write "dist/script/docker/lib/shiftalias.sh" \
+    'report() { shift; local ev="${1}"; _log_err ci "${ev}"; }' \
+    'report not_an_event seed_ok'
+  run _run_log_event_registry
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"log event registry lint: clean"* ]]
+}
+
+# why: `set -e` changes shell OPTIONS and leaves the positionals alone, so a
+# wrapper that sets one still forwards its caller first argument.
+# Treating every `set` as a positional change declined such a wrapper and
+# took all of its call sites out of the population -- silently, because
+# another wrapper exists and the empty-wrapper refusal does not fire. Only
+# `set --`, or a `set` whose first argument is not an option, replaces them
+@test "_run_log_event_registry: FAILS on a wrapper that sets a shell option before logging" {
+  _seed
+  _write "dist/script/docker/lib/setopt.sh" \
+    'report2() { set -e; _log_err ci "${1}"; }' \
+    'report2 setopt_missing "boom"'
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/setopt.sh:2: setopt_missing"* ]]
+}
+
 # why: A backslash QUOTES the character after it, so `\time` is the external
 # command and not the shell keyword. The escape was removed without
 # recording that the word had been quoted, so the word read as the

@@ -288,7 +288,12 @@ function _forwards(text,   n, i, K, T, Q, EX, AJ, A, cmd, shifted, tok, nm, alia
     # would be a fixed id and no forward at all.
     if (T[i] ~ /^[A-Za-z_][A-Za-z0-9_]*=/ && (Q[i] == 0 || index(T[i], "=") < Q[i])) {
       nm = T[i]; sub(/=.*$/, "", nm)
-      if (EX[i] && T[i] ~ /^[A-Za-z_][A-Za-z0-9_]*=[$][{]?1[}]?$/) alias[nm] = 1
+      # `!shifted`: a name assigned `${1}` AFTER a shift holds the
+      # second argument, so recording it as an alias of the first makes
+      # the lint check the wrong argument of every call -- reporting
+      # ordinary message text and missing the real id beside it. One
+      # captured BEFORE the shift still forwards.
+      if (!shifted && EX[i] && T[i] ~ /^[A-Za-z_][A-Za-z0-9_]*=[$][{]?1[}]?$/) alias[nm] = 1
       else delete alias[nm]
     }
     if (!cmd) continue
@@ -298,7 +303,16 @@ function _forwards(text,   n, i, K, T, Q, EX, AJ, A, cmd, shifted, tok, nm, alia
     # positionals and not on the definition, which is what keeps the
     # tree own `_die` working: it captures `${1}` into a local BEFORE
     # shifting, and an alias taken before the shift still forwards.
-    if (!Q[i] && (T[i] == "shift" || T[i] == "set")) { shifted = 1; cmd = 0; continue }
+    if (!Q[i] && T[i] == "shift") { shifted = 1; cmd = 0; continue }
+    # `set -e` changes shell OPTIONS and leaves the positionals alone.
+    # Only `set --`, or a `set` whose first argument is not an option,
+    # replaces them -- treating every `set` as a change declined a real
+    # wrapper and took all its call sites out of the population.
+    if (!Q[i] && T[i] == "set") {
+      if (_args(K, T, Q, AJ, n, i, A) >= 1 && T[A[1]] !~ /^[-+]./) shifted = 1
+      cmd = 0
+      continue
+    }
     if (T[i] ~ /^_log_(debug|info|warn|err|fatal)$/ && _args(K, T, Q, AJ, n, i, A) >= 2) {
       if (!EX[A[2]]) { cmd = 0; continue }
       tok = T[A[2]]
