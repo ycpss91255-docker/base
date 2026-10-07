@@ -1574,6 +1574,22 @@ _seed() {
   [[ "${output}" == *"dist/script/docker/lib/escbrace.sh:2: escaped_brace_missing"* ]]
 }
 
+# why: A function body closes on a `}` the shell reads as a RESERVED WORD, and
+# it reads it as one only at a command position. Counting every unquoted
+# brace cut the body short at a literal `}` handed to a command, read the
+# wrapper as non-forwarding and took every call of it out of the
+# population -- a regression the body truncation introduced, in the
+# missing direction (base#1228)
+@test "_run_log_event_registry: FAILS on an id through a wrapper holding a brace argument" {
+  _seed
+  _write "dist/script/docker/lib/argbrace.sh" \
+    'v() { printf "%s" }; _log_err ci "$1"; }' \
+    'v brace_arg_missing'
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/argbrace.sh:2: brace_arg_missing"* ]]
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _run_log_event_registry: what it leaves alone
 # ════════════════════════════════════════════════════════════════════

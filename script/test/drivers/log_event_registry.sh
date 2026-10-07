@@ -1171,6 +1171,52 @@ function _brace_end(t, i,   L, d, c, sq, st) {
   }
   return 0
 }
+# _body_end(<text>, <index of the opening brace>) -> index of the brace
+#   that closes a FUNCTION BODY, or 0.
+#
+# Not _brace_end, and the difference is the whole point. A parameter
+# expansion closes at the first unnested brace whatever sits in front of
+# it, which is what that one counts. A function body does not: `}` is a
+# RESERVED WORD there, and the shell reads it as one only at a command
+# position and only as a whole word. In
+# `w() { printf "%s" }; _log_err ci "$1"; }` the first brace is an
+# ARGUMENT of printf, and counting it cut the body short, read the
+# wrapper as non-forwarding and took every call of it out of the
+# population.
+#
+# Getting this wrong truncates EARLY, which declines a wrapper rather
+# than inventing one -- the missing direction, and the safe one. The
+# direction that is not safe is reading past the brace, which is what
+# the def phase did before it truncated at all.
+function _body_end(t, i,   L, d, c, sq, st) {
+  L = length(t); sq = sprintf("%c", 39); d = 0; st = 0
+  while (i <= L) {
+    c = substr(t, i, 1)
+    if (st == 1) { if (c == sq) st = 0; i++; continue }
+    if (st == 2) {
+      if (c == "\\" && i < L) { i += 2; continue }
+      if (c == "\"") st = 0
+      i++
+      continue
+    }
+    if (c == "\\" && i < L) { i += 2; continue }
+    if (c == sq) { st = 1; i++; continue }
+    if (c == "\"") { st = 2; i++; continue }
+    if (c == "{" || c == "}") {
+      # A brace that is part of a longer word is no keyword -- `${x}` and
+      # a brace expansion both arrive this way -- and one that is not at
+      # a command position is an argument.
+      if (!_is_word_at(t, i, 1) || !_cmd_pos_at(t, i)) { i++; continue }
+      if (c == "{") { d++; i++; continue }
+      d--
+      if (d == 0) return i
+      i++
+      continue
+    }
+    i++
+  }
+  return 0
+}
 function _btick_end(text, i,   L, c) {
   L = length(text); i++
   while (i <= L) {
@@ -1504,11 +1550,13 @@ PHASE == "def" {
   # "$1"` declared a fixed-body function a forwarding wrapper -- and a
   # wrongly declared wrapper reports every ordinary call of that
   # function, not one site, which is the worst false finding this scan
-  # has. _brace_end counts quote-aware and wants the opening brace, so it
-  # is asked about the body with that brace put back in front, so every
-  # index it returns is one higher than the same character in the body,
-  # and the closing brace itself is not part of the body.
-  bend = _brace_end("{" body, 1)
+  # has. _body_end wants the opening brace, so it is asked about the body
+  # with that brace put back in front, and every index it returns is one
+  # higher than the same character in the body; the closing brace itself
+  # is not part of the body. _brace_end is NOT the matcher for this: a
+  # function body closes on a `}` the shell reads as a reserved word, and
+  # a literal `}` handed to a command is not one.
+  bend = _body_end("{" body, 1)
   # Zero means the brace never closed on this line. That is the
   # multi-line definition the reach list already declines, and the body
   # is left as it stands rather than truncated to nothing.
