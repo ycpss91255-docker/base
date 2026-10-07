@@ -62,8 +62,12 @@ _probe_fixture() {
   printf '%s\n' 'untouched' > "${_root}/bystander.txt"
   # An IGNORED file, because the files this repo ignores are the generated
   # config the suite under measurement reads.
-  printf '%s\n' '.env' > "${_root}/.gitignore"
+  printf '%s\n' '.env' 'ignoredir/' > "${_root}/.gitignore"
   printf '%s\n' 'generated' > "${_root}/.env"
+  # An ignored DIRECTORY, which git reports as the directory and not as its
+  # contents -- the shape `coverage/` and `log/` have in the real tree.
+  mkdir -p "${_root}/ignoredir"
+  printf '%s\n' 'previous output' > "${_root}/ignoredir/data"
   git -C "${_root}" init -q
   git -C "${_root}" -c user.email=probe@example.invalid -c user.name=probe \
     add -A
@@ -777,4 +781,36 @@ mutated"
   assert_failure
   run cat "${_out}"
   assert_output --partial "so there is NO verdict"
+}
+
+# ── round-five review findings, each reproduced before it was fixed ──────────
+
+# why: the mirror image of the restore's ancestor check, and the one outcome this
+# tool must not have. A subject reached through a symlinked parent was ACCEPTED,
+# recorded and mutated -- and then the restore correctly refused to write
+# through that ancestor, leaving the subject mutated.
+@test "_mutation_probe: refuses a subject reached through a symlinked ancestor" {
+  local _root _outside="${BATS_TEST_TMPDIR}/elsewhere"
+  _root="$(_probe_fixture)"
+  mkdir -p "${_outside}"
+  printf '%s\n' 'right' > "${_outside}/held.sh"
+  ln -s ../elsewhere "${_root}/link"
+  run bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject link/held.sh --mutate 'printf wrong > link/held.sh'"
+  assert_failure
+  assert_output --partial "is reached through 'link'"
+  run cat "${_outside}/held.sh"
+  assert_output "right"
+}
+
+# why: an ignore pattern naming a DIRECTORY -- which is how this repo ignores
+# `coverage/` and `log/` -- is reported by git as the directory, and a
+# directory's fingerprint is only its mode. So a mutation that rewrote a file
+# inside one was invisible to the leak check and left behind.
+@test "_mutation_probe: refuses a mutation that edited a file inside an ignored DIRECTORY" {
+  local _root _runner
+  _root="$(_probe_fixture)"
+  _runner="$(_probe_runner_observing green '  printf "ok 1 one\n"')"
+  run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject subject.sh --mutate 'sed -i s/right/wrong/ subject.sh; printf clobbered > ignoredir/data'"
+  assert_failure
+  assert_output --partial "touched ignoredir/data, which it did not declare"
 }

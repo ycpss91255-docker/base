@@ -192,32 +192,36 @@ _mutation_probe_record() {
 # _mutation_probe_restore <record-dir> <root> <subject>... -- copy each
 # recorded original back. Recreates a subject the mutation deleted, and
 # carries the mode with it.
-# _mutation_probe_dest_ok <root> <subject> -- 0 when every ancestor of the
-# subject inside the root is still a real directory.
+# _mutation_probe_bad_ancestor <root> <subject> -- print the first ancestor of
+# <subject> that is not a plain directory under <root>, and return 0; return 1
+# when every ancestor is one. The CALLERS phrase the message, because the same
+# fact means two different things at the two places it is asked.
 #
-# Removing the final component is not enough. If the mutation replaced a PARENT
-# with a symlink -- `mv dir olddir; ln -s ../outside dir` -- then both the `rm`
-# and the `cp` resolve THROUGH that link and act on a file outside the tree, so
-# the restore destroys an unrelated file and then reports success. An ancestor
-# that is no longer a plain directory means the path the record was taken from
-# no longer exists, and the only safe answer is to write nothing and say so.
-_mutation_probe_dest_ok() {
-  local _root="${1}" _s="${2}" _prefix='' _seg
-  local _rest="${_s}"
+# Removing the final component before a copy is one directory short. If a parent
+# is a symlink -- `rm -rf dir; ln -s ../outside dir` -- both the `rm` and the
+# `cp` resolve THROUGH it and act on a file outside the tree, so the restore
+# destroys an unrelated file and then reports success.
+#
+# The same question has to be asked when the subject is DECLARED, and for the
+# mirror-image reason: a subject reached through a link can be recorded and
+# mutated, and then the restore correctly refuses to traverse that ancestor --
+# leaving the subject mutated, which is the one outcome this tool must not have.
+# Refusing it up front is what keeps the two answers consistent.
+_mutation_probe_bad_ancestor() {
+  local _root="${1}" _prefix='' _seg
+  local _rest="${2}"
   while [[ "${_rest}" == */* ]]; do
     _seg="${_rest%%/*}"
     _rest="${_rest#*/}"
     _prefix="${_prefix:+${_prefix}/}${_seg}"
-    if [[ -L "${_root}/${_prefix}" ]]; then
-      _mutation_probe_err "will not restore ${_s}: its parent '${_prefix}' is now a symlink, so a write there would land outside the path the original was recorded from."
-      return 1
-    fi
-    if [[ -e "${_root}/${_prefix}" && ! -d "${_root}/${_prefix}" ]]; then
-      _mutation_probe_err "will not restore ${_s}: its parent '${_prefix}' is no longer a directory."
-      return 1
+    if [[ -L "${_root}/${_prefix}" ]] \
+      || { [[ -e "${_root}/${_prefix}" ]] && [[ ! -d "${_root}/${_prefix}" ]]; }
+    then
+      printf '%s\n' "${_prefix}"
+      return 0
     fi
   done
-  return 0
+  return 1
 }
 
 _mutation_probe_restore() {
@@ -225,7 +229,9 @@ _mutation_probe_restore() {
   shift 2
   local _s _rc=0
   for _s in "$@"; do
-    if ! _mutation_probe_dest_ok "${_root}" "${_s}"; then
+    local _bad
+    if _bad="$(_mutation_probe_bad_ancestor "${_root}" "${_s}")"; then
+      _mutation_probe_err "will not restore ${_s}: its ancestor '${_bad}' is no longer a plain directory, so a write there would land outside the path the original was recorded from."
       _rc=1
       continue
     fi
@@ -370,6 +376,24 @@ _mutation_probe_tree_state() {
   for _rec in "${_records[@]}"; do
     [[ ${#_rec} -gt 3 ]] || continue
     _paths["${_rec:3}"]=1
+  done
+  # An ignore pattern that names a DIRECTORY (`coverage/`, `log/`) is reported
+  # by git as that directory, not as its contents, and a directory's
+  # fingerprint is only its mode -- so editing a file inside one was invisible.
+  # Expanded here rather than asked of git, which has no mode that lists them.
+  local -a _dirs=()
+  for _path in "${!_paths[@]}"; do
+    if [[ -d "${_root}/${_path}" ]] && [[ ! -L "${_root}/${_path}" ]]; then
+      _dirs+=( "${_path}" )
+    fi
+  done
+  for _path in "${_dirs[@]+"${_dirs[@]}"}"; do
+    _records=()
+    mapfile -d '' -t _records \
+      < <(find "${_root}/${_path%/}" -mindepth 1 -print0 2>/dev/null)
+    for _rec in "${_records[@]}"; do
+      [[ -n "${_rec}" ]] && _paths["${_rec#"${_root}/"}"]=1
+    done
   done
   for _path in "${!_paths[@]}"; do
     printf '%s\t%s\0' \
@@ -659,6 +683,11 @@ _mutation_probe() {
     # repo ships such links (script/build.sh among them). Refusing and naming
     # the target is also the better interface: the behaviour lives in the
     # target, which is what the caller meant.
+    local _bad_ancestor
+    if _bad_ancestor="$(_mutation_probe_bad_ancestor "${_root}" "${_s}")"; then
+      _mutation_probe_err "subject '${_s}' is reached through '${_bad_ancestor}', which is not a plain directory. Such a subject can be recorded and mutated and then NOT restored, because the restore refuses to write through a changed ancestor -- so it is refused here instead, where nothing has been touched yet."
+      return 3
+    fi
     if [[ -L "${_root}/${_s}" ]]; then
       _mutation_probe_err "subject '${_s}' is a symlink to '$(readlink -- "${_root}/${_s}")'. Probe the target instead: an in-place editor replaces a link with a regular file, and a restore that puts the bytes back would leave a file where a link was, which this script would report as restored. The behaviour you mean to break lives in the target."
       return 3

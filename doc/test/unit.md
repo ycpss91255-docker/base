@@ -3724,7 +3724,7 @@ builds nothing and pushes nothing)
 | `multi-distro-build-worker.yaml: ci-passed job has explicit name: ci-passed (matches existing multi-distro rollup contract) (#325 B-1)` | - |
 | `multi-distro-build-worker.yaml: every job's grant is pinned as an exact set (#957)` | - |
 
-### test/bats/unit/mutation_probe_spec.bats (41)
+### test/bats/unit/mutation_probe_spec.bats (43)
 
 A green suite says every assertion ran. It does not say any of them would
 have noticed a wrong answer, and the v0.43 retrospective measured how far
@@ -3805,6 +3805,8 @@ Faking that comparison would test a control this repo does not ship.
 | `_mutation_probe: refuses a mutation that changed a CLEAN tracked file's mode` | git records only the executable bit, so `chmod 600` on a CLEAN tracked file moves neither its status nor its hash. The dirty set is therefore not the population the leak check needs; every tracked path is. |
 | `_mutation_probe: refuses a mutation that edited a gitignored file` | an ignored file is invisible to `git status` by definition, and the files this repo ignores are the generated config the suite under measurement reads -- so a mutation that corrupted one would change what the probe is measuring and be left behind as well. |
 | `_mutation_probe: an interrupt during the BASELINE still stops the runner` | the handler used to be armed AFTER the baseline, and the runner is forked into its own process group -- so an interrupt during the baseline killed the probe and left the suite, a docker compose run in the real case, alive with nobody waiting on it. |
+| `_mutation_probe: refuses a subject reached through a symlinked ancestor` | the mirror image of the restore's ancestor check, and the one outcome this tool must not have. A subject reached through a symlinked parent was ACCEPTED, recorded and mutated -- and then the restore correctly refused to write through that ancestor, leaving the subject mutated. |
+| `_mutation_probe: refuses a mutation that edited a file inside an ignored DIRECTORY` | an ignore pattern naming a DIRECTORY -- which is how this repo ignores `coverage/` and `log/` -- is reported by git as the directory, and a directory's fingerprint is only its mode. So a mutation that rewrote a file inside one was invisible to the leak check and left behind. |
 
 ### test/bats/unit/network_ports_inert_spec.bats (15)
 

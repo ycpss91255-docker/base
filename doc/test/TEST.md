@@ -272,7 +272,9 @@ status code: a file that was already dirty stays ` M` through a second edit,
 `chmod 600` on a clean tracked file moves nothing git records, and an ignored
 file is invisible to `git status` by definition -- which matters because the
 files this repo ignores include the generated config the suite under
-measurement reads. A mutation command that edited a path it did not declare is
+measurement reads. An ignore pattern naming a *directory*, as `coverage/` and
+`log/` do, is reported by git as that directory, so its contents are enumerated
+rather than represented by the directory's own mode. A mutation command that edited a path it did not declare is
 refused there, before a multi-minute suite carries that edit past the point
 anyone is watching. Nothing outside the checkout is covered, and no snapshot of
 a checkout could be: a mutation command is arbitrary shell.
@@ -282,8 +284,9 @@ The restore removes the destination before writing, which is not tidiness:
 subject with a link would have the restore overwrite that link's target -- an
 undeclared file destroyed by the step whose only job is to put things back. The
 same applies one directory up, so every ancestor is checked to be a real
-directory first and a restore through a changed one is refused rather than
-attempted.
+directory -- both when a subject is **declared**, because a subject reached
+through a link could otherwise be mutated and then not restored, and again
+before the restore writes.
 
 Two inputs are refused before anything is touched. A **symlink** subject: an
 in-place editor replaces a link with a regular file, and a restore that put the
