@@ -1528,6 +1528,84 @@ _seed() {
   [[ "${output}" == *"dist/script/docker/lib/noclob.sh:1: noclobber_missing"* ]]
 }
 
+# why: A substitution RUNS where it sits, and every span was judged after the
+# whole definition had been walked, with its FINAL positional state. A
+# wrapper that logs its first argument inside a substitution and shifts
+# afterwards therefore read as non-forwarding, and every call of it left
+# the population unchecked -- the miss direction of base#1228
+@test "_run_log_event_registry: FAILS on an id through a wrapper that shifts after its substitution" {
+  _seed
+  _write "dist/script/docker/lib/substorder.sh" \
+    'w() { printf "%s" "$(_log_err ci "$1")"; shift; }' \
+    'w subst_order_missing'
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/substorder.sh:2: subst_order_missing"* ]]
+}
+
+# why: _candidate reads the RAW line to decide whether tokenising is worth the
+# per-character walk, and it asked for the logger name spelled out in
+# full. Quoting splits a command name the tokeniser would rejoin, so a
+# call written `_log_""err` was never read and its unregistered body left
+# the population -- a MISS, and the filter exists only for speed
+# (base#1228)
+@test "_run_log_event_registry: FAILS on a logger name split by quoting" {
+  _seed
+  _write "dist/script/docker/lib/splitname.sh" \
+    '_log_""err ci quoted_name_missing "display=boom"'
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/splitname.sh:1: quoted_name_missing"* ]]
+}
+
+# why: Truncating the definition body at its matching closing brace needs a
+# brace matcher that knows what the shell quotes. _brace_end skipped a
+# backslash escape inside double quotes and not outside them, so a valid
+# wrapper carrying a literal `\}` was cut short at that brace, declined,
+# and every call of it left the population -- a regression the truncation
+# introduced, in the missing direction (base#1228)
+@test "_run_log_event_registry: FAILS on an id through a wrapper holding an escaped brace" {
+  _seed
+  _write "dist/script/docker/lib/escbrace.sh" \
+    'w() { printf "%s" \}; _log_err ci "$1"; }' \
+    'w escaped_brace_missing'
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/escbrace.sh:2: escaped_brace_missing"* ]]
+}
+
+# why: A function body closes on a `}` the shell reads as a RESERVED WORD, and
+# it reads it as one only at a command position. Counting every unquoted
+# brace cut the body short at a literal `}` handed to a command, read the
+# wrapper as non-forwarding and took every call of it out of the
+# population -- a regression the body truncation introduced, in the
+# missing direction (base#1228)
+@test "_run_log_event_registry: FAILS on an id through a wrapper holding a brace argument" {
+  _seed
+  _write "dist/script/docker/lib/argbrace.sh" \
+    'v() { printf "%s" }; _log_err ci "$1"; }' \
+    'v brace_arg_missing'
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/argbrace.sh:2: brace_arg_missing"* ]]
+}
+
+# why: A redirection OPERAND is a filename, so a `}` written as one is not the
+# brace that closes the body. Reading the position after the operator as a
+# command position cut the body short there, read the wrapper as
+# non-forwarding and took every call of it out of the population -- the
+# third shape a brace matcher over the raw text got wrong, and the reason
+# the walk is asked instead (base#1228)
+@test "_run_log_event_registry: FAILS on an id through a wrapper whose redirection names a brace" {
+  _seed
+  _write "dist/script/docker/lib/redirbrace.sh" \
+    'u() { : > }; _log_err ci "$1"; }' \
+    'u redir_brace_missing'
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/redirbrace.sh:2: redir_brace_missing"* ]]
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _run_log_event_registry: what it leaves alone
 # ════════════════════════════════════════════════════════════════════
@@ -1629,6 +1707,38 @@ _seed() {
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"log event registry lint: clean"* ]]
   [[ "${output}" == *"through a wrapper"* ]]
+}
+
+# why: The same end-state judgement errs the other way round. A name assigned
+# the first positional AFTER a substitution was already in the alias set
+# when the span was judged, so a function whose substitution logs a value
+# it does not yet hold read as a forwarding wrapper -- and a wrongly
+# declared wrapper turns every ordinary call of it into a reported id,
+# which is the false-finding direction that gets a lint muted (base#1228)
+@test "_run_log_event_registry: PASSES a definition whose alias is assigned after its substitution" {
+  _seed
+  _write "dist/script/docker/lib/substlate.sh" \
+    'x() { printf "%s" "$(_log_err ci "$ev")"; local ev="$1"; }' \
+    'x not_an_event'
+  run _run_log_event_registry
+  [ "${status}" -eq 0 ]
+  [[ "${output}" != *"not_an_event"* ]]
+}
+
+# why: Stripping the definition prologue left whatever followed the function
+# on the SAME LINE inside the text read as its body, so a fixed-body
+# function with a logger call after its closing brace read as forwarding.
+# That is the worst false finding this scan has: a wrongly declared
+# wrapper reports every ordinary call of the function and not one site
+# (base#1228)
+@test "_run_log_event_registry: PASSES a definition followed by a logger call on the same line" {
+  _seed
+  _write "dist/script/docker/lib/pastbrace.sh" \
+    'y() { printf "%s" "$1"; }; _log_err ci "$1"' \
+    'y not_an_event'
+  run _run_log_event_registry
+  [ "${status}" -eq 0 ]
+  [[ "${output}" != *"not_an_event"* ]]
 }
 
 # ════════════════════════════════════════════════════════════════════
