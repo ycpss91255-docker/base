@@ -132,11 +132,25 @@ _smoke_step() {
 # would have had to remember.
 #
 # A step ATTACHES a tag when its shell runs `imagetools create` or `docker
-# push`, or when it hands an action a non-empty `tags:` input -- the three
-# ways a tag in this registry comes to name a digest. A step VERIFIES when it
-# runs the image: `docker run` is the only thing in this workflow that
-# executes what was built, so it is the only thing whose success says the
-# content works. `docker pull` is not verification; it is a download.
+# push`, or when it hands an action a non-empty `tags:` input AND that same
+# action pushes -- the three ways a tag in a registry comes to name a digest.
+#
+# The push half of that third way is load-bearing, not decoration. A `tags:`
+# input on a build that never pushes names an image in the runner's OWN image
+# store: no consumer can reach it and no registry tag moves for it.
+# self-test.yaml builds its run-scoped tooling image exactly that way in five
+# jobs, so reading the tag input alone reports five publishes nothing
+# verified the moment this scan looks at more than one file. The push is read
+# in both spellings build-push-action takes -- `push:` under `with:`, and
+# `push=true` inside its `outputs:` string, which is how the digest-only
+# shards here write it -- and a `push:` that is neither empty nor `false`
+# counts, so an expression-valued one is read as a push rather than waved
+# through.
+#
+# A step VERIFIES when it runs the image: `docker run` is the only thing these
+# workflows do that executes what was built, so it is the only thing whose
+# success says the content works. `docker pull` is not verification; it is a
+# download.
 #
 # An unreadable job is a `BUG:` line and a non-zero status, never a job with
 # no publish in it: a census that fails open reports perfect ordering for a
@@ -153,6 +167,8 @@ _publish_order_census() {
     _steps="$(RTT_JOB="${_job}" yq -r '
         (.jobs[strenv(RTT_JOB)].steps // []) | .[]
         | ("@@TAGS@@" + ((.with.tags // "") | tostring))
+          + "\n@@PUSH@@" + ((.with.push // "") | tostring)
+          + "\n@@OUTPUTS@@" + ((.with.outputs // "") | tostring)
           + "\n" + ((.run // "") | tostring) + "\n@@STEP@@"' \
         "${_wf}" 2>&1)" || _status=$?
     if [[ "${_status}" -ne 0 ]]; then
@@ -162,12 +178,34 @@ _publish_order_census() {
       return 1
     fi
     printf '%s\n' "${_steps}" | awk -v _job="${_job}" '
-      BEGIN { idx = 0; attach = -1; verify = -1 }
-      $0 == "@@STEP@@" { idx++; next }
+      BEGIN { idx = 0; attach = -1; verify = -1; tags = 0; pushes = 0 }
+      # The step ends here, which is where the two halves of the action rule
+      # are read together: both markers precede every line of the step they
+      # belong to, and idx still names this step until the increment below.
+      $0 == "@@STEP@@" {
+        if (attach < 0 && tags && pushes) { attach = idx }
+        idx++
+        tags = 0
+        pushes = 0
+        next
+      }
       /^@@TAGS@@/ {
         _v = $0
         sub(/^@@TAGS@@/, "", _v)
-        if (attach < 0 && _v ~ /[^[:space:]]/) { attach = idx }
+        if (_v ~ /[^[:space:]]/) { tags = 1 }
+        next
+      }
+      /^@@PUSH@@/ {
+        _v = $0
+        sub(/^@@PUSH@@/, "", _v)
+        gsub(/[[:space:]]/, "", _v)
+        if (_v != "" && _v != "false") { pushes = 1 }
+        next
+      }
+      /^@@OUTPUTS@@/ {
+        _v = $0
+        sub(/^@@OUTPUTS@@/, "", _v)
+        if (_v ~ /push=true/) { pushes = 1 }
         next
       }
       /^[[:space:]]*#/ { next }
@@ -813,6 +851,38 @@ YAML
   assert_success
   assert_output --partial 'job tagging attaches a registry tag at step 0'
   refute_output --partial 'job digest-only'
+}
+
+# why: A `tags:` input on a build that never pushes names an image in the
+# runner's OWN image store, which no consumer can reach and no registry tag
+# moves for. self-test.yaml builds its run-scoped tooling image exactly that
+# way in five jobs, so a rule reading the tag input without the push reports
+# five non-defects the moment this scan looks at more than one workflow -- and
+# the only way back from that is excluding them by name, which is the roster
+# this scan exists to avoid.
+@test "publish ordering: a tags input on a build that never pushes attaches nothing (#1214)" {
+  cat > "${SCRATCH}/local-tags.yaml" <<'YAML'
+name: fixture
+on: [push]
+jobs:
+  loaded-locally:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: docker/build-push-action@v7
+        with:
+          load: true
+          tags: test-tools:run-scoped
+  push-false:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: docker/build-push-action@v7
+        with:
+          push: false
+          tags: img:latest
+YAML
+  run _publish_order_violations "${SCRATCH}/local-tags.yaml"
+  assert_success
+  assert_output ""
 }
 
 # why: A scan that cannot read a workflow must say so, not report it clean:
