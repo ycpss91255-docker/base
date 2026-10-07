@@ -330,7 +330,19 @@ function _tokenize(line, kind, text, qs,   n, i, c, e, cur, has, j, L, sq, qst, 
       i++
       while (i <= L) {
         c = substr(line, i, 1)
-        if (c == "\\" && i < L) { cur = cur substr(line, i + 1, 1); i += 2; continue }
+        # Inside double quotes bash escapes only `$`, a backtick, `"`,
+        # `\\` and a newline. A backslash in front of ANYTHING ELSE is
+        # kept, and removing it normalises a body into one the registry
+        # carries -- so a call that is fatal at runtime reads as
+        # registered, which is the one direction a registry gate must
+        # never get wrong.
+        if (c == "\\" && i < L) {
+          e = substr(line, i + 1, 1)
+          if (e == "$" || e == "`" || e == "\"" || e == "\\") cur = cur e
+          else cur = cur c e
+          i += 2
+          continue
+        }
         # A command substitution RUNS what is inside it, and double quotes
         # do not stop that. Its span is kept VERBATIM, inner quotes
         # included, so _scan can descend into it; dissolving the quotes
@@ -422,6 +434,7 @@ function _tokenize(line, kind, text, qs,   n, i, c, e, cur, has, j, L, sq, qst, 
 function _opens_another(text, qs, i) {
   if (qs[i]) return 0
   if (text[i] ~ /^(if|while|until|then|do|else|elif|\{|\}|!|time|exec|eval|command|builtin)$/) return 1
+  if (text[i] == "function") return 1
   return (text[i] ~ /^[A-Za-z_][A-Za-z0-9_]*=/)
 }
 # One folded line: count the emit sites it holds and print the literal
@@ -609,6 +622,15 @@ function _lex_state(line, st, dep,   i, L, c, sq, pv) {
       i++
       continue
     }
+    # An open BACKTICK is a substitution spanning lines like any other.
+    # Tracked only outside the other quotings: inside double quotes the
+    # quote itself already keeps the fold open.
+    if (st == 4) {
+      if (c == "\\" && i < L) { i += 2; continue }
+      if (c == "`") st = 0
+      i++
+      continue
+    }
     if (st == 1) { if (c == sq) st = 0; i++; continue }
     if (st == 2) {
       if (c == "\\" && i < L) { i += 2; continue }
@@ -627,6 +649,7 @@ function _lex_state(line, st, dep,   i, L, c, sq, pv) {
       continue
     }
     if (c == "$" && substr(line, i + 1, 1) == sq) { st = 3; i += 2; continue }
+    if (c == "`") { st = 4; i++; continue }
     if (c == sq) { st = 1; i++; continue }
     if (c == "\"") { st = 2; i++; continue }
     if (c == "\\") {
@@ -673,11 +696,30 @@ BEGIN {
   for (i = 1; i <= n; i++) if (b[i] != "") shadow[b[i]] = 1
 }
 PHASE == "def" {
-  if ($0 !~ /^[[:space:]]*(function[[:space:]]+)?[A-Za-z_][A-Za-z0-9_]*[[:space:]]*\(\)[[:space:]]*\{/) next
-  match($0, /[A-Za-z_][A-Za-z0-9_]*[[:space:]]*\(\)/)
-  nm = substr($0, RSTART, RLENGTH)
-  sub(/[[:space:]]*\(\)$/, "", nm)
-  printf "%s\t%s\t%s\n", (_forwards($0) ? "FWD" : "PLAIN"), FILENAME, nm
+  # Two spellings, and the second has no parentheses in it at all. A
+  # wrapper written `function name { ... }` was never discovered, so its
+  # call sites went unchecked -- and silently, because another wrapper
+  # exists and the empty-wrapper refusal therefore does not fire. The
+  # same omission would stop such a definition SHADOWING a name, which
+  # is the half that prevents false findings.
+  if ($0 ~ /^[[:space:]]*(function[[:space:]]+)?[A-Za-z_][A-Za-z0-9_]*[[:space:]]*\(\)[[:space:]]*\{/) {
+    match($0, /[A-Za-z_][A-Za-z0-9_]*[[:space:]]*\(\)/)
+    nm = substr($0, RSTART, RLENGTH)
+    sub(/[[:space:]]*\(\)$/, "", nm)
+  } else if ($0 ~ /^[[:space:]]*function[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]*\{/) {
+    nm = $0
+    sub(/^[[:space:]]*function[[:space:]]+/, "", nm)
+    sub(/[[:space:]]*\{.*$/, "", nm)
+  } else {
+    next
+  }
+  # The BODY, not the whole line: what is in front of the opening brace
+  # is the definition prologue, and in the `function name {` spelling the
+  # name sits where a command would, which would consume the command
+  # position the body needs.
+  body = $0
+  sub(/^[^{]*\{/, "", body)
+  printf "%s\t%s\t%s\n", (_forwards(body) ? "FWD" : "PLAIN"), FILENAME, nm
   next
 }
 PHASE == "emit" {

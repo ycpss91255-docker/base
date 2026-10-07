@@ -673,6 +673,51 @@ _seed() {
   [[ "${output}" == *"dist/script/docker/lib/cparen.sh:1: comment_paren_missing"* ]]
 }
 
+# why: Inside double quotes bash escapes only five characters, and a backslash
+# in front of anything else is KEPT. Removing it everywhere normalised a
+# body into one the registry carries, so a call that is fatal at runtime
+# read as registered -- the one direction a registry gate must never get
+# wrong, because it reports the tree clean on the exact call it exists to
+# catch
+@test "_run_log_event_registry: FAILS on a body whose backslash bash would keep" {
+  _seed seed_ok
+  _write "dist/script/docker/lib/bslash.sh" \
+    '_log_err conf "seed\_ok" "display=boom"'
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *'bslash.sh:1: seed\_ok'* ]]
+}
+
+# why: `function name { ... }` is a function definition with no parentheses in
+# it, and the definition pattern required them. A wrapper written that
+# way was never discovered, so its call sites went unchecked -- and
+# silently, because another wrapper exists and the empty-wrapper refusal
+# therefore does not fire. The same omission would stop such a definition
+# SHADOWING a name, which is the half that prevents false findings
+@test "_run_log_event_registry: FAILS on an id through a parenthesis-free function definition" {
+  _seed
+  _write "dist/script/docker/lib/fkw.sh" \
+    'function fail { _log_err ci "$1"; exit 1; }' \
+    'fail func_kw_missing "boom"'
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/fkw.sh:2: func_kw_missing"* ]]
+}
+
+# why: A backtick substitution can span lines like any other, and the fold
+# tracked quotes and `$(` but not backticks -- so each physical line
+# reached the span finder incomplete, no span was found, and the call
+# inside left the population
+@test "_run_log_event_registry: FAILS on a body in a multi-line backtick substitution" {
+  _seed
+  _write "dist/script/docker/lib/btml.sh" \
+    'value=`_log_err conf btick_ml_missing "display=boom"' \
+    '`'
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/btml.sh:1: btick_ml_missing"* ]]
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _run_log_event_registry: what it leaves alone
 # ════════════════════════════════════════════════════════════════════
