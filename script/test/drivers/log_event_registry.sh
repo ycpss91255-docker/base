@@ -236,6 +236,7 @@ function _forwards(text,   n, i, K, T, Q, cmd, tok, nm, alias) {
 #   does and what makes a trailing comment inert here.
 function _tokenize(line, kind, text, qs,   n, i, c, cur, has, j, L, sq, qst) {
   n = 0; cur = ""; has = 0; qst = 0; L = length(line); i = 1; sq = sprintf("%c", 39)
+  _TOK_SUBS = ""
   while (i <= L) {
     c = substr(line, i, 1)
     if (c == " " || c == "\t") {
@@ -244,6 +245,21 @@ function _tokenize(line, kind, text, qs,   n, i, c, cur, has, j, L, sq, qst) {
       continue
     }
     if (c == "#" && !has) break
+    # `$'...'`: a run where a backslash escapes the next character,
+    # apostrophe included. Copied with the escapes resolved; what matters
+    # here is that it ENDS where the shell says it does.
+    if (c == "$" && substr(line, i + 1, 1) == sq) {
+      if (!has) qst = 1
+      i += 2
+      while (i <= L) {
+        c = substr(line, i, 1)
+        if (c == "\\" && i < L) { cur = cur substr(line, i + 1, 1); i += 2; continue }
+        if (c == sq) { i++; break }
+        cur = cur c; i++
+      }
+      has = 1
+      continue
+    }
     if (c == sq) {
       if (!has) qst = 1
       j = index(substr(line, i + 1), sq)
@@ -263,7 +279,12 @@ function _tokenize(line, kind, text, qs,   n, i, c, cur, has, j, L, sq, qst) {
         # here would leave a fragment no reader could make sense of.
         if (c == "$" && substr(line, i + 1, 1) == "(") {
           j = _subst_end(line, i + 1)
-          if (j > 0) { cur = cur substr(line, i, j - i + 1); i = j + 1; continue }
+          if (j > 0) {
+            _TOK_SUBS = _TOK_SUBS substr(line, i + 2, j - i - 2) "\034"
+            cur = cur substr(line, i, j - i + 1)
+            i = j + 1
+            continue
+          }
         }
         if (c == "\"") { i++; break }
         cur = cur c; i++
@@ -300,8 +321,11 @@ function _opens_another(text, qs, i) {
 # One folded line: count the emit sites it holds and print the literal
 # ids among them. <ln> is the FIRST physical line of the fold, which is
 # the line a reader of the report opens.
-function _scan(line, ln,   n, i, K, T, Q, cmd, skip, w, k, e) {
+function _scan(line, ln,   n, i, K, T, Q, SUB, cmd, skip, subs, k) {
   n = _tokenize(line, K, T, Q)
+  # Captured IMMEDIATELY: _tokenize publishes the substitution list in a
+  # global, and the recursion below calls _tokenize again.
+  subs = _TOK_SUBS
   # The command position is CARRIED, not inferred from the token behind:
   # it starts true, every operator restores it, a keyword or an assignment
   # prefix keeps it, and the first ordinary word consumes it. Looking back
@@ -335,19 +359,19 @@ function _scan(line, ln,   n, i, K, T, Q, cmd, skip, w, k, e) {
     }
     cmd = 0
   }
-  # Descend into every command substitution a word still carries. An
-  # UNQUOTED one was split on its parentheses above and is already read;
-  # this is the quoted kind the tokeniser kept whole. Each inner text is
-  # strictly shorter than the word holding it, so the recursion ends.
-  for (i = 1; i <= n; i++) {
-    if (K[i] != "W") continue
-    w = T[i]
-    while ((k = index(w, "$(")) > 0) {
-      e = _subst_end(w, k + 1)
-      if (e == 0) break
-      _scan(substr(w, k + 2, e - k - 2), ln)
-      w = substr(w, e + 1)
-    }
+  # Descend into every command substitution that RUNS. An unquoted one
+  # was split on its parentheses above and is already read; this is the
+  # double-quoted kind the tokeniser kept whole.
+  #
+  # The list comes from the tokeniser, which recorded each span WHILE THE
+  # QUOTING WAS STILL KNOWN. Searching the finished token for `$(` cannot
+  # do it: by then the quotes are gone, so a substitution written inside
+  # single quotes, or escaped inside double ones -- both of them the
+  # documented way to SHOW one without running it, and both of them in
+  # shipped help text -- read exactly like the real thing.
+  k = split(subs, SUB, "\034")
+  for (i = 1; i <= k; i++) {
+    if (SUB[i] != "") _scan(SUB[i], ln)
   }
 }
 # _subst_end(<text>, <index of the opening parenthesis>) -> index of its
@@ -357,6 +381,12 @@ function _subst_end(text, i,   L, d, c, sq, st) {
   L = length(text); sq = sprintf("%c", 39); d = 0; st = 0
   while (i <= L) {
     c = substr(text, i, 1)
+    if (st == 3) {
+      if (c == "\\" && i < L) { i += 2; continue }
+      if (c == sq) st = 0
+      i++
+      continue
+    }
     if (st == 1) { if (c == sq) st = 0; i++; continue }
     if (st == 2) {
       if (c == "\\" && i < L) { i += 2; continue }
@@ -364,6 +394,7 @@ function _subst_end(text, i,   L, d, c, sq, st) {
       i++
       continue
     }
+    if (c == "$" && substr(text, i + 1, 1) == sq) { st = 3; i += 2; continue }
     if (c == sq) { st = 1; i++; continue }
     if (c == "\"") { st = 2; i++; continue }
     if (c == "(") { d++; i++; continue }
@@ -387,6 +418,17 @@ function _lex_state(line, st,   i, L, c, sq, pv) {
   L = length(line); sq = sprintf("%c", 39); i = 1; _LEX_CONT = 0
   while (i <= L) {
     c = substr(line, i, 1)
+    # `$'...'` is a THIRD quoting form, and the one place a backslash
+    # escapes an apostrophe. Read as an ordinary single-quoted run it
+    # closes at the escaped apostrophe and the real closing one OPENS a
+    # quote that never ends -- which folds the whole rest of the file
+    # into one word and empties it of call sites, silently.
+    if (st == 3) {
+      if (c == "\\" && i < L) { i += 2; continue }
+      if (c == sq) st = 0
+      i++
+      continue
+    }
     if (st == 1) { if (c == sq) st = 0; i++; continue }
     if (st == 2) {
       if (c == "\\" && i < L) { i += 2; continue }
@@ -404,6 +446,7 @@ function _lex_state(line, st,   i, L, c, sq, pv) {
       i++
       continue
     }
+    if (c == "$" && substr(line, i + 1, 1) == sq) { st = 3; i += 2; continue }
     if (c == sq) { st = 1; i++; continue }
     if (c == "\"") { st = 2; i++; continue }
     if (c == "\\") {

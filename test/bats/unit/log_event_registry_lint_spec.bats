@@ -414,6 +414,41 @@ _seed() {
   [[ "${output}" == *"dist/script/docker/lib/subst.sh:1: subst_missing"* ]]
 }
 
+# why: What makes a substitution a substitution is the context it is written
+# in. Inside SINGLE quotes it is four characters of text, and a backslash
+# in front of it inside double quotes is the documented way to show one
+# without running it -- both are how a shipped script spells its own help.
+# Finding the span by searching the finished token could not tell either
+# from the real thing, because the tokeniser had already removed the
+# quoting that decides it. Eligibility is recorded while the quoting is
+# still known, and nothing is re-derived from the text afterwards
+@test "_run_log_event_registry: PASSES a substitution that is quoted into inertness" {
+  _seed
+  _write "dist/script/docker/lib/inert.sh" \
+    "printf '%s' '\$(_log_err conf single_quoted_prose)'" \
+    "printf '%s' \"\\\$(_log_err conf escaped_prose)\""
+  run _run_log_event_registry
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"log event registry lint: clean"* ]]
+}
+
+# why: `$'...'` is a THIRD quoting form, and the one place a backslash escapes
+# an apostrophe. Reading it as an ordinary single-quoted run closed the
+# string at the escaped apostrophe and let the real closing one OPEN a
+# quote that never ends -- so every line after it in the file was folded
+# into one word and every call in them disappeared. One such string in a
+# file silently empties the rest of it, which is the worst miss this scan
+# can have: the counts just come out lower and nothing says why
+@test "_run_log_event_registry: FAILS on a call after an ANSI-C quoted string" {
+  _seed
+  _write "dist/script/docker/lib/ansi.sh" \
+    "printf '%s' \$'it\\'s'" \
+    '_log_err conf hidden_missing "display=test"'
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/ansi.sh:2: hidden_missing"* ]]
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _run_log_event_registry: what it leaves alone
 # ════════════════════════════════════════════════════════════════════
