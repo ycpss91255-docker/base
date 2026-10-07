@@ -1219,3 +1219,40 @@ STUB
   run git -C "${_root}" status --porcelain
   assert_output ""
 }
+
+# ── round-twelve review findings, each reproduced before it was fixed ───────
+
+# why: git lists an ignored DIRECTORY as the directory while the rule stands and
+# as its individual files once the rule goes, so a snapshot keeping both
+# spellings reported a directory nobody touched as an undeclared edit -- and
+# refused a perfectly good mutation of `.gitignore` itself.
+@test "_mutation_probe: a mutation of .gitignore reaches the suite, directories and all" {
+  local _root _runner
+  _root="$(_probe_fixture)"
+  _runner="$(_probe_runner green 'printf "ok 1 one\n"')"
+  run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject .gitignore --mutate ': > .gitignore'"
+  # NOT PINNED is the honest answer for this stub; what must not happen is a
+  # leak refusal over `ignoredir`, which the mutation never touched.
+  refute_output --partial "did not declare"
+  assert_output --partial "NOT PINNED"
+}
+
+# why: `git ls-files` answers relative to the directory it is asked in and
+# `git status --porcelain` relative to the repository, so a root one level down
+# mixes two path bases and a declared subject comes back as an undeclared edit
+# -- after the mutation has already run.
+@test "_mutation_probe: refuses a root that is not the top of its work tree" {
+  local _root
+  _root="$(_probe_fixture)"
+  mkdir -p "${_root}/sub"
+  printf '%s\n' 'right' > "${_root}/sub/s.sh"
+  git -C "${_root}" -c user.email=probe@example.invalid -c user.name=probe add -A
+  git -C "${_root}" -c user.email=probe@example.invalid -c user.name=probe \
+    commit -qm sub
+  run bash -c "source '${PROBE}'; _mutation_probe '${_root}/sub' --subject s.sh --mutate 'printf wrong > s.sh'"
+  assert_failure
+  assert_output --partial "is not the top of its git work tree"
+  # Refused BEFORE anything ran: the subject is untouched.
+  run grep -cF right "${_root}/sub/s.sh"
+  assert_output "1"
+}

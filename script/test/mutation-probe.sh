@@ -487,6 +487,21 @@ _mutation_probe_tree_state() {
       [[ -n "${_rec}" ]] && _paths["${_rec#"${_root}/"}"]=1
     done
   done
+  # DIRECTORIES are then dropped, so the population is files and symlinks only.
+  # git lists an ignored directory as the directory while the rule stands and as
+  # its individual files once the rule goes, so a snapshot that kept both
+  # spellings reported a directory nobody touched as an undeclared edit -- and
+  # refused a perfectly good mutation of `.gitignore` itself. Expanding them and
+  # keeping only the leaves makes the two snapshots comparable whatever git
+  # chose to print.
+  #
+  # The cost, stated: a directory's own mode is not watched. The restore only
+  # ever writes files, and a behaviour mutation does not chmod a directory.
+  for _path in "${!_paths[@]}"; do
+    if [[ -d "${_root}/${_path}" ]] && [[ ! -L "${_root}/${_path}" ]]; then
+      unset '_paths[${_path}]'
+    fi
+  done
   for _path in "${!_paths[@]}"; do
     printf '%s\t%s\0' \
       "$(_mutation_probe_fingerprint "${_root}/${_path}")" "${_path}" \
@@ -922,6 +937,22 @@ _mutation_probe() {
   # half-mutated checkout would be silently absent.
   if ! git -C "${_root}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     _mutation_probe_err "root '${_root}' is not a git work tree. The probe compares the tree before and after the mutation to catch a mutation that touched a file it did not declare, and git is what answers that."
+    return 3
+  fi
+
+  # The TOPLEVEL, not merely a path inside a work tree. `git ls-files` answers
+  # relative to the directory it is asked in and `git status --porcelain`
+  # relative to the repository, so a root one level down mixes two path bases:
+  # a declared mutation of `s` comes back as an undeclared edit of `sub/s`,
+  # after the mutation has already run. Refused here, before anything is
+  # touched, naming the directory that would work.
+  local _toplevel
+  _toplevel="$(git -C "${_root}" rev-parse --show-toplevel 2>/dev/null || printf '')"
+  if [[ -n "${_toplevel}" ]]; then
+    _toplevel="$(cd -- "${_toplevel}" 2>/dev/null && pwd -P)" || _toplevel=''
+  fi
+  if [[ "${_toplevel}" != "${_root}" ]]; then
+    _mutation_probe_err "root '${_root}' is not the top of its git work tree. The probe reads two git listings whose paths are relative to different places unless it is, so a declared subject would come back as an undeclared edit. Probe from ${_toplevel:-the checkout root} instead."
     return 3
   fi
 

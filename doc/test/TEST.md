@@ -274,7 +274,13 @@ file is invisible to `git status` by definition -- which matters because the
 files this repo ignores include the generated config the suite under
 measurement reads. An ignore pattern naming a *directory*, as `coverage/` and
 `log/` do, is reported by git as that directory, so its contents are enumerated
-rather than represented by the directory's own mode. A mutation command that edited a path it did not declare is
+and the directory entry itself dropped -- git prints the directory while the
+rule stands and the individual files once it goes, and a snapshot keeping both
+spellings refused a mutation of `.gitignore` over a directory nobody touched.
+The cost, stated: a directory's own mode is not watched. The root must be the
+**top** of its work tree, because git's two listings answer relative to
+different places otherwise and a declared subject comes back as an undeclared
+edit. A mutation command that edited a path it did not declare is
 refused there, before a multi-minute suite carries that edit past the point
 anyone is watching. Nothing outside the checkout is covered, and no snapshot of
 a checkout could be: a mutation command is arbitrary shell.
