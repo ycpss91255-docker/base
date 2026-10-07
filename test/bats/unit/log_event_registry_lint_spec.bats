@@ -806,6 +806,20 @@ _seed() {
   [[ "${output}" == *"log event registry lint: clean"* ]]
 }
 
+# why: Inside DOUBLE quotes a single quote is an ordinary character, so it does
+# not stop a substitution running -- and the harvester, which looks
+# through a parameter expansion for the substitutions that do execute,
+# skipped the apostrophe-wrapped span as if it were quoted. The quoting
+# context the expansion sits in has to travel with it
+@test "_run_log_event_registry: FAILS on a substitution a double-quoted expansion runs" {
+  _seed
+  _write "dist/script/docker/lib/pedq.sh" \
+    'echo "${unset_var:-'"'"'$(_log_err conf pe_dq_missing)'"'"'}"'
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/pedq.sh:1: pe_dq_missing"* ]]
+}
+
 # why: An unquoted BRACE EXPANSION is resolved by the shell before the logger
 # sees it: `{seed_ok,other}` becomes two arguments and the body is
 # `seed_ok`. Checking the braced text against the registry reported a

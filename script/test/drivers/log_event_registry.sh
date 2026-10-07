@@ -439,7 +439,7 @@ function _tokenize(line, kind, text, qs, ex, adj,   n, i, c, e, cur, has, j, L, 
         if (c == "$" && substr(line, i + 1, 1) == "{") {
           j = _brace_end(line, i + 1)
           if (j > 0) {
-            _harvest(substr(line, i + 2, j - i - 2))
+            _harvest(substr(line, i + 2, j - i - 2), 1)
             hasex = 1
             cur = cur substr(line, i, j - i + 1)
             i = j + 1
@@ -454,7 +454,7 @@ function _tokenize(line, kind, text, qs, ex, adj,   n, i, c, e, cur, has, j, L, 
           j = _subst_end(line, i + 1)
           if (j > 0) {
             # Arithmetic again; see the unquoted branch below.
-            if (substr(line, i + 2, 1) == "(") _harvest(substr(line, i + 2, j - i - 2))
+            if (substr(line, i + 2, 1) == "(") _harvest(substr(line, i + 2, j - i - 2), 1)
             else _TOK_SUBS = _TOK_SUBS substr(line, i + 2, j - i - 2) "\034"
             hasex = 1
             cur = cur substr(line, i, j - i + 1)
@@ -495,7 +495,7 @@ function _tokenize(line, kind, text, qs, ex, adj,   n, i, c, e, cur, has, j, L, 
     if (c == "$" && substr(line, i + 1, 1) == "{") {
       j = _brace_end(line, i + 1)
       if (j > 0) {
-        _harvest(substr(line, i + 2, j - i - 2))
+        _harvest(substr(line, i + 2, j - i - 2), 0)
         hasex = 1
         cur = cur substr(line, i, j - i + 1)
         has = 1
@@ -534,7 +534,7 @@ function _tokenize(line, kind, text, qs, ex, adj,   n, i, c, e, cur, has, j, L, 
         # so a body carrying one is declined. Told apart by the two
         # parentheses being adjacent, which is how it is written; a
         # space between them is the subshell instead.
-        if (substr(line, i + 2, 1) == "(") _harvest(substr(line, i + 2, j - i - 2))
+        if (substr(line, i + 2, 1) == "(") _harvest(substr(line, i + 2, j - i - 2), 0)
         else _TOK_SUBS = _TOK_SUBS substr(line, i + 2, j - i - 2) "\034"
         hasex = 1
         cur = cur substr(line, i, j - i + 1)
@@ -765,11 +765,15 @@ function _scan(line, ln,   n, i, m, d, K, T, Q, EX, AJ, A, SUB, cmd, cond, skip,
 #   variables and runs nothing -- except that a substitution written
 #   inside it DOES run, so declining the whole expansion to keep its
 #   identifiers inert would throw the nested call away with it.
-function _harvest(t,   L, i, c, sq, j) {
+# <dq> says the text came from inside DOUBLE quotes, where a single quote
+# is an ordinary character and does NOT stop a substitution running. The
+# context has to travel with the text, or an apostrophe-wrapped span
+# inside a double-quoted expansion reads as quoted and its call is lost.
+function _harvest(t, dq,   L, i, c, sq, j) {
   L = length(t); sq = sprintf("%c", 39); i = 1
   while (i <= L) {
     c = substr(t, i, 1)
-    if (c == sq) {
+    if (!dq && c == sq) {
       j = index(substr(t, i + 1), sq)
       if (j == 0) break
       i = i + j + 1
@@ -779,7 +783,7 @@ function _harvest(t,   L, i, c, sq, j) {
     if (c == "$" && substr(t, i + 1, 1) == "(") {
       j = _subst_end(t, i + 1)
       if (j > 0) {
-        if (substr(t, i + 2, 1) == "(") _harvest(substr(t, i + 2, j - i - 2))
+        if (substr(t, i + 2, 1) == "(") _harvest(substr(t, i + 2, j - i - 2), dq)
         else _TOK_SUBS = _TOK_SUBS substr(t, i + 2, j - i - 2) "\034"
         i = j + 1
         continue
