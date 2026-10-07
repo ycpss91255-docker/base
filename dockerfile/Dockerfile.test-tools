@@ -83,15 +83,6 @@ ARG KCOV_VERSION=v43
 # leave the tag unchanged and silently reuse the previous image.
 # tool-pin: just github-release casey/just
 ARG JUST_VERSION=1.58.0
-# toml-bridge Python base: the containerised TOML parser (ADR-37). Built
-# inline as a stage below (same pattern as lint-tools, just-runner, etc.)
-# so CI needs no pre-built toml-bridge image. Pin names differ from the
-# standalone Dockerfile.toml-bridge (tt- prefix) to satisfy the unique-name
-# constraint; both track the same upstreams.
-# tool-pin: tt-toml-bridge-python dockerhub library/python pattern=^3\.13\.[0-9]+-alpine3\.22$
-ARG TOML_BRIDGE_PYTHON=3.13.13-alpine3.22
-# tool-pin: tt-toml-bridge-tomli github-release hukkin/tomli
-ARG TOML_BRIDGE_TOMLI=2.4.1
 
 # ── The alpine every package-installing stage below derives from ────────
 #
@@ -256,13 +247,6 @@ RUN apk add --no-cache \
     make -C /tmp/kcov/build -j"$(nproc)" && \
     make -C /tmp/kcov/build install
 
-# ── toml-bridge: containerised TOML parser (ADR-37) ─────────────────
-FROM python:${TOML_BRIDGE_PYTHON} AS toml-bridge-src
-ARG TOML_BRIDGE_TOMLI
-RUN pip install --no-cache-dir "tomli==${TOML_BRIDGE_TOMLI}"
-COPY dockerfile/toml_bridge.py /usr/local/bin/toml-bridge
-RUN chmod +x /usr/local/bin/toml-bridge
-
 # Final stage: bash + bats + shellcheck + hadolint + bats-{support,assert}
 # + parallel + git + ca-certificates + kcov.
 # bash is required because /opt/bats/bin/bats is a `#!/usr/bin/env bash` script
@@ -326,6 +310,19 @@ FROM alpine-apk
 # (test/bats/system/deploy_bundle_e2e_spec.bats) runs the generated
 # deploy.sh up (real `docker compose up -d`) and unxz's the bundled
 # image.tar.xz; the generator itself xz-compresses the saved image.
+# python3: the interpreter dockerfile/toml_bridge.py is written against.
+# It is NOT an optional extra of the COPY below -- it is what makes that
+# COPY a parser instead of an inert file. The bridge is a
+# `#!/usr/bin/env python3` script, and this stage carried no interpreter,
+# so the bundled copy answered `env: 'python3': No such file or
+# directory` on every published tag while the Dockerfile, ADR-37 and a
+# green spec all said downstream repos inherited a TOML parser here.
+# Alpine's python3 is 3.12, whose stdlib carries `tomllib` (PEP 680), so
+# the `tomli` backport the script falls back to on Python < 3.11 is never
+# reached and is not installed: the standalone
+# dockerfile/Dockerfile.toml-bridge keeps it for the runtimes that need
+# it. Measured cost of the package on alpine 3.22: 8.3 MB -> 49.2 MB for
+# a bare alpine, about +41 MB uncompressed on a 350 MB image.
 # tool-pin: unpinned alpine-packages -- an apk package resolves to whatever
 # the pinned alpine series ships, so it declares no version of its own;
 # ALPINE_VERSION is the bound. Recorded so the watch reports these ~20
@@ -333,7 +330,7 @@ FROM alpine-apk
 # package that needed a version of its own -- just, the runner the whole
 # downstream contract is written in -- moved to a pinned upstream release
 # in the just-runner stage above.
-RUN apk add --no-cache bash parallel git git-subtree ca-certificates grep coreutils yq-go docker-cli docker-cli-buildx docker-cli-compose xz mawk gawk \
+RUN apk add --no-cache bash parallel git git-subtree ca-certificates grep coreutils yq-go docker-cli docker-cli-buildx docker-cli-compose xz mawk gawk python3 \
         libstdc++ libcurl libdw libelf zlib libgcc
 COPY --from=bats-src /opt/bats /opt/bats
 COPY --from=bats-src /usr/lib/bats /usr/lib/bats
@@ -342,5 +339,13 @@ COPY --from=lint-tools /usr/local/bin/shellcheck /usr/local/bin/
 COPY --from=lint-tools /usr/local/bin/hadolint /usr/local/bin/
 COPY --from=kcov-builder /usr/local/bin/kcov /usr/local/bin/kcov
 COPY --from=just-runner /usr/local/bin/just /usr/local/bin/just
-COPY --from=toml-bridge-src /usr/local/bin/toml-bridge /usr/local/bin/toml-bridge
-RUN ln -s /opt/bats/bin/bats /usr/local/bin/bats
+# The bridge comes straight out of the build context, not through a
+# `python:` stage of its own. That stage pulled a second Python image on
+# both architectures, pip-installed `tomli` into it and then contributed
+# exactly one file here -- the script, which the context already holds --
+# so it gave this image no interpreter while reading as though it did.
+# The mode is restored below because a context COPY preserves the
+# tracked 0644.
+COPY dockerfile/toml_bridge.py /usr/local/bin/toml-bridge
+RUN ln -s /opt/bats/bin/bats /usr/local/bin/bats && \
+    chmod +x /usr/local/bin/toml-bridge

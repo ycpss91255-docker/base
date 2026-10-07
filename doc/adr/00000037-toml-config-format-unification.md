@@ -164,9 +164,26 @@ PEP 680), which is zero-dependency, ~1000 lines, MIT-licensed, and
 supports Python 3.6+. The merge logic (type-aware: scalar key-level,
 array replace) also runs in Python where the type information is
 native (`dict` vs `list`). The `toml-bridge` image is a standalone
-Dockerfile (`dockerfile/Dockerfile.toml-bridge`); `test-tools` pulls
-from it via `COPY --from` so downstream repos inherit the capability
-through the existing `test-tools-stage` pattern.
+Dockerfile (`dockerfile/Dockerfile.toml-bridge`).
+
+`test-tools` carries the same parser, so downstream repos inherit the
+capability through the existing `test-tools-stage` pattern without
+building that image. It does NOT pull it from there: it COPYs
+`dockerfile/toml_bridge.py` out of the build context and installs
+`python3` from the alpine series it is already pinned to, which is the
+interpreter the script then runs under. The wording this replaces said
+`test-tools` pulled the parser via `COPY --from`, and for four published
+tags that described the file and not the capability -- the COPY was
+real, the final stage installed no interpreter, and the bundled bridge
+answered `env: 'python3': No such file or directory` while a grep for
+that COPY line stood in for a test. The claim is now held by a probe
+that runs it: `test/bats/integration/test_tools_toml_bridge_spec.bats`
+inside the suite, and the smoke step of `release-test-tools.yaml` before
+any tag names the published content.
+
+Alpine's `python3` is 3.12, whose stdlib carries `tomllib`, so the
+`tomli` fallback is not installed there; it stays in the standalone
+image, which is the one that has to work on a 3.6--3.10 runtime.
 
 ## Alternatives
 
