@@ -1155,6 +1155,14 @@ function _brace_end(t, i,   L, d, c, sq, st) {
       i++
       continue
     }
+    # A BACKSLASH quotes the character behind it OUTSIDE quotes too, so a
+    # `\}` is a literal brace and not the one that closes anything. The
+    # double-quoted state above already said so; unquoted did not, and
+    # the function-body truncation above then cut a valid wrapper short
+    # at the escaped brace, declined it, and took every call of it out of
+    # the population. Inside SINGLE quotes a backslash is an ordinary
+    # character, which is why that state leaves this alone.
+    if (c == "\\" && i < L) { i += 2; continue }
     if (c == sq) { st = 1; i++; continue }
     if (c == "\"") { st = 2; i++; continue }
     if (c == "{") { d++; i++; continue }

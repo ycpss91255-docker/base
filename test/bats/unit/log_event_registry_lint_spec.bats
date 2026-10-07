@@ -1558,6 +1558,22 @@ _seed() {
   [[ "${output}" == *"dist/script/docker/lib/splitname.sh:1: quoted_name_missing"* ]]
 }
 
+# why: Truncating the definition body at its matching closing brace needs a
+# brace matcher that knows what the shell quotes. _brace_end skipped a
+# backslash escape inside double quotes and not outside them, so a valid
+# wrapper carrying a literal `\}` was cut short at that brace, declined,
+# and every call of it left the population -- a regression the truncation
+# introduced, in the missing direction (base#1228)
+@test "_run_log_event_registry: FAILS on an id through a wrapper holding an escaped brace" {
+  _seed
+  _write "dist/script/docker/lib/escbrace.sh" \
+    'w() { printf "%s" \}; _log_err ci "$1"; }' \
+    'w escaped_brace_missing'
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/escbrace.sh:2: escaped_brace_missing"* ]]
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _run_log_event_registry: what it leaves alone
 # ════════════════════════════════════════════════════════════════════

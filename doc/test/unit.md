@@ -3486,7 +3486,7 @@ actually walks the populated `dist/script/docker` tree.
 | `does NOT flag bare stderr in the standalone coverage_gate.sh CI tool (#710)` | standalone log.sh-free CI tool excluded |
 | `the real repo tree (default root) is clean (#692)` | live-tree guard against path drift |
 
-### test/bats/unit/log_event_registry_lint_spec.bats (108)
+### test/bats/unit/log_event_registry_lint_spec.bats (109)
 
 The guard over the direction the registry check never covered. lib/log.sh is
 STRICT -- it refuses a body log-events.txt does not carry and prints 'FATAL:
@@ -3632,6 +3632,7 @@ rather than reporting what it managed.
 | `_run_log_event_registry: FAILS on a body behind a noclobber redirection` | `>\|` is ONE redirection operator -- the noclobber override -- and splitting it left a bare pipe, which ends the command. The body after it was never looked at, so a literal unregistered id passed. A pipe that is half of a redirection is not a pipeline |
 | `_run_log_event_registry: FAILS on an id through a wrapper that shifts after its substitution` | A substitution RUNS where it sits, and every span was judged after the whole definition had been walked, with its FINAL positional state. A wrapper that logs its first argument inside a substitution and shifts afterwards therefore read as non-forwarding, and every call of it left the population unchecked -- the miss direction of base#1228 |
 | `_run_log_event_registry: FAILS on a logger name split by quoting` | _candidate reads the RAW line to decide whether tokenising is worth the per-character walk, and it asked for the logger name spelled out in full. Quoting splits a command name the tokeniser would rejoin, so a call written `_log_""err` was never read and its unregistered body left the population -- a MISS, and the filter exists only for speed (base#1228) |
+| `_run_log_event_registry: FAILS on an id through a wrapper holding an escaped brace` | Truncating the definition body at its matching closing brace needs a brace matcher that knows what the shell quotes. _brace_end skipped a backslash escape inside double quotes and not outside them, so a valid wrapper carrying a literal `\}` was cut short at that brace, declined, and every call of it left the population -- a regression the truncation introduced, in the missing direction (base#1228) |
 | `_run_log_event_registry: PASSES an id the registry carries` | The boundary of the rule and the whole of the fix base#1220 took: an id the registry carries is a message the operator actually reads, so there is nothing to report |
 | `_run_log_event_registry: PASSES a same-named function a file defines without forwarding` | A name is not global. script/ci/reclaim.sh defines its own _die that prints to stderr and never logs, so 'not a duration: 5x' is a MESSAGE, not an event id. Without the shadowing rule every such argument would be reported unregistered, which is the false finding that gets a lint muted |
 | `_run_log_event_registry: PASSES a body that is not a literal` | The stated blind spot, pinned so it cannot change shape unnoticed. A body this driver would have to run a shell to know is not resolved: exactly one hop -- the forwarding wrapper -- is, and anything further is out of reach rather than quietly guessed at |
