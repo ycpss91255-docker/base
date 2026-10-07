@@ -1590,6 +1590,22 @@ _seed() {
   [[ "${output}" == *"dist/script/docker/lib/argbrace.sh:2: brace_arg_missing"* ]]
 }
 
+# why: A redirection OPERAND is a filename, so a `}` written as one is not the
+# brace that closes the body. Reading the position after the operator as a
+# command position cut the body short there, read the wrapper as
+# non-forwarding and took every call of it out of the population -- the
+# third shape a brace matcher over the raw text got wrong, and the reason
+# the walk is asked instead (base#1228)
+@test "_run_log_event_registry: FAILS on an id through a wrapper whose redirection names a brace" {
+  _seed
+  _write "dist/script/docker/lib/redirbrace.sh" \
+    'u() { : > }; _log_err ci "$1"; }' \
+    'u redir_brace_missing'
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/redirbrace.sh:2: redir_brace_missing"* ]]
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _run_log_event_registry: what it leaves alone
 # ════════════════════════════════════════════════════════════════════

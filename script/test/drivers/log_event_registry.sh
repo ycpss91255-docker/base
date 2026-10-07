@@ -392,9 +392,12 @@ function _args(kind, text, qs, adj, n, ci, out,   j, m, skip) {
 # in effect where it RUNS: a fresh context forgot a `shift` in front of it
 # and read the `$1` inside as the caller first argument again. Both are
 # empty at the top level, which is what a definition starts with.
-function _forwards(text, sh0, al,   n, i, k, m, sn, d, ad, K, T, Q, EX, AJ, A, SUB, SI, ST, SJ, ALC, kk, cmd, cond, skip, subs, assignctx, shifted, tok, nm) {
+function _forwards(text, sh0, al, stopb,   n, i, k, m, sn, bd, blimit, d, ad, K, T, Q, EX, AJ, A, SUB, SI, ST, SJ, ALC, kk, cmd, cond, skip, subs, assignctx, shifted, tok, nm) {
   shifted = sh0
   n = _tokenize(text, K, T, Q, EX, AJ)
+  # Where the walk stopped. Everything, unless <stopb> says this text is a
+  # DEFINITION LINE and the walk meets the brace that closes the body.
+  blimit = n + 1
   # Captured immediately: the recursion below calls _tokenize again.
   subs = _TOK_SUBS
   # Each span arrives carrying the index of the token it sits in, and is
@@ -507,6 +510,23 @@ function _forwards(text, sh0, al,   n, i, k, m, sn, d, ad, K, T, Q, EX, AJ, A, S
       else delete al[nm]
     }
     if (!cmd) continue
+    # THE BODY ENDS HERE, when the def phase asked for it. `}` closes a
+    # function body as a RESERVED WORD, which the shell reads only at a
+    # command position and only unquoted -- and this walk already knows
+    # where a command position is, what quoting removed, and that a
+    # redirection OPERAND is a filename. Matching the brace over the raw
+    # text instead needs all three of those again, and got each of them
+    # wrong in turn: `printf "%s" }` took the argument for the
+    # terminator, `printf "%s" \}` the escaped one, and `: > }` the
+    # redirection operand. Each truncated a real wrapper and took every
+    # call of it out of the population. One grammar, asked once.
+    if (stopb && !Q[i] && T[i] == "{") { bd++; continue }
+    if (stopb && !Q[i] && T[i] == "}") {
+      if (bd == 0) { blimit = i; break }
+      bd--
+      cmd = 0
+      continue
+    }
     if (_opens_another(T, Q, i)) continue
     if (!Q[i] && T[i] ~ /^(local|declare|typeset|export|readonly)$/) {
       assignctx = 1
@@ -567,9 +587,10 @@ function _forwards(text, sh0, al,   n, i, k, m, sn, d, ad, K, T, Q, EX, AJ, A, S
   # it saw, which is the shape a record with no index at all also takes.
   # Judged with the end state, which is where every span used to be
   # judged, so a span the walk cannot place is still read rather than
-  # dropped.
+  # dropped. A span PAST the closing brace is not one of those: it is
+  # another command on the same line and nothing to do with the body.
   for (k = 1; k <= sn; k++) {
-    if (ST[k] != "" && !SJ[k] && _forwards(ST[k], shifted, al)) return 1
+    if (ST[k] != "" && !SJ[k] && SI[k] < blimit && _forwards(ST[k], shifted, al)) return 1
   }
   return 0
 }
@@ -1155,64 +1176,10 @@ function _brace_end(t, i,   L, d, c, sq, st) {
       i++
       continue
     }
-    # A BACKSLASH quotes the character behind it OUTSIDE quotes too, so a
-    # `\}` is a literal brace and not the one that closes anything. The
-    # double-quoted state above already said so; unquoted did not, and
-    # the function-body truncation above then cut a valid wrapper short
-    # at the escaped brace, declined it, and took every call of it out of
-    # the population. Inside SINGLE quotes a backslash is an ordinary
-    # character, which is why that state leaves this alone.
-    if (c == "\\" && i < L) { i += 2; continue }
     if (c == sq) { st = 1; i++; continue }
     if (c == "\"") { st = 2; i++; continue }
     if (c == "{") { d++; i++; continue }
     if (c == "}") { d--; if (d == 0) return i; i++; continue }
-    i++
-  }
-  return 0
-}
-# _body_end(<text>, <index of the opening brace>) -> index of the brace
-#   that closes a FUNCTION BODY, or 0.
-#
-# Not _brace_end, and the difference is the whole point. A parameter
-# expansion closes at the first unnested brace whatever sits in front of
-# it, which is what that one counts. A function body does not: `}` is a
-# RESERVED WORD there, and the shell reads it as one only at a command
-# position and only as a whole word. In
-# `w() { printf "%s" }; _log_err ci "$1"; }` the first brace is an
-# ARGUMENT of printf, and counting it cut the body short, read the
-# wrapper as non-forwarding and took every call of it out of the
-# population.
-#
-# Getting this wrong truncates EARLY, which declines a wrapper rather
-# than inventing one -- the missing direction, and the safe one. The
-# direction that is not safe is reading past the brace, which is what
-# the def phase did before it truncated at all.
-function _body_end(t, i,   L, d, c, sq, st) {
-  L = length(t); sq = sprintf("%c", 39); d = 0; st = 0
-  while (i <= L) {
-    c = substr(t, i, 1)
-    if (st == 1) { if (c == sq) st = 0; i++; continue }
-    if (st == 2) {
-      if (c == "\\" && i < L) { i += 2; continue }
-      if (c == "\"") st = 0
-      i++
-      continue
-    }
-    if (c == "\\" && i < L) { i += 2; continue }
-    if (c == sq) { st = 1; i++; continue }
-    if (c == "\"") { st = 2; i++; continue }
-    if (c == "{" || c == "}") {
-      # A brace that is part of a longer word is no keyword -- `${x}` and
-      # a brace expansion both arrive this way -- and one that is not at
-      # a command position is an argument.
-      if (!_is_word_at(t, i, 1) || !_cmd_pos_at(t, i)) { i++; continue }
-      if (c == "{") { d++; i++; continue }
-      d--
-      if (d == 0) return i
-      i++
-      continue
-    }
     i++
   }
   return 0
@@ -1544,24 +1511,21 @@ PHASE == "def" {
   # position the body needs.
   body = $0
   sub(/^[^{]*\{/, "", body)
-  # And it ENDS at its matching closing brace. Stripping the prologue
-  # alone left whatever followed the function on the same line inside the
-  # text read as its body, so `w() { printf "%s" "$1"; }; _log_err ci
-  # "$1"` declared a fixed-body function a forwarding wrapper -- and a
-  # wrongly declared wrapper reports every ordinary call of that
-  # function, not one site, which is the worst false finding this scan
-  # has. _body_end wants the opening brace, so it is asked about the body
-  # with that brace put back in front, and every index it returns is one
-  # higher than the same character in the body; the closing brace itself
-  # is not part of the body. _brace_end is NOT the matcher for this: a
-  # function body closes on a `}` the shell reads as a reserved word, and
-  # a literal `}` handed to a command is not one.
-  bend = _body_end("{" body, 1)
-  # Zero means the brace never closed on this line. That is the
-  # multi-line definition the reach list already declines, and the body
-  # is left as it stands rather than truncated to nothing.
-  if (bend > 0) body = substr(body, 1, bend - 2)
-  printf "%s\t%s\t%s\n", (_forwards(body) ? "FWD" : "PLAIN"), FILENAME, nm
+  # And it ENDS at the brace that closes it, which the WALK is told to
+  # stop at rather than this text being cut before the walk sees it.
+  # Stripping the prologue alone left whatever followed the function on
+  # the same line inside the text read as its body, so
+  # `w() { printf "%s" "$1"; }; _log_err ci "$1"` declared a fixed-body
+  # function a forwarding wrapper -- and a wrongly declared wrapper
+  # reports every ordinary call of that function, not one site, which is
+  # the worst false finding this scan has.
+  #
+  # The last argument is what asks for that stop, and only the def phase
+  # passes it: a substitution span is not a function body. The alias set
+  # is a fresh one per definition -- names one function assigns are not
+  # names the next one holds.
+  split("", DEFAL)
+  printf "%s\t%s\t%s\n", (_forwards(body, "", DEFAL, 1) ? "FWD" : "PLAIN"), FILENAME, nm
   next
 }
 PHASE == "emit" {
