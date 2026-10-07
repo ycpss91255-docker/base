@@ -4008,12 +4008,38 @@ _UNSOURCED_DRIVER_FILES=(
 # to check. The scan finds it because it is a `_run_*` in a drivers/ file, and
 # an exemption saying so is the honest answer -- renaming the function to slip
 # past the scan would be the dishonest one.
+# PROVISIONAL, THE SIXTH. log-event-registry is a lint and it is finished:
+# it found all four unregistered ids base#1220 was filed for, two of them
+# through a forwarding wrapper nothing else can see. It is out of the table
+# because of its READER, not its rule. Its first spelling was a regex over
+# the raw line; it is now a shell word splitter, and review found a
+# reproduced parser defect in forty-one consecutive rounds -- twenty-five
+# of them FALSE POSITIVES on valid shell. Round thirty-four came back
+# clean and the seven rounds after it found sixteen more, the last four at
+# once, so a clean round says nothing about the reader being finished. In
+# the table, each of those would
+# have blocked a PR whose logging was correct, and the author's only
+# recourse would have been to read fourteen hundred lines of awk to tell a
+# parser bug from a finding. A gate that does that once gets muted, and a
+# muted gate is worse than none because it still carries the claim that
+# the question is being asked.
+#
+# The reverse direction is cheap by comparison: an id goes unregistered
+# until someone runs the scan, which is exactly the state base#1220
+# describes and which a manual run closes. So it ships dispatchable --
+# `./script/test/test.sh --log-event-registry-only`, `just test lint
+# --log-event-registry` -- and gates nothing.
+#
+# PROMOTION HAS ONE CONDITION: a release cycle clean against a moving
+# tree. Then this entry goes and the name joins _LINT_TOOLS, which the
+# hygiene guard below forces -- it refuses a name that is in both.
 _UNTABLED_LINT_ENTRY_POINTS=(
   nesting-depth
   function-length
   positional-params
   shell-metrics
   changelog-entry-fix
+  log-event-registry
 )
 
 # Whether <needle> is one of the remaining arguments.
