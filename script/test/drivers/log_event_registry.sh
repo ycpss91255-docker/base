@@ -483,7 +483,7 @@ function _forwards(text,   n, i, k, m, d, ad, K, T, Q, EX, AJ, A, SUB, cmd, cond
 #
 #   A bare `#` at a word boundary ends the line, which is what the shell
 #   does and what makes a trailing comment inert here.
-function _tokenize(line, kind, text, qs, ex, adj,   n, i, c, e, cur, has, j, L, sq, qst, hasex, gap, wgap, ao) {
+function _tokenize(line, kind, text, qs, ex, adj,   n, i, c, e, cur, raw, has, j, L, sq, qst, hasex, gap, wgap, ao) {
   n = 0; cur = ""; has = 0; qst = 0; hasex = 0; gap = 1; wgap = 1; L = length(line); i = 1; sq = sprintf("%c", 39)
   _TOK_SUBS = ""
   while (i <= L) {
@@ -628,12 +628,22 @@ function _tokenize(line, kind, text, qs, ex, adj,   n, i, c, e, cur, has, j, L, 
       if (!qst) qst = length(cur) + 1
       hasex = 1
       i += 2
+      # The VALUE is unknowable, which is why the body carrying one is
+      # declined -- but a substitution written inside still RUNS, exactly
+      # as inside ordinary double quotes, so the raw run is harvested.
+      raw = ""
       while (i <= L) {
         c = substr(line, i, 1)
-        if (c == "\\" && i < L) { cur = cur substr(line, i + 1, 1); i += 2; continue }
+        if (c == "\\" && i < L) {
+          raw = raw substr(line, i, 2)
+          cur = cur substr(line, i + 1, 1); i += 2
+          continue
+        }
         if (c == "\"") { i++; break }
+        raw = raw c
         cur = cur c; i++
       }
+      _harvest(raw, 1)
       has = 1
       continue
     }
@@ -884,7 +894,20 @@ function _scan(line, ln,   n, i, m, d, ad, K, T, Q, EX, AJ, A, SUB, cmd, cond, s
       m = _args(K, T, Q, AJ, n, i, A)
       if (m >= 2) {
         direct++
-        if (!EX[A[2]]) printf "ID" US "%s" US "%s" US "%d\n", _enc(T[A[2]]), FILENAME, ln
+        # The argument BEFORE the body matters too: one that expands into
+        # more than one word moves the body out of its slot. `_log_err
+        # {conf,x} <word>` emits `x`, so reading <word> would report an id
+        # the shell never logs AND say nothing about the one it does.
+        #
+        # UNQUOTED only. A QUOTED expansion is exactly one word -- the
+        # tree writes its service as `"${_svc}"` and declining those cost
+        # nine real emit sites when this was first spelled without the
+        # quoting test. The residual is a word that merely BEGINS
+        # unquoted, like `$svc"x"`, which this reads as protected; that is
+        # a stated limit, and it errs toward checking rather than
+        # declining.
+        if (!(EX[A[1]] && Q[A[1]] == 0) && !EX[A[2]]) \
+          printf "ID" US "%s" US "%s" US "%d\n", _enc(T[A[2]]), FILENAME, ln
       }
     } else if ((T[i] in fwd) && !((FILENAME "|" T[i]) in shadow)) {
       m = _args(K, T, Q, AJ, n, i, A)

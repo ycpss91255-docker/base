@@ -780,6 +780,35 @@ _seed() {
   [[ "${output}" == *"log event registry lint: clean"* ]]
 }
 
+# why: An argument BEFORE the body can expand into more than one word, and then
+# the body is not the token the source puts in that slot. `_log_err
+# {conf,x} <word>` emits `x`, so reading <word> as the body checks the
+# wrong thing in both directions at once -- it reports an id the shell
+# never logs, and says nothing about the one it does. Where the cardinality
+# of what precedes the body is uncertain, the call is DECLINED
+@test "_run_log_event_registry: PASSES a call whose service argument expands" {
+  _seed
+  _write "dist/script/docker/lib/cardinal.sh" \
+    '_log_err {conf,x} not_the_body "display=boom"'
+  run _run_log_event_registry
+  [ "${status}" -eq 0 ]
+  [[ "${output}" != *"not_the_body"* ]]
+}
+
+# why: Locale-translated quoting makes its own VALUE unknowable, which is why
+# the body carrying one is declined -- but a substitution written inside it
+# still RUNS, exactly as inside ordinary double quotes. Treating the whole
+# run as inert text lost the call in it, so a wrapper emitting an
+# unregistered id inside one went unseen
+@test "_run_log_event_registry: FAILS on a substitution inside locale-translated quoting" {
+  _seed
+  _write "dist/script/docker/lib/localesub.sh" \
+    'printf "%s" $"$(_die locale_subst_missing)"'
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/localesub.sh:1: locale_subst_missing"* ]]
+}
+
 # why: `set --` is the spelling that REPLACES the positionals, and the test for
 # an option argument matched it -- a dash followed by a dash. So the one
 # `set` that does change them read as the one kind that does not, and the
