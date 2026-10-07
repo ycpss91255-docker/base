@@ -166,6 +166,7 @@ tool therefore needs its own join to `.github/workflows/self-test.yaml`:
 | `catalog-description` | every `@test` says why its case matters, in the `# why:` marker the catalogues render | `lint-static` (one group) | ungated |
 | `spec-repo-root` | a spec's `REPO_ROOT` is a fixture, never the live checkout | `lint-static` (one group) | ungated |
 | `test-name-backtick` | a `@test` name is a literal -- a backtick in one is executed by bats at collection time | `lint-static` (one group) | ungated |
+| `log-event-registry` | every event id a `*.sh` under `dist/` or `script/` emits through `_log_*` is carried by `dist/script/docker/lib/log-events.txt`. `_log_*` is STRICT, so an unregistered body prints the registry's own refusal INSTEAD of the message, at the moment something had already gone wrong. Both sides are derived from the tree: the registry's path is read out of the `_LOG_EVENTS_FILE` assignment that resolves to a file that exists, and the emitted ids are every `_log_*` literal body plus the first argument of each call to a forwarding wrapper -- a function whose definition hands its own first positional to a body slot, derived rather than named, which is how `test.sh`'s `_die` carries the lint drivers' events. No roster and no exemption list | `lint-static` (one group) | ungated |
 
 `lint-static` is a matrix of GROUPS, not of lints (base#1071): each entry is a
 position (`1/4` ... `4/4`) and `test.sh --lint-group N/T` computes which lints
