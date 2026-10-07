@@ -635,6 +635,20 @@ _seed() {
   [[ "${output}" == *"dist/script/docker/lib/nest.sh:1: nested_missing"* ]]
 }
 
+# why: A `case` PATTERN ends with a `)` that closes nothing, and inside a
+# substitution that parenthesis looked like the substitution ending --
+# so the arm after it, and everything else in the substitution, was
+# never read. `case` arms are where a script decides what went wrong, so
+# they are where its _log_ calls live
+@test "_run_log_event_registry: FAILS on a body in a case arm inside a substitution" {
+  _seed
+  _write "dist/script/docker/lib/caseq.sh" \
+    'printf "%s" "$(case x in x) _log_err conf case_arm_missing ;; esac)"'
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/caseq.sh:1: case_arm_missing"* ]]
+}
+
 # why: A comment ends at the NEXT NEWLINE, and a logical line now holds several
 # of them -- a substitution written over several lines is one logical
 # line. Ending the whole read at the first `#` therefore discarded every

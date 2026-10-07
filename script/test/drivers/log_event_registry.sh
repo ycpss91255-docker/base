@@ -708,7 +708,18 @@ function _btick_end(text, i,   L, c) {
 # _subst_end(<text>, <index of the opening parenthesis>) -> index of its
 #   match, or 0. Counts nesting and skips quoted runs, so the span of a
 #   command substitution can be taken whole.
-function _subst_end(text, i,   L, d, c, k, sq, st) {
+# Is the <len>-character run at <i> a whole WORD, not part of a longer
+# one? `case` and `esac` have to be recognised to tell a case PATTERN
+# terminator from a parenthesis that closes something, and `lowercase)`
+# must not be read as one of them.
+function _is_word_at(t, i, len,   b, a) {
+  b = (i == 1) ? "" : substr(t, i - 1, 1)
+  a = substr(t, i + len, 1)
+  if (b ~ /[A-Za-z0-9_.\/-]/) return 0
+  if (a ~ /[A-Za-z0-9_.\/-]/) return 0
+  return 1
+}
+function _subst_end(text, i,   L, d, c, k, sq, st, cs) {
   L = length(text); sq = sprintf("%c", 39); d = 0; st = 0
   while (i <= L) {
     c = substr(text, i, 1)
@@ -747,8 +758,23 @@ function _subst_end(text, i,   L, d, c, k, sq, st) {
       continue
     }
     if (c == "\\" && i < L) { i += 2; continue }
+    # A `case` PATTERN ends with a `)` that closes nothing. Counted per
+    # depth, so a `case` in one substitution does not excuse a
+    # parenthesis in another.
+    if (substr(text, i, 4) == "case" && _is_word_at(text, i, 4)) { cs[d]++; i += 4; continue }
+    if (substr(text, i, 4) == "esac" && _is_word_at(text, i, 4)) {
+      if (cs[d] > 0) cs[d]--
+      i += 4
+      continue
+    }
     if (c == "(") { d++; i++; continue }
-    if (c == ")") { d--; if (d == 0) return i; i++; continue }
+    if (c == ")") {
+      if (cs[d] > 0) { i++; continue }
+      d--
+      if (d == 0) return i
+      i++
+      continue
+    }
     i++
   }
   return 0
@@ -769,6 +795,33 @@ function _top_kind(ctx) { return substr(ctx, length(ctx) - 1, 1) }
 function _set_st(ctx, v) { return substr(ctx, 1, length(ctx) - 1) v }
 function _push(ctx, kind) { return ctx kind "0" }
 function _pop(ctx) { return (length(ctx) > 2) ? substr(ctx, 1, length(ctx) - 2) : ctx }
+# Is the logical line still unfinished? A quote still open, or a frame
+# that a closing character is owed: a substitution, a backtick, a group.
+# A `case` frame does NOT count -- it is open from `case` to `esac`,
+# which is a block and not a line continuation, and folding over it
+# would swallow the whole statement.
+# Are we inside a substitution or a backtick? Only there is a plain `(`
+# worth counting. Outside one it is ignored, because a `(` in a heredoc
+# body or a glob never closes -- a `case` frame must not make it count
+# either, and the shipped usage heredocs that live in `case` arms are
+# exactly where that showed.
+function _in_subst(ctx,   i, L, kk) {
+  L = length(ctx)
+  for (i = 1; i < L; i += 2) {
+    kk = substr(ctx, i, 1)
+    if (kk == "P" || kk == "B") return 1
+  }
+  return 0
+}
+function _fold_open(ctx,   i, L, kk) {
+  if (_top_st(ctx) != 0) return 1
+  L = length(ctx)
+  for (i = 1; i < L; i += 2) {
+    kk = substr(ctx, i, 1)
+    if (kk == "P" || kk == "B" || kk == "G") return 1
+  }
+  return 0
+}
 # _lex_state(<physical line>, <context in>) -> <context out>
 #   Where the fold stands at the newline. The context is a STACK of
 #   frames, two characters each: a kind -- T the top level, P a `$(`,
@@ -837,7 +890,17 @@ function _lex_state(line, ctx,   i, L, c, sq, pv, st, k) {
       ctx = _push(ctx, "P"); i += 2
       continue
     }
-    if (c == "(") { if (length(ctx) > 2) ctx = _push(ctx, "G"); i++; continue }
+    # `case` opens a frame of its own, so a PATTERN terminator -- a `)`
+    # that closes nothing -- cannot pop the substitution around it,
+    # while a `$( ... )` written inside an arm still closes normally
+    # because it pushes its own frame on top.
+    if (substr(line, i, 4) == "case" && _is_word_at(line, i, 4)) { ctx = _push(ctx, "C"); i += 4; continue }
+    if (substr(line, i, 4) == "esac" && _is_word_at(line, i, 4)) {
+      if (k == "C") ctx = _pop(ctx)
+      i += 4
+      continue
+    }
+    if (c == "(") { if (_in_subst(ctx)) ctx = _push(ctx, "G"); i++; continue }
     if (c == ")") { if (k == "P" || k == "G") ctx = _pop(ctx); i++; continue }
     i++
   }
@@ -915,7 +978,7 @@ PHASE == "emit" {
   # the fold continues until it closes. Help text spanning several lines
   # is the ordinary way a shipped script spells its usage, and an inner
   # line of it reads exactly like a call.
-  if (ctx != "T0") {
+  if (_fold_open(ctx)) {
     if (_LEX_CONT) { buf = buf substr($0, 1, length($0) - 1) }
     # A NEWLINE, not a space. Inside a quoted message the newline stays
     # part of the one word either way, but a substitution written over
