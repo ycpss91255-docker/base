@@ -985,22 +985,38 @@ _derived_check_drift_keys() {
 #     it ships beside it is the layering being derived; base's own root
 #     justfile is a different one (it carries the `test` namespace), so
 #     README.md and CONTEXT.md are deliberately not judged by this figure.
-#   - only a SINGLE-QUOTED literal, and only on a line that is not a comment.
-#     That pairing is what separates an instruction from prose about one: a
-#     single-quoted command inside a message string is this tree's spelling
-#     for "type this" (`'just --list'`, `'./stop.sh'`), while a comment is
-#     maintainer prose -- the entry justfile's own docstring says there is no
-#     top-level `just build`, and a rule that judged comments would fail on
-#     the file that documents the hazard. A command spelled some other way
-#     (backticked inside running prose, bare inside a usage heredoc) is NOT
-#     detected; every one of the four live defects is single-quoted.
+#   - only a QUOTED literal -- single-quoted or backticked -- and only on a
+#     line that is not a comment. That pairing is what separates an
+#     instruction from prose about one: a quoted command inside a message
+#     string is this tree's spelling for "type this" (`'just --list'`,
+#     `'./stop.sh'`, a backticked command span in a usage heredoc or a locale
+#     message table), while a comment is maintainer prose -- the entry
+#     justfile's own docstring says there is no top-level `just build`, and a
+#     rule that judged comments would fail on the file that documents the
+#     hazard. Both delimiters get their own pattern rather than one
+#     alternation, because bash's ERE has no backreference to require the
+#     closing delimiter to match the opening one, and a pattern that accepted
+#     a span opened with one delimiter and closed with the other would read
+#     a command out of two unrelated spans.
+#     A command spelled with no delimiter at all (bare inside a usage
+#     heredoc) is still NOT detected.
 #   - retired ROOT WRAPPER paths (`./setup.sh`, `./stop.sh`) are a separate
 #     question with a separate population -- the names init.sh deletes on
 #     sight -- and they are not derived here.
 readonly _DERIVED_FIGURES_ENTRY_JUSTFILE='dist/script/justfile'
 
-# A single-quoted `just` invocation inside a message string.
+# A quoted `just` invocation inside a message string, one pattern per
+# delimiter. _derived_scan_just_literals walks the line once per pattern.
+#
+# The backtick pattern excludes a BACKSLASH from the invocation and allows
+# one before the closing delimiter, because inside a double-quoted shell
+# string the shipped code has to write the span as \`just build\` -- reading
+# the escaping backslash as part of the recipe name both reported `build\`
+# instead of `build` (losing the namespaced repair) and reported the already
+# correct \`just base init\` as a violation.
 readonly _DERIVED_FIGURES_JUST_LITERAL_RE="'(just([[:space:]]+[^']*)?)'"
+# shellcheck disable=SC2016 # an ERE matching a backtick; nothing expands.
+readonly _DERIVED_FIGURES_JUST_BACKTICK_RE='`(just([[:space:]]+[^`\]*)?)\\?`'
 
 # A token standing in for whatever the reader substitutes, rather than naming
 # a recipe. `just <verb> [args...]` is a shape, not an invocation, and
@@ -1163,37 +1179,48 @@ _derived_just_candidate() {
 
 # _derived_scan_just_literals <file> <rel> <commands_var_name>
 #
-# Report every single-quoted `just` invocation in <file> that the consumer's
-# layering does not dispatch. Prints one violation per hit and returns the
-# count.
+# Report every quoted `just` invocation in <file> -- single-quoted or
+# backticked -- that the consumer's layering does not dispatch. Prints one
+# violation per hit and returns the count.
+#
+# Each line is walked once per delimiter pattern, so two undispatchable
+# commands in one span of prose ("after `just stop` and `just test`") are
+# both reported rather than the first one swallowing the rest of the line.
 _derived_scan_just_literals() {
   local _file="$1" _rel="$2" _cmds_name="$3"
   local _violations=0
 
-  local _lineno=0 _line _rest _match _invocation _cand _repair
+  local -a _patterns=(
+    "${_DERIVED_FIGURES_JUST_LITERAL_RE}"
+    "${_DERIVED_FIGURES_JUST_BACKTICK_RE}"
+  )
+
+  local _lineno=0 _line _pattern _rest _match _invocation _cand _repair
   while IFS= read -r _line || [[ -n "${_line}" ]]; do
     _lineno=$(( _lineno + 1 ))
     [[ "${_line}" =~ ^[[:space:]]*# ]] && continue
-    _rest="${_line}"
-    while [[ "${_rest}" =~ ${_DERIVED_FIGURES_JUST_LITERAL_RE} ]]; do
-      _match="${BASH_REMATCH[0]}"
-      _invocation="${BASH_REMATCH[1]}"
-      _rest="${_rest#*"${_match}"}"
+    for _pattern in "${_patterns[@]}"; do
+      _rest="${_line}"
+      while [[ "${_rest}" =~ ${_pattern} ]]; do
+        _match="${BASH_REMATCH[0]}"
+        _invocation="${BASH_REMATCH[1]}"
+        _rest="${_rest#*"${_match}"}"
 
-      _cand=''
-      _derived_just_candidate "${_invocation}" "${_cmds_name}" _cand
-      [[ -n "${_cand}" ]] || continue
-      _derived_is_known_command "${_cand}" "${_cmds_name}" && continue
+        _cand=''
+        _derived_just_candidate "${_invocation}" "${_cmds_name}" _cand
+        [[ -n "${_cand}" ]] || continue
+        _derived_is_known_command "${_cand}" "${_cmds_name}" && continue
 
-      _repair="$(_derived_namespaced_spellings "${_cand}" "${_cmds_name}")"
-      if [[ -n "${_repair}" ]]; then
-        _repair=" -- the layering dispatches ${_repair}"
-      else
-        _repair=''
-      fi
-      printf "%s:%s: tells the user to run '%s', and the consumer's layering has no '%s'%s\n" \
-        "${_rel}" "${_lineno}" "${_invocation}" "${_cand}" "${_repair}"
-      _violations=$(( _violations + 1 ))
+        _repair="$(_derived_namespaced_spellings "${_cand}" "${_cmds_name}")"
+        if [[ -n "${_repair}" ]]; then
+          _repair=" -- the layering dispatches ${_repair}"
+        else
+          _repair=''
+        fi
+        printf "%s:%s: tells the user to run '%s', and the consumer's layering has no '%s'%s\n" \
+          "${_rel}" "${_lineno}" "${_invocation}" "${_cand}" "${_repair}"
+        _violations=$(( _violations + 1 ))
+      done
     done
   done < "${_file}"
 
