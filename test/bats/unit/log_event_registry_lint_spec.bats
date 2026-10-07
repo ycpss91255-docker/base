@@ -731,6 +731,39 @@ _seed() {
   [[ "${output}" == *"dist/script/docker/lib/fkw.sh:2: func_kw_missing"* ]]
 }
 
+# why: The same spelling read from the other side. `function name {` puts the
+# NAME where a command would stand, so a wrapper defining itself that way
+# had its own definition read as a call of itself and the brace after it
+# reported as an event id -- while the logger inside the definition went
+# unread. The case above only exercises a failing invocation and cannot
+# see this; the prologue is consumed before the body is scanned
+@test "_run_log_event_registry: PASSES the definition line of a parenthesis-free wrapper" {
+  _seed
+  _write "dist/script/docker/lib/fkw2.sh" \
+    'function warn { _log_err ci "$1"; exit 1; }' \
+    'warn seed_ok "boom"'
+  run _run_log_event_registry
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"log event registry lint: clean"* ]]
+}
+
+# why: `(( ... ))` is the arithmetic COMMAND form, and its contents are an
+# expression: it reads variables and runs nothing. Every opening
+# parenthesis restored the command position, so a variable sharing a
+# name with a wrapper made the operator after it an event id. The
+# expansion form `$((...))` was already handled; this is the half that
+# was not, and it is carried across lines like the conditional
+@test "_run_log_event_registry: PASSES an arithmetic command naming a wrapper" {
+  _seed
+  _write "dist/script/docker/lib/arith2.sh" \
+    '(( _die == 1 )) || true' \
+    '(( _die == 2 &&' \
+    '   _die == 3 )) || true'
+  run _run_log_event_registry
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"log event registry lint: clean"* ]]
+}
+
 # why: A backtick substitution can span lines like any other, and the fold
 # tracked quotes and `$(` but not backticks -- so each physical line
 # reached the span finder incomplete, no span was found, and the call

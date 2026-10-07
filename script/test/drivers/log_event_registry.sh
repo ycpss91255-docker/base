@@ -508,7 +508,6 @@ function _tokenize(line, kind, text, qs, ex, adj,   n, i, c, e, cur, has, j, L, 
 function _opens_another(text, qs, i) {
   if (qs[i]) return 0
   if (text[i] ~ /^(if|while|until|then|do|else|elif|\{|\}|!|time|exec|eval|command|builtin)$/) return 1
-  if (text[i] == "function") return 1
   return (text[i] ~ /^[A-Za-z_][A-Za-z0-9_]*=/)
 }
 # One folded line: count the emit sites it holds and print the literal
@@ -539,9 +538,26 @@ function _scan(line, ln,   n, i, m, d, K, T, Q, EX, AJ, A, SUB, cmd, cond, skip,
     # suppressing every call for the rest of the file while the clean
     # line reads normally -- the state that fixes a false finding must
     # not be able to create a silent miss.
+    # `[[ ... ]]` is the conditional grammar and `(( ... ))` the
+    # arithmetic one. Neither contains commands: `&&` there joins two
+    # tests, and a variable sharing a name with a wrapper would make the
+    # operator after it an event id. Both carry across lines, because an
+    # expression spread over several is still one expression.
     if (!cond && cmd && K[i] == "W" && !Q[i] && T[i] == "[[") { cond = 1; cmd = 0; continue }
-    if (cond) {
+    if (!cond && cmd && K[i] == "O" && T[i] == "((") { cond = 2; cmd = 0; continue }
+    if (cond == 1) {
       if (K[i] == "W" && !Q[i] && T[i] == "]]") cond = 0
+      continue
+    }
+    if (cond == 2) {
+      if (K[i] == "O" && T[i] == "))") cond = 0
+      continue
+    }
+    # `function name { ... }` puts the NAME where a command would stand,
+    # so a wrapper defining itself that way reads as a call of itself
+    # and the brace after it as an event id. The prologue is consumed.
+    if (cmd && K[i] == "W" && !Q[i] && T[i] == "function") {
+      if (i < n && K[i + 1] == "W") i++
       continue
     }
     # A REDIRECTION is not a separator and its operand is a FILENAME.
@@ -790,7 +806,7 @@ function _candidate(line) {
   if (line ~ /=\(/) return 1
   # A conditional OPENS on a line that may hold no call at all, and the
   # state it starts has to reach the lines that do.
-  if (line ~ /\[\[|\]\]/) return 1
+  if (line ~ /\[\[|\]\]|\(\(|\)\)/) return 1
   return (fwdre != "" && line ~ fwdre)
 }
 BEGIN {
