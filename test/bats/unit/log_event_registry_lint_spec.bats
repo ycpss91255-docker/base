@@ -498,6 +498,52 @@ _seed() {
   [[ "${output}" == *"dist/script/docker/lib/hyph.sh:1: missing-event"* ]]
 }
 
+# why: A newline is a command SEPARATOR, and a substitution written over
+# several lines holds several commands. Folding it with a space between
+# the lines merged them, so the second logger became an argument of the
+# first and its body was never read -- a miss the clean line cannot show,
+# because the first command was counted and looked fine
+@test "_run_log_event_registry: FAILS on the second command of a multi-line substitution" {
+  _seed seed_ok
+  _write "dist/script/docker/lib/mlsub.sh" \
+    'result="$(_log_info conf seed_ok' \
+    '_log_err conf multiline_missing "display=boom")"'
+  run _run_log_event_registry
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/script/docker/lib/mlsub.sh:1: multiline_missing"* ]]
+}
+
+# why: `name=( ... )` STORES words; it runs nothing. Treating every opening
+# parenthesis as a command boundary made the first word inside an array
+# initialiser a command and the next one its event id, so an ordinary
+# array of arguments was reported. An initialiser is recognised by the
+# assignment in front of its parenthesis and skipped to its match
+@test "_run_log_event_registry: PASSES words stored in an array initialiser" {
+  _seed
+  _write "dist/script/docker/lib/arr.sh" \
+    'args=(_log_err conf not_an_event)' \
+    'more+=(_die also_not_an_event)'
+  run _run_log_event_registry
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"log event registry lint: clean"* ]]
+}
+
+# why: `$'...'` decodes escapes, and dropping the backslash is not decoding
+# them: `$'\x6f'` is the letter o, so stripping gave the word `x6f` and
+# the lint reported an id no shell ever emits. The simple escapes are
+# decoded; anything else -- `\x`, `\u`, an octal -- makes the body
+# UNRESOLVED, which is the one thing this scan declines and says so about.
+# Declining is the honest answer here: comparing a wrongly decoded literal
+# against the registry reports a defect that is not one
+@test "_run_log_event_registry: PASSES a body whose ANSI-C escape it cannot decode" {
+  _seed
+  _write "dist/script/docker/lib/esc.sh" \
+    "_log_info conf \$'seed_\\x6fk' \"display=boom\""
+  run _run_log_event_registry
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"log event registry lint: clean"* ]]
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _run_log_event_registry: what it leaves alone
 # ════════════════════════════════════════════════════════════════════

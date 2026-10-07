@@ -267,7 +267,7 @@ function _forwards(text,   n, i, K, T, Q, A, cmd, tok, nm, alias) {
 #
 #   A bare `#` at a word boundary ends the line, which is what the shell
 #   does and what makes a trailing comment inert here.
-function _tokenize(line, kind, text, qs,   n, i, c, cur, has, j, L, sq, qst) {
+function _tokenize(line, kind, text, qs,   n, i, c, e, cur, has, j, L, sq, qst, unres) {
   n = 0; cur = ""; has = 0; qst = 0; L = length(line); i = 1; sq = sprintf("%c", 39)
   _TOK_SUBS = ""
   while (i <= L) {
@@ -284,12 +284,28 @@ function _tokenize(line, kind, text, qs,   n, i, c, cur, has, j, L, sq, qst) {
     if (c == "$" && substr(line, i + 1, 1) == sq) {
       if (!has) qst = 1
       i += 2
+      unres = 0
       while (i <= L) {
         c = substr(line, i, 1)
-        if (c == "\\" && i < L) { cur = cur substr(line, i + 1, 1); i += 2; continue }
+        if (c == "\\" && i < L) {
+          e = substr(line, i + 1, 1)
+          if (e == "\\" || e == sq || e == "\"" || e == "?") cur = cur e
+          else if (e == "n") cur = cur "\n"
+          else if (e == "t") cur = cur "\t"
+          else if (e == "r") cur = cur "\r"
+          # `\x6f` is the letter o, and dropping the backslash is not
+          # decoding it -- that yields a word no shell ever emits and a
+          # finding that is not a defect. Anything this does not decode
+          # makes the body UNRESOLVED, which is the one thing the scan
+          # declines and says so about.
+          else unres = 1
+          i += 2
+          continue
+        }
         if (c == sq) { i++; break }
         cur = cur c; i++
       }
+      if (unres) cur = "$" cur
       has = 1
       continue
     }
@@ -326,7 +342,7 @@ function _tokenize(line, kind, text, qs,   n, i, c, cur, has, j, L, sq, qst) {
       continue
     }
     if (c == "\\" && i < L) { cur = cur substr(line, i + 1, 1); has = 1; i += 2; continue }
-    if (index(";&|()<>", c) > 0) {
+    if (index(";&|()<>\n", c) > 0) {
       if (has) { n++; kind[n] = "W"; text[n] = cur; qs[n] = qst; cur = ""; has = 0; qst = 0 }
       n++; kind[n] = "O"; qs[n] = 0
       if (substr(line, i + 1, 1) == c) { text[n] = c c; i += 2 } else { text[n] = c; i++ }
@@ -354,7 +370,7 @@ function _opens_another(text, qs, i) {
 # One folded line: count the emit sites it holds and print the literal
 # ids among them. <ln> is the FIRST physical line of the fold, which is
 # the line a reader of the report opens.
-function _scan(line, ln,   n, i, m, K, T, Q, A, SUB, cmd, skip, subs, k) {
+function _scan(line, ln,   n, i, m, d, K, T, Q, A, SUB, cmd, skip, subs, k) {
   n = _tokenize(line, K, T, Q)
   # Captured IMMEDIATELY: _tokenize publishes the substitution list in a
   # global, and the recursion below calls _tokenize again.
@@ -380,6 +396,22 @@ function _scan(line, ln,   n, i, m, K, T, Q, A, SUB, cmd, skip, subs, k) {
     }
     if (K[i] == "O" && T[i] == "&" && i < n && K[i + 1] == "O" && T[i + 1] ~ /^(>|>>)$/) {
       i++; skip = 1
+      continue
+    }
+    # `name=( ... )` STORES words and runs nothing, so its contents are
+    # not commands. It is told from a subshell by the assignment in front
+    # of the parenthesis, which the tokeniser leaves as its own word
+    # because `(` is an operator.
+    if (K[i] == "O" && T[i] == "(" && i > 1 && K[i - 1] == "W" \
+        && T[i - 1] ~ /^[A-Za-z_][A-Za-z0-9_]*(\[[^]]*\])?\+?=$/) {
+      d = 1
+      while (++i <= n && d > 0) {
+        if (K[i] != "O") continue
+        if (T[i] == "(") d++
+        else if (T[i] == ")") d--
+      }
+      i--
+      cmd = 0
       continue
     }
     if (K[i] == "O") { cmd = 1; continue }
@@ -539,7 +571,11 @@ PHASE == "emit" {
   # line of it reads exactly like a call.
   if (qst != 0) {
     if (_LEX_CONT) { buf = buf substr($0, 1, length($0) - 1) }
-    else { buf = buf $0 " " }
+    # A NEWLINE, not a space. Inside a quoted message the newline stays
+    # part of the one word either way, but a substitution written over
+    # several lines holds several COMMANDS, and a space between them
+    # makes the second one an argument of the first.
+    else { buf = buf $0 "\n" }
     next
   }
   # A trailing backslash OUTSIDE a comment continues the line, and the
