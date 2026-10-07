@@ -297,13 +297,22 @@ environment, because `--bats-only` with an exported `BATS_FILE` or
 `BATS_FILTER` runs a subset while the verdict would still say `scope=tier`:
 the prefix is the rule, so a sixth selector is covered the day it is added.
 
-**Four measurements it refuses to report as verdicts**, because each one's
+**Five measurements it refuses to report as verdicts**, because each one's
 number is the number a sound suite prints too: a mutation that left every
 subject byte-identical (the green is the baseline, so the sed expression
 matched nothing), a run that reported no test results at all (a broken runner,
 not a finding about the tests), a run that reported some passes and then died
 (the same hole with a plausible number on it -- the runner's exit status is
-what tells them apart), and the narrow green above.
+what tells them apart), a green that executed **fewer** assertions than the
+baseline (the mutation removed the assertions instead of being observed by
+them, which is what deleting a dispatch from a driver does), and the narrow
+green above. A **red** is held to none of these: something observed the wrong
+answer, and that stands however much else ran.
+
+An interrupt stops the runner's whole process group and waits for it, under a
+bounded grace period before escalating to `KILL` -- a runner that ignores
+`TERM` would otherwise leave the probe waiting forever with the tree still
+mutated, which is worse than either a stuck suite or a mutated tree alone.
 
 **The mutation is yours, because only you know what the behaviour is.** Five
 shapes earned their place during the audit: `return 0` at the top of a driver

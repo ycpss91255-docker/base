@@ -814,3 +814,100 @@ mutated"
   assert_failure
   assert_output --partial "touched ignoredir/data, which it did not declare"
 }
+
+# ── round-six review findings, each reproduced before it was fixed ───────────
+
+# why: a mutation can remove the assertions that would have observed it --
+# deleting a dispatch from a driver is the obvious case, and probing the test
+# tooling is one of the things this is for. The run then exits 0 with fewer
+# tests and nothing red, which was published as a tier-wide green.
+@test "_mutation_probe: refuses a green whose run executed FEWER assertions than the baseline" {
+  local _root _runner
+  _root="$(_probe_fixture)"
+  _runner="$(_probe_runner_observing shrunk '  printf "ok 1 only one left\n"')"
+  run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "
+    source '${PROBE}'
+    _mutation_probe_run() {
+      local _out=\"\${3}\"
+      if grep -F wrong '${_root}/subject.sh' >/dev/null 2>&1; then
+        printf 'ok 1 only one left\n' > \"\${_out}\"
+      else
+        printf 'ok 1 one\nok 2 two\n' > \"\${_out}\"
+      fi
+      _MUTATION_PROBE_RUN_STATUS=0
+      return 0
+    }
+    _mutation_probe '${_root}' --subject subject.sh --mutate 'sed -i s/right/wrong/ subject.sh'
+  "
+  assert_failure
+  assert_output --partial "executed 1 assertions where the baseline ran 2"
+  refute_output --partial "PINNED"
+}
+
+# why: a runner that ignores TERM, or hangs in its own shutdown handler, made
+# the post-signal `wait` never return -- so the probe sat there with the tree
+# still mutated, which is worse than either a stuck suite or a mutated tree
+# alone. A `kill -0` poll cannot stand in: an unreaped child is a zombie and
+# still answers it.
+@test "_mutation_probe: a runner that ignores TERM does not wedge the restore" {
+  local _root _runner _marker="${BATS_TEST_TMPDIR}/deaf-entered"
+  local _out="${BATS_TEST_TMPDIR}/deaf-out"
+  _root="$(_probe_fixture)"
+  # Deaf only on the MUTATED run, so the baseline completes and the restore is
+  # the step the signal actually interrupts.
+  _runner="$(_probe_runner_observing deaf "  trap '' TERM; printf 'ok 1 one\n'; : > ${_marker}; sleep 60")"
+  env _MUTATION_PROBE_SHUTDOWN_GRACE=1 MUTATION_PROBE_RUNNER="${_runner}" \
+    bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject subject.sh --mutate 'sed -i s/right/wrong/ subject.sh'" \
+    > "${_out}" 2>&1 &
+  local _pid=$! _i=0
+  while (( _i < 1000 )); do
+    [[ -f "${_marker}" ]] && break
+    sleep 0.02
+    _i=$(( _i + 1 ))
+  done
+  run test -f "${_marker}"
+  assert_success
+  kill -TERM "${_pid}" 2>/dev/null || true
+  # Polled rather than waited on: a probe that wedges must FAIL this case, not
+  # hang the suite in it.
+  local _j=0
+  while (( _j < 600 )); do
+    grep -F "so there is NO verdict" "${_out}" >/dev/null 2>&1 && break
+    sleep 0.02
+    _j=$(( _j + 1 ))
+  done
+  kill -KILL "${_pid}" 2>/dev/null || true
+  wait "${_pid}" 2>/dev/null || true
+  run cat "${_out}"
+  assert_output --partial "so there is NO verdict"
+  run git -C "${_root}" status --porcelain
+  assert_output ""
+}
+
+# why: the changed-path list was newline-delimited while the snapshots it reads
+# are NUL-delimited, so a file named `a.sh<newline>b.sh` was read back as the
+# two paths `a.sh` and `b.sh` -- and when both of those are declared subjects,
+# an undeclared edit reads as two declared ones and the leak check waves it
+# through.
+@test "_mutation_probe: a newline in an undeclared file's name does not bypass the leak check" {
+  local _root _runner _mut="${BATS_TEST_TMPDIR}/newline-mutation.sh"
+  _root="$(_probe_fixture)"
+  printf '%s\n' 'right' > "${_root}/a.sh"
+  printf '%s\n' 'right' > "${_root}/b.sh"
+  printf '%s\n' 'x' > "${_root}/a.sh
+b.sh"
+  git -C "${_root}" -c user.email=probe@example.invalid -c user.name=probe add -A
+  git -C "${_root}" -c user.email=probe@example.invalid -c user.name=probe \
+    commit -qm pair
+  cat > "${_mut}" <<'MUT'
+#!/usr/bin/env bash
+sed -i s/right/wrong/ a.sh
+printf leaked > "a.sh
+b.sh"
+MUT
+  chmod +x "${_mut}"
+  _runner="$(_probe_runner_observing green '  printf "ok 1 one\n"')"
+  run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject a.sh --subject b.sh --mutate '${_mut}'"
+  assert_failure
+  assert_output --partial "which it did not declare"
+}

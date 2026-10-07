@@ -3724,7 +3724,7 @@ builds nothing and pushes nothing)
 | `multi-distro-build-worker.yaml: ci-passed job has explicit name: ci-passed (matches existing multi-distro rollup contract) (#325 B-1)` | - |
 | `multi-distro-build-worker.yaml: every job's grant is pinned as an exact set (#957)` | - |
 
-### test/bats/unit/mutation_probe_spec.bats (43)
+### test/bats/unit/mutation_probe_spec.bats (46)
 
 A green suite says every assertion ran. It does not say any of them would
 have noticed a wrong answer, and the v0.43 retrospective measured how far
@@ -3807,6 +3807,9 @@ Faking that comparison would test a control this repo does not ship.
 | `_mutation_probe: an interrupt during the BASELINE still stops the runner` | the handler used to be armed AFTER the baseline, and the runner is forked into its own process group -- so an interrupt during the baseline killed the probe and left the suite, a docker compose run in the real case, alive with nobody waiting on it. |
 | `_mutation_probe: refuses a subject reached through a symlinked ancestor` | the mirror image of the restore's ancestor check, and the one outcome this tool must not have. A subject reached through a symlinked parent was ACCEPTED, recorded and mutated -- and then the restore correctly refused to write through that ancestor, leaving the subject mutated. |
 | `_mutation_probe: refuses a mutation that edited a file inside an ignored DIRECTORY` | an ignore pattern naming a DIRECTORY -- which is how this repo ignores `coverage/` and `log/` -- is reported by git as the directory, and a directory's fingerprint is only its mode. So a mutation that rewrote a file inside one was invisible to the leak check and left behind. |
+| `_mutation_probe: refuses a green whose run executed FEWER assertions than the baseline` | a mutation can remove the assertions that would have observed it -- deleting a dispatch from a driver is the obvious case, and probing the test tooling is one of the things this is for. The run then exits 0 with fewer tests and nothing red, which was published as a tier-wide green. |
+| `_mutation_probe: a runner that ignores TERM does not wedge the restore` | a runner that ignores TERM, or hangs in its own shutdown handler, made the post-signal `wait` never return -- so the probe sat there with the tree still mutated, which is worse than either a stuck suite or a mutated tree alone. A `kill -0` poll cannot stand in: an unreaped child is a zombie and still answers it. |
+| `_mutation_probe: a newline in an undeclared file's name does not bypass the leak check` | the changed-path list was newline-delimited while the snapshots it reads are NUL-delimited, so a file named `a.sh<newline>b.sh` was read back as the two paths `a.sh` and `b.sh` -- and when both of those are declared subjects, an undeclared edit reads as two declared ones and the leak check waves it through. |
 
 ### test/bats/unit/network_ports_inert_spec.bats (15)
 

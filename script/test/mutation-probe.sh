@@ -80,7 +80,7 @@
 #      explicit one cannot reach (a dead daemon), and a separate INT / TERM
 #      handler stops the runner first and then exits reporting nothing.
 #
-# ── Four measurements that must not be read as verdicts ────────────────────
+# ── Five measurements that must not be read as verdicts ────────────────────
 #
 # base#1089's rule, applied to a probe instead of a gate: every no-evidence
 # state is refused by name.
@@ -95,7 +95,14 @@
 #   - A run that reported SOME passes and then died. Same hole, arriving with a
 #     plausible number attached: zero reds over a population that never ran.
 #     The runner's exit status is what tells the two apart, so it is kept.
+#   - A green that executed FEWER assertions than the baseline. A mutation can
+#     remove the assertions that would have observed it -- deleting a dispatch
+#     from a driver is the obvious case -- and the run then exits 0 with fewer
+#     tests and nothing red.
 #   - A narrow green, per the scope section above.
+#
+# A RED is held to none of them: something observed the wrong answer, which
+# stands however much else ran.
 #
 # An interrupt is the same question asked by a signal, and it is answered the
 # same way: INT / TERM stops the runner, restores, and exits without reporting
@@ -154,6 +161,11 @@ _MUTATION_PROBE_SUBJECTS=()
 # it running against a tree that is about to be restored under it.
 _MUTATION_PROBE_RUNNER_PID=''
 _MUTATION_PROBE_RUN_STATUS=0
+
+# Seconds a runner is given to come down after a TERM before the group is
+# KILLed. Overridable so the case that pins the bound does not spend the
+# default on every run.
+: "${_MUTATION_PROBE_SHUTDOWN_GRACE:=5}"
 
 # _mutation_probe_err <message> -- diagnostic to stderr. Block-redirected
 # rather than a bare `printf ... >&2` because this is a standalone,
@@ -424,13 +436,18 @@ _mutation_probe_changed_paths() {
     [[ -n "${_rec}" ]] || continue
     _after["${_rec#*$'\t'}"]="${_rec%%$'\t'*}"
   done
+  # NUL-terminated, like the snapshots it reads. A newline-delimited list is
+  # read back by `mapfile` as several paths, and the pieces of a file named
+  # `a.sh<newline>b.sh` are two paths that may BOTH be declared subjects -- so
+  # the undeclared edit reads as two declared ones and the leak check waves it
+  # through.
   for _path in "${!_after[@]}"; do
     [[ "${_before["${_path}"]:-}" == "${_after["${_path}"]}" ]] && continue
-    printf '%s\n' "${_path}"
+    printf '%s\0' "${_path}"
   done
   for _path in "${!_before[@]}"; do
     [[ -n "${_after["${_path}"]:-}" ]] && continue
-    printf '%s\n' "${_path}"
+    printf '%s\0' "${_path}"
   done
 }
 
@@ -531,16 +548,34 @@ _mutation_probe_stop_runner() {
   local _pid="${_MUTATION_PROBE_RUNNER_PID}"
   [[ -n "${_pid}" ]] || return 0
   _MUTATION_PROBE_RUNNER_PID=''
-  if _mutation_probe_own_group "${_pid}"; then
+  # The wait is BOUNDED by a watchdog, because a plain `wait` after a TERM
+  # never returns for a runner that ignores the signal or hangs in its own
+  # shutdown handler -- and the probe would then sit there with the tree still
+  # mutated, which is the worst of both outcomes. A `kill -0` poll cannot
+  # substitute: an exited child this shell has not reaped is a zombie and still
+  # answers to it.
+  local _group=0
+  _mutation_probe_own_group "${_pid}" && _group=1
+  if (( _group )); then
     kill -TERM -- "-${_pid}" 2>/dev/null || true
-    wait "${_pid}" 2>/dev/null || true
-    # Anything still in the group outlived the leader. A group KILL is bounded
-    # and reaches it; on an empty group it fails harmlessly.
-    kill -KILL -- "-${_pid}" 2>/dev/null || true
   else
     kill -TERM "${_pid}" 2>/dev/null || true
-    wait "${_pid}" 2>/dev/null || true
   fi
+  local _watchdog
+  if (( _group )); then
+    ( sleep "${_MUTATION_PROBE_SHUTDOWN_GRACE}"
+      kill -KILL -- "-${_pid}" 2>/dev/null || true ) &
+  else
+    ( sleep "${_MUTATION_PROBE_SHUTDOWN_GRACE}"
+      kill -KILL "${_pid}" 2>/dev/null || true ) &
+  fi
+  _watchdog="$!"
+  wait "${_pid}" 2>/dev/null || true
+  kill -TERM "${_watchdog}" 2>/dev/null || true
+  wait "${_watchdog}" 2>/dev/null || true
+  # Anything still in the group outlived the leader. A group KILL is bounded
+  # and reaches it; on an empty group it fails harmlessly.
+  (( _group )) && { kill -KILL -- "-${_pid}" 2>/dev/null || true; }
   return 0
 }
 
@@ -808,7 +843,7 @@ _mutation_probe() {
   }
 
   local -a _changed=()
-  mapfile -t _changed < <(_mutation_probe_changed_paths \
+  mapfile -d '' -t _changed < <(_mutation_probe_changed_paths \
     "${_work}/before" "${_work}/after")
 
   local -a _undeclared=()
@@ -843,6 +878,18 @@ _mutation_probe() {
 
   if (( _ok + _not == 0 )); then
     _probe_refuse "the run reported no test results at all. Zero reds is the number a fully behavioural suite prints too, so this cannot be read as a verdict about the tests -- it is a broken runner. Its output: $(cat "${_work}/run")"
+    return 3
+  fi
+
+  # A green over a SMALLER population is not the same measurement. A mutation
+  # can remove the assertions that would have observed it -- deleting a
+  # dispatch from a driver is the obvious case, and probing the test tooling is
+  # one of the things this is for -- and the run then exits 0 with fewer tests
+  # and nothing red. Compared against the baseline's count rather than against
+  # a number kept here. A RED is not held to this: something observed the wrong
+  # answer, which stands however much else ran.
+  if (( _not == 0 && _ok < _base_ok )); then
+    _probe_refuse "the mutated run executed ${_ok} assertions where the baseline ran ${_base_ok}. A green over a smaller population is not the same measurement -- the mutation removed assertions rather than being observed by them. Check what the mutation did to the test dispatch."
     return 3
   fi
 
