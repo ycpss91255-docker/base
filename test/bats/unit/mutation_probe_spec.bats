@@ -1058,7 +1058,7 @@ STUB
   _runner="$(_probe_runner_observing red '  printf "not ok 1 the witness\n"')"
   run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject subject.sh --mutate 'sed -i s/right/wrong/ subject.sh; git add subject.sh'"
   assert_failure
-  assert_output --partial "STAGED what it wrote"
+  assert_output --partial "STAGED or COMMITTED what it wrote"
   refute_output --partial "PINNED"
   # The bytes come back regardless; the index is what the author has to clear.
   run grep -cF 'right' "${_root}/subject.sh"
@@ -1076,7 +1076,7 @@ STUB
   git -C "${_root}" init -q
   run bash -c "
     source '${PROBE}'
-    _MUTATION_PROBE_INDEX_STATE=a-state-the-index-is-not-in
+    _MUTATION_PROBE_GIT_STATE=a-state-the-index-is-not-in
     _mutation_probe_verify_restored '${_rec}' '${_root}' subject.sh
   "
   assert_failure
@@ -1181,6 +1181,41 @@ STUB
   wait "${_pid}" 2>/dev/null || true
   run cat "${_out}"
   assert_output --partial "so there is NO verdict"
+  run git -C "${_root}" status --porcelain
+  assert_output ""
+}
+
+# ── round-eleven review findings, each reproduced before it was fixed ────────
+
+# why: `git diff --cached` was the first spelling of "what git records" and it is
+# blind to the case that matters most -- a mutation that COMMITS its edit moves
+# HEAD along with the index, so the difference is empty before and after while the
+# mutation sits in a commit and the probe reports a restored tree.
+@test "_mutation_probe: refuses a mutation that COMMITTED what it wrote" {
+  local _root _runner
+  _root="$(_probe_fixture)"
+  _runner="$(_probe_runner_observing red '  printf "not ok 1 the witness\n"')"
+  run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject subject.sh --mutate 'sed -i s/right/wrong/ subject.sh; git -c user.email=m@e -c user.name=m commit -qam mutation'"
+  assert_failure
+  assert_output --partial "STAGED or COMMITTED what it wrote"
+  refute_output --partial "PINNED"
+}
+
+# why: waiting for the mutation's shell does not wait for a process that shell put
+# in the BACKGROUND. The probe published a verdict over a restored file that the
+# background process then overwrote two seconds later -- a tree left mutated
+# after the probe said it was not.
+@test "_mutation_probe: a background process the mutation spawned cannot outlive it" {
+  local _root _runner
+  _root="$(_probe_fixture)"
+  _runner="$(_probe_runner_observing red '  printf "not ok 1 the witness\n"')"
+  run env MUTATION_PROBE_RUNNER="${_runner}" bash -c "source '${PROBE}'; _mutation_probe '${_root}' --subject subject.sh --mutate 'sed -i s/right/wrong/ subject.sh; ( sleep 2; printf delayed-wrong > subject.sh ) >/dev/null 2>&1 &'"
+  assert_success
+  assert_output --partial "PINNED"
+  # Long enough for the background writer to have fired, had it survived.
+  sleep 3
+  run cat "${_root}/subject.sh"
+  refute_output --partial "delayed-wrong"
   run git -C "${_root}" status --porcelain
   assert_output ""
 }

@@ -176,11 +176,12 @@ _MUTATION_PROBE_ROOT_ID=''
 # compose project for the daemon question below to be about.
 _MUTATION_PROBE_DEFAULT_RUNNER=0
 
-# git's INDEX as it stood before the mutation. The working tree is not the
-# whole state a checkout carries: a mutation that stages what it wrote --
-# `git add`, `git apply --index` -- leaves the mutation in the index after the
-# bytes have been put back, where the next commit ships it.
-_MUTATION_PROBE_INDEX_STATE=''
+# What GIT records, as it stood before the mutation: the index entries and HEAD.
+# The working tree is not the whole state a checkout carries. A mutation that
+# stages what it wrote -- `git add`, `git apply --index` -- leaves the mutation
+# in the index after the bytes are back, where the next commit ships it; one
+# that COMMITS it has shipped it already.
+_MUTATION_PROBE_GIT_STATE=''
 
 # Seconds a runner is given to come down after a TERM before the group is
 # KILLed. Overridable so the case that pins the bound does not spend the
@@ -224,12 +225,21 @@ _mutation_probe_record() {
 # _mutation_probe_restore <record-dir> <root> <subject>... -- copy each
 # recorded original back. Recreates a subject the mutation deleted, and
 # carries the mode with it.
-# _mutation_probe_index_state <root> -- a fingerprint of the index as it stands
-# against HEAD. `--raw` carries the blob ids, so this moves when what is
-# STAGED changes and not when the working tree does.
-_mutation_probe_index_state() {
+# _mutation_probe_git_state <root> -- a fingerprint of the index ENTRIES and of
+# HEAD. It moves when what is staged changes, and when HEAD does; it does not
+# move when the working tree does.
+#
+# The entries, not their difference from HEAD. `git diff --cached` was the first
+# spelling and it is blind to the case that matters most: a mutation that
+# COMMITS its edit moves HEAD along with the index, so the difference is empty
+# before and after while the mutation sits in a commit. HEAD is hashed with them
+# for the same reason -- a commit is state too, and the probe has no business
+# reporting a restored tree over one.
+_mutation_probe_git_state() {
   local _raw _hash
-  _raw="$(git -C "${1}" diff --cached --raw -z 2>/dev/null | sha256sum)"
+  _raw="$( { git -C "${1}" ls-files --stage -z 2>/dev/null
+             git -C "${1}" rev-parse HEAD 2>/dev/null || printf 'no-head'
+           } | sha256sum )"
   _hash="${_raw%% *}"
   printf '%s' "${_hash}"
 }
@@ -347,11 +357,11 @@ _mutation_probe_verify_restored() {
   # not unstage anything. A probe that reported success here while
   # `git diff --cached` still held the mutation would have the next commit
   # ship it.
-  if [[ -n "${_MUTATION_PROBE_INDEX_STATE}" ]] \
-    && [[ "$(_mutation_probe_index_state "${_root}")" \
-          != "${_MUTATION_PROBE_INDEX_STATE}" ]]
+  if [[ -n "${_MUTATION_PROBE_GIT_STATE}" ]] \
+    && [[ "$(_mutation_probe_git_state "${_root}")" \
+          != "${_MUTATION_PROBE_GIT_STATE}" ]]
   then
-    _mutation_probe_err "RESTORATION INCOMPLETE: the working tree is back but git's INDEX is not -- the mutation staged what it wrote. Unstage it (git restore --staged .) and check git diff --cached before committing anything. The probe does not rewrite an index it did not write."
+    _mutation_probe_err "RESTORATION INCOMPLETE: the working tree is back but what GIT records is not -- the mutation staged or committed what it wrote. Check git status and git log, and unstage with git restore --staged . , before committing anything. The probe does not rewrite an index or a history it did not write."
     _rc=1
   fi
   return "${_rc}"
@@ -570,8 +580,25 @@ _mutation_probe_run() {
   ) > "${_out}" 2>&1 &
   _MUTATION_PROBE_CHILD_PID="$!"
   (( _jobctl )) || set +m
+  # The fork happened under `set -m`, so bash made the job a group leader whose
+  # pgid is its pid. Taken from that rather than re-read from /proc: a child
+  # that exits immediately -- which a mutation usually does -- is gone from
+  # /proc before the question can be asked, so the read answered "cannot tell"
+  # for the FASTEST children and the reap below never ran for them. That is
+  # how a background process the mutation spawned survived to overwrite a
+  # restored file.
+  #
+  # Turning job control back OFF inside the child was tried here too, on the
+  # theory that an inherited `-m` would give its background jobs groups of
+  # their own. Measured: it does not. Bash only makes new groups when job
+  # control is EFFECTIVE, which needs a controlling terminal, and a child of
+  # this script has none -- an inner `( ... ) &` keeps the child's pgid either
+  # way. The line is not here because it changed nothing, and that is recorded
+  # so the next reader does not add it back on the same theory.
+  local _own=1
   local _st=0
   wait "${_MUTATION_PROBE_CHILD_PID}" || _st=$?
+  (( _own )) && _mutation_probe_reap_group "${_MUTATION_PROBE_CHILD_PID}"
   _MUTATION_PROBE_CHILD_PID=''
   _MUTATION_PROBE_RUN_STATUS="${_st}"
   return 0
@@ -683,6 +710,29 @@ _mutation_probe_await_daemon() {
   return 1
 }
 
+# _mutation_probe_reap_group <pid> -- remove anything still running in the
+# child's process group, called the moment the leader has been reaped.
+#
+# Waiting for the child's shell does not wait for a process that shell put in
+# the background: `printf wrong > x; ( sleep 2; printf worse > x ) &` let the
+# probe publish a verdict over a restored file that was then overwritten two
+# seconds later. A background process a mutation or a suite spawned has no
+# business outliving it.
+#
+# Called where the group was CREATED rather than from the restore path, so the
+# pid is one this shell reaped microseconds ago -- carrying a group id across
+# phases would mean signalling a number the kernel may have handed to someone
+# else. The caller passes whether that pid really led its own group, asked while
+# it was still alive.
+_mutation_probe_reap_group() {
+  local _pid="${1}"
+  [[ -n "${_pid}" ]] || return 0
+  kill -TERM -- "-${_pid}" 2>/dev/null || true
+  sleep 0.2
+  kill -KILL -- "-${_pid}" 2>/dev/null || true
+  return 0
+}
+
 # _mutation_probe_stop_child -- stop the suite and WAIT for it, before any
 # restore touches the tree it is reading.
 _mutation_probe_stop_child() {
@@ -738,7 +788,9 @@ _mutation_probe_apply() {
     eval "${_mutate}" ) &
   _MUTATION_PROBE_CHILD_PID="$!"
   (( _jobctl )) || set +m
+  local _own=1
   wait "${_MUTATION_PROBE_CHILD_PID}" 2>/dev/null || true
+  (( _own )) && _mutation_probe_reap_group "${_MUTATION_PROBE_CHILD_PID}"
   _MUTATION_PROBE_CHILD_PID=''
   return 0
 }
@@ -976,7 +1028,7 @@ _mutation_probe() {
   _mutation_probe_say "subjects=${_subjects[*]} scope=${_scope}"
   _mutation_probe_say "mutation=${_mutate}"
 
-  _MUTATION_PROBE_INDEX_STATE="$(_mutation_probe_index_state "${_root}")"
+  _MUTATION_PROBE_GIT_STATE="$(_mutation_probe_git_state "${_root}")"
   _mutation_probe_tree_state "${_root}" "${_work}/before"
   _mutation_probe_apply "${_root}" "${_mutate}"
   _mutation_probe_tree_state "${_root}" "${_work}/after"
@@ -1013,7 +1065,7 @@ _mutation_probe() {
     trap - EXIT INT TERM
     _MUTATION_PROBE_RECORD_DIR=''
     _MUTATION_PROBE_SUBJECTS=()
-    _MUTATION_PROBE_INDEX_STATE=''
+    _MUTATION_PROBE_GIT_STATE=''
     rm -rf "${_work}"
     if (( _held )); then
       _mutation_probe_err "a container was still holding this checkout when the subjects were restored -- the refusal above names it and the verb that clears it. The tree HAS been restored and verified, but a container with the checkout bind-mounted can write to it afterwards: clear it, then check git status."
@@ -1033,10 +1085,10 @@ _mutation_probe() {
 
   # Asked separately from the path comparison rather than as a pseudo-path in
   # it, because any key standing for "the index" could also be a filename.
-  if [[ "$(_mutation_probe_index_state "${_root}")" \
-        != "${_MUTATION_PROBE_INDEX_STATE}" ]]
+  if [[ "$(_mutation_probe_git_state "${_root}")" \
+        != "${_MUTATION_PROBE_GIT_STATE}" ]]
   then
-    _probe_refuse "the mutation STAGED what it wrote. Putting the bytes back does not unstage anything, so the mutation would survive in git's index and the next commit would ship it -- and the probe does not rewrite an index it did not write. The working tree has been restored; unstage with git restore --staged . and probe again with a mutation that only edits files."
+    _probe_refuse "the mutation STAGED or COMMITTED what it wrote. Putting the bytes back does not unstage anything, and it certainly does not undo a commit, so the mutation would survive what git records -- and the probe does not rewrite an index or a history it did not write. The working tree has been restored; check git status and git log, unstage with git restore --staged . , and probe again with a mutation that only edits files."
     return 3
   fi
 

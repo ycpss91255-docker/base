@@ -3724,7 +3724,7 @@ builds nothing and pushes nothing)
 | `multi-distro-build-worker.yaml: ci-passed job has explicit name: ci-passed (matches existing multi-distro rollup contract) (#325 B-1)` | - |
 | `multi-distro-build-worker.yaml: every job's grant is pinned as an exact set (#957)` | - |
 
-### test/bats/unit/mutation_probe_spec.bats (58)
+### test/bats/unit/mutation_probe_spec.bats (60)
 
 A green suite says every assertion ran. It does not say any of them would
 have noticed a wrong answer, and the v0.43 retrospective measured how far
@@ -3822,6 +3822,8 @@ Faking that comparison would test a control this repo does not ship.
 | `_mutation_probe_await_daemon: a project with nothing running is released` | the other direction, so the check cannot be satisfied by always refusing. A project with nothing running is released, and the restore proceeds. |
 | `_mutation_probe_await_daemon: an unresolvable project name counts as HELD` | a project name the probe cannot resolve is the same class of answer as a daemon it cannot ask -- it has not established that nothing is running. |
 | `_mutation_probe: a signal during the DAEMON WAIT still restores` | the daemon wait can take half a minute, and the traps used to come off BEFORE it. A ctrl-c in that window killed the probe with the subjects still mutated and nothing left to put them back. |
+| `_mutation_probe: refuses a mutation that COMMITTED what it wrote` | `git diff --cached` was the first spelling of "what git records" and it is blind to the case that matters most -- a mutation that COMMITS its edit moves HEAD along with the index, so the difference is empty before and after while the mutation sits in a commit and the probe reports a restored tree. |
+| `_mutation_probe: a background process the mutation spawned cannot outlive it` | waiting for the mutation's shell does not wait for a process that shell put in the BACKGROUND. The probe published a verdict over a restored file that the background process then overwrote two seconds later -- a tree left mutated after the probe said it was not. |
 
 ### test/bats/unit/network_ports_inert_spec.bats (15)
 
