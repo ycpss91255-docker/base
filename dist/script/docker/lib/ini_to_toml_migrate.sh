@@ -320,6 +320,17 @@ _ini_to_toml_convert() {
     # An emptied slot is emitted field-less, NOT with an empty body: see
     # _ini_to_toml_emit_aot for what rendering the empty value costs.
     #
+    # Dense emission trades ABSENCE for EMPTY at a key lookup, in both
+    # directions: a hole below the highest populated slot gains a key
+    # that was not there (`port_1` where only `port_2` was named), and a
+    # trailing emptied slot loses one (`port_2 =` above nothing). Both
+    # read back as the empty string, so a lookup with an empty default --
+    # which is every array-family lookup this tree makes, `mount_1`
+    # included -- answers the same either way; only a lookup carrying a
+    # NON-empty default could tell them apart, and no caller of an array
+    # family has one. The list readers are unaffected, which is what the
+    # positions exist for.
+    #
     # ── What a numbered family has no rendering for ───────────────────
     #
     # A POPULATED entry's suffix must be the plain decimal spelling of
@@ -383,7 +394,7 @@ _ini_to_toml_convert() {
       fi
       if [[ "${_itc_suf}" != "${_itc_n}" ]] || (( _itc_n < 1 )); then
         _log_warn init ini_to_toml_index_unrepresentable \
-          "display=MIGRATION DECLINED for ${_ini}: \`[${_s}] ${_keys[_ni]}\` does not number a list entry the converted file can hold. An entry of a TOML array of tables IS the key \`<name>_N\` with N its plain 1-based position, so a number written any other way -- padded, or past what the arithmetic holds -- would be read back under a different name. Nothing was written and nothing was renamed -- your configuration is still at ${_ini}, unchanged. Renumber the entries of that list from 1, consecutively, and re-run \`just base init\`." \
+          "display=MIGRATION DECLINED for ${_ini}: \`[${_s}] ${_keys[_ni]}\` does not number a list entry the converted file's array can hold. An entry of a TOML array of tables IS the key \`<name>_N\` with N its plain 1-based position, so a number written any other way -- padded, or past what the arithmetic holds -- would be read back under a different name. The value is not unrepresentable in TOML; it is unrepresentable at the position it claims. Nothing was written and nothing was renamed -- your configuration is still at ${_ini}, unchanged. Renumber the entries of that list from 1, consecutively, and re-run \`just base init\`." \
           "path=${_ini}" \
           "key=${_s}.${_keys[_ni]}"
         return 1

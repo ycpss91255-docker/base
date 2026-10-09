@@ -840,6 +840,11 @@ EOF
   assert_line 'environment	env_1	SIGNALING_SERVER=localhost'
 }
 
+# why: The other order on the scalar side. A clear AFTER a value retracts
+# it for a key lookup and not for the list reader, which keeps every
+# non-empty entry it collected -- so there is no one line the converted
+# file can carry. It stays the duplicate TOML key it is and the gate
+# declines, with both lines where the operator left them.
 @test "_migrate_ini_to_toml declines an env_N cleared after it was filled (base#1148)" {
   cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [environment]
