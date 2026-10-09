@@ -702,6 +702,38 @@ _conf_toml_scalar() {
   _conf_toml_str "${_v}" _cts_out
 }
 
+# _conf_toml_header_uncomment <line> <outvar>
+#
+# <line> with a trailing header comment removed when it has one:
+# `[network] # chosen mode` -> `[network] `. Every other line is copied
+# through unchanged, so the bracket matchers that read the result keep
+# their existing rule for everything that is not a header.
+#
+# A comment after the closing bracket is part of a VALID table header --
+# TOML reads `[network] # chosen mode` as the `[network]` table, and so
+# does the bridge. The writers required the `]` to be the last non-blank
+# character of the line, so none of them saw a header there at all:
+# `setup.sh set network.mode bridge` never entered the table, appended a
+# SECOND `[network]` at the end of the file, and left the original value
+# standing. TOML rejects a table declared twice, so a user who had
+# commented their own config got a file nothing could read -- after a
+# write that reported success.
+#
+# The cut is made at the first `#` AFTER the LAST `]`, which is where a
+# comment can start. Inside the brackets a `#` belongs to a quoted key
+# (`["stage:a#b"]` is legal TOML), and cutting at the first `#` in the
+# line would truncate the header itself.
+_conf_toml_header_uncomment() {
+  local _line="${1-}" _after _before
+  local -n _cthu_out="${2:?"${FUNCNAME[0]}: missing outvar"}"
+  _cthu_out="${_line}"
+  [[ "${_line}" == *\]* ]] || return 0
+  _after="${_line##*\]}"
+  [[ "${_after}" == *\#* ]] || return 0
+  _before="${_line%"${_after}"}"
+  _cthu_out="${_before}${_after%%\#*}"
+}
+
 # _conf_toml_key <key> <outvar>
 #
 # A bare key when TOML allows one, a quoted key otherwise.
@@ -1128,7 +1160,7 @@ _write_setup_conf() {
   local -A __aot_of=() __aot_idx_of=() __aot_total=() __aot_seen=()
   local -A __aot_empty=() __aot_empty_done=()
   local __root_decls_flushed=0
-  local __ovk __ovk_sect __ovk_key __p __n
+  local __ovk __ovk_sect __ovk_key __p __n __hline
   if (( __toml )); then
     for __ovk in "${!__override[@]}"; do
       _conf_split_nskey "${__ovk}" __ovk_sect __ovk_key || continue
@@ -1138,7 +1170,8 @@ _write_setup_conf() {
       fi
     done
     for __line in "${__tpl_lines[@]}"; do
-      if [[ "${__line}" =~ ^[[:space:]]*\[\[(.+)\]\][[:space:]]*$ ]]; then
+      _conf_toml_header_uncomment "${__line}" __hline
+      if [[ "${__hline}" =~ ^[[:space:]]*\[\[(.+)\]\][[:space:]]*$ ]]; then
         _conf_header_name "${BASH_REMATCH[1]}" __p
         __aot_total["${__p}"]=$(( ${__aot_total["${__p}"]:-0} + 1 ))
       fi
@@ -1187,12 +1220,17 @@ _write_setup_conf() {
     # last point a root-level array (`volumes`, `tmpfs`) can be declared
     # empty. Written where its blocks used to be, the key would land
     # inside whichever table precedes them.
+    # A header's own trailing comment is read off before any bracket
+    # matcher sees the line; the line itself is still written verbatim,
+    # comment included.
+    __hline="${__line}"
+    (( __toml )) && _conf_toml_header_uncomment "${__line}" __hline
     if (( __toml && ! __root_decls_flushed )) \
-       && [[ "${__line}" =~ ^[[:space:]]*\[ ]]; then
+       && [[ "${__hline}" =~ ^[[:space:]]*\[ ]]; then
       _wsc_flush_empty_arrays ""
       __root_decls_flushed=1
     fi
-    if (( __toml )) && [[ "${__line}" =~ ^[[:space:]]*\[\[(.+)\]\][[:space:]]*$ ]]; then
+    if (( __toml )) && [[ "${__hline}" =~ ^[[:space:]]*\[\[(.+)\]\][[:space:]]*$ ]]; then
       _conf_header_name "${BASH_REMATCH[1]}" __p
       if [[ -n "${__current}" ]]; then
         _wsc_flush_scalars "${__current}"
@@ -1224,7 +1262,7 @@ _write_setup_conf() {
       printf '%s\n' "${__line}" >> "${_out}"
       continue
     fi
-    if [[ "${__line}" =~ ^[[:space:]]*\[(.+)\][[:space:]]*$ ]]; then
+    if [[ "${__hline}" =~ ^[[:space:]]*\[(.+)\][[:space:]]*$ ]]; then
       # Taken before the flushes below: the TOML renderers match
       # patterns of their own, and BASH_REMATCH is one global.
       __raw="${BASH_REMATCH[1]}"
@@ -1334,9 +1372,11 @@ _write_setup_conf() {
   # `[logging.web]` section of its own instead of being folded into the
   # parent `[logging]`.
   local -A __template_sections=()
-  local __l
+  local __l __lh
   for __l in "${__tpl_lines[@]}"; do
-    if [[ "${__l}" =~ ^[[:space:]]*\[(.+)\][[:space:]]*$ ]]; then
+    __lh="${__l}"
+    (( __toml )) && _conf_toml_header_uncomment "${__l}" __lh
+    if [[ "${__lh}" =~ ^[[:space:]]*\[(.+)\][[:space:]]*$ ]]; then
       if (( __toml )); then
         _conf_header_name "${BASH_REMATCH[1]}" __p
         __template_sections["${__p}"]=1
@@ -1470,11 +1510,13 @@ _conf_upsert_scalar() {
   local _src="${1:?}" _dst="${2:?}" _toml="${3:?}"
   local _section="${4:?}" _key="${5:?}" _value="${6-}"
 
-  local __line __current="" __raw __rest __kv __hdr
+  local __line __hline __current="" __raw __rest __kv __hdr
   local __matched=0 __in_sect=0 __sect_found=0
   _conf_fmt_kv "${_toml}" "${_key}" "${_value}" __kv
   while IFS= read -r __line || [[ -n "${__line}" ]]; do
-    if [[ "${__line}" =~ ^[[:space:]]*\[(.+)\][[:space:]]*$ ]]; then
+    __hline="${__line}"
+    (( _toml )) && _conf_toml_header_uncomment "${__line}" __hline
+    if [[ "${__hline}" =~ ^[[:space:]]*\[(.+)\][[:space:]]*$ ]]; then
       __raw="${BASH_REMATCH[1]}"
       # Leaving target section without finding key → append key before next section
       if (( __in_sect && !__matched )); then
@@ -1546,16 +1588,18 @@ _conf_toml_upsert_aot() {
   local __fields
   _conf_toml_aot_fields "${_path}" "${_value}" __fields
 
-  local __line __p __total=0 __seen=0 __in_block=0 __replacing=0 __matched=0
+  local __line __hline __p __total=0 __seen=0 __in_block=0 __replacing=0 __matched=0
   while IFS= read -r __line || [[ -n "${__line}" ]]; do
-    if [[ "${__line}" =~ ^[[:space:]]*\[\[(.+)\]\][[:space:]]*$ ]]; then
+    _conf_toml_header_uncomment "${__line}" __hline
+    if [[ "${__hline}" =~ ^[[:space:]]*\[\[(.+)\]\][[:space:]]*$ ]]; then
       _conf_header_name "${BASH_REMATCH[1]}" __p
       [[ "${__p}" == "${_path}" ]] && __total=$(( __total + 1 ))
     fi
   done < "${_src}"
 
   while IFS= read -r __line || [[ -n "${__line}" ]]; do
-    if [[ "${__line}" =~ ^[[:space:]]*\[\[(.+)\]\][[:space:]]*$ ]]; then
+    _conf_toml_header_uncomment "${__line}" __hline
+    if [[ "${__hline}" =~ ^[[:space:]]*\[\[(.+)\]\][[:space:]]*$ ]]; then
       _conf_header_name "${BASH_REMATCH[1]}" __p
       if (( __in_block && !__matched && __seen == __total )); then
         printf '[[%s]]\n%s\n\n' "${_path}" "${__fields}" >> "${_dst}"
@@ -1574,7 +1618,7 @@ _conf_toml_upsert_aot() {
         fi
         continue
       fi
-    elif [[ "${__line}" =~ ^[[:space:]]*\[(.+)\][[:space:]]*$ ]]; then
+    elif [[ "${__hline}" =~ ^[[:space:]]*\[(.+)\][[:space:]]*$ ]]; then
       if (( __in_block && !__matched && __seen == __total )); then
         printf '[[%s]]\n%s\n\n' "${_path}" "${__fields}" >> "${_dst}"
         __matched=1

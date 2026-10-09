@@ -284,6 +284,72 @@ EOF
   refute_line --regexp '^volumes\tmount_'
 }
 
+# why: `[network] # chosen mode` is a valid TOML table header and the
+# bridge reads it as one. Both halves of the upsert writer required the
+# `]` to be the last non-blank character of the line, so neither saw a
+# header there: `setup.sh set network.mode bridge` never entered the
+# table, appended a SECOND `[network]` at the end of the file, and left
+# the original value standing. TOML rejects a table declared twice, so a
+# user who annotated their own config got a file nothing can read -- and
+# got it from a write that reported success.
+@test "_upsert_conf_value: a table header with a trailing comment is entered, not declared a second time" {
+  cat > "${CONF}" << 'EOF'
+[network] # chosen mode
+mode = "host"
+
+[[volumes]] # the workspace
+source = "/a"
+target = "/b"
+EOF
+  _upsert_conf_value "${CONF}" network mode bridge
+  _upsert_conf_value "${CONF}" volumes mount_1 '/c:/d'
+
+  run grep -c '^\[network\]' "${CONF}"
+  assert_output "1"
+  run grep -c '^\[\[volumes\]\]' "${CONF}"
+  assert_output "1"
+  # The annotation the user wrote is still on the header.
+  run grep -Fx '[network] # chosen mode' "${CONF}"
+  assert_success
+
+  run toml_bridge_parse "${CONF}" --kv
+  assert_success
+  assert_line 'network	mode	bridge'
+  assert_line 'volumes	mount_1	/c:/d'
+  refute_line 'network	mode	host'
+}
+
+# why: The rewrite writer matches the same headers, and misses them the
+# same way: an override for `network.mode` never matches a line inside a
+# `[network]` it does not know it is in, so it is appended as a brand-new
+# `[network]` section -- the same duplicate table, reached through TUI
+# Save and `setup remove` instead. The array half has to agree too, or
+# the block its numbered key addresses is a different block.
+@test "_write_setup_conf: a table header with a trailing comment is entered, not declared a second time" {
+  cat > "${CONF}" << 'EOF'
+[network] # chosen mode
+mode = "host"
+
+[[image.rules]] # tried first
+rule = "prefix:docker_"
+
+[[image.rules]]
+rule = "suffix:_ws"
+EOF
+  local -a _keys=(network.mode image.rule_1)
+  local -a _vals=(bridge '@basename')
+  _write_setup_conf "${CONF}" "${CONF}" _keys _vals
+
+  run grep -c '^\[network\]' "${CONF}"
+  assert_output "1"
+
+  run toml_bridge_parse "${CONF}" --kv
+  assert_success
+  assert_line 'network	mode	bridge'
+  assert_line 'image	rule_1	@basename'
+  assert_line 'image	rule_2	suffix:_ws'
+}
+
 # why: A key the template only mentions in a comment (`watchdog_interval`
 # under `[lifecycle]`) has no line to replace, so it is appended at the
 # end of its table, before the next header. The renderers match
