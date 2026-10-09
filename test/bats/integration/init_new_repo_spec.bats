@@ -793,13 +793,26 @@ call-release: contents: write'
   # setup.sh on first run (no <repo>/setup.toml) copies template + fills
   # [volumes] mount_1 with the detected workspace. Expected behaviour since
   # setup.toml became the source of truth for WS_PATH.
+  #
+  # Asserted through the BRIDGE -- the consumer's own vendored copy of it,
+  # which is what numbers a `[[volumes]]` block back to `mount_1`. "A
+  # `[[volumes]]` block is present" was this test's whole assertion, and a
+  # block carrying `source = ""` satisfies it (measured: `grep -E
+  # '^\[\[volumes\]\]$'` succeeds on such a file while the bridge reports
+  # `volumes<TAB>mount_1<TAB>` empty). It was sound only because the
+  # shipped template keeps every `[[volumes]]` example commented out
+  # (measured: zero uncommented ones); the day one is uncommented the test
+  # goes green for free, with no writeback having run. The sibling above
+  # reddens on an empty source today and is left as it is.
   bash .base/dist/script/base/init.sh
   assert [ -f "${REPO_DIR}/setup.toml" ]
-  # The list entry is a `[[volumes]]` block, not a `mount_1 = ...` line --
-  # the template ships every `[[volumes]]` example commented out, so a
-  # block present at all is the writeback having run.
-  run grep -E '^\[\[volumes\]\]$' "${REPO_DIR}/setup.toml"
+  run bash -c "source '${REPO_DIR}/.base/dist/script/docker/lib/conf.sh'; \
+    toml_bridge_parse '${REPO_DIR}/setup.toml' --kv"
   assert_success
+  # The bootstrap writes the PORTABLE form, so the committed file stays
+  # machine-agnostic and .env carries the detected absolute path.
+  # shellcheck disable=SC2016  # literal ${WS_PATH} / ${USER_NAME} intentional
+  assert_line 'volumes	mount_1	${WS_PATH}:/home/${USER_NAME}/work'
 }
 
 # ════════════════════════════════════════════════════════════════════

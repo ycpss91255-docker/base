@@ -47,8 +47,8 @@ teardown() {
 # ════════════════════════════════════════════════════════════════════
 
 @test "_canonical_gitignore_entries: emits exactly the 17 canonical lines (#502, #507, #606, #832, #879, #893, #868, #1133, #1137)" {
-  # Seventeen, not thirteen: the TOML names were ADDED alongside the legacy
-  # INI ones, not substituted for them. `.setup.conf.local` is the old
+  # Seventeen, and not one substitution: the TOML names were ADDED
+  # alongside the legacy INI ones, never swapped in for them. `.setup.conf.local` is the old
   # per-worktree override layer, which a repo part-way through the format
   # migration still has on disk, and the whole reason the line is canonical
   # is that such a layer must never be committed -- dropping the line is how
@@ -428,8 +428,8 @@ _init_repo_with_tracked() {
 
 # Track one placeholder for EVERY canonical entry, plus a nested copy of
 # every unanchored directory entry. The population is derived from
-# _canonical_gitignore_entries rather than hand-named, so a thirteenth
-# entry joins it the moment it joins the set: the four names this replaced
+# _canonical_gitignore_entries rather than hand-named, so a new entry
+# joins it the moment it joins the set: the four names this replaced
 # were all entries the sweep happens to get right, which is why three
 # entries it gets wrong sat behind a green "all canonical entries" test.
 _track_every_canonical_entry() {
