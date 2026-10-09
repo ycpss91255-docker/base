@@ -436,6 +436,116 @@ PROBE
   assert_line "volumes	mount_2	${TEMP_DIR}/data:/data"
 }
 
+# ── repeated and unrepresentable numbered slots ───────────────────────
+
+# why: Neither list reader is last-wins. `_conf_list_sorted` and
+# `_get_conf_list_sorted` collect EVERY non-empty entry and sort the
+# collection, so an INI naming `port_1` twice is a two-port list -- the
+# second line did not replace the first, it joined it. Collapsing the two
+# into one block drops a published port, and the INI has already been
+# renamed to .bak by then. Three entries occupy three positions whatever
+# they were named, so the block after the repeat shifts up; that is the
+# list's own shape, not a renumbering.
+@test "_migrate_ini_to_toml: a repeated numbered slot keeps every entry (base#1148)" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[network]
+port_1 = 8080:80
+port_1 = 9090:90
+port_2 = 7070:70
+EOF
+  run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
+  assert_success
+  run bash -c "$(_src); toml_bridge_parse '${TEMP_DIR}/setup.toml' --kv"
+  assert_success
+  assert_line 'network	port_1	8080:80'
+  assert_line 'network	port_2	9090:90'
+  assert_line 'network	port_3	7070:70'
+}
+
+# why: `port_01` and `port_1` are different KEYS with the same sort key:
+# both readers match `^[0-9]+$` on the suffix and sort numerically, so
+# both entries are in the list. Keying the conversion on the numeric
+# value alone made them one slot and lost whichever came first.
+@test "_migrate_ini_to_toml: a zero-padded slot does not swallow its twin (base#1148)" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[build]
+arg_01 = TZ=Asia/Taipei
+arg_1 = LANG=C.UTF-8
+EOF
+  run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
+  assert_success
+  run bash -c "$(_src); toml_bridge_parse '${TEMP_DIR}/setup.toml' --kv"
+  assert_success
+  assert_line 'build	arg_1	LANG=C.UTF-8'
+  assert_line 'build	arg_2	TZ=Asia/Taipei'
+}
+
+# why: An array of tables is 1-based -- `PORT_1` = first published port is
+# published contract (ADR-00000022) -- so a populated `_0` slot has no
+# block to become. The INI list readers DO accept it and sort it first,
+# so emitting it there would displace every position below it (`mount_1`,
+# the workspace bind, included) and dropping it would lose a published
+# port outright. A converter that renames the source away may do neither,
+# so the input is refused: the INI stays exactly where it was and the
+# message says which key to renumber.
+@test "_migrate_ini_to_toml refuses a populated zero-indexed slot (base#1148)" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[network]
+port_0 = 8080:80
+port_1 = 9090:90
+EOF
+  run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
+  assert_failure
+  assert_output --partial 'MIGRATION DECLINED'
+  assert_output --partial 'port_0'
+  assert_output --partial 'Renumber'
+  assert [ -f "${TEMP_DIR}/.setup.conf" ]
+  assert [ ! -f "${TEMP_DIR}/.setup.conf.bak" ]
+  assert [ ! -f "${TEMP_DIR}/setup.toml" ]
+  run bash -c "ls -A '${TEMP_DIR}'"
+  assert_output ".setup.conf"
+}
+
+# why: An EMPTY `_0` slot carries no value and names no position, so it is
+# not an input with no representation -- it is an opt-out like any other,
+# and the family it belongs to is still a list the operator emptied.
+@test "_migrate_ini_to_toml: an empty zero-indexed slot is an opt-out, not a refusal (base#1148)" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[network]
+mode = host
+port_0 =
+EOF
+  run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
+  assert_success
+  run grep -Fx 'ports = []' "${TEMP_DIR}/setup.toml"
+  assert_success
+  run bash -c "$(_src); toml_bridge_merge --kv /source/dist/setup.toml '${TEMP_DIR}/setup.toml'"
+  assert_success
+  assert_line 'network	mode	host'
+  refute_line --regexp '^network	port_'
+}
+
+# why: A scalar key under one of the three ROOT-level list sections has no
+# TOML rendering at all: `volumes` cannot be an empty array and a table in
+# one document, and the populated case collides the same way -- the
+# `[[volumes]]` blocks against the `[volumes]` table. No schema key of
+# this tree is such a scalar, so this pins the end such an input comes to:
+# the commit gate refuses the file and the INI survives, which is what the
+# containment is for. Pinned rather than worked around, because the
+# alternative is dropping either the operator's scalar or the clearing.
+@test "_migrate_ini_to_toml refuses a root list section carrying a scalar (base#1148)" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[volumes]
+label = keep
+mount_1 =
+EOF
+  run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
+  assert_failure
+  assert_output --partial 'MIGRATION DECLINED'
+  assert [ -f "${TEMP_DIR}/.setup.conf" ]
+  assert [ ! -f "${TEMP_DIR}/setup.toml" ]
+}
+
 # ── repeated scalar keys ───────────────────────────────────────────────
 
 # why: An INI may repeat a key, and every chain accessor resolves

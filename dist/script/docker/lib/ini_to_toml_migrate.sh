@@ -288,32 +288,65 @@ _ini_to_toml_convert() {
     # An emptied slot is emitted field-less, NOT with an empty body: see
     # _ini_to_toml_emit_aot for what rendering the empty value costs.
     #
+    # A REPEATED index keeps every occurrence. The list readers
+    # (`_conf_list_sorted`, `_get_conf_list_sorted`) collect every
+    # non-empty entry and sort the collection -- neither is last-wins, so
+    # `port_1 = 8080:80` twice is a TWO-port list, and `port_01` beside
+    # `port_1` is two entries with one sort key. Collapsing them to one
+    # would silently drop a published port, with the INI already renamed
+    # to .bak. The occurrences of one index are therefore emitted in the
+    # order those readers put them in, by sorting each family through the
+    # SAME `sort -t: -k1,1n` they use, so the tie-break is theirs and not
+    # a second opinion. That the blocks after a repeat shift up is the
+    # list's own shape: three entries occupy three positions whatever
+    # they were named.
+    #
     # `10#` on every arithmetic read of a suffix: bash's default
     # arithmetic base reads a zero-padded value as octal, and `08` is not
     # a valid octal literal -- the comparison dies instead of ordering it
     # (base#1097 lost time to exactly this).
     if (( ${#_num_order[@]} > 0 )); then
-      local -A _itc_val=() _itc_max=()
+      local -A _itc_pairs=() _itc_max=()
       local -a _itc_paths=()
-      local _ni _itc_path _itc_suf _itc_n _itc_cur _itc_hi
+      local _ni _itc_path _itc_suf _itc_n _itc_cur _itc_hi _itc_line _itc_v
       for _ni in "${_num_order[@]}"; do
         _itc_path=""
         _itc_suf=""
         _conf_toml_aot_slot "${_s}" "${_keys[_ni]}" _itc_path _itc_suf || continue
         _itc_n=$(( 10#${_itc_suf} ))
-        # An array of tables is 1-based -- `PORT_1` = first published
-        # port is published contract (ADR-00000022) -- so there is no
-        # block for a `_0` suffix to be.
-        (( _itc_n >= 1 )) || continue
+        # ANY key of the family registers it, a `_0` and an emptied slot
+        # included: registration is what decides whether a cleared list
+        # owes a declaration, and `[network] port_0 =` on its own is
+        # still an operator who left that list with nothing in it.
         if [[ -z "${_itc_max[${_itc_path}]+set}" ]]; then
           _itc_paths+=("${_itc_path}")
           _itc_max["${_itc_path}"]=0
         fi
-        # A repeated numbered key resolves to its LAST occurrence, which
-        # is what every INI accessor read.
-        _itc_val["${_itc_path}"$'\t'"${_itc_n}"]="${_vals[_ni]}"
+        # An array of tables is 1-based -- `PORT_1` = first published
+        # port is published contract (ADR-00000022) -- so a `_0` key
+        # names a slot that cannot exist in the converted file. The INI
+        # list readers DO accept it and sort it first, so emitting it
+        # there would displace every position below it (`mount_1`, the
+        # workspace bind, included) and dropping it would lose a
+        # published port or bind outright. Neither is acceptable in a
+        # converter that renames the source away, so this is refused:
+        # the operator renumbers from 1 and re-runs, and until then the
+        # INI is exactly where it was. An EMPTY `_0` slot carries
+        # nothing and names no position, so it is simply ignored.
+        if (( _itc_n < 1 )); then
+          [[ -n "${_vals[_ni]}" ]] || continue
+          _log_warn init ini_to_toml_index_unrepresentable \
+            "display=MIGRATION DECLINED for ${_ini}: \`[${_s}] ${_keys[_ni]}\` numbers a list entry 0, and the TOML array of tables it converts to is 1-based (ADR-00000022), so there is no block for it to become. Nothing was written and nothing was renamed -- your configuration is still at ${_ini}, unchanged. Renumber the entries of that list from 1 and re-run \`just base init\`." \
+            "path=${_ini}" \
+            "key=${_s}.${_keys[_ni]}"
+          return 1
+        fi
+        # An empty occurrence contributes no entry, which is what both
+        # list readers do with one.
+        [[ -n "${_vals[_ni]}" ]] || continue
+        _itc_pairs["${_itc_path}"]+="${_itc_n}:${_vals[_ni]}"$'\n'
         _itc_cur="${_itc_max[${_itc_path}]}"
-        if [[ -n "${_vals[_ni]}" ]] && (( _itc_n > _itc_cur )); then
+        if (( _itc_n > _itc_cur )); then
           _itc_max["${_itc_path}"]="${_itc_n}"
         fi
       done
@@ -339,6 +372,16 @@ _ini_to_toml_convert() {
           # dotted path, and in the root-key region -- the region before
           # the first table header, the only home TOML gives a root key
           # -- for a path that has no table.
+          #
+          # A root-level family whose section ALSO carries a scalar key
+          # (`[volumes] label = ...`) has no rendering at all: TOML will
+          # not let `volumes` be an empty array and a table in one
+          # document, and that is true of the populated case too, where
+          # the `[[volumes]]` blocks collide with the `[volumes]` table.
+          # The commit gate refuses such a file and the INI survives,
+          # which is the right end for an input with no representation.
+          # No schema key of this tree is a scalar under one of those
+          # three sections.
           local _itc_t="" _itc_k=""
           _conf_toml_array_decl "${_itc_path}" _itc_t _itc_k
           if [[ -n "${_itc_t}" ]]; then
@@ -348,9 +391,22 @@ _ini_to_toml_convert() {
           fi
           continue
         fi
+        # Group this family's entries by index, in the readers' own order.
+        local -A _itc_slot=()
+        while IFS= read -r _itc_line; do
+          [[ -n "${_itc_line}" ]] || continue
+          _itc_slot["${_itc_line%%:*}"]+="${_itc_line#*:}"$'\n'
+        done < <(printf '%s' "${_itc_pairs[${_itc_path}]-}" \
+                   | LC_ALL=C sort -t: -k1,1n)
         for (( _itc_n = 1; _itc_n <= _itc_hi; _itc_n++ )); do
-          _ini_to_toml_emit_aot "${_itc_path}" \
-            "${_itc_val["${_itc_path}"$'\t'"${_itc_n}"]-}" _aot_buf
+          if [[ -z "${_itc_slot[${_itc_n}]+set}" ]]; then
+            _ini_to_toml_emit_aot "${_itc_path}" "" _aot_buf
+            continue
+          fi
+          while IFS= read -r _itc_v; do
+            [[ -n "${_itc_v}" ]] || continue
+            _ini_to_toml_emit_aot "${_itc_path}" "${_itc_v}" _aot_buf
+          done <<< "${_itc_slot[${_itc_n}]}"
         done
       done < <(printf '%s\n' ${_itc_paths[@]+"${_itc_paths[@]}"} \
                  | LC_ALL=C sort -u)
