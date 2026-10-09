@@ -549,3 +549,64 @@ EOF
   refute_output --partial '/a:/b'
   assert_line 'build	arg_4	FOO=bar'
 }
+
+# why: An array-of-tables entry is ONE string on the shell side. The
+# writer splits it textually and the bridge's array spec glued the halves
+# back unconditionally, so an entry that had only ONE side came back
+# carrying a separator the operator never wrote. The two are different
+# settings, not two spellings of one: `--build-arg HTTP_PROXY` inherits
+# the value from the build environment while `--build-arg HTTP_PROXY=`
+# sets it to the empty string, and `80` is a published port where `80:`
+# is not a mapping compose accepts at all. Neither half of the seam can
+# carry the rule alone -- a writer that renders the absent half leaves
+# `value = ""` indistinguishable from a deliberate trailing `=`, and a
+# reader that keeps manufacturing the separator undoes a writer that
+# omitted it -- so the distinction is FIELD PRESENCE in the written TOML,
+# absent meaning the operator wrote no second half. Asserted through the
+# bridge rather than over the file text, which looks correct whichever
+# way it reads back.
+@test "_upsert_conf_value: a one-sided array entry round-trips without gaining a separator" {
+  assert_spec_subject "${TPL}" "the shipped setup.toml template"
+  cp "${TPL}" "${CONF}"
+  _upsert_conf_value "${CONF}" build   arg_4   'HTTP_PROXY'
+  _upsert_conf_value "${CONF}" build   arg_5   'HTTPS_PROXY='
+  _upsert_conf_value "${CONF}" network port_1  '80'
+  _upsert_conf_value "${CONF}" network port_2  '8080:80'
+
+  run toml_bridge_parse "${CONF}" --kv
+  assert_success
+  assert_line 'build	arg_4	HTTP_PROXY'
+  assert_line 'build	arg_5	HTTPS_PROXY='
+  assert_line 'network	port_1	80'
+  assert_line 'network	port_2	8080:80'
+}
+
+# why: `volumes` was believed to escape the one-sided glue because its
+# serialiser joins only the TRUTHY parts, but truthiness is the wrong
+# test for a THREE-field entry: the writer emits `target` whenever the
+# first colon is there and `mode` whenever the second is, empty or not,
+# so a read-only mount with no container half (`/srv/data::ro`) came back
+# as `/srv/data:ro` -- the mode SHIFTED into the target position, which
+# mounts the host directory at the path `ro`. Presence rather than
+# truthiness is what keeps a field's position, and it is the same rule
+# the two-field families need, so there is one spelling of it rather than
+# two.
+@test "_upsert_conf_value: an empty middle field keeps its position instead of shifting the mode into it" {
+  assert_spec_subject "${TPL}" "the shipped setup.toml template"
+  cp "${TPL}" "${CONF}"
+  _upsert_conf_value "${CONF}" volumes mount_1 '/srv/data::ro'
+  _upsert_conf_value "${CONF}" volumes mount_2 '/srv/cache:'
+  _upsert_conf_value "${CONF}" volumes mount_3 '/a:/b:rw'
+  _upsert_conf_value "${CONF}" volumes mount_4 ''
+
+  run toml_bridge_parse "${CONF}" --kv
+  assert_success
+  assert_line 'volumes	mount_1	/srv/data::ro'
+  assert_line 'volumes	mount_2	/srv/cache:'
+  assert_line 'volumes	mount_3	/a:/b:rw'
+  # The other side of the rule: an entry whose fields are ALL empty is
+  # the operator's opt-out -- the published way to clear the workspace
+  # mount -- and must stay an empty value rather than become the bare
+  # `:` that `_conf_list_sorted` does not skip.
+  assert_line 'volumes	mount_4	'
+}

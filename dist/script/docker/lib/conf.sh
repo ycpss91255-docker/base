@@ -958,9 +958,21 @@ _conf_toml_array_decl() {
 #
 # Every one of those fields is STRING-typed, so every one of them is
 # rendered by _conf_toml_str and not by _conf_toml_scalar. The split that
-# produced it is textual -- the array spec glues the halves back with `:`
+# produced it is textual -- the array spec joins the halves back with `:`
 # or `=` -- so what the half happens to look like is not a type. See the
 # _conf_toml_str header for what inferring one cost.
+#
+# A half the value does not HAVE is a field this writes no line for, and
+# that absence is the whole record of it: the array spec joins the fields
+# a block has, so an absent `value` reads back as `HTTP_PROXY` while a
+# `value = ""` reads back as `HTTP_PROXY=`. Rendering the missing half as
+# `""` instead made the two the same string, and they are two different
+# build arguments -- one inherits from the build environment, the other
+# sets it empty. `80` came back `80:`, which is not a port mapping
+# compose accepts at all. The empty half still gets its line when the
+# separator WAS there, which is what keeps a three-field mount's
+# positions: `/srv/data::ro` writes an empty `target` so `mode` cannot
+# slide into it.
 _conf_toml_aot_fields() {
   local _p="${1-}" _v="${2-}"
   local -n _caf_out="${3:?"${FUNCNAME[0]}: missing outvar"}"
@@ -972,18 +984,25 @@ _conf_toml_aot_fields() {
       _caf_out="rule = ${_a}"
       ;;
     build.args|additional_contexts)
+      local _caf_f1="key" _caf_f2="value"
+      if [[ "${_p}" == additional_contexts ]]; then
+        _caf_f1="name"
+        _caf_f2="source"
+      fi
       _conf_toml_str "${_v%%=*}" _a
-      if [[ "${_v}" == *=* ]]; then _conf_toml_str "${_v#*=}" _b; else _b='""'; fi
-      if [[ "${_p}" == build.args ]]; then
-        _caf_out="key = ${_a}"$'\n'"value = ${_b}"
-      else
-        _caf_out="name = ${_a}"$'\n'"source = ${_b}"
+      _caf_out="${_caf_f1} = ${_a}"
+      if [[ "${_v}" == *=* ]]; then
+        _conf_toml_str "${_v#*=}" _b
+        _caf_out+=$'\n'"${_caf_f2} = ${_b}"
       fi
       ;;
     network.ports)
       _conf_toml_str "${_v%%:*}" _a
-      if [[ "${_v}" == *:* ]]; then _conf_toml_str "${_v#*:}" _b; else _b='""'; fi
-      _caf_out="host = ${_a}"$'\n'"container = ${_b}"
+      _caf_out="host = ${_a}"
+      if [[ "${_v}" == *:* ]]; then
+        _conf_toml_str "${_v#*:}" _b
+        _caf_out+=$'\n'"container = ${_b}"
+      fi
       ;;
     security.cap_add)
       _conf_toml_str "${_v}" _a

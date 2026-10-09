@@ -1754,7 +1754,7 @@ order, plain `[logging]` global handling, and empty-when-absent behaviour.
 | `_collect_logging ignores an ambient SETUP_CONF (#893 decision 7)` | - |
 | `_collect_logging returns empty when no [logging] sections anywhere` | No-config empty |
 
-### test/bats/unit/conf_toml_writer_spec.bats (19)
+### test/bats/unit/conf_toml_writer_spec.bats (21)
 
 Every `setup.sh set` / `add` / `remove` and the `mount_1` bootstrap in
 setup_detect.sh go through these two writers. Until they learned TOML, each
@@ -1788,6 +1788,8 @@ docker interaction from inside the test.
 | `_write_setup_conf: comments survive a TOML rewrite` | The same property the upsert writer has, on the rewrite writer: a save must not strip the template's commentary. |
 | `writers: a non-TOML destination still gets INI` | The frozen TUI (ADR-00000037) still writes `.setup.conf` through the same two writers. Format follows the destination's extension, so its file must keep coming out as INI: bare values, bare headers. |
 | `setup.sh set, add and remove leave a setup.toml the bridge parses` | The acceptance criterion as stated: what `setup.sh set` / `add` / `remove` leave behind has to parse through the bridge. `add` twice has to append twice (its slot is computed from the TOML view now, so the second add is entry 2 and not an overwrite of entry 1), and `remove` by value has to find the entry in that same view. |
+| `_upsert_conf_value: a one-sided array entry round-trips without gaining a separator` | An array-of-tables entry is ONE string on the shell side. The writer splits it textually and the bridge's array spec glued the halves back unconditionally, so an entry that had only ONE side came back carrying a separator the operator never wrote. The two are different settings, not two spellings of one: `--build-arg HTTP_PROXY` inherits the value from the build environment while `--build-arg HTTP_PROXY=` sets it to the empty string, and `80` is a published port where `80:` is not a mapping compose accepts at all. Neither half of the seam can carry the rule alone -- a writer that renders the absent half leaves `value = ""` indistinguishable from a deliberate trailing `=`, and a reader that keeps manufacturing the separator undoes a writer that omitted it -- so the distinction is FIELD PRESENCE in the written TOML, absent meaning the operator wrote no second half. Asserted through the bridge rather than over the file text, which looks correct whichever way it reads back. |
+| `_upsert_conf_value: an empty middle field keeps its position instead of shifting the mode into it` | `volumes` was believed to escape the one-sided glue because its serialiser joins only the TRUTHY parts, but truthiness is the wrong test for a THREE-field entry: the writer emits `target` whenever the first colon is there and `mode` whenever the second is, empty or not, so a read-only mount with no container half (`/srv/data::ro`) came back as `/srv/data:ro` -- the mode SHIFTED into the target position, which mounts the host directory at the path `ro`. Presence rather than truthiness is what keeps a field's position, and it is the same rule the two-field families need, so there is one spelling of it rather than two. |
 
 ### test/bats/unit/coverage_badge_spec.bats (47)
 

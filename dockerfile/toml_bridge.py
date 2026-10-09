@@ -31,11 +31,11 @@ except ModuleNotFoundError:
 # false. _field answers _format_value's spelling in both cases.
 _ARRAY_SPEC = {
     "rules": ("rule", lambda e: _field(e, "rule")),
-    "args": ("arg", lambda e: "%s=%s" % (_field(e, "key"), _field(e, "value")) if "key" in e else ""),
-    "ports": ("port", lambda e: "%s:%s" % (_field(e, "host"), _field(e, "container")) if "host" in e else ""),
+    "args": ("arg", lambda e: _joined(e, "=", ("key", "value")) if "key" in e else ""),
+    "ports": ("port", lambda e: _joined(e, ":", ("host", "container")) if "host" in e else ""),
     "cap_add": ("cap_add", lambda e: _field(e, "cap")),
     "security_opt": ("security_opt", lambda e: _field(e, "opt")),
-    "volumes": ("mount", lambda e: ":".join(v for v in [_field(e, "source"), _field(e, "target"), _field(e, "mode")] if v)),
+    "volumes": ("mount", lambda e: _joined(e, ":", ("source", "target", "mode"))),
     "tmpfs": ("tmpfs", lambda e: _field(e, "path")),
     # `devices` is a namespace of two independently replaceable lists,
     # not one list: host bindings under `[[devices.bindings]]` and cgroup
@@ -49,7 +49,7 @@ _ARRAY_SPEC = {
     "devices": ("device", lambda e: _field(e, "path")),
     "bindings": ("device", lambda e: _field(e, "path")),
     "cgroup_rules": ("cgroup_rule", lambda e: _field(e, "rule")),
-    "additional_contexts": ("context", lambda e: "%s=%s" % (_field(e, "name"), _field(e, "source")) if "name" in e else ""),
+    "additional_contexts": ("context", lambda e: _joined(e, "=", ("name", "source")) if "name" in e else ""),
 }
 
 
@@ -96,6 +96,42 @@ def _field(elem, name):
     if name not in elem:
         return ""
     return _format_value(elem[name])
+
+
+def _joined(elem, sep, names):
+    """<sep>-joined <names> of <elem>, skipping each one it does not have.
+
+    PRESENCE, not truthiness. An entry is one string on the shell side,
+    the writer splits it textually, and a half the value did not have is
+    a field the writer leaves out -- so joining the fields a block HAS is
+    what reads that back as what was written. Joining unconditionally
+    manufactured a separator nothing wrote: `HTTP_PROXY` came back
+    `HTTP_PROXY=`, which is the OTHER build argument (one inherits from
+    the build environment, the other sets it empty), and a port `80` came
+    back `80:`, which compose does not accept as a mapping at all.
+
+    Truthiness is not the same test and is wrong for a three-field entry,
+    because it loses POSITION as well: `/srv/data::ro` writes an empty
+    `target` to hold the middle slot, and filtering it out read the mount
+    back as `/srv/data:ro` -- the mode slid into the target and the host
+    directory mounts at the path `ro`.
+
+    A block whose present fields are ALL empty is an empty entry, not a
+    bare separator. That is the operator's opt-out: clearing the
+    workspace mount is published as emptying `mount_1` (README, v0.9
+    "setup.sh does not re-populate it"), and in a `[[volumes]]` block
+    that is emptying the fields in place. `_conf_list_sorted` skips an
+    empty value but NOT a `":"`, so joining those blanks would turn the
+    opt-out into a bogus mount of `:` -- the same trap spelled `"="` for
+    `build.args`. A field-less block, which is how the converter emits a
+    cleared slot, is this same case with nothing present at all. An entry
+    with any content keeps every separator its positions need, so
+    `HTTP_PROXY=` stays distinct from `HTTP_PROXY`.
+    """
+    present = [_field(elem, n) for n in names if n in elem]
+    if not any(present):
+        return ""
+    return sep.join(present)
 
 
 def _emit_array(section, key, items):
