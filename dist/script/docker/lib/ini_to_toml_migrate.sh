@@ -64,8 +64,11 @@
 #
 # `[security] cap_drop_N` used to be in that list and is not: carried as
 # a scalar it merged key by key, while the LIST it represents used to be
-# replaced whole with its section -- so a local layer that narrowed the
-# container's capabilities had its drops handed back by the conversion.
+# replaced whole with its section -- so a layer that replaced the drop
+# list stopped replacing it, and the layer below kept contributing drops
+# the conversion should have cleared. A surviving drop REMOVES a
+# capability, so the converted container is narrower than the operator's
+# own layering asked for.
 # Its two siblings in the same section, read by the identical
 # `_conf_list_sorted` call, already had array homes, so the missing one
 # was an omission and `security.cap_drop` now exists. `[environment]` is
@@ -138,15 +141,20 @@ _ini_to_toml_is_numbered() {
 # INI key to ask about.
 #
 # An EMPTIED slot becomes a FIELD-LESS block, which is what keeps the
-# family's positions. It is not the same thing as rendering the empty
-# value: `_conf_toml_aot_fields build.args ""` produces `key = ""` /
-# `value = ""`, and the bridge glues those halves back into the
-# NON-EMPTY string `"="` -- a bogus build arg that `_conf_list_sorted`
-# does not skip, because it only skips an empty value. `network.ports`
-# is the same trap spelled `":"`. A block with no fields at all reads
-# back empty for every family: each serialiser in the bridge's array
-# spec answers "" for an absent field, and the two that glue halves
-# together are gated on the first half being present.
+# family's positions. Writing no block at all is what loses them, and
+# that is the whole reason this renders a header with no body. A block
+# with no fields reads back empty for every family: each serialiser in
+# the bridge's array spec answers "" for an absent field, the two-field
+# ones are gated on the first half being present, and the join is over
+# the fields a block HAS.
+#
+# Rendering the empty value instead used to produce the NON-EMPTY `"="`
+# and `":"` -- bogus entries `_conf_list_sorted` does not skip, because
+# it skips only an empty value. base#1234 closed that from the other
+# side as well: a block whose fields are all empty now reads back empty
+# whatever put it there. The field-less block stays the spelling here,
+# because it is the one that says "this slot holds nothing" rather than
+# "this slot holds nothing in particular".
 _ini_to_toml_emit_aot() {
   local _eao_p="$1" _eao_v="$2"
   local -n _aot_out="$3"

@@ -128,6 +128,16 @@ def _joined(elem, sep, names):
     cleared slot, is this same case with nothing present at all. An entry
     with any content keeps every separator its positions need, so
     `HTTP_PROXY=` stays distinct from `HTTP_PROXY`.
+
+    The one shell value this does not return unchanged is a
+    SEPARATOR-ONLY one -- `=` for an arg, `:` or `::` for a port or a
+    mount -- which writes all-empty fields and so reads back empty.
+    Deliberate: those are exactly the bogus entries no validator accepts
+    and that `_conf_list_sorted` would NOT skip if they came back whole,
+    which is the reachability 82d24aba measured. Reading them as the
+    nothing they are is the same answer an operator clearing the slot
+    gets, and there is no third state for the one-string shell view to
+    hold them in.
     """
     present = [_field(elem, n) for n in names if n in elem]
     if not any(present):

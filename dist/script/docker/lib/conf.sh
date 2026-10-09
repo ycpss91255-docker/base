@@ -628,7 +628,7 @@ _conf_list_sorted() {
 #      of a section header that is not (`["stage:headless"]`).
 #   2. Numbered list keys (`mount_N`, `arg_N`, `rule_N`, `port_N`,
 #      `device_N`, `cgroup_rule_N`, `tmpfs_N`, `context_N`, `cap_add_N`,
-#      `security_opt_N`)
+#      `cap_drop_N`, `security_opt_N`)
 #      are routed to the `[[array of tables]]` the bridge reads them back
 #      from: the N-th `[[volumes]]` block IS `volumes.mount_N`. An array
 #      is dense, so an entry that does not exist yet is appended after the
@@ -825,9 +825,14 @@ _conf_toml_aot_slot() {
 # `cap_drop` is here because its two siblings are. All three are read by
 # the same `_conf_list_sorted _RDC_CONF security "<prefix>_"` call in
 # _resolve_docker_conf, so a family of the three with only two homes was
-# an omission rather than a distinction -- and the one left out is the
-# one whose loss costs security, because a cap_drop carried as a scalar
-# merges key by key and hands back a capability the layer above dropped.
+# an omission rather than a distinction. Without a home it was carried as
+# a scalar and merged KEY BY KEY, so an upper layer replacing the list
+# no longer replaced it and the lower layer's drops survived -- the
+# effective drop list stopped being the one the layering says. Note the
+# direction: a drop that survives REMOVES a capability, so this one
+# over-restricts rather than exposing, which is why it breaks a workload
+# instead of opening one up. cap_add's version of the same defect runs
+# the other way.
 #
 # THE table. _conf_toml_aot_slot is a lookup over it, so the question
 # "which array does this key belong to" and the question "which arrays

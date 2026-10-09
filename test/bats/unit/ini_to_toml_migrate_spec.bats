@@ -573,16 +573,19 @@ EOF
   refute_line --regexp '^security	cap_add_'
 }
 
-# why: The same loss one family over, and the one that costs security.
-# `cap_drop_N` had no `[[array of tables]]` home, so the converter
-# carried it over as a quoted SCALAR -- and a scalar merges key by key
-# while the LIST it represents used to be replaced whole with its
-# section. Under the pre-ADR-37 INI chain a `.setup.conf.local` naming
-# `[security]` at all left the layer below with NO cap_drop entries, so
-# the operator's narrowing resolved to an empty list; carried as scalars
-# the repo layer's drops came back, and a capability the operator removed
-# returning on the upgrade that converted the repo is a security
-# regression. The missing home was an omission, not a decision:
+# why: The same loss one family over, on the family whose entries are
+# themselves a restriction. `cap_drop_N` had no `[[array of tables]]`
+# home, so the converter carried it over as a quoted SCALAR -- and a
+# scalar merges key by key while the LIST it represents used to be
+# replaced whole with its section. Under the pre-ADR-37 INI chain a
+# `.setup.conf.local` naming `[security]` at all left the layer below
+# with NO cap_drop entries, so the chain answered an empty drop list;
+# carried as scalars the repo layer's drops survived the replacement
+# instead. Mind the direction -- a surviving DROP removes a capability,
+# so the converted container is narrower than the layering asked for,
+# which breaks a workload rather than exposing one. Either way the
+# converted chain has to answer what the INI chain answered. The missing
+# home was an omission, not a decision:
 # `cap_add` and `security_opt` sit in the same `[security]` section, are
 # read by the identical `_conf_list_sorted` call one line over in
 # _resolve_docker_conf, and already had theirs. Asserted through the real
@@ -646,9 +649,11 @@ EOF
 # it -- giving `cap_drop` an array home made `[security]` host three
 # families where it hosted two -- and a template the converter cannot
 # render is a repo that cannot upgrade. Driven end to end: the conversion
-# must succeed AND the result must read back through the bridge as the
-# same configuration, because the commit gate only proves the file
-# parses.
+# must succeed AND the result must read back through the bridge, because
+# the commit gate only proves the file parses. The assertions are a
+# sample, not an equivalence proof -- a scalar on each side of the
+# three-family `[security]` section, plus the absence of any capability
+# entry the template does not commit to.
 @test "_migrate_ini_to_toml: the shipped .setup.conf converts and reads back (base#1235)" {
   assert_spec_subject /source/dist/.setup.conf "the shipped INI template"
   cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
