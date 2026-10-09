@@ -115,6 +115,41 @@ teardown() {
   assert_output "0"
 }
 
+# why: Every field of an array-of-tables entry is string-typed -- the
+# bridge joins a volume's source/target/mode with `:` and formats a build
+# arg into `key=value` -- so the renderer may not infer a type from the
+# text. A numeric named volume (`123:/data`) rendered a bare
+# `source = 123`, which handed `str.join` an int: `--kv` raised TypeError
+# and the whole configuration stopped loading, not just that one mount.
+# A build arg spelled `FEATURE=true` rendered a bare `value = true`, which
+# is a TOML boolean and reaches the shell as `true` whatever the
+# Dockerfile asked for. The rule is the family's, not one field's.
+@test "_upsert_conf_value: array-of-tables fields stay quoted when the text spells an integer or a boolean" {
+  cp "${TPL}" "${CONF}"
+  _upsert_conf_value "${CONF}" volumes mount_1 '123:/data'
+  _upsert_conf_value "${CONF}" build arg_4 'FEATURE=true'
+  _upsert_conf_value "${CONF}" network port_1 '8080:80'
+  _upsert_conf_value "${CONF}" image rule_1 '2024'
+
+  run grep -Fx 'source = "123"' "${CONF}"
+  assert_success
+  run grep -Fx 'value = "true"' "${CONF}"
+  assert_success
+  run grep -Fx 'host = "8080"' "${CONF}"
+  assert_success
+  run grep -Fx 'rule = "2024"' "${CONF}"
+  assert_success
+
+  # The round trip the quoting exists for: the read gets through at all,
+  # and every value arrives as the text that went in.
+  run toml_bridge_parse "${CONF}" --kv
+  assert_success
+  assert_line 'volumes	mount_1	123:/data'
+  assert_line 'build	arg_4	FEATURE=true'
+  assert_line 'network	port_1	8080:80'
+  assert_line 'image	rule_1	2024'
+}
+
 # why: A per-stage override and a per-service logging override name
 # sections and keys TOML cannot spell bare (`stage:headless`,
 # `gui.mode`). Quoting them is what keeps the section flat on the way

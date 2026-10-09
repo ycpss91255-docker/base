@@ -158,7 +158,11 @@ EOF
   assert_output --partial 'opt = "seccomp:unconfined"'
 }
 
-# why: Port mappings split into host/container integers; wrong type breaks compose
+# why: Port mappings split into a host and a container half. Both are
+# string-typed -- the bridge glues them back with `:` and the compose
+# emitter reads the one joined string -- so the converter quotes them
+# whatever the INI digits looked like, the same rule every other
+# array-of-tables field follows.
 @test "_migrate_ini_to_toml converts network port_N to [[network.ports]] (#1137)" {
   cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [network]
@@ -172,8 +176,8 @@ EOF
   assert_output --partial '[network]'
   assert_output --partial 'mode = "bridge"'
   assert_output --partial '[[network.ports]]'
-  assert_output --partial 'host = 8080'
-  assert_output --partial 'container = 80'
+  assert_output --partial 'host = "8080"'
+  assert_output --partial 'container = "80"'
 }
 
 # why: Device paths look like volume paths; the converter must pick the

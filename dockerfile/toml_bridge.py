@@ -18,14 +18,25 @@ except ModuleNotFoundError:
     import tomli as tomllib
 
 
+# Every field read here goes through _field, never `e.get` / `e[...]`
+# directly. The shell view of an array entry is one string -- the halves
+# are glued back with `:` or `=` -- so a field is string-typed whatever
+# the file spelled it as, and a file is free to spell one as a number or
+# a boolean: the shipped template's own port example writes
+# `host = 8080`, and a numeric named volume (`123:/data`) reads back as
+# an int. Handing that int to `":".join` raised TypeError, which does not
+# degrade one key -- it aborts `--kv` mid-stream and the entire
+# configuration stops loading. `%s` survived but rendered a boolean as
+# Python's `True`, which every `== true` on the shell side reads as
+# false. _field answers _format_value's spelling in both cases.
 _ARRAY_SPEC = {
-    "rules": ("rule", lambda e: e.get("rule", "")),
-    "args": ("arg", lambda e: "%s=%s" % (e["key"], e["value"]) if "key" in e else ""),
-    "ports": ("port", lambda e: "%s:%s" % (e["host"], e["container"]) if "host" in e else ""),
-    "cap_add": ("cap_add", lambda e: e.get("cap", "")),
-    "security_opt": ("security_opt", lambda e: e.get("opt", "")),
-    "volumes": ("mount", lambda e: ":".join(v for v in [e.get("source", ""), e.get("target", ""), e.get("mode", "")] if v)),
-    "tmpfs": ("tmpfs", lambda e: e.get("path", "")),
+    "rules": ("rule", lambda e: _field(e, "rule")),
+    "args": ("arg", lambda e: "%s=%s" % (_field(e, "key"), _field(e, "value")) if "key" in e else ""),
+    "ports": ("port", lambda e: "%s:%s" % (_field(e, "host"), _field(e, "container")) if "host" in e else ""),
+    "cap_add": ("cap_add", lambda e: _field(e, "cap")),
+    "security_opt": ("security_opt", lambda e: _field(e, "opt")),
+    "volumes": ("mount", lambda e: ":".join(v for v in [_field(e, "source"), _field(e, "target"), _field(e, "mode")] if v)),
+    "tmpfs": ("tmpfs", lambda e: _field(e, "path")),
     # `devices` is a namespace of two independently replaceable lists,
     # not one list: host bindings under `[[devices.bindings]]` and cgroup
     # rules under `[[devices.cgroup_rules]]`. Both number into the
@@ -35,10 +46,10 @@ _ARRAY_SPEC = {
     # carries the one-array `[[devices]]` spelling; the two cannot
     # collide, because TOML will not let one name be an array and a table
     # in the same document.
-    "devices": ("device", lambda e: e.get("path", "")),
-    "bindings": ("device", lambda e: e.get("path", "")),
-    "cgroup_rules": ("cgroup_rule", lambda e: e.get("rule", "")),
-    "additional_contexts": ("context", lambda e: "%s=%s" % (e["name"], e["source"]) if "name" in e else ""),
+    "devices": ("device", lambda e: _field(e, "path")),
+    "bindings": ("device", lambda e: _field(e, "path")),
+    "cgroup_rules": ("cgroup_rule", lambda e: _field(e, "rule")),
+    "additional_contexts": ("context", lambda e: "%s=%s" % (_field(e, "name"), _field(e, "source")) if "name" in e else ""),
 }
 
 
@@ -72,6 +83,19 @@ def _format_value(v):
     if isinstance(v, bool):
         return "true" if v else "false"
     return str(v)
+
+
+def _field(elem, name):
+    """One array-of-tables field of <elem> as the string the shell reads.
+
+    The single reader for every _ARRAY_SPEC field, so no serializer can
+    bypass _format_value -- which is what one of them did, and the cost
+    is in the _ARRAY_SPEC comment above. An absent field is the empty
+    string, the same answer `e.get(name, "")` gave.
+    """
+    if name not in elem:
+        return ""
+    return _format_value(elem[name])
 
 
 def _emit_array(section, key, items):

@@ -1127,6 +1127,46 @@ EOF
   assert_line "security	security_opt_1	seccomp:unconfined"
 }
 
+# why: every field of an array-of-tables entry is string-typed on the shell
+#      side -- the serializers join them with `:` or format them into
+#      `key=value` -- but a TOML file is free to spell one as a number or a
+#      boolean, and the shipped template's own port example does
+#      (`host = 8080`). `":".join` hands an int to str.join and raises
+#      TypeError, which does not fail one key: `--kv` dies mid-stream and
+#      the WHOLE configuration stops loading. `%s` survives, and renders a
+#      boolean as Python's `True` -- a build arg no Dockerfile asked for.
+@test "toml-bridge: --kv reads an array field a file spells as a number or a boolean" {
+  assert_spec_subject "${BRIDGE_PY}" \
+    "the Python bridge script (array-of-tables field types)"
+
+  local toml_file="${BATS_TEST_TMPDIR}/typed.toml"
+  cat > "${toml_file}" << 'EOF'
+[[volumes]]
+source = 123
+target = "/data"
+
+[[build.args]]
+key = "FEATURE"
+value = true
+
+[[network.ports]]
+host = 8080
+container = 80
+
+[[image.rules]]
+rule = 2024
+EOF
+
+  run python3 "${BRIDGE_PY}" --kv < "${toml_file}"
+  assert_success
+  assert_line "volumes	mount_1	123:/data"
+  assert_line "build	arg_1	FEATURE=true"
+  assert_line "network	port_1	8080:80"
+  assert_line "image	rule_1	2024"
+  # Python's repr never reaches the shell, which compares against `true`.
+  refute_output --partial "True"
+}
+
 # why: `docker run -v <src>:<dst>` refuses a destination that is not
 #      absolute, so a layer named relatively -- which is what the chain
 #      carries whenever the caller passed a relative --base-path -- made the

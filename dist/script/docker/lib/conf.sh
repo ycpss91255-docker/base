@@ -654,11 +654,41 @@ _conf_list_sorted() {
 # document. A conf that binds a device AND allows a major number is
 # ordinary, and `setup.sh set` wrote exactly that unparseable pair.
 
+# _conf_toml_str <value> <outvar>
+#
+# Render a bash string as a TOML basic string, ALWAYS -- no type is
+# inferred from the text. Backslash, double quote and tab are escaped;
+# TOML has no other escape a config value can trip over.
+#
+# This is the renderer for a field whose TYPE is fixed by the bridge's
+# array spec rather than by what the operator typed. Every field of an
+# array-of-tables entry is one of those: the spec joins a volume's
+# source / target / mode with `:` and formats a build arg into
+# `key=value`, so the field is a string even when its text spells
+# something else. Inferring a type there is not a cosmetic slip -- a
+# numeric named volume (`123:/data`) rendered a bare `source = 123`,
+# `":".join` was handed an int, and the TypeError stopped `--kv`
+# mid-stream, so the WHOLE configuration failed to load over one mount.
+# A build arg spelled `FEATURE=true` rendered a bare `value = true`, a
+# TOML boolean the Dockerfile never asked for.
+_conf_toml_str() {
+  local _v="${1-}"
+  local -n _ctstr_out="${2:?"${FUNCNAME[0]}: missing outvar"}"
+  _v="${_v//\\/\\\\}"
+  _v="${_v//\"/\\\"}"
+  _v="${_v//$'\t'/\\t}"
+  _ctstr_out="\"${_v}\""
+}
+
 # _conf_toml_scalar <value> <outvar>
 #
 # Render a bash string as the TOML scalar the bridge reads back to the
 # same string. Booleans and integers (no leading zeros, TOML refuses
-# them) are bare; everything else is a basic string.
+# them) are bare; everything else goes through _conf_toml_str.
+#
+# For a TABLE key only: the table's keys are free-typed, and `init = true`
+# / `max_file = 3` are how the shipped template spells them. An array
+# field is NOT free-typed -- it takes _conf_toml_str directly.
 _conf_toml_scalar() {
   local _v="${1-}"
   local -n _cts_out="${2:?"${FUNCNAME[0]}: missing outvar"}"
@@ -669,10 +699,7 @@ _conf_toml_scalar() {
     _cts_out="${_v}"
     return 0
   fi
-  _v="${_v//\\/\\\\}"
-  _v="${_v//\"/\\\"}"
-  _v="${_v//$'\t'/\\t}"
-  _cts_out="\"${_v}\""
+  _conf_toml_str "${_v}" _cts_out
 }
 
 # _conf_toml_key <key> <outvar>
@@ -794,6 +821,12 @@ _conf_toml_aot_nskey() {
 # key / value, `host:container` into host / container, a mount into
 # source / target / mode, and a bare entry is its one field. Lines are
 # newline-joined, no trailing newline.
+#
+# Every one of those fields is STRING-typed, so every one of them is
+# rendered by _conf_toml_str and not by _conf_toml_scalar. The split that
+# produced it is textual -- the array spec glues the halves back with `:`
+# or `=` -- so what the half happens to look like is not a type. See the
+# _conf_toml_str header for what inferring one cost.
 _conf_toml_aot_fields() {
   local _p="${1-}" _v="${2-}"
   local -n _caf_out="${3:?"${FUNCNAME[0]}: missing outvar"}"
@@ -801,12 +834,12 @@ _conf_toml_aot_fields() {
   _caf_out=""
   case "${_p}" in
     image.rules)
-      _conf_toml_scalar "${_v}" _a
+      _conf_toml_str "${_v}" _a
       _caf_out="rule = ${_a}"
       ;;
     build.args|additional_contexts)
-      _conf_toml_scalar "${_v%%=*}" _a
-      if [[ "${_v}" == *=* ]]; then _conf_toml_scalar "${_v#*=}" _b; else _b='""'; fi
+      _conf_toml_str "${_v%%=*}" _a
+      if [[ "${_v}" == *=* ]]; then _conf_toml_str "${_v#*=}" _b; else _b='""'; fi
       if [[ "${_p}" == build.args ]]; then
         _caf_out="key = ${_a}"$'\n'"value = ${_b}"
       else
@@ -814,16 +847,16 @@ _conf_toml_aot_fields() {
       fi
       ;;
     network.ports)
-      _conf_toml_scalar "${_v%%:*}" _a
-      if [[ "${_v}" == *:* ]]; then _conf_toml_scalar "${_v#*:}" _b; else _b='""'; fi
+      _conf_toml_str "${_v%%:*}" _a
+      if [[ "${_v}" == *:* ]]; then _conf_toml_str "${_v#*:}" _b; else _b='""'; fi
       _caf_out="host = ${_a}"$'\n'"container = ${_b}"
       ;;
     security.cap_add)
-      _conf_toml_scalar "${_v}" _a
+      _conf_toml_str "${_v}" _a
       _caf_out="cap = ${_a}"
       ;;
     security.security_opt)
-      _conf_toml_scalar "${_v}" _a
+      _conf_toml_str "${_v}" _a
       _caf_out="opt = ${_a}"
       ;;
     volumes)
@@ -834,24 +867,24 @@ _conf_toml_aot_fields() {
       # project_reclaim.sh for the bridge tag's content digest, and that
       # library has a `local -a _rest`.
       local _caf_rest=""
-      _conf_toml_scalar "${_v%%:*}" _a
+      _conf_toml_str "${_v%%:*}" _a
       _caf_out="source = ${_a}"
       if [[ "${_v}" == *:* ]]; then
         _caf_rest="${_v#*:}"
-        _conf_toml_scalar "${_caf_rest%%:*}" _b
+        _conf_toml_str "${_caf_rest%%:*}" _b
         _caf_out+=$'\n'"target = ${_b}"
         if [[ "${_caf_rest}" == *:* ]]; then
-          _conf_toml_scalar "${_caf_rest#*:}" _c
+          _conf_toml_str "${_caf_rest#*:}" _c
           _caf_out+=$'\n'"mode = ${_c}"
         fi
       fi
       ;;
     tmpfs|devices|devices.bindings)
-      _conf_toml_scalar "${_v}" _a
+      _conf_toml_str "${_v}" _a
       _caf_out="path = ${_a}"
       ;;
     devices.cgroup_rules)
-      _conf_toml_scalar "${_v}" _a
+      _conf_toml_str "${_v}" _a
       _caf_out="rule = ${_a}"
       ;;
   esac
