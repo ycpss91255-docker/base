@@ -887,7 +887,16 @@ _conf_toml_empty_array_decl() {
   _ctea_v="${_line#*=}"
   _ctea_v="${_ctea_v#"${_ctea_v%%[![:space:]]*}"}"
   _ctea_v="${_ctea_v%"${_ctea_v##*[![:space:]]}"}"
-  [[ "${_ctea_v}" == "[]" || "${_ctea_v}" == "[ ]" ]] || return 1
+  # Whitespace inside the brackets, and a trailing comment, are both part
+  # of a valid declaration -- `args = [ ]  # intentionally cleared` is
+  # still an empty array, and an operator who clears a list is exactly
+  # the one who writes down why. Matched as the bare two characters, the
+  # annotated spelling was copied through and the next added entry landed
+  # beside a key already bound to an array: the unreadable file again,
+  # reached by annotating the decision the declaration records. (The
+  # annotation is not carried onto the declaration written back; the
+  # alternative on this path is a file nothing can parse.)
+  [[ "${_ctea_v}" =~ ^\[[[:space:]]*\][[:space:]]*(#.*)?$ ]] || return 1
   _conf_line_key "${_line}" _ctea_k
   _ctea_cand="${_table:+${_table}.}${_ctea_k}"
   # Only a path the array spec names is one of ours. Anything else is an

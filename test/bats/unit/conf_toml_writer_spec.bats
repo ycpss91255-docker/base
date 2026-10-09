@@ -430,6 +430,28 @@ EOF
   refute_line 'network	mode	host'
 }
 
+# why: An operator who clears a list is exactly the operator who writes
+# down why: `args = [] # intentionally cleared` is valid TOML and still
+# an empty array. Matching the value as the bare two characters missed
+# it, so the declaration was copied through and the added
+# `[[build.args]]` landed beside a key already bound to an array -- the
+# `Cannot mutate immutable namespace` file again, reached by annotating
+# the very decision the declaration records.
+@test "_upsert_conf_value: an annotated empty-array declaration is still an empty array" {
+  cat > "${CONF}" << 'EOF'
+[build]
+target_arch = ""
+args = [ ]  # intentionally cleared
+EOF
+  _upsert_conf_value "${CONF}" build arg_1 'BAZ=qux'
+
+  run grep -F 'args = [' "${CONF}"
+  assert_failure
+  run toml_bridge_parse "${CONF}" --kv
+  assert_success
+  assert_line 'build	arg_1	BAZ=qux'
+}
+
 # why: A key the template only mentions in a comment (`watchdog_interval`
 # under `[lifecycle]`) has no line to replace, so it is appended at the
 # end of its table, before the next header. The renderers match
