@@ -754,9 +754,19 @@ stub_rm() {
   rm() { printf '%s\n' "$*" >> "${_RMLOG}"; }
 }
 
+# Take the TOML-era refusal out of the way so the frozen body underneath
+# stays covered. The real _tui_refuse_frozen exits 2 and never returns;
+# every test that drives the body past it replaces it here, the same way
+# this suite replaces `_backend_detect` and the dialog primitives. The
+# refusal itself is asserted by the two tests that do NOT call this.
+stub_frozen_guard() {
+  _tui_refuse_frozen() { return 0; }
+}
+
 # why: reset is destructive, so declining the confirmation has to change
 # nothing at all -- no delete, no apply, no loss of the edits in progress.
 @test "_do_reset: declining the confirmation changes nothing" {
+  stub_frozen_guard
   stub_apply
   stub_rm
   _override_set network.mode bridge
@@ -772,21 +782,83 @@ stub_rm() {
 # -- drop the per-repo file, re-seed it from the template, and throw away
 # the pending edits -- and leaving any one of them out gives the user a
 # menu that still shows values the file no longer has.
+#
+# The file it drops is `.setup.conf`. ADR-00000037 freezes this editor on
+# the INI pair until the TOML rebuild lands, so that is the name the
+# frozen body writes and removes; a blanket rename moved this assertion to
+# `setup.toml` ahead of the ADR and left it asserting a path the function
+# never touches. What keeps the frozen body from reaching a user is
+# _tui_refuse_frozen, stubbed out here so the body itself stays covered.
 @test "_do_reset: confirmed, it drops the conf, re-applies and clears pending edits" {
+  stub_frozen_guard
   stub_apply
   stub_rm
-  printf '[network]\nmode = "none"\n' > "${BATS_TEST_TMPDIR}/setup.toml"
+  printf '[network]\nmode = none\n' > "${BATS_TEST_TMPDIR}/.setup.conf"
   _override_set network.mode bridge
   _mark_removed network.ipc
   queue "0|"
   _do_reset
   unset -f rm
-  grep -q -- 'setup.toml' "${_RMLOG}"
+  grep -q -- '\.setup\.conf' "${_RMLOG}"
   grep -q -- 'apply' "${_APPLY}"
   [ "${#_TUI_OVR_KEYS[@]}" -eq 0 ]
   [ "${#_TUI_REMOVED[@]}" -eq 0 ]
   [[ "${_TUI_CURRENT[network.mode]}" == "none" ]]
   warned "$(_tui_msg reset.done)"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _tui_refuse_frozen -- the TOML-era refusal
+# ════════════════════════════════════════════════════════════════════
+
+# why: the readers did not wait for the freeze. _setup_conf_layers names
+# only `.toml` layers, so the `.setup.conf` this editor writes is read by
+# nothing: a user picks a value, the editor saves it, prints its save line,
+# and the setting has no effect. A silent no-op behind a success message is
+# worse than a refusal, so main refuses before it opens anything and names
+# the two surfaces that do work.
+@test "main: the TOML-era editor refuses instead of opening a menu" {
+  stub_main_deps
+  _tui_refuse_frozen() { printf '[tui] refused\n' >&2; exit 2; }
+  run main
+  [ "${status}" -eq 2 ]
+  assert_output --partial 'refused'
+  run grep -c -- 'main_menu' "${_MARK}"
+  [ "${output}" -eq 0 ]
+  run grep -c -- '^commit ' "${_MARK}"
+  [ "${output}" -eq 0 ]
+}
+
+# why: the refusal has to carry the two places that DO take a setting, in
+# the user's own language, or it only replaces a silent no-op with a dead
+# end. Every message table has to answer, because a missing key prints the
+# key name.
+@test "_tui_refuse_frozen: every language names setup.toml and the CLI" {
+  local _lang
+  for _lang in en zh-TW zh-CN ja; do
+    _LANG="${_lang}"
+    _tui_init_lang
+    run _tui_refuse_frozen
+    [ "${status}" -eq 2 ]
+    assert_output --partial 'setup.toml'
+    assert_output --partial './setup.sh set'
+    refute_output --partial 'err.frozen'
+  done
+}
+
+# why: reset promises "back to template defaults" while the values in force
+# sit in setup.toml, untouched by it -- the same misleading success as a
+# save, with an `rm -f` attached. It refuses on its own rather than only
+# behind main, because the destructive step is here.
+@test "_do_reset: refuses in the TOML era instead of dropping the legacy conf" {
+  stub_apply
+  stub_rm
+  queue "0|"
+  run _do_reset
+  [ "${status}" -eq 2 ]
+  assert_output --partial 'setup.toml'
+  [ ! -s "${_RMLOG}" ]
+  [ ! -s "${_APPLY}" ]
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -798,6 +870,7 @@ stub_rm() {
 # FILE_PATH, which this suite shares with every other spec running in
 # parallel.
 stub_main_deps() {
+  stub_frozen_guard
   stub_apply
   _MARK="${BATS_TEST_TMPDIR}/marks"
   : > "${_MARK}"

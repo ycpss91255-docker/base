@@ -180,9 +180,17 @@ EOF
 # ════════════════════════════════════════════════════════════════════
 # Post-relocation path names in user-facing help / comments
 # ════════════════════════════════════════════════════════════════════
-@test "setup_tui.sh usage names the repo-root setup.toml in every language (#842)" {
+@test "setup_tui.sh usage names the repo-root .setup.conf in every language (#842)" {
   # Help that names a path the user cannot find is worse than no help:
   # all four heredocs must advertise the dotfile the TUI actually edits.
+  #
+  # That dotfile is `.setup.conf`, not `setup.toml`: ADR-00000037 freezes
+  # this editor until the TOML rebuild lands, so its file, its writers and
+  # its help are still the INI pair. A blanket rename moved this assertion
+  # to `setup.toml` ahead of the ADR and made the spec describe an
+  # interface the frozen wrapper does not have. The editor refuses to run
+  # in the TOML era (_tui_refuse_frozen) and THAT message is what points
+  # the user at setup.toml.
   #
   # Driving usage() means SOURCING the wrapper. That used to be
   # kcov-only-fatal and carried a COVERAGE skip here: the wrapper enabled
@@ -200,7 +208,7 @@ EOF
       _LANG='${_lang}' usage
     "
     assert_success
-    assert_output --partial "setup.toml"
+    assert_output --partial "<repo>/.setup.conf"
     refute_output --partial "<repo>/setup.conf"
   done
 }

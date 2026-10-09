@@ -5543,7 +5543,7 @@ must advertise `setup.toml`, and no shipped text may still say
 | `_load_setup_conf uses per-repo setup.toml when section present` | The TOML migration must not break the primary config-load path. |
 | `_load_setup_conf reads the per-repo override from repo-root setup.toml` | The repo-root setup.toml is the committed override layer; loading from the wrong path silently falls back to the template. |
 | `_load_setup_conf ignores a legacy config/docker/setup.conf override` | - |
-| `setup_tui.sh usage names the repo-root setup.toml in every language (#842)` | - |
+| `setup_tui.sh usage names the repo-root .setup.conf in every language (#842)` | - |
 | `no shipped dist/ text still points at the pre-relocation <repo>/setup.conf (#842)` | - |
 | `no shipped dist/ text names the non-existent .base/setup.conf default (#842)` | - |
 | `_load_setup_conf falls back to template when section absent per-repo` | - |
@@ -7103,7 +7103,7 @@ unification (#178: dialog also drops `--extra-button`)
 | `_tui_backend: an ambient TUI_OK_LABEL / TUI_CANCEL_LABEL does not reach the backend (#895)` | - |
 | `_tui_menu omits --extra-button / --extra-label on whiptail even when TUI_EXTRA_LABEL is set` | - |
 
-### test/bats/unit/tui_editor_flow_spec.bats (79)
+### test/bats/unit/tui_editor_flow_spec.bats (82)
 
 `tui_flow_spec.bats` proves the setup_tui.sh menus DISPATCH -- it spies on
 each section editor and asserts the right one was reached. What those
@@ -7228,7 +7228,10 @@ the shipped tree rather than kept as a roster
 | `_commit_and_setup: re-runs setup.sh apply for the repo it saved` | .env.generated and compose.yaml are derived from setup.conf, so a save that does not re-run apply leaves the container running the previous configuration while the file says otherwise. |
 | `_commit_and_setup: reports the path it saved` | the saved path is the one thing the user needs after curses clears the screen; printing it is how they know where the edit went. |
 | `_do_reset: declining the confirmation changes nothing` | reset is destructive, so declining the confirmation has to change nothing at all -- no delete, no apply, no loss of the edits in progress. |
-| `_do_reset: confirmed, it drops the conf, re-applies and clears pending edits` | reset means "go back to the template". That is three things at once -- drop the per-repo file, re-seed it from the template, and throw away the pending edits -- and leaving any one of them out gives the user a menu that still shows values the file no longer has. |
+| `_do_reset: confirmed, it drops the conf, re-applies and clears pending edits` | reset means "go back to the template". That is three things at once -- drop the per-repo file, re-seed it from the template, and throw away the pending edits -- and leaving any one of them out gives the user a menu that still shows values the file no longer has. The file it drops is `.setup.conf`. ADR-00000037 freezes this editor on the INI pair until the TOML rebuild lands, so that is the name the frozen body writes and removes; a blanket rename moved this assertion to `setup.toml` ahead of the ADR and left it asserting a path the function never touches. What keeps the frozen body from reaching a user is _tui_refuse_frozen, stubbed out here so the body itself stays covered. |
+| `main: the TOML-era editor refuses instead of opening a menu` | the readers did not wait for the freeze. _setup_conf_layers names only `.toml` layers, so the `.setup.conf` this editor writes is read by nothing: a user picks a value, the editor saves it, prints its save line, and the setting has no effect. A silent no-op behind a success message is worse than a refusal, so main refuses before it opens anything and names the two surfaces that do work. |
+| `_tui_refuse_frozen: every language names setup.toml and the CLI` | the refusal has to carry the two places that DO take a setting, in the user's own language, or it only replaces a silent no-op with a dead end. Every message table has to answer, because a missing key prints the key name. |
+| `_do_reset: refuses in the TOML era instead of dropping the legacy conf` | reset promises "back to template defaults" while the values in force sit in setup.toml, untouched by it -- the same misleading success as a save, with an `rm -f` attached. It refuses on its own rather than only behind main, because the destructive step is here. |
 | `main: a section subcommand jumps straight to that section's editor` | `resources` is a SCHEMA_SECTIONS member, so `_tui_known_subcommand` accepts it and main dispatches straight to `_edit_section_<name>`. That CLI path is the section editor's only caller -- no menu row reaches it -- and this is the test that says so. |
 | `main: the gpu alias opens the deploy editor without the collision notice` | `deploy` is Compose's name for the GPU section and collides with `setup.sh deploy`; `gpu` is the unambiguous spelling of the same editor. The alias has to resolve to the same editor and stay silent about a collision the user has already avoided. |
 | `main: the deploy spelling opens the same editor and says which deploy it is` | the colliding spelling still works, but the user is told which of the two `deploy` commands they just got. Dropping the notice makes the two indistinguishable. |
