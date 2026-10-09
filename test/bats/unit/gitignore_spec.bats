@@ -576,9 +576,17 @@ _track_every_canonical_entry() {
     _checked=$(( _checked + 1 ))
   done < <(_canonical_gitignore_entries)
   # A translation that returns nothing for everything would satisfy the loop
-  # above over an empty population. Eleven of the twelve entries have a
-  # pathspec today; only the anchored one does not.
-  assert_equal "${_checked}" 11
+  # above over an empty population, so the count is asserted -- against the
+  # population itself, not a figure typed here that an entry added to the
+  # canonical set would leave stale. Every entry but an ANCHORED one has a
+  # pathspec today, and the anchored class is pinned by the case above.
+  local _expected=0
+  while IFS= read -r _entry; do
+    [[ -n "${_entry}" ]] || continue
+    [[ "${_entry}" == /* ]] && continue
+    _expected=$(( _expected + 1 ))
+  done < <(_canonical_gitignore_entries)
+  assert_equal "${_checked}" "${_expected}"
 }
 
 # why: The swallowed fatal (#1119). `git ls-files` prints the tracked paths
