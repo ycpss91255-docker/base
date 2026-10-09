@@ -757,9 +757,32 @@ _setup_add() {
 # remove-by-value mode. Removes one entry per invocation; multiple
 # matches keep the rest (call again to peel further). Preserves
 # comments + ordering via `_write_setup_conf`. Does NOT regenerate
-# .env.generated. Does NOT renumber remaining keys (`_load_setup_conf_full`
-# tolerates gaps, and downstream callers treat the prefix list as
-# unordered).
+# .env.generated.
+#
+# RENUMBERING, for a TOML destination: it happens. This paragraph used to
+# say the opposite -- "Does NOT renumber remaining keys
+# (`_load_setup_conf_full` tolerates gaps, and downstream callers treat
+# the prefix list as unordered)" -- and both halves are false here.
+# `_conf_toml_aot_slot` maps `<section>.<prefix>_N` onto the N-th
+# `[[path]]` block, so the array is dense by construction: conf.sh's
+# writer header states that a removed entry COMPACTS the ones after it,
+# and conf_toml_writer_spec's "a TOML rewrite with scalar, array, removed
+# and new-section overrides parses and reads back" pins it -- what the
+# fixture wrote as `mount_2` reads back as `mount_1`. Nor is the prefix
+# list unordered: every reader of one sorts it by the numeric suffix
+# (`_conf_list_sorted`).
+#
+# That matters for exactly one slot. The workspace bind is slot 1 of
+# `[volumes]` and nothing else marks it, so `remove volumes.mount_1` on a
+# TOML repo compacts whatever was slot 2 into the workspace position --
+# silently, when its source exists locally, because an absolute path that
+# exists reads as a deliberately pinned workspace. base#1233 carries that
+# as the maintainer-level question of how the workspace bind should be
+# identified; this comment exists so the next reader of this function
+# does not conclude from it that the edit path is safe.
+#
+# For an INI destination the old paragraph was right: remaining keys keep
+# their suffixes and a gap is tolerated.
 #
 # Usage: _setup_remove <section>.<key>            [--base-path] [--lang]
 #        _setup_remove <section>.<list> <value>   [--base-path] [--lang]
