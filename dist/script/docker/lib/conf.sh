@@ -769,10 +769,19 @@ _conf_toml_header() {
 # The section name a header line carries, quotes and padding stripped:
 # `"stage:headless"` -> `stage:headless`. The inverse of _conf_toml_header
 # for every name the schema has.
+#
+# BOTH quote characters, because TOML has two quoted-key spellings and a
+# hand-authored file may use either. Basic quotes are what
+# _conf_toml_header writes, so stripping only those read `['network']`
+# back as the name `'network'`: no writer recognised the section, and
+# setting `network.mode` appended a SECOND `[network]` -- the duplicate
+# table TOML refuses, from the same class of half-recognised header as a
+# trailing comment.
 _conf_header_name() {
   local _raw="${1-}"
   local -n _chn_out="${2:?"${FUNCNAME[0]}: missing outvar"}"
   _raw="${_raw//\"/}"
+  _raw="${_raw//\'/}"
   _raw="${_raw#"${_raw%%[![:space:]]*}"}"
   _raw="${_raw%"${_raw##*[![:space:]]}"}"
   _chn_out="${_raw}"
@@ -844,6 +853,47 @@ _conf_toml_aot_nskey() {
     *) return 1 ;;
   esac
   return 0
+}
+
+# _conf_toml_empty_array_decl <line> <table> <path_outvar>
+#
+# True when <line> declares, as `[]`, an array the bridge's spec knows:
+# `args = []` seen inside `[build]` is the path `build.args`, and
+# `volumes = []` seen at the document root is `volumes`. <path_outvar>
+# comes back with that path.
+#
+# Why the writers read these lines instead of copying them. `args = []`
+# is an ordinary key, and TOML will not let a key already bound to an
+# array be extended by `[[build.args]]` blocks -- the bridge answers
+# `Cannot mutate immutable namespace ('build', 'args')` and the whole
+# file stops parsing. So a declaration left behind by a removal has to go
+# when an entry is added back, or remove-then-add is not a round trip:
+# the add reports success and every read after it fails. Each writer
+# therefore DROPS the declaration on the way through and writes one back
+# only while the list is still empty -- which also keeps an operator's
+# deliberate clear, since a save that does not refill the list re-decides
+# it the same way.
+# Every local here is `_ctea_`-prefixed, the outvars this function hands
+# to other helpers included: _conf_line_key declares a local `_k` of its
+# own, so a nameref pointing at the bare name `_k` resolves to the
+# CALLEE's variable and the key comes back empty -- which read every
+# declaration as the path `build.` and matched nothing.
+_conf_toml_empty_array_decl() {
+  local _line="${1-}" _table="${2-}"
+  local _ctea_k="" _ctea_v="" _ctea_cand="" _ctea_probe=""
+  local -n _ctea_out="${3:?"${FUNCNAME[0]}: missing path outvar"}"
+  _ctea_out=""
+  _conf_is_kv_line "${_line}" || return 1
+  _ctea_v="${_line#*=}"
+  _ctea_v="${_ctea_v#"${_ctea_v%%[![:space:]]*}"}"
+  _ctea_v="${_ctea_v%"${_ctea_v##*[![:space:]]}"}"
+  [[ "${_ctea_v}" == "[]" || "${_ctea_v}" == "[ ]" ]] || return 1
+  _conf_line_key "${_line}" _ctea_k
+  _ctea_cand="${_table:+${_table}.}${_ctea_k}"
+  # Only a path the array spec names is one of ours. Anything else is an
+  # ordinary key whose value happens to be an empty array.
+  _conf_toml_aot_nskey "${_ctea_cand}" 1 _ctea_probe || return 1
+  _ctea_out="${_ctea_cand}"
 }
 
 # _conf_toml_array_decl <path> <table_out> <key_out>
@@ -1158,8 +1208,8 @@ _write_setup_conf() {
   # tells the walk it is leaving the LAST block of a kind, which is where
   # new entries of that kind are appended so the array stays in order.
   local -A __aot_of=() __aot_idx_of=() __aot_total=() __aot_seen=()
-  local -A __aot_empty=() __aot_empty_done=()
-  local __root_decls_flushed=0
+  local -A __aot_empty=() __aot_empty_done=() __aot_declared_empty=()
+  local __root_decls_flushed=0 __eap=""
   local __ovk __ovk_sect __ovk_key __p __n __hline
   if (( __toml )); then
     for __ovk in "${!__override[@]}"; do
@@ -1169,11 +1219,29 @@ _write_setup_conf() {
         __aot_idx_of["${__ovk}"]="${__n}"
       fi
     done
+    local __pp_table="" __pp_in_aot=0
     for __line in "${__tpl_lines[@]}"; do
       _conf_toml_header_uncomment "${__line}" __hline
       if [[ "${__hline}" =~ ^[[:space:]]*\[\[(.+)\]\][[:space:]]*$ ]]; then
         _conf_header_name "${BASH_REMATCH[1]}" __p
         __aot_total["${__p}"]=$(( ${__aot_total["${__p}"]:-0} + 1 ))
+        __pp_table=""
+        __pp_in_aot=1
+        continue
+      fi
+      if [[ "${__hline}" =~ ^[[:space:]]*\[(.+)\][[:space:]]*$ ]]; then
+        _conf_header_name "${BASH_REMATCH[1]}" __pp_table
+        __pp_in_aot=0
+        continue
+      fi
+      # An array the file ALREADY declares empty: the clear is an
+      # operator decision, so it has to survive a save that does not
+      # refill the list. Without this the walk would drop the line (it
+      # re-decides every such declaration) and nothing would write one
+      # back, because the path has no blocks to count.
+      if (( ! __pp_in_aot )) \
+         && _conf_toml_empty_array_decl "${__line}" "${__pp_table}" __eap; then
+        __aot_declared_empty["${__eap}"]=1
       fi
     done
     # Which arrays this rewrite leaves with NO blocks: every block of the
@@ -1198,6 +1266,19 @@ _write_setup_conf() {
         fi
       done
       (( __fe_live )) && continue
+      for __ovk in "${!__aot_of[@]}"; do
+        [[ "${__aot_of[${__ovk}]}" == "${__p}" ]] || continue
+        [[ -n "${__removed[${__ovk}]+x}" ]] && continue
+        __fe_live=1
+        break
+      done
+      (( __fe_live )) || __aot_empty["${__p}"]=1
+    done
+    # Same question for a path the file declares empty and has no block
+    # of: it stays empty unless an override refills it.
+    for __p in "${!__aot_declared_empty[@]}"; do
+      [[ -z "${__aot_total[${__p}]:-}" ]] || continue
+      __fe_live=0
       for __ovk in "${!__aot_of[@]}"; do
         [[ "${__aot_of[${__ovk}]}" == "${__p}" ]] || continue
         [[ -n "${__removed[${__ovk}]+x}" ]] && continue
@@ -1295,6 +1376,14 @@ _write_setup_conf() {
     fi
     if [[ -z "${__line}" || "${__line}" =~ ^[[:space:]]*# ]]; then
       printf '%s\n' "${__line}" >> "${_out}"
+      continue
+    fi
+    # An explicit empty-array declaration is re-decided, never copied:
+    # the flushes write one back for every path still empty, so copying
+    # it here would duplicate the key when the path is still empty and
+    # leave a key TOML refuses to extend when an override refills it.
+    if (( __toml )) && [[ -z "${__aot_cur}" ]] \
+       && _conf_toml_empty_array_decl "${__line}" "${__current}" __eap; then
       continue
     fi
     if [[ -n "${__current}" && "${__line}" == *=* ]]; then
@@ -1589,6 +1678,7 @@ _conf_toml_upsert_aot() {
   _conf_toml_aot_fields "${_path}" "${_value}" __fields
 
   local __line __hline __p __total=0 __seen=0 __in_block=0 __replacing=0 __matched=0
+  local __cur_table="" __in_aot=0 __eap=""
   while IFS= read -r __line || [[ -n "${__line}" ]]; do
     _conf_toml_header_uncomment "${__line}" __hline
     if [[ "${__hline}" =~ ^[[:space:]]*\[\[(.+)\]\][[:space:]]*$ ]]; then
@@ -1607,6 +1697,8 @@ _conf_toml_upsert_aot() {
       fi
       __in_block=0
       __replacing=0
+      __in_aot=1
+      __cur_table=""
       if [[ "${__p}" == "${_path}" ]]; then
         __seen=$(( __seen + 1 ))
         __in_block=1
@@ -1625,7 +1717,16 @@ _conf_toml_upsert_aot() {
       fi
       __in_block=0
       __replacing=0
+      __in_aot=0
+      _conf_header_name "${BASH_REMATCH[1]}" __cur_table
     elif (( __replacing )) && _conf_is_kv_line "${__line}"; then
+      continue
+    elif (( ! __in_aot )) \
+         && _conf_toml_empty_array_decl "${__line}" "${__cur_table}" __eap \
+         && [[ "${__eap}" == "${_path}" ]]; then
+      # This write gives the array an entry, so the declaration that said
+      # it had none cannot stay: TOML refuses to extend a key already
+      # bound to an array, and the whole file would stop parsing.
       continue
     fi
     printf '%s\n' "${__line}" >> "${_dst}"

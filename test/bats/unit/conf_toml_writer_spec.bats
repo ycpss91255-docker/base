@@ -350,6 +350,86 @@ EOF
   assert_line 'image	rule_2	suffix:_ws'
 }
 
+# why: The other half of the removal. `args = []` is an ordinary key, and
+# TOML will not let a key already bound to an array be extended by
+# `[[build.args]]` blocks -- so an `add` after the remove that left the
+# declaration standing produced `Cannot mutate immutable namespace
+# ('build', 'args')`: the add reported success and every read after it
+# failed. The declaration is therefore a decision the writers RE-MAKE,
+# not a line they copy: dropped on the way through, written back only
+# while the list is still empty. Remove-then-add has to be a round trip.
+@test "_upsert_conf_value: refilling an emptied array drops the empty-array declaration" {
+  cat > "${CONF}" << 'EOF'
+volumes = []
+
+[build]
+target_arch = ""
+args = []
+EOF
+  _upsert_conf_value "${CONF}" build arg_1 'BAZ=qux'
+  _upsert_conf_value "${CONF}" volumes mount_1 '/a:/b'
+
+  run grep -F 'args = []' "${CONF}"
+  assert_failure
+  run grep -F 'volumes = []' "${CONF}"
+  assert_failure
+
+  run toml_bridge_parse "${CONF}" --kv
+  assert_success
+  assert_line 'build	arg_1	BAZ=qux'
+  assert_line 'volumes	mount_1	/a:/b'
+}
+
+# why: The rewrite writer re-makes the same decision, and has the other
+# half of it to get right as well: an array the file already declares
+# empty is an operator decision, so a save that does not refill it must
+# leave the declaration there rather than dropping the clear.
+@test "_write_setup_conf: an override refills an emptied array, an unrelated save leaves it empty" {
+  cat > "${CONF}" << 'EOF'
+volumes = []
+
+[build]
+target_arch = ""
+args = []
+EOF
+  local -a _keys=(build.arg_1)
+  local -a _vals=('ONE=1')
+  _write_setup_conf "${CONF}" "${CONF}" _keys _vals
+
+  run grep -F 'args = []' "${CONF}"
+  assert_failure
+  # Untouched by this save, so still explicitly empty.
+  run grep -Fx 'volumes = []' "${CONF}"
+  assert_success
+
+  run toml_bridge_parse "${CONF}" --kv
+  assert_success
+  assert_line 'build	arg_1	ONE=1'
+  refute_line --regexp '^volumes\tmount_'
+}
+
+# why: `['network']` is a valid TOML table declaration -- a literal-quoted
+# key -- and the bridge reads it as the table `network`.
+# `_conf_header_name` stripped basic quotes only, so the name came back as
+# `'network'`, no writer recognised the section, and setting
+# `network.mode` appended a second `[network]`. That is the same duplicate
+# table a trailing comment produced, reached through the other
+# half-recognised header spelling.
+@test "_upsert_conf_value: a literal-quoted table header is entered, not declared a second time" {
+  cat > "${CONF}" << 'EOF'
+['network']
+mode = "host"
+EOF
+  _upsert_conf_value "${CONF}" network mode bridge
+
+  run grep -c '^\[' "${CONF}"
+  assert_output "1"
+  run toml_bridge_parse "${CONF}" --kv
+  assert_success
+  assert_line 'network	mode	bridge'
+  refute_line 'network	mode	host'
+}
+
 # why: A key the template only mentions in a comment (`watchdog_interval`
 # under `[lifecycle]`) has no line to replace, so it is appended at the
 # end of its table, before the next header. The renderers match
