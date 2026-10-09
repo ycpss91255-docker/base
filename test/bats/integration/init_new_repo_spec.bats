@@ -775,12 +775,17 @@ call-release: contents: write'
   # Regression: fresh repo previously produced an empty [volumes] mount_1
   # which made the TUI volumes menu appear blank on first open. First-init
   # must write the detected workspace path into mount_1.
+  #
+  # `mount_1` is the SHELL-side name for the first entry of the volumes
+  # list; in a setup.toml that entry is the first `[[volumes]]` block and
+  # its host half is the block's `source` field. A `mount_1 = ...` line
+  # never appears in a TOML destination, so that is what is asserted on.
   bash .base/dist/script/base/init.sh
-  run grep -E '^mount_1 = .+$' "${REPO_DIR}/setup.toml"
+  run awk '/^\[\[volumes\]\]/ { n++; next } n == 1 && /^source[[:space:]]*=/ { print; exit }' \
+    "${REPO_DIR}/setup.toml"
   assert_success
-  # Must NOT be exactly `mount_1 =` (empty value)
-  run grep -x 'mount_1 =' "${REPO_DIR}/setup.toml"
-  assert_failure
+  # A written-but-empty source (`source = ""`) is the blank-menu regression.
+  assert_output --regexp '^source = ".+"$'
 }
 
 # why: #201 — bootstrap writes WS_PATH back
@@ -790,7 +795,10 @@ call-release: contents: write'
   # setup.toml became the source of truth for WS_PATH.
   bash .base/dist/script/base/init.sh
   assert [ -f "${REPO_DIR}/setup.toml" ]
-  run grep '^mount_1' "${REPO_DIR}/setup.toml"
+  # The list entry is a `[[volumes]]` block, not a `mount_1 = ...` line --
+  # the template ships every `[[volumes]]` example commented out, so a
+  # block present at all is the writeback having run.
+  run grep -E '^\[\[volumes\]\]$' "${REPO_DIR}/setup.toml"
   assert_success
 }
 
