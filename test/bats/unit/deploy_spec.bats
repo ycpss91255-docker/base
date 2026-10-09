@@ -42,7 +42,7 @@ setup() {
 _write_conf() {
   local _dir="${1}"; shift
   mkdir -p "${_dir}"
-  printf '%s\n' "$@" > "${_dir}/.setup.conf"
+  printf '%s\n' "$@" > "${_dir}/setup.toml"
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -114,14 +114,19 @@ _write_conf() {
 # why: full resolution
 @test "_resolve_deploy_context: resolves scalars + list strings from setup.conf (#506)" {
   local _d; _d="$(mktemp -d)"
+  # Array-of-tables blocks ([[network.ports]], [[devices]]) must come last:
+  # in TOML every key after such a header belongs to that block, not to the
+  # [table] it replaced.
   _write_conf "${_d}" \
-    "[deploy]" "gpu_mode = force" "gpu_count = 2" "gpu_capabilities = gpu compute" "gpu_runtime = nvidia" \
-    "[network]" "mode = bridge" "ipc = private" "network_name = mynet" "port_1 = 8080:80" \
+    "[deploy]" 'gpu_mode = "force"' "gpu_count = 2" \
+    'gpu_capabilities = "gpu compute"' 'gpu_runtime = "nvidia"' \
+    "[network]" 'mode = "bridge"' 'ipc = "private"' 'network_name = "mynet"' \
     "[security]" "privileged = true" \
-    "[devices]" "device_1 = /dev/ttyUSB0" \
-    "[environment]" "env_1 = FOO=bar" \
-    "[resources]" "shm_size = 256m" \
-    "[lifecycle]" "restart = on-failure"
+    "[environment]" 'env_1 = "FOO=bar"' \
+    "[resources]" 'shm_size = "256m"' \
+    "[lifecycle]" 'restart = "on-failure"' \
+    "[[network.ports]]" 'host = "8080"' 'container = "80"' \
+    "[[devices]]" 'path = "/dev/ttyUSB0"'
   local -A _ctx=()
   _resolve_deploy_context "${_d}" _ctx
   assert_equal "${_ctx[gpu_mode]}" "force"
@@ -143,7 +148,7 @@ _write_conf() {
 # why: template-merged defaults
 @test "_resolve_deploy_context: applies effective defaults for a minimal repo conf (#506)" {
   local _d; _d="$(mktemp -d)"
-  _write_conf "${_d}" "[image_name]" "name = placeholder"
+  _write_conf "${_d}" "[image_name]" 'name = "placeholder"'
   local -A _ctx=()
   _resolve_deploy_context "${_d}" _ctx
   assert_equal "${_ctx[gpu_mode]}" "auto"
@@ -163,12 +168,14 @@ _write_conf() {
 @test "_resolve_deploy_context: a missing [lifecycle] restart falls back to the shipped default (#840)" {
   local _d; _d="$(mktemp -d)"
   # Hand-stripped conf -> the template's own default, not an empty policy.
-  _write_conf "${_d}" "[image_name]" "name = placeholder"
+  _write_conf "${_d}" "[image_name]" 'name = "placeholder"'
   local -A _absent=()
   _resolve_deploy_context "${_d}" _absent
   assert_equal "${_absent[restart_policy]}" "unless-stopped"
   # An explicitly configured value is honoured verbatim.
-  _write_conf "${_d}" "[lifecycle]" "restart = no"
+  # `no` is a docker restart-policy literal, not a TOML boolean, so it is a
+  # quoted string.
+  _write_conf "${_d}" "[lifecycle]" 'restart = "no"'
   local -A _explicit=()
   _resolve_deploy_context "${_d}" _explicit
   assert_equal "${_explicit[restart_policy]}" "no"
@@ -177,8 +184,8 @@ _write_conf() {
 
 @test "_resolve_deploy_context: builds the WATCHDOG_* env block from [lifecycle] watchdog_* (#840)" {
   local _d; _d="$(mktemp -d)"
-  _write_conf "${_d}" "[lifecycle]" "watchdog_check = pgrep -f my_node" \
-    "watchdog_interval = 30" "watchdog_on_fail = restart"
+  _write_conf "${_d}" "[lifecycle]" 'watchdog_check = "pgrep -f my_node"' \
+    "watchdog_interval = 30" 'watchdog_on_fail = "restart"'
   local -A _ctx=()
   _resolve_deploy_context "${_d}" _ctx
   assert_equal "${_ctx[watchdog_env_str]}" \
@@ -189,7 +196,7 @@ _write_conf() {
 # why: legacy alias
 @test "_resolve_deploy_context: legacy [deploy] runtime alias resolves gpu_runtime_mode (#506/#481)" {
   local _d; _d="$(mktemp -d)"
-  _write_conf "${_d}" "[deploy]" "runtime = nvidia"
+  _write_conf "${_d}" "[deploy]" 'runtime = "nvidia"'
   local -A _ctx=()
   _resolve_deploy_context "${_d}" _ctx
   assert_equal "${_ctx[gpu_runtime_mode]}" "nvidia"
@@ -199,7 +206,7 @@ _write_conf() {
 # why: dri auto
 @test "_resolve_deploy_context: dri_groups auto resolves host GIDs via the SETUP_DETECT_DRI_GROUPS operator override (#506/#496)" {
   local _d; _d="$(mktemp -d)"
-  _write_conf "${_d}" "[deploy]" "dri_groups = auto"
+  _write_conf "${_d}" "[deploy]" 'dri_groups = "auto"'
   local -A _ctx=()
   SETUP_DETECT_DRI_GROUPS="44 110" _resolve_deploy_context "${_d}" _ctx
   assert_equal "${_ctx[dri_groups_str]}" "44 110"
@@ -209,7 +216,7 @@ _write_conf() {
 # why: dri off
 @test "_resolve_deploy_context: dri_groups off yields empty (#506/#496)" {
   local _d; _d="$(mktemp -d)"
-  _write_conf "${_d}" "[deploy]" "dri_groups = off"
+  _write_conf "${_d}" "[deploy]" 'dri_groups = "off"'
   local -A _ctx=()
   SETUP_DETECT_DRI_GROUPS="44 110" _resolve_deploy_context "${_d}" _ctx
   assert_equal "${_ctx[dri_groups_str]}" ""
@@ -227,7 +234,8 @@ _write_conf() {
 # Deterministic headless conf: no gpu, no dri, gui off -> the resolved
 # compose carries only literals (nothing host- or display-dependent).
 _write_headless_conf() {
-  _write_conf "${1}" "[deploy]" "gpu_mode = off" "dri_groups = off" "[gui]" "mode = off"
+  _write_conf "${1}" "[deploy]" 'gpu_mode = "off"' 'dri_groups = "off"' \
+    "[gui]" 'mode = "off"'
 }
 
 # why: resolved + self-contained
@@ -259,11 +267,12 @@ _write_headless_conf() {
 @test "_generate_resolved_compose: strips the dev-host workspace bind and bakes env (no -v/-e) (#832)" {
   local _d; _d="$(mktemp -d)"
   # SC2016: literal ${WS_PATH} is the portable workspace-bind form in
-  # setup.conf, not a shell expansion.
+  # setup.toml, not a shell expansion.
   # shellcheck disable=SC2016
-  _write_conf "${_d}" "[deploy]" "gpu_mode = off" "dri_groups = off" "[gui]" "mode = off" \
-    "[environment]" "env_1 = FOO=bar" \
-    "[volumes]" 'mount_1 = ${WS_PATH}:/work'
+  _write_conf "${_d}" "[deploy]" 'gpu_mode = "off"' 'dri_groups = "off"' \
+    "[gui]" 'mode = "off"' \
+    "[environment]" 'env_1 = "FOO=bar"' \
+    "[[volumes]]" 'source = "${WS_PATH}"' 'target = "/work"'
   local _out="${_d}/compose.yaml"
   local -A _binds=()
   SETUP_DETECT_DRI_GROUPS="" _generate_resolved_compose \
@@ -308,10 +317,11 @@ _write_headless_conf() {
 # why: per-stage params
 @test "_generate_resolved_compose: carries the deployed stage's resolved params (privileged/gpu/devices) (#832)" {
   local _d; _d="$(mktemp -d)"
-  _write_conf "${_d}" "[deploy]" "gpu_mode = force" "gpu_count = 2" \
-    "gpu_capabilities = gpu compute" "dri_groups = off" "[gui]" "mode = off" \
+  _write_conf "${_d}" "[deploy]" 'gpu_mode = "force"' "gpu_count = 2" \
+    'gpu_capabilities = "gpu compute"' 'dri_groups = "off"' \
+    "[gui]" 'mode = "off"' \
     "[security]" "privileged = true" \
-    "[devices]" "device_1 = /dev/ttyUSB0"
+    "[[devices]]" 'path = "/dev/ttyUSB0"'
   local _out="${_d}/compose.yaml"
   local -A _binds=()
   SETUP_DETECT_DRI_GROUPS="" _generate_resolved_compose \
@@ -329,7 +339,8 @@ _write_headless_conf() {
 @test "_generate_resolved_compose: follows the stage -- gui off headless, gui force emits X11 (#832)" {
   local _d; _d="$(mktemp -d)"
   # gui off -> no X11.
-  _write_conf "${_d}" "[deploy]" "gpu_mode = off" "dri_groups = off" "[gui]" "mode = off"
+  _write_conf "${_d}" "[deploy]" 'gpu_mode = "off"' 'dri_groups = "off"' \
+    "[gui]" 'mode = "off"'
   local -A _binds=()
   SETUP_DETECT_DRI_GROUPS="" _generate_resolved_compose \
     "${_d}" runtime "img" "name" "${_d}/off.yaml" _binds
@@ -337,7 +348,8 @@ _write_headless_conf() {
   refute_output --partial "DISPLAY"
   refute_output --partial "X11-unix"
   # gui force -> X11 passthrough travels (a gui stage is not stripped).
-  _write_conf "${_d}" "[deploy]" "gpu_mode = off" "dri_groups = off" "[gui]" "mode = force"
+  _write_conf "${_d}" "[deploy]" 'gpu_mode = "off"' 'dri_groups = "off"' \
+    "[gui]" 'mode = "force"'
   SETUP_DETECT_DRI_GROUPS="" _generate_resolved_compose \
     "${_d}" runtime "img" "name" "${_d}/on.yaml" _binds
   run cat "${_d}/on.yaml"
@@ -349,9 +361,14 @@ _write_headless_conf() {
 # why: per-stage override
 @test "_generate_resolved_compose: per-stage [stage:runtime] override is applied (#832)" {
   local _d; _d="$(mktemp -d)"
-  _write_conf "${_d}" "[deploy]" "gpu_mode = off" "dri_groups = off" "[gui]" "mode = off" \
-    "[network]" "mode = host" \
-    "[stage:runtime]" "network.mode = bridge" "network.network_name = fieldnet"
+  # A [stage:*] header and its dotted override keys are both quoted: the
+  # shell reads back the literal key `network.mode`, so a bare dotted key
+  # (which TOML would nest into a `network` sub-table) is the wrong shape.
+  _write_conf "${_d}" "[deploy]" 'gpu_mode = "off"' 'dri_groups = "off"' \
+    "[gui]" 'mode = "off"' \
+    "[network]" 'mode = "host"' \
+    '["stage:runtime"]' '"network.mode" = "bridge"' \
+    '"network.network_name" = "fieldnet"'
   local -A _binds=()
   SETUP_DETECT_DRI_GROUPS="" _generate_resolved_compose \
     "${_d}" runtime "img" "name" "${_d}/compose.yaml" _binds
@@ -365,8 +382,9 @@ _write_headless_conf() {
 # why: ipc/shm literals
 @test "_generate_resolved_compose: shm_size + ipc emitted as literals under non-host ipc (#832)" {
   local _d; _d="$(mktemp -d)"
-  _write_conf "${_d}" "[deploy]" "gpu_mode = off" "dri_groups = off" "[gui]" "mode = off" \
-    "[network]" "ipc = private" "[resources]" "shm_size = 256m"
+  _write_conf "${_d}" "[deploy]" 'gpu_mode = "off"' 'dri_groups = "off"' \
+    "[gui]" 'mode = "off"' \
+    "[network]" 'ipc = "private"' "[resources]" 'shm_size = "256m"'
   local -A _binds=()
   SETUP_DETECT_DRI_GROUPS="" _generate_resolved_compose \
     "${_d}" runtime "img" "name" "${_d}/compose.yaml" _binds
@@ -383,9 +401,10 @@ _write_headless_conf() {
   # via env_file, because environment: outranks env_file and would make the
   # operator's .env.local override silently inert.
   local _d; _d="$(mktemp -d)"
-  _write_conf "${_d}" "[deploy]" "gpu_mode = off" "dri_groups = off" "[gui]" "mode = off" \
-    "[lifecycle]" "watchdog_check = pgrep -f my_node" "watchdog_interval = 30" \
-    "watchdog_on_fail = restart"
+  _write_conf "${_d}" "[deploy]" 'gpu_mode = "off"' 'dri_groups = "off"' \
+    "[gui]" 'mode = "off"' \
+    "[lifecycle]" 'watchdog_check = "pgrep -f my_node"' "watchdog_interval = 30" \
+    'watchdog_on_fail = "restart"'
   local -A _binds=()
   SETUP_DETECT_DRI_GROUPS="" _generate_resolved_compose \
     "${_d}" runtime "img" "name" "${_d}/compose.yaml" _binds
@@ -397,9 +416,10 @@ _write_headless_conf() {
 
 @test "_generate_bundle_env writes the field .env with watchdog + [environment] defaults (#868)" {
   local _d; _d="$(mktemp -d)"
-  _write_conf "${_d}" "[deploy]" "gpu_mode = off" "dri_groups = off" "[gui]" "mode = off" \
-    "[environment]" "env_1 = APP_MODE=default" \
-    "[lifecycle]" "watchdog_check = pgrep -f my_node" "watchdog_interval = 30"
+  _write_conf "${_d}" "[deploy]" 'gpu_mode = "off"' 'dri_groups = "off"' \
+    "[gui]" 'mode = "off"' \
+    "[environment]" 'env_1 = "APP_MODE=default"' \
+    "[lifecycle]" 'watchdog_check = "pgrep -f my_node"' "watchdog_interval = 30"
   local -A _ctx=()
   _resolve_deploy_context "${_d}" _ctx
   _generate_bundle_env "${_d}/.env" _ctx
@@ -426,8 +446,9 @@ _write_headless_conf() {
 
 @test "_generate_resolved_compose: gui X11 still owns the environment: block (#840)" {
   local _d; _d="$(mktemp -d)"
-  _write_conf "${_d}" "[deploy]" "gpu_mode = off" "dri_groups = off" "[gui]" "mode = force" \
-    "[lifecycle]" "watchdog_check = pgrep -f my_node"
+  _write_conf "${_d}" "[deploy]" 'gpu_mode = "off"' 'dri_groups = "off"' \
+    "[gui]" 'mode = "force"' \
+    "[lifecycle]" 'watchdog_check = "pgrep -f my_node"'
   local -A _binds=()
   SETUP_DETECT_DRI_GROUPS="" _generate_resolved_compose \
     "${_d}" runtime "img" "name" "${_d}/compose.yaml" _binds
@@ -449,16 +470,19 @@ _write_headless_conf() {
     "${_d}" runtime "img" "name" "${_d}/absent.yaml" _binds
   run grep -E '^    restart:' "${_d}/absent.yaml"
   assert_output "    restart: unless-stopped"
-  # Explicit `no` -> honoured instead of silently overridden.
-  _write_conf "${_d}" "[deploy]" "gpu_mode = off" "dri_groups = off" "[gui]" "mode = off" \
-    "[lifecycle]" "restart = no"
+  # Explicit `no` -> honoured instead of silently overridden. `no` is a
+  # restart-policy literal, not a TOML boolean, so it stays a quoted string.
+  _write_conf "${_d}" "[deploy]" 'gpu_mode = "off"' 'dri_groups = "off"' \
+    "[gui]" 'mode = "off"' \
+    "[lifecycle]" 'restart = "no"'
   SETUP_DETECT_DRI_GROUPS="" _generate_resolved_compose \
     "${_d}" runtime "img" "name" "${_d}/no.yaml" _binds
   run grep -E '^    restart:' "${_d}/no.yaml"
   assert_output "    restart: no"
   # on-failure:N -> honoured, YAML-quoted (a bare `:` would read as a mapping).
-  _write_conf "${_d}" "[deploy]" "gpu_mode = off" "dri_groups = off" "[gui]" "mode = off" \
-    "[lifecycle]" "restart = on-failure:5"
+  _write_conf "${_d}" "[deploy]" 'gpu_mode = "off"' 'dri_groups = "off"' \
+    "[gui]" 'mode = "off"' \
+    "[lifecycle]" 'restart = "on-failure:5"'
   SETUP_DETECT_DRI_GROUPS="" _generate_resolved_compose \
     "${_d}" runtime "img" "name" "${_d}/onfail.yaml" _binds
   run grep -E '^    restart:' "${_d}/onfail.yaml"
@@ -470,8 +494,9 @@ _write_headless_conf() {
   # apply does no schema revalidation, so a hand-edited conf can feed a
   # bogus policy here; it must not reach `docker compose up`.
   local _d; _d="$(mktemp -d)"
-  _write_conf "${_d}" "[deploy]" "gpu_mode = off" "dri_groups = off" "[gui]" "mode = off" \
-    "[lifecycle]" "restart = bogus"
+  _write_conf "${_d}" "[deploy]" 'gpu_mode = "off"' 'dri_groups = "off"' \
+    "[gui]" 'mode = "off"' \
+    "[lifecycle]" 'restart = "bogus"'
   local -A _binds=()
   SETUP_DETECT_DRI_GROUPS="" _generate_resolved_compose \
     "${_d}" runtime "img" "name" "${_d}/compose.yaml" _binds
@@ -778,9 +803,10 @@ DOCK
 _write_deploy_repo() {
   local _dir="${1}"
   mkdir -p "${_dir}"
-  printf '%s\n' "[deploy]" "gpu_mode = off" "dri_groups = off" "[gui]" "mode = off" \
-    "[environment]" "env_1 = ROS_DOMAIN_ID=42" \
-    "[security]" "privileged = true" > "${_dir}/.setup.conf"
+  printf '%s\n' "[deploy]" 'gpu_mode = "off"' 'dri_groups = "off"' \
+    "[gui]" 'mode = "off"' \
+    "[environment]" 'env_1 = "ROS_DOMAIN_ID=42"' \
+    "[security]" "privileged = true" > "${_dir}/setup.toml"
   cat > "${_dir}/Dockerfile" <<'DOCK'
 FROM scratch AS sys
 FROM sys AS devel
@@ -925,7 +951,7 @@ SH
 }
 
 # ════════════════════════════════════════════════════════════════════
-# .setup.conf.local and the field bundle (PRD invariant: an artifact
+# setup.local.toml and the field bundle (PRD invariant: an artifact
 # built for the field must not silently depend on a config layer that is
 # not under version control)
 #
@@ -936,13 +962,13 @@ SH
 # builds; what it must never be is quiet.
 # ════════════════════════════════════════════════════════════════════
 
-@test "_setup_deploy: refuses while .setup.conf.local is present (#893)" {
+@test "_setup_deploy: refuses while setup.local.toml is present (#893)" {
   local _d; _d="$(mktemp -d)"
   _write_deploy_repo "${_d}"
-  printf '[gui]\nmode = force\n' > "${_d}/.setup.conf.local"
+  printf '[gui]\nmode = "force"\n' > "${_d}/setup.local.toml"
   SETUP_DETECT_DRI_GROUPS="" run _setup_deploy --base-path "${_d}" --dry-run
   assert_failure
-  assert_output --partial ".setup.conf.local"
+  assert_output --partial "setup.local.toml"
   assert_output --partial "gui"
   assert_output --partial "--allow-local-override"
   rm -rf "${_d}"
@@ -951,12 +977,12 @@ SH
 @test "_setup_deploy: --allow-local-override proceeds and says what it accepted (#893)" {
   local _d; _d="$(mktemp -d)"
   _write_deploy_repo "${_d}"
-  printf '[gui]\nmode = force\n' > "${_d}/.setup.conf.local"
+  printf '[gui]\nmode = "force"\n' > "${_d}/setup.local.toml"
   SETUP_DETECT_DRI_GROUPS="" run _setup_deploy --base-path "${_d}" --dry-run \
     --allow-local-override
   assert_success
   assert_output --partial "deploy plan: stage=runtime"
-  assert_output --partial ".setup.conf.local"
+  assert_output --partial "setup.local.toml"
   rm -rf "${_d}"
 }
 
@@ -965,7 +991,7 @@ SH
   _write_deploy_repo "${_d}"
   SETUP_DETECT_DRI_GROUPS="" run _setup_deploy --base-path "${_d}" --dry-run
   assert_success
-  refute_output --partial ".setup.conf.local"
+  refute_output --partial "setup.local.toml"
   rm -rf "${_d}"
 }
 
@@ -974,7 +1000,7 @@ SH
   _render_deploy_readme "${_d}/README" myrepo runtime myrepo:runtime-v1 "gui network"
   run cat "${_d}/README"
   assert_success
-  assert_output --partial ".setup.conf.local"
+  assert_output --partial "setup.local.toml"
   assert_output --partial "gui, network"
   rm -rf "${_d}"
 }
@@ -984,7 +1010,7 @@ SH
   _render_deploy_readme "${_d}/README" myrepo runtime myrepo:runtime-v1 ""
   run cat "${_d}/README"
   assert_success
-  refute_output --partial ".setup.conf.local"
+  refute_output --partial "setup.local.toml"
   rm -rf "${_d}"
 }
 
@@ -995,8 +1021,8 @@ SH
   # docker runs, and this suite never invokes a daemon.
   local _d; _d="$(mktemp -d)"
   _write_deploy_repo "${_d}"
-  printf '[gui]\nmode = force\n[network]\nmode = bridge\n' \
-    > "${_d}/.setup.conf.local"
+  printf '[gui]\nmode = "force"\n[network]\nmode = "bridge"\n' \
+    > "${_d}/setup.local.toml"
   README_PROBE="${_d}/readme-sections"
   _render_deploy_readme() { printf '%s\n' "${5-}" > "${README_PROBE}"; : > "${1}"; }
   export DRY_RUN=true
@@ -1022,7 +1048,7 @@ SH
 @test "_setup_deploy: errors when the repo has no Dockerfile (#832)" {
   local _d; _d="$(mktemp -d)"
   mkdir -p "${_d}"
-  printf '%s\n' "[deploy]" "gpu_mode = off" > "${_d}/.setup.conf"
+  printf '%s\n' "[deploy]" 'gpu_mode = "off"' > "${_d}/setup.toml"
   SETUP_DETECT_DRI_GROUPS="" run _setup_deploy --base-path "${_d}" --dry-run
   assert_failure
   assert_output --partial "no Dockerfile"
@@ -1129,7 +1155,7 @@ SH
   # and the deprecated key is reported whenever it is still in the conf
   # -- otherwise a half-finished migration is invisible on both paths.
   local _d; _d="$(mktemp -d)"
-  _write_conf "${_d}" "[deploy]" "gpu_runtime = off" "runtime = nvidia"
+  _write_conf "${_d}" "[deploy]" 'gpu_runtime = "off"' 'runtime = "nvidia"'
   local -A _ctx=()
   LOG_FORMAT=json run _resolve_deploy_context "${_d}" _ctx
   assert_success

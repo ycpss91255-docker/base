@@ -86,15 +86,15 @@ _msg_help() {
     ja:docker.prune)    echo "ビルドキャッシュ / 未使用イメージを削除" ;;
     *:docker.prune)     echo "Prune build cache / dangling images" ;;
 
-    zh-TW:docker.setup) echo "依 setup.conf 重新產生 .env / .env.generated 與 compose.yaml" ;;
-    zh-CN:docker.setup) echo "依 setup.conf 重新生成 .env / .env.generated 与 compose.yaml" ;;
-    ja:docker.setup)    echo "setup.conf から .env / .env.generated と compose.yaml を再生成" ;;
-    *:docker.setup)     echo "Regenerate .env / .env.generated / compose.yaml from setup.conf" ;;
+    zh-TW:docker.setup) echo "依 setup.toml 重新產生 .env / .env.generated 與 compose.yaml" ;;
+    zh-CN:docker.setup) echo "依 setup.toml 重新生成 .env / .env.generated 与 compose.yaml" ;;
+    ja:docker.setup)    echo "setup.toml から .env / .env.generated と compose.yaml を再生成" ;;
+    *:docker.setup)     echo "Regenerate .env / .env.generated / compose.yaml from setup.toml" ;;
 
-    zh-TW:docker.setup-tui) echo "以互動式 TUI 編輯 setup.conf" ;;
-    zh-CN:docker.setup-tui) echo "以交互式 TUI 编辑 setup.conf" ;;
-    ja:docker.setup-tui)    echo "対話型 TUI で setup.conf を編集" ;;
-    *:docker.setup-tui)     echo "Interactive TUI to edit setup.conf" ;;
+    zh-TW:docker.setup-tui) echo "以互動式 TUI 編輯 setup.toml" ;;
+    zh-CN:docker.setup-tui) echo "以交互式 TUI 编辑 setup.toml" ;;
+    ja:docker.setup-tui)    echo "対話型 TUI で setup.toml を編集" ;;
+    *:docker.setup-tui)     echo "Interactive TUI to edit setup.toml" ;;
 
     # ── base namespace ─────────────────────────────────────────────
     zh-TW:base.upgrade) echo "拉取 .base subtree（just base upgrade [vX.Y.Z]；留空 = 最新）" ;;

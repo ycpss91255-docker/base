@@ -85,10 +85,10 @@ CONF
 # why: Global logging read
 @test "_collect_logging reads global [logging] from per-repo setup.conf" {
   mkdir -p "${TEMP_DIR}"
-  cat > "${TEMP_DIR}/.setup.conf" <<'CONF'
+  cat > "${TEMP_DIR}/setup.toml" <<'CONF'
 [logging]
-driver = local
-max_size = 20m
+driver = "local"
+max_size = "20m"
 CONF
   local _g="" _p=""
   _collect_logging "${TEMP_DIR}" _g _p
@@ -100,12 +100,12 @@ CONF
 # why: Per-service logging read
 @test "_collect_logging reads per-service [logging.<svc>] sections" {
   mkdir -p "${TEMP_DIR}"
-  cat > "${TEMP_DIR}/.setup.conf" <<'CONF'
+  cat > "${TEMP_DIR}/setup.toml" <<'CONF'
 [logging]
-driver = json-file
+driver = "json-file"
 
 [logging.runtime]
-max_size = 100m
+max_size = "100m"
 compress = false
 CONF
   local _g="" _p=""
@@ -114,32 +114,62 @@ CONF
   [[ "${_p}" == *"runtime:compress=false"* ]]
 }
 
-@test "_collect_logging: .setup.conf.local replaces the [logging] section (#893)" {
+# why: ADR-00000037's table rule is unqualified and logging is not an
+# exception to it: a per-worktree layer that moves `driver` must not
+# silently discard the `max_size` the repo committed. This case used to
+# assert the opposite -- the blanket section-replace the ADR amended --
+# and it was green, which is how the reader and the ADR drifted apart.
+@test "_collect_logging: setup.local.toml merges the [logging] table key by key (#893)" {
   mkdir -p "${TEMP_DIR}"
-  cat > "${TEMP_DIR}/.setup.conf" <<'CONF'
+  cat > "${TEMP_DIR}/setup.toml" <<'CONF'
 [logging]
-driver = local
-max_size = 20m
+driver = "local"
+max_size = "20m"
 CONF
-  cat > "${TEMP_DIR}/.setup.conf.local" <<'CONF'
+  cat > "${TEMP_DIR}/setup.local.toml" <<'CONF'
 [logging]
-driver = journald
+driver = "journald"
 CONF
   local _g="" _p=""
   _collect_logging "${TEMP_DIR}" _g _p
   [[ "${_g}" == *"driver=journald"* ]] || { echo "got: ${_g}"; return 1; }
-  [[ "${_g}" != *"max_size=20m"* ]] || { echo "per-key merge leaked: ${_g}"; return 1; }
+  [[ "${_g}" == *"max_size=20m"* ]] || { echo "inherited key dropped: ${_g}"; return 1; }
 }
 
-@test "_collect_logging: .setup.conf.local supplies a [logging.<svc>] override (#893)" {
+# why: a nested table is a table, so the same rule has to reach
+# [logging.<svc>]. A local layer naming one key of a service used to take
+# the whole service with it -- the repo's driver for that one service
+# vanished because the override mentioned max_size.
+@test "_collect_logging: a local [logging.<svc>] key does not drop the rest (ADR-00000037)" {
   mkdir -p "${TEMP_DIR}"
-  cat > "${TEMP_DIR}/.setup.conf" <<'CONF'
+  cat > "${TEMP_DIR}/setup.toml" <<'CONF'
 [logging]
-driver = json-file
+driver = "json-file"
+
+[logging.web]
+driver = "local"
+max_file = "3"
 CONF
-  cat > "${TEMP_DIR}/.setup.conf.local" <<'CONF'
+  cat > "${TEMP_DIR}/setup.local.toml" <<'CONF'
+[logging.web]
+max_size = "100m"
+CONF
+  local _g="" _p=""
+  _collect_logging "${TEMP_DIR}" _g _p
+  [[ "${_p}" == *"web:max_size=100m"* ]] || { echo "got: ${_p}"; return 1; }
+  [[ "${_p}" == *"web:driver=local"* ]] || { echo "sub-table replaced: ${_p}"; return 1; }
+  [[ "${_p}" == *"web:max_file=3"* ]] || { echo "sub-table replaced: ${_p}"; return 1; }
+}
+
+@test "_collect_logging: setup.local.toml supplies a [logging.<svc>] override (#893)" {
+  mkdir -p "${TEMP_DIR}"
+  cat > "${TEMP_DIR}/setup.toml" <<'CONF'
+[logging]
+driver = "json-file"
+CONF
+  cat > "${TEMP_DIR}/setup.local.toml" <<'CONF'
 [logging.runtime]
-max_size = 100m
+max_size = "100m"
 CONF
   local _g="" _p=""
   _collect_logging "${TEMP_DIR}" _g _p
@@ -148,9 +178,9 @@ CONF
 
 @test "_collect_logging ignores an ambient SETUP_CONF (#893 decision 7)" {
   mkdir -p "${TEMP_DIR}"
-  cat > "${TEMP_DIR}/.setup.conf" <<'CONF'
+  cat > "${TEMP_DIR}/setup.toml" <<'CONF'
 [logging]
-driver = local
+driver = "local"
 CONF
   cat > "${TEMP_DIR}/elsewhere.conf" <<'CONF'
 [logging]
@@ -164,13 +194,17 @@ CONF
 # why: No-config empty
 @test "_collect_logging returns empty when no [logging] sections anywhere" {
   mkdir -p "${TEMP_DIR}"
-  cat > "${TEMP_DIR}/.setup.conf" <<'CONF'
-[image]
-rule_1 = @basename
+  # A per-repo setup.toml that configures something OTHER than logging.
+  # Now that the body is real TOML the bridge accepts the file, so the
+  # empty result below is the reader genuinely finding no [logging]
+  # anywhere -- not the reader bailing out on a file it cannot parse.
+  cat > "${TEMP_DIR}/setup.toml" <<'CONF'
+[[image.rules]]
+rule = "@basename"
 CONF
   local _g="" _p=""
   # Force template fallback to also miss (point _SETUP_SCRIPT_DIR at a
-  # path whose ../../.setup.conf does not exist).
+  # path whose ../../setup.toml does not exist).
   local _save="${_SETUP_SCRIPT_DIR:-}"
   _SETUP_SCRIPT_DIR="${TEMP_DIR}/nonexistent/docker"
   _collect_logging "${TEMP_DIR}" _g _p

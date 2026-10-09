@@ -314,8 +314,8 @@ teardown() {
 # ════════════════════════════════════════════════════════════════════
 
 # why: Documented adoption path matches in-image COPY
-@test "setup.conf [logging] comment block references in-image helper path (/usr/local/lib/base/, #368)" {
-  # The [logging] section in the template default setup.conf is the
+@test "setup.toml [logging] comment block references in-image helper path (/usr/local/lib/base/, #368)" {
+  # The [logging] section in the template default setup.toml is the
   # primary surface where downstream maintainers learn about the
   # local_path feature + the entrypoint helper. PR originally
   # pointed at `.base/dist/script/docker/runtime/logging.sh` (the
@@ -325,9 +325,9 @@ teardown() {
   # ships the helper into the image at /usr/local/lib/base/; the
   # comment must point there so the documented adoption path matches
   # the COPY in Dockerfile.example.
-  local _conf="/source/dist/.setup.conf"
+  local _conf="/source/dist/setup.toml"
   assert_spec_subject "${_conf}" \
-      "the shipped default setup.conf this spec pins"
+      "the shipped default setup.toml this spec pins"
   run grep -F '/usr/local/lib/base/_entrypoint_logging.sh' "${_conf}"
   assert_success
   # Negative guard: the broken path must not reappear.

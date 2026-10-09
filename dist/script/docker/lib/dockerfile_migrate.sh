@@ -361,7 +361,7 @@ _migrate_wrapper_copy_apply() {
 # "config/, always" would narrow the silent package loss rather than close
 # it. CONFIG_SRC is a build ARG: a repo can redeclare it in its own
 # Dockerfile, or set it as a compose build arg via a
-# `[build] arg_N = CONFIG_SRC=...` entry in .setup.conf. Either way
+# `[build] arg_N = CONFIG_SRC=...` entry in setup.toml. Either way
 # ${CONFIG_DIR} is overlaid from <repo>/<something-else>, config/ holds
 # nothing the RUN line reads, and reading it anyway would report "not
 # populated" over a real dependency list. So the source directory has to
@@ -392,10 +392,22 @@ readonly _DFM_LINE_CONTINUES_RE='\\[[:space:]]*$'
 # layer-2 `COPY "${CONFIG_SRC}" "${CONFIG_DIR}"` overlays onto ${CONFIG_DIR}.
 readonly _DFM_CONFIG_SRC_DEFAULT='config'
 
-# The conf keys that redirect the overlay, as one pattern. A build arg is
-# `arg_N = CONFIG_SRC=<dir>` under [build]; the section is not matched
-# because a key of this shape means nothing outside it.
-readonly _DFM_CONF_REDIRECT_RE='^[[:space:]]*arg_[0-9]+[[:space:]]*=[[:space:]]*CONFIG_SRC='
+# The conf keys that redirect the overlay, as one pattern, in both
+# spellings of a build arg.
+#
+# TOML is the shipped format: a build arg is an `[[build.args]]` block
+# whose `key` is CONFIG_SRC, and the name is a quoted string there -- the
+# `key = "CONFIG_SRC"` alternative is what makes this probe able to read a
+# real setup.toml at all. The bare `arg_N = CONFIG_SRC=<dir>` under
+# `[build]` is the INI spelling it replaced, kept so a layer written before
+# the conversion still answers. Neither alternative matches a section,
+# because a key of either shape means nothing outside its own.
+#
+# Grepping the layer rather than resolving the conf chain is deliberate:
+# the caller needs the per-layer three-answer status below (a layer that
+# says no is not a layer that could not be read), which a whole-chain merge
+# collapses into one.
+readonly _DFM_CONF_REDIRECT_RE=$'^[[:space:]]*(arg_[0-9]+[[:space:]]*=[[:space:]]*CONFIG_SRC=|key[[:space:]]*=[[:space:]]*[\'"]CONFIG_SRC[\'"][[:space:]]*$)'
 readonly _DFM_ARG_REDIRECT_RE='^[[:space:]]*ARG[[:space:]]+CONFIG_SRC='
 
 # The floor the conf chain must clear. _setup_conf_layers documents three
@@ -477,7 +489,7 @@ _dfm_conf_declares_redirect() {
 #   three ways the answer stops being a provable <repo>/config: something
 #   redirects CONFIG_SRC (an `ARG CONFIG_SRC=<non-default>` in the
 #   Dockerfile itself, or a `[build] arg_N = CONFIG_SRC=...` in ANY layer
-#   of the setup.conf chain, which reaches the build as a compose build
+#   of the setup.toml chain, which reaches the build as a compose build
 #   arg); the default directory is not next to the Dockerfile at all; or
 #   some layer of the chain could not be READ, which is not the same as a
 #   layer that says nothing. A bare `ARG CONFIG_SRC` with no `=` is a
@@ -485,7 +497,7 @@ _dfm_conf_declares_redirect() {
 #
 #   The conf layers are DERIVED from _setup_conf_layers rather than listed
 #   here. The chain is three files, not the two per-repo ones: the lowest
-#   is the template's own .setup.conf inside .base/dist, and the build
+#   is the template's own setup.toml inside .base/dist, and the build
 #   reads all three (setup_cmd.sh -> _setup_conf_handle ->
 #   _setup_conf_layers). A repo that never ran `init.sh --gen-conf` has no
 #   per-repo conf at all and runs on template defaults, so a hand-listed

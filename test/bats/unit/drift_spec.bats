@@ -49,17 +49,17 @@ load "${BATS_TEST_DIRNAME}/setup_spec_helper"
   detect_gui() { local -n _o=$1; _o="false"; }
   detect_gpu() { local -n _o=$1; _o="false"; }
 
-  # Drop in a new per-repo setup.conf → hash differs
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  # Drop in a new per-repo setup.toml → hash differs
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [gpu]
-mode = off
+mode = "off"
 EOF
 
   run _check_setup_drift "${TEMP_DIR}"
   # Non-zero exit lets build.sh/run.sh trigger auto-regen (v0.9.5+).
   assert_failure
   assert_output --partial "drift detected"
-  assert_output --partial "setup.conf modified"
+  assert_output --partial "setup.toml modified"
 }
 
 @test "_check_setup_drift returns non-zero when GPU detection changes" {

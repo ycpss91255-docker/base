@@ -24,6 +24,8 @@ conf_unknown_arg
 conf_upsert_file_missing
 conf_local_created
 conf_write_shadowed
+conf_toml_merge_failed
+conf_toml_parse_failed
 config_components_provisioned
 config_components_absent
 config_files_unprovisioned
@@ -181,6 +183,14 @@ init_failed
 init_rollback
 init_rollback_failed
 
+# ini_to_toml_migrate.sh (INI-to-TOML format migration; emitted under
+# the init service because init.sh is the only caller)
+ini_to_toml_migrated
+env_local_to_toml_migrated
+ini_to_toml_migration_declined
+ini_to_toml_index_unrepresentable
+ini_to_toml_duplicate_index
+
 # smoke_migrate.sh (repo-owned smoke tree layout; emitted under the init
 # service because init.sh is the only caller)
 smoke_tree_migrated
@@ -245,6 +255,7 @@ ci_catalog_description
 ci_spec_repo_root
 ci_test_name_backtick
 ci_log_event_registry
+ci_toml_fixture
 ci_home_literal
 ci_arch_literal
 ci_bash_source_guard
@@ -292,9 +303,6 @@ transcript_file_unwritable
 transcript_tee_missing
 transcript_env_invalid
 
-# toml_bridge.sh (host-side shim for the containerised TOML parser)
-no_such_file
-
 # compose.sh (project-name resolution)
 project_name_missing_from_env
 project_name_unrecorded
@@ -313,6 +321,16 @@ project_rename_probe_failed
 # are a table keyed by (section, prefix); a list with no complete row is
 # a defect, not a default.
 tui_list_labels_missing
+
+# toml_bridge.sh (host-side shim for the containerised TOML parser, and
+# the provisioning of the image it runs: the shim builds the bridge from
+# the shipped dockerfile/Dockerfile.toml-bridge under a content-digest
+# tag, because nothing else in the production init path ever did)
+no_such_file
+merge_no_files
+toml_bridge_building
+toml_bridge_build_failed
+toml_bridge_unprovisionable
 
 # general
 dry_run_cmd

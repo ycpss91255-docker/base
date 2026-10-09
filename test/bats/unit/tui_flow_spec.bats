@@ -104,7 +104,7 @@ setup() {
   # mutate state visibly to the parent. Each line: "<exit>|<response>".
   _QFILE="${BATS_TEST_TMPDIR}/tui_queue"
   : > "${_QFILE}"
-  # path: setup.conf lives at .setup.conf
+  # path: setup.conf lives at setup.toml
   mkdir -p "${BATS_TEST_TMPDIR}"
 
   # Override the dialog primitives from _tui_backend.sh AFTER sourcing
@@ -177,23 +177,29 @@ is_removed() {
 # ════════════════════════════════════════════════════════════════════
 
 @test "_load_current: pulls keys from repo conf when present" {
-  local _repo="${BATS_TEST_TMPDIR}/.setup.conf"
+  local _repo="${BATS_TEST_TMPDIR}/setup.toml"
   cat > "${_repo}" <<'EOF'
 [network]
-mode = bridge
+mode = "bridge"
 EOF
   _load_current "${_repo}" "/dev/null"
+  # `bridge` is not the schema default (`host`), so this can only hold if
+  # the repo file was read.
   [[ "${_TUI_CURRENT[network.mode]}" == "bridge" ]]
 }
 
 @test "_load_current: falls back to template conf when repo conf missing" {
-  local _tpl="${BATS_TEST_TMPDIR}/.setup.conf"
+  local _tpl="${BATS_TEST_TMPDIR}/setup.toml"
   cat > "${_tpl}" <<'EOF'
 [deploy]
-gpu_mode = auto
+gpu_mode = "force"
 EOF
   _load_current "${BATS_TEST_TMPDIR}/missing" "${_tpl}"
-  [[ "${_TUI_CURRENT[deploy.gpu_mode]}" == "auto" ]]
+  # `force` rather than the `auto` this fixture used to carry: `auto` IS
+  # the schema default for deploy.gpu_mode, so an assertion on it could
+  # not tell "the template was read" from "nothing was read and the
+  # default stood in" -- which is the whole claim of this test.
+  [[ "${_TUI_CURRENT[deploy.gpu_mode]}" == "force" ]]
 }
 
 @test "_load_current: returns 0 silently when both files missing" {

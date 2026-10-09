@@ -126,7 +126,7 @@ _require_clean_merge_state() {
 #
 # `[lifecycle] restart` used to be a DEVEL-scoped key whose template
 # default was the literal `restart = no`, and `init.sh --gen-conf` copies
-# the WHOLE template to `<repo>/.setup.conf` -- so every downstream repo
+# the WHOLE template to `<repo>/setup.toml` -- so every downstream repo
 # carries that literal whether or not anyone chose it. The key is now
 # DEPLOY-scoped (deployable stages + the field bundle, never devel, never
 # `*-test`) with a shipped default of `unless-stopped`, which makes the
@@ -146,8 +146,8 @@ _require_clean_merge_state() {
 # sees a clean tree.
 _migrate_lifecycle_restart_default() {
   local _root="${1:?"${FUNCNAME[0]}: missing repo_root"}"
-  local _conf="${_root}/.setup.conf"
-  local _tpl="${_root}/${TEMPLATE_REL}/dist/.setup.conf"
+  local _conf="${_root}/setup.toml"
+  local _tpl="${_root}/${TEMPLATE_REL}/dist/setup.toml"
 
   [[ -f "${_conf}" ]] || return 0
   # No vendored baseline -> cannot tell whether this upgrade crosses the
@@ -166,8 +166,9 @@ _migrate_lifecycle_restart_default() {
       _section="${_trimmed#\[}"
       _section="${_section%\]}"
     elif [[ "${_section}" == "lifecycle" ]] \
-         && [[ "${_trimmed}" =~ ^restart[[:space:]]*=[[:space:]]*no$ ]]; then
-      _line="restart = unless-stopped"
+         && [[ "${_trimmed}" =~ ^restart[[:space:]]*=[[:space:]]*(.*)$ ]] \
+         && [[ "$(_unquote_scalar "${BASH_REMATCH[1]}")" == "no" ]]; then
+      _line='restart = "unless-stopped"'
     fi
     printf '%s\n' "${_line}" >> "${_tmp}"
   done < "${_conf}"
@@ -181,12 +182,12 @@ _migrate_lifecycle_restart_default() {
   _log "            applies to deployable stages + the field bundle only,"
   _log "            never to devel or a *-test stage, and a field service"
   _log "            is meant to auto-start again after a host reboot)"
-  _log "           Set it back to 'no' in .setup.conf if that is what you"
+  _log "           Set it back to 'no' in setup.toml if that is what you"
   _log "           actually want -- it will not be rewritten again."
 
-  if git -C "${_root}" ls-files --error-unmatch ".setup.conf" \
+  if git -C "${_root}" ls-files --error-unmatch "setup.toml" \
        >/dev/null 2>&1; then
-    git -C "${_root}" add ".setup.conf"
+    git -C "${_root}" add "setup.toml"
     git -C "${_root}" commit -q \
       -m "chore: migrate [lifecycle] restart default to unless-stopped" \
       || _log "  (nothing staged for the restart-default migration)"
@@ -201,10 +202,32 @@ _trim_ws() {
   printf '%s' "${_s%"${_s##*[![:space:]]}"}"
 }
 
+# _unquote_scalar <text>
+#   Echo <text> trimmed, with one matching pair of surrounding string
+#   quotes removed: `"no"` -> `no`, `'no'` -> `no`, `no` -> `no`.
+#
+#   setup.toml is TOML, where a string value is ALWAYS quoted, so a reader
+#   that compares the raw text after the `=` is comparing the spelling and
+#   not the value -- `restart = "no"` reads back as `"no"` and never equals
+#   `no`. Both basic and literal strings are accepted, and so is the bare
+#   INI spelling the format replaced, so a file written before the
+#   conversion still reads.
+_unquote_scalar() {
+  local _s
+  _s="$(_trim_ws "${1-}")"
+  if (( ${#_s} >= 2 )); then
+    case "${_s}" in
+      '"'*'"'|"'"*"'") _s="${_s:1:${#_s}-2}" ;;
+    esac
+  fi
+  printf '%s' "${_s}"
+}
+
 # _lifecycle_restart_is <conf_path> <value>
 #   True when <conf_path> carries `restart = <value>` inside its
-#   `[lifecycle]` section. Section-scoped on purpose: a `[stage:*]`
-#   section may legitimately carry its own `restart` key.
+#   `[lifecycle]` section, whatever TOML spelling the value is written in.
+#   Section-scoped on purpose: a `[stage:*]` section may legitimately carry
+#   its own `restart` key.
 _lifecycle_restart_is() {
   local _path="${1:?}" _want="${2:?}"
   local _line _trimmed _section=""
@@ -217,7 +240,7 @@ _lifecycle_restart_is() {
     fi
     [[ "${_section}" == "lifecycle" ]] || continue
     [[ "${_trimmed}" =~ ^restart[[:space:]]*=[[:space:]]*(.*)$ ]] || continue
-    [[ "$(_trim_ws "${BASH_REMATCH[1]}")" == "${_want}" ]] && return 0
+    [[ "$(_unquote_scalar "${BASH_REMATCH[1]}")" == "${_want}" ]] && return 0
   done < "${_path}"
   return 1
 }
@@ -568,8 +591,8 @@ _upgrade() {
   # the freshly pulled subtree, and it gates on the file's CONTENT rather
   # than on a version marker so it is inert everywhere else.
 
-  # NOTE: the relocation of a legacy per-repo `setup.conf` from under
-  # `config/` to the repo-root dotfile is not called
+  # NOTE: the relocation of a legacy per-repo `setup.toml` from under
+  # `config/` to the repo root is not called
   # from here either, for the same reason. It used to be, and that is
   # base#1086: a repo still carrying the old path is exactly a repo on
   # v0.41.0 or earlier, whose vendored driver has never heard of the
@@ -598,13 +621,13 @@ _upgrade() {
   # hash later by _warn_config_drift.
   _pre_config_hash="$(git rev-parse --verify "HEAD:${TEMPLATE_REL}/dist/config" 2>/dev/null || true)"
 
-  # Snapshot pre-pull setup.conf hash too. Path is the location
-  # ${TEMPLATE_REL}/dist/.setup.conf. If the upstream baseline
+  # Snapshot pre-pull setup.toml hash too. Path is the location
+  # ${TEMPLATE_REL}/dist/setup.toml. If the upstream baseline
   # changed, the user may want to copy new sections / keys into their
-  # per-repo setup.conf override ('s 2-file model makes this a
+  # per-repo setup.toml override ('s 2-file model makes this a
   # manual merge — we never overwrite the user's file).
   local _pre_setup_conf_hash=""
-  _pre_setup_conf_hash="$(git rev-parse --verify "HEAD:${TEMPLATE_REL}/dist/.setup.conf" 2>/dev/null || true)"
+  _pre_setup_conf_hash="$(git rev-parse --verify "HEAD:${TEMPLATE_REL}/dist/setup.toml" 2>/dev/null || true)"
 
   # What is untracked BEFORE anything moves, so a rollback can tell the
   # user's own stray files (leave them) from the ones an aborted upgrade
@@ -768,9 +791,9 @@ COMMIT
   # baseline didn't change or there was no prior baseline.
   _warn_config_drift "${_pre_config_hash}"
 
-  # Same pattern for .base/dist/.setup.conf: the user's per-repo
-  # .setup.conf is the override file (committed, never overwritten by
-  # template upgrades). When the upstream .base/dist/.setup.conf adds new
+  # Same pattern for .base/dist/setup.toml: the user's per-repo
+  # setup.toml is the override file (committed, never overwritten by
+  # template upgrades). When the upstream .base/dist/setup.toml adds new
   # sections / keys / changes defaults, point the user at the diff so
   # they can opt in.
   _warn_setup_conf_drift "${_pre_setup_conf_hash}"
@@ -942,28 +965,28 @@ _warn_config_drift() {
 
 # _warn_setup_conf_drift <pre_pull_blob_hash>
 #
-# sibling of _warn_config_drift. <repo>/.setup.conf
+# sibling of _warn_config_drift. <repo>/setup.toml
 # (path) is the user-owned override file; this script never
-# rewrites it. When the upstream template-side setup.conf changes (new
+# rewrites it. When the upstream template-side setup.toml changes (new
 # sections, new keys, default tweaks), surface a pointer to the diff so
 # the user can hand-merge any upstream additions they want into their
 # override. Silent on no change.
 _warn_setup_conf_drift() {
   local _pre="${1:-}"
   local _post
-  _post="$(git rev-parse --verify "HEAD:${TEMPLATE_REL}/dist/.setup.conf" 2>/dev/null || true)"
+  _post="$(git rev-parse --verify "HEAD:${TEMPLATE_REL}/dist/setup.toml" 2>/dev/null || true)"
   [[ -z "${_post}" ]] && return 0
   [[ "${_pre}" == "${_post}" ]] && return 0
   _log ""
-  _log "WARNING: ${TEMPLATE_REL}/dist/.setup.conf changed upstream since the last pull."
-  _log "         Your .setup.conf is the user override and was NOT updated."
+  _log "WARNING: ${TEMPLATE_REL}/dist/setup.toml changed upstream since the last pull."
+  _log "         Your setup.toml is the user override and was NOT updated."
   _log "         Review the diff and copy any new sections / keys you want:"
   _log ""
-  _log "           diff -u ${TEMPLATE_REL}/dist/.setup.conf .setup.conf"
+  _log "           diff -u ${TEMPLATE_REL}/dist/setup.toml setup.toml"
   if [[ -n "${_pre}" ]]; then
     _log ""
-    _log "         Upstream-only diff (what moved in ${TEMPLATE_REL}/dist/.setup.conf):"
-    _log "           git diff ${_pre:0:12}..${_post:0:12} -- ${TEMPLATE_REL}/dist/.setup.conf"
+    _log "         Upstream-only diff (what moved in ${TEMPLATE_REL}/dist/setup.toml):"
+    _log "           git diff ${_pre:0:12}..${_post:0:12} -- ${TEMPLATE_REL}/dist/setup.toml"
   fi
 }
 
@@ -979,8 +1002,8 @@ Upgrade ${TEMPLATE_REL} subtree to the latest (or specified) version.
 Arguments:
   VERSION       Target version (e.g. v0.5.0). Defaults to latest tag.
   --check       Check if an update is available (no changes made)
-  --gen-conf    Copy ${TEMPLATE_REL}/dist/.setup.conf to
-                <repo>/.setup.conf for per-repo overrides
+  --gen-conf    Copy ${TEMPLATE_REL}/dist/setup.toml to
+                <repo>/setup.toml for per-repo overrides
                 (delegates to init.sh --gen-conf)
   --lang LANG   Message language (en|zh-TW|zh-CN|ja; default: auto-detect
                 from SETUP_LANG / \$LANG)

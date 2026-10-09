@@ -32,7 +32,7 @@ _load_env() {
 # The distinction it draws is between a file that is MISSING and a file
 # that is BROKEN. `.env.generated` is a configured consumer's
 # interpolation cache: a self-managed checkout (base itself -- no
-# `.setup.conf`, no `.base/` subtree, a hand-authored compose.yaml) never
+# `setup.toml`, no `.base/` subtree, a hand-authored compose.yaml) never
 # writes one and never will, so its absence is that checkout's normal
 # state and not an error to report. A file that EXISTS and fails to source
 # still aborts the caller, exactly as _load_env does.

@@ -53,7 +53,7 @@
 # coexist on a host. Stage names must match `^[a-z][a-z0-9_-]*$` and must
 # not collide with `latest` / `v[0-9]*` (reserved release tag
 # namespace). Use case: entrypoint variants like `headless` + `gui`
-# for the same baseline. No setup.conf change needed; run any wrapper
+# for the same baseline. No setup.toml change needed; run any wrapper
 # to regenerate compose.yaml, then `./run.sh -t <stage>`.
 #
 # Backward-compat: the legacy stage names `base` and `test` are still
@@ -127,17 +127,19 @@
 # routes, in the order to reach for them:
 #
 #   1. LOCAL, and the one this repo actually drives builds through: add
-#      it to the `[build]` arg list in the repo-root `.setup.conf`, next
+#      it to the `[[build.args]]` list in the repo-root `setup.toml`, next
 #      to the APT_MIRROR_* / TZ args already there --
 #
-#        arg_4 = BASE_IMAGE_DIGEST=sha256:<digest>
+#        [[build.args]]
+#        key = "BASE_IMAGE_DIGEST"
+#        value = "sha256:<digest>"
 #
 #      -- then `just setup` (which emits it into compose.yaml's build
 #      `args:` and into `.env`) and `just build`. The value is versioned
 #      with the repo instead of living in one shell's history, and no
-#      template-owned line is edited. `.setup.conf.local` takes the same
-#      key for a machine-local value, but a section written there
-#      replaces the whole `[build]` section -- restate the other args
+#      template-owned line is edited. `setup.local.toml` takes the same
+#      entry for a machine-local value, but a layer that defines any
+#      `[[build.args]]` replaces the whole list -- restate the other args
 #      in it or lose them.
 #   2. CI: the `build_args:` input of base's reusable build-worker
 #      workflow, which forwards it to every build step.
@@ -333,7 +335,7 @@ ARG CONFIG_DIR="/tmp/config"
 # second overlays <repo>/config/ on top. File-level merge -- files in
 # <repo>/config/ replace same-path files in /tmp/config/; files only
 # in .base/dist/config/ stay; files only in <repo>/config/ are added.
-# Mental model is the same as setup.conf section-replace, just at
+# Mental model is the same as setup.toml section-replace, just at
 # file granularity. <repo>/config/ becomes opt-in (init.sh seeds an
 # empty .gitkeep for new repos, not the full tree); existing repos
 # with a full <repo>/config/ snapshot from earlier seed continue to

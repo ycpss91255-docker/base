@@ -46,7 +46,7 @@ load "${BATS_TEST_DIRNAME}/setup_spec_helper"
 }
 
 @test "main apply subcommand regenerates .env + compose.yaml" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
@@ -97,9 +97,9 @@ load "${BATS_TEST_DIRNAME}/setup_spec_helper"
   detect_gui() { local -n _o=$1; _o="false"; }
   detect_gpu() { local -n _o=$1; _o="false"; }
 
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [gpu]
-mode = off
+mode = "off"
 EOF
 
   run main check-drift --base-path "${TEMP_DIR}"
@@ -107,8 +107,8 @@ EOF
   assert_output --partial "drift detected"
 }
 
-@test "check-drift prints WARN when per-repo setup.conf is missing (#186)" {
-  # No TEMP_DIR/.setup.conf created — check-drift should announce the
+@test "check-drift prints WARN when per-repo setup.toml is missing (#186)" {
+  # No TEMP_DIR/setup.toml created — check-drift should announce the
   # template-default fallback the same way `apply` does, so users
   # running the build.sh drift-check path see the heads-up too.
   run bash -c "
@@ -116,11 +116,11 @@ EOF
     main check-drift --base-path '${TEMP_DIR}' 2>&1
   "
   assert_output --partial "[setup] WARN :"
-  assert_output --partial "no per-repo setup.conf"
+  assert_output --partial "no per-repo setup.toml"
 }
 
-@test "check-drift prints WARN when per-repo setup.conf has no section headers (#186)" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+@test "check-drift prints WARN when per-repo setup.toml has no section headers (#186)" {
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 # only comments, no [section] headers
 EOF
   run bash -c "
@@ -128,23 +128,23 @@ EOF
     main check-drift --base-path '${TEMP_DIR}' 2>&1
   "
   assert_output --partial "[setup] WARN :"
-  assert_output --partial "per-repo setup.conf has no section"
+  assert_output --partial "per-repo setup.toml has no section overrides"
 }
 
-@test "check-drift stays silent when per-repo setup.conf has at least one section" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+@test "check-drift stays silent when per-repo setup.toml has at least one section" {
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [gpu]
-mode = auto
+mode = "auto"
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main check-drift --base-path '${TEMP_DIR}' 2>&1
   "
-  refute_output --partial "no per-repo setup.conf"
-  refute_output --partial "per-repo setup.conf has no section"
+  refute_output --partial "no per-repo setup.toml"
+  refute_output --partial "per-repo setup.toml has no section overrides"
 }
 
-@test "check-drift --lang zh-TW prints WARN in Traditional Chinese when setup.conf missing (#186)" {
+@test "check-drift --lang zh-TW prints WARN in Traditional Chinese when setup.toml missing (#186)" {
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main check-drift --base-path '${TEMP_DIR}' --lang zh-TW 2>&1
@@ -173,16 +173,16 @@ EOF
   # is an umbrella that sources lib/*.sh sub-libs
   cp /source/dist/script/docker/lib/_lib.sh "${TEMP_DIR}/sandbox/.base/dist/script/docker/lib/_lib.sh"
   cp /source/dist/script/docker/lib/* "${TEMP_DIR}/sandbox/.base/dist/script/docker/lib/"
-  cp /source/dist/.setup.conf "${TEMP_DIR}/sandbox/.base/dist/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/sandbox/.base/dist/setup.toml"
 
   bash "${TEMP_DIR}/sandbox/.base/dist/script/docker/wrapper/setup.sh" apply \
     --base-path "${TEMP_DIR}/sandbox" >/dev/null 2>&1
 
   # drift hash covers template + setup.conf. Mutating .local
   # after apply triggers detection.
-  cat > "${TEMP_DIR}/sandbox/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/sandbox/setup.toml" <<'EOF'
 [gpu]
-mode = off
+mode = "off"
 EOF
 
   run bash "${TEMP_DIR}/sandbox/.base/dist/script/docker/wrapper/setup.sh" \
@@ -201,7 +201,7 @@ EOF
 # ════════════════════════════════════════════════════════════════════
 
 @test "set writes a value into an existing section, round-trip via show" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   run main set deploy.gpu_count all --base-path "${TEMP_DIR}"
   assert_success
   run main show deploy.gpu_count --base-path "${TEMP_DIR}"
@@ -210,9 +210,9 @@ EOF
 }
 
 @test "set creates a new key when section exists but key is absent" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [network]
-mode = host
+mode = "host"
 EOF
   run main set network.privileged true --base-path "${TEMP_DIR}"
   assert_success
@@ -222,9 +222,11 @@ EOF
 }
 
 @test "set creates section + key when section is absent" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [image]
-rule_1 = @basename
+
+[[image.rules]]
+rule = "@basename"
 EOF
   run main set resources.shm_size 512m --base-path "${TEMP_DIR}"
   assert_success
@@ -234,7 +236,7 @@ EOF
 }
 
 @test "set project.name accepts a compose-legal name and show round-trips it (#893)" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   run main set project.name myrepo-wt2 --base-path "${TEMP_DIR}"
   assert_success
   run main show project.name --base-path "${TEMP_DIR}"
@@ -243,15 +245,18 @@ EOF
 }
 
 @test "set project.name rejects a name docker compose would reject (#893)" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   run main set project.name "Not A Project" --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Invalid value"
 }
 
 @test "apply records the resolved project name in .env.generated (#893)" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
-  printf '\n[project]\nname = myrepo-wt2\n' >> "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
+  # The template already carries a [project] table and TOML refuses a
+  # second header for the same table, so the name is set in place rather
+  # than appended. `name = ""` is unique to [project] in the template.
+  sed -i 's/^name = ""$/name = "myrepo-wt2"/' "${TEMP_DIR}/setup.toml"
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
@@ -268,7 +273,7 @@ EOF
   # containers by and compose cannot relabel a running container, so apply
   # records the name the checkout already had and carries the resolved one
   # beside it. The wrapper adopts it once the old project is empty.
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
@@ -302,7 +307,7 @@ EOF
   # checkout, that file would take the newly derived name with nothing
   # pending -- the silent rename over a live stack, on precisely the repos
   # that are mid-migration.
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
@@ -337,7 +342,7 @@ EOF
   # The other half: the reconstruction must not manufacture a rename. A
   # repo whose recorded hub user is still the detected one runs under the
   # name apply resolves, so the ordinary upgrade stays silent.
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
@@ -354,7 +359,7 @@ EOF
 }
 
 @test "apply on a fresh checkout records the resolved name with nothing pending (#920)" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
@@ -367,7 +372,7 @@ EOF
 @test "apply drops a pending name once the derivation agrees again (#920)" {
   # The pending key is a note about a divergence, not state to maintain:
   # every apply re-derives it, so a resolution that agrees again clears it.
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
@@ -408,8 +413,10 @@ EOF
   # shared name is occupied. Taken at once, therefore -- and said out
   # loud, because compose cannot relabel whatever is still up under the
   # old name.
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
-  printf '\n[project]\nname = myrepo-wt1\n' >> "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
+  # Set in place: TOML refuses a second [project] header, and the
+  # template already ships one. `name = ""` is unique to it.
+  sed -i 's/^name = ""$/name = "myrepo-wt1"/' "${TEMP_DIR}/setup.toml"
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
@@ -418,7 +425,7 @@ EOF
   run grep -Fx 'PROJECT_NAME=myrepo-wt1' "${TEMP_DIR}/.env.generated"
   assert_success
 
-  sed -i 's/^name = myrepo-wt1$/name = myrepo-wt2/' "${TEMP_DIR}/.setup.conf"
+  sed -i 's/^name = "myrepo-wt1"$/name = "myrepo-wt2"/' "${TEMP_DIR}/setup.toml"
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
@@ -434,12 +441,14 @@ EOF
 }
 
 @test "the shipped template ships [project] name empty, so an upgrade changes nothing (#893)" {
-  # The section must exist in .setup.conf too: .setup.conf.local is the
-  # LOCAL VARIANT of .setup.conf and shares its grammar. A section that
+  # The section must exist in setup.toml too: setup.local.toml is the
+  # LOCAL VARIANT of setup.toml and shares its grammar. A section that
   # only ever appeared in .local would be a second schema.
-  run grep -Fx '[project]' /source/dist/.setup.conf
+  run grep -Fx '[project]' /source/dist/setup.toml
   assert_success
-  run grep -E '^name =[[:space:]]*$' /source/dist/.setup.conf
+  # The TOML empty string is `""`, not an empty right-hand side: a bare
+  # `name =` would make the whole file unparseable.
+  run grep -E '^name = ""$' /source/dist/setup.toml
   assert_success
 }
 
@@ -447,8 +456,8 @@ EOF
 # --local: which file a write lands in, and saying so when it will not
 # be the file that is read
 #
-# The default target stays .setup.conf -- the committed, shared value.
-# --local targets the gitignored .setup.conf.local. Writing the committed
+# The default target stays setup.toml -- the committed, shared value.
+# --local targets the gitignored setup.local.toml. Writing the committed
 # file while .local already defines that section is NOT refused: under
 # section-replace the write is provably inert ON THIS MACHINE, but the
 # value is still the one CI and every other checkout uses. It is warned,
@@ -459,85 +468,101 @@ EOF
 # requirement and not a nicety.
 # ════════════════════════════════════════════════════════════════════
 
-@test "set --local writes .setup.conf.local and leaves .setup.conf alone (#893)" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+@test "set --local writes setup.local.toml and leaves setup.toml alone (#893)" {
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   run main set --local project.name myrepo-wt2 --base-path "${TEMP_DIR}"
   assert_success
-  run grep -Ex 'name = myrepo-wt2' "${TEMP_DIR}/.setup.conf.local"
+  run grep -Fx 'name = "myrepo-wt2"' "${TEMP_DIR}/setup.local.toml"
   assert_success
-  run grep -Ex 'name = myrepo-wt2' "${TEMP_DIR}/.setup.conf"
+  run grep -Fx 'name = "myrepo-wt2"' "${TEMP_DIR}/setup.toml"
   assert_failure
 }
 
-@test "set without --local still writes .setup.conf (#893)" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+@test "set without --local still writes setup.toml (#893)" {
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   run main set project.name myrepo --base-path "${TEMP_DIR}"
   assert_success
-  run grep -Ex 'name = myrepo' "${TEMP_DIR}/.setup.conf"
+  run grep -Fx 'name = "myrepo"' "${TEMP_DIR}/setup.toml"
   assert_success
-  [[ ! -e "${TEMP_DIR}/.setup.conf.local" ]] \
+  [[ ! -e "${TEMP_DIR}/setup.local.toml" ]] \
     || fail "a plain set created the local override file"
 }
 
 @test "set --local reports the gitignored file it created (#893)" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   run main set --local project.name myrepo-wt2 --base-path "${TEMP_DIR}"
   assert_success
-  assert_output --partial ".setup.conf.local"
+  assert_output --partial "setup.local.toml"
 }
 
 @test "set warns, names the section and points at --local when .local shadows it (#893)" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
-  printf '[network]\nmode = bridge\n' > "${TEMP_DIR}/.setup.conf.local"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
+  printf '[network]\nmode = "bridge"\n' > "${TEMP_DIR}/setup.local.toml"
   run main set network.mode host --base-path "${TEMP_DIR}"
   assert_success
   assert_output --partial "network"
-  assert_output --partial ".setup.conf.local"
+  assert_output --partial "setup.local.toml"
   assert_output --partial "--local"
   # Warned, NOT refused: the value is still what CI and every other
-  # checkout of this repo will use.
-  run grep -E '^mode = host$' "${TEMP_DIR}/.setup.conf"
+  # checkout of this repo will use. The writer emits TOML, so the stored
+  # scalar is a quoted basic string.
+  run grep -Fx 'mode = "host"' "${TEMP_DIR}/setup.toml"
   assert_success
 }
 
 @test "set does not warn about a section the local layer does not define (#893)" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
-  printf '[network]\nmode = bridge\n' > "${TEMP_DIR}/.setup.conf.local"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
+  printf '[network]\nmode = "bridge"\n' > "${TEMP_DIR}/setup.local.toml"
   run main set gui.mode off --base-path "${TEMP_DIR}"
   assert_success
-  refute_output --partial ".setup.conf.local"
+  refute_output --partial "setup.local.toml"
 }
 
 @test "set --local does not warn about the file it is writing (#893)" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
-  printf '[network]\nmode = bridge\n' > "${TEMP_DIR}/.setup.conf.local"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
+  printf '[network]\nmode = "bridge"\n' > "${TEMP_DIR}/setup.local.toml"
   run main set --local network.mode host --base-path "${TEMP_DIR}"
   assert_success
-  refute_output --partial "will NOT"
+  refute_output --partial "may have no effect"
 }
 
 @test "add --local appends to the local layer's section (#893)" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   run main add --local volumes.mount /tmp/wt2:/data --base-path "${TEMP_DIR}"
   assert_success
-  run grep -F '/tmp/wt2:/data' "${TEMP_DIR}/.setup.conf.local"
+  # The entry is a `[[volumes]]` block (source / target); the bridge
+  # joins it back into the mount the user typed.
+  run toml_bridge_parse "${TEMP_DIR}/setup.local.toml" --kv
   assert_success
-  run grep -F '/tmp/wt2:/data' "${TEMP_DIR}/.setup.conf"
+  assert_line 'volumes	mount_1	/tmp/wt2:/data'
+  run grep -F '/tmp/wt2' "${TEMP_DIR}/setup.toml"
   assert_failure
 }
 
 @test "remove --local removes from the local layer (#893)" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
-  printf '[volumes]\nmount_1 = /tmp/wt2:/data\n' > "${TEMP_DIR}/.setup.conf.local"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
+  # `volumes.mount_1` is the first `[[volumes]]` block (source / target);
+  # the bridge joins it back into the mount the user typed.
+  printf '[[volumes]]\nsource = "/tmp/wt2"\ntarget = "/data"\n' \
+    > "${TEMP_DIR}/setup.local.toml"
   run main remove --local volumes.mount_1 --base-path "${TEMP_DIR}"
   assert_success
-  run grep -F '/tmp/wt2:/data' "${TEMP_DIR}/.setup.conf.local"
+  # The mount is spelled across two fields now, so the removed entry is
+  # pinned twice: its source text is gone from the file, and the parsed
+  # view no longer offers the mount at any slot. The mount string itself
+  # never appears literally in TOML, which is why the old
+  # `grep -F '/tmp/wt2:/data'` could no longer carry the claim.
+  run grep -F '/tmp/wt2' "${TEMP_DIR}/setup.local.toml"
   assert_failure
+  run toml_bridge_parse "${TEMP_DIR}/setup.local.toml" --kv
+  assert_success
+  refute_output --partial '/tmp/wt2:/data'
 }
 
 @test "add warns when the local layer shadows the section it appends to (#893)" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
-  printf '[volumes]\nmount_1 = /tmp/wt2:/data\n' > "${TEMP_DIR}/.setup.conf.local"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
+  printf '[[volumes]]\nsource = "/tmp/wt2"\ntarget = "/data"\n' \
+    > "${TEMP_DIR}/setup.local.toml"
   run main add volumes.mount /tmp/shared:/data --base-path "${TEMP_DIR}"
   assert_success
   assert_output --partial "volumes"
@@ -545,42 +570,42 @@ EOF
 }
 
 @test "set rejects an unknown section with non-zero exit + Unknown section stderr" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   run main set bogus.key value --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Unknown section"
 }
 
 @test "set rejects an invalid gpu_count value" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   run main set deploy.gpu_count -1 --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Invalid value"
 }
 
 @test "set rejects an invalid mount string" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   run main set volumes.mount_5 not-a-mount --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Invalid value"
 }
 
 @test "set rejects an invalid cgroup_rule" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   run main set devices.cgroup_rule_1 "garbage rule" --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Invalid value"
 }
 
 @test "set rejects an invalid env_kv" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   run main set environment.env_5 "missing-equals" --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Invalid value"
 }
 
 @test "set rejects an invalid port mapping" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   run main set network.port_5 "abc:def" --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Invalid value"
@@ -593,49 +618,49 @@ EOF
 # ──────────────────────────────────────────────────────────────────
 
 @test "set rejects an invalid target_arch (#560 schema unification)" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   run main set build.target_arch sparc --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Invalid value"
 }
 
 @test "set rejects an invalid build network (#560 schema unification)" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   run main set build.network carrier-pigeon --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Invalid value"
 }
 
 @test "set rejects an invalid gpu_runtime (#560 schema unification)" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   run main set deploy.gpu_runtime podman --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Invalid value"
 }
 
 @test "set rejects an invalid network_name (#560 schema unification)" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   run main set network.network_name "-bad" --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Invalid value"
 }
 
 @test "set rejects an invalid device mount (#560 schema unification)" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   run main set devices.device_1 noslash --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Invalid value"
 }
 
 @test "add rejects an invalid capability (#560 schema unification)" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   run main add security.cap_add lowercase --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Invalid value"
 }
 
 @test "set rejects a malformed dotted key (no dot)" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   run main set deploy_gpu_count all --base-path "${TEMP_DIR}"
   assert_failure
 }
@@ -652,17 +677,18 @@ EOF
   # writer is never reached -- the comment here used to claim the
   # opposite, and the case passed unchanged with the writer's own refusal
   # deleted. The case below is the one that reaches the writer.
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [environment]
-env_1 = A=b
+env_1 = "A=b"
 EOF
   run main set environment.env_1 $'BAZ=qux\nmalicious_section_break' --base-path "${TEMP_DIR}"
   assert_failure
   # No orphan line: the corrupting payload must not reach the file.
-  run grep -c 'malicious_section_break' "${TEMP_DIR}/.setup.conf"
+  run grep -c 'malicious_section_break' "${TEMP_DIR}/setup.toml"
   assert_output "0"
-  # The original clean value is untouched.
-  run grep -c '^env_1 = A=b$' "${TEMP_DIR}/.setup.conf"
+  # The original clean value is untouched. `[environment] env_N` has no
+  # array-of-tables home in the bridge, so it stays a quoted scalar.
+  run grep -c '^env_1 = "A=b"$' "${TEMP_DIR}/setup.toml"
   assert_output "1"
 }
 
@@ -678,9 +704,9 @@ EOF
 # makes lib/log.sh print its 'unregistered log body' refusal in their place,
 # so the refutation beside them is what pins the registry half
 @test "set reports the write failure for a key validation does not intercept" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [network]
-freeform_note = clean
+freeform_note = "clean"
 EOF
   run main set network.freeform_note $'a\nb' --base-path "${TEMP_DIR}"
   assert_failure
@@ -690,7 +716,7 @@ EOF
   assert_output --partial "network.freeform_note"
   refute_output --partial "unregistered log body"
   # The original clean value is untouched and no orphan line was written.
-  run grep -c '^freeform_note = clean$' "${TEMP_DIR}/.setup.conf"
+  run grep -c '^freeform_note = "clean"$' "${TEMP_DIR}/setup.toml"
   assert_output "1"
 }
 
@@ -702,7 +728,7 @@ EOF
 }
 
 @test "set does NOT regenerate .env (mtime unchanged after set)" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   # Seed .env via apply so it exists.
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -722,10 +748,10 @@ EOF
 }
 
 @test "show prints the value of a single key" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [network]
-mode = host
-ipc = host
+mode = "host"
+ipc = "host"
 EOF
   run main show network.mode --base-path "${TEMP_DIR}"
   assert_success
@@ -733,17 +759,27 @@ EOF
 }
 
 @test "show prints all entries of a whole section in on-disk order" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  # A [table] merges KEY BY KEY (ADR-37), so the dump is the template's
+  # [network] keys in template order carrying this file's values, then
+  # the key this file adds that the template does not have. The fixture
+  # names every template key so each slot can be pinned by index --
+  # otherwise "in on-disk order" would only be claimed for the first two
+  # lines and guessed at for the rest.
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [network]
-mode = host
-ipc = host
+mode = "host"
+ipc = "host"
+pid = "host"
+network_name = "br0"
 privileged = true
 EOF
   run main show network --base-path "${TEMP_DIR}"
   assert_success
   assert_line --index 0 "mode = host"
   assert_line --index 1 "ipc = host"
-  assert_line --index 2 "privileged = true"
+  assert_line --index 2 "pid = host"
+  assert_line --index 3 "network_name = br0"
+  assert_line --index 4 "privileged = true"
 }
 
 @test "show <section> keeps the per-service [logging.<svc>] keys out of the parent dump (#955)" {
@@ -752,12 +788,12 @@ EOF
   # comment forbids: `logging.` prefixes `logging.web.driver` too, so a
   # per-service override was listed under the parent [logging] as a
   # bogus `web.driver` key. Membership is _conf_split_nskey's question.
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [logging]
-driver = json-file
+driver = "json-file"
 
 [logging.web]
-driver = local
+driver = "local"
 EOF
   run main show logging --base-path "${TEMP_DIR}"
   assert_success
@@ -778,13 +814,13 @@ EOF
   # `logging.web` as section `logging` + key `web`, and the key lookup
   # failed with "Key not found". A section the tool accepts must be
   # readable.
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [logging]
-driver = json-file
+driver = "json-file"
 
 [logging.web]
-driver = local
-max_size = 1m
+driver = "local"
+max_size = "1m"
 EOF
   run main show logging.web --base-path "${TEMP_DIR}"
   assert_success
@@ -804,12 +840,12 @@ EOF
   # The sibling "missing key" case uses `network.nope`, which fails the
   # FIRST conjunct and never reaches the guard, so it cannot stand in
   # for this one.
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [logging]
-driver = json-file
+driver = "json-file"
 
 [logging.web]
-driver = local
+driver = "local"
 EOF
   run main show logging.drivr --base-path "${TEMP_DIR}"
   assert_failure
@@ -830,9 +866,9 @@ EOF
 }
 
 @test "show returns non-zero on a missing key" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [network]
-mode = host
+mode = "host"
 EOF
   run main show network.nope --base-path "${TEMP_DIR}"
   assert_failure
@@ -845,9 +881,9 @@ EOF
   # the merged view (template ← .local), so the template baseline
   # always provides the section even when .local omits it. Switching
   # the assertion: show succeeds and surfaces the template's keys.
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [network]
-mode = host
+mode = "host"
 EOF
   run main show resources --base-path "${TEMP_DIR}"
   assert_success
@@ -855,7 +891,7 @@ EOF
 }
 
 @test "show rejects an unknown section name" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   run main show bogus.key --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Unknown section"
@@ -867,13 +903,15 @@ EOF
 }
 
 @test "list with no arg prints every section header + key" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [image]
-rule_1 = @basename
+
+[[image.rules]]
+rule = "@basename"
 
 [network]
-mode = host
-ipc = host
+mode = "host"
+ipc = "host"
 EOF
   run main list --base-path "${TEMP_DIR}"
   assert_success
@@ -891,12 +929,12 @@ EOF
   # same value twice, once under the wrong section, and piping that
   # back reproduces the dotted-key-in-[logging] file _write_setup_conf
   # was fixed to stop writing.
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [logging]
-driver = json-file
+driver = "json-file"
 
 [logging.web]
-driver = local
+driver = "local"
 EOF
   run main list --base-path "${TEMP_DIR}"
   assert_success
@@ -1055,10 +1093,10 @@ ${_hits}"
 }
 
 @test "list <section> mirrors show <section>" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [network]
-mode = host
-ipc = host
+mode = "host"
+ipc = "host"
 EOF
   run main list network --base-path "${TEMP_DIR}"
   assert_success
@@ -1067,7 +1105,7 @@ EOF
 }
 
 @test "list <section> rejects an unknown section" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   run main list bogus --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Unknown section"
@@ -1084,7 +1122,7 @@ EOF
   # is an umbrella that sources lib/*.sh sub-libs
   cp /source/dist/script/docker/lib/_lib.sh "${TEMP_DIR}/sandbox/.base/dist/script/docker/lib/_lib.sh"
   cp /source/dist/script/docker/lib/* "${TEMP_DIR}/sandbox/.base/dist/script/docker/lib/"
-  cp /source/dist/.setup.conf "${TEMP_DIR}/sandbox/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/sandbox/setup.toml"
 
   run bash "${TEMP_DIR}/sandbox/.base/dist/script/docker/wrapper/setup.sh" \
     set network.mode bridge --base-path "${TEMP_DIR}/sandbox"
@@ -1109,9 +1147,10 @@ EOF
 # ════════════════════════════════════════════════════════════════════
 
 @test "main add appends mount to next available slot" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
-[volumes]
-mount_1 = /a:/a
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+[[volumes]]
+source = "/a"
+target = "/a"
 EOF
   run main add volumes.mount /b:/b --base-path "${TEMP_DIR}"
   assert_success
@@ -1121,7 +1160,7 @@ EOF
 }
 
 @test "main add to empty section creates _1" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [environment]
 EOF
   run main add environment.env FOO=bar --base-path "${TEMP_DIR}"
@@ -1132,10 +1171,10 @@ EOF
 }
 
 @test "main add bootstraps setup.conf empty when missing (#174)" {
-  rm -f "${TEMP_DIR}/.setup.conf" "${TEMP_DIR}/.setup.conf"
+  rm -f "${TEMP_DIR}/setup.toml" "${TEMP_DIR}/setup.toml"
   run main add volumes.mount /foo:/bar --base-path "${TEMP_DIR}"
   assert_success
-  assert [ -f "${TEMP_DIR}/.setup.conf" ]
+  assert [ -f "${TEMP_DIR}/setup.toml" ]
   # show reads template ← .local merge; the new mount lands in .local
   # and the merged view surfaces it through the next mount_<N> slot.
   run main show volumes.mount_1 --base-path "${TEMP_DIR}"
@@ -1144,20 +1183,30 @@ EOF
 }
 
 @test "main add picks max+1 even with gap from prior remove" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
-[volumes]
-mount_1 = /a:/a
-mount_3 = /c:/c
+  # A `[[volumes]]` array is DENSE: a mount's number is its position in
+  # the array, so a hole in the numbering can no longer be written down
+  # and `remove` closes the array up instead of leaving one. The max+1
+  # rule over a genuinely sparse list is exercised by "main add then
+  # remove round-trips" below, over `[environment]`, whose numbered keys
+  # stay plain scalars and so can still skip a number.
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+[[volumes]]
+source = "/a"
+target = "/a"
+
+[[volumes]]
+source = "/c"
+target = "/c"
 EOF
   run main add volumes.mount /d:/d --base-path "${TEMP_DIR}"
   assert_success
-  run main show volumes.mount_4 --base-path "${TEMP_DIR}"
+  run main show volumes.mount_3 --base-path "${TEMP_DIR}"
   assert_success
   assert_output "/d:/d"
 }
 
 @test "main add rejects unknown section" {
-  : > "${TEMP_DIR}/.setup.conf"
+  : > "${TEMP_DIR}/setup.toml"
   run main add bogus.list /a:/a --base-path "${TEMP_DIR}"
   assert_failure
   [[ "${status}" -eq 2 ]]
@@ -1171,34 +1220,35 @@ EOF
   # misrouting _write_setup_conf was fixed for -- the slot was appended
   # to the parent [logging] block as a bogus dotted key `web.<list>_N`,
   # which no reader ever resolves back to the [logging.web] service.
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [logging]
-driver = json-file
+driver = "json-file"
 
 [logging.web]
-driver = local
+driver = "local"
 EOF
   run main add logging.web.tag alpha --base-path "${TEMP_DIR}"
   assert_success
 
-  # The slot lands in [logging.web] under its own list name ...
-  run grep -c '^tag_1 = alpha$' "${TEMP_DIR}/.setup.conf"
+  # The slot lands in [logging.web] under its own list name ... (the
+  # writer emits TOML, so the value is a quoted basic string).
+  run grep -c '^tag_1 = "alpha"$' "${TEMP_DIR}/setup.toml"
   assert_output "1"
   # ... and no dotted key is injected anywhere.
-  run grep -c '^web\.tag' "${TEMP_DIR}/.setup.conf"
+  run grep -c '^web\.tag' "${TEMP_DIR}/setup.toml"
   assert_output "0"
   # The parent section keeps exactly its own key.
   local -a _pk=() _pv=()
-  _parse_ini_section "${TEMP_DIR}/.setup.conf" "logging" _pk _pv
+  _parse_ini_section "${TEMP_DIR}/setup.toml" "logging" _pk _pv
   [[ "${_pk[*]}" == "driver" ]]
   # ... and the sub-section now carries both.
   local -a _sk=() _sv=()
-  _parse_ini_section "${TEMP_DIR}/.setup.conf" "logging.web" _sk _sv
+  _parse_ini_section "${TEMP_DIR}/setup.toml" "logging.web" _sk _sv
   [[ "${_sk[*]}" == "driver tag_1" ]]
 }
 
 @test "main add rejects invalid mount value" {
-  : > "${TEMP_DIR}/.setup.conf"
+  : > "${TEMP_DIR}/setup.toml"
   run main add volumes.mount not-a-mount --base-path "${TEMP_DIR}"
   assert_failure
   [[ "${status}" -eq 2 ]]
@@ -1212,9 +1262,10 @@ EOF
 }
 
 @test "main add does not regen .env" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
-[volumes]
-mount_1 = /a:/a
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+[[volumes]]
+source = "/a"
+target = "/a"
 EOF
   : > "${TEMP_DIR}/.env.generated"
   local _before
@@ -1228,40 +1279,65 @@ EOF
 }
 
 @test "main remove drops keyed entry" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
-[volumes]
-mount_1 = /a:/a
-mount_2 = /b:/b
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+[[volumes]]
+source = "/a"
+target = "/a"
+
+[[volumes]]
+source = "/b"
+target = "/b"
 EOF
   run main remove volumes.mount_1 --base-path "${TEMP_DIR}"
   assert_success
-  run main show volumes.mount_1 --base-path "${TEMP_DIR}"
-  assert_failure
+  # A mount's number is its position in the `[[volumes]]` array, so
+  # dropping the first entry leaves a one-entry array: the list is one
+  # shorter, and the survivor -- /b:/b, never /a:/a -- is what slot 1
+  # now holds. Asserting the other way round would claim the array
+  # keeps a hole where the removed entry was, which TOML cannot spell.
   run main show volumes.mount_2 --base-path "${TEMP_DIR}"
+  assert_failure
+  run main show volumes.mount_1 --base-path "${TEMP_DIR}"
   assert_success
   assert_output "/b:/b"
 }
 
 @test "main remove by value finds matching key in list" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
-[volumes]
-mount_1 = /a:/a
-mount_2 = /b:/b
-mount_3 = /c:/c
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+[[volumes]]
+source = "/a"
+target = "/a"
+
+[[volumes]]
+source = "/b"
+target = "/b"
+
+[[volumes]]
+source = "/c"
+target = "/c"
 EOF
   run main remove volumes.mount /b:/b --base-path "${TEMP_DIR}"
   assert_success
-  run main show volumes.mount_2 --base-path "${TEMP_DIR}"
-  assert_failure
+  # The named VALUE is what has to disappear, and in a dense
+  # `[[volumes]]` array the survivors close up behind it: /b:/b is in no
+  # slot, /a:/a keeps slot 1, /c:/c moves into slot 2, and the list is
+  # one shorter. Every slot is pinned so "removed by value" cannot be
+  # confused with "overwrote the wrong entry".
   run main show volumes.mount_1 --base-path "${TEMP_DIR}"
   assert_success
   assert_output "/a:/a"
+  run main show volumes.mount_2 --base-path "${TEMP_DIR}"
+  assert_success
+  assert_output "/c:/c"
+  run main show volumes.mount_3 --base-path "${TEMP_DIR}"
+  assert_failure
 }
 
 @test "main remove fails when key missing" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
-[volumes]
-mount_1 = /a:/a
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+[[volumes]]
+source = "/a"
+target = "/a"
 EOF
   run main remove volumes.mount_99 --base-path "${TEMP_DIR}"
   assert_failure
@@ -1269,9 +1345,10 @@ EOF
 }
 
 @test "main remove by value fails when no value matches" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
-[volumes]
-mount_1 = /a:/a
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+[[volumes]]
+source = "/a"
+target = "/a"
 EOF
   run main remove volumes.mount /nonexistent:/x --base-path "${TEMP_DIR}"
   assert_failure
@@ -1279,7 +1356,7 @@ EOF
 }
 
 @test "main remove rejects unknown section" {
-  : > "${TEMP_DIR}/.setup.conf"
+  : > "${TEMP_DIR}/setup.toml"
   run main remove bogus.key --base-path "${TEMP_DIR}"
   assert_failure
   [[ "${status}" -eq 2 ]]
@@ -1287,30 +1364,49 @@ EOF
 }
 
 @test "main remove preserves comments + remaining keys" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  # The in-section comment sits under [network] rather than beside the
+  # mount being dropped: a `[[volumes]]` block IS the entry, so removing
+  # it removes its whole body, comment lines included. What this case
+  # pins is that the rewrite is not a wholesale regeneration -- comments
+  # and keys the remove did not name come through verbatim.
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 # Top-of-file comment
-[volumes]
-# inline comment
-mount_1 = /a:/a
-mount_2 = /b:/b
+[[volumes]]
+source = "/a"
+target = "/a"
+
+[[volumes]]
+source = "/b"
+target = "/b"
 
 [network]
-mode = host
+# inline comment
+mode = "host"
 EOF
   run main remove volumes.mount_1 --base-path "${TEMP_DIR}"
   assert_success
-  # remove modifies setup.conf in-place; comments and
+  # remove modifies setup.toml in-place; comments and
   # untouched keys survive the rewrite.
-  run cat "${TEMP_DIR}/.setup.conf"
+  run cat "${TEMP_DIR}/setup.toml"
   assert_output --partial "Top-of-file comment"
   assert_output --partial "inline comment"
-  assert_output --partial "mount_2 = /b:/b"
-  assert_output --partial "mode = host"
-  refute_output --partial "mount_1"
+  assert_output --partial 'source = "/b"'
+  assert_output --partial 'target = "/b"'
+  assert_output --partial 'mode = "host"'
+  # The dropped entry is gone: /a was the only source and target spelled
+  # that way, so no field of the removed block is left behind. (`mount_1`
+  # is not a string the TOML file ever contained, so the old refutation
+  # of that token would now hold vacuously.)
+  refute_output --partial '"/a"'
+  # ... and the array closed up behind it, so the survivor is slot 1.
+  run toml_bridge_parse "${TEMP_DIR}/setup.toml" --kv
+  assert_success
+  assert_line 'volumes	mount_1	/b:/b'
+  refute_line 'volumes	mount_2	/b:/b'
 }
 
 @test "main add then remove round-trips" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [environment]
 EOF
   run main add environment.env FOO=bar --base-path "${TEMP_DIR}"
@@ -1331,16 +1427,18 @@ EOF
 }
 
 @test "main add validates env_kv format" {
-  : > "${TEMP_DIR}/.setup.conf"
+  : > "${TEMP_DIR}/setup.toml"
   run main add environment.env "no-equals-sign" --base-path "${TEMP_DIR}"
   assert_failure
   [[ "${status}" -eq 2 ]]
 }
 
 @test "main add free-form image rule accepts arbitrary string" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [image]
-rule_1 = @basename
+
+[[image.rules]]
+rule = "@basename"
 EOF
   run main add image.rule "prefix:my_" --base-path "${TEMP_DIR}"
   assert_success
@@ -1352,8 +1450,8 @@ EOF
 # ════════════════════════════════════════════════════════════════════
 # Subcommand: reset (Phase B-4)
 #
-# `setup.sh reset [--yes]` overwrites <base-path>/.setup.conf with the
-# template default. Existing setup.conf → .setup.conf.bak; existing
+# `setup.sh reset [--yes]` overwrites <base-path>/setup.toml with the
+# template default. Existing setup.conf → setup.toml.bak; existing
 # .env → .env.bak (one-shot rollback path). Does NOT regenerate .env
 # — the user invokes apply afterwards, or build/run will trigger
 # auto-regen via drift detection on next run. --yes skips the
@@ -1363,13 +1461,13 @@ EOF
 
 @test "main reset --yes clears setup.conf + setup.conf so next apply rebuilds (#174)" {
   mkdir -p "${TEMP_DIR}/.base/dist"
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.base/dist/.setup.conf"
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cp /source/dist/setup.toml "${TEMP_DIR}/.base/dist/setup.toml"
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 # user-customized
 [network]
-mode = bridge
+mode = "bridge"
 EOF
-  : > "${TEMP_DIR}/.setup.conf"
+  : > "${TEMP_DIR}/setup.toml"
   run bash -c "
     _SETUP_SCRIPT_DIR='${TEMP_DIR}/.base/script/docker'
     mkdir -p \"\${_SETUP_SCRIPT_DIR}\"
@@ -1379,25 +1477,25 @@ EOF
   assert_success
   # Override + materialized snapshot both removed — the next apply will
   # rebuild setup.conf purely from the template baseline.
-  refute [ -f "${TEMP_DIR}/.setup.conf" ]
-  refute [ -f "${TEMP_DIR}/.setup.conf" ]
+  refute [ -f "${TEMP_DIR}/setup.toml" ]
+  refute [ -f "${TEMP_DIR}/setup.toml" ]
 }
 
 @test "main reset --yes backs up prior setup.conf to .local.bak (#174)" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 # CUSTOM_MARKER
 [network]
-mode = bridge
+mode = "bridge"
 EOF
   run main reset --yes --base-path "${TEMP_DIR}"
   assert_success
-  assert [ -f "${TEMP_DIR}/.setup.conf.bak" ]
-  run grep CUSTOM_MARKER "${TEMP_DIR}/.setup.conf.bak"
+  assert [ -f "${TEMP_DIR}/setup.toml.bak" ]
+  run grep CUSTOM_MARKER "${TEMP_DIR}/setup.toml.bak"
   assert_success
 }
 
 @test "main reset --yes backs up prior .env.generated to .env.generated.bak" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   printf 'IMAGE_NAME=customimg\n' > "${TEMP_DIR}/.env.generated"
   run main reset --yes --base-path "${TEMP_DIR}"
   assert_success
@@ -1407,7 +1505,7 @@ EOF
 }
 
 @test "main reset --yes does NOT regenerate .env" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   : > "${TEMP_DIR}/.env.generated"
   local _before
   _before="$(stat -c '%Y' "${TEMP_DIR}/.env.generated")"
@@ -1424,12 +1522,12 @@ EOF
 }
 
 @test "main reset without --yes refuses non-tty (no confirmation possible)" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   # Bats runs without a controlling TTY — without --yes the handler
   # must refuse rather than silently destroy state.
   run main reset --base-path "${TEMP_DIR}"
   assert_failure
-  refute [ -f "${TEMP_DIR}/.setup.conf.bak" ]
+  refute [ -f "${TEMP_DIR}/setup.toml.bak" ]
 }
 
 @test "main reset rejects unknown flag" {
@@ -1441,19 +1539,19 @@ EOF
 # ════════════════════════════════════════════════════════════════════
 # Per-section setup.conf parameter end-to-end coverage
 #
-# Each test sets a single key in <repo>/.setup.conf and asserts the
+# Each test sets a single key in <repo>/setup.toml and asserts the
 # expected line appears in compose.yaml or .env. Companion negative
 # tests confirm the corresponding compose / env block is omitted when
 # the key is empty / cleared. Ensures every key documented in
-# .base/dist/.setup.conf has a setting → output assertion.
+# .base/dist/setup.toml has a setting → output assertion.
 # ════════════════════════════════════════════════════════════════════
 
 # ── [deploy] ─────────────────────────────────────────────────────────
 
 @test "[deploy] gpu_mode = off omits deploy.resources block from compose.yaml" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [deploy]
-gpu_mode = off
+gpu_mode = "off"
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -1464,11 +1562,11 @@ EOF
 }
 
 @test "[deploy] gpu_mode = force emits deploy.resources GPU block" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [deploy]
-gpu_mode = force
-gpu_count = all
-gpu_capabilities = gpu compute
+gpu_mode = "force"
+gpu_count = "all"
+gpu_capabilities = "gpu compute"
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -1479,11 +1577,11 @@ EOF
 }
 
 @test "[deploy] gpu_count = 2 emits count: 2 in compose deploy block" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [deploy]
-gpu_mode = force
+gpu_mode = "force"
 gpu_count = 2
-gpu_capabilities = gpu
+gpu_capabilities = "gpu"
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -1494,11 +1592,11 @@ EOF
 }
 
 @test "[deploy] gpu_capabilities multi-value emits as YAML array" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [deploy]
-gpu_mode = force
-gpu_count = all
-gpu_capabilities = gpu compute utility
+gpu_mode = "force"
+gpu_count = "all"
+gpu_capabilities = "gpu compute utility"
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -1509,10 +1607,18 @@ EOF
 }
 
 @test "[deploy] runtime = nvidia emits runtime: nvidia at service level" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  # `runtime` is the permanent alias and is consulted only when the
+  # effective config sets no canonical `gpu_runtime`. A [table] merges
+  # key by key (ADR-37), so the template's `gpu_runtime = "auto"` shows
+  # through unless this file says otherwise, and clearing it is the only
+  # way a per-repo file can state "no canonical runtime here" -- without
+  # that line the alias is never read and this case would assert the
+  # alias while exercising the template default.
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [deploy]
-gpu_mode = off
-runtime = nvidia
+gpu_mode = "off"
+gpu_runtime = ""
+runtime = "nvidia"
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -1523,10 +1629,14 @@ EOF
 }
 
 @test "[deploy] runtime = off omits runtime line entirely" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  # `gpu_runtime` cleared for the same reason as the positive case above:
+  # otherwise the template's `auto` wins, the alias is never read, and
+  # this negative would hold without `runtime = off` being seen at all.
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [deploy]
-gpu_mode = off
-runtime = off
+gpu_mode = "off"
+gpu_runtime = ""
+runtime = "off"
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -1539,9 +1649,9 @@ EOF
 # ── [gui] ────────────────────────────────────────────────────────────
 
 @test "[gui] mode = off omits X11 / DISPLAY env from compose" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [gui]
-mode = off
+mode = "off"
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -1552,9 +1662,9 @@ EOF
 }
 
 @test "[gui] mode = force emits X11 environment + /tmp/.X11-unix mount" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [gui]
-mode = force
+mode = "force"
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -1567,10 +1677,10 @@ EOF
 # ── [network] ────────────────────────────────────────────────────────
 
 @test "[network] mode = host writes NETWORK_MODE=host to .env" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [network]
-mode = host
-ipc = host
+mode = "host"
+ipc = "host"
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -1581,10 +1691,10 @@ EOF
 }
 
 @test "[network] ipc = private writes IPC_MODE=private to .env" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [network]
-mode = host
-ipc = private
+mode = "host"
+ipc = "private"
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -1595,11 +1705,11 @@ EOF
 }
 
 @test "[network] pid = host writes PID_MODE=host to .env" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [network]
-mode = host
-ipc = host
-pid = host
+mode = "host"
+ipc = "host"
+pid = "host"
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -1610,10 +1720,10 @@ EOF
 }
 
 @test "[network] pid default (private) writes PID_MODE=private to .env" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [network]
-mode = host
-ipc = host
+mode = "host"
+ipc = "host"
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -1624,10 +1734,10 @@ EOF
 }
 
 @test "[network] pid default (private) omits pid: line from compose.yaml" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [network]
-mode = host
-ipc = host
+mode = "host"
+ipc = "host"
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -1638,11 +1748,11 @@ EOF
 }
 
 @test "[network] pid = host emits pid: host in compose.yaml" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [network]
-mode = host
-ipc = host
-pid = host
+mode = "host"
+ipc = "host"
+pid = "host"
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -1653,11 +1763,11 @@ EOF
 }
 
 @test "[network] network_name = my_bridge under mode=bridge emits external network ref" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [network]
-mode = bridge
-ipc = private
-network_name = my_bridge
+mode = "bridge"
+ipc = "private"
+network_name = "my_bridge"
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -1668,11 +1778,14 @@ EOF
 }
 
 @test "[network] port_1 = 8080:80 emits ports: block under bridge mode" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [network]
-mode = bridge
-ipc = private
-port_1 = 8080:80
+mode = "bridge"
+ipc = "private"
+
+[[network.ports]]
+host = 8080
+container = 80
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -1683,11 +1796,14 @@ EOF
 }
 
 @test "[network] port_* under mode=host is silently dropped" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [network]
-mode = host
-ipc = host
-port_1 = 8080:80
+mode = "host"
+ipc = "host"
+
+[[network.ports]]
+host = 8080
+container = 80
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -1700,11 +1816,12 @@ EOF
 # ── [resources] ──────────────────────────────────────────────────────
 
 @test "[resources] shm_size = 2gb under ipc=private emits shm_size: 2gb" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [network]
-ipc = private
+ipc = "private"
+
 [resources]
-shm_size = 2gb
+shm_size = "2gb"
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -1715,9 +1832,9 @@ EOF
 }
 
 @test "[resources] shm_size empty omits shm_size line" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [resources]
-shm_size =
+shm_size = ""
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -1730,9 +1847,9 @@ EOF
 # ── [environment] ────────────────────────────────────────────────────
 
 @test "[environment] env_1 = ROS_DOMAIN_ID=7 lands in the generated .env (#868)" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [environment]
-env_1 = ROS_DOMAIN_ID=7
+env_1 = "ROS_DOMAIN_ID=7"
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -1743,7 +1860,7 @@ EOF
 }
 
 @test "[environment] empty section omits environment: block" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [environment]
 EOF
   run bash -c "
@@ -1757,9 +1874,9 @@ EOF
 # ── [tmpfs] ──────────────────────────────────────────────────────────
 
 @test "[tmpfs] tmpfs_1 = /tmp emits tmpfs: block with the entry" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
-[tmpfs]
-tmpfs_1 = /tmp
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+[[tmpfs]]
+path = "/tmp"
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -1770,9 +1887,9 @@ EOF
 }
 
 @test "[tmpfs] tmpfs_1 with size= suffix preserved verbatim" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
-[tmpfs]
-tmpfs_1 = /tmp/cache:size=1g
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+[[tmpfs]]
+path = "/tmp/cache:size=1g"
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -1783,7 +1900,7 @@ EOF
 }
 
 @test "[tmpfs] empty section omits tmpfs: block" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [tmpfs]
 EOF
   run bash -c "
@@ -1797,9 +1914,9 @@ EOF
 # ── [devices] ────────────────────────────────────────────────────────
 
 @test "[devices] device_1 = /dev/video0:/dev/video0 emits devices: block" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
-[devices]
-device_1 = /dev/video0:/dev/video0
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+[[devices]]
+path = "/dev/video0:/dev/video0"
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -1810,10 +1927,9 @@ EOF
 }
 
 @test "[devices] cgroup_rule_1 emits device_cgroup_rules: block" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
-[devices]
-device_1 = /dev:/dev
-cgroup_rule_1 = c 189:* rwm
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+[[devices.cgroup_rules]]
+rule = "c 189:* rwm"
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -1823,13 +1939,65 @@ EOF
   assert_success
 }
 
+# why: a device binding and a cgroup rule are two independent lists that
+# a real conf carries together -- bind /dev/dri AND allow major 189. While
+# `devices` held ONE array, the two could not coexist in one document:
+# `[[devices]]` made the name an array and the rule needed a `[devices]`
+# table of the same name. This is the case that says they coexist, which
+# is the whole point of giving each its own nested array.
+@test "[devices] a binding and a cgroup rule coexist in one setup.toml" {
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+[[devices.bindings]]
+path = "/dev/dri:/dev/dri"
+
+[[devices.cgroup_rules]]
+rule = "c 189:* rwm"
+EOF
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
+    grep -E -- '- /dev/dri:/dev/dri' '${TEMP_DIR}/compose.yaml'
+    grep -F 'c 189:* rwm' '${TEMP_DIR}/compose.yaml'
+  "
+  assert_success
+  assert_output --partial '/dev/dri:/dev/dri'
+  assert_output --partial 'c 189:* rwm'
+}
+
+# why: the shipped writer, not a hand-edit, is how a consumer adds a rule.
+# `set` on a cgroup rule in a repo that already has a binding wrote the
+# rule as a scalar under a `[devices]` table while the binding held
+# `[[devices]]` -- one name as both a table and an array of tables, which
+# TOML refuses. The repo was left with a setup.toml no reader can parse,
+# written by the supported command. Both families now address their own
+# nested array, so the file the writer produces round-trips.
+@test "set on a cgroup rule beside a device binding writes a readable file" {
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+[[devices.bindings]]
+path = "/dev/dri:/dev/dri"
+EOF
+  run main set devices.cgroup_rule_1 "c 189:* rwm" --base-path "${TEMP_DIR}"
+  assert_success
+  # The parser the shipped readers use has to accept what the writer wrote.
+  run bash -c "
+    source /source/dist/script/docker/lib/toml_bridge.sh
+    toml_bridge_parse '${TEMP_DIR}/setup.toml' --kv
+  "
+  assert_success
+  assert_line $'devices\tdevice_1\t/dev/dri:/dev/dri'
+  assert_line $'devices\tcgroup_rule_1\tc 189:* rwm'
+}
+
 # ── [volumes] mount_2..N ─────────────────────────────────────────────
 
 @test "[volumes] mount_2 = /data:/data emits as additional volume entry" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
-[volumes]
-mount_1 =
-mount_2 = /data:/data
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+[[volumes]]
+source = ""
+
+[[volumes]]
+source = "/data"
+target = "/data"
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -1840,10 +2008,14 @@ EOF
 }
 
 @test "[volumes] mount_N supports :ro suffix" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
-[volumes]
-mount_1 =
-mount_2 = /etc/machine-id:/etc/machine-id:ro
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+[[volumes]]
+source = ""
+
+[[volumes]]
+source = "/etc/machine-id"
+target = "/etc/machine-id"
+mode = "ro"
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -1856,7 +2028,7 @@ EOF
 # ── [security] privileged toggle ─────────────────────────────────────
 
 @test "[security] privileged = false writes PRIVILEGED=false to .env" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [security]
 privileged = false
 EOF
@@ -1879,9 +2051,15 @@ EOF
   # be executed at apply time (it stays text; compose's own layer never
   # runs it either since there is no eval).
   rm -f "${TEMP_DIR}/pwn687"
-  cat > "${TEMP_DIR}/.setup.conf" <<EOF
+  # The heredoc expands ${TEMP_DIR}, so the `$` of the payload is carried
+  # in a variable rather than written as `\$`: a backslash in the SOURCE
+  # of the heredoc is not a backslash in the file bash writes, and a TOML
+  # basic string has no `\$` escape, so the literal spelling would read
+  # as a malformed fixture to anything that parses the body as written.
+  local _dollar='$'
+  cat > "${TEMP_DIR}/setup.toml" <<EOF
 [environment]
-env_1 = EVIL=\$(touch ${TEMP_DIR}/pwn687)
+env_1 = "EVIL=${_dollar}(touch ${TEMP_DIR}/pwn687)"
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -1894,9 +2072,9 @@ EOF
   # The INI reader is line-oriented, so a hand-written value cannot smuggle
   # a real newline; the metacharacter payload stays on one environment:
   # entry and never becomes a second YAML key.
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [environment]
-env_1 = EVIL=$(touch /tmp/x)
+env_1 = "EVIL=$(touch /tmp/x)"
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -1909,9 +2087,9 @@ EOF
 @test "[lifecycle] apply does not emit a restart: line for a malformed policy (#687)" {
   # A hand-written invalid policy (bypassing the set-path validator) must
   # not silently produce a bogus `restart: sometimes` in compose.yaml.
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [lifecycle]
-restart = sometimes
+restart = "sometimes"
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -1926,9 +2104,9 @@ EOF
   # MSG=a: b) emitted UNQUOTED parses as the mapping {MSG=a: b} —
   # silent env corruption. The emit must wrap each entry as a
   # double-quoted YAML scalar, mirroring ports/cgroup.
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [environment]
-env_1 = MSG=a: b
+env_1 = "MSG=a: b"
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -1941,9 +2119,9 @@ EOF
 @test "[environment] apply carries an env value with a leading flow indicator into .env (#698)" {
   # A leading '*' (YAML alias/flow indicator) emitted unquoted breaks
   # the parse; quoting makes it an inert scalar.
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [environment]
-env_1 = GLOB=*
+env_1 = "GLOB=*"
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -1956,9 +2134,9 @@ EOF
 @test "[environment] apply carries an env value with an inline ' #' marker into .env (#698)" {
   # An unquoted ' #' truncates the YAML scalar at the comment; quoting
   # preserves the whole value.
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [environment]
-env_1 = NOTE=a #b
+env_1 = "NOTE=a #b"
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -1971,9 +2149,9 @@ EOF
 @test "[environment] apply carries an embedded double-quote / backslash into .env (#698)" {
   # The YAML double-quoted scalar must escape \" and \\ so the value
   # round-trips verbatim (mirrors the Dockerfile baked-ENV sink).
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [environment]
-env_1 = Q=a"b\c
+env_1 = "Q=a\"b\\c"
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -1994,12 +2172,12 @@ FROM sys AS base
 FROM base AS devel
 FROM devel AS headless
 EOF
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [network]
-mode = host
+mode = "host"
 
-[stage:headless]
-network.mode = bogus: value
+["stage:headless"]
+"network.mode" = "bogus: value"
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -2016,14 +2194,14 @@ FROM sys AS base
 FROM base AS devel
 FROM devel AS headless
 EOF
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [network]
-ipc = host
-pid = private
+ipc = "host"
+pid = "private"
 
-[stage:headless]
-network.ipc = bogus: value
-network.pid = bogus: value
+["stage:headless"]
+"network.ipc" = "bogus: value"
+"network.pid" = "bogus: value"
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh

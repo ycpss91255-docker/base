@@ -589,6 +589,14 @@ jobs:
     #                     and goes unreported, but `--filter` matches the
     #                     SOURCE, so its backslashes stop the catalogue row
     #                     being pasteable into one
+    #   toml-fixture      every fixture body a spec writes to a `*.toml`
+    #                     path parses as TOML. A body the bridge refuses
+    #                     leaves an EMPTY config handle, so the test
+    #                     asserting a schema default goes green without its
+    #                     fixture ever being read -- 152 such bodies were
+    #                     measured across 17 spec files and nothing in the
+    #                     tree could tell the difference. Whole-tree, so it
+    #                     belongs to this phase rather than to a spec
     #
     # GROUPED, not one job per driver, and not one job for the phase
     # (base#1071). One job per driver read best in the checks list -- the
@@ -1342,6 +1350,14 @@ jobs:
     # The heaviest job here: it scaffolds a consumer repo and builds its
     # image stages, once per arch, on a runner that may be self-hosted.
     timeout-minutes: 120
+    env:
+      # The TOML parser the scaffolded repo reads its configuration
+      # through. The shim provisions this image itself when nothing pins
+      # it, and this job pins it so what it measures is the consumer's
+      # lifecycle rather than a docker build inside it -- the same reason
+      # the tooling image is obtained in a step of its own above. A pinned
+      # value is left alone by the shim.
+      TOML_BRIDGE_IMAGE: toml-bridge:local
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -1380,6 +1396,19 @@ jobs:
         # cannot serve it, and that driver has no GHA cache to lose.
         run: ./script/ci/obtain_test_tools.sh "${TEST_TOOLS_IMAGE}" --platform ${{ matrix.platform }} --local-build inline
 
+      - name: Build toml-bridge image (TOML config unification)
+        # NOT what makes the e2e repo work any more -- the shim provisions
+        # the bridge itself, under a content-digest tag, before the first
+        # TOML read. Kept, and pinned through the job-level
+        # TOML_BRIDGE_IMAGE above, so this job measures the scaffolded
+        # repo's lifecycle rather than a docker build inside it:
+        # a caller-pinned image is left alone by the shim, which is the
+        # same contract _ensure_test_tools_image honours. The provisioning
+        # path has its own coverage in the unit and integration tiers.
+        run: |
+          docker build -t toml-bridge:local \
+            -f dockerfile/Dockerfile.toml-bridge dockerfile
+
       - name: Create temp repo and run init.sh
         run: |
           set -euo pipefail
@@ -1414,7 +1443,7 @@ jobs:
             && test -L script/exec.sh && test -L script/stop.sh
           test -L script/setup_tui.sh
           test -L justfile
-          test -f Dockerfile && test -f compose.yaml && test -f .setup.conf
+          test -f Dockerfile && test -f compose.yaml && test -f setup.toml
 
           echo "REPO_DIR=${REPO_DIR}" >> "${GITHUB_ENV}"
           echo "REPO_NAME=${REPO_NAME}" >> "${GITHUB_ENV}"

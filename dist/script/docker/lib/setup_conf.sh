@@ -1,9 +1,14 @@
 #!/usr/bin/env bash
 #
-# setup_conf.sh - setup.conf accessors (template+repo section-replace merge).
+# setup_conf.sh - setup.toml accessors over the effective configuration.
+#
+# ONE effective configuration, two shapes. Tables merge key by key at
+# every depth and arrays are replaced atomically (ADR-00000037); every
+# reader here resolves through the same merge, so no two of them can
+# disagree about what is configured.
 #
 # The readers setup.sh and the other libs use to query the effective
-# setup.conf: the per-section merge loader (_load_setup_conf), the parse-once
+# setup.toml: the per-section projection (_load_setup_conf), the parse-once
 # handle model (_setup_conf_handle / _setup_effective_full) feeding the
 # _conf_get / _conf_list_sorted accessors in lib/conf.sh, the convenience
 # scalar/list getters (_get_conf_value / _get_conf_list_sorted), and the
@@ -12,7 +17,7 @@
 #
 # Extracted from setup.sh (ADR-00000014, epic decompose-setup-sh). The low-level
 # _parse_ini_section + the handle accessors live in lib/conf.sh; this file is the
-# setup.conf-path-resolving layer above them. Calls into _SETUP_SCRIPT_DIR +
+# setup.toml-path-resolving layer above them. Calls into _SETUP_SCRIPT_DIR +
 # _parse_ini_section + the conf.sh accessors, all resolved at call-time via the
 # _lib.sh load order.
 
@@ -34,7 +39,7 @@ source "${_setup_conf_lib_dir}/conf.sh"
 unset _setup_conf_lib_dir
 
 # ════════════════════════════════════════════════════════════════════
-# INI parser for setup.conf
+# INI parser for setup.toml
 #
 # _parse_ini_section moved to lib/conf.sh in (PR-B) so init.sh
 # can reach it via _lib.sh without sourcing setup.sh. The function
@@ -47,19 +52,19 @@ unset _setup_conf_lib_dir
 #
 # Three files, lowest precedence first:
 #
-#   <template>/.setup.conf        the shipped default (inside .base)
-#   <repo>/.setup.conf            the repo's committed override -- ours,
+#   <template>/setup.toml         the shipped default (inside .base)
+#   <repo>/setup.toml             the repo's committed override -- ours,
 #                                 shared, what CI and every other checkout
 #                                 of this repo uses
-#   <repo>/.setup.conf.local      the operator's per-worktree override --
+#   <repo>/setup.local.toml       the operator's per-worktree override --
 #                                 gitignored, never touched by tooling,
 #                                 visible only on this machine
 #
-# The `.local` suffix means exactly what the repo's file-naming convention
-# says it means: the standard name is ours, a suffix marks the operator's
-# local variant. `.setup.conf.local` is the local variant OF `.setup.conf`
-# and therefore shares its grammar -- same sections, same keys, same
-# section-replace rule -- rather than being a second schema.
+# The `local` infix means exactly what the repo's file-naming convention
+# says it means: the standard name is ours, the `.local.` infix marks the
+# operator's local variant. `setup.local.toml` is the local variant OF
+# `setup.toml` and therefore shares its grammar -- same tables, same keys,
+# same section-replace rule -- rather than being a second schema.
 #
 # It acts BEFORE compose.yaml is generated (one compose.yaml per worktree),
 # which is what distinguishes it from the ADR-00000022 runtime `.env`
@@ -74,12 +79,13 @@ unset _setup_conf_lib_dir
 # nothing, and every reader passes the whole chain unconditionally so the
 # precedence lives in exactly one place.
 #
-# The template layer sits at <template_dist>/.setup.conf. Its directory is
+# The template layer sits at <template_dist>/setup.toml. Its directory is
 # taken from the optional third argument, else from _SETUP_SCRIPT_DIR (the
 # shipped wrapper dir, three levels below dist/), and the layer is OMITTED
 # when neither is available. Omitted rather than left to resolve: an empty
-# prefix would make the path `/../../../.setup.conf`, i.e. `/.setup.conf`
-# -- a real, readable path that has nothing to do with this repo.
+# prefix would leave nothing to drop three levels from, and the path would
+# come out as a bare `setup.toml` relative to whatever the caller's cwd
+# happens to be.
 #
 # The third argument exists for the callers that reach the readers WITHOUT
 # setup.sh and therefore without _SETUP_SCRIPT_DIR (init.sh / upgrade.sh,
@@ -96,12 +102,19 @@ _setup_conf_layers() {
   local _scl_dist="${3:-}"
   _scl_out=()
   if [[ -z "${_scl_dist}" && -n "${_SETUP_SCRIPT_DIR:-}" ]]; then
-    _scl_dist="${_SETUP_SCRIPT_DIR}/../../.."
+    # Three levels up, taken by dropping the three trailing components
+    # rather than appending `/../../..`. The same directory, spelled once:
+    # these paths are what every "a local layer is in effect" message names
+    # and what the bridge is handed as its mount sources, and a caller
+    # comparing one layer path against another is comparing strings.
+    # Resolving through the filesystem instead would follow base's own
+    # origin symlinks and name dist/ a second time.
+    _scl_dist="${_SETUP_SCRIPT_DIR%/*/*/*}"
   fi
-  [[ -n "${_scl_dist}" ]] && _scl_out+=("${_scl_dist}/.setup.conf")
+  [[ -n "${_scl_dist}" ]] && _scl_out+=("${_scl_dist}/setup.toml")
   _scl_out+=(
-    "${_base}/.setup.conf"
-    "${_base}/.setup.conf.local"
+    "${_base}/setup.toml"
+    "${_base}/setup.local.toml"
   )
 }
 
@@ -110,18 +123,21 @@ _setup_conf_layers() {
 # Echo the per-worktree override path. One spelling of the filename for
 # every caller that has to name it in a message.
 _setup_conf_local_path() {
-  printf '%s/.setup.conf.local' "${1:?"${FUNCNAME[0]}: missing base_path"}"
+  printf '%s/setup.local.toml' "${1:?"${FUNCNAME[0]}: missing base_path"}"
 }
 
 # _setup_conf_local_sections <base_path> <outarray>
 #
-# Fill <outarray> with the sections <base>/.setup.conf.local actually
+# Fill <outarray> with the sections <base>/setup.local.toml actually
 # DEFINES (>=1 entry), in file order; empty when the file is absent or
-# defines nothing. Under section-replace these are exactly the sections in
-# which the local layer wins, so this is the list every "your write is
-# shadowed" / "a local layer is in effect" message names. A section is
-# never silently shadowed: the section list, not a boolean, is what makes
-# the message actionable.
+# defines nothing. These are the sections in which the local layer has a
+# say -- on the keys it names, and on any array it declares, whole -- so
+# this is the list every "your write is shadowed" / "a local layer is in
+# effect" message names. A section is never silently shadowed: the section
+# list, not a boolean, is what makes the message actionable. It is a
+# section list rather than a key list because the array case is not
+# key-level: a local `[[volumes]]` replaces the whole list, so naming the
+# section is the honest granularity for both kinds of entry.
 _setup_conf_local_sections() {
   local _base="${1:?"${FUNCNAME[0]}: missing base_path"}"
   local -n _scls_out="${2:?"${FUNCNAME[0]}: missing outvar"}"
@@ -131,8 +147,10 @@ _setup_conf_local_sections() {
   _local="$(_setup_conf_local_path "${_base}")"
   [[ -f "${_local}" ]] || return 0
 
-  local -a _scls_s=() _scls_es=() _scls_k=() _scls_v=()
-  _ini_tokenize "${_local}" _scls_s _scls_es _scls_k _scls_v
+  # _conf_load auto-dispatches: .toml -> _toml_tokenize, INI -> _ini_tokenize.
+  _conf_load "${_local}" _SCLS_LOCAL
+  local -n _scls_s=_SCLS_LOCAL__sects
+  local -n _scls_es=_SCLS_LOCAL__es
 
   local _sec _i _has
   for _sec in "${_scls_s[@]+"${_scls_s[@]}"}"; do
@@ -147,13 +165,27 @@ _setup_conf_local_sections() {
 
 # _load_setup_conf <base_path> <section> <keys_outvar> <values_outvar>
 #
-# Resolve one section through the layer chain, section-replace: the highest
-# layer that defines the section supplies ALL of its entries; the layers
-# below contribute nothing to it. Sections a layer omits fall through.
+# One section of THE effective configuration, in the flat key/value array
+# shape its callers read. A projection of _setup_conf_handle, not a second
+# resolver: the merge, the precedence and the per-layer rules live in the
+# handle, and this function only selects a section out of the result.
+#
+# It used to do its own walk -- highest layer that defines the section
+# supplies ALL of it, the layers below contributing nothing. That was the
+# blanket section-replace ADR-00000037 amended, and keeping it here meant
+# the tree had two answers for "what is configured": `show` reported the
+# handle's key-level merge while `_collect_logging` and the per-stage
+# resolver read the section-replace one, so a repo could be told one
+# configuration and built with another. ONE effective configuration,
+# queried two ways, is what makes the two agree by construction rather
+# than by a convention nothing checks.
 #
 # The chain's surface is the fixed set of paths _setup_conf_layers names.
 # There is no env var that relocates it: a relocation lever is a second,
 # unchecked resolution path that silently wins over the real one.
+#
+# Non-zero when the merge itself failed, which the handle reports rather
+# than returning an empty configuration as a loaded one.
 _load_setup_conf() {
   local _base="${1:?"${FUNCNAME[0]}: missing base_path"}"
   local _section="${2:?"${FUNCNAME[0]}: missing section"}"
@@ -163,30 +195,30 @@ _load_setup_conf() {
   _lsc_keys=()
   _lsc_values=()
 
-  local -a _lsc_layers=()
-  _setup_conf_layers "${_base}" _lsc_layers
+  _setup_conf_handle "${_base}" _LSC_CONF || return 1
 
-  # Walk highest precedence first and stop at the first layer that defines
-  # the section -- the section-replace rule, expressed as a search.
+  local -n _lsc_es=_LSC_CONF__es
+  local -n _lsc_k=_LSC_CONF__keys
+  local -n _lsc_v=_LSC_CONF__vals
+
+  # Exact section match, duplicates and order preserved -- the same
+  # projection _parse_conf_section performs on one file.
   local _i
-  for (( _i = ${#_lsc_layers[@]} - 1; _i >= 0; _i-- )); do
-    [[ -f "${_lsc_layers[_i]}" ]] || continue
-    local -a __lsc_k=() __lsc_v=()
-    _parse_ini_section "${_lsc_layers[_i]}" "${_section}" __lsc_k __lsc_v
-    if (( ${#__lsc_k[@]} > 0 )); then
-      _lsc_keys=("${__lsc_k[@]}")
-      _lsc_values=("${__lsc_v[@]}")
-      return 0
-    fi
+  for (( _i = 0; _i < ${#_lsc_k[@]}; _i++ )); do
+    [[ "${_lsc_es[_i]}" == "${_section}" ]] || continue
+    _lsc_keys+=("${_lsc_k[_i]}")
+    _lsc_values+=("${_lsc_v[_i]}")
   done
   return 0
 }
 
 # _setup_conf_handle <base> <handle>
 #
-# Load the effective setup.conf into an opaque conf.sh <handle>: the whole
-# layer chain, section-replace (same precedence as _load_setup_conf, but as
-# one queryable handle for the _conf_get / _conf_list_sorted accessors).
+# Load the effective setup.toml into an opaque conf.sh <handle>: the whole
+# layer chain merged (tables key-level and recursive, arrays atomic), as
+# one queryable handle for the _conf_get / _conf_list_sorted accessors.
+# This is where the chain's precedence lives; _load_setup_conf is a
+# projection of it and _setup_effective_full is a reshaping of it.
 _setup_conf_handle() {
   local _base="${1:?"${FUNCNAME[0]}: missing base"}"
   local _h="${2:?"${FUNCNAME[0]}: missing handle"}"
@@ -197,7 +229,7 @@ _setup_conf_handle() {
 
 # _setup_effective_full <base_path> <sections_outvar> <keys_outvar> <values_outvar>
 #
-# The section-replace-resolved view of the whole chain in the `*_full`
+# The merge-resolved view of the whole chain in the `*_full`
 # array shape (sections list + parallel `<section>.<key>` / value arrays).
 # What `show` / `list` and the store-time diagnostics read, so they report
 # the values the emitters will actually use -- including the ones the local

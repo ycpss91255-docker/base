@@ -63,7 +63,7 @@ _src_from() {
 # _stage_template_tree
 #   Lay out the production shape around ${TEMP_DIR} (the repo root): a
 #   vendored subtree at <repo>/.base whose dist/ carries both the template
-#   .setup.conf and the lib the migration runs from. Echoes the copied lib
+#   setup.toml and the lib the migration runs from. Echoes the copied lib
 #   dir for _src_from.
 _stage_template_tree() {
   local _tpl="${TEMP_DIR}/.base"
@@ -380,7 +380,7 @@ EOF
   # an unread layer counted as a layer that says nothing. It is an
   # unanswered question, and an unanswered question keeps the line.
   _seed_requirements "# install python dep"
-  ln -s .setup.conf "${TEMP_DIR}/.setup.conf"
+  ln -s setup.toml "${TEMP_DIR}/setup.toml"
   cat > "${DF}" <<'EOF'
 FROM busybox AS sys
 # Setup pip packages
@@ -413,7 +413,7 @@ EOF
   cp "${DF}" "${DF}.orig"
   run bash -c "$(_src); \
     _setup_conf_layers() { local -n _o=\"\${2}\"; \
-      _o=(\"\${1}/.setup.conf\" \"\${1}/loopdir/.setup.conf\" \"\${1}/.setup.conf.local\"); }; \
+      _o=(\"\${1}/setup.toml\" \"\${1}/loopdir/setup.toml\" \"\${1}/setup.local.toml\"); }; \
     _migrate_pip_helper_detect '${DF}' && _migrate_pip_helper_apply '${DF}'"
   assert_success
   assert_output --partial "kept"
@@ -496,7 +496,7 @@ EOF
 # while CONFIG_SRC still holds its default. It is a build ARG
 # (dist/dockerfile/Dockerfile `ARG CONFIG_SRC="config"`, consumed by the
 # layer-2 `COPY "${CONFIG_SRC}" "${CONFIG_DIR}"`), and a
-# `[build] arg_N = CONFIG_SRC=...` entry in .setup.conf reaches the build as
+# `[[build.args]]` entry whose `key` is CONFIG_SRC reaches the build as
 # a compose build arg, so a repo can legitimately overlay ${CONFIG_DIR} from
 # some other directory. Reading `config/` regardless would report "not
 # populated" for a repo whose real dependency list lives elsewhere and delete
@@ -522,16 +522,20 @@ EOF
   diff "${DF}.orig" "${DF}"
 }
 
-@test "migration 2 (pip-helper): keeps the line when .setup.conf redirects CONFIG_SRC (#956)" {
+@test "migration 2 (pip-helper): keeps the line when setup.toml redirects CONFIG_SRC (#956)" {
   # The Dockerfile still says `config`; the build arg overrides it, and the
   # placeholder under config/ would otherwise read as "prove it is inert".
   _seed_requirements "# install python dep"
   mkdir -p "${TEMP_DIR}/myconfig/pip"
   printf 'numpy==1.26.4\n' > "${TEMP_DIR}/myconfig/pip/requirements.txt"
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
-[build]
-arg_1 = TZ=Asia/Taipei
-arg_2 = CONFIG_SRC=myconfig
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+[[build.args]]
+key = "TZ"
+value = "Asia/Taipei"
+
+[[build.args]]
+key = "CONFIG_SRC"
+value = "myconfig"
 EOF
   cat > "${DF}" <<'EOF'
 FROM busybox AS sys
@@ -562,12 +566,16 @@ EOF
 @test "migration 2 (pip-helper): keeps the line when the TEMPLATE conf layer redirects CONFIG_SRC (#956)" {
   local _lib
   _lib="$(_stage_template_tree)"
-  cat > "${TEMP_DIR}/.base/dist/.setup.conf" <<'EOF'
-[build]
-arg_1 = TZ=Asia/Taipei
-arg_2 = CONFIG_SRC=myconfig
+  cat > "${TEMP_DIR}/.base/dist/setup.toml" <<'EOF'
+[[build.args]]
+key = "TZ"
+value = "Asia/Taipei"
+
+[[build.args]]
+key = "CONFIG_SRC"
+value = "myconfig"
 EOF
-  # The repo writes no .setup.conf at all -- template defaults for every
+  # The repo writes no setup.toml at all -- template defaults for every
   # section, which is the state `setup.sh` warns about rather than forbids.
   _seed_requirements "# install python dep"
   mkdir -p "${TEMP_DIR}/myconfig/pip"
@@ -600,7 +608,7 @@ RUN echo done
 EOF
   cp "${DF}" "${DF}.orig"
   run bash -c "$(_src); \
-    _setup_conf_layers() { local -n _o=\"\${2}\"; _o=(\"\${1}/.setup.conf\"); }; \
+    _setup_conf_layers() { local -n _o=\"\${2}\"; _o=(\"\${1}/setup.toml\"); }; \
     _migrate_pip_helper_detect '${DF}' && _migrate_pip_helper_apply '${DF}'"
   assert_success
   assert_output --partial "kept"
@@ -611,9 +619,10 @@ EOF
   # grep exits 2 when it could not read what it was pointed at. Reading
   # that as "no match" turns an unreadable layer into permission to delete.
   _seed_requirements "# install python dep"
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
-[build]
-arg_1 = TZ=Asia/Taipei
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+[[build.args]]
+key = "TZ"
+value = "Asia/Taipei"
 EOF
   cat > "${DF}" <<'EOF'
 FROM busybox AS sys

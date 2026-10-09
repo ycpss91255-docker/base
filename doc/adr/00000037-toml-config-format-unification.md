@@ -137,6 +137,20 @@ tag = "l4t"
   any `[[volumes]]` entry, the entire volumes array replaces the lower
   layer's. No append, no index-based merge.
 
+**Amendment (#1137, 2026-10-10): zero entries is defining the array.**
+"Defines any `[[volumes]]` entry" leaves out the case that turned out to
+matter most: a layer that defines the array with NO entries. It replaces,
+like any other definition -- an upper layer carrying `volumes = []`
+leaves the lower layer's list empty, because that is what an operator who
+removed the last `[[volumes]]` block decided. The state that inherits is
+the ABSENT key, not the empty array, and the two are not
+interchangeable. Both halves of that distinction were defects before the
+rule was written down: `setup remove build.arg_1` dropped the declaration
+and the merge handed back every argument the template defines (#1127),
+and the INI-to-TOML converter emitted no blocks at all for a family whose
+only slot was empty and did the same (#1137) -- where the INI chain's
+section-replace had resolved that same config to zero build arguments.
+
 This resolves ADR-00000025 sec. 3's concern: the numbered-key ordered
 lists that forced section-replace are gone. Scalar sections that were
 collateral damage of the blanket section-replace rule can now be

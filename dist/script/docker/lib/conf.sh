@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 #
-# conf.sh - INI read/write primitives for setup.conf.
+# conf.sh - config read/write primitives for setup.toml (TOML) and the
+# legacy INI file the frozen TUI still writes.
 #
-# The single shared home for setup.conf I/O:
+# The single shared home for setup.toml I/O:
 #   _dump_conf_section    - emit key=value lines from one section
 #   _load_setup_conf_full - parse every section into namespaced arrays
 #   _conf_split_nskey     - split a namespaced key back into its halves
@@ -125,6 +126,20 @@ _ini_tokenize() {
 # TOML counterpart of _ini_tokenize. Calls the containerised bridge
 # (toml_bridge_parse --kv) and populates the same four parallel arrays.
 # Drop-in replacement for _ini_tokenize when the source is TOML.
+#
+# A file that is NOT there leaves the arrays empty and answers 0, which is
+# _ini_tokenize's contract too: an absent layer contributes nothing.
+#
+# A file that IS there and could not be parsed answers NON-ZERO with the
+# arrays empty, and the two outcomes must not be read as one. The bridge
+# reports a failure with its exit status and an empty stdout, and the
+# process substitution this used to read through put that status out of
+# reach: the loop read nothing, the handle came back empty, and every
+# value fell back to its default with nothing said -- a total parser
+# failure wearing the shape of a file that says nothing. That is the same
+# trap _conf_load_layers names on its own merge call, and it is why an
+# unprovisionable parser has to be able to stop a run rather than quietly
+# produce the template defaults.
 _toml_tokenize() {
   local _file="${1:?"${FUNCNAME[0]}: missing file"}"
   local -n _tt_sections="${2:?"${FUNCNAME[0]}: missing sections outvar"}"
@@ -138,6 +153,17 @@ _toml_tokenize() {
   _tt_values=()
   [[ -f "${_file}" ]] || return 0
 
+  # Collected first, so the bridge's status is somewhere it can be acted
+  # on. An empty stdout from a SUCCESSFUL parse is still a success: the
+  # herestring's single blank line is dropped by the guard in the loop.
+  local _tt_kv
+  if ! _tt_kv="$(toml_bridge_parse "${_file}" --kv)"; then
+    _log_err conf conf_toml_parse_failed \
+      "display=_toml_tokenize: the TOML parse of ${_file} failed; refusing to report an empty configuration as a loaded one" \
+      "path=${_file}"
+    return 1
+  fi
+
   local _tt_sect _tt_key _tt_val
   local -A _tt_seen=()
   while IFS=$'\t' read -r _tt_sect _tt_key _tt_val; do
@@ -149,18 +175,21 @@ _toml_tokenize() {
     _tt_entry_sects+=("${_tt_sect}")
     _tt_keys+=("${_tt_key}")
     _tt_values+=("${_tt_val}")
-  done < <(toml_bridge_parse "${_file}" --kv)
+  done <<< "${_tt_kv}"
 }
 
 # _load_setup_conf_full <file> <sections_outvar> <keys_outvar> <values_outvar>
 #
-# Reads an INI file into three parallel arrays:
+# Reads a config file into three parallel arrays:
 #   sections[] — unique section names in first-appearance order
 #   keys[i]    — "<section>.<key>" (namespaced)
 #   values[i]  — trimmed value
 #
-# Comments and blank lines are skipped. Thin projection over
-# _ini_tokenize that re-joins each entry's section and key.
+# Comments and blank lines are skipped. Thin projection over the
+# tokenizer that re-joins each entry's section and key. A `.toml` file
+# goes through the bridge (_toml_tokenize), which numbers array-of-
+# tables blocks back into the `<prefix>_N` keys this view speaks;
+# anything else through _ini_tokenize -- the rule _conf_load applies.
 _load_setup_conf_full() {
   local _file="${1:?"${FUNCNAME[0]}: missing file"}"
   local -n _lsf_sections="${2:?}"
@@ -173,7 +202,11 @@ _load_setup_conf_full() {
   [[ -f "${_file}" ]] || return 0
 
   local -a __lsf_s=() __lsf_es=() __lsf_k=() __lsf_v=()
-  _ini_tokenize "${_file}" __lsf_s __lsf_es __lsf_k __lsf_v
+  if [[ "${_file}" == *.toml ]]; then
+    _toml_tokenize "${_file}" __lsf_s __lsf_es __lsf_k __lsf_v
+  else
+    _ini_tokenize "${_file}" __lsf_s __lsf_es __lsf_k __lsf_v
+  fi
 
   local __lsf_i
   for (( __lsf_i = 0; __lsf_i < ${#__lsf_s[@]}; __lsf_i++ )); do
@@ -257,6 +290,42 @@ _parse_ini_section() {
     [[ "${__pis_es[__pis_i]}" == "${_section}" ]] || continue
     _pis_keys+=("${__pis_k[__pis_i]}")
     _pis_values+=("${__pis_v[__pis_i]}")
+  done
+}
+
+# _parse_conf_section <file> <section> <keys_outvar> <values_outvar>
+#
+# Format-dispatching wrapper: TOML (.toml) files go through the
+# containerised bridge (_toml_tokenize), everything else through the
+# INI tokenizer (_ini_tokenize). Same output contract as
+# _parse_ini_section -- parallel flat arrays of keys and values for
+# the requested section.
+#
+# This is the function callers that need to read ONE section from a
+# file of UNKNOWN format should use. _parse_ini_section stays for
+# callers that know they have INI.
+_parse_conf_section() {
+  local _file="${1:?"${FUNCNAME[0]}: missing file"}"
+  local _section="${2:?"${FUNCNAME[0]}: missing section"}"
+  local -n _pcs_keys="${3:?"${FUNCNAME[0]}: missing keys outvar"}"
+  local -n _pcs_values="${4:?"${FUNCNAME[0]}: missing values outvar"}"
+
+  _pcs_keys=()
+  _pcs_values=()
+  [[ -f "${_file}" ]] || return 0
+
+  local -a __pcs_s=() __pcs_es=() __pcs_k=() __pcs_v=()
+  if [[ "${_file}" == *.toml ]]; then
+    _toml_tokenize "${_file}" __pcs_s __pcs_es __pcs_k __pcs_v
+  else
+    _ini_tokenize "${_file}" __pcs_s __pcs_es __pcs_k __pcs_v
+  fi
+
+  local __pcs_i
+  for (( __pcs_i = 0; __pcs_i < ${#__pcs_k[@]}; __pcs_i++ )); do
+    [[ "${__pcs_es[__pcs_i]}" == "${_section}" ]] || continue
+    _pcs_keys+=("${__pcs_k[__pcs_i]}")
+    _pcs_values+=("${__pcs_v[__pcs_i]}")
   done
 }
 
@@ -359,19 +428,33 @@ _conf_list() {
 
 # _conf_load_layers <handle> <file>...
 #
-# Load the section-replace merge of an arbitrary-length layer chain into
-# <handle>. Files are given in INCREASING precedence (baseline first, the
-# most local override last): for each section, the entries come wholesale
-# from the HIGHEST-precedence layer that defines it (>=1 entry); layers
-# below contribute nothing to that section. Sections no layer above defines
-# keep the layer that did. Section order is the order the layers introduced
-# them, lowest layer first.
+# Load the merge of an arbitrary-length layer chain into <handle>. Files
+# are given in INCREASING precedence (baseline first, the most local
+# override last). Section order is the order the layers introduced them,
+# lowest layer first.
 #
-# Section-replace rather than per-key merge is the chain's one rule, and it
-# is structural: eight of the sections are `<prefix>_N` ordered lists, and a
-# per-key merge would assemble one ordered list out of several layers, would
-# offer no way to REMOVE an item, and would require the author of an upper
-# layer to know the highest N used by a layer they cannot see.
+# TOML chain (every existing layer is `.toml`, which is every chain the
+# shipped readers build): the rule is ADR-00000037's, and the merge runs
+# in the bridge where the types are native.
+#
+#   - A TABLE merges key by key, at every depth: the upper layer overrides
+#     only the keys it names, the rest inherit, and a nested table
+#     (`[logging.web]`) merges the same way rather than being replaced.
+#   - An ARRAY is replaced ATOMICALLY: the list from the highest layer
+#     that defines it wins whole. That is what the ordered lists need --
+#     a per-element merge would assemble one list out of several layers,
+#     would offer no way to REMOVE an item, and would require the author
+#     of an upper layer to know the highest index used by a layer they
+#     cannot see. The numbered `<prefix>_N` keys the shell view speaks are
+#     a rendering of those arrays, so they inherit the atomicity.
+#
+# INI chain (the legacy file the frozen TUI writes, and any mixed chain):
+# section-replace, which is what that format's readers have always done --
+# the entries come wholesale from the highest layer that defines the
+# section. ADR-00000037's rule is a rule about TOML tables and arrays, and
+# an INI section is neither; the two formats are never mixed in one
+# shipped chain, so this is a legacy path, not a second answer about
+# setup.toml.
 #
 # Missing files are skipped (an absent layer contributes nothing), so callers
 # pass the whole chain unconditionally.
@@ -380,19 +463,40 @@ _conf_load_layers() {
   shift
   (( $# > 0 )) || { declare -g -a "${_h}__sects=()" "${_h}__es=()" "${_h}__keys=()" "${_h}__vals=()"; return 0; }
 
-  # TOML fast path: when every existing file is .toml, delegate to
-  # toml_bridge_merge which performs type-aware merge in Python
-  # (scalar key-level, array replace) in a single docker run.
-  local _cll_all_toml=true _cll_f
+  # ── TOML path: type-aware merge via containerised bridge ──────────
+  #
+  # When every existing layer file is TOML, the merge (tables key-level
+  # and recursive, arrays replaced atomically) runs in Python where the
+  # type information is native (dict vs list).  ADR-37 sec. Merge
+  # semantics.
+  local -a _cll_existing=()
+  local _cll_all_toml=1
+  local _cll_f
   for _cll_f in "$@"; do
-    [[ ! -f "${_cll_f}" ]] && continue
-    [[ "${_cll_f}" == *.toml ]] || { _cll_all_toml=false; break; }
+    [[ -f "${_cll_f}" ]] || continue
+    _cll_existing+=("${_cll_f}")
+    [[ "${_cll_f}" == *.toml ]] || _cll_all_toml=0
   done
-  if [[ "${_cll_all_toml}" == true ]]; then
+  if (( ${#_cll_existing[@]} > 0 && _cll_all_toml )); then
     declare -g -a "${_h}__sects=()" "${_h}__es=()" "${_h}__keys=()" "${_h}__vals=()"
+    # shellcheck disable=SC2178  # namerefs to arrays, not scalar reassignment
     local -n _cll_ts="${_h}__sects" _cll_tes="${_h}__es" _cll_tk="${_h}__keys" _cll_tv="${_h}__vals"
     local _cll_sect _cll_key _cll_val
     local -A _cll_tseen=()
+    # The bridge reports a failed merge with its exit status and an empty
+    # stdout, and a process substitution puts that status out of reach: the
+    # loop would read nothing, the handle would come back empty, and every
+    # value would fall back to its default with nothing said -- a total
+    # config failure wearing the shape of a config that says nothing.
+    # Collecting the output first is what puts the status where it can be
+    # acted on. An empty stdout from a SUCCESSFUL merge is still a success:
+    # the herestring's single blank line is dropped by the guard below.
+    local _cll_kv
+    if ! _cll_kv="$(toml_bridge_merge --kv "${_cll_existing[@]}")"; then
+      _log_err conf conf_toml_merge_failed \
+        "display=_conf_load_layers: the TOML merge of ${_cll_existing[*]} failed; refusing to report an empty configuration as a loaded one"
+      return 1
+    fi
     while IFS=$'\t' read -r _cll_sect _cll_key _cll_val; do
       [[ -z "${_cll_sect}" ]] && continue
       if [[ -z "${_cll_tseen[${_cll_sect}]:-}" ]]; then
@@ -402,9 +506,11 @@ _conf_load_layers() {
       _cll_tes+=("${_cll_sect}")
       _cll_tk+=("${_cll_key}")
       _cll_tv+=("${_cll_val}")
-    done < <(toml_bridge_merge --kv "$@")
+    done <<< "${_cll_kv}"
     return 0
   fi
+
+  # ── INI path: section-replace merge (existing logic) ──────────────
 
   # INI path: tokenize every layer up front into flat, layer-tagged arrays.
   # The per-layer arrays cannot be kept as separate named arrays without
@@ -437,6 +543,7 @@ _conf_load_layers() {
     _cll_idx=$(( _cll_idx + 1 ))
   done
 
+  # shellcheck disable=SC2178  # namerefs to arrays, not scalar reassignment
   declare -g -a "${_h}__sects=()" "${_h}__es=()" "${_h}__keys=()" "${_h}__vals=()"
   local -n _cll_ms="${_h}__sects" _cll_mes="${_h}__es" _cll_mk="${_h}__keys" _cll_mv="${_h}__vals"
 
@@ -458,7 +565,7 @@ _conf_load_layers() {
 # _conf_load_merged <template_file> <repo_file> <handle>
 #
 # Two-layer form of _conf_load_layers, kept as the name the explicit
-# template/repo call sites read by. Same section-replace semantics.
+# template/repo call sites read by. Same merge semantics.
 _conf_load_merged() {
   local _tpl="${1:?"${FUNCNAME[0]}: missing template file"}"
   local _repo="${2:?"${FUNCNAME[0]}: missing repo file"}"
@@ -502,8 +609,595 @@ _conf_list_sorted() {
 }
 
 # ════════════════════════════════════════════════════════════════════
-# INI writer (comment-preserving)
+# Config writers (comment-preserving)
 # ════════════════════════════════════════════════════════════════════
+#
+# Both writers pick their output format from the destination's
+# extension, the same rule the readers (_conf_load, _parse_conf_section)
+# apply: a `.toml` destination gets TOML, anything else gets the legacy
+# INI the frozen TUI still writes into its own file (ADR-00000037
+# freezes setup_tui.sh until the migration completes, so that file must
+# keep coming out byte-for-byte as before).
+#
+# TOML mode differs from INI mode in three ways and nothing else:
+#
+#   1. Values are rendered as TOML scalars: `true` / `false` and integers
+#      stay bare, everything else is a quoted basic string (backslash and
+#      double quote escaped). Keys that are not bare-key-safe (`gui.mode`
+#      under a per-stage section) are quoted, and so is each dotted part
+#      of a section header that is not (`["stage:headless"]`).
+#   2. Numbered list keys (`mount_N`, `arg_N`, `rule_N`, `port_N`,
+#      `device_N`, `cgroup_rule_N`, `tmpfs_N`, `context_N`, `cap_add_N`,
+#      `cap_drop_N`, `security_opt_N`)
+#      are routed to the `[[array of tables]]` the bridge reads them back
+#      from: the N-th `[[volumes]]` block IS `volumes.mount_N`. An array
+#      is dense, so an entry that does not exist yet is appended after the
+#      last block of its kind and takes the next index, and a removed
+#      entry compacts the ones after it.
+#   3. `[[...]]` headers are recognised as scope boundaries.
+#
+# The line-by-line walk is otherwise the same, which is what keeps the
+# property both writers have always had: comments, blank lines and
+# untouched lines are copied through verbatim.
+#
+# What has NO array-of-tables home yet stays a quoted scalar under its
+# table (`[environment] env_N`): the bridge reads a table scalar back
+# under its own name, so those keys round-trip as they are, and moving
+# them is a reader-side change. `[environment]` is the last of these --
+# ADR-00000037 splits it along the service boundary and the direct-key
+# readers have not landed, so where its entries go is still open.
+#
+# `[devices]` hosts TWO numbered families, so each gets its own nested
+# array path -- `device_N` -> `[[devices.bindings]]`, `cgroup_rule_N` ->
+# `[[devices.cgroup_rules]]` -- the same shape `[security]` uses for
+# `cap_add_N`, `cap_drop_N` and `security_opt_N`. One array at the
+# section could not hold both: `[[devices]]` makes the name an array,
+# and a rule left as a table scalar needed `[devices]`, which TOML
+# refuses in the same document. A conf that binds a device AND allows a
+# major number is ordinary, and `setup.sh set` wrote exactly that
+# unparseable pair.
+
+# _conf_toml_str <value> <outvar>
+#
+# Render a bash string as a TOML basic string, ALWAYS -- no type is
+# inferred from the text. Backslash, double quote and tab are escaped;
+# TOML has no other escape a config value can trip over.
+#
+# This is the renderer for a field whose TYPE is fixed by the bridge's
+# array spec rather than by what the operator typed. Every field of an
+# array-of-tables entry is one of those: the spec joins a volume's
+# source / target / mode with `:` and formats a build arg into
+# `key=value`, so the field is a string even when its text spells
+# something else. Inferring a type there is not a cosmetic slip -- a
+# numeric named volume (`123:/data`) rendered a bare `source = 123`,
+# `":".join` was handed an int, and the TypeError stopped `--kv`
+# mid-stream, so the WHOLE configuration failed to load over one mount.
+# A build arg spelled `FEATURE=true` rendered a bare `value = true`, a
+# TOML boolean the Dockerfile never asked for.
+_conf_toml_str() {
+  local _v="${1-}"
+  local -n _ctstr_out="${2:?"${FUNCNAME[0]}: missing outvar"}"
+  _v="${_v//\\/\\\\}"
+  _v="${_v//\"/\\\"}"
+  _v="${_v//$'\t'/\\t}"
+  _ctstr_out="\"${_v}\""
+}
+
+# _conf_toml_scalar <value> <outvar>
+#
+# Render a bash string as the TOML scalar the bridge reads back to the
+# same string. Booleans and integers (no leading zeros, TOML refuses
+# them) are bare; everything else goes through _conf_toml_str.
+#
+# For a TABLE key only: the table's keys are free-typed, and `init = true`
+# / `max_file = 3` are how the shipped template spells them. An array
+# field is NOT free-typed -- it takes _conf_toml_str directly.
+_conf_toml_scalar() {
+  local _v="${1-}"
+  local -n _cts_out="${2:?"${FUNCNAME[0]}: missing outvar"}"
+  case "${_v}" in
+    true|false) _cts_out="${_v}"; return 0 ;;
+  esac
+  if [[ "${_v}" =~ ^-?(0|[1-9][0-9]*)$ ]]; then
+    _cts_out="${_v}"
+    return 0
+  fi
+  _conf_toml_str "${_v}" _cts_out
+}
+
+# _conf_toml_header_uncomment <line> <outvar>
+#
+# <line> with a trailing header comment removed when it has one:
+# `[network] # chosen mode` -> `[network] `. Every other line is copied
+# through unchanged, so the bracket matchers that read the result keep
+# their existing rule for everything that is not a header.
+#
+# A comment after the closing bracket is part of a VALID table header --
+# TOML reads `[network] # chosen mode` as the `[network]` table, and so
+# does the bridge. The writers required the `]` to be the last non-blank
+# character of the line, so none of them saw a header there at all:
+# `setup.sh set network.mode bridge` never entered the table, appended a
+# SECOND `[network]` at the end of the file, and left the original value
+# standing. TOML rejects a table declared twice, so a user who had
+# commented their own config got a file nothing could read -- after a
+# write that reported success.
+#
+# The cut is made at the first `#` AFTER the LAST `]`, which is where a
+# comment can start. Inside the brackets a `#` belongs to a quoted key
+# (`["stage:a#b"]` is legal TOML), and cutting at the first `#` in the
+# line would truncate the header itself.
+_conf_toml_header_uncomment() {
+  local _line="${1-}" _after _before
+  local -n _cthu_out="${2:?"${FUNCNAME[0]}: missing outvar"}"
+  _cthu_out="${_line}"
+  [[ "${_line}" == *\]* ]] || return 0
+  _after="${_line##*\]}"
+  [[ "${_after}" == *\#* ]] || return 0
+  _before="${_line%"${_after}"}"
+  _cthu_out="${_before}${_after%%\#*}"
+}
+
+# _conf_toml_key <key> <outvar>
+#
+# A bare key when TOML allows one, a quoted key otherwise.
+_conf_toml_key() {
+  local _k="${1-}"
+  local -n _ctk_out="${2:?"${FUNCNAME[0]}: missing outvar"}"
+  if [[ "${_k}" =~ ^[A-Za-z0-9_-]+$ ]]; then
+    _ctk_out="${_k}"
+  else
+    _ctk_out="\"${_k//\"/\\\"}\""
+  fi
+}
+
+# _conf_toml_header <section> <outvar>
+#
+# `[a.b]` with each dotted part quoted when it has to be:
+# `logging.web` -> `[logging.web]`, `stage:headless` -> `["stage:headless"]`.
+_conf_toml_header() {
+  local _s="${1-}"
+  local -n _cth_out="${2:?"${FUNCNAME[0]}: missing outvar"}"
+  local -a _parts=()
+  local _part _q _joined=""
+  IFS=. read -r -a _parts <<< "${_s}"
+  for _part in "${_parts[@]}"; do
+    _conf_toml_key "${_part}" _q
+    _joined+="${_joined:+.}${_q}"
+  done
+  _cth_out="[${_joined}]"
+}
+
+# _conf_header_name <raw> <outvar>
+#
+# The section name a header line carries, quotes and padding stripped:
+# `"stage:headless"` -> `stage:headless`. The inverse of _conf_toml_header
+# for every name the schema has.
+#
+# BOTH quote characters, because TOML has two quoted-key spellings and a
+# hand-authored file may use either. Basic quotes are what
+# _conf_toml_header writes, so stripping only those read `['network']`
+# back as the name `'network'`: no writer recognised the section, and
+# setting `network.mode` appended a SECOND `[network]` -- the duplicate
+# table TOML refuses, from the same class of half-recognised header as a
+# trailing comment.
+_conf_header_name() {
+  local _raw="${1-}"
+  local -n _chn_out="${2:?"${FUNCNAME[0]}: missing outvar"}"
+  _raw="${_raw//\"/}"
+  _raw="${_raw//\'/}"
+  _raw="${_raw#"${_raw%%[![:space:]]*}"}"
+  _raw="${_raw%"${_raw##*[![:space:]]}"}"
+  _chn_out="${_raw}"
+}
+
+# _conf_toml_aot_slot <section> <key> <path_outvar> <index_outvar>
+#
+# Where a numbered list key lives in TOML. Returns 0 with the
+# array-of-tables path and the 1-based index when `<section>.<key>` is
+# one of the numbered keys the bridge's array spec reads back (the
+# conversion table of the TOML migration), 1 for everything else.
+_conf_toml_aot_slot() {
+  local _s="${1-}" _k="${2-}"
+  local -n _cas_path="${3:?"${FUNCNAME[0]}: missing path outvar"}"
+  local -n _cas_idx="${4:?"${FUNCNAME[0]}: missing index outvar"}"
+  _cas_path=""
+  _cas_idx=""
+  local -a _cas_fams=()
+  _conf_toml_aot_section "${_s}" _cas_fams || return 1
+  local _cas_f
+  for _cas_f in ${_cas_fams[@]+"${_cas_fams[@]}"}; do
+    [[ "${_k}" =~ ^${_cas_f%%=*}_([0-9]+)$ ]] || continue
+    _cas_path="${_cas_f#*=}"
+    _cas_idx="${BASH_REMATCH[1]}"
+    return 0
+  done
+  return 1
+}
+
+# _conf_toml_aot_section <section> <outvar_array>
+#
+# Every numbered family a section HOSTS, as `<prefix>=<path>` pairs:
+# `[security]` answers `cap_add=security.cap_add`,
+# `cap_drop=security.cap_drop` and
+# `security_opt=security.security_opt`. Returns 1 for a section with no
+# family at all (`[gui]`, `[logging]`).
+#
+# `cap_drop` is here because its two siblings are. All three are read by
+# the same `_conf_list_sorted _RDC_CONF security "<prefix>_"` call in
+# _resolve_docker_conf, so a family of the three with only two homes was
+# an omission rather than a distinction. Without a home it was carried as
+# a scalar and merged KEY BY KEY, so an upper layer replacing the list
+# no longer replaced it and the lower layer's drops survived -- the
+# effective drop list stopped being the one the layering says. Note the
+# direction: a drop that survives REMOVES a capability, so this one
+# over-restricts rather than exposing, which is why it breaks a workload
+# instead of opening one up. cap_add's version of the same defect runs
+# the other way.
+#
+# THE table. _conf_toml_aot_slot is a lookup over it, so the question
+# "which array does this key belong to" and the question "which arrays
+# does this section have" cannot drift apart -- and the second one has a
+# caller: the INI-to-TOML converter asks it to decide which arrays a
+# converted section has EMPTIED. Under the pre-ADR-37 chain a section was
+# replaced whole, so an INI override layer naming `[security]` at all
+# left the layer below with no cap_add entries; the TOML merge is
+# key-level, so that is a `cap_add = []` the converted file has to carry
+# or the list comes back.
+_conf_toml_aot_section() {
+  local _s="${1-}"
+  local -n _ctas_out="${2:?"${FUNCNAME[0]}: missing outvar"}"
+  _ctas_out=()
+  case "${_s}" in
+    image)               _ctas_out=("rule=image.rules") ;;
+    build)               _ctas_out=("arg=build.args") ;;
+    network)             _ctas_out=("port=network.ports") ;;
+    volumes)             _ctas_out=("mount=volumes") ;;
+    tmpfs)               _ctas_out=("tmpfs=tmpfs") ;;
+    devices)             _ctas_out=("device=devices.bindings"
+                                    "cgroup_rule=devices.cgroup_rules") ;;
+    additional_contexts) _ctas_out=("context=additional_contexts") ;;
+    security)            _ctas_out=("cap_add=security.cap_add"
+                                    "cap_drop=security.cap_drop"
+                                    "security_opt=security.security_opt") ;;
+    *) return 1 ;;
+  esac
+  return 0
+}
+
+# _conf_toml_aot_nskey <path> <index> <outvar>
+#
+# The inverse: the `<section>.<prefix>_N` key the N-th `[[<path>]]` block
+# is known by on the shell side. Returns 1 for a path the bridge has no
+# array spec for, which the writers then copy through untouched.
+_conf_toml_aot_nskey() {
+  local _p="${1-}" _n="${2-}"
+  local -n _can_out="${3:?"${FUNCNAME[0]}: missing outvar"}"
+  _can_out=""
+  case "${_p}" in
+    image.rules)           _can_out="image.rule_${_n}" ;;
+    build.args)            _can_out="build.arg_${_n}" ;;
+    network.ports)         _can_out="network.port_${_n}" ;;
+    security.cap_add)      _can_out="security.cap_add_${_n}" ;;
+    security.cap_drop)     _can_out="security.cap_drop_${_n}" ;;
+    security.security_opt) _can_out="security.security_opt_${_n}" ;;
+    volumes)               _can_out="volumes.mount_${_n}" ;;
+    tmpfs)                 _can_out="tmpfs.tmpfs_${_n}" ;;
+    devices.bindings)      _can_out="devices.device_${_n}" ;;
+    devices.cgroup_rules)  _can_out="devices.cgroup_rule_${_n}" ;;
+    devices)               _can_out="devices.device_${_n}" ;;
+    additional_contexts)   _can_out="additional_contexts.context_${_n}" ;;
+    *) return 1 ;;
+  esac
+  return 0
+}
+
+# _conf_toml_empty_array_decl <line> <table> <path_outvar>
+#
+# True when <line> declares, as `[]`, an array the bridge's spec knows:
+# `args = []` seen inside `[build]` is the path `build.args`, and
+# `volumes = []` seen at the document root is `volumes`. <path_outvar>
+# comes back with that path.
+#
+# Why the writers read these lines instead of copying them. `args = []`
+# is an ordinary key, and TOML will not let a key already bound to an
+# array be extended by `[[build.args]]` blocks -- the bridge answers
+# `Cannot mutate immutable namespace ('build', 'args')` and the whole
+# file stops parsing. So a declaration left behind by a removal has to go
+# when an entry is added back, or remove-then-add is not a round trip:
+# the add reports success and every read after it fails. Each writer
+# therefore DROPS the declaration on the way through and writes one back
+# only while the list is still empty -- which also keeps an operator's
+# deliberate clear, since a save that does not refill the list re-decides
+# it the same way.
+# Every local here is `_ctea_`-prefixed, the outvars this function hands
+# to other helpers included: _conf_line_key declares a local `_k` of its
+# own, so a nameref pointing at the bare name `_k` resolves to the
+# CALLEE's variable and the key comes back empty -- which read every
+# declaration as the path `build.` and matched nothing.
+_conf_toml_empty_array_decl() {
+  local _line="${1-}" _table="${2-}"
+  local _ctea_k="" _ctea_v="" _ctea_cand="" _ctea_probe=""
+  local -n _ctea_out="${3:?"${FUNCNAME[0]}: missing path outvar"}"
+  _ctea_out=""
+  _conf_is_kv_line "${_line}" || return 1
+  _ctea_v="${_line#*=}"
+  _ctea_v="${_ctea_v#"${_ctea_v%%[![:space:]]*}"}"
+  _ctea_v="${_ctea_v%"${_ctea_v##*[![:space:]]}"}"
+  # Whitespace inside the brackets, and a trailing comment, are both part
+  # of a valid declaration -- `args = [ ]  # intentionally cleared` is
+  # still an empty array, and an operator who clears a list is exactly
+  # the one who writes down why. Matched as the bare two characters, the
+  # annotated spelling was copied through and the next added entry landed
+  # beside a key already bound to an array: the unreadable file again,
+  # reached by annotating the decision the declaration records. (The
+  # annotation is not carried onto the declaration written back; the
+  # alternative on this path is a file nothing can parse.)
+  [[ "${_ctea_v}" =~ ^\[[[:space:]]*\][[:space:]]*(#.*)?$ ]] || return 1
+  _conf_line_key "${_line}" _ctea_k
+  _ctea_cand="${_table:+${_table}.}${_ctea_k}"
+  # Only a path the array spec names is one of ours. Anything else is an
+  # ordinary key whose value happens to be an empty array.
+  _conf_toml_aot_nskey "${_ctea_cand}" 1 _ctea_probe || return 1
+  _ctea_out="${_ctea_cand}"
+}
+
+# _conf_toml_array_decl <path> <table_out> <key_out>
+#
+# Where an EXPLICIT declaration of the array at <path> belongs, and under
+# what key: `build.args` is the key `args` of the table `build`,
+# `volumes` is the key `volumes` of the document root (<table_out> empty).
+#
+# `[[build.args]]` is sugar -- the array is still an ordinary key of an
+# ordinary table -- so `args = []` is how the same array is declared with
+# nothing in it, and it has to sit inside `[build]` like any other key of
+# it. TOML gives a root-level key exactly one home, the region before the
+# first table header, which is why the root case is answered separately
+# rather than being written wherever the blocks used to be.
+_conf_toml_array_decl() {
+  local _p="${1-}"
+  local -n _ctad_table="${2:?"${FUNCNAME[0]}: missing table outvar"}"
+  local -n _ctad_key="${3:?"${FUNCNAME[0]}: missing key outvar"}"
+  if [[ "${_p}" == *.* ]]; then
+    _ctad_table="${_p%.*}"
+    _ctad_key="${_p##*.}"
+  else
+    _ctad_table=""
+    _ctad_key="${_p}"
+  fi
+}
+
+# _conf_toml_aot_fields <path> <value> <outvar>
+#
+# The body of one `[[<path>]]` block for a numbered-key value, as the
+# bridge's array spec serialises it back: `KEY=VALUE` splits into
+# key / value, `host:container` into host / container, a mount into
+# source / target / mode, and a bare entry is its one field. Lines are
+# newline-joined, no trailing newline.
+#
+# Every one of those fields is STRING-typed, so every one of them is
+# rendered by _conf_toml_str and not by _conf_toml_scalar. The split that
+# produced it is textual -- the array spec joins the halves back with `:`
+# or `=` -- so what the half happens to look like is not a type. See the
+# _conf_toml_str header for what inferring one cost.
+#
+# A half the value does not HAVE is a field this writes no line for, and
+# that absence is the whole record of it: the array spec joins the fields
+# a block has, so an absent `value` reads back as `HTTP_PROXY` while a
+# `value = ""` reads back as `HTTP_PROXY=`. Rendering the missing half as
+# `""` instead made the two the same string, and they are two different
+# build arguments -- one inherits from the build environment, the other
+# sets it empty. `80` came back `80:`, which is not a port mapping
+# compose accepts at all. The empty half still gets its line when the
+# separator WAS there, which is what keeps a three-field mount's
+# positions: `/srv/data::ro` writes an empty `target` so `mode` cannot
+# slide into it.
+_conf_toml_aot_fields() {
+  local _p="${1-}" _v="${2-}"
+  local -n _caf_out="${3:?"${FUNCNAME[0]}: missing outvar"}"
+  local _a _b _c
+  _caf_out=""
+  case "${_p}" in
+    image.rules)
+      _conf_toml_str "${_v}" _a
+      _caf_out="rule = ${_a}"
+      ;;
+    build.args|additional_contexts)
+      local _caf_f1="key" _caf_f2="value"
+      if [[ "${_p}" == additional_contexts ]]; then
+        _caf_f1="name"
+        _caf_f2="source"
+      fi
+      _conf_toml_str "${_v%%=*}" _a
+      _caf_out="${_caf_f1} = ${_a}"
+      if [[ "${_v}" == *=* ]]; then
+        _conf_toml_str "${_v#*=}" _b
+        _caf_out+=$'\n'"${_caf_f2} = ${_b}"
+      fi
+      ;;
+    network.ports)
+      _conf_toml_str "${_v%%:*}" _a
+      _caf_out="host = ${_a}"
+      if [[ "${_v}" == *:* ]]; then
+        _conf_toml_str "${_v#*:}" _b
+        _caf_out+=$'\n'"container = ${_b}"
+      fi
+      ;;
+    security.cap_add|security.cap_drop)
+      _conf_toml_str "${_v}" _a
+      _caf_out="cap = ${_a}"
+      ;;
+    security.security_opt)
+      _conf_toml_str "${_v}" _a
+      _caf_out="opt = ${_a}"
+      ;;
+    volumes)
+      # `_caf_`-prefixed like the function's other locals, and not the bare
+      # `_rest` it was: this file is read by ShellCheck with -x, so a name
+      # a SOURCED library declares as an array is one every scalar use of
+      # that name here is reported for. toml_bridge.sh now pulls in
+      # project_reclaim.sh for the bridge tag's content digest, and that
+      # library has a `local -a _rest`.
+      local _caf_rest=""
+      _conf_toml_str "${_v%%:*}" _a
+      _caf_out="source = ${_a}"
+      if [[ "${_v}" == *:* ]]; then
+        _caf_rest="${_v#*:}"
+        _conf_toml_str "${_caf_rest%%:*}" _b
+        _caf_out+=$'\n'"target = ${_b}"
+        if [[ "${_caf_rest}" == *:* ]]; then
+          _conf_toml_str "${_caf_rest#*:}" _c
+          _caf_out+=$'\n'"mode = ${_c}"
+        fi
+      fi
+      ;;
+    tmpfs|devices|devices.bindings)
+      _conf_toml_str "${_v}" _a
+      _caf_out="path = ${_a}"
+      ;;
+    devices.cgroup_rules)
+      _conf_toml_str "${_v}" _a
+      _caf_out="rule = ${_a}"
+      ;;
+  esac
+}
+
+# _conf_fmt_kv <toml> <key> <value> <outvar>
+#
+# One `key = value` line in the destination's format.
+_conf_fmt_kv() {
+  local _toml="${1-0}" _k="${2-}" _v="${3-}"
+  local -n _cfk_out="${4:?"${FUNCNAME[0]}: missing outvar"}"
+  if (( _toml )); then
+    local _fk _fv
+    _conf_toml_key "${_k}" _fk
+    _conf_toml_scalar "${_v}" _fv
+    _cfk_out="${_fk} = ${_fv}"
+  else
+    _cfk_out="${_k} = ${_v}"
+  fi
+}
+
+# _conf_fmt_header <toml> <section> <outvar>
+#
+# One `[section]` header line in the destination's format.
+_conf_fmt_header() {
+  local _toml="${1-0}" _s="${2-}"
+  local -n _cfh_out="${3:?"${FUNCNAME[0]}: missing outvar"}"
+  if (( _toml )); then
+    _conf_toml_header "${_s}" _cfh_out
+  else
+    _cfh_out="[${_s}]"
+  fi
+}
+
+# _conf_is_kv_line <line>
+#
+# True for a line that carries a `key = value` pair: not blank, not a
+# comment (a `#` as the FIRST non-blank character, the rule the readers
+# apply, so an inline `#` is part of the value), and has an `=`.
+_conf_is_kv_line() {
+  local _line="${1-}" _trimmed
+  _trimmed="${_line#"${_line%%[![:space:]]*}"}"
+  [[ -n "${_trimmed}" && "${_trimmed}" != \#* && "${_line}" == *=* ]]
+}
+
+# _conf_line_key <line> <outvar>
+#
+# The key a `key = value` line carries, trimmed and with TOML quotes
+# stripped (`"gui.mode" = ...` -> `gui.mode`).
+_conf_line_key() {
+  local _line="${1-}" _k
+  local -n _clk_out="${2:?"${FUNCNAME[0]}: missing outvar"}"
+  _k="${_line%%=*}"
+  _k="${_k#"${_k%%[![:space:]]*}"}"
+  _k="${_k%"${_k##*[![:space:]]}"}"
+  _k="${_k#\"}"
+  _k="${_k%\"}"
+  _clk_out="${_k}"
+}
+
+# ── _write_setup_conf's flush helpers ─────────────────────────────────
+#
+# Called from _write_setup_conf only. They read its walk state (the
+# `__override` / `__emitted` / `__removed` / `__aot_of` / `__aot_idx_of`
+# maps, `__toml`, and `_out`) through bash's dynamic scope rather than
+# taking a dozen namerefs each; nothing else may call them.
+
+# _wsc_flush_scalars <section>
+#
+# Append the not-yet-emitted scalar overrides of <section> (added keys
+# with no template line). Which section an override key belongs to is
+# _conf_split_nskey's question. A `"${__current}."*` prefix match
+# answers it wrongly for the one sub-sectioned name: `logging.web.driver`
+# prefixes `logging.` too, so it was flushed into `[logging]` as a bogus
+# `web.driver = ...` line on top of the `[logging.web]` line it belongs
+# to.
+_wsc_flush_scalars() {
+  local _sect="${1}"
+  local __ovk __ovk_sect __ovk_key __kv
+  for __ovk in "${!__override[@]}"; do
+    _conf_split_nskey "${__ovk}" __ovk_sect __ovk_key || continue
+    [[ "${__ovk_sect}" == "${_sect}" && -z "${__emitted[${__ovk}]:-}" ]] || continue
+    [[ -n "${__aot_of[${__ovk}]:-}" ]] && continue
+    [[ -n "${__removed[${__ovk}]+x}" ]] && { __emitted[${__ovk}]=1; continue; }
+    _conf_fmt_kv "${__toml}" "${__ovk_key}" "${__override[${__ovk}]}" __kv
+    printf '%s\n' "${__kv}" >> "${_out}"
+    __emitted[${__ovk}]=1
+  done
+  # This is also where <section>'s key scope ends, so it is where an
+  # emptied array belonging to <section> gets its explicit declaration.
+  _wsc_flush_empty_arrays "${_sect}"
+}
+
+# _wsc_flush_aot <path> <where>
+#
+# Append the not-yet-emitted array-of-tables overrides of <path> as new
+# `[[<path>]]` blocks, in index order so the array the bridge numbers
+# back matches the order the caller meant. <where> is `boundary` when
+# the next line out is a header (each block is followed by a blank
+# line, the way the template spaces its blocks) or `eof` (each block is
+# preceded by one).
+_wsc_flush_aot() {
+  local _path="${1}" _where="${2:-eof}"
+  local __ovk __fields _entry
+  local -a _pending=()
+  for __ovk in "${!__aot_of[@]}"; do
+    [[ "${__aot_of[${__ovk}]}" == "${_path}" && -z "${__emitted[${__ovk}]:-}" ]] || continue
+    [[ -n "${__removed[${__ovk}]+x}" ]] && { __emitted[${__ovk}]=1; continue; }
+    _pending+=("${__aot_idx_of[${__ovk}]} ${__ovk}")
+  done
+  (( ${#_pending[@]} > 0 )) || return 0
+  while IFS= read -r _entry; do
+    [[ -n "${_entry}" ]] || continue
+    __ovk="${_entry#* }"
+    _conf_toml_aot_fields "${_path}" "${__override[${__ovk}]}" __fields
+    if [[ "${_where}" == boundary ]]; then
+      printf '[[%s]]\n%s\n\n' "${_path}" "${__fields}" >> "${_out}"
+    else
+      printf '\n[[%s]]\n%s\n' "${_path}" "${__fields}" >> "${_out}"
+    fi
+    __emitted[${__ovk}]=1
+  done < <(printf '%s\n' "${_pending[@]}" | sort -n -k1,1)
+}
+
+# _wsc_flush_empty_arrays <table>
+#
+# Declare, as `<key> = []`, each array path this rewrite leaves with no
+# blocks whose declaration belongs in <table> (the empty string for the
+# document root). Called at the point <table>'s key scope ends, so the
+# line lands inside the table it belongs to; each path is declared once.
+_wsc_flush_empty_arrays() {
+  local _table="${1-}"
+  local __fea_p __fea_t __fea_k
+  for __fea_p in "${!__aot_empty[@]}"; do
+    [[ -z "${__aot_empty_done[${__fea_p}]:-}" ]] || continue
+    _conf_toml_array_decl "${__fea_p}" __fea_t __fea_k
+    [[ "${__fea_t}" == "${_table}" ]] || continue
+    _conf_toml_key "${__fea_k}" __fea_k
+    printf '%s = []\n' "${__fea_k}" >> "${_out}"
+    __aot_empty_done["${__fea_p}"]=1
+  done
+}
 
 # _write_setup_conf <dst_file> <template_src> <keys_ref> <values_ref> [<removed_keys>]
 #
@@ -522,6 +1216,10 @@ _conf_list_sorted() {
 #
 # Extra override entries that do not correspond to any template line
 # (e.g. Add rule_5 / mount_5) are appended to the end of their section.
+#
+# TOML destination: see the section comment above. A numbered list key
+# addresses the N-th `[[...]]` block of its kind (replaced in place,
+# dropped when removed, appended after the last block when new).
 _write_setup_conf() {
   local _dst="${1:?}"
   local _tpl="${2:?}"
@@ -530,6 +1228,9 @@ _write_setup_conf() {
   local _removed_keys="${5:-}"
 
   [[ -f "${_tpl}" ]] || return 1
+
+  local __toml=0
+  [[ "${_dst}" == *.toml ]] && __toml=1
 
   local -A __override=()
   local -A __emitted=()
@@ -556,7 +1257,7 @@ _write_setup_conf() {
   # Write to a sibling temp file and atomically `mv` it over _dst at the
   # very end. The previous in-place `: > "${_dst}"` truncated the user's
   # config FIRST, opening a data-loss window: any append failing after the
-  # truncate (disk full / mid-write error) left setup.conf truncated with
+  # truncate (disk full / mid-write error) left setup.toml truncated with
   # no rollback. The temp+mv pattern means a mid-write failure leaves the
   # original _dst untouched. Guard mktemp so a failed temp creation
   # (read-only dir / no inodes) bails before touching _dst.
@@ -566,50 +1267,199 @@ _write_setup_conf() {
     return 1
   fi
 
-  local __current="" __k __rest
+  # TOML: which override keys are array-of-tables entries, and how many
+  # blocks of each kind the template already has. The count is what
+  # tells the walk it is leaving the LAST block of a kind, which is where
+  # new entries of that kind are appended so the array stays in order.
+  local -A __aot_of=() __aot_idx_of=() __aot_total=() __aot_seen=()
+  local -A __aot_empty=() __aot_empty_done=() __aot_declared_empty=()
+  local __root_decls_flushed=0 __eap=""
+  local __ovk __ovk_sect __ovk_key __p __n __hline
+  if (( __toml )); then
+    for __ovk in "${!__override[@]}"; do
+      _conf_split_nskey "${__ovk}" __ovk_sect __ovk_key || continue
+      if _conf_toml_aot_slot "${__ovk_sect}" "${__ovk_key}" __p __n; then
+        __aot_of["${__ovk}"]="${__p}"
+        __aot_idx_of["${__ovk}"]="${__n}"
+      fi
+    done
+    local __pp_table="" __pp_in_aot=0
+    for __line in "${__tpl_lines[@]}"; do
+      _conf_toml_header_uncomment "${__line}" __hline
+      if [[ "${__hline}" =~ ^[[:space:]]*\[\[(.+)\]\][[:space:]]*$ ]]; then
+        _conf_header_name "${BASH_REMATCH[1]}" __p
+        __aot_total["${__p}"]=$(( ${__aot_total["${__p}"]:-0} + 1 ))
+        __pp_table=""
+        __pp_in_aot=1
+        continue
+      fi
+      if [[ "${__hline}" =~ ^[[:space:]]*\[(.+)\][[:space:]]*$ ]]; then
+        _conf_header_name "${BASH_REMATCH[1]}" __pp_table
+        __pp_in_aot=0
+        continue
+      fi
+      # An array the file ALREADY declares empty: the clear is an
+      # operator decision, so it has to survive a save that does not
+      # refill the list. Without this the walk would drop the line (it
+      # re-decides every such declaration) and nothing would write one
+      # back, because the path has no blocks to count.
+      if (( ! __pp_in_aot )) \
+         && _conf_toml_empty_array_decl "${__line}" "${__pp_table}" __eap; then
+        __aot_declared_empty["${__eap}"]=1
+      fi
+    done
+    # Which arrays this rewrite leaves with NO blocks: every block of the
+    # path is removed and no override puts one back.
+    #
+    # Such a path must keep an EXPLICIT declaration, `key = []`. Arrays
+    # are replaced atomically at every depth, so an operator who removed
+    # the last entry of a list has replaced that list with nothing --
+    # which is what an empty array says. Dropping the declaration says
+    # something else entirely: the key is ABSENT, the one state that is
+    # not a replacement, and the merge then inherits the layer below. A
+    # `setup remove build.arg_1` against a repo's single build argument
+    # was handing back every build argument the template defines.
+    local __fe_n __fe_live __fe_nskey
+    for __p in "${!__aot_total[@]}"; do
+      __fe_live=0
+      for (( __fe_n = 1; __fe_n <= ${__aot_total[${__p}]}; __fe_n++ )); do
+        if ! _conf_toml_aot_nskey "${__p}" "${__fe_n}" __fe_nskey \
+           || [[ -z "${__removed[${__fe_nskey}]+x}" ]]; then
+          __fe_live=1
+          break
+        fi
+      done
+      (( __fe_live )) && continue
+      for __ovk in "${!__aot_of[@]}"; do
+        [[ "${__aot_of[${__ovk}]}" == "${__p}" ]] || continue
+        [[ -n "${__removed[${__ovk}]+x}" ]] && continue
+        __fe_live=1
+        break
+      done
+      (( __fe_live )) || __aot_empty["${__p}"]=1
+    done
+    # Same question for a path the file declares empty and has no block
+    # of: it stays empty unless an override refills it.
+    for __p in "${!__aot_declared_empty[@]}"; do
+      [[ -z "${__aot_total[${__p}]:-}" ]] || continue
+      __fe_live=0
+      for __ovk in "${!__aot_of[@]}"; do
+        [[ "${__aot_of[${__ovk}]}" == "${__p}" ]] || continue
+        [[ -n "${__removed[${__ovk}]+x}" ]] && continue
+        __fe_live=1
+        break
+      done
+      (( __fe_live )) || __aot_empty["${__p}"]=1
+    done
+  fi
+
+  # Walk state: __current is the table whose scalar keys are in scope;
+  # __aot_cur the array-of-tables path whose block is in scope (one of
+  # the two is always empty); __aot_skip says what to do with the body of
+  # the current block: 0 copy, 1 drop (removed), 2 drop its key lines
+  # (replaced, the new fields already written).
+  local __current="" __aot_cur="" __aot_skip=0 __nskey __raw __rest __hdr __kv __fields
   : > "${_out}"
   for __line in "${__tpl_lines[@]}"; do
-    if [[ "${__line}" =~ ^[[:space:]]*\[(.+)\][[:space:]]*$ ]]; then
+    # The root-key region ends at the first table header, so that is the
+    # last point a root-level array (`volumes`, `tmpfs`) can be declared
+    # empty. Written where its blocks used to be, the key would land
+    # inside whichever table precedes them.
+    # A header's own trailing comment is read off before any bracket
+    # matcher sees the line; the line itself is still written verbatim,
+    # comment included.
+    __hline="${__line}"
+    (( __toml )) && _conf_toml_header_uncomment "${__line}" __hline
+    if (( __toml && ! __root_decls_flushed )) \
+       && [[ "${__hline}" =~ ^[[:space:]]*\[ ]]; then
+      _wsc_flush_empty_arrays ""
+      __root_decls_flushed=1
+    fi
+    if (( __toml )) && [[ "${__hline}" =~ ^[[:space:]]*\[\[(.+)\]\][[:space:]]*$ ]]; then
+      _conf_header_name "${BASH_REMATCH[1]}" __p
+      if [[ -n "${__current}" ]]; then
+        _wsc_flush_scalars "${__current}"
+        printf '\n' >> "${_out}"
+        __current=""
+      fi
+      if [[ -n "${__aot_cur}" && "${__aot_cur}" != "${__p}" ]] \
+         && (( ${__aot_seen[${__aot_cur}]:-0} >= ${__aot_total[${__aot_cur}]:-0} )); then
+        _wsc_flush_aot "${__aot_cur}" boundary
+      fi
+      __aot_cur="${__p}"
+      __aot_seen["${__p}"]=$(( ${__aot_seen["${__p}"]:-0} + 1 ))
+      __aot_skip=0
+      if _conf_toml_aot_nskey "${__p}" "${__aot_seen["${__p}"]}" __nskey; then
+        if [[ -n "${__removed[${__nskey}]+x}" ]]; then
+          __emitted[${__nskey}]=1
+          __aot_skip=1
+          continue
+        fi
+        printf '%s\n' "${__line}" >> "${_out}"
+        if [[ -n "${__override[${__nskey}]+x}" ]]; then
+          _conf_toml_aot_fields "${__p}" "${__override[${__nskey}]}" __fields
+          printf '%s\n' "${__fields}" >> "${_out}"
+          __emitted[${__nskey}]=1
+          __aot_skip=2
+        fi
+        continue
+      fi
+      printf '%s\n' "${__line}" >> "${_out}"
+      continue
+    fi
+    if [[ "${__hline}" =~ ^[[:space:]]*\[(.+)\][[:space:]]*$ ]]; then
+      # Taken before the flushes below: the TOML renderers match
+      # patterns of their own, and BASH_REMATCH is one global.
+      __raw="${BASH_REMATCH[1]}"
       # Flush not-yet-emitted overrides belonging to the section we are
       # about to leave (those are "added" keys with no template line).
       if [[ -n "${__current}" ]]; then
-        local __ovk __ovk_sect __ovk_key
-        for __ovk in "${!__override[@]}"; do
-          # Which section an override key belongs to is _conf_split_nskey's
-          # question. A `"${__current}."*` prefix match answers it wrongly
-          # for the one sub-sectioned name: `logging.web.driver` prefixes
-          # `logging.` too, so it was flushed into `[logging]` as a bogus
-          # `web.driver = ...` line on top of the `[logging.web]` line it
-          # belongs to.
-          _conf_split_nskey "${__ovk}" __ovk_sect __ovk_key || continue
-          if [[ "${__ovk_sect}" == "${__current}" && -z "${__emitted[${__ovk}]:-}" ]]; then
-            [[ -n "${__removed[${__ovk}]+x}" ]] && { __emitted[${__ovk}]=1; continue; }
-            printf '%s = %s\n' "${__ovk_key}" "${__override[${__ovk}]}" >> "${_out}"
-            __emitted[${__ovk}]=1
-          fi
-        done
+        _wsc_flush_scalars "${__current}"
         # Separate appended keys from the next section header with a blank line
         printf '\n' >> "${_out}"
       fi
-      __current="${BASH_REMATCH[1]}"
+      if [[ -n "${__aot_cur}" ]] \
+         && (( ${__aot_seen[${__aot_cur}]:-0} >= ${__aot_total[${__aot_cur}]:-0} )); then
+        _wsc_flush_aot "${__aot_cur}" boundary
+      fi
+      __aot_cur=""
+      __aot_skip=0
+      if (( __toml )); then
+        _conf_header_name "${__raw}" __current
+      else
+        __current="${__raw}"
+      fi
       printf '%s\n' "${__line}" >> "${_out}"
+      continue
+    fi
+    if (( __aot_skip == 1 )); then
+      continue
+    fi
+    if (( __aot_skip == 2 )) && _conf_is_kv_line "${__line}"; then
       continue
     fi
     if [[ -z "${__line}" || "${__line}" =~ ^[[:space:]]*# ]]; then
       printf '%s\n' "${__line}" >> "${_out}"
       continue
     fi
+    # An explicit empty-array declaration is re-decided, never copied:
+    # the flushes write one back for every path still empty, so copying
+    # it here would duplicate the key when the path is still empty and
+    # leave a key TOML refuses to extend when an override refills it.
+    if (( __toml )) && [[ -z "${__aot_cur}" ]] \
+       && _conf_toml_empty_array_decl "${__line}" "${__current}" __eap; then
+      continue
+    fi
     if [[ -n "${__current}" && "${__line}" == *=* ]]; then
-      __k="${__line%%=*}"
-      __rest="${__k#"${__k%%[![:space:]]*}"}"
-      __rest="${__rest%"${__rest##*[![:space:]]}"}"
-      local __nskey="${__current}.${__rest}"
+      _conf_line_key "${__line}" __rest
+      __nskey="${__current}.${__rest}"
       if [[ -n "${__removed[${__nskey}]+x}" ]]; then
         __emitted[${__nskey}]=1
         continue
       fi
       if [[ -n "${__override[${__nskey}]+x}" ]]; then
-        printf '%s = %s\n' "${__rest}" "${__override[${__nskey}]}" >> "${_out}"
+        _conf_fmt_kv "${__toml}" "${__rest}" "${__override[${__nskey}]}" __kv
+        printf '%s\n' "${__kv}" >> "${_out}"
         __emitted[${__nskey}]=1
         continue
       fi
@@ -617,23 +1467,53 @@ _write_setup_conf() {
     printf '%s\n' "${__line}" >> "${_out}"
   done
 
-  # Flush leftovers belonging to the final section
+  # Flush leftovers belonging to the final section / final block kind
   if [[ -n "${__current}" ]]; then
-    local __ovk __ovk_sect __ovk_key
-    for __ovk in "${!__override[@]}"; do
-      _conf_split_nskey "${__ovk}" __ovk_sect __ovk_key || continue
-      if [[ "${__ovk_sect}" == "${__current}" && -z "${__emitted[${__ovk}]:-}" ]]; then
-        [[ -n "${__removed[${__ovk}]+x}" ]] && continue
-        printf '%s = %s\n' "${__ovk_key}" "${__override[${__ovk}]}" >> "${_out}"
-        __emitted[${__ovk}]=1
+    _wsc_flush_scalars "${__current}"
+  fi
+  if [[ -n "${__aot_cur}" ]]; then
+    _wsc_flush_aot "${__aot_cur}" eof
+  fi
+
+  # TOML: array-of-tables entries whose kind the template has no block of
+  # yet (the first `[[volumes]]` of a repo). Walked in caller order so the
+  # kinds appear in the order the caller named them; within a kind, in
+  # index order.
+  local _wsc_i
+  if (( __toml )); then
+    for (( _wsc_i = 0; _wsc_i < ${#_wsc_keys[@]}; _wsc_i++ )); do
+      __p="${__aot_of[${_wsc_keys[_wsc_i]}]:-}"
+      [[ -n "${__p}" ]] || continue
+      _wsc_flush_aot "${__p}" eof
+    done
+  fi
+
+  # An emptied array whose declaration found no scope during the walk:
+  # its table is not declared in the file at all (a repo carrying
+  # `[[devices.bindings]]` and no `[devices]` header). TOML allows a
+  # super-table after its sub-tables, so the declaration gets its own
+  # header here. A root-level path only reaches this when the file has no
+  # header line at all, which makes the end of the file root scope too.
+  local __fe_p __fe_t __fe_k
+  if (( __toml )); then
+    for __fe_p in "${!__aot_empty[@]}"; do
+      [[ -z "${__aot_empty_done[${__fe_p}]:-}" ]] || continue
+      _conf_toml_array_decl "${__fe_p}" __fe_t __fe_k
+      _conf_toml_key "${__fe_k}" __fe_k
+      if [[ -n "${__fe_t}" ]]; then
+        _conf_fmt_header "${__toml}" "${__fe_t}" __hdr
+        printf '\n%s\n%s = []\n' "${__hdr}" "${__fe_k}" >> "${_out}"
+      else
+        printf '\n%s = []\n' "${__fe_k}" >> "${_out}"
       fi
+      __aot_empty_done["${__fe_p}"]=1
     done
   fi
 
   # Append NEW sections — overrides whose `<section>.<key>` namespace
   # references a section never seen in the template. Per-stage
   # `[stage:NAME]` sections are the typical case: template's
-  # setup.conf carries no per-repo stage overrides, so the first time
+  # setup.toml carries no per-repo stage overrides, so the first time
   # a user adds `[stage:headless]` via TUI Save the section is brand
   # new and would otherwise be silently dropped here.
   #
@@ -645,21 +1525,31 @@ _write_setup_conf() {
   # `[logging.web]` section of its own instead of being folded into the
   # parent `[logging]`.
   local -A __template_sections=()
-  local __l
+  local __l __lh
   for __l in "${__tpl_lines[@]}"; do
-    if [[ "${__l}" =~ ^[[:space:]]*\[(.+)\][[:space:]]*$ ]]; then
-      __template_sections["${BASH_REMATCH[1]}"]=1
+    __lh="${__l}"
+    (( __toml )) && _conf_toml_header_uncomment "${__l}" __lh
+    if [[ "${__lh}" =~ ^[[:space:]]*\[(.+)\][[:space:]]*$ ]]; then
+      if (( __toml )); then
+        _conf_header_name "${BASH_REMATCH[1]}" __p
+        __template_sections["${__p}"]=1
+      else
+        __template_sections["${BASH_REMATCH[1]}"]=1
+      fi
     fi
   done
 
   # Walk override keys in the order the caller provided them so new
   # sections appear in user-input order (predictable for tests + Save
-  # output diffs). Bash associative-array iteration is unspecified.
+  # output diffs). Bash associative-array iteration is unspecified. In
+  # TOML mode a key already emitted (an array-of-tables entry) does not
+  # open a section: an empty `[image]` under `[[image.rules]]` is a
+  # header nothing asked for.
   local -a __new_section_order=()
   local -A __new_section_seen=()
-  local _wsc_i
   local __ns_sect __ns_key
   for (( _wsc_i = 0; _wsc_i < ${#_wsc_keys[@]}; _wsc_i++ )); do
+    (( __toml )) && [[ -n "${__emitted[${_wsc_keys[_wsc_i]}]:-}" ]] && continue
     _conf_split_nskey "${_wsc_keys[_wsc_i]}" __ns_sect __ns_key || continue
     if [[ -z "${__template_sections[${__ns_sect}]:-}" ]] \
        && [[ -z "${__new_section_seen[${__ns_sect}]:-}" ]]; then
@@ -672,14 +1562,16 @@ _write_setup_conf() {
   # so re-saves don't double-write).
   local __ns
   for __ns in "${__new_section_order[@]}"; do
-    printf '\n[%s]\n' "${__ns}" >> "${_out}"
+    _conf_fmt_header "${__toml}" "${__ns}" __hdr
+    printf '\n%s\n' "${__hdr}" >> "${_out}"
     for (( _wsc_i = 0; _wsc_i < ${#_wsc_keys[@]}; _wsc_i++ )); do
       local __key="${_wsc_keys[_wsc_i]}"
       _conf_split_nskey "${__key}" __ns_sect __ns_key || continue
       [[ "${__ns_sect}" == "${__ns}" ]] || continue
       [[ -n "${__emitted[${__key}]:-}" ]] && continue
       [[ -n "${__removed[${__key}]+x}" ]] && continue
-      printf '%s = %s\n' "${__ns_key}" "${_wsc_values[_wsc_i]}" >> "${_out}"
+      _conf_fmt_kv "${__toml}" "${__ns_key}" "${_wsc_values[_wsc_i]}" __kv
+      printf '%s\n' "${__kv}" >> "${_out}"
       __emitted[${__key}]=1
     done
   done
@@ -705,6 +1597,11 @@ _write_setup_conf() {
 # preserving all other content. If the key does not exist under the
 # section, appends it to the end of the section. If the section does
 # not exist, appends a new section + key at end of file.
+#
+# TOML file: a numbered list key addresses the N-th `[[...]]` block of
+# its kind -- replaced in place when it exists, appended after the last
+# block of that kind (or at the end of the file when there is none)
+# when it does not.
 _upsert_conf_value() {
   local _file="${1:?}"
   local _section="${2:?}"
@@ -715,7 +1612,7 @@ _upsert_conf_value() {
 
   # A value (or key) bearing a newline would be written by the
   # `printf '%s = %s\n'` lines below as multiple physical lines, leaving
-  # an orphan, un-keyed line that corrupts the INI on the next read. The
+  # an orphan, un-keyed line that corrupts the file on the next read. The
   # scalar validators are line-anchored (`.*$` matches up to a newline)
   # so a newline-bearing value can pass validation upstream; refuse it
   # here at the writer sink so every caller (set / add / TUI / WS_PATH)
@@ -737,69 +1634,14 @@ _upsert_conf_value() {
     return 1
   fi
 
-  local __line __current="" __k __rest __trimmed
-  local __matched=0 __in_sect=0 __sect_found=0
-  while IFS= read -r __line || [[ -n "${__line}" ]]; do
-    if [[ "${__line}" =~ ^[[:space:]]*\[(.+)\][[:space:]]*$ ]]; then
-      # Leaving target section without finding key → append key before next section
-      if (( __in_sect && !__matched )); then
-        printf '%s = %s\n' "${_key}" "${_value}" >> "${_tmp}"
-        __matched=1
-      fi
-      __current="${BASH_REMATCH[1]}"
-      __in_sect=0
-      if [[ "${__current}" == "${_section}" ]]; then
-        __in_sect=1
-        __sect_found=1
-      fi
-      printf '%s\n' "${__line}" >> "${_tmp}"
-      continue
-    fi
-    # A line is a comment when `#` is its FIRST non-blank character --
-    # the rule `_ini_tokenize` (the canonical reader) applies, so an
-    # inline `#` is part of the value, not a comment marker. The guard
-    # used to skip any line containing a space-then-hash as well, which
-    # fired on a VALUE carrying one (a lifecycle.watchdog_check shell
-    # command, an [environment] entry): the existing key never matched,
-    # the in-place replace was skipped, and a second `key = ...` was
-    # appended at the section end. Reads are last-wins, so the duplicate
-    # corrupted the file without changing behaviour. Dropping the
-    # space-then-hash clause is the whole of the behaviour change.
-    #
-    # The surviving `!= #*` clause is belt-and-braces and has no
-    # behaviour of its own today: the match below compares the key
-    # against `__rest`, the TRIMMED text left of `=`, and a comment
-    # line's first token always begins with `#`, so it can never equal a
-    # schema key whether the clause tests `__line` or `__trimmed`.
-    # Deleting both comment clauses outright leaves the whole suite
-    # green. It is kept, and tested against the trimmed line, so the
-    # writer states the reader's rule in the reader's terms instead of
-    # leaning on that coincidence -- not because an indented comment
-    # behaves differently without it.
-    __trimmed="${__line#"${__line%%[![:space:]]*}"}"
-    if (( __in_sect )) && [[ -n "${__trimmed}" ]] && [[ "${__trimmed}" != \#* ]] \
-       && [[ "${__line}" == *=* ]]; then
-      __k="${__line%%=*}"
-      __rest="${__k#"${__k%%[![:space:]]*}"}"
-      __rest="${__rest%"${__rest##*[![:space:]]}"}"
-      if [[ "${__rest}" == "${_key}" ]]; then
-        printf '%s = %s\n' "${_key}" "${_value}" >> "${_tmp}"
-        __matched=1
-        continue
-      fi
-    fi
-    printf '%s\n' "${__line}" >> "${_tmp}"
-  done < "${_file}"
+  local __toml=0
+  [[ "${_file}" == *.toml ]] && __toml=1
 
-  # Still in target section at EOF and key not matched → append
-  if (( __in_sect && !__matched )); then
-    printf '%s = %s\n' "${_key}" "${_value}" >> "${_tmp}"
-    __matched=1
-  fi
-
-  # Section not found at all → append new section + key
-  if (( !__sect_found )); then
-    printf '\n[%s]\n%s = %s\n' "${_section}" "${_key}" "${_value}" >> "${_tmp}"
+  local __aot_path="" __aot_n=""
+  if (( __toml )) && _conf_toml_aot_slot "${_section}" "${_key}" __aot_path __aot_n; then
+    _conf_toml_upsert_aot "${_file}" "${_tmp}" "${__aot_path}" "${__aot_n}" "${_value}"
+  else
+    _conf_upsert_scalar "${_file}" "${_tmp}" "${__toml}" "${_section}" "${_key}" "${_value}"
   fi
 
   # Atomically replace _file only after the rewrite succeeded. A failed
@@ -810,4 +1652,151 @@ _upsert_conf_value() {
     _log_err conf conf_upsert_mv_failed "display=_upsert_conf_value: could not replace ${_file}; original left unchanged" "file=${_file}"
     return 1
   }
+}
+
+# _conf_upsert_scalar <src> <dst> <toml> <section> <key> <value>
+#
+# The scalar half of _upsert_conf_value: rewrite <src> into <dst> with
+# `<section>.<key>` set. A `[[...]]` header ends the section's scope
+# like a `[...]` one does, so an appended key lands inside its table.
+_conf_upsert_scalar() {
+  local _src="${1:?}" _dst="${2:?}" _toml="${3:?}"
+  local _section="${4:?}" _key="${5:?}" _value="${6-}"
+
+  local __line __hline __current="" __raw __rest __kv __hdr
+  local __matched=0 __in_sect=0 __sect_found=0
+  _conf_fmt_kv "${_toml}" "${_key}" "${_value}" __kv
+  while IFS= read -r __line || [[ -n "${__line}" ]]; do
+    __hline="${__line}"
+    (( _toml )) && _conf_toml_header_uncomment "${__line}" __hline
+    if [[ "${__hline}" =~ ^[[:space:]]*\[(.+)\][[:space:]]*$ ]]; then
+      __raw="${BASH_REMATCH[1]}"
+      # Leaving target section without finding key → append key before next section
+      if (( __in_sect && !__matched )); then
+        printf '%s\n' "${__kv}" >> "${_dst}"
+        __matched=1
+      fi
+      __in_sect=0
+      if (( _toml )) && [[ "${__raw}" == \[* ]]; then
+        # `[[...]]`: an array-of-tables block, no table's scalar scope
+        __current=""
+      else
+        if (( _toml )); then
+          _conf_header_name "${__raw}" __current
+        else
+          __current="${__raw}"
+        fi
+        if [[ "${__current}" == "${_section}" ]]; then
+          __in_sect=1
+          __sect_found=1
+        fi
+      fi
+      printf '%s\n' "${__line}" >> "${_dst}"
+      continue
+    fi
+    # A line is a comment when `#` is its FIRST non-blank character --
+    # the rule `_ini_tokenize` (the canonical reader) applies, so an
+    # inline `#` is part of the value, not a comment marker. The guard
+    # used to skip any line containing a space-then-hash as well, which
+    # fired on a VALUE carrying one (a lifecycle.watchdog_check shell
+    # command, an [environment] entry): the existing key never matched,
+    # the in-place replace was skipped, and a second `key = ...` was
+    # appended at the section end. Reads are last-wins, so the duplicate
+    # corrupted the file without changing behaviour.
+    if (( __in_sect )) && _conf_is_kv_line "${__line}"; then
+      _conf_line_key "${__line}" __rest
+      if [[ "${__rest}" == "${_key}" ]]; then
+        printf '%s\n' "${__kv}" >> "${_dst}"
+        __matched=1
+        continue
+      fi
+    fi
+    printf '%s\n' "${__line}" >> "${_dst}"
+  done < "${_src}"
+
+  # Still in target section at EOF and key not matched → append
+  if (( __in_sect && !__matched )); then
+    printf '%s\n' "${__kv}" >> "${_dst}"
+    __matched=1
+  fi
+
+  # Section not found at all → append new section + key
+  if (( !__sect_found )); then
+    _conf_fmt_header "${_toml}" "${_section}" __hdr
+    printf '\n%s\n%s\n' "${__hdr}" "${__kv}" >> "${_dst}"
+  fi
+}
+
+# _conf_toml_upsert_aot <src> <dst> <path> <index> <value>
+#
+# The array-of-tables half of _upsert_conf_value: rewrite <src> into
+# <dst> with the <index>-th `[[<path>]]` block carrying <value>. The
+# block's key lines are replaced, its comments and blank lines kept.
+# When the file has fewer blocks than <index>, the new block goes after
+# the last one of that kind -- an array is dense, so it takes the next
+# index -- or at the end of the file when there is none.
+_conf_toml_upsert_aot() {
+  local _src="${1:?}" _dst="${2:?}" _path="${3:?}" _index="${4:?}" _value="${5-}"
+
+  local __fields
+  _conf_toml_aot_fields "${_path}" "${_value}" __fields
+
+  local __line __hline __p __total=0 __seen=0 __in_block=0 __replacing=0 __matched=0
+  local __cur_table="" __in_aot=0 __eap=""
+  while IFS= read -r __line || [[ -n "${__line}" ]]; do
+    _conf_toml_header_uncomment "${__line}" __hline
+    if [[ "${__hline}" =~ ^[[:space:]]*\[\[(.+)\]\][[:space:]]*$ ]]; then
+      _conf_header_name "${BASH_REMATCH[1]}" __p
+      [[ "${__p}" == "${_path}" ]] && __total=$(( __total + 1 ))
+    fi
+  done < "${_src}"
+
+  while IFS= read -r __line || [[ -n "${__line}" ]]; do
+    _conf_toml_header_uncomment "${__line}" __hline
+    if [[ "${__hline}" =~ ^[[:space:]]*\[\[(.+)\]\][[:space:]]*$ ]]; then
+      _conf_header_name "${BASH_REMATCH[1]}" __p
+      if (( __in_block && !__matched && __seen == __total )); then
+        printf '[[%s]]\n%s\n\n' "${_path}" "${__fields}" >> "${_dst}"
+        __matched=1
+      fi
+      __in_block=0
+      __replacing=0
+      __in_aot=1
+      __cur_table=""
+      if [[ "${__p}" == "${_path}" ]]; then
+        __seen=$(( __seen + 1 ))
+        __in_block=1
+        printf '%s\n' "${__line}" >> "${_dst}"
+        if (( __seen == _index )); then
+          printf '%s\n' "${__fields}" >> "${_dst}"
+          __replacing=1
+          __matched=1
+        fi
+        continue
+      fi
+    elif [[ "${__hline}" =~ ^[[:space:]]*\[(.+)\][[:space:]]*$ ]]; then
+      if (( __in_block && !__matched && __seen == __total )); then
+        printf '[[%s]]\n%s\n\n' "${_path}" "${__fields}" >> "${_dst}"
+        __matched=1
+      fi
+      __in_block=0
+      __replacing=0
+      __in_aot=0
+      _conf_header_name "${BASH_REMATCH[1]}" __cur_table
+    elif (( __replacing )) && _conf_is_kv_line "${__line}"; then
+      continue
+    elif (( ! __in_aot )) \
+         && _conf_toml_empty_array_decl "${__line}" "${__cur_table}" __eap \
+         && [[ "${__eap}" == "${_path}" ]]; then
+      # This write gives the array an entry, so the declaration that said
+      # it had none cannot stay: TOML refuses to extend a key already
+      # bound to an array, and the whole file would stop parsing.
+      continue
+    fi
+    printf '%s\n' "${__line}" >> "${_dst}"
+  done < "${_src}"
+
+  if (( !__matched )); then
+    printf '\n[[%s]]\n%s\n' "${_path}" "${__fields}" >> "${_dst}"
+  fi
 }

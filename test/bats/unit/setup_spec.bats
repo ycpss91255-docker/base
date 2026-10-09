@@ -22,17 +22,30 @@ load "${BATS_TEST_DIRNAME}/setup_spec_helper"
 # ════════════════════════════════════════════════════════════════════
 # detect_gpu_count
 # ════════════════════════════════════════════════════════════════════
-@test "template setup.conf devices opt-in (#466): device_1 is a commented example, not a default" {
+@test "template setup.toml devices opt-in (#466): /dev:/dev is a commented example, not a default" {
   # F2: /dev:/dev is no longer bound by default -- repos that need
   # device access uncomment it or add via `setup.sh add devices.device`.
-  run grep -E '^device_1 = /dev:/dev$' /source/dist/.setup.conf
+  #
+  # In TOML a device entry is a `[[devices.bindings]]` block, so "not a
+  # default" means the template declares no real block of either family,
+  # and the examples it documents are the commented pairs. `devices` is a
+  # namespace of two lists, so the cgroup-rule example is checked here
+  # too: either one declared live would bind or allow something the repo
+  # never asked for.
+  run grep -E '^\[\[devices\.(bindings|cgroup_rules)\]\]$' /source/dist/setup.toml
   assert_failure
-  run grep -E '^# device_1 = /dev:/dev$' /source/dist/.setup.conf
+  run grep -E '^# \[\[devices\.bindings\]\]$' /source/dist/setup.toml
+  assert_success
+  run grep -E '^# path = "/dev:/dev"$' /source/dist/setup.toml
+  assert_success
+  run grep -E '^# \[\[devices\.cgroup_rules\]\]$' /source/dist/setup.toml
+  assert_success
+  run grep -E '^# rule = "c 189:\* rwm"$' /source/dist/setup.toml
   assert_success
 }
 
 @test "[devices] opt-in (#466): empty section + slim template emits no devices block" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [devices]
 EOF
   run bash -c "
@@ -44,12 +57,12 @@ EOF
   assert_failure
 }
 
-@test "template setup.conf [deploy] enables ALL GPU capabilities by default" {
+@test "template setup.toml [deploy] enables ALL GPU capabilities by default" {
   # Dev-friendly: reserve every GPU capability so new repos get
   # compute + utility + graphics out of the box (no need to tick boxes
   # in TUI). Users narrow it down via ./setup_tui.sh deploy if they want
   # a minimal reservation.
-  run grep -E '^gpu_capabilities = gpu compute utility graphics$' /source/dist/.setup.conf
+  run grep -E '^gpu_capabilities = "gpu compute utility graphics"$' /source/dist/setup.toml
   assert_success
 }
 
@@ -57,7 +70,7 @@ EOF
   # End-to-end: apply renders a top-level name: interpolating the same
   # PROJECT_NAME it just resolved into .env.generated, so non-wrapper tools
   # resolve the wrapper's project name from the same value.
-  printf '[security]\nprivileged = false\n' > "${TEMP_DIR}/.setup.conf"
+  printf '[security]\nprivileged = false\n' > "${TEMP_DIR}/setup.toml"
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
@@ -86,7 +99,7 @@ DOCK
 }
 
 @test "[lifecycle] restart = always lands on the deployable stage, never on devel (#478, #840)" {
-  printf '[lifecycle]\nrestart = always\n' > "${TEMP_DIR}/.setup.conf"
+  printf '[lifecycle]\nrestart = "always"\n' > "${TEMP_DIR}/setup.toml"
   _write_deployable_dockerfile
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -105,7 +118,7 @@ DOCK
 }
 
 @test "[lifecycle] restart = always emits nothing when no stage is deployable (#840)" {
-  printf '[lifecycle]\nrestart = always\n' > "${TEMP_DIR}/.setup.conf"
+  printf '[lifecycle]\nrestart = "always"\n' > "${TEMP_DIR}/setup.toml"
   cat > "${TEMP_DIR}/Dockerfile" <<'DOCK'
 FROM scratch AS sys
 FROM sys AS devel
@@ -121,7 +134,7 @@ DOCK
 }
 
 @test "[lifecycle] restart = no emits no restart: field (#478)" {
-  printf '[lifecycle]\nrestart = no\n' > "${TEMP_DIR}/.setup.conf"
+  printf '[lifecycle]\nrestart = "no"\n' > "${TEMP_DIR}/setup.toml"
   _write_deployable_dockerfile
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -133,7 +146,7 @@ DOCK
 }
 
 @test "[lifecycle] restart = on-failure:3 emits quoted value (#478)" {
-  printf '[lifecycle]\nrestart = on-failure:3\n' > "${TEMP_DIR}/.setup.conf"
+  printf '[lifecycle]\nrestart = "on-failure:3"\n' > "${TEMP_DIR}/setup.toml"
   _write_deployable_dockerfile
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -144,17 +157,17 @@ DOCK
   assert_success
 }
 
-@test "template setup.conf ships [lifecycle] restart = unless-stopped (#478, #840)" {
+@test "template setup.toml ships [lifecycle] restart = unless-stopped (#478, #840)" {
   # The default is ON and written LITERALLY so an operator can see it:
   # a deployable stage / field bundle is meant to run forever, including
   # across a host reboot. Scoping (never devel, never *-test) is what
   # keeps the default safe, not an absent key.
-  run grep -E '^restart = unless-stopped$' /source/dist/.setup.conf
+  run grep -E '^restart = "unless-stopped"$' /source/dist/setup.toml
   assert_success
 }
 
 @test "setup.sh set lifecycle.restart rejects an invalid policy (#478)" {
-  printf '[lifecycle]\nrestart = no\n' > "${TEMP_DIR}/.setup.conf"
+  printf '[lifecycle]\nrestart = "no"\n' > "${TEMP_DIR}/setup.toml"
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main set lifecycle.restart bogus --base-path '${TEMP_DIR}' 2>&1
@@ -165,7 +178,7 @@ DOCK
 # ── [lifecycle] init (PID1 reaper) ─────────────────────────────────────
 @test "[lifecycle] init defaults ON: emits init: true under devel (#792)" {
   # conf has no [lifecycle] init key -> code default true -> init: true.
-  printf '[lifecycle]\nrestart = no\n' > "${TEMP_DIR}/.setup.conf"
+  printf '[lifecycle]\nrestart = "no"\n' > "${TEMP_DIR}/setup.toml"
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
@@ -176,7 +189,7 @@ DOCK
 }
 
 @test "[lifecycle] init = false omits init: field (#792)" {
-  printf '[lifecycle]\ninit = false\n' > "${TEMP_DIR}/.setup.conf"
+  printf '[lifecycle]\ninit = false\n' > "${TEMP_DIR}/setup.toml"
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
@@ -187,12 +200,12 @@ DOCK
 }
 
 @test "template setup.conf ships [lifecycle] init = true (#792)" {
-  run grep -E '^init = true$' /source/dist/.setup.conf
+  run grep -E '^init = true$' /source/dist/setup.toml
   assert_success
 }
 
 @test "setup.sh set lifecycle.init rejects a non-boolean (#792)" {
-  printf '[lifecycle]\ninit = true\n' > "${TEMP_DIR}/.setup.conf"
+  printf '[lifecycle]\ninit = true\n' > "${TEMP_DIR}/setup.toml"
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main set lifecycle.init maybe --base-path '${TEMP_DIR}' 2>&1
@@ -201,7 +214,7 @@ DOCK
 }
 
 @test "setup.sh set lifecycle.restart accepts the 5 canonical values (#478)" {
-  printf '[lifecycle]\nrestart = no\n' > "${TEMP_DIR}/.setup.conf"
+  printf '[lifecycle]\nrestart = "no"\n' > "${TEMP_DIR}/setup.toml"
   local _v
   for _v in no always unless-stopped on-failure on-failure:3; do
     run bash -c "
@@ -214,8 +227,8 @@ DOCK
 
 # ── [deploy] dri_groups (non-NVIDIA iGPU /dev/dri access) ───────────────
 @test "[deploy] dri_groups = auto + GUI emits group_add with numeric GIDs (#496)" {
-  printf '[deploy]\ndri_groups = auto\n[gui]\nmode = force\n' \
-    > "${TEMP_DIR}/.setup.conf"
+  printf '[deploy]\ndri_groups = "auto"\n[gui]\nmode = "force"\n' \
+    > "${TEMP_DIR}/setup.toml"
   run bash -c "
     export SETUP_DETECT_DRI_GROUPS='44 992'
     source /source/dist/script/docker/wrapper/setup.sh
@@ -231,8 +244,8 @@ DOCK
 }
 
 @test "[deploy] dri_groups = auto with no /dev/dri emits no group_add (#496)" {
-  printf '[deploy]\ndri_groups = auto\n[gui]\nmode = force\n' \
-    > "${TEMP_DIR}/.setup.conf"
+  printf '[deploy]\ndri_groups = "auto"\n[gui]\nmode = "force"\n' \
+    > "${TEMP_DIR}/setup.toml"
   run bash -c "
     export SETUP_DETECT_DRI_GROUPS=''
     source /source/dist/script/docker/wrapper/setup.sh
@@ -244,8 +257,8 @@ DOCK
 }
 
 @test "[deploy] dri_groups = off emits no group_add even with GUI (#496)" {
-  printf '[deploy]\ndri_groups = off\n[gui]\nmode = force\n' \
-    > "${TEMP_DIR}/.setup.conf"
+  printf '[deploy]\ndri_groups = "off"\n[gui]\nmode = "force"\n' \
+    > "${TEMP_DIR}/setup.toml"
   run bash -c "
     export SETUP_DETECT_DRI_GROUPS='44 992'
     source /source/dist/script/docker/wrapper/setup.sh
@@ -257,8 +270,8 @@ DOCK
 }
 
 @test "[deploy] dri_groups = auto without GUI emits no group_add (GUI-gated) (#496)" {
-  printf '[deploy]\ndri_groups = auto\n[gui]\nmode = off\n' \
-    > "${TEMP_DIR}/.setup.conf"
+  printf '[deploy]\ndri_groups = "auto"\n[gui]\nmode = "off"\n' \
+    > "${TEMP_DIR}/setup.toml"
   run bash -c "
     export SETUP_DETECT_DRI_GROUPS='44 992'
     source /source/dist/script/docker/wrapper/setup.sh
@@ -269,14 +282,14 @@ DOCK
   assert_failure
 }
 
-@test "template setup.conf ships [deploy] dri_groups = auto (#496)" {
-  run grep -E '^dri_groups = auto$' /source/dist/.setup.conf
+@test "template setup.toml ships [deploy] dri_groups = auto (#496)" {
+  run grep -E '^dri_groups = "auto"$' /source/dist/setup.toml
   assert_success
 }
 
 # ── [deploy] runtime -> gpu_runtime (W3 permanent alias) ────────────────
 @test "[deploy] gpu_runtime primary key emits runtime: nvidia (#481)" {
-  printf '[deploy]\ngpu_runtime = nvidia\n' > "${TEMP_DIR}/.setup.conf"
+  printf '[deploy]\ngpu_runtime = "nvidia"\n' > "${TEMP_DIR}/setup.toml"
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
@@ -287,7 +300,7 @@ DOCK
 }
 
 @test "[deploy] legacy runtime key still works + warns (#481 W3 alias)" {
-  printf '[deploy]\nruntime = nvidia\n' > "${TEMP_DIR}/.setup.conf"
+  printf '[deploy]\nruntime = "nvidia"\n' > "${TEMP_DIR}/setup.toml"
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
@@ -304,8 +317,8 @@ DOCK
 }
 
 @test "[deploy] gpu_runtime wins when both keys present (#481)" {
-  printf '[deploy]\ngpu_runtime = nvidia\nruntime = off\n' \
-    > "${TEMP_DIR}/.setup.conf"
+  printf '[deploy]\ngpu_runtime = "nvidia"\nruntime = "off"\n' \
+    > "${TEMP_DIR}/setup.toml"
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
@@ -315,10 +328,10 @@ DOCK
   assert_success
 }
 
-@test "template setup.conf ships [deploy] gpu_runtime = auto (#481)" {
-  run grep -E '^gpu_runtime = auto$' /source/dist/.setup.conf
+@test "template setup.toml ships [deploy] gpu_runtime = auto (#481)" {
+  run grep -E '^gpu_runtime = "auto"$' /source/dist/setup.toml
   assert_success
-  run grep -E '^runtime = ' /source/dist/.setup.conf
+  run grep -E '^runtime = ' /source/dist/setup.toml
   assert_failure
 }
 
@@ -344,7 +357,7 @@ DOCK
   # SLIM template and gets NO cap_add block -- privileges are opt-in, not
   # silently inherited. Repos that need caps declare them explicitly
   # (covered by the regression test below).
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [security]
 privileged = false
 EOF
@@ -362,7 +375,7 @@ EOF
 @test "[security] security_opt opt-in (#466): empty section + slim template emits no security_opt" {
   # F2: template no longer ships security_opt_1 = seccomp:unconfined,
   # so an empty [security] section yields no security_opt block.
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [security]
 privileged = false
 EOF
@@ -381,7 +394,7 @@ EOF
   # The slim template makes caps opt-in; the opt-in path is the wrapper,
   # not hand-editing commented lines. `setup.sh add` writes the entry into
   # the per-repo setup.conf, and the next apply emits it.
-  printf '[security]\n' > "${TEMP_DIR}/.setup.conf"
+  printf '[security]\n' > "${TEMP_DIR}/setup.toml"
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main add security.cap_add SYS_ADMIN --base-path '${TEMP_DIR}' 2>&1
@@ -396,9 +409,11 @@ EOF
   # A repo that declares [security] (e.g. for cap_add) but omits the
   # privileged key must NOT silently get privileged=true. flips the
   # default to false so privilege is opt-in across the board.
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [security]
-cap_add_1 = SYS_ADMIN
+
+[[security.cap_add]]
+cap = "SYS_ADMIN"
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -413,11 +428,19 @@ EOF
   # Repos that need privileges declare them (e.g. via `setup.sh add
   # security.cap_add SYS_ADMIN` or the TUI). The slim template only
   # changes the DEFAULT -- an explicit cap_add must still emit.
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  #
+  # The entries carry `cap =` / `opt =` -- the field names the shipped
+  # template documents, both writers emit and the INI-to-TOML converter
+  # produces, which is what the bridge's array spec reads them back by.
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [security]
 privileged = false
-cap_add_1 = SYS_ADMIN
-security_opt_1 = seccomp:unconfined
+
+[[security.cap_add]]
+cap = "SYS_ADMIN"
+
+[[security.security_opt]]
+opt = "seccomp:unconfined"
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -434,7 +457,7 @@ EOF
   # Default template setup.conf has [additional_contexts] section but no
   # entries. Generated compose.yaml must NOT contain `additional_contexts:`
   # so existing repos see zero diff.
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
@@ -451,10 +474,14 @@ FROM sys AS devel-base
 FROM devel-base AS devel
 FROM devel AS devel-test
 EOF
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
-[additional_contexts]
-context_1 = repo=..
-context_2 = vendor=../third_party
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+[[additional_contexts]]
+name = "repo"
+source = ".."
+
+[[additional_contexts]]
+name = "vendor"
+source = "../third_party"
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -482,9 +509,10 @@ FROM scratch AS sys
 FROM sys AS runtime
 FROM sys AS devel-test
 EOF
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
-[additional_contexts]
-context_1 = repo=..
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+[[additional_contexts]]
+name = "repo"
+source = ".."
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -497,11 +525,53 @@ EOF
 }
 
 @test "[additional_contexts] entries sort by numeric suffix (context_2 / context_10)" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
-[additional_contexts]
-context_10 = ten=../ten
-context_2 = two=../two
-context_1 = one=../one
+  # TOML numbers an array of tables by POSITION, so the scrambled
+  # suffixes this fixture used to spell out (context_10 / context_2 /
+  # context_1) cannot be written down any more -- the bridge hands the
+  # blocks back as context_1..context_N in file order. Ten entries keep
+  # the same defect under test: the numbering now reaches context_10, so
+  # a lexicographic sort of the prefix keys would order the block
+  # one / ten / two / three ... instead of one / two / three ... / ten.
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+[[additional_contexts]]
+name = "one"
+source = "../one"
+
+[[additional_contexts]]
+name = "two"
+source = "../two"
+
+[[additional_contexts]]
+name = "three"
+source = "../three"
+
+[[additional_contexts]]
+name = "four"
+source = "../four"
+
+[[additional_contexts]]
+name = "five"
+source = "../five"
+
+[[additional_contexts]]
+name = "six"
+source = "../six"
+
+[[additional_contexts]]
+name = "seven"
+source = "../seven"
+
+[[additional_contexts]]
+name = "eight"
+source = "../eight"
+
+[[additional_contexts]]
+name = "nine"
+source = "../nine"
+
+[[additional_contexts]]
+name = "ten"
+source = "../ten"
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -517,21 +587,32 @@ EOF
     in_block && /^      [^ ]/       { exit }
     in_block                         { print }
   ' "${TEMP_DIR}/compose.yaml")"
-  local _first _second _third
+  local _first _second _third _tenth
   _first="$(printf '%s\n'  "${_block}" | sed -n '1p')"
   _second="$(printf '%s\n' "${_block}" | sed -n '2p')"
   _third="$(printf '%s\n'  "${_block}" | sed -n '3p')"
+  _tenth="$(printf '%s\n'  "${_block}" | sed -n '10p')"
   assert_equal "${_first}"  "        one: ../one"
   assert_equal "${_second}" "        two: ../two"
-  assert_equal "${_third}"  "        ten: ../ten"
+  assert_equal "${_third}"  "        three: ../three"
+  assert_equal "${_tenth}"  "        ten: ../ten"
 }
 
 @test "[additional_contexts] empty value (cleared slot) is skipped" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
-[additional_contexts]
-context_1 = repo=..
-context_2 =
-context_3 = vendor=../third_party
+  # A cleared slot is a `[[additional_contexts]]` block with no fields:
+  # the bridge's array spec has no `name` to serialise, so the entry
+  # reads back as context_2 with an empty value -- which is exactly the
+  # cleared slot the reader must skip.
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+[[additional_contexts]]
+name = "repo"
+source = ".."
+
+[[additional_contexts]]
+
+[[additional_contexts]]
+name = "vendor"
+source = "../third_party"
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -545,7 +626,7 @@ EOF
 }
 
 @test "set logging.driver round-trips via show (#328)" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   run main set logging.driver journald --base-path "${TEMP_DIR}"
   assert_success
   run main show logging.driver --base-path "${TEMP_DIR}"
@@ -554,7 +635,7 @@ EOF
 }
 
 @test "set logging.compress accepts true/false; rejects others (#328)" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   run main set logging.compress true --base-path "${TEMP_DIR}"
   assert_success
   run main set logging.compress maybe --base-path "${TEMP_DIR}"
@@ -563,7 +644,7 @@ EOF
 }
 
 @test "set logging.max_file rejects non-positive integers (#328)" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   run main set logging.max_file 5 --base-path "${TEMP_DIR}"
   assert_success
   run main set logging.max_file 0 --base-path "${TEMP_DIR}"
@@ -575,7 +656,7 @@ EOF
 }
 
 @test "set logging.max_size accepts num+unit; rejects malformed (#328)" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   run main set logging.max_size 50m --base-path "${TEMP_DIR}"
   assert_success
   run main set logging.max_size 1g --base-path "${TEMP_DIR}"
@@ -587,7 +668,7 @@ EOF
 }
 
 @test "set logging.driver rejects whitespace/empty-shape names (#328)" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   run main set logging.driver "bad name" --base-path "${TEMP_DIR}"
   assert_failure
   run main set logging.driver "1starts-with-digit" --base-path "${TEMP_DIR}"
@@ -595,14 +676,14 @@ EOF
 }
 
 @test "set logging.<svc>.<key> writes to per-service section (#328)" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [logging]
-driver = json-file
+driver = "json-file"
 EOF
   run main set logging.runtime.driver journald --base-path "${TEMP_DIR}"
   assert_success
   # Per-service section now exists with the override.
-  run grep -F "[logging.runtime]" "${TEMP_DIR}/.setup.conf"
+  run grep -F "[logging.runtime]" "${TEMP_DIR}/setup.toml"
   assert_success
   run main show logging.runtime.driver --base-path "${TEMP_DIR}"
   assert_success
@@ -610,25 +691,36 @@ EOF
 }
 
 @test "remove logging.<svc>.<key> deletes the per-service key (#328)" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  # The per-service header is spelled as ONE quoted key,
+  # `["logging.runtime"]`, because this fixture is READER input and that
+  # is the shape the bridge reads back as the section `logging.runtime`
+  # -- the name the shell's `<section>.<key>` namespace speaks. A nested
+  # `[logging.runtime]` sub-table is what the WRITER emits
+  # (`_conf_toml_header`), and the bridge's `--kv` mode does not flatten
+  # a sub-table yet: it reports it as one opaque `logging runtime <dict>`
+  # line, so `logging.runtime.driver` is not a key any reader can see.
+  # The two sibling `set logging.<svc>.*` tests go through the writer and
+  # keep that gap under test; this one asserts what `remove` does to the
+  # per-service key, so it feeds the reader the shape the reader speaks.
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [logging]
-driver = json-file
+driver = "json-file"
 
-[logging.runtime]
-driver = journald
+["logging.runtime"]
+driver = "journald"
 max_file = 7
 EOF
   run main remove logging.runtime.driver --base-path "${TEMP_DIR}"
   assert_success
-  run grep -F "driver = journald" "${TEMP_DIR}/.setup.conf"
+  run grep -F 'driver = "journald"' "${TEMP_DIR}/setup.toml"
   assert_failure
   # Sibling key untouched.
-  run grep -F "max_file = 7" "${TEMP_DIR}/.setup.conf"
+  run grep -F "max_file = 7" "${TEMP_DIR}/setup.toml"
   assert_success
 }
 
 @test "show logging prints the whole resolved [logging] section (#328)" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   run main show logging --base-path "${TEMP_DIR}"
   assert_success
   assert_output --partial "driver"
@@ -638,7 +730,7 @@ EOF
 }
 
 @test "set logging.local_path accepts relative path (#328)" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   run main set logging.local_path ./logs/ --base-path "${TEMP_DIR}"
   assert_success
   run main show logging.local_path --base-path "${TEMP_DIR}"
@@ -647,7 +739,7 @@ EOF
 }
 
 @test "set logging.local_path accepts absolute path (#328)" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   run main set logging.local_path /srv/app-logs --base-path "${TEMP_DIR}"
   assert_success
   run main show logging.local_path --base-path "${TEMP_DIR}"
@@ -656,20 +748,20 @@ EOF
 }
 
 @test "set logging.local_path rejects whitespace-only value (#328)" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   run main set logging.local_path "   " --base-path "${TEMP_DIR}"
   assert_failure
   assert_output --partial "Invalid value"
 }
 
 @test "set logging.<svc>.local_path writes to per-service section (#328)" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [logging]
-driver = json-file
+driver = "json-file"
 EOF
   run main set logging.devel.local_path ./devel-logs/ --base-path "${TEMP_DIR}"
   assert_success
-  run grep -F "[logging.devel]" "${TEMP_DIR}/.setup.conf"
+  run grep -F "[logging.devel]" "${TEMP_DIR}/setup.toml"
   assert_success
   run main show logging.devel.local_path --base-path "${TEMP_DIR}"
   assert_success
@@ -679,10 +771,14 @@ EOF
 @test "[security] cap_add_* explicit override: user-provided list is honored (no template fallback)" {
   # User set cap_add_1=ALL explicitly: compose should use THAT, not the
   # template's SYS_ADMIN/NET_ADMIN/MKNOD.
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  # `cap =` is the field name the shipped template documents and both
+  # writers emit, and the one the bridge's array spec reads back.
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [security]
 privileged = false
-cap_add_1 = ALL
+
+[[security.cap_add]]
+cap = "ALL"
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -717,7 +813,7 @@ EOF
 }
 
 @test "apply --lang zh-TW sets Chinese messages for full run" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' --lang zh-TW 2>&1
@@ -726,9 +822,9 @@ EOF
   assert_output --partial "更新完成"
 }
 
-# ── Per-repo setup.conf missing / empty INFO ────────────────
-@test "apply prints WARN when per-repo setup.conf is missing (#186)" {
-  # No TEMP_DIR/.setup.conf created — apply should fall back to template
+# ── Per-repo setup.toml missing / empty INFO ────────────────
+@test "apply prints WARN when per-repo setup.toml is missing (#186)" {
+  # No TEMP_DIR/setup.toml created — apply should fall back to template
   # default and announce it once on stderr at WARN level.
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -736,16 +832,16 @@ EOF
   "
   assert_success
   assert_output --partial "[setup] WARN :"
-  assert_output --partial "no per-repo setup.conf"
+  assert_output --partial "no per-repo setup.toml"
   # regression guard: the heads-up must NOT be demoted to INFO
   # (where it would scroll past). The env_done line legitimately uses
   # INFO level, so scope the refute to the warning's body.
-  refute_output --partial "[setup] INFO: no per-repo setup.conf"
+  refute_output --partial "[setup] INFO: no per-repo setup.toml"
 }
 
-@test "apply prints WARN when per-repo setup.conf has no section headers (#186)" {
+@test "apply prints WARN when per-repo setup.toml has no section headers (#186)" {
   # Comments-only file counts as effectively empty: nothing to override.
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 # only comments, no [section] headers
 # template defaults apply for every section
 EOF
@@ -755,26 +851,26 @@ EOF
   "
   assert_success
   assert_output --partial "[setup] WARN :"
-  assert_output --partial "per-repo setup.conf has no section"
+  assert_output --partial "per-repo setup.toml has no section overrides"
 }
 
-@test "apply stays silent when per-repo setup.conf has at least one section" {
+@test "apply stays silent when per-repo setup.toml has at least one section" {
   # Partial override is normal usage — don't INFO-spam users who edited
   # only one section.
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [gpu]
-mode = auto
+mode = "auto"
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
   "
   assert_success
-  refute_output --partial "no per-repo setup.conf"
-  refute_output --partial "per-repo setup.conf has no section"
+  refute_output --partial "no per-repo setup.toml"
+  refute_output --partial "per-repo setup.toml has no section overrides"
 }
 
-@test "apply --lang zh-TW prints WARN in Traditional Chinese when setup.conf missing (#186)" {
+@test "apply --lang zh-TW prints WARN in Traditional Chinese when setup.toml missing (#186)" {
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' --lang zh-TW 2>&1
@@ -802,7 +898,7 @@ EOF
     "${TEMP_DIR}/sandbox_repo/.base/dist/script/docker/lib/_lib.sh"
   cp /source/dist/script/docker/lib/* \
     "${TEMP_DIR}/sandbox_repo/.base/dist/script/docker/lib/"
-  cp /source/dist/.setup.conf "${TEMP_DIR}/sandbox_repo/.base/dist/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/sandbox_repo/.base/dist/setup.toml"
 
   run bash "${TEMP_DIR}/sandbox_repo/.base/dist/script/docker/wrapper/setup.sh" apply
   assert_success
@@ -813,7 +909,7 @@ EOF
 # .env.generated cache + .env workload overlay (A2 file roles,)
 # ════════════════════════════════════════════════════════════════════
 @test "apply writes the derived cache to .env.generated (not .env)" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   run main apply --base-path "${TEMP_DIR}"
   assert_success
   assert [ -f "${TEMP_DIR}/.env.generated" ]
@@ -822,7 +918,7 @@ EOF
 }
 
 @test "apply scaffolds .env.local when absent (#868)" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   refute [ -f "${TEMP_DIR}/.env.local" ]
   run main apply --base-path "${TEMP_DIR}"
   assert_success
@@ -833,7 +929,7 @@ EOF
 }
 
 @test "apply does NOT overwrite an existing .env.local (#868)" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   printf 'ROS_DOMAIN_ID=42\n' > "${TEMP_DIR}/.env.local"
   run main apply --base-path "${TEMP_DIR}"
   assert_success
@@ -842,7 +938,7 @@ EOF
 }
 
 @test "apply migrates a legacy .env cache to .env.generated + backs it up" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   # layout: .env IS the cache (carries the auto-gen marker) and
   # .env.generated does not exist yet.
   cat > "${TEMP_DIR}/.env" <<'EOF'
@@ -862,7 +958,7 @@ EOF
 }
 
 @test "apply emits env_file: .env then .env.local on the devel service (#868)" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   run main apply --base-path "${TEMP_DIR}"
   assert_success
   run grep -A2 -E '^    env_file:' "${TEMP_DIR}/compose.yaml"
@@ -872,7 +968,7 @@ EOF
 }
 
 @test "apply generates .env and scaffolds .env.local (#868)" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   run main apply --base-path "${TEMP_DIR}"
   assert_success
   assert [ -f "${TEMP_DIR}/.env" ]
@@ -882,7 +978,7 @@ EOF
 }
 
 @test "apply rewrites .env but never rewrites .env.local (#868)" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   run main apply --base-path "${TEMP_DIR}"
   assert_success
   printf 'OPERATOR=mine\n' > "${TEMP_DIR}/.env.local"
@@ -896,8 +992,14 @@ EOF
 }
 
 @test "apply routes [environment] env_N into .env, not the compose environment: block (#868)" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
-  printf '\n[environment]\nenv_1 = ROS_DOMAIN_ID=42\n' >> "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
+  # The template already declares [environment] and TOML refuses a table
+  # declared twice, so the entry goes in through the writer, which lands
+  # it inside the existing table rather than under a second header.
+  # `env_N` has no array-of-tables home in the bridge's array spec, so it
+  # stays a quoted scalar key -- which is what the writer emits here.
+  _upsert_conf_value "${TEMP_DIR}/setup.toml" environment env_1 \
+    "ROS_DOMAIN_ID=42"
   run main apply --base-path "${TEMP_DIR}"
   assert_success
   run grep -xF "ROS_DOMAIN_ID='42'" "${TEMP_DIR}/.env"
@@ -919,7 +1021,7 @@ EOF
 # /opt/app/config/<name>, so N components no longer contend for one path.
 # ════════════════════════════════════════════════════════════════════
 @test "apply dev-binds each config/<component>/ into the devel service (#504/#1000)" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   mkdir -p "${TEMP_DIR}/config/realsense"
   run main apply --base-path "${TEMP_DIR}"
   assert_success
@@ -934,7 +1036,7 @@ EOF
   # That is why there is no tie-break rule here, unlike
   # _collect_deploy_binds (which keys by basename ACROSS parents and
   # therefore does need a duplicate-basename error).
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   mkdir -p "${TEMP_DIR}/config/realsense" "${TEMP_DIR}/config/ros1_bridge"
   run main apply --base-path "${TEMP_DIR}"
   assert_success
@@ -955,7 +1057,7 @@ EOF
   # /opt/app/config/<x> cannot shadow it: not at a path, not at a moment.
   # Including them costs two inert mounts; excluding them would cost a
   # name list in the code, which decays.
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   mkdir -p "${TEMP_DIR}/config/shell" "${TEMP_DIR}/config/pip"
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -975,7 +1077,7 @@ EOF
   # The defect closed here was not only the wrong directory name -- it
   # was that the miss was silent. Mounting nothing stays the behaviour
   # (there is nothing to mount); being quiet about it does not.
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
@@ -993,7 +1095,7 @@ EOF
   # The discriminator for "content" vs "placeholder" is the leading dot,
   # a property of the entry -- config/.gitkeep, which init.sh seeds into
   # every new repo, must not trip this.
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   mkdir -p "${TEMP_DIR}/config"
   : > "${TEMP_DIR}/config/params_ether.yaml"
   run bash -c "
@@ -1006,7 +1108,7 @@ EOF
 }
 
 @test "apply stays quiet about the config/.gitkeep placeholder (#1000)" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   mkdir -p "${TEMP_DIR}/config"
   : > "${TEMP_DIR}/config/.gitkeep"
   run bash -c "
@@ -1024,7 +1126,7 @@ EOF
   # by construction" is exactly the claim base#1000 falsified (a hardcoded
   # directory name meant the dev bind was never taken and nothing said
   # so). So this asserts through the command a user actually runs.
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   mkdir -p "${TEMP_DIR}/config/realsense/yaml"
   : > "${TEMP_DIR}/config/realsense/yaml/none.yaml"
   ln -s config/realsense/yaml/none.yaml "${TEMP_DIR}/camera.yaml"
@@ -1038,7 +1140,7 @@ EOF
 
 # why: a broken selector reaches the real apply path
 @test "apply WARNs when the preset selector resolves to nothing (#826)" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   mkdir -p "${TEMP_DIR}/config/realsense/yaml"
   ln -s config/realsense/yaml/gone.yaml "${TEMP_DIR}/camera.yaml"
   run bash -c "
@@ -1051,13 +1153,13 @@ EOF
 }
 
 @test "main reset --yes works on first-time bootstrap (no prior .local or setup.conf) (#174)" {
-  rm -f "${TEMP_DIR}/.setup.conf" "${TEMP_DIR}/.setup.conf"
+  rm -f "${TEMP_DIR}/setup.toml" "${TEMP_DIR}/setup.toml"
   run main reset --yes --base-path "${TEMP_DIR}"
   assert_success
   # First-time bootstrap is a no-op: no override existed, no snapshot
   # existed, so nothing to clear and no .bak files written.
-  refute [ -f "${TEMP_DIR}/.setup.conf.bak" ]
-  refute [ -f "${TEMP_DIR}/.setup.conf.bak" ]
+  refute [ -f "${TEMP_DIR}/setup.toml.bak" ]
+  refute [ -f "${TEMP_DIR}/setup.toml.bak" ]
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -1112,7 +1214,7 @@ EOF
 # [build] section (arg_N KEY=VALUE schema)
 # ════════════════════════════════════════════════════════════════════
 @test "[build] template defaults ship TW mirrors via arg_N" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' 2>&1
@@ -1125,10 +1227,10 @@ EOF
 }
 
 @test "[build] arg_N override replaces TW default when set" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
-  _upsert_conf_value "${TEMP_DIR}/.setup.conf" build arg_1 \
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
+  _upsert_conf_value "${TEMP_DIR}/setup.toml" build arg_1 \
     "APT_MIRROR_UBUNTU=archive.ubuntu.com"
-  _upsert_conf_value "${TEMP_DIR}/.setup.conf" build arg_2 \
+  _upsert_conf_value "${TEMP_DIR}/setup.toml" build arg_2 \
     "APT_MIRROR_DEBIAN=deb.debian.org"
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -1141,13 +1243,18 @@ EOF
   assert_output --partial "APT_MIRROR_DEBIAN=deb.debian.org"
 }
 
-@test "[build] back-compat: old apt_mirror_* named keys still read" {
-  # Legacy repo setup.conf with the pre-arg_N schema must keep working
-  # so users can upgrade template without rewriting setup.conf first.
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+@test "[build] the apt_mirror_* named keys lose to any layer's [[build.args]]" {
+  # The pre-arg_N named keys have NO published compatibility promise --
+  # doc/deprecations.md schedules only `[deploy] runtime`. The lift in
+  # _apply_setup fires only when the whole layer chain supplies no arg_N,
+  # and the shipped template always supplies [[build.args]], so a repo
+  # setup.toml still carrying the named keys is overridden by the
+  # template's values rather than read. This records that, so the next
+  # reader does not take the lift for a contract it is not.
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [build]
-apt_mirror_ubuntu = mirror.example.com
-tz = Asia/Tokyo
+apt_mirror_ubuntu = "mirror.example.com"
+tz = "Asia/Tokyo"
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -1156,16 +1263,17 @@ EOF
     grep '^TZ=' '${TEMP_DIR}/.env.generated'
   "
   assert_success
-  assert_output --partial "APT_MIRROR_UBUNTU=mirror.example.com"
-  assert_output --partial "TZ=Asia/Tokyo"
+  assert_output --partial "APT_MIRROR_UBUNTU=tw.archive.ubuntu.com"
+  assert_output --partial "TZ=Asia/Taipei"
+  refute_output --partial "mirror.example.com"
 }
 
 @test "[build] user-added arg_N propagates to .env" {
   # Dockerfile with `ARG PYTHON_VERSION` can pick up a user-added
   # build arg. Extra args land in .env so compose build.args can
   # reference them.
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
-  _upsert_conf_value "${TEMP_DIR}/.setup.conf" build arg_9 \
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
+  _upsert_conf_value "${TEMP_DIR}/setup.toml" build arg_9 \
     "PYTHON_VERSION=3.12"
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -1177,8 +1285,8 @@ EOF
 }
 
 @test "[build] target_arch = arm64 writes TARGET_ARCH to .env" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
-  _upsert_conf_value "${TEMP_DIR}/.setup.conf" build target_arch arm64
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
+  _upsert_conf_value "${TEMP_DIR}/setup.toml" build target_arch arm64
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1189,9 +1297,9 @@ EOF
 }
 
 @test "[build] target_arch empty omits TARGET_ARCH from .env" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
   # Explicit empty value (the template's default)
-  _upsert_conf_value "${TEMP_DIR}/.setup.conf" build target_arch ""
+  _upsert_conf_value "${TEMP_DIR}/setup.toml" build target_arch ""
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1203,8 +1311,8 @@ EOF
 }
 
 @test "[build] network = host writes BUILD_NETWORK to .env" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
-  _upsert_conf_value "${TEMP_DIR}/.setup.conf" build network host
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
+  _upsert_conf_value "${TEMP_DIR}/setup.toml" build network host
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1215,8 +1323,8 @@ EOF
 }
 
 @test "[build] network empty omits BUILD_NETWORK from .env" {
-  cp /source/dist/.setup.conf "${TEMP_DIR}/.setup.conf"
-  _upsert_conf_value "${TEMP_DIR}/.setup.conf" build network ""
+  cp /source/dist/setup.toml "${TEMP_DIR}/setup.toml"
+  _upsert_conf_value "${TEMP_DIR}/setup.toml" build network ""
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
@@ -1241,9 +1349,11 @@ EOF
     main apply --base-path '${_repo}' 2>&1
   "
   assert_success
-  assert [ -f "${_repo}/.setup.conf" ]
-  run grep '^mount_1' "${_repo}/.setup.conf"
-  assert_output --partial '${WS_PATH}:/home/${USER_NAME}/work'
+  assert [ -f "${_repo}/setup.toml" ]
+  # The write is a `[[volumes]]` entry; the bridge numbers it back.
+  run toml_bridge_parse "${_repo}/setup.toml" --kv
+  assert_success
+  assert_line 'volumes	mount_1	${WS_PATH}:/home/${USER_NAME}/work'
 }
 
 @test "workspace second-run: \${WS_PATH} form re-detects per machine" {
@@ -1259,15 +1369,16 @@ EOF
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${_repo}' 2>&1
     grep '^WS_PATH=' '${_repo}/.env.generated'
-    grep '^mount_1' '${_repo}/.setup.conf'
+    toml_bridge_parse '${_repo}/setup.toml' --kv | grep 'mount_1'
   "
   assert_success
   # WS_PATH is a non-empty absolute path — exact value depends on the
   # sandbox, but it must not be the literal variable string.
   refute_output --partial 'WS_PATH=${WS_PATH}'
   assert_output --regexp 'WS_PATH=/[^[:space:]]+'
-  # mount_1 stays as the portable variable form.
-  assert_output --partial 'mount_1 = ${WS_PATH}:/home/${USER_NAME}/work'
+  # mount_1 stays as the portable variable form (read back through the
+  # bridge: the file carries it as a `[[volumes]]` entry).
+  assert_output --partial 'mount_1	${WS_PATH}:/home/${USER_NAME}/work'
 }
 
 @test "workspace second-run: respects user-pinned absolute path via setup.conf (#174)" {
@@ -1278,22 +1389,24 @@ EOF
     >/dev/null 2>&1
   # user pins go into the override file (.local), not the
   # materialized snapshot.
-  cat > "${_repo}/.setup.conf" <<EOF
-[volumes]
-mount_1 = ${_pin}:/home/\${USER_NAME}/work
-EOF
+  # printf rather than a heredoc: the target has to carry a LITERAL
+  # ${USER_NAME} for compose to interpolate, and only a single-quoted
+  # format keeps it out of the shell's hands while %s still takes the pin.
+  printf '[[volumes]]\nsource = "%s"\ntarget = "/home/${USER_NAME}/work"\n' \
+    "${_pin}" > "${_repo}/setup.toml"
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${_repo}' 2>&1
     grep '^WS_PATH=' '${_repo}/.env.generated'
-    grep '^mount_1' '${_repo}/.setup.conf'
+    toml_bridge_parse '${_repo}/setup.toml' --kv | grep 'mount_1'
   "
   assert_success
   # Effective WS_PATH on this machine is the user-pinned absolute path.
   assert_output --partial "WS_PATH=${_pin}"
   # The override file (.local) keeps the pinned form verbatim — apply
-  # doesn't rewrite user intent.
-  assert_output --partial "mount_1 = ${_pin}:"
+  # doesn't rewrite user intent. The pin is a `[[volumes]]` entry now, so
+  # it is read back through the bridge, which numbers it mount_1.
+  assert_output --partial "mount_1	${_pin}:"
 }
 
 @test "workspace second-run: stale setup.conf path is harmlessly overwritten (#174)" {
@@ -1309,7 +1422,7 @@ EOF
   bash -c "source /source/dist/script/docker/wrapper/setup.sh; main apply --base-path '${_repo}'" \
     >/dev/null 2>&1
   sed -i 's|^mount_1.*|mount_1 = /nonexistent/stale/ws:/home/${USER_NAME}/work|' \
-    "${_repo}/.setup.conf"
+    "${_repo}/setup.toml"
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${_repo}' 2>&1
@@ -1323,11 +1436,11 @@ EOF
 }
 
 @test "fresh bootstrap: empty dir + main apply emits workspace mount in compose.yaml (#201 regression)" {
-  # bug: bootstrap wrote mount_1 to <repo>/.setup.conf, then
+  # bug: bootstrap wrote mount_1 to <repo>/setup.toml, then
   # immediately reloaded via _load_setup_conf which only consulted
-  # .setup.conf.local (empty) + template (empty mount_1). The just-written
+  # setup.local.toml (empty) + template (empty mount_1). The just-written
   # value was lost and compose.yaml omitted the workspace mount.
-  # (2-file model): bootstrap writes to <repo>/.setup.conf and
+  # (2-file model): bootstrap writes to <repo>/setup.toml and
   # _load_setup_conf reads from the same file, so the reload picks up
   # the freshly-written mount_1.
   local _repo="${TEMP_DIR}/fresh"
@@ -1347,13 +1460,15 @@ EOF
   mkdir -p "${_repo}"
   bash -c "source /source/dist/script/docker/wrapper/setup.sh; main apply --base-path '${_repo}'" \
     >/dev/null 2>&1
-  # User clears mount_1 (opt-out)
-  sed -i 's|^mount_1.*|mount_1 =|' "${_repo}/.setup.conf"
+  # User clears mount_1 (opt-out): the bootstrap wrote it as a
+  # `[[volumes]]` block, so clearing it is emptying that block's fields.
+  sed -i 's|^source = .*|source = ""|; s|^target = .*|target = ""|' "${_repo}/setup.toml"
   bash -c "source /source/dist/script/docker/wrapper/setup.sh; main apply --base-path '${_repo}'" \
     >/dev/null 2>&1
   # mount_1 stays empty (not re-populated)
-  run grep '^mount_1' "${_repo}/.setup.conf"
-  assert_equal "${output}" "mount_1 ="
+  run toml_bridge_parse "${_repo}/setup.toml" --kv
+  assert_success
+  assert_line 'volumes	mount_1	'
   # compose.yaml has no workspace mount
   run grep ':/home/${USER_NAME}/work' "${_repo}/compose.yaml"
   assert_failure
@@ -1396,9 +1511,12 @@ EOF
     source /source/dist/script/docker/wrapper/setup.sh
     main set --quiet --base-path '${TEMP_DIR}' build.arg_4 ROS2_DISTRO=jazzy
   "
-  run cat "${TEMP_DIR}/.setup.conf"
+  # A numbered key is a `[[build.args]]` entry; the bridge numbers it
+  # back in file order, and this file had none before, so the entry
+  # written as arg_4 is the array's first.
+  run toml_bridge_parse "${TEMP_DIR}/setup.toml" --kv
   assert_success
-  assert_output --partial "arg_4 = ROS2_DISTRO=jazzy"
+  assert_line 'build	arg_1	ROS2_DISTRO=jazzy'
 }
 
 @test "setup.sh add: prints 3-line confirmation by default" {
@@ -1422,9 +1540,13 @@ EOF
 }
 
 @test "setup.sh remove: prints 3-line confirmation by default" {
-  cat > "${TEMP_DIR}/.setup.conf" <<EOC
-[build]
-arg_1 = HARDWARE=arm64
+  # `build.arg_1` is the first `[[build.args]]` block; the bridge numbers
+  # it back as arg_1, which is the name `remove` is given below and the
+  # name the confirmation echoes.
+  cat > "${TEMP_DIR}/setup.toml" <<EOC
+[[build.args]]
+key = "HARDWARE"
+value = "arm64"
 EOC
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -1437,9 +1559,10 @@ EOC
 }
 
 @test "setup.sh remove --quiet: produces empty stdout" {
-  cat > "${TEMP_DIR}/.setup.conf" <<EOC
-[build]
-arg_1 = HARDWARE=arm64
+  cat > "${TEMP_DIR}/setup.toml" <<EOC
+[[build.args]]
+key = "HARDWARE"
+value = "arm64"
 EOC
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -1450,7 +1573,7 @@ EOC
 }
 
 @test "setup.sh reset --yes: prints next: hint and file: by default" {
-  : > "${TEMP_DIR}/.setup.conf"
+  : > "${TEMP_DIR}/setup.toml"
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main reset --yes --base-path '${TEMP_DIR}'
@@ -1462,7 +1585,7 @@ EOC
 }
 
 @test "setup.sh reset --yes --quiet: produces empty stdout" {
-  : > "${TEMP_DIR}/.setup.conf"
+  : > "${TEMP_DIR}/setup.toml"
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
     main reset --yes --quiet --base-path '${TEMP_DIR}'
@@ -1489,9 +1612,9 @@ EOC
 # setup.sh apply CLI flags (--gui / --no-x11-cookie / --print-resolved)
 # ════════════════════════════════════════════════════════════════════
 @test "apply --gui off overrides [gui] mode via print-resolved (#338)" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [gui]
-mode = force
+mode = "force"
 EOF
   # Baseline: mode=force resolves GUI_ENABLED=true regardless of host
   # GUI detection.
@@ -1513,9 +1636,9 @@ EOF
 }
 
 @test "apply --gui=force enables GUI even when setup.conf says off (#338)" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [gui]
-mode = off
+mode = "off"
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -1536,11 +1659,12 @@ EOF
 }
 
 @test "apply --print-resolved prints KEY=VALUE state without writing .env (#338)" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [gui]
-mode = off
+mode = "off"
+
 [deploy]
-gpu_mode = off
+gpu_mode = "off"
 EOF
   cat > "${TEMP_DIR}/Dockerfile" <<'EOC'
 FROM scratch AS sys
@@ -1563,9 +1687,9 @@ EOC
 }
 
 @test "apply --print-resolved respects --gui override in the dump (#338)" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [gui]
-mode = auto
+mode = "auto"
 EOF
   cat > "${TEMP_DIR}/Dockerfile" <<'EOC'
 FROM scratch AS sys
@@ -1582,9 +1706,9 @@ EOC
 }
 
 @test "apply --no-x11-cookie records X11_COOKIE_SKIP=1 in print-resolved (#338)" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [gui]
-mode = auto
+mode = "auto"
 EOF
   cat > "${TEMP_DIR}/Dockerfile" <<'EOC'
 FROM scratch AS sys
@@ -1600,9 +1724,9 @@ EOC
 }
 
 @test "apply without --no-x11-cookie records X11_COOKIE_SKIP=0 (default) (#338)" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [gui]
-mode = auto
+mode = "auto"
 EOF
   cat > "${TEMP_DIR}/Dockerfile" <<'EOC'
 FROM scratch AS sys
@@ -1618,9 +1742,9 @@ EOC
 }
 
 @test "apply SETUP_GUI env var overrides setup.conf when --gui not passed (#338)" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [gui]
-mode = force
+mode = "force"
 EOF
   cat > "${TEMP_DIR}/Dockerfile" <<'EOC'
 FROM scratch AS sys
@@ -1637,9 +1761,9 @@ EOC
 }
 
 @test "apply --gui CLI wins over SETUP_GUI env var (resolution order CLI > env) (#338)" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
 [gui]
-mode = auto
+mode = "auto"
 EOF
   cat > "${TEMP_DIR}/Dockerfile" <<'EOC'
 FROM scratch AS sys
@@ -1660,11 +1784,12 @@ EOC
 # ════════════════════════════════════════════════════════════════════
 @test "apply warns when device propagation used without privileged (#450 P2)" {
   mkdir -p "${TEMP_DIR}"
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOC'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOC'
 [security]
 privileged = false
-[devices]
-device_1 = /dev:/dev:rslave
+
+[[devices]]
+path = "/dev:/dev:rslave"
 EOC
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -1677,11 +1802,12 @@ EOC
 
 @test "apply suppresses propagation warning when privileged is true (#450 P2)" {
   mkdir -p "${TEMP_DIR}"
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOC'
+  cat > "${TEMP_DIR}/setup.toml" <<'EOC'
 [security]
 privileged = true
-[devices]
-device_1 = /dev:/dev:rslave
+
+[[devices]]
+path = "/dev:/dev:rslave"
 EOC
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -1696,11 +1822,17 @@ EOC
 # ════════════════════════════════════════════════════════════════════
 @test "apply warns when device and volume have same target path (#450 P4)" {
   mkdir -p "${TEMP_DIR}"
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOC'
-[devices]
-device_1 = /dev:/dev:rslave
-[volumes]
-mount_5 = /dev:/dev
+  # The mount used to be numbered mount_5 to show the slot number is not
+  # what pairs it with the device; a TOML array of tables is numbered by
+  # POSITION, so the sole entry is mount_1 here. The pairing is still the
+  # target path, which is what the warning is about.
+  cat > "${TEMP_DIR}/setup.toml" <<'EOC'
+[[devices]]
+path = "/dev:/dev:rslave"
+
+[[volumes]]
+source = "/dev"
+target = "/dev"
 EOC
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -1712,11 +1844,13 @@ EOC
 
 @test "apply does NOT warn duplicate when device and volume targets differ (#450 P4)" {
   mkdir -p "${TEMP_DIR}"
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOC'
-[devices]
-device_1 = /dev:/dev:rslave
-[volumes]
-mount_5 = /data:/data
+  cat > "${TEMP_DIR}/setup.toml" <<'EOC'
+[[devices]]
+path = "/dev:/dev:rslave"
+
+[[volumes]]
+source = "/data"
+target = "/data"
 EOC
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -1731,10 +1865,12 @@ EOC
 # still reaches compose.yaml (and is baked as ENV for the field via S3).
 # ════════════════════════════════════════════════════════════════════
 @test "apply no longer emits runtime.env; [environment] still reaches the container (#868)" {
-  cat > "${TEMP_DIR}/.setup.conf" <<'EOC'
+  # `env_N` has no array-of-tables home in the bridge's array spec, so the
+  # entries stay quoted scalar keys under [environment].
+  cat > "${TEMP_DIR}/setup.toml" <<'EOC'
 [environment]
-env_1 = FOO=bar
-env_2 = BAR=${FOO}_x
+env_1 = "FOO=bar"
+env_2 = "BAR=${FOO}_x"
 EOC
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
