@@ -241,6 +241,49 @@ teardown() {
   assert_success
 }
 
+# why: `setup remove build.arg_1` on a repo whose ONLY build argument that
+# is -- the whole list, gone. Arrays are replaced atomically at every
+# depth, so "the operator removed every entry" has to reach the merge as a
+# replacement by nothing: an explicit `args = []`. Dropping the
+# declaration instead makes the key ABSENT, which is the one state that is
+# not a replacement -- the merge inherits the layer below and hands back
+# every template entry the operator just removed, silently. A root-level
+# array (`[[volumes]]`) needs its declaration in the file's root-key
+# region, before the first table header, which is the only place a
+# root-level key can go.
+@test "_write_setup_conf: removing the last entry of an array leaves an explicit empty array" {
+  cat > "${CONF}" << 'EOF'
+[build]
+target_arch = ""
+
+[[build.args]]
+key = "ONLY"
+value = "1"
+
+[[volumes]]
+source = "/a"
+target = "/b"
+EOF
+  local -a _keys=() _vals=()
+  _write_setup_conf "${CONF}" "${CONF}" _keys _vals 'build.arg_1 volumes.mount_1'
+
+  run grep -Fx 'args = []' "${CONF}"
+  assert_success
+  run grep -Fx 'volumes = []' "${CONF}"
+  assert_success
+  run grep -c '^\[\[build.args\]\]$' "${CONF}"
+  assert_output "0"
+  run grep -c '^\[\[volumes\]\]$' "${CONF}"
+  assert_output "0"
+
+  # The file parses, and the emptied list is what the MERGE sees: the
+  # template's own build args stay removed.
+  run toml_bridge_merge --kv "${TPL}" "${CONF}"
+  assert_success
+  refute_line --regexp '^build\targ_'
+  refute_line --regexp '^volumes\tmount_'
+}
+
 # why: A key the template only mentions in a comment (`watchdog_interval`
 # under `[lifecycle]`) has no line to replace, so it is appended at the
 # end of its table, before the next header. The renderers match

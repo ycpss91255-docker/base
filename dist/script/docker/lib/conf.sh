@@ -814,6 +814,31 @@ _conf_toml_aot_nskey() {
   return 0
 }
 
+# _conf_toml_array_decl <path> <table_out> <key_out>
+#
+# Where an EXPLICIT declaration of the array at <path> belongs, and under
+# what key: `build.args` is the key `args` of the table `build`,
+# `volumes` is the key `volumes` of the document root (<table_out> empty).
+#
+# `[[build.args]]` is sugar -- the array is still an ordinary key of an
+# ordinary table -- so `args = []` is how the same array is declared with
+# nothing in it, and it has to sit inside `[build]` like any other key of
+# it. TOML gives a root-level key exactly one home, the region before the
+# first table header, which is why the root case is answered separately
+# rather than being written wherever the blocks used to be.
+_conf_toml_array_decl() {
+  local _p="${1-}"
+  local -n _ctad_table="${2:?"${FUNCNAME[0]}: missing table outvar"}"
+  local -n _ctad_key="${3:?"${FUNCNAME[0]}: missing key outvar"}"
+  if [[ "${_p}" == *.* ]]; then
+    _ctad_table="${_p%.*}"
+    _ctad_key="${_p##*.}"
+  else
+    _ctad_table=""
+    _ctad_key="${_p}"
+  fi
+}
+
 # _conf_toml_aot_fields <path> <value> <outvar>
 #
 # The body of one `[[<path>]]` block for a numbered-key value, as the
@@ -973,6 +998,9 @@ _wsc_flush_scalars() {
     printf '%s\n' "${__kv}" >> "${_out}"
     __emitted[${__ovk}]=1
   done
+  # This is also where <section>'s key scope ends, so it is where an
+  # emptied array belonging to <section> gets its explicit declaration.
+  _wsc_flush_empty_arrays "${_sect}"
 }
 
 # _wsc_flush_aot <path> <where>
@@ -1004,6 +1032,25 @@ _wsc_flush_aot() {
     fi
     __emitted[${__ovk}]=1
   done < <(printf '%s\n' "${_pending[@]}" | sort -n -k1,1)
+}
+
+# _wsc_flush_empty_arrays <table>
+#
+# Declare, as `<key> = []`, each array path this rewrite leaves with no
+# blocks whose declaration belongs in <table> (the empty string for the
+# document root). Called at the point <table>'s key scope ends, so the
+# line lands inside the table it belongs to; each path is declared once.
+_wsc_flush_empty_arrays() {
+  local _table="${1-}"
+  local __fea_p __fea_t __fea_k
+  for __fea_p in "${!__aot_empty[@]}"; do
+    [[ -z "${__aot_empty_done[${__fea_p}]:-}" ]] || continue
+    _conf_toml_array_decl "${__fea_p}" __fea_t __fea_k
+    [[ "${__fea_t}" == "${_table}" ]] || continue
+    _conf_toml_key "${__fea_k}" __fea_k
+    printf '%s = []\n' "${__fea_k}" >> "${_out}"
+    __aot_empty_done["${__fea_p}"]=1
+  done
 }
 
 # _write_setup_conf <dst_file> <template_src> <keys_ref> <values_ref> [<removed_keys>]
@@ -1079,6 +1126,8 @@ _write_setup_conf() {
   # tells the walk it is leaving the LAST block of a kind, which is where
   # new entries of that kind are appended so the array stays in order.
   local -A __aot_of=() __aot_idx_of=() __aot_total=() __aot_seen=()
+  local -A __aot_empty=() __aot_empty_done=()
+  local __root_decls_flushed=0
   local __ovk __ovk_sect __ovk_key __p __n
   if (( __toml )); then
     for __ovk in "${!__override[@]}"; do
@@ -1094,6 +1143,36 @@ _write_setup_conf() {
         __aot_total["${__p}"]=$(( ${__aot_total["${__p}"]:-0} + 1 ))
       fi
     done
+    # Which arrays this rewrite leaves with NO blocks: every block of the
+    # path is removed and no override puts one back.
+    #
+    # Such a path must keep an EXPLICIT declaration, `key = []`. Arrays
+    # are replaced atomically at every depth, so an operator who removed
+    # the last entry of a list has replaced that list with nothing --
+    # which is what an empty array says. Dropping the declaration says
+    # something else entirely: the key is ABSENT, the one state that is
+    # not a replacement, and the merge then inherits the layer below. A
+    # `setup remove build.arg_1` against a repo's single build argument
+    # was handing back every build argument the template defines.
+    local __fe_n __fe_live __fe_nskey
+    for __p in "${!__aot_total[@]}"; do
+      __fe_live=0
+      for (( __fe_n = 1; __fe_n <= ${__aot_total[${__p}]}; __fe_n++ )); do
+        if ! _conf_toml_aot_nskey "${__p}" "${__fe_n}" __fe_nskey \
+           || [[ -z "${__removed[${__fe_nskey}]+x}" ]]; then
+          __fe_live=1
+          break
+        fi
+      done
+      (( __fe_live )) && continue
+      for __ovk in "${!__aot_of[@]}"; do
+        [[ "${__aot_of[${__ovk}]}" == "${__p}" ]] || continue
+        [[ -n "${__removed[${__ovk}]+x}" ]] && continue
+        __fe_live=1
+        break
+      done
+      (( __fe_live )) || __aot_empty["${__p}"]=1
+    done
   fi
 
   # Walk state: __current is the table whose scalar keys are in scope;
@@ -1104,6 +1183,15 @@ _write_setup_conf() {
   local __current="" __aot_cur="" __aot_skip=0 __nskey __raw __rest __hdr __kv __fields
   : > "${_out}"
   for __line in "${__tpl_lines[@]}"; do
+    # The root-key region ends at the first table header, so that is the
+    # last point a root-level array (`volumes`, `tmpfs`) can be declared
+    # empty. Written where its blocks used to be, the key would land
+    # inside whichever table precedes them.
+    if (( __toml && ! __root_decls_flushed )) \
+       && [[ "${__line}" =~ ^[[:space:]]*\[ ]]; then
+      _wsc_flush_empty_arrays ""
+      __root_decls_flushed=1
+    fi
     if (( __toml )) && [[ "${__line}" =~ ^[[:space:]]*\[\[(.+)\]\][[:space:]]*$ ]]; then
       _conf_header_name "${BASH_REMATCH[1]}" __p
       if [[ -n "${__current}" ]]; then
@@ -1206,6 +1294,28 @@ _write_setup_conf() {
       __p="${__aot_of[${_wsc_keys[_wsc_i]}]:-}"
       [[ -n "${__p}" ]] || continue
       _wsc_flush_aot "${__p}" eof
+    done
+  fi
+
+  # An emptied array whose declaration found no scope during the walk:
+  # its table is not declared in the file at all (a repo carrying
+  # `[[devices.bindings]]` and no `[devices]` header). TOML allows a
+  # super-table after its sub-tables, so the declaration gets its own
+  # header here. A root-level path only reaches this when the file has no
+  # header line at all, which makes the end of the file root scope too.
+  local __fe_p __fe_t __fe_k
+  if (( __toml )); then
+    for __fe_p in "${!__aot_empty[@]}"; do
+      [[ -z "${__aot_empty_done[${__fe_p}]:-}" ]] || continue
+      _conf_toml_array_decl "${__fe_p}" __fe_t __fe_k
+      _conf_toml_key "${__fe_k}" __fe_k
+      if [[ -n "${__fe_t}" ]]; then
+        _conf_fmt_header "${__toml}" "${__fe_t}" __hdr
+        printf '\n%s\n%s = []\n' "${__hdr}" "${__fe_k}" >> "${_out}"
+      else
+        printf '\n%s = []\n' "${__fe_k}" >> "${_out}"
+      fi
+      __aot_empty_done["${__fe_p}"]=1
     done
   fi
 

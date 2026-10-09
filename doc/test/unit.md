@@ -1754,7 +1754,7 @@ order, plain `[logging]` global handling, and empty-when-absent behaviour.
 | `_collect_logging ignores an ambient SETUP_CONF (#893 decision 7)` | - |
 | `_collect_logging returns empty when no [logging] sections anywhere` | No-config empty |
 
-### test/bats/unit/conf_toml_writer_spec.bats (12)
+### test/bats/unit/conf_toml_writer_spec.bats (13)
 
 Every `setup.sh set` / `add` / `remove` and the `mount_1` bootstrap in
 setup_detect.sh go through these two writers. Until they learned TOML, each
@@ -1777,6 +1777,7 @@ docker interaction from inside the test.
 | `_upsert_conf_value: quotes and backslashes in a value are escaped and read back verbatim` | A value carrying a double quote or a backslash is the one that turns a naive `"%s"` into a file the bridge refuses (`\c` is not a TOML escape). Escaped, it round-trips to the byte the user typed. |
 | `_upsert_conf_value: comments and untouched lines survive a TOML write` | The layout-preservation property: comments, blank lines and untouched lines are copied through, so a hand-edited setup.toml survives a `set` with its annotations intact. |
 | `_write_setup_conf: a TOML rewrite with scalar, array, removed and new-section overrides parses and reads back` | The template-rewrite writer behind `setup.sh remove` and TUI Save. One save exercises every shape at once: a scalar override lands in its table, an existing array entry is replaced in place, a new one is appended after the last of its kind, a removed entry drops its block (the array compacts, so what was entry 2 reads back as entry 1), and a section the template never had is opened with a quoted header. |
+| `_write_setup_conf: removing the last entry of an array leaves an explicit empty array` | `setup remove build.arg_1` on a repo whose ONLY build argument that is -- the whole list, gone. Arrays are replaced atomically at every depth, so "the operator removed every entry" has to reach the merge as a replacement by nothing: an explicit `args = []`. Dropping the declaration instead makes the key ABSENT, which is the one state that is not a replacement -- the merge inherits the layer below and hands back every template entry the operator just removed, silently. A root-level array (`[[volumes]]`) needs its declaration in the file's root-key region, before the first table header, which is the only place a root-level key can go. |
 | `_write_setup_conf: a scalar with no template line is appended inside its table, and the next table still opens` | A key the template only mentions in a comment (`watchdog_interval` under `[lifecycle]`) has no line to replace, so it is appended at the end of its table, before the next header. The renderers match patterns of their own on the way, and the header the walk is about to open must still be the one it read, not what a renderer last matched. |
 | `_write_setup_conf: comments survive a TOML rewrite` | The same property the upsert writer has, on the rewrite writer: a save must not strip the template's commentary. |
 | `writers: a non-TOML destination still gets INI` | The frozen TUI (ADR-00000037) still writes `.setup.conf` through the same two writers. Format follows the destination's extension, so its file must keep coming out as INI: bare values, bare headers. |
