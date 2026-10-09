@@ -12,7 +12,24 @@
 # Each conversion is gated on the source file existing AND the target
 # NOT existing, so the migration is idempotent: a repo that already has
 # the TOML file (whether from a fresh bootstrap or a previous upgrade)
-# is left alone. The original file is renamed to .bak for verification.
+# is left alone. The original file is renamed to .bak for verification --
+# but only once the converted file has been parsed, see below.
+#
+# ── Verify before retiring the source ─────────────────────────────────
+#
+# The rename used to be unconditional, so an input the converter could
+# not render as valid TOML took the operator's only copy of the
+# configuration with it: the repo was left with an unparseable
+# setup.toml, a .setup.conf.bak that the shipped .gitignore excludes,
+# and an idempotency gate that will never convert again because the
+# target now exists. The log line said the settings "were converted".
+#
+# Each conversion therefore lands on a temp file, hands that temp file
+# to the SHIPPED bridge, and only promotes it to the target once the
+# parse succeeds. A parse that fails writes nothing, renames nothing,
+# removes the temp file and says which input it could not convert and
+# what the parser objected to. The refusal is recoverable; the rename
+# was not.
 #
 # ── Why HERE and not in upgrade.sh ─────────────────────────────────
 #
@@ -123,12 +140,60 @@ _ini_to_toml_emit_aot() {
   _aot_out+="${_eao_fields}"$'\n\n'
 }
 
+# ── Commit gate ───────────────────────────────────────────────────────
+
+# _ini_to_toml_commit <source_file> <tmp_file> <toml_file>
+#
+# Promote a just-written conversion to <toml_file>, but only after the
+# SHIPPED bridge has parsed it. On a parse failure: remove the temp file,
+# leave <toml_file> absent, say which input could not be converted and
+# what the parser objected to, and answer non-zero so the caller does not
+# retire <source_file>.
+#
+# The parse goes through toml_bridge_parse, not a regex of our own. The
+# whole point is to ask the reader that will have to read this file once
+# the source is gone, and a second opinion written here would be exactly
+# the drift the derived placement above exists to avoid.
+#
+# An unavailable bridge reads as a refusal, not as a pass. That is the
+# safe direction: an unverified conversion whose source has been renamed
+# is the unrecoverable outcome, while a refusal costs the operator one
+# re-run. Which hosts can run the bridge at all is a separate open
+# question on this epic (ADR-00000037); it does not change which way an
+# unanswered question should fail.
+#
+# The parser diagnostic is folded onto one line: it reaches the log as an
+# attribute value, and the text sink renders a body on one line.
+_ini_to_toml_commit() {
+  local _src="${1:?"${FUNCNAME[0]}: missing source file"}"
+  local _tmp="${2:?"${FUNCNAME[0]}: missing tmp file"}"
+  local _toml="${3:?"${FUNCNAME[0]}: missing toml file"}"
+
+  local _why=""
+  if _why="$(toml_bridge_parse "${_tmp}" 2>&1 >/dev/null)"; then
+    mv -f -- "${_tmp}" "${_toml}"
+    return 0
+  fi
+
+  rm -f -- "${_tmp}"
+  _why="${_why//$'\n'/ }"
+  _log_warn init ini_to_toml_migration_declined \
+    "display=MIGRATION DECLINED for ${_src}: the INI-to-TOML conversion (ADR-00000037) produced a file the TOML parser refuses, so nothing was written and nothing was renamed -- your configuration is still at ${_src}, unchanged. Parser said: ${_why:-the TOML parser could not be run}. Convert the file into ${_toml} by hand and re-run \`just base init\`, or report the file on the base issue tracker." \
+    "path=${_src}" \
+    "target=${_toml}" \
+    "reason=${_why}"
+  return 1
+}
+
 # ── Core converter ────────────────────────────────────────────────────
 
 # _ini_to_toml_convert <ini_file> <toml_file>
 #
 # Read an INI file and write its TOML equivalent. Uses _ini_tokenize
-# from conf.sh for parsing. Writes atomically via a temp file.
+# from conf.sh for parsing. Writes to a temp file, which
+# _ini_to_toml_commit promotes to <toml_file> only once the bridge has
+# parsed it; answers non-zero, having written no <toml_file>, when it has
+# not.
 _ini_to_toml_convert() {
   local _ini="${1:?"${FUNCNAME[0]}: missing ini file"}"
   local _toml="${2:?"${FUNCNAME[0]}: missing toml file"}"
@@ -178,10 +243,11 @@ _ini_to_toml_convert() {
     fi
   done
 
-  # Atomic write via temp file.
+  # Write to a temp file, and let the commit gate decide whether it
+  # becomes the configuration.
   local _tmp="${_toml}.$$"
   printf '%s' "${_result}" > "${_tmp}"
-  mv -f "${_tmp}" "${_toml}"
+  _ini_to_toml_commit "${_ini}" "${_tmp}" "${_toml}"
 }
 
 # ── Migration entry points ────────────────────────────────────────────
@@ -191,14 +257,23 @@ _ini_to_toml_convert() {
 # Convert .setup.conf -> setup.toml and .setup.conf.local ->
 # setup.local.toml. Each half is gated independently on
 # [[ -f source && ! -f target ]].
+#
+# The rename of each source is gated a second time, on its conversion
+# having parsed: a half that _ini_to_toml_convert refused has already
+# said so and left both files alone, so there is nothing to retire and
+# nothing to announce. Each half answers for itself -- a repo whose
+# .setup.conf converts and whose .setup.conf.local does not keeps the
+# conversion it got. The function still answers 0 either way: the
+# refusal is a declined migration, the shape _migrate_smoke_tree uses,
+# and init.sh has the rest of the resync to do.
 _migrate_ini_to_toml() {
   local _root="${1:?"${FUNCNAME[0]}: missing repo_root"}"
 
   # .setup.conf -> setup.toml
   local _ini="${_root%/}/.setup.conf"
   local _toml="${_root%/}/setup.toml"
-  if [[ -f "${_ini}" && ! -f "${_toml}" ]]; then
-    _ini_to_toml_convert "${_ini}" "${_toml}"
+  if [[ -f "${_ini}" && ! -f "${_toml}" ]] \
+     && _ini_to_toml_convert "${_ini}" "${_toml}"; then
     mv -- "${_ini}" "${_ini}.bak"
     _log_warn init ini_to_toml_migrated \
       "display=MIGRATION: .setup.conf -> setup.toml. The configuration format has been upgraded from INI to TOML (ADR-00000037). Your settings were converted and the original was backed up to .setup.conf.bak." \
@@ -208,8 +283,8 @@ _migrate_ini_to_toml() {
   # .setup.conf.local -> setup.local.toml
   local _ini_local="${_root%/}/.setup.conf.local"
   local _toml_local="${_root%/}/setup.local.toml"
-  if [[ -f "${_ini_local}" && ! -f "${_toml_local}" ]]; then
-    _ini_to_toml_convert "${_ini_local}" "${_toml_local}"
+  if [[ -f "${_ini_local}" && ! -f "${_toml_local}" ]] \
+     && _ini_to_toml_convert "${_ini_local}" "${_toml_local}"; then
     mv -- "${_ini_local}" "${_ini_local}.bak"
     _log_warn init ini_to_toml_local_migrated \
       "display=MIGRATION: .setup.conf.local -> setup.local.toml. The per-instance override was converted from INI to TOML and the original was backed up to .setup.conf.local.bak." \
@@ -221,7 +296,8 @@ _migrate_ini_to_toml() {
 #
 # Convert .env.local (flat KEY=VALUE) -> .env.local.toml (TOML with
 # [environment] section). Gated on [[ -f .env.local && ! -f
-# .env.local.toml ]].
+# .env.local.toml ]], and the rename of the source gated again on the
+# conversion having parsed, for the reason the file header gives.
 _migrate_env_local_to_toml() {
   local _root="${1:?"${FUNCNAME[0]}: missing repo_root"}"
   local _env="${_root%/}/.env.local"
@@ -255,10 +331,11 @@ _migrate_env_local_to_toml() {
     _result+="${_k} = \"${_v}\""$'\n'
   done < "${_env}"
 
-  # Atomic write.
+  # Write to a temp file; the commit gate parses it and only then does it
+  # become .env.local.toml and the source become a .bak.
   local _tmp="${_toml}.$$"
   printf '%s' "${_result}" > "${_tmp}"
-  mv -f "${_tmp}" "${_toml}"
+  _ini_to_toml_commit "${_env}" "${_tmp}" "${_toml}" || return 0
   mv -- "${_env}" "${_env}.bak"
   _log_warn init env_local_to_toml_migrated \
     "display=MIGRATION: .env.local -> .env.local.toml. The per-instance env override was converted from flat KEY=VALUE to TOML (ADR-00000037) and the original was backed up to .env.local.bak." \

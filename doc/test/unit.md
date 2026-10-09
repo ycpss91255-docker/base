@@ -2994,7 +2994,7 @@ forwarding for caller abort, and DRY_RUN skip.
 | `_run_i18n_orphan: catches the removed per-instance mechanism verbatim, as it stood before the hand fix (#902)` | - |
 | `_run_i18n_orphan: catches the retired argv shim verbatim, as it stood before the hand fix (#902)` | - |
 
-### test/bats/unit/ini_to_toml_migrate_spec.bats (27)
+### test/bats/unit/ini_to_toml_migrate_spec.bats (32)
 
 Mirrors `lib/ini_to_toml_migrate.sh`. Downstream repos upgrading to the TOML
 config format (ADR-00000037) need their existing INI files (.setup.conf,
@@ -3004,7 +3004,8 @@ numbered-key -> array-of-tables mapping (the 8 INI patterns) - scalar key
 quoting (string/boolean/integer) - idempotency (skip when TOML file already
 exists) - backup (.bak suffix) - env_N unpack (environment.env_N = K=V ->
 [environment] K = "V") - .env.local flat KEY=VALUE -> .env.local.toml
-[environment]
+[environment] - refusal: an input it cannot render as parseable TOML leaves
+the source INI where it was, writes no target, and says so
 
 | Test | Description |
 |------|-------------|
@@ -3035,6 +3036,11 @@ exists) - backup (.bak suffix) - env_N unpack (environment.env_N = K=V ->
 | `_migrate_ini_to_toml quotes section names containing colon (#1137)` | A section name containing : needs TOML quoting |
 | `_migrate_ini_to_toml: the converted file reads back as the same configuration (#1137)` | a migration that loses a mount, an env var or a dropped capability is worse than one that refuses: the repo comes back up with the workspace unmounted, the variable gone and a capability the operator removed restored, and the only record of what it used to be is a .bak file nothing reads. |
 | `_migrate_ini_to_toml: a quote or a backslash in a value survives (#1137)` | the converter renames the INI out of the way, so a value it renders as invalid TOML takes the only copy of the configuration with it. A double quote inside a build arg and a backslash inside a watchdog command are both ordinary INI values. |
+| `_migrate_ini_to_toml keeps the INI when the conversion does not parse (base#1148)` | a numbered key with no array home becomes a `[devices]` table while a device binding becomes a `[[devices]]` array of tables, and TOML forbids one name being both. The repo must come out of this with its configuration still on disk and readable, because the refusal is recoverable and the rename is not. |
+| `_migrate_ini_to_toml names the refused input and what the parser objected to (base#1148)` | the refusal has to name the input, or the operator reading a resync log of fifty lines cannot tell which of three files it was about, and the one actionable fact -- that their config is untouched -- is the one they need. |
+| `_migrate_ini_to_toml leaves no temp file behind when it refuses (base#1148)` | a refusal that leaves the half-written TOML behind is the same trap one name over: the idempotency gate is `! -f target`, so a stray temp promoted by a later hand would be read as the configuration, and `git status` in a consumer repo would show a file no .gitignore covers. |
+| `_migrate_ini_to_toml refuses one half without discarding the other (base#1148)` | the two halves are independently gated, so a repo whose committed conf converts and whose local override does not must keep the conversion it earned and keep the override it still has. Refusing both would throw away a good migration; retiring both would be the original bug. |
+| `_migrate_env_local_to_toml keeps .env.local when the conversion does not parse (base#1148)` | the flat-env converter renames its source too, and it renders every value by wrapping it in double quotes with nothing escaped, so an env value that carries a quote -- a JVM flag, a label argument -- is already unparseable TOML. Whichever way that rendering is fixed, the operator's .env.local must not be the thing that pays for it. |
 
 ### test/bats/unit/init_existing_repo_signals_spec.bats (6)
 

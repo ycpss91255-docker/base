@@ -183,6 +183,7 @@ init_rollback_failed
 ini_to_toml_migrated
 ini_to_toml_local_migrated
 env_local_to_toml_migrated
+ini_to_toml_migration_declined
 
 # smoke_migrate.sh (repo-owned smoke tree layout; emitted under the init
 # service because init.sh is the only caller)

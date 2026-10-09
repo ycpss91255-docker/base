@@ -11,6 +11,8 @@
 #   - backup (.bak suffix)
 #   - env_N unpack (environment.env_N = K=V -> [environment] K = "V")
 #   - .env.local flat KEY=VALUE -> .env.local.toml [environment]
+#   - refusal: an input it cannot render as parseable TOML leaves the
+#     source INI where it was, writes no target, and says so
 
 bats_require_minimum_version 1.5.0
 
@@ -495,4 +497,117 @@ EOF
   assert_success
   assert_line 'build	arg_1	APP_FLAGS=--label="hello"'
   assert_line 'lifecycle	watchdog_check	pgrep -f a\bc'
+}
+
+# ── Refusal: the source INI outlives a conversion that does not parse ──
+#
+# Every case above converts an INI file the converter CAN place. The
+# migration renames the source out of the way unconditionally, so an input
+# it renders as invalid TOML took the operator's only copy with it: the
+# repo was left with an unparseable setup.toml, a .setup.conf.bak that is
+# in the shipped .gitignore, and an idempotency gate that will never
+# convert again because the target now exists.
+#
+# `cgroup_rule_N` is one such input today, and which TOML home it should
+# get is an open decision on base#1148. These cases assert the
+# containment, not the placement: whatever cannot be converted, the
+# source survives it.
+
+# why: a numbered key with no array home becomes a `[devices]` table while
+#      a device binding becomes a `[[devices]]` array of tables, and TOML
+#      forbids one name being both. The repo must come out of this with
+#      its configuration still on disk and readable, because the refusal
+#      is recoverable and the rename is not.
+@test "_migrate_ini_to_toml keeps the INI when the conversion does not parse (base#1148)" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[project]
+name = my-robot
+[devices]
+device_1 = /dev/dri:/dev/dri
+cgroup_rule_1 = c 189:* rmw
+EOF
+  run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
+  assert_success
+  assert_output --partial 'MIGRATION DECLINED'
+  assert_output --partial '.setup.conf'
+  assert [ -f "${TEMP_DIR}/.setup.conf" ]
+  assert [ ! -f "${TEMP_DIR}/.setup.conf.bak" ]
+  assert [ ! -f "${TEMP_DIR}/setup.toml" ]
+  run cat "${TEMP_DIR}/.setup.conf"
+  assert_output --partial 'cgroup_rule_1 = c 189:* rmw'
+}
+
+# why: the refusal has to name the input, or the operator reading a resync
+#      log of fifty lines cannot tell which of three files it was about,
+#      and the one actionable fact -- that their config is untouched --
+#      is the one they need.
+@test "_migrate_ini_to_toml names the refused input and what the parser objected to (base#1148)" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[devices]
+device_1 = /dev/dri:/dev/dri
+cgroup_rule_1 = c 189:* rmw
+EOF
+  run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
+  assert_success
+  assert_output --partial "MIGRATION DECLINED for ${TEMP_DIR}/.setup.conf"
+  assert_output --partial 'nothing was written and nothing was renamed'
+  assert_output --partial 'Parser said:'
+  refute_output --partial 'Your settings were converted'
+}
+
+# why: a refusal that leaves the half-written TOML behind is the same trap
+#      one name over: the idempotency gate is `! -f target`, so a stray
+#      temp promoted by a later hand would be read as the configuration,
+#      and `git status` in a consumer repo would show a file no .gitignore
+#      covers.
+@test "_migrate_ini_to_toml leaves no temp file behind when it refuses (base#1148)" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[devices]
+device_1 = /dev/dri:/dev/dri
+cgroup_rule_1 = c 189:* rmw
+EOF
+  run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
+  assert_success
+  run bash -c "ls -A '${TEMP_DIR}'"
+  assert_output ".setup.conf"
+}
+
+# why: the two halves are independently gated, so a repo whose committed
+#      conf converts and whose local override does not must keep the
+#      conversion it earned and keep the override it still has. Refusing
+#      both would throw away a good migration; retiring both would be the
+#      original bug.
+@test "_migrate_ini_to_toml refuses one half without discarding the other (base#1148)" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[gui]
+mode = off
+EOF
+  cat > "${TEMP_DIR}/.setup.conf.local" <<'EOF'
+[devices]
+device_1 = /dev/dri:/dev/dri
+cgroup_rule_1 = c 189:* rmw
+EOF
+  run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
+  assert_success
+  assert [ -f "${TEMP_DIR}/setup.toml" ]
+  assert [ -f "${TEMP_DIR}/.setup.conf.bak" ]
+  assert [ -f "${TEMP_DIR}/.setup.conf.local" ]
+  assert [ ! -f "${TEMP_DIR}/setup.local.toml" ]
+  assert [ ! -f "${TEMP_DIR}/.setup.conf.local.bak" ]
+}
+
+# why: the flat-env converter renames its source too, and it renders every
+#      value by wrapping it in double quotes with nothing escaped, so an
+#      env value that carries a quote -- a JVM flag, a label argument --
+#      is already unparseable TOML. Whichever way that rendering is fixed,
+#      the operator's .env.local must not be the thing that pays for it.
+@test "_migrate_env_local_to_toml keeps .env.local when the conversion does not parse (base#1148)" {
+  printf 'JAVA_OPTS=-Dfoo="bar"\n' > "${TEMP_DIR}/.env.local"
+  run bash -c "$(_src); _migrate_env_local_to_toml '${TEMP_DIR}'"
+  assert_success
+  assert_output --partial 'MIGRATION DECLINED'
+  assert [ ! -f "${TEMP_DIR}/.env.local.toml" ]
+  assert [ ! -f "${TEMP_DIR}/.env.local.bak" ]
+  run cat "${TEMP_DIR}/.env.local"
+  assert_output 'JAVA_OPTS=-Dfoo="bar"'
 }
