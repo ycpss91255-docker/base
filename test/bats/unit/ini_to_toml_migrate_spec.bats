@@ -436,6 +436,53 @@ PROBE
   assert_line "volumes	mount_2	${TEMP_DIR}/data:/data"
 }
 
+# ── repeated scalar keys ───────────────────────────────────────────────
+
+# why: An INI may repeat a key, and every chain accessor resolves
+# `[gui] mode = off` followed by `mode = auto` to the LAST occurrence
+# (`_conf_get` / `_conf_get_into` keep assigning). TOML does not: a key
+# written twice is `Cannot overwrite a value`, and the whole file stops
+# parsing. The converter emitted every occurrence, so the commit gate
+# declined the conversion -- which keeps the INI, loses nothing, and
+# declines again on every re-run, leaving such a repo unable to complete
+# an upgrade until someone hand-resolved the duplicate.
+@test "_migrate_ini_to_toml: a repeated scalar key resolves to its last occurrence (base#1148)" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[gui]
+mode = off
+mode = auto
+EOF
+  run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
+  assert_success
+  run bash -c "$(_src); toml_bridge_parse '${TEMP_DIR}/setup.toml' --kv"
+  assert_success
+  assert_line 'gui	mode	auto'
+  refute_line 'gui	mode	off'
+}
+
+# why: The collapse keeps the key where the INI first named it, so a
+# repeated key does not reorder the table around it -- and the duplicate
+# is gone from the file, not merely shadowed by a later line the way the
+# INI allowed.
+@test "_migrate_ini_to_toml: a repeated scalar key is written once (base#1148)" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[logging]
+driver = json-file
+max_file = 3
+driver = local
+compress = true
+EOF
+  run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
+  assert_success
+  run grep -c '^driver = ' "${TEMP_DIR}/setup.toml"
+  assert_output "1"
+  run bash -c "$(_src); toml_bridge_parse '${TEMP_DIR}/setup.toml' --kv"
+  assert_success
+  assert_line 'logging	driver	local'
+  assert_line 'logging	max_file	3'
+  assert_line 'logging	compress	true'
+}
+
 # ── idempotency ────────────────────────────────────────────────────────
 
 # why: A repo that already has setup.toml must not be re-converted
@@ -684,25 +731,28 @@ EOF
 # in the shipped .gitignore, and an idempotency gate that will never
 # convert again because the target now exists.
 #
-# A key repeated inside one section is such an input. INI reads are
-# last-wins, so an operator who appended a line rather than editing one
-# has a file that works; TOML refuses to overwrite a value, so the
-# conversion of it does not parse. These cases assert the containment,
+# A key whose NAME carries a space is such an input. An INI parser trims
+# around the `=` and nothing else, so `max size = 10m` is a key a working
+# config can carry -- unread, because no reader asks for that name, and
+# harmless -- while TOML has no bare key with a space in it, so the
+# conversion of it does not parse. (A key REPEATED inside one section
+# used to be the input here; it is now collapsed to its last occurrence,
+# the answer every chain accessor gave, so it converts. See the
+# repeated-scalar-key cases above.) These cases assert the containment,
 # not that particular input: whatever cannot be converted, the source
 # survives it.
 
-# why: an INI key repeated inside one section is last-wins and works, and
-#      its conversion is a TOML document that overwrites a value, which
-#      the parser refuses. The repo must come out of this with its
-#      configuration still on disk and readable, because the refusal is
-#      recoverable and the rename is not.
+# why: an INI key carrying a space in its name is harmless there and
+#      unrenderable in TOML, so its conversion is a document the parser
+#      refuses. The repo must come out of this with its configuration
+#      still on disk and readable, because the refusal is recoverable and
+#      the rename is not.
 @test "_migrate_ini_to_toml keeps the INI when the conversion does not parse (base#1148)" {
   cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [project]
 name = my-robot
-[gui]
-mode = off
-mode = on
+[logging]
+max size = 10m
 EOF
   run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
   assert_failure
@@ -712,7 +762,7 @@ EOF
   assert [ ! -f "${TEMP_DIR}/.setup.conf.bak" ]
   assert [ ! -f "${TEMP_DIR}/setup.toml" ]
   run cat "${TEMP_DIR}/.setup.conf"
-  assert_output --partial 'mode = on'
+  assert_output --partial 'max size = 10m'
 }
 
 # why: the refusal has to name the input, or the operator reading a resync
@@ -721,9 +771,8 @@ EOF
 #      is the one they need.
 @test "_migrate_ini_to_toml names the refused input and what the parser objected to (base#1148)" {
   cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
-[gui]
-mode = off
-mode = on
+[logging]
+max size = 10m
 EOF
   run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
   assert_failure
@@ -740,9 +789,8 @@ EOF
 #      covers.
 @test "_migrate_ini_to_toml leaves no temp file behind when it refuses (base#1148)" {
   cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
-[gui]
-mode = off
-mode = on
+[logging]
+max size = 10m
 EOF
   run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
   assert_failure
@@ -763,9 +811,8 @@ EOF
 mode = off
 EOF
   cat > "${TEMP_DIR}/.setup.conf.local" <<'EOF'
-[gui]
-mode = off
-mode = on
+[logging]
+max size = 10m
 EOF
   run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
   assert_failure
@@ -801,9 +848,8 @@ EOF
 #      as a non-zero answer.
 @test "_migrate_ini_to_toml answers non-zero when it refuses (base#1148)" {
   cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
-[gui]
-mode = off
-mode = on
+[logging]
+max size = 10m
 EOF
   run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
   assert_failure

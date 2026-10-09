@@ -222,15 +222,35 @@ _ini_to_toml_convert() {
 
   for _s in ${_sects[@]+"${_sects[@]}"}; do
     # Separate scalar and numbered keys for this section.
+    #
+    # A repeated scalar key collapses to its LAST occurrence, held at the
+    # position of its first. An INI is free to name a key twice -- the
+    # chain accessors `_conf_get` / `_conf_get_into` keep assigning as
+    # they walk, so `[gui] mode = off` followed by `mode = auto`
+    # resolved to `auto` -- but TOML refuses a key written twice
+    # (`Cannot overwrite a value`) and stops parsing the whole file. The
+    # commit gate caught that, so the outcome was a DECLINED conversion
+    # with the INI intact rather than data loss; it was still a repo that
+    # could not complete an upgrade, declining again on every re-run,
+    # until someone hand-resolved the duplicate.
+    #
+    # (`_get_conf_value`, the raw-array accessor in setup_conf.sh,
+    # answers the FIRST occurrence instead. That divergence predates this
+    # file; the chain accessor is the one the layer merge reads through,
+    # and its answer is what a converted file has to keep.)
     local -a _sc_keys=() _sc_vals=()
     local -a _num_order=()
+    local -A _sc_at=()
     local _aot_buf="" _decl_buf=""
 
     for (( _i = 0; _i < ${#_keys[@]}; _i++ )); do
       [[ "${_es[_i]}" == "${_s}" ]] || continue
       if _ini_to_toml_is_numbered "${_s}" "${_keys[_i]}"; then
         _num_order+=("${_i}")
+      elif [[ -n "${_sc_at[${_keys[_i]}]+set}" ]]; then
+        _sc_vals["${_sc_at[${_keys[_i]}]}"]="${_vals[_i]}"
       else
+        _sc_at["${_keys[_i]}"]="${#_sc_keys[@]}"
         _sc_keys+=("${_keys[_i]}")
         _sc_vals+=("${_vals[_i]}")
       fi
