@@ -902,6 +902,44 @@ EOF
   assert_line "deploy	runtime	off"
 }
 
+# why: `devices` hosts two independently replaceable lists -- host bindings
+#      and cgroup rules -- so each gets its own nested array, the shape
+#      `security` already uses for cap_add / security_opt. One array at the
+#      section meant the two could not be expressed in one document at all.
+#      Both still have to arrive on the shell side under the `<prefix>_N`
+#      names every ordered-list reader matches, and each has to replace
+#      atomically without touching the other.
+@test "toml-bridge: --merge --kv numbers devices.bindings and devices.cgroup_rules apart" {
+  assert_spec_subject "${BRIDGE_PY}" \
+    "the Python bridge script (devices namespace)"
+
+  local lower="${BATS_TEST_TMPDIR}/lower.toml"
+  local upper="${BATS_TEST_TMPDIR}/upper.toml"
+  cat > "${lower}" << 'EOF'
+[[devices.bindings]]
+path = "/dev/dri"
+
+[[devices.bindings]]
+path = "/dev/snd"
+
+[[devices.cgroup_rules]]
+rule = "c 189:* rwm"
+EOF
+  cat > "${upper}" << 'EOF'
+[[devices.cgroup_rules]]
+rule = "b 8:0 rw"
+EOF
+
+  run python3 "${BRIDGE_PY}" --merge --kv "${lower}" "${upper}"
+  assert_success
+  # The bindings the upper layer says nothing about survive, numbered.
+  assert_line "devices	device_1	/dev/dri"
+  assert_line "devices	device_2	/dev/snd"
+  # The rules it DOES define replace the lower layer's list entirely.
+  assert_line "devices	cgroup_rule_1	b 8:0 rw"
+  refute_output --partial "c 189:* rwm"
+}
+
 # why: a TOML boolean reaches the shell as the string the shell compares
 #      against, and Python's str(True) is `True`. Every `== true` on the
 #      shell side reads that as false, so the setting arrives inverted and

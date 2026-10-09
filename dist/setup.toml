@@ -173,12 +173,21 @@ shm_size = ""
 # size = "64m"
 
 # ═════════════════════════════════════════════════════════════════════
-# [[devices]] -- host device bindings + cgroup rules
+# [devices] -- host device bindings + cgroup rules
 # ═════════════════════════════════════════════════════════════════════
-# Array-of-tables. Device binding is opt-in.
-# An overlay defining any [[devices]] replaces the entire list.
-# [[devices]]
+# Two independent array-of-tables lists under one namespace, the shape
+# [security] uses for cap_add / security_opt. Each replaces on its own:
+# an overlay defining any [[devices.bindings]] replaces the whole
+# binding list and leaves the rules alone, and the reverse. Both are
+# opt-in, so the template ships neither.
+#
+# [[devices.bindings]] -- compose `devices:`
+# [[devices.bindings]]
 # path = "/dev:/dev"
+#
+# [[devices.cgroup_rules]] -- compose `device_cgroup_rules:`
+# [[devices.cgroup_rules]]
+# rule = "c 189:* rwm"
 
 # ═════════════════════════════════════════════════════════════════════
 # [[volumes]] -- workspace mount + extras

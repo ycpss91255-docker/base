@@ -26,14 +26,21 @@ load "${BATS_TEST_DIRNAME}/setup_spec_helper"
   # F2: /dev:/dev is no longer bound by default -- repos that need
   # device access uncomment it or add via `setup.sh add devices.device`.
   #
-  # In TOML a device entry is a `[[devices]]` block, so "not a default"
-  # means the template declares no real block at all, and the example it
-  # documents is the commented pair.
-  run grep -E '^\[\[devices\]\]$' /source/dist/setup.toml
+  # In TOML a device entry is a `[[devices.bindings]]` block, so "not a
+  # default" means the template declares no real block of either family,
+  # and the examples it documents are the commented pairs. `devices` is a
+  # namespace of two lists, so the cgroup-rule example is checked here
+  # too: either one declared live would bind or allow something the repo
+  # never asked for.
+  run grep -E '^\[\[devices\.(bindings|cgroup_rules)\]\]$' /source/dist/setup.toml
   assert_failure
-  run grep -E '^# \[\[devices\]\]$' /source/dist/setup.toml
+  run grep -E '^# \[\[devices\.bindings\]\]$' /source/dist/setup.toml
   assert_success
   run grep -E '^# path = "/dev:/dev"$' /source/dist/setup.toml
+  assert_success
+  run grep -E '^# \[\[devices\.cgroup_rules\]\]$' /source/dist/setup.toml
+  assert_success
+  run grep -E '^# rule = "c 189:\* rwm"$' /source/dist/setup.toml
   assert_success
 }
 

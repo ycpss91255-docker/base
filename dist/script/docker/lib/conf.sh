@@ -587,7 +587,8 @@ _conf_list_sorted() {
 #      under a per-stage section) are quoted, and so is each dotted part
 #      of a section header that is not (`["stage:headless"]`).
 #   2. Numbered list keys (`mount_N`, `arg_N`, `rule_N`, `port_N`,
-#      `device_N`, `tmpfs_N`, `context_N`, `cap_add_N`, `security_opt_N`)
+#      `device_N`, `cgroup_rule_N`, `tmpfs_N`, `context_N`, `cap_add_N`,
+#      `security_opt_N`)
 #      are routed to the `[[array of tables]]` the bridge reads them back
 #      from: the N-th `[[volumes]]` block IS `volumes.mount_N`. An array
 #      is dense, so an entry that does not exist yet is appended after the
@@ -600,9 +601,18 @@ _conf_list_sorted() {
 # untouched lines are copied through verbatim.
 #
 # What has NO array-of-tables home yet stays a quoted scalar under its
-# table (`[environment] env_N`, `cap_drop_N`, `cgroup_rule_N`): the
-# bridge reads a table scalar back under its own name, so those keys
-# round-trip as they are, and moving them is a reader-side change.
+# table (`[environment] env_N`, `cap_drop_N`): the bridge reads a table
+# scalar back under its own name, so those keys round-trip as they are,
+# and moving them is a reader-side change.
+#
+# `[devices]` hosts TWO numbered families, so each gets its own nested
+# array path -- `device_N` -> `[[devices.bindings]]`, `cgroup_rule_N` ->
+# `[[devices.cgroup_rules]]` -- the same shape `[security]` uses for
+# `cap_add_N` and `security_opt_N`. One array at the section could not
+# hold both: `[[devices]]` makes the name an array, and a rule left as a
+# table scalar needed `[devices]`, which TOML refuses in the same
+# document. A conf that binds a device AND allows a major number is
+# ordinary, and `setup.sh set` wrote exactly that unparseable pair.
 
 # _conf_toml_scalar <value> <outvar>
 #
@@ -688,7 +698,13 @@ _conf_toml_aot_slot() {
     network)             _prefix=port;    _path=network.ports ;;
     volumes)             _prefix=mount;   _path=volumes ;;
     tmpfs)               _prefix=tmpfs;   _path=tmpfs ;;
-    devices)             _prefix=device;  _path=devices ;;
+    devices)
+      case "${_k}" in
+        device_*)      _prefix=device;      _path=devices.bindings ;;
+        cgroup_rule_*) _prefix=cgroup_rule; _path=devices.cgroup_rules ;;
+        *) return 1 ;;
+      esac
+      ;;
     additional_contexts) _prefix=context; _path=additional_contexts ;;
     security)
       case "${_k}" in
@@ -722,6 +738,8 @@ _conf_toml_aot_nskey() {
     security.security_opt) _can_out="security.security_opt_${_n}" ;;
     volumes)               _can_out="volumes.mount_${_n}" ;;
     tmpfs)                 _can_out="tmpfs.tmpfs_${_n}" ;;
+    devices.bindings)      _can_out="devices.device_${_n}" ;;
+    devices.cgroup_rules)  _can_out="devices.cgroup_rule_${_n}" ;;
     devices)               _can_out="devices.device_${_n}" ;;
     additional_contexts)   _can_out="additional_contexts.context_${_n}" ;;
     *) return 1 ;;
@@ -782,9 +800,13 @@ _conf_toml_aot_fields() {
         fi
       fi
       ;;
-    tmpfs|devices)
+    tmpfs|devices|devices.bindings)
       _conf_toml_scalar "${_v}" _a
       _caf_out="path = ${_a}"
+      ;;
+    devices.cgroup_rules)
+      _conf_toml_scalar "${_v}" _a
+      _caf_out="rule = ${_a}"
       ;;
   esac
 }

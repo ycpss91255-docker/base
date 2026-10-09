@@ -176,17 +176,24 @@ EOF
   assert_output --partial 'container = 80'
 }
 
-# why: Device paths look like volume paths; the converter must pick the right AoT key
-@test "_migrate_ini_to_toml converts devices device_N to [[devices]] (#1137)" {
+# why: Device paths look like volume paths; the converter must pick the
+# right AoT key. `[devices]` is also the one section with TWO numbered
+# families, so each has to land in its own nested array -- a binding and a
+# rule in the same INI used to convert into one name used as both an array
+# and a table, which TOML refuses and which cost the whole file.
+@test "_migrate_ini_to_toml converts devices device_N to [[devices.bindings]] (#1137)" {
   cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [devices]
 device_1 = /dev:/dev
+cgroup_rule_1 = c 189:* rwm
 EOF
   run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
   assert_success
   run cat "${TEMP_DIR}/setup.toml"
-  assert_output --partial '[[devices]]'
+  assert_output --partial '[[devices.bindings]]'
   assert_output --partial 'path = "/dev:/dev"'
+  assert_output --partial '[[devices.cgroup_rules]]'
+  assert_output --partial 'rule = "c 189:* rwm"'
 }
 
 # why: tmpfs entries carry size options after a colon; the value must stay whole
@@ -508,23 +515,25 @@ EOF
 # in the shipped .gitignore, and an idempotency gate that will never
 # convert again because the target now exists.
 #
-# `cgroup_rule_N` is one such input today, and which TOML home it should
-# get is an open decision on base#1148. These cases assert the
-# containment, not the placement: whatever cannot be converted, the
-# source survives it.
+# A key repeated inside one section is such an input. INI reads are
+# last-wins, so an operator who appended a line rather than editing one
+# has a file that works; TOML refuses to overwrite a value, so the
+# conversion of it does not parse. These cases assert the containment,
+# not that particular input: whatever cannot be converted, the source
+# survives it.
 
-# why: a numbered key with no array home becomes a `[devices]` table while
-#      a device binding becomes a `[[devices]]` array of tables, and TOML
-#      forbids one name being both. The repo must come out of this with
-#      its configuration still on disk and readable, because the refusal
-#      is recoverable and the rename is not.
+# why: an INI key repeated inside one section is last-wins and works, and
+#      its conversion is a TOML document that overwrites a value, which
+#      the parser refuses. The repo must come out of this with its
+#      configuration still on disk and readable, because the refusal is
+#      recoverable and the rename is not.
 @test "_migrate_ini_to_toml keeps the INI when the conversion does not parse (base#1148)" {
   cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [project]
 name = my-robot
-[devices]
-device_1 = /dev/dri:/dev/dri
-cgroup_rule_1 = c 189:* rmw
+[gui]
+mode = off
+mode = on
 EOF
   run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
   assert_failure
@@ -534,7 +543,7 @@ EOF
   assert [ ! -f "${TEMP_DIR}/.setup.conf.bak" ]
   assert [ ! -f "${TEMP_DIR}/setup.toml" ]
   run cat "${TEMP_DIR}/.setup.conf"
-  assert_output --partial 'cgroup_rule_1 = c 189:* rmw'
+  assert_output --partial 'mode = on'
 }
 
 # why: the refusal has to name the input, or the operator reading a resync
@@ -543,9 +552,9 @@ EOF
 #      is the one they need.
 @test "_migrate_ini_to_toml names the refused input and what the parser objected to (base#1148)" {
   cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
-[devices]
-device_1 = /dev/dri:/dev/dri
-cgroup_rule_1 = c 189:* rmw
+[gui]
+mode = off
+mode = on
 EOF
   run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
   assert_failure
@@ -562,9 +571,9 @@ EOF
 #      covers.
 @test "_migrate_ini_to_toml leaves no temp file behind when it refuses (base#1148)" {
   cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
-[devices]
-device_1 = /dev/dri:/dev/dri
-cgroup_rule_1 = c 189:* rmw
+[gui]
+mode = off
+mode = on
 EOF
   run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
   assert_failure
@@ -585,9 +594,9 @@ EOF
 mode = off
 EOF
   cat > "${TEMP_DIR}/.setup.conf.local" <<'EOF'
-[devices]
-device_1 = /dev/dri:/dev/dri
-cgroup_rule_1 = c 189:* rmw
+[gui]
+mode = off
+mode = on
 EOF
   run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
   assert_failure
@@ -623,9 +632,9 @@ EOF
 #      as a non-zero answer.
 @test "_migrate_ini_to_toml answers non-zero when it refuses (base#1148)" {
   cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
-[devices]
-device_1 = /dev/dri:/dev/dri
-cgroup_rule_1 = c 189:* rmw
+[gui]
+mode = off
+mode = on
 EOF
   run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
   assert_failure

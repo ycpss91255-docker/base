@@ -57,9 +57,9 @@
 #
 # What has no array home stays a quoted scalar under its own table, which
 # is again what the writer does and what the runtime readers look for:
-# `[environment] env_N`, `[security] cap_drop_N`, `[devices]
-# cgroup_rule_N`. The direct-key `[environment] KEY = "V"` form the
-# template documents is the D5 / D6 destination; until those readers land,
+# `[environment] env_N` and `[security] cap_drop_N`. The direct-key
+# `[environment] KEY = "V"` form the template documents is the D5 / D6
+# destination; until those readers land,
 # `_conf_list_sorted ... environment env_` is what reads the section, so
 # unpacking here would drop the variable.
 
@@ -102,7 +102,7 @@ _ini_to_toml_format_value() {
 #
 # Return 0 when <key> is a numbered key that HAS an array-of-tables home,
 # asked of the shipped writer rather than re-matched here. A numbered key
-# with no array home (`env_N`, `cap_drop_N`, `cgroup_rule_N`) answers 1 and
+# with no array home (`env_N`, `cap_drop_N`) answers 1 and
 # is carried over as a scalar, which is where every reader looks for it.
 #
 # The out-variable names are prefixed, like every nameref target in this

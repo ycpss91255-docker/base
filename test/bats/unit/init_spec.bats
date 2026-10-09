@@ -1873,9 +1873,9 @@ _run_resync_in_child() {
 @test "the resync: stops when the INI-to-TOML migration is declined (base#1148)" {
   : > "${TMP_REPO}/Dockerfile"
   cat > "${TMP_REPO}/.setup.conf" <<'EOF'
-[devices]
-device_1 = /dev/dri:/dev/dri
-cgroup_rule_1 = c 189:* rmw
+[gui]
+mode = off
+mode = auto
 EOF
   _run_resync_in_child
   assert_failure

@@ -1894,15 +1894,9 @@ EOF
 }
 
 @test "[devices] cgroup_rule_1 emits device_cgroup_rules: block" {
-  # The device binding that used to sit beside the rule is gone from the
-  # fixture, not lost: `device_N` becomes a `[[devices]]` block while
-  # `cgroup_rule_N` has no array spec in the bridge and stays a scalar
-  # under the `[devices]` TABLE -- and one name cannot be both a table
-  # and an array of tables in the same TOML document. The rule is this
-  # case's subject, and the binding has its own case above.
   cat > "${TEMP_DIR}/setup.toml" <<'EOF'
-[devices]
-cgroup_rule_1 = "c 189:* rwm"
+[[devices.cgroup_rules]]
+rule = "c 189:* rwm"
 EOF
   run bash -c "
     source /source/dist/script/docker/wrapper/setup.sh
@@ -1910,6 +1904,55 @@ EOF
     grep -F 'c 189:* rwm' '${TEMP_DIR}/compose.yaml'
   "
   assert_success
+}
+
+# why: a device binding and a cgroup rule are two independent lists that
+# a real conf carries together -- bind /dev/dri AND allow major 189. While
+# `devices` held ONE array, the two could not coexist in one document:
+# `[[devices]]` made the name an array and the rule needed a `[devices]`
+# table of the same name. This is the case that says they coexist, which
+# is the whole point of giving each its own nested array.
+@test "[devices] a binding and a cgroup rule coexist in one setup.toml" {
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+[[devices.bindings]]
+path = "/dev/dri:/dev/dri"
+
+[[devices.cgroup_rules]]
+rule = "c 189:* rwm"
+EOF
+  run bash -c "
+    source /source/dist/script/docker/wrapper/setup.sh
+    main apply --base-path '${TEMP_DIR}' >/dev/null 2>&1
+    grep -E -- '- /dev/dri:/dev/dri' '${TEMP_DIR}/compose.yaml'
+    grep -F 'c 189:* rwm' '${TEMP_DIR}/compose.yaml'
+  "
+  assert_success
+  assert_output --partial '/dev/dri:/dev/dri'
+  assert_output --partial 'c 189:* rwm'
+}
+
+# why: the shipped writer, not a hand-edit, is how a consumer adds a rule.
+# `set` on a cgroup rule in a repo that already has a binding wrote the
+# rule as a scalar under a `[devices]` table while the binding held
+# `[[devices]]` -- one name as both a table and an array of tables, which
+# TOML refuses. The repo was left with a setup.toml no reader can parse,
+# written by the supported command. Both families now address their own
+# nested array, so the file the writer produces round-trips.
+@test "set on a cgroup rule beside a device binding writes a readable file" {
+  cat > "${TEMP_DIR}/setup.toml" <<'EOF'
+[[devices.bindings]]
+path = "/dev/dri:/dev/dri"
+EOF
+  run main set devices.cgroup_rule_1 "c 189:* rwm" --base-path "${TEMP_DIR}"
+  assert_success
+  # The parser the shipped readers use has to accept what the writer wrote.
+  run bash -c "
+    source /source/dist/script/docker/lib/toml_bridge.sh
+    toml_bridge_parse '${TEMP_DIR}/setup.toml' --kv
+  "
+  assert_success
+  assert_line $'devices\tdevice_1\t/dev/dri:/dev/dri'
+  assert_line $'devices\tcgroup_rule_1\tc 189:* rwm'
 }
 
 # ── [volumes] mount_2..N ─────────────────────────────────────────────

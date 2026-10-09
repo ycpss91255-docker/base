@@ -26,7 +26,18 @@ _ARRAY_SPEC = {
     "security_opt": ("security_opt", lambda e: e.get("opt", "")),
     "volumes": ("mount", lambda e: ":".join(v for v in [e.get("source", ""), e.get("target", ""), e.get("mode", "")] if v)),
     "tmpfs": ("tmpfs", lambda e: e.get("path", "")),
+    # `devices` is a namespace of two independently replaceable lists,
+    # not one list: host bindings under `[[devices.bindings]]` and cgroup
+    # rules under `[[devices.cgroup_rules]]`. Both number into the
+    # `devices` section on the shell side, under the `device_N` /
+    # `cgroup_rule_N` names every ordered-list reader there matches.
+    # The bare `devices` key stays readable for a repo whose file still
+    # carries the one-array `[[devices]]` spelling; the two cannot
+    # collide, because TOML will not let one name be an array and a table
+    # in the same document.
     "devices": ("device", lambda e: e.get("path", "")),
+    "bindings": ("device", lambda e: e.get("path", "")),
+    "cgroup_rules": ("cgroup_rule", lambda e: e.get("rule", "")),
     "additional_contexts": ("context", lambda e: "%s=%s" % (e["name"], e["source"]) if "name" in e else ""),
 }
 

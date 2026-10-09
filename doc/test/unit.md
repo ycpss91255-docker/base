@@ -3016,7 +3016,7 @@ the source INI where it was, writes no target, and says so
 | `_migrate_ini_to_toml converts volumes mount_N to [[volumes]] (#1137)` | Volume paths contain colons; the converter must not split on them |
 | `_migrate_ini_to_toml converts security cap/opt to [[security.*]] (#1137)` | Two distinct AoT shapes live under one INI section; wrong dispatch conflates them |
 | `_migrate_ini_to_toml converts network port_N to [[network.ports]] (#1137)` | Port mappings split into host/container integers; wrong type breaks compose |
-| `_migrate_ini_to_toml converts devices device_N to [[devices]] (#1137)` | Device paths look like volume paths; the converter must pick the right AoT key |
+| `_migrate_ini_to_toml converts devices device_N to [[devices.bindings]] (#1137)` | Device paths look like volume paths; the converter must pick the right AoT key. `[devices]` is also the one section with TWO numbered families, so each has to land in its own nested array -- a binding and a rule in the same INI used to convert into one name used as both an array and a table, which TOML refuses and which cost the whole file. |
 | `_migrate_ini_to_toml converts tmpfs tmpfs_N to [[tmpfs]] (#1137)` | tmpfs entries carry size options after a colon; the value must stay whole |
 | `_migrate_ini_to_toml converts additional_contexts context_N to [[additional_contexts]] (#1137)` | Context entries split on = into name/source; wrong split drops the build context path |
 | `_migrate_ini_to_toml carries environment env_N over as a scalar (#1137)` | `[environment] env_N` has no array-of-tables home, so it is carried over as the scalar it was. The direct-key `KEY = "VALUE"` form the template documents is where D5 / D6 take the section; until those readers land, `_conf_list_sorted ... environment env_` is what reads it, so unpacking here drops the variable from `.env` and from the container. |
@@ -3036,7 +3036,7 @@ the source INI where it was, writes no target, and says so
 | `_migrate_ini_to_toml quotes section names containing colon (#1137)` | A section name containing : needs TOML quoting |
 | `_migrate_ini_to_toml: the converted file reads back as the same configuration (#1137)` | a migration that loses a mount, an env var or a dropped capability is worse than one that refuses: the repo comes back up with the workspace unmounted, the variable gone and a capability the operator removed restored, and the only record of what it used to be is a .bak file nothing reads. |
 | `_migrate_ini_to_toml: a quote or a backslash in a value survives (#1137)` | the converter renames the INI out of the way, so a value it renders as invalid TOML takes the only copy of the configuration with it. A double quote inside a build arg and a backslash inside a watchdog command are both ordinary INI values. |
-| `_migrate_ini_to_toml keeps the INI when the conversion does not parse (base#1148)` | a numbered key with no array home becomes a `[devices]` table while a device binding becomes a `[[devices]]` array of tables, and TOML forbids one name being both. The repo must come out of this with its configuration still on disk and readable, because the refusal is recoverable and the rename is not. |
+| `_migrate_ini_to_toml keeps the INI when the conversion does not parse (base#1148)` | an INI key repeated inside one section is last-wins and works, and its conversion is a TOML document that overwrites a value, which the parser refuses. The repo must come out of this with its configuration still on disk and readable, because the refusal is recoverable and the rename is not. |
 | `_migrate_ini_to_toml names the refused input and what the parser objected to (base#1148)` | the refusal has to name the input, or the operator reading a resync log of fifty lines cannot tell which of three files it was about, and the one actionable fact -- that their config is untouched -- is the one they need. |
 | `_migrate_ini_to_toml leaves no temp file behind when it refuses (base#1148)` | a refusal that leaves the half-written TOML behind is the same trap one name over: the idempotency gate is `! -f target`, so a stray temp promoted by a later hand would be read as the configuration, and `git status` in a consumer repo would show a file no .gitignore covers. |
 | `_migrate_ini_to_toml refuses one half without discarding the other (base#1148)` | the two halves are independently gated, so a repo whose committed conf converts and whose local override does not must keep the conversion it earned and keep the override it still has. Refusing both would throw away a good migration; retiring both would be the original bug. The answer is still the refusal: the caller has to stop either way, because the half that did not convert is the one setup would otherwise seed over. |
@@ -5325,7 +5325,7 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: cleanup is ownership-scoped, never a blanket prune (#900)` | - |
 | `self-test.yaml: the age-based backstop uses a CI window, not the local defaults (#900)` | - |
 
-### test/bats/unit/setup_cmd_spec.bats (136)
+### test/bats/unit/setup_cmd_spec.bats (138)
 
 Mirrors `lib/setup_cmd.sh`. The git-style subcommand dispatcher and its
 mutating verbs (#49): dispatch (Phase B-1), `set` / `show` / `list` (Phase
@@ -5458,6 +5458,8 @@ isolated `_setup_known_section` / `SCHEMA_SECTIONS` (#561) unit checks.
 | `[tmpfs] empty section omits tmpfs: block` | - |
 | `[devices] device_1 = /dev/video0:/dev/video0 emits devices: block` | - |
 | `[devices] cgroup_rule_1 emits device_cgroup_rules: block` | - |
+| `[devices] a binding and a cgroup rule coexist in one setup.toml` | a device binding and a cgroup rule are two independent lists that a real conf carries together -- bind /dev/dri AND allow major 189. While `devices` held ONE array, the two could not coexist in one document: `[[devices]]` made the name an array and the rule needed a `[devices]` table of the same name. This is the case that says they coexist, which is the whole point of giving each its own nested array. |
+| `set on a cgroup rule beside a device binding writes a readable file` | the shipped writer, not a hand-edit, is how a consumer adds a rule. `set` on a cgroup rule in a repo that already has a binding wrote the rule as a scalar under a `[devices]` table while the binding held `[[devices]]` -- one name as both a table and an array of tables, which TOML refuses. The repo was left with a setup.toml no reader can parse, written by the supported command. Both families now address their own nested array, so the file the writer produces round-trips. |
 | `[volumes] mount_2 = /data:/data emits as additional volume entry` | - |
 | `[volumes] mount_N supports :ro suffix` | - |
 | `[security] privileged = false writes PRIVILEGED=false to .env` | - |
@@ -6655,7 +6657,7 @@ is the smoke step, which iterates this same roster.
 | `main copies tmux.conf to config directory` | Config copy |
 | `script runs entry_point when executed directly` | Direct-run guard |
 
-### test/bats/unit/toml_bridge_spec.bats (41)
+### test/bats/unit/toml_bridge_spec.bats (42)
 
 | Test | Description |
 |------|-------------|
@@ -6695,6 +6697,7 @@ is the smoke step, which iterates this same roster.
 | `toml-bridge: --merge --kv merges layers into the numbered-key shape` | the merge is the whole contract the shell layer reads -- a table's keys merge key-level while an array of tables is replaced wholesale, and the winner arrives as the numbered keys _conf_list_sorted matches. Asserting that against a mocked answer proves none of it. |
 | `toml-bridge: --merge a legacy alias one layer up drops the inherited canonical key` | doc/deprecations.md publishes that `[deploy] runtime` is consumed when `gpu_runtime` is absent, and the shipped template always supplies `gpu_runtime = "auto"`. Deciding "absent" on the MERGED result makes that branch unreachable: the inherited canonical default masks the legacy key a consumer wrote one layer up, so `runtime = "runc"` silently resolved to `auto`. Absence is per LAYER -- the highest layer that spells the setting out decides it. |
 | `toml-bridge: --merge keeps a canonical key the same layer supplies` | `gpu_runtime` wins when both spellings appear in ONE layer (doc/deprecations.md), so the alias rule must not strip a canonical key the layer itself supplied -- only one it merely inherited. |
+| `toml-bridge: --merge --kv numbers devices.bindings and devices.cgroup_rules apart` | `devices` hosts two independently replaceable lists -- host bindings and cgroup rules -- so each gets its own nested array, the shape `security` already uses for cap_add / security_opt. One array at the section meant the two could not be expressed in one document at all. Both still have to arrive on the shell side under the `<prefix>_N` names every ordered-list reader matches, and each has to replace atomically without touching the other. |
 | `toml-bridge: --kv renders a TOML boolean lowercase` | a TOML boolean reaches the shell as the string the shell compares against, and Python's str(True) is `True`. Every `== true` on the shell side reads that as false, so the setting arrives inverted and says nothing about it -- the one failure mode a type-aware bridge exists to prevent. |
 | `toml-bridge: _conf_load_layers fails when the bridge exits non-zero` | a bridge that fails prints nothing and says so with its exit status. Read through a process substitution that status is out of reach, and the caller is handed a handle with nothing in it -- indistinguishable from a config whose every value is the default. That is what turned a totally broken merge into a silent, plausible-looking run, so the status has to reach the caller. |
 | `toml-bridge: --kv flattens a nested table into its own dotted section` | the shell view has no nesting -- a section is one flat name -- and `[logging.web]` is the per-service spelling the template documents and `_conf_toml_header` writes. str()-ing the dict hands the shell `logging<TAB>web<TAB>{'driver': 'local'}`: the section `logging.web` never exists, so `_load_setup_conf <base> logging.web` reads nothing, and the global `[logging]` gains a key whose value is a Python repr. |
