@@ -476,8 +476,12 @@ EOF
   assert_success
   run bash -c "$(_src); toml_bridge_parse '${TEMP_DIR}/setup.toml' --kv"
   assert_success
-  assert_line 'build	arg_1	LANG=C.UTF-8'
-  assert_line 'build	arg_2	TZ=Asia/Taipei'
+  # `arg_01` sorts AHEAD of `arg_1`: the suffixes tie numerically, so
+  # `sort -t: -k1,1n` falls back to the whole line and `01` precedes `1`.
+  # That is the readers' own answer, which is why the raw suffix and not
+  # the normalised index is what the converter sorts on.
+  assert_line 'build	arg_1	TZ=Asia/Taipei'
+  assert_line 'build	arg_2	LANG=C.UTF-8'
 }
 
 # why: An array of tables is 1-based -- `PORT_1` = first published port is
@@ -591,6 +595,103 @@ EOF
   assert_line 'logging	driver	local'
   assert_line 'logging	max_file	3'
   assert_line 'logging	compress	true'
+}
+
+# why: The property behind every ordering case here: whatever the INI
+# reader returned for a family, the converted file's reader must return
+# the same list. Asserted by running `_conf_list_sorted` over the INI and
+# over the conversion of it and comparing, rather than by hand-picking an
+# order -- which is how the zero-padded tie got pinned backwards. The
+# fixture carries a padded suffix tying with its twin and a hole, the two
+# shapes that make the two sides disagree.
+@test "_migrate_ini_to_toml: the converted list is the list the INI reader returned (base#1148)" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[image]
+rule_01 = suffix:_dev
+rule_1 = prefix:app_
+rule_3 = @basename
+EOF
+  cat > "${TEMP_DIR}/probe.sh" <<PROBE
+$(_src)
+_conf_load_layers _INI '${TEMP_DIR}/.setup.conf' || exit 1
+declare -a _before=()
+_conf_list_sorted _INI image "rule_" _before
+_migrate_ini_to_toml '${TEMP_DIR}' || exit 1
+_conf_load_layers _TOML '${TEMP_DIR}/setup.toml' || exit 1
+declare -a _after=()
+_conf_list_sorted _TOML image "rule_" _after
+printf 'before=%s\n' "\${_before[*]}"
+printf 'after=%s\n' "\${_after[*]}"
+PROBE
+  run bash "${TEMP_DIR}/probe.sh"
+  assert_success
+  local _b _a
+  _b="$(printf '%s\n' "${lines[@]}" | sed -n 's/^before=//p')"
+  _a="$(printf '%s\n' "${lines[@]}" | sed -n 's/^after=//p')"
+  assert_equal "${_a}" "${_b}"
+  # Non-vacuous: three entries survive, and the padded suffix is where
+  # `sort -t: -k1,1n` puts it -- ahead of the twin it ties with, because
+  # a numeric tie falls back to comparing the whole line.
+  assert_equal "${_b}" "suffix:_dev prefix:app_ @basename"
+}
+
+# why: `env_N` and `cap_drop_N` have no array-of-tables home, so they are
+# carried over as quoted scalars -- and they are read by
+# `_conf_list_sorted`, which is NOT last-wins. Collapsing a repeated one
+# the way an ordinary scalar is collapsed dropped a variable, or a
+# dropped capability, from a file the parser accepts and from an INI
+# already renamed to .bak. Left uncollapsed, the duplicate reaches the
+# commit gate as the unrenderable TOML it is: the conversion is declined
+# and both lines are still on disk. A decline is recoverable.
+@test "_migrate_ini_to_toml declines a repeated environment env_N rather than dropping one (base#1148)" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[environment]
+env_1 = SIGNALING_SERVER=localhost
+env_1 = LOG_LEVEL=debug
+EOF
+  run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
+  assert_failure
+  assert_output --partial 'MIGRATION DECLINED'
+  assert [ -f "${TEMP_DIR}/.setup.conf" ]
+  assert [ ! -f "${TEMP_DIR}/setup.toml" ]
+  run cat "${TEMP_DIR}/.setup.conf"
+  assert_output --partial 'SIGNALING_SERVER=localhost'
+  assert_output --partial 'LOG_LEVEL=debug'
+}
+
+# why: The same shape one section over. `cap_drop_N` is the other
+# numbered key with no array home, and a dropped capability silently
+# restored is a container that keeps a privilege the operator removed.
+@test "_migrate_ini_to_toml declines a repeated security cap_drop_N rather than dropping one (base#1148)" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[security]
+cap_drop_1 = SYS_ADMIN
+cap_drop_1 = NET_RAW
+EOF
+  run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
+  assert_failure
+  assert_output --partial 'MIGRATION DECLINED'
+  assert [ -f "${TEMP_DIR}/.setup.conf" ]
+  assert [ ! -f "${TEMP_DIR}/setup.toml" ]
+}
+
+# why: The collapse still applies to a key a SCALAR accessor reads, which
+# is the whole point of it, and a numbered neighbour in the same section
+# must not stop it. `[logging] driver` is collapsed; `env_1` next door
+# would not be.
+@test "_migrate_ini_to_toml: a numbered key beside a repeated scalar does not block the collapse (base#1148)" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[logging]
+driver = json-file
+max_file = 3
+driver = local
+EOF
+  run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
+  assert_success
+  run bash -c "$(_src); toml_bridge_parse '${TEMP_DIR}/setup.toml' --kv"
+  assert_success
+  assert_line 'logging	driver	local'
+  assert_line 'logging	max_file	3'
 }
 
 # ── idempotency ────────────────────────────────────────────────────────

@@ -238,6 +238,22 @@ _ini_to_toml_convert() {
     # answers the FIRST occurrence instead. That divergence predates this
     # file; the chain accessor is the one the layer merge reads through,
     # and its answer is what a converted file has to keep.)
+    # The collapse is for a key a SCALAR accessor reads. A key shaped
+    # `<prefix>_<digits>` is read by the list accessors instead, and
+    # those are not last-wins: `_conf_list_sorted` collects every
+    # non-empty entry, so `[environment] env_1` named twice is a
+    # TWO-variable list. The ones with no array-of-tables home --
+    # `env_N`, `cap_drop_N` -- stay quoted scalars here, which is where
+    # every reader of them looks, so collapsing them would drop a
+    # variable or a dropped capability from a file the parser accepts
+    # and from an INI already renamed to .bak. They are left uncollapsed:
+    # the duplicate then reaches the commit gate as the unrenderable TOML
+    # it is, the conversion is DECLINED, and the operator's two lines are
+    # still there. A decline is recoverable; a silent loss is not. The
+    # price is that such a repo cannot upgrade until the duplicate is
+    # resolved by hand, and that is the deliberate trade: see the
+    # repeated-scalar-key cases in the spec for the shape that IS
+    # collapsed.
     local -a _sc_keys=() _sc_vals=()
     local -a _num_order=()
     local -A _sc_at=()
@@ -247,6 +263,9 @@ _ini_to_toml_convert() {
       [[ "${_es[_i]}" == "${_s}" ]] || continue
       if _ini_to_toml_is_numbered "${_s}" "${_keys[_i]}"; then
         _num_order+=("${_i}")
+      elif [[ "${_keys[_i]}" =~ ^.+_[0-9]+$ ]]; then
+        _sc_keys+=("${_keys[_i]}")
+        _sc_vals+=("${_vals[_i]}")
       elif [[ -n "${_sc_at[${_keys[_i]}]+set}" ]]; then
         _sc_vals["${_sc_at[${_keys[_i]}]}"]="${_vals[_i]}"
       else
@@ -344,7 +363,15 @@ _ini_to_toml_convert() {
         # An empty occurrence contributes no entry, which is what both
         # list readers do with one.
         [[ -n "${_vals[_ni]}" ]] || continue
-        _itc_pairs["${_itc_path}"]+="${_itc_n}:${_vals[_ni]}"$'\n'
+        # The pair carries the RAW suffix, not the normalised index: the
+        # readers sort `<suffix>:<value>` lines and `sort -t: -k1,1n`
+        # breaks a numeric tie by comparing the WHOLE line, so `rule_01`
+        # beside `rule_1` is ordered by the text `01` against `1` and
+        # not by the values. Normalising first made the values the
+        # tie-break and reversed the pair -- which for `[[image.rules]]`
+        # is the image name the repo builds under. `10#` is applied
+        # where the line is grouped instead.
+        _itc_pairs["${_itc_path}"]+="${_itc_suf}:${_vals[_ni]}"$'\n'
         _itc_cur="${_itc_max[${_itc_path}]}"
         if (( _itc_n > _itc_cur )); then
           _itc_max["${_itc_path}"]="${_itc_n}"
@@ -392,12 +419,17 @@ _ini_to_toml_convert() {
           continue
         fi
         # Group this family's entries by index, in the readers' own order.
+        # No LC_ALL here, deliberately. This is the one sort whose
+        # answer has to AGREE with the readers', and neither reader
+        # forces a collation -- both inherit the caller's. Pinning C
+        # would order `prefix:Z` against `prefix:a` one way while the
+        # reader of the converted file ordered them the other.
         local -A _itc_slot=()
         while IFS= read -r _itc_line; do
           [[ -n "${_itc_line}" ]] || continue
-          _itc_slot["${_itc_line%%:*}"]+="${_itc_line#*:}"$'\n'
+          _itc_slot[$(( 10#${_itc_line%%:*} ))]+="${_itc_line#*:}"$'\n'
         done < <(printf '%s' "${_itc_pairs[${_itc_path}]-}" \
-                   | LC_ALL=C sort -t: -k1,1n)
+                   | sort -t: -k1,1n)
         for (( _itc_n = 1; _itc_n <= _itc_hi; _itc_n++ )); do
           if [[ -z "${_itc_slot[${_itc_n}]+set}" ]]; then
             _ini_to_toml_emit_aot "${_itc_path}" "" _aot_buf
