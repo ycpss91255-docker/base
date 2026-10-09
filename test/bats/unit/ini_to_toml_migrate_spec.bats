@@ -279,10 +279,18 @@ EOF
   refute_output --partial '[[environment'
 }
 
-# ── empty numbered-key slots are skipped ───────────────────────────────
+# ── empty numbered-key slots keep their position ──────────────────────
 
-# why: An empty mount_1 = is an opt-out slot, not a volume to emit
-@test "_migrate_ini_to_toml skips empty numbered-key slots (#1137)" {
+# why: An empty `mount_1 =` is an opt-out slot, not a volume to emit --
+# and the slot is still a slot. A numbered family is addressed by
+# POSITION on both sides, so emitting only the populated slots renumbers
+# the survivors: the extra bind became block 1, which every reader of
+# `[volumes]` knows as `mount_1`, the workspace bind. The emptied slot is
+# emitted as a FIELD-LESS `[[volumes]]` block, which the bridge's array
+# spec reads back as an empty `mount_1`. Asserted through the bridge, not
+# over the file text: a block carrying `source = ""` would look right in
+# the file and read back wrong.
+@test "_migrate_ini_to_toml keeps an emptied slot's position (base#1148)" {
   cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
 [volumes]
 mount_1 =
@@ -290,14 +298,142 @@ mount_2 = /data:/data
 EOF
   run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
   assert_success
-  local _out
-  _out="$(cat "${TEMP_DIR}/setup.toml")"
-  # Only mount_2 is emitted (non-empty)
-  local _count
-  _count="$(grep -c '^\[\[volumes\]\]' "${TEMP_DIR}/setup.toml")"
-  [ "${_count}" -eq 1 ]
-  [[ "${_out}" == *'source = "/data"'* ]]
-  [[ "${_out}" == *'target = "/data"'* ]]
+  run bash -c "$(_src); toml_bridge_parse '${TEMP_DIR}/setup.toml' --kv"
+  assert_success
+  assert_line 'volumes	mount_1	'
+  assert_line 'volumes	mount_2	/data:/data'
+}
+
+# why: The position is kept in the FILE; the runtime still treats the
+# emptied slot as an opt-out. `_conf_list_sorted` is the reader every
+# ordered list goes through, and it skips an empty value -- so a kept slot
+# must not become an entry. This is the half of the retired
+# `skips empty numbered-key slots` assertion that was always true, moved
+# to the reader that actually decides it.
+@test "_migrate_ini_to_toml: an emptied slot is no entry to the list reader (base#1148)" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[network]
+port_1 =
+port_2 = 8080:80
+EOF
+  cat > "${TEMP_DIR}/probe.sh" <<PROBE
+$(_src)
+_migrate_ini_to_toml '${TEMP_DIR}' || exit 1
+_conf_load_layers _PROBE '${TEMP_DIR}/setup.toml' || exit 1
+declare -a _ports=()
+_conf_list_sorted _PROBE network "port_" _ports
+printf 'count=%s\n' "\${#_ports[@]}"
+printf 'port=%s\n' "\${_ports[@]}"
+PROBE
+  run bash "${TEMP_DIR}/probe.sh"
+  assert_success
+  assert_line 'count=1'
+  assert_line 'port=8080:80'
+}
+
+# why: The field-less block is not cosmetic. Letting the writer render an
+# emptied slot's body instead produces `host = ""` / `container = ""`,
+# which the bridge's array spec glues back into the NON-EMPTY string
+# `":"` -- and `_conf_list_sorted` does not skip that, so a bogus port
+# `":"` reaches compose. `build.args` is the same trap spelled `"="`.
+# Both are invisible to a grep over the converted file.
+@test "_migrate_ini_to_toml: an emptied slot reads back empty, not as a bare separator (base#1148)" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[network]
+port_1 =
+port_2 = 8080:80
+[build]
+arg_1 =
+arg_2 = TZ=Asia/Taipei
+EOF
+  run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
+  assert_success
+  run bash -c "$(_src); toml_bridge_parse '${TEMP_DIR}/setup.toml' --kv"
+  assert_success
+  assert_line 'network	port_1	'
+  assert_line 'network	port_2	8080:80'
+  assert_line 'build	arg_1	'
+  assert_line 'build	arg_2	TZ=Asia/Taipei'
+  refute_line 'network	port_1	:'
+  refute_line 'build	arg_1	='
+}
+
+# why: A slot BELOW the highest populated one need not exist in the INI at
+# all -- `mount_2` alone still makes the extra bind the second entry,
+# because that is the key the operator named it by. A present-keys-only
+# rule leaves this hole open, so the family is emitted dense from 1 up to
+# its highest populated index.
+@test "_migrate_ini_to_toml: a slot the INI never names is still a slot (base#1148)" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[volumes]
+mount_2 = /data:/data
+EOF
+  run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
+  assert_success
+  run bash -c "$(_src); toml_bridge_parse '${TEMP_DIR}/setup.toml' --kv"
+  assert_success
+  assert_line 'volumes	mount_1	'
+  assert_line 'volumes	mount_2	/data:/data'
+}
+
+# why: An INI `[build]` whose only arg slot is empty resolved to ZERO
+# build args: the pre-ADR-37 chain merged `[build]` by section-replace
+# (ADR-00000025 sec. 3), so the repo's cleared slot replaced the
+# template's three args. Dropping the family entirely makes the TOML key
+# ABSENT -- the one state that is not a replacement -- and the key-level
+# merge hands all three back. An emptied family converts to the writer's
+# own `args = []` declaration, which replaces with nothing. Asserted
+# through the MERGE, because the file alone cannot show inheritance.
+@test "_migrate_ini_to_toml: a family with no populated slot converts to an emptied list (base#1148)" {
+  cat > "${TEMP_DIR}/.setup.conf" <<'EOF'
+[build]
+arg_1 =
+EOF
+  run bash -c "$(_src); _migrate_ini_to_toml '${TEMP_DIR}'"
+  assert_success
+  run bash -c "$(_src); toml_bridge_merge --kv /source/dist/setup.toml '${TEMP_DIR}/setup.toml'"
+  assert_success
+  refute_line --regexp '^build	arg_'
+}
+
+# why: The published contract is that clearing `mount_1` opts the
+# workspace bind out and that `setup.sh` does not re-populate it (README
+# "Subsequent runs read mount_1 as source of truth"). Renumbering the
+# family on conversion silenced that: `_reconcile_workspace_path` read the
+# operator's EXTRA bind as `mount_1`, and because its source exists it is
+# honoured as a pinned absolute path -- WS_PATH resolves to the data
+# directory with no warning, and the container's workspace binds there.
+# This is the end-to-end face of the position rule.
+@test "_migrate_ini_to_toml: the workspace opt-out survives the conversion (base#1148)" {
+  local _base="${TEMP_DIR}/repo"
+  mkdir -p "${_base}" "${TEMP_DIR}/data"
+  cat > "${_base}/.setup.conf" <<EOF
+[volumes]
+mount_1 =
+mount_2 = ${TEMP_DIR}/data:/data
+EOF
+  cat > "${TEMP_DIR}/probe.sh" <<PROBE
+$(_src)
+_migrate_ini_to_toml '${_base}' || exit 1
+declare -a _vk=() _vv=()
+_load_setup_conf '${_base}' volumes _vk _vv
+_ws=""
+_reconcile_workspace_path '${_base}' '${_base}/setup.toml' _vk _vv _ws
+printf 'ws=%s\n' "\${_ws}"
+PROBE
+  run bash "${TEMP_DIR}/probe.sh"
+  assert_success
+  # The cleared branch: best-effort detection only, which with no `*_ws`
+  # ancestor on the fixture path is the repo root itself -- NOT the data
+  # directory the extra bind names.
+  assert_line "ws=$(cd "${_base}" && pwd -P)"
+  refute_output --partial "${TEMP_DIR}/data"
+  # And the conf is untouched: the opt-out is still an opt-out on the next
+  # run.
+  run bash -c "$(_src); toml_bridge_parse '${_base}/setup.toml' --kv"
+  assert_success
+  assert_line 'volumes	mount_1	'
+  assert_line "volumes	mount_2	${TEMP_DIR}/data:/data"
 }
 
 # ── idempotency ────────────────────────────────────────────────────────

@@ -117,27 +117,43 @@ _ini_to_toml_is_numbered() {
 
 # ── Numbered-key -> AoT emission ──────────────────────────────────────
 
-# _ini_to_toml_emit_aot <section> <key> <value> <outvar>
+# _ini_to_toml_emit_aot <path> <value> <outvar>
 #
-# Append the one `[[array of tables]]` block a numbered key becomes to
-# <outvar>. The path and the body both come from the shipped writer
-# (_conf_toml_aot_slot / _conf_toml_aot_fields), so the field names are the
-# ones the bridge's array spec reads back and there is no second spelling
-# to drift.
+# Append the one `[[<path>]]` block one slot of a numbered family becomes
+# to <outvar>. The body comes from the shipped writer
+# (_conf_toml_aot_fields), so the field names are the ones the bridge's
+# array spec reads back and there is no second spelling to drift. The
+# PATH is the caller's, because the caller has already asked
+# _conf_toml_aot_slot for it -- and because a hole in the family has no
+# INI key to ask about.
 #
-# Empty values (opt-out slots) are silently skipped.
+# An EMPTIED slot becomes a FIELD-LESS block, which is what keeps the
+# family's positions. It is not the same thing as rendering the empty
+# value: `_conf_toml_aot_fields build.args ""` produces `key = ""` /
+# `value = ""`, and the bridge glues those halves back into the
+# NON-EMPTY string `"="` -- a bogus build arg that `_conf_list_sorted`
+# does not skip, because it only skips an empty value. `network.ports`
+# is the same trap spelled `":"`. A block with no fields at all reads
+# back empty for every family: each serialiser in the bridge's array
+# spec answers "" for an absent field, and the two that glue halves
+# together are gated on the first half being present.
 _ini_to_toml_emit_aot() {
-  local _s="$1" _k="$2" _v="$3"
-  local -n _aot_out="$4"
-  [[ -n "${_v}" ]] || return 0
+  local _eao_p="$1" _eao_v="$2"
+  local -n _aot_out="$3"
 
-  local _eao_path="" _eao_idx="" _eao_fields=""
-  _conf_toml_aot_slot "${_s}" "${_k}" _eao_path _eao_idx || return 0
-  _conf_toml_aot_fields "${_eao_path}" "${_v}" _eao_fields
-  [[ -n "${_eao_fields}" ]] || return 0
+  local _eao_fields=""
+  if [[ -n "${_eao_v}" ]]; then
+    _conf_toml_aot_fields "${_eao_p}" "${_eao_v}" _eao_fields
+  fi
 
-  _aot_out+="[[${_eao_path}]]"$'\n'
-  _aot_out+="${_eao_fields}"$'\n\n'
+  _aot_out+="[[${_eao_p}]]"$'\n'
+  # A populated slot whose body came back empty still keeps its block:
+  # dropping it would renumber every slot after it, which is the defect
+  # this function's field-less block exists to prevent.
+  if [[ -n "${_eao_fields}" ]]; then
+    _aot_out+="${_eao_fields}"$'\n'
+  fi
+  _aot_out+=$'\n'
 }
 
 # ── Commit gate ───────────────────────────────────────────────────────
@@ -201,14 +217,14 @@ _ini_to_toml_convert() {
   local -a _sects=() _es=() _keys=() _vals=()
   _ini_tokenize "${_ini}" _sects _es _keys _vals
 
-  local _result=""
+  local _result="" _root_decls=""
   local _s _i _j
 
   for _s in ${_sects[@]+"${_sects[@]}"}; do
     # Separate scalar and numbered keys for this section.
     local -a _sc_keys=() _sc_vals=()
-    local -a _num_order=() _num_rows=()
-    local _aot_buf=""
+    local -a _num_order=()
+    local _aot_buf="" _decl_buf=""
 
     for (( _i = 0; _i < ${#_keys[@]}; _i++ )); do
       [[ "${_es[_i]}" == "${_s}" ]] || continue
@@ -220,45 +236,112 @@ _ini_to_toml_convert() {
       fi
     done
 
-    # Emit each numbered family in NUMERIC-SUFFIX order, not file order.
+    # Emit each numbered family DENSE from index 1 up to its highest
+    # POPULATED index, and nothing above that.
     #
-    # A numbered family is an ordered list, and every reader of one sorts
-    # it by the suffix (_conf_list_sorted) -- so an INI naming
-    # `rule_2 = @basename` above `rule_1 = prefix:docker_` tries the
-    # prefix rule FIRST. An array of tables carries its order in the file
-    # instead, and the bridge numbers the blocks as it meets them, so
-    # converting in file order makes `rule_2` block 1: the rule that was
-    # tried second is now tried first. For [[image.rules]] that is the
-    # image name the repo builds under. Sorting here is what makes the
-    # converted file agree with every reader of the INI it replaces.
+    # Why dense, and why from 1. A numbered family is addressed by
+    # POSITION on both sides: the N-th `[[volumes]]` block IS
+    # `volumes.mount_N`, because that is how the bridge numbers the
+    # blocks it meets. So an emptied slot that is not emitted does not
+    # just disappear -- it renumbers every slot after it.
+    # `_reconcile_workspace_path` reads slot 1 as the workspace bind, and
+    # clearing `mount_1` is the published opt-out (README; v0.9), so an
+    # INI with an empty `mount_1` and a `mount_2 = /data:/data` converted
+    # into ONE block makes the operator's data directory the workspace --
+    # silently, because an absolute source that exists is honoured as a
+    # pinned path and warns about nothing. The shipped INI template's
+    # `[volumes]` IS `mount_1 =`, so that is the seeded state of every
+    # downstream repo, not an edge case. The same renumbering under
+    # `[[image.rules]]` changes the image name the repo builds under,
+    # which this converter has already been fixed for once (v0.43).
     #
-    # Sorting by path as well as suffix groups each family together,
-    # which matters for the one section carrying TWO of them
-    # (`device_N` and `cgroup_rule_N` under [devices]); the two number
-    # independently, so grouping is for the reader of the file, not for
-    # correctness.
+    # Dense from 1 rather than "every index the INI names": a hole below
+    # the highest populated slot need not be a key at all. A `[volumes]`
+    # carrying only `mount_2 = ...` still means the extra bind is the
+    # SECOND entry, because that is the name the operator gave it, and a
+    # present-keys-only rule would hand it position 1.
+    #
+    # Nothing above the highest populated index, because a trailing run
+    # of emptied slots carries no position for anything to be displaced
+    # from.
+    #
+    # An emptied slot is emitted field-less, NOT with an empty body: see
+    # _ini_to_toml_emit_aot for what rendering the empty value costs.
     #
     # `10#` on every arithmetic read of a suffix: bash's default
     # arithmetic base reads a zero-padded value as octal, and `08` is not
     # a valid octal literal -- the comparison dies instead of ordering it
     # (base#1097 lost time to exactly this).
     if (( ${#_num_order[@]} > 0 )); then
-      local _ni _itc_path _itc_suf
+      local -A _itc_val=() _itc_max=()
+      local -a _itc_paths=()
+      local _ni _itc_path _itc_suf _itc_n _itc_cur _itc_hi
       for _ni in "${_num_order[@]}"; do
         _itc_path=""
         _itc_suf=""
         _conf_toml_aot_slot "${_s}" "${_keys[_ni]}" _itc_path _itc_suf || continue
-        _num_rows+=("${_itc_path}"$'\t'"$(( 10#${_itc_suf} ))"$'\t'"${_ni}")
+        _itc_n=$(( 10#${_itc_suf} ))
+        # An array of tables is 1-based -- `PORT_1` = first published
+        # port is published contract (ADR-00000022) -- so there is no
+        # block for a `_0` suffix to be.
+        (( _itc_n >= 1 )) || continue
+        if [[ -z "${_itc_max[${_itc_path}]+set}" ]]; then
+          _itc_paths+=("${_itc_path}")
+          _itc_max["${_itc_path}"]=0
+        fi
+        # A repeated numbered key resolves to its LAST occurrence, which
+        # is what every INI accessor read.
+        _itc_val["${_itc_path}"$'\t'"${_itc_n}"]="${_vals[_ni]}"
+        _itc_cur="${_itc_max[${_itc_path}]}"
+        if [[ -n "${_vals[_ni]}" ]] && (( _itc_n > _itc_cur )); then
+          _itc_max["${_itc_path}"]="${_itc_n}"
+        fi
       done
-      while IFS=$'\t' read -r _itc_path _itc_suf _ni; do
-        [[ -n "${_ni}" ]] || continue
-        _ini_to_toml_emit_aot "${_s}" "${_keys[_ni]}" "${_vals[_ni]}" _aot_buf
-      done < <(printf '%s\n' ${_num_rows[@]+"${_num_rows[@]}"} \
-                 | LC_ALL=C sort -t"$(printf '\t')" -k1,1 -k2,2n)
+
+      # Families in path order, which groups each one together -- it
+      # matters for the one section carrying TWO of them (`device_N` and
+      # `cgroup_rule_N` under [devices]); the two number independently,
+      # so grouping is for the reader of the file, not for correctness.
+      while IFS= read -r _itc_path; do
+        [[ -n "${_itc_path}" ]] || continue
+        _itc_hi="${_itc_max[${_itc_path}]}"
+        if (( _itc_hi == 0 )); then
+          # Every slot the INI named is empty, so the family is a list
+          # the operator REPLACED WITH NOTHING -- under the pre-ADR-37
+          # chain `[build]` merged by section-replace (ADR-00000025
+          # sec. 3), so a repo whose only arg slot was empty resolved to
+          # zero build args. Emitting no blocks makes the TOML key
+          # ABSENT, the one state that is not a replacement, and the
+          # key-level merge then inherits the template's whole list.
+          # The writer's own `path = []` declaration is the replacement
+          # with nothing, and _conf_toml_array_decl is the writer's
+          # answer to WHERE it goes: inside the owning table for a
+          # dotted path, and in the root-key region -- the region before
+          # the first table header, the only home TOML gives a root key
+          # -- for a path that has no table.
+          local _itc_t="" _itc_k=""
+          _conf_toml_array_decl "${_itc_path}" _itc_t _itc_k
+          if [[ -n "${_itc_t}" ]]; then
+            _decl_buf+="${_itc_k} = []"$'\n'
+          else
+            _root_decls+="${_itc_k} = []"$'\n'
+          fi
+          continue
+        fi
+        for (( _itc_n = 1; _itc_n <= _itc_hi; _itc_n++ )); do
+          _ini_to_toml_emit_aot "${_itc_path}" \
+            "${_itc_val["${_itc_path}"$'\t'"${_itc_n}"]-}" _aot_buf
+        done
+      done < <(printf '%s\n' ${_itc_paths[@]+"${_itc_paths[@]}"} \
+                 | LC_ALL=C sort -u)
     fi
 
-    # Emit section header + scalar keys.
-    if (( ${#_sc_keys[@]} > 0 )); then
+    # Emit section header + scalar keys. The header is emitted for a
+    # section that has only an emptied family too: the declaration is an
+    # ordinary key of the table and has nowhere else to go, so the table
+    # a `[build]` with nothing but `arg_1 =` never declared is declared
+    # here.
+    if (( ${#_sc_keys[@]} > 0 )) || [[ -n "${_decl_buf}" ]]; then
       if [[ "${_s}" == *:* ]]; then
         _result+="[\"${_s}\"]"$'\n'
       else
@@ -272,6 +355,7 @@ _ini_to_toml_convert() {
         fi
         _result+="${_fk} = $(_ini_to_toml_format_value "${_sc_vals[_j]}")"$'\n'
       done
+      _result+="${_decl_buf}"
       _result+=$'\n'
     fi
 
@@ -280,6 +364,12 @@ _ini_to_toml_convert() {
       _result+="${_aot_buf}"
     fi
   done
+
+  # A root-level array's declaration goes in the root-key region, ahead
+  # of every table header the walk above wrote.
+  if [[ -n "${_root_decls}" ]]; then
+    _result="${_root_decls}"$'\n'"${_result}"
+  fi
 
   # Write to a temp file, and let the commit gate decide whether it
   # becomes the configuration.
